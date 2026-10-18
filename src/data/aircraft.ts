@@ -323,7 +323,7 @@ export const AIRCRAFT: AircraftType[] = [
   },
   {
     id: 'a388', name: 'Airbus A380-800', short: 'A388', manufacturer: 'Airbus', family: 'A380', body: 'jumbo',
-    typicalSeats: 525, maxSeats: 853, cabinLength: 2700, yAbreast: 10, yAbreastMax: 11, rangeKm: 15000, speedKmh: 903,
+    typicalSeats: 525, maxSeats: 853, cabinLength: 2500, yAbreast: 10, yAbreastMax: 11, rangeKm: 15000, speedKmh: 903,
     fuelBurn: 12.5, price: 300 * M, eis: 2007, availableFrom: 2007, inProduction: false, mtow: 575, cargoT: 18,
     turnMin: 130, maintHour: 3300, pilotRate: 1400, lengthM: 72.7, spanM: 79.8, engines: 'wing4', leadMonths: 0,
     generation: 'current', minLevel: 6,
