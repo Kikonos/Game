@@ -327,7 +327,7 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13px; }
    Game shell
    ========================================================================== */
 .shell {
-  height: 100vh; display: grid;
+  height: 100%; display: grid;
   grid-template-rows: var(--topbar-h) minmax(0, 1fr) var(--ticker-h);
   grid-template-columns: var(--side-w) minmax(0, 1fr);
   grid-template-areas: 'top top' 'side main' 'tick tick';

@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "balance": "tsx scripts/balance.ts"
+    "balance": "tsx scripts/balance.ts",
+    "build:embed": "EMBED=1 vite build --outDir dist-embed && node scripts/embed.mjs"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.3.0",

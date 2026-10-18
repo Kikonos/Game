@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { AVIATION_FACTS, LOADING_STEPS } from '../../data/flavor';
 import { PLANE_PATH } from '../components/Logo';
 import { loadMapData } from '../map/mapData';
-import { store } from '../store';
+import { deserialize } from '../../engine/save';
+import { store, takeResumeSave } from '../store';
 
 const MIN_MS = 3200;
 const ARC = 'M 40 230 C 200 220, 360 150, 470 40';
@@ -38,7 +39,19 @@ export function Loading() {
       }
       if (p >= 1) {
         setDone(true);
-        setTimeout(() => !cancelled && store.setScreen('title'), 450);
+        setTimeout(() => {
+          if (cancelled) return;
+          const resume = takeResumeSave();
+          if (resume) {
+            try {
+              store.loadGame(deserialize(resume));
+              return;
+            } catch {
+              // fall through to the title screen
+            }
+          }
+          store.setScreen('title');
+        }, 450);
         return;
       }
       requestAnimationFrame(tick);

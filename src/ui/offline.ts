@@ -26,7 +26,7 @@ export function registerOffline() {
     offline.installPrompt = e as InstallPromptEvent;
     offline.emit();
   });
-  if (!('serviceWorker' in navigator) || import.meta.env.DEV) return;
+  if (__EMBED__ || !('serviceWorker' in navigator) || import.meta.env.DEV) return;
   import('virtual:pwa-register')
     .then(({ registerSW }) => {
       registerSW({

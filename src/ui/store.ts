@@ -364,6 +364,17 @@ class GameStore {
 }
 
 export const store = new GameStore();
+
+let resumeSave: string | null = null;
+/** A game handed over by a live update; the loading screen resumes it. */
+export function setResumeSave(text: string) {
+  resumeSave = text;
+}
+export function takeResumeSave(): string | null {
+  const s = resumeSave;
+  resumeSave = null;
+  return s;
+}
 sound.configure(store.settings.sound, store.settings.volume);
 // Handy for debugging and automated testing from the console.
 (globalThis as unknown as { __contrail?: GameStore }).__contrail = store;

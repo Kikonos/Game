@@ -2,11 +2,17 @@ import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
+// EMBED=1 builds a variant for hosts where service workers are unavailable
+// (sandboxed previews); the regular build ships the offline-capable PWA.
+const embed = !!process.env.EMBED;
+
 export default defineConfig({
   base: './',
+  define: { __EMBED__: JSON.stringify(embed) },
   plugins: [
     react(),
     VitePWA({
+      disable: embed,
       registerType: 'autoUpdate',
       injectRegister: null,
       includeAssets: ['favicon.svg', 'icons/*.png'],
