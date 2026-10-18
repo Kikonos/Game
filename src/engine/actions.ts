@@ -5,7 +5,8 @@ import { AIRPORT_BY_CODE } from '../data/airports';
 import { COUNTRIES } from '../data/countries';
 import { REGIONS, type ContinentId } from '../data/regions';
 import type { CabinClass } from '../data/seats';
-import { type CabinConfig, cabinInstallCost, defaultCabin, validateCabin } from './cabin';
+import { type CabinConfig, cabinInstallCost, cabinSeats, defaultCabin, totalSeats, validateCabin } from './cabin';
+import { forecastRoute, routeSupply, totalOf } from './demand';
 import {
   HUB_OPEN, MAX_WEEKLY_HOURS, MIN_ROUTE_KM, STATION_OPEN, ageYears, availableCredit, creditRating, heavyCheckCost,
   heavyCheckDays, interestRate, leaseCapacity, leaseCommitments, loanPayment, marketValue, newLeaseRate, refFares, refitDays, roundTripHours,
@@ -363,6 +364,23 @@ export function maxFreqFor(state: GameState, ac: Aircraft, routeId: string): num
   const t = AIRCRAFT_BY_ID[ac.typeId];
   const free = MAX_WEEKLY_HOURS - hoursUsed(ac, state, routeId);
   return Math.max(0, Math.floor(free / roundTripHours(t, r.dist)));
+}
+
+/** A sensible weekly frequency for adding this aircraft to a route: enough seats for the expected demand. */
+export function suggestFreq(state: GameState, ac: Aircraft, routeId: string): number {
+  const max = maxFreqFor(state, ac, routeId);
+  const r = state.routes.find((x) => x.id === routeId);
+  if (!r || max <= 0) return 0;
+  const t = AIRCRAFT_BY_ID[ac.typeId];
+  const prev = ac.assignments;
+  ac.assignments = [...prev.filter((a) => a.routeId !== routeId), { routeId, freq: max }];
+  const supply = routeSupply(state, r, false);
+  const fc = forecastRoute(state, r, supply);
+  ac.assignments = prev;
+  const perFlight = totalSeats(cabinSeats(t, ac.cabin));
+  const otherSeats = totalOf(supply.seats) - (perFlight * max) / 7;
+  const need = totalOf(fc.demand) * 1.05 - otherSeats;
+  return Math.max(1, Math.min(max, Math.ceil((need * 7) / Math.max(1, perFlight))));
 }
 
 export function assignAircraft(state: GameState, acId: string, routeId: string, freq: number): Result {

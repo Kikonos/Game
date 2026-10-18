@@ -111,7 +111,7 @@ export const HUB_MONTHLY = [0, 80_000, 150_000, 260_000, 420_000, 650_000];
 /** Hub running costs scale with how many aircraft are based there (you only rent the gates you use). */
 export function hubMonthlyCost(state: GameState, code: string): number {
   const based = state.fleet.filter((a) => a.hub === code && a.status !== 'delivering').length;
-  return HUB_MONTHLY[AIRPORT_BY_CODE[code].size] * Math.min(1, 0.25 + based / 20);
+  return HUB_MONTHLY[AIRPORT_BY_CODE[code].size] * Math.min(1, 0.15 + based / 24);
 }
 
 export function feeMult(state: GameState, code: string): number {

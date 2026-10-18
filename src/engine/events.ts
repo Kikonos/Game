@@ -55,7 +55,7 @@ function annualEvents(year: number): Scheduled[] {
   const d = dateToDay;
   const out: Scheduled[] = [];
   // Hajj moves ~11 days earlier each year.
-  const hajj = d(2026, 5, 25) + Math.round((year - 2026) * -10.88);
+  const hajj = d(year, 5, 25) - Math.round((year - 2026) * 10.88);
   out.push({ id: `hajj${year}`, title: `Hajj ${year}`, body: 'Millions of pilgrims travel to Mecca. Jeddah and Medina demand soars.', start: hajj - 18, end: hajj + 7, scope: 'airport', targets: ['JED', 'MED'], mult: 1.6 });
   const lny = LNY.find((x) => x[0] === year);
   const lnyDay = lny ? d(lny[0], lny[1], lny[2]) : d(year, 2, 5);
@@ -100,7 +100,7 @@ export function announceScheduled(state: GameState) {
     if (e.start - 30 === state.day) {
       message(state, 'event', 'news', `Coming up: ${e.title}`, `${e.body} Starts ${formatDate(e.start)} — consider adding capacity.`);
     } else if (e.start === state.day) {
-      message(state, 'event', 'news', `${e.title} has begun`, e.body);
+      message(state, 'info', 'news', `${e.title} has begun`, e.body);
     }
   }
 }

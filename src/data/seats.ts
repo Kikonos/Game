@@ -11,11 +11,12 @@ export const CLASS_NAME: Record<CabinClass, string> = {
   Y: 'Economy',
 };
 
+// Validated as a colour-blind-safe categorical set on the dark UI surface (order Y, W, J, F).
 export const CLASS_COLOR: Record<CabinClass, string> = {
-  F: '#f5c451',
-  J: '#b48cff',
-  W: '#4fd1c5',
-  Y: '#5b9dff',
+  F: '#c98500',
+  J: '#9085e9',
+  W: '#199e70',
+  Y: '#3987e5',
 };
 
 export interface SeatProduct {

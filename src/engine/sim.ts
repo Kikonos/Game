@@ -396,7 +396,7 @@ function monthEnd(state: GameState) {
   state.loans = state.loans.filter((l) => !paidOff.includes(l));
   // Overheads
   const activeFleet = state.fleet.filter((a) => a.status !== 'delivering').length;
-  spend(state, 'overhead', 50_000 + 60_000 * activeFleet + 6_000 * state.routes.length + Math.max(0, fam - 1) * 90_000);
+  spend(state, 'overhead', 30_000 + 55_000 * activeFleet + 5_000 * state.routes.length + Math.max(0, fam - 1) * 90_000);
   for (const h of state.hubs) {
     let cost = hubMonthlyCost(state, h.code);
     if (h.upgrades.lounge) cost += 120_000;
