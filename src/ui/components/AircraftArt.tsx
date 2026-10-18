@@ -1,7 +1,7 @@
 // Parametric side-view illustration of an aircraft type in the airline's livery.
 // Geometry is computed in metres from real dimensions and scaled via viewBox.
 
-import { type ReactElement, useId } from 'react';
+import { memo, type ReactElement, useId } from 'react';
 import { AIRCRAFT_BY_ID, type AircraftType } from '../../data/aircraft';
 import type { Livery } from '../../engine/types';
 
@@ -33,7 +33,7 @@ interface Props {
   height?: number | string;
 }
 
-export function AircraftArt({ typeId, livery, code, name, className, gear = true, height }: Props) {
+export const AircraftArt = memo(function AircraftArt({ typeId, livery, code, name, className, gear = true, height }: Props) {
   const uid = useId().replace(/:/g, '');
   const t: AircraftType = AIRCRAFT_BY_ID[typeId];
   const L = t.lengthM;
@@ -260,4 +260,4 @@ export function AircraftArt({ typeId, livery, code, name, className, gear = true
       </g>
     </svg>
   );
-}
+});

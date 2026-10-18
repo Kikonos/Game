@@ -149,3 +149,11 @@ for (const r of worst) console.log(`  worst ${r.from}-${r.to} ${r.dist}km profit
 const m = state.finance.history.at(-1);
 if (m) console.log('last month', Object.fromEntries(Object.entries({ ...m.rev, ...m.exp }).map(([k, v]) => [k, fmt(v)])));
 void distance;
+if (process.env.SAVE_OUT) {
+  const { writeFileSync } = await import('node:fs');
+  const { serialize } = await import('../src/engine/save');
+  state.yearReview = null;
+  state.decisions = [];
+  writeFileSync(process.env.SAVE_OUT, serialize(state));
+  console.log('saved', process.env.SAVE_OUT);
+}

@@ -7,7 +7,7 @@
   --bg: #070b14;
   --bg-2: #0b1120;
   --bg-3: #0f1729;
-  --panel: rgba(18, 26, 44, 0.72);
+  --panel: rgba(17, 25, 43, 0.88);
   --panel-solid: #111a2c;
   --panel-2: rgba(255, 255, 255, 0.035);
   --panel-hover: rgba(255, 255, 255, 0.06);
@@ -58,6 +58,8 @@ body {
 }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
+:focus-visible { outline: 2px solid rgba(62, 230, 255, 0.7); outline-offset: 2px; }
+button:focus:not(:focus-visible) { outline: none; }
 a { color: var(--accent); }
 h1, h2, h3, h4 { font-family: var(--font-display); margin: 0; letter-spacing: -0.01em; font-weight: 600; }
 ::selection { background: rgba(62, 230, 255, 0.3); }
@@ -143,8 +145,6 @@ h1, h2, h3, h4 { font-family: var(--font-display); margin: 0; letter-spacing: -0
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
   box-shadow: var(--shadow-sm);
   min-width: 0;
 }

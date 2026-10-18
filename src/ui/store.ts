@@ -159,8 +159,26 @@ class GameStore {
     this.emit();
   }
 
+  private lastAutosave = 0;
+  private autosaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Save now (on exit, pause, menus). */
   saveAuto() {
-    if (this.game && this.settings.autosave && !this.game.gameOver) saveToSlot(this.game, AUTOSAVE_SLOT);
+    if (this.autosaveTimer) clearTimeout(this.autosaveTimer);
+    this.autosaveTimer = null;
+    if (this.game && this.settings.autosave && !this.game.gameOver) {
+      saveToSlot(this.game, AUTOSAVE_SLOT);
+      this.lastAutosave = performance.now();
+    }
+  }
+
+  /** Periodic autosave, throttled and run outside the animation frame to avoid hitches. */
+  private scheduleAutosave() {
+    if (this.autosaveTimer || performance.now() - this.lastAutosave < 45_000) return;
+    this.autosaveTimer = setTimeout(() => {
+      this.autosaveTimer = null;
+      this.saveAuto();
+    }, 50);
   }
 
   // ---------- time ----------
@@ -182,6 +200,7 @@ class GameStore {
 
   togglePause() {
     this.paused = !this.paused;
+    if (this.paused) this.saveAuto();
     sound.play('tick');
     this.emit();
   }
@@ -224,9 +243,9 @@ class GameStore {
     }
   }
 
-  /** Some modals (menus, purchase dialogs) pause time while open. */
+  /** Dialogs pause time so you can think. */
   private modalPauses(): boolean {
-    return this.modal !== null && this.modal.kind !== 'planner';
+    return this.modal !== null;
   }
 
   stepDay() {
@@ -240,7 +259,7 @@ class GameStore {
       sound.play('levelup');
     }
     if (monthKey(g.day) !== month) {
-      this.saveAuto();
+      this.scheduleAutosave();
       sound.play('cash');
     }
     this.surfaceMessages();
@@ -257,7 +276,7 @@ class GameStore {
     this.lastMsgId = g.messages[0]?.id ?? this.lastMsgId;
     if (!this.settings.toasts) return;
     for (const m of fresh.reverse()) {
-      const important = m.kind === 'event' || m.kind === 'bad' || m.category === 'goal' || (m.category === 'fleet' && m.title.startsWith('Delivered'));
+      const important = m.kind === 'event' || m.kind === 'bad' || m.category === 'goal' || (m.category === 'fleet' && m.title.startsWith('Delivered') && g.fleet.length < 20);
       if (!important) continue;
       this.toast(m.kind === 'event' ? 'info' : m.kind === 'good' ? 'good' : m.kind === 'bad' ? 'bad' : m.kind === 'warn' ? 'warn' : 'info', m.title, m.body.length > 140 ? m.body.slice(0, 137) + '…' : m.body);
     }
@@ -346,6 +365,8 @@ class GameStore {
 
 export const store = new GameStore();
 sound.configure(store.settings.sound, store.settings.volume);
+// Handy for debugging and automated testing from the console.
+(globalThis as unknown as { __contrail?: GameStore }).__contrail = store;
 
 if (typeof document !== 'undefined') {
   document.addEventListener('visibilitychange', () => {

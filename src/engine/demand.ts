@@ -85,7 +85,22 @@ export function classSplit(a: string, b: string): Record<CabinClass, number> {
   return out;
 }
 
+const seasonCache = new Map<string, number>();
+let seasonCacheDay = -1;
+
 export function seasonality(code: string, day: number): number {
+  if (day !== seasonCacheDay) {
+    seasonCache.clear();
+    seasonCacheDay = day;
+  }
+  const hit = seasonCache.get(code);
+  if (hit !== undefined) return hit;
+  const v = computeSeasonality(code, day);
+  seasonCache.set(code, v);
+  return v;
+}
+
+function computeSeasonality(code: string, day: number): number {
   const a = AIRPORT_BY_CODE[code];
   const doy = dayOfYear(day);
   let peak: number;
@@ -183,29 +198,42 @@ export function isFlying(ac: Aircraft, day: number): boolean {
   return ac.status === 'active' && ac.lastDisruption !== day;
 }
 
-export function routeSupply(state: GameState, route: Route, onlyFlying = true): RouteSupply {
+export type AssignmentIndex = Map<string, { ac: Aircraft; freq: number }[]>;
+
+/** Route id → aircraft flying it, built once per tick instead of scanning the fleet per route. */
+export function assignmentIndex(state: GameState): AssignmentIndex {
+  const idx: AssignmentIndex = new Map();
+  for (const ac of state.fleet) {
+    for (const asg of ac.assignments) {
+      if (asg.freq <= 0) continue;
+      let list = idx.get(asg.routeId);
+      if (!list) idx.set(asg.routeId, (list = []));
+      list.push({ ac, freq: asg.freq });
+    }
+  }
+  return idx;
+}
+
+export function routeSupply(state: GameState, route: Route, onlyFlying = true, index?: AssignmentIndex): RouteSupply {
   const seats = zeroSeats();
   const qualSum = zeroSeats();
   let flightsPerDay = 0;
   const aircraft: { ac: Aircraft; freq: number }[] = [];
-  for (const ac of state.fleet) {
+  const entries = index ? index.get(route.id) ?? [] : state.fleet.flatMap((ac) => ac.assignments.filter((x) => x.routeId === route.id && x.freq > 0).map((x) => ({ ac, freq: x.freq })));
+  for (const { ac, freq } of entries) {
     if (onlyFlying && !isFlying(ac, state.day)) continue;
-    for (const asg of ac.assignments) {
-      if (asg.routeId !== route.id || asg.freq <= 0) continue;
-      const t = AIRCRAFT_BY_ID[ac.typeId];
-      const s = cabinSeats(t, ac.cabin);
-      const perDay = asg.freq / 7;
-      flightsPerDay += perDay;
-      aircraft.push({ ac, freq: asg.freq });
-      const aq = aircraftQuality(state, ac);
-      for (const c of CLASSES) {
-        if (s[c] <= 0) continue;
-        const sec = ac.cabin[c]!;
-        const seatQ = seatProduct(sec.product).comfort;
-        const q = 0.45 * seatQ + 0.2 * aq + 0.35 * serviceQuality(state, c, route.from);
-        seats[c] += s[c] * perDay;
-        qualSum[c] += q * s[c] * perDay;
-      }
+    const t = AIRCRAFT_BY_ID[ac.typeId];
+    const s = cabinSeats(t, ac.cabin);
+    const perDay = freq / 7;
+    flightsPerDay += perDay;
+    aircraft.push({ ac, freq });
+    const aq = aircraftQuality(state, ac);
+    for (const c of CLASSES) {
+      if (s[c] <= 0) continue;
+      const seatQ = seatProduct(ac.cabin[c]!.product).comfort;
+      const q = 0.45 * seatQ + 0.2 * aq + 0.35 * serviceQuality(state, c, route.from);
+      seats[c] += s[c] * perDay;
+      qualSum[c] += q * s[c] * perDay;
     }
   }
   const quality = { F: 0, J: 0, W: 0, Y: 0 };

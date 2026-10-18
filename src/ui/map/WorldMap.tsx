@@ -29,6 +29,7 @@ interface Props {
   routes: MapRoute[];
   airports: MapAirport[];
   fit?: string[];
+  fitPad?: Pad;
   interactive?: boolean;
   animate?: boolean;
   accent?: string;
@@ -49,6 +50,8 @@ interface View {
   y: number;
 }
 
+const MAX_PLANES = 60;
+
 const BaseLayers = memo(function BaseLayers({ rotate }: { rotate: number }) {
   const p = basePaths(rotate);
   return (
@@ -60,7 +63,10 @@ const BaseLayers = memo(function BaseLayers({ rotate }: { rotate: number }) {
   );
 });
 
-function fitView(rotate: number, codes: string[], w: number, h: number): View {
+/** Screen-pixel padding [top, right, bottom, left] kept clear when fitting (e.g. for overlays). */
+type Pad = [number, number, number, number];
+
+function fitView(rotate: number, codes: string[], w: number, h: number, pad: Pad = [0, 0, 0, 0]): View {
   const proj = projection(rotate);
   const pts = codes.map((c) => AIRPORT_BY_CODE[c]).filter(Boolean).map((a) => proj([a.lon, a.lat])!);
   if (pts.length === 0) return { k: 1, x: 0, y: 0 };
@@ -76,12 +82,14 @@ function fitView(rotate: number, codes: string[], w: number, h: number): View {
   x0 -= padX; x1 += padX; y0 -= padY; y1 += padY;
   // The SVG uses "slice", so convert container aspect into map units.
   const scale = Math.max(w / MAP_W, h / MAP_H);
-  const visW = w / scale;
-  const visH = h / scale;
+  const visW = Math.max(40, w - pad[1] - pad[3]) / scale;
+  const visH = Math.max(40, h - pad[0] - pad[2]) / scale;
   const k = Math.max(1, Math.min(14, Math.min(visW / (x1 - x0), visH / (y1 - y0))));
   const cx = (x0 + x1) / 2;
   const cy = (y0 + y1) / 2;
-  return clampView({ k, x: MAP_W / 2 - cx * k, y: MAP_H / 2 - cy * k });
+  const tx = MAP_W / 2 + (pad[3] - pad[1]) / 2 / scale;
+  const ty = MAP_H / 2 + (pad[0] - pad[2]) / 2 / scale;
+  return clampView({ k, x: tx - cx * k, y: ty - cy * k });
 }
 
 function clampView(v: View): View {
@@ -92,7 +100,7 @@ function clampView(v: View): View {
 }
 
 export function WorldMap({
-  rotate = 0, routes, airports, fit, interactive = true, animate = true, accent = '#3ee6ff', selected, onSelect, onHover,
+  rotate = 0, routes, airports, fit, fitPad, interactive = true, animate = true, accent = '#3ee6ff', selected, onSelect, onHover,
   tooltip, regionLabels, className, planesKey, controls = true,
 }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -124,7 +132,7 @@ export function WorldMap({
     const el = wrapRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    setView(fit && fit.length ? fitView(rotate, fit, r.width, r.height) : { k: 1, x: 0, y: 0 });
+    setView(fit && fit.length ? fitView(rotate, fit, r.width, r.height, fitPad) : { k: 1, x: 0, y: 0 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fitKey, rotate]);
   useEffect(() => {
@@ -206,7 +214,19 @@ export function WorldMap({
   }, [regionLabels, proj]);
 
   // ---------- planes (imperative animation) ----------
-  const planeRoutes = useMemo(() => routes.filter((r) => (r.planes ?? 0) > 0), [planesKey ?? routes]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Cap the number of animated aircraft so big networks stay smooth.
+  const planeRoutes = useMemo(() => {
+    const list = routes.filter((r) => (r.planes ?? 0) > 0).sort((a, b) => (b.planes ?? 0) - (a.planes ?? 0));
+    let budget = MAX_PLANES;
+    const out: MapRoute[] = [];
+    for (const r of list) {
+      if (budget <= 0) break;
+      const n = Math.min(r.planes ?? 0, budget, Math.max(1, Math.ceil(MAX_PLANES / list.length)));
+      out.push({ ...r, planes: n });
+      budget -= n;
+    }
+    return out;
+  }, [planesKey ?? routes]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const g = planesRef.current;
     if (!g) return;
@@ -246,6 +266,8 @@ export function WorldMap({
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
       if (paused) return;
+      // Freeze while a dialog is open: blurred backdrops over moving content are expensive.
+      if (document.querySelector('.modal-backdrop')) return;
       const kk = viewRef.current.k;
       for (const p of planes) {
         const cyc = ((now - t0) / p.dur + p.phase) % 2;
@@ -261,8 +283,8 @@ export function WorldMap({
         const s = 15 / 24 / (pxRef.current * kk);
         p.el.setAttribute('transform', `translate(${pos[0]} ${pos[1]}) rotate(${ang}) scale(${s})`);
         const pts: string[] = [];
-        for (let j = 0; j <= 6; j++) {
-          const tt = Math.max(0, Math.min(1, e + (fwd ? -1 : 1) * j * 0.012));
+        for (let j = 0; j <= 3; j++) {
+          const tt = Math.max(0, Math.min(1, e + (fwd ? -1 : 1) * j * 0.024));
           const q = proj(p.interp(tt));
           if (q && Math.abs(q[0] - pos[0]) < MAP_W / 4) pts.push(`${q[0].toFixed(1)},${q[1].toFixed(1)}`);
         }
@@ -284,6 +306,8 @@ export function WorldMap({
   // Convert screen pixels into map units at the current zoom.
   const px = (n: number) => n / (pxPerUnit * k);
   const showAllLabels = k * pxPerUnit > 1.6;
+  // Dense networks only label hubs until you zoom in, to avoid a pile of overlapping codes.
+  const crowded = airports.filter((a) => a.label).length > 16 && k * pxPerUnit < 2.2;
 
   return (
     <div
@@ -304,10 +328,6 @@ export function WorldMap({
             <stop offset="0" stopColor="#1a2640" />
             <stop offset="1" stopColor="#131d33" />
           </linearGradient>
-          <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-            <feGaussianBlur stdDeviation="3" result="b" />
-            <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
-          </filter>
         </defs>
         <rect x="0" y="0" width={MAP_W} height={MAP_H} fill="url(#ocean-grad)" />
         <g transform={`translate(${view.x} ${view.y}) scale(${k})`}>
@@ -348,7 +368,7 @@ export function WorldMap({
               const rad = px(ap.state === 'hub' ? 6.5 : ap.state === 'served' ? 4.5 : ap.state === 'open' ? 2.2 + ap.a.size * 0.5 : 2.2);
               const isSel = selected === ap.code;
               const fill = ap.state === 'hub' ? accent : ap.state === 'served' ? '#ffffff' : ap.state === 'open' ? '#9fb2d8' : ap.state === 'locked' ? '#3a4766' : '#56617a';
-              const showLabel = ap.label || isSel || big || hover?.code === ap.code || (showAllLabels && ap.state !== 'locked' && ap.state !== 'dim');
+              const showLabel = (ap.label && !crowded) || isSel || big || hover?.code === ap.code || (showAllLabels && ap.state !== 'locked' && ap.state !== 'dim');
               return (
                 <g
                   key={ap.code}
@@ -366,7 +386,7 @@ export function WorldMap({
                   {big && <circle r={rad * 2.4} fill={accent} opacity={0.18} className="pulse" />}
                   {isSel && <circle r={rad * 2.2} fill="none" stroke="#fff" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />}
                   <circle r={Math.max(rad, px(9))} fill="transparent" />
-                  <circle r={rad} fill={fill} stroke={big ? '#fff' : 'rgba(5,9,18,0.8)'} strokeWidth={big ? 1.5 : 1} vectorEffect="non-scaling-stroke" filter={big ? 'url(#glow)' : undefined} />
+                  <circle r={rad} fill={fill} stroke={big ? '#fff' : 'rgba(5,9,18,0.8)'} strokeWidth={big ? 1.5 : 1} vectorEffect="non-scaling-stroke" />
                   {showLabel && (
                     <text y={-rad - px(5)} textAnchor="middle" fontSize={px(big ? 12 : 10.5)} className="ap-label">
                       {ap.code}

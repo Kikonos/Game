@@ -177,6 +177,7 @@ export function Shell() {
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       if (e.code === 'Space') {
         e.preventDefault();
+        (document.activeElement as HTMLElement | null)?.blur?.();
         store.togglePause();
       } else if (['1', '2', '3', '4'].includes(e.key) && !store.modal) {
         store.setSpeed(Number(e.key) as GameSpeed);

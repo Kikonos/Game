@@ -18,6 +18,7 @@
     "@fontsource-variable/space-grotesk": "^5.3.0",
     "d3-geo": "^3.1.1",
     "lucide-react": "^1.59.0",
+    "lz-string": "^1.5.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "topojson-client": "^3.1.0",

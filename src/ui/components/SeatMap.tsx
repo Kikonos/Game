@@ -81,7 +81,7 @@ export function SeatMap({ typeId, cabin, compact }: { typeId: string; cabin: Cab
     <svg className="seatmap" viewBox={`${-pad} ${-pad} ${total + pad * 2} ${H + pad}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label="Seat map">
       <path d={fuselage} fill="rgba(148,170,220,0.06)" stroke="rgba(148,170,220,0.35)" strokeWidth={2} />
       <path d={`M ${nose * 0.32} ${y0 + cabinW * 0.3} L ${nose * 0.6} ${y0 + cabinW * 0.2} L ${nose * 0.6} ${y0 + cabinW * 0.8} L ${nose * 0.32} ${y0 + cabinW * 0.7} Z`} fill="rgba(62,230,255,0.15)" />
-      {usedEnd < nose + t.cabinLength - 4 && (
+      {nose + t.cabinLength - usedEnd > 12 && (
         <rect x={usedEnd + 4} y={y0 + 5} width={nose + t.cabinLength - usedEnd - 8} height={cabinW - 10} rx={6} fill="none" stroke="rgba(148,170,220,0.25)" strokeDasharray="6 6" />
       )}
       {seats}

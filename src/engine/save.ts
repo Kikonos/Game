@@ -1,6 +1,7 @@
 // Save games live in localStorage so the game works fully offline.
 // Saves can also be exported to / imported from a JSON file.
 
+import LZString from 'lz-string';
 import { SAVE_VERSION } from './newGame';
 import type { GameState } from './types';
 
@@ -72,16 +73,23 @@ export function saveToSlot(state: GameState, slot: string): boolean {
   const s = storage();
   if (!s) return false;
   try {
-    s.setItem(PREFIX + slot, serialize(state, slot));
+    s.setItem(PREFIX + slot, LZ_MARK + LZString.compressToUTF16(serialize(state, slot)));
     return true;
   } catch {
     return false;
   }
 }
 
+const LZ_MARK = 'lz1:';
+
+function readSlot(slot: string): string | null {
+  const raw = storage()?.getItem(PREFIX + slot);
+  if (!raw) return null;
+  return raw.startsWith(LZ_MARK) ? LZString.decompressFromUTF16(raw.slice(LZ_MARK.length)) : raw;
+}
+
 export function loadFromSlot(slot: string): GameState | null {
-  const s = storage();
-  const text = s?.getItem(PREFIX + slot);
+  const text = readSlot(slot);
   if (!text) return null;
   return deserialize(text);
 }
@@ -91,11 +99,10 @@ export function deleteSlot(slot: string) {
 }
 
 export function listSaves(): SaveMeta[] {
-  const s = storage();
-  if (!s) return [];
+  if (!storage()) return [];
   const out: SaveMeta[] = [];
   for (const slot of [AUTOSAVE_SLOT, ...SLOTS]) {
-    const text = s.getItem(PREFIX + slot);
+    const text = readSlot(slot);
     if (!text) continue;
     try {
       const file = JSON.parse(text) as SaveFile;

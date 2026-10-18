@@ -5,7 +5,7 @@ import { AIRPORT_BY_CODE } from '../data/airports';
 import { CLASSES, type CabinClass } from '../data/seats';
 import { type Seats, cabinSeats, zeroSeats } from './cabin';
 import {
-  type RouteSupply, competition, isFlying, localDemand, marketDemand, optimizePrices, routeSupply, totalOf,
+  type RouteSupply, assignmentIndex, competition, isFlying, localDemand, marketDemand, optimizePrices, routeSupply, totalOf,
 } from './demand';
 import {
   STATION_MONTHLY, hubMonthlyCost, ageYears, ancillaryPerPax, blockHours, cargoRevenuePerLeg, heavyCheckCost,
@@ -115,10 +115,11 @@ function simulateConnections(state: GameState, legs: LegState[]) {
   }
 }
 
-function simulateRoutes(state: GameState) {
+function simulateRoutes(state: GameState): LegState[] {
   const legs: LegState[] = [];
+  const index = assignmentIndex(state);
   for (const route of state.routes) {
-    const supply = routeSupply(state, route);
+    const supply = routeSupply(state, route, true, index);
     const capMult = modifierFor(state, 'capacity', route.from, route.to);
     const seats = zeroSeats();
     for (const c of CLASSES) seats[c] = supply.seats[c] * capMult;
@@ -150,6 +151,7 @@ function simulateRoutes(state: GameState) {
   state.finance.current.pax += dayPax;
   state.finance.current.flights += dayFlights;
   addXp(state, dayPax / 400);
+  return legs;
 }
 
 /** Books revenue and costs for one route-day (both directions). Returns passengers carried. */
@@ -295,15 +297,14 @@ function rollDisruptions(state: GameState): { flying: number; disrupted: number 
   return { flying, disrupted };
 }
 
-function updateReputation(state: GameState, ops: { flying: number; disrupted: number }) {
+function updateReputation(state: GameState, ops: { flying: number; disrupted: number }, legs: LegState[]) {
   if (ops.flying > 0) {
     const rel = 1 - ops.disrupted / ops.flying;
     state.stats.reliability = state.stats.reliability * 0.97 + rel * 0.03;
   }
   let qSum = 0, valueSum = 0, w = 0;
-  for (const r of state.routes) {
+  for (const { route: r, supply } of legs) {
     if (!r.last || totalOf(r.last.pax) <= 0) continue;
-    const supply = routeSupply(state, r, false);
     for (const c of CLASSES) {
       const p = r.last.pax[c];
       if (p <= 0) continue;
@@ -327,8 +328,11 @@ function weekly(state: GameState) {
   const week = Math.floor(state.day / 7);
   for (const r of state.routes) {
     if (r.acc.days > 0) {
-      r.history.push({ week, pax: r.acc.pax, seats: r.acc.seats, rev: r.acc.rev, cost: r.acc.cost, connPax: r.acc.connPax });
-      if (r.history.length > 104) r.history.shift();
+      r.history.push({
+        week, pax: Math.round(r.acc.pax), seats: Math.round(r.acc.seats), rev: Math.round(r.acc.rev),
+        cost: Math.round(r.acc.cost), connPax: Math.round(r.acc.connPax),
+      });
+      if (r.history.length > 52) r.history.shift();
     }
     r.acc = { pax: 0, seats: 0, rev: 0, cost: 0, connPax: 0, days: 0 };
   }
@@ -502,8 +506,8 @@ export function advanceDay(state: GameState) {
   updateAircraftStatus(state);
   updateFuel(state);
   const ops = rollDisruptions(state);
-  simulateRoutes(state);
-  updateReputation(state, ops);
+  const legs = simulateRoutes(state);
+  updateReputation(state, ops, legs);
   announceScheduled(state);
   rollDailyEvents(state);
 

@@ -208,7 +208,7 @@ export function NewGame() {
         <div className="ng-visual">
           {step < 2 ? (
             <div className="ng-map card">
-              <WorldMap rotate={rotate} routes={step === 1 ? AIRPORTS_BY_REGION[region].filter((a) => a.code !== hub && distance(hub, a.code) >= 150).map((a) => ({ id: a.code, from: hub, to: a.code, weight: Math.min(1, baseDemand(hub, a.code) / 1500), dashed: true })) : []} airports={mapAirports} fit={AIRPORTS_BY_REGION[region].map((a) => a.code)} interactive={step === 1} onSelect={(c) => c && AIRPORTS_BY_REGION[region].some((a) => a.code === c) && setHub(c)} controls={false} animate={false} />
+              <WorldMap rotate={rotate} routes={step === 1 ? AIRPORTS_BY_REGION[region].filter((a) => a.code !== hub && distance(hub, a.code) >= 150).map((a) => ({ id: a.code, from: hub, to: a.code, weight: Math.min(1, baseDemand(hub, a.code) / 1500), dashed: true })) : []} airports={mapAirports} fit={AIRPORTS_BY_REGION[region].map((a) => a.code)} fitPad={[10, 10, 210, 10]} interactive={step === 1} onSelect={(c) => c && AIRPORTS_BY_REGION[region].some((a) => a.code === c) && setHub(c)} controls={false} animate={false} />
               <div className="ng-map-caption">
                 <div className="upper" style={{ color: CONTINENTS[REGION_BY_ID[region].continent].color }}>{CONTINENTS[REGION_BY_ID[region].continent].name}</div>
                 <h3>{REGION_BY_ID[region].name}</h3>
