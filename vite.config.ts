@@ -8,6 +8,8 @@ const embed = !!process.env.EMBED;
 
 export default defineConfig({
   base: './',
+  // Lets several dev servers run side by side without sharing a dep cache.
+  cacheDir: process.env.VITE_CACHE_DIR ?? 'node_modules/.vite',
   define: { __EMBED__: JSON.stringify(embed) },
   plugins: [
     react(),
