@@ -37,6 +37,8 @@ const NAV: { tab: Tab; label: string; icon: ReactNode }[] = [
   { tab: 'inbox', label: 'Inbox', icon: <InboxIcon /> },
 ];
 
+const compact = typeof window !== 'undefined' && window.matchMedia?.('(max-width: 640px)').matches;
+
 function Clock() {
   const frac = useClock();
   const g = store.game!;
@@ -45,7 +47,7 @@ function Clock() {
   const mm = String(Math.floor((mins % 60) / 5) * 5).padStart(2, '0');
   return (
     <div className="clock">
-      <span className="date">{formatDate(g.day, true)}</span>
+      <span className="date">{formatDate(g.day, !compact)}</span>
       <span className="time">{hh}:{mm} UTC</span>
     </div>
   );

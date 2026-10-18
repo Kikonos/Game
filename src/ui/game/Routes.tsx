@@ -77,7 +77,7 @@ function RouteList({ g }: { g: GameState }) {
         <Kpi label="Revenue / week" value={money(tot.rev)} />
         <Kpi label="Route profit / week" value={<span className={tot.profit >= 0 ? 'good' : 'bad'}>{money(tot.profit)}</span>} sub={<span className="dim">Before leases & overheads</span>} />
         <Kpi label="Load factor" value={tot.seats ? pct(tot.pax / tot.seats) : '—'} sub={<Bar value={tot.seats ? tot.pax / tot.seats : 0} tone="auto" />} />
-        <Kpi label="Connecting pax" value={tot.pax ? pct(tot.conn / tot.pax) : '—'} sub={<span className="dim">{compact(tot.conn)} per week</span>} />
+        <Kpi label="Connecting pax" value={tot.pax ? pct(tot.conn / tot.pax, 1) : '—'} sub={<span className="dim">{compact(tot.conn)} per week</span>} />
       </div>
       <section className="card">
         {g.routes.length === 0 ? (
