@@ -67,6 +67,7 @@ export function aircraftStatus(g: GameState, ac: Aircraft): { label: string; ton
     case 'delivering': return { label: `Delivery in ${days}d`, tone: 'info' };
     case 'maintenance': return { label: `In hangar · ${days}d`, tone: 'warn' };
     case 'refit': return { label: `Cabin refit · ${days}d`, tone: 'warn' };
+    case 'ferry': return { label: `Ferry flight · ${days}d`, tone: 'info' };
     default:
       if (ac.lastDisruption === g.day) return { label: 'Grounded today', tone: 'bad' };
       if (!ac.assignments.some((a) => a.freq > 0)) return { label: 'Idle', tone: 'bad' };

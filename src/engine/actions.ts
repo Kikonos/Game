@@ -276,7 +276,7 @@ export function transferAircraft(state: GameState, acId: string, hub: string): R
   ac.hub = hub;
   ac.assignments = [];
   if (ac.status === 'active') {
-    ac.status = 'maintenance';
+    ac.status = 'ferry';
     ac.statusUntil = state.day + 2;
   }
   return ok(`${ac.reg} transferred to ${hub}.`);

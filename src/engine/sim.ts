@@ -5,7 +5,7 @@ import { AIRPORT_BY_CODE } from '../data/airports';
 import { CLASSES, type CabinClass } from '../data/seats';
 import { type Seats, cabinSeats, zeroSeats } from './cabin';
 import {
-  type RouteSupply, assignmentIndex, competition, isFlying, localDemand, marketDemand, optimizePrices, routeSupply, totalOf,
+  type RouteSupply, assignmentIndex, competition, isFlying, localDemand, priceFactor, marketDemand, optimizePrices, routeSupply, totalOf,
 } from './demand';
 import {
   STATION_MONTHLY, hubMonthlyCost, ageYears, ancillaryPerPax, blockHours, cargoRevenuePerLeg, heavyCheckCost,
@@ -79,7 +79,9 @@ function simulateConnections(state: GameState, legs: LegState[]) {
           if (market[c] <= 0) continue;
           const q = ((A.supply.quality[c] || A.supply.quality.Y) + (B.supply.quality[c] || B.supply.quality.Y)) / 2;
           const qF = 1 + ((q - 55) / 100) * (0.5 + Math.min(0.7, dXY / 8000));
-          const att = freqF * qF * repF * 1.12;
+          // Connecting fares follow the average fare level the player sets on both legs.
+          const fareRatio = (A.route.prices[c] / refFare(A.route.dist, c) + B.route.prices[c] / refFare(B.route.dist, c)) / 2;
+          const att = freqF * qF * repF * 1.12 * priceFactor(fareRatio, 1, c);
           const share = att / (att + comp.level / Math.max(0.5, comp.priceIdx) + 0.3 + CONNECT_PENALTY);
           req[c] = market[c] * share * connF;
         }
@@ -257,6 +259,8 @@ function updateAircraftStatus(state: GameState) {
       } else if (ac.status === 'maintenance') {
         ac.condition = restoredCondition(ageYears(state, ac));
         message(state, 'info', 'fleet', `${ac.reg} back in service`, `Heavy check complete. Condition restored to ${Math.round(ac.condition)}%.`);
+      } else if (ac.status === 'ferry') {
+        message(state, 'info', 'fleet', `${ac.reg} arrived at ${ac.hub}`, 'Ferry flight complete — ready for new routes.');
       } else if (ac.status === 'refit' && ac.pendingCabin) {
         ac.cabin = ac.pendingCabin;
         ac.pendingCabin = undefined;

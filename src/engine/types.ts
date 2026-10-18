@@ -12,7 +12,7 @@ export interface Livery {
   tail: TailStyle;
 }
 
-export type AircraftStatus = 'delivering' | 'active' | 'maintenance' | 'refit';
+export type AircraftStatus = 'delivering' | 'active' | 'maintenance' | 'refit' | 'ferry';
 
 export interface Assignment {
   routeId: string;

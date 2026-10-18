@@ -177,6 +177,22 @@ describe('player actions', () => {
     expect(monthly).toBeLessThan(3_000_000);
   });
 
+  it('transferring between hubs does not act as a free heavy check', () => {
+    const g = newGame();
+    g.level = 3;
+    g.cash = 1e9;
+    expect(A.openHub(g, 'BCN').ok).toBe(true);
+    const offer = g.market.leases.find((o) => o.typeId === 'a320neo')!;
+    A.leaseAircraft(g, offer.id, 'MAD');
+    const ac = g.fleet[0];
+    ac.status = 'active';
+    ac.condition = 60;
+    expect(A.transferAircraft(g, ac.id, 'BCN').ok).toBe(true);
+    for (let i = 0; i < 5; i++) advanceDay(g);
+    expect(ac.status).toBe('active');
+    expect(ac.condition).toBeLessThanOrEqual(60);
+  });
+
   it('prevents assigning an aircraft beyond its range', () => {
     const g = newGame();
     const offer = g.market.leases.find((o) => o.typeId === 'atr72')!;
