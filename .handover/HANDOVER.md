@@ -3,6 +3,27 @@
 Read this first when resuming after a usage-limit reset or a context reset.
 Checkpoint script: `bash /home/user/wt/notes/.handover/checkpoint.sh` (commits all worktrees, pushes wip/* branches).
 
+## NEW DIRECTIVES (2026-10-19 ~11:00Z) — highest priority
+- The user plays ONLY on iPad **landscape** (Safari 1180×750, home-screen app 1180×820). Portrait/split view only need to not break.
+- **Ship as updates** like a real game: the live build must always be playable. Release each finished, tested piece as a new version. Never break saves; migrate() must handle old saves.
+- Live site: https://kikonos.github.io/Game/ (Pages "Deploy from a branch" serves the repo root of the default branch; root index.html redirects github.io visitors to play/, which holds the committed production build; .nojekyll at the root).
+
+## RELEASE PROCESS (use /home/user/wt/rel on branch rel/next)
+1. `cd /home/user/wt/rel && git merge claude/contrail-airline-game`. Then merge the finished track branch(es) (`git merge wip/<x>`) and resolve conflicts.
+2. `npx tsc --noEmit && npx vitest run`. Start the dev server (VITE_CACHE_DIR=node_modules/.vite-5401 npx vite --port 5401 --strictPort). Then run:
+   - `node scripts/ipad-shots.cjs --url http://localhost:5401/ --out <scratch>/rel/sN --view safari --screens title,newgame-brand,hq,map,routes,route-planner,fleet,market-new,order-modal,finance,settings` and look at the shots;
+   - `PW=/opt/node22/lib/node_modules/playwright node <scratch>/e2e-rel.cjs`, a full play-through that saves shots to scratchpad/shots; it must print `ERRORS:` with nothing after it.
+3. Bump the version in src/ui/screens/Title.tsx (`v0.N`), `npm run build`, `rm -rf play && cp -r dist play`, then commit "v0.N: <summary>" with the trailers.
+4. `cd /home/user/Game && git merge --ff-only rel/next && git push origin claude/contrail-airline-game claude/contrail-airline-game:main`. Wait about 1 minute, then verify with `node <scratch>/pages/check.cjs https://kikonos.github.io/Game/ out.png`.
+5. Optionally republish the artifact (build:embed).
+
+## RELEASES
+- v0.1 (11:03Z): original game, blank-page fix (play/ + redirect).
+- v0.2 (11:25Z): iPad touch layout foundation plus partial screen work, labelled speed control, new aircraft art (Boeing/wide/heavy refined; regional/Airbus architect level), map pinch/drag.
+- NEXT v0.3: engine rebalance plus cabin redesign (engine workflow), plus anything finished in art/iPad.
+- THEN v0.4: iPad landscape screen polish (review and fix), art regional/Airbus refinement and integration.
+- THEN: debugging & improvements round, then v0.5. Ideas: an in-game "What's new" after an update; autosave before the service-worker update reload.
+
 ## User requests (all still open unless ticked)
 - [ ] Design for **iPad (A16)**, 1180×820 landscape / 820×1180 portrait, touch. (The iPhone was dropped as too small.)
 - [ ] Speed control clearly labelled 1×/2×/4×/10×, **but the game must not become too easy**: rebalance the economy, competitor reactions, inflation, ageing, XP taper, and slow-to-1× on alerts.
@@ -46,4 +67,5 @@ If an agent fails on a limit, its file edits persist (checkpoint them). Resume t
 6. Final message to the user: what changed; the iPad home-screen steps (default branch → main, Pages source → GitHub Actions, https://kikonos.github.io/Game/); any limitations.
 
 ## Log
+- 11:00Z user: iPad page was blank, landscape only, ship as updates. Fixed via play/ (v0.1), released v0.2. Subagents limited until 15:20Z; workflows to resume then (ipad prompts now landscape-only).
 - 2026-10-19 10:25Z: limits hit twice. The art architect finished the renderer, specs and gallery (big improvement). The iPad foundation is done. The engine rebalance is partly done (committed as WIP). Relaunched all three workflows lean.
