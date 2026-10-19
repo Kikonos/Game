@@ -68,4 +68,5 @@ If an agent fails on a limit, its file edits persist (checkpoint them). Resume t
 
 ## Log
 - 11:00Z user: iPad page was blank, landscape only, ship as updates. Fixed via play/ (v0.1), released v0.2. Subagents limited until 15:20Z; workflows to resume then (ipad prompts now landscape-only).
+- 11:35Z subagents available again (probe OK). Resumed engine (wf_8375b063-4f4) + art (wf_c35e6b4b-162). iPad screens (wf_182f21e9-43a) to resume after these, then release v0.3 (engine) / v0.4.
 - 2026-10-19 10:25Z: limits hit twice. The art architect finished the renderer, specs and gallery (big improvement). The iPad foundation is done. The engine rebalance is partly done (committed as WIP). Relaunched all three workflows lean.
