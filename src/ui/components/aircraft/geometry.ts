@@ -50,7 +50,8 @@ export interface Geometry {
   wingRoot: string;
   fin: { fill: string; edge: string; lines: string; quad: readonly [V, V, V, V]; top: number };
   stab: { near: string; far: string; lines: string; bullet: string; tTail: boolean; none: boolean };
-  wing: { fill: string; tip: string; lines: string; shadow: { c: V; rx: number; ry: number } };
+  /** `shade`: darker underside of a sectioned (side-on aerofoil) wing. */
+  wing: { fill: string; tip: string; lines: string; shade?: string; shadow: { c: V; rx: number; ry: number } };
   engines: EngineGeo[];
   gear: { struts: string; tyres: string; hubs: string; fromNacelle: boolean };
   windows: string;
@@ -124,8 +125,9 @@ function build(p: AircraftProfile): Geometry {
       .C([x0 + w * 0.55, yb], [x0 + w * 0.5, yb], [x0 + w * 0.34, yb])
       .C([x0 + w * 0.16, yb], [x0 + w * 0.12, hb], [x0, hb]);
     bellyMin = Math.min(bellyMin, yb);
-    // seam where the fairing meets the fuselage side
-    lines.M([x0 + w * 0.08, hb - f.depth * 0.08]).C([x0 + w * 0.3, hb + H * 0.035], [x1 - w * 0.3, hb + H * 0.035], [x1 - w * 0.05, hb - f.depth * 0.08]);
+    // seam where the fairing meets the fuselage side (a pod outline when `rise` is given)
+    if (f.rise) lines.M([x0 + w * 0.015, hb - f.depth * 0.35]).C([x0 + w * 0.06, hb + f.rise], [x1 - w * 0.4, hb + f.rise * 1.04], [x1 - w * 0.02, hb - f.depth * 0.3]);
+    else lines.M([x0 + w * 0.08, hb - f.depth * 0.08]).C([x0 + w * 0.3, hb + H * 0.035], [x1 - w * 0.3, hb + H * 0.035], [x1 - w * 0.05, hb - f.depth * 0.08]);
   }
   fus.L(nl[nl.length - 1]).chain([...nl].reverse()).Z();
   const fairingBottom = (x: number): number => {
@@ -246,7 +248,13 @@ function build(p: AircraftProfile): Geometry {
 
   // ---------- high-wing crown fairing ----------
   const wr = new D();
-  if (w.high) {
+  if (w.high && w.section) {
+    // long low fairing on the crown that ramps up into the aerofoil's lower surface
+    const x0 = w.x - wrc * 0.55, x1 = w.x + wrc * 1.75;
+    const yl = w.y - wth * 0.12;
+    wr.M([x0, upperY(x0) - 0.06]).C([x0 + wrc * 0.3, upperY(x0) + 0.03], [w.x - wrc * 0.12, yl], [w.x + wrc * 0.2, yl]).L([w.x + wrc * 0.9, yl]).C([w.x + wrc * 1.15, yl], [x1 - wrc * 0.35, upperY(x1) + 0.03], [x1, upperY(x1) - 0.06]).Z();
+    box.add([w.x, yl]);
+  } else if (w.high) {
     const x0 = w.x - wrc * 0.45, x1 = w.x + wrc * 1.5;
     const yb = w.y + wth * 0.15;
     wr.M([x0, upperY(x0) - 0.06]).C([x0 + wrc * 0.3, upperY(x0) + 0.02], [w.x - wrc * 0.1, yb], [w.x + wrc * 0.25, yb]).L([w.x + wrc * 0.85, yb]).C([x1 - wrc * 0.25, yb], [x1 - wrc * 0.15, upperY(x1) + 0.02], [x1, upperY(x1) - 0.06]).Z();
@@ -489,7 +497,8 @@ const TIP: Partial<Record<TipDevice, { up: number[]; down?: number[] }>> = {
   fence: { up: [0.05, 0, 0.55, 1, 0.82, 0.96, 0.95, 0], down: [0.15, 0, 0.5, -0.75, 0.75, -0.7, 0.88, 0] },
 };
 
-function wingGeometry(w: WingSpec, box: Box): { fill: string; tip: string; lines: string } {
+function wingGeometry(w: WingSpec, box: Box): { fill: string; tip: string; lines: string; shade?: string } {
+  if (w.section) return wingSection(w, box);
   const root = wingStation(w, 0);
   const tip = wingStation(w, 1);
   const rc = w.rootChord, tc = w.tipChord;
@@ -537,6 +546,31 @@ function wingGeometry(w: WingSpec, box: Box): { fill: string; tip: string; lines
   lines.M([rx + rc * 0.72, ry - th * 0.2]).L([tx + tc * 0.7, ty + tth * 0.05]);
   if (w.tip === 'folding' && h > 0) lines.M([tx + tc * 0.7, ty + tth * 0.6]).L([tx + tc * 1.02, ty - tth * 0.1]);
   return { fill: fill.toString(), tip: tipD.toString(), lines: lines.toString() };
+}
+
+/** Root aerofoil seen side-on: rounded leading edge at (x, y), cambered, sharp trailing edge. */
+function wingSection(w: WingSpec, box: Box): { fill: string; tip: string; lines: string; shade: string } {
+  const c = w.rootChord, t = w.thickness ?? c * 0.16;
+  const P = (u: number, v: number): V => [w.x + u * c, w.y + v * t];
+  const fill = new D().M(P(0, 0))
+    .C(P(0, 0.42), P(0.09, 0.74), P(0.3, 0.74))
+    .C(P(0.6, 0.74), P(0.86, 0.3), P(1, 0.04))
+    .L(P(1, -0.03))
+    .C(P(0.78, -0.12), P(0.48, -0.27), P(0.2, -0.27))
+    .C(P(0.07, -0.27), P(0, -0.15), P(0, 0))
+    .Z();
+  // flap / aileron hinge line
+  const lines = new D().M(P(0.74, 0.47)).C(P(0.75, 0.3), P(0.76, 0.0), P(0.75, -0.14));
+  // underside in shadow: lower surface up to the mean camber line
+  const shade = new D().M(P(0.012, -0.08))
+    .C(P(0.1, 0.1), P(0.4, 0.22), P(0.7, 0.18))
+    .C(P(0.85, 0.14), P(0.95, 0.06), P(1, 0.0))
+    .L(P(1, -0.03))
+    .C(P(0.78, -0.12), P(0.48, -0.27), P(0.2, -0.27))
+    .C(P(0.07, -0.27), P(0.012, -0.18), P(0.012, -0.08))
+    .Z();
+  box.add(P(0, -0.27), P(0.3, 0.74), P(1, 0));
+  return { fill: fill.toString(), tip: '', lines: lines.toString(), shade: shade.toString() };
 }
 
 // ---------- engines ----------

@@ -116,8 +116,10 @@ function AircraftArtImpl({ typeId, livery, code, name, className, gear = true, h
 
   const far = g.engines.filter((e) => e.spec.far);
   const near = [...g.engines.filter((e) => !e.spec.far && e.spec.inboard), ...g.engines.filter((e) => !e.spec.far && !e.spec.inboard)];
-  const engine = (e: Geometry['engines'][number], i: number, dim: boolean) => (
+  // part: 'body' = nacelle only, 'prop' = propeller only (high-wing turboprops draw the wing between them)
+  const engine = (e: Geometry['engines'][number], i: number, dim: boolean, part: 'all' | 'body' | 'prop' = 'all') => (
     <g key={i}>
+      {part !== 'prop' && (<>
       {e.pylon && <path d={e.pylon} fill={dim ? '#c3cad6' : '#d9dee6'} stroke={OUTLINE} strokeWidth={sw * 0.8} style={ns} strokeLinejoin="round" />}
       {e.core && <path d={e.core} fill={dim ? '#7f8a9d' : '#939eb1'} stroke={OUTLINE} strokeWidth={sw * 0.7} style={ns} />}
       {e.plug && <path d={e.plug} fill="#5b6679" stroke={OUTLINE} strokeWidth={sw * 0.6} style={ns} />}
@@ -126,7 +128,8 @@ function AircraftArtImpl({ typeId, livery, code, name, className, gear = true, h
       {full && e.seam && <path d={e.seam} fill="none" stroke={FINE} strokeWidth={0.6} style={ns} />}
       {e.lip && <path d={e.lip} fill="#d3d9e3" stroke={OUTLINE} strokeWidth={sw * 0.7} style={ns} />}
       {e.dark && <path d={e.dark} fill="#1a2232" />}
-      {e.prop && (
+      </>)}
+      {part !== 'body' && e.prop && (
         <>
           <path d={e.prop.disc} fill="rgba(214,224,242,0.16)" stroke="rgba(214,224,242,0.45)" strokeWidth={0.7} style={ns} />
           <path d={e.prop.blades} fill="#2c3445" opacity={0.85} />
@@ -170,6 +173,11 @@ function AircraftArtImpl({ typeId, livery, code, name, className, gear = true, h
         <linearGradient id={id('wing')} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0" stopColor={WING[0]} />
           <stop offset="1" stopColor={WING[1]} />
+        </linearGradient>
+        <linearGradient id={id('wsec')} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#e2e7ef" />
+          <stop offset="0.5" stopColor="#c3ccda" />
+          <stop offset="1" stopColor="#a4afc1" />
         </linearGradient>
         <radialGradient id={id('sh')}>
           <stop offset="0" stopColor="rgba(16,30,58,0.3)" />
@@ -248,14 +256,16 @@ function AircraftArtImpl({ typeId, livery, code, name, className, gear = true, h
 
       {!g.gear.fromNacelle && gearEls}
 
-      {/* wing */}
+      {/* wing (a sectioned high wing goes over its slung nacelles, under the propellers) */}
       {g.wingRoot && <path d={g.wingRoot} fill={url('fus')} stroke={OUTLINE} strokeWidth={sw * 0.8} style={ns} />}
-      <path d={g.wing.fill} fill={url('wing')} stroke={OUTLINE} strokeWidth={sw * 0.9} style={ns} strokeLinejoin="round" />
+      {p.wing.section && near.map((e, i) => engine(e, i + far.length, !!e.spec.inboard, 'body'))}
+      <path d={g.wing.fill} fill={url(p.wing.section ? 'wsec' : 'wing')} stroke={OUTLINE} strokeWidth={sw * 0.9} style={ns} strokeLinejoin="round" />
+      {g.wing.shade && <path d={g.wing.shade} fill="rgba(40,58,92,0.16)" />}
       {g.wing.tip && <path d={g.wing.tip} fill={url('wing')} stroke={OUTLINE} strokeWidth={sw * 0.9} style={ns} strokeLinejoin="round" />}
       {full && <path d={g.wing.lines} fill="none" stroke={FINE} strokeWidth={0.6} style={ns} />}
 
       {/* engines */}
-      {near.map((e, i) => engine(e, i + far.length, !!e.spec.inboard))}
+      {near.map((e, i) => engine(e, i + far.length, !!e.spec.inboard, p.wing.section ? 'prop' : 'all'))}
 
       {g.gear.fromNacelle && gearEls}
     </svg>

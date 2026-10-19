@@ -1,71 +1,117 @@
 // Turboprops (ATR 42/72, Dash 8-400) and regional jets (CRJ900, E175, E190-E2,
 // E195-E2). Dimensions in metres; x aft of the nose tip, y above the centreline.
 
-import type { AircraftProfile } from '../types';
+import type { AircraftProfile, NoseSpec, TailConeSpec } from '../types';
 import { NOSE, TAIL, cargo, exit, leg, pax, row } from './shared';
 
 // ---------- ATR 42 / 72 ----------
+// Fitted to the ATR family 3-view: the -72 is the -42 with ~2.27 m ahead of the wing
+// and ~2.23 m behind it. High wing drawn as its root aerofoil with the nacelle slung
+// beneath, propeller in front, gear sponson pod on the lower fuselage.
 
-function atr(id: string, L: number, stretch: number, ref: AircraftProfile['ref']): AircraftProfile {
+const NOSE_ATR: NoseSpec = {
+  upper: [0, -0.22, 0, -0.12, 0.17, 0.04, 0.36, 0.1, 0.49, 0.142, 0.72, 0.38, 0.87, 0.44, 1.0, 0.492, 1.15, 0.5, 1.3, 0.5],
+  lower: [0, -0.22, 0, -0.3, 0.1, -0.41, 0.27, -0.45, 0.37, -0.474, 0.5, -0.5, 0.7, -0.5],
+  radome: 0.2,
+};
+
+/** Long straight belly upsweep to a rounded tip at ~0.27 H, no APU. */
+const TAIL_ATR: TailConeSpec = {
+  upper: [-1.2, 0.5, -0.7, 0.5, -0.25, 0.44, 0, 0.3],
+  lower: [-3.0, -0.5, -2.6, -0.5, -2.35, -0.38, -2.0, -0.29, -1.4, -0.145, -0.7, 0.02, -0.12, 0.16, -0.04, 0.18, 0, 0.22, 0, 0.27],
+};
+
+function atr(id: string, f: number, aft: number, span: number, ref: AircraftProfile['ref']): AircraftProfile {
   const H = 2.6;
+  const L = 22.67 + f + aft;
   return {
     id,
     length: L,
     height: H,
-    nose: NOSE.atr,
-    cockpit: { style: 'atr', u: 0.24, v: 0.05, scale: 0.85 },
-    tail: TAIL.turboprop,
-    fin: { x: L - 7.3, rootChord: 4.4, tipChord: 1.7, height: 4.2, sweep: 36, fillet: { len: 3.4, h: 0.7 }, rudder: 0.3 },
-    stab: { x: L - 3.4, y: 0, rootChord: 1.9, tipChord: 1.05, span: 3.6, sweep: 9, dihedral: 0, thickness: 0.2, tTail: true },
-    wing: { x: 9.2 + stretch * 0.4, y: H / 2 + 0.08, rootChord: 2.57, tipChord: 1.41, span: 11.0 + stretch * 0.12, sweep: 3, dihedral: 2.5, thickness: 0.42, tip: 'none', high: true },
-    engines: [{ mount: 'turboprop', style: 'turboprop', x: 7.5 + stretch * 0.4, y: 0.62, dia: 1.12, len: 5.0, prop: { dia: 3.93, blades: 6 } }],
-    sponson: { x0: 9.6 + stretch * 0.45, x1: 13.6 + stretch * 0.45, depth: 0.32 },
-    gear: { stance: 2.15, nose: leg(2.3, 2, 0.45), main: [leg(11.4 + stretch * 0.45, 4, 0.8)], from: 'sponson' },
-    doors: [cargo(2.6, 1.27, 1.53), pax(L - 5.4, 0.72, 1.75)],
-    windows: [row(4.8, L - 5.8, 0.28, 0.762, 0.25, 0.33)],
+    nose: NOSE_ATR,
+    cockpit: { style: 'atr', u: 0.62, v: 0.21, scale: 0.85 },
+    tail: TAIL_ATR,
+    fin: { x: L - 5.17, rootChord: 4.0, tipChord: 1.85, height: 4.2, sweep: 38, fillet: { len: 4.4, h: 1.5 }, rudder: 0.32 },
+    stab: { x: L - 2.2, y: 0, rootChord: 2.05, tipChord: 1.2, span: 3.45, sweep: 10, dihedral: 0, thickness: 0.2, tTail: true },
+    wing: { x: 8.55 + f, y: H / 2 + 0.14, rootChord: 2.9, tipChord: 1.41, span, sweep: 3, dihedral: 2.5, thickness: 0.46, tip: 'none', high: true, section: true },
+    engines: [{ mount: 'turboprop', style: 'turboprop', x: 6.47 + f, y: 0.86, dia: 1.26, len: 6.5, prop: { dia: 3.93, blades: 6 } }],
+    sponson: { x0: 7.56 + f, x1: 13.01 + f, depth: 0.3, rise: 0.95 },
+    gear: { stance: 2.05, nose: leg(1.7, 2, 0.45), main: [leg(10.65 + f, 2, 0.8)], from: 'sponson' },
+    doors: [cargo(3.67, 1.31, 1.76), pax(L - 7.57, 0.75, 1.75)],
+    windows: [row(5.72, L - 8.2, 0.2, 0.54, 0.22, 0.34)],
+    // titles above the big forward cargo door, ending short of the propeller
+    titles: { x: 3.25, y: 0.93, w: 3.2 + f, size: 0.44 },
     ref,
   };
 }
 
-const atr42 = atr('atr42', 22.67, 0, { overallHeight: 7.59, span: 24.57 });
-const atr72 = atr('atr72', 27.17, 4.5, { overallHeight: 7.65, span: 27.05 });
+const atr42 = atr('atr42', 0, 0, 10.9, { overallHeight: 7.59, span: 24.57 });
+const atr72 = atr('atr72', 2.27, 2.23, 12.1, { overallHeight: 7.65, span: 27.05 });
 
 // ---------- Dash 8-400 ----------
+// Long slender fuselage, pointed nose, very long nacelles that carry the main gear,
+// big T-tail whose stabiliser overhangs the tail cone (length = tail-cone tip).
+
+const NOSE_Q400: NoseSpec = {
+  upper: [0, -0.2, 0, -0.11, 0.2, 0.0, 0.42, 0.07, 0.6, 0.12, 0.84, 0.36, 1.0, 0.43, 1.17, 0.49, 1.35, 0.5, 1.55, 0.5],
+  lower: [0, -0.2, 0, -0.29, 0.14, -0.4, 0.36, -0.45, 0.5, -0.476, 0.7, -0.5, 0.9, -0.5],
+  radome: 0.26,
+};
+
+const TAIL_Q400: TailConeSpec = {
+  upper: [-1.3, 0.5, -0.8, 0.5, -0.3, 0.45, 0, 0.36],
+  lower: [-2.7, -0.5, -2.0, -0.5, -1.1, -0.16, -0.2, 0.17, -0.05, 0.22, 0, 0.26, 0, 0.3],
+};
 
 const q400: AircraftProfile = {
   id: 'q400',
-  length: 32.84,
+  length: 31.2,
   height: 2.69,
-  nose: NOSE.q400,
-  cockpit: { style: 'q400', u: 0.36, v: 0.06, scale: 0.85 },
-  tail: TAIL.turboprop,
-  fin: { x: 25.0, rootChord: 4.9, tipChord: 2.0, height: 4.55, sweep: 32, fillet: { len: 3.6, h: 0.75 }, rudder: 0.32 },
-  stab: { x: 29.3, y: 0, rootChord: 2.1, tipChord: 1.1, span: 3.9, sweep: 12, dihedral: 0, thickness: 0.22, tTail: true },
-  wing: { x: 13.1, y: 1.43, rootChord: 2.9, tipChord: 1.35, span: 12.9, sweep: 3, dihedral: 2.5, thickness: 0.46, tip: 'none', high: true },
-  engines: [{ mount: 'turboprop', style: 'turboprop', x: 10.7, y: 0.6, dia: 1.3, len: 5.2, tailLen: 8.6, prop: { dia: 4.11, blades: 6 } }],
-  gear: { stance: 2.45, nose: leg(2.6, 2, 0.56), main: [leg(16.55, 2, 0.86)], from: 'nacelle' },
-  doors: [pax(3.4, 0.79, 1.65), pax(27.0, 0.79, 1.65), cargo(25.4, 1.3, 1.5)],
-  windows: [row(5.4, 25.6, 0.28, 0.79, 0.27, 0.36)],
+  nose: NOSE_Q400,
+  cockpit: { style: 'q400', u: 0.64, v: 0.11, scale: 0.85 },
+  tail: TAIL_Q400,
+  fin: { x: 25.3, rootChord: 5.2, tipChord: 2.6, height: 4.55, sweep: 38, fillet: { len: 3.2, h: 1.3 }, rudder: 0.36 },
+  stab: { x: 28.6, y: 0, rootChord: 2.6, tipChord: 1.3, span: 4.0, sweep: 25, dihedral: 0, thickness: 0.24, tTail: true },
+  wing: { x: 10.3, y: 1.47, rootChord: 2.95, tipChord: 1.35, span: 12.9, sweep: 3, dihedral: 2.5, thickness: 0.56, tip: 'none', high: true, section: true },
+  engines: [{ mount: 'turboprop', style: 'turboprop', x: 7.9, y: 0.64, dia: 1.74, len: 5.2, tailLen: 9.2, prop: { dia: 4.11, blades: 6 } }],
+  gear: { stance: 2.45, nose: leg(1.6, 2, 0.56), main: [leg(13.6, 2, 0.86)], from: 'nacelle' },
+  doors: [pax(3.5, 0.85, 1.7), pax(20.2, 0.8, 1.65), cargo(21.7, 1.45, 1.55)],
+  windows: [row(5.1, 19.6, 0.3, 0.6, 0.26, 0.36)],
   ref: { overallHeight: 8.34, span: 28.42 },
 };
 
 // ---------- CRJ900 ----------
+// Fitted to a side-on photo: slender tube on tall gear, rear CF34s high on the
+// fuselage, swept fin and T-tail overhanging the tail cone (length = tail-cone tip;
+// 36.2 m overall includes the stabiliser).
+
+const NOSE_CRJ: NoseSpec = {
+  upper: [0, -0.2, 0, -0.1, 0.15, 0.0, 0.35, 0.06, 0.55, 0.12, 0.75, 0.32, 0.95, 0.41, 1.15, 0.48, 1.35, 0.5, 1.6, 0.5],
+  lower: [0, -0.2, 0, -0.3, 0.15, -0.41, 0.4, -0.46, 0.55, -0.49, 0.75, -0.5, 1.0, -0.5],
+  radome: 0.24,
+};
+
+const TAIL_CRJ: TailConeSpec = {
+  upper: [-1.8, 0.5, -1.1, 0.5, -0.45, 0.36, 0, 0.25],
+  lower: [-3.4, -0.5, -2.4, -0.5, -1.0, -0.2, 0, -0.05],
+  apu: 0.22,
+};
 
 const crj900: AircraftProfile = {
   id: 'crj900',
-  length: 36.2,
+  length: 33.4,
   height: 2.69,
-  nose: NOSE.crj,
-  cockpit: { style: 'crj', u: 0.48, v: 0.06, scale: 0.85 },
-  tail: TAIL.crj,
-  fin: { x: 30.0, rootChord: 4.6, tipChord: 2.5, height: 3.8, sweep: 42, fillet: { len: 2.4, h: 0.5 }, rudder: 0.3 },
-  stab: { x: 33.2, y: 0, rootChord: 2.3, tipChord: 1.2, span: 4.0, sweep: 30, dihedral: 0, thickness: 0.22, tTail: true },
-  wing: { x: 15.4, y: -0.85, rootChord: 4.6, tipChord: 1.1, span: 10.8, sweep: 30, dihedral: 3, thickness: 0.55, tip: 'winglet', tipH: 1.2 },
-  engines: [{ mount: 'rear', style: 'rear', x: 25.2, y: 0.62, dia: 1.45, len: 4.0 }],
-  fairing: { x0: 14.5, x1: 22.0, depth: 0.16 },
-  gear: { stance: 2.4, nose: leg(3.0, 2, 0.6), main: [leg(20.3, 2, 0.95)] },
-  doors: [pax(2.85, 0.78, 1.65), exit(15.6), exit(16.9), cargo(24.2, 1.2, 0.85)],
-  windows: [row(4.6, 24.4, 0.3, 0.508, 0.22, 0.3)],
+  nose: NOSE_CRJ,
+  cockpit: { style: 'crj', u: 0.65, v: 0.15, scale: 1.05 },
+  tail: TAIL_CRJ,
+  fin: { x: 28.4, rootChord: 4.0, tipChord: 2.5, height: 2.92, sweep: 50, fillet: { len: 1.8, h: 0.45 }, rudder: 0.32 },
+  stab: { x: 32.2, y: 0, rootChord: 2.4, tipChord: 1.15, span: 4.2, sweep: 33, dihedral: 0, thickness: 0.22, tTail: true },
+  wing: { x: 15.0, y: -0.95, rootChord: 5.4, tipChord: 1.2, span: 11.0, sweep: 26.5, dihedral: 5.5, thickness: 0.55, tip: 'winglet', tipH: 1.7 },
+  engines: [{ mount: 'rear', style: 'rear', x: 25.2, y: 0.85, dia: 1.5, len: 3.9 }],
+  fairing: { x0: 14.0, x1: 22.4, depth: 0.16 },
+  gear: { stance: 3.05, nose: leg(2.0, 2, 0.62), main: [leg(19.2, 2, 1.02)] },
+  doors: [pax(4.0, 0.86, 1.8), exit(16.6, 0.5, 0.95), exit(17.7, 0.5, 0.95), cargo(25.0, 1.27, 0.9)],
+  windows: [row(5.5, 24.3, 0.53, 0.79, 0.21, 0.3)],
   ref: { overallHeight: 7.51, span: 24.85 },
 };
 

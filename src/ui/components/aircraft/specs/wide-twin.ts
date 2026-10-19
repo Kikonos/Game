@@ -1,5 +1,7 @@
 // A330-300 / A330-900, 787-8/9/10, A350-900/1000. Dimensions in metres
 // (A330-300 and 787-8 checked against 3-views; the others scaled from them).
+// Low wings: the root band sits on the lower third of the fuselage, just above
+// the belly fairing, and rises aft with the real dihedral.
 
 import type { AircraftProfile } from '../types';
 import { NOSE, TAIL, cargo, exit, leg, pax, row } from './shared';
@@ -47,7 +49,7 @@ function b787(id: string, fwd: number, aft: number, mainX: number, ref: Aircraft
     tail: TAIL.b787,
     fin: { x: 46.3 + fa, rootChord: 6.9, tipChord: 2.2, height: 9.0 + (ref.overallHeight - 16.92), sweep: 42, fillet: { len: 2.8, h: 1.2 }, tip: 'round', bow: 0.03, rudder: 0.35 },
     stab: { x: 48.3 + fa, y: 0.6, rootChord: 5.0, tipChord: 1.6, span: 8.8, sweep: 40, dihedral: 9, thickness: 0.45 },
-    wing: { x: 21.0 + fwd, y: -1.4, rootChord: 10.5, tipChord: 2.8, span: 23.0, sweep: 34, dihedral: 8, thickness: 1.2, tip: 'raked', tipH: 4.5 },
+    wing: { x: 21.0 + fwd, y: -1.6, rootChord: 10.5, tipChord: 2.8, span: 23.0, sweep: 34, dihedral: 8, thickness: 1.2, tip: 'raked', tipH: 4.5 },
     engines: [{ mount: 'underwing', style: 'chevron', x: 16.0 + fwd, y: -2.55, dia: 3.5, len: 8.6, station: 0.3 }],
     fairing: { x0: 17.5 + fwd, x1: 34.0 + fwd, depth: 0.35 },
     gear: { stance: 4.87 + (ref.overallHeight - 16.92), nose: leg(5.1, 2, 1.1), main: [leg(mainX, 4, 1.32)] },
@@ -75,7 +77,7 @@ function a350(id: string, fwd: number, aft: number, mainX: number, wheels: 4 | 6
     tail: TAIL.a350,
     fin: { x: 53.6 + fa, rootChord: 8.8, tipChord: 2.8, height: 8.8, sweep: 45, fillet: { len: 4.0, h: 1.5 }, tip: 'round', bow: 0.04, rudder: 0.33 },
     stab: { x: 57.4 + fa, y: 0.8, rootChord: 5.6, tipChord: 1.8, span: 8.8, sweep: 36, dihedral: 7, thickness: 0.5 },
-    wing: { x: 23.4 + fwd, y: -1.6, rootChord: 12.0 + (wheels === 6 ? 0.4 : 0), tipChord: 2.6, span: 26.5, sweep: 34, dihedral: 7, thickness: 1.3, tip: 'curved', tipH: 3.6 },
+    wing: { x: 23.4 + fwd, y: -1.95, rootChord: 12.0 + (wheels === 6 ? 0.4 : 0), tipChord: 2.6, span: 26.5, sweep: 34, dihedral: 7, thickness: 1.3, tip: 'curved', tipH: 2.9 },
     engines: [{ mount: 'underwing', style: 'plain', x: 18.8 + fwd, y: -3.05, dia: wheels === 6 ? 3.75 : 3.6, len: 8.4, station: 0.32 }],
     fairing: { x0: 20.5 + fwd, x1: 40.5 + fwd, depth: 0.32 },
     gear: { stance: 5.2, nose: leg(6.2, 2, 1.15), main: [leg(mainX, wheels, 1.4)] },

@@ -114,6 +114,12 @@ export interface WingSpec {
   tipH?: number;
   /** High-wing turboprop (drawn with a fairing on the crown). */
   high?: boolean;
+  /**
+   * Draw the side view as the root aerofoil section (LE at x, y = chord line) instead of the
+   * projected planform: high-wing turboprops, whose nacelles are then slung beneath the wing
+   * and whose propellers are drawn in front of it.
+   */
+  section?: boolean;
   /** Delta planform (Overture): long root chord, tip close to the trailing edge. */
   delta?: boolean;
 }
@@ -158,6 +164,8 @@ export interface FairingSpec {
   x1: number;
   /** Depth below the belly line (m). */
   depth: number;
+  /** Top seam height above the belly line (m): outlines a separate pod (ATR sponson). Default: low fairing seam. */
+  rise?: number;
 }
 
 export interface GearLeg {
