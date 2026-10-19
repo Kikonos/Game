@@ -1,9 +1,8 @@
-import { BookOpen, Download, FolderOpen, Play, Plus, Settings, Wifi, WifiOff } from 'lucide-react';
+import { Download, FolderOpen, Play, Plus, Settings, Wifi, WifiOff } from 'lucide-react';
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import { AIRCRAFT, AIRCRAFT_BY_ID } from '../../data/aircraft';
+import { AIRCRAFT_BY_ID } from '../../data/aircraft';
 import { AIRPORTS } from '../../data/airports';
 import { latestSave, loadFromSlot } from '../../engine/save';
-import { formatDate } from '../../engine/util';
 import { AircraftArt } from '../components/AircraftArt';
 import { LogoMark } from '../components/Logo';
 import { GlobalModals } from '../game/Modals';
@@ -19,7 +18,7 @@ const AMBIENT: [string, string][] = [
   ['PEK', 'CDG'], ['BOM', 'DXB'], ['CAI', 'FRA'], ['GRU', 'EZE'], ['SEA', 'ANC'], ['DEN', 'ORD'], ['MNL', 'NRT'],
 ];
 
-const SHOWCASE = ['a35k', 'b789', 'a388', 'a321xlr', 'atr72', 'b779', 'a220_300', 'b748', 'e195e2', 'overture'];
+const SHOWCASE = ['a320ceo', 'b738', 'b752', 'b763', 'a333', 'b772', 'b77w', 'a359', 'a388'];
 
 function useOffline() {
   return useSyncExternalStore(
@@ -67,11 +66,11 @@ export function Title() {
             <LogoMark size={64} />
             <div>
               <h1 className="title-word">CONTRAIL</h1>
-              <div className="title-tag">AIRLINE EMPIRE</div>
+              <div className="title-tag">ACMI · WET LEASE · CHARTER</div>
             </div>
           </div>
           <p className="title-pitch">
-            Build an airline from a single regional base into a global giant. Real aircraft, real airports and a market that never stands still.
+            Run an ACMI operator: lease out aircraft with crew, maintenance and insurance by the block hour. Season bases, AOG rescues, charters and repatriation flights.
           </p>
           <div className="title-menu">
             {save && (
@@ -79,15 +78,15 @@ export function Title() {
                 <Play />
                 <div>
                   <div className="mb-t">Continue</div>
-                  <div className="mb-s">{save.airline} · {formatDate(save.day)} · {money(save.cash)} · {save.fleet} aircraft</div>
+                  <div className="mb-s">{save.company} · {save.date} · {money(save.cash)} · {save.fleet} aircraft</div>
                 </div>
               </button>
             )}
             <button className={`menu-btn ${save ? '' : 'primary'}`} onClick={() => store.setScreen('newgame')}>
               <Plus />
               <div>
-                <div className="mb-t">New Airline</div>
-                <div className="mb-s">Pick a region, choose a hub, design your livery</div>
+                <div className="mb-t">New Operator</div>
+                <div className="mb-s">Two A320s, sixty crew and a summer to win</div>
               </div>
             </button>
             <button className="menu-btn" onClick={() => store.openModal({ kind: 'saves', mode: 'load' })}>
@@ -99,7 +98,6 @@ export function Title() {
             </button>
             <div className="row gap-8 mt-8">
               <button className="btn btn-ghost" onClick={() => store.openModal({ kind: 'settings' })}><Settings /> Settings</button>
-              <button className="btn btn-ghost" onClick={() => store.openModal({ kind: 'handbook' })}><BookOpen /> Handbook</button>
               {offline.installPrompt && <button className="btn btn-ghost" onClick={() => void promptInstall()}><Download /> Install app</button>}
             </div>
           </div>
@@ -130,7 +128,7 @@ export function Title() {
           {offline.online ? <Wifi size={14} /> : <WifiOff size={14} />}
           {offline.ready ? 'Offline ready — plays without internet' : offline.online ? 'Online' : 'Offline mode'}
         </span>
-        <span className="dim small">v0.2 · {AIRPORTS.length} airports · {AIRCRAFT.length} aircraft types</span>
+        <span className="dim small">v0.5 ACMI · {AIRPORTS.length} airports · {SHOWCASE.length} aircraft types</span>
       </div>
       <GlobalModals />
     </div>

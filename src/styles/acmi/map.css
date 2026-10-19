@@ -1,0 +1,14 @@
+/* ==========================================================================
+   Ops Map (B4). Skeleton rules only.
+   ========================================================================== */
+.ops-map { position: absolute; inset: 0; }
+.ops-map .worldmap { position: absolute; inset: 0; }
+.ops-aircraft g { cursor: pointer; }
+.ops-fleet {
+  position: absolute; left: var(--edge-l); bottom: 16px; width: 280px; padding: 12px; display: flex; flex-direction: column; gap: 6px;
+  background: var(--panel); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+}
+.ops-fleet-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 10px; border: none; background: none; text-align: left; min-height: var(--tap); }
+.ops-fleet-row.on, .ops-fleet-row:active { background: var(--panel-hover); }
+.ops-fleet-art { width: 84px; flex-shrink: 0; }
+.ops-fleet-art svg { width: 100%; height: auto; display: block; }

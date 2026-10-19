@@ -1,0 +1,14 @@
+/* ==========================================================================
+   ACMI shell (architect → B5): top bar + 80px rail on every non-compact tier, no ticker.
+   The rail reuses the .shell.medium rules in styles/touch/shell.css.
+   ========================================================================== */
+.shell.acmi { --ticker-h: 0px; grid-template-areas: 'top top' 'side main' 'side main'; }
+.shell.acmi.medium { --side-w: 84px; }
+.shell.acmi .topbar { gap: 14px; padding-left: calc(10px + var(--safe-l)); }
+.shell.acmi .clock { min-width: 150px; }
+.shell.acmi .airline-pill .name { max-width: 190px; }
+/* Compact (Split View / phones) is not a v0.5 target: keep the rail, shrink the chrome. */
+.shell.acmi.compact-acmi { --side-w: 64px; --topbar-h: 54px; }
+.shell.acmi.compact-acmi .airline-pill .col, .shell.acmi.compact-acmi .tb-cash .s { display: none; }
+.shell.acmi.compact-acmi .nav-item .lbl { display: none; }
+.shell.acmi.compact-acmi .nav-item { justify-content: center; padding: 0; }

@@ -1,315 +1,159 @@
-import { ArrowLeft, ArrowRight, Check, Rocket } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { AIRPORT_BY_CODE, AIRPORTS_BY_REGION, SIZE_LABEL } from '../../data/airports';
-import { COUNTRIES, flag } from '../../data/countries';
-import { CONTINENT_ORDER, CONTINENTS, REGIONS, REGION_BY_ID } from '../../data/regions';
-import { airportMass, baseCompetition, baseDemand } from '../../engine/demand';
-import { HUB_MONTHLY } from '../../engine/economy';
-import { distance } from '../../engine/geo';
-import { DIFFICULTY } from '../../engine/newGame';
-import { regionMass } from '../../engine/progression';
-import type { Difficulty, Livery, TailStyle } from '../../engine/types';
+// New Game (B5 polishes): company name, code and livery, home base from the five ACMI bases,
+// scenario "Startup". Skeleton version by the architect. DESIGN.md §6.3.
+
+import { ArrowLeft, Rocket } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { AIRPORT_BY_CODE } from '../../data/airports';
+import { flag } from '../../data/countries';
+import { COMPANY_PRESETS, HOME_BASES } from '../../data/naming';
+import type { Livery, TailStyle } from '../../engine/core/types';
+import { BAL } from '../../engine/core/balance';
 import { AircraftArt } from '../components/AircraftArt';
 import { LogoMark, TailBadge } from '../components/Logo';
-import { Bar, Seg } from '../components/ui';
+import { Seg } from '../components/ui';
 import { money } from '../format';
-import { WorldMap } from '../map/WorldMap';
 import { store } from '../store';
-import { useMedia } from '../useMedia';
 
-/** Portrait layouts put the map above the form; its caption docks to the side (tablet) or slims down (narrow). */
-const PORTRAIT_TABLET = '(min-width: 700px) and (max-width: 1099.98px) and (min-height: 600px) and (orientation: portrait)';
-const PORTRAIT_NARROW = '(max-width: 699.98px) and (min-height: 600px) and (orientation: portrait)';
-
-const PALETTE = ['#1e4fd8', '#0f9d76', '#d6283c', '#7a3cff', '#ff7a00', '#0b1f4d', '#e0457b', '#00a3c4', '#c8a000', '#202733', '#5e2ca5', '#2bb34a'];
+const PALETTE = ['#1e4fd8', '#0f9d76', '#d6283c', '#7a3cff', '#ff7a00', '#0b1f4d', '#e0457b', '#00a3c4', '#c8a000', '#202733'];
 const SECONDARY = ['#ffffff', '#3ee6ff', '#f5c451', '#ff5d8f', '#9be15d', '#ff8a00', '#c0c7d6', '#111827'];
-const STEPS = ['Region', 'Hub', 'Brand', 'Launch'];
 
-const NAMES = ['Aurora Air', 'Skylark Airways', 'Meridian Air', 'Cirrus Airlines', 'Vela Airways', 'Northwind Air', 'Solstice Airways', 'Halcyon Air', 'Zephyr Airlines', 'Polaris Air'];
+const BASE_NOTES: Record<string, string> = {
+  LIS: 'Lusophone widebody heartland: Brazil, Africa, diaspora and repatriation work.',
+  VNO: 'Baltic narrowbody machine: low costs, summer bases all over Europe.',
+  MLA: 'Island AOC with a Mediterranean reach and a favourable registry.',
+  MAD: 'Iberian hub: Latin America, sports clubs and tour operators.',
+  RIX: 'Baltic base with winter work in Canada and the Nordics.',
+};
 
-/**
- * While the on-screen keyboard is open (iPad), fit the screen to the visible area so the focused field and
- * the action bar stay above the keyboard; the panel scrolls the field into view.
- */
-function useKeyboardFit(ref: React.RefObject<HTMLDivElement | null>) {
-  useEffect(() => {
-    const vv = window.visualViewport;
-    const el = ref.current;
-    if (!vv || !el) return;
-    let timer = 0;
-    const update = () => {
-      const kb = Math.max(window.innerHeight, document.documentElement.clientHeight) - vv.height - vv.offsetTop;
-      if (kb > 80) {
-        el.dataset.kb = '';
-        el.style.top = `${Math.round(vv.offsetTop)}px`;
-        el.style.height = `${Math.round(vv.height)}px`;
-        window.clearTimeout(timer);
-        timer = window.setTimeout(() => {
-          const a = document.activeElement;
-          if (a instanceof HTMLElement && el.contains(a) && a.matches('input, select, textarea')) a.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-        }, 80);
-      } else if (el.dataset.kb !== undefined) {
-        delete el.dataset.kb;
-        el.style.top = '';
-        el.style.height = '';
-      }
-    };
-    vv.addEventListener('resize', update);
-    vv.addEventListener('scroll', update);
-    return () => {
-      vv.removeEventListener('resize', update);
-      vv.removeEventListener('scroll', update);
-      window.clearTimeout(timer);
-    };
-  }, [ref]);
-}
-
-/** Return closes the on-screen keyboard. */
 const blurOnEnter = (e: React.KeyboardEvent<HTMLInputElement>) => {
   if (e.key === 'Enter') e.currentTarget.blur();
 };
 
-function regionStats(id: string) {
-  const aps = AIRPORTS_BY_REGION[id];
-  const mass = regionMass(id);
-  const comp = aps.reduce((s, a) => s + a.size, 0) / aps.length;
-  return { aps, mass, comp };
-}
-
 export function NewGame() {
-  const [step, setStep] = useState(0);
-  const [region, setRegion] = useState('IBE');
-  const [hub, setHub] = useState('MAD');
-  const [name, setName] = useState(() => NAMES[Math.floor(Math.random() * NAMES.length)]);
-  const [code, setCode] = useState('');
-  const [ceo, setCeo] = useState('');
-  const [livery, setLivery] = useState<Livery>({ primary: '#1e4fd8', secondary: '#3ee6ff', tail: 'sweep' });
-  const [difficulty, setDifficulty] = useState<Difficulty>('normal');
+  const [preset, setPreset] = useState(0);
+  const [name, setName] = useState(COMPANY_PRESETS[0].name);
+  const [code, setCode] = useState(COMPANY_PRESETS[0].code);
+  const [base, setBase] = useState<string>('LIS');
+  const [livery, setLivery] = useState<Livery>({ primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' });
   const root = useRef<HTMLDivElement>(null);
-  useKeyboardFit(root);
-  const sideCaption = useMedia(PORTRAIT_TABLET);
-  const slimCaption = useMedia(PORTRAIT_NARROW);
-  const capMode = sideCaption ? 'side' : slimCaption ? 'slim' : 'bottom';
-  const mapPad: [number, number, number, number] = capMode === 'side' ? [12, 330, 12, 12] : capMode === 'slim' ? [10, 10, 76, 10] : [10, 10, 210, 10];
-  const derivedCode = (code || name.replace(/[^A-Za-z]/g, '').slice(0, 2)).toUpperCase().padEnd(2, 'X');
+  const derived = (code || name.replace(/[^A-Za-z]/g, '').slice(0, 2)).toUpperCase().padEnd(2, 'X');
 
-  const maxMass = useMemo(() => Math.max(...REGIONS.map((r) => regionMass(r.id))), []);
-  const hubOptions = useMemo(() => {
-    const aps = AIRPORTS_BY_REGION[region];
-    return aps
-      .map((a) => {
-        const market = aps.filter((b) => b.code !== a.code && distance(a.code, b.code) >= 150).reduce((s, b) => s + baseDemand(a.code, b.code), 0);
-        const comp = aps.filter((b) => b.code !== a.code).reduce((s, b) => s + baseCompetition(a.code, b.code), 0) / Math.max(1, aps.length - 1);
-        return { a, market, comp };
-      })
-      .sort((x, y) => y.market - x.market);
-  }, [region]);
-  const maxMarket = Math.max(...hubOptions.map((h) => h.market));
-  const rotate = REGION_BY_ID[region].continent === 'OC' ? -150 : 0;
-
-  const pickRegion = (id: string) => {
-    setRegion(id);
-    const best = AIRPORTS_BY_REGION[id].slice().sort((a, b) => airportMass(b) - airportMass(a))[0];
-    setHub(best.code);
+  const usePreset = (i: number) => {
+    const p = COMPANY_PRESETS[i];
+    setPreset(i);
+    setName(p.name);
+    setCode(p.code);
+    setBase(p.base);
   };
 
   const launch = () => {
-    store.startNewGame({ name, code: derivedCode, ceo: ceo || 'You', livery, hub, difficulty });
+    const p = COMPANY_PRESETS[preset];
+    const same = p.name === name;
+    store.startNewGame({ name: name.trim() || p.name, code: derived, icao: same ? p.icao : undefined, callsign: same ? p.callsign : undefined, livery, base });
   };
 
-  const mapAirports = AIRPORTS_BY_REGION[region].map((a) => ({ code: a.code, state: a.code === hub && step >= 1 ? ('hub' as const) : ('open' as const), label: step === 1 }));
-
   return (
-    <div className="newgame" ref={root}>
+    <div className="newgame acmi-ng" ref={root}>
       <header className="ng-head">
         <div className="row gap-12">
           <LogoMark size={36} />
           <div>
-            <div className="upper dim">New airline</div>
-            <h2>{['Choose your home region', 'Choose your hub airport', 'Design your brand', 'Ready for take-off'][step]}</h2>
+            <div className="upper dim">New ACMI operator · Startup</div>
+            <h2>Two A320s, a crew room and a summer to win</h2>
           </div>
         </div>
-        <ol className="ng-steps">
-          {STEPS.map((s, i) => (
-            <li key={s} className={i === step ? 'active' : i < step ? 'done' : ''} aria-current={i === step ? 'step' : undefined}>
-              {i < step ? (
-                <button className="ng-step-btn" onClick={() => setStep(i)} aria-label={`Back to ${s}`}><span className="n"><Check size={12} /></span>{s}</button>
-              ) : (
-                <><span className="n">{i + 1}</span>{s}</>
-              )}
-            </li>
-          ))}
-        </ol>
       </header>
 
       <div className="ng-body">
         <div className="ng-panel">
-          {step === 0 && (
-            <div className="ng-regions">
-              {CONTINENT_ORDER.map((c) => (
-                <div key={c}>
-                  <div className="upper ng-cont" style={{ color: CONTINENTS[c].color }}>{CONTINENTS[c].name}</div>
-                  <div className="grid-2">
-                    {REGIONS.filter((r) => r.continent === c).map((r) => {
-                      const st = regionStats(r.id);
-                      return (
-                        <button key={r.id} className={`card region-card hoverable ${region === r.id ? 'selected' : ''}`} onClick={() => pickRegion(r.id)}>
-                          <div className="row between">
-                            <b>{r.name}</b>
-                            <span className="dim small">{st.aps.length} airports</span>
-                          </div>
-                          <div className="rc-bars">
-                            <span className="dim tiny">Market</span><Bar value={st.mass / maxMass} />
-                            <span className="dim tiny">Rivals</span><Bar value={(st.comp - 1) / 4} tone="warn" />
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
+          <div className="col gap-16">
+            <div className="field">
+              <label>Presets</label>
+              <div className="row wrap gap-8">
+                {COMPANY_PRESETS.map((p, i) => (
+                  <button key={p.name} className={`chip ${preset === i ? 'active' : ''}`} onClick={() => usePreset(i)}>{p.name}</button>
+                ))}
+              </div>
             </div>
-          )}
-
-          {step === 1 && (
-            <div className="col gap-8">
-              <p className="muted small">Your hub is where your aircraft are based and every route starts. Big hubs have huge markets — and fierce competition and higher costs. You can open more hubs later.</p>
-              {hubOptions.map(({ a, market, comp }, i) => (
-                <button key={a.code} className={`card hub-card hoverable ${hub === a.code ? 'selected' : ''}`} onClick={() => setHub(a.code)}>
-                  <div className="row between">
-                    <div className="row gap-8">
-                      <span className="code">{a.code}</span>
-                      <b>{a.city}</b>
-                      <span className="dim small">{flag(a.country)} {a.name}</span>
-                    </div>
-                    {i === 0 && <span className="badge accent">Largest market</span>}
-                  </div>
-                  <div className="hub-stats">
-                    <div><span className="dim tiny">Size</span><span className="small">{SIZE_LABEL[a.size]}</span></div>
-                    <div><span className="dim tiny">Local market</span><Bar value={market / maxMarket} /></div>
-                    <div><span className="dim tiny">Competition</span><Bar value={comp / 1.6} tone="warn" /></div>
-                    <div><span className="dim tiny">Hub cost</span><span className="small num">{money(HUB_MONTHLY[a.size] * 0.15)}–{money(HUB_MONTHLY[a.size])}/mo</span></div>
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-
-          {step === 2 && (
-            <div className="col gap-16">
-              <div className="grid-2">
-                <div className="field">
-                  <label>Airline name</label>
-                  <input className="input" value={name} maxLength={28} autoComplete="off" autoCapitalize="words" enterKeyHint="next" onKeyDown={blurOnEnter} onChange={(e) => setName(e.target.value)} />
-                </div>
-                <div className="field">
-                  <label>Airline code (IATA)</label>
-                  <input className="input mono" value={code} placeholder={derivedCode} maxLength={2} autoComplete="off" autoCapitalize="characters" autoCorrect="off" spellCheck={false} enterKeyHint="next" onKeyDown={blurOnEnter} onChange={(e) => setCode(e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase())} />
-                </div>
+            <div className="grid-2">
+              <div className="field">
+                <label>Company name</label>
+                <input className="input" value={name} maxLength={28} autoComplete="off" autoCapitalize="words" enterKeyHint="next" onKeyDown={blurOnEnter} onChange={(e) => setName(e.target.value)} />
               </div>
               <div className="field">
-                <label>Your name (CEO)</label>
-                <input className="input" value={ceo} placeholder="You" maxLength={28} autoComplete="name" autoCapitalize="words" enterKeyHint="done" onKeyDown={blurOnEnter} onChange={(e) => setCeo(e.target.value)} />
-              </div>
-              <div className="field">
-                <label>Primary colour</label>
-                <div className="swatches">
-                  {PALETTE.map((c) => <button key={c} className={`swatch ${livery.primary === c ? 'on' : ''}`} style={{ background: c }} onClick={() => setLivery({ ...livery, primary: c })} aria-label={c} />)}
-                  <input type="color" className="swatch-input" value={livery.primary} onChange={(e) => setLivery({ ...livery, primary: e.target.value })} aria-label="Custom primary colour" />
-                </div>
-              </div>
-              <div className="field">
-                <label>Accent colour</label>
-                <div className="swatches">
-                  {SECONDARY.map((c) => <button key={c} className={`swatch ${livery.secondary === c ? 'on' : ''}`} style={{ background: c }} onClick={() => setLivery({ ...livery, secondary: c })} aria-label={c} />)}
-                  <input type="color" className="swatch-input" value={livery.secondary} onChange={(e) => setLivery({ ...livery, secondary: e.target.value })} aria-label="Custom accent colour" />
-                </div>
-              </div>
-              <div className="field ng-tail">
-                <label>Tail design</label>
-                <Seg<TailStyle> value={livery.tail} onChange={(tail) => setLivery({ ...livery, tail })} options={[
-                  { value: 'solid', label: 'Solid' }, { value: 'split', label: 'Split' }, { value: 'stripe', label: 'Stripe' }, { value: 'sweep', label: 'Sweep' },
-                ]} />
+                <label>Code</label>
+                <input className="input mono" value={code} placeholder={derived} maxLength={2} autoComplete="off" autoCapitalize="characters" autoCorrect="off" spellCheck={false} enterKeyHint="done" onKeyDown={blurOnEnter} onChange={(e) => setCode(e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase())} />
               </div>
             </div>
-          )}
-
-          {step === 3 && (
-            <div className="col gap-12">
-              <div className="label">Difficulty</div>
-              {(Object.keys(DIFFICULTY) as Difficulty[]).map((d) => (
-                <button key={d} className={`card diff-card hoverable ${difficulty === d ? 'selected' : ''}`} onClick={() => setDifficulty(d)}>
-                  <div className="row between"><b>{DIFFICULTY[d].label}</b><span className="num">{money(DIFFICULTY[d].cash, 0)}</span></div>
-                  <div className="small muted">{DIFFICULTY[d].desc}</div>
-                </button>
-              ))}
-              <div className="card ng-summary">
-                <div className="row gap-12">
-                  <TailBadge primary={livery.primary} secondary={livery.secondary} code={derivedCode} size={44} />
-                  <div>
-                    <b className="big">{name}</b>
-                    <div className="small muted">{derivedCode} · Based at {hub} · {REGION_BY_ID[region].name}</div>
-                  </div>
-                </div>
-                <ul className="ng-tips small muted">
-                  <li>Lease or buy your first aircraft in the <b>Aircraft Market</b>.</li>
-                  <li>Open routes from your hub in the <b>Route Planner</b> and assign aircraft.</li>
-                  <li>Grow to unlock new regions, then whole continents.</li>
-                </ul>
+            <div className="field">
+              <label>Home base</label>
+              <div className="col gap-8">
+                {HOME_BASES.map((b) => {
+                  const a = AIRPORT_BY_CODE[b];
+                  return (
+                    <button key={b} className={`card hub-card hoverable ${base === b ? 'selected' : ''}`} onClick={() => setBase(b)}>
+                      <div className="row gap-8">
+                        <span className="code">{b}</span>
+                        <b>{a.city}</b>
+                        <span className="dim small">{flag(a.country)} {a.name}</span>
+                      </div>
+                      <div className="small muted mt-4">{BASE_NOTES[b]}</div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
-          )}
+            <div className="field">
+              <label>Primary colour</label>
+              <div className="swatches">
+                {PALETTE.map((c) => <button key={c} className={`swatch ${livery.primary === c ? 'on' : ''}`} style={{ background: c }} onClick={() => setLivery({ ...livery, primary: c })} aria-label={c} />)}
+              </div>
+            </div>
+            <div className="field">
+              <label>Accent colour</label>
+              <div className="swatches">
+                {SECONDARY.map((c) => <button key={c} className={`swatch ${livery.secondary === c ? 'on' : ''}`} style={{ background: c }} onClick={() => setLivery({ ...livery, secondary: c })} aria-label={c} />)}
+              </div>
+            </div>
+            <div className="field ng-tail">
+              <label>Tail design</label>
+              <Seg<TailStyle> value={livery.tail} onChange={(tail) => setLivery({ ...livery, tail })} options={[
+                { value: 'solid', label: 'Solid' }, { value: 'split', label: 'Split' }, { value: 'stripe', label: 'Stripe' }, { value: 'sweep', label: 'Sweep' },
+              ]} />
+            </div>
+          </div>
         </div>
 
         <div className="ng-visual">
-          {step < 2 ? (
-            <div className={`ng-map card cap-${capMode}`}>
-              <WorldMap rotate={rotate} routes={step === 1 ? AIRPORTS_BY_REGION[region].filter((a) => a.code !== hub && distance(hub, a.code) >= 150).map((a) => ({ id: a.code, from: hub, to: a.code, weight: Math.min(1, baseDemand(hub, a.code) / 1500), dashed: true })) : []} airports={mapAirports} fit={AIRPORTS_BY_REGION[region].map((a) => a.code)} fitPad={mapPad} interactive={step === 1} onSelect={(c) => c && AIRPORTS_BY_REGION[region].some((a) => a.code === c) && setHub(c)} controls={false} animate={false} />
-              <div className="ng-map-caption">
-                <div className="upper" style={{ color: CONTINENTS[REGION_BY_ID[region].continent].color }}>{CONTINENTS[REGION_BY_ID[region].continent].name}</div>
-                <h3>{REGION_BY_ID[region].name}</h3>
-                <p className="small muted">{REGION_BY_ID[region].blurb}</p>
-                <div className="row wrap gap-4 mt-8">
-                  {[...new Set(AIRPORTS_BY_REGION[region].map((a) => a.country))].map((c) => <span key={c} className="chip">{flag(c)} {COUNTRIES[c]?.name}</span>)}
+          <div className="ng-livery card">
+            <div className="upper dim">Your first aircraft</div>
+            <div className="livery-stage">
+              <AircraftArt typeId="a320ceo" livery={livery} code={derived} name={name} />
+            </div>
+            <div className="ng-summary">
+              <div className="row gap-12">
+                <TailBadge primary={livery.primary} secondary={livery.secondary} code={derived} size={44} />
+                <div>
+                  <b className="big">{name || 'Your company'}</b>
+                  <div className="small muted">{derived} · Based at {AIRPORT_BY_CODE[base].city} ({base})</div>
                 </div>
               </div>
+              <ul className="ng-tips small muted">
+                <li>2× A320ceo 180Y: one owned (2006), one dry-leased in (2013).</li>
+                <li>60 crew: 10 captains, 10 first officers, 10 senior cabin crew, 30 cabin crew.</li>
+                <li>{money(BAL.startCash, 1)} in the bank. Rent and salaries are due every month.</li>
+              </ul>
             </div>
-          ) : (
-            <div className="ng-livery card">
-              <div className="upper dim">Livery preview</div>
-              <div className="livery-stage">
-                <AircraftArt typeId="a320neo" livery={livery} code={derivedCode} name={name} />
-              </div>
-              <div className="grid-2">
-                <AircraftArt typeId="atr72" livery={livery} code={derivedCode} name={name} />
-                <AircraftArt typeId="b789" livery={livery} code={derivedCode} name={name} />
-              </div>
-            </div>
-          )}
+          </div>
         </div>
       </div>
 
       <footer className="ng-foot">
-        <button className="btn btn-ghost" onClick={() => (step === 0 ? store.setScreen('title') : setStep(step - 1))}>
-          <ArrowLeft /> {step === 0 ? 'Back to menu' : 'Back'}
-        </button>
+        <button className="btn btn-ghost" onClick={() => store.setScreen('title')}><ArrowLeft /> Back to menu</button>
         <div className="ng-foot-sum">
-          <span className="tiny dim">Step {step + 1} of {STEPS.length}</span>
-          <span className="ng-foot-pick">
-            {step === 0 && <><span className="dot" style={{ background: CONTINENTS[REGION_BY_ID[region].continent].color }} />{REGION_BY_ID[region].name} <span className="dim">· {AIRPORTS_BY_REGION[region].length} airports</span></>}
-            {step === 1 && <><span className="code">{hub}</span>{AIRPORT_BY_CODE[hub].city} <span className="dim">· {REGION_BY_ID[region].name}</span></>}
-            {step >= 2 && <><TailBadge primary={livery.primary} secondary={livery.secondary} code={derivedCode} size={22} /><span className="ellipsis">{name || 'Your airline'}</span> <span className="dim">· {step === 3 ? DIFFICULTY[difficulty].label : hub}</span></>}
-          </span>
+          <span className="ng-foot-pick"><TailBadge primary={livery.primary} secondary={livery.secondary} code={derived} size={22} /><span className="ellipsis">{name}</span> <span className="dim">· {base}</span></span>
         </div>
-        {step < 3 ? (
-          <button className="btn btn-primary btn-lg" onClick={() => setStep(step + 1)} disabled={step === 2 && !name.trim()}>
-            Continue <ArrowRight />
-          </button>
-        ) : (
-          <button className="btn btn-primary btn-lg" onClick={launch}>
-            <Rocket /> Launch {name}
-          </button>
-        )}
+        <button className="btn btn-primary btn-lg" onClick={launch} disabled={!name.trim()}><Rocket /> Start operations</button>
       </footer>
     </div>
   );

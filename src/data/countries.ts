@@ -126,6 +126,22 @@ const RAW: [string, string, number, string][] = [
   ['WS', 'Samoa', 0.4, '5W-'],
   ['CK', 'Cook Islands', 0.6, 'E5-'],
   ['GU', 'Guam', 0.8, 'N'],
+  ['AF', 'Afghanistan', 0.2, 'YA-'],
+  ['TL', 'Timor-Leste', 0.3, '4W-'],
+  ['ML', 'Mali', 0.2, 'TZ-'],
+  ['CD', 'DR Congo', 0.2, '9S-'],
+  ['SS', 'South Sudan', 0.2, 'Z8-'],
+  ['SO', 'Somalia', 0.2, '6O-'],
+  ['CF', 'Central African Republic', 0.2, 'TL-'],
+  ['AO', 'Angola', 0.35, 'D2-'],
+  ['GW', 'Guinea-Bissau', 0.2, 'J5-'],
+  ['ST', 'São Tomé and Príncipe', 0.3, 'S9-'],
+  ['DJ', 'Djibouti', 0.3, 'J2-'],
+  ['CV', 'Cabo Verde', 0.4, 'D4-'],
+  ['AL', 'Albania', 0.5, 'ZA-'],
+  ['CI', "Côte d'Ivoire", 0.35, 'TU-'],
+  ['IQ', 'Iraq', 0.35, 'YI-'],
+  ['SD', 'Sudan', 0.2, 'ST-'],
 ];
 
 export const COUNTRIES: Record<string, Country> = Object.fromEntries(

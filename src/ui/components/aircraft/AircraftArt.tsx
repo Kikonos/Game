@@ -3,7 +3,8 @@
 // component only assigns colours, z-order and level of detail.
 
 import { memo, useId } from 'react';
-import type { Livery } from '../../../engine/types';
+import { artFor } from '../../../data/acmiTypes';
+import type { Livery } from '../../../engine/core/types';
 import { geometry, type Geometry } from './geometry';
 import { PROFILE_BY_ID } from './specs';
 import type { AircraftProfile } from './types';
@@ -27,7 +28,7 @@ export interface AircraftArtProps {
 const FALLBACK = 'a320neo';
 
 export function profileFor(typeId: string): AircraftProfile {
-  return PROFILE_BY_ID[typeId] ?? PROFILE_BY_ID[FALLBACK];
+  return PROFILE_BY_ID[typeId] ?? PROFILE_BY_ID[artFor(typeId)] ?? PROFILE_BY_ID[FALLBACK];
 }
 
 /** Tight viewBox in SVG units (metres, y down). */

@@ -17,6 +17,8 @@ export interface Airport {
   tour: number;
   region: string;
   continent: ContinentId;
+  /** Longest usable runway in metres (published value where known, else estimated from size). */
+  runwayM: number;
 }
 
 // code, airport name, city, country, lat, lon, pop, size, biz, tour
@@ -432,6 +434,75 @@ const DATA: Record<string, Row[]> = {
   ],
 };
 
+
+// Charter, mission and tech-stop airports added for the ACMI game (same row format).
+const EXTRA: Record<string, Row[]> = {
+  UKI: [
+    ['SNN', 'Shannon', 'Shannon', 'IE', 52.702, -8.925, 0.4, 2, 0.3, 0.5],
+  ],
+  WEU: [
+    ['LDE', 'Tarbes–Lourdes', 'Lourdes', 'FR', 43.179, -0.006, 0.2, 1, 0.1, 0.8],
+  ],
+  CEU: [
+    ['LEJ', 'Leipzig/Halle', 'Leipzig', 'DE', 51.432, 12.242, 1.0, 2, 0.4, 0.3],
+  ],
+  IBE: [
+    ['PDL', 'João Paulo II', 'Ponta Delgada', 'PT', 37.742, -25.698, 0.15, 2, 0.2, 0.9],
+    ['TER', 'Lajes', 'Terceira', 'PT', 38.762, -27.091, 0.06, 1, 0.2, 0.5],
+    ['ACE', 'Lanzarote', 'Lanzarote', 'ES', 28.946, -13.605, 0.15, 2, 0.1, 1.0],
+  ],
+  EEU: [
+    ['TIA', 'Tirana Intl', 'Tirana', 'AL', 41.415, 19.721, 0.9, 2, 0.4, 0.6],
+  ],
+  MXC: [
+    ['VRA', 'Juan Gualberto Gómez', 'Varadero', 'CU', 23.034, -81.435, 0.1, 2, 0.05, 1.0],
+  ],
+  WEA: [
+    ['BKO', 'Modibo Keïta', 'Bamako', 'ML', 12.534, -7.950, 2.8, 2, 0.3, 0.1],
+    ['OXB', 'Osvaldo Vieira', 'Bissau', 'GW', 11.895, -15.654, 0.5, 1, 0.25, 0.1],
+    ['RAI', 'Nelson Mandela', 'Praia', 'CV', 14.924, -23.494, 0.2, 1, 0.3, 0.5],
+    ['SID', 'Amílcar Cabral', 'Sal', 'CV', 16.741, -22.949, 0.05, 2, 0.1, 1.0],
+    ['KAN', 'Mallam Aminu Kano', 'Kano', 'NG', 12.048, 8.525, 4.0, 2, 0.3, 0.05],
+    ['TMS', 'São Tomé Intl', 'São Tomé', 'ST', 0.378, 6.712, 0.1, 1, 0.2, 0.4],
+    ['FIH', "N'djili", 'Kinshasa', 'CD', -4.386, 15.445, 15, 3, 0.35, 0.05],
+    ['GOM', 'Goma Intl', 'Goma', 'CD', -1.671, 29.238, 1.0, 1, 0.2, 0.05],
+    ['BGF', "Bangui M'Poko", 'Bangui', 'CF', 4.398, 18.519, 0.9, 1, 0.25, 0.02],
+    ['JUB', 'Juba Intl', 'Juba', 'SS', 4.872, 31.601, 0.5, 1, 0.3, 0.02],
+    ['MGQ', 'Aden Adde', 'Mogadishu', 'SO', 2.014, 45.305, 2.6, 2, 0.25, 0.02],
+    ['DJI', 'Djibouti–Ambouli', 'Djibouti', 'DJ', 11.547, 43.159, 0.6, 2, 0.4, 0.1],
+  ],
+  SAF: [
+    ['LAD', 'Quatro de Fevereiro', 'Luanda', 'AO', -8.858, 13.231, 8, 3, 0.5, 0.15],
+  ],
+  LEV: [
+    ['ADA', 'Adana Şakirpaşa', 'Adana', 'TR', 36.982, 35.280, 2.2, 2, 0.35, 0.2],
+  ],
+  SAS: [
+    ['KBL', 'Hamid Karzai Intl', 'Kabul', 'AF', 34.566, 69.212, 4.4, 2, 0.3, 0.05],
+  ],
+  SEA: [
+    ['DIL', 'Presidente Nicolau Lobato', 'Dili', 'TL', -8.547, 125.526, 0.3, 1, 0.3, 0.2],
+    ['KNO', 'Kualanamu', 'Medan', 'ID', 3.642, 98.885, 4.5, 3, 0.4, 0.3],
+  ],
+};
+
+/** Published longest-runway lengths (m) where they matter for fit checks; others are estimated. */
+const RUNWAY: Record<string, number> = {
+  LIS: 3805, OPO: 3480, FAO: 2490, FNC: 2781, PDL: 2500, TER: 3314, MAD: 4350, BCN: 3352, PMI: 3270, VNO: 2515, RIX: 3200,
+  MLA: 3544, SNN: 3199, LEJ: 3600, LDE: 3000, TIA: 2750, ACE: 2400, IBZ: 2800, JER: 1706, INV: 1887, LCY: 1508, ORK: 2133,
+  JED: 4000, MED: 3850, KWI: 3500, DXB: 4447, DOH: 4850, KBL: 3500, DIL: 1850, BKO: 3200, OXB: 3200, RAI: 2100, SID: 3272,
+  KAN: 3300, TMS: 2220, FIH: 4700, GOM: 2000, BGF: 2600, JUB: 3100, MGQ: 3150, DJI: 3140, LAD: 3700, ADA: 2750, KNO: 3750,
+  EBB: 3658, ADD: 3800, NBO: 4117, DAC: 3200, KTM: 3350, ISB: 3600, CPT: 3201, JNB: 4418, LOS: 3900, ACC: 3403, DSS: 3500,
+  ZNZ: 3022, JRO: 3600, KGL: 3500, MBA: 3350, ZQN: 1891, RAR: 2328, APW: 3000, GUM: 3054, VRA: 3500, MBJ: 2662,
+  CUN: 3500, PUJ: 3100, GRU: 3700, GIG: 4000, SSA: 3005, REC: 3305, FOR: 2755, MAO: 2700, YYZ: 3389, YUL: 3353, YHZ: 3200,
+  YWG: 3353, JFK: 4423, IAD: 3505, SYD: 3962, MEL: 3657, PER: 3444, DRW: 3354, NAN: 3273, PPT: 3420, AKL: 3635,
+};
+
+/** Estimate by size class when no published length is listed. */
+const RUNWAY_BY_SIZE = [0, 2200, 2600, 3000, 3400, 3800];
+
+for (const [region, rows] of Object.entries(EXTRA)) (DATA[region] ??= []).push(...rows);
+
 export const AIRPORTS: Airport[] = Object.entries(DATA).flatMap(([region, rows]) =>
   rows.map(([code, name, city, country, lat, lon, pop, size, biz, tour]) => ({
     code,
@@ -446,6 +517,7 @@ export const AIRPORTS: Airport[] = Object.entries(DATA).flatMap(([region, rows])
     tour,
     region,
     continent: REGION_BY_ID[region].continent,
+    runwayM: RUNWAY[code] ?? RUNWAY_BY_SIZE[size],
   })),
 );
 

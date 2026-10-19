@@ -4,6 +4,7 @@ import '@fontsource-variable/jetbrains-mono';
 import './styles/app.css';
 import './styles/screens.css';
 import './styles/touch/index.css';
+import './styles/acmi/index.css';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { serialize } from './engine/save';

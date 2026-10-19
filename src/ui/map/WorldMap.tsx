@@ -1,4 +1,4 @@
-import { geoInterpolate, geoPath } from 'd3-geo';
+import { geoInterpolate, geoPath, type GeoProjection } from 'd3-geo';
 import { Minus, Plus, Maximize2 } from 'lucide-react';
 import { memo, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AIRPORT_BY_CODE, AIRPORTS, type Airport } from '../../data/airports';
@@ -23,6 +23,14 @@ export interface MapAirport {
   code: string;
   state: 'hub' | 'served' | 'open' | 'locked' | 'dim';
   label?: boolean;
+}
+
+/** Context for custom SVG layers drawn in map units inside the zoomed world group. */
+export interface MapLayerCtx {
+  proj: GeoProjection;
+  /** Map units per screen pixel at the committed zoom (size markers as px × unit). */
+  unit: number;
+  k: number;
 }
 
 /** Screen-pixel padding [top, right, bottom, left] kept clear when fitting (e.g. for overlays). */
@@ -50,6 +58,8 @@ interface Props {
   controls?: boolean;
   /** Screen area covered by overlays: a newly selected airport under it is panned into view. */
   revealPad?: Pad | (() => Pad);
+  /** Extra SVG layers above the airports (ops map: aircraft, terminator, pins). */
+  layers?: (ctx: MapLayerCtx) => ReactNode;
 }
 
 interface View {
@@ -232,7 +242,7 @@ interface Gesture {
  */
 export function WorldMap({
   rotate = 0, routes, airports, fit, fitPad, interactive = true, animate = true, accent = '#3ee6ff', selected, onSelect, onSelectRoute, onHover,
-  tooltip, regionLabels, className, planesKey, controls = true, revealPad,
+  tooltip, regionLabels, className, planesKey, controls = true, revealPad, layers,
 }: Props) {
   const touch = useTouch();
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -833,6 +843,7 @@ export function WorldMap({
           <RoutesLayer items={routeItems} accent={accent} />
           <g ref={planesRef} className="planes" />
           <AirportsLayer els={airportEls} unit={unit} selected={selected} hover={hover?.code} accent={accent} crowded={crowded} showAll={showAllLabels} touch={touch} />
+          {layers?.({ proj, unit, k })}
         </g>
       </svg>
       {hover && tooltip && (

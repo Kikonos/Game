@@ -37,7 +37,7 @@ export function pct(v: number, digits = 0): string {
 }
 
 export function dist(km: number): string {
-  if (store.settings.units === 'mi') return `${int(km * 0.621371)} mi`;
+  if (store.settings.units === 'nm') return `${int(km / 1.852)} nm`;
   return `${int(km)} km`;
 }
 

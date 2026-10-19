@@ -1,7 +1,7 @@
 // Turns an AircraftProfile (metres) into SVG path strings. Pure and cached per
 // profile, so the React component only assembles elements and colours.
 
-import type { TailStyle } from '../../../engine/types';
+import type { TailStyle } from '../../../engine/core/types';
 import { COCKPIT } from './cockpit';
 import { Box, D, add, chainPts, lerp, lerpV, rad, sampleChain, splitTail, yAt, type V } from './path';
 import type { AircraftProfile, EngineSpec, EngineStyle, FairingSpec, TipDevice, WingSpec } from './types';

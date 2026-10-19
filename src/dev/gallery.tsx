@@ -9,7 +9,7 @@ import '../styles/screens.css';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { AIRCRAFT, AIRCRAFT_BY_ID } from '../data/aircraft';
-import type { Livery } from '../engine/types';
+import type { Livery } from '../engine/core/types';
 import { AircraftArt, artViewBox } from '../ui/components/aircraft/AircraftArt';
 
 const LIVERIES: Record<string, Livery> = {
