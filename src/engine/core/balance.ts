@@ -58,7 +58,7 @@ export const BAL = {
   maintAgeFactor: 0.025,
   checkCost: { A: [45_000, 110_000], C: [1_200_000, 3_500_000] } as Record<'A' | 'C', [number, number]>,
   /** AOG chance per departure: base × (1 + age/10) × (1 + 4 × deferred). */
-  aogBase: 0.0012,
+  aogBase: 0.0004,
   delayChance: 0.12,
   /** Days late a reliable client still pays within (beyond = overdue). */
   graceDays: 3,
