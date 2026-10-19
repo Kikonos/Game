@@ -33,6 +33,8 @@ const sizes = (list('size') ?? [...SIZES]).filter((s): s is Size => (SIZES as re
 const code = q.get('code') ?? (liveryKey === 'used' ? undefined : 'CT');
 const name = q.get('name') ?? (liveryKey === 'used' ? undefined : 'Contrail');
 const compare = q.get('compare') === '1';
+/** Fixed compare scale in CSS px per metre (default: widest type fills ~1150px). */
+const ppm = Number(q.get('ppm')) || 0;
 
 const css = `
   body { margin: 0; background: #070b14; color: #e8eefc; font-family: var(--font-ui); }
@@ -51,9 +53,12 @@ const css = `
   .g-card .g-box { width: 320px; height: 120px; border-radius: 10px; background: rgba(255,255,255,0.03); }
   .g-mini .g-box { width: 92px; height: 36px; }
   .g-mini figcaption { font-size: 9px; }
-  .g-cmp { border-radius: 14px; padding: 20px; display: flex; flex-direction: column; gap: 6px; }
-  .g-cmp-row { display: flex; align-items: flex-end; gap: 12px; }
-  .g-cmp-row figcaption { width: 90px; flex: none; font: 600 11px/1.2 var(--font-mono); color: rgba(232,238,252,0.75); text-align: right; }
+  .g-cmp { position: relative; border-radius: 14px; padding: 20px; display: flex; flex-direction: column; gap: 6px; width: max-content; min-width: 100%; box-sizing: border-box; }
+  .g-cmp-row { margin: 0; display: flex; flex-direction: row; align-items: flex-end; justify-content: flex-start; gap: 0; }
+  .g-cmp-row figcaption { width: 90px; margin-right: 12px; flex: none; align-self: center; font: 600 11px/1.2 var(--font-mono); color: rgba(232,238,252,0.75); text-align: right; }
+  .g-cmp-art { flex: none; line-height: 0; }
+  .g-cmp-nose { position: absolute; top: 12px; bottom: 12px; width: 0; border-left: 1px dashed rgba(232,238,252,0.18); pointer-events: none; }
+  .g-cmp[data-bg="blue"] .g-cmp-nose { border-color: rgba(10,20,40,0.25); }
 `;
 
 function Cell({ id, size }: { id: string; size: Size }) {
@@ -72,15 +77,19 @@ function Cell({ id, size }: { id: string; size: Size }) {
 }
 
 function Compare({ bg }: { bg: string }) {
+  // every row shares one scale (px per metre) and starts at the nose tip (x = 0 m), so lengths,
+  // heights and wing positions compare directly; turboprop discs etc. may poke out ahead of x0
   const boxes = types.map((id) => ({ id, vb: artViewBox(id, true) }));
-  const k = Math.min(16, 1150 / Math.max(...boxes.map((b) => b.vb.w)));
   const x0 = Math.min(...boxes.map((b) => b.vb.x));
+  const k = ppm || Math.min(16, 1150 / Math.max(...boxes.map((b) => b.vb.x + b.vb.w - x0)));
+  const nose = 20 + 90 + 12 + -x0 * k;
   return (
-    <div className="g-cmp" data-bg={bg} style={{ background: BGS[bg] }}>
+    <div className="g-cmp" data-bg={bg} data-ppm={k} style={{ background: BGS[bg] }}>
+      <div className="g-cmp-nose" style={{ left: nose }} />
       {boxes.map(({ id, vb }) => (
-        <figure className="g-cmp-row g-cell" key={id} data-type={id} data-size="compare">
+        <figure className="g-cmp-row" key={id} data-type={id} data-size="compare">
           <figcaption>{id}</figcaption>
-          <div style={{ marginLeft: (vb.x - x0) * k }}>
+          <div className="g-cmp-art" style={{ marginLeft: (vb.x - x0) * k, width: vb.w * k }}>
             <AircraftArt typeId={id} livery={livery} code={code} name={name} pxPerM={k} />
           </div>
         </figure>
