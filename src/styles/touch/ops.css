@@ -1,0 +1,20 @@
+/* ==========================================================================
+   OPS — Fleet (list, aircraft detail), Aircraft Market (new / used / lease and the
+   Order, Buy-used and Lease modals), Expansion, Brand, and the content of the game
+   modals (menu, saves, settings, handbook, decision, year review, game over, level up).
+   Components: src/ui/game/{Fleet,Market,Expansion,Brand,Modals}.tsx.
+   Not here: the cabin editor / seat map / aircraft art (owned elsewhere).
+
+   Use exactly these (see README.md):
+     wide     @media (min-width: 1100px) and (min-height: 500px)
+     medium   @media (min-width: 700px) and (max-width: 1099.98px) and (min-height: 500px)
+     compact  @media (max-width: 699.98px), (max-height: 499.98px)
+     portrait @media (orientation: portrait)            (combine with a tier when needed)
+     touch    .touch <selector>                          (html.touch = (hover: none) and (pointer: coarse))
+     hover    @media (hover: hover) { ...:hover }        (never a bare :hover)
+   Tokens: --safe-t/r/b/l (in-flow insets), --vp-safe-t/b (fixed layers), --edge-l/r,
+     --main-pl/pr/pb (.screen padding), --tap (44px) / --tap-dense (36px), --topbar-h, --ticker-h,
+     --side-w, --tabbar-h.
+   Dialog frame (width per size, sticky header/footer, bottom sheet on compact, keyboard) is
+   handled by <Modal> + shell.css: style only what is inside .modal-body / .modal-foot.
+   ========================================================================== */

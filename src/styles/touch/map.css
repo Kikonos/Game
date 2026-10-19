@@ -1,0 +1,19 @@
+/* ==========================================================================
+   MAP — Network Map (MapScreen, WorldMap, map panels) and Routes (list, route
+   detail, Route Planner modal content).
+   Components: src/ui/game/{MapScreen,Routes}.tsx, src/ui/map/*.
+
+   Use exactly these (see README.md):
+     wide     @media (min-width: 1100px) and (min-height: 500px)
+     medium   @media (min-width: 700px) and (max-width: 1099.98px) and (min-height: 500px)
+     compact  @media (max-width: 699.98px), (max-height: 499.98px)
+     portrait @media (orientation: portrait)            (combine with a tier when needed)
+     touch    .touch <selector>                          (html.touch = (hover: none) and (pointer: coarse))
+     hover    @media (hover: hover) { ...:hover }        (never a bare :hover)
+   Tokens: --safe-t/r/b/l (in-flow insets), --vp-safe-t/b (fixed layers), --edge-l/r,
+     --main-pl/pr/pb (.screen padding), --tap (44px) / --tap-dense (36px), --topbar-h, --ticker-h,
+     --side-w, --tabbar-h.
+   The map's .main is .no-scroll and runs edge to edge: inset floating panels/controls by
+   --edge-r (right edge is the physical screen edge). Pinch/pan: use pointer events with
+   touch-action: none on the map surface only (Safari page pinch-zoom is already disabled).
+   ========================================================================== */

@@ -1,0 +1,6 @@
+/* iPad / touch / layout-tier adaptations, loaded after app.css and screens.css (see README.md).
+   One file per owner so the screens can be adapted in parallel; order matters only for ties. */
+@import './shell.css';
+@import './start.css';
+@import './map.css';
+@import './ops.css';

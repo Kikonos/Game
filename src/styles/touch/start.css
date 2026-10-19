@@ -1,0 +1,19 @@
+/* ==========================================================================
+   START — Loading, Title, New Game (Region / Hub / Brand / Launch) and the
+   "reading" screens: Dashboard (HQ), Goals, Inbox, Finance, Intel, charts.
+   Components: src/ui/screens/*, src/ui/game/{Dashboard,Goals,Inbox,Finance,Intel}.tsx,
+   src/ui/components/charts.tsx.
+
+   Use exactly these (see README.md):
+     wide     @media (min-width: 1100px) and (min-height: 500px)
+     medium   @media (min-width: 700px) and (max-width: 1099.98px) and (min-height: 500px)
+     compact  @media (max-width: 699.98px), (max-height: 499.98px)
+     portrait @media (orientation: portrait)            (combine with a tier when needed)
+     touch    .touch <selector>                          (html.touch = (hover: none) and (pointer: coarse))
+     hover    @media (hover: hover) { ...:hover }        (never a bare :hover)
+   Tokens: --safe-t/r/b/l (in-flow insets), --vp-safe-t/b (fixed layers), --edge-l/r,
+     --main-pl/pr/pb (.screen padding), --tap (44px) / --tap-dense (36px), --topbar-h, --ticker-h,
+     --side-w, --tabbar-h.
+   Pre-game screens fill the whole viewport: clear --safe-t/--safe-b/--safe-l/--safe-r yourself
+   (e.g. a sticky .ng-foot needs padding-bottom: calc(<gap> + var(--safe-b))).
+   ========================================================================== */
