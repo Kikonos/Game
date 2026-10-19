@@ -95,6 +95,7 @@ If an agent fails on a limit, its file edits persist (checkpoint them). Resume t
 6. Final message to the user: what changed; the iPad home-screen steps (default branch → main, Pages source → GitHub Actions, https://kikonos.github.io/Game/); any limitations.
 
 ## Log
+- 21:01Z P1 DONE (design reviewed+revised, committed 6890c84 on acmi). P2 build workflow RUNNING: scriptPath /tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/acmi/acmi-build.js (backup copy .handover/acmi-build.js; if the scratchpad copy is gone, pass the backup inline via Workflow script), run wf_4e46c6a0-e86 — resume with resumeFromRunId.
 - 20:33Z P1 architect DONE (DESIGN.md, BUILD-PLAN.md, skeleton builds/runs); critic+revise failed on limit (reset 20:20Z). Resuming wf_9fc3165a-62a.
 - 16:15Z P1 design workflow launched (wf_9fc3165a-62a).
 - 16:10Z P0 research done; BRIEF.md written; acmi worktree/branch created. Next: P1 design+skeleton workflow.
