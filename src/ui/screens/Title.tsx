@@ -130,7 +130,7 @@ export function Title() {
           {offline.online ? <Wifi size={14} /> : <WifiOff size={14} />}
           {offline.ready ? 'Offline ready — plays without internet' : offline.online ? 'Online' : 'Offline mode'}
         </span>
-        <span className="dim small">v0.1 · {AIRPORTS.length} airports · {AIRCRAFT.length} aircraft types</span>
+        <span className="dim small">v0.2 · {AIRPORTS.length} airports · {AIRCRAFT.length} aircraft types</span>
       </div>
       <GlobalModals />
     </div>
