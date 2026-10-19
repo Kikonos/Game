@@ -2,13 +2,14 @@
 // navigation, modals, quiet toasts, settings and saving. DESIGN.md §3.4 and §6.
 
 import { useSyncExternalStore } from 'react';
-import type { PauseReason } from '../engine/core/pause';
+import { clearPause, takePause, type PauseReason } from '../engine/core/pause';
 import { CLOCK_STEP, type GameSpeed, minutesPerMs, monthKey } from '../engine/core/time';
-import type { ActionResult, GameState, Message, Ref } from '../engine/core/types';
-import { demoFlights } from '../engine/dev';
+import type { ActionResult, Archetype, GameState, Message, Ref } from '../engine/core/types';
+import { generateOffer } from '../engine/contracts';
+import { demoFlights, devFleet } from '../engine/dev';
 import { createGame, type NewGameOptions } from '../engine/newGame';
 import { AUTOSAVE_SLOT, saveToSlot } from '../engine/save';
-import { advanceTo } from '../engine/sim';
+import { advanceTo, settle } from '../engine/sim';
 import { type SoundName, sound } from './sound';
 
 export type { GameSpeed } from '../engine/core/time';
@@ -163,6 +164,7 @@ class GameStore {
   }
 
   private lastAutosave = 0;
+  private saveWarned = false;
   private autosaveTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** Save now (on exit, pause, menus). */
@@ -170,7 +172,10 @@ class GameStore {
     if (this.autosaveTimer) clearTimeout(this.autosaveTimer);
     this.autosaveTimer = null;
     if (this.game && this.settings.autosave && !this.game.gameOver) {
-      saveToSlot(this.game, AUTOSAVE_SLOT);
+      if (!saveToSlot(this.game, AUTOSAVE_SLOT) && !this.saveWarned) {
+        this.saveWarned = true;
+        this.toast('bad', 'Autosave failed', 'Browser storage is full or unavailable. Delete old saves in Menu → Saves.');
+      }
       this.lastAutosave = performance.now();
     }
   }
@@ -235,20 +240,10 @@ class GameStore {
     const target = Math.floor(this.exact);
     if (target > g.now) {
       const month = monthKey(g.now);
-      let hour = false;
-      // Requests the settings do not honour are skipped; the rest of the frame's time still runs.
-      for (let i = 0; i < 16; i++) {
-        const res = advanceTo(g, target);
-        hour ||= res.hourChanged;
-        if (!res.pause) break;
-        if (this.settings.autoPause[res.pause]) {
-          this.paused = true;
-          this.pauseReason = res.pause;
-          this.exact = g.now;
-          sound.play('alert');
-          break;
-        }
-      }
+      // Only reasons the settings honour stop the loop; the others are dropped inside advanceTo.
+      const res = advanceTo(g, target, this.honoured());
+      const hour = res.hourChanged;
+      if (res.pause) this.autoPause(res.pause);
       if (monthKey(g.now) !== month) this.scheduleAutosave();
       const fresh = this.surfaceMessages();
       if (hour || this.paused || fresh) this.emit();
@@ -259,6 +254,18 @@ class GameStore {
       this.clockLabel = label;
       this.emitClock();
     }
+  }
+
+  /** Pause reasons the settings honour. */
+  private honoured(): Set<PauseReason> {
+    return new Set((Object.keys(this.settings.autoPause) as PauseReason[]).filter((r) => this.settings.autoPause[r]));
+  }
+
+  private autoPause(reason: PauseReason) {
+    this.paused = true;
+    this.pauseReason = reason;
+    if (this.game) this.exact = this.game.now;
+    sound.play('alert');
   }
 
   /** Quiet toasts for important new messages only. Returns whether anything new arrived. */
@@ -283,7 +290,12 @@ class GameStore {
   act<T>(fn: (g: GameState) => ActionResult<T>, opts: { toastOk?: boolean; sound?: SoundName } = {}): ActionResult<T> {
     const g = this.game;
     if (!g) return { ok: false, error: 'No game loaded' };
+    clearPause();
     const res = fn(g);
+    // Cross-module follow-ups (e.g. crew re-sync) and pauses the action raised (e.g. crewShortage on accept).
+    settle(g);
+    const pause = takePause(this.honoured());
+    if (pause && pause !== 'decision') this.autoPause(pause);
     if (!res.ok) {
       this.toast('bad', 'Not possible', res.error);
       sound.play('error');
@@ -361,6 +373,21 @@ class GameStore {
       const n = demoFlights(this.game, undefined, days);
       this.emit();
       return n;
+    },
+    /** One offer of an archetype (null until B1 lands); opens the offer modal. */
+    offer: (archetype?: Archetype) => {
+      if (!this.game) return null;
+      const o = generateOffer(this.game, archetype);
+      if (o) this.openModal({ kind: 'offer', offerId: o.id });
+      this.emit();
+      return o?.id ?? null;
+    },
+    /** Grows the fleet to n aircraft (clones) for perf checks with demoFlights. */
+    fleet: (n = 10) => {
+      if (!this.game) return 0;
+      const added = devFleet(this.game, n);
+      this.emit();
+      return added;
     },
   };
 }

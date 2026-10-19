@@ -4,12 +4,13 @@ import type { SimModule } from '../core/module';
 import type { GameState, SimEvent } from '../core/types';
 import { dailyCrewCosts, monthlySalaries } from './costs';
 import { onCrewJoin, onTrainingDone } from './hr';
-import { autoRoster } from './roster';
+import { takeFlightChanges } from '../core/entities';
+import { autoRoster, onFlightsChanged } from './roster';
 
 export { crewWindows, checkAssignment, dutyLegality, LIMITS, maxFdp, minRest, type CrewWindows, type FdpInput, type IssueCode, type LegalityIssue, type LegalityReport, type RestInput } from './ftl';
 export { crewName, makeCrewMember, salaryFor } from './generate';
-export { crewAvailability, hireCrew, hireQuote, staffing, trainCrew, type Availability, type HireRequest, type StaffingLine } from './hr';
-export { assignCrew, autoRoster, buildDuties, flightCrewStatus, rerosterFrom, rosterOf, unassignCrew, type FlightCrewStatus, type RosterResult } from './roster';
+export { crewAvailability, hireCrew, hireQuote, staffing, trainCrew, type Availability, type HireRequest, type RoleCapacity, type StaffingLine } from './hr';
+export { applyDiscretion, assignCrew, autoRoster, buildDuties, flightCrewStatus, onFlightsChanged, removeCrew, replaceCrew, rerosterFrom, rosterOf, unassignCrew, type FlightCrewStatus, type RosterResult } from './roster';
 
 /** 'duty.report' / 'duty.release': crew status, logs, rest-until, location. TODO(B2) */
 function onDutyReport(_g: GameState, _ev: SimEvent): void {}
@@ -25,6 +26,10 @@ function daily(g: GameState) {
 
 export const crewModule: SimModule = {
   name: 'crew',
+  // TODO(B2): load(g) rebuilds the crew → duties index; default new fields with ??= (SAVE_VERSION stays 1 until release).
+  settle(g) {
+    for (const [aircraftId, t] of takeFlightChanges(g)) onFlightsChanged(g, aircraftId, t);
+  },
   handlers: {
     day: daily,
     month: monthlySalaries,

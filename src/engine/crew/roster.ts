@@ -28,7 +28,31 @@ export function autoRoster(_g: GameState, _opts: { from?: Minute; to?: Minute; a
   return { assigned: 0, uncovered: [], deadheads: 0, cost: 0 };
 }
 
-/** After a delay, AOG, sickness or retime: rebuild duties from t on the aircraft and re-roster them. TODO(B2) */
+/**
+ * Cheap re-sync after another module changed an aircraft's flights from t (retime, cancel, removal, reassign,
+ * sub-charter); called from crew's settle hook, never directly. Drops cancelled/removed/foreign flights from duties
+ * (and Flight.crewIds), recomputes report/release/fdp where flightsEv changed, bumps duty.ev and re-queues
+ * duty.report/release, re-checks legality; a duty that became illegal or uncovered within the roster horizon
+ * goes through rerosterFrom. TODO(B2)
+ */
+export function onFlightsChanged(_g: GameState, _aircraftId: string, _t: Minute): void {}
+
+/** Commander's discretion (B3 crewShort decision): maxFdp +2:00 (+3:00 augmented), crew.discretion++, morale −3. TODO(B2) */
+export function applyDiscretion(_g: GameState, _dutyId: string): ActionResult {
+  return { ok: false, error: 'Rostering is not built yet' };
+}
+
+/** Replaces one slot's crew member: the given one, or the best legal candidate (deadhead included). TODO(B2) */
+export function replaceCrew(_g: GameState, _pairingId: string, _slot: number, _crewId?: string): ActionResult<{ crewId: string }> {
+  return { ok: false, error: 'Rostering is not built yet' };
+}
+
+/** Takes a crew member off every slot overlapping [from, to) (sickness, leave) and re-rosters those pairings. TODO(B2) */
+export function removeCrew(g: GameState, _crewId: string, from: Minute, to: Minute): RosterResult {
+  return autoRoster(g, { from, to });
+}
+
+/** After an AOG or sickness: rebuild duties from t on the aircraft and find new crew where needed. TODO(B2) */
 export function rerosterFrom(g: GameState, aircraftId: string, t: Minute): RosterResult {
   return autoRoster(g, { from: t, aircraftIds: [aircraftId] });
 }

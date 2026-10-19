@@ -40,8 +40,9 @@ export function statementTotals(lines: Partial<Record<LedgerCat, number>>): { re
 /**
  * Issues an invoice: accrues the revenue now, creates the receivable and rolls when the client really pays
  * (on time with its payReliability, else lateDays late), queuing a 'payment' event (ops/finance.ts collects it).
+ * `deferred` (charter deposits and balances): no revenue line now; contracts accrue it per leg flown.
  */
-export function invoice(g: GameState, inv: { clientId: string; contractId: string | null; desc: string; amount: number; cat: LedgerCat; dueDays: number }): Receivable {
+export function invoice(g: GameState, inv: { clientId: string; contractId: string | null; desc: string; amount: number; cat: LedgerCat; dueDays: number; deferred?: boolean }): Receivable {
   const c = g.clients[inv.clientId];
   const due = g.now + inv.dueDays * 1440;
   const late = c && !chance(g, c.payReliability) ? int(g, c.lateDays[0], c.lateDays[1]) : 0;
@@ -50,7 +51,7 @@ export function invoice(g: GameState, inv: { clientId: string; contractId: strin
     issued: g.now, due, payAt: due + late * 1440, paid: null, cat: inv.cat,
   };
   g.finance.receivables.push(r);
-  accrue(g, inv.cat, r.amount);
+  if (!inv.deferred) accrue(g, inv.cat, r.amount);
   schedule(g, r.payAt, 'payment', r.id);
   return r;
 }

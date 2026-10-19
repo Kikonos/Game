@@ -10,6 +10,8 @@ export interface SimModule {
   init?(g: GameState): void;
   /** After loading a save (rebuild runtime caches). */
   load?(g: GameState): void;
+  /** After every event and player action: react to changes other modules made (DESIGN.md §4.2). */
+  settle?(g: GameState): void;
   /** Handlers by event type; for each event the core calls ops → contracts → crew (DESIGN.md §3.3). */
   handlers: Partial<Record<SimEventType, SimHandler>>;
 }

@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "balance": "tsx scripts/balance.ts",
+    "bot": "tsx scripts/acmi-bot.ts",
     "build:embed": "EMBED=1 vite build --outDir dist-embed && node scripts/embed.mjs"
   },
   "dependencies": {

@@ -21,10 +21,10 @@ export interface AircraftLive {
   next?: Flight;
 }
 
-/** Effective (actual or estimated) off/on blocks of a flight. */
+/** Effective (actual or estimated) off/on blocks of a flight; airborne legs use the queued arrival (eta). */
 export function flightTimes(f: Flight): { off: Minute; on: Minute } {
   const off = f.atd ?? f.std + f.delay;
-  const on = f.ata ?? off + f.block;
+  const on = f.ata ?? f.eta ?? off + f.block;
   return { off, on };
 }
 

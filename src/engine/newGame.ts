@@ -70,7 +70,7 @@ function emptyState(o: NewGameOptions, seed: number, now: Minute): GameState {
       reputation: { ...BAL.startReputation },
       approvals: [],
       pendingApprovals: [],
-      policies: { extraCabin: 0, hotelTier: 4, perDiem: BAL.perDiem, rotationWeeks: 5, autoRoster: true, autoMaintenance: true, allowTight: false, autoDeadhead: true },
+      policies: { extraCabin: 0, hotelTier: 4, perDiemPct: 100, rotationWeeks: 5, autoRoster: true, autoMaintenance: true, allowTight: false, autoDeadhead: true },
       departments: [],
       nextFlightNo: 101,
     },
@@ -79,6 +79,7 @@ function emptyState(o: NewGameOptions, seed: number, now: Minute): GameState {
     flights: {},
     duties: {},
     pairings: {},
+    deployments: {},
     clients: {},
     offers: {},
     contracts: {},
@@ -97,8 +98,8 @@ function emptyState(o: NewGameOptions, seed: number, now: Minute): GameState {
   };
 }
 
-/** Starting roster: per aircraft ≈ 5 sets of 1 CPT + 1 FO + 1 SCCM + 3 CC (A320 180Y). */
-const STARTUP_CREW: [Role, number][] = [['CPT', 10], ['FO', 10], ['CSD', 4], ['SCC', 6], ['CC', 30]];
+/** Starting roster: 10 A320 sets of 1 CPT + 1 FO + 1 SCCM (SCC on narrowbodies) + 3 CC (180Y). */
+const STARTUP_CREW: [Role, number][] = [['CPT', 10], ['FO', 10], ['SCC', 10], ['CC', 30]];
 
 export function createGame(o: NewGameOptions): GameState {
   const seed = (o.seed ?? Math.floor(Math.random() * 2 ** 31)) | 0;

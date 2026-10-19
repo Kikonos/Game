@@ -53,8 +53,8 @@ export interface Policies {
   /** Extra cabin crew above the legal minimum on every flight (0–2). */
   extraCabin: number;
   hotelTier: HotelTier;
-  /** Per diem per crew member per day away (USD). */
-  perDiem: number;
+  /** Per diem level in % of the BAL per-role rates (80–150; 100 = market). */
+  perDiemPct: number;
   /** Target deployment length before rotating crew home (weeks). */
   rotationWeeks: 4 | 5 | 6;
   /** Auto-roster new and changed flights. */
@@ -237,6 +237,8 @@ export type SchedulePattern =
       waves: number[];
       /** Client flight-number prefix, e.g. 'NB'. */
       prefix: string;
+      /** Contractual maintenance night every N days: the last wave is not flown (A-check window, DESIGN §5.1.6). */
+      maintEvery: number;
     };
 
 export interface Penalties {
@@ -284,8 +286,8 @@ export interface ContractOffer {
   penalties: Penalties;
   payment: PaymentTerms;
   effects: OfferEffects;
-  /** 0–1 risks shown as chips: late payment, disruption, politics. */
-  risk: { payment: number; disruption: number; politics: number };
+  /** 0–1 risks shown as chips: late payment, disruption, politics, overflight/landing permit delay. */
+  risk: { payment: number; disruption: number; politics: number; permit: number };
   /** Estimated revenue block hours and value at the asking price. */
   estBH: number;
   estValue: number;
@@ -333,6 +335,8 @@ export interface Contract {
   billedMonths: MonthKey[];
   /** Colour index for the Gantt (0–7). */
   color: number;
+  /** Charter balance invoice date (start − balanceDaysBefore); null once invoiced or for wet/dry. */
+  balanceAt: Minute | null;
 }
 
 // ======================================================================
@@ -376,6 +380,10 @@ export interface Flight {
   ev: number;
   /** Ticket cost for deadheads. */
   cost?: number;
+  /** Actual on-blocks queued at departure (map interpolation target). */
+  eta?: Minute;
+  /** Rival id when the leg was sub-chartered (aircraftId null, still billed to our client). */
+  operatedBy?: string;
 }
 
 // ======================================================================
@@ -462,6 +470,8 @@ export interface Duty {
   restAt: string;
   legality: Legality;
   ev: number;
+  /** Sum of the operated flights' ev when the duty was last synced (cheap change detection). */
+  flightsEv: number;
 }
 
 /** A crew complement's trip: duties from base back to base (or a deployment at a client base). */
@@ -469,6 +479,8 @@ export interface Pairing {
   id: string;
   aircraftId: string | null;
   contractId: string | null;
+  /** Set for one crew set's tour at a deployment (arrive → leave); null for base → base trips. */
+  deploymentId: string | null;
   base: string;
   start: Minute;
   end: Minute;
@@ -476,6 +488,23 @@ export interface Pairing {
   slots: CrewSlot[];
   status: 'planned' | 'active' | 'done' | 'broken';
   legality: Legality;
+}
+
+/**
+ * A crew station at a client base (wet season base, AOG cover). Crew sets are positioned in and out every
+ * policies.rotationWeeks; each set's tour is a Pairing; days off inside the tour are spent at the hotel.
+ */
+export interface Deployment {
+  id: string;
+  contractId: string;
+  aircraftId: string;
+  base: string;
+  start: Minute;
+  end: Minute;
+  /** Sets on station needed for the duty pattern (DESIGN §5.3). */
+  setsOnStation: number;
+  /** Tours (Pairing ids), in arrival order. */
+  pairingIds: string[];
 }
 
 export interface HireOrder {
@@ -717,6 +746,7 @@ export interface GameState {
   flights: Record<string, Flight>;
   duties: Record<string, Duty>;
   pairings: Record<string, Pairing>;
+  deployments: Record<string, Deployment>;
   clients: Record<string, Client>;
   offers: Record<string, ContractOffer>;
   contracts: Record<string, Contract>;

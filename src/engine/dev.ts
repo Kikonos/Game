@@ -4,6 +4,7 @@
 import { addFlight, ownFlightNo } from './core/entities';
 import { blockMinutes } from './core/perf';
 import { flightsOf } from './core/entities';
+import { nextId } from './core/entities';
 import type { GameState } from './core/types';
 
 /** Out-and-back legs from each aircraft's position, starting in 30 min, for `days` days. */
@@ -24,4 +25,17 @@ export function demoFlights(g: GameState, dests = ['FAO', 'FNC', 'PMI', 'TFS', '
     }
   });
   return n;
+}
+
+/** Stress fleet for map/screen perf work: clones of the first aircraft at home base (n total). */
+export function devFleet(g: GameState, n = 10): number {
+  const base = Object.values(g.fleet)[0];
+  if (!base) return 0;
+  let added = 0;
+  for (let k = Object.keys(g.fleet).length; k < n; k++, added++) {
+    const id = nextId(g, 'a');
+    const reg = `${g.company.regPrefix}DV${String.fromCharCode(65 + (k % 26))}`;
+    g.fleet[id] = { ...structuredClone(base), id, reg, at: g.company.homeBase, flightId: null, status: 'available', maintId: null };
+  }
+  return added;
 }

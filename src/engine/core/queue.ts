@@ -50,3 +50,23 @@ export function unschedule(g: GameState, match: (e: SimEvent) => boolean): void 
   g.queue = [];
   for (const e of keep.sort((a, b) => a.t - b.t || a.seq - b.seq)) g.queue.push(e);
 }
+
+/** Versioned event families: entity collection per type prefix (stale = missing entity or ev mismatch). */
+const VERSIONED: [string, (g: GameState) => Record<string, { ev: number }>][] = [
+  ['flight.', (g) => g.flights],
+  ['duty.', (g) => g.duties],
+  ['maint.', (g) => g.maintenance],
+];
+
+/** The queue without stale versioned events, as a valid heap (sorted). Used on save; does not mutate g. */
+export function compactQueue(g: GameState): SimEvent[] {
+  const live = g.queue.filter((e) => {
+    for (const [prefix, coll] of VERSIONED) {
+      if (!e.type.startsWith(prefix)) continue;
+      const x = coll(g)[e.id];
+      return !!x && x.ev === e.v;
+    }
+    return true;
+  });
+  return live.sort((a, b) => a.t - b.t || a.seq - b.seq);
+}

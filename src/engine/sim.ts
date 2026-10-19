@@ -3,7 +3,7 @@
 
 import { contractsModule } from './contracts';
 import type { SimModule } from './core/module';
-import { takePause, type PauseReason } from './core/pause';
+import { clearPause, takePause, type PauseReason } from './core/pause';
 import { peek, pop, schedule } from './core/queue';
 import { DAY, monthKey, nextDayStart } from './core/time';
 import type { GameState, Minute, SimEvent, SimEventType } from './core/types';
@@ -40,6 +40,14 @@ export function onLoad(g: GameState): void {
   for (const m of MODULES) m.load?.(g);
 }
 
+/**
+ * Lets modules react to state changed by another module (e.g. crew re-syncs duties after flights were
+ * retimed, cancelled or reassigned). Runs after every event and after every player action (store.act).
+ */
+export function settle(g: GameState): void {
+  for (const m of MODULES) m.settle?.(g);
+}
+
 export interface AdvanceResult {
   /** Events processed. */
   events: number;
@@ -51,12 +59,15 @@ export interface AdvanceResult {
 
 /**
  * Processes every queued event with t ≤ target, then sets g.now = target.
- * Stops early (g.now = event time) when an event requests a pause.
+ * Stops early (g.now = event time) when an event requests a pause in `honour` (any reason when omitted:
+ * tests and the bot). Requests outside `honour` are dropped, so they never leak into a later event.
  */
-export function advanceTo(g: GameState, target: Minute): AdvanceResult {
+export function advanceTo(g: GameState, target: Minute, honour?: ReadonlySet<PauseReason>): AdvanceResult {
   const startHour = Math.floor(g.now / 60);
   let events = 0;
   let pause: PauseReason | null = null;
+  clearPause();
+  settle(g);
   for (;;) {
     const top = peek(g);
     if (!top || top.t > target || g.gameOver) break;
@@ -71,7 +82,8 @@ export function advanceTo(g: GameState, target: Minute): AdvanceResult {
     } else {
       dispatch(g, top);
     }
-    pause = takePause();
+    settle(g);
+    pause = takePause(honour);
     if (pause) break;
   }
   if (!pause && !g.gameOver) g.now = Math.max(g.now, target);

@@ -35,7 +35,8 @@ export const BAL = {
   } as Record<string, [number, number]>,
   /** Employer on-costs on salaries. */
   onCosts: 0.2,
-  perDiem: 55,
+  /** Per diem per day away by role (USD; RESEARCH §5.3: CPT €100, FO €70, cabin €50), scaled by policies.perDiemPct. */
+  perDiem: { CPT: 108, FO: 76, CRP: 76, CSD: 60, SCC: 54, CC: 54 } as Record<string, number>,
   hotelPerNight: { 3: 90, 4: 140, 5: 230 } as Record<number, number>,
   /** Positioning ticket by distance: < 1,500 km, < 4,000 km, beyond. */
   deadheadTicket: [250, 600, 1_300],
@@ -57,8 +58,8 @@ export const BAL = {
   /** Maintenance cost multiplier per year of age above 12. */
   maintAgeFactor: 0.025,
   checkCost: { A: [45_000, 110_000], C: [1_200_000, 3_500_000] } as Record<'A' | 'C', [number, number]>,
-  /** AOG chance per departure: base × (1 + age/10) × (1 + 4 × deferred). */
-  aogBase: 0.0004,
+  /** AOG chance per departure (one roll, separate from technical delays): base × (1 + age/10) × (1 + 4 × deferred) × outstation 1.5. */
+  aogBase: 0.00025,
   delayChance: 0.12,
   /** Days late a reliable client still pays within (beyond = overdue). */
   graceDays: 3,

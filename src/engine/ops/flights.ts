@@ -16,13 +16,24 @@ export function onFlightDep(g: GameState, ev: SimEvent): void {
   ac.flightId = f.id;
   ac.at = f.from;
   ac.status = 'flying';
-  schedule(g, g.now + f.block, 'flight.arr', f.id, f.ev);
+  // TODO(B3): block × (1 ± 4% wind noise); the map interpolates to eta.
+  f.eta = g.now + f.block;
+  schedule(g, f.eta, 'flight.arr', f.id, f.ev);
 }
 
 /** 'flight.arr': on-blocks; aircraft parked at destination; hours/cycles; costs (fuel and fees on charters/ferries). */
 export function onFlightArr(g: GameState, ev: SimEvent): void {
   const f = g.flights[ev.id];
-  if (!f || f.ev !== ev.v || f.status !== 'enroute' || !f.aircraftId) return;
+  if (!f || f.ev !== ev.v) return;
+  // Deadheads and sub-chartered legs (no aircraft): done on time; contracts bill, crew moves deadheaders.
+  if (!f.aircraftId) {
+    if (f.status !== 'scheduled') return;
+    f.status = 'done';
+    f.atd = f.std;
+    f.ata = g.now;
+    return;
+  }
+  if (f.status !== 'enroute') return;
   const ac = g.fleet[f.aircraftId];
   f.status = 'done';
   f.ata = g.now;

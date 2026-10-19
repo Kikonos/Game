@@ -168,11 +168,17 @@ export function reportMinutes(typeId: string): { report: number; post: number } 
  * Crew positions for one duty. augment: extra pilots (1 → CRP relief, 2 → a second CPT + FO).
  * Cabin: SCCM (CSD on widebodies, else SCC) + a widebody No. 2 (SCC) from 8 cabin crew, rest CC.
  */
-export function complement(typeId: string, seats: number, opts: { augment?: 0 | 1 | 2; extraCabin?: number } = {}): Role[] {
+/**
+ * Crew for one duty. `augment` comes from the duty's FDP need (ULR types get 4 pilots only on sectors that need it).
+ * `fdp` (minutes): long augmented FDPs on class 2/3 rest add cabin crew for in-flight rest (+1 above 14:30, +2 above 16:00).
+ */
+export function complement(typeId: string, seats: number, opts: { augment?: 0 | 1 | 2; extraCabin?: number; fdp?: number } = {}): Role[] {
   const t = typeOf(typeId);
-  const augment = Math.max(opts.augment ?? 0, t.cockpitMin === 4 ? 2 : 0);
+  const augment = opts.augment ?? 0;
   const cockpit: Role[] = augment === 2 ? ['CPT', 'CPT', 'FO', 'FO'] : augment === 1 ? ['CPT', 'FO', 'CRP'] : ['CPT', 'FO'];
-  const cabinN = Math.max(cabinMinimum(seats), 1) + (opts.extraCabin ?? 0);
+  const fdp = opts.fdp ?? 0;
+  const restCabin = augment > 0 && (t.restClass === 2 || t.restClass === 3) ? (fdp > 960 ? 2 : fdp > 870 ? 1 : 0) : 0;
+  const cabinN = Math.max(cabinMinimum(seats), 1) + (opts.extraCabin ?? 0) + restCabin;
   const cabin: Role[] = [t.body === 'wide' ? 'CSD' : 'SCC'];
   if (t.body === 'wide' && cabinN >= 8) cabin.push('SCC');
   while (cabin.length < cabinN) cabin.push('CC');

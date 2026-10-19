@@ -501,7 +501,16 @@ const RUNWAY: Record<string, number> = {
 /** Estimate by size class when no published length is listed. */
 const RUNWAY_BY_SIZE = [0, 2200, 2600, 3000, 3400, 3800];
 
-for (const [region, rows] of Object.entries(EXTRA)) (DATA[region] ??= []).push(...rows);
+// ---------- builder sections (append only in your own block; same row format) ----------
+// B1: offer destinations, crisis and mission airports.
+const EXTRA_B1: Record<string, Row[]> = {};
+const RUNWAY_B1: Record<string, number> = {};
+// B3: maintenance stations, tech stops, delivery airports.
+const EXTRA_B3: Record<string, Row[]> = {};
+const RUNWAY_B3: Record<string, number> = {};
+
+for (const extra of [EXTRA, EXTRA_B1, EXTRA_B3]) for (const [region, rows] of Object.entries(extra)) (DATA[region] ??= []).push(...rows);
+Object.assign(RUNWAY, RUNWAY_B1, RUNWAY_B3);
 
 export const AIRPORTS: Airport[] = Object.entries(DATA).flatMap(([region, rows]) =>
   rows.map(([code, name, city, country, lat, lon, pop, size, biz, tour]) => ({

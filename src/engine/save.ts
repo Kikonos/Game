@@ -2,6 +2,7 @@
 // Export/import as a JSON file. Versioned with step-by-step migrations (DESIGN.md §7.2).
 
 import LZString from 'lz-string';
+import { compactQueue } from './core/queue';
 import { fmtDate } from './core/time';
 import type { GameState } from './core/types';
 import { SAVE_VERSION } from './newGame';
@@ -44,8 +45,9 @@ function metaFor(g: GameState, slot: string): SaveMeta {
   };
 }
 
+/** Stale queue events are dropped (handlers would ignore them anyway), which keeps saves small. */
 export function serialize(g: GameState, slot = 'export'): string {
-  const file: SaveFile = { format: FORMAT, meta: metaFor(g, slot), state: g };
+  const file: SaveFile = { format: FORMAT, meta: metaFor(g, slot), state: { ...g, queue: compactQueue(g) } };
   return JSON.stringify(file);
 }
 
@@ -82,6 +84,7 @@ function storage(): Storage | null {
 
 const LZ_MARK = 'lz1:';
 
+/** False when storage is unavailable or full (QuotaExceededError); callers toast. */
 export function saveToSlot(g: GameState, slot: string): boolean {
   const s = storage();
   if (!s) return false;

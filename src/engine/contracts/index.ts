@@ -10,7 +10,7 @@ import { extendBaseSchedules } from './schedule';
 
 export { acceptOffer, cancelContract, cancelPenalty, contractProgress, counterOffer, declineOffer, leadDays, type ContractProgress } from './accept';
 export { billContractMonth, type BillingLine } from './billing';
-export { feasibility, feasibilityAll, type CheckId, type CheckLevel, type FeasibilityCheck, type FeasibilityReport, type PositioningPlan } from './feasibility';
+export { feasibility, feasibilityAll, type CheckId, type CheckLevel, type FeasibilityCheck, type FeasibilityReport, type PositioningLeg } from './feasibility';
 export { generateOffer } from './offers';
 export { priceProduct, productValue } from './pricing';
 export { generateFlights, planPositioning } from './schedule';

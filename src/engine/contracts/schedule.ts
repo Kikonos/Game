@@ -14,9 +14,10 @@ export function generateFlights(_g: GameState, _c: Contract): Flight[] {
 export function extendBaseSchedules(_g: GameState): void {}
 
 /**
- * Adds an empty positioning (billable) or ferry leg so the aircraft is at `to` by `arriveBy`.
- * Departs as late as possible after its previous commitment. Used by B1 and by B3 (maintenance ferries). TODO(B1)
+ * Adds empty positioning (billable on wet) or ferry legs so the aircraft is at `to` by `arriveBy`: one leg, or
+ * several with fuel stops (planSector), e.g. A320 LIS→KBL via a stop. Departs as late as possible after its
+ * previous commitment; null when it can't fit. Used by B1 and by B3 (maintenance ferries). TODO(B1)
  */
-export function planPositioning(_g: GameState, _aircraftId: string, _to: string, _arriveBy: Minute, _kind: 'positioning' | 'ferry', _contractId: string | null): Flight | null {
+export function planPositioning(_g: GameState, _aircraftId: string, _to: string, _arriveBy: Minute, _kind: 'positioning' | 'ferry', _contractId: string | null): Flight[] | null {
   return null;
 }
