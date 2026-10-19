@@ -1,3 +1,29 @@
+# ACMI PIVOT (2026-10-19 15:20Z) — PLAN OF RECORD (supersedes the airline-sim plans below)
+The user played v0.2 for a few hours and liked it. They want to MORPH the game into an **ACMI / wet-lease / dry-lease (and charter) simulator**. They are a flight attendant who worked at EuroAtlantic Airways (2× B767-300ER + 2× B777-200ER at the time) and at Getjet / Airhub Airlines.
+Requirements (from the user):
+- Research the ACMI industry BEFORE building.
+- Morph the existing game (reuse map, airports, aircraft data and art, iPad touch shell, saves, PWA).
+- MUCH slower pace. Speeds 1×/2×/4× only. A sense of waiting for achievements while staying busy with other tasks. No flicker or frantic, grindy feel.
+- Big emphasis on the WORLD MAP. Real-time aircraft graphics that follow their routes and departure/landing times.
+- Small scale: few aircraft. Cabin configuration and route/contract choice matter.
+- Contracts: military, commercial (airline ACMI), refugees, prisoners, presidential, VIP, medical, repatriation (disasters/conflicts). Ad hoc, 1-month, multi-year. Urgent high-paying jobs.
+- Schedule, balance and crew each flight/contract against availability and current issues. Sub-lease or sub-charter a contract to another ACMI provider when needed.
+- The player is CEO but involved in every department: HR, Crewing, Rostering, Flight scheduling, Crew scheduling.
+- Start small with a few aircraft and build towards long haul, then ultra-long haul.
+- A scheduling tab for each aircraft showing its current duty (timeline).
+- Aircraft market scarce: hard to acquire (new, used or leased). You mostly use what you have.
+- Staffing per aircraft: legal minimum crew, plus extra crew for morale/service. Flight attendants, pilots, maintenance staff.
+- Goals harder to reach but not grindy; entertaining. iPad A16 landscape, PC-like pacing.
+- Open questions for the user are listed in the chat (name, home base, named crew vs pools, real vs fictional clients). Proceed with defaults unless the user answers.
+Phases:
+- P0 Research workflow (3 researchers + synthesis) → docs/acmi/RESEARCH.md
+- P1 Game design + architecture doc → docs/acmi/DESIGN.md (data model, time model, UI map, MVP scope, release slices)
+- P2 v0.5 "ACMI foundation": new engine (contracts, flights with real times, aircraft, crew basics + FTL, maintenance, finance), map-centric UI, per-aircraft schedule. Keep the old game at /Game/classic/.
+- P3 v0.6 crew/HR depth (rostering, training, morale, hiring lead times), subleasing / sub-charter
+- P4 v0.7 market scarcity, cabin configs per contract, AOC approvals (ETOPS/long-haul/ULR/military), events/crises, goals
+- P5 polish and balance, then further releases
+Old wip/* branches (art, mobile, balance) are frozen. Art and iPad shell work is reused via main (v0.2). The airline-sim balance work is not needed.
+
 # CONTRAIL — handover notes
 
 Read this first when resuming after a usage-limit reset or a context reset.
@@ -67,6 +93,7 @@ If an agent fails on a limit, its file edits persist (checkpoint them). Resume t
 6. Final message to the user: what changed; the iPad home-screen steps (default branch → main, Pages source → GitHub Actions, https://kikonos.github.io/Game/); any limitations.
 
 ## Log
+- 15:24Z ACMI pivot requested by user. Trigger prompt updated to follow this section. Starting P0 research.
 - 11:00Z user: iPad page was blank, landscape only, ship as updates. Fixed via play/ (v0.1), released v0.2. Subagents limited until 15:20Z; workflows to resume then (ipad prompts now landscape-only).
 - 11:35Z subagents available again (probe OK). Resumed engine (wf_8375b063-4f4) + art (wf_c35e6b4b-162). iPad screens (wf_182f21e9-43a) to resume after these, then release v0.3 (engine) / v0.4.
 - 2026-10-19 10:25Z: limits hit twice. The art architect finished the renderer, specs and gallery (big improvement). The iPad foundation is done. The engine rebalance is partly done (committed as WIP). Relaunched all three workflows lean.
