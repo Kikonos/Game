@@ -9,6 +9,9 @@ const metas = pick(/<meta name="(theme-color|description)"[^>]*>/g);
 const icon = pick(/<link rel="icon"[^>]*>/g);
 const styles = pick(/<link rel="stylesheet"[^>]*>/g);
 const scripts = pick(/<script type="module"[^>]*><\/script>/g);
-const page = [title, ...metas, ...icon, ...styles, '<div id="root"></div>', ...scripts].join('\n') + '\n';
+// The host pads top/bottom by the safe-area insets; this asks it to let the page run
+// under the side bars too (landscape), which the app clears via --safe-l/--safe-r.
+const sides = '<meta name="claude:viewport-fit-sides" content="cover">';
+const page = [title, sides, ...metas, ...icon, ...styles, '<div id="root"></div>', ...scripts].join('\n') + '\n';
 writeFileSync('dist-embed/page.html', page);
 console.log(page);

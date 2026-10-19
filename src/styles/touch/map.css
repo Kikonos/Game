@@ -1,0 +1,82 @@
+/* ==========================================================================
+   MAP — Network Map (MapScreen, WorldMap, map panels) and Routes (list, route
+   detail, Route Planner modal content).
+   Components: src/ui/game/{MapScreen,Routes}.tsx, src/ui/map/*.
+
+   Use exactly these (see README.md):
+     wide     @media (min-width: 1100px) and (min-height: 500px)
+     medium   @media (min-width: 700px) and (max-width: 1099.98px) and (min-height: 500px)
+     compact  @media (max-width: 699.98px), (max-height: 499.98px)
+     portrait @media (orientation: portrait)            (combine with a tier when needed)
+     touch    .touch <selector>                          (html.touch = (hover: none) and (pointer: coarse))
+     hover    @media (hover: hover) { ...:hover }        (never a bare :hover)
+   Tokens: --safe-t/r/b/l (in-flow insets), --vp-safe-t/b (fixed layers), --edge-l/r,
+     --main-pl/pr/pb (.screen padding), --tap (44px) / --tap-dense (36px), --topbar-h, --ticker-h,
+     --side-w, --tabbar-h.
+   The map's .main is .no-scroll and runs edge to edge: inset floating panels/controls by
+   --edge-r (right edge is the physical screen edge). Pinch/pan: use pointer events with
+   touch-action: none on the map surface only (Safari page pinch-zoom is already disabled).
+   ========================================================================== */
+
+/* ---------- Network Map: floating chrome ---------- */
+.touch .map-toolbar { padding: 6px; gap: 8px; border-radius: 16px; }
+.touch .map-toolbar .btn-sm { min-height: var(--tap); padding: 0 16px; font-size: 14px; }
+.touch .map-toolbar .select { min-height: var(--tap); }
+.touch .map-legend { font-size: 12.5px; padding: 10px 16px; gap: 6px 16px; border-radius: 16px; }
+.touch .map-legend .lg { width: 10px; height: 10px; }
+.touch .map-zoom { gap: 8px; }
+.touch .map-zoom .btn { width: var(--tap); height: var(--tap); min-height: var(--tap); border-radius: 14px; }
+.touch .map-zoom .btn svg { width: 20px; height: 20px; }
+.touch .map-zoom .btn:active { background: rgba(62, 230, 255, 0.16); border-color: var(--accent); }
+.map-zoom, .side-mode .map-panel { right: var(--edge-r); }
+.side-mode.panel-open .map-zoom { right: calc(var(--edge-r) + 354px); }
+
+/* ---------- Network Map: side panel (landscape) ---------- */
+.touch .map-panel { border-radius: 20px; }
+.touch .mp-head { padding: 16px 16px 0 20px; }
+.touch .mp-title h2 { font-size: 22px; }
+.touch .mp-close { width: var(--tap); height: var(--tap); margin: -6px -4px 0 0; }
+.touch .mp-close svg { width: 20px; height: 20px; }
+.touch .mp-primary { padding: 14px 20px 0; }
+.touch .mp-body { padding: 16px 20px 20px; }
+.touch .map-panel .btn-sm { min-height: var(--tap); padding: 0 16px; font-size: 14px; }
+.touch .hub-market { padding: 12px 14px; gap: 6px; }
+.touch .ap-stats > div { font-size: 13px; }
+.touch .list-btn { min-height: 48px; padding: 10px 14px; font-size: 14.5px; margin-bottom: 8px; border-radius: 12px; }
+.touch .mp-kv > div { font-size: 14px; padding: 9px 0; }
+.touch .mp-stats .tiny { font-size: 12px; }
+
+/* ---------- Network Map: bottom sheet (portrait, narrow windows; MapScreen sets .sheet) ---------- */
+.sheet-mode .map-zoom { top: 14px; bottom: auto; }
+.sheet-mode .map-toolbar { max-width: calc(100% - 28px - var(--tap) - 14px); }
+.sheet-mode .map-legend { max-width: calc(100% - 28px); }
+.sheet-mode.panel-open .map-legend { display: none; }
+.map-panel.sheet {
+  top: auto; left: 14px; right: var(--edge-r); bottom: 14px; width: auto; max-width: 700px; margin-inline: auto;
+  max-height: min(66%, 680px); border-radius: 22px; box-shadow: 0 -12px 44px rgba(0, 0, 0, 0.5);
+  animation: map-sheet-in 0.3s var(--ease); transition: transform 0.25s var(--ease), max-height 0.25s var(--ease);
+}
+.map-panel.sheet.collapsed { max-height: min(46%, 360px); }
+@keyframes map-sheet-in { from { opacity: 0; transform: translateY(40px); } to { opacity: 1; transform: none; } }
+.map-panel.sheet .mp-grip {
+  display: block; position: relative; flex-shrink: 0; width: 100%; height: var(--tap); margin-bottom: -26px;
+  border: none; background: none; padding: 0; touch-action: none; cursor: grab;
+}
+.map-panel.sheet .mp-grip::after { content: ''; position: absolute; left: 50%; top: 8px; width: 42px; height: 5px; margin-left: -21px; border-radius: 999px; background: rgba(148, 170, 220, 0.4); }
+.map-panel.sheet .mp-head { padding-top: 14px; }
+.map-panel.sheet.collapsed .mp-body { display: none; }
+.map-panel.sheet .mp-primary { padding-bottom: 4px; }
+.map-panel.sheet .mp-more {
+  display: flex; align-items: center; justify-content: center; gap: 6px; flex-shrink: 0; width: 100%; min-height: var(--tap);
+  border: none; border-top: 1px solid var(--border); background: none; color: var(--text-2); font-size: 13.5px; font-weight: 550; margin-top: 10px;
+}
+.map-panel.sheet .mp-more svg { width: 16px; height: 16px; }
+.map-panel.sheet .mp-more:active { background: var(--panel-2); color: var(--accent); }
+.map-panel.sheet .mp-body { padding-bottom: 8px; }
+@media (min-width: 560px) {
+  .map-panel.sheet .ap-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 699.98px), (max-height: 499.98px) {
+  .map-panel.sheet { left: var(--edge-l); bottom: 10px; }
+  .map-toolbar, .map-legend { left: var(--edge-l); }
+}

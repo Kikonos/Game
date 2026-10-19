@@ -1,7 +1,64 @@
 import { Minus, Plus, X } from 'lucide-react';
-import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, type RefObject, type TouchEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { flag } from '../../data/countries';
+import { tierNow } from '../useMedia';
 
+const FIELD = 'input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea';
+
+/**
+ * While a dialog is open, track the on-screen keyboard through the visual viewport: the
+ * backdrop shrinks to the visible area (--vv-top / --vv-h on <html>) and the focused field
+ * is scrolled into view, so inputs never end up under the keyboard.
+ */
+function useKeyboardAware(dialog: RefObject<HTMLDivElement | null>) {
+  useEffect(() => {
+    const vv = window.visualViewport;
+    const root = document.documentElement;
+    let timer = 0;
+    const reveal = () => {
+      const a = document.activeElement;
+      if (a instanceof HTMLElement && dialog.current?.contains(a) && a.matches(FIELD)) a.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    };
+    const update = () => {
+      if (!vv) return;
+      // The layout viewport keeps its height when the keyboard opens; the visual viewport shrinks.
+      const kb = Math.max(window.innerHeight, document.documentElement.clientHeight) - vv.height - vv.offsetTop;
+      if (kb > 40) {
+        root.style.setProperty('--vv-top', `${Math.round(vv.offsetTop)}px`);
+        root.style.setProperty('--vv-h', `${Math.round(vv.height)}px`);
+        window.clearTimeout(timer);
+        timer = window.setTimeout(reveal, 60);
+      } else {
+        root.style.removeProperty('--vv-top');
+        root.style.removeProperty('--vv-h');
+      }
+    };
+    // The keyboard animates in after focus; reveal again once it has settled.
+    const onFocus = (e: FocusEvent) => {
+      if (!(e.target instanceof Element) || !e.target.matches(FIELD)) return;
+      window.clearTimeout(timer);
+      timer = window.setTimeout(reveal, 350);
+    };
+    vv?.addEventListener('resize', update);
+    vv?.addEventListener('scroll', update);
+    document.addEventListener('focusin', onFocus);
+    update();
+    return () => {
+      window.clearTimeout(timer);
+      vv?.removeEventListener('resize', update);
+      vv?.removeEventListener('scroll', update);
+      document.removeEventListener('focusin', onFocus);
+      root.style.removeProperty('--vv-top');
+      root.style.removeProperty('--vv-h');
+    };
+  }, [dialog]);
+}
+
+/**
+ * Dialog. Wide/medium tiers: centred card (normal ~600px, wide ~900px, xwide ~1180px) with the
+ * header and footer fixed and only the body scrolling. Compact tier: a bottom sheet that can be
+ * dragged down to dismiss.
+ */
 export function Modal({
   title, icon, children, footer, onClose, size, className,
 }: {
@@ -24,10 +81,39 @@ export function Modal({
     window.addEventListener('keydown', h, true);
     return () => window.removeEventListener('keydown', h, true);
   }, [onClose]);
+  const sheet = useRef<HTMLDivElement>(null);
+  useKeyboardAware(sheet);
+  // The header gets a hairline once the body scrolls under it.
+  const [scrolled, setScrolled] = useState(false);
+  // Compact tier: dialogs are bottom sheets, and dragging the grip/header down dismisses them.
+  const drag = useRef<{ y: number; dy: number } | null>(null);
+  const dragStart = (e: TouchEvent) => {
+    if (!onClose || e.touches.length !== 1 || (e.target as Element).closest('button') || tierNow() !== 'compact') return;
+    drag.current = { y: e.touches[0].clientY, dy: 0 };
+  };
+  const dragMove = (e: TouchEvent) => {
+    const d = drag.current;
+    const el = sheet.current;
+    if (!d || !el) return;
+    d.dy = Math.max(0, e.touches[0].clientY - d.y);
+    el.style.transition = 'none';
+    el.style.transform = `translateY(${d.dy}px)`;
+  };
+  const dragEnd = () => {
+    const d = drag.current;
+    const el = sheet.current;
+    drag.current = null;
+    if (!d || !el) return;
+    el.style.transition = '';
+    el.style.transform = '';
+    if (d.dy > 90) onClose?.();
+  };
+  const grab = { onTouchStart: dragStart, onTouchMove: dragMove, onTouchEnd: dragEnd, onTouchCancel: dragEnd };
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose?.()}>
-      <div className={`modal ${size ?? ''} ${className ?? ''}`} role="dialog" aria-modal="true">
-        <div className="modal-head">
+      <div ref={sheet} className={`modal ${size ?? ''} ${className ?? ''} ${scrolled ? 'scrolled' : ''}`} role="dialog" aria-modal="true">
+        {onClose && <div className="sheet-grip" aria-hidden {...grab} />}
+        <div className="modal-head" {...grab}>
           {icon}
           <h2>{title}</h2>
           {onClose && (
@@ -36,7 +122,7 @@ export function Modal({
             </button>
           )}
         </div>
-        <div className="modal-body">{children}</div>
+        <div className="modal-body" onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 2)}>{children}</div>
         {footer && <div className="modal-foot">{footer}</div>}
       </div>
     </div>

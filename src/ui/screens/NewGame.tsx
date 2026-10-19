@@ -1,6 +1,6 @@
 import { ArrowLeft, ArrowRight, Check, Rocket } from 'lucide-react';
-import { useMemo, useState } from 'react';
-import { AIRPORTS_BY_REGION, SIZE_LABEL } from '../../data/airports';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { AIRPORT_BY_CODE, AIRPORTS_BY_REGION, SIZE_LABEL } from '../../data/airports';
 import { COUNTRIES, flag } from '../../data/countries';
 import { CONTINENT_ORDER, CONTINENTS, REGIONS, REGION_BY_ID } from '../../data/regions';
 import { airportMass, baseCompetition, baseDemand } from '../../engine/demand';
@@ -15,12 +15,59 @@ import { Bar, Seg } from '../components/ui';
 import { money } from '../format';
 import { WorldMap } from '../map/WorldMap';
 import { store } from '../store';
+import { useMedia } from '../useMedia';
+
+/** Portrait layouts put the map above the form; its caption docks to the side (tablet) or slims down (narrow). */
+const PORTRAIT_TABLET = '(min-width: 700px) and (max-width: 1099.98px) and (min-height: 600px) and (orientation: portrait)';
+const PORTRAIT_NARROW = '(max-width: 699.98px) and (min-height: 600px) and (orientation: portrait)';
 
 const PALETTE = ['#1e4fd8', '#0f9d76', '#d6283c', '#7a3cff', '#ff7a00', '#0b1f4d', '#e0457b', '#00a3c4', '#c8a000', '#202733', '#5e2ca5', '#2bb34a'];
 const SECONDARY = ['#ffffff', '#3ee6ff', '#f5c451', '#ff5d8f', '#9be15d', '#ff8a00', '#c0c7d6', '#111827'];
 const STEPS = ['Region', 'Hub', 'Brand', 'Launch'];
 
 const NAMES = ['Aurora Air', 'Skylark Airways', 'Meridian Air', 'Cirrus Airlines', 'Vela Airways', 'Northwind Air', 'Solstice Airways', 'Halcyon Air', 'Zephyr Airlines', 'Polaris Air'];
+
+/**
+ * While the on-screen keyboard is open (iPad), fit the screen to the visible area so the focused field and
+ * the action bar stay above the keyboard; the panel scrolls the field into view.
+ */
+function useKeyboardFit(ref: React.RefObject<HTMLDivElement | null>) {
+  useEffect(() => {
+    const vv = window.visualViewport;
+    const el = ref.current;
+    if (!vv || !el) return;
+    let timer = 0;
+    const update = () => {
+      const kb = Math.max(window.innerHeight, document.documentElement.clientHeight) - vv.height - vv.offsetTop;
+      if (kb > 80) {
+        el.dataset.kb = '';
+        el.style.top = `${Math.round(vv.offsetTop)}px`;
+        el.style.height = `${Math.round(vv.height)}px`;
+        window.clearTimeout(timer);
+        timer = window.setTimeout(() => {
+          const a = document.activeElement;
+          if (a instanceof HTMLElement && el.contains(a) && a.matches('input, select, textarea')) a.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }, 80);
+      } else if (el.dataset.kb !== undefined) {
+        delete el.dataset.kb;
+        el.style.top = '';
+        el.style.height = '';
+      }
+    };
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+    return () => {
+      vv.removeEventListener('resize', update);
+      vv.removeEventListener('scroll', update);
+      window.clearTimeout(timer);
+    };
+  }, [ref]);
+}
+
+/** Return closes the on-screen keyboard. */
+const blurOnEnter = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  if (e.key === 'Enter') e.currentTarget.blur();
+};
 
 function regionStats(id: string) {
   const aps = AIRPORTS_BY_REGION[id];
@@ -38,6 +85,12 @@ export function NewGame() {
   const [ceo, setCeo] = useState('');
   const [livery, setLivery] = useState<Livery>({ primary: '#1e4fd8', secondary: '#3ee6ff', tail: 'sweep' });
   const [difficulty, setDifficulty] = useState<Difficulty>('normal');
+  const root = useRef<HTMLDivElement>(null);
+  useKeyboardFit(root);
+  const sideCaption = useMedia(PORTRAIT_TABLET);
+  const slimCaption = useMedia(PORTRAIT_NARROW);
+  const capMode = sideCaption ? 'side' : slimCaption ? 'slim' : 'bottom';
+  const mapPad: [number, number, number, number] = capMode === 'side' ? [12, 330, 12, 12] : capMode === 'slim' ? [10, 10, 76, 10] : [10, 10, 210, 10];
   const derivedCode = (code || name.replace(/[^A-Za-z]/g, '').slice(0, 2)).toUpperCase().padEnd(2, 'X');
 
   const maxMass = useMemo(() => Math.max(...REGIONS.map((r) => regionMass(r.id))), []);
@@ -67,7 +120,7 @@ export function NewGame() {
   const mapAirports = AIRPORTS_BY_REGION[region].map((a) => ({ code: a.code, state: a.code === hub && step >= 1 ? ('hub' as const) : ('open' as const), label: step === 1 }));
 
   return (
-    <div className="newgame">
+    <div className="newgame" ref={root}>
       <header className="ng-head">
         <div className="row gap-12">
           <LogoMark size={36} />
@@ -78,9 +131,12 @@ export function NewGame() {
         </div>
         <ol className="ng-steps">
           {STEPS.map((s, i) => (
-            <li key={s} className={i === step ? 'active' : i < step ? 'done' : ''}>
-              <span className="n">{i < step ? <Check size={12} /> : i + 1}</span>
-              {s}
+            <li key={s} className={i === step ? 'active' : i < step ? 'done' : ''} aria-current={i === step ? 'step' : undefined}>
+              {i < step ? (
+                <button className="ng-step-btn" onClick={() => setStep(i)} aria-label={`Back to ${s}`}><span className="n"><Check size={12} /></span>{s}</button>
+              ) : (
+                <><span className="n">{i + 1}</span>{s}</>
+              )}
             </li>
           ))}
         </ol>
@@ -144,16 +200,16 @@ export function NewGame() {
               <div className="grid-2">
                 <div className="field">
                   <label>Airline name</label>
-                  <input className="input" value={name} maxLength={28} onChange={(e) => setName(e.target.value)} />
+                  <input className="input" value={name} maxLength={28} autoComplete="off" autoCapitalize="words" enterKeyHint="next" onKeyDown={blurOnEnter} onChange={(e) => setName(e.target.value)} />
                 </div>
                 <div className="field">
                   <label>Airline code (IATA)</label>
-                  <input className="input mono" value={code} placeholder={derivedCode} maxLength={2} onChange={(e) => setCode(e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase())} />
+                  <input className="input mono" value={code} placeholder={derivedCode} maxLength={2} autoComplete="off" autoCapitalize="characters" autoCorrect="off" spellCheck={false} enterKeyHint="next" onKeyDown={blurOnEnter} onChange={(e) => setCode(e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase())} />
                 </div>
               </div>
               <div className="field">
                 <label>Your name (CEO)</label>
-                <input className="input" value={ceo} placeholder="You" maxLength={28} onChange={(e) => setCeo(e.target.value)} />
+                <input className="input" value={ceo} placeholder="You" maxLength={28} autoComplete="name" autoCapitalize="words" enterKeyHint="done" onKeyDown={blurOnEnter} onChange={(e) => setCeo(e.target.value)} />
               </div>
               <div className="field">
                 <label>Primary colour</label>
@@ -169,7 +225,7 @@ export function NewGame() {
                   <input type="color" className="swatch-input" value={livery.secondary} onChange={(e) => setLivery({ ...livery, secondary: e.target.value })} aria-label="Custom accent colour" />
                 </div>
               </div>
-              <div className="field">
+              <div className="field ng-tail">
                 <label>Tail design</label>
                 <Seg<TailStyle> value={livery.tail} onChange={(tail) => setLivery({ ...livery, tail })} options={[
                   { value: 'solid', label: 'Solid' }, { value: 'split', label: 'Split' }, { value: 'stripe', label: 'Stripe' }, { value: 'sweep', label: 'Sweep' },
@@ -207,8 +263,8 @@ export function NewGame() {
 
         <div className="ng-visual">
           {step < 2 ? (
-            <div className="ng-map card">
-              <WorldMap rotate={rotate} routes={step === 1 ? AIRPORTS_BY_REGION[region].filter((a) => a.code !== hub && distance(hub, a.code) >= 150).map((a) => ({ id: a.code, from: hub, to: a.code, weight: Math.min(1, baseDemand(hub, a.code) / 1500), dashed: true })) : []} airports={mapAirports} fit={AIRPORTS_BY_REGION[region].map((a) => a.code)} fitPad={[10, 10, 210, 10]} interactive={step === 1} onSelect={(c) => c && AIRPORTS_BY_REGION[region].some((a) => a.code === c) && setHub(c)} controls={false} animate={false} />
+            <div className={`ng-map card cap-${capMode}`}>
+              <WorldMap rotate={rotate} routes={step === 1 ? AIRPORTS_BY_REGION[region].filter((a) => a.code !== hub && distance(hub, a.code) >= 150).map((a) => ({ id: a.code, from: hub, to: a.code, weight: Math.min(1, baseDemand(hub, a.code) / 1500), dashed: true })) : []} airports={mapAirports} fit={AIRPORTS_BY_REGION[region].map((a) => a.code)} fitPad={mapPad} interactive={step === 1} onSelect={(c) => c && AIRPORTS_BY_REGION[region].some((a) => a.code === c) && setHub(c)} controls={false} animate={false} />
               <div className="ng-map-caption">
                 <div className="upper" style={{ color: CONTINENTS[REGION_BY_ID[region].continent].color }}>{CONTINENTS[REGION_BY_ID[region].continent].name}</div>
                 <h3>{REGION_BY_ID[region].name}</h3>
@@ -237,6 +293,14 @@ export function NewGame() {
         <button className="btn btn-ghost" onClick={() => (step === 0 ? store.setScreen('title') : setStep(step - 1))}>
           <ArrowLeft /> {step === 0 ? 'Back to menu' : 'Back'}
         </button>
+        <div className="ng-foot-sum">
+          <span className="tiny dim">Step {step + 1} of {STEPS.length}</span>
+          <span className="ng-foot-pick">
+            {step === 0 && <><span className="dot" style={{ background: CONTINENTS[REGION_BY_ID[region].continent].color }} />{REGION_BY_ID[region].name} <span className="dim">· {AIRPORTS_BY_REGION[region].length} airports</span></>}
+            {step === 1 && <><span className="code">{hub}</span>{AIRPORT_BY_CODE[hub].city} <span className="dim">· {REGION_BY_ID[region].name}</span></>}
+            {step >= 2 && <><TailBadge primary={livery.primary} secondary={livery.secondary} code={derivedCode} size={22} /><span className="ellipsis">{name || 'Your airline'}</span> <span className="dim">· {step === 3 ? DIFFICULTY[difficulty].label : hub}</span></>}
+          </span>
+        </div>
         {step < 3 ? (
           <button className="btn btn-primary btn-lg" onClick={() => setStep(step + 1)} disabled={step === 2 && !name.trim()}>
             Continue <ArrowRight />

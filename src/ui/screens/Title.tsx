@@ -33,10 +33,11 @@ export function Title() {
   useOffline();
   const save = useMemo(() => latestSave(), []);
   const [show, setShow] = useState(0);
+  // Advance every 6 s; a tap on the card skips ahead and restarts the timer.
   useEffect(() => {
-    const id = setInterval(() => setShow((s) => (s + 1) % SHOWCASE.length), 6000);
-    return () => clearInterval(id);
-  }, []);
+    const id = setTimeout(() => setShow((s) => (s + 1) % SHOWCASE.length), 6000);
+    return () => clearTimeout(id);
+  }, [show]);
   const routes: MapRoute[] = useMemo(
     () => AMBIENT.map(([a, b], i) => ({ id: `amb${i}`, from: a, to: b, weight: 0.35, planes: 1, color: i % 3 === 0 ? '#8b5cff' : '#3ee6ff' })),
     [],
@@ -104,16 +105,23 @@ export function Title() {
           </div>
         </div>
         <div className="title-right">
-          <div className="showcase card" key={t.id}>
-            <div className="upper dim">Featured aircraft</div>
-            <h3>{t.name}</h3>
-            <AircraftArt typeId={t.id} livery={{ primary: '#1e4fd8', secondary: '#3ee6ff', tail: 'sweep' }} code="CT" name="Contrail" />
+          <div className="showcase card" key={t.id} role="button" tabIndex={0} aria-label="Next featured aircraft" onClick={() => setShow((s) => (s + 1) % SHOWCASE.length)}>
+            <div className="showcase-head">
+              <div className="upper dim">Featured aircraft</div>
+              <h3>{t.name}</h3>
+            </div>
+            <div className="showcase-art">
+              <AircraftArt typeId={t.id} livery={{ primary: '#1e4fd8', secondary: '#3ee6ff', tail: 'sweep' }} code="CT" name="Contrail" />
+            </div>
             <div className="showcase-specs">
               <div><span className="dim small">Seats</span><b>{t.typicalSeats}–{t.maxSeats}</b></div>
               <div><span className="dim small">Range</span><b>{t.rangeKm.toLocaleString()} km</b></div>
               <div><span className="dim small">Price</span><b>{money(t.price, 0)}</b></div>
             </div>
-            <p className="small muted">{t.fact}</p>
+            <p className="small muted showcase-fact">{t.fact}</p>
+            <div className="showcase-dots" aria-hidden>
+              {SHOWCASE.map((id, i) => <span key={id} className={i === show ? 'on' : ''} />)}
+            </div>
           </div>
         </div>
       </div>

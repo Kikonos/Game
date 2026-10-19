@@ -1,9 +1,10 @@
 import { geoInterpolate, geoPath } from 'd3-geo';
 import { Minus, Plus, Maximize2 } from 'lucide-react';
-import { memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AIRPORT_BY_CODE, AIRPORTS, type Airport } from '../../data/airports';
 import { REGIONS } from '../../data/regions';
 import { PLANE_PATH } from '../components/Logo';
+import { isTouch, useTouch } from '../useMedia';
 import { MAP_H, MAP_W, basePaths, projection } from './mapData';
 
 export interface MapRoute {
@@ -24,6 +25,9 @@ export interface MapAirport {
   label?: boolean;
 }
 
+/** Screen-pixel padding [top, right, bottom, left] kept clear when fitting (e.g. for overlays). */
+export type Pad = [number, number, number, number];
+
 interface Props {
   rotate?: number;
   routes: MapRoute[];
@@ -35,6 +39,8 @@ interface Props {
   accent?: string;
   selected?: string | null;
   onSelect?: (code: string | null) => void;
+  /** Makes route lines tappable; called with null on a tap on empty map. */
+  onSelectRoute?: (id: string | null) => void;
   onHover?: (code: string | null) => void;
   tooltip?: (a: Airport) => ReactNode;
   regionLabels?: { id: string; locked: boolean }[];
@@ -42,6 +48,8 @@ interface Props {
   /** Changes when the network changes, so planes are rebuilt. */
   planesKey?: string;
   controls?: boolean;
+  /** Screen area covered by overlays: a newly selected airport under it is panned into view. */
+  revealPad?: Pad | (() => Pad);
 }
 
 interface View {
@@ -50,7 +58,16 @@ interface View {
   y: number;
 }
 
+/** Container geometry: the SVG uses "slice" scaling (s screen px per map unit at zoom 1, offset ox/oy). */
+interface Geo { w: number; h: number; s: number; ox: number; oy: number; left: number; top: number }
+
+const K_MAX = 16;
 const MAX_PLANES = 60;
+/** Touch devices get a lighter animation budget (fewer planes, 30 fps). */
+const MAX_PLANES_TOUCH = 44;
+/** Hit radii in screen px: generous for fingers, tight for a mouse. */
+const HIT_AP = { touch: 26, mouse: 12 };
+const HIT_ROUTE = { touch: 16, mouse: 7 };
 
 const BaseLayers = memo(function BaseLayers({ rotate }: { rotate: number }) {
   const p = basePaths(rotate);
@@ -63,13 +80,31 @@ const BaseLayers = memo(function BaseLayers({ rotate }: { rotate: number }) {
   );
 });
 
-/** Screen-pixel padding [top, right, bottom, left] kept clear when fitting (e.g. for overlays). */
-type Pad = [number, number, number, number];
+function geoOf(w: number, h: number, left = 0, top = 0): Geo {
+  const s = Math.max(w / MAP_W, h / MAP_H) || 0.6;
+  return { w, h, s, ox: (w - MAP_W * s) / 2, oy: (h - MAP_H * s) / 2, left, top };
+}
 
-function fitView(rotate: number, codes: string[], w: number, h: number, pad: Pad = [0, 0, 0, 0]): View {
+/** Keeps the map covering the visible part of the viewBox (which "slice" may crop on one axis). */
+function clampView(v: View, geo?: Geo): View {
+  const k = Math.max(1, Math.min(K_MAX, v.k));
+  const x0 = geo ? -geo.ox / geo.s : 0;
+  const x1 = geo ? (geo.w - geo.ox) / geo.s : MAP_W;
+  const y0 = geo ? -geo.oy / geo.s : 0;
+  const y1 = geo ? (geo.h - geo.oy) / geo.s : MAP_H;
+  const minX = x1 - MAP_W * k;
+  const minY = y1 - MAP_H * k;
+  return {
+    k,
+    x: minX > x0 ? (minX + x0) / 2 : Math.min(x0, Math.max(minX, v.x)),
+    y: minY > y0 ? (minY + y0) / 2 : Math.min(y0, Math.max(minY, v.y)),
+  };
+}
+
+function fitView(rotate: number, codes: string[], geo: Geo, pad: Pad = [0, 0, 0, 0]): View {
   const proj = projection(rotate);
   const pts = codes.map((c) => AIRPORT_BY_CODE[c]).filter(Boolean).map((a) => proj([a.lon, a.lat])!);
-  if (pts.length === 0) return { k: 1, x: 0, y: 0 };
+  if (pts.length === 0) return clampView({ k: 1, x: 0, y: 0 }, geo);
   let x0 = Math.min(...pts.map((p) => p[0]));
   let x1 = Math.max(...pts.map((p) => p[0]));
   let y0 = Math.min(...pts.map((p) => p[1]));
@@ -80,128 +115,577 @@ function fitView(rotate: number, codes: string[], w: number, h: number, pad: Pad
   const padX = (x1 - x0) * 0.18;
   const padY = (y1 - y0) * 0.22;
   x0 -= padX; x1 += padX; y0 -= padY; y1 += padY;
-  // The SVG uses "slice", so convert container aspect into map units.
-  const scale = Math.max(w / MAP_W, h / MAP_H);
-  const visW = Math.max(40, w - pad[1] - pad[3]) / scale;
-  const visH = Math.max(40, h - pad[0] - pad[2]) / scale;
+  const { w, h, s } = geo;
+  const visW = Math.max(40, w - pad[1] - pad[3]) / s;
+  const visH = Math.max(40, h - pad[0] - pad[2]) / s;
   const k = Math.max(1, Math.min(14, Math.min(visW / (x1 - x0), visH / (y1 - y0))));
   const cx = (x0 + x1) / 2;
   const cy = (y0 + y1) / 2;
-  const tx = MAP_W / 2 + (pad[3] - pad[1]) / 2 / scale;
-  const ty = MAP_H / 2 + (pad[0] - pad[2]) / 2 / scale;
-  return clampView({ k, x: tx - cx * k, y: ty - cy * k });
+  const tx = MAP_W / 2 + (pad[3] - pad[1]) / 2 / s;
+  const ty = MAP_H / 2 + (pad[0] - pad[2]) / 2 / s;
+  return clampView({ k, x: tx - cx * k, y: ty - cy * k }, geo);
 }
 
-function clampView(v: View): View {
-  const k = Math.max(1, Math.min(14, v.k));
-  const minX = MAP_W - MAP_W * k;
-  const minY = MAP_H - MAP_H * k;
-  return { k, x: Math.min(0, Math.max(minX, v.x)), y: Math.min(0, Math.max(minY, v.y)) };
+const sameView = (a: View, b: View) => a.k === b.k && a.x === b.x && a.y === b.y;
+
+type ApEl = MapAirport & { a: Airport; x: number; y: number };
+
+const RoutesLayer = memo(function RoutesLayer({ items, accent }: { items: { r: MapRoute; d: string }[]; accent: string }) {
+  return (
+    <g className="routes">
+      {items.map(({ r, d }) => {
+        const color = r.color ?? accent;
+        return (
+          <g key={r.id}>
+            {r.highlight && <path d={d} fill="none" stroke={color} strokeOpacity={0.25} strokeWidth={8} vectorEffect="non-scaling-stroke" />}
+            <path
+              d={d}
+              fill="none"
+              stroke={color}
+              strokeOpacity={r.highlight ? 1 : 0.25 + 0.6 * r.weight}
+              strokeWidth={0.8 + r.weight * 2.4 + (r.highlight ? 1 : 0)}
+              strokeDasharray={r.dashed ? '4 4' : undefined}
+              strokeLinecap="round"
+              vectorEffect="non-scaling-stroke"
+            />
+          </g>
+        );
+      })}
+    </g>
+  );
+});
+
+const AirportsLayer = memo(function AirportsLayer({ els, unit, selected, hover, accent, crowded, showAll, touch }: {
+  els: ApEl[]; unit: number; selected?: string | null; hover?: string | null; accent: string; crowded: boolean; showAll: boolean; touch: boolean;
+}) {
+  // unit = map units per screen pixel at the current zoom.
+  const px = (n: number) => n * unit;
+  let sel: ApEl | undefined;
+  const item = (ap: ApEl) => {
+    const big = ap.state === 'hub';
+    const rad = px(ap.state === 'hub' ? 6.5 : ap.state === 'served' ? 4.5 : ap.state === 'open' ? 2.2 + ap.a.size * 0.5 : 2.2);
+    const isSel = selected === ap.code;
+    const fill = ap.state === 'hub' ? accent : ap.state === 'served' ? '#ffffff' : ap.state === 'open' ? '#9fb2d8' : ap.state === 'locked' ? '#3a4766' : '#56617a';
+    const showLabel = (ap.label && !crowded) || isSel || big || hover === ap.code || (showAll && ap.state !== 'locked' && ap.state !== 'dim');
+    const fs = touch ? (big || isSel ? 13 : 12) : big ? 12 : 10.5;
+    const ring = Math.max(rad * 2.2, px(11));
+    return (
+      <g key={ap.code} transform={`translate(${ap.x} ${ap.y})`} className={`ap ap-${ap.state} ${isSel ? 'sel' : ''} ${hover === ap.code ? 'hov' : ''}`}>
+        {big && <circle r={rad * 2.4} fill={accent} opacity={0.18} className="pulse" />}
+        {isSel && <circle r={ring} fill="rgba(255,255,255,0.08)" stroke="#fff" strokeWidth={1.5} vectorEffect="non-scaling-stroke" className="sel-ring" />}
+        <circle r={rad} fill={fill} stroke={big || isSel ? '#fff' : 'rgba(5,9,18,0.8)'} strokeWidth={big ? 1.5 : 1} vectorEffect="non-scaling-stroke" />
+        {showLabel && (
+          <text y={-(isSel ? ring : rad) - px(5)} textAnchor="middle" fontSize={px(fs)} className="ap-label">
+            {ap.code}
+          </text>
+        )}
+      </g>
+    );
+  };
+  return (
+    <g className="airports">
+      {els.map((ap) => {
+        if (ap.code === selected) { sel = ap; return null; }
+        return item(ap);
+      })}
+      {/* The selected airport draws last, above its neighbours. */}
+      {sel && item(sel)}
+    </g>
+  );
+});
+
+/** Squared distance from p to segment ab. */
+function segDist2(px: number, py: number, ax: number, ay: number, bx: number, by: number) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const l2 = dx * dx + dy * dy;
+  const t = l2 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2)) : 0;
+  const qx = ax + t * dx - px;
+  const qy = ay + t * dy - py;
+  return qx * qx + qy * qy;
 }
 
+interface Gesture {
+  mode: 'pan' | 'pinch';
+  type: string;
+  start: View;
+  sx: number;
+  sy: number;
+  moved: boolean;
+  t0: number;
+  /** Most pointers down at once during this gesture. */
+  max: number;
+  d0: number;
+  /** Map point under the pinch midpoint at pinch start. */
+  anchor: [number, number];
+  mid: [number, number];
+  pinchMoved: boolean;
+  samples: { t: number; x: number; y: number }[];
+}
+
+/**
+ * World map with touch-first navigation: one-finger pan (with momentum), two-finger pinch around
+ * the midpoint, double tap to zoom in, two-finger tap to zoom out, mouse drag / wheel / trackpad
+ * pinch (ctrl+wheel in Chrome, gesture events in Safari). Taps pick the nearest airport (or route)
+ * within a finger-sized radius. While a gesture runs the transform is written straight to the DOM
+ * and React re-renders markers at most every 120 ms.
+ */
 export function WorldMap({
-  rotate = 0, routes, airports, fit, fitPad, interactive = true, animate = true, accent = '#3ee6ff', selected, onSelect, onHover,
-  tooltip, regionLabels, className, planesKey, controls = true,
+  rotate = 0, routes, airports, fit, fitPad, interactive = true, animate = true, accent = '#3ee6ff', selected, onSelect, onSelectRoute, onHover,
+  tooltip, regionLabels, className, planesKey, controls = true, revealPad,
 }: Props) {
+  const touch = useTouch();
   const wrapRef = useRef<HTMLDivElement>(null);
-  const svgRef = useRef<SVGSVGElement>(null);
+  const worldRef = useRef<SVGGElement>(null);
   const planesRef = useRef<SVGGElement>(null);
   const [view, setView] = useState<View>({ k: 1, x: 0, y: 0 });
   // Screen pixels per map unit at zoom 1 (the SVG uses "slice" scaling).
   const [pxPerUnit, setPxPerUnit] = useState(0.6);
-  const pxRef = useRef(pxPerUnit);
-  pxRef.current = pxPerUnit;
+  const geoRef = useRef<Geo>(geoOf(1000, 600));
+  /** The view on screen right now; ahead of `view` (React state) during gestures and animations. */
+  const live = useRef<View>(view);
+  const gest = useRef<Gesture | null>(null);
+  const ptrs = useRef(new Map<number, { x: number; y: number }>());
+  const anim = useRef(0);
+  const wheelUntil = useRef(0);
+  const commitTimer = useRef(0);
+  const settleTimer = useRef(0);
+  const userMoved = useRef(false);
+  const lastTap = useRef<{ t: number; x: number; y: number } | null>(null);
+  const [hover, setHover] = useState<{ code: string; x: number; y: number } | null>(null);
+  const proj = projection(rotate);
+  const path = useMemo(() => geoPath(proj), [proj]);
+
+  const busy = () => gest.current !== null || anim.current !== 0 || performance.now() < wheelUntil.current;
+
+  /** Moves the map on screen without a React render (the transform is owned here, not by JSX). */
+  const apply = (v: View) => {
+    live.current = v;
+    worldRef.current?.setAttribute('transform', `translate(${v.x} ${v.y}) scale(${v.k})`);
+  };
+  const commit = useCallback(() => {
+    window.clearTimeout(commitTimer.current);
+    commitTimer.current = 0;
+    const v = live.current;
+    setView((cur) => (sameView(cur, v) ? cur : v));
+  }, []);
+  /** Re-renders markers/labels for the new zoom at most every 120 ms while a gesture runs. */
+  const scheduleCommit = () => {
+    if (!commitTimer.current) commitTimer.current = window.setTimeout(commit, 120);
+  };
+  useLayoutEffect(() => {
+    if (!busy()) apply(view);
+  }, [view]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const measure = (): Geo => {
+    const el = wrapRef.current;
+    if (!el) return geoRef.current;
+    const r = el.getBoundingClientRect();
+    if (r.width > 0 && r.height > 0) geoRef.current = geoOf(r.width, r.height, r.left, r.top);
+    return geoRef.current;
+  };
+
+  // ---------- animation helpers ----------
+  const stopAnim = () => {
+    if (anim.current) cancelAnimationFrame(anim.current);
+    anim.current = 0;
+  };
+  /** Runs frame(eased 0..1, dt) every animation frame for ms (ms 0: until frame returns null). */
+  const run = (frame: (e: number, dt: number) => View | null, ms: number) => {
+    stopAnim();
+    const t0 = performance.now();
+    let last = t0;
+    const step = (now: number) => {
+      const t = ms > 0 ? Math.min(1, (now - t0) / ms) : 0;
+      const v = frame(1 - Math.pow(1 - t, 3), Math.min(34, now - last));
+      last = now;
+      if (v) apply(v);
+      if (v && (ms <= 0 || t < 1)) anim.current = requestAnimationFrame(step);
+      else { anim.current = 0; commit(); }
+    };
+    anim.current = requestAnimationFrame(step);
+  };
+  const flyTo = (target: View, ms = 380) => {
+    const v0 = live.current;
+    run((e) => ({ k: v0.k + (target.k - v0.k) * e, x: v0.x + (target.x - v0.x) * e, y: v0.y + (target.y - v0.y) * e }), ms);
+  };
+  /** Zoom by `factor` keeping the viewBox point m fixed on screen. */
+  const zoomBy = (factor: number, m: [number, number], animated = true) => {
+    const v0 = live.current;
+    const geo = geoRef.current;
+    const p = [(m[0] - v0.x) / v0.k, (m[1] - v0.y) / v0.k];
+    const k1 = Math.max(1, Math.min(K_MAX, v0.k * factor));
+    const at = (e: number) => {
+      const k = v0.k * Math.pow(k1 / v0.k, e);
+      return clampView({ k, x: m[0] - p[0] * k, y: m[1] - p[1] * k }, geo);
+    };
+    userMoved.current = true;
+    if (animated) run(at, 280);
+    else apply(at(1));
+  };
+  const fling = (vx: number, vy: number) => {
+    run((_e, dt) => {
+      const decay = Math.pow(0.94, dt / 16);
+      vx *= decay;
+      vy *= decay;
+      if (Math.hypot(vx, vy) < 0.03) return null;
+      const s = geoRef.current.s;
+      const v = live.current;
+      return clampView({ k: v.k, x: v.x + (vx * dt) / s, y: v.y + (vy * dt) / s }, geoRef.current);
+    }, 0);
+  };
+  const center = (): [number, number] => {
+    const g = geoRef.current;
+    return [(g.w / 2 - g.ox) / g.s, (g.h / 2 - g.oy) / g.s];
+  };
+  useEffect(() => () => { stopAnim(); window.clearTimeout(commitTimer.current); window.clearTimeout(settleTimer.current); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ---------- fitting ----------
+  const fitKey = (fit ?? []).join(',');
+  const padKey = (fitPad ?? []).join(',');
+  const doFit = useCallback((animated = false) => {
+    const geo = measure();
+    if (geo.w <= 0) return;
+    userMoved.current = false;
+    const target = fit && fit.length ? fitView(rotate, fit, geo, fitPad) : clampView({ k: 1, x: 0, y: 0 }, geo);
+    if (animated) flyTo(target);
+    else {
+      stopAnim();
+      apply(target);
+      setView(target);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fitKey, padKey, rotate]);
+  const fitRef = useRef(doFit);
+  fitRef.current = doFit;
+  useLayoutEffect(() => {
+    doFit();
+  }, [doFit]);
+
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
     const ro = new ResizeObserver(() => {
-      const r = el.getBoundingClientRect();
-      if (r.width > 0) setPxPerUnit(Math.max(r.width / MAP_W, r.height / MAP_H));
+      const geo = measure();
+      setPxPerUnit(geo.s);
+      // Rotation / Split View / panel changes: refit until the player has moved the map.
+      if (!userMoved.current) fitRef.current();
+      else if (!busy()) { apply(clampView(live.current, geo)); commit(); }
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
-  const [hover, setHover] = useState<{ code: string; x: number; y: number } | null>(null);
-  const viewRef = useRef(view);
-  viewRef.current = view;
-  const proj = projection(rotate);
-  const path = useMemo(() => geoPath(proj), [proj]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const fitKey = (fit ?? []).join(',');
-  const doFit = useCallback(() => {
-    const el = wrapRef.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    setView(fit && fit.length ? fitView(rotate, fit, r.width, r.height, fitPad) : { k: 1, x: 0, y: 0 });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fitKey, rotate]);
-  useEffect(() => {
-    doFit();
-  }, [doFit]);
-
-  // ---------- pan & zoom ----------
-  const toMap = (clientX: number, clientY: number): [number, number] => {
-    const svg = svgRef.current!;
-    const pt = svg.createSVGPoint();
-    pt.x = clientX;
-    pt.y = clientY;
-    const p = pt.matrixTransform(svg.getScreenCTM()!.inverse());
-    return [p.x, p.y];
-  };
-  const zoomAt = (factor: number, mx: number, my: number) => {
-    setView((v) => {
-      const k = Math.max(1, Math.min(14, v.k * factor));
-      const f = k / v.k;
-      return clampView({ k, x: mx - (mx - v.x) * f, y: my - (my - v.y) * f });
-    });
-  };
-  useEffect(() => {
-    const svg = svgRef.current;
-    if (!svg || !interactive) return;
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      const [mx, my] = toMap(e.clientX, e.clientY);
-      zoomAt(Math.exp(-e.deltaY * 0.0015), mx, my);
-    };
-    svg.addEventListener('wheel', onWheel, { passive: false });
-    return () => svg.removeEventListener('wheel', onWheel);
-  }, [interactive]);
-
-  const drag = useRef<{ x: number; y: number; vx: number; vy: number; moved: boolean } | null>(null);
-  const onPointerDown = (e: React.PointerEvent) => {
-    if (!interactive || e.button !== 0) return;
-    const [mx, my] = toMap(e.clientX, e.clientY);
-    drag.current = { x: mx, y: my, vx: view.x, vy: view.y, moved: false };
-  };
-  const onPointerMove = (e: React.PointerEvent) => {
-    const d = drag.current;
-    if (!d) return;
-    const [mx, my] = toMap(e.clientX, e.clientY);
-    const dx = mx - d.x;
-    const dy = my - d.y;
-    if (Math.abs(dx) + Math.abs(dy) > 3) {
-      if (!d.moved) (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
-      d.moved = true;
-    }
-    if (d.moved) setView(clampView({ k: viewRef.current.k, x: d.vx + dx, y: d.vy + dy }));
-  };
-  const onPointerUp = (e: React.PointerEvent) => {
-    const d = drag.current;
-    drag.current = null;
-    if (d && !d.moved && interactive && (e.target as Element).tagName === 'rect') onSelect?.(null);
+  // ---------- geometry & hit testing ----------
+  /** Client coordinates → viewBox coordinates (uses the rect cached by measure()). */
+  const vbOf = (cx: number, cy: number): [number, number] => {
+    const g = geoRef.current;
+    return [(cx - g.left - g.ox) / g.s, (cy - g.top - g.oy) / g.s];
   };
 
-  // ---------- airports ----------
-  const k = view.k;
+  const airportKey = airports.map((a) => `${a.code}${a.state[0]}${a.label ? 1 : 0}`).join(',');
   const airportEls = useMemo(() => {
     return airports.map((ap) => {
       const a = AIRPORT_BY_CODE[ap.code];
-      const p = proj([a.lon, a.lat]);
+      const p = a && proj([a.lon, a.lat]);
       if (!p) return null;
       return { ...ap, a, x: p[0], y: p[1] };
-    }).filter(Boolean) as (MapAirport & { a: Airport; x: number; y: number })[];
-  }, [airports, proj]);
+    }).filter(Boolean) as ApEl[];
+  }, [airportKey, proj]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const routeKey = routes.map((r) => `${r.id}|${r.from}|${r.to}|${r.weight.toFixed(3)}|${r.color ?? ''}|${r.dashed ? 1 : 0}|${r.highlight ? 1 : 0}`).join(',');
+  const routeItems = useMemo(() => routes.map((r) => {
+    const A = AIRPORT_BY_CODE[r.from];
+    const B = AIRPORT_BY_CODE[r.to];
+    const d = A && B ? path({ type: 'LineString', coordinates: [[A.lon, A.lat], [B.lon, B.lat]] }) : null;
+    return d ? { r, d } : null;
+  }).filter(Boolean) as { r: MapRoute; d: string }[], [routeKey, path]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const tappableRoutes = !!onSelectRoute;
+  const routeLines = useMemo(() => {
+    if (!tappableRoutes) return [];
+    return routes.map((r) => {
+      const A = AIRPORT_BY_CODE[r.from];
+      const B = AIRPORT_BY_CODE[r.to];
+      if (!A || !B) return null;
+      const interp = geoInterpolate([A.lon, A.lat], [B.lon, B.lat]);
+      const pts: [number, number][] = [];
+      for (let i = 0; i <= 24; i++) {
+        const q = proj(interp(i / 24));
+        if (q) pts.push([q[0], q[1]]);
+      }
+      return { id: r.id, pts };
+    }).filter(Boolean) as { id: string; pts: [number, number][] }[];
+  }, [routeKey, proj, tappableRoutes]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const hitTest = (cx: number, cy: number, finger: boolean): { airport?: string; route?: string } => {
+    const [vx, vy] = vbOf(cx, cy);
+    const v = live.current;
+    const unit = v.k * geoRef.current.s; // screen px per map unit
+    const mx = (vx - v.x) / v.k;
+    const my = (vy - v.y) / v.k;
+    const rA = (finger ? HIT_AP.touch : HIT_AP.mouse) / unit;
+    let best: string | undefined;
+    let bestScore = Infinity;
+    for (const ap of airportEls) {
+      const d = Math.hypot(ap.x - mx, ap.y - my);
+      if (d > rA) continue;
+      // Prefer your own airports when markers crowd together.
+      const score = d * unit - (ap.state === 'hub' ? 8 : ap.state === 'served' ? 5 : ap.code === selected ? 3 : 0);
+      if (score < bestScore) { bestScore = score; best = ap.code; }
+    }
+    if (best) return { airport: best };
+    if (!tappableRoutes) return {};
+    const rR = (finger ? HIT_ROUTE.touch : HIT_ROUTE.mouse) / unit;
+    let bestR: string | undefined;
+    let bestD = rR * rR;
+    for (const line of routeLines) {
+      for (let i = 1; i < line.pts.length; i++) {
+        const [ax, ay] = line.pts[i - 1];
+        const [bx, by] = line.pts[i];
+        if (Math.abs(bx - ax) > MAP_W / 2) continue; // antimeridian wrap
+        const d2 = segDist2(mx, my, ax, ay, bx, by);
+        if (d2 < bestD) { bestD = d2; bestR = line.id; }
+      }
+    }
+    return bestR ? { route: bestR } : {};
+  };
+
+  const tap = (cx: number, cy: number, finger: boolean, now: number) => {
+    const last = lastTap.current;
+    if (last && now - last.t < 350 && Math.hypot(cx - last.x, cy - last.y) < (finger ? 40 : 12)) {
+      // Double tap / double click: zoom in around that point.
+      lastTap.current = null;
+      zoomBy(2, vbOf(cx, cy));
+      return;
+    }
+    lastTap.current = { t: now, x: cx, y: cy };
+    const hit = hitTest(cx, cy, finger);
+    if (hit.airport) onSelect?.(hit.airport);
+    else if (hit.route) onSelectRoute?.(hit.route);
+    else {
+      onSelect?.(null);
+      onSelectRoute?.(null);
+    }
+  };
+
+  // ---------- pointer gestures: pan, pinch, tap, double tap, two-finger tap ----------
+  const startPinch = (g: Gesture) => {
+    const [a, b] = [...ptrs.current.values()];
+    g.mode = 'pinch';
+    g.start = live.current;
+    g.d0 = Math.max(12, Math.hypot(a.x - b.x, a.y - b.y));
+    g.mid = [(a.x + b.x) / 2, (a.y + b.y) / 2];
+    const m = vbOf(g.mid[0], g.mid[1]);
+    g.anchor = [(m[0] - g.start.x) / g.start.k, (m[1] - g.start.y) / g.start.k];
+  };
+
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if ((e.target as Element).closest('button, a, input, select, textarea')) return;
+    stopAnim();
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* not capturable */ }
+    ptrs.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const g = gest.current;
+    if (!g || ptrs.current.size === 1) {
+      measure();
+      gest.current = {
+        mode: 'pan', type: e.pointerType, start: live.current, sx: e.clientX, sy: e.clientY, moved: false, t0: performance.now(),
+        max: 1, d0: 0, anchor: [0, 0], mid: [e.clientX, e.clientY], pinchMoved: false, samples: [],
+      };
+      if (hover) { setHover(null); onHover?.(null); }
+    } else {
+      g.max = Math.max(g.max, ptrs.current.size);
+      if (ptrs.current.size === 2) startPinch(g);
+    }
+  };
+
+  const hoverAt = (cx: number, cy: number) => {
+    measure();
+    const code = hitTest(cx, cy, false).airport ?? null;
+    if ((hover?.code ?? null) === code) return;
+    const g = geoRef.current;
+    setHover(code ? { code, x: cx - g.left, y: cy - g.top } : null);
+    onHover?.(code);
+  };
+
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const p = ptrs.current.get(e.pointerId);
+    if (!p) {
+      if (e.pointerType !== 'touch' && !gest.current) hoverAt(e.clientX, e.clientY);
+      return;
+    }
+    p.x = e.clientX;
+    p.y = e.clientY;
+    const g = gest.current;
+    if (!g) return;
+    const geo = geoRef.current;
+    if (g.mode === 'pan') {
+      const dx = e.clientX - g.sx;
+      const dy = e.clientY - g.sy;
+      if (!g.moved) {
+        if (Math.hypot(dx, dy) < (g.type === 'mouse' ? 3 : 8)) return;
+        // Start from here so the map doesn't jump by the slop distance.
+        g.moved = true;
+        g.sx = e.clientX;
+        g.sy = e.clientY;
+        g.start = live.current;
+        g.samples = [{ t: performance.now(), x: e.clientX, y: e.clientY }];
+        userMoved.current = true;
+        return;
+      }
+      apply(clampView({ k: g.start.k, x: g.start.x + dx / geo.s, y: g.start.y + dy / geo.s }, geo));
+      const now = performance.now();
+      g.samples.push({ t: now, x: e.clientX, y: e.clientY });
+      while (g.samples.length > 2 && now - g.samples[0].t > 100) g.samples.shift();
+    } else {
+      const [a, b] = [...ptrs.current.values()];
+      const d = Math.max(12, Math.hypot(a.x - b.x, a.y - b.y));
+      const mc: [number, number] = [(a.x + b.x) / 2, (a.y + b.y) / 2];
+      if (!g.pinchMoved && (Math.abs(d - g.d0) > 10 || Math.hypot(mc[0] - g.mid[0], mc[1] - g.mid[1]) > 10)) {
+        g.pinchMoved = true;
+        userMoved.current = true;
+      }
+      if (!g.pinchMoved) return;
+      g.mid = mc;
+      const m = vbOf(mc[0], mc[1]);
+      const k = Math.max(1, Math.min(K_MAX, g.start.k * (d / g.d0)));
+      apply(clampView({ k, x: m[0] - g.anchor[0] * k, y: m[1] - g.anchor[1] * k }, geo));
+      scheduleCommit();
+    }
+  };
+
+  const onPointerEnd = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!ptrs.current.delete(e.pointerId)) return;
+    const g = gest.current;
+    if (!g) return;
+    const left = ptrs.current.size;
+    if (left === 1) {
+      // Pinch → keep panning with the remaining finger.
+      const [r] = [...ptrs.current.values()];
+      g.mode = 'pan';
+      g.start = live.current;
+      g.sx = r.x;
+      g.sy = r.y;
+      g.moved = true;
+      g.samples = [];
+      return;
+    }
+    if (left >= 2) { startPinch(g); return; }
+    gest.current = null;
+    const cancelled = e.type === 'pointercancel';
+    const dur = performance.now() - g.t0;
+    if (g.max >= 2) {
+      // Two-finger tap zooms out (as in Maps).
+      if (!g.pinchMoved && !cancelled && dur < 320) zoomBy(0.5, vbOf(g.mid[0], g.mid[1]));
+      else commit();
+      return;
+    }
+    if (g.moved) {
+      const s = g.samples;
+      const now = performance.now();
+      if (!cancelled && g.type !== 'mouse' && s.length >= 2 && now - s[s.length - 1].t < 80) {
+        const a = s[0];
+        const b = s[s.length - 1];
+        const dt = Math.max(16, b.t - a.t);
+        const vx = (b.x - a.x) / dt;
+        const vy = (b.y - a.y) / dt;
+        if (Math.hypot(vx, vy) > 0.25) { fling(vx * 0.9, vy * 0.9); return; }
+      }
+      commit();
+      return;
+    }
+    if (!cancelled) tap(e.clientX, e.clientY, e.pointerType !== 'mouse', e.timeStamp);
+  };
+
+  // Wheel (mouse, trackpad scroll and Chrome's ctrl+wheel trackpad pinch) and Safari's trackpad gesture events.
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el || !interactive) return;
+    const settle = () => {
+      window.clearTimeout(settleTimer.current);
+      settleTimer.current = window.setTimeout(commit, 180);
+    };
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      stopAnim();
+      measure();
+      const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+      zoomBy(Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0015)), vbOf(e.clientX, e.clientY), false);
+      wheelUntil.current = performance.now() + 160;
+      scheduleCommit();
+      settle();
+    };
+    type GestureEv = Event & { scale: number; clientX: number; clientY: number };
+    let gz: { v0: View; m: [number, number] } | null = null;
+    // Touch pinches are handled with pointer events; Safari's gesture events then only matter for trackpads.
+    const fingersDown = () => ptrs.current.size > 0;
+    const onGStart = (ev: Event) => {
+      ev.preventDefault();
+      if (fingersDown()) return;
+      const e = ev as GestureEv;
+      stopAnim();
+      measure();
+      gz = { v0: live.current, m: vbOf(e.clientX, e.clientY) };
+    };
+    const onGChange = (ev: Event) => {
+      ev.preventDefault();
+      if (!gz || fingersDown()) return;
+      const e = ev as GestureEv;
+      const { v0, m } = gz;
+      const p = [(m[0] - v0.x) / v0.k, (m[1] - v0.y) / v0.k];
+      const k = Math.max(1, Math.min(K_MAX, v0.k * e.scale));
+      apply(clampView({ k, x: m[0] - p[0] * k, y: m[1] - p[1] * k }, geoRef.current));
+      userMoved.current = true;
+      wheelUntil.current = performance.now() + 160;
+      scheduleCommit();
+      settle();
+    };
+    const onGEnd = (ev: Event) => {
+      ev.preventDefault();
+      gz = null;
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    el.addEventListener('gesturestart', onGStart);
+    el.addEventListener('gesturechange', onGChange);
+    el.addEventListener('gestureend', onGEnd);
+    return () => {
+      el.removeEventListener('wheel', onWheel);
+      el.removeEventListener('gesturestart', onGStart);
+      el.removeEventListener('gesturechange', onGChange);
+      el.removeEventListener('gestureend', onGEnd);
+    };
+  }, [interactive]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Pan a newly selected airport out from under overlays (side panel / bottom sheet).
+  const revealRef = useRef(revealPad);
+  revealRef.current = revealPad;
+  useEffect(() => {
+    const padOpt = revealRef.current;
+    if (!selected || !padOpt || !interactive) return;
+    const id = requestAnimationFrame(() => {
+      const a = AIRPORT_BY_CODE[selected];
+      const p = a && proj([a.lon, a.lat]);
+      if (!p || busy()) return;
+      const pad = typeof padOpt === 'function' ? padOpt() : padOpt;
+      const geo = measure();
+      const v = live.current;
+      const sx = (p[0] * v.k + v.x) * geo.s + geo.ox;
+      const sy = (p[1] * v.k + v.y) * geo.s + geo.oy;
+      const m = 32;
+      let dx = 0;
+      let dy = 0;
+      if (sx < pad[3] + m) dx = pad[3] + m - sx;
+      else if (sx > geo.w - pad[1] - m) dx = geo.w - pad[1] - m - sx;
+      if (sy < pad[0] + m) dy = pad[0] + m - sy;
+      else if (sy > geo.h - pad[2] - m) dy = geo.h - pad[2] - m - sy;
+      if (dx || dy) flyTo(clampView({ k: v.k, x: v.x + dx / geo.s, y: v.y + dy / geo.s }, geo), 360);
+    });
+    return () => cancelAnimationFrame(id);
+  }, [selected, interactive, proj]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ---------- region labels ----------
+  const regionKey = (regionLabels ?? []).map((r) => `${r.id}${r.locked ? 1 : 0}`).join(',');
   const regionLabelEls = useMemo(() => {
     if (!regionLabels) return [];
     return regionLabels.map((r) => {
@@ -211,22 +695,25 @@ export function WorldMap({
       const y = pts.reduce((s, p) => s + p[1], 0) / pts.length;
       return { ...r, x, y, name: REGIONS.find((x) => x.id === r.id)!.name };
     });
-  }, [regionLabels, proj]);
+  }, [regionKey, proj]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------- planes (imperative animation) ----------
   // Cap the number of animated aircraft so big networks stay smooth.
   const planeRoutes = useMemo(() => {
+    const cap = isTouch() ? MAX_PLANES_TOUCH : MAX_PLANES;
     const list = routes.filter((r) => (r.planes ?? 0) > 0).sort((a, b) => (b.planes ?? 0) - (a.planes ?? 0));
-    let budget = MAX_PLANES;
+    let budget = cap;
     const out: MapRoute[] = [];
     for (const r of list) {
       if (budget <= 0) break;
-      const n = Math.min(r.planes ?? 0, budget, Math.max(1, Math.ceil(MAX_PLANES / list.length)));
+      const n = Math.min(r.planes ?? 0, budget, Math.max(1, Math.ceil(cap / list.length)));
       out.push({ ...r, planes: n });
       budget -= n;
     }
     return out;
-  }, [planesKey ?? routes]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [planesKey ?? routeKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const pxRef = useRef(pxPerUnit);
+  pxRef.current = pxPerUnit;
   useEffect(() => {
     const g = planesRef.current;
     if (!g) return;
@@ -260,15 +747,19 @@ export function WorldMap({
         planes.push({ el, trail, interp, dur, phase: (i / (r.planes ?? 1)) * 2 + Math.random() * 0.3 });
       }
     }
+    // Planes drift slowly, so ~30 fps is plenty on battery-powered touch devices.
+    const minFrame = isTouch() ? 30 : 0;
     let raf = 0;
     let paused = false;
+    let lastFrame = 0;
     const t0 = performance.now();
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
-      if (paused) return;
+      if (paused || now - lastFrame < minFrame) return;
+      lastFrame = now;
       // Freeze while a dialog is open: blurred backdrops over moving content are expensive.
       if (document.querySelector('.modal-backdrop')) return;
-      const kk = viewRef.current.k;
+      const s = 15 / 24 / (pxRef.current * live.current.k);
       for (const p of planes) {
         const cyc = ((now - t0) / p.dur + p.phase) % 2;
         const fwd = cyc < 1;
@@ -280,8 +771,7 @@ export function WorldMap({
         if (!pos || !ahead) continue;
         let ang = (Math.atan2(ahead[1] - pos[1], ahead[0] - pos[0]) * 180) / Math.PI + 90;
         if (Math.abs(ahead[0] - pos[0]) > MAP_W / 2) ang += 180;
-        const s = 15 / 24 / (pxRef.current * kk);
-        p.el.setAttribute('transform', `translate(${pos[0]} ${pos[1]}) rotate(${ang}) scale(${s})`);
+        p.el.setAttribute('transform', `translate(${pos[0].toFixed(2)} ${pos[1].toFixed(2)}) rotate(${ang.toFixed(1)}) scale(${s.toFixed(4)})`);
         const pts: string[] = [];
         for (let j = 0; j <= 3; j++) {
           const tt = Math.max(0, Math.min(1, e + (fwd ? -1 : 1) * j * 0.024));
@@ -303,22 +793,25 @@ export function WorldMap({
     };
   }, [planeRoutes, animate, proj, accent]);
 
-  // Convert screen pixels into map units at the current zoom.
-  const px = (n: number) => n / (pxPerUnit * k);
+  // Map units per screen pixel at the current (committed) zoom.
+  const k = view.k;
+  const unit = 1 / (pxPerUnit * k);
   const showAllLabels = k * pxPerUnit > 1.6;
   // Dense networks only label hubs until you zoom in, to avoid a pile of overlapping codes.
   const crowded = airports.filter((a) => a.label).length > 16 && k * pxPerUnit < 2.2;
+  const regionFont = touch ? 12.5 : 11;
 
   return (
     <div
       ref={wrapRef}
-      className={`worldmap ${interactive ? 'interactive' : ''} ${className ?? ''}`}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerLeave={() => { drag.current = null; }}
+      className={`worldmap ${interactive ? 'interactive' : ''} ${hover ? 'hovering' : ''} ${className ?? ''}`}
+      onPointerDown={interactive ? onPointerDown : undefined}
+      onPointerMove={interactive ? onPointerMove : undefined}
+      onPointerUp={interactive ? onPointerEnd : undefined}
+      onPointerCancel={interactive ? onPointerEnd : undefined}
+      onPointerLeave={interactive ? (e) => { if (e.pointerType !== 'touch' && hover && !ptrs.current.size) { setHover(null); onHover?.(null); } } : undefined}
     >
-      <svg ref={svgRef} viewBox={`0 0 ${MAP_W} ${MAP_H}`} preserveAspectRatio="xMidYMid slice">
+      <svg viewBox={`0 0 ${MAP_W} ${MAP_H}`} preserveAspectRatio="xMidYMid slice">
         <defs>
           <radialGradient id="ocean-grad" cx="50%" cy="40%" r="75%">
             <stop offset="0" stopColor="#0c1528" />
@@ -330,72 +823,16 @@ export function WorldMap({
           </linearGradient>
         </defs>
         <rect x="0" y="0" width={MAP_W} height={MAP_H} fill="url(#ocean-grad)" />
-        <g transform={`translate(${view.x} ${view.y}) scale(${k})`}>
+        <g ref={worldRef}>
           <BaseLayers rotate={rotate} />
           {regionLabelEls.map((r) => (
-            <text key={r.id} x={r.x} y={r.y} textAnchor="middle" className={`region-label ${r.locked ? 'locked' : ''}`} fontSize={px(11)} style={{ opacity: k * pxPerUnit > 2.6 ? 0 : 1 }}>
+            <text key={r.id} x={r.x} y={r.y} textAnchor="middle" className={`region-label ${r.locked ? 'locked' : ''}`} fontSize={regionFont * unit} style={{ opacity: k * pxPerUnit > 2.6 ? 0 : 1 }}>
               {r.name.toUpperCase()}
             </text>
           ))}
-          <g className="routes">
-            {routes.map((r) => {
-              const A = AIRPORT_BY_CODE[r.from];
-              const B = AIRPORT_BY_CODE[r.to];
-              const d = path({ type: 'LineString', coordinates: [[A.lon, A.lat], [B.lon, B.lat]] });
-              if (!d) return null;
-              const color = r.color ?? accent;
-              return (
-                <g key={r.id}>
-                  {r.highlight && <path d={d} fill="none" stroke={color} strokeOpacity={0.25} strokeWidth={8} vectorEffect="non-scaling-stroke" />}
-                  <path
-                    d={d}
-                    fill="none"
-                    stroke={color}
-                    strokeOpacity={r.highlight ? 1 : 0.25 + 0.6 * r.weight}
-                    strokeWidth={0.8 + r.weight * 2.4 + (r.highlight ? 1 : 0)}
-                    strokeDasharray={r.dashed ? '4 4' : undefined}
-                    strokeLinecap="round"
-                    vectorEffect="non-scaling-stroke"
-                  />
-                </g>
-              );
-            })}
-          </g>
+          <RoutesLayer items={routeItems} accent={accent} />
           <g ref={planesRef} className="planes" />
-          <g className="airports">
-            {airportEls.map((ap) => {
-              const big = ap.state === 'hub';
-              const rad = px(ap.state === 'hub' ? 6.5 : ap.state === 'served' ? 4.5 : ap.state === 'open' ? 2.2 + ap.a.size * 0.5 : 2.2);
-              const isSel = selected === ap.code;
-              const fill = ap.state === 'hub' ? accent : ap.state === 'served' ? '#ffffff' : ap.state === 'open' ? '#9fb2d8' : ap.state === 'locked' ? '#3a4766' : '#56617a';
-              const showLabel = (ap.label && !crowded) || isSel || big || hover?.code === ap.code || (showAllLabels && ap.state !== 'locked' && ap.state !== 'dim');
-              return (
-                <g
-                  key={ap.code}
-                  transform={`translate(${ap.x} ${ap.y})`}
-                  className={`ap ap-${ap.state} ${isSel ? 'sel' : ''}`}
-                  onClick={(e) => { e.stopPropagation(); if (interactive) onSelect?.(ap.code); }}
-                  onPointerEnter={(e) => {
-                    if (!interactive) return;
-                    const rect = wrapRef.current!.getBoundingClientRect();
-                    setHover({ code: ap.code, x: e.clientX - rect.left, y: e.clientY - rect.top });
-                    onHover?.(ap.code);
-                  }}
-                  onPointerLeave={() => { setHover(null); onHover?.(null); }}
-                >
-                  {big && <circle r={rad * 2.4} fill={accent} opacity={0.18} className="pulse" />}
-                  {isSel && <circle r={rad * 2.2} fill="none" stroke="#fff" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />}
-                  <circle r={Math.max(rad, px(9))} fill="transparent" />
-                  <circle r={rad} fill={fill} stroke={big ? '#fff' : 'rgba(5,9,18,0.8)'} strokeWidth={big ? 1.5 : 1} vectorEffect="non-scaling-stroke" />
-                  {showLabel && (
-                    <text y={-rad - px(5)} textAnchor="middle" fontSize={px(big ? 12 : 10.5)} className="ap-label">
-                      {ap.code}
-                    </text>
-                  )}
-                </g>
-              );
-            })}
-          </g>
+          <AirportsLayer els={airportEls} unit={unit} selected={selected} hover={hover?.code} accent={accent} crowded={crowded} showAll={showAllLabels} touch={touch} />
         </g>
       </svg>
       {hover && tooltip && (
@@ -405,9 +842,9 @@ export function WorldMap({
       )}
       {interactive && controls && (
         <div className="map-zoom">
-          <button className="btn btn-icon btn-sm" onClick={() => zoomAt(1.6, MAP_W / 2, MAP_H / 2)} aria-label="Zoom in"><Plus /></button>
-          <button className="btn btn-icon btn-sm" onClick={() => zoomAt(1 / 1.6, MAP_W / 2, MAP_H / 2)} aria-label="Zoom out"><Minus /></button>
-          <button className="btn btn-icon btn-sm" onClick={doFit} aria-label="Reset view"><Maximize2 /></button>
+          <button className="btn btn-icon btn-sm" onClick={() => { measure(); zoomBy(1.8, center()); }} aria-label="Zoom in"><Plus /></button>
+          <button className="btn btn-icon btn-sm" onClick={() => { measure(); zoomBy(1 / 1.8, center()); }} aria-label="Zoom out"><Minus /></button>
+          <button className="btn btn-icon btn-sm" onClick={() => doFit(true)} aria-label="Reset view"><Maximize2 /></button>
         </div>
       )}
     </div>

@@ -36,7 +36,7 @@ function Statement({ g }: { g: GameState }) {
     { label: last ? monthLabel(last.key, false) : 'Last month', m: last ?? null },
     { label: 'Last 12 months', m: year },
   ];
-  const cell = (m: MonthFinance | null, f: (m: MonthFinance) => number, cls = '') => <td className={`num ${cls}`}>{m ? money(f(m)) : '—'}</td>;
+  const cell = (key: string, m: MonthFinance | null, f: (m: MonthFinance) => number) => <td key={key} className="num">{m ? money(f(m)) : '—'}</td>;
   const expRows = EXP_CATS.filter((c) => cols.some((x) => x.m && x.m.exp[c] > 0));
   return (
     <div className="table-wrap">
@@ -48,11 +48,11 @@ function Statement({ g }: { g: GameState }) {
           {REV_CATS.map((c) => (
             <tr key={c}><td>{REV_LABEL[c]}</td>{cols.map((x) => <td key={x.label} className="num">{x.m ? money(x.m.rev[c]) : '—'}</td>)}</tr>
           ))}
-          <tr className="subtotal"><td>Total revenue</td>{cols.map((x) => cell(x.m, monthRevenue))}</tr>
+          <tr className="subtotal"><td>Total revenue</td>{cols.map((x) => cell(x.label, x.m, monthRevenue))}</tr>
           {expRows.map((c) => (
             <tr key={c}><td className="muted">{EXP_LABEL[c]}</td>{cols.map((x) => <td key={x.label} className="num muted">{x.m ? money(-x.m.exp[c]) : '—'}</td>)}</tr>
           ))}
-          <tr className="subtotal"><td>Total expenses</td>{cols.map((x) => cell(x.m, (m) => -monthExpenses(m)))}</tr>
+          <tr className="subtotal"><td>Total expenses</td>{cols.map((x) => cell(x.label, x.m, (m) => -monthExpenses(m)))}</tr>
           <tr className="total">
             <td>Net profit</td>
             {cols.map((x) => {
@@ -94,10 +94,11 @@ function Loans({ g }: { g: GameState }) {
         <div className="col gap-12">
           <div className="row between"><span className="muted small">Borrow</span><b className="num">{money(amt)}</b></div>
           <input type="range" min={1e6} max={max} step={1e6} value={amt} style={{ ['--fill' as string]: `${((amt - 1e6) / Math.max(1, max - 1e6)) * 100}%` }} onChange={(e) => setAmount(Number(e.target.value))} />
-          <div className="row between">
+          <div className="fin-opt">
+            <span className="small muted">Term</span>
             <Seg value={months} onChange={setMonths} options={[{ value: 24, label: '2 years' }, { value: 60, label: '5 years' }, { value: 120, label: '10 years' }]} />
-            <span className="small muted">{(terms.rate * 100).toFixed(1)}% · {money(loanPayment(amt, terms.rate, months))}/mo</span>
           </div>
+          <div className="row between small"><span className="muted">{(terms.rate * 100).toFixed(1)}% interest</span><b className="num">{money(loanPayment(amt, terms.rate, months))}/mo</b></div>
           <button className="btn btn-primary" onClick={() => store.act((gg) => A.takeLoan(gg, amt, months), { sound: 'cash' })}><Banknote /> Take loan</button>
           <div className="tiny dim">Credit available: {money(terms.max)}. Owned aircraft and profits raise your limit.</div>
         </div>
@@ -124,8 +125,8 @@ function Hedging({ g }: { g: GameState }) {
         <div className="note good small mt-12">Hedged {pct(g.hedge!.pct)} of consumption at ${g.hedge!.price.toFixed(3)}/kg until {formatDate(g.hedge!.until)}.</div>
       ) : (
         <div className="col gap-8 mt-12">
-          <div className="row between"><span className="small muted">Coverage</span><Seg value={p} onChange={setP} options={[{ value: 0.25, label: '25%' }, { value: 0.5, label: '50%' }, { value: 0.75, label: '75%' }]} /></div>
-          <div className="row between"><span className="small muted">Duration</span><Seg value={m} onChange={setM} options={[{ value: 3, label: '3 mo' }, { value: 6, label: '6 mo' }, { value: 12, label: '12 mo' }]} /></div>
+          <div className="fin-opt"><span className="small muted">Coverage</span><Seg value={p} onChange={setP} options={[{ value: 0.25, label: '25%' }, { value: 0.5, label: '50%' }, { value: 0.75, label: '75%' }]} /></div>
+          <div className="fin-opt"><span className="small muted">Duration</span><Seg value={m} onChange={setM} options={[{ value: 3, label: '3 mo' }, { value: 6, label: '6 mo' }, { value: 12, label: '12 mo' }]} /></div>
           <button className="btn" disabled={q.cost <= 0} onClick={() => store.act((gg) => A.hedgeFuel(gg, p, m))}><Shield /> Hedge for {money(q.cost)}</button>
           <div className="tiny dim">Premium ≈ 3% of the hedged fuel bill. Protects you from spikes — but you miss the dips.</div>
         </div>
@@ -147,7 +148,7 @@ export function Finance() {
           <div className="subtitle">Profit & loss, balance sheet, loans and fuel.</div>
         </div>
       </div>
-      <div className="kpi-row">
+      <div className="kpi-row fin-kpis">
         <Kpi label="Cash" icon={<Wallet />} value={<span className={g.cash < 0 ? 'bad' : ''}>{money(g.cash)}</span>} />
         <Kpi label="Equity" icon={<Scale />} value={money(equity(g))} sub={<span className="dim">Cash + aircraft − debt</span>} />
         <Kpi label="Company value" icon={<LineIcon />} value={money(companyValue(g))} />
@@ -156,16 +157,16 @@ export function Finance() {
       </div>
       {g.finance.negativeMonths > 0 && <div className="note bad mb-16">Your cash was negative at the end of the month. {4 - g.finance.negativeMonths} month(s) left to recover before bankruptcy.</div>}
       <div className="fin-grid">
-        <Card title="Revenue vs expenses" icon={<LineIcon className="ico" />} className="span-2" actions={<Legend items={[{ name: 'Revenue', color: 'var(--series-1)' }, { name: 'Expenses', color: 'var(--series-2)' }]} />}>
+        <Card title="Revenue vs expenses" icon={<LineIcon className="ico" />} className="span-2 fin-chart" actions={<Legend items={[{ name: 'Revenue', color: 'var(--series-1)' }, { name: 'Expenses', color: 'var(--series-2)' }]} />}>
           {hist.length ? (
             <PairBars a={{ name: 'Revenue', color: 'var(--series-1)', values: hist.map(monthRevenue) }} b={{ name: 'Expenses', color: 'var(--series-2)', values: hist.map(monthExpenses) }} labels={labels} format={(v) => money(v)} height={220} />
           ) : <div className="empty small">Charts appear after your first full month.</div>}
         </Card>
-        <Card title="Cash balance" icon={<Wallet className="ico" />}>
+        <Card title="Cash balance" icon={<Wallet className="ico" />} className="fin-cash">
           {hist.length ? <LineChart series={[{ name: 'Cash', color: 'var(--series-1)', values: hist.map((m) => m.cashEnd) }]} labels={labels} format={(v) => money(v)} height={220} /> : <div className="empty small">No history yet.</div>}
         </Card>
-        <Card title="Income statement" icon={<Receipt className="ico" />} className="span-2"><Statement g={g} /></Card>
-        <div className="col gap-16">
+        <Card title="Income statement" icon={<Receipt className="ico" />} className="span-2 fin-statement"><Statement g={g} /></Card>
+        <div className="col gap-16 fin-side">
           <Loans g={g} />
           <Hedging g={g} />
         </div>

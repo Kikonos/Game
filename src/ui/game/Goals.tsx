@@ -30,8 +30,8 @@ export function Goals() {
           <div className="subtitle">{done} of {GOALS.length} goals complete · {int(g.xp)} XP</div>
         </div>
       </div>
-      <div className="grid-3">
-        <Card title="Airline level" icon={<Medal className="ico" />}>
+      <div className="grid-3 goals-layout">
+        <Card title="Airline level" icon={<Medal className="ico" />} className="level-card">
           <div className="row gap-12">
             <div className="level-badge">{g.level}</div>
             <div className="grow">
@@ -40,7 +40,7 @@ export function Goals() {
               <div className="tiny dim mt-8">{lp.next ? `${int(lp.next.xp - g.xp)} XP to ${lp.next.title}` : 'Maximum level reached!'}</div>
             </div>
           </div>
-          <div className="tiny dim mt-12">Earn XP from every passenger, monthly profits and completed goals.</div>
+          <div className="tiny dim mt-12 level-note">Earn XP from every passenger, monthly profits and completed goals.</div>
           <div className="ladder mt-12">
             {LEVELS.map((l) => (
               <div key={l.level} className={`ladder-row ${g.level >= l.level ? 'reached' : ''} ${g.level === l.level ? 'current' : ''}`}>
@@ -54,7 +54,7 @@ export function Goals() {
             ))}
           </div>
         </Card>
-        <Card title="Goals" icon={<Trophy className="ico" />} className="span-2">
+        <Card title="Goals" icon={<Trophy className="ico" />} className="span-2 goals-card">
           <div className="goal-grid">
             {GOALS.map((goal) => {
               const complete = g.completedGoals.includes(goal.id);

@@ -1,0 +1,198 @@
+/* ==========================================================================
+   SHELL — game chrome per tier, dialogs, sheets and toasts (owner: foundation).
+   Shell.tsx renders .shell.wide / .shell.medium / .shell.compact(.short) from the
+   same queries as below (src/ui/useMedia.ts), so shell rules key off those classes;
+   dialogs and toasts also appear before the game starts, so they use the queries.
+
+     wide     @media (min-width: 1100px) and (min-height: 500px)
+     medium   @media (min-width: 700px) and (max-width: 1099.98px) and (min-height: 500px)
+     compact  @media (max-width: 699.98px), (max-height: 499.98px)
+     touch    .touch <selector>   (html.touch = (hover: none) and (pointer: coarse))
+   Tokens: --safe-t/r/b/l, --vp-safe-t/b, --tap, --tap-dense, --topbar-h, --ticker-h,
+   --side-w, --tabbar-h (all in app.css :root).
+   ========================================================================== */
+
+/* Shared count pip on nav icons (rail, compact tabs, More tiles). */
+.nb {
+  position: absolute; top: -6px; right: -10px; min-width: 19px; height: 19px; padding: 0 5px; border-radius: 999px;
+  background: var(--bad); color: #fff; font-size: 12px; font-weight: 700; line-height: 1; display: grid; place-items: center;
+  box-shadow: 0 0 0 2px #070b14; font-variant-numeric: tabular-nums;
+}
+
+/* ---------- wide (>= 1100): the desktop layout, roomier on touch ---------- */
+.touch .topbar { gap: 12px; }
+.touch .airline-pill { min-height: 48px; padding: 4px 14px 4px 6px; gap: 10px; }
+.touch .airline-pill > .col { min-width: 96px; }
+.touch .airline-pill .name { font-size: 14px; max-width: 150px; }
+.touch .airline-pill .lvl { font-size: 12px; max-width: 150px; }
+.touch .airline-pill:active, .touch .tb-cash:active, .touch .tb-rep:active, .touch .lv-badge:active { background: var(--panel-hover); }
+.touch .clock { min-width: 0; }
+.touch .clock .date { font-size: 15px; }
+.touch .clock .time { font-size: 12.5px; }
+.touch .speed { gap: 3px; padding: 3px; border-radius: 14px; }
+.touch .speed button { min-width: 46px; height: var(--tap); border-radius: 11px; font-size: 15px; padding: 0 8px; }
+.touch .speed .sp-pause { min-width: 46px; }
+.touch .speed button svg { width: 18px; height: 18px; }
+.touch .speed .sp-sep { height: 24px; margin: 0 2px; }
+.touch .tb-right { gap: 6px; }
+.touch .tb-stat .l { font-size: 12px; }
+.touch .tb-rep { min-height: var(--tap); justify-content: center; padding: 0 8px; border-radius: 12px; }
+.touch .bell .pip { top: 3px; right: auto; left: 23px; min-width: 19px; height: 19px; font-size: 12px; box-shadow: 0 0 0 2px #070b14; }
+.touch .nav-item { height: 48px; padding: 0 14px; gap: 14px; border-radius: 12px; font-size: 14.5px; }
+.touch .nav-item svg { width: 20px; height: 20px; }
+.touch .nav-item.active::before { top: 13px; bottom: 13px; }
+.touch .nav-item .nbadge { min-width: 22px; height: 22px; font-size: 12px; }
+.touch .nav-item:active { background: var(--panel-hover); }
+.touch .side-goal { padding: 12px 14px; font-size: 12.5px; }
+.touch .side-goal .t { font-size: 13.5px; }
+.touch .side-goal:active { background: var(--panel-hover); }
+.touch .ticker { font-size: 13.5px; }
+.touch .ticker .tag { font-size: 12px; padding: 0 16px; }
+.touch .ticker .item .d { font-size: 12px; }
+.touch .ticker:active .tag { background: rgba(62, 230, 255, 0.16); }
+/* iPad landscape in Safari (~750px tall): keep all 11 destinations without scrolling. */
+@media (max-height: 800px) { .touch .shell.wide .nav-foot { display: none; } }
+@media (max-width: 1299.98px) { .touch .shell.wide .tb-rep { display: none; } }
+
+/* ---------- medium (700–1099): 80px rail, icon over a short label ---------- */
+.shell.medium { --side-w: 80px; --main-pl: 20px; --main-pr: calc(20px + var(--safe-r)); }
+.shell.medium .topbar { gap: 12px; padding-left: var(--safe-l); }
+.shell.medium .brand { width: var(--side-w); justify-content: center; }
+.shell.medium .brand .wordmark, .shell.medium .tb-brand-sep, .shell.medium .tb-clock-sep { display: none; }
+.shell.medium .sidebar { padding: 10px 8px 12px calc(8px + var(--safe-l)); gap: 4px; }
+.shell.medium .nav-item {
+  flex-direction: column; justify-content: center; gap: 5px; height: 60px; padding: 0 2px; border-radius: 14px;
+  font-size: 12px; font-weight: 600; text-align: center;
+}
+.shell.medium .nav-item svg { width: 22px; height: 22px; }
+.shell.medium .nav-item .lbl { max-width: 100%; line-height: 1.1; }
+.shell.medium .nav-item.active { background: rgba(62, 230, 255, 0.1); box-shadow: inset 0 0 0 1px rgba(62, 230, 255, 0.22); }
+.shell.medium .nav-item.active::before { left: calc(-8px - var(--safe-l)); top: 16px; bottom: 16px; }
+.shell.medium .nav-item .nb, .cp-tab .nb, .more-tile .nb { top: -8px; right: auto; left: calc(50% + 3px); }
+/* Short rail windows (iPad portrait Split View, artifact viewer): fit all 11 at the 48px minimum. */
+@media (max-height: 760px) {
+  .shell.medium .sidebar { gap: 2px; padding-top: 8px; }
+  .shell.medium .nav-item { height: 48px; gap: 2px; }
+  .shell.medium .nav-item svg { width: 20px; height: 20px; }
+}
+/* Narrow rail windows (artifact viewer, desktop windows): trim the top bar. */
+@media (max-width: 819.98px) {
+  .shell.medium .tb-cash .sl { display: none; }
+  .shell.medium .clock .time { display: none; }
+}
+@media (max-width: 759.98px) {
+  .shell.medium .topbar { gap: 8px; }
+  .shell.medium .speed button, .shell.medium .speed .sp-pause { min-width: 40px; padding: 0 5px; }
+}
+
+/* ---------- compact (< 700 wide or < 500 tall): top bar + bottom tabs / side rail ---------- */
+.shell.compact {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: 'top' 'main' 'nav';
+  --main-pl: calc(14px + var(--safe-l)); --main-pr: calc(14px + var(--safe-r)); --main-pb: 28px;
+}
+.shell.compact.short {
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-columns: calc(76px + var(--safe-l)) minmax(0, 1fr);
+  grid-template-areas: 'nav top' 'nav main';
+  --main-pl: 14px; --main-pb: calc(20px + var(--safe-b));
+}
+.cp-top {
+  grid-area: top; display: flex; flex-direction: column; gap: 2px; min-width: 0; z-index: 30;
+  padding: calc(4px + var(--safe-t)) calc(10px + var(--safe-r)) 4px calc(10px + var(--safe-l));
+  background: rgba(7, 11, 20, 0.9); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-bottom: 1px solid var(--border);
+}
+.shell.compact.short .cp-top { padding-left: 10px; }
+.cp-row { display: flex; align-items: center; gap: 8px; min-height: 50px; min-width: 0; }
+.cp-spacer { flex: 1; min-width: 0; }
+.cp-top .clock .date { font-size: 15px; }
+.cp-top .tb-cash { align-items: flex-start; text-align: left; padding: 2px 6px; }
+.cp-top .speed button, .cp-top .speed .sp-pause { min-width: 44px; }
+.shell.compact.short .cp-top .tb-cash { align-items: flex-end; text-align: right; }
+@media (max-width: 389.98px) {
+  .cp-top .speed button, .cp-top .speed .sp-pause { min-width: 40px; padding: 0 4px; }
+  .cp-top .clock .time { display: none; }
+}
+.cp-tabbar {
+  grid-area: nav; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px; z-index: 30;
+  min-height: calc(var(--tabbar-h) + var(--safe-b)); padding: 3px calc(8px + var(--safe-r)) var(--safe-b) calc(8px + var(--safe-l));
+  background: rgba(7, 11, 20, 0.94); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-top: 1px solid var(--border);
+}
+.cp-rail {
+  grid-area: nav; display: flex; flex-direction: column; justify-content: center; gap: 4px; overflow-y: auto; z-index: 30;
+  padding: calc(6px + var(--safe-t)) 6px calc(6px + var(--safe-b)) calc(6px + var(--safe-l));
+  background: rgba(7, 11, 20, 0.6); border-right: 1px solid var(--border);
+}
+.cp-tab {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-height: 52px; min-width: 0;
+  border: none; background: none; border-radius: 12px; color: var(--text-3); font-size: 12px; font-weight: 600; flex-shrink: 0;
+}
+.cp-tab .ico { position: relative; display: grid; place-items: center; width: 52px; height: 30px; border-radius: 999px; transition: background 0.15s, color 0.15s; }
+.cp-tab svg { width: 22px; height: 22px; }
+.cp-tab .lbl { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cp-tab.active { color: var(--text); }
+.cp-tab.active .ico { background: rgba(62, 230, 255, 0.14); color: var(--accent); }
+.cp-tab:active .ico { background: var(--panel-hover); }
+
+/* More sheet (compact): the destinations that are not tabs, plus quick actions. */
+.more-goal {
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 12px 14px; margin-bottom: 14px;
+  border-radius: 14px; background: var(--panel-2); border: 1px solid var(--border);
+}
+.more-goal .t { font-weight: 600; font-size: 14px; }
+.more-goal > svg { width: 18px; height: 18px; color: var(--text-3); flex-shrink: 0; }
+.more-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.more-tile {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 84px; min-width: 0;
+  border-radius: 16px; background: var(--panel-2); border: 1px solid var(--border); color: var(--text-2); font-size: 13px; font-weight: 600;
+  transition: background 0.15s, transform 0.08s;
+}
+.more-tile .ico { position: relative; display: grid; place-items: center; }
+.more-tile svg { width: 24px; height: 24px; }
+.more-tile.active { color: var(--text); border-color: rgba(62, 230, 255, 0.4); background: rgba(62, 230, 255, 0.08); }
+.more-tile.active svg { color: var(--accent); }
+.more-tile:active, .more-goal:active { background: var(--panel-hover); transform: scale(0.98); }
+.more-shortcuts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
+
+/* ---------- dialogs ---------- */
+.touch .modal { width: min(600px, 100%); }
+.touch .modal.wide { width: min(900px, 100%); }
+.touch .modal.xwide { width: min(1180px, 100%); }
+.touch .modal-head { min-height: 64px; padding: 12px 12px 10px 22px; }
+.touch .modal-head h2 { font-size: 20px; }
+.touch .modal-head .close { width: var(--tap); height: var(--tap); }
+.touch .modal-head .close svg { width: 20px; height: 20px; }
+.touch .modal-body { font-size: 14.5px; }
+.touch .modal-foot { padding: 12px 22px 16px; gap: 12px; }
+
+/* compact: bottom sheet, draggable by the grip/header (Modal in ui.tsx) */
+@media (max-width: 699.98px), (max-height: 499.98px) {
+  .modal-backdrop { place-items: end center; padding: calc(10px + var(--vp-safe-t)) var(--safe-r) 0 var(--safe-l); }
+  .modal, .modal.wide, .modal.xwide, .touch .modal, .touch .modal.wide, .touch .modal.xwide {
+    width: min(760px, 100%); max-height: calc(var(--vv-h, 100dvh) - var(--vp-safe-t) - 10px);
+    border-radius: 22px 22px 0 0; border-bottom: none; padding-bottom: var(--vp-safe-b);
+    animation: sheet-up 0.3s var(--ease); transition: transform 0.25s var(--ease);
+  }
+  .sheet-grip { display: block; flex-shrink: 0; height: 22px; margin-bottom: -10px; position: relative; touch-action: none; }
+  .sheet-grip::after { content: ''; position: absolute; left: 50%; top: 9px; width: 40px; height: 5px; margin-left: -20px; border-radius: 999px; background: rgba(148, 170, 220, 0.35); }
+  .modal-head { touch-action: none; }
+  .modal-head, .touch .modal-head { padding-left: 18px; padding-right: 10px; }
+  .modal-body { padding-left: 18px; padding-right: 18px; }
+  .modal-foot, .touch .modal-foot { padding: 10px 18px 12px; }
+  .modal-foot > .btn { flex: 1 1 auto; }
+}
+@keyframes sheet-up { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* ---------- toasts ---------- */
+.touch .toast { font-size: 14px; padding: 13px 16px; }
+.touch .toast .t-body { font-size: 13px; }
+.touch .toast:active { transform: scale(0.98); }
+@media (max-width: 699.98px), (max-height: 499.98px) {
+  .toasts { left: calc(10px + var(--safe-l)); right: calc(10px + var(--safe-r)); bottom: calc(var(--tabbar-h) + var(--vp-safe-b) + 10px); align-items: center; }
+  .toast { width: 100%; max-width: 460px; }
+}
+@media (max-height: 499.98px) {
+  .toasts { left: auto; bottom: calc(10px + var(--vp-safe-b)); align-items: flex-end; }
+  .toast { width: 340px; }
+}
