@@ -11,7 +11,7 @@ Checkpoint script: `bash /home/user/wt/notes/.handover/checkpoint.sh` (commits a
 - [ ] **Add to home screen** later: PWA via GitHub Pages. `main` has been created. The user should set the default branch to main and set Pages source to GitHub Actions. deploy.yml publishes from the default branch.
 - [ ] After all of the above: a **debugging and improvements round**, then publish.
 - [x] Create `main` (done; keep it in sync with claude/contrail-airline-game on every finished push).
-- [ ] Save progress when nearing the usage limit and continue after the reset until done. An hourly check-in trigger is set up for this.
+- [ ] Save progress near usage limits & keep resuming until done — hourly scheduled task trig_01TSLRzBNHatY2hxNxpg6GKd (":32" each hour) runs checkpoint + resume; delete it when finished.
 
 ## Worktrees / branches
 | track | worktree | branch | owner of |
