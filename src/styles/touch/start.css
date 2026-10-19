@@ -17,3 +17,252 @@
    Pre-game screens fill the whole viewport: clear --safe-t/--safe-b/--safe-l/--safe-r yourself
    (e.g. a sticky .ng-foot needs padding-bottom: calc(<gap> + var(--safe-b))).
    ========================================================================== */
+
+/* ---------- Loading ---------- */
+@media (min-width: 700px) and (min-height: 500px) {
+  .loading-center { width: min(660px, 78vw); }
+  .loading-word { font-size: clamp(48px, 7.4vw, 82px); }
+  .loading-tag { font-size: 13px; margin-bottom: 38px; }
+  .loading-step { font-size: 13px; margin-top: 12px; }
+  .loading-bar { height: 5px; }
+  .loading-fact { bottom: calc(44px + var(--safe-b)); width: min(640px, 86vw); }
+  .loading-fact p { font-size: 15px; line-height: 1.5; margin-top: 8px; }
+}
+@media (orientation: portrait) and (min-height: 700px) {
+  .loading-center { margin-top: -7vh; }
+}
+.touch .loading-fact .upper { letter-spacing: 0.14em; }
+
+/* ---------- Title ---------- */
+/* Centred with auto margins (not align-items) so a short window can still scroll to the top. */
+.title-content > * { margin-block: auto; }
+.showcase { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.showcase-dots { display: flex; justify-content: center; gap: 6px; margin-top: 12px; }
+.showcase-dots span { width: 6px; height: 6px; border-radius: 3px; background: var(--border-strong); transition: width 0.3s var(--ease), background 0.3s; }
+.showcase-dots span.on { width: 18px; background: var(--accent); }
+.touch .menu-btn { min-height: 72px; padding: 14px 20px; }
+.touch .menu-btn:active { transform: scale(0.985); border-color: var(--accent); background: rgba(24, 36, 62, 0.92); }
+.touch .menu-btn.primary:active { background: linear-gradient(120deg, rgba(62, 230, 255, 0.26), rgba(139, 92, 255, 0.26)); }
+.touch .mb-s { font-size: 13px; }
+.touch .showcase:active { border-color: var(--border-strong); }
+.touch .showcase .small { font-size: 13px; }
+.touch .title-foot .chip { min-height: 32px; }
+
+/* iPad landscape: a touch more presence. */
+@media (min-width: 1100px) and (min-height: 700px) {
+  .touch .title-left { max-width: 540px; }
+  .touch .title-pitch { font-size: 16px; }
+  .touch .title-right { width: min(460px, 38vw); }
+}
+
+/* Portrait tablet: brand and menu above, the featured aircraft as a wide card below. */
+@media (min-width: 700px) and (max-width: 1099.98px) and (min-height: 600px) and (orientation: portrait) {
+  .title-content { flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 34px; padding: 40px max(48px, 9vw) 20px; }
+  .title-content > .title-left { margin-block: auto 0; }
+  .title-content > .title-right { margin-block: 0 auto; }
+  .title-left { max-width: none; }
+  .title-right { display: block; width: 100%; }
+  .title-vignette {
+    background: radial-gradient(130% 75% at 50% 42%, rgba(7, 11, 20, 0.5), rgba(7, 11, 20, 0.92) 78%),
+      linear-gradient(0deg, rgba(7, 11, 20, 0.85), transparent 30%);
+  }
+  .title-word { font-size: clamp(56px, 9.4vw, 88px); }
+  .title-tag { font-size: 13px; }
+  .title-pitch { font-size: 17px; max-width: 600px; margin: 24px 0 30px; }
+  .title-menu { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .title-menu > :first-child, .title-menu > .row { grid-column: 1 / -1; }
+  .title-menu > .menu-btn.primary { min-height: 84px; }
+  .showcase {
+    display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); column-gap: 26px; align-items: center;
+    grid-template-areas: 'art head' 'art specs' 'art fact' 'dots dots'; padding: 22px 26px 18px;
+  }
+  .showcase-head { grid-area: head; align-self: end; }
+  .showcase-art { grid-area: art; }
+  .showcase-specs { grid-area: specs; }
+  .showcase-fact { grid-area: fact; align-self: start; margin: 0; }
+  .showcase-dots { grid-area: dots; }
+  .showcase .aircraft-art { height: 176px; }
+}
+
+/* ---------- New game ---------- */
+.ng-step-btn {
+  display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; margin: -6px -12px; border: 0; border-radius: 999px;
+  background: none; color: inherit; font: inherit;
+}
+@media (hover: hover) { .ng-step-btn:hover { color: var(--text); } }
+.ng-foot-sum { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center; }
+.ng-foot-pick { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; min-width: 0; font-weight: 600; font-size: 14px; white-space: nowrap; }
+.ng-foot-pick svg { flex-shrink: 0; }
+.ng-tail .seg { display: flex; width: 100%; }
+.ng-tail .seg button { flex: 1; }
+
+.touch .ng-head { padding: 12px 28px; }
+.touch .ng-steps li { min-height: 44px; padding: 0 14px; font-size: 14px; }
+.touch .ng-steps li .n { width: 24px; height: 24px; font-size: 12.5px; }
+.touch .ng-step-btn { min-height: 44px; padding: 0 14px; margin: 0 -14px; }
+.touch .ng-step-btn:active { background: var(--panel-2); color: var(--text); }
+.touch .ng-foot { background: rgba(7, 11, 20, 0.9); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
+.touch .ng-foot-pick { font-size: 15px; }
+.touch .region-card, .touch .hub-card, .touch .diff-card { padding: 14px 16px; }
+.touch .rc-bars { grid-template-columns: 52px 1fr; gap: 6px 10px; }
+.touch .hub-card .row.gap-8 { flex-wrap: wrap; row-gap: 2px; }
+.touch .ng-panel .field { gap: 8px; }
+.touch .swatches { gap: 10px; }
+.touch .swatch { width: 44px; height: 44px; border-radius: 12px; }
+.touch .swatch.on { box-shadow: 0 0 0 3px rgba(62, 230, 255, 0.55); }
+.touch .swatch:active { transform: scale(0.92); }
+.touch .swatch-input { width: 56px; height: 44px; border-radius: 12px; padding: 4px; }
+.touch .ng-tail .seg button { min-height: 44px; font-size: 14.5px; }
+.touch .ng-tips { font-size: 14px; gap: 6px; }
+
+/* Portrait (tablet and narrow): the map / livery sits above the form, which scrolls under it. */
+@media (max-width: 1099.98px) and (min-height: 600px) and (orientation: portrait) {
+  .ng-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); overflow: hidden; gap: 16px; padding-bottom: 0; }
+  .ng-visual { order: -1; height: clamp(240px, 34vh, 420px); min-height: 0; }
+  .ng-panel { padding: 0 2px 20px 0; overscroll-behavior: contain; }
+  .hub-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .ng-livery { padding: 16px 20px; gap: 6px; }
+  .livery-stage .aircraft-art { height: min(17vh, 200px); }
+  .ng-livery .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ng-livery .grid-2 .aircraft-art { height: min(8.5vh, 100px); }
+}
+@media (min-width: 700px) and (max-width: 1099.98px) and (min-height: 600px) and (orientation: portrait) {
+  .ng-regions .grid-2 { grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; }
+}
+@media (max-width: 699.98px) and (min-height: 600px) and (orientation: portrait) {
+  .ng-head { padding: 12px 16px; gap: 10px; }
+  .ng-body { padding: 14px 16px 0; }
+  .ng-foot { padding-inline: 16px; }
+  .hub-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+/* Map caption: docked to the side on a portrait tablet, slim on narrow windows. */
+.ng-map.cap-side .ng-map-caption { left: auto; right: 14px; top: 14px; bottom: 14px; width: 300px; max-width: 42%; overflow-y: auto; }
+.ng-map.cap-slim .ng-map-caption { left: 10px; right: 10px; bottom: 10px; padding: 10px 12px; }
+.ng-map.cap-slim .ng-map-caption h3 { font-size: 17px; margin: 0; }
+.ng-map.cap-slim .ng-map-caption p, .ng-map.cap-slim .ng-map-caption .row { display: none; }
+/* On-screen keyboard open (NewGame sets data-kb and shrinks to the visible area). */
+.newgame[data-kb] { bottom: auto; }
+.newgame[data-kb] .ng-head { padding-block: 8px; }
+.newgame[data-kb] .ng-steps, .newgame[data-kb] .ng-head .upper { display: none; }
+.newgame[data-kb] .ng-livery .grid-2 { display: none; }
+@media (orientation: portrait) { .newgame[data-kb] .ng-visual { height: 190px; } }
+
+/* ---------- Headquarters ---------- */
+.lbl-s { display: none; }
+.dash-kpis .kpi, .fin-kpis .kpi { container: kpi / inline-size; }
+@container kpi (max-width: 175px) {
+  .lbl-l { display: none; }
+  .lbl-s { display: inline; }
+  .kpi-label { letter-spacing: 0.04em; }
+  .kpi-label svg { display: none; }
+  .kpi-value { font-size: 22px; }
+  .kpi-spark { left: 0; right: 0; bottom: 0; opacity: 0.4; pointer-events: none; }
+  .kpi-spark .spark { display: block; width: 100%; height: 30px; }
+}
+@media (min-width: 1100px) and (min-height: 500px) {
+  .dash-kpis { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; }
+}
+/* iPad landscape and narrower desktop windows: two even columns below the KPIs. */
+@media (min-width: 1100px) and (max-width: 1365.98px) and (min-height: 500px) {
+  .dash-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dash-grid .dash-map, .dash-grid .span-2-lg { grid-column: auto; }
+}
+@media (max-width: 1099.98px) { .dash-grid { grid-auto-flow: row dense; } }
+.touch .hero { padding: 18px 20px; }
+.touch .hero h1 { font-size: 27px; }
+.touch .hero-actions { flex-wrap: wrap; }
+.touch .ob-step { padding: 14px 16px; }
+.touch .alert { min-height: 48px; padding: 11px 14px; font-size: 14px; }
+.touch .alert:not(:disabled):active { border-color: var(--border-strong); background: var(--panel-hover); }
+.touch .rank-row { padding: 9px 10px; font-size: 14px; }
+.touch .news-item .dot { margin-top: 7px; }
+.touch .goal-list { gap: 16px; }
+
+/* Departure board: columns follow the board's own width. */
+.board { container: board / inline-size; }
+.board-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@container board (max-width: 439.98px) {
+  .board-row { grid-template-columns: 44px 62px minmax(0, 1fr) 94px; gap: 6px; }
+  .board-row .hide-sm { display: none; }
+}
+@container board (min-width: 440px) {
+  .board-row { grid-template-columns: 50px 72px minmax(0, 1fr) 46px 108px; }
+  .board-row .hide-sm { display: inline; }
+}
+.touch .board-head { padding: 13px 16px; font-size: 14px; }
+.touch .board-rows { font-size: 13px; }
+.touch .board-row { padding: 8px; }
+.touch .board-th { font-size: 12px; }
+.touch .board-row .st { font-size: 12px; }
+.touch .board-empty { font-size: 13px; }
+
+/* ---------- Charts ---------- */
+.touch .viz-tip { min-width: 150px; padding: 9px 12px; }
+.touch .legend .small { font-size: 13px; }
+
+/* ---------- Finance ---------- */
+@media (min-width: 1100px) and (min-height: 500px) {
+  .fin-kpis { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+}
+@media (min-width: 641px) and (max-width: 1099.98px) {
+  .fin-kpis { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .fin-kpis > :nth-child(-n + 3) { grid-column: span 2; }
+  .fin-kpis > :nth-child(n + 4) { grid-column: span 3; }
+}
+@media (max-width: 640px) { .fin-kpis > :last-child { grid-column: 1 / -1; } }
+@media (min-width: 700px) and (max-width: 1099.98px) {
+  .fin-side { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+}
+.fin-chart .card-head { flex-wrap: wrap; row-gap: 4px; }
+.fin-opt { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; }
+.fin-opt .seg { flex: 1 1 210px; max-width: 280px; display: flex; }
+.fin-opt .seg button { flex: 1; white-space: nowrap; }
+.statement th { white-space: normal; vertical-align: bottom; }
+.touch .loan { flex-wrap: wrap; padding: 12px 14px; }
+.touch .loan .grow { flex-basis: 100%; }
+.touch .loan .btn { margin-left: auto; }
+
+/* Tables that scroll sideways keep their first column (the row's name) in view. */
+.statement :is(th, td):first-child, .sticky-first :is(th, td):first-child,
+.rivals-table :is(th, td):nth-child(-n + 2) { position: sticky; left: 0; z-index: 1; background: var(--panel-solid); }
+.statement th:first-child, .sticky-first th:first-child, .rivals-table th:nth-child(-n + 2) { z-index: 2; }
+.rivals-table :is(th, td):first-child { width: 48px; min-width: 48px; }
+.rivals-table :is(th, td):nth-child(2) { left: 48px; }
+.rivals-table tr.selected td:nth-child(-n + 2) { background: linear-gradient(rgba(62, 230, 255, 0.06), rgba(62, 230, 255, 0.06)), var(--panel-solid); }
+
+/* ---------- Intel ---------- */
+.mk-wrap { max-height: 620px; }
+.touch .mk-wrap { max-height: max(380px, calc(100dvh - var(--topbar-h) - var(--ticker-h) - var(--safe-t) - var(--safe-b) - 240px)); }
+.mk-dest { display: flex; flex-direction: column; gap: 3px; }
+.mk-dest > .tiny { white-space: nowrap; }
+.touch .intel-markets .table td { padding-block: 9px; }
+.touch .mk-act { min-height: var(--tap); min-width: 68px; }
+.touch .event { padding: 12px 14px; }
+.touch .trend-row { padding: 9px 0; }
+
+/* ---------- Goals ---------- */
+@media (max-width: 1099.98px) {
+  .goals-layout { grid-template-columns: minmax(0, 1fr); }
+  .goals-layout > .span-2 { grid-column: auto; }
+}
+@media (min-width: 700px) and (max-width: 1099.98px) {
+  .level-card .ladder { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(5, auto); grid-auto-flow: column; gap: 4px 14px; }
+}
+.touch .goal-card { padding: 14px; gap: 7px; }
+.touch .goal-grid { gap: 12px; }
+.touch .ladder-row { padding: 8px 10px; }
+
+/* ---------- Inbox ---------- */
+.touch .inbox-cats {
+  flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain;
+  margin-inline: calc(-1 * var(--main-pl)) calc(-1 * var(--main-pr)); padding: 2px var(--main-pr) 2px var(--main-pl);
+}
+.touch .inbox-cats::-webkit-scrollbar { display: none; }
+.touch .inbox-cats button.chip { min-height: var(--tap); padding: 0 16px; flex-shrink: 0; font-size: 14px; }
+.touch .msg { padding: 14px 18px; gap: 14px; min-height: 64px; }
+.touch .msg:active { background: var(--panel-hover); }
+.touch .msg b { font-size: 15px; }
+.touch .msg .small { font-size: 14px; line-height: 1.45; margin-top: 3px; }
+.touch .msg-dot { width: 10px; height: 10px; margin-top: 7px; }
+.touch .msg .row.between { gap: 12px; align-items: baseline; }
+@media (max-width: 699.98px) { .touch .msg > .badge { display: none; } }

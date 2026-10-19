@@ -61,7 +61,7 @@ function Markets() {
   });
   const max = Math.max(1, ...rows.map((r) => r.total));
   return (
-    <section className="card">
+    <section className="card intel-markets">
       <div className="card-head">
         <h3>Biggest markets from</h3>
         <select className="select sm" value={hub} onChange={(e) => setHub(e.target.value)}>
@@ -73,12 +73,11 @@ function Markets() {
         </div>
       </div>
       <div className="card-body">
-        <div className="table-wrap" style={{ maxHeight: 620 }}>
-          <table className="table">
+        <div className="table-wrap mk-wrap">
+          <table className="table sticky-first">
             <thead>
               <tr>
                 {th('dest', 'Destination')}
-                <th>Region</th>
                 {th('d', 'Distance', 'num')}
                 {th('total', 'Market / day', 'num')}
                 {th('premium', 'Premium / day', 'num')}
@@ -92,15 +91,14 @@ function Markets() {
                 const cl = competitionLabel(x.comp);
                 return (
                   <tr key={x.a.code}>
-                    <td><AirportTag code={x.a.code} /></td>
-                    <td className="small muted">{REGION_BY_ID[x.a.region].name}</td>
+                    <td><div className="mk-dest"><AirportTag code={x.a.code} /><span className="tiny dim">{REGION_BY_ID[x.a.region].name}</span></div></td>
                     <td className="num">{dist(x.d)}</td>
-                    <td className="num" style={{ minWidth: 150 }}><div className="row gap-8"><div className="grow"><Bar value={x.total / max} size="thin" /></div>{int(x.total)}</div></td>
+                    <td className="num" style={{ minWidth: 130 }}><div className="row gap-8"><div className="grow"><Bar value={x.total / max} size="thin" /></div>{int(x.total)}</div></td>
                     <td className="num">{int(x.premium)}</td>
                     <td><span className={`small ${cl.tone}`}>{cl.label}</span></td>
                     <td className={`num small ${x.trend > 1.02 ? 'good' : x.trend < 0.98 ? 'bad' : 'dim'}`}>{x.trend >= 1 ? '+' : ''}{Math.round((x.trend - 1) * 100)}%</td>
                     <td>
-                      {x.served ? <span className="badge accent">Flying</span> : scope === 'locked' ? <button className="btn btn-xs" onClick={() => store.navigate('expansion')}><Lock /> Unlock</button> : <button className="btn btn-xs" onClick={() => store.openModal({ kind: 'planner', hub, dest: x.a.code })}>Plan</button>}
+                      {x.served ? <span className="badge accent">Flying</span> : scope === 'locked' ? <button className="btn btn-sm mk-act" onClick={() => store.navigate('expansion')}><Lock /> Unlock</button> : <button className="btn btn-sm mk-act" onClick={() => store.openModal({ kind: 'planner', hub, dest: x.a.code })}>Plan</button>}
                     </td>
                   </tr>
                 );
@@ -200,7 +198,7 @@ export function Rivals() {
   return (
     <Card title="World airline rankings" icon={<Trophy className="ico" />} sub={`You are #${airlineRank(g)}`}>
       <div className="table-wrap">
-        <table className="table">
+        <table className="table rivals-table">
           <thead><tr><th>#</th><th>Airline</th><th>Home</th><th className="num">Fleet</th><th>Passengers / year</th></tr></thead>
           <tbody>
             {rows.map((r, i) => (

@@ -29,14 +29,14 @@ export function InboxScreen() {
       {g.decisions.length > 0 && (
         <div className="note warn mb-16">You have {g.decisions.length} decision{g.decisions.length > 1 ? 's' : ''} waiting — time is paused until you respond.</div>
       )}
-      <div className="row wrap gap-8 mb-16">
+      <div className="row wrap gap-8 mb-16 inbox-cats">
         {CATS.map((c) => (
           <button key={c.id} className={`chip ${cat === c.id ? 'active' : ''}`} onClick={() => setCat(c.id)}>
             {c.label} <span className="dim">{g.messages.filter((m) => (c.id === 'all' || m.category === c.id) && !m.read).length || ''}</span>
           </button>
         ))}
       </div>
-      <section className="card">
+      <section className="card inbox-card">
         {list.length === 0 ? <Empty icon={<InboxIcon className="big-ico" />} title="Nothing here" /> : (
           <div className="inbox">
             {list.map((m) => (

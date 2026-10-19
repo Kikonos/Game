@@ -1,6 +1,8 @@
-// Lightweight SVG charts: thin marks, recessive grid, hover tooltips.
+// Lightweight SVG charts: thin marks, recessive grid, tooltips that follow the mouse or a finger.
+// Touch: tap (or drag sideways) to read a value; the readout stays until the next tap outside the chart.
 
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useTouch } from '../useMedia';
 
 function useWidth<T extends HTMLElement>(): [React.RefObject<T | null>, number] {
   const ref = useRef<T>(null);
@@ -14,6 +16,55 @@ function useWidth<T extends HTMLElement>(): [React.RefObject<T | null>, number] 
     return () => ro.disconnect();
   }, []);
   return [ref, w];
+}
+
+/**
+ * Pointer handling shared by the charts. `pick` maps an x offset inside the plot area to a data index.
+ * Mouse: hovering shows the readout, leaving hides it. Touch / pen: pressing or dragging sideways shows it
+ * (vertical drags still scroll the page), and a tap anywhere outside the chart hides it.
+ */
+function useReadout(ref: React.RefObject<HTMLElement | null>, pick: (px: number) => number) {
+  const [hover, setHover] = useState<number | null>(null);
+  const shown = hover !== null;
+  useEffect(() => {
+    if (!shown) return;
+    const off = (e: PointerEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setHover(null);
+    };
+    document.addEventListener('pointerdown', off, true);
+    return () => document.removeEventListener('pointerdown', off, true);
+  }, [shown, ref]);
+  const at = (e: React.PointerEvent<SVGRectElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    setHover(pick(e.clientX - r.left));
+  };
+  const handlers = {
+    onPointerDown: (e: React.PointerEvent<SVGRectElement>) => { if (e.pointerType !== 'mouse') at(e); },
+    onPointerMove: (e: React.PointerEvent<SVGRectElement>) => { if (e.pointerType === 'mouse' || e.buttons) at(e); },
+    onPointerLeave: (e: React.PointerEvent<SVGRectElement>) => { if (e.pointerType === 'mouse') setHover(null); },
+    style: { touchAction: 'pan-y' } as React.CSSProperties,
+  };
+  return [hover, handlers] as const;
+}
+
+/** Axis label size (12px on touch) and a left gutter wide enough for the longest tick label. */
+function useAxis(tickLabels: string[]) {
+  const fs = useTouch() ? 12 : 11;
+  const longest = Math.max(1, ...tickLabels.map((l) => l.length));
+  return { fs, padL: Math.max(36, Math.ceil(longest * fs * 0.62) + 12) };
+}
+
+const clampIdx = (i: number, n: number) => Math.max(0, Math.min(n - 1, i));
+
+/** Which x labels to draw: every `every`-th, plus the last one when it has room. */
+const showLabel = (i: number, n: number, every: number) => i % every === 0 || (i === n - 1 && (n - 1) % every >= Math.ceil(every * 0.6));
+
+/** Keeps an x label inside the plot: anchored to an edge when centring it would clip. */
+function xLabel(cx: number, label: string, fs: number, width: number): { x: number; textAnchor: 'start' | 'middle' | 'end' } {
+  const half = (label.length * fs * 0.56) / 2;
+  if (cx + half > width - 2) return { x: width - 2, textAnchor: 'end' };
+  if (cx - half < 2) return { x: 2, textAnchor: 'start' };
+  return { x: cx, textAnchor: 'middle' };
 }
 
 function niceTicks(min: number, max: number, count = 4): number[] {
@@ -46,7 +97,6 @@ export function LineChart({
   zero?: boolean;
 }) {
   const [ref, width] = useWidth<HTMLDivElement>();
-  const [hover, setHover] = useState<number | null>(null);
   const n = labels.length;
   const all = series.flatMap((s) => s.values);
   const min = Math.min(zero ? 0 : Infinity, ...all);
@@ -54,19 +104,14 @@ export function LineChart({
   const ticks = niceTicks(min, max);
   const lo = ticks[0];
   const hi = ticks[ticks.length - 1];
-  const padL = 52, padR = 12, padT = 10, padB = 24;
+  const { fs, padL } = useAxis(ticks.map(format));
+  const padR = 12, padT = 10, padB = fs + 13;
   const w = Math.max(10, width - padL - padR);
   const h = height - padT - padB;
   const x = (i: number) => padL + (n <= 1 ? w / 2 : (i / (n - 1)) * w);
   const y = (v: number) => padT + h - ((v - lo) / (hi - lo || 1)) * h;
-  const labelEvery = Math.max(1, Math.ceil(n / Math.max(2, Math.floor(w / 70))));
-
-  const onMove = (e: React.MouseEvent<SVGRectElement>) => {
-    const r = (e.currentTarget as SVGRectElement).getBoundingClientRect();
-    const px = e.clientX - r.left;
-    const i = Math.round((px / r.width) * (n - 1));
-    setHover(Math.max(0, Math.min(n - 1, i)));
-  };
+  const labelEvery = Math.max(1, Math.ceil(n / Math.max(2, Math.floor(w / (fs * 6.4)))));
+  const [hover, handlers] = useReadout(ref, (px) => clampIdx(Math.round((px / w) * (n - 1)), n));
 
   return (
     <div className="chart" ref={ref} style={{ height, position: 'relative' }}>
@@ -75,11 +120,11 @@ export function LineChart({
           {ticks.map((t) => (
             <g key={t}>
               <line x1={padL} x2={padL + w} y1={y(t)} y2={y(t)} stroke={t === 0 ? 'rgba(148,170,220,0.35)' : 'rgba(148,170,220,0.09)'} />
-              <text x={padL - 8} y={y(t) + 4} textAnchor="end" fontSize="11" fill="var(--text-3)" className="num">{format(t)}</text>
+              <text x={padL - 8} y={y(t) + 4} textAnchor="end" fontSize={fs} fill="var(--text-3)" className="num">{format(t)}</text>
             </g>
           ))}
-          {labels.map((l, i) => (i % labelEvery === 0 || i === n - 1) && (
-            <text key={i} x={x(i)} y={height - 6} textAnchor="middle" fontSize="11" fill="var(--text-3)">{l}</text>
+          {labels.map((l, i) => showLabel(i, n, labelEvery) && (
+            <text key={i} {...xLabel(x(i), l, fs, width)} y={height - 6} fontSize={fs} fill="var(--text-3)">{l}</text>
           ))}
           {series.map((s) => {
             const pts = s.values.map((v, i) => `${x(i)},${y(v)}`).join(' ');
@@ -100,7 +145,7 @@ export function LineChart({
               ))}
             </g>
           )}
-          <rect x={padL} y={padT} width={w} height={h} fill="transparent" onMouseMove={onMove} onMouseLeave={() => setHover(null)} />
+          <rect x={padL} y={padT} width={w} height={h} fill="transparent" {...handlers} />
         </svg>
       )}
       {hover !== null && width > 0 && (
@@ -130,18 +175,19 @@ export function BarChart({
   name?: string;
 }) {
   const [ref, width] = useWidth<HTMLDivElement>();
-  const [hover, setHover] = useState<number | null>(null);
   const n = values.length;
   const ticks = niceTicks(Math.min(0, ...values), Math.max(0, ...values));
   const lo = ticks[0];
   const hi = ticks[ticks.length - 1];
-  const padL = 52, padR = 8, padT = 10, padB = 24;
+  const { fs, padL } = useAxis(ticks.map(format));
+  const padR = 8, padT = 10, padB = fs + 13;
   const w = Math.max(10, width - padL - padR);
   const h = height - padT - padB;
   const y = (v: number) => padT + h - ((v - lo) / (hi - lo || 1)) * h;
   const slot = w / Math.max(1, n);
   const bw = Math.max(3, Math.min(28, slot - 2));
-  const labelEvery = Math.max(1, Math.ceil(n / Math.max(2, Math.floor(w / 56))));
+  const labelEvery = Math.max(1, Math.ceil(n / Math.max(2, Math.floor(w / (fs * 5.2)))));
+  const [hover, handlers] = useReadout(ref, (px) => clampIdx(Math.floor(px / slot), n));
   return (
     <div className="chart" ref={ref} style={{ height, position: 'relative' }}>
       {width > 0 && (
@@ -149,7 +195,7 @@ export function BarChart({
           {ticks.map((t) => (
             <g key={t}>
               <line x1={padL} x2={padL + w} y1={y(t)} y2={y(t)} stroke={t === 0 ? 'rgba(148,170,220,0.35)' : 'rgba(148,170,220,0.09)'} />
-              <text x={padL - 8} y={y(t) + 4} textAnchor="end" fontSize="11" fill="var(--text-3)">{format(t)}</text>
+              <text x={padL - 8} y={y(t) + 4} textAnchor="end" fontSize={fs} fill="var(--text-3)">{format(t)}</text>
             </g>
           ))}
           {values.map((v, i) => {
@@ -163,16 +209,12 @@ export function BarChart({
             const d = v >= 0
               ? `M ${cx - bw / 2} ${y0} L ${cx - bw / 2} ${top + r} Q ${cx - bw / 2} ${top} ${cx - bw / 2 + r} ${top} L ${cx + bw / 2 - r} ${top} Q ${cx + bw / 2} ${top} ${cx + bw / 2} ${top + r} L ${cx + bw / 2} ${y0} Z`
               : `M ${cx - bw / 2} ${y0} L ${cx - bw / 2} ${top + hh - r} Q ${cx - bw / 2} ${top + hh} ${cx - bw / 2 + r} ${top + hh} L ${cx + bw / 2 - r} ${top + hh} Q ${cx + bw / 2} ${top + hh} ${cx + bw / 2} ${top + hh - r} L ${cx + bw / 2} ${y0} Z`;
-            return (
-              <g key={i} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}>
-                <rect x={cx - slot / 2} y={padT} width={slot} height={h} fill="transparent" />
-                <path d={d} fill={v >= 0 ? pos : neg} opacity={hover === null || hover === i ? 1 : 0.55} />
-              </g>
-            );
+            return <path key={i} d={d} fill={v >= 0 ? pos : neg} opacity={hover === null || hover === i ? 1 : 0.55} />;
           })}
-          {labels.map((l, i) => (i % labelEvery === 0 || i === n - 1) && (
-            <text key={i} x={padL + slot * i + slot / 2} y={height - 6} textAnchor="middle" fontSize="11" fill="var(--text-3)">{l}</text>
+          {labels.map((l, i) => showLabel(i, n, labelEvery) && (
+            <text key={i} {...xLabel(padL + slot * i + slot / 2, l, fs, width)} y={height - 6} fontSize={fs} fill="var(--text-3)">{l}</text>
           ))}
+          <rect x={padL} y={padT} width={w} height={h} fill="transparent" {...handlers} />
         </svg>
       )}
       {hover !== null && width > 0 && (
@@ -196,17 +238,18 @@ export function PairBars({
   format?: (v: number) => string;
 }) {
   const [ref, width] = useWidth<HTMLDivElement>();
-  const [hover, setHover] = useState<number | null>(null);
   const n = labels.length;
   const ticks = niceTicks(0, Math.max(1, ...a.values, ...b.values));
   const hi = ticks[ticks.length - 1];
-  const padL = 52, padR = 8, padT = 10, padB = 24;
+  const { fs, padL } = useAxis(ticks.map(format));
+  const padR = 8, padT = 10, padB = fs + 13;
   const w = Math.max(10, width - padL - padR);
   const h = height - padT - padB;
   const y = (v: number) => padT + h - (v / (hi || 1)) * h;
   const slot = w / Math.max(1, n);
   const bw = Math.max(2, Math.min(14, (slot - 6) / 2));
-  const labelEvery = Math.max(1, Math.ceil(n / Math.max(2, Math.floor(w / 56))));
+  const labelEvery = Math.max(1, Math.ceil(n / Math.max(2, Math.floor(w / (fs * 5.2)))));
+  const [hover, handlers] = useReadout(ref, (px) => clampIdx(Math.floor(px / slot), n));
   const bar = (cx: number, v: number, color: string, key: string, dim: boolean) => {
     const top = y(v);
     const y0 = y(0);
@@ -227,21 +270,21 @@ export function PairBars({
           {ticks.map((t) => (
             <g key={t}>
               <line x1={padL} x2={padL + w} y1={y(t)} y2={y(t)} stroke={t === 0 ? 'rgba(148,170,220,0.35)' : 'rgba(148,170,220,0.09)'} />
-              <text x={padL - 8} y={y(t) + 4} textAnchor="end" fontSize="11" fill="var(--text-3)">{format(t)}</text>
+              <text x={padL - 8} y={y(t) + 4} textAnchor="end" fontSize={fs} fill="var(--text-3)">{format(t)}</text>
             </g>
           ))}
           {labels.map((l, i) => {
             const cx = padL + slot * i + slot / 2;
             const dim = hover !== null && hover !== i;
             return (
-              <g key={i} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}>
-                <rect x={cx - slot / 2} y={padT} width={slot} height={h} fill="transparent" />
+              <g key={i}>
                 {bar(cx - bw / 2 - 1, a.values[i] ?? 0, a.color, 'a', dim)}
                 {bar(cx + bw / 2 + 1, b.values[i] ?? 0, b.color, 'b', dim)}
-                {(i % labelEvery === 0 || i === n - 1) && <text x={cx} y={height - 6} textAnchor="middle" fontSize="11" fill="var(--text-3)">{l}</text>}
+                {showLabel(i, n, labelEvery) && <text {...xLabel(cx, l, fs, width)} y={height - 6} fontSize={fs} fill="var(--text-3)">{l}</text>}
               </g>
             );
           })}
+          <rect x={padL} y={padT} width={w} height={h} fill="transparent" {...handlers} />
         </svg>
       )}
       {hover !== null && width > 0 && (
@@ -269,14 +312,15 @@ export function Legend({ items }: { items: { name: string; color: string }[] }) 
   );
 }
 
+/** Tiny trend line. Its viewBox stretches, so CSS may resize it (the stroke keeps its width). */
 export function Sparkline({ values, color = 'var(--accent)', width = 90, height = 28 }: { values: number[]; color?: string; width?: number; height?: number }) {
-  if (values.length < 2) return <svg width={width} height={height} />;
+  if (values.length < 2) return <svg width={width} height={height} className="spark" />;
   const min = Math.min(...values);
   const max = Math.max(...values);
   const pts = values.map((v, i) => `${(i / (values.length - 1)) * (width - 4) + 2},${height - 3 - ((v - min) / (max - min || 1)) * (height - 6)}`).join(' ');
   return (
-    <svg width={width} height={height} aria-hidden>
-      <polyline points={pts} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" className="spark" aria-hidden>
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
     </svg>
   );
 }

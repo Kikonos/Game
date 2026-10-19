@@ -16,6 +16,7 @@ import { Bar, Card, Kpi, Stars } from '../components/ui';
 import { compact, int, money, pct } from '../format';
 import { WorldMap } from '../map/WorldMap';
 import { store, useClock, useGame } from '../store';
+import { useTouch } from '../useMedia';
 import { mapRotate, routeAircraft, routeWeek } from './common';
 
 export function networkMap(g: GameState, highlight?: string) {
@@ -33,6 +34,7 @@ export function networkMap(g: GameState, highlight?: string) {
 }
 
 function Onboarding({ g }: { g: GameState }) {
+  const touch = useTouch();
   const hasAircraft = g.fleet.length > 0;
   const hasRoute = g.routes.length > 0;
   const assigned = g.fleet.some((a) => a.assignments.length > 0);
@@ -47,7 +49,7 @@ function Onboarding({ g }: { g: GameState }) {
         <div>
           <div className="upper accent">Welcome aboard</div>
           <h2>Let’s get {g.airline.name} into the sky</h2>
-          <p className="muted">Three steps to your first revenue flight. Time is paused until you press play (Space).</p>
+          <p className="muted">Three steps to your first revenue flight. Time is paused until you press play{touch ? ' ▶' : ' (Space)'}.</p>
         </div>
       </div>
       <div className="ob-steps">
@@ -206,10 +208,10 @@ export function Dashboard() {
 
       {(g.fleet.length === 0 || g.routes.length === 0 || !g.fleet.some((a) => a.assignments.length > 0)) && <Onboarding g={g} />}
 
-      <div className="kpi-row">
+      <div className="kpi-row dash-kpis">
         <Kpi label="Cash" icon={<Wallet />} value={money(g.cash)} sub={<span className={g.cash < 0 ? 'bad' : 'dim'}>{g.loans.length ? `${g.loans.length} loan${g.loans.length > 1 ? 's' : ''}` : 'Debt free'}</span>} />
         <Kpi label="Last month" icon={<Gauge />} value={<span className={lastProfit >= 0 ? 'good' : 'bad'}>{last ? `${lastProfit >= 0 ? '+' : ''}${money(lastProfit)}` : '—'}</span>} sub={prev ? <span className="dim">Prev {money(monthProfit(prev))}</span> : <span className="dim">Net profit</span>} />
-        <Kpi label="Passengers / wk" icon={<Users />} value={compact(weekPax)} sub={<span className="dim">{compact(g.stats.totalPax)} all-time</span>}>
+        <Kpi label={<><span className="lbl-l">Passengers / wk</span><span className="lbl-s">Pax / week</span></>} icon={<Users />} value={compact(weekPax)} sub={<span className="dim">{compact(g.stats.totalPax)} all-time</span>}>
           <div className="kpi-spark"><Sparkline values={g.stats.weeklyPax.slice(-26)} /></div>
         </Kpi>
         <Kpi label="Load factor" icon={<Target />} value={g.routes.length ? pct(lf) : '—'} sub={<Bar value={lf} tone="auto" />} />
@@ -275,7 +277,7 @@ export function Dashboard() {
             ))}
           </div>
         </Card>
-        <Card title="Latest news" icon={<Newspaper className="ico" />} className="span-2-lg">
+        <Card title="Latest news" icon={<Newspaper className="ico" />} className="span-2-lg dash-news">
           <div className="news-list">
             {news.map((m) => (
               <div key={m.id} className="news-item">
@@ -289,7 +291,7 @@ export function Dashboard() {
             {!news.length && <div className="small muted">Quiet skies so far.</div>}
           </div>
         </Card>
-        <Card title="Fuel" icon={<Fuel className="ico" />} sub="jet fuel $/kg">
+        <Card title="Fuel" icon={<Fuel className="ico" />} sub="jet fuel $/kg" className="dash-fuel">
           <div className="row between">
             <span className="kpi-value">${g.market.fuel.toFixed(2)}</span>
             <Sparkline values={g.market.fuelHistory.slice(-52)} color="var(--series-2)" width={140} height={40} />
