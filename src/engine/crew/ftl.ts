@@ -1,50 +1,22 @@
-// Simplified EASA FTL (RESEARCH §5.1, DESIGN.md §5.2). All values in minutes. (B2)
+// Simplified EASA FTL (RESEARCH §5.1, DESIGN.md §5.2): public checks on crew members and duties. (B2)
+// Pure rules live in rules.ts; timelines in timeline.ts.
 
+import { DAY, yearOf } from '../core/time';
 import type { CrewMember, Duty, GameState, Legality, Minute } from '../core/types';
+import { planCrew } from './check';
+import { dutyLegality as dutyLevel } from './duties';
+import { LIMITS, levelOf, minRest, recoveryAnchor, type LegalityIssue } from './rules';
+import { ctxOf, segsOf } from './timeline';
 
-export interface FdpInput {
-  /** Report time in minutes after local midnight where the crew is acclimatised. */
-  reportLocal: number;
-  /** Operated sectors (positioning before operating is not a sector). */
-  sectors: number;
-  /** false = unknown acclimatisation state "X" (base 11:00). */
-  acclimatised: boolean;
-  /** Extra pilots (in-flight rest). */
-  augment: 0 | 1 | 2;
-  restClass: 1 | 2 | 3 | null;
-  /** Longest sector block time (for the +1:00 augmented bonus). */
-  longestBlock: number;
+export {
+  acclimState, baseFdp, isDisruptive, LIMITS, longestWorkBlock, maxFdp, minRest, nightsIn, referenceTime, tzDeltaH,
+  type Acclim, type FdpInput, type IssueCode, type LegalityIssue, type RefTime, type RestInput,
+} from './rules';
+
+export interface LegalityReport {
+  level: Legality;
+  issues: LegalityIssue[];
 }
-
-/** Max FDP (F1 table, sector penalty, 9:00 floor; F3 augmented table). TODO(B2) */
-export function maxFdp(_i: FdpInput): number {
-  return 13 * 60;
-}
-
-export interface RestInput {
-  /** Previous duty length (minutes). */
-  dutyMin: number;
-  atHome: boolean;
-  augmented: boolean;
-  /** Time-zone shift of the trip in hours. */
-  tzShift: number;
-}
-
-/** F8 minimum rest: max(duty, 12 h home / 10 h away); 14 h after augmented or ≥ 4 h shift. TODO(B2) */
-export function minRest(i: RestInput): number {
-  return Math.max(i.dutyMin, i.atHome ? 12 * 60 : 10 * 60);
-}
-
-/** Cumulative limits (F10) and recovery (F9). */
-export const LIMITS = {
-  duty7d: 60 * 60,
-  duty14d: 110 * 60,
-  duty28d: 190 * 60,
-  block28d: 100 * 60,
-  blockYear: 900 * 60,
-  recovery: 36 * 60,
-  recoveryEvery: 168 * 60,
-} as const;
 
 export interface CrewWindows {
   duty7d: number;
@@ -57,30 +29,57 @@ export interface CrewWindows {
   recoveryDue: Minute;
 }
 
-/** Rolling totals at time t from the log plus planned duties up to t. TODO(B2) */
-export function crewWindows(_g: GameState, c: CrewMember, _t: Minute): CrewWindows {
-  return { duty7d: 0, duty14d: 0, duty28d: 0, block28d: 0, blockYear: c.blockYear, restUntil: c.restUntil, recoveryDue: c.lastRecovery + LIMITS.recoveryEvery };
+/** Rolling totals at time t from the log plus planned duties up to t (clipped to each window). */
+export function crewWindows(g: GameState, c: CrewMember, t: Minute): CrewWindows {
+  const segs = segsOf(g, c).filter((s) => s.start < t);
+  const dutyIn = (a: Minute) => segs.reduce((n, s) => n + Math.max(0, Math.min(t, s.end) - Math.max(a, s.start)), 0);
+  let block28d = 0;
+  let planned = 0;
+  const y = yearOf(t);
+  let restUntil = c.restUntil;
+  for (const s of segs) {
+    if (s.end > t - 28 * DAY && s.end <= t) block28d += s.block;
+    if (s.kind !== 'log' && s.end <= t && yearOf(s.end) === y) planned += s.block;
+    if (s.kind !== 'log' && s.end <= t) restUntil = Math.max(restUntil, s.end + s.rest);
+  }
+  const ctx = ctxOf(g, c);
+  return {
+    duty7d: dutyIn(t - 7 * DAY),
+    duty14d: dutyIn(t - 14 * DAY),
+    duty28d: dutyIn(t - 28 * DAY),
+    block28d,
+    blockYear: (ctx.blockYearOf === y ? c.blockYear : 0) + planned,
+    restUntil,
+    recoveryDue: recoveryAnchor(ctx, segs, t) + LIMITS.recoveryEvery,
+  };
 }
 
-export type IssueCode = 'fdp' | 'rest' | 'duty7d' | 'duty14d' | 'duty28d' | 'block28d' | 'blockYear' | 'recovery' | 'rating' | 'location' | 'status' | 'overlap';
-
-export interface LegalityIssue {
-  code: IssueCode;
-  level: Legality;
-  text: string;
+/** Can this crew member fly this duty's pairing (rating, status, location/positioning, rest, FDP, cumulative, recovery)? */
+export function checkAssignment(g: GameState, crewId: string, dutyId: string): LegalityReport {
+  const c = g.crew[crewId];
+  const d = g.duties[dutyId];
+  const p = d && g.pairings[d.pairingId];
+  if (!c || !d || !p) return { level: 'illegal', issues: [{ code: 'status', level: 'illegal', text: 'Not found' }] };
+  const onIt = p.slots.some((s) => s.crewId === crewId);
+  const plan = planCrew(g, c, p, segsOf(g, c, p.id), onIt);
+  const issues = plan.issues.filter((i) => !i.dutyId || i.dutyId === d.id || i.code !== 'fdp');
+  return { level: levelOf(issues), issues };
 }
 
-export interface LegalityReport {
-  level: Legality;
-  issues: LegalityIssue[];
+/** Duty-level legality from its FDP vs max FDP (+ discretion): tight within 30 min of the limit. */
+export function dutyLegality(_g: GameState, d: Duty): Legality {
+  return dutyLevel(d);
 }
 
-/** Can this crew member fly this duty (rating, location/positioning, rest, FDP, cumulative, recovery)? TODO(B2) */
-export function checkAssignment(_g: GameState, _crewId: string, _dutyId: string): LegalityReport {
-  return { level: 'legal', issues: [] };
+/** Days with no duty in the calendar month of t so far and in total (guideline 7 per month; shown, not enforced). */
+export function daysOffInMonth(g: GameState, c: CrewMember, monthStartT: Minute, monthEndT: Minute): number {
+  const busy = new Set<number>();
+  for (const s of segsOf(g, c)) {
+    if (s.end <= monthStartT || s.start >= monthEndT) continue;
+    for (let t = Math.max(s.start, monthStartT); t < Math.min(s.end, monthEndT); t = Math.floor(t / DAY) * DAY + DAY) busy.add(Math.floor(t / DAY));
+  }
+  return Math.round((monthEndT - monthStartT) / DAY) - busy.size;
 }
 
-/** Duty-level legality from its FDP vs max FDP: tight within 30 min of the limit. TODO(B2) */
-export function dutyLegality(_g: GameState, _d: Duty): Legality {
-  return 'legal';
-}
+/** Minimum rest after a duty (re-export helper for panels). */
+export const restAfter = (dutyMin: number, atHome: boolean, augmented = false) => minRest({ dutyMin, atHome, augmented, tzShift: 0 });

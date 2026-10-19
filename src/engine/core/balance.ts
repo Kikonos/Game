@@ -11,9 +11,19 @@ export const BAL = {
   rosterHorizonDays: 14,
 
   // ---------- commercial (B1) ----------
-  /** Mean new offers per week at reputation 60 (Poisson); scaled by fleet size and season. */
-  offersPerWeek: 4,
+  /** Mean new offers per week at reputation 60 (gamma-2 gaps: Poisson-like, steadier); scaled by fleet size and season. */
+  offersPerWeek: 3.4,
+  /** Share of offers fitted to a real idle window of a fleet aircraft, and of aspirational (bigger-type) jobs. */
+  gapFitShare: 0.5,
+  aspirationalShare: 0.14,
   brokerCommission: 0.05,
+  /** Season-base targetBH = MGH × this range (peak use above MGH earns excess hours). */
+  targetOverMgh: [1.08, 1.3] as [number, number],
+  /** Client compensation per departure delayed over 3 h / per cancelled leg (narrow, wide). */
+  perDelay: [2_500, 6_000] as [number, number],
+  perCancelledLeg: [15_000, 40_000] as [number, number],
+  /** Charter all-in markup on cost-plus (RESEARCH §4.4). */
+  charterMargin: 1.08,
   premium: { peakSummer: 0.15, winter: -0.15, short: 0.25, urgent: 0.35, longTerm: -0.1, oldType: -0.15, vip: 0.35, conflict: 0.6, deportation: 0.4 },
   mgh: { narrow: 200, wide: 250 },
   excessRate: 0.95,
@@ -46,7 +56,19 @@ export const BAL = {
   typeRating: { pilotDays: 35, pilotCost: 45_000, cabinDays: 7, cabinCost: 3_000 },
   commandUpgrade: { days: 42, cost: 22_000, minHours: 4_000 },
   sccmCourse: { days: 4, cost: 1_500 },
+  /** Cross-crew / operator conversion onto a related family (pilots / cabin). */
+  conversion: { pilotDays: 14, pilotCost: 12_000, cabinDays: 5, cabinCost: 1_000 },
   startMorale: [58, 76] as [number, number],
+  /** Sickness: chance per crew member per month at morale ≥ 60, and days off sick. */
+  sickPerMonth: 0.04,
+  sickDays: [2, 5] as [number, number],
+  /** Sizing (RESEARCH §5.3): productive BH per person-month and reserve factor. */
+  pilotBHMonth: 80,
+  cabinBHMonth: 85,
+  crewReserve: 1.2,
+  /** Check-in before a positioning ticket (minutes) and the cap on sets at one deployment. */
+  deadheadCheckIn: 60,
+  maxSetsOnStation: 10,
 
   // ---------- operations, maintenance, finance (B3) ----------
   fuelPrice: 750,

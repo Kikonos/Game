@@ -94,3 +94,32 @@ export const CLIENT_SEEDS: ClientSeed[] = [
   { name: '"The Iron Hymn" world tour', kind: 'music', country: 'GB', base: 'LHR' },
   { name: 'Velocity GP Team', kind: 'corporate', country: 'GB', base: 'LHR' },
 ];
+
+// ---------- B1 additions (contracts): more clients so every home base has its ministries, tour operators and clubs ----------
+
+export const CLIENT_SEEDS_B1: ClientSeed[] = [
+  { name: 'Ministry of Foreign Affairs of Malta', kind: 'government', country: 'MT', base: 'MLA' },
+  { name: 'Ministry of Foreign Affairs of Latvia', kind: 'government', country: 'LV', base: 'RIX' },
+  { name: 'Ministry of Defence of Spain', kind: 'government', country: 'ES', base: 'MAD' },
+  { name: 'Ministry of Defence of Lithuania', kind: 'government', country: 'LT', base: 'VNO' },
+  { name: 'Ministry of Defence of Malta', kind: 'government', country: 'MT', base: 'MLA' },
+  { name: 'Ministry of Defence of Latvia', kind: 'government', country: 'LV', base: 'RIX' },
+  { name: 'Global Health Airbridge Coalition', kind: 'agency', country: 'CH', base: 'GVA' },
+  { name: 'Pacifica Island Air', kind: 'airline', country: 'FJ', base: 'NAN' },
+  { name: 'Baltic Amber Tours', kind: 'tourOperator', country: 'LV', base: 'RIX' },
+  { name: 'Melita Sun Holidays', kind: 'tourOperator', country: 'MT', base: 'MLA' },
+  { name: 'Viajes Meseta', kind: 'tourOperator', country: 'ES', base: 'MAD' },
+  { name: 'Nemunas Travel', kind: 'tourOperator', country: 'LT', base: 'VNO' },
+  { name: 'WhiteSilence Camps', kind: 'tourOperator', country: 'ZA', base: 'CPT' },
+  { name: 'Peregrinos de Fátima', kind: 'agency', country: 'PT', base: 'OPO' },
+  { name: 'Lumen Pharma Events', kind: 'corporate', country: 'CH', base: 'ZRH' },
+  { name: 'Northgate Incentive Group', kind: 'corporate', country: 'GB', base: 'MAN' },
+  { name: '"Velvet Thunder" stadium tour', kind: 'music', country: 'US', base: 'JFK' },
+  { name: 'Riga Wolves HC', kind: 'sports', country: 'LV', base: 'RIX' },
+  { name: 'Valletta Corsairs FC', kind: 'sports', country: 'MT', base: 'MLA' },
+];
+
+export const RIVALS_B1: RivalSeed[] = [
+  { name: 'Sunfield Global Air', country: 'US', base: 'MIA', fleet: 'wide', personality: 'steady' },
+  { name: 'Palmetto Air Lift', country: 'US', base: 'CHS', fleet: 'mixed', personality: 'rescue' },
+];

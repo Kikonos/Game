@@ -1,0 +1,548 @@
+// Duties, pairings and deployments (DESIGN.md §5.3). An aircraft's flights are cut into units at crew-change
+// stations (home base, deployment base, night-stops), partitioned into FDPs by dynamic programming, then
+// chained into trips (base → base) or deployment tours (staggered crew sets on station).
+
+import { BAL } from '../core/balance';
+import { flightsOf, nextId } from '../core/entities';
+import { complement, reportMinutes, typeOf } from '../core/perf';
+import { schedule } from '../core/queue';
+import { DAY, dayStart, localMinuteOfDay, localOffset, yearOf } from '../core/time';
+import type { Contract, Deployment, Duty, Flight, GameState, Legality, Minute, Pairing, Role } from '../core/types';
+import { evalSegs, isDisruptive, LIMITS, longestWorkBlock, maxFdp, minRest, referenceTime, tzDeltaH, worst, type Seg, type TimelineCtx } from './rules';
+import { crewCount, crewIx, dutyBlock, dutyFlights, onBlocks, restClassOf, touchCrew } from './timeline';
+
+// ---------- duty measures ----------
+
+interface Shape {
+  report: Minute;
+  release: Minute;
+  fdp: number;
+  sectors: number;
+  longest: number;
+  dep: string;
+  restAt: string;
+}
+
+function shape(typeId: string, fl: Flight[], keepReport?: Minute): Shape {
+  const rm = reportMinutes(typeId);
+  const report = keepReport ?? fl[0].std - rm.report;
+  const lastOn = onBlocks(fl[fl.length - 1]);
+  let longest = 0;
+  for (const f of fl) longest = Math.max(longest, f.block);
+  return { report, release: lastOn + rm.post, fdp: lastOn - report, sectors: fl.length, longest, dep: fl[0].from, restAt: fl[fl.length - 1].to };
+}
+
+/** Smallest legal augmentation (0, then 1/2 when allowed and ≤ 3 sectors) and its max FDP. */
+function pickAugment(sh: Shape, reportLocal: number, acclimatised: boolean, restClass: 1 | 2 | 3 | null, canAug: boolean): { augment: 0 | 1 | 2; max: number; ok: boolean } {
+  const lim = (augment: 0 | 1 | 2) => maxFdp({ reportLocal, sectors: sh.sectors, acclimatised, augment, restClass, longestBlock: sh.longest });
+  const opts: (0 | 1 | 2)[] = canAug && restClass && sh.sectors <= 3 ? [0, 1, 2] : [0];
+  for (const a of opts) {
+    const m = lim(a);
+    if (sh.fdp <= m) return { augment: a, max: m, ok: true };
+  }
+  return { augment: 0, max: lim(0), ok: false };
+}
+
+export const canAugment = (g: GameState, restClass: 1 | 2 | 3 | null) => !!restClass && g.company.approvals.includes('augmented');
+
+export function dutyLegality(d: Duty): Legality {
+  const max = d.maxFdp + (d.discretion ?? 0);
+  return d.fdp > max ? 'illegal' : d.fdp > max - LIMITS.tightFdp ? 'tight' : 'legal';
+}
+
+/** Re-measures a duty from its flights in its pairing's context (reference time, augmentation). */
+export function syncDuty(g: GameState, d: Duty, p: Pairing): void {
+  const fl = dutyFlights(g, d).filter((f) => f.status !== 'cancelled');
+  if (!fl.length) return;
+  const typeId = (p.aircraftId && g.fleet[p.aircraftId]?.typeId) || 'a320ceo';
+  const reported = p.status === 'active' && d.report <= g.now && crewCount(p) > 0;
+  const sh = shape(typeId, fl, reported ? d.report : undefined);
+  const ref = referenceTime(p.base, sh.dep, Math.min(p.start, sh.report), sh.report);
+  const rc = restClassOf(g, p);
+  const pa = pickAugment(sh, ref.reportLocal, ref.state !== 'X', rc, canAugment(g, rc));
+  d.flightIds = fl.map((f) => f.id);
+  d.report = sh.report;
+  d.release = sh.release;
+  d.fdp = sh.fdp;
+  d.sectors = sh.sectors;
+  d.augment = pa.augment;
+  d.maxFdp = pa.max;
+  d.restAt = sh.restAt;
+  d.flightsEv = fl.reduce((s, f) => s + f.ev, 0);
+  d.legality = dutyLegality(d);
+}
+
+/** (Re)queues duty.report / duty.release; bumping ev makes older events stale. */
+export function queueDuty(g: GameState, d: Duty): void {
+  d.ev++;
+  const first = g.flights[d.flightIds[0]];
+  if (!first || first.status === 'scheduled') schedule(g, Math.max(d.report, g.now), 'duty.report', d.id, d.ev);
+  schedule(g, Math.max(d.release, g.now), 'duty.release', d.id, d.ev);
+}
+
+// ---------- pairings ----------
+
+const ROLE_ORDER: Role[] = ['CPT', 'FO', 'CRP', 'CSD', 'SCC', 'CC'];
+
+/** Complement for a pairing: the largest augmentation of its duties (the whole set flies every duty). */
+export function pairingRoles(g: GameState, p: Pairing): Role[] {
+  const ac = p.aircraftId ? g.fleet[p.aircraftId] : undefined;
+  const typeId = ac?.typeId ?? 'a320ceo';
+  let augment: 0 | 1 | 2 = 0;
+  let fdp = 0;
+  for (const id of p.dutyIds) {
+    const d = g.duties[id];
+    if (!d) continue;
+    if (d.augment > augment) augment = d.augment;
+    if (d.augment > 0) fdp = Math.max(fdp, d.fdp);
+  }
+  const c: Contract | undefined = p.contractId ? g.contracts[p.contractId] : undefined;
+  const extra = g.company.policies.extraCabin + (c?.requirements.extraCabin ?? 0);
+  return complement(typeId, ac?.cabin.total ?? 180, { augment, extraCabin: extra, fdp }).sort((a, b) => ROLE_ORDER.indexOf(a) - ROLE_ORDER.indexOf(b));
+}
+
+/**
+ * Start/end, slots and duty measures of a pairing. Slots follow the complement: assigned crew keep a slot of
+ * their role; surplus slots are dropped (their crew returned for the caller to unassign).
+ */
+export function refreshPairing(g: GameState, p: Pairing): string[] {
+  const duties = p.dutyIds.map((id) => g.duties[id]).filter((d): d is Duty => !!d);
+  duties.sort((a, b) => a.report - b.report);
+  p.dutyIds = duties.map((d) => d.id);
+  if (!duties.length) return [];
+  if (p.status === 'planned') p.start = duties[0].report;
+  for (const d of duties) if (!d.done) syncDuty(g, d, p);
+  p.start = p.status === 'planned' ? duties[0].report : Math.min(p.start, duties[0].report);
+  p.end = duties[duties.length - 1].release;
+  const roles = pairingRoles(g, p);
+  const dropped: string[] = [];
+  if (roles.join() !== p.slots.map((s) => s.role).join()) {
+    const old = p.slots;
+    const used = new Set<number>();
+    p.slots = roles.map((role) => {
+      const i = old.findIndex((s, k) => !used.has(k) && s.role === role && s.crewId);
+      if (i >= 0) {
+        used.add(i);
+        return { role, crewId: old[i].crewId };
+      }
+      return { role, crewId: null };
+    });
+    old.forEach((s, k) => {
+      if (!used.has(k) && s.crewId) dropped.push(s.crewId);
+    });
+  }
+  let lg: Legality = 'legal';
+  for (const d of duties) lg = worst(lg, d.legality);
+  p.legality = lg;
+  return dropped;
+}
+
+function newPairing(g: GameState, duties: Duty[], acId: string, deploymentId: string | null, tour?: Pairing['tour']): Pairing {
+  const contractId = contractOfDuties(g, duties)?.id ?? null;
+  const p: Pairing = {
+    id: nextId(g, 'p'), aircraftId: acId, contractId, deploymentId, base: g.company.homeBase,
+    start: duties[0].report, end: duties[duties.length - 1].release, dutyIds: duties.map((d) => d.id), slots: [], status: 'planned', legality: 'legal',
+  };
+  if (tour) p.tour = tour;
+  g.pairings[p.id] = p;
+  for (const d of duties) d.pairingId = p.id;
+  refreshPairing(g, p);
+  return p;
+}
+
+function contractOfDuties(g: GameState, duties: Duty[]): Contract | undefined {
+  for (const d of duties) for (const id of d.flightIds) {
+    const c = g.flights[id]?.contractId;
+    if (c && g.contracts[c]) return g.contracts[c];
+  }
+  return undefined;
+}
+
+/** Deletes a pairing record (caller has already released its crew and tickets). */
+export function deletePairing(g: GameState, p: Pairing): void {
+  for (const id of p.dutyIds) {
+    const d = g.duties[id];
+    if (!d || d.pairingId !== p.id) continue;
+    for (const fid of d.flightIds) {
+      const f = g.flights[fid];
+      if (f && f.dutyId === d.id) f.dutyId = null;
+    }
+    delete g.duties[id];
+  }
+  if (p.deploymentId) {
+    const dep = g.deployments[p.deploymentId];
+    if (dep) dep.pairingIds = dep.pairingIds.filter((x) => x !== p.id);
+  }
+  delete g.pairings[p.id];
+}
+
+// ---------- building ----------
+
+interface Spec {
+  flights: Flight[];
+}
+
+const keyOf = (fl: Flight[]) => fl.map((f) => f.id).join(',');
+
+/** Fewest duties, then least augmentation, then the most slack on the tightest duty (DESIGN §5.3 step 3). */
+function partition(g: GameState, typeId: string, units: Flight[][]): Spec[] {
+  const rc = typeOf(typeId).restClass;
+  const canAug = canAugment(g, rc);
+  const allowTight = g.company.policies.allowTight;
+  interface Best { count: number; aug: number; slack: number; prev: number; flights: Flight[] }
+  const best: (Best | null)[] = new Array(units.length + 1).fill(null);
+  best[0] = { count: 0, aug: 0, slack: Infinity, prev: -1, flights: [] };
+  for (let j = 1; j <= units.length; j++) {
+    let fl: Flight[] = [];
+    for (let i = j - 1; i >= 0; i--) {
+      fl = [...units[i], ...fl];
+      const sh = shape(typeId, fl);
+      const single = i === j - 1;
+      if (!single && sh.fdp > 19 * 60) break;
+      const pa = pickAugment(sh, localMinuteOfDay(sh.dep, sh.report), true, rc, canAug);
+      const tight = sh.fdp > pa.max - LIMITS.tightFdp;
+      if (!single && (!pa.ok || (tight && !allowTight))) continue;
+      const prev = best[i];
+      if (!prev) continue;
+      const cand: Best = { count: prev.count + 1, aug: prev.aug + pa.augment, slack: Math.min(prev.slack, pa.max - sh.fdp), prev: i, flights: fl };
+      const cur = best[j];
+      if (!cur || cand.count < cur.count || (cand.count === cur.count && (cand.aug < cur.aug || (cand.aug === cur.aug && cand.slack > cur.slack)))) best[j] = cand;
+    }
+  }
+  const out: Spec[] = [];
+  for (let j = units.length; j > 0; ) {
+    const b = best[j]!;
+    out.push({ flights: b.flights });
+    j = b.prev;
+  }
+  return out.reverse();
+}
+
+const isDeploymentContract = (g: GameState, c: Contract | undefined): c is Contract & { pattern: { kind: 'base'; base: string } } =>
+  !!c && c.pattern.kind === 'base' && c.pattern.base !== g.company.homeBase;
+
+/**
+ * Rebuilds the open (uncrewed, planned) pairings of an aircraft from `from` on: free flights → units → duties →
+ * trips and deployment tours. Crewed pairings are kept. Duties whose flights did not change keep their ids.
+ */
+export function planAircraft(g: GameState, acId: string, from: Minute): void {
+  const ac = g.fleet[acId];
+  if (!ac) return;
+  const typeId = ac.typeId;
+  const home = g.company.homeBase;
+  const ix = crewIx(g);
+  const old = new Map<string, Duty>();
+  for (const p of [...(ix.byAircraft.get(acId) ?? [])]) {
+    if (p.status !== 'planned' || p.start < from || crewCount(p) > 0) continue;
+    for (const did of p.dutyIds) {
+      const d = g.duties[did];
+      if (d) old.set(d.flightIds.join(','), d);
+    }
+    deletePairing(g, p);
+  }
+  touchCrew(g);
+  const inDuty = new Set<string>();
+  for (const p of crewIx(g).byAircraft.get(acId) ?? []) for (const did of p.dutyIds) for (const fid of g.duties[did]?.flightIds ?? []) inDuty.add(fid);
+
+  const all = flightsOf(g, acId).filter((f) => f.status !== 'cancelled' && f.aircraftId === acId);
+  const stations = new Set([home]);
+  for (const f of all) {
+    const c = f.contractId ? g.contracts[f.contractId] : undefined;
+    if (c && c.pattern.kind === 'base') stations.add(c.pattern.base);
+  }
+  const rm = reportMinutes(typeId);
+  // Runs of consecutive free flights; a long ground gap (night-stop) or a crewed flight ends a run.
+  const runs: Flight[][] = [];
+  let run: Flight[] = [];
+  for (const f of all) {
+    const free = f.status === 'scheduled' && f.std >= from && !inDuty.has(f.id);
+    if (!free) {
+      if (run.length) runs.push(run);
+      run = [];
+      continue;
+    }
+    const prev = run[run.length - 1];
+    if (prev) {
+      const gapNeed = minRest({ dutyMin: 0, atHome: prev.to === home, augmented: false, tzShift: 0 }) + rm.report + rm.post;
+      if (f.std - prev.sta >= gapNeed || prev.to !== f.from) {
+        runs.push(run);
+        run = [];
+      }
+    }
+    run.push(f);
+  }
+  if (run.length) runs.push(run);
+
+  const specs: Spec[] = [];
+  for (const r of runs) {
+    const units: Flight[][] = [];
+    let u: Flight[] = [];
+    for (let i = 0; i < r.length; i++) {
+      u.push(r[i]);
+      if (i < r.length - 1 && stations.has(r[i].to)) {
+        units.push(u);
+        u = [];
+      }
+    }
+    if (u.length) units.push(u);
+    specs.push(...partition(g, typeId, units));
+  }
+
+  // Duty records (reused when the flights are the same).
+  const trips: Duty[] = [];
+  const byDep = new Map<string, Duty[]>();
+  for (const s of specs) {
+    const k = keyOf(s.flights);
+    const o = old.get(k);
+    const d: Duty = o ?? {
+      id: nextId(g, 'du'), pairingId: '', report: 0, release: 0, flightIds: s.flights.map((f) => f.id), deadheadIds: [], sectors: 0, fdp: 0, maxFdp: 0,
+      augment: 0, restAt: '', legality: 'legal', ev: 0, flightsEv: 0,
+    };
+    d.flightIds = s.flights.map((f) => f.id);
+    d.deadheadIds = [];
+    delete d.done;
+    g.duties[d.id] = d;
+    for (const f of s.flights) f.dutyId = d.id;
+    // Provisional measures (D-state at departure); refreshPairing re-measures in pairing context.
+    const sh = shape(typeId, s.flights);
+    const rc = typeOf(typeId).restClass;
+    const pa = pickAugment(sh, localMinuteOfDay(sh.dep, sh.report), true, rc, canAugment(g, rc));
+    Object.assign(d, { report: sh.report, release: sh.release, fdp: sh.fdp, sectors: sh.sectors, augment: pa.augment, maxFdp: pa.max, restAt: sh.restAt });
+    d.flightsEv = s.flights.reduce((n, f) => n + f.ev, 0);
+    d.legality = dutyLegality(d);
+    const c = contractOfDuties(g, [d]);
+    if (isDeploymentContract(g, c)) {
+      const l = byDep.get(c.id) ?? [];
+      l.push(d);
+      byDep.set(c.id, l);
+    } else trips.push(d);
+  }
+  for (const [cid, duties] of byDep) {
+    const left = chainDeployment(g, g.contracts[cid], acId, duties);
+    trips.push(...left);
+  }
+  trips.sort((a, b) => a.report - b.report);
+  buildTrips(g, acId, trips);
+  touchCrew(g);
+}
+
+/** Trips: from a duty until one releases at home base, a > 3-day gap, or 6 duty days (then 2 days off). */
+function buildTrips(g: GameState, acId: string, duties: Duty[]): void {
+  const home = g.company.homeBase;
+  const dayOf = (t: Minute) => Math.floor((t + localOffset(home, t)) / DAY);
+  let cur: Duty[] = [];
+  const close = () => {
+    if (cur.length) newPairing(g, cur, acId, null);
+    cur = [];
+  };
+  for (const d of duties) {
+    if (cur.length) {
+      const last = cur[cur.length - 1];
+      const firstDep = g.flights[d.flightIds[0]]?.from;
+      const days = new Set(cur.map((x) => dayOf(x.report)));
+      days.add(dayOf(d.report));
+      const cont = last.restAt !== home && firstDep === last.restAt && d.report - last.release <= 3 * DAY && d.report - last.release >= 10 * 60 && days.size <= LIMITS.blockDays;
+      if (!cont) close();
+    }
+    cur.push(d);
+    if (d.restAt === home) close();
+  }
+  close();
+}
+
+// ---------- deployments ----------
+
+const rotation = (g: GameState) => g.company.policies.rotationWeeks * 7 * DAY;
+
+/** On-station period of set s that contains t (null before the set exists). */
+export function periodOf(dep: Deployment, s: number, t: Minute, R: number): { from: Minute; to: Minute } | null {
+  const a = dep.anchors?.[s];
+  if (a === undefined) return null;
+  if (t < a) {
+    const from = Math.max(dep.start, a - R);
+    return t < from ? null : { from, to: a };
+  }
+  const k = Math.floor((t - a) / R);
+  return { from: a + k * R, to: a + (k + 1) * R };
+}
+
+function anchorsFor(start: Minute, sets: number, R: number): Minute[] {
+  const out: Minute[] = [];
+  for (let s = 0; s < sets; s++) out.push(start + Math.max(1, Math.round(((s + 1) * R) / sets / DAY)) * DAY);
+  return out;
+}
+
+interface TourState {
+  set: number;
+  from: Minute;
+  to: Minute;
+  pairing: Pairing | null;
+  duties: Duty[];
+  segs: Seg[];
+  days: number[];
+}
+
+/** A duty as a virtual crew set's seg (no tickets). */
+function virtualSeg(g: GameState, d: Duty, tripStart: Minute, base: string, fresh = false): Seg {
+  const dep = g.flights[d.flightIds[0]]?.from ?? d.restAt;
+  const tz = referenceTime(base, dep, Math.min(tripStart, d.report), d.report).tz;
+  return {
+    kind: 'duty', start: d.report, end: d.release, fdp: d.fdp, maxFdp: d.maxFdp + (d.discretion ?? 0), block: dutyBlock(g, d), sectors: d.sectors,
+    aug: d.augment > 0, disruptive: isDisruptive(tz, d.report, d.release),
+    rest: minRest({ dutyMin: d.release - d.report, atHome: d.restAt === base, augmented: d.augment > 0, tzShift: tzDeltaH(base, d.restAt, d.release) }),
+    at: d.restAt, dutyId: d.id, fresh,
+  };
+}
+
+interface Chainer {
+  take(d: Duty): boolean;
+  tours: Map<string, TourState>;
+}
+
+/**
+ * Round-robin chaining: each duty (report order) goes to the on-station set free longest (earliest rest end)
+ * that stays legal (rest, FDP, cumulative, recovery, 6-on/2-off); ties by set index. Crewed tours also check
+ * their real crew (via `crewOk`).
+ */
+function chainer(g: GameState, dep: Deployment, crewOk: (p: Pairing, d: Duty) => boolean): Chainer {
+  const R = rotation(g);
+  const home = g.company.homeBase;
+  const dayOf = (t: Minute) => Math.floor((t + localOffset(dep.base, t)) / DAY);
+  const tours = new Map<string, TourState>();
+  for (const pid of dep.pairingIds) {
+    const p = g.pairings[pid];
+    if (!p?.tour) continue;
+    const duties = p.dutyIds.map((id) => g.duties[id]).filter((d): d is Duty => !!d);
+    tours.set(`${p.tour.set}:${p.tour.from}`, {
+      set: p.tour.set, from: p.tour.from, to: p.tour.to, pairing: p, duties,
+      segs: duties.map((d) => virtualSeg(g, d, p.start, home)), days: [...new Set(duties.map((d) => dayOf(d.report)))].sort((a, b) => a - b),
+    });
+  }
+  const take = (d: Duty): boolean => {
+    let pick: TourState | null = null;
+    let pickRest = Infinity;
+    const sets = dep.anchors?.length ?? 0;
+    for (let s = 0; s < sets; s++) {
+      const per = periodOf(dep, s, d.report, R);
+      if (!per) continue;
+      const key = `${s}:${per.from}`;
+      const st = tours.get(key) ?? { set: s, from: per.from, to: per.to, pairing: null, duties: [], segs: [], days: [] };
+      const day = dayOf(d.report);
+      const days = st.days.includes(day) ? st.days : [...st.days, day].sort((a, b) => a - b);
+      if (longestWorkBlock(days) > LIMITS.blockDays) continue;
+      const tripStart = Math.min(st.duties[0]?.report ?? d.report, d.report);
+      const i = st.segs.findIndex((x) => x.start > d.report);
+      const at = i < 0 ? st.segs.length : i;
+      const last = st.segs[at - 1];
+      const segs = [...st.segs.slice(0, at), virtualSeg(g, d, tripStart, home, true), ...st.segs.slice(at)];
+      // A fresh set arrives rested the day before its period (positioning counts as duty).
+      const ctx: TimelineCtx = { base: home, restUntil: -Infinity, lastRecovery: per.from - DAY, blockYear: 0, blockYearOf: yearOf(d.report) };
+      if (evalSegs(ctx, segs).some((i) => i.level === 'illegal' && i.code !== 'fdp')) continue;
+      if (st.pairing && crewCount(st.pairing) > 0 && !crewOk(st.pairing, d)) continue;
+      const restEnd = last ? last.end + last.rest : -Infinity;
+      if (restEnd < pickRest) {
+        pick = st;
+        pickRest = restEnd;
+      }
+    }
+    if (!pick) return false;
+    const key = `${pick.set}:${pick.from}`;
+    tours.set(key, pick);
+    pick.duties.push(d);
+    pick.duties.sort((x, y) => x.report - y.report);
+    pick.segs.push(virtualSeg(g, d, pick.duties[0].report, home));
+    pick.segs.sort((x, y) => x.start - y.start);
+    const day = dayOf(d.report);
+    if (!pick.days.includes(day)) pick.days = [...pick.days, day].sort((a, b) => a - b);
+    return true;
+  };
+  return { take, tours };
+}
+
+/** Hook for crewed tours (set by roster.ts to avoid an import cycle): can every crew member of p also fly d? */
+let crewOkHook: (g: GameState, p: Pairing, d: Duty) => boolean = () => true;
+export function setCrewOkHook(f: (g: GameState, p: Pairing, d: Duty) => boolean): void {
+  crewOkHook = f;
+}
+
+/**
+ * Places free deployment duties into tours (creating the deployment and sizing its sets on first use).
+ * Returns the duties no set can legally take (they become trips).
+ */
+function chainDeployment(g: GameState, c: Contract, acId: string, duties: Duty[]): Duty[] {
+  if (c.pattern.kind !== 'base') return duties;
+  const base = c.pattern.base;
+  const R = rotation(g);
+  duties.sort((a, b) => a.report - b.report || (a.id < b.id ? -1 : 1));
+  let dep = Object.values(g.deployments).find((x) => x.contractId === c.id && x.aircraftId === acId);
+  if (!dep) {
+    const start = dayStart(duties[0].report);
+    dep = { id: nextId(g, 'dp'), contractId: c.id, aircraftId: acId, base, start, end: Math.max(c.end, duties[duties.length - 1].release), setsOnStation: 0, pairingIds: [] };
+    // setsOnStation = max(peak duties/day × 8/6, BH per 28 days / 85), +1 while chaining can't cover the days.
+    const perDay = new Map<number, number>();
+    let bh = 0;
+    for (const d of duties) {
+      const k = Math.floor((d.report + localOffset(base, d.report)) / DAY);
+      perDay.set(k, (perDay.get(k) ?? 0) + 1);
+      if (d.report < start + 28 * DAY) bh += dutyBlock(g, d);
+    }
+    const span = Math.min(28, Math.max(14, (duties[duties.length - 1].release - start) / DAY));
+    const peak = Math.max(...perDay.values());
+    let sets = Math.max(1, Math.ceil((peak * 8) / 6), Math.ceil((bh / 60) * (28 / span) / BAL.cabinBHMonth));
+    for (; sets < BAL.maxSetsOnStation; sets++) {
+      const trial: Deployment = { ...dep, anchors: anchorsFor(start, sets, R), pairingIds: [] };
+      const ch = chainer(g, trial, () => true);
+      if (duties.every((d) => ch.take(d))) break;
+    }
+    dep.setsOnStation = sets;
+    dep.anchors = anchorsFor(start, sets, R);
+    g.deployments[dep.id] = dep;
+  }
+  dep.anchors ??= anchorsFor(dep.start, dep.setsOnStation, R);
+  dep.end = Math.max(dep.end, duties[duties.length - 1].release);
+  const ch = chainer(g, dep, (p, d) => crewOkHook(g, p, d));
+  const left: Duty[] = [];
+  for (const d of duties) {
+    if (ch.take(d)) continue;
+    if (dep.anchors.length < BAL.maxSetsOnStation) {
+      dep.anchors.push(dayStart(d.report) + R);
+      dep.setsOnStation = dep.anchors.length;
+      if (ch.take(d)) continue;
+    }
+    left.push(d);
+  }
+  for (const st of ch.tours.values()) {
+    if (st.pairing) {
+      const p = st.pairing;
+      const fresh = st.duties.filter((d) => !p.dutyIds.includes(d.id));
+      if (!fresh.length) continue;
+      for (const d of fresh) d.pairingId = p.id;
+      p.dutyIds.push(...fresh.map((d) => d.id));
+      refreshPairing(g, p);
+      if (crewCount(p) > 0) for (const d of fresh) queueDuty(g, d);
+      continue;
+    }
+    if (!st.duties.length) continue;
+    const p = newPairing(g, st.duties, acId, dep.id, { set: st.set, from: st.from, to: st.to });
+    dep.pairingIds.push(p.id);
+  }
+  dep.pairingIds.sort((a, b) => {
+    const x = g.pairings[a]?.tour;
+    const y = g.pairings[b]?.tour;
+    return (x?.from ?? 0) - (y?.from ?? 0) || (x?.set ?? 0) - (y?.set ?? 0);
+  });
+  return left;
+}
+
+/** Builds (or keeps) the aircraft's duties from `from` and returns those overlapping [from, to), in time order. */
+export function buildDuties(g: GameState, aircraftId: string, from: Minute, to: Minute): Duty[] {
+  planAircraft(g, aircraftId, from);
+  const out: Duty[] = [];
+  for (const p of crewIx(g).byAircraft.get(aircraftId) ?? []) {
+    for (const id of p.dutyIds) {
+      const d = g.duties[id];
+      if (d && d.release > from && d.report < to) out.push(d);
+    }
+  }
+  return out.sort((a, b) => a.report - b.report);
+}

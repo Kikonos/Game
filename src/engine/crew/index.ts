@@ -1,34 +1,193 @@
 // B2 — Crew & HR. Public API for the UI and other modules.
 
+import { BAL } from '../core/balance';
+import { takeFlightChanges } from '../core/entities';
 import type { SimModule } from '../core/module';
+import { schedule } from '../core/queue';
+import { DAY, yearOf } from '../core/time';
 import type { GameState, SimEvent } from '../core/types';
 import { dailyCrewCosts, monthlySalaries } from './costs';
-import { onCrewJoin, onTrainingDone } from './hr';
-import { takeFlightChanges } from '../core/entities';
+import { deletePairing } from './duties';
+import { dailySickness, onCrewJoin, onTrainingDone } from './hr';
 import { autoRoster, onFlightsChanged } from './roster';
+import { minRest, nightsIn, LIMITS } from './rules';
+import { crewCount, crewIx, dutyBlock, dutyFlights, dutySegs, onBlocks, touchCrew } from './timeline';
 
-export { crewWindows, checkAssignment, dutyLegality, LIMITS, maxFdp, minRest, type CrewWindows, type FdpInput, type IssueCode, type LegalityIssue, type LegalityReport, type RestInput } from './ftl';
+export {
+  checkAssignment, crewWindows, daysOffInMonth, dutyLegality, LIMITS, maxFdp, minRest, restAfter,
+  acclimState, referenceTime, type Acclim, type CrewWindows, type FdpInput, type IssueCode, type LegalityIssue, type LegalityReport, type RestInput,
+} from './ftl';
 export { crewName, makeCrewMember, salaryFor } from './generate';
 export { crewAvailability, hireCrew, hireQuote, staffing, trainCrew, type Availability, type HireRequest, type RoleCapacity, type StaffingLine } from './hr';
-export { applyDiscretion, assignCrew, autoRoster, buildDuties, flightCrewStatus, onFlightsChanged, removeCrew, replaceCrew, rerosterFrom, rosterOf, unassignCrew, type FlightCrewStatus, type RosterResult } from './roster';
+export {
+  applyDiscretion, assignCrew, autoRoster, buildDuties, flightCrewStatus, onFlightsChanged, removeCrew, replaceCrew, rerosterFrom, rosterOf, unassignCrew,
+  type FlightCrewStatus, type RosterResult,
+} from './roster';
+export { salaryBill } from './costs';
+export { crewRev, ticketPrice } from './timeline';
 
-/** 'duty.report' / 'duty.release': crew status, logs, rest-until, location. TODO(B2) */
-function onDutyReport(_g: GameState, _ev: SimEvent): void {}
-function onDutyRelease(_g: GameState, _ev: SimEvent): void {}
-/** 'flight.arr': move crew on board (and deadheaders) to the arrival airport. TODO(B2) */
-function onFlightArrCrew(_g: GameState, _ev: SimEvent): void {}
+const CHECKIN = () => BAL.deadheadCheckIn;
+
+/** 'duty.report': crew on duty; away from base from now when the duty leaves base; ERRP bookkeeping. */
+function onDutyReport(g: GameState, ev: SimEvent): void {
+  const d = g.duties[ev.id];
+  if (!d || d.ev !== ev.v || d.done) return;
+  const p = g.pairings[d.pairingId];
+  if (!p) return;
+  if (p.status === 'planned') p.status = 'active';
+  const dep = g.flights[d.flightIds[0]]?.from ?? d.restAt;
+  for (const s of p.slots) {
+    const c = s.crewId ? g.crew[s.crewId] : undefined;
+    if (!c) continue;
+    const last = c.log[c.log.length - 1];
+    if (last) {
+      const dis = c.log.filter((e) => e.start >= c.lastRecovery && e.disruptive).length;
+      const need = dis >= LIMITS.disruptiveMax ? LIMITS.recoveryLong : LIMITS.recovery;
+      if (d.report - last.end >= need && nightsIn(c.base, last.end, d.report) >= 2) c.lastRecovery = Math.max(c.lastRecovery, d.report);
+    }
+    c.status = 'onDuty';
+    if (c.awaySince === null && (dep !== c.base || d.restAt !== c.base)) c.awaySince = g.now;
+  }
+  touchCrew(g);
+}
+
+/** 'duty.release': logs (pruned to 28 days), block year, rest, location; waits for a late last arrival. */
+function onDutyRelease(g: GameState, ev: SimEvent): void {
+  const d = g.duties[ev.id];
+  if (!d || d.ev !== ev.v || d.done) return;
+  const p = g.pairings[d.pairingId];
+  if (!p) return;
+  const fl = dutyFlights(g, d).filter((f) => f.status !== 'cancelled');
+  const lastF = fl[fl.length - 1];
+  if (lastF && g.now < d.release + DAY) {
+    const post = d.release - onBlocks(lastF);
+    if (lastF.status === 'enroute') {
+      const at = (lastF.eta ?? lastF.sta) + Math.max(0, post);
+      if (at > g.now) {
+        schedule(g, at, 'duty.release', d.id, d.ev);
+        return;
+      }
+    } else if (lastF.status === 'scheduled') {
+      schedule(g, g.now + 60, 'duty.release', d.id, d.ev);
+      return;
+    }
+  }
+  const y = yearOf(g.now);
+  const block = dutyBlock(g, d);
+  for (const s of p.slots) {
+    const c = s.crewId ? g.crew[s.crewId] : undefined;
+    if (!c) continue;
+    let out = null;
+    let home = null;
+    for (const fid of d.deadheadIds) {
+      const f = g.flights[fid];
+      if (!f || f.status === 'cancelled' || !f.crewIds.includes(c.id)) continue;
+      if (f.sta <= d.report) out = f;
+      else if (f.std >= d.release) home = f;
+    }
+    const seg = dutySegs(g, c, p, d, out, home).find((x) => x.kind === 'duty')!;
+    c.log.push({ start: seg.start, end: seg.end, fdp: seg.fdp, block, sectors: d.sectors, augmented: d.augment > 0, disruptive: seg.disruptive });
+    c.log = c.log.filter((e) => e.end > g.now - 28 * DAY);
+    if (c.blockYearOf !== y) {
+      c.blockYear = 0;
+      c.blockYearOf = y;
+    }
+    c.blockYear += block;
+    c.totalHours += block / 60;
+    c.restUntil = Math.max(c.restUntil, seg.end + seg.rest);
+    c.status = 'resting';
+    c.loc = d.restAt;
+    c.fatigue = Math.min(100, c.fatigue + Math.round(d.fdp / 60));
+    if (d.restAt === c.base) c.awaySince = null;
+  }
+  d.done = true;
+  if (p.dutyIds.every((id) => !g.duties[id] || g.duties[id].done)) p.status = 'done';
+  touchCrew(g);
+}
+
+/** 'flight.arr': crew aboard (operating or deadheading) move to the arrival airport; loose tickets are logged as positioning duty. */
+function onFlightArrCrew(g: GameState, ev: SimEvent): void {
+  const f = g.flights[ev.id];
+  if (!f || f.ev !== ev.v || f.status !== 'done') return;
+  const ix = crewIx(g);
+  const did = f.kind === 'deadhead' ? ix.ticketDuty.get(f.id) : undefined;
+  const d = did ? g.duties[did] : undefined;
+  const rest = minRest({ dutyMin: f.sta - f.std + CHECKIN(), atHome: false, augmented: false, tzShift: 0 });
+  const merged = !!d && ((f.sta <= d.report && d.report - f.sta < rest) || (f.std >= d.release && f.std - d.release < 600));
+  for (const id of f.crewIds) {
+    const c = g.crew[id];
+    if (!c) continue;
+    c.loc = f.to;
+    if (f.kind !== 'deadhead') continue;
+    if (f.to === c.base) c.awaySince = null;
+    else if (c.awaySince === null) c.awaySince = f.std;
+    if (!merged) {
+      c.log.push({ start: f.std - CHECKIN(), end: f.sta, fdp: 0, block: 0, sectors: 0, augmented: false, disruptive: false });
+      const r = minRest({ dutyMin: f.sta - f.std + CHECKIN(), atHome: f.to === c.base, augmented: false, tzShift: 0 });
+      c.restUntil = Math.max(c.restUntil, f.sta + r);
+      if (c.status === 'available') c.status = 'resting';
+    }
+  }
+  if (f.kind === 'deadhead') touchCrew(g);
+}
+
+/** Status from blocks (sick, leave, training, joining) and rest; crew left 'onDuty' without an active trip are freed. */
+function refreshStatuses(g: GameState): void {
+  const ix = crewIx(g);
+  for (const c of Object.values(g.crew)) {
+    if (c.blocks) {
+      c.blocks = c.blocks.filter((b) => b.to > g.now - DAY);
+      if (!c.blocks.length) delete c.blocks;
+    }
+    const block = c.blocks?.find((b) => b.from <= g.now && b.to > g.now);
+    if (c.status === 'onDuty') {
+      if (!(ix.pairingsOf.get(c.id) ?? []).some((p) => p.status === 'active')) c.status = c.restUntil > g.now ? 'resting' : 'available';
+      continue;
+    }
+    if (block) {
+      if (block.why !== 'joining' || c.status === 'joining') c.status = block.why;
+    } else if (c.status === 'sick' || c.status === 'leave' || c.status === 'training') c.status = c.restUntil > g.now ? 'resting' : 'available';
+    else if (c.status === 'resting' && c.restUntil <= g.now) c.status = 'available';
+  }
+}
+
+/** Daily: duties and pairings older than 28 days go (crew logs keep the totals); uncrewed past pairings are broken. */
+function prune(g: GameState): void {
+  const cut = g.now - 28 * DAY;
+  for (const p of Object.values(g.pairings)) {
+    if (p.status === 'planned' && p.end < g.now && crewCount(p) === 0) p.status = 'broken';
+    if (p.end < cut && p.status !== 'planned') deletePairing(g, p);
+  }
+  for (const dep of Object.values(g.deployments)) if (dep.end < cut && !dep.pairingIds.length) delete g.deployments[dep.id];
+  touchCrew(g);
+}
 
 function daily(g: GameState) {
+  refreshStatuses(g);
+  prune(g);
   dailyCrewCosts(g);
+  for (const c of Object.values(g.crew)) if (c.status !== 'onDuty') c.fatigue = Math.max(0, c.fatigue - 6);
+  dailySickness(g);
   // Keep the published roster horizon filled (auto-roster policy).
   if (g.company.policies.autoRoster) autoRoster(g);
 }
 
+const lastHour = new WeakMap<GameState, number>();
+
 export const crewModule: SimModule = {
   name: 'crew',
-  // TODO(B2): load(g) rebuilds the crew → duties index; default new fields with ??= (SAVE_VERSION stays 1 until release).
+  load(g) {
+    const y = yearOf(g.now);
+    for (const c of Object.values(g.crew)) c.blockYearOf ??= y;
+    touchCrew(g);
+  },
   settle(g) {
     for (const [aircraftId, t] of takeFlightChanges(g)) onFlightsChanged(g, aircraftId, t);
+    const h = Math.floor(g.now / 60);
+    if (lastHour.get(g) !== h) {
+      lastHour.set(g, h);
+      refreshStatuses(g);
+    }
   },
   handlers: {
     day: daily,

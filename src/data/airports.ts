@@ -503,8 +503,33 @@ const RUNWAY_BY_SIZE = [0, 2200, 2600, 3000, 3400, 3800];
 
 // ---------- builder sections (append only in your own block; same row format) ----------
 // B1: offer destinations, crisis and mission airports.
-const EXTRA_B1: Record<string, Row[]> = {};
-const RUNWAY_B1: Record<string, number> = {};
+const EXTRA_B1: Record<string, Row[]> = {
+  MED: [
+    ['CFU', 'Ioannis Kapodistrias', 'Corfu', 'GR', 39.602, 19.912, 0.1, 2, 0.05, 1.0],
+    ['KGS', 'Hippocrates', 'Kos', 'GR', 36.793, 27.092, 0.05, 2, 0.05, 1.0],
+    ['CHQ', 'Ioannis Daskalogiannis', 'Chania', 'GR', 35.532, 24.150, 0.15, 2, 0.05, 1.0],
+    ['ZTH', 'Dionysios Solomos', 'Zakynthos', 'GR', 37.751, 20.884, 0.05, 1, 0.05, 1.0],
+    ['OLB', 'Costa Smeralda', 'Olbia', 'IT', 40.899, 9.518, 0.1, 2, 0.2, 1.0],
+    ['PFO', 'Paphos', 'Paphos', 'CY', 34.718, 32.486, 0.1, 2, 0.1, 0.95],
+  ],
+  IBE: [
+    ['FUE', 'Fuerteventura', 'Fuerteventura', 'ES', 28.453, -13.864, 0.1, 2, 0.05, 1.0],
+    ['MAH', 'Menorca', 'Mahón', 'ES', 39.863, 4.219, 0.1, 2, 0.05, 1.0],
+  ],
+  EEU: [
+    ['BOJ', 'Burgas', 'Burgas', 'BG', 42.570, 27.515, 0.3, 2, 0.1, 0.95],
+    ['VAR', 'Varna', 'Varna', 'BG', 43.232, 27.825, 0.4, 2, 0.15, 0.9],
+  ],
+  LEV: [
+    ['BJV', 'Milas–Bodrum', 'Bodrum', 'TR', 37.251, 27.664, 0.2, 2, 0.05, 1.0],
+  ],
+  WEA: [
+    ['BVC', 'Aristides Pereira', 'Boa Vista', 'CV', 16.137, -22.889, 0.02, 1, 0.05, 0.95],
+  ],
+};
+const RUNWAY_B1: Record<string, number> = {
+  CFU: 2373, KGS: 2390, CHQ: 3347, ZTH: 2228, OLB: 2745, PFO: 2700, FUE: 3400, MAH: 2550, BOJ: 3200, VAR: 2500, BJV: 3000, BVC: 2100,
+};
 // B3: maintenance stations, tech stops, delivery airports.
 const EXTRA_B3: Record<string, Row[]> = {};
 const RUNWAY_B3: Record<string, number> = {};

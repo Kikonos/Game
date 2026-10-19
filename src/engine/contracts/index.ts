@@ -1,34 +1,51 @@
 // B1 — Contracts & commercial. Public API for the UI and other modules.
 
+import { flightsRev } from '../core/entities';
 import type { SimModule } from '../core/module';
 import type { GameState } from '../core/types';
-import { onContractEnd, onContractStart } from './accept';
-import { onFlightArrivedContracts } from './billing';
-import { seedClients } from './clients';
-import { dailyOffers, onOfferExpire, onOfferReply, onOfferSpawn, scheduleNextOffer } from './offers';
-import { extendBaseSchedules } from './schedule';
+import { dailyContracts, onContractEnd, onContractStart } from './accept';
+import { onFlightArrivedContracts, onMonthContracts } from './billing';
+import { seedClients, seedRivals } from './clients';
+import { dailyOffers, onOfferExpire, onOfferReply, onOfferSpawn, openingOffers, scheduleNextOffer } from './offers';
+import { extendBaseSchedules, relinkPositioning } from './schedule';
 
-export { acceptOffer, cancelContract, cancelPenalty, contractProgress, counterOffer, declineOffer, leadDays, type ContractProgress } from './accept';
+export { acceptOffer, askingPrice, cancelContract, cancelPenalty, contractProgress, counterOffer, declineOffer, leadDays, type ContractProgress } from './accept';
 export { billContractMonth, type BillingLine } from './billing';
 export { feasibility, feasibilityAll, type CheckId, type CheckLevel, type FeasibilityCheck, type FeasibilityReport, type PositioningLeg } from './feasibility';
-export { generateOffer } from './offers';
-export { priceProduct, productValue } from './pricing';
-export { generateFlights, planPositioning } from './schedule';
+export { fmtPrice, generateOffer, idleWindows, type IdleWindow, type OfferOpts } from './offers';
+export { priceProduct, productValue, rateMultiplier } from './pricing';
+export { generateFlights, planPositioning, relinkPositioning } from './schedule';
 
 function daily(g: GameState) {
   dailyOffers(g);
+  dailyContracts(g);
   extendBaseSchedules(g);
 }
+
+/** flightsRev at the last positioning relink (runtime only). */
+const relinked = new WeakMap<GameState, number>();
 
 export const contractsModule: SimModule = {
   name: 'contracts',
   init(g) {
-    // TODO(B1): seed g.rivals from data/naming RIVALS (names for "a rival took it" and sub-charter later).
     seedClients(g);
+    seedRivals(g);
+    openingOffers(g);
     scheduleNextOffer(g);
+  },
+  load(g) {
+    g.rivals ??= [];
+    if (!g.rivals.length) seedRivals(g);
+  },
+  /** Keeps empty legs linking commitments after any flight change (delays, swaps, cancellations by other modules). */
+  settle(g) {
+    if (relinked.get(g) === flightsRev(g)) return;
+    for (const id of Object.keys(g.fleet)) relinkPositioning(g, id);
+    relinked.set(g, flightsRev(g));
   },
   handlers: {
     day: daily,
+    month: onMonthContracts,
     'offer.spawn': onOfferSpawn,
     'offer.expire': onOfferExpire,
     'offer.reply': onOfferReply,

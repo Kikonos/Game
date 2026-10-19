@@ -1,0 +1,21 @@
+import { it } from 'vitest';
+import { flightsOf } from '../core/entities';
+import { fmtDateTime, fmtTime, DAY } from '../core/time';
+import { acceptOffer, feasibility } from '.';
+import { hamBase, leased, newGame, run } from './testkit';
+it('scratch', () => {
+  const g = newGame();
+  const ac = leased(g);
+  const o = hamBase(g, g.now + 4 * DAY, 40);
+  const r = feasibility(g, o.id, ac.id);
+  console.log(r.level, r.checks.map(c => `${c.level} ${c.label}`).join('\n'));
+  const res = acceptOffer(g, o.id, [ac.id]);
+  console.log(JSON.stringify(res));
+  const fl = flightsOf(g, ac.id);
+  console.log(fl.length, fl.slice(0, 12).map(f => `${f.kind} ${f.no} ${f.from}-${f.to} ${fmtDateTime(f.std)}(${fmtTime(f.std, 'HAM')}L) ${fmtDateTime(f.sta)} ${f.contractId}`).join('\n'));
+  console.log('last', fl.slice(-4).map(f => `${f.kind} ${f.no} ${f.from}-${f.to} ${fmtDateTime(f.std)} ${fmtDateTime(f.sta)}`).join('\n'));
+  run(g, g.now + 45 * DAY);
+  const c = Object.values(g.contracts)[0];
+  console.log(c.status, JSON.stringify(c.use), c.invoiced, c.billedMonths, g.finance.history.map(h => JSON.stringify(h.lines)).join('\n'));
+  console.log(g.messages.slice(0, 15).map(m => m.title).join(' | '));
+});

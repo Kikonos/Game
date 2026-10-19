@@ -293,11 +293,16 @@ export interface ContractOffer {
   estValue: number;
   /** Hidden walk-away multiplier on the asking price (counters above it are refused). */
   floor: number;
-  /** Player counter awaiting the client's reply. */
-  counter?: { price: number; at: Minute; replyAt: Minute };
+  /** Player counter awaiting the client's reply. B1: aircraft chosen for it, and the client's answer once given. */
+  counter?: { price: number; at: Minute; replyAt: Minute; aircraftIds?: string[]; result?: 'accepted' | 'refused' };
   status: OfferStatus;
   /** Map pin airport. */
   pin: string;
+  /** B1: rival that won it (lost offers), and when the offer left the market (missed-list retention). */
+  lostTo?: string;
+  closedAt?: Minute;
+  /** B1: one-line reason it fits the calendar ("fits CS-TQA's free week"), for the offer card. */
+  hook?: string;
 }
 
 export type ContractStatus = 'signed' | 'active' | 'completed' | 'cancelled';
@@ -337,6 +342,17 @@ export interface Contract {
   color: number;
   /** Charter balance invoice date (start − balanceDaysBefore); null once invoiced or for wet/dry. */
   balanceAt: Minute | null;
+  /** B1: remaining charter instalments (balance per trip); the next one is due at balanceAt. */
+  instalments?: { at: Minute; amount: number }[];
+  /** B1: money invoiced so far, charter revenue recognised so far, planned revenue block minutes it accrues over. */
+  invoiced?: number;
+  accrued?: number;
+  planRevMin?: number;
+  /** B1: revenue legs flown and those on time (≤ 15 min late). */
+  legsFlown?: number;
+  legsOnTime?: number;
+  /** B1: when we cancelled it. */
+  cancelledAt?: Minute;
 }
 
 // ======================================================================
@@ -442,6 +458,10 @@ export interface CrewMember {
   discretion: number;
   /** Total flying hours (seniority; command upgrades). */
   totalHours: number;
+  /** B2: unavailable windows (sick, leave, training, joining); pruned once past. */
+  blocks?: { from: Minute; to: Minute; why: 'sick' | 'leave' | 'training' | 'joining' }[];
+  /** B2: calendar year that blockYear counts. */
+  blockYearOf?: number;
 }
 
 export interface CrewSlot {
@@ -472,6 +492,10 @@ export interface Duty {
   ev: number;
   /** Sum of the operated flights' ev when the duty was last synced (cheap change detection). */
   flightsEv: number;
+  /** B2: released and written to the crew logs. */
+  done?: boolean;
+  /** B2: commander's discretion granted on top of maxFdp (minutes). */
+  discretion?: number;
 }
 
 /** A crew complement's trip: duties from base back to base (or a deployment at a client base). */
@@ -488,6 +512,8 @@ export interface Pairing {
   slots: CrewSlot[];
   status: 'planned' | 'active' | 'done' | 'broken';
   legality: Legality;
+  /** B2: deployment tour of crew set `set`, on station for duties reporting in [from, to). */
+  tour?: { set: number; from: Minute; to: Minute };
 }
 
 /**
@@ -505,6 +531,8 @@ export interface Deployment {
   setsOnStation: number;
   /** Tours (Pairing ids), in arrival order. */
   pairingIds: string[];
+  /** B2: first tour change per set (staggered); later changes every rotationWeeks. */
+  anchors?: Minute[];
 }
 
 export interface HireOrder {

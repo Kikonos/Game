@@ -35,10 +35,11 @@ export function makeCrewMember(g: GameState, role: Role, family: RatingFamily, b
     base,
     loc: base,
     status,
-    restUntil: g.now,
+    // Starting crew are rested (their last duty ended well before the game starts).
+    restUntil: g.now - 12 * 60,
     log: [],
     blockYear: 0,
-    lastRecovery: g.now,
+    lastRecovery: g.now - 12 * 60,
     awaySince: null,
     morale: int(g, m0, m1),
     fatigue: 0,
