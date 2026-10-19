@@ -2,7 +2,6 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    # The repository's default branch is the game branch; main is kept for later.
     branches: [main, claude/contrail-airline-game]
   workflow_dispatch:
 
@@ -17,6 +16,9 @@ concurrency:
 
 jobs:
   build:
+    # Pages only accepts deployments from the default branch, so whichever of
+    # the two branches is the default one publishes the site.
+    if: github.event_name == 'workflow_dispatch' || github.ref_name == github.event.repository.default_branch
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
