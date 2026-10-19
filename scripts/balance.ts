@@ -1,16 +1,17 @@
 // Headless balance check: a reasonably skilled bot plays the game for several years and prints a
 // progress report. Run with `npm run balance -- [hub] [years] [difficulty] [seed]`.
 // The bot plans with the same forecasts the player sees: it adds the aircraft type and route the
-// planner rates best, re-prices weekly, re-tunes frequencies, closes losers and renews old aircraft.
+// planner rates best, re-prices weekly, re-tunes frequencies, closes losers, hands back aircraft that
+// no longer pay their way (e.g. after rivals pile in) and renews old aircraft.
 
 import { AIRCRAFT_BY_ID } from '../src/data/aircraft';
 import { AIRPORTS, AIRPORT_BY_CODE } from '../src/data/airports';
 import { REGIONS } from '../src/data/regions';
 import * as A from '../src/engine/actions';
-import { defaultCabin } from '../src/engine/cabin';
+import { cabinSeats, defaultCabin } from '../src/engine/cabin';
 import { baseDemand, competition, optimizePrices, routeSupply, totalOf } from '../src/engine/demand';
 import {
-  MAX_WEEKLY_HOURS, ageYears, creditRating, fixedMonthlyCosts, leaseCapacity, leaseCommitments, monthProfit, monthRevenue, trainingCost,
+  MAX_WEEKLY_HOURS, aircraftMonthlyCost, ageYears, creditRating, fixedMonthlyCosts, leaseCapacity, leaseCommitments, monthProfit, monthRevenue, trainingCost,
 } from '../src/engine/economy';
 import { airlineRank } from '../src/engine/market';
 import { createGame } from '../src/engine/newGame';
@@ -51,13 +52,12 @@ function familyPenalty(s: GameState, typeId: string): number {
   return (s.familiesTrained.includes(t.family) ? 0 : trainingCost(t) / 24) + (s.fleet.length ? 120_000 : 0);
 }
 
-/** Unserved destinations from a hub worth a look, best markets first. */
+/** Unserved destinations from a hub worth a look: the biggest markets, plus less contested ones. */
 function candidateDests(s: GameState, from: string, n: number): string[] {
-  return AIRPORTS.filter((a) => !A.routeCheck(s, from, a.code))
-    .map((a) => ({ code: a.code, score: baseDemand(from, a.code) / (0.5 + competition(s, from, a.code).level) }))
-    .sort((x, y) => y.score - x.score)
-    .slice(0, n)
-    .map((x) => x.code);
+  const all = AIRPORTS.filter((a) => !A.routeCheck(s, from, a.code))
+    .map((a) => ({ code: a.code, m: baseDemand(from, a.code), c: competition(s, from, a.code).level }));
+  const top = (score: (x: (typeof all)[number]) => number, k: number) => [...all].sort((x, y) => score(y) - score(x)).slice(0, k).map((x) => x.code);
+  return [...new Set([...top((x) => x.m / (0.5 + x.c), n), ...top((x) => x.m / (0.2 + x.c) ** 2, n / 2)])];
 }
 
 interface Plan { from: string; to: string; routeId?: string; typeId: string; gain: number }
@@ -74,7 +74,7 @@ function bestPlan(s: GameState): Plan | null {
     if (lf > 0.78) options.push({ from: r.from, to: r.to, routeId: r.id, existing: true });
   }
   for (const h of s.hubs) {
-    for (const to of candidateDests(s, h.code, 8)) {
+    for (const to of candidateDests(s, h.code, 12)) {
       const res = A.openRoute(scratch, h.code, to);
       if (res.ok) options.push({ from: h.code, to, routeId: res.routeId!, existing: false });
     }
@@ -87,7 +87,7 @@ function bestPlan(s: GameState): Plan | null {
       const p = A.previewAircraft(scratch, typeId, o.routeId);
       if (!p) continue;
       const gain = p.gainMonthly - familyPenalty(s, typeId) - (o.existing ? 0 : 40_000);
-      if (gain > 80_000 && (!best || gain > best.gain)) best = { from: o.from, to: o.to, routeId: o.existing ? o.routeId : undefined, typeId, gain };
+      if (gain > 50_000 && (!best || gain > best.gain)) best = { from: o.from, to: o.to, routeId: o.existing ? o.routeId : undefined, typeId, gain };
     }
   }
   return best;
@@ -107,7 +107,8 @@ function buyingPower(s: GameState): number {
   return s.cash - reserve(s) * 1.5 + credit * 0.8;
 }
 
-const canBuy = (s: GameState, typeId: string) => buyingPower(s) > A.newOrderQuote(s, typeId, 1, defaultCabin(AIRCRAFT_BY_ID[typeId])).total;
+/** Buying ties up a lot of capital, so the bot only buys with plenty to spare (a young airline leases). */
+const canBuy = (s: GameState, typeId: string) => buyingPower(s) > 2 * A.newOrderQuote(s, typeId, 1, defaultCabin(AIRCRAFT_BY_ID[typeId])).total;
 
 /** Acquire an aircraft of the type: lease if an offer exists, otherwise buy new (borrowing if needed). */
 function acquire(s: GameState, typeId: string, base: string): Aircraft | null {
@@ -167,11 +168,12 @@ function tuneSchedules(s: GameState) {
   }
 }
 
-/** Close routes that keep losing money before aircraft costs; hand back aircraft left idle. */
+/** Close routes that keep losing money before aircraft costs or have nothing flying; hand back aircraft left idle. */
 function prune(s: GameState) {
   for (const r of [...s.routes]) {
     const h = r.history.slice(-8);
-    if (h.length === 8 && h.reduce((t, w) => t + w.rev - w.cost, 0) < 0) A.closeRoute(s, r.id);
+    const served = s.fleet.some((a) => a.assignments.some((x) => x.routeId === r.id && x.freq > 0));
+    if ((h.length === 8 && h.reduce((t, w) => t + w.rev - w.cost, 0) < 0) || (!served && s.day - r.createdDay > 28)) A.closeRoute(s, r.id);
   }
   for (const ac of [...s.fleet]) {
     const key = `botIdle:${ac.id}`;
@@ -181,6 +183,38 @@ function prune(s: GameState) {
     }
     s.flags[key] = (s.flags[key] ?? 0) + 1;
     if (s.flags[key] >= 3) {
+      A.sellAircraft(s, ac.id);
+      delete s.flags[key];
+    }
+  }
+}
+
+/** What an aircraft actually earned per month over the last eight weeks: its seat share of each route's result. */
+function aircraftEarnings(s: GameState, ac: Aircraft): number {
+  let total = 0;
+  for (const a of ac.assignments) {
+    const r = s.routes.find((x) => x.id === a.routeId);
+    const h = r?.history.slice(-8) ?? [];
+    if (!r || h.length < 8) return Infinity;
+    const sup = routeSupply(s, r, false);
+    const mine = cabinSeats(AIRCRAFT_BY_ID[ac.typeId], ac.cabin);
+    const share = totalOf(sup.seats) > 0 ? (totalOf(mine) * a.freq / 7) / totalOf(sup.seats) : 0;
+    total += h.reduce((t, w) => t + w.rev - w.cost, 0) * share * (30 / 56);
+  }
+  return total;
+}
+
+/** Hand back aircraft whose routes no longer pay for them (two monthly checks in a row). */
+function shed(s: GameState) {
+  for (const ac of [...s.fleet]) {
+    const key = `botWeak:${ac.id}`;
+    if (ac.status !== 'active' || s.day - ac.acquiredDay < 180 || !ac.assignments.length ||
+      aircraftEarnings(s, ac) > 0.6 * aircraftMonthlyCost(s, ac)) {
+      delete s.flags[key];
+      continue;
+    }
+    s.flags[key] = (s.flags[key] ?? 0) + 1;
+    if (s.flags[key] >= 2) {
       A.sellAircraft(s, ac.id);
       delete s.flags[key];
     }
@@ -225,6 +259,7 @@ function botWeek(s: GameState) {
   if (week % 4 === 0) {
     prune(s);
     tuneSchedules(s);
+    shed(s);
     renew(s);
     expand(s);
   }

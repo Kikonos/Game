@@ -9,7 +9,7 @@ import { usedLeaseRate, ageYears } from './economy';
 import * as R from './rng';
 import { alert, destinationsServed, isAirportUnlocked, isHub, message, newId, spend } from './state';
 import type { Difficulty, GameState, Modifier, ModScope, PendingDecision, Route } from './types';
-import { dateToDay, dayToDate, formatDate, pairKey, yearOf } from './util';
+import { clamp, dateToDay, dayToDate, formatDate, pairKey, yearOf } from './util';
 import { distance } from './geo';
 
 // ---------- scheduled real-world events ----------
@@ -473,8 +473,8 @@ export function resolveDecision(state: GameState, decisionId: string, optionId: 
 const RIVAL_AGGRESSION: Record<Difficulty, number> = { easy: 0.6, normal: 1, hard: 1.35 };
 
 /** Margin a route may earn after its share of aircraft costs (network overheads still to pay) before rivals take an interest. */
-const NORMAL_MARGIN = 0.08;
-/** Days a route is left alone after rivals have answered it. */
+const NORMAL_MARGIN = 0.12;
+/** Days a route is left alone after rivals have answered it (less for very lucrative routes). */
 const RIVAL_COOLDOWN = 150;
 
 /**
@@ -494,31 +494,33 @@ export function routeHeat(state: GameState, r: Route): number {
 
 /**
  * Monthly: rivals study the player's most lucrative routes and answer with extra capacity or a fare
- * war, so above-normal profits don't last unless the player keeps improving. Each route sees at most
- * one move every five months.
+ * war, harder and sooner the more a route earns, so above-normal profits don't last unless the
+ * player keeps improving.
  */
 export function rivalReactions(state: GameState) {
   const hot = state.routes
     .map((r) => ({ r, heat: routeHeat(state, r), c: competition(state, r.from, r.to) }))
-    .filter((x) => x.heat > 0 && (x.c.lastMove === undefined || state.day - x.c.lastMove >= RIVAL_COOLDOWN))
+    .filter((x) => x.heat > 0 && (x.c.lastMove === undefined || state.day - x.c.lastMove >= RIVAL_COOLDOWN / Math.min(2, 1 + x.heat / 2)))
     .sort((a, b) => b.heat - a.heat);
   const aggression = RIVAL_AGGRESSION[state.airline.difficulty] ?? 1;
-  let moves = 1 + Math.floor(state.routes.length / 10);
+  let moves = 1 + Math.floor(state.routes.length / 5);
   for (const { r, heat, c } of hot) {
     if (moves <= 0) break;
-    if (!R.chance(state, Math.min(0.6, heat) * aggression)) continue;
+    if (!R.chance(state, Math.min(0.8, 0.1 + heat) * aggression)) continue;
     moves--;
+    // Mildly lucrative routes get a measured answer, bonanzas a heavy one.
+    const strength = clamp(0.5 + heat, 0.5, 2);
     const key = pairKey(r.from, r.to);
     const name = c.name ?? airlineFor(state, r.to);
     let title: string;
     let body: string;
     if (R.chance(state, 0.6)) {
-      const add = Math.max(0.15, baseCompetition(r.from, r.to) * R.range(state, 0.2, 0.4));
+      const add = Math.max(0.15, baseCompetition(r.from, r.to) * R.range(state, 0.2, 0.4)) * strength;
       state.competition[key] = { ...c, level: c.level + add, name, lastMove: state.day };
       title = `${name} adds flights on ${r.from}–${r.to}`;
       body = `Your results on ${r.from}–${r.to} have been noticed: ${name} is adding capacity. Expect a smaller share — answer with frequency, a better product or sharper fares.`;
     } else {
-      const idx = Math.min(c.priceIdx, R.range(state, 0.76, 0.88));
+      const idx = Math.min(c.priceIdx, Math.max(MATCH_FLOOR, 1 - R.range(state, 0.12, 0.24) * Math.min(1.5, strength)));
       state.competition[key] = { ...c, priceIdx: idx, name, lastMove: state.day };
       title = `Fare war on ${r.from}–${r.to}`;
       body = `${name} undercuts market fares by ${Math.round((1 - idx) * 100)}% on ${r.from}–${r.to} to win back passengers. It will fade over a few months — match it, or hold on with quality and frequency.`;
@@ -548,7 +550,7 @@ export function competitionDrift(state: GameState) {
     const [a, b] = key.split('-');
     const base = baseCompetition(a, b);
     const target = matched.get(key) ?? 1;
-    c.level += (base - c.level) * 0.04;
+    c.level += (base - c.level) * 0.025;
     c.priceIdx += (target - c.priceIdx) * (target < c.priceIdx ? 0.25 : 0.15);
     if (!matched.has(key) && Math.abs(c.level - base) < 0.02 && Math.abs(1 - c.priceIdx) < 0.02) delete state.competition[key];
   }

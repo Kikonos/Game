@@ -279,7 +279,7 @@ const FREQ_EXP = 1;
 /** Travellers who stay home, drive or take the train whatever is on offer. */
 export const MARKET_FRICTION = 0.1;
 /** How much a flight's size counts next to its frequency: a 70-seater draws less than a 180-seater. */
-const SIZE_EXP = 0.5;
+const SIZE_EXP = 0.8;
 
 /** Frequency appeal relative to market depth, with diminishing returns for piling on flights. */
 export function frequencyFactor(flightsPerDay: number, depth: number): number {

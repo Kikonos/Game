@@ -146,7 +146,7 @@ export function leaseQuote(state: GameState, offerId: string) {
   const o = state.market.leases.find((x) => x.id === offerId);
   if (!o) return null;
   const t = AIRCRAFT_BY_ID[o.typeId];
-  return { deposit: o.monthly * 2, training: requireTraining(state, t), offer: o, type: t };
+  return { deposit: o.monthly * 3, training: requireTraining(state, t), offer: o, type: t };
 }
 
 export function leaseAircraft(state: GameState, offerId: string, hub: string, cabin?: CabinConfig): Result {

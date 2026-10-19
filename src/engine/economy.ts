@@ -15,7 +15,7 @@ export const BASE_FUEL_PRICE = 0.78; // USD per kg
 // ---------- fares ----------
 
 export function refFare(dist: number, cls: CabinClass): number {
-  const y = 45 + 0.15 * Math.pow(dist, 0.9);
+  const y = 48 + 0.15 * Math.pow(dist, 0.9);
   const dl = Math.min(1, dist / 6000);
   switch (cls) {
     case 'Y': return y;
@@ -202,7 +202,7 @@ export function legCost(state: GameState, ac: Aircraft, dist: number, arrival: s
 }
 
 /** Sales & distribution (GDS, card fees, commissions, call centres) as a share of ticket revenue. */
-export const DISTRIBUTION_RATE = 0.055;
+export const DISTRIBUTION_RATE = 0.045;
 
 /** Ground handling per turnaround: ramp, check-in, cleaning, pushback. */
 export function handlingFee(state: GameState, seats: Seats, code: string): number {
@@ -328,7 +328,7 @@ export function interestRate(rating: Rating): number {
 }
 
 export function creditLimit(state: GameState): number {
-  const base = 15_000_000 + ownedFleetValue(state) * 0.65 + Math.max(0, trailingProfit(state)) * 1.5;
+  const base = 15_000_000 + ownedFleetValue(state) * 0.5 + Math.max(0, trailingProfit(state));
   const r = creditRating(state);
   const factor = r === 'CCC' ? 0.3 : r === 'B' ? 0.6 : 1;
   return base * factor;
@@ -347,7 +347,7 @@ export function leaseCommitments(state: GameState): number {
 export function leaseCapacity(state: GameState): number {
   const h = state.finance.history.slice(-3);
   const rev = h.length ? h.reduce((s, m) => s + monthRevenue(m), 0) / h.length : 0;
-  return 1_200_000 + 0.02 * Math.max(0, equity(state)) + 0.1 * rev;
+  return 1_000_000 + 0.03 * Math.max(0, equity(state)) + 0.04 * rev;
 }
 
 export function loanPayment(principal: number, annualRate: number, months: number): number {

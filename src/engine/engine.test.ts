@@ -235,11 +235,18 @@ describe('simulation', () => {
     const hub = g.hubs[0].code;
     const dests = AIRPORTS.filter((a) => a.region === AIRPORT_BY_CODE[hub].region && a.code !== hub && distance(hub, a.code) > 200)
       .sort((a, b) => baseDemand(hub, b.code) - baseDemand(hub, a.code)).slice(0, 4);
+    // Sensible starter types: modern narrowbodies first, never a widebody on a domestic hop.
+    const pref = ['a220_300', 'a320neo', 'b38m', 'a220_100', 'e195e2', 'atr72'];
     for (const d of dests) {
-      const offer = g.market.leases.find((o) => AIRCRAFT_BY_ID[o.typeId].rangeKm > distance(hub, d.code) && !A.canFly(AIRCRAFT_BY_ID[o.typeId], hub, d.code));
+      const offer = g.market.leases
+        .filter((o) => pref.includes(o.typeId) && !A.canFly(AIRCRAFT_BY_ID[o.typeId], hub, d.code))
+        .sort((x, y) => pref.indexOf(x.typeId) - pref.indexOf(y.typeId))[0];
       if (!offer || !A.leaseAircraft(g, offer.id, hub).ok) continue;
       const r = A.openRoute(g, hub, d.code);
-      if (r.ok) A.assignAircraft(g, g.fleet[g.fleet.length - 1].id, r.routeId!, A.suggestFreq(g, g.fleet[g.fleet.length - 1], r.routeId!));
+      if (!r.ok) continue;
+      A.assignAircraft(g, g.fleet[g.fleet.length - 1].id, r.routeId!, A.suggestFreq(g, g.fleet[g.fleet.length - 1], r.routeId!));
+      const route = g.routes.find((x) => x.id === r.routeId)!;
+      route.prices = optimizePrices(g, route, routeSupply(g, route, false));
     }
     for (let i = 0; i < days; i++) {
       advanceDay(g);

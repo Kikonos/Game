@@ -29,6 +29,18 @@ first turboprop, and grow region by region, then continent by continent, into a 
 At 2× speed a game month takes about a minute, so a 1–2 hour session covers roughly 5–8 years:
 enough to go from a couple of turboprops to a continental carrier with long-haul ambitions.
 
+Fast-forward never changes the outcome (every day simulates the same at any speed), but autopilot
+does not pay. Each January wages, airport charges and maintenance rates rise while market fares only
+partly follow, and fares you set by hand stay put until you re-price; ageing aircraft cost more to keep
+flying; and rivals answer routes that earn well above normal with extra flights or fare wars. An
+airline left alone drifts towards break-even within a few years. Experience comes from growth — new
+destinations, regions and aircraft, monthly passenger and profit records, goals — not from flying the
+same schedule. As a guide, a careful player runs about 10–15 aircraft after the first year and earns the
+long-haul certificate (level 5) in years 3–4; a cautious start with two narrowbodies on good routes makes
+a single-digit margin. With **Slow down for alerts** (Settings, on by default) the clock drops back to 1×
+when a rival moves in on your route, cash runs low, an aircraft is delivered or left idle, a route keeps
+losing money or a big event starts on your network.
+
 ## Development
 
 ```bash
@@ -38,6 +50,7 @@ npm run build      # typecheck + production build (dist/, with service worker)
 npm run preview    # serve the production build
 npm test           # engine unit tests (vitest)
 npm run balance -- MAD 8 normal   # headless bot plays 8 years from Madrid and prints a pacing report
+npx tsx scripts/scenarios.ts MAD 7 normal   # beginner, naive-mistake and idle-airline balance scenarios
 ```
 
 ### Project layout

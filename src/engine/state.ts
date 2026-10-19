@@ -58,7 +58,7 @@ export function message(
 }
 
 /** Minimum days between two alerts of a kind, so fast-forwarding isn't interrupted every few seconds. */
-const ALERT_COOLDOWN: Record<AlertKind, number> = { competition: 45, cash: 30, fleet: 30, route: 45, event: 30 };
+const ALERT_COOLDOWN: Record<AlertKind, number> = { competition: 60, cash: 45, fleet: 60, route: 60, event: 30 };
 
 /** Marks a message as urgent for the UI (e.g. drop to 1× speed). Same-day alerts merge; each kind is rate-limited. */
 export function alert(state: GameState, kind: AlertKind, m: Message) {
