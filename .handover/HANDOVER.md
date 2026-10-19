@@ -19,7 +19,7 @@ ACMI work happens in worktree /home/user/wt/acmi on branch `acmi` (pushed to ori
 Phases:
 - P0 Research workflow (3 researchers + synthesis) → docs/acmi/RESEARCH.md  [DONE 16:05Z, wf_b0382533-2df]
 - P1 Game design + architecture doc → docs/acmi/DESIGN.md + BUILD-PLAN.md + compiling skeleton  [RUNNING: workflow acmi-design-wf_9fc3165a-62a.js run wf_9fc3165a-62a; resume with resumeFromRunId if it died]
-- P2 build workflow (next): 5 parallel builders per BUILD-PLAN.md (B1 contracts, B2 crew/HR, B3 ops/maintenance/finance/events, B4 map live view, B5 screens) → integration agent → adversarial QA (fun/realism, bugs, iPad) → fixes → release v0.5 (copy current play/ to classic/ first so the old game stays at /Game/classic/).
+- P2 build workflow (next; script ready at /home/user/wt/notes/.handover/acmi-build.js — launch with Workflow({scriptPath}) once P1 revise is done; then release v0.5 manually per RELEASE PROCESS, copying the current play/ to classic/ first): 5 parallel builders per BUILD-PLAN.md (B1 contracts, B2 crew/HR, B3 ops/maintenance/finance/events, B4 map live view, B5 screens) → integration agent → adversarial QA (fun/realism, bugs, iPad) → fixes → release v0.5 (copy current play/ to classic/ first so the old game stays at /Game/classic/).
 - P2 v0.5 "ACMI foundation": new engine (contracts, flights with real times, aircraft, crew basics + FTL, maintenance, finance), map-centric UI, per-aircraft schedule. Keep the old game at /Game/classic/.
 - P3 v0.6 crew/HR depth (rostering, training, morale, hiring lead times), subleasing / sub-charter
 - P4 v0.7 market scarcity, cabin configs per contract, AOC approvals (ETOPS/long-haul/ULR/military), events/crises, goals
