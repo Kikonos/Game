@@ -18,7 +18,8 @@ Requirements (from the user):
 ACMI work happens in worktree /home/user/wt/acmi on branch `acmi` (pushed to origin). Docs: docs/acmi/RESEARCH.md (research, DONE), docs/acmi/BRIEF.md (creative brief, plan of record), docs/acmi/DESIGN.md (technical design, next).
 Phases:
 - P0 Research workflow (3 researchers + synthesis) → docs/acmi/RESEARCH.md  [DONE 16:05Z, wf_b0382533-2df]
-- P1 Game design + architecture doc → docs/acmi/DESIGN.md (data model, time model, UI map, MVP scope, release slices)
+- P1 Game design + architecture doc → docs/acmi/DESIGN.md + BUILD-PLAN.md + compiling skeleton  [RUNNING: workflow acmi-design-wf_9fc3165a-62a.js run wf_9fc3165a-62a; resume with resumeFromRunId if it died]
+- P2 build workflow (next): 5 parallel builders per BUILD-PLAN.md (B1 contracts, B2 crew/HR, B3 ops/maintenance/finance/events, B4 map live view, B5 screens) → integration agent → adversarial QA (fun/realism, bugs, iPad) → fixes → release v0.5 (copy current play/ to classic/ first so the old game stays at /Game/classic/).
 - P2 v0.5 "ACMI foundation": new engine (contracts, flights with real times, aircraft, crew basics + FTL, maintenance, finance), map-centric UI, per-aircraft schedule. Keep the old game at /Game/classic/.
 - P3 v0.6 crew/HR depth (rostering, training, morale, hiring lead times), subleasing / sub-charter
 - P4 v0.7 market scarcity, cabin configs per contract, AOC approvals (ETOPS/long-haul/ULR/military), events/crises, goals
@@ -94,6 +95,7 @@ If an agent fails on a limit, its file edits persist (checkpoint them). Resume t
 6. Final message to the user: what changed; the iPad home-screen steps (default branch → main, Pages source → GitHub Actions, https://kikonos.github.io/Game/); any limitations.
 
 ## Log
+- 16:15Z P1 design workflow launched (wf_9fc3165a-62a).
 - 16:10Z P0 research done; BRIEF.md written; acmi worktree/branch created. Next: P1 design+skeleton workflow.
 - 15:24Z ACMI pivot requested by user. Trigger prompt updated to follow this section. Starting P0 research.
 - 11:00Z user: iPad page was blank, landscape only, ship as updates. Fixed via play/ (v0.1), released v0.2. Subagents limited until 15:20Z; workflows to resume then (ipad prompts now landscape-only).
