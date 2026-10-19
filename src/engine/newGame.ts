@@ -74,9 +74,11 @@ export function createGame(o: NewGameOptions): GameState {
     loyalty: { active: false, members: 0, since: 0 },
     campaigns: [],
     hedge: null,
+    inflation: { cost: 1, fare: 1 },
+    alerts: [],
     stats: {
       totalPax: 0, totalFlights: 0, weekPax: 0, weeklyPax: [], weeklyProfit: [], weekProfit: 0, yearPax: 0,
-      lastYearPax: 0, destinationsEver: [], reliability: 0.98, avgQuality: 50, peakFleet: 0,
+      lastYearPax: 0, destinationsEver: [], reliability: 0.98, avgQuality: 50, peakFleet: 0, bestMonthPax: 0, bestMonthProfit: 0,
     },
     completedGoals: [],
     messages: [],

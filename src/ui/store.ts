@@ -23,12 +23,14 @@ export interface Settings {
   volume: number;
   autosave: boolean;
   pauseOnEvents: boolean;
+  /** Drop back to 1× when something important happens while fast-forwarding. */
+  slowOnAlerts: boolean;
   mapAnimations: boolean;
   toasts: boolean;
 }
 
 const DEFAULT_SETTINGS: Settings = {
-  units: 'km', sound: true, volume: 0.5, autosave: true, pauseOnEvents: true, mapAnimations: true, toasts: true,
+  units: 'km', sound: true, volume: 0.5, autosave: true, pauseOnEvents: true, slowOnAlerts: true, mapAnimations: true, toasts: true,
 };
 
 export interface Nav {
@@ -233,6 +235,11 @@ class GameStore {
       this.stepDay();
       advanced++;
       if (this.blocked) break;
+      if (SPEED_MS[this.speed] !== msPerDay) {
+        // Slowed down by an alert: don't run the rest of this frame at the old speed.
+        this.acc = 0;
+        break;
+      }
     }
     if (this.acc > msPerDay * 4) this.acc = 0;
     this.dayFrac = Math.min(0.999, this.acc / msPerDay);
@@ -262,11 +269,33 @@ class GameStore {
       this.scheduleAutosave();
       sound.play('cash');
     }
-    this.surfaceMessages();
+    const alerted = this.handleAlerts(g);
+    this.surfaceMessages(alerted);
     if (g.decisions.length && this.settings.pauseOnEvents) sound.play('alert');
   }
 
-  private surfaceMessages() {
+  /**
+   * The engine flags what a player shouldn't miss (already merged and rate-limited). Toast it and,
+   * when fast-forwarding, drop back to 1× so there is time to react. Returns the messages toasted.
+   */
+  private handleAlerts(g: GameState): Set<string> {
+    const shown = new Set<string>();
+    if (!g.alerts.length) return shown;
+    const slow = this.settings.slowOnAlerts && this.speed > 1 && !this.paused;
+    if (slow) this.speed = 1;
+    for (const a of g.alerts) {
+      const m = g.messages.find((x) => x.id === a.msgId);
+      if (!this.settings.toasts && !slow) continue;
+      shown.add(a.msgId);
+      const kind = m?.kind === 'bad' ? 'bad' : m?.kind === 'good' ? 'good' : m?.kind === 'warn' ? 'warn' : 'info';
+      const body = a.body.length > 140 ? a.body.slice(0, 137) + '…' : a.body;
+      this.toast(kind, a.count > 1 ? `${a.title} (+${a.count - 1} more)` : a.title, slow ? `Slowed to 1×. ${body}` : body);
+    }
+    if (slow) sound.play('alert');
+    return shown;
+  }
+
+  private surfaceMessages(skip: Set<string> = new Set()) {
     const g = this.game!;
     const fresh: Message[] = [];
     for (const m of g.messages) {
@@ -276,6 +305,7 @@ class GameStore {
     this.lastMsgId = g.messages[0]?.id ?? this.lastMsgId;
     if (!this.settings.toasts) return;
     for (const m of fresh.reverse()) {
+      if (skip.has(m.id)) continue;
       const important = m.kind === 'event' || m.kind === 'bad' || m.category === 'goal' || (m.category === 'fleet' && m.title.startsWith('Delivered') && g.fleet.length < 20);
       if (!important) continue;
       this.toast(m.kind === 'event' ? 'info' : m.kind === 'good' ? 'good' : m.kind === 'bad' ? 'bad' : m.kind === 'warn' ? 'warn' : 'info', m.title, m.body.length > 140 ? m.body.slice(0, 137) + '…' : m.body);

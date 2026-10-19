@@ -6,19 +6,47 @@ import { REGIONS } from '../data/regions';
 import { SEAT_PRODUCTS } from '../data/seats';
 import * as A from './actions';
 import { cabinPresets, defaultCabin, maxRowsFor, validateCabin } from './cabin';
-import { baseDemand, marketDemand, routeSupply, totalOf } from './demand';
-import { equity, monthProfit, refFare } from './economy';
-import { scheduledFor } from './events';
+import { baseDemand, competition, forecastRoute, marketDemand, optimizePrices, routeSupply, totalOf } from './demand';
+import { equity, fixedMonthlyCosts, marketFare, monthProfit, newLeaseRate, refFare } from './economy';
+import { rivalReactions, scheduledFor } from './events';
 import { distance } from './geo';
 import { createGame } from './newGame';
-import { regionUnlock } from './progression';
+import { GOAL_BY_ID, regionUnlock } from './progression';
 import { deserialize, serialize } from './save';
 import { advanceDay } from './sim';
-import type { GameState } from './types';
+import type { GameState, Route } from './types';
 import { dayToDate, yearOf } from './util';
 
 const newGame = (hub = 'MAD', seed = 1) =>
   createGame({ name: 'Test Air', code: 'TA', ceo: 'Tester', hub, difficulty: 'normal', seed, livery: { primary: '#123456', secondary: '#ffffff', tail: 'solid' } });
+
+/** Lease a brand-new aircraft of any type at the hub, delivered tomorrow (tests only). */
+function leaseType(g: GameState, typeId: string, hub = g.hubs[0].code) {
+  const t = AIRCRAFT_BY_ID[typeId];
+  g.market.leases.push({
+    id: `test-${g.fleet.length}-${typeId}`, typeId, isNew: true, builtDay: g.day, condition: 100, monthly: newLeaseRate(t),
+    termMonths: 96, deliveryDays: 1, qty: 1, lessor: 'Test Leasing', expiresDay: g.day + 30,
+  });
+  const res = A.leaseAircraft(g, g.market.leases[g.market.leases.length - 1].id, hub, defaultCabin(t));
+  if (!res.ok) throw new Error(res.error);
+  return g.fleet[g.fleet.length - 1];
+}
+
+function openRoute(g: GameState, to: string): Route {
+  const res = A.openRoute(g, g.hubs[0].code, to);
+  if (!res.ok) throw new Error(res.error);
+  return g.routes.find((r) => r.id === res.routeId)!;
+}
+
+function runMonths(g: GameState, months: number, each?: () => void) {
+  const end = g.finance.history.length + months;
+  while (g.finance.history.length < end && !g.gameOver) {
+    advanceDay(g);
+    for (const d of [...g.decisions]) A.resolveDecision(g, d.id, d.options[d.options.length - 1].id);
+    g.yearReview = null;
+    each?.();
+  }
+}
 
 function findNaN(obj: unknown, path = 'state'): string | null {
   if (typeof obj === 'number') return Number.isFinite(obj) ? null : path;
@@ -245,6 +273,142 @@ describe('simulation', () => {
   });
 });
 
+describe('economy & pacing', () => {
+  it('inflates costs every January while market fares follow only partly', () => {
+    const g = newGame();
+    const r = openRoute(g, 'BCN');
+    const fare = r.prices.Y;
+    const market = marketFare(g, r.dist, 'Y');
+    while (yearOf(g.day) === 2026) advanceDay(g);
+    expect(g.inflation.cost).toBeGreaterThan(1.015);
+    expect(g.inflation.fare).toBeGreaterThan(1);
+    expect(g.inflation.fare).toBeLessThan(g.inflation.cost);
+    expect(r.prices.Y).toBe(fare); // fares set by hand stay put until re-priced
+    expect(marketFare(g, r.dist, 'Y')).toBeGreaterThan(market);
+  });
+
+  it('forecasts classic beginner mistakes as losses', () => {
+    const g = newGame();
+    g.level = 4;
+    g.cash = 300_000_000;
+    // A widebody shuttling on a short route.
+    const short = openRoute(g, 'BCN');
+    const wide = leaseType(g, 'b789');
+    expect(A.assignAircraft(g, wide.id, short.id, A.maxFreqFor(g, wide, short.id)).ok).toBe(true);
+    expect(forecastRoute(g, short, routeSupply(g, short, false)).profitPerDay).toBeLessThan(0);
+    // Fares 40% above market on a sensibly flown narrowbody route.
+    const r = openRoute(g, 'LIS');
+    const nb = leaseType(g, 'a320neo');
+    A.assignAircraft(g, nb.id, r.id, A.suggestFreq(g, nb, r.id));
+    const fair = forecastRoute(g, r, routeSupply(g, r, false));
+    for (const c of ['F', 'J', 'W', 'Y'] as const) r.prices[c] = Math.round(r.prices[c] * 1.4);
+    const greedy = forecastRoute(g, r, routeSupply(g, r, false));
+    expect(greedy.profitPerDay).toBeLessThan(0);
+    expect(greedy.profitPerDay).toBeLessThan(fair.profitPerDay);
+    expect(greedy.loadFactor).toBeLessThan(fair.loadFactor);
+  });
+
+  it('previews an aircraft on a route without touching the game', () => {
+    const g = newGame();
+    const r = openRoute(g, 'BCN');
+    const before = JSON.stringify(g);
+    const p = A.previewAircraft(g, 'a320neo', r.id);
+    expect(p).not.toBeNull();
+    expect(p!.freq).toBeGreaterThan(0);
+    expect(p!.forecast.loadFactor).toBeGreaterThan(0.3);
+    expect(Number.isFinite(p!.gainMonthly)).toBe(true);
+    expect(JSON.stringify(g)).toBe(before);
+    expect(A.previewAircraft(g, 'atr42', openRoute(g, 'TFS').id)).toBeNull(); // out of range
+  });
+
+  it('passive play does not snowball', () => {
+    const g = newGame('MAD', 4);
+    for (const [to, type] of [['BCN', 'a220_100'], ['PMI', 'a220_100'], ['LIS', 'a220_100']] as const) {
+      const r = openRoute(g, to);
+      const ac = leaseType(g, type);
+      A.assignAircraft(g, ac.id, r.id, A.suggestFreq(g, ac, r.id));
+      r.prices = optimizePrices(g, r, routeSupply(g, r, false));
+    }
+    const yearResult = () => {
+      const xp0 = g.xp;
+      const goals0 = g.completedGoals.length;
+      let profit = 0;
+      runMonths(g, 12);
+      for (const m of g.finance.history.slice(-12)) profit += monthProfit(m) - m.rev.other + m.exp.other + m.exp.training;
+      const goalXp = g.completedGoals.slice(goals0).reduce((s, id) => s + GOAL_BY_ID[id].reward.xp, 0);
+      return { profit, xp: g.xp - xp0 - goalXp };
+    };
+    const y1 = yearResult();
+    const y2 = yearResult();
+    const y3 = yearResult();
+    expect(g.gameOver).toBeNull();
+    // Costs inflate and rivals react, so an airline left alone earns less every year…
+    expect(y2.profit).toBeLessThan(y1.profit);
+    expect(y3.profit).toBeLessThan(y1.profit * 0.8);
+    // …and flying the same schedule earns almost no experience.
+    expect(y2.xp).toBeLessThan(800);
+    expect(y3.xp).toBeLessThan(800);
+  });
+});
+
+describe('alerts', () => {
+  it('are cleared at the start of every day', () => {
+    const g = newGame();
+    g.alerts.push({ kind: 'cash', title: 'x', body: '', msgId: 'm', count: 1 });
+    advanceDay(g);
+    expect(g.alerts.every((a) => a.title !== 'x')).toBe(true);
+  });
+
+  it('flag low cash once and re-arm after recovery', () => {
+    const g = newGame();
+    leaseType(g, 'a320neo');
+    g.cash = fixedMonthlyCosts(g) * 0.5;
+    advanceDay(g);
+    expect(g.alerts.map((a) => a.kind)).toContain('cash');
+    advanceDay(g);
+    expect(g.alerts.some((a) => a.kind === 'cash')).toBe(false);
+  });
+
+  it('warn when rivals attack a lucrative route, and are rate-limited', () => {
+    const g = newGame();
+    const r = openRoute(g, 'BCN');
+    const ac = leaseType(g, 'a320neo');
+    A.assignAircraft(g, ac.id, r.id, 21);
+    // Eight weeks of fat margins and full aircraft.
+    for (let w = 0; w < 8; w++) r.history.push({ week: w, pax: 4900, seats: 5000, rev: 2_000_000, cost: 600_000, connPax: 0 });
+    const level = competition(g, r.from, r.to).level;
+    let raised = 0;
+    for (let i = 0; i < 12 && raised === 0; i++) {
+      g.alerts = [];
+      rivalReactions(g);
+      raised = g.alerts.filter((a) => a.kind === 'competition').length;
+    }
+    expect(raised).toBe(1);
+    const c = competition(g, r.from, r.to);
+    expect(c.level > level || c.priceIdx < 1).toBe(true);
+    // A second strike right away is suppressed: same route is on cooldown, and the alert kind too.
+    g.alerts = [];
+    for (let i = 0; i < 5; i++) rivalReactions(g);
+    expect(g.alerts.length).toBe(0);
+  });
+
+  it('never change with game speed: the same days give the same alerts', () => {
+    const a = newGame('JFK', 3);
+    const b = newGame('JFK', 3);
+    const log = (g: GameState) => {
+      const out: string[] = [];
+      const r = openRoute(g, 'BOS');
+      A.assignAircraft(g, leaseType(g, 'a320neo').id, r.id, 20);
+      for (let i = 0; i < 200; i++) {
+        advanceDay(g);
+        for (const x of g.alerts) out.push(`${g.day}:${x.kind}:${x.title}`);
+      }
+      return out;
+    };
+    expect(log(a)).toEqual(log(b));
+  });
+});
+
 describe('save games', () => {
   it('round-trips through serialisation and keeps simulating identically', () => {
     const g = newGame('DXB', 5);
@@ -258,6 +422,24 @@ describe('save games', () => {
       advanceDay(copy);
     }
     expect(copy.cash).toBeCloseTo(g.cash, 6);
+  });
+
+  it('loads saves from before the rebalance', () => {
+    const g = newGame('DXB', 5);
+    leaseType(g, 'a320neo');
+    for (let i = 0; i < 40; i++) advanceDay(g);
+    const old = JSON.parse(serialize(g));
+    delete old.state.inflation;
+    delete old.state.alerts;
+    delete old.state.stats.bestMonthPax;
+    delete old.state.stats.bestMonthProfit;
+    const copy = deserialize(JSON.stringify(old));
+    expect(copy.inflation.cost).toBe(1);
+    expect(copy.inflation.relief).toBeGreaterThan(0); // a fading discount while the airline adapts
+    expect(copy.alerts).toEqual([]);
+    for (let i = 0; i < 400; i++) advanceDay(copy);
+    expect(findNaN(copy)).toBeNull();
+    expect(copy.inflation.relief).toBe(0);
   });
 
   it('rejects foreign files', () => {

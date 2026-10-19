@@ -7,7 +7,10 @@ import { COUNTRIES } from '../data/countries';
 import { REGION_BY_ID, type ContinentId } from '../data/regions';
 import { CLASSES, type CabinClass, seatProduct } from '../data/seats';
 import { type Seats, cabinSeats, zeroSeats } from './cabin';
-import { ageYears, refFare } from './economy';
+import {
+  DISTRIBUTION_RATE, aircraftMonthlyCost, ageYears, ancillaryPerPax, cargoRevenuePerLeg, landingFee, legCost, marketFare,
+  paxFee, roundTripHours, serviceCostPerPax,
+} from './economy';
 import { distance } from './geo';
 import { modifierFor } from './modifiers';
 import type { Aircraft, Competition, GameState, Route } from './types';
@@ -147,8 +150,12 @@ export function baseCompetition(a: string, b: string): number {
   const A = AIRPORT_BY_CODE[a];
   const B = AIRPORT_BY_CODE[b];
   const d = distance(a, b);
-  const noise = 0.75 + 0.5 * hashUnit(pairKey(a, b));
   const longHaul = d > 4000 ? 0.85 : 1;
+  if (process.env.COMPV) {
+    const noise = 0.85 + 0.3 * hashUnit(pairKey(a, b));
+    return (Number(process.env.CA ?? 0.29) + Number(process.env.CB ?? 0.12) * (A.size + B.size - 2)) * noise * longHaul;
+  }
+  const noise = 0.75 + 0.5 * hashUnit(pairKey(a, b));
   return (0.15 + 0.17 * (A.size + B.size - 2)) * noise * longHaul;
 }
 
@@ -168,6 +175,8 @@ export interface RouteSupply {
   /** Seats per day per direction by class. */
   seats: Seats;
   flightsPerDay: number;
+  /** Flights per day weighted by size against a typical rival flight (see rivalLoad). */
+  weightedFlights: number;
   quality: Record<CabinClass, number>;
   aircraft: { ac: Aircraft; freq: number }[];
 }
@@ -218,6 +227,8 @@ export function routeSupply(state: GameState, route: Route, onlyFlying = true, i
   const seats = zeroSeats();
   const qualSum = zeroSeats();
   let flightsPerDay = 0;
+  let weightedFlights = 0;
+  const typical = rivalLoad(route.dist);
   const aircraft: { ac: Aircraft; freq: number }[] = [];
   const entries = index ? index.get(route.id) ?? [] : state.fleet.flatMap((ac) => ac.assignments.filter((x) => x.routeId === route.id && x.freq > 0).map((x) => ({ ac, freq: x.freq })));
   for (const { ac, freq } of entries) {
@@ -226,6 +237,7 @@ export function routeSupply(state: GameState, route: Route, onlyFlying = true, i
     const s = cabinSeats(t, ac.cabin);
     const perDay = freq / 7;
     flightsPerDay += perDay;
+    weightedFlights += perDay * Math.pow(totalOf(s) / typical, SIZE_EXP);
     aircraft.push({ ac, freq });
     const aq = aircraftQuality(state, ac);
     for (const c of CLASSES) {
@@ -238,7 +250,7 @@ export function routeSupply(state: GameState, route: Route, onlyFlying = true, i
   }
   const quality = { F: 0, J: 0, W: 0, Y: 0 };
   for (const c of CLASSES) quality[c] = seats[c] > 0 ? qualSum[c] / seats[c] : 0;
-  return { seats, flightsPerDay, quality, aircraft };
+  return { seats, flightsPerDay, weightedFlights, quality, aircraft };
 }
 
 // ---------- market share ----------
@@ -254,9 +266,26 @@ export function priceFactor(price: number, ref: number, cls: CabinClass): number
   return r <= 1 ? Math.min(3, Math.pow(r, -ELASTICITY_LOW[cls])) : Math.exp(-ELASTICITY_HIGH[cls] * (r - 1));
 }
 
-export function frequencyFactor(flightsPerDay: number, dist: number): number {
-  const k = dist < 1200 ? 1.6 : dist < 3500 ? 1.1 : 0.7;
-  return 1 - Math.exp(-flightsPerDay / k);
+/** Passengers a typical rival flight carries (bigger aircraft on longer routes). */
+export function rivalLoad(dist: number): number {
+  return 165 + 22 * Math.min(9, dist / 1000);
+}
+
+/**
+ * How many typical flights a day it takes to carry the whole market one way. Rivals fly
+ * roughly `level × depth` of them, so a few flights win a thin market but are a sliver of a trunk route.
+ */
+export function marketDepth(marketPax: number, dist: number): number {
+  return Math.max(0.2, marketPax / rivalLoad(dist));
+}
+
+const FREQ_EXP = Number(process.env.FEXP ?? 0.9);
+/** How much a flight's size counts next to its frequency: a 70-seater draws less than a 180-seater. */
+const SIZE_EXP = 0.5;
+
+/** Frequency appeal relative to market depth, with diminishing returns for piling on flights. */
+export function frequencyFactor(flightsPerDay: number, depth: number): number {
+  return flightsPerDay > 0 ? Math.pow(flightsPerDay / depth, FREQ_EXP) : 0;
 }
 
 export function reputationFactor(rep: number): number {
@@ -284,6 +313,8 @@ export function marketingFactor(state: GameState, route: Route): number {
 
 export interface ShareInput {
   dist: number;
+  /** Market depth in flights per day (see marketDepth). */
+  depth: number;
   flightsPerDay: number;
   quality: number;
   price: number;
@@ -298,14 +329,14 @@ export interface ShareInput {
 export function attractiveness(i: ShareInput): number {
   const priceF = priceFactor(i.price, i.ref, i.cls);
   const speed = i.supersonic && (i.cls === 'J' || i.cls === 'F') ? 1.6 : 1;
-  return frequencyFactor(i.flightsPerDay, i.dist) * priceF * qualityFactor(i.quality, i.dist) *
+  return frequencyFactor(i.flightsPerDay, i.depth) * priceF * qualityFactor(i.quality, i.dist) *
     reputationFactor(i.rep) * i.marketing * speed;
 }
 
 export function marketShare(i: ShareInput, extraFriction = 0): number {
   const A = attractiveness(i);
   const comp = i.comp.level / Math.max(0.5, i.comp.priceIdx);
-  return A / (A + comp + 0.3 + extraFriction);
+  return A / (A + comp + Number(process.env.FRIC ?? 0.3) + extraFriction);
 }
 
 export function stimulation(price: number, ref: number, cls: CabinClass): number {
@@ -323,9 +354,11 @@ export interface LocalDemand {
  * Passengers that would choose this route today (one direction), with spill
  * between classes when a cabin isn't offered.
  */
-export function localDemand(state: GameState, route: Route, supply: RouteSupply, day = state.day): LocalDemand {
+export function localDemand(
+  state: GameState, route: Route, supply: RouteSupply, day = state.day, comp = competition(state, route.from, route.to),
+): LocalDemand {
   const market = marketDemand(state, route.from, route.to, day);
-  const comp = competition(state, route.from, route.to);
+  const depth = marketDepth(totalOf(market), route.dist);
   const marketing = marketingFactor(state, route) * (route.promoUntil >= day ? 1.15 : 1);
   const supersonic = supply.aircraft.some(({ ac }) => AIRCRAFT_BY_ID[ac.typeId].body === 'supersonic');
   const demand = zeroSeats();
@@ -333,11 +366,11 @@ export function localDemand(state: GameState, route: Route, supply: RouteSupply,
   let shareW = 0;
   for (const c of CLASSES) {
     if (market[c] <= 0) continue;
-    const ref = refFare(route.dist, c);
+    const ref = marketFare(state, route.dist, c);
     const price = route.prices[c];
     const q = supply.seats[c] > 0 ? supply.quality[c] : supply.quality.Y || 50;
     const share = marketShare({
-      dist: route.dist, flightsPerDay: supply.flightsPerDay, quality: q, price, ref, cls: c,
+      dist: route.dist, depth, flightsPerDay: supply.weightedFlights, quality: q, price, ref, cls: c,
       rep: state.reputation, marketing, comp, supersonic,
     });
     demand[c] = market[c] * stimulation(price, ref, c) * share;
@@ -369,19 +402,61 @@ export interface Forecast {
   seats: Seats;
   pax: Seats;
   loadFactor: number;
+  /** Ticket revenue, both directions. */
   revenuePerDay: number;
   share: number;
+  /** Ticket, ancillary and cargo revenue minus flight, passenger and sales costs (both directions). */
+  contributionPerDay: number;
+  /** Leases and overhead of the assigned aircraft, pro rata to the hours they fly this route. */
+  ownershipPerDay: number;
+  /** contribution − ownership: what the route earns once aircraft costs are paid. */
+  profitPerDay: number;
 }
 
-export function forecastRoute(state: GameState, route: Route, supply: RouteSupply): Forecast {
-  const { demand, share } = localDemand(state, route, supply);
+/** Cost of flying the scheduled legs (both directions) with today's prices. Mirrors the daily sim. */
+export function routeFlightCost(state: GameState, route: Route, aircraft: { ac: Aircraft; freq: number }[]) {
+  let flight = 0, cargo = 0, ownership = 0;
+  const econ = (state.market.econ[AIRPORT_BY_CODE[route.from].continent] + state.market.econ[AIRPORT_BY_CODE[route.to].continent]) / 2;
+  for (const { ac, freq } of aircraft) {
+    const t = AIRCRAFT_BY_ID[ac.typeId];
+    const legsPerDay = 2 * freq / 7;
+    const lc = legCost(state, ac, route.dist, route.to);
+    const land = (landingFee(state, t, route.to) + landingFee(state, t, route.from)) / 2 + lc.handling;
+    flight += (lc.fuel + lc.crew + lc.maintenance + lc.navigation + land) * legsPerDay;
+    cargo += cargoRevenuePerLeg(state, t, route.dist, econ) * legsPerDay;
+    // Ownership (lease or capital) plus the aircraft's overhead, split by flying hours.
+    const monthly = aircraftMonthlyCost(state, ac);
+    const here = freq * roundTripHours(t, route.dist);
+    let all = here;
+    for (const a of ac.assignments) {
+      const r = a.routeId === route.id ? null : state.routes.find((x) => x.id === a.routeId);
+      if (r) all += a.freq * roundTripHours(t, r.dist);
+    }
+    ownership += (monthly / 30) * (here / all);
+  }
+  return { flight, cargo, ownership };
+}
+
+/** Per-passenger costs net of ancillary income, one way. */
+export function paxCost(state: GameState, route: Route, cls: CabinClass, price: number): number {
+  const anc = cls === 'Y' || cls === 'W' ? ancillaryPerPax(state, route.dist) : 0;
+  return (paxFee(state, route.from) + paxFee(state, route.to)) / 2 + serviceCostPerPax(state, cls, route.dist) +
+    (state.loyalty.active ? 0.4 : 0) + price * DISTRIBUTION_RATE - anc;
+}
+
+export function forecastRoute(state: GameState, route: Route, supply: RouteSupply, day = state.day): Forecast {
+  const { demand, share } = localDemand(state, route, supply, day);
   const pax = zeroSeats();
   let rev = 0;
+  let paxCosts = 0;
   for (const c of CLASSES) {
     pax[c] = Math.min(demand[c], supply.seats[c]);
     rev += pax[c] * route.prices[c] * 2;
+    paxCosts += pax[c] * 2 * paxCost(state, route, c, route.prices[c]);
   }
   const totalSeats = totalOf(supply.seats);
+  const costs = routeFlightCost(state, route, supply.aircraft);
+  const contribution = rev + costs.cargo - costs.flight - paxCosts;
   return {
     demand,
     seats: supply.seats,
@@ -389,23 +464,51 @@ export function forecastRoute(state: GameState, route: Route, supply: RouteSuppl
     loadFactor: totalSeats > 0 ? totalOf(pax) / totalSeats : 0,
     revenuePerDay: rev,
     share,
+    contributionPerDay: contribution,
+    ownershipPerDay: costs.ownership,
+    profitPerDay: contribution - costs.ownership,
   };
 }
 
-/** Find fares that roughly maximise revenue for the given supply. */
+/** Lowest fare level rivals will follow a price-cutter down to (share of market fare). */
+export const MATCH_FLOOR = 0.7;
+
+/** The player's fare level on a route relative to market fares, weighted by who flies in each cabin. */
+export function fareRatio(state: GameState, route: Route): number {
+  let w = 0, sum = 0;
+  for (const c of CLASSES) {
+    const pax = route.last ? route.last.pax[c] : c === 'Y' ? 1 : 0;
+    if (pax <= 0) continue;
+    sum += pax * (route.prices[c] / marketFare(state, route.dist, c));
+    w += pax;
+  }
+  return w > 0 ? sum / w : route.prices.Y / marketFare(state, route.dist, 'Y');
+}
+
+/** Competition once rivals have settled on the player's fare level (they follow cuts down to the floor, never rises above market). */
+export function matchedCompetition(c: Competition, ratio: number): Competition {
+  return { ...c, priceIdx: clamp(ratio, MATCH_FLOOR, 1) };
+}
+
+/**
+ * Find fares that roughly maximise each cabin's margin over passenger costs for the given supply.
+ * Plans for where rivals settle: they match a fare cut within a few months (and let a short fare
+ * war fade), so undercutting only pays where it stimulates new travel, not by stealing passengers.
+ */
 export function optimizePrices(state: GameState, route: Route, supply: RouteSupply): Record<CabinClass, number> {
   const best = { ...route.prices };
   const tmp: Route = { ...route, prices: { ...route.prices } };
+  const comp = competition(state, route.from, route.to);
   for (const c of CLASSES) {
     if (supply.seats[c] <= 0) continue;
-    const ref = refFare(route.dist, c);
-    let bestRev = -1;
+    const ref = marketFare(state, route.dist, c);
+    let bestRev = -Infinity;
     let bestPrice = route.prices[c];
-    for (let m = 0.6; m <= 2.21; m += 0.04) {
+    for (let m = MATCH_FLOOR; m <= 2.21; m += 0.04) {
       tmp.prices[c] = ref * m;
-      const { demand } = localDemand(state, tmp, supply);
-      // Fill rate below ~92% is penalised slightly to leave room for connections.
-      const rev = Math.min(demand[c], supply.seats[c] * 0.97) * ref * m;
+      const { demand } = localDemand(state, tmp, supply, state.day, matchedCompetition(comp, m));
+      // Keep ~3% of seats free for connecting passengers.
+      const rev = Math.min(demand[c], supply.seats[c] * 0.97) * (ref * m - paxCost(state, route, c, ref * m));
       if (rev > bestRev) {
         bestRev = rev;
         bestPrice = ref * m;

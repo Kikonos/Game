@@ -15,7 +15,7 @@ export const BASE_FUEL_PRICE = 0.78; // USD per kg
 // ---------- fares ----------
 
 export function refFare(dist: number, cls: CabinClass): number {
-  const y = 45 + 0.15 * Math.pow(dist, 0.9);
+  const y = (45 + 0.15 * Math.pow(dist, 0.9)) * Number(process.env.FARE ?? 1);
   const dl = Math.min(1, dist / 6000);
   switch (cls) {
     case 'Y': return y;
@@ -25,8 +25,29 @@ export function refFare(dist: number, cls: CabinClass): number {
   }
 }
 
-export function refFares(dist: number): Record<CabinClass, number> {
-  return { F: round5(refFare(dist, 'F')), J: round5(refFare(dist, 'J')), W: round5(refFare(dist, 'W')), Y: round5(refFare(dist, 'Y')) };
+export function refFares(dist: number, idx = 1): Record<CabinClass, number> {
+  return { F: round5(refFare(dist, 'F') * idx), J: round5(refFare(dist, 'J') * idx), W: round5(refFare(dist, 'W') * idx), Y: round5(refFare(dist, 'Y') * idx) };
+}
+
+// ---------- inflation ----------
+
+/** Wages, airport charges, maintenance and overheads relative to 2026 (rises every January). */
+export function costIndex(state: GameState): number {
+  return state.inflation.cost * (1 - (state.inflation.relief ?? 0));
+}
+
+/** Market fare level relative to 2026. Tracks costs only partly; player fares stay put until re-priced. */
+export function fareIndex(state: GameState): number {
+  return state.inflation.fare;
+}
+
+/** Today's market fare: what rivals charge. Player price ratios are measured against this. */
+export function marketFare(state: GameState, dist: number, cls: CabinClass): number {
+  return refFare(dist, cls) * fareIndex(state);
+}
+
+export function marketFares(state: GameState, dist: number): Record<CabinClass, number> {
+  return refFares(dist, fareIndex(state));
 }
 
 function round5(v: number): number {
@@ -102,7 +123,8 @@ export function trainingCost(t: AircraftType): number {
 // ---------- airports ----------
 
 const LANDING_PER_TONNE = [0, 5, 6, 7, 9, 11];
-const PAX_FEE = [0, 5, 7, 9, 12, 15];
+/** Passenger charges (terminal, security, PRM) per departing or arriving passenger. */
+const PAX_FEE = [0, 6, 8, 11, 14, 17];
 export const STATION_OPEN = [0, 100_000, 200_000, 400_000, 750_000, 1_200_000];
 export const STATION_MONTHLY = [0, 10_000, 18_000, 30_000, 50_000, 75_000];
 export const HUB_OPEN = [0, 2_000_000, 4_000_000, 8_000_000, 15_000_000, 25_000_000];
@@ -111,11 +133,11 @@ export const HUB_MONTHLY = [0, 80_000, 150_000, 260_000, 420_000, 650_000];
 /** Hub running costs scale with how many aircraft are based there (you only rent the gates you use). */
 export function hubMonthlyCost(state: GameState, code: string): number {
   const based = state.fleet.filter((a) => a.hub === code && a.status !== 'delivering').length;
-  return HUB_MONTHLY[AIRPORT_BY_CODE[code].size] * Math.min(1, 0.15 + based / 24);
+  return HUB_MONTHLY[AIRPORT_BY_CODE[code].size] * Math.min(1, 0.15 + based / 24) * costIndex(state);
 }
 
 export function feeMult(state: GameState, code: string): number {
-  return (state.feeMult[code] ?? 1) * modifierFor(state, 'fees', code);
+  return (state.feeMult[code] ?? 1) * modifierFor(state, 'fees', code) * costIndex(state);
 }
 
 export function landingFee(state: GameState, t: AircraftType, code: string): number {
@@ -123,7 +145,7 @@ export function landingFee(state: GameState, t: AircraftType, code: string): num
 }
 
 export function paxFee(state: GameState, code: string): number {
-  return PAX_FEE[AIRPORT_BY_CODE[code].size] * feeMult(state, code);
+  return PAX_FEE[AIRPORT_BY_CODE[code].size] * Number(process.env.PAXF ?? 1) * feeMult(state, code);
 }
 
 // ---------- per-flight cost model ----------
@@ -148,7 +170,9 @@ export function maintenanceMultiplier(state: GameState, ac: Aircraft): number {
   const policy = [0.82, 1, 1.25][state.policies.maintenance];
   const hub = state.hubs.find((h) => h.code === ac.hub);
   const base = hub?.upgrades.maintenance ? 0.85 : 1;
-  return (1 + 0.025 * age) * (1 + (100 - ac.condition) / 150) * policy * base;
+  // Warranty years are cheap; shop visits and ageing parts push costs up from year 5.
+  const ageF = 0.9 + 0.02 * Math.min(age, 5) + 0.045 * Math.max(0, age - 5);
+  return ageF * (1 + (100 - ac.condition) / 150) * policy * base;
 }
 
 /** Effective fuel price after hedging. */
@@ -163,28 +187,31 @@ export function fuelPrice(state: GameState): number {
 export function legCost(state: GameState, ac: Aircraft, dist: number, arrival: string): LegCost {
   const t = AIRCRAFT_BY_ID[ac.typeId];
   const block = blockHours(t, dist);
-  const fuel = t.fuelBurn * 1.15 * (dist + 250) * fuelPrice(state);
+  // Cruise burn plus ~300 km worth for taxi, take-off and climb: ≈2.2 t per block hour for an A320neo.
+  const fuel = t.fuelBurn * 1.15 * (dist + 300) * fuelPrice(state);
   const pilotMult = block > 12 ? 2 : block > 8 ? 1.5 : 1;
   const seats = cabinSeats(t, ac.cabin);
-  const crew = block * (t.pilotRate * 1.15 * pilotMult + crewCount(seats) * 60) * state.crewMult * globalModifier(state, 'crew');
-  const maintenance = block * t.maintHour * 1.3 * maintenanceMultiplier(state, ac);
-  const navigation = dist * 0.045 * Math.sqrt(t.mtow);
+  // Fully loaded crew cost (salary, per diems, hotels, reserves, training) per block hour.
+  const crew = block * (t.pilotRate * 1.6 * pilotMult + crewCount(seats) * 82) * state.crewMult * globalModifier(state, 'crew') * costIndex(state);
+  const maintenance = block * t.maintHour * 1.55 * maintenanceMultiplier(state, ac) * costIndex(state);
+  // En-route charges, Eurocontrol-style: distance × √MTOW (≈ $1/km for an A320).
+  const navigation = dist * 0.12 * Math.sqrt(t.mtow) * costIndex(state);
   const landing = landingFee(state, t, arrival);
   const handling = handlingFee(state, seats, arrival);
   return { fuel, crew, maintenance, navigation, landing, handling, total: fuel + crew + maintenance + navigation + landing + handling, block };
 }
 
-/** Sales & distribution (GDS, card fees, call centres) as a share of ticket revenue. */
-export const DISTRIBUTION_RATE = 0.04;
+/** Sales & distribution (GDS, card fees, commissions, call centres) as a share of ticket revenue. */
+export const DISTRIBUTION_RATE = 0.055;
 
 /** Ground handling per turnaround: ramp, check-in, cleaning, pushback. */
 export function handlingFee(state: GameState, seats: Seats, code: string): number {
-  return (100 + 3.5 * (seats.F + seats.J + seats.W + seats.Y)) * feeMult(state, code);
+  return (200 + 4.5 * (seats.F + seats.J + seats.W + seats.Y)) * Number(process.env.HDL ?? 1) * feeMult(state, code);
 }
 
 /** Catering & passenger service cost per passenger. */
 export function serviceCostPerPax(state: GameState, cls: CabinClass, dist: number): number {
-  const df = 0.4 + Math.min(3.6, dist / 2500);
+  const df = (0.4 + Math.min(3.6, dist / 2500)) * costIndex(state);
   const p = state.policies;
   switch (cls) {
     case 'Y': return [0.5, 3, 8][p.cateringY] * df;
@@ -201,7 +228,44 @@ export function ancillaryPerPax(state: GameState, dist: number): number {
 }
 
 export function cargoRevenuePerLeg(state: GameState, t: AircraftType, dist: number, econ: number): number {
-  return t.cargoT * 0.55 * 0.3 * dist * econ * (state.market.fuel / BASE_FUEL_PRICE) ** 0.3;
+  return t.cargoT * 0.55 * 0.3 * dist * econ * (state.market.fuel / BASE_FUEL_PRICE) ** 0.3 * fareIndex(state);
+}
+
+// ---------- fixed costs ----------
+
+/** Head-office cost each aircraft brings (staff, IT, sales, spares), scaled by its size. */
+export function aircraftOverhead(t: AircraftType): number {
+  return 20_000 + 550 * t.typicalSeats;
+}
+
+/** Monthly cost of having an aircraft at all: lease (or ~0.6% of its price if owned) plus its overhead. */
+export function aircraftMonthlyCost(state: GameState, ac: Aircraft): number {
+  const t = AIRCRAFT_BY_ID[ac.typeId];
+  return (ac.ownership === 'leased' ? ac.leaseMonthly : t.price * 0.006) + aircraftOverhead(t) * costIndex(state);
+}
+
+/** Monthly head-office overhead: staff, IT, sales, plus complexity from extra aircraft families. */
+export function overheadMonthly(state: GameState): number {
+  let fleet = 0;
+  const fam = new Set<string>();
+  for (const a of state.fleet) {
+    if (a.status === 'delivering') continue;
+    const t = AIRCRAFT_BY_ID[a.typeId];
+    fleet += aircraftOverhead(t);
+    fam.add(t.family);
+  }
+  return (60_000 + fleet + 6_000 * state.routes.length + Math.max(0, fam.size - 1) * 120_000 +
+    (state.licenses.revenueMgmt ? 150_000 : 0)) * costIndex(state);
+}
+
+/** Costs that arrive every month whatever you fly: leases, overhead, stations, hubs and loan payments. */
+export function fixedMonthlyCosts(state: GameState): number {
+  let total = overheadMonthly(state) + state.loans.reduce((s, l) => s + l.payment, 0);
+  for (const ac of state.fleet) if (ac.ownership === 'leased' && ac.status !== 'delivering') total += ac.leaseMonthly;
+  for (const h of state.hubs) total += hubMonthlyCost(state, h.code);
+  const st = new Set(state.routes.map((r) => r.to).filter((c) => !state.hubs.some((h) => h.code === c)));
+  for (const code of st) total += STATION_MONTHLY[AIRPORT_BY_CODE[code].size] * costIndex(state);
+  return total;
 }
 
 // ---------- credit ----------
@@ -283,7 +347,7 @@ export function leaseCommitments(state: GameState): number {
 export function leaseCapacity(state: GameState): number {
   const h = state.finance.history.slice(-3);
   const rev = h.length ? h.reduce((s, m) => s + monthRevenue(m), 0) / h.length : 0;
-  return 1_200_000 + 0.02 * Math.max(0, equity(state)) + 0.15 * rev;
+  return 1_200_000 + 0.02 * Math.max(0, equity(state)) + Number(process.env.LCAP ?? 0.15) * rev;
 }
 
 export function loanPayment(principal: number, annualRate: number, months: number): number {

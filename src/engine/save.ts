@@ -2,10 +2,14 @@
 // Saves can also be exported to / imported from a JSON file.
 
 import LZString from 'lz-string';
+import { monthProfit } from './economy';
 import { SAVE_VERSION } from './newGame';
+import { message } from './state';
 import type { GameState } from './types';
 
 const PREFIX = 'contrail:save:';
+/** Cost discount for saves from before the economy rebalance, fading to zero over a year. */
+const LEGACY_RELIEF = 0.15;
 export const AUTOSAVE_SLOT = 'auto';
 export const SLOTS = ['1', '2', '3', '4', '5'];
 
@@ -58,6 +62,18 @@ function migrate(state: GameState): GameState {
   // Future migrations go here, e.g. if (state.version < 2) { ...; state.version = 2; }
   state.contracts ??= [];
   state.decisions ??= [];
+  // Added with the economy rebalance. Older airlines were built for cheaper flying, so they get a
+  // year of fading cost relief to restructure instead of an instant cash crunch.
+  if (!state.inflation) {
+    state.inflation = { cost: 1, fare: 1, relief: LEGACY_RELIEF };
+    message(state, 'warn', 'finance', 'New economics: costs are catching up',
+      'Crew, airport and maintenance costs now reflect real airline economics, and rivals answer routes that earn far above normal. ' +
+      'A transition discount softens the change and fades over the next twelve months — review your routes and fares before it runs out.');
+  }
+  state.alerts ??= [];
+  state.stats.bestMonthPax ??= Math.max(0, ...state.finance.history.map((m) => m.pax));
+  state.stats.bestMonthProfit ??= Math.max(0, ...state.finance.history.slice(-24).map(monthProfit));
+  state.stats.peakFleet = Math.max(state.stats.peakFleet ?? 0, state.fleet.filter((a) => a.status !== 'delivering').length);
   return state;
 }
 

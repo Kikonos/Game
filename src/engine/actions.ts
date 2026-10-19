@@ -5,17 +5,17 @@ import { AIRPORT_BY_CODE } from '../data/airports';
 import { COUNTRIES } from '../data/countries';
 import { REGIONS, type ContinentId } from '../data/regions';
 import type { CabinClass } from '../data/seats';
-import { type CabinConfig, cabinInstallCost, cabinSeats, defaultCabin, totalSeats, validateCabin } from './cabin';
-import { forecastRoute, routeSupply, totalOf } from './demand';
+import { type CabinConfig, cabinInstallCost, defaultCabin, validateCabin } from './cabin';
+import { type Forecast, forecastRoute, routeSupply } from './demand';
 import {
-  HUB_OPEN, MAX_WEEKLY_HOURS, MIN_ROUTE_KM, STATION_OPEN, ageYears, availableCredit, creditRating, heavyCheckCost,
-  heavyCheckDays, interestRate, leaseCapacity, leaseCommitments, loanPayment, marketValue, newLeaseRate, refFares, refitDays, roundTripHours,
+  HUB_OPEN, MAX_WEEKLY_HOURS, MIN_ROUTE_KM, STATION_OPEN, aircraftMonthlyCost, ageYears, availableCredit, creditRating, heavyCheckCost,
+  heavyCheckDays, interestRate, leaseCapacity, leaseCommitments, loanPayment, marketFares, marketValue, newLeaseRate, refitDays, roundTripHours,
   trainingCost,
 } from './economy';
 import { resolveDecision as resolveEvent } from './events';
 import { distance } from './geo';
 import {
-  LONG_HAUL_FEE, LONG_HAUL_LEVEL, REVENUE_MGMT_FEE, REVENUE_MGMT_LEVEL, continentUnlock, maxHubs, regionUnlock,
+  LONG_HAUL_FEE, LONG_HAUL_LEVEL, REVENUE_MGMT_FEE, REVENUE_MGMT_LEVEL, addXp, continentUnlock, destinationXp, maxHubs, regionUnlock,
 } from './progression';
 import * as R from './rng';
 import { capex, isAirportUnlocked, isHub, message, newId, spend } from './state';
@@ -318,12 +318,13 @@ export function openRoute(state: GameState, from: string, to: string): Result & 
   const id = newId(state, 'r');
   const flightNo = 100 + state.routes.length * 4 + R.int(state, 0, 3);
   state.routes.push({
-    id, from, to, dist: distance(from, to), prices: refFares(distance(from, to)), createdDay: state.day,
+    id, from, to, dist: distance(from, to), prices: marketFares(state, distance(from, to)), createdDay: state.day,
     promoUntil: -1, flightNo, acc: { pax: 0, seats: 0, rev: 0, cost: 0, connPax: 0, days: 0 }, history: [], last: null,
     lifetime: { pax: 0, rev: 0, cost: 0 },
   });
   if (!state.stats.destinationsEver.includes(to)) {
     state.stats.destinationsEver.push(to);
+    addXp(state, destinationXp(AIRPORT_BY_CODE[to].size));
   }
   message(state, 'good', 'ops', `New route: ${from}–${to}`, `${AIRPORT_BY_CODE[from].city} to ${AIRPORT_BY_CODE[to].city} is open for bookings. Assign aircraft to start flying.`);
   return { ok: true, routeId: id };
@@ -366,21 +367,86 @@ export function maxFreqFor(state: GameState, ac: Aircraft, routeId: string): num
   return Math.max(0, Math.floor(free / roundTripHours(t, r.dist)));
 }
 
-/** A sensible weekly frequency for adding this aircraft to a route: enough seats for the expected demand. */
+/** One sample day per season over the coming year, for decisions that should not chase the season. */
+function seasonDays(state: GameState): number[] {
+  return [15, 106, 197, 288].map((d) => state.day + d);
+}
+
+/** A route's forecast monthly profit averaged over the coming year's seasons. */
+export function yearlyRouteProfit(state: GameState, routeId: string): number {
+  const r = state.routes.find((x) => x.id === routeId);
+  if (!r) return 0;
+  const supply = routeSupply(state, r, false);
+  const days = seasonDays(state);
+  return days.reduce((s, d) => s + forecastRoute(state, r, supply, d).profitPerDay, 0) / days.length * 30;
+}
+
+/** Share of an aircraft's hourly ownership cost a suggested flight must also earn (the rest is sunk). */
+const SUGGEST_OPPORTUNITY = 0.4;
+
+/**
+ * A sensible weekly frequency for this aircraft on a route: the one that earns the most over the
+ * coming year (four seasons sampled) once each flight also pays part of the aircraft's cost per
+ * available hour, so marginal flights that barely cover their fuel are left out.
+ */
 export function suggestFreq(state: GameState, ac: Aircraft, routeId: string): number {
   const max = maxFreqFor(state, ac, routeId);
   const r = state.routes.find((x) => x.id === routeId);
   if (!r || max <= 0) return 0;
   const t = AIRCRAFT_BY_ID[ac.typeId];
+  const perRoundTrip = SUGGEST_OPPORTUNITY * (aircraftMonthlyCost(state, ac) / 30) * 7 * roundTripHours(t, r.dist) / MAX_WEEKLY_HOURS;
+  const days = seasonDays(state);
   const prev = ac.assignments;
-  ac.assignments = [...prev.filter((a) => a.routeId !== routeId), { routeId, freq: max }];
-  const supply = routeSupply(state, r, false);
-  const fc = forecastRoute(state, r, supply);
+  const others = prev.filter((a) => a.routeId !== routeId);
+  let best = 1;
+  let bestScore = -Infinity;
+  for (let f = 1; f <= max; f++) {
+    ac.assignments = [...others, { routeId, freq: f }];
+    const supply = routeSupply(state, r, false);
+    let contribution = 0;
+    for (const d of days) contribution += forecastRoute(state, r, supply, d).contributionPerDay / days.length;
+    const score = contribution * 7 - f * perRoundTrip;
+    if (score > bestScore) {
+      bestScore = score;
+      best = f;
+    }
+  }
   ac.assignments = prev;
-  const perFlight = totalSeats(cabinSeats(t, ac.cabin));
-  const otherSeats = totalOf(supply.seats) - (perFlight * max) / 7;
-  const need = totalOf(fc.demand) * 1.05 - otherSeats;
-  return Math.max(1, Math.min(max, Math.ceil((need * 7) / Math.max(1, perFlight))));
+  return best;
+}
+
+export interface AircraftPreview {
+  freq: number;
+  forecast: Forecast;
+  /** Change in the route's monthly profit (lease and overhead included, averaged over a year) from adding it. */
+  gainMonthly: number;
+}
+
+/**
+ * What a newly leased aircraft of this type would do on a route at its suggested frequency.
+ * Uses a temporary aircraft and leaves the game state as it was.
+ */
+export function previewAircraft(state: GameState, typeId: string, routeId: string, cabin?: CabinConfig): AircraftPreview | null {
+  const t = AIRCRAFT_BY_ID[typeId];
+  const r = state.routes.find((x) => x.id === routeId);
+  if (!t || !r || canFly(t, r.from, r.to)) return null;
+  const before = yearlyRouteProfit(state, routeId);
+  const ac: Aircraft = {
+    id: '__preview', typeId, reg: '', name: '', hub: r.from, ownership: 'leased', leaseMonthly: newLeaseRate(t), leaseEndDay: 0,
+    leaseDeposit: 0, purchasePrice: 0, bookValue: 0, builtDay: state.day, condition: 100, hours: 0, cycles: 0,
+    cabin: cabin ?? defaultCabin(t), status: 'active', statusUntil: state.day, assignments: [], acquiredDay: state.day,
+    lifetimeRevenue: 0, lifetimeCost: 0, monthRevenue: 0, monthCost: 0, lastMonthProfit: 0, lastDisruption: -1,
+  };
+  state.fleet.push(ac);
+  try {
+    const freq = suggestFreq(state, ac, routeId);
+    if (freq <= 0) return null;
+    ac.assignments = [{ routeId, freq }];
+    const forecast = forecastRoute(state, r, routeSupply(state, r, false));
+    return { freq, forecast, gainMonthly: yearlyRouteProfit(state, routeId) - before };
+  } finally {
+    state.fleet.splice(state.fleet.indexOf(ac), 1);
+  }
 }
 
 export function assignAircraft(state: GameState, acId: string, routeId: string, freq: number): Result {
@@ -440,6 +506,7 @@ export function unlockRegion(state: GameState, regionId: string): Result {
   if (!o.available) return fail(o.reason ?? 'Unavailable');
   spend(state, 'licenses', o.fee);
   state.unlockedRegions.push(regionId);
+  addXp(state, 500);
   message(state, 'good', 'goal', `Traffic rights: ${o.name}`, 'New destinations are available in the Route Planner.');
   return ok(`${o.name} unlocked!`);
 }
@@ -449,6 +516,7 @@ export function unlockContinent(state: GameState, c: ContinentId): Result {
   if (!o.available) return fail(o.reason ?? 'Unavailable');
   spend(state, 'licenses', o.fee);
   for (const r of REGIONS) if (r.continent === c && !state.unlockedRegions.includes(r.id)) state.unlockedRegions.push(r.id);
+  addXp(state, 2_000);
   message(state, 'good', 'goal', `Traffic rights: ${o.name}`, 'An entire continent is now open to your network.');
   return ok(`${o.name} unlocked!`);
 }

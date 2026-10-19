@@ -5,23 +5,24 @@ import { AIRPORT_BY_CODE } from '../data/airports';
 import { CLASSES, type CabinClass } from '../data/seats';
 import { type Seats, cabinSeats, zeroSeats } from './cabin';
 import {
-  type RouteSupply, assignmentIndex, competition, isFlying, localDemand, priceFactor, marketDemand, optimizePrices, routeSupply, totalOf,
+  type RouteSupply, assignmentIndex, competition, frequencyFactor, isFlying, localDemand, marketDepth, priceFactor, marketDemand,
+  optimizePrices, routeSupply, totalOf,
 } from './demand';
 import {
-  STATION_MONTHLY, hubMonthlyCost, ageYears, ancillaryPerPax, blockHours, cargoRevenuePerLeg, heavyCheckCost,
-  heavyCheckDays, DISTRIBUTION_RATE, landingFee, legCost, marketValue, paxFee, refFare, restoredCondition, serviceCostPerPax,
-  monthProfit,
+  STATION_MONTHLY, hubMonthlyCost, ageYears, ancillaryPerPax, blockHours, cargoRevenuePerLeg, costIndex, fixedMonthlyCosts, heavyCheckCost,
+  heavyCheckDays, DISTRIBUTION_RATE, landingFee, legCost, marketFare, marketValue, overheadMonthly, paxFee, restoredCondition,
+  serviceCostPerPax, monthProfit,
 } from './economy';
 import {
-  announceScheduled, competitionDrift, pruneModifiers, rollDailyEvents, rollMonthlyEvents, scheduleYear,
+  announceScheduled, competitionDrift, pruneModifiers, rivalReactions, rollDailyEvents, rollMonthlyEvents, scheduleYear,
 } from './events';
 import { distance } from './geo';
 import { airlineRank, refreshMarkets, updateAiAirlines, updateEconomyMonthly, updateFuel } from './market';
 import { modifierFor } from './modifiers';
-import { addXp, checkGoals } from './progression';
+import { addXp, checkGoals, fleetGrowthXp } from './progression';
 import * as R from './rng';
-import { book, earn, emptyMonth, familiesInFleet, isHub, message, spend, stations } from './state';
-import type { Aircraft, GameState, Route } from './types';
+import { alert, book, earn, emptyMonth, isHub, message, spend, stations } from './state';
+import type { Aircraft, GameState, MonthFinance, Route } from './types';
 import { clamp, monthKey, monthLabel, pairKey, yearOf } from './util';
 
 interface LegState {
@@ -71,8 +72,7 @@ function simulateConnections(state: GameState, legs: LegState[]) {
         const market = marketDemand(state, x, y);
         const comp = competition(state, x, y);
         const fpd = Math.min(A.flights, B.flights);
-        const k = dXY < 1200 ? 1.6 : dXY < 3500 ? 1.1 : 0.7;
-        const freqF = 1 - Math.exp(-fpd / k);
+        const freqF = frequencyFactor(fpd, marketDepth(totalOf(market), dXY));
         const repF = 0.65 + 0.7 * (state.reputation / 100);
         const req = zeroSeats();
         for (const c of CLASSES) {
@@ -80,7 +80,7 @@ function simulateConnections(state: GameState, legs: LegState[]) {
           const q = ((A.supply.quality[c] || A.supply.quality.Y) + (B.supply.quality[c] || B.supply.quality.Y)) / 2;
           const qF = 1 + ((q - 55) / 100) * (0.5 + Math.min(0.7, dXY / 8000));
           // Connecting fares follow the average fare level the player sets on both legs.
-          const fareRatio = (A.route.prices[c] / refFare(A.route.dist, c) + B.route.prices[c] / refFare(B.route.dist, c)) / 2;
+          const fareRatio = (A.route.prices[c] / marketFare(state, A.route.dist, c) + B.route.prices[c] / marketFare(state, B.route.dist, c)) / 2;
           const att = freqF * qF * repF * 1.12 * priceFactor(fareRatio, 1, c);
           const share = att / (att + comp.level / Math.max(0.5, comp.priceIdx) + 0.3 + CONNECT_PENALTY);
           req[c] = market[c] * share * connF;
@@ -107,7 +107,8 @@ function simulateConnections(state: GameState, legs: LegState[]) {
       if (f.req[c] <= 0) continue;
       const pax = f.req[c] * Math.min(ratio(f.a, c), ratio(f.b, c));
       if (pax <= 0) continue;
-      const fare = refFare(f.dist, c) * 0.85 * Math.min(1.15, (f.a.route.prices[c] / refFare(f.a.route.dist, c) + f.b.route.prices[c] / refFare(f.b.route.dist, c)) / 2);
+      const fare = marketFare(state, f.dist, c) * 0.85 *
+        Math.min(1.15, (f.a.route.prices[c] / marketFare(state, f.a.route.dist, c) + f.b.route.prices[c] / marketFare(state, f.b.route.dist, c)) / 2);
       const total = f.a.route.dist + f.b.route.dist;
       f.a.connPax[c] += pax;
       f.b.connPax[c] += pax;
@@ -152,7 +153,6 @@ function simulateRoutes(state: GameState): LegState[] {
   state.stats.totalFlights += dayFlights;
   state.finance.current.pax += dayPax;
   state.finance.current.flights += dayFlights;
-  addXp(state, dayPax / 400);
   return legs;
 }
 
@@ -254,19 +254,28 @@ function updateAircraftStatus(state: GameState) {
   for (const ac of state.fleet) {
     const t = AIRCRAFT_BY_ID[ac.typeId];
     if (ac.status !== 'active' && ac.statusUntil <= state.day) {
-      if (ac.status === 'delivering') {
-        message(state, 'good', 'fleet', `Delivered: ${ac.reg}`, `Your ${t.name} has arrived at ${ac.hub}${ac.assignments.length ? ' and is starting its schedule.' : '. Assign it to a route to start earning.'}`);
-      } else if (ac.status === 'maintenance') {
+      const idle = !ac.assignments.some((a) => a.freq > 0);
+      const prev = ac.status;
+      ac.status = 'active';
+      if (prev === 'delivering') {
+        alert(state, 'fleet', message(state, 'good', 'fleet', `Delivered: ${ac.reg}`, `Your ${t.name} has arrived at ${ac.hub}${idle ? '. Assign it to a route to start earning.' : ' and is starting its schedule.'}`));
+        const active = state.fleet.filter((a) => a.status !== 'delivering').length;
+        if (active > state.stats.peakFleet) {
+          state.stats.peakFleet = active;
+          addXp(state, fleetGrowthXp(t));
+        }
+      } else if (prev === 'maintenance') {
         ac.condition = restoredCondition(ageYears(state, ac));
-        message(state, 'info', 'fleet', `${ac.reg} back in service`, `Heavy check complete. Condition restored to ${Math.round(ac.condition)}%.`);
-      } else if (ac.status === 'ferry') {
-        message(state, 'info', 'fleet', `${ac.reg} arrived at ${ac.hub}`, 'Ferry flight complete — ready for new routes.');
-      } else if (ac.status === 'refit' && ac.pendingCabin) {
+        const m = message(state, idle ? 'warn' : 'info', 'fleet', `${ac.reg} back in service`, `Heavy check complete. Condition restored to ${Math.round(ac.condition)}%.${idle ? ' It has no routes — assign it to start earning.' : ''}`);
+        if (idle) alert(state, 'fleet', m);
+      } else if (prev === 'ferry') {
+        alert(state, 'fleet', message(state, 'warn', 'fleet', `${ac.reg} arrived at ${ac.hub}`, 'Ferry flight complete — the aircraft is idle until you assign it to a route.'));
+      } else if (prev === 'refit' && ac.pendingCabin) {
         ac.cabin = ac.pendingCabin;
         ac.pendingCabin = undefined;
-        message(state, 'info', 'fleet', `${ac.reg} refit complete`, 'The new cabin is installed and the aircraft is back in service.');
+        const m = message(state, idle ? 'warn' : 'info', 'fleet', `${ac.reg} refit complete`, `The new cabin is installed and the aircraft is back in service.${idle ? ' It has no routes yet.' : ''}`);
+        if (idle) alert(state, 'fleet', m);
       }
-      ac.status = 'active';
     }
     if (ac.status === 'active' && state.policies.autoMaint && ac.condition < state.policies.autoMaintThreshold) {
       const cost = heavyCheckCost(t, ageYears(state, ac));
@@ -313,7 +322,7 @@ function updateReputation(state: GameState, ops: { flying: number; disrupted: nu
       const p = r.last.pax[c];
       if (p <= 0) continue;
       qSum += (supply.quality[c] || 50) * p;
-      valueSum += clamp(refFare(r.dist, c) / Math.max(1, r.prices[c]), 0.5, 1.5) * p;
+      valueSum += clamp(marketFare(state, r.dist, c) / Math.max(1, r.prices[c]), 0.5, 1.5) * p;
       w += p;
     }
   }
@@ -340,6 +349,7 @@ function weekly(state: GameState) {
     }
     r.acc = { pax: 0, seats: 0, rev: 0, cost: 0, connPax: 0, days: 0 };
   }
+  checkLosingRoutes(state, week);
   state.stats.weeklyPax.push(Math.round(state.stats.weekPax));
   state.stats.weeklyProfit.push(Math.round(state.stats.weekProfit));
   if (state.stats.weeklyPax.length > 104) state.stats.weeklyPax.shift();
@@ -359,10 +369,46 @@ function weekly(state: GameState) {
   if (state.market.fuelHistory.length > 156) state.market.fuelHistory.shift();
 }
 
+/** Alerts once when a flying route has lost money four weeks running; re-arms after a profitable week. */
+function checkLosingRoutes(state: GameState, week: number) {
+  const losing: string[] = [];
+  for (const r of state.routes) {
+    const key = `loss:${r.id}`;
+    const h = r.history.slice(-4);
+    const last = h[h.length - 1];
+    if (!last || last.week !== week) continue;
+    if (last.rev >= last.cost) delete state.flags[key];
+    else if (h.length === 4 && h.every((w) => w.rev < w.cost && w.seats > 0) && !state.flags[key]) {
+      state.flags[key] = week;
+      losing.push(`${r.from}–${r.to}`);
+    }
+  }
+  for (const k of Object.keys(state.flags)) {
+    if (k.startsWith('loss:') && !state.routes.some((r) => `loss:${r.id}` === k)) delete state.flags[k];
+  }
+  if (losing.length) {
+    alert(state, 'route', message(state, 'warn', 'ops', losing.length === 1 ? `${losing[0]} keeps losing money` : `${losing.length} routes keep losing money`,
+      `${losing.join(', ')} ${losing.length === 1 ? 'has' : 'have'} been below cost four weeks in a row. Re-price, use a smaller aircraft, cut frequency — or close ${losing.length === 1 ? 'it' : 'them'}.`));
+  }
+}
+
+/** Warns once when cash drops below a month of fixed costs; re-arms after recovering. */
+function checkCash(state: GameState) {
+  const fixed = fixedMonthlyCosts(state);
+  if (fixed <= 0) return;
+  if (state.cash < fixed) {
+    if (state.flags.cashLow) return;
+    state.flags.cashLow = 1;
+    alert(state, 'cash', message(state, 'bad', 'finance', state.cash < 0 ? 'Cash balance negative' : 'Cash running low',
+      `Cash is $${(state.cash / 1e6).toFixed(1)}M, less than one month of fixed costs ($${(fixed / 1e6).toFixed(1)}M for leases, overhead, stations and loans). Cut losing routes, take a loan or sell an aircraft.`));
+  } else if (state.cash > fixed * 1.5) delete state.flags.cashLow;
+}
+
 // ---------- monthly ----------
 
 function monthEnd(state: GameState) {
-  const fam = familiesInFleet(state).length;
+  const ci = costIndex(state);
+  if (state.inflation.relief) state.inflation.relief = Math.max(0, state.inflation.relief - 0.0125);
   // Leases
   for (const ac of state.fleet) {
     if (ac.ownership !== 'leased' || ac.status === 'delivering') continue;
@@ -404,17 +450,16 @@ function monthEnd(state: GameState) {
   state.loans = state.loans.filter((l) => !paidOff.includes(l));
   // Overheads
   const activeFleet = state.fleet.filter((a) => a.status !== 'delivering').length;
-  spend(state, 'overhead', 30_000 + 55_000 * activeFleet + 5_000 * state.routes.length + Math.max(0, fam - 1) * 90_000);
+  spend(state, 'overhead', overheadMonthly(state));
   for (const h of state.hubs) {
     let cost = hubMonthlyCost(state, h.code);
-    if (h.upgrades.lounge) cost += 120_000;
-    if (h.upgrades.maintenance) cost += 200_000;
-    if (h.upgrades.connections) cost += 150_000;
+    if (h.upgrades.lounge) cost += 120_000 * ci;
+    if (h.upgrades.maintenance) cost += 200_000 * ci;
+    if (h.upgrades.connections) cost += 150_000 * ci;
     spend(state, 'stations', cost);
   }
-  for (const code of stations(state)) spend(state, 'stations', STATION_MONTHLY[AIRPORT_BY_CODE[code].size]);
-  if (state.policies.wifi > 0) spend(state, 'service', activeFleet * (state.policies.wifi === 2 ? 30_000 : 18_000));
-  if (state.licenses.revenueMgmt) spend(state, 'overhead', 150_000);
+  for (const code of stations(state)) spend(state, 'stations', STATION_MONTHLY[AIRPORT_BY_CODE[code].size] * ci);
+  if (state.policies.wifi > 0) spend(state, 'service', activeFleet * (state.policies.wifi === 2 ? 30_000 : 18_000) * ci);
   if (state.cash < 0) spend(state, 'interest', -state.cash * 0.015);
 
   // Subsidy contracts
@@ -449,16 +494,17 @@ function monthEnd(state: GameState) {
   const profit = monthProfit(closed);
   message(state, profit >= 0 ? 'good' : 'warn', 'finance', `${monthLabel(closed.key, false)} results`,
     `Net ${profit >= 0 ? 'profit' : 'loss'} of $${(Math.abs(profit) / 1e6).toFixed(2)}M with ${Math.round(closed.pax).toLocaleString()} passengers.`);
-  if (profit > 0) addXp(state, profit / 400_000);
+  monthXp(state, closed);
 
   // World updates
   refreshMarkets(state);
   updateEconomyMonthly(state);
   updateAiAirlines(state);
   competitionDrift(state);
+  if (!process.env.NORIVAL) rivalReactions(state);
   pruneModifiers(state);
   rollMonthlyEvents(state);
-  state.stats.peakFleet = Math.max(state.stats.peakFleet, state.fleet.length);
+  state.stats.peakFleet = Math.max(state.stats.peakFleet, activeFleet);
 
   // Solvency
   if (state.cash < 0) {
@@ -467,10 +513,38 @@ function monthEnd(state: GameState) {
     if (left <= 0) {
       state.gameOver = { reason: 'Your airline ran out of cash for four consecutive months and the creditors have taken over.', day: state.day };
     } else {
-      message(state, 'bad', 'finance', 'Cash balance negative!',
-        `Your bank is charging overdraft interest. Return to a positive balance within ${left} month${left > 1 ? 's' : ''} or the airline will be declared bankrupt. Take a loan, sell aircraft or cut unprofitable routes.`);
+      alert(state, 'cash', message(state, 'bad', 'finance', 'Cash balance negative!',
+        `Your bank is charging overdraft interest. Return to a positive balance within ${left} month${left > 1 ? 's' : ''} or the airline will be declared bankrupt. Take a loan, sell aircraft or cut unprofitable routes.`));
     }
   } else state.finance.negativeMonths = 0;
+}
+
+/** XP pays for growth: new monthly passenger and operating-profit records, plus a small trickle for flying. */
+function monthXp(state: GameState, m: MonthFinance) {
+  const st = state.stats;
+  const opProfit = monthProfit(m) - m.rev.other;
+  let xp = m.pax / 5000;
+  if (m.pax > st.bestMonthPax) {
+    xp += (m.pax - st.bestMonthPax) / 60;
+    st.bestMonthPax = m.pax;
+  }
+  if (opProfit > st.bestMonthProfit) {
+    xp += (opProfit - Math.max(0, st.bestMonthProfit)) / 20_000;
+    st.bestMonthProfit = opProfit;
+  }
+  addXp(state, xp);
+}
+
+/** January price review: costs inflate, market fares follow only partly. Player fares stay where they were set. */
+function annualInflation(state: GameState, year: number) {
+  const cost = R.range(state, 0.022, 0.042);
+  const fare = cost * R.range(state, 0.5, 0.8);
+  state.inflation.cost *= 1 + cost;
+  state.inflation.fare *= 1 + fare;
+  const pct = (v: number) => `${(v * 100).toFixed(1)}%`;
+  message(state, 'warn', 'finance', `${year} price review: costs +${pct(cost)}`,
+    `Wages, airport charges and maintenance rates rise ${pct(cost)} this year; market fares are up only ${pct(fare)}. ` +
+    'Fares you set by hand stay where they are — re-price your routes (Optimise, or auto-pricing) to keep up.');
 }
 
 function yearEnd(state: GameState, year: number) {
@@ -495,6 +569,7 @@ function yearEnd(state: GameState, year: number) {
 
 export function advanceDay(state: GameState) {
   if (state.gameOver) return;
+  state.alerts = [];
   const prevMonth = monthKey(state.day);
   const prevYear = yearOf(state.day);
   state.day += 1;
@@ -503,6 +578,7 @@ export function advanceDay(state: GameState) {
   if (monthKey(state.day) !== prevMonth) monthEnd(state);
   if (yearOf(state.day) !== prevYear) {
     yearEnd(state, prevYear);
+    if (!process.env.NOINFL) annualInflation(state, yearOf(state.day));
     scheduleYear(state, yearOf(state.day) + 1);
   }
   if (state.gameOver) return;
@@ -516,6 +592,7 @@ export function advanceDay(state: GameState) {
   rollDailyEvents(state);
 
   if (state.day % 7 === 0) weekly(state);
+  checkCash(state);
   checkGoals(state);
 }
 

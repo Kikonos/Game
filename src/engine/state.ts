@@ -3,7 +3,7 @@
 import { AIRCRAFT_BY_ID } from '../data/aircraft';
 import { AIRPORT_BY_CODE } from '../data/airports';
 import { REGION_BY_ID } from '../data/regions';
-import type { ExpCat, GameState, MonthFinance, Message, MsgCategory, MsgKind, RevCat } from './types';
+import type { AlertKind, ExpCat, GameState, MonthFinance, Message, MsgCategory, MsgKind, RevCat } from './types';
 import { EXP_CATS, REV_CATS } from './types';
 
 export function newId(state: GameState, prefix: string): string {
@@ -50,10 +50,28 @@ export function message(
   category: MsgCategory,
   title: string,
   body = '',
-) {
+): Message {
   const m: Message = { id: newId(state, 'm'), day: state.day, kind, category, title, body, read: false };
   state.messages.unshift(m);
   if (state.messages.length > 250) state.messages.length = 250;
+  return m;
+}
+
+/** Minimum days between two alerts of a kind, so fast-forwarding isn't interrupted every few seconds. */
+const ALERT_COOLDOWN: Record<AlertKind, number> = { competition: 45, cash: 30, fleet: 30, route: 45, event: 30 };
+
+/** Marks a message as urgent for the UI (e.g. drop to 1× speed). Same-day alerts merge; each kind is rate-limited. */
+export function alert(state: GameState, kind: AlertKind, m: Message) {
+  const same = state.alerts.find((a) => a.kind === kind);
+  if (same) {
+    same.count += 1;
+    return;
+  }
+  const key = `alert:${kind}`;
+  const last = state.flags[key];
+  if (last !== undefined && state.day - last < ALERT_COOLDOWN[kind]) return;
+  state.flags[key] = state.day;
+  state.alerts.push({ kind, title: m.title, body: m.body, msgId: m.id, count: 1 });
 }
 
 export function typeOf(typeId: string) {

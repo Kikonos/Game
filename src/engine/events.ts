@@ -4,11 +4,11 @@ import { AIRCRAFT, AIRCRAFT_BY_ID } from '../data/aircraft';
 import { AIRPORT_BY_CODE, AIRPORTS } from '../data/airports';
 import { AI_AIRLINES, LESSORS } from '../data/flavor';
 import { CONTINENT_ORDER, CONTINENTS, type ContinentId, REGION_BY_ID } from '../data/regions';
-import { baseCompetition, competition } from './demand';
+import { MATCH_FLOOR, baseCompetition, competition, fareRatio, routeFlightCost, routeSupply } from './demand';
 import { usedLeaseRate, ageYears } from './economy';
 import * as R from './rng';
-import { destinationsServed, isAirportUnlocked, isHub, message, newId, spend } from './state';
-import type { GameState, Modifier, ModScope, PendingDecision } from './types';
+import { alert, destinationsServed, isAirportUnlocked, isHub, message, newId, spend } from './state';
+import type { Difficulty, GameState, Modifier, ModScope, PendingDecision, Route } from './types';
 import { dateToDay, dayToDate, formatDate, pairKey, yearOf } from './util';
 import { distance } from './geo';
 
@@ -95,12 +95,22 @@ export function upcomingEvents(state: GameState, days = 400): (Scheduled & { liv
     .map((e) => ({ ...e, live: e.start <= state.day }));
 }
 
+function touchesNetwork(state: GameState, e: Scheduled): boolean {
+  return destinationsServed(state).some((code) => {
+    const a = AIRPORT_BY_CODE[code];
+    const key = e.scope === 'airport' ? a.code : e.scope === 'country' ? a.country : e.scope === 'region' ? a.region : e.scope === 'continent' ? a.continent : '';
+    return e.scope === 'global' || e.targets.includes(key);
+  });
+}
+
 export function announceScheduled(state: GameState) {
   for (const e of scheduledFor(yearOf(state.day)).concat(scheduledFor(yearOf(state.day) + 1))) {
     if (e.start - 30 === state.day) {
       message(state, 'event', 'news', `Coming up: ${e.title}`, `${e.body} Starts ${formatDate(e.start)} — consider adding capacity.`);
     } else if (e.start === state.day) {
-      message(state, 'info', 'news', `${e.title} has begun`, e.body);
+      const m = message(state, 'info', 'news', `${e.title} has begun`, e.body);
+      // Only big events on the player's own network are worth slowing the clock for.
+      if (e.mult >= 1.25 && touchesNetwork(state, e)) alert(state, 'event', m);
     }
   }
 }
@@ -231,8 +241,8 @@ const RANDOM_EVENTS: RandomEvent[] = [
       const key = pairKey(r.from, r.to);
       const c = competition(s, r.from, r.to);
       const name = airlineFor(s, r.to);
-      s.competition[key] = { level: c.level + R.range(s, 0.25, 0.55), priceIdx: c.priceIdx, name };
-      message(s, 'warn', 'market', `${name} attacks ${r.from}–${r.to}`, `Lured by strong loads, ${name} is launching daily flights on your ${r.from}–${r.to} route. Expect pressure on market share.`);
+      s.competition[key] = { level: c.level + R.range(s, 0.25, 0.55), priceIdx: c.priceIdx, name, lastMove: s.day };
+      alert(s, 'competition', message(s, 'warn', 'market', `${name} attacks ${r.from}–${r.to}`, `Lured by strong loads, ${name} is launching daily flights on your ${r.from}–${r.to} route. Expect pressure on market share.`));
     },
   },
   {
@@ -254,8 +264,9 @@ const RANDOM_EVENTS: RandomEvent[] = [
       const key = pairKey(r.from, r.to);
       const c = competition(s, r.from, r.to);
       const name = c.name ?? airlineFor(s, r.to);
-      s.competition[key] = { ...c, priceIdx: R.range(s, 0.72, 0.85), name };
-      message(s, 'warn', 'market', `Fare war on ${r.from}–${r.to}`, `${name} slashes fares on ${r.from}–${r.to}. Match them, or compete on quality and frequency.`);
+      s.competition[key] = { ...c, priceIdx: R.range(s, 0.72, 0.85), name, lastMove: s.day };
+      const m = message(s, 'warn', 'market', `Fare war on ${r.from}–${r.to}`, `${name} slashes fares on ${r.from}–${r.to}. Match them, or compete on quality and frequency.`);
+      if (s.fleet.some((a) => a.assignments.some((x) => x.routeId === r.id && x.freq > 0))) alert(s, 'competition', m);
     },
   },
   {
@@ -457,14 +468,87 @@ export function resolveDecision(state: GameState, decisionId: string, optionId: 
   }
 }
 
+// ---------- rivals fight back ----------
+
+const RIVAL_AGGRESSION: Record<Difficulty, number> = { easy: 0.6, normal: 1, hard: 1.35 };
+
+/** Margin a route may earn after its share of aircraft costs (network overheads still to pay) before rivals take an interest. */
+const NORMAL_MARGIN = Number(process.env.NM ?? 0.08);
+
+/**
+ * How much a route invites a rival response: margins above normal once its aircraft are paid for,
+ * and full planes. Uses the last eight weeks.
+ */
+export function routeHeat(state: GameState, r: Route): number {
+  const h = r.history.slice(-8);
+  if (h.length < 6) return 0;
+  let rev = 0, cost = 0, pax = 0, seats = 0;
+  for (const w of h) { rev += w.rev; cost += w.cost; pax += w.pax; seats += w.seats; }
+  if (rev <= 0 || seats <= 0) return 0;
+  const ownership = routeFlightCost(state, r, routeSupply(state, r, false).aircraft).ownership * 7 * h.length;
+  const margin = (rev - cost - ownership) / rev;
+  return Math.max(0, (margin - NORMAL_MARGIN) * Number(process.env.HM ?? 5) + Math.max(0, pax / seats - 0.92));
+}
+
+/**
+ * Monthly: rivals study the player's most lucrative routes and answer with extra capacity or a fare
+ * war, so above-normal profits don't last unless the player keeps improving. Each route sees at most
+ * one move every five months.
+ */
+export function rivalReactions(state: GameState) {
+  const hot = state.routes
+    .map((r) => ({ r, heat: routeHeat(state, r), c: competition(state, r.from, r.to) }))
+    .filter((x) => x.heat > 0 && (x.c.lastMove === undefined || state.day - x.c.lastMove >= Number(process.env.CD ?? 150)))
+    .sort((a, b) => b.heat - a.heat);
+  const aggression = RIVAL_AGGRESSION[state.airline.difficulty] ?? 1;
+  let moves = 1 + Math.floor(state.routes.length / 10);
+  for (const { r, heat, c } of hot) {
+    if (moves <= 0) break;
+    if (!R.chance(state, Math.min(0.6, heat) * aggression)) continue;
+    moves--;
+    const key = pairKey(r.from, r.to);
+    const name = c.name ?? airlineFor(state, r.to);
+    let title: string;
+    let body: string;
+    if (R.chance(state, 0.6)) {
+      const add = Math.max(0.15, baseCompetition(r.from, r.to) * R.range(state, 0.2, 0.4));
+      state.competition[key] = { ...c, level: c.level + add, name, lastMove: state.day };
+      title = `${name} adds flights on ${r.from}–${r.to}`;
+      body = `Your results on ${r.from}–${r.to} have been noticed: ${name} is adding capacity. Expect a smaller share — answer with frequency, a better product or sharper fares.`;
+    } else {
+      const idx = Math.min(c.priceIdx, R.range(state, 0.76, 0.88));
+      state.competition[key] = { ...c, priceIdx: idx, name, lastMove: state.day };
+      title = `Fare war on ${r.from}–${r.to}`;
+      body = `${name} undercuts market fares by ${Math.round((1 - idx) * 100)}% on ${r.from}–${r.to} to win back passengers. It will fade over a few months — match it, or hold on with quality and frequency.`;
+    }
+    alert(state, 'competition', message(state, 'warn', 'market', title, body));
+  }
+}
+
 /** Monthly drift of route competition back towards its natural level. */
+/**
+ * Monthly drift of route competition back towards its natural level. Where the player sells below
+ * market fares, rivals follow them down instead (to at most 30% below market).
+ */
 export function competitionDrift(state: GameState) {
+  const matched = new Map<string, number>();
+  for (const r of state.routes) {
+    const ratio = fareRatio(state, r);
+    if (ratio < 0.97) matched.set(pairKey(r.from, r.to), Math.max(MATCH_FLOOR, ratio));
+  }
+  for (const key of matched.keys()) {
+    if (!state.competition[key]) {
+      const [a, b] = key.split('-');
+      state.competition[key] = { ...competition(state, a, b) };
+    }
+  }
   for (const [key, c] of Object.entries(state.competition)) {
     const [a, b] = key.split('-');
     const base = baseCompetition(a, b);
+    const target = matched.get(key) ?? 1;
     c.level += (base - c.level) * 0.04;
-    c.priceIdx += (1 - c.priceIdx) * 0.15;
-    if (Math.abs(c.level - base) < 0.02 && Math.abs(1 - c.priceIdx) < 0.02) delete state.competition[key];
+    c.priceIdx += (target - c.priceIdx) * (target < c.priceIdx ? 0.25 : 0.15);
+    if (!matched.has(key) && Math.abs(c.level - base) < 0.02 && Math.abs(1 - c.priceIdx) < 0.02) delete state.competition[key];
   }
 }
 

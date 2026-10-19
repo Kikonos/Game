@@ -1,6 +1,6 @@
 // Airline levels, region/continent unlocks, hubs and goals.
 
-import { AIRCRAFT_BY_ID, isWidebody } from '../data/aircraft';
+import { AIRCRAFT_BY_ID, type AircraftType, isWidebody } from '../data/aircraft';
 import { AIRPORT_BY_CODE, AIRPORTS_BY_REGION } from '../data/airports';
 import { CONTINENT_ORDER, CONTINENTS, type ContinentId, REGIONS, REGION_BY_ID } from '../data/regions';
 import { airportMass } from './demand';
@@ -46,6 +46,23 @@ export function addXp(state: GameState, amount: number) {
     const info = levelInfo(state.level);
     message(state, 'good', 'goal', `Level ${state.level}: ${info.title}`, levelUnlockText(state.level));
   }
+}
+
+/** XP for growing the fleet beyond its previous peak (paid on delivery). */
+export function fleetGrowthXp(t: AircraftType): number {
+  switch (t.body) {
+    case 'turboprop':
+    case 'regional': return 40;
+    case 'narrow': return 60;
+    case 'wide': return 150;
+    case 'jumbo': return 200;
+    case 'supersonic': return 300;
+  }
+}
+
+/** XP for the first route to a new destination, more for bigger airports. */
+export function destinationXp(size: number): number {
+  return 40 + 25 * size;
 }
 
 function levelUnlockText(level: number): string {
@@ -180,37 +197,37 @@ const hasBody = (s: GameState, pred: (id: string) => boolean) =>
 export const GOALS: Goal[] = [
   {
     id: 'first_aircraft', title: 'Wheels Up', desc: 'Buy or lease your first aircraft from the Aircraft Market.',
-    reward: { cash: 500_000, xp: 150 }, progress: (s) => ratio(fleetCount(s), 1),
+    reward: { cash: 300_000, xp: 150 }, progress: (s) => ratio(fleetCount(s), 1),
   },
   {
     id: 'first_route', title: 'Open for Business', desc: 'Open your first route from your hub in the Route Planner.',
-    reward: { cash: 500_000, xp: 150 }, progress: (s) => ratio(s.routes.length, 1),
+    reward: { cash: 300_000, xp: 150 }, progress: (s) => ratio(s.routes.length, 1),
   },
   {
     id: 'first_flight', title: 'Maiden Voyage', desc: 'Assign an aircraft to a route and fly your first passengers.',
-    reward: { cash: 1_000_000, xp: 250 }, progress: (s) => ratio(s.stats.totalPax, 1),
+    reward: { cash: 600_000, xp: 250 }, progress: (s) => ratio(s.stats.totalPax, 1),
   },
   {
     id: 'fleet_3', title: 'Growing Fleet', desc: 'Operate three aircraft.',
-    reward: { cash: 1_500_000, xp: 300 }, progress: (s) => ratio(activeCount(s), 3), status: (s) => `${activeCount(s)} / 3`,
+    reward: { cash: 900_000, xp: 300 }, progress: (s) => ratio(activeCount(s), 3), status: (s) => `${activeCount(s)} / 3`,
   },
   {
     id: 'routes_5', title: 'Network Builder', desc: 'Serve five destinations.',
-    reward: { cash: 2_000_000, xp: 400 },
+    reward: { cash: 1_200_000, xp: 400 },
     progress: (s) => ratio(destinationsServed(s).length - s.hubs.length, 5),
     status: (s) => `${Math.max(0, destinationsServed(s).length - s.hubs.length)} / 5`,
   },
   {
     id: 'profit_month', title: 'In the Black', desc: 'Close a month with a net profit.',
-    reward: { cash: 1_000_000, xp: 400 }, progress: (s) => (lastMonthProfit(s) > 0 ? 1 : 0),
+    reward: { cash: 600_000, xp: 400 }, progress: (s) => (lastMonthProfit(s) > 0 ? 1 : 0),
   },
   {
     id: 'pax_100k', title: '100,000 Passengers', desc: 'Carry a total of 100,000 passengers.',
-    reward: { cash: 2_000_000, xp: 500 }, progress: (s) => ratio(s.stats.totalPax, 100_000),
+    reward: { cash: 1_200_000, xp: 500 }, progress: (s) => ratio(s.stats.totalPax, 100_000),
   },
   {
     id: 'loadfactor', title: 'Load Master', desc: 'Achieve a weekly load factor of 85% on a route.',
-    reward: { cash: 1_000_000, xp: 400 },
+    reward: { cash: 600_000, xp: 400 },
     progress: (s) => {
       const best = Math.max(0, ...s.routes.map((r) => {
         const w = r.history[r.history.length - 1];
@@ -221,85 +238,85 @@ export const GOALS: Goal[] = [
   },
   {
     id: 'fleet_10', title: 'Double Digits', desc: 'Operate ten aircraft.',
-    reward: { cash: 5_000_000, xp: 1_000 }, progress: (s) => ratio(activeCount(s), 10), status: (s) => `${activeCount(s)} / 10`,
+    reward: { cash: 3_000_000, xp: 1_000 }, progress: (s) => ratio(activeCount(s), 10), status: (s) => `${activeCount(s)} / 10`,
   },
   {
     id: 'region_2', title: 'Beyond the Horizon', desc: 'Unlock a second region in the Expansion screen.',
-    reward: { cash: 3_000_000, xp: 1_000 }, progress: (s) => ratio(s.unlockedRegions.length, 2),
+    reward: { cash: 1_800_000, xp: 1_000 }, progress: (s) => ratio(s.unlockedRegions.length, 2),
   },
   {
     id: 'reputation_70', title: 'Fan Favourite', desc: 'Reach a reputation of 70.',
-    reward: { cash: 3_000_000, xp: 1_500 }, progress: (s) => ratio(s.reputation, 70),
+    reward: { cash: 1_800_000, xp: 1_500 }, progress: (s) => ratio(s.reputation, 70),
   },
   {
     id: 'pax_1m', title: 'One Million Smiles', desc: 'Carry a total of 1 million passengers.',
-    reward: { cash: 8_000_000, xp: 2_500 }, progress: (s) => ratio(s.stats.totalPax, 1_000_000),
+    reward: { cash: 5_000_000, xp: 2_500 }, progress: (s) => ratio(s.stats.totalPax, 1_000_000),
   },
   {
     id: 'second_hub', title: 'Hub & Spoke', desc: 'Open a second hub.',
-    reward: { cash: 6_000_000, xp: 2_500 }, progress: (s) => ratio(s.hubs.length, 2),
+    reward: { cash: 3_500_000, xp: 2_500 }, progress: (s) => ratio(s.hubs.length, 2),
   },
   {
     id: 'profit_year', title: 'Wall Street Darling', desc: 'Earn $50M net profit over twelve months.',
-    reward: { cash: 10_000_000, xp: 4_000 }, progress: (s) => ratio(bestYearProfit(s), 50_000_000),
+    reward: { cash: 6_000_000, xp: 4_000 }, progress: (s) => ratio(bestYearProfit(s), 50_000_000),
   },
   {
     id: 'fleet_25', title: 'Fleet of 25', desc: 'Operate 25 aircraft.',
-    reward: { cash: 12_000_000, xp: 5_000 }, progress: (s) => ratio(activeCount(s), 25), status: (s) => `${activeCount(s)} / 25`,
+    reward: { cash: 7_000_000, xp: 5_000 }, progress: (s) => ratio(activeCount(s), 25), status: (s) => `${activeCount(s)} / 25`,
   },
   {
     id: 'regions_4', title: 'Continental Ambitions', desc: 'Unlock four regions.',
-    reward: { cash: 12_000_000, xp: 6_000 }, progress: (s) => ratio(s.unlockedRegions.length, 4),
+    reward: { cash: 7_000_000, xp: 6_000 }, progress: (s) => ratio(s.unlockedRegions.length, 4),
   },
   {
     id: 'widebody', title: 'Twin Aisles', desc: 'Take delivery of your first widebody aircraft.',
-    reward: { cash: 10_000_000, xp: 6_000 }, progress: (s) => (hasBody(s, (id) => isWidebody(AIRCRAFT_BY_ID[id])) ? 1 : 0),
+    reward: { cash: 6_000_000, xp: 6_000 }, progress: (s) => (hasBody(s, (id) => isWidebody(AIRCRAFT_BY_ID[id])) ? 1 : 0),
   },
   {
     id: 'long_haul', title: 'Go Long', desc: 'Open an intercontinental route.',
-    reward: { cash: 15_000_000, xp: 10_000 },
+    reward: { cash: 9_000_000, xp: 10_000 },
     progress: (s) => (s.routes.some((r) => AIRPORT_BY_CODE[r.from].continent !== AIRPORT_BY_CODE[r.to].continent) ? 1 : 0),
   },
   {
     id: 'pax_10m', title: 'Ten Million Club', desc: 'Carry a total of 10 million passengers.',
-    reward: { cash: 25_000_000, xp: 15_000 }, progress: (s) => ratio(s.stats.totalPax, 10_000_000),
+    reward: { cash: 15_000_000, xp: 15_000 }, progress: (s) => ratio(s.stats.totalPax, 10_000_000),
   },
   {
     id: 'fleet_50', title: 'Half a Hundred', desc: 'Operate 50 aircraft.',
-    reward: { cash: 25_000_000, xp: 15_000 }, progress: (s) => ratio(activeCount(s), 50), status: (s) => `${activeCount(s)} / 50`,
+    reward: { cash: 15_000_000, xp: 15_000 }, progress: (s) => ratio(activeCount(s), 50), status: (s) => `${activeCount(s)} / 50`,
   },
   {
     id: 'jumbo', title: 'Queen of the Skies', desc: 'Operate an A380 or Boeing 747.',
-    reward: { cash: 20_000_000, xp: 15_000 }, progress: (s) => (hasBody(s, (id) => AIRCRAFT_BY_ID[id].body === 'jumbo') ? 1 : 0),
+    reward: { cash: 12_000_000, xp: 15_000 }, progress: (s) => (hasBody(s, (id) => AIRCRAFT_BY_ID[id].body === 'jumbo') ? 1 : 0),
   },
   {
     id: 'continents_3', title: 'Three Continents', desc: 'Fly to airports on three continents.',
-    reward: { cash: 30_000_000, xp: 25_000 },
+    reward: { cash: 18_000_000, xp: 25_000 },
     progress: (s) => ratio(new Set(destinationsServed(s).map((c) => AIRPORT_BY_CODE[c].continent)).size, 3),
   },
   {
     id: 'profit_500m', title: 'Half a Billion', desc: 'Earn $500M net profit over twelve months.',
-    reward: { cash: 50_000_000, xp: 40_000 }, progress: (s) => ratio(bestYearProfit(s), 500_000_000),
+    reward: { cash: 30_000_000, xp: 40_000 }, progress: (s) => ratio(bestYearProfit(s), 500_000_000),
   },
   {
     id: 'fleet_100', title: 'Centurion', desc: 'Operate 100 aircraft.',
-    reward: { cash: 60_000_000, xp: 50_000 }, progress: (s) => ratio(activeCount(s), 100), status: (s) => `${activeCount(s)} / 100`,
+    reward: { cash: 36_000_000, xp: 50_000 }, progress: (s) => ratio(activeCount(s), 100), status: (s) => `${activeCount(s)} / 100`,
   },
   {
     id: 'pax_100m', title: 'A Hundred Million', desc: 'Carry a total of 100 million passengers.',
-    reward: { cash: 100_000_000, xp: 100_000 }, progress: (s) => ratio(s.stats.totalPax, 100_000_000),
+    reward: { cash: 60_000_000, xp: 100_000 }, progress: (s) => ratio(s.stats.totalPax, 100_000_000),
   },
   {
     id: 'supersonic', title: 'Faster than Sound', desc: 'Operate a supersonic Boom Overture.',
-    reward: { cash: 50_000_000, xp: 60_000 }, progress: (s) => (hasBody(s, (id) => AIRCRAFT_BY_ID[id].body === 'supersonic') ? 1 : 0),
+    reward: { cash: 30_000_000, xp: 60_000 }, progress: (s) => (hasBody(s, (id) => AIRCRAFT_BY_ID[id].body === 'supersonic') ? 1 : 0),
   },
   {
     id: 'global', title: 'Global Airline', desc: 'Unlock every continent.',
-    reward: { cash: 150_000_000, xp: 150_000 }, progress: (s) => ratio(unlockedContinents(s).length, CONTINENT_ORDER.length),
+    reward: { cash: 90_000_000, xp: 150_000 }, progress: (s) => ratio(unlockedContinents(s).length, CONTINENT_ORDER.length),
   },
   {
     id: 'flying_fleet', title: 'Every Wing Earns', desc: 'Have 20 aircraft flying scheduled routes at once.',
-    reward: { cash: 8_000_000, xp: 4_000 }, progress: (s) => ratio(flying(s), 20), status: (s) => `${flying(s)} / 20`,
+    reward: { cash: 5_000_000, xp: 4_000 }, progress: (s) => ratio(flying(s), 20), status: (s) => `${flying(s)} / 20`,
   },
 ];
 

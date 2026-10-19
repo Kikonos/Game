@@ -1,154 +1,297 @@
-// Headless balance check: a simple bot plays the game for several years and
-// prints a progress report. Run with `npm run balance -- [hub] [years] [difficulty]`.
+// Headless balance check: a reasonably skilled bot plays the game for several years and prints a
+// progress report. Run with `npm run balance -- [hub] [years] [difficulty] [seed]`.
+// The bot plans with the same forecasts the player sees: it adds the aircraft type and route the
+// planner rates best, re-prices weekly, re-tunes frequencies, closes losers and renews old aircraft.
 
-import { AIRCRAFT_BY_ID, type AircraftType } from '../src/data/aircraft';
+import { AIRCRAFT_BY_ID } from '../src/data/aircraft';
 import { AIRPORTS, AIRPORT_BY_CODE } from '../src/data/airports';
 import { REGIONS } from '../src/data/regions';
 import * as A from '../src/engine/actions';
 import { defaultCabin } from '../src/engine/cabin';
-import { baseDemand, optimizePrices, routeSupply, totalOf } from '../src/engine/demand';
-import { creditRating, monthProfit, monthRevenue } from '../src/engine/economy';
-import { distance } from '../src/engine/geo';
+import { baseDemand, competition, optimizePrices, routeSupply, totalOf } from '../src/engine/demand';
+import {
+  MAX_WEEKLY_HOURS, ageYears, creditRating, fixedMonthlyCosts, leaseCapacity, leaseCommitments, monthProfit, monthRevenue, trainingCost,
+} from '../src/engine/economy';
 import { airlineRank } from '../src/engine/market';
 import { createGame } from '../src/engine/newGame';
 import { LONG_HAUL_FEE, continentUnlock, maxHubs, regionUnlock } from '../src/engine/progression';
 import { advanceDay } from '../src/engine/sim';
 import { homeContinent, isHub } from '../src/engine/state';
-import type { GameState } from '../src/engine/types';
+import type { Aircraft, GameState } from '../src/engine/types';
 import { formatDate } from '../src/engine/util';
 
 const hub = process.argv[2] ?? 'MAD';
 const years = Number(process.argv[3] ?? 8);
 const difficulty = (process.argv[4] ?? 'normal') as 'easy' | 'normal' | 'hard';
+const seed = Number(process.argv[5] ?? 42);
+const quiet = process.env.QUIET === '1';
 
 const state = createGame({
-  name: 'Bot Air', code: 'BT', ceo: 'Bot', hub, difficulty, seed: 42,
+  name: 'Bot Air', code: 'BT', ceo: 'Bot', hub, difficulty, seed,
   livery: { primary: '#2266ff', secondary: '#ffffff', tail: 'solid' },
 });
 
-function pickType(dist: number, s: GameState): AircraftType {
-  const ids = dist < 500 ? ['atr72'] : dist < 3000 ? ['a320neo'] : dist < 6500 ? ['a321xlr', 'a321neo'] : ['b789', 'a359'];
-  for (const id of ids) {
-    const t = AIRCRAFT_BY_ID[id];
-    if (t.minLevel <= s.level && t.rangeKm >= dist) return t;
-  }
-  return AIRCRAFT_BY_ID['a320neo'];
+/** Types the bot considers for a distance (few families keeps training and overhead down). */
+function typesFor(s: GameState, dist: number): string[] {
+  const ids = dist < 700 ? ['atr72', 'a220_100', 'a220_300', 'a320neo']
+    : dist < 3500 ? ['a220_100', 'a220_300', 'a320neo', 'a321neo']
+    : dist < 7000 ? ['a321xlr', 'a321neo', 'a320neo', 'b788', 'b789']
+    : ['b788', 'b789', 'a359', 'b77w'];
+  return ids.filter((id) => AIRCRAFT_BY_ID[id].minLevel <= s.level && AIRCRAFT_BY_ID[id].rangeKm >= dist);
 }
 
-function botWeek(s: GameState) {
-  // Expansion
+const fixed = (s: GameState) => fixedMonthlyCosts(s);
+const reserve = (s: GameState) => 2.5 * fixed(s) + 4_000_000;
+const families = (s: GameState) => new Set(s.fleet.map((a) => AIRCRAFT_BY_ID[a.typeId].family));
+
+/** One-off and monthly cost of adding a type the airline doesn't fly yet, spread over two years. */
+function familyPenalty(s: GameState, typeId: string): number {
+  const t = AIRCRAFT_BY_ID[typeId];
+  if (families(s).has(t.family)) return 0;
+  return (s.familiesTrained.includes(t.family) ? 0 : trainingCost(t) / 24) + (s.fleet.length ? 120_000 : 0);
+}
+
+/** Unserved destinations from a hub worth a look, best markets first. */
+function candidateDests(s: GameState, from: string, n: number): string[] {
+  return AIRPORTS.filter((a) => !A.routeCheck(s, from, a.code))
+    .map((a) => ({ code: a.code, score: baseDemand(from, a.code) / (0.5 + competition(s, from, a.code).level) }))
+    .sort((x, y) => y.score - x.score)
+    .slice(0, n)
+    .map((x) => x.code);
+}
+
+interface Plan { from: string; to: string; routeId?: string; typeId: string; gain: number }
+
+/** Best new aircraft to add: tries candidate routes and types on a scratch copy of the game. */
+function bestPlan(s: GameState): Plan | null {
+  const scratch = structuredClone(s);
+  scratch.cash = 1e12;
+  const options: { from: string; to: string; routeId: string; existing: boolean }[] = [];
+  for (const r of s.routes) {
+    const w = r.history.slice(-4);
+    const seats = w.reduce((t, x) => t + x.seats, 0);
+    const lf = seats > 0 ? w.reduce((t, x) => t + x.pax, 0) / seats : 1;
+    if (lf > 0.78) options.push({ from: r.from, to: r.to, routeId: r.id, existing: true });
+  }
+  for (const h of s.hubs) {
+    for (const to of candidateDests(s, h.code, 8)) {
+      const res = A.openRoute(scratch, h.code, to);
+      if (res.ok) options.push({ from: h.code, to, routeId: res.routeId!, existing: false });
+    }
+  }
+  let best: Plan | null = null;
+  for (const o of options) {
+    const r = scratch.routes.find((x) => x.id === o.routeId)!;
+    for (const typeId of typesFor(s, r.dist)) {
+      if (!leaseOffer(s, typeId) && !canBuy(s, typeId)) continue;
+      const p = A.previewAircraft(scratch, typeId, o.routeId);
+      if (!p) continue;
+      const gain = p.gainMonthly - familyPenalty(s, typeId) - (o.existing ? 0 : 40_000);
+      if (gain > 80_000 && (!best || gain > best.gain)) best = { from: o.from, to: o.to, routeId: o.existing ? o.routeId : undefined, typeId, gain };
+    }
+  }
+  return best;
+}
+
+/** Lease offer the bot would take for a type: new, or young and in good shape, delivered soon. */
+function leaseOffer(s: GameState, typeId: string) {
+  return s.market.leases.filter((o) => o.typeId === typeId && o.deliveryDays < 120 && (o.isNew || o.condition > 70) &&
+    leaseCommitments(s) + o.monthly <= leaseCapacity(s))
+    .sort((a, b) => a.deliveryDays - b.deliveryDays)[0];
+}
+
+/** Cash the bot could put into a purchase: its own above the reserve, plus a 10-year loan while credit is sound. */
+function buyingPower(s: GameState): number {
+  const rating = creditRating(s);
+  const credit = rating === 'AAA' || rating === 'AA' || rating === 'A' ? A.loanTerms(s, 120).max : 0;
+  return s.cash - reserve(s) * 1.5 + credit * 0.8;
+}
+
+const canBuy = (s: GameState, typeId: string) => buyingPower(s) > A.newOrderQuote(s, typeId, 1, defaultCabin(AIRCRAFT_BY_ID[typeId])).total;
+
+/** Acquire an aircraft of the type: lease if an offer exists, otherwise buy new (borrowing if needed). */
+function acquire(s: GameState, typeId: string, base: string): Aircraft | null {
+  const t = AIRCRAFT_BY_ID[typeId];
+  const offer = leaseOffer(s, typeId);
+  let res: A.Result = { ok: false, error: 'none' };
+  if (offer) res = A.leaseAircraft(s, offer.id, base, defaultCabin(t));
+  if (!res.ok && canBuy(s, typeId)) {
+    const need = A.newOrderQuote(s, typeId, 1, defaultCabin(t)).total + reserve(s) - s.cash;
+    if (need > 0) A.takeLoan(s, Math.max(1_000_000, need), 120);
+    res = A.orderNew(s, typeId, 1, defaultCabin(t), base);
+  }
+  return res.ok ? s.fleet[s.fleet.length - 1] : null;
+}
+
+function grow(s: GameState) {
+  if (s.cash < reserve(s)) return;
+  const last = s.finance.history.at(-1);
+  if (last && monthProfit(last) < 0 && s.cash < reserve(s) * 2) return;
+  const plan = bestPlan(s);
+  if (process.env.DEBUG) console.log(formatDate(s.day), 'plan', plan ? `${plan.from}-${plan.to} ${plan.typeId} +${(plan.gain / 1e3).toFixed(0)}K` : 'none', 'cash', fmt(s.cash), 'reserve', fmt(reserve(s)));
+  if (!plan) return;
+  const ac = acquire(s, plan.typeId, plan.from);
+  if (!ac) return;
+  let routeId = plan.routeId;
+  if (!routeId) {
+    const res = A.openRoute(s, plan.from, plan.to);
+    if (!res.ok) return;
+    routeId = res.routeId!;
+  }
+  A.assignAircraft(s, ac.id, routeId, A.suggestFreq(s, ac, routeId));
+  const r = s.routes.find((x) => x.id === routeId)!;
+  r.prices = optimizePrices(s, r, routeSupply(s, r, false));
+}
+
+/** Re-tune each schedule to current conditions, then put spare hours where they add the most. */
+function tuneSchedules(s: GameState) {
+  for (const ac of s.fleet) {
+    if (ac.status === 'delivering') continue;
+    for (const a of [...ac.assignments]) {
+      const f = A.suggestFreq(s, ac, a.routeId);
+      if (f !== a.freq) A.assignAircraft(s, ac.id, a.routeId, f);
+    }
+    if (A.hoursUsed(ac, s) > MAX_WEEKLY_HOURS * 0.75) continue;
+    let best: { routeId: string; freq: number; gain: number } | null = null;
+    for (const r of s.routes) {
+      if (r.from !== ac.hub || ac.assignments.some((x) => x.routeId === r.id) || A.canFly(AIRCRAFT_BY_ID[ac.typeId], r.from, r.to)) continue;
+      const before = A.yearlyRouteProfit(s, r.id);
+      const f = A.suggestFreq(s, ac, r.id);
+      if (f <= 0) continue;
+      ac.assignments.push({ routeId: r.id, freq: f });
+      const gain = A.yearlyRouteProfit(s, r.id) - before;
+      ac.assignments.pop();
+      if (gain > 20_000 && (!best || gain > best.gain)) best = { routeId: r.id, freq: f, gain };
+    }
+    if (best) A.assignAircraft(s, ac.id, best.routeId, best.freq);
+  }
+}
+
+/** Close routes that keep losing money before aircraft costs; hand back aircraft left idle. */
+function prune(s: GameState) {
+  for (const r of [...s.routes]) {
+    const h = r.history.slice(-8);
+    if (h.length === 8 && h.reduce((t, w) => t + w.rev - w.cost, 0) < 0) A.closeRoute(s, r.id);
+  }
+  for (const ac of [...s.fleet]) {
+    const key = `botIdle:${ac.id}`;
+    if (ac.status !== 'active' || ac.assignments.some((a) => a.freq > 0)) {
+      delete s.flags[key];
+      continue;
+    }
+    s.flags[key] = (s.flags[key] ?? 0) + 1;
+    if (s.flags[key] >= 3) {
+      A.sellAircraft(s, ac.id);
+      delete s.flags[key];
+    }
+  }
+}
+
+/** Replace a worn-out airframe: acquire a new one of the type, move the schedule over, sell the old. */
+function renew(s: GameState) {
+  const old = s.fleet.find((a) => a.status === 'active' && ageYears(s, a) > 16 && a.assignments.length > 0);
+  if (!old || s.cash < reserve(s)) return;
+  const fresh = acquire(s, old.typeId, old.hub);
+  if (!fresh) return;
+  for (const a of old.assignments) fresh.assignments.push({ ...a });
+  A.sellAircraft(s, old.id);
+}
+
+function expand(s: GameState) {
   for (const r of REGIONS) {
     if (r.continent !== homeContinent(s)) continue;
     const o = regionUnlock(s, r.id);
-    if (o.available && s.cash > o.fee * 2.5) A.unlockRegion(s, r.id);
+    if (o.available && s.cash > o.fee + reserve(s) * 1.5) A.unlockRegion(s, r.id);
   }
-  if (!s.licenses.longHaul && s.level >= 5 && s.cash > LONG_HAUL_FEE * 3) A.buyLongHaulLicense(s);
+  if (!s.licenses.longHaul && s.level >= 5 && s.cash > LONG_HAUL_FEE + reserve(s) * 1.5) A.buyLongHaulLicense(s);
   if (s.licenses.longHaul) {
-    for (const c of ['NA', 'AS', 'ME', 'SA', 'AF', 'OC', 'EU'] as const) {
+    for (const c of ['NA', 'EU', 'AS', 'ME', 'SA', 'AF', 'OC'] as const) {
       const o = continentUnlock(s, c);
-      if (o.available && s.cash > o.fee * 2.5) A.unlockContinent(s, c);
+      if (o.available && s.cash > o.fee + reserve(s) * 2) A.unlockContinent(s, c);
     }
   }
-  if (s.hubs.length < maxHubs(s.level) && s.cash > 60_000_000) {
-    const cand = AIRPORTS.filter((a) => s.unlockedRegions.includes(a.region) && !isHub(s, a.code) && a.size >= 4 &&
-      a.continent === homeContinent(s))
+  if (s.hubs.length < maxHubs(s.level) && s.fleet.length > 15 * s.hubs.length && s.cash > 30_000_000 + reserve(s)) {
+    const cand = AIRPORTS.filter((a) => s.unlockedRegions.includes(a.region) && !isHub(s, a.code) && a.size >= 4 && a.continent === homeContinent(s))
       .sort((a, b) => b.pop - a.pop)[0];
     if (cand) A.openHub(s, cand.code);
   }
+}
 
-  // Open routes from hubs to the best unserved markets
-  const maxRoutes = 3 + s.fleet.length * 0.8;
-  if (s.routes.length < maxRoutes) {
-    for (const h of s.hubs) {
-      const cands = AIRPORTS.filter((a) => !A.routeCheck(s, h.code, a.code))
-        .map((a) => ({ a, d: baseDemand(h.code, a.code) }))
-        .sort((x, y) => y.d - x.d);
-      const best = cands[0];
-      if (best && best.d > 60 && s.cash > 5_000_000) A.openRoute(s, h.code, best.a.code);
-    }
+function botWeek(s: GameState) {
+  for (const d of [...s.decisions]) A.resolveDecision(s, d.id, d.options[0].id);
+  // Borrow rather than slide into bankruptcy.
+  if (s.cash < 0) A.takeLoan(s, Math.min(A.loanTerms(s, 60).max, -s.cash + fixed(s)), 60);
+  const week = Math.floor(s.day / 7);
+  if (week % 4 === 0) {
+    prune(s);
+    tuneSchedules(s);
+    renew(s);
+    expand(s);
   }
-
-  // Fleet: add capacity where loads are high
-  for (const r of [...s.routes].sort((x, y) => baseDemand(y.from, y.to) - baseDemand(x.from, x.to))) {
-    const sup = routeSupply(s, r, false);
-    const seats = totalOf(sup.seats) * 2;
-    const w = r.history.at(-1);
-    const lf = w && w.seats > 0 ? w.pax / w.seats : 1;
-    if (seats > 0 && (lf < 0.82 || !w)) continue;
-    const t = pickType(r.dist, s);
-    const cur = (ac: (typeof s.fleet)[number]) => ac.assignments.find((x) => x.routeId === r.id)?.freq ?? 0;
-    const idle = s.fleet.find((ac) => ac.hub === r.from && ac.status !== 'maintenance' && !A.canFly(AIRCRAFT_BY_ID[ac.typeId], r.from, r.to) && A.maxFreqFor(s, ac, r.id) - cur(ac) >= 3);
-    if (idle) {
-      A.assignAircraft(s, idle.id, r.id, Math.min(A.maxFreqFor(s, idle, r.id), cur(idle) + 14));
-      continue;
-    }
-    const lastProfit = s.finance.history.at(-1) ? monthProfit(s.finance.history.at(-1)!) : 0;
-    const reserve = 6_000_000 + (s.finance.history.at(-1) ? Object.values(s.finance.history.at(-1)!.exp).reduce((a, b) => a + b, 0) * 0.5 : 0);
-    if (s.cash < reserve || (lastProfit < 0 && s.cash < reserve * 3)) break;
-    let res: A.Result = { ok: false, error: '' };
-    const offer = s.market.leases.find((o) => o.typeId === t.id && o.deliveryDays < 150);
-    if (offer) res = A.leaseAircraft(s, offer.id, r.from, defaultCabin(t));
-    if (!res.ok && s.cash > t.price + reserve * 2) res = A.orderNew(s, t.id, 1, defaultCabin(t), r.from);
-    if (!res.ok) {
-      const used = s.market.used.find((u) => !A.canFly(AIRCRAFT_BY_ID[u.typeId], r.from, r.to) && AIRCRAFT_BY_ID[u.typeId].minLevel <= s.level && u.price < s.cash * 0.5 && u.condition > 60);
-      if (used) res = A.buyUsed(s, used.id, r.from);
-    }
-    if (res.ok) {
-      const ac = s.fleet[s.fleet.length - 1];
-      ac.assignments.push({ routeId: r.id, freq: Math.min(A.maxFreqFor(s, ac, r.id), 14) });
-    }
-  }
-  // Close persistent money-losers
-  for (const r of [...s.routes]) {
-    const h = r.history.slice(-8);
-    if (h.length === 8 && h.every((w) => w.rev < w.cost)) A.closeRoute(s, r.id);
-  }
-
-  // Pricing
+  if (week % 2 === 0) grow(s);
   for (const r of s.routes) {
     const sup = routeSupply(s, r, false);
     if (totalOf(sup.seats) > 0) r.prices = optimizePrices(s, r, sup);
   }
-  // Resolve decisions with the first option
-  for (const d of [...s.decisions]) A.resolveDecision(s, d.id, d.options[0].id);
 }
 
 const t0 = Date.now();
 const fmt = (v: number) => `${(v / 1e6).toFixed(1)}M`;
-console.log(`Hub ${hub} (${AIRPORT_BY_CODE[hub].city}), ${difficulty}, ${years} years`);
+const milestones: string[] = [];
+let lastLevel = 1;
+console.log(`Hub ${hub} (${AIRPORT_BY_CODE[hub].city}), ${difficulty}, seed ${seed}, ${years} years`);
 for (let d = 0; d < years * 365; d++) {
   advanceDay(state);
+  state.yearReview = null;
+  if (state.level > lastLevel) {
+    milestones.push(`L${state.level} ${formatDate(state.day)}`);
+    lastLevel = state.level;
+  }
   if (state.day % 7 === 1) botWeek(state);
+  if (process.env.DEBUG && state.day % 30 === 0) {
+    for (const r of state.routes) {
+      const h = r.history.slice(-4);
+      const rev = h.reduce((t, w) => t + w.rev, 0), cost = h.reduce((t, w) => t + w.cost, 0), pax = h.reduce((t, w) => t + w.pax, 0), seats = h.reduce((t, w) => t + w.seats, 0);
+      const acs = state.fleet.filter((a) => a.assignments.some((x) => x.routeId === r.id)).map((a) => `${a.typeId}x${a.assignments.find((x) => x.routeId === r.id)!.freq}`);
+      const c = competition(state, r.from, r.to);
+      console.log(`   ${r.from}-${r.to} ${r.dist}km ${acs.join(',')} LF ${(pax / Math.max(1, seats) * 100).toFixed(0)}% contrib/4wk ${fmt(rev - cost)} yearly ${fmt(A.yearlyRouteProfit(state, r.id))} comp ${c.level.toFixed(2)}/${c.priceIdx.toFixed(2)}`);
+    }
+  }
   if (state.gameOver) {
-    console.log('GAME OVER', state.gameOver.reason);
+    console.log('GAME OVER', formatDate(state.day), state.gameOver.reason);
     break;
   }
-  if (state.day % 91 === 0) {
+  if (state.day % 365 === 0 || (!quiet && state.day % 91 === 0)) {
     const last3 = state.finance.history.slice(-3);
-    const profit = last3.reduce((s, m) => s + monthProfit(m), 0) / Math.max(1, last3.length);
-    const rev = last3.reduce((s, m) => s + monthRevenue(m), 0) / Math.max(1, last3.length);
+    const profit = last3.reduce((s, m) => s + monthProfit(m) - m.rev.other, 0) / Math.max(1, last3.length);
+    const rev = last3.reduce((s, m) => s + monthRevenue(m) - m.rev.other, 0) / Math.max(1, last3.length);
     const lf = state.routes.reduce((s, r) => s + (r.history.at(-1)?.pax ?? 0), 0) /
       Math.max(1, state.routes.reduce((s, r) => s + (r.history.at(-1)?.seats ?? 0), 0));
+    const negMonths = state.finance.history.slice(-12).filter((m) => monthProfit(m) < 0).length;
     console.log(
       `${formatDate(state.day).padEnd(12)} lvl ${state.level} xp ${Math.round(state.xp).toString().padStart(7)} cash ${fmt(state.cash).padStart(8)} ` +
       `fleet ${String(state.fleet.length).padStart(3)} routes ${String(state.routes.length).padStart(3)} regions ${state.unlockedRegions.length} hubs ${state.hubs.length} ` +
-      `rev/mo ${fmt(rev).padStart(7)} profit/mo ${fmt(profit).padStart(7)} LF ${(lf * 100).toFixed(0)}% rep ${state.reputation.toFixed(0)} ` +
-      `pax/wk ${(state.stats.weeklyPax.at(-1) ?? 0).toLocaleString().padStart(9)} debt ${fmt(state.loans.reduce((s, l) => s + l.balance, 0))} ${creditRating(state)} rank ${airlineRank(state)} goals ${state.completedGoals.length}`,
+      `rev/mo ${fmt(rev).padStart(7)} op.profit/mo ${fmt(profit).padStart(7)} (${rev ? Math.round((profit / rev) * 100) : 0}%) neg/12 ${negMonths} ` +
+      `LF ${(lf * 100).toFixed(0)}% rep ${state.reputation.toFixed(0)} debt ${fmt(state.loans.reduce((s, l) => s + l.balance, 0))} ${creditRating(state)} ` +
+      `rank ${airlineRank(state)} goals ${state.completedGoals.length}`,
     );
   }
 }
 const elapsed = Date.now() - t0;
-console.log(`Simulated ${state.day} days in ${elapsed} ms (${(elapsed / state.day).toFixed(2)} ms/day)`);
-const top = [...state.routes].sort((a, b) => (b.lifetime.rev - b.lifetime.cost) - (a.lifetime.rev - a.lifetime.cost)).slice(0, 6);
-for (const r of top) {
-  const w = r.history.at(-1);
-  console.log(`  ${r.from}-${r.to} ${r.dist}km profit ${fmt(r.lifetime.rev - r.lifetime.cost)} LF ${w ? ((w.pax / Math.max(1, w.seats)) * 100).toFixed(0) : '-'}% conn ${w?.connPax ?? 0}`);
+console.log(`Levels: ${milestones.join(', ')}`);
+console.log(`Simulated ${state.day} days in ${elapsed} ms (${(elapsed / Math.max(1, state.day)).toFixed(2)} ms/day)`);
+if (!quiet) {
+  const top = [...state.routes].sort((a, b) => (b.lifetime.rev - b.lifetime.cost) - (a.lifetime.rev - a.lifetime.cost)).slice(0, 6);
+  for (const r of top) {
+    const w = r.history.at(-1);
+    console.log(`  ${r.from}-${r.to} ${r.dist}km profit ${fmt(r.lifetime.rev - r.lifetime.cost)} LF ${w ? ((w.pax / Math.max(1, w.seats)) * 100).toFixed(0) : '-'}% conn ${w?.connPax ?? 0}`);
+  }
+  const types = new Map<string, number>();
+  for (const a of state.fleet) types.set(a.typeId, (types.get(a.typeId) ?? 0) + 1);
+  console.log('fleet', Object.fromEntries(types));
+  const m = state.finance.history.at(-1);
+  if (m) console.log('last month', Object.fromEntries(Object.entries({ ...m.rev, ...m.exp }).filter(([, v]) => v > 0).map(([k, v]) => [k, fmt(v)])));
 }
-const worst = [...state.routes].sort((a, b) => (a.lifetime.rev - a.lifetime.cost) - (b.lifetime.rev - b.lifetime.cost)).slice(0, 3);
-for (const r of worst) console.log(`  worst ${r.from}-${r.to} ${r.dist}km profit ${fmt(r.lifetime.rev - r.lifetime.cost)}`);
-const m = state.finance.history.at(-1);
-if (m) console.log('last month', Object.fromEntries(Object.entries({ ...m.rev, ...m.exp }).map(([k, v]) => [k, fmt(v)])));
-void distance;
 if (process.env.SAVE_OUT) {
   const { writeFileSync } = await import('node:fs');
   const { serialize } = await import('../src/engine/save');

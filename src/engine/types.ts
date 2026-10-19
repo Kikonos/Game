@@ -155,6 +155,24 @@ export interface Competition {
   /** Competitor fare index (1 = market price, lower = aggressive). */
   priceIdx: number;
   name?: string;
+  /** Day rivals last reacted to the player on this route (capacity or fare war). */
+  lastMove?: number;
+}
+
+export type AlertKind = 'competition' | 'cash' | 'fleet' | 'route' | 'event';
+
+/**
+ * Something the player should not miss at high game speed. Raised by the engine during
+ * the latest simulated day (cleared at the start of each day); the UI decides how to react.
+ */
+export interface Alert {
+  kind: AlertKind;
+  title: string;
+  body: string;
+  /** Inbox message that carries the details. */
+  msgId: string;
+  /** Similar alerts merged into this one on the same day. */
+  count: number;
 }
 
 export type MsgKind = 'info' | 'good' | 'warn' | 'bad' | 'event';
@@ -284,6 +302,13 @@ export interface GameState {
   loyalty: { active: boolean; members: number; since: number };
   campaigns: Campaign[];
   hedge: { pct: number; price: number; until: number } | null;
+  /**
+   * Price levels relative to 2026: costs inflate every January, market fares follow only partly.
+   * `relief` eases saves from before the 2026 rebalance into the new cost levels (fades over a year).
+   */
+  inflation: { cost: number; fare: number; relief?: number };
+  /** Alerts raised by the most recent advanceDay(). */
+  alerts: Alert[];
   stats: {
     totalPax: number;
     totalFlights: number;
@@ -296,7 +321,10 @@ export interface GameState {
     destinationsEver: string[];
     reliability: number;
     avgQuality: number;
+    /** Most aircraft in service at once (growth XP is only paid for new records). */
     peakFleet: number;
+    bestMonthPax: number;
+    bestMonthProfit: number;
   };
   completedGoals: string[];
   messages: Message[];
