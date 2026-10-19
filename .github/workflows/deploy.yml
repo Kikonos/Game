@@ -1,8 +1,8 @@
 name: Deploy to GitHub Pages
 
+# Pages currently serves the branch directly (the build is committed in play/),
+# so this Actions deployment only runs on demand.
 on:
-  push:
-    branches: [main, claude/contrail-airline-game]
   workflow_dispatch:
 
 permissions:

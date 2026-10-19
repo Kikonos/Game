@@ -8,6 +8,10 @@
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <link rel="apple-touch-icon" href="./icons/icon-192.png" />
     <title>CONTRAIL Airline Empire</title>
+    <script>
+      // GitHub Pages serves this repository as-is; the playable build lives in play/.
+      if (/\.github\.io$/.test(location.hostname) && !/\/play\//.test(location.pathname)) location.replace('play/' + location.search);
+    </script>
   </head>
   <body>
     <div id="root"></div>
