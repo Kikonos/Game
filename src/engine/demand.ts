@@ -151,12 +151,8 @@ export function baseCompetition(a: string, b: string): number {
   const B = AIRPORT_BY_CODE[b];
   const d = distance(a, b);
   const longHaul = d > 4000 ? 0.85 : 1;
-  if (process.env.COMPV) {
-    const noise = 0.85 + 0.3 * hashUnit(pairKey(a, b));
-    return (Number(process.env.CA ?? 0.29) + Number(process.env.CB ?? 0.12) * (A.size + B.size - 2)) * noise * longHaul;
-  }
-  const noise = 0.75 + 0.5 * hashUnit(pairKey(a, b));
-  return (0.15 + 0.17 * (A.size + B.size - 2)) * noise * longHaul;
+  const noise = 0.85 + 0.3 * hashUnit(pairKey(a, b));
+  return (0.29 + 0.12 * (A.size + B.size - 2)) * noise * longHaul;
 }
 
 export function competition(state: GameState, a: string, b: string): Competition {
@@ -279,7 +275,9 @@ export function marketDepth(marketPax: number, dist: number): number {
   return Math.max(0.2, marketPax / rivalLoad(dist));
 }
 
-const FREQ_EXP = Number(process.env.FEXP ?? 0.9);
+const FREQ_EXP = 1;
+/** Travellers who stay home, drive or take the train whatever is on offer. */
+export const MARKET_FRICTION = 0.1;
 /** How much a flight's size counts next to its frequency: a 70-seater draws less than a 180-seater. */
 const SIZE_EXP = 0.5;
 
@@ -336,7 +334,7 @@ export function attractiveness(i: ShareInput): number {
 export function marketShare(i: ShareInput, extraFriction = 0): number {
   const A = attractiveness(i);
   const comp = i.comp.level / Math.max(0.5, i.comp.priceIdx);
-  return A / (A + comp + Number(process.env.FRIC ?? 0.3) + extraFriction);
+  return A / (A + comp + MARKET_FRICTION + extraFriction);
 }
 
 export function stimulation(price: number, ref: number, cls: CabinClass): number {

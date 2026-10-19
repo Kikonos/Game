@@ -473,7 +473,9 @@ export function resolveDecision(state: GameState, decisionId: string, optionId: 
 const RIVAL_AGGRESSION: Record<Difficulty, number> = { easy: 0.6, normal: 1, hard: 1.35 };
 
 /** Margin a route may earn after its share of aircraft costs (network overheads still to pay) before rivals take an interest. */
-const NORMAL_MARGIN = Number(process.env.NM ?? 0.08);
+const NORMAL_MARGIN = 0.08;
+/** Days a route is left alone after rivals have answered it. */
+const RIVAL_COOLDOWN = 150;
 
 /**
  * How much a route invites a rival response: margins above normal once its aircraft are paid for,
@@ -487,7 +489,7 @@ export function routeHeat(state: GameState, r: Route): number {
   if (rev <= 0 || seats <= 0) return 0;
   const ownership = routeFlightCost(state, r, routeSupply(state, r, false).aircraft).ownership * 7 * h.length;
   const margin = (rev - cost - ownership) / rev;
-  return Math.max(0, (margin - NORMAL_MARGIN) * Number(process.env.HM ?? 5) + Math.max(0, pax / seats - 0.92));
+  return Math.max(0, (margin - NORMAL_MARGIN) * 5 + Math.max(0, pax / seats - 0.92));
 }
 
 /**
@@ -498,7 +500,7 @@ export function routeHeat(state: GameState, r: Route): number {
 export function rivalReactions(state: GameState) {
   const hot = state.routes
     .map((r) => ({ r, heat: routeHeat(state, r), c: competition(state, r.from, r.to) }))
-    .filter((x) => x.heat > 0 && (x.c.lastMove === undefined || state.day - x.c.lastMove >= Number(process.env.CD ?? 150)))
+    .filter((x) => x.heat > 0 && (x.c.lastMove === undefined || state.day - x.c.lastMove >= RIVAL_COOLDOWN))
     .sort((a, b) => b.heat - a.heat);
   const aggression = RIVAL_AGGRESSION[state.airline.difficulty] ?? 1;
   let moves = 1 + Math.floor(state.routes.length / 10);

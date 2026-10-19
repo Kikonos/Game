@@ -501,7 +501,7 @@ function monthEnd(state: GameState) {
   updateEconomyMonthly(state);
   updateAiAirlines(state);
   competitionDrift(state);
-  if (!process.env.NORIVAL) rivalReactions(state);
+  rivalReactions(state);
   pruneModifiers(state);
   rollMonthlyEvents(state);
   state.stats.peakFleet = Math.max(state.stats.peakFleet, activeFleet);
@@ -578,7 +578,7 @@ export function advanceDay(state: GameState) {
   if (monthKey(state.day) !== prevMonth) monthEnd(state);
   if (yearOf(state.day) !== prevYear) {
     yearEnd(state, prevYear);
-    if (!process.env.NOINFL) annualInflation(state, yearOf(state.day));
+    annualInflation(state, yearOf(state.day));
     scheduleYear(state, yearOf(state.day) + 1);
   }
   if (state.gameOver) return;

@@ -15,7 +15,7 @@ export const BASE_FUEL_PRICE = 0.78; // USD per kg
 // ---------- fares ----------
 
 export function refFare(dist: number, cls: CabinClass): number {
-  const y = (45 + 0.15 * Math.pow(dist, 0.9)) * Number(process.env.FARE ?? 1);
+  const y = 45 + 0.15 * Math.pow(dist, 0.9);
   const dl = Math.min(1, dist / 6000);
   switch (cls) {
     case 'Y': return y;
@@ -124,7 +124,7 @@ export function trainingCost(t: AircraftType): number {
 
 const LANDING_PER_TONNE = [0, 5, 6, 7, 9, 11];
 /** Passenger charges (terminal, security, PRM) per departing or arriving passenger. */
-const PAX_FEE = [0, 6, 8, 11, 14, 17];
+const PAX_FEE = [0, 5, 7, 9, 12, 15];
 export const STATION_OPEN = [0, 100_000, 200_000, 400_000, 750_000, 1_200_000];
 export const STATION_MONTHLY = [0, 10_000, 18_000, 30_000, 50_000, 75_000];
 export const HUB_OPEN = [0, 2_000_000, 4_000_000, 8_000_000, 15_000_000, 25_000_000];
@@ -145,7 +145,7 @@ export function landingFee(state: GameState, t: AircraftType, code: string): num
 }
 
 export function paxFee(state: GameState, code: string): number {
-  return PAX_FEE[AIRPORT_BY_CODE[code].size] * Number(process.env.PAXF ?? 1) * feeMult(state, code);
+  return PAX_FEE[AIRPORT_BY_CODE[code].size] * feeMult(state, code);
 }
 
 // ---------- per-flight cost model ----------
@@ -206,7 +206,7 @@ export const DISTRIBUTION_RATE = 0.055;
 
 /** Ground handling per turnaround: ramp, check-in, cleaning, pushback. */
 export function handlingFee(state: GameState, seats: Seats, code: string): number {
-  return (200 + 4.5 * (seats.F + seats.J + seats.W + seats.Y)) * Number(process.env.HDL ?? 1) * feeMult(state, code);
+  return (160 + 3.6 * (seats.F + seats.J + seats.W + seats.Y)) * feeMult(state, code);
 }
 
 /** Catering & passenger service cost per passenger. */
@@ -347,7 +347,7 @@ export function leaseCommitments(state: GameState): number {
 export function leaseCapacity(state: GameState): number {
   const h = state.finance.history.slice(-3);
   const rev = h.length ? h.reduce((s, m) => s + monthRevenue(m), 0) / h.length : 0;
-  return 1_200_000 + 0.02 * Math.max(0, equity(state)) + Number(process.env.LCAP ?? 0.15) * rev;
+  return 1_200_000 + 0.02 * Math.max(0, equity(state)) + 0.1 * rev;
 }
 
 export function loanPayment(principal: number, annualRate: number, months: number): number {

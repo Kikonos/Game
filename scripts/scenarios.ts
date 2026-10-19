@@ -201,6 +201,21 @@ function t2all() {
 
 // ---------- T3: idle airline ----------
 
+/** Per-route view of the last eight weeks (set ROUTES=1). */
+function routeDetail(s: GameState) {
+  for (const r of s.routes) {
+    const h = r.history.slice(-8);
+    const sum = (f: (w: (typeof h)[number]) => number) => h.reduce((t, w) => t + f(w), 0);
+    const rev = sum((w) => w.rev), cost = sum((w) => w.cost);
+    const sup = D.routeSupply(s, r, false);
+    const own = D.routeFlightCost(s, r, sup.aircraft).ownership * 7 * h.length;
+    const c = D.competition(s, r.from, r.to);
+    const depth = D.marketDepth(D.totalOf(D.marketDemand(s, r.from, r.to)), r.dist);
+    console.log(`    ${r.from}-${r.to} ${r.dist}km LF ${P(sum((w) => w.pax) / Math.max(1, sum((w) => w.seats)))} margin ${P((rev - cost - own) / Math.max(1, rev))} ` +
+      `L ${c.level.toFixed(2)}/${D.baseCompetition(r.from, r.to).toFixed(2)} pIdx ${c.priceIdx.toFixed(2)} fare ${D.fareRatio(s, r).toFixed(2)} x ${(sup.weightedFlights / depth).toFixed(2)} depth ${depth.toFixed(1)}`);
+  }
+}
+
 const STARTER_TYPES = ['a320neo', 'b38m', 'a220_300', 'a220_100', 'e195e2', 'e190e2', 'atr72'];
 
 /**
@@ -252,6 +267,7 @@ function t3() {
     console.log(`  year ${y + 1}: op. profit ${M(p)} margin ${P(rev ? p / rev : 0)} neg months ${String(neg).padStart(2)} LF ${P(weekLf(s, 13))} cash ${M(s.cash)} ` +
       `lvl ${s.level} xp +${String(Math.round(s.xp - xp0)).padStart(5)} rep ${s.reputation.toFixed(0)} comp ${comp.map((c) => `${c.level.toFixed(1)}${c.priceIdx < 0.95 ? '$' : ''}`).join('/')} ` +
       `alerts +${alertCount(s) - a0}${s.gameOver ? ' GAME OVER' : ''}`);
+    if (process.env.ROUTES) routeDetail(s);
     if (s.gameOver) break;
   }
   if (process.env.ALERTS) console.log(alertLog.get(s)?.join('\n'));
