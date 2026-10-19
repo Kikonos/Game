@@ -2,7 +2,8 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [main]
+    # The repository's default branch is the game branch; main is kept for later.
+    branches: [main, claude/contrail-airline-game]
   workflow_dispatch:
 
 permissions:
