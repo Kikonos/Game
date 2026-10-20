@@ -4,7 +4,8 @@
 import { CalendarClock, ChevronLeft, Clock, FileSignature, Handshake, Lock, Search, Trash2, Users, Wrench } from 'lucide-react';
 import { useState } from 'react';
 import { AIRPORT_BY_CODE } from '../../data/airports';
-import { fmtDateTime, fmtDuration, fmtTime } from '../../engine/core/time';
+import { BAL } from '../../engine/core/balance';
+import { DAY, fmtDateTime, fmtDuration, fmtTime } from '../../engine/core/time';
 import type { Flight, GameState, MaintenanceEvent, Ref } from '../../engine/core/types';
 import { dutyCrew, flightCrewStatus } from '../../engine/crew';
 import { cancelCheck, delayFlight } from '../../engine/ops';
@@ -30,6 +31,8 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
   const view = f.aircraftId && f.dutyId ? dutyCrew(g, f.id) : null;
   const rival = f.operatedBy ? g.rivals.find((r) => r.id === f.operatedBy)?.name : undefined;
   const [hold, setHold] = useState(0);
+  // Beyond the roster horizon an empty duty is normal, not a problem.
+  const later = cs.level === 'missing' && f.std > g.now + BAL.rosterHorizonDays * DAY && !(view?.slots.some((x) => x.crewId));
   const rows: [string, string][] = [
     ['Aircraft', rival ? `Sub-chartered to ${rival}` : ac ? `${ac.reg}` : '—'],
     ['Type', KIND[f.kind]],
@@ -39,7 +42,7 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
     ['Block', fmtDuration(f.block)],
   ];
   if (f.pax) rows.push(['Passengers', String(f.pax)]);
-  if (d) rows.push(['Duty', `FDP ${fmtDuration(d.fdp)} of ${fmtDuration(d.maxFdp + (d.discretion ?? 0))} · ${d.sectors} sectors${d.augment ? ` · +${d.augment} pilot${d.augment > 1 ? 's' : ''}` : ''}`]);
+  if (d) rows.push(['Duty', `FDP ${fmtDuration(d.fdp)} of ${fmtDuration(d.maxFdp + (d.discretion ?? 0))} · ${d.sectors} sector${d.sectors === 1 ? '' : 's'}${d.augment ? ` · +${d.augment} pilot${d.augment > 1 ? 's' : ''}` : ''}`]);
   const live = f.status === 'scheduled' && !!f.aircraftId;
   const canSub = live && !!c && (f.kind === 'revenue' || f.kind === 'techstop');
   const doHold = () => {
@@ -52,7 +55,11 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
       <KV rows={rows} />
       {f.aircraftId && f.kind !== 'deadhead' && (
         <div className="col gap-8">
-          <div className="row gap-8"><Dot tone={LEVEL_TONE[cs.level]} /><b>Crew {cs.level === 'ok' ? 'legal' : cs.level}</b>{cs.missing.length > 0 && <span className="small bad">missing {cs.missing.join(', ')}</span>}</div>
+          {later ? (
+            <div className="row gap-8"><Dot tone="off" /><b>Not rostered yet</b><span className="small muted">the auto-roster fills duties {BAL.rosterHorizonDays} days ahead</span></div>
+          ) : (
+            <div className="row gap-8"><Dot tone={LEVEL_TONE[cs.level]} /><b>Crew {cs.level === 'ok' ? 'legal' : cs.level}</b>{cs.missing.length > 0 && <span className="small bad">missing {cs.missing.join(', ')}</span>}</div>
+          )}
           {view && view.slots.some((x) => x.crewId) && (
             <div className="sc-crew-grid">
               {view.slots.filter((x) => x.crewId).map((x) => (

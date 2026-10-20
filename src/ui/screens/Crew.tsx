@@ -1,11 +1,11 @@
 // Crew (B5): staffing strip, filterable list with 28-day duty / block bars, and a detail panel with every
 // limit, morale and fatigue, days off and a 14-day roster; Train / Hire similar. DESIGN.md §6.3.
 
-import { GraduationCap, Search, UserPlus, Users } from 'lucide-react';
+import { GraduationCap, Lock, Search, UserPlus, Users } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { flag } from '../../data/countries';
 import { flightsRev } from '../../engine/core/entities';
-import { DAY, HOUR, dayStart, fmtDate, fmtDay, monthKey, monthStart, nextMonthStart, toDate } from '../../engine/core/time';
+import { DAY, HOUR, dayStart, fmtDate, fmtDay, fmtTime, monthKey, monthStart, nextMonthStart, toDate } from '../../engine/core/time';
 import type { CrewMember, CrewStatus, GameState } from '../../engine/core/types';
 import { crewName, crewWindows, daysOffInMonth, LIMITS, rosterOf, staffing, type CrewWindows } from '../../engine/crew';
 import { Empty, Seg } from '../components/ui';
@@ -65,6 +65,9 @@ function MiniBar({ label, v, max }: { label: string; v: number; max: number }) {
   );
 }
 
+/** The crew member holds a seat on this pairing that the player set (survives the re-plan). */
+const locked = (g: GameState, pairingId: string, crewId: string) => !!g.pairings[pairingId]?.slots.some((x) => x.crewId === crewId && x.locked);
+
 /** 14 days of duties: one lane, a block per duty (report → release), coloured by contract. */
 function Roster({ g, c }: { g: GameState; c: CrewMember }) {
   const from = dayStart(g.now);
@@ -88,19 +91,20 @@ function Roster({ g, c }: { g: GameState; c: CrewMember }) {
         <span className="sc-roster-now" style={{ left: pct(g.now) }} />
       </div>
       <div className="sc-duty-list">
-        {duties.slice(0, 6).map((d) => {
+        {duties.slice(0, 8).map((d) => {
           const stops = d.flightIds.map((id) => g.flights[id]).filter(Boolean);
           const route = stops.length ? [stops[0].from, ...stops.map((f) => f.to)].join('-') : d.deadheadIds.length ? 'positioning' : 'standby';
           return (
-            <div key={d.id} className="row gap-8 small">
+            <button key={d.id} className="sc-duty-row small" onClick={() => store.openModal({ kind: 'duty', id: d.id })} disabled={!!d.done}>
               <Dot tone={d.legality === 'legal' ? 'good' : d.legality === 'tight' ? 'warn' : 'bad'} />
-              <span className="dim nowrap">{fmtDay(d.report)}</span>
+              <span className="dim nowrap">{fmtDay(d.report)} {fmtTime(d.report)}</span>
               <span className="mono ellipsis grow">{route}</span>
+              {locked(g, d.pairingId, c.id) && <Lock className="sc-ico-s accent" aria-label="set by you" />}
               <span className="num dim nowrap">{Math.round(h(d.release - d.report) * 10) / 10} h</span>
-            </div>
+            </button>
           );
         })}
-        {duties.length > 6 && <div className="tiny dim">… {duties.length - 6} more duties</div>}
+        {duties.length > 8 && <div className="small dim">… {duties.length - 8} more duties</div>}
         {!duties.length && <div className="small muted">No duties in the next 14 days.</div>}
       </div>
     </div>
@@ -144,7 +148,7 @@ function Detail({ g, c }: { g: GameState; c: CrewMember }) {
           {bar('Block 28 days', w.block28d, LIMITS.block28d)}
           {bar('Block this year', w.blockYear, LIMITS.blockYear)}
         </div>
-        <div className="upper dim">Next 14 days</div>
+        <div className="row between"><span className="upper dim">Next 14 days</span><span className="small dim">tap a duty to change its crew</span></div>
         <Roster g={g} c={c} />
         <div className="row gap-8">
           <button className="btn grow" onClick={() => store.openModal({ kind: 'train', crewId: c.id })}><GraduationCap /> Train</button>

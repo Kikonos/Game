@@ -162,8 +162,33 @@ function contractOfDuties(g: GameState, duties: Duty[]): Contract | undefined {
   return undefined;
 }
 
+/**
+ * Splits a pairing at t: duties reporting at or after t move to a new pairing with the same crew, seats and tour
+ * (tickets stay on their duties). Lets one crew member leave from t (sickness, a manual change) while the rest of
+ * the trip keeps its crew. Returns the later part, or null when one side would be empty.
+ */
+export function splitPairing(g: GameState, p: Pairing, t: Minute): Pairing | null {
+  const ds = p.dutyIds.map((id) => g.duties[id]).filter((d): d is Duty => !!d);
+  const late = ds.filter((d) => d.report >= t);
+  if (!late.length || late.length === ds.length) return null;
+  const q: Pairing = {
+    id: nextId(g, 'p'), aircraftId: p.aircraftId, contractId: p.contractId, deploymentId: p.deploymentId, base: p.base,
+    start: late[0].report, end: p.end, dutyIds: late.map((d) => d.id), slots: p.slots.map((x) => ({ ...x })), status: 'planned', legality: 'legal',
+  };
+  if (p.tour) q.tour = { ...p.tour };
+  g.pairings[q.id] = q;
+  for (const d of late) d.pairingId = q.id;
+  p.dutyIds = p.dutyIds.filter((id) => !late.some((d) => d.id === id));
+  if (p.deploymentId) g.deployments[p.deploymentId]?.pairingIds.push(q.id);
+  refreshPairing(g, p);
+  refreshPairing(g, q);
+  touchCrew(g);
+  return q;
+}
+
 /** Deletes a pairing record (caller has already released its crew and tickets). */
 export function deletePairing(g: GameState, p: Pairing): void {
+  (globalThis as any).__crewDbg?.('delete', g, p, null); // DBG-TEMP
   for (const id of p.dutyIds) {
     const d = g.duties[id];
     if (!d || d.pairingId !== p.id) continue;
@@ -220,6 +245,29 @@ function partition(g: GameState, typeId: string, units: Flight[][]): Spec[] {
     j = b.prev;
   }
   return out.reverse();
+}
+
+/**
+ * A unit too long for any legal duty (a positioning leg straight into a long sector, say) is cut at its sector
+ * boundaries so a fresh crew can join at the outstation ("slip crew": positioned in by ticket, the other crew rests
+ * there). Never at a fuel stop: a revenue sector and its tech-stop legs stay one chain.
+ */
+function slipUnits(g: GameState, typeId: string, u: Flight[]): Flight[][] {
+  if (u.length < 2) return [u];
+  const sh = shape(typeId, u);
+  const rc = typeOf(typeId).restClass;
+  if (pickAugment(sh, localMin(sh.dep, sh.report), true, rc, canAugment(g, rc)).ok) return [u];
+  const out: Flight[][] = [];
+  let cur: Flight[] = [];
+  for (const f of u) {
+    if (cur.length && f.kind !== 'techstop') {
+      out.push(cur);
+      cur = [];
+    }
+    cur.push(f);
+  }
+  if (cur.length) out.push(cur);
+  return out;
 }
 
 const isDeploymentContract = (g: GameState, c: Contract | undefined): c is Contract & { pattern: { kind: 'base'; base: string } } =>
@@ -289,7 +337,7 @@ export function planAircraft(g: GameState, acId: string, from: Minute): void {
       }
     }
     if (u.length) units.push(u);
-    specs.push(...partition(g, typeId, units));
+    specs.push(...partition(g, typeId, units.flatMap((x) => slipUnits(g, typeId, x))));
   }
 
   // Duty records (reused when the flights are the same).
@@ -499,16 +547,20 @@ function chainDeployment(g: GameState, c: Contract, acId: string, duties: Duty[]
       if (duties.every((d) => ch.take(d))) break;
     }
     dep.setsOnStation = sets;
+    dep.sized = sets;
     dep.anchors = anchorsFor(start, sets, R);
     g.deployments[dep.id] = dep;
   }
+  dep.sized ??= dep.setsOnStation;
   dep.anchors ??= anchorsFor(dep.start, dep.setsOnStation, R);
   dep.end = Math.max(dep.end, duties[duties.length - 1].release);
   const ch = chainer(g, dep, (p, d) => crewOkHook(g, p, d));
   const left: Duty[] = [];
   for (const d of duties) {
     if (ch.take(d)) continue;
-    if (dep.anchors.length < BAL.maxSetsOnStation) {
+    // One extra set at most beyond the sizing (a whole tour of crew for a stray duty is waste: it flies as a
+    // trip from base instead); a duty before the deployment's start can't join any set.
+    if (d.report >= dep.start && dep.anchors.length < Math.min(BAL.maxSetsOnStation, dep.sized + 1)) {
       dep.anchors.push(dayStart(d.report) + R);
       dep.setsOnStation = dep.anchors.length;
       if (ch.take(d)) continue;

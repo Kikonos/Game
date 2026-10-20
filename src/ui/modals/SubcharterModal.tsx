@@ -9,9 +9,20 @@ import { Modal, Toggle } from '../components/ui';
 import { money } from '../format';
 import { KV } from '../screens/common';
 import { store, useGame } from '../store';
-import { legsByDay, rotationOf, subcharter, subcharterable, subcharterQuote } from '../subcharter';
+import type { Flight } from '../../engine/core/types';
+import { rotationOf, subcharter, subcharterable, subcharterQuote } from '../../engine/ops';
 
 const MAX_DAYS = 14;
+
+/** Legs grouped by UTC day of departure. */
+function legsByDay(legs: Flight[]): { day: number; legs: Flight[] }[] {
+  const m = new Map<number, Flight[]>();
+  for (const f of legs) {
+    const d = Math.floor((f.std + f.delay) / DAY);
+    m.set(d, [...(m.get(d) ?? []), f]);
+  }
+  return [...m.entries()].sort((a, b) => a[0] - b[0]).map(([day, l]) => ({ day, legs: l }));
+}
 
 export function SubcharterModal({ contractId, flightId }: { contractId: string; flightId?: string }) {
   const g = useGame();
@@ -19,18 +30,18 @@ export function SubcharterModal({ contractId, flightId }: { contractId: string; 
   const rev = flightsRev(g);
   const all = useMemo(() => subcharterable(g, contractId), [g, contractId, rev, g.now]); // eslint-disable-line react-hooks/exhaustive-deps
   const base = c?.pattern.kind === 'base';
-  const days = useMemo(() => legsByDay(all).slice(0, MAX_DAYS), [all]);
+  const days = useMemo(() => legsByDay(all).filter((d) => d.legs.some((x) => x.kind === 'revenue' || x.kind === 'techstop')).slice(0, MAX_DAYS), [all]);
   const f = flightId ? g.flights[flightId] : undefined;
-  const rot = useMemo(() => (f && f.status === 'scheduled' ? rotationOf(g, f) : []), [g, f, rev]); // eslint-disable-line react-hooks/exhaustive-deps
+  const rot = useMemo(() => (f && f.status === 'scheduled' ? rotationOf(g, f.id) : []), [g, f, rev]); // eslint-disable-line react-hooks/exhaustive-deps
   const [picked, setPicked] = useState<Set<number>>(() => new Set(rot.length || !base ? [] : days.slice(0, 1).map((d) => d.day)));
   const [mode, setMode] = useState<'rotation' | 'days' | 'rest'>(rot.length ? 'rotation' : base ? 'days' : 'rest');
   const close = () => store.closeModal();
   if (!c) return null;
   const legs = mode === 'rotation' ? rot : mode === 'rest' ? all : days.filter((d) => picked.has(d.day)).flatMap((d) => d.legs);
-  const q = subcharterQuote(g, contractId, legs);
+  const q = legs.length ? subcharterQuote(g, legs.map((x) => x.id)) : null;
   const go = () => {
     if (!q) return;
-    const r = store.act((gg) => subcharter(gg, q));
+    const r = store.act((gg) => subcharter(gg, q.flightIds, q.cost));
     if (r.ok) close();
   };
   const toggle = (d: number, on: boolean) => {
@@ -43,7 +54,7 @@ export function SubcharterModal({ contractId, flightId }: { contractId: string; 
     <Modal title={`Sub-charter: ${c.title}`} icon={<Handshake className="accent" />} onClose={close} footer={
       <>
         <button className="btn" onClick={close}>Keep flying it</button>
-        <button className="btn btn-primary" onClick={go} disabled={!q || !q.revenue}>Hand over for {q ? money(q.cost) : '—'}</button>
+        <button className="btn btn-primary" onClick={go} disabled={!q || !q.revenueLegs}>Hand over for {q ? money(q.cost) : '—'}</button>
       </>
     }>
       <div className="col gap-12">
@@ -67,10 +78,11 @@ export function SubcharterModal({ contractId, flightId }: { contractId: string; 
             ))}
           </div>
         )}
-        {q && q.revenue > 0 ? (
+        {q && q.revenueLegs > 0 ? (
           <KV rows={[
             ['Operator', q.rivalName],
-            ['Legs', `${q.revenue} revenue leg${q.revenue > 1 ? 's' : ''} · ${q.bh.toFixed(1)} BH`],
+            ['Legs', `${q.revenueLegs} revenue leg${q.revenueLegs > 1 ? 's' : ''} · ${q.bh.toFixed(1)} BH`],
+            ['Still billed to the client', money(q.revenue)],
             ['Their price', money(q.cost)],
             ['Cancelling instead', q.cancel ? `${money(q.cancel)} compensation, reliability falls` : 'no compensation, reliability falls'],
           ]} />

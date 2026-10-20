@@ -3,7 +3,7 @@
 import { nextId } from './entities';
 import { schedule } from './queue';
 import { requestPause } from './pause';
-import type { Decision, GameState, Message } from './types';
+import type { ActionResult, Decision, GameState, Message } from './types';
 
 const MAX_MESSAGES = 300;
 
@@ -21,4 +21,28 @@ export function pushDecision(g: GameState, d: Omit<Decision, 'id' | 't'>): Decis
   schedule(g, dec.expires, 'decision.expire', dec.id);
   requestPause('decision');
   return dec;
+}
+
+/** Marks messages read (all when `ids` is omitted). Player action; never fails. */
+export function markRead(g: GameState, ids?: string[]): ActionResult<{ count: number }> {
+  const want = ids ? new Set(ids) : null;
+  let count = 0;
+  for (const m of g.messages) {
+    if (m.read || (want && !want.has(m.id))) continue;
+    m.read = true;
+    count++;
+  }
+  return { ok: true, data: { count } };
+}
+
+/** Unread messages and open decisions (shell badge). Pure. */
+export function inboxCounts(g: GameState): { unread: number; alerts: number; decisions: number } {
+  let unread = 0;
+  let alerts = 0;
+  for (const m of g.messages) {
+    if (m.read) continue;
+    unread++;
+    if (m.tone === 'bad' || m.tone === 'warn') alerts++;
+  }
+  return { unread, alerts, decisions: g.decisions.length };
 }

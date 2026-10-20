@@ -6,7 +6,8 @@
 import { ArrowLeftRight, ChevronLeft, Lock, LockOpen, Plus, UserMinus, Users } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { flightsRev } from '../../engine/core/entities';
-import { fmtDateTime, fmtDuration, fmtTime } from '../../engine/core/time';
+import { BAL } from '../../engine/core/balance';
+import { DAY, fmtDateTime, fmtDuration, fmtTime } from '../../engine/core/time';
 import type { GameState, Role } from '../../engine/core/types';
 import {
   assignCrew, crewRev, dutyCandidates, dutyCrew, dutyLegality, dutyOf, rosterOf, swapCrew, unassignCrew, unlockCrew,
@@ -49,10 +50,10 @@ interface Pick {
   role: Role;
 }
 
-function Seat({ s, busy, onChange, onRemove, onUnlock }: { s: RosterSlotView; busy: boolean; onChange: () => void; onRemove: () => void; onUnlock: () => void }) {
-  const tone = s.crewId ? (s.level ? LEVEL_TONE[s.level] : 'off') : 'bad';
+function Seat({ s, busy, later, onChange, onRemove, onUnlock }: { s: RosterSlotView; busy: boolean; later: boolean; onChange: () => void; onRemove: () => void; onUnlock: () => void }) {
+  const tone = s.crewId ? (s.level ? LEVEL_TONE[s.level] : 'off') : later ? 'off' : 'bad';
   return (
-    <div className={`sc-seat ${s.crewId ? '' : 'empty'} ${s.level ?? ''}`}>
+    <div className={`sc-seat ${s.crewId ? '' : later ? 'open' : 'vacant'} ${s.level ?? ''}`}>
       <span className={`sc-role r-${s.role}`}>{s.role}</span>
       <span className="grow col sc-seat-who">
         <span className="row gap-8">
@@ -60,7 +61,7 @@ function Seat({ s, busy, onChange, onRemove, onUnlock }: { s: RosterSlotView; bu
           {s.crewId ? (
             <button className="sc-seat-name ellipsis" onClick={() => store.navigate('crew', { sel: { kind: 'crew', id: s.crewId! } })}>{s.name}</button>
           ) : (
-            <b className="bad">Empty seat</b>
+            <b className={later ? 'muted' : 'bad'}>{later ? 'Open seat' : 'Empty seat'}</b>
           )}
         </span>
         <span className="small muted row gap-8">
@@ -110,9 +111,10 @@ function Picker({ g, v, pick, setPick, back }: { g: GameState; v: DutyCrewView; 
   const [all, setAll] = useState(false);
   const rev = flightsRev(g);
   const crev = crewRev(g);
-  const list = useMemo(() => dutyCandidates(g, v.dutyId, pick.role), [g, v.dutyId, pick.role, rev, crev, g.now]); // eslint-disable-line react-hooks/exhaustive-deps
-  const shown = all ? list : list.slice(0, PAGE);
   const holder = pick.seat?.crewId ?? null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const list = useMemo(() => dutyCandidates(g, v.dutyId, pick.role).filter((c) => c.crewId !== holder), [g, v.dutyId, pick.role, holder, rev, crev, g.now]);
+  const shown = all ? list : list.slice(0, PAGE);
   const tap = (c: DutyCandidate) => {
     const swapDuty = holder && c.codes.includes('overlap') ? overlapDuty(g, v, c.crewId) : null;
     if (c.level === 'illegal' && confirm !== c.crewId) return setConfirm(c.crewId);
@@ -167,6 +169,7 @@ export function DutyModal({ id }: { id: string }) {
   const open = v.dutyIds.map((x) => g.duties[x]).filter((x) => x && !x.done);
   const busy = v.inProgress;
   const route = dutyRoute(g, d.id);
+  const later = d.report > g.now + BAL.rosterHorizonDays * DAY && v.slots.every((x) => !x.crewId);
   const remove = (s: RosterSlotView) => {
     if (!s.crewId) return;
     if (!s.extra && forceOff !== s.crewId) return setForceOff(s.crewId);
@@ -199,6 +202,12 @@ export function DutyModal({ id }: { id: string }) {
           </div>
           {c && <span className="chip sc-chip sc-kchip ellipsis" style={{ ['--kc' as string]: contractColor(c.color) }}><span className="sc-kdot" />{c.title}</span>}
         </div>
+        {later ? (
+          <div className="sc-legal later">
+            <div className="row gap-8"><Dot tone="off" /><b>Not rostered yet</b></div>
+            <div className="small muted">The auto-roster fills duties {BAL.rosterHorizonDays} days ahead. You can still pick crew now; your choices are locked in.</div>
+          </div>
+        ) : (
         <div className={`sc-legal ${legal.level}`}>
           <div className="row gap-8"><Dot tone={LEVEL_TONE[legal.level]} /><b>{legal.level === 'legal' ? 'Legal: every seat filled, all limits kept' : legal.level === 'tight' ? 'Legal but tight' : 'Illegal: this duty cannot fly as rostered'}</b></div>
           {legal.warnings.slice(0, 5).map((w, i) => (
@@ -206,6 +215,7 @@ export function DutyModal({ id }: { id: string }) {
           ))}
           {legal.warnings.length > 5 && <div className="tiny dim">… {legal.warnings.length - 5} more</div>}
         </div>
+        )}
         {busy && <div className="small warn">A duty of this trip is under way. You can change the crew after it releases.</div>}
         {pick ? (
           <Picker g={g} v={v} pick={pick} setPick={setPick} back={() => setPick(null)} />
@@ -213,7 +223,7 @@ export function DutyModal({ id }: { id: string }) {
           <div className="col">
             {v.slots.map((s) => (
               <div key={`${s.index}-${s.crewId ?? 'empty'}`} className="col gap-4">
-                <Seat s={s} busy={busy} onChange={() => setPick({ seat: s, role: s.role })} onRemove={() => remove(s)} onUnlock={() => s.crewId && store.act((gg) => unlockCrew(gg, v.dutyId, s.crewId!), { toastOk: false })} />
+                <Seat s={s} busy={busy} later={later} onChange={() => setPick({ seat: s, role: s.role })} onRemove={() => remove(s)} onUnlock={() => s.crewId && store.act((gg) => unlockCrew(gg, v.dutyId, s.crewId!), { toastOk: false })} />
                 {forceOff && forceOff === s.crewId && (
                   <div className="sc-force row gap-8">
                     <span className="small bad grow">The {s.role} seat is required. Leave it empty? Auto-roster refills it if the policy is on; otherwise the flight is flagged red.</span>

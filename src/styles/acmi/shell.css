@@ -19,5 +19,14 @@
   border: 1px solid rgba(251, 191, 36, 0.45); background: rgba(251, 191, 36, 0.1); color: var(--warn); font: inherit; text-align: left;
   cursor: pointer; max-width: 170px; flex-shrink: 1; min-width: 0;
 }
-.pause-badge .pb-k { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.8; }
+.pause-badge .pb-k { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.8; }
 .pause-badge .pb-r { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Integration: iPad legibility and touch floor for every BLOCK HOURS screen: text ≥ 12 px, targets ≥ 44 px. */
+.shell.acmi .tiny, .shell.acmi .upper, .acmi-ng .upper, .acmi-ng .tiny { font-size: 12px; }
+.shell.acmi .tab .count { font-size: 12px; }
+:where(.touch) .shell.acmi .tab, :where(.touch) .acmi-ng .tab { height: 44px; }
+:where(.touch) .shell.acmi .seg button, :where(.touch) .acmi-ng .seg button { min-height: 44px; }
+:where(.touch) .shell.acmi .btn-sm { height: 44px; }
+:where(.touch) .shell.acmi .btn-icon.btn-sm { width: 44px; }
+:where(.touch) .shell.acmi button.chip { min-height: 44px; padding-inline: 14px; }

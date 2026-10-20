@@ -17,6 +17,7 @@ export { delayFlight, delayOf, schedSta } from './flights';
 export { GOALS, type GoalDef } from './goals';
 export { aogChance, cancelCheck, checkAirportOk, checkStatus, groundGaps, scheduleCheck, type CheckStatus } from './maintenance';
 export { acquireAircraft } from './market';
+export { rotationOf, SUB_LEAD, subcharter, subcharterable, subcharterQuote, type SubcharterQuote } from './subcharter';
 export { usd } from './util';
 
 function daily(g: GameState) {

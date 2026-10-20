@@ -293,7 +293,8 @@ export function onContractEnd(g: GameState, ev: SimEvent): void {
     last = Math.max(last, f.status === 'enroute' ? (f.eta ?? f.sta) : f.sta + f.delay);
   }
   if (last) {
-    schedule(g, Math.max(g.now + 5, last + 5), 'contract.end', c.id);
+    // Next look just after the last leg's on-blocks; a leg held past its time is looked at hourly, not every 5 min.
+    schedule(g, Math.max(g.now + 60, last + 5), 'contract.end', c.id);
     return;
   }
   completeContract(g, c);

@@ -13,7 +13,7 @@ import { DAY, dayStart, fmtDate, fmtDateTime, yearOf } from '../core/time';
 import type { ActionResult, CrewMember, GameState, Minute, Role, SimEvent, TrainingKind } from '../core/types';
 import { hashUnit } from '../core/util';
 import { crewName, makeCrewMember, salaryFor } from './generate';
-import { removeCrew } from './roster';
+import { removeCrew, rosterOf } from './roster';
 import { block28, crewIx, segsOf, touchCrew } from './timeline';
 
 export interface HireRequest {
@@ -292,20 +292,23 @@ export function onTrainingDone(g: GameState, ev: SimEvent): void {
 export function dailySickness(g: GameState): void {
   for (const c of Object.values(g.crew)) {
     if (c.status === 'sick' || c.status === 'joining' || c.status === 'training' || c.status === 'leave' || c.status === 'onDuty') continue;
+    if (c.blocks?.some((b) => b.why === 'sick' && b.to > g.now)) continue;
     const p = (BAL.sickPerMonth / 30) * (1 + Math.max(0, 60 - c.morale) / 100);
     if (!chance(g, p)) continue;
     const days = int(g, BAL.sickDays[0], BAL.sickDays[1]);
-    const from = g.now;
-    const to = dayStart(g.now) + days * DAY;
+    // A sick call covers the coming days (crew call in the evening before): today's duties stay, tomorrow's are
+    // re-crewed with a day's notice for a replacement to position.
+    let from = dayStart(g.now) + DAY;
+    for (const d of rosterOf(g, c.id, g.now, from)) if (d.report < from) from = Math.max(from, d.release);
+    const to = from + days * DAY;
     c.blocks = [...(c.blocks ?? []), { from, to, why: 'sick' }];
-    c.status = 'sick';
     const res = removeCrew(g, c.id, from, to);
     const f = res.uncovered.map((id) => g.flights[id]).filter((x) => x && x.std < to + DAY).sort((a, b) => a.std - b.std)[0];
     if (f) {
       pushDecision(g, {
         kind: 'sickCrew',
         title: `${crewName(c)} called in sick`,
-        body: `${crewName(c)} (${c.role}) is sick for ${days} days and nobody legal can take ${f.no} ${f.from}–${f.to} on ${fmtDateTime(f.std)}.`,
+        body: `${crewName(c)} (${c.role}) is off sick from tomorrow for ${days} days and nobody legal can take ${f.no} ${f.from}–${f.to} on ${fmtDateTime(f.std)}.`,
         options: [
           { id: 'callIn', label: 'Call in a crew member', desc: 'Someone gives up days off to cover.', tone: 'warn', chips: ['Morale −4'] },
           { id: 'subcharter', label: 'Sub-charter the flight', desc: 'A rival operates the legs; we still bill the client.', tone: 'warn' },
@@ -317,7 +320,7 @@ export function dailySickness(g: GameState): void {
         data: { crewId: c.id, flightId: f.id },
       });
     } else {
-      pushMessage(g, { tone: 'info', cat: 'crew', title: `${crewName(c)} is off sick`, body: `${days} days. Their duties were re-crewed.`, ref: { kind: 'crew', id: c.id } });
+      pushMessage(g, { tone: 'info', cat: 'crew', title: `${crewName(c)} is off sick`, body: `From tomorrow, ${days} days. Their duties were re-crewed.`, ref: { kind: 'crew', id: c.id } });
     }
   }
 }

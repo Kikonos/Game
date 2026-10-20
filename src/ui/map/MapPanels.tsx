@@ -1,7 +1,7 @@
 // Ops Map (B4) side panels (right, 360 px): aircraft, airport and offer. They re-render with the
 // hourly emit only (calm): progress bars and countdowns step once per game hour.
 
-import { CalendarRange, FileSearch, Plane, Wrench, X } from 'lucide-react';
+import { CalendarRange, FileSearch, Plane, Users, Wrench, X } from 'lucide-react';
 import { type ReactNode, useMemo } from 'react';
 import { ACMI_TYPES, artFor } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE } from '../../data/airports';
@@ -159,6 +159,9 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
           <div className="small muted">{crewFlight ? 'No crew rostered yet.' : 'No flights planned.'}</div>
         )}
         {cstat && cstat.missing.length > 0 && <div className="small tone-bad op-gap">Missing: {cstat.missing.join(', ')}</div>}
+        {crewFlight && crewFlight.dutyId && crewFlight.status === 'scheduled' && (
+          <button className="btn op-gap op-crew-btn" onClick={() => store.openModal({ kind: 'duty', id: crewFlight.id })}><Users /> Adjust crew</button>
+        )}
       </Section>
       <Section title="Next legs">
         {legs.length ? legs.map((f) => <LegRow key={f.id} g={g} f={f} />) : <div className="small muted">Nothing scheduled. Idle aircraft earn nothing: check the market.</div>}

@@ -179,6 +179,9 @@ export function posSeg(t: TicketPlan, c: CrewMember, fresh = false): Seg {
   return { kind: 'pos', start: t.std - CHECKIN(), end: t.sta, fdp: 0, maxFdp: 0, block: 0, sectors: 0, aug: false, disruptive: false, rest: posRest(t, t.to === c.base), at: t.to, dutyId: undefined, fresh };
 }
 
+/** A ticket already flown on its own is in the crew log (onFlightArrCrew); only merged ones still shape the duty. */
+const flown = (t: TicketPlan): boolean => (t as Partial<Flight>).status === 'done';
+
 /**
  * Segs of duty d (pairing p) for crew c, with its out/home tickets: a ticket arriving less than minimum rest
  * before report is part of the FDP (F7); one leaving within 10 h of release extends the duty; others are
@@ -198,7 +201,7 @@ export function dutySegs(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: 
       const lim = fdpLimitAt(g, p, d, out.from, start);
       max = lim.max + (d.discretion ?? 0);
       tz = lim.ref.tz;
-    } else segs.push(posSeg(out, c, fresh));
+    } else if (!flown(out)) segs.push(posSeg(out, c, fresh));
   }
   let end = d.release;
   let at = d.restAt;
@@ -207,7 +210,7 @@ export function dutySegs(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: 
     if (home.std - d.release < 600) {
       end = home.sta;
       at = home.to;
-    } else tail = posSeg(home, c, fresh);
+    } else if (!flown(home)) tail = posSeg(home, c, fresh);
   }
   segs.push({
     kind: 'duty', start, end, fdp, maxFdp: max, block: dutyBlock(g, d), sectors: d.sectors, aug: d.augment > 0,

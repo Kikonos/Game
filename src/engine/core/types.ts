@@ -412,6 +412,8 @@ export interface Flight {
   heldAt?: Minute;
   /** B3: lateness the player accepted with delayFlight (minutes); recovery's lateness cap counts on top of it. */
   lateOk?: number;
+  /** B2: the crew-shortage warning was given for this flight (once; saved so a reload does not repeat it). */
+  crewWarned?: boolean;
 }
 
 // ======================================================================
@@ -549,6 +551,8 @@ export interface Deployment {
   pairingIds: string[];
   /** B2: first tour change per set (staggered); later changes every rotationWeeks. */
   anchors?: Minute[];
+  /** B2: sets from the initial sizing (later growth is capped at one more). */
+  sized?: number;
 }
 
 export interface HireOrder {

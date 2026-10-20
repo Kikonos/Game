@@ -3,9 +3,10 @@
 
 import { BAL } from '../core/balance';
 import { typeOf } from '../core/perf';
-import type { CrewMember, Duty, GameState, Legality, Pairing } from '../core/types';
+import { fmtDay } from '../core/time';
+import type { CrewMember, Duty, GameState, Legality, Minute, Pairing } from '../core/types';
 import { evalSegs, levelOf, type LegalityIssue, type Seg } from './rules';
-import { ctxOf, dutySegs, locAt, planHome, planOut, typeIdOf, type TicketPlan } from './timeline';
+import { crewIx, ctxOf, dutySegs, locAt, planHome, planOut, typeIdOf, type TicketPlan } from './timeline';
 
 export interface CrewPlan {
   level: Legality;
@@ -73,9 +74,30 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
   }
   const segs: Seg[] = [];
   for (const d of duties) segs.push(...dutySegs(g, c, p, d, d === first ? out : null, d === last ? home : null, true));
+  const other = otherTrip(g, c, p, segs[0].start, segs[segs.length - 1].end, existing);
+  if (other) issues.push({ code: 'overlap', level: 'illegal', text: `On another ${other.tour ? 'tour' : 'trip'} until ${fmtDay(other.end)}`, dutyId: first.id });
   issues.push(...statusIssues(c, segs[0].start, segs[segs.length - 1].end, typeOf(typeIdOf(g, p)).family));
   issues.push(...evalSegs(ctxOf(g, c), merge(base, segs)));
   return { level: levelOf(issues), issues, out, home, segs };
+}
+
+/**
+ * Another trip or tour of c whose open duties overlap [from, to): one complement flies one pairing at a time
+ * (interleaving two tours would send the crew home at the end of one while the other still needs them).
+ * With `existing` (re-check of a held seat) only an earlier pairing counts.
+ */
+export function otherTrip(g: GameState, c: CrewMember, p: Pairing, from: Minute, to: Minute, existing: boolean): Pairing | null {
+  for (const q of crewIx(g).pairingsOf.get(c.id) ?? []) {
+    if (q.id === p.id || q.status === 'done' || q.status === 'broken') continue;
+    // Re-checking a held seat: only the earlier pairing wins (the later one is flagged and re-rostered).
+    if (existing && (q.start > p.start || (q.start === p.start && q.id > p.id))) continue;
+    const open = openDuties(g, q);
+    if (!open.length) continue;
+    const qs = open[0].report;
+    const qe = open[open.length - 1].release;
+    if (qs < to && qe > from) return q;
+  }
+  return null;
 }
 
 /** Acceptable for the auto-roster: nothing illegal; tight cumulative totals only with policies.allowTight. */

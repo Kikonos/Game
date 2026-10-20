@@ -1,44 +1,39 @@
 #!/usr/bin/env node
 /*
- * iPad screenshot + layout-lint harness (iPad A16 11" emulation, Chromium via Playwright).
+ * BLOCK HOURS iPad screenshot + layout-lint harness (iPad A16 11" emulation, Chromium via Playwright).
  *
  * Usage:
- *   node scripts/ipad-shots.cjs --url http://localhost:5201/ --out /tmp/shots \
- *     [--view landscape,portrait | all] [--screens hq,map,routes | all] \
- *     [--standalone] [--embed] [--force-touch] [--save path/to/save.json] [--pages N]
+ *   node scripts/ipad-shots.cjs --url http://localhost:5173/ --out /tmp/shots \
+ *     [--view safari,landscape | all] [--screens newgame,map,contracts | all] \
+ *     [--standalone] [--embed] [--force-touch] [--save path/to/save.json] [--days N] [--base LIS] [--pages N]
  *
  *   --url          base URL of a running dev/preview server (default http://localhost:5173/)
  *   --out          output directory for PNGs + report-<view>.json (default ./ipad-shots)
- *   --view         comma list or all (default landscape,portrait):
+ *   --view         comma list or all (default safari,landscape):
+ *                    safari    1180×750   Safari with toolbars, landscape (the main target)
  *                    landscape 1180×820   home-screen app / full screen, landscape
- *                    portrait   820×1180  home-screen app / full screen, portrait
- *                    safari    1180×750   Safari with toolbars, landscape
- *                    split      590×820   Split View half
- *                    slide      390×820   Slide Over
+ *                    portrait   820×1180  portrait (not a v0.5 target; must not break)
+ *                    split      590×820   Split View half (compact tier)
  *                    desktop   1440×900   mouse, no touch, DPR 1
  *                  iPad views use DPR 2, touch, isMobile and an iPadOS Safari UA.
- *   --size WxH     add a touch view of any size, named WxH (e.g. 700x600 for a small artifact viewer)
- *   --screens      comma list (default all) of:
- *                    loading,title,newgame-region,newgame-hub,newgame-brand,newgame-launch,
- *                    hq,map,routes,route-planner,route-detail,fleet,fleet-detail,cabin,
- *                    market-new,market-used,market-lease,order-modal,finance,intel,expansion,
- *                    brand,goals,inbox,menu,settings,saves,decision,year-review,more-sheet
- *                  (more-sheet needs the compact tier: split or slide)
+ *   --size WxH     add a touch view of any size, named WxH
+ *   --screens      comma list (default all), in this order: New Game → Ops Map → every tab → modals:
+ *                    loading,title,newgame,map,map-aircraft,map-airport,map-offer,contracts,contracts-active,
+ *                    contracts-missed,offer-modal,schedule,schedule-28d,block-sheet,duty-modal,crew,hire,
+ *                    fleet,check-modal,finance,company,inbox,decision,subcharter,menu,settings,saves
+ *   --save         an exported save (.blockhours.json) to load for the in-game screens; without it the harness
+ *                  starts a new game from the New Game screen (--base, default LIS) and plays --days
+ *                  game days (default 40) with __contrail.dev.autoplay so every screen has real data
  *   --standalone   home-screen web app: --safe-t 24px / --safe-b 20px (status bar, home indicator),
  *                  drawn as translucent bands in the shots
- *   --embed        artifact host: :root padded 24px top / 20px bottom, html.embed (--safe-t/b = 0,
- *                  --vp-safe-t/b = the insets)
- *   --force-touch  set window.__CONTRAIL_FORCE_TOUCH__ (html.touch) in case touch media queries
- *                  don't match (they do in Chromium touch emulation; the report says so)
- *   --save         uncompressed save JSON for in-game screens
- *                  (default /tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/late.json)
+ *   --embed        artifact host: :root padded 24px top / 20px bottom, html.embed
+ *   --force-touch  set window.__CONTRAIL_FORCE_TOUCH__ (html.touch) in case touch media queries don't match
  *   --pages N      also capture N-1 extra shots per screen, each scrolled one viewport further
- *                  (the open dialog body, else .main)
  *
  * Per screen it writes <out>/<view>[-standalone|-embed]-<screen>.png and prints: horizontal page
- * overflow, elements beyond the viewport (<= 10 selectors), console/page errors, visible
- * buttons/links/inputs smaller than 40×40 (count + <= 10 selectors; not for desktop), text under 12px (count),
- * and with --standalone/--embed controls whose centre sits under the status bar/home indicator.
+ * overflow, elements beyond the viewport, console/page errors, visible tap targets smaller than 44×44
+ * (not for desktop), HTML text under 12px, dialogs taller than the viewport, and with --standalone/--embed
+ * controls whose centre sits under the status bar/home indicator.
  * Needs Playwright's Chromium: require('/opt/node22/lib/node_modules/playwright') (override with PW=...).
  */
 const fs = require('fs');
@@ -46,29 +41,26 @@ const path = require('path');
 const { chromium } = require(process.env.PW || '/opt/node22/lib/node_modules/playwright');
 
 const ALL = [
-  'loading', 'title', 'newgame-region', 'newgame-hub', 'newgame-brand', 'newgame-launch',
-  'hq', 'map', 'routes', 'route-planner', 'route-detail', 'fleet', 'fleet-detail', 'cabin',
-  'market-new', 'market-used', 'market-lease', 'order-modal', 'finance', 'intel', 'expansion',
-  'brand', 'goals', 'inbox', 'menu', 'settings', 'saves', 'decision', 'year-review', 'more-sheet',
+  'loading', 'title', 'newgame', 'map', 'map-aircraft', 'map-airport', 'map-offer', 'contracts', 'contracts-active',
+  'contracts-missed', 'offer-modal', 'schedule', 'schedule-28d', 'block-sheet', 'duty-modal', 'crew', 'hire',
+  'fleet', 'check-modal', 'finance', 'company', 'inbox', 'decision', 'subcharter', 'menu', 'settings', 'saves',
 ];
-const PRE_GAME = new Set(['loading', 'title', 'newgame-region', 'newgame-hub', 'newgame-brand', 'newgame-launch']);
+const PRE_GAME = new Set(['loading', 'title', 'newgame']);
 const VIEWS = {
+  safari: { width: 1180, height: 750 },
   landscape: { width: 1180, height: 820 },
   portrait: { width: 820, height: 1180 },
-  safari: { width: 1180, height: 750 },
   split: { width: 590, height: 820 },
-  slide: { width: 390, height: 820 },
   desktop: { width: 1440, height: 900 },
 };
-const DEFAULT_SAVE = '/tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/late.json';
 const UA_IPAD = 'Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
 /** iPad home-screen app insets (black-translucent status bar, home indicator). */
 const INSET = { t: 24, b: 20 };
-const MIN_TARGET = 40;
+const MIN_TARGET = 44;
 const MIN_TEXT = 12;
 
 function parseArgs(argv) {
-  const a = { url: 'http://localhost:5173/', out: path.resolve('ipad-shots'), view: 'landscape,portrait', screens: 'all', save: DEFAULT_SAVE, standalone: false, embed: false, forceTouch: false, pages: 1, sizes: [] };
+  const a = { url: 'http://localhost:5173/', out: path.resolve('ipad-shots'), view: 'safari,landscape', screens: 'all', save: null, days: 40, base: 'LIS', standalone: false, embed: false, forceTouch: false, pages: 1, sizes: [] };
   for (let i = 2; i < argv.length; i++) {
     const k = argv[i];
     const next = () => argv[++i];
@@ -77,6 +69,8 @@ function parseArgs(argv) {
     else if (k === '--view' || k === '--views') a.view = next();
     else if (k === '--screens') a.screens = next();
     else if (k === '--save') a.save = next();
+    else if (k === '--days') a.days = Math.max(0, Number(next()) || 0);
+    else if (k === '--base') a.base = next().toUpperCase();
     else if (k === '--standalone') a.standalone = true;
     else if (k === '--embed') a.embed = true;
     else if (k === '--force-touch') a.forceTouch = true;
@@ -243,6 +237,11 @@ function lint({ inset, minTarget, minText }) {
   }
   out.smallText = smallText;
   out.smallTextSamples = smallTextSamples;
+  const dlg = document.querySelector('.modal');
+  if (dlg) {
+    const r = dlg.getBoundingClientRect();
+    out.dialog = { h: Math.round(r.height), out: r.top < -1 || r.bottom > vh + 1 };
+  }
   return out;
 }
 
@@ -255,44 +254,58 @@ async function press(page, locator, desktop) {
   if (desktop) await locator.click(); else await locator.tap();
 }
 
-async function gotoFresh(page, { withSave }) {
+async function gotoFresh(page) {
   await page.goto(args.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-  if (withSave !== undefined) {
-    await page.evaluate((s) => { try { if (s) localStorage.setItem('contrail:save:auto', s); else localStorage.removeItem('contrail:save:auto'); } catch { /* ignore */ } }, withSave);
-    await page.reload({ waitUntil: 'domcontentloaded' });
-  }
-  await page.waitForFunction(() => window.__contrail && window.__contrail.screen === 'title', null, { timeout: 30000 });
+  await page.waitForFunction(() => window.__contrail && window.__contrail.screen === 'title', null, { timeout: 60000 });
   await settle(page, 700);
 }
 
-async function ensureGame(page, saveJson, desktop) {
-  const inGame = await page.evaluate(() => !!window.__contrail && window.__contrail.screen === 'game').catch(() => false);
-  if (!inGame) {
-    if (!saveJson) throw new Error('no save available for in-game screens');
-    await gotoFresh(page, { withSave: saveJson });
-    const cont = page.getByRole('button', { name: /Continue/ }).first();
-    await cont.waitFor({ timeout: 15000 });
-    await press(page, cont, desktop);
-    await page.waitForSelector('.shell', { timeout: 20000 });
-    await settle(page, 900);
-  }
+/** Calm, deterministic shots: no auto-pause stops, no toasts, clock paused, no modal. */
+async function quiet(page) {
   await page.evaluate(() => {
     const s = window.__contrail;
+    s.setSettings({ autoPause: Object.fromEntries(Object.keys(s.settings.autoPause).map((k) => [k, false])), toasts: false, sound: false });
     s.modal = null;
-    s.game.yearReview = null;
-    s.game.decisions = [];
-    s.levelUp = null;
     s.paused = true;
     s.toasts = [];
     s.emit();
   });
-  // Close the More sheet if a previous screen left it open.
-  await page.evaluate(() => document.querySelector('.more-sheet .close')?.click());
-  await settle(page, 150);
+}
+
+async function newGame(page, desktop) {
+  await gotoFresh(page);
+  await page.evaluate(() => { try { localStorage.clear(); } catch { /* ignore */ } window.__contrail.setScreen('newgame'); });
+  await page.waitForSelector('.newgame', { timeout: 10000 });
+  const base = page.locator('.ng-base', { hasText: args.base }).first();
+  if (await base.count()) await press(page, base, desktop);
+  await settle(page, 500);
+}
+
+let started = false;
+async function ensureGame(page, saveJson, desktop) {
+  const inGame = await page.evaluate(() => !!window.__contrail && window.__contrail.screen === 'game').catch(() => false);
+  if (!inGame || !started) {
+    if (saveJson) {
+      // The autosave slot accepts plain JSON; the title screen then offers Continue.
+      await page.goto(args.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.evaluate((text) => { localStorage.clear(); localStorage.setItem('contrail-acmi:save:auto', text); }, saveJson);
+      await gotoFresh(page);
+      await press(page, page.getByRole('button', { name: /Continue/ }).first(), desktop);
+    } else {
+      await newGame(page, desktop);
+      await press(page, page.locator('.ng-foot .btn-primary'), desktop);
+    }
+    await page.waitForSelector('.shell', { timeout: 20000 });
+    await quiet(page);
+    if (!saveJson && args.days) await page.evaluate((d) => window.__contrail.dev.autoplay(d), args.days);
+    started = true;
+    await settle(page, 900);
+  }
+  await quiet(page);
 }
 
 async function nav(page, tab, extra) {
-  await page.evaluate(([t, x]) => { const s = window.__contrail; s.navigate('hq'); s.navigate(t, x || {}); }, [tab, extra]);
+  await page.evaluate(([t, x]) => window.__contrail.navigate(t, x || {}), [tab, extra]);
   await settle(page, tab === 'map' ? 1400 : 600);
 }
 
@@ -301,16 +314,8 @@ async function modal(page, spec) {
   await settle(page, 700);
 }
 
-async function newGameStep(page, saveJson, step, desktop) {
-  await gotoFresh(page, { withSave: saveJson || null });
-  await press(page, page.getByRole('button', { name: /New Airline/ }).first(), desktop);
-  await page.waitForSelector('.newgame', { timeout: 10000 });
-  await settle(page, 800);
-  for (let i = 0; i < step; i++) {
-    await press(page, page.locator('.ng-foot .btn-primary'), desktop);
-    await settle(page, 700);
-  }
-}
+/** First id matching a predicate over a game collection (runs in the page). */
+const pick = (page, fn) => page.evaluate(fn);
 
 const ACTIONS = {
   loading: async (page) => {
@@ -318,79 +323,74 @@ const ACTIONS = {
     await page.waitForSelector('.loading', { timeout: 15000 });
     await sleep(900);
   },
-  title: async (page, save) => { await gotoFresh(page, { withSave: save || null }); },
-  'newgame-region': (page, save, d) => newGameStep(page, save, 0, d),
-  'newgame-hub': (page, save, d) => newGameStep(page, save, 1, d),
-  'newgame-brand': (page, save, d) => newGameStep(page, save, 2, d),
-  'newgame-launch': (page, save, d) => newGameStep(page, save, 3, d),
-  hq: (page) => nav(page, 'hq'),
+  title: async (page) => { await gotoFresh(page); started = false; },
+  newgame: async (page, _save, d) => { await newGame(page, d); started = false; },
   map: (page) => nav(page, 'map'),
-  routes: (page) => nav(page, 'routes'),
-  'route-planner': async (page) => { await nav(page, 'routes'); await modal(page, { kind: 'planner' }); },
-  'route-detail': async (page) => {
-    const id = await page.evaluate(() => { const g = window.__contrail.game; return [...g.routes].sort((a, b) => (b.lastWeek?.profit ?? 0) - (a.lastWeek?.profit ?? 0))[0]?.id ?? g.routes[0]?.id; });
-    await nav(page, 'routes', { routeId: id });
+  'map-aircraft': async (page) => {
+    const id = await pick(page, () => { const g = window.__contrail.game; return (Object.values(g.fleet).find((a) => a.status === 'flying') ?? Object.values(g.fleet)[0])?.id; });
+    await nav(page, 'map', { sel: { kind: 'aircraft', id } });
   },
+  'map-airport': (page) => page.evaluate(() => window.__contrail.game.company.homeBase).then((id) => nav(page, 'map', { sel: { kind: 'airport', id } })),
+  'map-offer': async (page) => {
+    const id = await pick(page, () => Object.values(window.__contrail.game.offers).find((o) => o.status === 'open')?.id);
+    if (!id) throw new Error('SKIP no open offer');
+    await nav(page, 'map', { sel: { kind: 'offer', id } });
+  },
+  contracts: (page) => nav(page, 'contracts', { view: 'market' }),
+  'contracts-active': (page) => nav(page, 'contracts', { view: 'active' }),
+  'contracts-missed': (page) => nav(page, 'contracts', { view: 'missed' }),
+  'offer-modal': async (page) => {
+    const id = await pick(page, () => Object.values(window.__contrail.game.offers).find((o) => o.status === 'open')?.id);
+    if (!id) throw new Error('SKIP no open offer');
+    await nav(page, 'contracts', { view: 'market' });
+    await modal(page, { kind: 'offer', offerId: id });
+  },
+  schedule: (page) => nav(page, 'schedule'),
+  'schedule-28d': async (page, _s, d) => {
+    await nav(page, 'schedule');
+    await press(page, page.locator('.sc-schedule .seg button', { hasText: '28 days' }), d);
+    await settle(page, 500);
+    await press(page, page.locator('.sc-schedule .seg button', { hasText: '7 days' }), d).catch(() => {});
+    await press(page, page.locator('.sc-schedule .seg button', { hasText: '28 days' }), d);
+    await settle(page, 400);
+  },
+  'block-sheet': async (page) => {
+    const id = await pick(page, () => { const g = window.__contrail.game; const l = Object.values(g.flights).filter((f) => f.status === 'scheduled' && f.aircraftId && f.dutyId && f.std > g.now + 600).sort((a, b) => a.std - b.std); return (l.find((f) => f.crewIds.length) ?? l[0])?.id; });
+    if (!id) throw new Error('SKIP no rostered flight');
+    await nav(page, 'schedule');
+    await modal(page, { kind: 'sheet', refs: [{ kind: 'flight', id }] });
+  },
+  'duty-modal': async (page) => {
+    const id = await pick(page, () => { const g = window.__contrail.game; const l = Object.values(g.flights).filter((f) => f.status === 'scheduled' && f.aircraftId && f.dutyId && f.std > g.now + 600).sort((a, b) => a.std - b.std); return (l.find((f) => f.crewIds.length) ?? l[0])?.id; });
+    if (!id) throw new Error('SKIP no rostered flight');
+    await nav(page, 'schedule');
+    await modal(page, { kind: 'duty', id });
+  },
+  crew: (page) => nav(page, 'crew'),
+  hire: async (page) => { await nav(page, 'crew'); await modal(page, { kind: 'hire' }); },
   fleet: (page) => nav(page, 'fleet'),
-  'fleet-detail': async (page) => {
-    const id = await page.evaluate(() => { const g = window.__contrail.game; return (g.fleet.find((a) => a.assignments.length) ?? g.fleet[0])?.id; });
-    await nav(page, 'fleet', { aircraftId: id });
-  },
-  cabin: async (page) => {
-    const id = await page.evaluate(() => { const g = window.__contrail.game; return (g.fleet.find((a) => a.status === 'active') ?? g.fleet[0])?.id; });
+  'check-modal': async (page) => {
+    const id = await pick(page, () => Object.keys(window.__contrail.game.fleet)[0]);
     await nav(page, 'fleet');
-    await modal(page, { kind: 'cabin', aircraftId: id });
-  },
-  'market-new': (page) => nav(page, 'market', { marketTab: 'new' }),
-  'market-used': (page) => nav(page, 'market', { marketTab: 'used' }),
-  'market-lease': (page) => nav(page, 'market', { marketTab: 'lease' }),
-  'order-modal': async (page) => {
-    const typeId = await page.evaluate(() => window.__contrail.game.fleet[0]?.typeId ?? 'a320neo');
-    await nav(page, 'market', { marketTab: 'new' });
-    await modal(page, { kind: 'order', typeId });
+    await modal(page, { kind: 'check', aircraftId: id, checkKind: 'A' });
   },
   finance: (page) => nav(page, 'finance'),
-  intel: (page) => nav(page, 'intel'),
-  expansion: (page) => nav(page, 'expansion'),
-  brand: (page) => nav(page, 'brand'),
-  goals: (page) => nav(page, 'goals'),
+  company: (page) => nav(page, 'company'),
   inbox: (page) => nav(page, 'inbox'),
+  decision: async (page) => {
+    await nav(page, 'inbox');
+    const id = await page.evaluate(() => { const s = window.__contrail; return s.game.decisions[0]?.id ?? s.dev.decision(); });
+    await modal(page, { kind: 'decision', decisionId: id });
+  },
+  subcharter: async (page) => {
+    const id = await pick(page, () => Object.values(window.__contrail.game.contracts).find((c) => c.status === 'active' || c.status === 'signed')?.id);
+    if (!id) throw new Error('SKIP no active contract');
+    await nav(page, 'contracts', { view: 'active' });
+    await modal(page, { kind: 'subcharter', contractId: id });
+  },
   menu: (page) => modal(page, { kind: 'menu' }),
   settings: (page) => modal(page, { kind: 'settings' }),
   saves: (page) => modal(page, { kind: 'saves', mode: 'save' }),
-  'more-sheet': async (page, _save, desktop) => {
-    await nav(page, 'hq');
-    const more = page.locator('[data-nav="more"]:visible').first();
-    if (!(await more.count())) throw new Error('SKIP compact tier only (use --view split or slide)');
-    await press(page, more, desktop);
-    await settle(page, 700);
-  },
-  decision: async (page) => {
-    await nav(page, 'hq');
-    await page.evaluate(() => {
-      const s = window.__contrail;
-      s.game.decisions = [{
-        id: 'dec-harness', eventId: 'harness', day: s.game.day, title: 'Cabin crew union threatens strike', data: {},
-        body: 'The cabin crew union demands a 6% pay rise after record profits. Without a deal they will walk out for a week across your network.',
-        options: [
-          { id: 'a', label: 'Accept the 6% raise', desc: 'Crew costs +6% permanently. Morale and service improve.' },
-          { id: 'b', label: 'Offer 3% and a bonus', desc: 'One-off $2.4M bonus. 60% chance they accept.' },
-          { id: 'c', label: 'Refuse', desc: 'Risk a week of cancellations and a reputation hit.' },
-        ],
-      }];
-      s.emit();
-    });
-    await settle(page, 700);
-  },
-  'year-review': async (page) => {
-    await nav(page, 'hq');
-    await page.evaluate(() => {
-      const s = window.__contrail;
-      s.game.yearReview = { year: 2029, pax: 18_400_000, revenue: 4_120_000_000, profit: 312_000_000, fleet: s.game.fleet.length, routes: s.game.routes.length, reputation: 71, rank: 4, bestRoute: 'LHR–JFK' };
-      s.emit();
-    });
-    await settle(page, 700);
-  },
 };
 
 async function scrollNext(page) {
@@ -405,8 +405,7 @@ async function scrollNext(page) {
 }
 
 async function run() {
-  const saveJson = fs.existsSync(args.save) ? fs.readFileSync(args.save, 'utf8') : null;
-  if (!saveJson) console.warn(`! save not found at ${args.save}: in-game screens will fail`);
+  const saveJson = args.save ? fs.readFileSync(args.save, 'utf8') : null;
   const browser = await chromium.launch();
   let failures = 0;
   const mode = args.standalone ? 'standalone' : args.embed ? 'embed' : '';
@@ -424,6 +423,7 @@ async function run() {
     page.on('pageerror', (e) => errors.push(`[pageerror] ${String(e.message).slice(0, 300)}`));
     const report = {};
     const prefix = `${view}${mode && !desktop ? `-${mode}` : ''}`;
+    started = false;
     console.log(`\n=== ${prefix} ${size.width}×${size.height}${desktop ? ' (mouse, DPR 1)' : ' (touch, DPR 2)'} ===`);
     let loggedTouch = false;
     for (const screen of screens) {
@@ -450,6 +450,7 @@ async function run() {
         if (res.errors.length) flags.push(`errors: ${res.errors.join(' | ')}`);
         if (res.smallTargets && !desktop) flags.push(`${res.smallTargets}/${res.tapTargets} targets <${MIN_TARGET}px: ${res.smallTargetSamples.join(' | ')}`);
         if (res.smallText) flags.push(`${res.smallText} text <${MIN_TEXT}px: ${res.smallTextSamples.join(' | ')}`);
+        if (res.dialog?.out) flags.push(`dialog ${res.dialog.h}px does not fit the ${res.vh}px viewport`);
         console.log(`- ${screen} [${res.tier}]: ${path.basename(file)}${flags.length ? '' : ' OK'}`);
         for (const f of flags) console.log(`    ${f}`);
       } catch (e) {

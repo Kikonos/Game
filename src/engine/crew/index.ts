@@ -9,7 +9,7 @@ import type { GameState, SimEvent } from '../core/types';
 import { dailyCrewCosts, monthlySalaries } from './costs';
 import { deletePairing, planAircraft } from './duties';
 import { dailySickness, onCrewJoin, onTrainingDone } from './hr';
-import { autoRoster, onFlightsChanged } from './roster';
+import { autoRoster, onFlightsChanged, sendStrandedHome } from './roster';
 import { minRest, nightsIn, LIMITS } from './rules';
 import { crewCount, crewIx, dutyBlock, dutyFlights, dutySegs, onBlocks, touchCrew } from './timeline';
 
@@ -172,8 +172,9 @@ function daily(g: GameState) {
   dailyCrewCosts(g);
   for (const c of Object.values(g.crew)) if (c.status !== 'onDuty') c.fatigue = Math.max(0, c.fatigue - 6);
   dailySickness(g);
-  // Keep the published roster horizon filled (auto-roster policy).
+  // Keep the published roster horizon filled (auto-roster policy), then bring home anyone left without work away.
   if (g.company.policies.autoRoster) autoRoster(g);
+  sendStrandedHome(g);
 }
 
 const lastHour = new WeakMap<GameState, number>();

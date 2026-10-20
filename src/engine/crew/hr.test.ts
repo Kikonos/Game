@@ -233,11 +233,13 @@ describe('shortage and sickness', () => {
     let sick;
     for (let i = 0; i < 2000 && !sick; i++) {
       dailySickness(g);
-      if (x.status === 'sick') sick = x;
+      // The sick call covers the coming days (from tomorrow, or after today's duty).
+      if (x.blocks?.some((b) => b.why === 'sick')) sick = x;
     }
     expect(sick).toBeTruthy();
     const block = sick!.blocks!.find((b) => b.why === 'sick')!;
-    expect(rosterOf(g, sick!.id, block.from, block.to)).toEqual([]);
+    expect(block.from).toBeGreaterThan(g.now);
+    expect(rosterOf(g, sick!.id, block.from, block.to).filter((d) => d.report >= block.from)).toEqual([]);
     const dec = g.decisions.find((d) => d.kind === 'sickCrew' && (d.data as { crewId?: string })?.crewId === x.id);
     expect(dec?.data).toMatchObject({ crewId: sick!.id });
   });

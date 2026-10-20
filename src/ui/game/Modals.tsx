@@ -50,7 +50,7 @@ function MenuModal() {
     const blob = new Blob([serialize(g)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `${g.company.name.replace(/\W+/g, '-').toLowerCase()}-${fmtDate(g.now).replace(/ /g, '-')}.contrail-acmi.json`;
+    a.download = `${g.company.name.replace(/\W+/g, '-').toLowerCase()}-${fmtDate(g.now).replace(/ /g, '-')}.blockhours.json`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   };
