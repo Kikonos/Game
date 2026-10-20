@@ -99,7 +99,12 @@ export function dailyFinance(g: GameState): void {
       else pushMessage(g, { tone: 'warn', cat: 'finance', title: `${g.clients[r.clientId]?.name ?? 'A client'} is 30 days late`, body: `${usd(r.amount)} for ${r.desc}.` });
     } else if (over >= 7 && (r.nudged ?? 0) < 7) {
       r.nudged = 7;
-      pushMessage(g, { tone: 'info', cat: 'finance', title: `Invoice overdue: ${g.clients[r.clientId]?.name ?? 'client'}`, body: `${usd(r.amount)} for ${r.desc}, ${over} days past due. Reminder sent.` });
+      // Late interest (BAL.lateInterest a year) is flavour in v0.5: shown, never collected.
+      const interest = Math.round((r.amount * BAL.lateInterest * over) / 365);
+      pushMessage(g, {
+        tone: 'info', cat: 'finance', title: `Invoice overdue: ${g.clients[r.clientId]?.name ?? 'client'}`,
+        body: `${usd(r.amount)} for ${r.desc}, ${over} days past due. Reminder sent${interest >= 100 ? ` (late interest so far ${usd(interest)}, which nobody in this business pays)` : ''}.`,
+      });
     }
   }
   if (f.receivables.length > 80) f.receivables = f.receivables.filter((r) => r.paid === null || r.paid > g.now - 120 * DAY);
@@ -112,7 +117,11 @@ export function dailyFinance(g: GameState): void {
       if ((f.rescues ?? 0) >= 1) return gameOver(g, `Insolvent again for ${BAL.rescueDays} days after the rescue.`);
       if (!f.refusedRescue && !g.decisions.some((d) => d.kind === 'rescue')) rescueDecision(g);
     }
-  } else f.negSince = null;
+  } else {
+    // Recovered on our own after refusing the investor: the offer may come round again next time.
+    if (f.negSince !== null && f.refusedRescue) f.refusedRescue = false;
+    f.negSince = null;
+  }
   // Low-cash warning (every two weeks at most) when the 30-day forecast dips below zero.
   if (g.now - (f.lowCashAt ?? -Infinity) >= 14 * DAY) {
     const low = Math.min(...cashForecast(g, 30).map((p) => p.cash));
