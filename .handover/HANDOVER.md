@@ -179,3 +179,9 @@ If an agent fails on a limit, its file edits persist (checkpoint them). Resume t
   Each costs salary, has a skill level that can make mistakes, can be overridden, and never removes the big decisions.
 
 ### 20:32Z — check-in: build in Fix phase (engine+map lanes, then ui+content); checkpoint pushed.
+
+### 2026-10-20 21:20Z (01:20 Dubai) — build workflow DONE, ready=true
+- wf_83610710-0e6 finished: 93 triaged → 82 confirmed → fixed in 4 lanes; readiness round 1: tsc clean, 297 tests, build OK, bot seeds 1–3 solvent (+5.5/−2.0/+2.0%, uncovered 1.1/0.2/0.6%), 0 console errors in a 4× month, save/reload mid-flight exact. Committed acmi a5e1a6c.
+- Two medium crew-legality blockers left (pairing-wide false 'illegal' flags; crew-level issues at T-2h). Opus-high fix agent running in /home/user/wt/acmi.
+- Merge rehearsal (scratchpad/mergetest, detached): brand→acmi conflicts only in core/types.ts (take acmi/ours) and components/Logo.tsx (take brand/theirs, nowrap). tsc/297 tests/build green.
+- NEXT: when the fix agent reports → commit acmi → merge brand (resolve as above) → tsc/vitest/build → iPad shots + short play → rm -rf play && cp -r dist play on claude/contrail-airline-game → push + main → verify https://kikonos.github.io/Game/ → tell the user (Dubai time).
