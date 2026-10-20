@@ -1,7 +1,7 @@
 // Auto-roster, change sync and disruption APIs (B2). DESIGN.md §4.2, §5.3.
 
 import { BAL } from '../core/balance';
-import { addDeadhead, cancelFlight, flightsOf, retimeFlight, touchFlights } from '../core/entities';
+import { addDeadhead, flightsOf, removeFlights, retimeFlight, touchFlights } from '../core/entities';
 import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { requestPause } from '../core/pause';
@@ -11,7 +11,7 @@ import type { ActionResult, CrewMember, Duty, Flight, GameState, Legality, Minut
 import { acceptable, mergeSegs, openDuties, otherTrip, planCrew, type CrewPlan } from './check';
 import { deletePairing, dutyLegality, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setCrewTrailOkHook, setRetickHook, splitPairing, syncDuty } from './duties';
 import { evalSegs, levelOf, worst, type Seg } from './rules';
-import { block28, crewCount, crewIx, ctxOf, dhBlock, dutySegs, locAt, planHome, planOut, segsOf, ticketPrice, touchCrew, typeIdOf } from './timeline';
+import { aboard, block28, crewCount, crewIx, ctxOf, dhBlock, dutySegs, locAt, noteRiders, passengers, planHome, planOut, segsOf, ticketPrice, touchCrew, typeIdOf } from './timeline';
 
 export { buildDuties } from './duties';
 
@@ -61,10 +61,18 @@ export function boardCrew(g: GameState, f: Flight): void {
   if (ids.join() !== f.crewIds.join()) f.crewIds = ids;
 }
 
-type TicketLike = { from: string; to: string; std: Minute; sta: Minute };
+type TicketLike = { from: string; to: string; std: Minute; sta: Minute; rideId?: string };
 
 /** Buys a ticket for a group and attaches it to a duty; cost posted to 'deadhead' unless the client pays. */
 function buyTicket(g: GameState, p: Pairing, d: Duty, crewIds: string[], t: TicketLike, res: RosterResult): Flight {
+  const ride = t.rideId ? g.flights[t.rideId] : undefined;
+  if (ride && ride.status === 'scheduled') {
+    ride.riders = [...new Set([...(ride.riders ?? []), ...crewIds])];
+    noteRiders(g, ride);
+    if (!d.deadheadIds.includes(ride.id)) d.deadheadIds.push(ride.id);
+    touchFlights(g);
+    return ride;
+  }
   const cost = clientPaysCrewTravel(g, p) ? 0 : ticketPrice(t.from, t.to) * crewIds.length;
   const f = addDeadhead(g, { crewIds, from: t.from, to: t.to, std: t.std, sta: t.sta, cost, contractId: p.contractId });
   if (cost) post(g, 'deadhead', -cost);
@@ -74,18 +82,31 @@ function buyTicket(g: GameState, p: Pairing, d: Duty, crewIds: string[], t: Tick
   return f;
 }
 
+/**
+ * Takes a crew member off a ticket or a ride. True when the flight no longer carries any of our crew as
+ * passengers (a commercial ticket left empty is cancelled; our own leg flies on without riders).
+ */
+function unboard(g: GameState, f: Flight, crewId: string): boolean {
+  if (f.kind === 'deadhead') {
+    f.crewIds = f.crewIds.filter((x) => x !== crewId);
+    // An unused ticket is simply dropped (its cost is sunk): no cancelled tickets piling up in the save.
+    if (!f.crewIds.length) removeFlights(g, [f.id]);
+    else touchFlights(g);
+    return !f.crewIds.length;
+  }
+  f.riders = (f.riders ?? []).filter((x) => x !== crewId);
+  if (!f.riders.length) delete f.riders;
+  touchFlights(g);
+  return !f.riders;
+}
+
 /** Takes crew off tickets home their new trip makes unnecessary (CrewPlan.drop; a ticket left empty is cancelled). */
 function dropPlanned(g: GameState, crewId: string, ids: string[]): void {
   const ix = crewIx(g);
   for (const fid of ids) {
     const f = g.flights[fid];
-    if (!f || f.status !== 'scheduled' || !f.crewIds.includes(crewId)) continue;
-    f.crewIds = f.crewIds.filter((x) => x !== crewId);
-    if (f.crewIds.length) {
-      touchFlights(g);
-      continue;
-    }
-    cancelFlight(g, f, 'Crew change');
+    if (!f || f.status !== 'scheduled' || !aboard(f, crewId)) continue;
+    if (!unboard(g, f, crewId)) continue;
     const d = g.duties[ix.ticketDuty.get(fid) ?? ''];
     if (d) d.deadheadIds = d.deadheadIds.filter((x) => x !== fid);
   }
@@ -102,7 +123,7 @@ export function buyTickets(g: GameState, p: Pairing, plans: Map<string, CrewPlan
   for (const [id, plan] of plans) {
     for (const [t, d] of [[plan.out, first], [plan.home, last]] as const) {
       if (!t) continue;
-      const k = `${d.id}:${t.from}:${t.to}:${t.std}`;
+      const k = `${d.id}:${t.from}:${t.to}:${t.std}:${t.rideId ?? ''}`;
       const gr = groups.get(k) ?? { d, t, ids: [] };
       gr.ids.push(id);
       groups.set(k, gr);
@@ -149,7 +170,7 @@ function retimeTickets(g: GameState, p: Pairing, d: Duty, moved: Set<string>): v
       if (f.from === d.restAt && f.std < d.release + 30) std = Math.ceil((d.release + 60) / 60) * 60;
     } else if (f.to === dep && f.sta > d.report && f.std > g.now) {
       const t = planOut(g, p, d, f.from);
-      if (t.std - BAL.deadheadCheckIn >= g.now) std = t.std;
+      if (!t.rideId && t.std - BAL.deadheadCheckIn >= g.now) std = t.std;
     }
     if (std === f.std) continue;
     retimeFlight(g, f, std, std + f.block);
@@ -177,12 +198,8 @@ function dropTickets(g: GameState, p: Pairing, crewId: string): void {
     if (!d || d.done) continue;
     for (const fid of [...d.deadheadIds]) {
       const f = g.flights[fid];
-      if (!f || f.status !== 'scheduled' || !f.crewIds.includes(crewId)) continue;
-      f.crewIds = f.crewIds.filter((x) => x !== crewId);
-      if (!f.crewIds.length) {
-        cancelFlight(g, f, 'Crew change');
-        d.deadheadIds = d.deadheadIds.filter((x) => x !== fid);
-      }
+      if (!f || f.status !== 'scheduled' || !aboard(f, crewId)) continue;
+      if (unboard(g, f, crewId)) d.deadheadIds = d.deadheadIds.filter((x) => x !== fid);
     }
   }
 }
@@ -210,7 +227,14 @@ function sendHome(g: GameState, c: CrewMember, p?: Pairing): void {
   const blk = dhBlock(c.loc, c.base);
   const std = Math.ceil((Math.max(g.now, c.restUntil) + 60) / 60) * 60;
   const cost = clientPaysCrewTravel(g, p) ? 0 : ticketPrice(c.loc, c.base);
-  addDeadhead(g, { crewIds: [c.id], from: c.loc, to: c.base, std, sta: std + blk, cost, contractId: p?.contractId ?? null });
+  const contractId = p?.contractId ?? null;
+  // Crew going home together share one booking (one flight per group, DESIGN §3.5).
+  const group = Object.values(g.flights).find((f) => f.kind === 'deadhead' && f.status === 'scheduled' && f.from === c.loc && f.to === c.base && f.std === std && f.contractId === contractId && !ix.ticketDuty.has(f.id));
+  if (group) {
+    group.crewIds.push(c.id);
+    group.cost = (group.cost ?? 0) + cost;
+    touchFlights(g);
+  } else addDeadhead(g, { crewIds: [c.id], from: c.loc, to: c.base, std, sta: std + blk, cost, contractId });
   if (cost) post(g, 'deadhead', -cost);
   touchCrew(g);
 }
@@ -233,7 +257,7 @@ export function sendStrandedHome(g: GameState): void {
   const away = Object.values(g.crew).filter((c) => c.loc !== c.base && c.status !== 'onDuty');
   if (!away.length) return;
   const riding = new Set<string>();
-  for (const f of Object.values(g.flights)) if (f.kind === 'deadhead' && f.status === 'enroute') for (const id of f.crewIds) riding.add(id);
+  for (const f of Object.values(g.flights)) if (f.status === 'enroute') for (const id of passengers(f)) riding.add(id);
   for (const c of away) if (!riding.has(c.id)) sendHome(g, c);
 }
 
@@ -247,7 +271,7 @@ function detachDuty(g: GameState, p: Pairing, d: Duty): void {
     // The trip's last duty went: before anyone reported its tickets go too; under way the crew keep their
     // ticket home (loose, it still shapes their timeline).
     if (!rest.length) {
-      if (p.status === 'planned' && f.status === 'scheduled' && f.std > g.now) cancelFlight(g, f, 'Trip cancelled');
+      if (p.status === 'planned' && f.status === 'scheduled' && f.std > g.now) removeFlights(g, [f.id]);
       continue;
     }
     const target = f.sta <= d.report ? rest[0] : rest[rest.length - 1];
@@ -676,7 +700,7 @@ setCrewTrailOkHook((g, p, c) => {
   let out: Flight | null = null;
   for (const fid of duties[0].deadheadIds) {
     const f = g.flights[fid];
-    if (f && f.status !== 'cancelled' && f.crewIds.includes(c.id) && f.sta <= duties[0].report) out = f;
+    if (f && f.status !== 'cancelled' && aboard(f, c.id) && f.sta <= duties[0].report) out = f;
   }
   const home = last.restAt !== c.base ? planHome(last, c.base) : null;
   const own: Seg[] = [];
@@ -696,12 +720,8 @@ function rehome(g: GameState, p: Pairing): void {
     for (const d of duties) {
       for (const fid of [...d.deadheadIds]) {
         const f = g.flights[fid];
-        if (!f || f.status !== 'scheduled' || f.std <= g.now || f.sta <= duties[0].report || !f.crewIds.includes(c.id)) continue;
-        f.crewIds = f.crewIds.filter((x) => x !== c.id);
-        if (!f.crewIds.length) {
-          cancelFlight(g, f, 'Crew change');
-          d.deadheadIds = d.deadheadIds.filter((x) => x !== fid);
-        }
+        if (!f || f.status !== 'scheduled' || f.std <= g.now || f.sta <= duties[0].report || !aboard(f, c.id)) continue;
+        if (unboard(g, f, c.id)) d.deadheadIds = d.deadheadIds.filter((x) => x !== fid);
       }
     }
     if (last.restAt !== c.base) plans.set(c.id, { level: 'legal', issues: [], out: null, home: planHome(last, c.base), segs: [] });

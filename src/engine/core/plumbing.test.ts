@@ -2,7 +2,7 @@
 // pure read APIs and compact saves (DESIGN.md §3.3, §4.1–4.2, §7.2).
 
 import { describe, expect, it } from 'vitest';
-import { acceptOffer, cancelPenalty, contractProgress, feasibility, feasibilityAll, generateOffer, productValue } from '../contracts';
+import { acceptOffer, cancelCost, cancelPenalty, contractProgress, feasibility, feasibilityAll, generateOffer, marketFit, productValue } from '../contracts';
 import { checkAssignment, crewAvailability, crewWindows, daysOffInMonth, dutyCandidates, dutyCrew, dutyLegality, flightCrewStatus, hireQuote, rosterOf, staffing } from '../crew';
 import { demoFlights } from '../dev';
 import { createGame } from '../newGame';
@@ -84,6 +84,7 @@ describe('determinism of read APIs', () => {
     for (let i = 0; i < 20; i++) {
       for (const o of Object.values(g.offers)) {
         feasibilityAll(g, o.id);
+        marketFit(g, o.id);
         for (const id of Object.keys(g.fleet)) feasibility(g, o.id, id);
         productValue(o.product, o.estBH, o.start, o.end);
       }
@@ -107,6 +108,7 @@ describe('determinism of read APIs', () => {
       }
       for (const c of Object.values(g.contracts)) {
         cancelPenalty(g, c.id);
+        cancelCost(g, c.id);
         const legs = subcharterable(g, c.id);
         if (legs[0]) subcharterQuote(g, rotationOf(g, legs[0].id).map((f) => f.id));
       }

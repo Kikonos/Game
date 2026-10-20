@@ -137,10 +137,12 @@ function onFlightArrCrew(g: GameState, ev: SimEvent): void {
     if (f.to === c.base) c.awaySince = null;
     else if (c.awaySince === null) c.awaySince = f.std;
     if (!merged) {
-      noteRecovery(c, f.std - CHECKIN());
-      c.log.push({ start: f.std - CHECKIN(), end: f.sta, fdp: 0, block: 0, sectors: 0, augmented: false, disruptive: false });
-      const r = minRest({ dutyMin: f.sta - f.std + CHECKIN(), atHome: f.to === c.base, augmented: false, tzShift: 0 });
-      c.restUntil = Math.max(c.restUntil, f.sta + r);
+      const off = f.atd ?? f.std;
+      const on = f.ata ?? f.sta;
+      noteRecovery(c, off - CHECKIN());
+      c.log.push({ start: off - CHECKIN(), end: on, fdp: 0, block: 0, sectors: 0, augmented: false, disruptive: false });
+      const r = minRest({ dutyMin: on - off + CHECKIN(), atHome: f.to === c.base, augmented: false, tzShift: 0 });
+      c.restUntil = Math.max(c.restUntil, on + r);
       if (c.status === 'available') c.status = 'resting';
     }
   }
@@ -167,9 +169,9 @@ function refreshStatuses(g: GameState): void {
   }
 }
 
-/** Daily: duties and pairings older than 28 days go (crew logs keep the totals); uncrewed past pairings are broken. */
+/** Daily: duties and pairings a week past their end go (crew logs keep the totals); uncrewed past pairings are broken. */
 function prune(g: GameState): void {
-  const cut = g.now - 28 * DAY;
+  const cut = g.now - 7 * DAY;
   for (const p of Object.values(g.pairings)) {
     if (p.status === 'planned' && p.end < g.now && crewCount(p) === 0) p.status = 'broken';
     if (p.end < cut && p.status !== 'planned') deletePairing(g, p);

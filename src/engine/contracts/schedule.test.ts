@@ -175,3 +175,22 @@ describe('positioning across a long gap', () => {
     expect(gapMoves('a320ceo', 'ARN', 'RIX', t0, t0 + 27 * DAY, 'VNO', false)!.map((l) => l.to)).toEqual(['RIX']);
   });
 });
+
+describe('relinkPositioning', () => {
+  it('is a fixed point: a second pass keeps every leg (a late leg out of a gap included)', async () => {
+    const { relinkPositioning } = await import('.');
+    const g = newGame(31);
+    const ac = leased(g);
+    // A base starting right after an away charter lands: the positioning leg can only leave after the first wave.
+    const dep = g.now + 10 * DAY;
+    const away = offer(g, 'adhoc', { start: dep });
+    expect(acceptOffer(g, away.id, [ac.id]).ok).toBe(true);
+    const last = liveFlights(g, ac.id).filter((f) => f.contractId).at(-1)!;
+    const base = hamBase(g, last.sta + 30, 40);
+    acceptOffer(g, base.id, [ac.id]);
+    for (let i = 0; i < 2; i++) relinkPositioning(g, ac.id);
+    const ids = liveFlights(g, ac.id).map((f) => f.id).join();
+    relinkPositioning(g, ac.id);
+    expect(liveFlights(g, ac.id).map((f) => f.id).join()).toBe(ids);
+  });
+});

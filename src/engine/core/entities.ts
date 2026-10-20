@@ -15,6 +15,8 @@ interface Index {
   byAircraft: Map<string, Flight[]>;
   /** Aircraft whose flights changed since the last settle → earliest affected minute (crew re-syncs them). */
   changed: Map<string, Minute>;
+  /** Deadhead flight ids (built on first use). */
+  deadheads?: Set<string>;
 }
 
 const indexes = new WeakMap<GameState, Index>();
@@ -71,6 +73,19 @@ export function flightsOf(g: GameState, aircraftId: string): Flight[] {
   return ix.byAircraft.get(aircraftId) ?? [];
 }
 
+/** Crew tickets (deadhead flights), without scanning the flight table: kept by addDeadhead, removals dropped lazily. */
+export function deadheadFlights(g: GameState): Flight[] {
+  const ix = index(g);
+  if (!ix.deadheads) ix.deadheads = new Set(Object.values(g.flights).filter((f) => f.kind === 'deadhead').map((f) => f.id));
+  const out: Flight[] = [];
+  for (const id of ix.deadheads) {
+    const f = g.flights[id];
+    if (f) out.push(f);
+    else ix.deadheads.delete(id);
+  }
+  return out;
+}
+
 // ---------- flights ----------
 
 export interface FlightInit {
@@ -114,6 +129,7 @@ export function addDeadhead(g: GameState, d: { crewIds: string[]; from: string; 
     std: d.std, sta: d.sta, block: d.sta - d.std, crewIds: [...d.crewIds], dutyId: null, status: 'scheduled', delay: 0, ev: 0, cost: d.cost,
   };
   g.flights[f.id] = f;
+  index(g).deadheads?.add(f.id);
   schedule(g, f.sta, 'flight.arr', f.id, f.ev);
   touchFlights(g);
   return f;

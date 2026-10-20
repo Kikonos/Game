@@ -4,7 +4,7 @@
 import { ACMI_TYPES } from '../../data/acmiTypes';
 import { BAL } from '../core/balance';
 import { distance } from '../core/geo';
-import { flightsRev } from '../core/entities';
+import { deadheadFlights, flightsOf, flightsRev } from '../core/entities';
 import { blockMinutes } from '../core/perf';
 import { yearOf } from '../core/time';
 import type { CrewMember, Duty, Flight, GameState, Minute, Pairing } from '../core/types';
@@ -66,10 +66,7 @@ export function crewIx(g: GameState): Ix {
       for (const fid of d.flightIds) ix.inDuty.add(fid);
     }
   }
-  for (const f of Object.values(g.flights)) {
-    if (f.kind === 'deadhead' ? f.status !== 'scheduled' : !f.riders?.length || (f.status !== 'scheduled' && f.status !== 'enroute')) continue;
-    for (const id of passengers(f)) push(ix.tickets, id, f);
-  }
+  ix.tickets = flightScan(g).tickets;
   for (const l of ix.pairingsOf.values()) l.sort((a, b) => a.start - b.start || (a.id < b.id ? -1 : 1));
   for (const l of ix.byAircraft.values()) l.sort((a, b) => a.start - b.start || (a.id < b.id ? -1 : 1));
   ix.built = ix.rev;
@@ -166,24 +163,63 @@ export function planOut(g: GameState, p: Pairing, d: Duty, from: string): Ticket
   return { from, to, std: std2, sta: std2 + blk };
 }
 
-const rides = new WeakMap<GameState, { rev: number; legs: Map<string, Flight[]> }>();
+interface FlightScan {
+  rev: number;
+  /** Tickets and rides per crew member (commercial tickets scheduled, own legs scheduled or airborne). */
+  tickets: Map<string, Flight[]>;
+  /** Own empty legs still to fly, by from>to (rides; built on first use). */
+  legs: Map<string, Flight[]> | null;
+}
+const scans = new WeakMap<GameState, FlightScan>();
+/** Own legs that carry riders (runtime; rebuilt by a full scan after a load). */
+const riderLegs = new WeakMap<GameState, Set<string>>();
+
+export function noteRiders(g: GameState, f: Flight): void {
+  riderSet(g).add(f.id);
+}
+
+function riderSet(g: GameState): Set<string> {
+  let s = riderLegs.get(g);
+  if (!s) {
+    riderLegs.set(g, (s = new Set()));
+    for (const f of Object.values(g.flights)) if (f.riders?.length) s.add(f.id);
+  }
+  return s;
+}
+
+/** Tickets per crew member, once per flight revision (ticket and ride changes always bump it). */
+function flightScan(g: GameState): FlightScan {
+  let sc = scans.get(g);
+  if (sc && sc.rev === flightsRev(g)) return sc;
+  sc = { rev: flightsRev(g), tickets: new Map(), legs: null };
+  for (const f of deadheadFlights(g)) if (f.status === 'scheduled') for (const id of f.crewIds) push(sc.tickets, id, f);
+  const riders = riderSet(g);
+  for (const id of [...riders]) {
+    const f = g.flights[id];
+    if (!f || !f.riders?.length) riders.delete(id);
+    else if (f.status === 'scheduled' || f.status === 'enroute') for (const c of f.riders) push(sc.tickets, c, f);
+  }
+  scans.set(g, sc);
+  return sc;
+}
+
+function rideLegs(g: GameState): Map<string, Flight[]> {
+  const sc = flightScan(g);
+  if (sc.legs) return sc.legs;
+  sc.legs = new Map();
+  for (const id of Object.keys(g.fleet)) {
+    for (const f of flightsOf(g, id)) if ((f.kind === 'positioning' || f.kind === 'ferry') && f.status === 'scheduled' && f.aircraftId === id) push(sc.legs, `${f.from}>${f.to}`, f);
+  }
+  return sc.legs;
+}
 
 /**
  * Our own empty leg from → to that lands at least an hour before the duty reports (and not more than two days
  * before), latest first: riding it is preferred to a ticket (DESIGN §5.3). Not legs of the duty itself.
  */
 function rideTo(g: GameState, from: string, to: string, d: Duty): TicketPlan | null {
-  let r = rides.get(g);
-  if (!r || r.rev !== flightsRev(g)) {
-    r = { rev: flightsRev(g), legs: new Map() };
-    for (const f of Object.values(g.flights)) {
-      if ((f.kind !== 'positioning' && f.kind !== 'ferry') || f.status !== 'scheduled' || !f.aircraftId) continue;
-      push(r.legs, `${f.from}>${f.to}`, f);
-    }
-    rides.set(g, r);
-  }
   let best: Flight | null = null;
-  for (const f of r.legs.get(`${from}>${to}`) ?? []) {
+  for (const f of rideLegs(g).get(`${from}>${to}`) ?? []) {
     if (f.status !== 'scheduled' || f.dutyId === d.id || f.std - CHECKIN() < g.now || f.sta > d.report - 60 || f.sta < d.report - 2 * 1440) continue;
     if (!best || f.sta > best.sta) best = f;
   }
@@ -285,8 +321,9 @@ export function segsOf(g: GameState, c: CrewMember, excludePairing?: string): Se
     for (const did of p.dutyIds) {
       const d = g.duties[did];
       if (!d) continue;
-      // A released duty's tickets still to fly are loose positioning (listed below).
-      if (d.done && p.id !== excludePairing) continue;
+      // A released duty's tickets still to fly are loose positioning (listed below), even for the excluded
+      // pairing: re-planning only touches the tickets of duties still to fly.
+      if (d.done) continue;
       for (const fid of d.deadheadIds) own.add(fid);
       if (p.id === excludePairing) continue;
       const t = ticketsFor(g, d, c.id);

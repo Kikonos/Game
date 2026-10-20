@@ -17,7 +17,7 @@ import type {
 } from '../core/types';
 import { acceptOffer, askingPrice, closeOffer, setPrice } from './accept';
 import { feasibility } from './feasibility';
-import { clientPrefix, clientsOf, isDiaspora, isGovernment, isMarineCrewing, isPilgrim, isSpecialist, ministry } from './clients';
+import { adhocGroupClients, clientPrefix, clientsOf, isBigClub, isCruiseLine, isDiaspora, isGovernment, isMarineCrewing, isPilgrim, ministry, rivalFor } from './clients';
 import * as F from './flavor';
 import { anchorsOf, computeWaves, localToUTC, programmeOf, route, routeMinutes } from './plan';
 import { defaultSeats, isWetArchetype, priceProduct, productValue, referenceType, tripTickets } from './pricing';
@@ -344,24 +344,27 @@ function adhoc(ctx: Ctx): Draft | null {
   const maxBack = Math.min(7, roomDays(ctx, s ?? 0) - 1);
   if (s === null) return null;
   if (variant === 'diaspora') {
-    client = clientsOf(g, ['agency'], isDiaspora)[0];
-    const dest = o.airport ?? pick(g, F.DIASPORA.filter((c) => AIRPORT_BY_CODE[c]));
+    client = nearClient(ctx, clientsOf(g, ['agency', 'tourOperator'], (c) => isDiaspora(c) && !!AIRPORT_BY_CODE[c.base]));
     if (!client) return null;
+    const dz = F.DIASPORA_BY_CLIENT[client.name];
+    const home = client.base;
+    const dest = o.airport ?? pick(g, (dz?.dests ?? F.DIASPORA).filter((c) => AIRPORT_BY_CODE[c] && c !== home));
     const back = Math.min(int(g, 4, 7), maxBack);
-    if (back < 2) return null;
-    legs = roundTrip(g, client.base, dest, s, back, pax);
-    title = `Diaspora charter ${client.base}–${dest}`;
-    blurb = `${client.name} has a full load of families flying home to ${city(dest)} for a festival, with heavy bags. Out ${fmtDay(legs[0].dep)}, back ${back} days later.`;
+    if (!dest || back < 2) return null;
+    legs = roundTrip(g, home, dest, s, back, pax);
+    title = `Diaspora charter ${home}–${dest}`;
+    blurb = pick(g, F.DIASPORA_BLURBS)({ client: client.name, dest: city(dest), reason: pick(g, dz?.reasons ?? F.DIASPORA_REASONS), day: fmtDay(legs[0].dep), back });
   } else if (variant === 'pilgrimage') {
-    client = clientsOf(g, ['agency'], isPilgrim)[0];
+    client = nearClient(ctx, clientsOf(g, ['agency'], (c) => isPilgrim(c) && !!AIRPORT_BY_CODE[c.base]));
     if (!client) return null;
-    const origins = ['WAW', 'KRK', 'DUB', 'MXP', 'BUD', 'VIE', 'MUC', 'LYS', 'BRU'].filter((c) => AIRPORT_BY_CODE[c]);
-    const from = o.airport ?? pick(g, origins);
+    // The operator flies its own pilgrims from home to a shrine (Fátima via Lisbon, Lourdes, Medjugorje via Split).
+    const from = o.airport ?? client.base;
+    const shrine = pick(g, F.SHRINES.filter((x) => AIRPORT_BY_CODE[x.code] && x.code !== from && km(from, x.code) > 400));
     const back = Math.min(int(g, 3, 5), maxBack);
-    if (back < 2) return null;
-    legs = roundTrip(g, from, 'LIS', s, back, pax);
-    title = `Pilgrimage ${from}–Lisbon`;
-    blurb = `${client.name} is bringing a parish group from ${city(from)} to Fátima, with wheelchairs and elderly passengers. Out ${fmtDay(legs[0].dep)}, home ${back} days later.`;
+    if (!shrine || back < 2) return null;
+    legs = roundTrip(g, from, shrine.code, s, back, pax);
+    title = `Pilgrimage ${city(from)}–${shrine.place}`;
+    blurb = `${client.name} is bringing a parish group from ${city(from)} to ${shrine.place}, ${shrine.note}. Out ${fmtDay(legs[0].dep)}, home ${back} days later.`;
   } else if (variant === 'music') {
     client = nearClient(ctx, clientsOf(g, ['music']));
     if (!client || maxBack < 7) return null;
@@ -386,28 +389,42 @@ function adhoc(ctx: Ctx): Draft | null {
   } else if (variant === 'oneway') {
     client = nearClient(ctx, clientsOf(g, ['agency'], (c) => isMarineCrewing(c) && !!AIRPORT_BY_CODE[c.base]));
     if (!client) return null;
-    const ports = ['BCN', 'PMI', 'VCE', 'ATH', 'LPA', 'FNC', 'MLA', 'NAP', 'CPH', 'SOU', 'MRS', 'CIV', 'LIS'].filter((c) => AIRPORT_BY_CODE[c]);
-    const dest = o.airport ?? pick(g, ports);
-    const from = pick(g, ports.filter((c) => c !== dest));
-    legs = roundTrip(g, from, dest, s, null, pax);
-    title = `Cruise crew change ${city(from)}–${city(dest)}`;
-    blurb = `${client.name} swaps ${pax} crew of a cruise ship: they board in ${city(from)} and must meet the ship in ${city(dest)} on ${fmtDay(legs[0].dep)}. One way; the aircraft comes back empty. The ship sails without them if we're late.`;
+    if (isCruiseLine(client)) {
+      const ports = ['BCN', 'PMI', 'VCE', 'ATH', 'LPA', 'FNC', 'MLA', 'NAP', 'CPH', 'SOU', 'MRS', 'CIV', 'LIS'].filter((c) => AIRPORT_BY_CODE[c]);
+      const dest = o.airport ?? pick(g, ports);
+      const from = pick(g, ports.filter((c) => c !== dest));
+      legs = roundTrip(g, from, dest, s, null, pax);
+      title = `Cruise crew change ${city(from)}–${city(dest)}`;
+      blurb = `${client.name} swaps ${pax} crew of a cruise ship: they board in ${city(from)} and must meet the ship in ${city(dest)} on ${fmtDay(legs[0].dep)}. One way; the aircraft comes back empty. The ship sails without them if we're late.`;
+    } else {
+      // Ship managers: seafarers for several cargo and tanker ships calling at one port.
+      const port = (o.airport && F.SHIP_PORTS.find((x) => x.code === o.airport)) || pick(g, F.SHIP_PORTS.filter((x) => AIRPORT_BY_CODE[x.code]));
+      const from = pick(g, F.SEAFARER_HUBS.filter((c) => AIRPORT_BY_CODE[c] && c !== port.code && km(c, port.code) > 400 && (wide || km(c, port.code) < 4000)));
+      if (!from) return null;
+      pax = int(g, 60, 120);
+      legs = roundTrip(g, from, port.code, s, null, pax);
+      title = `Crew change ${city(from)}–${port.port}`;
+      blurb = `${client.name} has crew changes for ${int(g, 2, 5)} vessels calling at ${port.port}: ${pax} seafarers fly ${city(from)}–${city(port.code)} on ${fmtDay(legs[0].dep)} to sign on. One way; the relieved crews go home on scheduled flights and we come back empty. Ships pay port time by the hour, so nobody waits for us.`;
+    }
   } else {
-    const group = pick(g, F.ADHOC_GROUPS);
-    client = nearClient(ctx, clientsOf(g, group.kinds, (c) => !isGovernment(c) && !isSpecialist(c) && !!AIRPORT_BY_CODE[c.base]));
+    // Groups fit their clients (film crews for BBC Studios, never a trade fair for F1) and their aircraft size.
+    const groups = F.ADHOC_GROUPS.filter((x) => (!wide || x.wide !== false) && adhocGroupClients(g, x).length);
+    if (!groups.length) return null;
+    const group = pick(g, groups);
+    client = nearClient(ctx, adhocGroupClients(g, group));
     if (!client) return null;
     if (group.pax && !wide) pax = int(g, ...group.pax);
     const pool = wide
-      ? airportsWithin(client.base, 5000, 9000, (a) => a.tour >= 0.7)
-      : airportsWithin(client.base, 600, 3500, (a) => a.tour >= 0.6 || a.size >= 4);
+      ? airportsWithin(client.base, 5000, 9000, (a) => a.tour >= 0.7 && F.groupDestOk(group, a))
+      : airportsWithin(client.base, 600, 3500, (a) => (a.tour >= 0.6 || a.size >= 4 || !!group.dests) && F.groupDestOk(group, a));
     const dest = o.airport ?? weightedPick(g, pool, (a) => a.tour + a.size / 5)?.code;
     if (!dest) return null;
     const oneWay = chance(g, 0.2) || maxBack < 1;
-    const back = Math.max(1, Math.min(int(g, 2, 6), maxBack));
+    const back = Math.max(1, Math.min(int(g, ...(group.back ?? [2, 6])), maxBack));
     legs = roundTrip(g, client.base, dest, s, oneWay ? null : back, pax);
     const what = group.what.replace(/^an? /, '');
     title = `${what[0].toUpperCase()}${what.slice(1)} to ${city(dest)}`;
-    blurb = `${client.name} has ${group.what} of ${pax} to fly ${client.base}–${dest} on ${fmtDay(legs[0].dep)}${oneWay ? ', one way (we come back empty)' : `, back ${back} days later`}. All-in price: we buy the fuel and pay the fees.`;
+    blurb = pick(g, F.ADHOC_BLURBS)({ client: client.name, what: group.what, pax, from: client.base, to: dest, day: fmtDay(legs[0].dep), back: oneWay ? null : back });
   }
   const broker = chance(g, 0.45) ? pick(g, BROKERS) : undefined;
   const last = legs[legs.length - 1];
@@ -425,7 +442,8 @@ function adhoc(ctx: Ctx): Draft | null {
 
 function sports(ctx: Ctx): Draft | null {
   const { g, wide, o } = ctx;
-  const client = nearClient(ctx, clientsOf(g, ['sports'], (c) => !!AIRPORT_BY_CODE[c.base]));
+  // Only big clubs fly widebody pre-season tours.
+  const client = nearClient(ctx, clientsOf(g, ['sports'], (c) => !!AIRPORT_BY_CODE[c.base] && (!wide || isBigClub(c))));
   if (!client) return null;
   const home = client.base;
   const season = !wide && chance(g, 0.25);
@@ -457,7 +475,7 @@ function sports(ctx: Ctx): Draft | null {
   const league = domestic.length >= trips && chance(g, season ? 0.8 : 0.55);
   const aways = o.airport ? [o.airport] : pickN(g, league ? domestic : abroad, trips, (a) => a.size).map((a) => a.code);
   if (aways.length < trips) return null;
-  const titles = league ? F.SPORT_TITLES_HOME.filter((t) => !t.startsWith('Derby') || km(home, aways[0]) < 700) : F.SPORT_TITLES_ABROAD;
+  const titles = league ? F.SPORT_TITLES_HOME.filter((t) => !t.startsWith('Short') || km(home, aways[0]) < 700) : F.SPORT_TITLES_ABROAD;
   for (let i = 0; i < trips; i++) {
     const match = s + DAY + i * every * DAY;
     legs.push({ from: home, to: aways[i], dep: atLocal(home, match - DAY, int(g, 22, 32) * 30), flightNo: '', pax });
@@ -505,7 +523,7 @@ function repatriation(ctx: Ctx): Draft | null {
     archetype: 'repatriation', client,
     title: n > 1 ? `Repatriation airlift from ${city(crisis)}` : `Repatriation from ${city(crisis)}`,
     blurb:
-      `${city(crisis)}: ${pick(g, F.CRISES)}. The ${client.name} needs ${n === 1 ? 'a flight' : `${n} flights`} ${crisis}–${home} for about ${pax} citizens, ` +
+      `${city(crisis)}: ${pick(g, F.crisisLines(crisis))}. The ${client.name} needs ${n === 1 ? 'a flight' : `${n} flights`} ${crisis}–${home} for about ${pax} citizens, ` +
       `first departure ${fmtDay(start)} ${fmtTime(start, crisis)} local. Permits are filed but may slip; payment after the job, governments pay late.`,
     pattern: { kind: 'legs', legs },
     req: { minSeats: wide ? 250 : 150, extraCabin: 0, approvals: [] },
@@ -521,7 +539,7 @@ function repatriation(ctx: Ctx): Draft | null {
 
 function tourSeries(ctx: Ctx): Draft | null {
   const { g, wide, o } = ctx;
-  const client = nearClient(ctx, clientsOf(g, ['tourOperator'], (c) => !!AIRPORT_BY_CODE[c.base] && c.base !== 'CPT'));
+  const client = nearClient(ctx, clientsOf(g, ['tourOperator'], (c) => !!AIRPORT_BY_CODE[c.base]));
   if (!client) return null;
   const base = client.base;
   const resorts = (wide ? F.RESORTS_WB : F.RESORTS_NB).filter((c) => {
@@ -551,7 +569,7 @@ function tourSeries(ctx: Ctx): Draft | null {
   return {
     archetype: 'tourSeries', client,
     title: `${wd} series ${base}–${resort}`,
-    blurb: `${client.name}: ${n} weekly rotations every ${wd}, ${fmtDay(legs[0].dep)}–${fmtDay(last.dep)}. Out at ${fmtTime(legs[0].dep, base)} local, back the same day; no fuel stops. Paid per rotation with a fuel-escalation clause.`,
+    blurb: pick(g, F.TOUR_SERIES_BLURBS)({ client: client.name, n, wd, first: fmtDay(legs[0].dep), last: fmtDay(last.dep), out: fmtTime(legs[0].dep, base) }),
     pattern: { kind: 'legs', legs },
     req: { minSeats: wide ? 250 : Math.min(180, Math.ceil(pax / 10) * 10), extraCabin: 0, approvals: [], noTechStops: true },
     start: legs[0].dep, end: last.dep + block,
@@ -767,8 +785,9 @@ export function onOfferSpawn(g: GameState, _ev: SimEvent): void {
   scheduleNextOffer(g);
 }
 
-function rivalName(g: GameState): string {
-  return g.rivals.length ? pick(g, g.rivals).name : 'a rival operator';
+/** Who took a lost offer: a rival whose fleet fits it, near the job (clients.ts rivalFor). */
+function rivalName(g: GameState, o: ContractOffer): string {
+  return rivalFor(g, o)?.name ?? 'a rival operator';
 }
 
 /** 'offer.expire': open offers lapse; most go to a rival (named in the missed list). Countered offers wait for the reply. */
@@ -776,7 +795,7 @@ export function onOfferExpire(g: GameState, ev: SimEvent): void {
   const o = g.offers[ev.id];
   if (!o || o.status !== 'open' || g.now < o.expires) return;
   const lost = chance(g, 0.7);
-  closeOffer(g, o, lost ? 'lost' : 'expired', lost ? rivalName(g) : undefined);
+  closeOffer(g, o, lost ? 'lost' : 'expired', lost ? rivalName(g, o) : undefined);
 }
 
 /** 'offer.reply': the client answers a counter: accept at the countered price (signs on the chosen aircraft) or refuse. */
@@ -787,7 +806,7 @@ export function onOfferReply(g: GameState, ev: SimEvent): void {
   const late = g.now > o.expires;
   if (late && chance(g, 0.25)) {
     o.counter.result = 'refused';
-    closeOffer(g, o, 'lost', rivalName(g));
+    closeOffer(g, o, 'lost', rivalName(g, o));
     pushMessage(g, { tone: 'info', cat: 'commercial', title: `Lost: ${o.title}`, body: `While we haggled, ${o.lostTo} took it.`, ref: { kind: 'offer', id: o.id } });
     return;
   }
@@ -802,14 +821,14 @@ export function onOfferReply(g: GameState, ev: SimEvent): void {
     if (res.ok) {
       pushMessage(g, { tone: 'good', cat: 'commercial', title: `Counter accepted: ${o.title}`, body: `${client} agreed to ${fmtPrice(o.product)}. The contract is signed.`, ref: { kind: 'contract', id: res.data!.contractId } });
     } else {
-      closeOffer(g, o, 'lost', rivalName(g));
+      closeOffer(g, o, 'lost', rivalName(g, o));
       pushMessage(g, { tone: 'warn', cat: 'commercial', title: `Deal fell through: ${o.title}`, body: `${client} accepted, but we can no longer fly it (${res.error}). ${o.lostTo} stepped in.`, ref: { kind: 'offer', id: o.id } });
     }
     return;
   }
   o.counter.result = 'refused';
   if (late) {
-    closeOffer(g, o, 'lost', rivalName(g));
+    closeOffer(g, o, 'lost', rivalName(g, o));
     pushMessage(g, { tone: 'info', cat: 'commercial', title: `Counter refused: ${o.title}`, body: `${client} said no and gave it to ${o.lostTo}.`, ref: { kind: 'offer', id: o.id } });
   } else {
     o.status = 'open';

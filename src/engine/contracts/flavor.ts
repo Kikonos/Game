@@ -1,36 +1,201 @@
 // Offer flavour text (B1): causes, crises and phrasing so offers read like the job they are.
 
+import type { Airport } from '../../data/airports';
+
 export const AOG_CAUSES = [
   'an engine borescope finding', 'a bird strike on the climb-out', 'a cracked windshield', 'a hard-landing inspection',
   'hail damage after a storm', 'an engine change that overran', 'a flap actuator failure', 'a tail-strike inspection',
   'a cargo door damaged by a loader', 'a fuel leak from the wing tank', 'a lightning strike', 'a landing-gear retraction fault',
+  'a catering truck that hit the forward door', 'a tyre burst on the landing roll', 'a flock of gulls ingested on the take-off roll',
+  'a pressurisation fault over the sea', 'a bleed-air leak found at the night stop', 'a jet bridge that dented the fuselage',
 ];
 
-/** Crisis openers; the blurb prefixes the city ("Goma: fighting has closed the airport…"). */
+/** Generic crisis openers for an airport without its own list; the blurb prefixes the city ("Juba: …"). */
 export const CRISES = [
-  'fighting has closed the airport to scheduled airlines', 'civil unrest has shut the land borders', 'a coup has grounded the national carrier',
-  'an earthquake has stranded tourists and aid workers', 'floods have cut the roads to the capital', 'the last scheduled carrier has suspended flights',
-  'an outbreak has closed regular services', 'elections turned violent overnight', 'an ash cloud has just cleared after a week of closures',
+  'commercial flights are suspended', 'the government has advised its citizens to leave', 'scheduled seats are sold out for weeks',
+  'the land borders are closed', 'fighting has closed the airport to scheduled airlines', 'the last scheduled carrier has suspended flights',
 ];
+
+/** Crisis openers per crisis airport: events that fit the place (volcanoes at Goma, quakes at Adana, coups where they happen). */
+export const CRISES_AT: Record<string, string[]> = {
+  KBL: [
+    'the authorities have ordered foreign embassies to cut their staff within 72 hours',
+    'fighting on the airport road has driven off the last foreign carriers',
+    'an earthquake in the east has stranded aid workers and dual nationals',
+    'Kam Air has grounded its fleet after a rocket landed near the apron',
+  ],
+  BKO: [
+    'a coup overnight has closed the borders and the airport to scheduled airlines',
+    'a fuel blockade by armed groups has emptied the pumps and grounded scheduled flights',
+    'the junta has ordered several European embassies to close within a week',
+    'the Niger has burst its banks and cut the roads out of the capital',
+  ],
+  JUB: [
+    'fighting has reached the outskirts of the capital',
+    'the White Nile floods have cut every road out of the city',
+    'the last regional carrier has pulled out after shots were fired near the terminal',
+    'a cholera outbreak has closed regular services',
+  ],
+  MGQ: [
+    'a truck bomb at the airport checkpoint has halted commercial flights',
+    'clan fighting has closed the road between the airport and the city',
+    'the government has suspended all foreign carriers pending a security review',
+  ],
+  BGF: [
+    'armed groups have reached the edge of the capital',
+    'a disputed election count has turned violent overnight',
+    'the Ubangi has flooded the riverside districts and the airport road',
+    'the only scheduled carrier has stopped flying after its aircraft was hit by gunfire on the ground',
+  ],
+  GOM: [
+    'rebel fighting has closed the airport to scheduled airlines',
+    'Nyiragongo is erupting and lava is moving towards the city',
+    'an ash cloud from Nyiragongo has just cleared after a week of closures',
+    'an Ebola outbreak in North Kivu has closed regular services',
+  ],
+  LAD: [
+    'fuel-price riots have spread across the capital and foreign carriers have suspended their flights',
+    'a general strike has shut the port and the land borders',
+    'flash floods have cut the roads to the airport and the hotels are emptying',
+  ],
+  OXB: [
+    'a coup attempt overnight has closed the borders',
+    'soldiers have surrounded the presidential palace and the airport is closed to scheduled airlines',
+    'the last scheduled carrier has suspended flights',
+    'a disputed election result has brought gunfire to the capital',
+  ],
+  TMS: [
+    'a coup attempt has closed the airport to scheduled airlines',
+    'the only scheduled service to Lisbon has been cancelled for a fortnight',
+    'torrential rains have washed out the roads and the power grid',
+    'a dengue outbreak has closed regular services',
+  ],
+  DIL: [
+    'riots after a disputed vote have closed the airport to scheduled airlines',
+    'flash floods have cut the roads to the capital',
+    'a strong earthquake in the Banda Sea has stranded tourists and aid workers',
+    'the regional carrier has suspended flights after a runway incursion',
+  ],
+  BEY: [
+    'air strikes near the airport have driven off the foreign carriers',
+    'the national carrier has flown its fleet out to Cyprus for safety',
+    'the embassy has told every citizen to leave while the airport is still open',
+    'a huge blast at the port has filled the hospitals and scheduled seats are sold out',
+  ],
+  ADA: [
+    'a strong earthquake in the south-east has stranded tourists and aid workers',
+    'wildfires in the hills have closed the roads to the coast',
+    'shelling across the Syrian border has closed the land crossings and scheduled seats are sold out',
+    'the Seyhan has flooded the roads to the airport',
+  ],
+};
+
+/** The crisis lines that fit this airport. */
+export const crisisLines = (code: string): string[] => CRISES_AT[code] ?? CRISES;
 
 export const MISSIONS = [
   'for the peacekeeping contingent', 'for the training mission', 'for the stabilisation force', 'for the observer mission',
 ];
 
-export const ADHOC_GROUPS: { what: string; kinds: ('tourOperator' | 'agency' | 'corporate' | 'music')[]; pax?: [number, number] }[] = [
-  { what: 'an incentive group', kinds: ['corporate'] },
-  { what: 'a sales conference', kinds: ['corporate'] },
-  { what: 'a wedding party', kinds: ['agency'], pax: [110, 160] },
-  { what: 'a late-booked package group', kinds: ['tourOperator'], pax: [160, 180] },
-  { what: 'a golf tournament group', kinds: ['agency', 'tourOperator'], pax: [100, 150] },
-  { what: 'a film crew with their kit', kinds: ['corporate'], pax: [80, 120] },
-  { what: 'a university choir on tour', kinds: ['agency'], pax: [90, 140] },
-  { what: 'a stag-and-hen weekend group', kinds: ['agency'], pax: [140, 178] },
-  { what: 'a trade-fair delegation', kinds: ['corporate'] },
+export interface AdhocGroup {
+  what: string;
+  /** Any client of these kinds books it… */
+  kinds: ('tourOperator' | 'agency' | 'corporate' | 'music')[];
+  /** …plus these named clients (naming-kit names). */
+  clients?: string[];
+  pax?: [number, number];
+  /** false: narrowbody only. */
+  wide?: boolean;
+  /** Days before the return leg. */
+  back?: [number, number];
+  /** Leisure resorts or big cities; `dests` pins a fixed list. */
+  dest?: 'leisure' | 'city';
+  dests?: string[];
+}
+
+const CORP = ['Novartis', 'American Express Global Business Travel'];
+const LEISURE_AGENCIES = ['Kuoni Group Travel', 'Hotelplan Group'];
+
+export const ADHOC_GROUPS: AdhocGroup[] = [
+  { what: 'an incentive group', kinds: ['tourOperator'], clients: [...CORP, ...LEISURE_AGENCIES], dest: 'leisure', back: [3, 5] },
+  { what: 'a sales conference', kinds: [], clients: CORP, dest: 'city', back: [2, 4] },
+  { what: 'a trade-fair delegation', kinds: [], clients: CORP, dest: 'city', back: [2, 4] },
+  { what: 'a wedding party', kinds: ['tourOperator'], clients: LEISURE_AGENCIES, pax: [110, 160], wide: false, dest: 'leisure', back: [3, 6] },
+  { what: 'a late-booked package group', kinds: ['tourOperator'], pax: [160, 180], dest: 'leisure', back: [4, 7] },
+  { what: 'a golf tournament group', kinds: ['tourOperator'], clients: ['Sportsworld Group Travel', ...LEISURE_AGENCIES], pax: [100, 150], wide: false, dest: 'leisure', back: [3, 6] },
+  { what: 'a film crew with their kit', kinds: [], clients: ['BBC Studios'], pax: [80, 120], wide: false, back: [4, 7] },
+  { what: 'a drama production unit', kinds: [], clients: ['BBC Studios'], pax: [90, 130], wide: false, dest: 'city', back: [4, 7] },
+  { what: 'a university choir on tour', kinds: ['tourOperator'], clients: LEISURE_AGENCIES, pax: [90, 140], wide: false, dest: 'city', back: [4, 7] },
+  { what: 'a stag-and-hen weekend group', kinds: [], clients: ['Sportsworld Group Travel'], pax: [100, 150], wide: false, dest: 'leisure', back: [2, 3] },
+  { what: "an away-final supporters' group", kinds: [], clients: ['Sportsworld Group Travel'], pax: [140, 180], wide: false, dest: 'city', back: [1, 2] },
+  { what: 'a race logistics and paddock team', kinds: [], clients: ['Formula 1'], pax: [120, 170], wide: false, back: [4, 5], dests: ['BCN', 'BUD', 'MXP', 'NCE', 'IST', 'MAD', 'VIE'] },
+  { what: 'a festival production team', kinds: [], clients: ['Live Nation', 'AEG Presents'], pax: [90, 140], wide: false, dest: 'leisure', back: [3, 5] },
 ];
 
-/** League games stay in the club's country; cup ties and European nights go abroad. */
-export const SPORT_TITLES_HOME = ['League away day in', 'Away match in', 'Derby away in'];
+/** Shrine towns are for pilgrims, not parties. */
+const NOT_FOR_GROUPS = ['LDE'];
+
+/** Whether an ad hoc group would plausibly fly to this airport. */
+export function groupDestOk(group: AdhocGroup, a: Airport): boolean {
+  if (group.dests) return group.dests.includes(a.code);
+  if (NOT_FOR_GROUPS.includes(a.code)) return false;
+  if (group.dest === 'leisure') return a.tour >= 0.7;
+  if (group.dest === 'city') return a.size >= 3 && a.biz >= 0.35;
+  return true;
+}
+
+export interface GroupBlurb { client: string; what: string; pax: number; from: string; to: string; day: string; back: number | null }
+const groupBack = (x: GroupBlurb, oneWay: string, ret: string) => (x.back === null ? oneWay : ret.replace('{n}', String(x.back)));
+export const ADHOC_BLURBS: ((x: GroupBlurb) => string)[] = [
+  (x) => `${x.client} has ${x.what} of ${x.pax} to fly ${x.from}–${x.to} on ${x.day}${groupBack(x, ', one way (we come back empty)', ', back {n} days later')}. All-in price: we buy the fuel and pay the fees.`,
+  (x) => `${x.client} is moving ${x.what} of ${x.pax} from ${x.from} to ${x.to} on ${x.day}${groupBack(x, '; one way, we ferry back empty', ', home {n} days later')}. They want one all-in price: fuel, fees and handling on us.`,
+  (x) => `Short notice from ${x.client}: ${x.what}, ${x.pax} passengers, ${x.from}–${x.to} on ${x.day}${groupBack(x, ', one way', ', return {n} days later')}. All-in charter; their group leader will want the seat plan by tomorrow.`,
+];
+
+export interface DiasporaBlurb { client: string; dest: string; reason: string; day: string; back: number }
+export const DIASPORA_BLURBS: ((x: DiasporaBlurb) => string)[] = [
+  (x) => `${x.client} has a full load of families flying home to ${x.dest} ${x.reason}, with heavy bags. Out ${x.day}, back ${x.back} days later.`,
+  (x) => `${x.client} sold every seat to ${x.dest} ${x.reason} in a weekend: families, gifts and boxes of food. Out ${x.day}, back ${x.back} days later; the bags will weigh out before the seats do.`,
+  (x) => `${x.client}'s ${x.dest} charter ${x.reason}: grandparents, children and a hold full of presents. Out ${x.day}, back ${x.back} days later.`,
+];
+
+/** Diaspora routes and reasons per agency; DIASPORA is the fallback. */
+export const DIASPORA_BY_CLIENT: Record<string, { dests: string[]; reasons: string[] }> = {
+  'Viagens Abreu': {
+    dests: ['OXB', 'TMS', 'LAD', 'SID', 'RAI', 'BVC'],
+    reasons: ['for the summer holidays', 'for Christmas and New Year', 'for the independence-day celebrations', 'for a season of family weddings and baptisms', 'for Carnival'],
+  },
+  Corendon: {
+    dests: ['ADA', 'ESB', 'ADB', 'CMN'],
+    reasons: ['for the summer holidays', 'for Eid with their families', 'for the wedding season back home', 'for the autumn school break'],
+  },
+};
+export const DIASPORA_REASONS = ['for the summer holidays', 'for Christmas and New Year', 'for a national holiday'];
+
+/** Pilgrimage shrines: the airport, the place and what the group brings. */
+export const SHRINES: { code: string; place: string; note: string }[] = [
+  { code: 'LIS', place: 'Fátima', note: 'with wheelchairs and elderly passengers, in time for the candlelight procession' },
+  { code: 'LDE', place: 'Lourdes', note: 'with wheelchairs, volunteer nurses and a few stretcher cases' },
+  { code: 'SPU', place: 'Medjugorje', note: 'with a coach over the border waiting at the other end' },
+];
+
+/** Ship managers' crew changes: the port (served by this airport) and where seafarers fly from. */
+export const SHIP_PORTS: { code: string; port: string }[] = [
+  { code: 'AMS', port: 'Rotterdam' }, { code: 'ATH', port: 'Piraeus' }, { code: 'BRU', port: 'Antwerp' }, { code: 'HAM', port: 'Hamburg' },
+  { code: 'AGP', port: 'Algeciras' }, { code: 'VLC', port: 'Valencia' }, { code: 'GDN', port: 'Gdańsk' }, { code: 'LPA', port: 'Las Palmas' },
+  { code: 'LCA', port: 'Limassol' }, { code: 'MLA', port: 'Marsaxlokk' },
+];
+export const SEAFARER_HUBS = ['SPU', 'OTP', 'VAR', 'GDN', 'RIX', 'ATH', 'MNL', 'BOM'];
+
+export interface TourBlurb { client: string; n: number; wd: string; first: string; last: string; out: string }
+export const TOUR_SERIES_BLURBS: ((x: TourBlurb) => string)[] = [
+  (x) => `${x.client}: ${x.n} weekly rotations every ${x.wd}, ${x.first}–${x.last}. Out at ${x.out} local, back the same day; no fuel stops. Paid per rotation with a fuel-escalation clause.`,
+  (x) => `${x.client} has sold ${x.n} ${x.wd} departures (${x.first}–${x.last}) and needs the aircraft: out at ${x.out} local, straight back with the returning guests. No fuel stops; paid per rotation, fuel escalation above the index.`,
+  (x) => `A ${x.wd} rotation for ${x.client}'s brochure: ${x.n} weeks from ${x.first} to ${x.last}, departing ${x.out} local. Their reps meet every flight, so on-time matters more than catering. Paid per rotation with a fuel clause.`,
+];
+
+/** League games stay in the club's country; cup ties and European nights go abroad. 'Short' titles only under 700 km. */
+export const SPORT_TITLES_HOME = ['League away day in', 'Away match in', 'Short away trip to'];
 export const SPORT_TITLES_ABROAD = ['European night in', 'Cup tie in', 'Continental away leg in'];
 
 /** Departure-time slots that look like real charter schedules (local minutes). */

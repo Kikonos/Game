@@ -415,3 +415,39 @@ export function feasibilityAll(g: GameState, offerId: string): FeasibilityReport
     .map((id) => feasibility(g, offerId, id))
     .sort((a, b) => RANK[a.level] - RANK[b.level] || b.estMargin - a.estMargin);
 }
+
+export interface MarketFit {
+  /** The aircraft-market offer that could fly this job, and when it would be delivered if signed today. */
+  marketOfferId: string;
+  typeId: string;
+  deliversBy: Minute;
+}
+
+/**
+ * The first aircraft on the market (by delivery) that could fly this offer and be delivered at least a week
+ * before it starts: seats, cabin layout, family and range (fuel stops allowed unless the client wants none).
+ * Lets an offer card say "can be flown by a market aircraft delivering by X". Pure.
+ */
+export function marketFit(g: GameState, offerId: string): MarketFit | null {
+  const o = g.offers[offerId];
+  if (!o) return null;
+  const req = o.requirements;
+  const p = o.pattern;
+  const sectors: [string, string][] = p.kind === 'base' ? p.dests.flatMap((x) => [[p.base, x], [x, p.base]] as [string, string][]) : p.legs.map((l) => [l.from, l.to]);
+  const noStops = o.pattern.kind === 'base' || !!req.noTechStops;
+  let best: MarketFit | null = null;
+  for (const m of g.market.aircraft) {
+    if (m.expires <= g.now) continue;
+    const t = typeOf(m.typeId);
+    const deliversBy = g.now + m.leadDays * DAY;
+    if (deliversBy > o.start - 7 * DAY || (best && deliversBy >= best.deliversBy)) continue;
+    if (m.cabin.total < req.minSeats || (req.maxSeats && m.cabin.total > req.maxSeats)) continue;
+    if ((req.layout && m.cabin.layout !== req.layout) || (req.families?.length && !req.families.includes(t.family))) continue;
+    if (!sectors.every(([a, b]) => {
+      const sp = planSector(t.id, a, b);
+      return sp.ok && (!noStops || !sp.techStops.length);
+    })) continue;
+    best = { marketOfferId: m.id, typeId: m.typeId, deliversBy };
+  }
+  return best;
+}

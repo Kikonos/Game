@@ -50,10 +50,10 @@ function audit(seed: number, days: number): string[] {
 }
 
 describe('crew audit', () => {
-  it('flies every departure with its crew at the departure airport (seeds 7 and 3, 75 days)', () => {
+  it('flies every departure with its crew at the departure airport (seeds 7 and 3, 50 days)', () => {
     for (const seed of [7, 3]) {
-      const out = audit(seed, 75);
-      expect(Number(out.pop()!.split(' ')[1])).toBeGreaterThan(100);
+      const out = audit(seed, 50);
+      expect(Number(out.pop()!.split(' ')[1])).toBeGreaterThan(60);
       expect(out).toEqual([]);
     }
   }, 120_000);

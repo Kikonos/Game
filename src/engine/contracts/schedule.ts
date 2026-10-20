@@ -185,7 +185,9 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     cur = b;
   }
   gaps.push({ a: cur, b: null, legs: [] });
-  for (const f of soft) (gaps.find((x) => x.b && f.std < x.b.std) ?? gaps[gaps.length - 1]).legs.push(f);
+  // A leg belongs to the gap it starts in; a late leg out of a gap's start airport (planned forward, after the
+  // next commitment's first departure) still belongs to that gap, so a second pass keeps it (fixed point).
+  for (const f of soft) (gaps.find((x) => x.b && (f.std < x.b.std || (f.from === x.a.to && f.std < x.b.sta))) ?? gaps[gaps.length - 1]).legs.push(f);
   const created: Flight[] = [];
   const remove: string[] = [];
   const add = (chain: ChainLeg[], contractId: string | null) => {

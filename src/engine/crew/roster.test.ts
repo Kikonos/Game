@@ -282,10 +282,10 @@ describe('performance', () => {
     return g;
   };
   it('rosters a month of flights for 4 aircraft and ~120 crew in < 50 ms, deterministically', () => {
-    // Best of 4 fresh games (the first is the JIT warm-up), so parallel test files don't make it flaky.
+    // Best of 6 fresh games (the first is the JIT warm-up), so parallel test files don't make it flaky.
     const times: number[] = [];
     const sigs: string[] = [];
-    for (let k = 0; k < 4; k++) {
+    for (let k = 0; k < 6; k++) {
       const g = month();
       const t0 = performance.now();
       const res = autoRoster(g, { to: g.now + 31 * DAY });

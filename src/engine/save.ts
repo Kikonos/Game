@@ -46,8 +46,8 @@ function metaFor(g: GameState, slot: string): SaveMeta {
 }
 
 /** Stale queue events are dropped (handlers would ignore them anyway), which keeps saves small. */
-export function serialize(g: GameState, slot = 'export'): string {
-  const file: SaveFile = { format: FORMAT, meta: metaFor(g, slot), state: { ...g, queue: compactQueue(g) } };
+export function serialize(g: GameState, slot = 'export', meta = metaFor(g, slot)): string {
+  const file: SaveFile = { format: FORMAT, meta, state: { ...g, queue: compactQueue(g) } };
   return JSON.stringify(file);
 }
 
@@ -83,16 +83,30 @@ function storage(): Storage | null {
 }
 
 const LZ_MARK = 'lz1:';
+/** Uncompressed meta per slot, so the save list never decompresses whole games. */
+const META = 'contrail-acmi:meta:';
 
 /** False when storage is unavailable or full (QuotaExceededError); callers toast. */
 export function saveToSlot(g: GameState, slot: string): boolean {
   const s = storage();
   if (!s) return false;
+  const meta = metaFor(g, slot);
+  const value = LZ_MARK + LZString.compressToUTF16(serialize(g, slot, meta));
   try {
-    s.setItem(PREFIX + slot, LZ_MARK + LZString.compressToUTF16(serialize(g, slot)));
-    return true;
+    s.setItem(PREFIX + slot, value);
   } catch {
     return false;
+  }
+  writeMeta(s, slot, meta, value.length);
+  return true;
+}
+
+/** The meta key remembers the size of the save it describes: a slot written elsewhere (async autosave) is re-read. */
+function writeMeta(s: Storage, slot: string, meta: SaveMeta, size: number): void {
+  try {
+    s.setItem(META + slot, JSON.stringify({ meta, size }));
+  } catch {
+    s.removeItem(META + slot);
   }
 }
 
@@ -109,16 +123,32 @@ export function loadFromSlot(slot: string): GameState | null {
 
 export function deleteSlot(slot: string): void {
   storage()?.removeItem(PREFIX + slot);
+  storage()?.removeItem(META + slot);
 }
 
+/** Save metadata per slot from the small meta keys; older saves without one are read in full once (and cached). */
 export function listSaves(): SaveMeta[] {
-  if (!storage()) return [];
+  const s = storage();
+  if (!s) return [];
   const out: SaveMeta[] = [];
   for (const slot of [AUTOSAVE_SLOT, ...SLOTS]) {
-    const text = readSlot(slot);
+    const raw = s.getItem(PREFIX + slot);
+    if (!raw) continue;
+    try {
+      const m = JSON.parse(s.getItem(META + slot) ?? 'null') as { meta: SaveMeta; size: number } | null;
+      if (m && m.size === raw.length) {
+        out.push({ ...m.meta, slot });
+        continue;
+      }
+    } catch {
+      // fall back to the full save
+    }
+    const text = raw.startsWith(LZ_MARK) ? LZString.decompressFromUTF16(raw.slice(LZ_MARK.length)) : raw;
     if (!text) continue;
     try {
-      out.push({ ...(JSON.parse(text) as SaveFile).meta, slot });
+      const meta = { ...(JSON.parse(text) as SaveFile).meta, slot };
+      out.push(meta);
+      writeMeta(s, slot, meta, raw.length);
     } catch {
       // unreadable save
     }

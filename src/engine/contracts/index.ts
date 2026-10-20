@@ -11,7 +11,7 @@ import { extendBaseSchedules, relinkPositioning } from './schedule';
 
 export { acceptOffer, askingPrice, cancelContract, cancelCost, cancelPenalty, contractProgress, counterOffer, declineOffer, leadDays, type ContractProgress } from './accept';
 export { billContractMonth, type BillingLine } from './billing';
-export { feasibility, feasibilityAll, type CheckId, type CheckLevel, type FeasibilityCheck, type FeasibilityReport, type PositioningLeg } from './feasibility';
+export { feasibility, feasibilityAll, marketFit, type MarketFit, type CheckId, type CheckLevel, type FeasibilityCheck, type FeasibilityReport, type PositioningLeg } from './feasibility';
 export { fmtPrice, generateOffer, idleWindows, type IdleWindow, type OfferOpts } from './offers';
 export { priceProduct, productValue, rateMultiplier } from './pricing';
 export { generateFlights, planPositioning, relinkPositioning } from './schedule';
@@ -40,7 +40,15 @@ export const contractsModule: SimModule = {
   /** Keeps empty legs linking commitments after any flight change (delays, swaps, cancellations by other modules). */
   settle(g) {
     if (relinked.get(g) === flightsRev(g)) return;
-    for (const id of Object.keys(g.fleet)) relinkPositioning(g, id);
+    // Relinked to a fixed point (a pass that changes nothing), so the first settle after a load finds nothing to
+    // redo and a reloaded game plays on identically.
+    for (const id of Object.keys(g.fleet)) {
+      for (let i = 0; i < 3; i++) {
+        const rev = flightsRev(g);
+        relinkPositioning(g, id);
+        if (flightsRev(g) === rev) break;
+      }
+    }
     relinked.set(g, flightsRev(g));
   },
   handlers: {

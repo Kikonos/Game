@@ -11,7 +11,7 @@ import { pushMessage } from '../core/messages';
 import { blockMinutes, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { chance, next, pick, range } from '../core/rng';
-import { DAY, fmtDuration, fmtTime, monthKey } from '../core/time';
+import { DAY, fmtDuration, fmtTime } from '../core/time';
 import type { ActionResult, Aircraft, Flight, GameState, MaintenanceEvent, MessageCat, Minute, SimEvent } from '../core/types';
 import { noteLostLegs } from '../contracts/billing';
 import { applyDiscretion, boardCrew, flightCrewStatus, rerosterFrom } from '../crew';
@@ -809,13 +809,15 @@ export function delayFlight(g: GameState, flightId: string, minutes: number, rea
 
 // ---------- housekeeping ----------
 
-/** Daily: drop done/cancelled flights 7 days after their month was billed (closed at month end); stats keep totals. */
+/**
+ * Daily: drop done/cancelled flights a week after on-blocks (crew tickets after two days), which keeps a big
+ * fleet's save small; billing (contract use), stats and crew logs already hold what they need.
+ */
 export function pruneFlights(g: GameState): void {
-  const billed = monthKey(g.now - 7 * DAY);
   const ids: string[] = [];
   for (const f of Object.values(g.flights)) {
     if (f.status !== 'done' && f.status !== 'cancelled') continue;
-    if (monthKey(f.ata ?? f.sta) < billed) ids.push(f.id);
+    if ((f.ata ?? f.sta) < g.now - (f.kind === 'deadhead' ? 2 : 7) * DAY) ids.push(f.id);
   }
   if (ids.length) removeFlights(g, ids);
 }

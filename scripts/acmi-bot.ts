@@ -25,12 +25,14 @@ import { devFleet } from '../src/engine/dev';
 import { createGame } from '../src/engine/newGame';
 import { acquireAircraft, checkStatus, groundGaps, resolveDecision, scheduleCheck } from '../src/engine/ops';
 import { deserialize, serialize } from '../src/engine/save';
-import { advanceTo } from '../src/engine/sim';
+import { advanceTo, settle } from '../src/engine/sim';
 
 const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 const seed = Number(args[0] ?? 1);
 const days = Number(args[1] ?? 365);
 const DET = process.argv.includes('--det');
+const BIG = process.argv.includes('--big');
+const BIG_DAYS = Number(process.env.BIG_DAYS ?? 120);
 const STEP = 6 * 60;
 
 const newGame = () => createGame({ name: 'Atlântica Wings', code: 'AW', livery: { primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' }, base: 'LIS', seed });
@@ -51,8 +53,10 @@ interface Tally {
   /** When the bot's own (stricter) signing test on cash first passed. */
   wideReadyAt: number | null;
   wideSigned: number | null;
+  /** Tour series and troop rotations signed. */
+  longLead: number;
 }
-const newTally = (): Tally => ({ actions: new Map(), decisions: new Map(), decMonth: new Map(), decKinds: new Map(), accepted: 0, countered: 0, firstAccept: null, wideAffordableAt: null, wideReadyAt: null, wideSigned: null });
+const newTally = (): Tally => ({ actions: new Map(), decisions: new Map(), decMonth: new Map(), decKinds: new Map(), accepted: 0, countered: 0, firstAccept: null, wideAffordableAt: null, wideReadyAt: null, wideSigned: null, longLead: 0 });
 
 const weekOf = (g: GameState) => Math.floor((g.now - g.started) / (7 * DAY));
 const act = (g: GameState, t: Tally, n = 1) => t.actions.set(weekOf(g), (t.actions.get(weekOf(g)) ?? 0) + n);
@@ -119,7 +123,9 @@ function offers(g: GameState, t: Tally): void {
   for (const o of open) {
     const span = Math.max(1, (o.end - o.start) / DAY);
     if (span > 10 && o.estBH / span < 3) continue;
-    if (!isBase(o) && o.start > g.now + 21 * DAY) continue;
+    // Ad hoc work inside three weeks; tour series and troop rotations (booked months ahead) up to 90 days out.
+    const longLead = o.archetype === 'tourSeries' || o.archetype === 'troopRotation';
+    if (!isBase(o) && o.start > g.now + (longLead ? 90 : 21) * DAY) continue;
     const best = bestFit(g, o);
     if (!best) continue;
     // A long-lead base deal is worth one counter at +5%; a refusal reopens it at the asking price.
@@ -133,6 +139,7 @@ function offers(g: GameState, t: Tally): void {
     hireFor(g, t, best);
     if (acceptOffer(g, o.id, [best.aircraftId]).ok) {
       t.accepted++;
+      if (longLead) t.longLead++;
       t.firstAccept ??= g.now;
       act(g, t);
     }
@@ -187,7 +194,7 @@ function wideMonth(rent: number, typeId: string, seats: number): number {
 
 /**
  * Signed when the deposit, three months of the widebody's fixed costs (crew included) and a $1.5M cushion are in the bank, only
- * while the last three months were profitable and a widebody job worth $1.5M+ starts far enough out for delivery
+ * while the last three months were profitable and a widebody base of 75+ days worth $2.5M+ starts far enough out for delivery
  * and crew hiring; that job is then taken as soon as the aircraft can fly it.
  */
 function fleet(g: GameState, t: Tally): void {
@@ -201,7 +208,7 @@ function fleet(g: GameState, t: Tally): void {
     if (g.company.cash < o.deposit + 3 * wideMonth(o.rentPerMonth, o.typeId, o.cabin.total) + 1_500_000) continue;
     t.wideReadyAt ??= g.now;
     const job = Object.values(g.offers).find(
-      (x) => x.status === 'open' && x.estValue >= 1_500_000 && x.start > g.now + (o.leadDays + 30) * DAY && (x.requirements.body === 'wide' || x.requirements.minSeats > 220) &&
+      (x) => x.status === 'open' && x.estValue >= 2_500_000 && x.product.kind === 'wet' && x.end - x.start >= 75 * DAY && x.start > g.now + (o.leadDays + 30) * DAY && (x.requirements.body === 'wide' || x.requirements.minSeats > 220) &&
         o.cabin.total >= x.requirements.minSeats && (!x.requirements.families?.length || x.requirements.families.includes(typeOf(o.typeId).family)),
     );
     if (!earning || !job) continue;
@@ -234,6 +241,8 @@ function play(g: GameState, t: Tally, end: number, onStep?: () => void): void {
     const newDay = dayIndex(g.now) !== day;
     day = dayIndex(g.now);
     policy(g, t, r.pause === 'urgentOffer', newDay);
+    // Like the UI's store.act: runtime-only change marks are applied now, so a save here plays on identically.
+    settle(g);
     onStep?.();
   }
 }
@@ -259,21 +268,30 @@ if (DET) {
     play(g, newTally(), g.started + d * DAY);
     return g;
   };
-  const a = stateJson(runTo(180));
-  const b = stateJson(runTo(180));
+  const END = 365;
+  const a = stateJson(runTo(END));
+  const b = stateJson(runTo(END));
   const h = runTo(90);
   const g2 = deserialize(serialize(h));
-  play(g2, newTally(), g2.started + 180 * DAY);
+  play(g2, newTally(), g2.started + END * DAY);
   const c = stateJson(g2);
+  // Off the 6-hour grid, between policy steps (a player saving at any minute).
+  const h2 = runTo(200);
+  advanceTo(h2, h2.now + 137);
+  settle(h2);
+  const g3 = deserialize(serialize(h2));
+  play(g3, newTally(), g3.started + END * DAY);
+  const d3 = stateJson(g3);
   const diff = (x: string, y: string) => {
     let i = 0;
     while (i < x.length && x[i] === y[i]) i++;
     return x === y ? 'identical' : `differ at char ${i}: …${x.slice(Math.max(0, i - 120), i + 60)}… vs …${y.slice(Math.max(0, i - 120), i + 60)}…`;
   };
   console.log(`BLOCK HOURS determinism, seed ${seed} (${((performance.now() - wall) / 1000).toFixed(1)} s)`);
-  console.log(`  two runs to day 180:            ${diff(a, b)} (${(a.length / 1024).toFixed(0)} KB JSON)`);
-  console.log(`  save/load at day 90 → day 180:  ${diff(a, c)}`);
-  process.exit(a === b && a === c ? 0 : 1);
+  console.log(`  two runs to day ${END}:            ${diff(a, b)} (${(a.length / 1024).toFixed(0)} KB JSON)`);
+  console.log(`  save/load at day 90 → day ${END}:   ${diff(a, c)}`);
+  console.log(`  save/load at day 200 + 2h17 → ${END}: ${diff(a, d3)}`);
+  process.exit(a === b && a === c && a === d3 ? 0 : 1);
 }
 
 // ---------- the year ----------
@@ -435,9 +453,30 @@ if (finalRaw.length > peakSave.length) peakSave = finalRaw;
 const t0 = performance.now();
 const saveKB = (LZString.compressToUTF16(peakSave).length * 2) / 1024;
 const saveMs = performance.now() - t0;
-const big = deserialize(finalRaw);
-devFleet(big, 10);
-const bigKB = (LZString.compressToUTF16(serialize(big)).length * 2) / 1024;
+// 10 aircraft: --big plays a real 10-aircraft game (BIG_DAYS, default 120) for the peak save; otherwise idle clones.
+let bigKB = 0;
+let bigMs = 0;
+let bigNote = 'idle clones';
+if (BIG) {
+  const b = newGame();
+  devFleet(b, 10);
+  b.company.cash += 20_000_000;
+  let peak = '';
+  play(b, newTally(), b.started + BIG_DAYS * DAY, () => {
+    if (toDate(b.now).getUTCDate() === 1 && b.now % DAY < STEP) {
+      const raw = serialize(b);
+      if (raw.length > peak.length) peak = raw;
+    }
+  });
+  const t1 = performance.now();
+  bigKB = (LZString.compressToUTF16(peak).length * 2) / 1024;
+  bigMs = performance.now() - t1;
+  bigNote = `real game, ${Object.keys(b.fleet).length} aircraft, ${Object.keys(b.crew).length} crew, ${BIG_DAYS} days, compress ${bigMs.toFixed(0)} ms`;
+} else {
+  const big = deserialize(finalRaw);
+  devFleet(big, 10);
+  bigKB = (LZString.compressToUTF16(serialize(big)).length * 2) / 1024;
+}
 errors.push(...badNumbers(g).map((p) => `final: non-finite ${p}`));
 
 const s = g.stats;
@@ -473,8 +512,8 @@ const targets: [string, boolean, string][] = [
   ['first contract within 7 days', tally.firstAccept !== null && tally.firstAccept - g.started <= 7 * DAY, dayOf(tally.firstAccept)],
   ['widebody acquirable within 12 months', tally.wideAffordableAt !== null && tally.wideAffordableAt - g.started <= 365 * DAY, `${dayOf(tally.wideAffordableAt)}; with crew costs ${dayOf(tally.wideReadyAt)}; signed ${dayOf(tally.wideSigned)}`],
   ['1–3 AOGs per aircraft-year', aogRate >= 0.995 && aogRate <= 3.005, `${aogRate.toFixed(2)} (${s.aogs ?? 0} in ${acYears.toFixed(1)} ac-yr)`],
-  ['governments mostly pay late (≥ 5 invoices)', gov.length < 5 || govLate / gov.length >= 0.5, `${govLate}/${gov.length} invoices late`],
-  ['save < 300 KB (and with 10 aircraft)', saveKB < 300 && bigKB < 300, `peak ${saveKB.toFixed(0)} KB (compress ${saveMs.toFixed(0)} ms), with 10 aircraft ${bigKB.toFixed(0)} KB`],
+  ['governments mostly pay late (≥ 3 invoices)', gov.length < 3 || govLate / gov.length >= 0.5, `${govLate}/${gov.length} invoices late`],
+  ['save < 300 KB (and with 10 aircraft)', saveKB < 300 && bigKB < 300, `peak ${saveKB.toFixed(0)} KB (compress ${saveMs.toFixed(0)} ms), with 10 aircraft ${bigKB.toFixed(0)} KB (${bigNote})`],
   ['runs in < 10 s', runSecs < 10, `${runSecs.toFixed(1)} s`],
 ];
 console.log(`\nP&L of the closed months: ${[...lines].sort((a, b) => b[1] - a[1]).map(([c, v]) => `${c} ${k$(v)}`).join(', ')}`);
@@ -486,6 +525,8 @@ console.log(
 console.log(`decisions answered: ${[...tally.decKinds].sort((a, b) => b[1] - a[1]).map(([c, v]) => `${c} ${v}`).join(', ') || 'none'}`);
 console.log(`cancelled legs by reason: ${[...cancels].sort((a, b) => b[1] - a[1]).map(([c, v]) => `${c} ${v}`).join(', ') || 'none'}`);
 for (const e of errors.slice(0, 3)) console.log(e);
+// Soft target (information): the ladder in practice, a widebody signed with a job inside the year.
+console.log(`ladder: widebody signed ${dayOf(tally.wideSigned)}; tour series / troop rotations signed ${tally.longLead}`);
 console.log('\ntargets');
 for (const [name, ok, val] of targets) console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${name.padEnd(38)} ${val}`);
 process.exitCode = errors.length ? 2 : targets.every((c) => c[1]) ? 0 : 1;

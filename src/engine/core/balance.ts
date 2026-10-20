@@ -76,7 +76,7 @@ export const BAL = {
   airportFees: [3_000, 8_000],
   catering: [600, 2_400],
   overheadBase: 110_000,
-  overheadPerAircraft: 70_000,
+  overheadPerAircraft: 55_000,
   /** Maintenance cost multiplier per year of age above 12. */
   maintAgeFactor: 0.025,
   /** Check cost (narrow, wide). The A-check sits partly inside maintBH (all-in DMC), so it is kept low. */

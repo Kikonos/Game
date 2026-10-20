@@ -280,10 +280,8 @@ export function contractProgress(g: GameState, contractId: string): ContractProg
   const horizon = g.now + BAL.rosterHorizonDays * DAY;
   for (const f of Object.values(g.flights)) {
     if (f.contractId !== c.id || f.status === 'cancelled') continue;
-    if (f.kind === 'revenue' || f.kind === 'techstop') {
-      out.legsTotal++;
-      if (f.status === 'done') out.legsDone++;
-    }
+    // Legs flown are counted on the contract (done flights are pruned a week after landing).
+    if ((f.kind === 'revenue' || f.kind === 'techstop') && f.status !== 'done') out.legsTotal++;
     if (f.status !== 'scheduled') continue;
     if (!next || f.std < next.std) next = { id: f.id, std: f.std };
     if (f.aircraftId && f.std < horizon && (!problem || f.std < problem.std)) {
@@ -307,6 +305,8 @@ export function contractProgress(g: GameState, contractId: string): ContractProg
     const unbilled = c.billedMonths.includes(k) ? 0 : c.product.ratePerBH * out.bhMonth;
     out.revenueToDate = Math.round((c.invoiced ?? 0) + unbilled);
   } else out.revenueToDate = Math.round(c.accrued ?? 0);
+  out.legsDone = c.legsFlown ?? 0;
+  out.legsTotal += out.legsDone;
   out.nextFlightId = next?.id ?? null;
   out.problemFlightId = problem?.id ?? null;
   return out;

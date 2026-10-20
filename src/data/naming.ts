@@ -1,4 +1,4 @@
-// Naming kit: the player's own company presets are fictional; clients, brokers and rivals are real, neutral names.
+// Naming kit: the player's own company presets are fictional; clients, brokers and rivals are real companies.
 
 export interface CompanyPreset {
   name: string;
@@ -8,16 +8,17 @@ export interface CompanyPreset {
   base: string;
 }
 
-/** New-game presets; the base list doubles as the v0.5 home-base choice (Lisbon default). */
+/** New-game presets; the base list doubles as the v0.5 home-base choice (Lisbon default).
+ *  Codes avoid every client designator in the game (clients.ts IATA) and the big carriers' codes. */
 export const COMPANY_PRESETS: CompanyPreset[] = [
-  { name: 'Atlântica Wings', code: 'AW', icao: 'ATW', callsign: 'ATLANTICA', base: 'LIS' },
+  { name: 'Atlântica Wings', code: 'W7', icao: 'AWQ', callsign: 'ATLANTICA', base: 'LIS' },
   { name: 'Amberline Air', code: 'AB', icao: 'ABL', callsign: 'AMBERLINE', base: 'VNO' },
-  { name: 'Valletta Jetlease', code: 'VJ', icao: 'VJL', callsign: 'MALTESE', base: 'MLA' },
-  { name: 'Iberosol Charter', code: 'IS', icao: 'IBS', callsign: 'SOLAIR', base: 'MAD' },
+  { name: 'Valletta Jetlease', code: 'V9', icao: 'VJQ', callsign: 'MALTESE', base: 'MLA' },
+  { name: 'Iberosol Charter', code: 'I9', icao: 'ISQ', callsign: 'SOLAIR', base: 'MAD' },
   { name: 'Daugava Wetlease', code: 'DW', icao: 'DGW', callsign: 'DAUGAVA', base: 'RIX' },
   { name: 'Vltava Air Charter', code: 'VC', icao: 'VTC', callsign: 'VLTAVA', base: 'PRG' },
-  { name: 'Balkan Wings', code: 'BK', icao: 'BKW', callsign: 'BALKANWING', base: 'SOF' },
-  { name: 'Toompea Aviation', code: 'TP', icao: 'TPA', callsign: 'TOOMPEA', base: 'TLL' },
+  { name: 'Balkan Wings', code: 'B9', icao: 'BWQ', callsign: 'BALKANWING', base: 'SOF' },
+  { name: 'Toompea Aviation', code: 'T9', icao: 'TQA', callsign: 'TOOMPEA', base: 'TLL' },
 ];
 
 /** Home bases offered at New Game (Lisbon default): the five of the brief plus three more ACMI-style AOC bases. */
@@ -41,29 +42,29 @@ export interface RivalSeed {
   name: string;
   country: string;
   base: string;
-  /** Narrow, wide or mixed fleet. */
-  fleet: 'narrow' | 'wide' | 'mixed';
+  /** Typical fleet, approximate (acmiTypes ids): drives sub-charter matching and who wins a lost offer. */
+  fleet: { typeId: string; count: number }[];
   personality: 'cheap' | 'premium' | 'rescue' | 'military' | 'steady';
 }
 
+const F = (...xs: [string, number][]) => xs.map(([typeId, count]) => ({ typeId, count }));
+
 /** Real ACMI / charter operators used as competing bidders and sub-charter partners (SmartLynx ceased in Nov 2025: excluded). */
 export const RIVALS: RivalSeed[] = [
-  { name: 'Hi Fly', country: 'PT', base: 'LIS', fleet: 'wide', personality: 'steady' },
-  { name: 'euroAtlantic airways', country: 'PT', base: 'LIS', fleet: 'mixed', personality: 'steady' },
-  { name: 'Wamos Air', country: 'ES', base: 'MAD', fleet: 'wide', personality: 'steady' },
-  { name: 'Privilege Style', country: 'ES', base: 'PMI', fleet: 'mixed', personality: 'premium' },
-  { name: 'Avion Express', country: 'LT', base: 'VNO', fleet: 'narrow', personality: 'cheap' },
-  { name: 'GetJet Airlines', country: 'LT', base: 'VNO', fleet: 'narrow', personality: 'cheap' },
-  { name: 'Airhub Airlines', country: 'MT', base: 'MLA', fleet: 'narrow', personality: 'cheap' },
-  { name: 'Air Atlanta Icelandic', country: 'IS', base: 'KEF', fleet: 'wide', personality: 'steady' },
-  { name: 'Titan Airways', country: 'GB', base: 'STN', fleet: 'narrow', personality: 'rescue' },
-  { name: 'Global Crossing Airlines', country: 'US', base: 'MIA', fleet: 'narrow', personality: 'steady' },
+  { name: 'Hi Fly', country: 'PT', base: 'LIS', fleet: F(['a332', 2], ['a333', 2], ['a343', 2], ['a359', 1]), personality: 'steady' },
+  { name: 'euroAtlantic airways', country: 'PT', base: 'LIS', fleet: F(['b763', 3], ['b772', 1]), personality: 'steady' },
+  { name: 'Wamos Air', country: 'ES', base: 'MAD', fleet: F(['a332', 2], ['a333', 5]), personality: 'steady' },
+  { name: 'Privilege Style', country: 'ES', base: 'PMI', fleet: F(['b752', 3], ['b772', 2]), personality: 'premium' },
+  { name: 'Avion Express', country: 'LT', base: 'VNO', fleet: F(['a320ceo', 12], ['a321ceo', 5]), personality: 'cheap' },
+  { name: 'GetJet Airlines', country: 'LT', base: 'VNO', fleet: F(['a320ceo', 6], ['b738', 2]), personality: 'cheap' },
+  { name: 'Airhub Airlines', country: 'MT', base: 'MLA', fleet: F(['a320ceo', 4], ['b738', 2]), personality: 'cheap' },
+  { name: 'Air Atlanta Icelandic', country: 'IS', base: 'KEF', fleet: F(['b744', 6], ['a333', 2]), personality: 'steady' },
+  { name: 'Titan Airways', country: 'GB', base: 'STN', fleet: F(['a321ceo', 3], ['a321neo', 2]), personality: 'rescue' },
+  { name: 'Global Crossing Airlines', country: 'US', base: 'MIA', fleet: F(['a320ceo', 6], ['a321ceo', 6]), personality: 'steady' },
 ];
 
-export const BROKERS = [
-  'Chapman Freeborn', 'Air Charter Service', 'Air Partner', 'ACC Aviation', 'Avia Solutions Group', 'PrivateFly',
-  'Stratos Jets', 'Click Charter', 'Aviation Capacity Brokers',
-];
+/** Airliner group-charter brokers (RESEARCH §2.5). */
+export const BROKERS = ['Chapman Freeborn', 'Air Charter Service', 'Air Partner', 'ACC Aviation', 'Hunt & Palmer'];
 
 export interface ClientSeed {
   name: string;
@@ -73,6 +74,10 @@ export interface ClientSeed {
   base: string;
   /** Special handling: ministries, aid bodies, single-purpose agencies. */
   role?: 'foreign' | 'defence' | 'aid' | 'marine' | 'diaspora' | 'pilgrim';
+  /** Marine crewing: a cruise line (ship crews) or a cargo/tanker ship manager (crew changes). */
+  marine?: 'cruise' | 'ships';
+  /** Sports: 'big' clubs fly widebody pre-season tours. */
+  tier?: 'big';
 }
 
 export const CLIENT_SEEDS: ClientSeed[] = [
@@ -103,7 +108,7 @@ export const CLIENT_SEEDS: ClientSeed[] = [
   { name: 'TUI Deutschland', kind: 'tourOperator', country: 'DE', base: 'FRA' },
   { name: 'Jet2holidays', kind: 'tourOperator', country: 'GB', base: 'MAN' },
   { name: 'Sunweb', kind: 'tourOperator', country: 'NL', base: 'AMS' },
-  { name: 'Corendon', kind: 'tourOperator', country: 'NL', base: 'AMS' },
+  { name: 'Corendon', kind: 'tourOperator', country: 'NL', base: 'AMS', role: 'diaspora' },
   { name: 'Viagens Abreu', kind: 'agency', country: 'PT', base: 'LIS', role: 'diaspora' },
   // Governments and agencies
   { name: 'Portuguese Ministry of Foreign Affairs', kind: 'government', country: 'PT', base: 'LIS', role: 'foreign' },
@@ -117,12 +122,12 @@ export const CLIENT_SEEDS: ClientSeed[] = [
   { name: 'International Organization for Migration (IOM)', kind: 'agency', country: 'CH', base: 'GVA', role: 'aid' },
   { name: 'Portuguese Ministry of National Defence', kind: 'government', country: 'PT', base: 'LIS', role: 'defence' },
   // Sport, music, corporate
-  { name: 'Sporting CP', kind: 'sports', country: 'PT', base: 'LIS' },
-  { name: 'SL Benfica', kind: 'sports', country: 'PT', base: 'LIS' },
-  { name: 'Real Madrid', kind: 'sports', country: 'ES', base: 'MAD' },
-  { name: 'Olympique de Marseille', kind: 'sports', country: 'FR', base: 'MRS' },
+  { name: 'Sporting CP', kind: 'sports', country: 'PT', base: 'LIS', tier: 'big' },
+  { name: 'SL Benfica', kind: 'sports', country: 'PT', base: 'LIS', tier: 'big' },
+  { name: 'Real Madrid', kind: 'sports', country: 'ES', base: 'MAD', tier: 'big' },
+  { name: 'Olympique de Marseille', kind: 'sports', country: 'FR', base: 'MRS', tier: 'big' },
   { name: 'Fortuna Düsseldorf', kind: 'sports', country: 'DE', base: 'DUS' },
-  { name: 'Manchester United', kind: 'sports', country: 'GB', base: 'MAN' },
+  { name: 'Manchester United', kind: 'sports', country: 'GB', base: 'MAN', tier: 'big' },
   { name: 'Live Nation', kind: 'music', country: 'US', base: 'LHR' },
   { name: 'Formula 1', kind: 'corporate', country: 'GB', base: 'LHR' },
 ];
@@ -151,27 +156,28 @@ export const CLIENT_SEEDS_B1: ClientSeed[] = [
   { name: 'Jet2.com', kind: 'airline', country: 'GB', base: 'MAN' },
   { name: 'TUI fly Belgium', kind: 'airline', country: 'BE', base: 'BRU' },
   { name: 'Corendon Airlines', kind: 'airline', country: 'TR', base: 'AYT' },
-  { name: 'Neckermann Reisen', kind: 'tourOperator', country: 'DE', base: 'FRA' },
+  { name: 'Schauinsland-Reisen', kind: 'tourOperator', country: 'DE', base: 'DUS' },
   { name: 'Aegean Airlines', kind: 'airline', country: 'GR', base: 'ATH' },
   { name: 'Sunwing Vacations', kind: 'tourOperator', country: 'CA', base: 'YYZ' },
-  { name: 'Abercrombie & Kent', kind: 'tourOperator', country: 'ZA', base: 'CPT' },
-  { name: 'Santuário de Fátima pilgrimages', kind: 'agency', country: 'PT', base: 'OPO', role: 'pilgrim' },
+  { name: 'Abercrombie & Kent', kind: 'tourOperator', country: 'GB', base: 'LHR' },
+  { name: 'Joe Walsh Tours', kind: 'agency', country: 'IE', base: 'DUB', role: 'pilgrim' },
+  { name: 'Opera Romana Pellegrinaggi', kind: 'agency', country: 'IT', base: 'FCO', role: 'pilgrim' },
   { name: 'Novartis', kind: 'corporate', country: 'CH', base: 'ZRH' },
-  { name: 'Barcelona Football Club', kind: 'sports', country: 'ES', base: 'BCN' },
+  { name: 'FC Barcelona', kind: 'sports', country: 'ES', base: 'BCN', tier: 'big' },
   { name: 'AEG Presents', kind: 'music', country: 'GB', base: 'LHR' },
   { name: 'Wasserman Music', kind: 'music', country: 'US', base: 'JFK' },
-  { name: 'Rīgas FK', kind: 'sports', country: 'LV', base: 'RIX' },
+  { name: 'Riga FC', kind: 'sports', country: 'LV', base: 'RIX' },
   { name: 'Floriana FC', kind: 'sports', country: 'MT', base: 'MLA' },
-  { name: 'Žalgiris Kaunas', kind: 'sports', country: 'LT', base: 'VNO' },
-  { name: 'Ajax', kind: 'sports', country: 'NL', base: 'AMS' },
+  { name: 'FK Žalgiris', kind: 'sports', country: 'LT', base: 'VNO' },
+  { name: 'Ajax', kind: 'sports', country: 'NL', base: 'AMS', tier: 'big' },
   // Group travel, events and marine crewing (ad hoc work).
-  { name: 'Columbia Shipmanagement', kind: 'agency', country: 'CY', base: 'LCA', role: 'marine' },
-  { name: 'Bernhard Schulte Shipmanagement', kind: 'agency', country: 'DE', base: 'HAM', role: 'marine' },
-  { name: 'Wallem Group', kind: 'agency', country: 'HK', base: 'HKG', role: 'marine' },
-  { name: 'Anglo-Eastern Ship Management', kind: 'agency', country: 'IN', base: 'BOM', role: 'marine' },
-  { name: 'Carnival Corporation crew travel', kind: 'agency', country: 'US', base: 'MIA', role: 'marine' },
-  { name: 'MSC Cruises crew travel', kind: 'agency', country: 'CH', base: 'GVA', role: 'marine' },
-  { name: 'Royal Caribbean crew travel', kind: 'agency', country: 'US', base: 'MIA', role: 'marine' },
+  { name: 'Columbia Shipmanagement', kind: 'agency', country: 'CY', base: 'LCA', role: 'marine', marine: 'ships' },
+  { name: 'Bernhard Schulte Shipmanagement', kind: 'agency', country: 'DE', base: 'HAM', role: 'marine', marine: 'ships' },
+  { name: 'Wallem Group', kind: 'agency', country: 'HK', base: 'HKG', role: 'marine', marine: 'ships' },
+  { name: 'Anglo-Eastern Ship Management', kind: 'agency', country: 'HK', base: 'HKG', role: 'marine', marine: 'ships' },
+  { name: 'Carnival Corporation crew travel', kind: 'agency', country: 'US', base: 'MIA', role: 'marine', marine: 'cruise' },
+  { name: 'MSC Cruises crew travel', kind: 'agency', country: 'CH', base: 'GVA', role: 'marine', marine: 'cruise' },
+  { name: 'Royal Caribbean crew travel', kind: 'agency', country: 'US', base: 'MIA', role: 'marine', marine: 'cruise' },
   { name: 'Hotelplan Group', kind: 'agency', country: 'CH', base: 'ZRH' },
   { name: 'Kuoni Group Travel', kind: 'agency', country: 'CH', base: 'ZRH' },
   { name: 'Sportsworld Group Travel', kind: 'agency', country: 'GB', base: 'LGW' },
@@ -180,7 +186,7 @@ export const CLIENT_SEEDS_B1: ClientSeed[] = [
 ];
 
 export const RIVALS_B1: RivalSeed[] = [
-  { name: 'Heston Airlines', country: 'PL', base: 'WAW', fleet: 'narrow', personality: 'cheap' },
-  { name: 'KlasJet', country: 'LT', base: 'VNO', fleet: 'narrow', personality: 'steady' },
-  { name: 'Smartwings', country: 'CZ', base: 'PRG', fleet: 'narrow', personality: 'steady' },
+  { name: 'Heston Airlines', country: 'LT', base: 'VNO', fleet: F(['a320ceo', 6]), personality: 'cheap' },
+  { name: 'KlasJet', country: 'LT', base: 'VNO', fleet: F(['b738', 3], ['a320ceo', 2]), personality: 'premium' },
+  { name: 'Smartwings', country: 'CZ', base: 'PRG', fleet: F(['b738', 20]), personality: 'steady' },
 ];

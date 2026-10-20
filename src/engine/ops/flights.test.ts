@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { BAL } from '../core/balance';
 import { flightsOf, removeFlights } from '../core/entities';
 import { typeOf } from '../core/perf';
-import { DAY, fromUTC, monthKey } from '../core/time';
+import { DAY, monthKey } from '../core/time';
 import type { Aircraft, Contract, Flight, GameState, LedgerCat, Minute } from '../core/types';
 import { acceptOffer } from '../contracts';
 import { hamBase, leased, legsOffer, newGame, owned, run } from '../contracts/testkit';
@@ -185,7 +185,7 @@ describe('delays and ripple', () => {
 describe('schedule recovery', () => {
   it('drops the one wave that would leave over the cap and keeps the next on time', () => {
     calm();
-    const { g, ac, outs } = onBase(31);
+    const { g, ac, outs } = onBase(30);
     const [w1, w2] = outs();
     const back1 = unitOf(g, ac, w1)[1];
     expect(back1).toMatchObject({ from: w1.to, to: 'HAM' });
@@ -200,7 +200,7 @@ describe('schedule recovery', () => {
 
   it('a shorter hold moves the wave and only pushes the next one as far as the turn needs', () => {
     calm();
-    const { g, ac, outs } = onBase(31);
+    const { g, ac, outs } = onBase(30);
     const [w1, w2] = outs();
     const std2 = w2.std;
     const n = delayChain(g, w1, w1.std + 3 * 60, 'Test hold');
@@ -378,15 +378,16 @@ describe('cancellations and sub-charter', () => {
 // ---------- housekeeping and determinism ----------
 
 describe('pruning', () => {
-  it('drops done flights 7 days after their month is billed, not before', () => {
+  it('drops done flights a week after on-blocks, not before', () => {
     calm();
     const g = newGame(12);
     const ac = owned(g);
     demoFlights(g, ['FAO'], 1);
     const ids = live(g, ac).map((f) => f.id);
-    skip(g, fromUTC(2027, 4, 7, 12));
+    const lastOn = Math.max(...ids.map((id) => g.flights[id].sta));
+    skip(g, lastOn + 6 * DAY);
     expect(ids.every((id) => g.flights[id]?.status === 'done')).toBe(true);
-    skip(g, fromUTC(2027, 4, 8, 12));
+    skip(g, lastOn + 9 * DAY);
     expect(ids.some((id) => g.flights[id])).toBe(false);
     pruneFlights(g);
   });
