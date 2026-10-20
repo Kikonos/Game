@@ -125,19 +125,19 @@ ${measure}`
 // ================= RUN =================
 phase('Trace')
 const [traces, renderer] = await parallel([
-  () => parallel(GROUPS.map((g) => () => agent(TRACE(g), { label: `art:trace:${g.key}`, phase: 'Trace', model: 'fable' }))),
-  () => agent(RENDERER, { label: 'art:renderer', phase: 'Trace', model: 'fable' }),
+  () => parallel(GROUPS.map((g) => () => agent(TRACE(g), { label: `art:trace:${g.key}`, phase: 'Trace', model: 'opus', effort: 'high' }))),
+  () => agent(RENDERER, { label: 'art:renderer', phase: 'Trace', model: 'opus', effort: 'high' }),
 ])
 const traceText = GROUPS.map((g, i) => `## ${g.key}\n${traces && traces[i] ? traces[i] : '(trace agent failed — check traced/ for partial files)'}`).join('\n\n')
 const rendererText = renderer ?? '(renderer agent failed — check traced/types.ts, load.ts and geometry.ts for partial work)'
 log('traces + renderer done')
 
 phase('Apply')
-const applies = await parallel(SPECS.map((s) => () => agent(APPLY(s, traceText, rendererText), { label: `art:apply:${s.key}`, phase: 'Apply', model: 'fable' })))
+const applies = await parallel(SPECS.map((s) => () => agent(APPLY(s, traceText, rendererText), { label: `art:apply:${s.key}`, phase: 'Apply', model: 'opus', effort: 'high' })))
 let applyText = SPECS.map((s, i) => `## ${s.key}\n${applies[i] ?? '(apply agent failed)'}`).join('\n\n')
 
 phase('Measure')
-let m = await agent(MEASURE(1, applyText), { label: 'art:measure:1', phase: 'Measure', schema: MEASURE_SCHEMA, model: 'fable' })
+let m = await agent(MEASURE(1, applyText), { label: 'art:measure:1', phase: 'Measure', schema: MEASURE_SCHEMA, model: 'opus', effort: 'high' })
 const bad = (mm) => (mm ? mm.types.filter((t) => t.verdict !== 'match') : [])
 log(m ? `round 1: ${m.types.length} types, ${bad(m).length} not matching` : 'measure failed')
 
@@ -147,16 +147,16 @@ while (m && bad(m).length && round <= 3) {
   const lanes = [...new Set(bad(m).map((t) => t.lane))]
   const reps = await parallel(lanes.map((lane) => () => agent(
     FIX(lane, bad(m).filter((t) => t.lane === lane).map((t) => `- ${t.typeId} [${t.verdict}] noseIoU ${t.noseIoU.toFixed(3)} bodyIoU ${t.bodyIoU.toFixed(3)}: ${t.deviations}`).join('\n'), round, LANE_OWN[lane] ?? ''),
-    { label: `art:fix:${lane}:r${round}`, phase: 'Fix', model: 'fable' },
+    { label: `art:fix:${lane}:r${round}`, phase: 'Fix', model: 'opus', effort: 'high' },
   )))
   applyText = lanes.map((l, i) => `## fix ${l} (round ${round})\n${reps[i] ?? '(failed)'}`).join('\n\n')
   round += 1
-  m = await agent(MEASURE(round, applyText), { label: `art:measure:${round}`, phase: 'Measure', schema: MEASURE_SCHEMA, model: 'fable' })
+  m = await agent(MEASURE(round, applyText), { label: `art:measure:${round}`, phase: 'Measure', schema: MEASURE_SCHEMA, model: 'opus', effort: 'high' })
   log(m ? `round ${round}: ${bad(m).length} not matching` : 'measure failed')
 }
 
 phase('Finish')
-const fin = await agent(FINISH(m ? `${m.summary}\n${m.types.map((t) => `${t.typeId}: ${t.verdict} (nose ${t.noseIoU.toFixed(2)}, body ${t.bodyIoU.toFixed(2)})`).join('; ')}` : '(no measure)'), { label: 'art:finish', phase: 'Finish', model: 'fable' })
+const fin = await agent(FINISH(m ? `${m.summary}\n${m.types.map((t) => `${t.typeId}: ${t.verdict} (nose ${t.noseIoU.toFixed(2)}, body ${t.bodyIoU.toFixed(2)})`).join('; ')}` : '(no measure)'), { label: 'art:finish', phase: 'Finish', model: 'opus', effort: 'high' })
 return {
   rounds: round - 1,
   remaining: m ? bad(m).map((t) => `${t.typeId}: ${t.verdict} — ${t.deviations}`) : null,

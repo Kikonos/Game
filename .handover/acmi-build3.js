@@ -1,6 +1,6 @@
 export const meta = {
   name: 'acmi-build-v05c',
-  description: 'Finish BLOCK HOURS v0.5 on Fable: assess B3, finish it in 3 parallel lanes + bot/balance, integrate (engine + UI lanes, then end-to-end), 6-lens adversarial review, triage, verify, fix by area, release-readiness loop',
+  description: 'Finish BLOCK HOURS v0.5 (Opus high): assess B3, finish it in 3 parallel lanes + bot/balance, integrate (engine + UI lanes, then end-to-end), 6-lens adversarial review, triage, verify, fix by area, release-readiness loop',
   phases: [
     { title: 'Assess', detail: 'state of B3 vs its acceptance criteria' },
     { title: 'Build', detail: 'B3 lanes: flights+maintenance, finance+goals+company, events+market; then bot & balance' },
@@ -197,24 +197,24 @@ log(assess ? `B3 state: ${assess.summary.slice(0, 200)}` : 'assessment failed �
 const brief = (k) => (assess ? `${assess.lanes[k]}\n\nChecks: tsc ${assess.checks.tsc}; vitest ${assess.checks.vitest}; build ${assess.checks.build}; bot ${assess.checks.bot}\nBlockers: ${assess.blockers.join('; ') || 'none'}` : '(no assessment — read the files and the B3 section yourself)')
 
 phase('Build')
-const laneReports = await parallel(LANES.map((l) => () => agent(laneBuilder(l, brief(l.key)), { label: `acmi:B3:${l.key}`, phase: 'Build', model: 'fable' })))
+const laneReports = await parallel(LANES.map((l) => () => agent(laneBuilder(l, brief(l.key)), { label: `acmi:B3:${l.key}`, phase: 'Build', ...(l.key === 'finance' ? { model: 'opus', effort: 'high' } : { model: 'opus', effort: 'high' }) })))
 const laneText = LANES.map((l, i) => `## ${l.title}\n${laneReports[i] ?? '(lane failed — inspect its files and finish them)'}`).join('\n\n')
-const bot = await agent(BOT(assess ? assess.summary : '(none)', laneText), { label: 'acmi:B3:bot-balance', phase: 'Build', model: 'fable' })
+const bot = await agent(BOT(assess ? assess.summary : '(none)', laneText), { label: 'acmi:B3:bot-balance', phase: 'Build', model: 'opus', effort: 'high' })
 const botText = bot ?? '(bot/balance agent failed — finish scripts/acmi-bot.ts and the balance yourself)'
 
 phase('Integrate')
 const [eng, ui] = await parallel([
-  () => agent(INTEG_ENGINE(botText), { label: 'acmi:integrate:engine', phase: 'Integrate', model: 'fable' }),
-  () => agent(INTEG_UI(botText), { label: 'acmi:integrate:ui', phase: 'Integrate', model: 'fable' }),
+  () => agent(INTEG_ENGINE(botText), { label: 'acmi:integrate:engine', phase: 'Integrate', model: 'opus', effort: 'high' }),
+  () => agent(INTEG_UI(botText), { label: 'acmi:integrate:ui', phase: 'Integrate', model: 'opus', effort: 'high' }),
 ])
-const e2e = await agent(E2E(eng ?? '(engine lane failed)', ui ?? '(UI lane failed)'), { label: 'acmi:integrate:e2e', phase: 'Integrate', model: 'fable' })
+const e2e = await agent(E2E(eng ?? '(engine lane failed)', ui ?? '(UI lane failed)'), { label: 'acmi:integrate:e2e', phase: 'Integrate', model: 'opus', effort: 'high' })
 const e2eText = e2e ?? '(end-to-end agent failed)'
 
 phase('Review')
-const reviews = await parallel(LENSES.map((l) => () => agent(reviewPrompt(l, e2eText), { label: `acmi:review:${l.key}`, phase: 'Review', schema: FINDINGS, model: 'fable' })))
+const reviews = await parallel(LENSES.map((l) => () => agent(reviewPrompt(l, e2eText), { label: `acmi:review:${l.key}`, phase: 'Review', schema: FINDINGS, model: 'opus', effort: 'high' })))
 const raw = reviews.flatMap((r, i) => (r ? r.findings.map((f) => ({ ...f, lens: LENSES[i].key })) : []))
 log(`${raw.length} raw findings from ${reviews.filter(Boolean).length}/6 lenses (${raw.filter((f) => f.severity === 'high').length} high)`)
-const triage = await agent(TRIAGE(raw), { label: 'acmi:triage', phase: 'Review', schema: TRIAGE_SCHEMA, model: 'fable', effort: 'medium' })
+const triage = await agent(TRIAGE(raw), { label: 'acmi:triage', phase: 'Review', schema: TRIAGE_SCHEMA, model: 'opus', effort: 'high' })
 const items = triage ? triage.items : raw.map((f, i) => ({ ...f, id: i + 1 }))
 log(`${items.length} after triage (${triage ? triage.dropped.length : 0} dropped)`)
 const batches = []
@@ -222,7 +222,7 @@ for (const area of ['engine', 'ui', 'map', 'content']) {
   const xs = items.filter((f) => f.area === area)
   for (let i = 0; i < xs.length; i += 6) batches.push({ area, items: xs.slice(i, i + 6) })
 }
-const verdictLists = await parallel(batches.map((b, i) => () => agent(VERIFY(b.items, 5831 + i), { label: `acmi:verify:${b.area}:${i + 1}`, phase: 'Review', schema: VERDICTS, model: 'fable' })))
+const verdictLists = await parallel(batches.map((b, i) => () => agent(VERIFY(b.items, 5831 + i), { label: `acmi:verify:${b.area}:${i + 1}`, phase: 'Review', schema: VERDICTS, model: 'opus', effort: 'high' })))
 const verdictById = new Map()
 verdictLists.filter(Boolean).forEach((v) => v.verdicts.forEach((x) => verdictById.set(x.id, x)))
 const confirmed = items.map((f) => { const v = verdictById.get(f.id); return v ? { ...f, severity: v.severity, note: v.note, real: v.real } : { ...f, real: true, note: 'unverified (verifier failed) — re-check' } }).filter((f) => f.real)
@@ -231,17 +231,17 @@ log(`${confirmed.length} confirmed (${confirmed.filter((f) => f.severity === 'hi
 phase('Fix')
 const runFixes = async (list, round) => {
   const areas = ['engine', 'ui', 'map', 'content'].filter((a) => list.some((f) => f.area === a))
-  const reps = await parallel(areas.map((a) => () => agent(FIX(a, fmt(list.filter((f) => f.area === a)), round), { label: `acmi:fix:${a}:r${round}`, phase: 'Fix', model: 'fable' })))
+  const reps = await parallel(areas.map((a) => () => agent(FIX(a, fmt(list.filter((f) => f.area === a)), round), { label: `acmi:fix:${a}:r${round}`, phase: 'Fix', model: 'opus', effort: 'high' })))
   return areas.map((a, i) => `## ${a} (round ${round})\n${reps[i] ?? '(lane failed)'}`).join('\n\n')
 }
 let fixText = confirmed.length ? await runFixes(confirmed, 1) : 'no confirmed findings'
-let ready = await agent(READY(fixText, 1), { label: 'acmi:readiness:1', phase: 'Fix', schema: READY_SCHEMA, model: 'fable' })
+let ready = await agent(READY(fixText, 1), { label: 'acmi:readiness:1', phase: 'Fix', schema: READY_SCHEMA, model: 'opus', effort: 'high' })
 let rounds = 1
 if (ready && !ready.ready && ready.blockers.length) {
   log(`not ready after round 1: ${ready.blockers.length} blockers — fixing round 2`)
   const list = ready.blockers.map((b, i) => ({ ...b, id: 1000 + i }))
   fixText = await runFixes(list, 2)
-  ready = await agent(READY(fixText, 2), { label: 'acmi:readiness:2', phase: 'Fix', schema: READY_SCHEMA, model: 'fable' })
+  ready = await agent(READY(fixText, 2), { label: 'acmi:readiness:2', phase: 'Fix', schema: READY_SCHEMA, model: 'opus', effort: 'high' })
   rounds = 2
 }
 log(ready ? (ready.ready ? 'READY for release' : `still ${ready.blockers.length} blockers`) : 'readiness agent failed')

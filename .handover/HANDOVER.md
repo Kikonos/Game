@@ -137,3 +137,7 @@ If an agent fails on a limit, its file edits persist (checkpoint them). Resume t
 ### 2026-10-20 11:35Z — resumed after the usage limit
 - Both Fable runs were killed by the limit ~07:55Z (build: assess + B3:finance cached; art: nothing cached, traced/types.ts + load.ts exist on disk). Resumed at 11:34Z: build task wsizvrnbu (run wf_83610710-0e6), art task wfnmtmxq1 (run wf_2d49f509-f34). Same run ids — the trigger prompts stay valid.
 - Assess findings to keep in mind for release: seed-2 bot hang in crew/duties.ts:79 settle loop (B2 file — the integrate engine lane owns src/engine/** and must fix it); economic collapse from mass cancellations (planRecovery holdMax, crewProblem chain cancels, crewReadyAt assumes base) — B3 lanes + bot/balance.
+
+### 2026-10-20 11:45Z — switched to Opus high (user: usage too high; don't compromise quality)
+- Session model is Opus 5.5. Both scripts now run every unfinished agent on model 'opus', effort 'high'; the two finished agents (acmi:assess, acmi:B3:finance) keep their original 'fable' opts so they replay from cache. Use Opus high for any new helper agents.
+- Resumed: build task wralrb3mw, art task wa6lld7yj (same run ids wf_83610710-0e6 / wf_2d49f509-f34). Commit trailer is now "Claude Opus 5.5".
