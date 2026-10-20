@@ -155,3 +155,5 @@ If an agent fails on a limit, its file edits persist (checkpoint them). Resume t
 - A380 chin + Trent 900 nacelles + wing-root fix committed on brand (371837d) per user feedback.
 - Polish agent (Opus high) running on brand for leftovers: a35k stray crown line, q400 prop clip/title overlap, a343 title spacing, sub-pixel trace cleanups (a35k/b738/a343), card title size. Commit on brand when it reports.
 - Note for the merge: brand still carries src/engine/ops/zz_dbg_b3.test.ts from the old base — take acmi's version (deleted) when merging.
+
+### 17:32Z — check-in: build alive (end-to-end/review stage), art polish agent running; checkpoint pushed.
