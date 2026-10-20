@@ -177,6 +177,8 @@ export interface Seg {
   rest: number;
   /** Where the crew is after the seg ('' = unknown, log). */
   at: string;
+  /** Where the seg starts (the crew must be there; '' / absent = unknown). */
+  from?: string;
   dutyId?: string;
   /** Being checked (a candidate assignment). */
   fresh?: boolean;
@@ -300,11 +302,17 @@ export function evalSegs(ctx: TimelineCtx, segs: Seg[]): LegalityIssue[] {
         if (s.start < p.end) add('overlap', 'illegal', 'Overlaps another duty', tgt);
         else if (s.start < restEnd) add('rest', 'illegal', `Rest ${hm(s.start - p.end)} < ${hm(restEnd - p.end)}`, tgt);
       } else if (s.start < ctx.restUntil) add('rest', 'illegal', 'Still resting', tgt);
-      // The next seg must also respect this seg's rest.
+      // Continuity: work starts where the previous duty or ticket left the crew.
+      if (i > 0) {
+        const p = segs[i - 1];
+        if (p.kind !== 'log' && p.at && s.from && p.at !== s.from) add('location', 'illegal', `At ${p.at}, not ${s.from}`, tgt);
+      }
+      // The next seg must also respect this seg's rest and start where this one ends (flagged on that seg).
       const n = segs[i + 1];
       if (n && s.fresh && !n.fresh) {
         if (n.start < s.end) add('overlap', 'illegal', 'Overlaps another duty', tgt);
         else if (n.start < s.end + s.rest) add('rest', 'illegal', `Rest before next duty ${hm(n.start - s.end)} < ${hm(s.rest)}`, tgt);
+        if (s.at && n.from && n.kind !== 'log' && s.at !== n.from) issues.push({ code: 'location', level: 'illegal', text: `Next duty starts at ${n.from}, not ${s.at}`, dutyId: n.dutyId });
       }
       if (s.kind === 'duty') {
         if (s.fdp > s.maxFdp) add('fdp', 'illegal', `FDP ${hm(s.fdp)} > ${hm(s.maxFdp)}`, tgt);

@@ -10,8 +10,9 @@ import { generateOffer } from '../engine/contracts';
 import { pushDecision } from '../engine/core/messages';
 import { demoFlights, devFleet } from '../engine/dev';
 import { createGame, type NewGameOptions } from '../engine/newGame';
-import { AUTOSAVE_SLOT, saveToSlot } from '../engine/save';
+import { AUTOSAVE_SLOT, saveToSlot, serialize } from '../engine/save';
 import { advanceTo, settle } from '../engine/sim';
+import { prepareAsyncSave, saveTextAsync, supersedeAsyncSave } from './asyncSave';
 import { autoplay } from './devPlay';
 import { type SoundName, sound } from './sound';
 
@@ -107,6 +108,13 @@ class GameStore {
   clockVersion = 0;
   /** Continuous game time (fractional minutes) for smooth plane motion; g.now is its integer part. */
   exact = 0;
+  /** Decision ids the player set aside with 'Look first'; the modal stays shut until the list changes. */
+  decisionDeferred: string | null = null;
+  /** Game time of the last completed autosave write (-1: none this session). */
+  savedNow = -1;
+  /** g.now + player edit count at the last completed autosave; unchanged state is not written twice. */
+  private savedMark = '';
+  private edits = 0;
 
   private listeners = new Set<() => void>();
   private clockListeners = new Set<() => void>();
@@ -158,6 +166,10 @@ class GameStore {
   }
 
   private afterLoad() {
+    prepareAsyncSave();
+    this.savedNow = -1;
+    this.savedMark = '';
+    this.decisionDeferred = null;
     this.lastMsgId = this.game?.messages[0]?.id ?? null;
     this.exact = this.game?.now ?? 0;
     this.paused = true;
@@ -168,8 +180,9 @@ class GameStore {
     this.startLoop();
   }
 
+  /** Always writes the autosave (even with Autosave off), unless the game is over. */
   quitToTitle() {
-    this.saveAuto();
+    this.saveAuto(true);
     this.stopLoop();
     this.game = null;
     this.modal = null;
@@ -181,17 +194,51 @@ class GameStore {
   private saveWarned = false;
   private autosaveTimer: ReturnType<typeof setTimeout> | null = null;
 
-  /** Save now (on exit, pause, menus). */
-  saveAuto() {
+  private saveFailed() {
+    if (this.saveWarned) return;
+    this.saveWarned = true;
+    this.toast('bad', 'Autosave failed', 'Browser storage is full or unavailable. Delete old saves in Menu → Save game.');
+  }
+
+  /** Synchronous autosave (leaving the page, quitting). `force` ignores the Autosave setting. */
+  saveAuto(force = false): boolean {
     if (this.autosaveTimer) clearTimeout(this.autosaveTimer);
     this.autosaveTimer = null;
-    if (this.game && this.settings.autosave && !this.game.gameOver) {
-      if (!saveToSlot(this.game, AUTOSAVE_SLOT) && !this.saveWarned) {
-        this.saveWarned = true;
-        this.toast('bad', 'Autosave failed', 'Browser storage is full or unavailable. Delete old saves in Menu → Saves.');
-      }
-      this.lastAutosave = performance.now();
-    }
+    const g = this.game;
+    if (!g || g.gameOver || !(force || this.settings.autosave)) return false;
+    const mark = this.mark(g);
+    if (mark === this.savedMark) return true;
+    supersedeAsyncSave();
+    const ok = saveToSlot(g, AUTOSAVE_SLOT);
+    if (ok) {
+      this.savedNow = g.now;
+      this.savedMark = mark;
+    } else this.saveFailed();
+    this.lastAutosave = performance.now();
+    return ok;
+  }
+
+  /** Autosave off the main thread (pause, month end): serialize here, compress in a worker. */
+  saveAutoSoon() {
+    if (this.autosaveTimer) clearTimeout(this.autosaveTimer);
+    this.autosaveTimer = null;
+    const g = this.game;
+    if (!g || g.gameOver || !this.settings.autosave) return;
+    const mark = this.mark(g);
+    if (mark === this.savedMark) return;
+    const now = g.now;
+    this.lastAutosave = performance.now();
+    const sent = saveTextAsync(serialize(g, AUTOSAVE_SLOT), AUTOSAVE_SLOT, (ok, latest) => {
+      if (ok && latest) {
+        this.savedNow = now;
+        this.savedMark = mark;
+      } else if (!ok && this.game === g) this.saveAuto();
+    });
+    if (!sent) this.saveAuto();
+  }
+
+  private mark(g: GameState): string {
+    return `${g.now}:${this.edits}`;
   }
 
   /** Throttled autosave run outside the animation frame to avoid hitches. */
@@ -199,7 +246,7 @@ class GameStore {
     if (this.autosaveTimer || performance.now() - this.lastAutosave < 30_000) return;
     this.autosaveTimer = setTimeout(() => {
       this.autosaveTimer = null;
-      this.saveAuto();
+      this.saveAutoSoon();
     }, 50);
   }
 
@@ -224,8 +271,30 @@ class GameStore {
   togglePause() {
     this.paused = !this.paused;
     this.pauseReason = null;
-    if (this.paused) this.saveAuto();
     sound.play('tick');
+    this.emit();
+    // After the paused state paints; skipped when nothing moved since the last save.
+    if (this.paused) setTimeout(() => this.saveAutoSoon(), 0);
+  }
+
+  /** 'Look first': shuts the self-opening decision dialog; time stays held (blocked) until it is answered. */
+  deferDecision() {
+    const g = this.game;
+    this.decisionDeferred = g ? g.decisions.map((d) => d.id).join(',') : null;
+    this.emit();
+  }
+
+  /** Whether the oldest decision opens by itself now. */
+  get decisionOpen(): boolean {
+    const g = this.game;
+    if (!g || !g.decisions.length || !this.settings.autoPause.decision) return false;
+    return this.decisionDeferred !== g.decisions.map((d) => d.id).join(',');
+  }
+
+  /** Re-opens a decision set aside with 'Look first'. */
+  reopenDecision() {
+    this.decisionDeferred = null;
+    sound.play('click');
     this.emit();
   }
 
@@ -305,6 +374,7 @@ class GameStore {
     const g = this.game;
     if (!g) return { ok: false, error: 'No game loaded' };
     clearPause();
+    this.edits++;
     const res = fn(g);
     // Cross-module follow-ups (e.g. crew re-sync) and pauses the action raised (e.g. crewShortage on accept).
     settle(g);
@@ -325,6 +395,7 @@ class GameStore {
   /** Mutates game state directly (no validation needed) and re-renders. */
   update(fn: (g: GameState) => void) {
     if (!this.game) return;
+    this.edits++;
     fn(this.game);
     this.emit();
   }
@@ -453,6 +524,7 @@ if (typeof document !== 'undefined') {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') store.saveAuto();
   });
+  window.addEventListener('pagehide', () => store.saveAuto());
   window.addEventListener('beforeunload', () => store.saveAuto());
 }
 

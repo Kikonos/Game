@@ -1,7 +1,7 @@
 // Auto-roster, change sync and disruption APIs (B2). DESIGN.md §4.2, §5.3.
 
 import { BAL } from '../core/balance';
-import { addDeadhead, cancelFlight, flightsOf } from '../core/entities';
+import { addDeadhead, cancelFlight, flightsOf, retimeFlight } from '../core/entities';
 import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { requestPause } from '../core/pause';
@@ -11,7 +11,7 @@ import type { ActionResult, CrewMember, Duty, Flight, GameState, Legality, Minut
 import { acceptable, mergeSegs, openDuties, otherTrip, planCrew, type CrewPlan } from './check';
 import { deletePairing, dutyLegality, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setRetickHook, splitPairing, syncDuty } from './duties';
 import { evalSegs, levelOf, worst, type Seg } from './rules';
-import { block28, crewCount, crewIx, ctxOf, dhBlock, dutySegs, locAt, segsOf, ticketPrice, touchCrew, typeIdOf } from './timeline';
+import { block28, crewCount, crewIx, ctxOf, dhBlock, dutySegs, locAt, planHome, planOut, segsOf, ticketPrice, touchCrew, typeIdOf } from './timeline';
 
 export { buildDuties } from './duties';
 
@@ -49,6 +49,16 @@ export function setFlightsCrew(g: GameState, p: Pairing): void {
       }
     }
   }
+}
+
+/** Operating crew of a flight from its duty's pairing (written at off-blocks so arrivals move the right crew). */
+export function boardCrew(g: GameState, f: Flight): void {
+  if (f.kind === 'deadhead' || !f.dutyId) return;
+  const d = g.duties[f.dutyId];
+  const p = d ? g.pairings[d.pairingId] : undefined;
+  if (!p) return;
+  const ids = p.slots.filter((s) => s.crewId).map((s) => s.crewId!);
+  if (ids.join() !== f.crewIds.join()) f.crewIds = ids;
 }
 
 type TicketLike = { from: string; to: string; std: Minute; sta: Minute };
@@ -104,6 +114,26 @@ export function releaseCrew(g: GameState, p: Pairing, crewId: string): void {
   touchCrew(g);
   const c = g.crew[crewId];
   if (c && p.status === 'active') sendHome(g, c, p);
+}
+
+/**
+ * A crewed duty moved: its tickets home leave check-in time after the new release, and tickets out still arriving
+ * after the new report leave earlier when there is time (else the re-check flags the crew and they are re-planned).
+ */
+function retimeTickets(g: GameState, p: Pairing, d: Duty): void {
+  const dep = g.flights[d.flightIds[0]]?.from ?? d.restAt;
+  for (const fid of d.deadheadIds) {
+    const f = g.flights[fid];
+    if (!f || f.status !== 'scheduled' || f.kind !== 'deadhead') continue;
+    if (f.from === d.restAt && f.to !== dep && f.std < d.release + 60 && f.std > d.report) {
+      const t = planHome(d, f.to);
+      if (t.std !== f.std) retimeFlight(g, f, t.std, t.sta);
+    } else if (f.to === dep && f.sta > d.report && f.std > g.now) {
+      const t = planOut(g, p, d, f.from);
+      if (t.std - BAL.deadheadCheckIn >= g.now && t.std !== f.std) retimeFlight(g, f, t.std, t.sta);
+    }
+  }
+  touchCrew(g);
 }
 
 /** Takes a crew member off the pairing's tickets not yet flown (a ticket left empty is cancelled). */
@@ -223,7 +253,7 @@ export function recheckPairing(g: GameState, p: Pairing, priorOnly = false): { l
 
 const copySeg = (x: Seg): Seg => ({
   kind: x.kind, start: x.start, end: x.end, fdp: x.fdp, maxFdp: x.maxFdp, block: x.block, sectors: x.sectors, aug: x.aug,
-  disruptive: x.disruptive, rest: x.rest, at: x.at, dutyId: x.dutyId, fresh: false,
+  disruptive: x.disruptive, rest: x.rest, at: x.at, from: x.from, dutyId: x.dutyId, fresh: false,
 });
 
 /** Cheap pre-check: a planned seg overlaps [from, to) or its rest runs past `from` (certainly illegal). */
@@ -468,7 +498,10 @@ export function onFlightsChanged(g: GameState, aircraftId: string, t: Minute): v
       }
       d.flightIds = keep;
       syncDuty(g, d, p);
-      if (crewCount(p) > 0) queueDuty(g, d);
+      if (crewCount(p) > 0) {
+        queueDuty(g, d);
+        retimeTickets(g, p, d);
+      }
     }
     if (!pChanged) continue;
     changed = true;
@@ -513,6 +546,16 @@ export function rerosterFrom(g: GameState, aircraftId: string, t: Minute): Roste
     if (crewCount(p) === 0) continue;
     const firstOpen = openDuties(g, p)[0];
     if (!firstOpen || (firstOpen.report <= g.now && !p.tour)) {
+      // Reported but not yet off blocks: crew who are not at the departure airport are replaced.
+      if (firstOpen && g.flights[firstOpen.flightIds[0]]?.status === 'scheduled') {
+        for (const s of [...p.slots]) {
+          const c = s.crewId && !s.locked ? g.crew[s.crewId] : undefined;
+          if (!c) continue;
+          const plan = planCrew(g, c, p, segsOf(g, c, p.id), true);
+          if (plan.issues.some((i) => i.code === 'location' && i.level === 'illegal' && i.dutyId === firstOpen.id)) releaseCrew(g, p, c.id);
+        }
+        setFlightsCrew(g, p);
+      }
       recheckPairing(g, p);
       continue;
     }
@@ -543,7 +586,10 @@ setCrewOkHook((g, p, d) => {
     const c = g.crew[s.crewId];
     if (!c) continue;
     if (otherTrip(g, c, p, d.report, d.release, false)) return false;
-    const segs = mergeSegs(segsOf(g, c), dutySegs(g, c, p, d, null, null, true));
+    // The tour's own tickets are re-planned around its new ends (retick), so they are left out here.
+    const own: Seg[] = [];
+    for (const x of openDuties(g, p)) own.push(...dutySegs(g, c, p, x, null, null));
+    const segs = mergeSegs(mergeSegs(segsOf(g, c, p.id), own), dutySegs(g, c, p, d, null, null, true));
     if (evalSegs({ ...ctxOf(g, c), slack: BAL.rosterSlack }, segs).some((i) => i.level === 'illegal' && i.code !== 'fdp')) return false;
   }
   return true;

@@ -13,7 +13,7 @@ import { schedule } from '../core/queue';
 import { chance, next, pick, range } from '../core/rng';
 import { DAY, fmtDuration, fmtTime, monthKey } from '../core/time';
 import type { ActionResult, Aircraft, Flight, GameState, MaintenanceEvent, MessageCat, Minute, SimEvent } from '../core/types';
-import { flightCrewStatus, rerosterFrom } from '../crew';
+import { applyDiscretion, boardCrew, flightCrewStatus, rerosterFrom } from '../crew';
 import { crewReadyAt, crewShortDecision, hasOpenDecision } from './events';
 import { aogChance, isGrounded, missCheck, startAog } from './maintenance';
 import { ageF, ageOf, bumpReliable, bumpRelation, contractOf, isBaseLeg, isRevenue, stats, turnOf, usd } from './util';
@@ -492,10 +492,43 @@ export function onFlightDep(g: GameState, ev: SimEvent): void {
     holdFlight(g, f, 30);
     return;
   }
+  // 5. Gate holds can stretch the duty: the commander extends it within discretion, beyond that a fresh crew.
+  if (fdpOver(g, f)) {
+    crewProblem(g, f, ac);
+    return;
+  }
   depart(g, f, ac);
 }
 
+/**
+ * Projected FDP of the duty f opens or continues (now + the rest of its legs) against its limit. Over the limit
+ * without discretion used: the commander applies it (inbox note). Still over: the duty is marked illegal (true).
+ */
+function fdpOver(g: GameState, f: Flight): boolean {
+  const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+  if (!d || d.report > g.now || f.kind === 'deadhead') return false;
+  const last = g.flights[d.flightIds[d.flightIds.length - 1]];
+  if (!last) return false;
+  const fdp = g.now + Math.max(f.block, last.sta - f.std) - d.report;
+  if (fdp <= d.maxFdp + (d.discretion ?? 0)) return false;
+  if (!d.discretion) {
+    const r = applyDiscretion(g, d.id);
+    if (r.ok) {
+      pushMessage(g, {
+        tone: 'info', cat: 'crew', title: `Commander's discretion on ${f.no}`,
+        body: `Gate holds stretched the duty; the commander extends it to finish ${f.from}–${last.to}. The crew will want their rest.`,
+        ref: { kind: 'flight', id: f.id },
+      });
+    }
+    if (fdp <= d.maxFdp + (d.discretion ?? 0)) return false;
+  }
+  d.fdp = fdp;
+  d.legality = 'illegal';
+  return true;
+}
+
 function depart(g: GameState, f: Flight, ac: Aircraft): void {
+  boardCrew(g, f);
   f.status = 'enroute';
   f.atd = g.now;
   ac.flightId = f.id;
@@ -517,6 +550,10 @@ function depart(g: GameState, f: Flight, ac: Aircraft): void {
 export function crewBlocked(g: GameState, f: Flight): boolean {
   const cs = flightCrewStatus(g, f.id);
   if (cs.level === 'missing') return true;
+  // The duty's crew must be at its first departure airport (tickets in have landed by now).
+  const dd = f.dutyId ? g.duties[f.dutyId] : undefined;
+  const p = dd && dd.flightIds[0] === f.id ? g.pairings[dd.pairingId] : undefined;
+  if (p) for (const s of p.slots) if (s.crewId && g.crew[s.crewId] && g.crew[s.crewId].loc !== f.from) return true;
   if (cs.level !== 'illegal') return false;
   const d = f.dutyId ? g.duties[f.dutyId] : undefined;
   return !d || d.legality === 'illegal';

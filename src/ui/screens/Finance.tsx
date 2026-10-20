@@ -12,11 +12,11 @@ import { Card, Kpi } from '../components/ui';
 import { money } from '../format';
 import { store, useGame } from '../store';
 import { ScreenHead, useRenderCount } from './common';
-import { statementView } from './screenLogic';
+import { earnedUnbilled, statementView } from './screenLogic';
 
 const tone = (v: number) => (v < 0 ? 'bad' : v > 0 ? 'good' : '');
 
-function Statement({ g }: { g: GameState }) {
+function Statement({ g, earned }: { g: GameState; earned: number }) {
   const { months, rows } = statementView(g.finance.current, g.finance.history, 5);
   const totals = months.map((m) => statementTotals(m.lines));
   const cell = (v: number) => (Math.abs(v) < 0.5 ? <span className="dim">—</span> : money(v));
@@ -39,6 +39,7 @@ function Statement({ g }: { g: GameState }) {
           ))}
           <tr className="sc-total"><td>Costs</td>{totals.map((t, i) => <td key={i} className="num">{money(t.costs)}</td>)}</tr>
           <tr className="sc-total sc-profit"><td>Profit</td>{totals.map((t, i) => <td key={i} className={`num ${tone(t.profit)}`}>{money(t.profit)}</td>)}</tr>
+          {earned > 0 && <tr><td className="dim">Wet lease earned, invoiced at month end (est.)</td>{months.map((m, i) => <td key={m.month} className="num dim">{i === 0 ? money(earned) : ''}</td>)}</tr>}
           <tr><td className="dim">Block hours</td>{months.map((m) => <td key={m.month} className="num dim">{Math.round(m.bh).toLocaleString('en-US')}</td>)}</tr>
         </tbody>
       </table>
@@ -88,14 +89,16 @@ export function FinanceScreen() {
     }
   }, [g, day]); // eslint-disable-line react-hooks/exhaustive-deps
   const low = fc.reduce((m, p) => Math.min(m, p.cash), Infinity);
+  // Wet leases invoice at month end; show what is already earned so mid-month profit is not misleading.
+  const earned = earnedUnbilled(g);
   return (
     <div className="screen sc-finance">
-      <ScreenHead title="Finance" sub={`${fmtMonth(g.finance.current.month, false)} so far · accrual view: revenue when invoiced, costs when incurred`} />
+      <ScreenHead title="Finance" sub={`${fmtMonth(g.finance.current.month, false)} so far · revenue when invoiced (wet leases at month end), costs when incurred`} />
       <div className="sc-kpis">
         <Kpi label="Cash" icon={<Wallet />} value={<span className={g.company.cash < 0 ? 'bad' : ''}>{money(g.company.cash)}</span>} sub={fc.length ? `90-day low ${money(low)}` : undefined} />
-        <Kpi label="Revenue" icon={<TrendingUp />} value={money(cur.revenue)} sub="this month" />
+        <Kpi label="Revenue" icon={<TrendingUp />} value={money(cur.revenue)} sub={earned > 0 ? <span className="good">+{money(earned)} earned, invoiced at month end</span> : 'invoiced this month'} />
         <Kpi label="Costs" icon={<Banknote />} value={money(cur.costs)} sub="this month" />
-        <Kpi label="Profit" icon={<Landmark />} value={<span className={tone(cur.profit)}>{money(cur.profit)}</span>} sub="this month" />
+        <Kpi label="Profit" icon={<Landmark />} value={<span className={tone(cur.profit)}>{money(cur.profit)}</span>} sub={earned > 0 ? <span className={tone(cur.profit + earned)}>≈ {money(cur.profit + earned)} with earned revenue</span> : 'this month'} />
         <Kpi label="Receivables" icon={<Clock />} value={money(outstanding)} sub={overdue > 0 ? <span className="warn">{money(overdue)} overdue</span> : 'none overdue'} />
       </div>
       <div className="sc-fin-cols mt-16">
@@ -111,7 +114,7 @@ export function FinanceScreen() {
         </Card>
       </div>
       <Card title="Statement" className="mt-16">
-        <Statement g={g} />
+        <Statement g={g} earned={earned} />
       </Card>
     </div>
   );

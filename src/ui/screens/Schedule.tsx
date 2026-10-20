@@ -38,7 +38,8 @@ function Block({ b, from, ppm, win0 }: { b: GanttBlock; from: number; ppm: numbe
   const x = (b.start - from) * ppm;
   const w = Math.max(b.kind === 'idle' ? 0 : 3, (b.end - b.start) * ppm);
   const k = b.color !== null ? contractColor(b.color) : undefined;
-  const text = w >= 64 ? b.label : w >= 22 ? b.short ?? '' : '';
+  // The short label only when it fits whole (≈ 7.5 px a character plus padding): never 'L…'.
+  const text = w >= 64 ? b.label : b.short && w >= 12 + 7.5 * b.short.length ? b.short : '';
   // Long idle gaps that start off-screen: keep the label near the visible left edge (window start + 18 h).
   const shift = b.kind === 'idle' ? Math.min(Math.max(0, (win0 + 18 * 60 - b.start) * ppm), Math.max(0, w - 90)) : 0;
   return (
@@ -91,13 +92,23 @@ function TodayLine({ from, ppm }: { from: number; ppm: number }) {
   return <div ref={ref} className="gantt-now" aria-hidden />;
 }
 
-function Legend({ g }: { g: GameState }) {
-  const list = Object.values(g.contracts).filter((c) => c.status === 'signed' || c.status === 'active');
+const LEGEND_MAX = 6;
+
+/** Contracts with flights in the visible window (by first flight), so every block colour on screen has a key. */
+function Legend({ g, win }: { g: GameState; win: [number, number] }) {
+  const first = new Map<string, number>();
+  for (const f of Object.values(g.flights)) {
+    if (!f.contractId || !f.aircraftId || f.std >= win[1] || f.sta <= win[0]) continue;
+    first.set(f.contractId, Math.min(first.get(f.contractId) ?? Infinity, f.std));
+  }
+  const list = [...first.keys()].map((id) => g.contracts[id]).filter((c) => !!c).sort((a, b) => first.get(a.id)! - first.get(b.id)!);
+  const more = list.length - LEGEND_MAX;
   return (
     <div className="gantt-legend small muted">
-      {list.slice(0, 5).map((c) => (
+      {list.slice(0, more > 0 ? LEGEND_MAX - 1 : LEGEND_MAX).map((c) => (
         <span key={c.id} className="gl-item ellipsis" style={{ ['--kc' as string]: contractColor(c.color) }}><span className="sc-kdot" />{c.title}</span>
       ))}
+      {more > 0 && <span className="gl-item" title={list.slice(LEGEND_MAX - 1).map((c) => c.title).join(' · ')}>+{more + 1} more</span>}
       <span className="gl-item"><span className="gl-sw gl-pos" />positioning</span>
       <span className="gl-item"><span className="gl-sw gl-maint" />maintenance</span>
       <span className="gl-item"><span className="gl-sw gl-idle" />idle 12 h+</span>
@@ -123,6 +134,8 @@ export function ScheduleScreen() {
   const width = Math.ceil((to - from) * ppm);
   const [win, setWin] = useState<[number, number]>(() => [g.now - 2 * DAY, g.now + 9 * DAY]);
   const pending = useRef<number | null>(null);
+  /** Where `pending` lands in the view (0.5 = centre). */
+  const pendingFrac = useRef(0.5);
   const sel = store.nav.sel?.kind === 'aircraft' ? store.nav.sel.id : null;
   const fleet = Object.values(g.fleet).filter((a) => a.status !== 'leasedOut' || sel === a.id);
 
@@ -133,7 +146,7 @@ export function ScheduleScreen() {
     setWin((cur) => (cur[0] === w[0] && cur[1] === w[1] ? cur : w));
   };
 
-  const scrollTo = (t: number, frac = 0.2) => {
+  const scrollTo = (t: number, frac = 0.1) => {
     const el = scroller.current;
     if (!el) return;
     el.scrollLeft = Math.max(0, (t - from) * ppm - el.clientWidth * frac);
@@ -149,7 +162,10 @@ export function ScheduleScreen() {
       const w = el.clientWidth;
       setViewW((cur) => {
         if (cur === w || !w) return cur;
-        if (cur > 0 && pending.current === null) pending.current = from + (el.scrollLeft + el.clientWidth / 2) / ppmRef.current;
+        if (cur > 0 && pending.current === null) {
+          pending.current = from + (el.scrollLeft + el.clientWidth / 2) / ppmRef.current;
+          pendingFrac.current = 0.5;
+        }
         return w;
       });
     });
@@ -170,10 +186,16 @@ export function ScheduleScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewW]);
 
-  // Zoom keeps the time at the centre of the view.
+  // Zoom keeps 'now' near the left edge when it was on screen, otherwise the time at the centre.
   const setZoom = (z: ZoomDays) => {
     const el = scroller.current;
-    if (el && z !== zoom) pending.current = from + (el.scrollLeft + el.clientWidth / 2) / ppm;
+    if (el && z !== zoom) {
+      const t0 = from + el.scrollLeft / ppm;
+      const t1 = t0 + el.clientWidth / ppm;
+      const nowSeen = g.now >= t0 && g.now <= t1;
+      pending.current = nowSeen ? g.now : (t0 + t1) / 2;
+      pendingFrac.current = nowSeen ? 0.1 : 0.5;
+    }
     setZoomState(z);
     try {
       localStorage.setItem('bh.ganttZoom', String(z));
@@ -183,7 +205,7 @@ export function ScheduleScreen() {
   };
   useLayoutEffect(() => {
     if (pending.current === null) return;
-    scrollTo(pending.current, 0.5);
+    scrollTo(pending.current, pendingFrac.current);
     pending.current = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ppm]);
@@ -248,7 +270,7 @@ export function ScheduleScreen() {
         <button className="btn" onClick={() => scrollTo(g.now)}><Crosshair /> Today</button>
         <Seg<ZoomDays> value={zoom} onChange={setZoom} options={ZOOMS.map((z) => ({ value: z, label: `${z} days` }))} />
       </ScreenHead>
-      <Legend g={g} />
+      <Legend g={g} win={win} />
       <div className="gantt card">
         <div className="gantt-left">
           <div className="gantt-corner tiny dim">{fleet.length} aircraft</div>

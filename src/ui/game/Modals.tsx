@@ -1,8 +1,8 @@
 // Global dialogs (menu, saves, settings, confirm) and the in-game modal slot (decisions, game over).
 
-import { Download, FolderOpen, Home, Play, Save, Settings as SettingsIcon, Trash2, Upload } from 'lucide-react';
+import { Download, FolderOpen, Home, Play, PlusCircle, RefreshCw, Save, Settings as SettingsIcon, Trash2, Upload } from 'lucide-react';
 import { useRef, useState } from 'react';
-import { fmtDate } from '../../engine/core/time';
+import { DAY, fmtDate } from '../../engine/core/time';
 import { AUTOSAVE_SLOT, SLOTS, deleteSlot, deserialize, listSaves, loadFromSlot, saveToSlot, serialize } from '../../engine/save';
 import { Modal, Seg, Toggle } from '../components/ui';
 import { DecisionModal } from '../modals/DecisionModal';
@@ -13,18 +13,28 @@ import { BlockSheet } from '../modals/BlockSheet';
 import { DutyModal } from '../modals/DutyModal';
 import { SubcharterModal } from '../modals/SubcharterModal';
 import { TrainModal } from '../modals/TrainModal';
-import { money } from '../format';
+import { int, money } from '../format';
 import { offline, promptInstall } from '../offline';
 import { store, useStore } from '../store';
 
 function GameOverModal() {
   const s = useStore();
   const g = s.game!;
+  const days = Math.max(1, Math.round(((g.gameOver?.t ?? g.now) - g.started) / DAY));
+  const auto = listSaves().find((m) => m.slot === AUTOSAVE_SLOT);
+  if (s.modal) return null;
   return (
     <Modal title="Operations suspended">
       <p className="muted">{g.gameOver?.reason}</p>
-      <div className="row gap-8 mt-16">
-        <button className="btn btn-primary" onClick={() => store.quitToTitle()}><Home /> Back to title</button>
+      <div className="small mt-12">
+        {g.company.name} operated {int(days)} days and flew {int(g.stats.legs)} revenue legs ({int(Math.round(g.stats.blockMin / 60))} BH) for {int(g.stats.contractsDone)} completed contracts.
+        {g.stats.bestMonthProfit > 0 ? ` Best month: ${money(g.stats.bestMonthProfit)} profit.` : ''}
+      </div>
+      {auto && <div className="tiny dim mt-8">The autosave is from before the suspension ({auto.date}); Continue on the title screen resumes from there.</div>}
+      <div className="row gap-8 mt-16 wrap">
+        <button className="btn btn-primary" onClick={() => store.openModal({ kind: 'saves', mode: 'load' })}><FolderOpen /> Load a save</button>
+        <button className="btn" onClick={() => { store.quitToTitle(); store.setScreen('newgame'); }}><PlusCircle /> New game</button>
+        <button className="btn btn-ghost" onClick={() => store.quitToTitle()}><Home /> Back to title</button>
       </div>
     </Modal>
   );
@@ -35,9 +45,26 @@ export function GameModals() {
   const g = s.game;
   if (!g) return null;
   if (g.gameOver) return <GameOverModal />;
-  // While decisions hold time (setting) the oldest opens by itself; otherwise the Inbox pins them.
-  if (g.decisions.length && !s.modal && s.settings.autoPause.decision) return <DecisionModal />;
+  // While decisions hold time (setting) the oldest opens by itself, unless set aside with 'Look first'
+  // (the amber pause badge re-opens it); otherwise the Inbox pins them.
+  if (!s.modal && s.decisionOpen) return <DecisionModal />;
   return null;
+}
+
+const SAVE_NOTE = 'Autosaves at each month end, when you pause and when you leave.';
+
+/** 'Since 4 Mar 2027' for confirm dialogs: when the running game was last written to the autosave. */
+function unsavedSince(): string {
+  const g = store.game;
+  if (!g) return '';
+  return store.savedNow >= 0 ? `since ${fmtDate(store.savedNow)}` : 'since this session started';
+}
+
+/** Runs `go` at once on the title screen; while a game runs, asks first. */
+function confirmReplace(title: string, confirm: string, go: () => void) {
+  const g = store.game;
+  if (!g || g.gameOver) return go();
+  store.openModal({ kind: 'confirm', title, confirm, body: `This replaces the game you are playing. Progress ${unsavedSince()} that is not in a save will be lost.`, onConfirm: go });
 }
 
 // ---------- menus & dialogs ----------
@@ -63,10 +90,11 @@ function MenuModal() {
         <button className="menu-item" onClick={exportSave}><Download /> Export save file</button>
         <button className="menu-item" onClick={() => fileRef.current?.click()}><Upload /> Import save file</button>
         <button className="menu-item" onClick={() => store.openModal({ kind: 'settings' })}><SettingsIcon /> Settings</button>
+        {offline.updateReady && <button className="menu-item" onClick={() => { store.saveAuto(true); location.reload(); }}><RefreshCw /> Save & restart to update</button>}
         <button className="menu-item danger" onClick={() => store.quitToTitle()}><Home /> Save & quit to title</button>
       </div>
       <input ref={fileRef} type="file" accept=".json,application/json" hidden onChange={(e) => importFile(e.target.files?.[0])} />
-      <div className="tiny dim mt-12">Your game autosaves every month and when you pause. Saves live in this browser — export a file to back up or move devices.</div>
+      <div className="tiny dim mt-12">{store.settings.autosave ? SAVE_NOTE : 'Autosave is off: the game saves only when you save it or quit to the title.'} Saves live in this browser — export a file to back up or move devices.</div>
     </Modal>
   );
 }
@@ -76,8 +104,10 @@ function importFile(file?: File) {
   file.text().then((text) => {
     try {
       const g = deserialize(text);
-      store.loadGame(g);
-      store.toast('good', 'Save imported', `${g.company.name} · ${fmtDate(g.now)}`);
+      confirmReplace('Import this save?', 'Import', () => {
+        store.loadGame(g);
+        store.toast('good', 'Save imported', `${g.company.name} · ${fmtDate(g.now)}`);
+      });
     } catch (e) {
       store.toast('bad', 'Import failed', (e as Error).message);
     }
@@ -89,20 +119,31 @@ function SavesModal({ mode }: { mode: 'save' | 'load' }) {
   const saves = listSaves();
   const fileRef = useRef<HTMLInputElement>(null);
   const slots = mode === 'save' ? SLOTS : [AUTOSAVE_SLOT, ...SLOTS];
-  const onSlot = (slot: string) => {
-    if (mode === 'save') {
-      if (store.game && saveToSlot(store.game, slot)) {
-        store.toast('good', 'Game saved', `Slot ${slot}`);
-        force((x) => x + 1);
-      } else store.toast('bad', 'Could not save', 'Browser storage is unavailable or full.');
-    } else {
-      try {
-        const g = loadFromSlot(slot);
-        if (g) store.loadGame(g);
-      } catch (e) {
-        store.toast('bad', 'Could not load', (e as Error).message);
-      }
+  const back = () => store.openModal({ kind: 'saves', mode });
+  const save = (slot: string) => {
+    if (store.game && saveToSlot(store.game, slot)) {
+      store.toast('good', 'Game saved', `Slot ${slot}`);
+      force((x) => x + 1);
+    } else store.toast('bad', 'Could not save', 'Browser storage is unavailable or full.');
+  };
+  const load = (slot: string) => {
+    try {
+      const g = loadFromSlot(slot);
+      if (g) store.loadGame(g);
+    } catch (e) {
+      store.toast('bad', 'Could not load', (e as Error).message);
     }
+  };
+  const onSlot = (slot: string) => {
+    const m = saves.find((x) => x.slot === slot);
+    if (mode === 'save') {
+      if (!m) return save(slot);
+      store.openModal({ kind: 'confirm', title: `Overwrite slot ${slot}?`, confirm: 'Overwrite', body: `It holds ${m.company} on ${m.date}. That save will be replaced.`, onConfirm: () => { save(slot); back(); } });
+    } else if (m) confirmReplace(`Load ${slot === AUTOSAVE_SLOT ? 'the autosave' : `slot ${slot}`}?`, 'Load', () => load(slot));
+  };
+  const del = (slot: string) => {
+    const m = saves.find((x) => x.slot === slot);
+    store.openModal({ kind: 'confirm', title: `Delete slot ${slot}?`, confirm: 'Delete', danger: true, body: m ? `${m.company} on ${m.date} will be deleted. This cannot be undone.` : 'This cannot be undone.', onConfirm: () => { deleteSlot(slot); back(); } });
   };
   return (
     <Modal title={mode === 'save' ? 'Save game' : 'Load game'} icon={mode === 'save' ? <Save className="accent" /> : <FolderOpen className="accent" />} onClose={() => store.closeModal()} footer={
@@ -123,7 +164,7 @@ function SavesModal({ mode }: { mode: 'save' | 'load' }) {
                 <span className="small accent">{mode === 'save' ? (m ? 'Overwrite' : 'Save') : m ? 'Load' : ''}</span>
               </button>
               {m && slot !== AUTOSAVE_SLOT && (
-                <button className="btn btn-ghost btn-icon btn-sm" onClick={() => { deleteSlot(slot); force((x) => x + 1); }} aria-label="Delete save"><Trash2 /></button>
+                <button className="btn btn-ghost btn-icon btn-sm" onClick={() => del(slot)} aria-label="Delete save"><Trash2 /></button>
               )}
             </div>
           );
@@ -143,7 +184,7 @@ function SettingsModal() {
         <div className="set-row"><div><b>Distance units</b></div><Seg value={st.units} onChange={(v) => store.setSettings({ units: v })} options={[{ value: 'km', label: 'Kilometres' }, { value: 'nm', label: 'Nautical miles' }]} /></div>
         <div className="set-row"><div><b>Sound effects</b><div className="tiny dim">Synthesised UI sounds</div></div><Toggle on={st.sound} onChange={(v) => store.setSettings({ sound: v })} /></div>
         <div className="set-row"><div><b>Volume</b></div><input type="range" min={0} max={1} step={0.05} value={st.volume} style={{ width: 160, ['--fill' as string]: `${st.volume * 100}%` }} onChange={(e) => store.setSettings({ volume: Number(e.target.value) })} /></div>
-        <div className="set-row"><div><b>Autosave</b><div className="tiny dim">Every month and when you leave</div></div><Toggle on={st.autosave} onChange={(v) => store.setSettings({ autosave: v })} /></div>
+        <div className="set-row"><div><b>Autosave</b><div className="tiny dim">At each month end, when you pause and when you leave</div></div><Toggle on={st.autosave} onChange={(v) => store.setSettings({ autosave: v })} /></div>
         <div className="set-row"><div><b>Pause for decisions</b><div className="tiny dim">Stop the clock when an event needs you</div></div><Toggle on={st.autoPause.decision} onChange={(v) => store.setSettings({ autoPause: { ...st.autoPause, decision: v } })} /></div>
         <div className="set-row"><div><b>Pause for urgent offers</b><div className="tiny dim">AOG cover, repatriation and other short-notice work</div></div><Toggle on={st.autoPause.urgentOffer} onChange={(v) => store.setSettings({ autoPause: { ...st.autoPause, urgentOffer: v } })} /></div>
         <div className="set-row"><div><b>Pause for AOG</b><div className="tiny dim">When an aircraft breaks down</div></div><Toggle on={st.autoPause.aog} onChange={(v) => store.setSettings({ autoPause: { ...st.autoPause, aog: v } })} /></div>

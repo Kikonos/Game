@@ -176,7 +176,7 @@ export function ctxOf(g: GameState, c: CrewMember): TimelineCtx {
 }
 
 export function posSeg(t: TicketPlan, c: CrewMember, fresh = false): Seg {
-  return { kind: 'pos', start: t.std - CHECKIN(), end: t.sta, fdp: 0, maxFdp: 0, block: 0, sectors: 0, aug: false, disruptive: false, rest: posRest(t, t.to === c.base), at: t.to, dutyId: undefined, fresh };
+  return { kind: 'pos', start: t.std - CHECKIN(), end: t.sta, fdp: 0, maxFdp: 0, block: 0, sectors: 0, aug: false, disruptive: false, rest: posRest(t, t.to === c.base), at: t.to, from: t.from, dutyId: undefined, fresh };
 }
 
 /** A ticket already flown on its own is in the crew log (onFlightArrCrew); only merged ones still shape the duty. */
@@ -194,9 +194,11 @@ export function dutySegs(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: 
   let fdp = d.fdp;
   let max = d.maxFdp + (d.discretion ?? 0);
   let tz = referenceTime(p.base, dep, Math.min(p.start, d.report), d.report).tz;
+  let from = dep;
   if (out) {
     if (d.report - out.sta < posRest(out, false)) {
       start = out.std - CHECKIN();
+      from = out.from;
       fdp = d.fdp + (d.report - start);
       const lim = fdpLimitAt(g, p, d, out.from, start);
       max = lim.max + (d.discretion ?? 0);
@@ -216,7 +218,7 @@ export function dutySegs(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: 
     kind: 'duty', start, end, fdp, maxFdp: max, block: dutyBlock(g, d), sectors: d.sectors, aug: d.augment > 0,
     disruptive: isDisruptive(tz, start, end),
     rest: minRest({ dutyMin: end - start, atHome: at === c.base, augmented: d.augment > 0, tzShift: tzDeltaH(c.base, at, end) }),
-    at, dutyId: d.id, fresh,
+    at, from, dutyId: d.id, fresh,
   });
   if (tail) segs.push(tail);
   return segs;

@@ -18,6 +18,9 @@
   background: var(--bad); color: #fff; font-size: 12px; font-weight: 700; line-height: 1; display: grid; place-items: center;
   box-shadow: 0 0 0 2px #070b14; font-variant-numeric: tabular-nums;
 }
+/* Informational unread only: a plain dot, no count. */
+.nb.dot { min-width: 9px; width: 9px; height: 9px; padding: 0; top: -3px; right: -5px; background: var(--accent); }
+.shell.medium .nav-item .nb.dot { top: -3px; left: calc(50% + 6px); }
 
 /* ---------- wide (>= 1100): the desktop layout, roomier on touch ---------- */
 .touch .topbar { gap: 12px; }

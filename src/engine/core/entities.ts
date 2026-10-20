@@ -127,8 +127,8 @@ export function retimeFlight(g: GameState, f: Flight, std: Minute, sta: Minute):
   f.block = sta - std;
   f.ev++;
   if (f.aircraftId && f.status === 'scheduled') schedule(g, std, 'flight.dep', f.id, f.ev);
-  // A sub-chartered leg (no aircraft of ours) completes at its new arrival.
-  else if (f.operatedBy && f.status === 'scheduled') schedule(g, sta, 'flight.arr', f.id, f.ev);
+  // A sub-chartered leg or a crew ticket (no aircraft of ours) completes at its new arrival.
+  else if ((f.operatedBy || f.kind === 'deadhead') && f.status === 'scheduled') schedule(g, sta, 'flight.arr', f.id, f.ev);
   touchFlights(g);
 }
 

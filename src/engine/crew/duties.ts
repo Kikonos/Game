@@ -441,7 +441,7 @@ function virtualSeg(g: GameState, d: Duty, tripStart: Minute, base: string, fres
     kind: 'duty', start: d.report, end: d.release, fdp: d.fdp, maxFdp: d.maxFdp + (d.discretion ?? 0), block: dutyBlock(g, d), sectors: d.sectors,
     aug: d.augment > 0, disruptive: isDisruptive(tz, d.report, d.release),
     rest: minRest({ dutyMin: d.release - d.report, atHome: d.restAt === base, augmented: d.augment > 0, tzShift: tzDeltaH(base, d.restAt, d.release) }),
-    at: d.restAt, dutyId: d.id, fresh,
+    at: d.restAt, from: dep, dutyId: d.id, fresh,
   };
 }
 

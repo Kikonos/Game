@@ -1,7 +1,9 @@
 // Pure helpers for the B5 screens (labels, sorting, filtering, deep links). No React, no writes.
 
 import type { RatingFamily } from '../../data/acmiTypes';
-import { DAY, HOUR } from '../../engine/core/time';
+import { BAL } from '../../engine/core/balance';
+import { DAY, HOUR, monthKey } from '../../engine/core/time';
+import { mghInMonth } from '../../engine/contracts/pricing';
 import type {
   Archetype, ContractOffer, CrewMember, CrewStatus, GameState, LedgerCat, Message, MessageCat, MonthStatement, Product, Ref, Requirements, Role, SchedulePattern,
 } from '../../engine/core/types';
@@ -243,4 +245,25 @@ export function counterSteps(asking: number, wet: boolean): number[] {
     out.push(wet ? Math.round(v / 5) * 5 : Math.round(v / 1000) * 1000);
   }
   return out;
+}
+
+/**
+ * Wet-lease money earned this month but invoiced only at month end: per contract, max(flown BH, MGH pro rata
+ * to today) × rate, plus short-cycle fees, minus the broker commission. Display-only estimate (pure).
+ */
+export function earnedUnbilled(g: GameState): number {
+  const k = monthKey(g.now);
+  let sum = 0;
+  for (const c of Object.values(g.contracts)) {
+    const p = c.product;
+    if (p.kind !== 'wet' || (c.status !== 'signed' && c.status !== 'active') || c.billedMonths.includes(k)) continue;
+    const u = c.use[k];
+    const flown = (u?.blockMin ?? 0) / 60;
+    const end = Math.min(c.end, c.cancelledAt ?? Infinity, g.now);
+    const mgh = end > c.start ? mghInMonth(p.mghPerMonth, c.start, end, k) * c.aircraftIds.length : 0;
+    let v = p.ratePerBH * Math.max(flown, mgh) + (u?.shortCycles && p.cycleFee ? u.shortCycles * p.cycleFee : 0);
+    if (c.broker) v *= 1 - BAL.brokerCommission;
+    sum += v;
+  }
+  return Math.round(sum);
 }

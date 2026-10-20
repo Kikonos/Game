@@ -62,6 +62,15 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
       if (f.sta <= first.report) out = f;
       else if (f.std >= last.release) home = f;
     }
+    // A ticket not yet flown that no longer fits around the trip (a duty moved or the trip grew past it).
+    for (const d of duties) {
+      for (const fid of d.deadheadIds) {
+        const f = g.flights[fid];
+        if (!f || f.status !== 'scheduled' || f === out || f === home || !f.crewIds.includes(c.id)) continue;
+        issues.push({ code: 'location', level: 'illegal', text: `Ticket ${f.from}–${f.to} clashes with the trip`, dutyId: d.id });
+        break;
+      }
+    }
     const at = out ? out.to : locAt(c, base, first.report);
     const started = g.flights[first.flightIds[0]]?.status !== 'scheduled';
     if (at !== dep && !started) issues.push({ code: 'location', level: 'illegal', text: `At ${at}, not ${dep}`, dutyId: first.id });
@@ -71,7 +80,8 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
       out = planOut(g, p, first, loc);
       if (out.std - BAL.deadheadCheckIn < g.now) issues.push({ code: 'location', level: 'illegal', text: `Can't reach ${dep} in time`, dutyId: first.id });
     }
-    if (last.restAt !== c.base) home = planHome(last, c.base);
+    // No ticket home when the crew's next work starts where this trip ends.
+    if (last.restAt !== c.base && nextFrom(base, last.release) !== last.restAt) home = planHome(last, c.base);
   }
   const segs: Seg[] = [];
   for (const d of duties) segs.push(...dutySegs(g, c, p, d, d === first ? out : null, d === last ? home : null, true));
@@ -87,6 +97,12 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
   }
   issues.push(...ftl);
   return { level: levelOf(issues), issues, out, home, segs };
+}
+
+/** Where the crew's next planned work within 3 days after t starts ('' when none or unknown). */
+function nextFrom(segs: Seg[], t: Minute): string {
+  for (const s of segs) if (s.kind !== 'log' && s.start >= t) return s.start < t + 3 * 1440 ? s.from ?? '' : '';
+  return '';
 }
 
 /**

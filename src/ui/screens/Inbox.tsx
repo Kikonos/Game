@@ -23,6 +23,8 @@ function open(g: GameState, m: Message) {
     store.navigate('contracts', { view: 'market' });
     store.openModal({ kind: 'offer', offerId: link.offerId });
   } else store.navigate(link.tab, { sel: link.sel, view: link.view });
+  // Crew problems on a flight still to fly: its sheet carries 'Adjust crew'.
+  if (m.cat === 'crew' && m.ref?.kind === 'flight' && g.flights[m.ref.id]?.status === 'scheduled') store.openModal({ kind: 'sheet', refs: [m.ref] });
 }
 
 function Decisions({ g }: { g: GameState }) {

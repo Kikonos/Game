@@ -17,6 +17,7 @@ import { FinanceScreen } from '../screens/Finance';
 import { FleetScreen } from '../screens/Fleet';
 import { InboxScreen } from '../screens/Inbox';
 import { ScheduleScreen } from '../screens/Schedule';
+import { refTarget } from '../screens/screenLogic';
 import { type GameSpeed, SPEED_LABEL, type Tab, store, useClock, useGame, useStore } from '../store';
 import { useMedia, useTier } from '../useMedia';
 import { CLOCK_STEP, SPEEDS } from '../../engine/core/time';
@@ -35,14 +36,15 @@ export const NAV: { tab: Tab; label: string; short: string; icon: ReactNode }[] 
 
 const count = (n: number) => (n > 99 ? '99+' : String(n));
 
-/** Badges: open offers on Contracts, decisions + unread on Inbox. */
+/** Badges: open offers on Contracts; on Inbox the bell's rule (decisions + unread bad/warn), a dot for other unread. */
 function useNavBadges(): Partial<Record<Tab, string>> {
   const g = useGame();
   const offers = Object.values(g.offers).filter((o) => o.status === 'open').length;
-  const unread = g.messages.filter((m) => !m.read).length + g.decisions.length;
+  const alerts = g.decisions.length + g.messages.filter((m) => !m.read && (m.tone === 'bad' || m.tone === 'warn')).length;
   const b: Partial<Record<Tab, string>> = {};
   if (offers) b.contracts = count(offers);
-  if (unread) b.inbox = count(unread);
+  if (alerts) b.inbox = count(alerts);
+  else if (g.messages.some((m) => !m.read)) b.inbox = '';
   return b;
 }
 
@@ -92,9 +94,18 @@ function PauseBadge() {
   const reason: PauseReason | null = s.blocked ? 'decision' : s.paused ? s.pauseReason : null;
   if (!reason) return null;
   const go = () => {
+    const g = s.game;
+    if (reason === 'decision' && s.settings.autoPause.decision && !s.decisionOpen) return s.reopenDecision();
     if (reason === 'urgentOffer') s.navigate('contracts', { view: 'market' });
     else if (reason === 'monthEnd') s.navigate('finance');
-    else if (reason === 'crewShortage') s.navigate('crew');
+    else if (reason === 'crewShortage') {
+      // The flight in the newest 'No crew for …' message: its detail sheet has the crew/duty actions.
+      const ref = g?.messages.find((m) => m.cat === 'crew' && m.ref?.kind === 'flight' && g.flights[m.ref.id]?.status === 'scheduled')?.ref;
+      const link = g && ref ? refTarget(g, ref) : null;
+      if (!ref || !link) return s.navigate('crew');
+      s.navigate(link.tab, { sel: link.sel, view: link.view });
+      s.openModal({ kind: 'sheet', refs: [ref] });
+    }
     else if (reason === 'contractStart') s.navigate('schedule');
     else s.navigate('inbox');
   };
@@ -170,10 +181,10 @@ function Rail() {
         const active = s.nav.tab === n.tab;
         const b = badges[n.tab];
         return (
-          <button key={n.tab} className={`nav-item ${active ? 'active' : ''}`} onClick={() => s.navigate(n.tab)} data-nav={n.tab} aria-current={active ? 'page' : undefined} aria-label={b ? `${n.label}, ${b}` : n.label}>
+          <button key={n.tab} className={`nav-item ${active ? 'active' : ''}`} onClick={() => s.navigate(n.tab)} data-nav={n.tab} aria-current={active ? 'page' : undefined} aria-label={b ? `${n.label}, ${b}` : b === '' ? `${n.label}, unread` : n.label}>
             <span className="ico">
               {n.icon}
-              {b && <span className="nb">{b}</span>}
+              {b !== undefined && <span className={`nb ${b ? '' : 'dot'}`}>{b}</span>}
             </span>
             <span className="lbl">{n.short}</span>
           </button>

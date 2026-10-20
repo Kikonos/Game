@@ -1,5 +1,8 @@
 // Offline support: registers the service worker that precaches the whole game,
-// and tracks install / connectivity state for the UI.
+// and tracks install / connectivity state for the UI. A new version never reloads a running game:
+// it saves, says so quietly and applies on the next launch (or Menu → Save & restart to update).
+
+import { store } from './store';
 
 type Listener = () => void;
 
@@ -10,6 +13,8 @@ interface InstallPromptEvent extends Event {
 
 export const offline = {
   ready: false,
+  /** A new version is installed and waits for a reload. */
+  updateReady: false,
   online: typeof navigator === 'undefined' ? true : navigator.onLine,
   installPrompt: null as InstallPromptEvent | null,
   listeners: new Set<Listener>(),
@@ -31,6 +36,14 @@ export function registerOffline() {
     .then(({ registerSW }) => {
       registerSW({
         immediate: true,
+        // Without this, vite-plugin-pwa reloads the page as soon as an update activates.
+        onNeedReload() {
+          if (store.screen !== 'game' || !store.game) return location.reload();
+          store.saveAuto(true);
+          if (!offline.updateReady) store.toast('info', 'Update installed', 'It applies the next time you open BLOCK HOURS.');
+          offline.updateReady = true;
+          offline.emit();
+        },
         onOfflineReady() {
           offline.ready = true;
           offline.emit();
