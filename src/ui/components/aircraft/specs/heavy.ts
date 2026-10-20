@@ -1,10 +1,12 @@
-// 777-200ER / 777-300ER / 777-9, 747-400 / 747-8I, A380 and Boom Overture.
+// 777-200ER / 777-300ER / 777-9, 747-400 / 747-8I and A380.
 // Dimensions in metres (Boeing / Airbus airport-planning data, Wikipedia);
 // door, engine and fin stations measured off the Scavini 3-views of the
 // 777, 747 and A380 families.
 
+import type { TracedProfile } from '../traced/types';
 import type { AircraftProfile, NoseSpec } from '../types';
 import { NOSE, TAIL, cargo, pax, row } from './shared';
+import { resizeNacelle, stretchTrace } from './wide-twin';
 
 // ---------- 777 ----------
 
@@ -95,7 +97,9 @@ function b747(id: string, stretch: number, eight: boolean): AircraftProfile {
     ],
     windows: [
       row(2.4, 57.0 + stretch, 0.44, 0.508, 0.26, 0.38),
-      row(10.0, 22.2 + s, 2.99, 0.508, 0.24, 0.34),
+      // upper deck (measured on the 747-400 photo; the traced fuselage draws the main-deck row):
+      // 10 + 9 windows either side of the exit, which sits ahead of the -8 plug
+      row(10.3, 21.6 + s, 2.93, 0.537, 0.24, 0.34, [[15.4, 17.0]]),
     ],
     // titles on the hump side between the window rows, clear of the upper-deck door
     titles: { x: 16.6, y: 1.62, w: 10.5 + s, size: 1.2 },
@@ -105,6 +109,15 @@ function b747(id: string, stretch: number, eight: boolean): AircraftProfile {
 
 const b744 = b747('b744', 0, false);
 const b748 = b747('b748', 5.6, true);
+
+/** 747-8I plugs on the 747-400 trace: 4.1 m under the hump between the upper-deck exit and door 2 (the upper deck grows with it), 1.5 m between doors 4 and 5. */
+export const B748_PLUGS = [{ at: 0.255, m: 4.1 }, { at: 0.625, m: 1.5 }] as const;
+
+/** 747-8I trace (traced/b748.ts): the 747-400 nose, hump, cockpit and tail cone, plugged, with the bigger GEnx-2B nacelles. */
+export function b748Trace(b744t: TracedProfile): TracedProfile {
+  const t = stretchTrace(b744t, b744.length, 'b748', b748.length, B748_PLUGS, `derived from b744 (${b744t.source}): plugs 4.1 m @0.255, 1.5 m @0.625; GEnx-2B nacelles`);
+  return { ...t, engines: t.engines?.map((e) => resizeNacelle(e, 6.9 / 6.6, 3.05 / 2.75)) };
+}
 
 // ---------- A380 ----------
 
@@ -131,31 +144,10 @@ const a388: AircraftProfile = {
   ],
   windows: [
     row(7.8, 56.2, -0.15, 0.533, 0.28, 0.4),
-    row(12.9, 54.4, 2.46, 0.533, 0.26, 0.38),
+    // upper deck (measured on the A380 photo; the traced fuselage draws the main-deck row), gaps at U1-U3
+    row(13.54, 54.56, 2.44, 0.662, 0.25, 0.36, [[20.6, 23.0], [40.4, 42.9], [49.7, 52.1]]),
   ],
   ref: { overallHeight: 24.09, span: 79.75 },
 };
 
-// ---------- Boom Overture ----------
-
-// 2022 production design: gull-form delta, four underwing engine pods, small horizontal tail.
-const overture: AircraftProfile = {
-  id: 'overture',
-  length: 61.0,
-  height: 3.3,
-  nose: NOSE.overture,
-  cockpit: { style: 'overture', u: 3.75, v: 0.25, scale: 0.9 },
-  tail: TAIL.overture,
-  fin: { x: 47.0, rootChord: 10.5, tipChord: 2.4, height: 6.2, sweep: 52, fillet: { len: 4.0, h: 0.9 }, rudder: 0.3 },
-  stab: { x: 53.6, y: -0.2, rootChord: 4.6, tipChord: 1.3, span: 4.6, sweep: 52, dihedral: 0, thickness: 0.3 },
-  wing: { x: 20.5, y: -1.05, rootChord: 29.0, tipChord: 3.0, span: 14.5, sweep: 58, dihedral: 3, thickness: 0.9, tip: 'none', delta: true },
-  engines: [
-    { mount: 'underwing', style: 'supersonic', x: 34.0, y: -2.45, dia: 1.75, len: 9.0, station: 0.2, inboard: true },
-    { mount: 'underwing', style: 'supersonic', x: 37.0, y: -1.95, dia: 1.75, len: 9.0, station: 0.42 },
-  ],
-  doors: [pax(12.8, 0.82, 1.8), pax(46.0, 0.82, 1.8)],
-  windows: [row(14.4, 45.0, 0.45, 0.762, 0.2, 0.28)],
-  ref: { overallHeight: 11.0, span: 32.3 },
-};
-
-export const HEAVY: AircraftProfile[] = [b772, b77l, b77w, b779, b744, b748, a388, overture];
+export const HEAVY: AircraftProfile[] = [b772, b77l, b77w, b779, b744, b748, a388];

@@ -99,11 +99,6 @@ export const NOSE = {
     lower: [0, -0.12, 0, -0.22, 0.11, -0.33, 0.33, -0.4, 0.57, -0.47, 0.8, -0.5, 1.1, -0.5],
     radome: 0.3,
   },
-  /** Overture: needle nose tapering over several fuselage heights. */
-  overture: {
-    upper: [0, -0.02, 1.0, 0.04, 2.2, 0.18, 3.3, 0.3, 3.9, 0.36, 4.6, 0.5, 5.8, 0.5],
-    lower: [0, -0.02, 1.3, -0.1, 2.8, -0.38, 4.4, -0.47, 5.0, -0.5, 5.4, -0.5, 6.0, -0.5],
-  },
 } satisfies Record<string, NoseSpec>;
 
 // ---------- tail cones (u <= 0 relative to the tail tip, in H) ----------
@@ -182,10 +177,6 @@ export const TAIL = {
   turboprop: {
     upper: [-1.2, 0.5, -0.8, 0.5, -0.3, 0.48, 0, 0.45],
     lower: [-3.6, -0.5, -2.4, -0.5, -1.0, 0.05, 0, 0.3],
-  },
-  overture: {
-    upper: [-3.0, 0.5, -1.8, 0.5, -0.6, 0.3, 0, 0.12],
-    lower: [-4.5, -0.5, -3.0, -0.5, -1.2, -0.05, 0, 0.04],
   },
 } satisfies Record<string, TailConeSpec>;
 

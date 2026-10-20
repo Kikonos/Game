@@ -1,5 +1,9 @@
 // A220, A320 family (ceo/neo) and C919. Dimensions in metres (Airbus ACAPS /
 // Wikipedia); x aft of the nose tip, y above the fuselage centreline.
+// A320 family: the fuselage, cockpit, doors, windows and fin are drawn from the
+// traced photos (traced/a320ceo, a319neo, a321ceo; a320neo / a321neo / a321xlr
+// reuse the ceo traces); wing, engine and stabiliser stations below are measured
+// on those photos so the parametric parts sit where the photos have them.
 
 import type { AircraftProfile, EngineSpec, TipDevice } from '../types';
 import { NOSE, TAIL, cargo, exit, pax, row } from './shared';
@@ -23,8 +27,12 @@ function a320(o: A320Opts): AircraftProfile {
   const f = o.fwd, fa = o.fwd + o.aft;
   const tip: TipDevice = o.neo ? 'sharklet' : 'fence';
   const engine: EngineSpec = o.neo
-    ? { mount: 'underwing', style: 'gtf', x: 11.1 + f, y: -2.2, dia: 2.4, len: 5.2, station: 0.24 }
-    : { mount: 'underwing', style: o.ceoEngine ?? 'plain', x: 11.6 + f, y: -2.05, dia: 2.05, len: o.ceoEngine === 'longduct' ? 5.4 : 4.6, station: 0.25 };
+    // LEAP-1A / PW1100G: ~0.5 m ahead of the CFM56 intake, bigger fan, bottom ~0.1 m lower
+    ? { mount: 'underwing', style: 'gtf', x: 10.9 + f, y: -2.05, dia: 2.4, len: 5.2, station: 0.24 }
+    // traced boxes: CFM56-5B (A320 photo), V2500 long duct (A321 photo)
+    : o.ceoEngine === 'longduct'
+      ? { mount: 'underwing', style: 'longduct', x: 10.95 + f, y: -1.95, dia: 2.14, len: 5.9, station: 0.25 }
+      : { mount: 'underwing', style: 'plain', x: 11.4 + f, y: -2.1, dia: 2.09, len: 5.1, station: 0.25 };
   return {
     id: o.id,
     length: L,
@@ -32,9 +40,10 @@ function a320(o: A320Opts): AircraftProfile {
     nose: NOSE.airbus,
     cockpit: { style: 'airbus', u: 0.31, v: 0.115 },
     tail: TAIL.airbusNarrow,
-    fin: { x: 28.9 + fa, rootChord: 6.4, tipChord: 2.0, height: 5.84, sweep: 38, fillet: { len: 2.2, h: 0.9 }, rudder: 0.32 },
-    stab: { x: 31.4 + fa, y: 0.45, rootChord: 3.6, tipChord: 1.25, span: 5.4, sweep: 33, dihedral: 6, thickness: 0.36 },
-    wing: { x: 12.9 + f, y: -1.3, rootChord: 6.4, tipChord: 1.5, span: 15.1, sweep: 27, dihedral: 5.1, thickness: 0.75, tip, tipH: o.neo ? 2.43 : 0.75 },
+    // fin = the traced polygon; stabiliser root LE 5.1 m ahead of the tail end, tip TE at its end
+    fin: { x: 30.07 + fa, rootChord: 5.18, tipChord: 1.79, height: 5.75, sweep: 40.5, fillet: { len: 0.9, h: 0.7 }, rudder: 0.32 },
+    stab: { x: 32.47 + fa, y: 0.75, rootChord: 3.6, tipChord: 1.25, span: 5.4, sweep: 35, dihedral: 6, thickness: 0.36 },
+    wing: { x: 12.0 + f, y: -1.07, rootChord: 7.74, tipChord: 1.5, span: 15.1, sweep: 27, dihedral: 5.1, thickness: 0.75, tip, tipH: o.neo ? 2.43 : 0.75 },
     engines: [engine],
     fairing: { x0: 11.2 + f, x1: 21.8 + f, depth: 0.3 },
     doors: o.doors({ fwd: f, aft: o.aft }),
