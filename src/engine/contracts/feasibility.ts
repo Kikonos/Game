@@ -371,7 +371,7 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string): 
     const what = shorts.map(([role, r]) => `${r.short} ${role}`).join(', ');
     add('crew', 'warn', `Short of crew: ${what}${rep.crew.firstShort ? ` from ${fmtDay(rep.crew.firstShort)}` : ''}`, 'Hire, or the roster will deadhead crew from other work; sets may run tight.');
   } else if (!rep.crew.setsNeeded && !Object.keys(rep.crew.byRole).length) add('crew', 'warn', 'Crew capacity not checked yet');
-  else add('crew', augmented ? 'warn' : 'ok', `${augmented ? 'Augmented crew on long sectors; ' : ''}needs ${rep.crew.setsNeeded} crew set${rep.crew.setsNeeded === 1 ? '' : 's'}, ${rep.crew.setsAvailable} free`);
+  else add('crew', augmented ? 'warn' : 'ok', `${augmented ? 'Augmented crew on long sectors; needs' : 'Needs'} ${rep.crew.setsNeeded} crew set${rep.crew.setsNeeded === 1 ? '' : 's'}, ${rep.crew.setsAvailable} free`);
 
   // Estimates (contribution: variable costs only).
   const posBH = posMin / 60;

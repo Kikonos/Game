@@ -232,7 +232,7 @@ export const ARCHETYPE_LABEL: Partial<Record<Archetype, string>> = {
   deportation: 'Deportation', evacuation: 'Evacuation', humanitarian: 'Humanitarian', subcharterIn: 'Sub-charter', dryLeaseOut: 'Dry lease out',
 };
 
-export const KIND_LABEL: Record<Flight['kind'], string> = { revenue: 'Revenue', positioning: 'Positioning', ferry: 'Ferry', techstop: 'Tech stop', deadhead: 'Deadhead' };
+export const KIND_LABEL: Record<Flight['kind'], string> = { revenue: 'Revenue', positioning: 'Positioning', ferry: 'Ferry', techstop: 'Fuel stop', deadhead: 'Deadhead' };
 
 export type Tone = 'good' | 'warn' | 'bad' | 'air' | 'idle';
 

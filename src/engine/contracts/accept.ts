@@ -283,7 +283,8 @@ export function contractProgress(g: GameState, contractId: string): ContractProg
     // Legs flown are counted on the contract (done flights are pruned a week after landing).
     if ((f.kind === 'revenue' || f.kind === 'techstop') && f.status !== 'done') out.legsTotal++;
     if (f.status !== 'scheduled') continue;
-    if (!next || f.std < next.std) next = { id: f.id, std: f.std };
+    // Tickets keep 'scheduled' until they land: "next" is what has not left yet.
+    if (f.std >= g.now && (!next || f.std < next.std)) next = { id: f.id, std: f.std };
     if (f.aircraftId && f.std < horizon && (!problem || f.std < problem.std)) {
       const st = flightCrewStatus(g, f.id).level;
       if (st === 'missing' || st === 'illegal') problem = { id: f.id, std: f.std };

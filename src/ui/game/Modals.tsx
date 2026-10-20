@@ -153,7 +153,7 @@ function SavesModal({ mode }: { mode: 'save' | 'load' }) {
         {slots.map((slot) => {
           const m = saves.find((x) => x.slot === slot);
           return (
-            <div key={slot} className={`slot ${m ? '' : 'empty'}`}>
+            <div key={slot} className={`slot${m ? '' : ' slot-empty'}`}>
               <button className="slot-main" disabled={mode === 'load' && !m} onClick={() => onSlot(slot)}>
                 <span className="slot-color" style={{ background: m?.color ?? 'transparent' }} />
                 <div className="grow">

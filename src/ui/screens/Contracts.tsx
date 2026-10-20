@@ -4,7 +4,7 @@
 import { AlertTriangle, CalendarRange, CircleSlash, FileSearch, Handshake, Inbox as InboxIcon, Users } from 'lucide-react';
 import { useMemo } from 'react';
 import { flag } from '../../data/countries';
-import { cancelContract, cancelPenalty, contractProgress, idleWindows, type IdleWindow, leadDays } from '../../engine/contracts';
+import { cancelContract, cancelCost, contractProgress, idleWindows, type IdleWindow, leadDays } from '../../engine/contracts';
 import { flightsRev } from '../../engine/core/entities';
 import { DAY, fmtDateTime, fmtDay } from '../../engine/core/time';
 import type { Contract, ContractOffer, GameState } from '../../engine/core/types';
@@ -69,11 +69,11 @@ function Market({ g }: { g: GameState }) {
 const STATUS_LABEL: Record<Contract['status'], string> = { signed: 'Signed', active: 'Flying', completed: 'Completed', cancelled: 'Cancelled' };
 
 function confirmCancel(g: GameState, c: Contract) {
-  const pen = cancelPenalty(g, c.id);
+  const { penalty: pen, refund, total } = cancelCost(g, c.id);
   const cl = g.clients[c.clientId]?.name ?? 'The client';
   store.openModal({
-    kind: 'confirm', danger: true, title: `Cancel ${c.title}?`, confirm: `Cancel and pay ${money(pen)}`,
-    body: `Penalty ${money(pen)}. All future flights are removed, reliability drops by 5 and ${cl} will remember it.`,
+    kind: 'confirm', danger: true, title: `Cancel ${c.title}?`, confirm: `Cancel and pay ${money(total)}`,
+    body: `Penalty ${money(pen)}${refund > 0 ? ` plus ${money(refund)} refunded for legs not flown` : ''}. All future flights are removed, reliability drops by 5 and ${cl} will remember it.`,
     onConfirm: () => store.act((gg) => cancelContract(gg, c.id)),
   });
 }

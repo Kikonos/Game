@@ -3,7 +3,7 @@
 
 import { Award, BadgeCheck, Building2, Flag as FlagIcon, Settings2, ShieldCheck, Target } from 'lucide-react';
 import { flag } from '../../data/countries';
-import { typeOf } from '../../engine/core/perf';
+import { rivalFleetText } from '../../engine/contracts/clients';
 import { fmtDate } from '../../engine/core/time';
 import type { GameState, Policies } from '../../engine/core/types';
 import { APPROVALS, applyApproval, approvalBlocker, GOALS, setPolicies, type ApprovalDef } from '../../engine/ops';
@@ -148,7 +148,7 @@ export function CompanyScreen() {
                     <span className="sc-flag-s" aria-hidden>{flag(r.country)}</span>
                     <div className="grow" style={{ minWidth: 0 }}>
                       <b className="ellipsis">{r.name}</b>
-                      <div className="small muted ellipsis">{r.base} · {r.fleet.map((f) => `${f.count}× ${typeOf(f.typeId).short}`).join(', ')}</div>
+                      <div className="small muted ellipsis">{rivalFleetText(r)}</div>
                     </div>
                   </div>
                 ))}

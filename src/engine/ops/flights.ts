@@ -483,7 +483,7 @@ export function onFlightDep(g: GameState, ev: SimEvent): void {
       if (d.min >= BAL.delayMessageMin && f.status === 'scheduled') {
         pushMessage(g, {
           tone: 'info', cat: 'ops', title: `${f.no} delayed ${fmtDuration(d.min)}`,
-          body: `${d.reason}. ${f.from}–${f.to} now off blocks ${fmtTime(f.std + f.delay)} UTC${n ? `; ${n} later leg${n > 1 ? 's' : ''} follow` : ''}.`,
+          body: `${d.reason}. ${f.from}–${f.to} now off blocks ${fmtTime(f.std + f.delay)} UTC${n ? `; ${n} later leg${n > 1 ? 's follow' : ' follows'}` : ''}.`,
           ref: { kind: 'flight', id: f.id },
         });
       }

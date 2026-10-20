@@ -147,7 +147,7 @@ export function aogDecision(g: GameState, ac: Aircraft, f: Flight, m: Maintenanc
   const sub = subcharterCost(g, win, factor);
   const pen = cancelCost(g, win);
   const swap = findSwap(g, ac, win, m.at);
-  const hrs = (t: Minute) => `~${Math.round((t - g.now) / 60)} h`;
+  const hrs = (t: Minute) => `~${fmtDuration(t - g.now)}`;
   const options: DecisionOption[] = [
     { id: 'courier', label: 'Wait for the part', desc: `A spare comes by courier. Legs wait; base legs held over ${BAL.holdMax / 60} h are cancelled.`, tone: 'warn', chips: [hrs(m.end), usd(-m.cost), ...holdChips(g, holdC)] },
     { id: 'team', label: 'Fly in an AOG team', desc: 'Engineers and the part on the next flight: faster, dearer.', tone: 'warn', chips: [hrs(teamEnd), usd(-(m.cost + teamCost)), ...holdChips(g, holdT)] },
