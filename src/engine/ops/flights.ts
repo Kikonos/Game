@@ -1,6 +1,7 @@
 // Flight execution state machine (B3). DESIGN.md §5.5.
 // Conventions: std/sta are the current schedule (delays move them through retimeFlight); `schedStd` keeps the
-// original STD; `delay` is only a short hold not yet folded into std (crew wait, AOG decision pending).
+// original STD; `delay` is only a short hold not yet folded into std (crew wait, AOG decision pending). A hold
+// never lets a leg slip entirely into the past: contracts treats such legs as gone and plans a duplicate.
 
 import { BAL } from '../core/balance';
 import { cancelFlight, flightsOf, removeFlights, retimeFlight, subcharterFlights, touchFlights } from '../core/entities';
@@ -36,12 +37,28 @@ export function moveFlight(g: GameState, f: Flight, std: Minute, reason?: string
   retimeFlight(g, f, std, std + f.block);
 }
 
-/** Holds a departure without re-planning (same event version): re-queued `min` later. */
+/**
+ * Holds a departure `min` minutes without re-planning (same event version). Once the leg could no longer arrive
+ * on its schedule the hold is folded into std (a retime), so it stays visible to the other modules.
+ */
 export function holdFlight(g: GameState, f: Flight, min: number): void {
+  f.heldAt ??= g.now;
+  if (f.sta <= g.now + min) return moveFlight(g, f, g.now + min);
   f.delay += min;
   schedule(g, g.now + min, 'flight.dep', f.id, f.ev);
   touchFlights(g);
 }
+
+/** Re-queues a departure without touching the schedule (no revision bump, so nobody re-plans around it). */
+function quietHold(g: GameState, f: Flight, min: number): void {
+  f.heldAt ??= g.now;
+  if (f.sta <= g.now + min) return moveFlight(g, f, g.now + min);
+  f.delay += min;
+  schedule(g, g.now + min, 'flight.dep', f.id, f.ev);
+}
+
+/** How long a departure has been held at the gate by ops (crew wait, decisions). */
+const heldFor = (g: GameState, f: Flight) => (f.heldAt === undefined ? 0 : g.now - f.heldAt);
 
 function plannedChecks(g: GameState, acId: string, from: Minute): MaintenanceEvent[] {
   return Object.values(g.maintenance)
@@ -49,10 +66,50 @@ function plannedChecks(g: GameState, acId: string, from: Minute): MaintenanceEve
     .sort((a, b) => a.start - b.start);
 }
 
-/** How late (vs the original STD) a leg may run before recovery cancels it instead: base legs 6 h, trips 24 h. */
+/** How late (vs the original STD) a rotation may start before recovery drops it instead: base waves 6 h, trips 24 h. */
 export function lateCap(g: GameState, f: Flight): number {
   if (!isRevenue(f)) return Infinity;
   return isBaseLeg(g, f) ? BAL.holdMax : BAL.tripHoldMax;
+}
+
+/** Where the aircraft's crews are based for this leg: the client base of a base programme, else our home base. */
+export function stationOf(g: GameState, f: Flight): string {
+  const c = contractOf(g, f);
+  return c?.pattern.kind === 'base' ? c.pattern.base : g.company.homeBase;
+}
+
+/**
+ * The rotation a leg starts: `legs[i]` and the legs of the same contract that follow until the chain is back
+ * where it started (an out-and-back wave on a base, a whole trip with its empty legs on a charter), at most
+ * `cap` legs. Pure.
+ */
+function rotationFrom(legs: Flight[], i: number, cap = 8): Flight[] {
+  const out = [legs[i]];
+  let at = legs[i].to;
+  for (let j = i + 1; j < legs.length && at !== legs[i].from && out.length < cap; j++) {
+    if (legs[j].from !== at || legs[j].contractId !== legs[i].contractId) break;
+    out.push(legs[j]);
+    at = legs[j].to;
+  }
+  return out;
+}
+
+/** The rotation starting with `f` (its out leg and the legs until the aircraft is back at `f.from`). Pure. */
+export function waveLegs(g: GameState, ac: Aircraft, f: Flight): Flight[] {
+  const legs = flightsOf(g, ac.id).filter((x) => x.status === 'scheduled');
+  const i = legs.indexOf(f);
+  return i < 0 ? [f] : rotationFrom(legs, i);
+}
+
+/** Would a revenue leg of this rotation, flown from `ready` on, start later than its cap allows? Pure. */
+function rotationLate(g: GameState, rot: Flight[], ready: Minute, turn: number): boolean {
+  let t = ready;
+  for (const y of rot) {
+    const std = Math.max(y.std, t);
+    if (isRevenue(y) && std - (y.schedStd ?? y.std) > lateCap(g, y)) return true;
+    t = std + y.block + turn;
+  }
+  return false;
 }
 
 export interface HoldPlan {
@@ -63,8 +120,10 @@ export interface HoldPlan {
 
 /**
  * Recovery after the aircraft is held at `at` until `ready`: later legs (from `after`, excluding `skip`) move so each
- * departs a turn after the previous arrival; a revenue leg that would run later than its cap is cancelled instead,
- * and legs the aircraft can no longer reach (chain broken) go with it. Planned checks shift behind. Pure.
+ * departs a turn after the previous arrival. A rotation that would start later than its cap is dropped whole (out
+ * and back) and the waves after it keep their times; a return leg is never dropped for lateness (the aircraft and
+ * its passengers come home late). Planned checks shift behind. Stops where the chain is broken (an empty leg
+ * contracts still has to re-link). Pure.
  */
 export function planRecovery(g: GameState, ac: Aircraft, at: string, ready: Minute, after: Minute, skip?: Flight): HoldPlan {
   const turn = turnOf(ac);
@@ -72,29 +131,30 @@ export function planRecovery(g: GameState, ac: Aircraft, at: string, ready: Minu
   const checks = plannedChecks(g, ac.id, after);
   let ci = 0;
   let loc = at;
-  for (const x of flightsOf(g, ac.id)) {
-    if (x === skip || x.status !== 'scheduled' || x.std < after) continue;
+  const legs = flightsOf(g, ac.id).filter((x) => x !== skip && x.status === 'scheduled' && x.std >= after);
+  for (let i = 0; i < legs.length; i++) {
+    const x = legs[i];
     while (ci < checks.length && checks[ci].start < x.std) {
       const m = checks[ci++];
       if (m.start < ready) plan.checks.push({ m, start: ready });
       ready = Math.max(ready, m.start < ready ? ready + m.end - m.start : m.end);
     }
-    if (x.std >= ready && x.from === loc) return plan;
-    if (x.from !== loc) {
-      // Chain broken: revenue legs the aircraft can't reach go; empty legs are left to contracts to re-link.
-      if (x.std >= ready + 12 * 60) return plan;
-      if (isRevenue(x)) plan.cancels.push(x);
-      continue;
+    if (x.std >= ready && x.from === loc) break;
+    if (x.from !== loc) break;
+    if (x.from === stationOf(g, x)) {
+      // A rotation (wave or trip, empty legs included) that would start too late is dropped whole.
+      const rot = rotationFrom(legs, i);
+      if (rotationLate(g, rot, ready, turn)) {
+        plan.cancels.push(...rot);
+        i += rot.length - 1;
+        continue;
+      }
     }
     const std = Math.max(x.std, ready);
-    if (std - (x.schedStd ?? x.std) > lateCap(g, x)) {
-      plan.cancels.push(x);
-      continue;
-    }
     plan.moves.push({ f: x, std });
     loc = x.to;
     ready = std + x.block + turn;
-    if (plan.moves.length + plan.cancels.length >= 40) return plan;
+    if (plan.moves.length + plan.cancels.length >= 40) break;
   }
   for (; ci < checks.length && checks[ci].start < ready; ci++) {
     const m = checks[ci];
@@ -143,8 +203,8 @@ export function applyHold(g: GameState, plan: HoldPlan, reason: string, moveReas
 }
 
 /**
- * Delays `f` to `std` and ripples to the aircraft's later legs and planned checks (turn minima kept). Legs pushed
- * past their cap are cancelled instead (schedule recovery). Returns legs moved after f.
+ * Delays `f` to `std` and ripples to the aircraft's later legs and planned checks (turn minima kept). A rotation
+ * pushed past its cap is dropped instead (schedule recovery). Returns legs moved after f.
  */
 export function delayChain(g: GameState, f: Flight, std: Minute, reason: string): number {
   const ac = f.aircraftId ? g.fleet[f.aircraftId] : undefined;
@@ -171,12 +231,6 @@ export function windowLegs(g: GameState, ac: Aircraft, at: string, readyAt: Minu
     loc = f.to;
   }
   return out;
-}
-
-/** Where the aircraft's crews are based for this leg: the client base of a base programme, else our home base. */
-export function stationOf(g: GameState, f: Flight): string {
-  const c = contractOf(g, f);
-  return c?.pattern.kind === 'base' ? c.pattern.base : g.company.homeBase;
 }
 
 /** Client compensation for cancelling these legs (contract perCancelledLeg on revenue legs). Pure. */
@@ -271,7 +325,7 @@ function rollDelay(g: GameState, ac: Aircraft): { min: number; reason: string } 
   return null;
 }
 
-/** 'flight.dep' at std (+hold): readiness → crew → random delay (once) → AOG roll → off-blocks. */
+/** 'flight.dep' at std (+hold): sequence → readiness → grounding → crew → random delay (once) → AOG roll → off-blocks. */
 export function onFlightDep(g: GameState, ev: SimEvent): void {
   const f = g.flights[ev.id];
   if (!f || f.ev !== ev.v || f.status !== 'scheduled' || !f.aircraftId) return;
@@ -358,12 +412,6 @@ export function crewBlocked(g: GameState, f: Flight): boolean {
   return !d || d.legality === 'illegal';
 }
 
-/** Re-queues a departure without touching the schedule (no revision bump, so nobody re-plans around it). */
-function quietHold(g: GameState, f: Flight, min: number): void {
-  f.delay += min;
-  schedule(g, g.now + min, 'flight.dep', f.id, f.ev);
-}
-
 const spin = new WeakMap<GameState, { t: Minute; ac: string; n: number }>();
 /** More than 12 departure attempts for one aircraft at one minute: something keeps re-planning its legs. */
 function spinning(g: GameState, acId: string): boolean {
@@ -377,11 +425,15 @@ function spinning(g: GameState, acId: string): boolean {
 
 /** Aircraft not ready: wait for the running flight, the check or the AOG fix; hold while a decision is open. */
 function notReady(g: GameState, f: Flight, ac: Aircraft): void {
-  // An empty leg from an airport the aircraft is not heading to: contracts re-plans empty legs on every flight
-  // change, so wait quietly (no retime, no revision bump) and drop it after a day.
   const cur = ac.flightId ? g.flights[ac.flightId] : undefined;
+  const heading = cur ? cur.to : ac.at;
   if (!isRevenue(f)) {
-    if ((cur ? cur.to : ac.at) !== f.from && f.delay >= DAY) return void cancelLegs(g, [f], 'Aircraft out of position', 0);
+    // An empty leg from somewhere the aircraft is not heading to is stale: a positioning leg goes back to
+    // contracts (re-linked from the real position); a ferry waits a day for the leg that brings the aircraft in.
+    if (heading !== f.from) {
+      if (f.kind === 'positioning' || f.delay >= DAY) return void removeFlights(g, [f.id]);
+      return quietHold(g, f, 120);
+    }
     const ready = cur ? (cur.eta ?? cur.sta) + turnOf(ac) : ac.maintId ? (g.maintenance[ac.maintId]?.end ?? g.now) + 30 : g.now + 30;
     return quietHold(g, f, Math.max(15, Math.min(120, ready - g.now)));
   }
@@ -401,47 +453,82 @@ function notReady(g: GameState, f: Flight, ac: Aircraft): void {
     delayChain(g, f, Math.max(g.now + 5, (cur.eta ?? cur.sta) + turnOf(ac) + away), 'Late inbound aircraft');
     return;
   }
-  // Wrong airport: an earlier leg still to fly will bring it (hold), else wait for re-planning, then give up.
-  const earlier = flightsOf(g, ac.id).some((x) => x !== f && x.status === 'scheduled' && x.std <= f.std);
-  if (earlier || f.delay < 180) return holdFlight(g, f, 30);
+  // Wrong airport: a scheduled leg into f.from brings it (follow that), else wait for re-planning, then give up.
+  const inbound = flightsOf(g, ac.id).find((x) => x !== f && x.status === 'scheduled' && x.to === f.from && x.std < f.std + DAY);
+  if (inbound) {
+    const at = Math.max(g.now + 30, inbound.std + inbound.delay + inbound.block + turnOf(ac));
+    return at > f.std + f.delay ? void delayChain(g, f, at, 'Late inbound aircraft') : holdFlight(g, f, 30);
+  }
+  if (heldFor(g, f) < 180) return holdFlight(g, f, 30);
   cancelLegs(g, [f], 'Aircraft out of position', 0);
   pushMessage(g, { tone: 'bad', cat: 'ops', title: `${f.no} cancelled`, body: `${ac.reg} is at ${ac.at}, not ${f.from}.`, ref: { kind: 'flight', id: f.id } });
 }
 
-/** Crew incomplete or illegal: re-roster and wait up to BAL.crewWaitMin, then the crew-short decision. */
+/**
+ * Crew incomplete or illegal: re-roster and wait up to BAL.crewWaitMin, then the crew-short decision. After a
+ * "wait for crew" decision two more waits are tried; then only this rotation (at the station) or this leg (away)
+ * is given up and the rest of the schedule is re-rostered, so the next wave gets a fresh crew.
+ */
 function crewProblem(g: GameState, f: Flight, ac: Aircraft): void {
   if (!f.crewHeld) {
     f.crewHeld = true;
+    f.heldAt ??= g.now;
     if (isRevenue(f)) stats(g).uncovered++;
     rerosterFrom(g, ac.id, g.now);
     if (!crewBlocked(g, f)) return holdFlight(g, f, 5);
   }
   // Empty legs need no decision: they wait for a crew (a standby set deadheads in; re-rostered against the new
-  // time), and give up only after a day (contracts would re-plan the same leg straight away).
+  // time). A positioning leg nobody can crew goes back to contracts after a day; a ferry is cancelled. A trip
+  // whose duty is illegal as built (nobody has reported yet) can't be crewed by waiting: it is dropped whole.
   if (!isRevenue(f)) {
     const tries = (f.crewTries ?? 0) + 1;
-    if (tries > 4 && delayOf(f) > DAY) {
-      cancelLegs(g, [f], 'No crew for the empty leg', 0);
-      return;
-    }
-    f.crewTries = tries;
-    delayChain(g, f, Math.max(crewReadyAt(g, f, ac), g.now + tries * 120), 'Waiting for crew');
-    rerosterFrom(g, ac.id, g.now);
-    return;
-  }
-  if (hasOpenDecision(g, 'crewShort', f.id) || f.delay < BAL.crewWaitMin) return holdFlight(g, f, 30);
-  if (f.crewDecided) {
-    // Away from the station the aircraft must come home: a rescue crew is flown out (keep waiting; later legs
-    // beyond their cap are cancelled by the recovery).
-    if (f.from !== stationOf(g, f) && delayOf(f) < BAL.tripHoldMax) {
-      delayChain(g, f, crewReadyAt(g, f, ac), 'Waiting for a rescue crew');
+    const at = Math.max(crewReadyAt(g, f, ac), g.now + tries * 120);
+    const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+    const unflyable = !!d && d.legality === 'illegal' && d.report > g.now;
+    const rot = f.from === stationOf(g, f) ? waveLegs(g, ac, f) : [];
+    if (rot.length > 1 && ((unflyable && tries > 2) || rotationLate(g, rot, at, turnOf(ac)))) {
+      const rev = rot.filter(isRevenue);
+      const pen = cancelLegs(g, rot, 'No legal crew', 0);
+      if (rev.length) {
+        pushMessage(g, {
+          tone: 'bad', cat: 'crew', title: `${rev[0].no} cancelled: no legal crew`,
+          body: `The trip ${rot.map((x) => `${x.from}–${x.to}`).join(', ')} ${unflyable ? 'has no legal crew pairing (duty too long for one crew)' : 'would leave too late for its crew'}.${pen ? ` Compensation ${usd(pen)}.` : ''}`,
+          ref: { kind: 'flight', id: rev[0].id },
+        });
+      }
       rerosterFrom(g, ac.id, g.now);
       return;
     }
-    // At the station a recovery was already tried: give the rotation up rather than fly illegally.
-    const legs = windowLegs(g, ac, f.from, g.now + 1);
-    cancelLegs(g, legs, 'No legal crew', 0);
-    pushMessage(g, { tone: 'bad', cat: 'crew', title: `${f.no} cancelled: no legal crew`, body: `${f.from}–${f.to} could not be crewed after the recovery.`, ref: { kind: 'flight', id: f.id } });
+    if (tries > 4 && delayOf(f) > DAY) {
+      if (f.kind === 'positioning') removeFlights(g, [f.id]);
+      else cancelLegs(g, [f], 'No crew for the empty leg', 0);
+      return;
+    }
+    f.crewTries = tries;
+    delayChain(g, f, at, 'Waiting for crew');
+    rerosterFrom(g, ac.id, g.now);
+    return;
+  }
+  if (hasOpenDecision(g, 'crewShort', f.id) || heldFor(g, f) < BAL.crewWaitMin) return holdFlight(g, f, 30);
+  if (f.crewDecided) {
+    const tries = (f.crewTries ?? 0) + 1;
+    f.crewTries = tries;
+    const away = f.from !== stationOf(g, f);
+    if (tries <= 2 && (!away || delayOf(f) < BAL.tripHoldMax)) {
+      delayChain(g, f, Math.max(crewReadyAt(g, f, ac), g.now + 60), away ? 'Waiting for a rescue crew' : 'Waiting for a legal crew');
+      rerosterFrom(g, ac.id, g.now);
+      return;
+    }
+    // Give up this rotation (or, away from the station, this leg) rather than fly illegally; later legs re-roster.
+    const legs = away ? [f] : waveLegs(g, ac, f);
+    const pen = cancelLegs(g, legs, 'No legal crew', 0);
+    const rev = legs.filter(isRevenue).length;
+    pushMessage(g, {
+      tone: 'bad', cat: 'crew', title: `${f.no} cancelled: no legal crew`,
+      body: `${rev} leg${rev === 1 ? '' : 's'} (${legs.map((x) => `${x.from}–${x.to}`).join(', ')}) could not be crewed after ${fmtDuration(heldFor(g, f))} on the ground.${pen ? ` Compensation ${usd(pen)}.` : ''}`,
+      ref: { kind: 'flight', id: f.id },
+    });
+    rerosterFrom(g, ac.id, g.now);
     return;
   }
   crewShortDecision(g, f, ac);
@@ -533,15 +620,13 @@ export function delayFlight(g: GameState, flightId: string, minutes: number, rea
 
 // ---------- housekeeping ----------
 
-/** Daily: drop done/cancelled flights once their month is closed and they are 28 days old (stats keep totals). */
+/** Daily: drop done/cancelled flights 7 days after their month was billed (closed at month end); stats keep totals. */
 export function pruneFlights(g: GameState): void {
-  const cut = g.now - 28 * DAY;
-  const month = monthKey(g.now);
+  const billed = monthKey(g.now - 7 * DAY);
   const ids: string[] = [];
   for (const f of Object.values(g.flights)) {
     if (f.status !== 'done' && f.status !== 'cancelled') continue;
-    const t = f.ata ?? f.sta;
-    if (t < cut && monthKey(t) < month) ids.push(f.id);
+    if (monthKey(f.ata ?? f.sta) < billed) ids.push(f.id);
   }
   if (ids.length) removeFlights(g, ids);
 }

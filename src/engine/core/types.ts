@@ -406,9 +406,10 @@ export interface Flight {
   /** B3: original STD before ops delays (std/sta move with retimes); a crew-short decision was taken for it. */
   schedStd?: Minute;
   crewDecided?: boolean;
-  /** B3: held at departure for crew (counted once in stats.uncovered); empty-leg crew waits so far. */
+  /** B3: held at departure for crew (counted once in stats.uncovered); crew waits so far; when ops first held it. */
   crewHeld?: boolean;
   crewTries?: number;
+  heldAt?: Minute;
 }
 
 // ======================================================================

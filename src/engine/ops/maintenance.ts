@@ -117,10 +117,15 @@ export function aogChance(g: GameState, ac: Aircraft, airport: string): number {
   return BAL.aogBase * (1 + ageOf(g, ac) / 10) * (1 + 4 * ac.maint.deferred) * out;
 }
 
-/** A-checks at home base or any major airport (size ≥ 4); C-checks at home base only. */
-export function checkAirportOk(g: GameState, kind: 'A' | 'C', at: string): boolean {
+/**
+ * A-checks at home base, at the station of a base programme (the client's line maintenance; the aircraft's own
+ * when given) or any major airport (size ≥ 4); C-checks at home base only.
+ */
+export function checkAirportOk(g: GameState, kind: 'A' | 'C', at: string, aircraftId?: string): boolean {
   if (at === g.company.homeBase) return true;
-  return kind === 'A' && (AIRPORT_BY_CODE[at]?.size ?? 0) >= 4;
+  if (kind !== 'A') return false;
+  if ((AIRPORT_BY_CODE[at]?.size ?? 0) >= 4) return true;
+  return Object.values(g.contracts).some((c) => (c.status === 'active' || c.status === 'signed') && c.pattern.kind === 'base' && c.pattern.base === at && (!aircraftId || c.aircraftIds.includes(aircraftId)));
 }
 
 /** Wet base-programme revenue legs we may drop for a check: ≥ 12 h notice, no penalty, MGH unaffected. */
@@ -161,7 +166,7 @@ export function scheduleCheck(g: GameState, aircraftId: string, kind: MaintKind,
   if (kind !== 'A' && kind !== 'C') return { ok: false, error: 'Only A- and C-checks can be booked' };
   if (ac.status === 'delivering' || ac.status === 'stored' || ac.status === 'leasedOut') return { ok: false, error: `${ac.reg} is not on the AOC` };
   if (!AIRPORT_BY_CODE[at]) return { ok: false, error: 'Unknown airport' };
-  if (!checkAirportOk(g, kind, at)) return { ok: false, error: kind === 'C' ? 'C-checks are done at the home base' : 'A-checks need the home base or a major airport' };
+  if (!checkAirportOk(g, kind, at, ac.id)) return { ok: false, error: kind === 'C' ? 'C-checks are done at the home base' : 'A-checks need the home base, a deployment base or a major airport' };
   if (nextPlanned(g, ac.id, kind)) return { ok: false, error: `${ac.reg} already has a ${kind}-check booked` };
   start = Math.round(Math.max(start, g.now));
   const end = start + durationOf(ac, kind);
@@ -261,13 +266,13 @@ function planA(g: GameState, ac: Aircraft, due: Minute): boolean {
   const home = g.company.homeBase;
   const gaps = groundGaps(g, ac, g.now + 30, due);
   for (const gp of gaps) {
-    if (!checkAirportOk(g, 'A', gp.at)) continue;
+    if (!checkAirportOk(g, 'A', gp.at, ac.id)) continue;
     const buf = gp.at === home ? 60 : 120;
     const start = gp.from + 30;
     if (start + dur + buf - 30 <= gp.to && scheduleCheck(g, ac.id, 'A', start, gp.at, { auto: true }).ok) return true;
   }
   for (const gp of gaps) {
-    if (checkAirportOk(g, 'A', gp.at)) continue;
+    if (checkAirportOk(g, 'A', gp.at, ac.id)) continue;
     const out = blockMinutes(ac.typeId, gp.at, home);
     const start = gp.from + t.turnMin + out + 30;
     if (start + dur + 60 + t.turnMin + out <= gp.to && scheduleCheck(g, ac.id, 'A', start, home, { auto: true }).ok) return true;
@@ -277,7 +282,7 @@ function planA(g: GameState, ac: Aircraft, due: Minute): boolean {
   for (let i = 0; i < legs.length; i++) {
     const x = legs[i];
     if (x.std >= due) break;
-    if (!droppableForCheck(g, x) || !checkAirportOk(g, 'A', x.from)) continue;
+    if (!droppableForCheck(g, x) || !checkAirportOk(g, 'A', x.from, ac.id)) continue;
     let j = i;
     while (j + 1 < legs.length && legs[j].to !== x.from && droppableForCheck(g, legs[j + 1])) j++;
     if (legs[j].to !== x.from) continue;
@@ -342,7 +347,7 @@ export function planChecks(g: GameState): void {
 function forceCheck(g: GameState, ac: Aircraft, st: CheckStatus): void {
   const kind: 'A' | 'C' = st.cUsed > 1 + BAL.overdueTolerance ? 'C' : 'A';
   if (nextPlanned(g, ac.id, kind)) return;
-  const at = checkAirportOk(g, kind, ac.at) ? ac.at : g.company.homeBase;
+  const at = checkAirportOk(g, kind, ac.at, ac.id) ? ac.at : g.company.homeBase;
   const dur = durationOf(ac, kind);
   const start = g.now + (at === ac.at ? 60 : 60 + typeOf(ac.typeId).turnMin + blockMinutes(ac.typeId, ac.at, at));
   const legs = flightsOf(g, ac.id).filter((f) => f.status === 'scheduled' && f.std < start + dur + 60);
