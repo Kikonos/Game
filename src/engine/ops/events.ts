@@ -10,7 +10,7 @@ import { blockMinutes, reportMinutes, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { chance, int, pick, range } from '../core/rng';
 import { DAY, fmtDateTime, fmtDay, fmtDuration, fmtTime, localMinuteOfDay, toDate } from '../core/time';
-import type { ActionResult, Aircraft, Contract, Decision, DecisionOption, Flight, GameState, MaintenanceEvent, Minute, Receivable, SimEvent } from '../core/types';
+import type { ActionResult, Aircraft, Contract, Decision, DecisionOption, Flight, GameState, MaintenanceEvent, MessageCat, Minute, Receivable, SimEvent } from '../core/types';
 import { generateOffer, planPositioning } from '../contracts';
 import { applyDiscretion, flightCrewStatus, replaceCrew, rerosterFrom } from '../crew';
 import { applyHold, cancelCost, cancelLegs, delayChain, moveFlight, pickRival, planHold, subcharterCost, subcharterLegs, windowLegs } from './flights';
@@ -30,7 +30,33 @@ export function hasOpenDecision(g: GameState, kind: string, key: string): boolea
   return g.decisions.some((d) => d.kind === kind && (d.data?.aircraftId === key || d.data?.flightId === key || d.ref?.id === key));
 }
 
-const canAsk = (g: GameState) => g.decisions.length < BAL.maxOpenDecisions;
+/** Decisions posted in the last 7 days (pacing budget; pruned here). */
+function recentAsks(g: GameState): number[] {
+  const s = stats(g);
+  s.askedAt = (s.askedAt ?? []).filter((t) => t > g.now - 7 * DAY);
+  return s.askedAt;
+}
+
+/** An optional question fits the pacing: fewer than 2 open and fewer than 3 this week. */
+const canAsk = (g: GameState) => g.decisions.length < BAL.maxOpenDecisions && recentAsks(g).length < BAL.maxDecisionsWeek;
+
+const CAT: Record<string, MessageCat> = { aog: 'tech', crewShort: 'crew', sickCrew: 'crew', latePayment: 'finance', rescue: 'finance', changeRequest: 'commercial' };
+
+/**
+ * Posts a decision, or (pacing: 2 open / 3 a week, unless `must`) lets operations apply the default option at once
+ * and reports it in the inbox.
+ */
+function ask(g: GameState, d: Omit<Decision, 'id' | 't'>, must = false): void {
+  if (!must && !canAsk(g)) {
+    const fn = RESOLVERS[d.kind];
+    const r = fn ? fn(g, { ...d, id: '', t: g.now }, d.defaultOption) : null;
+    const opt = d.options.find((o) => o.id === d.defaultOption);
+    pushMessage(g, { tone: 'info', cat: CAT[d.kind] ?? 'ops', title: d.title, body: `${d.body} Operations chose: ${opt?.label ?? d.defaultOption}.${r && r.ok && r.msg ? ` ${r.msg}.` : ''}`, ref: d.ref });
+    return;
+  }
+  recentAsks(g).push(g.now);
+  pushDecision(g, d);
+}
 
 // ---------- AOG ----------
 
@@ -98,12 +124,12 @@ export function aogDecision(g: GameState, ac: Aircraft, f: Flight, m: Maintenanc
   // Sub-charter is the default only when the wait would cancel legs and it is cheaper than that compensation.
   const waitPen = cancelCost(g, holdC.cancels);
   const def = waitPen > 0 && sub < waitPen ? 'subcharter' : 'courier';
-  pushDecision(g, {
+  ask(g, {
     kind: 'aog', title: `AOG: ${ac.reg} at ${city(m.at)}`,
     body: `${m.cause}. ${f.no} ${f.from}–${f.to} can't leave. With a part by courier the aircraft is back in about ${Math.round((m.end - g.now) / 60)} h.`,
     options, defaultOption: def, expires: g.now + BAL.aogDecisionMin, ref: { kind: 'aircraft', id: ac.id },
     data: { aircraftId: ac.id, maintId: m.id, flightId: f.id, teamEnd, teamCost, factor, rivalId },
-  });
+  }, true);
 }
 
 function resolveAog(g: GameState, d: Decision, opt: string): ActionResult {
@@ -179,7 +205,7 @@ export function crewShortDecision(g: GameState, f: Flight, ac: Aircraft): void {
   if (revCount(legs)) options.push({ id: 'subcharter', label: `Sub-charter to ${rivalName(g, rivalId)}`, desc: 'A rival operates the trip; we still bill the client.', tone: 'warn', chips: [usd(-sub), legsChip(legs)] });
   options.push({ id: 'cancel', label: 'Cancel the trip', desc: 'Compensation and a reliability hit.', tone: 'bad', chips: [usd(-pen), 'Reliability −3'] });
   const def = canDisc ? 'discretion' : wait <= 8 * 60 || !revCount(legs) || sub > pen ? 'standby' : 'subcharter';
-  pushDecision(g, {
+  ask(g, {
     kind: 'crewShort', title: `Crew short: ${f.no} ${f.from}–${f.to}`,
     body: `${f.no} has been waiting ${fmtDuration(f.delay)} at ${city(f.from)}: ${what}.`,
     options, defaultOption: def, expires: g.now + 60, ref: { kind: 'flight', id: f.id },
@@ -270,7 +296,7 @@ export function latePaymentDecision(g: GameState, r: Receivable): void {
   const cl = g.clients[r.clientId];
   const name = cl?.name ?? 'A client';
   const days = Math.floor((g.now - r.due) / DAY);
-  pushDecision(g, {
+  ask(g, {
     kind: 'latePayment', title: `${name} is ${days} days late`,
     body: `${usd(r.amount)} for ${r.desc} was due ${fmtDay(r.due)}.`,
     options: [
@@ -307,7 +333,7 @@ function resolveLatePayment(g: GameState, d: Decision, opt: string): ActionResul
 
 export function rescueDecision(g: GameState): void {
   const amount = Math.round(range(g, BAL.rescueCash[0], BAL.rescueCash[1]) / 100_000) * 100_000;
-  pushDecision(g, {
+  ask(g, {
     kind: 'rescue', title: 'An investor offers a rescue',
     body: `Cash has been negative for ${BAL.rescueDays} days. A private-equity fund offers ${usd(amount)} for 25% of the company.`,
     options: [
@@ -315,7 +341,7 @@ export function rescueDecision(g: GameState): void {
       { id: 'refuse', label: 'Refuse', desc: `Fight on alone: below ${usd(BAL.bankruptFloor)} the company is finished.`, tone: 'bad', chips: ['Risky'] },
     ],
     defaultOption: 'accept', expires: g.now + 3 * DAY, data: { amount },
-  });
+  }, true);
 }
 
 function resolveRescue(g: GameState, d: Decision, opt: string): ActionResult {
@@ -368,7 +394,7 @@ function extraRotation(g: GameState, c: Contract): void {
   if (!std) return;
   const bh = (out + back) / 60;
   const cl = g.clients[c.clientId];
-  pushDecision(g, {
+  ask(g, {
     kind: 'changeRequest', title: `${cl?.name ?? 'Client'} asks for an extra rotation`,
     body: `${p.base}–${dest}–${p.base} on ${fmtDay(std)}, off blocks ${fmtTime(std, p.base)} local. ${bh.toFixed(1)} BH at ${usd(c.product.ratePerBH)}/BH above the minimum; crew are re-rostered automatically.`,
     options: [
@@ -388,7 +414,7 @@ function retimeRequest(g: GameState, c: Contract): void {
   const min = pick(g, [60, 90, 120, 180]);
   const fee = int(g, 15, 50) * 100;
   const cl = g.clients[c.clientId];
-  pushDecision(g, {
+  ask(g, {
     kind: 'changeRequest', title: `${cl?.name ?? 'Client'} wants to move ${f.no}`,
     body: `${f.from}–${f.to} on ${fmtDay(f.std)}: depart ${fmtDuration(min)} later (${fmtTime(f.std + min, f.from)} local) for a late group. They pay a change fee; later legs move with it.`,
     options: [

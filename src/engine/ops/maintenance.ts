@@ -182,7 +182,7 @@ export function scheduleCheck(g: GameState, aircraftId: string, kind: MaintKind,
   // Clear the way.
   const drop = hard.filter((f) => f.status === 'scheduled');
   for (const f of drop) bumpRelation(g, contractOf(g, f)?.clientId, -1);
-  if (drop.length) cancelLegs(g, drop, `${kind}-check`, 0);
+  if (drop.length) cancelLegs(g, drop, `${kind}-check`, 0, true);
   const soft = clash.filter((f) => f.kind === 'positioning' && f.status === 'scheduled');
   if (soft.length) removeFlights(g, soft.map((f) => f.id));
   const m: MaintenanceEvent = {
@@ -346,7 +346,7 @@ function forceCheck(g: GameState, ac: Aircraft, st: CheckStatus): void {
   const dur = durationOf(ac, kind);
   const start = g.now + (at === ac.at ? 60 : 60 + typeOf(ac.typeId).turnMin + blockMinutes(ac.typeId, ac.at, at));
   const legs = flightsOf(g, ac.id).filter((f) => f.status === 'scheduled' && f.std < start + dur + 60);
-  if (legs.length) cancelLegs(g, legs, `${ac.reg} grounded`, 1);
+  if (legs.length) cancelLegs(g, legs, `${ac.reg} grounded`, 0);
   const r = scheduleCheck(g, ac.id, kind, start, at);
   if (r.ok) pushMessage(g, { tone: 'bad', cat: 'tech', title: `${ac.reg} grounded for its ${kind}-check`, body: `The check was overdue. ${legs.length} legs cancelled.`, ref: { kind: 'aircraft', id: ac.id } });
 }

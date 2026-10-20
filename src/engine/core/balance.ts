@@ -81,7 +81,7 @@ export const BAL = {
   maintAgeFactor: 0.025,
   checkCost: { A: [45_000, 110_000], C: [1_200_000, 3_500_000] } as Record<'A' | 'C', [number, number]>,
   /** AOG chance per departure (one roll, separate from technical delays): base × (1 + age/10) × (1 + 4 × deferred) × outstation 1.5. */
-  aogBase: 0.00025,
+  aogBase: 0.00035,
   delayChance: 0.12,
   /** Operational delay minutes (exponential mean, cap); technical delay chance per departure × age factor, mean minutes. */
   delayMean: 25,
@@ -126,8 +126,11 @@ export const BAL = {
   /** Client change request chance per active contract per week; extra urgent evacuation offers per day. */
   changeRequestWeekly: 0.15,
   evacuationPerDay: 1 / 45,
-  /** Optional decisions only while fewer than this are open. */
+  /** Optional decisions only while fewer than this are open, and at most this many a week (more: ops applies the default). */
   maxOpenDecisions: 2,
+  maxDecisionsWeek: 3,
+  /** Reliability: each revenue leg pulls it toward its outcome (on time 100, late 60, cancelled 0) by this share. */
+  reliableStep: 0.01,
   /** Aircraft market: mean new offers per month; lead time (days); offer life (days); lease months. */
   marketPerMonth: 0.8,
   deliveryDays: [30, 90] as [number, number],

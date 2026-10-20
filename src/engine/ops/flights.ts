@@ -6,7 +6,7 @@ import { BAL } from '../core/balance';
 import { cancelFlight, flightsOf, removeFlights, retimeFlight, subcharterFlights, touchFlights } from '../core/entities';
 import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
-import { typeOf } from '../core/perf';
+import { blockMinutes, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { chance, next, pick, range } from '../core/rng';
 import { DAY, fmtDuration, fmtTime, monthKey } from '../core/time';
@@ -118,7 +118,7 @@ function shiftCheck(g: GameState, m: MaintenanceEvent, start: Minute): void {
 /** Applies a recovery plan; cancelled revenue legs are compensated and messaged once. Returns legs moved. */
 export function applyHold(g: GameState, plan: HoldPlan, reason: string, moveReason?: string): number {
   const rev = plan.cancels.filter((f) => f.status === 'scheduled' && isRevenue(f));
-  const pen = cancelLegs(g, plan.cancels, reason, 1);
+  const pen = cancelLegs(g, plan.cancels, reason, 0);
   if (rev.length) {
     const f = rev[0];
     pushMessage(g, {
@@ -173,6 +173,12 @@ export function windowLegs(g: GameState, ac: Aircraft, at: string, readyAt: Minu
   return out;
 }
 
+/** Where the aircraft's crews are based for this leg: the client base of a base programme, else our home base. */
+export function stationOf(g: GameState, f: Flight): string {
+  const c = contractOf(g, f);
+  return c?.pattern.kind === 'base' ? c.pattern.base : g.company.homeBase;
+}
+
 /** Client compensation for cancelling these legs (contract perCancelledLeg on revenue legs). Pure. */
 export function cancelCost(g: GameState, legs: Flight[]): number {
   let s = 0;
@@ -183,24 +189,33 @@ export function cancelCost(g: GameState, legs: Flight[]): number {
   return s;
 }
 
+/** Reliability follows performance: each revenue leg pulls it toward its outcome (on time 100, late 60, cancelled 0). */
+export function legOutcome(g: GameState, outcome: number): void {
+  const r = g.company.reputation.reliable;
+  bumpReliable(g, (outcome - r) * BAL.reliableStep);
+}
+
 /**
- * Cancels legs with compensation; `repPerLeg` reliability per revenue leg (at most 3 in total). Positioning and
- * ferry legs simply go (contracts re-plans empty legs). Returns the compensation paid.
+ * Cancels legs with compensation; each revenue leg counts as a failed outcome, and a player's explicit cancel
+ * costs `repPerLeg` more per leg (at most 3 in total). Positioning and ferry legs simply go (contracts re-plans
+ * empty legs). Returns the compensation paid.
  */
-export function cancelLegs(g: GameState, legs: Flight[], reason: string, repPerLeg: number): number {
+export function cancelLegs(g: GameState, legs: Flight[], reason: string, repPerLeg: number, agreed = false): number {
   const live = legs.filter((f) => f.status === 'scheduled');
   if (!live.length) return 0;
-  const pen = cancelCost(g, live);
+  const pen = agreed ? 0 : cancelCost(g, live);
   let rev = 0;
   for (const f of live) {
     cancelFlight(g, f, reason);
     if (isRevenue(f)) {
       rev++;
+      if (agreed) continue;
       bumpRelation(g, contractOf(g, f)?.clientId, -2);
+      legOutcome(g, 0);
     }
   }
   if (pen) post(g, 'penalties', -pen);
-  stats(g).cancelled += rev;
+  if (!agreed) stats(g).cancelled += rev;
   if (rev && repPerLeg) bumpReliable(g, -Math.min(3, rev * repPerLeg));
   return pen;
 }
@@ -268,6 +283,13 @@ export function onFlightDep(g: GameState, ev: SimEvent): void {
   const here = ac.flightId ? g.flights[ac.flightId]?.to : ac.at;
   const prior = flightsOf(g, ac.id).find((x) => x !== f && x.status === 'scheduled' && x.from === here && (x.std < f.std || (x.std === f.std && x.sta < f.sta)));
   if (prior && f.from === here) return isRevenue(f) ? holdFlight(g, f, 30) : quietHold(g, f, 30);
+  // An empty leg must not take the aircraft away from a revenue leg due here before it could be back.
+  if (!isRevenue(f) && f.to !== f.from && f.from === here) {
+    const back = f.sta + turnOf(ac) + blockMinutes(ac.typeId, f.to, f.from) + turnOf(ac);
+    const due = flightsOf(g, ac.id).find((x) => x !== f && x.status === 'scheduled' && isRevenue(x) && x.std < back);
+    // Moved behind it, the leg is soft again and contracts re-plans (or drops) it.
+    if (due && due.from === f.from) return moveFlight(g, f, Math.max(due.sta + turnOf(ac), g.now + 90), 'Re-planned');
+  }
   // 1. Aircraft readiness.
   if (ac.status === 'aog' || ac.status === 'maintenance' || ac.status === 'delivering' || ac.flightId || ac.at !== f.from) {
     notReady(g, f, ac);
@@ -275,7 +297,7 @@ export function onFlightDep(g: GameState, ev: SimEvent): void {
   }
   // Grounded past the check tolerance: revenue legs stay on the ground; empty legs fly on a ferry permit.
   if (isRevenue(f) && isGrounded(g, ac)) {
-    cancelLegs(g, [f], 'Aircraft grounded: check overdue', 1);
+    cancelLegs(g, [f], 'Aircraft grounded: check overdue', 0);
     pushMessage(g, { tone: 'bad', cat: 'tech', title: `${ac.reg} grounded`, body: `A check is overdue: ${f.no} ${f.from}–${f.to} cancelled. Book the check on the Fleet screen.`, ref: { kind: 'aircraft', id: ac.id } });
     return;
   }
@@ -373,16 +395,16 @@ function notReady(g: GameState, f: Flight, ac: Aircraft): void {
     delayChain(g, f, Math.max(g.now + 60, ac.deliveredAt + 60), 'Aircraft not delivered');
     return;
   }
-  if (ac.flightId) {
-    const cur = g.flights[ac.flightId];
-    const ready = cur ? (cur.eta ?? cur.sta) + turnOf(ac) : g.now + 30;
-    delayChain(g, f, Math.max(g.now + 5, ready), 'Late inbound aircraft');
+  if (cur) {
+    // Heading elsewhere: leave room for an empty leg back (contracts plans it).
+    const away = cur.to !== f.from ? blockMinutes(ac.typeId, cur.to, f.from) + turnOf(ac) : 0;
+    delayChain(g, f, Math.max(g.now + 5, (cur.eta ?? cur.sta) + turnOf(ac) + away), 'Late inbound aircraft');
     return;
   }
   // Wrong airport: an earlier leg still to fly will bring it (hold), else wait for re-planning, then give up.
   const earlier = flightsOf(g, ac.id).some((x) => x !== f && x.status === 'scheduled' && x.std <= f.std);
   if (earlier || f.delay < 180) return holdFlight(g, f, 30);
-  cancelLegs(g, [f], 'Aircraft out of position', 1);
+  cancelLegs(g, [f], 'Aircraft out of position', 0);
   pushMessage(g, { tone: 'bad', cat: 'ops', title: `${f.no} cancelled`, body: `${ac.reg} is at ${ac.at}, not ${f.from}.`, ref: { kind: 'flight', id: f.id } });
 }
 
@@ -409,9 +431,16 @@ function crewProblem(g: GameState, f: Flight, ac: Aircraft): void {
   }
   if (hasOpenDecision(g, 'crewShort', f.id) || f.delay < BAL.crewWaitMin) return holdFlight(g, f, 30);
   if (f.crewDecided) {
-    // A recovery was already tried: give the legs up rather than fly illegally.
+    // Away from the station the aircraft must come home: a rescue crew is flown out (keep waiting; later legs
+    // beyond their cap are cancelled by the recovery).
+    if (f.from !== stationOf(g, f) && delayOf(f) < BAL.tripHoldMax) {
+      delayChain(g, f, crewReadyAt(g, f, ac), 'Waiting for a rescue crew');
+      rerosterFrom(g, ac.id, g.now);
+      return;
+    }
+    // At the station a recovery was already tried: give the rotation up rather than fly illegally.
     const legs = windowLegs(g, ac, f.from, g.now + 1);
-    cancelLegs(g, legs, 'No legal crew', 1);
+    cancelLegs(g, legs, 'No legal crew', 0);
     pushMessage(g, { tone: 'bad', cat: 'crew', title: `${f.no} cancelled: no legal crew`, body: `${f.from}–${f.to} could not be crewed after the recovery.`, ref: { kind: 'flight', id: f.id } });
     return;
   }
@@ -481,11 +510,10 @@ export function onFlightArr(g: GameState, ev: SimEvent): void {
   if (f.block >= 16 * 60) s.ulrSectors++;
   if (isRevenue(f)) {
     s.legs++;
-    if (g.now <= schedSta(f) + 15) s.onTime++;
+    const onTime = g.now <= schedSta(f) + 15;
+    if (onTime) s.onTime++;
     else s.delayed++;
-    const target = (100 * s.onTime) / s.legs;
-    const r = g.company.reputation.reliable;
-    if (Math.abs(target - r) >= 0.05) bumpReliable(g, target > r ? 0.05 : -0.05);
+    legOutcome(g, onTime ? 100 : 60);
   }
 }
 

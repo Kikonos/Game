@@ -68,12 +68,19 @@ export function advanceTo(g: GameState, target: Minute, honour?: ReadonlySet<Pau
   let pause: PauseReason | null = null;
   clearPause();
   settle(g);
+  let same = 0;
   for (;;) {
     const top = peek(g);
     if (!top || top.t > target || g.gameOver) break;
     pop(g);
+    same = top.t <= g.now ? same + 1 : 0;
     g.now = Math.max(g.now, top.t);
     events++;
+    // Safety net: modules re-queueing each other at one instant (a re-planning loop) must not hang the clock.
+    if (same > 500 && top.type !== 'day') {
+      schedule(g, g.now + 60, top.type, top.id, top.v);
+      continue;
+    }
     if (top.type === 'day') {
       // Month end first (statements, billing), then the daily jobs, then the next rollover.
       if (monthKey(top.t) !== monthKey(top.t - DAY)) dispatch(g, { ...top, type: 'month' });

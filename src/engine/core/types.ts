@@ -789,6 +789,8 @@ export interface Stats {
   augmentedDuties?: number;
   ulrSectors?: number;
   subchartered?: number;
+  /** B3: when recent player decisions were posted (last 7 days; pacing budget). */
+  askedAt?: number[];
 }
 
 export interface GameState {
