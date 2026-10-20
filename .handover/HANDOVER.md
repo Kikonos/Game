@@ -185,3 +185,5 @@ If an agent fails on a limit, its file edits persist (checkpoint them). Resume t
 - Two medium crew-legality blockers left (pairing-wide false 'illegal' flags; crew-level issues at T-2h). Opus-high fix agent running in /home/user/wt/acmi.
 - Merge rehearsal (scratchpad/mergetest, detached): brand→acmi conflicts only in core/types.ts (take acmi/ours) and components/Logo.tsx (take brand/theirs, nowrap). tsc/297 tests/build green.
 - NEXT: when the fix agent reports → commit acmi → merge brand (resolve as above) → tsc/vitest/build → iPad shots + short play → rm -rf play && cp -r dist play on claude/contrail-airline-game → push + main → verify https://kikonos.github.io/Game/ → tell the user (Dubai time).
+
+### 21:33Z — check-in: both workflows finished; crew-legality fix agent running in acmi; checkpoint pushed.
