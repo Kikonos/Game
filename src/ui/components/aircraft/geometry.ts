@@ -41,6 +41,8 @@ export interface Geometry {
   traced?: TracedProfile;
   /** Outline mode (Concorde): `fus` is the whole silhouette; no separate wing, the fin only shades. */
   outline: boolean;
+  /** Outline mode: clip regions above (`tube`) and below (`wing`) the tube's belly, and the seam between them. */
+  zones?: { tube: string; wing: string; seam: string };
   L: number;
   H: number;
   /** Nose tip (m) — the alignment reference of the traced frame. */
@@ -117,11 +119,21 @@ function tracedFrame(t: TracedProfile, p: AircraftProfile): Frame {
     return inRange.length ? inRange : pts.map(([, y]) => y);
   };
   const outline = t.outline && t.outline.length >= 3 ? t.outline : undefined;
-  // centreline: midway between the crown aft of any 747 hump and the belly ahead of the wing fairing
-  const crownF = Math.min(...ys(outline ?? t.top, outline ? 0.3 : 0.5, outline ? 0.5 : 0.7));
-  let bellyF = Math.max(...ys(t.bottom.length ? t.bottom : outline ?? t.top, 0.2, 0.32));
+  const lines = t.top.length >= 2 && t.bottom.length >= 2;
+  let crownF: number, bellyF: number;
+  if (lines || !outline) {
+    // centreline: midway between the crown aft of any 747 hump and the belly ahead of the wing fairing
+    crownF = Math.min(...ys(t.top, 0.5, 0.7));
+    bellyF = Math.max(...ys(t.bottom, 0.2, 0.32));
+  } else {
+    // silhouette only: the tube between the cockpit and the wing (median of a few vertical cuts)
+    const cuts = [0.16, 0.19, 0.22, 0.25, 0.28].map((x) => cut(outline, x)).filter((c): c is [number, number] => !!c);
+    const med = (a: number[]) => a.sort((u, v) => u - v)[a.length >> 1];
+    crownF = cuts.length ? med(cuts.map((c) => c[0])) : -p.height / L / 2;
+    bellyF = cuts.length ? med(cuts.map((c) => c[1])) : p.height / L / 2;
+  }
   let Hf = bellyF - crownF;
-  if (outline || !(Hf > 0.03)) {
+  if (!(Hf > 0.02)) {
     Hf = p.height / L;
     bellyF = crownF + Hf;
   }
@@ -134,6 +146,19 @@ function tracedFrame(t: TracedProfile, p: AircraftProfile): Frame {
   const line = (pts: readonly (readonly [number, number])[]): V[] => (pts.length ? relax(mono(pts.map(P))) : []);
   const top = line(t.top), bottom = line(t.bottom);
   return { t, H: Hf * L, top, bottom, outline: outline && relax(outline.map(P)), tip: top[0] ?? P([0, 0]), X, Y, P };
+}
+
+/** Topmost and lowest crossing (frame y) of a closed polygon with the vertical line at x. */
+function cut(poly: readonly (readonly [number, number])[], x: number): [number, number] | undefined {
+  let lo = Infinity, hi = -Infinity;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i], b = poly[(i + 1) % poly.length];
+    if ((a[0] - x) * (b[0] - x) > 0 || a[0] === b[0]) continue;
+    const y = lerp(a[1], b[1], (x - a[0]) / (b[0] - a[0]));
+    lo = Math.min(lo, y);
+    hi = Math.max(hi, y);
+  }
+  return hi > lo ? [lo, hi] : undefined;
 }
 
 /** Upper (`hi`) or lower envelope of a closed outline, as a polyline over x for yAt. */
@@ -247,8 +272,9 @@ function build(p: AircraftProfile, t?: TracedProfile): Geometry {
     up = envelope(o, true);
     low = envelope(o, false);
     tip = o.reduce((a, b) => (b[0] < a[0] ? b : a), o[0]);
-    crown = fr.Y(Math.min(...fr.t.outline!.filter(([x]) => x >= 0.3 && x <= 0.5).map(([, y]) => y)));
-    belly = Math.min(...o.map((v) => v[1]));
+    // shading gradient over the tube; the wing below it gets its own fill
+    crown = H / 2;
+    belly = -H / 2;
     box.add(...o);
   } else if (fr) {
     up = fr.top;
@@ -309,10 +335,41 @@ function build(p: AircraftProfile, t?: TracedProfile): Geometry {
   const upperY = (x: number) => yAt(up, x);
   const lowerY = (x: number) => yAt(low, x);
 
+  // ---------- outline mode: tube / wing split ----------
+  // the tube's belly (traced bottom line, else level with the tube belly) divides the silhouette
+  // into the fuselage (livery) and the wing below it (wing fill, seam line where they meet)
+  let zones: Geometry['zones'];
+  let wingFrom = Infinity;
+  if (fr?.outline) {
+    const cutY = fr.bottom.length >= 2 ? (x: number) => yAt(fr.bottom, x) : () => -H / 2 - H * 0.03;
+    const xs: number[] = [];
+    for (let i = 0; i <= 160; i++) xs.push(lerp(box.x0 - 1, box.x1 + 1, i / 160));
+    const edge = xs.map((x): V => [x, cutY(x)]);
+    const deep = box.y0 - H, high = box.y1 + H;
+    const tube = new D().poly([...edge, [box.x1 + 1, high], [box.x0 - 1, high]]).toString();
+    const wing = new D().poly([...edge, [box.x1 + 1, deep], [box.x0 - 1, deep]]).toString();
+    // seam: the stretches of the cut line with wing under them
+    const seam = new D();
+    const tol = H * 0.06;
+    let run: V[] = [];
+    const flush = () => { if (run.length > 1) seam.poly(run, false); run = []; };
+    for (const v of edge) {
+      if (lowerY(v[0]) < v[1] - tol && upperY(v[0]) > v[1]) {
+        run.push(v);
+        wingFrom = Math.min(wingFrom, v[0]);
+      } else flush();
+    }
+    flush();
+    zones = { tube, wing, seam: seam.toString() };
+  }
+
   // ---------- vertical fin ----------
+  // in outline mode the upper envelope already includes the fin, so "above the crown" is judged
+  // against the traced top line when there is one, else the mid-fuselage crown
+  const finRef = fr?.outline ? (fr.top.length >= 2 ? (x: number) => yAt(fr.top, x) : () => crown) : upperY;
   const tracedPoly = fr && t?.fin && t.fin.length >= 3 ? t.fin.map(fr.P) : undefined;
-  const finG = (tracedPoly && tracedFin(tracedPoly, p, H, upperY, box, !fr?.outline))
-    ?? (fr?.outline && tracedFin(fr.outline, p, H, upperY, box, false))
+  const finG = (tracedPoly && tracedFin(tracedPoly, p, H, finRef, box, !fr?.outline))
+    ?? (fr?.outline && tracedFin(fr.outline, p, H, finRef, box, false))
     ?? paramFin(p, H, L, upperY, box);
   const { quad, top, finStart, tipLE, tc } = finG;
 
@@ -382,19 +439,25 @@ function build(p: AircraftProfile, t?: TracedProfile): Geometry {
   let engineSpecs: EngineSpec[];
   if (fr?.outline) {
     // nacelles straight from the traced boxes, no pylon (they sit on the silhouette)
-    const style = p.engines[0]?.style ?? 'supersonic';
-    engineSpecs = (fr.t.engines ?? []).map((b) => ({ mount: 'underwing', style, x: fr.X(b.x), y: fr.Y(b.y + b.h / 2), dia: b.h * L, len: b.w * L }));
+    engineSpecs = (fr.t.engines ?? []).map((b) => ({ mount: 'underwing', style: 'supersonic', x: fr.X(b.x), y: fr.Y(b.y + b.h / 2), dia: b.h * L, len: b.w * L }));
   } else {
     engineSpecs = fr ? placeEngines(p, fr) : p.engines;
   }
   const engines = engineSpecs.map((e) => engineGeometry(e, w, box, upperY));
 
   // ---------- doors & windows ----------
-  const rows: WindowRow[] = fr
-    ? fr.t.windows && fr.t.windows.pitch > 0 && fr.t.windows.h > 0
-      ? [{ x0: fr.X(fr.t.windows.from), x1: fr.X(fr.t.windows.to), y: fr.Y(fr.t.windows.y), pitch: fr.t.windows.pitch * L, w: fr.t.windows.h * L * 0.7, h: fr.t.windows.h * L, gaps: (fr.t.windows.gaps ?? []).map(([a, b]) => [fr.X(a), fr.X(b)] as const) }]
-      : []
-    : p.windows;
+  let rows: WindowRow[] = p.windows;
+  /** Spec rows kept beside a traced row (other decks: A380 / 747 upper deck). */
+  let deckRows = 0;
+  if (fr) {
+    const tw = fr.t.windows;
+    const row: WindowRow | undefined = tw && tw.pitch > 0 && tw.h > 0
+      ? { x0: fr.X(tw.from), x1: fr.X(tw.to), y: fr.Y(tw.y), pitch: tw.pitch * L, w: tw.h * L * 0.7, h: tw.h * L, gaps: (tw.gaps ?? []).map(([a, b]) => [fr.X(a), fr.X(b)] as const) }
+      : undefined;
+    const decks = row && !fr.outline ? p.windows.filter((r) => Math.abs(r.y - row.y) > H * 0.25) : [];
+    deckRows = decks.length;
+    rows = row ? [row, ...decks] : [];
+  }
   const doorBox = fr
     // traced doors are boxes with y at the top edge (frame is y-down)
     ? (fr.t.doors ?? []).map((d) => ({ x: fr.X(d.x), y: fr.Y(d.y + d.h), w: d.w * L, h: d.h * L, kind: 'pax' as const }))
@@ -414,6 +477,8 @@ function build(p: AircraftProfile, t?: TracedProfile): Geometry {
     for (let x = row.x0; x <= row.x1 + 1e-6; x += row.pitch) {
       const hit = doorBox.some((d) => d.kind !== 'cargo' && x + row.w / 2 > d.x - 0.12 && x - row.w / 2 < d.x + d.w + 0.12 && row.y > d.y && row.y < d.y + d.h + 0.3);
       if (hit || row.gaps?.some(([a, b]) => x >= a && x <= b)) continue;
+      // traced airframe: spec deck rows only where they sit inside it
+      if (fr && (row.y + row.h / 2 > upperY(x) - H * 0.04 || row.y - row.h / 2 < lowerY(x) + H * 0.04)) continue;
       win.rrect(x - row.w / 2, row.y - row.h / 2, row.w, row.h, row.w * 0.45);
     }
   }
@@ -459,8 +524,8 @@ function build(p: AircraftProfile, t?: TracedProfile): Geometry {
   let tx = Math.max(cockpitEnd + H * 0.25, ...doorBox.filter((d) => d.kind === 'pax' && d.x < L * 0.3).map((d) => d.x + d.w + H * 0.08));
   while (tx < L * 0.5 && crownAt(tx) < H * 0.49) tx += H * 0.05;
   const avail = H / 2 - winTop;
-  const wingStop = w.high ? w.x - wrc * 0.5 : w.x + wrc * 0.3;
-  const titles = p.titles ?? { x: tx, y: winTop + avail * 0.46, w: Math.max(H * 1.6, Math.min(wingStop, L * 0.6) - tx), size: Math.min(avail * 0.62, H * 0.24) };
+  const wingStop = fr?.outline ? (Number.isFinite(wingFrom) ? wingFrom : L * 0.4) : w.high ? w.x - wrc * 0.5 : w.x + wrc * 0.3;
+  const titles = (fr && !deckRows ? undefined : p.titles) ?? { x: tx, y: winTop + avail * 0.46, w: Math.max(H * 1.6, Math.min(wingStop, L * 0.6) - tx), size: Math.min(avail * 0.62, H * 0.24) };
 
   // ---------- livery ----------
   const liv = new Map<TailStyle, LiveryGeo>();
@@ -474,7 +539,7 @@ function build(p: AircraftProfile, t?: TracedProfile): Geometry {
   };
 
   return {
-    p, traced: t, outline: !!fr?.outline, L, H, tip, upperY, lowerY,
+    p, traced: t, outline: !!fr?.outline, zones, L, H, tip, upperY, lowerY,
     fus: fus.toString(),
     crown, belly,
     wingRoot: wr.toString(),

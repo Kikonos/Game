@@ -1,6 +1,7 @@
 // Cartoon-clean side profile of an aircraft type in the airline's livery, nose
 // RIGHT, in flight (no landing gear). Geometry comes from real-dimension specs
-// (metres, nose-left frame) via geometry.ts and is mirrored here once, so every
+// (metres, nose-left frame) via geometry.ts — drawn from the traced profile in
+// traced/<typeId>.ts when one exists — and is mirrored here once, so every
 // caller gets nose-right; this component only assigns colours, z-order and
 // level of detail.
 
@@ -9,6 +10,8 @@ import { artFor } from '../../../data/acmiTypes';
 import type { Livery } from '../../../engine/core/types';
 import { geometry, type Geometry } from './geometry';
 import { PROFILE_BY_ID } from './specs';
+import { tracedFor } from './traced/load';
+import type { TracedProfile } from './traced/types';
 import type { AircraftProfile } from './types';
 
 export interface AircraftArtProps {
@@ -29,16 +32,70 @@ export interface AircraftArtProps {
 }
 
 const FALLBACK = 'a320neo';
+/** Wing, tail and engine parameters for a silhouette trace without a spec of its own. */
+const SUPERSONIC = 'overture';
 
 export function profileFor(typeId: string): AircraftProfile {
   return PROFILE_BY_ID[typeId] ?? PROFILE_BY_ID[artFor(typeId)] ?? PROFILE_BY_ID[FALLBACK];
 }
 
+/**
+ * Spec a traced profile is drawn with. Every type shares one scale (SVG units = metres), so the
+ * real length comes from the type's own spec, or `lengthM` on the profile; a traced type with
+ * neither (a reference-only variant such as the A318) borrows the fallback spec's fuselage
+ * height and takes its length from the traced height-to-length ratio. A traced type without a
+ * spec borrows the fallback's wing, tail and engine parameters (the supersonic spec's for a
+ * silhouette trace) under its own id.
+ */
+const scaled = new Map<TracedProfile, AircraftProfile>();
+function specFor(typeId: string, p: AircraftProfile, t?: TracedProfile): AircraftProfile {
+  if (!t) return p;
+  const own = PROFILE_BY_ID[typeId] === p || PROFILE_BY_ID[artFor(typeId)] === p || p.id === t.typeId;
+  if (own && (!t.lengthM || Math.abs(t.lengthM - p.length) < 0.01)) return p;
+  let s = scaled.get(t);
+  if (!s) {
+    const base = own ? p : (t.outline?.length ? PROFILE_BY_ID[SUPERSONIC] : undefined) ?? p;
+    const hf = tracedHeight(t);
+    const length = t.lengthM ?? (hf ? base.height / hf : base.length);
+    s = own ? { ...p, length } : { ...stretch(base, length / base.length), id: t.typeId || typeId, length, titles: undefined };
+    scaled.set(t, s);
+  }
+  return s;
+}
+
+/** Borrowed spec moved to another length: every station (x, x0, x1) scales, sizes stay real. */
+function stretch<T>(o: T, r: number): T {
+  if (Array.isArray(o)) return o.map((v) => stretch(v, r)) as T;
+  if (!o || typeof o !== 'object') return o;
+  return Object.fromEntries(Object.entries(o).map(([k, v]) => [k, typeof v === 'number' ? (k === 'x' || k === 'x0' || k === 'x1' ? v * r : v) : stretch(v, r)])) as T;
+}
+
+/** Fuselage height / length of a trace (crown aft of any hump, belly ahead of the wing fairing); 0 if unknown. */
+function tracedHeight(t: TracedProfile): number {
+  const ys = (pts: readonly (readonly [number, number])[], lo: number, hi: number) => pts.filter(([x]) => x >= lo && x <= hi).map(([, y]) => y);
+  const c = ys(t.top, 0.5, 0.7), b = ys(t.bottom, 0.2, 0.32);
+  const h = c.length && b.length ? Math.max(...b) - Math.min(...c) : 0;
+  return h > 0.02 ? h : 0;
+}
+
+/** Geometry for a type: traced profile (by type id, art id or spec id) when one exists, else the parametric spec. */
+export function artGeometry(typeId: string): Geometry {
+  const p = profileFor(typeId);
+  const t = tracedFor(typeId, artFor(typeId), PROFILE_BY_ID[typeId] || PROFILE_BY_ID[artFor(typeId)] ? p.id : undefined);
+  return geometry(specFor(typeId, p, t), t);
+}
+
 /** Tight viewBox in SVG units (metres, y down, nose right: the nose tip is at x = 0, the tail at x = -length). */
 export function artViewBox(typeId: string, _gear?: boolean): { x: number; y: number; w: number; h: number } {
-  const b = geometry(profileFor(typeId)).box;
+  const b = artGeometry(typeId).box;
   const pad = Math.max(0.15, (b.x1 - b.x0) * 0.01);
   return { x: -(b.x1 + pad), y: -(b.y1 + pad), w: b.x1 - b.x0 + 2 * pad, h: b.y1 - b.y0 + 2 * pad };
+}
+
+/** For same-scale overlays: viewBox, nose tip in viewBox units (nose right), fuselage length (m) and the traced source. */
+export function artMetrics(typeId: string): { vb: { x: number; y: number; w: number; h: number }; tip: [number, number]; length: number; traced?: TracedProfile } {
+  const g = artGeometry(typeId);
+  return { vb: artViewBox(typeId), tip: [-g.tip[0], -g.tip[1]], length: g.L, traced: g.traced };
 }
 
 // ---------- colour helpers (hex in, hex out; anything else passes through) ----------
@@ -91,8 +148,10 @@ const FUS_STOPS: readonly (readonly [number, string])[] = [
 
 function AircraftArtImpl({ typeId, livery, code, name, className, height, detail = 'full', pxPerM }: AircraftArtProps) {
   const uid = useId().replace(/:/g, '');
-  const p = profileFor(typeId);
-  const g: Geometry = geometry(p);
+  const g: Geometry = artGeometry(typeId);
+  const p = g.p;
+  // outline mode (traced full silhouette): wing, stabiliser and fin edge are part of the fuselage path
+  const sil = g.outline;
   const full = detail === 'full';
   const vb = artViewBox(typeId);
   const lv = g.livery(livery.tail);
@@ -187,19 +246,34 @@ function AircraftArtImpl({ typeId, livery, code, name, className, height, detail
         <clipPath id={id('tc')}>
           <path d={g.fin.fill} />
         </clipPath>
+        {g.zones && (
+          <>
+            <clipPath id={id('tz')}>
+              <path d={g.zones.tube} />
+            </clipPath>
+            <clipPath id={id('wz')}>
+              <path d={g.zones.wing} />
+            </clipPath>
+          </>
+        )}
       </defs>
 
       <g transform={FLIP}>
       {/* far side */}
-      {!g.stab.none && !g.stab.tTail && <path d={g.stab.far} fill="#b4bfce" stroke={OUTLINE} strokeWidth={sw * 0.7} style={ns} />}
+      {!sil && !g.stab.none && !g.stab.tTail && <path d={g.stab.far} fill="#b4bfce" stroke={OUTLINE} strokeWidth={sw * 0.7} style={ns} />}
       {far.map((e, i) => engine(e, i, true))}
 
       {/* fuselage */}
       <path d={g.fus} fill={url('fus')} />
+      {/* outline mode: the wing is the part of the silhouette under the tube's belly */}
+      {g.zones && <path d={g.fus} fill={url('wing')} clipPath={url('wz')} />}
       <g clipPath={url('fc')}>
-        {lv.fus && <path d={lv.fus} fill={primary} />}
-        {lv.fus2 && <path d={lv.fus2} fill={secondary} />}
-        <ellipse cx={f(g.wing.shadow.c[0])} cy={f(-g.wing.shadow.c[1])} rx={f(g.wing.shadow.rx)} ry={f(g.wing.shadow.ry)} fill={url('sh')} />
+        <g clipPath={g.zones ? url('tz') : undefined}>
+          {lv.fus && <path d={lv.fus} fill={primary} />}
+          {lv.fus2 && <path d={lv.fus2} fill={secondary} />}
+        </g>
+        {g.zones && <path d={g.zones.seam} fill="none" stroke={OUTLINE} strokeWidth={sw * 0.7} style={ns} />}
+        {g.wing.shadow && <ellipse cx={f(g.wing.shadow.c[0])} cy={f(-g.wing.shadow.c[1])} rx={f(g.wing.shadow.rx)} ry={f(g.wing.shadow.ry)} fill={url('sh')} />}
         {full && title && (
           <text
             transform={FLIP}
@@ -244,11 +318,11 @@ function AircraftArtImpl({ typeId, livery, code, name, className, height, detail
           {codeText}
         </text>
       )}
-      <path d={g.fin.edge} fill="none" stroke={OUTLINE} strokeWidth={sw} style={ns} strokeLinejoin="round" />
+      {g.fin.edge && <path d={g.fin.edge} fill="none" stroke={OUTLINE} strokeWidth={sw} style={ns} strokeLinejoin="round" />}
       {full && g.fin.lines && <path d={g.fin.lines} fill="none" stroke="rgba(0,0,0,0.22)" strokeWidth={0.6} style={ns} />}
 
       {/* near stabiliser */}
-      {!g.stab.none && (
+      {!sil && !g.stab.none && (
         <>
           {g.stab.bullet && <path d={g.stab.bullet} fill={url('fin')} stroke={OUTLINE} strokeWidth={sw * 0.8} style={ns} />}
           <path d={g.stab.near} fill={url('wing')} stroke={OUTLINE} strokeWidth={sw * 0.9} style={ns} strokeLinejoin="round" />
@@ -257,15 +331,17 @@ function AircraftArtImpl({ typeId, livery, code, name, className, height, detail
       )}
 
       {/* wing (a sectioned high wing goes over its slung nacelles, under the propellers) */}
+      {!sil && (<>
       {g.wingRoot && <path d={g.wingRoot} fill={url('fus')} stroke={OUTLINE} strokeWidth={sw * 0.8} style={ns} />}
       {p.wing.section && near.map((e, i) => engine(e, i + far.length, !!e.spec.inboard, 'body'))}
       <path d={g.wing.fill} fill={url(p.wing.section ? 'wsec' : 'wing')} stroke={OUTLINE} strokeWidth={sw * 0.9} style={ns} strokeLinejoin="round" />
       {g.wing.shade && <path d={g.wing.shade} fill="rgba(40,58,92,0.16)" />}
       {g.wing.tip && <path d={g.wing.tip} fill={url('wing')} stroke={OUTLINE} strokeWidth={sw * 0.9} style={ns} strokeLinejoin="round" />}
       {full && <path d={g.wing.lines} fill="none" stroke={FINE} strokeWidth={0.6} style={ns} />}
+      </>)}
 
       {/* engines */}
-      {near.map((e, i) => engine(e, i + far.length, !!e.spec.inboard, p.wing.section ? 'prop' : 'all'))}
+      {near.map((e, i) => engine(e, i + far.length, !!e.spec.inboard, p.wing.section && !sil ? 'prop' : 'all'))}
       </g>
     </svg>
   );

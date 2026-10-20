@@ -1,10 +1,31 @@
 import react from '@vitejs/plugin-react';
-import { defineConfig } from 'vite';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { defineConfig, type Plugin } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
 // EMBED=1 builds a variant for hosts where service workers are unavailable
 // (sandboxed previews); the regular build ships the offline-capable PWA.
 const embed = !!process.env.EMBED;
+
+// Dev only: /dev-ref/<type>/<file>.png serves the traced-reference crops the art gallery's
+// compare/sheet modes overlay (DEV_REF_DIR, default ./dev-ref — a gitignored symlink to the
+// trace scratch folder). Never part of a build.
+const devRef = (): Plugin => ({
+  name: 'dev-ref',
+  apply: 'serve',
+  configureServer(server) {
+    const root = path.resolve(process.env.DEV_REF_DIR ?? 'dev-ref');
+    server.middlewares.use('/dev-ref', (req, res, next) => {
+      const m = /^\/([\w-]+)\/([\w-]+\.png)(?:\?.*)?$/.exec(req.url ?? '');
+      if (!m) return next();
+      readFile(path.join(root, m[1], m[2])).then(
+        (buf) => { res.setHeader('Content-Type', 'image/png'); res.setHeader('Cache-Control', 'no-store'); res.end(buf); },
+        () => { res.statusCode = 404; res.end(); },
+      );
+    });
+  },
+});
 
 export default defineConfig({
   base: './',
@@ -13,6 +34,7 @@ export default defineConfig({
   define: { __EMBED__: JSON.stringify(embed) },
   plugins: [
     react(),
+    devRef(),
     VitePWA({
       disable: embed,
       registerType: 'autoUpdate',

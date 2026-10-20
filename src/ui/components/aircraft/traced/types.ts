@@ -18,4 +18,6 @@ export interface TracedProfile {
   engines?: { x: number; y: number; w: number; h: number }[];  // nacelle bounding boxes (same frame)
   outline?: [number, number][];              // FULL closed silhouette (fuselage + wing + fin + nacelles) — used instead of top/bottom for the Concorde
   notes?: string;
+  /** Real fuselage length (m) when the type has no parametric spec to take it from (shared scale). */
+  lengthM?: number;
 }

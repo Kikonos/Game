@@ -3,7 +3,9 @@
 
 import type { TracedProfile } from './types';
 
-const files = import.meta.glob<{ profile?: TracedProfile }>(['./*.ts', '!./types.ts', '!./load.ts'], { eager: true });
+// one plain pattern (Vite leaves out this file itself; types.ts exports no profile): negated
+// patterns would stop the dev server from picking up newly added traces
+const files = import.meta.glob<{ profile?: TracedProfile }>('./*.ts', { eager: true });
 
 export const TRACED: ReadonlyMap<string, TracedProfile> = new Map(
   Object.entries(files).flatMap(([file, mod]) => {
