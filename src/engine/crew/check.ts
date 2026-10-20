@@ -102,7 +102,8 @@ export function otherTrip(g: GameState, c: CrewMember, p: Pairing, from: Minute,
     if (existing && (q.start > p.start || (q.start === p.start && q.id > p.id))) continue;
     const open = openDuties(g, q);
     if (!open.length) continue;
-    const qs = open[0].report;
+    // A tour under way holds its crew at the station between duties too (a side trip would leave them elsewhere).
+    const qs = q.tour ? Math.min(open[0].report, q.start) : open[0].report;
     const qe = open[open.length - 1].release;
     if (qs < to && qe > from) return q;
   }

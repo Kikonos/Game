@@ -5,7 +5,7 @@ import { BAL } from '../../engine/core/balance';
 import { flightsOf } from '../../engine/core/entities';
 import { DAY, HOUR, dayStart, fmtDay, fmtTime } from '../../engine/core/time';
 import type { Flight, GameState, Minute, Ref } from '../../engine/core/types';
-import { flightCrewStatus } from '../../engine/crew';
+import { crewRev, dutyLegality, flightCrewStatus } from '../../engine/crew';
 
 export type ZoomDays = 3 | 7 | 28;
 /** Pixels per hour at each zoom preset when the view width is unknown (the screen fits the preset to the width). */
@@ -41,10 +41,21 @@ const live = (f: Flight) => f.status !== 'cancelled';
 const endOf = (f: Flight) => (f.status === 'done' ? f.ata ?? f.sta : f.status === 'enroute' ? Math.max(f.eta ?? f.sta, f.sta) : f.sta + f.delay);
 const startOf = (f: Flight) => (f.atd ?? f.std + (f.status === 'scheduled' ? f.delay : 0));
 
+/** Live per-duty checks for the next two days (the stored legality can lag a change), per state version. */
+const liveCache = new WeakMap<GameState, { at: Minute; rev: number; byDuty: Map<string, boolean> }>();
+const LIVE_SPAN = 2 * DAY;
+
 function crewFlag(g: GameState, f: Flight, horizon: Minute): GanttBlock['crew'] {
   if (f.status !== 'scheduled' || f.std > horizon || !f.aircraftId) return null;
   const s = flightCrewStatus(g, f.id).level;
-  return s === 'missing' || s === 'illegal' ? s : null;
+  if (s === 'missing' || s === 'illegal') return s;
+  if (!f.dutyId || f.std > g.now + LIVE_SPAN) return null;
+  const rev = crewRev(g);
+  let c = liveCache.get(g);
+  if (!c || c.at !== g.now || c.rev !== rev) liveCache.set(g, (c = { at: g.now, rev, byDuty: new Map() }));
+  let bad = c.byDuty.get(f.dutyId);
+  if (bad === undefined) c.byDuty.set(f.dutyId, (bad = dutyLegality(g, f.dutyId).level === 'illegal'));
+  return bad ? 'illegal' : null;
 }
 
 /** Flights, maintenance, sub-chartered legs and idle gaps of one aircraft overlapping [from, to). */

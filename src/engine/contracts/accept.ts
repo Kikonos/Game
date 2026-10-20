@@ -326,9 +326,20 @@ function completeContract(g: GameState, c: Contract): void {
   const cl = g.clients[c.clientId];
   if (cl) cl.relation = clamp(cl.relation + (c.archetype === 'aogCover' ? 10 : onTime >= 0.85 ? 5 : -5), -100, 100);
   g.stats.contractsDone++;
+  // Legs a rival flew for us or that were cancelled (still in the flight table), so "0 legs flown" reads right.
+  let sub = 0;
+  let cx = 0;
+  for (const f of Object.values(g.flights)) {
+    if (f.contractId !== c.id || f.kind !== 'revenue') continue;
+    if (f.status === 'cancelled') cx++;
+    else if (f.operatedBy) sub++;
+  }
+  const parts = [`${flown} ${flown === 1 ? 'leg' : 'legs'} flown${flown ? `, ${Math.round(onTime * 100)}% on time` : ''}`];
+  if (sub) parts.push(`${sub} sub-chartered`);
+  if (cx) parts.push(`${cx} cancelled`);
   pushMessage(g, {
-    tone: 'good', cat: 'commercial', title: `Completed: ${c.title}`,
-    body: `${flown} legs flown, ${Math.round(onTime * 100)}% on time. ${cl?.name ?? 'The client'} ${onTime >= 0.85 ? 'is pleased' : 'noticed the delays'}.`,
+    tone: flown ? 'good' : 'info', cat: 'commercial', title: `Completed: ${c.title}`,
+    body: `${parts.join(', ')}. ${cl?.name ?? 'The client'} ${!flown ? 'has closed the contract' : onTime >= 0.85 ? 'is pleased' : 'noticed the delays'}.`,
     ref: { kind: 'contract', id: c.id },
   });
 }

@@ -124,14 +124,15 @@
 .touch .ops-chip:active { background: rgba(24, 34, 56, 0.96); }
 
 /* ---------- up next (top left) ---------- */
-.ops-next { position: absolute; top: 12px; left: var(--edge-l); z-index: 5; width: 236px; padding: 8px 6px 6px; background: var(--op-bg); display: flex; flex-direction: column; }
+.ops-next { position: absolute; top: 12px; left: var(--edge-l); z-index: 5; width: 252px; padding: 8px 6px 6px; background: var(--op-bg); display: flex; flex-direction: column; }
 .ops-next .upper { padding: 0 8px 4px; }
 .ops-next-row {
-  display: grid; grid-template-columns: 44px 1fr auto; align-items: center; gap: 8px; min-height: 36px; padding: 0 8px;
+  display: grid; grid-template-columns: 62px 1fr auto; align-items: center; gap: 8px; min-height: 36px; padding: 0 8px;
   border: none; background: none; color: var(--text); text-align: left; border-radius: 8px; font-size: 12.5px;
 }
 .touch .ops-next-row { min-height: var(--tap); }
 @media (hover: hover) { .ops-next-row:hover { background: var(--panel-hover); } }
+.ops-next-row sup { font-size: 12px; line-height: 0; margin-left: 2px; }
 .touch .ops-next-row:active { background: var(--panel-hover); }
 
 /* ---------- zoom controls clear of the panel ---------- */

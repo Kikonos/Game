@@ -17,7 +17,7 @@ export const TRIP_GAP = 48 * 60;
 /** Minimum time at home that makes a home hop worth it. */
 const HOME_HOP_MIN = 12 * 60;
 /** Moving on to another station: a wait this long is spent at home instead (shorter waits stay put). */
-const AWAY_GAP = 4 * 24 * 60;
+const AWAY_GAP = 5 * 24 * 60;
 /** Positioning lead before a deployment (arrive the evening before) and extra slack before a charter. */
 export const DEPLOY_LEAD = 12 * 60;
 export const CHARTER_SLACK = 30;

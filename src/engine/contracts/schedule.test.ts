@@ -6,7 +6,7 @@ import { typeOf } from '../core/perf';
 import { DAY, fromUTC, localMinuteOfDay, monthKey } from '../core/time';
 import type { GameState } from '../core/types';
 import { acceptOffer, planPositioning } from '.';
-import { baseDays, computeWaves, flownRotations, type BasePattern } from './plan';
+import { baseDays, computeWaves, flownRotations, gapMoves, type BasePattern } from './plan';
 import { hamBase, leased, newGame, offer, owned, run } from './testkit';
 
 const liveFlights = (g: GameState, id: string) => flightsOf(g, id).filter((f) => f.status !== 'cancelled');
@@ -154,5 +154,24 @@ describe('legs patterns and positioning', () => {
     const fl = liveFlights(g, ac.id);
     expect(fl.filter((f) => f.kind === 'positioning' && f.from === 'BCN' && f.to === 'LIS')).toHaveLength(0);
     turnsOk(g, ac.id);
+  });
+});
+
+describe('positioning across a long gap', () => {
+  const t0 = fromUTC(2027, 3, 4, 20, 0);
+  it('spends a long wait at home: back to base at once, out to the next station late', () => {
+    const ch = gapMoves('a320ceo', 'ARN', 'RIX', t0, t0 + 27 * DAY, 'VNO', true)!;
+    expect(ch.map((l) => `${l.from}-${l.to}`)).toEqual(['ARN-VNO', 'VNO-RIX']);
+    expect(ch[0].std).toBe(t0);
+    expect(ch[1].sta).toBeLessThanOrEqual(t0 + 27 * DAY);
+    expect(ch[1].std).toBeGreaterThan(t0 + 26 * DAY);
+  });
+  it('goes home early when home is the next station, and flies direct over a short gap', () => {
+    const home = gapMoves('a320ceo', 'ARN', 'VNO', t0, t0 + 10 * DAY, 'VNO', true)!;
+    expect(home).toHaveLength(1);
+    expect(home[0].std).toBe(t0);
+    const short = gapMoves('a320ceo', 'ARN', 'RIX', t0, t0 + 2 * DAY, 'VNO', true)!;
+    expect(short.map((l) => `${l.from}-${l.to}`)).toEqual(['ARN-RIX']);
+    expect(gapMoves('a320ceo', 'ARN', 'RIX', t0, t0 + 27 * DAY, 'VNO', false)!.map((l) => l.to)).toEqual(['RIX']);
   });
 });

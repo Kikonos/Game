@@ -57,7 +57,7 @@ export function hireCrew(g: GameState, r: HireRequest): ActionResult<{ crewIds: 
     crewIds.push(c.id);
   }
   post(g, 'hiring', -q.cost);
-  return { ok: true, msg: `${n} ${ROLE_NAME[r.role]}${n > 1 ? 's' : ''} joining ${fmtDate(q.readyAt)}`, data: { crewIds } };
+  return { ok: true, msg: `${n} ${ROLE_NAME[r.role]}${n > 1 && !ROLE_NAME[r.role].endsWith('crew') ? 's' : ''} joining ${fmtDate(q.readyAt)}`, data: { crewIds } };
 }
 
 const TRAINING: Record<TrainingKind, (c: CrewMember) => { days: number; cost: number }> = {
