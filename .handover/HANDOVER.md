@@ -98,6 +98,7 @@ If an agent fails on a limit, its file edits persist (checkpoint them). Resume t
 6. Final message to the user: what changed; the iPad home-screen steps (default branch → main, Pages source → GitHub Actions, https://kikonos.github.io/Game/); any limitations.
 
 ## Log
+- 06:31Z run wf_1adb1115-648 hit limit ~05:50Z (B3/B5/real-names partial, checkpointed); limit reset 06:30Z → resuming it.
 - 05:25Z (Oct 20) build run wf_4e46c6a0-e86: B1,B2,B4 DONE (reports .handover/reports-b124.md); B3,B5 partial. CI now only on main/game branch; checkpoints [skip ci]. Launched continuation script acmi-build2.js (copy in .handover/) as run wf_1adb1115-648 (resume with resumeFromRunId).
 - 01:33Z (Oct 20) P2 build run wf_4e46c6a0-e86 hit limit at ~22:10Z (reset 01:30Z) with all 5 builders mid-way (~5.9k lines written, checkpointed). Resuming it now.
 - 21:01Z P1 DONE (design reviewed+revised, committed 6890c84 on acmi). P2 build workflow RUNNING: scriptPath /tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/acmi/acmi-build.js (backup copy .handover/acmi-build.js; if the scratchpad copy is gone, pass the backup inline via Workflow script), run wf_4e46c6a0-e86 — resume with resumeFromRunId.
