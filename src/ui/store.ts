@@ -483,7 +483,7 @@ class GameStore {
     paintJob: (kind: PaintKind = 'decals', days = 60) => {
       const g = this.game;
       if (!g) return null;
-      for (const lead of [12, 20, 30, 45]) {
+      for (const lead of [12, 20, 30, 45, 60, 90, 120]) {
         const o = generateOffer(g, 'seasonBase', { paint: { kind, required: true }, wide: false, start: g.now + lead * DAY, days });
         if (!o) continue;
         const ok = feasibilityAll(g, o.id, { paint: true }).find((r) => r.level !== 'no');

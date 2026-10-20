@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { acceptOffer } from '../../engine/contracts';
+import { acceptOffer, feasibility, generateOffer } from '../../engine/contracts';
 import { leased, legsOffer, newGame } from '../../engine/contracts/testkit';
 import { DAY, HOUR, dayStart } from '../../engine/core/time';
 import {
-  axisTicks, chooseHits, dayPills, idleAt, idleGaps, pickBlocks, ppmOf, rowBlocks, timelineSpan, visibleWindow, type GanttBlock,
+  axisTicks, chooseHits, dayPills, idleAt, idleGaps, paintLabel, pickBlocks, ppmOf, rowBlocks, timelineSpan, visibleWindow, type GanttBlock,
 } from './scheduleLogic';
 
 const blk = (key: string, start: number, end: number, kind: GanttBlock['kind'] = 'flight', color: number | null = 0): GanttBlock => ({
@@ -103,5 +103,22 @@ describe('rows from a real game', () => {
     expect(idle).toBeDefined();
     expect(idle!.start).toBe(g.now);
     expect(idle!.end).toBeGreaterThan(g.now + 9 * DAY);
+  });
+});
+
+describe('paint blocks (v0.5.1)', () => {
+  it('draws a client paint-in as a hatched maintenance block in the client primary, labelled with the client', () => {
+    const g = newGame(11);
+    const o = generateOffer(g, 'seasonBase', { paint: { kind: 'decals', required: true }, wide: false, start: g.now + 30 * DAY, days: 60 });
+    expect(o?.paint).toBeTruthy();
+    const ac = Object.values(g.fleet).find((a) => feasibility(g, o!.id, a.id, { paint: true }).level !== 'no');
+    expect(ac).toBeTruthy();
+    expect(acceptOffer(g, o!.id, [ac!.id], { paint: true }).ok).toBe(true);
+    const m = Object.values(g.maintenance).find((x) => x.kind === 'paint')!;
+    const b = rowBlocks(g, ac!.id, m.start - DAY, m.end + DAY).find((x) => x.key === m.id)!;
+    expect(b.kind).toBe('maint');
+    expect(b.paint).toBe(o!.paint!.livery.primary);
+    expect(b.label).toBe(`${paintLabel(g, m)} · ${m.at}`);
+    expect(paintLabel(g, m)).toBe(`Paint · ${g.clients[o!.clientId].name}`);
   });
 });
