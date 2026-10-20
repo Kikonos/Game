@@ -162,6 +162,8 @@ TASK (REFUTE REVIEW FINDINGS): for each finding below, try to REFUTE it: reprodu
 Findings:
 ${batch.map((f) => `#${f.id} [${f.area}/${f.severity}] ${f.problem}\n  evidence: ${f.evidence}\n  fix: ${f.fix}${f.files ? `\n  files: ${f.files}` : ''}`).join('\n')}`
 
+const PLAYER_UPDATE = `
+PLAYER UPDATE (2026-10-20, overrides the "factual and neutral / never invent wrongdoing" rule above and anywhere in the prompts): the player WANTS invented events for real airlines, operators, governments, countries and cities — technical incidents (bird strikes, hard landings, tail strikes, AOGs), coups, unrest, disasters, evacuations, disputes, defaults, strikes, scandals — to make the game interesting (private single-player game; BRIEF.md "Player decisions" is updated). Do NOT neutralise such content. Any finding whose only complaint is that events are invented for real entities is NOT a defect: skip it. Content lane: instead make those event/offer texts richer, plausible for the entity and region, and varied. Only limit: never accuse real, named private individuals of crimes.`
 // ---------- Fix ----------
 const OWN = {
   engine: { port: 5841, owns: 'src/engine/**, src/data/** (except naming/flavour/clients text), scripts/**, all engine tests, src/engine/core/balance.ts', others: 'ui, map and content lanes edit src/ui/**, src/styles/** and the naming/flavour files concurrently; coordinate through function signatures only' },
@@ -170,7 +172,7 @@ const OWN = {
   content: { port: 5844, owns: 'src/data/naming.ts, src/engine/contracts/clients.ts, src/engine/contracts/flavor.ts, text tables in src/engine/ops/events.ts (strings only) and their tests', others: 'engine, ui and map lanes edit the code around your strings concurrently — change strings and data only' },
 }
 const fmt = (fs) => fs.map((f) => `#${f.id} [${f.severity}] ${f.problem}\n   evidence: ${f.evidence}\n   fix: ${f.fix}${f.files ? `\n   files: ${f.files}` : ''}${f.note ? `\n   verifier: ${f.note}` : ''}`).join('\n')
-const FIX = (area, items, round) => `${COMMON}
+const FIX = (area, items, round) => `${COMMON}${PLAYER_UPDATE}
 TASK (FIX — ${area.toUpperCase()}, round ${round}): fix the verified findings below. You OWN: ${OWN[area].owns}. ${OWN[area].others}. Port ${OWN[area].port + (round - 1) * 10}. Re-check each finding first; skip anything already fixed with a note. Fix all high and medium and the cheap lows. Keep npx tsc --noEmit, npx vitest run and npx vite build green; re-run the bot (engine/content) or re-screenshot the affected screens at 1180×750 (ui/map) into ${SCRATCH}/fix-${area}-${round}/. Calm visuals; brand files untouched.
 Return (≤ 400 words): per finding fixed / skipped (why), plus any change another lane must make (exact file + signature).
 Findings:
@@ -184,7 +186,7 @@ const READY_SCHEMA = {
   },
   required: ['ready', 'report', 'blockers'],
 }
-const READY = (fixReports, round) => `${COMMON}
+const READY = (fixReports, round) => `${COMMON}${PLAYER_UPDATE}
 TASK (RELEASE READINESS, round ${round}): you own everything except the brand files; the fix lanes are done (reports below). Port ${5845 + (round - 1) * 10}. Run the integration checklist: npx tsc --noEmit, npx vitest run, npx vite build; bot seeds 1–3 (365 days, < 10 s, 0 legality violations, no NaN, targets); scripts/ipad-shots.cjs at 1180×750 and 1180×820 (New Game → Ops Map → every tab → OfferModal → DecisionModal) and look at every shot; a touch play-through of the first game month at 4× with zero console errors; save → reload → continue mid-flight; nothing flickers. Fix small leftovers yourself (anything under ~30 lines). Anything larger goes in blockers with area/severity/evidence/fix — be honest: ready=true only if a player could enjoy this build today without hitting a crash, a dead screen, an illegal roster or a nonsensical number. Keep the shots in ${SCRATCH}/ready-${round}/.
 Return the structured report (report ≤ 400 words: what you verified, with numbers).
 Fix reports:

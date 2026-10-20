@@ -161,3 +161,5 @@ If an agent fails on a limit, its file edits persist (checkpoint them). Resume t
 ### 18:32Z — check-in: build alive; art finished + polished (brand 08ce8ef); checkpoint pushed.
 
 ### 19:32Z — check-in: build in Review phase; checkpoint pushed.
+
+### 19:44Z — player decision: invented events for real airlines/countries/cities are WANTED (no neutrality rule; only limit: no crimes pinned on real named private individuals). BRIEF.md updated; PLAYER_UPDATE override added to FIX/READY prompts; build resumed as task ws3pm4un2 (same run).
