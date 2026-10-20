@@ -7,6 +7,7 @@ import { CLOCK_STEP, type GameSpeed, minutesPerMs, monthKey } from '../engine/co
 import type { RatingFamily } from '../data/acmiTypes';
 import type { ActionResult, Archetype, GameState, Message, Ref, Role } from '../engine/core/types';
 import { generateOffer } from '../engine/contracts';
+import { pushDecision } from '../engine/core/messages';
 import { demoFlights, devFleet } from '../engine/dev';
 import { createGame, type NewGameOptions } from '../engine/newGame';
 import { AUTOSAVE_SLOT, saveToSlot } from '../engine/save';
@@ -396,6 +397,20 @@ class GameStore {
       const added = devFleet(this.game, n);
       this.emit();
       return added;
+    },
+    /** B5: a sample decision (no engine effect) to check DecisionModal, the Inbox pin and the pause badge. */
+    decision: () => {
+      if (!this.game) return null;
+      const d = pushDecision(this.game, {
+        kind: 'dev', title: 'Sample decision', body: 'A dev-only decision with three options. Choosing one does nothing.', defaultOption: 'b', expires: this.game.now + 6 * 60,
+        options: [
+          { id: 'a', label: 'Spend money', desc: 'Costs cash, keeps the client happy.', tone: 'good', chips: ['−$12K', 'Reliable +1'] },
+          { id: 'b', label: 'Wait and see', desc: 'Nothing happens.' },
+          { id: 'c', label: 'Refuse', desc: 'Saves money, upsets the client.', tone: 'bad', chips: ['Clean −1'] },
+        ],
+      });
+      this.emit();
+      return d.id;
     },
     /** B5: React renders per screen (dev builds only), to check the calm-UI budget (≤ ~2/s at 4×). */
     renders: {} as Record<string, number>,

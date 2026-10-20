@@ -14,7 +14,7 @@ import type { ActionResult, Aircraft, Flight, GameState, MaintenanceEvent, Minut
 import { flightCrewStatus, rerosterFrom } from '../crew';
 import { crewReadyAt, crewShortDecision, hasOpenDecision } from './events';
 import { aogChance, isGrounded, startAog } from './maintenance';
-import { ageF, ageOf, bumpReliable, bumpRelation, contractOf, isBaseLeg, isRevenue, stats, turnOf } from './util';
+import { ageF, ageOf, bumpReliable, bumpRelation, contractOf, isBaseLeg, isRevenue, stats, turnOf, usd } from './util';
 
 // ---------- schedule changes ----------
 
@@ -49,6 +49,64 @@ function plannedChecks(g: GameState, acId: string, from: Minute): MaintenanceEve
     .sort((a, b) => a.start - b.start);
 }
 
+/** How late (vs the original STD) a leg may run before recovery cancels it instead: base legs 6 h, trips 24 h. */
+export function lateCap(g: GameState, f: Flight): number {
+  if (!isRevenue(f)) return Infinity;
+  return isBaseLeg(g, f) ? BAL.holdMax : BAL.tripHoldMax;
+}
+
+export interface HoldPlan {
+  moves: { f: Flight; std: Minute }[];
+  cancels: Flight[];
+  checks: { m: MaintenanceEvent; start: Minute }[];
+}
+
+/**
+ * Recovery after the aircraft is held at `at` until `ready`: later legs (from `after`, excluding `skip`) move so each
+ * departs a turn after the previous arrival; a revenue leg that would run later than its cap is cancelled instead,
+ * and legs the aircraft can no longer reach (chain broken) go with it. Planned checks shift behind. Pure.
+ */
+export function planRecovery(g: GameState, ac: Aircraft, at: string, ready: Minute, after: Minute, skip?: Flight): HoldPlan {
+  const turn = turnOf(ac);
+  const plan: HoldPlan = { moves: [], cancels: [], checks: [] };
+  const checks = plannedChecks(g, ac.id, after);
+  let ci = 0;
+  let loc = at;
+  for (const x of flightsOf(g, ac.id)) {
+    if (x === skip || x.status !== 'scheduled' || x.std < after) continue;
+    while (ci < checks.length && checks[ci].start < x.std) {
+      const m = checks[ci++];
+      if (m.start < ready) plan.checks.push({ m, start: ready });
+      ready = Math.max(ready, m.start < ready ? ready + m.end - m.start : m.end);
+    }
+    if (x.std >= ready && x.from === loc) return plan;
+    if (x.from !== loc) {
+      // Chain broken: revenue legs the aircraft can't reach go; empty legs are left to contracts to re-link.
+      if (x.std >= ready + 12 * 60) return plan;
+      if (isRevenue(x)) plan.cancels.push(x);
+      continue;
+    }
+    const std = Math.max(x.std, ready);
+    if (std - (x.schedStd ?? x.std) > lateCap(g, x)) {
+      plan.cancels.push(x);
+      continue;
+    }
+    plan.moves.push({ f: x, std });
+    loc = x.to;
+    ready = std + x.block + turn;
+    if (plan.moves.length + plan.cancels.length >= 40) return plan;
+  }
+  for (; ci < checks.length && checks[ci].start < ready; ci++) {
+    const m = checks[ci];
+    plan.checks.push({ m, start: ready });
+    ready += m.end - m.start;
+  }
+  return plan;
+}
+
+/** Waiting out a grounding until `readyAt` at `at` (AOG courier/team), from now. Pure. */
+export const planHold = (g: GameState, ac: Aircraft, at: string, readyAt: Minute): HoldPlan => planRecovery(g, ac, at, readyAt, 0);
+
 function shiftCheck(g: GameState, m: MaintenanceEvent, start: Minute): void {
   const dur = m.end - m.start;
   m.start = start;
@@ -57,41 +115,43 @@ function shiftCheck(g: GameState, m: MaintenanceEvent, start: Minute): void {
   schedule(g, m.start, 'maint.start', m.id, m.ev);
 }
 
+/** Applies a recovery plan; cancelled revenue legs are compensated and messaged once. Returns legs moved. */
+export function applyHold(g: GameState, plan: HoldPlan, reason: string, moveReason?: string): number {
+  const rev = plan.cancels.filter((f) => f.status === 'scheduled' && isRevenue(f));
+  const pen = cancelLegs(g, plan.cancels, reason, 1);
+  if (rev.length) {
+    const f = rev[0];
+    pushMessage(g, {
+      tone: 'bad', cat: 'ops', title: `${rev.length} leg${rev.length > 1 ? 's' : ''} cancelled: ${f.no}${rev.length > 1 ? '…' : ''}`,
+      body: `${reason}: ${rev.map((x) => `${x.no} ${x.from}–${x.to}`).slice(0, 4).join(', ')}${rev.length > 4 ? '…' : ''} could not be flown in time.${pen ? ` Compensation ${usd(pen)}.` : ''}`,
+      ref: { kind: 'flight', id: f.id },
+    });
+  }
+  let n = 0;
+  for (const { f, std } of plan.moves) {
+    if (f.status !== 'scheduled') continue;
+    if (std !== f.std) {
+      moveFlight(g, f, std, moveReason ?? reason);
+      n++;
+    } else if (f.delay) {
+      f.delay = 0;
+      schedule(g, Math.max(g.now, f.std), 'flight.dep', f.id, f.ev);
+    }
+  }
+  for (const { m, start } of plan.checks) if (m.status === 'planned') shiftCheck(g, m, start);
+  return n;
+}
+
 /**
- * Delays `f` to `std` and ripples: the aircraft's later legs (and planned checks) move so each leg departs at least
- * a turn after the previous arrival. Stops at the first leg the delay no longer reaches. Returns legs moved after f.
+ * Delays `f` to `std` and ripples to the aircraft's later legs and planned checks (turn minima kept). Legs pushed
+ * past their cap are cancelled instead (schedule recovery). Returns legs moved after f.
  */
 export function delayChain(g: GameState, f: Flight, std: Minute, reason: string): number {
   const ac = f.aircraftId ? g.fleet[f.aircraftId] : undefined;
-  const later = ac ? flightsOf(g, ac.id).filter((x) => x !== f && x.status === 'scheduled' && x.std >= f.std) : [];
-  const checks = ac ? plannedChecks(g, ac.id, f.std) : [];
+  const from = f.std;
   if (std !== f.std || f.delay) moveFlight(g, f, Math.max(std, g.now), reason);
   if (!ac) return 0;
-  return pushLater(g, ac, f.sta + turnOf(ac), later, checks);
-}
-
-function pushLater(g: GameState, ac: Aircraft, ready: Minute, later: Flight[], checks: MaintenanceEvent[]): number {
-  const turn = turnOf(ac);
-  let n = 0;
-  let ci = 0;
-  for (const x of later) {
-    while (ci < checks.length && checks[ci].start < x.std) {
-      const m = checks[ci++];
-      if (m.start < ready) shiftCheck(g, m, ready);
-      ready = Math.max(ready, m.end);
-    }
-    if (x.std >= ready) return n;
-    moveFlight(g, x, ready, x.delayReason || 'Late inbound aircraft');
-    ready = x.sta + turn;
-    n++;
-  }
-  for (; ci < checks.length; ci++) {
-    const m = checks[ci];
-    if (m.start >= ready) break;
-    shiftCheck(g, m, ready);
-    ready = m.end;
-  }
-  return n;
+  return applyHold(g, planRecovery(g, ac, f.to, f.sta + turnOf(ac), from, f), 'Schedule recovery', 'Late inbound aircraft');
 }
 
 // ---------- disruption plans (shared by the AOG and crew decisions) ----------
@@ -111,51 +171,6 @@ export function windowLegs(g: GameState, ac: Aircraft, at: string, readyAt: Minu
     loc = f.to;
   }
   return out;
-}
-
-export interface HoldPlan {
-  moves: { f: Flight; std: Minute }[];
-  cancels: Flight[];
-}
-
-/**
- * Waiting out a grounding until `readyAt` at `at` (AOG courier/team): trips (charters, ferries) wait; base-programme
- * legs wait up to BAL.holdMax and are cancelled beyond it, keeping the location chain. Pure.
- */
-export function planHold(g: GameState, ac: Aircraft, at: string, readyAt: Minute): HoldPlan {
-  const turn = turnOf(ac);
-  const plan: HoldPlan = { moves: [], cancels: [] };
-  let loc = at;
-  let ready = readyAt;
-  for (const x of flightsOf(g, ac.id)) {
-    if (x.status !== 'scheduled') continue;
-    if (x.std >= ready && x.from === loc) break;
-    if (x.from !== loc) {
-      if (x.std >= ready + 12 * 60) break;
-      plan.cancels.push(x);
-      continue;
-    }
-    const std = Math.max(x.std, ready);
-    if (std - x.std <= BAL.holdMax || !isBaseLeg(g, x)) {
-      plan.moves.push({ f: x, std });
-      loc = x.to;
-      ready = std + x.block + turn;
-    } else plan.cancels.push(x);
-    if (plan.moves.length + plan.cancels.length >= 24) break;
-  }
-  return plan;
-}
-
-export function applyHold(g: GameState, plan: HoldPlan, reason: string): void {
-  cancelLegs(g, plan.cancels, reason, 1);
-  for (const { f, std } of plan.moves) {
-    if (f.status !== 'scheduled') continue;
-    if (std !== f.std) moveFlight(g, f, std, reason);
-    else if (f.delay) {
-      f.delay = 0;
-      schedule(g, Math.max(g.now, f.std), 'flight.dep', f.id, f.ev);
-    }
-  }
 }
 
 /** Client compensation for cancelling these legs (contract perCancelledLeg on revenue legs). Pure. */

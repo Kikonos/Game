@@ -34,17 +34,19 @@ const loadZoom = (): ZoomDays => {
   }
 };
 
-function Block({ b, from, ppm }: { b: GanttBlock; from: number; ppm: number }) {
+function Block({ b, from, ppm, win0 }: { b: GanttBlock; from: number; ppm: number; win0: number }) {
   const x = (b.start - from) * ppm;
   const w = Math.max(b.kind === 'idle' ? 0 : 3, (b.end - b.start) * ppm);
   const k = b.color !== null ? contractColor(b.color) : undefined;
   const text = w >= 64 ? b.label : w >= 22 ? b.short ?? '' : '';
+  // Long idle gaps that start off-screen: keep the label near the visible left edge (window start + 18 h).
+  const shift = b.kind === 'idle' ? Math.min(Math.max(0, (win0 + 18 * 60 - b.start) * ppm), Math.max(0, w - 90)) : 0;
   return (
     <div
       className={`gb gb-${b.kind}${b.done ? ' done' : ''}${b.crew ? ` crew-${b.crew}` : ''}`}
       style={{ transform: `translateX(${x.toFixed(1)}px)`, width: w, ['--kc' as string]: k }}
     >
-      {text && <span>{text}</span>}
+      {text && <span style={shift ? { marginLeft: shift } : undefined}>{text}</span>}
     </div>
   );
 }
@@ -64,7 +66,7 @@ function Row({ g, ac, from, until, win, zoom, ppm, sel }: { g: GameState; ac: Ai
   };
   return (
     <div className={`gantt-row ${sel ? 'sel' : ''}`} data-ac={ac.id} onClick={onClick}>
-      {blocks.map((b) => <Block key={b.key} b={b} from={from} ppm={ppm} />)}
+      {blocks.map((b) => <Block key={b.key} b={b} from={from} ppm={ppm} win0={win[0]} />)}
     </div>
   );
 }
@@ -134,9 +136,10 @@ export function ScheduleScreen() {
     syncWin();
   };
 
-  // First layout: today near the left edge; the selected aircraft's row into view.
+  // First layout: today (or the deep-linked time in nav.view) near the left edge; the selected aircraft's row into view.
   useLayoutEffect(() => {
-    scrollTo(g.now);
+    const at = Number(store.nav.view);
+    scrollTo(Number.isFinite(at) && at > 0 ? at : g.now);
     if (sel) document.querySelector(`.gantt-row[data-ac="${sel}"]`)?.scrollIntoView({ block: 'nearest' });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

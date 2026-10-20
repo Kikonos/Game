@@ -208,7 +208,7 @@ export function refTarget(g: GameState, ref: Ref): DeepLink | null {
     case 'flight': {
       const f = g.flights[ref.id];
       const acId = f?.aircraftId ?? (f?.contractId ? g.contracts[f.contractId]?.aircraftIds[0] : undefined);
-      return acId ? { tab: 'schedule', sel: { kind: 'aircraft', id: acId } } : { tab: 'schedule' };
+      return acId ? { tab: 'schedule', sel: { kind: 'aircraft', id: acId }, view: String(f!.std) } : { tab: 'schedule' };
     }
     case 'aircraft':
       return g.fleet[ref.id] ? { tab: 'fleet', sel: ref } : { tab: 'fleet' };
@@ -227,7 +227,7 @@ export function refTarget(g: GameState, ref: Ref): DeepLink | null {
       return g.crew[ref.id] ? { tab: 'crew', sel: ref } : { tab: 'crew' };
     case 'maint': {
       const m = g.maintenance[ref.id];
-      return m ? { tab: 'schedule', sel: { kind: 'aircraft', id: m.aircraftId } } : { tab: 'fleet' };
+      return m ? { tab: 'schedule', sel: { kind: 'aircraft', id: m.aircraftId }, view: String(m.start) } : { tab: 'fleet' };
     }
     case 'airport':
       return { tab: 'map', sel: ref };

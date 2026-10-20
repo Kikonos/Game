@@ -103,6 +103,8 @@ export const BAL = {
   aogDecisionMin: 120,
   /** Base-programme legs are cancelled rather than held longer than this (minutes); charters always wait. */
   holdMax: 360,
+  /** Trips (charters, rotations) run at most this late before recovery cancels a leg (minutes). */
+  tripHoldMax: 1440,
   /** Rival price for sub-chartered legs × contract rate (RESEARCH §4.3, §5.7). */
   subcharterFactor: [1.2, 2.0] as [number, number],
   /** A-check calendar limit (days); auto-planning starts at this share used or this many days before due. */

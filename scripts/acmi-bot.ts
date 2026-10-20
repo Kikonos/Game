@@ -8,6 +8,7 @@ import { DAY, WEEK, fmtMonth, monthKey } from '../src/engine/core/time';
 import { statementTotals } from '../src/engine/core/ledger';
 import type { GameState, Role } from '../src/engine/core/types';
 import { acceptOffer, feasibilityAll } from '../src/engine/contracts';
+import { flightsOf } from '../src/engine/core/entities';
 import { flightCrewStatus, hireCrew, staffing } from '../src/engine/crew';
 import { devFleet } from '../src/engine/dev';
 import { createGame } from '../src/engine/newGame';
@@ -140,7 +141,7 @@ while (g.now < end && !g.gameOver) {
   const stepFrom = Number(process.env.BOT_STEP ?? Infinity);
   if (g.now - start >= stepFrom * DAY) {
     const top = g.queue[0];
-    console.error('ev', top?.t - g.now, top?.type, top?.id, top?.id && g.flights[top.id] ? `${g.flights[top.id].no} ${g.flights[top.id].status} std ${g.flights[top.id].std - g.now} delay ${g.flights[top.id].delay} ${g.flights[top.id].from}-${g.flights[top.id].to} ${g.flights[top.id].kind} ac ${g.flights[top.id].aircraftId} at ${g.fleet[g.flights[top.id].aircraftId ?? ""]?.at} ${g.fleet[g.flights[top.id].aircraftId ?? ""]?.status} ${g.flights[top.id].contractId} blk ${g.flights[top.id].block} ev ${g.flights[top.id].ev}/${top.v} crew ${JSON.stringify(flightCrewStatus(g, top.id))} duty ${g.flights[top.id].dutyId} ${g.duties[g.flights[top.id].dutyId ?? ""]?.legality}` : '');
+    console.error('ev', top?.t - g.now, top?.type, top?.id, top?.id && g.flights[top.id] ? `${g.flights[top.id].no} ${g.flights[top.id].status} std ${g.flights[top.id].std - g.now} delay ${g.flights[top.id].delay} ${g.flights[top.id].from}-${g.flights[top.id].to} ${g.flights[top.id].kind} ac ${g.flights[top.id].aircraftId} at ${g.fleet[g.flights[top.id].aircraftId ?? ""]?.at} ${g.fleet[g.flights[top.id].aircraftId ?? ""]?.status} ${g.flights[top.id].contractId} blk ${g.flights[top.id].block} why ${g.flights[top.id].delayReason} ev ${g.flights[top.id].ev}/${top.v} crew ${JSON.stringify(flightCrewStatus(g, top.id))} duty ${g.flights[top.id].dutyId} ${g.duties[g.flights[top.id].dutyId ?? ""]?.legality}` : '');
   }
   const r = advanceTo(g, Math.min(end, g.now >= start + stepFrom * DAY ? g.queue[0]?.t ?? end : g.now + 6 * 60));
   for (const o of Object.values(g.offers)) seen.add(o.id);
@@ -153,7 +154,7 @@ while (g.now < end && !g.gameOver) {
   decide();
   const day = Math.floor((g.now - start) / DAY);
   if (process.env.BOT_TRACE === '2' && day !== lastDay) for (const ac of Object.values(g.fleet)) { const st = checkStatus(g, ac); console.error(`  ${ac.id} ${ac.at} ${ac.status} fhA ${ac.maint.fhSinceA.toFixed(0)} aUsed ${st.aUsed.toFixed(2)} due ${((st.aDue - g.now) / DAY).toFixed(1)}d nextA ${st.nextA} ${st.nextA ? JSON.stringify(g.maintenance[st.nextA]) : ''} gr ${st.grounded}`); }
-  if (process.env.BOT_TRACE && day !== lastDay) console.error(`day ${day} ${((performance.now() - wall) / 1000).toFixed(1)}s flights ${Object.keys(g.flights).length} q ${g.queue.length} dec ${g.decisions.length} cash ${Math.round(g.company.cash / 1000)}k`);
+  if (process.env.BOT_TRACE && day !== lastDay) console.error(`day ${day} ${((performance.now() - wall) / 1000).toFixed(1)}s flights ${Object.keys(g.flights).length} q ${g.queue.length} dec ${g.decisions.length} cash ${Math.round(g.company.cash / 1000)}k ${JSON.stringify(Object.values(g.flights).reduce((m, f) => ((m[f.kind + ':' + f.status + ':' + (f.delayReason ?? '')] = (m[f.kind + ':' + f.status + ':' + (f.delayReason ?? '')] ?? 0) + 1), m), {} as Record<string, number>))}`);
   if (r.pause === 'urgentOffer' || day !== lastDay) {
     offers();
     if (day !== lastDay) {
@@ -171,6 +172,16 @@ while (g.now < end && !g.gameOver) {
 }
 
 // ---------- report ----------
+
+if (process.env.BOT_DUMP) {
+  for (const ac of Object.values(g.fleet)) {
+    console.log(ac.id, ac.reg, ac.at, ac.status, ac.flightId);
+    for (const f of flightsOf(g, ac.id).filter((x) => x.status !== 'done' && x.status !== 'cancelled').slice(0, 14)) {
+      const cs = flightCrewStatus(g, f.id);
+      console.log(`  ${f.no} ${f.kind} ${f.from}-${f.to} ${f.status} std ${((f.std - g.now) / 60).toFixed(1)}h late ${((f.std - (f.schedStd ?? f.std)) / 60).toFixed(1)}h hold ${f.delay} ${f.delayReason ?? ''} crew ${cs.level} ${cs.missing.join(',')} duty ${f.dutyId} ${f.dutyId ? g.duties[f.dutyId]?.legality : ''} c ${f.contractId}`);
+    }
+  }
+}
 
 const pad = (s: string | number, n: number) => String(s).padStart(n);
 const k = (v: number) => `${(v / 1000).toFixed(0)}k`;

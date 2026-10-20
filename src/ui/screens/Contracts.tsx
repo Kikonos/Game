@@ -109,7 +109,7 @@ function ContractRow({ g, c, sel }: { g: GameState; c: Contract; sel: boolean })
       )}
       {open && (
         <div className="sc-contract-actions">
-          <button className="btn" onClick={() => store.navigate('schedule', { sel: { kind: 'aircraft', id: c.aircraftIds[0] } })} aria-label="Show on schedule"><CalendarRange /></button>
+          <button className="btn" onClick={() => store.navigate('schedule', { sel: { kind: 'aircraft', id: c.aircraftIds[0] }, view: String(Math.max(g.now, next?.std ?? c.start)) })} aria-label="Show on schedule"><CalendarRange /></button>
           <button className="btn btn-danger" onClick={() => confirmCancel(g, c)} aria-label="Cancel contract"><CircleSlash /></button>
         </div>
       )}
