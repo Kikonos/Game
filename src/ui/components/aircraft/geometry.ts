@@ -21,7 +21,8 @@ export interface EngineGeo {
   plug: string;
   /** Fan-cowl / thrust-reverser seam (fine line). */
   seam: string;
-  prop?: { disc: string; blades: string; spinner: string };
+  /** `x`: fore and aft extent of the disc (m). */
+  prop?: { disc: string; blades: string; spinner: string; x: readonly [number, number] };
 }
 
 export interface LiveryGeo {
@@ -63,7 +64,8 @@ export interface Geometry {
   fin: { fill: string; edge: string; lines: string; quad: readonly [V, V, V, V]; top: number };
   stab: { near: string; far: string; lines: string; bullet: string; tTail: boolean; none: boolean };
   /** `shade`: darker underside of a sectioned (side-on aerofoil) wing; no `shadow` in outline mode. */
-  wing: { fill: string; tip: string; lines: string; shade?: string; shadow?: { c: V; rx: number; ry: number } };
+  /** `tipEdge`: stroke of a blended tip device (its fill `tip` is then drawn unstroked: the rest of its edge is the wing's outline). */
+  wing: { fill: string; tip: string; tipEdge?: string; lines: string; shade?: string; shadow?: { c: V; rx: number; ry: number } };
   engines: EngineGeo[];
   windows: string;
   doors: string;
@@ -572,9 +574,23 @@ function build(p: AircraftProfile, t?: TracedProfile): Geometry {
   const crownAt = (x: number) => Math.min(upperY(x), H / 2);
   let tx = Math.max(cockpitEnd + H * 0.25, ...doorBox.filter((d) => d.kind === 'pax' && d.x < L * 0.3).map((d) => d.x + d.w + H * 0.08));
   while (tx < L * 0.5 && crownAt(tx) < H * 0.49) tx += H * 0.05;
+  if (fr?.t.titlesFrom !== undefined) tx = fr.X(fr.t.titlesFrom);
   const avail = H / 2 - winTop;
   const wingStop = fr?.outline ? (Number.isFinite(wingFrom) ? wingFrom : L * 0.4) : w.high ? w.x - wrc * 0.5 : w.x + wrc * 0.3;
-  const titles = (fr && !deckRows ? undefined : p.titles) ?? { x: tx, y: winTop + avail * 0.46, w: Math.max(H * 1.6, Math.min(wingStop, L * 0.6) - tx), size: Math.min(avail * 0.62, H * 0.24) };
+  // letters fill 62% of the band above the windows; single-aisle bands are narrow, so their titles
+  // take 74% (still >= 0.13 m clear of the windows and the crown) and end short of the next door
+  // (a long airline name shrinks to fit rather than run over it)
+  const single = H < 4.5;
+  const nextDoor = Math.min(Infinity, ...doorBox.filter((d) => d.kind === 'pax' && d.x > tx).map((d) => d.x));
+  const tw = Math.min(Math.max(H * 1.6, Math.min(wingStop, L * 0.6) - tx), single ? nextDoor - H * 0.08 - tx : Infinity);
+  let titles = (fr && !deckRows ? undefined : p.titles) ?? { x: tx, y: winTop + avail * 0.46, w: tw, size: Math.min(avail * (single ? 0.74 : 0.62), H * 0.24) };
+  // never under a propeller: titles ahead of a disc end short of it, titles starting inside one move aft of it
+  for (const e of engines) {
+    if (!e.prop) continue;
+    const [d0, d1] = e.prop.x, gap = H * 0.1;
+    if (titles.x < d0) titles = { ...titles, w: Math.min(titles.w, d0 - gap - titles.x) };
+    else if (titles.x < d1 + gap) titles = { ...titles, x: d1 + gap };
+  }
 
   // ---------- livery ----------
   const liv = new Map<TailStyle, LiveryGeo>();
@@ -783,17 +799,22 @@ export function wingStation(w: WingSpec, f: number): { le: V; chord: number; th:
   return { le: [w.x + run * f, w.y + rise * f], chord: lerp(w.rootChord, w.tipChord, f), th: lerp(th, Math.max(0.1, th * (w.tipChord / w.rootChord)), f) };
 }
 
-/** Tip devices in a local frame: x in tip chords from the tip LE, y in device heights. */
-const TIP: Partial<Record<TipDevice, { up: number[]; down?: number[] }>> = {
+/**
+ * Tip devices in a local frame: x in tip chords from the tip LE, y in device heights.
+ * `blend`: the device grows out of the wing's leading edge (its start and first control point
+ * ride the LE line) and closes along the wing's own tip outline, so no base line is drawn ahead
+ * of the tip over the fuselage.
+ */
+const TIP: Partial<Record<TipDevice, { up: number[]; down?: number[]; blend?: boolean }>> = {
   sharklet: { up: [-0.1, 0, 0.55, 0.02, 0.9, 0.28, 1.12, 0.68, 1.42, 1, 1.72, 1, 1, 0] },
   winglet: { up: [0.2, 0, 0.36, 0.01, 0.48, 0.07, 0.56, 0.16, 1.22, 1, 1.56, 1, 1, 0] },
   blended: { up: [-0.4, 0, 0.55, 0.0, 0.92, 0.22, 1.14, 0.62, 1.42, 1, 1.64, 1, 1, 0] },
   scimitar: { up: [-0.35, 0, 0.55, 0.0, 0.95, 0.22, 1.16, 0.62, 1.5, 1, 1.68, 0.98, 1, 0], down: [0.45, 0, 0.62, -0.08, 0.86, -0.2, 1.08, -0.3, 1.22, -0.28, 1, 0] },
-  curved: { up: [-0.8, 0, 0.6, 0.0, 1.05, 0.18, 1.45, 0.7, 1.7, 1.04, 1.82, 1.0, 1, 0] },
+  curved: { up: [-0.8, 0, 0.6, 0.0, 1.05, 0.18, 1.45, 0.7, 1.7, 1.04, 1.82, 1.0, 1, 0], blend: true },
   fence: { up: [0.05, 0, 0.55, 1, 0.82, 0.96, 0.95, 0], down: [0.15, 0, 0.5, -0.75, 0.75, -0.7, 0.88, 0] },
 };
 
-function wingGeometry(w: WingSpec, box: Box): { fill: string; tip: string; lines: string; shade?: string } {
+function wingGeometry(w: WingSpec, box: Box): { fill: string; tip: string; tipEdge?: string; lines: string; shade?: string } {
   if (w.section) return wingSection(w, box);
   const root = wingStation(w, 0);
   const tip = wingStation(w, 1);
@@ -813,11 +834,35 @@ function wingGeometry(w: WingSpec, box: Box): { fill: string; tip: string; lines
   box.add([rx, ry - th / 2], [tx + tc, ty + tth]);
 
   const tipD = new D();
+  let tipEdge: D | undefined;
   const h = w.tipH ?? 0;
   const preset = TIP[w.tip];
   if (preset && h > 0) {
     const m = (a: number, b: number): V => [tx + a * tc, ty + tth * 0.3 + b * h];
-    const draw = (pts: number[]) => {
+    const draw = (pts: number[], blend = false) => {
+      if (blend) {
+        // wing's upper outline: the LE line from the root (as drawn above) to the tip corner
+        const a: V = [rx + rc * lead, ry + th * 0.5], b: V = [tx + tc * 0.12, ty + tth * 0.5];
+        const on = (u: number): V => { const x = tx + u * tc; return [x, lerp(a[1], b[1], (x - a[0]) / (b[0] - a[0]))]; };
+        const c: [V, V, V, V] = [on(pts[0]), on(pts[2]), m(pts[4], pts[5]), m(pts[6], pts[7])];
+        // tip edge down to the wing's aft tip corner
+        const rest: V[] = [];
+        for (let i = 8; i + 3 < pts.length; i += 2) rest.push(m(pts[i], pts[i + 1]));
+        rest.push([tx + tc, ty]);
+        tipD.M(c[0]).C(c[1], c[2], c[3]);
+        for (const v of [...rest, [tx + tc * 0.9, ty + tth * 0.45] as V, b]) tipD.L(v);
+        tipD.Z();
+        // the edge stroke starts where the curve has left the wing's outline (no doubled line along the LE)
+        const wingTop: V[] = [a, b, [tx + tc * 0.9, ty + tth * 0.45], [tx + tc, ty]];
+        const lift = (t: number) => { const q = splitTail(...c, t)[0]; return q[1] - yAt(wingTop, q[0]); };
+        let t0 = 0;
+        while (t0 < 0.9 && lift(t0) < tc * 0.01) t0 += 0.005;
+        const [p0, d1, d2] = splitTail(...c, t0);
+        tipEdge = new D().M(p0).C(d1, d2, c[3]);
+        for (const v of rest) tipEdge.L(v);
+        for (let i = 0; i + 1 < pts.length; i += 2) box.add(m(pts[i], pts[i + 1]));
+        return;
+      }
       tipD.M(m(pts[0], pts[1]));
       if (w.tip === 'fence') {
         for (let i = 2; i + 1 < pts.length; i += 2) tipD.L(m(pts[i], pts[i + 1]));
@@ -828,7 +873,7 @@ function wingGeometry(w: WingSpec, box: Box): { fill: string; tip: string; lines
       tipD.Z();
       for (let i = 0; i + 1 < pts.length; i += 2) box.add(m(pts[i], pts[i + 1]));
     };
-    draw(preset.up);
+    draw(preset.up, preset.blend);
     if (preset.down) draw(preset.down);
   } else if ((w.tip === 'raked' || w.tip === 'folding') && h > 0) {
     // raked tip: the leading edge sweeps on aft to a point; h = extra length (m)
@@ -841,7 +886,7 @@ function wingGeometry(w: WingSpec, box: Box): { fill: string; tip: string; lines
   const lines = new D();
   lines.M([rx + rc * 0.72, ry - th * 0.2]).L([tx + tc * 0.7, ty + tth * 0.05]);
   if (w.tip === 'folding' && h > 0) lines.M([tx + tc * 0.7, ty + tth * 0.6]).L([tx + tc * 1.02, ty - tth * 0.1]);
-  return { fill: fill.toString(), tip: tipD.toString(), lines: lines.toString() };
+  return { fill: fill.toString(), tip: tipD.toString(), tipEdge: tipEdge?.toString(), lines: lines.toString() };
 }
 
 /** Root aerofoil seen side-on: rounded leading edge at (x, y), cambered, sharp trailing edge. */
@@ -983,7 +1028,7 @@ function turboprop(e: EngineSpec, pylon: D, box: Box): EngineGeo {
   const nb = e.prop?.blades ?? 6;
   const xd = xb - sp * 0.3;
   const rx = R * 0.1;
-  const disc = new D().ellipse([xd, cy], rx, R).toString();
+  const disc = new D().ellipse([xd, cy], rx, R, true).toString();
   const blades = new D();
   // blades seen from the side: thin tapered shapes radiating from the hub at different phase angles
   for (let i = 0; i < nb; i++) {
@@ -997,7 +1042,7 @@ function turboprop(e: EngineSpec, pylon: D, box: Box): EngineGeo {
   box.add([xd - rx, cy - R], [xd + rx, cy + R], [end, cy]);
   return {
     spec: e, pylon: pylon.toString(), cowl: cowl.toString(), accent, lip: '', dark: dark.toString(), core: '', plug: '', seam: '',
-    prop: { disc, blades: blades.toString(), spinner: spinner.toString() },
+    prop: { disc, blades: blades.toString(), spinner: spinner.toString(), x: [xd - rx, xd + rx] },
   };
 }
 

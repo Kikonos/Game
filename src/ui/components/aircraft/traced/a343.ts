@@ -32,7 +32,7 @@ export const profile: TracedProfile = {
     [0.93, -0.0126], [0.95, -0.0177], [0.97, -0.0244], [0.99, -0.0301], [1.0, -0.037],
   ],
   cockpit: [
-    [[0.028, -0.0165], [0.03, -0.0228], [0.0312, -0.0245], [0.0345, -0.0245], [0.0347, -0.0165]],
+    [[0.03, -0.0165], [0.03, -0.0228], [0.0312, -0.0245], [0.0345, -0.0245], [0.0347, -0.0165]],
     [[0.0358, -0.0158], [0.0358, -0.0245], [0.0405, -0.0248], [0.0408, -0.0158]],
     [[0.0424, -0.0158], [0.0424, -0.0252], [0.0495, -0.0254], [0.0512, -0.024], [0.0512, -0.017], [0.05, -0.0158]],
   ],
@@ -49,5 +49,7 @@ export const profile: TracedProfile = {
     { x: 0.3574, y: 0.0161, w: 0.0931, h: 0.0363 },
     { x: 0.4705, y: -0.001, w: 0.093, h: 0.0415 },
   ],
+  // just aft of door 2 (+0.08 H), as on the A330s: the crown reference here is the bump at x 0.63
+  titlesFrom: 0.301,
   notes: "SAS A340-300 photo, de-rotated 0.6 deg. Airbus 3-pane cockpit (slanted windshield + 2 side windows) above a concave windshield break. Engines: inboard (fwd/low) then outboard (aft/high); door 3 is the small overwing Type I exit.",
 };

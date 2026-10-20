@@ -17,6 +17,12 @@ export interface TracedProfile {
   wingRoot?: { from: number; to: number; y: number };        // where the wing meets the fuselage (x-range, y of the root chord centre)
   engines?: { x: number; y: number; w: number; h: number }[];  // nacelle bounding boxes (same frame)
   outline?: [number, number][];              // FULL closed silhouette (fuselage + wing + fin + nacelles) — used instead of top/bottom for the Concorde
+  /**
+   * Nose-side start of the titles (fraction of L), replacing the search for full crown height aft
+   * of the forward doors — for a trace whose reference crown (a local high point) the cabin crown
+   * never quite reaches, which otherwise pushes the titles to mid-fuselage beside the wing tip.
+   */
+  titlesFrom?: number;
   notes?: string;
   /** Real fuselage length (m) when the type has no parametric spec to take it from (shared scale). */
   lengthM?: number;

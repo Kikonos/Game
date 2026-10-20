@@ -344,9 +344,13 @@ function AircraftArtImpl({ typeId, livery, code, name, className, height, detail
       {!sil && (<>
       {g.wingRoot && <path d={g.wingRoot} fill={url('fus')} stroke={OUTLINE} strokeWidth={sw * 0.8} style={ns} />}
       {p.wing.section && near.map((e, i) => engine(e, i + far.length, !!e.spec.inboard, 'body'))}
+      {/* a blended tip device fills from under the wing (whose outline stays whole) and strokes only its free edge */}
+      {g.wing.tip && g.wing.tipEdge && <path d={g.wing.tip} fill={url('wing')} />}
       <path d={g.wing.fill} fill={url(p.wing.section ? 'wsec' : 'wing')} stroke={OUTLINE} strokeWidth={sw * 0.9} style={ns} strokeLinejoin="round" />
       {g.wing.shade && <path d={g.wing.shade} fill="rgba(40,58,92,0.16)" />}
-      {g.wing.tip && <path d={g.wing.tip} fill={url('wing')} stroke={OUTLINE} strokeWidth={sw * 0.9} style={ns} strokeLinejoin="round" />}
+      {g.wing.tip && (g.wing.tipEdge
+        ? <path d={g.wing.tipEdge} fill="none" stroke={OUTLINE} strokeWidth={sw * 0.9} style={ns} strokeLinejoin="round" />
+        : <path d={g.wing.tip} fill={url('wing')} stroke={OUTLINE} strokeWidth={sw * 0.9} style={ns} strokeLinejoin="round" />)}
       {full && <path d={g.wing.lines} fill="none" stroke={FINE} strokeWidth={0.6} style={ns} />}
       </>)}
 

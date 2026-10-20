@@ -67,10 +67,16 @@ export class D {
     }
     return this.Z();
   }
-  /** Axis-aligned ellipse (centre in world coords). */
-  ellipse(c: V, rx: number, ry: number): this {
+  /**
+   * Axis-aligned ellipse (centre in world coords). `exact`: the x radius is half the rounded
+   * chord, so both arcs meet on the diameter. Without it, centimetre rounding of a slim ellipse
+   * leaves the chord short of 2 rx and each large arc bulges past ry (by up to ~45% of it).
+   */
+  ellipse(c: V, rx: number, ry: number, exact = false): this {
     const x = c[0], y = -c[1];
-    this.s += `M${f(x - rx)} ${f(y)}A${f(rx)} ${f(ry)} 0 1 0 ${f(x + rx)} ${f(y)}A${f(rx)} ${f(ry)} 0 1 0 ${f(x - rx)} ${f(y)}Z`;
+    const x0 = f(x - rx), x1 = f(x + rx);
+    const r = exact ? String(Math.round((Number(x1) - Number(x0)) * 500) / 1000) : f(rx);
+    this.s += `M${x0} ${f(y)}A${r} ${f(ry)} 0 1 0 ${x1} ${f(y)}A${r} ${f(ry)} 0 1 0 ${x0} ${f(y)}Z`;
     return this;
   }
   /** Rounded rect from world bottom-left corner. */
