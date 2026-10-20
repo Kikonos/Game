@@ -157,3 +157,5 @@ If an agent fails on a limit, its file edits persist (checkpoint them). Resume t
 - Note for the merge: brand still carries src/engine/ops/zz_dbg_b3.test.ts from the old base — take acmi's version (deleted) when merging.
 
 ### 17:32Z — check-in: build alive (end-to-end/review stage), art polish agent running; checkpoint pushed.
+
+### 18:32Z — check-in: build alive; art finished + polished (brand 08ce8ef); checkpoint pushed.
