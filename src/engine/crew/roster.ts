@@ -8,8 +8,9 @@ import { requestPause } from '../core/pause';
 import { canFill, complement, typeOf } from '../core/perf';
 import { DAY, fmtDateTime } from '../core/time';
 import type { ActionResult, CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing, Role } from '../core/types';
-import { acceptable, mergeSegs, openDuties, otherTrip, planCrew, type CrewPlan } from './check';
-import { deletePairing, dutyLegality, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setCrewTrailOkHook, setRetickHook, splitPairing, syncDuty } from './duties';
+import { acceptable, crewIssuesFor, mergeSegs, openDuties, otherTrip, planCrew, type CrewPlan } from './check';
+import { deletePairing, dutyLegality, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setCrewTrailOkHook, setReleaseHook, setRetickHook, splitPairing, syncDuty } from './duties';
+import { crewName } from './generate';
 import { evalSegs, levelOf, worst, type Seg } from './rules';
 import { aboard, block28, crewCount, crewIx, ctxOf, dhBlock, dutySegs, locAt, noteRiders, passengers, planHome, planOut, segsOf, ticketPrice, touchCrew, typeIdOf } from './timeline';
 
@@ -179,16 +180,35 @@ function retimeTickets(g: GameState, p: Pairing, d: Duty, moved: Set<string>): v
   touchCrew(g);
 }
 
-/** Crew whose tickets moved: their later trips are re-checked (rest, location) and re-rostered when broken. */
+/** Crew whose duty or tickets moved: their next trip is re-checked (rest, location) and re-rostered when broken. */
 function recheckLater(g: GameState, crewIds: Set<string>, after: Pairing): void {
   const acs = new Set<string>();
+  const seen = new Set<Pairing>();
   for (const id of crewIds) {
+    let next: Pairing | null = null;
     for (const q of crewIx(g).pairingsOf.get(id) ?? []) {
       if (q === after || q.start <= after.start || q.status !== 'planned' || !q.aircraftId || !inHorizon(g, q.start)) continue;
-      if (recheckPairing(g, q).level === 'illegal') acs.add(q.aircraftId);
+      if (!next || q.start < next.start) next = q;
     }
+    if (!next || seen.has(next)) continue;
+    seen.add(next);
+    if (recheckPairing(g, next).level === 'illegal') acs.add(next.aircraftId!);
   }
   for (const ac of acs) if (g.company.policies.autoRoster) rerosterFrom(g, ac, g.now);
+}
+
+/** Crew whose whereabouts changed outside a trip (a ticket they never boarded): their next trip is re-checked. */
+export function recheckNext(g: GameState, crewIds: string[]): void {
+  const acs = new Set<string>();
+  for (const id of crewIds) {
+    let next: Pairing | null = null;
+    for (const q of crewIx(g).pairingsOf.get(id) ?? []) {
+      if (q.status !== 'planned' || !q.aircraftId || q.start < g.now) continue;
+      if (!next || q.start < next.start) next = q;
+    }
+    if (next && recheckPairing(g, next).level === 'illegal' && inHorizon(g, next.start)) acs.add(next.aircraftId!);
+  }
+  if (g.company.policies.autoRoster) for (const ac of acs) rerosterFrom(g, ac, g.now);
 }
 
 /** Takes a crew member off the pairing's tickets not yet flown (a ticket left empty is cancelled). */
@@ -240,16 +260,35 @@ function sendHome(g: GameState, c: CrewMember, p?: Pairing): void {
 }
 
 /**
- * Daily: crewed trips reporting in the next week are re-checked (a ticket moved, a crew member stranded elsewhere);
- * broken ones are re-rostered while there is still time to position someone.
+ * Daily: crewed trips and tours with a duty reporting in the next week are re-checked (a ticket moved, a crew
+ * member stranded elsewhere, a recovery or rest a delay ate); broken ones are re-rostered while there is still
+ * time to position someone (a tour under way is split before the duty its crew can't fly).
  */
 export function recheckSoon(g: GameState): void {
   const acs = new Set<string>();
   for (const p of Object.values(g.pairings)) {
-    if (p.status !== 'planned' || !p.aircraftId || p.start < g.now || p.start > g.now + 7 * DAY || crewCount(p) === 0) continue;
+    if (!p.aircraftId || crewCount(p) === 0) continue;
+    if (p.status === 'planned') {
+      if (p.start < g.now || p.start > g.now + 7 * DAY) continue;
+    } else if (p.status === 'active') {
+      const next = openDuties(g, p).find((d) => d.report > g.now);
+      if (!next || next.report > g.now + 7 * DAY) continue;
+    } else continue;
     if (recheckPairing(g, p).level === 'illegal') acs.add(p.aircraftId);
   }
   for (const ac of acs) rerosterFrom(g, ac, g.now);
+}
+
+/**
+ * After a duty is logged (actual times can differ from the plan): the crew's trip and their next trips are
+ * re-checked at once, and an aircraft whose crew can no longer fly a later duty is re-rostered.
+ */
+export function recheckAfterRelease(g: GameState, p: Pairing): void {
+  const acs = new Set<string>();
+  const ids = p.slots.filter((s) => s.crewId).map((s) => s.crewId!);
+  if (openDuties(g, p).length && p.aircraftId && recheckPairing(g, p).level === 'illegal' && p.illegalFrom !== undefined) acs.add(p.aircraftId);
+  for (const ac of laterBroken(g, ids, p)) acs.add(ac);
+  if (g.company.policies.autoRoster) for (const ac of acs) rerosterFrom(g, ac, g.now);
 }
 
 /** Daily: crew left away from base with no trip ahead and no ticket go home (after a split or a dissolved trip). */
@@ -295,8 +334,9 @@ function dissolve(g: GameState, p: Pairing): void {
 }
 
 /**
- * Worst of the duty limits and every assigned crew member's legality (stored on the pairing). `priorOnly`
- * ignores the crew's later work, so a conflict frees the crew from the later pairing (re-roster order).
+ * Worst of the duty limits and every assigned crew member's legality (stored on the pairing, with `illegalFrom`:
+ * the report of the first duty a crew member can't fly). `priorOnly` ignores the crew's later planned work (their
+ * log stays), so a conflict frees the crew from the later pairing (re-roster order).
  */
 export function recheckPairing(g: GameState, p: Pairing, priorOnly = false): { level: Legality; illegal: string[]; from: Map<string, Minute> } {
   let level: Legality = 'legal';
@@ -306,25 +346,91 @@ export function recheckPairing(g: GameState, p: Pairing, priorOnly = false): { l
   /** Per illegal crew member: report of the first duty they can't fly. */
   const from = new Map<string, Minute>();
   const own = new Set(p.dutyIds);
+  let first = Infinity;
   for (const s of p.slots) {
     if (!s.crewId) continue;
     const c = g.crew[s.crewId];
     if (!c) continue;
     const base = segsOf(g, c, p.id);
-    const plan = planCrew(g, c, p, priorOnly ? base.filter((x) => x.start < p.start) : base, true);
-    // This pairing's own issues (a later trip's problem is flagged on that trip when it is checked).
-    const mine = plan.issues.filter((i) => i.code !== 'fdp' && (!i.dutyId || own.has(i.dutyId)));
+    const plan = planCrew(g, c, p, priorOnly ? base.filter((x) => x.kind === 'log' || x.start < p.start) : base, true);
+    // This pairing's own issues (a later trip's problem is flagged on that trip when it is checked; a loose
+    // ticket's, without a duty, is no trip's).
+    const mine = plan.issues.filter((i) => i.code !== 'fdp' && !!i.dutyId && own.has(i.dutyId));
     const crewLevel = levelOf(mine);
     if (crewLevel === 'illegal') {
       let t = Infinity;
-      for (const i of mine) if (i.level === 'illegal') t = Math.min(t, (i.dutyId && g.duties[i.dutyId]?.report) || (open[0]?.report ?? 0));
+      for (const i of mine) if (i.level === 'illegal') t = Math.min(t, g.duties[i.dutyId!]?.report ?? open[0]?.report ?? 0);
       from.set(c.id, t);
       illegal.push(c.id);
+      first = Math.min(first, t);
     }
     level = worst(level, crewLevel);
   }
   p.legality = level;
+  if (first < Infinity) p.illegalFrom = first;
+  else delete p.illegalFrom;
   return { level, illegal, from };
+}
+
+/** Pairings of the crew's later trips (after p) that are now illegal for them; their aircraft need a re-roster. */
+function laterBroken(g: GameState, crewIds: string[], p: Pairing): Set<string> {
+  const acs = new Set<string>();
+  const seen = new Set<Pairing>();
+  for (const id of crewIds) {
+    for (const q of crewIx(g).pairingsOf.get(id) ?? []) {
+      if (q === p || seen.has(q) || q.start <= p.start || q.status !== 'planned' || !q.aircraftId) continue;
+      seen.add(q);
+      if (recheckPairing(g, q).level === 'illegal') acs.add(q.aircraftId);
+    }
+  }
+  return acs;
+}
+
+/**
+ * Last line before a duty (2 h before report, and at the gate): no crew member may fly it over a limit. Crew with
+ * a crew-level issue are re-rostered (their later trips give way first, then this aircraft is re-planned); anyone
+ * still illegal comes off the duty (the trip is split there) and the seat is refilled, else it stays empty and
+ * ops raise the crew-short decision at departure. True when the duty's crew is clean.
+ */
+export function guardDuty(g: GameState, dutyId: string): boolean {
+  let d = g.duties[dutyId];
+  if (!d || d.done) return true;
+  const found = crewIssuesFor(g, d);
+  if (!found.length) return true;
+  const p0 = g.pairings[d.pairingId];
+  const acs = laterBroken(g, found.map((b) => b.crewId), p0);
+  if (p0.aircraftId) acs.add(p0.aircraftId);
+  for (const ac of acs) rerosterFrom(g, ac, g.now);
+  d = g.duties[dutyId];
+  let short = 0;
+  if (d && !d.done && g.pairings[d.pairingId]) {
+    const bad = crewIssuesFor(g, d);
+    if (bad.length) {
+      const p = g.pairings[d.pairingId];
+      const q = openDuties(g, p)[0] === d ? p : splitPairing(g, p, d.report) ?? p;
+      for (const b of bad) releaseCrew(g, q, b.crewId);
+      if (q !== p) setFlightsCrew(g, p);
+      fillAll(g, [q], emptyResult(), new Set(bad.map((b) => b.crewId)));
+      setFlightsCrew(g, q);
+      recheckPairing(g, q);
+    }
+    short = g.pairings[d.pairingId]?.slots.filter((s) => !s.crewId).length ?? 0;
+  }
+  const off = found.filter((b) => !(d && g.pairings[d.pairingId]?.slots.some((s) => s.crewId === b.crewId)));
+  if (off.length) {
+    const fid = (d ?? g.duties[dutyId])?.flightIds[0];
+    const f = fid ? g.flights[fid] : undefined;
+    const what = f ? `${f.no} ${f.from}–${f.to} ${fmtDateTime(f.std)}` : 'the duty';
+    pushMessage(g, {
+      tone: short ? 'warn' : 'info', cat: 'crew',
+      title: `${off.length === 1 ? 'Crew member' : `${off.length} crew`} taken off ${f?.no ?? 'a duty'}`,
+      body: `${off.map((b) => crewName(g.crew[b.crewId])).join(', ')}: ${off[0].issue.text}. ${short ? `No legal replacement for ${short} seat${short > 1 ? 's' : ''} on ${what} yet.` : `Replaced on ${what}.`}`,
+      ref: f ? { kind: 'flight', id: f.id } : undefined,
+    });
+  }
+  if (short) requestPause('crewShortage');
+  touchCrew(g);
+  return !d || (!short && !crewIssuesFor(g, d).length);
 }
 
 // ---------- auto-roster ----------
@@ -476,6 +582,7 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
   for (const d of duties) level = worst(level, d.legality);
   for (const plan of plans.values()) level = worst(level, levelOf(plan.issues.filter((i) => i.code !== 'fdp')));
   p.legality = hadCrew ? worst(level, p.legality) : level;
+  if (!hadCrew) delete p.illegalFrom;
 }
 
 /** Flights of pairings with empty slots (still to fly, std in [from, to)). */
@@ -587,6 +694,8 @@ export function onFlightsChanged(g: GameState, aircraftId: string, t: Minute): v
     }
     if (!pChanged) continue;
     changed = true;
+    // The crew's next trips are re-checked too: a later release eats their rest, a dropped leg leaves them elsewhere.
+    if (crewCount(p) > 0) later.push([p, new Set(p.slots.filter((x) => x.crewId).map((x) => x.crewId!))]);
     if (!p.dutyIds.length) {
       dissolve(g, p);
       continue;
@@ -628,30 +737,32 @@ export function rerosterFrom(g: GameState, aircraftId: string, t: Minute): Roste
     }
     if (crewCount(p) === 0) continue;
     const firstOpen = openDuties(g, p)[0];
-    if (!firstOpen || (firstOpen.report <= g.now && !p.tour)) {
-      // Reported but not yet off blocks: crew who are not at the departure airport are replaced.
-      if (firstOpen && g.flights[firstOpen.flightIds[0]]?.status === 'scheduled') {
-        for (const s of [...p.slots]) {
-          const c = s.crewId && !s.locked ? g.crew[s.crewId] : undefined;
-          if (!c) continue;
-          const plan = planCrew(g, c, p, segsOf(g, c, p.id), true);
-          if (plan.issues.some((i) => i.code === 'location' && i.level === 'illegal' && i.dutyId === firstOpen.id)) releaseCrew(g, p, c.id);
-        }
-        setFlightsCrew(g, p);
-      }
+    if (!firstOpen) {
       recheckPairing(g, p);
       continue;
+    }
+    // Under way (the first open duty has reported): its crew stay on it (the gate check guards that duty).
+    const under = firstOpen.report <= g.now;
+    if (under && !p.tour && g.flights[firstOpen.flightIds[0]]?.status === 'scheduled') {
+      // Reported but not yet off blocks: crew who are not at the departure airport are replaced.
+      for (const s of [...p.slots]) {
+        const c = s.crewId && !s.locked ? g.crew[s.crewId] : undefined;
+        if (!c) continue;
+        const plan = planCrew(g, c, p, segsOf(g, c, p.id), true);
+        if (plan.issues.some((i) => i.code === 'location' && i.level === 'illegal' && i.dutyId === firstOpen.id)) releaseCrew(g, p, c.id);
+      }
+      setFlightsCrew(g, p);
     }
     // Manual (locked) assignments survive the re-plan; they stay flagged on the pairing.
     // Crew who only need new tickets are re-ticketed rather than replaced. Crew who can't fly a later duty
     // keep the earlier ones: the trip is split there and only the later part is re-crewed.
     const rc = recheckPairing(g, p, true);
-    const out = rc.illegal.filter((id) => !p.slots.some((s) => s.crewId === id && s.locked) && !(g.crew[id] && retick(g, p, g.crew[id])));
+    const out = rc.illegal.filter((id) => !p.slots.some((s) => s.crewId === id && s.locked) && (under || !(g.crew[id] && retick(g, p, g.crew[id]))));
     const cut = Math.min(...out.map((id) => rc.from.get(id) ?? 0));
     const q = out.length && cut > firstOpen.report && cut < Infinity ? splitPairing(g, p, cut) : null;
     for (const id of out) {
       if (q && (rc.from.get(id) ?? 0) >= cut) releaseCrew(g, q, id);
-      else releaseCrew(g, p, id);
+      else if (!under) releaseCrew(g, p, id);
     }
     setFlightsCrew(g, p);
     if (q) setFlightsCrew(g, q);
@@ -661,6 +772,9 @@ export function rerosterFrom(g: GameState, aircraftId: string, t: Minute): Roste
   for (const p of crewIx(g).byAircraft.get(aircraftId) ?? []) if (p.status !== 'done' && p.end >= t && crewCount(p) > 0) recheckPairing(g, p);
   return res;
 }
+
+// Crew a split part no longer seats leave its flights and tickets as well.
+setReleaseHook(releaseCrew);
 
 // Crewed tours accept a new duty only if every crew member stays legal.
 setCrewOkHook((g, p, d) => {
@@ -855,6 +969,11 @@ export function flightCrewStatus(g: GameState, flightId: string): FlightCrewStat
   const missing = p.slots.filter((s) => !s.crewId).map((s) => s.role);
   if (d.legality === 'illegal') return { level: 'illegal', missing };
   if (missing.length) return { level: 'missing', missing };
-  if (p.legality === 'illegal') return { level: 'illegal', missing };
+  if (p.legality === 'illegal') {
+    // A crew member who can't fly a later duty of the trip only warns on the earlier ones (the roster takes them
+    // off from that duty); another duty's FDP is that duty's problem. Old saves without the mark: whole trip.
+    const from = p.illegalFrom ?? (p.dutyIds.some((id) => g.duties[id]?.legality === 'illegal' && !g.duties[id].done) ? Infinity : -Infinity);
+    return { level: d.report >= from ? 'illegal' : 'tight', missing };
+  }
   return { level: d.legality === 'tight' || p.legality === 'tight' ? 'tight' : 'ok', missing };
 }

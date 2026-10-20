@@ -72,11 +72,17 @@ export function syncDuty(g: GameState, d: Duty, p: Pairing): void {
   d.legality = dutyLegality(d);
 }
 
-/** (Re)queues duty.report / duty.release; bumping ev makes older events stale. */
+/** Crew check before report (roster.guardDuty): a 'duty.report' event this long before the report. */
+export const GUARD_MIN = 120;
+
+/** (Re)queues duty.report (and its guard check GUARD_MIN before) / duty.release; bumping ev makes older events stale. */
 export function queueDuty(g: GameState, d: Duty): void {
   d.ev++;
   const first = g.flights[d.flightIds[0]];
-  if (!first || first.status === 'scheduled') schedule(g, Math.max(d.report, g.now), 'duty.report', d.id, d.ev);
+  if (!first || first.status === 'scheduled') {
+    if (d.report - GUARD_MIN > g.now) schedule(g, d.report - GUARD_MIN, 'duty.report', d.id, d.ev);
+    schedule(g, Math.max(d.report, g.now), 'duty.report', d.id, d.ev);
+  }
   schedule(g, Math.max(d.release, g.now), 'duty.release', d.id, d.ev);
 }
 
@@ -145,6 +151,7 @@ export function refreshPairing(g: GameState, p: Pairing): string[] {
   let lg: Legality = 'legal';
   for (const d of duties) lg = worst(lg, d.legality);
   p.legality = lg;
+  delete p.illegalFrom;
   return dropped;
 }
 
@@ -187,10 +194,17 @@ export function splitPairing(g: GameState, p: Pairing, t: Minute): Pairing | nul
   for (const d of late) d.pairingId = q.id;
   p.dutyIds = p.dutyIds.filter((id) => !late.some((d) => d.id === id));
   if (p.deploymentId) g.deployments[p.deploymentId]?.pairingIds.push(q.id);
-  refreshPairing(g, p);
-  refreshPairing(g, q);
+  // A part with a smaller complement (an empty leg flies with pilots only) lets the others go: off its
+  // flights and tickets too (releaseHook), not just its slots.
+  for (const id of refreshPairing(g, p)) releaseHook(g, p, id);
+  for (const id of refreshPairing(g, q)) releaseHook(g, q, id);
   touchCrew(g);
   return q;
+}
+
+let releaseHook: (g: GameState, p: Pairing, crewId: string) => void = () => {};
+export function setReleaseHook(f: (g: GameState, p: Pairing, crewId: string) => void): void {
+  releaseHook = f;
 }
 
 /** Deletes a pairing record (caller has already released its crew and tickets). */

@@ -5,8 +5,8 @@ import { BAL } from '../core/balance';
 import { typeOf } from '../core/perf';
 import { fmtDay } from '../core/time';
 import type { CrewMember, Duty, GameState, Legality, Minute, Pairing } from '../core/types';
-import { evalSegs, levelOf, type LegalityIssue, type Seg } from './rules';
-import { aboard, crewIx, ctxOf, dutySegs, locAt, planHome, planOut, typeIdOf, type TicketPlan } from './timeline';
+import { evalSegs, levelOf, LIMITS, type LegalityIssue, type Seg } from './rules';
+import { aboard, crewIx, ctxOf, dutySegs, locAt, planHome, planHomeAfter, planOut, segsOf, typeIdOf, type TicketPlan } from './timeline';
 
 export interface CrewPlan {
   level: Legality;
@@ -31,12 +31,14 @@ export function openDuties(g: GameState, p: Pairing): Duty[] {
 
 const merge = (a: Seg[], b: Seg[]) => [...a, ...b].sort((x, y) => x.start - y.start || x.end - y.end);
 
-function statusIssues(c: CrewMember, from: number, to: number, family: string): LegalityIssue[] {
+function statusIssues(c: CrewMember, from: number, to: number, family: string, duties: Duty[]): LegalityIssue[] {
   const out: LegalityIssue[] = [];
-  if (!c.ratings.includes(family as never)) out.push({ code: 'rating', level: 'illegal', text: `Not rated on ${family}` });
+  if (!c.ratings.includes(family as never)) out.push({ code: 'rating', level: 'illegal', text: `Not rated on ${family}`, dutyId: duties[0].id });
   for (const b of c.blocks ?? []) {
     if (b.from < to && b.to > from) {
-      out.push({ code: 'status', level: 'illegal', text: b.why === 'joining' ? 'Not joined yet' : b.why === 'training' ? 'In training' : b.why === 'sick' ? 'Sick' : 'On leave' });
+      // On the first duty the block touches (the earlier ones can still be flown).
+      const d = duties.find((x) => x.report < b.to && x.release > b.from) ?? duties[0];
+      out.push({ code: 'status', level: 'illegal', text: b.why === 'joining' ? 'Not joined yet' : b.why === 'training' ? 'In training' : b.why === 'sick' ? 'Sick' : 'On leave', dutyId: d.id });
       break;
     }
   }
@@ -96,12 +98,31 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
     // No ticket home when the crew's next work starts where this trip ends.
     if (last.restAt !== c.base && nextFrom(base, last.release) !== last.restAt) home = planHome(last, c.base);
   }
-  const segs: Seg[] = [];
-  for (const d of duties) segs.push(...dutySegs(g, c, p, d, d === first ? out : null, d === last ? home : null, true));
+  const build = () => {
+    const out2: Seg[] = [];
+    for (const d of duties) out2.push(...dutySegs(g, c, p, d, d === first ? out : null, d === last ? home : null, true));
+    return out2;
+  };
+  let segs = build();
+  let ftl = evalSegs({ ...ctxOf(g, c), slack }, merge(base, segs));
+  // A new ticket home that would break the 168 h recovery: the crew take their recovery at the hotel first.
+  if (!existing && home && ftl.some((i) => i.code === 'recovery' && i.level === 'illegal' && i.dutyId === last.id)) {
+    const plain = home;
+    for (const wait of [LIMITS.recovery, LIMITS.recovery + 12 * 60, LIMITS.recoveryLong]) {
+      home = planHomeAfter(last, c.base, wait);
+      const s2 = build();
+      const f2 = evalSegs({ ...ctxOf(g, c), slack }, merge(base, s2));
+      if (!f2.some((i) => i.code === 'recovery' && i.level === 'illegal')) {
+        segs = s2;
+        ftl = f2;
+        break;
+      }
+      home = plain;
+    }
+  }
   const other = otherTrip(g, c, p, segs[0].start, segs[segs.length - 1].end, existing, leaving);
   if (other) issues.push({ code: 'overlap', level: 'illegal', text: `On another ${other.tour ? 'tour' : 'trip'} until ${fmtDay(other.end)}`, dutyId: first.id });
-  issues.push(...statusIssues(c, segs[0].start, segs[segs.length - 1].end, typeOf(typeIdOf(g, p)).family));
-  const ftl = evalSegs({ ...ctxOf(g, c), slack }, merge(base, segs));
+  issues.push(...statusIssues(c, segs[0].start, segs[segs.length - 1].end, typeOf(typeIdOf(g, p)).family, duties));
   if (existing) {
     // Unforeseen delays on the day (ORO.FTL.205(f)): a held seat whose extended recovery slipped stays on the
     // duty about to report, flagged tight; a later duty is still re-planned.
@@ -110,6 +131,36 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
   }
   issues.push(...ftl);
   return { level: levelOf(issues), issues, out, home, segs, drop: dropped.length ? dropped : undefined };
+}
+
+/**
+ * What a crew member's issue means for duty d of p: issues of an earlier (or the same) duty of p count in full
+ * (the crew can't fly on from there), an illegal later duty of p only warns ('tight': the roster takes the crew
+ * off from that duty), another trip's issue is that trip's problem and a loose ticket's (no duty: a stale ticket
+ * home is simply not boarded) is no duty's ('legal' here).
+ */
+export function issueLevelFor(g: GameState, p: Pairing, d: Duty, i: LegalityIssue): Legality {
+  if (!i.dutyId) return 'legal';
+  if (i.dutyId === d.id) return i.level;
+  const x = g.duties[i.dutyId];
+  if (!x || x.pairingId !== p.id) return 'legal';
+  if (x.report <= d.report) return i.level;
+  return i.level === 'illegal' ? 'tight' : i.level;
+}
+
+/** Crew of d's pairing with a crew-level illegal issue for duty d (FDP is the duty's own check). Pure. */
+export function crewIssuesFor(g: GameState, d: Duty): { crewId: string; issue: LegalityIssue }[] {
+  const p = g.pairings[d.pairingId];
+  if (!p || d.done) return [];
+  const out: { crewId: string; issue: LegalityIssue }[] = [];
+  for (const s of p.slots) {
+    const c = s.crewId ? g.crew[s.crewId] : undefined;
+    if (!c) continue;
+    const plan = planCrew(g, c, p, segsOf(g, c, p.id), true);
+    const i = plan.issues.find((x) => x.code !== 'fdp' && issueLevelFor(g, p, d, x) === 'illegal');
+    if (i) out.push({ crewId: c.id, issue: i });
+  }
+  return out;
 }
 
 /** Where the crew's next planned work within 3 days after t starts ('' when none or unknown). */

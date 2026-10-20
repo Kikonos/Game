@@ -538,6 +538,8 @@ export interface Pairing {
   legality: Legality;
   /** B2: deployment tour of crew set `set`, on station for duties reporting in [from, to). */
   tour?: { set: number; from: Minute; to: Minute };
+  /** B2: with legality 'illegal' from a crew member's limits, the report of the first duty they can't fly. */
+  illegalFrom?: Minute;
 }
 
 /**
@@ -803,6 +805,8 @@ export interface Stats {
   aogs?: number;
   uncovered?: number;
   illegalFlown?: number;
+  /** Duties that left with a crew member over a limit (rest, recovery, location, status…; counted at the first leg). */
+  illegalCrewFlown?: number;
   decisions?: number;
   augmentedDuties?: number;
   ulrSectors?: number;

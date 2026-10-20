@@ -9,7 +9,7 @@ import type { CrewMember, GameState, Minute, SimEvent } from '../core/types';
 import { dailyCrewCosts, monthlySalaries } from './costs';
 import { deletePairing, planAircraft } from './duties';
 import { dailySickness, onCrewJoin, onTrainingDone } from './hr';
-import { autoRoster, onFlightsChanged, recheckSoon, sendStrandedHome } from './roster';
+import { autoRoster, guardDuty, onFlightsChanged, recheckAfterRelease, recheckNext, recheckSoon, sendStrandedHome } from './roster';
 import { minRest, nightsIn, LIMITS } from './rules';
 import { aboard, crewCount, crewIx, dutyBlock, dutyFlights, dutySegs, onBlocks, passengers, touchCrew } from './timeline';
 
@@ -20,9 +20,10 @@ export {
 export { crewName, makeCrewMember, salaryFor } from './generate';
 export { crewAvailability, hireCrew, hireQuote, staffing, trainCrew, type Availability, type HireRequest, type RoleCapacity, type StaffingLine } from './hr';
 export {
-  applyDiscretion, autoRoster, boardCrew, buildDuties, flightCrewStatus, onFlightsChanged, removeCrew, replaceCrew, rerosterFrom, rosterOf,
+  applyDiscretion, autoRoster, boardCrew, buildDuties, flightCrewStatus, guardDuty, onFlightsChanged, removeCrew, replaceCrew, rerosterFrom, rosterOf,
   type FlightCrewStatus, type RosterResult,
 } from './roster';
+export { crewIssuesFor } from './check';
 export {
   assignCrew, dutyCandidates, dutyCrew, dutyLegality, dutyOf, swapCrew, unassignCrew, unlockCrew,
   type DutyCandidate, type DutyCrewView, type DutyLegalityView, type DutyLegalityWarning, type RosterOpts, type RosterSlotView,
@@ -45,12 +46,19 @@ function noteRecovery(c: CrewMember, t: Minute): void {
   if (t - prevEnd >= need && nightsIn(c.base, prevEnd, t) >= 2) c.lastRecovery = Math.max(c.lastRecovery, t);
 }
 
-/** 'duty.report': crew on duty; away from base from now when the duty leaves base; ERRP bookkeeping. */
+/**
+ * 'duty.report': crew on duty; away from base from now when the duty leaves base; ERRP bookkeeping. The same
+ * event GUARD_MIN before report is the crew check: nobody over a limit reports for it (roster.guardDuty).
+ */
 function onDutyReport(g: GameState, ev: SimEvent): void {
   const d = g.duties[ev.id];
   if (!d || d.ev !== ev.v || d.done) return;
   const p = g.pairings[d.pairingId];
   if (!p) return;
+  if (g.now < d.report) {
+    if (crewCount(p) > 0) guardDuty(g, d.id);
+    return;
+  }
   if (p.status === 'planned') p.status = 'active';
   const dep = g.flights[d.flightIds[0]]?.from ?? d.restAt;
   for (const s of p.slots) {
@@ -115,6 +123,7 @@ function onDutyRelease(g: GameState, ev: SimEvent): void {
   d.done = true;
   if (p.dutyIds.every((id) => !g.duties[id] || g.duties[id].done)) p.status = 'done';
   touchCrew(g);
+  recheckAfterRelease(g, p);
 }
 
 /** 'flight.arr': crew aboard (operating or deadheading) move to the arrival airport; loose tickets are logged as positioning duty. */
@@ -128,11 +137,16 @@ function onFlightArrCrew(g: GameState, ev: SimEvent): void {
   const rest = minRest({ dutyMin: f.sta - f.std + CHECKIN(), atHome: false, augmented: false, tzShift: 0 });
   const merged = !!d && ((f.sta <= d.report && d.report - f.sta < rest) || (f.std >= d.release && f.std - d.release < 600));
   if (f.kind !== 'deadhead') for (const id of f.crewIds) if (g.crew[id]) g.crew[id].loc = f.to;
+  const missed: string[] = [];
   for (const id of pax) {
     const c = g.crew[id];
     if (!c) continue;
-    // A ticket from somewhere the crew member is not was never boarded (a re-plan left it behind).
-    if (c.loc !== f.from) continue;
+    // A ticket from somewhere the crew member is not was never boarded (a re-plan left it behind): their next
+    // trip is re-checked now (they are not where it expects them).
+    if (c.loc !== f.from) {
+      missed.push(id);
+      continue;
+    }
     c.loc = f.to;
     if (f.to === c.base) c.awaySince = null;
     else if (c.awaySince === null) c.awaySince = f.std;
@@ -147,6 +161,7 @@ function onFlightArrCrew(g: GameState, ev: SimEvent): void {
     }
   }
   if (pax.length) touchCrew(g);
+  if (missed.length) recheckNext(g, missed);
 }
 
 /** Status from blocks (sick, leave, training, joining) and rest; crew left 'onDuty' without an active trip are freed. */

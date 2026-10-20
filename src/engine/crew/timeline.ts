@@ -237,6 +237,12 @@ export function planHome(d: Duty, to: string): TicketPlan {
   return { from, to, std: std2, sta: std2 + blk };
 }
 
+/** Ticket home leaving `wait` after release (a recovery rest at the hotel before positioning home). */
+export function planHomeAfter(d: Duty, to: string, wait: number): TicketPlan {
+  const std = hour(d.release + wait + CHECKIN(), true);
+  return { from: d.restAt, to, std, sta: std + dhBlock(d.restAt, to) };
+}
+
 // ---------- segs ----------
 
 export function ctxOf(g: GameState, c: CrewMember): TimelineCtx {
@@ -274,7 +280,7 @@ export function dutySegs(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: 
       const lim = fdpLimitAt(g, p, d, out.from, start);
       max = lim.max + (d.discretion ?? 0);
       tz = lim.ref.tz;
-    } else if (!flown(out)) segs.push(posSeg(out, c, fresh));
+    } else if (!flown(out)) segs.push({ ...posSeg(out, c, fresh), dutyId: d.id });
   }
   let end = d.release;
   let at = d.restAt;
@@ -283,7 +289,7 @@ export function dutySegs(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: 
     if (home.std - d.release < 600) {
       end = home.sta;
       at = home.to;
-    } else if (!flown(home)) tail = posSeg(home, c, fresh);
+    } else if (!flown(home)) tail = { ...posSeg(home, c, fresh), dutyId: d.id };
   }
   segs.push({
     kind: 'duty', start, end, fdp, maxFdp: max, block: dutyBlock(g, d), sectors: d.sectors, aug: d.augment > 0,

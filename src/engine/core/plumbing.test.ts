@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { acceptOffer, cancelCost, cancelPenalty, contractProgress, feasibility, feasibilityAll, generateOffer, marketFit, productValue } from '../contracts';
-import { checkAssignment, crewAvailability, crewWindows, daysOffInMonth, dutyCandidates, dutyCrew, dutyLegality, flightCrewStatus, hireQuote, rosterOf, staffing } from '../crew';
+import { checkAssignment, crewAvailability, crewIssuesFor, crewWindows, daysOffInMonth, dutyCandidates, dutyCrew, dutyLegality, flightCrewStatus, hireQuote, rosterOf, staffing } from '../crew';
 import { demoFlights } from '../dev';
 import { createGame } from '../newGame';
 import { aogChance, APPROVALS, approvalBlocker, cashForecast, checkStatus, fixedCosts, GOALS, groundGaps, monthProfit, rotationOf, subcharterable, subcharterQuote } from '../ops';
@@ -102,6 +102,7 @@ describe('determinism of read APIs', () => {
       for (const d of Object.values(g.duties).slice(0, 6)) {
         dutyCrew(g, d.id);
         dutyLegality(g, d.id);
+        crewIssuesFor(g, d);
         if (i === 0) for (const r of ['CPT', 'CC'] as const) dutyCandidates(g, d.id, r);
         const someone = Object.keys(g.crew)[0];
         checkAssignment(g, someone, d.id);

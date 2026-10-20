@@ -4,8 +4,9 @@
 // to fly. Manual assignments are locked: the rolling re-plan keeps them, flagged when illegal, never silently.
 
 import { canFill, typeOf } from '../core/perf';
+import { fmtDay } from '../core/time';
 import type { ActionResult, CrewMember, Duty, GameState, Legality, Minute, Pairing, Role } from '../core/types';
-import { openDuties, planCrew } from './check';
+import { issueLevelFor, openDuties, planCrew } from './check';
 import { crewName } from './generate';
 import { emptyResult, fillAll, placeCrew, recheckPairing, releaseCrew } from './roster';
 import { levelOf, worst, type IssueCode } from './rules';
@@ -71,7 +72,9 @@ export function dutyCrew(g: GameState, dutyOrFlightId: string): DutyCrewView | n
     let level: Legality | null = null;
     if (c && openDuties(g, p).length) {
       const plan = planCrew(g, c, p, segsOf(g, c, p.id), true);
-      level = levelOf(plan.issues.filter((i) => i.code !== 'fdp'));
+      // As seen from this duty: a later duty's problem only warns (flightCrewStatus agrees).
+      for (const i of plan.issues) if (i.code !== 'fdp') level = worst(level ?? 'legal', issueLevelFor(g, p, d, i));
+      level ??= 'legal';
     }
     return { index, role: s.role, crewId: s.crewId, name: c ? crewName(c) : null, locked: !!s.locked, extra: !!s.extra, level };
   });
@@ -170,11 +173,16 @@ export function dutyLegality(g: GameState, dutyOrFlightId: string): DutyLegality
       const c = s.crewId ? g.crew[s.crewId] : undefined;
       if (!c) continue;
       const plan = planCrew(g, c, p, segsOf(g, c, p.id), true);
-      // Issues of this duty, plus whole-trip ones (rating, status, cumulative limits) without a duty.
+      // Issues of this duty (rating and status sit on the first duty they hit); an earlier duty of the trip the crew
+      // member can't fly breaks this one too, a later one only warns (the same reading as flightCrewStatus). Other
+      // trips' issues are theirs; a loose ticket's (no duty) is no duty's.
       for (const i of plan.issues) {
-        if (i.code === 'fdp' || i.level === 'legal' || (i.dutyId && i.dutyId !== d.id)) continue;
-        warnings.push({ level: i.level, code: i.code, text: `${crewName(c)}: ${i.text}`, crewId: c.id });
-        level = worst(level, i.level);
+        const lv = i.code === 'fdp' ? 'legal' : issueLevelFor(g, p, d, i);
+        if (lv === 'legal') continue;
+        const x = i.dutyId && i.dutyId !== d.id ? g.duties[i.dutyId] : undefined;
+        const when = x ? ` (${x.report < d.report ? 'earlier' : 'later'} duty, ${fmtDay(x.report)})` : '';
+        warnings.push({ level: lv, code: i.code, text: `${crewName(c)}: ${i.text}${when}`, crewId: c.id });
+        level = worst(level, lv);
       }
     }
   }

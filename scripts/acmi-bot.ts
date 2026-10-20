@@ -323,6 +323,11 @@ const errors: string[] = [];
 let msgCount = 0;
 let lastMsgId = g.messages[0]?.id;
 let prev = { aogs: 0, illegal: 0 };
+/**
+ * Duties flown illegally: over their FDP limit, or (checked at each duty's first off-blocks, per crew member with
+ * the roster's planCrew) with anyone over a crew limit: rest, recovery, cumulative hours, location, status.
+ */
+const illegalOf = (s: GameState['stats']) => (s.illegalFlown ?? 0) + (s.illegalCrewFlown ?? 0);
 let acYears = 0;
 let peakSave = '';
 let lastDay = dayIndex(g.now);
@@ -341,8 +346,9 @@ function onStep(): void {
   msgCount += n;
   const s = g.stats;
   m.aogs += (s.aogs ?? 0) - prev.aogs;
-  m.illegal += (s.illegalFlown ?? 0) - prev.illegal;
-  prev = { aogs: s.aogs ?? 0, illegal: s.illegalFlown ?? 0 };
+  const ill = illegalOf(s);
+  m.illegal += ill - prev.illegal;
+  prev = { aogs: s.aogs ?? 0, illegal: ill };
   if (dayIndex(g.now) === lastDay && g.now < end) return;
   lastDay = dayIndex(g.now);
   // Once a day: flights flown or cancelled (pruned only a week after their month is billed).
@@ -504,7 +510,7 @@ const targets: [string, boolean, string][] = [
   ['solvent all year (no game over)', !g.gameOver, g.gameOver ? g.gameOver.reason : `month-end low ${k$(minCash)}, end ${k$(g.company.cash)}`],
   ['summer BH per aircraft 180–320', summerBH >= 180 && summerBH <= 320, summerBH.toFixed(0)],
   ['year net margin −5%…+12%', margin >= -0.05 && margin <= 0.12, `${(margin * 100).toFixed(1)}% (${k$(profitY)} on ${k$(revenueY)})`],
-  ['no illegal duties flown', (s.illegalFlown ?? 0) === 0, String(s.illegalFlown ?? 0)],
+  ['no illegal duties flown (FDP + crew)', illegalOf(s) === 0, `${illegalOf(s)} (FDP ${s.illegalFlown ?? 0}, crew ${s.illegalCrewFlown ?? 0})`],
   ['< 2% flights uncovered at departure', uncShare < 0.02, `${(uncShare * 100).toFixed(2)}% of ${s.departures ?? 0}`],
   ['≥ 1 meaningful action per week', totalActions / weeks >= 1 && activeWeeks / weeks >= 0.8, `${(totalActions / weeks).toFixed(1)}/wk, ${activeWeeks}/${weeks} weeks${idle.length ? ` (idle: ${idle.join(' ')})` : ''}`],
   ['≤ 3 decisions per week', maxDec <= 3, `max ${maxDec}, ${[...tally.decisions.values()].reduce((a, b) => a + b, 0)} answered`],

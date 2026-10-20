@@ -285,7 +285,7 @@ export function evalSegs(ctx: TimelineCtx, segs: Seg[]): LegalityIssue[] {
     // Recovery: the gap before s qualifies when it is long enough and holds two local nights.
     if (prevEnd > -Infinity) {
       const need = disruptive >= LIMITS.disruptiveMax ? LIMITS.recoveryLong : LIMITS.recovery;
-      if (s.start - prevEnd >= need && nightsIn(ctx.base, prevEnd, s.start) >= 2 && s.start > anchor) {
+      if (s.start - prevEnd >= need && nightsIn(ctx.base, prevEnd, s.start) >= 2 && s.start >= anchor) {
         anchor = s.start;
         disruptive = 0;
       }
@@ -336,7 +336,8 @@ export function evalSegs(ctx: TimelineCtx, segs: Seg[]): LegalityIssue[] {
       }
       if (endOf(s) > anchor + LIMITS.recoveryEvery) add('recovery', 'illegal', 'No 36 h recovery in 168 h', tgt);
     }
-    if (s.disruptive) disruptive++;
+    // Disruptive duties since the last recovery (as noteRecovery counts them from the log).
+    if (s.disruptive && s.start >= anchor) disruptive++;
     prevEnd = Math.max(prevEnd, endOf(s));
   }
   return issues;
@@ -351,12 +352,13 @@ export function recoveryAnchor(ctx: TimelineCtx, segs: Seg[], t: Minute): Minute
     if (s.start > t) break;
     if (prevEnd > -Infinity) {
       const need = disruptive >= LIMITS.disruptiveMax ? LIMITS.recoveryLong : LIMITS.recovery;
-      if (s.start - prevEnd >= need && nightsIn(ctx.base, prevEnd, s.start) >= 2 && s.start > anchor) {
+      if (s.start - prevEnd >= need && nightsIn(ctx.base, prevEnd, s.start) >= 2 && s.start >= anchor) {
         anchor = s.start;
         disruptive = 0;
       }
     }
-    if (s.disruptive) disruptive++;
+    // Disruptive duties since the last recovery (as noteRecovery counts them from the log).
+    if (s.disruptive && s.start >= anchor) disruptive++;
     prevEnd = Math.max(prevEnd, s.end);
   }
   // A long enough free stretch up to t also counts.

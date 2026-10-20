@@ -14,7 +14,7 @@ import { chance, next, pick, range } from '../core/rng';
 import { DAY, fmtDuration, fmtTime } from '../core/time';
 import type { ActionResult, Aircraft, Flight, GameState, MaintenanceEvent, MessageCat, Minute, SimEvent } from '../core/types';
 import { noteLostLegs } from '../contracts/billing';
-import { applyDiscretion, boardCrew, flightCrewStatus, rerosterFrom } from '../crew';
+import { applyDiscretion, boardCrew, crewIssuesFor, flightCrewStatus, guardDuty, rerosterFrom } from '../crew';
 import { crewReadyAt, crewShortDecision, hasOpenDecision } from './events';
 import { aogChance, isGrounded, missCheck, startAog } from './maintenance';
 import { ageF, ageOf, bumpReliable, bumpRelation, contractOf, isBaseLeg, isRevenue, stats, turnOf, usd } from './util';
@@ -545,13 +545,18 @@ function depart(g: GameState, f: Flight, ac: Aircraft): void {
   s.departures++;
   const duty = f.dutyId ? g.duties[f.dutyId] : undefined;
   if (duty?.legality === 'illegal') s.illegalFlown++;
+  // Every crew member legal for the duty this leg opens (rest, recovery, location, status…).
+  if (duty && duty.flightIds[0] === f.id && crewIssuesFor(g, duty).length) s.illegalCrewFlown = (s.illegalCrewFlown ?? 0) + 1;
   // Charter clients are compensated for long delays (> 3 h).
   const c = contractOf(g, f);
   if (c?.product.kind === 'charter' && isRevenue(f) && delayOf(f) > 180 && c.penalties.perDelay) post(g, 'penalties', -c.penalties.perDelay);
   touchFlights(g);
 }
 
-/** This departure can't go: seats unfilled, or its own duty is illegal (a later duty's problem is re-rostered later). */
+/**
+ * This departure can't go: seats unfilled, its own duty is illegal, or (on the duty's first leg) a crew member is
+ * over a limit for it (a later duty's problem is re-rostered from there).
+ */
 export function crewBlocked(g: GameState, f: Flight): boolean {
   const cs = flightCrewStatus(g, f.id);
   if (cs.level === 'missing') return true;
@@ -559,6 +564,7 @@ export function crewBlocked(g: GameState, f: Flight): boolean {
   const dd = f.dutyId ? g.duties[f.dutyId] : undefined;
   const p = dd && dd.flightIds[0] === f.id ? g.pairings[dd.pairingId] : undefined;
   if (p) for (const s of p.slots) if (s.crewId && g.crew[s.crewId] && g.crew[s.crewId].loc !== f.from) return true;
+  if (p && dd && crewIssuesFor(g, dd).length) return true;
   if (cs.level !== 'illegal') return false;
   const d = f.dutyId ? g.duties[f.dutyId] : undefined;
   return !d || d.legality === 'illegal';
@@ -673,6 +679,8 @@ function crewProblem(g: GameState, f: Flight, ac: Aircraft): void {
     f.crewHeld = true;
     f.heldAt ??= g.now;
     if (isRevenue(f)) stats(g).uncovered++;
+    // Crew over a limit come off the duty first (refilled when someone legal can take the seat).
+    if (f.dutyId) guardDuty(g, f.dutyId);
     rerosterFrom(g, ac.id, g.now);
     if (!crewBlocked(g, f)) return holdFlight(g, f, 5);
   }
