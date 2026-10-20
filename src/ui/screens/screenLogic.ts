@@ -166,12 +166,12 @@ export const LEDGER_LABEL: Record<LedgerCat, string> = {
   fuel: 'Fuel', airportFees: 'Airport & handling', rent: 'Aircraft rent', reserves: 'Maintenance reserves', salaries: 'Salaries',
   perDiem: 'Per diems', hotels: 'Crew hotels', deadhead: 'Crew deadheads', maintenance: 'Line maintenance', checks: 'Checks',
   insurance: 'Insurance', overhead: 'Overhead', training: 'Training', hiring: 'Hiring', penalties: 'Penalties', subcharter: 'Sub-charter',
-  approvals: 'Approvals', interest: 'Interest', capex: 'Aircraft purchases', assetSale: 'Asset sales',
+  approvals: 'Approvals', interest: 'Interest', capex: 'Aircraft purchases', assetSale: 'Asset sales', paint: 'Paint & livery',
 };
 
 const REVENUE: LedgerCat[] = ['acmiRevenue', 'charterRevenue', 'otherRevenue', 'assetSale'];
 const COSTS: LedgerCat[] = [
-  'fuel', 'airportFees', 'rent', 'reserves', 'salaries', 'perDiem', 'hotels', 'deadhead', 'maintenance', 'checks', 'insurance', 'overhead',
+  'fuel', 'airportFees', 'rent', 'reserves', 'salaries', 'perDiem', 'hotels', 'deadhead', 'maintenance', 'checks', 'paint', 'insurance', 'overhead',
   'training', 'hiring', 'penalties', 'subcharter', 'approvals', 'interest', 'capex',
 ];
 

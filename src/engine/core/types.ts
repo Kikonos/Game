@@ -3,6 +3,9 @@
 // Builders may ADD optional fields in their own domain section; renames/removals go through the architect.
 
 import type { CabinLayout, RatingFamily } from '../../data/acmiTypes';
+import type { LogoId } from '../../data/livery';
+
+export type { LogoId };
 
 // ======================================================================
 // Time
@@ -19,11 +22,58 @@ export type MonthKey = number;
 
 export type TailStyle = 'solid' | 'split' | 'stripe' | 'sweep';
 
+export type StickerKind = 'code' | 'titles' | 'logo';
+export type StickerSide = 'fuselage' | 'fin';
+
+/** v0.5.1: one sticker on the airframe. Position is a centre point in the frame of its side, so one livery fits every type. */
+export interface StickerPlacement {
+  /** Unique within the livery: 'code', 'titles', 'logo', 'logo2'. UI-made, not an engine id. */
+  id: string;
+  kind: StickerKind;
+  side: StickerSide;
+  /** fin: x = chord fraction LE (0) → TE (1), y = root (0) → tip (1), bilinear on the fin quad.
+   *  fuselage: x = fraction of L from the nose tip (0) to the tail-cone end (1), y = fraction of H from the crown (0) to the belly (1).
+   *  Omitted = auto (today's anchor for the scheme / the type's title band). */
+  x?: number;
+  y?: number;
+  /** × the auto-fit size (1 = fits its zone). Clamped 0.3–3; beyond the airframe it is clipped like a sticker. */
+  scale: number;
+  /** Degrees clockwise on screen, −45…45. Default 0. */
+  rotation?: number;
+}
+
+export interface LiveryText {
+  /** Omitted = the default text: company code / name (client livery: client designator / name). */
+  text?: string;
+  /** Omitted = auto contrast. */
+  color?: string;
+  weight?: 500 | 700;
+}
+
+export interface LiveryLogo {
+  /** 'mono' = monogram of `text` (1–3 letters) in a roundel. */
+  id: LogoId | 'mono';
+  color: string;
+  /** Second tone for two-tone logos; default = color. */
+  color2?: string;
+  text?: string;
+}
+
 export interface Livery {
   primary: string;
   secondary: string;
   tail: TailStyle;
+  /** v0.5.1. Plain airframe: no scheme colour areas, grey engine accents. Stickers still draw. */
+  plain?: boolean;
+  code?: LiveryText;
+  titles?: LiveryText;
+  logo?: LiveryLogo;
+  /** Absent = legacy: [code auto on the fin, titles auto on the fuselage]. Present = exactly these draw (≤ 6). */
+  stickers?: StickerPlacement[];
 }
+
+/** v0.5.1: the player's livery choice for one aircraft (undefined = 'company'). */
+export type LiveryRef = 'company' | 'white' | { custom: Livery };
 
 // ======================================================================
 // Company
@@ -156,6 +206,10 @@ export interface Aircraft {
   maintId: string | null;
   /** Arrival on the AOC (status 'delivering' until then). */
   deliveredAt: Minute;
+  /** v0.5.1: player's livery choice (undefined = 'company'). */
+  livery?: LiveryRef;
+  /** v0.5.1: contract whose client livery is on the aircraft (set when the paint-in ends, cleared when the strip ends). Overrides `livery`. */
+  paintedFor?: string;
 }
 
 // ======================================================================
@@ -297,7 +351,7 @@ export interface ContractOffer {
   /** Hidden walk-away multiplier on the asking price (counters above it are refused). */
   floor: number;
   /** Player counter awaiting the client's reply. B1: aircraft chosen for it, and the client's answer once given. */
-  counter?: { price: number; at: Minute; replyAt: Minute; aircraftIds?: string[]; result?: 'accepted' | 'refused' };
+  counter?: { price: number; at: Minute; replyAt: Minute; aircraftIds?: string[]; result?: 'accepted' | 'refused'; /** v0.5.1: paint on (default) or off. */ paint?: boolean };
   status: OfferStatus;
   /** Map pin airport. */
   pin: string;
@@ -306,6 +360,29 @@ export interface ContractOffer {
   closedAt?: Minute;
   /** B1: one-line reason it fits the calendar ("fits CS-TQA's free week"), for the offer card. */
   hook?: string;
+  /** v0.5.1: the client wants the aircraft in its livery for the contract. */
+  paint?: PaintTerms;
+}
+
+/** v0.5.1 client paint. decals = plain white body + client titles + fin logo. */
+export type PaintKind = 'full' | 'decals';
+
+export interface PaintTerms {
+  kind: PaintKind;
+  /** true: a condition of the deal. false: optional; turning it off costs `declinePct` of the rate/price. */
+  required: boolean;
+  /** Optional: 0.02–0.05 off when declined. Required: the cut the client asks on a counter without paint (0.05–0.08). */
+  declinePct: number;
+  /** Share of paint-in + strip the client reimburses (1, 0.5 or 0). */
+  clientShare: number;
+  /** Rate/price bonus already in the asking price when the client pays nothing (0 or 0.04). */
+  bonusPct?: number;
+  /** Per aircraft, USD, quoted at generation (stored, never re-rolled). */
+  cost: number;
+  stripCost: number;
+  days: number;
+  stripDays: number;
+  livery: Livery;
 }
 
 export type ContractStatus = 'signed' | 'active' | 'completed' | 'cancelled';
@@ -360,6 +437,8 @@ export interface Contract {
   legsOnTime?: number;
   /** B1: when we cancelled it. */
   cancelledAt?: Minute;
+  /** v0.5.1: client paint agreed (accepted) or declined; paint-in / strip maintenance ids per aircraft. */
+  paint?: PaintTerms & { accepted: boolean; inMx?: Record<string, string>; outMx?: Record<string, string>; warned?: boolean };
 }
 
 // ======================================================================
@@ -591,7 +670,7 @@ export interface TrainingItem {
 // Maintenance (B3)
 // ======================================================================
 
-export type MaintKind = 'A' | 'C' | 'AOG' | 'line';
+export type MaintKind = 'A' | 'C' | 'AOG' | 'line' | 'paint';
 
 export interface MaintenanceEvent {
   id: string;
@@ -610,6 +689,8 @@ export interface MaintenanceEvent {
   ferryIds?: string[];
   booked?: Minute;
   bookedStart?: Minute;
+  /** v0.5.1: client paint-in or strip at a paint shop. */
+  paint?: { phase: 'in' | 'out'; contractId: string };
 }
 
 // ======================================================================
@@ -665,7 +746,9 @@ export interface Decision {
 export type LedgerCat =
   | 'acmiRevenue' | 'charterRevenue' | 'otherRevenue'
   | 'fuel' | 'airportFees' | 'rent' | 'reserves' | 'salaries' | 'perDiem' | 'hotels' | 'deadhead' | 'maintenance' | 'checks'
-  | 'insurance' | 'overhead' | 'training' | 'hiring' | 'penalties' | 'subcharter' | 'approvals' | 'interest' | 'capex' | 'assetSale';
+  | 'insurance' | 'overhead' | 'training' | 'hiring' | 'penalties' | 'subcharter' | 'approvals' | 'interest' | 'capex' | 'assetSale'
+  /** v0.5.1: client paint-in and strip. */
+  | 'paint';
 
 export interface MonthStatement {
   month: MonthKey;

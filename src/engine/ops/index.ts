@@ -9,6 +9,7 @@ import { onFlightArr, onFlightDep, pruneFlights } from './flights';
 import { checkGoals, syncGoals } from './goals';
 import { onMaintEnd, onMaintStart, planChecks } from './maintenance';
 import { onDelivery, onLeaseEnd, refreshMarket } from './market';
+import { dailyPaint, normaliseLivery } from './paint';
 
 export { APPROVALS, applyApproval, approvalBlocker, setPolicies, type ApprovalDef } from './company';
 export { resolveDecision } from './events';
@@ -17,12 +18,16 @@ export { delayFlight, delayOf, schedSta } from './flights';
 export { GOALS, type GoalDef } from './goals';
 export { aogChance, cancelCheck, checkAirportOk, checkStatus, groundGaps, scheduleCheck, type CheckStatus } from './maintenance';
 export { acquireAircraft } from './market';
+export {
+  clientCode, clientLivery, clientTitles, liveryOf, normaliseLivery, paintStatus, setAircraftLivery, setCompanyLivery, setFleetLivery, type PaintStatus, type ResolvedLivery,
+} from './paint';
 export { rotationOf, SUB_LEAD, subcharter, subcharterable, subcharterQuote, type SubcharterQuote } from './subcharter';
 export { usd } from './util';
 
 function daily(g: GameState) {
   pruneFlights(g);
   planChecks(g);
+  dailyPaint(g);
   dailyEvents(g);
   dailyFinance(g);
   checkGoals(g);
@@ -38,6 +43,9 @@ export const opsModule: SimModule = {
   load(g) {
     syncGoals(g);
     g.finance.negSince ??= null;
+    // v0.5.1 liveries: client paint of a contract no longer in the save is gone; the company livery normalised (idempotent).
+    for (const ac of Object.values(g.fleet)) if (ac.paintedFor && !g.contracts[ac.paintedFor]) delete ac.paintedFor;
+    g.company.livery = normaliseLivery(g.company.livery);
   },
   handlers: {
     day: daily,

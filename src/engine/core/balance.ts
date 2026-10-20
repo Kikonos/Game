@@ -152,4 +152,31 @@ export const BAL = {
   /** Days late a reliable client still pays within (beyond = overdue). */
   graceDays: 3,
   lateInterest: 0.03,
+
+  // ---------- client paint (v0.5.1, ENGINE; LIVERY.md §4) ----------
+  paint: {
+    /** Per aircraft, USD (narrow, wide) and days in the paint shop. Strip after a full paint = stripFactor × cost, same days. */
+    full: { cost: [[150_000, 250_000], [300_000, 500_000]] as [number, number][], days: [[7, 10], [10, 14]] as [number, number][] },
+    decals: { cost: [[30_000, 50_000], [50_000, 80_000]] as [number, number][], days: [2, 3] as [number, number] },
+    stripFactor: 0.9,
+    decalRemoval: { cost: [[8_000, 15_000], [10_000, 20_000]] as [number, number][], days: 1 },
+    /** Client share of paint + strip: [share, weight]. Zero share comes with a rate/price bonus. */
+    shareFull: [[1, 0.55], [0.5, 0.35], [0, 0.1]] as [number, number][],
+    shareDecals: [[1, 0.8], [0, 0.2]] as [number, number][],
+    zeroShareBonus: 0.04,
+    /** Optional paint declined: rate cut; required paint countered away: the client's cut if it stays. */
+    declineOptional: [0.02, 0.05] as [number, number],
+    declineRequired: [0.05, 0.08] as [number, number],
+    walkAway: 0.5,
+    /** Request chances (§4.1). */
+    baseShort: 0.08, baseMid: 0.3, baseMidRequired: 0.6, baseLong: 0.75, baseLongFull: 0.8, baseLongRequired: 0.7,
+    /** Share of season-base rolls that become the long 120–240-day variant (lead ≥ 30 d). */
+    longBaseShare: 0.12,
+    unRotation: 0.25, tourSeries: 0.1, sports: 0.02, adhocCorporate: 0.01,
+    /** Paint ends this long before the programme's first departure (minutes); strip booked within this many days. */
+    readyBefore: 24 * 60,
+    stripWithinDays: 30,
+    /** Ferry to the shop over this block time (minutes) is a feasibility warning. */
+    longFerryMin: 6 * 60,
+  },
 } as const;

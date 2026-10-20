@@ -15,6 +15,7 @@ import { clamp } from '../core/util';
 import { planPositioning } from '../contracts';
 import { rerosterFrom } from '../crew';
 import { aogDecision } from './events';
+import { onPaintEnd } from './paint';
 import { cancelLegs } from './flights';
 import { ageOf, bumpRelation, contractOf, isRevenue, stats, usd } from './util';
 
@@ -162,16 +163,20 @@ function locationAt(g: GameState, ac: Aircraft, t: Minute): { at: string; free: 
  * with `dropLegs` (auto-planner): wet base-programme legs with ≥ 12 h notice are cancelled (no penalty, relation −2).
  * A ferry is booked when the aircraft would be elsewhere (B1 planPositioning).
  */
-export function scheduleCheck(g: GameState, aircraftId: string, kind: MaintKind, start: Minute, at: string, opts: { dropLegs?: boolean; auto?: boolean } = {}): ActionResult<{ maintId: string }> {
+export function scheduleCheck(
+  g: GameState, aircraftId: string, kind: MaintKind, start: Minute, at: string,
+  opts: { dropLegs?: boolean; auto?: boolean; /** v0.5.1 client paint at a paint shop (paint.ts books it and posts the message). */ paint?: { contractId: string; phase: 'in' | 'out'; days: number; cost: number } } = {},
+): ActionResult<{ maintId: string }> {
   const ac = g.fleet[aircraftId];
   if (!ac) return { ok: false, error: 'Aircraft not found' };
-  if (kind !== 'A' && kind !== 'C') return { ok: false, error: 'Only A- and C-checks can be booked' };
+  const pt = kind === 'paint' ? opts.paint : undefined;
+  if (kind !== 'A' && kind !== 'C' && !pt) return { ok: false, error: 'Only A- and C-checks can be booked' };
   if (ac.status === 'delivering' || ac.status === 'stored' || ac.status === 'leasedOut') return { ok: false, error: `${ac.reg} is not on the AOC` };
   if (!AIRPORT_BY_CODE[at]) return { ok: false, error: 'Unknown airport' };
-  if (!checkAirportOk(g, kind, at, ac.id)) return { ok: false, error: kind === 'C' ? 'C-checks are done at the home base' : 'A-checks need the home base, a deployment base or a major airport' };
-  if (nextPlanned(g, ac.id, kind)) return { ok: false, error: `${ac.reg} already has a ${kind}-check booked` };
+  if (!pt && !checkAirportOk(g, kind as 'A' | 'C', at, ac.id)) return { ok: false, error: kind === 'C' ? 'C-checks are done at the home base' : 'A-checks need the home base, a deployment base or a major airport' };
+  if (!pt && nextPlanned(g, ac.id, kind)) return { ok: false, error: `${ac.reg} already has a ${kind}-check booked` };
   start = Math.round(Math.max(start, g.now));
-  const end = start + durationOf(ac, kind);
+  const end = start + (pt ? pt.days * DAY : durationOf(ac, kind as 'A' | 'C'));
   const turn = typeOf(ac.typeId).turnMin;
   const clash = flightsOf(g, ac.id).filter((f) => (f.status === 'scheduled' || f.status === 'enroute') && f.std < end + 30 && (f.eta ?? f.sta) > start - 30);
   const hard = clash.filter((f) => f.kind !== 'positioning');
@@ -193,8 +198,9 @@ export function scheduleCheck(g: GameState, aircraftId: string, kind: MaintKind,
   if (needFerry && drop.length) return { ok: false, error: `Clashes with ${drop.length} flight${drop.length > 1 ? 's' : ''} (${drop[0].no} ${fmtDateTime(drop[0].std)})` };
   const soft = clash.filter((f) => f.kind === 'positioning' && f.status === 'scheduled');
   const m: MaintenanceEvent = {
-    id: nextId(g, 'mx'), aircraftId: ac.id, kind, at, start, end, cost: checkCostOf(ac, kind), status: 'planned', planned: true, ev: 0, booked: g.now, bookedStart: start,
+    id: nextId(g, 'mx'), aircraftId: ac.id, kind, at, start, end, cost: pt ? pt.cost : checkCostOf(ac, kind as 'A' | 'C'), status: 'planned', planned: true, ev: 0, booked: g.now, bookedStart: start,
   };
+  if (pt) m.paint = { phase: pt.phase, contractId: pt.contractId };
   g.maintenance[m.id] = m;
   if (needFerry) {
     // The ferry is planned against the check (an anchor now); without one the slot can't be reached.
@@ -216,6 +222,7 @@ export function scheduleCheck(g: GameState, aircraftId: string, kind: MaintKind,
   }
   schedule(g, start, 'maint.start', m.id, m.ev);
   touchFlights(g);
+  if (pt) return { ok: true, msg: `Paint shop at ${AIRPORT_BY_CODE[at]?.city ?? at}`, data: { maintId: m.id } };
   const where = AIRPORT_BY_CODE[at]?.city ?? at;
   const msg = `${kind}-check for ${ac.reg} at ${where}, ${fmtDateTime(start)}–${fmtDateTime(end)} UTC${drop.length ? ` (${drop.length} leg${drop.length > 1 ? 's' : ''} dropped with notice)` : ''}`;
   pushMessage(g, { tone: 'info', cat: 'tech', title: `${kind}-check booked: ${ac.reg}`, body: `${msg}.${opts.auto ? ' Planned automatically.' : ''}`, ref: { kind: 'maint', id: m.id } });
@@ -231,7 +238,7 @@ export function missCheck(g: GameState, m: MaintenanceEvent, why: string): void 
   if (ferries.length) removeFlights(g, ferries);
   touchFlights(g);
   const ac = g.fleet[m.aircraftId];
-  pushMessage(g, { tone: 'warn', cat: 'tech', title: `${m.kind}-check missed: ${ac?.reg ?? m.aircraftId}`, body: `${why}. The check needs a new slot${m.kind === 'A' && g.company.policies.autoMaintenance ? ': operations will re-plan it' : ''}.`, ref: { kind: 'aircraft', id: m.aircraftId } });
+  pushMessage(g, { tone: 'warn', cat: 'tech', title: `${m.kind === 'paint' ? 'Paint-shop slot' : `${m.kind}-check`} missed: ${ac?.reg ?? m.aircraftId}`, body: `${why}. The check needs a new slot${m.kind === 'A' && g.company.policies.autoMaintenance ? ': operations will re-plan it' : ''}.`, ref: { kind: 'aircraft', id: m.aircraftId } });
 }
 
 export function cancelCheck(g: GameState, maintId: string): ActionResult {
@@ -239,6 +246,7 @@ export function cancelCheck(g: GameState, maintId: string): ActionResult {
   if (!m) return { ok: false, error: 'Check not found' };
   if (m.status !== 'planned') return { ok: false, error: m.status === 'inWork' ? 'The check is already in work' : 'Not a planned check' };
   if (m.kind === 'AOG') return { ok: false, error: 'An AOG repair cannot be cancelled' };
+  if (m.kind === 'paint') return { ok: false, error: 'Client paint is part of the contract' };
   m.status = 'cancelled';
   m.ev++;
   const ferries = (m.ferryIds ?? []).filter((id) => g.flights[id]?.status === 'scheduled');
@@ -435,6 +443,14 @@ export function onMaintEnd(g: GameState, ev: SimEvent): void {
   if (!m || m.ev !== ev.v || m.status !== 'inWork') return;
   m.status = 'done';
   const ac = g.fleet[m.aircraftId];
+  if (m.kind === 'paint') {
+    // v0.5.1: client paint-in / strip (paint.ts: cost, livery, invoice, message).
+    onPaintEnd(g, m);
+    if (ac && ac.maintId === m.id) ac.maintId = null;
+    if (ac && (ac.status === 'maintenance' || ac.status === 'aog')) ac.status = 'available';
+    touchFlights(g);
+    return;
+  }
   if (m.kind === 'AOG') post(g, 'maintenance', -m.cost);
   else post(g, 'checks', -m.cost);
   touchFlights(g);

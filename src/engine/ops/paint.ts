@@ -1,0 +1,396 @@
+// Liveries and client paint (v0.5.1, LIVERY.md §1, §4). Resolving and normalising liveries is pure; the player's
+// livery choices are free and instant; client paint-in and strip are 'paint' maintenance events at a paint shop.
+
+import { AIRPORT_BY_CODE } from '../../data/airports';
+import { countryName } from '../../data/countries';
+import { CLIENT_LOGOS, CLIENT_PALETTE, LOGO_IDS, MAX_CODE, MAX_STICKERS, MAX_TITLE, WHITE_LIVERY } from '../../data/livery';
+import { BAL } from '../core/balance';
+import { flightsOf, removeFlights, touchFlights } from '../core/entities';
+import { invoice, post } from '../core/ledger';
+import { pushMessage } from '../core/messages';
+import { DAY, fmtDay } from '../core/time';
+import type {
+  ActionResult, Aircraft, Client, Contract, GameState, Livery, LiveryLogo, LiveryRef, LiveryText, MaintenanceEvent, Minute, PaintKind, StickerKind, StickerPlacement,
+  StickerSide, TailStyle,
+} from '../core/types';
+import { clamp, hashUnit } from '../core/util';
+import { clientPrefix, isGovernment } from '../contracts/clients';
+import { paintWindow, type PaintSlot } from '../contracts/paintTerms';
+import { scheduleCheck } from './maintenance';
+import { usd } from './util';
+
+// ---------- resolving ----------
+
+export interface ResolvedLivery {
+  livery: Livery;
+  /** Default tail code and titles for the art ('' = none). */
+  code: string;
+  name: string;
+  source: 'company' | 'white' | 'custom' | 'client';
+  contractId?: string;
+  clientName?: string;
+}
+
+const isUN = (c: Client) => /^UN\b|^UNHCR\b/.test(c.name);
+
+/** Fin code of a client livery: its designator ('SV', 'UN'). */
+export function clientCode(c: Client): string {
+  return isUN(c) ? 'UN' : clientPrefix(c.name).slice(0, MAX_CODE);
+}
+
+/** Fuselage titles of a client livery: the name, shortened to MAX_TITLE (acronym, "<Country> Government", word cut). */
+export function clientTitles(c: Client): string {
+  if (isUN(c)) return 'UN';
+  if (c.name.length <= MAX_TITLE) return c.name;
+  const acr = c.name.match(/\(([A-Z]{2,6})\)/)?.[1];
+  if (acr) return acr;
+  if (c.kind === 'government') {
+    const gov = `${countryName(c.country)} Government`;
+    if (gov.length <= MAX_TITLE) return gov;
+  }
+  let out = '';
+  for (const w of c.name.split(/\s+/)) {
+    if ((out ? `${out} ${w}` : w).length > MAX_TITLE) break;
+    out = out ? `${out} ${w}` : w;
+  }
+  return out || c.name.slice(0, MAX_TITLE);
+}
+
+/** The livery an aircraft wears now: client paint, then plain white, custom, or the company's. Pure. */
+export function liveryOf(g: GameState, ac: Aircraft | string): ResolvedLivery {
+  const a = typeof ac === 'string' ? g.fleet[ac] : ac;
+  const co = g.company;
+  if (a?.paintedFor) {
+    const c = g.contracts[a.paintedFor];
+    const cl = c ? g.clients[c.clientId] : undefined;
+    if (c?.paint && cl) return { livery: c.paint.livery, code: clientCode(cl), name: clientTitles(cl), source: 'client', contractId: c.id, clientName: cl.name };
+  }
+  const ref = a?.livery ?? 'company';
+  if (ref === 'white') return { livery: WHITE_LIVERY, code: '', name: '', source: 'white' };
+  if (typeof ref === 'object') return { livery: ref.custom, code: ref.custom.code?.text ?? co.code, name: ref.custom.titles?.text ?? co.name, source: 'custom' };
+  return { livery: co.livery, code: co.livery.code?.text ?? co.code, name: co.livery.titles?.text ?? co.name, source: 'company' };
+}
+
+// ---------- normalising ----------
+
+const TAILS: readonly TailStyle[] = ['solid', 'split', 'stripe', 'sweep'];
+const KINDS: readonly StickerKind[] = ['code', 'titles', 'logo'];
+const SIDES: readonly StickerSide[] = ['fuselage', 'fin'];
+const DEFAULT_LIVERY: Livery = { primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' };
+
+/** '#abc' / '#AABBCC' → '#aabbcc'; anything else → undefined. */
+function hex(c: unknown): string | undefined {
+  if (typeof c !== 'string') return undefined;
+  const s = c.trim().toLowerCase();
+  if (/^#[0-9a-f]{6}$/.test(s)) return s;
+  if (/^#[0-9a-f]{3}$/.test(s)) return `#${s[1]}${s[1]}${s[2]}${s[2]}${s[3]}${s[3]}`;
+  return undefined;
+}
+
+const num = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+const r3 = (v: number) => Math.round(v * 1000) / 1000;
+
+function text(t: unknown, kind: 'code' | 'titles'): LiveryText | undefined {
+  if (!t || typeof t !== 'object') return undefined;
+  const x = t as Partial<LiveryText>;
+  const out: LiveryText = {};
+  if (typeof x.text === 'string') {
+    out.text = kind === 'code' ? x.text.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, MAX_CODE) : x.text.replace(/\s+/g, ' ').trim().slice(0, MAX_TITLE);
+  }
+  const color = hex(x.color);
+  if (color) out.color = color;
+  if (x.weight === 500 || x.weight === 700) out.weight = x.weight;
+  return Object.keys(out).length ? out : undefined;
+}
+
+function logo(l: unknown, fallbackColor: string): LiveryLogo | undefined {
+  if (!l || typeof l !== 'object') return undefined;
+  const x = l as Partial<LiveryLogo>;
+  if (x.id !== 'mono' && !(LOGO_IDS as readonly string[]).includes(x.id as string)) return undefined;
+  const out: LiveryLogo = { id: x.id as LiveryLogo['id'], color: hex(x.color) ?? fallbackColor };
+  const c2 = hex(x.color2);
+  if (c2) out.color2 = c2;
+  if (typeof x.text === 'string') {
+    const t = x.text.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 3);
+    if (t) out.text = t;
+  }
+  return out;
+}
+
+function sticker(s: unknown): StickerPlacement | null {
+  if (!s || typeof s !== 'object') return null;
+  const x = s as Partial<StickerPlacement>;
+  if (typeof x.id !== 'string' || !x.id || !KINDS.includes(x.kind as StickerKind) || !SIDES.includes(x.side as StickerSide)) return null;
+  const out: StickerPlacement = { id: x.id.slice(0, 24), kind: x.kind as StickerKind, side: x.side as StickerSide, scale: r3(clamp(num(x.scale) ?? 1, 0.3, 3)) };
+  const px = num(x.x);
+  const py = num(x.y);
+  if (px !== undefined) out.x = r3(clamp(px, 0, 1));
+  if (py !== undefined) out.y = r3(clamp(py, 0, 1));
+  const rot = num(x.rotation);
+  if (rot !== undefined && rot !== 0) out.rotation = Math.round(clamp(rot, -45, 45) * 10) / 10;
+  return out;
+}
+
+/**
+ * A valid livery from anything (editor output, old saves, new-game input): hex colours, known scheme, texts trimmed
+ * (code A–Z/0–9 ≤ 3, titles ≤ 28), known logo, ≤ 6 stickers with unique ids, x/y 0–1, scale 0.3–3, rotation ±45°.
+ * Absent fields stay absent (a v0.5 livery comes back unchanged). Idempotent. Pure.
+ */
+export function normaliseLivery(l: Partial<Livery> | undefined, fallback: Livery = DEFAULT_LIVERY): Livery {
+  const x = (l && typeof l === 'object' ? l : {}) as Partial<Livery>;
+  const out: Livery = {
+    primary: hex(x.primary) ?? fallback.primary,
+    secondary: hex(x.secondary) ?? fallback.secondary,
+    tail: TAILS.includes(x.tail as TailStyle) ? (x.tail as TailStyle) : fallback.tail,
+  };
+  if (x.plain === true) out.plain = true;
+  const code = text(x.code, 'code');
+  if (code) out.code = code;
+  const titles = text(x.titles, 'titles');
+  if (titles) out.titles = titles;
+  const lg = logo(x.logo, out.secondary);
+  if (lg) out.logo = lg;
+  if (Array.isArray(x.stickers)) {
+    const seen = new Set<string>();
+    out.stickers = [];
+    for (const s of x.stickers) {
+      const p = sticker(s);
+      if (!p || seen.has(p.id) || out.stickers.length >= MAX_STICKERS) continue;
+      seen.add(p.id);
+      out.stickers.push(p);
+    }
+  }
+  return out;
+}
+
+/** A client's livery (same client → same look on every contract). Generic colours and logos; no real marks. Pure. */
+export function clientLivery(client: Client, kind: PaintKind): Livery {
+  const key = client.name;
+  const un = isUN(client);
+  const [p1, p2] = un ? ['#1f2937', '#4b92db'] : CLIENT_PALETTE[Math.floor(hashUnit(key) * CLIENT_PALETTE.length) % CLIENT_PALETTE.length];
+  const mono = un || isGovernment(client) || client.kind === 'agency';
+  const lg: LiveryLogo = mono
+    ? { id: 'mono', color: kind === 'full' ? p2 : p1, color2: kind === 'full' ? p1 : p2, text: clientCode(client) }
+    : { id: CLIENT_LOGOS[Math.floor(hashUnit(`${key}#logo`) * CLIENT_LOGOS.length) % CLIENT_LOGOS.length], color: kind === 'full' ? p2 : p1, color2: kind === 'full' ? p1 : p2 };
+  const stickers: StickerPlacement[] = [
+    { id: 'logo', kind: 'logo', side: 'fin', scale: 1 },
+    { id: 'titles', kind: 'titles', side: 'fuselage', scale: 1 },
+  ];
+  if (kind === 'decals') {
+    return { primary: '#ffffff', secondary: p1, tail: 'solid', plain: true, titles: { color: p1, weight: 700 }, code: { color: p1 }, logo: lg, stickers };
+  }
+  const tail = TAILS[Math.floor(hashUnit(`${key}#tail`) * TAILS.length) % TAILS.length];
+  return { primary: p1, secondary: p2, tail, titles: { weight: 700 }, logo: lg, stickers };
+}
+
+// ---------- status and player actions ----------
+
+export interface PaintStatus {
+  paintedFor?: string;
+  clientName?: string;
+  /** Next planned or running paint-in / strip. */
+  booked?: MaintenanceEvent;
+  /** The livery picker is locked (client paint on, or a paint job booked). */
+  locked: boolean;
+  /** "In Saudia colours until 12 Mar" style line for the locked picker. */
+  why?: string;
+}
+
+/** Client paint on an aircraft and its next paint-shop visit. Pure. */
+export function paintStatus(g: GameState, aircraftId: string): PaintStatus {
+  const ac = g.fleet[aircraftId];
+  const out: PaintStatus = { locked: false };
+  if (!ac) return out;
+  for (const m of Object.values(g.maintenance)) {
+    if (m.aircraftId !== aircraftId || m.kind !== 'paint' || (m.status !== 'planned' && m.status !== 'inWork')) continue;
+    if (!out.booked || m.start < out.booked.start) out.booked = m;
+  }
+  const c = ac.paintedFor ? g.contracts[ac.paintedFor] : undefined;
+  if (c) {
+    out.paintedFor = c.id;
+    out.clientName = g.clients[c.clientId]?.name;
+  }
+  out.locked = !!out.paintedFor || !!out.booked;
+  if (out.paintedFor) {
+    const strip = out.booked?.paint?.phase === 'out' ? out.booked : undefined;
+    out.why = `In ${out.clientName ?? 'client'} colours until ${fmtDay(strip ? strip.end : Math.max(g.now, c!.end))}`;
+  } else if (out.booked) {
+    const bc = out.booked.paint ? g.contracts[out.booked.paint.contractId] : undefined;
+    out.why = `Paint shop ${fmtDay(out.booked.start)}: ${g.clients[bc?.clientId ?? '']?.name ?? 'client'} colours`;
+  }
+  return out;
+}
+
+function validRef(ref: LiveryRef, fallback: Livery): LiveryRef | null {
+  if (ref === 'company' || ref === 'white') return ref;
+  if (ref && typeof ref === 'object' && ref.custom && typeof ref.custom === 'object') return { custom: normaliseLivery(ref.custom, fallback) };
+  return null;
+}
+
+/** Company livery (Company screen, New Game): normalised, free and instant. */
+export function setCompanyLivery(g: GameState, l: Livery): ActionResult {
+  if (!l || typeof l !== 'object') return { ok: false, error: 'No livery given' };
+  g.company.livery = normaliseLivery(l, g.company.livery);
+  return { ok: true, msg: 'Company livery saved' };
+}
+
+/** One aircraft's livery: company, plain white or custom. Refused while client paint is on or booked. */
+export function setAircraftLivery(g: GameState, aircraftId: string, ref: LiveryRef): ActionResult {
+  const ac = g.fleet[aircraftId];
+  if (!ac) return { ok: false, error: 'Aircraft not found' };
+  const st = paintStatus(g, aircraftId);
+  if (st.locked) return { ok: false, error: `${ac.reg}: ${st.why ?? 'client paint booked'}` };
+  const r = validRef(ref, g.company.livery);
+  if (!r) return { ok: false, error: 'Unknown livery' };
+  if (r === 'company') delete ac.livery;
+  else ac.livery = r;
+  return { ok: true, msg: `${ac.reg}: ${r === 'company' ? 'company livery' : r === 'white' ? 'plain white' : 'custom livery'}` };
+}
+
+/** "Use on all aircraft": every aircraft not locked by client paint. */
+export function setFleetLivery(g: GameState, ref: LiveryRef): ActionResult<{ changed: number; skipped: number }> {
+  const r = validRef(ref, g.company.livery);
+  if (!r) return { ok: false, error: 'Unknown livery' };
+  let changed = 0;
+  let skipped = 0;
+  for (const ac of Object.values(g.fleet)) {
+    if (paintStatus(g, ac.id).locked) {
+      skipped++;
+      continue;
+    }
+    if (r === 'company') delete ac.livery;
+    else ac.livery = typeof r === 'object' ? { custom: structuredClone(r.custom) } : r;
+    changed++;
+  }
+  return { ok: true, msg: `Livery set on ${changed} aircraft${skipped ? ` (${skipped} in client colours)` : ''}`, data: { changed, skipped } };
+}
+
+// ---------- client paint: booking and the paint shop ----------
+
+const city = (c: string) => AIRPORT_BY_CODE[c]?.city ?? c;
+const pct = (v: number) => `${Math.round(v * 100)}%`;
+
+/**
+ * Books a paint-in ('in', before the contract) or strip ('out', after it) at the slot's shop: a 'paint' maintenance
+ * event that blocks the aircraft like a check (ferries booked by scheduleCheck). Returns the error, or null.
+ */
+export function bookPaint(g: GameState, c: Contract, aircraftId: string, phase: 'in' | 'out', slot: PaintSlot): string | null {
+  const t = c.paint;
+  const ac = g.fleet[aircraftId];
+  if (!t || !ac) return 'Nothing to paint';
+  const days = phase === 'in' ? t.days : t.stripDays;
+  const cost = phase === 'in' ? t.cost : t.stripCost;
+  const r = scheduleCheck(g, aircraftId, 'paint', slot.start, slot.shop, { paint: { contractId: c.id, phase, days, cost } });
+  if (!r.ok) return r.error;
+  const id = r.data!.maintId;
+  if (phase === 'in') {
+    // Painting over another client's colours: a strip still booked after this slot is no longer needed.
+    for (const x of Object.values(g.maintenance)) if (x.aircraftId === aircraftId && x.paint?.phase === 'out' && x.status === 'planned' && x.start >= slot.start) dropPaint(g, x);
+  }
+  if (phase === 'in') (t.inMx ??= {})[aircraftId] = id;
+  else (t.outMx ??= {})[aircraftId] = id;
+  const m = g.maintenance[id];
+  const client = g.clients[c.clientId]?.name ?? 'The client';
+  const what = phase === 'out' ? (t.kind === 'full' ? 'Repaint' : 'Decal removal') : t.kind === 'full' ? 'Full repaint' : 'Decals';
+  const share = t.clientShare >= 1 ? 'all of it' : t.clientShare > 0 ? pct(t.clientShare) : 'nothing';
+  pushMessage(g, phase === 'in'
+    ? { tone: 'info', cat: 'tech', title: `Paint booked: ${ac.reg} in ${client} colours`, body: `${what} at ${city(m.at)}, ${fmtDay(m.start)}–${fmtDay(m.end)}. ${usd(cost)}; ${client} pays ${share}.`, ref: { kind: 'maint', id } }
+    : { tone: 'info', cat: 'tech', title: `Repaint booked: ${ac.reg} back to ${g.company.name} colours`, body: `${what} at ${city(m.at)}, ${fmtDay(m.start)}–${fmtDay(m.end)}. ${usd(cost)}${c.status === 'completed' && t.clientShare > 0 ? `; ${client} pays ${share}` : ''}.`, ref: { kind: 'maint', id } });
+  return null;
+}
+
+/** Gives up a planned paint event (contract cancelled before the paint shop): slot and ferries released. */
+function dropPaint(g: GameState, m: MaintenanceEvent): void {
+  if (m.status !== 'planned') return;
+  m.status = 'cancelled';
+  m.ev++;
+  const ferries = (m.ferryIds ?? []).filter((id) => g.flights[id]?.status === 'scheduled');
+  if (ferries.length) removeFlights(g, ferries);
+  touchFlights(g);
+}
+
+/** Contract cancelled by us: paint-ins not started yet are called off (a finished paint is stripped by dailyPaint). */
+export function cancelPaintFor(g: GameState, c: Contract): void {
+  for (const id of Object.values(c.paint?.inMx ?? {})) {
+    const m = g.maintenance[id];
+    if (m) dropPaint(g, m);
+  }
+}
+
+/** 'maint.end' of a paint event: cost posted, the livery swapped, the client's share invoiced. */
+export function onPaintEnd(g: GameState, m: MaintenanceEvent): void {
+  post(g, 'paint', -m.cost);
+  const ac = g.fleet[m.aircraftId];
+  const c = m.paint ? g.contracts[m.paint.contractId] : undefined;
+  if (!ac || !c?.paint || !m.paint) return;
+  const t = c.paint;
+  const cl = g.clients[c.clientId];
+  const client = cl?.name ?? 'The client';
+  if (m.paint.phase === 'in') {
+    ac.paintedFor = c.id;
+    const live = c.status === 'signed' || c.status === 'active';
+    const amount = live ? Math.round(m.cost * t.clientShare) : 0;
+    if (amount > 0) invoice(g, { clientId: c.clientId, contractId: c.id, desc: `Paint: ${ac.reg} in ${client} colours`, amount, cat: 'otherRevenue', dueDays: c.payment.dueDays });
+    pushMessage(g, {
+      tone: 'good', cat: 'tech', title: `${ac.reg} now flies in ${client} colours`,
+      body: `Out of the paint shop at ${city(m.at)}. ${amount > 0 ? `${client} invoiced ${usd(amount)}.` : live ? `At our cost (${usd(m.cost)}).` : `${c.title} is cancelled: it goes back to our colours at the first slot.`}`,
+      ref: { kind: 'aircraft', id: ac.id },
+    });
+    return;
+  }
+  if (ac.paintedFor === c.id) delete ac.paintedFor;
+  // The client pays its share of the strip only for a contract that ran its course.
+  const amount = c.status === 'completed' ? Math.round(m.cost * t.clientShare) : 0;
+  if (amount > 0) invoice(g, { clientId: c.clientId, contractId: c.id, desc: `Repaint after ${c.title}: ${ac.reg}`, amount, cat: 'otherRevenue', dueDays: c.payment.dueDays });
+  pushMessage(g, {
+    tone: 'info', cat: 'tech', title: `${ac.reg} back in ${g.company.name} colours`,
+    body: `Repaint done at ${city(m.at)}. ${usd(m.cost)}${amount > 0 ? `; ${client} invoiced ${usd(amount)}` : ''}.`,
+    ref: { kind: 'aircraft', id: ac.id },
+  });
+}
+
+const liveMx = (g: GameState, id: string | undefined) => {
+  const m = id ? g.maintenance[id] : undefined;
+  return !!m && (m.status === 'planned' || m.status === 'inWork');
+};
+
+/** When the aircraft's last leg for the contract lands (or now). */
+function lastArrivalFor(g: GameState, c: Contract, aircraftId: string): Minute {
+  let last = g.now;
+  for (const f of flightsOf(g, aircraftId)) if (f.contractId === c.id && (f.status === 'scheduled' || f.status === 'enroute')) last = Math.max(last, f.eta ?? f.sta);
+  return last;
+}
+
+/**
+ * Daily: aircraft still in the colours of a finished or cancelled contract get their strip booked at the first gap
+ * within 30 days (warned once when none); a missed paint-in is re-booked while it can still end before the job.
+ */
+export function dailyPaint(g: GameState): void {
+  for (const c of Object.values(g.contracts)) {
+    const t = c.paint;
+    if (!t?.accepted) continue;
+    const done = c.status === 'completed' || c.status === 'cancelled';
+    for (const acId of c.aircraftIds) {
+      const ac = g.fleet[acId];
+      if (!ac || ac.status === 'stored' || ac.status === 'leasedOut') continue;
+      if (done) {
+        if (ac.paintedFor !== c.id || liveMx(g, t.outMx?.[acId])) continue;
+        // A new client's paint-in already booked paints over it.
+        if (Object.values(g.maintenance).some((m) => m.aircraftId === acId && m.paint?.phase === 'in' && m.status === 'planned')) continue;
+        const after = Math.max(lastArrivalFor(g, c, acId), g.now + BAL.ferryLeadMin);
+        const slot = paintWindow(g, acId, { days: t.stripDays }, after + (BAL.paint.stripWithinDays + t.stripDays) * DAY, after);
+        if (slot && !bookPaint(g, c, acId, 'out', slot)) continue;
+        if (!t.warned) {
+          t.warned = true;
+          pushMessage(g, { tone: 'warn', cat: 'tech', title: `${ac.reg} still wears ${g.clients[c.clientId]?.name ?? 'client'} colours`, body: 'No paint-shop slot within 30 days; it flies in their livery until one opens.', ref: { kind: 'aircraft', id: acId } });
+        }
+      } else if (ac.paintedFor !== c.id && t.inMx?.[acId] && !liveMx(g, t.inMx[acId]) && g.maintenance[t.inMx[acId]]?.status === 'cancelled') {
+        // Missed paint-in: one more try while the job hasn't started.
+        const first = flightsOf(g, acId).find((f) => f.contractId === c.id && f.status === 'scheduled' && f.kind !== 'positioning');
+        if (!first || first.std <= g.now + DAY) continue;
+        const slot = paintWindow(g, acId, { days: t.days }, first.std, undefined, { nextAt: first.from });
+        if (slot) bookPaint(g, c, acId, 'in', slot);
+      }
+    }
+  }
+}

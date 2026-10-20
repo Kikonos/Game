@@ -10,7 +10,9 @@
 // - maintenance: C-checks booked when warned, in the first free window (winter first); A-checks auto;
 // - decisions: swap aircraft on AOG when one is free, factor a late invoice when cash is short, else the default;
 // - fleet: lease a widebody once the cash covers its deposit, three months of its fixed costs and a cushion, the last
-//   quarter was profitable and a big widebody job starts after delivery.
+//   quarter was profitable and a big widebody job starts after delivery;
+// - client paint (v0.5.1): required paint is accepted with the job; optional paint is taken when the client pays at
+//   least half or adds a rate bonus; never countered away.
 
 import LZString from 'lz-string';
 import { BAL } from '../src/engine/core/balance';
@@ -55,8 +57,10 @@ interface Tally {
   wideSigned: number | null;
   /** Tour series and troop rotations signed. */
   longLead: number;
+  /** v0.5.1: offers with client paint signed ('full/req/50%'). */
+  paintOffers: string[];
 }
-const newTally = (): Tally => ({ actions: new Map(), decisions: new Map(), decMonth: new Map(), decKinds: new Map(), accepted: 0, countered: 0, firstAccept: null, wideAffordableAt: null, wideReadyAt: null, wideSigned: null, longLead: 0 });
+const newTally = (): Tally => ({ actions: new Map(), decisions: new Map(), decMonth: new Map(), decKinds: new Map(), accepted: 0, countered: 0, firstAccept: null, wideAffordableAt: null, wideReadyAt: null, wideSigned: null, longLead: 0, paintOffers: [] });
 
 const weekOf = (g: GameState) => Math.floor((g.now - g.started) / (7 * DAY));
 const act = (g: GameState, t: Tally, n = 1) => t.actions.set(weekOf(g), (t.actions.get(weekOf(g)) ?? 0) + n);
@@ -99,10 +103,13 @@ function hireFor(g: GameState, t: Tally, r: FeasibilityReport): void {
   }
 }
 
+/** Client paint on or off for an offer (required: on; optional: when they pay half or more, or add a bonus). */
+const paintOn = (o: ContractOffer) => !!o.paint && (o.paint.required || o.paint.clientShare >= 0.5 || (o.paint.bonusPct ?? 0) > 0);
+
 /** The best workable report for an offer, or null. */
 function bestFit(g: GameState, o: ContractOffer): FeasibilityReport | null {
   return (
-    feasibilityAll(g, o.id).find((r) => {
+    feasibilityAll(g, o.id, { paint: paintOn(o) }).find((r) => {
       if ((r.level !== 'ok' && r.level !== 'warn') || r.estMargin <= 0) return false;
       const crew = r.checks.find((c) => c.id === 'crew');
       return !crew || crew.level === 'ok' || (r.crew.firstShort !== null && r.crew.firstShort > g.now + 70 * DAY);
@@ -130,15 +137,16 @@ function offers(g: GameState, t: Tally): void {
     if (!best) continue;
     // A long-lead base deal is worth one counter at +5%; a refusal reopens it at the asking price.
     if (isBase(o) && !o.counter && o.product.kind === 'wet' && o.start > g.now + 14 * DAY && o.expires > g.now + 36 * 60) {
-      if (counterOffer(g, o.id, o.product.ratePerBH * 1.05, [best.aircraftId]).ok) {
+      if (counterOffer(g, o.id, o.product.ratePerBH * 1.05, [best.aircraftId], { paint: paintOn(o) }).ok) {
         t.countered++;
         act(g, t);
         continue;
       }
     }
     hireFor(g, t, best);
-    if (acceptOffer(g, o.id, [best.aircraftId]).ok) {
+    if (acceptOffer(g, o.id, [best.aircraftId], { paint: paintOn(o) }).ok) {
       t.accepted++;
+      if (o.paint) t.paintOffers.push(`${o.paint.kind}${o.paint.required ? '/req' : ''}/${Math.round(o.paint.clientShare * 100)}%${paintOn(o) ? '' : ' declined'}`);
       if (longLead) t.longLead++;
       t.firstAccept ??= g.now;
       act(g, t);
@@ -332,8 +340,17 @@ let acYears = 0;
 let peakSave = '';
 let lastDay = dayIndex(g.now);
 
+/** Client paint reimbursements invoiced (receivables are pruned after a while, so counted as they appear). */
+const seenRecv = new Set<string>();
+let paintBack = 0;
+
 function onStep(): void {
   const m = mon(monthKey(g.now));
+  for (const r of g.finance.receivables) {
+    if (seenRecv.has(r.id) || !/^(Paint|Repaint)/.test(r.desc)) continue;
+    seenRecv.add(r.id);
+    paintBack += r.amount;
+  }
   for (const o of Object.values(g.offers)) seenOffer.add(o.id);
   // Inbox is newest first: count down to the last message seen.
   let n = 0;
@@ -533,6 +550,14 @@ console.log(`cancelled legs by reason: ${[...cancels].sort((a, b) => b[1] - a[1]
 for (const e of errors.slice(0, 3)) console.log(e);
 // Soft target (information): the ladder in practice, a widebody signed with a job inside the year.
 console.log(`ladder: widebody signed ${dayOf(tally.wideSigned)}; tour series / troop rotations signed ${tally.longLead}`);
+// v0.5.1 client paint: jobs in the paint shop, and what paint cost net of the clients' share (all months incl. the open one).
+{
+  const jobs = Object.values(g.maintenance).filter((m) => m.kind === 'paint' && m.status !== 'cancelled');
+  const paid = [...g.finance.history, g.finance.current].reduce((s, st) => s + (st.lines.paint ?? 0), 0);
+  const back = paintBack;
+  const rev = revenueY || 1;
+  console.log(`paint: ${tally.paintOffers.length} deals with client paint (${tally.paintOffers.join(', ') || '-'}); paint-shop visits ${jobs.filter((m) => m.paint?.phase === 'in').length} in / ${jobs.filter((m) => m.paint?.phase === 'out').length} out; paint ${k$(paid)}, reimbursed ${k$(back)}, net ${k$(paid + back)} (${(((paid + back) / rev) * 100).toFixed(1)}% of revenue)`);
+}
 console.log('\ntargets');
 for (const [name, ok, val] of targets) console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${name.padEnd(38)} ${val}`);
 process.exitCode = errors.length ? 2 : targets.every((c) => c[1]) ? 0 : 1;

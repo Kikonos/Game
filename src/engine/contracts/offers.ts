@@ -13,12 +13,13 @@ import { schedule } from '../core/queue';
 import { chance, int, next, pick, range, weightedPick } from '../core/rng';
 import { DAY, dayIndex, fmtDay, fmtTime, fromUTC, localMinuteOfDay, toDate, toLocal } from '../core/time';
 import type {
-  ApprovalId, Archetype, Client, ContractOffer, GameState, LegTemplate, Minute, OfferEffects, Product, Requirements, SchedulePattern, SimEvent,
+  ApprovalId, Archetype, Client, ContractOffer, GameState, LegTemplate, Minute, OfferEffects, PaintKind, Product, Requirements, SchedulePattern, SimEvent,
 } from '../core/types';
 import { acceptOffer, askingPrice, closeOffer, setPrice } from './accept';
 import { feasibility } from './feasibility';
 import { adhocGroupClients, clientPrefix, clientsOf, isBigClub, isCruiseLine, isDiaspora, isGovernment, isMarineCrewing, isPilgrim, ministry, rivalFor } from './clients';
 import * as F from './flavor';
+import { paintQuote, paintTermsText, rollPaint, sideRng } from './paintTerms';
 import { anchorsOf, computeWaves, localToUTC, programmeOf, route, routeMinutes } from './plan';
 import { defaultSeats, isWetArchetype, priceProduct, productValue, referenceType, tripTickets } from './pricing';
 
@@ -108,6 +109,8 @@ export interface OfferOpts {
   waves?: number;
   rotations?: number;
   variant?: 'group' | 'diaspora' | 'pilgrimage' | 'music' | 'oneway';
+  /** v0.5.1 client paint: false = never; true = roll as usual; a kind = force a request of that kind (tests, dev helper). */
+  paint?: boolean | { kind: PaintKind; required?: boolean };
 }
 
 interface Ctx {
@@ -131,6 +134,8 @@ interface Draft {
   end: Minute;
   /** Minutes from now until the offer lapses (clamped before the start). */
   expiresIn: number;
+  /** v0.5.1: OfferOpts.paint passed through. */
+  paint?: OfferOpts['paint'];
   mult?: number;
   mghPerMonth?: number;
   effects: OfferEffects;
@@ -217,12 +222,15 @@ function seasonBase(ctx: Ctx): Draft | null {
   const client = nearClient(ctx, cands);
   if (!client) return null;
   const base = client.base;
-  let days = o.days ?? int(g, 30, 92);
+  // v0.5.1: a few season deals are long (4–8 months, planned a month or more ahead); most clients want them in their colours.
+  // Rolled on a side stream (seed + time + id counter) so the main RNG sequence is unchanged by v0.5.1.
+  const long = !o.days && (o.start === undefined || o.start - g.now >= 30 * DAY) && chance(sideRng(g, `long:${g.seq}:${g.now}`), BAL.paint.longBaseShare);
+  let days = o.days ?? (long ? int(g, 120, 240) : int(g, 30, 92));
   // Gap-fit: shorten the season to the idle window (but never under a month).
   if (!o.days && ctx.window) days = Math.min(days, roomDays(ctx, Math.max(ctx.window.from, g.now + 14 * DAY)) - 2);
   if (days < 30) return null;
   // Long-haul bases are planned months ahead (time to lease a widebody and hire rated crew).
-  let s = o.start ?? (wide ? pickStart(ctx, 75 * DAY, 150 * DAY, (days + 1) * DAY) : pickStart(ctx, 14 * DAY, 60 * DAY, (days + 1) * DAY));
+  let s = o.start ?? (wide ? pickStart(ctx, 75 * DAY, 150 * DAY, (days + 1) * DAY) : pickStart(ctx, long ? 30 * DAY : 14 * DAY, long ? 90 * DAY : 60 * DAY, (days + 1) * DAY));
   if (s === null) return null;
   // Season deals start on the 1st or the 15th when that still fits.
   if (o.start === undefined) {
@@ -260,7 +268,7 @@ function seasonBase(ctx: Ctx): Draft | null {
   const fam = families ? `${families[0] === 'B737' ? '737' : 'A320'}-family aircraft` : wide ? 'a widebody' : 'an A320-size aircraft';
   return {
     archetype: 'seasonBase', client,
-    title: wide ? `Long-haul base at ${city(base)}` : `${season} base at ${city(base)}`,
+    title: wide ? `Long-haul base at ${city(base)}` : days >= 120 ? `Long-term base at ${city(base)}` : `${season} base at ${city(base)}`,
     blurb:
       `${client.name} wants ${fam} (${seatsText(minSeats, layout)}) based at ${base} from ${fmtDay(toLocal(base, from))} to ${fmtDay(toLocal(base, to - 1))}, ` +
       `flying to ${listCities(dests)}: ${waves.length} wave${waves.length > 1 ? 's' : ''} a day from 06:00 local and a maintenance night every 7 days. ` +
@@ -583,7 +591,9 @@ function tourSeries(ctx: Ctx): Draft | null {
 
 function troopRotation(ctx: Ctx): Draft | null {
   const { g, wide, o } = ctx;
-  const client = (o.client && g.clients[o.client]) || ministry(g, 'Defence');
+  // v0.5.1: some rotations fly peacekeepers for the UN (they may want UN titles on the aircraft).
+  const un = !o.client && chance(sideRng(g, `un:${g.seq}:${g.now}`), 0.3) ? Object.values(g.clients).find((c) => /^UN Department of Peace/.test(c.name)) : undefined;
+  const client = (o.client && g.clients[o.client]) || un || ministry(g, 'Defence');
   if (!client) return null;
   const home = g.company.homeBase;
   const mission = o.airport ?? pick(g, F.MISSION_AIRPORTS.filter((c) => AIRPORT_BY_CODE[c] && c !== home));
@@ -604,7 +614,7 @@ function troopRotation(ctx: Ctx): Draft | null {
   const last = legs[legs.length - 1];
   return {
     archetype: 'troopRotation', client,
-    title: `Troop rotation to ${city(mission)}`,
+    title: un ? `UN rotation to ${city(mission)}` : `Troop rotation to ${city(mission)}`,
     blurb: `${client.name}: ${n} rotations ${home}–${mission} ${pick(g, F.MISSIONS)}, every ${step || 1} days or so from ${fmtDay(legs[0].dep)}. Night-stop at ${mission}, security-vetted crew, payment in arrears.`,
     pattern: { kind: 'legs', legs },
     req: { minSeats: wide ? 250 : 150, extraCabin: 0, approvals: [] },
@@ -727,6 +737,12 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
     hook: d.hook,
   };
   o.estValue = productValue(product, revBH, d.start, d.end);
+  // v0.5.1: the client may want the aircraft in its colours for the term.
+  const paint = d.paint === false ? undefined : rollPaint(g, o, d.paint === true ? undefined : d.paint);
+  if (paint) {
+    o.paint = paint;
+    o.blurb = `${o.blurb} ${paintTermsText(paint)}`;
+  }
   g.offers[o.id] = o;
   schedule(g, o.expires, 'offer.expire', o.id);
   // Urgent work we could actually fly stops the clock (setting) and gets an inbox line; the rest just pins the map.
@@ -771,6 +787,7 @@ export function generateOffer(g: GameState, archetype?: Archetype, opts: OfferOp
     // Last attempt drops the window so a forced archetype still appears.
     const ctx: Ctx = { g, wide, aspire: opts.wide ?? mode === 'aspire', window: i === tries.length - 1 && !opts.window ? undefined : window, o: opts };
     const d = build(ctx);
+    if (d && opts.paint !== undefined) d.paint = opts.paint;
     const o = d && finalize(g, d, ctx.aspire);
     if (o) return o;
   }
@@ -810,14 +827,22 @@ export function onOfferReply(g: GameState, ev: SimEvent): void {
     pushMessage(g, { tone: 'info', cat: 'commercial', title: `Lost: ${o.title}`, body: `While we haggled, ${o.lostTo} took it.`, ref: { kind: 'offer', id: o.id } });
     return;
   }
-  const asking = askingPrice(o);
+  // v0.5.1: a counter without the client's paint. Required: half the time they walk; else they want a cut on top.
+  const noPaint = !!o.paint && o.counter.paint === false;
+  if (noPaint && o.paint!.required && chance(g, BAL.paint.walkAway)) {
+    o.counter.result = 'refused';
+    closeOffer(g, o, 'lost', rivalName(g, o));
+    pushMessage(g, { tone: 'info', cat: 'commercial', title: `${client} walked away`, body: `They wanted their colours on the aircraft for ${o.title}. ${o.lostTo} took the job.`, ref: { kind: 'offer', id: o.id } });
+    return;
+  }
+  const asking = noPaint && !o.paint!.required ? askingPrice(paintQuote(o, false)) : askingPrice(o);
   const ratio = o.counter.price / asking;
   const p = ratio <= 1 ? 1 : ratio > o.floor ? 0 : 1 - (0.5 * (ratio - 1)) / (o.floor - 1);
   if (chance(g, p)) {
     o.counter.result = 'accepted';
-    setPrice(o, o.counter.price);
+    setPrice(o, noPaint && o.paint!.required ? o.counter.price * (1 - o.paint!.declinePct) : o.counter.price);
     o.status = 'open';
-    const res = acceptOffer(g, o.id, o.counter.aircraftIds ?? []);
+    const res = acceptOffer(g, o.id, o.counter.aircraftIds ?? [], { paint: !noPaint, priced: true });
     if (res.ok) {
       pushMessage(g, { tone: 'good', cat: 'commercial', title: `Counter accepted: ${o.title}`, body: `${client} agreed to ${fmtPrice(o.product)}. The contract is signed.`, ref: { kind: 'contract', id: res.data!.contractId } });
     } else {

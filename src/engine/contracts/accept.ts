@@ -17,6 +17,8 @@ import { feasibility } from './feasibility';
 import { baseDayOf, flownRotations, programmeOf } from './plan';
 import { mghInMonth, productValue } from './pricing';
 import { generateFlights, relinkPositioning } from './schedule';
+import { bookPaint, cancelPaintFor } from '../ops/paint';
+import { paintQuote, paintWindow, type PaintSlot } from './paintTerms';
 
 // ---------- offers ----------
 
@@ -42,13 +44,19 @@ export function closeOffer(g: GameState, o: ContractOffer, status: OfferStatus, 
 /** Broker commission share (5%) when the job came through a broker. */
 export const brokerCut = (c: { broker?: string }) => (c.broker ? BAL.brokerCommission : 0);
 
-const firstNo = (rep: ReturnType<typeof feasibility>) => rep.checks.find((c) => c.level === 'no');
+const firstNo = (rep: ReturnType<typeof feasibility>, skipPaint = false) => rep.checks.find((c) => c.level === 'no' && !(skipPaint && c.id === 'paint'));
+
+/** v0.5.1 accept/counter options: client paint on (default when the offer has it) or off; `priced` = counter reply (price final). */
+export interface SignOpts {
+  paint?: boolean;
+  priced?: boolean;
+}
 
 /**
  * Signs the offer on the chosen aircraft: creates the Contract, generates flights (schedule.ts),
  * books the charter deposit, queues contract.start/end, asks crew to roster (crew.autoRoster).
  */
-export function acceptOffer(g: GameState, offerId: string, aircraftIds: string[]): ActionResult<{ contractId: string }> {
+export function acceptOffer(g: GameState, offerId: string, aircraftIds: string[], opts: SignOpts = {}): ActionResult<{ contractId: string }> {
   const o = g.offers[offerId];
   if (!o) return { ok: false, error: 'Offer not found' };
   if (o.status !== 'open' && o.status !== 'countered') return { ok: false, error: 'This offer is no longer on the market' };
@@ -56,10 +64,20 @@ export function acceptOffer(g: GameState, offerId: string, aircraftIds: string[]
   let ids = [...new Set(aircraftIds)].filter((id) => g.fleet[id]);
   if (!ids.length) return { ok: false, error: 'Choose an aircraft' };
   if (o.pattern.kind === 'legs') ids = ids.slice(0, 1);
+  const paint = !!o.paint && opts.paint !== false;
+  if (o.paint?.required && !paint && !opts.priced) return { ok: false, error: 'The client requires their livery on the aircraft' };
+  const slots: Record<string, PaintSlot> = {};
   for (const id of ids) {
-    const rep = feasibility(g, offerId, id);
-    const no = firstNo(rep);
+    const rep = feasibility(g, offerId, id, { paint });
+    const no = firstNo(rep, !paint);
     if (no) return { ok: false, error: `${g.fleet[id].reg}: ${no.label}` };
+    if (paint) {
+      // Each aircraft's own first departure (base slots are staggered).
+      const tr = programmeOf(o, g.fleet[id].typeId, ids.indexOf(id)).trips[0];
+      const slot = (tr && paintWindow(g, id, o.paint!, tr.std, undefined, { nextAt: tr.from })) ?? rep.paint;
+      if (!slot) return { ok: false, error: `${g.fleet[id].reg}: no paint-shop slot before the job` };
+      slots[id] = slot;
+    }
   }
   const used = new Set(Object.values(g.contracts).filter((c) => c.status === 'signed' || c.status === 'active').map((c) => c.color));
   let color = 0;
@@ -68,18 +86,24 @@ export function acceptOffer(g: GameState, offerId: string, aircraftIds: string[]
   const c: Contract = {
     id: nextId(g, 'k'),
     offerId: o.id, archetype: o.archetype, clientId: o.clientId, broker: o.broker, title: o.title,
-    product: structuredClone(o.product), pattern: structuredClone(o.pattern), requirements: structuredClone(o.requirements),
+    product: paint || opts.priced ? structuredClone(o.product) : paintQuote(o, false).product, pattern: structuredClone(o.pattern), requirements: structuredClone(o.requirements),
     penalties: structuredClone(o.penalties), payment: { ...o.payment }, effects: { ...o.effects },
     aircraftIds: ids, start: o.start, end: o.end, signed: g.now, status: 'signed',
     generatedUntil: o.pattern.kind === 'base' ? o.pattern.from : o.end,
     use: {}, billedMonths: [], color, balanceAt: null,
     invoiced: 0, accrued: 0, legsFlown: 0, legsOnTime: 0,
   };
+  if (o.paint) c.paint = { ...structuredClone(o.paint), accepted: paint, inMx: {}, outMx: {} };
   g.contracts[c.id] = c;
   closeOffer(g, o, 'accepted');
   const prog = programmeOf(c, g.fleet[ids[0]].typeId);
   c.planRevMin = prog.revenueMin;
   if (c.product.kind === 'charter') c.revMinDone = 0;
+  // Paint-in first, so the positioning to the job is planned from the paint shop.
+  for (const id of Object.keys(slots)) {
+    const err = bookPaint(g, c, id, 'in', slots[id]);
+    if (err) pushMessage(g, { tone: 'warn', cat: 'tech', title: `Paint not booked: ${g.fleet[id].reg}`, body: `${err}. It flies ${c.title} in our colours.`, ref: { kind: 'aircraft', id } });
+  }
   generateFlights(g, c);
   // Charter money: deposit now, balance per trip 7–14 days before it (DESIGN §5.1.9); governments pay after the job.
   const cp = c.product;
@@ -131,7 +155,7 @@ export function dailyContracts(g: GameState): void {
 }
 
 /** Proposes a different price (rate per BH or charter price); the client replies after BAL.counterReplyHours. */
-export function counterOffer(g: GameState, offerId: string, price: number, aircraftIds: string[]): ActionResult {
+export function counterOffer(g: GameState, offerId: string, price: number, aircraftIds: string[], opts: SignOpts = {}): ActionResult {
   const o = g.offers[offerId];
   if (!o) return { ok: false, error: 'Offer not found' };
   if (o.status !== 'open') return { ok: false, error: o.status === 'countered' ? 'Waiting for the client to answer' : 'This offer is no longer on the market' };
@@ -139,12 +163,14 @@ export function counterOffer(g: GameState, offerId: string, price: number, aircr
   if (!(price > 0)) return { ok: false, error: 'Enter a price' };
   const ids = aircraftIds.filter((id) => g.fleet[id]);
   if (!ids.length) return { ok: false, error: 'Choose an aircraft' };
+  const paint = !!o.paint && opts.paint !== false;
   for (const id of ids) {
-    const no = firstNo(feasibility(g, offerId, id));
+    const no = firstNo(feasibility(g, offerId, id, { paint }), !paint);
     if (no) return { ok: false, error: `${g.fleet[id].reg}: ${no.label}` };
   }
   const replyAt = g.now + int(g, BAL.counterReplyHours[0], BAL.counterReplyHours[1]) * 60;
   o.counter = { price: Math.round(price), at: g.now, replyAt, aircraftIds: ids };
+  if (o.paint) o.counter.paint = paint;
   o.status = 'countered';
   schedule(g, replyAt, 'offer.reply', o.id);
   return { ok: true, msg: `Counter sent. ${g.clients[o.clientId]?.name ?? 'The client'} will answer within ${BAL.counterReplyHours[1]} h.` };
@@ -231,6 +257,8 @@ export function cancelContract(g: GameState, contractId: string): ActionResult {
   const penalty = cancelPenalty(g, contractId);
   const future = Object.values(g.flights).filter((f) => f.contractId === c.id && f.status === 'scheduled').map((f) => f.id);
   removeFlights(g, future);
+  // v0.5.1: paint-ins not started are called off; finished paint is stripped (dailyPaint), not reimbursed.
+  cancelPaintFor(g, c);
   c.cancelledAt = g.now;
   if (c.product.kind === 'wet' && g.now > c.start) {
     // Bill what was flown this month (MGH pro-rated to today); the penalty covers the rest of the term.

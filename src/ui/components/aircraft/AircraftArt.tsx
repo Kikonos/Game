@@ -5,11 +5,14 @@
 // caller gets nose-right; this component only assigns colours, z-order and
 // level of detail.
 
-import { memo, useId } from 'react';
+import { memo, useId, type Ref } from 'react';
 import { artFor } from '../../../data/acmiTypes';
 import type { Livery } from '../../../engine/core/types';
+import { FONT_STACK } from './fontMetrics';
 import { geometry, type Geometry } from './geometry';
+import { LogoGlyph } from './logos';
 import { PROFILE_BY_ID } from './specs';
+import { stickerLayout, type StickerBox } from './stickers';
 import { tracedFor } from './traced/load';
 import type { TracedProfile } from './traced/types';
 import type { AircraftProfile } from './types';
@@ -17,9 +20,9 @@ import type { AircraftProfile } from './types';
 export interface AircraftArtProps {
   typeId: string;
   livery: Livery;
-  /** Airline code painted on the fin. */
+  /** Default code text for the fin (livery.code.text wins). */
   code?: string;
-  /** Airline name painted as titles on the forward fuselage. */
+  /** Default titles text on the forward fuselage (livery.titles.text wins). */
   name?: string;
   className?: string;
   /** Accepted for compatibility; gear is never drawn. */
@@ -29,6 +32,12 @@ export interface AircraftArtProps {
   detail?: 'full' | 'simple';
   /** Fixed scale in CSS px per metre (sets both width and height) — for same-scale comparisons. */
   pxPerM?: number;
+  /** Livery editor only: the <svg> element (pointer → viewBox mapping). */
+  svgRef?: Ref<SVGSVGElement>;
+  /** Livery editor only: sticker id drawn with a dashed box and an unclipped ghost. */
+  selected?: string;
+  /** Livery editor only: snap guides in viewBox coords (thin cyan lines). */
+  guides?: { x?: number[]; y?: number[] };
 }
 
 const FALLBACK = 'a320neo';
@@ -108,14 +117,14 @@ function rgb(c: string): [number, number, number] | null {
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
 
-function mix(a: string, b: string, t: number): string {
+export function mix(a: string, b: string, t: number): string {
   const x = rgb(a), y = rgb(b);
   if (!x || !y) return a;
   const c = x.map((v, i) => Math.round(v + (y[i] - v) * t));
   return `#${((1 << 24) | (c[0] << 16) | (c[1] << 8) | c[2]).toString(16).slice(1)}`;
 }
 
-function lum(c: string): number {
+export function lum(c: string): number {
   const x = rgb(c);
   if (!x) return 0.5;
   const [r, g, b] = x.map((v) => {
@@ -125,12 +134,28 @@ function lum(c: string): number {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
-const contrast = (a: string, b: string) => {
+export const contrast = (a: string, b: string) => {
   const la = lum(a), lb = lum(b);
   return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
 };
 
 const f = (n: number) => Math.round(n * 100) / 100;
+
+/** Auto lettering colour on the fin: second colour when it reads against the fin, else white / ink. */
+export function autoFinInk(lv: Livery): string {
+  if (lv.plain) return autoBodyInk(lv);
+  return contrast(lv.secondary, lv.primary) >= 2.2 ? lv.secondary : lum(lv.primary) < 0.4 ? '#ffffff' : INK;
+}
+
+/** Auto lettering colour on the white fuselage: primary unless it vanishes on white. */
+export function autoBodyInk(lv: Livery): string {
+  return contrast(lv.primary, '#ffffff') >= 1.6 ? lv.primary : contrast(lv.secondary, '#ffffff') >= 1.6 ? lv.secondary : INK;
+}
+
+/** Background a sticker sits on (for contrast warnings): the fin colour or the white fuselage. */
+export function stickerGround(lv: Livery, side: 'fin' | 'fuselage'): string {
+  return side === 'fin' && !lv.plain ? lv.primary : '#ffffff';
+}
 
 // ---------- palette ----------
 
@@ -146,7 +171,10 @@ const FUS_STOPS: readonly (readonly [number, string])[] = [
   [0, '#e3e8f0'], [0.07, '#f8fafd'], [0.24, '#ffffff'], [0.52, '#f2f5f9'], [0.78, '#dbe2ec'], [1, '#b6c1d2'],
 ];
 
-function AircraftArtImpl({ typeId, livery, code, name, className, height, detail = 'full', pxPerM }: AircraftArtProps) {
+const PLAIN_ACCENT = '#c9d1dd';
+const SELECT = '#3ee6ff';
+
+function AircraftArtImpl({ typeId, livery, code, name, className, height, detail = 'full', pxPerM, svgRef, selected, guides }: AircraftArtProps) {
   const uid = useId().replace(/:/g, '');
   const g: Geometry = artGeometry(typeId);
   const p = g.p;
@@ -162,19 +190,45 @@ function AircraftArtImpl({ typeId, livery, code, name, className, height, detail
 
   const primary = livery.primary;
   const secondary = livery.secondary;
-  // fin code: second colour when it reads against the fin, else white / ink
-  const codeFill = contrast(secondary, primary) >= 2.2 ? secondary : lum(primary) < 0.4 ? '#ffffff' : INK;
-  // titles: primary unless it vanishes on white
-  const titleFill = contrast(primary, '#ffffff') >= 1.6 ? primary : contrast(secondary, '#ffffff') >= 1.6 ? secondary : INK;
+  const plain = !!livery.plain;
+  const finInk = autoFinInk(livery);
+  const bodyInk = autoBodyInk(livery);
 
   const style = pxPerM ? { width: vb.w * pxPerM, height: vb.h * pxPerM } : { height, width: '100%' };
 
-  // titles sized to the band above the windows, shrunk to fit the available length
-  const title = name?.trim().toUpperCase();
-  let titleSize = g.titles.size;
-  if (title) titleSize = Math.min(titleSize, g.titles.w / (title.length * 0.7 + 0.2));
-  const codeText = code?.trim().toUpperCase();
-  const codeSize = codeText ? Math.min(lv.code.size, lv.code.w / (codeText.length * 0.64)) : 0;
+  // stickers (code, titles, logos): laid out in viewBox coords, drawn twice — clipped to the
+  // fuselage and to the fin — so nothing ever paints outside the airframe
+  const boxes = stickerLayout(typeId, livery, { code, name }, detail);
+  const FLIP = 'scale(-1,1)';
+  const sticker = (b: StickerBox, pass: string) => {
+    const tf = `${FLIP} translate(${f(b.cx)} ${f(b.cy)})${b.rot ? ` rotate(${f(b.rot)})` : ''}`;
+    if (b.kind === 'logo') {
+      if (!livery.logo) return null;
+      const k = Math.round((b.w / 100) * 1e5) / 1e5;
+      return (
+        <g key={`${pass}${b.id}`} data-sticker={b.id} transform={`${tf} scale(${k}) translate(-50 -50)`}>
+          <LogoGlyph logo={livery.logo} />
+        </g>
+      );
+    }
+    const t = b.kind === 'code' ? livery.code : livery.titles;
+    const fs = b.fontSize ?? 0;
+    return (
+      <g key={`${pass}${b.id}`} data-sticker={b.id} transform={tf}>
+        <text
+          x={Math.round(((b.spacing ?? 0) * fs * 1000) / 2) / 1000}
+          y={Math.round((b.baseline ?? 0) * 1000) / 1000}
+          fontSize={Math.round(fs * 1000) / 1000}
+          fill={t?.color ?? (b.side === 'fin' ? finInk : bodyInk)}
+          textAnchor="middle"
+          style={{ fontFamily: FONT_STACK, fontWeight: b.weight ?? 700, letterSpacing: `${b.spacing ?? 0}em` }}
+        >
+          {b.text}
+        </text>
+      </g>
+    );
+  };
+  const sel = selected ? boxes.find((b) => b.id === selected) : undefined;
 
   const far = g.engines.filter((e) => e.spec.far);
   const near = [...g.engines.filter((e) => !e.spec.far && e.spec.inboard), ...g.engines.filter((e) => !e.spec.far && !e.spec.inboard)];
@@ -186,7 +240,7 @@ function AircraftArtImpl({ typeId, livery, code, name, className, height, detail
       {e.core && <path d={e.core} fill={dim ? '#7f8a9d' : '#939eb1'} stroke={OUTLINE} strokeWidth={sw * 0.7} style={ns} />}
       {e.plug && <path d={e.plug} fill="#5b6679" stroke={OUTLINE} strokeWidth={sw * 0.6} style={ns} />}
       <path d={e.cowl} fill={url(dim ? 'nacd' : 'nac')} stroke={OUTLINE} strokeWidth={sw} style={ns} strokeLinejoin="round" />
-      {e.accent && <path d={e.accent} fill={primary} opacity={dim ? 0.85 : 1} />}
+      {e.accent && <path d={e.accent} fill={plain ? PLAIN_ACCENT : primary} opacity={dim ? 0.85 : 1} />}
       {full && e.seam && <path d={e.seam} fill="none" stroke={FINE} strokeWidth={0.6} style={ns} />}
       {e.lip && <path d={e.lip} fill="#d3d9e3" stroke={OUTLINE} strokeWidth={sw * 0.7} style={ns} />}
       {e.dark && <path d={e.dark} fill="#1a2232" />}
@@ -200,11 +254,11 @@ function AircraftArtImpl({ typeId, livery, code, name, className, height, detail
       )}
     </g>
   );
-  // geometry is nose-left: everything is drawn inside one mirrored group, text un-mirrored again
-  const FLIP = 'scale(-1,1)';
+  // geometry is nose-left: everything is drawn inside one mirrored group, stickers un-mirrored again
 
   return (
     <svg
+      ref={svgRef}
       className={`aircraft-art${className ? ` ${className}` : ''}`}
       viewBox={`${f(vb.x)} ${f(vb.y)} ${f(vb.w)} ${f(vb.h)}`}
       preserveAspectRatio="xMidYMid meet"
@@ -217,9 +271,15 @@ function AircraftArtImpl({ typeId, livery, code, name, className, height, detail
           {FUS_STOPS.map(([o, c]) => <stop key={o} offset={o} stopColor={c} />)}
         </linearGradient>
         <linearGradient id={id('fin')} x1="0" y1="0" x2="0.8" y2="1">
-          <stop offset="0" stopColor={mix(primary, '#ffffff', 0.16)} />
-          <stop offset="0.55" stopColor={primary} />
-          <stop offset="1" stopColor={mix(primary, '#000000', 0.2)} />
+          {plain ? (<>
+            <stop offset="0" stopColor="#ffffff" />
+            <stop offset="0.55" stopColor="#f2f5f9" />
+            <stop offset="1" stopColor="#c9d1dd" />
+          </>) : (<>
+            <stop offset="0" stopColor={mix(primary, '#ffffff', 0.16)} />
+            <stop offset="0.55" stopColor={primary} />
+            <stop offset="1" stopColor={mix(primary, '#000000', 0.2)} />
+          </>)}
         </linearGradient>
         <linearGradient id={id('nac')} x1="0" y1="0" x2="0" y2="1">
           {NAC.map((c, i) => <stop key={i} offset={[0, 0.45, 1][i]} stopColor={c} />)}
@@ -275,27 +335,17 @@ function AircraftArtImpl({ typeId, livery, code, name, className, height, detail
       {/* outline mode: the wing is the part of the silhouette under the tube's belly */}
       {g.zones && <path d={g.fus} fill={url('wing')} clipPath={url('wz')} />}
       <g clipPath={url('fc')}>
-        <g clipPath={g.zones ? url('tz') : undefined}>
-          {lv.fus && <path d={lv.fus} fill={primary} />}
-          {lv.fus2 && <path d={lv.fus2} fill={secondary} />}
-        </g>
+        {!plain && (
+          <g clipPath={g.zones ? url('tz') : undefined}>
+            {lv.fus && <path d={lv.fus} fill={primary} />}
+            {lv.fus2 && <path d={lv.fus2} fill={secondary} />}
+          </g>
+        )}
         {g.zones?.strip && <path d={g.zones.strip} fill={url('wing')} />}
         {g.zones && <path d={g.zones.seam} fill="none" stroke={OUTLINE} strokeWidth={sw * 0.7} style={ns} />}
         {g.wing.shadow && <ellipse cx={f(g.wing.shadow.c[0])} cy={f(-g.wing.shadow.c[1])} rx={f(g.wing.shadow.rx)} ry={f(g.wing.shadow.ry)} fill={url('sh')} />}
-        {full && title && (
-          <text
-            transform={FLIP}
-            x={f(-g.titles.x)}
-            y={f(-g.titles.y)}
-            fontSize={f(titleSize)}
-            fill={titleFill}
-            textAnchor="end"
-            dominantBaseline="central"
-            style={{ fontFamily: "var(--font-display, 'Space Grotesk Variable', sans-serif)", fontWeight: 700, letterSpacing: '0.04em' }}
-          >
-            {title}
-          </text>
-        )}
+        {/* sticker pass F: fuselage (outline mode: the tube only, never the delta) */}
+        {boxes.length > 0 && <g clipPath={g.zones ? url('tz') : undefined}>{boxes.map((b) => sticker(b, 'f'))}</g>}
         {g.cockpit.mask && <path d={g.cockpit.mask} fill="#0e1526" />}
       </g>
       {full && <path d={g.windows} fill={WINDOW} />}
@@ -309,24 +359,12 @@ function AircraftArtImpl({ typeId, livery, code, name, className, height, detail
 
       {/* fin */}
       <path d={g.fin.fill} fill={url('fin')} />
-      {lv.fin && (
+      {((!plain && lv.fin) || boxes.length > 0) && (
         <g clipPath={url('tc')}>
-          <path d={lv.fin} fill={secondary} />
+          {!plain && lv.fin && <path d={lv.fin} fill={secondary} />}
+          {/* sticker pass T: fin */}
+          {boxes.map((b) => sticker(b, 't'))}
         </g>
-      )}
-      {codeText && (
-        <text
-          transform={FLIP}
-          x={f(-lv.code.x)}
-          y={f(-lv.code.y)}
-          fontSize={f(codeSize)}
-          fill={codeFill}
-          textAnchor="middle"
-          dominantBaseline="central"
-          style={{ fontFamily: "var(--font-display, 'Space Grotesk Variable', sans-serif)", fontWeight: 700, letterSpacing: '0.02em' }}
-        >
-          {codeText}
-        </text>
       )}
       {g.fin.edge && <path d={g.fin.edge} fill="none" stroke={OUTLINE} strokeWidth={sw} style={ns} strokeLinejoin="round" />}
       {full && g.fin.lines && <path d={g.fin.lines} fill="none" stroke="rgba(0,0,0,0.22)" strokeWidth={0.6} style={ns} />}
@@ -356,7 +394,26 @@ function AircraftArtImpl({ typeId, livery, code, name, className, height, detail
 
       {/* engines */}
       {near.map((e, i) => engine(e, i + far.length, !!e.spec.inboard, p.wing.section && !sil ? 'prop' : 'all'))}
+
+      {/* editor: the selected sticker unclipped and faint (shows what the airframe cuts off), dashed box */}
+      {sel && (
+        <g pointerEvents="none">
+          <g opacity={0.3}>{sticker(sel, 'g')}</g>
+          <g transform={`${FLIP} translate(${f(sel.cx)} ${f(sel.cy)})${sel.rot ? ` rotate(${f(sel.rot)})` : ''}`}>
+            <rect x={f(-sel.w / 2 - 0.1)} y={f(-sel.h / 2 - 0.1)} width={f(sel.w + 0.2)} height={f(sel.h + 0.2)} fill="none" stroke={SELECT} strokeWidth={1.5} strokeDasharray="5 4" style={ns} />
+            {[[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([u, v]) => (
+              <circle key={`${u}${v}`} cx={f(u * (sel.w / 2 + 0.1))} cy={f(v * (sel.h / 2 + 0.1))} r={f(Math.max(0.12, vb.h * 0.018))} fill="#ffffff" stroke={SELECT} strokeWidth={1.5} style={ns} />
+            ))}
+          </g>
+        </g>
+      )}
       </g>
+      {guides && (
+        <g pointerEvents="none" stroke={SELECT} strokeWidth={1} style={ns} opacity={0.85}>
+          {guides.x?.map((x) => <line key={`x${x}`} x1={f(x)} x2={f(x)} y1={f(vb.y)} y2={f(vb.y + vb.h)} />)}
+          {guides.y?.map((y) => <line key={`y${y}`} y1={f(y)} y2={f(y)} x1={f(vb.x)} x2={f(vb.x + vb.w)} />)}
+        </g>
+      )}
     </svg>
   );
 }
