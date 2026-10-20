@@ -145,3 +145,7 @@ If an agent fails on a limit, its file edits persist (checkpoint them). Resume t
 ### 12:33Z — check-in: both Opus-high runs alive; checkpoint pushed.
 
 ### 13:33Z — check-in: both runs alive; checkpoint pushed.
+
+### 2026-10-20 16:35Z — second limit (13:40–16:30Z), resumed
+- Build: B3 complete (assess, flights, finance, events, bot-balance cached; bot: 3 seeds solvent, margin −5…+5%, 0 legality violations; still failing: uncovered-at-departure 2.6–4% (<2%) and summer BH/ac on some seeds — B2 roster faults for the integrate engine lane). Integration onward re-runs. Task wt2j3zo0q.
+- Art: traced, applied, measure round 1 done (6 match, 17 close, a388 off — chin; A350 limited by low-res ref; pane details on b738/b752/b772/b744). Fix round 1 + measure 2 + finish re-run. Task wzh1bgaxo. Sent the measure-1 sheet to the user as a preview.
