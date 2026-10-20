@@ -3,8 +3,9 @@
 
 import type { TailStyle } from '../../../engine/core/types';
 import { COCKPIT } from './cockpit';
-import { Box, D, add, chainPts, lerp, lerpV, rad, sampleChain, splitTail, yAt, type V } from './path';
-import type { AircraftProfile, EngineSpec, EngineStyle, FairingSpec, TipDevice, WingSpec } from './types';
+import { Box, D, add, chainPts, lerp, lerpV, rad, relax, sampleChain, splitTail, yAt, type V } from './path';
+import type { TracedProfile } from './traced/types';
+import type { AircraftProfile, EngineSpec, EngineStyle, FairingSpec, FinSpec, TipDevice, WindowRow, WingSpec } from './types';
 
 export interface EngineGeo {
   spec: EngineSpec;
@@ -36,8 +37,14 @@ export interface LiveryGeo {
 
 export interface Geometry {
   p: AircraftProfile;
+  /** Traced profile the fuselage (and whatever else it carries) came from; undefined = parametric spec. */
+  traced?: TracedProfile;
+  /** Outline mode (Concorde): `fus` is the whole silhouette; no separate wing, the fin only shades. */
+  outline: boolean;
   L: number;
   H: number;
+  /** Nose tip (m) — the alignment reference of the traced frame. */
+  tip: V;
   upperY: (x: number) => number;
   lowerY: (x: number) => number;
   /** Closed fuselage outline including belly fairing and sponsons (no landing gear is ever drawn). */
@@ -50,8 +57,8 @@ export interface Geometry {
   wingRoot: string;
   fin: { fill: string; edge: string; lines: string; quad: readonly [V, V, V, V]; top: number };
   stab: { near: string; far: string; lines: string; bullet: string; tTail: boolean; none: boolean };
-  /** `shade`: darker underside of a sectioned (side-on aerofoil) wing. */
-  wing: { fill: string; tip: string; lines: string; shade?: string; shadow: { c: V; rx: number; ry: number } };
+  /** `shade`: darker underside of a sectioned (side-on aerofoil) wing; no `shadow` in outline mode. */
+  wing: { fill: string; tip: string; lines: string; shade?: string; shadow?: { c: V; rx: number; ry: number } };
   engines: EngineGeo[];
   windows: string;
   doors: string;
@@ -70,69 +77,424 @@ export function finAt(q: readonly [V, V, V, V], s: number, t: number): V {
 }
 
 const cache = new Map<AircraftProfile, Geometry>();
+const tcache = new Map<TracedProfile, Map<AircraftProfile, Geometry>>();
 
-export function geometry(p: AircraftProfile): Geometry {
-  let g = cache.get(p);
+/** Geometry for a spec, drawn from the traced profile `t` when one exists for the type. */
+export function geometry(p: AircraftProfile, t?: TracedProfile): Geometry {
+  let m = cache;
+  if (t) {
+    let tm = tcache.get(t);
+    if (!tm) tcache.set(t, (tm = new Map()));
+    m = tm;
+  }
+  let g = m.get(p);
   if (!g) {
-    g = build(p);
-    cache.set(p, g);
+    g = build(p, t);
+    m.set(p, g);
   }
   return g;
 }
 
-function build(p: AircraftProfile): Geometry {
-  const H = p.height;
+// ---------- traced profiles (fractions of L, nose left, y down -> metres, y up) ----------
+
+interface Frame {
+  t: TracedProfile;
+  /** Fuselage height (m): crown to belly of the traced tube (spec height in outline mode). */
+  H: number;
+  top: V[];
+  bottom: V[];
+  outline?: V[];
+  tip: V;
+  X: (x: number) => number;
+  Y: (y: number) => number;
+  P: (q: readonly [number, number]) => V;
+}
+
+function tracedFrame(t: TracedProfile, p: AircraftProfile): Frame {
   const L = p.length;
+  const ys = (pts: readonly (readonly [number, number])[], lo: number, hi: number) => {
+    const inRange = pts.filter(([x]) => x >= lo && x <= hi).map(([, y]) => y);
+    return inRange.length ? inRange : pts.map(([, y]) => y);
+  };
+  const outline = t.outline && t.outline.length >= 3 ? t.outline : undefined;
+  // centreline: midway between the crown aft of any 747 hump and the belly ahead of the wing fairing
+  const crownF = Math.min(...ys(outline ?? t.top, outline ? 0.3 : 0.5, outline ? 0.5 : 0.7));
+  let bellyF = Math.max(...ys(t.bottom.length ? t.bottom : outline ?? t.top, 0.2, 0.32));
+  let Hf = bellyF - crownF;
+  if (outline || !(Hf > 0.03)) {
+    Hf = p.height / L;
+    bellyF = crownF + Hf;
+  }
+  const yc = (crownF + bellyF) / 2;
+  const X = (x: number) => x * L;
+  const Y = (y: number) => (yc - y) * L;
+  const P = (q: readonly [number, number]): V => [X(q[0]), Y(q[1])];
+  // x non-decreasing so the crown/belly lookups stay single-valued
+  const mono = (pts: V[]): V[] => pts.map((v, i, a) => (i && v[0] < a[i - 1][0] ? [a[i - 1][0], v[1]] : v));
+  const line = (pts: readonly (readonly [number, number])[]): V[] => (pts.length ? relax(mono(pts.map(P))) : []);
+  const top = line(t.top), bottom = line(t.bottom);
+  return { t, H: Hf * L, top, bottom, outline: outline && relax(outline.map(P)), tip: top[0] ?? P([0, 0]), X, Y, P };
+}
+
+/** Upper (`hi`) or lower envelope of a closed outline, as a polyline over x for yAt. */
+function envelope(pts: readonly V[], hi: boolean, bins = 120): V[] {
+  const x0 = Math.min(...pts.map((v) => v[0])), x1 = Math.max(...pts.map((v) => v[0]));
+  const best = new Map<number, number>();
+  const n = pts.length;
+  for (let i = 0; i < n; i++) {
+    // sample the edges too, so sparse polygons still fill every bin
+    const a = pts[i], b = pts[(i + 1) % n];
+    for (let k = 0; k <= 8; k++) {
+      const v = lerpV(a, b, k / 8);
+      const bin = Math.round(((v[0] - x0) / (x1 - x0 || 1)) * bins);
+      const cur = best.get(bin);
+      if (cur === undefined || (hi ? v[1] > cur : v[1] < cur)) best.set(bin, v[1]);
+    }
+  }
+  return [...best.entries()].sort((a, b) => a[0] - b[0]).map(([bin, y]): V => [x0 + (bin / bins) * (x1 - x0), y]);
+}
+
+interface FinGeo {
+  fill: string;
+  edge: string;
+  lines: string;
+  quad: readonly [V, V, V, V];
+  top: number;
+  finStart: V;
+  tipLE: V;
+  tc: number;
+  /** Fin stations the livery uses (root LE x, chords, height above the crown). */
+  fn: Pick<FinSpec, 'x' | 'rootChord' | 'tipChord' | 'height'>;
+}
+
+/**
+ * Fin from a traced polygon (world coords): the vertices above the crown are the exposed edge,
+ * the rest the root. `stroke` = false in outline mode, where the silhouette stroke already covers it.
+ */
+function tracedFin(poly: readonly V[], p: AircraftProfile, H: number, upperY: (x: number) => number, box: Box, stroke: boolean): FinGeo | undefined {
+  const n = poly.length;
+  const tol = Math.max(0.15, H * 0.04);
+  const above = poly.map(([x, y]) => y > upperY(x) + tol);
+  let start = -1;
+  for (let i = 0; i < n; i++) if (above[i] && !above[(i - 1 + n) % n]) start = i;
+  if (start < 0) return undefined;
+  const run: V[] = [];
+  for (let i = start; above[i % n] && run.length < n; i++) run.push(poly[i % n]);
+  const pts = [poly[(start - 1 + n) % n], ...run, poly[(start + run.length) % n]];
+  if (pts[0][0] > pts[pts.length - 1][0]) pts.reverse();
+  const rootLE = pts[0], rootTE = pts[pts.length - 1];
+  const top = Math.max(...pts.map((v) => v[1]));
+  const crownY = upperY(rootLE[0]);
+  const tipPts = pts.filter((v) => v[1] > top - (top - crownY) * 0.06);
+  const tipLE = tipPts[0], tipTE = tipPts[tipPts.length - 1];
+  const edge = new D().spline(pts, true, 25);
+  const dip = Math.max(0.1, H * 0.05);
+  const fill = new D();
+  fill.s = edge.s;
+  for (let i = 0; i <= 12; i++) {
+    const x = lerp(rootTE[0], rootLE[0], i / 12);
+    fill.L([x, upperY(x) - dip * Math.min(1, (12 - i) / 2)]);
+  }
+  fill.Z();
+  box.add(...pts);
+  const fn = { x: rootLE[0], rootChord: rootTE[0] - rootLE[0], tipChord: tipTE[0] - tipLE[0], height: top - H / 2 };
+  const lines = new D();
+  if (p.fin.rudder) {
+    const rr = p.fin.rudder, hx0 = rootTE[0] - fn.rootChord * rr;
+    lines.M([hx0, upperY(hx0) + H * 0.06]).L([tipTE[0] - fn.tipChord * rr, top - fn.tipChord * 0.08]);
+  }
+  return {
+    fill: fill.toString(), edge: stroke ? edge.toString() : '', lines: lines.toString(),
+    quad: [[rootLE[0], H / 2], [rootTE[0], H / 2], tipLE, tipTE], top, finStart: rootLE, tipLE, tc: fn.tipChord, fn,
+  };
+}
+
+/** Spec engines moved onto traced nacelle boxes (both sorted by x; far-side engines follow their near twin). */
+function placeEngines(p: AircraftProfile, fr: Frame): EngineSpec[] {
+  const boxes = fr.t.engines;
+  if (!boxes?.length) return p.engines;
+  const sorted = [...boxes].sort((a, b) => a.x - b.x);
+  const near = p.engines.filter((e) => !e.far).sort((a, b) => a.x - b.x);
+  const moved = new Map<EngineSpec, EngineSpec>();
+  near.forEach((e, i) => {
+    const b = sorted[Math.min(i, sorted.length - 1)];
+    moved.set(e, { ...e, x: fr.X(b.x), y: fr.Y(b.y + b.h / 2), dia: b.h * p.length, len: b.w * p.length });
+  });
+  return p.engines.map((e) => {
+    if (!e.far) return moved.get(e) ?? e;
+    const twin = near.reduce((a, b) => (Math.abs(b.x - e.x) < Math.abs(a.x - e.x) ? b : a), near[0]);
+    const m = twin && moved.get(twin);
+    if (!twin || !m) return e;
+    return { ...e, x: m.x + (e.x - twin.x), y: m.y + (e.y - twin.y), dia: m.dia, len: m.len };
+  });
+}
+
+function build(p: AircraftProfile, t?: TracedProfile): Geometry {
+  const L = p.length;
+  const fr = t ? tracedFrame(t, p) : undefined;
+  const H = fr ? fr.H : p.height;
   const box = new Box();
 
   // ---------- fuselage outline ----------
-  const nm = (u: number, v: number): V => [u * H, v * H];
-  const tm = (u: number, v: number): V => [L + u * H, v * H];
-  const nu = chainPts(p.nose.upper, nm);
-  const nl = chainPts(p.nose.lower, nm);
-  const tu = chainPts(p.tail.upper, tm);
-  const tl = chainPts(p.tail.lower, tm);
-  const fus = new D().chain(nu, true);
-  const up: V[] = sampleChain(nu);
-  const crownTop = nu[nu.length - 1][1];
-  if (p.hump) {
-    const a: V = [p.hump.x1, crownTop];
-    const b: V = [p.hump.x1 + p.hump.fair, H / 2];
-    const c1: V = [a[0] + p.hump.fair * 0.55, crownTop];
-    const c2: V = [b[0] - p.hump.fair * 0.45, H / 2];
-    fus.L(a).C(c1, c2, b);
-    up.push(...sampleChain([a, c1, c2, b]));
+  const lines = new D();
+  let fus: D, up: V[], low: V[], crown: number, belly: number, tip: V;
+  /** Tail-cone end, top and bottom (APU exhaust / 777 blade). */
+  let tailEnd: readonly [V, V] | undefined;
+  if (fr?.outline) {
+    // one closed silhouette; the crown/belly lookups see its upper and lower envelopes
+    const o = fr.outline;
+    fus = new D().splineClosed(o);
+    up = envelope(o, true);
+    low = envelope(o, false);
+    tip = o.reduce((a, b) => (b[0] < a[0] ? b : a), o[0]);
+    crown = fr.Y(Math.min(...fr.t.outline!.filter(([x]) => x >= 0.3 && x <= 0.5).map(([, y]) => y)));
+    belly = Math.min(...o.map((v) => v[1]));
+    box.add(...o);
+  } else if (fr) {
+    up = fr.top;
+    low = fr.bottom;
+    tip = fr.tip;
+    const back = [...low].reverse();
+    fus = new D().spline(up).L(back[0]).spline(back, false).Z();
+    tailEnd = [up[up.length - 1], low[low.length - 1]];
+    crown = Math.max(...up.map((v) => v[1]));
+    belly = Math.min(...low.map((v) => v[1]));
+    box.add(...up, ...low);
+  } else {
+    const nm = (u: number, v: number): V => [u * H, v * H];
+    const tm = (u: number, v: number): V => [L + u * H, v * H];
+    const nu = chainPts(p.nose.upper, nm);
+    const nl = chainPts(p.nose.lower, nm);
+    const tu = chainPts(p.tail.upper, tm);
+    const tl = chainPts(p.tail.lower, tm);
+    tip = nu[0];
+    fus = new D().chain(nu, true);
+    up = sampleChain(nu);
+    const crownTop = nu[nu.length - 1][1];
+    if (p.hump) {
+      const a: V = [p.hump.x1, crownTop];
+      const b: V = [p.hump.x1 + p.hump.fair, H / 2];
+      const c1: V = [a[0] + p.hump.fair * 0.55, crownTop];
+      const c2: V = [b[0] - p.hump.fair * 0.45, H / 2];
+      fus.L(a).C(c1, c2, b);
+      up.push(...sampleChain([a, c1, c2, b]));
+    }
+    fus.L(tu[0]).chain(tu).L(tl[tl.length - 1]).chain([...tl].reverse());
+    up.push(...sampleChain(tu));
+    low = [...sampleChain(nl), ...sampleChain(tl)];
+    tailEnd = [tu[tu.length - 1], tl[tl.length - 1]];
+
+    // belly from the tail-cone start forward to the nose, with fairing bulges
+    const xBellyAft = tl[0][0], xBellyFwd = nl[nl.length - 1][0];
+    const bulges = [p.fairing, p.sponson].filter((f): f is FairingSpec => !!f).sort((a, b) => b.x0 - a.x0);
+    const hb = -H / 2;
+    let bellyMin = hb;
+    for (const f of bulges) {
+      const x0 = Math.max(f.x0, xBellyFwd + 0.1), x1 = Math.min(f.x1, xBellyAft - 0.1);
+      const w = x1 - x0, yb = hb - f.depth;
+      fus.L([x1, hb])
+        .C([x1 - w * 0.1, hb], [x1 - w * 0.14, yb], [x0 + w * 0.7, yb])
+        .C([x0 + w * 0.55, yb], [x0 + w * 0.5, yb], [x0 + w * 0.34, yb])
+        .C([x0 + w * 0.16, yb], [x0 + w * 0.12, hb], [x0, hb]);
+      bellyMin = Math.min(bellyMin, yb);
+      // seam where the fairing meets the fuselage side (a pod outline when `rise` is given)
+      if (f.rise) lines.M([x0 + w * 0.015, hb - f.depth * 0.35]).C([x0 + w * 0.06, hb + f.rise], [x1 - w * 0.4, hb + f.rise * 1.04], [x1 - w * 0.02, hb - f.depth * 0.3]);
+      else lines.M([x0 + w * 0.08, hb - f.depth * 0.08]).C([x0 + w * 0.3, hb + H * 0.035], [x1 - w * 0.3, hb + H * 0.035], [x1 - w * 0.05, hb - f.depth * 0.08]);
+    }
+    fus.L(nl[nl.length - 1]).chain([...nl].reverse()).Z();
+    crown = Math.max(...up.map((v) => v[1]));
+    belly = Math.min(bellyMin, ...low.map((v) => v[1]));
+    box.add(...up, ...low, [0, belly]);
   }
-  fus.L(tu[0]).chain(tu).L(tl[tl.length - 1]).chain([...tl].reverse());
-  up.push(...sampleChain(tu));
-  const low: V[] = [...sampleChain(nl), ...sampleChain(tl)];
   const upperY = (x: number) => yAt(up, x);
   const lowerY = (x: number) => yAt(low, x);
 
-  // belly from the tail-cone start forward to the nose, with fairing bulges
-  const xBellyAft = tl[0][0], xBellyFwd = nl[nl.length - 1][0];
-  const bulges = [p.fairing, p.sponson].filter((f): f is FairingSpec => !!f).sort((a, b) => b.x0 - a.x0);
-  const hb = -H / 2;
-  let bellyMin = hb;
-  const lines = new D();
-  for (const f of bulges) {
-    const x0 = Math.max(f.x0, xBellyFwd + 0.1), x1 = Math.min(f.x1, xBellyAft - 0.1);
-    const w = x1 - x0, yb = hb - f.depth;
-    fus.L([x1, hb])
-      .C([x1 - w * 0.1, hb], [x1 - w * 0.14, yb], [x0 + w * 0.7, yb])
-      .C([x0 + w * 0.55, yb], [x0 + w * 0.5, yb], [x0 + w * 0.34, yb])
-      .C([x0 + w * 0.16, yb], [x0 + w * 0.12, hb], [x0, hb]);
-    bellyMin = Math.min(bellyMin, yb);
-    // seam where the fairing meets the fuselage side (a pod outline when `rise` is given)
-    if (f.rise) lines.M([x0 + w * 0.015, hb - f.depth * 0.35]).C([x0 + w * 0.06, hb + f.rise], [x1 - w * 0.4, hb + f.rise * 1.04], [x1 - w * 0.02, hb - f.depth * 0.3]);
-    else lines.M([x0 + w * 0.08, hb - f.depth * 0.08]).C([x0 + w * 0.3, hb + H * 0.035], [x1 - w * 0.3, hb + H * 0.035], [x1 - w * 0.05, hb - f.depth * 0.08]);
-  }
-  fus.L(nl[nl.length - 1]).chain([...nl].reverse()).Z();
-  const crown = Math.max(...up.map((v) => v[1]));
-  const belly = Math.min(bellyMin, ...low.map((v) => v[1]));
-  box.add(...up, ...low, [0, belly]);
-
   // ---------- vertical fin ----------
+  const tracedPoly = fr && t?.fin && t.fin.length >= 3 ? t.fin.map(fr.P) : undefined;
+  const finG = (tracedPoly && tracedFin(tracedPoly, p, H, upperY, box, !fr?.outline))
+    ?? (fr?.outline && tracedFin(fr.outline, p, H, upperY, box, false))
+    ?? paramFin(p, H, L, upperY, box);
+  const { quad, top, finStart, tipLE, tc } = finG;
+
+  // ---------- horizontal stabiliser ----------
+  const sb = p.stab;
+  const stabNear = new D(), stabFar = new D(), stabLines = new D(), bullet = new D();
+  if (!sb.none) {
+    const th = sb.thickness ?? sb.rootChord * 0.11;
+    const sy = sb.tTail ? top - th * 0.2 : sb.y;
+    const rise = sb.span * Math.sin(rad(sb.dihedral));
+    const r0: V = [sb.x, sy];
+    const t0: V = [sb.x + sb.span * Math.tan(rad(sb.sweep)), sy + rise];
+    const t1: V = [t0[0] + sb.tipChord, t0[1]];
+    const r1: V = [sb.x + sb.rootChord, sy];
+    const shape = (d: D, o: V) => {
+      const P = (v: V): V => [v[0] + o[0], v[1] + o[1]];
+      d.M(P([r0[0] + th * 0.9, sy + th * 0.5]))
+        .L(P([t0[0] + sb.tipChord * 0.12, t0[1] + th * 0.22]))
+        .C(P([t1[0] - sb.tipChord * 0.3, t1[1] + th * 0.24]), P([t1[0], t1[1] + th * 0.1]), P(t1))
+        .L(P([r1[0], sy - th * 0.08]))
+        .L(P([r0[0] + th * 0.9, sy - th * 0.5]))
+        .C(P([r0[0] + th * 0.1, sy - th * 0.48]), P([r0[0] - th * 0.12, sy + th * 0.1]), P([r0[0] + th * 0.9, sy + th * 0.5]))
+        .Z();
+    };
+    shape(stabNear, [0, 0]);
+    shape(stabFar, [-th * 0.5, Math.max(th * 0.7, rise * 0.28)]);
+    stabLines.M([r1[0] - sb.rootChord * 0.28, sy - th * 0.08]).L([t1[0] - sb.tipChord * 0.32, t1[1] + th * 0.12]);
+    box.add([r0[0] - th * 0.6, sy], t0, t1, [t1[0], t1[1] + th]);
+    if (sb.tTail) {
+      // bullet fairing where the T-tail meets the fin
+      const bx = Math.min(sb.x, tipLE[0]) - tc * 0.12, bl = Math.max(tc, sb.rootChord) * 1.15 + Math.abs(sb.x - tipLE[0]), br = th * 0.85;
+      bullet.M([bx, sy]).C([bx, sy + br], [bx + bl * 0.2, sy + br], [bx + bl * 0.42, sy + br]).L([bx + bl, sy + br * 0.55]).L([bx + bl, sy - br * 0.55]).L([bx + bl * 0.42, sy - br]).C([bx + bl * 0.2, sy - br], [bx, sy - br], [bx, sy]).Z();
+      box.add([bx, sy + br], [bx + bl, sy]);
+    }
+  }
+
+  // ---------- wing ----------
+  const wr0 = fr?.t.wingRoot;
+  const w: WingSpec = wr0 && wr0.to > wr0.from ? { ...p.wing, x: fr.X(wr0.from), rootChord: (wr0.to - wr0.from) * L, y: fr.Y(wr0.y) } : p.wing;
+  const wingG = fr?.outline ? { fill: '', tip: '', lines: '' } : wingGeometry(w, box);
+  const wrc = w.rootChord;
+  const wth = w.thickness ?? wrc * 0.11;
+  const shadow = fr?.outline
+    ? undefined
+    : w.high
+      ? { c: [w.x + wrc * 0.5, H / 2 - H * 0.08] as V, rx: wrc * 0.9, ry: H * 0.2 }
+      : { c: [w.x + wrc * 0.5, w.y - wth * 0.2] as V, rx: wrc * 0.85, ry: H * 0.24 };
+
+  // ---------- high-wing crown fairing ----------
+  const wr = new D();
+  if (fr?.outline) {
+    // nothing: the silhouette carries the wing
+  } else if (w.high && w.section) {
+    // long low fairing on the crown that ramps up into the aerofoil's lower surface
+    const x0 = w.x - wrc * 0.55, x1 = w.x + wrc * 1.75;
+    const yl = w.y - wth * 0.12;
+    wr.M([x0, upperY(x0) - 0.06]).C([x0 + wrc * 0.3, upperY(x0) + 0.03], [w.x - wrc * 0.12, yl], [w.x + wrc * 0.2, yl]).L([w.x + wrc * 0.9, yl]).C([w.x + wrc * 1.15, yl], [x1 - wrc * 0.35, upperY(x1) + 0.03], [x1, upperY(x1) - 0.06]).Z();
+    box.add([w.x, yl]);
+  } else if (w.high) {
+    const x0 = w.x - wrc * 0.45, x1 = w.x + wrc * 1.5;
+    const yb = w.y + wth * 0.15;
+    wr.M([x0, upperY(x0) - 0.06]).C([x0 + wrc * 0.3, upperY(x0) + 0.02], [w.x - wrc * 0.1, yb], [w.x + wrc * 0.25, yb]).L([w.x + wrc * 0.85, yb]).C([x1 - wrc * 0.25, yb], [x1 - wrc * 0.15, upperY(x1) + 0.02], [x1, upperY(x1) - 0.06]).Z();
+    box.add([w.x, yb]);
+  }
+
+  // ---------- engines ----------
+  let engineSpecs: EngineSpec[];
+  if (fr?.outline) {
+    // nacelles straight from the traced boxes, no pylon (they sit on the silhouette)
+    const style = p.engines[0]?.style ?? 'supersonic';
+    engineSpecs = (fr.t.engines ?? []).map((b) => ({ mount: 'underwing', style, x: fr.X(b.x), y: fr.Y(b.y + b.h / 2), dia: b.h * L, len: b.w * L }));
+  } else {
+    engineSpecs = fr ? placeEngines(p, fr) : p.engines;
+  }
+  const engines = engineSpecs.map((e) => engineGeometry(e, w, box, upperY));
+
+  // ---------- doors & windows ----------
+  const rows: WindowRow[] = fr
+    ? fr.t.windows && fr.t.windows.pitch > 0 && fr.t.windows.h > 0
+      ? [{ x0: fr.X(fr.t.windows.from), x1: fr.X(fr.t.windows.to), y: fr.Y(fr.t.windows.y), pitch: fr.t.windows.pitch * L, w: fr.t.windows.h * L * 0.7, h: fr.t.windows.h * L, gaps: (fr.t.windows.gaps ?? []).map(([a, b]) => [fr.X(a), fr.X(b)] as const) }]
+      : []
+    : p.windows;
+  const doorBox = fr
+    // traced doors are boxes with y at the top edge (frame is y-down)
+    ? (fr.t.doors ?? []).map((d) => ({ x: fr.X(d.x), y: fr.Y(d.y + d.h), w: d.w * L, h: d.h * L, kind: 'pax' as const }))
+    : p.doors.map((d) => {
+      const kind = d.kind ?? 'pax';
+      const big = H > 5;
+      const dw = d.w ?? (kind === 'exit' ? 0.55 : kind === 'cargo' ? 1.8 : big ? 1.07 : 0.82);
+      const dh = d.h ?? (kind === 'exit' ? 0.95 : kind === 'cargo' ? 1.25 : big ? 1.93 : 1.85);
+      const row = nearestRow(p, d.y);
+      const dy = d.y ?? (kind === 'cargo' ? -H / 2 + H * 0.1 : kind === 'exit' ? row.y - 0.5 : row.y - dh * 0.55);
+      return { x: d.x, y: dy, w: dw, h: dh, kind };
+    });
+  const doors = new D();
+  for (const d of doorBox) doors.rrect(d.x, d.y, d.w, d.h, Math.min(d.w, d.h) * 0.2);
+  const win = new D();
+  for (const row of rows) {
+    for (let x = row.x0; x <= row.x1 + 1e-6; x += row.pitch) {
+      const hit = doorBox.some((d) => d.kind !== 'cargo' && x + row.w / 2 > d.x - 0.12 && x - row.w / 2 < d.x + d.w + 0.12 && row.y > d.y && row.y < d.y + d.h + 0.3);
+      if (hit || row.gaps?.some(([a, b]) => x >= a && x <= b)) continue;
+      win.rrect(x - row.w / 2, row.y - row.h / 2, row.w, row.h, row.w * 0.45);
+    }
+  }
+  if (p.nose.radome && !fr?.outline) {
+    const rx = p.nose.radome * H;
+    const yt = upperY(rx), yb = lowerY(rx);
+    lines.M([rx - H * 0.02, yt - H * 0.01]).C([rx + H * 0.05, lerp(yt, yb, 0.3)], [rx + H * 0.05, lerp(yt, yb, 0.7)], [rx - H * 0.01, yb + H * 0.01]);
+  }
+  if (p.tail.blade && tailEnd) {
+    const [a, b] = tailEnd;
+    lines.M([a[0] - H * 0.035, a[1] - H * 0.01]).L([b[0] - H * 0.035, b[1] + H * 0.01]);
+  }
+  const apu = new D();
+  if (p.tail.apu && tailEnd) {
+    const [a, b] = tailEnd;
+    const cy = (a[1] + b[1]) / 2, ry = Math.min((p.tail.apu * H) / 2, Math.abs(a[1] - b[1]) / 2 + H * 0.01);
+    apu.M([L + 0.02, cy + ry]).C([L - ry * 0.7, cy + ry], [L - ry * 0.7, cy - ry], [L + 0.02, cy - ry]).Z();
+  }
+
+  // ---------- cockpit ----------
+  const panes = new D();
+  let mask = '';
+  let cockpitEnd: number;
+  if (fr && fr.t.cockpit?.some((q) => q.length >= 3)) {
+    const polys = fr.t.cockpit.filter((q) => q.length >= 3).map((q) => q.map(fr.P));
+    for (const pane of polys) panes.poly(pane);
+    cockpitEnd = Math.max(...polys.flat().map((v) => v[0]));
+  } else {
+    const ck = COCKPIT[p.cockpit.style];
+    const cs = (p.cockpit.scale ?? 1) * H;
+    const cx0 = p.cockpit.u * H, cy0 = p.cockpit.v * H;
+    const cp = (q: readonly (readonly [number, number])[]) => q.map(([u, v]): V => [cx0 + u * cs, cy0 + v * cs]);
+    for (const pane of ck.panes) panes.poly(cp(pane));
+    mask = ck.mask ? new D().smooth([...cp(ck.mask), cp(ck.mask)[0]]).Z().toString() : '';
+    cockpitEnd = cx0 + Math.max(...ck.panes.flat().map((v) => v[0])) * cs;
+  }
+
+  // ---------- titles ----------
+  const inTube = rows.filter((r) => r.y + r.h / 2 < H * 0.4);
+  const topRow = (inTube.length ? inTube : rows).reduce<WindowRow | undefined>((a, b) => (!a || b.y > a.y ? b : a), undefined);
+  const winTop = topRow ? topRow.y + topRow.h / 2 : 0;
+  const crownAt = (x: number) => Math.min(upperY(x), H / 2);
+  let tx = Math.max(cockpitEnd + H * 0.25, ...doorBox.filter((d) => d.kind === 'pax' && d.x < L * 0.3).map((d) => d.x + d.w + H * 0.08));
+  while (tx < L * 0.5 && crownAt(tx) < H * 0.49) tx += H * 0.05;
+  const avail = H / 2 - winTop;
+  const wingStop = w.high ? w.x - wrc * 0.5 : w.x + wrc * 0.3;
+  const titles = p.titles ?? { x: tx, y: winTop + avail * 0.46, w: Math.max(H * 1.6, Math.min(wingStop, L * 0.6) - tx), size: Math.min(avail * 0.62, H * 0.24) };
+
+  // ---------- livery ----------
+  const liv = new Map<TailStyle, LiveryGeo>();
+  const livery = (style: TailStyle): LiveryGeo => {
+    let lg = liv.get(style);
+    if (!lg) {
+      lg = liveryGeometry(style, { L, H, fin: finG.fn, wing: w, quad, finStart, top });
+      liv.set(style, lg);
+    }
+    return lg;
+  };
+
+  return {
+    p, traced: t, outline: !!fr?.outline, L, H, tip, upperY, lowerY,
+    fus: fus.toString(),
+    crown, belly,
+    wingRoot: wr.toString(),
+    fin: { fill: finG.fill, edge: finG.edge, lines: finG.lines, quad, top },
+    stab: { near: stabNear.toString(), far: stabFar.toString(), lines: stabLines.toString(), bullet: bullet.toString(), tTail: !!sb.tTail, none: !!sb.none },
+    wing: { ...wingG, shadow },
+    engines,
+    windows: win.toString(),
+    doors: doors.toString(),
+    lines: lines.toString(),
+    apu: apu.toString(),
+    cockpit: { panes: panes.toString(), mask, round: H * 0.006 },
+    titles,
+    livery,
+    box,
+  };
+}
+
+/** Parametric fin from the spec: swept leading edge with optional dorsal fillet, square / round / raked tip. */
+function paramFin(p: AircraftProfile, H: number, L: number, upperY: (x: number) => number, box: Box): FinGeo {
   const fn = p.fin;
   const top = H / 2 + fn.height;
   const rootLE: V = [fn.x, upperY(fn.x)];
@@ -198,151 +560,9 @@ function build(p: AircraftProfile): Geometry {
     finLines.M([hx0, upperY(hx0) + H * 0.06]).L([teTop[0] - tc * rr, top - tc * 0.08]);
   }
 
-  // ---------- horizontal stabiliser ----------
-  const sb = p.stab;
-  const stabNear = new D(), stabFar = new D(), stabLines = new D(), bullet = new D();
-  if (!sb.none) {
-    const th = sb.thickness ?? sb.rootChord * 0.11;
-    const sy = sb.tTail ? top - th * 0.2 : sb.y;
-    const rise = sb.span * Math.sin(rad(sb.dihedral));
-    const r0: V = [sb.x, sy];
-    const t0: V = [sb.x + sb.span * Math.tan(rad(sb.sweep)), sy + rise];
-    const t1: V = [t0[0] + sb.tipChord, t0[1]];
-    const r1: V = [sb.x + sb.rootChord, sy];
-    const shape = (d: D, o: V) => {
-      const P = (v: V): V => [v[0] + o[0], v[1] + o[1]];
-      d.M(P([r0[0] + th * 0.9, sy + th * 0.5]))
-        .L(P([t0[0] + sb.tipChord * 0.12, t0[1] + th * 0.22]))
-        .C(P([t1[0] - sb.tipChord * 0.3, t1[1] + th * 0.24]), P([t1[0], t1[1] + th * 0.1]), P(t1))
-        .L(P([r1[0], sy - th * 0.08]))
-        .L(P([r0[0] + th * 0.9, sy - th * 0.5]))
-        .C(P([r0[0] + th * 0.1, sy - th * 0.48]), P([r0[0] - th * 0.12, sy + th * 0.1]), P([r0[0] + th * 0.9, sy + th * 0.5]))
-        .Z();
-    };
-    shape(stabNear, [0, 0]);
-    shape(stabFar, [-th * 0.5, Math.max(th * 0.7, rise * 0.28)]);
-    stabLines.M([r1[0] - sb.rootChord * 0.28, sy - th * 0.08]).L([t1[0] - sb.tipChord * 0.32, t1[1] + th * 0.12]);
-    box.add([r0[0] - th * 0.6, sy], t0, t1, [t1[0], t1[1] + th]);
-    if (sb.tTail) {
-      // bullet fairing where the T-tail meets the fin
-      const bx = Math.min(sb.x, tipLE[0]) - tc * 0.12, bl = Math.max(tc, sb.rootChord) * 1.15 + Math.abs(sb.x - tipLE[0]), br = th * 0.85;
-      bullet.M([bx, sy]).C([bx, sy + br], [bx + bl * 0.2, sy + br], [bx + bl * 0.42, sy + br]).L([bx + bl, sy + br * 0.55]).L([bx + bl, sy - br * 0.55]).L([bx + bl * 0.42, sy - br]).C([bx + bl * 0.2, sy - br], [bx, sy - br], [bx, sy]).Z();
-      box.add([bx, sy + br], [bx + bl, sy]);
-    }
-  }
-
-  // ---------- wing ----------
-  const w = p.wing;
-  const wingG = wingGeometry(w, box);
-  const wrc = w.rootChord;
-  const wth = w.thickness ?? wrc * 0.11;
-  const shadow = w.high
-    ? { c: [w.x + wrc * 0.5, H / 2 - H * 0.08] as V, rx: wrc * 0.9, ry: H * 0.2 }
-    : { c: [w.x + wrc * 0.5, w.y - wth * 0.2] as V, rx: wrc * 0.85, ry: H * 0.24 };
-
-  // ---------- high-wing crown fairing ----------
-  const wr = new D();
-  if (w.high && w.section) {
-    // long low fairing on the crown that ramps up into the aerofoil's lower surface
-    const x0 = w.x - wrc * 0.55, x1 = w.x + wrc * 1.75;
-    const yl = w.y - wth * 0.12;
-    wr.M([x0, upperY(x0) - 0.06]).C([x0 + wrc * 0.3, upperY(x0) + 0.03], [w.x - wrc * 0.12, yl], [w.x + wrc * 0.2, yl]).L([w.x + wrc * 0.9, yl]).C([w.x + wrc * 1.15, yl], [x1 - wrc * 0.35, upperY(x1) + 0.03], [x1, upperY(x1) - 0.06]).Z();
-    box.add([w.x, yl]);
-  } else if (w.high) {
-    const x0 = w.x - wrc * 0.45, x1 = w.x + wrc * 1.5;
-    const yb = w.y + wth * 0.15;
-    wr.M([x0, upperY(x0) - 0.06]).C([x0 + wrc * 0.3, upperY(x0) + 0.02], [w.x - wrc * 0.1, yb], [w.x + wrc * 0.25, yb]).L([w.x + wrc * 0.85, yb]).C([x1 - wrc * 0.25, yb], [x1 - wrc * 0.15, upperY(x1) + 0.02], [x1, upperY(x1) - 0.06]).Z();
-    box.add([w.x, yb]);
-  }
-
-  // ---------- engines ----------
-  const engines = p.engines.map((e) => engineGeometry(e, w, box, upperY));
-
-  // ---------- doors & windows ----------
-  const doorBox = p.doors.map((d) => {
-    const kind = d.kind ?? 'pax';
-    const big = H > 5;
-    const dw = d.w ?? (kind === 'exit' ? 0.55 : kind === 'cargo' ? 1.8 : big ? 1.07 : 0.82);
-    const dh = d.h ?? (kind === 'exit' ? 0.95 : kind === 'cargo' ? 1.25 : big ? 1.93 : 1.85);
-    const row = nearestRow(p, d.y);
-    const dy = d.y ?? (kind === 'cargo' ? -H / 2 + H * 0.1 : kind === 'exit' ? row.y - 0.5 : row.y - dh * 0.55);
-    return { x: d.x, y: dy, w: dw, h: dh, kind };
-  });
-  const doors = new D();
-  for (const d of doorBox) doors.rrect(d.x, d.y, d.w, d.h, Math.min(d.w, d.h) * 0.2);
-  const win = new D();
-  for (const row of p.windows) {
-    for (let x = row.x0; x <= row.x1 + 1e-6; x += row.pitch) {
-      const hit = doorBox.some((d) => d.kind !== 'cargo' && x + row.w / 2 > d.x - 0.12 && x - row.w / 2 < d.x + d.w + 0.12 && row.y > d.y && row.y < d.y + d.h + 0.3);
-      if (hit || row.gaps?.some(([a, b]) => x >= a && x <= b)) continue;
-      win.rrect(x - row.w / 2, row.y - row.h / 2, row.w, row.h, row.w * 0.45);
-    }
-  }
-  if (p.nose.radome) {
-    const rx = p.nose.radome * H;
-    const yt = upperY(rx), yb = lowerY(rx);
-    lines.M([rx - H * 0.02, yt - H * 0.01]).C([rx + H * 0.05, lerp(yt, yb, 0.3)], [rx + H * 0.05, lerp(yt, yb, 0.7)], [rx - H * 0.01, yb + H * 0.01]);
-  }
-  if (p.tail.blade) {
-    const a = tu[tu.length - 1], b = tl[tl.length - 1];
-    lines.M([a[0] - H * 0.035, a[1] - H * 0.01]).L([b[0] - H * 0.035, b[1] + H * 0.01]);
-  }
-  const apu = new D();
-  if (p.tail.apu) {
-    const a = tu[tu.length - 1], b = tl[tl.length - 1];
-    const cy = (a[1] + b[1]) / 2, ry = Math.min((p.tail.apu * H) / 2, Math.abs(a[1] - b[1]) / 2 + H * 0.01);
-    apu.M([L + 0.02, cy + ry]).C([L - ry * 0.7, cy + ry], [L - ry * 0.7, cy - ry], [L + 0.02, cy - ry]).Z();
-  }
-
-  // ---------- cockpit ----------
-  const ck = COCKPIT[p.cockpit.style];
-  const cs = (p.cockpit.scale ?? 1) * H;
-  const cx0 = p.cockpit.u * H, cy0 = p.cockpit.v * H;
-  const cp = (q: readonly (readonly [number, number])[]) => q.map(([u, v]): V => [cx0 + u * cs, cy0 + v * cs]);
-  const panes = new D();
-  for (const pane of ck.panes) panes.poly(cp(pane));
-  const mask = ck.mask ? new D().smooth([...cp(ck.mask), cp(ck.mask)[0]]).Z().toString() : '';
-  const cockpitEnd = cx0 + Math.max(...ck.panes.flat().map((v) => v[0])) * cs;
-
-  // ---------- titles ----------
-  const inTube = p.windows.filter((r) => r.y + r.h / 2 < H * 0.4);
-  const topRow = (inTube.length ? inTube : p.windows).reduce((a, b) => (b.y > a.y ? b : a));
-  const winTop = topRow ? topRow.y + topRow.h / 2 : 0;
-  const crownAt = (x: number) => Math.min(upperY(x), H / 2);
-  let tx = Math.max(cockpitEnd + H * 0.25, ...doorBox.filter((d) => d.kind === 'pax' && d.x < L * 0.3).map((d) => d.x + d.w + H * 0.08));
-  while (tx < L * 0.5 && crownAt(tx) < H * 0.49) tx += H * 0.05;
-  const avail = H / 2 - winTop;
-  const wingStop = w.high ? w.x - wrc * 0.5 : w.x + wrc * 0.3;
-  const titles = p.titles ?? { x: tx, y: winTop + avail * 0.46, w: Math.max(H * 1.6, Math.min(wingStop, L * 0.6) - tx), size: Math.min(avail * 0.62, H * 0.24) };
-
-  // ---------- livery ----------
-  const liv = new Map<TailStyle, LiveryGeo>();
-  const livery = (style: TailStyle): LiveryGeo => {
-    let lg = liv.get(style);
-    if (!lg) {
-      lg = liveryGeometry(style, { p, L, H, quad, finStart, top });
-      liv.set(style, lg);
-    }
-    return lg;
-  };
-
   return {
-    p, L, H, upperY, lowerY,
-    fus: fus.toString(),
-    crown, belly,
-    wingRoot: wr.toString(),
-    fin: { fill: finFill.toString(), edge: edge.toString(), lines: finLines.toString(), quad, top },
-    stab: { near: stabNear.toString(), far: stabFar.toString(), lines: stabLines.toString(), bullet: bullet.toString(), tTail: !!sb.tTail, none: !!sb.none },
-    wing: { ...wingG, shadow },
-    engines,
-    windows: win.toString(),
-    doors: doors.toString(),
-    lines: lines.toString(),
-    apu: apu.toString(),
-    cockpit: { panes: panes.toString(), mask, round: H * 0.006 },
-    titles,
-    livery,
-    box,
+    fill: finFill.toString(), edge: edge.toString(), lines: finLines.toString(), quad, top, finStart, tipLE, tc,
+    fn: { x: fn.x, rootChord: fn.rootChord, tipChord: fn.tipChord, height: fn.height },
   };
 }
 
@@ -354,9 +574,10 @@ function nearestRow(p: AircraftProfile, y: number | undefined) {
 // ---------- livery shapes ----------
 
 interface LivCtx {
-  p: AircraftProfile;
   L: number;
   H: number;
+  fin: FinGeo['fn'];
+  wing: Pick<WingSpec, 'x' | 'rootChord'>;
   quad: readonly [V, V, V, V];
   finStart: V;
   top: number;
@@ -365,7 +586,7 @@ interface LivCtx {
 function liveryGeometry(style: TailStyle, c: LivCtx): LiveryGeo {
   const { L, H, quad, finStart, top } = c;
   const F = (s: number, t: number) => finAt(quad, s, t);
-  const fn = c.p.fin;
+  const fn = c.fin;
   const fus = new D(), fus2 = new D(), fin = new D();
   const far = top + H * 2;
   const x0 = finStart[0] - H * 0.15, span = L - x0;
@@ -408,7 +629,7 @@ function liveryGeometry(style: TailStyle, c: LivCtx): LiveryGeo {
     case 'sweep':
     default: {
       // swoosh rising from the lower rear fuselage into the fin, second colour along its leading edge
-      const xs = Math.max(c.p.wing.x + c.p.wing.rootChord * 1.15, finStart[0] - (L - finStart[0]) * 0.85);
+      const xs = Math.max(c.wing.x + c.wing.rootChord * 1.15, finStart[0] - (L - finStart[0]) * 0.85);
       const yl = -H * 0.5;
       const tip = F(1.3, 1.05);
       fus.M([xs, yl - 0.3])
