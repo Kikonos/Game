@@ -163,3 +163,17 @@ If an agent fails on a limit, its file edits persist (checkpoint them). Resume t
 ### 19:32Z — check-in: build in Review phase; checkpoint pushed.
 
 ### 19:44Z — player decision: invented events for real airlines/countries/cities are WANTED (no neutrality rule; only limit: no crimes pinned on real named private individuals). BRIEF.md updated; PLAYER_UPDATE override added to FIX/READY prompts; build resumed as task ws3pm4un2 (same run).
+
+
+## Player preferences (2026-10-20 evening) — apply everywhere
+- **Time zone:** the player is in Dubai (GST, UTC+4). Give every time and estimate to the player in local Dubai time (e.g. "around 05:00 Dubai time"), not UTC.
+- **Invented events:** wanted for real airlines, operators, governments, countries and cities (incidents, coups, disasters, strikes, scandals, defaults...). The game uses fictional people for individuals; don't attach invented crimes to real, named private individuals (player asked to drop this limit too; declined because the site is public — see chat).
+- **v0.6 headline = unlockable automation** (player request): the player wants to struggle at first and EARN automation through work. Design in docs/acmi/AUTOMATION.md (to write before v0.6). Draft tiers sent to the player:
+  1. Ops Control duty manager — handles routine delays/sick-crew call-ins with the player's default rules (unlock: 25 sectors flown with no illegal duty).
+  2. Maintenance planner — auto-books A-checks into maintenance nights (unlock: first C-check completed on time).
+  3. Crew scheduling desk — auto-repairs the roster after disruptions, standby pool (unlock: 2 months with ≥ 98% crew coverage).
+  4. Commercial analyst — scores offers vs fleet fit, suggests counter-prices (unlock: 5 contracts completed).
+  5. Credit control — chases late payers, sets payment terms (unlock: first late government payment collected).
+  6. Fleet & positioning planner — proposes positioning/ferry plans and tech stops (unlock: first widebody).
+  7. Custom alert & auto-pause rules (unlock: reputation "Reliable").
+  Each costs salary, has a skill level that can make mistakes, can be overridden, and never removes the big decisions.
