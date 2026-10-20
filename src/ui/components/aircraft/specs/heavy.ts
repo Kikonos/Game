@@ -101,8 +101,9 @@ function b747(id: string, stretch: number, eight: boolean): AircraftProfile {
       // 10 + 9 windows either side of the exit, which sits ahead of the -8 plug
       row(10.3, 21.6 + s, 2.93, 0.537, 0.24, 0.34, [[15.4, 17.0]]),
     ],
-    // titles on the hump side between the window rows, clear of the upper-deck door
-    titles: { x: 16.6, y: 1.62, w: 10.5 + s, size: 1.2 },
+    // titles on the hump side, centred between the main-deck door tops (1.24 m) and the upper-deck
+    // window row (2.76 m), starting 0.08 H aft of the upper-deck door (15.65-16.75 m)
+    titles: { x: 17.3, y: 2.0, w: 10.5 + s, size: 1.2 },
     ref: { overallHeight: eight ? 19.35 : 19.41, span: eight ? 68.4 : 64.44 },
   };
 }

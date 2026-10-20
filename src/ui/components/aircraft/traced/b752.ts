@@ -12,5 +12,7 @@ export const profile: TracedProfile = {
   fin: [[0.9628, -0.0474], [0.7638, -0.0624], [0.7830, -0.0637], [0.7946, -0.0673], [0.8395, -0.1007], [0.8986, -0.1584], [0.9371, -0.1950], [0.9506, -0.2156], [1.0051, -0.2156], [0.9474, -0.0589]],
   wingRoot: {from:  0.4493,  to:  0.6161,  y:  0.0149},
   engines: [{x:  0.3388,  y:  -0.0012,  w:  0.1252,  h:  0.0417}],
+  // just aft of door 2 (+0.08 H) like the other types: the crown search ran to mid-fuselage here
+  titlesFrom: 0.307,
   notes: "Windscreen blurred: pane split from 3 dark blobs. Belly hidden by dark navy livery + shadow: lower line from the white/navy and navy/sky boundaries. Tail cone top hidden behind the stabiliser.",
 };

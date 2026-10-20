@@ -1028,7 +1028,7 @@ function turboprop(e: EngineSpec, pylon: D, box: Box): EngineGeo {
   const nb = e.prop?.blades ?? 6;
   const xd = xb - sp * 0.3;
   const rx = R * 0.1;
-  const disc = new D().ellipse([xd, cy], rx, R, true).toString();
+  const disc = new D().ellipse([xd, cy], rx, R).toString();
   const blades = new D();
   // blades seen from the side: thin tapered shapes radiating from the hub at different phase angles
   for (let i = 0; i < nb; i++) {
