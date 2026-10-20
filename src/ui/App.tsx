@@ -1,7 +1,7 @@
 import { NewGame } from './screens/NewGame';
 import { Loading } from './screens/Loading';
 import { Title } from './screens/Title';
-import { Shell } from './game/Shell';
+import { Shell } from './shell/Shell';
 import { Toasts } from './game/Toasts';
 import { useStore } from './store';
 

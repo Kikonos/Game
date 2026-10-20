@@ -1,0 +1,422 @@
+// Programme planning shared by feasibility (pure) and flight generation (B1). DESIGN.md §5.1.5–5.1.8.
+// Legs patterns → trips of legs (fuel stops, internal empty legs, client times shifted later only);
+// base patterns → daily waves with maintenance nights and monthly drops to targetBH;
+// aircraft anchors (hard commitments) and empty-move chains between them.
+
+import { flightsOf } from '../core/entities';
+import { blockMinutes, planSector, TECH_STOP_MIN, typeOf } from '../core/perf';
+import { DAY, dayIndex, localOffset, monthKey, monthStart, toLocal } from '../core/time';
+import { hash } from '../core/util';
+import type { Contract, ContractOffer, Flight, GameState, LegTemplate, Minute, SchedulePattern } from '../core/types';
+
+export type BasePattern = Extract<SchedulePattern, { kind: 'base' }>;
+export type LegsPattern = Extract<SchedulePattern, { kind: 'legs' }>;
+
+/** Idle time at an outstation after which the aircraft goes home between trips. */
+export const TRIP_GAP = 48 * 60;
+/** Minimum time at home that makes a home hop worth it. */
+const HOME_HOP_MIN = 12 * 60;
+/** Moving on to another station: a wait this long is spent at home instead (shorter waits stay put). */
+const AWAY_GAP = 5 * 24 * 60;
+/** Positioning lead before a deployment (arrive the evening before) and extra slack before a charter. */
+export const DEPLOY_LEAD = 12 * 60;
+export const CHARTER_SLACK = 30;
+/** A-check calendar interval (RESEARCH §5.7: 750 FH / 120 days on the A320 family). */
+export const A_CHECK_DAYS = 120;
+/** Soft positioning legs: scheduled empty legs further out than this can be re-planned. */
+export const SOFT_AFTER = 60;
+
+const roundUp5 = (m: number) => Math.ceil(m / 5) * 5;
+
+// ---------- empty moves ----------
+
+export interface ChainLeg {
+  from: string;
+  to: string;
+  std: Minute;
+  sta: Minute;
+}
+
+/** Sector legs of an empty move (fuel stops included); [] when already there, null when there is no route. */
+export function route(typeId: string, from: string, to: string): { from: string; to: string; block: number }[] | null {
+  if (from === to) return [];
+  const p = planSector(typeId, from, to);
+  return p.ok ? p.legs : null;
+}
+
+export const routeMinutes = (legs: { block: number }[]) => legs.reduce((s, l) => s + l.block, 0) + Math.max(0, legs.length - 1) * TECH_STOP_MIN;
+
+export function timeChain(legs: { from: string; to: string; block: number }[], std: Minute): ChainLeg[] {
+  let t = std;
+  return legs.map((l) => {
+    const leg = { from: l.from, to: l.to, std: t, sta: t + l.block };
+    t = leg.sta + TECH_STOP_MIN;
+    return leg;
+  });
+}
+
+/** Empty move landing at `latest` (as late as possible), departing no earlier than `earliest`; null: no route or no time. */
+export function chainBackward(typeId: string, from: string, to: string, earliest: Minute, latest: Minute): ChainLeg[] | null {
+  const r = route(typeId, from, to);
+  if (!r) return null;
+  if (!r.length) return [];
+  const std = latest - routeMinutes(r);
+  return std < earliest ? null : timeChain(r, std);
+}
+
+export function chainForward(typeId: string, from: string, to: string, earliest: Minute): ChainLeg[] | null {
+  const r = route(typeId, from, to);
+  return r ? timeChain(r, earliest) : null;
+}
+
+/**
+ * The empty legs that link X (free from `earliest`) to Y (needed by `latest`): a direct chain, nothing when X = Y,
+ * or (allowHop) a hop home and on to Y when the aircraft would otherwise idle ≥ AWAY_GAP at an outstation.
+ * null: cannot make it.
+ */
+export function gapMoves(typeId: string, X: string, Y: string, earliest: Minute, latest: Minute, home: string, allowHop: boolean): ChainLeg[] | null {
+  if (X !== Y) {
+    // A long wait away from base is spent at home: back to base at once, then out to Y as late as possible.
+    if (allowHop && X !== home && latest - earliest >= AWAY_GAP) {
+      const out = chainForward(typeId, X, home, earliest);
+      if (out?.length && Y === home && out[out.length - 1].sta <= latest) return out;
+      const back = Y === home ? null : chainBackward(typeId, home, Y, earliest, latest);
+      if (out?.length && back?.length && out[out.length - 1].sta + HOME_HOP_MIN <= back[0].std) return [...out, ...back];
+    }
+    return chainBackward(typeId, X, Y, earliest, latest);
+  }
+  if (!allowHop || X === home || latest - earliest < TRIP_GAP) return [];
+  const out = chainForward(typeId, X, home, earliest);
+  const back = chainBackward(typeId, home, Y, earliest, latest);
+  if (out && back && out.length && back.length && out[out.length - 1].sta + HOME_HOP_MIN <= back[0].std) return [...out, ...back];
+  return [];
+}
+
+// ---------- anchors ----------
+
+export interface Anchor {
+  from: string;
+  to: string;
+  std: Minute;
+  sta: Minute;
+  contractId: string | null;
+  kind: 'start' | 'flight' | 'maint' | 'base';
+  id: string;
+}
+
+export function isSoft(g: GameState, f: Flight): boolean {
+  return f.kind === 'positioning' && f.status === 'scheduled' && f.std > g.now + SOFT_AFTER;
+}
+
+/**
+ * Hard commitments of an aircraft from now on, by departure: scheduled or airborne legs except soft positioning,
+ * planned or running maintenance, and the not-yet-generated tail of signed base contracts (virtual).
+ * Leads with a 'start' node (where it is now) unless it is airborne.
+ */
+export function anchorsOf(g: GameState, aircraftId: string): Anchor[] {
+  const ac = g.fleet[aircraftId];
+  const out: Anchor[] = [];
+  for (const f of flightsOf(g, aircraftId)) {
+    if ((f.status !== 'scheduled' && f.status !== 'enroute') || isSoft(g, f)) continue;
+    out.push({ from: f.from, to: f.to, std: f.std, sta: f.status === 'enroute' ? (f.eta ?? f.sta) : f.sta, contractId: f.contractId, kind: 'flight', id: f.id });
+  }
+  for (const m of Object.values(g.maintenance)) {
+    if (m.aircraftId !== aircraftId || (m.status !== 'planned' && m.status !== 'inWork') || m.end <= g.now) continue;
+    out.push({ from: m.at, to: m.at, std: m.start, sta: m.end, contractId: null, kind: 'maint', id: m.id });
+  }
+  for (const c of Object.values(g.contracts)) {
+    if ((c.status !== 'signed' && c.status !== 'active') || c.pattern.kind !== 'base' || !c.aircraftIds.includes(aircraftId)) continue;
+    const p = c.pattern;
+    if (c.generatedUntil >= p.to || !ac) continue;
+    const slot = c.aircraftIds.indexOf(aircraftId);
+    const std = Math.max(c.generatedUntil, firstDeparture(p, ac.typeId, slot) ?? p.from);
+    out.push({ from: p.base, to: p.base, std, sta: Math.max(std, lastArrival(p, ac.typeId, slot) ?? p.to), contractId: c.id, kind: 'base', id: c.id });
+  }
+  out.sort((a, b) => a.std - b.std || a.sta - b.sta);
+  if (ac && !ac.flightId) out.unshift({ from: ac.at, to: ac.at, std: g.now, sta: Math.max(g.now, ac.deliveredAt), contractId: null, kind: 'start', id: '' });
+  return out;
+}
+
+// ---------- legs patterns ----------
+
+export interface PlanLeg {
+  from: string;
+  to: string;
+  std: Minute;
+  sta: Minute;
+  kind: 'revenue' | 'techstop' | 'positioning';
+  /** Index of the client leg template (−1 for internal empty legs). */
+  tpl: number;
+  pax?: number;
+}
+
+export interface Trip {
+  legs: PlanLeg[];
+  from: string;
+  to: string;
+  std: Minute;
+  sta: Minute;
+}
+
+export interface Programme {
+  ok: boolean;
+  /** Why it cannot be flown on this type ('KBL–LIS: runway'). */
+  reason?: string;
+  trips: Trip[];
+  techStops: string[];
+  /** Largest later-shift applied to a client time (minutes). */
+  shiftMin: number;
+  /** Planned revenue block minutes and internal empty-leg minutes. */
+  revenueMin: number;
+  emptyMin: number;
+  /** Longest sector chain (block + stops) for crew duty checks. */
+  longestChainMin: number;
+  /** Airports used (runway checks) and revenue sectors (range/ETOPS checks). */
+  airports: string[];
+  sectors: [string, string][];
+  /** Base patterns: days and rotations. */
+  base?: { days: number; rotations: number };
+}
+
+/** Legs pattern on a type: fuel stops, turn minima (shift later, never earlier), internal empty legs, trips split by ≥ TRIP_GAP. */
+export function planLegs(p: LegsPattern, typeId: string, noTechStops = false): Programme {
+  const t = typeOf(typeId);
+  const res: Programme = { ok: true, trips: [], techStops: [], shiftMin: 0, revenueMin: 0, emptyMin: 0, longestChainMin: 0, airports: [], sectors: [] };
+  const tpls = p.legs.map((l, i) => ({ l, i })).sort((a, b) => a.l.dep - b.l.dep);
+  let trip: Trip | null = null;
+  let last: PlanLeg | null = null;
+  const ap = new Set<string>();
+  for (const { l, i } of tpls) {
+    ap.add(l.from);
+    ap.add(l.to);
+    res.sectors.push([l.from, l.to]);
+    const sp = planSector(typeId, l.from, l.to);
+    if (!sp.ok) return { ...res, ok: false, reason: `${l.from}–${l.to}: ${sp.reason === 'runway' ? 'runway' : 'range'}` };
+    if (noTechStops && sp.techStops.length) return { ...res, ok: false, reason: `${l.from}–${l.to}: no fuel stops allowed` };
+    let std = l.dep;
+    if (last && trip) {
+      const gap = l.dep - last.sta;
+      if (gap >= TRIP_GAP) {
+        res.trips.push(trip);
+        trip = null;
+      } else if (last.to !== l.from) {
+        const r = route(typeId, last.to, l.from);
+        if (!r) return { ...res, ok: false, reason: `${last.to}–${l.from}: no empty-leg route` };
+        const dur = routeMinutes(r);
+        const dep = Math.max(last.sta + t.turnMin, l.dep - t.turnMin - dur);
+        for (const c of timeChain(r, dep)) {
+          trip.legs.push({ ...c, kind: 'positioning', tpl: -1 });
+          res.emptyMin += c.sta - c.std;
+          ap.add(c.to);
+        }
+        last = trip.legs[trip.legs.length - 1];
+        std = Math.max(std, last.sta + t.turnMin);
+      } else {
+        std = Math.max(std, last.sta + t.turnMin);
+      }
+    }
+    res.shiftMin = Math.max(res.shiftMin, std - l.dep);
+    if (!trip) trip = { legs: [], from: l.from, to: l.to, std, sta: std };
+    let tt = std;
+    for (let k = 0; k < sp.legs.length; k++) {
+      const s = sp.legs[k];
+      const leg: PlanLeg = { from: s.from, to: s.to, std: tt, sta: tt + s.block, kind: k === 0 ? 'revenue' : 'techstop', tpl: i, pax: l.pax };
+      trip.legs.push(leg);
+      res.revenueMin += s.block;
+      tt = leg.sta + TECH_STOP_MIN;
+      last = leg;
+    }
+    for (const s of sp.techStops) {
+      ap.add(s);
+      if (!res.techStops.includes(s)) res.techStops.push(s);
+    }
+    res.longestChainMin = Math.max(res.longestChainMin, tt - TECH_STOP_MIN - std);
+  }
+  if (trip) res.trips.push(trip);
+  for (const tr of res.trips) {
+    tr.from = tr.legs[0].from;
+    tr.to = tr.legs[tr.legs.length - 1].to;
+    tr.std = tr.legs[0].std;
+    tr.sta = tr.legs[tr.legs.length - 1].sta;
+  }
+  res.airports = [...ap];
+  return res;
+}
+
+// ---------- base patterns ----------
+
+/** UTC minute of a local wall-clock minute at an airport. */
+export function localToUTC(code: string, local: Minute): Minute {
+  const guess = local - localOffset(code, local);
+  return local - localOffset(code, guess);
+}
+
+/**
+ * Wave departure times (local minutes): 06:00, then each next wave after the longest rotation plus a turn,
+ * while it leaves by 21:00 local; at most maxWaves (DESIGN §5.1.6). HAM–PMI on an A320: 06:00, 12:30, 19:00.
+ */
+export function computeWaves(base: string, dests: string[], typeId: string, maxWaves: number): number[] {
+  const turn = typeOf(typeId).turnMin;
+  const rot = Math.max(...dests.map((d) => blockMinutes(typeId, base, d) + turn + blockMinutes(typeId, d, base)));
+  const waves = [360];
+  while (waves.length < maxWaves) {
+    const next = roundUp5(waves[waves.length - 1] + rot + turn);
+    if (next > 21 * 60) break;
+    waves.push(next);
+  }
+  return waves;
+}
+
+export interface Rotation {
+  k: number;
+  w: number;
+  dest: string;
+  destIdx: number;
+  outStd: Minute;
+  outSta: Minute;
+  backStd: Minute;
+  backSta: Minute;
+}
+
+const day0 = (p: BasePattern) => dayIndex(toLocal(p.base, p.from));
+export const baseDays = (p: BasePattern) => Math.max(0, dayIndex(toLocal(p.base, p.to - 1)) - day0(p) + 1);
+/** Day index (0-based, local days at the base) of a UTC minute. */
+export const baseDayOf = (p: BasePattern, t: Minute) => dayIndex(toLocal(p.base, t)) - day0(p);
+/** UTC minute of local midnight starting day k. */
+export const baseDayStart = (p: BasePattern, k: number) => localToUTC(p.base, (day0(p) + k) * DAY);
+
+/** All wave rotations of day k (before maintenance nights and drops); rotations outside [from, to) are dropped. */
+export function dayRotations(p: BasePattern, typeId: string, k: number, slot: number): Rotation[] {
+  const turn = typeOf(typeId).turnMin;
+  const W = p.waves.length;
+  const lm = (day0(p) + k) * DAY;
+  const out: Rotation[] = [];
+  let prevBack = -Infinity;
+  for (let w = 0; w < W; w++) {
+    const destIdx = (k * W + w + slot) % p.dests.length;
+    const dest = p.dests[destIdx];
+    const outStd = Math.max(localToUTC(p.base, lm + p.waves[w]), prevBack + turn);
+    const outSta = outStd + blockMinutes(typeId, p.base, dest);
+    const backStd = outSta + turn;
+    const backSta = backStd + blockMinutes(typeId, dest, p.base);
+    prevBack = backSta;
+    if (outStd >= p.from && outStd < p.to) out.push({ k, w, dest, destIdx, outStd, outSta, backStd, backSta });
+  }
+  return out;
+}
+
+const flownCache = new WeakMap<BasePattern, Map<string, Rotation[][]>>();
+
+/**
+ * Rotations actually flown per day: maintenance night every maintEvery days (last wave, or the last two when one
+ * still leaves less than an A-check + 2 h on the ground), then per calendar month n = round((F − T)/r) rotations
+ * dropped evenly, last waves first, never on the first or last day (DESIGN §5.1.6). Cached per pattern object.
+ */
+export function flownRotations(p: BasePattern, typeId: string, slot = 0): Rotation[][] {
+  let byKey = flownCache.get(p);
+  if (!byKey) flownCache.set(p, (byKey = new Map()));
+  const key = `${typeId}|${slot}`;
+  const hit = byKey.get(key);
+  if (hit) return hit;
+  const t = typeOf(typeId);
+  const n = baseDays(p);
+  const days: Rotation[][] = [];
+  for (let k = 0; k < n; k++) days.push(dayRotations(p, typeId, k, slot));
+  const minGround = t.aCheckHours * 60 + 120;
+  if (p.maintEvery > 0) {
+    for (let k = p.maintEvery - 1; k < n; k += p.maintEvery) {
+      const d = days[k];
+      if (!d.length) continue;
+      d.pop();
+      const nextFirst = days[k + 1]?.[0]?.outStd ?? baseDayStart(p, k + 1) + p.waves[0];
+      if (d.length && nextFirst - d[d.length - 1].backSta < minGround) d.pop();
+    }
+  }
+  // Monthly drops to targetBH (pro-rated).
+  const months = new Map<number, number[]>();
+  for (let k = 0; k < n; k++) {
+    const m = monthKey(baseDayStart(p, k) + 12 * 60);
+    const list = months.get(m) ?? [];
+    list.push(k);
+    months.set(m, list);
+  }
+  const rotMin = (r: Rotation) => r.outSta - r.outStd + (r.backSta - r.backStd);
+  for (const [m, ks] of months) {
+    const ms = monthStart(m);
+    const me = monthStart(m + 1);
+    const active = Math.max(0, Math.min(p.to, me) - Math.max(p.from, ms));
+    const T = (p.targetBH * 60 * active) / (me - ms);
+    let F = 0;
+    let cnt = 0;
+    for (const k of ks) for (const r of days[k]) {
+      F += rotMin(r);
+      cnt++;
+    }
+    if (!cnt) continue;
+    const r = F / cnt;
+    const eligible = ks.filter((k) => k !== 0 && k !== n - 1 && days[k].length);
+    if (!eligible.length) continue;
+    let drop = Math.max(0, Math.round((F - T) / r));
+    drop = Math.min(drop, eligible.reduce((s, k) => s + days[k].length, 0));
+    const E = eligible.length;
+    eligible.forEach((k, j) => {
+      const d = Math.floor(((j + 1) * drop) / E) - Math.floor((j * drop) / E);
+      if (d > 0) days[k].splice(Math.max(0, days[k].length - d));
+    });
+  }
+  byKey.set(key, days);
+  return days;
+}
+
+export function firstDeparture(p: BasePattern, typeId: string, slot = 0): Minute | null {
+  for (const d of flownRotations(p, typeId, slot)) if (d.length) return d[0].outStd;
+  return null;
+}
+
+export function lastArrival(p: BasePattern, typeId: string, slot = 0): Minute | null {
+  const days = flownRotations(p, typeId, slot);
+  for (let k = days.length - 1; k >= 0; k--) if (days[k].length) return days[k][days[k].length - 1].backSta;
+  return null;
+}
+
+/** Client flight number for a base rotation leg (deterministic per destination and wave). */
+export function baseFlightNo(p: BasePattern, destIdx: number, w: number, back: boolean): string {
+  const n = 1000 * (1 + (hash(p.prefix) % 8)) + ((destIdx * 20 + w * 2) % 1000) + (back ? 1 : 0);
+  return `${p.prefix}${n}`;
+}
+
+/** Base pattern summary on a type (no legs materialised): window, block minutes, sectors, airports. */
+export function planBase(p: BasePattern, typeId: string, slot = 0): Programme {
+  const days = flownRotations(p, typeId, slot);
+  let revenueMin = 0;
+  let rotations = 0;
+  for (const d of days) for (const r of d) {
+    revenueMin += r.outSta - r.outStd + (r.backSta - r.backStd);
+    rotations++;
+  }
+  const res: Programme = {
+    ok: true, trips: [], techStops: [], shiftMin: 0, revenueMin, emptyMin: 0, longestChainMin: 0,
+    airports: [p.base, ...p.dests], sectors: p.dests.flatMap((d) => [[p.base, d], [d, p.base]] as [string, string][]), base: { days: days.length, rotations },
+  };
+  for (const [a, b] of res.sectors) {
+    const sp = planSector(typeId, a, b);
+    if (!sp.ok) return { ...res, ok: false, reason: `${a}–${b}: ${sp.reason === 'runway' ? 'runway' : 'range'}` };
+    if (sp.techStops.length) return { ...res, ok: false, reason: `${a}–${b}: needs a fuel stop (a base rotation can't)` };
+    res.longestChainMin = Math.max(res.longestChainMin, sp.legs[0].block);
+  }
+  const first = firstDeparture(p, typeId, slot);
+  const last = lastArrival(p, typeId, slot);
+  if (first === null || last === null) return { ...res, ok: false, reason: 'no rotations in the window' };
+  res.trips.push({ legs: [], from: p.base, to: p.base, std: first, sta: last });
+  return res;
+}
+
+/** Programme of an offer or contract on a type. */
+export function programmeOf(src: Pick<ContractOffer | Contract, 'pattern' | 'requirements'>, typeId: string, slot = 0): Programme {
+  return src.pattern.kind === 'base' ? planBase(src.pattern, typeId, slot) : planLegs(src.pattern, typeId, !!src.requirements.noTechStops);
+}
+
+/** Client legs sorted by departure (templates are stored in that order already). */
+export function sortedLegs(legs: LegTemplate[]): LegTemplate[] {
+  return [...legs].sort((a, b) => a.dep - b.dep);
+}

@@ -17,6 +17,8 @@ export interface Airport {
   tour: number;
   region: string;
   continent: ContinentId;
+  /** Longest usable runway in metres (published value where known, else estimated from size). */
+  runwayM: number;
 }
 
 // code, airport name, city, country, lat, lon, pop, size, biz, tour
@@ -432,6 +434,152 @@ const DATA: Record<string, Row[]> = {
   ],
 };
 
+
+// Charter, mission and tech-stop airports added for the ACMI game (same row format).
+const EXTRA: Record<string, Row[]> = {
+  UKI: [
+    ['SNN', 'Shannon', 'Shannon', 'IE', 52.702, -8.925, 0.4, 2, 0.3, 0.5],
+  ],
+  WEU: [
+    ['LDE', 'Tarbes–Lourdes', 'Lourdes', 'FR', 43.179, -0.006, 0.2, 1, 0.1, 0.8],
+  ],
+  CEU: [
+    ['LEJ', 'Leipzig/Halle', 'Leipzig', 'DE', 51.432, 12.242, 1.0, 2, 0.4, 0.3],
+  ],
+  IBE: [
+    ['PDL', 'João Paulo II', 'Ponta Delgada', 'PT', 37.742, -25.698, 0.15, 2, 0.2, 0.9],
+    ['TER', 'Lajes', 'Terceira', 'PT', 38.762, -27.091, 0.06, 1, 0.2, 0.5],
+    ['ACE', 'Lanzarote', 'Lanzarote', 'ES', 28.946, -13.605, 0.15, 2, 0.1, 1.0],
+  ],
+  EEU: [
+    ['TIA', 'Tirana Intl', 'Tirana', 'AL', 41.415, 19.721, 0.9, 2, 0.4, 0.6],
+  ],
+  MXC: [
+    ['VRA', 'Juan Gualberto Gómez', 'Varadero', 'CU', 23.034, -81.435, 0.1, 2, 0.05, 1.0],
+  ],
+  WEA: [
+    ['BKO', 'Modibo Keïta', 'Bamako', 'ML', 12.534, -7.950, 2.8, 2, 0.3, 0.1],
+    ['OXB', 'Osvaldo Vieira', 'Bissau', 'GW', 11.895, -15.654, 0.5, 1, 0.25, 0.1],
+    ['RAI', 'Nelson Mandela', 'Praia', 'CV', 14.924, -23.494, 0.2, 1, 0.3, 0.5],
+    ['SID', 'Amílcar Cabral', 'Sal', 'CV', 16.741, -22.949, 0.05, 2, 0.1, 1.0],
+    ['KAN', 'Mallam Aminu Kano', 'Kano', 'NG', 12.048, 8.525, 4.0, 2, 0.3, 0.05],
+    ['TMS', 'São Tomé Intl', 'São Tomé', 'ST', 0.378, 6.712, 0.1, 1, 0.2, 0.4],
+    ['FIH', "N'djili", 'Kinshasa', 'CD', -4.386, 15.445, 15, 3, 0.35, 0.05],
+    ['GOM', 'Goma Intl', 'Goma', 'CD', -1.671, 29.238, 1.0, 1, 0.2, 0.05],
+    ['BGF', "Bangui M'Poko", 'Bangui', 'CF', 4.398, 18.519, 0.9, 1, 0.25, 0.02],
+    ['JUB', 'Juba Intl', 'Juba', 'SS', 4.872, 31.601, 0.5, 1, 0.3, 0.02],
+    ['MGQ', 'Aden Adde', 'Mogadishu', 'SO', 2.014, 45.305, 2.6, 2, 0.25, 0.02],
+    ['DJI', 'Djibouti–Ambouli', 'Djibouti', 'DJ', 11.547, 43.159, 0.6, 2, 0.4, 0.1],
+  ],
+  SAF: [
+    ['LAD', 'Quatro de Fevereiro', 'Luanda', 'AO', -8.858, 13.231, 8, 3, 0.5, 0.15],
+  ],
+  LEV: [
+    ['ADA', 'Adana Şakirpaşa', 'Adana', 'TR', 36.982, 35.280, 2.2, 2, 0.35, 0.2],
+  ],
+  SAS: [
+    ['KBL', 'Hamid Karzai Intl', 'Kabul', 'AF', 34.566, 69.212, 4.4, 2, 0.3, 0.05],
+  ],
+  SEA: [
+    ['DIL', 'Presidente Nicolau Lobato', 'Dili', 'TL', -8.547, 125.526, 0.3, 1, 0.3, 0.2],
+    ['KNO', 'Kualanamu', 'Medan', 'ID', 3.642, 98.885, 4.5, 3, 0.4, 0.3],
+  ],
+};
+
+/** Published longest-runway lengths (m) where they matter for fit checks; others are estimated. */
+const RUNWAY: Record<string, number> = {
+  LIS: 3805, OPO: 3480, FAO: 2490, FNC: 2781, PDL: 2500, TER: 3314, MAD: 4350, BCN: 3352, PMI: 3270, VNO: 2515, RIX: 3200,
+  MLA: 3544, SNN: 3199, LEJ: 3600, LDE: 3000, TIA: 2750, ACE: 2400, IBZ: 2800, JER: 1706, INV: 1887, LCY: 1508, ORK: 2133,
+  JED: 4000, MED: 3850, KWI: 3500, DXB: 4447, DOH: 4850, KBL: 3500, DIL: 1850, BKO: 3200, OXB: 3200, RAI: 2100, SID: 3272,
+  KAN: 3300, TMS: 2220, FIH: 4700, GOM: 2000, BGF: 2600, JUB: 3100, MGQ: 3150, DJI: 3140, LAD: 3700, ADA: 2750, KNO: 3750,
+  EBB: 3658, ADD: 3800, NBO: 4117, DAC: 3200, KTM: 3350, ISB: 3600, CPT: 3201, JNB: 4418, LOS: 3900, ACC: 3403, DSS: 3500,
+  ZNZ: 3022, JRO: 3600, KGL: 3500, MBA: 3350, ZQN: 1891, RAR: 2328, APW: 3000, GUM: 3054, VRA: 3500, MBJ: 2662,
+  CUN: 3500, PUJ: 3100, GRU: 3700, GIG: 4000, SSA: 3005, REC: 3305, FOR: 2755, MAO: 2700, YYZ: 3389, YUL: 3353, YHZ: 3200,
+  YWG: 3353, JFK: 4423, IAD: 3505, SYD: 3962, MEL: 3657, PER: 3444, DRW: 3354, NAN: 3273, PPT: 3420, AKL: 3635,
+};
+
+/** Estimate by size class when no published length is listed. */
+const RUNWAY_BY_SIZE = [0, 2200, 2600, 3000, 3400, 3800];
+
+// ---------- builder sections (append only in your own block; same row format) ----------
+// B1: offer destinations, crisis and mission airports.
+const EXTRA_B1: Record<string, Row[]> = {
+  MED: [
+    ['CFU', 'Ioannis Kapodistrias', 'Corfu', 'GR', 39.602, 19.912, 0.1, 2, 0.05, 1.0],
+    ['KGS', 'Hippocrates', 'Kos', 'GR', 36.793, 27.092, 0.05, 2, 0.05, 1.0],
+    ['CHQ', 'Ioannis Daskalogiannis', 'Chania', 'GR', 35.532, 24.150, 0.15, 2, 0.05, 1.0],
+    ['ZTH', 'Dionysios Solomos', 'Zakynthos', 'GR', 37.751, 20.884, 0.05, 1, 0.05, 1.0],
+    ['OLB', 'Costa Smeralda', 'Olbia', 'IT', 40.899, 9.518, 0.1, 2, 0.2, 1.0],
+    ['PFO', 'Paphos', 'Paphos', 'CY', 34.718, 32.486, 0.1, 2, 0.1, 0.95],
+  ],
+  IBE: [
+    ['FUE', 'Fuerteventura', 'Fuerteventura', 'ES', 28.453, -13.864, 0.1, 2, 0.05, 1.0],
+    ['MAH', 'Menorca', 'Mahón', 'ES', 39.863, 4.219, 0.1, 2, 0.05, 1.0],
+  ],
+  EEU: [
+    ['BOJ', 'Burgas', 'Burgas', 'BG', 42.570, 27.515, 0.3, 2, 0.1, 0.95],
+    ['VAR', 'Varna', 'Varna', 'BG', 43.232, 27.825, 0.4, 2, 0.15, 0.9],
+  ],
+  LEV: [
+    ['BJV', 'Milas–Bodrum', 'Bodrum', 'TR', 37.251, 27.664, 0.2, 2, 0.05, 1.0],
+  ],
+  WEA: [
+    ['BVC', 'Aristides Pereira', 'Boa Vista', 'CV', 16.137, -22.889, 0.02, 1, 0.05, 0.95],
+    // Sahel and Gulf of Guinea diversion airports.
+    ['NIM', 'Diori Hamani', 'Niamey', 'NE', 13.482, 2.184, 1.3, 2, 0.3, 0.02],
+    ['NDJ', "N'Djamena Intl", "N'Djamena", 'TD', 12.134, 15.034, 1.5, 2, 0.3, 0.02],
+    ['OUA', 'Ouagadougou', 'Ouagadougou', 'BF', 12.353, -1.512, 2.5, 2, 0.3, 0.02],
+    ['DLA', 'Douala Intl', 'Douala', 'CM', 4.006, 9.719, 3.0, 2, 0.35, 0.05],
+    ['LBV', "Léon-Mba", 'Libreville', 'GA', 0.459, 9.412, 0.8, 2, 0.35, 0.05],
+    ['GAQ', 'Gao', 'Gao', 'ML', 16.249, -0.005, 0.1, 1, 0.1, 0.02],
+    ['AJY', 'Mano Dayak', 'Agadez', 'NE', 16.966, 8.000, 0.1, 1, 0.1, 0.05],
+    ['SSG', 'Malabo', 'Malabo', 'GQ', 3.755, 8.709, 0.3, 1, 0.3, 0.02],
+    ['ROB', 'Roberts Intl', 'Monrovia', 'LR', 6.234, -10.362, 1.5, 1, 0.3, 0.02],
+    ['FNA', 'Lungi Intl', 'Freetown', 'SL', 8.617, -13.195, 1.2, 1, 0.3, 0.02],
+    ['CKY', 'Ahmed Sékou Touré', 'Conakry', 'GN', 9.577, -13.612, 2.0, 2, 0.3, 0.02],
+    ['BJL', 'Banjul Intl', 'Banjul', 'GM', 13.338, -16.652, 0.5, 1, 0.2, 0.4],
+    ['LFW', 'Gnassingbé Eyadéma', 'Lomé', 'TG', 6.166, 1.255, 1.8, 2, 0.3, 0.05],
+  ],
+  // Central Asia and Iran: diversion and fuel-stop airports on Kabul routings (ETOPS realism).
+  SAS: [
+    ['TAS', 'Islam Karimov Tashkent Intl', 'Tashkent', 'UZ', 41.258, 69.281, 2.5, 3, 0.4, 0.2],
+    ['ASB', 'Ashgabat Intl', 'Ashgabat', 'TM', 37.987, 58.361, 1.0, 2, 0.3, 0.05],
+    ['DYU', 'Dushanbe Intl', 'Dushanbe', 'TJ', 38.543, 68.825, 0.9, 2, 0.3, 0.05],
+    ['MHD', 'Shahid Hashemi Nejad', 'Mashhad', 'IR', 36.235, 59.641, 3.0, 3, 0.25, 0.3],
+    ['IKA', 'Imam Khomeini Intl', 'Tehran', 'IR', 35.416, 51.152, 9.0, 3, 0.4, 0.15],
+  ],
+  // Sahara, Sahel and Gulf of Guinea diversion airports (mission and repatriation routings).
+  NAF: [
+    ['NKC', 'Nouakchott–Oumtounsy', 'Nouakchott', 'MR', 18.310, -15.970, 1.2, 2, 0.3, 0.05],
+    ['EUN', 'Hassan I', 'Laayoune', 'MA', 27.152, -13.219, 0.3, 1, 0.2, 0.1],
+    ['TMR', 'Aguenar', 'Tamanrasset', 'DZ', 22.811, 5.451, 0.1, 1, 0.1, 0.1],
+    ['SEB', 'Sabha', 'Sabha', 'LY', 26.987, 14.473, 0.2, 1, 0.1, 0.02],
+    ['KRT', 'Khartoum Intl', 'Khartoum', 'SD', 15.590, 32.553, 5.0, 2, 0.3, 0.02],
+    ['NDB', 'Nouadhibou', 'Nouadhibou', 'MR', 20.933, -17.030, 0.1, 1, 0.1, 0.02],
+    ['ATR', 'Atar', 'Atar', 'MR', 20.500, -13.043, 0.05, 1, 0.1, 0.05],
+    ['TIN', 'Commandant Ferradj', 'Tindouf', 'DZ', 27.700, -8.167, 0.1, 1, 0.1, 0.02],
+    ['GHA', 'Noumérat', 'Ghardaïa', 'DZ', 32.384, 3.794, 0.2, 1, 0.1, 0.05],
+    ['INZ', 'In Salah', 'In Salah', 'DZ', 27.251, 2.512, 0.05, 1, 0.1, 0.02],
+    ['DJG', 'Tiska', 'Djanet', 'DZ', 24.293, 9.452, 0.05, 1, 0.1, 0.1],
+    ['KUF', 'Kufra', 'Kufra', 'LY', 24.179, 23.314, 0.05, 1, 0.1, 0.02],
+    ['ELF', 'El Fasher', 'El Fasher', 'SD', 13.615, 25.325, 0.3, 1, 0.1, 0.02],
+    ['PZU', 'Port Sudan New Intl', 'Port Sudan', 'SD', 19.434, 37.234, 0.5, 1, 0.2, 0.02],
+  ],
+};
+const RUNWAY_B1: Record<string, number> = {
+  CFU: 2373, KGS: 2390, CHQ: 3347, ZTH: 2228, OLB: 2745, PFO: 2700, FUE: 3400, MAH: 2550, BOJ: 3200, VAR: 2500, BJV: 3000, BVC: 2100,
+  TAS: 4000, ASB: 3800, DYU: 3100, MHD: 3926, IKA: 4198,
+  NKC: 3400, EUN: 2700, TMR: 3600, SEB: 3600, KRT: 2980, NIM: 3000, NDJ: 2800, OUA: 3000, DLA: 2850, LBV: 3000,
+  NDB: 2420, ATR: 3000, TIN: 3000, GHA: 3100, INZ: 3000, DJG: 3000, KUF: 3600, ELF: 3000, PZU: 3150,
+  GAQ: 2500, AJY: 3000, SSG: 2900, ROB: 3350, FNA: 3200, CKY: 3300, BJL: 3600, LFW: 3000,
+};
+// B3: maintenance stations, tech stops, delivery airports.
+const EXTRA_B3: Record<string, Row[]> = {};
+const RUNWAY_B3: Record<string, number> = {};
+
+for (const extra of [EXTRA, EXTRA_B1, EXTRA_B3]) for (const [region, rows] of Object.entries(extra)) (DATA[region] ??= []).push(...rows);
+Object.assign(RUNWAY, RUNWAY_B1, RUNWAY_B3);
+
 export const AIRPORTS: Airport[] = Object.entries(DATA).flatMap(([region, rows]) =>
   rows.map(([code, name, city, country, lat, lon, pop, size, biz, tour]) => ({
     code,
@@ -446,6 +594,7 @@ export const AIRPORTS: Airport[] = Object.entries(DATA).flatMap(([region, rows])
     tour,
     region,
     continent: REGION_BY_ID[region].continent,
+    runwayM: RUNWAY[code] ?? RUNWAY_BY_SIZE[size],
   })),
 );
 

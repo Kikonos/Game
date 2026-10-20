@@ -1,64 +1,77 @@
-// Save games live in localStorage so the game works fully offline.
-// Saves can also be exported to / imported from a JSON file.
+// Saves live in localStorage (lz-string) under a new prefix so they never collide with the airline game.
+// Export/import as a JSON file. Versioned with step-by-step migrations (DESIGN.md §7.2).
 
 import LZString from 'lz-string';
+import { compactQueue } from './core/queue';
+import { fmtDate } from './core/time';
+import type { GameState } from './core/types';
 import { SAVE_VERSION } from './newGame';
-import type { GameState } from './types';
+import { onLoad } from './sim';
 
-const PREFIX = 'contrail:save:';
+const PREFIX = 'contrail-acmi:save:';
+const FORMAT = 'contrail-acmi-save';
 export const AUTOSAVE_SLOT = 'auto';
 export const SLOTS = ['1', '2', '3', '4', '5'];
 
 export interface SaveMeta {
   slot: string;
-  airline: string;
+  company: string;
   code: string;
-  day: number;
+  now: number;
+  date: string;
   cash: number;
   fleet: number;
-  level: number;
   savedAt: number;
   color: string;
 }
 
 interface SaveFile {
-  format: 'contrail-save';
+  format: typeof FORMAT;
   meta: SaveMeta;
   state: GameState;
 }
 
-function metaFor(state: GameState, slot: string): SaveMeta {
+function metaFor(g: GameState, slot: string): SaveMeta {
   return {
     slot,
-    airline: state.airline.name,
-    code: state.airline.code,
-    day: state.day,
-    cash: state.cash,
-    fleet: state.fleet.length,
-    level: state.level,
+    company: g.company.name,
+    code: g.company.code,
+    now: g.now,
+    date: fmtDate(g.now),
+    cash: g.company.cash,
+    fleet: Object.keys(g.fleet).length,
     savedAt: Date.now(),
-    color: state.airline.livery.primary,
+    color: g.company.livery.primary,
   };
 }
 
-export function serialize(state: GameState, slot = 'export'): string {
-  const file: SaveFile = { format: 'contrail-save', meta: metaFor(state, slot), state };
+/** Stale queue events are dropped (handlers would ignore them anyway), which keeps saves small. */
+export function serialize(g: GameState, slot = 'export', meta = metaFor(g, slot)): string {
+  const file: SaveFile = { format: FORMAT, meta, state: { ...g, queue: compactQueue(g) } };
   return JSON.stringify(file);
 }
 
 export function deserialize(text: string): GameState {
   const data = JSON.parse(text) as Partial<SaveFile>;
-  if (data.format !== 'contrail-save' || !data.state) throw new Error('This file is not a CONTRAIL save game.');
-  return migrate(data.state);
+  if (data.format !== FORMAT || !data.state) throw new Error('This file is not a BLOCK HOURS save.');
+  const g = migrate(data.state);
+  onLoad(g);
+  return g;
 }
 
-function migrate(state: GameState): GameState {
-  if (typeof state.version !== 'number') throw new Error('Corrupt save file.');
-  if (state.version > SAVE_VERSION) throw new Error('This save was made with a newer version of the game.');
-  // Future migrations go here, e.g. if (state.version < 2) { ...; state.version = 2; }
-  state.contracts ??= [];
-  state.decisions ??= [];
-  return state;
+/** Each step upgrades version n → n + 1; add a case per schema change. */
+const MIGRATIONS: Record<number, (g: GameState) => void> = {
+  // 1: (g) => { ...; },
+};
+
+export function migrate(g: GameState): GameState {
+  if (typeof g.version !== 'number') throw new Error('Corrupt save file.');
+  if (g.version > SAVE_VERSION) throw new Error('This save was made with a newer version of the game.');
+  while (g.version < SAVE_VERSION) {
+    MIGRATIONS[g.version]?.(g);
+    g.version++;
+  }
+  return g;
 }
 
 function storage(): Storage | null {
@@ -69,18 +82,33 @@ function storage(): Storage | null {
   }
 }
 
-export function saveToSlot(state: GameState, slot: string): boolean {
+const LZ_MARK = 'lz1:';
+/** Uncompressed meta per slot, so the save list never decompresses whole games. */
+const META = 'contrail-acmi:meta:';
+
+/** False when storage is unavailable or full (QuotaExceededError); callers toast. */
+export function saveToSlot(g: GameState, slot: string): boolean {
   const s = storage();
   if (!s) return false;
+  const meta = metaFor(g, slot);
+  const value = LZ_MARK + LZString.compressToUTF16(serialize(g, slot, meta));
   try {
-    s.setItem(PREFIX + slot, LZ_MARK + LZString.compressToUTF16(serialize(state, slot)));
-    return true;
+    s.setItem(PREFIX + slot, value);
   } catch {
     return false;
   }
+  writeMeta(s, slot, meta, value.length);
+  return true;
 }
 
-const LZ_MARK = 'lz1:';
+/** The meta key remembers the size of the save it describes: a slot written elsewhere (async autosave) is re-read. */
+function writeMeta(s: Storage, slot: string, meta: SaveMeta, size: number): void {
+  try {
+    s.setItem(META + slot, JSON.stringify({ meta, size }));
+  } catch {
+    s.removeItem(META + slot);
+  }
+}
 
 function readSlot(slot: string): string | null {
   const raw = storage()?.getItem(PREFIX + slot);
@@ -90,31 +118,44 @@ function readSlot(slot: string): string | null {
 
 export function loadFromSlot(slot: string): GameState | null {
   const text = readSlot(slot);
-  if (!text) return null;
-  return deserialize(text);
+  return text ? deserialize(text) : null;
 }
 
-export function deleteSlot(slot: string) {
+export function deleteSlot(slot: string): void {
   storage()?.removeItem(PREFIX + slot);
+  storage()?.removeItem(META + slot);
 }
 
+/** Save metadata per slot from the small meta keys; older saves without one are read in full once (and cached). */
 export function listSaves(): SaveMeta[] {
-  if (!storage()) return [];
+  const s = storage();
+  if (!s) return [];
   const out: SaveMeta[] = [];
   for (const slot of [AUTOSAVE_SLOT, ...SLOTS]) {
-    const text = readSlot(slot);
+    const raw = s.getItem(PREFIX + slot);
+    if (!raw) continue;
+    try {
+      const m = JSON.parse(s.getItem(META + slot) ?? 'null') as { meta: SaveMeta; size: number } | null;
+      if (m && m.size === raw.length) {
+        out.push({ ...m.meta, slot });
+        continue;
+      }
+    } catch {
+      // fall back to the full save
+    }
+    const text = raw.startsWith(LZ_MARK) ? LZString.decompressFromUTF16(raw.slice(LZ_MARK.length)) : raw;
     if (!text) continue;
     try {
-      const file = JSON.parse(text) as SaveFile;
-      out.push({ ...file.meta, slot });
+      const meta = { ...(JSON.parse(text) as SaveFile).meta, slot };
+      out.push(meta);
+      writeMeta(s, slot, meta, raw.length);
     } catch {
-      // ignore unreadable saves
+      // unreadable save
     }
   }
   return out;
 }
 
 export function latestSave(): SaveMeta | null {
-  const saves = listSaves();
-  return saves.sort((a, b) => b.savedAt - a.savedAt)[0] ?? null;
+  return listSaves().sort((a, b) => b.savedAt - a.savedAt)[0] ?? null;
 }

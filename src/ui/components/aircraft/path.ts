@@ -39,10 +39,44 @@ export class D {
     }
     return this;
   }
-  /** Axis-aligned ellipse (centre in world coords). */
+  /**
+   * Smooth curve through dense traced points: cubic per segment with unit chord-bisector
+   * tangents scaled by the segment length (no overshoot on uneven spacing). A turn sharper
+   * than `corner` degrees keeps its corner; the ends keep the direction of their segment.
+   */
+  spline(pts: readonly V[], move = true, corner = 50): this {
+    const n = pts.length;
+    if (!n) return this;
+    if (move) this.M(pts[0]);
+    const tan = tangents(pts, false, corner);
+    for (let i = 0; i + 1 < n; i++) {
+      const b = pts[i], c = pts[i + 1], d = dist(b, c) / 3;
+      this.C([b[0] + tan[i][0] * d, b[1] + tan[i][1] * d], [c[0] - tan[i + 1][0] * d, c[1] - tan[i + 1][1] * d], c);
+    }
+    return this;
+  }
+  /** Closed `spline` (last point joins back to the first). */
+  splineClosed(pts: readonly V[], corner = 50): this {
+    const n = pts.length;
+    if (n < 3) return this.poly(pts);
+    this.M(pts[0]);
+    const tan = tangents(pts, true, corner);
+    for (let i = 0; i < n; i++) {
+      const b = pts[i], c = pts[(i + 1) % n], d = dist(b, c) / 3;
+      this.C([b[0] + tan[i][0] * d, b[1] + tan[i][1] * d], [c[0] - tan[(i + 1) % n][0] * d, c[1] - tan[(i + 1) % n][1] * d], c);
+    }
+    return this.Z();
+  }
+  /**
+   * Axis-aligned ellipse (centre in world coords). The x radius is written as half the rounded
+   * chord so both arcs meet on the diameter: with a separately rounded radius, centimetre rounding
+   * of a slim ellipse leaves the chord short of 2 rx and each large arc bulges far past ry.
+   */
   ellipse(c: V, rx: number, ry: number): this {
     const x = c[0], y = -c[1];
-    this.s += `M${f(x - rx)} ${f(y)}A${f(rx)} ${f(ry)} 0 1 0 ${f(x + rx)} ${f(y)}A${f(rx)} ${f(ry)} 0 1 0 ${f(x - rx)} ${f(y)}Z`;
+    const x0 = f(x - rx), x1 = f(x + rx);
+    const r = String(Math.round((Number(x1) - Number(x0)) * 500) / 1000);
+    this.s += `M${x0} ${f(y)}A${r} ${f(ry)} 0 1 0 ${x1} ${f(y)}A${r} ${f(ry)} 0 1 0 ${x0} ${f(y)}Z`;
     return this;
   }
   /** Rounded rect from world bottom-left corner. */
@@ -53,6 +87,40 @@ export class D {
     return this;
   }
   toString(): string { return this.s; }
+}
+
+export const dist = (a: V, b: V): number => Math.hypot(b[0] - a[0], b[1] - a[1]);
+
+const unit = (a: V, b: V): V => {
+  const d = dist(a, b) || 1;
+  return [(b[0] - a[0]) / d, (b[1] - a[1]) / d];
+};
+
+/** Unit tangent per point for `spline`: zero at corners (turn > `corner` deg), so the curve stays sharp there. */
+function tangents(pts: readonly V[], closed: boolean, corner: number): V[] {
+  const n = pts.length;
+  const cosC = Math.cos((corner * Math.PI) / 180);
+  return pts.map((b, i) => {
+    const a = closed ? pts[(i - 1 + n) % n] : pts[Math.max(0, i - 1)];
+    const c = closed ? pts[(i + 1) % n] : pts[Math.min(n - 1, i + 1)];
+    if (a === b || c === b) return unit(a, c);
+    const u = unit(a, b), v = unit(b, c);
+    if (u[0] * v[0] + u[1] * v[1] < cosC) return [0, 0];
+    return unit([0, 0], [u[0] + v[0], u[1] + v[1]]);
+  });
+}
+
+/** One light Laplacian pass over the interior points (corners and ends stay put): takes the wobble out of a trace. */
+export function relax(pts: readonly V[], k = 0.3, corner = 50): V[] {
+  const n = pts.length;
+  const cosC = Math.cos((corner * Math.PI) / 180);
+  return pts.map((b, i) => {
+    if (i === 0 || i === n - 1) return b;
+    const a = pts[i - 1], c = pts[i + 1];
+    const u = unit(a, b), v = unit(b, c);
+    if (u[0] * v[0] + u[1] * v[1] < cosC) return b;
+    return [b[0] + ((a[0] + c[0]) / 2 - b[0]) * k, b[1] + ((a[1] + c[1]) / 2 - b[1]) * k];
+  });
 }
 
 export const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;

@@ -1,0 +1,39 @@
+/* ==========================================================================
+   ACMI shell (architect → B5): top bar + 80px rail on every non-compact tier, no ticker.
+   The rail reuses the .shell.medium rules in styles/touch/shell.css.
+   ========================================================================== */
+.shell.acmi { --ticker-h: 0px; grid-template-areas: 'top top' 'side main' 'side main'; }
+.shell.acmi.medium { --side-w: 84px; }
+.shell.acmi .topbar { gap: 14px; padding-left: calc(10px + var(--safe-l)); }
+.shell.acmi .clock { min-width: 150px; }
+.shell.acmi .airline-pill .name { max-width: 190px; }
+/* Compact (Split View / phones) is not a v0.5 target: keep the rail, shrink the chrome. */
+.shell.acmi.compact-acmi { --side-w: 64px; --topbar-h: 54px; }
+.shell.acmi.compact-acmi .airline-pill .col, .shell.acmi.compact-acmi .tb-cash .s { display: none; }
+.shell.acmi.compact-acmi .nav-item .lbl { display: none; }
+.shell.acmi.compact-acmi .nav-item { justify-content: center; padding: 0; }
+/* B5: calm pause state: no pulsing; a static amber badge says why the clock stopped. */
+.shell.acmi .speed.blocked .sp-pause { animation: none; background: rgba(251, 191, 36, 0.16); color: var(--warn); }
+.pause-badge {
+  display: inline-flex; flex-direction: column; justify-content: center; gap: 0; min-height: 44px; padding: 2px 12px; border-radius: 12px;
+  border: 1px solid rgba(251, 191, 36, 0.45); background: rgba(251, 191, 36, 0.1); color: var(--warn); font: inherit; text-align: left;
+  cursor: pointer; max-width: 170px; flex-shrink: 1; min-width: 0;
+}
+.pause-badge .pb-k { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.8; }
+.pause-badge .pb-r { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Integration: iPad legibility and touch floor for every BLOCK HOURS screen: text ≥ 12 px, targets ≥ 44 px. */
+.shell.acmi .tiny, .shell.acmi .upper, .acmi-ng .upper, .acmi-ng .tiny { font-size: 12px; }
+.shell.acmi .tab .count { font-size: 12px; }
+:where(.touch) .shell.acmi .tab, :where(.touch) .acmi-ng .tab { height: 44px; }
+:where(.touch) .shell.acmi .seg button, :where(.touch) .acmi-ng .seg button { min-height: 44px; }
+:where(.touch) .shell.acmi .btn-sm { height: 44px; }
+:where(.touch) .shell.acmi .btn-icon.btn-sm { width: 44px; }
+:where(.touch) .shell.acmi button.chip { min-height: 44px; padding-inline: 14px; }
+
+/* Desktop (non-touch) text floor: nothing in the shell below 12 px (the touch tier already sizes up). */
+html:not(.touch) .airline-pill .lvl,
+html:not(.touch) .clock .time,
+html:not(.touch) .kpi-label,
+html:not(.touch) .badge { font-size: 12px; }
+html:not(.touch) .bell .pip { font-size: 11px; min-width: 17px; height: 17px; }

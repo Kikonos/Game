@@ -83,8 +83,9 @@ export function Loading() {
             </g>
           </g>
         </svg>
-        <h1 className="loading-word">CONTRAIL</h1>
-        <div className="loading-tag">AIRLINE EMPIRE</div>
+        {/* Two words: tighter tracking and a cap so it stays on one line. */}
+        <h1 className="loading-word" style={{ fontSize: 'clamp(30px, 4.8vw, 56px)', letterSpacing: '0.34em', marginLeft: '0.34em', whiteSpace: 'nowrap' }}>BLOCK HOURS</h1>
+        <div className="loading-tag">ACMI &amp; CHARTER</div>
         <div className="loading-bar"><span style={{ width: `${progress * 100}%` }} /></div>
         <div className="loading-step mono">
           <span>{step}…</span>

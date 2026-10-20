@@ -19,20 +19,42 @@ export const PORTRAIT = '(orientation: portrait)';
 
 export type Tier = 'wide' | 'medium' | 'compact';
 
-const mql = (q: string) => (typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(q) : null);
+// One MediaQueryList and one stable subscribe/getSnapshot pair per query: inline functions would make
+// useSyncExternalStore resubscribe (and call matchMedia) on every render.
+const lists = new Map<string, MediaQueryList | null>();
+const mql = (q: string): MediaQueryList | null => {
+  let m = lists.get(q);
+  if (m === undefined) {
+    m = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(q) : null;
+    lists.set(q, m);
+  }
+  return m;
+};
 
-function subscribeQuery(query: string, cb: () => void) {
-  const m = mql(query);
-  m?.addEventListener('change', cb);
-  return () => m?.removeEventListener('change', cb);
+interface QueryStore { subscribe: (cb: () => void) => () => void; get: () => boolean }
+const stores = new Map<string, QueryStore>();
+
+function queryStore(query: string): QueryStore {
+  let s = stores.get(query);
+  if (!s) {
+    s = {
+      subscribe: (cb) => {
+        const m = mql(query);
+        m?.addEventListener('change', cb);
+        return () => m?.removeEventListener('change', cb);
+      },
+      get: () => !!mql(query)?.matches,
+    };
+    stores.set(query, s);
+  }
+  return s;
 }
 
+const serverFalse = () => false;
+
 export function useMedia(query: string): boolean {
-  return useSyncExternalStore(
-    (cb) => subscribeQuery(query, cb),
-    () => !!mql(query)?.matches,
-    () => false,
-  );
+  const s = queryStore(query);
+  return useSyncExternalStore(s.subscribe, s.get, serverFalse);
 }
 
 /** Current tier outside React (event handlers, the store). */
@@ -75,7 +97,7 @@ export function isTouch(): boolean {
 }
 
 export function useTouch(): boolean {
-  return useSyncExternalStore((cb) => subscribeQuery(TOUCH, cb), isTouch, () => false);
+  return useSyncExternalStore(queryStore(TOUCH).subscribe, isTouch, serverFalse);
 }
 
 /** Keeps html.touch in sync with the input mode (called once from main.tsx). */

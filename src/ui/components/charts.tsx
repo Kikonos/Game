@@ -67,7 +67,8 @@ function xLabel(cx: number, label: string, fs: number, width: number): { x: numb
   return { x: cx, textAnchor: 'middle' };
 }
 
-function niceTicks(min: number, max: number, count = 4): number[] {
+/** Round ticks covering [min, max]; the first is ≤ min and the last ≥ max, so no data is clipped. */
+export function niceTicks(min: number, max: number, count = 4): number[] {
   if (max === min) max = min + 1;
   const span = max - min;
   const step0 = span / count;
@@ -75,8 +76,9 @@ function niceTicks(min: number, max: number, count = 4): number[] {
   const norm = step0 / mag;
   const step = (norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10) * mag;
   const start = Math.floor(min / step) * step;
+  const end = Math.ceil(max / step) * step;
   const ticks: number[] = [];
-  for (let v = start; v <= max + step * 0.5; v += step) ticks.push(Math.round(v / step) * step);
+  for (let v = start; v <= end + step * 1e-9; v += step) ticks.push(Math.round(v / step) * step);
   return ticks;
 }
 
