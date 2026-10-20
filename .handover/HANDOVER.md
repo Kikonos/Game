@@ -5,7 +5,7 @@
 The user played v0.2 for a few hours and liked it. They want to MORPH the game into an **ACMI / wet-lease / dry-lease (and charter) simulator**. They are a flight attendant who worked at EuroAtlantic Airways (2× B767-300ER + 2× B777-200ER at the time) and at Getjet / Airhub Airlines.
 Requirements (from the user):
 - Research the ACMI industry BEFORE building.
-- [x] Speed control clearly labelled **1×/2×/4× only** (no 10×; pause allowed), **but the game must not become too easy**: rebalance the economy, competitor reactions, inflation, ageing, XP taper, and slow-to-1× on alerts.
+- Morph the existing game (reuse map, airports, aircraft data and art, iPad touch shell, saves, PWA).
 - MUCH slower pace. Speeds 1×/2×/4× only. A sense of waiting for achievements while staying busy with other tasks. No flicker or frantic, grindy feel.
 - Big emphasis on the WORLD MAP. Real-time aircraft graphics that follow their routes and departure/landing times.
 - Small scale: few aircraft. Cabin configuration and route/contract choice matter.
@@ -57,7 +57,7 @@ Checkpoint script: `bash /home/user/wt/notes/.handover/checkpoint.sh` (commits a
 
 ## User requests (all still open unless ticked)
 - [ ] Design for **iPad (A16)**, 1180×820 landscape / 820×1180 portrait, touch. (The iPhone was dropped as too small.)
-- [ ] Speed control clearly labelled 1×/2×/4×/10×, **but the game must not become too easy**: rebalance the economy, competitor reactions, inflation, ageing, XP taper, and slow-to-1× on alerts.
+- [x] Speed control clearly labelled **1×/2×/4× only** (no 10×; pause allowed), **but the game must not become too easy**: rebalance the economy, competitor reactions, inflation, ageing, XP taper, and slow-to-1× on alerts.
 - [ ] **Aircraft art**: slightly cartoonified real-world side profiles, nose left, in the style of the Airbus marketing art.
 - [ ] **Cabin config** must matter. The user said the ATR barely changed seats or comfort. Plan: pitch/abreast choices, seat width, regional business, visible consequences.
 - [ ] **Add to home screen** later: PWA via GitHub Pages. `main` has been created. The user should set the default branch to main and set Pages source to GitHub Actions. deploy.yml publishes from the default branch.
