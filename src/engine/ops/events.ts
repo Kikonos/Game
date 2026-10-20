@@ -289,7 +289,9 @@ export function crewReadyAt(g: GameState, f: Flight, ac: Aircraft): Minute {
   if (here !== null) t = here + report;
   for (const from of new Set([stationOf(g, f), g.company.homeBase])) {
     if (from === f.from) continue;
-    const travel = BAL.deadheadCheckIn + blockMinutes('a320ceo', from, f.from) + 180;
+    let travel = BAL.deadheadCheckIn + blockMinutes('a320ceo', from, f.from) + 180;
+    // Too long for one duty with the ticket in it: the crew flies out the day before and rests first.
+    if (travel + need > 13 * 60) travel += 10 * 60;
     const r = readyAt(g, roles, from, fam, need + travel, own);
     if (r !== null) t = Math.min(t, r + travel + report);
   }

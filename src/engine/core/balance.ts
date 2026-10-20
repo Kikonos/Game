@@ -75,15 +75,15 @@ export const BAL = {
   /** Landing, nav and handling per departure on charters (we pay): narrow / wide. */
   airportFees: [3_000, 8_000],
   catering: [600, 2_400],
-  overheadBase: 100_000,
-  overheadPerAircraft: 55_000,
+  overheadBase: 120_000,
+  overheadPerAircraft: 80_000,
   /** Maintenance cost multiplier per year of age above 12. */
   maintAgeFactor: 0.025,
   checkCost: { A: [45_000, 110_000], C: [1_200_000, 3_500_000] } as Record<'A' | 'C', [number, number]>,
   /** Share of a C-check paid out of maintenance reserves (leased: the lessor reimburses) or the per-BH provision (owned). */
-  cReserveCover: 0.75,
+  cReserveCover: 0.5,
   /** AOG chance per departure (one roll, separate from technical delays): base × (1 + age/10) × (1 + 4 × deferred) × outstation 1.5. */
-  aogBase: 0.00035,
+  aogBase: 0.0003,
   delayChance: 0.12,
   /** Operational delay minutes (exponential mean, cap); technical delay chance per departure × age factor, mean minutes. */
   delayMean: 25,
@@ -128,7 +128,11 @@ export const BAL = {
   /** Factoring discount on an overdue invoice. */
   factorDiscount: 0.08,
   /** Client change request chance per active contract per week; extra urgent evacuation offers per day. */
-  changeRequestWeekly: 0.35,
+  changeRequestWeekly: 0.5,
+  /** Auto-roster margin (min): planned duties may release this late without breaking the next rest or recovery. */
+  rosterSlack: 60,
+  /** Duties reporting within this many minutes are "on the day": a delay-slipped recovery doesn't unseat the crew. */
+  opsWindow: 12 * 60,
   evacuationPerDay: 1 / 45,
   /** Optional decisions only while fewer than this are open, and at most this many a week (more: ops applies the default). */
   maxOpenDecisions: 2,

@@ -105,7 +105,7 @@ function Goals({ g }: { g: GameState }) {
           <div key={d.id} className="sc-goal">
             <div className="row between">
               <b className="row gap-8">{st?.done ? <Award className="sc-ico-s good" /> : <Target className="sc-ico-s dim" />}{d.title}</b>
-              <span className="small dim">{st?.done ? `done ${fmtDate(st.done)}` : `${Math.round(v * 100)}%`}</span>
+              <span className="small dim">{st?.done ? `done ${fmtDate(st.done)}` : `${Math.min(99, Math.floor(v * 100))}%`}</span>
             </div>
             <div className="small muted">{d.desc}</div>
             <Bar value={v} size="thin" tone={st?.done ? 'good' : undefined} />

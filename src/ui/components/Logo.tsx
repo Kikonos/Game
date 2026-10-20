@@ -26,7 +26,7 @@ export function LogoMark({ size = 32 }: { size?: number }) {
 export function Wordmark({ size = 15 }: { size?: number }) {
   return (
     <span className="wordmark" style={{ fontSize: size }}>
-      CONTRAIL
+      BLOCK HOURS
     </span>
   );
 }

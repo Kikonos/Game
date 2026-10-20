@@ -43,9 +43,10 @@ function statusIssues(c: CrewMember, from: number, to: number, family: string): 
 
 /**
  * Plans crew c onto pairing p's open duties. `base` is c's timeline without p. With `existing`, uses the tickets
- * already bought for c (re-check of an assignment); otherwise plans new ones.
+ * already bought for c (re-check of an assignment); otherwise plans new ones. `slack`: the auto-roster's planning
+ * margin (TimelineCtx.slack).
  */
-export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], existing = false): CrewPlan {
+export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], existing = false, slack = 0): CrewPlan {
   const duties = openDuties(g, p);
   if (!duties.length) return { level: 'legal', issues: [], out: null, home: null, segs: [] };
   const first = duties[0];
@@ -77,7 +78,14 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
   const other = otherTrip(g, c, p, segs[0].start, segs[segs.length - 1].end, existing);
   if (other) issues.push({ code: 'overlap', level: 'illegal', text: `On another ${other.tour ? 'tour' : 'trip'} until ${fmtDay(other.end)}`, dutyId: first.id });
   issues.push(...statusIssues(c, segs[0].start, segs[segs.length - 1].end, typeOf(typeIdOf(g, p)).family));
-  issues.push(...evalSegs(ctxOf(g, c), merge(base, segs)));
+  const ftl = evalSegs({ ...ctxOf(g, c), slack }, merge(base, segs));
+  if (existing) {
+    // Unforeseen delays on the day (ORO.FTL.205(f)): a held seat whose extended recovery slipped stays on the
+    // duty about to report, flagged tight; a later duty is still re-planned.
+    const soon = g.now + BAL.opsWindow;
+    for (const i of ftl) if (i.code === 'recovery' && i.level === 'illegal' && i.dutyId && (g.duties[i.dutyId]?.report ?? Infinity) <= soon) i.level = 'tight';
+  }
+  issues.push(...ftl);
   return { level: levelOf(issues), issues, out, home, segs };
 }
 

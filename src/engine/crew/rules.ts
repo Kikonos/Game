@@ -149,15 +149,13 @@ export function isDisruptive(tz: string, start: Minute, end: Minute): boolean {
   return false;
 }
 
-/** Full local nights (22:00–06:00 at `tz`) inside [from, to]. */
+/** Local nights inside [from, to]: 8 h falling between 22:00 and 08:00 at `tz` (EASA ORO.FTL.105). */
 export function nightsIn(tz: string, from: Minute, to: Minute): number {
   const off = offsetAt(tz, from);
   const a = from + off;
   const b = to + off;
-  let w = dayStart(a) - DAY + 22 * H;
-  while (w < a) w += DAY;
   let n = 0;
-  for (; w + 8 * H <= b; w += DAY) n++;
+  for (let w = dayStart(a) - DAY + 22 * H; w < b; w += DAY) if (Math.min(b, w + 10 * H) - Math.max(a, w) >= 8 * H) n++;
   return n;
 }
 
@@ -195,6 +193,11 @@ export interface TimelineCtx {
   blockYearOf: number;
   /** End of the last duty when the log is empty (time off before the first seg counts towards recovery). */
   freeSince?: Minute;
+  /**
+   * Planning margin: each planned duty is assumed to release this much late for the extended recovery that
+   * follows it, so a routine delay doesn't break a fresh roster (0 when re-checking work in place).
+   */
+  slack?: number;
 }
 
 export type IssueCode = 'fdp' | 'rest' | 'duty7d' | 'duty14d' | 'duty28d' | 'block28d' | 'blockYear' | 'recovery' | 'rating' | 'location' | 'status' | 'overlap' | 'workBlock';
@@ -268,6 +271,8 @@ export function evalSegs(ctx: TimelineCtx, segs: Seg[]): LegalityIssue[] {
   // Planned block per calendar year, accumulated in time order (segs end in order for non-overlapping timelines).
   let plannedYear = 0;
   let plannedYearOf = ctx.blockYearOf;
+  const slack = ctx.slack ?? 0;
+  const endOf = (x: Seg) => (x.kind === 'duty' ? x.end + slack : x.end);
   for (let i = 0; i < segs.length; i++) {
     const s = segs[i];
     // Recovery: the gap before s qualifies when it is long enough and holds two local nights.
@@ -317,10 +322,10 @@ export function evalSegs(ctx: TimelineCtx, segs: Seg[]): LegalityIssue[] {
         const logged = ctx.blockYearOf === plannedYearOf ? ctx.blockYear : 0;
         cum('blockYear', logged + plannedYear, LIMITS.blockYear, 'Block year');
       }
-      if (s.end > anchor + LIMITS.recoveryEvery) add('recovery', 'illegal', 'No 36 h recovery in 168 h', tgt);
+      if (endOf(s) > anchor + LIMITS.recoveryEvery) add('recovery', 'illegal', 'No 36 h recovery in 168 h', tgt);
     }
     if (s.disruptive) disruptive++;
-    prevEnd = Math.max(prevEnd, s.end);
+    prevEnd = Math.max(prevEnd, endOf(s));
   }
   return issues;
 }

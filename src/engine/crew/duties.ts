@@ -487,7 +487,7 @@ function chainer(g: GameState, dep: Deployment, crewOk: (p: Pairing, d: Duty) =>
       const last = st.segs[at - 1];
       const segs = [...st.segs.slice(0, at), virtualSeg(g, d, tripStart, home, true), ...st.segs.slice(at)];
       // A fresh set arrives rested the day before its period (positioning counts as duty).
-      const ctx: TimelineCtx = { base: home, restUntil: -Infinity, lastRecovery: per.from - DAY, blockYear: 0, blockYearOf: yearOf(d.report) };
+      const ctx: TimelineCtx = { base: home, restUntil: -Infinity, lastRecovery: per.from - DAY, blockYear: 0, blockYearOf: yearOf(d.report), slack: BAL.rosterSlack };
       if (evalSegs(ctx, segs).some((i) => i.level === 'illegal' && i.code !== 'fdp')) continue;
       if (st.pairing && crewCount(st.pairing) > 0 && !crewOk(st.pairing, d)) continue;
       const restEnd = last ? last.end + last.rest : -Infinity;
@@ -514,6 +514,12 @@ function chainer(g: GameState, dep: Deployment, crewOk: (p: Pairing, d: Duty) =>
 let crewOkHook: (g: GameState, p: Pairing, d: Duty) => boolean = () => true;
 export function setCrewOkHook(f: (g: GameState, p: Pairing, d: Duty) => boolean): void {
   crewOkHook = f;
+}
+
+/** Hook (roster.ts): re-plans the crew's tickets after a crewed tour grew past its ends (the ticket home moves). */
+let retickHook: (g: GameState, p: Pairing) => void = () => {};
+export function setRetickHook(f: (g: GameState, p: Pairing) => void): void {
+  retickHook = f;
 }
 
 /**
@@ -571,10 +577,15 @@ function chainDeployment(g: GameState, c: Contract, acId: string, duties: Duty[]
       const p = st.pairing;
       const fresh = st.duties.filter((d) => !p.dutyIds.includes(d.id));
       if (!fresh.length) continue;
+      const [from, to] = [p.start, p.end];
       for (const d of fresh) d.pairingId = p.id;
       p.dutyIds.push(...fresh.map((d) => d.id));
       refreshPairing(g, p);
-      if (crewCount(p) > 0) for (const d of fresh) queueDuty(g, d);
+      if (crewCount(p) > 0) {
+        for (const d of fresh) queueDuty(g, d);
+        // Duties past the old ends: the crew stay on (tickets out/home move with the tour).
+        if (fresh.some((d) => d.report < from || d.release > to)) retickHook(g, p);
+      }
       continue;
     }
     if (!st.duties.length) continue;

@@ -221,15 +221,24 @@ export interface StaffingLine {
   need: number;
 }
 
-/** Staffing vs need (BAL.crewSetsPerAircraft complements per aircraft of the family) for the Crew screen. */
+/**
+ * Staffing vs need for the Crew screen: BAL.crewSetsPerAircraft complements per aircraft of the family, more for an
+ * aircraft on a deployment now or within 60 days (its sets on station, one set rotating home, one spare).
+ */
 export function staffing(g: GameState): StaffingLine[] {
+  const onStation = new Map<string, number>();
+  for (const dp of Object.values(g.deployments)) {
+    if (dp.end < g.now || dp.start > g.now + 60 * DAY) continue;
+    onStation.set(dp.aircraftId, Math.max(onStation.get(dp.aircraftId) ?? 0, dp.setsOnStation));
+  }
   const fams = new Map<RatingFamily, { typeId: string; seats: number; n: number }>();
   for (const ac of Object.values(g.fleet)) {
     if (ac.status === 'leasedOut') continue;
     const f = typeOf(ac.typeId).family;
+    const sets = Math.max(BAL.crewSetsPerAircraft, (onStation.get(ac.id) ?? 0) + 2);
     const cur = fams.get(f);
-    if (cur) cur.n++;
-    else fams.set(f, { typeId: ac.typeId, seats: ac.cabin.total, n: 1 });
+    if (cur) cur.n += sets;
+    else fams.set(f, { typeId: ac.typeId, seats: ac.cabin.total, n: sets });
   }
   const out: StaffingLine[] = [];
   for (const [family, x] of fams) {
@@ -237,7 +246,7 @@ export function staffing(g: GameState): StaffingLine[] {
     for (const r of ROLES) {
       if (!per[r]) continue;
       const have = Object.values(g.crew).filter((c) => c.role === r && c.ratings.includes(family)).length;
-      out.push({ family, role: r, have, need: per[r]! * BAL.crewSetsPerAircraft * x.n });
+      out.push({ family, role: r, have, need: per[r]! * x.n });
     }
   }
   return out;

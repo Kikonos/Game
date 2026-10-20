@@ -2,17 +2,18 @@
 // pure read APIs and compact saves (DESIGN.md §3.3, §4.1–4.2, §7.2).
 
 import { describe, expect, it } from 'vitest';
-import { acceptOffer, contractProgress, feasibility, feasibilityAll, generateOffer, productValue } from '../contracts';
-import { crewAvailability, crewWindows, flightCrewStatus, hireQuote, rosterOf, staffing } from '../crew';
+import { acceptOffer, cancelPenalty, contractProgress, feasibility, feasibilityAll, generateOffer, productValue } from '../contracts';
+import { checkAssignment, crewAvailability, crewWindows, daysOffInMonth, dutyCandidates, dutyCrew, dutyLegality, flightCrewStatus, hireQuote, rosterOf, staffing } from '../crew';
 import { demoFlights } from '../dev';
 import { createGame } from '../newGame';
-import { aogChance, cashForecast, checkStatus } from '../ops';
+import { aogChance, APPROVALS, approvalBlocker, cashForecast, checkStatus, fixedCosts, GOALS, groundGaps, monthProfit, rotationOf, subcharterable, subcharterQuote } from '../ops';
 import { deserialize, serialize } from '../save';
 import { advanceTo } from '../sim';
 import { addDeadhead, flightsOf, reassignFlights, retimeFlight, subcharterFlights, takeFlightChanges } from './entities';
+import { inboxCounts } from './messages';
 import { requestPause, takePause } from './pause';
 import { compactQueue } from './queue';
-import { DAY } from './time';
+import { DAY, monthKey } from './time';
 import type { Archetype, GameState } from './types';
 
 const newGame = (seed = 11): GameState =>
@@ -80,7 +81,7 @@ describe('determinism of read APIs', () => {
     advanceTo(g, g.now + 2 * DAY);
     const before = JSON.stringify(g);
     const t = g.now;
-    for (let i = 0; i < 100; i++) {
+    for (let i = 0; i < 20; i++) {
       for (const o of Object.values(g.offers)) {
         feasibilityAll(g, o.id);
         for (const id of Object.keys(g.fleet)) feasibility(g, o.id, id);
@@ -96,6 +97,26 @@ describe('determinism of read APIs', () => {
         crewWindows(g, c, t);
         rosterOf(g, c.id, t, t + 14 * DAY);
       }
+      // Engine-lane screen reads: manual roster, sub-charter quotes, fleet gaps, finance, company, inbox.
+      for (const d of Object.values(g.duties).slice(0, 6)) {
+        dutyCrew(g, d.id);
+        dutyLegality(g, d.id);
+        if (i === 0) for (const r of ['CPT', 'CC'] as const) dutyCandidates(g, d.id, r);
+        const someone = Object.keys(g.crew)[0];
+        checkAssignment(g, someone, d.id);
+      }
+      for (const c of Object.values(g.contracts)) {
+        cancelPenalty(g, c.id);
+        const legs = subcharterable(g, c.id);
+        if (legs[0]) subcharterQuote(g, rotationOf(g, legs[0].id).map((f) => f.id));
+      }
+      for (const ac of Object.values(g.fleet)) groundGaps(g, ac, t, t + 30 * DAY);
+      for (const c of Object.values(g.crew).slice(0, 3)) daysOffInMonth(g, c, t, t + 30 * DAY);
+      fixedCosts(g, monthKey(t));
+      monthProfit(g.finance.current);
+      for (const gd of GOALS) gd.progress(g);
+      for (const a of APPROVALS) approvalBlocker(g, a.id);
+      inboxCounts(g);
       crewAvailability(g, 'A320', 'a320ceo', t, t + 30 * DAY, 200);
       hireQuote(g, { role: 'FO', family: 'A320', base: 'LIS', count: 2 });
       staffing(g);

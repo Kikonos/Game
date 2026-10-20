@@ -2,7 +2,7 @@
 
 import { BAL } from '../core/balance';
 import { addFlight, flightsOf, ownFlightNo, removeFlights } from '../core/entities';
-import { typeOf } from '../core/perf';
+import { blockMinutes, typeOf } from '../core/perf';
 import { DAY, dayStart } from '../core/time';
 import type { Contract, Flight, GameState, Minute } from '../core/types';
 import {
@@ -117,11 +117,28 @@ export function planPositioning(g: GameState, aircraftId: string, to: string, ar
   if (!prev) return null;
   if (prev.to === to) return [];
   const earliest = prev.kind === 'start' ? prev.sta : prev.sta + turn;
-  const chain = chainBackward(ac.typeId, prev.to, to, earliest, arriveBy - turn);
+  const chain = chainBackward(ac.typeId, prev.to, to, crewFree(g, aircraftId, prev.to, earliest), arriveBy - turn) ?? chainBackward(ac.typeId, prev.to, to, earliest, arriveBy - turn);
   if (!chain) return null;
   const stale = flightsOf(g, aircraftId).filter((f) => isSoft(g, f) && f.std >= prev!.std && f.std < arriveBy).map((f) => f.id);
   if (stale.length) removeFlights(g, stale);
   return chain.map((l) => addFlight(g, { no: ownFlightNo(g), aircraftId, contractId, kind, from: l.from, to: l.to, std: l.std, sta: l.sta }));
+}
+
+/**
+ * Earliest departure of new empty legs from X. An aircraft idle at an outstation for a while has no crew aboard:
+ * the legs leave no sooner than a ticket from base gets a crew there (same day when short, else the day before).
+ * Right after landing the operating crew can still take it on.
+ */
+function crewFree(g: GameState, aircraftId: string, X: string, earliest: Minute): Minute {
+  if (earliest > g.now) return earliest;
+  let landed = -Infinity;
+  for (const f of flightsOf(g, aircraftId)) if (f.status === 'done' && f.to === X) landed = Math.max(landed, f.ata ?? f.sta);
+  if (g.now - landed < 3 * 60) return earliest;
+  const home = g.company.homeBase;
+  // A short ticket the same morning; a long one the day before, with minimum rest on arrival (FDP).
+  const blk = X === home ? 0 : blockMinutes('a320ceo', home, X);
+  const lead = X === home ? 120 : blk + (blk <= 180 ? 6 * 60 : 14 * 60);
+  return Math.ceil((g.now + lead) / 5) * 5;
 }
 
 const live = (g: GameState, id: string | null) => !!id && (g.contracts[id]?.status === 'signed' || g.contracts[id]?.status === 'active');
@@ -184,7 +201,7 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
       if (legs.length ? chainOk(legs, X, null, earliest) : !wantHome) continue;
       remove.push(...legs.map((f) => f.id));
       if (wantHome) {
-        const ch = chainForward(typeId, X, home, earliest);
+        const ch = chainForward(typeId, X, home, crewFree(g, aircraftId, X, earliest));
         if (ch) add(ch, a.contractId);
       }
       continue;
@@ -193,7 +210,7 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     const sameBase = !!a.contractId && a.contractId === b.contractId && g.contracts[a.contractId]?.pattern.kind === 'base';
     const allowHop = a.kind !== 'maint' && b.kind !== 'maint' && !sameBase;
     const latest = b.std - turn;
-    const hop = X === Y ? gapMoves(typeId, X, Y, earliest, latest, home, allowHop) : null;
+    const hop = X === Y ? gapMoves(typeId, X, Y, crewFree(g, aircraftId, X, earliest), latest, home, allowHop) : null;
     if (X === Y && !legs.length && !hop?.length) continue;
     if (legs.length && chainOk(legs, X, Y, earliest)) continue;
     remove.push(...legs.map((f) => f.id));
@@ -206,7 +223,11 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
       }
       continue;
     }
+    // Leave room to crew it when the window allows; a tight window keeps the earliest slot.
+    const from = crewFree(g, aircraftId, X, earliest);
     const ch =
+      chainBackward(typeId, X, Y, from, b.std - leadFor(g, b, turn)) ??
+      chainBackward(typeId, X, Y, from, latest) ??
       chainBackward(typeId, X, Y, earliest, b.std - leadFor(g, b, turn)) ??
       chainBackward(typeId, X, Y, earliest, latest) ??
       chainForward(typeId, X, Y, earliest);

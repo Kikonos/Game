@@ -5,7 +5,7 @@ import { flightsOf, flightsRev, takeFlightChanges } from '../core/entities';
 import type { SimModule } from '../core/module';
 import { schedule } from '../core/queue';
 import { DAY, yearOf } from '../core/time';
-import type { GameState, SimEvent } from '../core/types';
+import type { CrewMember, GameState, Minute, SimEvent } from '../core/types';
 import { dailyCrewCosts, monthlySalaries } from './costs';
 import { deletePairing, planAircraft } from './duties';
 import { dailySickness, onCrewJoin, onTrainingDone } from './hr';
@@ -32,6 +32,19 @@ export { crewRev, ticketPrice } from './timeline';
 
 const CHECKIN = () => BAL.deadheadCheckIn;
 
+/**
+ * ERRP bookkeeping before work starting at t (a duty report or a logged ticket): the time off since the last
+ * logged work counts as extended recovery when long enough with two local nights (the log is pruned, so the
+ * anchor must move whenever work is logged, not only at duty reports).
+ */
+function noteRecovery(c: CrewMember, t: Minute): void {
+  const last = c.log[c.log.length - 1];
+  const prevEnd = last ? last.end : c.restUntil - 12 * 60;
+  const dis = c.log.filter((e) => e.start >= c.lastRecovery && e.disruptive).length;
+  const need = dis >= LIMITS.disruptiveMax ? LIMITS.recoveryLong : LIMITS.recovery;
+  if (t - prevEnd >= need && nightsIn(c.base, prevEnd, t) >= 2) c.lastRecovery = Math.max(c.lastRecovery, t);
+}
+
 /** 'duty.report': crew on duty; away from base from now when the duty leaves base; ERRP bookkeeping. */
 function onDutyReport(g: GameState, ev: SimEvent): void {
   const d = g.duties[ev.id];
@@ -43,12 +56,7 @@ function onDutyReport(g: GameState, ev: SimEvent): void {
   for (const s of p.slots) {
     const c = s.crewId ? g.crew[s.crewId] : undefined;
     if (!c) continue;
-    const last = c.log[c.log.length - 1];
-    if (last) {
-      const dis = c.log.filter((e) => e.start >= c.lastRecovery && e.disruptive).length;
-      const need = dis >= LIMITS.disruptiveMax ? LIMITS.recoveryLong : LIMITS.recovery;
-      if (d.report - last.end >= need && nightsIn(c.base, last.end, d.report) >= 2) c.lastRecovery = Math.max(c.lastRecovery, d.report);
-    }
+    noteRecovery(c, d.report);
     c.status = 'onDuty';
     if (c.awaySince === null && (dep !== c.base || d.restAt !== c.base)) c.awaySince = g.now;
   }
@@ -126,6 +134,7 @@ function onFlightArrCrew(g: GameState, ev: SimEvent): void {
     if (f.to === c.base) c.awaySince = null;
     else if (c.awaySince === null) c.awaySince = f.std;
     if (!merged) {
+      noteRecovery(c, f.std - CHECKIN());
       c.log.push({ start: f.std - CHECKIN(), end: f.sta, fdp: 0, block: 0, sectors: 0, augmented: false, disruptive: false });
       const r = minRest({ dutyMin: f.sta - f.std + CHECKIN(), atHome: f.to === c.base, augmented: false, tzShift: 0 });
       c.restUntil = Math.max(c.restUntil, f.sta + r);

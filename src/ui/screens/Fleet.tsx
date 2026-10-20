@@ -61,7 +61,7 @@ function AircraftCard({ g, ac, sel }: { g: GameState; ac: Aircraft; sel: boolean
           <div className="row gap-8">
             <b className="mono sc-ac-reg">{ac.reg}</b>
             <span className={`badge ${tone}`}>{label}</span>
-            {cs && cs.risk >= 0.3 && <span className={`badge ${cs.risk >= 0.6 ? 'bad' : 'warn'}`} data-tip="Chance of a technical fault grows with deferred defects and overdue checks">AOG risk</span>}
+            {cs && cs.risk >= 0.5 && <span className={`badge ${cs.risk >= 0.9 ? 'bad' : 'warn'}`} data-tip="Chance of a technical fault grows with deferred defects and overdue checks">AOG risk</span>}
           </div>
           <div className="small muted ellipsis">{t.name} · {ac.cabin.label} · {yearOf(g.now) - ac.builtYear} years</div>
         </div>

@@ -5,6 +5,7 @@ import { AIRPORT_BY_CODE } from '../../data/airports';
 import { CREW_MIX, DEFAULT_MIX, NAMES } from '../../data/names';
 import { BAL } from '../core/balance';
 import { nextId } from '../core/entities';
+import { yearOf } from '../core/time';
 import { chance, int, next, pick, weightedPick } from '../core/rng';
 import type { CrewMember, CrewStatus, GameState, Role } from '../core/types';
 
@@ -45,6 +46,7 @@ export function makeCrewMember(g: GameState, role: Role, family: RatingFamily, b
     restUntil: g.now - 12 * 60,
     log: [],
     blockYear: 0,
+    blockYearOf: yearOf(g.now),
     lastRecovery: g.now - 12 * 60,
     awaySince: null,
     morale: int(g, m0, m1),

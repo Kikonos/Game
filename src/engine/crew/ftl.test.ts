@@ -120,11 +120,13 @@ describe('disruptive duties and local nights', () => {
     expect(isDisruptive('LIS', fromUTC(2027, 6, 1, 6, 0), fromUTC(2027, 6, 1, 20, 0))).toBe(false); // 07:00–21:00
     expect(isDisruptive('LIS', fromUTC(2027, 6, 1, 12, 0), fromUTC(2027, 6, 1, 22, 30))).toBe(true); // ends 23:30
   });
-  it('counts full 22:00–06:00 nights', () => {
+  it('counts local nights: 8 h between 22:00 and 08:00', () => {
     const s = fromUTC(2027, 6, 1, 18, 0); // 19:00 LIS
     expect(nightsIn('LIS', s, s + 24 * 60)).toBe(1);
     expect(nightsIn('LIS', s, s + 36 * 60)).toBe(2);
-    expect(nightsIn('LIS', s + 4 * 60, s + 36 * 60)).toBe(1);
+    expect(nightsIn('LIS', s + 5 * 60, s + 36 * 60)).toBe(2); // free from 00:00: 00:00–08:00 still counts
+    expect(nightsIn('LIS', s + 6 * 60, s + 36 * 60)).toBe(1); // from 01:00: only 7 h
+    expect(nightsIn('LIS', s, s + 10 * 60)).toBe(0); // until 05:00: 6 h
   });
   it('limits work blocks to 6 days (a single free day continues the block)', () => {
     expect(longestWorkBlock([1, 2, 3, 4, 5, 6])).toBe(6);

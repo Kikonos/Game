@@ -26,9 +26,12 @@ const both = (t: number, ap: string) => `${fmtDateTime(t)} UTC · ${fmtTime(t, a
 function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
   const c = f.contractId ? g.contracts[f.contractId] : undefined;
   const ac = f.aircraftId ? g.fleet[f.aircraftId] : undefined;
-  const cs = flightCrewStatus(g, f.id);
   const d = f.dutyId ? g.duties[f.dutyId] : undefined;
   const view = f.aircraftId && f.dutyId ? dutyCrew(g, f.id) : null;
+  // The stored duty legality can lag the live per-seat check; show the worse of the two.
+  const cs0 = flightCrewStatus(g, f.id);
+  const seat = view?.slots.some((x) => x.level === 'illegal') ? 'illegal' : view?.slots.some((x) => x.level === 'tight') ? 'tight' : null;
+  const cs = seat === 'illegal' && cs0.level !== 'missing' ? { ...cs0, level: 'illegal' as const } : seat === 'tight' && cs0.level === 'ok' ? { ...cs0, level: 'tight' as const } : cs0;
   const rival = f.operatedBy ? g.rivals.find((r) => r.id === f.operatedBy)?.name : undefined;
   const [hold, setHold] = useState(0);
   // Beyond the roster horizon an empty duty is normal, not a problem.

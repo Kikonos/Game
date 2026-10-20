@@ -924,7 +924,7 @@ Goals are checked daily and posted as a `goal` message (a toast) with reliable +
 | startReputation | reliable 60, clean 70 | |
 | crewSetsPerAircraft | 5 | SmartLynx contract |
 | scheduleHorizonDays / rosterHorizonDays | 28 / 14 | Rosters published 14 days ahead (F13) |
-| offersPerWeek | 4 | Pacing: about 1 decision a week |
+| offersPerWeek | 3.7 | Pacing: about 1 decision a week |
 | premium (peak/winter/short/urgent/longTerm/oldType/vip/conflict/deportation) | +.15 / −.15 / +.25 / +.35 / −.10 / −.15 / +.35 / +.60 / +.40 | RESEARCH §4.2 |
 | mgh narrow / wide | 200 / 250 BH/month | §4.3 |
 | excessRate | 0.95 | §4.3 |
@@ -945,10 +945,12 @@ Goals are checked daily and posted as a `goal` message (a toast) with reliable +
 | commandUpgrade | 42 d, $22k, 4,000 h | §5.4 |
 | fuelPrice | $750/t | §4.4 |
 | airportFees / catering per departure (we pay) | NB $3,000 / $600 · WB $8,000 / $2,400 | est. |
-| overheadBase / perAircraft | $120k / $80k a month | §4.5 |
+| overheadBase / perAircraft | $100k / $55k a month | §4.5; bot-balanced (v0.5) |
+| cReserveCover | 0.75 | Share of a C-check already paid by maintenance reserves (not charged twice) |
+| changeRequestWeekly | 0.35 | Client change requests per contract per week |
 | maintAgeFactor | +2.5% per year above 12 | §5.7 |
 | checkCost A / C | NB $45k / $1.2M · WB $110k / $3.5M | §5.7 |
-| aogBase | 0.00025 per departure (single roll) | §5.7; §5.6 here |
+| aogBase | 0.00035 per departure (single roll) | §5.7; §5.6 here |
 | delayChance | 12% | est. |
 | Per-type parameters | `data/acmiTypes.ts`: seats, range, cruise, turn, crew, rate, fuel, maintenance, rent, value, insurance, check intervals, scarcity | §7.2–7.3 |
 

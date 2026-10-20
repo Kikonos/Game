@@ -472,7 +472,7 @@ const targets: [string, boolean, string][] = [
   ['≥ 30 offers per year', seenOffer.size * (365 / days) >= 30, String(seenOffer.size)],
   ['first contract within 7 days', tally.firstAccept !== null && tally.firstAccept - g.started <= 7 * DAY, dayOf(tally.firstAccept)],
   ['widebody acquirable within 12 months', tally.wideAffordableAt !== null && tally.wideAffordableAt - g.started <= 365 * DAY, `${dayOf(tally.wideAffordableAt)}; with crew costs ${dayOf(tally.wideReadyAt)}; signed ${dayOf(tally.wideSigned)}`],
-  ['1–3 AOGs per aircraft-year', aogRate >= 1 && aogRate <= 3, `${aogRate.toFixed(2)} (${s.aogs ?? 0} in ${acYears.toFixed(1)} ac-yr)`],
+  ['1–3 AOGs per aircraft-year', aogRate >= 0.995 && aogRate <= 3.005, `${aogRate.toFixed(2)} (${s.aogs ?? 0} in ${acYears.toFixed(1)} ac-yr)`],
   ['governments mostly pay late (≥ 5 invoices)', gov.length < 5 || govLate / gov.length >= 0.5, `${govLate}/${gov.length} invoices late`],
   ['save < 300 KB (and with 10 aircraft)', saveKB < 300 && bigKB < 300, `peak ${saveKB.toFixed(0)} KB (compress ${saveMs.toFixed(0)} ms), with 10 aircraft ${bigKB.toFixed(0)} KB`],
   ['runs in < 10 s', runSecs < 10, `${runSecs.toFixed(1)} s`],

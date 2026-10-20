@@ -9,7 +9,7 @@ import { canFill, complement, typeOf } from '../core/perf';
 import { DAY, fmtDateTime } from '../core/time';
 import type { ActionResult, CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing, Role } from '../core/types';
 import { acceptable, mergeSegs, openDuties, otherTrip, planCrew, type CrewPlan } from './check';
-import { deletePairing, dutyLegality, planAircraft, queueDuty, refreshPairing, setCrewOkHook, splitPairing, syncDuty } from './duties';
+import { deletePairing, dutyLegality, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setRetickHook, splitPairing, syncDuty } from './duties';
 import { evalSegs, levelOf, worst, type Seg } from './rules';
 import { block28, crewCount, crewIx, ctxOf, dhBlock, dutySegs, locAt, segsOf, ticketPrice, touchCrew, typeIdOf } from './timeline';
 
@@ -85,6 +85,7 @@ export function buyTickets(g: GameState, p: Pairing, plans: Map<string, CrewPlan
 
 /** Takes a crew member off a pairing: slot, flights still to fly and unused tickets (cancelled when empty). */
 export function releaseCrew(g: GameState, p: Pairing, crewId: string): void {
+  (globalThis as any).__crewDbg?.('release', g, p, crewId); // DBG-TEMP
   for (const s of p.slots) {
     if (s.crewId !== crewId) continue;
     s.crewId = null;
@@ -190,10 +191,13 @@ function dissolve(g: GameState, p: Pairing): void {
  * Worst of the duty limits and every assigned crew member's legality (stored on the pairing). `priorOnly`
  * ignores the crew's later work, so a conflict frees the crew from the later pairing (re-roster order).
  */
-export function recheckPairing(g: GameState, p: Pairing, priorOnly = false): { level: Legality; illegal: string[] } {
+export function recheckPairing(g: GameState, p: Pairing, priorOnly = false): { level: Legality; illegal: string[]; from: Map<string, Minute> } {
   let level: Legality = 'legal';
-  for (const d of openDuties(g, p)) level = worst(level, d.legality);
+  const open = openDuties(g, p);
+  for (const d of open) level = worst(level, d.legality);
   const illegal: string[] = [];
+  /** Per illegal crew member: report of the first duty they can't fly. */
+  const from = new Map<string, Minute>();
   const own = new Set(p.dutyIds);
   for (const s of p.slots) {
     if (!s.crewId) continue;
@@ -202,12 +206,18 @@ export function recheckPairing(g: GameState, p: Pairing, priorOnly = false): { l
     const base = segsOf(g, c, p.id);
     const plan = planCrew(g, c, p, priorOnly ? base.filter((x) => x.start < p.start) : base, true);
     // This pairing's own issues (a later trip's problem is flagged on that trip when it is checked).
-    const crewLevel = levelOf(plan.issues.filter((i) => i.code !== 'fdp' && (!i.dutyId || own.has(i.dutyId))));
-    if (crewLevel === 'illegal') illegal.push(c.id);
+    const mine = plan.issues.filter((i) => i.code !== 'fdp' && (!i.dutyId || own.has(i.dutyId)));
+    const crewLevel = levelOf(mine);
+    if (crewLevel === 'illegal') {
+      let t = Infinity;
+      for (const i of mine) if (i.level === 'illegal') t = Math.min(t, (i.dutyId && g.duties[i.dutyId]?.report) || (open[0]?.report ?? 0));
+      from.set(c.id, t);
+    }
+    if (crewLevel === 'illegal') { illegal.push(c.id); (globalThis as any).__crewIss?.(plan.issues.filter((i) => i.level === 'illegal' && i.code !== 'fdp').map((i) => i.code + ':' + i.text.replace(/[0-9]+/g, '#')), g, c, p, plan, priorOnly); } // DBG-TEMP
     level = worst(level, crewLevel);
   }
   p.legality = level;
-  return { level, illegal };
+  return { level, illegal, from };
 }
 
 // ---------- auto-roster ----------
@@ -336,7 +346,7 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
         refused.add(c.id);
         continue;
       }
-      const plan = planCrew(g, c, p, ctx.of(c));
+      const plan = planCrew(g, c, p, ctx.of(c), false, BAL.rosterSlack);
       if (!acceptable(g, plan)) {
         refused.add(c.id);
         continue;
@@ -508,13 +518,18 @@ export function rerosterFrom(g: GameState, aircraftId: string, t: Minute): Roste
       continue;
     }
     // Manual (locked) assignments survive the re-plan; they stay flagged on the pairing.
-    // Crew who only need new tickets are re-ticketed rather than replaced.
-    for (const id of recheckPairing(g, p, true).illegal) {
-      if (p.slots.some((s) => s.crewId === id && s.locked)) continue;
-      const c = g.crew[id];
-      if (!c || !retick(g, p, c)) releaseCrew(g, p, id);
+    // Crew who only need new tickets are re-ticketed rather than replaced. Crew who can't fly a later duty
+    // keep the earlier ones: the trip is split there and only the later part is re-crewed.
+    const rc = recheckPairing(g, p, true);
+    const out = rc.illegal.filter((id) => !p.slots.some((s) => s.crewId === id && s.locked) && !(g.crew[id] && retick(g, p, g.crew[id])));
+    const cut = Math.min(...out.map((id) => rc.from.get(id) ?? 0));
+    const q = out.length && cut > firstOpen.report && cut < Infinity ? splitPairing(g, p, cut) : null;
+    for (const id of out) {
+      if (q && (rc.from.get(id) ?? 0) >= cut) releaseCrew(g, q, id);
+      else releaseCrew(g, p, id);
     }
     setFlightsCrew(g, p);
+    if (q) setFlightsCrew(g, q);
   }
   touchCrew(g);
   const res = autoRoster(g, { from: t, aircraftIds: [aircraftId] });
@@ -530,9 +545,18 @@ setCrewOkHook((g, p, d) => {
     if (!c) continue;
     if (otherTrip(g, c, p, d.report, d.release, false)) return false;
     const segs = mergeSegs(segsOf(g, c), dutySegs(g, c, p, d, null, null, true));
-    if (evalSegs(ctxOf(g, c), segs).some((i) => i.level === 'illegal' && i.code !== 'fdp')) return false;
+    if (evalSegs({ ...ctxOf(g, c), slack: BAL.rosterSlack }, segs).some((i) => i.level === 'illegal' && i.code !== 'fdp')) return false;
   }
   return true;
+});
+
+// A tour that grew keeps its crew: their tickets are re-planned around the new first/last duty.
+setRetickHook((g, p) => {
+  for (const s of p.slots) {
+    const c = s.crewId ? g.crew[s.crewId] : undefined;
+    if (c) retick(g, p, c);
+  }
+  setFlightsCrew(g, p);
 });
 
 // ---------- disruption APIs ----------

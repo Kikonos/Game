@@ -10,7 +10,7 @@ import { flightsOf } from '../../engine/core/entities';
 import { currentFlight, flightTimes } from '../../engine/core/query';
 import { DAY, fmtDay, fmtDuration, fmtTime, localOffset } from '../../engine/core/time';
 import type { Aircraft, CrewMember, Flight, GameState, Ref } from '../../engine/core/types';
-import { crewName, flightCrewStatus } from '../../engine/crew';
+import { crewName, dutyCrew, flightCrewStatus } from '../../engine/crew';
 import { checkStatus } from '../../engine/ops';
 import { AircraftArt } from '../components/AircraftArt';
 import { Bar } from '../components/ui';
@@ -97,7 +97,10 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
   const legs = upcomingLegs(g, ac.id, cur ? 5 : 4).filter((f) => f.id !== cur?.id).slice(0, 4);
   const crewFlight = cur ?? legs[0];
   const crew = crewFlight ? crewOf(g, crewFlight) : [];
-  const cstat = crewFlight ? safe(() => flightCrewStatus(g, crewFlight.id), null) : null;
+  const cstat0 = crewFlight ? safe(() => flightCrewStatus(g, crewFlight.id), null) : null;
+  // The stored duty legality can lag the live per-seat check (DutyModal); show the worse of the two.
+  const seatBad = !!crewFlight?.dutyId && cstat0?.level !== 'missing' && !!safe(() => dutyCrew(g, crewFlight.id)?.slots.some((x) => x.level === 'illegal'), false);
+  const cstat = cstat0 && seatBad ? { ...cstat0, level: 'illegal' as const } : cstat0;
   const cs = safe(() => checkStatus(g, ac), null);
   const maint = ac.maintId ? g.maintenance[ac.maintId] : undefined;
   const chip = chipInfo(g, ac, t);
@@ -171,7 +174,7 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
           <div className="op-kv">
             <div><span>A-check</span><b className={`mono ${cs.aDue - t < 7 * DAY || cs.aHoursLeft < 50 ? 'warn-t' : ''}`}>{cs.nextA ? 'planned · ' : ''}due {fmtDay(cs.aDue)} · {Math.round(cs.aHoursLeft)} FH</b></div>
             <div><span>C-check</span><b className="mono">{cs.nextC ? 'planned · ' : ''}due {fmtDay(cs.cDue)} {new Date(Date.UTC(2000, 0, 1) + cs.cDue * 60000).getUTCFullYear()}</b></div>
-            <div><span>AOG risk</span><b className={`mono ${cs.risk > 0.5 ? 'bad-t' : cs.risk > 0.25 ? 'warn-t' : ''}`}>{cs.risk > 0.5 ? 'High' : cs.risk > 0.25 ? 'Elevated' : 'Low'}</b></div>
+            <div><span>AOG risk</span><b className={`mono ${cs.risk >= 0.9 ? 'bad-t' : cs.risk >= 0.5 ? 'warn-t' : ''}`}>{cs.risk >= 0.9 ? 'High' : cs.risk >= 0.5 ? 'Elevated' : 'Low'}</b></div>
           </div>
         ) : (
           <div className="small muted">{Math.round(ac.hours).toLocaleString('en-US')} FH · {ac.cycles.toLocaleString('en-US')} cycles</div>
