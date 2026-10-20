@@ -205,3 +205,5 @@ Player said: build overnight; if a usage limit hits, save and continue when poss
 - **v0.5.1 livery & polish workflow launched: run wf_74482358-686, task wmwf8iqtr**, script scratchpad/acmi/livery.js (backup .handover/livery.js; engine lane also re-tunes balance: seeds 4/5 at ~14% margin after the crew fix). Resume with resumeFromRunId if it dies. When ready=true: commit acmi → build → play/ on claude/contrail-airline-game (git merge origin/acmi there; tree must equal acmi except play/) → push branch + main → verify live → message the player (Dubai time, what's new, reopen app twice).
 
 ### 22:32Z — check-in: v0.5 live; livery workflow wf_74482358-686 running; checkpoint pushed.
+
+### 23:32Z — check-in: livery workflow running; checkpoint pushed.
