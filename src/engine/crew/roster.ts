@@ -85,7 +85,6 @@ export function buyTickets(g: GameState, p: Pairing, plans: Map<string, CrewPlan
 
 /** Takes a crew member off a pairing: slot, flights still to fly and unused tickets (cancelled when empty). */
 export function releaseCrew(g: GameState, p: Pairing, crewId: string): void {
-  (globalThis as any).__crewDbg?.('release', g, p, crewId); // DBG-TEMP
   for (const s of p.slots) {
     if (s.crewId !== crewId) continue;
     s.crewId = null;
@@ -204,7 +203,7 @@ export function recheckPairing(g: GameState, p: Pairing, priorOnly = false): { l
     const plan = planCrew(g, c, p, priorOnly ? base.filter((x) => x.start < p.start) : base, true);
     // This pairing's own issues (a later trip's problem is flagged on that trip when it is checked).
     const crewLevel = levelOf(plan.issues.filter((i) => i.code !== 'fdp' && (!i.dutyId || own.has(i.dutyId))));
-    if (crewLevel === 'illegal') { illegal.push(c.id); (globalThis as any).__crewIss?.(plan.issues.filter((i) => i.level === 'illegal' && i.code !== 'fdp').map((i) => i.code + ':' + i.text.replace(/[0-9]+/g, '#')), g, c, p, plan, priorOnly); } // DBG-TEMP
+    if (crewLevel === 'illegal') illegal.push(c.id);
     level = worst(level, crewLevel);
   }
   p.legality = level;

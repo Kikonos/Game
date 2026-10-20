@@ -188,7 +188,6 @@ export function splitPairing(g: GameState, p: Pairing, t: Minute): Pairing | nul
 
 /** Deletes a pairing record (caller has already released its crew and tickets). */
 export function deletePairing(g: GameState, p: Pairing): void {
-  (globalThis as any).__crewDbg?.('delete', g, p, null); // DBG-TEMP
   for (const id of p.dutyIds) {
     const d = g.duties[id];
     if (!d || d.pairingId !== p.id) continue;

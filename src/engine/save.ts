@@ -53,7 +53,7 @@ export function serialize(g: GameState, slot = 'export'): string {
 
 export function deserialize(text: string): GameState {
   const data = JSON.parse(text) as Partial<SaveFile>;
-  if (data.format !== FORMAT || !data.state) throw new Error('This file is not a CONTRAIL ACMI save.');
+  if (data.format !== FORMAT || !data.state) throw new Error('This file is not a BLOCK HOURS save.');
   const g = migrate(data.state);
   onLoad(g);
   return g;
