@@ -67,7 +67,7 @@ const css = `
 
 function Cell({ id, size }: { id: string; size: Size }) {
   const props = size === 'mini'
-    ? { gear: false, detail: 'simple' as const, height: 36 }
+    ? { detail: 'simple' as const, height: 36 }
     : size === 'card' ? { height: 110 } : {};
   return (
     <figure className="g-cell" data-type={id} data-size={size}>
@@ -80,9 +80,9 @@ function Cell({ id, size }: { id: string; size: Size }) {
 }
 
 function Compare({ bg }: { bg: string }) {
-  // every row shares one scale (px per metre) and starts at the nose tip (x = 0 m), so lengths,
-  // heights and wing positions compare directly; turboprop discs etc. may poke out ahead of x0
-  const boxes = types.map((id) => ({ id, vb: artViewBox(id, true) }));
+  // every row shares one scale (px per metre) and ends at the nose tip (x = 0 m, nose right), so
+  // lengths, heights and wing positions compare directly; turboprop discs etc. may poke past it
+  const boxes = types.map((id) => ({ id, vb: artViewBox(id) }));
   const x0 = Math.min(...boxes.map((b) => b.vb.x));
   const k = ppm || Math.min(16, 1150 / Math.max(...boxes.map((b) => b.vb.x + b.vb.w - x0)));
   const nose = 20 + 90 + 12 + -x0 * k;

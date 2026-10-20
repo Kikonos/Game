@@ -40,7 +40,7 @@ export interface Geometry {
   H: number;
   upperY: (x: number) => number;
   lowerY: (x: number) => number;
-  /** Closed fuselage outline including belly fairing and sponsons. */
+  /** Closed fuselage outline including belly fairing and sponsons (no landing gear is ever drawn). */
   fus: string;
   /** Highest crown point (m) — top of the shading gradient. */
   crown: number;
@@ -53,7 +53,6 @@ export interface Geometry {
   /** `shade`: darker underside of a sectioned (side-on aerofoil) wing. */
   wing: { fill: string; tip: string; lines: string; shade?: string; shadow: { c: V; rx: number; ry: number } };
   engines: EngineGeo[];
-  gear: { struts: string; tyres: string; hubs: string; fromNacelle: boolean };
   windows: string;
   doors: string;
   /** Radome joint, fairing seam and similar fine lines on the fuselage. */
@@ -63,7 +62,6 @@ export interface Geometry {
   titles: { x: number; y: number; w: number; size: number };
   livery: (style: TailStyle) => LiveryGeo;
   box: Box;
-  boxGear: Box;
 }
 
 /** Map fin-normalised (s along chord, t root->tip) to world coordinates. */
@@ -130,10 +128,6 @@ function build(p: AircraftProfile): Geometry {
     else lines.M([x0 + w * 0.08, hb - f.depth * 0.08]).C([x0 + w * 0.3, hb + H * 0.035], [x1 - w * 0.3, hb + H * 0.035], [x1 - w * 0.05, hb - f.depth * 0.08]);
   }
   fus.L(nl[nl.length - 1]).chain([...nl].reverse()).Z();
-  const fairingBottom = (x: number): number => {
-    for (const f of bulges) if (x > f.x0 && x < f.x1) return hb - f.depth;
-    return lowerY(x);
-  };
   const crown = Math.max(...up.map((v) => v[1]));
   const belly = Math.min(bellyMin, ...low.map((v) => v[1]));
   box.add(...up, ...low, [0, belly]);
@@ -264,38 +258,6 @@ function build(p: AircraftProfile): Geometry {
   // ---------- engines ----------
   const engines = p.engines.map((e) => engineGeometry(e, w, box, upperY));
 
-  // ---------- landing gear ----------
-  const boxGear = box.clone();
-  const struts = new D(), tyres = new D(), hubs = new D();
-  const ground = -p.gear.stance;
-  const leg = (x: number, wheels: number, tyre: number, topY: number) => {
-    const n = wheels <= 2 ? 1 : wheels / 2;
-    const r = tyre / 2;
-    const ay = ground + r;
-    const sp = tyre * 1.04;
-    const sw = Math.max(0.16, tyre * 0.24);
-    struts.rrect(x - sw / 2, ay, sw, Math.max(0.1, topY - ay), sw * 0.3);
-    // oleo collar
-    struts.rrect(x - sw * 0.75, ay + (topY - ay) * 0.42, sw * 1.5, Math.max(0.06, sw * 0.5), sw * 0.2);
-    if (n > 1) struts.rrect(x - ((n - 1) / 2) * sp - r * 0.25, ay - sw * 0.32, (n - 1) * sp + r * 0.5, sw * 0.64, sw * 0.3);
-    for (let i = 0; i < n; i++) {
-      const cx = x + (i - (n - 1) / 2) * sp;
-      tyres.ellipse([cx, ay], r, r);
-      hubs.ellipse([cx, ay], r * 0.48, r * 0.48);
-      boxGear.add([cx - r, ground], [cx + r, ground]);
-    }
-  };
-  const g = p.gear;
-  leg(g.nose.x, g.nose.wheels, g.nose.tyre, lowerY(g.nose.x) + 0.2);
-  const nacelleBottom = (x: number): number | undefined => {
-    for (const e of p.engines) if (e.mount === 'turboprop' && !e.far && x > e.x && x < e.x + (e.tailLen ?? e.len)) return e.y - e.dia * 0.42;
-    return undefined;
-  };
-  for (const m of g.main) {
-    const topY = g.from === 'nacelle' ? (nacelleBottom(m.x) ?? fairingBottom(m.x) + 0.3) : fairingBottom(m.x) + Math.min(0.4, H * 0.1);
-    leg(m.x, m.wheels, m.tyre, topY);
-  }
-
   // ---------- doors & windows ----------
   const doorBox = p.doors.map((d) => {
     const kind = d.kind ?? 'pax';
@@ -373,7 +335,6 @@ function build(p: AircraftProfile): Geometry {
     stab: { near: stabNear.toString(), far: stabFar.toString(), lines: stabLines.toString(), bullet: bullet.toString(), tTail: !!sb.tTail, none: !!sb.none },
     wing: { ...wingG, shadow },
     engines,
-    gear: { struts: struts.toString(), tyres: tyres.toString(), hubs: hubs.toString(), fromNacelle: g.from === 'nacelle' },
     windows: win.toString(),
     doors: doors.toString(),
     lines: lines.toString(),
@@ -382,7 +343,6 @@ function build(p: AircraftProfile): Geometry {
     titles,
     livery,
     box,
-    boxGear: boxGear.merge(box),
   };
 }
 

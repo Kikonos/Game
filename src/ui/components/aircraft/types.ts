@@ -60,7 +60,7 @@ export interface FinSpec {
   x: number;
   rootChord: number;
   tipChord: number;
-  /** Tip height above the crown (y = H/2), m: real overall height - gear.stance - H/2. */
+  /** Tip height above the crown (y = H/2), m: real overall height - gear stance - H/2. */
   height: number;
   /** Leading-edge sweep, degrees. */
   sweep: number;
@@ -154,11 +154,11 @@ export interface EngineSpec {
   far?: boolean;
   /** Propeller (turboprops). */
   prop?: { dia: number; blades: number };
-  /** Q400: nacelle continues aft past the wing to house the main gear (m behind intake). */
+  /** Q400: nacelle continues aft past the wing (gear bay) (m behind intake). */
   tailLen?: number;
 }
 
-/** Bulge under the belly (wing-body fairing) or ATR gear sponson. */
+/** Bulge under the belly (wing-body fairing) or ATR gear sponson (drawn, no wheels). */
 export interface FairingSpec {
   x0: number;
   x1: number;
@@ -166,24 +166,6 @@ export interface FairingSpec {
   depth: number;
   /** Top seam height above the belly line (m): outlines a separate pod (ATR sponson). Default: low fairing seam. */
   rise?: number;
-}
-
-export interface GearLeg {
-  x: number;
-  /** Real wheel count per leg (2, 4 or 6); side view shows 1, 2 or 3. */
-  wheels: 1 | 2 | 4 | 6;
-  /** Tyre diameter (m). */
-  tyre: number;
-}
-
-export interface GearSpec {
-  /** Fuselage-centreline height above the ground (m), gear extended. */
-  stance: number;
-  nose: GearLeg;
-  /** Main legs fore to aft (747/A380 add body gear). */
-  main: GearLeg[];
-  /** Where main legs hang from: wing root (default), sponson (ATR) or engine nacelle (Q400). */
-  from?: 'wing' | 'sponson' | 'nacelle';
 }
 
 export interface DoorSpec {
@@ -224,7 +206,6 @@ export interface AircraftProfile {
   engines: EngineSpec[];
   fairing?: FairingSpec;
   sponson?: FairingSpec;
-  gear: GearSpec;
   doors: DoorSpec[];
   windows: WindowRow[];
   /** Titles box (forward upper fuselage): left x, centre y, max width, letter height (m). */

@@ -1,10 +1,10 @@
 // 777-200ER / 777-300ER / 777-9, 747-400 / 747-8I, A380 and Boom Overture.
 // Dimensions in metres (Boeing / Airbus airport-planning data, Wikipedia);
-// door, gear, engine and fin stations measured off the Scavini 3-views of the
+// door, engine and fin stations measured off the Scavini 3-views of the
 // 777, 747 and A380 families.
 
 import type { AircraftProfile, NoseSpec } from '../types';
-import { NOSE, TAIL, cargo, leg, pax, row } from './shared';
+import { NOSE, TAIL, cargo, pax, row } from './shared';
 
 // ---------- 777 ----------
 
@@ -16,7 +16,6 @@ interface B777Opts {
   x: boolean;
   /** -200LR: the short fuselage with the -300ER's raked wing and GE90-110/115 nacelles. */
   lr?: boolean;
-  mainX: number;
   ref: AircraftProfile['ref'];
 }
 
@@ -31,7 +30,7 @@ function b777(o: B777Opts): AircraftProfile {
     length: L,
     height: 6.2,
     nose: NOSE.b777,
-    cockpit: { style: 'b777', u: 0.2, v: 0.075, scale: 0.85 },
+    cockpit: { style: 'b777', u: 0.31, v: 0.12, scale: 0.72 },
     tail: TAIL.b777,
     fin: { x: 60.6 + fa, rootChord: 8.5, tipChord: 2.5, height: o.x ? 10.9 : 10.0, sweep: 44, fillet: { len: 3.0, h: 1.2 }, rudder: 0.34 },
     stab: { x: 65.3 + fa, y: 1.6, rootChord: 5.6, tipChord: 1.9, span: o.x ? 9.8 : 9.4, sweep: 36, dihedral: 6, thickness: 0.5 },
@@ -43,7 +42,6 @@ function b777(o: B777Opts): AircraftProfile {
     // GE90-94B / GE90-115B / GE9X: each one bigger, all hung low with ~0.7 m ground clearance
     engines: [{ mount: 'underwing', style: 'ge90', x: 25.0 + f, y: -2.75, dia: o.x ? 4.4 : er ? 3.9 : 4.05, len: o.x ? 9.4 : er ? 8.6 : 8.8, station: 0.3 }],
     fairing: { x0: 27.5 + f, x1: 45.5 + f, depth: 0.38 },
-    gear: { stance: o.x ? 5.6 : 5.45, nose: leg(5.75, 2, 1.27), main: [leg(o.mainX, 6, 1.32)] },
     doors: short
       // -200ER: four pairs, L3 over the wing trailing edge
       ? [pax(5.9), pax(16.4), pax(35.6), pax(49.1), cargo(10.2, 2.9, 1.7), cargo(50.2 + fa, 2.0, 1.7)]
@@ -55,10 +53,10 @@ function b777(o: B777Opts): AircraftProfile {
   };
 }
 
-const b772 = b777({ id: 'b772', fwd: -5.3, aft: -4.83, x: false, mainX: 31.85, ref: { overallHeight: 18.5, span: 60.93 } });
-const b77l = b777({ id: 'b77l', fwd: -5.3, aft: -4.83, x: false, lr: true, mainX: 31.85, ref: { overallHeight: 18.6, span: 64.8 } });
-const b77w = b777({ id: 'b77w', fwd: 0, aft: 0, x: false, mainX: 36.85, ref: { overallHeight: 18.5, span: 64.8 } });
-const b779 = b777({ id: 'b779', fwd: 1.6, aft: 1.26, x: true, mainX: 38.45, ref: { overallHeight: 19.68, span: 71.75 } });
+const b772 = b777({ id: 'b772', fwd: -5.3, aft: -4.83, x: false, ref: { overallHeight: 18.5, span: 60.93 } });
+const b77l = b777({ id: 'b77l', fwd: -5.3, aft: -4.83, x: false, lr: true, ref: { overallHeight: 18.6, span: 64.8 } });
+const b77w = b777({ id: 'b77w', fwd: 0, aft: 0, x: false, ref: { overallHeight: 18.5, span: 64.8 } });
+const b779 = b777({ id: 'b779', fwd: 1.6, aft: 1.26, x: true, ref: { overallHeight: 19.68, span: 71.75 } });
 
 // ---------- 747 ----------
 
@@ -90,7 +88,6 @@ function b747(id: string, stretch: number, eight: boolean): AircraftProfile {
       { mount: 'underwing', style: eight ? 'chevron' : 'plain', x: 32.6 + s, y: -2.64, dia: eight ? 3.05 : 2.75, len: eight ? 6.9 : 6.6, station: 0.62 },
     ],
     fairing: { x0: 18.0 + s, x1: 41.8 + s, depth: 0.3 },
-    gear: { stance: 5.43, nose: leg(8.0, 2, 1.25), main: [leg(33.1 + s, 4, 1.25), leg(36.4 + s, 4, 1.25)] },
     doors: [
       pax(9.1), pax(18.9 + s), pax(31.7 + s), pax(42.4 + s), pax(57.4 + stretch),
       { x: 15.2, w: 0.95, h: 1.75, y: 2.1, kind: 'pax' }, // upper-deck door
@@ -116,7 +113,7 @@ const a388: AircraftProfile = {
   length: 72.72,
   height: 8.41,
   nose: NOSE.a380,
-  cockpit: { style: 'a380', u: 0.17, v: 0.02, scale: 0.8 },
+  cockpit: { style: 'a380', u: 0.18, v: -0.01, scale: 0.6 },
   tail: TAIL.a380,
   fin: { x: 56.0, rootChord: 12.2, tipChord: 3.4, height: 13.8, sweep: 44, fillet: { len: 4.0, h: 1.6 }, tip: 'round', rudder: 0.34 },
   stab: { x: 59.2, y: 1.0, rootChord: 8.0, tipChord: 2.6, span: 13.8, sweep: 36, dihedral: 5, thickness: 0.7 },
@@ -127,7 +124,6 @@ const a388: AircraftProfile = {
     { mount: 'underwing', style: 'plain', x: 31.8, y: -2.85, dia: 3.5, len: 7.6, station: 0.56 },
   ],
   fairing: { x0: 18.5, x1: 46.0, depth: 0.5 },
-  gear: { stance: 6.1, nose: leg(5.1, 2, 1.27), main: [leg(34.7, 4, 1.4), leg(38.1, 6, 1.4)] },
   doors: [
     pax(5.6), pax(15.9), pax(32.5), pax(43.6), pax(53.8),
     { x: 20.4, y: 1.55, kind: 'pax' }, { x: 40.1, y: 1.55, kind: 'pax' }, { x: 49.3, y: 1.55, kind: 'pax' },
@@ -148,7 +144,7 @@ const overture: AircraftProfile = {
   length: 61.0,
   height: 3.3,
   nose: NOSE.overture,
-  cockpit: { style: 'overture', u: 3.75, v: 0.27, scale: 0.9 },
+  cockpit: { style: 'overture', u: 3.75, v: 0.25, scale: 0.9 },
   tail: TAIL.overture,
   fin: { x: 47.0, rootChord: 10.5, tipChord: 2.4, height: 6.2, sweep: 52, fillet: { len: 4.0, h: 0.9 }, rudder: 0.3 },
   stab: { x: 53.6, y: -0.2, rootChord: 4.6, tipChord: 1.3, span: 4.6, sweep: 52, dihedral: 0, thickness: 0.3 },
@@ -157,7 +153,6 @@ const overture: AircraftProfile = {
     { mount: 'underwing', style: 'supersonic', x: 34.0, y: -2.45, dia: 1.75, len: 9.0, station: 0.2, inboard: true },
     { mount: 'underwing', style: 'supersonic', x: 37.0, y: -1.95, dia: 1.75, len: 9.0, station: 0.42 },
   ],
-  gear: { stance: 3.9, nose: leg(14.5, 2, 0.9), main: [leg(40.0, 4, 1.15)] },
   doors: [pax(12.8, 0.82, 1.8), pax(46.0, 0.82, 1.8)],
   windows: [row(14.4, 45.0, 0.45, 0.762, 0.2, 0.28)],
   ref: { overallHeight: 11.0, span: 32.3 },

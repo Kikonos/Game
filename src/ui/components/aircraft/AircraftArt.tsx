@@ -1,6 +1,8 @@
 // Cartoon-clean side profile of an aircraft type in the airline's livery, nose
-// left. Geometry comes from real-dimension specs (metres) via geometry.ts; this
-// component only assigns colours, z-order and level of detail.
+// RIGHT, in flight (no landing gear). Geometry comes from real-dimension specs
+// (metres, nose-left frame) via geometry.ts and is mirrored here once, so every
+// caller gets nose-right; this component only assigns colours, z-order and
+// level of detail.
 
 import { memo, useId } from 'react';
 import { artFor } from '../../../data/acmiTypes';
@@ -17,6 +19,7 @@ export interface AircraftArtProps {
   /** Airline name painted as titles on the forward fuselage. */
   name?: string;
   className?: string;
+  /** Accepted for compatibility; gear is never drawn. */
   gear?: boolean;
   height?: number | string;
   /** 'simple' drops windows, doors, titles and fine lines for ~90px thumbnails. */
@@ -31,12 +34,11 @@ export function profileFor(typeId: string): AircraftProfile {
   return PROFILE_BY_ID[typeId] ?? PROFILE_BY_ID[artFor(typeId)] ?? PROFILE_BY_ID[FALLBACK];
 }
 
-/** Tight viewBox in SVG units (metres, y down). */
-export function artViewBox(typeId: string, gear = true): { x: number; y: number; w: number; h: number } {
-  const g = geometry(profileFor(typeId));
-  const b = gear ? g.boxGear : g.box;
-  const pad = Math.max(0.15, g.L * 0.01);
-  return { x: b.x0 - pad, y: -(b.y1 + pad), w: b.x1 - b.x0 + 2 * pad, h: b.y1 - b.y0 + 2 * pad };
+/** Tight viewBox in SVG units (metres, y down, nose right: the nose tip is at x = 0, the tail at x = -length). */
+export function artViewBox(typeId: string, _gear?: boolean): { x: number; y: number; w: number; h: number } {
+  const b = geometry(profileFor(typeId)).box;
+  const pad = Math.max(0.15, (b.x1 - b.x0) * 0.01);
+  return { x: -(b.x1 + pad), y: -(b.y1 + pad), w: b.x1 - b.x0 + 2 * pad, h: b.y1 - b.y0 + 2 * pad };
 }
 
 // ---------- colour helpers (hex in, hex out; anything else passes through) ----------
@@ -87,12 +89,12 @@ const FUS_STOPS: readonly (readonly [number, string])[] = [
   [0, '#e3e8f0'], [0.07, '#f8fafd'], [0.24, '#ffffff'], [0.52, '#f2f5f9'], [0.78, '#dbe2ec'], [1, '#b6c1d2'],
 ];
 
-function AircraftArtImpl({ typeId, livery, code, name, className, gear = true, height, detail = 'full', pxPerM }: AircraftArtProps) {
+function AircraftArtImpl({ typeId, livery, code, name, className, height, detail = 'full', pxPerM }: AircraftArtProps) {
   const uid = useId().replace(/:/g, '');
   const p = profileFor(typeId);
   const g: Geometry = geometry(p);
   const full = detail === 'full';
-  const vb = artViewBox(typeId, gear);
+  const vb = artViewBox(typeId);
   const lv = g.livery(livery.tail);
   const id = (k: string) => `${uid}-${k}`;
   const url = (k: string) => `url(#${id(k)})`;
@@ -139,13 +141,8 @@ function AircraftArtImpl({ typeId, livery, code, name, className, gear = true, h
       )}
     </g>
   );
-  const gearEls = gear && (
-    <g>
-      <path d={g.gear.struts} fill="#a3adbd" stroke={OUTLINE} strokeWidth={sw * 0.6} style={ns} />
-      <path d={g.gear.tyres} fill="#222a3a" stroke="#56627a" strokeWidth={sw * 0.8} style={ns} />
-      <path d={g.gear.hubs} fill="#b4bdcc" />
-    </g>
-  );
+  // geometry is nose-left: everything is drawn inside one mirrored group, text un-mirrored again
+  const FLIP = 'scale(-1,1)';
 
   return (
     <svg
@@ -192,6 +189,7 @@ function AircraftArtImpl({ typeId, livery, code, name, className, gear = true, h
         </clipPath>
       </defs>
 
+      <g transform={FLIP}>
       {/* far side */}
       {!g.stab.none && !g.stab.tTail && <path d={g.stab.far} fill="#b4bfce" stroke={OUTLINE} strokeWidth={sw * 0.7} style={ns} />}
       {far.map((e, i) => engine(e, i, true))}
@@ -204,21 +202,23 @@ function AircraftArtImpl({ typeId, livery, code, name, className, gear = true, h
         <ellipse cx={f(g.wing.shadow.c[0])} cy={f(-g.wing.shadow.c[1])} rx={f(g.wing.shadow.rx)} ry={f(g.wing.shadow.ry)} fill={url('sh')} />
         {full && title && (
           <text
-            x={f(g.titles.x)}
+            transform={FLIP}
+            x={f(-g.titles.x)}
             y={f(-g.titles.y)}
             fontSize={f(titleSize)}
             fill={titleFill}
+            textAnchor="end"
             dominantBaseline="central"
             style={{ fontFamily: "var(--font-display, 'Space Grotesk Variable', sans-serif)", fontWeight: 700, letterSpacing: '0.04em' }}
           >
             {title}
           </text>
         )}
+        {g.cockpit.mask && <path d={g.cockpit.mask} fill="#0e1526" />}
       </g>
       {full && <path d={g.windows} fill={WINDOW} />}
-      {full && <path d={g.doors} fill="none" stroke={FINE} strokeWidth={0.7} style={ns} />}
+      {full && <path d={g.doors} fill="none" stroke={FINE} strokeWidth={0.55} style={ns} />}
       {full && g.lines && <path d={g.lines} fill="none" stroke={FINE} strokeWidth={0.6} style={ns} />}
-      {g.cockpit.mask && <path d={g.cockpit.mask} fill="#0e1526" />}
       <path d={g.cockpit.panes} fill={PANE} stroke={PANE} strokeWidth={f(g.cockpit.round * 2)} strokeLinejoin="round" />
       {g.apu && <path d={g.apu} fill="#3b4558" />}
       <path d={g.fus} fill="none" stroke={OUTLINE} strokeWidth={sw} style={ns} strokeLinejoin="round" />
@@ -232,7 +232,8 @@ function AircraftArtImpl({ typeId, livery, code, name, className, gear = true, h
       )}
       {codeText && (
         <text
-          x={f(lv.code.x)}
+          transform={FLIP}
+          x={f(-lv.code.x)}
           y={f(-lv.code.y)}
           fontSize={f(codeSize)}
           fill={codeFill}
@@ -255,8 +256,6 @@ function AircraftArtImpl({ typeId, livery, code, name, className, gear = true, h
         </>
       )}
 
-      {!g.gear.fromNacelle && gearEls}
-
       {/* wing (a sectioned high wing goes over its slung nacelles, under the propellers) */}
       {g.wingRoot && <path d={g.wingRoot} fill={url('fus')} stroke={OUTLINE} strokeWidth={sw * 0.8} style={ns} />}
       {p.wing.section && near.map((e, i) => engine(e, i + far.length, !!e.spec.inboard, 'body'))}
@@ -267,8 +266,7 @@ function AircraftArtImpl({ typeId, livery, code, name, className, gear = true, h
 
       {/* engines */}
       {near.map((e, i) => engine(e, i + far.length, !!e.spec.inboard, p.wing.section ? 'prop' : 'all'))}
-
-      {g.gear.fromNacelle && gearEls}
+      </g>
     </svg>
   );
 }
