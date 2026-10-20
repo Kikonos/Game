@@ -14,9 +14,9 @@ import { DAY, fmtDateTime, fmtDay, fmtDuration, fmtTime, localMinuteOfDay, toDat
 import type { ActionResult, Aircraft, Contract, CrewMember, CrewStatus, Decision, DecisionOption, Flight, GameState, MaintenanceEvent, MessageCat, Minute, Receivable, Role, SimEvent } from '../core/types';
 import { generateOffer, planPositioning } from '../contracts';
 import { applyDiscretion, flightCrewStatus, minRest, replaceCrew, rerosterFrom, rosterOf } from '../crew';
-import { applyHold, cancelCost, cancelLegs, delayChain, moveFlight, pickRival, planHold, planRecovery, subcharterCost, subcharterLegs, windowLegs } from './flights';
+import { applyHold, cancelCost, cancelLegs, crewBlocked, delayChain, moveFlight, pickRival, planHold, planRecovery, stationOf, subcharterCost, subcharterLegs, windowLegs } from './flights';
 import { setAogEnd } from './maintenance';
-import { bumpReliable, bumpRelation, contractOf, isRevenue, stats, turnOf, usd } from './util';
+import { bumpReliable, bumpRelation, isRevenue, stats, turnOf, usd } from './util';
 
 type Data = Record<string, string | number | boolean>;
 const num = (d: Data | undefined, k: string) => Number(d?.[k] ?? 0);
@@ -34,31 +34,23 @@ export function hasOpenDecision(g: GameState, kind: string, key: string): boolea
 
 // ---------- pacing ----------
 
-/** Kinds asked through `ask`; decisions other modules post (crew's sickCrew) count against the budget when seen. */
-const OWN_KINDS = new Set(['aog', 'crewShort', 'latePayment', 'rescue', 'changeRequest']);
-const seenForeign = new WeakMap<GameState, Set<string>>();
-
-/** Decisions posted in the last 7 days (pacing budget; pruned here). */
+/** Decisions posted to the player in the last 7 days (pacing budget; pruned here). */
 function recentAsks(g: GameState): number[] {
   const s = stats(g);
   s.askedAt = (s.askedAt ?? []).filter((t) => t > g.now - 7 * DAY);
-  let seen = seenForeign.get(g);
-  if (!seen) seenForeign.set(g, (seen = new Set()));
-  for (const d of g.decisions) {
-    if (OWN_KINDS.has(d.kind) || seen.has(d.id)) continue;
-    seen.add(d.id);
-    s.askedAt.push(d.t);
-  }
   return s.askedAt;
 }
 
-/** An optional question fits the pacing: fewer than 2 open and fewer than 3 this week (DESIGN §5.8). */
-export const canAsk = (g: GameState) => g.decisions.length < BAL.maxOpenDecisions && recentAsks(g).length < BAL.maxDecisionsWeek;
+/**
+ * An optional question fits the pacing (DESIGN §5.8): fewer than 2 open, and fewer than 3 this week with one of
+ * them kept for the questions that can't wait (AOG, rescue).
+ */
+export const canAsk = (g: GameState) => g.decisions.length < BAL.maxOpenDecisions && recentAsks(g).length < BAL.maxDecisionsWeek - 1;
 
 const CAT: Record<string, MessageCat> = { aog: 'tech', crewShort: 'crew', sickCrew: 'crew', latePayment: 'finance', rescue: 'finance', changeRequest: 'commercial' };
 
-/** Operations take the default (or the next workable option) and explain it in the inbox. */
-function autoApply(g: GameState, d: Omit<Decision, 'id' | 't'>): void {
+/** Applies the default (or the next workable option) and explains it in the inbox. `lead` opens the message body. */
+function autoApply(g: GameState, d: Omit<Decision, 'id' | 't'>, lead = 'Operations chose'): void {
   const tmp: Decision = { ...d, id: '', t: g.now };
   const fn = RESOLVERS[d.kind];
   const order = [d.defaultOption, ...d.options.map((o) => o.id).filter((id) => id !== d.defaultOption)];
@@ -66,19 +58,36 @@ function autoApply(g: GameState, d: Omit<Decision, 'id' | 't'>): void {
     const r: ActionResult = fn ? fn(g, tmp, id) : { ok: true };
     if (!r.ok) continue;
     const opt = d.options.find((o) => o.id === id);
-    pushMessage(g, { tone: 'info', cat: CAT[d.kind] ?? 'ops', title: d.title, body: `${d.body} Operations chose: ${opt?.label ?? id}.${r.msg ? ` ${r.msg}.` : ''}`, ref: d.ref });
+    pushMessage(g, { tone: 'info', cat: CAT[d.kind] ?? 'ops', title: d.title, body: `${d.body} ${lead}: ${opt?.label ?? id}.${r.msg ? ` ${r.msg}.` : ''}`, ref: d.ref });
     return;
   }
 }
 
-/** Posts a decision; an optional one over the pacing budget (2 open / 3 a week) is applied by operations instead. */
+/** Posts a decision; an optional one over the pacing budget is applied by operations instead (inbox message). */
 function ask(g: GameState, d: Omit<Decision, 'id' | 't'>, must = false): Decision | null {
   if (!must && !canAsk(g)) {
     autoApply(g, d);
     return null;
   }
   recentAsks(g).push(g.now);
-  return pushDecision(g, d);
+  return pushDecision(g, { ...d, data: { ...d.data, paced: true } });
+}
+
+/**
+ * settle: decisions other modules post directly (crew's 'sickCrew') join the same budget the moment they appear;
+ * over it, operations apply the default and say so in the inbox. Cheap: only unseen decisions are looked at.
+ */
+export function paceDecisions(g: GameState): void {
+  for (const d of g.decisions.filter((x) => !x.data?.paced)) {
+    d.data = { ...d.data, paced: true };
+    const others = g.decisions.length - 1;
+    if (others < BAL.maxOpenDecisions && recentAsks(g).length < BAL.maxDecisionsWeek - 1) {
+      recentAsks(g).push(d.t);
+      continue;
+    }
+    g.decisions.splice(g.decisions.indexOf(d), 1);
+    autoApply(g, d);
+  }
 }
 
 // ---------- AOG ----------
@@ -201,12 +210,6 @@ function resolveAog(g: GameState, d: Decision, opt: string): ActionResult {
 const SLOT_ORDER: Role[] = ['CPT', 'FO', 'CRP', 'CSD', 'SCC', 'CC'];
 const UNFIT: CrewStatus[] = ['sick', 'leave', 'training', 'joining'];
 
-/** Where the leg's crews are stationed: the client base of a base programme, else our home base. */
-const stationOf = (g: GameState, f: Flight): string => {
-  const c = contractOf(g, f);
-  return c?.pattern.kind === 'base' ? c.pattern.base : g.company.homeBase;
-};
-
 /** The leg and those after it until the aircraft is back where it is, or at its station (the trip to cover). */
 function tripLegs(g: GameState, ac: Aircraft, f: Flight): Flight[] {
   const station = stationOf(g, f);
@@ -235,17 +238,12 @@ function rolesNeeded(g: GameState, f: Flight, ac: Aircraft): Role[] {
   return complement(ac.typeId, ac.cabin.total, { extraCabin: g.company.policies.extraCabin });
 }
 
-/** The leg can't go: seats empty, or its own duty illegal. */
-function blocked(g: GameState, f: Flight): boolean {
-  const cs = flightCrewStatus(g, f.id);
-  if (cs.level === 'missing') return true;
-  if (cs.level !== 'illegal') return false;
-  const d = f.dutyId ? g.duties[f.dutyId] : undefined;
-  return !d || d.legality === 'illegal';
-}
-
-/** When crew at `at` could report for these seats (rested; crew on duty after their release and rest), or null. Pure. */
-function readyAt(g: GameState, roles: Role[], at: string, family: RatingFamily): Minute | null {
+/**
+ * When crew at `at` could report for these seats for a duty of `need` minutes: rested, not sick or on leave then,
+ * and not rostered on other work in that window (crew on duty count from their release and rest). Null when the
+ * seats can't all be filled from there. Pure.
+ */
+function readyAt(g: GameState, roles: Role[], at: string, family: RatingFamily, need: number, own: Set<string>): Minute | null {
   const cand: { c: CrewMember; t: Minute }[] = [];
   for (const c of Object.values(g.crew)) {
     if (c.loc !== at || !c.ratings.includes(family) || UNFIT.includes(c.status)) continue;
@@ -255,7 +253,11 @@ function readyAt(g: GameState, roles: Role[], at: string, family: RatingFamily):
       if (!d || d.restAt !== at) continue;
       t = d.release + minRest({ dutyMin: d.release - d.report, atHome: at === c.base, augmented: d.augment > 0, tzShift: 0 });
     }
-    cand.push({ c, t: Math.max(g.now, t) });
+    t = Math.max(g.now, t);
+    const end = t + need;
+    if (c.blocks?.some((b) => b.from < end && b.to > t)) continue;
+    if (rosterOf(g, c.id, t, end).some((x) => !x.done && !own.has(x.id))) continue;
+    cand.push({ c, t });
   }
   cand.sort((a, b) => a.t - b.t || (a.c.id < b.c.id ? -1 : 1));
   const taken = new Set<string>();
@@ -270,20 +272,26 @@ function readyAt(g: GameState, roles: Role[], at: string, family: RatingFamily):
 }
 
 /**
- * When a legal crew could take the leg: crew resting at the airport once rested, else a standby set from the leg's
- * station or our home base flown in on a ticket (check-in, the flight, 3 h before report, as B2 plans it). Pure.
+ * When a legal crew could take the leg: crew free at the airport once rested, else a free set from the leg's
+ * station (a deployment's hotel) or our home base flown in on a ticket (check-in, the flight, 3 h before report,
+ * as B2 plans it). A day out when nobody is free. Pure.
  */
 export function crewReadyAt(g: GameState, f: Flight, ac: Aircraft): Minute {
   const roles = rolesNeeded(g, f, ac);
   const report = reportMinutes(ac.typeId).report;
   const fam = typeOf(ac.typeId).family;
+  // The duty to cover: report, the trip's legs and turns, 30 min after the last one (capped at a long FDP).
+  const legs = tripLegs(g, ac, f);
+  const need = Math.min(14 * 60, report + legs.reduce((s, x) => s + x.block, 0) + Math.max(0, legs.length - 1) * turnOf(ac) + 30);
+  const own = new Set(legs.map((x) => x.dutyId).filter((x): x is string => !!x));
   let t = Infinity;
-  const here = roles.length ? readyAt(g, roles, f.from, fam) : g.now;
+  const here = roles.length ? readyAt(g, roles, f.from, fam, need, own) : g.now;
   if (here !== null) t = here + report;
   for (const from of new Set([stationOf(g, f), g.company.homeBase])) {
     if (from === f.from) continue;
-    const r = readyAt(g, roles, from, fam);
-    if (r !== null) t = Math.min(t, r + BAL.deadheadCheckIn + blockMinutes('a320ceo', from, f.from) + 180 + report);
+    const travel = BAL.deadheadCheckIn + blockMinutes('a320ceo', from, f.from) + 180;
+    const r = readyAt(g, roles, from, fam, need + travel, own);
+    if (r !== null) t = Math.min(t, r + travel + report);
   }
   if (t === Infinity) t = g.now + DAY;
   return Math.max(g.now + 60, Math.ceil(t / 5) * 5);
@@ -342,14 +350,17 @@ function fillSlots(g: GameState, f: Flight): number {
   return n;
 }
 
-/** Holds the leg until a crew can take it, re-rostering each time; later tries push it on in 2 h steps (4 tries). */
+/**
+ * Holds the leg until a crew can take it and re-rosters against the new time; a second try goes to the next
+ * estimate (at least 2 h on). Departure retries the rest (flights.crewProblem) before giving the rotation up.
+ */
 function waitForCrew(g: GameState, f: Flight, ac: Aircraft): boolean {
   f.crewDecided = true;
   let t = crewReadyAt(g, f, ac);
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 2; i++) {
     delayChain(g, f, t, 'Waiting for a legal crew');
     rerosterFrom(g, ac.id, g.now);
-    if (f.status !== 'scheduled' || !blocked(g, f)) return true;
+    if (f.status !== 'scheduled' || !crewBlocked(g, f)) return true;
     const next = crewReadyAt(g, f, ac);
     t = next > f.std ? next : f.std + 120;
   }
@@ -427,9 +438,9 @@ export function latePaymentDecision(g: GameState, r: Receivable): void {
     kind: 'latePayment', title: `${name} is ${days} days late`,
     body: `${usd(r.amount)} for ${r.desc} was due ${fmtDay(r.due)}.`,
     options: [
-      { id: 'wait', label: 'Wait', desc: 'They usually pay in the end.', chips: [] },
+      { id: 'wait', label: 'Wait', desc: 'They usually pay in the end; until then the cash is not ours.', chips: [`${usd(r.amount)} outstanding`, 'No cost'] },
       { id: 'factor', label: 'Sell the invoice', desc: `A factor pays now, less ${Math.round(BAL.factorDiscount * 100)}%.`, tone: 'warn', chips: [`+${usd(r.amount * (1 - BAL.factorDiscount))} now`, usd(-r.amount * BAL.factorDiscount)] },
-      { id: 'threaten', label: 'Threaten to suspend', desc: 'Usually works within a week, but they will not forget it.', tone: 'bad', chips: ['Relation −20', '70% pay in 7 days'] },
+      { id: 'threaten', label: 'Threaten to suspend', desc: 'Usually works within a week, but they will not forget it.', tone: 'bad', chips: ['Relation −20', '70%: paid within 7 days'] },
     ],
     defaultOption: 'wait', expires: g.now + 2 * DAY, data: { receivableId: r.id, clientId: r.clientId },
   });
@@ -438,7 +449,8 @@ export function latePaymentDecision(g: GameState, r: Receivable): void {
 function resolveLatePayment(g: GameState, d: Decision, opt: string): ActionResult {
   const r = g.finance.receivables.find((x) => x.id === str(d.data, 'receivableId'));
   if (!r || r.paid !== null) return { ok: true, msg: 'Already paid' };
-  if (opt === 'wait') return { ok: true };
+  const name = g.clients[r.clientId]?.name ?? 'The client';
+  if (opt === 'wait') return { ok: true, msg: `We keep waiting for ${name}` };
   if (opt === 'factor') {
     const fee = Math.round(r.amount * BAL.factorDiscount);
     cashOnly(g, r.amount);
@@ -452,8 +464,9 @@ function resolveLatePayment(g: GameState, d: Decision, opt: string): ActionResul
     if (chance(g, 0.7)) {
       r.payAt = Math.min(r.payAt, g.now + int(g, 1, 7) * DAY);
       schedule(g, r.payAt, 'payment', r.id);
+      return { ok: true, msg: `${name} promises to pay by ${fmtDay(r.payAt)}` };
     }
-    return { ok: true, msg: 'Letter sent' };
+    return { ok: true, msg: `${name} does not reply; the invoice stays open` };
   }
   return { ok: false, error: 'Unknown option' };
 }
@@ -532,10 +545,10 @@ function extraRotation(g: GameState, c: Contract): boolean {
   const cl = g.clients[c.clientId];
   ask(g, {
     kind: 'changeRequest', title: `${cl?.name ?? 'Client'} asks for an extra rotation`,
-    body: `${p.base}–${dest}–${p.base} on ${fmtDay(std)}, off blocks ${fmtTime(std, p.base)} local. ${bh.toFixed(1)} BH at ${usd(c.product.ratePerBH)}/BH above the minimum; crew are re-rostered automatically.`,
+    body: `${p.base}–${dest}–${p.base} on ${fmtDay(std)}, off blocks ${fmtTime(std, p.base)} local. ${bh.toFixed(1)} BH at ${usd(c.product.ratePerBH)}/BH, paid once the month passes its guaranteed hours.`,
     options: [
-      { id: 'accept', label: 'Fly it', desc: 'More hours; the crew roster absorbs it.', tone: 'good', chips: [`+${bh.toFixed(1)} BH`, 'Relation +2'] },
-      { id: 'decline', label: 'Decline', desc: 'The aircraft keeps its rest.', chips: ['Relation −3'] },
+      { id: 'accept', label: 'Fly it', desc: `${ac.reg} flies two more legs; crews are re-rostered and the hours count toward its next check.`, tone: 'good', chips: [`+${bh.toFixed(1)} BH`, `+${usd(bh * c.product.ratePerBH)} above MGH`, 'Relation +2'] },
+      { id: 'decline', label: 'Decline', desc: 'The aircraft and crews keep their rest; the client notes it.', chips: ['Relation −3'] },
     ],
     defaultOption: 'accept', expires: g.now + DAY, ref: { kind: 'contract', id: c.id },
     data: { contractId: c.id, kind: 'extra', aircraftId: ac.id, dest, std },
@@ -556,7 +569,7 @@ function retimeRequest(g: GameState, c: Contract): boolean {
     body: `${f.from}–${f.to} on ${fmtDay(f.std)}: depart ${fmtDuration(min)} later (${fmtTime(f.std + min, f.from)} local) for a late group. They pay a change fee; later legs move with it.`,
     options: [
       { id: 'accept', label: 'Agree', desc: 'Later legs of the aircraft shift if needed.', tone: 'good', chips: [`+${usd(fee)}`, `+${fmtDuration(min)}`] },
-      { id: 'decline', label: 'Decline', desc: 'Keep the schedule.', chips: ['Relation −3'] },
+      { id: 'decline', label: 'Decline', desc: 'Keep the schedule; the client notes it.', chips: ['Relation −3'] },
     ],
     defaultOption: 'accept', expires: g.now + DAY, ref: { kind: 'flight', id: f.id },
     data: { contractId: c.id, kind: 'retime', flightId: f.id, minutes: min, fee },
@@ -628,13 +641,24 @@ export function permitDelayFor(g: GameState, c: Contract): Flight | null {
   return first;
 }
 
-/** 48 h before a trip with permit risk: p = risk × 0.3. */
+/** 48 h before a trip with permit risk: p = risk × 0.3. The risk is noted while the signed offer still exists. */
 function permitDelays(g: GameState): void {
+  const s = stats(g);
+  const risks = (s.permits ??= {});
+  for (const id of Object.keys(risks)) if (!g.contracts[id]) delete risks[id];
   for (const c of Object.values(g.contracts)) {
-    if ((c.status !== 'signed' && c.status !== 'active') || c.pattern.kind !== 'legs') continue;
-    if (c.start < g.now + DAY || c.start >= g.now + 2 * DAY) continue;
-    const risk = g.offers[c.offerId]?.risk.permit ?? 0;
-    if (risk && chance(g, risk * 0.3)) permitDelayFor(g, c);
+    if ((c.status !== 'signed' && c.status !== 'active') || c.pattern.kind !== 'legs') {
+      delete risks[c.id];
+      continue;
+    }
+    if (!(c.id in risks)) {
+      if (c.start < g.now + DAY) continue;
+      risks[c.id] = g.offers[c.offerId]?.risk.permit ?? 0;
+    }
+    if (c.start >= g.now + 2 * DAY) continue;
+    const risk = risks[c.id];
+    delete risks[c.id];
+    if (c.start >= g.now + DAY && risk && chance(g, risk * 0.3)) permitDelayFor(g, c);
   }
 }
 
@@ -691,12 +715,18 @@ export function resolveDecision(g: GameState, decisionId: string, optionId: stri
   return r;
 }
 
-/** 'decision.expire': the default option applies; if it can't, the next workable option. */
+/** 'decision.expire': the default option applies; if it can't, the next workable option. The inbox says which. */
 export function onDecisionExpire(g: GameState, ev: SimEvent): void {
   const d = g.decisions.find((x) => x.id === ev.id);
   if (!d) return;
   const order = [d.defaultOption, ...d.options.map((o) => o.id).filter((id) => id !== d.defaultOption)];
-  for (const id of order) if (resolveDecision(g, d.id, id).ok) return;
+  for (const id of order) {
+    const r = resolveDecision(g, d.id, id);
+    if (!r.ok) continue;
+    const opt = d.options.find((o) => o.id === id);
+    pushMessage(g, { tone: 'info', cat: CAT[d.kind] ?? 'ops', title: `No answer: ${d.title}`, body: `Time ran out, so operations chose: ${opt?.label ?? id}.${r.msg ? ` ${r.msg}.` : ''}`, ref: d.ref });
+    return;
+  }
   const j = g.decisions.indexOf(d);
   if (j >= 0) g.decisions.splice(j, 1);
 }

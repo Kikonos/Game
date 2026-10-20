@@ -7,14 +7,14 @@ import { invoice, statementTotals } from '../core/ledger';
 import { typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { DAY, fromUTC, monthKey, monthStart } from '../core/time';
-import type { Client, Contract, GameState, LedgerCat, Minute } from '../core/types';
+import type { Client, Contract, Flight, GameState, LedgerCat, Minute } from '../core/types';
 import { acceptOffer } from '../contracts';
 import { mghInMonth } from '../contracts/pricing';
 import { addAircraft, hamBase, leased, legsOffer, newGame, owned, run } from '../contracts/testkit';
 import { salaryBill } from '../crew';
 import { advanceTo } from '../sim';
 import { cashForecast, fixedCosts, resolveDecision } from '.';
-import { subcharterCost, subcharterLegs } from './flights';
+import { paysFuel, subcharterCost, subcharterLegs } from './flights';
 
 /** Advances with no auto-pause honoured (decisions expire into their defaults). */
 const skip = (g: GameState, t: Minute) => advanceTo(g, t, new Set());
@@ -71,6 +71,26 @@ describe('month end', () => {
     expect(g.messages.filter((m) => m.cat === 'finance' && /statement$/.test(m.title))).toHaveLength(1);
   });
 
+  it('an honoured monthEnd pause stops at the boundary and resuming never posts the fixed lines twice', () => {
+    const g = newGame(36);
+    const k = monthKey(g.now);
+    const fc = fixedCosts(g, k);
+    const r = advanceTo(g, g.now + 40 * DAY, new Set(['monthEnd']));
+    expect(r.pause).toBe('monthEnd');
+    expect(g.now).toBe(monthStart(k + 1));
+    expect(g.finance.history).toHaveLength(1);
+    expect(g.finance.current.month).toBe(k + 1);
+    skip(g, g.now + 5 * DAY);
+    expect(g.finance.history).toHaveLength(1);
+    expect(g.finance.history[0].lines.rent).toBe(-fc.rent);
+    expect(g.finance.history[0].lines.overhead).toBe(-fc.overhead);
+    expect(g.finance.current.lines.rent).toBeUndefined();
+    expect(g.finance.current.lines.insurance).toBeUndefined();
+    expect(g.finance.current.lines.overhead).toBeUndefined();
+    expect(g.finance.current.lines.salaries).toBeUndefined();
+    expect(g.messages.filter((m) => m.cat === 'finance' && /statement$/.test(m.title))).toHaveLength(1);
+  });
+
   it('pro-rates insurance, overhead and rent to the days on the AOC', () => {
     const g = newGame(22);
     const k = monthKey(g.now);
@@ -94,6 +114,69 @@ describe('month end', () => {
     // Not delivered until the month after next: nothing.
     ac.deliveredAt = monthStart(k + 2);
     expect(fixedCosts(g, k)).toEqual(base);
+  });
+
+  it('a lease returned mid-month pays its days once, at return, and month end does not count it again', () => {
+    const g = newGame(37);
+    const k = monthKey(g.now);
+    const days = (monthStart(k + 1) - monthStart(k)) / DAY;
+    const l = leased(g);
+    if (l.ownership.kind !== 'dryLeaseIn') throw new Error('leased');
+    const rent = l.ownership.rentPerMonth;
+    const end = Math.min(g.now + 10 * DAY, monthStart(k + 1) - DAY);
+    l.ownership.leaseEnd = end;
+    schedule(g, end, 'lease.end', l.id);
+    const share = (end - Math.max(monthStart(k), l.deliveredAt)) / (days * DAY);
+    const fc = fixedCosts(g, k); // still counts the leased aircraft, pro-rated to its last day
+    expect(fc.rent).toBe(Math.round(rent * share));
+    skip(g, end + 60);
+    expect(g.fleet[l.id]).toBeUndefined();
+    expect(g.messages.some((m) => m.title === `${l.reg} returned`)).toBe(true);
+    expect(g.finance.current.lines.rent).toBe(-Math.round(rent * share));
+    expect(g.finance.current.lines.insurance).toBe(-Math.round(typeOf(l.typeId).insuranceMonth * share));
+    skip(g, monthStart(k + 1) + DAY);
+    const st = g.finance.history[0];
+    expect(st.month).toBe(k);
+    expect(st.lines.rent).toBe(-fc.rent);
+    // Same totals as if month end had seen it (each part rounded on its own: ±$2).
+    expect(Math.abs(st.lines.insurance! + fc.insurance)).toBeLessThanOrEqual(2);
+    expect(Math.abs(st.lines.overhead! + fc.overhead)).toBeLessThanOrEqual(2);
+    // The month after: only the owned aircraft.
+    expect(fixedCosts(g, k + 1)).toEqual({ rent: 0, insurance: typeOf('a320ceo').insuranceMonth, overhead: BAL.overheadBase + BAL.overheadPerAircraft });
+  });
+});
+
+describe('who pays fuel', () => {
+  it('we pay on charter, ferry and non-billable positioning legs; the wet-lease client pays the rest', () => {
+    const g = newGame(38);
+    const c = signBase(g, g.now + 5 * DAY, 30, [leased(g).id]);
+    if (c.product.kind !== 'wet') throw new Error('wet');
+    const leg = (kind: Flight['kind'], contractId: string | null) => ({ kind, contractId }) as Flight;
+    expect(paysFuel(g, leg('ferry', null))).toBe(true);
+    expect(paysFuel(g, leg('ferry', c.id))).toBe(true);
+    expect(paysFuel(g, leg('positioning', null))).toBe(true);
+    c.product.positioningBillable = true;
+    for (const k of ['revenue', 'positioning', 'techstop'] as const) expect(paysFuel(g, leg(k, c.id))).toBe(false);
+    c.product.positioningBillable = false;
+    expect(paysFuel(g, leg('positioning', c.id))).toBe(true);
+    expect(paysFuel(g, leg('revenue', c.id))).toBe(false);
+    const ch = { ...c, id: 'ch', product: { kind: 'charter', price: 1, depositPct: 0, balanceDaysBefore: 0, fuelEscalation: false } } as Contract;
+    g.contracts[ch.id] = ch;
+    for (const k of ['revenue', 'positioning', 'techstop'] as const) expect(paysFuel(g, leg(k, ch.id))).toBe(true);
+  });
+
+  it('a non-billable positioning leg into a wet lease posts fuel and fees without catering', () => {
+    const g = newGame(39);
+    const ac = leased(g);
+    const c = signBase(g, g.now + 3 * DAY, 30, [ac.id]);
+    if (c.product.kind !== 'wet') throw new Error('wet');
+    c.product.positioningBillable = false;
+    const first = flightsOf(g, ac.id).find((f) => f.contractId === c.id && f.kind === 'revenue')!;
+    run(g, first.sta + 60);
+    const pos = Object.values(g.flights).filter((f) => f.contractId === c.id && f.kind === 'positioning' && f.status === 'done');
+    expect(pos.length).toBeGreaterThanOrEqual(1);
+    expect(line(g, 'fuel')).toBeLessThan(0);
+    expect(line(g, 'airportFees')).toBe(-pos.length * BAL.airportFees[0]);
   });
 });
 

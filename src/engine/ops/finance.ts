@@ -44,6 +44,19 @@ export function fixedCosts(g: GameState, k: MonthKey): { rent: number; insurance
 }
 
 /**
+ * An aircraft leaving the fleet mid-month (lease returned): posts its share of this month's rent, insurance and
+ * per-aircraft overhead now, since month end only sees the fleet that is left. Call just before it is deleted.
+ */
+export function settleDeparture(g: GameState, ac: GameState['fleet'][string]): void {
+  if (ac.status === 'leasedOut') return;
+  const s = shareOfMonth(ac, g.finance.current.month);
+  if (s <= 0) return;
+  if (ac.ownership.kind === 'dryLeaseIn') post(g, 'rent', -Math.round(ac.ownership.rentPerMonth * s));
+  post(g, 'insurance', -Math.round(typeOf(ac.typeId).insuranceMonth * s));
+  post(g, 'overhead', -Math.round(BAL.overheadPerAircraft * s));
+}
+
+/**
  * 'month' (runs last): rent, insurance, overhead into the closing month; close g.finance.current into history;
  * open the next; statement message (+ optional auto-pause 'monthEnd').
  */

@@ -3,8 +3,8 @@
 import type { SimModule } from '../core/module';
 import type { GameState } from '../core/types';
 import { onApprovalDone } from './company';
-import { dailyEvents, onDecisionExpire } from './events';
-import { dailyFinance, onMonthEnd, onPayment } from './finance';
+import { dailyEvents, onDecisionExpire, paceDecisions } from './events';
+import { dailyFinance, onMonthEnd, onPayment, settleDeparture } from './finance';
 import { onFlightArr, onFlightDep, pruneFlights } from './flights';
 import { checkGoals, syncGoals } from './goals';
 import { onMaintEnd, onMaintStart, planChecks } from './maintenance';
@@ -32,6 +32,8 @@ export const opsModule: SimModule = {
   init(g) {
     refreshMarket(g);
   },
+  // Decisions other modules post (crew's sickCrew) join the pacing budget as they appear.
+  settle: paceDecisions,
   load(g) {
     syncGoals(g);
     g.finance.negSince ??= null;
@@ -48,7 +50,12 @@ export const opsModule: SimModule = {
     'maint.end': onMaintEnd,
     payment: onPayment,
     'aircraft.delivery': onDelivery,
-    'lease.end': onLeaseEnd,
+    'lease.end': (g, ev) => {
+      // A returned aircraft leaves g.fleet: settle its part-month fixed costs first (finance).
+      const ac = g.fleet[ev.id];
+      onLeaseEnd(g, ev);
+      if (ac && !g.fleet[ev.id]) settleDeparture(g, ac);
+    },
     'approval.done': onApprovalDone,
     'decision.expire': onDecisionExpire,
   },

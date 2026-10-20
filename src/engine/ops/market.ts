@@ -13,7 +13,8 @@ import type { ActionResult, Aircraft, AircraftOffer, Cabin, GameState, SimEvent 
 import { clamp } from '../core/util';
 import { usd } from './util';
 
-const LESSORS = ['Halcyon Aircraft Leasing', 'Northbridge Aviation Capital', 'Atlas Wing Finance', 'Meridian Airframe Partners', 'Cobalt Leasing', 'Tejo Aero Assets', 'Baltic Lift Leasing'];
+/** Real operating lessors (names only; they also trade used aircraft). */
+const LESSORS = ['AerCap', 'Avolon', 'SMBC Aviation Capital', 'BOC Aviation', 'Carlyle Aviation Partners', 'Air Lease Corporation', 'Aviation Capital Group'];
 const MONTH = 30.44 * DAY;
 
 const cabinOf = (t: AcmiType): Cabin => {
@@ -28,7 +29,8 @@ function eligibleTypes(g: GameState): AcmiType[] {
   return ACMI_TYPES_LIST.filter((t) => t.available && (t.tier <= 2 || big));
 }
 
-function makeOffer(g: GameState, t: AcmiType): AircraftOffer {
+/** One offer of type t; `lease` forces a dry lease (the guaranteed offers). */
+function makeOffer(g: GameState, t: AcmiType, lease = false): AircraftOffer {
   const now = yearOf(g.now);
   const old = t.id === 'b763' || t.id === 'a332' || t.id === 'a343' || t.id === 'b752';
   const built = old ? int(g, 1996, 2008) : t.tier <= 1 ? int(g, 2005, 2017) : int(g, now - 16, now - 6);
@@ -36,11 +38,11 @@ function makeOffer(g: GameState, t: AcmiType): AircraftOffer {
   const age = now - built;
   const ageAdj = clamp(1 - (age - 12) * 0.015, 0.75, 1.15);
   const canBuy = t.body === 'narrow' || old;
-  const buy = canBuy && chance(g, 0.3);
+  const buy = !lease && canBuy && chance(g, 0.3);
   const rent = Math.round((t.rentMonth * range(g, 0.9, 1.15) * index * ageAdj) / 1000) * 1000;
   const price = buy ? Math.round((t.valueUsed * range(g, 0.85, 1.1) * ageAdj) / 10_000) * 10_000 : 0;
   return {
-    id: nextId(g, 'mo'), typeId: t.id, kind: buy ? 'buy' : 'dryLeaseIn', lessor: buy ? pick(g, ['Air Seller', 'Liquidator sale', 'Airline fleet sale']) + '' : pick(g, LESSORS),
+    id: nextId(g, 'mo'), typeId: t.id, kind: buy ? 'buy' : 'dryLeaseIn', lessor: buy ? `${pick(g, LESSORS)} (used sale)` : pick(g, LESSORS),
     builtYear: built, cabin: cabinOf(t), rentPerMonth: buy ? 0 : rent, reservesPerFH: buy ? 0 : Math.round((t.maintBH * range(g, 0.38, 0.46)) / 10) * 10,
     leaseMonths: buy ? 0 : int(g, BAL.leaseMonths[0] / 6, BAL.leaseMonths[1] / 6) * 6, price, deposit: buy ? price : 2 * rent,
     leadDays: int(g, BAL.deliveryDays[0], BAL.deliveryDays[1]), expires: g.now + int(g, BAL.marketOfferDays[0], BAL.marketOfferDays[1]) * DAY,
@@ -73,23 +75,14 @@ export function refreshMarket(g: GameState): void {
     const t = weightedPick(g, types, (x) => 1 - x.scarcity);
     if (t) m.aircraft.push(makeOffer(g, t));
   }
+  // Guaranteed: a narrowbody dry lease in month 1–2, an old 767-300ER or A330-200 lease in month 4–6.
   if (!m.gotNarrow && (month >= 1 || chance(g, 0.5))) {
     m.gotNarrow = true;
-    const id = chance(g, 0.6) ? 'a320ceo' : 'b738';
-    const t = ACMI_TYPES_LIST.find((x) => x.id === id)!;
-    const o = makeOffer(g, t);
-    o.kind = 'dryLeaseIn';
-    o.price = 0;
-    o.rentPerMonth ||= Math.round(t.rentMonth / 1000) * 1000;
-    o.reservesPerFH ||= 380;
-    o.leaseMonths ||= 60;
-    o.deposit = 2 * o.rentPerMonth;
-    m.aircraft.push(o);
+    m.aircraft.push(makeOffer(g, typeOf(chance(g, 0.6) ? 'a320ceo' : 'b738'), true));
   }
   if (!m.gotWide && month >= 3 && (month >= 5 || chance(g, 0.4))) {
     m.gotWide = true;
-    const id = chance(g, 0.5) ? 'b763' : 'a332';
-    m.aircraft.push(makeOffer(g, ACMI_TYPES_LIST.find((x) => x.id === id)!));
+    m.aircraft.push(makeOffer(g, typeOf(chance(g, 0.5) ? 'b763' : 'a332'), true));
   }
   if (m.aircraft.length > 6) m.aircraft = m.aircraft.slice(-6);
 }

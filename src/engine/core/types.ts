@@ -410,6 +410,8 @@ export interface Flight {
   crewHeld?: boolean;
   crewTries?: number;
   heldAt?: Minute;
+  /** B3: lateness the player accepted with delayFlight (minutes); recovery's lateness cap counts on top of it. */
+  lateOk?: number;
 }
 
 // ======================================================================
@@ -792,6 +794,8 @@ export interface Stats {
   subchartered?: number;
   /** B3: when recent player decisions were posted (last 7 days; pacing budget). */
   askedAt?: number[];
+  /** B3: landing-permit risk of signed trips by contract id (offers are pruned after signing); dropped once rolled. */
+  permits?: Record<string, number>;
 }
 
 export interface GameState {
