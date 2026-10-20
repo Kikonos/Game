@@ -1,4 +1,5 @@
-// All aircraft side-profile specs, keyed by AIRCRAFT type id.
+// All aircraft side-profile specs, keyed by AIRCRAFT / ACMI type id
+// (a332, a343, a35u and b77l exist only as ACMI types).
 
 import type { AircraftProfile } from '../types';
 import { HEAVY } from './heavy';

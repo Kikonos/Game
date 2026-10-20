@@ -19,9 +19,9 @@ export default defineConfig({
       injectRegister: null,
       includeAssets: ['favicon.svg', 'icons/*.png'],
       manifest: {
-        name: 'CONTRAIL — Airline Empire',
-        short_name: 'Contrail',
-        description: 'Build and run your own airline: real aircraft, real airports, a living market.',
+        name: 'BLOCK HOURS',
+        short_name: 'Block Hours',
+        description: 'Run an ACMI & charter airline: wet-lease aircraft, crew and contracts around the world.',
         theme_color: '#070b14',
         background_color: '#070b14',
         display: 'standalone',

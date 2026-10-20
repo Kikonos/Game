@@ -3,7 +3,7 @@
 // Low wings: the root band sits on the lower third of the fuselage, just above
 // the belly fairing, and rises aft with the real dihedral.
 
-import type { AircraftProfile } from '../types';
+import type { AircraftProfile, EngineSpec } from '../types';
 import { NOSE, TAIL, cargo, exit, leg, pax, row } from './shared';
 
 // ---------- A330 ----------
@@ -34,6 +34,50 @@ function a330(id: string, neo: boolean): AircraftProfile {
 
 const a333 = a330('a333', false);
 const a339 = a330('a339', true);
+
+// A330-200: the -300 fuselage shortened 3.2 m ahead of the wing (wheelbase 22.2 vs 25.4 m) and
+// 1.65 m behind it, the A340's taller fin, four full-size door pairs and small wingtip fences.
+function a332Spec(): AircraftProfile {
+  const b = a330('a332', false);
+  const fwd = -3.2, aft = -1.65, fa = fwd + aft;
+  return {
+    ...b,
+    length: 63.67 + fa,
+    fin: { ...b.fin, x: b.fin.x + fa, rootChord: 9.6, height: 9.2 },
+    stab: { ...b.stab, x: b.stab.x + fa },
+    wing: { ...b.wing, x: b.wing.x + fwd, tip: 'fence', tipH: 1.0 },
+    engines: b.engines.map((e) => ({ ...e, x: e.x + fwd })),
+    fairing: { x0: 20.5 + fwd, x1: 40.0 + fwd, depth: 0.25 },
+    gear: { stance: 5.4, nose: leg(6.75, 2, 1.1), main: [leg(28.95, 4, 1.37)] },
+    doors: [pax(5.1), pax(14.0), pax(36.2), pax(46.0), cargo(7.9, 2.7, 1.7), cargo(38.7, 2.7, 1.7)],
+    windows: [row(7.4, 49.6 + fa, 0.73, 0.533, 0.27, 0.38)],
+    ref: { overallHeight: 17.39, span: 60.3 },
+  };
+}
+const a332 = a332Spec();
+
+// A340-300: the A330-300 airframe with the taller fin, four short CFM56-5C pods (inboard pair
+// lower and further forward with the sweep and dihedral; the far-side pair peeks out behind the
+// near ones) and a twin-wheel centre bogie just aft of the wing gear.
+function a343Spec(): AircraftProfile {
+  const b = a330('a343', false);
+  const cfm = (x: number, y: number, extra: Partial<EngineSpec>): EngineSpec =>
+    ({ mount: 'underwing', style: 'plain', x, y, dia: 2.35, len: 5.6, ...extra });
+  return {
+    ...b,
+    fin: { ...b.fin, rootChord: 9.6, height: 8.7 },
+    engines: [
+      cfm(24.3, -2.85, { station: 0.29, far: true }),
+      cfm(29.6, -1.95, { station: 0.6, far: true }),
+      cfm(23.7, -3.15, { station: 0.29, inboard: true }),
+      cfm(29.0, -2.25, { station: 0.6 }),
+    ],
+    gear: { stance: 5.4, nose: leg(6.75, 2, 1.1), main: [leg(32.2, 4, 1.37), leg(34.6, 2, 1.2)] },
+    doors: [pax(5.1), pax(17.2), pax(36.6), pax(50.9), cargo(7.9, 2.7, 1.7), cargo(43.5, 2.7, 1.7)],
+    ref: { overallHeight: 16.85, span: 60.3 },
+  };
+}
+const a343 = a343Spec();
 
 // ---------- 787 ----------
 
@@ -89,5 +133,7 @@ function a350(id: string, fwd: number, aft: number, mainX: number, wheels: 4 | 6
 
 const a359 = a350('a359', 0, 0, 34.9, 4, { overallHeight: 17.05, span: 64.75 });
 const a35k = a350('a35k', 3.8, 3.19, 38.7, 6, { overallHeight: 17.08, span: 64.75 });
+// A350-900ULR: externally identical to the -900 (own id so livery/titles key off the real type).
+const a35u: AircraftProfile = { ...a359, id: 'a35u' };
 
-export const WIDE_TWIN: AircraftProfile[] = [a333, a339, b788, b789, b78x, a359, a35k];
+export const WIDE_TWIN: AircraftProfile[] = [a333, a332, a343, a339, b788, b789, b78x, a359, a35u, a35k];

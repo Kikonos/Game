@@ -8,12 +8,16 @@ import '../styles/app.css';
 import '../styles/screens.css';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { AIRCRAFT, AIRCRAFT_BY_ID } from '../data/aircraft';
+import { ACMI_TYPES_LIST } from '../data/acmiTypes';
+import { AIRCRAFT } from '../data/aircraft';
 import type { Livery } from '../engine/core/types';
 import { AircraftArt, artViewBox } from '../ui/components/aircraft/AircraftArt';
 
+// catalogue types plus the ACMI-only ones (a332, a343, a35u, b77l)
+const NAMES: Record<string, string> = Object.fromEntries([...AIRCRAFT, ...ACMI_TYPES_LIST].map((t) => [t.id, t.name]));
+
 const LIVERIES: Record<string, Livery> = {
-  contrail: { primary: '#1e4fd8', secondary: '#3ee6ff', tail: 'sweep' },
+  blockhours: { primary: '#1e4fd8', secondary: '#3ee6ff', tail: 'sweep' },
   redsplit: { primary: '#d6283c', secondary: '#ffffff', tail: 'split' },
   greenstripe: { primary: '#0f9d76', secondary: '#f5c451', tail: 'stripe' },
   navysolid: { primary: '#0b1f4d', secondary: '#3ee6ff', tail: 'solid' },
@@ -25,13 +29,13 @@ type Size = (typeof SIZES)[number];
 
 const q = new URLSearchParams(location.search);
 const list = (k: string) => q.get(k)?.split(',').map((s) => s.trim()).filter(Boolean);
-const types = (list('types') ?? AIRCRAFT.map((t) => t.id)).filter((id) => AIRCRAFT_BY_ID[id]);
-const liveryKey = q.get('livery') ?? 'contrail';
-const livery = LIVERIES[liveryKey] ?? LIVERIES.contrail;
+const types = (list('types') ?? Object.keys(NAMES)).filter((id) => NAMES[id]);
+const liveryKey = q.get('livery') ?? 'blockhours';
+const livery = LIVERIES[liveryKey] ?? LIVERIES.blockhours;
 const bgs = (list('bg') ?? Object.keys(BGS)).filter((b) => BGS[b]);
 const sizes = (list('size') ?? [...SIZES]).filter((s): s is Size => (SIZES as readonly string[]).includes(s));
-const code = q.get('code') ?? (liveryKey === 'used' ? undefined : 'CT');
-const name = q.get('name') ?? (liveryKey === 'used' ? undefined : 'Contrail');
+const code = q.get('code') ?? (liveryKey === 'used' ? undefined : 'BH');
+const name = q.get('name') ?? (liveryKey === 'used' ? undefined : 'Block Hours');
 const compare = q.get('compare') === '1';
 /** Fixed compare scale in CSS px per metre (default: widest type fills ~1150px). */
 const ppm = Number(q.get('ppm')) || 0;
@@ -62,7 +66,6 @@ const css = `
 `;
 
 function Cell({ id, size }: { id: string; size: Size }) {
-  const t = AIRCRAFT_BY_ID[id];
   const props = size === 'mini'
     ? { gear: false, detail: 'simple' as const, height: 36 }
     : size === 'card' ? { height: 110 } : {};
@@ -71,7 +74,7 @@ function Cell({ id, size }: { id: string; size: Size }) {
       <div className="g-box">
         <AircraftArt typeId={id} livery={livery} code={size === 'mini' ? undefined : code} name={size === 'mini' ? undefined : name} {...props} />
       </div>
-      <figcaption>{size === 'mini' ? id : `${id} · ${t.name}`}</figcaption>
+      <figcaption>{size === 'mini' ? id : `${id} · ${NAMES[id]}`}</figcaption>
     </figure>
   );
 }

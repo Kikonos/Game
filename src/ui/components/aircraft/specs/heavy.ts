@@ -14,6 +14,8 @@ interface B777Opts {
   fwd: number;
   aft: number;
   x: boolean;
+  /** -200LR: the short fuselage with the -300ER's raked wing and GE90-110/115 nacelles. */
+  lr?: boolean;
   mainX: number;
   ref: AircraftProfile['ref'];
 }
@@ -22,6 +24,8 @@ function b777(o: B777Opts): AircraftProfile {
   const L = 73.86 + o.fwd + o.aft;
   const f = o.fwd, fa = o.fwd + o.aft;
   const short = o.fwd < 0;
+  // -200ER: the original wing tip and the smaller GE90-94
+  const er = short && !o.lr;
   return {
     id: o.id,
     length: L,
@@ -33,11 +37,11 @@ function b777(o: B777Opts): AircraftProfile {
     stab: { x: 65.3 + fa, y: 1.6, rootChord: 5.6, tipChord: 1.9, span: o.x ? 9.8 : 9.4, sweep: 36, dihedral: 6, thickness: 0.5 },
     wing: {
       x: 29.6 + f, y: -1.9, rootChord: 13.0, tipChord: 3.0, span: o.x ? 29.4 : 27.4, sweep: 33, dihedral: 6, thickness: 1.4,
-      // -200ER plain tip, -300ER raked tip, -9 composite wing with a folding raked tip
-      tip: o.x ? 'folding' : short ? 'none' : 'raked', tipH: o.x ? 5.0 : short ? 0 : 3.6,
+      // -200ER plain tip, -200LR / -300ER raked tip, -9 composite wing with a folding raked tip
+      tip: o.x ? 'folding' : er ? 'none' : 'raked', tipH: o.x ? 5.0 : er ? 0 : 3.6,
     },
     // GE90-94B / GE90-115B / GE9X: each one bigger, all hung low with ~0.7 m ground clearance
-    engines: [{ mount: 'underwing', style: 'ge90', x: 25.0 + f, y: -2.75, dia: o.x ? 4.4 : short ? 3.9 : 4.05, len: o.x ? 9.4 : short ? 8.6 : 8.8, station: 0.3 }],
+    engines: [{ mount: 'underwing', style: 'ge90', x: 25.0 + f, y: -2.75, dia: o.x ? 4.4 : er ? 3.9 : 4.05, len: o.x ? 9.4 : er ? 8.6 : 8.8, station: 0.3 }],
     fairing: { x0: 27.5 + f, x1: 45.5 + f, depth: 0.38 },
     gear: { stance: o.x ? 5.6 : 5.45, nose: leg(5.75, 2, 1.27), main: [leg(o.mainX, 6, 1.32)] },
     doors: short
@@ -52,6 +56,7 @@ function b777(o: B777Opts): AircraftProfile {
 }
 
 const b772 = b777({ id: 'b772', fwd: -5.3, aft: -4.83, x: false, mainX: 31.85, ref: { overallHeight: 18.5, span: 60.93 } });
+const b77l = b777({ id: 'b77l', fwd: -5.3, aft: -4.83, x: false, lr: true, mainX: 31.85, ref: { overallHeight: 18.6, span: 64.8 } });
 const b77w = b777({ id: 'b77w', fwd: 0, aft: 0, x: false, mainX: 36.85, ref: { overallHeight: 18.5, span: 64.8 } });
 const b779 = b777({ id: 'b779', fwd: 1.6, aft: 1.26, x: true, mainX: 38.45, ref: { overallHeight: 19.68, span: 71.75 } });
 
@@ -158,4 +163,4 @@ const overture: AircraftProfile = {
   ref: { overallHeight: 11.0, span: 32.3 },
 };
 
-export const HEAVY: AircraftProfile[] = [b772, b77w, b779, b744, b748, a388, overture];
+export const HEAVY: AircraftProfile[] = [b772, b77l, b77w, b779, b744, b748, a388, overture];

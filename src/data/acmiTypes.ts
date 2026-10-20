@@ -119,7 +119,7 @@ export const ACMI_TYPES_LIST: AcmiType[] = [
     aCheckFH: 550, aCheckHours: 16, cCheckMonths: 18, cCheckDays: 18, pilotsPerAircraft: 14, scarcity: 0.4, available: true,
   },
   {
-    id: 'a332', name: 'Airbus A330-200', short: 'A332', family: 'A330/340', body: 'wide', engines: 2, art: 'a333', tier: 2,
+    id: 'a332', name: 'Airbus A330-200', short: 'A332', family: 'A330/340', body: 'wide', engines: 2, art: 'a332', tier: 2,
     cabins: [c('18J/282Y', 'two-class', 18, 0, 282), c('330Y', 'all-economy', 0, 0, 330)], maxSeats: 406,
     rangeNm: 6000, cruiseKt: 470, turnMin: 80, cockpitMin: 2, cabinTypical: 9, restClass: 2, etopsMax: 240, minRunwayM: 2700,
     rateBH: 7200, fuelTBH: 5.8, maintBH: 1800, rentMonth: 200_000, valueUsed: 12_000_000, insuranceMonth: 65_000,
@@ -133,7 +133,7 @@ export const ACMI_TYPES_LIST: AcmiType[] = [
     aCheckFH: 800, aCheckHours: 16, cCheckMonths: 24, cCheckDays: 18, pilotsPerAircraft: 16, scarcity: 0.4, available: true,
   },
   {
-    id: 'a343', name: 'Airbus A340-300', short: 'A343', family: 'A330/340', body: 'wide', engines: 4, art: 'a333', tier: 2,
+    id: 'a343', name: 'Airbus A340-300', short: 'A343', family: 'A330/340', body: 'wide', engines: 4, art: 'a343', tier: 2,
     cabins: [c('30J/270Y', 'two-class', 30, 0, 270), c('335Y', 'all-economy', 0, 0, 335)], maxSeats: 375,
     rangeNm: 6500, cruiseKt: 470, turnMin: 90, cockpitMin: 2, cabinTypical: 10, restClass: 2, etopsMax: 0, minRunwayM: 3000,
     rateBH: 6000, fuelTBH: 7.0, maintBH: 2500, rentMonth: 110_000, valueUsed: 8_000_000, insuranceMonth: 60_000,
@@ -168,14 +168,14 @@ export const ACMI_TYPES_LIST: AcmiType[] = [
     aCheckFH: 1200, aCheckHours: 14, cCheckMonths: 36, cCheckDays: 14, pilotsPerAircraft: 20, scarcity: 0.95, available: true,
   },
   {
-    id: 'a35u', name: 'Airbus A350-900ULR', short: 'A35U', family: 'A350', body: 'wide', engines: 2, art: 'a359', tier: 4,
+    id: 'a35u', name: 'Airbus A350-900ULR', short: 'A35U', family: 'A350', body: 'wide', engines: 2, art: 'a35u', tier: 4,
     cabins: [c('67J/94W', 'two-class', 67, 94, 0), c('42J/24W/187Y', 'three-class', 42, 24, 187)], maxSeats: 440,
     rangeNm: 9000, cruiseKt: 490, turnMin: 85, cockpitMin: 4, cabinTypical: 8, restClass: 1, etopsMax: 370, minRunwayM: 3000,
     rateBH: 14_000, fuelTBH: 6.5, maintBH: 1600, rentMonth: 1_100_000, valueUsed: 120_000_000, insuranceMonth: 125_000,
     aCheckFH: 1200, aCheckHours: 14, cCheckMonths: 36, cCheckDays: 14, pilotsPerAircraft: 28, scarcity: 0.98, available: true, ulr: true,
   },
   {
-    id: 'b77l', name: 'Boeing 777-200LR', short: 'B77L', family: 'B777', body: 'wide', engines: 2, art: 'b772', tier: 4,
+    id: 'b77l', name: 'Boeing 777-200LR', short: 'B77L', family: 'B777', body: 'wide', engines: 2, art: 'b77l', tier: 4,
     cabins: [c('38J/262Y', 'two-class', 38, 0, 262), c('35J/24W/221Y', 'three-class', 35, 24, 221)], maxSeats: 440,
     rangeNm: 7500, cruiseKt: 485, turnMin: 90, cockpitMin: 4, cabinTypical: 10, restClass: 1, etopsMax: 330, minRunwayM: 3200,
     rateBH: 14_000, fuelTBH: 7.4, maintBH: 2200, rentMonth: 600_000, valueUsed: 35_000_000, insuranceMonth: 100_000,

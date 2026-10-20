@@ -1,4 +1,4 @@
-// Game state for CONTRAIL ACMI. Everything here is plain JSON (saved with lz-string).
+// Game state for BLOCK HOURS (ACMI). Everything here is plain JSON (saved with lz-string).
 // Shared contract between the engine modules and the UI: see docs/acmi/DESIGN.md §2.
 // Builders may ADD optional fields in their own domain section; renames/removals go through the architect.
 

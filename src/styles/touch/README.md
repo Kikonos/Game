@@ -1,6 +1,6 @@
 # Touch / iPad styles
 
-CONTRAIL targets an iPad (11", 1180×820 landscape, 820×1180 portrait, DPR 2) played with
+BLOCK HOURS targets an iPad (11", 1180×820 landscape, 820×1180 portrait, DPR 2) played with
 fingers, in Safari, as a home-screen web app and inside the Claude app's artifact viewer,
 while desktop (1440×900, mouse) keeps its look. These files adapt the base design system
 (`../app.css`) and screens (`../screens.css`) and load after them, in this order:
