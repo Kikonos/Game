@@ -1,3 +1,6 @@
+# CREDITS: user (2026-10-20 05:15Z) allows paid usage credits up to 50% (we can't see the meter; user will turn them off). So keep working through plan limits.
+# PLAYER DECISIONS 2026-10-20: name BLOCK HOURS; home base choice yes; named crew + adjustable auto-roster; REAL company/government names (neutral, no invented wrongdoing); replace old game (no classic link). Recorded at end of docs/acmi/BRIEF.md.
+
 # ACMI PIVOT (2026-10-19 15:20Z) — PLAN OF RECORD (supersedes the airline-sim plans below)
 The user played v0.2 for a few hours and liked it. They want to MORPH the game into an **ACMI / wet-lease / dry-lease (and charter) simulator**. They are a flight attendant who worked at EuroAtlantic Airways (2× B767-300ER + 2× B777-200ER at the time) and at Getjet / Airhub Airlines.
 Requirements (from the user):
@@ -95,6 +98,7 @@ If an agent fails on a limit, its file edits persist (checkpoint them). Resume t
 6. Final message to the user: what changed; the iPad home-screen steps (default branch → main, Pages source → GitHub Actions, https://kikonos.github.io/Game/); any limitations.
 
 ## Log
+- 05:25Z (Oct 20) build run wf_4e46c6a0-e86: B1,B2,B4 DONE (reports .handover/reports-b124.md); B3,B5 partial. CI now only on main/game branch; checkpoints [skip ci]. Launched continuation script acmi-build2.js (copy in .handover/) — see run id in next entry.
 - 01:33Z (Oct 20) P2 build run wf_4e46c6a0-e86 hit limit at ~22:10Z (reset 01:30Z) with all 5 builders mid-way (~5.9k lines written, checkpointed). Resuming it now.
 - 21:01Z P1 DONE (design reviewed+revised, committed 6890c84 on acmi). P2 build workflow RUNNING: scriptPath /tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/acmi/acmi-build.js (backup copy .handover/acmi-build.js; if the scratchpad copy is gone, pass the backup inline via Workflow script), run wf_4e46c6a0-e86 — resume with resumeFromRunId.
 - 20:33Z P1 architect DONE (DESIGN.md, BUILD-PLAN.md, skeleton builds/runs); critic+revise failed on limit (reset 20:20Z). Resuming wf_9fc3165a-62a.
