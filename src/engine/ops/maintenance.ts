@@ -186,7 +186,7 @@ export function scheduleCheck(g: GameState, aircraftId: string, kind: MaintKind,
   const soft = clash.filter((f) => f.kind === 'positioning' && f.status === 'scheduled');
   if (soft.length) removeFlights(g, soft.map((f) => f.id));
   const m: MaintenanceEvent = {
-    id: nextId(g, 'mx'), aircraftId: ac.id, kind, at, start, end, cost: checkCostOf(ac, kind), status: 'planned', planned: true, ev: 0,
+    id: nextId(g, 'mx'), aircraftId: ac.id, kind, at, start, end, cost: checkCostOf(ac, kind), status: 'planned', planned: true, ev: 0, booked: g.now,
   };
   g.maintenance[m.id] = m;
   if (needFerry) {
@@ -367,15 +367,16 @@ export function onMaintStart(g: GameState, ev: SimEvent): void {
     const cur = ac.maintId ? g.maintenance[ac.maintId] : undefined;
     ready = cur && cur.end > g.now ? cur.end : g.now + 60;
   } else if (ac.at !== m.at) {
-    // Not there and no way in: give the slot up; the planner books another.
-    if (g.now - m.start > DAY || !flightsOf(g, ac.id).some((f) => f.status === 'scheduled' && f.to === m.at && f.std < g.now + DAY)) {
+    // Not there: wait for the leg that brings it in; with none (or after a day) give the slot up for the planner.
+    const inbound = flightsOf(g, ac.id).find((f) => f.status === 'scheduled' && f.to === m.at && f.std < g.now + DAY);
+    if (g.now - (m.booked ?? m.start) > 2 * DAY || !inbound) {
       m.status = 'cancelled';
       m.ev++;
       touchFlights(g);
       pushMessage(g, { tone: 'warn', cat: 'tech', title: `${m.kind}-check missed: ${ac.reg}`, body: `${ac.reg} is at ${ac.at}, not ${m.at}. The check needs a new slot.`, ref: { kind: 'aircraft', id: ac.id } });
       return;
     }
-    ready = g.now + 60;
+    ready = Math.max(g.now + 30, inbound.std + inbound.delay + inbound.block + 30);
   }
   if (ready > g.now) {
     const dur = m.end - m.start;

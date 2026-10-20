@@ -12,7 +12,7 @@ import { chance, next, pick, range } from '../core/rng';
 import { DAY, fmtDuration, fmtTime, monthKey } from '../core/time';
 import type { ActionResult, Aircraft, Flight, GameState, MaintenanceEvent, Minute, SimEvent } from '../core/types';
 import { flightCrewStatus, rerosterFrom } from '../crew';
-import { crewShortDecision, hasOpenDecision } from './events';
+import { crewReadyAt, crewShortDecision, hasOpenDecision } from './events';
 import { aogChance, isGrounded, startAog } from './maintenance';
 import { ageF, ageOf, bumpReliable, bumpRelation, contractOf, isBaseLeg, isRevenue, stats, turnOf } from './util';
 
@@ -252,7 +252,8 @@ export function onFlightDep(g: GameState, ev: SimEvent): void {
     notReady(g, f, ac);
     return;
   }
-  if (f.kind !== 'ferry' && isGrounded(g, ac)) {
+  // Grounded past the check tolerance: revenue legs stay on the ground; empty legs fly on a ferry permit.
+  if (isRevenue(f) && isGrounded(g, ac)) {
     cancelLegs(g, [f], 'Aircraft grounded: check overdue', 1);
     pushMessage(g, { tone: 'bad', cat: 'tech', title: `${ac.reg} grounded`, body: `A check is overdue: ${f.no} ${f.from}–${f.to} cancelled. Book the check on the Fleet screen.`, ref: { kind: 'aircraft', id: ac.id } });
     return;
@@ -343,8 +344,19 @@ function notReady(g: GameState, f: Flight, ac: Aircraft): void {
 function crewProblem(g: GameState, f: Flight, ac: Aircraft): void {
   if (!f.crewHeld) {
     f.crewHeld = true;
-    stats(g).uncovered++;
+    if (isRevenue(f)) stats(g).uncovered++;
     rerosterFrom(g, ac.id, g.now);
+    if (!crewBlocked(g, f)) return holdFlight(g, f, 5);
+  }
+  // Empty legs need no decision: they wait for a crew (a standby set can deadhead in), then give up.
+  if (!isRevenue(f)) {
+    if ((f.crewTries ?? 0) >= 2) {
+      cancelLegs(g, [f], 'No crew for the empty leg', 0);
+      return;
+    }
+    f.crewTries = (f.crewTries ?? 0) + 1;
+    delayChain(g, f, crewReadyAt(g, f, ac), 'Waiting for crew');
+    return;
   }
   if (hasOpenDecision(g, 'crewShort', f.id) || f.delay < BAL.crewWaitMin) return holdFlight(g, f, 30);
   if (f.crewDecided) {

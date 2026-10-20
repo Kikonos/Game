@@ -20,6 +20,7 @@ import { ScheduleScreen } from '../screens/Schedule';
 import { type GameSpeed, SPEED_LABEL, type Tab, store, useClock, useGame, useStore } from '../store';
 import { useMedia, useTier } from '../useMedia';
 import { CLOCK_STEP, SPEEDS } from '../../engine/core/time';
+import type { PauseReason } from '../../engine/core/pause';
 
 export const NAV: { tab: Tab; label: string; short: string; icon: ReactNode }[] = [
   { tab: 'map', label: 'Ops Map', short: 'Map', icon: <Globe2 /> },
@@ -59,7 +60,7 @@ function Clock() {
   );
 }
 
-/** Pause + labelled speeds (1× 2× 4×). Pulses amber while a decision holds time. */
+/** Pause + labelled speeds (1× 2× 4×); static amber while a decision holds time. */
 function SpeedControl() {
   const s = useStore();
   const hover = useMedia('(hover: hover)');
@@ -78,6 +79,30 @@ function SpeedControl() {
         </button>
       ))}
     </div>
+  );
+}
+
+const PAUSE_LABEL: Record<PauseReason, string> = {
+  decision: 'Decision waiting', urgentOffer: 'Urgent offer', aog: 'Aircraft AOG', monthEnd: 'Month closed', contractStart: 'Contract starts', crewShortage: 'Crew shortage',
+};
+
+/** Static amber badge saying why the clock stopped (no pulsing); tap goes where the reason lives. */
+function PauseBadge() {
+  const s = useStore();
+  const reason: PauseReason | null = s.blocked ? 'decision' : s.paused ? s.pauseReason : null;
+  if (!reason) return null;
+  const go = () => {
+    if (reason === 'urgentOffer') s.navigate('contracts', { view: 'market' });
+    else if (reason === 'monthEnd') s.navigate('finance');
+    else if (reason === 'crewShortage') s.navigate('crew');
+    else if (reason === 'contractStart') s.navigate('schedule');
+    else s.navigate('inbox');
+  };
+  return (
+    <button className="pause-badge" onClick={go} aria-label={`Paused: ${PAUSE_LABEL[reason]}`}>
+      <span className="pb-k">Paused</span>
+      <span className="pb-r">{PAUSE_LABEL[reason]}</span>
+    </button>
   );
 }
 
@@ -127,6 +152,7 @@ function TopBar() {
       <div className="tb-sep" />
       <Clock />
       <SpeedControl />
+      <PauseBadge />
       <div className="tb-right">
         <CashBlock />
         <Alerts />

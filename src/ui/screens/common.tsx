@@ -3,14 +3,17 @@
 import {
   Briefcase, CalendarClock, Flag as FlagIcon, Globe2, HeartHandshake, Medal, Music, Plane, PlaneLanding, Shield, Ship, Trophy, Users, Wrench,
 } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import type { Archetype } from '../../engine/core/types';
 import { store } from '../store';
 import type { Chip } from './screenLogic';
 
 /** Dev-only render counter per screen (store.dev.renders), to check the calm-UI budget. */
 export function useRenderCount(name: string): void {
-  if (import.meta.env.DEV) store.dev.renders[name] = (store.dev.renders[name] ?? 0) + 1;
+  // Counted per commit (an effect), so StrictMode's double render calls don't inflate it.
+  useEffect(() => {
+    if (import.meta.env.DEV) store.dev.renders[name] = (store.dev.renders[name] ?? 0) + 1;
+  });
 }
 
 const ARCH_ICON: Partial<Record<Archetype, ReactNode>> = {

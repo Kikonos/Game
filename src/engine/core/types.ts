@@ -406,8 +406,9 @@ export interface Flight {
   /** B3: original STD before ops delays (std/sta move with retimes); a crew-short decision was taken for it. */
   schedStd?: Minute;
   crewDecided?: boolean;
-  /** B3: held at departure for crew (counted once in stats.uncovered). */
+  /** B3: held at departure for crew (counted once in stats.uncovered); empty-leg crew waits so far. */
   crewHeld?: boolean;
+  crewTries?: number;
 }
 
 // ======================================================================
@@ -586,8 +587,9 @@ export interface MaintenanceEvent {
   planned: boolean;
   cause?: string;
   ev: number;
-  /** B3: ferry legs booked to reach the check. */
+  /** B3: ferry legs booked to reach the check; when it was booked. */
   ferryIds?: string[];
+  booked?: Minute;
 }
 
 // ======================================================================

@@ -48,7 +48,7 @@ function crewFlag(g: GameState, f: Flight, horizon: Minute): GanttBlock['crew'] 
 }
 
 /** Flights, maintenance, sub-chartered legs and idle gaps of one aircraft overlapping [from, to). */
-export function rowBlocks(g: GameState, aircraftId: string, from: Minute, to: Minute, opts: { pills?: boolean } = {}): GanttBlock[] {
+export function rowBlocks(g: GameState, aircraftId: string, from: Minute, to: Minute, opts: { pills?: boolean; until?: Minute } = {}): GanttBlock[] {
   const horizon = g.now + BAL.rosterHorizonDays * DAY;
   const out: GanttBlock[] = [];
   const busy: [Minute, Minute, string][] = [];
@@ -82,7 +82,9 @@ export function rowBlocks(g: GameState, aircraftId: string, from: Minute, to: Mi
     out.push({ key: f.id, kind: 'sub', start: s, end: e, color: colorOf(g, f), label: `${f.no} by ${rival}`, short: 'SUB', refs: [{ kind: 'flight', id: f.id }], done: f.status === 'done' });
   }
   const ac = g.fleet[aircraftId];
-  for (const gap of idleGaps(busy, Math.max(from, g.now), to, ac?.at ?? '')) {
+  // Gaps run from now to the timeline end (`until`), so the label shows the whole gap, not the visible slice.
+  for (const gap of idleGaps(busy, g.now, Math.max(to, opts.until ?? to), ac?.at ?? '')) {
+    if (gap.to < from || gap.from > to) continue;
     out.push({ key: `idle-${gap.from}`, kind: 'idle', start: gap.from, end: gap.to, color: null, label: `idle ${durLabel(gap.to - gap.from)}`, refs: [], at: gap.at });
   }
   const sorted = out.sort((a, b) => a.start - b.start || a.end - b.end);
