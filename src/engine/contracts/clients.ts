@@ -73,7 +73,16 @@ export function ministry(g: GameState, which: 'Foreign Affairs' | 'Defence'): Cl
 }
 
 /** Two-letter flight-number prefix from a client name ('Eurowings' → 'EU', 'Air Canada' → 'AC'). */
+/** Real IATA designators of airline clients: a wet-leased aircraft flies under the lessee's flight numbers. */
+const IATA: Record<string, string> = {
+  'SAS Scandinavian Airlines': 'SK', 'Aer Lingus': 'EI', airBaltic: 'BT', 'Croatia Airlines': 'OU', 'LOT Polish Airlines': 'LO',
+  Condor: 'DE', Eurowings: 'EW', Lufthansa: 'LH', 'TAP Air Portugal': 'TP', 'Royal Air Maroc': 'AT', 'Royal Jordanian': 'RJ',
+  'Air Sénégal': 'HC', 'TAAG Angola Airlines': 'DT', Airlink: '4Z', 'LATAM Brasil': 'JJ', 'GOL Linhas Aéreas': 'G3',
+  'Azul Brazilian Airlines': 'AD', 'Air Canada': 'AC', 'LATAM Perú': 'LP', 'Vietnam Airlines': 'VN', Saudia: 'SV', flynas: 'XY',
+};
+
 export function clientPrefix(name: string): string {
+  if (IATA[name]) return IATA[name];
   const words = name.replace(/[^A-Za-zÀ-ÿ ]/g, ' ').split(/\s+/).filter(Boolean);
   if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
   const caps = name.match(/[A-Z]/g) ?? [];

@@ -46,6 +46,17 @@ export function NewGame() {
   const ap = AIRPORT_BY_CODE[base];
   const reg = COUNTRIES[ap?.country ?? '']?.reg ?? '';
 
+  // Picking a base also picks its house preset while the name is still an untouched preset.
+  const pickBase = (b: HomeBase) => {
+    setBase(b);
+    const i = COMPANY_PRESETS.findIndex((x) => x.base === b);
+    if (i >= 0 && COMPANY_PRESETS.some((x) => x.name === name.trim())) {
+      setPreset(i);
+      setName(COMPANY_PRESETS[i].name);
+      setCode(COMPANY_PRESETS[i].code);
+    }
+  };
+
   const usePreset = (i: number) => {
     const x = COMPANY_PRESETS[i];
     setPreset(i);
@@ -75,7 +86,7 @@ export function NewGame() {
                 {HOME_BASES.map((b) => {
                   const a = AIRPORT_BY_CODE[b];
                   return (
-                    <button key={b} className={`card ng-base hoverable ${base === b ? 'selected' : ''}`} onClick={() => setBase(b)} aria-pressed={base === b}>
+                    <button key={b} className={`card ng-base hoverable ${base === b ? 'selected' : ''}`} onClick={() => pickBase(b)} aria-pressed={base === b}>
                       <span className="code">{b}</span>
                       <span className="col ng-base-txt">
                         <b className="ellipsis">{a?.city ?? b}</b>

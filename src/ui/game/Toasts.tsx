@@ -9,7 +9,8 @@ export function Toasts() {
   const [gone, setGone] = useState<Set<number>>(() => new Set());
   return (
     <>
-      <div className="toasts" aria-live="polite">
+      {/* With a dialog open the toasts move to the top centre, clear of its footer buttons. */}
+      <div className={`toasts ${s.modal ? 'over-modal' : ''}`} aria-live="polite">
         {s.toasts.map((t) => (
           <div
             key={t.id}

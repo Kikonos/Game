@@ -7,7 +7,7 @@ import { canFill, typeOf } from '../core/perf';
 import type { ActionResult, CrewMember, Duty, GameState, Legality, Minute, Pairing, Role } from '../core/types';
 import { openDuties, planCrew } from './check';
 import { crewName } from './generate';
-import { placeCrew, recheckPairing, releaseCrew } from './roster';
+import { emptyResult, fillAll, placeCrew, recheckPairing, releaseCrew } from './roster';
 import { levelOf, worst, type IssueCode } from './rules';
 import { block28, locAt, segsOf, ticketPrice, touchCrew, typeIdOf } from './timeline';
 
@@ -240,7 +240,7 @@ export function assignCrew(g: GameState, dutyOrFlightId: string, crewId: string,
 
 /**
  * Takes a crew member off the duty's pairing (tickets cancelled, sent home when away). Leaving a required seat
- * empty is refused unless `force`; the empty seat is refilled by the next auto-roster pass (policy on).
+ * empty is refused unless `force`; with the auto-roster policy the seat is refilled at once by someone else.
  */
 export function unassignCrew(g: GameState, dutyOrFlightId: string, crewId: string, opts: RosterOpts = {}): ActionResult {
   const x = ctxOfId(g, dutyOrFlightId);
@@ -250,11 +250,23 @@ export function unassignCrew(g: GameState, dutyOrFlightId: string, crewId: strin
   if (!s) return { ok: false, error: 'Not on this trip' };
   if (inProgress(g, p)) return { ok: false, error: 'A duty of this trip is under way; change the crew after it releases' };
   if (!s.extra && !opts.force) return { ok: false, error: `The ${s.role} seat is required; assign a replacement or force it empty` };
+  const before = new Set(p.slots.map((y) => y.crewId).filter((id): id is string => !!id));
+  const role = s.role;
   releaseCrew(g, p, crewId);
+  // A required seat is refilled now (auto-roster policy), by anyone but the crew member just taken off: the next
+  // daily pass may be too late to position someone for an early report.
+  let by: CrewMember | undefined;
+  if (!s.extra && g.company.policies.autoRoster) {
+    fillAll(g, [p], emptyResult(), new Set([crewId]));
+    const filled = p.slots.find((y) => y.role === role && y.crewId && !before.has(y.crewId));
+    by = filled ? g.crew[filled.crewId!] : undefined;
+  }
   recheckPairing(g, p);
   touchCrew(g);
   const c = g.crew[crewId];
-  return { ok: true, msg: `${c ? crewName(c) : 'Crew member'} taken off${s.extra ? '' : `; the ${s.role} seat is open`}` };
+  const who = c ? crewName(c) : 'Crew member';
+  if (s.extra) return { ok: true, msg: `${who} taken off` };
+  return { ok: true, msg: by ? `${who} taken off; ${crewName(by)} takes the ${role} seat` : `${who} taken off; the ${role} seat is open` };
 }
 
 /**
@@ -280,7 +292,7 @@ export function swapCrew(g: GameState, dutyA: string, crewA: string, dutyB: stri
   // Each side's timeline without both pairings (the swap removes them from their own).
   const lvl = (c: CrewMember, to: Pairing, from: Pairing) => {
     const segs = segsOf(g, c, from.id).filter((s) => !s.dutyId || !to.dutyIds.includes(s.dutyId));
-    const plan = planCrew(g, c, to, segs);
+    const plan = planCrew(g, c, to, segs, false, 0, from.id);
     const issues = plan.issues.filter((i) => i.code !== 'fdp');
     return { level: levelOf(issues), text: issues.find((i) => i.level === 'illegal')?.text ?? '' };
   };

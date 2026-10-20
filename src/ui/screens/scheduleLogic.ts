@@ -8,7 +8,7 @@ import type { Flight, GameState, Minute, Ref } from '../../engine/core/types';
 import { flightCrewStatus } from '../../engine/crew';
 
 export type ZoomDays = 3 | 7 | 28;
-/** Pixels per hour at each zoom preset. */
+/** Pixels per hour at each zoom preset when the view width is unknown (the screen fits the preset to the width). */
 export const ZOOM_PX_H: Record<ZoomDays, number> = { 3: 24, 7: 10, 28: 2.5 };
 export const ppmOf = (z: ZoomDays) => ZOOM_PX_H[z] / 60;
 
@@ -83,9 +83,12 @@ export function rowBlocks(g: GameState, aircraftId: string, from: Minute, to: Mi
   }
   const ac = g.fleet[aircraftId];
   // Gaps run from now to the timeline end (`until`), so the label shows the whole gap, not the visible slice.
-  for (const gap of idleGaps(busy, g.now, Math.max(to, opts.until ?? to), ac?.at ?? '')) {
+  const end = Math.max(to, opts.until ?? to);
+  for (const gap of idleGaps(busy, g.now, end, ac?.at ?? '')) {
     if (gap.to < from || gap.from > to) continue;
-    out.push({ key: `idle-${gap.from}`, kind: 'idle', start: gap.from, end: gap.to, color: null, label: `idle ${durLabel(gap.to - gap.from)}`, refs: [], at: gap.at });
+    // A gap that runs to the timeline end has no next commitment: say so instead of an arbitrary length.
+    const label = gap.to >= end ? `free at ${gap.at} · nothing booked` : `idle ${durLabel(gap.to - gap.from)}`;
+    out.push({ key: `idle-${gap.from}`, kind: 'idle', start: gap.from, end: gap.to, color: null, label, refs: [], at: gap.at });
   }
   const sorted = out.sort((a, b) => a.start - b.start || a.end - b.end);
   return opts.pills ? dayPills(sorted) : sorted;
@@ -183,14 +186,16 @@ export interface Tick {
   major: boolean;
 }
 
-/** Axis ticks: days (major, labelled) plus hours at 3 d (every 3 h) and 7 d (every 6 h). */
+/** Axis ticks: days (major, labelled) plus hours at 3 d (every 6 h) and 7 d (every 12 h); spaced for a fitted width. */
 export function axisTicks(from: Minute, to: Minute, zoom: ZoomDays): Tick[] {
-  const step = zoom === 3 ? 3 * HOUR : zoom === 7 ? 6 * HOUR : DAY;
+  const step = zoom === 3 ? 6 * HOUR : zoom === 7 ? 12 * HOUR : DAY;
   const out: Tick[] = [];
   for (let t = dayStart(from); t <= to; t += step) {
     if (t < from) continue;
     const major = t % DAY === 0;
-    out.push({ t, major, label: major ? fmtDay(t) : fmtTime(t) });
+    // 28 d: a day is ~30 px, too narrow for a date each; label the Mondays (epoch day 0, 1 Jan 2000, is a Saturday).
+    const weekly = zoom === 28 && (Math.floor(t / DAY) + 5) % 7 !== 0;
+    out.push({ t, major, label: weekly ? '' : major ? fmtDay(t) : fmtTime(t) });
   }
   return out;
 }

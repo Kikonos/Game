@@ -487,7 +487,7 @@ if augment > 0 and sectors ≤ 3:
 - Block: 100 h in 28 days, 900 h in the calendar year (`blockYear`).
 - Use rolling sums over sorted intervals: the clipped overlap of each duty with the window.
 
-**Recovery.** Every 168 h needs a free period of at least 36 h that includes two local nights. Simplification: 36 h free, and the gap must contain two 22:00–06:00 base-local windows. It becomes 60 h when the crew flew 4 or more `disruptive` duties (report before 06:00, release after 23:00, or night) since the last recovery. Track `lastRecovery`. A duty is illegal if `report > lastRecovery + 168 h` and no qualifying gap exists before it.
+**Recovery.** Every 168 h needs a free period of at least 36 h that includes two local nights. Simplification: 36 h free, and the gap must contain two local nights (8 h between 22:00 and 08:00 base time, EASA). `lastRecovery` moves whenever work is logged (duty or ticket), not only at duty reports. The auto-roster plans it with a 60 min delay margin (`BAL.rosterSlack`); on the day (`BAL.opsWindow`) a recovery slipped by a delay keeps the crew, flagged tight. A later duty that becomes illegal splits the trip there: the crew keep the earlier duties. It becomes 60 h when the crew flew 4 or more `disruptive` duties (report before 06:00, release after 23:00, or night) since the last recovery. Track `lastRecovery`. A duty is illegal if `report > lastRecovery + 168 h` and no qualifying gap exists before it.
 
 **Days off.** The crew detail shows days off this month against the 7-per-month guideline; v0.5 does not enforce it beyond the 6-on/2-off work blocks (§5.3) and the recovery rule.
 
@@ -945,12 +945,13 @@ Goals are checked daily and posted as a `goal` message (a toast) with reliable +
 | commandUpgrade | 42 d, $22k, 4,000 h | §5.4 |
 | fuelPrice | $750/t | §4.4 |
 | airportFees / catering per departure (we pay) | NB $3,000 / $600 · WB $8,000 / $2,400 | est. |
-| overheadBase / perAircraft | $100k / $55k a month | §4.5; bot-balanced (v0.5) |
-| cReserveCover | 0.75 | Share of a C-check already paid by maintenance reserves (not charged twice) |
-| changeRequestWeekly | 0.35 | Client change requests per contract per week |
+| overheadBase / perAircraft | $110k / $70k a month | §4.5; bot-balanced (v0.5) |
+| cReserveCover | 0.5 | Share of a C-check already paid by maintenance reserves (not charged twice) |
+| changeRequestWeekly | 0.8 | Client change requests per active contract per week (weekly cadence) |
+| rosterSlack / opsWindow | 60 min / 12 h | Auto-roster plans extended recovery with a 60 min delay margin; a delay-slipped recovery on a duty reporting within 12 h stays (tight) |
 | maintAgeFactor | +2.5% per year above 12 | §5.7 |
 | checkCost A / C | NB $45k / $1.2M · WB $110k / $3.5M | §5.7 |
-| aogBase | 0.00035 per departure (single roll) | §5.7; §5.6 here |
+| aogBase | 0.00032 per departure (single roll) | §5.7; §5.6 here |
 | delayChance | 12% | est. |
 | Per-type parameters | `data/acmiTypes.ts`: seats, range, cruise, turn, crew, rate, fuel, maintenance, rent, value, insurance, check intervals, scarcity | §7.2–7.3 |
 

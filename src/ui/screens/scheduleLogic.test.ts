@@ -57,7 +57,7 @@ describe('day pills (28 d)', () => {
 describe('axis and window', () => {
   it('ticks every 3 h at 3 d, days only at 28 d', () => {
     const t0 = 100 * DAY;
-    expect(axisTicks(t0, t0 + DAY, 3)).toHaveLength(9);
+    expect(axisTicks(t0, t0 + DAY, 3)).toHaveLength(5);
     const days = axisTicks(t0 + 5, t0 + 3 * DAY, 28);
     expect(days.every((t) => t.major)).toBe(true);
     expect(days).toHaveLength(3);

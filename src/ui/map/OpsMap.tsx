@@ -5,7 +5,7 @@
 
 import { useCallback, useMemo, useRef } from 'react';
 import { AIRPORT_BY_CODE } from '../../data/airports';
-import { fmtTime } from '../../engine/core/time';
+import { DAY, fmtTime } from '../../engine/core/time';
 import type { GameState, Ref } from '../../engine/core/types';
 import { store, useGame } from '../store';
 import { AircraftLayer, ArcsLayer, HIT_R, type LiveShared, NightLayer, newShared, PinsLayer, pinOffset } from './LiveLayers';
@@ -41,6 +41,9 @@ function FleetStrip({ g, sel }: { g: GameState; sel?: Ref }) {
   );
 }
 
+/** Whole UTC days from `now` to `t` (0 = today), shown as +1 after a time on a later day. */
+const dayOff = (now: number, t: number) => Math.floor(t / DAY) - Math.floor(now / DAY);
+
 function UpNext({ g }: { g: GameState }) {
   const list = upNext(g, 3);
   if (!list.length) return null;
@@ -49,7 +52,7 @@ function UpNext({ g }: { g: GameState }) {
       <div className="upper dim">Up next</div>
       {list.map((f) => (
         <button key={f.id} className="ops-next-row" onClick={() => f.aircraftId && store.select({ kind: 'aircraft', id: f.aircraftId })}>
-          <span className="mono">{fmtTime(f.std + f.delay)}</span>
+          <span className="mono">{fmtTime(f.std + f.delay)}{dayOff(g.now, f.std + f.delay) > 0 && <sup className="dim">+{dayOff(g.now, f.std + f.delay)}</sup>}</span>
           <b className="mono">{f.aircraftId ? g.fleet[f.aircraftId]?.reg : f.no}</b>
           <span className="mono muted">{f.from}→{f.to}</span>
         </button>

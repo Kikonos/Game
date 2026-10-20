@@ -225,6 +225,14 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     }
     // Leave room to crew it when the window allows; a tight window keeps the earliest slot.
     const from = crewFree(g, aircraftId, X, earliest);
+    // A long wait at an outstation is spent at home (home, then on to Y), not parked away for weeks.
+    const via = allowHop && X !== home ? gapMoves(typeId, X, Y, from, b.std - leadFor(g, b, turn), home, true) : null;
+    if (via?.some((l) => l.to === home)) {
+      const k = via.findIndex((l) => l.to === home) + 1;
+      add(via.slice(0, k), live(g, a.contractId) ? a.contractId : null);
+      add(via.slice(k), inId);
+      continue;
+    }
     const ch =
       chainBackward(typeId, X, Y, from, b.std - leadFor(g, b, turn)) ??
       chainBackward(typeId, X, Y, from, latest) ??

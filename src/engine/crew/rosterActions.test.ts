@@ -90,8 +90,22 @@ describe('manual roster', () => {
     expect(p.slots.length).toBe(n);
     const cpt = p.slots.find((s) => s.role === 'CPT')!.crewId!;
     expect(unassignCrew(g, d, cpt).ok).toBe(false);
+    g.company.policies.autoRoster = false;
     expect(unassignCrew(g, d, cpt, { force: true }).ok).toBe(true);
     expect(dutyLegality(g, d).warnings.some((w) => w.code === 'missing')).toBe(true);
+  });
+
+  it('refills a required seat at once with someone else when the auto-roster policy is on', () => {
+    const g = rostered();
+    g.company.policies.autoRoster = true;
+    const p = futurePairings(g)[0];
+    const d = firstDuty(p);
+    const cc = p.slots.find((s) => s.role === 'CC')!.crewId!;
+    const r = unassignCrew(g, d, cc, { force: true });
+    expect(r.ok).toBe(true);
+    const ccs = p.slots.filter((s) => s.role === 'CC');
+    expect(ccs.every((s) => s.crewId && s.crewId !== cc)).toBe(true);
+    expect(r.ok && r.msg).toMatch(/takes the CC seat/);
   });
 
   it('swaps two crew members between trips', () => {
@@ -111,6 +125,24 @@ describe('manual roster', () => {
     }
     expect(done).toBe(true);
     expect(swapCrew(g, firstDuty(ps[0]), ps[0].slots[0].crewId!, firstDuty(ps[0]), ps[0].slots[1].crewId!).ok).toBe(false);
+  });
+
+  it('swaps crew between two trips that overlap in time (each leaves the other trip)', () => {
+    const g = rostered();
+    const ps = futurePairings(g);
+    let tried = 0;
+    for (let i = 0; i < ps.length; i++) {
+      for (let j = i + 1; j < ps.length; j++) {
+        if (!(ps[i].start < ps[j].end && ps[j].start < ps[i].end)) continue;
+        const a = ps[i].slots.find((s) => s.role === 'FO')!.crewId!;
+        const b = ps[j].slots.find((s) => s.role === 'FO')!.crewId!;
+        const r = swapCrew(g, firstDuty(ps[i]), a, firstDuty(ps[j]), b);
+        tried++;
+        if (!r.ok) expect(r.error).not.toMatch(/On another/);
+        if (tried >= 4) return;
+      }
+    }
+    expect(tried).toBeGreaterThan(0);
   });
 
   it('keeps locked seats through the rolling re-plan and a save round trip', () => {

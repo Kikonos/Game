@@ -31,10 +31,16 @@ export function makeCrewMember(g: GameState, role: Role, family: RatingFamily, b
   const pilot = role === 'CPT' || role === 'FO' || role === 'CRP';
   const totalHours = role === 'CPT' ? int(g, 6_000, 15_000) : role === 'FO' ? int(g, 1_500, 5_500) : pilot ? int(g, 800, 2_500) : int(g, 500, 9_000);
   const [m0, m1] = BAL.startMorale;
+  const firsts = female ? kit.f : kit.m;
+  let first = pick(g, firsts);
+  const last = lastName(g, kit, female);
+  // No two crew share a full name: step through the first names (no extra RNG draws, so runs stay comparable).
+  const taken = new Set(Object.values(g.crew).map((c) => `${c.first} ${c.last}`));
+  for (let k = 1, i = firsts.indexOf(first); taken.has(`${first} ${last}`) && k < firsts.length; k++) first = firsts[(i + k) % firsts.length];
   return {
     id: nextId(g, 'c'),
-    first: pick(g, female ? kit.f : kit.m),
-    last: lastName(g, kit, female),
+    first,
+    last,
     nationality: nat,
     role,
     ratings: [family],

@@ -101,17 +101,19 @@ function AircraftRow({ g, r, on, onPick }: { g: GameState; r: FeasibilityReport;
   const ac = g.fleet[r.aircraftId];
   if (!ac) return null;
   const crew = crewLine(r);
+  // An aircraft that can't take the job leads with why (e.g. busy on another contract), not a positioning plan.
+  const block = r.level === 'no' ? r.checks.find((c) => c.level === 'no') : undefined;
   return (
     <div className={`sc-feas ${on ? 'on' : ''} ${r.level}`}>
       <button className="sc-feas-head" onClick={onPick} aria-expanded={on}>
         <Dot tone={LEVEL_TONE[r.level]} />
         <span className="col gap-4 grow">
           <span className="row gap-8"><b className="mono">{ac.reg}</b><span className="small muted">{typeOf(ac.typeId).short} · {ac.cabin.label}</span></span>
-          <span className="small muted ellipsis">{posLine(r)}</span>
+          {block ? <span className="small bad ellipsis">{block.label}</span> : <span className="small muted ellipsis">{posLine(r)}</span>}
           <span className={`small ${crew.tone}`}>{crew.text}</span>
         </span>
         <span className="right">
-          <b className={`num ${r.estMargin >= 0 ? 'good' : 'bad'}`}>{money(r.estMargin)}</b>
+          <b className={`num ${block ? 'dim' : r.estMargin >= 0 ? 'good' : 'bad'}`}>{money(r.estMargin)}</b>
           <span className="tiny dim">contribution</span>
         </span>
       </button>

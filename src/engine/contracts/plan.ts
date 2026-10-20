@@ -16,6 +16,8 @@ export type LegsPattern = Extract<SchedulePattern, { kind: 'legs' }>;
 export const TRIP_GAP = 48 * 60;
 /** Minimum time at home that makes a home hop worth it. */
 const HOME_HOP_MIN = 12 * 60;
+/** Moving on to another station: a wait this long is spent at home instead (shorter waits stay put). */
+const AWAY_GAP = 4 * 24 * 60;
 /** Positioning lead before a deployment (arrive the evening before) and extra slack before a charter. */
 export const DEPLOY_LEAD = 12 * 60;
 export const CHARTER_SLACK = 30;
@@ -69,10 +71,20 @@ export function chainForward(typeId: string, from: string, to: string, earliest:
 
 /**
  * The empty legs that link X (free from `earliest`) to Y (needed by `latest`): a direct chain, nothing when X = Y,
- * or a hop home and back when the aircraft would otherwise idle ≥ TRIP_GAP at an outstation. null: cannot make it.
+ * or (allowHop) a hop home and on to Y when the aircraft would otherwise idle ≥ AWAY_GAP at an outstation.
+ * null: cannot make it.
  */
 export function gapMoves(typeId: string, X: string, Y: string, earliest: Minute, latest: Minute, home: string, allowHop: boolean): ChainLeg[] | null {
-  if (X !== Y) return chainBackward(typeId, X, Y, earliest, latest);
+  if (X !== Y) {
+    // A long wait away from base is spent at home: back to base at once, then out to Y as late as possible.
+    if (allowHop && X !== home && latest - earliest >= AWAY_GAP) {
+      const out = chainForward(typeId, X, home, earliest);
+      if (out?.length && Y === home && out[out.length - 1].sta <= latest) return out;
+      const back = Y === home ? null : chainBackward(typeId, home, Y, earliest, latest);
+      if (out?.length && back?.length && out[out.length - 1].sta + HOME_HOP_MIN <= back[0].std) return [...out, ...back];
+    }
+    return chainBackward(typeId, X, Y, earliest, latest);
+  }
   if (!allowHop || X === home || latest - earliest < TRIP_GAP) return [];
   const out = chainForward(typeId, X, home, earliest);
   const back = chainBackward(typeId, home, Y, earliest, latest);

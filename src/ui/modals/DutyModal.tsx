@@ -226,9 +226,11 @@ export function DutyModal({ id }: { id: string }) {
                 <Seat s={s} busy={busy} later={later} onChange={() => setPick({ seat: s, role: s.role })} onRemove={() => remove(s)} onUnlock={() => s.crewId && store.act((gg) => unlockCrew(gg, v.dutyId, s.crewId!), { toastOk: false })} />
                 {forceOff && forceOff === s.crewId && (
                   <div className="sc-force row gap-8">
-                    <span className="small bad grow">The {s.role} seat is required. Leave it empty? Auto-roster refills it if the policy is on; otherwise the flight is flagged red.</span>
+                    <span className="small bad grow">{g.company.policies.autoRoster
+                      ? `The ${s.role} seat is required. Take ${s.name ?? 'them'} off? The auto-roster puts someone else in the seat; if nobody legal is free it stays empty and the flight is flagged red.`
+                      : `The ${s.role} seat is required. Leave it empty? The flight is flagged red until you fill it.`}</span>
                     <button className="btn" onClick={() => setForceOff(null)}>Keep</button>
-                    <button className="btn btn-danger" onClick={() => remove(s)}>Leave empty</button>
+                    <button className="btn btn-danger" onClick={() => remove(s)}>{g.company.policies.autoRoster ? 'Take off' : 'Leave empty'}</button>
                   </div>
                 )}
               </div>

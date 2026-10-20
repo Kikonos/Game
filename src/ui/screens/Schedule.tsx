@@ -14,7 +14,7 @@ import { liveMinute, store, useGame } from '../store';
 import { Dot, ScreenHead, useRenderCount } from './common';
 import { contractColor } from './palette';
 import {
-  axisTicks, chooseHits, idleAt, pickBlocks, ppmOf, rowBlocks, timelineSpan, visibleWindow, ZOOM_PX_H, type GanttBlock, type ZoomDays,
+  axisTicks, chooseHits, idleAt, pickBlocks, ppmOf, rowBlocks, timelineSpan, visibleWindow, type GanttBlock, type ZoomDays,
 } from './scheduleLogic';
 
 const ZOOMS: ZoomDays[] = [3, 7, 28];
@@ -110,8 +110,12 @@ export function ScheduleScreen() {
   useRenderCount('schedule');
   const g = useGame();
   const [zoom, setZoomState] = useState<ZoomDays>(loadZoom);
-  const ppm = ppmOf(zoom);
   const scroller = useRef<HTMLDivElement>(null);
+  // The preset is what fits the visible width: "7 days" shows a week on any screen.
+  const [viewW, setViewW] = useState(0);
+  const ppm = viewW > 0 ? viewW / (zoom * DAY) : ppmOf(zoom);
+  const ppmRef = useRef(ppm);
+  ppmRef.current = ppm;
   const rev = flightsRev(g);
   const day = Math.floor(g.now / DAY);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -136,13 +140,35 @@ export function ScheduleScreen() {
     syncWin();
   };
 
-  // First layout: today (or the deep-linked time in nav.view) near the left edge; the selected aircraft's row into view.
+  // Measure the view (before paint); a resize keeps the time at the centre.
   useLayoutEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    setViewW(el.clientWidth);
+    const ro = new ResizeObserver(() => {
+      const w = el.clientWidth;
+      setViewW((cur) => {
+        if (cur === w || !w) return cur;
+        if (cur > 0 && pending.current === null) pending.current = from + (el.scrollLeft + el.clientWidth / 2) / ppmRef.current;
+        return w;
+      });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // First layout once measured: today (or the deep-linked time in nav.view) near the left edge; the selected aircraft's row into view.
+  const placed = useRef(false);
+  useLayoutEffect(() => {
+    if (placed.current || viewW <= 0) return;
+    placed.current = true;
+    pending.current = null;
     const at = Number(store.nav.view);
     scrollTo(Number.isFinite(at) && at > 0 ? at : g.now);
     if (sel) document.querySelector(`.gantt-row[data-ac="${sel}"]`)?.scrollIntoView({ block: 'nearest' });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [viewW]);
 
   // Zoom keeps the time at the centre of the view.
   const setZoom = (z: ZoomDays) => {
@@ -160,7 +186,7 @@ export function ScheduleScreen() {
     scrollTo(pending.current, 0.5);
     pending.current = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [zoom]);
+  }, [ppm]);
 
   // Pinch (two fingers) and ctrl/⌘ + wheel step through the zoom presets.
   useEffect(() => {
@@ -200,7 +226,7 @@ export function ScheduleScreen() {
       el.removeEventListener('wheel', wheel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [zoom, from]);
+  }, [zoom, from, ppm]);
 
   const base = g.company.homeBase;
   const off = localOffset(base, g.now) / 60;
@@ -235,7 +261,7 @@ export function ScheduleScreen() {
           ))}
         </div>
         <div className="gantt-scroll" ref={scroller} onScroll={syncWin}>
-          <div className={`gantt-track z${zoom}`} style={{ width, ['--day-px' as string]: `${ZOOM_PX_H[zoom] * 24}px` }}>
+          <div className={`gantt-track z${zoom}`} style={{ width, ['--day-px' as string]: `${(ppm * DAY).toFixed(2)}px` }}>
             <div className="gantt-axis">
               {ticks.map((t) => (
                 <span key={t.t} className={`gt ${t.major ? 'major' : ''}`} style={{ transform: `translateX(${((t.t - from) * ppm).toFixed(1)}px)` }}>{t.label}</span>

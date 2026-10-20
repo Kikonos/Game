@@ -44,9 +44,9 @@ function statusIssues(c: CrewMember, from: number, to: number, family: string): 
 /**
  * Plans crew c onto pairing p's open duties. `base` is c's timeline without p. With `existing`, uses the tickets
  * already bought for c (re-check of an assignment); otherwise plans new ones. `slack`: the auto-roster's planning
- * margin (TimelineCtx.slack).
+ * margin (TimelineCtx.slack). `leaving`: a pairing c leaves in the same change (swap).
  */
-export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], existing = false, slack = 0): CrewPlan {
+export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], existing = false, slack = 0, leaving?: string): CrewPlan {
   const duties = openDuties(g, p);
   if (!duties.length) return { level: 'legal', issues: [], out: null, home: null, segs: [] };
   const first = duties[0];
@@ -75,7 +75,7 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
   }
   const segs: Seg[] = [];
   for (const d of duties) segs.push(...dutySegs(g, c, p, d, d === first ? out : null, d === last ? home : null, true));
-  const other = otherTrip(g, c, p, segs[0].start, segs[segs.length - 1].end, existing);
+  const other = otherTrip(g, c, p, segs[0].start, segs[segs.length - 1].end, existing, leaving);
   if (other) issues.push({ code: 'overlap', level: 'illegal', text: `On another ${other.tour ? 'tour' : 'trip'} until ${fmtDay(other.end)}`, dutyId: first.id });
   issues.push(...statusIssues(c, segs[0].start, segs[segs.length - 1].end, typeOf(typeIdOf(g, p)).family));
   const ftl = evalSegs({ ...ctxOf(g, c), slack }, merge(base, segs));
@@ -92,11 +92,12 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
 /**
  * Another trip or tour of c whose open duties overlap [from, to): one complement flies one pairing at a time
  * (interleaving two tours would send the crew home at the end of one while the other still needs them).
- * With `existing` (re-check of a held seat) only an earlier pairing counts.
+ * With `existing` (re-check of a held seat) only an earlier pairing counts. `leaving`: a pairing c is being
+ * swapped off (manual swap), which no longer counts.
  */
-export function otherTrip(g: GameState, c: CrewMember, p: Pairing, from: Minute, to: Minute, existing: boolean): Pairing | null {
+export function otherTrip(g: GameState, c: CrewMember, p: Pairing, from: Minute, to: Minute, existing: boolean, leaving?: string): Pairing | null {
   for (const q of crewIx(g).pairingsOf.get(c.id) ?? []) {
-    if (q.id === p.id || q.status === 'done' || q.status === 'broken') continue;
+    if (q.id === p.id || q.id === leaving || q.status === 'done' || q.status === 'broken') continue;
     // Re-checking a held seat: only the earlier pairing wins (the later one is flagged and re-rostered).
     if (existing && (q.start > p.start || (q.start === p.start && q.id > p.id))) continue;
     const open = openDuties(g, q);
