@@ -1,9 +1,11 @@
 name: CI
 
+# Work-in-progress branches are pushed as backups mid-change, so only the
+# release branches and pull requests are checked.
 on:
   pull_request:
   push:
-    branches-ignore: [main]
+    branches: [main, claude/contrail-airline-game]
 
 jobs:
   check:
