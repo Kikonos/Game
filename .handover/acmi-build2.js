@@ -80,23 +80,23 @@ const INTEGRATE2 = (reports) => INTEGRATE(reports).replace('4. Update README.md 
 
 phase('Build')
 const reports = await parallel([
-  ...BUILDERS.map((b) => () => agent(builder(b), { label: `acmi:${b.key}`, phase: 'Build' })),
-  () => agent(NAMES, { label: 'acmi:real-names', phase: 'Build' }),
+  ...BUILDERS.map((b) => () => agent(builder(b), { label: `acmi:${b.key}`, phase: 'Build', ...(b.key === 'B5' ? { model: 'sonnet', effort: 'medium' } : { model: 'opus', effort: 'high' }) })),
+  () => agent(NAMES, { label: 'acmi:real-names', phase: 'Build', model: 'sonnet', effort: 'medium' }),
 ])
 const rep = `See ${SCRATCH}/reports-b124.md for B1, B2 and B4.\n\n` + BUILDERS.map((b, i) => `## ${b.key} ${b.title}\n${reports[i] ?? '(builder failed — inspect its files and finish them)'}`).join('\n\n') + `\n\n## Real names\n${reports[2] ?? '(failed — finish replacing fictional names)'}`
 phase('Integrate')
-const integ = await agent(INTEGRATE2(rep), { label: 'acmi:integrate', phase: 'Integrate' })
+const integ = await agent(INTEGRATE2(rep), { label: 'acmi:integrate', phase: 'Integrate', model: 'opus', effort: 'high' })
 phase('Review')
 const [g, q] = await parallel([
-  () => agent(GAMEPLAY(integ ?? '(integration failed)'), { label: 'acmi:review:gameplay', phase: 'Review', schema: FINDINGS }),
-  () => agent(QA(integ ?? '(integration failed)'), { label: 'acmi:review:qa', phase: 'Review', schema: FINDINGS }),
+  () => agent(GAMEPLAY(integ ?? '(integration failed)'), { label: 'acmi:review:gameplay', phase: 'Review', schema: FINDINGS, model: 'opus', effort: 'high' }),
+  () => agent(QA(integ ?? '(integration failed)'), { label: 'acmi:review:qa', phase: 'Review', schema: FINDINGS, model: 'opus', effort: 'high' }),
 ])
 const all = [...(g ? g.findings : []), ...(q ? q.findings : [])]
 log(`${all.length} findings (${all.filter((f) => f.severity === 'high').length} high)`)
 const fmt = (fs) => fs.map((f, i) => `${i + 1}. [${f.severity}] ${f.problem}\n   evidence: ${f.evidence ?? '-'}\n   fix: ${f.fix}`).join('\n')
 phase('Fix')
 const fixes = await parallel([
-  () => (all.some((f) => f.area === 'engine') ? agent(FIX('engine', 5631, fmt(all.filter((f) => f.area === 'engine'))), { label: 'acmi:fix:engine', phase: 'Fix' }) : Promise.resolve('no findings')),
-  () => (all.some((f) => f.area === 'ui') ? agent(FIX('ui', 5632, fmt(all.filter((f) => f.area === 'ui'))), { label: 'acmi:fix:ui', phase: 'Fix' }) : Promise.resolve('no findings')),
+  () => (all.some((f) => f.area === 'engine') ? agent(FIX('engine', 5631, fmt(all.filter((f) => f.area === 'engine'))), { label: 'acmi:fix:engine', phase: 'Fix', model: 'opus', effort: 'high' }) : Promise.resolve('no findings')),
+  () => (all.some((f) => f.area === 'ui') ? agent(FIX('ui', 5632, fmt(all.filter((f) => f.area === 'ui'))), { label: 'acmi:fix:ui', phase: 'Fix', model: 'sonnet', effort: 'medium' }) : Promise.resolve('no findings')),
 ])
 return { integ, gameplay: g ? g.summary : null, qa: q ? q.summary : null, findings: all.length, fixes }
