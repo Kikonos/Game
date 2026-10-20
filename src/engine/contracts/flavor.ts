@@ -43,8 +43,8 @@ export const RESORTS_NB = ['TFS', 'LPA', 'FNC', 'SID', 'AYT', 'HER', 'PMI', 'FUE
 export const RESORTS_WB = ['CUN', 'VRA', 'PUJ', 'MBJ'];
 
 /** Season-base client hubs (DESIGN §5.1.2) and long-haul ones for widebody bases. */
-export const BASE_HUBS_NB = ['HAM', 'DUS', 'DUB', 'ARN', 'ZAG', 'SPU', 'RIX', 'CMN', 'AMM'];
-export const BASE_HUBS_WB = ['AMM', 'GRU', 'JNB', 'YYZ', 'SGN', 'DSS', 'LIM', 'BSB'];
+export const BASE_HUBS_NB = ['HAM', 'DUS', 'DUB', 'ARN', 'ZAG', 'WAW', 'FRA', 'LIS', 'RIX', 'CMN', 'AMM', 'RUH'];
+export const BASE_HUBS_WB = ['AMM', 'JED', 'GRU', 'JNB', 'YYZ', 'SGN', 'DSS', 'LIM', 'BSB', 'LAD'];
 
 export const CRISIS_AIRPORTS = ['KBL', 'BKO', 'JUB', 'MGQ', 'BGF', 'GOM', 'LAD', 'OXB', 'TMS', 'DIL', 'BEY', 'ADA'];
 export const MISSION_AIRPORTS = ['BKO', 'BGF', 'MGQ', 'JUB', 'DJI'];

@@ -4,7 +4,7 @@
 
 import LZString from 'lz-string';
 import { typeOf } from '../src/engine/core/perf';
-import { DAY, WEEK, fmtMonth, monthKey } from '../src/engine/core/time';
+import { DAY, WEEK, fmtMonth, monthKey, toDate } from '../src/engine/core/time';
 import { statementTotals } from '../src/engine/core/ledger';
 import type { GameState, Role } from '../src/engine/core/types';
 import { acceptOffer, feasibilityAll } from '../src/engine/contracts';
@@ -41,10 +41,19 @@ function decide(): void {
   }
 }
 
-/** Best workable report: ok/warn with a positive margin; a crew shortfall is fine if hires join before it bites. */
+/**
+ * Best workable report: ok/warn with a positive margin; a crew shortfall is fine if hires join before it bites.
+ * Bigger jobs first; thin multi-week series (under 3 BH per day of span) are passed over so the calendar stays
+ * open for season bases, and small jobs are only taken inside the next 21 days.
+ */
 function offers(): void {
-  for (const o of Object.values(g.offers)) {
-    if (o.status !== 'open' || o.start < g.now) continue;
+  const open = Object.values(g.offers)
+    .filter((o) => o.status === 'open' && o.start >= g.now)
+    .sort((a, b) => b.estValue - a.estValue);
+  for (const o of open) {
+    const span = Math.max(1, (o.end - o.start) / DAY);
+    if (span > 10 && o.estBH / span < 3) continue;
+    if (o.estBH < 120 && o.start > g.now + 21 * DAY) continue;
     const best = feasibilityAll(g, o.id).find((r) => {
       if ((r.level !== 'ok' && r.level !== 'warn') || r.estMargin <= 0) return false;
       const crew = r.checks.find((c) => c.id === 'crew');
@@ -71,14 +80,23 @@ function hire(): void {
   }
 }
 
+/** C-checks: booked once warned (≤ 90 days), in the first free window long enough (winter preferred). */
 function checks(): void {
   for (const ac of Object.values(g.fleet)) {
     if (ac.status === 'delivering') continue;
     const st = checkStatus(g, ac);
-    if (st.nextC || st.cDue - g.now > 60 * DAY) continue;
-    const need = typeOf(ac.typeId).cCheckDays * DAY + DAY;
-    const gap = groundGaps(g, ac, g.now + DAY, st.cDue).find((x) => x.to - x.from >= need);
-    if (gap && scheduleCheck(g, ac.id, 'C', gap.from + 120, g.company.homeBase).ok) act();
+    if (st.nextC || st.cDue - g.now > 90 * DAY) continue;
+    const t = typeOf(ac.typeId);
+    const need = t.cCheckDays * DAY + DAY;
+    const gaps = groundGaps(g, ac, g.now + DAY, st.cDue + 20 * DAY).filter((x) => x.to - x.from >= need);
+    const winter = gaps.find((x) => [10, 11, 0, 1, 2].includes(toDate(x.from).getUTCMonth()));
+    for (const gap of winter ? [winter, ...gaps] : gaps) {
+      const lead = gap.at === g.company.homeBase ? 120 : 120 + t.turnMin + 6 * 60;
+      if (scheduleCheck(g, ac.id, 'C', gap.from + lead, g.company.homeBase).ok) {
+        act();
+        break;
+      }
+    }
   }
 }
 

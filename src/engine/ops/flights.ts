@@ -363,14 +363,17 @@ function crewProblem(g: GameState, f: Flight, ac: Aircraft): void {
     rerosterFrom(g, ac.id, g.now);
     if (!crewBlocked(g, f)) return holdFlight(g, f, 5);
   }
-  // Empty legs need no decision: they wait for a crew (a standby set can deadhead in), then give up.
+  // Empty legs need no decision: they wait for a crew (a standby set deadheads in; re-rostered against the new
+  // time), and give up only after a day (contracts would re-plan the same leg straight away).
   if (!isRevenue(f)) {
-    if ((f.crewTries ?? 0) >= 2) {
+    const tries = (f.crewTries ?? 0) + 1;
+    if (tries > 4 && delayOf(f) > DAY) {
       cancelLegs(g, [f], 'No crew for the empty leg', 0);
       return;
     }
-    f.crewTries = (f.crewTries ?? 0) + 1;
-    delayChain(g, f, crewReadyAt(g, f, ac), 'Waiting for crew');
+    f.crewTries = tries;
+    delayChain(g, f, Math.max(crewReadyAt(g, f, ac), g.now + tries * 120), 'Waiting for crew');
+    rerosterFrom(g, ac.id, g.now);
     return;
   }
   if (hasOpenDecision(g, 'crewShort', f.id) || f.delay < BAL.crewWaitMin) return holdFlight(g, f, 30);

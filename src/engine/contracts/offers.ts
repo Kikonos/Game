@@ -17,7 +17,7 @@ import type {
 } from '../core/types';
 import { acceptOffer, askingPrice, closeOffer, setPrice } from './accept';
 import { feasibility } from './feasibility';
-import { clientPrefix, clientsOf, isGovernment, isMarineCrewing, isSpecialist, ministry } from './clients';
+import { clientPrefix, clientsOf, isDiaspora, isGovernment, isMarineCrewing, isPilgrim, isSpecialist, ministry } from './clients';
 import * as F from './flavor';
 import { anchorsOf, computeWaves, localToUTC, programmeOf, route, routeMinutes } from './plan';
 import { defaultSeats, isWetArchetype, priceProduct, productValue, referenceType } from './pricing';
@@ -335,7 +335,7 @@ function adhoc(ctx: Ctx): Draft | null {
   const maxBack = Math.min(7, roomDays(ctx, s ?? 0) - 1);
   if (s === null) return null;
   if (variant === 'diaspora') {
-    client = clientsOf(g, ['agency'], (c) => c.name === 'Lusofonia Viagens')[0];
+    client = clientsOf(g, ['agency'], isDiaspora)[0];
     const dest = o.airport ?? pick(g, F.DIASPORA.filter((c) => AIRPORT_BY_CODE[c]));
     if (!client) return null;
     const back = Math.min(int(g, 4, 7), maxBack);
@@ -344,7 +344,7 @@ function adhoc(ctx: Ctx): Draft | null {
     title = `Diaspora charter ${client.base}–${dest}`;
     blurb = `${client.name} has a full load of families flying home to ${city(dest)} for a festival, with heavy bags. Out ${fmtDay(legs[0].dep)}, back ${back} days later.`;
   } else if (variant === 'pilgrimage') {
-    client = clientsOf(g, ['agency'], (c) => c.name === 'Peregrinos de Fátima')[0];
+    client = clientsOf(g, ['agency'], isPilgrim)[0];
     if (!client) return null;
     const origins = ['WAW', 'KRK', 'DUB', 'MXP', 'BUD', 'VIE', 'MUC', 'LYS', 'BRU'].filter((c) => AIRPORT_BY_CODE[c]);
     const from = o.airport ?? pick(g, origins);

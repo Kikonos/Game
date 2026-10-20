@@ -1,4 +1,4 @@
-// Fictional clients and rivals from the naming kit (B1).
+// Real clients and rivals from the naming kit (B1).
 
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { CLIENT_SEEDS, CLIENT_SEEDS_B1, RIVALS, RIVALS_B1, type ClientSeed } from '../../data/naming';
@@ -18,7 +18,7 @@ function behaviour(s: ClientSeed): Pick<Client, 'payReliability' | 'lateDays' | 
     case 'government':
       return { payReliability: 0.35, lateDays: [20, 75], cleanSensitivity: 0.4 };
     case 'agency':
-      return s.name.includes('Organisation') || s.name.includes('Coalition')
+      return s.role === 'aid'
         ? { payReliability: 0.5, lateDays: [15, 60], cleanSensitivity: 0.8 }
         : { payReliability: 0.8, lateDays: [5, 25], cleanSensitivity: 0.4 };
     case 'sports':
@@ -31,6 +31,9 @@ function behaviour(s: ClientSeed): Pick<Client, 'payReliability' | 'lateDays' | 
       return { payReliability: 0.85, lateDays: [5, 20], cleanSensitivity: 0.5 };
   }
 }
+
+const ROLE_BY_NAME: Record<string, ClientSeed['role']> = {};
+for (const s of [...CLIENT_SEEDS, ...CLIENT_SEEDS_B1]) if (s.role) ROLE_BY_NAME[s.name] = s.role;
 
 /** Seeds g.clients at new game (skips seeds whose base airport is unknown). */
 export function seedClients(g: GameState): void {
@@ -64,11 +67,12 @@ export function clientsOf(g: GameState, kinds: ClientKind[], pred: (c: Client) =
 /** The home country's ministry ('Foreign Affairs' or 'Defence'), falling back to any. */
 export function ministry(g: GameState, which: 'Foreign Affairs' | 'Defence'): Client | undefined {
   const country = AIRPORT_BY_CODE[g.company.homeBase]?.country;
-  const all = clientsOf(g, ['government'], (c) => c.name.startsWith(`Ministry of ${which}`));
+  const role = which === 'Defence' ? 'defence' : 'foreign';
+  const all = clientsOf(g, ['government'], (c) => ROLE_BY_NAME[c.name] === role);
   return all.find((c) => c.country === country) ?? all[0];
 }
 
-/** Two-letter flight-number prefix from a client name ('Hanse Holiday Air' → 'HH', 'NordicBlue' → 'NB'). */
+/** Two-letter flight-number prefix from a client name ('Eurowings' → 'EU', 'Air Canada' → 'AC'). */
 export function clientPrefix(name: string): string {
   const words = name.replace(/[^A-Za-zÀ-ÿ ]/g, ' ').split(/\s+/).filter(Boolean);
   if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
@@ -78,8 +82,9 @@ export function clientPrefix(name: string): string {
 }
 
 /** Single-purpose agencies: only their own kind of job (pilgrimages, diaspora, cruise crews, aid). */
-const SPECIALISTS = ['Peregrinos de Fátima', 'Lusofonia Viagens', 'Mareterra Crew Logistics', 'Harbourline Crew Travel', 'International Migration Relief Organisation', 'Global Health Airbridge Coalition'];
-export const isSpecialist = (c: Client) => SPECIALISTS.includes(c.name);
-export const isMarineCrewing = (c: Client) => c.name.endsWith('Crew Logistics') || c.name.endsWith('Crew Travel');
+export const isSpecialist = (c: Client) => !!ROLE_BY_NAME[c.name] && c.kind === 'agency';
+export const isMarineCrewing = (c: Client) => ROLE_BY_NAME[c.name] === 'marine';
+export const isDiaspora = (c: Client) => ROLE_BY_NAME[c.name] === 'diaspora';
+export const isPilgrim = (c: Client) => ROLE_BY_NAME[c.name] === 'pilgrim';
 
-export const isGovernment = (c: Client | undefined) => c?.kind === 'government' || (c?.kind === 'agency' && (c.name.includes('Organisation') || c.name.includes('Coalition')));
+export const isGovernment = (c: Client | undefined) => c?.kind === 'government' || (c?.kind === 'agency' && ROLE_BY_NAME[c.name] === 'aid');
