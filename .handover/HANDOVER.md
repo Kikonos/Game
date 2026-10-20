@@ -177,3 +177,5 @@ If an agent fails on a limit, its file edits persist (checkpoint them). Resume t
   6. Fleet & positioning planner — proposes positioning/ferry plans and tech stops (unlock: first widebody).
   7. Custom alert & auto-pause rules (unlock: reputation "Reliable").
   Each costs salary, has a skill level that can make mistakes, can be overridden, and never removes the big decisions.
+
+### 20:32Z — check-in: build in Fix phase (engine+map lanes, then ui+content); checkpoint pushed.
