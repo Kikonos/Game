@@ -8,7 +8,7 @@ export interface AircraftType {
   id: string;
   name: string;
   short: string;
-  manufacturer: 'Airbus' | 'Boeing' | 'Embraer' | 'ATR' | 'De Havilland' | 'Bombardier' | 'COMAC' | 'Boom';
+  manufacturer: 'Airbus' | 'Boeing' | 'Embraer' | 'ATR' | 'De Havilland' | 'Bombardier' | 'COMAC' | 'Aérospatiale/BAC';
   family: string;
   body: BodyType;
   /** Typical two-class seat count quoted by the manufacturer. */
@@ -330,12 +330,12 @@ export const AIRCRAFT: AircraftType[] = [
     fact: 'The world’s largest passenger jet. Its wing area is bigger than an NBA basketball court — twice over.',
   },
   {
-    id: 'overture', name: 'Boom Overture', short: 'OVTR', manufacturer: 'Boom', family: 'Overture', body: 'supersonic',
-    typicalSeats: 64, maxSeats: 80, cabinLength: 640, yAbreast: 4, yAbreastMax: 4, rangeKm: 7870, speedKmh: 1800,
-    fuelBurn: 9.5, price: 200 * M, eis: 2030, availableFrom: 2030, inProduction: true, mtow: 77, cargoT: 0.5,
-    turnMin: 60, maintHour: 3200, pilotRate: 1300, lengthM: 61, spanM: 32, engines: 'wing4', leadMonths: 18,
-    generation: 'new', minLevel: 8,
-    fact: 'Mach 1.7 over water: New York to London in about 3½ hours. The return of supersonic travel?',
+    id: 'concorde', name: 'Concorde', short: 'CONC', manufacturer: 'Aérospatiale/BAC', family: 'Concorde', body: 'supersonic',
+    typicalSeats: 100, maxSeats: 128, cabinLength: 1000, yAbreast: 4, yAbreastMax: 4, rangeKm: 7223, speedKmh: 2158,
+    fuelBurn: 9.5, price: 200 * M, eis: 1976, availableFrom: 1976, inProduction: false, mtow: 185, cargoT: 1,
+    turnMin: 60, maintHour: 4500, pilotRate: 1500, lengthM: 61.66, spanM: 25.6, engines: 'wing4', leadMonths: 0,
+    generation: 'legacy', minLevel: 8,
+    fact: 'Mach 2 at 60,000 ft: London to New York in about 3½ hours, landing “before” take-off by the clock. Retired in 2003 — a rare heritage jet now.',
   },
 ];
 

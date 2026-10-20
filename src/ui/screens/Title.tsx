@@ -63,10 +63,10 @@ export function Title() {
       <div className="title-content">
         <div className="title-left">
           <div className="row gap-16 title-brand">
-            <LogoMark size={64} />
+            <LogoMark size={104} />
             <div>
-              <h1 className="title-word">CONTRAIL</h1>
-              <div className="title-tag">ACMI · WET LEASE · CHARTER</div>
+              <h1 className="title-word">BLOCK<br />HOURS</h1>
+              <div className="title-tag">ACMI &amp; CHARTER</div>
             </div>
           </div>
           <p className="title-pitch">
@@ -109,7 +109,7 @@ export function Title() {
               <h3>{t.name}</h3>
             </div>
             <div className="showcase-art">
-              <AircraftArt typeId={t.id} livery={{ primary: '#1e4fd8', secondary: '#3ee6ff', tail: 'sweep' }} code="CT" name="Contrail" />
+              <AircraftArt typeId={t.id} livery={{ primary: '#1e4fd8', secondary: '#3ee6ff', tail: 'sweep' }} code="BH" name="Block Hours" />
             </div>
             <div className="showcase-specs">
               <div><span className="dim small">Seats</span><b>{t.typicalSeats}–{t.maxSeats}</b></div>
