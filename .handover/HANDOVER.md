@@ -125,3 +125,8 @@ If an agent fails on a limit, its file edits persist (checkpoint them). Resume t
 ### 2026-10-20T07:33Z — hourly check-in
 - Art fix reviewed and committed on brand (e5c3f17, pushed): nose-right, no gear, family noses/windows. Step 4 done.
 - wf_83610710-0e6 running (Assess agent since 07:27). Checkpoint run. Nothing for the user yet.
+
+### 2026-10-20 07:50Z — art redo by tracing (user: "still way off")
+- User wants the EXACT profiles (nose + cockpit windows) of the aircraft in their reference photos (scratchpad/brand/userref/: airbus-boeing-comparison.jpg nose-right photos A318…A380; airbus-family.jpg nose-left low-res A350-1000/A380/A330-200/A320neo; concorde-ba-profile.jpg nose-left clean drawing) and Overture replaced by Concorde with exactly that drawing's shape (game livery, not BA's).
+- Launched **wf_2d49f509-f34** (task wrm6ct9is, script `.handover/art-trace.js`, live copy scratchpad/brand/art-trace.js) on the brand worktree: 4 trace agents ∥ renderer (traced-profile data contract in src/ui/components/aircraft/traced/) → apply per spec file + Concorde → measure (IoU + sheet) → fix lanes, ≤ 3 rounds → finish (gallery shots in scratchpad/brand/final/). All Fable.
+- Resume if it dies: Workflow({scriptPath: "<scratchpad>/brand/art-trace.js", resumeFromRunId: "wf_2d49f509-f34"}). When done: look at scratchpad/brand/final/compare-sheet.png, commit on brand, send the sheet to the user. The brand merge into acmi before release must include this.
