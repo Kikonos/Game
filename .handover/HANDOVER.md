@@ -121,3 +121,7 @@ If an agent fails on a limit, its file edits persist (checkpoint them). Resume t
 - Resume if it dies: `Workflow({scriptPath: "<scratchpad>/acmi/acmi-build3.js", resumeFromRunId: "wf_83610710-0e6"})`. If the scratchpad is gone, restore the script from `.handover/acmi-build3.js` (it hardcodes the scratchpad path — adjust SCRATCH).
 - Art agent a981d213055d715af (Fable) still running on `brand`: gear removed, noses/windows per family from the user's reference photos, and NEW: all aircraft art nose-RIGHT (map icons rotate to heading, unchanged). Commit on `brand` when done, then merge into `acmi` before release (keep brand's Logo/Title/Loading/icons/manifest/art).
 - Release v0.5 after the workflow reports ready: merge brand → tsc/vitest/build → quick iPad shots + play → `rm -rf play && cp -r dist play` → commit (Fable trailer) → ff claude/contrail-airline-game + main → verify https://kikonos.github.io/Game/ → tell the user.
+
+### 2026-10-20T07:33Z — hourly check-in
+- Art fix reviewed and committed on brand (e5c3f17, pushed): nose-right, no gear, family noses/windows. Step 4 done.
+- wf_83610710-0e6 running (Assess agent since 07:27). Checkpoint run. Nothing for the user yet.
