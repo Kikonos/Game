@@ -168,7 +168,7 @@ If an agent fails on a limit, its file edits persist (checkpoint them). Resume t
 ## Player preferences (2026-10-20 evening) — apply everywhere
 - **Time zone:** the player is in Dubai (GST, UTC+4). Give every time and estimate to the player in local Dubai time (e.g. "around 05:00 Dubai time"), not UTC.
 - **Invented events:** wanted for real airlines, operators, governments, countries and cities (incidents, coups, disasters, strikes, scandals, defaults...). The game uses fictional people for individuals; don't attach invented crimes to real, named private individuals (player asked to drop this limit too; declined because the site is public — see chat).
-- **v0.6 headline = unlockable automation** (player request): the player wants to struggle at first and EARN automation through work. Design in docs/acmi/AUTOMATION.md (to write before v0.6). Draft tiers sent to the player:
+- **Unlockable automation — PARKED for a future update** (player: "sounds good, discuss further later, save it for future updates"; do NOT build until discussed again): the player wants to struggle at first and EARN automation through work. Design in docs/acmi/AUTOMATION.md (to write before v0.6). Draft tiers sent to the player:
   1. Ops Control duty manager — handles routine delays/sick-crew call-ins with the player's default rules (unlock: 25 sectors flown with no illegal duty).
   2. Maintenance planner — auto-books A-checks into maintenance nights (unlock: first C-check completed on time).
   3. Crew scheduling desk — auto-repairs the roster after disruptions, standby pool (unlock: 2 months with ≥ 98% crew coverage).
