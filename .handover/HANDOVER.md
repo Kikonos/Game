@@ -187,3 +187,15 @@ If an agent fails on a limit, its file edits persist (checkpoint them). Resume t
 - NEXT: when the fix agent reports → commit acmi → merge brand (resolve as above) → tsc/vitest/build → iPad shots + short play → rm -rf play && cp -r dist play on claude/contrail-airline-game → push + main → verify https://kikonos.github.io/Game/ → tell the user (Dubai time).
 
 ### 21:33Z — check-in: both workflows finished; crew-legality fix agent running in acmi; checkpoint pushed.
+
+## OVERNIGHT PLAN (player asleep from ~01:40 Dubai, 2026-10-21; checks back in the morning)
+Player said: build overnight; if a usage limit hits, save and continue when possible. Message them only with results (Dubai time).
+1. **Release v0.5** as soon as the crew-legality fix agent (Opus high, in /home/user/wt/acmi) reports: commit → merge brand (conflicts: core/types.ts take acmi; components/Logo.tsx take brand) → tsc/vitest/build → iPad shots + short play → play/ on claude/contrail-airline-game + main → verify live URL.
+2. **v0.5.1 "Livery & polish" update** (workflow scratchpad/acmi/livery.js, Opus high), built on the merged acmi branch after the v0.5 release, then released as v0.5.1:
+   a. **Bug:** tail letters in the livery customiser sometimes float outside the fin → clip everything to the fin/fuselage.
+   b. **Letter colours** (tail code + titles), choose freely.
+   c. **Drag letters/titles anywhere on the aircraft** (fuselage and fin) like a sticker: anything outside the airframe is clipped automatically; nothing ever floats outside the aircraft. Touch-friendly on iPad.
+   d. **~15 generic airline-style logos** designed by us (original, not real airline marks) for the tail/fuselage, colourable.
+   e. **Per-aircraft liveries:** each aircraft can have its own livery, the company livery, or plain all-white.
+   f. **Client liveries on contracts:** clients (esp. long-term ACMI/wet-lease and multi-month deals) may request the aircraft be painted in their livery; the offer shows it (who pays, paint downtime ~days in a paint shop, cost/bonus, repaint back at the end or white), the aircraft shows the client livery on the map/fleet/schedule during the contract. Player can accept/decline the paint request (affects the deal).
+   g. **Visual consistency pass** over every screen and modal at 1180×750 and 1180×820 (spacing, fonts, colours, alignment, icon sizes, empty states, aircraft art use) and fix everything found.
