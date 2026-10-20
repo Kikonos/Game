@@ -262,6 +262,12 @@ export function onFlightDep(g: GameState, ev: SimEvent): void {
   if (!f || f.ev !== ev.v || f.status !== 'scheduled' || !f.aircraftId) return;
   const ac = g.fleet[f.aircraftId];
   if (!ac) return;
+  // Loop guard: other modules re-plan empty legs on every flight change; never spin at one instant.
+  if (spinning(g, ac.id)) return quietHold(g, f, 30);
+  // 0. Sequence: an earlier leg from where the aircraft is (held for crew or a decision) goes first.
+  const here = ac.flightId ? g.flights[ac.flightId]?.to : ac.at;
+  const prior = flightsOf(g, ac.id).find((x) => x !== f && x.status === 'scheduled' && x.from === here && (x.std < f.std || (x.std === f.std && x.sta < f.sta)));
+  if (prior && f.from === here) return isRevenue(f) ? holdFlight(g, f, 30) : quietHold(g, f, 30);
   // 1. Aircraft readiness.
   if (ac.status === 'aog' || ac.status === 'maintenance' || ac.status === 'delivering' || ac.flightId || ac.at !== f.from) {
     notReady(g, f, ac);
@@ -330,8 +336,33 @@ export function crewBlocked(g: GameState, f: Flight): boolean {
   return !d || d.legality === 'illegal';
 }
 
+/** Re-queues a departure without touching the schedule (no revision bump, so nobody re-plans around it). */
+function quietHold(g: GameState, f: Flight, min: number): void {
+  f.delay += min;
+  schedule(g, g.now + min, 'flight.dep', f.id, f.ev);
+}
+
+const spin = new WeakMap<GameState, { t: Minute; ac: string; n: number }>();
+/** More than 12 departure attempts for one aircraft at one minute: something keeps re-planning its legs. */
+function spinning(g: GameState, acId: string): boolean {
+  const s = spin.get(g);
+  if (!s || s.t !== g.now || s.ac !== acId) {
+    spin.set(g, { t: g.now, ac: acId, n: 1 });
+    return false;
+  }
+  return ++s.n > 12;
+}
+
 /** Aircraft not ready: wait for the running flight, the check or the AOG fix; hold while a decision is open. */
 function notReady(g: GameState, f: Flight, ac: Aircraft): void {
+  // An empty leg from an airport the aircraft is not heading to: contracts re-plans empty legs on every flight
+  // change, so wait quietly (no retime, no revision bump) and drop it after a day.
+  const cur = ac.flightId ? g.flights[ac.flightId] : undefined;
+  if (!isRevenue(f)) {
+    if ((cur ? cur.to : ac.at) !== f.from && f.delay >= DAY) return void cancelLegs(g, [f], 'Aircraft out of position', 0);
+    const ready = cur ? (cur.eta ?? cur.sta) + turnOf(ac) : ac.maintId ? (g.maintenance[ac.maintId]?.end ?? g.now) + 30 : g.now + 30;
+    return quietHold(g, f, Math.max(15, Math.min(120, ready - g.now)));
+  }
   if (ac.status === 'aog' || ac.status === 'maintenance') {
     const m = ac.maintId ? g.maintenance[ac.maintId] : undefined;
     if (ac.status === 'aog' && hasOpenDecision(g, 'aog', ac.id)) return holdFlight(g, f, 30);
