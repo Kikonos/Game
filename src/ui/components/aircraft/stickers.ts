@@ -394,7 +394,7 @@ export function placeAt(typeId: string, st: StickerPlacement, X: number, Y: numb
   return { ...st, side, x: r(x), y: r(y) };
 }
 
-/** Snap lines (viewBox): fin inset centre and mid-height; title band centre line and window line; airframe centre. */
+/** Snap lines (viewBox): fin inset centre and fin mid-point; fuselage title band line, window line and mid-length. */
 export function snapTargets(typeId: string, side: StickerSide): { x: number[]; y: number[] } {
   const f = framesOf(typeId);
   const { g } = f;
@@ -405,5 +405,5 @@ export function snapTargets(typeId: string, side: StickerSide): { x: number[]; y
   }
   const y = [-g.titles.y];
   if (f.winY !== undefined) y.push(-f.winY);
-  return { x: [-(g.titles.x), -g.L / 2], y };
+  return { x: [-g.L / 2], y };
 }

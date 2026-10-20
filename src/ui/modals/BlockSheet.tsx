@@ -1,7 +1,7 @@
 // Schedule detail sheet (B5): the flight(s) or maintenance near a Gantt tap, or an idle gap.
 // Flight: times UTC/local, crew and legality, contract link. Maintenance: reschedule / cancel.
 
-import { CalendarClock, ChevronLeft, Clock, FileSignature, Handshake, Lock, Search, Trash2, Users, Wrench } from 'lucide-react';
+import { CalendarClock, ChevronLeft, Clock, FileSignature, Handshake, Lock, Palette, Search, Trash2, Users, Wrench } from 'lucide-react';
 import { useState } from 'react';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { BAL } from '../../engine/core/balance';
@@ -13,7 +13,7 @@ import { Modal, Stepper } from '../components/ui';
 import { money } from '../format';
 import { Dot, KV } from '../screens/common';
 import { contractColor } from '../screens/palette';
-import { durLabel } from '../screens/scheduleLogic';
+import { durLabel, paintLabel } from '../screens/scheduleLogic';
 import { store, useGame } from '../store';
 
 const KIND: Record<Flight['kind'], string> = { revenue: 'Revenue', positioning: 'Positioning (empty)', ferry: 'Ferry', techstop: 'Revenue with fuel stop', deadhead: 'Deadhead' };
@@ -99,7 +99,40 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
   );
 }
 
+/** Paint-shop visit: client, what is painted, dates, cost and who pays; no Reschedule (tied to the contract). */
+function PaintDetail({ g, m }: { g: GameState; m: MaintenanceEvent }) {
+  const ac = g.fleet[m.aircraftId];
+  const c = m.paint ? g.contracts[m.paint.contractId] : undefined;
+  const t = c?.paint;
+  const client = c ? g.clients[c.clientId]?.name ?? 'Client' : 'Client';
+  const out = m.paint?.phase === 'out';
+  const what = out ? (t?.kind === 'decals' ? `Decals off, back to ${g.company.name} colours` : `Repaint in ${g.company.name} colours`) : t?.kind === 'decals' ? `${client} titles and logo on white (decals)` : `Full repaint in ${client} colours`;
+  // The client pays its share of the strip only for a contract that ran its course.
+  const share = !t ? 0 : out && c?.status !== 'completed' ? (c?.status === 'cancelled' ? 0 : t.clientShare) : t.clientShare;
+  const pays = share >= 1 ? `${client} pays all of it` : share > 0 ? `${client} pays ${Math.round(share * 100)}% (${money(m.cost * share)})` : out && c?.status === 'cancelled' ? 'At our cost (we cancelled)' : 'At our cost';
+  return (
+    <div className="col gap-12">
+      <KV rows={[
+        ['Aircraft', ac?.reg ?? '—'],
+        ['Work', what],
+        ['Paint shop', `${m.at} · ${AIRPORT_BY_CODE[m.at]?.city ?? ''}`],
+        ['From', `${fmtDateTime(m.start)} UTC`],
+        ['To', `${fmtDateTime(m.end)} UTC (${durLabel(m.end - m.start)})`],
+        ['Cost', `${money(m.cost)} · ${pays}${out && c?.status === 'active' ? ' when the contract completes' : ''}`],
+        ['Status', m.status === 'inWork' ? 'In the paint shop' : m.status[0].toUpperCase() + m.status.slice(1)],
+      ]} />
+      {c && (
+        <button className="btn sc-link" style={{ ['--kc' as string]: contractColor(c.color) }} onClick={() => store.navigate('contracts', { view: 'active', sel: { kind: 'contract', id: c.id } })}>
+          <span className="sc-kdot" /><FileSignature /> <span className="ellipsis">{c.title}</span>
+        </button>
+      )}
+      <div className="small muted">Paint is part of the contract: it moves only if the contract is cancelled.</div>
+    </div>
+  );
+}
+
 function MaintDetail({ g, m }: { g: GameState; m: MaintenanceEvent }) {
+  if (m.kind === 'paint') return <PaintDetail g={g} m={m} />;
   const ac = g.fleet[m.aircraftId];
   const canEdit = m.status === 'planned' && (m.kind === 'A' || m.kind === 'C');
   return (
@@ -129,7 +162,7 @@ function titleOf(g: GameState, r: Ref): string {
     return f ? `${f.no} ${f.from} → ${f.to}` : 'Flight';
   }
   const m = g.maintenance[r.id];
-  return m ? (m.kind === 'AOG' ? `AOG repair at ${m.at}` : `${m.kind}-check at ${m.at}`) : 'Maintenance';
+  return m ? (m.kind === 'AOG' ? `AOG repair at ${m.at}` : m.kind === 'paint' ? `${paintLabel(g, m)} at ${m.at}` : `${m.kind}-check at ${m.at}`) : 'Maintenance';
 }
 
 export function BlockSheet({ refs, idle }: { refs: Ref[]; idle?: { aircraftId: string; from: number; to: number; at: string } }) {
@@ -152,7 +185,7 @@ export function BlockSheet({ refs, idle }: { refs: Ref[]; idle?: { aircraftId: s
     const f = cur.kind === 'flight' ? g.flights[cur.id] : undefined;
     const m = cur.kind === 'maint' ? g.maintenance[cur.id] : undefined;
     return (
-      <Modal title={titleOf(g, cur)} icon={m ? <Wrench className="accent" /> : undefined} onClose={close} footer={live.length > 1 ? <button className="btn btn-ghost" onClick={() => setOpen(null)}><ChevronLeft /> All {live.length}</button> : undefined}>
+      <Modal title={titleOf(g, cur)} icon={m ? (m.kind === 'paint' ? <Palette className="accent" /> : <Wrench className="accent" />) : undefined} onClose={close} footer={live.length > 1 ? <button className="btn btn-ghost" onClick={() => setOpen(null)}><ChevronLeft /> All {live.length}</button> : undefined}>
         {f && <FlightDetail g={g} f={f} />}
         {m && <MaintDetail g={g} m={m} />}
       </Modal>

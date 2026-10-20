@@ -9,10 +9,10 @@ import { memo, useId, type Ref } from 'react';
 import { artFor } from '../../../data/acmiTypes';
 import type { Livery } from '../../../engine/core/types';
 import { FONT_STACK } from './fontMetrics';
-import { geometry, type Geometry } from './geometry';
+import { geometry, pathPoly, type Geometry } from './geometry';
 import { LogoGlyph } from './logos';
 import { PROFILE_BY_ID } from './specs';
-import { stickerLayout, type StickerBox } from './stickers';
+import { boxCorners, inPoly, stickerLayout, type StickerBox } from './stickers';
 import { tracedFor } from './traced/load';
 import type { TracedProfile } from './traced/types';
 import type { AircraftProfile } from './types';
@@ -152,6 +152,30 @@ export function autoBodyInk(lv: Livery): string {
   return contrast(lv.primary, '#ffffff') >= 1.6 ? lv.primary : contrast(lv.secondary, '#ffffff') >= 1.6 ? lv.secondary : INK;
 }
 
+/** Fin lettering on the scheme's second-colour area (split / stripe bands): primary, else white / ink. */
+function inkOnSecondary(lv: Livery): string {
+  return contrast(lv.primary, lv.secondary) >= 2.2 ? lv.primary : lum(lv.secondary) < 0.4 ? '#ffffff' : INK;
+}
+
+const finAreas = new Map<string, ReturnType<typeof pathPoly>[]>();
+/** Is a viewBox point on the scheme's second-colour fin area? */
+function onFinSecondary(d: string, X: number, Y: number): boolean {
+  if (!d) return false;
+  let polys = finAreas.get(d);
+  if (!polys) finAreas.set(d, (polys = d.split(/(?=M)/).filter(Boolean).map((s) => pathPoly(s))));
+  return polys.some((q) => inPoly(q, [-X, -Y]));
+}
+
+/** Auto ink for fin lettering: against the fin colour, the second-colour area, or both when it straddles the divide. */
+function finTextInk(lv: Livery, finArea: string, b: StickerBox): string {
+  const pts = [[b.cx, b.cy] as const, ...boxCorners(b)];
+  const on = pts.map(([x, y]) => onFinSecondary(finArea, x, y));
+  if (!on.some(Boolean)) return autoFinInk(lv);
+  if (on.every(Boolean)) return inkOnSecondary(lv);
+  const score = (c: string) => Math.min(contrast(c, lv.primary), contrast(c, lv.secondary));
+  return [lv.secondary, lv.primary, '#ffffff', INK].reduce((a, c) => (score(c) > score(a) + 0.01 ? c : a));
+}
+
 /** Background a sticker sits on (for contrast warnings): the fin colour or the white fuselage. */
 export function stickerGround(lv: Livery, side: 'fin' | 'fuselage'): string {
   return side === 'fin' && !lv.plain ? lv.primary : '#ffffff';
@@ -219,7 +243,7 @@ function AircraftArtImpl({ typeId, livery, code, name, className, height, detail
           x={Math.round(((b.spacing ?? 0) * fs * 1000) / 2) / 1000}
           y={Math.round((b.baseline ?? 0) * 1000) / 1000}
           fontSize={Math.round(fs * 1000) / 1000}
-          fill={t?.color ?? (b.side === 'fin' ? finInk : bodyInk)}
+          fill={t?.color ?? (b.side !== 'fin' ? bodyInk : plain ? finInk : finTextInk(livery, lv.fin, b))}
           textAnchor="middle"
           style={{ fontFamily: FONT_STACK, fontWeight: b.weight ?? 700, letterSpacing: `${b.spacing ?? 0}em` }}
         >
@@ -409,9 +433,9 @@ function AircraftArtImpl({ typeId, livery, code, name, className, height, detail
       )}
       </g>
       {guides && (
-        <g pointerEvents="none" stroke={SELECT} strokeWidth={1} style={ns} opacity={0.85}>
-          {guides.x?.map((x) => <line key={`x${x}`} x1={f(x)} x2={f(x)} y1={f(vb.y)} y2={f(vb.y + vb.h)} />)}
-          {guides.y?.map((y) => <line key={`y${y}`} y1={f(y)} y2={f(y)} x1={f(vb.x)} x2={f(vb.x + vb.w)} />)}
+        <g pointerEvents="none" stroke={SELECT} strokeWidth={1} opacity={0.85}>
+          {guides.x?.map((x) => <line key={`x${x}`} x1={f(x)} x2={f(x)} y1={f(vb.y)} y2={f(vb.y + vb.h)} style={ns} />)}
+          {guides.y?.map((y) => <line key={`y${y}`} y1={f(y)} y2={f(y)} x1={f(vb.x)} x2={f(vb.x + vb.w)} style={ns} />)}
         </g>
       )}
     </svg>

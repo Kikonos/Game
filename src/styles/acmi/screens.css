@@ -302,3 +302,40 @@
 /* Bars driven by game time (check, FTL, MGH progress) re-render every game hour: no width tween,
    which at 4× would keep them creeping (and laying out) all the time. */
 .shell.acmi .bar > span { transition: none; }
+
+/* ---------- v0.5.1 liveries (UI lane): editor sheet, livery rows, paint terms ---------- */
+.modal.lv-modal { height: calc(var(--vv-h, 100dvh) - var(--vp-safe-t) - var(--vp-safe-b) - 32px); }
+.lv-modal .modal-head { padding-top: 10px; padding-bottom: 8px; }
+.touch .lv-modal .modal-head { min-height: 56px; }
+.lv-modal .modal-body { overflow: hidden; display: flex; flex-direction: column; padding-bottom: 16px; }
+.lv-modal .lv-editor { flex: 1 1 auto; height: auto; }
+.lv-foot-note { margin-right: auto; align-self: center; font-size: 12.5px; color: var(--text-3); min-width: 0; }
+.acmi-ng .ng-livery .livery-stage { position: relative; }
+.ng-edit-livery { position: absolute; top: 4px; right: 4px; }
+/* Paint blocks: hatched in the client primary (strip: ours), maintenance height. */
+.gb-maint.gb-paint {
+  background: repeating-linear-gradient(45deg, var(--pc, #8a96b3) 0 5px, color-mix(in srgb, var(--pc, #8a96b3) 55%, #1b2436) 5px 10px);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28); color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+.gl-paint { background: repeating-linear-gradient(45deg, #c2410c 0 4px, #7c2d12 4px 8px); }
+.gantt-ac-reg { min-width: 0; }
+.gantt-ac-reg svg { flex-shrink: 0; }
+/* Fleet card livery row */
+.sc-ac-livery { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.sc-ac-livery .upper { margin-right: auto; }
+.sc-ac-livery.locked { flex-wrap: nowrap; }
+.sc-ac-livery.locked .grow { min-width: 0; }
+/* Company livery card */
+.sc-livery-art { height: 92px; display: grid; place-items: center; margin-bottom: 8px; }
+.sc-livery-art svg { width: 100%; height: 100%; }
+.op-livery { text-align: center; margin: -4px 0 6px; }
+/* Offer modal: client paint request */
+.sc-paint-card { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: var(--r); background: var(--panel-2); border: 1px solid var(--border); }
+.sc-paint-card.required { border-color: rgba(251, 191, 36, 0.35); }
+.sc-paint-art { height: 72px; display: grid; place-items: center; border-radius: 10px; background: radial-gradient(120% 90% at 50% 30%, #7d9bd0 0%, #5b7bb3 60%, #4a679b 100%); padding: 4px 10px; }
+.sc-paint-art svg { width: 100%; height: 100%; }
+.sc-paint-toggle { padding: 6px 0 0; border-top: 1px solid var(--border); }
+.lv-modal .lv-foot-note { flex: 1 0 100%; margin: 0 0 2px; }
+/* Actions always in the last column, so rows with and without the MGH bar line up. */
+.sc-contract > .sc-contract-actions { grid-column: -2; }
+.lv-modal .lv-preview figcaption { font-size: 12px; }

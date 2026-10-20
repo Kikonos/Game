@@ -276,6 +276,8 @@ function seasonBase(ctx: Ctx): Draft | null {
     pattern: { kind: 'base', base, dests, from, to, targetBH, waves, prefix: clientPrefix(client.name), maintEvery: 7 },
     req, start: from, end: to,
     expiresIn: range(g, 4, 8) * DAY,
+    // Four months and more: half the long-term discount (RESEARCH §4.2; multi-year deals get all of it).
+    mult: days >= 120 ? 1 + BAL.premium.longTerm / 2 : undefined,
     effects: { reliable: 2 },
     risk: { disruption: 0.2, politics: 0, permit: client.payReliability < 0.8 ? 0.15 : 0 },
     hook: hookFor(ctx),
@@ -844,7 +846,7 @@ export function onOfferReply(g: GameState, ev: SimEvent): void {
     o.status = 'open';
     const res = acceptOffer(g, o.id, o.counter.aircraftIds ?? [], { paint: !noPaint, priced: true });
     if (res.ok) {
-      pushMessage(g, { tone: 'good', cat: 'commercial', title: `Counter accepted: ${o.title}`, body: `${client} agreed to ${fmtPrice(o.product)}. The contract is signed.`, ref: { kind: 'contract', id: res.data!.contractId } });
+      pushMessage(g, { tone: 'good', cat: 'commercial', title: `Counter accepted: ${o.title}`, body: `${client} agreed to ${fmtPrice(o.product)}${noPaint ? ', without their colours on the aircraft' : ''}. The contract is signed.`, ref: { kind: 'contract', id: res.data!.contractId } });
     } else {
       closeOffer(g, o, 'lost', rivalName(g, o));
       pushMessage(g, { tone: 'warn', cat: 'commercial', title: `Deal fell through: ${o.title}`, body: `${client} accepted, but we can no longer fly it (${res.error}). ${o.lostTo} stepped in.`, ref: { kind: 'offer', id: o.id } });

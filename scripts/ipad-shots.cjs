@@ -20,7 +20,10 @@
  *   --screens      comma list (default all), in this order: New Game → Ops Map → every tab → modals:
  *                    loading,title,newgame,map,map-aircraft,map-airport,map-offer,contracts,contracts-active,
  *                    contracts-missed,offer-modal,schedule,schedule-28d,block-sheet,duty-modal,crew,hire,
- *                    fleet,check-modal,finance,company,inbox,decision,subcharter,menu,settings,saves
+ *                    fleet,check-modal,finance,company,inbox,decision,subcharter,menu,settings,saves,
+ *                  v0.5.1 liveries (run last: they sign a paint contract and play days forward):
+ *                    newgame-livery,livery-company,livery-aircraft,offer-paint,offer-paint-optional,
+ *                    schedule-paint,paint-sheet,map-painted,fleet-painted
  *   --save         an exported save (.blockhours.json) to load for the in-game screens; without it the harness
  *                  starts a new game from the New Game screen (--base, default LIS) and plays --days
  *                  game days (default 40) with __contrail.dev.autoplay so every screen has real data
@@ -44,8 +47,9 @@ const ALL = [
   'loading', 'title', 'newgame', 'map', 'map-aircraft', 'map-airport', 'map-offer', 'contracts', 'contracts-active',
   'contracts-missed', 'offer-modal', 'schedule', 'schedule-28d', 'block-sheet', 'duty-modal', 'crew', 'hire',
   'fleet', 'check-modal', 'finance', 'company', 'inbox', 'decision', 'subcharter', 'menu', 'settings', 'saves',
+  'newgame-livery', 'livery-company', 'livery-aircraft', 'offer-paint', 'offer-paint-optional', 'schedule-paint', 'paint-sheet', 'map-painted', 'fleet-painted',
 ];
-const PRE_GAME = new Set(['loading', 'title', 'newgame']);
+const PRE_GAME = new Set(['loading', 'title', 'newgame', 'newgame-livery']);
 const VIEWS = {
   safari: { width: 1180, height: 750 },
   landscape: { width: 1180, height: 820 },
@@ -392,6 +396,81 @@ const ACTIONS = {
   settings: (page) => modal(page, { kind: 'settings' }),
   saves: (page) => modal(page, { kind: 'saves', mode: 'save' }),
 };
+
+/** v0.5.1: a booked client paint-in (signs a forced paint offer once); returns the maintenance id. */
+async function ensurePaintBooked(page) {
+  const find = () => page.evaluate(() => Object.values(window.__contrail.game.maintenance).find((m) => m.kind === 'paint' && m.status !== 'cancelled' && m.paint && m.paint.phase === 'in')?.id);
+  let id = await find();
+  if (!id) {
+    await page.evaluate(() => window.__contrail.dev.paintJob('full', 60));
+    id = await find();
+  }
+  if (!id) throw new Error('SKIP no aircraft free for a paint job');
+  await quiet(page);
+  return id;
+}
+
+/** v0.5.1: an aircraft flying in client colours (plays days forward until a paint-in ends); returns its id. */
+async function ensurePainted(page) {
+  const find = () => page.evaluate(() => Object.values(window.__contrail.game.fleet).find((a) => a.paintedFor)?.id);
+  let id = await find();
+  if (!id) await ensurePaintBooked(page);
+  for (let i = 0; !id && i < 16; i++) {
+    await page.evaluate(() => window.__contrail.dev.autoplay(4));
+    id = await find();
+  }
+  if (!id) throw new Error('SKIP no aircraft in client colours yet');
+  await quiet(page);
+  return id;
+}
+
+Object.assign(ACTIONS, {
+  'newgame-livery': async (page, _s, d) => {
+    await newGame(page, d);
+    started = false;
+    await press(page, page.getByRole('button', { name: /Customise livery/ }), d);
+    await settle(page, 600);
+  },
+  'livery-company': async (page) => { await nav(page, 'company'); await modal(page, { kind: 'livery', target: 'company' }); },
+  'livery-aircraft': async (page, _s, d) => {
+    const id = await pick(page, () => { const g = window.__contrail.game; return Object.values(g.fleet).find((a) => !a.paintedFor && !Object.values(g.maintenance).some((m) => m.aircraftId === a.id && m.kind === 'paint' && (m.status === 'planned' || m.status === 'inWork')))?.id; });
+    if (!id) throw new Error('SKIP every aircraft is in client paint');
+    await nav(page, 'fleet');
+    await modal(page, { kind: 'livery', target: { aircraftId: id } });
+    await press(page, page.locator('.lv-refbar button', { hasText: 'Custom' }), d);
+    await settle(page, 400);
+  },
+  'offer-paint': async (page) => {
+    await nav(page, 'contracts', { view: 'market' });
+    await page.evaluate(() => window.__contrail.dev.paintOffer('full', true));
+    await settle(page, 700);
+  },
+  'offer-paint-optional': async (page, _s, d) => {
+    await nav(page, 'contracts', { view: 'market' });
+    await page.evaluate(() => window.__contrail.dev.paintOffer('decals', false));
+    await settle(page, 500);
+    await press(page, page.locator('.sc-paint-toggle .toggle'), d);
+    await settle(page, 500);
+  },
+  'schedule-paint': async (page) => {
+    const id = await ensurePaintBooked(page);
+    const m = await page.evaluate((x) => window.__contrail.game.maintenance[x], id);
+    await nav(page, 'schedule', { sel: { kind: 'aircraft', id: m.aircraftId }, view: String(m.start - 24 * 60) });
+  },
+  'paint-sheet': async (page) => {
+    const id = await ensurePaintBooked(page);
+    await nav(page, 'schedule');
+    await modal(page, { kind: 'sheet', refs: [{ kind: 'maint', id }] });
+  },
+  'map-painted': async (page) => {
+    const id = await ensurePainted(page);
+    await nav(page, 'map', { sel: { kind: 'aircraft', id } });
+  },
+  'fleet-painted': async (page) => {
+    const id = await ensurePainted(page);
+    await nav(page, 'fleet', { sel: { kind: 'aircraft', id } });
+  },
+});
 
 async function scrollNext(page) {
   return page.evaluate(() => {

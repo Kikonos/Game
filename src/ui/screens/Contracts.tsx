@@ -1,7 +1,7 @@
 // Contracts (B5): Market (offer cards, urgent first), Active (MGH progress, next flight, crew problems,
 // cancel with penalty) and Missed. DESIGN.md §6.3.
 
-import { AlertTriangle, CalendarRange, CircleSlash, FileSearch, Handshake, Inbox as InboxIcon, Users } from 'lucide-react';
+import { AlertTriangle, CalendarRange, CircleSlash, FileSearch, Handshake, Inbox as InboxIcon, Palette, Users } from 'lucide-react';
 import { useMemo } from 'react';
 import { flag } from '../../data/countries';
 import { cancelContract, cancelCost, contractProgress, idleWindows, type IdleWindow, leadDays } from '../../engine/contracts';
@@ -22,7 +22,8 @@ function OfferCard({ g, o, windows }: { g: GameState; o: ContractOffer; windows:
   const cl = g.clients[o.clientId];
   const lead = leadDays(g, o.start);
   const countered = o.status === 'countered';
-  const chips = [...reqChips(o.requirements), ...riskChips(o.risk)];
+  const paint = o.paint ? [{ label: `Their livery${o.paint.required ? ' · required' : ''}`, tone: o.paint.required ? ('warn' as const) : undefined, tip: o.paint.kind === 'full' ? 'Full repaint in the client colours for the contract' : 'Client titles and logo on a white aircraft' }] : [];
+  const chips = [...paint, ...reqChips(o.requirements), ...riskChips(o.risk)];
   return (
     <button className={`card sc-offer ${o.urgency}`} onClick={() => store.openModal({ kind: 'offer', offerId: o.id })}>
       <div className="row between sc-offer-top">
@@ -78,6 +79,15 @@ function confirmCancel(g: GameState, c: Contract) {
   });
 }
 
+/** 'CS-TLI in Saudia colours' / 'Paint shop 3 May' for a contract with client paint. */
+function paintLine(g: GameState, c: Contract): string {
+  const client = g.clients[c.clientId]?.name ?? 'client';
+  const painted = c.aircraftIds.filter((id) => g.fleet[id]?.paintedFor === c.id).map((id) => g.fleet[id].reg);
+  if (painted.length) return `${painted.join(' + ')} in ${client} colours`;
+  const m = Object.values(c.paint?.inMx ?? {}).map((id) => g.maintenance[id]).find((x) => x && (x.status === 'planned' || x.status === 'inWork'));
+  return m ? `${c.paint!.kind === 'full' ? 'Repaint' : 'Decals'} in ${client} colours: paint shop ${m.at} ${fmtDay(m.start)}` : `${client} livery agreed`;
+}
+
 function ContractRow({ g, c, sel }: { g: GameState; c: Contract; sel: boolean }) {
   const p = contractProgress(g, c.id);
   const cl = g.clients[c.clientId];
@@ -95,6 +105,7 @@ function ContractRow({ g, c, sel }: { g: GameState; c: Contract; sel: boolean })
           <span className={`badge ${c.status === 'active' ? 'good' : c.status === 'cancelled' ? 'bad' : ''}`}>{STATUS_LABEL[c.status]}</span>
         </div>
         <div className="small muted ellipsis">{cl?.name ?? 'Client'} · <span className="mono">{regs}</span> · {fmtDay(c.start)} – {fmtDay(c.end)} · {productLine(c.product)}</div>
+        {c.paint?.accepted && open && <div className="small muted ellipsis row gap-4"><Palette className="sc-ico-s" />{paintLine(g, c)}</div>}
         {open && (
           <div className="row gap-16 small sc-contract-facts">
             <span>{p.legsDone}/{p.legsTotal} legs</span>

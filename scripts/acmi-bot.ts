@@ -203,7 +203,8 @@ function wideMonth(rent: number, typeId: string, seats: number): number {
 /**
  * Signed when the deposit, three months of the widebody's fixed costs (crew included) and a $1.5M cushion are in the bank, only
  * while the last three months were profitable and a widebody base of 75+ days worth $2.5M+ starts far enough out for delivery
- * and crew hiring; that job is then taken as soon as the aircraft can fly it.
+ * and crew hiring (but within 75 days of delivery, so the new aircraft isn't parked for months); that job is then taken as
+ * soon as the aircraft can fly it.
  */
 function fleet(g: GameState, t: Tally): void {
   if (Object.values(g.fleet).some((a) => typeOf(a.typeId).body === 'wide')) return;
@@ -216,7 +217,7 @@ function fleet(g: GameState, t: Tally): void {
     if (g.company.cash < o.deposit + 3 * wideMonth(o.rentPerMonth, o.typeId, o.cabin.total) + 1_500_000) continue;
     t.wideReadyAt ??= g.now;
     const job = Object.values(g.offers).find(
-      (x) => x.status === 'open' && x.estValue >= 2_500_000 && x.product.kind === 'wet' && x.end - x.start >= 75 * DAY && x.start > g.now + (o.leadDays + 30) * DAY && (x.requirements.body === 'wide' || x.requirements.minSeats > 220) &&
+      (x) => x.status === 'open' && x.estValue >= 2_500_000 && x.product.kind === 'wet' && x.end - x.start >= 75 * DAY && x.start > g.now + (o.leadDays + 30) * DAY && x.start < g.now + (o.leadDays + 75) * DAY && (x.requirements.body === 'wide' || x.requirements.minSeats > 220) &&
         o.cabin.total >= x.requirements.minSeats && (!x.requirements.families?.length || x.requirements.families.includes(typeOf(o.typeId).family)),
     );
     if (!earning || !job) continue;

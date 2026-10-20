@@ -9,7 +9,9 @@ import { flightsRev } from '../../engine/core/entities';
 import { typeOf } from '../../engine/core/perf';
 import { DAY, localOffset } from '../../engine/core/time';
 import type { Aircraft, GameState } from '../../engine/core/types';
+import { TailBadge } from '../components/Logo';
 import { Empty, Seg } from '../components/ui';
+import { liveryOf } from '../../engine/ops';
 import { liveMinute, store, useGame } from '../store';
 import { Dot, ScreenHead, useRenderCount } from './common';
 import { contractColor } from './palette';
@@ -44,8 +46,8 @@ function Block({ b, from, ppm, win0 }: { b: GanttBlock; from: number; ppm: numbe
   const shift = b.kind === 'idle' ? Math.min(Math.max(0, (win0 + 18 * 60 - b.start) * ppm), Math.max(0, w - 90)) : 0;
   return (
     <div
-      className={`gb gb-${b.kind}${b.done ? ' done' : ''}${b.crew ? ` crew-${b.crew}` : ''}`}
-      style={{ transform: `translateX(${x.toFixed(1)}px)`, width: w, ['--kc' as string]: k }}
+      className={`gb gb-${b.kind}${b.paint ? ' gb-paint' : ''}${b.done ? ' done' : ''}${b.crew ? ` crew-${b.crew}` : ''}`}
+      style={{ transform: `translateX(${x.toFixed(1)}px)`, width: w, ['--kc' as string]: k, ['--pc' as string]: b.paint }}
     >
       {text && <span style={shift ? { marginLeft: shift } : undefined}>{text}</span>}
     </div>
@@ -94,6 +96,12 @@ function TodayLine({ from, ppm }: { from: number; ppm: number }) {
 
 const LEGEND_MAX = 6;
 
+/** The fin the aircraft wears now (client colours during a painted contract). */
+function AcBadge({ g, ac }: { g: GameState; ac: Aircraft }) {
+  const lv = liveryOf(g, ac);
+  return <TailBadge primary={lv.livery.primary} secondary={lv.livery.secondary} code={lv.code} livery={lv.livery} size={20} />;
+}
+
 /** Contracts with flights in the visible window (by first flight), so every block colour on screen has a key. */
 function Legend({ g, win }: { g: GameState; win: [number, number] }) {
   const first = new Map<string, number>();
@@ -103,6 +111,7 @@ function Legend({ g, win }: { g: GameState; win: [number, number] }) {
   }
   const list = [...first.keys()].map((id) => g.contracts[id]).filter((c) => !!c).sort((a, b) => first.get(a.id)! - first.get(b.id)!);
   const more = list.length - LEGEND_MAX;
+  const paint = Object.values(g.maintenance).some((m) => m.kind === 'paint' && m.status !== 'cancelled' && m.start < win[1] && m.end > win[0]);
   return (
     <div className="gantt-legend small muted">
       {list.slice(0, more > 0 ? LEGEND_MAX - 1 : LEGEND_MAX).map((c) => (
@@ -111,6 +120,7 @@ function Legend({ g, win }: { g: GameState; win: [number, number] }) {
       {more > 0 && <span className="gl-item" title={list.slice(LEGEND_MAX - 1).map((c) => c.title).join(' · ')}>+{more + 1} more</span>}
       <span className="gl-item"><span className="gl-sw gl-pos" />positioning</span>
       <span className="gl-item"><span className="gl-sw gl-maint" />maintenance</span>
+      {paint && <span className="gl-item"><span className="gl-sw gl-paint" />paint shop</span>}
       <span className="gl-item"><span className="gl-sw gl-idle" />idle 12 h+</span>
       <span className="gl-item"><span className="gl-sw gl-crew" />crew problem</span>
     </div>
@@ -276,7 +286,7 @@ export function ScheduleScreen() {
           <div className="gantt-corner tiny dim">{fleet.length} aircraft</div>
           {fleet.map((ac) => (
             <button key={ac.id} className={`gantt-ac ${sel === ac.id ? 'sel' : ''}`} onClick={() => store.navigate('fleet', { sel: { kind: 'aircraft', id: ac.id } })}>
-              <b className="mono">{ac.reg}</b>
+              <span className="row gap-8 gantt-ac-reg"><AcBadge g={g} ac={ac} /><b className="mono">{ac.reg}</b></span>
               <span className="tiny muted ellipsis">{typeOf(ac.typeId).short} · {ac.cabin.label}</span>
               <span className="tiny ellipsis row gap-4"><Dot tone={STATUS_TONE[ac.status]} />{ac.at} · {STATUS_LABEL[ac.status]}</span>
             </button>

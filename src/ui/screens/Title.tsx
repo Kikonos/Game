@@ -2,6 +2,7 @@ import { Download, FolderOpen, Play, Plus, Settings, Wifi, WifiOff } from 'lucid
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { AIRCRAFT_BY_ID } from '../../data/aircraft';
 import { AIRPORTS } from '../../data/airports';
+import { BRAND_LIVERY } from '../../data/livery';
 import { latestSave, loadFromSlot } from '../../engine/save';
 import { AircraftArt } from '../components/AircraftArt';
 import { LogoMark } from '../components/Logo';
@@ -109,7 +110,7 @@ export function Title() {
               <h3>{t.name}</h3>
             </div>
             <div className="showcase-art">
-              <AircraftArt typeId={t.id} livery={{ primary: '#1e4fd8', secondary: '#3ee6ff', tail: 'sweep' }} code="BH" name="Block Hours" />
+              <AircraftArt typeId={t.id} livery={BRAND_LIVERY} code="BH" name="Block Hours" />
             </div>
             <div className="showcase-specs">
               <div><span className="dim small">Seats</span><b>{t.typicalSeats}–{t.maxSeats}</b></div>

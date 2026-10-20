@@ -2,11 +2,11 @@
 // pure read APIs and compact saves (DESIGN.md §3.3, §4.1–4.2, §7.2).
 
 import { describe, expect, it } from 'vitest';
-import { acceptOffer, cancelCost, cancelPenalty, contractProgress, feasibility, feasibilityAll, generateOffer, marketFit, productValue } from '../contracts';
+import { acceptOffer, cancelCost, cancelPenalty, contractProgress, feasibility, feasibilityAll, generateOffer, marketFit, paintQuote, paintWindow, productValue } from '../contracts';
 import { checkAssignment, crewAvailability, crewIssuesFor, crewWindows, daysOffInMonth, dutyCandidates, dutyCrew, dutyLegality, flightCrewStatus, hireQuote, rosterOf, staffing } from '../crew';
 import { demoFlights } from '../dev';
 import { createGame } from '../newGame';
-import { aogChance, APPROVALS, approvalBlocker, cashForecast, checkStatus, fixedCosts, GOALS, groundGaps, monthProfit, rotationOf, subcharterable, subcharterQuote } from '../ops';
+import { aogChance, APPROVALS, approvalBlocker, cashForecast, checkStatus, fixedCosts, GOALS, groundGaps, liveryOf, monthProfit, paintStatus, rotationOf, subcharterable, subcharterQuote } from '../ops';
 import { deserialize, serialize } from '../save';
 import { advanceTo } from '../sim';
 import { addDeadhead, flightsOf, reassignFlights, retimeFlight, subcharterFlights, takeFlightChanges } from './entities';
@@ -75,6 +75,8 @@ describe('determinism of read APIs', () => {
     const g = newGame();
     demoFlights(g, undefined, 3);
     for (const a of ['seasonBase', 'adhoc', 'repatriation'] as Archetype[]) generateOffer(g, a);
+    // v0.5.1: an offer with client paint (feasibility with and without it, the quote, the paint-shop slot).
+    generateOffer(g, 'seasonBase', { wide: false, window: false, start: g.now + 40 * DAY, paint: { kind: 'full', required: false } });
     // B1: a signed contract so contractProgress has something to read.
     const first = Object.values(g.offers).find((o) => feasibilityAll(g, o.id)[0]?.level !== 'no');
     if (first) acceptOffer(g, first.id, [feasibilityAll(g, first.id)[0].aircraftId]);
@@ -85,13 +87,22 @@ describe('determinism of read APIs', () => {
       for (const o of Object.values(g.offers)) {
         feasibilityAll(g, o.id);
         marketFit(g, o.id);
-        for (const id of Object.keys(g.fleet)) feasibility(g, o.id, id);
+        for (const id of Object.keys(g.fleet)) {
+          feasibility(g, o.id, id);
+          feasibility(g, o.id, id, { paint: false });
+          if (o.paint) paintWindow(g, id, o.paint, o.start);
+        }
         productValue(o.product, o.estBH, o.start, o.end);
+        paintQuote(o, true);
+        paintQuote(o, false);
       }
       for (const c of Object.values(g.contracts)) contractProgress(g, c.id);
       for (const ac of Object.values(g.fleet)) {
         checkStatus(g, ac);
         aogChance(g, ac, ac.at);
+        liveryOf(g, ac);
+        paintStatus(g, ac.id);
+        paintWindow(g, ac.id, { days: 2 }, t + 30 * DAY, t + DAY);
       }
       for (const f of Object.values(g.flights)) flightCrewStatus(g, f.id);
       for (const c of Object.values(g.crew).slice(0, 10)) {

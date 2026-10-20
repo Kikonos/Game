@@ -26,6 +26,7 @@ import type { Livery, StickerPlacement, TailStyle } from '../engine/core/types';
 import { AircraftArt, artMetrics, artViewBox, type AircraftArtProps } from '../ui/components/aircraft/AircraftArt';
 import { LOGOS, LogoGlyph } from '../ui/components/aircraft/logos';
 import { TRACED } from '../ui/components/aircraft/traced/load';
+import { TailBadge } from '../ui/components/Logo';
 import { LiveryEditor } from '../ui/components/livery/LiveryEditor';
 import '../styles/acmi/livery.css';
 
@@ -332,6 +333,15 @@ function LogoSheet() {
           })}
         </div>
       </section>
+      <section className="g-size">
+        <h2>tail badges</h2>
+        <div className="g-panel" style={{ background: BGS.dark, gap: 8 }}>
+          {(['solid', 'split', 'stripe', 'sweep'] as const).map((tail) => <TailBadge key={tail} primary="#d6283c" secondary="#ffffff" code="BH" size={44} livery={{ ...livery, tail, plain: undefined, logo: undefined }} />)}
+          <TailBadge primary="#fff" secondary="#000" code="BH" size={44} livery={{ ...livery, plain: true, logo: undefined }} />
+          <TailBadge primary="#1e4fd8" secondary="#3ee6ff" code="BH" size={44} />
+          {ids.map((id, i) => <TailBadge key={id} primary="#000" secondary="#000" code="BH" size={44} livery={{ primary: TONES[i % 4][0], secondary: TONES[i % 4][1], tail: 'solid', logo: { id, color: '#ffffff', color2: TONES[i % 4][1] } }} />)}
+        </div>
+      </section>
       {tailTypes.map((t) => (
         <section className="g-size" key={t}>
           <h2>{t} · card and mini</h2>
@@ -428,7 +438,7 @@ function ClipCheck() {
 function EditorDemo() {
   const [lv, setLv] = useState<Livery>(livery);
   return (
-    <div style={{ position: 'fixed', inset: 0 }}>
+    <div style={{ position: 'fixed', inset: 0, padding: 16, background: 'var(--bg)' }}>
       <LiveryEditor value={lv} onChange={setLv} code="BH" name="Block Hours" mode="company" onApplyAll={() => {}} onSave={() => {}} onCancel={() => {}} />
       <pre id="g-livery-json" style={{ display: 'none' }}>{JSON.stringify(lv)}</pre>
     </div>

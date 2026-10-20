@@ -95,7 +95,7 @@ function text(t: unknown, kind: 'code' | 'titles'): LiveryText | undefined {
   const x = t as Partial<LiveryText>;
   const out: LiveryText = {};
   if (typeof x.text === 'string') {
-    out.text = kind === 'code' ? x.text.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, MAX_CODE) : x.text.replace(/\s+/g, ' ').trim().slice(0, MAX_TITLE);
+    out.text = kind === 'code' ? x.text.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, MAX_CODE) : x.text.replace(/\s+/g, ' ').trim().slice(0, MAX_TITLE).trim();
   }
   const color = hex(x.color);
   if (color) out.color = color;

@@ -11,12 +11,14 @@ import { currentFlight, flightTimes } from '../../engine/core/query';
 import { DAY, fmtDay, fmtDuration, fmtTime, localOffset } from '../../engine/core/time';
 import type { Aircraft, CrewMember, Flight, GameState, Ref } from '../../engine/core/types';
 import { crewName, dutyCrew, flightCrewStatus } from '../../engine/crew';
-import { checkStatus } from '../../engine/ops';
+import { checkStatus, liveryOf } from '../../engine/ops';
 import { AircraftArt } from '../components/AircraftArt';
 import { Bar } from '../components/ui';
 import { money } from '../format';
 import { contractColor } from '../screens/palette';
 import { store } from '../store';
+import { paintLabel } from '../screens/scheduleLogic';
+import { expiryLabel } from '../screens/screenLogic';
 import { ARCHETYPE_LABEL, KIND_LABEL, chipInfo, upcomingLegs } from './mapLogic';
 
 const ROLE_ORDER = ['CPT', 'FO', 'CRP', 'CSD', 'SCC', 'CC'];
@@ -105,7 +107,7 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
   const maint = ac.maintId ? g.maintenance[ac.maintId] : undefined;
   const chip = chipInfo(g, ac, t);
   const ap = AIRPORT_BY_CODE[ac.at];
-  const c = g.company;
+  const lv = liveryOf(g, ac);
   // The ops stub returns zeros; show check data only once it means something.
   const csKnown = !!cs && (cs.aHoursLeft > 0 || cs.cHoursLeft > 0 || !!cs.nextA || !!cs.nextC || cs.risk > 0);
 
@@ -118,10 +120,10 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
         <div className="row between"><b className="mono op-big">{cur.from} → {cur.to}</b><span className="mono small muted">{cur.no}</span></div>
         <Bar value={prog} size="thin" />
         <div className="op-kv">
-          <div><span>Off blocks</span><b className="mono">{fmtTime(off)} UTC</b></div>
-          <div><span>ETA</span><b className="mono">{fmtTime(on)} UTC · {fmtTime(on, cur.to)} local</b></div>
-          <div><span>Remaining</span><b className="mono">{fmtDuration(Math.max(0, on - t))}</b></div>
-          {cur.delay > 0 && <div><span>Delay</span><b className="mono warn-t">+{fmtDuration(cur.delay)}{cur.delayReason ? ` · ${cur.delayReason}` : ''}</b></div>}
+          <div><span>Off blocks</span><b className="num">{fmtTime(off)} UTC</b></div>
+          <div><span>ETA</span><b className="num">{fmtTime(on)} UTC · {fmtTime(on, cur.to)} local</b></div>
+          <div><span>Remaining</span><b className="num">{fmtDuration(Math.max(0, on - t))}</b></div>
+          {cur.delay > 0 && <div><span>Delay</span><b className="num warn-t">+{fmtDuration(cur.delay)}{cur.delayReason ? ` · ${cur.delayReason}` : ''}</b></div>}
         </div>
       </>
     );
@@ -130,7 +132,7 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
       <div className={`op-note ${ac.status === 'aog' ? 'bad' : 'warn'}`}>
         <Wrench />
         <span>
-          {ac.status === 'aog' ? 'AOG' : 'In the hangar'} at {ac.at}: {maint.kind === 'AOG' ? 'repair' : `${maint.kind}-check`}
+          {ac.status === 'aog' ? 'AOG' : maint.kind === 'paint' ? 'In the paint shop' : 'In the hangar'} at {ac.at}: {maint.kind === 'AOG' ? 'repair' : maint.kind === 'paint' ? paintLabel(g, maint) : `${maint.kind}-check`}
           {maint.cause ? ` (${maint.cause})` : ''}, back {fmtDay(maint.end)} {fmtTime(maint.end)} UTC
         </span>
       </div>
@@ -141,7 +143,8 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
 
   return (
     <Panel title={<span className="mono">{ac.reg}</span>} kicker={`${type?.name ?? ac.typeId} · ${ac.cabin.label}`} onClose={() => store.select(undefined)}>
-      <div className="op-art"><AircraftArt typeId={artFor(ac.typeId)} livery={c.livery} code={c.code} detail="simple" /></div>
+      <div className="op-art"><AircraftArt typeId={artFor(ac.typeId)} livery={lv.livery} code={lv.code} name={lv.name} /></div>
+      {lv.source === 'client' && <div className="small muted op-livery">In {lv.clientName} colours{lv.contractId && g.contracts[lv.contractId] ? ` for ${g.contracts[lv.contractId].title}` : ''}</div>}
       <div className="row wrap op-chips">
         <span className={`chip tone-${chip.tone}`}><Dot tone={chip.tone} />{cur ? 'Airborne' : ac.status === 'available' ? 'Available' : ac.status === 'aog' ? 'AOG' : ac.status === 'maintenance' ? 'Maintenance' : ac.status}</span>
         <span className="chip">{ac.ownership.kind === 'owned' ? 'Owned' : 'Dry-leased in'}</span>
@@ -172,9 +175,9 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
       <Section title="Maintenance">
         {csKnown && cs ? (
           <div className="op-kv">
-            <div><span>A-check</span><b className={`mono ${cs.aDue - t < 7 * DAY || cs.aHoursLeft < 50 ? 'warn-t' : ''}`}>{cs.nextA ? 'planned · ' : ''}due {fmtDay(cs.aDue)} · {Math.round(cs.aHoursLeft)} FH</b></div>
-            <div><span>C-check</span><b className="mono">{cs.nextC ? 'planned · ' : ''}due {fmtDay(cs.cDue)} {new Date(Date.UTC(2000, 0, 1) + cs.cDue * 60000).getUTCFullYear()}</b></div>
-            <div><span>AOG risk</span><b className={`mono ${cs.risk >= 0.9 ? 'bad-t' : cs.risk >= 0.5 ? 'warn-t' : ''}`}>{cs.risk >= 0.9 ? 'High' : cs.risk >= 0.5 ? 'Elevated' : 'Low'}</b></div>
+            <div><span>A-check</span><b className={`num ${cs.aDue - t < 7 * DAY || cs.aHoursLeft < 50 ? 'warn-t' : ''}`}>{cs.nextA ? 'planned · ' : ''}due {fmtDay(cs.aDue)} · {Math.round(cs.aHoursLeft)} FH</b></div>
+            <div><span>C-check</span><b className="num">{cs.nextC ? 'planned · ' : ''}due {fmtDay(cs.cDue)} {new Date(Date.UTC(2000, 0, 1) + cs.cDue * 60000).getUTCFullYear()}</b></div>
+            <div><span>AOG risk</span><b className={`num ${cs.risk >= 0.9 ? 'bad-t' : cs.risk >= 0.5 ? 'warn-t' : ''}`}>{cs.risk >= 0.9 ? 'High' : cs.risk >= 0.5 ? 'Elevated' : 'Low'}</b></div>
           </div>
         ) : (
           <div className="small muted">{Math.round(ac.hours).toLocaleString('en-US')} FH · {ac.cycles.toLocaleString('en-US')} cycles</div>
@@ -204,8 +207,8 @@ function AirportPanel({ g, code }: { g: GameState; code: string }) {
   return (
     <Panel title={a.name} kicker={`${code} · ${a.city}`} onClose={() => store.select(undefined)}>
       <div className="op-kv">
-        <div><span>Local time</span><b className="mono">{fmtTime(t, code)} · {utcOff(localOffset(code, t))}</b></div>
-        {a.runwayM ? <div><span>Runway</span><b className="mono">{a.runwayM.toLocaleString('en-US')} m</b></div> : null}
+        <div><span>Local time</span><b className="num">{fmtTime(t, code)} · {utcOff(localOffset(code, t))}</b></div>
+        {a.runwayM ? <div><span>Runway</span><b className="num">{a.runwayM.toLocaleString('en-US')} m</b></div> : null}
         {code === g.company.homeBase && <div><span>Home base</span><b>{based} crew at base</b></div>}
       </div>
       <Section title="Our aircraft">
@@ -276,10 +279,11 @@ function OfferPanel({ g, id }: { g: GameState; id: string }) {
       <div className="op-kv">
         <div><span>Client</span><b className="ellipsis">{client?.name ?? '—'}</b></div>
         <div><span>Route</span><b className="mono">{routeSummary(o)}</b></div>
-        <div><span>Dates</span><b className="mono">{fmtDay(o.start)} – {fmtDay(o.end)}</b></div>
-        <div><span>Product</span><b className="mono">{product}</b></div>
-        <div><span>Est. value</span><b className="mono">{money(o.estValue)} · {Math.round(o.estBH)} BH</b></div>
-        <div><span>Expires</span><b className={`mono ${left < 12 * 60 ? 'warn-t' : ''}`}>{left > 0 ? `in ${left >= DAY ? `${Math.floor(left / DAY)}d ` : ''}${Math.floor((left % DAY) / 60)}h` : 'now'}</b></div>
+        <div><span>Dates</span><b className="num">{fmtDay(o.start)} – {fmtDay(o.end)}</b></div>
+        <div><span>Product</span><b className="num">{product}</b></div>
+        <div><span>Est. value</span><b className="num">{money(o.estValue)} · {Math.round(o.estBH)} BH</b></div>
+        {o.paint && <div><span>Livery</span><b className={o.paint.required ? 'warn-t' : ''}>Their colours{o.paint.required ? ' · required' : ' · optional'}</b></div>}
+        <div><span>Expires</span><b className={`num ${left < 12 * 60 ? 'warn-t' : ''}`}>{expiryLabel(g.now, o.expires)}</b></div>
       </div>
       {o.hook && <div className="small muted op-gap">{o.hook}</div>}
       <Section title="Best aircraft">

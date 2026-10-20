@@ -2,7 +2,7 @@
 // The base drives where the fleet and crew start, the registration prefix and the offers around it
 // (engine/newGame.ts, data/naming.ts). DESIGN.md §2.3, §6.3.
 
-import { ArrowLeft, Rocket } from 'lucide-react';
+import { ArrowLeft, Palette, Rocket } from 'lucide-react';
 import { useState } from 'react';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { COUNTRIES, flag } from '../../data/countries';
@@ -11,10 +11,12 @@ import { BAL } from '../../engine/core/balance';
 import { localOffset } from '../../engine/core/time';
 import type { Livery, TailStyle } from '../../engine/core/types';
 import { normaliseOptions } from '../../engine/newGame';
+import { normaliseLivery } from '../../engine/ops';
 import { AircraftArt } from '../components/AircraftArt';
 import { LogoMark, TailBadge } from '../components/Logo';
 import { Seg } from '../components/ui';
 import { money } from '../format';
+import { LiverySheet } from '../modals/LiveryModal';
 import { store } from '../store';
 
 const PALETTE = ['#1e4fd8', '#0f9d76', '#d6283c', '#7a3cff', '#ff7a00', '#0b1f4d', '#e0457b', '#00a3c4', '#c8a000', '#202733'];
@@ -39,6 +41,7 @@ export function NewGame() {
   const [code, setCode] = useState(COMPANY_PRESETS[first]?.code ?? '');
   const [base, setBase] = useState<HomeBase>(DEFAULT_HOME_BASE);
   const [livery, setLivery] = useState<Livery>({ primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' });
+  const [editing, setEditing] = useState(false);
   const derived = (code || name.replace(/[^A-Za-z]/g, '').slice(0, 2)).toUpperCase().padEnd(2, 'X');
   const p = COMPANY_PRESETS[preset];
   const same = !!p && p.name === name.trim();
@@ -130,9 +133,13 @@ export function NewGame() {
             </div>
             <div className="field ng-tail">
               <label>Tail design</label>
-              <Seg<TailStyle> value={livery.tail} onChange={(tail) => setLivery({ ...livery, tail })} options={[
-                { value: 'solid', label: 'Solid' }, { value: 'split', label: 'Split' }, { value: 'stripe', label: 'Stripe' }, { value: 'sweep', label: 'Sweep' },
-              ]} />
+              <div className="row gap-12 wrap">
+                <Seg<TailStyle | 'white'> value={livery.plain ? 'white' : livery.tail} onChange={(t) => setLivery(t === 'white' ? { ...livery, plain: true } : { ...livery, tail: t, plain: undefined })} options={[
+                  { value: 'solid', label: 'Solid' }, { value: 'split', label: 'Split' }, { value: 'stripe', label: 'Stripe' }, { value: 'sweep', label: 'Sweep' }, { value: 'white', label: 'White' },
+                ]} />
+                <button className="btn" onClick={() => setEditing(true)}><Palette /> Customise livery…</button>
+              </div>
+              <div className="small muted">Letter colours, logos and where the titles sit. You can change it later in Company.</div>
             </div>
           </div>
         </div>
@@ -142,10 +149,11 @@ export function NewGame() {
             <div className="upper dim">Your first aircraft</div>
             <div className="livery-stage">
               <AircraftArt typeId="a320ceo" livery={livery} code={derived} name={opts.name} />
+              <button className="btn ng-edit-livery" onClick={() => setEditing(true)}><Palette /> Customise</button>
             </div>
             <div className="ng-summary">
               <div className="row gap-12">
-                <TailBadge primary={livery.primary} secondary={livery.secondary} code={derived} size={44} />
+                <TailBadge primary={livery.primary} secondary={livery.secondary} code={derived} size={44} livery={livery} />
                 <div style={{ minWidth: 0 }}>
                   <b className="big ellipsis">{opts.name}</b>
                   <div className="small muted">{opts.code}{opts.icao ? ` · ${opts.icao}` : ''} · based at {ap?.city ?? base} ({base}, {utcLabel(base)})</div>
@@ -164,10 +172,11 @@ export function NewGame() {
       <footer className="ng-foot">
         <button className="btn btn-ghost" onClick={() => store.setScreen('title')}><ArrowLeft /> Back to menu</button>
         <div className="ng-foot-sum">
-          <span className="ng-foot-pick"><TailBadge primary={livery.primary} secondary={livery.secondary} code={derived} size={22} /><span className="ellipsis">{opts.name}</span> <span className="dim">· {base}</span></span>
+          <span className="ng-foot-pick"><TailBadge primary={livery.primary} secondary={livery.secondary} code={derived} size={22} livery={livery} /><span className="ellipsis">{opts.name}</span> <span className="dim">· {base}</span></span>
         </div>
         <button className="btn btn-primary btn-lg" onClick={() => store.startNewGame(opts)} disabled={!name.trim()}><Rocket /> Start operations</button>
       </footer>
+      {editing && <LiverySheet value={livery} code={derived} name={opts.name} onCancel={() => setEditing(false)} onSave={(l) => { setLivery(normaliseLivery(l)); setEditing(false); }} />}
     </div>
   );
 }

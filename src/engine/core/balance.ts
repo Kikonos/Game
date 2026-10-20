@@ -41,8 +41,8 @@ export const BAL = {
   salary: {
     CPT: [9_400, 12_000], FO: [5_300, 7_000], CRP: [4_300, 4_300], CSD: [2_600, 3_000], SCC: [2_300, 2_600], CC: [1_900, 2_100],
   } as Record<string, [number, number]>,
-  /** Employer on-costs on salaries. */
-  onCosts: 0.2,
+  /** Employer on-costs on salaries (RESEARCH §5.5: +10–35%; v0.5.1 mid-range, was 0.2). */
+  onCosts: 0.25,
   /** Per diem per day away by role (USD; RESEARCH §5.3: CPT €100, FO €70, cabin €50), scaled by policies.perDiemPct. */
   perDiem: { CPT: 108, FO: 76, CRP: 76, CSD: 60, SCC: 54, CC: 54 } as Record<string, number>,
   hotelPerNight: { 3: 90, 4: 140, 5: 230 } as Record<number, number>,
@@ -75,8 +75,9 @@ export const BAL = {
   /** Landing, nav and handling per departure on charters (we pay): narrow / wide. */
   airportFees: [3_000, 8_000],
   catering: [600, 2_400],
-  overheadBase: 110_000,
-  overheadPerAircraft: 55_000,
+  /** OCC, CAMO, safety, sales, audits (RESEARCH §4.5: €300–500/BH at 250 BH a month; v0.5.1 nearer the middle, was 110k + 55k). */
+  overheadBase: 130_000,
+  overheadPerAircraft: 60_000,
   /** Maintenance cost multiplier per year of age above 12. */
   maintAgeFactor: 0.025,
   /** Check cost (narrow, wide). The A-check sits partly inside maintBH (all-in DMC), so it is kept low. */

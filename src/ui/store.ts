@@ -5,8 +5,9 @@ import { useSyncExternalStore } from 'react';
 import { clearPause, takePause, type PauseReason } from '../engine/core/pause';
 import { CLOCK_STEP, type GameSpeed, minutesPerMs, monthKey } from '../engine/core/time';
 import type { RatingFamily } from '../data/acmiTypes';
-import type { ActionResult, Archetype, GameState, Message, Ref, Role } from '../engine/core/types';
-import { generateOffer } from '../engine/contracts';
+import type { ActionResult, Archetype, GameState, Message, PaintKind, Ref, Role } from '../engine/core/types';
+import { acceptOffer, declineOffer, feasibilityAll, generateOffer } from '../engine/contracts';
+import { DAY } from '../engine/core/time';
 import { pushDecision } from '../engine/core/messages';
 import { demoFlights, devFleet } from '../engine/dev';
 import { createGame, type NewGameOptions } from '../engine/newGame';
@@ -68,7 +69,9 @@ export type ModalSpec =
   /** Manual roster adjustment for a duty's trip (duty id or flight id). */
   | { kind: 'duty'; id: string }
   /** Hand legs of a contract to a rival operator. */
-  | { kind: 'subcharter'; contractId: string; flightId?: string };
+  | { kind: 'subcharter'; contractId: string; flightId?: string }
+  /** v0.5.1 livery editor: the company livery or one aircraft's (Company · All white · Custom). */
+  | { kind: 'livery'; target: 'company' | { aircraftId: string } };
 
 export interface Toast {
   id: number;
@@ -466,6 +469,33 @@ class GameStore {
       if (o) this.openModal({ kind: 'offer', offerId: o.id });
       this.emit();
       return o?.id ?? null;
+    },
+    /** v0.5.1: a season base whose client asks for their livery (forced request); opens the offer modal. */
+    paintOffer: (kind: PaintKind = 'full', required?: boolean) => {
+      const g = this.game;
+      if (!g) return null;
+      const o = generateOffer(g, 'seasonBase', { paint: { kind, required }, wide: false, start: g.now + 40 * DAY, days: 90 });
+      if (o) this.openModal({ kind: 'offer', offerId: o.id });
+      this.emit();
+      return o?.id ?? null;
+    },
+    /** v0.5.1: signs a forced paint offer on the first aircraft that can take it (paint on); returns the contract id. */
+    paintJob: (kind: PaintKind = 'decals', days = 60) => {
+      const g = this.game;
+      if (!g) return null;
+      for (const lead of [12, 20, 30, 45]) {
+        const o = generateOffer(g, 'seasonBase', { paint: { kind, required: true }, wide: false, start: g.now + lead * DAY, days });
+        if (!o) continue;
+        const ok = feasibilityAll(g, o.id, { paint: true }).find((r) => r.level !== 'no');
+        const res = ok ? acceptOffer(g, o.id, [ok.aircraftId], { paint: true }) : null;
+        if (res?.ok) {
+          this.emit();
+          return res.data!.contractId;
+        }
+        declineOffer(g, o.id);
+      }
+      this.emit();
+      return null;
     },
     /** Grows the fleet to n aircraft (clones) for perf checks with demoFlights. */
     fleet: (n = 10) => {
