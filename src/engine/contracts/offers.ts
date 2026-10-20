@@ -16,6 +16,7 @@ import type {
   ApprovalId, Archetype, Client, ContractOffer, GameState, LegTemplate, Minute, OfferEffects, Product, Requirements, SchedulePattern, SimEvent,
 } from '../core/types';
 import { acceptOffer, askingPrice, closeOffer, setPrice } from './accept';
+import { feasibility } from './feasibility';
 import { clientPrefix, clientsOf, isGovernment, ministry } from './clients';
 import * as F from './flavor';
 import { anchorsOf, computeWaves, localToUTC, programmeOf, route, routeMinutes } from './plan';
@@ -651,7 +652,8 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   o.estValue = productValue(product, revBH, d.start, d.end);
   g.offers[o.id] = o;
   schedule(g, o.expires, 'offer.expire', o.id);
-  if (urgency === 'urgent') {
+  // Urgent work we could actually fly stops the clock (setting) and gets an inbox line; the rest just pins the map.
+  if (urgency === 'urgent' && Object.keys(g.fleet).some((id) => feasibility(g, o.id, id).level !== 'no')) {
     requestPause('urgentOffer');
     pushMessage(g, { tone: 'warn', cat: 'commercial', title: `Urgent: ${o.title}`, body: `${d.client.name} needs an answer by ${fmtDay(o.expires)} ${fmtTime(o.expires)} UTC.`, ref: { kind: 'offer', id: o.id } });
   }
@@ -714,12 +716,6 @@ export function onOfferExpire(g: GameState, ev: SimEvent): void {
   if (!o || o.status !== 'open' || g.now < o.expires) return;
   const lost = chance(g, 0.7);
   closeOffer(g, o, lost ? 'lost' : 'expired', lost ? rivalName(g) : undefined);
-  if (o.urgency === 'urgent') {
-    pushMessage(g, {
-      tone: 'info', cat: 'commercial', title: `Missed: ${o.title}`,
-      body: lost ? `${o.lostTo} took it.` : `${g.clients[o.clientId]?.name ?? 'The client'} found another solution.`, ref: { kind: 'offer', id: o.id },
-    });
-  }
 }
 
 /** 'offer.reply': the client answers a counter: accept at the countered price (signs on the chosen aircraft) or refuse. */

@@ -1,9 +1,33 @@
 // Simplified EASA FTL rules (RESEARCH §5.1, DESIGN.md §5.2). Pure functions on minutes; no GameState.
 
-import { DAY, dayStart, localMinuteOfDay, localOffset, yearOf } from '../core/time';
+import { DAY, dayStart, localOffset, yearOf } from '../core/time';
 import type { Legality, Minute } from '../core/types';
 
 const H = 60;
+
+// Hot-path memos: UTC offsets per airport and hour, and calendar years (Date objects are slow in loops).
+const offMemo = new Map<string, Map<number, number>>();
+export function offsetAt(code: string, t: Minute): number {
+  let m = offMemo.get(code);
+  if (!m) offMemo.set(code, (m = new Map()));
+  const h = Math.floor(t / H);
+  let o = m.get(h);
+  if (o === undefined) {
+    if (m.size > 20_000) m.clear();
+    m.set(h, (o = localOffset(code, h * H)));
+  }
+  return o;
+}
+export const localMin = (code: string, t: Minute) => ((((t + offsetAt(code, t)) % DAY) + DAY) % DAY);
+let yr = { from: 0, to: -1, y: 0 };
+export function yearFast(t: Minute): number {
+  if (t >= yr.from && t < yr.to) return yr.y;
+  const y = yearOf(t);
+  const from = Math.round((Date.UTC(y, 0, 1) - Date.UTC(2000, 0, 1)) / 60_000);
+  const to = Math.round((Date.UTC(y + 1, 0, 1) - Date.UTC(2000, 0, 1)) / 60_000);
+  yr = { from, to, y };
+  return y;
+}
 
 export interface FdpInput {
   /** Report time in minutes after local midnight where the crew is acclimatised. */
@@ -96,7 +120,7 @@ export function acclimState(deltaH: number, hoursAway: number): Acclim {
 /** Absolute zone difference between two airports at t, hours (0–12). */
 export function tzDeltaH(a: string, b: string, t: Minute): number {
   if (a === b) return 0;
-  let d = Math.abs(localOffset(a, t) - localOffset(b, t)) / H;
+  let d = Math.abs(offsetAt(a, t) - offsetAt(b, t)) / H;
   if (d > 12) d = 24 - d;
   return d;
 }
@@ -113,12 +137,12 @@ export interface RefTime {
 export function referenceTime(base: string, dep: string, tripStart: Minute, report: Minute): RefTime {
   const state = acclimState(tzDeltaH(base, dep, report), (report - tripStart) / H);
   const tz = state === 'B' ? base : dep;
-  return { state, reportLocal: localMinuteOfDay(tz, report), tz };
+  return { state, reportLocal: localMin(tz, report), tz };
 }
 
 /** Early start, late finish or night: the duty touches a local 23:00–06:00 window (reference clock). */
 export function isDisruptive(tz: string, start: Minute, end: Minute): boolean {
-  const off = localOffset(tz, start);
+  const off = offsetAt(tz, start);
   const a = start + off;
   const b = end + off;
   for (let w = dayStart(a) - DAY + 23 * H; w < b; w += DAY) if (w < b && w + 7 * H > a) return true;
@@ -127,7 +151,7 @@ export function isDisruptive(tz: string, start: Minute, end: Minute): boolean {
 
 /** Full local nights (22:00–06:00 at `tz`) inside [from, to]. */
 export function nightsIn(tz: string, from: Minute, to: Minute): number {
-  const off = localOffset(tz, from);
+  const off = offsetAt(tz, from);
   const a = from + off;
   const b = to + off;
   let w = dayStart(a) - DAY + 22 * H;
@@ -255,7 +279,7 @@ export function evalSegs(ctx: TimelineCtx, segs: Seg[]): LegalityIssue[] {
       }
     }
     if (s.kind !== 'log') {
-      const y = yearOf(s.end);
+      const y = yearFast(s.end);
       if (y !== plannedYearOf) {
         plannedYearOf = y;
         plannedYear = 0;

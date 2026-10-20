@@ -6,9 +6,9 @@ import { BAL } from '../core/balance';
 import { flightsOf, nextId } from '../core/entities';
 import { complement, reportMinutes, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
-import { DAY, dayStart, localMinuteOfDay, localOffset, yearOf } from '../core/time';
+import { DAY, dayStart, yearOf } from '../core/time';
 import type { Contract, Deployment, Duty, Flight, GameState, Legality, Minute, Pairing, Role } from '../core/types';
-import { evalSegs, isDisruptive, LIMITS, longestWorkBlock, maxFdp, minRest, referenceTime, tzDeltaH, worst, type Seg, type TimelineCtx } from './rules';
+import { evalSegs, isDisruptive, LIMITS, localMin, longestWorkBlock, maxFdp, minRest, offsetAt, referenceTime, tzDeltaH, worst, type Seg, type TimelineCtx } from './rules';
 import { crewCount, crewIx, dutyBlock, dutyFlights, onBlocks, restClassOf, touchCrew } from './timeline';
 
 // ---------- duty measures ----------
@@ -199,7 +199,7 @@ function partition(g: GameState, typeId: string, units: Flight[][]): Spec[] {
       const sh = shape(typeId, fl);
       const single = i === j - 1;
       if (!single && sh.fdp > 19 * 60) break;
-      const pa = pickAugment(sh, localMinuteOfDay(sh.dep, sh.report), true, rc, canAug);
+      const pa = pickAugment(sh, localMin(sh.dep, sh.report), true, rc, canAug);
       const tight = sh.fdp > pa.max - LIMITS.tightFdp;
       if (!single && (!pa.ok || (tight && !allowTight))) continue;
       const prev = best[i];
@@ -306,7 +306,7 @@ export function planAircraft(g: GameState, acId: string, from: Minute): void {
     // Provisional measures (D-state at departure); refreshPairing re-measures in pairing context.
     const sh = shape(typeId, s.flights);
     const rc = typeOf(typeId).restClass;
-    const pa = pickAugment(sh, localMinuteOfDay(sh.dep, sh.report), true, rc, canAugment(g, rc));
+    const pa = pickAugment(sh, localMin(sh.dep, sh.report), true, rc, canAugment(g, rc));
     Object.assign(d, { report: sh.report, release: sh.release, fdp: sh.fdp, sectors: sh.sectors, augment: pa.augment, maxFdp: pa.max, restAt: sh.restAt });
     d.flightsEv = s.flights.reduce((n, f) => n + f.ev, 0);
     d.legality = dutyLegality(d);
@@ -329,7 +329,7 @@ export function planAircraft(g: GameState, acId: string, from: Minute): void {
 /** Trips: from a duty until one releases at home base, a > 3-day gap, or 6 duty days (then 2 days off). */
 function buildTrips(g: GameState, acId: string, duties: Duty[]): void {
   const home = g.company.homeBase;
-  const dayOf = (t: Minute) => Math.floor((t + localOffset(home, t)) / DAY);
+  const dayOf = (t: Minute) => Math.floor((t + offsetAt(home, t)) / DAY);
   let cur: Duty[] = [];
   const close = () => {
     if (cur.length) newPairing(g, cur, acId, null);
@@ -407,7 +407,7 @@ interface Chainer {
 function chainer(g: GameState, dep: Deployment, crewOk: (p: Pairing, d: Duty) => boolean): Chainer {
   const R = rotation(g);
   const home = g.company.homeBase;
-  const dayOf = (t: Minute) => Math.floor((t + localOffset(dep.base, t)) / DAY);
+  const dayOf = (t: Minute) => Math.floor((t + offsetAt(dep.base, t)) / DAY);
   const tours = new Map<string, TourState>();
   for (const pid of dep.pairingIds) {
     const p = g.pairings[pid];
@@ -482,7 +482,7 @@ function chainDeployment(g: GameState, c: Contract, acId: string, duties: Duty[]
     const perDay = new Map<number, number>();
     let bh = 0;
     for (const d of duties) {
-      const k = Math.floor((d.report + localOffset(base, d.report)) / DAY);
+      const k = Math.floor((d.report + offsetAt(base, d.report)) / DAY);
       perDay.set(k, (perDay.get(k) ?? 0) + 1);
       if (d.report < start + 28 * DAY) bh += dutyBlock(g, d);
     }
