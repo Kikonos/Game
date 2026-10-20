@@ -111,6 +111,8 @@ export const BAL = {
   aCheckDays: 120,
   planAt: 0.85,
   planAheadDays: 14,
+  /** A maintenance ferry is planned at least this far ahead, so a crew can position for it (minutes). */
+  ferryLeadMin: 540,
   /** Overdue tolerance before grounding; C-check FH limits; notice to drop a base leg for a check (minutes). */
   overdueTolerance: 0.1,
   cCheckFH: { narrow: 7_500, wide: 6_000 },

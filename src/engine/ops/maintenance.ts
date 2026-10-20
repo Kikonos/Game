@@ -13,6 +13,7 @@ import { DAY, fmtDate, fmtDateTime, fmtDay, toDate } from '../core/time';
 import type { ActionResult, Aircraft, Flight, GameState, MaintenanceEvent, MaintKind, Minute, SimEvent } from '../core/types';
 import { clamp } from '../core/util';
 import { planPositioning } from '../contracts';
+import { rerosterFrom } from '../crew';
 import { aogDecision } from './events';
 import { cancelLegs } from './flights';
 import { ageOf, bumpRelation, contractOf, isRevenue, stats, usd } from './util';
@@ -179,24 +180,38 @@ export function scheduleCheck(g: GameState, aircraftId: string, kind: MaintKind,
   }
   const other = Object.values(g.maintenance).find((m) => m.aircraftId === ac.id && (m.status === 'planned' || m.status === 'inWork') && m.start < end && m.end > start);
   if (other) return { ok: false, error: `Overlaps the ${other.kind} event ${fmtDay(other.start)}` };
+  // A base programme's days beyond the generated schedule are committed too (its maintenance nights aren't known yet).
+  const base = Object.values(g.contracts).find((c) => (c.status === 'signed' || c.status === 'active') && c.pattern.kind === 'base' && c.aircraftIds.includes(ac.id) && c.generatedUntil < c.pattern.to && Math.max(c.generatedUntil, c.pattern.from) < end && c.pattern.to > start);
+  if (base) return { ok: false, error: `Clashes with ${base.title} (${fmtDay(base.start)}–${fmtDay(base.end)})` };
   // Reachability before touching anything.
   const before = clash.length ? Math.min(start, ...clash.map((f) => f.std)) : start;
   const loc = locationAt(g, ac, before - 1);
   const needFerry = loc.at !== at;
   if (needFerry && loc.free + turn + blockMinutes(ac.typeId, loc.at, at) + 30 > start) return { ok: false, error: `${ac.reg} can't reach ${at} by then` };
-  // Clear the way.
   const drop = hard.filter((f) => f.status === 'scheduled');
-  for (const f of drop) bumpRelation(g, contractOf(g, f)?.clientId, -1);
-  if (drop.length) cancelLegs(g, drop, `${kind}-check`, 0, true);
+  if (needFerry && drop.length) return { ok: false, error: `Clashes with ${drop.length} flight${drop.length > 1 ? 's' : ''} (${drop[0].no} ${fmtDateTime(drop[0].std)})` };
   const soft = clash.filter((f) => f.kind === 'positioning' && f.status === 'scheduled');
-  if (soft.length) removeFlights(g, soft.map((f) => f.id));
   const m: MaintenanceEvent = {
-    id: nextId(g, 'mx'), aircraftId: ac.id, kind, at, start, end, cost: checkCostOf(ac, kind), status: 'planned', planned: true, ev: 0, booked: g.now,
+    id: nextId(g, 'mx'), aircraftId: ac.id, kind, at, start, end, cost: checkCostOf(ac, kind), status: 'planned', planned: true, ev: 0, booked: g.now, bookedStart: start,
   };
   g.maintenance[m.id] = m;
   if (needFerry) {
+    // The ferry is planned against the check (an anchor now); without one the slot can't be reached.
+    if (soft.length) removeFlights(g, soft.map((f) => f.id));
     const legs = planPositioning(g, ac.id, at, start, 'ferry', null);
-    if (legs?.length) m.ferryIds = legs.map((f) => f.id);
+    if (!legs?.length) {
+      delete g.maintenance[m.id];
+      touchFlights(g);
+      return { ok: false, error: `No ferry slot gets ${ac.reg} to ${at} by then` };
+    }
+    m.ferryIds = legs.map((f) => f.id);
+    // Crew the ferry now (a set may have to position for it), not at its departure.
+    rerosterFrom(g, ac.id, g.now);
+  } else {
+    // Clear the way: soft empty legs go back to contracts; base legs dropped with notice (relation −1 each).
+    for (const f of drop) bumpRelation(g, contractOf(g, f)?.clientId, -1);
+    if (drop.length) cancelLegs(g, drop, `${kind}-check`, 0, true);
+    if (soft.length) removeFlights(g, soft.map((f) => f.id));
   }
   schedule(g, start, 'maint.start', m.id, m.ev);
   touchFlights(g);
@@ -274,7 +289,8 @@ function planA(g: GameState, ac: Aircraft, due: Minute): boolean {
   for (const gp of gaps) {
     if (checkAirportOk(g, 'A', gp.at, ac.id)) continue;
     const out = blockMinutes(ac.typeId, gp.at, home);
-    const start = gp.from + t.turnMin + out + 30;
+    // The ferry leaves no sooner than a crew can be positioned for it.
+    const start = Math.max(gp.from, g.now + BAL.ferryLeadMin) + t.turnMin + out + 30;
     if (start + dur + 60 + t.turnMin + out <= gp.to && scheduleCheck(g, ac.id, 'A', start, home, { auto: true }).ok) return true;
   }
   // No gap: drop one base-programme wave (out and back) with notice to make a night at an eligible base.
@@ -306,8 +322,14 @@ function suggestC(g: GameState, ac: Aircraft, due: Minute): Gap | null {
   return winter ?? gaps[0] ?? null;
 }
 
+/** Finished or cancelled maintenance records are kept for half a year (Gantt and history), then dropped. */
+function pruneMaintenance(g: GameState): void {
+  for (const m of Object.values(g.maintenance)) if ((m.status === 'done' || m.status === 'cancelled') && m.end < g.now - 180 * DAY) delete g.maintenance[m.id];
+}
+
 /** Daily: auto-plan A-checks (policy), C-check warnings at 90/60/30 days, forced checks for grounded aircraft. */
 export function planChecks(g: GameState): void {
+  pruneMaintenance(g);
   for (const ac of Object.values(g.fleet)) {
     if (ac.status === 'delivering' || ac.status === 'stored' || ac.status === 'leasedOut') continue;
     const st = checkStatus(g, ac);
@@ -325,9 +347,10 @@ export function planChecks(g: GameState): void {
     }
     // C-check warnings (never auto-booked).
     if (!st.nextC) {
+      // One message per threshold crossed (90, 60, 30 days): the tightest one reached, once.
       const days = Math.floor((st.cDue - g.now) / DAY);
-      for (const w of BAL.cWarnDays) {
-        if (days > w || (ac.maint.cWarned ?? Infinity) <= w) continue;
+      const w = Math.min(...BAL.cWarnDays.filter((x) => days <= x));
+      if (Number.isFinite(w) && (ac.maint.cWarned ?? Infinity) > w) {
         ac.maint.cWarned = w;
         const s = suggestC(g, ac, st.cDue);
         const dur = typeOf(ac.typeId).cCheckDays;
@@ -336,7 +359,6 @@ export function planChecks(g: GameState): void {
           body: `${dur} days at ${g.company.homeBase}, due ${fmtDate(st.cDue)}. ${s ? `Free window: ${fmtDay(s.from)}–${fmtDay(s.to)}${s.to - s.from > 60 * DAY ? ' (open)' : ''}.` : 'No free window yet: plan around your contracts.'} Winter checks cost no summer revenue.`,
           ref: { kind: 'aircraft', id: ac.id },
         });
-        break;
       }
     }
     if (st.grounded && ac.status === 'available' && !ac.flightId) forceCheck(g, ac, st);
@@ -349,7 +371,7 @@ function forceCheck(g: GameState, ac: Aircraft, st: CheckStatus): void {
   if (nextPlanned(g, ac.id, kind)) return;
   const at = checkAirportOk(g, kind, ac.at, ac.id) ? ac.at : g.company.homeBase;
   const dur = durationOf(ac, kind);
-  const start = g.now + (at === ac.at ? 60 : 60 + typeOf(ac.typeId).turnMin + blockMinutes(ac.typeId, ac.at, at));
+  const start = g.now + (at === ac.at ? 60 : BAL.ferryLeadMin + typeOf(ac.typeId).turnMin + blockMinutes(ac.typeId, ac.at, at));
   const legs = flightsOf(g, ac.id).filter((f) => f.status === 'scheduled' && f.std < start + dur + 60);
   if (legs.length) cancelLegs(g, legs, `${ac.reg} grounded`, 0);
   const r = scheduleCheck(g, ac.id, kind, start, at);
@@ -372,9 +394,10 @@ export function onMaintStart(g: GameState, ev: SimEvent): void {
     const cur = ac.maintId ? g.maintenance[ac.maintId] : undefined;
     ready = cur && cur.end > g.now ? cur.end : g.now + 60;
   } else if (ac.at !== m.at) {
-    // Not there: wait for the leg that brings it in; with none (or after a day) give the slot up for the planner.
+    // Not there: wait for the leg that brings it in; with none (or two days past the booked start) give the slot
+    // up for the planner.
     const inbound = flightsOf(g, ac.id).find((f) => f.status === 'scheduled' && f.to === m.at && f.std < g.now + DAY);
-    if (g.now - (m.booked ?? m.start) > 2 * DAY || !inbound) {
+    if (g.now - (m.bookedStart ?? m.start) > 2 * DAY || !inbound) {
       m.status = 'cancelled';
       m.ev++;
       touchFlights(g);

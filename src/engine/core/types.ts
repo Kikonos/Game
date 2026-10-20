@@ -590,9 +590,10 @@ export interface MaintenanceEvent {
   planned: boolean;
   cause?: string;
   ev: number;
-  /** B3: ferry legs booked to reach the check; when it was booked. */
+  /** B3: ferry legs booked to reach the check; when it was booked; the start it was booked for (later shifts move start). */
   ferryIds?: string[];
   booked?: Minute;
+  bookedStart?: Minute;
 }
 
 // ======================================================================
