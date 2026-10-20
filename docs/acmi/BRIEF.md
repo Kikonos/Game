@@ -109,5 +109,5 @@ The player is a former ACMI flight attendant (euroAtlantic: 767-300ER/777-200ER;
   - rival ACMI operators (Hi Fly, Wamos Air, euroAtlantic, Getjet, Airhub, Avion Express, Titan Airways, Privilege Style, Air Atlanta Icelandic…);
   - sports clubs and tour operators.
 
-  Keep the content factual and neutral. Never invent accidents, crimes, safety scandals or wrongdoing about real companies or people. Routine simulation outcomes (a schedule change, a late payment, a negotiation, a competing bid) are fine. No logos or trademarks beyond names.
+  **Updated by the player (2026-10-20): invented events are wanted.** The game may invent any events involving real airlines, operators, governments, countries and cities to make the game interesting: technical incidents (bird strikes, hard landings, tail strikes, AOGs), coups, unrest, disasters, evacuations, disputes, defaults, strikes, scandals and so on. This is a private single-player game. Keep invented events plausible for the entity and region, and varied. Only limit: don't accuse real, named private individuals of crimes. No logos or trademarks beyond names.
 - **The old game is replaced:** the airline-network game is no longer published. The new game takes its place at the same address.
