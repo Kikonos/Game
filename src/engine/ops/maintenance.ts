@@ -221,6 +221,18 @@ export function scheduleCheck(g: GameState, aircraftId: string, kind: MaintKind,
   return { ok: true, msg, data: { maintId: m.id } };
 }
 
+/** A planned check the aircraft can't make: the slot is given up (ferries removed) and the planner re-books it. */
+export function missCheck(g: GameState, m: MaintenanceEvent, why: string): void {
+  if (m.status !== 'planned') return;
+  m.status = 'cancelled';
+  m.ev++;
+  const ferries = (m.ferryIds ?? []).filter((id) => g.flights[id]?.status === 'scheduled');
+  if (ferries.length) removeFlights(g, ferries);
+  touchFlights(g);
+  const ac = g.fleet[m.aircraftId];
+  pushMessage(g, { tone: 'warn', cat: 'tech', title: `${m.kind}-check missed: ${ac?.reg ?? m.aircraftId}`, body: `${why}. The check needs a new slot${m.kind === 'A' && g.company.policies.autoMaintenance ? ': operations will re-plan it' : ''}.`, ref: { kind: 'aircraft', id: m.aircraftId } });
+}
+
 export function cancelCheck(g: GameState, maintId: string): ActionResult {
   const m = g.maintenance[maintId];
   if (!m) return { ok: false, error: 'Check not found' };
@@ -397,13 +409,7 @@ export function onMaintStart(g: GameState, ev: SimEvent): void {
     // Not there: wait for the leg that brings it in; with none (or two days past the booked start) give the slot
     // up for the planner.
     const inbound = flightsOf(g, ac.id).find((f) => f.status === 'scheduled' && f.to === m.at && f.std < g.now + DAY);
-    if (g.now - (m.bookedStart ?? m.start) > 2 * DAY || !inbound) {
-      m.status = 'cancelled';
-      m.ev++;
-      touchFlights(g);
-      pushMessage(g, { tone: 'warn', cat: 'tech', title: `${m.kind}-check missed: ${ac.reg}`, body: `${ac.reg} is at ${ac.at}, not ${m.at}. The check needs a new slot.`, ref: { kind: 'aircraft', id: ac.id } });
-      return;
-    }
+    if (g.now - (m.bookedStart ?? m.start) > 2 * DAY || !inbound) return missCheck(g, m, `${ac.reg} is at ${ac.at}, not ${m.at}`);
     ready = Math.max(g.now + 30, inbound.std + inbound.delay + inbound.block + 30);
   }
   if (ready > g.now) {

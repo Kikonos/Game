@@ -1,7 +1,8 @@
 // Flight execution state machine (B3). DESIGN.md §5.5.
 // Conventions: std/sta are the current schedule (delays move them through retimeFlight); `schedStd` keeps the
-// original STD; `delay` is only a short hold not yet folded into std (crew wait, AOG decision pending). A hold
-// never lets a leg slip entirely into the past: contracts treats such legs as gone and plans a duplicate.
+// original STD; `delay` is a hold at the gate not folded into std (crew wait, decision pending, a short delay to
+// the last leg of a duty under way). A hold never lets a leg slip entirely into the past: contracts treats such
+// legs as gone and plans a duplicate.
 
 import { BAL } from '../core/balance';
 import { cancelFlight, flightsOf, removeFlights, retimeFlight, subcharterFlights, touchFlights } from '../core/entities';
@@ -14,7 +15,7 @@ import { DAY, fmtDuration, fmtTime, monthKey } from '../core/time';
 import type { ActionResult, Aircraft, Flight, GameState, MaintenanceEvent, MessageCat, Minute, SimEvent } from '../core/types';
 import { flightCrewStatus, rerosterFrom } from '../crew';
 import { crewReadyAt, crewShortDecision, hasOpenDecision } from './events';
-import { aogChance, isGrounded, startAog } from './maintenance';
+import { aogChance, isGrounded, missCheck, startAog } from './maintenance';
 import { ageF, ageOf, bumpReliable, bumpRelation, contractOf, isBaseLeg, isRevenue, stats, turnOf, usd } from './util';
 
 // ---------- schedule changes ----------
@@ -142,37 +143,46 @@ export interface HoldPlan {
   moves: { f: Flight; std: Minute }[];
   cancels: Flight[];
   checks: { m: MaintenanceEvent; start: Minute }[];
+  /** Planned checks the aircraft can no longer make (cancelled for re-planning). */
+  dropChecks: MaintenanceEvent[];
 }
+
+/** How far past its booked start a planned check may slip behind a late aircraft before the slot is given up. */
+const CHECK_SLIP = 2 * DAY;
 
 /**
  * Recovery when the aircraft is ready at `at` from `ready`: legs move so each departs a turn after the previous
  * arrival, planned checks shift behind. A unit (wave, trip) whose revenue leg would leave later than its cap
  * (base 6 h, trip 24 h past its original STD) is dropped whole, and the units after it keep their times. Stops
- * where the chain breaks (an empty leg contracts still has to re-link) and at legs more than a day out. Pure.
+ * where the chain breaks (an empty leg contracts still has to re-link). Pure.
  */
 function recover(g: GameState, ac: Aircraft, legs: Flight[], at: string, ready: Minute, inbound: Flight | undefined, capped = true): HoldPlan {
   const turn = turnOf(ac);
-  const plan: HoldPlan = { moves: [], cancels: [], checks: [] };
+  const plan: HoldPlan = { moves: [], cancels: [], checks: [], dropChecks: [] };
   const checks = legs.length ? plannedChecks(g, ac.id, legs[0].std) : [];
   let ci = 0;
   let loc = at;
-  // A check where the aircraft then is moves behind it, up to the hold cap; one elsewhere or pushed further is
-  // left to maint.start (it waits for the aircraft or gives the slot up for re-planning).
-  const movable = (m: MaintenanceEvent) => m.at === loc && ready - m.start <= BAL.holdMax;
+  // A check the aircraft would reach late moves behind it, up to two days past its booked start; beyond that, or
+  // when the chain no longer leads there, the slot is given up (the planner re-books, the player is warned).
   const shiftChecks = (before: Minute) => {
     while (ci < checks.length && checks[ci].start < before) {
       const m = checks[ci++];
-      if (!movable(m)) continue;
-      if (m.start < ready) plan.checks.push({ m, start: ready });
-      ready = Math.max(ready, m.start < ready ? ready + m.end - m.start : m.end);
+      if (m.start >= ready) {
+        ready = Math.max(ready, m.end);
+        continue;
+      }
+      if (m.at !== loc || ready - (m.bookedStart ?? m.start) > CHECK_SLIP) {
+        plan.dropChecks.push(m);
+        continue;
+      }
+      plan.checks.push({ m, start: ready });
+      ready += m.end - m.start;
     }
   };
   for (let i = 0; i < legs.length; ) {
     const x = legs[i];
     shiftChecks(x.std);
     if (x.from !== loc || (x.std >= ready && !x.delay)) break;
-    // Beyond a day out nothing is decided yet: those legs are re-planned when they come due.
-    if (i > 0 && x.std > g.now + DAY) break;
     const u = unitAt(g, legs, i);
     // Away from the station, the leg continuing the one that brought the aircraft here (a wave's return, a tour)
     // brings the aircraft and its passengers home: it is never dropped for lateness.
@@ -192,12 +202,7 @@ function recover(g: GameState, ac: Aircraft, legs: Flight[], at: string, ready: 
     i += u.legs.length;
     if (plan.moves.length + plan.cancels.length >= 40) break;
   }
-  for (; ci < checks.length && checks[ci].start < ready; ci++) {
-    const m = checks[ci];
-    if (!movable(m)) continue;
-    plan.checks.push({ m, start: ready });
-    ready += m.end - m.start;
-  }
+  shiftChecks(ready);
   return plan;
 }
 
@@ -243,6 +248,7 @@ export function applyHold(g: GameState, plan: HoldPlan, reason: string, moveReas
     }
   }
   for (const { m, start } of plan.checks) if (m.status === 'planned') shiftCheck(g, m, start);
+  for (const m of plan.dropChecks) if (m.status === 'planned') missCheck(g, m, `${reason}: the aircraft can't reach ${m.at} in time`);
   return n;
 }
 
@@ -260,6 +266,17 @@ export function delayChain(g: GameState, f: Flight, std: Minute, reason: string,
     moveFlight(g, f, std, reason);
     return 0;
   }
+  if (own && holdable(g, f, std)) {
+    // Held at the gate: f keeps its schedule (and its crew), the legs after it ripple as usual.
+    f.heldAt ??= g.now;
+    f.delay = std - f.std;
+    f.delayReason = reason;
+    schedule(g, std, 'flight.dep', f.id, f.ev);
+    touchFlights(g);
+    const all = flightsOf(g, ac.id).filter((x) => x.status === 'scheduled');
+    const later = all.slice(all.indexOf(f) + 1);
+    return applyHold(g, recover(g, ac, later, f.to, std + f.block + turnOf(ac), f), reason, reason, `Recovery: ${reason}`);
+  }
   if (own) {
     const all = flightsOf(g, ac.id).filter((x) => x.status === 'scheduled');
     const legs = [f, ...all.slice(all.indexOf(f) + 1)];
@@ -273,6 +290,18 @@ export function delayChain(g: GameState, f: Flight, std: Minute, reason: string,
   const from = f.std;
   moveFlight(g, f, std, reason);
   return applyHold(g, planRecovery(g, ac, f.to, f.sta + turnOf(ac), from, f), 'Schedule recovery', 'Late inbound aircraft');
+}
+
+/**
+ * Workaround (crew module): retiming the last leg of a duty its crew has already reported for can release that
+ * crew. An ops delay that keeps such a leg inside its own block and the duty inside its FDP limit is therefore a
+ * hold at the gate, not a retime.
+ */
+function holdable(g: GameState, f: Flight, std: Minute): boolean {
+  const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+  if (!d || d.report > g.now || d.flightIds[d.flightIds.length - 1] !== f.id) return false;
+  const extra = std - (f.std + f.delay);
+  return extra > 0 && std > g.now && std < f.sta && d.fdp + extra <= d.maxFdp + (d.discretion ?? 0);
 }
 
 /** Moves `f` to `std` (reason kept) and pushes the legs after it only as far as turn minima need; nothing is dropped. */
@@ -445,7 +474,7 @@ export function onFlightDep(g: GameState, ev: SimEvent): void {
       if (d.min >= BAL.delayMessageMin && f.status === 'scheduled') {
         pushMessage(g, {
           tone: 'info', cat: 'ops', title: `${f.no} delayed ${fmtDuration(d.min)}`,
-          body: `${d.reason}. ${f.from}–${f.to} now off blocks ${fmtTime(f.std)} UTC${n ? `; ${n} later leg${n > 1 ? 's' : ''} follow` : ''}.`,
+          body: `${d.reason}. ${f.from}–${f.to} now off blocks ${fmtTime(f.std + f.delay)} UTC${n ? `; ${n} later leg${n > 1 ? 's' : ''} follow` : ''}.`,
           ref: { kind: 'flight', id: f.id },
         });
       }
