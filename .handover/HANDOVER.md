@@ -203,3 +203,5 @@ Player said: build overnight; if a usage limit hits, save and continue when poss
 ### 22:10Z (02:10 Dubai) — v0.5 RELEASED ✅
 - Crew-legality fix done (audit seeds 1–8 × 180 d: 0 crew issues at departure, 0 false flags; 303 tests). acmi 59dc529 = merge of brand art. Release commit 14747f9 on claude/contrail-airline-game + main; https://kikonos.github.io/Game/ serves BLOCK HOURS (title verified, no console errors).
 - **v0.5.1 livery & polish workflow launched: run wf_74482358-686, task wmwf8iqtr**, script scratchpad/acmi/livery.js (backup .handover/livery.js; engine lane also re-tunes balance: seeds 4/5 at ~14% margin after the crew fix). Resume with resumeFromRunId if it dies. When ready=true: commit acmi → build → play/ on claude/contrail-airline-game (git merge origin/acmi there; tree must equal acmi except play/) → push branch + main → verify live → message the player (Dubai time, what's new, reopen app twice).
+
+### 22:32Z — check-in: v0.5 live; livery workflow wf_74482358-686 running; checkpoint pushed.
