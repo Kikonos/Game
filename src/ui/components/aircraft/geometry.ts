@@ -70,7 +70,8 @@ export interface Geometry {
   /** Radome joint, fairing seam and similar fine lines on the fuselage. */
   lines: string;
   apu: string;
-  cockpit: { panes: string; mask: string; round: number };
+  /** list (traced): one path per pane, each drawn clear of its neighbours by `post` (the light frame between panes). */
+  cockpit: { panes: string; mask: string; round: number; list?: string[]; post: number };
   titles: { x: number; y: number; w: number; size: number };
   livery: (style: TailStyle) => LiveryGeo;
   box: Box;
@@ -496,8 +497,9 @@ function build(p: AircraftProfile, t?: TracedProfile): Geometry {
   let deckRows = 0;
   if (fr) {
     const tw = fr.t.windows;
+    // `to` is the last window's centre: the averaged pitch may overshoot it by a hair
     const row: WindowRow | undefined = tw && tw.pitch > 0 && tw.h > 0
-      ? { x0: fr.X(tw.from), x1: fr.X(tw.to), y: fr.Y(tw.y), pitch: tw.pitch * L, w: tw.h * L * 0.7, h: tw.h * L, gaps: (tw.gaps ?? []).map(([a, b]) => [fr.X(a), fr.X(b)] as const) }
+      ? { x0: fr.X(tw.from), x1: fr.X(tw.to + tw.pitch * 0.25), y: fr.Y(tw.y), pitch: tw.pitch * L, w: tw.h * L * 0.7, h: tw.h * L, gaps: (tw.gaps ?? []).map(([a, b]) => [fr.X(a), fr.X(b)] as const) }
       : undefined;
     const decks = row && !fr.outline ? p.windows.filter((r) => Math.abs(r.y - row.y) > H * 0.25) : [];
     deckRows = decks.length;
@@ -546,10 +548,12 @@ function build(p: AircraftProfile, t?: TracedProfile): Geometry {
   // ---------- cockpit ----------
   const panes = new D();
   let mask = '';
+  let paneList: string[] | undefined;
   let cockpitEnd: number;
   if (fr && fr.t.cockpit?.some((q) => q.length >= 3)) {
     const polys = fr.t.cockpit.filter((q) => q.length >= 3).map((q) => q.map(fr.P));
     for (const pane of polys) panes.poly(pane);
+    paneList = polys.map((q) => new D().poly(q).toString());
     cockpitEnd = Math.max(...polys.flat().map((v) => v[0]));
   } else {
     const ck = COCKPIT[p.cockpit.style];
@@ -596,7 +600,8 @@ function build(p: AircraftProfile, t?: TracedProfile): Geometry {
     doors: doors.toString(),
     lines: lines.toString(),
     apu: apu.toString(),
-    cockpit: { panes: panes.toString(), mask, round: H * 0.006 },
+    // traced panes: exact polygons (no rounding growth), posts opened to >= H * 0.01 where the trace closes them
+    cockpit: { panes: panes.toString(), mask, round: paneList ? 0 : H * 0.006, list: paneList, post: H * 0.01 },
     titles,
     livery,
     box,
@@ -876,6 +881,8 @@ const NAC: Record<Exclude<EngineStyle, 'turboprop' | 'supersonic'>, Nac> = {
   ge90: { cowl: 0.66, lip: 0.94, max: 0.25, aft: 0.84, core: 0.46, coreEnd: 0.88 },
   flatbottom: { cowl: 0.62, lip: 0.88, max: 0.26, aft: 0.78, core: 0.5, coreEnd: 0.86, flat: 0.2 },
   rear: { cowl: 0.8, lip: 0.9, max: 0.26, aft: 0.74, core: 0.42, coreEnd: 0.92 },
+  // the A380 nacelle boxes end with the fan cowl: core and plug only peek out behind it
+  trent900: { cowl: 0.86, lip: 0.9, max: 0.28, aft: 0.8, core: 0.44, coreEnd: 0.94 },
 };
 
 function cowlR(t: number, s: Nac): number {
@@ -997,11 +1004,20 @@ function turboprop(e: EngineSpec, pylon: D, box: Box): EngineGeo {
 function supersonic(e: EngineSpec, pylon: D, box: Box): EngineGeo {
   const r = e.dia / 2;
   const { x, y: cy, len } = e;
-  const cowl = new D().M([x, cy + r * 0.8]).L([x + len * 0.1, cy + r]).L([x + len * 0.86, cy + r * 0.94]).C([x + len * 0.95, cy + r * 0.9], [x + len, cy + r * 0.8], [x + len, cy + r * 0.68])
-    .L([x + len, cy - r * 0.68]).C([x + len, cy - r * 0.8], [x + len * 0.95, cy - r * 0.9], [x + len * 0.86, cy - r * 0.94]).L([x + len * 0.1, cy - r]).L([x - len * 0.06, cy - r]).Z().toString();
-  const dark = new D().poly([[x - len * 0.055, cy - r * 0.92], [x + len * 0.004, cy + r * 0.74], [x + len * 0.03, cy + r * 0.7], [x - len * 0.015, cy - r * 0.92]])
-    .poly([[x + len * 0.985, cy + r * 0.66], [x + len, cy + r * 0.68], [x + len, cy - r * 0.68], [x + len * 0.985, cy - r * 0.66]]).toString();
-  const accent = new D().poly([[x + len * 0.18, cy + r * 0.99], [x + len * 0.24, cy + r * 0.985], [x + len * 0.24, cy - r * 0.99], [x + len * 0.18, cy - r * 0.995]]).toString();
-  box.add([x - len * 0.06, cy - r], [x + len, cy + r]);
+  // as on the Concorde drawing (u along the box, v in r below the centre): intake raked with the
+  // upper lip ahead, belly deepening to the box bottom by u 0.4, nozzle curving up to the centre
+  const BELLY: readonly V[] = [[0.08, 0.55], [0.2, 0.7], [0.32, 0.82], [0.42, 0.97], [0.78, 0.98], [0.84, 0.82], [0.9, 0.55], [0.95, 0.27], [1, -0.05]];
+  const at = (u: number, v: number): V => [x + len * u, cy - r * v];
+  const under = (u: number) => yAt(BELLY, u);
+  const belly: V[] = [];
+  for (let i = 0; i <= 46; i++) belly.push(at(lerp(1, 0.08, i / 46), under(lerp(1, 0.08, i / 46))));
+  const cowl = new D().M(at(-0.01, -1)).L(at(1, -1)).L(belly[0]).spline(belly, false).Z().toString();
+  // dark intake lip along the rake, dark nozzle (lower three quarters aft of u 0.69)
+  const lip = 0.024;
+  const nozzle: V[] = [at(0.69, -0.74), at(1, -0.74)];
+  for (let i = 0; i <= 20; i++) nozzle.push(at(lerp(1, 0.69, i / 20), under(lerp(1, 0.69, i / 20))));
+  const dark = new D().poly([at(-0.01, -1), at(-0.01 + lip, -1), at(0.08 + lip, under(0.08 + lip)), at(0.08, 0.55)]).poly(nozzle).toString();
+  const accent = new D().poly([at(0.18, -0.99), at(0.24, -0.99), at(0.24, under(0.24) - 0.02), at(0.18, under(0.18) - 0.02)]).toString();
+  box.add(at(-0.01, -1), at(1, -1), ...belly);
   return { spec: e, pylon: pylon.toString(), cowl, accent, lip: '', dark, core: '', plug: '', seam: '' };
 }

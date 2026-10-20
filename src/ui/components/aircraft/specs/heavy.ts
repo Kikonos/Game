@@ -130,11 +130,11 @@ const a388: AircraftProfile = {
   tail: TAIL.a380,
   fin: { x: 56.0, rootChord: 12.2, tipChord: 3.4, height: 13.8, sweep: 44, fillet: { len: 4.0, h: 1.6 }, tip: 'round', rudder: 0.34 },
   stab: { x: 59.2, y: 1.0, rootChord: 8.0, tipChord: 2.6, span: 13.8, sweep: 36, dihedral: 5, thickness: 0.7 },
-  wing: { x: 24.0, y: -2.95, rootChord: 17.5, tipChord: 4.2, span: 34.2, sweep: 35, dihedral: 5.6, thickness: 2.0, tip: 'fence', tipH: 1.3 },
+  wing: { x: 24.0, y: -2.95, rootChord: 17.5, tipChord: 4.2, span: 34.2, sweep: 40.8, dihedral: 4.9, thickness: 2.0, tip: 'fence', tipH: 1.3 },
   // Trent 900 / GP7200: inboard pair at the wing's leading edge, outboard ~7 m further aft and higher
   engines: [
-    { mount: 'underwing', style: 'plain', x: 24.7, y: -3.35, dia: 3.5, len: 7.6, station: 0.28, inboard: true },
-    { mount: 'underwing', style: 'plain', x: 31.8, y: -2.85, dia: 3.5, len: 7.6, station: 0.56 },
+    { mount: 'underwing', style: 'trent900', x: 24.7, y: -3.35, dia: 3.5, len: 7.6, station: 0.28, inboard: true },
+    { mount: 'underwing', style: 'trent900', x: 31.8, y: -2.85, dia: 3.5, len: 7.6, station: 0.56 },
   ],
   fairing: { x0: 18.5, x1: 46.0, depth: 0.5 },
   doors: [

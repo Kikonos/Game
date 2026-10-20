@@ -256,6 +256,13 @@ function AircraftArtImpl({ typeId, livery, code, name, className, height, detail
             </clipPath>
           </>
         )}
+        {/* traced panes: each pane loses a band of `post` around every other pane, so touching panes keep a light post */}
+        {g.cockpit.list?.map((d, i, all) => (
+          <mask key={i} id={id(`pm${i}`)}>
+            <path d={d} fill="#fff" />
+            <path d={all.filter((_, j) => j !== i).join('')} fill="none" stroke="#000" strokeWidth={f(g.cockpit.post * 2)} />
+          </mask>
+        ))}
       </defs>
 
       <g transform={FLIP}>
@@ -294,7 +301,9 @@ function AircraftArtImpl({ typeId, livery, code, name, className, height, detail
       {full && <path d={g.windows} fill={WINDOW} />}
       {full && <path d={g.doors} fill="none" stroke={FINE} strokeWidth={0.55} style={ns} />}
       {full && g.lines && <path d={g.lines} fill="none" stroke={FINE} strokeWidth={0.6} style={ns} />}
-      <path d={g.cockpit.panes} fill={PANE} stroke={PANE} strokeWidth={f(g.cockpit.round * 2)} strokeLinejoin="round" />
+      {g.cockpit.list
+        ? g.cockpit.list.map((d, i) => <path key={i} d={d} fill={PANE} mask={url(`pm${i}`)} />)
+        : <path d={g.cockpit.panes} fill={PANE} stroke={PANE} strokeWidth={f(g.cockpit.round * 2)} strokeLinejoin="round" />}
       {g.apu && <path d={g.apu} fill="#3b4558" />}
       <path d={g.fus} fill="none" stroke={OUTLINE} strokeWidth={sw} style={ns} strokeLinejoin="round" />
 

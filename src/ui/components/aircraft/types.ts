@@ -132,6 +132,7 @@ export type EngineStyle =
   | 'ge90'       // GE90 / GE9X: huge
   | 'flatbottom' // CFM56-7 on the 737NG
   | 'rear'       // fuselage-mounted (CRJ)
+  | 'trent900'   // Trent 900 / GP7200 (A380): long fan cowl, short core and plug
   | 'turboprop'  // PW127 / PW150 nacelle with propeller
   | 'supersonic';// rectangular inlet, long nacelle
 

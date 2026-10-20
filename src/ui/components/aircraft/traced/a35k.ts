@@ -25,8 +25,8 @@ export const profile: TracedProfile = {
     [0.995, -0.038], [1, -0.0367],
   ],
   bottom: [
-    [0, 0], [0.0016, 0.0027], [0.0038, 0.0049], [0.0045, 0.008], [0.006, 0.0109], [0.0086, 0.0126],
-    [0.0117, 0.0135], [0.0146, 0.0148], [0.0176, 0.016], [0.0207, 0.0165], [0.0239, 0.0169], [0.0271, 0.0173],
+    [0, 0], [0.0008, 0.0032], [0.002, 0.0061], [0.0036, 0.0089], [0.0056, 0.011], [0.0082, 0.0125],
+    [0.0117, 0.0141], [0.0146, 0.0153], [0.0176, 0.016], [0.0207, 0.0165], [0.0239, 0.0169], [0.0271, 0.0173],
     [0.0303, 0.0178], [0.0334, 0.0183], [0.0366, 0.0187], [0.0397, 0.0194], [0.0427, 0.0204], [0.0459, 0.0207],
     [0.0491, 0.0207], [0.0523, 0.0208], [0.0555, 0.0211], [0.0586, 0.0218], [0.0618, 0.0223], [0.065, 0.0224],
     [0.0682, 0.0224], [0.0714, 0.0224], [0.0746, 0.0224], [0.0778, 0.0225], [0.081, 0.0225], [0.0842, 0.0227],
@@ -43,9 +43,9 @@ export const profile: TracedProfile = {
     [0.98, -0.0275], [0.985, -0.0282], [0.99, -0.0285], [0.995, -0.029], [1, -0.0299],
   ],
   cockpit: [
-    [[0.0255, -0.0243], [0.0257, -0.0251], [0.0268, -0.0267], [0.0279, -0.0272], [0.0289, -0.0283], [0.03, -0.0288], [0.0311, -0.0304], [0.0321, -0.0315], [0.0332, -0.032], [0.0343, -0.032], [0.0353, -0.032], [0.0364, -0.032], [0.0375, -0.0326], [0.0385, -0.0326], [0.0396, -0.0326], [0.0401, -0.0326], [0.0404, -0.0275], [0.0401, -0.0224], [0.0396, -0.0224], [0.0385, -0.0229], [0.0375, -0.0229], [0.0364, -0.0235], [0.0353, -0.024], [0.0343, -0.024], [0.0332, -0.024], [0.0321, -0.0246], [0.0311, -0.0246], [0.03, -0.024], [0.0289, -0.024], [0.0279, -0.0235], [0.0268, -0.0235], [0.0257, -0.0235]],
-    [[0.0409, -0.0278], [0.0412, -0.0331], [0.0423, -0.0331], [0.0434, -0.0326], [0.0444, -0.0326], [0.0455, -0.0326], [0.046, -0.0326], [0.0463, -0.0275], [0.046, -0.0224], [0.0455, -0.0224], [0.0444, -0.0224], [0.0434, -0.0224], [0.0423, -0.0224], [0.0412, -0.0224]],
-    [[0.0468, -0.0275], [0.0471, -0.0326], [0.0482, -0.032], [0.0492, -0.0315], [0.0503, -0.0304], [0.0514, -0.0294], [0.0519, -0.0283], [0.0522, -0.0267], [0.0519, -0.0251], [0.0514, -0.024], [0.0503, -0.0229], [0.0492, -0.0224], [0.0482, -0.0224], [0.0471, -0.0224]],
+    [[0.028, -0.0247], [0.0288, -0.0256], [0.033, -0.0292], [0.034, -0.03], [0.0355, -0.031], [0.0372, -0.0316], [0.0393, -0.0319], [0.0402, -0.0319], [0.0402, -0.0221], [0.0362, -0.0225], [0.0347, -0.0228], [0.0324, -0.0234], [0.0317, -0.0235], [0.029, -0.0243], [0.0282, -0.0244]],
+    [[0.0408, -0.032], [0.0447, -0.032], [0.0462, -0.0318], [0.0463, -0.0221], [0.045, -0.022], [0.041, -0.022]],
+    [[0.0469, -0.0317], [0.048, -0.0313], [0.0492, -0.0304], [0.0498, -0.0296], [0.05, -0.0291], [0.0502, -0.028], [0.0502, -0.0267], [0.0499, -0.0249], [0.0495, -0.0239], [0.0489, -0.0231], [0.0483, -0.0226], [0.0472, -0.0222]],
   ],
   windows: { y: -0.026, h: 0.0053, from: 0.1155, to: 0.805, pitch: 0.0089, gaps: [[0.297, 0.3412], [0.5816, 0.6083]] },
   doors: [
@@ -60,5 +60,5 @@ export const profile: TracedProfile = {
     { x: 0.3675, y: -0.0092, w: 0.085, h: 0.0547 },
   ],
   lengthM: 73.79,
-  notes: "A350-1000 Airbus house render (low-res source, 468 px long). Nose: blunt, LOW tip (tip at 72% of the crown-to-belly height below the crown), long straight-ish upper line rising to a shoulder at the windscreen, then a gentle crown; rounded chin, belly flat from x=0.15. Cockpit: the A350 black windscreen MASK reads as one dark visor whose pointed front touches the upper outline; split into windshield + 2 side panes at estimated posts (posts are not resolvable in the source). Doors 1/2/4 traced (render outlines are ~8 px = 1.3 m wide); door 3 hidden by the wing, placed at x=0.585 by inference. Window row: wing occludes 0.49-0.62 (windows continue there on the real aircraft). Fin tip touches the image top (may be clipped by <=2 px). Tail cone end hidden by the stabiliser: top line under fin/stab interpolated. Belly fairing bulge (~2 px) under the wing not traced (belly smooth).",
+  notes: "A350-1000 Airbus house render (low-res source, 468 px long). Nose: blunt, LOW tip (tip at 72% of the crown-to-belly height below the crown), long straight-ish upper line rising to a shoulder at the windscreen, then a gentle crown; rounded chin, belly flat from x=0.15. Cockpit: the A350 black windscreen MASK reads as one dark visor (half-max edge: pointed front at x 0.028 just under the upper outline, flat top y -0.032, round aft end at x 0.050, flat bottom y -0.022), traced as one smooth outline and split into windshield + 2 side panes at estimated posts (x 0.0402-0.0408, 0.0463-0.0469; not resolvable in the source). Evidence mask: L1 colour distance to the row background > 75 (drops the render's blur halo). Doors 1/2/4 traced (render outlines are ~8 px = 1.3 m wide); door 3 hidden by the wing, placed at x=0.585 by inference. Window row: wing occludes 0.49-0.62 (windows continue there on the real aircraft). Fin tip touches the image top (may be clipped by <=2 px). Tail cone end hidden by the stabiliser: top line under fin/stab interpolated. Belly fairing bulge (~2 px) under the wing not traced (belly smooth).",
 };
