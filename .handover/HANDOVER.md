@@ -149,3 +149,9 @@ If an agent fails on a limit, its file edits persist (checkpoint them). Resume t
 ### 2026-10-20 16:35Z — second limit (13:40–16:30Z), resumed
 - Build: B3 complete (assess, flights, finance, events, bot-balance cached; bot: 3 seeds solvent, margin −5…+5%, 0 legality violations; still failing: uncovered-at-departure 2.6–4% (<2%) and summer BH/ac on some seeds — B2 roster faults for the integrate engine lane). Integration onward re-runs. Task wt2j3zo0q.
 - Art: traced, applied, measure round 1 done (6 match, 17 close, a388 off — chin; A350 limited by low-res ref; pane details on b738/b752/b772/b744). Fix round 1 + measure 2 + finish re-run. Task wzh1bgaxo. Sent the measure-1 sheet to the user as a preview.
+
+### 2026-10-20 17:15Z — art trace DONE
+- wf_2d49f509-f34 finished: 23 traced types all "match" (lowest nose IoU 0.974 a388, body 0.968 a35k); Overture removed, Concorde in (62.9 m, from the user's drawing); every type nose-right, no gear. Final shots: scratchpad/brand/final/, sheet: scratchpad/brand/trace/measure-3/sheet.png — sent to the user.
+- A380 chin + Trent 900 nacelles + wing-root fix committed on brand (371837d) per user feedback.
+- Polish agent (Opus high) running on brand for leftovers: a35k stray crown line, q400 prop clip/title overlap, a343 title spacing, sub-pixel trace cleanups (a35k/b738/a343), card title size. Commit on brand when it reports.
+- Note for the merge: brand still carries src/engine/ops/zz_dbg_b3.test.ts from the old base — take acmi's version (deleted) when merging.
