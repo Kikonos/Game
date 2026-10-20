@@ -1,13 +1,13 @@
 // B2 — Crew & HR. Public API for the UI and other modules.
 
 import { BAL } from '../core/balance';
-import { takeFlightChanges } from '../core/entities';
+import { flightsOf, flightsRev, takeFlightChanges } from '../core/entities';
 import type { SimModule } from '../core/module';
 import { schedule } from '../core/queue';
 import { DAY, yearOf } from '../core/time';
 import type { GameState, SimEvent } from '../core/types';
 import { dailyCrewCosts, monthlySalaries } from './costs';
-import { deletePairing } from './duties';
+import { deletePairing, planAircraft } from './duties';
 import { dailySickness, onCrewJoin, onTrainingDone } from './hr';
 import { autoRoster, onFlightsChanged } from './roster';
 import { minRest, nightsIn, LIMITS } from './rules';
@@ -173,6 +173,43 @@ function daily(g: GameState) {
 }
 
 const lastHour = new WeakMap<GameState, number>();
+const lastFlightsRev = new WeakMap<GameState, number>();
+/** Flights a planning pass could not place (not retried on every change). */
+const unplaced = new WeakMap<GameState, Set<string>>();
+
+/**
+ * Flights added outside an accept (dev demo flights, ops ferries) that no duty holds yet, departing inside the
+ * roster horizon: their aircraft are planned and, with the auto-roster policy, crewed now instead of at midnight.
+ */
+function rosterNewFlights(g: GameState): void {
+  const ix = crewIx(g);
+  const until = g.now + BAL.rosterHorizonDays * DAY;
+  const acs: string[] = [];
+  let skip = unplaced.get(g);
+  if (!skip) unplaced.set(g, (skip = new Set()));
+  for (const id of Object.keys(g.fleet)) {
+    const fl = flightsOf(g, id);
+    let lo = 0;
+    let hi = fl.length;
+    while (lo < hi) {
+      const m = (lo + hi) >> 1;
+      if (fl[m].std < g.now) lo = m + 1;
+      else hi = m;
+    }
+    for (let i = lo; i < fl.length && fl[i].std < until; i++) {
+      const f = fl[i];
+      if (f.status === 'scheduled' && f.aircraftId === id && !ix.inDuty.has(f.id) && !skip.has(f.id)) {
+        acs.push(id);
+        break;
+      }
+    }
+  }
+  if (!acs.length) return;
+  if (g.company.policies.autoRoster) autoRoster(g, { aircraftIds: acs });
+  else for (const id of acs) planAircraft(g, id, g.now);
+  const placed = crewIx(g).inDuty;
+  for (const id of acs) for (const f of flightsOf(g, id)) if (f.status === 'scheduled' && f.std >= g.now && f.std < until && !placed.has(f.id)) skip.add(f.id);
+}
 
 export const crewModule: SimModule = {
   name: 'crew',
@@ -183,6 +220,11 @@ export const crewModule: SimModule = {
   },
   settle(g) {
     for (const [aircraftId, t] of takeFlightChanges(g)) onFlightsChanged(g, aircraftId, t);
+    const rev = flightsRev(g);
+    if (lastFlightsRev.get(g) !== rev) {
+      rosterNewFlights(g);
+      lastFlightsRev.set(g, flightsRev(g));
+    }
     const h = Math.floor(g.now / 60);
     if (lastHour.get(g) !== h) {
       lastHour.set(g, h);

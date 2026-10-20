@@ -96,8 +96,13 @@ export function planSector(typeId: string, from: string, to: string): SectorPlan
 }
 
 function viaStops(typeId: string, from: string, to: string): SectorPlan {
+  // Fuel stops at proper airports first; small strips (size 1: diversion-only desert fields) only as a last resort.
+  return viaStopsAt(typeId, from, to, 2) ?? viaStopsAt(typeId, from, to, 1) ?? { ok: false, legs: [], techStops: [], reason: 'range' };
+}
+
+function viaStopsAt(typeId: string, from: string, to: string, minSize: number): SectorPlan | null {
   const fits = (a: string, b: string) => runwayFit(typeId, b) !== 'no' && distanceNm(a, b) <= maxSectorNm(typeId, a, b);
-  const cands = AIRPORTS.filter((x) => x.code !== from && x.code !== to && runwayFit(typeId, x.code) === 'ok');
+  const cands = AIRPORTS.filter((x) => x.code !== from && x.code !== to && x.size >= minSize && runwayFit(typeId, x.code) === 'ok');
   let best: { stops: string[]; d: number } | null = null;
   for (const x of cands) {
     if (!fits(from, x.code)) continue;
@@ -117,7 +122,7 @@ function viaStops(typeId: string, from: string, to: string): SectorPlan {
       }
     }
   }
-  if (!best) return { ok: false, legs: [], techStops: [], reason: 'range' };
+  if (!best) return null;
   const pts = [from, ...best.stops, to];
   const legs = pts.slice(1).map((b, i) => ({ from: pts[i], to: b, block: blockMinutes(typeId, pts[i], b) }));
   return { ok: true, legs, techStops: best.stops };

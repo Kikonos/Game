@@ -96,3 +96,18 @@ The player is a former ACMI flight attendant (euroAtlantic: 767-300ER/777-200ER;
 - d3-geo WorldMap (pan/zoom/pinch already built).
 - iPad touch shell and tokens, lz-string saves, PWA, release process (play/ on main).
 - The old airline game stays playable at `/Game/classic/`.
+
+## Player decisions (2026-10-20) — these override anything above
+- **Name:** the game is called **BLOCK HOURS**. It replaces the CONTRAIL brand everywhere: title, wordmark/logo, loading screen, PWA manifest, README and save-key display text. Keep the save keys stable once released.
+- **Home base:** chosen at the start. Lisbon is the default; Vilnius, Malta, Madrid, Riga and other ACMI-style bases are also offered.
+- **Crew:** named individuals with an auto-roster that the player can adjust through manual swaps and overrides, with legality warnings.
+- **Real names:** use REAL companies and institutions as clients, brokers and rivals:
+  - airlines (e.g. TAP Air Portugal, Lufthansa, Eurowings, LOT, Saudia, flynas, Azul, Air Canada, Aer Lingus, Condor…);
+  - governments and ministries;
+  - agencies (UN WFP, UNHCR, IOM, Frontex…);
+  - brokers (Chapman Freeborn, Air Charter Service, ACMI brokers…);
+  - rival ACMI operators (Hi Fly, Wamos Air, euroAtlantic, Getjet, Airhub, Avion Express, Titan Airways, Privilege Style, Air Atlanta Icelandic…);
+  - sports clubs and tour operators.
+
+  Keep the content factual and neutral. Never invent accidents, crimes, safety scandals or wrongdoing about real companies or people. Routine simulation outcomes (a schedule change, a late payment, a negotiation, a competing bid) are fine. No logos or trademarks beyond names.
+- **The old game is replaced:** the airline-network game is no longer published. The new game takes its place at the same address.

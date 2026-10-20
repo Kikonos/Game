@@ -6,17 +6,18 @@ import { onApprovalDone } from './company';
 import { dailyEvents, onDecisionExpire } from './events';
 import { dailyFinance, onMonthEnd, onPayment } from './finance';
 import { onFlightArr, onFlightDep, pruneFlights } from './flights';
-import { checkGoals } from './goals';
+import { checkGoals, syncGoals } from './goals';
 import { onMaintEnd, onMaintStart, planChecks } from './maintenance';
 import { onDelivery, onLeaseEnd, refreshMarket } from './market';
 
-export { APPROVALS, applyApproval, setPolicies, type ApprovalDef } from './company';
+export { APPROVALS, applyApproval, approvalBlocker, setPolicies, type ApprovalDef } from './company';
 export { resolveDecision } from './events';
-export { cashForecast, monthProfit, newStatement } from './finance';
-export { delayFlight } from './flights';
+export { cashForecast, fixedCosts, monthProfit, newStatement } from './finance';
+export { delayFlight, delayOf, schedSta } from './flights';
 export { GOALS, type GoalDef } from './goals';
-export { aogChance, cancelCheck, checkStatus, scheduleCheck, type CheckStatus } from './maintenance';
+export { aogChance, cancelCheck, checkAirportOk, checkStatus, groundGaps, scheduleCheck, type CheckStatus } from './maintenance';
 export { acquireAircraft } from './market';
+export { usd } from './util';
 
 function daily(g: GameState) {
   pruneFlights(g);
@@ -30,6 +31,10 @@ export const opsModule: SimModule = {
   name: 'ops',
   init(g) {
     refreshMarket(g);
+  },
+  load(g) {
+    syncGoals(g);
+    g.finance.negSince ??= null;
   },
   handlers: {
     day: daily,

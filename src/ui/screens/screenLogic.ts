@@ -1,0 +1,246 @@
+// Pure helpers for the B5 screens (labels, sorting, filtering, deep links). No React, no writes.
+
+import type { RatingFamily } from '../../data/acmiTypes';
+import { DAY, HOUR } from '../../engine/core/time';
+import type {
+  Archetype, ContractOffer, CrewMember, CrewStatus, GameState, LedgerCat, Message, MessageCat, MonthStatement, Product, Ref, Requirements, Role, SchedulePattern,
+} from '../../engine/core/types';
+import type { Tab } from '../store';
+
+export const ARCH_LABEL: Record<Archetype, string> = {
+  seasonBase: 'Season ACMI base', aogCover: 'AOG cover', adhoc: 'Ad hoc charter', sports: 'Sports charter', repatriation: 'Repatriation',
+  tourSeries: 'Tour series', troopRotation: 'Troop rotation', capacityLease: 'Capacity lease', hajj: 'Hajj', unRotation: 'UN rotation', vip: 'VIP charter',
+  deportation: 'Deportation', evacuation: 'Evacuation', humanitarian: 'Humanitarian', subcharterIn: 'Sub-charter', dryLeaseOut: 'Dry lease out',
+};
+
+export const ROLES: Role[] = ['CPT', 'FO', 'CRP', 'CSD', 'SCC', 'CC'];
+export const ROLE_LABEL: Record<Role, string> = { CPT: 'Captain', FO: 'First officer', CRP: 'Relief pilot', CSD: 'Purser (CSD)', SCC: 'Senior cabin crew', CC: 'Cabin crew' };
+export const isPilotRole = (r: Role) => r === 'CPT' || r === 'FO' || r === 'CRP';
+
+export const CREW_STATUS_LABEL: Record<CrewStatus, string> = {
+  available: 'Available', onDuty: 'On duty', resting: 'Resting', off: 'Day off', leave: 'Leave', sick: 'Sick', training: 'Training', joining: 'Joining',
+};
+
+export const MSG_CATS: { id: MessageCat | 'all'; label: string }[] = [
+  { id: 'all', label: 'All' }, { id: 'ops', label: 'Ops' }, { id: 'crew', label: 'Crew' }, { id: 'commercial', label: 'Commercial' },
+  { id: 'tech', label: 'Tech' }, { id: 'finance', label: 'Finance' }, { id: 'company', label: 'Company' }, { id: 'goal', label: 'Goals' },
+];
+
+const URGENCY_RANK: Record<ContractOffer['urgency'], number> = { urgent: 0, short: 1, normal: 2 };
+
+/** Open (and countered) offers: urgent first, then by value. */
+export function marketOffers(g: GameState): ContractOffer[] {
+  return Object.values(g.offers)
+    .filter((o) => o.status === 'open' || o.status === 'countered')
+    .sort((a, b) => URGENCY_RANK[a.urgency] - URGENCY_RANK[b.urgency] || b.estValue - a.estValue || a.expires - b.expires);
+}
+
+/** Offers that left the market without us (lost, expired, declined), newest first. */
+export function missedOffers(g: GameState): ContractOffer[] {
+  return Object.values(g.offers)
+    .filter((o) => o.status === 'lost' || o.status === 'expired' || o.status === 'declined')
+    .sort((a, b) => (b.closedAt ?? b.expires) - (a.closedAt ?? a.expires));
+}
+
+/** Compact duration in whole hours / days: '45 min', '31 h', '3 d 4 h'. */
+export function spanLabel(min: number): string {
+  const m = Math.max(0, Math.round(min));
+  if (m < HOUR) return `${m} min`;
+  if (m < 2 * DAY) return `${Math.floor(m / HOUR)} h`;
+  const d = Math.floor(m / DAY);
+  const h = Math.floor((m % DAY) / HOUR);
+  return h ? `${d} d ${h} h` : `${d} d`;
+}
+
+/** Expiry countdown in game hours (changes at most hourly). */
+export function expiryLabel(now: number, expires: number): string {
+  const left = expires - now;
+  if (left <= 0) return 'Expired';
+  return `${spanLabel(Math.floor(left / HOUR) * HOUR || left)} left`;
+}
+
+/** 'LIS ⇄ HAM', 'KBL → LIS', 'HAM base · PMI, AGP +2'. */
+export function routeSummary(p: SchedulePattern): string {
+  if (p.kind === 'base') {
+    const d = p.dests.slice(0, 3).join(', ');
+    return `${p.base} base · ${d}${p.dests.length > 3 ? ` +${p.dests.length - 3}` : ''}`;
+  }
+  const legs = [...p.legs].sort((a, b) => a.dep - b.dep);
+  if (!legs.length) return '';
+  const stops: string[] = [legs[0].from];
+  for (const l of legs) {
+    if (stops[stops.length - 1] !== l.from) stops.push(l.from);
+    stops.push(l.to);
+  }
+  if (stops.length === 3 && stops[0] === stops[2]) return `${stops[0]} ⇄ ${stops[1]}`;
+  const uniq = new Set(stops);
+  if (legs.length > 4 && uniq.size <= 3) {
+    const [a, b] = [stops[0], stops.find((s) => s !== stops[0]) ?? stops[0]];
+    return `${a} ⇄ ${b} · ${legs.length} legs`;
+  }
+  return stops.length > 5 ? `${stops.slice(0, 4).join(' → ')} … ${stops[stops.length - 1]}` : stops.join(' → ');
+}
+
+const k = (v: number) => (v >= 1e6 ? `$${(v / 1e6).toFixed(v >= 1e7 ? 1 : 2)}M` : v >= 1e4 ? `$${Math.round(v / 1e3)}K` : `$${Math.round(v).toLocaleString('en-US')}`);
+
+/** '$3,950/BH · MGH 200', '$412K charter', '$228K/month dry'. */
+export function productLine(p: Product): string {
+  if (p.kind === 'wet') return `$${p.ratePerBH.toLocaleString('en-US')}/BH · MGH ${p.mghPerMonth}`;
+  if (p.kind === 'charter') return `${k(p.price)} charter`;
+  return `${k(p.rentPerMonth)}/month dry`;
+}
+
+export interface Chip {
+  label: string;
+  tone?: 'good' | 'warn' | 'bad';
+  tip?: string;
+}
+
+/** Requirement chips: seats, body/families, ETOPS, runway, approvals. */
+export function reqChips(r: Requirements): Chip[] {
+  const out: Chip[] = [{ label: r.maxSeats ? `${r.minSeats}–${r.maxSeats} seats` : `${r.minSeats}+ seats`, tip: 'Seats the client needs' }];
+  if (r.body === 'wide') out.push({ label: 'Widebody' });
+  if (r.families?.length && r.families.length <= 2) out.push({ label: r.families.join(' / ') });
+  if (r.layout && r.layout !== 'all-economy') out.push({ label: r.layout === 'vip' ? 'VIP cabin' : r.layout.replace('-', ' ') });
+  if (r.etops) out.push({ label: `ETOPS ${r.etops}`, tone: 'warn', tip: 'Needs ETOPS approval and a capable twin' });
+  if (r.minRunwayM && r.minRunwayM < 2400) out.push({ label: `Runway ${r.minRunwayM.toLocaleString('en-US')} m`, tone: 'warn', tip: 'Short runway on the programme' });
+  if (r.longestSectorNm >= 3000) out.push({ label: `${r.longestSectorNm.toLocaleString('en-US')} nm`, tip: 'Longest sector' });
+  for (const a of r.approvals) out.push({ label: a.toUpperCase(), tone: 'warn', tip: 'Approval needed' });
+  if (r.extraCabin) out.push({ label: `+${r.extraCabin} cabin crew` });
+  if (r.noTechStops) out.push({ label: 'No tech stops' });
+  return out;
+}
+
+/** Risk chips for risks of 0.35 or more. */
+export function riskChips(risk: ContractOffer['risk']): Chip[] {
+  const out: Chip[] = [];
+  const add = (v: number, label: string, tip: string) => {
+    if (v >= 0.35) out.push({ label, tone: v >= 0.65 ? 'bad' : 'warn', tip });
+  };
+  add(risk.payment, 'Late payer', 'The client often pays after the due date');
+  add(risk.disruption, 'Disruption', 'Delays, diversions and schedule changes likely');
+  add(risk.politics, 'Politics', 'Sensitive work: reputation and morale at stake');
+  add(risk.permit, 'Permits', 'Overflight and landing permits may come late');
+  return out;
+}
+
+export type Tone = 'good' | 'warn' | 'bad';
+
+/** Limit bars: green under 75%, amber under 95%, red above. */
+export const limitTone = (ratio: number): Tone => (ratio < 0.75 ? 'good' : ratio < 0.95 ? 'warn' : 'bad');
+
+export interface CrewFilter {
+  group: 'all' | 'pilots' | 'cabin';
+  role: Role | 'all';
+  status: CrewStatus | 'all' | 'away';
+  rating: RatingFamily | 'all';
+  q: string;
+}
+
+export const NO_FILTER: CrewFilter = { group: 'all', role: 'all', status: 'all', rating: 'all', q: '' };
+
+const ROLE_RANK: Record<Role, number> = { CPT: 0, FO: 1, CRP: 2, CSD: 3, SCC: 4, CC: 5 };
+
+/** Filters and sorts crew: role, then surname. */
+export function filterCrew(list: CrewMember[], f: CrewFilter): CrewMember[] {
+  const q = f.q.trim().toLowerCase();
+  return list
+    .filter((c) => {
+      if (f.group === 'pilots' && !isPilotRole(c.role)) return false;
+      if (f.group === 'cabin' && isPilotRole(c.role)) return false;
+      if (f.role !== 'all' && c.role !== f.role) return false;
+      if (f.status === 'away' ? c.loc === c.base : f.status !== 'all' && c.status !== f.status) return false;
+      if (f.rating !== 'all' && !c.ratings.includes(f.rating)) return false;
+      if (q && !`${c.first} ${c.last} ${c.loc} ${c.nationality}`.toLowerCase().includes(q)) return false;
+      return true;
+    })
+    .sort((a, b) => ROLE_RANK[a.role] - ROLE_RANK[b.role] || a.last.localeCompare(b.last) || a.first.localeCompare(b.first));
+}
+
+export const LEDGER_LABEL: Record<LedgerCat, string> = {
+  acmiRevenue: 'ACMI (block hours)', charterRevenue: 'Charter', otherRevenue: 'Other revenue',
+  fuel: 'Fuel', airportFees: 'Airport & handling', rent: 'Aircraft rent', reserves: 'Maintenance reserves', salaries: 'Salaries',
+  perDiem: 'Per diems', hotels: 'Crew hotels', deadhead: 'Crew positioning', maintenance: 'Line maintenance', checks: 'Checks',
+  insurance: 'Insurance', overhead: 'Overhead', training: 'Training', hiring: 'Hiring', penalties: 'Penalties', subcharter: 'Sub-charter',
+  approvals: 'Approvals', interest: 'Interest', capex: 'Aircraft purchases', assetSale: 'Asset sales',
+};
+
+const REVENUE: LedgerCat[] = ['acmiRevenue', 'charterRevenue', 'otherRevenue', 'assetSale'];
+const COSTS: LedgerCat[] = [
+  'fuel', 'airportFees', 'rent', 'reserves', 'salaries', 'perDiem', 'hotels', 'deadhead', 'maintenance', 'checks', 'insurance', 'overhead',
+  'training', 'hiring', 'penalties', 'subcharter', 'approvals', 'interest', 'capex',
+];
+
+export interface StatementRow {
+  cat: LedgerCat;
+  label: string;
+  revenue: boolean;
+  values: number[];
+}
+
+/** Statement columns (current month first, then up to `n` closed months newest first) and the lines used in any of them. */
+export function statementView(current: MonthStatement, history: MonthStatement[], n = 5): { months: MonthStatement[]; rows: StatementRow[] } {
+  const closed = history.filter((h) => h.month !== current.month).sort((a, b) => b.month - a.month).slice(0, n);
+  const months = [current, ...closed];
+  const rows: StatementRow[] = [];
+  for (const cat of [...REVENUE, ...COSTS]) {
+    const values = months.map((m) => m.lines[cat] ?? 0);
+    if (values.some((v) => Math.abs(v) >= 0.5)) rows.push({ cat, label: LEDGER_LABEL[cat], revenue: REVENUE.includes(cat), values });
+  }
+  return { months, rows };
+}
+
+export function filterMessages(list: Message[], cat: MessageCat | 'all'): Message[] {
+  return cat === 'all' ? list : list.filter((m) => m.cat === cat);
+}
+
+export interface DeepLink {
+  tab: Tab;
+  sel?: Ref;
+  view?: string;
+  /** Open the offer dialog instead of navigating. */
+  offerId?: string;
+}
+
+/** Where a message's ref leads. */
+export function refTarget(g: GameState, ref: Ref): DeepLink | null {
+  switch (ref.kind) {
+    case 'flight': {
+      const f = g.flights[ref.id];
+      const acId = f?.aircraftId ?? (f?.contractId ? g.contracts[f.contractId]?.aircraftIds[0] : undefined);
+      return acId ? { tab: 'schedule', sel: { kind: 'aircraft', id: acId } } : { tab: 'schedule' };
+    }
+    case 'aircraft':
+      return g.fleet[ref.id] ? { tab: 'fleet', sel: ref } : { tab: 'fleet' };
+    case 'contract':
+      return { tab: 'contracts', view: 'active', sel: ref };
+    case 'offer': {
+      const o = g.offers[ref.id];
+      if (o && (o.status === 'open' || o.status === 'countered')) return { tab: 'contracts', view: 'market', offerId: o.id };
+      if (o?.status === 'accepted') {
+        const c = Object.values(g.contracts).find((x) => x.offerId === o.id);
+        if (c) return { tab: 'contracts', view: 'active', sel: { kind: 'contract', id: c.id } };
+      }
+      return { tab: 'contracts', view: 'missed' };
+    }
+    case 'crew':
+      return g.crew[ref.id] ? { tab: 'crew', sel: ref } : { tab: 'crew' };
+    case 'maint': {
+      const m = g.maintenance[ref.id];
+      return m ? { tab: 'schedule', sel: { kind: 'aircraft', id: m.aircraftId } } : { tab: 'fleet' };
+    }
+    case 'airport':
+      return { tab: 'map', sel: ref };
+  }
+  return null;
+}
+
+/** Counter price steps: +2.5% … +20% over the asking price (rounded to $5/BH or $1K). */
+export function counterSteps(asking: number, wet: boolean): number[] {
+  const out: number[] = [];
+  for (let i = 1; i <= 8; i++) {
+    const v = asking * (1 + 0.025 * i);
+    out.push(wet ? Math.round(v / 5) * 5 : Math.round(v / 1000) * 1000);
+  }
+  return out;
+}

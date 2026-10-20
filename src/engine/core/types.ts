@@ -103,7 +103,7 @@ export interface Company {
 
 export type Ownership =
   | { kind: 'owned'; bookValue: number }
-  | { kind: 'dryLeaseIn'; lessor: string; rentPerMonth: number; reservesPerFH: number; leaseStart: Minute; leaseEnd: Minute };
+  | { kind: 'dryLeaseIn'; lessor: string; rentPerMonth: number; reservesPerFH: number; leaseStart: Minute; leaseEnd: Minute; /** B3: refundable deposit paid at signing. */ deposit?: number };
 
 export interface Cabin {
   /** Seats per class. */
@@ -124,6 +124,9 @@ export interface MaintCounters {
   lastC: Minute;
   /** 0–1 deferred defects backlog; raises AOG risk, cleared by checks. */
   deferred: number;
+  /** B3: smallest C-check warning threshold already sent (days), and the last A-check no-slot warning. */
+  cWarned?: number;
+  aWarned?: Minute;
 }
 
 export type AircraftStatus = 'available' | 'flying' | 'maintenance' | 'aog' | 'delivering' | 'stored' | 'leasedOut';
@@ -400,6 +403,11 @@ export interface Flight {
   eta?: Minute;
   /** Rival id when the leg was sub-chartered (aircraftId null, still billed to our client). */
   operatedBy?: string;
+  /** B3: original STD before ops delays (std/sta move with retimes); a crew-short decision was taken for it. */
+  schedStd?: Minute;
+  crewDecided?: boolean;
+  /** B3: held at departure for crew (counted once in stats.uncovered). */
+  crewHeld?: boolean;
 }
 
 // ======================================================================
@@ -578,6 +586,8 @@ export interface MaintenanceEvent {
   planned: boolean;
   cause?: string;
   ev: number;
+  /** B3: ferry legs booked to reach the check. */
+  ferryIds?: string[];
 }
 
 // ======================================================================
@@ -659,6 +669,9 @@ export interface Receivable {
   paid: Minute | null;
   /** Revenue category it is booked under. */
   cat: LedgerCat;
+  /** B3: overdue reminders sent (days overdue: 7, 30); sold to a factor. */
+  nudged?: number;
+  factored?: boolean;
 }
 
 export interface Finance {
@@ -666,6 +679,11 @@ export interface Finance {
   current: MonthStatement;
   history: MonthStatement[];
   receivables: Receivable[];
+  /** B3 solvency: cash negative since; rescues taken; rescue refused; last low-cash warning. */
+  negSince?: Minute | null;
+  rescues?: number;
+  refusedRescue?: boolean;
+  lowCashAt?: Minute;
 }
 
 // ======================================================================
@@ -696,6 +714,9 @@ export interface Market {
   /** Demand index per segment (1 = normal). */
   narrowIndex: number;
   wideIndex: number;
+  /** B3: guaranteed offers already made (narrowbody lease in month 1–2, old widebody by month 4–6). */
+  gotNarrow?: boolean;
+  gotWide?: boolean;
 }
 
 export interface Rival {
@@ -756,6 +777,16 @@ export interface Stats {
   cancelled: number;
   contractsDone: number;
   bestMonthProfit: number;
+  /** B3: departures, AOGs, legs whose crew was missing/illegal at departure, legs flown with an illegal duty,
+   *  decisions taken, augmented long-haul duties and ULR sectors flown, legs sub-chartered. */
+  departures?: number;
+  aogs?: number;
+  uncovered?: number;
+  illegalFlown?: number;
+  decisions?: number;
+  augmentedDuties?: number;
+  ulrSectors?: number;
+  subchartered?: number;
 }
 
 export interface GameState {

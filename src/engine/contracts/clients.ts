@@ -77,4 +77,9 @@ export function clientPrefix(name: string): string {
   return name.slice(0, 2).toUpperCase();
 }
 
+/** Single-purpose agencies: only their own kind of job (pilgrimages, diaspora, cruise crews, aid). */
+const SPECIALISTS = ['Peregrinos de Fátima', 'Lusofonia Viagens', 'Mareterra Crew Logistics', 'Harbourline Crew Travel', 'International Migration Relief Organisation', 'Global Health Airbridge Coalition'];
+export const isSpecialist = (c: Client) => SPECIALISTS.includes(c.name);
+export const isMarineCrewing = (c: Client) => c.name.endsWith('Crew Logistics') || c.name.endsWith('Crew Travel');
+
 export const isGovernment = (c: Client | undefined) => c?.kind === 'government' || (c?.kind === 'agency' && (c.name.includes('Organisation') || c.name.includes('Coalition')));

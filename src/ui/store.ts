@@ -4,7 +4,8 @@
 import { useSyncExternalStore } from 'react';
 import { clearPause, takePause, type PauseReason } from '../engine/core/pause';
 import { CLOCK_STEP, type GameSpeed, minutesPerMs, monthKey } from '../engine/core/time';
-import type { ActionResult, Archetype, GameState, Message, Ref } from '../engine/core/types';
+import type { RatingFamily } from '../data/acmiTypes';
+import type { ActionResult, Archetype, GameState, Message, Ref, Role } from '../engine/core/types';
 import { generateOffer } from '../engine/contracts';
 import { demoFlights, devFleet } from '../engine/dev';
 import { createGame, type NewGameOptions } from '../engine/newGame';
@@ -53,7 +54,14 @@ export type ModalSpec =
   | { kind: 'settings' }
   /** Offer review / accept / counter flow (B5). */
   | { kind: 'offer'; offerId: string }
-  | { kind: 'confirm'; title: string; body: string; confirm: string; danger?: boolean; onConfirm: () => void };
+  | { kind: 'confirm'; title: string; body: string; confirm: string; danger?: boolean; onConfirm: () => void }
+  /** B5: a decision opened from the Inbox (closable); hire, training and check planning dialogs. */
+  | { kind: 'decision'; decisionId: string }
+  | { kind: 'hire'; role?: Role; family?: RatingFamily; base?: string }
+  | { kind: 'train'; crewId: string }
+  | { kind: 'check'; aircraftId: string; checkKind?: 'A' | 'C'; replace?: string }
+  /** B5: Schedule detail sheet for the blocks near a tap (flights, maintenance) or an idle gap. */
+  | { kind: 'sheet'; refs: Ref[]; idle?: { aircraftId: string; from: number; to: number; at: string } };
 
 export interface Toast {
   id: number;
@@ -389,6 +397,8 @@ class GameStore {
       this.emit();
       return added;
     },
+    /** B5: React renders per screen (dev builds only), to check the calm-UI budget (≤ ~2/s at 4×). */
+    renders: {} as Record<string, number>,
   };
 }
 

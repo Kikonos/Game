@@ -31,6 +31,19 @@ export interface MapLayerCtx {
   /** Map units per screen pixel at the committed zoom (size markers as px × unit). */
   unit: number;
   k: number;
+  /** Screen px per map unit at zoom 1 (container scale). */
+  px: number;
+  /** Zoom on screen right now (ahead of k during gestures); cheap, call per frame. */
+  liveK: () => number;
+  /** Zoom of the last fit (initial view or Reset); k / fitK is the zoom relative to it. */
+  fitK: number;
+}
+
+/** Map transform: world point p is drawn at p × k + (x, y) in viewBox units. */
+export interface View {
+  k: number;
+  x: number;
+  y: number;
 }
 
 /** Screen-pixel padding [top, right, bottom, left] kept clear when fitting (e.g. for overlays). */
@@ -60,12 +73,16 @@ interface Props {
   revealPad?: Pad | (() => Pad);
   /** Extra SVG layers above the airports (ops map: aircraft, terminator, pins). */
   layers?: (ctx: MapLayerCtx) => ReactNode;
-}
-
-interface View {
-  k: number;
-  x: number;
-  y: number;
+  /** SVG layers between the land and the airports (ops map: terminator, arcs). */
+  underlay?: (ctx: MapLayerCtx) => ReactNode;
+  /** Called with the tapped map point (map units) and map units per screen px before airports are hit-tested; true consumes the tap. */
+  onTap?: (m: [number, number], unit: number, finger: boolean) => boolean;
+  /** Fit list read only when fitting (first view, Reset): data changes never re-fit the map. Overrides `fit`. */
+  fitFn?: () => string[];
+  /** When `key` changes, pans the map point `at()` (map units) out from under `revealPad`. Replaces the selected-airport reveal. */
+  focus?: { key: string; at: () => [number, number] | null } | null;
+  /** Keeps the view across remounts (tab switches): read on mount, written on every commit. */
+  memo?: { view: View | null };
 }
 
 /** Container geometry: the SVG uses "slice" scaling (s screen px per map unit at zoom 1, offset ox/oy). */
@@ -242,7 +259,7 @@ interface Gesture {
  */
 export function WorldMap({
   rotate = 0, routes, airports, fit, fitPad, interactive = true, animate = true, accent = '#3ee6ff', selected, onSelect, onSelectRoute, onHover,
-  tooltip, regionLabels, className, planesKey, controls = true, revealPad, layers,
+  tooltip, regionLabels, className, planesKey, controls = true, revealPad, layers, underlay, onTap, fitFn, focus, memo,
 }: Props) {
   const touch = useTouch();
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -285,6 +302,7 @@ export function WorldMap({
   };
   useLayoutEffect(() => {
     if (!busy()) apply(view);
+    if (memo && restored.current) memo.view = view;
   }, [view]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const measure = (): Geo => {
@@ -351,13 +369,32 @@ export function WorldMap({
   useEffect(() => () => { stopAnim(); window.clearTimeout(commitTimer.current); window.clearTimeout(settleTimer.current); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------- fitting ----------
-  const fitKey = (fit ?? []).join(',');
+  const fitKey = fitFn ? '(fn)' : (fit ?? []).join(',');
   const padKey = (fitPad ?? []).join(',');
+  const fitFnRef = useRef(fitFn);
+  fitFnRef.current = fitFn;
+  const fitK = useRef(1);
+  const fitTarget = (geo: Geo): View => {
+    const codes = fitFnRef.current ? fitFnRef.current() : fit;
+    return codes && codes.length ? fitView(rotate, codes, geo, fitPad) : clampView({ k: 1, x: 0, y: 0 }, geo);
+  };
+  const restored = useRef(false);
   const doFit = useCallback((animated = false) => {
     const geo = measure();
     if (geo.w <= 0) return;
+    const target = fitTarget(geo);
+    fitK.current = target.k;
+    // First layout after a remount: restore the remembered view instead of fitting.
+    if (!restored.current && memo?.view) {
+      restored.current = true;
+      userMoved.current = true;
+      const v = clampView(memo.view, geo);
+      apply(v);
+      setView(v);
+      return;
+    }
+    restored.current = true;
     userMoved.current = false;
-    const target = fit && fit.length ? fitView(rotate, fit, geo, fitPad) : clampView({ k: 1, x: 0, y: 0 }, geo);
     if (animated) flyTo(target);
     else {
       stopAnim();
@@ -470,6 +507,11 @@ export function WorldMap({
       return;
     }
     lastTap.current = { t: now, x: cx, y: cy };
+    if (onTap) {
+      const [vx, vy] = vbOf(cx, cy);
+      const v = live.current;
+      if (onTap([(vx - v.x) / v.k, (vy - v.y) / v.k], 1 / (v.k * geoRef.current.s), finger)) return;
+    }
     const hit = hitTest(cx, cy, finger);
     if (hit.airport) onSelect?.(hit.airport);
     else if (hit.route) onSelectRoute?.(hit.route);
@@ -667,15 +709,19 @@ export function WorldMap({
     };
   }, [interactive]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Pan a newly selected airport out from under overlays (side panel / bottom sheet).
+  // Pan a newly selected airport (or focus point) out from under overlays (side panel / bottom sheet).
   const revealRef = useRef(revealPad);
   revealRef.current = revealPad;
+  const focusRef = useRef(focus);
+  focusRef.current = focus;
+  const focusKey = focus !== undefined ? focus?.key ?? '' : selected ?? '';
   useEffect(() => {
     const padOpt = revealRef.current;
-    if (!selected || !padOpt || !interactive) return;
+    if (!focusKey || !padOpt || !interactive) return;
     const id = requestAnimationFrame(() => {
-      const a = AIRPORT_BY_CODE[selected];
-      const p = a && proj([a.lon, a.lat]);
+      const f = focusRef.current;
+      const a = f ? undefined : selected ? AIRPORT_BY_CODE[selected] : undefined;
+      const p = f ? f.at() : a ? proj([a.lon, a.lat]) : null;
       if (!p || busy()) return;
       const pad = typeof padOpt === 'function' ? padOpt() : padOpt;
       const geo = measure();
@@ -692,7 +738,7 @@ export function WorldMap({
       if (dx || dy) flyTo(clampView({ k: v.k, x: v.x + dx / geo.s, y: v.y + dy / geo.s }, geo), 360);
     });
     return () => cancelAnimationFrame(id);
-  }, [selected, interactive, proj]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [focusKey, interactive, proj]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------- region labels ----------
   const regionKey = (regionLabels ?? []).map((r) => `${r.id}${r.locked ? 1 : 0}`).join(',');
@@ -810,6 +856,8 @@ export function WorldMap({
   // Dense networks only label hubs until you zoom in, to avoid a pile of overlapping codes.
   const crowded = airports.filter((a) => a.label).length > 16 && k * pxPerUnit < 2.2;
   const regionFont = touch ? 12.5 : 11;
+  const liveK = useCallback(() => live.current.k, []);
+  const ctx: MapLayerCtx = { proj, unit, k, px: pxPerUnit, liveK, fitK: fitK.current };
 
   return (
     <div
@@ -840,10 +888,11 @@ export function WorldMap({
               {r.name.toUpperCase()}
             </text>
           ))}
+          {underlay?.(ctx)}
           <RoutesLayer items={routeItems} accent={accent} />
           <g ref={planesRef} className="planes" />
           <AirportsLayer els={airportEls} unit={unit} selected={selected} hover={hover?.code} accent={accent} crowded={crowded} showAll={showAllLabels} touch={touch} />
-          {layers?.({ proj, unit, k })}
+          {layers?.(ctx)}
         </g>
       </svg>
       {hover && tooltip && (

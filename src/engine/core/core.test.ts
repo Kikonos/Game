@@ -53,7 +53,8 @@ describe('event queue and clock', () => {
 
   it('runs daily rollovers and closes the month statement', () => {
     const g = newGame();
-    const r = advanceTo(g, START + 32 * DAY);
+    // Honour no pause reasons: urgent offers (B1) and month-end (B3) would otherwise stop the clock.
+    const r = advanceTo(g, START + 32 * DAY, new Set());
     expect(r.events).toBeGreaterThanOrEqual(32);
     expect(g.now).toBe(START + 32 * DAY);
     expect(g.finance.history).toHaveLength(1);

@@ -6,7 +6,11 @@ import { fmtDate } from '../../engine/core/time';
 import { AUTOSAVE_SLOT, SLOTS, deleteSlot, deserialize, listSaves, loadFromSlot, saveToSlot, serialize } from '../../engine/save';
 import { Modal, Seg, Toggle } from '../components/ui';
 import { DecisionModal } from '../modals/DecisionModal';
+import { CheckModal } from '../modals/CheckModal';
+import { HireModal } from '../modals/HireModal';
 import { OfferModal } from '../modals/OfferModal';
+import { BlockSheet } from '../modals/BlockSheet';
+import { TrainModal } from '../modals/TrainModal';
 import { money } from '../format';
 import { offline, promptInstall } from '../offline';
 import { store, useStore } from '../store';
@@ -29,7 +33,8 @@ export function GameModals() {
   const g = s.game;
   if (!g) return null;
   if (g.gameOver) return <GameOverModal />;
-  if (g.decisions.length && !s.modal) return <DecisionModal />;
+  // While decisions hold time (setting) the oldest opens by itself; otherwise the Inbox pins them.
+  if (g.decisions.length && !s.modal && s.settings.autoPause.decision) return <DecisionModal />;
   return null;
 }
 
@@ -140,6 +145,8 @@ function SettingsModal() {
         <div className="set-row"><div><b>Pause for decisions</b><div className="tiny dim">Stop the clock when an event needs you</div></div><Toggle on={st.autoPause.decision} onChange={(v) => store.setSettings({ autoPause: { ...st.autoPause, decision: v } })} /></div>
         <div className="set-row"><div><b>Pause for urgent offers</b><div className="tiny dim">AOG cover, repatriation and other short-notice work</div></div><Toggle on={st.autoPause.urgentOffer} onChange={(v) => store.setSettings({ autoPause: { ...st.autoPause, urgentOffer: v } })} /></div>
         <div className="set-row"><div><b>Pause for AOG</b><div className="tiny dim">When an aircraft breaks down</div></div><Toggle on={st.autoPause.aog} onChange={(v) => store.setSettings({ autoPause: { ...st.autoPause, aog: v } })} /></div>
+        <div className="set-row"><div><b>Pause for crew shortages</b><div className="tiny dim">A flight in the next 48 h has no legal crew</div></div><Toggle on={st.autoPause.crewShortage} onChange={(v) => store.setSettings({ autoPause: { ...st.autoPause, crewShortage: v } })} /></div>
+        <div className="set-row"><div><b>Pause when a contract starts</b><div className="tiny dim">Watch the first flights of new work</div></div><Toggle on={st.autoPause.contractStart} onChange={(v) => store.setSettings({ autoPause: { ...st.autoPause, contractStart: v } })} /></div>
         <div className="set-row"><div><b>Pause at month end</b><div className="tiny dim">Read the statement before the next month starts</div></div><Toggle on={st.autoPause.monthEnd} onChange={(v) => store.setSettings({ autoPause: { ...st.autoPause, monthEnd: v } })} /></div>
         <div className="set-row"><div><b>Map animations</b><div className="tiny dim">Flying aircraft on maps</div></div><Toggle on={st.mapAnimations} onChange={(v) => store.setSettings({ mapAnimations: v })} /></div>
         <div className="set-row"><div><b>Pop-up notifications</b></div><Toggle on={st.toasts} onChange={(v) => store.setSettings({ toasts: v })} /></div>
@@ -174,5 +181,10 @@ export function GlobalModals() {
     case 'settings': return <SettingsModal />;
     case 'confirm': return <ConfirmModal {...m} />;
     case 'offer': return s.game ? <OfferModal offerId={m.offerId} /> : null;
+    case 'decision': return s.game ? <DecisionModal decisionId={m.decisionId} /> : null;
+    case 'hire': return s.game ? <HireModal {...m} /> : null;
+    case 'train': return s.game ? <TrainModal crewId={m.crewId} /> : null;
+    case 'check': return s.game ? <CheckModal aircraftId={m.aircraftId} checkKind={m.checkKind} replace={m.replace} /> : null;
+    case 'sheet': return s.game ? <BlockSheet refs={m.refs} idle={m.idle} /> : null;
   }
 }

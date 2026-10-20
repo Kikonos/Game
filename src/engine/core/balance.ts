@@ -11,11 +11,11 @@ export const BAL = {
   rosterHorizonDays: 14,
 
   // ---------- commercial (B1) ----------
-  /** Mean new offers per week at reputation 60 (gamma-2 gaps: Poisson-like, steadier); scaled by fleet size and season. */
-  offersPerWeek: 3.4,
+  /** Mean new offers per week at reputation 60 (gamma-3 gaps: Poisson-like, steadier); scaled by fleet size and season. */
+  offersPerWeek: 3.7,
   /** Share of offers fitted to a real idle window of a fleet aircraft, and of aspirational (bigger-type) jobs. */
   gapFitShare: 0.5,
-  aspirationalShare: 0.14,
+  aspirationalShare: 0.12,
   brokerCommission: 0.05,
   /** Season-base targetBH = MGH × this range (peak use above MGH earns excess hours). */
   targetOverMgh: [1.08, 1.3] as [number, number],
@@ -83,6 +83,54 @@ export const BAL = {
   /** AOG chance per departure (one roll, separate from technical delays): base × (1 + age/10) × (1 + 4 × deferred) × outstation 1.5. */
   aogBase: 0.00025,
   delayChance: 0.12,
+  /** Operational delay minutes (exponential mean, cap); technical delay chance per departure × age factor, mean minutes. */
+  delayMean: 25,
+  delayCap: 180,
+  techDelayChance: 0.006,
+  techDelayMean: 60,
+  /** Block time noise (± share) applied at departure (winds). */
+  windNoise: 0.04,
+  /** Delay messages only from this many minutes. */
+  delayMessageMin: 45,
+  /** A departure waits this long for re-rostering before the crew-short decision (minutes). */
+  crewWaitMin: 120,
+  /** AOG downtime (hours, × outstation factor); courier part and AOG team costs; team time factor; decision window (min). */
+  aogHours: [12, 72] as [number, number],
+  aogOutstation: 1.5,
+  courierCost: [2_000, 15_000] as [number, number],
+  aogTeamCost: [8_000, 15_000] as [number, number],
+  aogTeamFactor: 0.6,
+  aogDecisionMin: 120,
+  /** Base-programme legs are cancelled rather than held longer than this (minutes); charters always wait. */
+  holdMax: 360,
+  /** Rival price for sub-chartered legs × contract rate (RESEARCH §4.3, §5.7). */
+  subcharterFactor: [1.2, 2.0] as [number, number],
+  /** A-check calendar limit (days); auto-planning starts at this share used or this many days before due. */
+  aCheckDays: 120,
+  planAt: 0.85,
+  planAheadDays: 14,
+  /** Overdue tolerance before grounding; C-check FH limits; notice to drop a base leg for a check (minutes). */
+  overdueTolerance: 0.1,
+  cCheckFH: { narrow: 7_500, wide: 6_000 },
+  maintNotice: 720,
+  /** C-check warnings (days before due). */
+  cWarnDays: [90, 60, 30],
+  /** Solvency: days of negative cash before the rescue offer, investor cash, game-over floor after refusing. */
+  rescueDays: 30,
+  rescueCash: [2_000_000, 4_000_000] as [number, number],
+  bankruptFloor: -2_000_000,
+  /** Factoring discount on an overdue invoice. */
+  factorDiscount: 0.08,
+  /** Client change request chance per active contract per week; extra urgent evacuation offers per day. */
+  changeRequestWeekly: 0.15,
+  evacuationPerDay: 1 / 45,
+  /** Optional decisions only while fewer than this are open. */
+  maxOpenDecisions: 2,
+  /** Aircraft market: mean new offers per month; lead time (days); offer life (days); lease months. */
+  marketPerMonth: 0.8,
+  deliveryDays: [30, 90] as [number, number],
+  marketOfferDays: [14, 30] as [number, number],
+  leaseMonths: [36, 96] as [number, number],
   /** Days late a reliable client still pays within (beyond = overdue). */
   graceDays: 3,
   lateInterest: 0.03,

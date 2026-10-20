@@ -11,13 +11,13 @@ import { requestPause } from '../core/pause';
 import { complement, etopsNeeded, planSector, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { chance, int, next, pick, range, weightedPick } from '../core/rng';
-import { DAY, dayIndex, fmtDay, fmtTime, fromUTC, toDate, toLocal } from '../core/time';
+import { DAY, dayIndex, fmtDay, fmtTime, fromUTC, localMinuteOfDay, toDate, toLocal } from '../core/time';
 import type {
   ApprovalId, Archetype, Client, ContractOffer, GameState, LegTemplate, Minute, OfferEffects, Product, Requirements, SchedulePattern, SimEvent,
 } from '../core/types';
 import { acceptOffer, askingPrice, closeOffer, setPrice } from './accept';
 import { feasibility } from './feasibility';
-import { clientPrefix, clientsOf, isGovernment, ministry } from './clients';
+import { clientPrefix, clientsOf, isGovernment, isMarineCrewing, isSpecialist, ministry } from './clients';
 import * as F from './flavor';
 import { anchorsOf, computeWaves, localToUTC, programmeOf, route, routeMinutes } from './plan';
 import { defaultSeats, isWetArchetype, priceProduct, productValue, referenceType } from './pricing';
@@ -35,10 +35,12 @@ export function offerRate(g: GameState): number {
   return (BAL.offersPerWeek / 7) * fleetF * SEASON_F[toDate(g.now).getUTCMonth()] * repF;
 }
 
-/** Queues the next 'offer.spawn': gamma(2) gaps with the Poisson mean (steadier than exponential, same rate). */
+/** Queues the next 'offer.spawn': gamma(3) gaps with the Poisson mean (steadier than exponential, same rate). */
 export function scheduleNextOffer(g: GameState): void {
   const lambda = offerRate(g);
-  const gapDays = -(Math.log(Math.max(1e-9, next(g))) + Math.log(Math.max(1e-9, next(g)))) / (2 * lambda);
+  let sum = 0;
+  for (let i = 0; i < 3; i++) sum -= Math.log(Math.max(1e-9, next(g)));
+  const gapDays = sum / (3 * lambda);
   schedule(g, g.now + Math.max(30, Math.round(gapDays * DAY)), 'offer.spawn');
 }
 
@@ -143,6 +145,15 @@ function atLocal(code: string, t: Minute, localMin: number): Minute {
   return localToUTC(code, dayIndex(toLocal(code, t)) * DAY + localMin);
 }
 
+/** 'today', 'tomorrow' or the date, in the airport's local calendar. */
+function whenDay(code: string, now: Minute, t: Minute): string {
+  const d = dayIndex(toLocal(code, t)) - dayIndex(toLocal(code, now));
+  return d === 0 ? 'today' : d === 1 ? 'tomorrow' : `on ${fmtDay(toLocal(code, t))}`;
+}
+
+/** Whole days of the idle window left after `from` (Infinity without a window). */
+const roomDays = (ctx: Ctx, from: Minute) => (ctx.window ? Math.floor((ctx.window.to - from) / DAY) : Infinity);
+
 /** A start time in [now + leadMin, now + leadMax] that leaves `dur` inside the idle window; null if none. */
 function pickStart(ctx: Ctx, leadMin: number, leadMax: number, dur: number): Minute | null {
   const { g, window: w } = ctx;
@@ -198,7 +209,10 @@ function seasonBase(ctx: Ctx): Draft | null {
   const client = nearClient(ctx, cands);
   if (!client) return null;
   const base = client.base;
-  const days = o.days ?? int(g, 30, 92);
+  let days = o.days ?? int(g, 30, 92);
+  // Gap-fit: shorten the season to the idle window (but never under a month).
+  if (!o.days && ctx.window) days = Math.min(days, roomDays(ctx, Math.max(ctx.window.from, g.now + 14 * DAY)) - 2);
+  if (days < 30) return null;
   let s = o.start ?? pickStart(ctx, 14 * DAY, 60 * DAY, (days + 1) * DAY);
   if (s === null) return null;
   // Season deals start on the 1st or the 15th when that still fits.
@@ -217,7 +231,10 @@ function seasonBase(ctx: Ctx): Draft | null {
       ? airportsWithin(base, 2500, 6500, (a) => a.size >= 3)
       : airportsWithin(base, 400, 2200, (a) => a.tour >= 0.75);
     if (!wide && pool.length < 6) pool = airportsWithin(base, 400, 3200, (a) => a.tour >= 0.7);
-    dests = pickN(g, pool, n, (a) => a.tour * (1 + a.size)).map((a) => a.code);
+    // One airport per city (no "Paris and Paris").
+    const byCity = new Map<string, Airport>();
+    for (const a of pool) if (!byCity.has(a.city) || byCity.get(a.city)!.size < a.size) byCity.set(a.city, a);
+    dests = pickN(g, [...byCity.values()], n, (a) => a.tour * (1 + a.size)).map((a) => a.code);
   }
   if (dests.length < (wide || o.dests ? 1 : 3)) return null;
   const minSeats = wide ? pick(g, [250, 260, 280]) : pick(g, [168, 174, 180]);
@@ -241,7 +258,7 @@ function seasonBase(ctx: Ctx): Draft | null {
       `MGH ${mgh} BH a month; they plan about ${targetBH}. Crews live in ${city(base)} hotels at the client's cost.`,
     pattern: { kind: 'base', base, dests, from, to, targetBH, waves, prefix: clientPrefix(client.name), maintEvery: 7 },
     req, start: from, end: to,
-    expiresIn: range(g, 3, 7) * DAY,
+    expiresIn: range(g, 4, 8) * DAY,
     effects: { reliable: 2 },
     risk: { disruption: 0.2, politics: 0, permit: client.payReliability < 0.8 ? 0.15 : 0 },
     hook: hookFor(ctx),
@@ -256,7 +273,13 @@ function aogCover(ctx: Ctx): Draft | null {
   const client = nearClient(ctx, cands);
   if (!client) return null;
   const base = client.base;
-  const start = o.start ?? g.now + int(g, 2, 24) * 60 + int(g, 0, 11) * 5;
+  let start = o.start ?? Math.ceil((g.now + int(g, 2, 24) * 60) / 60) * 60;
+  if (o.start === undefined) {
+    // Cover starts with the client's first bank: never between 22:00 and 05:00 local.
+    const lm = localMinuteOfDay(base, start);
+    if (lm >= 22 * 60) start = atLocal(base, start + DAY, 5 * 60);
+    else if (lm < 5 * 60) start = atLocal(base, start, 5 * 60);
+  }
   let days = o.days ?? int(g, 2, 10);
   if (ctx.window) days = Math.min(days, Math.floor((ctx.window.to - start) / DAY));
   if (days < 2) return null;
@@ -277,7 +300,8 @@ function aogCover(ctx: Ctx): Draft | null {
     title: `AOG cover at ${city(base)}`,
     blurb:
       `${client.name} has an aircraft grounded at ${base} after ${pick(g, F.AOG_CAUSES)}. They need cover from ${fmtTime(start, base)} local ` +
-      `${lead < 18 * 60 ? 'today' : 'tomorrow'} for ${days} days, flying their schedule to ${listCities(dests)}. Premium rate, MGH ${perDay} BH a day.`,
+      `${whenDay(base, g.now, start)} for ${days} days, flying their schedule to ${listCities(dests)}. Premium rate, MGH ${perDay} BH a day; ` +
+      `positioning is billable, so the sooner we're there the better.`,
     pattern: { kind: 'base', base, dests, from: start, to: end, targetBH: Math.round(mghPerMonth * 1.08), waves, prefix: clientPrefix(client.name), maintEvery: 7 },
     req, start, end,
     expiresIn: Math.min(int(g, 3, 8) * 60, Math.max(60, lead - 90)),
@@ -306,14 +330,16 @@ function adhoc(ctx: Ctx): Draft | null {
   let title = '';
   let blurb = '';
   let pax = wide ? int(g, 255, 300) : int(g, 120, 178);
-  const dur = 8 * DAY;
-  const s = o.start ?? pickStart(ctx, 3 * DAY, 30 * DAY, dur);
+  const s = o.start ?? pickStart(ctx, 3 * DAY, 30 * DAY, 2 * DAY);
+  // Days the aircraft can stay away inside the idle window (round trips shrink to fit, else go one way).
+  const maxBack = Math.min(7, roomDays(ctx, s ?? 0) - 1);
   if (s === null) return null;
   if (variant === 'diaspora') {
     client = clientsOf(g, ['agency'], (c) => c.name === 'Lusofonia Viagens')[0];
     const dest = o.airport ?? pick(g, F.DIASPORA.filter((c) => AIRPORT_BY_CODE[c]));
     if (!client) return null;
-    const back = int(g, 4, 7);
+    const back = Math.min(int(g, 4, 7), maxBack);
+    if (back < 2) return null;
     legs = roundTrip(g, client.base, dest, s, back, pax);
     title = `Diaspora charter ${client.base}–${dest}`;
     blurb = `${client.name} has a full load of families flying home to ${city(dest)} for a festival, with heavy bags. Out ${fmtDay(legs[0].dep)}, back ${back} days later.`;
@@ -322,44 +348,53 @@ function adhoc(ctx: Ctx): Draft | null {
     if (!client) return null;
     const origins = ['WAW', 'KRK', 'DUB', 'MXP', 'BUD', 'VIE', 'MUC', 'LYS', 'BRU'].filter((c) => AIRPORT_BY_CODE[c]);
     const from = o.airport ?? pick(g, origins);
-    const back = int(g, 3, 5);
+    const back = Math.min(int(g, 3, 5), maxBack);
+    if (back < 2) return null;
     legs = roundTrip(g, from, 'LIS', s, back, pax);
     title = `Pilgrimage ${from}–Lisbon`;
     blurb = `${client.name} is bringing a parish group from ${city(from)} to Fátima, with wheelchairs and elderly passengers. Out ${fmtDay(legs[0].dep)}, home ${back} days later.`;
   } else if (variant === 'music') {
     client = nearClient(ctx, clientsOf(g, ['music']));
-    if (!client) return null;
-    const stops = pickN(g, airportsWithin(client.base, 300, 2600, (a) => a.size >= 3), 3, (a) => a.size);
-    if (stops.length < 3) return null;
+    if (!client || maxBack < 7) return null;
+    // European leg of the tour (no US domestic cabotage): from a hub near home, hopping between big European cities.
+    const eu = (a: Airport) => a.continent === 'EU' && a.size >= 3;
+    const startAp = AIRPORT_BY_CODE[client.base]?.continent === 'EU' ? client.base : pick(g, ['LHR', 'AMS', 'CDG', 'FRA', 'MAD'].filter((c) => AIRPORT_BY_CODE[c]));
+    const pts = [startAp];
+    for (let i = 0; i < 3; i++) {
+      const nx = weightedPick(g, airportsWithin(pts[i], 400, 2200, (a) => eu(a) && !pts.includes(a.code) && a.city !== city(pts[i])), (a) => a.size);
+      if (!nx) return null;
+      pts.push(nx.code);
+    }
     pax = int(g, 90, 140);
-    let t = atLocal(client.base, s, pick(g, F.DEP_SLOTS.slice(3)));
-    const pts = [client.base, ...stops.map((a) => a.code)];
+    let t = atLocal(pts[0], s, pick(g, F.DEP_SLOTS.slice(3)));
     legs = [];
     for (let i = 0; i < 3; i++) {
       legs.push({ from: pts[i], to: pts[i + 1], dep: t, flightNo: '', pax });
       t = atLocal(pts[i + 1], t + int(g, 2, 3) * DAY, pick(g, F.DEP_SLOTS.slice(4)));
     }
     title = `Tour hops for ${client.name.replace(/"/g, '')}`.replace('Tour hops for The', 'Tour hops for the');
-    blurb = `${client.name}: band, crew and kit hopping ${listCities(pts)} over a week, one-way legs after each show. Expect late finishes.`;
+    blurb = `${client.name}: band, crew and 14 tonnes of kit hopping ${listCities(pts)} over a week, one-way legs the morning after each show. Expect late load-outs and a picky rider.`;
   } else if (variant === 'oneway') {
-    client = nearClient(ctx, clientsOf(g, ['agency', 'tourOperator'], (c) => !isGovernment(c) && !!AIRPORT_BY_CODE[c.base]));
+    client = nearClient(ctx, clientsOf(g, ['agency'], (c) => isMarineCrewing(c) && !!AIRPORT_BY_CODE[c.base]));
     if (!client) return null;
-    const ports = ['BCN', 'PMI', 'VCE', 'ATH', 'LPA', 'FNC', 'MLA', 'NAP', 'CPH', 'SOU', 'MRS'].filter((c) => AIRPORT_BY_CODE[c] && c !== client!.base);
+    const ports = ['BCN', 'PMI', 'VCE', 'ATH', 'LPA', 'FNC', 'MLA', 'NAP', 'CPH', 'SOU', 'MRS', 'CIV', 'LIS'].filter((c) => AIRPORT_BY_CODE[c]);
     const dest = o.airport ?? pick(g, ports);
-    legs = roundTrip(g, client.base, dest, s, null, pax);
-    title = `Cruise crew change to ${city(dest)}`;
-    blurb = `${client.name} needs ${pax} cruise-ship crew flown ${client.base}–${dest} one way on ${fmtDay(legs[0].dep)} to meet the ship. The aircraft comes back empty.`;
+    const from = pick(g, ports.filter((c) => c !== dest));
+    legs = roundTrip(g, from, dest, s, null, pax);
+    title = `Cruise crew change ${city(from)}–${city(dest)}`;
+    blurb = `${client.name} swaps ${pax} crew of a cruise ship: they board in ${city(from)} and must meet the ship in ${city(dest)} on ${fmtDay(legs[0].dep)}. One way; the aircraft comes back empty. The ship sails without them if we're late.`;
   } else {
     const group = pick(g, F.ADHOC_GROUPS);
-    client = nearClient(ctx, clientsOf(g, group.kinds, (c) => !isGovernment(c) && !!AIRPORT_BY_CODE[c.base]));
+    client = nearClient(ctx, clientsOf(g, group.kinds, (c) => !isGovernment(c) && !isSpecialist(c) && !!AIRPORT_BY_CODE[c.base]));
     if (!client) return null;
+    if (group.pax && !wide) pax = int(g, ...group.pax);
     const pool = wide
       ? airportsWithin(client.base, 5000, 9000, (a) => a.tour >= 0.7)
       : airportsWithin(client.base, 600, 3500, (a) => a.tour >= 0.6 || a.size >= 4);
     const dest = o.airport ?? weightedPick(g, pool, (a) => a.tour + a.size / 5)?.code;
     if (!dest) return null;
-    const oneWay = chance(g, 0.2);
-    const back = int(g, 2, 6);
+    const oneWay = chance(g, 0.2) || maxBack < 1;
+    const back = Math.max(1, Math.min(int(g, 2, 6), maxBack));
     legs = roundTrip(g, client.base, dest, s, oneWay ? null : back, pax);
     const what = group.what.replace(/^an? /, '');
     title = `${what[0].toUpperCase()}${what.slice(1)} to ${city(dest)}`;
@@ -372,7 +407,7 @@ function adhoc(ctx: Ctx): Draft | null {
     pattern: { kind: 'legs', legs },
     req: { minSeats: Math.ceil(pax / 10) * 10 - (wide ? 0 : 5), extraCabin: 0, approvals: [] },
     start: legs[0].dep, end: last.dep + 6 * 60,
-    expiresIn: range(g, 2, 4) * DAY,
+    expiresIn: range(g, 2.5, 5) * DAY,
     effects: {},
     risk: { disruption: 0.15, politics: 0, permit: 0 },
     hook: hookFor(ctx),
@@ -402,13 +437,18 @@ function sports(ctx: Ctx): Draft | null {
       archetype: 'sports', client, title: `Pre-season tour to ${city(far)}`,
       blurb: `${client.name} take the squad, sponsors and a fan club to ${city(far)} for a ${back}-day pre-season tour. Branded headrests and a nutritionist menu; two extra cabin crew.`,
       pattern: { kind: 'legs', legs }, req: { minSeats: 250, extraCabin: 2, approvals: [] },
-      start: legs[0].dep, end: legs[1].dep + 12 * 60, expiresIn: range(g, 2, 5) * DAY, effects: { morale: 2 },
+      start: legs[0].dep, end: legs[1].dep + 12 * 60, expiresIn: range(g, 3, 6) * DAY, effects: { morale: 2 },
       risk: { disruption: 0.2, politics: 0, permit: 0 }, hook: hookFor(ctx),
     };
   }
-  const pool = airportsWithin(home, 500, 3500, (a) => a.size >= 3 && a.runwayM >= 2400);
-  const aways = o.airport ? [o.airport] : pickN(g, pool, trips, (a) => a.size).map((a) => a.code);
+  // League games stay in the country; cup ties and European nights go abroad.
+  const ctry = AIRPORT_BY_CODE[home]?.country;
+  const domestic = airportsWithin(home, 250, 3500, (a) => a.country === ctry && a.size >= 2 && a.runwayM >= 2400);
+  const abroad = airportsWithin(home, 500, 3500, (a) => a.country !== ctry && a.continent === 'EU' && a.size >= 3 && a.runwayM >= 2400);
+  const league = domestic.length >= trips && chance(g, season ? 0.8 : 0.55);
+  const aways = o.airport ? [o.airport] : pickN(g, league ? domestic : abroad, trips, (a) => a.size).map((a) => a.code);
   if (aways.length < trips) return null;
+  const titles = league ? F.SPORT_TITLES_HOME.filter((t) => !t.startsWith('Derby') || km(home, aways[0]) < 700) : F.SPORT_TITLES_ABROAD;
   for (let i = 0; i < trips; i++) {
     const match = s + DAY + i * every * DAY;
     legs.push({ from: home, to: aways[i], dep: atLocal(home, match - DAY, int(g, 22, 32) * 30), flightNo: '', pax });
@@ -417,14 +457,14 @@ function sports(ctx: Ctx): Draft | null {
   const last = legs[legs.length - 1];
   return {
     archetype: 'sports', client,
-    title: season ? `Away-day package: ${trips} trips` : `${pick(g, F.SPORT_TITLES)} ${city(aways[0])}`,
+    title: season ? `${league ? 'League' : 'European'} away package: ${trips} trips` : `${pick(g, titles)} ${city(aways[0])}`,
     blurb: season
       ? `${client.name} want one operator for their next ${trips} away games (${listCities(aways)}), roughly every ${every} days. Out the day before, back after the match at 23:00 local. Two extra cabin crew.`
       : `${client.name} play in ${city(aways[0])} on ${fmtDay(legs[1].dep)}. Out the day before, back straight after the match at 23:00 local; extra time can push it. Two extra cabin crew for the team service.`,
     pattern: { kind: 'legs', legs },
     req: { minSeats: Math.max(120, Math.ceil(pax / 10) * 10), extraCabin: 2, approvals: [] },
     start: legs[0].dep, end: last.dep + 6 * 60,
-    expiresIn: range(g, 2, 5) * DAY,
+    expiresIn: range(g, 3, 6) * DAY,
     effects: { morale: 2 },
     risk: { disruption: 0.25, politics: 0, permit: 0 },
     hook: hookFor(ctx),
@@ -456,7 +496,7 @@ function repatriation(ctx: Ctx): Draft | null {
     archetype: 'repatriation', client,
     title: n > 1 ? `Repatriation airlift from ${city(crisis)}` : `Repatriation from ${city(crisis)}`,
     blurb:
-      `${pick(g, F.CRISES)} in ${city(crisis)}. The ${client.name} needs ${n === 1 ? 'a flight' : `${n} flights`} ${crisis}–${home} for about ${pax} citizens, ` +
+      `${city(crisis)}: ${pick(g, F.CRISES)}. The ${client.name} needs ${n === 1 ? 'a flight' : `${n} flights`} ${crisis}–${home} for about ${pax} citizens, ` +
       `first departure ${fmtDay(start)} ${fmtTime(start, crisis)} local. Permits are filed but may slip; payment after the job, governments pay late.`,
     pattern: { kind: 'legs', legs },
     req: { minSeats: wide ? 250 : 150, extraCabin: 0, approvals: [] },
@@ -482,7 +522,9 @@ function tourSeries(ctx: Ctx): Draft | null {
   });
   const resort = o.airport ?? pick(g, resorts);
   if (!resort) return null;
-  const n = o.rotations ?? int(g, 4, 12);
+  let n = o.rotations ?? int(g, 4, 12);
+  if (!o.rotations && ctx.window) n = Math.min(n, Math.floor(roomDays(ctx, Math.max(ctx.window.from, g.now + 30 * DAY)) / 7));
+  if (n < 3) return null;
   const s = o.start ?? pickStart(ctx, 30 * DAY, 120 * DAY, n * 7 * DAY);
   if (s === null) return null;
   const est = planSector(wide ? 'b763' : 'a320ceo', base, resort);
@@ -504,7 +546,7 @@ function tourSeries(ctx: Ctx): Draft | null {
     pattern: { kind: 'legs', legs },
     req: { minSeats: wide ? 250 : Math.min(180, Math.ceil(pax / 10) * 10), extraCabin: 0, approvals: [], noTechStops: true },
     start: legs[0].dep, end: last.dep + block,
-    expiresIn: range(g, 3, 7) * DAY,
+    expiresIn: range(g, 4, 8) * DAY,
     effects: {},
     risk: { disruption: 0.1, politics: 0, permit: 0 },
     pin: resort,
@@ -519,7 +561,9 @@ function troopRotation(ctx: Ctx): Draft | null {
   const home = g.company.homeBase;
   const mission = o.airport ?? pick(g, F.MISSION_AIRPORTS.filter((c) => AIRPORT_BY_CODE[c] && c !== home));
   const n = o.rotations ?? int(g, 2, 4);
-  const spanDays = o.days ?? int(g, 30, 90);
+  let spanDays = o.days ?? int(g, 30, 90);
+  if (!o.days && ctx.window) spanDays = Math.min(spanDays, roomDays(ctx, Math.max(ctx.window.from, g.now + 30 * DAY)) - 2);
+  if (spanDays < 14) return null;
   const s = o.start ?? pickStart(ctx, 30 * DAY, 90 * DAY, spanDays * DAY);
   if (s === null) return null;
   const pax = wide ? int(g, 250, 280) : int(g, 150, 170);
@@ -563,25 +607,25 @@ function weights(g: GameState): [Archetype, number][] {
   ];
 }
 
-/** Archetypes that can live inside an idle window. */
+/** Per archetype: lead from now to start [min, max] and the room it needs inside a window, in days. */
+const WINDOW_FIT: Partial<Record<Archetype, [number, number, number]>> = {
+  seasonBase: [14, 60, 32], aogCover: [0.08, 1, 2], repatriation: [1, 3, 2], adhoc: [3, 30, 2], sports: [7, 60, 2.5], troopRotation: [30, 90, 16], tourSeries: [30, 120, 21],
+};
+
+/** Archetypes that can live inside an idle window (its start reachable within the lead, enough room after it). */
 function fitsWindow(a: Archetype, w: IdleWindow, now: Minute): boolean {
-  const len = (w.to - w.from) / DAY;
-  const lead = (w.from - now) / DAY;
-  switch (a) {
-    case 'seasonBase': return len >= 32 && lead <= 60;
-    case 'aogCover': return lead <= 0.8 && len >= 2;
-    case 'repatriation': return lead <= 2 && len >= 2;
-    case 'adhoc': return len >= 2 && lead <= 30;
-    case 'sports': return len >= 2.5 && lead <= 60;
-    case 'troopRotation': return len >= 32 && lead <= 90;
-    default: return false;
-  }
+  const f = WINDOW_FIT[a];
+  if (!f) return false;
+  const from = Math.max(w.from, now + f[0] * DAY);
+  return from <= now + f[1] * DAY && (w.to - from) / DAY >= f[2];
 }
 
 // ---------- finalise ----------
 
 function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null {
   const home = g.company.homeBase;
+  // One live request per client and kind of job.
+  if (Object.values(g.offers).some((x) => x.clientId === d.client.id && x.archetype === d.archetype && (x.status === 'open' || x.status === 'countered'))) return null;
   const p = d.pattern;
   const sectors: [string, string][] = p.kind === 'base' ? p.dests.flatMap((x) => [[p.base, x], [x, p.base]] as [string, string][]) : p.legs.map((l) => [l.from, l.to]);
   const ref = referenceType(d.req, sectors, p.kind === 'base');
@@ -599,6 +643,9 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   // Everyday work stays within the ETOPS approval we hold; aspirational jobs show the ladder.
   const etopsHeld = g.company.approvals.includes('etops240') ? 240 : g.company.approvals.includes('etops180') ? 180 : g.company.approvals.includes('etops120') ? 120 : 0;
   if (!aspire && requirements.etops > etopsHeld) return null;
+  // Everyday work must also be flyable without ETOPS on a type we operate (its own fuel-stop routing).
+  const fleetTypes = [...new Set(Object.values(g.fleet).map((a) => a.typeId))];
+  if (!aspire && fleetTypes.length && fleetTypes.every((ft) => sectors.some(([a, b]) => planSector(ft, a, b).legs.some((l) => etopsNeeded(ft, l.from, l.to) > etopsHeld)))) return null;
   // Estimates on the reference type: revenue hours plus empty legs from and back to our home base.
   let emptyMin = prog.emptyMin;
   let deps = prog.trips.reduce((s, t) => s + t.legs.length, 0) || (prog.base?.rotations ?? 0) * 2;
@@ -667,14 +714,16 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
  */
 export function generateOffer(g: GameState, archetype?: Archetype, opts: OfferOpts = {}): ContractOffer | null {
   const roll = next(g);
-  const mode = roll < BAL.gapFitShare ? 'gap' : roll < 1 - BAL.aspirationalShare ? 'fleet' : 'aspire';
+  let mode = roll < BAL.gapFitShare ? 'gap' : roll < 1 - BAL.aspirationalShare ? 'fleet' : 'aspire';
   const fleet = Object.values(g.fleet);
   const wideShare = fleet.length ? fleet.filter((a) => typeOf(a.typeId).body === 'wide').length / fleet.length : 0;
+  // At most two ladder jobs on the market at once, so the board stays mostly workable.
+  if (mode === 'aspire' && wideShare < 1 && Object.values(g.offers).filter((x) => x.status === 'open' && x.requirements.body === 'wide').length >= 2) mode = 'fleet';
   const wide = opts.wide ?? (mode === 'aspire' ? wideShare < 1 : chance(g, wideShare));
   let window: IdleWindow | undefined;
   if (opts.window) window = opts.window;
   else if (opts.window === undefined && mode === 'gap') {
-    const ws = idleWindows(g);
+    const ws = idleWindows(g).filter((w) => !archetype || fitsWindow(archetype, w, g.now));
     window = ws.length ? weightedPick(g, ws, (w) => Math.sqrt((w.to - w.from) / DAY)) : undefined;
   }
   const tries: Archetype[] = [];

@@ -1,22 +1,222 @@
-// Offer review (B5): details, feasibility per aircraft (contracts.feasibilityAll), accept on the
-// chosen aircraft, counter or decline. Skeleton shows the basics. DESIGN.md §6.3.
+// Offer review (B5): terms, schedule and effects on the left; per-aircraft feasibility (traffic lights,
+// positioning, crew capacity, contribution) on the right; Decline / Counter / Accept. DESIGN.md §6.3.
 
-import { declineOffer } from '../../engine/contracts';
-import { fmtDate } from '../../engine/core/time';
-import { Modal } from '../components/ui';
+import { Check, X } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { AIRPORT_BY_CODE } from '../../data/airports';
+import { flag } from '../../data/countries';
+import { acceptOffer, askingPrice, counterOffer, declineOffer, feasibilityAll, leadDays, type FeasibilityReport } from '../../engine/contracts';
+import { flightsRev } from '../../engine/core/entities';
+import { typeOf } from '../../engine/core/perf';
+import { fmtDate, fmtDay, fmtDuration, fmtTime } from '../../engine/core/time';
+import type { ContractOffer, GameState } from '../../engine/core/types';
+import { Modal, Stepper } from '../components/ui';
 import { money } from '../format';
+import { ArchIcon, Chips, Dot, KV } from '../screens/common';
+import { ARCH_LABEL, counterSteps, expiryLabel, reqChips, riskChips, ROLE_LABEL, routeSummary, type Chip } from '../screens/screenLogic';
 import { store, useGame } from '../store';
+
+const LEVEL_TONE = { ok: 'good', warn: 'warn', no: 'bad' } as const;
+const usd = (v: number) => `$${Math.round(v).toLocaleString('en-US')}`;
+
+function effectChips(o: ContractOffer): Chip[] {
+  const e = o.effects;
+  const out: Chip[] = [];
+  const add = (v: number | undefined, label: string) => {
+    if (v) out.push({ label: `${label} ${v > 0 ? '+' : '−'}${Math.abs(v)}`, tone: v > 0 ? 'good' : 'bad' });
+  };
+  add(e.reliable, 'Reliable');
+  add(e.clean, 'Clean');
+  add(e.morale, 'Crew morale');
+  return out;
+}
+
+function Terms({ g, o }: { g: GameState; o: ContractOffer }) {
+  const p = o.product;
+  const rows: [string, string][] = [];
+  if (p.kind === 'wet') {
+    rows.push(['Rate', `${usd(p.ratePerBH)} per block hour`], ['Minimum guarantee', `${p.mghPerMonth} BH / month per aircraft`]);
+    rows.push(['Above MGH', `${Math.round(p.excessRate * 100)}% of the rate`], ['Short-cycle fee', usd(p.cycleFee)]);
+    rows.push(['Positioning', p.positioningBillable ? 'Billable at the rate' : 'At our cost']);
+  } else if (p.kind === 'charter') {
+    rows.push(['Price', `${usd(p.price)} all-in`], ['Deposit', `${Math.round(p.depositPct * 100)}% on signing`]);
+    rows.push(['Balance', `${p.balanceDaysBefore} days before each trip`], ['Fuel', p.fuelEscalation ? 'Escalation clause' : 'Our risk']);
+  } else rows.push(['Rent', `${usd(p.rentPerMonth)} / month`], ['Reserves', `${usd(p.reservesPerFH)} / FH`]);
+  const lead = leadDays(g, o.start);
+  rows.push(['Dates', `${fmtDate(o.start)} – ${fmtDate(o.end)}`], ['Lead time', lead <= 0 ? 'Starts now' : `${lead} days`]);
+  rows.push(['Estimate', `${Math.round(o.estBH)} BH · ${money(o.estValue)}`]);
+  const pay = o.payment;
+  rows.push(['Payment', `${pay.basis === 'advance' ? 'In advance' : pay.basis === 'arrears' ? 'Monthly in arrears' : 'On completion'}, ${pay.dueDays} days`]);
+  rows.push(['If we cancel', o.penalties.cancelScale.map(([d, f]) => `${d} d ${Math.round(f * 100)}%`).join(' · ') || '—']);
+  if (o.penalties.perCancelledLeg) rows.push(['Per cancelled leg', usd(o.penalties.perCancelledLeg)]);
+  return <KV rows={rows} />;
+}
+
+function Programme({ o }: { o: ContractOffer }) {
+  const p = o.pattern;
+  if (p.kind === 'base') {
+    const waves = p.waves.map((w) => `${String(Math.floor(w / 60)).padStart(2, '0')}:${String(w % 60).padStart(2, '0')}`).join(', ');
+    return (
+      <KV rows={[
+        ['Base', `${p.base} · ${AIRPORT_BY_CODE[p.base]?.city ?? ''}`],
+        ['Destinations', p.dests.join(', ')],
+        ['Daily waves', `${waves} local`],
+        ['Programme', `≈ ${Math.round(p.targetBH)} BH / month`],
+        ['Maintenance night', `every ${p.maintEvery} days`],
+      ]} />
+    );
+  }
+  const legs = [...p.legs].sort((a, b) => a.dep - b.dep);
+  return (
+    <div className="sc-legs">
+      {legs.slice(0, 10).map((l, i) => (
+        <div key={i} className="sc-leg">
+          <span className="dim">{fmtDay(l.dep)}</span>
+          <span className="mono">{l.flightNo}</span>
+          <span className="mono">{l.from} → {l.to}</span>
+          <span className="num">{fmtTime(l.dep)}Z <span className="dim">({fmtTime(l.dep, l.from)} lt)</span></span>
+          <span className="dim right">{l.pax ? `${l.pax} pax` : ''}</span>
+        </div>
+      ))}
+      {legs.length > 10 && <div className="small dim">… {legs.length - 10} more legs</div>}
+    </div>
+  );
+}
+
+function posLine(r: FeasibilityReport): string {
+  const legs = r.positionIn;
+  if (!legs.length) return 'On site, no positioning';
+  const min = legs.reduce((s, l) => s + l.sta - l.std, 0);
+  return `+${fmtDuration(min, true)} positioning from ${legs[0].from}${legs.length > 1 ? ` (${legs.length - 1} stop)` : ''}`;
+}
+
+function crewLine(r: FeasibilityReport): { text: string; tone: 'good' | 'warn' | 'bad' } {
+  const short = Object.entries(r.crew.byRole).filter(([, v]) => v && v.short > 0);
+  if (!short.length) return { text: `Crew OK (${r.crew.setsAvailable}/${r.crew.setsNeeded} sets)`, tone: 'good' };
+  const list = short.map(([role, v]) => `${v!.short} ${role}`).join(', ');
+  return { text: `Short ${list}${r.crew.firstShort ? ` from ${fmtDay(r.crew.firstShort)}` : ''}`, tone: 'warn' };
+}
+
+function AircraftRow({ g, r, on, onPick }: { g: GameState; r: FeasibilityReport; on: boolean; onPick: () => void }) {
+  const ac = g.fleet[r.aircraftId];
+  if (!ac) return null;
+  const crew = crewLine(r);
+  return (
+    <div className={`sc-feas ${on ? 'on' : ''} ${r.level}`}>
+      <button className="sc-feas-head" onClick={onPick} aria-expanded={on}>
+        <Dot tone={LEVEL_TONE[r.level]} />
+        <span className="col gap-4 grow">
+          <span className="row gap-8"><b className="mono">{ac.reg}</b><span className="small muted">{typeOf(ac.typeId).short} · {ac.cabin.label}</span></span>
+          <span className="small muted ellipsis">{posLine(r)}</span>
+          <span className={`small ${crew.tone}`}>{crew.text}</span>
+        </span>
+        <span className="right">
+          <b className={`num ${r.estMargin >= 0 ? 'good' : 'bad'}`}>{money(r.estMargin)}</b>
+          <span className="tiny dim">contribution</span>
+        </span>
+      </button>
+      {on && (
+        <div className="sc-feas-checks">
+          {r.checks.map((c) => (
+            <div key={c.id} className="sc-check">
+              <Dot tone={LEVEL_TONE[c.level]} />
+              <span className="grow"><span>{c.label}</span>{c.detail && <span className="small muted"> · {c.detail}</span>}</span>
+            </div>
+          ))}
+          {r.techStops.length > 0 && <div className="small muted">Fuel stops: {r.techStops.join(', ')}</div>}
+          <div className="small muted">Revenue {money(r.estRevenue)} · costs {money(r.estCost)} · {Math.round(r.estBH)} BH</div>
+          {Object.entries(r.crew.byRole).some(([, v]) => v && v.short > 0) && (
+            <div className="small warn">Hire or move crew: {Object.entries(r.crew.byRole).filter(([, v]) => v && v.short > 0).map(([role, v]) => `${v!.short} × ${ROLE_LABEL[role as keyof typeof ROLE_LABEL].toLowerCase()}`).join(', ')}.</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function OfferModal({ offerId }: { offerId: string }) {
   const g = useGame();
   const o = g.offers[offerId];
+  const rev = flightsRev(g);
+  const reports = useMemo(() => (o ? feasibilityAll(g, o.id) : []), [g, o, rev, g.now]); // eslint-disable-line react-hooks/exhaustive-deps
+  const best = reports.find((r) => r.level !== 'no') ?? reports[0];
+  const [pick, setPick] = useState<string | null>(null);
+  const [step, setStep] = useState(2);
   if (!o) return null;
+  const sel = reports.find((r) => r.aircraftId === (pick ?? best?.aircraftId));
+  const cl = g.clients[o.clientId];
+  const live = o.status === 'open' || o.status === 'countered';
+  const countered = o.status === 'countered';
+  const asking = askingPrice(o);
+  const steps = counterSteps(asking, o.product.kind === 'wet');
+  const price = steps[step - 1] ?? asking;
+  const fmtP = (v: number) => (o.product.kind === 'wet' ? `${usd(v)}/BH` : money(v, 2));
+  const canCounter = live && !countered && !o.counter && !!sel && sel.level !== 'no';
+  const canAccept = live && !countered && !!sel && sel.level !== 'no';
+
+  const accept = () => {
+    if (!sel) return;
+    const res = store.act((gg) => acceptOffer(gg, o.id, [sel.aircraftId]));
+    if (res.ok) {
+      store.closeModal();
+      if (store.nav.tab === 'contracts' && res.data) store.navigate('contracts', { view: 'active', sel: { kind: 'contract', id: res.data.contractId } });
+    }
+  };
+  const counter = () => {
+    if (!sel) return;
+    const res = store.act((gg) => counterOffer(gg, o.id, price, [sel.aircraftId]));
+    if (res.ok) store.closeModal();
+  };
+  const decline = () => {
+    store.act((gg) => declineOffer(gg, o.id), { toastOk: false });
+    store.closeModal();
+  };
+
   return (
-    <Modal title={o.title} onClose={() => store.closeModal()} footer={
-      <button className="btn" onClick={() => { store.act((gg) => declineOffer(gg, o.id)); store.closeModal(); }}>Decline</button>
+    <Modal size="xwide" className="sc-offer-modal" icon={<ArchIcon a={o.archetype} />} title={o.title} onClose={() => store.closeModal()} footer={
+      <div className="sc-offer-foot">
+        <button className="btn btn-ghost" onClick={decline} disabled={!live}><X /> Decline</button>
+        <span className="grow" />
+        {o.counter?.result === 'refused' ? (
+          <span className="small muted">Counter refused: the asking price stands.</span>
+        ) : countered ? (
+          <span className="small accent">Counter {fmtP(o.counter!.price)} sent. Waiting for the reply.</span>
+        ) : (
+          <span className="row gap-8 sc-counter">
+            <Stepper value={step} min={1} max={8} onChange={setStep} format={(v) => <span className="num">{fmtP(steps[v - 1])} <span className="dim">+{(v * 2.5).toFixed(1)}%</span></span>} />
+            <button className="btn" onClick={counter} disabled={!canCounter}>Counter</button>
+          </span>
+        )}
+        <button className="btn btn-primary" onClick={accept} disabled={!canAccept}><Check /> Accept {fmtP(asking)}</button>
+      </div>
     }>
-      <p className="muted">{o.blurb}</p>
-      <div className="small">{fmtDate(o.start)} – {fmtDate(o.end)} · est. {money(o.estValue)}</div>
+      <div className="sc-offer-cols">
+        <div className="sc-offer-left col gap-12">
+          <div className="row gap-8 wrap">
+            <span className="upper dim">{ARCH_LABEL[o.archetype]}</span>
+            {o.urgency !== 'normal' && <span className={`badge ${o.urgency === 'urgent' ? 'bad' : 'warn'}`}>{o.urgency === 'urgent' ? 'Urgent' : 'Short notice'}</span>}
+            <span className="small muted">{expiryLabel(g.now, o.expires)}</span>
+          </div>
+          <div>
+            <b>{cl ? `${flag(cl.country)} ${cl.name}` : 'Client'}</b>
+            {o.broker && <span className="chip sc-chip sc-broker">via {o.broker} (5%)</span>}
+            <div className="small muted mono">{routeSummary(o.pattern)}</div>
+          </div>
+          <p className="muted sc-blurb">{o.blurb}</p>
+          <Chips chips={[...reqChips(o.requirements), ...riskChips(o.risk), ...effectChips(o)]} />
+          <div className="upper dim">Terms</div>
+          <Terms g={g} o={o} />
+          <div className="upper dim">Programme</div>
+          <Programme o={o} />
+        </div>
+        <div className="sc-offer-right col gap-8">
+          <div className="upper dim">Choose an aircraft</div>
+          {!reports.length && <div className="small muted">No aircraft in the fleet.</div>}
+          {reports.map((r) => (
+            <AircraftRow key={r.aircraftId} g={g} r={r} on={sel?.aircraftId === r.aircraftId} onPick={() => setPick(r.aircraftId)} />
+          ))}
+        </div>
+      </div>
     </Modal>
   );
 }

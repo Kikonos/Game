@@ -6,28 +6,32 @@ export const AOG_CAUSES = [
   'a cargo door damaged by a loader', 'a fuel leak from the wing tank', 'a lightning strike', 'a landing-gear retraction fault',
 ];
 
+/** Crisis openers; the blurb prefixes the city ("Goma: fighting has closed the airport…"). */
 export const CRISES = [
-  'Fighting has closed the airport to scheduled airlines', 'Civil unrest has shut the land borders', 'A coup has grounded the national carrier',
-  'An earthquake has stranded tourists and workers', 'Floods have cut the roads to the capital', 'The last scheduled carrier has suspended flights',
-  'An outbreak has closed regular services', 'Elections turned violent overnight', 'A volcanic ash cloud has just cleared after a week of closures',
+  'fighting has closed the airport to scheduled airlines', 'civil unrest has shut the land borders', 'a coup has grounded the national carrier',
+  'an earthquake has stranded tourists and aid workers', 'floods have cut the roads to the capital', 'the last scheduled carrier has suspended flights',
+  'an outbreak has closed regular services', 'elections turned violent overnight', 'an ash cloud has just cleared after a week of closures',
 ];
 
 export const MISSIONS = [
   'for the peacekeeping contingent', 'for the training mission', 'for the stabilisation force', 'for the observer mission',
 ];
 
-export const ADHOC_GROUPS: { what: string; kinds: ('tourOperator' | 'agency' | 'corporate' | 'music')[] }[] = [
+export const ADHOC_GROUPS: { what: string; kinds: ('tourOperator' | 'agency' | 'corporate' | 'music')[]; pax?: [number, number] }[] = [
   { what: 'an incentive group', kinds: ['corporate'] },
   { what: 'a sales conference', kinds: ['corporate'] },
-  { what: 'a wedding party', kinds: ['agency'] },
-  { what: 'a late-booked package group', kinds: ['tourOperator'] },
-  { what: 'a golf tournament group', kinds: ['agency', 'tourOperator'] },
-  { what: 'a cruise crew change', kinds: ['agency'] },
-  { what: 'a film crew and their kit', kinds: ['corporate'] },
-  { what: 'a university choir on tour', kinds: ['agency'] },
+  { what: 'a wedding party', kinds: ['agency'], pax: [110, 160] },
+  { what: 'a late-booked package group', kinds: ['tourOperator'], pax: [160, 180] },
+  { what: 'a golf tournament group', kinds: ['agency', 'tourOperator'], pax: [100, 150] },
+  { what: 'a film crew with their kit', kinds: ['corporate'], pax: [80, 120] },
+  { what: 'a university choir on tour', kinds: ['agency'], pax: [90, 140] },
+  { what: 'a stag-and-hen weekend group', kinds: ['agency'], pax: [140, 178] },
+  { what: 'a trade-fair delegation', kinds: ['corporate'] },
 ];
 
-export const SPORT_TITLES = ['Away match in', 'Cup tie in', 'European night in', 'Derby away in'];
+/** League games stay in the club's country; cup ties and European nights go abroad. */
+export const SPORT_TITLES_HOME = ['League away day in', 'Away match in', 'Derby away in'];
+export const SPORT_TITLES_ABROAD = ['European night in', 'Cup tie in', 'Continental away leg in'];
 
 /** Departure-time slots that look like real charter schedules (local minutes). */
 export const DEP_SLOTS = [6 * 60 + 40, 7 * 60 + 15, 8 * 60 + 5, 9 * 60 + 30, 10 * 60 + 45, 12 * 60 + 10, 13 * 60 + 35, 15 * 60 + 20, 16 * 60 + 50, 18 * 60 + 25];

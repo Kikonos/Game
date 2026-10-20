@@ -173,12 +173,37 @@ export function recheckPairing(g: GameState, p: Pairing, priorOnly = false): { l
 
 // ---------- auto-roster ----------
 
+const copySeg = (x: Seg): Seg => ({
+  kind: x.kind, start: x.start, end: x.end, fdp: x.fdp, maxFdp: x.maxFdp, block: x.block, sectors: x.sectors, aug: x.aug,
+  disruptive: x.disruptive, rest: x.rest, at: x.at, dutyId: x.dutyId, fresh: false,
+});
+
+/** Cheap pre-check: a planned seg overlaps [from, to) or its rest runs past `from` (certainly illegal). */
+function busyAt(segs: Seg[], from: Minute, to: Minute): boolean {
+  let lo = 0;
+  let hi = segs.length;
+  while (lo < hi) {
+    const m = (lo + hi) >> 1;
+    if (segs[m].start < to) lo = m + 1;
+    else hi = m;
+  }
+  for (let k = lo - 1; k >= 0 && k >= lo - 4; k--) {
+    const s = segs[k];
+    if (s.kind === 'log') break;
+    if (s.end + s.rest > from) return true;
+  }
+  return false;
+}
+
 /** Per-run cache of crew timelines (updated as slots are filled; no index churn inside the loop). */
 class Ctx {
   segs = new Map<string, Seg[]>();
   crew: CrewMember[];
+  /** Position of each crew id in string order (numeric tie-break). */
+  rank = new Map<string, number>();
   constructor(readonly g: GameState) {
     this.crew = Object.values(g.crew);
+    this.crew.map((c) => c.id).sort().forEach((id, i) => this.rank.set(id, i));
   }
   of(c: CrewMember): Seg[] {
     let s = this.segs.get(c.id);
@@ -186,7 +211,7 @@ class Ctx {
     return s;
   }
   add(c: CrewMember, segs: Seg[]): void {
-    this.segs.set(c.id, mergeSegs(this.of(c), segs.map((x) => ({ ...x, fresh: false }))));
+    this.segs.set(c.id, mergeSegs(this.of(c), segs.map((x) => copySeg(x))));
   }
 }
 
@@ -215,23 +240,53 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
   const order = p.slots.map((_, i) => i).filter((i) => !p.slots[i].crewId);
   order.sort((a, b) => SLOT_ORDER.indexOf(p.slots[a].role) - SLOT_ORDER.indexOf(p.slots[b].role) || a - b);
   const plans = new Map<string, CrewPlan>();
+  // Slot-independent part of the score, once per pairing (crew in p are skipped below).
+  const fitRoles = new Set<Role>();
+  for (const r of SLOT_ORDER) for (const i of order) if (canFill(p.slots[i].role, r)) fitRoles.add(r);
+  const price = new Map<string, number>();
+  const pool: { c: CrewMember; score: number; rank: number }[] = [];
+  for (const c of ctx.crew) {
+    if (!fitRoles.has(c.role) || !c.ratings.includes(family) || inP.has(c.id) || exclude?.has(c.id)) continue;
+    const segs = ctx.of(c);
+    if (busyAt(segs, first.report, first.release)) continue;
+    const loc = locAt(c, segs, first.report);
+    let tp = price.get(loc);
+    if (tp === undefined) price.set(loc, (tp = ticketPrice(loc, dep)));
+    let score = -tp - 2 * (block28(segs, first.report) / 60);
+    if (prev.has(c.id)) score += 30;
+    if (unpleasant) score -= (70 - c.morale) / 2;
+    pool.push({ c, score, rank: ctx.rank.get(c.id)! });
+  }
+  pool.sort((a, b) => b.score - a.score || a.rank - b.rank);
+  // Per slot, candidates in score order: the same-role stream merged lazily with the overqualified one (−50).
+  // A crew member's plan does not depend on the slot, so one refused is not re-planned for the next slot.
+  const refused = new Set<string>();
+  const skip = (x: (typeof pool)[number]) => inP.has(x.c.id) || refused.has(x.c.id);
   for (const si of order) {
     const slot = p.slots[si];
-    const cands: { c: CrewMember; score: number }[] = [];
-    for (const c of ctx.crew) {
-      if (!canFill(slot.role, c.role) || !c.ratings.includes(family) || inP.has(c.id) || exclude?.has(c.id)) continue;
-      const segs = ctx.of(c);
-      const loc = locAt(c, segs, first.report);
-      let score = -ticketPrice(loc, dep) - 2 * (block28(segs, first.report) / 60);
-      if (prev.has(c.id)) score += 30;
-      if (c.role !== slot.role) score -= 50;
-      if (unpleasant) score -= (70 - c.morale) / 2;
-      cands.push({ c, score });
-    }
-    cands.sort((a, b) => b.score - a.score || (a.c.id < b.c.id ? -1 : a.c.id > b.c.id ? 1 : 0));
-    for (const { c } of cands) {
+    const role = slot.role;
+    let i = 0;
+    let j = 0;
+    for (;;) {
+      while (i < pool.length && (pool[i].c.role !== role || skip(pool[i]))) i++;
+      while (j < pool.length && (pool[j].c.role === role || !canFill(role, pool[j].c.role) || skip(pool[j]))) j++;
+      if (i >= pool.length && j >= pool.length) break;
+      let x;
+      if (j >= pool.length) x = pool[i++];
+      else if (i >= pool.length) x = pool[j++];
+      else {
+        const a = pool[i];
+        const o = pool[j];
+        const so = o.score - 50;
+        if (a.score > so || (a.score === so && a.rank < o.rank)) x = pool[i++];
+        else x = pool[j++];
+      }
+      const c = x.c;
       const plan = planCrew(g, c, p, ctx.of(c));
-      if (!acceptable(g, plan)) continue;
+      if (!acceptable(g, plan)) {
+        refused.add(c.id);
+        continue;
+      }
       slot.crewId = c.id;
       inP.add(c.id);
       plans.set(c.id, plan);

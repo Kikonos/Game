@@ -117,6 +117,14 @@ export const CLIENT_SEEDS_B1: ClientSeed[] = [
   { name: '"Velvet Thunder" stadium tour', kind: 'music', country: 'US', base: 'JFK' },
   { name: 'Riga Wolves HC', kind: 'sports', country: 'LV', base: 'RIX' },
   { name: 'Valletta Corsairs FC', kind: 'sports', country: 'MT', base: 'MLA' },
+  // Group travel, events and marine crewing (ad hoc work).
+  { name: 'Mareterra Crew Logistics', kind: 'agency', country: 'MT', base: 'MLA' },
+  { name: 'Harbourline Crew Travel', kind: 'agency', country: 'NL', base: 'AMS' },
+  { name: 'Cantabile Choir Tours', kind: 'agency', country: 'AT', base: 'VIE' },
+  { name: 'Fairway & Fiesta Group Travel', kind: 'agency', country: 'IE', base: 'DUB' },
+  { name: 'Eventide Group Travel', kind: 'agency', country: 'GB', base: 'LGW' },
+  { name: 'Atlas Events & Incentives', kind: 'corporate', country: 'ES', base: 'BCN' },
+  { name: 'Brightwater Media Productions', kind: 'corporate', country: 'GB', base: 'LHR' },
 ];
 
 export const RIVALS_B1: RivalSeed[] = [

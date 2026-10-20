@@ -7,7 +7,6 @@ import type { Duty, GameState, Pairing } from '../core/types';
 import { demoFlights, devFleet } from '../dev';
 import { deserialize, serialize } from '../save';
 import { settle } from '../sim';
-import { recheckPairing } from './roster';
 import { evalSegs, LIMITS } from './rules';
 import { ctxOf, segsOf } from './timeline';
 import { addCrew, fixtureContract, fixtureGame, seasonBase } from './fixtures';
@@ -266,16 +265,48 @@ describe('deadheads', () => {
 });
 
 describe('performance', () => {
-  it('rosters a month of flights for 4 aircraft and ~120 crew quickly', () => {
+  const month = () => {
     const g = fixtureGame();
     devFleet(g, 4);
     addCrew(g, { CPT: 10, FO: 10, SCC: 10, CC: 30 });
     demoFlights(g, undefined, 30);
-    const t0 = performance.now();
-    const res = autoRoster(g, { to: g.now + 31 * DAY });
-    const ms = performance.now() - t0;
-    console.log(`autoRoster: ${Object.keys(g.duties).length} duties, ${res.assigned} slots, ${ms.toFixed(1)} ms`);
-    expect(res.uncovered).toEqual([]);
-    expect(ms).toBeLessThan(150);
+    return g;
+  };
+  it('rosters a month of flights for 4 aircraft and ~120 crew in < 50 ms, deterministically', () => {
+    // Best of 4 fresh games (the first is the JIT warm-up), so parallel test files don't make it flaky.
+    const times: number[] = [];
+    const sigs: string[] = [];
+    for (let k = 0; k < 4; k++) {
+      const g = month();
+      const t0 = performance.now();
+      const res = autoRoster(g, { to: g.now + 31 * DAY });
+      times.push(performance.now() - t0);
+      expect(res.uncovered).toEqual([]);
+      expect(Object.keys(g.crew).length).toBe(120);
+      sigs.push(JSON.stringify(Object.values(g.pairings).map((p) => p.slots.map((s) => s.crewId))));
+    }
+    console.log(`autoRoster (month, 4 aircraft, 120 crew): ${times.map((t) => t.toFixed(1)).join(' / ')} ms`);
+    expect(new Set(sigs).size).toBe(1);
+    expect(Math.min(...times)).toBeLessThan(50);
+  });
+});
+
+describe('flights added outside an accept', () => {
+  it('are planned and crewed at the next settle (auto-roster policy on), not only at midnight', () => {
+    const g = fixtureGame();
+    demoFlights(g, undefined, 2);
+    expect(Object.keys(g.pairings)).toHaveLength(0);
+    settle(g);
+    expect(scheduled(g).filter((f) => !f.crewIds.length)).toEqual([]);
+    const n = Object.keys(g.pairings).length;
+    settle(g);
+    expect(Object.keys(g.pairings)).toHaveLength(n);
+    // Policy off: planned (visible as uncovered) but not crewed.
+    const h = fixtureGame();
+    h.company.policies.autoRoster = false;
+    demoFlights(h, undefined, 2);
+    settle(h);
+    expect(Object.keys(h.pairings).length).toBeGreaterThan(0);
+    expect(scheduled(h).every((f) => !f.crewIds.length)).toBe(true);
   });
 });

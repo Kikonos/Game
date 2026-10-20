@@ -150,6 +150,7 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string): 
     return rep;
   }
   const t = typeOf(ac.typeId);
+  const turn = t.turnMin;
   const req = o.requirements;
   const home = g.company.homeBase;
   const wet = o.product.kind === 'wet';
@@ -188,7 +189,7 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string): 
     }
     if (sp.techStops.length) {
       if (base || req.noTechStops) rangeNo.push(`${a}–${b} needs a fuel stop at ${sp.techStops.join(', ')} and the client wants none`);
-      else stops.push(`${sp.techStops.join('+')} on ${a}–${b}`);
+      else stops.push(`${sp.techStops.join(' + ')} on ${a}–${b} (${nm(distanceNm(a, b))})`);
       for (const s of sp.techStops) if (!rep.techStops.includes(s)) rep.techStops.push(s);
     }
     if (runwayFit(t.id, a) === 'limited' || runwayFit(t.id, b) === 'limited') {
@@ -197,7 +198,7 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string): 
     }
   }
   if (rangeNo.length) add('range', 'no', rangeNo[0], rangeNo.slice(1).join('; ') || undefined);
-  else if (stops.length) add('range', 'warn', `Fuel stop${stops.length > 1 ? 's' : ''}: ${stops[0]}`, stops.length > 1 ? stops.slice(1).join('; ') : `Adds about an hour on the ground per stop; usable range ${nm(usable)}.`);
+  else if (stops.length) add('range', 'warn', `Fuel stop${stops.length > 1 ? 's' : ''} at ${stops[0]}`, stops.length > 1 ? stops.slice(1).join('; ') : `Adds about an hour on the ground per stop; usable range ${nm(usable)}.`);
   else add('range', 'ok', `All sectors direct (longest ${nm(longest)} of ${nm(usable)})`);
   if (runwayNo.size) add('runway', 'no', [...runwayNo.values()][0], [...runwayNo.values()].slice(1).join('; ') || undefined);
   else if (runwayLtd.size) add('runway', 'warn', `Payload-limited at ${[...runwayLtd].join(', ')} (${[...runwayLtd].map((c) => `${AIRPORT_BY_CODE[c]?.runwayM} m`).join(', ')})`, `Shorter legs from there; the ${t.short} likes ${t.minRunwayM} m.`);
@@ -238,7 +239,6 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string): 
   else add('lease', 'ok', ac.ownership.kind === 'owned' ? 'Owned' : `Dry-leased until ${fmtDate(ac.ownership.leaseEnd)}`);
 
   // 9. Availability: overlaps with flights, maintenance and signed base deployments.
-  const turn = t.turnMin;
   let availNo = false;
   for (const a of conflicts) {
     if (a.kind === 'maint') rep.conflicts.maintenance.push(a.id);
@@ -279,25 +279,55 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string): 
     }
   } else add('positioning', availNo ? 'no' : 'warn', availNo ? 'Not planned: the aircraft is busy' : 'Not planned');
 
-  // 11. Maintenance due inside the window.
+  // 11. Maintenance due inside the window (A-check by FH or calendar, C-check by months).
   const winFrom = firstDep;
   const winTo = lastArr;
   const posMin = fits.reduce((s, f) => s + blockMin(f.posIn) + blockMin(f.posOut), 0);
   const progFH = ((prog.revenueMin + prog.emptyMin + posMin) * 0.92) / 60;
-  let schedFH = 0;
-  for (const f of flightsOf(g, ac.id)) if ((f.status === 'scheduled' || f.status === 'enroute') && f.std < winTo) schedFH += Math.max(0, f.block - 20) / 60;
+  let fhBefore = 0;
+  let fhDuring = 0;
+  for (const f of flightsOf(g, ac.id)) {
+    if (f.status !== 'scheduled' && f.status !== 'enroute') continue;
+    const fh = Math.max(0, f.block - 20) / 60;
+    if (f.std < winFrom) fhBefore += fh;
+    else if (f.std < winTo) fhDuring += fh;
+  }
   const maints = Object.values(g.maintenance).filter((m) => m.aircraftId === ac.id && (m.status === 'planned' || m.status === 'inWork'));
-  const aPlanned = maints.some((m) => m.kind === 'A' && m.start < winTo);
+  const aBooked = maints.find((m) => m.kind === 'A' && m.start < winTo);
   const aLeft = t.aCheckFH - ac.maint.fhSinceA;
   const aCal = ac.maint.lastA + A_CHECK_DAYS * DAY;
-  const aByFH = ac.maint.fhSinceA + schedFH + progFH >= t.aCheckFH;
+  // When the FH limit bites, spreading the window's hours evenly over it.
+  const leftAtStart = aLeft - fhBefore;
+  const fhIn = progFH + fhDuring;
+  const aFH = leftAtStart <= 0 ? winFrom - 1 : leftAtStart < fhIn ? winFrom + Math.round(((winTo - winFrom) * leftAtStart) / fhIn) : Infinity;
+  const aDue = Math.min(aCal, aFH);
+  const why = aDue === aCal ? `${A_CHECK_DAYS}-day limit` : `${t.aCheckFH} FH limit`;
   const cDue = ac.maint.lastC + Math.round(t.cCheckMonths * 30.44) * DAY;
   const cPlannedBefore = maints.some((m) => m.kind === 'C' && m.end <= winFrom);
-  if (cDue <= winTo && !cPlannedBefore) add('maintenance', 'no', cDue <= g.now ? `C-check overdue since ${fmtDay(cDue)}` : `C-check due ${fmtDay(cDue)}, inside the job: ${t.cCheckDays} days in the hangar`, 'Plan the C-check before the job, or pick another aircraft.');
-  else if (!aPlanned && (aByFH || aCal <= winTo)) {
-    const when = aCal <= winTo && (!aByFH || aCal < winFrom + DAY * 7) ? `by ${fmtDay(aCal)}` : `in about ${Math.max(0, Math.round(aLeft))} FH`;
-    add('maintenance', 'warn', `A-check due ${when}, inside the job`, base ? 'It fits a maintenance night at the base (every 7 days).' : `Plan it before departure: ${t.aCheckHours} h at a line station.`);
-  } else add('maintenance', 'ok', `A-check in ${Math.max(0, Math.round(aLeft))} FH / ${Math.max(0, Math.round((aCal - g.now) / DAY))} days; C-check ${fmtDay(cDue)}`);
+  const checkMin = t.aCheckHours * 60 + 180;
+  // A gap between trips (at home or the trip's end) long enough for an A-check before it falls due.
+  const gapBefore = (due: Minute) => fits.some((f, i) => {
+    const nx = fits[i + 1];
+    if (!nx) return false;
+    const from = f.trip.sta + turn + blockMin(f.posOut);
+    const to = Math.min(due, nx.trip.std - turn - blockMin(nx.posIn));
+    return to - from >= checkMin;
+  });
+  if (cDue <= winTo && !cPlannedBefore) {
+    add('maintenance', 'no', cDue <= g.now ? `C-check overdue since ${fmtDay(cDue)}` : `C-check due ${fmtDay(cDue)}, inside the job: ${t.cCheckDays} days in the hangar`, 'Plan the C-check before the job, or pick another aircraft.');
+  } else if (aBooked) {
+    add('maintenance', 'ok', `A-check booked ${fmtDay(aBooked.start)} at ${aBooked.at}`, `C-check due ${fmtDay(cDue)}.`);
+  } else if (aDue > winTo) {
+    add('maintenance', 'ok', `No check due: A-check in ${Math.max(0, Math.round(aLeft))} FH / ${Math.max(0, Math.round((aCal - g.now) / DAY))} days`, `C-check due ${fmtDay(cDue)}.`);
+  } else if (aDue <= winFrom) {
+    add('maintenance', 'warn', `A-check due ${fmtDay(Math.max(g.now, aDue))} (${why}), before the job starts`, `Book it first: ${t.aCheckHours} h in the hangar at ${home}.`);
+  } else if (base && o.pattern.kind === 'base' && o.pattern.maintEvery > 0) {
+    add('maintenance', 'ok', `A-check due ${fmtDay(aDue)}: fits a maintenance night at ${o.pattern.base}`, `The schedule keeps a ${t.aCheckHours} h+ night free every ${o.pattern.maintEvery} days; the planner books it there.`);
+  } else if (gapBefore(aDue)) {
+    add('maintenance', 'ok', `A-check due ${fmtDay(aDue)}: fits between trips`, `There is a ${t.aCheckHours} h+ gap at the right time; the planner books it there.`);
+  } else {
+    add('maintenance', 'warn', `A-check due ${fmtDay(aDue)} (${why}), in the middle of the job`, `Book it before departure (${t.aCheckHours} h at ${home}), or pick another aircraft.`);
+  }
 
   // 12. Crew: capacity over the window, and augmentation on long duties.
   const progBH = (prog.revenueMin + prog.emptyMin + posMin) / 60;

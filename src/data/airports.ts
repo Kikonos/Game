@@ -525,10 +525,53 @@ const EXTRA_B1: Record<string, Row[]> = {
   ],
   WEA: [
     ['BVC', 'Aristides Pereira', 'Boa Vista', 'CV', 16.137, -22.889, 0.02, 1, 0.05, 0.95],
+    // Sahel and Gulf of Guinea diversion airports.
+    ['NIM', 'Diori Hamani', 'Niamey', 'NE', 13.482, 2.184, 1.3, 2, 0.3, 0.02],
+    ['NDJ', "N'Djamena Intl", "N'Djamena", 'TD', 12.134, 15.034, 1.5, 2, 0.3, 0.02],
+    ['OUA', 'Ouagadougou', 'Ouagadougou', 'BF', 12.353, -1.512, 2.5, 2, 0.3, 0.02],
+    ['DLA', 'Douala Intl', 'Douala', 'CM', 4.006, 9.719, 3.0, 2, 0.35, 0.05],
+    ['LBV', "Léon-Mba", 'Libreville', 'GA', 0.459, 9.412, 0.8, 2, 0.35, 0.05],
+    ['GAQ', 'Gao', 'Gao', 'ML', 16.249, -0.005, 0.1, 1, 0.1, 0.02],
+    ['AJY', 'Mano Dayak', 'Agadez', 'NE', 16.966, 8.000, 0.1, 1, 0.1, 0.05],
+    ['SSG', 'Malabo', 'Malabo', 'GQ', 3.755, 8.709, 0.3, 1, 0.3, 0.02],
+    ['ROB', 'Roberts Intl', 'Monrovia', 'LR', 6.234, -10.362, 1.5, 1, 0.3, 0.02],
+    ['FNA', 'Lungi Intl', 'Freetown', 'SL', 8.617, -13.195, 1.2, 1, 0.3, 0.02],
+    ['CKY', 'Ahmed Sékou Touré', 'Conakry', 'GN', 9.577, -13.612, 2.0, 2, 0.3, 0.02],
+    ['BJL', 'Banjul Intl', 'Banjul', 'GM', 13.338, -16.652, 0.5, 1, 0.2, 0.4],
+    ['LFW', 'Gnassingbé Eyadéma', 'Lomé', 'TG', 6.166, 1.255, 1.8, 2, 0.3, 0.05],
+  ],
+  // Central Asia and Iran: diversion and fuel-stop airports on Kabul routings (ETOPS realism).
+  SAS: [
+    ['TAS', 'Islam Karimov Tashkent Intl', 'Tashkent', 'UZ', 41.258, 69.281, 2.5, 3, 0.4, 0.2],
+    ['ASB', 'Ashgabat Intl', 'Ashgabat', 'TM', 37.987, 58.361, 1.0, 2, 0.3, 0.05],
+    ['DYU', 'Dushanbe Intl', 'Dushanbe', 'TJ', 38.543, 68.825, 0.9, 2, 0.3, 0.05],
+    ['MHD', 'Shahid Hashemi Nejad', 'Mashhad', 'IR', 36.235, 59.641, 3.0, 3, 0.25, 0.3],
+    ['IKA', 'Imam Khomeini Intl', 'Tehran', 'IR', 35.416, 51.152, 9.0, 3, 0.4, 0.15],
+  ],
+  // Sahara, Sahel and Gulf of Guinea diversion airports (mission and repatriation routings).
+  NAF: [
+    ['NKC', 'Nouakchott–Oumtounsy', 'Nouakchott', 'MR', 18.310, -15.970, 1.2, 2, 0.3, 0.05],
+    ['EUN', 'Hassan I', 'Laayoune', 'MA', 27.152, -13.219, 0.3, 1, 0.2, 0.1],
+    ['TMR', 'Aguenar', 'Tamanrasset', 'DZ', 22.811, 5.451, 0.1, 1, 0.1, 0.1],
+    ['SEB', 'Sabha', 'Sabha', 'LY', 26.987, 14.473, 0.2, 1, 0.1, 0.02],
+    ['KRT', 'Khartoum Intl', 'Khartoum', 'SD', 15.590, 32.553, 5.0, 2, 0.3, 0.02],
+    ['NDB', 'Nouadhibou', 'Nouadhibou', 'MR', 20.933, -17.030, 0.1, 1, 0.1, 0.02],
+    ['ATR', 'Atar', 'Atar', 'MR', 20.500, -13.043, 0.05, 1, 0.1, 0.05],
+    ['TIN', 'Commandant Ferradj', 'Tindouf', 'DZ', 27.700, -8.167, 0.1, 1, 0.1, 0.02],
+    ['GHA', 'Noumérat', 'Ghardaïa', 'DZ', 32.384, 3.794, 0.2, 1, 0.1, 0.05],
+    ['INZ', 'In Salah', 'In Salah', 'DZ', 27.251, 2.512, 0.05, 1, 0.1, 0.02],
+    ['DJG', 'Tiska', 'Djanet', 'DZ', 24.293, 9.452, 0.05, 1, 0.1, 0.1],
+    ['KUF', 'Kufra', 'Kufra', 'LY', 24.179, 23.314, 0.05, 1, 0.1, 0.02],
+    ['ELF', 'El Fasher', 'El Fasher', 'SD', 13.615, 25.325, 0.3, 1, 0.1, 0.02],
+    ['PZU', 'Port Sudan New Intl', 'Port Sudan', 'SD', 19.434, 37.234, 0.5, 1, 0.2, 0.02],
   ],
 };
 const RUNWAY_B1: Record<string, number> = {
   CFU: 2373, KGS: 2390, CHQ: 3347, ZTH: 2228, OLB: 2745, PFO: 2700, FUE: 3400, MAH: 2550, BOJ: 3200, VAR: 2500, BJV: 3000, BVC: 2100,
+  TAS: 4000, ASB: 3800, DYU: 3100, MHD: 3926, IKA: 4198,
+  NKC: 3400, EUN: 2700, TMR: 3600, SEB: 3600, KRT: 2980, NIM: 3000, NDJ: 2800, OUA: 3000, DLA: 2850, LBV: 3000,
+  NDB: 2420, ATR: 3000, TIN: 3000, GHA: 3100, INZ: 3000, DJG: 3000, KUF: 3600, ELF: 3000, PZU: 3150,
+  GAQ: 2500, AJY: 3000, SSG: 2900, ROB: 3350, FNA: 3200, CKY: 3300, BJL: 3600, LFW: 3000,
 };
 // B3: maintenance stations, tech stops, delivery airports.
 const EXTRA_B3: Record<string, Row[]> = {};

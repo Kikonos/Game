@@ -1,14 +1,139 @@
 /* ==========================================================================
-   Ops Map (B4). Skeleton rules only.
+   Ops Map (B4): live map layers, side panel, fleet strip, up-next card.
+   Calm: only aircraft glyphs and the terminator move (imperatively); nothing here animates.
+   No backdrop blur over the moving map (expensive on the iPad).
    ========================================================================== */
-.ops-map { position: absolute; inset: 0; }
+.ops-map { position: absolute; inset: 0; overflow: hidden; --op-bg: rgba(12, 19, 34, 0.97); --op-air: #7dd3fc; }
 .ops-map .worldmap { position: absolute; inset: 0; }
-.ops-aircraft g { cursor: pointer; }
-.ops-fleet {
-  position: absolute; left: var(--edge-l); bottom: 16px; width: 280px; padding: 12px; display: flex; flex-direction: column; gap: 6px;
-  background: var(--panel); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+
+/* Calm: the generic map's hub pulse and selection pop are off here. */
+.ops-map .ap .pulse { animation: none; opacity: 0.16; }
+.ops-map .ap .sel-ring { animation: none; }
+
+/* ---------- layers ---------- */
+.ops-night path { fill: rgba(0, 0, 0, 0.28); stroke: none; }
+.ops-arcs path { fill: none; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+
+.ops-pin { cursor: pointer; }
+.ops-pin .hit, .ops-ac .hit { fill: transparent; stroke: none; }
+.ops-pin .dia { fill: var(--warn); stroke: rgba(5, 9, 18, 0.9); stroke-width: 1.5; }
+.ops-pin .ring { fill: none; stroke: var(--warn); stroke-width: 1.5; stroke-opacity: 0.85; }
+.ops-pin .sel-ring, .ops-ac .sel-ring { fill: rgba(255, 255, 255, 0.08); stroke: #fff; stroke-width: 1.5; }
+.ops-pin .count { fill: #fde68a; font: 600 11px var(--font-mono); paint-order: stroke; stroke: rgba(5, 9, 18, 0.9); stroke-width: 3px; stroke-linejoin: round; }
+
+.ops-ac { cursor: pointer; }
+.ops-ac .sel-ring, .ops-ac .aog-ring, .ops-ac .hangar, .ops-ac .badge, .ops-ac .reg { display: none; }
+.ops-ac.sel .sel-ring { display: block; }
+.ops-ac .aog-ring { fill: rgba(248, 113, 113, 0.14); stroke: var(--bad); stroke-width: 2; }
+.ops-ac .hangar { fill: rgba(251, 191, 36, 0.12); stroke: rgba(251, 191, 36, 0.7); stroke-width: 1.2; stroke-linejoin: round; }
+.ops-ac .badge circle { stroke: rgba(5, 9, 18, 0.9); stroke-width: 1.5; }
+.ops-ac .badge path { fill: none; stroke: #0b1222; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+.ops-ac .badge.maint circle { fill: var(--warn); }
+.ops-ac .badge.aog circle { fill: var(--bad); }
+.ops-ac .badge.aog path { stroke-width: 2.2; }
+.ops-ac[data-phase='maintenance'] .hangar, .ops-ac[data-phase='maintenance'] .badge.maint { display: block; }
+.ops-ac[data-phase='maintenance'] .glyph { opacity: 0.6; }
+.ops-ac[data-phase='aog'] .aog-ring, .ops-ac[data-phase='aog'] .badge.aog { display: block; }
+.ops-ac[data-phase='delivering'] { opacity: 0.4; }
+.ops-ac .reg {
+  fill: #e6eeff; font: 600 11px var(--font-mono); text-anchor: middle; pointer-events: none;
+  paint-order: stroke; stroke: rgba(5, 9, 18, 0.9); stroke-width: 3px; stroke-linejoin: round;
 }
-.ops-fleet-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 10px; border: none; background: none; text-align: left; min-height: var(--tap); }
-.ops-fleet-row.on, .ops-fleet-row:active { background: var(--panel-hover); }
-.ops-fleet-art { width: 84px; flex-shrink: 0; }
-.ops-fleet-art svg { width: 100%; height: auto; display: block; }
+.ops-aircraft.labels .ops-ac .reg, .ops-ac.sel .reg { display: block; }
+.ops-aircraft.labels .ops-ac.crowd:not(.sel) .reg { display: none; }
+.touch .ops-ac .reg { font-size: 12px; }
+
+/* ---------- shared bits ---------- */
+.op-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--text-3); }
+.op-dot.good { background: var(--good); }
+.op-dot.warn { background: var(--warn); }
+.op-dot.bad { background: var(--bad); }
+.op-dot.air { background: var(--op-air); }
+.ops-map .tone-good { color: var(--good); }
+.ops-map .tone-warn, .ops-map .warn-t { color: var(--warn); }
+.ops-map .tone-bad, .ops-map .bad-t { color: var(--bad); }
+.ops-map .tone-air { color: var(--op-air); }
+.ops-map .chip .op-dot { margin-right: 6px; }
+.ops-map .bar > span { transition: none; }
+
+/* ---------- side panel (right, 360 px) ---------- */
+.ops-panel {
+  position: absolute; top: 12px; right: var(--edge-r); bottom: 12px; width: 360px; z-index: 6;
+  display: flex; flex-direction: column; overflow: hidden; background: var(--op-bg); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+}
+.op-head { display: flex; align-items: flex-start; gap: 8px; padding: 14px 10px 8px 18px; flex-shrink: 0; }
+.op-head .col { gap: 2px; flex: 1; }
+.op-head h2 { font-size: 20px; margin: 0; line-height: 1.25; }
+.op-close { width: var(--tap); height: var(--tap); flex-shrink: 0; }
+.op-close svg { width: 20px; height: 20px; }
+.op-body { flex: 1; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding: 0 18px 18px; display: flex; flex-direction: column; gap: 14px; }
+.op-art { height: 76px; display: flex; align-items: center; justify-content: center; }
+.op-art svg { max-width: 100%; max-height: 100%; }
+.op-chips { gap: 6px; }
+.op-sec { display: flex; flex-direction: column; gap: 6px; }
+.op-sec-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 18px; }
+.op-sec-h .op-dot { margin-right: 6px; vertical-align: 0; }
+.op-big { font-size: 17px; }
+.op-tight { gap: 6px; }
+.op-gap { margin-top: 2px; }
+.op-kv { display: flex; flex-direction: column; }
+.op-kv > div { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.op-kv > div:last-child { border-bottom: none; }
+.op-kv span { color: var(--text-2); flex-shrink: 0; }
+.op-kv b { font-weight: 600; text-align: right; min-width: 0; }
+.op-note { display: flex; gap: 10px; align-items: flex-start; font-size: 13.5px; color: var(--text-2); padding: 10px 12px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--border); }
+.op-note svg { width: 18px; height: 18px; flex-shrink: 0; margin-top: 1px; }
+.op-note.warn { border-color: rgba(251, 191, 36, 0.35); color: #fde68a; }
+.op-note.bad { border-color: rgba(248, 113, 113, 0.4); color: #fecaca; }
+.op-crew { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; }
+.op-crew-row { display: flex; align-items: center; gap: 8px; font-size: 13px; min-width: 0; }
+.op-crew-row .role { font: 600 10.5px var(--font-mono); color: var(--text-3); width: 28px; flex-shrink: 0; }
+.op-leg, .op-row {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: var(--tap); padding: 6px 10px; text-align: left;
+  border-radius: 12px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); font-size: 13.5px;
+}
+.op-leg:disabled { opacity: 1; cursor: default; }
+.op-row.static { cursor: default; }
+.op-row .ellipsis { flex: 1; min-width: 0; }
+.op-leg-k { width: 4px; align-self: stretch; border-radius: 2px; flex-shrink: 0; }
+.op-dia { width: 10px; height: 10px; background: var(--warn); transform: rotate(45deg); flex-shrink: 0; border-radius: 1px; }
+.op-dia.urgent { box-shadow: 0 0 0 2px var(--op-bg), 0 0 0 3.5px var(--warn); }
+.op-actions { display: flex; gap: 8px; margin-top: 2px; }
+.op-actions .btn { flex: 1; gap: 8px; }
+.op-actions .btn svg { width: 16px; height: 16px; }
+@media (hover: hover) { .op-row:not(.static):hover, .op-leg:not(:disabled):hover { background: var(--panel-hover); } }
+.touch .op-row:not(.static):active, .touch .op-leg:not(:disabled):active { background: var(--panel-hover); }
+
+/* ---------- fleet strip (bottom left, one scrolling row) ---------- */
+.ops-strip {
+  position: absolute; left: var(--edge-l); right: calc(var(--edge-r) + 60px); bottom: 12px; z-index: 5;
+  display: flex; gap: 8px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch; pointer-events: none;
+}
+.ops-strip::-webkit-scrollbar { display: none; }
+.ops-map.panel-open .ops-strip { right: calc(var(--edge-r) + 360px + 72px); }
+.ops-chip {
+  pointer-events: auto; display: flex; align-items: center; gap: 9px; flex-shrink: 0; min-height: 48px; padding: 5px 14px 5px 12px; text-align: left;
+  border-radius: 14px; border: 1px solid var(--border); background: var(--op-bg); color: var(--text); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+}
+.ops-chip.on { border-color: rgba(255, 255, 255, 0.55); }
+.ops-chip-t { display: flex; flex-direction: column; line-height: 1.25; }
+.ops-chip-t b { font-size: 13px; }
+.ops-chip-t .small { font-size: 11.5px; white-space: nowrap; }
+@media (hover: hover) { .ops-chip:hover { background: rgba(24, 34, 56, 0.96); } }
+.touch .ops-chip:active { background: rgba(24, 34, 56, 0.96); }
+
+/* ---------- up next (top left) ---------- */
+.ops-next { position: absolute; top: 12px; left: var(--edge-l); z-index: 5; width: 236px; padding: 8px 6px 6px; background: var(--op-bg); display: flex; flex-direction: column; }
+.ops-next .upper { padding: 0 8px 4px; }
+.ops-next-row {
+  display: grid; grid-template-columns: 44px 1fr auto; align-items: center; gap: 8px; min-height: 36px; padding: 0 8px;
+  border: none; background: none; color: var(--text); text-align: left; border-radius: 8px; font-size: 12.5px;
+}
+.touch .ops-next-row { min-height: var(--tap); }
+@media (hover: hover) { .ops-next-row:hover { background: var(--panel-hover); } }
+.touch .ops-next-row:active { background: var(--panel-hover); }
+
+/* ---------- zoom controls clear of the panel ---------- */
+.ops-map .map-zoom { bottom: 12px; }
+.ops-map.panel-open .map-zoom { right: calc(var(--edge-r) + 360px + 12px); }

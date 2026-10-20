@@ -2,7 +2,7 @@
 // pure read APIs and compact saves (DESIGN.md §3.3, §4.1–4.2, §7.2).
 
 import { describe, expect, it } from 'vitest';
-import { contractProgress, feasibilityAll, generateOffer } from '../contracts';
+import { acceptOffer, contractProgress, feasibility, feasibilityAll, generateOffer, productValue } from '../contracts';
 import { crewAvailability, crewWindows, flightCrewStatus, hireQuote, rosterOf, staffing } from '../crew';
 import { demoFlights } from '../dev';
 import { createGame } from '../newGame';
@@ -64,7 +64,7 @@ describe('flight helpers', () => {
     expect(g.flights[fa[1].id].operatedBy).toBe('rival1');
     retimeFlight(g, fa[2], fa[2].std + 30, fa[2].sta + 30);
     expect(takeFlightChanges(g).get(a)).toBeDefined();
-    advanceTo(g, g.flights[fa[1].id].sta + 1);
+    advanceTo(g, g.flights[fa[1].id].sta + 1, new Set());
     expect(g.flights[fa[1].id].status).toBe('done');
   });
 });
@@ -74,11 +74,18 @@ describe('determinism of read APIs', () => {
     const g = newGame();
     demoFlights(g, undefined, 3);
     for (const a of ['seasonBase', 'adhoc', 'repatriation'] as Archetype[]) generateOffer(g, a);
+    // B1: a signed contract so contractProgress has something to read.
+    const first = Object.values(g.offers).find((o) => feasibilityAll(g, o.id)[0]?.level !== 'no');
+    if (first) acceptOffer(g, first.id, [feasibilityAll(g, first.id)[0].aircraftId]);
     advanceTo(g, g.now + 2 * DAY);
     const before = JSON.stringify(g);
     const t = g.now;
     for (let i = 0; i < 100; i++) {
-      for (const o of Object.values(g.offers)) feasibilityAll(g, o.id);
+      for (const o of Object.values(g.offers)) {
+        feasibilityAll(g, o.id);
+        for (const id of Object.keys(g.fleet)) feasibility(g, o.id, id);
+        productValue(o.product, o.estBH, o.start, o.end);
+      }
       for (const c of Object.values(g.contracts)) contractProgress(g, c.id);
       for (const ac of Object.values(g.fleet)) {
         checkStatus(g, ac);

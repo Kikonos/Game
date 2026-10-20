@@ -22,6 +22,8 @@ export const owned = (g: GameState): Aircraft => Object.values(g.fleet).find((a)
 
 /** An offer with fit-blocking extras (layout, family) removed so the A320s qualify. */
 export function offer(g: GameState, archetype: ContractOffer['archetype'], opts: OfferOpts = {}): ContractOffer {
+  // Generators keep one open request per client and archetype: drop earlier open test offers of this kind.
+  for (const x of Object.values(g.offers)) if (x.archetype === archetype && x.status === 'open') delete g.offers[x.id];
   const o = generateOffer(g, archetype, { wide: false, window: false, ...opts });
   if (!o) throw new Error(`no ${archetype} offer`);
   o.requirements.layout = undefined;
@@ -44,4 +46,16 @@ export function addAircraft(g: GameState, typeId: string): Aircraft {
   ac.maint = { ...ac.maint, fhSinceA: 0, lastA: g.now, fhSinceC: 0, lastC: g.now };
   g.fleet[id] = ac;
   return ac;
+}
+
+/** A charter offer flying exactly these legs (from, to, departure UTC); price and client from a generated ad hoc. */
+export function legsOffer(g: GameState, legs: [string, string, Minute][], minSeats = 150): ContractOffer {
+  const o = offer(g, 'adhoc', { start: legs[0][2] });
+  o.pattern = { kind: 'legs', legs: legs.map(([from, to, dep]) => ({ from, to, dep, flightNo: '', pax: minSeats })) };
+  o.requirements.minSeats = minSeats;
+  o.requirements.noTechStops = undefined;
+  o.start = legs[0][2];
+  o.end = legs[legs.length - 1][2] + 12 * 60;
+  o.expires = Math.min(o.expires, o.start - 60);
+  return o;
 }

@@ -1,27 +1,47 @@
-// Decision dialog (B5): the oldest open decision; time is held until the player picks (setting).
+// Decision dialog (B5): option chips, expiry, the default marked. Opens by itself for the oldest decision
+// while decisions hold time (setting); from the Inbox it opens a given decision and can be closed.
 
 import { AlertTriangle } from 'lucide-react';
 import { fmtDateTime } from '../../engine/core/time';
 import { resolveDecision } from '../../engine/ops';
 import { Modal } from '../components/ui';
+import { spanLabel } from '../screens/screenLogic';
 import { store, useStore } from '../store';
 
-export function DecisionModal() {
+export function DecisionModal({ decisionId }: { decisionId?: string }) {
   const s = useStore();
-  const d = s.game!.decisions[0];
+  const g = s.game!;
+  const d = decisionId ? g.decisions.find((x) => x.id === decisionId) : g.decisions[0];
   if (!d) return null;
+  const closable = !!decisionId;
+  const pick = (id: string) => {
+    store.act((gg) => resolveDecision(gg, d.id, id), { toastOk: false });
+    if (closable) store.closeModal();
+  };
+  const def = d.options.find((o) => o.id === d.defaultOption);
   return (
-    <Modal title={d.title} icon={<AlertTriangle className="warn" />} className="decision">
+    <Modal title={d.title} icon={<AlertTriangle className="warn" />} className="decision sc-decision" onClose={closable ? () => store.closeModal() : undefined}>
       <p className="muted">{d.body}</p>
-      <div className="col gap-8 mt-16">
+      <div className="col gap-8 mt-12">
         {d.options.map((o) => (
-          <button key={o.id} className="decision-opt" onClick={() => store.act((g) => resolveDecision(g, d.id, o.id), { toastOk: false })}>
-            <b>{o.label}</b>
+          <button key={o.id} className={`decision-opt sc-opt ${o.tone ?? ''}`} onClick={() => pick(o.id)}>
+            <span className="row between gap-8">
+              <b>{o.label}</b>
+              {o.id === d.defaultOption && <span className="badge">Default</span>}
+            </span>
             <span className="small muted">{o.desc}</span>
+            {!!o.chips?.length && (
+              <span className="sc-chips">
+                {o.chips.map((c) => <span key={c} className={`chip sc-chip ${/^[−-]/.test(c) || /−/.test(c) ? 'bad' : /^\+/.test(c) ? 'good' : ''}`}>{c}</span>)}
+              </span>
+            )}
           </button>
         ))}
       </div>
-      <div className="tiny dim mt-12">{fmtDateTime(d.t)} UTC · Time is paused until you decide.</div>
+      <div className="small dim mt-12">
+        {fmtDateTime(d.t)} UTC · {def ? `“${def.label}” applies by itself at ${fmtDateTime(d.expires)} UTC (${spanLabel(d.expires - g.now)}).` : ''}
+        {!closable && s.settings.autoPause.decision ? ' Time is paused until you decide.' : ''}
+      </div>
     </Modal>
   );
 }

@@ -20,13 +20,15 @@ interface Ix {
   tickets: Map<string, Flight[]>;
   /** Ticket / ridden flight id → duty id. */
   ticketDuty: Map<string, string>;
+  /** Operated flight ids inside a (crewed or open) duty. */
+  inDuty: Set<string>;
 }
 
 const ixs = new WeakMap<GameState, Ix>();
 
 function raw(g: GameState): Ix {
   let ix = ixs.get(g);
-  if (!ix) ixs.set(g, (ix = { rev: 1, built: 0, pairingsOf: new Map(), byAircraft: new Map(), tickets: new Map(), ticketDuty: new Map() }));
+  if (!ix) ixs.set(g, (ix = { rev: 1, built: 0, pairingsOf: new Map(), byAircraft: new Map(), tickets: new Map(), ticketDuty: new Map(), inDuty: new Set() }));
   return ix;
 }
 
@@ -52,12 +54,15 @@ export function crewIx(g: GameState): Ix {
   ix.byAircraft = new Map();
   ix.tickets = new Map();
   ix.ticketDuty = new Map();
+  ix.inDuty = new Set();
   for (const p of Object.values(g.pairings)) {
     if (p.aircraftId) push(ix.byAircraft, p.aircraftId, p);
     for (const s of p.slots) if (s.crewId) push(ix.pairingsOf, s.crewId, p);
     for (const did of p.dutyIds) {
       const d = g.duties[did];
-      if (d) for (const fid of d.deadheadIds) ix.ticketDuty.set(fid, d.id);
+      if (!d) continue;
+      for (const fid of d.deadheadIds) ix.ticketDuty.set(fid, d.id);
+      for (const fid of d.flightIds) ix.inDuty.add(fid);
     }
   }
   for (const f of Object.values(g.flights)) {
@@ -171,7 +176,7 @@ export function ctxOf(g: GameState, c: CrewMember): TimelineCtx {
 }
 
 export function posSeg(t: TicketPlan, c: CrewMember, fresh = false): Seg {
-  return { kind: 'pos', start: t.std - CHECKIN(), end: t.sta, fdp: 0, maxFdp: 0, block: 0, sectors: 0, aug: false, disruptive: false, rest: posRest(t, t.to === c.base), at: t.to, fresh };
+  return { kind: 'pos', start: t.std - CHECKIN(), end: t.sta, fdp: 0, maxFdp: 0, block: 0, sectors: 0, aug: false, disruptive: false, rest: posRest(t, t.to === c.base), at: t.to, dutyId: undefined, fresh };
 }
 
 /**
@@ -233,7 +238,7 @@ export function segsOf(g: GameState, c: CrewMember, excludePairing?: string): Se
   const ix = crewIx(g);
   const segs: Seg[] = c.log.map((e) => ({
     kind: 'log' as const, start: e.start, end: e.end, fdp: e.fdp, maxFdp: Infinity, block: e.block, sectors: e.sectors, aug: e.augmented,
-    disruptive: e.disruptive, rest: 0, at: '',
+    disruptive: e.disruptive, rest: 0, at: '', dutyId: undefined, fresh: false,
   }));
   const own = new Set<string>();
   for (const p of ix.pairingsOf.get(c.id) ?? []) {
