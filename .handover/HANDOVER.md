@@ -133,3 +133,7 @@ If an agent fails on a limit, its file edits persist (checkpoint them). Resume t
 
 ### 2026-10-20 07:48Z — usage limit warning
 - User: session at 70% usage, limit resets ~11:33Z. Expect both Fable workflows to be killed when the limit hits; work on disk is committed every 30 min (hourly trigger :32 + new checkpoint-only trigger trig_01FKC2Y7QvrmnE3mu4zMHeKH at :02). After the reset the next trigger resumes: wf_83610710-0e6 (acmi-build3.js) and wf_2d49f509-f34 (art-trace.js) with resumeFromRunId — check each journal.jsonl first; agents without a "result" entry re-run from their on-disk partial work.
+
+### 2026-10-20 11:35Z — resumed after the usage limit
+- Both Fable runs were killed by the limit ~07:55Z (build: assess + B3:finance cached; art: nothing cached, traced/types.ts + load.ts exist on disk). Resumed at 11:34Z: build task wsizvrnbu (run wf_83610710-0e6), art task wfnmtmxq1 (run wf_2d49f509-f34). Same run ids — the trigger prompts stay valid.
+- Assess findings to keep in mind for release: seed-2 bot hang in crew/duties.ts:79 settle loop (B2 file — the integrate engine lane owns src/engine/** and must fix it); economic collapse from mass cancellations (planRecovery holdMax, crewProblem chain cancels, crewReadyAt assumes base) — B3 lanes + bot/balance.
