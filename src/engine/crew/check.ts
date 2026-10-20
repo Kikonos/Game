@@ -6,7 +6,7 @@ import { typeOf } from '../core/perf';
 import { fmtDay } from '../core/time';
 import type { CrewMember, Duty, GameState, Legality, Minute, Pairing } from '../core/types';
 import { evalSegs, levelOf, type LegalityIssue, type Seg } from './rules';
-import { crewIx, ctxOf, dutySegs, locAt, planHome, planOut, typeIdOf, type TicketPlan } from './timeline';
+import { aboard, crewIx, ctxOf, dutySegs, locAt, planHome, planOut, typeIdOf, type TicketPlan } from './timeline';
 
 export interface CrewPlan {
   level: Legality;
@@ -15,6 +15,8 @@ export interface CrewPlan {
   home: TicketPlan | null;
   /** The pairing's segs for this crew member (fresh). */
   segs: Seg[];
+  /** Tickets home from the departure airport the crew no longer needs (they stay on for this trip). */
+  drop?: string[];
 }
 
 /** Duties of p still to fly (not released), in report order. */
@@ -55,10 +57,11 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
   let out: TicketPlan | null = null;
   let home: TicketPlan | null = null;
   const issues: LegalityIssue[] = [];
+  const dropped: string[] = [];
   if (existing) {
     for (const fid of [...first.deadheadIds, ...last.deadheadIds]) {
       const f = g.flights[fid];
-      if (!f || f.status === 'cancelled' || !f.crewIds.includes(c.id)) continue;
+      if (!f || f.status === 'cancelled' || !aboard(f, c.id)) continue;
       if (f.sta <= first.report) out = f;
       else if (f.std >= last.release) home = f;
     }
@@ -66,7 +69,7 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
     for (const d of duties) {
       for (const fid of d.deadheadIds) {
         const f = g.flights[fid];
-        if (!f || f.status !== 'scheduled' || f === out || f === home || !f.crewIds.includes(c.id)) continue;
+        if (!f || f.status !== 'scheduled' || f === out || f === home || !aboard(f, c.id)) continue;
         issues.push({ code: 'location', level: 'illegal', text: `Ticket ${f.from}–${f.to} clashes with the trip`, dutyId: d.id });
         break;
       }
@@ -75,6 +78,16 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
     const started = g.flights[first.flightIds[0]]?.status !== 'scheduled';
     if (at !== dep && !started) issues.push({ code: 'location', level: 'illegal', text: `At ${at}, not ${dep}`, dutyId: first.id });
   } else {
+    // Still at the departure airport with a ticket home around this trip: they stay on instead.
+    const drop: string[] = [];
+    for (const x of base) {
+      if (x.kind !== 'pos' || !x.ticketId || x.from !== dep || x.at !== c.base || x.start + BAL.deadheadCheckIn <= g.now) continue;
+      if (x.start >= first.report - 2 * 1440 && x.start < last.release + 1440 && locAt(c, base, x.start) === dep) drop.push(x.ticketId);
+    }
+    if (drop.length) {
+      base = base.filter((x) => !x.ticketId || !drop.includes(x.ticketId));
+      dropped.push(...drop);
+    }
     const loc = locAt(c, base, first.report);
     if (loc !== dep) {
       out = planOut(g, p, first, loc);
@@ -96,7 +109,7 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
     for (const i of ftl) if (i.code === 'recovery' && i.level === 'illegal' && i.dutyId && (g.duties[i.dutyId]?.report ?? Infinity) <= soon) i.level = 'tight';
   }
   issues.push(...ftl);
-  return { level: levelOf(issues), issues, out, home, segs };
+  return { level: levelOf(issues), issues, out, home, segs, drop: dropped.length ? dropped : undefined };
 }
 
 /** Where the crew's next planned work within 3 days after t starts ('' when none or unknown). */

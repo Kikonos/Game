@@ -343,9 +343,17 @@ describe('cashForecast', () => {
     const idle = cashForecast(g, 90);
     const r = invoice(g, { clientId: government(g).id, contractId: null, desc: 'Airlift', amount: 300_000, cat: 'otherRevenue', dueDays: 20 });
     const withInv = cashForecast(g, 90);
-    expect(withInv[19].cash).toBe(idle[19].cash);
-    expect(withInv[20].cash).toBe(idle[20].cash + r.amount);
+    // A slow payer (government) is expected at the midpoint of its usual lateness after the due date.
+    const cl = government(g);
+    const at = 20 + Math.floor((cl.lateDays[0] + cl.lateDays[1]) / 2);
+    expect(withInv[at - 1].cash).toBe(idle[at - 1].cash);
+    expect(withInv[at].cash).toBe(idle[at].cash + r.amount);
     expect(withInv[90].cash).toBe(idle[90].cash + r.amount);
+    // Overdue: never counted as cash arriving today.
+    r.due = g.now - 3 * DAY;
+    const over = cashForecast(g, 90);
+    expect(over[6].cash).toBe(idle[6].cash);
+    expect(over[90].cash).toBe(idle[90].cash + r.amount);
     const c = signBase(g, g.now + 5 * DAY, 60, [leased(g).id]);
     expect(c.product.kind).toBe('wet');
     const withBase = cashForecast(g, 90);

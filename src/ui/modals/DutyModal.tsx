@@ -24,13 +24,13 @@ const LEVEL_TONE = { legal: 'good', tight: 'warn', illegal: 'bad' } as const;
 const LEVEL_LABEL = { legal: 'Legal', tight: 'Tight', illegal: 'Illegal' } as const;
 const PAGE = 30;
 
-/** 'LIS-CDG-LIS' for a duty's operated legs; 'positioning' when it only rides. */
+/** 'LIS–CDG–LIS' for a duty's operated legs; 'deadhead' when the crew only rides on tickets. */
 export function dutyRoute(g: GameState, dutyId: string): string {
   const d = g.duties[dutyId];
   if (!d) return '';
   const fl = d.flightIds.map((id) => g.flights[id]).filter(Boolean);
-  if (!fl.length) return d.deadheadIds.length ? 'positioning' : 'standby';
-  return [fl[0].from, ...fl.map((f) => f.to)].join('-');
+  if (!fl.length) return d.deadheadIds.length ? 'deadhead' : 'standby';
+  return [fl[0].from, ...fl.map((f) => f.to)].join('–');
 }
 
 /** The other trip a candidate flies at the same time (for a swap), if exactly one overlaps this trip. */

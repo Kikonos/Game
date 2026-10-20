@@ -2,6 +2,7 @@
 
 import { ACMI_TYPES, ACMI_TYPES_LIST } from '../../data/acmiTypes';
 import { BAL } from '../core/balance';
+import { distance } from '../core/geo';
 import { planSector } from '../core/perf';
 import { daysInMonth, monthKey, monthStart, toDate } from '../core/time';
 import { hashUnit } from '../core/util';
@@ -24,6 +25,8 @@ export interface PriceInput {
   revDepartures?: number;
   roomNights?: number;
   crewDays?: number;
+  /** Crew positioning tickets expected (slip crews, crews home during long stays), $. */
+  tickets?: number;
   /** Government payer: no deposit, invoiced on completion. */
   government?: boolean;
   /** Wet MGH per aircraft-month override (AOG cover: 8 BH/day). */
@@ -56,7 +59,9 @@ export function rateMultiplier(g: GameState, typeId: string, start: Minute, lead
   const season = mo >= 5 && mo <= 8 ? BAL.premium.peakSummer : (mo >= 10 || mo <= 2) && !festive ? BAL.premium.winter : 0;
   const leadP = lead < 72 * 60 ? BAL.premium.urgent : lead < 7 * DAY ? BAL.premium.short : 0;
   const t = ACMI_TYPES[typeId];
-  const type = typeId === 'a343' || typeId === 'b752' ? BAL.premium.oldType : 0;
+  // Market rates come from a mainstream reference type (referenceType skips unloved ones), so no old-type
+  // discount here; an unloved type earns the same rate but costs less to lease.
+  const type = 0;
   const market = (t?.body === 'wide' ? g.market.wideIndex : g.market.narrowIndex) - 1;
   return { season, lead: leadP, type, market, m: 1 + season + leadP + type + market };
 }
@@ -89,7 +94,8 @@ export function priceProduct(g: GameState, p: PriceInput): Product {
     (p.departures ?? 2) * BAL.airportFees[wide ? 1 : 0] +
     (p.revDepartures ?? 1) * BAL.catering[wide ? 1 : 0] +
     (p.roomNights ?? 0) * hotel +
-    (p.crewDays ?? 0) * perDiem;
+    (p.crewDays ?? 0) * perDiem +
+    (p.tickets ?? 0);
   const price = roundTo((p.estBH * R * m * mult + pass) * BAL.charterMargin, 1000);
   const gov = !!p.government;
   return {
@@ -99,6 +105,18 @@ export function priceProduct(g: GameState, p: PriceInput): Product {
     balanceDaysBefore: gov ? 0 : BAL.charterBalanceDays + Math.floor(hashUnit(`${p.start}:${p.typeId}:${p.archetype}`) * 8),
     fuelEscalation: p.archetype === 'tourSeries',
   };
+}
+
+/**
+ * Crew tickets a charter trip is expected to need: a slip crew when the day's flying from base and back can't fit
+ * one 13 h duty (sent out and brought home), or the set flying home and back out during a stay of 4+ nights.
+ */
+export function tripTickets(home: string, farthest: string, crewN: number, dutyMin: number, spanMin: number): number {
+  const nights = Math.floor(spanMin / DAY + 0.3);
+  if (!(nights === 0 && dutyMin > 13 * 60) && nights < 4) return 0;
+  const km = distance(home, farthest);
+  const [a, b, c] = BAL.deadheadTicket;
+  return crewN * 2 * (km < 1_500 ? a : km < 4_000 ? b : c);
 }
 
 /** Days of [start, end) inside month k (fractional). */
@@ -135,14 +153,22 @@ export const defaultSeats = (typeId: string) => {
   return c.j + c.w + c.y;
 };
 
+/** Old types the market prices off only when nothing mainstream fits (RESEARCH §4.2: unloved types). */
+const UNLOVED = new Set(['a343', 'b752']);
+
 /**
  * Reference type (DESIGN §5.1.3): the cheapest available shortlist type with a cabin preset that meets the seat
  * range (and layout, family) and that can fly every sector (with fuel stops unless noTechStops / noStops).
+ * Unloved old types (A340-300, 757-200) only when no mainstream type fits.
  */
 export function referenceType(req: Pick<Requirements, 'minSeats' | 'maxSeats' | 'layout' | 'families' | 'noTechStops'>, sectors: [string, string][], noStops = false): string | null {
+  return refPass(req, sectors, noStops, false) ?? refPass(req, sectors, noStops, true);
+}
+
+function refPass(req: Pick<Requirements, 'minSeats' | 'maxSeats' | 'layout' | 'families' | 'noTechStops'>, sectors: [string, string][], noStops: boolean, unloved: boolean): string | null {
   let best: { id: string; rate: number } | null = null;
   for (const t of ACMI_TYPES_LIST) {
-    if (!t.available || t.ulr) continue;
+    if (!t.available || t.ulr || UNLOVED.has(t.id) !== unloved) continue;
     if (req.families?.length && !req.families.includes(t.family)) continue;
     const fits = t.cabins.some((c) => {
       const seats = c.j + c.w + c.y;

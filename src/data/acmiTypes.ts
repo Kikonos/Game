@@ -136,7 +136,7 @@ export const ACMI_TYPES_LIST: AcmiType[] = [
     id: 'a343', name: 'Airbus A340-300', short: 'A343', family: 'A330/340', body: 'wide', engines: 4, art: 'a333', tier: 2,
     cabins: [c('30J/270Y', 'two-class', 30, 0, 270), c('335Y', 'all-economy', 0, 0, 335)], maxSeats: 375,
     rangeNm: 6500, cruiseKt: 470, turnMin: 90, cockpitMin: 2, cabinTypical: 10, restClass: 2, etopsMax: 0, minRunwayM: 3000,
-    rateBH: 6000, fuelTBH: 7.0, maintBH: 2500, rentMonth: 110_000, valueUsed: 8_000_000, insuranceMonth: 60_000,
+    rateBH: 6000, fuelTBH: 7.0, maintBH: 2200, rentMonth: 100_000, valueUsed: 8_000_000, insuranceMonth: 60_000,
     aCheckFH: 800, aCheckHours: 18, cCheckMonths: 24, cCheckDays: 21, pilotsPerAircraft: 16, scarcity: 0.5, available: true,
   },
   {

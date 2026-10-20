@@ -9,7 +9,7 @@ import { DAY, fmtDate, fmtDateTime, fmtDay, fmtDuration, toDate } from '../core/
 import type { Aircraft, ApprovalId, ContractOffer, GameState, Minute } from '../core/types';
 import { crewAvailability, type Availability } from '../crew';
 import { A_CHECK_DAYS, anchorsOf, chainForward, CHARTER_SLACK, DEPLOY_LEAD, gapMoves, programmeOf, type Anchor, type ChainLeg, type Programme, type Trip } from './plan';
-import { productValue } from './pricing';
+import { productValue, tripTickets } from './pricing';
 
 export type CheckId = 'seats' | 'layout' | 'family' | 'range' | 'runway' | 'etops' | 'approvals' | 'availability' | 'maintenance' | 'crew' | 'positioning' | 'lease';
 export type CheckLevel = 'ok' | 'warn' | 'no';
@@ -73,12 +73,22 @@ const blockMin = (legs: ChainLeg[]) => legs.reduce((s, l) => s + l.sta - l.std, 
 
 interface TripFit {
   trip: Trip;
+  /** Empty legs charged to this job: into its first departure, and out of it (home, or to the next commitment). */
   posIn: ChainLeg[];
   posOut: ChainLeg[];
+  /** Hops home before / after a long wait that belong to the neighbouring commitments (shown, not charged). */
+  homeBefore: ChainLeg[];
+  homeAfter: ChainLeg[];
   /** Arrival when posIn cannot make the first departure (forward-planned), else null. */
   lateArrival: Minute | null;
   noRoute: boolean;
   blockedNext: Anchor | null;
+}
+
+/** A gap move through home (a long wait spent at base) split into the legs home and the legs on from home. */
+function splitHome(legs: ChainLeg[], home: string): [ChainLeg[], ChainLeg[]] | null {
+  const i = legs.findIndex((l, k) => l.to === home && k < legs.length - 1);
+  return i < 0 ? null : [legs.slice(0, i + 1), legs.slice(i + 1)];
 }
 
 /** Places each trip among the aircraft's commitments: overlaps, positioning in (as late as possible) and out. */
@@ -102,14 +112,14 @@ function fitTrips(g: GameState, ac: Aircraft, o: ContractOffer, prog: Programme)
   const fits: TripFit[] = [];
   nodes.forEach((n, i) => {
     if (!n.tr) return;
-    const fit: TripFit = { trip: n.tr, posIn: [], posOut: [], lateArrival: null, noRoute: false, blockedNext: null };
+    const fit: TripFit = { trip: n.tr, posIn: [], posOut: [], homeBefore: [], homeAfter: [], lateArrival: null, noRoute: false, blockedNext: null };
     let prev: Node | null = null;
     for (let k = i - 1; k >= 0; k--) if (!prev || nodes[k].sta > prev.sta) prev = nodes[k];
     if (prev) {
       const earliest = prev.a?.kind === 'start' ? prev.sta : prev.sta + turn;
       const hop = prev.a?.kind !== 'maint';
       const ch = gapMoves(t.id, prev.to, n.from, earliest, n.std - lead, home, hop) ?? gapMoves(t.id, prev.to, n.from, earliest, n.std - turn, home, hop);
-      if (ch) fit.posIn = ch;
+      if (ch) [fit.homeBefore, fit.posIn] = splitHome(ch, home) ?? [[], ch];
       else {
         const fwd = chainForward(t.id, prev.to, n.from, earliest);
         if (!fwd) fit.noRoute = true;
@@ -122,7 +132,7 @@ function fitTrips(g: GameState, ac: Aircraft, o: ContractOffer, prog: Programme)
     const nx = nodes[i + 1];
     if (nx?.a) {
       const ch = gapMoves(t.id, n.to, nx.from, n.sta + turn, nx.std - turn, home, nx.a.kind !== 'maint');
-      if (ch) fit.posOut = ch;
+      if (ch) [fit.posOut, fit.homeAfter] = splitHome(ch, home) ?? [ch, []];
       else fit.blockedNext = nx.a;
     } else if (!nx && n.to !== home) {
       fit.posOut = chainForward(t.id, n.to, home, n.sta + turn) ?? [];
@@ -161,7 +171,10 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string): 
   if (seats < req.minSeats) add('seats', 'no', `${seats} seats: the client needs at least ${req.minSeats}`);
   else if (req.maxSeats && seats > req.maxSeats) add('seats', 'no', `${seats} seats: the client wants at most ${req.maxSeats}`);
   else add('seats', 'ok', `${seats} seats (client needs ${req.minSeats}+)`);
-  if (req.layout && ac.cabin.layout !== req.layout) add('layout', 'no', `Needs a ${LAYOUT_NAME[req.layout]} cabin; ${ac.reg} is ${ac.cabin.label}`, 'Cabin reconfiguration arrives in a later version.');
+  if (req.layout && ac.cabin.layout !== req.layout) {
+    const name = LAYOUT_NAME[req.layout];
+    add('layout', 'no', `Needs ${/^[aeiou]/i.test(name) ? 'an' : 'a'} ${name} cabin; ${ac.reg} is ${ac.cabin.label}`, 'Cabin reconfiguration arrives in a later version.');
+  }
   else add('layout', 'ok', `Cabin ${ac.cabin.label}`);
   if (req.families?.length && !req.families.includes(t.family)) add('family', 'no', `The client only takes ${req.families.join(' or ')}-family aircraft (crew commonality)`);
   else add('family', 'ok', `${t.name}`);
@@ -249,7 +262,18 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string): 
   else if (conflicts.length) {
     const soft = base && conflicts.every((a) => a.kind === 'maint' && g.maintenance[a.id]?.kind === 'A' && g.maintenance[a.id]?.status === 'planned');
     availNo = !soft;
-    add('availability', soft ? 'warn' : 'no', soft ? `${describe(g, conflicts[0])} falls inside: those waves are skipped` : `Busy: ${describe(g, conflicts[0])}`, conflicts.length > 1 ? `Also ${conflicts.slice(1, 4).map((a) => describe(g, a)).join('; ')}` : undefined);
+    // One line per contract (its first to last overlapping flight) or check, then "and N more".
+    const groups: Anchor[] = [];
+    for (const a of conflicts) {
+      const k = a.kind === 'maint' ? `m:${a.id}` : a.contractId ? `c:${a.contractId}` : `f:${a.id}`;
+      const gr = groups.find((x) => (x.kind === 'maint' ? `m:${x.id}` : x.contractId ? `c:${x.contractId}` : `f:${x.id}`) === k);
+      if (gr) {
+        gr.std = Math.min(gr.std, a.std);
+        gr.sta = Math.max(gr.sta, a.sta);
+      } else groups.push({ ...a });
+    }
+    const more = groups.length > 4 ? ` and ${groups.length - 4} more` : '';
+    add('availability', soft ? 'warn' : 'no', soft ? `${describe(g, groups[0])} falls inside: those waves are skipped` : `Busy: ${describe(g, groups[0])}`, groups.length > 1 ? `Also ${groups.slice(1, 4).map((a) => describe(g, a)).join('; ')}${more}` : undefined);
   } else {
     const blocked = fits.find((f) => f.blockedNext);
     if (blocked) {
@@ -271,10 +295,16 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string): 
       else add('positioning', 'no', `Can't get there in time: earliest arrival ${fmtDateTime(arr)} UTC, first departure ${fmtDateTime(late.trip.std)} UTC`, late.posIn.length ? `${routeText(late.posIn)} takes ${fmtDuration(chainMin(late.posIn))}.` : undefined);
     } else {
       const pay = wet ? 'billable to the client' : 'priced into the charter';
-      const out = rep.positionOut.length ? `Back ${routeText(rep.positionOut)} after (${fmtDuration(chainMin(rep.positionOut))}).` : `Ends at ${fits[fits.length - 1]?.trip.to ?? home}.`;
+      const lastFit = fits[fits.length - 1];
+      const after = lastFit?.homeAfter ?? [];
+      const out = (rep.positionOut.length ? `Back ${routeText(rep.positionOut)} after (${fmtDuration(chainMin(rep.positionOut))}).` : `Ends at ${lastFit?.trip.to ?? home}.`) +
+        (after.length ? ` Then ${routeText(after)} on ${fmtDay(after[0].std)} for the next job.` : '');
       const extra = fits.length > 1 && fits.slice(1).some((f) => f.posIn.length) ? ` Between trips it flies home empty.` : '';
+      const before = fits[0]?.homeBefore ?? [];
+      const first = before.length ? `Home to ${home} ${fmtDay(before[0].std)} after its last job, then ` : '';
       if (pIn.length) {
-        add('positioning', 'ok', `Positioning ${routeText(pIn)} ${fmtDuration(chainMin(pIn))}${pIn.length > 1 ? ` (fuel stop${pIn.length > 2 ? 's' : ''})` : ''}, ${pay}`, `Leaves ${fmtDateTime(pIn[0].std)} UTC, lands ${fmtDateTime(pIn[pIn.length - 1].sta)} UTC. ${out}${extra}`);
+        const stops = pIn.length - 1;
+        add('positioning', 'ok', `Positioning ${routeText(pIn)} ${fmtDuration(chainMin(pIn))}${stops ? ` (fuel stop${stops > 1 ? 's' : ''})` : ''}, ${pay}`, `${first}${first ? 'leaves' : 'Leaves'} ${fmtDateTime(pIn[0].std)} UTC, lands ${fmtDateTime(pIn[pIn.length - 1].sta)} UTC. ${out}${extra}`);
       } else add('positioning', 'ok', `Already at ${fits[0]?.trip.from ?? o.pin} when it starts`, `${out}${extra}`);
     }
   } else add('positioning', availNo ? 'no' : 'warn', availNo ? 'Not planned: the aircraft is busy' : 'Not planned');
@@ -361,7 +391,11 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string): 
     for (const f of fits) {
       const span = (f.posOut.length ? f.posOut[f.posOut.length - 1].sta : f.trip.sta) - (f.posIn.length ? f.posIn[0].std : f.trip.std);
       cost += crewN * perDiem * Math.max(1, Math.ceil(span / DAY));
-      if (!wet) cost += crewN * hotel * Math.floor(span / DAY + 0.3);
+      if (!wet) {
+        cost += crewN * hotel * Math.floor(span / DAY + 0.3);
+        const far = f.trip.legs.reduce((m, l) => (distanceNm(home, l.to) > distanceNm(home, m) ? l.to : m), f.trip.from);
+        cost += tripTickets(home, far, crewN, span + 90, span);
+      }
     }
   }
   if (!wet) {

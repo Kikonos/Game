@@ -4,10 +4,10 @@
 
 import { BAL } from '../core/balance';
 import { flightsOf, nextId } from '../core/entities';
-import { complement, reportMinutes, typeOf } from '../core/perf';
+import { complement, isPilot, reportMinutes, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { DAY, dayStart, yearOf } from '../core/time';
-import type { Contract, Deployment, Duty, Flight, GameState, Legality, Minute, Pairing, Role } from '../core/types';
+import type { Contract, CrewMember, Deployment, Duty, Flight, GameState, Legality, Minute, Pairing, Role } from '../core/types';
 import { evalSegs, isDisruptive, LIMITS, localMin, longestWorkBlock, maxFdp, minRest, offsetAt, referenceTime, tzDeltaH, worst, type Seg, type TimelineCtx } from './rules';
 import { crewCount, crewIx, dutyBlock, dutyFlights, onBlocks, restClassOf, touchCrew } from './timeline';
 
@@ -90,15 +90,22 @@ export function pairingRoles(g: GameState, p: Pairing): Role[] {
   const typeId = ac?.typeId ?? 'a320ceo';
   let augment: 0 | 1 | 2 = 0;
   let fdp = 0;
+  // Cabin crew are needed only when passengers are carried: a trip of empty legs flies with its pilots.
+  let empty = true;
   for (const id of p.dutyIds) {
     const d = g.duties[id];
     if (!d) continue;
     if (d.augment > augment) augment = d.augment;
     if (d.augment > 0) fdp = Math.max(fdp, d.fdp);
+    for (const fid of d.flightIds) {
+      const k = g.flights[fid]?.kind;
+      if (k && k !== 'positioning' && k !== 'ferry') empty = false;
+    }
   }
   const c: Contract | undefined = p.contractId ? g.contracts[p.contractId] : undefined;
   const extra = g.company.policies.extraCabin + (c?.requirements.extraCabin ?? 0);
-  return complement(typeId, ac?.cabin.total ?? 180, { augment, extraCabin: extra, fdp }).sort((a, b) => ROLE_ORDER.indexOf(a) - ROLE_ORDER.indexOf(b));
+  const roles = complement(typeId, ac?.cabin.total ?? 180, { augment, extraCabin: extra, fdp }).filter((r) => !empty || isPilot(r));
+  return roles.sort((a, b) => ROLE_ORDER.indexOf(a) - ROLE_ORDER.indexOf(b));
 }
 
 /**
@@ -292,6 +299,7 @@ export function planAircraft(g: GameState, acId: string, from: Minute): void {
     deletePairing(g, p);
   }
   touchCrew(g);
+  absorbTrailing(g, acId, from);
   const inDuty = new Set<string>();
   for (const p of crewIx(g).byAircraft.get(acId) ?? []) for (const did of p.dutyIds) for (const fid of g.duties[did]?.flightIds ?? []) inDuty.add(fid);
 
@@ -375,6 +383,62 @@ export function planAircraft(g: GameState, acId: string, from: Minute): void {
   trips.sort((a, b) => a.report - b.report);
   buildTrips(g, acId, trips);
   touchCrew(g);
+}
+
+/**
+ * Empty legs planned (or re-planned) right after a crewed duty, from where it ends (the positioning home after a
+ * job): the duty's own crew fly them when the FDP and their timelines allow, instead of a fresh crew positioned in
+ * while they ride home on tickets. Their tickets home are re-planned (retickHook).
+ */
+function absorbTrailing(g: GameState, acId: string, from: Minute): void {
+  const ix = crewIx(g);
+  const fl = flightsOf(g, acId).filter((f) => f.status === 'scheduled' && f.aircraftId === acId && f.std >= from && !ix.inDuty.has(f.id));
+  if (!fl.length) return;
+  for (const p of [...(ix.byAircraft.get(acId) ?? [])]) {
+    if (crewCount(p) === 0 || p.status === 'done' || p.status === 'broken') continue;
+    const open = p.dutyIds.map((id) => g.duties[id]).filter((d): d is Duty => !!d && !d.done).sort((a, b) => a.report - b.report);
+    const d = open[open.length - 1];
+    const lastF = d && g.flights[d.flightIds[d.flightIds.length - 1]];
+    if (!d || !lastF || lastF.status === 'cancelled') continue;
+    const add: Flight[] = [];
+    let at = d.restAt;
+    let t = onBlocks(lastF);
+    for (const f of fl) {
+      if (f.std < t) continue;
+      if (f.from !== at || f.std - t > 3 * 60 || (f.kind !== 'positioning' && f.kind !== 'ferry')) break;
+      add.push(f);
+      at = f.to;
+      t = f.sta;
+    }
+    if (!add.length) continue;
+    const before = [...d.flightIds];
+    d.flightIds = [...before, ...add.map((f) => f.id)];
+    syncDuty(g, d, p);
+    touchCrew(g);
+    let ok = d.legality !== 'illegal';
+    for (const s of p.slots) {
+      const c = s.crewId ? g.crew[s.crewId] : undefined;
+      if (!ok || !c) continue;
+      if (crewTrailOkHook && !crewTrailOkHook(g, p, c)) ok = false;
+    }
+    if (!ok) {
+      d.flightIds = before;
+      syncDuty(g, d, p);
+      touchCrew(g);
+      continue;
+    }
+    for (const f of add) f.dutyId = d.id;
+    refreshPairing(g, p);
+    queueDuty(g, d);
+    retickHook(g, p);
+    touchCrew(g);
+  }
+}
+
+/** Hook (roster.ts): can crew member c fly pairing p as it now stands (its tickets home will be re-planned)? */
+let crewTrailOkHook: ((g: GameState, p: Pairing, c: CrewMember) => boolean) | null = null;
+export function setCrewTrailOkHook(f: (g: GameState, p: Pairing, c: CrewMember) => boolean): void {
+  crewTrailOkHook = f;
 }
 
 /** Trips: from a duty until one releases at home base, a > 3-day gap, or 6 duty days (then 2 days off). */

@@ -45,7 +45,7 @@ function makeOffer(g: GameState, t: AcmiType, lease = false): AircraftOffer {
     id: nextId(g, 'mo'), typeId: t.id, kind: buy ? 'buy' : 'dryLeaseIn', lessor: buy ? `${pick(g, LESSORS)} (used sale)` : pick(g, LESSORS),
     builtYear: built, cabin: cabinOf(t), rentPerMonth: buy ? 0 : rent, reservesPerFH: buy ? 0 : Math.round((t.maintBH * range(g, 0.38, 0.46)) / 10) * 10,
     leaseMonths: buy ? 0 : int(g, BAL.leaseMonths[0] / 6, BAL.leaseMonths[1] / 6) * 6, price, deposit: buy ? price : 2 * rent,
-    leadDays: int(g, BAL.deliveryDays[0], BAL.deliveryDays[1]), expires: g.now + int(g, BAL.marketOfferDays[0], BAL.marketOfferDays[1]) * DAY,
+    leadDays: t.body === 'wide' ? int(g, BAL.deliveryDaysWide[0], BAL.deliveryDaysWide[1]) : int(g, BAL.deliveryDays[0], BAL.deliveryDays[1]), expires: g.now + int(g, BAL.marketOfferDays[0], BAL.marketOfferDays[1]) * DAY,
   };
 }
 
@@ -72,7 +72,8 @@ export function refreshMarket(g: GameState): void {
   const month = monthKey(g.now) - monthKey(g.started);
   const types = eligibleTypes(g);
   for (let i = poisson(g, BAL.marketPerMonth); i > 0; i--) {
-    const t = weightedPick(g, types, (x) => 1 - x.scarcity);
+    // Widebodies are rare early on (DESIGN §5.10), until the guaranteed one has been offered.
+    const t = weightedPick(g, types, (x) => (1 - x.scarcity) * (x.body === 'wide' && !m.gotWide ? BAL.wideMarketWeight : 1));
     if (t) m.aircraft.push(makeOffer(g, t));
   }
   // Guaranteed: a narrowbody dry lease in month 1–2, an old 767-300ER or A330-200 lease in month 4–6.

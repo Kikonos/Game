@@ -156,6 +156,17 @@ describe('timeline legality', () => {
     expect(codes([duty(1, 2, 8, 0, true), duty(1, 20, 8)])).toContain('rest:illegal');
   });
 
+  it('requires each duty to start where the previous duty or ticket left the crew', () => {
+    const away = duty(0, 6, 8, 0, false, { at: 'KBL' });
+    expect(codes([away, duty(1, 6, 8, 0, true, { from: 'KBL' })])).toEqual([]);
+    expect(codes([away, duty(1, 6, 8, 0, true, { from: 'LIS' })])).toEqual(['location:illegal']);
+    // a ticket home in between leaves the crew at LIS
+    const ticket: Seg = { ...duty(1, 2, 3), kind: 'pos', block: 0, sectors: 0, rest: 0, at: 'LIS', from: 'KBL', dutyId: undefined };
+    expect(codes([away, ticket, duty(1, 16, 6, 0, true, { from: 'KBL' })])).toEqual(['location:illegal']);
+    // a fresh duty ending elsewhere than the next planned one starts is flagged too
+    expect(codes([duty(0, 6, 8, 0, true, { at: 'MAD' }), duty(1, 6, 8, 0, false, { from: 'LIS' })])).toEqual(['location:illegal']);
+  });
+
   it('respects the rest after the last logged duty', () => {
     expect(codes([duty(0, 8, 2, 0, true)], ctx({ restUntil: T0 + 9 * 60 }))).toEqual(['rest:illegal']);
   });

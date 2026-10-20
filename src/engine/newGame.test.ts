@@ -61,3 +61,14 @@ describe('new game options', () => {
     }
   });
 });
+
+describe('opening offers', () => {
+  it('are all flyable by the starting fleet (40 seeds at Lisbon)', () => {
+    for (let seed = 1; seed <= 40; seed++) {
+      const g = createGame({ name: 'Test Air', code: 'TA', livery, base: 'LIS', seed });
+      const offers = Object.values(g.offers);
+      expect(offers.length).toBeGreaterThanOrEqual(2);
+      for (const o of offers) expect(feasibilityAll(g, o.id).some((r) => r.level !== 'no'), `seed ${seed}: ${o.title}`).toBe(true);
+    }
+  }, 60_000);
+});

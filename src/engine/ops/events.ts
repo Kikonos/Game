@@ -2,6 +2,7 @@
 // Every resolver is keyed by decision.kind; it applies its effects and the decision is removed.
 
 import { AIRPORT_BY_CODE } from '../../data/airports';
+import { COUNTRIES } from '../../data/countries';
 import type { RatingFamily } from '../../data/acmiTypes';
 import { BAL } from '../core/balance';
 import { addFlight, flightsOf, reassignFlights } from '../core/entities';
@@ -10,11 +11,11 @@ import { pushDecision, pushMessage } from '../core/messages';
 import { blockMinutes, canFill, complement, reportMinutes, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { chance, int, pick, range } from '../core/rng';
-import { DAY, fmtDateTime, fmtDay, fmtDuration, fmtTime, localMinuteOfDay, toDate } from '../core/time';
+import { DAY, fmtDateTime, fmtDay, fmtDuration, fmtTime, localMinuteOfDay, monthKey, toDate } from '../core/time';
 import type { ActionResult, Aircraft, Contract, CrewMember, CrewStatus, Decision, DecisionOption, Flight, GameState, MaintenanceEvent, MessageCat, Minute, Receivable, Role, SimEvent } from '../core/types';
 import { generateOffer, planPositioning } from '../contracts';
 import { applyDiscretion, flightCrewStatus, minRest, replaceCrew, rerosterFrom, rosterOf } from '../crew';
-import { applyHold, cancelCost, cancelLegs, crewBlocked, delayChain, moveFlight, pickRival, planHold, planRecovery, stationOf, subcharterCost, subcharterLegs, windowLegs } from './flights';
+import { applyHold, cancelCost, cancelLegs, crewBlocked, delayChain, moveFlight, pickRival, planHold, planRecovery, rivalFactor, stationOf, subcharterCost, subcharterLegs, windowLegs } from './flights';
 import { setAogEnd } from './maintenance';
 import { bumpReliable, bumpRelation, isRevenue, stats, turnOf, usd } from './util';
 
@@ -137,8 +138,9 @@ export function aogDecision(g: GameState, ac: Aircraft, f: Flight, m: Maintenanc
   const fixC = m.end + 30;
   const teamEnd = g.now + Math.round((m.end - g.now) * BAL.aogTeamFactor);
   const teamCost = Math.round(range(g, BAL.aogTeamCost[0], BAL.aogTeamCost[1]) / 100) * 100;
-  const factor = Math.round(range(g, BAL.subcharterFactor[0], BAL.subcharterFactor[1]) * 100) / 100;
+  const roll = range(g, BAL.subcharterFactor[0], BAL.subcharterFactor[1]);
   const rivalId = pickRival(g, ac.typeId);
+  const factor = Math.round(roll * rivalFactor(g, rivalId) * 100) / 100;
   const holdC = planHold(g, ac, m.at, fixC);
   const holdT = planHold(g, ac, m.at, teamEnd + 30);
   const win = windowLegs(g, ac, m.at, fixC);
@@ -305,8 +307,9 @@ export function crewShortDecision(g: GameState, f: Flight, ac: Aircraft): void {
   const legs = tripLegs(g, ac, f);
   const over = d ? d.fdp - d.maxFdp - (d.discretion ?? 0) : 0;
   const canDisc = !!d && !cs.missing.length && over > 0 && over <= 120 && !d.discretion;
-  const factor = Math.round(range(g, BAL.subcharterFactor[0], BAL.subcharterFactor[1]) * 100) / 100;
+  const roll = range(g, BAL.subcharterFactor[0], BAL.subcharterFactor[1]);
   const rivalId = pickRival(g, ac.typeId);
+  const factor = Math.round(roll * rivalFactor(g, rivalId) * 100) / 100;
   const ready = crewReadyAt(g, f, ac);
   const wait = ready - g.now;
   const station = stationOf(g, f);
@@ -422,7 +425,7 @@ function resolveSick(g: GameState, d: Decision, opt: string): ActionResult {
     }
     case 'subcharter': {
       const rival = pickRival(g, ac.typeId);
-      const factor = range(g, BAL.subcharterFactor[0], BAL.subcharterFactor[1]);
+      const factor = range(g, BAL.subcharterFactor[0], BAL.subcharterFactor[1]) * rivalFactor(g, rival);
       const n = subcharterLegs(g, legs, rival, subcharterCost(g, legs, factor));
       return { ok: true, msg: `${rivalName(g, rival)} flies ${plural(n, 'leg')} for us` };
     }
@@ -440,13 +443,17 @@ export function latePaymentDecision(g: GameState, r: Receivable): void {
   const cl = g.clients[r.clientId];
   const name = cl?.name ?? 'A client';
   const days = Math.floor((g.now - r.due) / DAY);
+  const ct = r.contractId ? g.contracts[r.contractId] : undefined;
+  const live = !!ct && (ct.status === 'active' || ct.status === 'signed');
   ask(g, {
     kind: 'latePayment', title: `${name} is ${days} days late`,
     body: `${usd(r.amount)} for ${r.desc} was due ${fmtDay(r.due)}.`,
     options: [
       { id: 'wait', label: 'Wait', desc: 'They usually pay in the end; until then the cash is not ours.', chips: [`${usd(r.amount)} outstanding`, 'No cost'] },
       { id: 'factor', label: 'Sell the invoice', desc: `A factor pays now, less ${Math.round(BAL.factorDiscount * 100)}%.`, tone: 'warn', chips: [`+${usd(r.amount * (1 - BAL.factorDiscount))} now`, usd(-r.amount * BAL.factorDiscount)] },
-      { id: 'threaten', label: 'Threaten to suspend', desc: 'Usually works within a week, but they will not forget it.', tone: 'bad', chips: ['Relation −20', '70%: paid within 7 days'] },
+      live
+        ? { id: 'threaten', label: 'Threaten to suspend service', desc: 'A letter saying we stop flying for them unless paid; usually works within a week, but they will not forget it.', tone: 'bad', chips: ['Relation −20', '70%: paid within 7 days'] }
+        : { id: 'threaten', label: 'Send a formal demand', desc: "A lawyer's letter; usually works within a week, but they will not forget it.", tone: 'bad', chips: ['Relation −20', '70%: paid within 7 days'] },
     ],
     defaultOption: 'wait', expires: g.now + 2 * DAY, data: { receivableId: r.id, clientId: r.clientId },
   });
@@ -549,14 +556,24 @@ function extraRotation(g: GameState, c: Contract): boolean {
   if (!std) return false;
   const bh = (out + back) / 60;
   const cl = g.clients[c.clientId];
+  // The trade-off: the hours only pay once the month passes its guarantee; they always cost maintenance and
+  // bring the next A-check closer.
+  const k = monthKey(std);
+  let monthMin = c.use[k]?.blockMin ?? 0;
+  for (const f of flightsOf(g, ac.id)) if (f.contractId === c.id && f.status === 'scheduled' && isRevenue(f) && monthKey(f.std) === k) monthMin += f.block;
+  const mgh = c.product.mghPerMonth * c.aircraftIds.length;
+  const paid = Math.max(0, Math.min(bh, monthMin / 60 + bh - mgh));
+  const earn = Math.round(paid * c.product.ratePerBH * c.product.excessRate);
+  const maint = Math.round(typeOf(ac.typeId).maintBH * bh);
+  const aLeft = Math.max(0, Math.round(typeOf(ac.typeId).aCheckFH - ac.maint.fhSinceA));
   ask(g, {
     kind: 'changeRequest', title: `${cl?.name ?? 'Client'} asks for an extra rotation`,
-    body: `${p.base}–${dest}–${p.base} on ${fmtDay(std)}, off blocks ${fmtTime(std, p.base)} local. ${bh.toFixed(1)} BH at ${usd(c.product.ratePerBH)}/BH, paid once the month passes its guaranteed hours.`,
+    body: `${p.base}–${dest}–${p.base} on ${fmtDay(std)}, off blocks ${fmtTime(std, p.base)} local. ${bh.toFixed(1)} BH, paid only above the month's ${Math.round(mgh)} guaranteed hours: ${earn ? `about ${paid.toFixed(1)} BH of it would be` : 'this month is planned below it, so it earns nothing extra'}.`,
     options: [
-      { id: 'accept', label: 'Fly it', desc: `${ac.reg} flies two more legs; crews are re-rostered and the hours count toward its next check.`, tone: 'good', chips: [`+${bh.toFixed(1)} BH`, `+${usd(bh * c.product.ratePerBH)} above MGH`, 'Relation +2'] },
+      { id: 'accept', label: 'Fly it', desc: `${ac.reg} flies two more legs; a crew gets an extra duty and ${ac.reg}'s A-check (${aLeft} FH left) comes ${bh.toFixed(1)} FH sooner.`, tone: earn > maint ? 'good' : 'warn', chips: [earn ? `+${usd(earn)}` : 'No extra revenue', `−${usd(maint)} maintenance`, 'Relation +2'] },
       { id: 'decline', label: 'Decline', desc: 'The aircraft and crews keep their rest; the client notes it.', chips: ['Relation −3'] },
     ],
-    defaultOption: 'accept', expires: g.now + DAY, ref: { kind: 'contract', id: c.id },
+    defaultOption: earn > maint ? 'accept' : 'decline', expires: g.now + DAY, ref: { kind: 'contract', id: c.id },
     data: { contractId: c.id, kind: 'extra', aircraftId: ac.id, dest, std },
   });
   return true;
@@ -570,14 +587,20 @@ function retimeRequest(g: GameState, c: Contract): boolean {
   const min = pick(g, [60, 90, 120, 180]);
   const fee = int(g, 15, 50) * 100;
   const cl = g.clients[c.clientId];
+  // The trade-off: the crew's duty stretches by the same amount (beyond its limit a fresh crew is needed).
+  const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+  const lim = d ? d.maxFdp + (d.discretion ?? 0) : 0;
+  const over = !!d && d.fdp + min > lim;
+  const tight = !!d && !over && d.fdp + min > lim - 30;
+  const duty = d ? (over ? `Crew duty over its limit: a fresh crew` : `Crew duty ${fmtDuration(d.fdp + min)} of ${fmtDuration(lim)}`) : 'Crew re-rostered';
   ask(g, {
     kind: 'changeRequest', title: `${cl?.name ?? 'Client'} wants to move ${f.no}`,
     body: `${f.from}–${f.to} on ${fmtDay(f.std)}: depart ${fmtDuration(min)} later (${fmtTime(f.std + min, f.from)} local) for a late group. They pay a change fee; later legs move with it.`,
     options: [
-      { id: 'accept', label: 'Agree', desc: 'Later legs of the aircraft shift if needed.', tone: 'good', chips: [`+${usd(fee)}`, `+${fmtDuration(min)}`] },
+      { id: 'accept', label: 'Agree', desc: over ? "The crew's duty would run past its limit: the roster swaps in a fresh crew, if one is free." : 'Later legs of the aircraft shift if needed.', tone: over || tight ? 'warn' : 'good', chips: [`+${usd(fee)}`, `+${fmtDuration(min)}`, duty] },
       { id: 'decline', label: 'Decline', desc: 'Keep the schedule; the client notes it.', chips: ['Relation −3'] },
     ],
-    defaultOption: 'accept', expires: g.now + DAY, ref: { kind: 'flight', id: f.id },
+    defaultOption: over ? 'decline' : 'accept', expires: g.now + DAY, ref: { kind: 'flight', id: f.id },
     data: { contractId: c.id, kind: 'retime', flightId: f.id, minutes: min, fee },
   });
   return true;
@@ -638,10 +661,11 @@ export function permitDelayFor(g: GameState, c: Contract): Flight | null {
     .sort((a, b) => a.std - b.std)[0];
   if (!first) return null;
   const h = int(g, 6, 24);
+  const cn = COUNTRIES[AIRPORT_BY_CODE[first.to]?.country ?? '']?.name;
   delayChain(g, first, first.std + h * 60, 'Landing permit pending');
   pushMessage(g, {
     tone: 'warn', cat: 'ops', title: `Permit delay: ${first.no}`,
-    body: `The ${AIRPORT_BY_CODE[first.to]?.country ?? ''} landing permit for ${first.from}–${first.to} is not through yet. ${first.no} moved ${h} h to ${fmtDateTime(first.std)} UTC.`,
+    body: `The ${cn ? `${cn} ` : ''}landing permit for ${first.from}–${first.to} is not through yet. ${first.no} moved ${h} h to ${fmtDateTime(first.std)} UTC.`,
     ref: { kind: 'flight', id: first.id },
   });
   return first;

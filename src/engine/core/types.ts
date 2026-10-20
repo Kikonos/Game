@@ -316,6 +316,8 @@ export interface MonthUse {
   cycles: number;
   /** Cycles on sectors under 90 block minutes (short-cycle fee). */
   shortCycles: number;
+  /** Block minutes of revenue legs we cancelled ourselves (non-performance: off the month's MGH). */
+  lostMin?: number;
 }
 
 export interface Contract {
@@ -351,6 +353,8 @@ export interface Contract {
   invoiced?: number;
   accrued?: number;
   planRevMin?: number;
+  /** Charter revenue block minutes flown or sub-chartered (earned share; absent in old saves). */
+  revMinDone?: number;
   /** B1: revenue legs flown and those on time (≤ 15 min late). */
   legsFlown?: number;
   legsOnTime?: number;
@@ -387,6 +391,8 @@ export interface Flight {
   pax?: number;
   /** Crew on board (operating + augmenting); deadheading crew ride on 'deadhead' flights. */
   crewIds: string[];
+  /** Crew riding our own positioning or ferry leg as passengers (positioning to their next duty). */
+  riders?: string[];
   dutyId: string | null;
   status: FlightStatus;
   /** Actual off/on blocks once known. */

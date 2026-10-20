@@ -215,7 +215,9 @@ describe('pricing', () => {
     expect(rateMultiplier(g, 'a320ceo', fromUTC(2027, 12, 20), 30 * DAY).season).toBe(0);
     expect(rateMultiplier(g, 'a320ceo', jul, 24 * 60).lead).toBe(BAL.premium.urgent);
     expect(rateMultiplier(g, 'a320ceo', jul, 5 * DAY).lead).toBe(BAL.premium.short);
-    expect(rateMultiplier(g, 'a343', jul, 30 * DAY).type).toBe(BAL.premium.oldType);
+    // No old-type discount on market rates: the reference type is mainstream (A340-300 only as a last resort).
+    expect(rateMultiplier(g, 'a343', jul, 30 * DAY).type).toBe(0);
+    expect(referenceType({ minSeats: 260, layout: 'two-class' }, [['LIS', 'GRU']])).not.toBe('a343');
     const base = { typeId: 'a320ceo', estBH: 10, start: jul, end: jul + 5 * DAY, lead: 30 * DAY };
     const wet = priceProduct(g, { ...base, archetype: 'seasonBase' });
     const aog = priceProduct(g, { ...base, archetype: 'aogCover' });

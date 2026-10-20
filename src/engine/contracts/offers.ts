@@ -20,7 +20,7 @@ import { feasibility } from './feasibility';
 import { clientPrefix, clientsOf, isDiaspora, isGovernment, isMarineCrewing, isPilgrim, isSpecialist, ministry } from './clients';
 import * as F from './flavor';
 import { anchorsOf, computeWaves, localToUTC, programmeOf, route, routeMinutes } from './plan';
-import { defaultSeats, isWetArchetype, priceProduct, productValue, referenceType } from './pricing';
+import { defaultSeats, isWetArchetype, priceProduct, productValue, referenceType, tripTickets } from './pricing';
 
 // ---------- process ----------
 
@@ -46,11 +46,19 @@ export function scheduleNextOffer(g: GameState): void {
 
 /** The three hand-shaped opening offers (DESIGN §5.1.1): AOG cover < 24 h, ad hoc in 3–5 days, an April season base. */
 export function openingOffers(g: GameState): void {
-  generateOffer(g, 'aogCover', { wide: false, window: false, start: g.now + int(g, 8, 20) * 60 });
-  generateOffer(g, 'adhoc', { wide: false, window: false, start: g.now + int(g, 3, 5) * DAY + int(g, 0, 12) * 60, variant: 'group' });
+  // Each opener must be flyable by the starting fleet (one that isn't is re-drawn, up to 4 times).
+  const opener = (make: () => ContractOffer | null) => {
+    for (let i = 0; i < 4; i++) {
+      const o = make();
+      if (!o || Object.keys(g.fleet).some((id) => feasibility(g, o.id, id).level !== 'no')) return;
+      delete g.offers[o.id];
+    }
+  };
+  opener(() => generateOffer(g, 'aogCover', { wide: false, window: false, start: g.now + int(g, 8, 20) * 60 }));
+  opener(() => generateOffer(g, 'adhoc', { wide: false, window: false, start: g.now + int(g, 3, 5) * DAY + int(g, 0, 12) * 60, variant: 'group' }));
   const y = toDate(g.now).getUTCFullYear();
   const april = fromUTC(y, 4, int(g, 1, 12));
-  generateOffer(g, 'seasonBase', { wide: false, window: false, start: april > g.now + 14 * DAY ? april : g.now + 30 * DAY });
+  opener(() => generateOffer(g, 'seasonBase', { wide: false, window: false, start: april > g.now + 14 * DAY ? april : g.now + 30 * DAY }));
 }
 
 // ---------- idle windows (gap-fit offers) ----------
@@ -213,7 +221,8 @@ function seasonBase(ctx: Ctx): Draft | null {
   // Gap-fit: shorten the season to the idle window (but never under a month).
   if (!o.days && ctx.window) days = Math.min(days, roomDays(ctx, Math.max(ctx.window.from, g.now + 14 * DAY)) - 2);
   if (days < 30) return null;
-  let s = o.start ?? pickStart(ctx, 14 * DAY, 60 * DAY, (days + 1) * DAY);
+  // Long-haul bases are planned months ahead (time to lease a widebody and hire rated crew).
+  let s = o.start ?? (wide ? pickStart(ctx, 75 * DAY, 150 * DAY, (days + 1) * DAY) : pickStart(ctx, 14 * DAY, 60 * DAY, (days + 1) * DAY));
   if (s === null) return null;
   // Season deals start on the 1st or the 15th when that still fits.
   if (o.start === undefined) {
@@ -255,7 +264,7 @@ function seasonBase(ctx: Ctx): Draft | null {
     blurb:
       `${client.name} wants ${fam} (${seatsText(minSeats, layout)}) based at ${base} from ${fmtDay(toLocal(base, from))} to ${fmtDay(toLocal(base, to - 1))}, ` +
       `flying to ${listCities(dests)}: ${waves.length} wave${waves.length > 1 ? 's' : ''} a day from 06:00 local and a maintenance night every 7 days. ` +
-      `MGH ${mgh} BH a month; they plan about ${targetBH}. Crews live in ${city(base)} hotels at the client's cost.`,
+      `MGH ${mgh} BH a month; they plan about ${targetBH}. ${base === g.company.homeBase ? 'Crews fly from home; no hotels needed.' : `Crews live in ${city(base)} hotels at the client's cost.`}`,
     pattern: { kind: 'base', base, dests, from, to, targetBH, waves, prefix: clientPrefix(client.name), maintEvery: 7 },
     req, start: from, end: to,
     expiresIn: range(g, 4, 8) * DAY,
@@ -403,7 +412,7 @@ function adhoc(ctx: Ctx): Draft | null {
   const broker = chance(g, 0.45) ? pick(g, BROKERS) : undefined;
   const last = legs[legs.length - 1];
   return {
-    archetype: 'adhoc', client, broker, title, blurb: broker ? `Via ${broker}: ${blurb}` : blurb,
+    archetype: 'adhoc', client, broker, title, blurb,
     pattern: { kind: 'legs', legs },
     req: { minSeats: Math.ceil(pax / 10) * 10 - (wide ? 0 : 5), extraCabin: 0, approvals: [] },
     start: legs[0].dep, end: last.dep + 6 * 60,
@@ -653,6 +662,7 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   const crewN = complement(ref, defaultSeats(ref), { extraCabin: d.req.extraCabin }).length;
   let roomNights = 0;
   let crewDays = 0;
+  let tickets = 0;
   for (const t of prog.trips) {
     let span = t.sta - t.std;
     for (const [a, b] of [[home, t.from], [t.to, home]]) {
@@ -665,13 +675,15 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
     const nights = Math.floor(span / DAY + 0.3);
     roomNights += crewN * nights;
     crewDays += crewN * Math.max(1, Math.ceil(span / DAY));
+    const far = t.legs.reduce((m, l) => (distanceNm(home, l.to) > distanceNm(home, m) ? l.to : m), t.from);
+    tickets += tripTickets(home, far, crewN, span + 90, span);
   }
   const revBH = prog.revenueMin / 60;
   const wet = isWetArchetype(d.archetype);
   const gov = isGovernment(d.client);
   const product: Product = priceProduct(g, {
     archetype: d.archetype, typeId: ref, estBH: wet ? revBH : revBH + emptyMin / 60, start: d.start, end: d.end, lead: d.start - g.now,
-    mult: d.mult, departures: deps, revDepartures: revDeps, roomNights, crewDays, government: gov, mghPerMonth: d.mghPerMonth,
+    mult: d.mult, departures: deps, revDepartures: revDeps, roomNights, crewDays, tickets, government: gov, mghPerMonth: d.mghPerMonth,
   });
   const lead = d.start - g.now;
   const urgency = lead < 72 * 60 ? 'urgent' : lead < 7 * DAY ? 'short' : 'normal';

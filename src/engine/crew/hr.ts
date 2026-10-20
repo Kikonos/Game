@@ -1,6 +1,6 @@
 // Hiring, training, staffing, capacity and sickness (B2). DESIGN.md §5.4, §5.1.5 check 11.
 
-import { ACMI_TYPES, type RatingFamily } from '../../data/acmiTypes';
+import { ACMI_TYPES, ACMI_TYPES_LIST, type RatingFamily } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { BAL } from '../core/balance';
 import { nextId } from '../core/entities';
@@ -30,7 +30,8 @@ const ROLE_NAME: Record<Role, string> = { CPT: 'captain', FO: 'first officer', C
 export function hireQuote(g: GameState, r: HireRequest): { cost: number; readyAt: Minute } {
   const n = Math.max(0, Math.floor(r.count));
   const cost = (isPilot(r.role) ? BAL.hireCost.pilot : BAL.hireCost.cabin) * n;
-  const days = Math.round((BAL.hireDays[r.role] ?? 45) * (0.8 + 0.4 * hashUnit(`${r.role}${r.base}${g.now}`)));
+  const wide = ACMI_TYPES_LIST.some((t) => t.family === r.family && t.body === 'wide');
+  const days = Math.round(((wide ? BAL.hireDaysWide : BAL.hireDays)[r.role] ?? 45) * (0.8 + 0.4 * hashUnit(`${r.role}${r.base}${g.now}`)));
   return { cost, readyAt: dayStart(g.now) + days * DAY };
 }
 

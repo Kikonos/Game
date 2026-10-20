@@ -10,6 +10,7 @@ import type { CrewMember, CrewStatus, GameState } from '../../engine/core/types'
 import { crewName, crewWindows, daysOffInMonth, LIMITS, rosterOf, staffing, type CrewWindows } from '../../engine/crew';
 import { Empty, Seg } from '../components/ui';
 import { money } from '../format';
+import { dutyRoute } from '../modals/DutyModal';
 import { store, useGame } from '../store';
 import { Dot, KV, LimitBar, ScreenHead, useRenderCount } from './common';
 import { contractColor } from './palette';
@@ -92,8 +93,7 @@ function Roster({ g, c }: { g: GameState; c: CrewMember }) {
       </div>
       <div className="sc-duty-list">
         {duties.slice(0, 8).map((d) => {
-          const stops = d.flightIds.map((id) => g.flights[id]).filter(Boolean);
-          const route = stops.length ? [stops[0].from, ...stops.map((f) => f.to)].join('-') : d.deadheadIds.length ? 'positioning' : 'standby';
+          const route = dutyRoute(g, d.id);
           return (
             <button key={d.id} className="sc-duty-row small" onClick={() => store.openModal({ kind: 'duty', id: d.id })} disabled={!!d.done}>
               <Dot tone={d.legality === 'legal' ? 'good' : d.legality === 'tight' ? 'warn' : 'bad'} />
@@ -114,7 +114,8 @@ function Roster({ g, c }: { g: GameState; c: CrewMember }) {
 function Detail({ g, c }: { g: GameState; c: CrewMember }) {
   const w = crewWindows(g, c, g.now);
   const k = monthKey(g.now);
-  const off = daysOffInMonth(g, c, monthStart(k), nextMonthStart(g.now));
+  // So far (through today): later days have no roster yet and would all count as off.
+  const off = daysOffInMonth(g, c, monthStart(k), Math.min(nextMonthStart(g.now), dayStart(g.now) + DAY));
   const bar = (label: string, v: number, lim: number) => <LimitBar label={label} value={h(v)} limit={h(lim)} tone={limitTone(v / lim)} />;
   return (
     <div className="card sc-crew-detail">
@@ -134,7 +135,7 @@ function Detail({ g, c }: { g: GameState; c: CrewMember }) {
           ['Hired', fmtDate(c.hired)],
           ['Total hours', Math.round(c.totalHours).toLocaleString('en-US')],
           ['Salary', `${money(c.salary)}/month`],
-          ['Days off this month', String(off)],
+          ['Days off so far this month', String(off)],
         ]} />
         <div className="grid-2 sc-moods">
           <LimitBar label="Morale" value={c.morale} limit={100} unit="" tone={c.morale >= 60 ? 'good' : c.morale >= 40 ? 'warn' : 'bad'} />

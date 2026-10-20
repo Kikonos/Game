@@ -38,8 +38,8 @@ function Block({ b, from, ppm, win0 }: { b: GanttBlock; from: number; ppm: numbe
   const x = (b.start - from) * ppm;
   const w = Math.max(b.kind === 'idle' ? 0 : 3, (b.end - b.start) * ppm);
   const k = b.color !== null ? contractColor(b.color) : undefined;
-  // The short label only when it fits whole (≈ 7.5 px a character plus padding): never 'L…'.
-  const text = w >= 64 ? b.label : b.short && w >= 12 + 7.5 * b.short.length ? b.short : '';
+  // The short label only when it fits whole (12 px padding + ≈ 9 px per bold capital): never 'L…'.
+  const text = w >= 64 ? b.label : b.short && w >= 12 + (b.short.length === 1 ? 7.5 : 9 * b.short.length) ? b.short : '';
   // Long idle gaps that start off-screen: keep the label near the visible left edge (window start + 18 h).
   const shift = b.kind === 'idle' ? Math.min(Math.max(0, (win0 + 18 * 60 - b.start) * ppm), Math.max(0, w - 90)) : 0;
   return (

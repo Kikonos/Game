@@ -3,7 +3,7 @@
 import { BAL } from '../core/balance';
 import { accrue, invoice } from '../core/ledger';
 import { DAY, fmtMonth, monthKey, monthStart } from '../core/time';
-import type { Contract, GameState, LedgerCat, MonthKey, SimEvent } from '../core/types';
+import type { Contract, Flight, GameState, LedgerCat, MonthKey, SimEvent } from '../core/types';
 import { mghInMonth } from './pricing';
 
 export interface BillingLine {
@@ -41,6 +41,7 @@ export function onFlightArrivedContracts(g: GameState, ev: SimEvent): void {
     const net = c.product.price * (1 - (c.broker ? BAL.brokerCommission : 0));
     const share = Math.round((net * f.block) / Math.max(1, c.planRevMin ?? f.block));
     const amount = Math.min(share, Math.round(net - (c.accrued ?? 0)));
+    if (c.revMinDone !== undefined) c.revMinDone += f.block;
     if (amount > 0) {
       accrue(g, 'charterRevenue', amount);
       c.accrued = (c.accrued ?? 0) + amount;
@@ -50,6 +51,16 @@ export function onFlightArrivedContracts(g: GameState, ev: SimEvent): void {
     c.legsFlown = (c.legsFlown ?? 0) + 1;
     if ((f.atd ?? f.std) - f.std <= 15) c.legsOnTime = (c.legsOnTime ?? 0) + 1;
     g.stats.blockMin += block;
+  }
+}
+
+/** Revenue legs we cancelled (not agreed drops): wet contracts lose those hours from the month's MGH. */
+export function noteLostLegs(g: GameState, legs: Flight[]): void {
+  for (const f of legs) {
+    const c = f.contractId ? g.contracts[f.contractId] : undefined;
+    if (!c || c.product.kind !== 'wet' || (f.kind !== 'revenue' && f.kind !== 'techstop')) continue;
+    const u = (c.use[monthKey(f.std)] ??= { blockMin: 0, cycles: 0, shortCycles: 0 });
+    u.lostMin = (u.lostMin ?? 0) + f.block;
   }
 }
 
@@ -68,10 +79,14 @@ export function billContractMonth(_g: GameState, c: Contract, month: MonthKey): 
   const u = c.use[month] ?? { blockMin: 0, cycles: 0, shortCycles: 0 };
   const flown = u.blockMin / 60;
   const end = Math.min(c.end, c.cancelledAt ?? Infinity);
-  const mgh = mghInMonth(p.mghPerMonth, c.start, end, month) * c.aircraftIds.length;
+  const full = mghInMonth(p.mghPerMonth, c.start, end, month) * c.aircraftIds.length;
+  // Hours we failed to fly (our cancellations) are not guaranteed to us.
+  const lost = (u.lostMin ?? 0) / 60;
+  const mgh = full > 0.05 ? Math.max(Math.min(flown, full), full - lost) : full;
   const lines: BillingLine[] = [];
-  if (mgh > 0.05) {
-    lines.push(line(flown < mgh ? `MGH ${mgh.toFixed(1)} BH (flown ${flown.toFixed(1)}) × ${fmtUSD(p.ratePerBH)}` : `${mgh.toFixed(1)} BH × ${fmtUSD(p.ratePerBH)}`, p.ratePerBH * mgh));
+  if (full > 0.05) {
+    const less = lost > 0.05 && mgh < full ? `, less ${lost.toFixed(1)} BH we cancelled` : '';
+    lines.push(line(flown < mgh ? `MGH ${mgh.toFixed(1)} BH (flown ${flown.toFixed(1)}${less}) × ${fmtUSD(p.ratePerBH)}` : `${mgh.toFixed(1)} BH × ${fmtUSD(p.ratePerBH)}`, p.ratePerBH * mgh));
     if (flown > mgh) lines.push(line(`Excess ${(flown - mgh).toFixed(1)} BH × ${Math.round(p.excessRate * 100)}%`, (flown - mgh) * p.excessRate * p.ratePerBH));
   } else if (flown > 0) {
     lines.push(line(`${flown.toFixed(1)} BH × ${fmtUSD(p.ratePerBH)}`, flown * p.ratePerBH));

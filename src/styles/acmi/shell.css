@@ -30,3 +30,10 @@
 :where(.touch) .shell.acmi .btn-sm { height: 44px; }
 :where(.touch) .shell.acmi .btn-icon.btn-sm { width: 44px; }
 :where(.touch) .shell.acmi button.chip { min-height: 44px; padding-inline: 14px; }
+
+/* Desktop (non-touch) text floor: nothing in the shell below 12 px (the touch tier already sizes up). */
+html:not(.touch) .airline-pill .lvl,
+html:not(.touch) .clock .time,
+html:not(.touch) .kpi-label,
+html:not(.touch) .badge { font-size: 12px; }
+html:not(.touch) .bell .pip { font-size: 11px; min-width: 17px; height: 17px; }

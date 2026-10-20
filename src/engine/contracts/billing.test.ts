@@ -5,7 +5,9 @@ import { BAL } from '../core/balance';
 import { flightsOf, retimeFlight, subcharterFlights } from '../core/entities';
 import { DAY, fromUTC, monthKey } from '../core/time';
 import type { Contract, GameState } from '../core/types';
-import { acceptOffer, billContractMonth, cancelContract, cancelPenalty, contractProgress } from '.';
+import { cancelLegs } from '../ops/flights';
+import { acceptOffer, billContractMonth, cancelContract, cancelCost, cancelPenalty, contractProgress } from '.';
+import { noteLostLegs } from './billing';
 import { mghInMonth } from './pricing';
 import { hamBase, leased, legsOffer, newGame, owned, run } from './testkit';
 
@@ -53,6 +55,17 @@ describe('billContractMonth', () => {
     expect(two.aircraftIds).toHaveLength(2);
     two.use[may] = { blockMin: 300 * 60, cycles: 120, shortCycles: 0 };
     expect(sum(billContractMonth(g, two, may))).toBe(Math.round(400 * rate(two)));
+  });
+
+  it('legs we cancelled come off the guarantee (non-performance), never below what was flown', () => {
+    const c = fresh();
+    c.use[may] = { blockMin: 150 * 60, cycles: 60, shortCycles: 0 };
+    const leg = { contractId: c.id, kind: 'revenue', std: fromUTC(2027, 5, 12), block: 30 * 60 } as never;
+    noteLostLegs(g, [leg]);
+    expect(sum(billContractMonth(g, c, may))).toBe(Math.round(170 * rate(c)));
+    const d = fresh();
+    d.use[may] = { blockMin: 150 * 60, cycles: 60, shortCycles: 0, lostMin: 100 * 60 };
+    expect(sum(billContractMonth(g, d, may))).toBe(Math.round(150 * rate(d)));
   });
 
   it('short cycles add the cycle fee; a broker takes 5%', () => {
@@ -141,6 +154,57 @@ describe('charter money', () => {
     expect(c.status).toBe('completed');
     expect(c.accrued).toBe(price);
     expect(recs().reduce((s, r) => s + r.amount, 0)).toBe(price);
+  });
+});
+
+describe('charter non-performance', () => {
+  const sign = (seed: number) => {
+    const g = newGame(seed);
+    const dep = g.now + 25 * DAY;
+    const o = legsOffer(g, [['LIS', 'PMI', dep], ['PMI', 'LIS', dep + 3 * DAY]]);
+    o.broker = undefined;
+    o.payment = { basis: 'onCompletion', dueDays: 7, depositPct: 0.3 };
+    const res = acceptOffer(g, o.id, [owned(g).id]);
+    if (!res.ok) throw new Error(res.error);
+    return { g, c: g.contracts[res.data!.contractId] };
+  };
+
+  it('legs we cancel earn nothing: completion books no revenue, pays compensation, voids the unpaid deposit', () => {
+    const { g, c } = sign(47);
+    const legs = Object.values(g.flights).filter((f) => f.contractId === c.id && f.status === 'scheduled');
+    const comp = cancelLegs(g, legs, 'Test', 0);
+    expect(comp).toBeGreaterThan(0);
+    run(g, c.end + 40 * DAY);
+    expect(c.status).toBe('completed');
+    expect(c.accrued ?? 0).toBe(0);
+    const open = g.finance.receivables.filter((r) => r.contractId === c.id && r.paid === null);
+    expect(open).toHaveLength(0);
+    // A deposit already paid is refunded: nothing stays invoiced.
+    expect(c.invoiced ?? 0).toBe(0);
+    const rev = [...g.finance.history.map((h) => h.lines), g.finance.current.lines].reduce((s, l) => s + (l.charterRevenue ?? 0), 0);
+    expect(rev).toBe(0);
+  });
+
+  it('cancelling with the deposit unpaid costs exactly the penalty shown, and the deposit invoice is voided', () => {
+    const { g, c } = sign(48);
+    const q = cancelCost(g, c.id);
+    expect(q.refund).toBe(0);
+    const cash = g.company.cash;
+    expect(cancelContract(g, c.id).ok).toBe(true);
+    expect(g.company.cash).toBe(cash - q.penalty);
+    expect(g.finance.receivables.filter((r) => r.contractId === c.id && r.paid === null)).toHaveLength(0);
+  });
+
+  it('cancelling after the deposit was paid also refunds it, as quoted', () => {
+    const { g, c } = sign(49);
+    const dep = g.finance.receivables.find((r) => r.contractId === c.id)!;
+    run(g, dep.payAt + 60);
+    expect(dep.paid).not.toBeNull();
+    const q = cancelCost(g, c.id);
+    expect(q.refund).toBe(dep.amount);
+    const cash = g.company.cash;
+    cancelContract(g, c.id);
+    expect(g.company.cash).toBe(cash - q.total);
   });
 });
 

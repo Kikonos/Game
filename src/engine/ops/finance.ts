@@ -158,7 +158,17 @@ export function cashForecast(g: GameState, days: number): { t: number; cash: num
     const d = Math.max(0, Math.floor((t - g.now) / DAY));
     delta.set(d, (delta.get(d) ?? 0) + v);
   };
-  for (const r of g.finance.receivables) if (r.paid === null) add(Math.max(r.due, g.now), r.amount);
+  // Overdue invoices are expected at the client's typical lateness (never today); slow payers' invoices not yet
+  // due likewise.
+  for (const r of g.finance.receivables) {
+    if (r.paid !== null) continue;
+    const cl = g.clients[r.clientId];
+    const mid = cl ? ((cl.lateDays[0] + cl.lateDays[1]) / 2) * DAY : 15 * DAY;
+    let t = r.due;
+    if (r.due < g.now) t = Math.max(r.due + mid, g.now + 7 * DAY);
+    else if (cl && cl.payReliability < 0.6) t = r.due + mid;
+    add(t, r.amount);
+  }
   const salaries = salaryBill(g);
   for (let k = monthKey(g.now); monthStart(k) <= end; k++) {
     const t = monthStart(k + 1);

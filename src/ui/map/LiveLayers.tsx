@@ -1,9 +1,10 @@
-// Ops Map (B4) SVG layers: night terminator and selected-aircraft arcs (under the airports), offer
-// pins and aircraft glyphs (above). Aircraft and the terminator move in one imperative rAF loop
-// (30 fps on touch, no React render per frame); everything else re-renders with the hourly emit.
+// Ops Map (B4) SVG layers: night terminator (WorldMap backdrop: its own composited layer, slid
+// sideways by the sun without a repaint), selected-aircraft arcs (under the airports), offer pins and
+// aircraft glyphs (above). Aircraft and the terminator move in one imperative rAF loop (30 fps on
+// touch, full rate while zooming; no React render per frame); the rest re-renders with the hourly emit.
 
 import { geoInterpolate, geoPath } from 'd3-geo';
-import { memo, useEffect, useMemo, useRef } from 'react';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { aircraftLive, type AircraftLive } from '../../engine/core/query';
 import type { GameState } from '../../engine/core/types';
@@ -11,16 +12,18 @@ import { PLANE_PATH } from '../components/Logo';
 import { liveMinute, store } from '../store';
 import { isTouch } from '../useMedia';
 import { MAP_H, MAP_W } from './mapData';
-import { headingDeg, lerpAngle, parkOffset, type LegArc, type PinGroup, sunPoint, terminator } from './mapLogic';
+import { headingDeg, type LabelBox, lerpAngle, parkOffset, placeLabels, type LegArc, type PinGroup, sunPoint, terminator } from './mapLogic';
 import type { MapLayerCtx } from './WorldMap';
 
 /** Live positions shared with tap picking and focus (map units, as last drawn). */
 export interface LiveShared {
   ac: Map<string, [number, number]>;
   night: SVGPathElement | null;
+  /** Subsolar point the night path was built for (it is then slid by the sun's longitude change). */
+  nightSun: [number, number] | null;
 }
 
-export const newShared = (): LiveShared => ({ ac: new Map(), night: null });
+export const newShared = (): LiveShared => ({ ac: new Map(), night: null, nightSun: null });
 
 /** Frame cost stats for perf checks (console: __contrailMap). */
 const stats = { frames: 0, avgMs: 0, maxMs: 0, reset() { this.frames = 0; this.avgMs = 0; this.maxMs = 0; } };
@@ -36,27 +39,42 @@ const PARK_ANGLE = 0;
 
 // ---------- night ----------
 
-/** Night polygon path (map units) for game minute t on the (cylindrical) ops projection. */
-export function nightPath(proj: MapLayerCtx['proj'], t: number): string {
-  const { pts, northNight } = terminator(sunPoint(t), 3);
+/**
+ * Night polygon path (map units) for a subsolar point on the (cylindrical, unrotated) ops projection,
+ * three world widths wide so it can slide a whole world sideways as the sun moves.
+ */
+export function nightPath(proj: MapLayerCtx['proj'], sun: [number, number]): string {
+  const { pts, northNight } = terminator(sun, 3);
+  const xy = pts.map((p) => proj(p)).filter(Boolean) as [number, number][];
   let d = '';
-  let x0 = 0;
-  let x1 = 0;
-  for (let i = 0; i < pts.length; i++) {
-    const q = proj(pts[i]);
-    if (!q) continue;
-    if (!d) x0 = q[0];
-    x1 = q[0];
-    d += `${d ? 'L' : 'M'}${q[0].toFixed(1)} ${q[1].toFixed(1)}`;
-  }
+  for (const c of [-1, 0, 1]) for (const q of xy) d += `${d ? 'L' : 'M'}${(q[0] + c * MAP_W).toFixed(1)} ${q[1].toFixed(1)}`;
   const edge = northNight ? -MAP_H : MAP_H * 2;
-  return `${d}L${x1.toFixed(1)} ${edge}L${x0.toFixed(1)} ${edge}Z`;
+  return `${d}L${(xy[xy.length - 1][0] + MAP_W).toFixed(1)} ${edge}L${(xy[0][0] - MAP_W).toFixed(1)} ${edge}Z`;
 }
 
-export const NightLayer = memo(function NightLayer({ shared, proj }: { shared: LiveShared; proj: MapLayerCtx['proj'] }) {
+/** Sideways shift (map units) of a night path built for sun0 to where the sun is now. */
+export const nightShift = (sun0: [number, number], sun: [number, number]) => (((((sun[0] - sun0[0] + 180) % 360) + 360) % 360) - 180) / 360 * MAP_W;
+
+/** Rebuilds the night path for game minute t (one repaint of the backdrop layer only). */
+function buildNight(shared: LiveShared, proj: MapLayerCtx['proj'], t: number, shift: MapLayerCtx['backShift']) {
+  if (!shared.night) return;
+  const sun = sunPoint(t);
+  shared.night.setAttribute('d', nightPath(proj, sun));
+  shared.nightSun = sun;
+  shift(0);
+}
+
+/** Night terminator: render it as the WorldMap `backdrop`. */
+export const NightLayer = memo(function NightLayer({ shared, proj, shift }: { shared: LiveShared; proj: MapLayerCtx['proj']; shift: MapLayerCtx['backShift'] }) {
+  const ref = useRef<SVGPathElement>(null);
+  useLayoutEffect(() => {
+    shared.night = ref.current;
+    buildNight(shared, proj, liveMinute(), shift);
+    return () => { shared.night = null; shared.nightSun = null; };
+  }, [shared, proj, shift]);
   return (
     <g className="ops-night" pointerEvents="none">
-      <path ref={(el) => { shared.night = el; }} d={nightPath(proj, liveMinute())} />
+      <path ref={ref} />
     </g>
   );
 });
@@ -91,27 +109,54 @@ export const ArcsLayer = memo(function ArcsLayer({ legs, proj }: { legs: LegArc[
 
 // ---------- offer pins ----------
 
-/** Pin offset in screen px: off the dot at airports we already mark (base, our aircraft). */
-export const pinOffset = (marked: boolean): [number, number] => (marked ? [-15, -15] : [0, 0]);
+/** Pin offset in screen px: left of the dot at airports we already mark (code above, parked aircraft right). */
+export const pinOffset = (marked: boolean): [number, number] => (marked ? [-20, 0] : [0, 0]);
 
+/** Pin code label: font px and baseline below the diamond. */
+const PIN_FS = 10.5;
+const PIN_LABEL_Y = 21;
+
+/**
+ * Offer diamonds; pins away from our own airports carry their airport code (dropped where codes
+ * would overlap). Drawn in screen px inside a `.mk` group that WorldMap counter-scales live.
+ */
 export const PinsLayer = memo(function PinsLayer({ pins, marked, proj, unit, selected }: {
   pins: PinGroup[]; marked: Set<string>; proj: MapLayerCtx['proj']; unit: number; selected?: string;
 }) {
+  const pts = useMemo(() => pins.map((p) => {
+    const a = AIRPORT_BY_CODE[p.code];
+    return { p, q: proj([a.lon, a.lat]), off: pinOffset(marked.has(p.code)), marked: marked.has(p.code) };
+  }), [pins, marked, proj]);
+  const labels = useMemo(() => {
+    const boxes: LabelBox[] = [];
+    for (const { p, q, off, marked: m } of pts) {
+      if (!q) continue;
+      const x = q[0] / unit + off[0];
+      const y = q[1] / unit + off[1];
+      // Diamonds block labels too; marked airports already show their code.
+      boxes.push({ id: `d:${p.code}`, x, y, w: 17, h: 17 });
+      if (!m) boxes.push({ id: p.code, x, y: y + PIN_LABEL_Y - PIN_FS * 0.35, w: p.code.length * PIN_FS * 0.62 + 2, h: PIN_FS });
+    }
+    // Diamonds first so a code never covers another pin.
+    return placeLabels([...boxes.filter((b) => b.id.startsWith('d:')), ...boxes.filter((b) => !b.id.startsWith('d:'))], 1);
+  }, [pts, unit]);
   return (
     <g className="ops-pins">
-      {pins.map((p) => {
-        const a = AIRPORT_BY_CODE[p.code];
-        const q = proj([a.lon, a.lat]);
+      {pts.map(({ p, q, off }) => {
         if (!q) return null;
-        const [ox, oy] = pinOffset(marked.has(p.code));
         const sel = selected !== undefined && (selected === p.code || p.offers.some((o) => o.id === selected));
         return (
-          <g key={p.code} transform={`translate(${q[0]} ${q[1]}) scale(${unit}) translate(${ox} ${oy})`} className={`ops-pin ${p.urgent ? 'urgent' : ''} ${sel ? 'sel' : ''}`}>
-            <circle className="hit" r={HIT_R.touch} />
-            {p.urgent && <circle className="ring" r={13} />}
-            {sel && <circle className="sel-ring" r={16} />}
-            <path className="dia" d="M0 -8.5L8.5 0L0 8.5L-8.5 0Z" />
-            {p.offers.length > 1 && <text className="count" x={11} y={-7}>{p.offers.length}</text>}
+          <g key={p.code} transform={`translate(${q[0]} ${q[1]})`} className={`ops-pin ${p.urgent ? 'urgent' : ''} ${sel ? 'sel' : ''}`}>
+            <g className="mk" transform={`scale(${unit})`}>
+              <g transform={`translate(${off[0]} ${off[1]})`}>
+                <circle className="hit" r={HIT_R.touch} />
+                {p.urgent && <circle className="ring" r={13} />}
+                {sel && <circle className="sel-ring" r={16} />}
+                <path className="dia" d="M0 -8.5L8.5 0L0 8.5L-8.5 0Z" />
+                {p.offers.length > 1 && <text className="count" x={11} y={-7}>{p.offers.length}</text>}
+                {(labels.has(p.code) || sel) && <text className="code" y={PIN_LABEL_Y}>{p.code}</text>}
+              </g>
+            </g>
           </g>
         );
       })}
@@ -158,12 +203,15 @@ export function AircraftLayer({ ctx, g, shared, selected }: { ctx: MapLayerCtx; 
     let last = 0;
     let lastT = NaN;
     let lastK = NaN;
-    let lastSunT = -Infinity;
+    let lastSunT = NaN;
+    let lastSun: [number, number] | null = null;
     let labels: boolean | null = null;
     let settling = true;
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
-      if (now - last < minFrame || document.visibilityState === 'hidden') return;
+      if (document.visibilityState === 'hidden') return;
+      // 30 fps on touch, but every frame while the zoom moves (glyphs are counter-scaled per frame).
+      if (now - last < minFrame && ctxRef.current.liveK() === lastK) return;
       const dt = last ? Math.min(100, now - last) : 16;
       last = now;
       const game = store.game;
@@ -178,10 +226,15 @@ export function AircraftLayer({ ctx, g, shared, selected }: { ctx: MapLayerCtx; 
       lastT = t;
       lastK = k;
       const proj = c.proj;
-      // Terminator: recomputed as time moves (glides; ≤ 30 fps on touch).
-      if (shared.night && Math.abs(t - lastSunT) >= 0.2) {
+      // Terminator: slid sideways on the compositor as the sun moves; rebuilt (one backdrop repaint)
+      // when the slide nears the layer's margin (also after a zoom: the margin is in screen px) or the declination has drifted.
+      if (shared.night) {
+        const sun = t === lastSunT && lastSun ? lastSun : sunPoint(t);
         lastSunT = t;
-        shared.night.setAttribute('d', nightPath(proj, t));
+        lastSun = sun;
+        const s0 = shared.nightSun;
+        if (!s0 || Math.abs(sun[1] - s0[1]) > 0.05) buildNight(shared, proj, t, c.backShift);
+        else if (Math.abs(c.backShift(nightShift(s0, sun))) > c.margin / 2) buildNight(shared, proj, t, c.backShift);
       }
       const u = 1 / (c.px * k); // map units per screen px right now
       const wantLabels = k / (c.fitK || 1) >= 2;

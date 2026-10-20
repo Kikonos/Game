@@ -298,3 +298,7 @@
 .acmi-ng .chip.ng-chip { min-height: 44px; height: 44px; }
 .sc-legal.later { background: rgba(148, 170, 220, 0.05); border-color: var(--border); }
 .sc-seat.open { border-style: dashed; }
+
+/* Bars driven by game time (check, FTL, MGH progress) re-render every game hour: no width tween,
+   which at 4× would keep them creeping (and laying out) all the time. */
+.shell.acmi .bar > span { transition: none; }

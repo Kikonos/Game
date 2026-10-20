@@ -4,6 +4,7 @@
 import { ACMI_TYPES } from '../../data/acmiTypes';
 import { BAL } from '../core/balance';
 import { distance } from '../core/geo';
+import { flightsRev } from '../core/entities';
 import { blockMinutes } from '../core/perf';
 import { yearOf } from '../core/time';
 import type { CrewMember, Duty, Flight, GameState, Minute, Pairing } from '../core/types';
@@ -66,8 +67,8 @@ export function crewIx(g: GameState): Ix {
     }
   }
   for (const f of Object.values(g.flights)) {
-    if (f.kind !== 'deadhead' || f.status !== 'scheduled') continue;
-    for (const id of f.crewIds) push(ix.tickets, id, f);
+    if (f.kind === 'deadhead' ? f.status !== 'scheduled' : !f.riders?.length || (f.status !== 'scheduled' && f.status !== 'enroute')) continue;
+    for (const id of passengers(f)) push(ix.tickets, id, f);
   }
   for (const l of ix.pairingsOf.values()) l.sort((a, b) => a.start - b.start || (a.id < b.id ? -1 : 1));
   for (const l of ix.byAircraft.values()) l.sort((a, b) => a.start - b.start || (a.id < b.id ? -1 : 1));
@@ -76,6 +77,12 @@ export function crewIx(g: GameState): Ix {
 }
 
 // ---------- flights and duties ----------
+
+/** Crew travelling as passengers: a commercial ticket's crew, or the riders on one of our own empty legs. */
+export const passengers = (f: Flight): string[] => (f.kind === 'deadhead' ? f.crewIds : f.riders ?? []);
+export const aboard = (f: Flight, crewId: string): boolean => passengers(f).includes(crewId);
+/** A positioning trip not yet over (commercial tickets stay 'scheduled' until they land). */
+const live = (f: Flight): boolean => f.status === 'scheduled' || (f.kind !== 'deadhead' && f.status === 'enroute');
 
 export const crewCount = (p: Pairing) => p.slots.reduce((n, s) => n + (s.crewId ? 1 : 0), 0);
 
@@ -122,6 +129,8 @@ export interface TicketPlan {
   to: string;
   std: Minute;
   sta: Minute;
+  /** Ride this own empty leg instead of buying a ticket. */
+  rideId?: string;
 }
 
 const CHECKIN = () => BAL.deadheadCheckIn;
@@ -145,6 +154,8 @@ const posRest = (t: TicketPlan, atHome: boolean) => minRest({ dutyMin: t.sta - t
  */
 export function planOut(g: GameState, p: Pairing, d: Duty, from: string): TicketPlan {
   const to = g.flights[d.flightIds[0]]?.from ?? d.restAt;
+  const ride = rideTo(g, from, to, d);
+  if (ride) return ride;
   const blk = dhBlock(from, to);
   const std = hour(d.report - 180 - blk, false);
   const start = std - CHECKIN();
@@ -153,6 +164,30 @@ export function planOut(g: GameState, p: Pairing, d: Duty, from: string): Ticket
   const rest = minRest({ dutyMin: blk + CHECKIN(), atHome: false, augmented: false, tzShift: 0 });
   const std2 = hour(d.report - rest - blk, false);
   return { from, to, std: std2, sta: std2 + blk };
+}
+
+const rides = new WeakMap<GameState, { rev: number; legs: Map<string, Flight[]> }>();
+
+/**
+ * Our own empty leg from → to that lands at least an hour before the duty reports (and not more than two days
+ * before), latest first: riding it is preferred to a ticket (DESIGN §5.3). Not legs of the duty itself.
+ */
+function rideTo(g: GameState, from: string, to: string, d: Duty): TicketPlan | null {
+  let r = rides.get(g);
+  if (!r || r.rev !== flightsRev(g)) {
+    r = { rev: flightsRev(g), legs: new Map() };
+    for (const f of Object.values(g.flights)) {
+      if ((f.kind !== 'positioning' && f.kind !== 'ferry') || f.status !== 'scheduled' || !f.aircraftId) continue;
+      push(r.legs, `${f.from}>${f.to}`, f);
+    }
+    rides.set(g, r);
+  }
+  let best: Flight | null = null;
+  for (const f of r.legs.get(`${from}>${to}`) ?? []) {
+    if (f.status !== 'scheduled' || f.dutyId === d.id || f.std - CHECKIN() < g.now || f.sta > d.report - 60 || f.sta < d.report - 2 * 1440) continue;
+    if (!best || f.sta > best.sta) best = f;
+  }
+  return best ? { from, to, std: best.std, sta: best.sta, rideId: best.id } : null;
 }
 
 /** Ticket home after the last duty: same day when the whole duty stays within 13 h, else after minimum rest. */
@@ -171,12 +206,12 @@ export function planHome(d: Duty, to: string): TicketPlan {
 export function ctxOf(g: GameState, c: CrewMember): TimelineCtx {
   return {
     base: c.base, restUntil: c.restUntil, lastRecovery: c.lastRecovery, blockYear: c.blockYear, blockYearOf: c.blockYearOf ?? yearOf(g.now),
-    freeSince: c.log.length ? undefined : c.restUntil - 12 * 60,
+    freeSince: c.log.length ? undefined : c.restUntil - 12 * 60, loc: c.loc, now: g.now,
   };
 }
 
 export function posSeg(t: TicketPlan, c: CrewMember, fresh = false): Seg {
-  return { kind: 'pos', start: t.std - CHECKIN(), end: t.sta, fdp: 0, maxFdp: 0, block: 0, sectors: 0, aug: false, disruptive: false, rest: posRest(t, t.to === c.base), at: t.to, from: t.from, dutyId: undefined, fresh };
+  return { kind: 'pos', start: t.std - CHECKIN(), end: t.sta, fdp: 0, maxFdp: 0, block: 0, sectors: 0, aug: false, disruptive: false, rest: posRest(t, t.to === c.base), at: t.to, from: t.from, dutyId: undefined, ticketId: (t as Partial<Flight>).id, fresh };
 }
 
 /** A ticket already flown on its own is in the crew log (onFlightArrCrew); only merged ones still shape the duty. */
@@ -229,7 +264,7 @@ function ticketsFor(g: GameState, d: Duty, crewId: string): { out: TicketPlan | 
   let home: TicketPlan | null = null;
   for (const fid of d.deadheadIds) {
     const f = g.flights[fid];
-    if (!f || f.status === 'cancelled' || !f.crewIds.includes(crewId)) continue;
+    if (!f || f.status === 'cancelled' || !aboard(f, crewId)) continue;
     if (f.sta <= d.report) out = f;
     else if (f.std >= d.release) home = f;
   }
@@ -250,14 +285,16 @@ export function segsOf(g: GameState, c: CrewMember, excludePairing?: string): Se
     for (const did of p.dutyIds) {
       const d = g.duties[did];
       if (!d) continue;
+      // A released duty's tickets still to fly are loose positioning (listed below).
+      if (d.done && p.id !== excludePairing) continue;
       for (const fid of d.deadheadIds) own.add(fid);
-      if (d.done || p.id === excludePairing) continue;
+      if (p.id === excludePairing) continue;
       const t = ticketsFor(g, d, c.id);
       for (const s of dutySegs(g, c, p, d, t.out, t.home)) segs.push(s);
     }
   }
   for (const f of ix.tickets.get(c.id) ?? []) {
-    if (f.status !== 'scheduled' || own.has(f.id)) continue;
+    if (!live(f) || own.has(f.id)) continue;
     segs.push(posSeg(f, c));
   }
   return segs.sort(bySeg);

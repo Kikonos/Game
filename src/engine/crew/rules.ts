@@ -180,6 +180,8 @@ export interface Seg {
   /** Where the seg starts (the crew must be there; '' / absent = unknown). */
   from?: string;
   dutyId?: string;
+  /** Ticket (deadhead flight) behind a 'pos' seg. */
+  ticketId?: string;
   /** Being checked (a candidate assignment). */
   fresh?: boolean;
 }
@@ -195,6 +197,9 @@ export interface TimelineCtx {
   blockYearOf: number;
   /** End of the last duty when the log is empty (time off before the first seg counts towards recovery). */
   freeSince?: Minute;
+  /** Where the crew member is now and the time: the first planned work starting later must start there. */
+  loc?: string;
+  now?: Minute;
   /**
    * Planning margin: each planned duty is assumed to release this much late for the extended recovery that
    * follows it, so a routine delay doesn't break a fresh roster (0 when re-checking work in place).
@@ -302,17 +307,16 @@ export function evalSegs(ctx: TimelineCtx, segs: Seg[]): LegalityIssue[] {
         if (s.start < p.end) add('overlap', 'illegal', 'Overlaps another duty', tgt);
         else if (s.start < restEnd) add('rest', 'illegal', `Rest ${hm(s.start - p.end)} < ${hm(restEnd - p.end)}`, tgt);
       } else if (s.start < ctx.restUntil) add('rest', 'illegal', 'Still resting', tgt);
-      // Continuity: work starts where the previous duty or ticket left the crew.
-      if (i > 0) {
-        const p = segs[i - 1];
-        if (p.kind !== 'log' && p.at && s.from && p.at !== s.from) add('location', 'illegal', `At ${p.at}, not ${s.from}`, tgt);
-      }
-      // The next seg must also respect this seg's rest and start where this one ends (flagged on that seg).
+      // Continuity: work starts where the previous duty or ticket left the crew (the first, where they are now).
+      const p = i > 0 ? segs[i - 1] : null;
+      if (p && p.kind !== 'log') {
+        if (p.at && s.from && p.at !== s.from) add('location', 'illegal', `At ${p.at}, not ${s.from}`, tgt);
+      } else if (ctx.loc && s.from && s.from !== ctx.loc && s.start > (ctx.now ?? Infinity)) add('location', 'illegal', `At ${ctx.loc}, not ${s.from}`, tgt);
+      // The next seg must also respect this seg's rest (a later seg's start airport is checked as a target).
       const n = segs[i + 1];
       if (n && s.fresh && !n.fresh) {
         if (n.start < s.end) add('overlap', 'illegal', 'Overlaps another duty', tgt);
         else if (n.start < s.end + s.rest) add('rest', 'illegal', `Rest before next duty ${hm(n.start - s.end)} < ${hm(s.rest)}`, tgt);
-        if (s.at && n.from && n.kind !== 'log' && s.at !== n.from) issues.push({ code: 'location', level: 'illegal', text: `Next duty starts at ${n.from}, not ${s.at}`, dutyId: n.dutyId });
       }
       if (s.kind === 'duty') {
         if (s.fdp > s.maxFdp) add('fdp', 'illegal', `FDP ${hm(s.fdp)} > ${hm(s.maxFdp)}`, tgt);

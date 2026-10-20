@@ -80,7 +80,7 @@ function PolicyForm({ g }: { g: GameState }) {
     <div className="col">
       {row('Auto-roster', 'Crew new and changed flights automatically', <Toggle on={p.autoRoster} onChange={(v) => set({ autoRoster: v })} label="Auto-roster" />)}
       {row('Use tight duties', 'Allow duties within 30 min of a limit', <Toggle on={p.allowTight} onChange={(v) => set({ allowTight: v })} label="Tight duties" />)}
-      {row('Auto deadhead', 'Buy positioning tickets for crew automatically', <Toggle on={p.autoDeadhead} onChange={(v) => set({ autoDeadhead: v })} label="Auto deadhead" />)}
+      {row('Auto deadhead', 'Buy deadhead tickets for crew automatically', <Toggle on={p.autoDeadhead} onChange={(v) => set({ autoDeadhead: v })} label="Auto deadhead" />)}
       {row('Auto A-checks', 'Plan A-checks in free slots (C-checks need you)', <Toggle on={p.autoMaintenance} onChange={(v) => set({ autoMaintenance: v })} label="Auto A-checks" />)}
       {row('Extra cabin crew', 'Above the legal minimum on every flight', <Stepper value={p.extraCabin} min={0} max={2} onChange={(v) => set({ extraCabin: v })} />)}
       {row('Crew hotels', 'Better hotels lift morale and cost more', <Seg<number> value={p.hotelTier} onChange={(v) => set({ hotelTier: v as Policies['hotelTier'] })} options={[3, 4, 5].map((v) => ({ value: v, label: `${v}★` }))} />)}
@@ -123,7 +123,7 @@ export function CompanyScreen() {
   const fleet = Object.values(g.fleet).length;
   return (
     <div className="screen sc-company">
-      <ScreenHead title={c.name} sub={`${c.icao} · callsign ${c.callsign} · home base ${c.homeBase} · CEO ${c.ceo}`} />
+      <ScreenHead title={c.name} sub={`${c.icao} · callsign ${c.callsign} · home base ${c.homeBase}${c.ceo && c.ceo !== 'You' ? ` · CEO ${c.ceo}` : ''}`} />
       <div className="sc-company-cols">
         <div className="col gap-16">
           <Card title="Reputation" icon={<ShieldCheck className="ico" />}><Reputation g={g} /></Card>

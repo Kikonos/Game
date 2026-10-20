@@ -8,7 +8,7 @@ import { demoFlights } from '../../engine/dev';
 import { createGame } from '../../engine/newGame';
 import { advanceTo } from '../../engine/sim';
 import {
-  chipInfo, fitCodes, headingDeg, lerpAngle, mapAirports, offerPins, parkOffset, PARK_GAP, pickNearest, selectedLegs, sunElevation, sunPoint, terminator, upNext,
+  chipInfo, fitCodes, headingDeg, lerpAngle, mapAirports, offerPins, parkOffset, PARK_GAP, pickNearest, placeLabels, selectedLegs, sunElevation, sunPoint, terminator, upNext,
 } from './mapLogic';
 
 const game = (seed = 7) => createGame({ name: 'Atlântica Wings', code: 'AW', livery: { primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' }, base: 'LIS', seed });
@@ -131,11 +131,15 @@ describe('selection data', () => {
   it('builds chips, up-next and the airports to draw', () => {
     const g = game();
     const [a, b] = Object.values(g.fleet);
-    expect(chipInfo(g, a, g.now)).toEqual({ tone: 'idle', line: 'Idle at LIS' });
+    expect(chipInfo(g, a, g.now)).toEqual({ tone: 'idle', line: 'Idle at LIS', short: 'Idle LIS' });
     expect(upNext(g)).toEqual([]);
     demoFlights(g, ['PMI'], 2);
     expect(chipInfo(g, a, g.now).tone).toBe('good');
     expect(upNext(g, 3).length).toBe(3);
+    // Legs already due drop out (the card refreshes between hourly emits).
+    const first = upNext(g, 1)[0];
+    expect(upNext(g, 3, first.std + first.delay).some((f) => f.id === first.id)).toBe(false);
+    expect(chipInfo(g, a, g.now).short.length).toBeLessThanOrEqual(10);
     const aps = mapAirports(g);
     expect(aps.find((x) => x.code === 'LIS')).toMatchObject({ hub: true, label: true });
     expect(aps.find((x) => x.code === 'PMI')).toMatchObject({ hub: false, label: false });
@@ -162,8 +166,24 @@ describe('selection data', () => {
     expect(pins[0].urgent).toBe(true);
     const fit = fitCodes(g);
     expect(fit).toContain('LIS');
-    expect(fit).toContain('KBL');
+    expect(fit).toContain('HAM');
     expect(fit).toContain('CMN');
     expect(fit).not.toContain('JED');
+    // A far pin (KBL, ~5,500 km from LIS) doesn't drag the default view across the world.
+    expect(fit).not.toContain('KBL');
+    // A fresh game at Riga frames its own neighbourhood: the Canaries anchor is dropped.
+    g.company.homeBase = 'RIX';
+    expect(fitCodes(g)).not.toContain('TFS');
+    expect(fitCodes(g)).toContain('DUB');
+  });
+
+  it('places labels greedily in priority order', () => {
+    const kept = placeLabels([
+      { id: 'TFS', x: 0, y: 0, w: 22, h: 12 },
+      { id: 'LPA', x: 12, y: 2, w: 22, h: 12 },
+      { id: 'FUE', x: 40, y: 0, w: 22, h: 12 },
+      { id: 'ACE', x: 44, y: 10, w: 22, h: 12 },
+    ]);
+    expect([...kept]).toEqual(['TFS', 'FUE']);
   });
 });

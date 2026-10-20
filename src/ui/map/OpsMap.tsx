@@ -5,12 +5,12 @@
 
 import { useCallback, useMemo, useRef } from 'react';
 import { AIRPORT_BY_CODE } from '../../data/airports';
-import { DAY, fmtTime } from '../../engine/core/time';
+import { DAY, fmtDay, fmtTime } from '../../engine/core/time';
 import type { GameState, Ref } from '../../engine/core/types';
-import { store, useGame } from '../store';
+import { store, useClock, useGame } from '../store';
 import { AircraftLayer, ArcsLayer, HIT_R, type LiveShared, NightLayer, newShared, PinsLayer, pinOffset } from './LiveLayers';
 import { MapPanel } from './MapPanels';
-import { chipInfo, fitCodes, mapAirports, offerPins, pickNearest, selectedLegs, upNext } from './mapLogic';
+import { chipInfo, fitCodes, fitFresh, mapAirports, offerPins, pickNearest, selectedLegs, upNext } from './mapLogic';
 import { type MapAirport, type MapLayerCtx, type Pad, type View, WorldMap } from './WorldMap';
 
 /** Panel width (px) kept clear when revealing a selection, and the fleet strip's height. */
@@ -19,20 +19,25 @@ const STRIP_H = 70;
 /** View per game, so a tab switch returns to the same framing. */
 const views = new WeakMap<GameState, { view: View | null }>();
 
-function FleetStrip({ g, sel }: { g: GameState; sel?: Ref }) {
+/** Full chips (172 px) up to this many aircraft (fewer with the panel open), compact ones (112 px) beyond. */
+const FULL_CHIPS = 5;
+
+function FleetStrip({ g, sel, panelOpen }: { g: GameState; sel?: Ref; panelOpen: boolean }) {
   const list = Object.values(g.fleet);
   if (!list.length) return null;
+  // Fixed-width chips: the hourly status text never reflows the strip.
+  const compact = list.length > (panelOpen ? FULL_CHIPS - 1 : FULL_CHIPS);
   return (
-    <div className="ops-strip" role="list" aria-label="Fleet">
+    <div className={`ops-strip ${compact ? 'compact' : ''}`} role="list" aria-label="Fleet">
       {list.map((ac) => {
         const ci = chipInfo(g, ac, g.now);
         const on = sel?.kind === 'aircraft' && sel.id === ac.id;
         return (
-          <button key={ac.id} role="listitem" className={`ops-chip ${on ? 'on' : ''}`} onClick={() => store.select(on ? undefined : { kind: 'aircraft', id: ac.id })}>
+          <button key={ac.id} role="listitem" className={`ops-chip ${on ? 'on' : ''}`} title={`${ac.reg} · ${ci.line}`} onClick={() => store.select(on ? undefined : { kind: 'aircraft', id: ac.id })}>
             <span className={`op-dot ${ci.tone}`} aria-hidden />
             <span className="ops-chip-t">
               <b className="mono">{ac.reg}</b>
-              <span className="small muted mono">{ci.line}</span>
+              <span className="small muted mono">{compact ? ci.short : ci.line}</span>
             </span>
           </button>
         );
@@ -44,15 +49,25 @@ function FleetStrip({ g, sel }: { g: GameState; sel?: Ref }) {
 /** Whole UTC days from `now` to `t` (0 = today), shown as +1 after a time on a later day. */
 const dayOff = (now: number, t: number) => Math.floor(t / DAY) - Math.floor(now / DAY);
 
+/** '07:00', '07:00+1' tomorrow, '5 Apr 07:00' further out. */
+function depLabel(now: number, t: number) {
+  const d = dayOff(now, t);
+  if (d > 1) return <>{fmtDay(t)} {fmtTime(t)}</>;
+  return <>{fmtTime(t)}{d === 1 && <sup className="dim">+1</sup>}</>;
+}
+
 function UpNext({ g }: { g: GameState }) {
-  const list = upNext(g, 3);
+  // Steps with the clock label (10–30 game min), so a leg that has gone drops out between hourly emits.
+  const now = useClock();
+  const list = upNext(g, 3, now);
   if (!list.length) return null;
+  const dated = list.some((f) => dayOff(now, f.std + f.delay) > 1);
   return (
-    <div className="ops-next card" aria-label="Up next">
+    <div className={`ops-next card ${dated ? 'dated' : ''}`} aria-label="Up next">
       <div className="upper dim">Up next</div>
       {list.map((f) => (
         <button key={f.id} className="ops-next-row" onClick={() => f.aircraftId && store.select({ kind: 'aircraft', id: f.aircraftId })}>
-          <span className="mono">{fmtTime(f.std + f.delay)}{dayOff(g.now, f.std + f.delay) > 0 && <sup className="dim">+{dayOff(g.now, f.std + f.delay)}</sup>}</span>
+          <span className="mono">{depLabel(now, f.std + f.delay)}</span>
           <b className="mono">{f.aircraftId ? g.fleet[f.aircraftId]?.reg : f.no}</b>
           <span className="mono muted">{f.from}→{f.to}</span>
         </button>
@@ -124,6 +139,7 @@ export function OpsMap() {
 
   const onSelect = useCallback((code: string | null) => store.select(code ? { kind: 'airport', id: code } : undefined), []);
   const fitFn = useCallback(() => fitCodes(refs.current.g), []);
+  const fitCentre = useCallback(() => (fitFresh(refs.current.g) ? refs.current.g.company.homeBase : undefined), []);
   const revealPad = useCallback((): Pad => [12, store.nav.sel ? PANEL_W + 40 : 12, STRIP_H + 8, 12], []);
 
   const focusKey = sel && panelOpen ? `${sel.kind}:${sel.id}` : '';
@@ -152,6 +168,7 @@ export function OpsMap() {
         routes={[]}
         airports={airports}
         fitFn={fitFn}
+        fitCentre={fitCentre}
         fitPad={[24, 24, STRIP_H, 24]}
         animate={false}
         accent={g.company.livery.secondary}
@@ -161,14 +178,10 @@ export function OpsMap() {
         revealPad={revealPad}
         focus={focus}
         memo={memo}
+        backdrop={(ctx) => <NightLayer shared={shared} proj={ctx.proj} shift={ctx.backShift} />}
         underlay={(ctx) => {
           refs.current.proj = ctx.proj;
-          return (
-            <>
-              <NightLayer shared={shared} proj={ctx.proj} />
-              <ArcsLayer legs={legs} proj={ctx.proj} />
-            </>
-          );
+          return <ArcsLayer legs={legs} proj={ctx.proj} />;
         }}
         layers={(ctx) => (
           <>
@@ -178,7 +191,7 @@ export function OpsMap() {
         )}
       />
       <UpNext g={g} />
-      <FleetStrip g={g} sel={sel} />
+      <FleetStrip g={g} sel={sel} panelOpen={panelOpen} />
       <MapPanel g={g} sel={sel} />
     </div>
   );

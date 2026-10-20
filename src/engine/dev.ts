@@ -7,8 +7,8 @@ import { flightsOf } from './core/entities';
 import { nextId } from './core/entities';
 import type { GameState } from './core/types';
 
-/** Out-and-back legs from each aircraft's position, starting in 30 min, for `days` days. */
-export function demoFlights(g: GameState, dests = ['FAO', 'FNC', 'PMI', 'TFS', 'OPO', 'AGP'], days = 3): number {
+/** Out-and-back legs from each aircraft's position, starting in 30 min, for `days` days (ferries by default: no client). */
+export function demoFlights(g: GameState, dests = ['FAO', 'FNC', 'PMI', 'TFS', 'OPO', 'AGP'], days = 3, kind: 'ferry' | 'revenue' = 'ferry'): number {
   let n = 0;
   Object.values(g.fleet).forEach((ac, i) => {
     const last = flightsOf(g, ac.id).at(-1);
@@ -18,7 +18,7 @@ export function demoFlights(g: GameState, dests = ['FAO', 'FNC', 'PMI', 'TFS', '
     for (let d = 0; d < days * 2; d++) {
       const to = d % 2 === 0 ? dests[(i + d) % dests.length] : home;
       const block = blockMinutes(ac.typeId, at, to);
-      addFlight(g, { no: ownFlightNo(g), aircraftId: ac.id, contractId: null, kind: 'ferry', from: at, to, std: t, sta: t + block });
+      addFlight(g, { no: ownFlightNo(g), aircraftId: ac.id, contractId: null, kind, from: at, to, std: t, sta: t + block });
       t += block + 50 + (d % 2 === 1 ? 6 * 60 : 0);
       at = to;
       n++;

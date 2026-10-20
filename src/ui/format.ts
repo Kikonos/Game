@@ -1,17 +1,18 @@
 import { store } from './store';
 
-export function money(v: number, digits = 1): string {
+/** '$2.30M', '$12.4M', '$412K', '$1.2K', '$900' (the engine's usd() style); `digits` fixes the M decimals. */
+export function money(v: number, digits?: number): string {
   const sign = v < 0 ? '−' : '';
   const a = Math.abs(v);
-  if (a >= 1e9) return `${sign}$${(a / 1e9).toFixed(digits + 1)}B`;
-  if (a >= 1e6) return `${sign}$${(a / 1e6).toFixed(digits)}M`;
+  if (a >= 1e9) return `${sign}$${(a / 1e9).toFixed((digits ?? 1) + 1)}B`;
+  if (a >= 1e6) return `${sign}$${(a / 1e6).toFixed(digits ?? (a >= 1e7 ? 1 : 2))}M`;
   if (a >= 1e4) return `${sign}$${Math.round(a / 1e3)}K`;
   if (a >= 1e3) return `${sign}$${(a / 1e3).toFixed(1)}K`;
   return `${sign}$${Math.round(a)}`;
 }
 
 /** Signed money with explicit plus. */
-export function moneyDelta(v: number, digits = 1): string {
+export function moneyDelta(v: number, digits?: number): string {
   return v > 0 ? `+${money(v, digits)}` : money(v, digits);
 }
 

@@ -13,6 +13,7 @@ import { schedule } from '../core/queue';
 import { chance, next, pick, range } from '../core/rng';
 import { DAY, fmtDuration, fmtTime, monthKey } from '../core/time';
 import type { ActionResult, Aircraft, Flight, GameState, MaintenanceEvent, MessageCat, Minute, SimEvent } from '../core/types';
+import { noteLostLegs } from '../contracts/billing';
 import { applyDiscretion, boardCrew, flightCrewStatus, rerosterFrom } from '../crew';
 import { crewReadyAt, crewShortDecision, hasOpenDecision } from './events';
 import { aogChance, isGrounded, missCheck, startAog } from './maintenance';
@@ -364,6 +365,7 @@ export function cancelLegs(g: GameState, legs: Flight[], reason: string, repPerL
   const live = legs.filter((f) => f.status === 'scheduled');
   if (!live.length) return 0;
   const pen = agreed ? 0 : cancelCost(g, live);
+  if (!agreed) noteLostLegs(g, live);
   let rev = 0;
   const empty: string[] = [];
   for (const f of live) {
@@ -399,6 +401,9 @@ export function subcharterCost(g: GameState, legs: Flight[], factor: number): nu
   }
   return Math.round(s);
 }
+
+/** A rival's price level (its priceFactor; 1 when unknown). */
+export const rivalFactor = (g: GameState, rivalId: string): number => g.rivals.find((r) => r.id === rivalId)?.priceFactor ?? 1;
 
 /** Rival for a sub-charter: one flying the same family if possible (picked with the RNG). */
 export function pickRival(g: GameState, typeId: string): string {
@@ -628,7 +633,7 @@ export function subcharterInstead(g: GameState, ac: Aircraft, legs: Flight[], wh
   if (!rev.length) return false;
   const rivalId = pickRival(g, ac.typeId);
   if (!rivalId) return false;
-  const cost = subcharterCost(g, live, range(g, BAL.subcharterFactor[0], BAL.subcharterFactor[1]));
+  const cost = subcharterCost(g, live, range(g, BAL.subcharterFactor[0], BAL.subcharterFactor[1]) * rivalFactor(g, rivalId));
   if (cost >= cancelCost(g, live) + subcharterCost(g, live, 1)) return false;
   const name = g.rivals.find((r) => r.id === rivalId)?.name ?? 'A rival operator';
   subcharterLegs(g, live, rivalId, cost);

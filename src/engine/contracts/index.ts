@@ -9,7 +9,7 @@ import { seedClients, seedRivals } from './clients';
 import { dailyOffers, onOfferExpire, onOfferReply, onOfferSpawn, openingOffers, scheduleNextOffer } from './offers';
 import { extendBaseSchedules, relinkPositioning } from './schedule';
 
-export { acceptOffer, askingPrice, cancelContract, cancelPenalty, contractProgress, counterOffer, declineOffer, leadDays, type ContractProgress } from './accept';
+export { acceptOffer, askingPrice, cancelContract, cancelCost, cancelPenalty, contractProgress, counterOffer, declineOffer, leadDays, type ContractProgress } from './accept';
 export { billContractMonth, type BillingLine } from './billing';
 export { feasibility, feasibilityAll, type CheckId, type CheckLevel, type FeasibilityCheck, type FeasibilityReport, type PositioningLeg } from './feasibility';
 export { fmtPrice, generateOffer, idleWindows, type IdleWindow, type OfferOpts } from './offers';

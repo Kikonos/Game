@@ -8,7 +8,7 @@ import { flag } from '../../data/countries';
 import { acceptOffer, askingPrice, counterOffer, declineOffer, feasibilityAll, leadDays, type FeasibilityReport } from '../../engine/contracts';
 import { flightsRev } from '../../engine/core/entities';
 import { typeOf } from '../../engine/core/perf';
-import { fmtDate, fmtDay, fmtDuration, fmtTime } from '../../engine/core/time';
+import { DAY, fmtDate, fmtDay, fmtDuration, fmtTime } from '../../engine/core/time';
 import type { ContractOffer, GameState } from '../../engine/core/types';
 import { Modal, Stepper } from '../components/ui';
 import { money } from '../format';
@@ -31,22 +31,36 @@ function effectChips(o: ContractOffer): Chip[] {
   return out;
 }
 
+const MONTH_DAYS = 30.44;
+
 function Terms({ g, o }: { g: GameState; o: ContractOffer }) {
   const p = o.product;
   const rows: [string, string][] = [];
+  const lead = leadDays(g, o.start);
+  const pay = o.payment;
+  const days = (o.end - o.start) / DAY;
   if (p.kind === 'wet') {
-    rows.push(['Rate', `${usd(p.ratePerBH)} per block hour`], ['Minimum guarantee', `${p.mghPerMonth} BH / month per aircraft`]);
+    // Jobs shorter than a month: the guarantee for the term, as the blurb and the active card state it.
+    const mgh = days < 28
+      ? `≈ ${Math.round((p.mghPerMonth * days) / MONTH_DAYS)} BH for this job per aircraft (${Math.round(p.mghPerMonth / MONTH_DAYS)} BH a day)`
+      : `${p.mghPerMonth} BH / month per aircraft`;
+    rows.push(['Rate', `${usd(p.ratePerBH)} per block hour`], ['Minimum guarantee', mgh]);
     rows.push(['Above MGH', `${Math.round(p.excessRate * 100)}% of the rate`], ['Short-cycle fee', usd(p.cycleFee)]);
     rows.push(['Positioning', p.positioningBillable ? 'Billable at the rate' : 'At our cost']);
   } else if (p.kind === 'charter') {
-    rows.push(['Price', `${usd(p.price)} all-in`], ['Deposit', `${Math.round(p.depositPct * 100)}% on signing`]);
-    rows.push(['Balance', `${p.balanceDaysBefore} days before each trip`], ['Fuel', p.fuelEscalation ? 'Escalation clause' : 'Our risk']);
+    rows.push(['Price', `${usd(p.price)} all-in`]);
+    // Arrears charters (governments) are invoiced after the job: no deposit, no balance.
+    if (pay.basis !== 'arrears') {
+      if (p.depositPct > 0) rows.push(['Deposit', `${Math.round(p.depositPct * 100)}% on signing`]);
+      const n = p.balanceDaysBefore;
+      rows.push(['Balance', lead > n ? `${n} days before each trip` : days <= n ? 'At signing' : `At signing for trips in the next ${n} days, then ${n} days before each trip`]);
+    }
+    rows.push(['Fuel', p.fuelEscalation ? 'Escalation clause' : 'Our risk']);
   } else rows.push(['Rent', `${usd(p.rentPerMonth)} / month`], ['Reserves', `${usd(p.reservesPerFH)} / FH`]);
-  const lead = leadDays(g, o.start);
   rows.push(['Dates', `${fmtDate(o.start)} – ${fmtDate(o.end)}`], ['Lead time', lead <= 0 ? 'Starts now' : `${lead} days`]);
-  rows.push(['Estimate', `${Math.round(o.estBH)} BH · ${money(o.estValue)}`]);
-  const pay = o.payment;
-  rows.push(['Payment', `${pay.basis === 'advance' ? 'In advance' : pay.basis === 'arrears' ? 'Monthly in arrears' : 'On completion'}, ${pay.dueDays} days`]);
+  rows.push(['Estimate', `Billable ≈ ${Math.round(o.estBH)} BH · ${money(o.estValue)}`]);
+  const arrears = p.kind === 'charter' ? 'Invoiced after the job' : 'Monthly in arrears';
+  rows.push(['Payment', `${pay.basis === 'advance' ? 'In advance' : pay.basis === 'arrears' ? arrears : 'On completion'}, net ${pay.dueDays} days`]);
   rows.push(['If we cancel', o.penalties.cancelScale.map(([d, f]) => `${d} d ${Math.round(f * 100)}%`).join(' · ') || '—']);
   if (o.penalties.perCancelledLeg) rows.push(['Per cancelled leg', usd(o.penalties.perCancelledLeg)]);
   return <KV rows={rows} />;
@@ -74,7 +88,7 @@ function Programme({ o }: { o: ContractOffer }) {
           <span className="dim">{fmtDay(l.dep)}</span>
           <span className="mono">{l.flightNo}</span>
           <span className="mono">{l.from} → {l.to}</span>
-          <span className="num">{fmtTime(l.dep)}Z <span className="dim">({fmtTime(l.dep, l.from)} lt)</span></span>
+          <span className="num">{fmtTime(l.dep)} UTC <span className="dim">({fmtTime(l.dep, l.from)} local)</span></span>
           <span className="dim right">{l.pax ? `${l.pax} pax` : ''}</span>
         </div>
       ))}
@@ -97,7 +111,7 @@ function crewLine(r: FeasibilityReport): { text: string; tone: 'good' | 'warn' |
   return { text: `Short ${list}${r.crew.firstShort ? ` from ${fmtDay(r.crew.firstShort)}` : ''}`, tone: 'warn' };
 }
 
-function AircraftRow({ g, r, on, onPick }: { g: GameState; r: FeasibilityReport; on: boolean; onPick: () => void }) {
+function AircraftRow({ g, r, on, onPick, billBH }: { g: GameState; r: FeasibilityReport; on: boolean; onPick: () => void; billBH: number }) {
   const ac = g.fleet[r.aircraftId];
   if (!ac) return null;
   const crew = crewLine(r);
@@ -126,7 +140,7 @@ function AircraftRow({ g, r, on, onPick }: { g: GameState; r: FeasibilityReport;
             </div>
           ))}
           {r.techStops.length > 0 && <div className="small muted">Fuel stops: {r.techStops.join(', ')}</div>}
-          <div className="small muted">Revenue {money(r.estRevenue)} · costs {money(r.estCost)} · {Math.round(r.estBH)} BH</div>
+          <div className="small muted">Revenue {money(r.estRevenue)} · costs {money(r.estCost)} · {Math.round(r.estBH)} BH flown{r.estBH - billBH > 0.5 ? ` (incl. ${Math.round(r.estBH - billBH)} BH positioning and empty legs)` : ''}</div>
           {Object.entries(r.crew.byRole).some(([, v]) => v && v.short > 0) && (
             <div className="small warn">Hire or move crew: {Object.entries(r.crew.byRole).filter(([, v]) => v && v.short > 0).map(([role, v]) => `${v!.short} × ${ROLE_LABEL[role as keyof typeof ROLE_LABEL].toLowerCase()}`).join(', ')}.</div>
           )}
@@ -215,7 +229,7 @@ export function OfferModal({ offerId }: { offerId: string }) {
           <div className="upper dim">Choose an aircraft</div>
           {!reports.length && <div className="small muted">No aircraft in the fleet.</div>}
           {reports.map((r) => (
-            <AircraftRow key={r.aircraftId} g={g} r={r} on={sel?.aircraftId === r.aircraftId} onPick={() => setPick(r.aircraftId)} />
+            <AircraftRow key={r.aircraftId} g={g} r={r} on={sel?.aircraftId === r.aircraftId} onPick={() => setPick(r.aircraftId)} billBH={o.estBH} />
           ))}
         </div>
       </div>

@@ -79,6 +79,7 @@ export function acceptOffer(g: GameState, offerId: string, aircraftIds: string[]
   closeOffer(g, o, 'accepted');
   const prog = programmeOf(c, g.fleet[ids[0]].typeId);
   c.planRevMin = prog.revenueMin;
+  if (c.product.kind === 'charter') c.revMinDone = 0;
   generateFlights(g, c);
   // Charter money: deposit now, balance per trip 7–14 days before it (DESIGN §5.1.9); governments pay after the job.
   const cp = c.product;
@@ -183,6 +184,45 @@ export function cancelPenalty(g: GameState, contractId: string): number {
   return 0;
 }
 
+/** Charter money invoiced and already paid by the client (unpaid = still open receivables). */
+function charterPaid(g: GameState, c: Contract): number {
+  let open = 0;
+  for (const r of g.finance.receivables) if (r.contractId === c.id && r.paid === null) open += r.amount;
+  return Math.max(0, (c.invoiced ?? 0) - open);
+}
+
+/**
+ * Brings a charter's invoicing to `target`: bills a shortfall; an excess voids open invoices first (newest
+ * first; charter invoices carry no revenue line) and refunds the rest of what was paid. Returns the cash refunded.
+ */
+function settleCharter(g: GameState, c: Contract, target: number, desc: string): number {
+  const inv = c.invoiced ?? 0;
+  if (inv < target) {
+    bill(g, c, desc, target - inv);
+    return 0;
+  }
+  let excess = inv - target;
+  const open = g.finance.receivables.filter((r) => r.contractId === c.id && r.paid === null);
+  for (let i = open.length - 1; i >= 0 && excess > 0; i--) {
+    const r = open[i];
+    const v = Math.min(excess, r.amount);
+    r.amount -= v;
+    excess -= v;
+  }
+  g.finance.receivables = g.finance.receivables.filter((r) => r.contractId !== c.id || r.paid !== null || r.amount > 0);
+  if (excess > 0) cashOnly(g, -excess);
+  c.invoiced = target;
+  return excess;
+}
+
+/** What cancelling costs now: the penalty plus refunding what the client prepaid beyond what was flown. Pure. */
+export function cancelCost(g: GameState, contractId: string): { penalty: number; refund: number; total: number } {
+  const c = g.contracts[contractId];
+  const penalty = cancelPenalty(g, contractId);
+  const refund = c && c.product.kind === 'charter' ? Math.round(Math.max(0, charterPaid(g, c) - (c.accrued ?? 0))) : 0;
+  return { penalty, refund, total: penalty + refund };
+}
+
 /** Cancels a signed/active contract: removes future flights, charges the penalty, reputation and relationship hit. */
 export function cancelContract(g: GameState, contractId: string): ActionResult {
   const c = g.contracts[contractId];
@@ -197,12 +237,12 @@ export function cancelContract(g: GameState, contractId: string): ActionResult {
     const k = monthKey(g.now);
     if (!c.billedMonths.includes(k)) issueBill(g, c, k, billContractMonth(g, c, k));
   }
+  let refund = 0;
   if (c.product.kind === 'charter') {
-    const refund = (c.invoiced ?? 0) - (c.accrued ?? 0);
-    if (c.payment.basis === 'arrears' && (c.accrued ?? 0) > (c.invoiced ?? 0)) bill(g, c, `Flown part: ${c.title}`, (c.accrued ?? 0) - (c.invoiced ?? 0));
-    else if (refund > 0) cashOnly(g, -refund);
+    // Invoices for what was flown stay; unpaid ones for the rest are voided, prepaid money refunded.
     c.instalments = [];
     c.balanceAt = null;
+    refund = settleCharter(g, c, Math.round(c.accrued ?? 0), `Flown part: ${c.title}`);
   }
   if (penalty > 0) post(g, 'penalties', -penalty);
   c.status = 'cancelled';
@@ -211,7 +251,8 @@ export function cancelContract(g: GameState, contractId: string): ActionResult {
   const cl = g.clients[c.clientId];
   if (cl) cl.relation = clamp(cl.relation - 30, -100, 100);
   for (const id of c.aircraftIds) relinkPositioning(g, id);
-  pushMessage(g, { tone: 'bad', cat: 'commercial', title: `Cancelled: ${c.title}`, body: `Penalty $${penalty.toLocaleString('en-US')}. ${cl?.name ?? 'The client'} will remember this.`, ref: { kind: 'contract', id: c.id } });
+  const money = `Penalty $${penalty.toLocaleString('en-US')}${refund ? ` and $${refund.toLocaleString('en-US')} prepaid refunded` : ''}.`;
+  pushMessage(g, { tone: 'bad', cat: 'commercial', title: `Cancelled: ${c.title}`, body: `${money} ${cl?.name ?? 'The client'} will remember this.`, ref: { kind: 'contract', id: c.id } });
   return { ok: true, msg: `Cancelled ${c.title}` };
 }
 
@@ -307,15 +348,23 @@ function completeContract(g: GameState, c: Contract): void {
     for (let k = monthKey(c.start); monthStart(k) < c.end; k++) months.add(k);
     for (const k of [...months].sort((a, b) => a - b)) if (!c.billedMonths.includes(k)) issueBill(g, c, k, billContractMonth(g, c, k));
   } else if (c.product.kind === 'charter') {
+    // Revenue is earned by the legs flown or sub-chartered; cancelled legs earn nothing (their unflown share of
+    // any deposit is voided or refunded). Old saves without revMinDone count everything as flown.
     const net = Math.round(c.product.price * (1 - brokerCut(c)));
-    const rem = net - Math.round(c.accrued ?? 0);
-    if (rem > 0) accrue(g, 'charterRevenue', rem);
-    c.accrued = net;
-    if (c.instalments?.length) {
-      for (const it of c.instalments) it.at = g.now;
-      runInstalments(g, c);
+    const all = c.revMinDone === undefined || c.revMinDone >= (c.planRevMin ?? 0) * 0.99;
+    if (all) {
+      const rem = net - Math.round(c.accrued ?? 0);
+      if (rem > 0) accrue(g, 'charterRevenue', rem);
+      c.accrued = net;
+      if (c.instalments?.length) {
+        for (const it of c.instalments) it.at = g.now;
+        runInstalments(g, c);
+      }
+    } else {
+      c.instalments = [];
+      c.balanceAt = null;
     }
-    if ((c.invoiced ?? 0) < net) bill(g, c, c.payment.basis === 'arrears' ? `Invoice: ${c.title}` : `Final balance: ${c.title}`, net - (c.invoiced ?? 0));
+    settleCharter(g, c, Math.round(c.accrued ?? 0), c.payment.basis === 'arrears' ? `Invoice: ${c.title}` : `Final balance: ${c.title}`);
   }
   const flown = c.legsFlown ?? 0;
   const onTime = flown ? (c.legsOnTime ?? 0) / flown : 1;

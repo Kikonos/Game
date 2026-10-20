@@ -15,6 +15,15 @@ import { store, useGame } from '../store';
 import { KV, ScreenHead, useRenderCount } from './common';
 import { limitTone, spanLabel } from './screenLogic';
 
+/** The type's ETOPS capability (what the engine checks) and whether the company holds an approval for it. */
+function etopsLabel(g: GameState, ac: Aircraft): string {
+  const max = typeOf(ac.typeId).etopsMax;
+  if (!max) return 'not capable';
+  const held = Math.max(0, ...g.company.approvals.map((a) => /^etops(\d+)$/.exec(a)).map((m) => (m ? Number(m[1]) : 0)));
+  const usable = Math.min(max, held);
+  return usable ? `${usable} min${usable < max ? ` (type capable of ${max})` : ''}` : `capable of ${max} min · needs approval (Company)`;
+}
+
 const STATUS: Record<Aircraft['status'], [string, string]> = {
   available: ['On ground', 'good'], flying: ['Flying', 'info'], maintenance: ['In check', 'warn'], aog: ['AOG', 'bad'],
   delivering: ['Delivering', 'accent'], stored: ['Stored', ''], leasedOut: ['Leased out', ''],
@@ -70,7 +79,7 @@ function AircraftCard({ g, ac, sel }: { g: GameState; ac: Aircraft; sel: boolean
         ...own,
         ['At', ac.status === 'delivering' ? `arrives ${fmtDate(ac.deliveredAt)}` : ac.at],
         ['Hours / cycles', `${Math.round(ac.hours).toLocaleString('en-US')} / ${Math.round(ac.cycles).toLocaleString('en-US')}`],
-        ['ETOPS', ac.etops ? `${ac.etops} min` : 'no'],
+        ['ETOPS', etopsLabel(g, ac)],
       ]} />
       {cs ? (
         <div className="col gap-8">

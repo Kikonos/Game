@@ -48,7 +48,7 @@ function weeklyRecovery(g: GameState, from: number, to: number): string[] {
 describe('auto-roster: demo flights, 60 starting crew', () => {
   it('covers 100% of 14 days of flights with zero illegal duties, < 60 h/7 d and weekly recovery', () => {
     const g = fixtureGame();
-    demoFlights(g, undefined, 14);
+    demoFlights(g, undefined, 14, 'revenue');
     const res = autoRoster(g, { to: g.now + 30 * DAY });
     expect(res.uncovered).toEqual([]);
     for (const f of scheduled(g)) expect(flightCrewStatus(g, f.id).level, f.no).toMatch(/ok|tight/);
@@ -62,7 +62,7 @@ describe('auto-roster: demo flights, 60 starting crew', () => {
   it('is deterministic', () => {
     const run = () => {
       const g = fixtureGame(9);
-      demoFlights(g, undefined, 10);
+      demoFlights(g, undefined, 10, 'revenue');
       autoRoster(g);
       return JSON.stringify([g.pairings, g.duties, g.flights, g.queue]);
     };
@@ -71,7 +71,7 @@ describe('auto-roster: demo flights, 60 starting crew', () => {
 
   it('survives a save round trip with the same roster reads', () => {
     const g = fixtureGame();
-    demoFlights(g, undefined, 5);
+    demoFlights(g, undefined, 5, 'revenue');
     autoRoster(g);
     const h = deserialize(serialize(g));
     const c = Object.values(g.crew).find((x) => rosterOf(g, x.id, g.now, g.now + 7 * DAY).length)!;
@@ -125,7 +125,7 @@ describe('HAM–PMI season base (deployment)', () => {
 describe('changes through core helpers', () => {
   it('retiming a flight moves its duty (settle), without any call from ops', () => {
     const g = fixtureGame();
-    demoFlights(g, undefined, 4);
+    demoFlights(g, undefined, 4, 'revenue');
     autoRoster(g);
     const d = crewedDuties(g).sort((a, b) => a.report - b.report).find((x) => x.report > g.now + DAY)!;
     const { report, release, ev } = d;
@@ -149,7 +149,7 @@ describe('changes through core helpers', () => {
     const ac = Object.values(g.fleet)[0];
     const day = Math.floor(g.now / DAY) * DAY;
     const legs: [number, string, string][] = [[2 * DAY + 14 * 60, 'LIS', 'FAO'], [2 * DAY + 15 * 60 + 35, 'FAO', 'LIS'], [3 * DAY + 6 * 60, 'LIS', 'FAO'], [3 * DAY + 7 * 60 + 35, 'FAO', 'LIS']];
-    for (const [t, from, to] of legs) addFlight(g, { no: `AW${t}`, aircraftId: ac.id, contractId: null, kind: 'ferry', from, to, std: day + t, sta: day + t + 45 });
+    for (const [t, from, to] of legs) addFlight(g, { no: `AW${t}`, aircraftId: ac.id, contractId: null, kind: 'revenue', from, to, std: day + t, sta: day + t + 45 });
     autoRoster(g);
     const [d2, d3] = Object.values(g.duties).sort((a, b) => a.report - b.report);
     const crewOf = (d: Duty) => g.pairings[d.pairingId].slots.map((s) => s.crewId);
@@ -233,8 +233,8 @@ describe('deadheads', () => {
   it('positions crew away from the first departure with one ticket per group and posts the cost', () => {
     const { g, ac } = awayTrip(false);
     const std = Math.floor(g.now / DAY) * DAY + 2 * DAY + 9 * 60;
-    addFlight(g, { no: 'AW1', aircraftId: ac.id, contractId: null, kind: 'ferry', from: 'FAO', to: 'FNC', std, sta: std + 110 });
-    addFlight(g, { no: 'AW2', aircraftId: ac.id, contractId: null, kind: 'ferry', from: 'FNC', to: 'FAO', std: std + 160, sta: std + 270 });
+    addFlight(g, { no: 'AW1', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'FAO', to: 'FNC', std, sta: std + 110 });
+    addFlight(g, { no: 'AW2', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'FNC', to: 'FAO', std: std + 160, sta: std + 270 });
     const cash = g.company.cash;
     const res = autoRoster(g);
     expect(res.uncovered).toEqual([]);
@@ -250,6 +250,15 @@ describe('deadheads', () => {
     expect(g.company.cash).toBe(cash - res.cost);
     const d = Object.values(g.duties)[0];
     expect(d.deadheadIds).toContain(out[0].id);
+  });
+
+  it('a trip of empty legs flies with its pilots only (cabin crew only when passengers are carried)', () => {
+    const { g, ac } = awayTrip(false);
+    const std = Math.floor(g.now / DAY) * DAY + 2 * DAY + 9 * 60;
+    addFlight(g, { no: 'AW1', aircraftId: ac.id, contractId: null, kind: 'ferry', from: 'FAO', to: 'LIS', std, sta: std + 70 });
+    autoRoster(g);
+    const d = Object.values(g.duties)[0];
+    expect(g.pairings[d.pairingId].slots.map((s) => s.role)).toEqual(['CPT', 'FO']);
   });
 
   it('wet leases: the client buys crew tickets (no cost to us)', () => {
@@ -269,7 +278,7 @@ describe('performance', () => {
     const g = fixtureGame();
     devFleet(g, 4);
     addCrew(g, { CPT: 10, FO: 10, SCC: 10, CC: 30 });
-    demoFlights(g, undefined, 30);
+    demoFlights(g, undefined, 30, 'revenue');
     return g;
   };
   it('rosters a month of flights for 4 aircraft and ~120 crew in < 50 ms, deterministically', () => {
@@ -294,7 +303,7 @@ describe('performance', () => {
 describe('flights added outside an accept', () => {
   it('are planned and crewed at the next settle (auto-roster policy on), not only at midnight', () => {
     const g = fixtureGame();
-    demoFlights(g, undefined, 2);
+    demoFlights(g, undefined, 2, 'revenue');
     expect(Object.keys(g.pairings)).toHaveLength(0);
     settle(g);
     expect(scheduled(g).filter((f) => !f.crewIds.length)).toEqual([]);

@@ -89,7 +89,7 @@ describe('training', () => {
 
   it('training takes the crew member off rostered work and the slots are refilled', () => {
     const g = fixtureGame();
-    demoFlights(g, undefined, 7);
+    demoFlights(g, undefined, 7, 'revenue');
     autoRoster(g);
     const c = Object.values(g.crew).find((x) => x.role === 'CC' && rosterOf(g, x.id, g.now + DAY, g.now + 6 * DAY).length)!;
     expect(trainCrew(g, c.id, 'typeRating', 'B737').ok).toBe(true);
@@ -166,7 +166,7 @@ describe('crew costs', () => {
 describe('checkAssignment', () => {
   it('reports rating, status, overlap and accepts the rostered crew', () => {
     const g = fixtureGame();
-    demoFlights(g, undefined, 5);
+    demoFlights(g, undefined, 5, 'revenue');
     autoRoster(g);
     const duties = Object.values(g.duties).filter((d) => d.report > g.now + DAY).sort((a, b) => a.report - b.report);
     const d = duties[0];
@@ -191,7 +191,7 @@ describe('checkAssignment', () => {
 
   it('removeCrew (sickness) frees the window and refills the slots', () => {
     const g = fixtureGame();
-    demoFlights(g, undefined, 7);
+    demoFlights(g, undefined, 7, 'revenue');
     addCrew(g, { CPT: 2, FO: 2, SCC: 2, CC: 4 });
     autoRoster(g);
     const c = Object.values(g.crew).find((x) => x.role === 'CPT' && rosterOf(g, x.id, g.now + DAY, g.now + 4 * DAY).length)!;
@@ -205,7 +205,7 @@ describe('shortage and sickness', () => {
   it('uncovered flights within 48 h: one crew message and a crewShortage pause', () => {
     const g = fixtureGame();
     for (const c of Object.values(g.crew)) if (c.role === 'CPT') delete g.crew[c.id];
-    demoFlights(g, undefined, 3);
+    demoFlights(g, undefined, 3, 'revenue');
     clearPause();
     const res = autoRoster(g);
     expect(res.uncovered.length).toBeGreaterThan(0);
@@ -219,7 +219,7 @@ describe('shortage and sickness', () => {
 
   it('a sick crew member is taken off the roster; an unfillable slot becomes a sickCrew decision', () => {
     const g = fixtureGame();
-    demoFlights(g, undefined, 7);
+    demoFlights(g, undefined, 7, 'revenue');
     autoRoster(g);
     // One rostered captain may fall sick; every other captain is on leave (keeps their duties, takes no new ones).
     const cpts = Object.values(g.crew).filter((c) => c.role === 'CPT');

@@ -6,6 +6,7 @@ import { REGIONS } from '../../data/regions';
 import { PLANE_PATH } from '../components/Logo';
 import { isTouch, useTouch } from '../useMedia';
 import { MAP_H, MAP_W, basePaths, projection } from './mapData';
+import { type LabelBox, placeLabels } from './mapLogic';
 
 export interface MapRoute {
   id: string;
@@ -37,6 +38,10 @@ export interface MapLayerCtx {
   liveK: () => number;
   /** Zoom of the last fit (initial view or Reset); k / fitK is the zoom relative to it. */
   fitK: number;
+  /** Moves the `backdrop` layer sideways by dx map units without repainting it (compositor only); returns the shift in screen px. */
+  backShift: (dx: number) => number;
+  /** Screen px of spare layer around the view: rebuild the backdrop before |backShift| passes margin / 2. */
+  margin: number;
 }
 
 /** Map transform: world point p is drawn at p × k + (x, y) in viewBox units. */
@@ -73,12 +78,16 @@ interface Props {
   revealPad?: Pad | (() => Pad);
   /** Extra SVG layers above the airports (ops map: aircraft, terminator, pins). */
   layers?: (ctx: MapLayerCtx) => ReactNode;
-  /** SVG layers between the land and the airports (ops map: terminator, arcs). */
+  /** SVG layers between the land and the airports (ops map: arcs). */
   underlay?: (ctx: MapLayerCtx) => ReactNode;
+  /** A big, slow layer right above the land in its own composited layer (ops map: night), shifted with ctx.backShift. */
+  backdrop?: (ctx: MapLayerCtx) => ReactNode;
   /** Called with the tapped map point (map units) and map units per screen px before airports are hit-tested; true consumes the tap. */
   onTap?: (m: [number, number], unit: number, finger: boolean) => boolean;
   /** Fit list read only when fitting (first view, Reset): data changes never re-fit the map. Overrides `fit`. */
   fitFn?: () => string[];
+  /** Airport kept near the middle of a fit (read when fitting). */
+  fitCentre?: () => string | undefined;
   /** When `key` changes, pans the map point `at()` (map units) out from under `revealPad`. Replaces the selected-airport reveal. */
   focus?: { key: string; at: () => [number, number] | null } | null;
   /** Keeps the view across remounts (tab switches): read on mount, written on every commit. */
@@ -87,6 +96,15 @@ interface Props {
 
 /** Container geometry: the SVG uses "slice" scaling (s screen px per map unit at zoom 1, offset ox/oy). */
 interface Geo { w: number; h: number; s: number; ox: number; oy: number; left: number; top: number }
+
+/**
+ * The land (59k points) and the backdrop sit in their own composited layers, oversized by this
+ * margin on every side: gestures move them with a CSS transform (no repaint) and the SVG transform
+ * is only rewritten when a gesture ends or runs out of margin. Only the light overlay repaints per frame.
+ */
+const marginOf = (g: { w: number; h: number }) => Math.round(Math.max(g.w, g.h) * 0.3);
+/** The ocean as a background (static under the moving layers); matches the old SVG gradient. */
+const OCEAN = 'radial-gradient(75% 75% at 50% 40%, #0c1528 0%, #050912 100%)';
 
 const K_MAX = 16;
 const MAX_PLANES = 60;
@@ -100,6 +118,12 @@ const BaseLayers = memo(function BaseLayers({ rotate }: { rotate: number }) {
   const p = basePaths(rotate);
   return (
     <g className="map-base">
+      <defs>
+        <linearGradient id="land-grad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#1a2640" />
+          <stop offset="1" stopColor="#131d33" />
+        </linearGradient>
+      </defs>
       <path d={p.graticule} fill="none" stroke="rgba(120,150,210,0.07)" strokeWidth={0.6} vectorEffect="non-scaling-stroke" />
       <path d={p.land} fill="url(#land-grad)" stroke="rgba(120,160,230,0.28)" strokeWidth={0.7} vectorEffect="non-scaling-stroke" />
       <path d={p.borders} fill="none" stroke="rgba(150,175,230,0.13)" strokeWidth={0.6} vectorEffect="non-scaling-stroke" />
@@ -128,7 +152,14 @@ function clampView(v: View, geo?: Geo): View {
   };
 }
 
-function fitView(rotate: number, codes: string[], geo: Geo, pad: Pad = [0, 0, 0, 0]): View {
+/** Widens [lo, hi] so c sits at least `f` of the span in from either end. */
+function keepIn(lo: number, hi: number, c: number, f: number): [number, number] {
+  if (c - lo < f * (hi - lo)) lo = c - (f * (hi - c)) / (1 - f);
+  if (hi - c < f * (hi - lo)) hi = c + (f * (c - lo)) / (1 - f);
+  return [lo, hi];
+}
+
+function fitView(rotate: number, codes: string[], geo: Geo, pad: Pad = [0, 0, 0, 0], centre?: string): View {
   const proj = projection(rotate);
   const pts = codes.map((c) => AIRPORT_BY_CODE[c]).filter(Boolean).map((a) => proj([a.lon, a.lat])!);
   if (pts.length === 0) return clampView({ k: 1, x: 0, y: 0 }, geo);
@@ -136,6 +167,13 @@ function fitView(rotate: number, codes: string[], geo: Geo, pad: Pad = [0, 0, 0,
   let x1 = Math.max(...pts.map((p) => p[0]));
   let y0 = Math.min(...pts.map((p) => p[1]));
   let y1 = Math.max(...pts.map((p) => p[1]));
+  // Keep the centre airport (home base) well inside the frame, not on its edge.
+  const cA = centre ? AIRPORT_BY_CODE[centre] : undefined;
+  const cP = cA && proj([cA.lon, cA.lat]);
+  if (cP) {
+    [x0, x1] = keepIn(Math.min(x0, cP[0]), Math.max(x1, cP[0]), cP[0], 0.3);
+    [y0, y1] = keepIn(Math.min(y0, cP[1]), Math.max(y1, cP[1]), cP[1], 0.3);
+  }
   const minSpan = 140;
   if (x1 - x0 < minSpan) { const c = (x0 + x1) / 2; x0 = c - minSpan / 2; x1 = c + minSpan / 2; }
   if (y1 - y0 < minSpan * 0.6) { const c = (y0 + y1) / 2; y0 = c - minSpan * 0.3; y1 = c + minSpan * 0.3; }
@@ -182,30 +220,54 @@ const RoutesLayer = memo(function RoutesLayer({ items, accent }: { items: { r: M
   );
 });
 
+/** Label priority: selected, hovered, hub, flagged (aircraft / legs), the rest. */
+const labelRank = (ap: ApEl, selected?: string | null, hover?: string | null) =>
+  ap.code === selected ? 0 : ap.code === hover ? 1 : ap.state === 'hub' ? 2 : ap.label ? 3 : 4;
+
+/**
+ * Airport dots and codes. Markers are drawn in screen px inside a `.mk` group scaled by `unit`
+ * (map units per px), which WorldMap rewrites live during gestures so they never pulse with the zoom.
+ * Codes that would overlap a higher-priority code are dropped (greedy, screen space).
+ */
 const AirportsLayer = memo(function AirportsLayer({ els, unit, selected, hover, accent, crowded, showAll, touch }: {
   els: ApEl[]; unit: number; selected?: string | null; hover?: string | null; accent: string; crowded: boolean; showAll: boolean; touch: boolean;
 }) {
-  // unit = map units per screen pixel at the current zoom.
-  const px = (n: number) => n * unit;
+  const geom = (ap: ApEl) => {
+    const big = ap.state === 'hub';
+    const isSel = selected === ap.code;
+    const rad = ap.state === 'hub' ? 6.5 : ap.state === 'served' ? 4.5 : ap.state === 'open' ? 2.2 + ap.a.size * 0.5 : 2.2;
+    const ring = Math.max(rad * 2.2, 11);
+    const fs = touch ? (big || isSel ? 13 : 12) : big ? 12 : 10.5;
+    const want = (ap.label && !crowded) || isSel || big || hover === ap.code || (showAll && ap.state !== 'locked' && ap.state !== 'dim');
+    return { big, isSel, rad, ring, fs, want, ty: -(isSel ? ring : rad) - 5 };
+  };
+  const shown = useMemo(() => {
+    const boxes: LabelBox[] = [];
+    const order = els.map((ap) => ({ ap, r: labelRank(ap, selected, hover) })).sort((a, b) => a.r - b.r);
+    for (const { ap } of order) {
+      const m = geom(ap);
+      if (!m.want) continue;
+      boxes.push({ id: ap.code, x: ap.x / unit, y: ap.y / unit + m.ty - m.fs * 0.35, w: ap.code.length * m.fs * 0.62 + 2, h: m.fs });
+    }
+    return placeLabels(boxes);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [els, unit, selected, hover, crowded, showAll, touch]);
   let sel: ApEl | undefined;
   const item = (ap: ApEl) => {
-    const big = ap.state === 'hub';
-    const rad = px(ap.state === 'hub' ? 6.5 : ap.state === 'served' ? 4.5 : ap.state === 'open' ? 2.2 + ap.a.size * 0.5 : 2.2);
-    const isSel = selected === ap.code;
+    const { big, isSel, rad, ring, fs, ty } = geom(ap);
     const fill = ap.state === 'hub' ? accent : ap.state === 'served' ? '#ffffff' : ap.state === 'open' ? '#9fb2d8' : ap.state === 'locked' ? '#3a4766' : '#56617a';
-    const showLabel = (ap.label && !crowded) || isSel || big || hover === ap.code || (showAll && ap.state !== 'locked' && ap.state !== 'dim');
-    const fs = touch ? (big || isSel ? 13 : 12) : big ? 12 : 10.5;
-    const ring = Math.max(rad * 2.2, px(11));
     return (
       <g key={ap.code} transform={`translate(${ap.x} ${ap.y})`} className={`ap ap-${ap.state} ${isSel ? 'sel' : ''} ${hover === ap.code ? 'hov' : ''}`}>
-        {big && <circle r={rad * 2.4} fill={accent} opacity={0.18} className="pulse" />}
-        {isSel && <circle r={ring} fill="rgba(255,255,255,0.08)" stroke="#fff" strokeWidth={1.5} vectorEffect="non-scaling-stroke" className="sel-ring" />}
-        <circle r={rad} fill={fill} stroke={big || isSel ? '#fff' : 'rgba(5,9,18,0.8)'} strokeWidth={big ? 1.5 : 1} vectorEffect="non-scaling-stroke" />
-        {showLabel && (
-          <text y={-(isSel ? ring : rad) - px(5)} textAnchor="middle" fontSize={px(fs)} className="ap-label">
-            {ap.code}
-          </text>
-        )}
+        <g className="mk" transform={`scale(${unit})`}>
+          {big && <circle r={rad * 2.4} fill={accent} opacity={0.18} className="pulse" />}
+          {isSel && <circle r={ring} fill="rgba(255,255,255,0.08)" stroke="#fff" strokeWidth={1.5} vectorEffect="non-scaling-stroke" className="sel-ring" />}
+          <circle r={rad} fill={fill} stroke={big || isSel ? '#fff' : 'rgba(5,9,18,0.8)'} strokeWidth={big ? 1.5 : 1} vectorEffect="non-scaling-stroke" />
+          {shown.has(ap.code) && (
+            <text y={ty} textAnchor="middle" fontSize={fs} className="ap-label">
+              {ap.code}
+            </text>
+          )}
+        </g>
       </g>
     );
   };
@@ -259,16 +321,28 @@ interface Gesture {
  */
 export function WorldMap({
   rotate = 0, routes, airports, fit, fitPad, interactive = true, animate = true, accent = '#3ee6ff', selected, onSelect, onSelectRoute, onHover,
-  tooltip, regionLabels, className, planesKey, controls = true, revealPad, layers, underlay, onTap, fitFn, focus, memo,
+  tooltip, regionLabels, className, planesKey, controls = true, revealPad, layers, underlay, backdrop, onTap, fitFn, fitCentre, focus, memo,
 }: Props) {
   const touch = useTouch();
   const wrapRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<SVGGElement>(null);
   const planesRef = useRef<SVGGElement>(null);
+  const baseWrap = useRef<HTMLDivElement>(null);
+  const baseG = useRef<SVGGElement>(null);
+  const backWrap = useRef<HTMLDivElement>(null);
+  const backG = useRef<SVGGElement>(null);
   const [view, setView] = useState<View>({ k: 1, x: 0, y: 0 });
-  // Screen pixels per map unit at zoom 1 (the SVG uses "slice" scaling).
-  const [pxPerUnit, setPxPerUnit] = useState(0.6);
+  // Container geometry as rendered (s = screen pixels per map unit at zoom 1; the SVG uses "slice" scaling).
+  const [box, setBox] = useState<Geo>(() => geoOf(1000, 600));
+  const pxPerUnit = box.s;
   const geoRef = useRef<Geo>(geoOf(1000, 600));
+  /** The view written into the land/backdrop SVG; the live view is reached from it with a CSS transform. */
+  const layerView = useRef<View>(view);
+  /** Backdrop shift in map units (ctx.backShift). */
+  const backDx = useRef(0);
+  /** Marker groups counter-scaled live (`.mk`), refreshed after each render. */
+  const mkEls = useRef<SVGGElement[]>([]);
+  const mkU = useRef(0);
   /** The view on screen right now; ahead of `view` (React state) during gestures and animations. */
   const live = useRef<View>(view);
   const gest = useRef<Gesture | null>(null);
@@ -285,25 +359,72 @@ export function WorldMap({
 
   const busy = () => gest.current !== null || anim.current !== 0 || performance.now() < wheelUntil.current;
 
-  /** Moves the map on screen without a React render (the transform is owned here, not by JSX). */
+  /** CSS transforms that carry the land and backdrop layers from layerView to v; resyncs them when out of margin. */
+  const placeLayers = (v: View, allowSync = true) => {
+    const lv = layerView.current;
+    const g = geoRef.current;
+    const M = marginOf(g);
+    const r = v.k / lv.k;
+    const tx = g.ox * (1 - r) + g.s * (v.x - r * lv.x) + M * (1 - r);
+    const ty = g.oy * (1 - r) + g.s * (v.y - r * lv.y) + M * (1 - r);
+    // Keep half a margin spare for the backdrop shift; zooming past 1.5× would show a blurry raster.
+    const q = (r * M) / 2;
+    const ok = r > 0.67 && r < 1.5 && tx - M <= -q && r * (g.w + 2 * M) + tx - M >= g.w + q && ty - M <= -q && r * (g.h + 2 * M) + ty - M >= g.h + q;
+    if (!ok && allowSync) { syncLayers(); return; }
+    const tf = `translate(${tx.toFixed(2)}px, ${ty.toFixed(2)}px) scale(${r.toPrecision(6)})`;
+    if (baseWrap.current) baseWrap.current.style.transform = tf;
+    if (backWrap.current) backWrap.current.style.transform = `${tf} translateX(${(backDx.current * lv.k * g.s).toFixed(2)}px)`;
+  };
+  /** Rewrites the land/backdrop SVG transform to the live view (one repaint of the land). */
+  const syncLayers = () => {
+    const v = live.current;
+    layerView.current = v;
+    const tf = `translate(${v.x} ${v.y}) scale(${v.k})`;
+    baseG.current?.setAttribute('transform', tf);
+    backG.current?.setAttribute('transform', tf);
+    placeLayers(v, false);
+  };
+  /** Moves the map on screen without a React render (the transforms are owned here, not by JSX). */
   const apply = (v: View) => {
     live.current = v;
     worldRef.current?.setAttribute('transform', `translate(${v.x} ${v.y}) scale(${v.k})`);
+    placeLayers(v);
+    // Markers keep their screen size between commits (no sawtooth while pinching).
+    const u = 1 / (geoRef.current.s * v.k);
+    if (u !== mkU.current) {
+      mkU.current = u;
+      const tf = `scale(${u})`;
+      for (const el of mkEls.current) el.setAttribute('transform', tf);
+    }
   };
   const commit = useCallback(() => {
     window.clearTimeout(commitTimer.current);
     commitTimer.current = 0;
     const v = live.current;
     setView((cur) => (sameView(cur, v) ? cur : v));
-  }, []);
+    if (!busy()) syncLayers();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   /** Re-renders markers/labels for the new zoom at most every 120 ms while a gesture runs. */
   const scheduleCommit = () => {
     if (!commitTimer.current) commitTimer.current = window.setTimeout(commit, 120);
   };
   useLayoutEffect(() => {
-    if (!busy()) apply(view);
+    if (!busy()) { apply(view); syncLayers(); }
     if (memo && restored.current) memo.view = view;
   }, [view]); // eslint-disable-line react-hooks/exhaustive-deps
+  // New geometry (resize) or new layer elements: rewrite the layer transforms.
+  useLayoutEffect(() => { syncLayers(); }, [box, !!backdrop]); // eslint-disable-line react-hooks/exhaustive-deps
+  // After every render: the marker groups to counter-scale (React wrote the committed scale into them).
+  useLayoutEffect(() => {
+    mkEls.current = worldRef.current ? (Array.from(worldRef.current.querySelectorAll('.mk')) as SVGGElement[]) : [];
+    mkU.current = 1 / (pxPerUnit * view.k);
+    if (!sameView(live.current, view)) apply(live.current);
+  });
+  const backShift = useCallback((dx: number) => {
+    backDx.current = dx;
+    placeLayers(live.current, false);
+    return dx * layerView.current.k * geoRef.current.s;
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const measure = (): Geo => {
     const el = wrapRef.current;
@@ -373,15 +494,18 @@ export function WorldMap({
   const padKey = (fitPad ?? []).join(',');
   const fitFnRef = useRef(fitFn);
   fitFnRef.current = fitFn;
+  const fitCentreRef = useRef(fitCentre);
+  fitCentreRef.current = fitCentre;
   const fitK = useRef(1);
   const fitTarget = (geo: Geo): View => {
     const codes = fitFnRef.current ? fitFnRef.current() : fit;
-    return codes && codes.length ? fitView(rotate, codes, geo, fitPad) : clampView({ k: 1, x: 0, y: 0 }, geo);
+    return codes && codes.length ? fitView(rotate, codes, geo, fitPad, fitCentreRef.current?.()) : clampView({ k: 1, x: 0, y: 0 }, geo);
   };
   const restored = useRef(false);
   const doFit = useCallback((animated = false) => {
     const geo = measure();
     if (geo.w <= 0) return;
+    setBox((b) => (b.w === geo.w && b.h === geo.h ? b : geo));
     const target = fitTarget(geo);
     fitK.current = target.k;
     // First layout after a remount: restore the remembered view instead of fitting.
@@ -390,6 +514,7 @@ export function WorldMap({
       userMoved.current = true;
       const v = clampView(memo.view, geo);
       apply(v);
+      syncLayers();
       setView(v);
       return;
     }
@@ -399,6 +524,7 @@ export function WorldMap({
     else {
       stopAnim();
       apply(target);
+      syncLayers();
       setView(target);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -414,7 +540,7 @@ export function WorldMap({
     if (!el) return;
     const ro = new ResizeObserver(() => {
       const geo = measure();
-      setPxPerUnit(geo.s);
+      setBox((b) => (b.w === geo.w && b.h === geo.h ? b : geo));
       // Rotation / Split View / panel changes: refit until the player has moved the map.
       if (!userMoved.current) fitRef.current();
       else if (!busy()) { apply(clampView(live.current, geo)); commit(); }
@@ -857,32 +983,40 @@ export function WorldMap({
   const crowded = airports.filter((a) => a.label).length > 16 && k * pxPerUnit < 2.2;
   const regionFont = touch ? 12.5 : 11;
   const liveK = useCallback(() => live.current.k, []);
-  const ctx: MapLayerCtx = { proj, unit, k, px: pxPerUnit, liveK, fitK: fitK.current };
+  const M = marginOf(box);
+  const ctx: MapLayerCtx = { proj, unit, k, px: pxPerUnit, liveK, fitK: fitK.current, backShift, margin: M };
+  // Oversized layer box (container + margin) and the viewBox that keeps the overlay's "slice" mapping.
+  const layerStyle: React.CSSProperties = { position: 'absolute', left: -M, top: -M, width: box.w + 2 * M, height: box.h + 2 * M, transformOrigin: '0 0', willChange: 'transform', pointerEvents: 'none' };
+  const layerVB = `${(-M - box.ox) / box.s} ${(-M - box.oy) / box.s} ${(box.w + 2 * M) / box.s} ${(box.h + 2 * M) / box.s}`;
+  const svgFill: React.CSSProperties = { position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block' };
 
   return (
     <div
       ref={wrapRef}
       className={`worldmap ${interactive ? 'interactive' : ''} ${hover ? 'hovering' : ''} ${className ?? ''}`}
+      style={{ background: OCEAN }}
       onPointerDown={interactive ? onPointerDown : undefined}
       onPointerMove={interactive ? onPointerMove : undefined}
       onPointerUp={interactive ? onPointerEnd : undefined}
       onPointerCancel={interactive ? onPointerEnd : undefined}
       onPointerLeave={interactive ? (e) => { if (e.pointerType !== 'touch' && hover && !ptrs.current.size) { setHover(null); onHover?.(null); } } : undefined}
     >
-      <svg viewBox={`0 0 ${MAP_W} ${MAP_H}`} preserveAspectRatio="xMidYMid slice">
-        <defs>
-          <radialGradient id="ocean-grad" cx="50%" cy="40%" r="75%">
-            <stop offset="0" stopColor="#0c1528" />
-            <stop offset="1" stopColor="#050912" />
-          </radialGradient>
-          <linearGradient id="land-grad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor="#1a2640" />
-            <stop offset="1" stopColor="#131d33" />
-          </linearGradient>
-        </defs>
-        <rect x="0" y="0" width={MAP_W} height={MAP_H} fill="url(#ocean-grad)" />
+      <div ref={baseWrap} className="map-layer map-layer-base" style={layerStyle}>
+        <svg viewBox={layerVB} preserveAspectRatio="none" style={svgFill}>
+          <g ref={baseG}>
+            <BaseLayers rotate={rotate} />
+          </g>
+        </svg>
+      </div>
+      {backdrop && (
+        <div ref={backWrap} className="map-layer map-layer-back" style={layerStyle}>
+          <svg viewBox={layerVB} preserveAspectRatio="none" style={svgFill}>
+            <g ref={backG}>{backdrop(ctx)}</g>
+          </svg>
+        </div>
+      )}
+      <svg viewBox={`0 0 ${MAP_W} ${MAP_H}`} preserveAspectRatio="xMidYMid slice" style={svgFill}>
         <g ref={worldRef}>
-          <BaseLayers rotate={rotate} />
           {regionLabelEls.map((r) => (
             <text key={r.id} x={r.x} y={r.y} textAnchor="middle" className={`region-label ${r.locked ? 'locked' : ''}`} fontSize={regionFont * unit} style={{ opacity: k * pxPerUnit > 2.6 ? 0 : 1 }}>
               {r.name.toUpperCase()}

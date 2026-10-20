@@ -1,6 +1,4 @@
-import '@fontsource-variable/inter';
-import '@fontsource-variable/space-grotesk';
-import '@fontsource-variable/jetbrains-mono';
+import './styles/acmi/fonts.css';
 import './styles/app.css';
 import './styles/screens.css';
 import './styles/touch/index.css';

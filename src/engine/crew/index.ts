@@ -9,9 +9,9 @@ import type { CrewMember, GameState, Minute, SimEvent } from '../core/types';
 import { dailyCrewCosts, monthlySalaries } from './costs';
 import { deletePairing, planAircraft } from './duties';
 import { dailySickness, onCrewJoin, onTrainingDone } from './hr';
-import { autoRoster, onFlightsChanged, sendStrandedHome } from './roster';
+import { autoRoster, onFlightsChanged, recheckSoon, sendStrandedHome } from './roster';
 import { minRest, nightsIn, LIMITS } from './rules';
-import { crewCount, crewIx, dutyBlock, dutyFlights, dutySegs, onBlocks, touchCrew } from './timeline';
+import { aboard, crewCount, crewIx, dutyBlock, dutyFlights, dutySegs, onBlocks, passengers, touchCrew } from './timeline';
 
 export {
   checkAssignment, crewWindows, daysOffInMonth, LIMITS, maxFdp, minRest, restAfter,
@@ -93,7 +93,7 @@ function onDutyRelease(g: GameState, ev: SimEvent): void {
     let home = null;
     for (const fid of d.deadheadIds) {
       const f = g.flights[fid];
-      if (!f || f.status === 'cancelled' || !f.crewIds.includes(c.id)) continue;
+      if (!f || f.status === 'cancelled' || !aboard(f, c.id)) continue;
       if (f.sta <= d.report) out = f;
       else if (f.std >= d.release) home = f;
     }
@@ -122,15 +122,18 @@ function onFlightArrCrew(g: GameState, ev: SimEvent): void {
   const f = g.flights[ev.id];
   if (!f || f.ev !== ev.v || f.status !== 'done') return;
   const ix = crewIx(g);
-  const did = f.kind === 'deadhead' ? ix.ticketDuty.get(f.id) : undefined;
+  const pax = passengers(f);
+  const did = pax.length ? ix.ticketDuty.get(f.id) : undefined;
   const d = did ? g.duties[did] : undefined;
   const rest = minRest({ dutyMin: f.sta - f.std + CHECKIN(), atHome: false, augmented: false, tzShift: 0 });
   const merged = !!d && ((f.sta <= d.report && d.report - f.sta < rest) || (f.std >= d.release && f.std - d.release < 600));
-  for (const id of f.crewIds) {
+  if (f.kind !== 'deadhead') for (const id of f.crewIds) if (g.crew[id]) g.crew[id].loc = f.to;
+  for (const id of pax) {
     const c = g.crew[id];
     if (!c) continue;
+    // A ticket from somewhere the crew member is not was never boarded (a re-plan left it behind).
+    if (c.loc !== f.from) continue;
     c.loc = f.to;
-    if (f.kind !== 'deadhead') continue;
     if (f.to === c.base) c.awaySince = null;
     else if (c.awaySince === null) c.awaySince = f.std;
     if (!merged) {
@@ -141,7 +144,7 @@ function onFlightArrCrew(g: GameState, ev: SimEvent): void {
       if (c.status === 'available') c.status = 'resting';
     }
   }
-  if (f.kind === 'deadhead') touchCrew(g);
+  if (pax.length) touchCrew(g);
 }
 
 /** Status from blocks (sick, leave, training, joining) and rest; crew left 'onDuty' without an active trip are freed. */
@@ -182,7 +185,10 @@ function daily(g: GameState) {
   for (const c of Object.values(g.crew)) if (c.status !== 'onDuty') c.fatigue = Math.max(0, c.fatigue - 6);
   dailySickness(g);
   // Keep the published roster horizon filled (auto-roster policy), then bring home anyone left without work away.
-  if (g.company.policies.autoRoster) autoRoster(g);
+  if (g.company.policies.autoRoster) {
+    recheckSoon(g);
+    autoRoster(g);
+  }
   sendStrandedHome(g);
 }
 

@@ -4,7 +4,7 @@
 import { AlertTriangle, CalendarRange, CircleSlash, FileSearch, Handshake, Inbox as InboxIcon, Users } from 'lucide-react';
 import { useMemo } from 'react';
 import { flag } from '../../data/countries';
-import { cancelContract, cancelPenalty, contractProgress, leadDays } from '../../engine/contracts';
+import { cancelContract, cancelPenalty, contractProgress, idleWindows, type IdleWindow, leadDays } from '../../engine/contracts';
 import { flightsRev } from '../../engine/core/entities';
 import { DAY, fmtDateTime, fmtDay } from '../../engine/core/time';
 import type { Contract, ContractOffer, GameState } from '../../engine/core/types';
@@ -13,11 +13,12 @@ import { money } from '../format';
 import { store, useGame } from '../store';
 import { ArchIcon, Chips, ScreenHead, useRenderCount } from './common';
 import { contractColor } from './palette';
-import { ARCH_LABEL, expiryLabel, marketOffers, missedOffers, productLine, reqChips, riskChips, routeSummary } from './screenLogic';
+import { ARCH_LABEL, expiryLabel, liveHook, marketOffers, missedOffers, productLine, reqChips, riskChips, routeSummary } from './screenLogic';
 
 type View = 'market' | 'active' | 'missed';
 
-function OfferCard({ g, o }: { g: GameState; o: ContractOffer }) {
+function OfferCard({ g, o, windows }: { g: GameState; o: ContractOffer; windows: IdleWindow[] }) {
+  const hook = liveHook(g, o, windows);
   const cl = g.clients[o.clientId];
   const lead = leadDays(g, o.start);
   const countered = o.status === 'countered';
@@ -44,13 +45,17 @@ function OfferCard({ g, o }: { g: GameState; o: ContractOffer }) {
       </div>
       <Chips chips={chips.slice(0, 6)} />
       {countered && o.counter && <div className="small accent">Counter {money(o.counter.price, 2)} sent · reply by {fmtDateTime(o.counter.replyAt)}</div>}
-      {o.hook && !countered && <div className="small dim ellipsis">{o.hook}</div>}
+      {hook && !countered && <div className="small dim ellipsis">{hook}</div>}
     </button>
   );
 }
 
 function Market({ g }: { g: GameState }) {
   const list = marketOffers(g);
+  const rev = flightsRev(g);
+  const day = Math.floor(g.now / DAY);
+  // Follow-on hints are checked against today's idle windows (they go stale once the aircraft moves).
+  const windows = useMemo(() => (list.some((o) => o.hook) ? idleWindows(g) : []), [g, rev, day, list.length]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!list.length) {
     return (
       <Empty icon={<InboxIcon />} title="No offers right now">
@@ -58,7 +63,7 @@ function Market({ g }: { g: GameState }) {
       </Empty>
     );
   }
-  return <div className="sc-offer-grid">{list.map((o) => <OfferCard key={o.id} g={g} o={o} />)}</div>;
+  return <div className="sc-offer-grid">{list.map((o) => <OfferCard key={o.id} g={g} o={o} windows={windows} />)}</div>;
 }
 
 const STATUS_LABEL: Record<Contract['status'], string> = { signed: 'Signed', active: 'Flying', completed: 'Completed', cancelled: 'Cancelled' };

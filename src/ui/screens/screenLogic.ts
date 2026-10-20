@@ -2,11 +2,13 @@
 
 import type { RatingFamily } from '../../data/acmiTypes';
 import { BAL } from '../../engine/core/balance';
-import { DAY, HOUR, monthKey } from '../../engine/core/time';
+import { DAY, HOUR, fmtDay, monthKey } from '../../engine/core/time';
 import { mghInMonth } from '../../engine/contracts/pricing';
+import type { IdleWindow } from '../../engine/contracts/offers';
 import type {
   Archetype, ContractOffer, CrewMember, CrewStatus, GameState, LedgerCat, Message, MessageCat, MonthStatement, Product, Ref, Requirements, Role, SchedulePattern,
 } from '../../engine/core/types';
+import { money } from '../format';
 import type { Tab } from '../store';
 
 export const ARCH_LABEL: Record<Archetype, string> = {
@@ -83,7 +85,7 @@ export function routeSummary(p: SchedulePattern): string {
   return stops.length > 5 ? `${stops.slice(0, 4).join(' → ')} … ${stops[stops.length - 1]}` : stops.join(' → ');
 }
 
-const k = (v: number) => (v >= 1e6 ? `$${(v / 1e6).toFixed(v >= 1e7 ? 1 : 2)}M` : v >= 1e4 ? `$${Math.round(v / 1e3)}K` : `$${Math.round(v).toLocaleString('en-US')}`);
+const k = (v: number) => money(v);
 
 /** '$3,950/BH · MGH 200', '$412K charter', '$228K/month dry'. */
 export function productLine(p: Product): string {
@@ -109,7 +111,7 @@ export function reqChips(r: Requirements): Chip[] {
   if (r.longestSectorNm >= 3000) out.push({ label: `${r.longestSectorNm.toLocaleString('en-US')} nm`, tip: 'Longest sector' });
   for (const a of r.approvals) out.push({ label: a.toUpperCase(), tone: 'warn', tip: 'Approval needed' });
   if (r.extraCabin) out.push({ label: `+${r.extraCabin} cabin crew` });
-  if (r.noTechStops) out.push({ label: 'No tech stops' });
+  if (r.noTechStops) out.push({ label: 'No fuel stops' });
   return out;
 }
 
@@ -162,7 +164,7 @@ export function filterCrew(list: CrewMember[], f: CrewFilter): CrewMember[] {
 export const LEDGER_LABEL: Record<LedgerCat, string> = {
   acmiRevenue: 'ACMI (block hours)', charterRevenue: 'Charter', otherRevenue: 'Other revenue',
   fuel: 'Fuel', airportFees: 'Airport & handling', rent: 'Aircraft rent', reserves: 'Maintenance reserves', salaries: 'Salaries',
-  perDiem: 'Per diems', hotels: 'Crew hotels', deadhead: 'Crew positioning', maintenance: 'Line maintenance', checks: 'Checks',
+  perDiem: 'Per diems', hotels: 'Crew hotels', deadhead: 'Crew deadheads', maintenance: 'Line maintenance', checks: 'Checks',
   insurance: 'Insurance', overhead: 'Overhead', training: 'Training', hiring: 'Hiring', penalties: 'Penalties', subcharter: 'Sub-charter',
   approvals: 'Approvals', interest: 'Interest', capex: 'Aircraft purchases', assetSale: 'Asset sales',
 };
@@ -266,4 +268,20 @@ export function earnedUnbilled(g: GameState): number {
     sum += v;
   }
   return Math.round(sum);
+}
+
+/**
+ * An offer's 'Follow-on' / 'Fits' hint as of now: the stored text names an aircraft (and station) from when the
+ * offer was made; it is rebuilt from that aircraft's current idle window, or dropped when the window is gone.
+ */
+export function liveHook(g: GameState, o: ContractOffer, windows: IdleWindow[]): string | undefined {
+  if (!o.hook) return undefined;
+  const m = /^(?:Follow-on: |Fits )(\S+?):? /.exec(o.hook);
+  if (!m) return o.hook;
+  const ac = Object.values(g.fleet).find((a) => a.reg === m[1]);
+  const at = /free at ([A-Z]{3})/.exec(o.hook)?.[1];
+  const w = ac && windows.find((x) => x.aircraftId === ac.id && x.from <= o.start + 2 * DAY && x.to > o.start && (!at || x.at === at));
+  if (!ac || !w) return undefined;
+  if (at) return `Follow-on: ${ac.reg} is free at ${w.at} from ${fmtDay(Math.max(w.from, g.now))}`;
+  return `Fits ${ac.reg}: free ${fmtDay(Math.max(w.from, g.now))}${w.to - w.from < 120 * DAY ? `–${fmtDay(w.to)}` : ' onwards'}`;
 }

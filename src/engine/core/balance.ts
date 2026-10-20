@@ -32,8 +32,6 @@ export const BAL = {
   cancelScale: [[60, 0.15], [30, 0.35], [14, 0.6], [0, 1]] as [number, number][],
   charterDeposit: 0.3,
   charterBalanceDays: 7,
-  /** All-in charter price ≈ ACMI-equivalent hours × rate × this (fuel, fees, hotels, margin). */
-  charterMarkup: 2.2,
   /** Counter-offers: client walk-away multiplier range and reply delay (hours). */
   counterFloor: [1.04, 1.18] as [number, number],
   counterReplyHours: [6, 30] as [number, number],
@@ -52,6 +50,8 @@ export const BAL = {
   deadheadTicket: [250, 600, 1_300],
   /** Days from order to joining (rated crew), and cost per hire. */
   hireDays: { CPT: 60, FO: 45, CRP: 45, CSD: 35, SCC: 35, CC: 50 } as Record<string, number>,
+  /** Rated widebody crew come off the market faster (long-haul operators shedding staff), days. */
+  hireDaysWide: { CPT: 40, FO: 35, CRP: 35, CSD: 30, SCC: 30, CC: 35 } as Record<string, number>,
   hireCost: { pilot: 9_000, cabin: 2_000 },
   typeRating: { pilotDays: 35, pilotCost: 45_000, cabinDays: 7, cabinCost: 3_000 },
   commandUpgrade: { days: 42, cost: 22_000, minHours: 4_000 },
@@ -79,7 +79,8 @@ export const BAL = {
   overheadPerAircraft: 70_000,
   /** Maintenance cost multiplier per year of age above 12. */
   maintAgeFactor: 0.025,
-  checkCost: { A: [45_000, 110_000], C: [1_200_000, 3_500_000] } as Record<'A' | 'C', [number, number]>,
+  /** Check cost (narrow, wide). The A-check sits partly inside maintBH (all-in DMC), so it is kept low. */
+  checkCost: { A: [25_000, 60_000], C: [1_200_000, 3_500_000] } as Record<'A' | 'C', [number, number]>,
   /** Share of a C-check paid out of maintenance reserves (leased: the lessor reimburses) or the per-BH provision (owned). */
   cReserveCover: 0.5,
   /** AOG chance per departure (one roll, separate from technical delays): base × (1 + age/10) × (1 + 4 × deferred) × outstation 1.5. */
@@ -128,7 +129,7 @@ export const BAL = {
   /** Factoring discount on an overdue invoice. */
   factorDiscount: 0.08,
   /** Client change request chance per active contract per week; extra urgent evacuation offers per day. */
-  changeRequestWeekly: 0.8,
+  changeRequestWeekly: 0.5,
   /** Auto-roster margin (min): planned duties may release this late without breaking the next rest or recovery. */
   rosterSlack: 60,
   /** Duties reporting within this many minutes are "on the day": a delay-slipped recovery doesn't unseat the crew. */
@@ -142,6 +143,10 @@ export const BAL = {
   /** Aircraft market: mean new offers per month; lead time (days); offer life (days); lease months. */
   marketPerMonth: 0.8,
   deliveryDays: [30, 90] as [number, number],
+  /** Widebody lease delivery (days): ex-airline widebodies are parked and ready. */
+  deliveryDaysWide: [30, 60] as [number, number],
+  /** Random market offers: widebody weight × this until the guaranteed widebody offer (month 4–6) has come. */
+  wideMarketWeight: 0.4,
   marketOfferDays: [14, 30] as [number, number],
   leaseMonths: [36, 96] as [number, number],
   /** Days late a reliable client still pays within (beyond = overdue). */

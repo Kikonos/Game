@@ -12,7 +12,7 @@ import { assignCrew, autoRoster, dutyCandidates, dutyCrew, dutyLegality, flightC
 
 function rostered(seed = 5): GameState {
   const g = fixtureGame(seed);
-  demoFlights(g, undefined, 6);
+  demoFlights(g, undefined, 6, 'revenue');
   autoRoster(g);
   return g;
 }
