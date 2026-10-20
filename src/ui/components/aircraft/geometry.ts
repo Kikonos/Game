@@ -41,8 +41,11 @@ export interface Geometry {
   traced?: TracedProfile;
   /** Outline mode (Concorde): `fus` is the whole silhouette; no separate wing, the fin only shades. */
   outline: boolean;
-  /** Outline mode: clip regions above (`tube`) and below (`wing`) the tube's belly, and the seam between them. */
-  zones?: { tube: string; wing: string; seam: string };
+  /**
+   * Outline mode: clip regions above (`tube`) and below (`wing`) the tube's belly, the delta's
+   * edge-on root strip over the tube side (`strip`, from the traced wingRoot) and the seams.
+   */
+  zones?: { tube: string; wing: string; strip: string; seam: string };
   L: number;
   H: number;
   /** Nose tip (m) — the alignment reference of the traced frame. */
@@ -161,22 +164,28 @@ function cut(poly: readonly (readonly [number, number])[], x: number): [number, 
   return hi > lo ? [lo, hi] : undefined;
 }
 
-/** Upper (`hi`) or lower envelope of a closed outline, as a polyline over x for yAt. */
-function envelope(pts: readonly V[], hi: boolean, bins = 120): V[] {
+/**
+ * Upper (`hi`) or lower envelope of a closed outline, as a polyline over x for yAt: exact
+ * vertical cuts at every vertex x plus a fine grid (long sparse edges never drop out).
+ */
+function envelope(pts: readonly V[], hi: boolean, steps = 400): V[] {
   const x0 = Math.min(...pts.map((v) => v[0])), x1 = Math.max(...pts.map((v) => v[0]));
-  const best = new Map<number, number>();
+  const xs = new Set(pts.map((v) => v[0]));
+  for (let i = 0; i <= steps; i++) xs.add(lerp(x0, x1, i / steps));
   const n = pts.length;
-  for (let i = 0; i < n; i++) {
-    // sample the edges too, so sparse polygons still fill every bin
-    const a = pts[i], b = pts[(i + 1) % n];
-    for (let k = 0; k <= 8; k++) {
-      const v = lerpV(a, b, k / 8);
-      const bin = Math.round(((v[0] - x0) / (x1 - x0 || 1)) * bins);
-      const cur = best.get(bin);
-      if (cur === undefined || (hi ? v[1] > cur : v[1] < cur)) best.set(bin, v[1]);
+  const out: V[] = [];
+  for (const x of [...xs].sort((a, b) => a - b)) {
+    let best = hi ? -Infinity : Infinity;
+    for (let i = 0; i < n; i++) {
+      const a = pts[i], b = pts[(i + 1) % n];
+      if ((a[0] - x) * (b[0] - x) > 0) continue;
+      // vertical edges and touching vertices count with both ends
+      const ys = a[0] === b[0] ? [a[1], b[1]] : [lerp(a[1], b[1], (x - a[0]) / (b[0] - a[0]))];
+      for (const y of ys) best = hi ? Math.max(best, y) : Math.min(best, y);
     }
+    if (Number.isFinite(best)) out.push([x, best]);
   }
-  return [...best.entries()].sort((a, b) => a[0] - b[0]).map(([bin, y]): V => [x0 + (bin / bins) * (x1 - x0), y]);
+  return out;
 }
 
 interface FinGeo {
@@ -360,7 +369,43 @@ function build(p: AircraftProfile, t?: TracedProfile): Geometry {
       } else flush();
     }
     flush();
-    zones = { tube, wing, seam: seam.toString() };
+    // delta seen edge-on: a sliver over the lower tube from the root LE to the TE, its lower edge
+    // the belly. Depth over the chord (fraction of the peak) as drawn on the Concorde reference;
+    // wingRoot.y is the strip's mean centre line, which sets the peak depth.
+    const strip = new D();
+    const wr = fr.t.wingRoot;
+    if (wr && wr.to > wr.from && fr.bottom.length >= 2) {
+      const DEPTH: readonly V[] = [[0, 0.72], [0.1, 0.9], [0.17, 1], [0.35, 1], [0.5, 0.91], [0.7, 0.89], [0.85, 0.79], [1, 0.71]];
+      const mean = DEPTH.reduce((a, [u, d], i) => (i ? a + ((d + DEPTH[i - 1][1]) / 2) * (u - DEPTH[i - 1][0]) : a), 0);
+      const xa = fr.X(wr.from), xb = fr.X(wr.to);
+      // reference belly: the lowest tube line along the root (the aft upsweep does not lift the wing)
+      let ref = Infinity;
+      for (let i = 0; i <= 40; i++) ref = Math.min(ref, cutY(lerp(xa, xb, i / 40)));
+      const peak = (2 * (fr.Y(wr.y) - ref)) / mean;
+      if (peak > 0) {
+        const upper: V[] = [];
+        for (let i = 0; i <= 60; i++) {
+          const u = i / 60, x = lerp(xa, xb, u);
+          upper.push([x, Math.min(upperY(x), ref + peak * yAt(DEPTH, u))]);
+        }
+        // pointed LE: the lower surface meets the belly 6% of the chord aft of the tip
+        const lower: V[] = [];
+        for (let i = 0; i <= 12; i++) {
+          const x = lerp(xa, xb, 0.06 * (1 - i / 12)), k = 1 - (1 - i / 12) ** 2;
+          lower.push([x, lerp(cutY(x), upper[0][1], k)]);
+        }
+        const belly: V[] = [];
+        for (let i = 0; i <= 40; i++) {
+          const x = lerp(xb, lerp(xa, xb, 0.06), i / 40);
+          belly.push([x, cutY(x)]);
+        }
+        strip.spline(upper);
+        for (const v of [...belly, ...lower]) strip.L(v);
+        strip.Z();
+        seam.spline(upper).L([xb, cutY(xb)]);
+      }
+    }
+    zones = { tube, wing, strip: strip.toString(), seam: seam.toString() };
   }
 
   // ---------- vertical fin ----------

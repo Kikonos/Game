@@ -272,6 +272,7 @@ function AircraftArtImpl({ typeId, livery, code, name, className, height, detail
           {lv.fus && <path d={lv.fus} fill={primary} />}
           {lv.fus2 && <path d={lv.fus2} fill={secondary} />}
         </g>
+        {g.zones?.strip && <path d={g.zones.strip} fill={url('wing')} />}
         {g.zones && <path d={g.zones.seam} fill="none" stroke={OUTLINE} strokeWidth={sw * 0.7} style={ns} />}
         {g.wing.shadow && <ellipse cx={f(g.wing.shadow.c[0])} cy={f(-g.wing.shadow.c[1])} rx={f(g.wing.shadow.rx)} ry={f(g.wing.shadow.ry)} fill={url('sh')} />}
         {full && title && (

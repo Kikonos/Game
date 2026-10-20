@@ -19,8 +19,8 @@ export const profile: TracedProfile = {
     [0.93, -0.0514], [0.95, -0.0515], [0.97, -0.0512], [0.99, -0.046], [1.0, -0.034],
   ],
   bottom: [
-    [0.0, 0.0], [0.002, 0.0028], [0.004, 0.005], [0.007, 0.0085], [0.01, 0.0111], [0.014, 0.0133],
-    [0.018, 0.0152], [0.023, 0.0211], [0.028, 0.022], [0.034, 0.0242], [0.04, 0.0269], [0.047, 0.0289],
+    [0.0, 0.0], [0.002, 0.0034], [0.004, 0.006], [0.007, 0.0096], [0.01, 0.0126], [0.014, 0.0151],
+    [0.018, 0.0174], [0.023, 0.0198], [0.028, 0.0219], [0.034, 0.0244], [0.04, 0.0269], [0.047, 0.0289],
     [0.055, 0.0311], [0.063, 0.0342], [0.072, 0.0355], [0.082, 0.0371], [0.092, 0.0405], [0.103, 0.0418],
     [0.115, 0.0439], [0.127, 0.0453], [0.14, 0.0459], [0.15, 0.0468], [0.17, 0.0485], [0.19, 0.049],
     [0.21, 0.049], [0.23, 0.0473], [0.25, 0.0472], [0.27, 0.0479], [0.29, 0.0485], [0.31, 0.0494],
@@ -43,6 +43,7 @@ export const profile: TracedProfile = {
     { x: 0.4494, w: 0.0149, h: 0.0304, y: -0.0175 },
     { x: 0.5967, w: 0.0159, h: 0.029, y: -0.0175 },
     { x: 0.8043, w: 0.0156, h: 0.029, y: -0.0175 },
+    { x: 0.2215, w: 0.0155, h: 0.024, y: -0.0538 },
   ],
   fin: [[0.745, -0.0494], [0.7562, -0.05], [0.781, -0.052], [0.798, -0.055], [0.8106, -0.06], [0.8189, -0.065], [0.825, -0.07], [0.8367, -0.08], [0.8489, -0.09], [0.8611, -0.1], [0.8855, -0.12], [0.9099, -0.14], [0.9334, -0.16], [0.9573, -0.18], [0.9695, -0.19], [0.977, -0.194], [1.028, -0.194], [1.0292, -0.19], [1.0244, -0.18], [1.0161, -0.16], [1.0087, -0.14], [1.0, -0.12], [0.9926, -0.1], [0.9882, -0.09], [0.9843, -0.08], [0.98, -0.07], [0.9782, -0.065], [0.9761, -0.06], [0.9726, -0.0525]],
   wingRoot: { from: 0.38, to: 0.62, y: 0.03 },
@@ -50,5 +51,5 @@ export const profile: TracedProfile = {
     { x: 0.357, y: 0.031, w: 0.084, h: 0.0426 },
     { x: 0.5107, y: 0.0266, w: 0.085, h: 0.0426 },
   ],
-  notes: "JAL 747-400 photo, de-rotated 0.25 deg. windows = MAIN deck row; upper-deck row: y -0.0418, h 0.0045, from 0.144 to 0.296, pitch 0.0075, gap [0.217, 0.24] (upper-deck exit at 0.236). Cockpit on the upper deck at the hump front: slanted windshield + 2 side windows (aft one wide). Hump crown -0.063 at 0.10-0.25, blends to the main-deck crown -0.049 by 0.43. Engines: inboard (fwd/low), outboard (aft/high).",
+  notes: "JAL 747-400 photo, de-rotated 0.25 deg. windows = MAIN deck row; upper-deck row: y -0.0418, h 0.0045, from 0.144 to 0.296, pitch 0.0075, gap [0.217, 0.24] (upper-deck exit at 0.236). Cockpit on the upper deck at the hump front: slanted windshield + 2 side windows (aft one wide). Chin re-traced on a contrast-stretched view (convex, no kink). Last door = upper-deck exit (outline seams at 0.221/0.238 between the upper-deck window groups). Hump crown -0.063 at 0.10-0.25, blends to the main-deck crown -0.049 by 0.43. Engines: inboard (fwd/low), outboard (aft/high).",
 };
