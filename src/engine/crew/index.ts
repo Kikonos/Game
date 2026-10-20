@@ -14,15 +14,19 @@ import { minRest, nightsIn, LIMITS } from './rules';
 import { crewCount, crewIx, dutyBlock, dutyFlights, dutySegs, onBlocks, touchCrew } from './timeline';
 
 export {
-  checkAssignment, crewWindows, daysOffInMonth, dutyLegality, LIMITS, maxFdp, minRest, restAfter,
+  checkAssignment, crewWindows, daysOffInMonth, LIMITS, maxFdp, minRest, restAfter,
   acclimState, referenceTime, type Acclim, type CrewWindows, type FdpInput, type IssueCode, type LegalityIssue, type LegalityReport, type RestInput,
 } from './ftl';
 export { crewName, makeCrewMember, salaryFor } from './generate';
 export { crewAvailability, hireCrew, hireQuote, staffing, trainCrew, type Availability, type HireRequest, type RoleCapacity, type StaffingLine } from './hr';
 export {
-  applyDiscretion, assignCrew, autoRoster, buildDuties, flightCrewStatus, onFlightsChanged, removeCrew, replaceCrew, rerosterFrom, rosterOf, unassignCrew,
+  applyDiscretion, autoRoster, buildDuties, flightCrewStatus, onFlightsChanged, removeCrew, replaceCrew, rerosterFrom, rosterOf,
   type FlightCrewStatus, type RosterResult,
 } from './roster';
+export {
+  assignCrew, dutyCandidates, dutyCrew, dutyLegality, dutyOf, swapCrew, unassignCrew, unlockCrew,
+  type DutyCandidate, type DutyCrewView, type DutyLegalityView, type DutyLegalityWarning, type RosterOpts, type RosterSlotView,
+} from './rosterActions';
 export { salaryBill } from './costs';
 export { crewRev, ticketPrice } from './timeline';
 

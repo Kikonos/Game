@@ -5,7 +5,7 @@ import { AIRPORT_BY_CODE } from '../../data/airports';
 import { CREW_MIX, DEFAULT_MIX, NAMES } from '../../data/names';
 import { BAL } from '../core/balance';
 import { nextId } from '../core/entities';
-import { chance, int, pick, weightedPick } from '../core/rng';
+import { chance, int, next, pick, weightedPick } from '../core/rng';
 import type { CrewMember, CrewStatus, GameState, Role } from '../core/types';
 
 const WIDE: RatingFamily[] = ['B757/767', 'A330/340', 'B777', 'B787', 'A350', 'A380', 'B747'];
@@ -13,6 +13,12 @@ const WIDE: RatingFamily[] = ['B757/767', 'A330/340', 'B777', 'B787', 'A350', 'A
 export function salaryFor(role: Role, family: RatingFamily): number {
   const [n, w] = BAL.salary[role];
   return WIDE.includes(family) && family !== 'B757/767' ? w : n;
+}
+
+/** Surname, feminine form where the language has one (same RNG draw as a plain pick). */
+function lastName(g: GameState, kit: (typeof NAMES)[string], female: boolean): string {
+  const i = Math.floor(next(g) * kit.last.length);
+  return (female && kit.lastF?.[i]) || kit.last[i];
 }
 
 /** A new crew member at a base with a rating; names and languages follow the base's crew mix. */
@@ -27,7 +33,7 @@ export function makeCrewMember(g: GameState, role: Role, family: RatingFamily, b
   return {
     id: nextId(g, 'c'),
     first: pick(g, female ? kit.f : kit.m),
-    last: pick(g, kit.last),
+    last: lastName(g, kit, female),
     nationality: nat,
     role,
     ratings: [family],

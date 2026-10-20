@@ -116,20 +116,24 @@ export function refreshPairing(g: GameState, p: Pairing): string[] {
   p.end = duties[duties.length - 1].release;
   const roles = pairingRoles(g, p);
   const dropped: string[] = [];
-  if (roles.join() !== p.slots.map((s) => s.role).join()) {
-    const old = p.slots;
+  // Extra seats (manual, above the complement) ride along unchanged after the complement's slots.
+  const extras = p.slots.filter((s) => s.extra);
+  const core = extras.length ? p.slots.filter((s) => !s.extra) : p.slots;
+  if (roles.join() !== core.map((s) => s.role).join()) {
+    const old = core;
     const used = new Set<number>();
     p.slots = roles.map((role) => {
       const i = old.findIndex((s, k) => !used.has(k) && s.role === role && s.crewId);
       if (i >= 0) {
         used.add(i);
-        return { role, crewId: old[i].crewId };
+        return old[i].locked ? { role, crewId: old[i].crewId, locked: true } : { role, crewId: old[i].crewId };
       }
       return { role, crewId: null };
     });
     old.forEach((s, k) => {
       if (!used.has(k) && s.crewId) dropped.push(s.crewId);
     });
+    p.slots.push(...extras);
   }
   let lg: Legality = 'legal';
   for (const d of duties) lg = worst(lg, d.legality);

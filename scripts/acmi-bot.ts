@@ -9,20 +9,21 @@
 // - crew: fill staffing, hire one more set when the family's pilots fly > 80% of productive hours;
 // - maintenance: C-checks booked when warned, in the first free window (winter first); A-checks auto;
 // - decisions: swap aircraft on AOG when one is free, factor a late invoice when cash is short, else the default;
-// - fleet: lease a widebody once the cash covers its deposit plus three months of the bigger fleet's fixed costs.
+// - fleet: lease a widebody once the cash covers its deposit, three months of its fixed costs and a cushion, the last
+//   quarter was profitable and a big widebody job starts after delivery.
 
 import LZString from 'lz-string';
 import { BAL } from '../src/engine/core/balance';
 import { statementTotals } from '../src/engine/core/ledger';
 import { complement, typeOf } from '../src/engine/core/perf';
-import { DAY, dayIndex, fmtMonth, monthKey, toDate } from '../src/engine/core/time';
+import { DAY, dayIndex, fmtMonth, fromUTC, monthKey, toDate } from '../src/engine/core/time';
 import type { RatingFamily } from '../src/data/acmiTypes';
 import type { Archetype, ContractOffer, GameState, LedgerCat, MonthKey, Role } from '../src/engine/core/types';
 import { acceptOffer, counterOffer, feasibilityAll, type FeasibilityReport } from '../src/engine/contracts';
 import { hireCrew, staffing } from '../src/engine/crew';
 import { devFleet } from '../src/engine/dev';
 import { createGame } from '../src/engine/newGame';
-import { acquireAircraft, checkStatus, fixedCosts, groundGaps, resolveDecision, scheduleCheck } from '../src/engine/ops';
+import { acquireAircraft, checkStatus, groundGaps, resolveDecision, scheduleCheck } from '../src/engine/ops';
 import { deserialize, serialize } from '../src/engine/save';
 import { advanceTo } from '../src/engine/sim';
 
@@ -40,13 +41,18 @@ const newGame = () => createGame({ name: 'Atlântica Wings', code: 'AW', livery:
 interface Tally {
   actions: Map<number, number>;
   decisions: Map<number, number>;
+  /** Decisions answered per month, and by kind. */
+  decMonth: Map<number, number>;
+  decKinds: Map<string, number>;
   accepted: number;
   countered: number;
   firstAccept: number | null;
   wideAffordableAt: number | null;
+  /** When the bot's own (stricter) signing test on cash first passed. */
+  wideReadyAt: number | null;
   wideSigned: number | null;
 }
-const newTally = (): Tally => ({ actions: new Map(), decisions: new Map(), accepted: 0, countered: 0, firstAccept: null, wideAffordableAt: null, wideSigned: null });
+const newTally = (): Tally => ({ actions: new Map(), decisions: new Map(), decMonth: new Map(), decKinds: new Map(), accepted: 0, countered: 0, firstAccept: null, wideAffordableAt: null, wideReadyAt: null, wideSigned: null });
 
 const weekOf = (g: GameState) => Math.floor((g.now - g.started) / (7 * DAY));
 const act = (g: GameState, t: Tally, n = 1) => t.actions.set(weekOf(g), (t.actions.get(weekOf(g)) ?? 0) + n);
@@ -76,6 +82,8 @@ function decide(g: GameState, t: Tally): void {
     if (resolveDecision(g, d.id, opt).ok || resolveDecision(g, d.id, d.defaultOption).ok) {
       act(g, t);
       t.decisions.set(weekOf(g), (t.decisions.get(weekOf(g)) ?? 0) + 1);
+      t.decMonth.set(monthKey(g.now), (t.decMonth.get(monthKey(g.now)) ?? 0) + 1);
+      t.decKinds.set(`${d.kind}:${opt}`, (t.decKinds.get(`${d.kind}:${opt}`) ?? 0) + 1);
     }
   }
 }
@@ -93,7 +101,7 @@ function bestFit(g: GameState, o: ContractOffer): FeasibilityReport | null {
     feasibilityAll(g, o.id).find((r) => {
       if ((r.level !== 'ok' && r.level !== 'warn') || r.estMargin <= 0) return false;
       const crew = r.checks.find((c) => c.id === 'crew');
-      return !crew || crew.level === 'ok' || (r.crew.firstShort !== null && r.crew.firstShort > g.now + 50 * DAY);
+      return !crew || crew.level === 'ok' || (r.crew.firstShort !== null && r.crew.firstShort > g.now + 70 * DAY);
     }) ?? null
   );
 }
@@ -131,15 +139,19 @@ function offers(g: GameState, t: Tally): void {
   }
 }
 
-/** Fill staffing; one more set per family when its pilots run hot and nobody is joining. */
+/** Crew trouble in the inbox over the last two weeks (legs sub-chartered or cancelled for want of a legal crew). */
+const crewTrouble = (g: GameState) => g.messages.filter((m) => m.cat === 'crew' && m.tone !== 'info' && m.t > g.now - 14 * DAY && /sub-chartered|cancelled/.test(m.title)).length;
+
+/** Fill staffing; one more set per family when its pilots run hot or crew trouble keeps costing legs, and nobody is joining. */
 function hire(g: GameState, t: Tally): void {
   for (const l of staffing(g)) {
     if (l.have < l.need && hireCrew(g, { role: l.role, family: l.family, base: g.company.homeBase, count: Math.min(30, l.need - l.have) }).ok) act(g, t);
   }
   const fams = new Map<RatingFamily, { typeId: string; seats: number }>();
   for (const ac of Object.values(g.fleet)) if (ac.status !== 'delivering') fams.set(typeOf(ac.typeId).family, { typeId: ac.typeId, seats: ac.cabin.total });
+  const trouble = crewTrouble(g) >= 4;
   for (const [family, x] of fams) {
-    if (pilotUtil(g, family) < 0.8 || g.company.cash < 1_000_000) continue;
+    if ((!trouble && pilotUtil(g, family) < 0.8) || g.company.cash < 1_500_000) continue;
     if (Object.values(g.crew).some((c) => c.status === 'joining' && c.ratings.includes(family))) continue;
     const per = new Map<Role, number>();
     for (const r of complement(x.typeId, x.seats, { extraCabin: g.company.policies.extraCabin })) per.set(r, (per.get(r) ?? 0) + 1);
@@ -167,21 +179,32 @@ function checks(g: GameState, t: Tally): void {
   }
 }
 
-/** Monthly fixed costs with one more aircraft: rent, insurance, overhead, salaries (5 new sets at widebody pay). */
-function fixedWith(g: GameState, rent: number, typeId: string, seats: number): number {
-  const fc = fixedCosts(g, monthKey(g.now));
-  const sal = Object.values(g.crew).reduce((s, c) => s + c.salary, 0);
-  const sets = complement(typeId, seats).reduce((s, r) => s + (BAL.salary[r]?.[1] ?? 3_000), 0) * BAL.crewSetsPerAircraft;
-  return fc.rent + fc.insurance + fc.overhead + (sal + sets) * (1 + BAL.onCosts) + rent + typeOf(typeId).insuranceMonth + BAL.overheadPerAircraft;
+/** A widebody's own monthly fixed costs: rent, insurance, overhead share, 5 crew sets with on-costs. */
+function wideMonth(rent: number, typeId: string, seats: number): number {
+  const sets = complement(typeId, seats).reduce((s, r) => s + (BAL.salary[r]?.[1] ?? 3_000), 0) * BAL.crewSetsPerAircraft * (1 + BAL.onCosts);
+  return rent + typeOf(typeId).insuranceMonth + BAL.overheadPerAircraft + sets;
 }
 
+/**
+ * Signed when the deposit, three months of the widebody's fixed costs (crew included) and a $1.5M cushion are in the bank, only
+ * while the last three months were profitable and a widebody job worth $1.5M+ starts far enough out for delivery
+ * and crew hiring; that job is then taken as soon as the aircraft can fly it.
+ */
 function fleet(g: GameState, t: Tally): void {
   if (Object.values(g.fleet).some((a) => typeOf(a.typeId).body === 'wide')) return;
+  const recent = g.finance.history.slice(-3);
+  const earning = recent.length === 3 && recent.reduce((s, st) => s + statementTotals(st.lines).profit, 0) > 0;
   for (const o of g.market.aircraft) {
     if (typeOf(o.typeId).body !== 'wide' || o.kind !== 'dryLeaseIn') continue;
-    if (g.company.cash < o.deposit + 3 * fixedWith(g, o.rentPerMonth, o.typeId, o.cabin.total)) continue;
-    t.wideAffordableAt ??= g.now;
-    if (monthKey(g.now) - monthKey(g.started) < 3) continue;
+    // Acquirable (the target): deposit plus three months of rent and insurance, with $1M left to run the airline.
+    if (g.company.cash >= o.deposit + 3 * (o.rentPerMonth + typeOf(o.typeId).insuranceMonth) + 1_000_000) t.wideAffordableAt ??= g.now;
+    if (g.company.cash < o.deposit + 3 * wideMonth(o.rentPerMonth, o.typeId, o.cabin.total) + 1_500_000) continue;
+    t.wideReadyAt ??= g.now;
+    const job = Object.values(g.offers).find(
+      (x) => x.status === 'open' && x.estValue >= 1_500_000 && x.start > g.now + (o.leadDays + 30) * DAY && (x.requirements.body === 'wide' || x.requirements.minSeats > 220) &&
+        o.cabin.total >= x.requirements.minSeats && (!x.requirements.families?.length || x.requirements.families.includes(typeOf(o.typeId).family)),
+    );
+    if (!earning || !job) continue;
     if (acquireAircraft(g, o.id).ok) {
       t.wideSigned = g.now;
       act(g, t);
@@ -258,8 +281,8 @@ if (DET) {
 interface Month {
   legs: number;
   cancelled: number;
+  sub: number;
   crewBH: number;
-  dec: number;
   msgs: number;
   aogs: number;
   illegal: number;
@@ -267,7 +290,7 @@ interface Month {
 const months = new Map<MonthKey, Month>();
 const mon = (k: MonthKey): Month => {
   let m = months.get(k);
-  if (!m) months.set(k, (m = { legs: 0, cancelled: 0, crewBH: 0, dec: 0, msgs: 0, aogs: 0, illegal: 0 }));
+  if (!m) months.set(k, (m = { legs: 0, cancelled: 0, sub: 0, crewBH: 0, msgs: 0, aogs: 0, illegal: 0 }));
   return m;
 };
 
@@ -276,7 +299,6 @@ const g = newGame();
 const tally = newTally();
 const end = g.started + days * DAY;
 const seenFlight = new Set<string>();
-const seenDecision = new Set<string>();
 const seenOffer = new Set<string>();
 const cancels = new Map<string, number>();
 const errors: string[] = [];
@@ -284,19 +306,12 @@ let msgCount = 0;
 let lastMsgId = g.messages[0]?.id;
 let prev = { aogs: 0, illegal: 0 };
 let acYears = 0;
-let saveRaw = 0;
-let saveKB = 0;
-let saveMs = 0;
+let peakSave = '';
 let lastDay = dayIndex(g.now);
 
 function onStep(): void {
   const m = mon(monthKey(g.now));
   for (const o of Object.values(g.offers)) seenOffer.add(o.id);
-  for (const d of g.decisions) {
-    if (seenDecision.has(d.id)) continue;
-    seenDecision.add(d.id);
-    m.dec++;
-  }
   // Inbox is newest first: count down to the last message seen.
   let n = 0;
   for (const x of g.messages) {
@@ -306,12 +321,20 @@ function onStep(): void {
   lastMsgId = g.messages[0]?.id;
   m.msgs += n;
   msgCount += n;
+  const s = g.stats;
+  m.aogs += (s.aogs ?? 0) - prev.aogs;
+  m.illegal += (s.illegalFlown ?? 0) - prev.illegal;
+  prev = { aogs: s.aogs ?? 0, illegal: s.illegalFlown ?? 0 };
+  if (dayIndex(g.now) === lastDay && g.now < end) return;
+  lastDay = dayIndex(g.now);
+  // Once a day: flights flown or cancelled (pruned only a week after their month is billed).
   for (const f of Object.values(g.flights)) {
     if (f.kind === 'deadhead' || seenFlight.has(f.id)) continue;
     if (f.status === 'done') {
       seenFlight.add(f.id);
       const fm = mon(monthKey(f.ata ?? f.sta));
-      if (f.kind === 'revenue') fm.legs++;
+      if (f.operatedBy) fm.sub++;
+      else if (f.kind === 'revenue') fm.legs++;
       fm.crewBH += (f.crewIds.length * ((f.ata ?? f.sta) - (f.atd ?? f.std))) / 60;
     } else if (f.status === 'cancelled') {
       seenFlight.add(f.id);
@@ -320,22 +343,11 @@ function onStep(): void {
       cancels.set(key, (cancels.get(key) ?? 0) + 1);
     }
   }
-  const s = g.stats;
-  m.aogs += (s.aogs ?? 0) - prev.aogs;
-  m.illegal += (s.illegalFlown ?? 0) - prev.illegal;
-  prev = { aogs: s.aogs ?? 0, illegal: s.illegalFlown ?? 0 };
-  if (dayIndex(g.now) === lastDay) return;
-  lastDay = dayIndex(g.now);
   acYears += Object.values(g.fleet).filter((a) => a.status !== 'delivering').length / 365;
   if (toDate(g.now).getUTCDate() !== 1) return;
-  // Save size: compressed whenever the raw save is 10% past the last measured peak (bounded cost).
+  // Save size: the biggest month-start save is kept and compressed after the run (outside the timing).
   const raw = serialize(g);
-  if (raw.length > saveRaw * 1.1) {
-    const t0 = performance.now();
-    saveKB = Math.max(saveKB, (LZString.compressToUTF16(raw).length * 2) / 1024);
-    saveMs = Math.max(saveMs, performance.now() - t0);
-    saveRaw = raw.length;
-  }
+  if (raw.length > peakSave.length) peakSave = raw;
   const bad = badNumbers(g);
   if (bad.length) errors.push(`${fmtMonth(monthKey(g.now))}: non-finite ${bad.join(', ')}`);
 }
@@ -350,7 +362,7 @@ const runSecs = (performance.now() - wall) / 1000;
 // ---------- report ----------
 
 const CODE: Partial<Record<Archetype, string>> = { seasonBase: 'SB', aogCover: 'AC', adhoc: 'AH', sports: 'SP', repatriation: 'RP', tourSeries: 'TS', troopRotation: 'TR', evacuation: 'EV' };
-const monthStart = (k: MonthKey) => Date.UTC(Math.floor(k / 12), k % 12, 1) / 60_000;
+const monthStart = (k: MonthKey) => fromUTC(Math.floor(k / 12), (k % 12) + 1, 1);
 const contractsIn = (k: MonthKey) => {
   const n = new Map<string, number>();
   for (const c of Object.values(g.contracts)) {
@@ -389,34 +401,40 @@ const goalsBy = (t: number) => g.goals.filter((x) => x.done !== null && x.done <
 const pad = (s: string | number, n: number) => String(s).padStart(n);
 const k$ = (v: number) => `${(v / 1000).toFixed(0)}k`;
 console.log(`BLOCK HOURS bot — seed ${seed}, ${days} days, Startup at LIS (2× A320ceo)\n`);
-console.log('month       cash  revenue   profit  BH/ac  wet BH/MGH  contracts        legs canc ill util  AOG mxd  dec/msg goals');
+console.log('month       cash  revenue   profit  BH/ac  wet BH/MGH  contracts        legs cx/sub ill util  AOG mxd  dec/msg goals');
 let revenueY = 0;
 let profitY = 0;
 let bhSummer = 0;
 let nSummer = 0;
 const lines = new Map<LedgerCat, number>();
-for (const st of g.finance.history) {
+// Closed statements, then the month still open at the end (marked *, fixed costs not yet posted).
+for (const st of [...g.finance.history, g.finance.current]) {
+  const open = st === g.finance.current;
+  if (open && !st.bh && !Object.keys(st.lines).length) continue;
   const { revenue, profit } = statementTotals(st.lines);
-  revenueY += revenue;
-  profitY += profit;
-  for (const [c, v] of Object.entries(st.lines)) lines.set(c as LedgerCat, (lines.get(c as LedgerCat) ?? 0) + (v ?? 0));
+  if (!open) {
+    revenueY += revenue;
+    profitY += profit;
+    for (const [c, v] of Object.entries(st.lines)) lines.set(c as LedgerCat, (lines.get(c as LedgerCat) ?? 0) + (v ?? 0));
+  }
   const m = mon(st.month);
   const fleetN = Object.values(g.fleet).filter((a) => a.deliveredAt < monthStart(st.month + 1)).length || 2;
   const bhAc = st.bh / fleetN;
-  if ([5, 6, 7, 8].includes(st.month % 12)) {
+  if (!open && [5, 6, 7, 8].includes(st.month % 12)) {
     bhSummer += bhAc;
     nSummer++;
   }
   console.log(
-    `${fmtMonth(st.month).padEnd(8)}${pad(k$(st.cashEnd), 8)}${pad(k$(revenue), 9)}${pad(k$(profit), 9)}${pad(bhAc.toFixed(0), 7)}${pad(mghOf(st.month), 12)}  ${contractsIn(st.month).padEnd(15)}` +
-      `${pad(m.legs, 6)}${pad(m.cancelled, 5)}${pad(m.illegal, 4)}${pad(`${Math.round((100 * m.crewBH) / Math.max(1, crewCap(st.month)))}%`, 5)}${pad(m.aogs, 5)}${pad(maintDays(st.month).toFixed(0), 4)}${pad(`${m.dec}/${m.msgs}`, 9)}${pad(goalsBy(monthStart(st.month + 1)), 6)}`,
+    `${(fmtMonth(st.month) + (open ? '*' : '')).padEnd(8)}${pad(k$(open ? g.company.cash : st.cashEnd), 8)}${pad(k$(revenue), 9)}${pad(k$(profit), 9)}${pad(bhAc.toFixed(0), 7)}${pad(mghOf(st.month), 12)}  ${contractsIn(st.month).padEnd(15)}` +
+      `${pad(m.legs, 6)}${pad(`${m.cancelled}/${m.sub}`, 7)}${pad(m.illegal, 4)}${pad(`${Math.round((100 * m.crewBH) / Math.max(1, crewCap(st.month)))}%`, 5)}${pad(m.aogs, 5)}${pad(maintDays(st.month).toFixed(0), 4)}${pad(`${tally.decMonth.get(st.month) ?? 0}/${m.msgs}`, 9)}${pad(goalsBy(monthStart(st.month + 1)), 6)}`,
   );
 }
 
-const t0 = performance.now();
 const finalRaw = serialize(g);
-saveKB = Math.max(saveKB, (LZString.compressToUTF16(finalRaw).length * 2) / 1024);
-saveMs = Math.max(saveMs, performance.now() - t0);
+if (finalRaw.length > peakSave.length) peakSave = finalRaw;
+const t0 = performance.now();
+const saveKB = (LZString.compressToUTF16(peakSave).length * 2) / 1024;
+const saveMs = performance.now() - t0;
 const big = deserialize(finalRaw);
 devFleet(big, 10);
 const bigKB = (LZString.compressToUTF16(serialize(big)).length * 2) / 1024;
@@ -426,8 +444,10 @@ const s = g.stats;
 const weeks = Math.max(1, Math.floor(days / 7));
 let activeWeeks = 0;
 let maxDec = 0;
+const idle: number[] = [];
 for (let w = 0; w < weeks; w++) {
   if ((tally.actions.get(w) ?? 0) > 0) activeWeeks++;
+  else idle.push(w + 1);
   maxDec = Math.max(maxDec, tally.decisions.get(w) ?? 0);
 }
 const totalActions = [...tally.actions.values()].reduce((a, b) => a + b, 0);
@@ -447,22 +467,23 @@ const targets: [string, boolean, string][] = [
   ['year net margin −5%…+12%', margin >= -0.05 && margin <= 0.12, `${(margin * 100).toFixed(1)}% (${k$(profitY)} on ${k$(revenueY)})`],
   ['no illegal duties flown', (s.illegalFlown ?? 0) === 0, String(s.illegalFlown ?? 0)],
   ['< 2% flights uncovered at departure', uncShare < 0.02, `${(uncShare * 100).toFixed(2)}% of ${s.departures ?? 0}`],
-  ['≥ 1 meaningful action per week', totalActions / weeks >= 1 && activeWeeks / weeks >= 0.8, `${(totalActions / weeks).toFixed(1)}/wk, ${activeWeeks}/${weeks} weeks`],
-  ['≤ 3 decisions per week', maxDec <= 3, `max ${maxDec}, ${seenDecision.size} asked`],
+  ['≥ 1 meaningful action per week', totalActions / weeks >= 1 && activeWeeks / weeks >= 0.8, `${(totalActions / weeks).toFixed(1)}/wk, ${activeWeeks}/${weeks} weeks${idle.length ? ` (idle: ${idle.join(' ')})` : ''}`],
+  ['≤ 3 decisions per week', maxDec <= 3, `max ${maxDec}, ${[...tally.decisions.values()].reduce((a, b) => a + b, 0)} answered`],
   ['≥ 30 offers per year', seenOffer.size * (365 / days) >= 30, String(seenOffer.size)],
   ['first contract within 7 days', tally.firstAccept !== null && tally.firstAccept - g.started <= 7 * DAY, dayOf(tally.firstAccept)],
-  ['widebody acquirable within 12 months', tally.wideAffordableAt !== null && tally.wideAffordableAt - g.started <= 365 * DAY, `${dayOf(tally.wideAffordableAt)}, signed ${dayOf(tally.wideSigned)}`],
+  ['widebody acquirable within 12 months', tally.wideAffordableAt !== null && tally.wideAffordableAt - g.started <= 365 * DAY, `${dayOf(tally.wideAffordableAt)}; with crew costs ${dayOf(tally.wideReadyAt)}; signed ${dayOf(tally.wideSigned)}`],
   ['1–3 AOGs per aircraft-year', aogRate >= 1 && aogRate <= 3, `${aogRate.toFixed(2)} (${s.aogs ?? 0} in ${acYears.toFixed(1)} ac-yr)`],
-  ['governments mostly pay late', gov.length < 3 || govLate / gov.length >= 0.5, `${govLate}/${gov.length} invoices late`],
-  ['save < 300 KB (and with 10 aircraft)', saveKB < 300 && bigKB < 300, `${saveKB.toFixed(0)} KB (${saveMs.toFixed(0)} ms), 10 ac ${bigKB.toFixed(0)} KB`],
+  ['governments mostly pay late (≥ 5 invoices)', gov.length < 5 || govLate / gov.length >= 0.5, `${govLate}/${gov.length} invoices late`],
+  ['save < 300 KB (and with 10 aircraft)', saveKB < 300 && bigKB < 300, `peak ${saveKB.toFixed(0)} KB (compress ${saveMs.toFixed(0)} ms), with 10 aircraft ${bigKB.toFixed(0)} KB`],
   ['runs in < 10 s', runSecs < 10, `${runSecs.toFixed(1)} s`],
 ];
-console.log(`\nyear P&L: ${[...lines].sort((a, b) => b[1] - a[1]).map(([c, v]) => `${c} ${k$(v)}`).join(', ')}`);
+console.log(`\nP&L of the closed months: ${[...lines].sort((a, b) => b[1] - a[1]).map(([c, v]) => `${c} ${k$(v)}`).join(', ')}`);
 console.log(
   `legs ${s.legs}, on time ${((100 * s.onTime) / Math.max(1, s.legs)).toFixed(1)}%, cancelled ${s.cancelled}, contracts ${tally.accepted} signed (${tally.countered} countered), ` +
     `done ${s.contractsDone}, decisions ${s.decisions ?? 0}, sub-chartered ${s.subchartered ?? 0}, reliable ${g.company.reputation.reliable.toFixed(1)}, ` +
     `fleet ${Object.values(g.fleet).map((a) => typeOf(a.typeId).short).join('+')}, crew ${Object.keys(g.crew).length}, messages ${msgCount}`,
 );
+console.log(`decisions answered: ${[...tally.decKinds].sort((a, b) => b[1] - a[1]).map(([c, v]) => `${c} ${v}`).join(', ') || 'none'}`);
 console.log(`cancelled legs by reason: ${[...cancels].sort((a, b) => b[1] - a[1]).map(([c, v]) => `${c} ${v}`).join(', ') || 'none'}`);
 for (const e of errors.slice(0, 3)) console.log(e);
 console.log('\ntargets');

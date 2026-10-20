@@ -5,7 +5,7 @@ import { CLIENT_SEEDS, CLIENT_SEEDS_B1, RIVALS, RIVALS_B1, type ClientSeed } fro
 import { nextId } from '../core/entities';
 import type { Client, ClientKind, GameState, Rival } from '../core/types';
 
-const EUROPE = new Set(['PT', 'ES', 'LT', 'LV', 'MT', 'DE', 'IE', 'SE', 'HR', 'FR', 'GB', 'CH', 'NO', 'IT', 'NL', 'BE', 'AT', 'DK', 'FI', 'PL']);
+const EUROPE = new Set(['PT', 'ES', 'LT', 'LV', 'MT', 'DE', 'IE', 'SE', 'HR', 'FR', 'GB', 'CH', 'NO', 'IT', 'NL', 'BE', 'AT', 'DK', 'FI', 'PL', 'CZ', 'BG', 'EE', 'SK', 'RO']);
 
 /** Payment behaviour per kind (RESEARCH §4.3: commercial pays on time; governments 30–90 days late). */
 function behaviour(s: ClientSeed): Pick<Client, 'payReliability' | 'lateDays' | 'cleanSensitivity'> {

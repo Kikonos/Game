@@ -1,7 +1,7 @@
 // Contracts (B5): Market (offer cards, urgent first), Active (MGH progress, next flight, crew problems,
 // cancel with penalty) and Missed. DESIGN.md §6.3.
 
-import { AlertTriangle, CalendarRange, CircleSlash, FileSearch, Inbox as InboxIcon } from 'lucide-react';
+import { AlertTriangle, CalendarRange, CircleSlash, FileSearch, Handshake, Inbox as InboxIcon, Users } from 'lucide-react';
 import { useMemo } from 'react';
 import { flag } from '../../data/countries';
 import { cancelContract, cancelPenalty, contractProgress, leadDays } from '../../engine/contracts';
@@ -98,7 +98,7 @@ function ContractRow({ g, c, sel }: { g: GameState; c: Contract; sel: boolean })
           </div>
         )}
         {prob && (
-          <div className="small bad row gap-4"><AlertTriangle className="sc-ico-s" />Crew problem on <span className="mono">{prob.no} {prob.from}→{prob.to}</span> {fmtDateTime(prob.std)}</div>
+          <button className="sc-prob small bad row gap-4" onClick={() => store.openModal({ kind: 'duty', id: prob.id })}><AlertTriangle className="sc-ico-s" />Crew problem on <span className="mono">{prob.no} {prob.from}→{prob.to}</span> {fmtDateTime(prob.std)}<span className="sc-prob-go"><Users className="sc-ico-s" /> Fix crew</span></button>
         )}
       </div>
       {open && c.product.kind === 'wet' && (
@@ -110,6 +110,7 @@ function ContractRow({ g, c, sel }: { g: GameState; c: Contract; sel: boolean })
       {open && (
         <div className="sc-contract-actions">
           <button className="btn" onClick={() => store.navigate('schedule', { sel: { kind: 'aircraft', id: c.aircraftIds[0] }, view: String(Math.max(g.now, next?.std ?? c.start)) })} aria-label="Show on schedule"><CalendarRange /></button>
+          <button className="btn" onClick={() => store.openModal({ kind: 'subcharter', contractId: c.id })} aria-label="Sub-charter legs to a rival" data-tip="Hand legs to a rival operator"><Handshake /></button>
           <button className="btn btn-danger" onClick={() => confirmCancel(g, c)} aria-label="Cancel contract"><CircleSlash /></button>
         </div>
       )}

@@ -4,6 +4,7 @@
 import { ACMI_TYPES, type CabinPreset } from '../data/acmiTypes';
 import { AIRPORT_BY_CODE } from '../data/airports';
 import { COUNTRIES } from '../data/countries';
+import { DEFAULT_HOME_BASE, HOME_BASES } from '../data/naming';
 import { BAL } from './core/balance';
 import { nextId } from './core/entities';
 import { pushMessage } from './core/messages';
@@ -18,12 +19,15 @@ import { initCore } from './sim';
 export const SAVE_VERSION = 1;
 
 export interface NewGameOptions {
+  /** Company name (trimmed; a blank name falls back to "New Charter"). */
   name: string;
+  /** Two-character IATA-style code (letters/digits, upper-cased). */
   code: string;
   icao?: string;
   callsign?: string;
   ceo?: string;
   livery: Livery;
+  /** Home base (HOME_BASES; any known airport works, an unknown code falls back to LIS). */
   base: string;
   seed?: number;
   start?: Minute;
@@ -101,7 +105,20 @@ function emptyState(o: NewGameOptions, seed: number, now: Minute): GameState {
 /** Starting roster: 10 A320 sets of 1 CPT + 1 FO + 1 SCCM (SCC on narrowbodies) + 3 CC (180Y). */
 const STARTUP_CREW: [Role, number][] = [['CPT', 10], ['FO', 10], ['SCC', 10], ['CC', 30]];
 
-export function createGame(o: NewGameOptions): GameState {
+/** Normalised options: trimmed name, 2-char code, a known base. */
+export function normaliseOptions(o: NewGameOptions): NewGameOptions {
+  const name = o.name.trim().replace(/\s+/g, ' ').slice(0, 40) || 'New Charter';
+  const code = (o.code.toUpperCase().replace(/[^A-Z0-9]/g, '') + 'XX').slice(0, 2);
+  const icao = o.icao ? o.icao.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3) || undefined : undefined;
+  const callsign = o.callsign ? o.callsign.toUpperCase().trim().slice(0, 16) || undefined : undefined;
+  const base = AIRPORT_BY_CODE[o.base] ? o.base : DEFAULT_HOME_BASE;
+  return { ...o, name, code, icao, callsign, base };
+}
+
+export const isHomeBase = (code: string): boolean => (HOME_BASES as readonly string[]).includes(code);
+
+export function createGame(opts: NewGameOptions): GameState {
+  const o = normaliseOptions(opts);
   const seed = (o.seed ?? Math.floor(Math.random() * 2 ** 31)) | 0;
   const now = o.start ?? START;
   const g = emptyState(o, seed, now);
@@ -117,7 +134,7 @@ export function createGame(o: NewGameOptions): GameState {
       typeId: t.id,
       ownership: owned
         ? { kind: 'owned', bookValue: 9_500_000 }
-        : { kind: 'dryLeaseIn', lessor: 'Halcyon Aircraft Leasing', rentPerMonth: 228_000, reservesPerFH: 380, leaseStart: fromUTC(2026, 11, 1), leaseEnd: fromUTC(2031, 3, 1) },
+        : { kind: 'dryLeaseIn', lessor: 'AerCap', rentPerMonth: 228_000, reservesPerFH: 380, leaseStart: fromUTC(2026, 11, 1), leaseEnd: fromUTC(2031, 3, 1) },
       builtYear: built,
       hours,
       cycles: Math.round(hours / 1.7),
@@ -150,7 +167,7 @@ export function createGame(o: NewGameOptions): GameState {
     tone: 'info',
     cat: 'company',
     title: `Welcome to ${o.name}`,
-    body: `Two A320s at ${AIRPORT_BY_CODE[o.base].city}, ${Object.keys(g.crew).length} crew and $${(BAL.startCash / 1e6).toFixed(1)}M in the bank. Summer is coming: find work for both aircraft before the rent is due.`,
+    body: `Two A320s at ${AIRPORT_BY_CODE[o.base].city} (${o.base}), ${Object.keys(g.crew).length} crew and $${(BAL.startCash / 1e6).toFixed(1)}M in the bank. Summer is coming: find work for both aircraft before the rent is due.`,
   });
   return g;
 }

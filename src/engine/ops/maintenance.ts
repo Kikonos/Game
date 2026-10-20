@@ -39,7 +39,8 @@ export interface CheckStatus {
 
 const MONTH = 30.44 * DAY;
 const cLimitFH = (ac: Aircraft) => (typeOf(ac.typeId).body === 'wide' ? BAL.cCheckFH.wide : BAL.cCheckFH.narrow);
-const checkCostOf = (ac: Aircraft, kind: 'A' | 'C') => BAL.checkCost[kind][typeOf(ac.typeId).body === 'wide' ? 1 : 0];
+/** What a check costs us: a C-check is mostly paid out of maintenance reserves (leased) or the per-BH provision (owned). */
+const checkCostOf = (ac: Aircraft, kind: 'A' | 'C') => Math.round(BAL.checkCost[kind][typeOf(ac.typeId).body === 'wide' ? 1 : 0] * (kind === 'C' ? 1 - BAL.cReserveCover : 1));
 const durationOf = (ac: Aircraft, kind: 'A' | 'C') => (kind === 'A' ? typeOf(ac.typeId).aCheckHours * 60 : typeOf(ac.typeId).cCheckDays * DAY);
 
 function nextPlanned(g: GameState, acId: string, kind: MaintKind): MaintenanceEvent | undefined {

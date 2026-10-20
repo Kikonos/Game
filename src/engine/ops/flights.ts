@@ -223,8 +223,12 @@ function shiftCheck(g: GameState, m: MaintenanceEvent, start: Minute): void {
   schedule(g, m.start, 'maint.start', m.id, m.ev);
 }
 
-/** Applies a recovery plan; dropped revenue legs are compensated and messaged once. Returns legs moved. */
-export function applyHold(g: GameState, plan: HoldPlan, reason: string, moveReason?: string, cancelReason = reason): number {
+/**
+ * Applies a recovery plan; dropped revenue legs are compensated and messaged once (with `subAc`, a crew wait:
+ * sub-chartered instead when cheaper). Returns legs moved.
+ */
+export function applyHold(g: GameState, plan: HoldPlan, reason: string, moveReason?: string, cancelReason = reason, subAc?: Aircraft): number {
+  if (subAc && subcharterInstead(g, subAc, plan.cancels, `${reason}: the aircraft can't make these on time.`, false)) plan.cancels = [];
   const rev = plan.cancels.filter((f) => f.status === 'scheduled' && isRevenue(f));
   const pen = cancelLegs(g, plan.cancels, cancelReason, 0);
   if (rev.length) {
@@ -258,7 +262,7 @@ export function applyHold(g: GameState, plan: HoldPlan, reason: string, moveReas
  * next one keeps its time; a player's delay always moves f and only caps the legs after it. Returns later legs
  * moved (f may be cancelled: check its status).
  */
-export function delayChain(g: GameState, f: Flight, std: Minute, reason: string, own = true): number {
+export function delayChain(g: GameState, f: Flight, std: Minute, reason: string, own = true, crewWait = false): number {
   const ac = f.aircraftId ? g.fleet[f.aircraftId] : undefined;
   if (f.status !== 'scheduled') return 0;
   std = Math.max(std, g.now);
@@ -275,7 +279,7 @@ export function delayChain(g: GameState, f: Flight, std: Minute, reason: string,
     touchFlights(g);
     const all = flightsOf(g, ac.id).filter((x) => x.status === 'scheduled');
     const later = all.slice(all.indexOf(f) + 1);
-    return applyHold(g, recover(g, ac, later, f.to, std + f.block + turnOf(ac), f), reason, reason, `Recovery: ${reason}`);
+    return applyHold(g, recover(g, ac, later, f.to, std + f.block + turnOf(ac), f), reason, reason, `Recovery: ${reason}`, crewWait ? ac : undefined);
   }
   if (own) {
     const all = flightsOf(g, ac.id).filter((x) => x.status === 'scheduled');
@@ -284,7 +288,7 @@ export function delayChain(g: GameState, f: Flight, std: Minute, reason: string,
     const mine = plan.moves.find((x) => x.f === f);
     // The first leg always takes the new time (a hold may sit on its std); the rest follow.
     if (mine) mine.std = std;
-    const moved = applyHold(g, plan, reason, reason, `Recovery: ${reason}`);
+    const moved = applyHold(g, plan, reason, reason, `Recovery: ${reason}`, crewWait ? ac : undefined);
     return Math.max(0, moved - (mine ? 1 : 0));
   }
   const from = f.std;
@@ -577,6 +581,29 @@ function notReady(g: GameState, f: Flight, ac: Aircraft): void {
   dropUnit(g, ac, f, 'Aircraft out of position', `${ac.reg} is at ${ac.at}, not ${f.from}, and no flight brings it there in time.`, 'ops');
 }
 
+/**
+ * Crew failure on `legs`: operations hand the revenue legs to a rival when that costs less than cancelling them
+ * (compensation plus the fares lost; we still bill the client). True when sub-chartered.
+ */
+export function subcharterInstead(g: GameState, ac: Aircraft, legs: Flight[], why: string, reroster = true): boolean {
+  const live = legs.filter((x) => x.status === 'scheduled');
+  const rev = live.filter(isRevenue);
+  if (!rev.length) return false;
+  const rivalId = pickRival(g, ac.typeId);
+  if (!rivalId) return false;
+  const cost = subcharterCost(g, live, range(g, BAL.subcharterFactor[0], BAL.subcharterFactor[1]));
+  if (cost >= cancelCost(g, live) + subcharterCost(g, live, 1)) return false;
+  const name = g.rivals.find((r) => r.id === rivalId)?.name ?? 'A rival operator';
+  subcharterLegs(g, live, rivalId, cost);
+  pushMessage(g, {
+    tone: 'warn', cat: 'crew', title: `${rev[0].no} sub-chartered${rev.length > 1 ? ` with ${rev.length - 1} more` : ''}`,
+    body: `${why} ${name} flies ${rev.map((x) => `${x.no} ${x.from}–${x.to}`).join(', ')} for us (${usd(cost)}); the client is billed as usual.`,
+    ref: { kind: 'flight', id: rev[0].id },
+  });
+  if (reroster) rerosterFrom(g, ac.id, g.now);
+  return true;
+}
+
 /** Cancels the unit `f` starts (empty legs go back to contracts) with one message; the rest is re-rostered. */
 function dropUnit(g: GameState, ac: Aircraft, f: Flight, reason: string, why: string, cat: MessageCat): void {
   const legs = unitOf(g, ac, f);
@@ -614,11 +641,12 @@ function crewProblem(g: GameState, f: Flight, ac: Aircraft): void {
     f.crewTries = tries;
     const away = f.from !== stationOf(g, f);
     if (away ? delayOf(f) < 2 * DAY : tries <= 2) {
-      delayChain(g, f, Math.max(crewReadyAt(g, f, ac), g.now + Math.min(6, tries) * 60), away ? 'Waiting for a rescue crew' : 'Waiting for a legal crew');
+      delayChain(g, f, Math.max(crewReadyAt(g, f, ac), g.now + Math.min(6, tries) * 60), away ? 'Waiting for a rescue crew' : 'Waiting for a legal crew', true, true);
       rerosterFrom(g, ac.id, g.now);
       return;
     }
-    dropUnit(g, ac, f, 'No legal crew', `No legal crew after ${fmtDuration(heldFor(g, f))} on the ground:`, 'crew');
+    const why = `No legal crew after ${fmtDuration(heldFor(g, f))} on the ground:`;
+    if (!subcharterInstead(g, ac, unitOf(g, ac, f), why)) dropUnit(g, ac, f, 'No legal crew', why, 'crew');
     return;
   }
   crewShortDecision(g, f, ac);
@@ -636,14 +664,16 @@ function emptyLegCrew(g: GameState, f: Flight, ac: Aircraft): void {
   f.crewTries = tries;
   const d = f.dutyId ? g.duties[f.dutyId] : undefined;
   if (d && d.legality === 'illegal' && d.report > g.now && tries > 2) {
-    return dropUnit(g, ac, f, 'No legal crew', 'No legal crew pairing can fly this trip as planned (duty too long for one crew):', 'crew');
+    const why = 'No legal crew pairing can fly this trip as planned (duty too long for one crew):';
+    if (subcharterInstead(g, ac, unitOf(g, ac, f), why)) return;
+    return dropUnit(g, ac, f, 'No legal crew', why, 'crew');
   }
   if (tries > 4 && delayOf(f) > DAY) {
     if (f.kind === 'positioning') removeFlights(g, [f.id]);
     else cancelLegs(g, [f], 'No crew for the ferry', 0);
     return;
   }
-  delayChain(g, f, Math.max(crewReadyAt(g, f, ac), g.now + tries * 120), 'Waiting for crew');
+  delayChain(g, f, Math.max(crewReadyAt(g, f, ac), g.now + tries * 120), 'Waiting for crew', true, true);
   rerosterFrom(g, ac.id, g.now);
 }
 

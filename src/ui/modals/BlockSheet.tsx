@@ -1,14 +1,14 @@
 // Schedule detail sheet (B5): the flight(s) or maintenance near a Gantt tap, or an idle gap.
 // Flight: times UTC/local, crew and legality, contract link. Maintenance: reschedule / cancel.
 
-import { CalendarClock, ChevronLeft, FileSignature, Search, Trash2, Wrench } from 'lucide-react';
+import { CalendarClock, ChevronLeft, Clock, FileSignature, Handshake, Lock, Search, Trash2, Users, Wrench } from 'lucide-react';
 import { useState } from 'react';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { fmtDateTime, fmtDuration, fmtTime } from '../../engine/core/time';
 import type { Flight, GameState, MaintenanceEvent, Ref } from '../../engine/core/types';
-import { crewName, flightCrewStatus } from '../../engine/crew';
-import { cancelCheck } from '../../engine/ops';
-import { Modal } from '../components/ui';
+import { dutyCrew, flightCrewStatus } from '../../engine/crew';
+import { cancelCheck, delayFlight } from '../../engine/ops';
+import { Modal, Stepper } from '../components/ui';
 import { money } from '../format';
 import { Dot, KV } from '../screens/common';
 import { contractColor } from '../screens/palette';
@@ -19,6 +19,7 @@ const KIND: Record<Flight['kind'], string> = { revenue: 'Revenue', positioning: 
 const STATUS: Record<Flight['status'], string> = { scheduled: 'Scheduled', enroute: 'En route', done: 'Landed', cancelled: 'Cancelled' };
 const LEVEL_TONE = { ok: 'good', tight: 'warn', missing: 'bad', illegal: 'bad' } as const;
 
+
 const both = (t: number, ap: string) => `${fmtDateTime(t)} UTC · ${fmtTime(t, ap)} ${ap}`;
 
 function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
@@ -26,8 +27,9 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
   const ac = f.aircraftId ? g.fleet[f.aircraftId] : undefined;
   const cs = flightCrewStatus(g, f.id);
   const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+  const view = f.aircraftId && f.dutyId ? dutyCrew(g, f.id) : null;
   const rival = f.operatedBy ? g.rivals.find((r) => r.id === f.operatedBy)?.name : undefined;
-  const crew = f.crewIds.map((id) => g.crew[id]).filter(Boolean);
+  const [hold, setHold] = useState(0);
   const rows: [string, string][] = [
     ['Aircraft', rival ? `Sub-chartered to ${rival}` : ac ? `${ac.reg}` : '—'],
     ['Type', KIND[f.kind]],
@@ -38,6 +40,12 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
   ];
   if (f.pax) rows.push(['Passengers', String(f.pax)]);
   if (d) rows.push(['Duty', `FDP ${fmtDuration(d.fdp)} of ${fmtDuration(d.maxFdp + (d.discretion ?? 0))} · ${d.sectors} sectors${d.augment ? ` · +${d.augment} pilot${d.augment > 1 ? 's' : ''}` : ''}`]);
+  const live = f.status === 'scheduled' && !!f.aircraftId;
+  const canSub = live && !!c && (f.kind === 'revenue' || f.kind === 'techstop');
+  const doHold = () => {
+    const r = store.act((gg) => delayFlight(gg, f.id, hold * 30, 'Held by operations'));
+    if (r.ok) setHold(0);
+  };
   return (
     <div className="col gap-12">
       <div className="small muted">{AIRPORT_BY_CODE[f.from]?.city ?? f.from} → {AIRPORT_BY_CODE[f.to]?.city ?? f.to}</div>
@@ -45,15 +53,31 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
       {f.aircraftId && f.kind !== 'deadhead' && (
         <div className="col gap-8">
           <div className="row gap-8"><Dot tone={LEVEL_TONE[cs.level]} /><b>Crew {cs.level === 'ok' ? 'legal' : cs.level}</b>{cs.missing.length > 0 && <span className="small bad">missing {cs.missing.join(', ')}</span>}</div>
-          {crew.length > 0 && (
+          {view && view.slots.some((x) => x.crewId) && (
             <div className="sc-crew-grid">
-              {crew.map((m) => (
-                <button key={m.id} className="sc-crew-chip" onClick={() => store.navigate('crew', { sel: { kind: 'crew', id: m.id } })}>
-                  <span className="mono dim">{m.role}</span><span className="ellipsis">{crewName(m)}</span>
+              {view.slots.filter((x) => x.crewId).map((x) => (
+                <button key={x.crewId} className={`sc-crew-chip ${x.level ?? ''}`} onClick={() => store.navigate('crew', { sel: { kind: 'crew', id: x.crewId! } })}>
+                  <span className="mono dim">{x.role}</span><span className="ellipsis grow">{x.name}</span>
+                  {x.locked && <Lock className="sc-ico-s accent" aria-label="set by you" />}
+                  {x.level && x.level !== 'legal' && <Dot tone={x.level === 'tight' ? 'warn' : 'bad'} />}
                 </button>
               ))}
             </div>
           )}
+          {f.status === 'scheduled' && (
+            view ? (
+              <button className="btn" onClick={() => store.openModal({ kind: 'duty', id: f.id })}><Users /> Adjust crew</button>
+            ) : (
+              <div className="small muted">No crew rostered yet: duties are planned up to 14 days ahead.</div>
+            )
+          )}
+        </div>
+      )}
+      {live && (
+        <div className="row wrap gap-8 sc-sheet-actions">
+          <Stepper value={hold} min={0} max={8} onChange={setHold} format={(v) => (v ? `+${v * 30} min` : 'Hold')} />
+          <button className="btn" onClick={doHold} disabled={!hold}><Clock /> Delay</button>
+          {canSub && <button className="btn" onClick={() => store.openModal({ kind: 'subcharter', contractId: c!.id, flightId: f.id })}><Handshake /> Sub-charter</button>}
         </div>
       )}
       {c && (

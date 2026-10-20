@@ -10,6 +10,8 @@ import { CheckModal } from '../modals/CheckModal';
 import { HireModal } from '../modals/HireModal';
 import { OfferModal } from '../modals/OfferModal';
 import { BlockSheet } from '../modals/BlockSheet';
+import { DutyModal } from '../modals/DutyModal';
+import { SubcharterModal } from '../modals/SubcharterModal';
 import { TrainModal } from '../modals/TrainModal';
 import { money } from '../format';
 import { offline, promptInstall } from '../offline';
@@ -186,5 +188,7 @@ export function GlobalModals() {
     case 'train': return s.game ? <TrainModal crewId={m.crewId} /> : null;
     case 'check': return s.game ? <CheckModal aircraftId={m.aircraftId} checkKind={m.checkKind} replace={m.replace} /> : null;
     case 'sheet': return s.game ? <BlockSheet refs={m.refs} idle={m.idle} /> : null;
+    case 'duty': return s.game ? <DutyModal id={m.id} /> : null;
+    case 'subcharter': return s.game ? <SubcharterModal contractId={m.contractId} flightId={m.flightId} /> : null;
   }
 }

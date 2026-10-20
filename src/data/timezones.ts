@@ -18,6 +18,8 @@ const COUNTRY: Record<string, [number, DstRule]> = {
   ZA: [2, null], NA: [2, null], BW: [2, null], ZW: [2, null], ZM: [2, null], MZ: [2, null], MU: [4, null], SC: [4, null],
   AE: [4, null], OM: [4, null], QA: [3, null], BH: [3, null], KW: [3, null], SA: [3, null], IQ: [3, null], TR: [3, null], JO: [3, null],
   GE: [4, null], AZ: [4, null], AM: [4, null], AF: [4.5, null],
+  MR: [0, null], NE: [1, null], TD: [1, null], BF: [0, null], CM: [1, null], GA: [1, null], GQ: [1, null], LR: [0, null], SL: [0, null],
+  GN: [0, null], GM: [0, null], TG: [0, null], UZ: [5, null], TM: [5, null], TJ: [5, null], IR: [3.5, null],
   IN: [5.5, null], LK: [5.5, null], NP: [5.75, null], BD: [6, null], MV: [5, null], PK: [5, null], MM: [6.5, null],
   TH: [7, null], VN: [7, null], KH: [7, null], ID: [7, null], SG: [8, null], MY: [8, null], PH: [8, null], CN: [8, null], HK: [8, null], MO: [8, null], TW: [8, null],
   TL: [9, null], JP: [9, null], KR: [9, null],

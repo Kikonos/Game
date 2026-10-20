@@ -104,6 +104,7 @@ describe('AOG decision', () => {
     expect(win.length).toBeGreaterThan(0);
     const rel = g.company.reputation.reliable;
     const sub = line(g, 'subcharter');
+    const n0 = stats(g).subchartered;
     resolveDecision(g, d.id, 'subcharter');
     for (const f of win) {
       expect(f.operatedBy).toBe(d.data!.rivalId);
@@ -112,7 +113,7 @@ describe('AOG decision', () => {
     }
     expect(line(g, 'subcharter')).toBeLessThan(sub);
     expect(g.company.reputation.reliable).toBe(rel);
-    expect(stats(g).subchartered).toBe(win.length);
+    expect(stats(g).subchartered - n0).toBe(win.length);
   });
 
   it('cancel: compensation paid and reliability −3 or more', () => {

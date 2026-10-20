@@ -479,6 +479,10 @@ export interface CrewMember {
 export interface CrewSlot {
   role: Role;
   crewId: string | null;
+  /** Manual assignment (roster view): the rolling re-plan keeps this crew member even when flagged illegal. */
+  locked?: boolean;
+  /** Extra crew member above the legal complement (manual; dropped when unassigned). */
+  extra?: boolean;
 }
 
 export type Legality = 'legal' | 'tight' | 'illegal';

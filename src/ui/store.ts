@@ -12,6 +12,7 @@ import { demoFlights, devFleet } from '../engine/dev';
 import { createGame, type NewGameOptions } from '../engine/newGame';
 import { AUTOSAVE_SLOT, saveToSlot } from '../engine/save';
 import { advanceTo, settle } from '../engine/sim';
+import { autoplay } from './devPlay';
 import { type SoundName, sound } from './sound';
 
 export type { GameSpeed } from '../engine/core/time';
@@ -62,7 +63,11 @@ export type ModalSpec =
   | { kind: 'train'; crewId: string }
   | { kind: 'check'; aircraftId: string; checkKind?: 'A' | 'C'; replace?: string }
   /** B5: Schedule detail sheet for the blocks near a tap (flights, maintenance) or an idle gap. */
-  | { kind: 'sheet'; refs: Ref[]; idle?: { aircraftId: string; from: number; to: number; at: string } };
+  | { kind: 'sheet'; refs: Ref[]; idle?: { aircraftId: string; from: number; to: number; at: string } }
+  /** Manual roster adjustment for a duty's trip (duty id or flight id). */
+  | { kind: 'duty'; id: string }
+  /** Hand legs of a contract to a rival operator. */
+  | { kind: 'subcharter'; contractId: string; flightId?: string };
 
 export interface Toast {
   id: number;
@@ -411,6 +416,17 @@ class GameStore {
       });
       this.emit();
       return d.id;
+    },
+    /** Fast-forwards `days` game days with a simple policy (accept best offers, decision defaults, hire to staffing). */
+    autoplay: (days = 30) => {
+      const g = this.game;
+      if (!g) return 0;
+      const n = autoplay(g, days);
+      this.exact = g.now;
+      this.lastMsgId = g.messages[0]?.id ?? this.lastMsgId;
+      this.emit();
+      this.emitClock();
+      return n;
     },
     /** B5: React renders per screen (dev builds only), to check the calm-UI budget (≤ ~2/s at 4×). */
     renders: {} as Record<string, number>,

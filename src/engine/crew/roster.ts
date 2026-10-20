@@ -25,7 +25,7 @@ export interface RosterResult {
   cost: number;
 }
 
-const emptyResult = (): RosterResult => ({ assigned: 0, uncovered: [], deadheads: 0, cost: 0 });
+export const emptyResult = (): RosterResult => ({ assigned: 0, uncovered: [], deadheads: 0, cost: 0 });
 
 const SLOT_ORDER: Role[] = ['CPT', 'FO', 'CRP', 'CSD', 'SCC', 'CC'];
 
@@ -38,7 +38,7 @@ export function clientPaysCrewTravel(g: GameState, p: Pairing | undefined): bool
 // ---------- crew on pairings ----------
 
 /** Operating crew on the pairing's flights still to fly. */
-function setFlightsCrew(g: GameState, p: Pairing): void {
+export function setFlightsCrew(g: GameState, p: Pairing): void {
   const ids = p.slots.filter((s) => s.crewId).map((s) => s.crewId!);
   for (const d of openDuties(g, p)) {
     for (const fid of d.flightIds) {
@@ -65,7 +65,7 @@ function buyTicket(g: GameState, p: Pairing, d: Duty, crewIds: string[], t: Tick
 }
 
 /** Groups the planned tickets of newly assigned crew (one ticket per group travelling together). */
-function buyTickets(g: GameState, p: Pairing, plans: Map<string, CrewPlan>, res: RosterResult): void {
+export function buyTickets(g: GameState, p: Pairing, plans: Map<string, CrewPlan>, res: RosterResult): void {
   const duties = openDuties(g, p);
   if (!duties.length) return;
   const first = duties[0];
@@ -85,7 +85,13 @@ function buyTickets(g: GameState, p: Pairing, plans: Map<string, CrewPlan>, res:
 
 /** Takes a crew member off a pairing: slot, flights still to fly and unused tickets (cancelled when empty). */
 export function releaseCrew(g: GameState, p: Pairing, crewId: string): void {
-  for (const s of p.slots) if (s.crewId === crewId) s.crewId = null;
+  for (const s of p.slots) {
+    if (s.crewId !== crewId) continue;
+    s.crewId = null;
+    delete s.locked;
+  }
+  // An extra seat exists only while someone holds it.
+  if (p.slots.some((s) => s.extra && !s.crewId)) p.slots = p.slots.filter((s) => !(s.extra && !s.crewId));
   for (const id of p.dutyIds) {
     const d = g.duties[id];
     if (!d || d.done) continue;
@@ -339,7 +345,7 @@ function warnShort(g: GameState, ids: string[]): void {
   requestPause('crewShortage');
 }
 
-function fillAll(g: GameState, ps: Pairing[], res: RosterResult, exclude?: Set<string>): void {
+export function fillAll(g: GameState, ps: Pairing[], res: RosterResult, exclude?: Set<string>): void {
   if (!ps.length) return;
   crewIx(g);
   const ctx = new Ctx(g);
@@ -454,7 +460,8 @@ export function rerosterFrom(g: GameState, aircraftId: string, t: Minute): Roste
       recheckPairing(g, p);
       continue;
     }
-    for (const id of recheckPairing(g, p, true).illegal) releaseCrew(g, p, id);
+    // Manual (locked) assignments survive the re-plan; they stay flagged on the pairing.
+    for (const id of recheckPairing(g, p, true).illegal) if (!p.slots.some((s) => s.crewId === id && s.locked)) releaseCrew(g, p, id);
     setFlightsCrew(g, p);
   }
   touchCrew(g);
@@ -505,10 +512,18 @@ export function replaceCrew(g: GameState, pairingId: string, slot: number, crewI
   const p = g.pairings[pairingId];
   if (!p || !p.slots[slot]) return { ok: false, error: 'Slot not found' };
   if (crewId) {
-    const r = assignCrew(g, pairingId, slot, crewId);
-    return r.ok ? { ok: true, msg: r.msg, data: { crewId } } : r;
+    const c = g.crew[crewId];
+    if (!c) return { ok: false, error: 'Crew member not found' };
+    if (!openDuties(g, p).length) return { ok: false, error: 'Trip already flown' };
+    placeCrew(g, p, slot, c);
+    return { ok: true, msg: `${c.first} ${c.last} takes the ${p.slots[slot].role} seat`, data: { crewId } };
   }
   const cur = p.slots[slot].crewId;
+  if (p.slots[slot].extra) {
+    if (cur) releaseCrew(g, p, cur);
+    recheckPairing(g, p);
+    return { ok: false, error: 'Extra seat removed' };
+  }
   if (cur) releaseCrew(g, p, cur);
   fillAll(g, [p], emptyResult(), cur ? new Set([cur]) : undefined);
   const now = p.slots[slot].crewId;
@@ -535,41 +550,22 @@ export function removeCrew(g: GameState, crewId: string, from: Minute, to: Minut
   return res;
 }
 
-/** Manual override from the roster view (illegal assignments are allowed but flagged red). */
-export function assignCrew(g: GameState, pairingId: string, slot: number, crewId: string): ActionResult {
-  const p = g.pairings[pairingId];
-  const c = g.crew[crewId];
-  if (!p || !p.slots[slot]) return { ok: false, error: 'Slot not found' };
-  if (!c) return { ok: false, error: 'Crew member not found' };
-  const role = p.slots[slot].role;
-  const t = typeOf(typeIdOf(g, p));
-  if (!canFill(role, c.role)) return { ok: false, error: `A ${c.role} can't fill a ${role} seat` };
-  if (!c.ratings.includes(t.family)) return { ok: false, error: `Not rated on ${t.short}` };
-  if (p.slots.some((s) => s.crewId === crewId)) return { ok: false, error: 'Already on this trip' };
-  if (!openDuties(g, p).length) return { ok: false, error: 'Trip already flown' };
+/**
+ * Puts crew member c into slot `slot` of p (the current holder is released first): tickets, operating crew on
+ * the flights, duty events, legality. No checks: callers validate (rosterActions.ts, replaceCrew).
+ */
+export function placeCrew(g: GameState, p: Pairing, slot: number, c: CrewMember): CrewPlan {
   const cur = p.slots[slot].crewId;
   if (cur) releaseCrew(g, p, cur);
   const hadCrew = crewCount(p) > 0;
-  const plan = planCrew(g, c, p, segsOf(g, c));
+  const plan = planCrew(g, c, p, segsOf(g, c, p.id));
   p.slots[slot].crewId = c.id;
   buyTickets(g, p, new Map([[c.id, plan]]), emptyResult());
   setFlightsCrew(g, p);
   if (!hadCrew) for (const d of openDuties(g, p)) queueDuty(g, d);
   touchCrew(g);
   recheckPairing(g, p);
-  const bad = plan.issues.filter((i) => i.level === 'illegal');
-  return { ok: true, msg: bad.length ? `Assigned, but illegal: ${bad[0].text}` : `${c.first} ${c.last} assigned` };
-}
-
-export function unassignCrew(g: GameState, pairingId: string, slot: number): ActionResult {
-  const p = g.pairings[pairingId];
-  if (!p || !p.slots[slot]) return { ok: false, error: 'Slot not found' };
-  const cur = p.slots[slot].crewId;
-  if (!cur) return { ok: false, error: 'Slot is already empty' };
-  releaseCrew(g, p, cur);
-  recheckPairing(g, p);
-  touchCrew(g);
-  return { ok: true };
+  return plan;
 }
 
 // ---------- read APIs ----------

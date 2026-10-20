@@ -155,8 +155,8 @@ export function aogDecision(g: GameState, ac: Aircraft, f: Flight, m: Maintenanc
     { id: 'subcharter', label: `Sub-charter to ${rivalName(g, rivalId)}`, desc: 'A rival flies the legs; we still bill the client. No reliability hit.', tone: 'warn', chips: [usd(-sub), legsChip(win)] },
     { id: 'cancel', label: 'Cancel the legs', desc: 'Compensation to the client and a reliability hit.', tone: 'bad', chips: [usd(-pen), 'Reliability −3', legsChip(win)] },
   ];
-  // Sub-charter is the default only when the wait would cancel legs and it is cheaper than that compensation.
-  const waitPen = cancelCost(g, holdC.cancels);
+  // Sub-charter is the default only when the wait would cancel legs and it is cheaper than their compensation and fares.
+  const waitPen = cancelCost(g, holdC.cancels) + subcharterCost(g, holdC.cancels, 1);
   const def = waitPen > 0 && sub < waitPen ? 'subcharter' : 'courier';
   ask(g, {
     kind: 'aog', title: `AOG: ${ac.reg} at ${city(m.at)}`,
@@ -308,7 +308,8 @@ export function crewShortDecision(g: GameState, f: Flight, ac: Aircraft): void {
   const ready = crewReadyAt(g, f, ac);
   const wait = ready - g.now;
   const station = stationOf(g, f);
-  const later = planRecovery(g, ac, f.to, ready + f.block + turnOf(ac), f.std, f);
+  // Waiting: the leg leaves at `ready` (its own wave too is dropped past the lateness cap), the rest follow.
+  const later = planRecovery(g, ac, f.from, ready, Math.min(f.std, g.now));
   const sub = subcharterCost(g, legs, factor);
   const pen = cancelCost(g, legs);
   const what = cs.missing.length
@@ -324,7 +325,9 @@ export function crewShortDecision(g: GameState, f: Flight, ac: Aircraft): void {
   if (canDisc) options.push({ id: 'discretion', label: "Commander's discretion", desc: `The captain extends the duty by ${fmtDuration(over)} (max 2 h).`, tone: 'warn', chips: ['Morale −3', `FDP +${fmtDuration(over)}`] });
   if (revCount(legs)) options.push({ id: 'subcharter', label: `Sub-charter to ${rivalName(g, rivalId)}`, desc: 'A rival operates the trip; we still bill the client.', tone: 'warn', chips: [usd(-sub), legsChip(legs)] });
   options.push({ id: 'cancel', label: 'Cancel the trip', desc: 'Compensation and a reliability hit.', tone: 'bad', chips: [usd(-pen), 'Reliability −3', legsChip(legs)] });
-  const def = canDisc ? 'discretion' : wait <= 8 * 60 || !revCount(legs) || sub > pen ? 'standby' : 'subcharter';
+  // Sub-charter when waiting would cancel revenue legs and the rival costs less than their compensation and fares.
+  const lost = cancelCost(g, later.cancels) + subcharterCost(g, later.cancels, 1);
+  const def = canDisc ? 'discretion' : revCount(legs) && revCount(later.cancels) && sub < lost ? 'subcharter' : 'standby';
   ask(g, {
     kind: 'crewShort', title: `Crew short: ${f.no} ${f.from}–${f.to}`,
     body: `${f.no} has been waiting ${fmtDuration(f.delay)} at ${city(f.from)}: ${what}.`,
@@ -358,7 +361,8 @@ function waitForCrew(g: GameState, f: Flight, ac: Aircraft): boolean {
   f.crewDecided = true;
   let t = crewReadyAt(g, f, ac);
   for (let i = 0; i < 2; i++) {
-    delayChain(g, f, t, 'Waiting for a legal crew');
+    // The first wait is the player's (its chips showed what it drops); on a second, ops sub-charter dropped waves when cheaper.
+    delayChain(g, f, t, 'Waiting for a legal crew', true, i > 0);
     rerosterFrom(g, ac.id, g.now);
     if (f.status !== 'scheduled' || !crewBlocked(g, f)) return true;
     const next = crewReadyAt(g, f, ac);

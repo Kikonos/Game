@@ -15,9 +15,27 @@ export const COMPANY_PRESETS: CompanyPreset[] = [
   { name: 'Valletta Jetlease', code: 'VJ', icao: 'VJL', callsign: 'MALTESE', base: 'MLA' },
   { name: 'Iberosol Charter', code: 'IS', icao: 'IBS', callsign: 'SOLAIR', base: 'MAD' },
   { name: 'Daugava Wetlease', code: 'DW', icao: 'DGW', callsign: 'DAUGAVA', base: 'RIX' },
+  { name: 'Vltava Air Charter', code: 'VC', icao: 'VTC', callsign: 'VLTAVA', base: 'PRG' },
+  { name: 'Balkan Wings', code: 'BK', icao: 'BKW', callsign: 'BALKANWING', base: 'SOF' },
+  { name: 'Toompea Aviation', code: 'TP', icao: 'TPA', callsign: 'TOOMPEA', base: 'TLL' },
 ];
 
-export const HOME_BASES = ['LIS', 'VNO', 'MLA', 'MAD', 'RIX'] as const;
+/** Home bases offered at New Game (Lisbon default): the five of the brief plus three more ACMI-style AOC bases. */
+export const HOME_BASES = ['LIS', 'VNO', 'MLA', 'MAD', 'RIX', 'PRG', 'SOF', 'TLL'] as const;
+export type HomeBase = (typeof HOME_BASES)[number];
+export const DEFAULT_HOME_BASE: HomeBase = 'LIS';
+
+/** One line per home base for the New Game cards (neutral, about the market around it). */
+export const HOME_BASE_NOTES: Record<HomeBase, string> = {
+  LIS: 'Atlantic gateway: Brazil, Africa, diaspora and repatriation work, close to the Iberian tour operators.',
+  VNO: 'Baltic narrowbody hub with low costs; summer bases all over Europe.',
+  MLA: 'Island AOC with a Mediterranean reach and a well-known aircraft registry.',
+  MAD: 'Iberian hub: Latin America, football clubs and tour operators.',
+  RIX: 'Baltic base with Nordic and Canadian winter work.',
+  PRG: 'Central European base: tour-operator series and short-notice ACMI across the continent.',
+  SOF: 'South-east European base with low costs and Black Sea and Balkan summer flying.',
+  TLL: 'Northern base: Nordic winter charters and Baltic summer wet leases.',
+};
 
 export interface RivalSeed {
   name: string;
@@ -118,6 +136,15 @@ export const CLIENT_SEEDS_B1: ClientSeed[] = [
   { name: 'Lithuanian Ministry of National Defence', kind: 'government', country: 'LT', base: 'VNO', role: 'defence' },
   { name: 'Armed Forces of Malta', kind: 'government', country: 'MT', base: 'MLA', role: 'defence' },
   { name: 'Latvian Ministry of Defence', kind: 'government', country: 'LV', base: 'RIX', role: 'defence' },
+  { name: 'Czech Ministry of Foreign Affairs', kind: 'government', country: 'CZ', base: 'PRG', role: 'foreign' },
+  { name: 'Czech Ministry of Defence', kind: 'government', country: 'CZ', base: 'PRG', role: 'defence' },
+  { name: 'Bulgarian Ministry of Foreign Affairs', kind: 'government', country: 'BG', base: 'SOF', role: 'foreign' },
+  { name: 'Bulgarian Ministry of Defence', kind: 'government', country: 'BG', base: 'SOF', role: 'defence' },
+  { name: 'Estonian Ministry of Foreign Affairs', kind: 'government', country: 'EE', base: 'TLL', role: 'foreign' },
+  { name: 'Estonian Ministry of Defence', kind: 'government', country: 'EE', base: 'TLL', role: 'defence' },
+  { name: 'Čedok', kind: 'tourOperator', country: 'CZ', base: 'PRG' },
+  { name: 'Bulgaria Air', kind: 'airline', country: 'BG', base: 'SOF' },
+  { name: 'Novatours', kind: 'tourOperator', country: 'LT', base: 'VNO' },
   { name: 'Frontex', kind: 'agency', country: 'PL', base: 'WAW', role: 'aid' },
   { name: 'EU Civil Protection and Humanitarian Aid (ECHO)', kind: 'agency', country: 'BE', base: 'BRU', role: 'aid' },
   { name: 'Fiji Airways', kind: 'airline', country: 'FJ', base: 'NAN' },
