@@ -14,7 +14,7 @@ import { chance, next, pick, range } from '../core/rng';
 import { DAY, fmtDuration, fmtTime } from '../core/time';
 import type { ActionResult, Aircraft, Flight, GameState, MaintenanceEvent, MessageCat, Minute, SimEvent } from '../core/types';
 import { noteLostLegs } from '../contracts/billing';
-import { applyDiscretion, boardCrew, crewIssuesFor, flightCrewStatus, guardDuty, rerosterFrom, setRestDelayHook } from '../crew';
+import { applyDiscretion, boardCrew, crewIssuesFor, dropStraySpares, flightCrewStatus, guardDuty, rerosterFrom, setRestDelayHook } from '../crew';
 import { crewReadyAt, crewShortDecision, hasOpenDecision } from './events';
 import { aogChance, isGrounded, missCheck, startAog } from './maintenance';
 import { ageF, ageOf, bumpReliable, bumpRelation, contractOf, isBaseLeg, isRevenue, stats, turnOf, usd } from './util';
@@ -470,7 +470,8 @@ export function onFlightDep(g: GameState, ev: SimEvent): void {
   if (isRevenue(f) && isGrounded(g, ac)) {
     return dropUnit(g, ac, f, 'Aircraft grounded: check overdue', `${ac.reg} is grounded: a check is overdue (book it on the Fleet screen).`, 'tech');
   }
-  // 2. Crew complete and legal.
+  // 2. Crew complete and legal (v0.6: optional extra crew not at the gate, or over a limit, stay behind).
+  dropStraySpares(g, f);
   if (crewBlocked(g, f)) {
     crewProblem(g, f, ac);
     return;

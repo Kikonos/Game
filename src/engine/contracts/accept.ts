@@ -9,7 +9,7 @@ import { requestPause } from '../core/pause';
 import { schedule } from '../core/queue';
 import { DAY, fmtDay, monthKey, monthStart } from '../core/time';
 import { clamp } from '../core/util';
-import type { ActionResult, Contract, ContractOffer, GameState, Minute, OfferStatus, Product, SimEvent } from '../core/types';
+import type { ActionResult, Contract, ContractOffer, CrewExtra, GameState, Minute, OfferStatus, Product, SimEvent } from '../core/types';
 import { autoRoster, flightCrewStatus } from '../crew';
 import { billContractMonth, issueBill } from './billing';
 import { feasibility } from './feasibility';
@@ -50,6 +50,8 @@ const firstNo = (rep: ReturnType<typeof feasibility>, skipPaint = false) => rep.
 export interface SignOpts {
   paint?: boolean;
   priced?: boolean;
+  /** v0.6: extra crew for this contract (paid option met when cabin ≥ requirements.extraCabinPaid.n). */
+  crewExtra?: CrewExtra;
 }
 
 /**

@@ -6,8 +6,8 @@ import { flightsOf } from '../core/entities';
 import { distanceNm } from '../core/geo';
 import { complement, etopsNeeded, maxSectorNm, planSector, reportMinutes, runwayFit, typeOf } from '../core/perf';
 import { DAY, fmtDate, fmtDateTime, fmtDay, fmtDuration, toDate } from '../core/time';
-import type { Aircraft, ApprovalId, ContractOffer, GameState, Minute } from '../core/types';
-import { crewAvailability, type Availability } from '../crew';
+import type { Aircraft, ApprovalId, ContractOffer, CrewExtra, GameState, Minute } from '../core/types';
+import { crewAvailability, offerExtra, type Availability } from '../crew';
 import { A_CHECK_DAYS, anchorsOf, chainForward, CHARTER_SLACK, DEPLOY_LEAD, gapMoves, programmeOf, type Anchor, type ChainLeg, type Programme, type Trip } from './plan';
 import { paintQuote, paintWindow, type PaintSlot } from './paintTerms';
 import { productValue, tripTickets } from './pricing';
@@ -146,7 +146,7 @@ function fitTrips(g: GameState, ac: Aircraft, o: ContractOffer, prog: Programme)
 }
 
 /** Full report for one aircraft: the 12 checks of DESIGN §5.1.5 (+ client paint), positioning plan and contribution estimate. */
-export function feasibility(g: GameState, offerId: string, aircraftId: string, opts: { paint?: boolean } = {}): FeasibilityReport {
+export function feasibility(g: GameState, offerId: string, aircraftId: string, opts: { paint?: boolean; crewExtra?: CrewExtra } = {}): FeasibilityReport {
   const o = g.offers[offerId];
   const ac = g.fleet[aircraftId];
   const empty: Availability = { setsNeeded: 0, setsAvailable: 0, byRole: {}, firstShort: null };
@@ -388,7 +388,9 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
 
   // 12. Crew: capacity over the window, and augmentation on long duties.
   const progBH = (prog.revenueMin + prog.emptyMin + posMin) / 60;
-  rep.crew = flyable ? crewAvailability(g, t.family, t.id, winFrom, Math.max(winFrom + DAY, winTo), progBH) : empty;
+  // v0.6: the crew need includes the extra crew (client request, or this aircraft's / the chosen setting).
+  const xc = offerExtra(g, aircraftId, o.requirements, opts.crewExtra);
+  rep.crew = flyable ? crewAvailability(g, t.family, t.id, winFrom, Math.max(winFrom + DAY, winTo), progBH, xc) : empty;
   const duty = reportMinutes(t.id).report + prog.longestChainMin;
   const augmented = duty > MAX_UNAUGMENTED_FDP;
   const shorts = Object.entries(rep.crew.byRole).filter(([, r]) => r && r.short > 0) as [string, { short: number }][];
@@ -409,7 +411,7 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   rep.estRevenue = Math.round(product.kind === 'wet' ? productValue(product, revBH + (product.positioningBillable ? posBH : 0), o.start, o.end) : productValue(product, revBH, o.start, o.end) * (1 - (o.broker ? BAL.brokerCommission : 0)));
   const age = Math.max(0, toDate(g.now).getUTCFullYear() - ac.builtYear - 12);
   let cost = t.maintBH * bh * (1 + age * BAL.maintAgeFactor);
-  const crewN = complement(t.id, seats, { extraCabin: req.extraCabin + g.company.policies.extraCabin }).length;
+  const crewN = complement(t.id, seats, { extraCabin: xc.cabin }).length + xc.pilot;
   const perDiem = ((BAL.perDiem.CPT + BAL.perDiem.FO + (crewN - 2) * BAL.perDiem.CC) / crewN) * (g.company.policies.perDiemPct / 100);
   const hotel = BAL.hotelPerNight[g.company.policies.hotelTier] ?? 140;
   if (base && prog.base) {
@@ -444,7 +446,7 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
 }
 
 /** One report per fleet aircraft, best first (ok before warn before no, then margin). */
-export function feasibilityAll(g: GameState, offerId: string, opts: { paint?: boolean } = {}): FeasibilityReport[] {
+export function feasibilityAll(g: GameState, offerId: string, opts: { paint?: boolean; crewExtra?: CrewExtra } = {}): FeasibilityReport[] {
   return Object.keys(g.fleet)
     .map((id) => feasibility(g, offerId, id, opts))
     .sort((a, b) => RANK[a.level] - RANK[b.level] || b.estMargin - a.estMargin);

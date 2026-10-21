@@ -210,6 +210,14 @@ export interface Aircraft {
   livery?: LiveryRef;
   /** v0.5.1: contract whose client livery is on the aircraft (set when the paint-in ends, cleared when the strip ends). Overrides `livery`. */
   paintedFor?: string;
+  /** v0.6: extra crew above the legal minimum (unset = company default). */
+  crewExtra?: CrewExtra;
+}
+
+/** v0.6: crew above the legal minimum (per aircraft or contract): cabin 0–4, one spare pilot. */
+export interface CrewExtra {
+  cabin: number;
+  pilot: 0 | 1;
 }
 
 // ======================================================================
@@ -264,6 +272,8 @@ export interface Requirements {
   extraCabin: number;
   /** No fuel stops allowed (VIP optics). */
   noTechStops?: boolean;
+  /** v0.6: client pays pct of price/rate when we fly ≥ n extra cabin crew. */
+  extraCabinPaid?: { n: number; pct: number };
 }
 
 /** A revenue leg the client wants flown (times are the client's scheduled departures). */
@@ -446,6 +456,12 @@ export interface Contract {
   cancelledAt?: Minute;
   /** v0.5.1: client paint agreed (accepted) or declined; paint-in / strip maintenance ids per aircraft. */
   paint?: PaintTerms & { accepted: boolean; inMx?: Record<string, string>; outMx?: Record<string, string>; warned?: boolean };
+  /** v0.6: extra crew for this contract (overrides the aircraft's); locked ≥ requirements.extraCabinPaid.n when paid. */
+  crewExtra?: CrewExtra;
+  /** v0.6: service score accumulator over revenue legs (morale + extra crew). */
+  service?: { sum: number; n: number };
+  /** v0.6: the client pays for extra cabin crew (accepted at signing). */
+  extraPaid?: boolean;
 }
 
 // ======================================================================
@@ -532,6 +548,9 @@ export interface DutyLogEntry {
   disruptive: boolean;
 }
 
+/** v0.6: morale drivers (crew card "why"). */
+export type MoraleDriver = 'policy' | 'hotel' | 'tour' | 'offAway' | 'workload' | 'lateChange' | 'discretion' | 'mission' | 'extraCrew' | 'career' | 'pay' | 'recognition';
+
 export interface CrewMember {
   id: string;
   first: string;
@@ -568,6 +587,14 @@ export interface CrewMember {
   blocks?: { from: Minute; to: Minute; why: 'sick' | 'leave' | 'training' | 'joining' }[];
   /** B2: calendar year that blockYear counts. */
   blockYearOf?: number;
+  /** v0.6: resigned; keeps flying until `leaves` (then removed from g.crew). */
+  notice?: { given: Minute; leaves: Minute };
+  /** v0.6: decayed 30-day morale contributions by driver (UI "why"). */
+  moraleWhy?: Partial<Record<MoraleDriver, number>>;
+  /** v0.6: company-paid pilot conversion bond (resignation × bondFactor until then). */
+  bondUntil?: Minute;
+  /** v0.6: morale 14 days ago ring (daily samples, newest last, max 15) for the trend arrow. */
+  moraleHist?: number[];
 }
 
 export interface CrewSlot {
@@ -577,6 +604,8 @@ export interface CrewSlot {
   locked?: boolean;
   /** Extra crew member above the legal complement (manual; dropped when unassigned). */
   extra?: boolean;
+  /** v0.6: seat above the legal minimum (crew-extra settings): optional, never blocks departure. */
+  above?: boolean;
 }
 
 export type Legality = 'legal' | 'tight' | 'illegal';
@@ -671,6 +700,25 @@ export interface TrainingItem {
   start: Minute;
   end: Minute;
   cost: number;
+  /** v0.6: conversion class this course belongs to. */
+  classId?: string;
+}
+
+/** v0.6: a conversion class (bulk type rating): up to BAL.conv.classMax crew of one group and course. */
+export interface TrainingClass {
+  id: string;
+  /** 'A330-P1' / 'A330-C2'. */
+  no: string;
+  family: RatingFamily;
+  group: 'pilot' | 'cabin';
+  course: 'full' | 'ccq';
+  start: Minute;
+  end: Minute;
+  crewIds: string[];
+  costPerHead: number;
+  status: 'planned' | 'running' | 'done' | 'cancelled';
+  /** Cabin crew at 3 types: the rating each gives up at completion. */
+  drop?: Record<string, RatingFamily>;
 }
 
 // ======================================================================
@@ -905,6 +953,15 @@ export interface Stats {
   askedAt?: number[];
   /** B3: landing-permit risk of signed trips by contract id (offers are pruned after signing); dropped once rolled. */
   permits?: Record<string, number>;
+  /** v0.6: crew who left after resigning; conversion classes completed. */
+  resigned?: number;
+  conversions?: number;
+  /** v0.6: weekly company morale averages, newest last, max 12. */
+  moraleWeeks?: number[];
+  /** v0.6: last quiet-week gap-fit offer. */
+  lastGapOfferAt?: Minute;
+  /** v0.6: low-morale message given (rearmed above 55). */
+  moraleLowWarned?: boolean;
 }
 
 export interface GameState {
@@ -930,6 +987,8 @@ export interface GameState {
   maintenance: Record<string, MaintenanceEvent>;
   hires: HireOrder[];
   training: TrainingItem[];
+  /** v0.6: conversion classes. load: ??= {} */
+  classes?: Record<string, TrainingClass>;
   /** Newest first. */
   messages: Message[];
   decisions: Decision[];

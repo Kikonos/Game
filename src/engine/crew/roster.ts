@@ -12,7 +12,7 @@ import { acceptable, crewIssuesFor, mergeSegs, openDuties, otherTrip, planCrew, 
 import { deletePairing, dutyLegality, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setCrewTrailOkHook, setReleaseHook, setRetickHook, splitPairing, splitUnderWay, syncDuty } from './duties';
 import { crewName } from './generate';
 import { evalSegs, levelOf, minRest, tzDeltaH, worst, type Seg } from './rules';
-import { aboard, block28, crewCount, crewIx, ctxOf, dhBlock, droppableHome, dutySegs, locAt, noteRiders, passengers, planHome, planOut, segsOf, ticketPrice, touchCrew, typeIdOf, withoutTickets } from './timeline';
+import { aboard, aboveEmpty, block28, crewCount, crewIx, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, locAt, noteRiders, passengers, planHome, planOut, segsOf, ticketPrice, touchCrew, typeIdOf, withoutTickets } from './timeline';
 
 export { buildDuties } from './duties';
 
@@ -464,7 +464,7 @@ export function setRestDelayHook(f: (g: GameState, f: Flight, std: Minute) => bo
 function slipForRest(g: GameState, d: Duty, ids: string[]): boolean {
   const p = g.pairings[d.pairingId];
   const f = g.flights[d.flightIds[0]];
-  if (!restDelayHook || !p?.aircraftId || d.report <= g.now || !f || f.status !== 'scheduled' || p.slots.some((s) => !s.crewId)) return false;
+  if (!restDelayHook || !p?.aircraftId || d.report <= g.now || !f || f.status !== 'scheduled' || requiredEmpty(p)) return false;
   let end = 0;
   for (const id of ids) {
     const c = g.crew[id];
@@ -511,7 +511,7 @@ export function guardDuty(g: GameState, dutyId: string): boolean {
       setFlightsCrew(g, q);
       recheckPairing(g, q);
     }
-    short = g.pairings[d.pairingId]?.slots.filter((s) => !s.crewId).length ?? 0;
+    short = g.pairings[d.pairingId]?.slots.filter((s) => !s.crewId && !s.above).length ?? 0;
   }
   const off = found.filter((b) => !(d && g.pairings[d.pairingId]?.slots.some((s) => s.crewId === b.crewId)));
   if (off.length) {
@@ -606,9 +606,12 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
   const unpleasant = (contract?.effects.morale ?? 0) < 0;
   const prev = previousCrew(g, p);
   const hadCrew = crewCount(p) > 0;
+  promoteSpares(g, p);
   const inP = new Set(p.slots.filter((s) => s.crewId).map((s) => s.crewId!));
-  const order = p.slots.map((_, i) => i).filter((i) => !p.slots[i].crewId);
-  order.sort((a, b) => SLOT_ORDER.indexOf(p.slots[a].role) - SLOT_ORDER.indexOf(p.slots[b].role) || a - b);
+  // Seats above the legal minimum after every required one, and only before the trip starts (no one is
+  // positioned out to an optional seat on a trip under way).
+  const order = p.slots.map((_, i) => i).filter((i) => !p.slots[i].crewId && (!p.slots[i].above || p.status === 'planned'));
+  order.sort((a, b) => Number(!!p.slots[a].above) - Number(!!p.slots[b].above) || SLOT_ORDER.indexOf(p.slots[a].role) - SLOT_ORDER.indexOf(p.slots[b].role) || a - b);
   const plans = new Map<string, CrewPlan>();
   // Slot-independent part of the score, once per pairing (crew in p are skipped below).
   const fitRoles = new Set<Role>();
@@ -697,11 +700,53 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
   if (!hadCrew) delete p.illegalFrom;
 }
 
-/** Flights of pairings with empty slots (still to fly, std in [from, to)). */
+/**
+ * v0.6 on-board spare: a required seat left empty (sickness, removal, resignation) is taken by a crew member on an
+ * optional seat above the minimum who can fill the role: no ticket, no positioning. Their optional seat stays empty.
+ */
+export function promoteSpares(g: GameState, p: Pairing): number {
+  let n = 0;
+  for (const s of p.slots) {
+    if (s.crewId || s.above || s.extra) continue;
+    const spare = p.slots.find((x) => x.above && x.crewId && g.crew[x.crewId] && canFill(s.role, g.crew[x.crewId].role));
+    if (!spare) continue;
+    s.crewId = spare.crewId;
+    if (spare.locked) s.locked = true;
+    spare.crewId = null;
+    delete spare.locked;
+    n++;
+  }
+  if (n) touchCrew(g);
+  return n;
+}
+
+/**
+ * v0.6 at the gate (a duty's first leg): crew on optional seats above the minimum who are not at the departure
+ * airport or are over a limit stay behind; their seat goes empty and never holds the departure. True when anyone
+ * was taken off.
+ */
+export function dropStraySpares(g: GameState, f: Flight): boolean {
+  const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+  const p = d && d.flightIds[0] === f.id ? g.pairings[d.pairingId] : undefined;
+  if (!d || !p || !p.slots.some((s) => s.above && s.crewId)) return false;
+  const bad = new Set(crewIssuesFor(g, d).map((x) => x.crewId));
+  let n = 0;
+  for (const s of [...p.slots]) {
+    if (!s.above || !s.crewId) continue;
+    const c = g.crew[s.crewId];
+    if (c && c.loc === f.from && !bad.has(c.id)) continue;
+    releaseCrew(g, p, s.crewId);
+    n++;
+  }
+  if (n) setFlightsCrew(g, p);
+  return n > 0;
+}
+
+/** Flights of pairings with an empty required seat (still to fly, std in [from, to)). */
 function uncoveredOf(g: GameState, ps: Pairing[], from: Minute, to: Minute): string[] {
   const out: string[] = [];
   for (const p of ps) {
-    if (!g.pairings[p.id] || !p.slots.some((s) => !s.crewId)) continue;
+    if (!g.pairings[p.id] || !requiredEmpty(p)) continue;
     for (const d of openDuties(g, p)) for (const fid of d.flightIds) {
       const f = g.flights[fid];
       if (f && f.status === 'scheduled' && f.std >= from && f.std < to) out.push(fid);
@@ -754,7 +799,7 @@ export function fillAll(g: GameState, ps: Pairing[], res: RosterResult, exclude?
  */
 function splitTourGap(g: GameState, ctx: Ctx, p: Pairing, exclude?: Set<string>): Pairing | null {
   const open = openDuties(g, p);
-  const roles = [...new Set(p.slots.filter((s) => !s.crewId).map((s) => s.role))];
+  const roles = [...new Set(p.slots.filter((s) => !s.crewId && !s.above).map((s) => s.role))];
   if (!roles.length || open.length < 2) return null;
   const family = typeOf(typeIdOf(g, p)).family;
   const inP = new Set(p.slots.filter((s) => s.crewId).map((s) => s.crewId!));
@@ -786,7 +831,7 @@ export function autoRoster(g: GameState, opts: { from?: Minute; to?: Minute; air
   for (const id of acs) planAircraft(g, id, from);
   const sel = new Set(acs);
   const open = Object.values(g.pairings)
-    .filter((p) => p.aircraftId && sel.has(p.aircraftId) && (p.status === 'planned' || p.status === 'active') && p.start < to && p.end > from && p.slots.some((s) => !s.crewId))
+    .filter((p) => p.aircraftId && sel.has(p.aircraftId) && (p.status === 'planned' || p.status === 'active') && p.start < to && p.end > from && (requiredEmpty(p) || (p.status === 'planned' && aboveEmpty(p))))
     .sort((a, b) => a.start - b.start || (a.id < b.id ? -1 : 1));
   fillAll(g, open, res);
   res.uncovered = uncoveredOf(g, open, from, to);
@@ -855,7 +900,7 @@ export function onFlightsChanged(g: GameState, aircraftId: string, t: Minute): v
     setFlightsCrew(g, p);
     touchCrew(g);
     if (crewCount(p) > 0 && recheckPairing(g, p).level === 'illegal' && inHorizon(g, p.start)) reroster = true;
-    if (p.slots.some((s) => !s.crewId) && inHorizon(g, p.start)) reroster = true;
+    if (requiredEmpty(p) && inHorizon(g, p.start)) reroster = true;
   }
   touchCrew(g);
   for (const [p, ids] of later) recheckLater(g, ids, p);
@@ -1013,7 +1058,7 @@ export function applyDiscretion(g: GameState, dutyId: string): ActionResult {
     c.morale = Math.max(0, c.morale - 3);
     c.fatigue = Math.min(100, c.fatigue + 10);
   }
-  if (p.slots.some((s) => !s.crewId)) fillAll(g, [p], emptyResult());
+  if (requiredEmpty(p)) fillAll(g, [p], emptyResult());
   recheckPairing(g, p);
   touchCrew(g);
   const lim = d.maxFdp + d.discretion;
@@ -1115,9 +1160,9 @@ export function flightCrewStatus(g: GameState, flightId: string): FlightCrewStat
   if (!d || !p) {
     if (f.status !== 'scheduled') return { level: 'ok', missing: [] };
     const ac = g.fleet[f.aircraftId];
-    return { level: 'missing', missing: ac ? complement(ac.typeId, ac.cabin.total, { extraCabin: g.company.policies.extraCabin }) : [] };
+    return { level: 'missing', missing: ac ? complement(ac.typeId, ac.cabin.total, { extraCabin: contractExtraReq(g, f.contractId) }) : [] };
   }
-  const missing = p.slots.filter((s) => !s.crewId).map((s) => s.role);
+  const missing = p.slots.filter((s) => !s.crewId && !s.above).map((s) => s.role);
   if (d.legality === 'illegal') return { level: 'illegal', missing };
   if (missing.length) return { level: 'missing', missing };
   if (p.legality === 'illegal') {
@@ -1126,5 +1171,8 @@ export function flightCrewStatus(g: GameState, flightId: string): FlightCrewStat
     const from = p.illegalFrom ?? (p.dutyIds.some((id) => g.duties[id]?.legality === 'illegal' && !g.duties[id].done) ? Infinity : -Infinity);
     return { level: d.report >= from ? 'illegal' : 'tight', missing };
   }
-  return { level: d.legality === 'tight' || p.legality === 'tight' ? 'tight' : 'ok', missing };
+  // An empty seat above the legal minimum only warns (optional; never blocks the departure).
+  return { level: d.legality === 'tight' || p.legality === 'tight' || (!d.done && aboveEmpty(p)) ? 'tight' : 'ok', missing };
 }
+
+const contractExtraReq = (g: GameState, contractId: string | null) => (contractId ? g.contracts[contractId]?.requirements.extraCabin ?? 0 : 0);

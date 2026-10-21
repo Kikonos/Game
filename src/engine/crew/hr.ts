@@ -6,12 +6,13 @@ import { BAL } from '../core/balance';
 import { nextId } from '../core/entities';
 import { post } from '../core/ledger';
 import { pushDecision, pushMessage } from '../core/messages';
-import { complement, isPilot, typeOf } from '../core/perf';
+import { isPilot, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { chance, int } from '../core/rng';
 import { DAY, dayStart, fmtDate, fmtDateTime, yearOf } from '../core/time';
-import type { ActionResult, CrewMember, GameState, Minute, Role, SimEvent, TrainingKind } from '../core/types';
+import type { ActionResult, CrewExtra, CrewMember, GameState, Minute, Role, SimEvent, TrainingKind } from '../core/types';
 import { hashUnit } from '../core/util';
+import { crewExtraFor, rolesWithExtra } from './extraSeats';
 import { crewName, makeCrewMember, salaryFor } from './generate';
 import { removeCrew, rosterOf } from './roster';
 import { block28, crewIx, segsOf, touchCrew } from './timeline';
@@ -134,11 +135,13 @@ const countRoles = (roles: Role[]) => roles.reduce<Partial<Record<Role, number>>
  * programmes' needs, non-contract pairings, joining/training/leave and the 100 h/28 d block limit, vs the
  * programme's need (RESEARCH §5.3 sizing from `programmeBH`). Pure: no g.rng, no ids.
  */
-export function crewAvailability(g: GameState, family: RatingFamily, typeId: string, from: Minute, to: Minute, programmeBH: number): Availability {
+export function crewAvailability(g: GameState, family: RatingFamily, typeId: string, from: Minute, to: Minute, programmeBH: number, extra?: CrewExtra): Availability {
   const days = Math.max(1, Math.ceil((to - from) / DAY));
   const t = typeOf(typeId);
   const seats = t.cabins[0] ? t.cabins[0].j + t.cabins[0].w + t.cabins[0].y : 180;
-  const per = countRoles(complement(typeId, seats, { extraCabin: g.company.policies.extraCabin }));
+  // v0.6: the programme's crew with its extra crew (the spare pilot sized as a first officer).
+  const x = extra ?? { cabin: g.company.policies.extraCabin, pilot: 0 };
+  const per = countRoles(rolesWithExtra(typeId, seats, x).map((r) => (r === 'CRP' ? 'FO' : r)));
   const need = sizing(per, programmeBH / Math.max(1, days / 30.44));
   // Supply per role and day (exact role; seniors spill down below).
   const supply: Record<Role, Int32Array> = Object.fromEntries(ROLES.map((r) => [r, new Int32Array(days)])) as Record<Role, Int32Array>;
@@ -167,7 +170,8 @@ export function crewAvailability(g: GameState, family: RatingFamily, typeId: str
       for (const f of Object.values(g.flights)) if (f.contractId === k.id && f.aircraftId && f.status !== 'cancelled') blk += f.block;
       bhMonth = blk / 60 / Math.max(1, (k.end - k.start) / DAY / 30.44);
     }
-    const kPer = countRoles(complement(ac[0].typeId, ac[0].cabin.total, { extraCabin: g.company.policies.extraCabin + k.requirements.extraCabin }));
+    const kx = crewExtraFor(g, ac[0].id, k.id);
+    const kPer = countRoles(rolesWithExtra(ac[0].typeId, ac[0].cabin.total, kx, k.requirements.extraCabin).map((r) => (r === 'CRP' ? 'FO' : r)));
     const kNeed = sizing(kPer, bhMonth);
     for (let d = 0; d < days; d++) {
       const day = from + d * DAY;
@@ -233,22 +237,24 @@ export function staffing(g: GameState): StaffingLine[] {
     if (dp.end < g.now || dp.start > g.now + 60 * DAY) continue;
     onStation.set(dp.aircraftId, Math.max(onStation.get(dp.aircraftId) ?? 0, dp.setsOnStation));
   }
-  const fams = new Map<RatingFamily, { typeId: string; seats: number; n: number }>();
+  // v0.6: each aircraft's complement with its extra crew (a spare pilot is sized as a first officer).
+  const fams = new Map<RatingFamily, Partial<Record<Role, number>>>();
   for (const ac of Object.values(g.fleet)) {
     if (ac.status === 'leasedOut') continue;
     const f = typeOf(ac.typeId).family;
     const sets = Math.max(BAL.crewSetsPerAircraft, (onStation.get(ac.id) ?? 0) + 2);
-    const cur = fams.get(f);
-    if (cur) cur.n += sets;
-    else fams.set(f, { typeId: ac.typeId, seats: ac.cabin.total, n: sets });
+    const x = crewExtraFor(g, ac.id, null);
+    const per = countRoles(rolesWithExtra(ac.typeId, ac.cabin.total, x).map((r) => (r === 'CRP' ? 'FO' : r)));
+    const need = fams.get(f) ?? {};
+    for (const r of ROLES) if (per[r]) need[r] = (need[r] ?? 0) + per[r]! * sets;
+    fams.set(f, need);
   }
   const out: StaffingLine[] = [];
-  for (const [family, x] of fams) {
-    const per = countRoles(complement(x.typeId, x.seats, { extraCabin: g.company.policies.extraCabin }));
+  for (const [family, need] of fams) {
     for (const r of ROLES) {
-      if (!per[r]) continue;
+      if (!need[r]) continue;
       const have = Object.values(g.crew).filter((c) => c.role === r && c.ratings.includes(family)).length;
-      out.push({ family, role: r, have, need: per[r]! * x.n });
+      out.push({ family, role: r, have, need: need[r]! });
     }
   }
   return out;

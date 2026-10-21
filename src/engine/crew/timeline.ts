@@ -82,6 +82,10 @@ export const aboard = (f: Flight, crewId: string): boolean => passengers(f).incl
 const live = (f: Flight): boolean => f.status === 'scheduled' || (f.kind !== 'deadhead' && f.status === 'enroute');
 
 export const crewCount = (p: Pairing) => p.slots.reduce((n, s) => n + (s.crewId ? 1 : 0), 0);
+/** v0.6: a required seat (not one above the legal minimum) is empty. */
+export const requiredEmpty = (p: Pairing): boolean => p.slots.some((s) => !s.crewId && !s.above);
+/** v0.6: an optional seat above the legal minimum is empty. */
+export const aboveEmpty = (p: Pairing): boolean => p.slots.some((s) => !s.crewId && !!s.above);
 
 /** On-blocks: actual, queued (enroute) or scheduled. */
 export const onBlocks = (f: Flight): Minute => (f.status === 'done' ? f.ata ?? f.sta : f.status === 'enroute' ? f.eta ?? f.sta : f.sta);

@@ -20,7 +20,7 @@ export {
 export { crewName, makeCrewMember, salaryFor } from './generate';
 export { crewAvailability, hireCrew, hireQuote, staffing, trainCrew, type Availability, type HireRequest, type RoleCapacity, type StaffingLine } from './hr';
 export {
-  applyDiscretion, autoRoster, boardCrew, buildDuties, flightCrewStatus, guardDuty, onFlightsChanged, removeCrew, replaceCrew, rerosterFrom, rosterOf, setRestDelayHook,
+  applyDiscretion, autoRoster, boardCrew, dropStraySpares, promoteSpares, buildDuties, flightCrewStatus, guardDuty, onFlightsChanged, removeCrew, replaceCrew, rerosterFrom, rosterOf, setRestDelayHook,
   type FlightCrewStatus, type RosterResult,
 } from './roster';
 export { crewIssuesFor } from './check';
@@ -30,6 +30,14 @@ export {
 } from './rosterActions';
 export { salaryBill } from './costs';
 export { crewRev, ticketPrice } from './timeline';
+export { dropTargets, moveDuty, rosterBoard, type BoardBlock, type BoardRow, type DropTarget, type MoveScope } from './board';
+export {
+  cancelConversion, classOf, conversionClasses, conversionPlan, familyLabel, startConversion,
+  type ConversionClassPlan, type ConversionPlan, type ConversionRequest,
+} from './conversion';
+export { moraleOf, moraleSummary, policyPreview, type MoraleDriverView, type MoraleSummary, type MoraleView } from './morale';
+export { crewExtraQuote, setCrewExtra } from './extra';
+export { crewExtraFor, offerExtra, paidMinOf, seatsFor, type CrewExtraSource, type EffectiveExtra, type Seat } from './extraSeats';
 export { CAL_LABEL, crewCalendar, crewStatusView, crewTravelNow, joinsAt, type CalBlock, type CalFlight, type CalKind, type CrewStatusView, type CrewTravelNow } from './calendar';
 
 const CHECKIN = () => BAL.deadheadCheckIn;

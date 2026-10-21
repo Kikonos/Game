@@ -238,7 +238,7 @@ function rolesNeeded(g: GameState, f: Flight, ac: Aircraft): Role[] {
   const cs = flightCrewStatus(g, f.id);
   if (cs.level === 'ok' || cs.level === 'tight') return [];
   if (cs.missing.length) return [...cs.missing];
-  return complement(ac.typeId, ac.cabin.total, { extraCabin: g.company.policies.extraCabin });
+  return complement(ac.typeId, ac.cabin.total, { extraCabin: f.contractId ? g.contracts[f.contractId]?.requirements.extraCabin ?? 0 : 0 });
 }
 
 /**
@@ -349,7 +349,7 @@ function fillSlots(g: GameState, f: Flight): number {
   const p = d ? g.pairings[d.pairingId] : undefined;
   let n = 0;
   p?.slots.forEach((s, i) => {
-    if (s.crewId) return;
+    if (s.crewId || s.above) return;
     const r = replaceCrew(g, p.id, i);
     const c = r.ok && r.data ? g.crew[r.data.crewId] : undefined;
     if (c) {

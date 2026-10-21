@@ -239,6 +239,8 @@ export interface CrewStatusView {
   nowAt: string;
   /** Travelling as a passenger now (airline deadhead or riding our empty leg), else null. */
   travel: CrewTravelNow | null;
+  /** v0.6: last day of a crew member on notice (resigned). */
+  leaves?: Minute;
 }
 
 const arrow = (a: string, b: string) => `${a}→${b}`;

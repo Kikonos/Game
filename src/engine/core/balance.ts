@@ -12,7 +12,7 @@ export const BAL = {
 
   // ---------- commercial (B1) ----------
   /** Mean new offers per week at reputation 60 (gamma-3 gaps: Poisson-like, steadier); scaled by fleet size and season. */
-  offersPerWeek: 3.7,
+  offersPerWeek: 3.4,
   /** Share of offers fitted to a real idle window of a fleet aircraft, and of aspirational (bigger-type) jobs. */
   gapFitShare: 0.5,
   aspirationalShare: 0.12,
@@ -180,4 +180,27 @@ export const BAL = {
     /** Ferry to the shop over this block time (minutes) is a feasibility warning. */
     longFerryMin: 6 * 60,
   },
+
+  // ---------- crew v0.6 (ENGINE; UPDATE-0.6.md §6) ----------
+  /** Bulk type-rating conversion: course days and cost per head, class size, staggering, refunds, pilot bond. */
+  conv: {
+    pilotDays: 42, pilotCost: { narrow: 38_000, wide: 52_000 }, pilotCcqDays: 14, pilotCcqCost: 15_000,
+    cabinDays: 8, cabinCost: 1_800, cabinCcqDays: 3, cabinCcqCost: 600,
+    classMax: 20, pilotStaggerDays: 14, cabinParallel: 2, leadDays: 2, maxAheadDays: 120,
+    refundFull: 14, bondMonths: 24, bondFactor: 0.3,
+    ccq: [['A330/340', 'A350'], ['B777', 'B787']] as [string, string][],
+  },
+  /** Morale: target and drift, daily drivers, shocks, sickness slope, resignations, service quality. */
+  morale: {
+    target: 65, targetClamp: [45, 80] as [number, number], revert: 0.03,
+    perDiemPerPct: 0.15, perDiemMax: 6, tour: { 4: 2, 5: 0, 6: -2 } as Record<number, number>,
+    hotelDay: { 3: -0.4, 4: 0, 5: 0.25 } as Record<number, number>,
+    awayDays: [[28, -0.15], [42, -0.3]] as [number, number][], offAway: -0.5, heavy28dH: 150, heavy: -0.2,
+    lateChange: -2, lateNoticeH: 72, extraDuty: 0.25, career: 4, recognition: 2, salaryLate: -15,
+    sickSlope: 50, resignPerMonth: 0.008, resignMult: [[70, 0.5], [50, 1], [30, 2], [0, 3]] as [number, number][],
+    noticeDays: { pilot: 60, cabin: 30 }, whyDecay: 29 / 30,
+    service: { moraleW: 0.5, extraPer: 0.2, extraMax: 0.4, relation: 6, reliable: 0.5 },
+  },
+  /** Extra crew above the legal minimum: cabin cap, paid-option chances and price per extra crew member. */
+  crewExtra: { cabinMax: 4, paidChanceLong: 0.4, paidChanceSports: 0.25, paidPctPer: 0.0075, longBlockMin: 360 },
 } as const;

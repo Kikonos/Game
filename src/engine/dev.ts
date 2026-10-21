@@ -39,3 +39,6 @@ export function devFleet(g: GameState, n = 10): number {
   }
   return added;
 }
+
+/** v0.6: crew member resigns now (notice period from BAL.morale.noticeDays). Dev/test helper. */
+export { resignNow } from './crew/morale';
