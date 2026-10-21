@@ -207,3 +207,12 @@ Player said: build overnight; if a usage limit hits, save and continue when poss
 ### 22:32Z — check-in: v0.5 live; livery workflow wf_74482358-686 running; checkpoint pushed.
 
 ### 23:32Z — check-in: livery workflow running; checkpoint pushed.
+
+## WORKING AGREEMENT (player, 2026-10-21 morning) — applies to every future update
+The player played v0.5 and is very pleased. From now on everything new ships as an update, and each update goes through these stages WITH the player, in order:
+1. **Discuss** a list of candidate features.
+2. **Brainstorm** each one together.
+3. **Refine** the ideas into a concrete spec the player agrees to.
+4. **Execute** (build, review, fix).
+5. **Release** (play/ on main) and tell the player.
+Don't start building a new feature before stages 1–3 are agreed. (The v0.5.1 livery & polish update was agreed before this and continues.)
