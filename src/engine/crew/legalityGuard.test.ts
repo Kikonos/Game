@@ -201,3 +201,27 @@ describe('crew legality: a stale trip mark (v0.6.3)', () => {
     expect(dutyLegality(g, late.id).level).toBe('illegal');
   });
 });
+
+describe('crew legality: a stale tight mark (v0.6.4)', () => {
+  it('a pairing still marked tight for crew who are now clean reads ok, and a real tight issue stays amber', () => {
+    const { g, p, duties } = rostered();
+    for (const d of duties) expect(dutyLegality(g, d.id).level).toBe('legal');
+    p.legality = 'tight';
+    for (const d of duties) for (const lv of levels(g, d)) expect(lv).toBe('ok');
+    // A real crew-level tight issue: the captain's duty hours in the 7 days to the first release above 95% of 60 h.
+    const c = g.crew[p.slots[0].crewId!];
+    const d0 = duties[0];
+    const own = d0.release - d0.report;
+    const need = Math.ceil(0.96 * 60 * 60) - own;
+    c.log = [];
+    for (let t = d0.release - 7 * DAY + 60, left = need; left > 0 && t + 13 * 60 < d0.report - 12 * 60; t += DAY) {
+      const len = Math.min(13 * 60, left);
+      c.log.push({ start: t, end: t + len, fdp: len, block: Math.round(len * 0.8), sectors: 2, augmented: false, disruptive: false });
+      left -= len;
+    }
+    recheckPairing(g, p);
+    const lv = dutyLegality(g, duties[0].id).level;
+    expect(lv).not.toBe('legal');
+    for (const x of levels(g, duties[0])) expect(x).not.toBe('ok');
+  });
+});
