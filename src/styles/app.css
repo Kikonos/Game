@@ -390,9 +390,11 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .topbar {
   grid-area: top; display: flex; align-items: center; gap: 14px;
   padding: var(--safe-t) calc(14px + var(--safe-r)) 0 calc(16px + var(--safe-l));
-  border-bottom: 1px solid var(--border); background: rgba(7, 11, 20, 0.85); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); z-index: 30;
+  border-bottom: 1px solid var(--border); background: #080c16; z-index: 30;
   min-width: 0;
 }
+/* v0.5.2: no backdrop-filter / transform / will-change on the bars: WebKit draws the text of a filtered layer
+   soft on the iPad home-screen app. Nothing scrolls under them (grid rows), so an opaque fill looks the same. */
 .brand { display: flex; align-items: center; gap: 10px; min-width: 0; flex-shrink: 0; }
 .brand .wordmark { font-family: var(--font-display); font-weight: 700; letter-spacing: 0.22em; font-size: 15px; }
 .airline-pill {

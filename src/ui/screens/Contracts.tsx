@@ -4,7 +4,7 @@
 import { AlertTriangle, CalendarRange, CircleSlash, FileSearch, Handshake, Inbox as InboxIcon, Palette, Users } from 'lucide-react';
 import { useMemo } from 'react';
 import { flag } from '../../data/countries';
-import { cancelContract, cancelCost, contractProgress, idleWindows, type IdleWindow, leadDays } from '../../engine/contracts';
+import { cancelContract, cancelCost, contractProgress, counterView, idleWindows, type IdleWindow, leadDays } from '../../engine/contracts';
 import { flightsRev } from '../../engine/core/entities';
 import { DAY, fmtDateTime, fmtDay } from '../../engine/core/time';
 import type { Contract, ContractOffer, GameState } from '../../engine/core/types';
@@ -21,7 +21,9 @@ function OfferCard({ g, o, windows }: { g: GameState; o: ContractOffer; windows:
   const hook = liveHook(g, o, windows);
   const cl = g.clients[o.clientId];
   const lead = leadDays(g, o.start);
-  const countered = o.status === 'countered';
+  // v0.5.2: the client always answers before the offer lapses; its clock is paused while the counter is pending.
+  const cv = counterView(g, o.id);
+  const pending = cv?.state === 'pending';
   const paint = o.paint ? [{ label: `Their livery${o.paint.required ? ' · required' : ''}`, tone: o.paint.required ? ('warn' as const) : undefined, tip: o.paint.kind === 'full' ? 'Full repaint in the client colours for the contract' : 'Client titles and logo on a white aircraft' }] : [];
   const chips = [...paint, ...reqChips(o.requirements), ...riskChips(o.risk)];
   return (
@@ -30,7 +32,11 @@ function OfferCard({ g, o, windows }: { g: GameState; o: ContractOffer; windows:
         <span className="row gap-8 upper dim ellipsis"><ArchIcon a={o.archetype} />{archLabel(o)}</span>
         <span className="row gap-8 nowrap">
           {o.urgency !== 'normal' && <span className={`badge ${o.urgency === 'urgent' ? 'bad' : 'warn'}`}>{o.urgency === 'urgent' ? 'Urgent' : 'Short notice'}</span>}
-          <span className={`small num ${o.expires - g.now < 12 * 60 ? 'warn' : 'muted'}`}>{expiryLabel(g.now, o.expires)}</span>
+          {pending ? (
+            <span className="small accent nowrap" data-tip="The offer cannot lapse while the client considers your counter">Clock paused</span>
+          ) : (
+            <span className={`small num ${o.expires - g.now < 12 * 60 ? 'warn' : 'muted'}`}>{expiryLabel(g.now, o.expires)}</span>
+          )}
         </span>
       </div>
       <div className="sc-offer-title ellipsis">{o.title}</div>
@@ -45,8 +51,8 @@ function OfferCard({ g, o, windows }: { g: GameState; o: ContractOffer; windows:
         <span className="muted small">est. <b className="num">{money(o.estValue)}</b></span>
       </div>
       <Chips chips={chips.slice(0, 6)} />
-      {countered && o.counter && <div className="small accent">Counter {money(o.counter.price, 2)} sent · reply by {fmtDateTime(o.counter.replyAt)}</div>}
-      {hook && !countered && <div className="small dim ellipsis">{hook}</div>}
+      {cv && <div className={`small sc-counter-line ${cv.tone === 'info' ? 'accent' : cv.tone}`}>{cv.text}</div>}
+      {hook && !cv && <div className="small dim ellipsis">{hook}</div>}
     </button>
   );
 }

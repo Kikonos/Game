@@ -7,7 +7,7 @@ import { haversine } from '../../engine/core/geo';
 import { flightTimes } from '../../engine/core/query';
 import { DAY, fmtDay, fmtTime } from '../../engine/core/time';
 import type { Aircraft, Archetype, ContractOffer, Flight, GameState, Minute, Ref } from '../../engine/core/types';
-import { commercialFlightsBetween, type CommercialFlight, type FlightType, flightType } from '../../engine/ops';
+import { commercialFlightsBetween, type CommercialFlight, commercialItinerary, type FlightType, flightType } from '../../engine/ops';
 import { contractColor } from '../screens/palette';
 
 const RAD = Math.PI / 180;
@@ -155,6 +155,33 @@ export function parseCommercialId(id: string): { ticketId: string; legIndex: num
   return m ? { ticketId: m[1], legIndex: Number(m[2]) } : null;
 }
 
+/**
+ * One entry per airline flight: crew on separate tickets for the same flight (same number, route and
+ * departure) share one icon, row and panel. Keeps the first id (input order); crew merged in order.
+ */
+export function groupCommercial(list: CommercialFlight[]): CommercialFlight[] {
+  const by = new Map<string, CommercialFlight>();
+  for (const cf of list) {
+    const k = `${cf.leg.no}|${cf.leg.from}|${cf.leg.dep}`;
+    const hit = by.get(k);
+    if (!hit) by.set(k, { ...cf, crewIds: [...cf.crewIds] });
+    else for (const id of cf.crewIds) if (!hit.crewIds.includes(id)) hit.crewIds.push(id);
+  }
+  return [...by.values()];
+}
+
+/** The airline flight a map selection id points at, with every ticket's crew on it (null once the ticket is gone). */
+export function commercialById(g: GameState, id: string): CommercialFlight | null {
+  const ref = parseCommercialId(id);
+  const ticket = ref ? g.flights[ref.ticketId] : undefined;
+  const leg = ticket && ref ? commercialItinerary(g, ticket)[ref.legIndex] : undefined;
+  if (!ticket || !leg || !ref) return null;
+  const same = commercialFlightsBetween(g, leg.dep, leg.arr).filter((c) => c.leg.no === leg.no && c.leg.from === leg.from && c.leg.dep === leg.dep);
+  const crewIds = [...ticket.crewIds];
+  for (const c of same) for (const x of c.crewIds) if (!crewIds.includes(x)) crewIds.push(x);
+  return { id, ticketId: ticket.id, leg, legIndex: ref.legIndex, legCount: commercialItinerary(g, ticket).length, crewIds };
+}
+
 export interface NextRow {
   id: string;
   /** Departure (game minutes, delay included). */
@@ -176,7 +203,7 @@ export function upNextRows(g: GameState, n = 4, after = -Infinity): NextRow[] {
     type: flightType(g, f), crew: 0, sel: f.aircraftId ? { kind: 'aircraft', id: f.aircraftId } : null,
   }));
   const t0 = Number.isFinite(after) ? after : g.now;
-  for (const cf of commercialFlightsBetween(g, t0, t0 + 3 * DAY)) {
+  for (const cf of groupCommercial(commercialFlightsBetween(g, t0, t0 + 3 * DAY))) {
     if (cf.leg.dep <= after) continue;
     rows.push(commercialRow(cf));
   }

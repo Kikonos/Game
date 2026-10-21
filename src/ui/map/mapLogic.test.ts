@@ -8,8 +8,11 @@ import { demoFlights } from '../../engine/dev';
 import { createGame } from '../../engine/newGame';
 import { advanceTo } from '../../engine/sim';
 import {
-  chipInfo, fitCodes, headingDeg, lerpAngle, mapAirports, offerPins, parkOffset, PARK_GAP, pickNearest, placeLabels, selectedLegs, sunElevation, sunPoint, terminator, upNext,
+  chipInfo, commercialById, fitCodes, groupCommercial, headingDeg, isCommercialId, lerpAngle, mapAirports, offerPins, parkOffset, PARK_GAP, parseCommercialId, pickNearest, placeLabels,
+  selectedLegs, sunElevation, sunPoint, terminator, TYPE_STROKE, upNext, upNextRows,
 } from './mapLogic';
+import { addDeadhead } from '../../engine/core/entities';
+import { commercialFlightsBetween, ticketBlock } from '../../engine/ops';
 
 const game = (seed = 7) => createGame({ name: 'Atlântica Wings', code: 'AW', livery: { primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' }, base: 'LIS', seed });
 
@@ -185,5 +188,40 @@ describe('selection data', () => {
       { id: 'ACE', x: 44, y: 10, w: 22, h: 12 },
     ]);
     expect([...kept]).toEqual(['TFS', 'FUE']);
+  });
+});
+
+describe('v0.5.2 flight types and airline legs', () => {
+  it('styles every type: operating solid, empty legs dotted amber, deadheads thin grey dotted', () => {
+    expect(TYPE_STROKE.operating.dash).toBe('');
+    expect(TYPE_STROKE.positioning.dash).not.toBe('');
+    expect(TYPE_STROKE.ferry.color).toBe(TYPE_STROKE.positioning.color);
+    expect(TYPE_STROKE.deadhead.width).toBeLessThan(TYPE_STROKE.operating.width);
+  });
+
+  it('parses airline-leg selection ids', () => {
+    expect(isCommercialId('f12:0')).toBe(true);
+    expect(isCommercialId('f12')).toBe(false);
+    expect(parseCommercialId('f1a:1')).toEqual({ ticketId: 'f1a', legIndex: 1 });
+    expect(parseCommercialId('a3')).toBeNull();
+  });
+
+  it('one icon/row per airline flight, crew from every ticket on it; Up Next lists it as Deadhead', () => {
+    const g = game();
+    const crew = Object.keys(g.crew).slice(0, 3);
+    const std = g.now + 120;
+    const sta = std + ticketBlock('LIS', 'FRA');
+    const a = addDeadhead(g, { crewIds: [crew[0]], from: 'LIS', to: 'FRA', std, sta, cost: 0 });
+    addDeadhead(g, { crewIds: [crew[1], crew[2]], from: 'LIS', to: 'FRA', std, sta, cost: 0 });
+    const legs = groupCommercial(commercialFlightsBetween(g, std, std + 10));
+    expect(legs).toHaveLength(1);
+    expect(legs[0].crewIds.sort()).toEqual([...crew].sort());
+    const cf = commercialById(g, `${a.id}:0`)!;
+    expect(cf.crewIds).toHaveLength(3);
+    expect(cf.leg.no).toMatch(/^[A-Z0-9]{2} \d+$/);
+    const rows = upNextRows(g, 4, g.now).filter((r) => r.type === 'deadhead');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ who: cf.leg.no, from: 'LIS', crew: 3, sel: { kind: 'flight', id: legs[0].id } });
+    expect(commercialById(g, 'nope:0')).toBeNull();
   });
 });

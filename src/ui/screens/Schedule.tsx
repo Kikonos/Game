@@ -11,7 +11,7 @@ import { DAY, localOffset } from '../../engine/core/time';
 import type { Aircraft, GameState } from '../../engine/core/types';
 import { TailBadge } from '../components/Logo';
 import { Empty, Seg } from '../components/ui';
-import { liveryOf } from '../../engine/ops';
+import { FLIGHT_TYPE_HINT, liveryOf } from '../../engine/ops';
 import { liveMinute, store, useGame } from '../store';
 import { Dot, ScreenHead, useRenderCount } from './common';
 import { contractColor } from './palette';
@@ -42,14 +42,16 @@ function Block({ b, from, ppm, win0 }: { b: GanttBlock; from: number; ppm: numbe
   const k = b.color !== null ? contractColor(b.color) : undefined;
   // The short label only when it fits whole (12 px padding + ≈ 9 px per bold capital): never 'L…'.
   const text = w >= 64 ? b.label : b.short && w >= 12 + (b.short.length === 1 ? 7.5 : 9 * b.short.length) ? b.short : '';
+  // Ferry legs carry the FERRY tag in front of the full label (the short label already is 'FERRY').
+  const tag = b.ftype === 'ferry' && w >= 120 && text === b.label;
   // Long idle gaps that start off-screen: keep the label near the visible left edge (window start + 18 h).
   const shift = b.kind === 'idle' ? Math.min(Math.max(0, (win0 + 18 * 60 - b.start) * ppm), Math.max(0, w - 90)) : 0;
   return (
     <div
-      className={`gb gb-${b.kind}${b.paint ? ' gb-paint' : ''}${b.done ? ' done' : ''}${b.crew ? ` crew-${b.crew}` : ''}`}
+      className={`gb gb-${b.kind}${b.ftype && b.ftype !== 'operating' ? ` ${b.ftype}` : ''}${b.paint ? ' gb-paint' : ''}${b.done ? ' done' : ''}${b.crew ? ` crew-${b.crew}` : ''}`}
       style={{ transform: `translateX(${x.toFixed(1)}px)`, width: w, ['--kc' as string]: k, ['--pc' as string]: b.paint }}
     >
-      {text && <span style={shift ? { marginLeft: shift } : undefined}>{text}</span>}
+      {text && <span style={shift ? { marginLeft: shift } : undefined}>{tag && <b className="gb-tag">FERRY</b>}{text}</span>}
     </div>
   );
 }
@@ -116,11 +118,15 @@ function Legend({ g, win }: { g: GameState; win: [number, number] }) {
   const paint = pm && ((pm.paint?.phase === 'in' ? (pm.paint && g.contracts[pm.paint.contractId]?.paint?.livery.primary) : g.company.livery.primary) ?? '#8a96b3');
   return (
     <div className="gantt-legend small muted">
+      <span className="gl-item" title={`${FLIGHT_TYPE_HINT.operating}: solid, in the contract colour`}><span className="gl-sw gl-op" />Operating</span>
+      <span className="gl-item" title={FLIGHT_TYPE_HINT.positioning}><span className="gl-sw gl-ft positioning" />Positioning</span>
+      <span className="gl-item" title={FLIGHT_TYPE_HINT.ferry}><span className="gl-sw gl-ft ferry" />Ferry</span>
+      <span className="gl-sep" aria-hidden />
       {list.slice(0, more > 0 ? LEGEND_MAX - 1 : LEGEND_MAX).map((c) => (
         <span key={c.id} className="gl-item ellipsis" style={{ ['--kc' as string]: contractColor(c.color) }}><span className="sc-kdot" />{c.title}</span>
       ))}
       {more > 0 && <span className="gl-item" title={list.slice(LEGEND_MAX - 1).map((c) => c.title).join(' · ')}>+{more + 1} more</span>}
-      <span className="gl-item"><span className="gl-sw gl-pos" />positioning</span>
+
       <span className="gl-item"><span className="gl-sw gl-maint" />maintenance</span>
       {paint && <span className="gl-item"><span className="gl-sw gl-paint" style={{ ['--pc' as string]: paint }} />paint shop</span>}
       <span className="gl-item"><span className="gl-sw gl-idle" />idle 12 h+</span>

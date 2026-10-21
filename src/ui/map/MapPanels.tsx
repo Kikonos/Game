@@ -1,5 +1,6 @@
-// Ops Map (B4) side panels (right, 360 px): aircraft, airport and offer. They re-render with the
-// hourly emit only (calm): progress bars and countdowns step once per game hour.
+// Ops Map (B4) side panels (right, 360 px): aircraft, airport, offer and (v0.5.2) an airline leg our
+// crew ride as passengers. They re-render with the hourly emit only (calm): progress bars and
+// countdowns step once per game hour. Every leg carries its flight type (Operating / Positioning / Ferry / Deadhead).
 
 import { CalendarRange, FileSearch, Plane, Users, Wrench, X } from 'lucide-react';
 import { type ReactNode, useMemo } from 'react';
@@ -11,7 +12,7 @@ import { currentFlight, flightTimes } from '../../engine/core/query';
 import { DAY, fmtDay, fmtDuration, fmtTime, localOffset } from '../../engine/core/time';
 import type { Aircraft, CrewMember, Flight, GameState, Ref } from '../../engine/core/types';
 import { crewName, dutyCrew, flightCrewStatus } from '../../engine/crew';
-import { checkStatus, liveryOf } from '../../engine/ops';
+import { checkStatus, CONNECT_MIN, commercialItinerary, FLIGHT_TYPE_HINT, FLIGHT_TYPE_LABEL, flightCrewAboard, type FlightType, flightType, liveryOf } from '../../engine/ops';
 import { AircraftArt } from '../components/AircraftArt';
 import { Bar } from '../components/ui';
 import { money } from '../format';
@@ -19,7 +20,7 @@ import { contractColor } from '../screens/palette';
 import { store } from '../store';
 import { paintLabel } from '../screens/scheduleLogic';
 import { archLabel, expiryLabel, offerDays } from '../screens/screenLogic';
-import { KIND_LABEL, chipInfo, upcomingLegs } from './mapLogic';
+import { chipInfo, commercialById, parseCommercialId, upcomingLegs } from './mapLogic';
 
 const ROLE_ORDER = ['CPT', 'FO', 'CRP', 'CSD', 'SCC', 'CC'];
 const LEVEL_TONE = { ok: 'good', tight: 'warn', missing: 'bad', illegal: 'bad' } as const;
@@ -62,6 +63,28 @@ function Section({ title, aside, children }: { title: string; aside?: ReactNode;
 
 const Dot = ({ tone }: { tone: string }) => <span className={`op-dot ${tone}`} aria-hidden />;
 
+/** Line sample per flight type (legend, Up Next, chips): the map's stroke in miniature. */
+export const TypeKey = ({ type }: { type: FlightType }) => <span className={`ops-tkey ${type}`} aria-hidden />;
+
+/** Flight-type chip: the map's line sample and label (same words everywhere). */
+export const TypeChip = ({ type }: { type: FlightType }) => (
+  <span className={`chip op-type ${type}`} title={FLIGHT_TYPE_HINT[type]}><TypeKey type={type} />{FLIGHT_TYPE_LABEL[type]}</span>
+);
+
+const byRole = (a: CrewMember, b: CrewMember) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role);
+
+function CrewRows({ crew }: { crew: CrewMember[] }) {
+  return (
+    <div className="op-crew">
+      {crew.map((m) => (
+        <button key={m.id} className="op-crew-row op-crew-link" onClick={() => store.navigate('crew', { sel: { kind: 'crew', id: m.id } })}>
+          <span className="role">{m.role}</span><span className="ellipsis">{crewName(m)}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function crewOf(g: GameState, f: Flight): CrewMember[] {
   let ids = f.crewIds;
   if (!ids.length && f.dutyId) {
@@ -69,22 +92,24 @@ function crewOf(g: GameState, f: Flight): CrewMember[] {
     const p = d ? g.pairings[d.pairingId] : undefined;
     ids = p ? p.slots.map((s) => s.crewId).filter((x): x is string => !!x) : [];
   }
-  return ids.map((id) => g.crew[id]).filter(Boolean).sort((a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role));
+  return ids.map((id) => g.crew[id]).filter(Boolean).sort(byRole);
 }
 
 function LegRow({ g, f, onTap }: { g: GameState; f: Flight; onTap?: () => void }) {
   const c = f.contractId ? g.contracts[f.contractId] : undefined;
   const dep = f.std + f.delay;
   const cs = safe(() => flightCrewStatus(g, f.id), { level: 'ok' as const, missing: [] });
+  const type = safe(() => flightType(g, f), 'operating' as FlightType);
   return (
     <button className="op-leg" onClick={onTap} disabled={!onTap}>
       <span className="op-leg-k" style={{ background: c ? contractColor(c.color) : 'var(--text-3)' }} />
       <span className="col" style={{ minWidth: 0, flex: 1 }}>
         <span className="row op-tight"><b className="mono">{f.from}→{f.to}</b><span className="small muted mono">{f.no}</span></span>
         <span className="small muted ellipsis">
-          {fmtDay(dep)} {fmtTime(dep)} UTC · {fmtDuration(f.block)}{f.kind !== 'revenue' ? ` · ${KIND_LABEL[f.kind]}` : ''}{f.delay ? ` · +${fmtDuration(f.delay)}` : ''}
+          {fmtDay(dep)} {fmtTime(dep)} UTC · {fmtDuration(f.block)}{f.kind === 'techstop' ? ' · fuel stop' : ''}{f.delay ? ` · +${fmtDuration(f.delay)}` : ''}
         </span>
       </span>
+      <span className={`op-type-s ${type}`}>{FLIGHT_TYPE_LABEL[type]}</span>
       <Dot tone={LEVEL_TONE[cs.level]} />
     </button>
   );
@@ -112,12 +137,15 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
   const csKnown = !!cs && (cs.aHoursLeft > 0 || cs.cHoursLeft > 0 || !!cs.nextA || !!cs.nextC || cs.risk > 0);
 
   let now: ReactNode;
+  const curType = cur ? safe(() => flightType(g, cur), 'operating' as FlightType) : null;
+  const riders = cur ? safe(() => flightCrewAboard(g, cur).riding, [] as string[]).map((id) => g.crew[id]).filter(Boolean).sort(byRole) : [];
   if (cur) {
     const { off, on } = flightTimes(cur);
     const prog = Math.max(0, Math.min(1, (t - off) / Math.max(1, on - off)));
     now = (
       <>
-        <div className="row between"><b className="mono op-big">{cur.from} → {cur.to}</b><span className="mono small muted">{cur.no}</span></div>
+        <div className="row between"><b className="mono op-big">{cur.from} → {cur.to}</b><span className="row op-tight">{curType && <TypeChip type={curType} />}<span className="mono small muted">{cur.no}</span></span></div>
+        {curType && curType !== 'operating' && <div className="small muted">{FLIGHT_TYPE_HINT[curType]}</div>}
         <Bar value={prog} size="thin" />
         <div className="op-kv">
           <div><span>Off blocks</span><b className="num">{fmtTime(off)} UTC</b></div>
@@ -147,6 +175,7 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
       {lv.source === 'client' && <div className="small muted op-livery">In {lv.clientName} colours{lv.contractId && g.contracts[lv.contractId] ? ` for ${g.contracts[lv.contractId].title}` : ''}</div>}
       <div className="row wrap op-chips">
         <span className={`chip tone-${chip.tone}`}><Dot tone={chip.tone} />{cur ? 'Airborne' : ac.status === 'available' ? 'Available' : ac.status === 'aog' ? 'AOG' : ac.status === 'maintenance' ? 'Maintenance' : ac.status}</span>
+        {curType === 'ferry' && <span className="chip op-ferry-tag">FERRY</span>}
         <span className="chip">{ac.ownership.kind === 'owned' ? 'Owned' : 'Dry-leased in'}</span>
         <span className="chip">{ac.builtYear}</span>
       </div>
@@ -165,6 +194,12 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
           <div className="small muted">{crewFlight ? 'No crew rostered yet.' : 'No flights planned.'}</div>
         )}
         {cstat && cstat.missing.length > 0 && <div className="small tone-bad op-gap">Missing: {cstat.missing.join(', ')}</div>}
+        {riders.length > 0 && (
+          <>
+            <div className="small muted op-gap">Riding as passengers</div>
+            <CrewRows crew={riders} />
+          </>
+        )}
         {crewFlight && crewFlight.dutyId && crewFlight.status === 'scheduled' && (
           <button className="btn op-gap op-crew-btn" onClick={() => store.openModal({ kind: 'duty', id: crewFlight.id })}><Users /> Adjust crew</button>
         )}
@@ -307,9 +342,69 @@ function OfferPanel({ g, id }: { g: GameState; id: string }) {
   );
 }
 
+// ---------- airline leg (crew deadheading) ----------
+
+/** '16:00 UTC · 17:00 local'. */
+const utcLocal = (t: number, code: string) => `${fmtTime(t)} UTC · ${fmtTime(t, code)} local`;
+
+function CommercialPanel({ g, id }: { g: GameState; id: string }) {
+  const cf = safe(() => commercialById(g, id), null);
+  const ticket = cf ? g.flights[cf.ticketId] : undefined;
+  if (!cf || !ticket) return null;
+  const leg = cf.leg;
+  const legs = safe(() => commercialItinerary(g, ticket), [leg]);
+  const ref = { legIndex: cf.legIndex };
+  const t = g.now;
+  const A = AIRPORT_BY_CODE[leg.from];
+  const B = AIRPORT_BY_CODE[leg.to];
+  const state = t < leg.dep ? 'before' : t < leg.arr ? 'air' : 'done';
+  const prog = Math.max(0, Math.min(1, (t - leg.dep) / Math.max(1, leg.arr - leg.dep)));
+  const crew = cf.crewIds.map((c) => g.crew[c]).filter(Boolean).sort(byRole);
+  const dest = AIRPORT_BY_CODE[ticket.to];
+  return (
+    <Panel title={<span className="mono">{leg.no}</span>} kicker={`Deadhead · ${leg.airline}`} onClose={() => store.select(undefined)}>
+      <div className="row wrap op-chips">
+        <TypeChip type="deadhead" />
+        <span className={`chip ${state === 'air' ? 'tone-air' : ''}`}>{state === 'air' ? 'Airborne' : state === 'before' ? 'Scheduled' : 'Landed'}</span>
+        {legs.length > 1 && <span className="chip">Leg {ref.legIndex + 1} of {legs.length}</span>}
+      </div>
+      <Section title="Flight">
+        <div className="row between"><b className="mono op-big">{leg.from} → {leg.to}</b><span className="small muted ellipsis">{A?.city ?? leg.from} – {B?.city ?? leg.to}</span></div>
+        {state === 'air' && <Bar value={prog} size="thin" />}
+        <div className="op-kv">
+          <div><span>Airline</span><b className="ellipsis">{leg.airline} ({leg.iata})</b></div>
+          <div><span>Departs</span><b className="num">{fmtDay(leg.dep)} · {utcLocal(leg.dep, leg.from)}</b></div>
+          <div><span>Arrives</span><b className="num">{fmtDay(leg.arr)} · {utcLocal(leg.arr, leg.to)}</b></div>
+          {state === 'air' && <div><span>Time to landing</span><b className="num">{fmtDuration(Math.max(0, leg.arr - t))}</b></div>}
+          {state === 'before' && <div><span>Departs in</span><b className="num">{fmtDuration(leg.dep - t)}</b></div>}
+          {state === 'done' && <div><span>Landed</span><b className="num">{fmtDuration(t - leg.arr)} ago</b></div>}
+        </div>
+      </Section>
+      {legs.length > 1 && (
+        <Section title="Connection">
+          {legs.map((l, i) => (
+            <div key={i} className={`op-row static op-cm-leg ${i === ref.legIndex ? 'on' : ''}`}>
+              <TypeKey type="deadhead" />
+              <b className="mono">{l.no}</b>
+              <span className="mono small ellipsis">{l.from}→{l.to}</span>
+              <span className="mono small muted">{fmtTime(l.dep)}–{fmtTime(l.arr)}</span>
+            </div>
+          ))}
+          <div className="small muted">{fmtDuration(Math.max(CONNECT_MIN, legs[1].dep - legs[0].arr))} connection at {legs[0].to}{AIRPORT_BY_CODE[legs[0].to] ? ` (${AIRPORT_BY_CODE[legs[0].to].city})` : ''}</div>
+        </Section>
+      )}
+      <Section title="Our crew on board" aside={<span className="small muted">{crew.length}</span>}>
+        {crew.length ? <CrewRows crew={crew} /> : <div className="small muted">Nobody of ours on this ticket any more.</div>}
+        <div className="small muted op-gap">Travelling as passengers to {dest?.city ?? ticket.to} ({ticket.to}){legs.length > 1 ? ` via ${legs[0].to}` : ''}.</div>
+      </Section>
+    </Panel>
+  );
+}
+
 /** The panel for the current map selection, or null. */
 export function MapPanel({ g, sel }: { g: GameState; sel?: Ref }) {
   if (!sel) return null;
+  if (sel.kind === 'flight' && parseCommercialId(sel.id)) return <CommercialPanel g={g} id={sel.id} />;
   if (sel.kind === 'aircraft' && g.fleet[sel.id]) return <AircraftPanel g={g} ac={g.fleet[sel.id]} />;
   if (sel.kind === 'airport' && AIRPORT_BY_CODE[sel.id]) return <AirportPanel g={g} code={sel.id} />;
   if (sel.kind === 'offer' && g.offers[sel.id]) return <OfferPanel g={g} id={sel.id} />;

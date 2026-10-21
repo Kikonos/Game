@@ -104,7 +104,7 @@
 .cp-top {
   grid-area: top; display: flex; flex-direction: column; gap: 2px; min-width: 0; z-index: 30;
   padding: calc(4px + var(--safe-t)) calc(10px + var(--safe-r)) 4px calc(10px + var(--safe-l));
-  background: rgba(7, 11, 20, 0.9); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-bottom: 1px solid var(--border);
+  background: #080c16; border-bottom: 1px solid var(--border);
 }
 .shell.compact.short .cp-top { padding-left: 10px; }
 .cp-row { display: flex; align-items: center; gap: 8px; min-height: 50px; min-width: 0; }
@@ -120,7 +120,7 @@
 .cp-tabbar {
   grid-area: nav; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px; z-index: 30;
   min-height: calc(var(--tabbar-h) + var(--safe-b)); padding: 3px calc(8px + var(--safe-r)) var(--safe-b) calc(8px + var(--safe-l));
-  background: rgba(7, 11, 20, 0.94); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-top: 1px solid var(--border);
+  background: #070b14; border-top: 1px solid var(--border);
 }
 .cp-rail {
   grid-area: nav; display: flex; flex-direction: column; justify-content: center; gap: 4px; overflow-y: auto; z-index: 30;

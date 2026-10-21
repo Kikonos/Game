@@ -6,6 +6,7 @@ import { flightsOf } from '../../engine/core/entities';
 import { DAY, HOUR, dayStart, fmtDay, fmtTime } from '../../engine/core/time';
 import type { Flight, GameState, MaintenanceEvent, Minute, Ref } from '../../engine/core/types';
 import { crewRev, dutyLegality, flightCrewStatus } from '../../engine/crew';
+import { flightType, type FlightType } from '../../engine/ops/flightType';
 
 export type ZoomDays = 3 | 7 | 28;
 /** Pixels per hour at each zoom preset when the view width is unknown (the screen fits the preset to the width). */
@@ -36,6 +37,8 @@ export interface GanttBlock {
   at?: string;
   /** v0.5.1 paint blocks: the client livery's primary (hatched). */
   paint?: string;
+  /** v0.5.2 flights: Operating / Positioning / Ferry (same words and colours as the map). */
+  ftype?: FlightType;
 }
 
 /** 'Paint · Saudia' (paint-in), 'Repaint' (strip after full paint), 'Decals off'. */
@@ -80,9 +83,10 @@ export function rowBlocks(g: GameState, aircraftId: string, from: Minute, to: Mi
     busy.push([s, e, f.to]);
     if (e < from || s > to) continue;
     const empty = f.kind === 'positioning' || f.kind === 'ferry';
+    const ftype = flightType(g, f);
     out.push({
-      key: f.id, kind: empty ? 'pos' : 'flight', start: s, end: e, color: colorOf(g, f),
-      label: `${f.no} ${f.from}-${f.to}`, short: f.to, refs: [{ kind: 'flight', id: f.id }],
+      key: f.id, kind: empty ? 'pos' : 'flight', start: s, end: e, color: colorOf(g, f), ftype,
+      label: `${f.no} ${f.from}-${f.to}`, short: ftype === 'ferry' ? 'FERRY' : f.to, refs: [{ kind: 'flight', id: f.id }],
       crew: crewFlag(g, f, horizon), done: f.status === 'done', at: f.from,
     });
   }
