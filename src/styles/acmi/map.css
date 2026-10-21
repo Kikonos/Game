@@ -80,6 +80,11 @@ div.worldmap { overflow: clip; }
 }
 .ops-ac[data-phase='airborne'][data-type='ferry'] .tag { display: block; }
 .touch .ops-ac .tag { font-size: 10.5px; }
+/* Airborne near an airport: the reg slides above the icon (the FERRY tag with it), or fades where both sides are taken. */
+.ops-ac .reg, .ops-ac .tag { transition: transform 0.35s ease, opacity 0.35s ease; }
+.ops-ac.reg-up .reg { transform: translateY(-42px); }
+.ops-ac.reg-up .tag { transform: translateY(-15px); }
+.ops-ac.reg-off .reg { opacity: 0; }
 
 /* ---------- shared bits ---------- */
 .op-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--text-3); }

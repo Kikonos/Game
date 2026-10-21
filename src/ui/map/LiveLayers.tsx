@@ -17,7 +17,7 @@ import { PLANE_PATH } from '../components/Logo';
 import { liveMinute, store } from '../store';
 import { isTouch } from '../useMedia';
 import { MAP_H, MAP_W } from './mapData';
-import { headingDeg, type LabelBox, groupCommercial, lerpAngle, parkOffset, downSide, legLabelSide, placeLabels, trackCovered, trackLabelAt, type LegArc, type PinGroup, sunPoint, terminator, TYPE_STROKE } from './mapLogic';
+import { headingDeg, type LabelBox, groupCommercial, lerpAngle, parkOffset, downSide, legLabelSide, placeLabels, regSlot, type RegSlot, trackCovered, trackLabelAt, type LegArc, type PinGroup, sunPoint, terminator, TYPE_STROKE } from './mapLogic';
 import type { MapLayerCtx } from './WorldMap';
 
 /** Live positions shared with tap picking and focus (map units, as last drawn). */
@@ -271,10 +271,12 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
   useEffect(() => {
     const root = ref.current;
     if (!root) return;
-    const els = new Map<string, { el: SVGGElement; glyph: SVGGElement; crowd: boolean }>();
+    const REG_FS = isTouch() ? 12 : 11; // .ops-ac .reg font size
+    const els = new Map<string, { el: SVGGElement; glyph: SVGGElement; crowd: boolean; reg: RegSlot; regW: number }>();
     for (const el of Array.from(root.children) as SVGGElement[]) {
       const id = el.dataset.id!;
-      els.set(id, { el, glyph: el.querySelector('.glyph') as SVGGElement, crowd: false });
+      const reg = el.querySelector('.reg')?.textContent ?? '';
+      els.set(id, { el, glyph: el.querySelector('.glyph') as SVGGElement, crowd: false, reg: 0, regW: reg.length * REG_FS * 0.62 + 2 });
     }
     const glide = new Map<string, Glide>();
     const minFrame = isTouch() ? 1000 / 30 - 3 : 0;
@@ -402,6 +404,25 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
         e.glyph.setAttribute('transform', `rotate(${s.ang.toFixed(1)})`);
         if (e.el.dataset.phase !== live.phase) e.el.dataset.phase = live.phase;
         if (e.crowd !== crowd) e.el.classList.toggle('crowd', (e.crowd = crowd));
+        // Airborne, the reg moves above the icon (or fades) while under it would cover an airport dot or code.
+        let reg: RegSlot = 0;
+        if (live.phase === 'airborne') {
+          const ix = p[0] / u + s.ox;
+          const iy = p[1] / u + s.oy;
+          const obs: LabelBox[] = [];
+          for (const ap of shared.aps) {
+            const ax = ap[0] / u;
+            const ay = ap[1] / u;
+            if (Math.abs(ax - ix) > 70 || Math.abs(ay - iy) > 60) continue;
+            obs.push({ id: '', x: ax, y: ay, w: 10, h: 10 }, { id: '', x: ax, y: ay - 15, w: 28, h: 15 });
+          }
+          if (obs.length) reg = regSlot(ix, iy, e.regW, REG_FS, obs, e.reg);
+        }
+        if (reg !== e.reg) {
+          e.el.classList.toggle('reg-up', reg === 1);
+          e.el.classList.toggle('reg-off', reg === 2);
+          e.reg = reg;
+        }
         shared.ac.set(id, [p[0] + s.ox * u, p[1] + s.oy * u]);
       }
       // Our airborne legs: one path each from take-off to landing (types refreshed with each React render).

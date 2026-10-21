@@ -149,16 +149,17 @@ const posRest = (t: TicketPlan, atHome: boolean) => minRest({ dutyMin: t.sta - t
 /**
  * Ticket to the first departure of duty d: same day (departs report − 3 h − block, rounded down to the hour;
  * counts as FDP) when the merged FDP keeps 30 min of slack, else the day before with minimum rest on arrival.
+ * `early`: always the day before (the longer merged duty would eat the rest before the trip's next duty).
  */
-export function planOut(g: GameState, p: Pairing, d: Duty, from: string): TicketPlan {
+export function planOut(g: GameState, p: Pairing, d: Duty, from: string, early = false): TicketPlan {
   const to = g.flights[d.flightIds[0]]?.from ?? d.restAt;
-  const ride = rideTo(g, from, to, d);
+  const ride = early ? null : rideTo(g, from, to, d);
   if (ride) return ride;
   const blk = dhBlock(from, to);
   const std = hour(d.report - 180 - blk, false);
   const start = std - CHECKIN();
   const { max } = fdpLimitAt(g, p, d, from, start);
-  if (d.fdp + (d.report - start) <= max + (d.discretion ?? 0) - 30) return { from, to, std, sta: std + blk };
+  if (!early && d.fdp + (d.report - start) <= max + (d.discretion ?? 0) - 30) return { from, to, std, sta: std + blk };
   const rest = minRest({ dutyMin: blk + CHECKIN(), atHome: false, augmented: false, tzShift: 0 });
   const std2 = hour(d.report - rest - blk, false);
   return { from, to, std: std2, sta: std2 + blk };

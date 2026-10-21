@@ -338,6 +338,26 @@ export function trackCovered(track: { x: number; y: number; ang: number }[], sid
   });
 }
 
+/** Our reg label's centre offset from the icon (screen px): under it (as parked), or above it while that covers an airport. */
+export const REG_DY = 21;
+/** 0 = under the icon, 1 = above it, 2 = under but faded (both cover an airport dot or code). */
+export type RegSlot = 0 | 1 | 2;
+
+/**
+ * Where our airborne aircraft's reg label sits right now (icon at x/y, screen px): under the icon unless
+ * that covers an airport dot or code (just after take-off, on short final), then above it. Hysteresis
+ * (a label leaves a slot on a clear overlap, returns only with a margin) keeps it from hopping back and forth.
+ */
+export function regSlot(x: number, y: number, w: number, h: number, obstacles: LabelBox[], prev: RegSlot): RegSlot {
+  const bad = (dy: number, held: boolean) => {
+    // Held: covered once it is more than 1.5 px into a box; taken back only with 2 px to spare.
+    const m = held ? -1.5 : 2;
+    return obstacles.some((o) => Math.abs(x - o.x) < (w + o.w) / 2 + m && Math.abs(y + dy - o.y) < (h + o.h) / 2 + m);
+  };
+  if (!bad(REG_DY, prev === 0)) return 0;
+  return bad(-REG_DY, prev === 1) ? 2 : 1;
+}
+
 /**
  * Side for a leg's label, chosen once per leg (and zoom) so it never hops mid-flight: `pref`, unless the
  * other side covers clearly less of the obstacles over the whole track (`track` = icon point and heading, screen px).

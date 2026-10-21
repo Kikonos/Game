@@ -9,7 +9,7 @@ import type { CrewMember, GameState, Minute, SimEvent } from '../core/types';
 import { dailyCrewCosts, monthlySalaries } from './costs';
 import { deletePairing, planAircraft } from './duties';
 import { dailySickness, onCrewJoin, onTrainingDone } from './hr';
-import { autoRoster, guardDuty, onFlightsChanged, recheckAfterRelease, recheckNext, recheckSoon, sendStrandedHome } from './roster';
+import { autoRoster, guardDuty, onFlightsChanged, recheckAfterRelease, recheckNext, recheckSoon, sendStrandedHome, stayOn } from './roster';
 import { minRest, nightsIn, LIMITS } from './rules';
 import { aboard, crewCount, crewIx, dutyBlock, dutyFlights, dutySegs, onBlocks, passengers, touchCrew } from './timeline';
 
@@ -206,6 +206,9 @@ function daily(g: GameState) {
   if (g.company.policies.autoRoster) {
     recheckSoon(g);
     autoRoster(g);
+    // Crew flying home only to fly straight back out stay at the hotel instead.
+    const stayed = stayOn(g);
+    if (stayed.length) recheckNext(g, stayed);
   }
   sendStrandedHome(g);
 }

@@ -110,6 +110,23 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
   };
   let segs = build();
   let ftl = evalSegs({ ...ctxOf(g, c), slack }, merge(base, segs));
+  // v0.5.2: a same-day ticket out (counted as FDP) whose longer first duty eats the rest or FDP of this trip:
+  // the crew fly out the day before and rest at the hotel first.
+  const own = new Set(p.dutyIds);
+  const bad = (l: LegalityIssue[]) => l.filter((i) => i.level === 'illegal' && (i.code === 'rest' || i.code === 'fdp') && !!i.dutyId && own.has(i.dutyId)).length;
+  if (!existing && out && !out.rideId && !String((globalThis as any).__ab).includes('noEarly') && bad(ftl)) { // DBG-AB
+    const early = planOut(g, p, first, out.from, true);
+    if (early.std < out.std && early.std - BAL.deadheadCheckIn >= g.now) {
+      const plain = out;
+      out = early;
+      const s2 = build();
+      const f2 = evalSegs({ ...ctxOf(g, c), slack }, merge(base, s2));
+      if (bad(f2) < bad(ftl)) {
+        segs = s2;
+        ftl = f2;
+      } else out = plain;
+    }
+  }
   // A new ticket home that would break the 168 h recovery: the crew take their recovery at the hotel first.
   if (!existing && home && ftl.some((i) => i.code === 'recovery' && i.level === 'illegal' && i.dutyId === last.id)) {
     const plain = home;

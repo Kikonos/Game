@@ -8,7 +8,7 @@ import { demoFlights } from '../../engine/dev';
 import { createGame } from '../../engine/newGame';
 import { advanceTo } from '../../engine/sim';
 import {
-  chipInfo, commercialById, fitCodes, groupCommercial, headingDeg, isCommercialId, lerpAngle, mapAirports, offerPins, parkOffset, PARK_GAP, parseCommercialId, downSide, legLabelSide, pickNearest, placeLabels,
+  chipInfo, commercialById, fitCodes, groupCommercial, headingDeg, isCommercialId, lerpAngle, mapAirports, offerPins, parkOffset, PARK_GAP, parseCommercialId, downSide, legLabelSide, pickNearest, placeLabels, regSlot, REG_DY,
   selectedLegs, trackLabelAt, sunElevation, sunPoint, terminator, TYPE_STROKE, upNext, upNextRows,
 } from './mapLogic';
 import { addDeadhead } from '../../engine/core/entities';
@@ -244,5 +244,18 @@ describe('airline label side', () => {
   it('keeps the leg\'s own airport codes clear and only changes side for a clearly better one', () => {
     expect(legLabelSide(east, W, H, [code(0, 0), code(200, 0)], 1)).toBe(1);
     expect(legLabelSide(east, W, H, [code(100, 40)], 1)).toBe(-1);
+  });
+  it('lifts our reg off an airport code just after take-off and puts it back once clear', () => {
+    // LIS dot at (0, 0), its code drawn above it; our icon climbing north, 30 px above the dot.
+    const lis = [{ id: '', x: 0, y: 0, w: 10, h: 10 }, { id: '', x: 0, y: -15, w: 28, h: 15 }];
+    expect(regSlot(0, -30, 50, 11, lis, 0)).toBe(1);
+    expect(regSlot(0, -30 - REG_DY * 3, 50, 11, lis, 1)).toBe(0);
+    // Hysteresis: a sliver of overlap neither lifts it nor lets it back.
+    const y = -15 - 7.5 - 5.5 - REG_DY + 1; // under box just 1 px into the code
+    expect(regSlot(0, y, 50, 11, lis, 0)).toBe(0);
+    expect(regSlot(0, y, 50, 11, lis, 1)).toBe(1);
+    // Both sides taken: under, faded.
+    const both = [...lis, { id: '', x: 0, y: -30 - REG_DY, w: 28, h: 15 }];
+    expect(regSlot(0, -30, 50, 11, both, 0)).toBe(2);
   });
 });

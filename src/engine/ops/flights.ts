@@ -679,6 +679,7 @@ function crewProblem(g: GameState, f: Flight, ac: Aircraft): void {
     f.crewHeld = true;
     f.heldAt ??= g.now;
     if (isRevenue(f)) stats(g).uncovered++;
+    if (isRevenue(f)) (globalThis as any).__uncHook?.(g, f); // DBG-UNC
     // Crew over a limit come off the duty first (refilled when someone legal can take the seat).
     if (f.dutyId) guardDuty(g, f.dutyId);
     rerosterFrom(g, ac.id, g.now);
