@@ -279,3 +279,5 @@ REMIND the player of this backlog once the current fixes update has shipped.
 ### 13:05Z(Dubai 17:05) — v0.6.4 released (ed08bca, fix c33e746), live verified (index-B678c1u0, 0 errors), ported to acmi (5d08fa1, pushed). 517 tests, bot seeds 1–3 = baseline. hf063 worktree now holds both hotfixes; removable.
 
 ### 13:12Z — player: "Inside v0.7.1" + yes to the plan. v0.7.2 removed; its items are now v0.7.1 features 12–19. CHAIN: v0.7 → v0.7.1 (Crew Control + Plain Language, all 8 everywhere) → v0.8 → v0.9.
+
+### 15:35Z — v0.7 ready:1 = false (all features work by touch, 631 tests, 0 console errors; blockers: bot uncovered flights 0.32–0.49% vs ≤0.3% on seeds 1/2/6 (widebody season-base legs), seed-6 margin −10%, roster board p99 50 ms vs 25 ms target). fix:r2 (engine+ui) running. If ready:2 is still false → report blockers to the player and ask before releasing.
