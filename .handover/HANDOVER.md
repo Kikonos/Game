@@ -241,3 +241,8 @@ REMIND the player of this backlog once the current fixes update has shipped.
 ### 03:32Z — check-in: v0.5.2 run alive; checkpoint pushed.
 
 ### 04:33Z — check-in: v0.5.2 run alive; checkpoint pushed.
+
+### 05:22Z (09:22 Dubai) — v0.5.2 RELEASED ✅
+- wf_4080b073-2c3 ready=true after 2 rounds (25 findings, 21 confirmed+fixed; 445 tests; A–G each confirmed with shots in scratchpad/acmi/v052/ready-2/). Release f261f6b on claude/contrail-airline-game + main; live asset verified, 0 console errors.
+- Open low items for a later update (tell the player): (1) some deadhead carrier picks not the obvious real operator (STN–DUB on Aer Lingus instead of Ryanair; LDE–LIS on easyJet which doesn't fly it; TFS→OTP via IST) — prefer base LCCs at their bases and origin/destination-country carriers before distant hubs; (2) bot seed 2 misses two pacing targets (≥1 meaningful action/week at 1.4; governments late 2/5) — pre-existing.
+- Player was reminded of the FEATURE BACKLOG with this release message.
