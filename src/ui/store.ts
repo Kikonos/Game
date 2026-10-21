@@ -31,6 +31,8 @@ export interface Settings {
   /** Which engine pause requests actually stop the clock. */
   autoPause: Record<PauseReason, boolean>;
   mapAnimations: boolean;
+  /** Extra empty band above the top bar (px) — iPadOS 26 frosts the top edge of home-screen web apps. */
+  topGap: 'auto' | 0 | 16 | 28 | 40;
   toasts: boolean;
 }
 
@@ -41,6 +43,7 @@ const DEFAULT_SETTINGS: Settings = {
   autosave: true,
   autoPause: { decision: true, urgentOffer: true, aog: true, monthEnd: false, contractStart: false, crewShortage: true },
   mapAnimations: true,
+  topGap: 'auto',
   toasts: true,
 };
 
@@ -82,6 +85,18 @@ export interface Toast {
 }
 
 const SETTINGS_KEY = 'contrail-acmi:settings';
+
+/** Pushes the shell below the band iPadOS 26 blurs at the top of web apps ('auto' = 28 px when installed). */
+export function applyTopGap(s: Pick<Settings, 'topGap'>) {
+  try {
+    const nav = navigator as Navigator & { standalone?: boolean };
+    const installed = nav.standalone === true || matchMedia('(display-mode: standalone)').matches;
+    const px = s.topGap === 'auto' ? (installed ? 28 : 0) : s.topGap;
+    document.documentElement.style.setProperty('--top-gap', `${px}px`);
+  } catch {
+    // no DOM (tests)
+  }
+}
 
 function loadSettings(): Settings {
   try {
@@ -446,6 +461,7 @@ class GameStore {
   setSettings(p: Partial<Settings>) {
     this.settings = { ...this.settings, ...p };
     sound.configure(this.settings.sound, this.settings.volume);
+    applyTopGap(this.settings);
     try {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(this.settings));
     } catch {
@@ -579,3 +595,5 @@ export function useClock(): number {
 export function liveMinute(): number {
   return store.exact;
 }
+
+applyTopGap(store.settings);

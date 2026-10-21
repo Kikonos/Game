@@ -53,7 +53,7 @@
      Home-screen app: status bar 24px top, home indicator 20px bottom on iPad.
      Artifact host (html.embed): the host already pads the page top/bottom, so --safe-t/--safe-b
      are 0 there while --vp-safe-* keep the real insets. */
-  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-t: calc(env(safe-area-inset-top, 0px) + var(--top-gap, 0px));
   --safe-r: env(safe-area-inset-right, 0px);
   --safe-b: env(safe-area-inset-bottom, 0px);
   --safe-l: env(safe-area-inset-left, 0px);
