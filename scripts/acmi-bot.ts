@@ -18,7 +18,7 @@
 //   later, defaults again above 66; one replacement hired per resignation; a conversion booked from surplus crew
 //   when a new type arrives (or a family is 2+ sets short far enough ahead); one extra cabin crew on widebodies;
 //   the client's paid extra cabin crew taken when staffing allows.
-// - v0.7 the Ladder: ETOPS 120 from month 4 when affordable; Widebody operations after 90 days with cash for it, 4 + 4
+// - v0.7 the Ladder: ETOPS 120 from month 4 when affordable; Widebody operations from day 120 off a $1.2M+ quarter, 4 + 4
 //   pilots rated on (or converting to) a widebody family first (hired when the narrowbody surplus is short); augmented
 //   crews once a widebody is held and a 13 h+ widebody job was seen; ETOPS 180 / 240 when ready with $2M spare; never ULR.
 // - v0.7 market: the widebody rule above, only for types the Ladder lets us sign; a second narrowbody lease when the
@@ -35,15 +35,15 @@ import { complement, typeOf } from '../src/engine/core/perf';
 import { DAY, dayIndex, fmtDateTime, fmtMonth, fromUTC, monthKey, toDate } from '../src/engine/core/time';
 import type { RatingFamily } from '../src/data/acmiTypes';
 import type { Archetype, ContractOffer, GameState, LedgerCat, MonthKey, Role } from '../src/engine/core/types';
-import { acceptOffer, counterOffer, feasibility, feasibilityAll, type FeasibilityReport } from '../src/engine/contracts';
-import { aboveMinimum, classOf, conversionClasses, conversionEarliest, conversionPlan, hireCrew, setCrewExtra, staffing, startConversion, type StaffingLine } from '../src/engine/crew';
+import { acceptOffer, counterOffer, feasibility, type FeasibilityReport } from '../src/engine/contracts';
+import { aboveMinimum, classOf, conversionClasses, conversionEarliest, conversionPlan, hireCrew, setCrewExtra, sharedAvailability, staffing, startConversion, type StaffingLine } from '../src/engine/crew';
 import { devFleet } from '../src/engine/dev';
 import { createGame } from '../src/engine/newGame';
 import {
-  acquireAircraft, aircraftGate, applyApproval, approvalBlocker, APPROVALS, bookRefit, chooseLease, checkStatus, deliveryStatus, fixedCosts, groundGaps, ratedPilots,
+  acquireAircraft, aircraftGate, applyApproval, approvalBlocker, approvalReqs, APPROVALS, bookRefit, checkStatus, deliveryStatus, fixedCosts, groundGaps, ratedPilots,
   refitQuote, refitStations, resolveDecision, scheduleCheck, ticketPurpose,
 } from '../src/engine/ops';
-import { refitTip } from '../src/engine/ops/cabin';
+import { cabinAt, refitTip } from '../src/engine/ops/cabin';
 import type { ApprovalId } from '../src/engine/core/types';
 import { deserialize, serialize } from '../src/engine/save';
 import { advanceTo, settle } from '../src/engine/sim';
@@ -128,6 +128,7 @@ function decide(g: GameState, t: Tally): void {
     if (d.kind === 'aog' && usable('swap')) opt = 'swap';
     else if (d.kind === 'latePayment' && g.company.cash < 600_000 && usable('factor')) opt = 'factor';
     else if (d.kind === 'rescue') opt = 'accept';
+    else if (d.kind === 'leaseEnd') opt = keepLease(g, String(d.data?.aircraftId ?? '')) ? 'extend12' : 'return';
     if (resolveDecision(g, d.id, opt).ok || resolveDecision(g, d.id, d.defaultOption).ok) {
       act(g, t);
       t.decisions.set(weekOf(g), (t.decisions.get(weekOf(g)) ?? 0) + 1);
@@ -135,6 +136,22 @@ function decide(g: GameState, t: Tally): void {
       t.decKinds.set(`${d.kind}:${opt}`, (t.decKinds.get(`${d.kind}:${opt}`) ?? 0) + 1);
     }
   }
+}
+
+/** Block hours flown over the last 90 days as a share of 8 BH a day. */
+function util90(g: GameState, acId: string): number {
+  let bh = 0;
+  for (const f of Object.values(g.flights)) if (f.aircraftId === acId && f.status === 'done' && (f.ata ?? f.sta) > g.now - 90 * DAY) bh += ((f.ata ?? f.sta) - (f.atd ?? f.std)) / 60;
+  return bh / (90 * 8);
+}
+
+/** v0.7 lease notice: keep an aircraft that works (≥ 50% over 90 days) or has a contract running past the lease end − 30 days. */
+function keepLease(g: GameState, acId: string): boolean {
+  const ac = g.fleet[acId];
+  if (!ac || ac.ownership.kind !== 'dryLeaseIn') return true;
+  const end = ac.ownership.leaseEnd;
+  const busy = Object.values(g.contracts).some((c) => (c.status === 'signed' || c.status === 'active') && c.aircraftIds.includes(acId) && c.end > end - 30 * DAY);
+  return busy || util90(g, acId) >= 0.5;
 }
 
 function hireFor(g: GameState, t: Tally, r: FeasibilityReport): void {
@@ -148,9 +165,25 @@ function hireFor(g: GameState, t: Tally, r: FeasibilityReport): void {
 const paintOn = (o: ContractOffer) => !!o.paint && (o.paint.required || o.paint.clientShare >= 0.5 || (o.paint.bonusPct ?? 0) > 0);
 
 /** The best workable report for an offer, or null. */
+/** Aircraft passing an offer's seats and family checks (the others' feasibility is 'no' anyway). */
+function seatsFit(g: GameState, o: ContractOffer): string[] {
+  const req = o.requirements;
+  return Object.values(g.fleet)
+    .filter((ac) => {
+      const n = cabinAt(g, ac, o.start).cabin.total;
+      return n >= req.minSeats && (!req.maxSeats || n <= req.maxSeats) && (!req.families?.length || req.families.includes(typeOf(ac.typeId).family));
+    })
+    .map((ac) => ac.id);
+}
+
 function bestFit(g: GameState, o: ContractOffer): FeasibilityReport | null {
+  // Only aircraft that could pass (same pick as over the whole fleet, less work).
+  const ids = seatsFit(g, o);
+  if (!ids.length) return null;
+  const all = sharedAvailability(() => ids.map((id) => feasibility(g, o.id, id, { paint: paintOn(o) })));
+  const rank = { ok: 0, warn: 1, no: 2 } as const;
   return (
-    feasibilityAll(g, o.id, { paint: paintOn(o) }).find((r) => {
+    all.sort((a, b) => rank[a.level] - rank[b.level] || b.estMargin - a.estMargin).find((r) => {
       if ((r.level !== 'ok' && r.level !== 'warn') || r.estMargin <= 0) return false;
       const crew = r.checks.find((c) => c.id === 'crew');
       return !crew || crew.level === 'ok' || (r.crew.firstShort !== null && r.crew.firstShort > g.now + 70 * DAY);
@@ -372,25 +405,186 @@ function wideMonth(rent: number, typeId: string, seats: number): number {
 function fleet(g: GameState, t: Tally): void {
   if (Object.values(g.fleet).some((a) => typeOf(a.typeId).body === 'wide')) return;
   const recent = g.finance.history.slice(-3);
-  const earning = recent.length === 3 && recent.reduce((s, st) => s + statementTotals(st.lines).profit, 0) > 0;
+  // v0.7: the Ladder's approval fees are an investment, not a sign of a losing quarter.
+  const earning = recent.length === 3 && recent.reduce((s, st) => s + statementTotals(st.lines).profit - (st.lines.approvals ?? 0), 0) > 0;
   for (const o of g.market.aircraft) {
-    if (typeOf(o.typeId).body !== 'wide' || o.kind !== 'dryLeaseIn') continue;
+    // v0.7: only what the Ladder lets us sign (pending counts), never a new-build slot.
+    if (typeOf(o.typeId).body !== 'wide' || o.kind !== 'dryLeaseIn' || o.newBuild || o.expires <= g.now || !aircraftGate(g, o.typeId).ok) continue;
+    // The family our widebody pilots fly (another only 60 days after filing with nothing of ours on offer).
+    const filed = g.company.pendingApprovals.find((p) => p.id === 'widebody')?.started ?? g.company.approvalsAt?.widebody ?? g.now;
+    if (typeOf(o.typeId).family !== wideFamily(g) && g.now - filed < 60 * DAY) continue;
     // Acquirable (the target): deposit plus three months of rent and insurance, with $1M left to run the airline.
     if (g.company.cash >= o.deposit + 3 * (o.rentPerMonth + typeOf(o.typeId).insuranceMonth) + 1_000_000) t.wideAffordableAt ??= g.now;
-    if (g.company.cash < o.deposit + (WIDE ? 1_000_000 : 3 * wideMonth(o.rentPerMonth, o.typeId, o.cabin.total) + 1_500_000)) continue;
+    if (g.company.cash < o.deposit + (WIDE ? 1_000_000 : wideMonth(o.rentPerMonth, o.typeId, o.cabin.total) + 500_000)) continue;
     t.wideReadyAt ??= g.now;
+    // v0.7: home after the delivery ferry; a widebody job worth $1M+ starting 1–4 months after that (or, from day 150
+    // on the ladder, the widebody itself: wide work follows a widebody fleet).
+    const lead = o.leadDays + 7;
     const job = Object.values(g.offers).find(
-      (x) => x.status === 'open' && x.estValue >= 2_500_000 && x.product.kind === 'wet' && x.end - x.start >= 75 * DAY && x.start > g.now + (o.leadDays + 30) * DAY && x.start < g.now + (o.leadDays + 75) * DAY && (x.requirements.body === 'wide' || x.requirements.minSeats > 220) &&
+      (x) => x.status === 'open' && x.estValue >= 1_000_000 && x.start > g.now + (lead + 14) * DAY && x.start < g.now + (lead + 120) * DAY && (x.requirements.body === 'wide' || x.requirements.minSeats > 220) &&
         o.cabin.total >= x.requirements.minSeats && (!x.requirements.families?.length || x.requirements.families.includes(typeOf(o.typeId).family)),
     );
-    if (!WIDE && (!earning || !job)) continue;
+    // On the ladder: signed so it is home about when Widebody operations is granted (it flies revenue only then).
+    const due = g.company.approvals.includes('widebody') ? g.now : g.company.pendingApprovals.find((p) => p.id === 'widebody')?.done;
+    const timed = due !== undefined && due - g.now <= (lead + 45) * DAY;
+    if (!WIDE && (!earning || !(job || timed))) continue;
     if (acquireAircraft(g, o.id).ok) {
       t.wideSigned = g.now;
+      t.signed.push(`${typeOf(o.typeId).short} day ${Math.floor((g.now - g.started) / DAY)} at ${o.site}`);
       act(g, t);
       conversions(g, t);
       hire(g, t);
     }
     return;
+  }
+}
+
+// ---------- v0.7 ----------
+
+const dayN = (g: GameState) => Math.floor((g.now - g.started) / DAY);
+const held = (g: GameState, id: ApprovalId) => g.company.approvals.includes(id) || g.company.pendingApprovals.some((p) => p.id === id);
+const monthFixed = (g: GameState) => {
+  const f = fixedCosts(g, monthKey(g.now));
+  return f.rent + f.insurance + f.overhead;
+};
+
+function file(g: GameState, t: Tally, id: ApprovalId): void {
+  if (applyApproval(g, id).ok) {
+    t.filed.push(`${id} day ${dayN(g)}`);
+    act(g, t);
+  }
+}
+
+/**
+ * The Ladder: ETOPS 120 from month 4; Widebody operations from day 120 off a $1.2M+ quarter (4 + 4 widebody pilots hired first when the
+ * narrowbody fleet has none to spare); augmented crews once a widebody flies and a 13 h+ widebody job was seen;
+ * ETOPS 180 / 240 when ready with $2M spare. Never ULR in a year.
+ */
+function ladderSteps(g: GameState, t: Tally): void {
+  const cash = g.company.cash;
+  const cost = (id: ApprovalId) => APPROVALS.find((a) => a.id === id)!.cost;
+  if (dayN(g) >= 90 && !held(g, 'etops120') && !approvalBlocker(g, 'etops120') && cash >= cost('etops120') + 2_500_000) file(g, t, 'etops120');
+  // Widebody operations once an old 767 / A330 lease is on the market (the family to crew for is known then).
+  const wideLease = g.market.aircraft.some((o) => o.kind === 'dryLeaseIn' && o.expires > g.now + 3 * DAY && (o.typeId === 'a332' || o.typeId === 'b763'));
+  // Only off a strong quarter (approval fees aside): the widebody ladder costs ~$2M before the first widebody revenue.
+  const q = g.finance.history.slice(-3).reduce((s, st) => s + statementTotals(st.lines).profit - (st.lines.approvals ?? 0), 0);
+  if (dayN(g) >= 120 && wideLease && q >= 1_200_000 && !held(g, 'widebody') && cash >= cost('widebody') + 2_500_000 + 2 * monthFixed(g)) {
+    // Pilots are hired only when they are all that's missing (never for an application the record still blocks).
+    const otherwise = approvalReqs(g, 'widebody').every((r) => r.ok || / CPT \+ /.test(r.label));
+    const fam = wideFamily(g);
+    const r = ratedPilots(g, [fam], { booked: true });
+    for (const role of ['CPT', 'FO'] as const) {
+      const short = 4 - r[role];
+      if (otherwise && short > 0 && hireCrew(g, { role, family: fam, base: g.company.homeBase, count: short }).ok) act(g, t);
+    }
+    if (!approvalBlocker(g, 'widebody')) file(g, t, 'widebody');
+  }
+  const wideHeld = Object.values(g.fleet).some((a) => typeOf(a.typeId).body === 'wide' && a.status !== 'delivering');
+  const longJob = Object.values(g.offers).some((o) => o.requirements.body === 'wide' && o.pattern.kind === 'legs' && o.pattern.legs.some((l) => l.dep && o.requirements.longestSectorNm > 13 * 470));
+  if (wideHeld && longJob && !held(g, 'augmented') && !approvalBlocker(g, 'augmented') && cash >= cost('augmented') + 2_000_000) file(g, t, 'augmented');
+  for (const id of ['etops180', 'etops240'] as ApprovalId[]) if (!held(g, id) && !approvalBlocker(g, id) && cash >= cost(id) + 2_000_000) file(g, t, id);
+}
+
+/**
+ * The widebody family we build crew for: the one with the most widebody pilots (rated or converting), else the
+ * family of the cheaper open A330 / 767 lease (teasers included), else the 767.
+ */
+function wideFamily(g: GameState): RatingFamily {
+  const fams: RatingFamily[] = ['A330/340', 'B757/767'];
+  const have = fams.map((f) => ({ f, n: ratedPilots(g, [f], { booked: true }) })).filter((x) => x.n.CPT + x.n.FO > 0).sort((a, b) => b.n.CPT + b.n.FO - (a.n.CPT + a.n.FO));
+  if (have.length) return have[0].f;
+  const wide = g.market.aircraft.filter((o) => o.kind === 'dryLeaseIn' && (o.typeId === 'a332' || o.typeId === 'b763')).sort((a, b) => a.rentPerMonth - b.rentPerMonth)[0];
+  return wide ? typeOf(wide.typeId).family : 'B757/767';
+}
+
+/** Past 60 days: block hours per narrowbody against 10 BH a day. */
+export function narrowUse60(g: GameState): number {
+  const nb = Object.values(g.fleet).filter((a) => typeOf(a.typeId).body === 'narrow' && a.status !== 'delivering' && a.deliveredAt < g.now - 60 * DAY);
+  if (!nb.length) return 0;
+  const ids = new Set(nb.map((a) => a.id));
+  let bh = 0;
+  for (const f of Object.values(g.flights)) if (f.aircraftId && ids.has(f.aircraftId) && f.status === 'done' && (f.ata ?? f.sta) > g.now - 60 * DAY) bh += ((f.ata ?? f.sta) - (f.atd ?? f.std)) / 60;
+  return bh / (nb.length * 60 * 10);
+}
+
+/** Next 60 days: the share of narrowbody aircraft-time already committed (flights, checks, signed base work). */
+function committed60(g: GameState): number {
+  const nb = Object.values(g.fleet).filter((a) => typeOf(a.typeId).body === 'narrow' && a.status !== 'delivering' && !a.returning);
+  if (!nb.length) return 0;
+  let idle = 0;
+  for (const ac of nb) for (const gp of groundGaps(g, ac, g.now, g.now + 60 * DAY)) if (gp.to - gp.from >= DAY) idle += gp.to - gp.from;
+  return 1 - idle / (nb.length * 60 * DAY);
+}
+
+/** A third A320-family aircraft by day 200 when the narrowbodies are ≥ 75% committed over the next 60 days; never new-build; one at a time. */
+function narrowGrowth(g: GameState, t: Tally): void {
+  // Not in the last five months of the year: a late aircraft pays rent and new crew long before its first season.
+  if (dayN(g) > 200 || Object.values(g.fleet).some((a) => a.status === 'delivering')) return;
+  if (Object.values(g.fleet).filter((a) => typeOf(a.typeId).body === 'narrow').length >= 3) return;
+  const o = g.market.aircraft.find((x) => x.kind === 'dryLeaseIn' && !x.newBuild && x.expires > g.now && typeOf(x.typeId).family === 'A320' && aircraftGate(g, x.typeId).ok);
+  if (!o || g.company.cash < o.deposit + 1_000_000 || committed60(g) < 0.75) return;
+  if (acquireAircraft(g, o.id).ok) {
+    t.narrowSigned++;
+    t.signed.push(`${typeOf(o.typeId).short} day ${dayN(g)} at ${o.site}`);
+    act(g, t);
+  }
+}
+
+/** A delivery waiting at its site for rated pilots: two rated pilots hired (once: not while some are joining). */
+function deliveryWaits(g: GameState, t: Tally): void {
+  for (const ac of Object.values(g.fleet)) {
+    if (deliveryStatus(g, ac.id)?.phase !== 'waiting') continue;
+    const fam = typeOf(ac.typeId).family;
+    if (Object.values(g.crew).some((c) => c.status === 'joining' && c.ratings.includes(fam) && (c.role === 'CPT' || c.role === 'FO'))) continue;
+    for (const role of ['CPT', 'FO'] as const) if (hireCrew(g, { role, family: fam, base: g.company.homeBase, count: 1 }).ok) act(g, t);
+    t.waitHires++;
+  }
+}
+
+/** At most one refit per 180 days: a premium job worth $1.2M+ failing only on the cabin, the refit ending in time at < 40% of it. */
+function refits(g: GameState, t: Tally): void {
+  if (Object.values(g.maintenance).some((m) => m.kind === 'refit' && m.booked !== undefined && m.booked > g.now - 180 * DAY && m.status !== 'cancelled')) return;
+  if ((g.stats.refits ?? 0) > 0 && Object.values(g.maintenance).every((m) => m.kind !== 'refit')) return;
+  for (const o of Object.values(g.offers)) {
+    if (o.status !== 'open' || o.estValue < 1_200_000 || o.start < g.now + 14 * DAY || (!o.requirements.layouts && !o.requirements.minPremium)) continue;
+    if (o.created < g.now - DAY && (dayIndex(g.now) + hash(o.id)) % 3 !== 0) continue;
+    for (const id of seatsFit(g, o)) {
+      const ac = g.fleet[id];
+      const rep = sharedAvailability(() => feasibility(g, o.id, ac.id));
+      const no = rep.checks.filter((c) => c.level === 'no');
+      if (no.length !== 1 || no[0].id !== 'layout') continue;
+      const tip = refitTip(g, ac, o.requirements);
+      const st = refitStations(g, ac.id)[0];
+      if (!tip || !st) continue;
+      for (let d = 7; d < 60; d++) {
+        const start = Math.ceil((g.now + d * DAY) / DAY) * DAY + 8 * 60;
+        const q = refitQuote(g, ac.id, tip.label, st.code, start);
+        if (!q.ok) continue;
+        if (q.end + 2 * DAY > o.start || q.cost >= 0.4 * o.estValue) break;
+        if (bookRefit(g, ac.id, tip.label, st.code, start).ok) {
+          t.refits.push(`${ac.reg} → ${tip.label} day ${dayN(g)}`);
+          act(g, t);
+          const best = bestFit(g, o);
+          if (best && acceptOffer(g, o.id, [best.aircraftId], { paint: paintOn(o) }).ok) {
+            t.accepted++;
+            act(g, t);
+            // Back to the everyday cabin right after the job (the narrowbody work wants its seats).
+            const was = typeOf(ac.typeId).cabins[0];
+            const lastArr = Math.max(...Object.values(g.flights).filter((f) => f.contractId && g.contracts[f.contractId]?.offerId === o.id).map((f) => f.sta));
+            if (was.label !== tip.label && Number.isFinite(lastArr)) {
+              for (let k = 1; k < 20; k++) {
+                const back = Math.ceil((lastArr + k * DAY) / DAY) * DAY + 8 * 60;
+                if (bookRefit(g, ac.id, was.label, refitStations(g, ac.id)[0]?.code ?? st.code, back).ok) {
+                  t.refits.push(`${ac.reg} → ${was.label} day ${dayN(g)}`);
+                  break;
+                }
+              }
+            }
+          }
+          return;
+        }
+      }
+    }
   }
 }
 
@@ -404,7 +598,11 @@ function policy(g: GameState, t: Tally, urgent: boolean, newDay: boolean): void 
     conversions(g, t);
     hire(g, t);
     checks(g, t);
+    ladderSteps(g, t);
     fleet(g, t);
+    narrowGrowth(g, t);
+    deliveryWaits(g, t);
+    refits(g, t);
   }
   if (newDay || urgent) offers(g, t);
 }
@@ -521,6 +719,15 @@ let moraleMin = 100;
 const seenRecv = new Set<string>();
 let paintBack = 0;
 
+/** v0.7: market offers seen (month, teaser), delivery legs and their crew tickets, abroad deliveries, longest wait. */
+const seenMarket = new Map<string, { month: number; teaser: boolean; newBuild: boolean }>();
+const dhDelivery = new Set<string>();
+const ferryLegs = new Set<string>();
+let ferryBH = 0;
+const abroad = new Set<string>();
+let maxWait = 0;
+let illegalAtFerry = 0;
+
 function onStep(): void {
   const m = mon(monthKey(g.now));
   for (const r of g.finance.receivables) {
@@ -529,6 +736,7 @@ function onStep(): void {
     paintBack += r.amount;
   }
   for (const o of Object.values(g.offers)) seenOffer.add(o.id);
+  for (const o of g.market.aircraft) if (!seenMarket.has(o.id)) seenMarket.set(o.id, { month: monthKey(g.now), teaser: !aircraftGate(g, o.typeId).ok, newBuild: !!o.newBuild });
   // Inbox is newest first: count down to the last message seen.
   let n = 0;
   for (const x of g.messages) {
@@ -547,6 +755,22 @@ function onStep(): void {
   prev = { aogs: s.aogs ?? 0, illegal: ill };
   if (dayIndex(g.now) === lastDay && g.now < end) return;
   lastDay = dayIndex(g.now);
+  // v0.7 deliveries: airline tickets of delivery crews, ferry legs flown, waits.
+  for (const f of Object.values(g.flights)) {
+    if (f.kind === 'deadhead' && f.status !== 'cancelled' && !dhDelivery.has(f.id) && ticketPurpose(g, f.id).kind === 'delivery') dhDelivery.add(f.id);
+    if (f.purpose === 'delivery' && f.status === 'done' && !ferryLegs.has(f.id)) {
+      ferryLegs.add(f.id);
+      ferryBH += ((f.ata ?? f.sta) - (f.atd ?? f.std)) / 60;
+      const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+      if (d?.legality === 'illegal') illegalAtFerry++;
+    }
+  }
+  for (const ac of Object.values(g.fleet)) {
+    const dl = ac.delivery;
+    if (!dl) continue;
+    if (dl.site !== g.company.homeBase) abroad.add(ac.id);
+    if (dl.waitingSince !== undefined) maxWait = Math.max(maxWait, (g.now - dl.waitingSince) / DAY);
+  }
   // Once a day: flights flown or cancelled (pruned only a week after their month is billed).
   for (const f of Object.values(g.flights)) {
     if (f.kind === 'deadhead' || seenFlight.has(f.id)) continue;
@@ -592,7 +816,7 @@ const runSecs = (performance.now() - wall) / 1000;
 
 // ---------- report ----------
 
-const CODE: Partial<Record<Archetype, string>> = { seasonBase: 'SB', aogCover: 'AC', adhoc: 'AH', sports: 'SP', repatriation: 'RP', tourSeries: 'TS', troopRotation: 'TR', evacuation: 'EV' };
+const CODE: Partial<Record<Archetype, string>> = { seasonBase: 'SB', aogCover: 'AC', adhoc: 'AH', sports: 'SP', repatriation: 'RP', tourSeries: 'TS', troopRotation: 'TR', evacuation: 'EV', vip: 'VI' };
 const monthStart = (k: MonthKey) => fromUTC(Math.floor(k / 12), (k % 12) + 1, 1);
 const contractsIn = (k: MonthKey) => {
   const n = new Map<string, number>();
@@ -718,6 +942,8 @@ const weeksM = g.stats.moraleWeeks ?? [];
 const moraleTrend = weeksM.length >= 5 ? moraleEnd - weeksM[weeksM.length - 5] : 0;
 const avgHead = headN ? headDays / headN : 1;
 const resignRate = ((g.stats.resigned ?? 0) + staffNow.filter((c) => c.notice).length) / Math.max(1, avgHead) * (365 / days);
+/** v0.7 targets pooled over seeds (printed per seed, not failing the run). */
+const softTargets: [string, boolean, string][] = [];
 const targets: [string, boolean, string][] = [
   ['no exceptions, no NaN/Infinity', errors.length === 0, errors.length ? errors[0].split('\n')[0] : 'clean'],
   ['solvent all year (no game over)', !g.gameOver, g.gameOver ? g.gameOver.reason : `month-end low ${k$(minCash)}, end ${k$(g.company.cash)}`],
@@ -730,7 +956,7 @@ const targets: [string, boolean, string][] = [
   ['≤ 3 decisions per week', maxDec <= 3, `max ${maxDec}, ${[...tally.decisions.values()].reduce((a, b) => a + b, 0)} answered`],
   ['≥ 30 offers per year', seenOffer.size * (365 / days) >= 30, String(seenOffer.size)],
   ['first contract within 7 days', tally.firstAccept !== null && tally.firstAccept - g.started <= 7 * DAY, dayOf(tally.firstAccept)],
-  ['widebody acquirable within 12 months', tally.wideAffordableAt !== null && tally.wideAffordableAt - g.started <= 365 * DAY, `${dayOf(tally.wideAffordableAt)}; with crew costs ${dayOf(tally.wideReadyAt)}; signed ${dayOf(tally.wideSigned)}`],
+  // v0.7: replaced by the ladder target (widebody ops filed by day 200, a widebody signed in the year; soft, below).
   ['1–3 AOGs per aircraft-year', aogRate >= 0.995 && aogRate <= 3.005, `${aogRate.toFixed(2)} (${s.aogs ?? 0} in ${acYears.toFixed(1)} ac-yr)`],
   // v0.6: pooled over seeds 1–6 (≥ 60% late); per seed it is printed (a seed sees only a handful of invoices).
   ['governments pay late (info; pool seeds 1–6)', true, `${govLate}/${gov.length} invoices late`],
@@ -764,6 +990,23 @@ console.log(
     `classes booked ${tally.classesBooked} done ${g.stats.conversions ?? 0}, extra-crew duties ${dutiesFlown ? ((100 * dutiesExtra) / dutiesFlown).toFixed(1) : '0'}% of ${dutiesFlown}, paid extras ${tally.paidExtra}, ` +
     `policies [${tally.policyChanges.join(', ') || '-'}], government invoices late ${govLate}/${gov.length}`,
 );
+{
+  // v0.7 lines: the ladder, the market, deliveries, refits and leases.
+  const granted = Object.entries(g.company.approvalsAt ?? {}).filter(([, t]) => (t ?? 0) > g.started).map(([id, t]) => `${id} day ${Math.floor(((t ?? 0) - g.started) / DAY)}`);
+  console.log(`ladder v0.7: filed [${tally.filed.join(', ') || '-'}], granted [${granted.join(', ') || '-'}], pending [${g.company.pendingApprovals.map((p) => `${p.id}${p.waiting ? ' (waiting)' : ''}`).join(', ') || '-'}], findings ${s.findings ?? 0}`);
+  const byMonth = new Map<number, number>();
+  for (const x of seenMarket.values()) byMonth.set(x.month, (byMonth.get(x.month) ?? 0) + 1);
+  const mk = [...seenMarket.values()];
+  console.log(`market: ${mk.length} offers (${[...byMonth.values()].join('/')} per month), ${mk.filter((x) => x.teaser).length} teasers, ${mk.filter((x) => x.newBuild).length} new-build; signed [${tally.signed.join(', ') || '-'}]`);
+  console.log(`deliveries: ${s.deliveries ?? 0} handed over (${abroad.size} abroad), ferry legs ${ferryLegs.size} (${ferryBH.toFixed(1)} BH), delivery-crew airline tickets ${dhDelivery.size}, waits ${s.deliveryWaitDays ?? 0} days (longest ${maxWait.toFixed(0)}), wait hires ${tally.waitHires}`);
+  const refitCost = [...g.finance.history, g.finance.current].reduce((x, st) => x + (st.lines.refit ?? 0), 0);
+  const retCost = [...g.finance.history, g.finance.current].reduce((x, st) => x + (st.lines.leaseReturn ?? 0), 0);
+  console.log(`refits: ${s.refits ?? 0} done [${tally.refits.join(', ') || '-'}] ${k$(refitCost)}; leases: ${s.leaseExtensions ?? 0} extended, ${s.leaseReturns ?? 0} returned ${k$(retCost)}`);
+  softTargets.push(['ladder: widebody ops filed by day 200, a widebody signed by day 365 (≥ 4 of seeds 1–6)', tally.filed.some((f) => f.startsWith('widebody ') && Number(f.split(' day ')[1]) <= 200) && tally.wideSigned !== null, `filed ${tally.filed.find((f) => f.startsWith('widebody ')) ?? 'never'}; signed ${dayOf(tally.wideSigned)}`]);
+  softTargets.push(['delivery pilots on airline deadheads (when handed over abroad)', abroad.size === 0 || dhDelivery.size > 0, `${dhDelivery.size} tickets for ${abroad.size} abroad`]);
+  targets.push(['delivery ferries: 0 illegal duties, no wait > 30 days', illegalAtFerry === 0 && maxWait <= 30, `${ferryLegs.size} legs, ${illegalAtFerry} illegal, longest wait ${maxWait.toFixed(0)} days`]);
+}
 console.log('\ntargets');
 for (const [name, ok, val] of targets) console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${name.padEnd(38)} ${val}`);
+for (const [name, ok, val] of softTargets) console.log(`  ${ok ? 'ok  ' : 'no  '}  ${name} — ${val}`);
 process.exitCode = errors.length ? 2 : targets.every((c) => c[1]) ? 0 : 1;

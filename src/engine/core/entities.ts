@@ -46,6 +46,9 @@ export function touchTickets(g: GameState): void {
   if (valid) ix.builtRev = ix.flightsRev;
 }
 
+/** v0.7: a leg off or on blocks (status and actual times only): lists keep their members and order, as touchTickets. */
+export const touchStatus = (g: GameState): void => touchTickets(g);
+
 /** Records that an aircraft's flights from t on changed (retime, cancel, removal, reassignment). */
 export function markFlightsChanged(g: GameState, aircraftId: string | null, t: Minute): void {
   if (!aircraftId) return;

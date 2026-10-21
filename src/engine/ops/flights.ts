@@ -5,7 +5,7 @@
 // legs as gone and plans a duplicate.
 
 import { BAL } from '../core/balance';
-import { cancelFlight, flightsOf, removeFlights, retimeFlight, subcharterFlights, touchFlights } from '../core/entities';
+import { cancelFlight, flightsOf, removeFlights, retimeFlight, subcharterFlights, touchFlights, touchStatus, touchTickets } from '../core/entities';
 import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { blockMinutes, typeOf } from '../core/perf';
@@ -559,7 +559,7 @@ function depart(g: GameState, f: Flight, ac: Aircraft): void {
   // Charter clients are compensated for long delays (> 3 h).
   const c = contractOf(g, f);
   if (c?.product.kind === 'charter' && isRevenue(f) && delayOf(f) > 180 && c.penalties.perDelay) post(g, 'penalties', -c.penalties.perDelay);
-  touchFlights(g);
+  touchStatus(g);
 }
 
 /**
@@ -771,14 +771,14 @@ export function onFlightArr(g: GameState, ev: SimEvent): void {
     f.status = 'done';
     f.atd = f.std;
     f.ata = g.now;
-    touchFlights(g);
+    touchTickets(g);
     return;
   }
   if (f.status !== 'enroute') return;
   const ac = g.fleet[f.aircraftId];
   f.status = 'done';
   f.ata = g.now;
-  touchFlights(g);
+  touchStatus(g);
   if (!ac) return;
   ac.flightId = null;
   ac.at = f.to;

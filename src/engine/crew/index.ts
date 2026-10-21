@@ -21,7 +21,7 @@ export {
   acclimState, referenceTime, type Acclim, type CrewWindows, type FdpInput, type IssueCode, type LegalityIssue, type LegalityReport, type RestInput,
 } from './ftl';
 export { crewName, makeCrewMember, salaryFor } from './generate';
-export { crewAvailability, hireCrew, hireQuote, ratedMarket, staffing, trainCrew, type Availability, type HireRequest, type RatedMarket, type RoleCapacity, type StaffingLine } from './hr';
+export { crewAvailability, hireCrew, sharedAvailability, hireQuote, ratedMarket, staffing, trainCrew, type Availability, type HireRequest, type RatedMarket, type RoleCapacity, type StaffingLine } from './hr';
 export {
   applyDiscretion, autoRoster, boardCrew, dropStraySpares, promoteSpares, buildDuties, flightCrewStatus, guardDuty, onFlightsChanged, removeCrew, replaceCrew, rerosterFrom, rosterOf, setRestDelayHook,
   type FlightCrewStatus, type RosterResult,

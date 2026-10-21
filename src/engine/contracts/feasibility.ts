@@ -8,7 +8,7 @@ import { distanceNm } from '../core/geo';
 import { complement, etopsNeeded, maxSectorNm, planSector, reportMinutes, runwayFit, typeOf } from '../core/perf';
 import { DAY, fmtDate, fmtDateTime, fmtDay, fmtDuration, toDate } from '../core/time';
 import type { Aircraft, ApprovalId, ContractOffer, CrewExtra, GameState, Minute } from '../core/types';
-import { crewAvailability, offerExtra, type Availability } from '../crew';
+import { crewAvailability, offerExtra, sharedAvailability, type Availability } from '../crew';
 import { A_CHECK_DAYS, anchorsOf, chainForward, CHARTER_SLACK, DEPLOY_LEAD, gapMoves, programmeOf, type Anchor, type ChainLeg, type Programme, type Trip } from './plan';
 import { afterRefit, cabinAt, cabinFits, layoutsOf, refitTip } from '../ops/cabin';
 import { aircraftGate, APPROVALS, gateApprovals } from '../ops/company';
@@ -501,8 +501,7 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
 
 /** One report per fleet aircraft, best first (ok before warn before no, then margin). */
 export function feasibilityAll(g: GameState, offerId: string, opts: { paint?: boolean; crewExtra?: CrewExtra } = {}): FeasibilityReport[] {
-  return Object.keys(g.fleet)
-    .map((id) => feasibility(g, offerId, id, opts))
+  return sharedAvailability(() => Object.keys(g.fleet).map((id) => feasibility(g, offerId, id, opts)))
     .sort((a, b) => RANK[a.level] - RANK[b.level] || b.estMargin - a.estMargin);
 }
 

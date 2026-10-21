@@ -201,12 +201,14 @@ export function dailyMarket(g: GameState): void {
     const x = weightedPick(r, eligibleTypes(g), (e) => e.w);
     if (x) postOffer(g, makeOffer(g, x.t));
   }
+  // Within 45 days of filing there is an unlocked widebody lease to sign: posted when none is open (the one open on
+  // the filing day may lapse unsigned).
   const filed = g.company.pendingApprovals.find((p) => p.id === 'widebody');
   if (!m.gotWideFiled && filed) {
     const days = (g.now - filed.started) / DAY;
-    const open = m.aircraft.some((o) => typeOf(o.typeId).body === 'wide' && aircraftGate(g, o.typeId).ok);
-    if (open) m.gotWideFiled = true;
-    else if (days >= M.wideAfterFilingDays - 1 || chance(r, 1 / 20)) {
+    const open = m.aircraft.some((o) => typeOf(o.typeId).body === 'wide' && o.kind === 'dryLeaseIn' && aircraftGate(g, o.typeId).ok);
+    if (days >= M.wideAfterFilingDays) m.gotWideFiled = true;
+    else if (!open && (days >= M.wideAfterFilingDays - 1 || chance(r, 1 / 20))) {
       m.gotWideFiled = true;
       postOffer(g, makeOffer(g, typeOf(chance(r, 0.5) ? 'b763' : 'a332'), { lease: true }));
     }
