@@ -57,7 +57,7 @@ function Why({ g, tone, ref }: { g: GameState; tone: string; ref: Ref }) {
   if (tone !== 'bad' && tone !== 'warn') return <Dot tone={tone} />;
   return (
     <button className="op-why" onClick={(e) => { e.stopPropagation(); openProblem(g, ref); }} aria-label="Why?" title="Why?">
-      <Dot tone={tone} /><span className="op-why-t">WHY?</span>
+      <Dot tone={tone} />
     </button>
   );
 }
@@ -143,12 +143,12 @@ function LegRow({ g, f, onTap, short }: { g: GameState; f: Flight; onTap?: () =>
       <Main className="op-leg-main" onClick={onTap}>
         <span className="op-leg-k" style={{ background: c ? contractColor(c.color) : 'var(--text-3)' }} />
         <span className="col" style={{ minWidth: 0, flex: 1 }}>
-          <span className="row op-tight"><b className="mono">{f.from}→{f.to}</b><span className="small muted mono">{f.no}</span>{short && <ShortBanner stage={short.stage} small />}</span>
+          <span className="row op-tight"><b className="mono">{f.from}→{f.to}</b><span className="small muted mono">{f.no}</span></span>
           <span className="small muted ellipsis">
             {fmtDay(dep)} {fmtTime(dep)} UTC · {fmtDuration(f.block)}{f.kind === 'techstop' ? ' · fuel stop' : ''}{f.delay ? ` · +${fmtDuration(f.delay)}` : ''}
           </span>
         </span>
-        <span className={`op-type-s ${type}`}>{FLIGHT_TYPE_LABEL[type]}</span>
+        {short ? <ShortBanner stage={short.stage} small /> : <span className={`op-type-s ${type}`}>{FLIGHT_TYPE_LABEL[type]}</span>}
       </Main>
       <Why g={g} tone={LEVEL_TONE[cs.level]} ref={{ kind: 'flight', id: f.id }} />
     </div>

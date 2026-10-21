@@ -11,6 +11,7 @@ import { DAY, HOUR, dayStart, fmtDay, toDate } from '../../engine/core/time';
 import type { GameState, Role } from '../../engine/core/types';
 import type { RatingFamily } from '../../data/acmiTypes';
 import { crewRev, dropTargets, familyLabel, moveDuty, rosterBoard, type BoardBlock, type BoardRow, type DropTarget, type MoveScope } from '../../engine/crew';
+import { ColourLegend } from '../components/ColourLegend';
 import { Seg } from '../components/ui';
 import { liveMinute, store, useThrottledNow } from '../store';
 import { useRenderCount } from './common';
@@ -677,6 +678,16 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
       </div>
       <div className="rb-foot">
         {legend.map((k) => <span key={k} className="row gap-4 tiny muted"><span className={`sc-cal-sw k-${k}`} aria-hidden />{CAL_KEY_LABEL[k]}</span>)}
+        <ColourLegend title="Roster board colours" align="left" items={[
+          { swatch: <span className="sc-cal-sw k-operating" aria-hidden />, label: 'A duty: flights with passengers (in the contract colour)' },
+          { swatch: <span className="sc-cal-sw k-positioning" aria-hidden />, label: 'Positioning or ferry: flying empty' },
+          { swatch: <span className="sc-cal-sw k-deadhead" aria-hidden />, label: 'Deadhead: travelling as a passenger on an airline or a private jet' },
+          { swatch: <span className="sc-cal-sw k-rest" aria-hidden />, label: 'Rest: the time off needed before the next duty' },
+          { swatch: <span className="sc-cal-sw k-off" aria-hidden />, label: 'Day off' },
+          { swatch: 'ring-amber', label: 'Amber ring: legal but tight (one delay breaks it)' },
+          { swatch: 'ring-red', label: 'Red ring: cannot legally fly as rostered' },
+          { swatch: 'idle', label: 'Faint hatch: not rostered yet (beyond 14 days)' },
+        ]} />
         <span className="grow" />
         <span className="tiny dim">{drag ? 'Drop on a green or amber row · red asks first · grey can’t take it' : 'Tap a duty to change its crew · long-press to drag it to someone else'}</span>
       </div>

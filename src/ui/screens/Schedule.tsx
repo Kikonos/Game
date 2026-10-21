@@ -10,6 +10,7 @@ import { typeOf } from '../../engine/core/perf';
 import { DAY, localOffset } from '../../engine/core/time';
 import type { Aircraft, GameState } from '../../engine/core/types';
 import { TailBadge } from '../components/Logo';
+import { ColourLegend } from '../components/ColourLegend';
 import { Empty, Seg } from '../components/ui';
 import { FLIGHT_TYPE_HINT, liveryOf } from '../../engine/ops';
 import { liveMinute, store, useGame } from '../store';
@@ -44,14 +45,16 @@ function Block({ b, from, ppm, win0 }: { b: GanttBlock; from: number; ppm: numbe
   const text = w >= 64 ? b.label : b.short && w >= 12 + (b.short.length === 1 ? 7.5 : 9 * b.short.length) ? b.short : '';
   // Ferry legs carry the FERRY tag in front of the full label (the short label already is 'FERRY').
   const tag = b.ftype === 'ferry' && w >= 120 && text === b.label;
+  // v0.7.1 §3.12: a flight the crew-shortage ladder marked carries CREW SHORT in front of its label when it fits.
+  const short = !!b.alert && w >= 150 && text === b.label;
   // Long idle gaps that start off-screen: keep the label near the visible left edge (window start + 18 h).
   const shift = b.kind === 'idle' ? Math.min(Math.max(0, (win0 + 18 * 60 - b.start) * ppm), Math.max(0, w - 90)) : 0;
   return (
     <div
-      className={`gb gb-${b.kind}${b.ftype && b.ftype !== 'operating' ? ` ${b.ftype}` : ''}${b.paint ? ' gb-paint' : ''}${b.done ? ' done' : ''}${b.crew ? ` crew-${b.crew}` : ''}`}
+      className={`gb gb-${b.kind}${b.ftype && b.ftype !== 'operating' ? ` ${b.ftype}` : ''}${b.paint ? ' gb-paint' : ''}${b.done ? ' done' : ''}${b.crew ? ` crew-${b.crew}` : ''}${b.alert ? ' crew-short' : ''}`}
       style={{ transform: `translateX(${x.toFixed(1)}px)`, width: w, ['--kc' as string]: k, ['--pc' as string]: b.paint }}
     >
-      {text && <span style={shift ? { marginLeft: shift } : undefined}>{tag && <b className="gb-tag">FERRY</b>}{text}</span>}
+      {text && <span style={shift ? { marginLeft: shift } : undefined}>{tag && <b className="gb-tag">FERRY</b>}{short && <b className="gb-tag cs">CREW SHORT</b>}{text}</span>}
     </div>
   );
 }
@@ -287,6 +290,15 @@ export function ScheduleScreen() {
       <ScreenHead title="Schedule" sub={<>Times in UTC · {base} local is {offLabel} · tap a row for details · pinch to zoom</>}>
         <button className="btn" onClick={() => scrollTo(g.now)}><Crosshair /> Today</button>
         <Seg<ZoomDays> value={zoom} onChange={setZoom} options={ZOOMS.map((z) => ({ value: z, label: `${z} days` }))} />
+        <ColourLegend title="Schedule colours" items={[
+          { swatch: 'op', label: 'Solid block in a contract colour: a flight with passengers, flown by us' },
+          { swatch: 'pos', label: 'Striped outline: positioning or ferry, empty' },
+          { swatch: 'corner', label: 'Red corner: the crew cannot legally fly it · amber corner: no crew yet' },
+          { swatch: <span className="cs-banner red" style={{ height: 18, fontSize: 11 }}>CREW SHORT</span>, label: 'A crew shortage the warning ladder has flagged (tap the block → Crew Control)' },
+          { swatch: 'maint', label: 'Hatched grey: a check, repair or paint shop' },
+          { swatch: 'idle', label: 'Dashed outline: idle 12 h or more (rent still runs)' },
+          { swatch: 'grey', label: 'Faded: already flown' },
+        ]} />
       </ScreenHead>
       <Legend g={g} win={win} />
       <div className="gantt card">

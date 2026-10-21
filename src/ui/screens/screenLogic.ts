@@ -218,11 +218,13 @@ export function statementView(current: MonthStatement, history: MonthStatement[]
   return { months, rows };
 }
 
-/** v0.7: 'market' filters by topic (aircraft market alerts). */
-export type MsgFilter = MessageCat | 'all' | 'market';
+/** v0.7: 'market' filters by topic (aircraft market alerts). v0.7.1: 'problems' = warnings, bad news and messages about a problem. */
+export type MsgFilter = MessageCat | 'all' | 'market' | 'problems';
+
+export const isProblemMessage = (m: Message) => !!m.problem || m.tone === 'warn' || m.tone === 'bad';
 
 export function filterMessages(list: Message[], cat: MsgFilter): Message[] {
-  return cat === 'all' ? list : cat === 'market' ? list.filter((m) => m.topic === 'market') : list.filter((m) => m.cat === cat);
+  return cat === 'all' ? list : cat === 'market' ? list.filter((m) => m.topic === 'market') : cat === 'problems' ? list.filter(isProblemMessage) : list.filter((m) => m.cat === cat);
 }
 
 export interface DeepLink {

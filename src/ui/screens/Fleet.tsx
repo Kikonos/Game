@@ -10,11 +10,14 @@ import { cabinMinimum, typeOf } from '../../engine/core/perf';
 import { fmtDate, fmtDay, yearOf } from '../../engine/core/time';
 import type { Aircraft, CrewExtra, GameState, LiveryRef } from '../../engine/core/types';
 import { BAL } from '../../engine/core/balance';
-import { crewExtraQuote, setCrewExtra } from '../../engine/crew';
+import { crewExtraQuote, setCrewExtra, shortFlights } from '../../engine/crew';
 import { cancelCheck, checkStatus, deliveryStatus, leaseView, liveryOf, paintStatus, setAircraftLivery } from '../../engine/ops';
+import { problemAt } from '../../engine/problems';
 import { AircraftArt } from '../components/AircraftArt';
+import { Why } from '../components/Why';
 import { Empty, Seg, Stepper, Toggle } from '../components/ui';
 import { money } from '../format';
+import { spanLabel } from './screenLogic';
 import { store, useGame } from '../store';
 import { KV, ScreenHead, useRenderCount } from './common';
 import { MarketView } from './Market';
@@ -42,14 +45,14 @@ function safeCheck(g: GameState, ac: Aircraft) {
   }
 }
 
-function CheckBar({ label, used, due, hoursLeft, next, onPlan }: { label: string; used: number; due: number; hoursLeft: number; next: string | null; onPlan: () => void }) {
+function CheckBar({ label, used, due, hoursLeft, next, onPlan, aircraftId }: { label: string; used: number; due: number; hoursLeft: number; next: string | null; onPlan: () => void; aircraftId: string }) {
   const tone = limitTone(used);
   const mx = useGame().maintenance;
   const nm = next ? mx[next] : undefined;
   return (
     <div className="sc-check-bar">
       <div className="row between small">
-        <span><b>{label}</b> <span className="muted">{nm ? `booked ${fmtDay(nm.start)} at ${nm.at}` : `due ${fmtDay(due)}`}</span></span>
+        <span className="row gap-8"><b>{label}</b> <span className="muted">{nm ? `booked ${fmtDay(nm.start)} at ${nm.at}` : `due ${fmtDay(due)}`}</span>{tone !== 'good' && !nm && <Why refs={{ kind: 'aircraft', id: aircraftId }} tone={tone} label={`${label}: why?`} />}</span>
         <span className="num dim">{Math.max(0, Math.round(hoursLeft))} FH left</span>
       </div>
       <div className="row gap-8">
@@ -124,6 +127,10 @@ function AircraftCard({ g, ac, sel }: { g: GameState; ac: Aircraft; sel: boolean
   const ds = deliveryStatus(g, ac.id);
   const plan = (kind: 'A' | 'C') => store.openModal({ kind: 'check', aircraftId: ac.id, checkKind: kind, replace: (kind === 'A' ? cs?.nextA : cs?.nextC) ?? undefined });
   const lv = liveryOf(g, ac);
+  // v0.7.1 §3.12 / §10: the crew-shortage row and a WHY? beside a red/amber status (AOG, grounded, stuck delivery).
+  const short = shortFlights(g).find((x) => g.flights[x.flightId]?.aircraftId === ac.id);
+  const sf = short ? g.flights[short.flightId] : undefined;
+  const acProblem = (ac.status === 'aog' || ac.status === 'delivering' || cs?.grounded) ? problemAt(g, { kind: 'aircraft', id: ac.id }) : null;
   return (
     <div className={`card sc-ac ${sel ? 'selected' : ''}`} data-ac={ac.id}>
       <div className="sc-ac-top">
@@ -131,13 +138,20 @@ function AircraftCard({ g, ac, sel }: { g: GameState; ac: Aircraft; sel: boolean
         <div className="grow" style={{ minWidth: 0 }}>
           <div className="row gap-8">
             <b className="mono sc-ac-reg">{ac.reg}</b>
-            <span className={`badge ${tone}`}>{label}</span>
+            <span className="sc-status-why"><span className={`badge ${tone}`}>{label}</span>{acProblem && <Why refs={{ kind: 'aircraft', id: ac.id }} tone={acProblem.severity === 'red' ? 'bad' : 'warn'} className="inline" />}</span>
             {cs && cs.risk >= 0.5 && <span className={`badge ${cs.risk >= 0.9 ? 'bad' : 'warn'}`} data-tip="Chance of a technical fault grows with deferred defects and overdue checks">AOG risk</span>}
           </div>
           <div className="small muted ellipsis">{t.name} · {ac.cabin.label} · {yearOf(g.now) - ac.builtYear} years</div>
         </div>
       </div>
       {ds && ds.phase !== 'home' && <div className={`fl-row small ${ds.phase === 'waiting' ? 'warn' : ''}`}><span className="upper dim">Delivery</span><span>{ds.text}</span></div>}
+      {sf && short && (
+        <div className="fl-row small cs-fleet">
+          <span className={`cs-banner ${short.stage}`}>CREW SHORTAGE</span>
+          <span className="ellipsis"><span className="mono">{sf.no}</span> {sf.from}→{sf.to} in {spanLabel(Math.max(0, sf.std - g.now))}</span>
+          <button className="btn btn-sm" onClick={() => store.openModal({ kind: 'crewControl', flightId: sf.id })}>Crew Control</button>
+        </div>
+      )}
       <LiveryRow g={g} ac={ac} />
       <LeaseRow g={g} ac={ac} />
       <CabinRow g={g} ac={ac} />
@@ -150,8 +164,8 @@ function AircraftCard({ g, ac, sel }: { g: GameState; ac: Aircraft; sel: boolean
       <CrewExtraRow g={g} ac={ac} />
       {cs ? (
         <div className="col gap-8">
-          <CheckBar label="A-check" used={cs.aUsed} due={cs.aDue} hoursLeft={cs.aHoursLeft} next={cs.nextA} onPlan={() => plan('A')} />
-          <CheckBar label="C-check" used={cs.cUsed} due={cs.cDue} hoursLeft={cs.cHoursLeft} next={cs.nextC} onPlan={() => plan('C')} />
+          <CheckBar label="A-check" used={cs.aUsed} due={cs.aDue} hoursLeft={cs.aHoursLeft} next={cs.nextA} onPlan={() => plan('A')} aircraftId={ac.id} />
+          <CheckBar label="C-check" used={cs.cUsed} due={cs.cDue} hoursLeft={cs.cHoursLeft} next={cs.nextC} onPlan={() => plan('C')} aircraftId={ac.id} />
           {cs.grounded && <div className="small bad">Past the check tolerance: grounded until the check is done.</div>}
         </div>
       ) : (

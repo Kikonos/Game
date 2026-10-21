@@ -16,6 +16,8 @@ import type { ContractOffer, CrewExtra, GameState } from '../../engine/core/type
 import { BAL } from '../../engine/core/balance';
 import { offerExtra } from '../../engine/crew';
 import type { CounterView } from '../../engine/contracts';
+import { problemAt } from '../../engine/problems';
+import { ProblemCardView, runAction } from '../components/ProblemCard';
 import { Modal, Stepper, Toggle } from '../components/ui';
 import { money } from '../format';
 import { ArchIcon, Chips, Dot, KV } from '../screens/common';
@@ -278,6 +280,8 @@ export function OfferModal({ offerId }: { offerId: string }) {
   const opts = { paint, crewExtra: crewed ? x : undefined };
   const canCounter = live && !countered && !o.counter && !!sel && !blocked(sel);
   const canAccept = live && !countered && !!sel && !blocked(sel) && !mustPaint;
+  // v0.7.1 §13: one plain sentence on what is in the way (crew, aircraft, range, cabin, paint) or a counter about to expire.
+  const fit = live ? problemAt(g, { kind: 'offer', id: o.id }) : null;
 
   const accept = () => {
     if (!sel) return;
@@ -331,6 +335,7 @@ export function OfferModal({ offerId }: { offerId: string }) {
           </div>
           <p className="muted sc-blurb">{o.paint ? o.blurb.replace(paintTermsText(o.paint), '').trim() : o.blurb}</p>
           <Chips chips={[...reqChips(o.requirements), ...riskChips(o.risk), ...effectChips(o)]} />
+          {fit && <ProblemCardView card={{ ...fit, actions: fit.actions.filter((a) => a.id !== 'review') }} g={g} hideActions={fit.actions.every((a) => a.id === 'review')} onAction={(a) => runAction(g, a)} />}
           {o.paint && <PaintTermsCard g={g} o={o} typeId={artFor(sel ? g.fleet[sel.aircraftId]?.typeId ?? 'a320ceo' : 'a320ceo')} on={paintOn} onToggle={setPaintOn} fmtP={fmtP} />}
           {crewed && <ExtraCrewCard o={o} x={x} onChange={setExtra} fmtP={fmtP} asking={asking} />}
           <div className="upper dim">Terms</div>

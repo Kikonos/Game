@@ -34,6 +34,8 @@ export interface GanttBlock {
   refs: Ref[];
   /** Crew problem corner: uncrewed or illegal inside the roster horizon. */
   crew?: 'missing' | 'illegal' | null;
+  /** v0.7.1: the crew-shortage ladder stage of a still-short flight (the CREW SHORT label). */
+  alert?: 'amber' | 'red';
   done?: boolean;
   at?: string;
   /** v0.5.1 paint blocks: the client livery's primary (hatched). */
@@ -97,10 +99,11 @@ export function rowBlocks(g: GameState, aircraftId: string, from: Minute, to: Mi
     const ftype = flightType(g, f);
     // v0.7: delivery, lease-return and refit ferries say why they fly.
     const why = f.purpose ? PURPOSE_LABEL[f.purpose] : null;
+    const crew = crewFlag(g, f, horizon);
     out.push({
       key: f.id, kind: empty ? 'pos' : 'flight', start: s, end: e, color: colorOf(g, f), ftype,
       label: why ? `${why} ${f.from}-${f.to}` : `${f.no} ${f.from}-${f.to}`, short: ftype === 'ferry' || why ? 'FERRY' : f.to, refs: [{ kind: 'flight', id: f.id }],
-      crew: crewFlag(g, f, horizon), done: f.status === 'done', at: f.from,
+      crew, done: f.status === 'done', at: f.from, alert: crew && f.crewAlert ? f.crewAlert : undefined,
     });
   }
   for (const m of Object.values(g.maintenance)) {

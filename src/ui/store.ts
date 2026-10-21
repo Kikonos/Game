@@ -5,11 +5,12 @@ import { startTransition, useEffect, useState, useSyncExternalStore } from 'reac
 import { clearPause, takePause, type PauseReason } from '../engine/core/pause';
 import { CLOCK_STEP, type GameSpeed, minutesPerMs, monthKey } from '../engine/core/time';
 import type { CabinLayout, RatingFamily } from '../data/acmiTypes';
-import type { ActionResult, ApprovalId, Archetype, GameState, Message, PaintKind, Ref, Role } from '../engine/core/types';
+import type { ActionResult, ApprovalId, Archetype, CrewFix, GameState, Message, PaintKind, ProblemRef, Ref, Role } from '../engine/core/types';
+import type { TermId } from '../data/glossary';
 import { acceptOffer, declineOffer, feasibilityAll, generateOffer } from '../engine/contracts';
 import { DAY } from '../engine/core/time';
 import { pushDecision } from '../engine/core/messages';
-import { demoFlights, devFleet, devGrantApproval, devMarketOffer } from '../engine/dev';
+import { demoFlights, devCrewShortage, devFleet, devGrantApproval, devMarketOffer } from '../engine/dev';
 import { resignNow } from '../engine/crew';
 import { createGame, type NewGameOptions } from '../engine/newGame';
 import { AUTOSAVE_SLOT, saveToSlot, serialize } from '../engine/save';
@@ -39,6 +40,8 @@ export interface Settings {
   marketAlerts: boolean;
   /** The newest "What's new" version the player has dismissed ('' = never). */
   seenWhatsNew: string;
+  /** v0.7.1: kinds of problem whose first-time hint the player dismissed with 'Don't show again'. */
+  hintsSeen: string[];
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -52,6 +55,7 @@ const DEFAULT_SETTINGS: Settings = {
   toasts: true,
   marketAlerts: true,
   seenWhatsNew: '',
+  hintsSeen: [],
 };
 
 export interface Nav {
@@ -91,7 +95,11 @@ export type ModalSpec =
   | { kind: 'lease'; aircraftId: string }
   | { kind: 'approval'; id: ApprovalId }
   | { kind: 'ladderStep'; messageId: string }
-  | { kind: 'whatsNew' };
+  | { kind: 'whatsNew' }
+  /** v0.7.1: Crew Control for a flight (a fix pre-expanded); the four-line card of a problem (hint: first-time story); the glossary. */
+  | { kind: 'crewControl'; flightId: string; fix?: CrewFix }
+  | { kind: 'problem'; subject: ProblemRef; hint?: boolean }
+  | { kind: 'glossary'; term?: TermId };
 
 export interface Toast {
   id: number;
@@ -160,9 +168,10 @@ class GameStore {
   private toastId = 0;
   private lastMsgId: string | null = null;
   private clockLabel = -1;
-  /** v0.7: ladder-step celebrations waiting for the modal slot; ids already shown (not saved). */
-  private ladderQueue: string[] = [];
+  /** v0.7: ladder-step celebrations and v0.7.1 first-time hints waiting for the modal slot; ids / kinds already shown (not saved). */
+  private ladderQueue: ({ ladder: string } | { hint: ProblemRef })[] = [];
   private ladderSeen = new Set<string>();
+  private hintShown = new Set<string>();
 
   subscribe = (fn: () => void) => {
     this.listeners.add(fn);
@@ -213,6 +222,7 @@ class GameStore {
     this.lastMsgId = this.game?.messages[0]?.id ?? null;
     this.ladderQueue = [];
     this.ladderSeen = new Set();
+    this.hintShown = new Set();
     this.exact = this.game?.now ?? 0;
     this.paused = true;
     this.pauseReason = null;
@@ -398,9 +408,15 @@ class GameStore {
   private surfaceMessages(): boolean {
     const fresh = this.takeFresh();
     for (const m of fresh) {
+      // v0.7.1: the first warning of each kind of problem gets its one-time hint (never over another dialog).
+      this.queueHint(m);
       // v0.7: ladder steps get the celebration card instead of a toast; market offers a quiet info toast (alerts on).
       if (m.topic === 'ladder') this.queueLadder(m.id);
-      else if (!this.settings.toasts) continue;
+      else if (m.topic === 'crewRed') {
+        // v0.7.1 the red crew-shortage stage: its own sound (hook for the v0.9 set) and the banner as the toast title.
+        sound.play('crewShortage');
+        if (this.settings.toasts) this.toast('bad', crewRedTitle(m), m.body.length > 140 ? m.body.slice(0, 137) + '…' : m.body);
+      } else if (!this.settings.toasts) continue;
       else if (m.topic === 'market') {
         if (this.settings.marketAlerts) this.toast('info', m.title.replace(/^Market: /, ''), marketToastBody(m));
       } else if (m.tone === 'bad' || m.cat === 'goal') this.toast(m.tone === 'bad' ? 'bad' : 'good', m.title, m.body.length > 140 ? m.body.slice(0, 137) + '…' : m.body);
@@ -422,14 +438,35 @@ class GameStore {
   }
 
   private queueLadder(id: string) {
-    if (this.ladderSeen.has(id) || this.ladderQueue.includes(id)) return;
-    this.ladderQueue.push(id);
+    if (this.ladderSeen.has(id) || this.ladderQueue.some((q) => 'ladder' in q && q.ladder === id)) return;
+    this.ladderQueue.push({ ladder: id });
   }
 
-  /** Opens the next ladder celebration when the modal slot is free (never over another dialog or a decision). */
+  /** v0.7.1: a warn/bad message about a kind of problem not yet explained queues its first-time hint (once per session). */
+  private queueHint(m: Message) {
+    const p = m.problem;
+    if (!p || (m.tone !== 'warn' && m.tone !== 'bad')) return;
+    if (this.settings.hintsSeen.includes(p.kind) || this.hintShown.has(p.kind)) return;
+    if (this.ladderQueue.some((q) => 'hint' in q && q.hint.kind === p.kind)) return;
+    this.ladderQueue.push({ hint: p });
+  }
+
+  /** 'Don't show again' on a first-time hint. */
+  hintSeen(kind: string) {
+    if (!this.settings.hintsSeen.includes(kind)) this.setSettings({ hintsSeen: [...this.settings.hintsSeen, kind] });
+  }
+
+  /** Opens the next ladder celebration or first-time hint when the modal slot is free (never over another dialog or a decision). */
   private flushLadder(): void {
     if (this.modal || !this.game || this.game.gameOver || this.decisionOpen || !this.ladderQueue.length) return;
-    const id = this.ladderQueue.shift()!;
+    const q = this.ladderQueue.shift()!;
+    if ('hint' in q) {
+      this.hintShown.add(q.hint.kind);
+      if (this.settings.hintsSeen.includes(q.hint.kind)) return this.flushLadder();
+      this.modal = { kind: 'problem', subject: q.hint, hint: true };
+      return;
+    }
+    const id = q.ladder;
     this.ladderSeen.add(id);
     if (!this.game.messages.some((m) => m.id === id)) return this.flushLadder();
     this.modal = { kind: 'ladderStep', messageId: id };
@@ -478,8 +515,11 @@ class GameStore {
       if (opts.toastOk !== false && res.msg) this.toast('good', res.msg);
       sound.play(opts.sound ?? 'success');
     }
-    // The action's own messages are not toasted (its result is); ladder steps still get their card.
-    for (const m of this.takeFresh()) if (m.topic === 'ladder') this.queueLadder(m.id);
+    // The action's own messages are not toasted (its result is); ladder steps still get their card, problems their hint.
+    for (const m of this.takeFresh()) {
+      if (m.topic === 'ladder') this.queueLadder(m.id);
+      this.queueHint(m);
+    }
     this.flushLadder();
     this.emit();
     return res;
@@ -662,9 +702,28 @@ class GameStore {
       this.surfaceMessages();
       this.emit();
     },
+    /** v0.7.1: empties the pilot seats of the next crewed flight within `hours`, runs the ladder and opens Crew Control. */
+    crewShortage: (hours = 10, roles?: Role[]) => {
+      const g = this.game;
+      if (!g) return '';
+      const id = devCrewShortage(g, { hours, roles });
+      settle(g);
+      const pause = takePause(this.honoured());
+      if (pause) this.autoPause(pause);
+      this.surfaceMessages();
+      if (id) this.openModal({ kind: 'crewControl', flightId: id });
+      this.emit();
+      return id;
+    },
     /** B5: React renders per screen (dev builds only), to check the calm-UI budget (≤ ~2/s at 4×). */
     renders: {} as Record<string, number>,
   };
+}
+
+/** 'CREW SHORTAGE · AWQ816' from a red-stage message title ('CREW SHORTAGE: AWQ816 in 11 h'). */
+function crewRedTitle(m: Message): string {
+  const no = /^CREW SHORTAGE: (\S+)/.exec(m.title)?.[1];
+  return no ? `CREW SHORTAGE · ${no}` : m.title;
 }
 
 /** 'AerCap, Santiago': the lessor and handover city from a market message body (short, quiet toast). */

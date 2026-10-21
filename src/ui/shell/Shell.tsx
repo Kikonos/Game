@@ -18,6 +18,7 @@ import { FleetScreen } from '../screens/Fleet';
 import { InboxScreen } from '../screens/Inbox';
 import { ScheduleScreen } from '../screens/Schedule';
 import { refTarget } from '../screens/screenLogic';
+import { shortFlights } from '../../engine/crew';
 import { type GameSpeed, SPEED_LABEL, type Tab, store, useClock, useGame, useStore } from '../store';
 import { useMedia, useTier } from '../useMedia';
 import { CLOCK_STEP, SPEEDS } from '../../engine/core/time';
@@ -101,7 +102,9 @@ function PauseBadge() {
     if (reason === 'urgentOffer') s.navigate('contracts', { view: 'market' });
     else if (reason === 'monthEnd') s.navigate('finance');
     else if (reason === 'crewShortage') {
-      // The flight in the newest 'No crew for …' message: its detail sheet has the crew/duty actions.
+      // v0.7.1: Crew Control for the soonest short flight; else the newest crew message's flight sheet.
+      const short = g ? shortFlights(g)[0] : undefined;
+      if (short) return s.openModal({ kind: 'crewControl', flightId: short.flightId });
       const ref = g?.messages.find((m) => m.cat === 'crew' && m.ref?.kind === 'flight' && g.flights[m.ref.id]?.status === 'scheduled')?.ref;
       const link = g && ref ? refTarget(g, ref) : null;
       if (!ref || !link) return s.navigate('crew');

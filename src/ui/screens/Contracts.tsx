@@ -9,7 +9,10 @@ import { flightsRev } from '../../engine/core/entities';
 import { DAY, fmtDateTime, fmtDay } from '../../engine/core/time';
 import type { Contract, ContractOffer, CrewExtra, GameState } from '../../engine/core/types';
 import { BAL } from '../../engine/core/balance';
-import { crewExtraFor, setCrewExtra } from '../../engine/crew';
+import { crewExtraFor, setCrewExtra, shortFlights } from '../../engine/crew';
+import { problemAt } from '../../engine/problems';
+import { ProblemCardView } from '../components/ProblemCard';
+import { Why } from '../components/Why';
 import { Bar, Empty, Stepper, Tabs, Toggle } from '../components/ui';
 import { money } from '../format';
 import { store, useGame } from '../store';
@@ -28,11 +31,14 @@ function OfferCard({ g, o, windows }: { g: GameState; o: ContractOffer; windows:
   const pending = cv?.state === 'pending';
   const paint = o.paint ? [{ label: `Their livery${o.paint.required ? ' · required' : ''}`, tone: o.paint.required ? ('warn' as const) : undefined, tip: o.paint.kind === 'full' ? 'Full repaint in the client colours for the contract' : 'Client titles and logo on a white aircraft' }] : [];
   const chips = [...paint, ...reqChips(o.requirements), ...riskChips(o.risk)];
+  // v0.7.1 §13: a WHY? dot when the offer can't be flown as it stands or a counter is about to expire.
+  const prob = problemAt(g, { kind: 'offer', id: o.id });
   return (
     <button className={`card sc-offer ${o.urgency}`} onClick={() => store.openModal({ kind: 'offer', offerId: o.id })}>
       <div className="row between sc-offer-top">
         <span className="row gap-8 upper dim ellipsis"><ArchIcon a={o.archetype} />{archLabel(o)}</span>
         <span className="row gap-8 nowrap">
+          {prob && <Why refs={{ kind: 'offer', id: o.id }} tone={prob.severity === 'red' ? 'bad' : 'warn'} label={`${prob.what}: why?`} />}
           {o.urgency !== 'normal' && <span className={`badge ${o.urgency === 'urgent' ? 'bad' : 'warn'}`}>{o.urgency === 'urgent' ? 'Urgent' : 'Short notice'}</span>}
           {pending ? (
             <span className="small accent nowrap" data-tip="The offer cannot lapse while the client considers your counter">Clock paused</span>
@@ -127,7 +133,11 @@ function ContractRow({ g, c, sel }: { g: GameState; c: Contract; sel: boolean })
   const cl = g.clients[c.clientId];
   const regs = c.aircraftIds.map((id) => g.fleet[id]?.reg ?? '?').join(' + ');
   const next = p.nextFlightId ? g.flights[p.nextFlightId] : undefined;
-  const prob = p.problemFlightId ? g.flights[p.problemFlightId] : undefined;
+  // v0.7.1 §4: the crew problem told as the four-line card (the same one as the sheet, the duty modal and the Inbox);
+  // the warning ladder's short flights of this contract count too.
+  const shortId = p.problemFlightId ?? shortFlights(g).find((x) => g.flights[x.flightId]?.contractId === c.id)?.flightId;
+  const prob = shortId ? g.flights[shortId] : undefined;
+  const card = prob ? problemAt(g, { kind: 'flight', id: prob.id }) : null;
   const open = c.status === 'signed' || c.status === 'active';
   const mghR = p.mgh > 0 ? p.bhMonth / p.mgh : 0;
   return (
@@ -148,9 +158,14 @@ function ContractRow({ g, c, sel }: { g: GameState; c: Contract; sel: boolean })
           </div>
         )}
         {open && c.product.kind !== 'dry' && <ContractExtra g={g} c={c} />}
-        {prob && (
+        {prob && (card ? (
+          <ProblemCardView card={card} g={g} hideActions>
+            <button className="btn btn-primary btn-sm" onClick={() => store.openModal({ kind: 'crewControl', flightId: prob.id })}><Users /> Crew Control</button>
+            <button className="btn btn-sm" onClick={() => store.openModal({ kind: 'duty', id: prob.id })}>Adjust crew</button>
+          </ProblemCardView>
+        ) : (
           <button className="sc-prob small bad row gap-4" onClick={() => store.openModal({ kind: 'duty', id: prob.id })}><AlertTriangle className="sc-ico-s" />Crew problem on <span className="mono">{prob.no} {prob.from}→{prob.to}</span> {fmtDateTime(prob.std)}<span className="sc-prob-go"><Users className="sc-ico-s" /> Fix crew</span></button>
-        )}
+        ))}
       </div>
       {open && c.product.kind === 'wet' && (
         <div className="sc-mgh" data-tip="Billable block hours this month against the minimum guarantee (MGH)">

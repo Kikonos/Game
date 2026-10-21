@@ -11,16 +11,19 @@ import { fmtTime } from '../../engine/core/time';
 import type { MiniMapSpec } from '../../engine/ops';
 import { PLANE_PATH } from '../components/Logo';
 import { landPathFor } from './mapData';
-import { headingDeg, JET_PATH } from './mapLogic';
+import { downSide, headingDeg, JET_PATH, trackLabelAt } from './mapLogic';
 
 const H_OF_W = 180 / 400;
+/** Degrees around the airports: half their spread, between 2° (a close pair still reads) and 8°. */
 const PAD_DEG = 8;
 const INSET = 10;
+const FS = 10.5;
 
 interface Built {
   land: string;
   aps: { code: string; x: number; y: number; crew: number; dep: boolean }[];
-  legs: { d: string; x: number; y: number; ang: number; jet: boolean; label: string; times: string }[];
+  /** Leg path, the glyph's point and heading, and where its label sits (beside the track). */
+  legs: { d: string; x: number; y: number; ang: number; jet: boolean; label: string; times: string; lx: number; ly: number }[];
 }
 
 /** Everything the SVG draws, in px; null when no airport of the spec is known. */
@@ -30,14 +33,11 @@ export function buildMiniMap(spec: MiniMapSpec, w: number, h: number): Built | n
   const lons = codes.map((c) => AIRPORT_BY_CODE[c].lon);
   const lats = codes.map((c) => AIRPORT_BY_CODE[c].lat);
   const lo = (v: number) => Math.max(-80, Math.min(80, v));
-  const box: Polygon = {
-    type: 'Polygon',
-    coordinates: [[
-      [Math.min(...lons) - PAD_DEG, lo(Math.min(...lats) - PAD_DEG)], [Math.max(...lons) + PAD_DEG, lo(Math.min(...lats) - PAD_DEG)],
-      [Math.max(...lons) + PAD_DEG, lo(Math.max(...lats) + PAD_DEG)], [Math.min(...lons) - PAD_DEG, lo(Math.max(...lats) + PAD_DEG)],
-      [Math.min(...lons) - PAD_DEG, lo(Math.min(...lats) - PAD_DEG)],
-    ]],
-  };
+  const span = Math.max(Math.max(...lons) - Math.min(...lons), Math.max(...lats) - Math.min(...lats));
+  const pad = Math.max(2, Math.min(PAD_DEG, span * 0.5));
+  const [x0, x1, y0, y1] = [Math.min(...lons) - pad, Math.max(...lons) + pad, lo(Math.min(...lats) - pad), lo(Math.max(...lats) + pad)];
+  // Clockwise ring (d3-geo's spherical polygons): anticlockwise would mean "the whole sphere but this box".
+  const box: Polygon = { type: 'Polygon', coordinates: [[[x0, y0], [x0, y1], [x1, y1], [x1, y0], [x0, y0]]] };
   const proj = geoMercator().fitExtent([[INSET, INSET], [w - INSET, h - INSET]], box).clipExtent([[0, 0], [w, h]]).precision(0.5);
   const path = geoPath(proj);
   const crewAt = new Map<string, number>();
@@ -57,7 +57,12 @@ export function buildMiniMap(spec: MiniMapSpec, w: number, h: number): Built | n
     const a = proj(gi(0.49));
     const b = proj(gi(0.51));
     if (!d || !m || !a || !b) return [];
-    return [{ d, x: m[0], y: m[1], ang: headingDeg(a, b), jet: !!l.jet, label: l.no ?? (l.jet ? 'Private jet' : 'Airline'), times: `${fmtTime(l.dep)}–${fmtTime(l.arr)} UTC` }];
+    const ang = headingDeg(a, b);
+    const label = l.no ?? (l.jet ? 'Private jet' : 'Airline');
+    const times = `${fmtTime(l.dep)}–${fmtTime(l.arr)} UTC`;
+    // The label rides beside the track (two lines), on the side that points down or right, clear of the glyph.
+    const [lx, ly] = trackLabelAt(ang, downSide(ang), Math.max(label.length, times.length) * FS * 0.62, FS * 2.4, 11);
+    return [{ d, x: m[0], y: m[1], ang, jet: !!l.jet, label, times, lx, ly }];
   });
   return { land: landPathFor(proj), aps, legs };
 }
@@ -77,16 +82,15 @@ export function MiniMap({ spec, width = 400 }: { spec: MiniMapSpec; width?: numb
         <g key={a.code} transform={`translate(${a.x.toFixed(1)} ${a.y.toFixed(1)})`} className={`mm-ap${a.dep ? ' dep' : ''}${a.crew ? ' crew' : ''}`}>
           {a.dep && <circle className="mm-ring" r={8} />}
           <circle className="mm-dot" r={a.dep ? 3.5 : 4} />
-          {a.crew > 1 && <text className="mm-n" x={7} y={-5}>×{a.crew}</text>}
-          <text className="mm-code" y={a.dep ? 21 : 17}>{a.code}</text>
-          {a.dep && <text className="mm-sub" y={33}>departs {fmtTime(spec.departure)} UTC</text>}
+          <text className="mm-code" x={a.dep ? 12 : 8} y={4}>{a.code}{a.crew > 1 ? ` ×${a.crew}` : ''}</text>
+          {a.dep && <text className="mm-sub" x={12} y={16}>departs {fmtTime(spec.departure)} UTC</text>}
         </g>
       ))}
       {b.legs.map((l, i) => (
         <g key={`g${i}`} transform={`translate(${l.x.toFixed(1)} ${l.y.toFixed(1)})`} className="mm-glyph">
           <path d={l.jet ? JET_PATH : PLANE_PATH} transform={`rotate(${l.ang.toFixed(1)}) scale(${(l.jet ? 16 : 18) / 24}) translate(-12 -12)`} />
-          <text className="mm-label" y={-13}>{l.label}</text>
-          <text className="mm-times" y={23}>{l.times}</text>
+          <text className="mm-label" x={l.lx.toFixed(1)} y={(l.ly - 2).toFixed(1)}>{l.label}</text>
+          <text className="mm-times" x={l.lx.toFixed(1)} y={(l.ly + 10).toFixed(1)}>{l.times}</text>
         </g>
       ))}
     </svg>

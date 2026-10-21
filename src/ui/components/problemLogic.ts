@@ -4,7 +4,7 @@
 import { GLOSSARY, TERM_WORDS, type TermId } from '../../data/glossary';
 import type { RatingFamily } from '../../data/acmiTypes';
 import { fmtTime, HOUR } from '../../engine/core/time';
-import type { GameState, Message, Minute, Ref, Role } from '../../engine/core/types';
+import type { GameState, Minute, Ref, Role } from '../../engine/core/types';
 import type { ProblemAction, ReachSpec, TimelineSpec } from '../../engine/problems/types';
 import type { ModalSpec, Tab } from '../store';
 
@@ -153,9 +153,6 @@ export function actionTarget(g: GameState, a: ProblemAction): ActionTarget {
   }
   return null;
 }
-
-/** Inbox 'Problems only': messages about a problem, warnings and bad news. */
-export const isProblemMessage = (m: Message) => !!m.problem || m.tone === 'warn' || m.tone === 'bad';
 
 /** The CREW SHORTAGE banner tone of a flight still short ('amber' | 'red' | null). */
 export function crewBanner(stage: 'amber' | 'red' | undefined, hoursLeft: number, redH = 12): 'amber' | 'red' | null {
