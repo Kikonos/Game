@@ -233,26 +233,48 @@ export function levelOf(issues: LegalityIssue[]): Legality {
   return l;
 }
 
-/** Duty minutes of all segs clipped to [a, b], scanning back from index i (segs sorted by start). */
-function dutyIn(segs: Seg[], i: number, a: Minute, b: Minute): number {
-  let s = 0;
+/**
+ * Duty minutes in the 7, 14 and 28 days and block minutes in the 28 days up to b (seg i ends there; segs sorted by
+ * start), scanning back from i. v0.7: the four windows in one pass, into a shared buffer (no allocation).
+ */
+const WIN = new Float64Array(4);
+function windowsAt(segs: Seg[], i: number, b: Minute): Float64Array {
+  const a7 = b - 7 * DAY;
+  const a14 = b - 14 * DAY;
+  const a28 = b - 28 * DAY;
+  let d7 = 0;
+  let d14 = 0;
+  let d28 = 0;
+  let blk = 0;
+  let on7 = true;
+  let on14 = true;
   for (let k = i; k >= 0; k--) {
     const x = segs[k];
-    if (x.end <= a && x.start < a - 2 * DAY) break;
-    s += Math.max(0, Math.min(b, x.end) - Math.max(a, x.start));
+    if (x.end <= a28 && x.start < a28 - 2 * DAY) break;
+    const hi = Math.min(b, x.end);
+    if (on7) {
+      if (x.end <= a7 && x.start < a7 - 2 * DAY) on7 = false;
+      else d7 += Math.max(0, hi - Math.max(a7, x.start));
+    }
+    if (on14) {
+      if (x.end <= a14 && x.start < a14 - 2 * DAY) on14 = false;
+      else d14 += Math.max(0, hi - Math.max(a14, x.start));
+    }
+    d28 += Math.max(0, hi - Math.max(a28, x.start));
+    if (x.end > a28 && x.end <= b) blk += x.block;
   }
-  for (let k = i + 1; k < segs.length && segs[k].start < b; k++) s += Math.max(0, Math.min(b, segs[k].end) - Math.max(a, segs[k].start));
-  return s;
-}
-
-function blockIn(segs: Seg[], i: number, a: Minute, b: Minute): number {
-  let s = 0;
-  for (let k = i; k >= 0; k--) {
+  for (let k = i + 1; k < segs.length && segs[k].start < b; k++) {
     const x = segs[k];
-    if (x.end <= a && x.start < a - 2 * DAY) break;
-    if (x.end > a && x.end <= b) s += x.block;
+    const hi = Math.min(b, x.end);
+    d7 += Math.max(0, hi - Math.max(a7, x.start));
+    d14 += Math.max(0, hi - Math.max(a14, x.start));
+    d28 += Math.max(0, hi - Math.max(a28, x.start));
   }
-  return s;
+  WIN[0] = d7;
+  WIN[1] = d14;
+  WIN[2] = d28;
+  WIN[3] = blk;
+  return WIN;
 }
 
 // Module-level helpers (no closures per call in the hot path).
@@ -330,11 +352,12 @@ export function evalSegs(ctx: TimelineCtx, segs: Seg[]): LegalityIssue[] {
         if (s.fdp > s.maxFdp) pushIssue(issues, 'fdp', 'illegal', `FDP ${hm(s.fdp)} > ${hm(s.maxFdp)}`, tgt);
         else if (s.fdp > s.maxFdp - LIMITS.tightFdp) pushIssue(issues, 'fdp', 'tight', `FDP ${hm(s.fdp)} of ${hm(s.maxFdp)}`, tgt);
       }
-      cumIssue(issues, 'duty7d', dutyIn(segs, i, s.end - 7 * DAY, s.end), LIMITS.duty7d, 'Duty 7d', tgt);
-      cumIssue(issues, 'duty14d', dutyIn(segs, i, s.end - 14 * DAY, s.end), LIMITS.duty14d, 'Duty 14d', tgt);
-      cumIssue(issues, 'duty28d', dutyIn(segs, i, s.end - 28 * DAY, s.end), LIMITS.duty28d, 'Duty 28d', tgt);
+      const w = windowsAt(segs, i, s.end);
+      cumIssue(issues, 'duty7d', w[0], LIMITS.duty7d, 'Duty 7d', tgt);
+      cumIssue(issues, 'duty14d', w[1], LIMITS.duty14d, 'Duty 14d', tgt);
+      cumIssue(issues, 'duty28d', w[2], LIMITS.duty28d, 'Duty 28d', tgt);
       if (s.block > 0) {
-        cumIssue(issues, 'block28d', blockIn(segs, i, s.end - 28 * DAY, s.end), LIMITS.block28d, 'Block 28d', tgt);
+        cumIssue(issues, 'block28d', w[3], LIMITS.block28d, 'Block 28d', tgt);
         const logged = ctx.blockYearOf === plannedYearOf ? ctx.blockYear : 0;
         cumIssue(issues, 'blockYear', logged + plannedYear, LIMITS.blockYear, 'Block year', tgt);
       }

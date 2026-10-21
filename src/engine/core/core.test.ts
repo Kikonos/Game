@@ -5,7 +5,7 @@ import { demoFlights } from '../dev';
 import { createGame } from '../newGame';
 import { deserialize, serialize } from '../save';
 import { advanceTo } from '../sim';
-import { flightsOf } from './entities';
+import { flightsOf, liveFlightsOf, takeRelink, touchFlights, touchStatus } from './entities';
 import { blockMinutes, cabinMinimum, complement, etopsNeeded, planSector, runwayFit } from './perf';
 import { pop, schedule } from './queue';
 import { DAY, START, fmtTime, fromUTC, localOffset, monthKey } from './time';
@@ -74,6 +74,27 @@ describe('event queue and clock', () => {
     expect(out.status).toBe('done');
     expect(ac.at).toBe('LIS');
     expect(ac.cycles).toBeGreaterThan(0);
+  });
+
+  it('v0.7 status-only touches: lists stay put, live legs follow, only that aircraft is due a relink', () => {
+    const g = newGame();
+    demoFlights(g, ['FAO'], 1);
+    const ac = Object.values(g.fleet)[0];
+    const list = flightsOf(g, ac.id);
+    const [out] = list;
+    takeRelink(g);
+    advanceTo(g, out.std + 5);
+    expect(out.status).toBe('enroute');
+    expect(flightsOf(g, ac.id)).toBe(list);
+    expect(liveFlightsOf(g, ac.id)).toContain(out);
+    advanceTo(g, out.sta + 30);
+    expect(out.status).toBe('done');
+    expect(liveFlightsOf(g, ac.id)).not.toContain(out);
+    expect(liveFlightsOf(g, ac.id).every((f) => f.status === 'scheduled' || f.status === 'enroute')).toBe(true);
+    touchStatus(g, ac.id);
+    expect(takeRelink(g)).toEqual({ all: false, ids: new Set([ac.id]) });
+    touchFlights(g);
+    expect(takeRelink(g).all).toBe(true);
   });
 });
 

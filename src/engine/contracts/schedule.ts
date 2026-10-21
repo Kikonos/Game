@@ -1,7 +1,7 @@
 // Pattern → flights, positioning legs and rolling base schedules (B1). DESIGN.md §5.1.6–5.1.8.
 
 import { BAL } from '../core/balance';
-import { addFlight, flightsOf, ownFlightNo, removeFlights } from '../core/entities';
+import { addFlight, flightsOf, liveFlightsOf, ownFlightNo, removeFlights } from '../core/entities';
 import { typeOf } from '../core/perf';
 import { ticketBlock } from '../ops/commercial';
 import { DAY, dayStart } from '../core/time';
@@ -172,7 +172,7 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
   const home = g.company.homeBase;
   const nodes = anchorsOf(g, aircraftId);
   if (!nodes.length) return [];
-  const soft = flightsOf(g, aircraftId).filter((f) => isSoft(g, f));
+  const soft = liveFlightsOf(g, aircraftId).filter((f) => isSoft(g, f));
   // Gaps between non-overlapping nodes.
   const gaps: { a: Anchor; b: Anchor | null; legs: Flight[] }[] = [];
   let cur = nodes[0];

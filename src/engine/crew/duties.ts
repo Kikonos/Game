@@ -405,6 +405,7 @@ export function planAircraft(g: GameState, acId: string, from: Minute): void {
   const home = g.company.homeBase;
   const ix = crewIx(g);
   const old = new Map<string, Duty>();
+  let gone = 0;
   for (const p of [...(ix.byAircraft.get(acId) ?? [])]) {
     if (p.status !== 'planned' || p.start < from || crewCount(p) > 0) continue;
     for (const did of p.dutyIds) {
@@ -412,8 +413,10 @@ export function planAircraft(g: GameState, acId: string, from: Minute): void {
       if (d) old.set(d.flightIds.join(','), d);
     }
     deletePairing(g, p);
+    gone++;
   }
-  touchCrew(g);
+  // v0.7: the index stays valid when no open pairing went.
+  if (gone) touchCrew(g);
   absorbTrailing(g, acId, from);
   const inDuty = new Set<string>();
   for (const p of crewIx(g).byAircraft.get(acId) ?? []) for (const did of p.dutyIds) for (const fid of g.duties[did]?.flightIds ?? []) inDuty.add(fid);
@@ -500,7 +503,7 @@ export function planAircraft(g: GameState, acId: string, from: Minute): void {
   }
   trips.sort((a, b) => a.report - b.report);
   buildTrips(g, acId, trips);
-  touchCrew(g);
+  if (gone || specs.length) touchCrew(g);
 }
 
 /**

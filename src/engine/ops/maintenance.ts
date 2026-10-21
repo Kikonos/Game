@@ -279,7 +279,7 @@ export function cancelCheck(g: GameState, maintId: string): ActionResult {
   const ferries = (m.ferryIds ?? []).filter((id) => g.flights[id]?.status === 'scheduled');
   if (ferries.length) removeFlights(g, ferries);
   touchFlights(g);
-  return { ok: true, msg: `${m.kind}-check cancelled` };
+  return { ok: true, msg: m.kind === 'refit' ? 'Refit cancelled' : `${m.kind}-check cancelled` };
 }
 
 // ---------- planning ----------

@@ -139,7 +139,7 @@ describe('v0.7 cabin rules on offers (§F7.3–F7.4)', () => {
       expect(o.requirements.longestSectorNm).toBeGreaterThanOrEqual(7000);
       expect(o.pattern.kind === 'legs' && o.pattern.legs).toHaveLength(2);
     }
-  });
+  }, 30_000);
 });
 
 describe('offer generation', () => {

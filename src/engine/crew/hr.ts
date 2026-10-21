@@ -3,7 +3,7 @@
 import { ACMI_TYPES, ACMI_TYPES_LIST, type RatingFamily } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { BAL } from '../core/balance';
-import { nextId } from '../core/entities';
+import { flightsRev, nextId } from '../core/entities';
 import { post } from '../core/ledger';
 import { pushDecision, pushMessage } from '../core/messages';
 import { isPilot, typeOf } from '../core/perf';
@@ -17,7 +17,8 @@ import { crewExtraFor, rolesWithExtra } from './extraSeats';
 import { sickMult } from './morale';
 import { crewName, makeCrewMember, salaryFor } from './generate';
 import { removeCrew, rosterOf } from './roster';
-import { block28, crewIx, segsOf, touchCrew } from './timeline';
+import { block28, crewIx, crewRev, segsOf, touchCrew } from './timeline';
+import type { Seg } from './rules';
 
 export interface HireRequest {
   role: Role;
@@ -170,18 +171,16 @@ const countRoles = (roles: Role[]) => roles.reduce<Partial<Record<Role, number>>
  * programmes' needs, non-contract pairings, joining/training/leave and the 100 h/28 d block limit, vs the
  * programme's need (RESEARCH §5.3 sizing from `programmeBH`). Pure: no g.rng, no ids.
  */
-/** v0.7: block28 per crew member and `from`, shared while one caller sizes several aircraft (feasibilityAll). */
-let b28Memo: Map<string, number> | null = null;
-
-/** Runs fn with crewAvailability's per-crew block-hour scan shared across its calls (no state changes inside). */
-export function sharedAvailability<T>(fn: () => T): T {
-  if (b28Memo) return fn();
-  b28Memo = new Map();
-  try {
-    return fn();
-  } finally {
-    b28Memo = null;
-  }
+/**
+ * v0.7: crewAvailability's per-crew timelines and per-contract block totals, kept while the clock, the crew
+ * plan and the flights stand still (offers are sized many times between two clock steps). Runtime only.
+ */
+const availMemo = new WeakMap<GameState, { key: string; segs: Map<string, Seg[]>; blk: Map<string, number> }>();
+function memoOf(g: GameState) {
+  const key = `${g.now}:${crewRev(g)}:${flightsRev(g)}`;
+  let m = availMemo.get(g);
+  if (!m || m.key !== key) availMemo.set(g, (m = { key, segs: new Map(), blk: new Map() }));
+  return m;
 }
 
 export function crewAvailability(g: GameState, family: RatingFamily, typeId: string, from: Minute, to: Minute, programmeBH: number, extra?: CrewExtra): Availability {
@@ -195,6 +194,7 @@ export function crewAvailability(g: GameState, family: RatingFamily, typeId: str
   // Supply per role and day (exact role; seniors spill down below).
   const supply: Record<Role, Int32Array> = Object.fromEntries(ROLES.map((r) => [r, new Int32Array(days)])) as Record<Role, Int32Array>;
   const ix = crewIx(g);
+  const memo = memoOf(g);
   for (const c of Object.values(g.crew)) {
     if (!c.ratings.includes(family)) continue;
     const off = new Uint8Array(days);
@@ -207,13 +207,9 @@ export function crewAvailability(g: GameState, family: RatingFamily, typeId: str
     const k = classOf(g, c.id);
     if (k && k.family !== family && (k.group === 'pilot' ? k.course === 'full' : k.drop?.[c.id] === family)) mark(k.start, to);
     for (const p of ix.pairingsOf.get(c.id) ?? []) if (!p.contractId && p.status !== 'done') mark(p.start, p.end);
-    const bk = `${c.id}:${from}`;
-    let b28: number | undefined = b28Memo?.get(bk);
-    if (b28 === undefined) {
-      b28 = block28(segsOf(g, c), from);
-      b28Memo?.set(bk, b28);
-    }
-    if (b28 > 90 * 60) mark(from, from + 7 * DAY);
+    let segs = memo.segs.get(c.id);
+    if (!segs) memo.segs.set(c.id, (segs = segsOf(g, c)));
+    if (block28(segs, from) > 90 * 60) mark(from, from + 7 * DAY);
     for (let d = 0; d < days; d++) if (!off[d]) supply[c.role][d]++;
   }
   // Other programmes of the family hold their sized crews while active.
@@ -225,8 +221,12 @@ export function crewAvailability(g: GameState, family: RatingFamily, typeId: str
     let bhMonth = 0;
     if (k.pattern.kind === 'base') bhMonth = k.pattern.targetBH;
     else {
-      let blk = 0;
-      for (const f of Object.values(g.flights)) if (f.contractId === k.id && f.aircraftId && f.status !== 'cancelled') blk += f.block;
+      let blk = memo.blk.get(k.id);
+      if (blk === undefined) {
+        blk = 0;
+        for (const f of Object.values(g.flights)) if (f.contractId === k.id && f.aircraftId && f.status !== 'cancelled') blk += f.block;
+        memo.blk.set(k.id, blk);
+      }
       bhMonth = blk / 60 / Math.max(1, (k.end - k.start) / DAY / 30.44);
     }
     const kx = crewExtraFor(g, ac[0].id, k.id);

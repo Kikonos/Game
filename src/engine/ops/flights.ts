@@ -559,7 +559,7 @@ function depart(g: GameState, f: Flight, ac: Aircraft): void {
   // Charter clients are compensated for long delays (> 3 h).
   const c = contractOf(g, f);
   if (c?.product.kind === 'charter' && isRevenue(f) && delayOf(f) > 180 && c.penalties.perDelay) post(g, 'penalties', -c.penalties.perDelay);
-  touchStatus(g);
+  touchStatus(g, ac.id);
 }
 
 /**
@@ -778,7 +778,7 @@ export function onFlightArr(g: GameState, ev: SimEvent): void {
   const ac = g.fleet[f.aircraftId];
   f.status = 'done';
   f.ata = g.now;
-  touchStatus(g);
+  touchStatus(g, f.aircraftId);
   if (!ac) return;
   ac.flightId = null;
   ac.at = f.to;

@@ -3,7 +3,7 @@
 // base patterns → daily waves with maintenance nights and monthly drops to targetBH;
 // aircraft anchors (hard commitments) and empty-move chains between them.
 
-import { flightsOf } from '../core/entities';
+import { liveFlightsOf } from '../core/entities';
 import { blockMinutes, planSector, TECH_STOP_MIN, typeOf } from '../core/perf';
 import { DAY, dayIndex, localOffset, monthKey, monthStart, toLocal } from '../core/time';
 import { hash } from '../core/util';
@@ -116,8 +116,8 @@ export function isSoft(g: GameState, f: Flight): boolean {
 export function anchorsOf(g: GameState, aircraftId: string): Anchor[] {
   const ac = g.fleet[aircraftId];
   const out: Anchor[] = [];
-  for (const f of flightsOf(g, aircraftId)) {
-    if ((f.status !== 'scheduled' && f.status !== 'enroute') || isSoft(g, f)) continue;
+  for (const f of liveFlightsOf(g, aircraftId)) {
+    if (isSoft(g, f)) continue;
     out.push({ from: f.from, to: f.to, std: f.std, sta: f.status === 'enroute' ? (f.eta ?? f.sta) : f.sta, contractId: f.contractId, kind: 'flight', id: f.id });
   }
   for (const m of Object.values(g.maintenance)) {

@@ -165,4 +165,20 @@ describe('feasibility', () => {
     const rank = { ok: 0, warn: 1, no: 2 };
     for (let i = 1; i < all.length; i++) expect(rank[all[i].level]).toBeGreaterThanOrEqual(rank[all[i - 1].level]);
   });
+
+  it('v0.7 quick reports: same level and margin; crew sized only while nothing says no', () => {
+    const g = newGame(32);
+    const ac = leased(g);
+    const ok = hamBase(g, g.now + 20 * DAY, 45);
+    const big = legsOffer(g, [['LIS', 'FAO', g.now + 5 * DAY]], 400);
+    for (const o of [ok, big]) {
+      const full = feasibility(g, o.id, ac.id);
+      const quick = feasibility(g, o.id, ac.id, { quick: true });
+      expect(quick.level).toBe(full.level);
+      expect(quick.estMargin).toBe(full.estMargin);
+      if (full.level === 'no') expect(quick.crew.setsNeeded).toBe(0);
+      else expect(quick.crew).toEqual(full.crew);
+    }
+    expect(feasibility(g, big.id, ac.id).level).toBe('no');
+  });
 });

@@ -53,7 +53,7 @@ export function openingOffers(g: GameState): void {
   const opener = (make: () => ContractOffer | null) => {
     for (let i = 0; i < 4; i++) {
       const o = make();
-      if (!o || Object.keys(g.fleet).some((id) => feasibility(g, o.id, id).level !== 'no')) return;
+      if (!o || Object.keys(g.fleet).some((id) => feasibility(g, o.id, id, { quick: true }).level !== 'no')) return;
       delete g.offers[o.id];
     }
   };
@@ -876,7 +876,7 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   g.offers[o.id] = o;
   schedule(g, o.expires, 'offer.expire', o.id);
   // Urgent work we could actually fly stops the clock (setting) and gets an inbox line; the rest just pins the map.
-  if (urgency === 'urgent' && Object.keys(g.fleet).some((id) => feasibility(g, o.id, id).level !== 'no')) {
+  if (urgency === 'urgent' && Object.keys(g.fleet).some((id) => feasibility(g, o.id, id, { quick: true }).level !== 'no')) {
     requestPause('urgentOffer');
     pushMessage(g, { tone: 'warn', cat: 'commercial', title: `Urgent: ${o.title}`, body: `${d.client.name} needs an answer by ${fmtDay(o.expires)} ${fmtTime(o.expires)} UTC.`, ref: { kind: 'offer', id: o.id } });
   }
@@ -1048,7 +1048,8 @@ export function dailyOffers(g: GameState): void {
     o.closedAt ??= g.now;
     if (g.now - o.closedAt > 14 * DAY) delete g.offers[o.id];
   }
-  if (PACING.quietFloor) quietWeekOffer(g);
+  // v0.7: a failed company is offered nothing new.
+  if (PACING.quietFloor && !g.gameOver) quietWeekOffer(g);
 }
 
 /** v0.6 pacing switches (tests compare against the v0.5.2 offer flow). */
