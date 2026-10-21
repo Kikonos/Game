@@ -35,6 +35,17 @@ export function touchFlights(g: GameState): void {
   index(g).flightsRev++;
 }
 
+/**
+ * v0.6: a change that touches no aircraft's flight list (crew tickets, riders on our legs): the revision moves on
+ * for everyone keyed on it (ticket scans, UI memos), but the per-aircraft lists stay valid (no re-sort).
+ */
+export function touchTickets(g: GameState): void {
+  const ix = index(g);
+  const valid = ix.builtRev === ix.flightsRev;
+  ix.flightsRev++;
+  if (valid) ix.builtRev = ix.flightsRev;
+}
+
 /** Records that an aircraft's flights from t on changed (retime, cancel, removal, reassignment). */
 export function markFlightsChanged(g: GameState, aircraftId: string | null, t: Minute): void {
   if (!aircraftId) return;
@@ -131,7 +142,7 @@ export function addDeadhead(g: GameState, d: { crewIds: string[]; from: string; 
   g.flights[f.id] = f;
   index(g).deadheads?.add(f.id);
   schedule(g, f.sta, 'flight.arr', f.id, f.ev);
-  touchFlights(g);
+  touchTickets(g);
   return f;
 }
 
@@ -145,7 +156,8 @@ export function retimeFlight(g: GameState, f: Flight, std: Minute, sta: Minute):
   if (f.aircraftId && f.status === 'scheduled') schedule(g, std, 'flight.dep', f.id, f.ev);
   // A sub-chartered leg or a crew ticket (no aircraft of ours) completes at its new arrival.
   else if ((f.operatedBy || f.kind === 'deadhead') && f.status === 'scheduled') schedule(g, sta, 'flight.arr', f.id, f.ev);
-  touchFlights(g);
+  if (f.aircraftId) touchFlights(g);
+  else touchTickets(g);
 }
 
 export function cancelFlight(g: GameState, f: Flight, reason?: string): void {
@@ -158,12 +170,15 @@ export function cancelFlight(g: GameState, f: Flight, reason?: string): void {
 
 /** Deletes flights (e.g. un-generating a cancelled contract's future legs). */
 export function removeFlights(g: GameState, ids: string[]): void {
+  let own = false;
   for (const id of ids) {
     const f = g.flights[id];
     if (f) markFlightsChanged(g, f.aircraftId, f.std);
+    if (f?.aircraftId) own = true;
     delete g.flights[id];
   }
-  touchFlights(g);
+  if (own) touchFlights(g);
+  else touchTickets(g);
 }
 
 /** Moves scheduled flights to another aircraft (AOG swap): re-queues departures; both aircraft re-sync crew. */

@@ -173,6 +173,35 @@ export function pairingSeats(g: GameState, p: Pairing): Seat[] {
   return seats.sort((a, b) => rank(a) - rank(b));
 }
 
+/** v0.6: the legal minimum complement of a pairing (no client or company extras): pilots and cabin crew. */
+export function legalMinimum(g: GameState, p: Pairing): { pilots: number; cabin: number } {
+  const ac = p.aircraftId ? g.fleet[p.aircraftId] : undefined;
+  let augment: 0 | 1 | 2 = 0;
+  let fdp = 0;
+  for (const id of p.dutyIds) {
+    const d = g.duties[id];
+    if (!d) continue;
+    if (d.augment > augment) augment = d.augment;
+    if (d.augment > 0) fdp = Math.max(fdp, d.fdp);
+  }
+  const seats = seatsFor(ac?.typeId ?? 'a320ceo', ac?.cabin.total ?? 180, { cabin: 0, pilot: 0 }, 0, { augment, fdp });
+  const pilots = seats.filter((s) => s.role === 'CPT' || s.role === 'FO' || s.role === 'CRP').length;
+  return { pilots, cabin: seats.length - pilots };
+}
+
+/** Crew on a pairing above its legal minimum, by group (client-requested, company and optional extras). */
+export function aboveMinimum(g: GameState, p: Pairing): { pilots: number; cabin: number } {
+  const min = legalMinimum(g, p);
+  let pilots = 0;
+  let cabin = 0;
+  for (const s of p.slots) {
+    if (!s.crewId || !g.crew[s.crewId]) continue;
+    if (s.role === 'CPT' || s.role === 'FO' || s.role === 'CRP') pilots++;
+    else cabin++;
+  }
+  return { pilots: Math.max(0, pilots - min.pilots), cabin: Math.max(0, cabin - min.cabin) };
+}
+
 /** Roles of the pairing's seats (required, then above the minimum). */
 export const pairingRoles = (g: GameState, p: Pairing): Role[] => pairingSeats(g, p).map((s) => s.role);
 

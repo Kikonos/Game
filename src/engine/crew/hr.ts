@@ -245,7 +245,14 @@ export function staffing(g: GameState): StaffingLine[] {
     if (ac.status === 'leasedOut') continue;
     const f = typeOf(ac.typeId).family;
     const sets = Math.max(BAL.crewSetsPerAircraft, (onStation.get(ac.id) ?? 0) + 2);
-    const x = crewExtraFor(g, ac.id, null);
+    // The most extra crew its long work (30+ days) over the next 60 days asks for (a contract's own setting or paid
+    // option); a short charter's extras come out of the reserve.
+    let x = crewExtraFor(g, ac.id, null);
+    for (const k of Object.values(g.contracts)) {
+      if ((k.status !== 'signed' && k.status !== 'active') || k.end <= g.now || k.start > g.now + 60 * DAY || k.end - k.start < 30 * DAY || !k.aircraftIds.includes(ac.id)) continue;
+      const kx = crewExtraFor(g, ac.id, k.id);
+      if (kx.cabin + kx.pilot > x.cabin + x.pilot) x = kx;
+    }
     const per = countRoles(rolesWithExtra(ac.typeId, ac.cabin.total, x).map((r) => (r === 'CRP' ? 'FO' : r)));
     const need = fams.get(f) ?? {};
     for (const r of ROLES) if (per[r]) need[r] = (need[r] ?? 0) + per[r]! * sets;

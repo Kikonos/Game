@@ -34,17 +34,17 @@ describe('crew travelling', () => {
   it('crew on an airline deadhead read Deadheading in the air, not Available or Resting at the departure', () => {
     const g = fixtureGame(53);
     const ids = addCrew(g, { CPT: 1, CC: 1 });
-    for (const id of ids) g.crew[id].loc = 'CFU';
+    for (const id of ids) g.crew[id].loc = 'PMI';
     const std = g.now + 120;
-    const f = addDeadhead(g, { crewIds: ids, from: 'CFU', to: 'LIS', std, sta: std + ticketBlock('CFU', 'LIS'), cost: 0 });
+    const f = addDeadhead(g, { crewIds: ids, from: 'PMI', to: 'LIS', std, sta: std + ticketBlock('PMI', 'LIS'), cost: 0 });
     g.now = std - 30;
     expect(crewStatusView(g, ids[0]).label).toBe('Deadheading');
     expect(crewStatusView(g, ids[0]).nowAt).toMatch(/check-in/);
     g.now = std + 30;
     const v = crewStatusView(g, ids[0]);
     expect(v.label).toBe('Deadheading');
-    expect(v.text).toMatch(/^[A-Z0-9]{2} \d+ CFU→LIS · lands \d\d:\d\d$/);
-    expect(v.nowAt).toBe('in the air CFU→LIS');
+    expect(v.text).toMatch(/^[A-Z0-9]{2} \d+ PMI→LIS · lands \d\d:\d\d$/);
+    expect(v.nowAt).toBe('in the air PMI→LIS');
     expect(v.until).toBe(f.sta);
     expect(v.travel?.flightId).toBe(f.id);
     g.now = f.sta + 1;

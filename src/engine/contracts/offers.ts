@@ -930,8 +930,11 @@ export function dailyOffers(g: GameState): void {
     o.closedAt ??= g.now;
     if (g.now - o.closedAt > 14 * DAY) delete g.offers[o.id];
   }
-  quietWeekOffer(g);
+  if (PACING.quietFloor) quietWeekOffer(g);
 }
+
+/** v0.6 pacing switches (tests compare against the v0.5.2 offer flow). */
+export const PACING = { quietFloor: true };
 
 /**
  * v0.6 quiet-week floor (UPDATE-0.6.md §C2): one gap-fit offer when none came for 6 days, an aircraft has an idle

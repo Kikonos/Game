@@ -1,7 +1,7 @@
 // Auto-roster, change sync and disruption APIs (B2). DESIGN.md §4.2, §5.3.
 
 import { BAL } from '../core/balance';
-import { addDeadhead, deadheadFlights, flightsOf, removeFlights, retimeFlight, touchFlights } from '../core/entities';
+import { addDeadhead, deadheadFlights, flightsOf, removeFlights, retimeFlight, touchTickets } from '../core/entities';
 import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { requestPause } from '../core/pause';
@@ -72,7 +72,7 @@ function buyTicket(g: GameState, p: Pairing, d: Duty, crewIds: string[], t: Tick
     ride.riders = [...new Set([...(ride.riders ?? []), ...crewIds])];
     noteRiders(g, ride);
     if (!d.deadheadIds.includes(ride.id)) d.deadheadIds.push(ride.id);
-    touchFlights(g);
+    touchTickets(g);
     return ride;
   }
   const cost = clientPaysCrewTravel(g, p) ? 0 : ticketPrice(t.from, t.to) * crewIds.length;
@@ -93,12 +93,12 @@ function unboard(g: GameState, f: Flight, crewId: string): boolean {
     f.crewIds = f.crewIds.filter((x) => x !== crewId);
     // An unused ticket is simply dropped (its cost is sunk): no cancelled tickets piling up in the save.
     if (!f.crewIds.length) removeFlights(g, [f.id]);
-    else touchFlights(g);
+    else touchTickets(g);
     return !f.crewIds.length;
   }
   f.riders = (f.riders ?? []).filter((x) => x !== crewId);
   if (!f.riders.length) delete f.riders;
-  touchFlights(g);
+  touchTickets(g);
   return !f.riders;
 }
 
@@ -265,7 +265,7 @@ function sendHome(g: GameState, c: CrewMember, p?: Pairing): void {
   if (group) {
     group.crewIds.push(c.id);
     group.cost = (group.cost ?? 0) + cost;
-    touchFlights(g);
+    touchTickets(g);
   } else addDeadhead(g, { crewIds: [c.id], from: c.loc, to: c.base, std, sta: std + blk, cost, contractId });
   if (cost) post(g, 'deadhead', -cost);
   touchCrew(g);

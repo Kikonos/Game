@@ -92,7 +92,7 @@ describe('morale drivers', () => {
     const p = Object.values(g.pairings).find((x) => x.slots.every((s) => s.crewId))!;
     const k = fixtureContract(g, { aircraftIds: [p.aircraftId!], start: g.now, end: g.now + DAY, pattern: { kind: 'legs', legs: [] }, effects: { morale: 6 } });
     p.contractId = k.id;
-    p.slots[p.slots.length - 1].above = true;
+    p.slots.push({ role: 'CC', crewId: addCrew(g, { CC: 1 })[0], above: true });
     const cabin = g.crew[p.slots.find((s) => g.crew[s.crewId!].role !== 'CPT' && g.crew[s.crewId!].role !== 'FO')!.crewId!];
     const pilot = g.crew[p.slots[0].crewId!];
     onDutyMorale(g, p, false);

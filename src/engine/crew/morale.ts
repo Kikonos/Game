@@ -9,6 +9,7 @@ import { complement, isPilot } from '../core/perf';
 import { DAY, fmtDate } from '../core/time';
 import type { Contract, CrewMember, Flight, GameState, Minute, MoraleDriver, Pairing, Policies, Role } from '../core/types';
 import { clamp, hash } from '../core/util';
+import { aboveMinimum } from './duties';
 import { crewName } from './generate';
 import { crewIx, touchCrew } from './timeline';
 
@@ -106,8 +107,9 @@ export function nextReport(g: GameState, p: Pairing): Minute | null {
 
 /** Duty released: the extra-crew lift for the group that flew with crew above the minimum, and the mission once per trip. */
 export function onDutyMorale(g: GameState, p: Pairing, last: boolean): void {
-  const cabinAbove = p.slots.some((s) => s.above && s.crewId && g.crew[s.crewId] && !isPilot(g.crew[s.crewId].role));
-  const pilotAbove = p.slots.some((s) => s.above && s.crewId && g.crew[s.crewId] && isPilot(g.crew[s.crewId].role));
+  const above = aboveMinimum(g, p);
+  const cabinAbove = above.cabin > 0;
+  const pilotAbove = above.pilots > 0;
   const k = p.contractId ? g.contracts[p.contractId] : undefined;
   const mission = last ? k?.effects.morale ?? 0 : 0;
   for (const s of p.slots) {

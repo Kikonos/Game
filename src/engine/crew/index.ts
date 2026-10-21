@@ -9,6 +9,7 @@ import type { CrewMember, GameState, Minute, SimEvent } from '../core/types';
 import { cancelConversion, classOf, dailyClasses } from './conversion';
 import { dailyCrewCosts, monthlySalaries } from './costs';
 import { deletePairing, planAircraft } from './duties';
+export { aboveMinimum, legalMinimum } from './duties';
 import { dailySickness, onCrewJoin, onTrainingDone } from './hr';
 import { dailyMorale, monthlyMorale, noteService, onDutyMorale, settleService, setResignHooks } from './morale';
 import { autoRoster, guardDuty, onFlightsChanged, recheckAfterRelease, recheckNext, recheckSoon, removeCrew, sendStrandedHome, stayOn } from './roster';

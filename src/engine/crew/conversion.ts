@@ -321,8 +321,15 @@ export function startConversion(g: GameState, r: ConversionRequest): ActionResul
     ids.push(id);
   }
   post(g, 'training', -plan.cost);
-  // Their work in the class dates goes back to the auto-roster (anyone away comes home first).
-  for (const k of plan.classes) for (const cid of k.crewIds) removeCrew(g, cid, k.start, k.end);
+  // Their work from the day before the class to its end goes back to the auto-roster (anyone away comes home
+  // first); only the class itself stays blocked.
+  for (const k of plan.classes) {
+    for (const cid of k.crewIds) {
+      removeCrew(g, cid, k.start - DAY, k.end);
+      const c = g.crew[cid];
+      if (c.blocks) c.blocks = c.blocks.filter((b) => !(b.why === 'leave' && b.from === k.start - DAY && b.to === k.end));
+    }
+  }
   touchCrew(g);
   const label = familyLabel(r.family);
   const pil = plan.classes.filter((k) => k.group === 'pilot');
