@@ -14,7 +14,7 @@ import { dailySickness, onCrewJoin, onTrainingDone } from './hr';
 import { dailyMorale, monthlyMorale, noteService, onDutyMorale, settleService, setResignHooks } from './morale';
 import { autoRoster, guardDuty, onFlightsChanged, recheckAfterRelease, recheckNext, recheckSoon, removeCrew, sendStrandedHome, stayOn } from './roster';
 import { minRest, nightsIn, LIMITS } from './rules';
-import { aboard, crewCount, crewIx, dutyBlock, dutyFlights, dutySegs, onBlocks, passengers, touchCrew } from './timeline';
+import { aboard, crewCount, crewIx, dutyBlock, dutyFlights, dutySegs, onBlocks, passengers, touchCrew, touchCrewState } from './timeline';
 
 export {
   checkAssignment, crewWindows, daysOffInMonth, LIMITS, maxFdp, minRest, restAfter,
@@ -83,7 +83,7 @@ function onDutyReport(g: GameState, ev: SimEvent): void {
     c.status = 'onDuty';
     if (c.awaySince === null && (dep !== c.base || d.restAt !== c.base)) c.awaySince = g.now;
   }
-  touchCrew(g);
+  touchCrewState(g);
 }
 
 /** 'duty.release': logs (pruned to 28 days), block year, rest, location; waits for a late last arrival. */
@@ -139,7 +139,7 @@ function onDutyRelease(g: GameState, ev: SimEvent): void {
   const last = p.dutyIds.every((id) => !g.duties[id] || g.duties[id].done);
   if (last) p.status = 'done';
   onDutyMorale(g, p, last);
-  touchCrew(g);
+  touchCrewState(g);
   recheckAfterRelease(g, p);
 }
 
@@ -178,7 +178,7 @@ function onFlightArrCrew(g: GameState, ev: SimEvent): void {
       if (c.status === 'available') c.status = 'resting';
     }
   }
-  if (pax.length) touchCrew(g);
+  if (pax.length) touchCrewState(g);
   if (missed.length) recheckNext(g, missed);
 }
 
@@ -186,7 +186,7 @@ function onFlightArrCrew(g: GameState, ev: SimEvent): void {
 function refreshStatuses(g: GameState): void {
   const ix = crewIx(g);
   for (const c of Object.values(g.crew)) {
-    if (c.blocks) {
+    if (c.blocks && (!c.blocks.length || c.blocks.some((b) => b.to <= g.now - DAY))) {
       c.blocks = c.blocks.filter((b) => b.to > g.now - DAY);
       if (!c.blocks.length) delete c.blocks;
     }
@@ -205,12 +205,19 @@ function refreshStatuses(g: GameState): void {
 /** Daily: duties and pairings a week past their end go (crew logs keep the totals); uncrewed past pairings are broken. */
 function prune(g: GameState): void {
   const cut = g.now - 7 * DAY;
+  let n = 0;
   for (const p of Object.values(g.pairings)) {
-    if (p.status === 'planned' && p.end < g.now && crewCount(p) === 0) p.status = 'broken';
-    if (p.end < cut && p.status !== 'planned') deletePairing(g, p);
+    if (p.status === 'planned' && p.end < g.now && crewCount(p) === 0) {
+      p.status = 'broken';
+      n++;
+    }
+    if (p.end < cut && p.status !== 'planned') {
+      deletePairing(g, p);
+      n++;
+    }
   }
   for (const dep of Object.values(g.deployments)) if (dep.end < cut && !dep.pairingIds.length) delete g.deployments[dep.id];
-  touchCrew(g);
+  if (n) touchCrew(g);
 }
 
 function daily(g: GameState) {

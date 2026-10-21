@@ -44,6 +44,12 @@ export interface MapLayerCtx {
   margin: number;
 }
 
+/**
+ * What a focus keeps clear of the overlays: one point, or several (map units) each grown by `box`
+ * (screen px to the left, top, right, bottom: labels); the first wins when they don't all fit.
+ */
+export type FocusAt = [number, number] | { pts: [number, number][]; box?: [number, number, number, number] };
+
 /** Map transform: world point p is drawn at p × k + (x, y) in viewBox units. */
 export interface View {
   k: number;
@@ -89,7 +95,7 @@ interface Props {
   /** Airport kept near the middle of a fit (read when fitting). */
   fitCentre?: () => string | undefined;
   /** When `key` changes, pans the map point `at()` (map units) out from under `revealPad`. Replaces the selected-airport reveal. */
-  focus?: { key: string; at: () => [number, number] | null } | null;
+  focus?: { key: string; at: () => FocusAt | null } | null;
   /** Keeps the view across remounts (tab switches): read on mount, written on every commit. */
   memo?: { view: View | null };
 }
@@ -257,7 +263,7 @@ const AirportsLayer = memo(function AirportsLayer({ els, unit, selected, hover, 
     const { big, isSel, rad, ring, fs, ty } = geom(ap);
     const fill = ap.state === 'hub' ? accent : ap.state === 'served' ? '#ffffff' : ap.state === 'open' ? '#9fb2d8' : ap.state === 'locked' ? '#3a4766' : '#56617a';
     return (
-      <g key={ap.code} transform={`translate(${ap.x} ${ap.y})`} className={`ap ap-${ap.state} ${isSel ? 'sel' : ''} ${hover === ap.code ? 'hov' : ''}`}>
+      <g key={ap.code} data-code={ap.code} transform={`translate(${ap.x} ${ap.y})`} className={`ap ap-${ap.state} ${isSel ? 'sel' : ''} ${hover === ap.code ? 'hov' : ''}`}>
         <g className="mk" transform={`scale(${unit})`}>
           {big && <circle r={rad * 2.4} fill={accent} opacity={0.18} className="pulse" />}
           {isSel && <circle r={ring} fill="rgba(255,255,255,0.08)" stroke="#fff" strokeWidth={1.5} vectorEffect="non-scaling-stroke" className="sel-ring" />}
@@ -870,20 +876,24 @@ export function WorldMap({
     const id = requestAnimationFrame(() => {
       const f = focusRef.current;
       const a = f ? undefined : selected ? AIRPORT_BY_CODE[selected] : undefined;
-      const p = f ? f.at() : a ? proj([a.lon, a.lat]) : null;
-      if (!p || busy()) return;
+      const at: FocusAt | null | undefined = f ? f.at() : a ? proj([a.lon, a.lat]) : null;
+      const fa = !at ? null : Array.isArray(at) ? { pts: [at], box: [0, 0, 0, 0] } : { pts: at.pts, box: at.box ?? [0, 0, 0, 0] };
+      if (!fa || !fa.pts.length || busy()) return;
       const pad = typeof padOpt === 'function' ? padOpt() : padOpt;
       const geo = measure();
       const v = live.current;
-      const sx = (p[0] * v.k + v.x) * geo.s + geo.ox;
-      const sy = (p[1] * v.k + v.y) * geo.s + geo.oy;
       const m = 32;
-      let dx = 0;
-      let dy = 0;
-      if (sx < pad[3] + m) dx = pad[3] + m - sx;
-      else if (sx > geo.w - pad[1] - m) dx = geo.w - pad[1] - m - sx;
-      if (sy < pad[0] + m) dy = pad[0] + m - sy;
-      else if (sy > geo.h - pad[2] - m) dy = geo.h - pad[2] - m - sy;
+      const [bl, bt, br, bb] = fa.box;
+      const sc = fa.pts.map((p) => [(p[0] * v.k + v.x) * geo.s + geo.ox, (p[1] * v.k + v.y) * geo.s + geo.oy]);
+      // Shift that brings [lo, hi] inside [a0, a1]; just the first point's span when the whole set doesn't fit.
+      const shift = (i: 0 | 1, lo0: number, hi0: number, a0: number, a1: number) => {
+        let lo = Math.min(...sc.map((q) => q[i])) - lo0;
+        let hi = Math.max(...sc.map((q) => q[i])) + hi0;
+        if (hi - lo > a1 - a0) { lo = sc[0][i] - lo0; hi = sc[0][i] + hi0; }
+        return lo < a0 ? a0 - lo : hi > a1 ? a1 - hi : 0;
+      };
+      const dx = shift(0, bl, br, pad[3] + m, geo.w - pad[1] - m);
+      const dy = shift(1, bt, bb, pad[0] + m, geo.h - pad[2] - m);
       if (dx || dy) flyTo(clampView({ k: v.k, x: v.x + dx / geo.s, y: v.y + dy / geo.s }, geo), 360);
     });
     return () => cancelAnimationFrame(id);

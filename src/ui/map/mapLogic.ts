@@ -103,7 +103,8 @@ export interface LegArc {
   color: string | null;
 }
 
-/** Arcs for the selected aircraft: the leg it is flying (if any) and its next `n` scheduled legs. */
+/** Arcs for the selected aircraft: the leg it is flying (if any) and its next `n` scheduled legs; a v0.7 ferry chain
+ * (delivery, lease return, refit) is drawn whole, night stops included. */
 export function selectedLegs(g: GameState, aircraftId: string, n = 3): LegArc[] {
   const ac = g.fleet[aircraftId];
   if (!ac) return [];
@@ -114,11 +115,45 @@ export function selectedLegs(g: GameState, aircraftId: string, n = 3): LegArc[] 
   const out: LegArc[] = [];
   const cur = ac.flightId ? g.flights[ac.flightId] : undefined;
   if (cur) out.push(arc(cur, true));
+  let last: Flight | undefined = cur;
   for (const f of flightsOf(g, aircraftId)) {
-    if (out.length >= n + (cur ? 1 : 0)) break;
-    if (f.status === 'scheduled' && f.id !== cur?.id && AIRPORT_BY_CODE[f.from] && AIRPORT_BY_CODE[f.to]) out.push(arc(f, false));
+    if (f.status !== 'scheduled' || f.id === cur?.id || !AIRPORT_BY_CODE[f.from] || !AIRPORT_BY_CODE[f.to]) continue;
+    // Past n legs only while the last one's ferry chain goes on.
+    if (out.length >= n + (cur ? 1 : 0) && !(last?.purpose && f.purpose === last.purpose)) break;
+    out.push(arc(f, false));
+    last = f;
   }
   return out;
+}
+
+// ---------- v0.7 deliveries, refits, lease returns ----------
+
+/** Drawn on the map: an aircraft still being built or prepared for handover (status 'delivering') is not. */
+export const onMap = (ac: Aircraft) => ac.status !== 'delivering' || !!ac.flightId;
+
+/** Static DELIVERY tag: handed over abroad, until it is home (deliveryStatus phase handedOver | waiting | ferrying). */
+export const deliveryTag = (ac: Aircraft) => !!ac.delivery && ac.delivery.arrived === undefined && ac.status !== 'delivering';
+
+export const PURPOSE_LABEL: Record<NonNullable<Flight['purpose']>, string> = { delivery: 'Delivery ferry', return: 'Lease return ferry', refit: 'Refit ferry' };
+
+/** The ferry chain a purpose leg belongs to (delivery, lease return or refit ferry legs, in order); [f] when unknown. */
+export function purposeChain(g: GameState, f: Flight): Flight[] {
+  const ac = f.aircraftId ? g.fleet[f.aircraftId] : undefined;
+  let ids: string[] | undefined;
+  if (f.purpose === 'delivery') ids = ac?.delivery?.ferryIds;
+  else if (f.purpose === 'return') ids = ac?.returning?.ferryIds;
+  else if (f.purpose === 'refit') ids = Object.values(g.maintenance).find((m) => m.aircraftId === f.aircraftId && m.ferryIds?.includes(f.id))?.ferryIds;
+  const legs = (ids ?? []).map((id) => g.flights[id]).filter((x): x is Flight => !!x).sort((a, b) => a.std - b.std);
+  return legs.some((x) => x.id === f.id) ? legs : [f];
+}
+
+/** Our aircraft waiting at their handover site (not yet ferried out), for the airport panel. */
+export function awaitingDelivery(g: GameState, code: string): Aircraft[] {
+  return Object.values(g.fleet).filter((ac) => {
+    const dl = ac.delivery;
+    if (!dl || dl.arrived !== undefined || dl.site !== code || ac.at !== code || ac.flightId) return false;
+    return !dl.ferryIds.some((id) => g.flights[id]?.status === 'done');
+  });
 }
 
 /** Scheduled legs of an aircraft from now on (std order). */
@@ -250,6 +285,7 @@ export function fitCodes(g: GameState): string[] {
   const fresh = fitFresh(g);
   const s = new Set([g.company.homeBase, ...FIT_ANCHORS.filter((c) => !fresh || near(c))]);
   for (const ac of Object.values(g.fleet)) {
+    if (!onMap(ac)) continue;
     s.add(ac.at);
     const f = ac.flightId ? g.flights[ac.flightId] : undefined;
     if (f) s.add(f.to);
@@ -264,6 +300,7 @@ export function mapAirports(g: GameState): { code: string; hub: boolean; label: 
   const out = new Map<string, boolean>([[base, true]]);
   const horizon = g.now + 48 * 60;
   for (const ac of Object.values(g.fleet)) {
+    if (!onMap(ac)) continue;
     out.set(ac.at, true);
     const cur = ac.flightId ? g.flights[ac.flightId] : undefined;
     if (cur) out.set(cur.to, true);
@@ -403,10 +440,25 @@ export function chipInfo(g: GameState, ac: Aircraft, t: Minute): ChipInfo {
   if (ac.status === 'maintenance') {
     const m = ac.maintId ? g.maintenance[ac.maintId] : undefined;
     if (m?.kind === 'paint') return { tone: 'warn', line: `Paint shop → ${fmtDay(m.end)}`, short: `Paint ${ac.at}` };
+    if (m?.kind === 'refit') return { tone: 'warn', line: `Refit ${m.at} ${fmtDay(m.end)}`, short: `Refit ${m.at}` };
+    if (m?.kind === 'return') return { tone: 'warn', line: `Return → ${fmtDay(m.end)}`, short: `Return ${m.at}` };
     return { tone: 'warn', line: m ? `${m.kind === 'AOG' ? 'Repair' : `${m.kind}-check`} → ${fmtDay(m.end)}` : `Hangar ${ac.at}`, short: `Hangar ${ac.at}` };
   }
-  if (ac.status === 'delivering') return { tone: 'idle', line: `Delivery ${fmtDay(ac.deliveredAt)}`, short: 'Delivery' };
+  const dl = ac.delivery;
+  if (ac.status === 'delivering') {
+    if (!dl) return { tone: 'idle', line: `Delivery ${fmtDay(ac.deliveredAt)}`, short: 'Delivery' };
+    // Fits the fixed chip (≈ 17 chars): 'Handover SCL 2 May', else 'Handover 12 May' (the site is in the short line and title).
+    const full = `Handover ${dl.site} ${fmtDay(dl.handover)}`;
+    return { tone: 'idle', line: full.length <= 17 ? full : `Handover ${fmtDay(dl.handover)}`, short: `Dlvy ${dl.site}` };
+  }
   const next = upcomingLegs(g, ac.id, 1)[0];
+  if (dl && dl.arrived === undefined) {
+    if (dl.waitingSince !== undefined) return { tone: 'warn', line: 'Waiting for crew', short: `Wait ${ac.at}` };
+    if (next?.purpose === 'delivery') {
+      const dep = next.std + next.delay;
+      return { tone: dep - t < 24 * 60 ? 'good' : 'idle', line: `Ferry home ${fmtDay(dep)}`, short: `Dlv ${fmtDay(dep)}` };
+    }
+  }
   if (!next) return { tone: 'idle', line: `Idle at ${ac.at}`, short: `Idle ${ac.at}` };
   const dep = next.std + next.delay;
   const soon = dep - t < 20 * 60;

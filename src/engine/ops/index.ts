@@ -2,22 +2,31 @@
 
 import type { SimModule } from '../core/module';
 import type { GameState } from '../core/types';
-import { onApprovalDone } from './company';
+import { onRefitEnd } from './cabin';
+import { dailyApprovals, loadApprovals, onApprovalDone, setGrantHook } from './company';
 import { dailyEvents, onDecisionExpire, paceDecisions } from './events';
 import { dailyFinance, onMonthEnd, onPayment, settleDeparture } from './finance';
 import { onFlightArr, onFlightDep, pruneFlights } from './flights';
-import { checkGoals, syncGoals } from './goals';
-import { onMaintEnd, onMaintStart, planChecks } from './maintenance';
-import { onDelivery, onLeaseEnd, refreshMarket } from './market';
+import { checkGoals, ladderGrant, syncGoals } from './goals';
+import { onMaintEnd, onMaintStart, planChecks, setMaintHooks } from './maintenance';
+import { dailyDelivery, onDeliveryArr, onDeliveryDep } from './delivery';
+import { dailyLeases, onReturnEnd, onReturnStart } from './leaseReturn';
+import { dailyMarket, loadMarket, onDelivery, onLeaseEnd, refreshMarket } from './market';
 import { dailyPaint, normaliseLivery } from './paint';
 
-export { APPROVALS, applyApproval, approvalBlocker, setPolicies, type ApprovalDef } from './company';
+export {
+  APPROVALS, aircraftGate, applyApproval, approvalBlocker, approvalReqs, cleanRecord, gateApprovals, ladder, ratedPilots, RUNG0_TYPES, setPolicies,
+  type AircraftGate, type ApprovalDef, type ApprovalReq, type LadderNode, type LadderRung, type NodeState,
+} from './company';
+export { bookRefit, cabinOptions, refitQuote, refitStations, type RefitQuote } from './cabin';
+export { deliveryQuote, deliveryStatus, ferryRoute, ticketPurpose, type DeliveryLeg, type DeliveryQuote, type DeliveryStatus } from './delivery';
+export { chooseLease, leaseView, returnQuote, type LeaseChoice, type LeaseView, type ReturnQuote } from './leaseReturn';
 export { resolveDecision } from './events';
 export { cashForecast, fixedCosts, monthProfit, newStatement } from './finance';
 export { delayFlight, delayOf, schedSta } from './flights';
 export { GOALS, type GoalDef } from './goals';
 export { aogChance, cancelCheck, checkAirportOk, checkStatus, checkUsedAt, groundGaps, scheduleCheck, type CheckStatus } from './maintenance';
-export { acquireAircraft } from './market';
+export { acquireAircraft, eligibleTypes, marketView, returnSiteOf, type MarketOfferView } from './market';
 export {
   clientCode, clientLivery, clientTitles, liveryOf, normaliseLivery, paintStatus, setAircraftLivery, setCompanyLivery, setFleetLivery, type PaintStatus, type ResolvedLivery,
 } from './paint';
@@ -29,23 +38,39 @@ export {
   type CommercialFlight, type CommercialLeg,
 } from './commercial';
 
+// v0.7 hooks, wired once every module has loaded (the ops modules import each other).
+setMaintHooks((g, m) => onReturnStart(g, m), (g, m) => {
+  onRefitEnd(g, m);
+  onReturnEnd(g, m);
+});
+setGrantHook(ladderGrant);
+
 function daily(g: GameState) {
   pruneFlights(g);
   planChecks(g);
   dailyPaint(g);
   dailyEvents(g);
   dailyFinance(g);
+  dailyApprovals(g);
+  dailyMarket(g);
+  dailyDelivery(g);
+  dailyLeases(g);
   checkGoals(g);
 }
 
 export const opsModule: SimModule = {
   name: 'ops',
   init(g) {
+    // v0.7 defaults exactly as load sets them (a fresh game and a reloaded one serialise alike).
+    loadApprovals(g);
+    loadMarket(g);
     refreshMarket(g);
   },
   // Decisions other modules post (crew's sickCrew) join the pacing budget as they appear.
   settle: paceDecisions,
   load(g) {
+    loadApprovals(g);
+    loadMarket(g);
     syncGoals(g);
     g.finance.negSince ??= null;
     // v0.5.1 liveries: client paint of a contract no longer in the save is gone; the company livery normalised (idempotent).
@@ -58,8 +83,16 @@ export const opsModule: SimModule = {
       refreshMarket(g);
       onMonthEnd(g, ev);
     },
-    'flight.dep': onFlightDep,
-    'flight.arr': onFlightArr,
+    'flight.dep': (g, ev) => {
+      onFlightDep(g, ev);
+      const f = g.flights[ev.id];
+      if (f?.purpose) onDeliveryDep(g, f);
+    },
+    'flight.arr': (g, ev) => {
+      onFlightArr(g, ev);
+      const f = g.flights[ev.id];
+      if (f?.purpose && f.status === 'done') onDeliveryArr(g, f);
+    },
     'maint.start': onMaintStart,
     'maint.end': onMaintEnd,
     payment: onPayment,

@@ -4,11 +4,11 @@
 import { CheckCheck, ChevronRight, Hourglass, Inbox as InboxIcon } from 'lucide-react';
 import { useState } from 'react';
 import { fmtDateTime } from '../../engine/core/time';
-import type { GameState, Message, MessageCat } from '../../engine/core/types';
+import type { GameState, Message } from '../../engine/core/types';
 import { Empty, Tabs } from '../components/ui';
 import { store, useGame } from '../store';
 import { Dot, ScreenHead, useRenderCount } from './common';
-import { expiryLabel, filterMessages, MSG_CATS, refTarget } from './screenLogic';
+import { expiryLabel, filterMessages, MSG_CATS, refTarget, type MsgFilter } from './screenLogic';
 
 const PAGE = 80;
 
@@ -17,6 +17,11 @@ function open(g: GameState, m: Message) {
     const x = gg.messages.find((y) => y.id === m.id);
     if (x) x.read = true;
   });
+  // v0.7: a market alert opens Fleet → Market at its card, unless the offer has gone.
+  if (m.ref?.kind === 'market' && !g.market.aircraft.some((o) => o.id === m.ref!.id && o.expires > g.now)) {
+    store.toast('info', 'This offer has gone', 'The seller placed the aircraft elsewhere. New offers come every few weeks.');
+    return;
+  }
   const link = m.ref ? refTarget(g, m.ref) : null;
   if (!link) return;
   if (link.offerId) {
@@ -52,16 +57,22 @@ function Decisions({ g }: { g: GameState }) {
 export function InboxScreen() {
   useRenderCount('inbox');
   const g = useGame();
-  const [cat, setCat] = useState<MessageCat | 'all'>('all');
+  const [cat, setCat] = useState<MsgFilter>('all');
   const [more, setMore] = useState(false);
-  const list = filterMessages(g.messages, cat);
+  // v0.7: market alerts off hides their messages (they stay in the save).
+  const msgs = store.settings.marketAlerts ? g.messages : g.messages.filter((m) => store.shows(m));
+  const list = filterMessages(msgs, cat);
   const shown = more ? list : list.slice(0, PAGE);
-  const unread = g.messages.filter((m) => !m.read).length;
+  const unread = msgs.filter((m) => !m.read).length;
   const counts = new Map<string, number>();
-  for (const m of g.messages) if (!m.read) counts.set(m.cat, (counts.get(m.cat) ?? 0) + 1);
+  for (const m of msgs) if (!m.read) {
+    counts.set(m.cat, (counts.get(m.cat) ?? 0) + 1);
+    if (m.topic === 'market') counts.set('market', (counts.get('market') ?? 0) + 1);
+  }
   const markAll = () => store.update((gg) => {
-    for (const m of gg.messages) m.read = true;
+    for (const m of gg.messages) if (store.shows(m)) m.read = true;
   });
+  const cats: { id: MsgFilter; label: string }[] = [...MSG_CATS.filter((c) => c.id === 'all' || msgs.some((m) => m.cat === c.id)), ...(msgs.some((m) => m.topic === 'market') ? [{ id: 'market' as const, label: 'Market' }] : [])];
   return (
     <div className="screen sc-inbox">
       <ScreenHead title="Inbox" sub={`${g.decisions.length ? `${g.decisions.length} decision${g.decisions.length > 1 ? 's' : ''} waiting · ` : ''}${unread} unread`}>
@@ -69,7 +80,7 @@ export function InboxScreen() {
       </ScreenHead>
       <Decisions g={g} />
       <div className="sc-seg-wrap mb-8">
-        <Tabs<MessageCat | 'all'> value={cat} onChange={(v) => { setCat(v); setMore(false); }} tabs={MSG_CATS.filter((c) => c.id === 'all' || g.messages.some((m) => m.cat === c.id)).map((c) => ({ id: c.id, label: c.label, count: c.id === 'all' ? unread || undefined : counts.get(c.id) }))} />
+        <Tabs<MsgFilter> value={cat} onChange={(v) => { setCat(v); setMore(false); }} tabs={cats.map((c) => ({ id: c.id, label: c.label, count: c.id === 'all' ? unread || undefined : counts.get(c.id) }))} />
       </div>
       {!list.length ? (
         <Empty icon={<InboxIcon />} title="No messages">Operations, crew, commercial and finance news land here.</Empty>

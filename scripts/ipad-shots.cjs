@@ -24,6 +24,10 @@
  *                  v0.5.1 liveries (run last: they sign a paint contract and play days forward):
  *                    newgame-livery,livery-company,livery-aircraft,offer-paint,offer-paint-optional,
  *                    schedule-paint,paint-sheet,map-painted,fleet-painted
+ *                  v0.7 fleet & ladder (run last: they post market offers, grant Widebody operations, sign an A330 at
+ *                  Santiago and book a VIP refit):
+ *                    convert-confirm,fleet-market,acquire-modal,company-ladder,approval-modal,ladder-step,acquire-widebody,
+ *                    fleet-delivering,schedule-delivering,refit-modal,fleet-refit,schedule-refit,lease-modal,settings-market,inbox-market
  *   --save         an exported save (.blockhours.json) to load for the in-game screens; without it the harness
  *                  starts a new game from the New Game screen (--base, default LIS) and plays --days
  *                  game days (default 40) with __contrail.dev.autoplay so every screen has real data
@@ -50,6 +54,8 @@ const ALL = [
   'newgame-livery', 'livery-company', 'livery-aircraft', 'offer-paint', 'offer-paint-optional', 'schedule-paint', 'paint-sheet', 'map-painted', 'fleet-painted',
   'crew-board', 'crew-board-month', 'board-drag', 'board-popover', 'crew-select', 'convert-modal', 'classes-modal', 'crew-converting', 'board-converting',
   'crew-morale', 'crew-notice', 'train-modal', 'company-policies', 'fleet-extra', 'offer-extra', 'contracts-extra', 'duty-extra',
+  'convert-confirm', 'fleet-market', 'acquire-modal', 'company-ladder', 'approval-modal', 'ladder-step', 'acquire-widebody', 'fleet-delivering',
+  'schedule-delivering', 'refit-modal', 'fleet-refit', 'schedule-refit', 'lease-modal', 'settings-market', 'inbox-market',
 ];
 const PRE_GAME = new Set(['loading', 'title', 'newgame', 'newgame-livery']);
 const VIEWS = {
@@ -289,7 +295,8 @@ async function newGame(page, desktop) {
 
 let started = false;
 async function ensureGame(page, saveJson, desktop) {
-  const inGame = await page.evaluate(() => !!window.__contrail && window.__contrail.screen === 'game').catch(() => false);
+  // A suspended company (long harness runs) starts over, so later screens show a live game.
+  const inGame = await page.evaluate(() => !!window.__contrail && window.__contrail.screen === 'game' && !window.__contrail.game?.gameOver).catch(() => false);
   if (!inGame || !started) {
     if (saveJson) {
       // The autosave slot accepts plain JSON; the title screen then offers Continue.
@@ -529,6 +536,9 @@ async function ensureConversion(page, desktop) {
   await modal(page, { kind: 'convert', crewIds: ids, family: 'A330/340' });
   await press(page, page.locator('.modal-foot .btn-primary'), desktop);
   await settle(page, 500);
+  // v0.7: red warnings turn Book into a two-step confirm.
+  const anyway = page.getByRole('button', { name: /Book anyway/ });
+  if (await anyway.count()) { await press(page, anyway.first(), desktop); await settle(page, 500); }
   await quiet(page);
 }
 
@@ -573,7 +583,8 @@ Object.assign(ACTIONS, {
     await ensureConversion(page, d);
     // Play into the first class so the strip and the list show 'Conversion A330'.
     const start = await page.evaluate(() => Math.min(...Object.values(window.__contrail.game.classes).filter((k) => k.status !== 'cancelled').map((k) => k.start)));
-    const days = await page.evaluate((s) => Math.max(0, Math.ceil((s - window.__contrail.game.now) / 1440)) + 2, start);
+    if (!Number.isFinite(start)) throw new Error('SKIP no conversion class booked');
+    const days = await page.evaluate((s) => Math.min(60, Math.max(0, Math.ceil((s - window.__contrail.game.now) / 1440)) + 2), start);
     await page.evaluate((n) => window.__contrail.dev.autoplay(n), days);
     await quiet(page);
     const id = await page.evaluate(() => Object.values(window.__contrail.game.classes).find((k) => k.status === 'running')?.crewIds[0]);
@@ -630,6 +641,104 @@ Object.assign(ACTIONS, {
     await settle(page, 400);
   },
   'contracts-extra': (page) => nav(page, 'contracts', { view: 'active' }),
+  // ---------- v0.7 fleet & ladder ----------
+  'convert-confirm': async (page, _s, d) => {
+    const ids = await convertIds(page);
+    await nav(page, 'crew', { view: 'people' });
+    await modal(page, { kind: 'convert', crewIds: ids, family: 'A330/340' });
+    const b = page.locator('.modal-foot .btn-primary');
+    if (!/Review/.test(await b.textContent())) throw new Error('SKIP no red warning for this selection');
+    await press(page, b, d);
+    await settle(page, 400);
+  },
+  'fleet-market': async (page) => {
+    await page.evaluate(() => {
+      const s = window.__contrail;
+      const g = s.game;
+      if (!g.market.aircraft.some((o) => o.site === 'SCL' && o.expires > g.now)) s.dev.marketOffer('a332', { site: 'SCL' });
+      s.dev.marketOffer('a321neo', { newBuild: true });
+      s.dev.marketOffer('a320ceo', { kind: 'buy' });
+    });
+    await quiet(page);
+    await nav(page, 'fleet', { view: 'market' });
+  },
+  'acquire-modal': async (page) => {
+    const id = await pick(page, () => { const g = window.__contrail.game; return g.market.aircraft.find((o) => o.kind === 'buy' && o.expires > g.now)?.id; });
+    if (!id) throw new Error('SKIP no offer to buy');
+    await nav(page, 'fleet', { view: 'market' });
+    await modal(page, { kind: 'acquire', offerId: id });
+  },
+  'company-ladder': (page) => nav(page, 'company', { view: 'ladder' }),
+  'approval-modal': async (page) => { await nav(page, 'company'); await modal(page, { kind: 'approval', id: 'widebody' }); },
+  'ladder-step': async (page) => {
+    await nav(page, 'company');
+    await page.evaluate(() => { const s = window.__contrail; s.game.company.cash += 8e6; s.dev.grant('widebody'); s.toasts = []; s.emit(); });
+    await settle(page, 700);
+  },
+  'acquire-widebody': async (page) => {
+    const id = await pick(page, () => { const g = window.__contrail.game; return g.market.aircraft.find((o) => o.typeId === 'a332' && o.expires > g.now)?.id; });
+    if (!id) throw new Error('SKIP no A330 offer');
+    await nav(page, 'fleet', { view: 'market' });
+    await modal(page, { kind: 'acquire', offerId: id });
+  },
+  'fleet-delivering': async (page, _s, d) => {
+    // Signs the A330 offer through the dialog (the harness closes dialogs between screens).
+    const offer = await pick(page, () => { const g = window.__contrail.game; return g.market.aircraft.find((o) => o.typeId === 'a332' && o.expires > g.now)?.id; });
+    if (offer) {
+      await modal(page, { kind: 'acquire', offerId: offer });
+      await press(page, page.locator('.modal-foot .btn-primary'), d);
+      await settle(page, 500);
+    }
+    const id = await pick(page, () => Object.values(window.__contrail.game.fleet).find((a) => a.delivery && !a.delivery.arrived)?.id);
+    if (!id) throw new Error('SKIP nothing delivering');
+    await quiet(page);
+    await nav(page, 'fleet', { sel: { kind: 'aircraft', id } });
+  },
+  'schedule-delivering': async (page) => {
+    const id = await pick(page, () => Object.values(window.__contrail.game.fleet).find((a) => a.delivery && !a.delivery.arrived)?.id);
+    if (!id) throw new Error('SKIP nothing delivering');
+    await nav(page, 'schedule', { sel: { kind: 'aircraft', id } });
+  },
+  'refit-modal': async (page) => {
+    const id = await pick(page, () => Object.values(window.__contrail.game.fleet).find((a) => a.status !== 'delivering' && a.cabin.layout !== 'vip')?.id);
+    if (!id) throw new Error('SKIP no aircraft to refit');
+    await nav(page, 'fleet', { sel: { kind: 'aircraft', id } });
+    await modal(page, { kind: 'refit', aircraftId: id, layout: 'vip' });
+  },
+  'fleet-refit': async (page, _s, d) => {
+    const ac = await pick(page, () => Object.values(window.__contrail.game.fleet).find((a) => a.status !== 'delivering' && a.cabin.layout !== 'vip')?.id);
+    if (ac) {
+      await modal(page, { kind: 'refit', aircraftId: ac, layout: 'vip' });
+      await press(page, page.locator('.modal-foot .btn-primary'), d);
+      await settle(page, 500);
+    }
+    const id = await pick(page, () => Object.values(window.__contrail.game.maintenance).find((m) => m.kind === 'refit' && m.status === 'planned')?.aircraftId);
+    if (!id) throw new Error('SKIP no refit booked');
+    await quiet(page);
+    await nav(page, 'fleet', { sel: { kind: 'aircraft', id } });
+  },
+  'schedule-refit': async (page) => {
+    const m = await pick(page, () => { const m = Object.values(window.__contrail.game.maintenance).find((x) => x.kind === 'refit' && x.status === 'planned'); return m && { id: m.aircraftId, t: m.start }; });
+    if (!m) throw new Error('SKIP no refit booked');
+    await nav(page, 'schedule', { sel: { kind: 'aircraft', id: m.id }, view: String(m.t) });
+  },
+  'lease-modal': async (page) => {
+    const id = await pick(page, () => Object.values(window.__contrail.game.fleet).find((a) => a.ownership.kind === 'dryLeaseIn')?.id);
+    if (!id) throw new Error('SKIP no leased aircraft');
+    await nav(page, 'fleet', { sel: { kind: 'aircraft', id } });
+    await modal(page, { kind: 'lease', aircraftId: id });
+  },
+  'settings-market': async (page) => {
+    await modal(page, { kind: 'settings' });
+    await page.evaluate(() => document.querySelector('.set-head')?.scrollIntoView({ block: 'start' }));
+    await settle(page, 300);
+  },
+  'inbox-market': async (page, _s, d) => {
+    await nav(page, 'inbox');
+    const tab = page.getByRole('tab', { name: /^Market/ });
+    if (await tab.count()) await press(page, tab.first(), d);
+    await settle(page, 400);
+  },
   'duty-extra': async (page) => {
     const id = await pick(page, () => { const g = window.__contrail.game; const ac = Object.values(g.fleet).find((a) => a.crewExtra); const l = Object.values(g.flights).filter((f) => f.status === 'scheduled' && f.aircraftId === ac?.id && f.dutyId && f.std > g.now + 600).sort((a, b) => a.std - b.std); return l[0]?.id; });
     if (!id) throw new Error('SKIP no rostered flight on an aircraft with extra crew');
@@ -698,7 +807,8 @@ async function run() {
         if (res.smallTargets && !desktop) flags.push(`${res.smallTargets}/${res.tapTargets} targets <${MIN_TARGET}px: ${res.smallTargetSamples.join(' | ')}`);
         if (res.smallText) flags.push(`${res.smallText} text <${MIN_TEXT}px: ${res.smallTextSamples.join(' | ')}`);
         if (res.dialog?.out) flags.push(`dialog ${res.dialog.h}px does not fit the ${res.vh}px viewport`);
-        console.log(`- ${screen} [${res.tier}]: ${path.basename(file)}${flags.length ? '' : ' OK'}`);
+        const day = await page.evaluate(() => { const g = window.__contrail?.game; return g ? `day ${Math.floor((g.now - g.started) / 1440)}${g.gameOver ? ' GAME OVER' : ''}` : '-'; }).catch(() => '-');
+        console.log(`- ${screen} [${res.tier}] (${day}): ${path.basename(file)}${flags.length ? '' : ' OK'}`);
         for (const f of flags) console.log(`    ${f}`);
       } catch (e) {
         if (String(e.message).startsWith('SKIP')) { console.log(`- ${screen}: skipped (${String(e.message).slice(5)})`); continue; }

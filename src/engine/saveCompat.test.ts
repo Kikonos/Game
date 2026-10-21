@@ -57,3 +57,59 @@ describe('v0.5.2 saves', () => {
     expect(Object.values(g.crew).some((c) => c.moraleWhy && Object.keys(c.moraleWhy).length)).toBe(true);
   }, 60_000);
 });
+
+// v0.7 (UPDATE-0.7.md §10): the v0.5.2 fixture and a v0.6 save (made by the v0.6 release code: an A321 delivering,
+// dry leases) load with the v0.7 defaults, play 60 days with no NaN, and the v0.6 delivery joins at home base.
+describe('v0.7 load defaults', () => {
+  const v06 = () => LZString.decompressFromBase64(readFileSync(new URL('./fixtures/save-v06.lz.txt', import.meta.url), 'utf8'))!;
+
+  for (const [name, text] of [['v0.5.2', raw], ['v0.6', v06]] as const) {
+    it(`${name}: ladder, market and lease defaults; 60 days played cleanly`, () => {
+      const g = deserialize(text());
+      expect(g.company.approvalsAt).toBeDefined();
+      for (const id of g.company.approvals) expect(g.company.approvalsAt![id]).toBe(g.started);
+      expect(g.stats.incidents).toEqual([]);
+      for (const o of g.market.aircraft) expect(o.site).toBe(g.company.homeBase);
+      for (const ac of Object.values(g.fleet)) {
+        if (ac.ownership.kind !== 'dryLeaseIn') continue;
+        expect(ac.ownership.returnSite).toBe(g.company.homeBase);
+        expect(ac.ownership.deliveredLayout).toBe(ac.cabin.layout);
+      }
+      expect(g.goals.map((x) => x.id)).toContain('widebodyOps');
+      const delivering = Object.values(g.fleet).filter((a) => a.status === 'delivering');
+      if (name === 'v0.6') expect(delivering.length).toBe(1);
+      for (const ac of delivering) expect(ac.delivery).toBeUndefined();
+      const end = g.now + 60 * DAY;
+      while (g.now < end && !g.gameOver) {
+        advanceTo(g, Math.min(end, g.now + 6 * 60), new Set());
+        play(g);
+      }
+      expect(g.gameOver).toBeNull();
+      expect(bad(g)).toEqual([]);
+      for (const ac of delivering) {
+        const now = g.fleet[ac.id];
+        if (now && now.deliveredAt <= g.now) expect(now.status === 'delivering').toBe(false);
+        if (now) expect(now.delivery).toBeUndefined();
+      }
+      const again = deserialize(serialize(g));
+      expect(again.now).toBe(g.now);
+    }, 90_000);
+  }
+});
+
+describe('v0.7 reload keeps pending approvals pending', () => {
+  it('a widebody signed while Widebody operations is pending: a save and reload grants nothing', async () => {
+    const { newGame } = await import('./contracts/testkit');
+    const { devMarketOffer } = await import('./ops/market');
+    const { acquireAircraft } = await import('./ops');
+    const g = newGame(11);
+    g.company.pendingApprovals.push({ id: 'widebody', started: g.now, done: g.now + 120 * DAY, cost: 300_000 });
+    g.company.cash = 10_000_000;
+    const r = acquireAircraft(g, devMarketOffer(g, 'a332', { site: 'IST' }));
+    if (!r.ok) throw new Error(r.error);
+    const again = deserialize(serialize(g));
+    expect(again.company.approvals).not.toContain('widebody');
+    expect(again.company.pendingApprovals.map((p) => p.id)).toEqual(['widebody']);
+    expect(deserialize(serialize(again)).company.approvals).toEqual(g.company.approvals);
+  });
+});

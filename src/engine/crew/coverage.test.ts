@@ -154,3 +154,36 @@ describe('tickets around rest', () => {
     expect(stayOn(g)).toEqual([]);
   });
 });
+
+describe('fuel stops', () => {
+  it('a sector and its fuel stop too long for any one crew change crews at the fuel stop (Kabul seed 6)', () => {
+    const g = fixtureGame();
+    const ac = Object.values(g.fleet)[0];
+    const turn = typeOf(ac.typeId).turnMin;
+    const b1 = blockMinutes(ac.typeId, 'KBL', 'SPU');
+    const b2 = blockMinutes(ac.typeId, 'SPU', 'LIS');
+    // 03:30 UTC off Kabul: a WOCL report on the crew's Lisbon clock.
+    const std = day0(g) + 3 * DAY + 3 * 60 + 30;
+    const f1 = addFlight(g, { no: 'AW171', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'KBL', to: 'SPU', std, sta: std + b1 });
+    const f2 = addFlight(g, { no: 'AW171', aircraftId: ac.id, contractId: null, kind: 'techstop', from: 'SPU', to: 'LIS', std: std + b1 + turn, sta: std + b1 + turn + b2 });
+    // Kept together the duty breaks the FDP limit; cut at SPU both halves are legal.
+    expect(reportMinutes(ac.typeId).report + b1 + turn + b2 + reportMinutes(ac.typeId).post).toBeGreaterThan(11 * 60);
+    autoRoster(g, { to: g.now + 6 * DAY });
+    expect(f1.dutyId).toBeDefined();
+    expect(f2.dutyId).not.toBe(f1.dutyId);
+    for (const f of [f1, f2]) expect(g.duties[f.dutyId!].legality).not.toBe('illegal');
+  });
+
+  it('a sector with a fuel stop that one crew can fly stays one duty', () => {
+    const g = fixtureGame();
+    const ac = Object.values(g.fleet)[0];
+    const turn = typeOf(ac.typeId).turnMin;
+    const b1 = blockMinutes(ac.typeId, 'LIS', 'TFS');
+    const b2 = blockMinutes(ac.typeId, 'TFS', 'LIS');
+    const std = day0(g) + 3 * DAY + 9 * 60;
+    const f1 = addFlight(g, { no: 'AW10', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'LIS', to: 'TFS', std, sta: std + b1 });
+    const f2 = addFlight(g, { no: 'AW10', aircraftId: ac.id, contractId: null, kind: 'techstop', from: 'TFS', to: 'LIS', std: std + b1 + turn, sta: std + b1 + turn + b2 });
+    autoRoster(g, { to: g.now + 6 * DAY });
+    expect(f2.dutyId).toBe(f1.dutyId);
+  });
+});

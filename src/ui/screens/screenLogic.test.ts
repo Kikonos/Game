@@ -80,3 +80,34 @@ describe('finance and inbox helpers', () => {
     expect(filterMessages(g.messages, 'goal').every((m) => m.cat === 'goal')).toBe(true);
   });
 });
+
+describe('v0.7 conversion confirm (C1)', () => {
+  it('asks for a confirm exactly when a red warning exists', async () => {
+    const { needsConfirm } = await import('./screenLogic');
+    expect(needsConfirm({ warnings: [] })).toBe(false);
+    expect(needsConfirm({ warnings: [{ level: 'warn' }] })).toBe(false);
+    expect(needsConfirm({ warnings: [{ level: 'warn' }, { level: 'bad' }] })).toBe(true);
+  });
+});
+
+describe('v0.7 market, cabin and inbox helpers', () => {
+  it('labels market offers and routes market refs to Fleet → Market', async () => {
+    const { offerKind, sellerOf, refTarget: rt } = await import('./screenLogic');
+    expect(offerKind({ kind: 'dryLeaseIn', newBuild: true }).label).toBe('New-build lease');
+    expect(offerKind({ kind: 'dryLeaseIn' }).label).toBe('Lease used');
+    expect(offerKind({ kind: 'buy' }).label).toBe('Buy used');
+    expect(sellerOf({ lessor: 'BOC Aviation (used sale)' })).toBe('BOC Aviation');
+    expect(rt(newGame(), { kind: 'market', id: 'mo1' })).toEqual({ tab: 'fleet', view: 'market', sel: { kind: 'market', id: 'mo1' } });
+  });
+  it('filters market alerts by topic', () => {
+    const ms = [{ id: 'a', cat: 'company', topic: 'market' }, { id: 'b', cat: 'company' }] as never[];
+    expect(filterMessages(ms, 'market').map((m: { id: string }) => m.id)).toEqual(['a']);
+    expect(filterMessages(ms, 'company')).toHaveLength(2);
+  });
+  it('shows cabin requirement chips', () => {
+    const base = { minSeats: 100, approvals: [], longestSectorNm: 500 } as never as Parameters<typeof reqChips>[0];
+    expect(reqChips({ ...base, layouts: ['vip'] }).map((c) => c.label)).toContain('VIP cabin');
+    expect(reqChips({ ...base, layouts: ['two-class', 'three-class', 'vip'], minPremium: 20 }).map((c) => c.label)).toEqual(expect.arrayContaining(['Premium cabin', 'Premium 20+']));
+    expect(reqChips({ ...base, minSeats: 180, layouts: ['all-economy'] }).map((c) => c.label)).toContain('Max seats 180+');
+  });
+});

@@ -81,13 +81,19 @@ export type LiveryRef = 'company' | 'white' | { custom: Livery };
 
 export type ApprovalId =
   | 'etops120' | 'etops180' | 'etops240' | 'augmented' | 'ulr' | 'iosa' | 'dg'
-  | 'areaAfrica' | 'areaAsia' | 'areaAmericas' | 'un' | 'defence' | 'vip' | 'hajj' | 'polar' | 'cabinCargo';
+  | 'areaAfrica' | 'areaAsia' | 'areaAmericas' | 'un' | 'defence' | 'vip' | 'hajj' | 'polar' | 'cabinCargo'
+  /** v0.7 the Ladder: widebody operations (one approval covers every widebody family). */
+  | 'widebody';
 
 export interface PendingApproval {
   id: ApprovalId;
   started: Minute;
   done: Minute;
   cost: number;
+  /** v0.7: authority findings (+30 d each, max 2). */
+  findings?: number;
+  /** v0.7: due but waiting for this requirement (re-checked daily). */
+  waiting?: string;
 }
 
 export interface Reputation {
@@ -145,6 +151,8 @@ export interface Company {
   departments: Department[];
   /** Next numeric flight number for own-designator flights. */
   nextFlightNo: number;
+  /** v0.7: when each approval was granted. load: ??= {}, held ones ← g.started. */
+  approvalsAt?: Partial<Record<ApprovalId, Minute>>;
 }
 
 // ======================================================================
@@ -152,8 +160,27 @@ export interface Company {
 // ======================================================================
 
 export type Ownership =
-  | { kind: 'owned'; bookValue: number }
-  | { kind: 'dryLeaseIn'; lessor: string; rentPerMonth: number; reservesPerFH: number; leaseStart: Minute; leaseEnd: Minute; /** B3: refundable deposit paid at signing. */ deposit?: number };
+  | { kind: 'owned'; bookValue: number; /** v0.7 */ newBuild?: boolean }
+  | {
+      kind: 'dryLeaseIn'; lessor: string; rentPerMonth: number; reservesPerFH: number; leaseStart: Minute; leaseEnd: Minute; /** B3: refundable deposit paid at signing. */ deposit?: number;
+      /** v0.7: redelivery airport (load ??= homeBase); cabin at delivery (load ??= current); new-build; 120-day notice given. */
+      returnSite?: string; deliveredLayout?: CabinLayout; newBuild?: boolean; noticeGiven?: boolean;
+      /** v0.7: the market index the rent was set at (absent = 1); extensions move rent by the index since. */ index?: number;
+    };
+
+/** v0.7: handover abroad and the delivery ferry home. */
+export interface DeliveryInfo {
+  site: string;
+  /** 'ex-LATAM, Santiago (SCL)' / 'Tarmac Aerosave, Tarbes (LDE)'. */
+  where: string;
+  handover: Minute;
+  ferryIds: string[];
+  /** Ferry held for crew since (parking charged daily). */
+  waitingSince?: Minute;
+  arrived?: Minute;
+  /** 48 h no-pilots warning given. */
+  warned?: boolean;
+}
 
 export interface Cabin {
   /** Seats per class. */
@@ -212,6 +239,10 @@ export interface Aircraft {
   paintedFor?: string;
   /** v0.6: extra crew above the legal minimum (unset = company default). */
   crewExtra?: CrewExtra;
+  /** v0.7: handover abroad and the delivery ferry (unset on v0.6 deliveries: handover at base, no ferry). */
+  delivery?: DeliveryInfo;
+  /** v0.7: lease return booked (ferry + return check). */
+  returning?: { site: string; maintId: string; ferryIds: string[]; quote: number };
 }
 
 /** v0.6: crew above the legal minimum (per aircraft or contract): cabin 0–4, one spare pilot. */
@@ -272,6 +303,9 @@ export interface Requirements {
   extraCabin: number;
   /** No fuel stops allowed (VIP optics). */
   noTechStops?: boolean;
+  /** v0.7: accepted cabin layouts (supersedes `layout` when set); premium seats J + W. */
+  layouts?: CabinLayout[];
+  minPremium?: number;
   /** v0.6: client pays pct of price/rate when we fly ≥ n extra cabin crew. */
   extraCabinPaid?: { n: number; pct: number; /** v0.6: USD per extra cabin crew member per block hour behind pct. */ perBH?: number };
 }
@@ -522,6 +556,8 @@ export interface Flight {
   lateOk?: number;
   /** B2: the crew-shortage warning was given for this flight (once; saved so a reload does not repeat it). */
   crewWarned?: boolean;
+  /** v0.7: why an empty ferry flies (labels, map, ticket purpose). */
+  purpose?: 'delivery' | 'return' | 'refit';
 }
 
 // ======================================================================
@@ -727,7 +763,7 @@ export interface TrainingClass {
 // Maintenance (B3)
 // ======================================================================
 
-export type MaintKind = 'A' | 'C' | 'AOG' | 'line' | 'paint';
+export type MaintKind = 'A' | 'C' | 'AOG' | 'line' | 'paint' | 'refit' | 'return';
 
 export interface MaintenanceEvent {
   id: string;
@@ -748,6 +784,10 @@ export interface MaintenanceEvent {
   bookedStart?: Minute;
   /** v0.5.1: client paint-in or strip at a paint shop. */
   paint?: { phase: 'in' | 'out'; contractId: string };
+  /** v0.7 cabin refit: the cabin fitted at the end. */
+  refit?: { cabin: Cabin };
+  /** v0.7 lease return check: the aircraft leaves the fleet at the end. */
+  leaseReturn?: boolean;
 }
 
 // ======================================================================
@@ -757,7 +797,8 @@ export interface MaintenanceEvent {
 export type MessageCat = 'ops' | 'crew' | 'commercial' | 'tech' | 'finance' | 'company' | 'goal';
 
 export interface Ref {
-  kind: 'flight' | 'aircraft' | 'contract' | 'offer' | 'crew' | 'maint' | 'airport';
+  /** v0.7 'market': an aircraft market offer. */
+  kind: 'flight' | 'aircraft' | 'contract' | 'offer' | 'crew' | 'maint' | 'airport' | 'market';
   id: string;
 }
 
@@ -770,6 +811,8 @@ export interface Message {
   body: string;
   read: boolean;
   ref?: Ref;
+  /** v0.7: market alerts (UI may hide them) and ladder steps (celebration). */
+  topic?: 'market' | 'ladder';
 }
 
 export interface DecisionOption {
@@ -805,7 +848,9 @@ export type LedgerCat =
   | 'fuel' | 'airportFees' | 'rent' | 'reserves' | 'salaries' | 'perDiem' | 'hotels' | 'deadhead' | 'maintenance' | 'checks'
   | 'insurance' | 'overhead' | 'training' | 'hiring' | 'penalties' | 'subcharter' | 'approvals' | 'interest' | 'capex' | 'assetSale'
   /** v0.5.1: client paint-in and strip. */
-  | 'paint';
+  | 'paint'
+  /** v0.7: cabin refits; lease return costs. */
+  | 'refit' | 'leaseReturn';
 
 export interface MonthStatement {
   month: MonthKey;
@@ -867,6 +912,14 @@ export interface AircraftOffer {
   /** Delivery lead time once signed (days). */
   leadDays: number;
   expires: Minute;
+  /** v0.7: handover airport (load ??= homeBase), its text, ex-operator, new-build slot, when posted. */
+  site?: string;
+  where?: string;
+  exOperator?: string;
+  newBuild?: boolean;
+  created?: Minute;
+  /** v0.7: the market index the rent was priced at (absent = 1). */
+  index?: number;
 }
 
 export interface Market {
@@ -879,6 +932,8 @@ export interface Market {
   /** B3: guaranteed offers already made (narrowbody lease in month 1–2, old widebody by month 4–6). */
   gotNarrow?: boolean;
   gotWide?: boolean;
+  /** v0.7: the post-filing widebody offer was made. */
+  gotWideFiled?: boolean;
 }
 
 export interface Rival {
@@ -968,6 +1023,15 @@ export interface Stats {
   ratedHires?: [Minute, string, number][];
   /** v0.6: required seats an on-board spare took over this month (reset by the monthly morale line). */
   sparesCovered?: number;
+  /** v0.7: illegal-crew and AOG incidents (pruned after 365 days; the Ladder's clean record). */
+  incidents?: [Minute, 'illegalCrew' | 'aog'][];
+  /** v0.7: deliveries, days delivery ferries waited for pilots, refits, lease returns and extensions, authority findings. */
+  deliveries?: number;
+  deliveryWaitDays?: number;
+  refits?: number;
+  leaseReturns?: number;
+  leaseExtensions?: number;
+  findings?: number;
 }
 
 export interface GameState {

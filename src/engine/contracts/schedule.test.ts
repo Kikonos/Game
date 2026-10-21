@@ -145,6 +145,8 @@ describe('legs patterns and positioning', () => {
     const g = newGame(6);
     const ac = owned(g);
     const a = offer(g, 'adhoc', { variant: 'oneway', airport: 'BCN', start: g.now + 4 * DAY });
+    // v0.7: pinned to a one-way that ends at Barcelona (the generator's sub-variant follows the RNG).
+    if (a.pattern.kind === 'legs') Object.assign(a.pattern.legs[0], { from: 'MAD', to: 'BCN' });
     expect(acceptOffer(g, a.id, [ac.id]).ok).toBe(true);
     // Home leg BCN→LIS exists; a job from BCN two days later replaces it.
     expect(liveFlights(g, ac.id).some((f) => f.kind === 'positioning' && f.from === 'BCN' && f.to === 'LIS')).toBe(true);

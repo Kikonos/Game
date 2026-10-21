@@ -1,6 +1,6 @@
 // Global dialogs (menu, saves, settings, confirm) and the in-game modal slot (decisions, game over).
 
-import { Download, FolderOpen, Home, Play, PlusCircle, RefreshCw, Save, Settings as SettingsIcon, Trash2, Upload } from 'lucide-react';
+import { Download, FolderOpen, Home, Play, PlusCircle, RefreshCw, Save, Settings as SettingsIcon, Sparkles, Trash2, Upload } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { DAY, fmtDate } from '../../engine/core/time';
 import { AUTOSAVE_SLOT, SLOTS, deleteSlot, deserialize, listSaves, loadFromSlot, saveToSlot, serialize } from '../../engine/save';
@@ -16,6 +16,13 @@ import { TrainModal } from '../modals/TrainModal';
 import { LiveryModal } from '../modals/LiveryModal';
 import { ClassesModal } from '../modals/ClassesModal';
 import { ConvertModal } from '../modals/ConvertModal';
+import { AcquireModal } from '../modals/AcquireModal';
+import { RefitModal } from '../modals/RefitModal';
+import { LeaseModal } from '../modals/LeaseModal';
+import { ApprovalModal } from '../modals/ApprovalModal';
+import { LadderStepModal } from '../modals/LadderStepModal';
+import { WhatsNewModal } from '../modals/WhatsNewModal';
+import { CURRENT } from '../../data/whatsNew';
 import { int, money } from '../format';
 import { offline, promptInstall } from '../offline';
 import { store, useStore } from '../store';
@@ -194,9 +201,14 @@ function SettingsModal() {
         <div className="set-row"><div><b>Pause for crew shortages</b><div className="tiny dim">A flight in the next 48 h has no legal crew</div></div><Toggle on={st.autoPause.crewShortage} onChange={(v) => store.setSettings({ autoPause: { ...st.autoPause, crewShortage: v } })} /></div>
         <div className="set-row"><div><b>Pause when a contract starts</b><div className="tiny dim">Watch the first flights of new work</div></div><Toggle on={st.autoPause.contractStart} onChange={(v) => store.setSettings({ autoPause: { ...st.autoPause, contractStart: v } })} /></div>
         <div className="set-row"><div><b>Pause at month end</b><div className="tiny dim">Read the statement before the next month starts</div></div><Toggle on={st.autoPause.monthEnd} onChange={(v) => store.setSettings({ autoPause: { ...st.autoPause, monthEnd: v } })} /></div>
+        <div className="set-head upper dim">Aircraft market</div>
+        <div className="set-row"><div><b>Market alerts</b><div className="tiny dim">New aircraft offers in the Inbox with a quiet notice</div></div><Toggle on={st.marketAlerts} onChange={(v) => store.setSettings({ marketAlerts: v })} label="Market alerts" /></div>
+        <div className={`set-row ${st.marketAlerts ? '' : 'set-off'}`}><div><b>Pause on new market offers</b><div className="tiny dim">{st.marketAlerts ? 'Stop the clock when an aircraft comes on the market' : 'Needs market alerts on'}</div></div><span className={st.marketAlerts ? '' : 'set-disabled'}><Toggle on={st.marketAlerts && st.autoPause.marketOffer} onChange={(v) => st.marketAlerts && store.setSettings({ autoPause: { ...st.autoPause, marketOffer: v } })} label="Pause on new market offers" /></span></div>
+        <div className="set-head upper dim">Display</div>
         <div className="set-row"><div><b>Map animations</b><div className="tiny dim">Flying aircraft on maps</div></div><Toggle on={st.mapAnimations} onChange={(v) => store.setSettings({ mapAnimations: v })} /></div>
         <div className="set-row"><div><b>Top bar spacing</b><div className="tiny dim">Moves the game below the frosted strip iPadOS adds at the top of the screen</div></div><Seg value={String(st.topGap)} onChange={(v) => store.setSettings({ topGap: v === 'auto' ? 'auto' : (Number(v) as 0 | 16 | 28 | 40) })} options={[{ value: 'auto', label: 'Auto' }, { value: '0', label: 'Off' }, { value: '16', label: '16' }, { value: '28', label: '28' }, { value: '40', label: '40' }]} /></div>
         <div className="set-row"><div><b>Pop-up notifications</b></div><Toggle on={st.toasts} onChange={(v) => store.setSettings({ toasts: v })} /></div>
+        <div className="set-row"><div><b>What's new</b><div className="tiny dim">{CURRENT.version} {CURRENT.name}</div></div><button className="btn btn-sm" onClick={() => store.openModal({ kind: 'whatsNew' })}><Sparkles /> Show</button></div>
         <div className="set-row"><div><b>Offline play</b><div className="tiny dim">{offline.ready ? 'Installed — the game works without internet.' : 'Caches after the first online visit.'}</div></div>
           {offline.installPrompt ? <button className="btn btn-sm" onClick={() => void promptInstall()}><Download /> Install app</button> : <span className={`badge ${offline.ready ? 'good' : ''}`}>{offline.ready ? 'Ready' : 'Pending'}</span>}
         </div>
@@ -238,5 +250,11 @@ export function GlobalModals() {
     case 'livery': return s.game ? <LiveryModal target={m.target} /> : null;
     case 'convert': return s.game ? <ConvertModal key={m.crewIds.join()} crewIds={m.crewIds} family={m.family} onBooked={m.onBooked} /> : null;
     case 'classes': return s.game ? <ClassesModal /> : null;
+    case 'acquire': return s.game ? <AcquireModal offerId={m.offerId} /> : null;
+    case 'refit': return s.game ? <RefitModal aircraftId={m.aircraftId} layout={m.layout} offerId={m.offerId} /> : null;
+    case 'lease': return s.game ? <LeaseModal aircraftId={m.aircraftId} /> : null;
+    case 'approval': return s.game ? <ApprovalModal id={m.id} /> : null;
+    case 'ladderStep': return s.game ? <LadderStepModal messageId={m.messageId} /> : null;
+    case 'whatsNew': return <WhatsNewModal />;
   }
 }

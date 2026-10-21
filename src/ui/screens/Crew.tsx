@@ -402,8 +402,10 @@ export function CrewScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const list = useMemo(() => filterCrew(all, f), [g, f, hour, all.length]);
   const shown = more ? list : list.slice(0, PAGE);
+  // v0.7 C2: the people list's FTL windows only while it is shown (the board view skips them each game hour).
+  const board = view === 'board';
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const wins = useMemo(() => new Map(shown.map((c) => [c.id, crewWindows(g, c, g.now)])), [g, shown, rev, hour]);
+  const wins = useMemo(() => (board ? new Map<string, ReturnType<typeof crewWindows>>() : new Map(shown.map((c) => [c.id, crewWindows(g, c, g.now)]))), [g, shown, rev, hour, board]);
   // Resigned crew leave the save on their last day: a stale selection falls back to the first in the list.
   const selId = store.nav.sel?.kind === 'crew' && g.crew[store.nav.sel.id] ? store.nav.sel.id : list[0]?.id;
   const sel = selId ? g.crew[selId] : undefined;

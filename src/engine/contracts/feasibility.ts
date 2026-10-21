@@ -1,14 +1,20 @@
 // Feasibility and aircraft selection (B1). DESIGN.md §5.1.5. Pure: no RNG, no ids, no writes.
 
+import type { CabinLayout } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { BAL } from '../core/balance';
 import { flightsOf } from '../core/entities';
 import { distanceNm } from '../core/geo';
-import { complement, etopsNeeded, maxSectorNm, planSector, reportMinutes, runwayFit, typeOf } from '../core/perf';
+import { blockMinutes, complement, etopsNeeded, maxSectorNm, planSector, reportMinutes, runwayFit, typeOf } from '../core/perf';
 import { DAY, fmtDate, fmtDateTime, fmtDay, fmtDuration, toDate } from '../core/time';
 import type { Aircraft, ApprovalId, ContractOffer, CrewExtra, GameState, Minute } from '../core/types';
 import { crewAvailability, offerExtra, type Availability } from '../crew';
+import { minRest } from '../crew/rules';
+import { dhBlock } from '../crew/timeline';
 import { A_CHECK_DAYS, anchorsOf, chainForward, CHARTER_SLACK, DEPLOY_LEAD, gapMoves, programmeOf, type Anchor, type ChainLeg, type Programme, type Trip } from './plan';
+import { afterRefit, cabinAt, cabinFits, layoutsOf, refitTip } from '../ops/cabin';
+import { aircraftGate, APPROVALS, gateApprovals, ratedPilots } from '../ops/company';
+import { deliveryQuote } from '../ops/delivery';
 import { paintQuote, paintWindow, type PaintSlot } from './paintTerms';
 import { productValue, tripTickets } from './pricing';
 
@@ -20,6 +26,8 @@ export interface FeasibilityCheck {
   level: CheckLevel;
   label: string;
   detail?: string;
+  /** v0.7: a fix the offer screen can start ("Plan refit…"). */
+  action?: { kind: 'refit'; layout: CabinLayout };
 }
 
 /** One empty leg of a positioning plan (built with planSector; a fuel stop makes two legs, each an FTL sector). */
@@ -54,10 +62,31 @@ export interface FeasibilityReport {
 
 const RANK: Record<CheckLevel, number> = { ok: 0, warn: 1, no: 2 };
 const ETOPS_APPROVALS: [ApprovalId, number][] = [['etops240', 240], ['etops180', 180], ['etops120', 120]];
+/** v0.7: approval names for the check lines. */
+const APPROVAL_NAME: Partial<Record<ApprovalId, string>> = Object.fromEntries(APPROVALS.map((x) => [x.id, x.name]));
 /** Longest duty one unaugmented crew may fly (simplified FTL: 13 h FDP). */
 const MAX_UNAUGMENTED_FDP = 13 * 60;
 const nm = (v: number) => `${Math.round(v).toLocaleString('en-US')} nm`;
 const LAYOUT_NAME: Record<string, string> = { 'all-economy': 'all-economy', 'two-class': 'two-class', 'three-class': 'three-class', vip: 'VIP' };
+
+/** v0.7: when a delivering aircraft is home (the delivery ferry's last arrival, else the handover). */
+function homeBy(g: GameState, ac: Aircraft): Minute {
+  let t = ac.deliveredAt;
+  for (const id of ac.delivery?.ferryIds ?? []) {
+    const f = g.flights[id];
+    if (f && f.status !== 'cancelled') t = Math.max(t, f.eta ?? f.sta);
+  }
+  return t;
+}
+
+/** v0.7: a booked lease return takes the aircraft from its return ferry's departure (else the check's start). */
+function returnFrom(g: GameState, ac: Aircraft): Minute | null {
+  const r = ac.returning;
+  if (!r) return null;
+  const fs = r.ferryIds.map((id) => g.flights[id]).filter((f) => f && f.status === 'scheduled');
+  if (fs.length) return Math.min(...fs.map((f) => f.std));
+  return g.maintenance[r.maintId]?.start ?? null;
+}
 
 function describe(g: GameState, a: Anchor): string {
   if (a.kind === 'maint') {
@@ -146,7 +175,42 @@ function fitTrips(g: GameState, ac: Aircraft, o: ContractOffer, prog: Programme)
 }
 
 /** Full report for one aircraft: the 12 checks of DESIGN §5.1.5 (+ client paint), positioning plan and contribution estimate. */
-export function feasibility(g: GameState, offerId: string, aircraftId: string, opts: { paint?: boolean; crewExtra?: CrewExtra } = {}): FeasibilityReport {
+/**
+ * A short-notice job flown in from far away: the positioning crew can't fly on (positioning, the turn and the first
+ * sector chain past 13 h of duty) and no crew on an airline ticket lands with minimum rest before the first report.
+ * The reason, or null when a crew can make it. Pure.
+ */
+function crewReach(g: GameState, o: ContractOffer, typeId: string, f: TripFit | undefined): string | null {
+  if (!f || !f.posIn.length) return null;
+  const rm = reportMinutes(typeId);
+  let dep: string;
+  let std: Minute;
+  let end: Minute;
+  if (f.trip.legs.length) {
+    const legs = f.trip.legs;
+    let n = 1;
+    while (n < legs.length && legs[n].kind === 'techstop') n++;
+    [dep, std, end] = [legs[0].from, legs[0].std, legs[n - 1].sta];
+  } else if (o.pattern.kind === 'base' && o.pattern.dests.length) {
+    // A base: its first wave, out and back to the first destination.
+    const b = o.pattern.base;
+    const x = o.pattern.dests[0];
+    [dep, std] = [b, Math.max(o.pattern.from, f.trip.std)];
+    end = std + blockMinutes(typeId, b, x) + typeOf(typeId).turnMin + blockMinutes(typeId, x, b);
+  } else return null;
+  const report = std - rm.report;
+  // Positioned as late as the first departure allows (the plan may fly it in earlier and wait).
+  const posDur = f.posIn[f.posIn.length - 1].sta - f.posIn[0].std;
+  const onFrom = Math.max(f.posIn[0].std, std - typeOf(typeId).turnMin - posDur) - rm.report;
+  if (end + rm.post - onFrom <= MAX_UNAUGMENTED_FDP) return null;
+  // A fresh crew: the earliest airline ticket from home, then minimum rest away from base.
+  const blk = dhBlock(g.company.homeBase, dep);
+  const lands = Math.ceil((g.now + BAL.deadheadCheckIn) / 60) * 60 + blk;
+  if (lands + minRest({ dutyMin: blk + BAL.deadheadCheckIn, atHome: false, augmented: false, tzShift: 0 }) <= report) return null;
+  return `No crew can be at ${dep} for the first departure ${fmtDateTime(std)}: the positioning crew would be on duty ${fmtDuration(end + rm.post - onFrom)}, and a crew on an airline lands ${fmtDateTime(lands)} with no time to rest`;
+}
+
+export function feasibility(g: GameState, offerId: string, aircraftId: string, opts: { paint?: boolean; crewExtra?: CrewExtra; quick?: boolean } = {}): FeasibilityReport {
   const o = g.offers[offerId];
   const ac = g.fleet[aircraftId];
   const empty: Availability = { setsNeeded: 0, setsAvailable: 0, byRole: {}, firstShort: null };
@@ -169,16 +233,26 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   const wet = o.product.kind === 'wet';
   const base = o.pattern.kind === 'base';
 
-  // 1–3. Cabin and type.
-  const seats = ac.cabin.total;
-  if (seats < req.minSeats) add('seats', 'no', `${seats} seats: the client needs at least ${req.minSeats}`);
-  else if (req.maxSeats && seats > req.maxSeats) add('seats', 'no', `${seats} seats: the client wants at most ${req.maxSeats}`);
-  else add('seats', 'ok', `${seats} seats (client needs ${req.minSeats}+)`);
-  if (req.layout && ac.cabin.layout !== req.layout) {
-    const name = LAYOUT_NAME[req.layout];
-    add('layout', 'no', `Needs ${/^[aeiou]/i.test(name) ? 'an' : 'a'} ${name} cabin; ${ac.reg} is ${ac.cabin.label}`, 'Cabin reconfiguration arrives in a later version.');
-  }
-  else add('layout', 'ok', `Cabin ${ac.cabin.label}`);
+  // 1–3. Cabin and type (v0.7: a refit planned to end before the start counts).
+  const { cabin: cab, refitEnd } = cabinAt(g, ac, o.start);
+  const after = refitEnd !== null ? ` ${afterRefit(refitEnd)}` : '';
+  const seats = cab.total;
+  if (seats < req.minSeats) add('seats', 'no', `${seats} seats${after}: the client needs at least ${req.minSeats}`);
+  else if (req.maxSeats && seats > req.maxSeats) add('seats', 'no', `${seats} seats${after}: the client wants at most ${req.maxSeats}`);
+  else add('seats', 'ok', `${seats} seats${after} (client needs ${req.minSeats}+)`);
+  const wantL = layoutsOf(req);
+  const layoutNo = !!wantL && !wantL.includes(cab.layout);
+  const premiumNo = !!req.minPremium && cab.j + cab.w < req.minPremium;
+  if (layoutNo || premiumNo) {
+    const tip = refitTip(g, ac, req);
+    const names = (wantL ?? []).map((l) => LAYOUT_NAME[l]);
+    const list = names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}` : names[0] ?? '';
+    const label = layoutNo
+      ? `Needs ${/^[aeiou]/i.test(list) ? 'an' : 'a'} ${list} cabin${req.minPremium ? ` (${req.minPremium}+ premium seats)` : ''}; ${ac.reg} is ${cab.label}`
+      : `Needs ${req.minPremium}+ premium seats; ${ac.reg} has ${cab.j + cab.w ? `${cab.j + cab.w}` : 'none'} (${cab.label})`;
+    rep.checks.push({ id: 'layout', level: 'no', label, detail: tip?.text ?? 'No cabin layout of this type meets it.', ...(tip ? { action: { kind: 'refit' as const, layout: tip.layout } } : {}) });
+    rep.level = 'no';
+  } else add('layout', 'ok', `Cabin ${cab.label}${after}`);
   if (req.families?.length && !req.families.includes(t.family)) add('family', 'no', `The client only takes ${req.families.join(' or ')}-family aircraft (crew commonality)`);
   else add('family', 'ok', `${t.name}`);
 
@@ -242,17 +316,38 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   else if (have < etops) add('etops', 'no', `Routing needs ETOPS ${etops}: we hold ${have ? `ETOPS ${have}` : 'no ETOPS approval'}`, 'Apply for it under Company → Approvals.');
   else add('etops', 'ok', `ETOPS ${etops} (approved ${have})`);
 
-  // 7. Approvals.
+  // 7. Approvals (v0.7: plus the Ladder's gate for this type; a pending gate approval flies revenue only after its grant).
   const missing = req.approvals.filter((a) => !g.company.approvals.includes(a));
-  if (missing.length) add('approvals', 'no', `Needs approval: ${missing.join(', ')}`, 'Apply under Company → Approvals.');
-  else add('approvals', 'ok', req.approvals.length ? `Approvals held: ${req.approvals.join(', ')}` : 'No special approvals');
+  const gate = gateApprovals(t.tier).filter((a) => !g.company.approvals.includes(a));
+  const gateLate = gate.filter((a) => {
+    const p = g.company.pendingApprovals.find((x) => x.id === a);
+    return !p || p.done > o.start || !!p.waiting;
+  });
+  const gateText = gate.map((a) => {
+    const p = g.company.pendingApprovals.find((x) => x.id === a);
+    return `${APPROVAL_NAME[a] ?? a} ${p ? `pending, due ${fmtDate(p.done)}` : 'needed'}`;
+  }).join('; ');
+  if (missing.length) add('approvals', 'no', `Needs approval: ${missing.map((a) => APPROVAL_NAME[a] ?? a).join(', ')}`, 'Apply under Company → Ladder.');
+  else if (gateLate.length) add('approvals', 'no', `${gateText}: the ${t.short} flies revenue after the grant`, 'Company → Ladder.');
+  else if (gate.length) add('approvals', 'warn', `${gateText} (before the job starts)`, 'If the grant slips, the job cannot be flown.');
+  else add('approvals', 'ok', req.approvals.length ? `Approvals held: ${req.approvals.map((a) => APPROVAL_NAME[a] ?? a).join(', ')}` : 'No special approvals');
 
   // 8. Lease and delivery.
   const firstDep = rep.positionIn[0]?.std ?? fits[0]?.trip.std ?? o.start;
   const lastArr = rep.positionOut.length ? rep.positionOut[rep.positionOut.length - 1].sta : fits[fits.length - 1]?.trip.sta ?? o.end;
   if (ac.ownership.kind === 'dryLeaseIn' && ac.ownership.leaseEnd < Math.max(o.end, lastArr)) add('lease', 'no', `Lease returns ${fmtDate(ac.ownership.leaseEnd)}, before the job ends`);
-  else if (ac.status === 'delivering' && ac.deliveredAt > firstDep) add('lease', 'no', `Delivers ${fmtDay(ac.deliveredAt)}, after it would have to leave`);
-  else add('lease', 'ok', ac.ownership.kind === 'owned' ? 'Owned' : `Dry-leased until ${fmtDate(ac.ownership.leaseEnd)}`);
+  else if (ac.returning && (returnFrom(g, ac) ?? Infinity) < Math.max(o.end, lastArr)) add('lease', 'no', `Goes back to the lessor from ${fmtDay(returnFrom(g, ac)!)}`);
+  else if (ac.status === 'delivering' && ac.deliveredAt > firstDep) {
+    const dl = ac.delivery;
+    add('lease', 'no', dl && dl.site !== home ? `Handed over at ${dl.site} ${fmtDay(ac.deliveredAt)}, after it would have to leave` : `Delivers ${fmtDay(ac.deliveredAt)}, after it would have to leave`);
+  } else if (ac.delivery && ac.delivery.arrived === undefined && ac.delivery.site !== home) {
+    // v0.7: home-by is the delivery ferry's last arrival; positioning comes from the timeline (the ferry legs are on it).
+    // Without rated pilots (or already waiting at the site) that date is not firm: each day without them moves it.
+    const r = ratedPilots(g, [typeOf(ac.typeId).family]);
+    const firm = r.CPT >= 1 && r.FO >= 1 && ac.delivery.waitingSince === undefined;
+    if (firm) add('lease', 'ok', `Home ${fmtDay(homeBy(g, ac))} after the delivery ferry`);
+    else add('lease', 'warn', `Home ${fmtDay(homeBy(g, ac))} after the delivery ferry, if rated pilots fly it`, ac.delivery.waitingSince !== undefined ? 'The aircraft is waiting at the site for rated pilots: every day without them moves the ferry and this job.' : `No ${typeOf(ac.typeId).short}-rated pilots yet: the ferry waits a day at a time until they are.`);
+  } else add('lease', 'ok', ac.ownership.kind === 'owned' ? 'Owned' : `Dry-leased until ${fmtDate(ac.ownership.leaseEnd)}`);
 
   // 9. Availability: overlaps with flights, maintenance and signed base deployments.
   let availNo = false;
@@ -390,11 +485,14 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   const progBH = (prog.revenueMin + prog.emptyMin + posMin) / 60;
   // v0.6: the crew need includes the extra crew (client request, or this aircraft's / the chosen setting).
   const xc = offerExtra(g, aircraftId, o.requirements, opts.crewExtra);
-  rep.crew = flyable ? crewAvailability(g, t.family, t.id, winFrom, Math.max(winFrom + DAY, winTo), progBH, xc) : empty;
+  // v0.7 `quick` (a caller that only wants a flyable pick): no crew capacity sizing once another check says no.
+  rep.crew = flyable && !(opts.quick && rep.level === 'no') ? crewAvailability(g, t.family, t.id, winFrom, Math.max(winFrom + DAY, winTo), progBH, xc) : empty;
   const duty = reportMinutes(t.id).report + prog.longestChainMin;
   const augmented = duty > MAX_UNAUGMENTED_FDP;
   const shorts = Object.entries(rep.crew.byRole).filter(([, r]) => r && r.short > 0) as [string, { short: number }][];
-  if (augmented && !g.company.approvals.includes('augmented')) add('crew', 'no', `A ${fmtDuration(duty)} duty needs an augmented crew: we have no approval for it`, 'Apply under Company → Approvals.');
+  const reach = flyable ? crewReach(g, o, t.id, fits[0]) : null;
+  if (reach) add('crew', 'no', reach, 'Too soon for this aircraft: a later start, or an aircraft already nearby.');
+  else if (augmented && !g.company.approvals.includes('augmented')) add('crew', 'no', `A ${fmtDuration(duty)} duty needs an augmented crew: we have no approval for it`, 'Apply under Company → Approvals.');
   else if (augmented && !t.restClass) add('crew', 'no', `A ${fmtDuration(duty)} duty needs an augmented crew and the ${t.short} has no crew rest seat`);
   else if (shorts.length) {
     const what = shorts.map(([role, r]) => `${r.short} ${role}`).join(', ');
@@ -475,10 +573,12 @@ export function marketFit(g: GameState, offerId: string): MarketFit | null {
   for (const m of g.market.aircraft) {
     if (m.expires <= g.now) continue;
     const t = typeOf(m.typeId);
-    const deliversBy = g.now + m.leadDays * DAY;
+    // v0.7: home after the delivery ferry; only types the Ladder lets us sign.
+    if (!aircraftGate(g, m.typeId).ok) continue;
+    const deliversBy = deliveryQuote(g, m.typeId, m.site ?? g.company.homeBase, g.now + m.leadDays * DAY).homeBy;
     if (deliversBy > o.start - 7 * DAY || (best && deliversBy >= best.deliversBy)) continue;
     if (m.cabin.total < req.minSeats || (req.maxSeats && m.cabin.total > req.maxSeats)) continue;
-    if ((req.layout && m.cabin.layout !== req.layout) || (req.families?.length && !req.families.includes(t.family))) continue;
+    if (!cabinFits(m.cabin, req) || (req.families?.length && !req.families.includes(t.family))) continue;
     if (!sectors.every(([a, b]) => {
       const sp = planSector(t.id, a, b);
       return sp.ok && (!noStops || !sp.techStops.length);

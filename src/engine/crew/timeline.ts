@@ -19,17 +19,45 @@ interface Ix {
   byAircraft: Map<string, Pairing[]>;
   /** Scheduled commercial tickets per crew member. */
   tickets: Map<string, Flight[]>;
-  /** Ticket / ridden flight id → duty id. */
-  ticketDuty: Map<string, string>;
-  /** Operated flight ids inside a (crewed or open) duty. */
-  inDuty: Set<string>;
+  /** Ticket / ridden flight id → duty id (v0.7: built on first use after a change). */
+  readonly ticketDuty: Map<string, string>;
+  /** Operated flight ids inside a (crewed or open) duty (v0.7: built on first use after a change). */
+  readonly inDuty: Set<string>;
+}
+
+interface RawIx extends Omit<Ix, 'ticketDuty' | 'inDuty'> {
+  g: GameState;
+  dutyBuilt: number;
+  td: Map<string, string>;
+  ind: Set<string>;
 }
 
 const ixs = new WeakMap<GameState, Ix>();
 
+/** The duty-side sets (most rebuilds are only read for pairings and tickets). */
+function dutySets(r: RawIx): void {
+  if (r.dutyBuilt === r.built) return;
+  r.td = new Map();
+  r.ind = new Set();
+  for (const p of Object.values(r.g.pairings)) {
+    for (const did of p.dutyIds) {
+      const d = r.g.duties[did];
+      if (!d) continue;
+      for (const fid of d.deadheadIds) r.td.set(fid, d.id);
+      for (const fid of d.flightIds) r.ind.add(fid);
+    }
+  }
+  r.dutyBuilt = r.built;
+}
+
 function raw(g: GameState): Ix {
   let ix = ixs.get(g);
-  if (!ix) ixs.set(g, (ix = { rev: 1, built: 0, pairingsOf: new Map(), byAircraft: new Map(), tickets: new Map(), ticketDuty: new Map(), inDuty: new Set() }));
+  if (!ix) {
+    const r: RawIx = { g, rev: 1, built: 0, dutyBuilt: -1, pairingsOf: new Map(), byAircraft: new Map(), tickets: new Map(), td: new Map(), ind: new Set() };
+    Object.defineProperty(r, 'ticketDuty', { get: () => (dutySets(r), r.td) });
+    Object.defineProperty(r, 'inDuty', { get: () => (dutySets(r), r.ind) });
+    ixs.set(g, (ix = r as unknown as Ix));
+  }
   return ix;
 }
 
@@ -38,8 +66,15 @@ export function touchCrew(g: GameState): void {
   raw(g).rev++;
 }
 
+/** v0.7: crew state the index does not hold changed (status, log, location, a duty done): memo keys move, no rebuild. */
+const stateRevs = new WeakMap<GameState, number>();
+export function touchCrewState(g: GameState): void {
+  stateRevs.set(g, (stateRevs.get(g) ?? 0) + 1);
+}
+
+/** Revision of the crew plan and state (UI memo keys). */
 export function crewRev(g: GameState): number {
-  return raw(g).rev;
+  return raw(g).rev + (stateRevs.get(g) ?? 0);
 }
 
 const push = <K, V>(m: Map<K, V[]>, k: K, v: V) => {
@@ -53,18 +88,9 @@ export function crewIx(g: GameState): Ix {
   if (ix.built === ix.rev) return ix;
   ix.pairingsOf = new Map();
   ix.byAircraft = new Map();
-  ix.tickets = new Map();
-  ix.ticketDuty = new Map();
-  ix.inDuty = new Set();
   for (const p of Object.values(g.pairings)) {
     if (p.aircraftId) push(ix.byAircraft, p.aircraftId, p);
     for (const s of p.slots) if (s.crewId) push(ix.pairingsOf, s.crewId, p);
-    for (const did of p.dutyIds) {
-      const d = g.duties[did];
-      if (!d) continue;
-      for (const fid of d.deadheadIds) ix.ticketDuty.set(fid, d.id);
-      for (const fid of d.flightIds) ix.inDuty.add(fid);
-    }
   }
   ix.tickets = flightScan(g).tickets;
   for (const l of ix.pairingsOf.values()) l.sort((a, b) => a.start - b.start || (a.id < b.id ? -1 : 1));
@@ -392,12 +418,22 @@ function ticketsFor(g: GameState, d: Duty, crewId: string): { out: TicketPlan | 
 const bySeg = (a: Seg, b: Seg) => a.start - b.start || a.end - b.end;
 
 /** A crew member's timeline: log, planned duties (with their tickets) and loose tickets; optionally without one pairing. */
-export function segsOf(g: GameState, c: CrewMember, excludePairing?: string): Seg[] {
-  const ix = crewIx(g);
-  const segs: Seg[] = c.log.map((e) => ({
+/** v0.7: the log's segs, shared while the log array and its length stand (entries are never edited; segs are read-only). */
+const logSegCache = new WeakMap<CrewMember['log'], { n: number; segs: Seg[] }>();
+function logSegs(c: CrewMember): Seg[] {
+  const hit = logSegCache.get(c.log);
+  if (hit && hit.n === c.log.length) return hit.segs;
+  const segs = c.log.map((e) => ({
     kind: 'log' as const, start: e.start, end: e.end, fdp: e.fdp, maxFdp: Infinity, block: e.block, sectors: e.sectors, aug: e.augmented,
     disruptive: e.disruptive, rest: 0, at: '', dutyId: undefined, fresh: false,
   }));
+  logSegCache.set(c.log, { n: c.log.length, segs });
+  return segs;
+}
+
+export function segsOf(g: GameState, c: CrewMember, excludePairing?: string): Seg[] {
+  const ix = crewIx(g);
+  const segs: Seg[] = logSegs(c).slice();
   const own = new Set<string>();
   for (const p of ix.pairingsOf.get(c.id) ?? []) {
     for (const did of p.dutyIds) {

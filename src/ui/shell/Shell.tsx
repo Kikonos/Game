@@ -44,7 +44,8 @@ function useNavBadges(): Partial<Record<Tab, string>> {
   const b: Partial<Record<Tab, string>> = {};
   if (offers) b.contracts = count(offers);
   if (alerts) b.inbox = count(alerts);
-  else if (g.messages.some((m) => !m.read)) b.inbox = '';
+  // v0.7: hidden market alerts don't light the dot.
+  else if (g.messages.some((m) => !m.read && store.shows(m))) b.inbox = '';
   return b;
 }
 
@@ -86,6 +87,7 @@ function SpeedControl() {
 
 const PAUSE_LABEL: Record<PauseReason, string> = {
   decision: 'Decision waiting', urgentOffer: 'Urgent offer', aog: 'Aircraft AOG', monthEnd: 'Month closed', contractStart: 'Contract starts', crewShortage: 'Crew shortage',
+  marketOffer: 'Market offer',
 };
 
 /** Static amber badge saying why the clock stopped (no pulsing); tap goes where the reason lives. */
@@ -107,6 +109,7 @@ function PauseBadge() {
       s.openModal({ kind: 'sheet', refs: [ref] });
     }
     else if (reason === 'contractStart') s.navigate('schedule');
+    else if (reason === 'marketOffer') s.navigate('fleet', { view: 'market' });
     else s.navigate('inbox');
   };
   return (

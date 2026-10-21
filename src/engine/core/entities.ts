@@ -17,6 +17,9 @@ interface Index {
   changed: Map<string, Minute>;
   /** Deadhead flight ids (built on first use). */
   deadheads?: Set<string>;
+  /** v0.7: empty-leg relinking due: every aircraft (a structural change), or those whose legs went off/on blocks. */
+  relinkAll: boolean;
+  relinkIds: Set<string>;
 }
 
 const indexes = new WeakMap<GameState, Index>();
@@ -24,7 +27,7 @@ const indexes = new WeakMap<GameState, Index>();
 function index(g: GameState): Index {
   let ix = indexes.get(g);
   if (!ix) {
-    ix = { flightsRev: 1, builtRev: 0, byAircraft: new Map(), changed: new Map() };
+    ix = { flightsRev: 1, builtRev: 0, byAircraft: new Map(), changed: new Map(), relinkAll: true, relinkIds: new Set() };
     indexes.set(g, ix);
   }
   return ix;
@@ -32,7 +35,9 @@ function index(g: GameState): Index {
 
 /** Call after adding, removing or re-timing flights outside the helpers below. */
 export function touchFlights(g: GameState): void {
-  index(g).flightsRev++;
+  const ix = index(g);
+  ix.flightsRev++;
+  ix.relinkAll = true;
 }
 
 /**
@@ -44,6 +49,24 @@ export function touchTickets(g: GameState): void {
   const valid = ix.builtRev === ix.flightsRev;
   ix.flightsRev++;
   if (valid) ix.builtRev = ix.flightsRev;
+}
+
+/**
+ * v0.7: a leg off or on blocks (status and actual times only): lists keep their members and order, as touchTickets;
+ * only that aircraft's empty legs are relinked before the next full settle.
+ */
+export function touchStatus(g: GameState, aircraftId: string): void {
+  touchTickets(g);
+  index(g).relinkIds.add(aircraftId);
+}
+
+/** Takes and clears the relink marks (contracts' settle). */
+export function takeRelink(g: GameState): { all: boolean; ids: Set<string> } {
+  const ix = index(g);
+  const out = { all: ix.relinkAll, ids: ix.relinkIds };
+  ix.relinkAll = false;
+  ix.relinkIds = new Set();
+  return out;
 }
 
 /** Records that an aircraft's flights from t on changed (retime, cancel, removal, reassignment). */
@@ -82,6 +105,17 @@ export function flightsOf(g: GameState, aircraftId: string): Flight[] {
     ix.builtRev = ix.flightsRev;
   }
   return ix.byAircraft.get(aircraftId) ?? [];
+}
+
+/** v0.7: an aircraft's scheduled and airborne legs (flightsOf order), once per flight revision. */
+const liveIx = new WeakMap<GameState, { rev: number; by: Map<string, Flight[]> }>();
+export function liveFlightsOf(g: GameState, aircraftId: string): Flight[] {
+  const rev = index(g).flightsRev;
+  let lx = liveIx.get(g);
+  if (!lx || lx.rev !== rev) liveIx.set(g, (lx = { rev, by: new Map() }));
+  let list = lx.by.get(aircraftId);
+  if (!list) lx.by.set(aircraftId, (list = flightsOf(g, aircraftId).filter((f) => f.status === 'scheduled' || f.status === 'enroute')));
+  return list;
 }
 
 /** Crew tickets (deadhead flights), without scanning the flight table: kept by addDeadhead, removals dropped lazily. */

@@ -5,7 +5,7 @@
 // legs as gone and plans a duplicate.
 
 import { BAL } from '../core/balance';
-import { cancelFlight, flightsOf, removeFlights, retimeFlight, subcharterFlights, touchFlights } from '../core/entities';
+import { cancelFlight, flightsOf, removeFlights, retimeFlight, subcharterFlights, touchFlights, touchStatus, touchTickets } from '../core/entities';
 import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { blockMinutes, typeOf } from '../core/perf';
@@ -15,6 +15,8 @@ import { DAY, fmtDuration, fmtTime } from '../core/time';
 import type { ActionResult, Aircraft, Flight, GameState, MaintenanceEvent, MessageCat, Minute, SimEvent } from '../core/types';
 import { noteLostLegs } from '../contracts/billing';
 import { applyDiscretion, boardCrew, crewIssuesFor, dropStraySpares, flightCrewStatus, guardDuty, rerosterFrom, setRestDelayHook } from '../crew';
+import { noteIncident } from './company';
+import { deliveryWaitDay } from './delivery';
 import { crewReadyAt, crewShortDecision, hasOpenDecision } from './events';
 import { aogChance, isGrounded, missCheck, startAog } from './maintenance';
 import { ageF, ageOf, bumpReliable, bumpRelation, contractOf, isBaseLeg, isRevenue, stats, turnOf, usd } from './util';
@@ -362,7 +364,8 @@ export function legOutcome(g: GameState, outcome: number): void {
  * under the contract (no compensation, no reliability or relation effect here). Returns the compensation paid.
  */
 export function cancelLegs(g: GameState, legs: Flight[], reason: string, repPerLeg: number, agreed = false): number {
-  const live = legs.filter((f) => f.status === 'scheduled');
+  // v0.7: a delivery ferry is never cancelled (it waits at the site instead).
+  const live = legs.filter((f) => f.status === 'scheduled' && f.purpose !== 'delivery');
   if (!live.length) return 0;
   const pen = agreed ? 0 : cancelCost(g, live);
   if (!agreed) noteLostLegs(g, live);
@@ -415,7 +418,7 @@ export function pickRival(g: GameState, typeId: string): string {
 
 /** Hands revenue legs to a rival (still billed to our client), drops the empty legs; posts the cost. */
 export function subcharterLegs(g: GameState, legs: Flight[], rivalId: string, cost: number): number {
-  const live = legs.filter((f) => f.status === 'scheduled');
+  const live = legs.filter((f) => f.status === 'scheduled' && f.purpose !== 'delivery');
   const rev = live.filter(isRevenue);
   const empty = live.filter((f) => !isRevenue(f));
   if (empty.length) removeFlights(g, empty.map((f) => f.id));
@@ -545,13 +548,19 @@ function depart(g: GameState, f: Flight, ac: Aircraft): void {
   const s = stats(g);
   s.departures++;
   const duty = f.dutyId ? g.duties[f.dutyId] : undefined;
-  if (duty?.legality === 'illegal') s.illegalFlown++;
+  if (duty?.legality === 'illegal') {
+    s.illegalFlown++;
+    noteIncident(g, 'illegalCrew', `${f.no} flew on a duty over its FDP`);
+  }
   // Every crew member legal for the duty this leg opens (rest, recovery, location, status…).
-  if (duty && duty.flightIds[0] === f.id && crewIssuesFor(g, duty).length) s.illegalCrewFlown = (s.illegalCrewFlown ?? 0) + 1;
+  if (duty && duty.flightIds[0] === f.id && crewIssuesFor(g, duty).length) {
+    s.illegalCrewFlown = (s.illegalCrewFlown ?? 0) + 1;
+    if (duty.legality !== 'illegal') noteIncident(g, 'illegalCrew', `${f.no} left with a crew member over a limit`);
+  }
   // Charter clients are compensated for long delays (> 3 h).
   const c = contractOf(g, f);
   if (c?.product.kind === 'charter' && isRevenue(f) && delayOf(f) > 180 && c.penalties.perDelay) post(g, 'penalties', -c.penalties.perDelay);
-  touchFlights(g);
+  touchStatus(g, ac.id);
 }
 
 /**
@@ -685,7 +694,7 @@ function crewProblem(g: GameState, f: Flight, ac: Aircraft): void {
     rerosterFrom(g, ac.id, g.now);
     if (!crewBlocked(g, f)) return holdFlight(g, f, 5);
   }
-  if (!isRevenue(f)) return emptyLegCrew(g, f, ac);
+  if (!isRevenue(f)) return f.purpose === 'delivery' ? deliveryWait(g, f, ac) : emptyLegCrew(g, f, ac);
   if (hasOpenDecision(g, 'crewShort', f.id) || heldFor(g, f) < BAL.crewWaitMin) return holdFlight(g, f, 30);
   if (f.crewDecided) {
     const tries = (f.crewTries ?? 0) + 1;
@@ -728,6 +737,36 @@ function emptyLegCrew(g: GameState, f: Flight, ac: Aircraft): void {
   rerosterFrom(g, ac.id, g.now);
 }
 
+/**
+ * v0.7: a delivery ferry is never cancelled. Without a legal crew it waits at the site a day at a time (the whole
+ * chain moves 24 h, parking is charged daily) and the roster tries again; the 48 h warning was given earlier.
+ */
+function deliveryWait(g: GameState, f: Flight, ac: Aircraft): void {
+  // Crew who reported for it stand down (rest at the site) and the trip is planned again for tomorrow: left 'on duty'
+  // the trip would stay under way while its legs move a day at a time, and nobody could be added to it.
+  const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+  const p = d ? g.pairings[d.pairingId] : undefined;
+  if (p && p.status === 'active' && !p.dutyIds.some((id) => g.duties[id]?.done)) {
+    p.status = 'planned';
+    for (const s of p.slots) {
+      const c = s.crewId ? g.crew[s.crewId] : undefined;
+      if (c?.status === 'onDuty') c.status = c.restUntil > g.now ? 'resting' : 'available';
+    }
+  }
+  const chain = deliveryWaitDay(g, f, ac);
+  for (const x of chain) {
+    x.delay = 0;
+    delete x.crewHeld;
+    delete x.heldAt;
+    delete x.crewTries;
+  }
+  // Work planned after the ferry moves behind it (a wave that would leave too late is dropped, as for any delay).
+  const last = chain.reduce((a, b) => (b.sta > a.sta ? b : a), chain[0]);
+  const behind = last && flightsOf(g, ac.id).find((x) => x.status === 'scheduled' && x.purpose !== 'delivery' && x.std >= f.std && x.std < last.sta + turnOf(ac));
+  if (behind) delayChain(g, behind, last.sta + turnOf(ac), 'Delivery ferry delayed');
+  rerosterFrom(g, ac.id, g.now);
+}
+
 // ---------- arrival ----------
 
 /** Fuel, fees and catering fall on us on charter, ferry and non-billable positioning legs. */
@@ -749,14 +788,14 @@ export function onFlightArr(g: GameState, ev: SimEvent): void {
     f.status = 'done';
     f.atd = f.std;
     f.ata = g.now;
-    touchFlights(g);
+    touchTickets(g);
     return;
   }
   if (f.status !== 'enroute') return;
   const ac = g.fleet[f.aircraftId];
   f.status = 'done';
   f.ata = g.now;
-  touchFlights(g);
+  touchStatus(g, f.aircraftId);
   if (!ac) return;
   ac.flightId = null;
   ac.at = f.to;

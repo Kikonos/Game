@@ -1,6 +1,6 @@
 // B1 — Contracts & commercial. Public API for the UI and other modules.
 
-import { flightsRev } from '../core/entities';
+import { flightsRev, takeRelink } from '../core/entities';
 import type { SimModule } from '../core/module';
 import type { GameState } from '../core/types';
 import { dailyContracts, onContractEnd, onContractStart } from './accept';
@@ -41,18 +41,22 @@ export const contractsModule: SimModule = {
     loadCounters(g);
   },
   /** Keeps empty legs linking commitments after any flight change (delays, swaps, cancellations by other modules). */
-  settle(g) {
+  settle(g, full) {
+    const marks = takeRelink(g);
     if (relinked.get(g) === flightsRev(g)) return;
     // Relinked to a fixed point (a pass that changes nothing), so the first settle after a load finds nothing to
-    // redo and a reloaded game plays on identically.
+    // redo and a reloaded game plays on identically. v0.7: between two events, legs only going off or on blocks
+    // relink just their aircraft; a full settle (the end of advanceTo, every player action) relinks the fleet.
+    const all = full || marks.all || !relinked.has(g);
     for (const id of Object.keys(g.fleet)) {
+      if (!all && !marks.ids.has(id)) continue;
       for (let i = 0; i < 3; i++) {
         const rev = flightsRev(g);
         relinkPositioning(g, id);
         if (flightsRev(g) === rev) break;
       }
     }
-    relinked.set(g, flightsRev(g));
+    if (all) relinked.set(g, flightsRev(g));
   },
   handlers: {
     day: daily,

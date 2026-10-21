@@ -1,0 +1,137 @@
+/* ==========================================================================
+   v0.7 "Fleet & Ladder" UI lane: Fleet · Market switch and offer cards, the Acquire, Refit, Lease, Approval and
+   Ladder-step dialogs, Fleet card rows (delivery, lease, cabin), the Company ladder, settings sections and the
+   conversion confirm. Owner: UI lane. Calm: static, nothing animates.
+   ========================================================================== */
+
+/* ---------- Fleet · Market switch ---------- */
+.fl-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); display: inline-block; flex-shrink: 0; }
+.fl-row { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 0; border-top: 1px solid var(--border); }
+.fl-row .upper { margin-right: 4px; }
+.fl-row.warn { color: var(--warn); }
+.fl-row .col { gap: 2px; }
+
+/* ---------- market offers (2 columns) ---------- */
+.mk-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
+.mk-card { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; }
+.mk-card.selected { border-color: var(--accent); }
+.mk-top { display: flex; align-items: center; gap: 12px; }
+.mk-art { flex: 0 0 120px; height: 44px; }
+.mk-art svg { width: 100%; height: 100%; }
+.mk-card.locked .mk-art { opacity: 0.55; }
+.mk-where { margin-top: 2px; }
+.mk-deliv { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--border); }
+.mk-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.mk-chip { font-size: 12px; padding: 4px 9px; }
+.mk-chip svg { width: 13px; height: 13px; }
+.mk-chip.good { color: var(--good); border-color: rgba(52, 211, 153, 0.35); }
+.mk-chip.warn { color: var(--warn); border-color: rgba(251, 191, 36, 0.35); }
+.mk-chip.bad { color: var(--bad); border-color: rgba(248, 113, 113, 0.35); }
+.mk-foot { align-items: center; }
+.mk-ret { min-width: 0; }
+
+/* ---------- acquire dialog ---------- */
+.aq-modal.modal { width: min(680px, 100%); }
+.aq-top { display: flex; align-items: center; gap: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
+.aq-art { flex: 0 0 140px; height: 52px; }
+.aq-art svg { width: 100%; height: 100%; }
+.aq-cols { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 18px; }
+.aq-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.aq-steps li { position: relative; display: flex; gap: 10px; padding: 0 0 10px 0; }
+.aq-steps li::before { content: ''; position: absolute; left: 5px; top: 14px; bottom: -2px; width: 2px; background: var(--border-strong); }
+.aq-steps li:last-child::before { display: none; }
+.aq-dot { flex: 0 0 12px; height: 12px; margin-top: 3px; border-radius: 50%; border: 2px solid var(--accent); background: var(--bg-2); z-index: 1; }
+.aq-steps li.good .aq-dot { border-color: var(--good); background: var(--good); }
+
+/* ---------- refit dialog ---------- */
+.rf-modal.modal.wide { width: min(760px, 100%); }
+.rf-chip { min-height: 48px; }
+.cv-day.rf-off { opacity: 0.4; border-style: dashed; }
+.cv-day.rf-off.on { opacity: 0.8; }
+
+/* ---------- lease dialog / lease-end decision ---------- */
+.ls-lines { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--border); }
+.sc-opt.current { border-color: var(--info); }
+.sc-opt:disabled { opacity: 0.7; cursor: default; transform: none; }
+.sc-opt.on { border-color: var(--accent); background: rgba(62, 230, 255, 0.08); box-shadow: inset 0 0 0 1px var(--accent); }
+
+/* ---------- the Ladder (Company) ---------- */
+.ld-card { margin-bottom: 16px; }
+.ld-grid { position: relative; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; align-items: start; }
+.ld-lines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+.ld-lines path { fill: none; stroke: var(--border-strong); stroke-width: 1.5; }
+.ld-lines path.held { stroke: var(--good); }
+.ld-rung { position: relative; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.ld-head { display: flex; flex-direction: column; gap: 1px; min-height: 40px; }
+.ld-node {
+  position: relative; z-index: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 5px; min-height: 128px; width: 100%;
+  padding: 10px 11px; border-radius: 12px; text-align: left; color: var(--text);
+  background: var(--panel-solid); border: 1px solid var(--border-strong);
+}
+button.ld-node { cursor: pointer; font: inherit; }
+.ld-node .badge { max-width: 100%; white-space: normal; height: auto; min-height: 22px; line-height: 1.25; padding: 2px 8px; }
+.ld-node .bar { width: 100%; }
+.ld-name { font-size: 14px; line-height: 1.2; }
+.ld-req { line-height: 1.3; }
+.ld-node.s-held { border-color: rgba(52, 211, 153, 0.45); }
+.ld-node.s-pending { border-color: rgba(96, 165, 250, 0.5); }
+.ld-node.s-ready { border-color: var(--accent); box-shadow: inset 0 0 0 1px rgba(62, 230, 255, 0.25); }
+.ld-node.s-locked { background: var(--bg-2); }
+.ld-node.s-locked .ld-name { color: var(--text-2); }
+.ld-types { display: flex; flex-wrap: wrap; gap: 4px; margin-top: auto; }
+.ld-type { font-size: 12px; padding: 1px 6px; border-radius: 6px; background: rgba(148, 170, 220, 0.1); color: var(--text-2); }
+@media (hover: hover) { button.ld-node:hover { border-color: var(--accent); } }
+
+/* ---------- approval dialog / ladder step ---------- */
+.ap-modal.modal { width: min(660px, 100%); }
+.ap-pending { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--border); }
+.ap-reqs { display: flex; flex-direction: column; margin-top: 6px; }
+.ap-req { display: flex; align-items: center; gap: 10px; min-height: 34px; border-bottom: 1px solid var(--border); }
+.ap-req:last-child { border-bottom: none; }
+.ap-req.no .grow { color: var(--text); }
+.ap-req.ok .grow { color: var(--text-2); }
+.ap-types { display: flex; flex-wrap: wrap; gap: 12px; margin: 6px 0; }
+.ap-type { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 132px; }
+.ap-art { width: 132px; height: 48px; }
+.ap-art svg { width: 100%; height: 100%; }
+.ls-step.modal { width: min(540px, 100%); }
+.ls-step-types { justify-content: center; margin: 10px 0 14px; }
+.ls-step-types .ap-type, .ls-step-types .ap-art { width: 150px; }
+.ls-step-types .ap-art { height: 56px; }
+
+/* ---------- settings sections ---------- */
+.set-head { padding: 16px 0 4px; }
+.set-off b { color: var(--text-2); }
+.set-disabled { opacity: 0.4; pointer-events: none; }
+
+/* ---------- conversion confirm (C1) ---------- */
+.cv-confirm {
+  display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; padding: 12px 14px; border-radius: 12px;
+  background: rgba(248, 113, 113, 0.08); border: 1px solid rgba(248, 113, 113, 0.45);
+}
+
+/* ---------- narrower (portrait / Split View) ---------- */
+@media (max-width: 1099.98px), (max-height: 499.98px) {
+  .mk-grid, .aq-cols { grid-template-columns: minmax(0, 1fr); }
+  .ld-grid { grid-template-columns: repeat(5, minmax(150px, 1fr)); overflow-x: auto; }
+}
+.rf-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.rf-grid .cv-day { min-width: 0; }
+.rf-blank { min-height: 56px; }
+.rf-nav .btn-icon { min-width: 44px; min-height: 44px; }
+.cv-fit { align-self: flex-start; }
+.cv-fit.on { border-color: var(--accent); color: var(--accent); }
+.ls-step-reward { margin-top: -4px; }
+
+/* ---------- schedule: delivering band (before handover) ---------- */
+.gb-band { background: rgba(148, 170, 220, 0.1); box-shadow: inset 0 0 0 1px rgba(148, 170, 220, 0.22); color: var(--text-2); font-weight: 500; top: 14px; height: 28px; border-radius: 8px; pointer-events: none; }
+.gb-band > span { padding-left: 10px; }
+.ls-step-award { display: grid; place-items: center; margin: 10px 0 14px; }
+.ls-step-award svg { width: 56px; height: 56px; color: var(--gold); stroke-width: 1.5; }
+
+/* What's new (Title pop-up + Settings → What's new) */
+.wn-modal.modal { width: min(620px, 100%); }
+.wn-head { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.wn-head svg { width: 18px; height: 18px; }
+.wn-list { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; line-height: 1.4; }
+.wn-list li::marker { color: var(--accent, #3ee6ff); }

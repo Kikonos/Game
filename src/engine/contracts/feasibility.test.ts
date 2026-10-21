@@ -165,4 +165,37 @@ describe('feasibility', () => {
     const rank = { ok: 0, warn: 1, no: 2 };
     for (let i = 1; i < all.length; i++) expect(rank[all[i].level]).toBeGreaterThanOrEqual(rank[all[i - 1].level]);
   });
+
+  it('v0.7 quick reports: same level and margin; crew sized only while nothing says no', () => {
+    const g = newGame(32);
+    const ac = leased(g);
+    const ok = hamBase(g, g.now + 20 * DAY, 45);
+    const big = legsOffer(g, [['LIS', 'FAO', g.now + 5 * DAY]], 400);
+    for (const o of [ok, big]) {
+      const full = feasibility(g, o.id, ac.id);
+      const quick = feasibility(g, o.id, ac.id, { quick: true });
+      expect(quick.level).toBe(full.level);
+      expect(quick.estMargin).toBe(full.estMargin);
+      if (full.level === 'no') expect(quick.crew.setsNeeded).toBe(0);
+      else expect(quick.crew).toEqual(full.crew);
+    }
+    expect(feasibility(g, big.id, ac.id).level).toBe('no');
+  });
+});
+
+describe('crew reach (v0.7 fix round 2)', () => {
+  it('a short-notice job flown in from far: no crew can be there legally, so crew is no (the roster would hold it)', () => {
+    // Seed 207: AOG cover at Antalya from 05:00 the same day, the aircraft at Lisbon.
+    const g = newGame(207);
+    const o = offer(g, 'aogCover');
+    const ac = Object.keys(g.fleet)[0];
+    const c = check(feasibility(g, o.id, ac), 'crew');
+    expect(c.level).toBe('no');
+    expect(c.label).toMatch(/^No crew can be at AYT for the first departure .*: the positioning crew would be on duty 13h/);
+    // The same job with a day's notice: a crew flies out on an airline and rests first.
+    o.start += DAY;
+    if (o.pattern.kind === 'base') o.pattern.from += DAY;
+    o.end += DAY;
+    expect(check(feasibility(g, o.id, ac), 'crew').level).not.toBe('no');
+  });
 });

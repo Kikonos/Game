@@ -3,7 +3,7 @@
 // base patterns → daily waves with maintenance nights and monthly drops to targetBH;
 // aircraft anchors (hard commitments) and empty-move chains between them.
 
-import { flightsOf } from '../core/entities';
+import { liveFlightsOf } from '../core/entities';
 import { blockMinutes, planSector, TECH_STOP_MIN, typeOf } from '../core/perf';
 import { DAY, dayIndex, localOffset, monthKey, monthStart, toLocal } from '../core/time';
 import { hash } from '../core/util';
@@ -116,8 +116,8 @@ export function isSoft(g: GameState, f: Flight): boolean {
 export function anchorsOf(g: GameState, aircraftId: string): Anchor[] {
   const ac = g.fleet[aircraftId];
   const out: Anchor[] = [];
-  for (const f of flightsOf(g, aircraftId)) {
-    if ((f.status !== 'scheduled' && f.status !== 'enroute') || isSoft(g, f)) continue;
+  for (const f of liveFlightsOf(g, aircraftId)) {
+    if (isSoft(g, f)) continue;
     out.push({ from: f.from, to: f.to, std: f.std, sta: f.status === 'enroute' ? (f.eta ?? f.sta) : f.sta, contractId: f.contractId, kind: 'flight', id: f.id });
   }
   for (const m of Object.values(g.maintenance)) {
@@ -133,7 +133,17 @@ export function anchorsOf(g: GameState, aircraftId: string): Anchor[] {
     out.push({ from: p.base, to: p.base, std, sta: Math.max(std, lastArrival(p, ac.typeId, slot) ?? p.to), contractId: c.id, kind: 'base', id: c.id });
   }
   out.sort((a, b) => a.std - b.std || a.sta - b.sta);
-  if (ac && !ac.flightId) out.unshift({ from: ac.at, to: ac.at, std: g.now, sta: Math.max(g.now, ac.deliveredAt), contractId: null, kind: 'start', id: '' });
+  if (ac && !ac.flightId) {
+    // v0.7: a delivered aircraft abroad is busy with its acceptance until the delivery ferry leaves (never hopped home).
+    let ready = Math.max(g.now, ac.deliveredAt);
+    if (ac.delivery && ac.delivery.arrived === undefined) {
+      for (const id of ac.delivery.ferryIds) {
+        const f = g.flights[id];
+        if (f?.status === 'scheduled' && f.from === ac.at) ready = Math.max(ready, f.std - typeOf(ac.typeId).turnMin);
+      }
+    }
+    out.unshift({ from: ac.at, to: ac.at, std: g.now, sta: ready, contractId: null, kind: 'start', id: '' });
+  }
   return out;
 }
 

@@ -6,6 +6,8 @@
 // v0.5.2: every airborne leg draws its whole great circle from take-off to landing (one path element,
 // built once per leg and dropped on landing): operating solid green, positioning/ferry dotted amber,
 // airline deadheads thin grey dotted.
+// v0.7: an aircraft is drawn once handed over (at its handover site, possibly abroad), with a static DELIVERY tag
+// until its delivery ferry is home; before the handover it is not drawn.
 
 import { geoInterpolate, geoPath } from 'd3-geo';
 import { memo, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
@@ -17,7 +19,7 @@ import { PLANE_PATH } from '../components/Logo';
 import { liveMinute, store } from '../store';
 import { isTouch } from '../useMedia';
 import { MAP_H, MAP_W } from './mapData';
-import { headingDeg, type LabelBox, groupCommercial, lerpAngle, parkOffset, downSide, legLabelSide, placeLabels, regSlot, type RegSlot, trackCovered, trackLabelAt, type LegArc, type PinGroup, sunPoint, terminator, TYPE_STROKE } from './mapLogic';
+import { deliveryTag, headingDeg, onMap, type LabelBox, boxOverlap, groupCommercial, lerpAngle, parkOffset, downSide, legLabelSide, placeLabels, regSlot, type RegSlot, trackCovered, trackLabelAt, type LegArc, type PinGroup, sunPoint, terminator, TYPE_STROKE } from './mapLogic';
 import type { MapLayerCtx } from './WorldMap';
 
 /** Live positions shared with tap picking and focus (map units, as last drawn). */
@@ -301,6 +303,8 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
     let cmGame: GameState | null = null;
     let cmList: CommercialFlight[] = [];
     let selKey = '';
+    let underKey = '';
+    const TAG_FS = isTouch() ? 10.5 : 9.5; // .ops-ac .op-delivery-tag font size
     const lineD = (from: string, to: string) => {
       const A = AIRPORT_BY_CODE[from];
       const B = AIRPORT_BY_CODE[to];
@@ -361,12 +365,30 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
       const parked = new Map<string, number>();
       for (const id of ids) {
         const ac = game.fleet[id];
+        const e = els.get(id);
+        // React re-renders reset the className: put the loop's own classes back.
+        if (fresh && e) {
+          e.el.classList.toggle('crowd', e.crowd);
+          e.el.classList.toggle('reg-up', e.reg === 1);
+          e.el.classList.toggle('reg-off', e.reg === 2);
+        }
         if (!ac || !AIRPORT_BY_CODE[ac.at]) continue;
+        if (!onMap(ac)) {
+          // Not handed over yet (being built or prepared at the seller's): not on the map, not tappable.
+          if (e && e.el.dataset.phase !== 'hidden') e.el.dataset.phase = 'hidden';
+          shared.ac.delete(id);
+          glide.delete(id);
+          continue;
+        }
         const live = aircraftLive(game, ac, t);
         if (live.phase !== 'airborne') parked.set(live.at!, (parked.get(live.at!) ?? 0) + 1);
         lives.push(live);
       }
       const slot = new Map<string, number>();
+      // Labels of our parked aircraft (screen px), with the airport each stands at.
+      const ownLabels: (LabelBox & { at: string })[] = [];
+      // Parked glyphs (stand, badges) with their labels: airline-leg flight numbers keep off them.
+      const parkedBoxes: LabelBox[] = [];
       const f = 1 - Math.exp(-dt / TAXI_MS);
       settling = false;
       for (const live of lives) {
@@ -424,7 +446,39 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
           e.reg = reg;
         }
         shared.ac.set(id, [p[0] + s.ox * u, p[1] + s.oy * u]);
+        if (live.phase !== 'airborne') {
+          const ix = p[0] / u + s.ox;
+          const iy = p[1] / u + s.oy;
+          const dlv = e.el.classList.contains('dlv');
+          parkedBoxes.push({ id, x: ix + 2, y: iy - 3, w: 36, h: 34 });
+          if (selRef.current === id || (labels && !crowd)) {
+            const by = dlv ? 38 : 25;
+            ownLabels.push({ id, at: live.at!, x: ix, y: iy + by - REG_FS * 0.35, w: e.regW, h: REG_FS });
+          }
+          if (dlv) ownLabels.push({ id, at: live.at!, x: ix, y: iy + 26 - TAG_FS * 0.35, w: 8 * TAG_FS * 0.68 + 2, h: TAG_FS });
+        }
       }
+      // Our parked aircraft's reg and DELIVERY tag win over a neighbouring airport's code: that code fades out
+      // (the airport they stand at, and a selected one, keep theirs). Re-checked when labels move, zoom or re-render.
+      const uk = `${k.toPrecision(5)}|${ownLabels.map((b) => `${b.id}${b.x.toFixed(0)},${b.y.toFixed(0)}`).join(';')}`;
+      if (fresh || uk !== underKey) {
+        underKey = uk;
+        const svg = root.ownerSVGElement;
+        for (const ap of svg ? (Array.from(svg.querySelectorAll('.airports .ap[data-code]')) as SVGGElement[]) : []) {
+          const code = ap.dataset.code!;
+          const text = ap.querySelector('.ap-label');
+          const A = AIRPORT_BY_CODE[code];
+          const q = text && A && !ap.classList.contains('sel') ? proj([A.lon, A.lat]) : null;
+          let under = false;
+          if (q && text && ownLabels.length) {
+            const fs = Number(text.getAttribute('font-size')) || 11;
+            const box: LabelBox = { id: code, x: q[0] / u, y: q[1] / u + (Number(text.getAttribute('y')) || 0) - fs * 0.35, w: code.length * fs * 0.62 + 2, h: fs };
+            under = ownLabels.some((b) => b.at !== code && boxOverlap(b, box, 1) > 0);
+          }
+          if (under !== ap.hasAttribute('data-under')) ap.toggleAttribute('data-under', under);
+        }
+      }
+      for (const b of ownLabels) parkedBoxes.push(b);
       // Our airborne legs: one path each from take-off to landing (types refreshed with each React render).
       const seen = new Set<string>();
       for (const live of lives) {
@@ -522,12 +576,17 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
               // Any of them may show its code (all do once zoomed in a little).
               codes.push({ id: '', x: ax, y: ay - 15, w: 28, h: 15 });
             }
-            x.side = legLabelSide(track, w, NO_FS, [...obs, ...codes], x.pref);
+            x.side = legLabelSide(track, w, NO_FS, [...obs, ...codes, ...parkedBoxes], x.pref);
             x.hide = trackCovered(track, x.side, w, NO_FS, codes);
           }
-          const hidden = !!x.hide[Math.round(pr * 32)];
-          if (hidden !== x.hidden) x.no.classList.toggle('off', (x.hidden = hidden));
           const [cx, cy] = trackLabelAt(ang, x.side, w, NO_FS);
+          // Fades over an airport code on this stretch, or while passing our parked aircraft (e.g. leaving our base).
+          let hidden = !!x.hide[Math.round(pr * 32)];
+          if (!hidden && parkedBoxes.length) {
+            const nb: LabelBox = { id: '', x: p[0] / u + cx, y: p[1] / u + cy, w, h: NO_FS };
+            hidden = parkedBoxes.some((o) => boxOverlap(nb, o, 1) > 6);
+          }
+          if (hidden !== x.hidden) x.no.classList.toggle('off', (x.hidden = hidden));
           const at = `${cx.toFixed(1)} ${(cy + NO_FS * 0.35).toFixed(1)}`;
           if (at !== x.at) {
             x.at = at;
@@ -564,7 +623,7 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
         const ac = g.fleet[id];
         const [fill, outline] = glyphInk(liveryOf(g, ac).livery);
         return (
-          <g key={id} data-id={id} data-phase="parked" className={`ops-ac ${selected === id ? 'sel' : ''}`}>
+          <g key={id} data-id={id} data-phase="parked" className={`ops-ac${selected === id ? ' sel' : ''}${deliveryTag(ac) ? ' dlv' : ''}`}>
             <circle className="hit" r={HIT_R.touch} />
             <path className="hangar" d="M-15 11V-1Q0 -17 15 -1V11Z" />
             <circle className="sel-ring" r={16} />
@@ -582,6 +641,7 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
             </g>
             <text className="reg" y={25}>{ac.reg}</text>
             <text className="tag" y={-16}>FERRY</text>
+            <text className="op-delivery-tag" y={-16}>DELIVERY</text>
           </g>
         );
       })}

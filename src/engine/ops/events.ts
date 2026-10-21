@@ -1,6 +1,7 @@
 // Random operational events and the decision resolvers (B3). DESIGN.md §5.8.
 // Every resolver is keyed by decision.kind; it applies its effects and the decision is removed.
 
+import { chooseLease, type LeaseChoice } from './leaseReturn';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { COUNTRIES } from '../../data/countries';
 import type { RatingFamily } from '../../data/acmiTypes';
@@ -49,7 +50,7 @@ function recentAsks(g: GameState): number[] {
  */
 export const canAsk = (g: GameState) => g.decisions.length < BAL.maxOpenDecisions && recentAsks(g).length < BAL.maxDecisionsWeek - 1;
 
-const CAT: Record<string, MessageCat> = { aog: 'tech', crewShort: 'crew', sickCrew: 'crew', latePayment: 'finance', rescue: 'finance', changeRequest: 'commercial' };
+const CAT: Record<string, MessageCat> = { aog: 'tech', crewShort: 'crew', sickCrew: 'crew', latePayment: 'finance', rescue: 'finance', changeRequest: 'commercial', leaseEnd: 'company' };
 
 /** Applies the default (or the next workable option) and explains it in the inbox. `lead` opens the message body. */
 function autoApply(g: GameState, d: Omit<Decision, 'id' | 't'>, lead = 'Operations chose'): void {
@@ -730,6 +731,8 @@ const RESOLVERS: Record<string, Resolver> = {
   latePayment: resolveLatePayment,
   rescue: resolveRescue,
   changeRequest: resolveChange,
+  // v0.7: the 120-day lease notice (extend 12 / 36 months or return).
+  leaseEnd: (g, d, opt) => chooseLease(g, String(d.data?.aircraftId ?? ''), opt as LeaseChoice),
 };
 
 /** Applies a decision option (dispatch on decision.kind) and removes the decision. Failed options keep it open. */

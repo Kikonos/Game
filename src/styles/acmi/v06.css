@@ -97,8 +97,9 @@
 .rb-lane .sc-cal.k-rest { top: 22px; bottom: 22px; }
 .rb-lane .sc-cal.rb-thin { top: 28px; bottom: 8px; }
 .rb-lane .sc-cal.rb-blk { overflow: clip; }
-/* Long blocks (conversion, joining, leave) keep their label in view next to the name column. */
-.rb-blk .sc-cal-t { position: sticky; left: 180px; }
+/* Long blocks (conversion, joining, leave) keep their label in view next to the name column. v0.7 C2: only those
+   (each sticky label is its own paint chunk; ~200 of them cost 40-60 ms of layerize per board refresh at 4x CPU). */
+.rb-blk.long .sc-cal-t { position: sticky; left: 180px; }
 .rb-blk { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; cursor: pointer; }
 .rb-blk.mv { cursor: grab; }
 .rb-blk .sc-cal-t { pointer-events: none; }

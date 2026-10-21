@@ -12,10 +12,11 @@ import type { GameState, Role } from '../../engine/core/types';
 import type { RatingFamily } from '../../data/acmiTypes';
 import { crewRev, dropTargets, familyLabel, moveDuty, rosterBoard, type BoardBlock, type BoardRow, type DropTarget, type MoveScope } from '../../engine/crew';
 import { Seg } from '../components/ui';
-import { liveMinute, store } from '../store';
+import { liveMinute, store, useThrottledNow } from '../store';
+import { useRenderCount } from './common';
 import { CAL_KEY_LABEL, calKey, calLayer, calLegend, type CalKey } from './crewLogic';
 import {
-  BACK_DAYS, BOARD_DAYS, blockCands, boardItems, boardLayout, dayCodes, dayWidth, dayWindow, edgeSpeed, fitText, HEAD_H, itemAt, LEFT_W,
+  BACK_DAYS, BOARD_DAYS, blockCands, blockKeys, boardItems, itemsSig, rowSig, boardLayout, dayCodes, dayWidth, dayWindow, edgeSpeed, fitText, HEAD_H, itemAt, LEFT_W,
   moraleTone, NO_BOARD_FILTER, ROLE_PLURAL, verdictText, visibleRange, weekLabels, type BoardFilter, type BoardItem, type BoardZoom, type RankFilter,
 } from './rosterBoardLogic';
 
@@ -57,6 +58,9 @@ function measure(s: string): number {
 }
 
 const fmtLeave = (t: number) => fmtDay(t - 1);
+const WD_SHORT = new Intl.DateTimeFormat('en-GB', { weekday: 'short', timeZone: 'UTC' });
+const WD_NARROW = new Intl.DateTimeFormat('en-GB', { weekday: 'narrow', timeZone: 'UTC' });
+const MON_SHORT = new Intl.DateTimeFormat('en-GB', { month: 'short', timeZone: 'UTC' });
 
 interface RowProps {
   row: BoardRow;
@@ -76,6 +80,7 @@ const Row = memo(function Row({ row, from, dayW, d0, d1, zoom, tone, selecting, 
   const hi = from + d1 * DAY;
   const W = BOARD_DAYS * dayW;
   const month = zoom === 'month';
+  const keys = blockKeys(row.blocks);
   const blocks = row.blocks
     .map((b, i) => [b, i] as const)
     .filter(([b]) => b.end > lo && b.start < hi && !(month && b.kind === 'rest'))
@@ -100,7 +105,7 @@ const Row = memo(function Row({ row, from, dayW, d0, d1, zoom, tone, selecting, 
         {row.leaves !== null && row.leaves < hi && (
           <span className="rb-left" style={{ left: Math.max(0, (row.leaves - from) * ppm), width: Math.max(0, W - Math.max(0, (row.leaves - from) * ppm)) }} />
         )}
-        {blocks.map(([b, i]) => <Block key={i} b={b} i={i} crewId={row.crewId} from={from} ppm={ppm} W={W} month={month} />)}
+        {blocks.map(([b, i]) => <Block key={keys[i]} b={b} i={i} crewId={row.crewId} from={from} ppm={ppm} W={W} month={month} />)}
         {labels.map((l) => {
           const b = row.blocks[l.i];
           return (
@@ -126,7 +131,7 @@ const Row = memo(function Row({ row, from, dayW, d0, d1, zoom, tone, selecting, 
   );
 });
 
-function Block({ b, i, crewId, from, ppm, W, month }: { b: BoardBlock; i: number; crewId: string; from: number; ppm: number; W: number; month: boolean }) {
+const Block = memo(function Block({ b, i, crewId, from, ppm, W, month }: { b: BoardBlock; i: number; crewId: string; from: number; ppm: number; W: number; month: boolean }) {
   const key = calKey(b);
   const layer = calLayer(b);
   const l = Math.max(0, (b.start - from) * ppm);
@@ -137,9 +142,11 @@ function Block({ b, i, crewId, from, ppm, W, month }: { b: BoardBlock; i: number
   // Work and travel labels live in the week band (weekLabels) or the month day tile; status windows label themselves.
   const txt = layer === 2 || key === 'rest' ? '' : fitText(blockCands(b), w - (b.locked ? 14 : 0), measure, month ? 4 : 12);
   const free = key === 'off' && b.label === 'Free';
+  // Sticky label only on status windows of two days or more (see .rb-blk.long).
+  const long = layer === 1 && w >= 2 * DAY * ppm;
   return (
     <span
-      className={`sc-cal rb-blk k-${key} l${layer} ${thin ? 'rb-thin' : ''} ${free ? 'free' : ''} ${b.movable ? 'mv' : ''} ${b.legality && b.legality !== 'legal' ? b.legality : ''}`}
+      className={`sc-cal rb-blk k-${key} l${layer} ${thin ? 'rb-thin' : ''} ${free ? 'free' : ''} ${b.movable ? 'mv' : ''} ${long ? 'long' : ''} ${b.legality && b.legality !== 'legal' ? b.legality : ''}`}
       style={{ left: l, width: Math.max(3, w) }}
       data-c={crewId}
       data-i={i}
@@ -149,7 +156,7 @@ function Block({ b, i, crewId, from, ppm, W, month }: { b: BoardBlock; i: number
       {b.locked && w >= 16 && <Lock className="rb-lock" aria-label="set by you" />}
     </span>
   );
-}
+});
 
 /** Today line in the grid, moved every frame from liveMinute() (no React renders). */
 function TodayLine({ from, ppm }: { from: number; ppm: number }) {
@@ -214,7 +221,14 @@ const RANKS: { value: RankFilter; label: string }[] = [
   ...(['CPT', 'FO', 'CRP', 'CSD', 'SCC', 'CC'] as Role[]).map((r) => ({ value: r as RankFilter, label: `${r} · ${ROLE_PLURAL[r]}` })),
 ];
 
-export function RosterBoard({ g, selecting, selected, onSelect }: RosterBoardProps) {
+/** v0.7 C2: memo'd against the Crew screen's hourly renders; the board refreshes from useThrottledNow (≤ 1 Hz running). */
+export const RosterBoard = memo(function RosterBoard(props: RosterBoardProps) {
+  return <Board {...props} />;
+}, (a, b) => a.g === b.g && a.selecting === b.selecting && a.selected === b.selected);
+
+function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
+  const now = useThrottledNow(1000);
+  useRenderCount('board');
   const [f, setF] = useState<BoardFilter>(NO_BOARD_FILTER);
   const [zoom, setZoomS] = useState<BoardZoom>(() => stored(ZOOM_KEY, ['week', 'month'] as const, 'week'));
   const [scope, setScopeS] = useState<MoveScope>(() => stored(SCOPE_KEY, ['duty', 'trip'] as const, 'trip'));
@@ -225,23 +239,48 @@ export function RosterBoard({ g, selecting, selected, onSelect }: RosterBoardPro
   const [pop, setPop] = useState<Pop | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
 
-  const from = dayStart(g.now) - BACK_DAYS * DAY;
+  const from = dayStart(now) - BACK_DAYS * DAY;
   const to = from + BOARD_DAYS * DAY;
   const dayW = dayWidth(zoom, view.w);
   const ppm = dayW / DAY;
   const crev = crewRev(g);
   const rev = flightsRev(g);
-  const hour = Math.floor(g.now / HOUR);
+  const hour = Math.floor(now / HOUR);
   const nCrew = Object.keys(g.crew).length;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const items = useMemo(() => boardItems(Object.values(g.crew), f, g.company.homeBase), [g, f, crev, nCrew, hour]);
+  // v0.7 C2: an hourly rebuild that changes nothing keeps the previous items (no re-layout, no row re-render).
+  const itemsRef = useRef<{ sig: string; items: BoardItem[] } | null>(null);
+  const items = useMemo(() => {
+    const next = boardItems(Object.values(g.crew), f, g.company.homeBase);
+    const sig = itemsSig(next);
+    if (itemsRef.current?.sig === sig) return itemsRef.current.items;
+    itemsRef.current = { sig, items: next };
+    return next;
+  }, [g, f, crev, nCrew, hour]); // eslint-disable-line react-hooks/exhaustive-deps
   const groupH = selecting ? 44 : 28;
   const { tops, total } = useMemo(() => boardLayout(items, groupH), [items, groupH]);
   const [a, b] = range;
   const shown = items.slice(a, Math.min(b, items.length));
   const ids = shown.filter((x): x is Extract<BoardItem, { kind: 'crew' }> => x.kind === 'crew').map((x) => x.id);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const rows = useMemo(() => new Map(rosterBoard(g, from, to, ids).map((r) => [r.crewId, r])), [g, from, to, ids.join(), crev, rev, g.now]);
+  // Rows whose content is unchanged keep their old object, so the memo'd Row skips them (the engine rebuilds every
+  // visible row each game hour: under a second at 4×).
+  const stable = useRef(new Map<string, { sig: string; row: BoardRow }>());
+  const rows = useMemo(() => {
+    const out = new Map<string, BoardRow>();
+    for (const r of rosterBoard(g, from, to, ids)) {
+      const prev = stable.current.get(r.crewId);
+      if (prev?.row === r) {
+        out.set(r.crewId, r);
+        continue;
+      }
+      const sig = rowSig(r);
+      if (prev && prev.sig === sig) out.set(r.crewId, prev.row);
+      else {
+        stable.current.set(r.crewId, { sig, row: r });
+        out.set(r.crewId, r);
+      }
+    }
+    return out;
+  }, [g, from, to, ids.join(), crev, rev, now]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Latest values for the native drag listeners.
   const live = useRef({ items, tops, total, scope, from, g });
@@ -561,8 +600,25 @@ export function RosterBoard({ g, selecting, selected, onSelect }: RosterBoardPro
   const legend = calLegend([...rows.values()].flatMap((r) => r.blocks)).filter((k) => k !== 'standby' && !(zoom === 'month' && k === 'rest'));
   const W = LEFT_W + BOARD_DAYS * dayW;
   const [d0, d1] = days;
-  const today = Math.floor((dayStart(g.now) - from) / DAY);
+  const today = Math.floor((dayStart(now) - from) / DAY);
   const nRows = items.filter((x) => x.kind === 'crew').length;
+  // v0.7 C2: day header and columns only change with the window (toLocaleDateString was the board's top self cost).
+  const head = useMemo(() => Array.from({ length: d1 - d0 }, (_, k) => {
+    const i = d0 + k;
+    const dt = toDate(from + i * DAY);
+    const wd = dt.getUTCDay();
+    return (
+      <span key={i} className={`rb-day ${wd === 0 || wd === 6 ? 'we' : ''} ${i === today ? 'today' : ''}`} style={{ left: LEFT_W + i * dayW, width: dayW }}>
+        {zoom === 'week' ? <>{WD_SHORT.format(dt)} <b>{dt.getUTCDate()}</b> {MON_SHORT.format(dt)}</>
+          : <><span className="rb-wd">{WD_NARROW.format(dt)}</span><b>{dt.getUTCDate()}</b></>}
+      </span>
+    );
+  }), [d0, d1, from, dayW, today, zoom]);
+  const cols = useMemo(() => Array.from({ length: d1 - d0 }, (_, k) => {
+    const i = d0 + k;
+    const wd = toDate(from + i * DAY).getUTCDay();
+    return <span key={i} className={`rb-col ${wd === 0 || wd === 6 ? 'we' : ''}`} style={{ left: LEFT_W + i * dayW, width: dayW }} />;
+  }), [d0, d1, from, dayW]);
 
   return (
     <div className="rb">
@@ -592,24 +648,10 @@ export function RosterBoard({ g, selecting, selected, onSelect }: RosterBoardPro
         <div className="rb-canvas" style={{ width: W }}>
           <div className="rb-head" style={{ width: W }}>
             <div className="rb-corner small muted">{nRows} crew</div>
-            {Array.from({ length: d1 - d0 }, (_, k) => {
-              const i = d0 + k;
-              const dt = toDate(from + i * DAY);
-              const wd = dt.getUTCDay();
-              return (
-                <span key={i} className={`rb-day ${wd === 0 || wd === 6 ? 'we' : ''} ${i === today ? 'today' : ''}`} style={{ left: LEFT_W + i * dayW, width: dayW }}>
-                  {zoom === 'week' ? <>{dt.toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' })} <b>{dt.getUTCDate()}</b> {dt.toLocaleDateString('en-GB', { month: 'short', timeZone: 'UTC' })}</>
-                    : <><span className="rb-wd">{dt.toLocaleDateString('en-GB', { weekday: 'narrow', timeZone: 'UTC' })}</span><b>{dt.getUTCDate()}</b></>}
-                </span>
-              );
-            })}
+            {head}
           </div>
           <div className="rb-body" style={{ height: total }}>
-            {Array.from({ length: d1 - d0 }, (_, k) => {
-              const i = d0 + k;
-              const wd = toDate(from + i * DAY).getUTCDay();
-              return <span key={i} className={`rb-col ${wd === 0 || wd === 6 ? 'we' : ''}`} style={{ left: LEFT_W + i * dayW, width: dayW }} />;
-            })}
+            {cols}
             <TodayLine from={from} ppm={ppm} />
             <div style={{ height: tops[a] ?? 0 }} />
             {shown.map((it) => {

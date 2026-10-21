@@ -6,7 +6,7 @@ import { DAY, HOUR, fmtDay, monthKey, toLocal } from '../../engine/core/time';
 import { mghInMonth } from '../../engine/contracts/pricing';
 import type { IdleWindow } from '../../engine/contracts/offers';
 import type {
-  Archetype, ContractOffer, CrewMember, CrewStatus, GameState, LedgerCat, Message, MessageCat, MonthStatement, Product, Ref, Requirements, Role, SchedulePattern,
+  AircraftOffer, Archetype, ContractOffer, CrewMember, CrewStatus, GameState, LedgerCat, Message, MessageCat, MonthStatement, Product, Ref, Requirements, Role, SchedulePattern,
 } from '../../engine/core/types';
 import { money } from '../format';
 import type { Tab } from '../store';
@@ -115,7 +115,12 @@ export function reqChips(r: Requirements): Chip[] {
   const out: Chip[] = [{ label: r.maxSeats ? `${r.minSeats}–${r.maxSeats} seats` : `${r.minSeats}+ seats`, tip: 'Seats the client needs' }];
   if (r.body === 'wide') out.push({ label: 'Widebody' });
   if (r.families?.length && r.families.length <= 2) out.push({ label: r.families.join(' / ') });
-  if (r.layout && r.layout !== 'all-economy') out.push({ label: r.layout === 'vip' ? 'VIP cabin' : r.layout.replace('-', ' ') });
+  // v0.7: accepted layouts (supersede `layout`) and premium seats.
+  const layouts = r.layouts ?? (r.layout ? [r.layout] : null);
+  if (layouts?.length === 1 && layouts[0] === 'all-economy' && r.minSeats >= 174) out.push({ label: `Max seats ${r.minSeats}+`, tone: 'warn', tip: 'All-economy, high-density cabin' });
+  else if (layouts?.length === 1 && layouts[0] === 'vip') out.push({ label: 'VIP cabin', tone: 'warn', tip: 'Needs a VIP layout (refit on the Fleet card)' });
+  else if (layouts && !layouts.includes('all-economy')) out.push({ label: layouts.length === 1 ? layouts[0].replace('-', ' ') : 'Premium cabin', tip: `Cabins: ${layouts.map((l) => (l === 'vip' ? 'VIP' : l)).join(', ')}` });
+  if (r.minPremium) out.push({ label: `Premium ${r.minPremium}+`, tip: 'Business and premium-economy seats' });
   if (r.etops) out.push({ label: `ETOPS ${r.etops}`, tone: 'warn', tip: 'Needs ETOPS approval and a capable twin' });
   if (r.minRunwayM && r.minRunwayM < 2400) out.push({ label: `Runway ${r.minRunwayM.toLocaleString('en-US')} m`, tone: 'warn', tip: 'Short runway on the programme' });
   if (r.longestSectorNm >= 3000) out.push({ label: `${r.longestSectorNm.toLocaleString('en-US')} nm`, tip: 'Longest sector' });
@@ -185,12 +190,13 @@ export const LEDGER_LABEL: Record<LedgerCat, string> = {
   perDiem: 'Per diems', hotels: 'Crew hotels', deadhead: 'Crew deadheads', maintenance: 'Line maintenance', checks: 'Checks',
   insurance: 'Insurance', overhead: 'Overhead', training: 'Training', hiring: 'Hiring', penalties: 'Penalties', subcharter: 'Sub-charter',
   approvals: 'Approvals', interest: 'Interest', capex: 'Aircraft purchases', assetSale: 'Asset sales', paint: 'Paint & livery',
+  refit: 'Cabin refits', leaseReturn: 'Lease returns',
 };
 
 const REVENUE: LedgerCat[] = ['acmiRevenue', 'charterRevenue', 'otherRevenue', 'assetSale'];
 const COSTS: LedgerCat[] = [
   'fuel', 'airportFees', 'rent', 'reserves', 'salaries', 'perDiem', 'hotels', 'deadhead', 'maintenance', 'checks', 'paint', 'insurance', 'overhead',
-  'training', 'hiring', 'penalties', 'subcharter', 'approvals', 'interest', 'capex',
+  'training', 'hiring', 'penalties', 'subcharter', 'approvals', 'interest', 'capex', 'refit', 'leaseReturn',
 ];
 
 export interface StatementRow {
@@ -212,8 +218,11 @@ export function statementView(current: MonthStatement, history: MonthStatement[]
   return { months, rows };
 }
 
-export function filterMessages(list: Message[], cat: MessageCat | 'all'): Message[] {
-  return cat === 'all' ? list : list.filter((m) => m.cat === cat);
+/** v0.7: 'market' filters by topic (aircraft market alerts). */
+export type MsgFilter = MessageCat | 'all' | 'market';
+
+export function filterMessages(list: Message[], cat: MsgFilter): Message[] {
+  return cat === 'all' ? list : cat === 'market' ? list.filter((m) => m.topic === 'market') : list.filter((m) => m.cat === cat);
 }
 
 export interface DeepLink {
@@ -253,6 +262,8 @@ export function refTarget(g: GameState, ref: Ref): DeepLink | null {
     }
     case 'airport':
       return { tab: 'map', sel: ref };
+    case 'market':
+      return { tab: 'fleet', view: 'market', sel: ref };
   }
   return null;
 }
@@ -303,3 +314,48 @@ export function liveHook(g: GameState, o: ContractOffer, windows: IdleWindow[]):
   if (at) return `Follow-on: ${ac.reg} is free at ${w.at} from ${fmtDay(Math.max(w.from, g.now))}`;
   return `Fits ${ac.reg}: free ${fmtDay(Math.max(w.from, g.now))}${w.to - w.from < 120 * DAY ? `–${fmtDay(w.to)}` : ' onwards'}`;
 }
+
+/** v0.7 C1: a conversion plan with a red warning (fleet short of legal crew, cost above cash) books only after a confirm. */
+export const needsConfirm = (plan: { warnings: { level: 'warn' | 'bad' }[] }): boolean => plan.warnings.some((w) => w.level === 'bad');
+
+// ---------- v0.7 aircraft market ----------
+
+/** Kind chip of a market offer. */
+export function offerKind(o: Pick<AircraftOffer, 'kind' | 'newBuild'>): { label: string; tone: string } {
+  if (o.newBuild) return { label: 'New-build lease', tone: 'accent' };
+  return o.kind === 'dryLeaseIn' ? { label: 'Lease used', tone: 'info' } : { label: 'Buy used', tone: 'gold' };
+}
+
+/** 'AerCap · ex-LATAM' style seller (the lessor without the engine's '(used sale)' tag). */
+export const sellerOf = (o: Pick<AircraftOffer, 'lessor'>) => o.lessor.replace(/ \(used sale\)$/, '');
+
+const SEEN_KEY = 'bh.marketSeen';
+
+function seenIds(): string[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(SEEN_KEY) ?? '[]');
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Open market offers not seen on the Market view yet (the switch's dot). */
+export function unseenOffers(ids: string[]): number {
+  const seen = new Set(seenIds());
+  return ids.filter((id) => !seen.has(id)).length;
+}
+
+/** Remembers offers shown on the Market view (last 60, per browser). */
+export function markMarketSeen(ids: string[]): void {
+  const prev = seenIds();
+  if (ids.every((id) => prev.includes(id))) return;
+  try {
+    localStorage.setItem(SEEN_KEY, JSON.stringify([...new Set([...prev, ...ids])].slice(-60)));
+  } catch {
+    // storage unavailable
+  }
+}
+
+/** 'all-economy' / 'two-class' / 'VIP' (cabin layout names as the Fleet card and refit dialog say them). */
+export const layoutLabel = (l: string) => (l === 'vip' ? 'VIP' : l);

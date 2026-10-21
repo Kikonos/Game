@@ -33,7 +33,8 @@ describe('paint requests on offers', () => {
       n.set(k, v);
     };
     const mix: Archetype[] = ['seasonBase', 'seasonBase', 'seasonBase', 'troopRotation', 'tourSeries', 'aogCover', 'repatriation'];
-    for (let seed = 1; seed <= 10; seed++) {
+    // 20 seeds: the tour56 band rests on a few dozen offers (10 seeds sat on its edge).
+    for (let seed = 1; seed <= 20; seed++) {
       const g = newGame(seed);
       for (let i = 0; i < 140; i++) {
         const o = generateOffer(g, mix[i % mix.length]);

@@ -42,3 +42,8 @@ export function devFleet(g: GameState, n = 10): number {
 
 /** v0.6: crew member resigns now (notice period from BAL.morale.noticeDays). Dev/test helper. */
 export { resignNow } from './crew/morale';
+
+/** v0.7: posts a market offer now (type, kind, new-build, handover site); returns its id. Dev/test helper. */
+export { devMarketOffer } from './ops/market';
+/** v0.7: grants an approval now (as if the authority finished). Dev/test helper. */
+export { devGrantApproval } from './ops/company';

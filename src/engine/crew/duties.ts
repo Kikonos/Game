@@ -371,13 +371,19 @@ function partition(g: GameState, typeId: string, units: Flight[][]): Spec[] {
 /**
  * A unit too long for any legal duty (a positioning leg straight into a long sector, say) is cut at its sector
  * boundaries so a fresh crew can join at the outstation ("slip crew": positioned in by ticket, the other crew rests
- * there). Never at a fuel stop: a revenue sector and its tech-stop legs stay one chain.
+ * there). A revenue sector and its tech-stop legs stay one chain, unless that chain alone is too long for one crew
+ * (an early report out of Kabul with a fuel stop, say): then the crew changes at the fuel stop.
  */
 function slipUnits(g: GameState, typeId: string, u: Flight[]): Flight[][] {
   if (u.length < 2) return [u];
-  const sh = shape(typeId, u);
   const rc = typeOf(typeId).restClass;
-  if (planAugment(g, sh, rc, canAugment(g, rc)).ok) return [u];
+  const fits = (fl: Flight[]) => planAugment(g, shape(typeId, fl), rc, canAugment(g, rc)).ok;
+  if (fits(u)) return [u];
+  return bySector(u).flatMap((x) => (x.length > 1 && !fits(x) ? x.map((f) => [f]) : [x]));
+}
+
+/** A unit cut at its sector boundaries (tech-stop legs stay with their sector). */
+function bySector(u: Flight[]): Flight[][] {
   const out: Flight[][] = [];
   let cur: Flight[] = [];
   for (const f of u) {
@@ -405,6 +411,7 @@ export function planAircraft(g: GameState, acId: string, from: Minute): void {
   const home = g.company.homeBase;
   const ix = crewIx(g);
   const old = new Map<string, Duty>();
+  let gone = 0;
   for (const p of [...(ix.byAircraft.get(acId) ?? [])]) {
     if (p.status !== 'planned' || p.start < from || crewCount(p) > 0) continue;
     for (const did of p.dutyIds) {
@@ -412,8 +419,10 @@ export function planAircraft(g: GameState, acId: string, from: Minute): void {
       if (d) old.set(d.flightIds.join(','), d);
     }
     deletePairing(g, p);
+    gone++;
   }
-  touchCrew(g);
+  // v0.7: the index stays valid when no open pairing went.
+  if (gone) touchCrew(g);
   absorbTrailing(g, acId, from);
   const inDuty = new Set<string>();
   for (const p of crewIx(g).byAircraft.get(acId) ?? []) for (const did of p.dutyIds) for (const fid of g.duties[did]?.flightIds ?? []) inDuty.add(fid);
@@ -500,7 +509,7 @@ export function planAircraft(g: GameState, acId: string, from: Minute): void {
   }
   trips.sort((a, b) => a.report - b.report);
   buildTrips(g, acId, trips);
-  touchCrew(g);
+  if (gone || specs.length) touchCrew(g);
 }
 
 /**

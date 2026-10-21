@@ -44,8 +44,8 @@ export function onLoad(g: GameState): void {
  * Lets modules react to state changed by another module (e.g. crew re-syncs duties after flights were
  * retimed, cancelled or reassigned). Runs after every event and after every player action (store.act).
  */
-export function settle(g: GameState): void {
-  for (const m of MODULES) m.settle?.(g);
+export function settle(g: GameState, full = true): void {
+  for (const m of MODULES) m.settle?.(g, full);
 }
 
 export interface AdvanceResult {
@@ -89,10 +89,12 @@ export function advanceTo(g: GameState, target: Minute, honour?: ReadonlySet<Pau
     } else {
       dispatch(g, top);
     }
-    settle(g);
+    settle(g, false);
     pause = takePause(honour);
     if (pause) break;
   }
+  // A full settle before anyone looks (or saves): every aircraft's empty legs relinked at this instant.
+  if (events && !g.gameOver) settle(g);
   if (!pause && !g.gameOver) g.now = Math.max(g.now, target);
   return { events, pause, hourChanged: Math.floor(g.now / 60) !== startHour };
 }

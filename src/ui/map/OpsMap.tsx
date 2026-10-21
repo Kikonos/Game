@@ -4,6 +4,8 @@
 // panels for the selection, a fleet strip bottom left and an "up next" card top left.
 // v0.5.2: every airborne leg shows its path (typed: operating / positioning / ferry), airline legs our crew
 // ride are grey icons with their flight number; Up Next and the panels carry the same type labels.
+// v0.7: aircraft appear at their handover site once handed over (DELIVERY tag until home); a selected aircraft's
+// arcs show its whole delivery / return / refit ferry chain.
 
 import { Users } from 'lucide-react';
 import { useCallback, useMemo, useRef } from 'react';
@@ -14,12 +16,14 @@ import { commercialFlightsBetween, FLIGHT_TYPE_HINT, FLIGHT_TYPE_LABEL, FLIGHT_T
 import { store, useClock, useGame } from '../store';
 import { AircraftLayer, ArcsLayer, CommercialLayer, HIT_R, type LiveShared, NightLayer, newShared, PathsLayer, PinsLayer, pinOffset } from './LiveLayers';
 import { MapPanel, TypeKey } from './MapPanels';
-import { chipInfo, fitCodes, fitFresh, isCommercialId, mapAirports, offerPins, pickNearest, selectedLegs, upNextRows } from './mapLogic';
-import { type MapAirport, type MapLayerCtx, type Pad, type View, WorldMap } from './WorldMap';
+import { awaitingDelivery, chipInfo, commercialById, fitCodes, onMap, fitFresh, isCommercialId, mapAirports, offerPins, pickNearest, selectedLegs, upNextRows } from './mapLogic';
+import { type FocusAt, type MapAirport, type MapLayerCtx, type Pad, type View, WorldMap } from './WorldMap';
 
 /** Panel width (px) kept clear when revealing a selection, and the fleet strip's height. */
 const PANEL_W = 360;
 const STRIP_H = 70;
+/** Screen px around an aircraft icon its labels can reach (left, top, right, bottom: reg and DELIVERY tag under it). */
+const AC_LABEL_BOX: [number, number, number, number] = [36, 20, 36, 46];
 /** View per game, so a tab switch returns to the same framing. */
 const views = new WeakMap<GameState, { view: View | null }>();
 
@@ -168,9 +172,30 @@ export function OpsMap() {
     if (!sel || !focusKey) return null;
     return {
       key: focusKey,
-      at: (): [number, number] | null => {
-        if (sel.kind === 'aircraft') return shared.ac.get(sel.id) ?? null;
-        if (sel.kind === 'flight') return shared.cm.get(sel.id) ?? null;
+      at: (): FocusAt | null => {
+        const apPt = (code: string) => {
+          const a = AIRPORT_BY_CODE[code];
+          return (a && refs.current.proj?.([a.lon, a.lat])) || null;
+        };
+        if (sel.kind === 'aircraft') {
+          // Its reg and DELIVERY tag (under a parked icon) stay clear too.
+          const at = shared.ac.get(sel.id);
+          if (at) return { pts: [at], box: AC_LABEL_BOX };
+          // Not on the map yet (before a handover abroad): reveal where it will be handed over.
+          const ac = refs.current.g.fleet[sel.id];
+          return ac && !onMap(ac) ? apPt(ac.at) : null;
+        }
+        if (sel.kind === 'flight') {
+          // An airline leg: the icon first, then where it lands and any aircraft our crew are going to collect there.
+          const at = shared.cm.get(sel.id);
+          if (!at) return null;
+          const cf = commercialById(refs.current.g, sel.id);
+          const pts: [number, number][] = [at];
+          const to = cf && apPt(cf.leg.to);
+          if (to) pts.push(to);
+          if (cf) for (const ac of awaitingDelivery(refs.current.g, cf.leg.to)) { const q = shared.ac.get(ac.id); if (q) pts.push(q); }
+          return { pts, box: AC_LABEL_BOX };
+        }
         if (sel.kind === 'airport') {
           const a = AIRPORT_BY_CODE[sel.id];
           return (a && refs.current.proj?.([a.lon, a.lat])) || null;
