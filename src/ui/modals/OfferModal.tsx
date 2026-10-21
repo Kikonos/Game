@@ -183,9 +183,12 @@ function crewLine(r: FeasibilityReport): { text: string; tone: 'good' | 'warn' |
   return { text: `Short ${list}${r.crew.firstShort ? ` from ${fmtDay(r.crew.firstShort)}` : ''}`, tone: 'warn' };
 }
 
-function AircraftRow({ g, r, on, onPick, billBH }: { g: GameState; r: FeasibilityReport; on: boolean; onPick: () => void; billBH: number }) {
+function AircraftRow({ g, r, on, onPick, billBH, lift = 1 }: { g: GameState; r: FeasibilityReport; on: boolean; onPick: () => void; billBH: number; lift?: number }) {
   const ac = g.fleet[r.aircraftId];
   if (!ac) return null;
+  // v0.6: the client-paid extra crew lifts the price (as on the Accept button); the extra crew's cost is already in estCost.
+  const revenue = r.estRevenue * lift;
+  const margin = r.estMargin + revenue - r.estRevenue;
   const crew = crewLine(r);
   // An aircraft that can't take the job leads with why (e.g. busy on another contract), not a positioning plan.
   const block = r.level === 'no' ? r.checks.find((c) => c.level === 'no') : undefined;
@@ -199,7 +202,7 @@ function AircraftRow({ g, r, on, onPick, billBH }: { g: GameState; r: Feasibilit
           <span className={`small ${crew.tone}`}>{crew.text}</span>
         </span>
         <span className="right">
-          <b className={`num ${block ? 'dim' : r.estMargin >= 0 ? 'good' : 'bad'}`}>{money(r.estMargin)}</b>
+          <b className={`num ${block ? 'dim' : margin >= 0 ? 'good' : 'bad'}`}>{money(margin)}</b>
           <span className="tiny dim">contribution</span>
         </span>
       </button>
@@ -212,7 +215,7 @@ function AircraftRow({ g, r, on, onPick, billBH }: { g: GameState; r: Feasibilit
             </div>
           ))}
           {r.techStops.length > 0 && <div className="small muted">Fuel stops: {r.techStops.join(', ')}</div>}
-          <div className="small muted">Revenue {money(r.estRevenue)} · costs {money(r.estCost)} · {Math.round(r.estBH)} BH flown{r.estBH - billBH > 0.5 ? ` (incl. ${Math.round(r.estBH - billBH)} BH positioning and empty legs)` : ''}</div>
+          <div className="small muted">Revenue {money(revenue)}{lift > 1 ? ` (incl. client-paid extra crew +${money(revenue - r.estRevenue)})` : ''} · costs {money(r.estCost)} · {Math.round(r.estBH)} BH flown{r.estBH - billBH > 0.5 ? ` (incl. ${Math.round(r.estBH - billBH)} BH positioning and empty legs)` : ''}</div>
           {Object.entries(r.crew.byRole).some(([, v]) => v && v.short > 0) && (
             <div className="small warn">Hire or move crew: {Object.entries(r.crew.byRole).filter(([, v]) => v && v.short > 0).map(([role, v]) => `${v!.short} × ${ROLE_LABEL[role as keyof typeof ROLE_LABEL].toLowerCase()}`).join(', ')}.</div>
           )}
@@ -338,7 +341,7 @@ export function OfferModal({ offerId }: { offerId: string }) {
           <div className="upper dim">Choose an aircraft</div>
           {!reports.length && <div className="small muted">No aircraft in the fleet.</div>}
           {reports.map((r) => (
-            <AircraftRow key={r.aircraftId} g={g} r={r} on={sel?.aircraftId === r.aircraftId} onPick={() => setPick(r.aircraftId)} billBH={o.estBH} />
+            <AircraftRow key={r.aircraftId} g={g} r={r} on={sel?.aircraftId === r.aircraftId} onPick={() => setPick(r.aircraftId)} billBH={o.estBH} lift={lift} />
           ))}
         </div>
       </div>

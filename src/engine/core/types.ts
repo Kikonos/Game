@@ -273,7 +273,7 @@ export interface Requirements {
   /** No fuel stops allowed (VIP optics). */
   noTechStops?: boolean;
   /** v0.6: client pays pct of price/rate when we fly ≥ n extra cabin crew. */
-  extraCabinPaid?: { n: number; pct: number };
+  extraCabinPaid?: { n: number; pct: number; /** v0.6: USD per extra cabin crew member per block hour behind pct. */ perBH?: number };
 }
 
 /** A revenue leg the client wants flown (times are the client's scheduled departures). */
@@ -964,6 +964,10 @@ export interface Stats {
   lastGapOfferAt?: Minute;
   /** v0.6: low-morale message given (rearmed above 55). */
   moraleLowWarned?: boolean;
+  /** v0.6: rated pilot hires of the last 30 days [ordered, 'family:role', count] (the rated market's pool). */
+  ratedHires?: [Minute, string, number][];
+  /** v0.6: required seats an on-board spare took over this month (reset by the monthly morale line). */
+  sparesCovered?: number;
 }
 
 export interface GameState {

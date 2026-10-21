@@ -9,8 +9,11 @@ import { clamp } from '../core/util';
 export type CrewExtraSource = 'client' | 'contract' | 'aircraft' | 'company';
 export type EffectiveExtra = CrewExtra & { source: CrewExtraSource; paidMin: number };
 
-/** The paid minimum locked on a contract whose client pays for extra cabin crew (0 when not taken). */
-export const paidMinOf = (k: Contract | undefined): number => (k?.extraPaid && k.requirements.extraCabinPaid ? k.requirements.extraCabinPaid.n : 0);
+/**
+ * The cabin extra locked on a contract whose client pays for extra cabin crew (0 when not taken): the paid crew
+ * fly above the client's own required extra, so the lock is required + paid.
+ */
+export const paidMinOf = (k: Contract | undefined): number => (k?.extraPaid && k.requirements.extraCabinPaid ? k.requirements.extraCabin + k.requirements.extraCabinPaid.n : 0);
 
 /**
  * Effective extra crew: cabin = max(client request, contract ?? aircraft ?? company default, paid minimum),

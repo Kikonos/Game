@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { BAL } from '../core/balance';
-import { DAY } from '../core/time';
+import { DAY, fmtDate, fromUTC } from '../core/time';
 import type { GameState } from '../core/types';
 import { run } from '../contracts/testkit';
 import { demoFlights } from '../dev';
@@ -70,6 +70,20 @@ describe('conversion classes', () => {
     const p2 = conversionPlan(g, { crewIds: more, family: 'B737', start: start(g) });
     expect(p2.classes[0].start).toBe(conversionClasses(g)[0].end);
     expect(p2.classes[0].no).toBe('B737-C3');
+  });
+
+  it('class dates in the inbox and the calendar are home-base days (a summer start at LIS midnight)', () => {
+    const g = rich();
+    g.now = fromUTC(2027, 6, 1, 10);
+    const ids = [...addCrew(g, { CPT: 2 }), ...addCrew(g, { CC: 4 })];
+    const s0 = start(g);
+    // LIS summer: local midnight of 4 Jun is 3 Jun 23:00 UTC.
+    expect(fmtDate(s0)).toBe('3 Jun 2027');
+    expect(startConversion(g, { crewIds: ids, family: 'A330/340', start: s0 }).ok).toBe(true);
+    expect(g.messages[0].body).toMatch(/A330-P1 \(2\) 4 Jun – 15 Jul/);
+    expect(g.messages[0].body).toMatch(/A330-C1 \(4\) 4 Jun – 11 Jun/);
+    const b = crewCalendar(g, ids[0], s0, s0 + DAY).find((x) => x.kind === 'training')!;
+    expect(b.detail).toMatch(/ends 15 Jul 2027/);
   });
 
   it('costs are posted once to training (narrowbody vs widebody pilot target)', () => {

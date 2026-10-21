@@ -4,8 +4,8 @@
 import type { RatingFamily } from '../../data/acmiTypes';
 import { DAY } from '../../engine/core/time';
 import type { CrewMember, Role } from '../../engine/core/types';
-import type { CalBlock, DropTarget } from '../../engine/crew';
-import { calKey } from './crewLogic';
+import { familyLabel, type CalBlock, type DropTarget } from '../../engine/crew';
+import { calKey, calLayer } from './crewLogic';
 import { isPilotRole } from './screenLogic';
 
 export type BoardZoom = 'week' | 'month';
@@ -61,7 +61,7 @@ export function boardItems(crew: CrewMember[], f: BoardFilter, homeBase: string)
   const out: BoardItem[] = [];
   for (const [key, gr] of sorted) {
     gr.list.sort((a, b) => a.last.localeCompare(b.last) || a.first.localeCompare(b.first));
-    out.push({ kind: 'group', key, label: `${gr.base} · ${ROLE_PLURAL[gr.role]} · ${gr.fam} (${gr.list.length})`, ids: gr.list.map((c) => c.id) });
+    out.push({ kind: 'group', key, label: `${gr.base} · ${ROLE_PLURAL[gr.role]} · ${gr.fam === '—' ? gr.fam : familyLabel(gr.fam as RatingFamily)} (${gr.list.length})`, ids: gr.list.map((c) => c.id) });
     for (const c of gr.list) out.push({ kind: 'crew', id: c.id, group: key });
   }
   return out;
@@ -132,21 +132,23 @@ type Blk = Pick<CalBlock, 'kind' | 'flights' | 'label'>;
 
 const route = (b: Blk) => (b.flights?.length ? [b.flights[0].from, ...b.flights.map((f) => f.to)].join('–') : '');
 
-/** Week-zoom label candidates, longest first ('NB2341 HAM–PMI–HAM' → 'HAM–PMI–HAM' → 'PMI'). */
+/** Week-zoom label candidates, longest first ('NB2341 HAM–PMI–HAM' → 'NB2341 HAM–PMI' → 'HAM–PMI–HAM' → 'PMI'). */
 export function blockCands(b: Blk): string[] {
   const k = calKey(b);
   const r = route(b);
   switch (k) {
     case 'operating': {
-      const no = b.flights?.[0]?.no ?? '';
-      const dest = b.flights?.[0]?.to ?? '';
-      return [no && r ? `${no} ${r}` : '', r, dest];
+      const f0 = b.flights?.[0];
+      const no = f0?.no ?? '';
+      const dest = f0?.to ?? '';
+      const out = (b.flights?.length ?? 0) > 1 && no && f0 ? `${no} ${f0.from}–${f0.to}` : '';
+      return [no && r ? `${no} ${r}` : '', out, r, no && dest ? `${no} ${dest}` : '', dest];
     }
     case 'positioning': return [r ? `POS ${r}` : '', 'POS'];
     case 'ferry': return [r ? `FERRY ${r}` : '', 'FERRY', 'FRY'];
     case 'ride': return [r ? `POS ${r}` : '', 'POS'];
     case 'deadhead': return [r ? `DH ${r}` : '', 'DH'];
-    case 'off': return ['OFF'];
+    case 'off': return b.label === 'Free' ? [] : ['OFF'];
     case 'sick': return ['SICK'];
     case 'joining': return ['Joining', 'JOIN'];
     case 'training': return b.label.startsWith('Conversion') ? [b.label, 'CONV'] : [b.label, 'TRG'];
@@ -166,19 +168,71 @@ export function workCode(b: Blk): string {
   return '';
 }
 
-/** Work / travel blocks of a row by UTC day index from `from` (first block of each day wins: a duty over travel). */
-export function dayCodes(blocks: (Blk & Pick<CalBlock, 'start' | 'end'>)[], from: number, nDays: number): { day: number; code: string; key: string }[] {
-  const by = new Map<number, { code: string; key: string; rank: number }>();
-  for (const b of blocks) {
+/**
+ * Work / travel blocks of a row by UTC day index from `from` (first block of each day wins: a duty over travel), with
+ * the block's index `i` (the month tile is that block's tap / drag target).
+ */
+export function dayCodes(blocks: (Blk & Pick<CalBlock, 'start' | 'end'>)[], from: number, nDays: number): { day: number; code: string; key: string; i: number }[] {
+  const by = new Map<number, { code: string; key: string; rank: number; i: number }>();
+  for (const [i, b] of blocks.entries()) {
     const code = workCode(b);
     if (!code) continue;
     const day = Math.floor((b.start - from) / DAY);
     if (day < 0 || day >= nDays) continue;
     const rank = calKey(b) === 'operating' || calKey(b) === 'ferry' ? 0 : 1;
     const cur = by.get(day);
-    if (!cur || rank < cur.rank) by.set(day, { code, key: calKey(b), rank });
+    if (!cur || rank < cur.rank) by.set(day, { code, key: calKey(b), rank, i });
   }
-  return [...by.entries()].sort((a, b) => a[0] - b[0]).map(([day, v]) => ({ day, code: v.code, key: v.key }));
+  return [...by.entries()].sort((a, b) => a[0] - b[0]).map(([day, v]) => ({ day, code: v.code, key: v.key, i: v.i }));
+}
+
+/** Smallest tap target (px, Apple HIG). */
+export const HIT = 44;
+
+export interface WeekLabel {
+  /** Block index in the row. */
+  i: number;
+  text: string;
+  /** Label left / width (px in the lane; width 0 = no label). */
+  lx: number;
+  lw: number;
+  /** Tap / drag area left / width: block and label, widened to HIT px where the neighbours leave room. */
+  hx: number;
+  hw: number;
+}
+
+/**
+ * Week zoom: each work / travel block's label ('AWQ121 LIS–FCO–LIS', 'DH LIS–FCO') in the band above the time bars,
+ * using the free lane after (or before) the block within its day, up to the next block; plus its ≥ HIT px hit area.
+ * Labels never overlap and are never truncated (the longest candidate that fits whole).
+ */
+export function weekLabels(blocks: (Blk & Pick<CalBlock, 'start' | 'end'>)[], from: number, dayW: number, measure: (s: string) => number = estimateW, pad = 10): WeekLabel[] {
+  const ppm = dayW / DAY;
+  const work = [...blocks.entries()].filter(([, b]) => calLayer(b) === 2 && b.kind !== 'rest').sort((a, b) => a[1].start - b[1].start);
+  const out: WeekLabel[] = [];
+  let cursor = -Infinity;
+  for (let k = 0; k < work.length; k++) {
+    const [i, b] = work[k];
+    const bl = (b.start - from) * ppm;
+    const br = Math.max(bl + 3, (b.end - from) * ppm);
+    const next = k + 1 < work.length ? (work[k + 1][1].start - from) * ppm : Infinity;
+    const dayL = Math.floor((b.start - from) / DAY) * dayW;
+    const left = Math.max(dayL, cursor);
+    const right = Math.min(next, Math.max(dayL + dayW, br));
+    const text = fitText(blockCands(b), right - left, measure, pad);
+    const lw = text ? measure(text) + pad : 0;
+    const lx = text ? Math.max(left, Math.min(bl, right - lw)) : bl;
+    let hx = text ? Math.min(bl, lx) : bl;
+    let hr = text ? Math.max(br, lx + lw) : br;
+    if (hr - hx < HIT) {
+      const grow = (HIT - (hr - hx)) / 2;
+      hx = Math.max(cursor, hx - grow);
+      hr = Math.min(next, Math.max(hr + grow, hx + HIT));
+    }
+    out.push({ i, text, lx, lw, hx, hw: Math.max(0, hr - hx) });
+    cursor = Math.max(cursor, br, hr);
+  }
+  return out;
 }
 
 export type TargetTone = 'legal' | 'tight' | 'illegal' | 'ineligible';

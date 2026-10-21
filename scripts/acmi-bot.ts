@@ -42,6 +42,10 @@ const BIG = process.argv.includes('--big');
 const MSGS = process.argv.includes('--msgs');
 /** v0.6: take the first widebody lease the cash allows (exercises conversions and widebody extra crew). */
 const WIDE = process.argv.includes('--wide');
+/** Fixed crew policies for the whole run (hotel★,perDiem%,tourWeeks), e.g. --policy=3,80,6 for stingy play. */
+const POLICY = process.argv.find((a) => a.startsWith('--policy='))?.slice(9).split(',').map(Number);
+/** Extra cabin crew on every aircraft (--extra=2). */
+const EXTRA = Number(process.argv.find((a) => a.startsWith('--extra='))?.slice(8) ?? 0);
 const BIG_DAYS = Number(process.env.BIG_DAYS ?? 120);
 const STEP = 6 * 60;
 
@@ -179,8 +183,9 @@ function paidExtra(g: GameState, o: ContractOffer, aircraftId: string): { cabin:
   const family = typeOf(g.fleet[aircraftId].typeId).family;
   const cc = staffing(g).find((l) => l.family === family && l.role === 'CC');
   const cur = g.fleet[aircraftId].crewExtra?.cabin ?? g.company.policies.extraCabin;
-  if (cur >= paid.n) return { cabin: cur, pilot: 0 };
-  return cc && cc.have - cc.need >= paid.n * 2 ? { cabin: paid.n, pilot: 0 } : null;
+  const want = o.requirements.extraCabin + paid.n;
+  if (cur >= want) return { cabin: cur, pilot: 0 };
+  return cc && cc.have - cc.need >= paid.n * 2 ? { cabin: want, pilot: 0 } : null;
 }
 
 /** Crew trouble in the inbox over the last two weeks (legs sub-chartered or cancelled for want of a legal crew). */
@@ -235,6 +240,11 @@ function rehire(g: GameState, t: Tally): void {
  * the defaults again above 66 (weekly averages in g.stats.moraleWeeks).
  */
 function policies(g: GameState, t: Tally): void {
+  if (POLICY) {
+    const [hotelTier, perDiemPct, rotationWeeks] = POLICY;
+    Object.assign(g.company.policies, { hotelTier: hotelTier as 3 | 4 | 5, perDiemPct, rotationWeeks });
+    return;
+  }
   const w = g.stats.moraleWeeks ?? [];
   if (!w.length || Math.floor((g.now - g.started) / DAY) % 7 !== 1) return;
   const p = g.company.policies;
@@ -251,6 +261,10 @@ function policies(g: GameState, t: Tally): void {
 
 /** v0.6: one extra cabin crew on widebodies (set once per aircraft). */
 function extraCrew(g: GameState, t: Tally): void {
+  if (EXTRA) {
+    for (const ac of Object.values(g.fleet)) if (!ac.crewExtra) setCrewExtra(g, { aircraftId: ac.id }, { cabin: EXTRA, pilot: 0 });
+    return;
+  }
   for (const ac of Object.values(g.fleet)) {
     if (typeOf(ac.typeId).body !== 'wide' || ac.crewExtra) continue;
     if (setCrewExtra(g, { aircraftId: ac.id }, { cabin: 1, pilot: 0 }).ok) act(g, t);

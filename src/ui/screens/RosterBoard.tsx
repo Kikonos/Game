@@ -10,13 +10,13 @@ import { flightsRev } from '../../engine/core/entities';
 import { DAY, HOUR, dayStart, fmtDay, toDate } from '../../engine/core/time';
 import type { GameState, Role } from '../../engine/core/types';
 import type { RatingFamily } from '../../data/acmiTypes';
-import { crewRev, dropTargets, moveDuty, rosterBoard, type BoardBlock, type BoardRow, type DropTarget, type MoveScope } from '../../engine/crew';
+import { crewRev, dropTargets, familyLabel, moveDuty, rosterBoard, type BoardBlock, type BoardRow, type DropTarget, type MoveScope } from '../../engine/crew';
 import { Seg } from '../components/ui';
 import { liveMinute, store } from '../store';
 import { CAL_KEY_LABEL, calKey, calLayer, calLegend, type CalKey } from './crewLogic';
 import {
   BACK_DAYS, BOARD_DAYS, blockCands, boardItems, boardLayout, dayCodes, dayWidth, dayWindow, edgeSpeed, fitText, HEAD_H, itemAt, LEFT_W,
-  moraleTone, NO_BOARD_FILTER, ROLE_PLURAL, verdictText, visibleRange, type BoardFilter, type BoardItem, type BoardZoom, type RankFilter,
+  moraleTone, NO_BOARD_FILTER, ROLE_PLURAL, verdictText, visibleRange, weekLabels, type BoardFilter, type BoardItem, type BoardZoom, type RankFilter,
 } from './rosterBoardLogic';
 
 const ZOOM_KEY = 'bh.boardZoom';
@@ -81,6 +81,8 @@ const Row = memo(function Row({ row, from, dayW, d0, d1, zoom, tone, selecting, 
     .filter(([b]) => b.end > lo && b.start < hi && !(month && b.kind === 'rest'))
     .sort((a, b) => calLayer(a[0]) - calLayer(b[0]));
   const codes = month ? dayCodes(row.blocks, from, BOARD_DAYS).filter((c) => c.day >= d0 && c.day < d1) : [];
+  // Week: flight numbers and route in the band above the bars, each with a ≥ 44 px tap / drag area.
+  const labels = month ? [] : weekLabels(row.blocks, from, dayW, measure).filter((l) => l.hx < d1 * dayW && l.hx + l.hw > d0 * dayW);
   return (
     <div className={`rb-row ${tone ? `dt-${tone}` : ''} ${checked ? 'checked' : ''}`} data-row={row.crewId}>
       <div className="rb-name" data-name={row.crewId}>
@@ -88,7 +90,7 @@ const Row = memo(function Row({ row, from, dayW, d0, d1, zoom, tone, selecting, 
         <span className="col rb-name-txt">
           <span className="row gap-4"><span className={`sc-role r-${row.role}`}>{row.role}</span><b className="ellipsis">{row.name}</b></span>
           <span className="row gap-4 tiny muted">
-            <span className={`rb-morale ${moraleTone(row.morale)}`} aria-label={`Morale ${row.morale}`} />
+            <span className={`rb-morale ${moraleTone(row.morale)}`} aria-label={`Morale ${row.morale}`} title={`Morale ${row.morale}`} />
             <span>{row.base}</span>
             {row.leaves !== null && <span className="rb-leaves">Leaves {fmtLeave(row.leaves)}</span>}
           </span>
@@ -99,9 +101,22 @@ const Row = memo(function Row({ row, from, dayW, d0, d1, zoom, tone, selecting, 
           <span className="rb-left" style={{ left: Math.max(0, (row.leaves - from) * ppm), width: Math.max(0, W - Math.max(0, (row.leaves - from) * ppm)) }} />
         )}
         {blocks.map(([b, i]) => <Block key={i} b={b} i={i} crewId={row.crewId} from={from} ppm={ppm} W={W} month={month} />)}
+        {labels.map((l) => {
+          const b = row.blocks[l.i];
+          return (
+            <span key={`h${l.i}`} className={`rb-hit k-${calKey(b)}`} style={{ left: l.hx, width: l.hw }} data-c={row.crewId} data-i={l.i} data-mv={b.movable ? 1 : undefined}>
+              {l.text && <span className="rb-lbl" style={{ left: l.lx - l.hx, width: l.lw }}>{l.text}</span>}
+            </span>
+          );
+        })}
         {codes.map((c) => {
           const txt = fitText([c.code], dayW, measure, 2);
-          return txt ? <span key={c.day} className={`rb-code k-${c.key}`} style={{ left: c.day * dayW, width: dayW }}>{txt}</span> : null;
+          const b = row.blocks[c.i];
+          return (
+            <span key={c.day} className={`rb-code k-${c.key}`} style={{ left: c.day * dayW, width: dayW }} data-c={row.crewId} data-i={c.i} data-mv={b?.movable ? 1 : undefined}>
+              {txt && <span className="rb-code-t">{txt}</span>}
+            </span>
+          );
         })}
       </div>
     </div>
@@ -116,10 +131,12 @@ function Block({ b, i, crewId, from, ppm, W, month }: { b: BoardBlock; i: number
   const w = r - l;
   if (w <= 0) return null;
   const thin = month && layer === 2;
-  const txt = thin || key === 'rest' ? '' : fitText(blockCands(b), w - (b.locked ? 14 : 0), measure, month ? 4 : 12);
+  // Work and travel labels live in the week band (weekLabels) or the month day tile; status windows label themselves.
+  const txt = layer === 2 || key === 'rest' ? '' : fitText(blockCands(b), w - (b.locked ? 14 : 0), measure, month ? 4 : 12);
+  const free = key === 'off' && b.label === 'Free';
   return (
     <span
-      className={`sc-cal rb-blk k-${key} l${layer} ${thin ? 'rb-thin' : ''} ${b.movable ? 'mv' : ''} ${b.legality && b.legality !== 'legal' ? b.legality : ''}`}
+      className={`sc-cal rb-blk k-${key} l${layer} ${thin ? 'rb-thin' : ''} ${free ? 'free' : ''} ${b.movable ? 'mv' : ''} ${b.legality && b.legality !== 'legal' ? b.legality : ''}`}
       style={{ left: l, width: Math.max(3, w) }}
       data-c={crewId}
       data-i={i}
@@ -160,7 +177,9 @@ interface Drag {
   y: number;
   crewId: string;
   dutyId: string;
+  /** The block's bar (the ghost is drawn from it) and its label. */
   el: HTMLElement;
+  label: string;
   timer: number;
   offX: number;
   offY: number;
@@ -252,12 +271,19 @@ export function RosterBoard({ g, selecting, selected, onSelect }: RosterBoardPro
   }, [sync]);
   useLayoutEffect(sync, [sync, items, groupH, dayW]);
 
-  // Today near the left edge on open and on Today; zoom keeps the day at the left edge.
+  // Today near the left edge on open and on Today (yesterday whole in Week, three days back in Month); a new day
+  // width (resize, zoom) keeps the same day at the left edge, so a column is never cut at the name column.
   const goToday = useCallback(() => {
     const el = scroller.current;
-    if (el) el.scrollLeft = Math.max(0, (BACK_DAYS - (zoomRef.current === 'week' ? 0.25 : 3)) * dayWidth(zoomRef.current, el.clientWidth));
+    if (el) el.scrollLeft = Math.max(0, (BACK_DAYS - (zoomRef.current === 'week' ? 1 : 3)) * dayWidth(zoomRef.current, el.clientWidth));
   }, []);
   useLayoutEffect(goToday, [goToday]);
+  const prevDayW = useRef(dayW);
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (el && prevDayW.current !== dayW) el.scrollLeft = Math.round(el.scrollLeft / prevDayW.current) * dayW;
+    prevDayW.current = dayW;
+  }, [dayW]);
   const prevFrom = useRef(from);
   useLayoutEffect(() => {
     // Midnight: the window moves a day; keep the grid still under the finger.
@@ -267,7 +293,7 @@ export function RosterBoard({ g, selecting, selected, onSelect }: RosterBoardPro
   }, [from, dayW]);
   const setZoom = (z: BoardZoom) => {
     const el = scroller.current;
-    const day = el ? el.scrollLeft / dayW : 0;
+    const day = el ? Math.round(el.scrollLeft / dayW) : 0;
     zoomRef.current = z;
     setZoomS(z);
     remember(ZOOM_KEY, z);
@@ -310,27 +336,48 @@ export function RosterBoard({ g, selecting, selected, onSelect }: RosterBoardPro
       }
     };
 
+    // Bubble above the ghost, below it in the top third of the grid; never over the source row.
     const place = (d: Drag) => {
       if (d.ghost) d.ghost.style.transform = `translate(${d.x - d.offX}px, ${d.y - d.offY}px) scale(1.04)`;
-      if (d.bubble) {
-        d.bubble.style.left = `${Math.round(d.x)}px`;
-        d.bubble.style.top = `${Math.round(d.y - d.offY - 12)}px`;
-      }
+      const bub = d.bubble;
+      if (!bub) return;
+      const r = el.getBoundingClientRect();
+      const gTop = d.y - d.offY;
+      const gBot = gTop + (d.ghost?.offsetHeight ?? 26) * 1.04;
+      const bh = bub.offsetHeight || 34;
+      const bw = bub.offsetWidth || 200;
+      const above = gTop - 10 - bh;
+      const below = gBot + 10;
+      const src = rowEl(d.crewId)?.getBoundingClientRect();
+      const hits = (t: number) => !!src && t < src.bottom && t + bh > src.top;
+      let top = d.y < r.top + HEAD_H + (r.height - HEAD_H) / 3 ? below : above;
+      if (hits(top)) top = top === above ? below : above;
+      bub.style.left = `${Math.round(Math.min(Math.max(d.x, bw / 2 + 8), window.innerWidth - bw / 2 - 8))}px`;
+      bub.style.top = `${Math.round(Math.max(4, Math.min(top, window.innerHeight - bh - 4)))}px`;
     };
 
     const pickup = (d: Drag) => {
       const { g: gg, scope: sc } = live.current;
       d.phase = 'drag';
+      // The clock holds while a duty is in hand (the verdicts are taken once, at pick-up).
+      store.holdTime = true;
       d.targets = dropTargets(gg, d.dutyId, d.crewId, sc);
       const rect = d.el.getBoundingClientRect();
-      const ghost = d.el.cloneNode(true) as HTMLElement;
+      const ghost = d.el.cloneNode(false) as HTMLElement;
       ghost.classList.add('rb-ghost');
+      ghost.classList.remove('rb-thin');
+      const t = document.createElement('span');
+      t.className = 'sc-cal-t';
+      t.textContent = d.label;
+      ghost.append(t);
+      const gw = Math.max(56, rect.width, d.label ? measure(d.label) + 14 : 0);
+      const gh = Math.max(26, rect.height);
       ghost.style.left = '0px';
       ghost.style.top = '0px';
-      ghost.style.width = `${Math.max(56, rect.width)}px`;
-      ghost.style.height = `${rect.height}px`;
-      d.offX = Math.min(Math.max(0, d.x0 - rect.left), Math.max(56, rect.width));
-      d.offY = d.y0 - rect.top;
+      ghost.style.width = `${gw}px`;
+      ghost.style.height = `${gh}px`;
+      d.offX = Math.min(Math.max(0, d.x0 - rect.left), gw);
+      d.offY = Math.min(Math.max(0, d.y0 - rect.top), gh);
       const bubble = document.createElement('div');
       bubble.className = 'rb-bubble';
       document.body.append(ghost, bubble);
@@ -362,6 +409,7 @@ export function RosterBoard({ g, selecting, selected, onSelect }: RosterBoardPro
       if (!d) return;
       window.clearTimeout(d.timer);
       if (d.phase !== 'drag') return;
+      store.holdTime = false;
       cancelAnimationFrame(d.raf);
       d.ghost?.remove();
       d.bubble?.remove();
@@ -382,12 +430,16 @@ export function RosterBoard({ g, selecting, selected, onSelect }: RosterBoardPro
     };
 
     const press = (target: EventTarget | null, x: number, y: number, touch: boolean): Drag | null => {
-      const blk = (target as Element | null)?.closest?.<HTMLElement>('.rb-blk[data-mv]');
-      if (!blk) return null;
-      const crewId = blk.dataset.c!;
-      const b = rowsRef.current.get(crewId)?.blocks[Number(blk.dataset.i)];
+      // The bar, its week label / hit area or its month day tile.
+      const hit = (target as Element | null)?.closest?.<HTMLElement>('[data-mv][data-c]');
+      if (!hit) return null;
+      const crewId = hit.dataset.c!;
+      const i = hit.dataset.i!;
+      const b = rowsRef.current.get(crewId)?.blocks[Number(i)];
       if (!b?.dutyId) return null;
-      return { phase: 'press', touch, x0: x, y0: y, x, y, crewId, dutyId: b.dutyId, el: blk, timer: 0, offX: 0, offY: 0, hover: null, raf: 0, t: 0 };
+      const bar = hit.classList.contains('rb-blk') ? hit : hit.parentElement?.querySelector<HTMLElement>(`.rb-blk[data-i="${i}"]`) ?? hit;
+      const label = blockCands(b).find((c) => c && measure(c) <= 220) ?? '';
+      return { phase: 'press', touch, x0: x, y0: y, x, y, crewId, dutyId: b.dutyId, el: bar, label, timer: 0, offX: 0, offY: 0, hover: null, raf: 0, t: 0 };
     };
 
     // Touch: a long press picks up; moving first scrolls as normal.
@@ -488,7 +540,7 @@ export function RosterBoard({ g, selecting, selected, onSelect }: RosterBoardPro
       else store.navigate('crew', { sel: { kind: 'crew', id }, view: 'people' });
       return;
     }
-    const blk = t.closest<HTMLElement>('.rb-blk');
+    const blk = t.closest<HTMLElement>('[data-c][data-i]');
     if (!blk) return setPop(null);
     const b = rows.get(blk.dataset.c!)?.blocks[Number(blk.dataset.i)];
     if (!b) return;
@@ -498,7 +550,7 @@ export function RosterBoard({ g, selecting, selected, onSelect }: RosterBoardPro
       return;
     }
     const k = calKey(b);
-    setPop({ x: e.clientX, y: e.clientY, key: k, title: b.kind === 'training' || b.kind === 'leave' ? b.label : CAL_KEY_LABEL[k], detail: b.detail });
+    setPop({ x: e.clientX, y: e.clientY, key: k, title: b.kind === 'training' || b.kind === 'leave' ? b.label : b.label === 'Free' ? 'Not rostered yet' : CAL_KEY_LABEL[k], detail: b.detail });
   };
 
   const families = useMemo(() => [...new Set(Object.values(g.crew).flatMap((c) => c.ratings))].sort() as RatingFamily[], [g, nCrew, crev]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -524,7 +576,7 @@ export function RosterBoard({ g, selecting, selected, onSelect }: RosterBoardPro
         {families.length > 1 && (
           <select className="select" value={f.family} onChange={(e) => setF({ ...f, family: e.target.value as BoardFilter['family'] })} aria-label="Type">
             <option value="all">Any type</option>
-            {families.map((x) => <option key={x} value={x}>{x}</option>)}
+            {families.map((x) => <option key={x} value={x}>{familyLabel(x)}</option>)}
           </select>
         )}
         <input className="input rb-search" value={f.q} placeholder="Name, base" onChange={(e) => setF({ ...f, q: e.target.value })} aria-label="Search crew" />

@@ -4,6 +4,7 @@
 import { ArrowDownRight, ArrowRight, ArrowUpRight, Check, CheckSquare, GraduationCap, LayoutGrid, List, Lock, Search, UserPlus, Users, X } from 'lucide-react';
 import { FlightTypeChip } from '../components/FlightType';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { RatingFamily } from '../../data/acmiTypes';
 import { flag } from '../../data/countries';
 import { flightsRev } from '../../engine/core/entities';
 import { DAY, HOUR, dayStart, fmtDate, fmtDay, fmtTime, monthKey, monthStart, nextMonthStart, toDate } from '../../engine/core/time';
@@ -30,19 +31,38 @@ const h = (min: number) => min / HOUR;
 
 function Staffing({ g }: { g: GameState }) {
   const lines = staffing(g);
-  if (!lines.length) return null;
+  // v0.6: a type crew hold with no aircraft of it (converted ahead of a delivery, or left over): idle but paid.
+  const flown = new Set(lines.map((l) => l.family));
+  const idle = new Map<string, { p: number; c: number }>();
+  for (const c of Object.values(g.crew)) {
+    for (const f of c.ratings) {
+      if (flown.has(f)) continue;
+      const x = idle.get(f) ?? { p: 0, c: 0 };
+      if (isPilotRole(c.role)) x.p++;
+      else x.c++;
+      idle.set(f, x);
+    }
+  }
+  if (!lines.length && !idle.size) return null;
   return (
     <div className="sc-staff">
       {lines.map((l) => {
         const short = l.have < l.need;
         return (
           <button key={`${l.family}-${l.role}`} className={`sc-staff-chip ${short ? 'short' : ''}`} onClick={() => store.openModal({ kind: 'hire', role: l.role, family: l.family })} data-tip={`${ROLE_LABEL[l.role]}: ${l.have} on the books, ${l.need} needed for the fleet`}>
-            <span className="tiny dim">{l.family}</span>
+            <span className="tiny dim">{familyLabel(l.family)}</span>
             <b>{l.role}</b>
             <span className={`num ${short ? 'warn' : ''}`}>{l.have}/{l.need}</span>
           </button>
         );
       })}
+      {[...idle].map(([f, x]) => (
+        <span key={f} className="sc-staff-chip idle" data-tip={`${x.p} pilots and ${x.c} cabin crew hold the ${familyLabel(f as RatingFamily)}; no aircraft of it in the fleet or on order`}>
+          <span className="tiny dim">{familyLabel(f as RatingFamily)}</span>
+          <b>No aircraft</b>
+          <span className="num tiny muted">{x.p ? `${x.p} pilot${x.p === 1 ? '' : 's'}` : ''}{x.p && x.c ? ' · ' : ''}{x.c ? `${x.c} cabin` : ''}</span>
+        </span>
+      ))}
     </div>
   );
 }
@@ -58,7 +78,7 @@ function CrewRow({ g, c, w, on, t, selecting, checked, onTap }: { g: GameState; 
     <button className={`sc-crew-row ${on ? 'on' : ''} ${selecting ? 'selecting' : ''} ${checked ? 'checked' : ''}`} onClick={onTap} aria-pressed={selecting ? checked : undefined}>
       {selecting && <span className={`rb-check ${checked ? 'on' : ''}`} aria-hidden>{checked && <Check />}</span>}
       <span className="col sc-crew-name">
-        <span className="row gap-8"><span className={`rb-morale ${moraleTone(c.morale)}`} aria-label={`Morale ${Math.round(c.morale)}`} /><span className={`sc-role r-${c.role}`}>{c.role}</span><b className="ellipsis">{c.last}, {c.first}</b></span>
+        <span className="row gap-8"><span className={`rb-morale ${moraleTone(c.morale)}`} aria-label={`Morale ${Math.round(c.morale)}`} title={`Morale ${Math.round(c.morale)}`} /><span className={`sc-role r-${c.role}`}>{c.role}</span><b className="ellipsis">{c.last}, {c.first}</b></span>
         <span className="tiny muted row gap-4 ellipsis">
           {where ? <><Dot tone="info" />{where}</> : training ? <><Dot tone="warn" />{training}</> : <><Dot tone={STATUS_TONE[c.status]} />{CREW_STATUS_LABEL[c.status]} · {c.loc}{c.loc !== c.base ? ` (base ${c.base})` : ''}{booked}</>}
           {c.notice && <span className="bad nowrap"> · Leaves {fmtDay(c.notice.leaves - 1)}</span>}
@@ -299,7 +319,7 @@ function Detail({ g, c }: { g: GameState; c: CrewMember }) {
           <span className="sc-flag" aria-hidden>{flag(c.nationality)}</span>
           <div className="grow" style={{ minWidth: 0 }}>
             <h3 className="ellipsis">{crewName(c)}</h3>
-            <div className="small muted">{ROLE_LABEL[c.role]} · {c.ratings.join(', ') || 'no rating'} · base {c.base}</div>
+            <div className="small muted">{ROLE_LABEL[c.role]} · {c.ratings.map(familyLabel).join(', ') || 'no rating'} · base {c.base}</div>
           </div>
           <span className={`badge ${sv.tone === 'bad' ? 'bad' : sv.tone === 'warn' ? 'warn' : sv.tone === 'good' ? 'good' : ''}`}>{sv.label}</span>
         </div>
@@ -362,7 +382,7 @@ function SelectBar({ g, ids, onClear, onDone }: { g: GameState; ids: string[]; o
       <span className="small muted ellipsis">{ids.length ? `${pilots} pilot${pilots === 1 ? '' : 's'} · ${ids.length - pilots} cabin crew` : 'Tap people or a group to select them'}</span>
       <span className="grow" />
       <button className="btn" onClick={onClear} disabled={!ids.length}>Clear</button>
-      <button className="btn btn-primary" onClick={() => store.openModal({ kind: 'convert', crewIds: ids })} disabled={!ids.length}><GraduationCap /> Convert…</button>
+      <button className="btn btn-primary" onClick={() => store.openModal({ kind: 'convert', crewIds: ids, onBooked: onDone })} disabled={!ids.length}><GraduationCap /> Convert…</button>
       <button className="btn btn-ghost btn-icon" onClick={onDone} aria-label="Done selecting"><X /></button>
     </div>
   );

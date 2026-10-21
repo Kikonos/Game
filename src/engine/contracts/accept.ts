@@ -50,7 +50,7 @@ const firstNo = (rep: ReturnType<typeof feasibility>, skipPaint = false) => rep.
 export interface SignOpts {
   paint?: boolean;
   priced?: boolean;
-  /** v0.6: extra crew for this contract (paid option met when cabin ≥ requirements.extraCabinPaid.n). */
+  /** v0.6: extra crew for this contract (paid option met when cabin ≥ requirements.extraCabin + extraCabinPaid.n). */
   crewExtra?: CrewExtra;
 }
 
@@ -137,10 +137,12 @@ function signCrewExtra(g: GameState, c: Contract, aircraftId: string, x: CrewExt
   if (x) c.crewExtra = { cabin: clamp(Math.round(x.cabin), 0, BAL.crewExtra.cabinMax), pilot: x.pilot ? 1 : 0 };
   const paid = c.requirements.extraCabinPaid;
   if (!paid) return;
+  // Paid crew fly above the client's own required extra.
+  const want = c.requirements.extraCabin + paid.n;
   const eff = crewExtraFor(g, aircraftId, c.id);
-  if (eff.cabin < paid.n) return;
+  if (eff.cabin < want) return;
   c.extraPaid = true;
-  c.crewExtra = { cabin: Math.max(eff.cabin, paid.n), pilot: eff.pilot ? 1 : 0 };
+  c.crewExtra = { cabin: Math.max(eff.cabin, want), pilot: eff.pilot ? 1 : 0 };
   const p = c.product;
   setPrice(c, (p.kind === 'wet' ? p.ratePerBH : p.kind === 'charter' ? p.price : p.rentPerMonth) * (1 + paid.pct));
 }

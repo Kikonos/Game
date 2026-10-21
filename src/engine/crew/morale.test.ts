@@ -6,6 +6,9 @@ import { BAL } from '../core/balance';
 import { DAY } from '../core/time';
 import type { CrewMember, GameState } from '../core/types';
 import { run } from '../contracts/testkit';
+import { priceProduct } from '../contracts/pricing';
+import { fromUTC } from '../core/time';
+import { monthlyMorale } from './morale';
 import { demoFlights } from '../dev';
 import { monthlySalaries } from './costs';
 import { addCrew, fixtureContract, fixtureGame } from './fixtures';
@@ -20,9 +23,10 @@ const one = (g: GameState, role = 'CC') => Object.values(g.crew).find((c) => c.r
 describe('morale target and drift', () => {
   it('the target follows the policy table', () => {
     expect(moraleTarget({ perDiemPct: 100, rotationWeeks: 5 })).toBe(65);
-    expect(moraleTarget({ perDiemPct: 80, rotationWeeks: 6 })).toBe(60);
-    expect(moraleTarget({ perDiemPct: 120, rotationWeeks: 4 })).toBe(70);
-    expect(moraleTarget({ perDiemPct: 150, rotationWeeks: 4 })).toBe(73);
+    expect(moraleTarget({ perDiemPct: 80, rotationWeeks: 6 })).toBe(54);
+    expect(moraleTarget({ perDiemPct: 120, rotationWeeks: 4 })).toBe(74);
+    expect(moraleTarget({ perDiemPct: 150, rotationWeeks: 4 })).toBe(74);
+    expect(moraleTarget({ perDiemPct: 90, rotationWeeks: 5 })).toBe(62);
   });
 
   it('over 180 days default policies settle at 60–70, stingy ones lower, generous ones higher', () => {
@@ -41,13 +45,31 @@ describe('morale target and drift', () => {
     expect(settle(120, 4, 5)).toBeGreaterThan(def + 3);
   }, 30_000);
 
+  it('stingy policies settle at 55 or below with at least 1.5× the resignation odds and +20% sick calls', () => {
+    const settle = (perDiemPct: number, rotationWeeks: 4 | 5 | 6, hotelTier: 3 | 4 | 5) => {
+      const g = fixtureGame(12);
+      g.company.cash = 50_000_000;
+      Object.assign(g.company.policies, { perDiemPct, rotationWeeks, hotelTier });
+      demoFlights(g, ['FAO', 'FNC', 'PMI', 'OPO'], 4, 'revenue');
+      run(g, g.started + 150 * DAY);
+      const cs = Object.values(g.crew).filter((c) => !c.notice);
+      const mean = (f: (c: CrewMember) => number) => cs.reduce((s, c) => s + f(c), 0) / cs.length;
+      return { m: avg(g), resign: mean((c) => resignChance(g, c)), sick: mean((c) => sickMult(c.morale)) };
+    };
+    const def = settle(100, 5, 4);
+    const cheap = settle(80, 6, 3);
+    expect(cheap.m).toBeLessThanOrEqual(55);
+    expect(cheap.resign / def.resign).toBeGreaterThanOrEqual(1.5);
+    expect(cheap.sick / def.sick).toBeGreaterThanOrEqual(1.15);
+  }, 30_000);
+
   it('the policy preview shows the target and cost change before commit (pure)', () => {
     const g = fixtureGame();
     g.finance.history.push({ ...g.finance.current, lines: { perDiem: -20_000, hotels: -10_000, deadhead: -5_000 }, closed: true });
     const before = JSON.stringify(g);
     const p = policyPreview(g, { perDiemPct: 120 });
     expect(JSON.stringify(g)).toBe(before);
-    expect(p).toEqual({ target: 68, targetNow: 65, costPerMonth: 39_000, costNow: 35_000 });
+    expect(p).toEqual({ target: 71, targetNow: 65, costPerMonth: 39_000, costNow: 35_000 });
     expect(policyPreview(g, { hotelTier: 5 }).costPerMonth).toBe(Math.round(20_000 + 10_000 * (230 / 140) + 5_000));
   });
 });
@@ -119,29 +141,28 @@ describe('morale drivers', () => {
 
   it('sickness slope and resignation multipliers', () => {
     expect(sickMult(70)).toBe(1);
-    expect(sickMult(60)).toBe(1);
-    expect(sickMult(30)).toBeCloseTo(1.6);
+    expect(sickMult(65)).toBe(1);
+    expect(sickMult(50)).toBeCloseTo(1.3);
+    expect(sickMult(30)).toBeCloseTo(1.7);
     const g = fixtureGame();
     const c = one(g);
-    c.morale = 75;
-    expect(resignChance(g, c)).toBeCloseTo(0.004);
-    c.morale = 55;
-    expect(resignChance(g, c)).toBeCloseTo(0.008);
-    c.morale = 40;
-    expect(resignChance(g, c)).toBeCloseTo(0.016);
-    c.morale = 20;
-    expect(resignChance(g, c)).toBeCloseTo(0.024);
+    const R = BAL.morale.resignPerMonth;
+    // Continuous between the points, flat beyond the ends.
+    for (const [m, x] of [[90, 0.4], [75, 0.5], [60, 0.9], [55, 1.35], [40, 2.5], [20, 3]] as const) {
+      c.morale = m;
+      expect(resignChance(g, c)).toBeCloseTo(R * x, 6);
+    }
     c.bondUntil = g.now + DAY;
-    expect(resignChance(g, c)).toBeCloseTo(0.024 * BAL.conv.bondFactor);
+    expect(resignChance(g, c)).toBeCloseTo(R * 3 * BAL.conv.bondFactor);
     const v = moraleOf(g, c.id);
-    expect(v.sickMult).toBeCloseTo(1.8);
+    expect(v.sickMult).toBeCloseTo(1.9);
     expect(v.resignPerMonth).toBeCloseTo(0.0072);
   });
 
   it('resignations over 20,000 seeded crew-months match resignPerMonth × mult within 15%', () => {
     const g = fixtureGame();
     const c: CrewMember = { ...one(g) };
-    for (const [m, mult] of [[65, 1], [35, 2]] as const) {
+    for (const [m, mult] of [[65, 0.75], [35, 2.75]] as const) {
       c.morale = m;
       let n = 0;
       const crewN = 200;
@@ -236,5 +257,20 @@ describe('service quality', () => {
     expect(g.crew[extra[0]].moraleWhy?.recognition).toBe(BAL.morale.recognition);
     expect(settleService(g, k)).toBeNull();
     expect(rel).toBeDefined();
+  });
+
+  it('client satisfaction fades 2 a month toward neutral and moves the asking price up to ±5%', () => {
+    const g = fixtureGame();
+    const [a, b] = Object.keys(g.clients).sort();
+    g.clients[a].relation = 5;
+    g.clients[b].relation = -1;
+    monthlyMorale(g);
+    expect(g.clients[a].relation).toBe(3);
+    expect(g.clients[b].relation).toBe(0);
+    const base = { archetype: 'seasonBase' as const, typeId: 'a320ceo', estBH: 300, start: fromUTC(2027, 6, 1), end: fromUTC(2027, 9, 1), lead: 30 * DAY };
+    const p0 = priceProduct(g, base);
+    const p1 = priceProduct(g, { ...base, loyalty: 100 * BAL.morale.service.relationPremium });
+    if (p0.kind !== 'wet' || p1.kind !== 'wet') throw new Error('wet');
+    expect(p1.ratePerBH / p0.ratePerBH).toBeCloseTo(1.05, 2);
   });
 });

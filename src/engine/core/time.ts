@@ -118,6 +118,10 @@ export function fmtDay(t: Minute): string {
   return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
 }
 
+/** '1 Mar' / '1 Mar 2027' on the local calendar at an airport (home-base dates in messages: classes, leave dates). */
+export const fmtDayAt = (code: string, t: Minute): string => fmtDay(toLocal(code, t));
+export const fmtDateAt = (code: string, t: Minute): string => fmtDate(toLocal(code, t));
+
 /** '14:05' (UTC unless an airport is given). */
 export function fmtTime(t: Minute, airport?: string): string {
   const m = airport ? localMinuteOfDay(airport, t) : minuteOfDay(t);

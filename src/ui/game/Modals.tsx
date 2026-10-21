@@ -236,7 +236,7 @@ export function GlobalModals() {
     case 'duty': return s.game ? <DutyModal id={m.id} /> : null;
     case 'subcharter': return s.game ? <SubcharterModal contractId={m.contractId} flightId={m.flightId} /> : null;
     case 'livery': return s.game ? <LiveryModal target={m.target} /> : null;
-    case 'convert': return s.game ? <ConvertModal key={m.crewIds.join()} crewIds={m.crewIds} family={m.family} /> : null;
+    case 'convert': return s.game ? <ConvertModal key={m.crewIds.join()} crewIds={m.crewIds} family={m.family} onBooked={m.onBooked} /> : null;
     case 'classes': return s.game ? <ClassesModal /> : null;
   }
 }

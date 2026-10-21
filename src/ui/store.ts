@@ -77,7 +77,7 @@ export type ModalSpec =
   /** v0.5.1 livery editor: the company livery or one aircraft's (Company · All white · Custom). */
   | { kind: 'livery'; target: 'company' | { aircraftId: string } }
   /** v0.6: bulk type-rating conversion for the selected crew; the classes list (cancel per class / member). */
-  | { kind: 'convert'; crewIds: string[]; family?: RatingFamily }
+  | { kind: 'convert'; crewIds: string[]; family?: RatingFamily; onBooked?: () => void }
   | { kind: 'classes' };
 
 export interface Toast {
@@ -124,6 +124,8 @@ class GameStore {
   pauseReason: PauseReason | null = null;
   nav: Nav = { tab: 'map' };
   modal: ModalSpec | null = null;
+  /** v0.6: a roster-board drag in progress holds the clock like a modal (no render; the speed control stays as set). */
+  holdTime = false;
   toasts: Toast[] = [];
   settings: Settings = loadSettings();
   version = 0;
@@ -340,7 +342,7 @@ class GameStore {
   /** Advances game time by dt real ms: events up to floor(exact), React refresh at most once per game hour. */
   private frame(dt: number) {
     const g = this.game;
-    if (!g || this.paused || this.blocked || this.modal) return;
+    if (!g || this.paused || this.blocked || this.modal || this.holdTime) return;
     this.exact += dt * minutesPerMs(this.speed);
     const target = Math.floor(this.exact);
     if (target > g.now) {

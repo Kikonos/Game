@@ -91,7 +91,7 @@ function LiveryRow({ g, ac }: { g: GameState; ac: Aircraft }) {
 function CrewExtraRow({ g, ac }: { g: GameState; ac: Aircraft }) {
   const x = ac.crewExtra ?? { cabin: g.company.policies.extraCabin, pilot: 0 as const };
   const q = crewExtraQuote(g, ac.id, x);
-  const set = (v: CrewExtra | null) => store.act((gg) => setCrewExtra(gg, { aircraftId: ac.id }, v));
+  const set = (v: CrewExtra | null) => store.act((gg) => setCrewExtra(gg, { aircraftId: ac.id }, v), { toastOk: false });
   const extra = x.cabin + x.pilot;
   const what = [x.cabin ? `+${x.cabin} cabin` : '', x.pilot ? 'spare pilot' : ''].filter(Boolean).join(' + ');
   return (

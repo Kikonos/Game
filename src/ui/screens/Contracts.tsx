@@ -101,7 +101,7 @@ function ContractExtra({ g, c }: { g: GameState; c: Contract }) {
   const [open, setOpen] = useState(false);
   const eff = crewExtraFor(g, c.aircraftIds[0] ?? null, c.id);
   const min = Math.max(c.requirements.extraCabin, eff.paidMin);
-  const set = (x: CrewExtra | null) => store.act((gg) => setCrewExtra(gg, { contractId: c.id }, x));
+  const set = (x: CrewExtra | null) => store.act((gg) => setCrewExtra(gg, { contractId: c.id }, x), { toastOk: false });
   const src = eff.paidMin ? `client pays for ${eff.paidMin}` : eff.source === 'client' ? 'client request' : eff.source === 'contract' ? 'set for this contract' : eff.source === 'aircraft' ? 'aircraft setting' : 'company default';
   const what = eff.cabin || eff.pilot ? [eff.cabin ? `+${eff.cabin} cabin` : '', eff.pilot ? 'spare pilot' : ''].filter(Boolean).join(' · ') : 'legal minimum';
   if (!open) {

@@ -10,7 +10,7 @@ import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { isPilot, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
-import { DAY, fmtDate, fmtDay } from '../core/time';
+import { DAY, fmtDateAt, fmtDayAt } from '../core/time';
 import type { ActionResult, CrewMember, GameState, Minute, Role, TrainingClass, TrainingItem } from '../core/types';
 import { staffing } from './hr';
 import { crewName, salaryFor } from './generate';
@@ -182,7 +182,7 @@ function skipWhy(g: GameState, c: CrewMember | undefined, family: RatingFamily, 
   if (c.status === 'joining') {
     const h = g.hires.find((x) => x.crewId === c.id);
     const joins = h?.ready ?? c.blocks?.find((b) => b.why === 'joining')?.to ?? c.hired;
-    if (joins > start) return `Joins ${fmtDay(joins)}, after the start`;
+    if (joins > start) return `Joins ${fmtDayAt(g.company.homeBase, joins)}, after the start`;
   }
   return null;
 }
@@ -194,7 +194,8 @@ interface Pool {
 }
 
 const usd = (v: number) => (Math.abs(v) >= 1e6 ? `$${(v / 1e6).toFixed(2)}M` : `$${Math.round(v / 1000)}K`);
-const span = (a: Minute, b: Minute) => `${fmtDay(a)} – ${fmtDay(b - 1)}`;
+/** Class dates on the home-base calendar (classes run base-local midnight to midnight). */
+const span = (g: GameState, a: Minute, b: Minute) => `${fmtDayAt(g.company.homeBase, a)} – ${fmtDayAt(g.company.homeBase, b - 1)}`;
 
 /** Plan a conversion without booking it: classes, dates, cost, skipped crew and fleet-short warnings. Pure. */
 export function conversionPlan(g: GameState, r: ConversionRequest): ConversionPlan {
@@ -337,9 +338,9 @@ export function startConversion(g: GameState, r: ConversionRequest): ActionResul
   const part = (ks: ConversionClassPlan[], who: string) => {
     if (!ks.length) return '';
     const same = ks.every((k) => k.start === ks[0].start && k.end === ks[0].end);
-    const list = ks.map((k) => `${k.no} (${k.crewIds.length})${same ? '' : ` ${span(k.start, k.end)}`}`);
+    const list = ks.map((k) => `${k.no} (${k.crewIds.length})${same ? '' : ` ${span(g, k.start, k.end)}`}`);
     const joined = list.length > 1 ? `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}` : list[0];
-    return `${who} ${joined}${same ? ` ${span(ks[0].start, ks[0].end)}` : ''}.`;
+    return `${who} ${joined}${same ? ` ${span(g, ks[0].start, ks[0].end)}` : ''}.`;
   };
   const n = plan.classes.length;
   pushMessage(g, {
@@ -458,5 +459,5 @@ export function classBlockText(g: GameState, crewId: string, from: Minute, to: M
   const t = Math.min(Math.max(g.now, k.start), k.end - 1);
   const ph = phases.find(([, a, b]) => t >= k.start + (a - 1) * DAY && t < k.start + b * DAY) ?? phases[0];
   const line = k.group === 'pilot' && k.course === 'full' ? '\nLine training is flown under supervision; the trainee is not rostered.' : '';
-  return { label: `Conversion ${familyLabel(k.family)}`, detail: `Class ${k.no} · ${ph[0]} d${ph[1]}–${ph[2]} · ends ${fmtDate(k.end - 1)}${line}` };
+  return { label: `Conversion ${familyLabel(k.family)}`, detail: `Class ${k.no} · ${ph[0]} d${ph[1]}–${ph[2]} · ends ${fmtDateAt(g.company.homeBase, k.end - 1)}${line}` };
 }

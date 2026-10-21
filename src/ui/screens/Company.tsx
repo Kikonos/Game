@@ -4,6 +4,7 @@
 import { Award, BadgeCheck, Building2, Flag as FlagIcon, Palette, Settings2, ShieldCheck, Target } from 'lucide-react';
 import { flag } from '../../data/countries';
 import { rivalFleetText } from '../../engine/contracts/clients';
+import { BAL } from '../../engine/core/balance';
 import { fmtDate } from '../../engine/core/time';
 import type { GameState, Policies } from '../../engine/core/types';
 import { artFor } from '../../data/acmiTypes';
@@ -83,10 +84,12 @@ const signedK = (v: number) => `${v >= 0 ? '+' : '−'}${money(Math.abs(v))}`;
 function effect(g: GameState, market: Partial<Policies>, up: Partial<Policies>, label: string, morale: (p: Policies) => string | null): string {
   const p = g.company.policies;
   const atMarket = (Object.keys(market) as (keyof Policies)[]).every((k) => p[k] === market[k]);
-  const pv = policyPreview(g, atMarket ? up : market);
+  const other = atMarket ? up : market;
+  const pv = policyPreview(g, other);
   const sign = atMarket ? 1 : -1;
   const dT = Math.round(sign * (pv.target - pv.targetNow) * 10) / 10;
-  const dC = sign * (pv.costPerMonth - pv.costNow);
+  // No closed month yet: estimate from the crew on the books instead of the (empty) finance history.
+  const dC = g.finance.history.length ? sign * (pv.costPerMonth - pv.costNow) : sign * (estPolicyCost(g, { ...p, ...other }) - estPolicyCost(g, p));
   const parts: string[] = [];
   const m = morale(atMarket ? { ...p, ...up } : p);
   if (m) parts.push(m);
@@ -96,7 +99,20 @@ function effect(g: GameState, market: Partial<Policies>, up: Partial<Policies>, 
   return atMarket ? `${label}: ${parts.join(' · ')}` : `${parts.join(' · ')} vs market`;
 }
 
-const hotelMorale = (p: Policies) => (p.hotelTier === 5 ? 'Morale + on nights away' : p.hotelTier === 3 ? 'Morale − on nights away' : null);
+/** Days a month crew spend away from base (hotel nights, per diems) in the start-of-game estimate. */
+const AWAY_DAYS = 14;
+
+/** Monthly per diems and hotels at policies p for the crew on the books (estimate before the first closed month). */
+function estPolicyCost(g: GameState, p: Policies): number {
+  let v = 0;
+  for (const c of Object.values(g.crew)) v += AWAY_DAYS * ((BAL.perDiem[c.role] ?? 54) * (p.perDiemPct / 100) + (BAL.hotelPerNight[p.hotelTier] ?? BAL.hotelPerNight[4]));
+  return v;
+}
+
+const hotelMorale = (p: Policies) => {
+  const d = BAL.morale.hotelDay[p.hotelTier] ?? 0;
+  return d ? `Morale ${d > 0 ? '+' : '−'}${Math.abs(d)}/night away` : null;
+};
 
 function PolicyForm({ g }: { g: GameState }) {
   const p = g.company.policies;

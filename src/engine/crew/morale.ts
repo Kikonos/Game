@@ -57,13 +57,21 @@ export function moraleTarget(p: Pick<Policies, 'perDiemPct' | 'rotationWeeks'>):
   return clamp(M().target + per + tour, M().targetClamp[0], M().targetClamp[1]);
 }
 
-/** Sick-call multiplier: 1 at 60 or above, ×1.6 at 30. */
-export const sickMult = (m: number) => 1 + Math.max(0, 60 - m) / M().sickSlope;
+/** Sick-call multiplier: 1 at 65 or above, ×1.3 at 50, ×1.7 at 30. */
+export const sickMult = (m: number) => 1 + Math.max(0, M().sickFrom - m) / M().sickSlope;
 
-/** Resignation multiplier by morale band (RESEARCH §9.3). */
+/** Resignation multiplier: continuous between the morale points (RESEARCH §9.3), flat beyond the ends. */
 export function resignMult(m: number): number {
-  for (const [lo, x] of M().resignMult) if (m >= lo) return x;
-  return M().resignMult[M().resignMult.length - 1][1];
+  const pts = M().resignMult;
+  if (m >= pts[0][0]) return pts[0][1];
+  for (let i = 1; i < pts.length; i++) {
+    const [m1, x1] = pts[i];
+    if (m >= m1) {
+      const [m0, x0] = pts[i - 1];
+      return x1 + ((m - m1) / (m0 - m1)) * (x0 - x1);
+    }
+  }
+  return pts[pts.length - 1][1];
 }
 
 /** Monthly resignation chance of a crew member (bonded pilots × bondFactor). */
@@ -338,14 +346,26 @@ export function dailyMorale(g: GameState): void {
   } else if (a.avg > 55 && g.stats.moraleLowWarned) g.stats.moraleLowWarned = false;
 }
 
-/** Month end (with the statement): a line when the company average moved 3 or more, or is below 50. */
+/** Month end (with the statement): client relations decay; a line when the company average moved 3 or more, or is below 50, or spares covered seats. */
 export function monthlyMorale(g: GameState): void {
+  // Client satisfaction fades toward neutral without new work (2 points a month).
+  const dec = M().service.relationDecay;
+  for (const id of Object.keys(g.clients).sort()) {
+    const cl = g.clients[id];
+    if (cl.relation) cl.relation = cl.relation > 0 ? Math.max(0, cl.relation - dec) : Math.min(0, cl.relation + dec);
+  }
   const a = averages(g);
+  const spares = g.stats.sparesCovered ?? 0;
+  delete g.stats.sparesCovered;
   if (!a.n) return;
   const w = g.stats.moraleWeeks ?? [];
   const prev = w.length >= 5 ? w[w.length - 5] : null;
   const diff = prev === null ? 0 : a.avg - prev;
-  if (Math.abs(diff) < 3 && a.avg >= 50) return;
+  const spareLine = spares ? `Extra crew on board covered ${spares} empty seat${spares > 1 ? 's' : ''} (no tickets, no positioning).` : '';
+  if (Math.abs(diff) < 3 && a.avg >= 50) {
+    if (spareLine) pushMessage(g, { tone: 'good', cat: 'crew', title: `Extra crew covered ${spares} seat${spares > 1 ? 's' : ''}`, body: `${spareLine} Crew morale ${Math.round(a.avg)}.` });
+    return;
+  }
   // Where it is lowest: the station with the lowest average away from base.
   const at = new Map<string, { s: number; n: number }>();
   const why: Partial<Record<MoraleDriver, number>> = {};
@@ -364,7 +384,7 @@ export function monthlyMorale(g: GameState): void {
   pushMessage(g, {
     tone: a.avg < 50 || diff <= -3 ? 'warn' : 'info', cat: 'crew',
     title: `Crew morale ${Math.round(a.avg)}${prev === null ? '' : ` (${diff > 0 ? '+' : '−'}${Math.abs(Math.round(diff))})`}`,
-    body: `${low ? `Lowest at the ${low[0]} deployment${drv.length ? `: ${drv.join(', ')}` : ''}. ` : drv.length ? `Weighing on it: ${drv.join(', ')}. ` : ''}Per diem ${p.perDiemPct}%, hotels ${p.hotelTier}★, tours ${p.rotationWeeks} weeks.`,
+    body: `${low ? `Lowest at the ${low[0]} deployment${drv.length ? `: ${drv.join(', ')}` : ''}. ` : drv.length ? `Weighing on it: ${drv.join(', ')}. ` : ''}Per diem ${p.perDiemPct}%, hotels ${p.hotelTier}★, tours ${p.rotationWeeks} weeks.${spareLine ? ` ${spareLine}` : ''}`,
   });
 }
 

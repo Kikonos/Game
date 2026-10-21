@@ -12,6 +12,7 @@ import { blockMinutes, complement, etopsNeeded, planSector, typeOf } from '../co
 import { schedule } from '../core/queue';
 import { chance, int, next, pick, range, weightedPick } from '../core/rng';
 import { DAY, dayIndex, fmtDay, fmtTime, fromUTC, localMinuteOfDay, toDate, toLocal } from '../core/time';
+import { clamp } from '../core/util';
 import type {
   ApprovalId, Archetype, Client, ContractOffer, GameState, LegTemplate, Minute, OfferEffects, PaintKind, Product, Requirements, SchedulePattern, SimEvent,
 } from '../core/types';
@@ -197,11 +198,15 @@ function airportsWithin(from: string, minKm: number, maxKm: number, pred: (a: Ai
   return AIRPORTS.filter((a) => a.code !== from && a.runwayM >= 2000 && pred(a) && km(from, a.code) >= minKm && km(from, a.code) <= maxKm);
 }
 
-/** Clients weighted towards the idle window's location (follow-on work) or our home base. */
+/**
+ * Clients weighted towards the idle window's location (follow-on work) or our home base, and (v0.6) by how
+ * satisfied they are with us: × (1 + relation/100), a soured client still calls now and then.
+ */
 function nearClient(ctx: Ctx, list: Client[]): Client | undefined {
   const at = ctx.window?.at ?? ctx.g.company.homeBase;
   if (ctx.o.client) return list.find((c) => c.id === ctx.o.client) ?? ctx.g.clients[ctx.o.client];
-  return weightedPick(ctx.g, list, (c) => (km(c.base, at) < 1500 ? 4 : km(c.base, at) < 3500 ? 2 : 1));
+  const rel = (c: Client) => Math.max(0.2, 1 + (ctx.g.clients[c.id]?.relation ?? c.relation ?? 0) / 100);
+  return weightedPick(ctx.g, list, (c) => (km(c.base, at) < 1500 ? 4 : km(c.base, at) < 3500 ? 2 : 1) * rel(c));
 }
 
 function hookFor(ctx: Ctx): string | undefined {
@@ -715,6 +720,7 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   const product: Product = priceProduct(g, {
     archetype: d.archetype, typeId: ref, estBH: wet ? revBH : revBH + emptyMin / 60, start: d.start, end: d.end, lead: d.start - g.now,
     mult: d.mult, departures: deps, revDepartures: revDeps, roomNights, crewDays, tickets, government: gov, mghPerMonth: d.mghPerMonth,
+    loyalty: clamp(g.clients[d.client.id]?.relation ?? d.client.relation ?? 0, -100, 100) * BAL.morale.service.relationPremium,
   });
   const lead = d.start - g.now;
   const urgency = lead < 72 * 60 ? 'urgent' : lead < 7 * DAY ? 'short' : 'normal';
@@ -746,14 +752,21 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
     o.paint = paint;
     o.blurb = `${o.blurb} ${paintTermsText(paint)}`;
   }
-  // v0.6: some clients pay for extra cabin crew (long sectors on ad hoc, tour series and troop rotations; sports).
+  // v0.6: some clients pay for extra cabin crew above their requirement: long sectors on ad hoc, tour series and
+  // troop rotations, VIP, season bases and long wet leases ($75 per crew member per block hour, as a rate uplift or,
+  // on a charter, over its billable hours including positioning). Sports require theirs (priced in).
   const X = BAL.crewExtra;
   const longSector = sectors.some(([a, b]) => blockMinutes(ref, a, b) >= X.longBlockMin);
-  const pc = d.archetype === 'sports' ? X.paidChanceSports : longSector && (d.archetype === 'adhoc' || d.archetype === 'tourSeries' || d.archetype === 'troopRotation') ? X.paidChanceLong : 0;
-  if (pc > 0 && chance(sideRng(g, `xc:${o.id}`), pc)) {
+  const a = d.archetype;
+  const pc = a === 'sports' ? X.paidChanceSports
+    : a === 'vip' ? X.paidChanceVip
+    : longSector && (a === 'adhoc' || a === 'tourSeries' || a === 'troopRotation') ? X.paidChanceLong
+    : product.kind === 'wet' && (a === 'seasonBase' || a === 'capacityLease') && d.end - d.start >= X.wetMinDays * DAY ? X.paidChanceWet : 0;
+  const basis = product.kind === 'wet' ? product.ratePerBH : product.kind === 'charter' ? product.price / Math.max(1, revBH + emptyMin / 60) : 0;
+  if (pc > 0 && basis > 0 && chance(sideRng(g, `xc:${o.id}`), pc)) {
     const n = wide ? 2 : 1;
-    requirements.extraCabinPaid = { n, pct: Math.round(X.paidPctPer * n * 10_000) / 10_000 };
-    o.blurb = `${o.blurb} The client pays ${(X.paidPctPer * 100).toFixed(2).replace(/0$/, '')}% more per extra cabin crew member (${n} wanted).`;
+    requirements.extraCabinPaid = { n, pct: Math.round(((X.paidPerBH * n) / basis) * 10_000) / 10_000, perBH: X.paidPerBH };
+    o.blurb = `${o.blurb} The client pays $${X.paidPerBH} a block hour for each extra cabin crew member (${n} wanted).`;
   }
   g.offers[o.id] = o;
   schedule(g, o.expires, 'offer.expire', o.id);

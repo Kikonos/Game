@@ -143,4 +143,23 @@ describe('extra crew settings', () => {
     expect(plain.k.extraPaid).toBeFalsy();
     expect(plain.k.product.kind === 'charter' && plain.k.product.price).toBe(plain.price);
   });
+
+  it('paid extra crew fly above the client\'s required extra (a required +2 does not meet a paid +1)', () => {
+    const mk = (cabin: number) => {
+      const g = fixtureGame(9);
+      const t = g.now + 5 * DAY;
+      const o = legsOffer(g, [['LIS', 'FNC', t], ['FNC', 'LIS', t + 6 * 60]]);
+      o.requirements.extraCabin = 2;
+      o.requirements.extraCabinPaid = { n: 1, pct: 0.0075, perBH: 75 };
+      const r = acceptOffer(g, o.id, [acOf(g)], { crewExtra: { cabin, pilot: 0 } });
+      if (!r.ok) throw new Error(r.error);
+      const k = g.contracts[r.data!.contractId];
+      return { g, k };
+    };
+    expect(mk(2).k.extraPaid).toBeFalsy();
+    const paid = mk(3);
+    expect(paid.k.extraPaid).toBe(true);
+    expect(crewExtraFor(paid.g, acOf(paid.g), paid.k.id)).toMatchObject({ cabin: 3, paidMin: 3 });
+    expect(setCrewExtra(paid.g, { contractId: paid.k.id }, { cabin: 2, pilot: 0 }).ok).toBe(false);
+  });
 });

@@ -722,7 +722,10 @@ export function promoteSpares(g: GameState, p: Pairing): number {
     delete spare.locked;
     n++;
   }
-  if (n) touchCrew(g);
+  if (n) {
+    g.stats.sparesCovered = (g.stats.sparesCovered ?? 0) + n;
+    touchCrew(g);
+  }
   return n;
 }
 

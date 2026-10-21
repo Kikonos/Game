@@ -23,20 +23,21 @@ function familyList(g: GameState): { family: RatingFamily; inFleet: boolean }[] 
   return [...fleet.map((family) => ({ family, inFleet: true })), ...all.filter((f) => !fleet.includes(f)).map((family) => ({ family, inFleet: false }))];
 }
 
-/** The type most of the selection doesn't hold yet, fleet types first. */
-function defaultFamily(g: GameState, ids: string[], list: { family: RatingFamily }[]): RatingFamily {
+/** The fleet (or on-order) type most of the selection doesn't hold yet; null when they hold every one (pick a chip). */
+function defaultFamily(g: GameState, ids: string[], list: { family: RatingFamily; inFleet: boolean }[]): RatingFamily | null {
   const lacking = (f: RatingFamily) => ids.filter((id) => g.crew[id] && !g.crew[id].ratings.includes(f)).length;
-  let best = list[0]?.family ?? 'A320';
-  for (const x of list) if (lacking(x.family) > lacking(best)) best = x.family;
+  let best: RatingFamily | null = null;
+  for (const x of list) if (x.inFleet && lacking(x.family) > (best ? lacking(best) : 0)) best = x.family;
   return best;
 }
 
-export function ConvertModal({ crewIds, family: fam0 }: { crewIds: string[]; family?: RatingFamily }) {
+export function ConvertModal({ crewIds, family: fam0, onBooked }: { crewIds: string[]; family?: RatingFamily; onBooked?: () => void }) {
   const g = useGame();
   const fams = useMemo(() => familyList(g), [g]);
   const earliest = conversionEarliest(g);
   const [ids, setIds] = useState(() => crewIds.filter((id) => g.crew[id]));
-  const [family, setFamily] = useState<RatingFamily>(() => fam0 ?? defaultFamily(g, crewIds, fams));
+  const [picked, setFamily] = useState<RatingFamily | null>(() => fam0 ?? defaultFamily(g, crewIds, fams));
+  const family = picked ?? fams[0]?.family ?? 'A320';
   const [start, setStart] = useState(earliest);
   const [drop, setDrop] = useState<Record<string, RatingFamily>>({});
   const live = ids.filter((id) => g.crew[id]);
@@ -44,9 +45,11 @@ export function ConvertModal({ crewIds, family: fam0 }: { crewIds: string[]; fam
   const close = () => store.closeModal();
   const book = () => {
     const res = store.act((gg) => startConversion(gg, { crewIds: live, family, start: Math.max(start, earliest), drop }));
-    if (res.ok) close();
+    if (!res.ok) return;
+    close();
+    onBooked?.();
   };
-  const skipped = new Map(plan.skipped.map((s) => [s.crewId, s.why]));
+  const skipped = new Map(picked ? plan.skipped.map((s) => [s.crewId, s.why]) : []);
   const pilots = live.filter((id) => isPilotRole(g.crew[id].role));
   const cabin = live.filter((id) => !isPilotRole(g.crew[id].role));
   const nP = plan.classes.filter((k) => k.group === 'pilot').reduce((s, k) => s + k.crewIds.length, 0);
@@ -87,8 +90,8 @@ export function ConvertModal({ crewIds, family: fam0 }: { crewIds: string[]; fam
     <Modal size="wide" className="cv-modal" title={`Type conversion · ${live.length} ${live.length === 1 ? 'person' : 'people'}`} icon={<GraduationCap className="accent" />} onClose={close} footer={
       <>
         <button className="btn" onClick={close}>Cancel</button>
-        <span className="grow small muted">{plan.classes.length ? `${plan.classes.length} class${plan.classes.length === 1 ? '' : 'es'} · ${bd(t0)} – ${bd(t1 - 1)}` : ''}</span>
-        <button className="btn btn-primary" onClick={book} disabled={!plan.ok}><GraduationCap /> Book conversion · {money(plan.cost)}</button>
+        <span className="grow small muted">{picked && plan.classes.length ? `${plan.classes.length} class${plan.classes.length === 1 ? '' : 'es'} · ${bd(t0)} – ${bd(t1 - 1)}` : ''}</span>
+        <button className="btn btn-primary" onClick={book} disabled={!picked || !plan.ok}><GraduationCap /> {picked ? `Book conversion · ${money(plan.cost)}` : 'Pick a type'}</button>
       </>
     }>
       <div className="cv-cols">
@@ -96,7 +99,7 @@ export function ConvertModal({ crewIds, family: fam0 }: { crewIds: string[]; fam
           <div className="upper dim">Target type</div>
           <div className="cv-chips">
             {fams.map((x) => (
-              <button key={x.family} className={`cv-chip ${x.family === family ? 'on' : ''} ${x.inFleet ? '' : 'off'}`} onClick={() => setFamily(x.family)} aria-pressed={x.family === family}>
+              <button key={x.family} className={`cv-chip ${x.family === picked ? 'on' : ''} ${x.inFleet ? '' : 'off'}`} onClick={() => setFamily(x.family)} aria-pressed={x.family === picked}>
                 <b>{familyLabel(x.family)}</b>
                 {!x.inFleet && <span className="tiny dim">no aircraft</span>}
               </button>
@@ -126,6 +129,8 @@ export function ConvertModal({ crewIds, family: fam0 }: { crewIds: string[]; fam
         </div>
         <div className="col gap-12 cv-right" style={{ minWidth: 0 }}>
           <div className="upper dim">Classes</div>
+          {!picked && <div className="small muted">Everyone selected already holds every type in the fleet. Tap a target type to plan the classes.</div>}
+          {picked && <>
           {!plan.classes.length && <div className="small muted">No class: everyone selected is skipped.</div>}
           <div className="cv-timeline">
             {plan.classes.map((k) => (
@@ -157,6 +162,7 @@ export function ConvertModal({ crewIds, family: fam0 }: { crewIds: string[]; fam
             </div>
           )}
           <div className="tiny dim">After the course pilots fly the {label} only{ccqPartner(family) ? ` (pilots rated on the ${familyLabel(ccqPartner(family)!)} take a 14-day common-type course and keep both)` : ''}; cabin crew keep their types, up to 3.</div>
+          </>}
         </div>
       </div>
     </Modal>
