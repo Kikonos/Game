@@ -1,0 +1,180 @@
+// Real airlines our crews deadhead on (v0.5.2). Names and IATA codes only; flight numbers are invented by
+// engine/ops/commercial.ts. `hubs` are airports in airports.ts; `markets` (low-cost) are the countries they fly
+// point-to-point between.
+
+export type CarrierKind = 'network' | 'regional' | 'lcc';
+
+export interface Carrier {
+  iata: string;
+  name: string;
+  /** Home country (ISO 3166-1 alpha-2, as airports.ts). */
+  country: string;
+  kind: CarrierKind;
+  /** Network/regional: hub airports (first = main). Low-cost: bases (any airport in `markets` is served). */
+  hubs: string[];
+  /** Low-cost: countries flown point-to-point. Network/regional: extra countries served domestically. */
+  markets?: string[];
+}
+
+const N = (iata: string, name: string, country: string, hubs: string[], markets?: string[]): Carrier => ({ iata, name, country, kind: 'network', hubs, markets });
+const R = (iata: string, name: string, country: string, hubs: string[], markets?: string[]): Carrier => ({ iata, name, country, kind: 'regional', hubs, markets });
+const L = (iata: string, name: string, country: string, hubs: string[], markets: string[]): Carrier => ({ iata, name, country, kind: 'lcc', hubs, markets });
+
+const EU_LCC_RYANAIR = ['IE', 'GB', 'ES', 'PT', 'IT', 'FR', 'BE', 'DE', 'NL', 'PL', 'MT', 'GR', 'HR', 'LV', 'LT', 'EE', 'CZ', 'HU', 'RO', 'BG', 'SE', 'DK', 'NO', 'FI', 'AT', 'MA', 'CY', 'JO', 'AL'];
+const EU_LCC_EASYJET = ['GB', 'FR', 'CH', 'IT', 'PT', 'ES', 'NL', 'DE', 'AT', 'GR', 'HR', 'MT', 'CY', 'BE', 'DK', 'IS', 'MA', 'EG', 'TR', 'CZ', 'HU', 'PL', 'IE', 'IL', 'JO', 'NO', 'SE', 'FI', 'BG', 'AL', 'TN', 'CV'];
+const EU_LCC_WIZZ = ['HU', 'PL', 'RO', 'BG', 'RS', 'LT', 'LV', 'EE', 'CZ', 'GB', 'IT', 'MT', 'ES', 'PT', 'DE', 'FR', 'NL', 'BE', 'GR', 'CY', 'IL', 'AE', 'SA', 'AL', 'GE', 'AM', 'AT', 'NO', 'SE', 'DK', 'IS'];
+
+export const CARRIERS: Carrier[] = [
+  // Europe: network and flag carriers
+  N('TP', 'TAP Air Portugal', 'PT', ['LIS', 'OPO']),
+  R('S4', 'Azores Airlines', 'PT', ['PDL', 'TER']),
+  N('IB', 'Iberia', 'ES', ['MAD']),
+  N('UX', 'Air Europa', 'ES', ['MAD']),
+  R('NT', 'Binter', 'ES', ['LPA', 'TFS', 'ACE', 'FUE']),
+  N('LH', 'Lufthansa', 'DE', ['FRA', 'MUC']),
+  N('AF', 'Air France', 'FR', ['CDG', 'ORY']),
+  N('KL', 'KLM', 'NL', ['AMS']),
+  N('BA', 'British Airways', 'GB', ['LHR', 'LGW']),
+  N('EI', 'Aer Lingus', 'IE', ['DUB']),
+  N('LX', 'SWISS', 'CH', ['ZRH', 'GVA']),
+  N('OS', 'Austrian Airlines', 'AT', ['VIE']),
+  N('SN', 'Brussels Airlines', 'BE', ['BRU']),
+  R('LG', 'Luxair', 'LU', ['LUX']),
+  N('AZ', 'ITA Airways', 'IT', ['FCO', 'LIN']),
+  R('A3', 'Aegean Airlines', 'GR', ['ATH', 'SKG']),
+  R('KM', 'KM Malta Airlines', 'MT', ['MLA']),
+  R('CY', 'Cyprus Airways', 'CY', ['LCA']),
+  N('SK', 'SAS', 'DK', ['CPH', 'ARN', 'OSL'], ['SE', 'NO']),
+  N('AY', 'Finnair', 'FI', ['HEL']),
+  N('FI', 'Icelandair', 'IS', ['KEF']),
+  N('LO', 'LOT Polish Airlines', 'PL', ['WAW']),
+  R('QS', 'Smartwings', 'CZ', ['PRG']),
+  R('RO', 'TAROM', 'RO', ['OTP']),
+  R('FB', 'Bulgaria Air', 'BG', ['SOF']),
+  R('JU', 'Air Serbia', 'RS', ['BEG']),
+  R('OU', 'Croatia Airlines', 'HR', ['ZAG']),
+  R('BT', 'airBaltic', 'LV', ['RIX', 'VNO', 'TLL'], ['LT', 'EE']),
+  R('ZB', 'Air Albania', 'AL', ['TIA']),
+  N('TK', 'Turkish Airlines', 'TR', ['IST']),
+  // Europe: low-cost
+  L('FR', 'Ryanair', 'IE', ['DUB', 'STN', 'BCN', 'LIS', 'PMI', 'CRL'], EU_LCC_RYANAIR),
+  L('U2', 'easyJet', 'GB', ['LGW', 'BRS', 'MAN', 'GVA', 'LIS', 'MXP'], EU_LCC_EASYJET),
+  L('W6', 'Wizz Air', 'HU', ['BUD', 'OTP', 'SOF', 'WAW', 'VNO'], EU_LCC_WIZZ),
+  L('VY', 'Vueling', 'ES', ['BCN'], ['ES', 'FR', 'IT', 'PT', 'GB', 'NL', 'BE', 'DE', 'CH', 'GR', 'MA', 'IE', 'DK']),
+  L('HV', 'Transavia', 'NL', ['AMS', 'ORY'], ['NL', 'FR', 'ES', 'PT', 'IT', 'GR', 'MA', 'TN', 'TR', 'EG', 'IL', 'CV']),
+  L('LS', 'Jet2', 'GB', ['MAN', 'BHX', 'STN', 'BRS', 'NCL', 'GLA', 'EDI'], ['GB', 'ES', 'PT', 'GR', 'CY', 'TR', 'IT', 'HR', 'MT', 'BG']),
+  L('DY', 'Norwegian', 'NO', ['OSL', 'CPH', 'ARN', 'HEL'], ['NO', 'DK', 'SE', 'FI', 'ES', 'PT', 'IT', 'FR', 'GR', 'HR', 'GB', 'DE', 'PL', 'IS']),
+  L('EW', 'Eurowings', 'DE', ['DUS', 'CGN', 'HAM', 'STR', 'BER'], ['DE', 'AT', 'ES', 'PT', 'IT', 'GR', 'HR', 'GB', 'FR', 'SE', 'DK', 'CZ', 'PL', 'TR', 'EG']),
+  L('V7', 'Volotea', 'ES', ['BOD', 'NTE', 'VCE'], ['ES', 'FR', 'IT', 'GR', 'HR', 'PT']),
+  L('PC', 'Pegasus', 'TR', ['SAW', 'AYT', 'ADB', 'ESB'], ['TR', 'DE', 'NL', 'GB', 'FR', 'IT', 'ES', 'AT', 'CH', 'GE', 'AZ', 'IL', 'JO', 'SA', 'AE', 'EG']),
+  // Africa
+  N('AT', 'Royal Air Maroc', 'MA', ['CMN']),
+  R('TU', 'Tunisair', 'TN', ['TUN']),
+  R('AH', 'Air Algérie', 'DZ', ['ALG']),
+  N('MS', 'EgyptAir', 'EG', ['CAI']),
+  N('ET', 'Ethiopian Airlines', 'ET', ['ADD']),
+  N('KQ', 'Kenya Airways', 'KE', ['NBO']),
+  N('SA', 'South African Airways', 'ZA', ['JNB']),
+  R('WB', 'RwandAir', 'RW', ['KGL']),
+  R('KP', 'ASKY Airlines', 'TG', ['LFW']),
+  R('HF', "Air Côte d'Ivoire", 'CI', ['ABJ']),
+  R('P4', 'Air Peace', 'NG', ['LOS', 'ABV']),
+  R('HC', 'Air Senegal', 'SN', ['DSS']),
+  N('DT', 'TAAG Angola Airlines', 'AO', ['LAD']),
+  R('TM', 'LAM Mozambique', 'MZ', ['MPM']),
+  R('MK', 'Air Mauritius', 'MU', ['MRU']),
+  R('UR', 'Uganda Airlines', 'UG', ['EBB']),
+  R('TC', 'Air Tanzania', 'TZ', ['DAR']),
+  R('UM', 'Air Zimbabwe', 'ZW', ['HRE']),
+  R('BP', 'Air Botswana', 'BW', ['GBE']),
+  R('HM', 'Air Seychelles', 'SC', ['SEZ']),
+  R('MD', 'Madagascar Airlines', 'MG', ['TNR']),
+  R('VR', 'Cabo Verde Airlines', 'CV', ['SID', 'RAI']),
+  R('QC', 'Camair-Co', 'CM', ['DLA']),
+  R('2J', 'Air Burkina', 'BF', ['OUA']),
+  R('L6', 'Mauritania Airlines', 'MR', ['NKC']),
+  R('LN', 'Libyan Airlines', 'LY', ['TIP']),
+  R('SD', 'Sudan Airways', 'SD', ['KRT']),
+  R('8Z', 'Congo Airways', 'CD', ['GOM']),
+  // Middle East and Central Asia
+  N('EK', 'Emirates', 'AE', ['DXB']),
+  N('EY', 'Etihad Airways', 'AE', ['AUH']),
+  L('FZ', 'flydubai', 'AE', ['DXB'], ['AE', 'SA', 'OM', 'KW', 'BH', 'QA', 'JO', 'LB', 'EG', 'TR', 'GE', 'AZ', 'AM', 'IN', 'PK', 'BD', 'NP', 'LK', 'MV', 'KE', 'ET', 'TZ', 'UZ', 'TJ', 'AF', 'IR', 'SD', 'DJ', 'SO']),
+  L('G9', 'Air Arabia', 'AE', ['SHJ'], ['AE', 'SA', 'OM', 'KW', 'BH', 'QA', 'JO', 'LB', 'EG', 'TR', 'GE', 'AZ', 'AM', 'IN', 'PK', 'BD', 'NP', 'LK', 'KE', 'UZ', 'IR', 'SD', 'MA']),
+  N('QR', 'Qatar Airways', 'QA', ['DOH']),
+  R('GF', 'Gulf Air', 'BH', ['BAH']),
+  R('KU', 'Kuwait Airways', 'KW', ['KWI']),
+  R('WY', 'Oman Air', 'OM', ['MCT']),
+  N('SV', 'Saudia', 'SA', ['JED', 'RUH']),
+  L('XY', 'flynas', 'SA', ['RUH', 'JED', 'DMM', 'MED'], ['SA', 'AE', 'EG', 'TR', 'JO', 'KW', 'BH', 'PK', 'IN', 'SD', 'GE', 'AZ']),
+  N('LY', 'El Al', 'IL', ['TLV']),
+  R('RJ', 'Royal Jordanian', 'JO', ['AMM']),
+  R('ME', 'Middle East Airlines', 'LB', ['BEY']),
+  R('A9', 'Georgian Airways', 'GE', ['TBS']),
+  R('J2', 'AZAL', 'AZ', ['GYD']),
+  R('IR', 'Iran Air', 'IR', ['IKA']),
+  R('FG', 'Ariana Afghan Airlines', 'AF', ['KBL']),
+  R('HY', 'Uzbekistan Airways', 'UZ', ['TAS']),
+  R('T5', 'Turkmenistan Airlines', 'TM', ['ASB']),
+  R('SZ', 'Somon Air', 'TJ', ['DYU']),
+  // South Asia
+  N('AI', 'Air India', 'IN', ['DEL', 'BOM']),
+  L('6E', 'IndiGo', 'IN', ['DEL', 'BOM', 'BLR', 'HYD'], ['IN', 'AE', 'SA', 'OM', 'QA', 'KW', 'BH', 'TH', 'SG', 'MY', 'VN', 'LK', 'NP', 'BD', 'MV', 'TR']),
+  R('UL', 'SriLankan Airlines', 'LK', ['CMB']),
+  R('PK', 'PIA', 'PK', ['KHI', 'ISB', 'LHE']),
+  R('BG', 'Biman Bangladesh', 'BD', ['DAC']),
+  R('RA', 'Nepal Airlines', 'NP', ['KTM']),
+  // East and South-East Asia
+  N('SQ', 'Singapore Airlines', 'SG', ['SIN']),
+  N('TG', 'Thai Airways', 'TH', ['BKK']),
+  N('MH', 'Malaysia Airlines', 'MY', ['KUL']),
+  L('AK', 'AirAsia', 'MY', ['KUL', 'DMK', 'CGK'], ['MY', 'TH', 'ID', 'PH', 'VN', 'SG', 'KH', 'MM', 'IN', 'CN', 'HK', 'MO', 'TW']),
+  N('GA', 'Garuda Indonesia', 'ID', ['CGK']),
+  N('PR', 'Philippine Airlines', 'PH', ['MNL']),
+  N('VN', 'Vietnam Airlines', 'VN', ['HAN', 'SGN']),
+  R('UB', 'Myanmar National Airlines', 'MM', ['RGN']),
+  N('CA', 'Air China', 'CN', ['PEK']),
+  N('MU', 'China Eastern', 'CN', ['PVG']),
+  N('CZ', 'China Southern', 'CN', ['CAN']),
+  N('CX', 'Cathay Pacific', 'HK', ['HKG']),
+  R('NX', 'Air Macau', 'MO', ['MFM']),
+  N('BR', 'EVA Air', 'TW', ['TPE']),
+  N('NH', 'ANA', 'JP', ['HND', 'NRT']),
+  N('JL', 'Japan Airlines', 'JP', ['HND', 'NRT']),
+  N('KE', 'Korean Air', 'KR', ['ICN']),
+  // Oceania
+  N('QF', 'Qantas', 'AU', ['SYD', 'MEL']),
+  N('VA', 'Virgin Australia', 'AU', ['BNE']),
+  N('NZ', 'Air New Zealand', 'NZ', ['AKL']),
+  R('FJ', 'Fiji Airways', 'FJ', ['NAN']),
+  R('SB', 'Aircalin', 'NC', ['NOU']),
+  R('OL', 'Samoa Airways', 'WS', ['APW']),
+  // Americas
+  N('AA', 'American Airlines', 'US', ['DFW', 'CLT', 'MIA', 'PHL'], ['PR']),
+  N('DL', 'Delta Air Lines', 'US', ['ATL', 'JFK', 'DTW', 'MSP', 'SLC'], ['PR']),
+  N('UA', 'United Airlines', 'US', ['EWR', 'IAD', 'DEN', 'IAH', 'SFO'], ['GU']),
+  L('WN', 'Southwest Airlines', 'US', ['MDW', 'DEN', 'LAS', 'BWI'], ['US', 'MX', 'PR', 'BS', 'JM', 'AW', 'CR', 'CU']),
+  N('B6', 'JetBlue', 'US', ['JFK', 'BOS', 'FLL'], ['PR', 'DO', 'JM', 'BS', 'AW']),
+  N('AS', 'Alaska Airlines', 'US', ['SEA', 'ANC', 'PDX']),
+  R('HA', 'Hawaiian Airlines', 'US', ['HNL']),
+  N('AC', 'Air Canada', 'CA', ['YYZ', 'YUL', 'YVR']),
+  R('WS', 'WestJet', 'CA', ['YYC']),
+  N('AM', 'Aeroméxico', 'MX', ['MEX']),
+  L('Y4', 'Volaris', 'MX', ['GDL', 'TIJ', 'MEX'], ['MX', 'US', 'GT', 'SV', 'CR']),
+  N('CM', 'Copa Airlines', 'PA', ['PTY']),
+  N('AV', 'Avianca', 'CO', ['BOG', 'SAL'], ['SV', 'GT', 'CR', 'EC']),
+  N('LA', 'LATAM', 'CL', ['SCL', 'GRU', 'LIM'], ['BR', 'PE', 'EC', 'CO', 'AR', 'UY', 'PY']),
+  N('AR', 'Aerolíneas Argentinas', 'AR', ['AEP', 'EZE']),
+  N('G3', 'GOL', 'BR', ['CGH', 'GRU', 'GIG', 'BSB']),
+  N('AD', 'Azul', 'BR', ['CNF', 'REC']),
+  R('OB', 'Boliviana de Aviación', 'BO', ['VVI', 'LPB']),
+  R('V0', 'Conviasa', 'VE', ['CCS']),
+  R('CU', 'Cubana', 'CU', ['HAV']),
+  R('UP', 'Bahamasair', 'BS', ['NAS']),
+  L('DM', 'Arajet', 'DO', ['SDQ'], ['DO', 'US', 'CA', 'MX', 'CO', 'PE', 'JM', 'AW', 'PR', 'GT', 'SV', 'CR', 'EC', 'BR', 'AR']),
+];
+
+export const CARRIER_BY_IATA: Record<string, Carrier> = Object.fromEntries(CARRIERS.map((c) => [c.iata, c]));
+
+/** Big connecting hubs used when no carrier flies a pair direct (besides the origin/destination flag hubs). */
+export const WORLD_HUBS = ['FRA', 'MUC', 'CDG', 'AMS', 'LHR', 'MAD', 'LIS', 'IST', 'DXB', 'DOH', 'ADD', 'NBO', 'JNB', 'CMN', 'CAI', 'DEL', 'SIN', 'BKK', 'HKG', 'ICN', 'SYD', 'JFK', 'ATL', 'MIA', 'YYZ', 'PTY', 'BOG', 'GRU', 'SCL'];

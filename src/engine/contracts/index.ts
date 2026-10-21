@@ -14,6 +14,7 @@ export { paintQuote, paintTermsText, paintWindow, type PaintSlot } from './paint
 export { billContractMonth, type BillingLine } from './billing';
 export { feasibility, feasibilityAll, marketFit, type MarketFit, type CheckId, type CheckLevel, type FeasibilityCheck, type FeasibilityReport, type PositioningLeg } from './feasibility';
 export { fmtPrice, generateOffer, idleWindows, type IdleWindow, type OfferOpts } from './offers';
+export { counterOdds, counterView, type CounterOdds, type CounterView } from './counter';
 export { priceProduct, productValue, rateMultiplier } from './pricing';
 export { generateFlights, planPositioning, relinkPositioning } from './schedule';
 
