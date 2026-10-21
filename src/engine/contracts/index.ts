@@ -6,7 +6,7 @@ import type { GameState } from '../core/types';
 import { dailyContracts, onContractEnd, onContractStart } from './accept';
 import { onFlightArrivedContracts, onMonthContracts } from './billing';
 import { seedClients, seedRivals } from './clients';
-import { dailyOffers, onOfferExpire, onOfferReply, onOfferSpawn, openingOffers, scheduleNextOffer } from './offers';
+import { dailyOffers, loadCounters, onOfferExpire, onOfferReply, onOfferSpawn, openingOffers, scheduleNextOffer } from './offers';
 import { extendBaseSchedules, relinkPositioning } from './schedule';
 
 export { acceptOffer, askingPrice, cancelContract, cancelCost, cancelPenalty, contractProgress, counterOffer, declineOffer, leadDays, type ContractProgress, type SignOpts } from './accept';
@@ -38,6 +38,7 @@ export const contractsModule: SimModule = {
   load(g) {
     g.rivals ??= [];
     if (!g.rivals.length) seedRivals(g);
+    loadCounters(g);
   },
   /** Keeps empty legs linking commitments after any flight change (delays, swaps, cancellations by other modules). */
   settle(g) {

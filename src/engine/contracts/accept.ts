@@ -18,7 +18,7 @@ import { mghInMonth, productValue } from './pricing';
 import { generateFlights, relinkPositioning } from './schedule';
 import { bookPaint, cancelPaintFor } from '../ops/paint';
 import { paintQuote, paintWindow, type PaintSlot } from './paintTerms';
-import { replyDelay } from './counter';
+import { replyTime } from './counter';
 
 // ---------- offers ----------
 
@@ -168,8 +168,9 @@ export function counterOffer(g: GameState, offerId: string, price: number, aircr
     const no = firstNo(feasibility(g, offerId, id, { paint }), !paint);
     if (no) return { ok: false, error: `${g.fleet[id].reg}: ${no.label}` };
   }
-  // v0.5.2: the client always answers before the offer lapses: its expiry clock pauses while the counter is pending.
-  const replyAt = g.now + replyDelay(g, o);
+  // v0.5.2: the client always answers before the offer lapses (its expiry clock pauses while the counter is
+  // pending) and before the job needs to get going (an hour before the positioning leaves).
+  const replyAt = replyTime(g, o, ids, paint);
   o.counter = { price: Math.round(price), at: g.now, replyAt, aircraftIds: ids, left: Math.max(60, o.expires - g.now) };
   if (o.paint) o.counter.paint = paint;
   o.status = 'countered';

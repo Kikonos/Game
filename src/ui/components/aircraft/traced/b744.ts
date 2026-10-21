@@ -5,6 +5,7 @@ export const profile: TracedProfile = {
   typeId: 'b744',
   source: 'airbus-boeing-comparison.jpg crop [25,1506,842,1722] (mirrored, de-rotated 0.25 deg)',
   lengthPx: 765.7,
+  cabin: [0.48, 0.74], // main-deck crown aft of the hump
   top: [
     [0.0, 0.0], [0.002, -0.0033], [0.004, -0.0055], [0.007, -0.0081], [0.01, -0.0107], [0.014, -0.0143],
     [0.018, -0.017], [0.023, -0.0202], [0.028, -0.0229], [0.034, -0.0259], [0.04, -0.0289], [0.047, -0.0323],

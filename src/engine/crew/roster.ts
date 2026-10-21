@@ -12,7 +12,7 @@ import { acceptable, crewIssuesFor, mergeSegs, openDuties, otherTrip, planCrew, 
 import { deletePairing, dutyLegality, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setCrewTrailOkHook, setReleaseHook, setRetickHook, splitPairing, syncDuty } from './duties';
 import { crewName } from './generate';
 import { evalSegs, levelOf, worst, type Seg } from './rules';
-import { aboard, block28, crewCount, crewIx, ctxOf, dhBlock, dutySegs, locAt, noteRiders, passengers, planHome, planOut, segsOf, ticketPrice, touchCrew, typeIdOf } from './timeline';
+import { aboard, block28, crewCount, crewIx, ctxOf, dhBlock, droppableHome, dutySegs, locAt, noteRiders, passengers, planHome, planOut, segsOf, ticketPrice, touchCrew, typeIdOf, withoutTickets } from './timeline';
 
 export { buildDuties } from './duties';
 
@@ -437,7 +437,7 @@ export function guardDuty(g: GameState, dutyId: string): boolean {
 
 const copySeg = (x: Seg): Seg => ({
   kind: x.kind, start: x.start, end: x.end, fdp: x.fdp, maxFdp: x.maxFdp, block: x.block, sectors: x.sectors, aug: x.aug,
-  disruptive: x.disruptive, rest: x.rest, at: x.at, from: x.from, dutyId: x.dutyId, fresh: false,
+  disruptive: x.disruptive, rest: x.rest, at: x.at, from: x.from, dutyId: x.dutyId, fresh: false, home: x.home && { ...x.home }, out: x.out && { ...x.out },
 });
 
 /** Cheap pre-check: a planned seg overlaps [from, to) or its rest runs past `from` (certainly illegal). */
@@ -497,12 +497,6 @@ function previousCrew(g: GameState, p: Pairing): Set<string> {
   return new Set(best ? best.slots.filter((s) => s.crewId).map((s) => s.crewId!) : []);
 }
 
-/** A ticket home from `dep` that planCrew would drop for a trip from dep in [report, release) (same test as there). */
-function droppable(g: GameState, c: CrewMember, segs: Seg[], x: Seg, dep: string, report: Minute, release: Minute): boolean {
-  if (x.kind !== 'pos' || !x.ticketId || x.from !== dep || x.at !== c.base || x.start + BAL.deadheadCheckIn <= g.now) return false;
-  return x.start >= report - 2 * 1440 && x.start < release + 1440 && locAt(c, segs, x.start) === dep;
-}
-
 /** Fills a pairing's empty slots with the best-scoring legal crew (DESIGN §5.3 steps 1–4, 6). */
 function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, exclude?: Set<string>): void {
   const duties = openDuties(g, p);
@@ -529,7 +523,7 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
     // v0.5.2: crew still at the departure airport with a ticket home around this trip stay on instead
     // (planCrew drops that ticket): the pilots of a trip fly its trailing ferry.
     const all = ctx.of(c);
-    const segs = all.some((x) => x.kind === 'pos' && x.from === dep) ? all.filter((x) => !droppable(g, c, all, x, dep, first.report, spanTo)) : all;
+    const segs = p.tour ? all : withoutTickets(all, droppableHome(g, c, all, dep, first.report, spanTo));
     if (busyAt(segs, first.report, first.release)) continue;
     const loc = locAt(c, segs, first.report);
     let tp = price.get(loc);
@@ -585,14 +579,17 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
   }
   if (!plans.size) return;
   buyTickets(g, p, plans, res);
-  // The run's timelines learn the tickets home just bought, so a later trip from there can drop them (droppable).
+  // The run's timelines learn the tickets home just bought, so a later trip from there can drop them (droppableHome).
   const lastD = duties[duties.length - 1];
   for (const [id, plan] of plans) {
     const h = plan.home;
     if (!h) continue;
     const f = h.rideId ? g.flights[h.rideId] : lastD.deadheadIds.map((x) => g.flights[x]).find((x) => x && x.from === h.from && x.to === h.to && x.std === h.std && x.crewIds.includes(id));
     if (!f) continue;
-    for (const x of ctx.segs.get(id) ?? []) if (x.kind === 'pos' && !x.ticketId && x.from === h.from && x.at === h.to && x.end === h.sta) x.ticketId = f.id;
+    for (const x of ctx.segs.get(id) ?? []) {
+      if (x.kind === 'pos' && !x.ticketId && x.from === h.from && x.at === h.to && x.end === h.sta) x.ticketId = f.id;
+      else if (x.kind === 'duty' && x.home && !x.home.id && x.home.from === h.from && x.home.std === h.std && x.at === h.to) x.home.id = f.id;
+    }
   }
   setFlightsCrew(g, p);
   if (!hadCrew) for (const d of duties) queueDuty(g, d);

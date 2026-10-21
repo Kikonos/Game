@@ -6,6 +6,7 @@ import { fmtDay, fmtTime } from '../core/time';
 import { clamp } from '../core/util';
 import type { ContractOffer, GameState, Minute, Product } from '../core/types';
 import { askingPrice } from './accept';
+import { feasibility } from './feasibility';
 import { paintQuote } from './paintTerms';
 
 /** Client leverage-for-us: urgent jobs need an answer now (1), short notice some (0.5), normal none. */
@@ -14,6 +15,27 @@ export const leverage = (o: Pick<ContractOffer, 'urgency'>): number => (o.urgenc
 /** Reply delay (minutes, engine RNG): urgent 1–3 h, short notice 3–8 h, normal 16–30 h (about a day). */
 export function replyDelay(g: GameState, o: Pick<ContractOffer, 'urgency'>): number {
   return o.urgency === 'urgent' ? int(g, 60, 180) : o.urgency === 'short' ? int(g, 180, 480) : int(g, 16 * 60, 30 * 60);
+}
+
+/**
+ * The latest moment a deal is still workable: the first departure of the job on the countered aircraft (the
+ * positioning leg in, planned as late as possible, else the job's start). Replies and the reopened clock stay
+ * before it, so an answer never leaves an offer open past the job's start. Pure.
+ */
+export function answerBy(g: GameState, o: ContractOffer, aircraftIds: string[], paint = true): Minute {
+  let t = o.start;
+  for (const id of aircraftIds) {
+    if (!g.fleet[id]) continue;
+    const d = feasibility(g, o.id, id, { paint }).positionIn[0]?.std;
+    if (d !== undefined) t = Math.min(t, d);
+  }
+  return t;
+}
+
+/** Reply time for a counter sent now: the client's delay, capped an hour before answerBy (at least 15 min away). */
+export function replyTime(g: GameState, o: ContractOffer, aircraftIds: string[], paint = true): Minute {
+  const delay = replyDelay(g, o);
+  return g.now + Math.min(delay, Math.max(15, answerBy(g, o, aircraftIds, paint) - 60 - g.now));
 }
 
 /** The counter's comparison price: the asking price, without the client's paint when the counter drops it. */
@@ -71,7 +93,7 @@ const money = (p: Product, v: number): string => {
   const k = v >= 10_000 ? `$${(v / 1000).toFixed(v >= 100_000 ? 0 : 1).replace(/\.0$/, '')}K` : `$${Math.round(v).toLocaleString('en-US')}`;
   return p.kind === 'wet' ? `${k}/BH` : p.kind === 'dry' ? `${k}/month` : k;
 };
-const when = (t: Minute) => `${fmtDay(t)} ${fmtTime(t)}`;
+const when = (t: Minute) => `${fmtDay(t)} ${fmtTime(t)} UTC`;
 
 /** Offer-card status of the counter (null when none). Pure. */
 export function counterView(g: GameState, offerId: string): CounterView | null {

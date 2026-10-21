@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FAIR, fairLine, whittaker } from './fair';
+import { CABIN, FAIR, fairLine, whittaker } from './fair';
 import { TRACED } from './traced/load';
 
 type P = readonly (readonly [number, number])[];
@@ -22,6 +22,18 @@ const wiggles = (pts: P, x0: number, x1: number, h = 0.01, eps = 2) => {
   }
   return n;
 };
+/** Sign changes of the slope along [x0, x1] (steps under `eps` L ignored). */
+const reversals = (pts: P, x0: number, x1: number, h = 0.01, eps = 1e-5) => {
+  let n = 0, last = 0;
+  for (let x = x0; x + h <= x1 + 1e-9; x += h) {
+    const d = yAt(pts, x + h) - yAt(pts, x);
+    if (Math.abs(d) < eps) continue;
+    const s = Math.sign(d);
+    if (last && s !== last) n++;
+    last = s;
+  }
+  return n;
+};
 
 describe('fairing of traced fuselage lines', () => {
   it('whittaker with huge weights returns the data, with none the straight-ish fit', () => {
@@ -37,7 +49,8 @@ describe('fairing of traced fuselage lines', () => {
     for (const side of ['top', 'bottom'] as const) {
       it(`${id} ${side}: nose and tail-cone tip exact, within 0.0035 L elsewhere, no bumps`, () => {
         const src = t[side];
-        const f = fairLine(src);
+        const cabin = side === 'top' ? t.cabin ?? CABIN : undefined;
+        const f = fairLine(src, FAIR, cabin);
         for (const [x, y] of src) {
           const d = Math.abs(yAt(f, x) - y);
           if (x < FAIR.lock) expect(d, `nose x=${x}`).toBeLessThan(1e-9);
@@ -46,6 +59,8 @@ describe('fairing of traced fuselage lines', () => {
         expect(f[f.length - 1]).toEqual([...src[src.length - 1]]);
         // the cabin stretch between nose blend and tail cone: no curvature reversals beyond noise
         expect(wiggles(f, 0.2, 0.7)).toBeLessThanOrEqual(2);
+        // constant-section crown: no low waves (at most one slope reversal over the cabin span)
+        if (cabin) expect(reversals(f, cabin[0], cabin[1]), `cabin ${cabin}`).toBeLessThanOrEqual(1);
       });
     }
   }

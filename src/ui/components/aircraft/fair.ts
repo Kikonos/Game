@@ -5,7 +5,8 @@
 // cabin straight, third differences make curvature change slowly) on a uniform x grid, re-weighted
 // until every grid point lies within a tolerance of the trace — tight at both junctions, looser along
 // the cabin. The stiffness eases off towards both junctions so the curve can take the nose's and the
-// tail cone's curvature without ringing. Pure; frame = traced fractions of L (x aft, y down).
+// tail cone's curvature without ringing. Along the constant-section cabin span of the crown the
+// bending stiffness is raised ×CABIN_STIFF so the fit there is a straight line (no low waves). Pure; frame = traced fractions of L (x aft, y down).
 
 type P2 = [number, number];
 
@@ -30,6 +31,12 @@ export interface FairOpts {
 export const FAIR: FairOpts = {
   lock: 0.09, tailLock: 0.975, step: 0.0025, out: 0.005, bend: 2e4, lambda: 2e6, tol: 0.0032, tolEnd: 0.0012, blend: 0.06,
 };
+
+/** Constant-section crown span (fractions of L) when a profile gives none (TracedProfile.cabin). */
+export const CABIN: readonly [number, number] = [0.2, 0.65];
+const CABIN_STIFF = 1e5;
+/** Stiffness rises over this length outside the cabin span (log-eased). */
+const CABIN_RAMP = 0.03;
 
 const ease = (u: number) => {
   const t = Math.max(0, Math.min(1, u));
@@ -107,17 +114,18 @@ export function whittaker(y: readonly number[], w: readonly number[], lambda: nu
 /** Dev gallery only (`?fair=0`): draw the raw traces, set before the first render. */
 export const fairing = { on: true };
 
-const fairCache = new WeakMap<readonly (readonly [number, number])[], P2[]>();
+const fairCache = new WeakMap<readonly (readonly [number, number])[], { key: string; out: P2[] }>();
 
 /**
  * Faired copy of a traced top / bottom line (nose tip → tail-cone end, x aft). Points ahead of
  * `lock` and aft of `tailLock` are returned untouched; between them the line is resampled every
- * `out` on the smooth fit.
+ * `out` on the smooth fit. `cabin`: span held straight (crown only; omit for the belly).
  */
-export function fairLine(pts: readonly (readonly [number, number])[], o: FairOpts = FAIR): P2[] {
+export function fairLine(pts: readonly (readonly [number, number])[], o: FairOpts = FAIR, cabin?: readonly [number, number]): P2[] {
   if (!fairing.on) return pts.map(([x, y]): P2 => [x, y]);
+  const key = cabin ? `${cabin[0]},${cabin[1]}` : '';
   const hit = o === FAIR ? fairCache.get(pts) : undefined;
-  if (hit) return hit;
+  if (hit && hit.key === key) return hit.out;
   // x non-decreasing (as the renderer reads it)
   const src: P2[] = [];
   for (const [x, y] of pts) src.push([src.length ? Math.max(x, src[src.length - 1][0]) : x, y]);
@@ -130,7 +138,12 @@ export function fairLine(pts: readonly (readonly [number, number])[], o: FairOpt
   const xs = Array.from({ length: n + 1 }, (_, i) => x0 + ((x1 - x0) * i) / n);
   const y = xs.map((x) => interp(src, x));
   const tol = xs.map((x) => fairTol(x, o));
-  const stiff = xs.map((x) => 0.02 + 0.98 * inside(x, o));
+  const stiff = xs.map((x) => {
+    const s = 0.02 + 0.98 * inside(x, o);
+    if (!cabin) return s;
+    const d = Math.max(cabin[0] - x, x - cabin[1], 0);
+    return s * CABIN_STIFF ** ease(1 - d / CABIN_RAMP);
+  });
   const HOLD = 1e9;
   const w = tol.map((t) => (t === 0 ? HOLD : 1));
   const solve = () => whittaker(y, w, o.lambda, o.bend, stiff);
@@ -156,6 +169,6 @@ export function fairLine(pts: readonly (readonly [number, number])[], o: FairOpt
     out.push([x, interp(grid, x)]);
   }
   out.push(...src.filter(([x]) => x >= o.tailLock));
-  if (o === FAIR) fairCache.set(pts, out);
+  if (o === FAIR) fairCache.set(pts, { key, out });
   return out;
 }

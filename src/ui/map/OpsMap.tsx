@@ -201,6 +201,7 @@ export function OpsMap() {
         backdrop={(ctx) => <NightLayer shared={shared} proj={ctx.proj} shift={ctx.backShift} />}
         underlay={(ctx) => {
           refs.current.proj = ctx.proj;
+          shared.aps = airports.map((a) => { const ap = AIRPORT_BY_CODE[a.code]; return ap && ctx.proj([ap.lon, ap.lat]); }).filter((q): q is [number, number] => !!q);
           // The current leg is always drawn by the live paths; the arcs add the selected aircraft's next legs.
           return (
             <>

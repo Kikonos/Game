@@ -303,6 +303,34 @@ export function placeLabels(boxes: LabelBox[], gap = 2): Set<string> {
   return out;
 }
 
+/** Overlap area (px²) of two boxes, each grown by `gap` on every side; 0 when apart. */
+export function boxOverlap(a: LabelBox, b: LabelBox, gap = 0): number {
+  const ox = (a.w + b.w) / 2 + gap * 2 - Math.abs(a.x - b.x);
+  const oy = (a.h + b.h) / 2 + gap * 2 - Math.abs(a.y - b.y);
+  return ox > 0 && oy > 0 ? ox * oy : 0;
+}
+
+/**
+ * Side for a moving label (`sides[i]` = its box on side i): stays on `cur` while that is clear, else takes
+ * the first clear side in `order`, else the least covered one. Returns to the preferred side (order[0])
+ * only once it is clear by a wider margin, so a label crossing an edge never flaps.
+ */
+export function pickLabelSide(sides: LabelBox[], order: number[], obstacles: LabelBox[], cur: number): number {
+  const cover = (i: number, gap: number) => obstacles.reduce((s, o) => s + boxOverlap(sides[i], o, gap), 0);
+  const pref = order[0];
+  if (cur !== pref && cover(pref, 6) === 0) return pref;
+  if (cur >= 0 && cover(cur, 2) === 0) return cur;
+  let best = pref;
+  let bestC = Infinity;
+  for (const i of order) {
+    const c = cover(i, 2);
+    if (c === 0) return i;
+    if (c < bestC) { bestC = c; best = i; }
+  }
+  // Nothing clear: only move when clearly better than where it is.
+  return cur >= 0 && cover(cur, 2) <= bestC * 1.5 ? cur : best;
+}
+
 export const ARCHETYPE_LABEL: Partial<Record<Archetype, string>> = {
   seasonBase: 'Season ACMI base', aogCover: 'AOG cover', adhoc: 'Ad hoc charter', sports: 'Sports charter', repatriation: 'Repatriation',
   tourSeries: 'Tour series', troopRotation: 'Troop rotation', capacityLease: 'Capacity lease', hajj: 'Hajj', unRotation: 'UN rotation', vip: 'VIP charter',

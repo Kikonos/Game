@@ -58,25 +58,28 @@ const legBlock = (a: string, b: string) => blockMinutes(distance(a, b) > LONG_KM
 
 /** Global connectors: long-haul to any big airport (Gulf carriers, Turkish, Ethiopian). */
 const SUPER = new Set(['EK', 'QR', 'EY', 'TK', 'ET']);
-const baseCountries = new Map<string, Set<string>>();
-const basesOf = (c: Carrier) => {
-  let s = baseCountries.get(c.iata);
-  if (!s) baseCountries.set(c.iata, (s = new Set([c.country, ...c.hubs.map((h) => AIRPORT_BY_CODE[h]?.country ?? '')])));
-  return s;
-};
+/** Source markets whose low-cost carriers fly the long leisure sectors (UK to Sharm, Germany to Antalya…). */
+const SUN_SOURCE = new Set(['GB', 'IE', 'DE', 'NL', 'BE', 'CH', 'AT', 'DK', 'SE', 'NO', 'FI', 'PL', 'CZ', 'HU']);
+/** Longest low-cost sector (narrowbody point-to-point). */
+const LCC_KM = 3_600;
+
+/** Does low-cost carrier c fly base → other? Point-to-point from one of its bases into its markets. */
+function lccLeg(c: Carrier, base: Airport, other: Airport, km: number): boolean {
+  if (!c.hubs.includes(base.code) || !(c.markets ?? []).includes(other.country)) return false;
+  if (c.avoid?.includes(other.code) && !c.hubs.includes(other.code)) return false;
+  if (other.size < 3 && other.tour < 0.8 && !c.hubs.includes(other.code)) return false;
+  // Domestic only at home (or between two of its own bases).
+  if (base.country === other.country && base.country !== c.country && !c.hubs.includes(other.code)) return false;
+  // Long leisure sectors only from the northern source markets.
+  if (km > 3_000 && other.biz < 0.2 && !SUN_SOURCE.has(base.country)) return false;
+  return true;
+}
 
 /** Does carrier c plausibly fly a ↔ b nonstop? */
 function serves(c: Carrier, a: Airport, b: Airport, km: number): boolean {
-  if (c.kind === 'lcc') {
-    const m = c.markets ?? [];
-    if (km > 4_000 || !m.includes(a.country) || !m.includes(b.country)) return false;
-    if (a.size < 2 && a.tour < 0.6) return false;
-    if (b.size < 2 && b.tour < 0.6) return false;
-    // Domestic only at home; otherwise one end in a country it has bases in.
-    if (a.country === b.country) return a.country === c.country;
-    const bases = basesOf(c);
-    return bases.has(a.country) || bases.has(b.country);
-  }
+  if (c.maxKm !== undefined && km > c.maxKm) return false;
+  if (c.kind === 'lcc') return km <= (c.maxKm ?? LCC_KM) && (lccLeg(c, a, b, km) || lccLeg(c, b, a, km));
+  if (c.avoid?.includes(a.code) || c.avoid?.includes(b.code)) return false;
   const ha = c.hubs.includes(a.code);
   const hb = c.hubs.includes(b.code);
   const home = [c.country, ...(c.markets ?? [])];
@@ -87,10 +90,12 @@ function serves(c: Carrier, a: Airport, b: Airport, km: number): boolean {
   if (ha && hb) return true;
   const other = ha ? b : a;
   const hub = ha ? a : b;
+  if (c.reach && !home.includes(other.country) && !c.reach.includes(other.country)) return false;
   const link = linked(c.country, other.country) || home.includes(other.country);
   if (SUPER.has(c.iata) && km <= LONG_KM) return true;
-  if (km <= 2_500) return other.size >= 2 || link;
-  if (km <= (c.kind === 'regional' ? 3_500 : LONG_KM)) return other.size >= 3 || link;
+  if (km <= 2_500) return link || other.size >= 3 || (other.size >= 2 && other.biz >= 0.2);
+  // Medium haul: a real city at the far end (beach-only airports are the charter and low-cost carriers' job).
+  if (km <= (c.kind === 'regional' ? 3_500 : LONG_KM)) return link || (other.size >= 4 && other.biz >= 0.3) || (other.size >= 3 && other.biz >= 0.5);
   if (c.kind === 'regional' || km > 14_500) return false;
   if (SUPER.has(c.iata)) return other.size >= 4 || (link && other.size >= 2);
   return (other.size >= 5 && hub.size >= 4) || (link && other.size >= 2);
@@ -127,8 +132,11 @@ function routing(from: string, to: string): Routing {
       const c2 = directCarriers(h, to);
       if (!c1.length || !c2.length) continue;
       const same = c1.some((c) => c2.includes(c));
-      // Shortest way round; one airline through its own hub beats a self-made connection.
-      const score = distance(from, h) + distance(h, to) - (same ? 400 : 0) - (flagHubs.includes(h) ? 150 : 0);
+      // Shortest way round; one airline through its own hub beats a self-made connection, and on long thin
+      // routes the big connectors (Istanbul, the Gulf, Addis) beat a smaller hub that happens to be on the way.
+      const km = distance(from, h) + distance(h, to);
+      const superHub = km > 3_000 && c1.some((c) => SUPER.has(c.iata) && c.hubs.includes(h) && c2.includes(c));
+      const score = km - (same ? 400 : 0) - (flagHubs.includes(h) ? 150 : 0) - (superHub ? 700 : 0);
       if (!best || score < best.score || (score === best.score && h < best.h)) best = { score, h, c1, c2 };
     }
     if (best) {
@@ -153,10 +161,16 @@ export function ticketBlock(from: string, to: string): number {
   return routing(from, to).total;
 }
 
-/** A flight number for the airline on this leg: stable per route, odd/even by direction; long-haul low numbers. */
-function flightNo(c: Carrier, from: string, to: string): string {
+/** Departure bank (3-hour UTC slot): each daily rotation of a route is its own flight. */
+const bankOf = (t: Minute) => Math.floor((((t % DAY) + DAY) % DAY) / 180);
+
+/**
+ * A flight number for the airline on this leg: stable per route and departure bank (the same slot keeps its
+ * number every day), even outbound and odd back (by airport order); long-haul low numbers.
+ */
+function flightNo(c: Carrier, from: string, to: string, dep: Minute): string {
   const pair = from < to ? `${from}${to}` : `${to}${from}`;
-  const h = hash(`${c.iata}:${pair}`);
+  const h = hash(`${c.iata}:${pair}:${bankOf(dep)}`);
   const long = distance(from, to) > LONG_KM;
   const span = long ? 190 : c.kind === 'lcc' ? 4400 : 500;
   const lo = long ? 10 : c.kind === 'lcc' ? 1100 : 1000;
@@ -171,6 +185,21 @@ function fallbackCarrier(from: string, to: string): Carrier {
   return CARRIERS.find((c) => c.kind === 'network' && c.country === ca) ?? CARRIERS.find((c) => c.kind === 'network' && c.country === cb) ?? CARRIER_BY_IATA.TK;
 }
 
+/** The flag or hub carriers of either end (network and regional airlines based there). */
+const homeOf = (c: Carrier, a: string, b: string) => c.kind !== 'lcc' && (c.hubs.includes(a) || c.hubs.includes(b));
+
+/**
+ * The carrier of one departure (`slot` = day and bank): the flag/hub carriers of either end take about 60% of
+ * the departures (more when they are most of the field), the rest is shared evenly. Pure.
+ */
+function pickCarrier(cs: Carrier[], from: string, to: string, slot: string): Carrier {
+  if (!cs.length) return fallbackCarrier(from, to);
+  const h = hash(`${from}${to}${slot}`);
+  const home = cs.filter((c) => homeOf(c, from, to));
+  if (home.length && home.length < cs.length && h % 100 < 60) return home[Math.floor(h / 100) % home.length];
+  return cs[Math.floor(h / 100) % cs.length];
+}
+
 /**
  * The airline flights of a ticket from → to departing at std (arriving at sta): each leg's carrier is picked per
  * day among those flying it, so the same ticket always shows the same flights. Legs are fitted into [std, sta]
@@ -179,22 +208,22 @@ function fallbackCarrier(from: string, to: string): Carrier {
 export function itinerary(from: string, to: string, std: Minute, sta: Minute): CommercialLeg[] {
   const r = routing(from, to);
   const day = Math.floor(std / DAY);
-  const pickC = (l: Routing['legs'][number]) => (l.carriers.length ? l.carriers[hash(`${l.from}${l.to}${day}`) % l.carriers.length] : fallbackCarrier(l.from, l.to));
+  const pickC = (l: Routing['legs'][number], dep: Minute) => pickCarrier(l.carriers, l.from, l.to, `${day}:${bankOf(dep)}`);
   const window = Math.max(1, sta - std);
   if (r.legs.length === 1) {
-    const c = pickC(r.legs[0]);
-    return [{ airline: c.name, iata: c.iata, no: flightNo(c, from, to), from, to, dep: std, arr: sta }];
+    const c = pickC(r.legs[0], std);
+    return [{ airline: c.name, iata: c.iata, no: flightNo(c, from, to, std), from, to, dep: std, arr: sta }];
   }
   const [l1, l2] = r.legs;
   // Fit both legs and the connection into the window (scaled when it is shorter than the routing).
   const k = Math.min(1, window / r.total);
   const b1 = Math.round(l1.block * k);
   const b2 = Math.round(l2.block * k);
-  const c1 = pickC(l1);
-  const c2 = l1.carriers.length && l2.carriers.includes(c1) ? c1 : pickC(l2);
+  const c1 = pickC(l1, std);
+  const c2 = l1.carriers.length && l2.carriers.includes(c1) ? c1 : pickC(l2, sta - b2);
   return [
-    { airline: c1.name, iata: c1.iata, no: flightNo(c1, l1.from, l1.to), from: l1.from, to: l1.to, dep: std, arr: std + b1 },
-    { airline: c2.name, iata: c2.iata, no: flightNo(c2, l2.from, l2.to), from: l2.from, to: l2.to, dep: sta - b2, arr: sta },
+    { airline: c1.name, iata: c1.iata, no: flightNo(c1, l1.from, l1.to, std), from: l1.from, to: l1.to, dep: std, arr: std + b1 },
+    { airline: c2.name, iata: c2.iata, no: flightNo(c2, l2.from, l2.to, sta - b2), from: l2.from, to: l2.to, dep: sta - b2, arr: sta },
   ];
 }
 

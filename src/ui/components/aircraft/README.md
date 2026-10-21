@@ -12,9 +12,13 @@ smoother (second + third differences, eased off at both junctions) keeps every p
 it. The trace files stay the record; `fair.test.ts` checks the bounds per type. `?fair=0` in the gallery
 draws the raw traces. Silhouette traces (`outline`, the Concorde) are not faired.
 
-**Level of detail**: windows and doors follow the drawn scale (`artLod(pxPerM)`, measured after layout):
-`full` ≥ 8 px/m, `card` (windows kept ≥ ~1 px, darker door outlines), `band` < 4.6 px/m (each run of
-windows one slim band, `g.windowBands`). `detail="simple"` only drops titles and fine lines.
+**Fairing**: traced crown / belly lines are faired in `fair.ts`; the crown is held straight over the
+constant-section span `TracedProfile.cabin` (default `CABIN` 0.2–0.65 L; 747 aft of the hump).
+
+**Level of detail**: windows and doors follow the drawn scale and screen density (`artLod(pxPerM, dpr)`,
+measured after layout): `full` ≥ 8 CSS px/m, `card` (separate windows ≥ ~1 device px, darker door
+outlines), `band` below 4.6 px/m at 1× or 5.2 device px/m on dense screens (each run of windows one slim
+band, `g.windowBands`; the 2× iPad Fleet card and market rows keep separate windows). `detail="simple"` only drops titles and fine lines.
 
 ## Files
 

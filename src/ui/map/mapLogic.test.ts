@@ -8,7 +8,7 @@ import { demoFlights } from '../../engine/dev';
 import { createGame } from '../../engine/newGame';
 import { advanceTo } from '../../engine/sim';
 import {
-  chipInfo, commercialById, fitCodes, groupCommercial, headingDeg, isCommercialId, lerpAngle, mapAirports, offerPins, parkOffset, PARK_GAP, parseCommercialId, pickNearest, placeLabels,
+  chipInfo, commercialById, fitCodes, groupCommercial, headingDeg, isCommercialId, lerpAngle, mapAirports, offerPins, parkOffset, PARK_GAP, parseCommercialId, pickLabelSide, pickNearest, placeLabels,
   selectedLegs, sunElevation, sunPoint, terminator, TYPE_STROKE, upNext, upNextRows,
 } from './mapLogic';
 import { addDeadhead } from '../../engine/core/entities';
@@ -223,5 +223,20 @@ describe('v0.5.2 flight types and airline legs', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ who: cf.leg.no, from: 'LIS', crew: 3, sel: { kind: 'flight', id: legs[0].id } });
     expect(commercialById(g, 'nope:0')).toBeNull();
+  });
+});
+
+describe('moving label side', () => {
+  const sides = [{ id: '', x: 30, y: 0, w: 40, h: 11 }, { id: '', x: 0, y: -18, w: 40, h: 11 }, { id: '', x: -30, y: 0, w: 40, h: 11 }, { id: '', x: 0, y: 20, w: 40, h: 11 }];
+  it('keeps the preferred side when clear and dodges an airport code', () => {
+    expect(pickLabelSide(sides, [1, 3, 0, 2], [], -1)).toBe(1);
+    const ap = { id: '', x: 0, y: -20, w: 30, h: 28 }; // code right above the icon (leaving AMS)
+    expect(pickLabelSide(sides, [1, 3, 0, 2], [ap], 1)).toBe(3);
+  });
+  it('does not flap at an edge and returns once the preferred side is well clear', () => {
+    const near = { id: '', x: 0, y: -42, w: 30, h: 28 }; // 3 px clear of 'above': fine for staying, not for returning
+    expect(pickLabelSide(sides, [1, 3, 0, 2], [near], 3)).toBe(3);
+    expect(pickLabelSide(sides, [1, 3, 0, 2], [near], 1)).toBe(1);
+    expect(pickLabelSide(sides, [1, 3, 0, 2], [{ ...near, y: -60 }], 3)).toBe(1);
   });
 });

@@ -155,7 +155,9 @@ export function crewCalendar(g: GameState, crewId: string, from: Minute, to: Min
   // Rest after each duty and journey (planned timeline), and the rest running now.
   const rest: CalBlock[] = [];
   const segs = segsOf(g, c);
+  const restEnds = new Set<Minute>();
   const addRest = (start: Minute, end: Minute, at: string) => {
+    restEnds.add(end);
     if (end <= start || end <= from || start >= to) return;
     const next = [...work, ...status].filter((w) => w.start >= start && w.start < end).reduce((m, w) => Math.min(m, w.start), end);
     if (next <= start) return;
@@ -164,7 +166,10 @@ export function crewCalendar(g: GameState, crewId: string, from: Minute, to: Min
   };
   for (const s of segs) if (s.kind !== 'log' && s.rest > 0) addRest(s.end, s.end + s.rest, s.at);
   const lastLog = c.log.length ? c.log[c.log.length - 1] : undefined;
-  if (c.status !== 'joining' && c.restUntil > g.now && lastLog && !rest.some((r) => r.start <= g.now && r.end > g.now)) addRest(lastLog.end, c.restUntil, c.loc);
+  // The rest running now when the plan has none ending then (same end = the planned one, possibly after a ticket).
+  if (c.status !== 'joining' && c.restUntil > g.now && lastLog && !restEnds.has(c.restUntil) && !rest.some((r) => r.start <= g.now && r.end > g.now)) {
+    addRest(lastLog.end, c.restUntil, locAtTime(c, segs, lastLog.end));
+  }
 
   // Days off: base-local days with nothing on them (rest spilling into the morning is cut off the front).
   const busy = [...work, ...status];
@@ -201,8 +206,24 @@ function locAtTime(c: CrewMember, segs: ReturnType<typeof segsOf>, t: Minute): s
 
 // ---------- header ----------
 
+export interface CrewTravelNow {
+  kind: 'deadhead' | 'positioning';
+  /** Our ticket (deadhead) or our own leg ridden (positioning). */
+  flightId: string;
+  /** Flight number of the leg now (airline 'TP 1342' or ours), its ends and times. */
+  no: string;
+  from: string;
+  to: string;
+  dep: Minute;
+  arr: Minute;
+  /** Journey ends (a connection: `to` is the hub, `dest` the final airport) and final arrival. */
+  dest: string;
+  end: Minute;
+  phase: 'checkIn' | 'air' | 'connecting';
+}
+
 export interface CrewStatusView {
-  /** Badge: 'Joining', 'Sick', 'Training', 'On duty', 'Resting', 'Available', 'Leave', 'Day off'. */
+  /** Badge: 'Joining', 'Sick', 'Training', 'Deadheading', 'Positioning', 'On duty', 'Resting', 'Available', 'Leave'. */
   label: string;
   tone: 'good' | 'warn' | 'bad' | 'info';
   /** Line with the right date: 'Joins 26 May 2027', 'Sick · back ~12 Mar', 'Training until 3 Apr 2027'… */
@@ -214,16 +235,57 @@ export interface CrewStatusView {
   /** 'Joins' for crew still to join (with the future date), else 'Hired'. */
   startLabel: 'Joins' | 'Hired';
   startDate: Minute;
+  /** Where they are now for 'Now at' and the list row: 'LIS', 'in the air CFU→LIS', 'FRA (connecting)'. */
+  nowAt: string;
+  /** Travelling as a passenger now (airline deadhead or riding our empty leg), else null. */
+  travel: CrewTravelNow | null;
+}
+
+const arrow = (a: string, b: string) => `${a}→${b}`;
+
+/** The journey carrying c now (check-in to arrival): an airline ticket or a ride on our own leg. Pure. */
+export function crewTravelNow(g: GameState, c: CrewMember): CrewTravelNow | null {
+  const now = g.now;
+  for (const f of deadheadFlights(g)) {
+    if (f.status === 'cancelled' || f.sta <= now || f.std - BAL.deadheadCheckIn > now || !f.crewIds.includes(c.id)) continue;
+    const legs = commercialItinerary(g, f);
+    if (!legs.length) continue;
+    const i = legs.findIndex((l) => l.arr > now);
+    const l = legs[Math.max(0, i)];
+    const phase = now < legs[0].dep ? 'checkIn' : now >= l.dep ? 'air' : 'connecting';
+    return { kind: 'deadhead', flightId: f.id, no: l.no, from: l.from, to: l.to, dep: l.dep, arr: l.arr, dest: f.to, end: f.sta, phase };
+  }
+  for (const f of Object.values(g.flights)) {
+    if (!f.riders?.includes(c.id) || f.status === 'cancelled' || f.status === 'done') continue;
+    const dep = f.atd ?? f.std;
+    const arr = f.ata ?? f.eta ?? f.sta;
+    if (dep - BAL.deadheadCheckIn > now || arr <= now) continue;
+    const phase = f.status === 'enroute' ? 'air' : 'checkIn';
+    return { kind: 'positioning', flightId: f.id, no: f.no, from: f.from, to: f.to, dep, arr, dest: f.to, end: arr, phase };
+  }
+  return null;
+}
+
+function travelView(c: CrewMember, t: CrewTravelNow, base: Pick<CrewStatusView, 'startLabel' | 'startDate'>): CrewStatusView {
+  const on = t.dest !== t.to ? ` · on to ${t.dest}` : '';
+  const what = t.kind === 'deadhead' ? 'Deadheading' : 'Positioning';
+  const ride = t.kind === 'positioning' ? `Riding ${t.no}` : t.no;
+  const text =
+    t.phase === 'air' ? `${ride} ${arrow(t.from, t.to)} · lands ${fmtTime(t.arr)}${on}`
+      : t.phase === 'connecting' ? `Connecting at ${t.from} · ${t.no} to ${t.to} dep ${fmtTime(t.dep)}`
+        : `${what} · ${ride} ${arrow(t.from, t.to)} dep ${fmtTime(t.dep)}${on}`;
+  const nowAt = t.phase === 'air' ? `in the air ${arrow(t.from, t.to)}` : t.phase === 'connecting' ? `${t.from} (connecting)` : `${c.loc} (check-in)`;
+  return { ...base, label: what, tone: 'info', text, until: t.end, restUntil: null, nowAt, travel: t };
 }
 
 /** Crew card header: status with the right date, start date wording, and rest only when it is a rest. Pure. */
 export function crewStatusView(g: GameState, crewId: string): CrewStatusView {
   const c = g.crew[crewId];
-  if (!c) return { label: '—', tone: 'info', text: '', until: null, restUntil: null, startLabel: 'Hired', startDate: g.now };
+  if (!c) return { label: '—', tone: 'info', text: '', until: null, restUntil: null, startLabel: 'Hired', startDate: g.now, nowAt: '', travel: null };
   const joins = joinsAt(g, c);
   const startLabel: CrewStatusView['startLabel'] = joins !== null ? 'Joins' : 'Hired';
   const startDate = joins ?? Math.min(c.hired, g.now);
-  const base = { startLabel, startDate };
+  const base = { startLabel, startDate, nowAt: c.loc, travel: null };
   if (joins !== null) return { ...base, label: 'Joining', tone: 'warn', text: `Joins ${fmtDate(joins)}`, until: joins, restUntil: null };
   const now = g.now;
   const block = c.blocks?.find((b) => b.from <= now && b.to > now);
@@ -237,6 +299,9 @@ export function crewStatusView(g: GameState, crewId: string): CrewStatusView {
     return { ...base, label: 'Training', tone: 'info', text: to ? `${trainingWhat(g, c, now, now + 1)} until ${fmtDate(to)}` : 'Training', until: to, restUntil: null };
   }
   if (why === 'leave') return { ...base, label: 'Leave', tone: 'info', text: block ? `On leave until ${fmtDate(block.to)}` : 'On leave', until: block?.to ?? null, restUntil: null };
+  // Travelling as a passenger (before the duty check: a ticket inside a duty still reads as travel).
+  const travel = crewTravelNow(g, c);
+  if (travel) return travelView(c, travel, base);
   const sickSoon = c.blocks?.find((b) => b.why === 'sick' && b.from > now && b.from < now + DAY);
   const duty = rosterOf(g, c.id, now, now + 1).find((d) => d.report <= now && d.release > now);
   if (c.status === 'onDuty' || duty) {

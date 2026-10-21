@@ -4,7 +4,7 @@
 import type { TailStyle } from '../../../engine/core/types';
 import { COCKPIT } from './cockpit';
 import { Box, D, add, chainPts, cubic, lerp, lerpV, rad, relax, sampleChain, splitTail, yAt, type V } from './path';
-import { fairLine } from './fair';
+import { CABIN, FAIR, fairLine } from './fair';
 import type { TracedProfile } from './traced/types';
 import type { AircraftProfile, EngineSpec, EngineStyle, FairingSpec, FinSpec, TipDevice, WindowRow, WingSpec } from './types';
 
@@ -157,7 +157,7 @@ function tracedFrame(t: TracedProfile, p: AircraftProfile): Frame {
   const mono = (pts: V[]): V[] => pts.map((v, i, a) => (i && v[0] < a[i - 1][0] ? [a[i - 1][0], v[1]] : v));
   const line = (pts: readonly (readonly [number, number])[]): V[] => (pts.length ? relax(mono(pts.map(P))) : []);
   // crown, belly and tail cone faired between the approved nose and tail-cone tip (fair.ts)
-  const fTop = fairLine(t.top);
+  const fTop = fairLine(t.top, FAIR, t.cabin ?? CABIN);
   const top = line(fTop), bottom = line(fairLine(t.bottom));
   // fin vertices on (or just above) the crown follow it, fading out 0.012 L above
   const rawTop = mono(t.top.map((q): V => q)), fairTop = fTop.map((q): V => q);

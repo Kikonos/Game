@@ -23,6 +23,8 @@ export interface TracedProfile {
    * never quite reaches, which otherwise pushes the titles to mid-fuselage beside the wing tip.
    */
   titlesFrom?: number;
+  /** Constant-section crown span [from, to] (fractions of L) held straight by the fairing (fair.ts CABIN when absent). */
+  cabin?: [number, number];
   notes?: string;
   /** Real fuselage length (m) when the type has no parametric spec to take it from (shared scale). */
   lengthM?: number;

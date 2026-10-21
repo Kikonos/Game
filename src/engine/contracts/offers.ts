@@ -16,7 +16,7 @@ import type {
   ApprovalId, Archetype, Client, ContractOffer, GameState, LegTemplate, Minute, OfferEffects, PaintKind, Product, Requirements, SchedulePattern, SimEvent,
 } from '../core/types';
 import { acceptOffer, closeOffer, setPrice } from './accept';
-import { counterBase, counterOdds, halfwayPrice, leftOf } from './counter';
+import { answerBy, counterBase, counterOdds, halfwayPrice, leftOf } from './counter';
 import { feasibility } from './feasibility';
 import { adhocGroupClients, clientPrefix, clientsOf, isBigClub, isCruiseLine, isDiaspora, isGovernment, isMarineCrewing, isPilgrim, ministry, rivalFor } from './clients';
 import * as F from './flavor';
@@ -828,10 +828,18 @@ export function onOfferReply(g: GameState, ev: SimEvent): void {
   if (!o || o.status !== 'countered' || !o.counter || o.counter.result) return;
   const k = o.counter;
   const client = g.clients[o.clientId]?.name ?? 'The client';
-  const reopen = () => {
+  // The paused clock resumes with the time that was left, but never past the job's first departure (answerBy).
+  // False when no workable time is left: the client takes a rival and the offer closes.
+  const reopen = (): boolean => {
     o.status = 'open';
-    o.expires = g.now + leftOf(o);
-    schedule(g, o.expires, 'offer.expire', o.id);
+    o.expires = Math.min(g.now + leftOf(o), answerBy(g, o, k.aircraftIds ?? [], k.paint !== false));
+    if (o.expires > g.now + 10) {
+      schedule(g, o.expires, 'offer.expire', o.id);
+      return true;
+    }
+    closeOffer(g, o, 'lost', rivalName(g, o));
+    pushMessage(g, { tone: 'info', cat: 'commercial', title: `${client} went elsewhere: ${o.title}`, body: `They wouldn't take our counter and the job couldn't wait any longer. ${o.lostTo} is flying it.`, ref: { kind: 'offer', id: o.id } });
+    return false;
   };
   // v0.5.1: a counter without the client's paint. Required: half the time they walk; else they want a cut on top.
   const noPaint = !!o.paint && k.paint === false;
@@ -858,7 +866,10 @@ export function onOfferReply(g: GameState, ev: SimEvent): void {
     }
     return;
   }
-  reopen();
+  if (!reopen()) {
+    k.result = 'refused';
+    return;
+  }
   const until = `${fmtDay(o.expires)} ${fmtTime(o.expires)} UTC`;
   if (r < odds.accept + odds.halfway) {
     k.result = 'halfway';
@@ -876,6 +887,21 @@ export function onOfferReply(g: GameState, ev: SimEvent): void {
   k.result = 'refused';
   pushMessage(g, { tone: 'info', cat: 'commercial', title: `Counter refused: ${o.title}`, body: `${client} won't move. The asking price of ${fmtPrice(o.product)} stands until ${until}.`, ref: { kind: 'offer', id: o.id } });
   if (o.urgency === 'urgent') requestPause('urgentOffer');
+}
+
+/**
+ * Load (v0.5.1 saves): a pending counter gets the paused clock's time left, and an urgent one still a day away
+ * is answered within 3 h like a new one (before the job's first departure). The old reply event is then a no-op.
+ */
+export function loadCounters(g: GameState): void {
+  for (const o of Object.values(g.offers)) {
+    const k = o.counter;
+    if (o.status !== 'countered' || !k || k.result) continue;
+    k.left ??= Math.max(60, o.expires - k.at);
+    if (o.urgency !== 'urgent' || k.replyAt - g.now <= 180) continue;
+    k.replyAt = g.now + Math.min(180, Math.max(15, answerBy(g, o, k.aircraftIds ?? [], k.paint !== false) - 60 - g.now));
+    schedule(g, k.replyAt, 'offer.reply', o.id);
+  }
 }
 
 export function fmtPrice(p: Product): string {

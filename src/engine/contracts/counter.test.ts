@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { DAY } from '../core/time';
 import type { ContractOffer, GameState } from '../core/types';
 import { acceptOffer, askingPrice, counterOffer, feasibilityAll } from '.';
-import { counterOdds, counterView, halfwayPrice } from './counter';
+import { answerBy, counterOdds, counterView, halfwayPrice } from './counter';
 import { newGame, offer, run } from './testkit';
 
 const fit = (g: GameState, o: ContractOffer) => feasibilityAll(g, o.id).find((r) => r.level !== 'no')!.aircraftId;
@@ -56,6 +56,33 @@ describe('counter state machine', () => {
       expect(o.status).toBe('open');
       expect(o.expires).toBe(k.replyAt + 90);
     }
+  });
+
+  it('an urgent job starting within 3 h: the answer and the reopened clock stay before its first departure', () => {
+    let checked = 0;
+    for (let seed = 1; seed <= 12; seed++) {
+      const g = newGame(200 + seed);
+      const o = offer(g, 'aogCover');
+      const id = fit(g, o);
+      run(g, o.start - 170);
+      if (o.status !== 'open') continue;
+      o.urgency = 'urgent';
+      // A clock left long (as the paused one resuming would): the cap must still hold.
+      o.expires = o.start + DAY;
+      const by = answerBy(g, o, [id]);
+      if (!counterOffer(g, o.id, Math.round(askingPrice(o) * 1.15), [id]).ok) continue;
+      const k = o.counter!;
+      expect(k.replyAt).toBeLessThanOrEqual(Math.max(g.now + 15, by - 60));
+      run(g, k.replyAt + 1);
+      expect(k.result).toBeTruthy();
+      if (o.status === 'open') {
+        checked++;
+        expect(o.expires).toBeLessThanOrEqual(o.start);
+        run(g, o.expires + 1);
+        expect(acceptOffer(g, o.id, [id]).ok).toBe(false);
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
   });
 
   it('normal offers get an answer in about a day', () => {

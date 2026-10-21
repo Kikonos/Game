@@ -17,7 +17,7 @@ import { PLANE_PATH } from '../components/Logo';
 import { liveMinute, store } from '../store';
 import { isTouch } from '../useMedia';
 import { MAP_H, MAP_W } from './mapData';
-import { headingDeg, type LabelBox, groupCommercial, lerpAngle, parkOffset, placeLabels, type LegArc, type PinGroup, sunPoint, terminator, TYPE_STROKE } from './mapLogic';
+import { headingDeg, type LabelBox, groupCommercial, lerpAngle, parkOffset, pickLabelSide, placeLabels, type LegArc, type PinGroup, sunPoint, terminator, TYPE_STROKE } from './mapLogic';
 import type { MapLayerCtx } from './WorldMap';
 
 /** Live positions shared with tap picking and focus (map units, as last drawn). */
@@ -33,9 +33,11 @@ export interface LiveShared {
   pathsOwn: SVGGElement | null;
   /** Grey airline icons (above the pins, under our aircraft). */
   cmRoot: SVGGElement | null;
+  /** Airports on the map (map units): airline flight numbers keep clear of their dots and codes. */
+  aps: [number, number][];
 }
 
-export const newShared = (): LiveShared => ({ ac: new Map(), cm: new Map(), night: null, nightSun: null, pathsCm: null, pathsOwn: null, cmRoot: null });
+export const newShared = (): LiveShared => ({ ac: new Map(), cm: new Map(), night: null, nightSun: null, pathsCm: null, pathsOwn: null, cmRoot: null, aps: [] });
 
 /** Frame cost stats for perf checks (console: __contrailMap). */
 const stats = { frames: 0, avgMs: 0, maxMs: 0, reset() { this.frames = 0; this.avgMs = 0; this.maxMs = 0; } };
@@ -47,6 +49,8 @@ export const HIT_R = { touch: 22, mouse: 14 };
 const GLYPH_PX = 22;
 /** Airline icons: a little smaller than ours. */
 const CM_GLYPH_PX = 20;
+/** Flight-number text attributes per side: right, above, left, below. */
+const NO_AT: [string, string, string][] = [['13', '4', 'start'], ['0', '-14', 'middle'], ['-13', '4', 'end'], ['0', '24', 'middle']];
 /** Airline legs are fetched for this many game minutes at a time, then filtered per frame. */
 const CM_BUCKET = 10;
 const NS = 'http://www.w3.org/2000/svg';
@@ -276,6 +280,7 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
     }
     const glide = new Map<string, Glide>();
     const minFrame = isTouch() ? 1000 / 30 - 3 : 0;
+    const NO_FS = isTouch() ? 11.5 : 10.5; // .ops-cmf .no font size
     let raf = 0;
     let last = 0;
     let lastT = NaN;
@@ -466,13 +471,36 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
           const ang = a && q && (a[0] !== q[0] || a[1] !== q[1]) ? headingDeg(a, q, MAP_W) : 0;
           x.el.setAttribute('transform', `translate(${p[0].toFixed(2)} ${p[1].toFixed(2)}) scale(${u.toPrecision(4)})`);
           x.glyph.setAttribute('transform', `rotate(${ang.toFixed(1)})`);
-          // The flight number sits off the path: above when flying east–west, right of the icon otherwise.
-          const side = Math.abs(Math.sin((ang * Math.PI) / 180)) > 0.6 ? 1 : 0;
+          // The flight number sits off the path (above when flying east–west, right of the icon otherwise)
+          // and moves to another side while that one would cover an airport code or one of our aircraft.
+          const ew = Math.abs(Math.sin((ang * Math.PI) / 180)) > 0.6;
+          const sx = p[0] / u;
+          const sy = p[1] / u;
+          const obs: LabelBox[] = [];
+          for (const ap of shared.aps) {
+            const ax = ap[0] / u - sx;
+            const ay = ap[1] / u - sy;
+            if (Math.abs(ax) < 90 && Math.abs(ay) < 50) obs.push({ id: '', x: ax, y: ay - 8, w: 30, h: 28 });
+          }
+          for (const q of shared.ac.values()) {
+            const ax = q[0] / u - sx;
+            const ay = q[1] / u - sy;
+            if (Math.abs(ax) < 90 && Math.abs(ay) < 50) obs.push({ id: '', x: ax, y: ay + 8, w: 44, h: 36 });
+          }
+          const w = cf.leg.no.length * NO_FS * 0.62 + 2;
+          const sides: LabelBox[] = [
+            { id: '', x: 13 + w / 2, y: 0, w, h: NO_FS }, // right
+            { id: '', x: 0, y: -18, w, h: NO_FS }, // above
+            { id: '', x: -13 - w / 2, y: 0, w, h: NO_FS }, // left
+            { id: '', x: 0, y: 20, w, h: NO_FS }, // below
+          ];
+          const side = obs.length ? pickLabelSide(sides, ew ? [1, 3, 0, 2] : [0, 2, 1, 3], obs, x.side) : ew ? 1 : 0;
           if (side !== x.side) {
             x.side = side;
-            x.no.setAttribute('x', side ? '0' : '13');
-            x.no.setAttribute('y', side ? '-14' : '4');
-            x.no.setAttribute('text-anchor', side ? 'middle' : 'start');
+            const [nx, ny, anchor] = NO_AT[side];
+            x.no.setAttribute('x', nx);
+            x.no.setAttribute('y', ny);
+            x.no.setAttribute('text-anchor', anchor);
           }
           shared.cm.set(cf.id, p);
         }

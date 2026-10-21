@@ -76,6 +76,44 @@ describe('itineraries', () => {
     expect(n).toBeGreaterThan(100);
   });
 
+  it('carriers that really fly the route; flag and hub carriers take most departures', () => {
+    const ALLOW: Record<string, string[]> = {
+      'LIS-CDG': ['TP', 'AF', 'U2'], 'LHR-LIS': ['BA', 'TP'], 'LIS-ORY': ['TP', 'AF', 'U2', 'VY', 'HV'], 'LIS-MAD': ['TP', 'IB', 'UX', 'FR', 'U2'],
+      'LIS-CMN': ['TP', 'AT'], 'LIS-FRA': ['TP', 'LH'], 'DUB-LIS': ['EI', 'TP', 'FR'], 'AMS-DUB': ['KL', 'EI'], 'LIS-GRU': ['TP', 'LA'],
+      'LGW-TFS': ['BA', 'U2'], 'FRA-MUC': ['LH'], 'LIS-JFK': ['TP', 'DL', 'B6', 'UA'], 'LIS-FNC': ['TP'], 'LIS-PDL': ['TP', 'S4'],
+      'LIS-BCN': ['TP', 'VY', 'FR', 'U2'], 'LIS-OTP': ['TP', 'RO', 'FR', 'W6'], 'CFU-LIS': ['U2', 'FR'], 'LHR-MAD': ['BA', 'IB'],
+      'CDG-FRA': ['AF', 'LH'], 'LIS-PRG': ['TP', 'QS', 'FR', 'U2'],
+    };
+    // Network-only or connecting: never a low-cost carrier.
+    const VIA: Record<string, string[]> = { 'ADA-LIS': ['TK'], 'LIS-AYT': ['TK'], 'LIS-RUH': ['TK', 'EK', 'QR', 'EY'], 'LIS-SSH': ['MS', 'TK'] };
+    const lcc = (x: string) => CARRIER_BY_IATA[x].kind === 'lcc';
+    for (const [pair, ok] of Object.entries({ ...ALLOW, ...VIA })) {
+      const [a, b] = pair.split('-');
+      let home = 0;
+      let n = 0;
+      for (let d = 0; d < 40; d++) {
+        for (const h of [7, 13, 19]) {
+          const t = T0 + d * 1440 + h * 60;
+          for (const l of itinerary(a, b, t, t + ticketBlock(a, b))) {
+            expect(ok, `${pair} ${l.no}`).toContain(l.iata);
+            n++;
+            if (!lcc(l.iata)) home++;
+          }
+        }
+      }
+      if (home && ok.some(lcc)) expect(home / n, pair).toBeGreaterThan(0.6);
+    }
+  });
+
+  it('each departure bank of a route is its own flight number, the same every day', () => {
+    const no = (d: number, h: number) => {
+      const t = T0 + d * 1440 + h * 60;
+      return itinerary('FRA', 'MUC', t, t + 60)[0].no;
+    };
+    expect(new Set([no(0, 6), no(0, 12), no(0, 18)]).size).toBe(3);
+    expect(no(5, 12)).toBe(no(0, 12));
+  });
+
   it('old tickets booked with nonstop times still fit their window', () => {
     const legs = itinerary('LIS', 'NBO', T0, T0 + 420);
     expect(legs[0].dep).toBe(T0);

@@ -14,11 +14,22 @@ export interface Carrier {
   hubs: string[];
   /** Low-cost: countries flown point-to-point. Network/regional: extra countries served domestically. */
   markets?: string[];
+  /** Airports it does not use (low-cost carriers away from the slot-bound hubs: Ryanair at CDG, Heathrow…). */
+  avoid?: string[];
+  /** Longest sector it flies (narrowbody-only network carriers, e.g. GOL). */
+  maxKm?: number;
+  /** Network/regional: the only countries it flies to abroad (Binter: the Canaries' neighbours). */
+  reach?: string[];
 }
 
-const N = (iata: string, name: string, country: string, hubs: string[], markets?: string[]): Carrier => ({ iata, name, country, kind: 'network', hubs, markets });
-const R = (iata: string, name: string, country: string, hubs: string[], markets?: string[]): Carrier => ({ iata, name, country, kind: 'regional', hubs, markets });
-const L = (iata: string, name: string, country: string, hubs: string[], markets: string[]): Carrier => ({ iata, name, country, kind: 'lcc', hubs, markets });
+type Extra = Pick<Carrier, 'avoid' | 'maxKm' | 'reach'>;
+
+const N = (iata: string, name: string, country: string, hubs: string[], markets?: string[], x?: Extra): Carrier => ({ iata, name, country, kind: 'network', hubs, markets, ...x });
+const R = (iata: string, name: string, country: string, hubs: string[], markets?: string[], x?: Extra): Carrier => ({ iata, name, country, kind: 'regional', hubs, markets, ...x });
+const L = (iata: string, name: string, country: string, hubs: string[], markets: string[], x?: Extra): Carrier => ({ iata, name, country, kind: 'lcc', hubs, markets, ...x });
+
+/** Big slot-bound hubs the European low-cost carriers stay out of (unless one is their own base). */
+const HUBS_NO_LCC = ['LHR', 'CDG', 'FRA', 'MUC', 'AMS', 'ZRH', 'IST'];
 
 const EU_LCC_RYANAIR = ['IE', 'GB', 'ES', 'PT', 'IT', 'FR', 'BE', 'DE', 'NL', 'PL', 'MT', 'GR', 'HR', 'LV', 'LT', 'EE', 'CZ', 'HU', 'RO', 'BG', 'SE', 'DK', 'NO', 'FI', 'AT', 'MA', 'CY', 'JO', 'AL'];
 const EU_LCC_EASYJET = ['GB', 'FR', 'CH', 'IT', 'PT', 'ES', 'NL', 'DE', 'AT', 'GR', 'HR', 'MT', 'CY', 'BE', 'DK', 'IS', 'MA', 'EG', 'TR', 'CZ', 'HU', 'PL', 'IE', 'IL', 'JO', 'NO', 'SE', 'FI', 'BG', 'AL', 'TN', 'CV'];
@@ -29,8 +40,8 @@ export const CARRIERS: Carrier[] = [
   N('TP', 'TAP Air Portugal', 'PT', ['LIS', 'OPO']),
   R('S4', 'Azores Airlines', 'PT', ['PDL', 'TER']),
   N('IB', 'Iberia', 'ES', ['MAD']),
-  N('UX', 'Air Europa', 'ES', ['MAD']),
-  R('NT', 'Binter', 'ES', ['LPA', 'TFS', 'ACE', 'FUE']),
+  N('UX', 'Air Europa', 'ES', ['MAD'], undefined, { avoid: ['LHR'] }),
+  R('NT', 'Binter', 'ES', ['LPA', 'TFS', 'ACE', 'FUE'], undefined, { reach: ['PT', 'MA', 'SN', 'CV', 'MR', 'GM', 'FR', 'IT'] }),
   N('LH', 'Lufthansa', 'DE', ['FRA', 'MUC']),
   N('AF', 'Air France', 'FR', ['CDG', 'ORY']),
   N('KL', 'KLM', 'NL', ['AMS']),
@@ -57,16 +68,16 @@ export const CARRIERS: Carrier[] = [
   R('ZB', 'Air Albania', 'AL', ['TIA']),
   N('TK', 'Turkish Airlines', 'TR', ['IST']),
   // Europe: low-cost
-  L('FR', 'Ryanair', 'IE', ['DUB', 'STN', 'MAN', 'BCN', 'MAD', 'AGP', 'LIS', 'OPO', 'FAO', 'PMI', 'CRL', 'FCO', 'NAP', 'WAW', 'KRK', 'MLA', 'RIX', 'VNO', 'BUD', 'OTP', 'ZAG', 'ATH', 'BER', 'CPH', 'VIE', 'PRG', 'SOF', 'TLL', 'MRS', 'RAK'], EU_LCC_RYANAIR),
-  L('U2', 'easyJet', 'GB', ['LGW', 'BRS', 'MAN', 'EDI', 'GLA', 'BFS', 'GVA', 'LIS', 'OPO', 'FAO', 'MXP', 'NAP', 'VCE', 'CDG', 'ORY', 'NCE', 'LYS', 'TLS', 'BOD', 'NTE', 'AMS', 'BER', 'BCN', 'MAD', 'PMI', 'AGP', 'ALC'], EU_LCC_EASYJET),
-  L('W6', 'Wizz Air', 'HU', ['BUD', 'OTP', 'CLJ', 'SOF', 'VAR', 'WAW', 'KRK', 'GDN', 'VNO', 'RIX', 'BEG', 'TIA', 'FCO', 'NAP', 'MXP', 'VCE', 'BLQ', 'TBS', 'LCA', 'AUH'], EU_LCC_WIZZ),
-  L('VY', 'Vueling', 'ES', ['BCN', 'FCO', 'ORY', 'PMI', 'AGP', 'SVQ', 'BIO'], ['ES', 'FR', 'IT', 'PT', 'GB', 'NL', 'BE', 'DE', 'CH', 'GR', 'MA', 'IE', 'DK']),
-  L('HV', 'Transavia', 'NL', ['AMS', 'EIN', 'ORY', 'NTE', 'LYS'], ['NL', 'FR', 'ES', 'PT', 'IT', 'GR', 'MA', 'TN', 'TR', 'EG', 'IL', 'CV']),
-  L('LS', 'Jet2', 'GB', ['MAN', 'BHX', 'STN', 'BRS', 'NCL', 'GLA', 'EDI'], ['GB', 'ES', 'PT', 'GR', 'CY', 'TR', 'IT', 'HR', 'MT', 'BG']),
-  L('DY', 'Norwegian', 'NO', ['OSL', 'CPH', 'ARN', 'HEL'], ['NO', 'DK', 'SE', 'FI', 'ES', 'PT', 'IT', 'FR', 'GR', 'HR', 'GB', 'DE', 'PL', 'IS']),
-  L('EW', 'Eurowings', 'DE', ['DUS', 'CGN', 'HAM', 'STR', 'BER'], ['DE', 'AT', 'ES', 'PT', 'IT', 'GR', 'HR', 'GB', 'FR', 'SE', 'DK', 'CZ', 'PL', 'TR', 'EG']),
-  L('V7', 'Volotea', 'ES', ['BOD', 'NTE', 'VCE'], ['ES', 'FR', 'IT', 'GR', 'HR', 'PT']),
-  L('PC', 'Pegasus', 'TR', ['SAW', 'AYT', 'ADB', 'ESB'], ['TR', 'DE', 'NL', 'GB', 'FR', 'IT', 'ES', 'AT', 'CH', 'GE', 'AZ', 'IL', 'JO', 'SA', 'AE', 'EG']),
+  L('FR', 'Ryanair', 'IE', ['DUB', 'STN', 'MAN', 'BCN', 'MAD', 'AGP', 'LIS', 'OPO', 'FAO', 'PMI', 'CRL', 'FCO', 'NAP', 'WAW', 'KRK', 'MLA', 'RIX', 'VNO', 'BUD', 'OTP', 'ZAG', 'ATH', 'BER', 'CPH', 'VIE', 'PRG', 'SOF', 'TLL', 'MRS', 'RAK'], EU_LCC_RYANAIR, { avoid: [...HUBS_NO_LCC, 'LGW', 'ORY', 'LIN', 'MXP', 'DUS', 'GVA', 'CMN'] }),
+  L('U2', 'easyJet', 'GB', ['LGW', 'BRS', 'MAN', 'EDI', 'GLA', 'BFS', 'GVA', 'LIS', 'OPO', 'FAO', 'MXP', 'NAP', 'VCE', 'CDG', 'ORY', 'NCE', 'LYS', 'TLS', 'BOD', 'NTE', 'AMS', 'BER', 'BCN', 'MAD', 'PMI', 'AGP', 'ALC'], EU_LCC_EASYJET, { avoid: [...HUBS_NO_LCC, 'DUB', 'CMN'] }),
+  L('W6', 'Wizz Air', 'HU', ['BUD', 'OTP', 'CLJ', 'SOF', 'VAR', 'WAW', 'KRK', 'GDN', 'VNO', 'RIX', 'BEG', 'TIA', 'FCO', 'NAP', 'MXP', 'VCE', 'BLQ', 'TBS', 'LCA', 'AUH'], EU_LCC_WIZZ, { avoid: [...HUBS_NO_LCC, 'ORY', 'CMN'] }),
+  L('VY', 'Vueling', 'ES', ['BCN', 'FCO', 'ORY', 'PMI', 'AGP', 'SVQ', 'BIO'], ['ES', 'FR', 'IT', 'PT', 'GB', 'NL', 'BE', 'DE', 'CH', 'GR', 'MA', 'IE', 'DK'], { avoid: [...HUBS_NO_LCC, 'CMN'] }),
+  L('HV', 'Transavia', 'NL', ['AMS', 'EIN', 'ORY', 'NTE', 'LYS'], ['NL', 'FR', 'ES', 'PT', 'IT', 'GR', 'MA', 'TN', 'TR', 'EG', 'IL', 'CV'], { avoid: [...HUBS_NO_LCC, 'CMN'] }),
+  L('LS', 'Jet2', 'GB', ['MAN', 'BHX', 'STN', 'BRS', 'NCL', 'GLA', 'EDI'], ['GB', 'ES', 'PT', 'GR', 'CY', 'TR', 'IT', 'HR', 'MT', 'BG'], { avoid: [...HUBS_NO_LCC, 'LGW', 'LCY'] }),
+  L('DY', 'Norwegian', 'NO', ['OSL', 'CPH', 'ARN', 'HEL'], ['NO', 'DK', 'SE', 'FI', 'ES', 'PT', 'IT', 'FR', 'GR', 'HR', 'GB', 'DE', 'PL', 'IS'], { avoid: HUBS_NO_LCC }),
+  L('EW', 'Eurowings', 'DE', ['DUS', 'CGN', 'HAM', 'STR', 'BER'], ['DE', 'AT', 'ES', 'PT', 'IT', 'GR', 'HR', 'GB', 'FR', 'SE', 'DK', 'CZ', 'PL', 'TR', 'EG'], { avoid: HUBS_NO_LCC.filter((x) => x !== 'LHR') }),
+  L('V7', 'Volotea', 'ES', ['BOD', 'NTE', 'VCE'], ['ES', 'FR', 'IT', 'GR', 'HR', 'PT'], { avoid: [...HUBS_NO_LCC, 'LGW', 'ORY'] }),
+  L('PC', 'Pegasus', 'TR', ['SAW', 'AYT', 'ADB', 'ESB'], ['TR', 'DE', 'NL', 'GB', 'FR', 'IT', 'ES', 'AT', 'CH', 'GE', 'AZ', 'IL', 'JO', 'SA', 'AE', 'EG'], { avoid: HUBS_NO_LCC }),
   // Africa
   N('AT', 'Royal Air Maroc', 'MA', ['CMN']),
   R('TU', 'Tunisair', 'TN', ['TUN']),
@@ -165,7 +176,7 @@ export const CARRIERS: Carrier[] = [
   N('AV', 'Avianca', 'CO', ['BOG', 'SAL'], ['SV', 'GT', 'CR', 'EC']),
   N('LA', 'LATAM', 'CL', ['SCL', 'GRU', 'LIM'], ['BR', 'PE', 'EC', 'CO', 'AR', 'UY', 'PY']),
   N('AR', 'Aerolíneas Argentinas', 'AR', ['AEP', 'EZE']),
-  N('G3', 'GOL', 'BR', ['CGH', 'GRU', 'GIG', 'BSB']),
+  N('G3', 'GOL', 'BR', ['CGH', 'GRU', 'GIG', 'BSB'], undefined, { maxKm: 4_000 }),
   N('AD', 'Azul', 'BR', ['CNF', 'REC']),
   R('OB', 'Boliviana de Aviación', 'BO', ['VVI', 'LPB']),
   R('V0', 'Conviasa', 'VE', ['CCS']),

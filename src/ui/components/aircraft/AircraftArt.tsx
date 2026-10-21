@@ -239,14 +239,19 @@ const FUS_STOPS: readonly (readonly [number, string])[] = [
 ];
 
 /**
- * Level of detail of the windows and doors by drawn scale (CSS px per metre): `full` as drawn,
- * `card` windows kept ≥ ~1 px with a hairline and darker door outlines, `band` (window pitch under
- * ~2.4 px: Fleet cards, market rows, minis) each run of windows as one slim band.
+ * Level of detail of the windows and doors by drawn scale (CSS px per metre) and screen density
+ * (`dpr`, capped at 3): `full` as drawn, `card` separate windows kept ≥ ~1 device px with a hairline
+ * and darker door outlines, `band` each run of windows as one slim band — only where separate
+ * windows would merge: under 4.6 px/m at 1× (pitch ~2.4 px), under 5.2 device px/m on dense screens
+ * (the 2× iPad Fleet card ~3.9 and market row ~2.8 CSS px/m keep their windows; minis, swatches band).
  */
 export type ArtLod = 'full' | 'card' | 'band';
-export function artLod(pxPerM: number): ArtLod {
-  return pxPerM < 4.6 ? 'band' : pxPerM < 8 ? 'card' : 'full';
+export function artLod(pxPerM: number, dpr = 1): ArtLod {
+  const d = Math.max(1, Math.min(dpr || 1, 3));
+  return pxPerM * d < (d > 1 ? 5.2 : 4.6) ? 'band' : pxPerM < 8 ? 'card' : 'full';
 }
+/** Screen density for artLod (1 outside a browser). */
+export const screenDpr = (): number => (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
 const DOOR_SMALL = 'rgba(28,42,68,0.55)';
 
 const PLAIN_ACCENT = '#c9d1dd';
@@ -276,7 +281,8 @@ function AircraftArtImpl({ typeId, livery, code, name, className, height, detail
       if (!(w > 0 && h > 0)) return;
       const k = Math.min(w / vb.w, h / vb.h);
       // re-render only when the level of detail changes
-      setMeasured((m) => (m !== undefined && artLod(m) === artLod(k) ? m : k));
+      const d = screenDpr();
+      setMeasured((m) => (m !== undefined && artLod(m, d) === artLod(k, d) ? m : k));
     };
     take(n.clientWidth, n.clientHeight);
     if (typeof ResizeObserver === 'undefined') return;
@@ -284,7 +290,7 @@ function AircraftArtImpl({ typeId, livery, code, name, className, height, detail
     ro.observe(n);
     return () => ro.disconnect();
   }, [pxPerM, vb.w, vb.h]);
-  const lod = artLod(measured ?? guess);
+  const lod = artLod(measured ?? guess, screenDpr());
   const lv = g.livery(livery.tail);
   const id = (k: string) => `${uid}-${k}`;
   const url = (k: string) => `url(#${id(k)})`;

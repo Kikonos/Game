@@ -182,6 +182,13 @@ export interface Seg {
   dutyId?: string;
   /** Ticket (deadhead flight) behind a 'pos' seg. */
   ticketId?: string;
+  /**
+   * v0.5.2: a ticket home merged into this duty seg (leaving within 10 h of release): the ticket (once bought),
+   * where it leaves from and when, and the seg's end, rest and place without it (a later trip from there drops it).
+   */
+  home?: { id?: string; from: string; std: Minute; release: Minute; rest: number };
+  /** v0.5.2: a ticket out merged into this duty seg's FDP: the ticket and the seg's start, FDP, limit and origin without it. */
+  out?: { id?: string; to: string; start: Minute; fdp: number; maxFdp: number; disruptive: boolean };
   /** Being checked (a candidate assignment). */
   fresh?: boolean;
 }
