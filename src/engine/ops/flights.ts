@@ -14,7 +14,7 @@ import { chance, next, pick, range } from '../core/rng';
 import { DAY, fmtDuration, fmtTime } from '../core/time';
 import type { ActionResult, Aircraft, Flight, GameState, MaintenanceEvent, MessageCat, Minute, SimEvent } from '../core/types';
 import { noteLostLegs } from '../contracts/billing';
-import { applyDiscretion, boardCrew, crewIssuesFor, flightCrewStatus, guardDuty, rerosterFrom } from '../crew';
+import { applyDiscretion, boardCrew, crewIssuesFor, flightCrewStatus, guardDuty, rerosterFrom, setRestDelayHook } from '../crew';
 import { crewReadyAt, crewShortDecision, hasOpenDecision } from './events';
 import { aogChance, isGrounded, missCheck, startAog } from './maintenance';
 import { ageF, ageOf, bumpReliable, bumpRelation, contractOf, isBaseLeg, isRevenue, stats, turnOf, usd } from './util';
@@ -679,7 +679,6 @@ function crewProblem(g: GameState, f: Flight, ac: Aircraft): void {
     f.crewHeld = true;
     f.heldAt ??= g.now;
     if (isRevenue(f)) stats(g).uncovered++;
-    if (isRevenue(f)) (globalThis as any).__uncHook?.(g, f); // DBG-UNC
     // Crew over a limit come off the duty first (refilled when someone legal can take the seat).
     if (f.dutyId) guardDuty(g, f.dutyId);
     rerosterFrom(g, ac.id, g.now);
@@ -830,3 +829,17 @@ export function pruneFlights(g: GameState): void {
   }
   if (ids.length) removeFlights(g, ids);
 }
+
+// v0.5.2: a crew short of rest after a late finish: the duty's first leg waits for them (crew.guardDuty).
+setRestDelayHook((g, f, std) => {
+  if (f.status !== 'scheduled' || std <= f.std) return false;
+  const was = f.std;
+  const n = delayChain(g, f, std, 'Crew rest');
+  if (f.std + f.delay < std) return false;
+  pushMessage(g, {
+    tone: 'info', cat: 'ops', title: `${f.no} delayed ${fmtDuration(std - was)}`,
+    body: `Crew rest: yesterday's late finish left the crew short of their minimum rest, so the report moves back. ${f.from}–${f.to} now off blocks ${fmtTime(std)} UTC${n ? `; ${n} later leg${n > 1 ? 's follow' : ' follows'}` : ''}.`,
+    ref: { kind: 'flight', id: f.id },
+  });
+  return true;
+});

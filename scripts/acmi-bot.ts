@@ -532,7 +532,8 @@ const targets: [string, boolean, string][] = [
   ['summer BH per aircraft 180–320', summerBH >= 180 && summerBH <= 320, summerBH.toFixed(0)],
   ['year net margin −5%…+12%', margin >= -0.05 && margin <= 0.12, `${(margin * 100).toFixed(1)}% (${k$(profitY)} on ${k$(revenueY)})`],
   ['no illegal duties flown (FDP + crew)', illegalOf(s) === 0, `${illegalOf(s)} (FDP ${s.illegalFlown ?? 0}, crew ${s.illegalCrewFlown ?? 0})`],
-  ['< 2% flights uncovered at departure', uncShare < 0.02, `${(uncShare * 100).toFixed(2)}% of ${s.departures ?? 0}`],
+  // v0.5.2 gate: was < 2%; the roster now covers tour gaps, rest slips and stretched duties.
+  ['≤ 0.3% flights uncovered at departure', uncShare <= 0.003, `${(uncShare * 100).toFixed(2)}% of ${s.departures ?? 0}`],
   ['≥ 1 meaningful action per week', totalActions / weeks >= 1 && activeWeeks / weeks >= 0.8, `${(totalActions / weeks).toFixed(1)}/wk, ${activeWeeks}/${weeks} weeks${idle.length ? ` (idle: ${idle.join(' ')})` : ''}`],
   ['≤ 3 decisions per week', maxDec <= 3, `max ${maxDec}, ${[...tally.decisions.values()].reduce((a, b) => a + b, 0)} answered`],
   ['≥ 30 offers per year', seenOffer.size * (365 / days) >= 30, String(seenOffer.size)],

@@ -114,7 +114,7 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
   // the crew fly out the day before and rest at the hotel first.
   const own = new Set(p.dutyIds);
   const bad = (l: LegalityIssue[]) => l.filter((i) => i.level === 'illegal' && (i.code === 'rest' || i.code === 'fdp') && !!i.dutyId && own.has(i.dutyId)).length;
-  if (!existing && out && !out.rideId && !String((globalThis as any).__ab).includes('noEarly') && bad(ftl)) { // DBG-AB
+  if (!existing && out && !out.rideId && bad(ftl)) {
     const early = planOut(g, p, first, out.from, true);
     if (early.std < out.std && early.std - BAL.deadheadCheckIn >= g.now) {
       const plain = out;

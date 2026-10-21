@@ -16,14 +16,14 @@ const world = (p: readonly [number, number]): [number, number] => [-p[0], -p[1]]
 
 describe('airframe outlines (approved art)', () => {
   // v0.5.2: traced crown / belly / tail cone faired (fair.ts, bounds in fair.test.ts); fin root follows;
-  // constant-section crown held straight over the cabin span (round 1 fix)
+  // constant-section crown held straight over the cabin span (round 1 fix); Concorde outline crown faired (round 2)
   it('fuselage, fin, windows and engine cowls are byte-identical to the approved v0.5.2 art', () => {
     const h = createHash('sha1');
     for (const id of IDS) {
       const g = artGeometry(id);
       h.update([g.fus, g.fin.fill, g.windows, ...g.engines.map((e) => e.cowl)].join('|'));
     }
-    expect(h.digest('hex')).toBe('859079ec6c99001109558a50cc5161500516654b');
+    expect(h.digest('hex')).toBe('08fdff1d9e8ab4f48b4a47a00eb187e4a9f93a03');
   });
 
   it('fin.poly is the closed fill outline', () => {

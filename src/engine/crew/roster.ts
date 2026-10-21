@@ -11,7 +11,7 @@ import type { ActionResult, CrewMember, Duty, Flight, GameState, Legality, Minut
 import { acceptable, crewIssuesFor, mergeSegs, openDuties, otherTrip, planCrew, type CrewPlan } from './check';
 import { deletePairing, dutyLegality, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setCrewTrailOkHook, setReleaseHook, setRetickHook, splitPairing, splitUnderWay, syncDuty } from './duties';
 import { crewName } from './generate';
-import { evalSegs, levelOf, worst, type Seg } from './rules';
+import { evalSegs, levelOf, minRest, tzDeltaH, worst, type Seg } from './rules';
 import { aboard, block28, crewCount, crewIx, ctxOf, dhBlock, droppableHome, dutySegs, locAt, noteRiders, passengers, planHome, planOut, segsOf, ticketPrice, touchCrew, typeIdOf, withoutTickets } from './timeline';
 
 export { buildDuties } from './duties';
@@ -169,6 +169,13 @@ function retimeTickets(g: GameState, p: Pairing, d: Duty, moved: Set<string>): v
     // Home tickets leave after report; tickets out leave before it.
     if (f.std > d.report) {
       if (f.from === d.restAt && f.std < d.release + 30) std = Math.ceil((d.release + 60) / 60) * 60;
+      else if (f.from === d.restAt && f.std - d.release >= 600) {
+        // v0.5.2: a ticket home after rest (planHome) leaves once the rest is over again: a later release
+        // would otherwise put its check-in inside the rest and the whole crew off the duty at the gate.
+        const rest = minRest({ dutyMin: d.release - d.report, atHome: false, augmented: d.augment > 0, tzShift: tzDeltaH(f.to, f.from, d.release) });
+        const need = Math.ceil((d.release + rest + BAL.deadheadCheckIn) / 60) * 60;
+        if (f.std < need) std = need;
+      }
     } else if (f.to === dep && f.sta > d.report && f.std > g.now) {
       const t = planOut(g, p, d, f.from);
       if (!t.rideId && t.std - BAL.deadheadCheckIn >= g.now) std = t.std;
@@ -440,6 +447,36 @@ function laterBroken(g: GameState, crewIds: string[], p: Pairing): Set<string> {
   return acs;
 }
 
+/** Longest report slip for a crew still resting (ops move the legs; beyond it the seat is refilled or left short). */
+const REST_SLIP = 3 * 60;
+
+let restDelayHook: ((g: GameState, f: Flight, std: Minute) => boolean) | null = null;
+/** Ops registers how a duty's first leg is delayed for crew rest (ops/flights.ts delayChain). */
+export function setRestDelayHook(f: (g: GameState, f: Flight, std: Minute) => boolean): void {
+  restDelayHook = f;
+}
+
+/**
+ * A duty not yet reported whose full crew is held up only by rest still running (restUntil past the report, by
+ * at most REST_SLIP): its first leg is delayed so the report falls when the rest ends, and the duty re-measured.
+ * True when the legs moved.
+ */
+function slipForRest(g: GameState, d: Duty, ids: string[]): boolean {
+  const p = g.pairings[d.pairingId];
+  const f = g.flights[d.flightIds[0]];
+  if (!restDelayHook || !p?.aircraftId || d.report <= g.now || !f || f.status !== 'scheduled' || p.slots.some((s) => !s.crewId)) return false;
+  let end = 0;
+  for (const id of ids) {
+    const c = g.crew[id];
+    if (!c || c.status === 'onDuty' || c.restUntil <= d.report) return false;
+    end = Math.max(end, c.restUntil);
+  }
+  const slip = Math.ceil((end - d.report) / 5) * 5;
+  if (slip > REST_SLIP || !restDelayHook(g, f, f.std + slip)) return false;
+  onFlightsChanged(g, p.aircraftId, g.now);
+  return true;
+}
+
 /**
  * Last line before a duty (2 h before report, and at the gate): no crew member may fly it over a limit. Crew with
  * a crew-level issue are re-rostered (their later trips give way first, then this aircraft is re-planned); anyone
@@ -458,8 +495,14 @@ export function guardDuty(g: GameState, dutyId: string): boolean {
   d = g.duties[dutyId];
   let short = 0;
   if (d && !d.done && g.pairings[d.pairingId]) {
-    const bad = crewIssuesFor(g, d);
-    if (bad.length) {
+    let bad = crewIssuesFor(g, d);
+    // v0.5.2: nobody to swap, but the crew are only short of rest (a late finish the day before): the duty
+    // reports when their rest ends (its legs move up to REST_SLIP later) rather than flying uncovered.
+    if (bad.length && slipForRest(g, d, bad.map((b) => b.crewId))) {
+      d = g.duties[dutyId];
+      bad = d && !d.done ? crewIssuesFor(g, d) : [];
+    }
+    if (d && bad.length) {
       const p = g.pairings[d.pairingId];
       const q = openDuties(g, p)[0] === d ? p : splitPairing(g, p, d.report) ?? p;
       for (const b of bad) releaseCrew(g, q, b.crewId);
@@ -675,7 +718,6 @@ function warnShort(g: GameState, ids: string[]): void {
   });
   if (!soon.length) return;
   for (const id of soon) g.flights[id].crewWarned = true;
-  (globalThis as any).__warnHook?.(g, soon); // DBG-UNC
   const fl = soon.map((id) => g.flights[id]).sort((a, b) => a.std - b.std);
   const f = fl[0];
   pushMessage(g, {
@@ -698,7 +740,7 @@ export function fillAll(g: GameState, ps: Pairing[], res: RosterResult, exclude?
     // filled from the first later duty someone can: the tour is split there, so only the gap goes uncovered.
     let q: Pairing | null = p;
     for (let n = 0; q && n < 3; n++) {
-      q = q.tour && !String((globalThis as any).__ab).includes('noTG') ? splitTourGap(g, ctx, q, exclude) : null; // DBG-AB
+      q = q.tour ? splitTourGap(g, ctx, q, exclude) : null;
       if (q) fillPairing(g, ctx, q, res, exclude);
     }
   }

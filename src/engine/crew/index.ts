@@ -20,7 +20,7 @@ export {
 export { crewName, makeCrewMember, salaryFor } from './generate';
 export { crewAvailability, hireCrew, hireQuote, staffing, trainCrew, type Availability, type HireRequest, type RoleCapacity, type StaffingLine } from './hr';
 export {
-  applyDiscretion, autoRoster, boardCrew, buildDuties, flightCrewStatus, guardDuty, onFlightsChanged, removeCrew, replaceCrew, rerosterFrom, rosterOf,
+  applyDiscretion, autoRoster, boardCrew, buildDuties, flightCrewStatus, guardDuty, onFlightsChanged, removeCrew, replaceCrew, rerosterFrom, rosterOf, setRestDelayHook,
   type FlightCrewStatus, type RosterResult,
 } from './roster';
 export { crewIssuesFor } from './check';
