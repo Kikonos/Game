@@ -1,15 +1,16 @@
 // Fleet (B5): aircraft cards (art, ownership, hours, A/C-check bars with Plan check, AOG risk) and the
 // scarce aircraft market below (lease / buy with a confirm). DESIGN.md §6.3.
 
-import { CalendarRange, Plane, ShoppingCart, Wrench } from 'lucide-react';
+import { CalendarRange, Lock, Palette, Plane, ShoppingCart, Wrench } from 'lucide-react';
 import { useEffect } from 'react';
 import { artFor } from '../../data/acmiTypes';
 import { typeOf } from '../../engine/core/perf';
 import { DAY, fmtDate, fmtDay, yearOf } from '../../engine/core/time';
-import type { Aircraft, AircraftOffer, GameState } from '../../engine/core/types';
-import { acquireAircraft, checkStatus } from '../../engine/ops';
+import type { Aircraft, AircraftOffer, GameState, LiveryRef } from '../../engine/core/types';
+import { MARKET_LIVERY } from '../../data/livery';
+import { acquireAircraft, checkStatus, liveryOf, paintStatus, setAircraftLivery } from '../../engine/ops';
 import { AircraftArt } from '../components/AircraftArt';
-import { Empty } from '../components/ui';
+import { Empty, Seg } from '../components/ui';
 import { money } from '../format';
 import { store, useGame } from '../store';
 import { KV, ScreenHead, useRenderCount } from './common';
@@ -53,6 +54,37 @@ function CheckBar({ label, used, due, hoursLeft, next, onPlan }: { label: string
   );
 }
 
+type RefKind = 'company' | 'white' | 'custom';
+
+/** Livery row: Company · All white · Custom (+ Edit), or why it is locked (client paint on or booked). */
+function LiveryRow({ g, ac }: { g: GameState; ac: Aircraft }) {
+  const st = paintStatus(g, ac.id);
+  const ref = ac.livery ?? 'company';
+  const kind: RefKind = typeof ref === 'object' ? 'custom' : ref;
+  const edit = () => store.openModal({ kind: 'livery', target: { aircraftId: ac.id } });
+  const pick = (k: RefKind) => {
+    if (k === kind) return;
+    const next: LiveryRef = k === 'custom' ? { custom: structuredClone(g.company.livery) } : k;
+    if (store.act((gg) => setAircraftLivery(gg, ac.id, next), { toastOk: false }).ok && k === 'custom') edit();
+  };
+  if (st.locked) {
+    return (
+      <div className="sc-ac-livery locked">
+        <Lock className="sc-ico-s warn" />
+        <span className="small grow">{st.why}</span>
+        <button className="btn btn-sm" onClick={edit}><Palette /> View</button>
+      </div>
+    );
+  }
+  return (
+    <div className="sc-ac-livery">
+      <span className="upper dim">Livery</span>
+      <Seg<RefKind> value={kind} onChange={pick} options={[{ value: 'company', label: 'Company' }, { value: 'white', label: 'All white' }, { value: 'custom', label: 'Custom' }]} />
+      <button className="btn btn-sm" onClick={edit} aria-label={`Edit ${ac.reg} livery`}><Palette /> Edit</button>
+    </div>
+  );
+}
+
 function AircraftCard({ g, ac, sel }: { g: GameState; ac: Aircraft; sel: boolean }) {
   const t = typeOf(ac.typeId);
   const cs = safeCheck(g, ac);
@@ -62,10 +94,11 @@ function AircraftCard({ g, ac, sel }: { g: GameState; ac: Aircraft; sel: boolean
     ? [['Owned', `book value ${money(o.bookValue)}`]]
     : [['Lessor', o.lessor], ['Lease', `to ${fmtDate(o.leaseEnd)} · ${money(o.rentPerMonth)}/month`]];
   const plan = (kind: 'A' | 'C') => store.openModal({ kind: 'check', aircraftId: ac.id, checkKind: kind });
+  const lv = liveryOf(g, ac);
   return (
     <div className={`card sc-ac ${sel ? 'selected' : ''}`} data-ac={ac.id}>
       <div className="sc-ac-top">
-        <div className="sc-ac-art"><AircraftArt typeId={artFor(ac.typeId)} livery={g.company.livery} code={g.company.code} detail="simple" /></div>
+        <div className="sc-ac-art"><AircraftArt typeId={artFor(ac.typeId)} livery={lv.livery} code={lv.code} name={lv.name} /></div>
         <div className="grow" style={{ minWidth: 0 }}>
           <div className="row gap-8">
             <b className="mono sc-ac-reg">{ac.reg}</b>
@@ -75,6 +108,7 @@ function AircraftCard({ g, ac, sel }: { g: GameState; ac: Aircraft; sel: boolean
           <div className="small muted ellipsis">{t.name} · {ac.cabin.label} · {yearOf(g.now) - ac.builtYear} years</div>
         </div>
       </div>
+      <LiveryRow g={g} ac={ac} />
       <KV rows={[
         ...own,
         ['At', ac.status === 'delivering' ? `arrives ${fmtDate(ac.deliveredAt)}` : ac.at],
@@ -115,7 +149,7 @@ function MarketRow({ g, o }: { g: GameState; o: AircraftOffer }) {
   const lease = o.kind === 'dryLeaseIn';
   return (
     <div className="sc-list-row">
-      <div className="sc-mkt-art"><AircraftArt typeId={artFor(o.typeId)} livery={{ primary: '#e8eefb', secondary: '#9aa6bf', tail: 'solid' }} detail="simple" /></div>
+      <div className="sc-mkt-art"><AircraftArt typeId={artFor(o.typeId)} livery={MARKET_LIVERY} detail="simple" /></div>
       <div className="grow" style={{ minWidth: 0 }}>
         <div className="row gap-8"><b className="ellipsis">{t.name}</b><span className={`badge ${lease ? 'info' : 'gold'}`}>{lease ? 'Dry lease' : 'Buy'}</span></div>
         <div className="small muted ellipsis">{o.lessor} · built {o.builtYear} · {o.cabin.label} · delivery {o.leadDays} d · offer ends in {spanLabel(o.expires - g.now)}</div>

@@ -5,19 +5,34 @@
 //     &k=3 (crop px per source px; crop.png is the source ×3) &nx=&ny= (nose tip in crop px, auto from mask.png)
 //     &op=0.5 &zoom=1 &under=1 (art under the crop) &crop=<id> (borrow another type's crop)
 //   ?gallery=sheet[&w=440]          every traced type: crop | art at the same scale | overlay
+// Livery checks (v0.5.1):
+//   ?gallery=logos[&types=a320ceo,b77w]   the 15 logos alone (64/28/14 px) and on each type's tail
+//   ?gallery=float[&codes=WW,MQ,XQZ]      tail code v0.5 (left, needs zzLegacyArt.tmp.tsx) | now (right)
+//   ?gallery=clip[&stickers=0]            magenta stickers at scale 3 in the corners (stickers=0: mask)
+//   ?gallery=editor                       the LiveryEditor sheet with local state
+//   &logo=<id>|mono &plain=1 &codecolor=#hex &weight=500   override the chosen livery
 
 import '@fontsource-variable/inter';
 import '@fontsource-variable/space-grotesk';
 import '@fontsource-variable/jetbrains-mono';
 import '../styles/app.css';
 import '../styles/screens.css';
-import { StrictMode, useEffect, useState } from 'react';
+import { StrictMode, useEffect, useState, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ACMI_TYPES_LIST } from '../data/acmiTypes';
 import { AIRCRAFT } from '../data/aircraft';
-import type { Livery } from '../engine/core/types';
-import { AircraftArt, artMetrics, artViewBox } from '../ui/components/aircraft/AircraftArt';
+import { LOGO_IDS, type LogoId } from '../data/livery';
+import type { Livery, StickerPlacement, TailStyle } from '../engine/core/types';
+import { AircraftArt, artMetrics, artViewBox, type AircraftArtProps } from '../ui/components/aircraft/AircraftArt';
+import { LOGOS, LogoGlyph } from '../ui/components/aircraft/logos';
 import { TRACED } from '../ui/components/aircraft/traced/load';
+import { TailBadge } from '../ui/components/Logo';
+import { LiveryEditor } from '../ui/components/livery/LiveryEditor';
+import '../styles/acmi/livery.css';
+
+// v0.5 renderer, when a scratch copy is present (git show <v0.5>:…/AircraftArt.tsx > …/zzLegacyArt.tmp.tsx)
+const legacyMods = import.meta.glob<{ AircraftArt: (p: AircraftArtProps) => ReactNode }>('../ui/components/aircraft/zzLegacyArt.tmp.tsx', { eager: true });
+const LegacyArt = Object.values(legacyMods)[0]?.AircraftArt as ((p: AircraftArtProps) => ReactNode) | undefined;
 
 // catalogue types plus the ACMI-only ones (a332, a343, a35u, b77l)
 const NAMES: Record<string, string> = Object.fromEntries([...AIRCRAFT, ...ACMI_TYPES_LIST].map((t) => [t.id, t.name]));
@@ -28,7 +43,20 @@ const LIVERIES: Record<string, Livery> = {
   greenstripe: { primary: '#0f9d76', secondary: '#f5c451', tail: 'stripe' },
   navysolid: { primary: '#0b1f4d', secondary: '#3ee6ff', tail: 'solid' },
   used: { primary: '#8792a8', secondary: '#c7cede', tail: 'solid' },
+  white: { primary: '#ffffff', secondary: '#c0c7d6', tail: 'solid', plain: true },
+  logo: { primary: '#0b1f4d', secondary: '#f5c451', tail: 'solid', logo: { id: 'compass', color: '#f5c451', color2: '#ffffff' } },
+  plainlogo: { primary: '#d6283c', secondary: '#1e293b', tail: 'solid', plain: true, logo: { id: 'kite', color: '#d6283c', color2: '#1e293b' } },
+  stickers: {
+    primary: '#0f9d76', secondary: '#f5c451', tail: 'stripe', code: { color: '#ffffff', weight: 500 }, titles: { color: '#0b1f4d' },
+    logo: { id: 'orbit', color: '#f5c451', color2: '#0b1f4d' },
+    stickers: [
+      { id: 'logo', kind: 'logo', side: 'fin', scale: 1 }, { id: 'titles', kind: 'titles', side: 'fuselage', scale: 1 },
+      { id: 'code', kind: 'code', side: 'fuselage', x: 0.72, y: 0.62, scale: 1.4, rotation: -8 },
+      { id: 'logo2', kind: 'logo', side: 'fuselage', scale: 1 },
+    ],
+  },
 };
+const LOGO_SET = new Set<string>([...LOGO_IDS, 'mono']);
 const BGS: Record<string, string> = { dark: '#111a2c', blue: '#6f8fc4' };
 const SIZES = ['hero', 'card', 'mini'] as const;
 type Size = (typeof SIZES)[number];
@@ -37,7 +65,17 @@ const q = new URLSearchParams(location.search);
 const list = (k: string) => q.get(k)?.split(',').map((s) => s.trim()).filter(Boolean);
 const types = (list('types') ?? Object.keys(NAMES)).filter((id) => NAMES[id] || TRACED.has(id));
 const liveryKey = q.get('livery') ?? 'blockhours';
-const livery = LIVERIES[liveryKey] ?? LIVERIES.blockhours;
+const livery: Livery = (() => {
+  const l: Livery = { ...(LIVERIES[liveryKey] ?? LIVERIES.blockhours) };
+  const lg = q.get('logo');
+  if (lg && LOGO_SET.has(lg)) l.logo = { id: lg as LogoId | 'mono', color: l.secondary, color2: l.primary, text: 'BH' };
+  if (q.get('plain') === '1') l.plain = true;
+  const cc = q.get('codecolor'), wt = q.get('weight');
+  if (cc || wt) l.code = { ...l.code, color: cc ?? l.code?.color, weight: wt === '500' ? 500 : 700 };
+  const tail = q.get('tail');
+  if (tail && ['solid', 'split', 'stripe', 'sweep'].includes(tail)) l.tail = tail as TailStyle;
+  return l;
+})();
 const bgs = (list('bg') ?? Object.keys(BGS)).filter((b) => BGS[b]);
 const sizes = (list('size') ?? [...SIZES]).filter((s): s is Size => (SIZES as readonly string[]).includes(s));
 const code = q.get('code') ?? (liveryKey === 'used' ? undefined : 'BH');
@@ -268,7 +306,147 @@ function Compare({ bg }: { bg: string }) {
   );
 }
 
+// ---------- livery checks ----------
+
+const TONES: [string, string][] = [['#1e4fd8', '#3ee6ff'], ['#d6283c', '#1e293b'], ['#0f9d76', '#f5c451'], ['#7a1f2b', '#e8b04a']];
+
+function LogoSheet() {
+  const ids = [...LOGO_IDS];
+  const tailTypes = list('types') ?? ['a320ceo', 'b77w'];
+  return (
+    <div className="g-logos">
+      <section className="g-size">
+        <h2>logos · 64 / 28 / 14 px</h2>
+        <div className="g-panel" style={{ background: BGS.dark }}>
+          {ids.map((id, i) => {
+            const [c1, c2] = TONES[i % TONES.length];
+            return (
+              <figure className="g-cell" key={id} data-logo={id}>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center', background: '#fff', borderRadius: 8, padding: 6 }}>
+                  {[64, 28, 14].map((s) => (
+                    <svg key={s} width={s} height={s} viewBox="0 0 100 100"><LogoGlyph logo={{ id, color: c1, color2: c2 }} /></svg>
+                  ))}
+                </div>
+                <figcaption>{LOGOS[id].name}</figcaption>
+              </figure>
+            );
+          })}
+        </div>
+      </section>
+      <section className="g-size">
+        <h2>tail badges</h2>
+        <div className="g-panel" style={{ background: BGS.dark, gap: 8 }}>
+          {(['solid', 'split', 'stripe', 'sweep'] as const).map((tail) => <TailBadge key={tail} primary="#d6283c" secondary="#ffffff" code="BH" size={44} livery={{ ...livery, tail, plain: undefined, logo: undefined }} />)}
+          <TailBadge primary="#fff" secondary="#000" code="BH" size={44} livery={{ ...livery, plain: true, logo: undefined }} />
+          <TailBadge primary="#1e4fd8" secondary="#3ee6ff" code="BH" size={44} />
+          {ids.map((id, i) => <TailBadge key={id} primary="#000" secondary="#000" code="BH" size={44} livery={{ primary: TONES[i % 4][0], secondary: TONES[i % 4][1], tail: 'solid', logo: { id, color: '#ffffff', color2: TONES[i % 4][1] } }} />)}
+        </div>
+      </section>
+      {tailTypes.map((t) => (
+        <section className="g-size" key={t}>
+          <h2>{t} · card and mini</h2>
+          <div className="g-panel" style={{ background: BGS.blue }}>
+            {ids.map((id, i) => {
+              const [c1, c2] = TONES[(i + 1) % TONES.length];
+              const lv: Livery = { primary: c1 === '#f5c451' ? '#0b1f4d' : c1, secondary: c2, tail: 'solid', logo: { id, color: c1 === '#f5c451' ? '#f5c451' : '#ffffff', color2: c2 === '#ffffff' ? '#f5c451' : c2 } };
+              return (
+                <figure className="g-cell" key={id} data-logo={id}>
+                  <div className="g-box" style={{ width: 300, height: 104 }}><AircraftArt typeId={t} livery={lv} name="Block Hours" height={100} /></div>
+                  <div className="g-box" style={{ width: 92, height: 36 }}><AircraftArt typeId={t} livery={lv} detail="simple" height={34} /></div>
+                  <figcaption>{id}</figcaption>
+                </figure>
+              );
+            })}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function FloatCheck() {
+  const codes = list('codes') ?? ['WW', 'MQ', 'XQZ'];
+  const schemes: TailStyle[] = ['split', 'solid', 'sweep', 'stripe'];
+  return (
+    <div>
+      {!LegacyArt && <div className="g-ref-info">no zzLegacyArt.tmp.tsx: showing the current renderer only</div>}
+      {types.map((t) => (
+        <section className="g-size" key={t} data-type={t}>
+          <h2>{t}</h2>
+          <div className="g-panel" style={{ background: BGS.blue }}>
+            {schemes.map((sc, i) => {
+              const lv: Livery = { ...LIVERIES[['redsplit', 'navysolid', 'blockhours', 'greenstripe'][i]], tail: sc };
+              const c = codes[i % codes.length];
+              return (
+                <figure className="g-cell" key={sc}>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    {LegacyArt && <div className="g-box" style={{ width: 280, height: 110, outline: '1px dashed rgba(255,60,60,0.6)' }}><LegacyArt typeId={t} livery={lv} code={c} name="Block Hours" height={106} /></div>}
+                    <div className="g-box" style={{ width: 280, height: 110 }}><AircraftArt typeId={t} livery={lv} code={c} name="Block Hours" height={106} /></div>
+                  </div>
+                  <figcaption>{sc} · {c} · {LegacyArt ? 'v0.5 | v0.5.1' : 'v0.5.1'}</figcaption>
+                </figure>
+              );
+            })}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+const MAGENTA = '#ff00ff';
+const CORNERS: StickerPlacement[][] = [
+  [
+    { id: 'code', kind: 'code', side: 'fin', x: 0, y: 1, scale: 3 }, { id: 'logo', kind: 'logo', side: 'fin', x: 1, y: 0, scale: 3 },
+    { id: 'titles', kind: 'titles', side: 'fuselage', x: 0, y: 0, scale: 3 }, { id: 'logo2', kind: 'logo', side: 'fuselage', x: 1, y: 1, scale: 3 },
+  ],
+  [
+    { id: 'code', kind: 'code', side: 'fin', x: 1, y: 1, scale: 3, rotation: 45 }, { id: 'logo', kind: 'logo', side: 'fin', x: 0, y: 0, scale: 3 },
+    { id: 'titles', kind: 'titles', side: 'fuselage', x: 1, y: 0, scale: 3, rotation: -45 }, { id: 'logo2', kind: 'logo', side: 'fuselage', x: 0, y: 1, scale: 3 },
+  ],
+  [
+    { id: 'code', kind: 'code', side: 'fuselage', x: 0, y: 0.5, scale: 3 }, { id: 'titles', kind: 'titles', side: 'fin', x: 0.5, y: 1, scale: 3 },
+    { id: 'logo', kind: 'logo', side: 'fuselage', x: 0.5, y: 1, scale: 3 }, { id: 'logo2', kind: 'logo', side: 'fin', x: 0.5, y: 0.5, scale: 3 },
+  ],
+];
+
+function ClipCheck() {
+  const on = q.get('stickers') !== '0';
+  const base: Livery = { primary: '#ffffff', secondary: '#ffffff', tail: 'solid', plain: true };
+  return (
+    <div className="g-clip">
+      {types.map((t) => (
+        <section className="g-size" key={t} data-type={t}>
+          <div className="g-panel" style={{ background: '#000000', borderRadius: 0 }}>
+            {CORNERS.map((st, i) => {
+              const lv: Livery = on
+                ? { ...base, code: { color: MAGENTA, text: 'WMQ' }, titles: { color: MAGENTA }, logo: { id: 'spark', color: MAGENTA }, stickers: st }
+                : { ...base, stickers: [] };
+              return ['hero', 'card', 'mini'].map((sz) => (
+                <div key={`${i}${sz}`} className="g-box" style={{ width: sz === 'hero' ? 520 : sz === 'card' ? 300 : 92, height: sz === 'hero' ? 170 : sz === 'card' ? 104 : 36 }}>
+                  <AircraftArt typeId={t} livery={lv} code="WW" name="Block Hours Wide Name" detail={sz === 'mini' ? 'simple' : 'full'} height={sz === 'hero' ? 166 : sz === 'card' ? 100 : 34} />
+                </div>
+              ));
+            })}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function EditorDemo() {
+  const [lv, setLv] = useState<Livery>(livery);
+  return (
+    <div style={{ position: 'fixed', inset: 0, padding: 16, background: 'var(--bg)' }}>
+      <LiveryEditor value={lv} onChange={setLv} code="BH" name="Block Hours" mode="company" onApplyAll={() => {}} onSave={() => {}} onCancel={() => {}} />
+      <pre id="g-livery-json" style={{ display: 'none' }}>{JSON.stringify(lv)}</pre>
+    </div>
+  );
+}
+
 function Gallery() {
+  if (mode === 'editor') return <EditorDemo />;
   return (
     <div className="g-wrap">
       <style>{css}</style>
@@ -276,7 +454,7 @@ function Gallery() {
         <h1>Aircraft art</h1>
         <span>{types.length} types · livery {liveryKey} ({livery.tail})</span>
       </div>
-      {mode === 'compare' ? (
+      {mode === 'logos' ? <LogoSheet /> : mode === 'float' ? <FloatCheck /> : mode === 'clip' ? <ClipCheck /> : mode === 'compare' ? (
         (list('type') ?? types.filter((id) => TRACED.has(id))).map((id) => <CompareRef key={id} id={id} />)
       ) : mode === 'sheet' ? (
         [...TRACED.keys()].sort().map((id) => <SheetRow key={id} id={id} w={num('w', 440)} />)

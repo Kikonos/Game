@@ -4,7 +4,7 @@
 import { BAL } from '../../engine/core/balance';
 import { flightsOf } from '../../engine/core/entities';
 import { DAY, HOUR, dayStart, fmtDay, fmtTime } from '../../engine/core/time';
-import type { Flight, GameState, Minute, Ref } from '../../engine/core/types';
+import type { Flight, GameState, MaintenanceEvent, Minute, Ref } from '../../engine/core/types';
 import { crewRev, dutyLegality, flightCrewStatus } from '../../engine/crew';
 
 export type ZoomDays = 3 | 7 | 28;
@@ -34,6 +34,16 @@ export interface GanttBlock {
   crew?: 'missing' | 'illegal' | null;
   done?: boolean;
   at?: string;
+  /** v0.5.1 paint blocks: the client livery's primary (hatched). */
+  paint?: string;
+}
+
+/** 'Paint · Saudia' (paint-in), 'Repaint' (strip after full paint), 'Decals off'. */
+export function paintLabel(g: GameState, m: MaintenanceEvent): string {
+  const c = m.paint ? g.contracts[m.paint.contractId] : undefined;
+  if (m.paint?.phase === 'out') return c?.paint?.kind === 'decals' ? 'Decals off' : 'Repaint';
+  const client = c ? g.clients[c.clientId]?.name : undefined;
+  return client ? `Paint · ${client}` : 'Paint shop';
 }
 
 const colorOf = (g: GameState, f: Flight) => (f.contractId ? g.contracts[f.contractId]?.color ?? null : null);
@@ -80,6 +90,13 @@ export function rowBlocks(g: GameState, aircraftId: string, from: Minute, to: Mi
     if (m.aircraftId !== aircraftId || m.status === 'cancelled') continue;
     busy.push([m.start, m.end, m.at]);
     if (m.end < from || m.start > to) continue;
+    if (m.kind === 'paint') {
+      const c = m.paint ? g.contracts[m.paint.contractId] : undefined;
+      // Paint-in in the client's colour; the strip back to ours in the company primary.
+      const fill = m.paint?.phase === 'in' ? c?.paint?.livery.primary : g.company.livery.primary;
+      out.push({ key: m.id, kind: 'maint', start: m.start, end: m.end, color: null, label: `${paintLabel(g, m)} · ${m.at}`, short: 'Paint', refs: [{ kind: 'maint', id: m.id }], done: m.status === 'done', at: m.at, paint: fill ?? '#8a96b3' });
+      continue;
+    }
     out.push({ key: m.id, kind: 'maint', start: m.start, end: m.end, color: null, label: m.kind === 'AOG' ? `AOG ${m.at}` : `${m.kind}-check ${m.at}`, short: m.kind, refs: [{ kind: 'maint', id: m.id }], done: m.status === 'done', at: m.at });
   }
   // Legs sub-chartered away from this aircraft's contracts: outlined in its row.

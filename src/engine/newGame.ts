@@ -11,6 +11,7 @@ import { pushMessage } from './core/messages';
 import { int } from './core/rng';
 import { START, fromUTC, monthKey } from './core/time';
 import type { Aircraft, Cabin, GameState, Livery, Minute, Role } from './core/types';
+import { normaliseLivery } from './ops/paint';
 import { makeCrewMember } from './crew/generate';
 import { GOALS } from './ops/goals';
 import { newStatement } from './ops/finance';
@@ -67,7 +68,7 @@ function emptyState(o: NewGameOptions, seed: number, now: Minute): GameState {
       icao: o.icao ?? (o.code + (o.name.replace(/[^A-Za-z]/g, '')[2] ?? 'X')).toUpperCase().slice(0, 3),
       callsign: o.callsign ?? o.name.split(' ')[0].toUpperCase(),
       ceo: o.ceo ?? 'You',
-      livery: o.livery,
+      livery: normaliseLivery(o.livery),
       homeBase: o.base,
       regPrefix: COUNTRIES[ap.country]?.reg ?? 'CS-',
       cash: BAL.startCash,

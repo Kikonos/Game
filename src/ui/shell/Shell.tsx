@@ -122,7 +122,7 @@ function CompanyPill() {
   const c = g.company;
   return (
     <button className="airline-pill" onClick={() => store.navigate('company')} aria-label={`${c.name}: company`}>
-      <TailBadge primary={c.livery.primary} secondary={c.livery.secondary} code={c.code} size={30} />
+      <TailBadge primary={c.livery.primary} secondary={c.livery.secondary} code={c.code} size={30} livery={c.livery} />
       <div className="col" style={{ gap: 2, minWidth: 0 }}>
         <span className="name ellipsis">{c.name}</span>
         <span className="lvl ellipsis">{c.icao} · {c.homeBase}</span>

@@ -7,7 +7,8 @@ import { geoInterpolate, geoPath } from 'd3-geo';
 import { memo, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { aircraftLive, type AircraftLive } from '../../engine/core/query';
-import type { GameState } from '../../engine/core/types';
+import type { GameState, Livery } from '../../engine/core/types';
+import { liveryOf } from '../../engine/ops';
 import { PLANE_PATH } from '../components/Logo';
 import { liveMinute, store } from '../store';
 import { isTouch } from '../useMedia';
@@ -166,6 +167,13 @@ export const PinsLayer = memo(function PinsLayer({ pins, marked, proj, unit, sel
 
 // ---------- aircraft ----------
 
+/** Map glyph fill and outline for a livery: the primary with a readable edge; all white = light fill, dark outline. */
+function glyphInk(l: Livery): [string, string] {
+  if (l.plain) return ['#eef2f8', '#1b2436'];
+  const edge = luminance(l.secondary) > 0.3 && Math.abs(luminance(l.secondary) - luminance(l.primary)) > 0.2 ? l.secondary : '#f4f7ff';
+  return [l.primary, edge];
+}
+
 /** Relative luminance (0–1) of a #rrggbb colour. */
 export function luminance(hex: string): number {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex);
@@ -301,12 +309,11 @@ export function AircraftLayer({ ctx, g, shared, selected }: { ctx: MapLayerCtx; 
     return () => cancelAnimationFrame(raf);
   }, [idsKey, shared]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const livery = g.company.livery;
-  const outline = luminance(livery.secondary) > 0.3 && Math.abs(luminance(livery.secondary) - luminance(livery.primary)) > 0.2 ? livery.secondary : '#f4f7ff';
   return (
     <g ref={ref} className="ops-aircraft">
       {ids.map((id) => {
         const ac = g.fleet[id];
+        const [fill, outline] = glyphInk(liveryOf(g, ac).livery);
         return (
           <g key={id} data-id={id} data-phase="parked" className={`ops-ac ${selected === id ? 'sel' : ''}`}>
             <circle className="hit" r={HIT_R.touch} />
@@ -314,7 +321,7 @@ export function AircraftLayer({ ctx, g, shared, selected }: { ctx: MapLayerCtx; 
             <circle className="sel-ring" r={16} />
             <circle className="aog-ring" r={14} />
             <g className="glyph">
-              <path d={PLANE_PATH} transform={`scale(${GLYPH_PX / 24}) translate(-12 -12)`} fill={livery.primary} stroke={outline} strokeWidth={1.4} strokeLinejoin="round" />
+              <path d={PLANE_PATH} transform={`scale(${GLYPH_PX / 24}) translate(-12 -12)`} fill={fill} stroke={outline} strokeWidth={1.4} strokeLinejoin="round" />
             </g>
             <g className="badge maint" transform="translate(11 -11)">
               <circle r={7.5} />

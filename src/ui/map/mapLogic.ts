@@ -251,6 +251,7 @@ export function chipInfo(g: GameState, ac: Aircraft, t: Minute): ChipInfo {
   if (ac.status === 'aog') return { tone: 'bad', line: `AOG at ${ac.at}`, short: `AOG ${ac.at}` };
   if (ac.status === 'maintenance') {
     const m = ac.maintId ? g.maintenance[ac.maintId] : undefined;
+    if (m?.kind === 'paint') return { tone: 'warn', line: `Paint shop → ${fmtDay(m.end)}`, short: `Paint ${ac.at}` };
     return { tone: 'warn', line: m ? `${m.kind === 'AOG' ? 'Repair' : `${m.kind}-check`} → ${fmtDay(m.end)}` : `Hangar ${ac.at}`, short: `Hangar ${ac.at}` };
   }
   if (ac.status === 'delivering') return { tone: 'idle', line: `Delivery ${fmtDay(ac.deliveredAt)}`, short: 'Delivery' };

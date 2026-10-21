@@ -1,19 +1,22 @@
 // Offer review (B5): terms, schedule and effects on the left; per-aircraft feasibility (traffic lights,
 // positioning, crew capacity, contribution) on the right; Decline / Counter / Accept. DESIGN.md §6.3.
 
-import { Check, X } from 'lucide-react';
+import { Check, Palette, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { flag } from '../../data/countries';
-import { acceptOffer, askingPrice, counterOffer, declineOffer, feasibilityAll, leadDays, type FeasibilityReport } from '../../engine/contracts';
+import { artFor } from '../../data/acmiTypes';
+import { acceptOffer, askingPrice, counterOffer, declineOffer, feasibilityAll, leadDays, paintQuote, paintTermsText, type FeasibilityReport } from '../../engine/contracts';
+import { clientCode, clientTitles } from '../../engine/ops';
+import { AircraftArt } from '../components/AircraftArt';
 import { flightsRev } from '../../engine/core/entities';
 import { typeOf } from '../../engine/core/perf';
 import { DAY, fmtDate, fmtDay, fmtDuration, fmtTime } from '../../engine/core/time';
 import type { ContractOffer, GameState } from '../../engine/core/types';
-import { Modal, Stepper } from '../components/ui';
+import { Modal, Stepper, Toggle } from '../components/ui';
 import { money } from '../format';
 import { ArchIcon, Chips, Dot, KV } from '../screens/common';
-import { ARCH_LABEL, counterSteps, expiryLabel, reqChips, riskChips, ROLE_LABEL, routeSummary, type Chip } from '../screens/screenLogic';
+import { archLabel, counterSteps, expiryLabel, reqChips, riskChips, ROLE_LABEL, routeSummary, offerDays, type Chip } from '../screens/screenLogic';
 import { store, useGame } from '../store';
 
 const LEVEL_TONE = { ok: 'good', warn: 'warn', no: 'bad' } as const;
@@ -57,7 +60,8 @@ function Terms({ g, o }: { g: GameState; o: ContractOffer }) {
     }
     rows.push(['Fuel', p.fuelEscalation ? 'Escalation clause' : 'Our risk']);
   } else rows.push(['Rent', `${usd(p.rentPerMonth)} / month`], ['Reserves', `${usd(p.reservesPerFH)} / FH`]);
-  rows.push(['Dates', `${fmtDate(o.start)} – ${fmtDate(o.end)}`], ['Lead time', lead <= 0 ? 'Starts now' : `${lead} days`]);
+  const [d0, d1] = offerDays(o);
+  rows.push(['Dates', `${fmtDate(d0)} – ${fmtDate(d1)}${o.pattern.kind === 'base' ? ` (${o.pattern.base} local)` : ''}`], ['Lead time', lead <= 0 ? 'Starts now' : `${lead} days`]);
   rows.push(['Estimate', `Billable ≈ ${Math.round(o.estBH)} BH · ${money(o.estValue)}`]);
   const arrears = p.kind === 'charter' ? 'Invoiced after the job' : 'Monthly in arrears';
   rows.push(['Payment', `${pay.basis === 'advance' ? 'In advance' : pay.basis === 'arrears' ? arrears : 'On completion'}, net ${pay.dueDays} days`]);
@@ -93,6 +97,43 @@ function Programme({ o }: { o: ContractOffer }) {
         </div>
       ))}
       {legs.length > 10 && <div className="small dim">… {legs.length - 10} more legs</div>}
+    </div>
+  );
+}
+
+/** Client paint request: their livery on our aircraft, the terms, and paint on/off with its price effect. */
+function PaintTermsCard({ g, o, typeId, on, onToggle, fmtP }: { g: GameState; o: ContractOffer; typeId: string; on: boolean; onToggle: (v: boolean) => void; fmtP: (v: number) => string }) {
+  const t = o.paint!;
+  const cl = g.clients[o.clientId];
+  const quote = paintQuote(o, true);
+  const offPrice = askingPrice(paintQuote(o, false));
+  const share = t.clientShare >= 1 ? 'They pay the paint and the repaint after' : t.clientShare > 0 ? `They pay ${Math.round(t.clientShare * 100)}% of the paint and repaint` : `We pay; the rate is ${Math.round((t.bonusPct ?? 0) * 100)}% higher for it`;
+  const ours = quote.cost - quote.reimbursed;
+  return (
+    <div className={`sc-paint-card ${t.required ? 'required' : ''}`}>
+      <div className="row gap-8 between">
+        <span className="row gap-8"><Palette className="sc-ico-s accent" /><b>Their livery on our aircraft</b></span>
+        <span className={`badge ${t.required ? 'warn' : 'info'}`}>{t.required ? 'Required' : 'Optional'}</span>
+      </div>
+      <div className="sc-paint-art">
+        {cl && <AircraftArt typeId={typeId} livery={t.livery} code={clientCode(cl)} name={clientTitles(cl)} detail="full" />}
+      </div>
+      <KV rows={[
+        ['Work', t.kind === 'full' ? `Full repaint · ${t.days} days in a paint shop` : `Decals on white · ${t.days} day${t.days > 1 ? 's' : ''}`],
+        ['Per aircraft', `${money(t.cost)} paint + ${money(t.stripCost)} back to ours`],
+        ['Who pays', `${share}${ours > 0 ? ` · our share ${money(ours)}` : ''}`],
+      ]} />
+      <div className="set-row sc-paint-toggle">
+        <div>
+          <b>Paint it in their colours</b>
+          <div className="tiny dim">
+            {on ? `Accept at ${fmtP(askingPrice(o))}. It flies the whole contract in their livery.`
+              : t.required ? `They require it. A counter without paint: they may walk away, or cut the ${o.product.kind === 'wet' ? 'rate' : 'price'} ${Math.round(t.declinePct * 100)}% more.`
+              : `Without it: ${fmtP(offPrice)} (−${Math.round(t.declinePct * 100)}%${t.bonusPct ? ` and no +${Math.round(t.bonusPct * 100)}% paint bonus` : ''}).`}
+          </div>
+        </div>
+        <Toggle on={on} onChange={onToggle} label="Paint in client livery" />
+      </div>
     </div>
   );
 }
@@ -154,8 +195,12 @@ export function OfferModal({ offerId }: { offerId: string }) {
   const g = useGame();
   const o = g.offers[offerId];
   const rev = flightsRev(g);
-  const reports = useMemo(() => (o ? feasibilityAll(g, o.id) : []), [g, o, rev, g.now]); // eslint-disable-line react-hooks/exhaustive-deps
-  const best = reports.find((r) => r.level !== 'no') ?? reports[0];
+  const [paintOn, setPaintOn] = useState(true);
+  const paint = !!o?.paint && paintOn;
+  const reports = useMemo(() => (o ? feasibilityAll(g, o.id, { paint }) : []), [g, o, rev, g.now, paint]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Paint off on a required offer: only a counter is possible, so its 'paint' row does not block the pick.
+  const blocked = (r: FeasibilityReport) => r.checks.some((c) => c.level === 'no' && !(c.id === 'paint' && !paint));
+  const best = reports.find((r) => !blocked(r)) ?? reports[0];
   const [pick, setPick] = useState<string | null>(null);
   const [step, setStep] = useState(2);
   if (!o) return null;
@@ -163,16 +208,17 @@ export function OfferModal({ offerId }: { offerId: string }) {
   const cl = g.clients[o.clientId];
   const live = o.status === 'open' || o.status === 'countered';
   const countered = o.status === 'countered';
-  const asking = askingPrice(o);
+  const asking = askingPrice(o.paint && !paintOn ? paintQuote(o, false) : o);
+  const mustPaint = !!o.paint?.required && !paintOn;
   const steps = counterSteps(asking, o.product.kind === 'wet');
   const price = steps[step - 1] ?? asking;
   const fmtP = (v: number) => (o.product.kind === 'wet' ? `${usd(v)}/BH` : money(v, 2));
-  const canCounter = live && !countered && !o.counter && !!sel && sel.level !== 'no';
-  const canAccept = live && !countered && !!sel && sel.level !== 'no';
+  const canCounter = live && !countered && !o.counter && !!sel && !blocked(sel);
+  const canAccept = live && !countered && !!sel && !blocked(sel) && !mustPaint;
 
   const accept = () => {
     if (!sel) return;
-    const res = store.act((gg) => acceptOffer(gg, o.id, [sel.aircraftId]));
+    const res = store.act((gg) => acceptOffer(gg, o.id, [sel.aircraftId], { paint }));
     if (res.ok) {
       store.closeModal();
       if (store.nav.tab === 'contracts' && res.data) store.navigate('contracts', { view: 'active', sel: { kind: 'contract', id: res.data.contractId } });
@@ -180,7 +226,7 @@ export function OfferModal({ offerId }: { offerId: string }) {
   };
   const counter = () => {
     if (!sel) return;
-    const res = store.act((gg) => counterOffer(gg, o.id, price, [sel.aircraftId]));
+    const res = store.act((gg) => counterOffer(gg, o.id, price, [sel.aircraftId], { paint }));
     if (res.ok) store.closeModal();
   };
   const decline = () => {
@@ -203,13 +249,13 @@ export function OfferModal({ offerId }: { offerId: string }) {
             <button className="btn" onClick={counter} disabled={!canCounter}>Counter</button>
           </span>
         )}
-        <button className="btn btn-primary" onClick={accept} disabled={!canAccept}><Check /> Accept {fmtP(asking)}</button>
+        <button className="btn btn-primary" onClick={accept} disabled={!canAccept} title={mustPaint ? 'The client requires their livery: counter instead' : undefined}><Check /> Accept {fmtP(asking)}</button>
       </div>
     }>
       <div className="sc-offer-cols">
         <div className="sc-offer-left col gap-12">
           <div className="row gap-8 wrap">
-            <span className="upper dim">{ARCH_LABEL[o.archetype]}</span>
+            <span className="upper dim">{archLabel(o)}</span>
             {o.urgency !== 'normal' && <span className={`badge ${o.urgency === 'urgent' ? 'bad' : 'warn'}`}>{o.urgency === 'urgent' ? 'Urgent' : 'Short notice'}</span>}
             <span className="small muted">{expiryLabel(g.now, o.expires)}</span>
           </div>
@@ -218,8 +264,9 @@ export function OfferModal({ offerId }: { offerId: string }) {
             {o.broker && <span className="chip sc-chip sc-broker">via {o.broker} (5%)</span>}
             <div className="small muted mono">{routeSummary(o.pattern)}</div>
           </div>
-          <p className="muted sc-blurb">{o.blurb}</p>
+          <p className="muted sc-blurb">{o.paint ? o.blurb.replace(paintTermsText(o.paint), '').trim() : o.blurb}</p>
           <Chips chips={[...reqChips(o.requirements), ...riskChips(o.risk), ...effectChips(o)]} />
+          {o.paint && <PaintTermsCard g={g} o={o} typeId={artFor(sel ? g.fleet[sel.aircraftId]?.typeId ?? 'a320ceo' : 'a320ceo')} on={paintOn} onToggle={setPaintOn} fmtP={fmtP} />}
           <div className="upper dim">Terms</div>
           <Terms g={g} o={o} />
           <div className="upper dim">Programme</div>

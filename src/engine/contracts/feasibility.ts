@@ -9,9 +9,10 @@ import { DAY, fmtDate, fmtDateTime, fmtDay, fmtDuration, toDate } from '../core/
 import type { Aircraft, ApprovalId, ContractOffer, GameState, Minute } from '../core/types';
 import { crewAvailability, type Availability } from '../crew';
 import { A_CHECK_DAYS, anchorsOf, chainForward, CHARTER_SLACK, DEPLOY_LEAD, gapMoves, programmeOf, type Anchor, type ChainLeg, type Programme, type Trip } from './plan';
+import { paintQuote, paintWindow, type PaintSlot } from './paintTerms';
 import { productValue, tripTickets } from './pricing';
 
-export type CheckId = 'seats' | 'layout' | 'family' | 'range' | 'runway' | 'etops' | 'approvals' | 'availability' | 'maintenance' | 'crew' | 'positioning' | 'lease';
+export type CheckId = 'seats' | 'layout' | 'family' | 'range' | 'runway' | 'etops' | 'approvals' | 'availability' | 'maintenance' | 'crew' | 'positioning' | 'lease' | 'paint';
 export type CheckLevel = 'ok' | 'warn' | 'no';
 
 export interface FeasibilityCheck {
@@ -47,6 +48,8 @@ export interface FeasibilityReport {
   estRevenue: number;
   estCost: number;
   estMargin: number;
+  /** v0.5.1: paint-shop slot before the job (offers with client paint, paint on). */
+  paint?: PaintSlot;
 }
 
 const RANK: Record<CheckLevel, number> = { ok: 0, warn: 1, no: 2 };
@@ -59,7 +62,7 @@ const LAYOUT_NAME: Record<string, string> = { 'all-economy': 'all-economy', 'two
 function describe(g: GameState, a: Anchor): string {
   if (a.kind === 'maint') {
     const m = g.maintenance[a.id];
-    return m ? `${m.kind === 'AOG' ? 'AOG repair' : `${m.kind}-check`} at ${m.at} ${fmtDay(m.start)}–${fmtDay(m.end)}` : 'maintenance';
+    return m ? `${m.kind === 'AOG' ? 'AOG repair' : m.kind === 'paint' ? 'paint shop' : `${m.kind}-check`} at ${m.at} ${fmtDay(m.start)}–${fmtDay(m.end)}` : 'maintenance';
   }
   const c = a.contractId ? g.contracts[a.contractId] : undefined;
   if (c) return `${c.title} (${fmtDay(a.std)}–${fmtDay(a.sta)})`;
@@ -142,8 +145,8 @@ function fitTrips(g: GameState, ac: Aircraft, o: ContractOffer, prog: Programme)
   return { fits, conflicts };
 }
 
-/** Full report for one aircraft: the 12 checks of DESIGN §5.1.5, positioning plan and contribution estimate. */
-export function feasibility(g: GameState, offerId: string, aircraftId: string): FeasibilityReport {
+/** Full report for one aircraft: the 12 checks of DESIGN §5.1.5 (+ client paint), positioning plan and contribution estimate. */
+export function feasibility(g: GameState, offerId: string, aircraftId: string, opts: { paint?: boolean } = {}): FeasibilityReport {
   const o = g.offers[offerId];
   const ac = g.fleet[aircraftId];
   const empty: Availability = { setsNeeded: 0, setsAvailable: 0, byRole: {}, firstShort: null };
@@ -309,6 +312,30 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string): 
     }
   } else add('positioning', availNo ? 'no' : 'warn', availNo ? 'Not planned: the aircraft is busy' : 'Not planned');
 
+  // 10b. Client paint (v0.5.1): a paint-shop slot ending 24 h before the first departure, on top of the above.
+  const paintOn = !!o.paint && opts.paint !== false;
+  if (o.paint && !paintOn) {
+    if (o.paint.required) add('paint', 'no', 'The client requires their livery on the aircraft', 'Counter without paint and they may walk away, or cut the rate.');
+    else add('paint', 'ok', `Client livery declined: ${Math.round(o.paint.declinePct * 100)}% off the ${wet ? 'rate' : 'price'}`);
+  } else if (o.paint) {
+    const pt = o.paint;
+    const first = fits[0]?.trip;
+    const slot = flyable && !availNo && first ? paintWindow(g, ac.id, pt, first.std, undefined, { nextAt: first.from }) : null;
+    const what = pt.kind === 'full' ? 'Full repaint' : 'Decals';
+    const other = ac.paintedFor ? g.contracts[ac.paintedFor] : undefined;
+    if (!flyable || availNo || !first) add('paint', availNo ? 'no' : 'warn', 'Paint not planned: the aircraft is busy');
+    else if (!slot) add('paint', 'no', `No paint-shop slot: ${pt.days} day${pt.days > 1 ? 's' : ''} in a paint shop must end a day before ${fmtDateTime(first.std)} UTC`, `The aircraft is busy until then, or can't get to a paint shop and back in time.`);
+    else {
+      rep.paint = slot;
+      const ferry = blockMin(slot.ferryIn);
+      const where = `${what} at ${AIRPORT_BY_CODE[slot.shop]?.city ?? slot.shop}, ${fmtDay(slot.start)}–${fmtDay(slot.end)}`;
+      const detail = `${slot.ferryIn.length ? `Ferry ${routeText(slot.ferryIn)} ${fmtDuration(ferry)}. ` : ''}Blocks the aircraft like a check. ${ac.livery === 'white' ? 'Back to plain white' : typeof ac.livery === 'object' ? 'Back in its own livery' : 'Back in our colours'} after the job (${pt.stripDays} day${pt.stripDays > 1 ? 's' : ''}).`;
+      if (other && (other.status === 'active' || other.status === 'signed')) add('paint', 'warn', `${where}: it flies ${other.title} in ${g.clients[other.clientId]?.name ?? 'another client'}'s colours until then`, detail);
+      else if (ferry > BAL.paint.longFerryMin) add('paint', 'warn', `${where}: long ferry to the shop (${fmtDuration(ferry)})`, detail);
+      else add('paint', 'ok', where, detail);
+    }
+  }
+
   // 11. Maintenance due inside the window (A-check by FH or calendar, C-check by months).
   const winFrom = firstDep;
   const winTo = lastArr;
@@ -378,7 +405,8 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string): 
   const revBH = prog.revenueMin / 60;
   const bh = revBH + prog.emptyMin / 60 + posBH;
   rep.estBH = Math.round(bh * 10) / 10;
-  rep.estRevenue = Math.round(o.product.kind === 'wet' ? productValue(o.product, revBH + (o.product.positioningBillable ? posBH : 0), o.start, o.end) : productValue(o.product, revBH, o.start, o.end) * (1 - (o.broker ? BAL.brokerCommission : 0)));
+  const product = paintQuote(o, paintOn).product;
+  rep.estRevenue = Math.round(product.kind === 'wet' ? productValue(product, revBH + (product.positioningBillable ? posBH : 0), o.start, o.end) : productValue(product, revBH, o.start, o.end) * (1 - (o.broker ? BAL.brokerCommission : 0)));
   const age = Math.max(0, toDate(g.now).getUTCFullYear() - ac.builtYear - 12);
   let cost = t.maintBH * bh * (1 + age * BAL.maintAgeFactor);
   const crewN = complement(t.id, seats, { extraCabin: req.extraCabin + g.company.policies.extraCabin }).length;
@@ -404,15 +432,21 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string): 
     const revDeps = fits.reduce((s, f) => s + f.trip.legs.filter((l) => l.kind !== 'positioning').length, 0);
     cost += bh * t.fuelTBH * g.market.fuelPrice + deps * BAL.airportFees[wide ? 1 : 0] + revDeps * BAL.catering[wide ? 1 : 0];
   }
+  if (paintOn) {
+    // Our share of paint + strip, and the ferries to and from the shop (fuel and maintenance).
+    const q = paintQuote(o, true);
+    const ferryBH = rep.paint ? (blockMin(rep.paint.ferryIn) + blockMin(rep.paint.ferryOut)) / 60 : 0;
+    cost += q.cost - q.reimbursed + ferryBH * (t.maintBH + t.fuelTBH * g.market.fuelPrice);
+  }
   rep.estCost = Math.round(cost);
   rep.estMargin = rep.estRevenue - rep.estCost;
   return rep;
 }
 
 /** One report per fleet aircraft, best first (ok before warn before no, then margin). */
-export function feasibilityAll(g: GameState, offerId: string): FeasibilityReport[] {
+export function feasibilityAll(g: GameState, offerId: string, opts: { paint?: boolean } = {}): FeasibilityReport[] {
   return Object.keys(g.fleet)
-    .map((id) => feasibility(g, offerId, id))
+    .map((id) => feasibility(g, offerId, id, opts))
     .sort((a, b) => RANK[a.level] - RANK[b.level] || b.estMargin - a.estMargin);
 }
 

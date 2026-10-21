@@ -13,6 +13,7 @@ import { BlockSheet } from '../modals/BlockSheet';
 import { DutyModal } from '../modals/DutyModal';
 import { SubcharterModal } from '../modals/SubcharterModal';
 import { TrainModal } from '../modals/TrainModal';
+import { LiveryModal } from '../modals/LiveryModal';
 import { int, money } from '../format';
 import { offline, promptInstall } from '../offline';
 import { store, useStore } from '../store';
@@ -231,5 +232,6 @@ export function GlobalModals() {
     case 'sheet': return s.game ? <BlockSheet refs={m.refs} idle={m.idle} /> : null;
     case 'duty': return s.game ? <DutyModal id={m.id} /> : null;
     case 'subcharter': return s.game ? <SubcharterModal contractId={m.contractId} flightId={m.flightId} /> : null;
+    case 'livery': return s.game ? <LiveryModal target={m.target} /> : null;
   }
 }

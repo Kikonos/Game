@@ -3,7 +3,7 @@
 
 import type { TailStyle } from '../../../engine/core/types';
 import { COCKPIT } from './cockpit';
-import { Box, D, add, chainPts, lerp, lerpV, rad, relax, sampleChain, splitTail, yAt, type V } from './path';
+import { Box, D, add, chainPts, cubic, lerp, lerpV, rad, relax, sampleChain, splitTail, yAt, type V } from './path';
 import type { TracedProfile } from './traced/types';
 import type { AircraftProfile, EngineSpec, EngineStyle, FairingSpec, FinSpec, TipDevice, WindowRow, WingSpec } from './types';
 
@@ -61,7 +61,8 @@ export interface Geometry {
   belly: number;
   /** Crown fairing under a high wing. */
   wingRoot: string;
-  fin: { fill: string; edge: string; lines: string; quad: readonly [V, V, V, V]; top: number };
+  /** `poly`: the fill outline (world coords, y up) sampled from `fill` — sticker fitting and hit tests (v0.5.1). */
+  fin: { fill: string; edge: string; lines: string; quad: readonly [V, V, V, V]; top: number; poly: V[] };
   stab: { near: string; far: string; lines: string; bullet: string; tTail: boolean; none: boolean };
   /** `shade`: darker underside of a sectioned (side-on aerofoil) wing; no `shadow` in outline mode. */
   /** `tipEdge`: stroke of a blended tip device (its fill `tip` is then drawn unstroked: the rest of its edge is the wing's outline). */
@@ -608,7 +609,7 @@ function build(p: AircraftProfile, t?: TracedProfile): Geometry {
     fus: fus.toString(),
     crown, belly,
     wingRoot: wr.toString(),
-    fin: { fill: finG.fill, edge: finG.edge, lines: finG.lines, quad, top },
+    fin: { fill: finG.fill, edge: finG.edge, lines: finG.lines, quad, top, poly: pathPoly(finG.fill) },
     stab: { near: stabNear.toString(), far: stabFar.toString(), lines: stabLines.toString(), bullet: bullet.toString(), tTail: !!sb.tTail, none: !!sb.none },
     wing: { ...wingG, shadow },
     engines,
@@ -1065,4 +1066,33 @@ function supersonic(e: EngineSpec, pylon: D, box: Box): EngineGeo {
   const accent = new D().poly([at(0.18, -0.99), at(0.24, -0.99), at(0.24, under(0.24) - 0.02), at(0.18, under(0.18) - 0.02)]).toString();
   box.add(at(-0.01, -1), at(1, -1), ...belly);
   return { spec: e, pylon: pylon.toString(), cowl, accent, lip: '', dark, core: '', plug: '', seam: '' };
+}
+
+/**
+ * Polygon (world coords, y up) of a path built by D: M/L/H/V/C/Q/Z, cubics and quadratics
+ * sampled `n` steps each, first subpath only (v0.5.1 stickers: fin and fuselage outlines).
+ */
+export function pathPoly(d: string, n = 8): V[] {
+  const tok = d.match(/[MLHVCQZmlhvcqz]|-?\d*\.?\d+(?:e-?\d+)?/g) ?? [];
+  const out: V[] = [];
+  let i = 0, cmd = '', cur: V = [0, 0];
+  const num = () => Number(tok[i++]);
+  const pt = (): V => { const x = num(); return [x, num()]; };
+  while (i < tok.length) {
+    if (/[a-zA-Z]/.test(tok[i])) cmd = tok[i++];
+    if (cmd === 'M') { if (out.length) break; cur = pt(); out.push(cur); cmd = 'L'; }
+    else if (cmd === 'L') { cur = pt(); out.push(cur); }
+    else if (cmd === 'H') { cur = [num(), cur[1]]; out.push(cur); }
+    else if (cmd === 'V') { cur = [cur[0], num()]; out.push(cur); }
+    else if (cmd === 'C') {
+      const a = pt(), b = pt(), p = pt();
+      for (let k = 1; k <= n; k++) out.push(cubic(cur, a, b, p, k / n));
+      cur = p;
+    } else if (cmd === 'Q') {
+      const a = pt(), p = pt();
+      for (let k = 1; k <= n; k++) { const t = k / n, u = 1 - t; out.push([u * u * cur[0] + 2 * u * t * a[0] + t * t * p[0], u * u * cur[1] + 2 * u * t * a[1] + t * t * p[1]]); }
+      cur = p;
+    } else break;
+  }
+  return out.map(([x, y]): V => [x, -y]);
 }

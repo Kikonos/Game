@@ -24,7 +24,8 @@ export const owned = (g: GameState): Aircraft => Object.values(g.fleet).find((a)
 export function offer(g: GameState, archetype: ContractOffer['archetype'], opts: OfferOpts = {}): ContractOffer {
   // Generators keep one open request per client and archetype: drop earlier open test offers of this kind.
   for (const x of Object.values(g.offers)) if (x.archetype === archetype && x.status === 'open') delete g.offers[x.id];
-  const o = generateOffer(g, archetype, { wide: false, window: false, ...opts });
+  // v0.5.1: no client paint unless the test asks for it (opts.paint).
+  const o = generateOffer(g, archetype, { wide: false, window: false, paint: false, ...opts });
   if (!o) throw new Error(`no ${archetype} offer`);
   o.requirements.layout = undefined;
   o.requirements.families = undefined;

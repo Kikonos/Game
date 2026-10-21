@@ -1,12 +1,15 @@
 // Company (B5): reputation, approvals (apply, progress), policies and goals; competitors for context.
 // DESIGN.md §6.3.
 
-import { Award, BadgeCheck, Building2, Flag as FlagIcon, Settings2, ShieldCheck, Target } from 'lucide-react';
+import { Award, BadgeCheck, Building2, Flag as FlagIcon, Palette, Settings2, ShieldCheck, Target } from 'lucide-react';
 import { flag } from '../../data/countries';
 import { rivalFleetText } from '../../engine/contracts/clients';
 import { fmtDate } from '../../engine/core/time';
 import type { GameState, Policies } from '../../engine/core/types';
-import { APPROVALS, applyApproval, approvalBlocker, GOALS, setPolicies, type ApprovalDef } from '../../engine/ops';
+import { artFor } from '../../data/acmiTypes';
+import { APPROVALS, applyApproval, approvalBlocker, GOALS, liveryOf, paintStatus, setFleetLivery, setPolicies, type ApprovalDef } from '../../engine/ops';
+import { AircraftArt } from '../components/AircraftArt';
+import { TailBadge } from '../components/Logo';
 import { Bar, Card, Seg, Stepper, Toggle } from '../components/ui';
 import { money } from '../format';
 import { store, useGame } from '../store';
@@ -116,6 +119,37 @@ function Goals({ g }: { g: GameState }) {
   );
 }
 
+function LiveryCard({ g }: { g: GameState }) {
+  const c = g.company;
+  const fleet = Object.values(g.fleet);
+  const count = { company: 0, white: 0, custom: 0, client: 0 };
+  for (const ac of fleet) count[liveryOf(g, ac).source]++;
+  const locked = fleet.filter((ac) => paintStatus(g, ac.id).locked).length;
+  const others = fleet.length - count.company - locked;
+  const typeId = artFor(fleet[0]?.typeId ?? 'a320ceo');
+  const parts = [
+    `${count.company} in company colours`,
+    count.white ? `${count.white} all white` : '',
+    count.custom ? `${count.custom} custom` : '',
+    count.client ? `${count.client} in client colours` : '',
+  ].filter(Boolean);
+  const applyAll = () => store.openModal({
+    kind: 'confirm', title: 'Company livery on every aircraft?', confirm: 'Use on all aircraft',
+    body: `${others} aircraft with their own livery go back to the company colours.${locked ? ` ${locked} in client colours keep them.` : ''} Free and instant.`,
+    onConfirm: () => store.act((gg) => setFleetLivery(gg, 'company')),
+  });
+  return (
+    <Card title="Livery" icon={<Palette className="ico" />} actions={<TailBadge primary={c.livery.primary} secondary={c.livery.secondary} code={c.code} livery={c.livery} size={34} />}>
+      <div className="sc-livery-art"><AircraftArt typeId={typeId} livery={c.livery} code={c.code} name={c.name} /></div>
+      <div className="small muted">{fleet.length ? parts.join(' · ') : 'No aircraft yet.'}</div>
+      <div className="row gap-8 mt-12 wrap">
+        <button className="btn btn-primary grow" onClick={() => store.openModal({ kind: 'livery', target: 'company' })}><Palette /> Edit livery</button>
+        <button className="btn grow" onClick={applyAll} disabled={others <= 0}>Use on all aircraft</button>
+      </div>
+    </Card>
+  );
+}
+
 export function CompanyScreen() {
   useRenderCount('company');
   const g = useGame();
@@ -126,6 +160,7 @@ export function CompanyScreen() {
       <ScreenHead title={c.name} sub={`${c.icao} · callsign ${c.callsign} · home base ${c.homeBase}${c.ceo && c.ceo !== 'You' ? ` · CEO ${c.ceo}` : ''}`} />
       <div className="sc-company-cols">
         <div className="col gap-16">
+          <LiveryCard g={g} />
           <Card title="Reputation" icon={<ShieldCheck className="ico" />}><Reputation g={g} /></Card>
           <Card title="Goals" icon={<FlagIcon className="ico" />}><Goals g={g} /></Card>
           <Card title="Company" icon={<Building2 className="ico" />}>
