@@ -248,3 +248,8 @@ REMIND the player of this backlog once the current fixes update has shipped.
 - Player was reminded of the FEATURE BACKLOG with this release message.
 
 ### 05:33Z — check-in: v0.5.2 already released; nothing running; waiting for the player's next update (stages 1–3 first).
+
+### 06:45Z (10:45 Dubai) — UPDATE PLAN v0.6–v0.9 agreed; v0.6 building
+- Player picked from the backlog: carry-over fixes ✓, 1 ✓, 2 → SIMPLIFIED to bulk type-rating conversion (classes ≤ 20, pilots longer, cabin shorter, 'Conversion A330' on rosters), 3 ✓, 4 → ONLY extra crew above legal minimum, 5 ✓, 6 ✓ + delivery at seller location + ferry to base on the map + Settings toggle for new-offer notifications, 7 ✓, 8 ✓, 9 ✓, 10 ✓, 11 ✓, 12 ✓, **13 scenarios = NO**, 14 ✓. Model: Opus high.
+- Releases: v0.6 Crew → v0.7 Fleet & Ladder → v0.8 World → v0.9 Experience (automation last because it automates the earlier systems). Full agreed specs: .handover/updates/specs.json (live copy scratchpad/acmi/updates/specs.json). Generic workflow: updates/update.js with args = specs[version] + version.
+- **v0.6 running: wf_43a05165-adf (task wx3uox2g4).** CHAIN: when an update reports ready=true → release it (same steps as before) → tell the player (Dubai time, what's new, reopen app twice) → launch the next version with Workflow({scriptPath: updates/update.js, args: {version, ...specs[version]}}) and log its run id. If ready=false after 2 rounds: report blockers to the player and ask before releasing.
