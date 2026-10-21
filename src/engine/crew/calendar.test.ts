@@ -1,7 +1,7 @@
 // v0.5.2 crew calendar strip and card header.
 
 import { describe, expect, it } from 'vitest';
-import { addDeadhead, addFlight } from '../core/entities';
+import { addDeadhead, addFlight, touchFlights } from '../core/entities';
 import { ticketBlock } from '../ops/commercial';
 import { isPilot } from '../core/perf';
 import { DAY, fmtDate } from '../core/time';
@@ -34,17 +34,17 @@ describe('crew travelling', () => {
   it('crew on an airline deadhead read Deadheading in the air, not Available or Resting at the departure', () => {
     const g = fixtureGame(53);
     const ids = addCrew(g, { CPT: 1, CC: 1 });
-    for (const id of ids) g.crew[id].loc = 'CFU';
+    for (const id of ids) g.crew[id].loc = 'PMI';
     const std = g.now + 120;
-    const f = addDeadhead(g, { crewIds: ids, from: 'CFU', to: 'LIS', std, sta: std + ticketBlock('CFU', 'LIS'), cost: 0 });
+    const f = addDeadhead(g, { crewIds: ids, from: 'PMI', to: 'LIS', std, sta: std + ticketBlock('PMI', 'LIS'), cost: 0 });
     g.now = std - 30;
     expect(crewStatusView(g, ids[0]).label).toBe('Deadheading');
     expect(crewStatusView(g, ids[0]).nowAt).toMatch(/check-in/);
     g.now = std + 30;
     const v = crewStatusView(g, ids[0]);
     expect(v.label).toBe('Deadheading');
-    expect(v.text).toMatch(/^[A-Z0-9]{2} \d+ CFU→LIS · lands \d\d:\d\d$/);
-    expect(v.nowAt).toBe('in the air CFU→LIS');
+    expect(v.text).toMatch(/^[A-Z0-9]{2} \d+ PMI→LIS · lands \d\d:\d\d$/);
+    expect(v.nowAt).toBe('in the air PMI→LIS');
     expect(v.until).toBe(f.sta);
     expect(v.travel?.flightId).toBe(f.id);
     g.now = f.sta + 1;
@@ -105,10 +105,16 @@ describe('crew calendar', () => {
     expect(cal.some((x) => x.kind === 'off')).toBe(true);
     g.company.cash = 1e9;
     expect(trainCrew(g, b, 'typeRating', 'A330/340').ok).toBe(true);
+    // v0.6: a conversion class from the earliest start, labelled 'Conversion A330' on the strip and the status line.
+    const k = Object.values(g.classes!)[0];
+    const blk = crewCalendar(g, b, g.now, g.now + 14 * DAY).find((x) => x.kind === 'training')!;
+    expect(blk.label).toBe('Conversion A330');
+    expect(blk.detail).toMatch(/^Class A330-P1 · Ground school d1–12 · ends /);
+    expect(blk.start).toBe(k.start);
+    advanceTo(g, k.start + 60);
     const t = crewStatusView(g, b);
     expect(t.label).toBe('Training');
-    expect(t.text).toMatch(/A330\/340 type rating until/);
-    expect(crewCalendar(g, b, g.now, g.now + 14 * DAY)[0].kind).toBe('training');
+    expect(t.text).toMatch(/^Conversion A330 · until \d+ \w+$/);
   });
 
   it('duties with typed legs, rest, a deadhead on a real airline and days off', () => {
@@ -134,6 +140,7 @@ describe('crew calendar', () => {
     // Riding our own empty leg as a passenger is 'positioning'.
     const extra = Object.values(g.crew).find((c) => c.role === 'CC' && !crewCalendar(g, c.id, from, from + 14 * DAY).some((b) => b.kind === 'duty'))!;
     t.out.riders = [extra.id];
+    touchFlights(g);
     expect(crewCalendar(g, extra.id, from, from + 14 * DAY).find((b) => b.kind === 'positioning')?.detail).toMatch(/Riding our ferry leg/);
     // The header follows the day: on duty, then resting.
     advanceTo(g, at(g, 3, 9 * 60));

@@ -7,9 +7,10 @@ import { BAL } from '../core/balance';
 import { takePause } from '../core/pause';
 import { planSector, TECH_STOP_MIN, typeOf } from '../core/perf';
 import { DAY, START, fromUTC, localMinuteOfDay, toDate } from '../core/time';
+import { advanceTo } from '../sim';
 import type { Archetype, ContractOffer, GameState } from '../core/types';
 import { acceptOffer, counterOffer, declineOffer, feasibilityAll, generateOffer, priceProduct, productValue, rateMultiplier } from '.';
-import { onOfferExpire, onOfferReply } from './offers';
+import { onOfferExpire, onOfferReply, PACING, quietWeekOffer } from './offers';
 import { computeWaves, programmeOf } from './plan';
 import { referenceType } from './pricing';
 import { newGame, offer, run } from './testkit';
@@ -289,4 +290,52 @@ describe('offer lifecycle', () => {
   it('the new game starts on 1 March 2027', () => {
     expect(toDate(START).toISOString().slice(0, 10)).toBe('2027-03-01');
   });
+});
+
+// v0.6 pacing (UPDATE-0.6.md §C2).
+describe('quiet-week floor', () => {
+  it('spawns one gap-fit offer when none came for 6 days (at most one per 6 days), not with 4 offers open', () => {
+    const g = newGame(3);
+    for (const o of Object.values(g.offers)) o.status = 'expired';
+    g.stats.lastGapOfferAt = g.now - 7 * DAY;
+    const o = quietWeekOffer(g);
+    expect(o).toBeTruthy();
+    expect(o!.hook).toMatch(/^(Fits|Follow-on)/);
+    expect(g.stats.lastGapOfferAt).toBe(g.now);
+    expect(quietWeekOffer(g)).toBeNull();
+    g.now += 5 * DAY;
+    expect(quietWeekOffer(g)).toBeNull();
+    g.now += 2 * DAY;
+    const open = Object.values(g.offers).filter((x) => x.status === 'open').length;
+    for (let i = open; i < 4; i++) generateOffer(g, 'adhoc', { window: false });
+    g.stats.lastGapOfferAt = g.now - 7 * DAY;
+    expect(quietWeekOffer(g)).toBeNull();
+  });
+
+  it('keeps the yearly offer count within ±10% of v0.5.2 (3.7/week, no floor) over 10 seeds', () => {
+    const count = (seed: number) => {
+      const g = newGame(seed);
+      const seen = new Set<string>();
+      const end = g.started + 120 * DAY;
+      for (let t = g.now + DAY; t <= end && !g.gameOver; t += DAY) {
+        advanceTo(g, t, new Set());
+        for (const id of Object.keys(g.offers)) seen.add(id);
+      }
+      return seen.size;
+    };
+    const B = BAL as { offersPerWeek: number };
+    const now = B.offersPerWeek;
+    let a = 0;
+    let b = 0;
+    try {
+      for (let s = 1; s <= 10; s++) a += count(s);
+      B.offersPerWeek = 3.7;
+      PACING.quietFloor = false;
+      for (let s = 1; s <= 10; s++) b += count(s);
+    } finally {
+      B.offersPerWeek = now;
+      PACING.quietFloor = true;
+    }
+    expect(Math.abs(a - b) / b).toBeLessThan(0.1);
+  }, 60_000);
 });

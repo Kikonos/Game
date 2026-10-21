@@ -12,7 +12,7 @@ export const BAL = {
 
   // ---------- commercial (B1) ----------
   /** Mean new offers per week at reputation 60 (gamma-3 gaps: Poisson-like, steadier); scaled by fleet size and season. */
-  offersPerWeek: 3.7,
+  offersPerWeek: 3.4,
   /** Share of offers fitted to a real idle window of a fleet aircraft, and of aspirational (bigger-type) jobs. */
   gapFitShare: 0.5,
   aspirationalShare: 0.12,
@@ -53,6 +53,11 @@ export const BAL = {
   /** Rated widebody crew come off the market faster (long-haul operators shedding staff), days. */
   hireDaysWide: { CPT: 40, FO: 35, CRP: 35, CSD: 30, SCC: 30, CC: 35 } as Record<string, number>,
   hireCost: { pilot: 9_000, cabin: 2_000 },
+  /**
+   * v0.6 rated pilots on the market per family every 30 days (RESEARCH §5.4: rated captains are scarce). Hires beyond
+   * the pool pay an agency / sign-on fee of feePct × annual gross and take daysMult × as long.
+   */
+  ratedPool: { narrow: { CPT: 3, FO: 5 }, wide: { CPT: 2, FO: 3 }, feePct: 0.2, daysMult: 1.5 },
   typeRating: { pilotDays: 35, pilotCost: 45_000, cabinDays: 7, cabinCost: 3_000 },
   commandUpgrade: { days: 42, cost: 22_000, minHours: 4_000 },
   sccmCourse: { days: 4, cost: 1_500 },
@@ -179,5 +184,37 @@ export const BAL = {
     stripWithinDays: 30,
     /** Ferry to the shop over this block time (minutes) is a feasibility warning. */
     longFerryMin: 6 * 60,
+  },
+
+  // ---------- crew v0.6 (ENGINE; UPDATE-0.6.md §6) ----------
+  /** Bulk type-rating conversion: course days and cost per head, class size, staggering, refunds, pilot bond. */
+  conv: {
+    pilotDays: 42, pilotCost: { narrow: 38_000, wide: 52_000 }, pilotCcqDays: 14, pilotCcqCost: 15_000,
+    cabinDays: 8, cabinCost: 1_800, cabinCcqDays: 3, cabinCcqCost: 600,
+    classMax: 20, pilotStaggerDays: 14, cabinParallel: 2, leadDays: 2, maxAheadDays: 120,
+    refundFull: 14, bondMonths: 24, bondFactor: 0.3,
+    ccq: [['A330/340', 'A350'], ['B777', 'B787']] as [string, string][],
+  },
+  /** Morale: target and drift, daily drivers, shocks, sickness slope, resignations, service quality. */
+  morale: {
+    target: 65, targetClamp: [45, 80] as [number, number], revert: 0.03,
+    perDiemPerPct: 0.3, perDiemMax: 6, tour: { 4: 3, 5: 0, 6: -5 } as Record<number, number>,
+    hotelDay: { 3: -0.4, 4: 0, 5: 0.25 } as Record<number, number>,
+    awayDays: [[28, -0.15], [42, -0.3]] as [number, number][], offAway: -0.5, heavy28dH: 150, heavy: -0.2,
+    lateChange: -2, lateNoticeH: 72, extraDuty: 0.4, career: 4, recognition: 2, salaryLate: -15,
+    /** Sick calls rise below sickFrom (×1 + (sickFrom − m)/sickSlope); resignations interpolate between [morale, ×] points. */
+    sickFrom: 65, sickSlope: 50, resignPerMonth: 0.008,
+    resignMult: [[80, 0.4], [70, 0.6], [60, 0.9], [50, 1.8], [40, 2.5], [30, 3]] as [number, number][],
+    noticeDays: { pilot: 60, cabin: 30 }, whyDecay: 29 / 30,
+    /** Service → client satisfaction: relation per settled mean score (×2 VIP-like), its pull on offers and price, monthly decay. */
+    service: { moraleW: 0.5, extraPer: 0.2, extraMax: 0.4, relation: 10, reliable: 0.5, relationPremium: 0.0005, relationDecay: 2 },
+  },
+  /** Extra crew above the legal minimum: cabin cap, paid-option chances and price per extra crew member. */
+  crewExtra: {
+    cabinMax: 4,
+    /** Paid-option chances: long sectors (ad hoc, tour series, troops), VIP, season-base / long wet leases. Sports already require theirs (priced in). */
+    paidChanceLong: 0.5, paidChanceVip: 0.6, paidChanceWet: 0.25, paidChanceSports: 0, wetMinDays: 60,
+    /** The client pays this per extra cabin crew member per block hour (RESEARCH §4.3), as a rate / price uplift. */
+    paidPerBH: 75, longBlockMin: 360,
   },
 } as const;

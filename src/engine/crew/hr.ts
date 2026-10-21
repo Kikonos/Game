@@ -6,12 +6,15 @@ import { BAL } from '../core/balance';
 import { nextId } from '../core/entities';
 import { post } from '../core/ledger';
 import { pushDecision, pushMessage } from '../core/messages';
-import { complement, isPilot, typeOf } from '../core/perf';
+import { isPilot, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { chance, int } from '../core/rng';
 import { DAY, dayStart, fmtDate, fmtDateTime, yearOf } from '../core/time';
-import type { ActionResult, CrewMember, GameState, Minute, Role, SimEvent, TrainingKind } from '../core/types';
+import type { ActionResult, CrewExtra, CrewMember, GameState, Minute, Role, SimEvent, TrainingKind } from '../core/types';
 import { hashUnit } from '../core/util';
+import { classOf, conversionClasses, conversionEarliest, onClassItemDone, startConversion } from './conversion';
+import { crewExtraFor, rolesWithExtra } from './extraSeats';
+import { sickMult } from './morale';
 import { crewName, makeCrewMember, salaryFor } from './generate';
 import { removeCrew, rosterOf } from './roster';
 import { block28, crewIx, segsOf, touchCrew } from './timeline';
@@ -26,13 +29,41 @@ export interface HireRequest {
 const ROLES: Role[] = ['CPT', 'FO', 'CRP', 'CSD', 'SCC', 'CC'];
 const ROLE_NAME: Record<Role, string> = { CPT: 'captain', FO: 'first officer', CRP: 'relief pilot', CSD: 'purser', SCC: 'senior cabin crew', CC: 'cabin crew' };
 
-/** Pure quote (no g.rng): ready date jitter from hashUnit(role + base + now); hireCrew stores this exact date. */
-export function hireQuote(g: GameState, r: HireRequest): { cost: number; readyAt: Minute } {
+export interface RatedMarket {
+  /** Rated pilots of this family and rank on the market every 30 days, and how many are left now. */
+  pool: number;
+  left: number;
+  /** Agency / sign-on fee per hire beyond the pool. */
+  fee: number;
+}
+
+const wideFamily = (f: RatingFamily) => ACMI_TYPES_LIST.some((t) => t.family === f && t.body === 'wide');
+const poolKey = (family: RatingFamily, role: Role) => `${family}:${role === 'CRP' ? 'FO' : role}`;
+
+/** The market for type-rated pilots (null for cabin crew: plentiful). Pure. */
+export function ratedMarket(g: GameState, family: RatingFamily, role: Role): RatedMarket | null {
+  if (!isPilot(role)) return null;
+  const P = BAL.ratedPool;
+  const pool = (wideFamily(family) ? P.wide : P.narrow)[role === 'CPT' ? 'CPT' : 'FO'];
+  const key = poolKey(family, role);
+  let used = 0;
+  for (const [t, k, n] of g.stats.ratedHires ?? []) if (k === key && t > g.now - 30 * DAY) used += n;
+  return { pool, left: Math.max(0, pool - used), fee: Math.round((salaryFor(role, family) * 12 * P.feePct) / 100) * 100 };
+}
+
+/**
+ * Pure quote (no g.rng): ready date jitter from hashUnit(role + base + now); hireCrew stores this exact date.
+ * v0.6: pilots beyond the rated pool pay the agency fee each and take BAL.ratedPool.daysMult × as long.
+ */
+export function hireQuote(g: GameState, r: HireRequest): { cost: number; readyAt: Minute; beyondPool: number; fee: number } {
   const n = Math.max(0, Math.floor(r.count));
-  const cost = (isPilot(r.role) ? BAL.hireCost.pilot : BAL.hireCost.cabin) * n;
-  const wide = ACMI_TYPES_LIST.some((t) => t.family === r.family && t.body === 'wide');
-  const days = Math.round(((wide ? BAL.hireDaysWide : BAL.hireDays)[r.role] ?? 45) * (0.8 + 0.4 * hashUnit(`${r.role}${r.base}${g.now}`)));
-  return { cost, readyAt: dayStart(g.now) + days * DAY };
+  const m = ratedMarket(g, r.family, r.role);
+  const beyondPool = m ? Math.max(0, n - m.left) : 0;
+  const fee = m ? m.fee * beyondPool : 0;
+  const cost = (isPilot(r.role) ? BAL.hireCost.pilot : BAL.hireCost.cabin) * n + fee;
+  const base = ((wideFamily(r.family) ? BAL.hireDaysWide : BAL.hireDays)[r.role] ?? 45) * (beyondPool ? BAL.ratedPool.daysMult : 1);
+  const days = Math.round(base * (0.8 + 0.4 * hashUnit(`${r.role}${r.base}${g.now}`)));
+  return { cost, readyAt: dayStart(g.now) + days * DAY, beyondPool, fee };
 }
 
 /** Creates 'joining' crew members, charges hiring cost, queues 'crew.join' at readyAt. */
@@ -59,32 +90,37 @@ export function hireCrew(g: GameState, r: HireRequest): ActionResult<{ crewIds: 
     crewIds.push(c.id);
   }
   post(g, 'hiring', -q.cost);
+  if (isPilot(r.role)) {
+    const h = (g.stats.ratedHires ??= []).filter(([t]) => t > g.now - 30 * DAY);
+    h.push([g.now, poolKey(r.family, r.role), n]);
+    g.stats.ratedHires = h;
+  }
   return { ok: true, msg: `${n} ${ROLE_NAME[r.role]}${n > 1 && !ROLE_NAME[r.role].endsWith('crew') ? 's' : ''} joining ${fmtDate(q.readyAt)}`, data: { crewIds } };
 }
 
-const TRAINING: Record<TrainingKind, (c: CrewMember) => { days: number; cost: number }> = {
-  typeRating: (c) => (isPilot(c.role) ? { days: BAL.typeRating.pilotDays, cost: BAL.typeRating.pilotCost } : { days: BAL.typeRating.cabinDays, cost: BAL.typeRating.cabinCost }),
-  conversion: (c) => (isPilot(c.role) ? { days: BAL.conversion.pilotDays, cost: BAL.conversion.pilotCost } : { days: BAL.conversion.cabinDays, cost: BAL.conversion.cabinCost }),
+const TRAINING: Record<'command' | 'sccm', () => { days: number; cost: number }> = {
   command: () => ({ days: BAL.commandUpgrade.days, cost: BAL.commandUpgrade.cost }),
   sccm: () => ({ days: BAL.sccmCourse.days, cost: BAL.sccmCourse.cost }),
 };
 
-/** Type rating, command upgrade, SCCM course or conversion: status 'training' until done (rostered work is re-crewed). */
+/**
+ * Type rating, command upgrade, SCCM course or conversion: status 'training' until done (rostered work is re-crewed).
+ * v0.6: a type rating or conversion is a one-person conversion class (startConversion: same rules and prices).
+ */
 export function trainCrew(g: GameState, crewId: string, kind: TrainingKind, family: RatingFamily): ActionResult {
   const c = g.crew[crewId];
   if (!c) return { ok: false, error: 'Crew member not found' };
-  if (c.status === 'training' || c.status === 'joining' || c.status === 'sick') return { ok: false, error: `${crewName(c)} is ${c.status}` };
   if (kind === 'typeRating' || kind === 'conversion') {
-    if (c.ratings.includes(family)) return { ok: false, error: 'Already rated' };
-    if (!isPilot(c.role) && c.ratings.length >= 3) return { ok: false, error: 'Cabin crew hold at most 3 types' };
-    if (kind === 'conversion' && !c.ratings.length) return { ok: false, error: 'Conversion needs an existing rating' };
+    const r = startConversion(g, { crewIds: [crewId], family, start: conversionEarliest(g) });
+    return r.ok ? { ok: true, msg: r.msg } : r;
   }
+  if (c.status === 'training' || c.status === 'joining' || c.status === 'sick') return { ok: false, error: `${crewName(c)} is ${c.status}` };
   if (kind === 'command') {
     if (c.role !== 'FO') return { ok: false, error: 'Only first officers upgrade to captain' };
     if (c.totalHours < BAL.commandUpgrade.minHours) return { ok: false, error: `Needs ${BAL.commandUpgrade.minHours.toLocaleString('en-US')} h (has ${Math.round(c.totalHours).toLocaleString('en-US')})` };
   }
   if (kind === 'sccm' && c.role !== 'CC') return { ok: false, error: 'Only cabin crew take the SCCM course' };
-  const { days, cost } = TRAINING[kind](c);
+  const { days, cost } = TRAINING[kind]();
   if (g.company.cash < cost) return { ok: false, error: 'Not enough cash' };
   const start = g.now;
   const end = dayStart(g.now) + days * DAY;
@@ -134,11 +170,13 @@ const countRoles = (roles: Role[]) => roles.reduce<Partial<Record<Role, number>>
  * programmes' needs, non-contract pairings, joining/training/leave and the 100 h/28 d block limit, vs the
  * programme's need (RESEARCH §5.3 sizing from `programmeBH`). Pure: no g.rng, no ids.
  */
-export function crewAvailability(g: GameState, family: RatingFamily, typeId: string, from: Minute, to: Minute, programmeBH: number): Availability {
+export function crewAvailability(g: GameState, family: RatingFamily, typeId: string, from: Minute, to: Minute, programmeBH: number, extra?: CrewExtra): Availability {
   const days = Math.max(1, Math.ceil((to - from) / DAY));
   const t = typeOf(typeId);
   const seats = t.cabins[0] ? t.cabins[0].j + t.cabins[0].w + t.cabins[0].y : 180;
-  const per = countRoles(complement(typeId, seats, { extraCabin: g.company.policies.extraCabin }));
+  // v0.6: the programme's crew with its extra crew (the spare pilot sized as a first officer).
+  const x = extra ?? { cabin: g.company.policies.extraCabin, pilot: 0 };
+  const per = countRoles(rolesWithExtra(typeId, seats, x).map((r) => (r === 'CRP' ? 'FO' : r)));
   const need = sizing(per, programmeBH / Math.max(1, days / 30.44));
   // Supply per role and day (exact role; seniors spill down below).
   const supply: Record<Role, Int32Array> = Object.fromEntries(ROLES.map((r) => [r, new Int32Array(days)])) as Record<Role, Int32Array>;
@@ -150,6 +188,10 @@ export function crewAvailability(g: GameState, family: RatingFamily, typeId: str
       for (let d = Math.max(0, Math.floor((a - from) / DAY)); d < days && from + d * DAY < b; d++) off[d] = 1;
     };
     for (const b of c.blocks ?? []) mark(b.from, b.to);
+    // v0.6: gone after the leave date; off this type from a conversion that ends the rating (as staffing()).
+    if (c.notice) mark(c.notice.leaves, to);
+    const k = classOf(g, c.id);
+    if (k && k.family !== family && (k.group === 'pilot' ? k.course === 'full' : k.drop?.[c.id] === family)) mark(k.start, to);
     for (const p of ix.pairingsOf.get(c.id) ?? []) if (!p.contractId && p.status !== 'done') mark(p.start, p.end);
     if (block28(segsOf(g, c), from) > 90 * 60) mark(from, from + 7 * DAY);
     for (let d = 0; d < days; d++) if (!off[d]) supply[c.role][d]++;
@@ -167,7 +209,8 @@ export function crewAvailability(g: GameState, family: RatingFamily, typeId: str
       for (const f of Object.values(g.flights)) if (f.contractId === k.id && f.aircraftId && f.status !== 'cancelled') blk += f.block;
       bhMonth = blk / 60 / Math.max(1, (k.end - k.start) / DAY / 30.44);
     }
-    const kPer = countRoles(complement(ac[0].typeId, ac[0].cabin.total, { extraCabin: g.company.policies.extraCabin + k.requirements.extraCabin }));
+    const kx = crewExtraFor(g, ac[0].id, k.id);
+    const kPer = countRoles(rolesWithExtra(ac[0].typeId, ac[0].cabin.total, kx, k.requirements.extraCabin).map((r) => (r === 'CRP' ? 'FO' : r)));
     const kNeed = sizing(kPer, bhMonth);
     for (let d = 0; d < days; d++) {
       const day = from + d * DAY;
@@ -219,8 +262,13 @@ export function crewAvailability(g: GameState, family: RatingFamily, typeId: str
 export interface StaffingLine {
   family: RatingFamily;
   role: Role;
+  /** Rated crew who stay on the type (v0.6: without those on notice or converting away from it). */
   have: number;
   need: number;
+  /** v0.6: rated crew on notice (not in have). */
+  leaving: number;
+  /** v0.6: rated crew booked on a conversion that ends their rating on this type (not in have). */
+  converting: number;
 }
 
 /**
@@ -233,22 +281,53 @@ export function staffing(g: GameState): StaffingLine[] {
     if (dp.end < g.now || dp.start > g.now + 60 * DAY) continue;
     onStation.set(dp.aircraftId, Math.max(onStation.get(dp.aircraftId) ?? 0, dp.setsOnStation));
   }
-  const fams = new Map<RatingFamily, { typeId: string; seats: number; n: number }>();
+  // v0.6: each aircraft's complement with its extra crew (a spare pilot is sized as a first officer).
+  const fams = new Map<RatingFamily, Partial<Record<Role, number>>>();
   for (const ac of Object.values(g.fleet)) {
     if (ac.status === 'leasedOut') continue;
     const f = typeOf(ac.typeId).family;
     const sets = Math.max(BAL.crewSetsPerAircraft, (onStation.get(ac.id) ?? 0) + 2);
-    const cur = fams.get(f);
-    if (cur) cur.n += sets;
-    else fams.set(f, { typeId: ac.typeId, seats: ac.cabin.total, n: sets });
+    // The most extra crew its long work (30+ days) over the next 60 days asks for (a contract's own setting or paid
+    // option); a short charter's extras come out of the reserve.
+    let x = crewExtraFor(g, ac.id, null);
+    for (const k of Object.values(g.contracts)) {
+      if ((k.status !== 'signed' && k.status !== 'active') || k.end <= g.now || k.start > g.now + 60 * DAY || k.end - k.start < 30 * DAY || !k.aircraftIds.includes(ac.id)) continue;
+      const kx = crewExtraFor(g, ac.id, k.id);
+      if (kx.cabin + kx.pilot > x.cabin + x.pilot) x = kx;
+    }
+    const per = countRoles(rolesWithExtra(ac.typeId, ac.cabin.total, x).map((r) => (r === 'CRP' ? 'FO' : r)));
+    const need = fams.get(f) ?? {};
+    for (const r of ROLES) if (per[r]) need[r] = (need[r] ?? 0) + per[r]! * sets;
+    fams.set(f, need);
+  }
+  // One pass over the crew: who keeps each rating (pilots on a full course to another type lose the old one; cabin
+  // crew at 3 types drop the one named in the class).
+  const losing = new Map<string, RatingFamily[]>();
+  for (const k of conversionClasses(g)) {
+    for (const id of k.crewIds) {
+      const c = g.crew[id];
+      if (!c) continue;
+      const lost = k.group === 'pilot' ? (k.course === 'full' ? c.ratings.filter((f) => f !== k.family) : []) : k.drop?.[id] ? [k.drop[id]] : [];
+      if (lost.length) losing.set(id, [...(losing.get(id) ?? []), ...lost]);
+    }
+  }
+  const count = new Map<string, { have: number; leaving: number; converting: number }>();
+  for (const c of Object.values(g.crew)) {
+    for (const f of c.ratings) {
+      const key = `${f}:${c.role}`;
+      let x = count.get(key);
+      if (!x) count.set(key, (x = { have: 0, leaving: 0, converting: 0 }));
+      if (c.notice) x.leaving++;
+      else if (losing.get(c.id)?.includes(f)) x.converting++;
+      else x.have++;
+    }
   }
   const out: StaffingLine[] = [];
-  for (const [family, x] of fams) {
-    const per = countRoles(complement(x.typeId, x.seats, { extraCabin: g.company.policies.extraCabin }));
+  for (const [family, need] of fams) {
     for (const r of ROLES) {
-      if (!per[r]) continue;
-      const have = Object.values(g.crew).filter((c) => c.role === r && c.ratings.includes(family)).length;
-      out.push({ family, role: r, have, need: per[r]! * x.n });
+      if (!need[r]) continue;
+      const x = count.get(`${family}:${r}`) ?? { have: 0, leaving: 0, converting: 0 };
+      out.push({ family, role: r, need: need[r]!, ...x });
     }
   }
   return out;
@@ -281,6 +360,7 @@ export function onTrainingDone(g: GameState, ev: SimEvent): void {
   const item = g.training.find((x) => x.id === ev.id);
   if (!item) return;
   g.training = g.training.filter((x) => x.id !== ev.id);
+  if (onClassItemDone(g, item)) return;
   const c = g.crew[item.crewId];
   if (!c) return;
   if (item.kind === 'typeRating' || item.kind === 'conversion') {
@@ -297,14 +377,14 @@ export function onTrainingDone(g: GameState, ev: SimEvent): void {
 }
 
 /**
- * Daily sickness roll: p = 0.04/30 × (1 + max(0, 60 − morale)/100); sick for 2–5 days, taken off rostered work.
+ * Daily sickness roll: p = 0.04/30 × (1 + max(0, 65 − morale)/50) (v0.6 morale.sickMult); sick for 2–5 days, taken off rostered work.
  * A slot that can't be refilled becomes a B3 'sickCrew' decision.
  */
 export function dailySickness(g: GameState): void {
   for (const c of Object.values(g.crew)) {
     if (c.status === 'sick' || c.status === 'joining' || c.status === 'training' || c.status === 'leave' || c.status === 'onDuty') continue;
     if (c.blocks?.some((b) => b.why === 'sick' && b.to > g.now)) continue;
-    const p = (BAL.sickPerMonth / 30) * (1 + Math.max(0, 60 - c.morale) / 100);
+    const p = (BAL.sickPerMonth / 30) * sickMult(c.morale);
     if (!chance(g, p)) continue;
     const days = int(g, BAL.sickDays[0], BAL.sickDays[1]);
     // A sick call covers the coming days (crew call in the evening before): today's duties stay, tomorrow's are

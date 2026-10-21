@@ -165,6 +165,7 @@ describe('booking checks', () => {
     const pen0 = line(g, 'penalties');
     const cancelled0 = g.stats.cancelled;
     const r = scheduleCheck(g, ac.id, 'A', start, 'HAM', { dropLegs: true, auto: true });
+    expect(r.ok ? '' : r.error).toBe('');
     expect(r.ok).toBe(true);
     expect(later).toMatchObject({ status: 'cancelled', delayReason: 'A-check' });
     expect(back.status).toBe('cancelled');

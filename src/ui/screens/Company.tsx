@@ -4,10 +4,12 @@
 import { Award, BadgeCheck, Building2, Flag as FlagIcon, Palette, Settings2, ShieldCheck, Target } from 'lucide-react';
 import { flag } from '../../data/countries';
 import { rivalFleetText } from '../../engine/contracts/clients';
+import { BAL } from '../../engine/core/balance';
 import { fmtDate } from '../../engine/core/time';
 import type { GameState, Policies } from '../../engine/core/types';
 import { artFor } from '../../data/acmiTypes';
 import { APPROVALS, applyApproval, approvalBlocker, GOALS, liveryOf, paintStatus, setFleetLivery, setPolicies, type ApprovalDef } from '../../engine/ops';
+import { moraleSummary, policyPreview } from '../../engine/crew';
 import { AircraftArt } from '../components/AircraftArt';
 import { TailBadge } from '../components/Logo';
 import { Bar, Card, Seg, Stepper, Toggle } from '../components/ui';
@@ -73,22 +75,66 @@ function Approvals({ g }: { g: GameState }) {
   );
 }
 
+const signedK = (v: number) => `${v >= 0 ? '+' : '−'}${money(Math.abs(v))}`;
+
+/**
+ * v0.6: one-line morale / cost effect of a policy (policyPreview, pure): the current setting against the market
+ * standard, or at the market standard what the next step up would do.
+ */
+function effect(g: GameState, market: Partial<Policies>, up: Partial<Policies>, label: string, morale: (p: Policies) => string | null): string {
+  const p = g.company.policies;
+  const atMarket = (Object.keys(market) as (keyof Policies)[]).every((k) => p[k] === market[k]);
+  const other = atMarket ? up : market;
+  const pv = policyPreview(g, other);
+  const sign = atMarket ? 1 : -1;
+  const dT = Math.round(sign * (pv.target - pv.targetNow) * 10) / 10;
+  // No closed month yet: estimate from the crew on the books instead of the (empty) finance history.
+  const dC = g.finance.history.length ? sign * (pv.costPerMonth - pv.costNow) : sign * (estPolicyCost(g, { ...p, ...other }) - estPolicyCost(g, p));
+  const parts: string[] = [];
+  const m = morale(atMarket ? { ...p, ...up } : p);
+  if (m) parts.push(m);
+  else if (dT) parts.push(`Morale target ${dT > 0 ? '+' : '−'}${Math.abs(dT)}`);
+  if (Math.abs(dC) >= 500) parts.push(`≈ ${signedK(dC)}/month`);
+  if (!parts.length) return atMarket ? 'Market standard' : '';
+  return atMarket ? `${label}: ${parts.join(' · ')}` : `${parts.join(' · ')} vs market`;
+}
+
+/** Days a month crew spend away from base (hotel nights, per diems) in the start-of-game estimate. */
+const AWAY_DAYS = 14;
+
+/** Monthly per diems and hotels at policies p for the crew on the books (estimate before the first closed month). */
+function estPolicyCost(g: GameState, p: Policies): number {
+  let v = 0;
+  for (const c of Object.values(g.crew)) v += AWAY_DAYS * ((BAL.perDiem[c.role] ?? 54) * (p.perDiemPct / 100) + (BAL.hotelPerNight[p.hotelTier] ?? BAL.hotelPerNight[4]));
+  return v;
+}
+
+const hotelMorale = (p: Policies) => {
+  const d = BAL.morale.hotelDay[p.hotelTier] ?? 0;
+  return d ? `Morale ${d > 0 ? '+' : '−'}${Math.abs(d)}/night away` : null;
+};
+
 function PolicyForm({ g }: { g: GameState }) {
   const p = g.company.policies;
   const set = (patch: Partial<Policies>) => store.act((gg) => setPolicies(gg, patch), { toastOk: false });
-  const row = (label: string, desc: string, ctl: React.ReactNode) => (
-    <div className="set-row sc-policy"><div><b>{label}</b><div className="tiny dim">{desc}</div></div>{ctl}</div>
+  const row = (label: string, desc: string, ctl: React.ReactNode, fx?: string) => (
+    <div className="set-row sc-policy"><div><b>{label}</b><div className="tiny dim">{desc}</div>{fx && <div className="tiny sc-policy-fx">{fx}</div>}</div>{ctl}</div>
   );
+  const market = policyPreview(g, { perDiemPct: 100, rotationWeeks: 5, hotelTier: 4 });
   return (
     <div className="col">
       {row('Auto-roster', 'Crew new and changed flights automatically', <Toggle on={p.autoRoster} onChange={(v) => set({ autoRoster: v })} label="Auto-roster" />)}
       {row('Use tight duties', 'Allow duties within 30 min of a limit', <Toggle on={p.allowTight} onChange={(v) => set({ allowTight: v })} label="Tight duties" />)}
       {row('Auto deadhead', 'Buy deadhead tickets for crew automatically', <Toggle on={p.autoDeadhead} onChange={(v) => set({ autoDeadhead: v })} label="Auto deadhead" />)}
       {row('Auto A-checks', 'Plan A-checks in free slots (C-checks need you)', <Toggle on={p.autoMaintenance} onChange={(v) => set({ autoMaintenance: v })} label="Auto A-checks" />)}
-      {row('Extra cabin crew', 'Above the legal minimum on every flight', <Stepper value={p.extraCabin} min={0} max={2} onChange={(v) => set({ extraCabin: v })} />)}
-      {row('Crew hotels', 'Better hotels lift morale and cost more', <Seg<number> value={p.hotelTier} onChange={(v) => set({ hotelTier: v as Policies['hotelTier'] })} options={[3, 4, 5].map((v) => ({ value: v, label: `${v}★` }))} />)}
-      {row('Per diems', '100% is the market rate', <Stepper value={p.perDiemPct} min={80} max={150} step={10} onChange={(v) => set({ perDiemPct: v })} format={(v) => `${v}%`} />)}
-      {row('Rotation', 'Weeks away before crews rotate home', <Seg<number> value={p.rotationWeeks} onChange={(v) => set({ rotationWeeks: v as Policies['rotationWeeks'] })} options={[4, 5, 6].map((v) => ({ value: v, label: `${v} wk` }))} />)}
+      {row('Default extra cabin crew', 'Above the legal minimum; each aircraft and contract can set its own', <Stepper value={p.extraCabin} min={0} max={BAL.crewExtra.cabinMax} onChange={(v) => set({ extraCabin: v })} />)}
+      {row('Crew hotels', 'Better hotels lift morale and cost more (wet leases: client hotels)', <Seg<number> value={p.hotelTier} onChange={(v) => set({ hotelTier: v as Policies['hotelTier'] })} options={[3, 4, 5].map((v) => ({ value: v, label: `${v}★` }))} />, effect(g, { hotelTier: 4 }, { hotelTier: 5 }, 'At 5★', hotelMorale))}
+      {row('Per diems', '100% is the market rate', <Stepper value={p.perDiemPct} min={80} max={150} step={10} onChange={(v) => set({ perDiemPct: v })} format={(v) => `${v}%`} />, effect(g, { perDiemPct: 100 }, { perDiemPct: 110 }, 'At 110%', () => null))}
+      {row('Rotation', 'Weeks away before crews rotate home', <Seg<number> value={p.rotationWeeks} onChange={(v) => set({ rotationWeeks: v as Policies['rotationWeeks'] })} options={[4, 5, 6].map((v) => ({ value: v, label: `${v} wk` }))} />, effect(g, { rotationWeeks: 5 }, { rotationWeeks: 4 }, 'At 4 weeks', () => null))}
+      <div className="set-row sc-policy sc-policy-sum">
+        <div><b>Crew morale target {market.targetNow}</b><div className="tiny dim">{market.target !== market.targetNow ? `${market.target} at market policies · ` : ''}Crew drift toward it; hotels, days off away and long tours move them day to day</div></div>
+        <span className="num muted small nowrap">{Object.keys(g.crew).length ? `now ${moraleSummary(g).avg}` : ''}</span>
+      </div>
     </div>
   );
 }

@@ -77,6 +77,7 @@ export function HireModal({ role: role0, family: fam0, base: base0 }: { role?: R
           ['Ready to fly', fmtDate(q.readyAt)],
           ['Salary', `${money(salary)} / month each`],
         ]} />
+        {q.beyondPool > 0 && <div className="small warn">The market has few rated {family} {role} free: {q.beyondPool} of these come through an agency (+{money(q.fee)} fee) and take longer to join.</div>}
         <div className="small dim">Rated crew from the market: recruitment, checks and line training take weeks. They join at {base}.</div>
       </div>
     </Modal>

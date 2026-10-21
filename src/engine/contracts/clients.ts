@@ -20,10 +20,11 @@ function behaviour(s: ClientSeed): Pick<Client, 'payReliability' | 'lateDays' | 
     case 'tourOperator':
       return { payReliability: 0.85, lateDays: [5, 20], cleanSensitivity: 0.5 };
     case 'government':
-      return { payReliability: 0.35, lateDays: [20, 75], cleanSensitivity: 0.4 };
+      // v0.6: governments mostly pay late (RESEARCH §4.3: 30–90 days).
+      return { payReliability: 0.2, lateDays: [25, 90], cleanSensitivity: 0.4 };
     case 'agency':
       return s.role === 'aid'
-        ? { payReliability: 0.5, lateDays: [15, 60], cleanSensitivity: 0.8 }
+        ? { payReliability: 0.4, lateDays: [15, 60], cleanSensitivity: 0.8 }
         : { payReliability: 0.8, lateDays: [5, 25], cleanSensitivity: 0.4 };
     case 'sports':
       return { payReliability: 0.9, lateDays: [3, 15], cleanSensitivity: 0.7 };

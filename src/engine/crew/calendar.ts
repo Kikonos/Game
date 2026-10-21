@@ -9,6 +9,7 @@ import { DAY, fmtDate, fmtDateTime, fmtDay, fmtDuration, fmtTime } from '../core
 import type { CrewMember, Duty, Flight, GameState, Legality, Minute, TrainingKind } from '../core/types';
 import { commercialItinerary } from '../ops/commercial';
 import { FLIGHT_TYPE_LABEL, flightType, type FlightType } from '../ops/flightType';
+import { classBlockText } from './conversion';
 import { rosterOf } from './roster';
 import { offsetAt } from './rules';
 import { dutyFlights, segsOf } from './timeline';
@@ -83,8 +84,12 @@ function statusBlocks(g: GameState, c: CrewMember): CalBlock[] {
     } else if (b.why === 'sick') {
       out.push({ kind: 'sick', start: b.from, end: b.to, label: 'Sick', detail: `Off sick from ${fmtDay(b.from)}, expected back ~${fmtDay(b.to)}. Rostered work was re-crewed.` });
     } else if (b.why === 'training') {
-      const what = trainingWhat(g, c, b.from, b.to);
-      out.push({ kind: 'training', start: b.from, end: b.to, label: 'Training', detail: `${what} until ${fmtDate(b.to)}.` });
+      // v0.6: a conversion class reads 'Conversion A330' with its class and phase.
+      const cls = classBlockText(g, c.id, b.from, b.to);
+      if (cls) out.push({ kind: 'training', start: b.from, end: b.to, label: cls.label, detail: cls.detail });
+      else out.push({ kind: 'training', start: b.from, end: b.to, label: 'Training', detail: `${trainingWhat(g, c, b.from, b.to)} until ${fmtDate(b.to)}.` });
+    } else if (c.notice && b.from >= c.notice.leaves) {
+      out.push({ kind: 'leave', start: b.from, end: b.to, label: 'Left', detail: `Resigned: last day ${fmtDate(c.notice.leaves - 1)}.` });
     } else {
       out.push({ kind: 'leave', start: b.from, end: b.to, label: 'Leave', detail: `On leave until ${fmtDate(b.to)}.` });
     }
@@ -109,8 +114,10 @@ function dutyBlock(g: GameState, d: Duty): CalBlock {
 /** Tickets on airlines and rides on our own empty legs that carry the crew member. */
 function travelBlocks(g: GameState, c: CrewMember, from: Minute, to: Minute): CalBlock[] {
   const out: CalBlock[] = [];
-  for (const f of deadheadFlights(g)) {
-    if (f.status === 'cancelled' || f.sta <= from || f.std >= to || !f.crewIds.includes(c.id)) continue;
+  // v0.6: from the shared per-crew travel index (the roster board reads many rows at once).
+  const mine = travelOf(g, c.id);
+  for (const f of mine) {
+    if (f.kind !== 'deadhead' || f.status === 'cancelled' || f.sta <= from || f.std >= to || !f.crewIds.includes(c.id)) continue;
     const legs = commercialItinerary(g, f);
     const via = legs.map((l) => `${l.no} ${l.from}–${l.to} ${hhmm(l.dep)}–${hhmm(l.arr)} (${l.airline})`).join(' · ');
     out.push({
@@ -118,8 +125,8 @@ function travelBlocks(g: GameState, c: CrewMember, from: Minute, to: Minute): Ca
       detail: `${f.from}–${f.to} as a passenger, check-in ${hhmm(f.std - BAL.deadheadCheckIn)}\n${via}`,
     });
   }
-  for (const f of Object.values(g.flights)) {
-    if (!f.riders?.includes(c.id) || f.status === 'cancelled' || f.sta <= from || f.std >= to) continue;
+  for (const f of mine) {
+    if (f.kind === 'deadhead' || !f.riders?.includes(c.id) || f.status === 'cancelled' || f.sta <= from || f.std >= to) continue;
     const reg = f.aircraftId ? g.fleet[f.aircraftId]?.reg : undefined;
     out.push({
       kind: 'positioning', start: f.std - BAL.deadheadCheckIn, end: f.ata ?? f.sta, label: 'Positioning', flightIds: [f.id], flights: [calFlight(g, f)],
@@ -176,6 +183,20 @@ export function crewCalendar(g: GameState, crewId: string, from: Minute, to: Min
   const off: CalBlock[] = [];
   const horizon = g.now + BAL.rosterHorizonDays * DAY;
   const off0 = offsetAt(c.base, from);
+  // Past days: where the first movement after the day left from (the timeline only knows where they are now).
+  let moves: { std: Minute; from: string }[] | null = null;
+  const pastAt = (t: Minute): string => {
+    if (!moves) {
+      moves = [];
+      for (const d of rosterOf(g, crewId, from, g.now + DAY)) {
+        const f = dutyFlights(g, d).find((x) => x.status !== 'cancelled');
+        if (f) moves.push({ std: f.std, from: f.from });
+      }
+      for (const f of travelOf(g, crewId)) if (f.status !== 'cancelled') moves.push({ std: f.std, from: f.from });
+      moves.sort((a, b) => a.std - b.std);
+    }
+    return moves.find((m) => m.std >= t)?.from ?? c.loc;
+  };
   for (let d = Math.floor((from + off0) / DAY) * DAY - off0; d < to; d += DAY) {
     const day = { start: d, end: d + DAY };
     if (busy.some((w) => overlaps(w, day))) continue;
@@ -183,7 +204,7 @@ export function crewCalendar(g: GameState, crewId: string, from: Minute, to: Min
     for (const r of rest) if (r.start <= start && r.end > start) start = r.end;
     const end = Math.min(d + DAY, to);
     if (end - start < 6 * 60) continue;
-    const at = locAtTime(c, segs, start);
+    const at = start < g.now ? pastAt(start) : locAtTime(c, segs, start);
     const away = at !== c.base;
     const planned = d < horizon;
     off.push({
@@ -239,6 +260,8 @@ export interface CrewStatusView {
   nowAt: string;
   /** Travelling as a passenger now (airline deadhead or riding our empty leg), else null. */
   travel: CrewTravelNow | null;
+  /** v0.6: last day of a crew member on notice (resigned). */
+  leaves?: Minute;
 }
 
 const arrow = (a: string, b: string) => `${a}→${b}`;
@@ -296,6 +319,14 @@ function travelView(c: CrewMember, t: CrewTravelNow, base: Pick<CrewStatusView, 
 
 /** Crew card header: status with the right date, start date wording, and rest only when it is a rest. Pure. */
 export function crewStatusView(g: GameState, crewId: string): CrewStatusView {
+  const v = statusView(g, crewId);
+  const c = g.crew[crewId];
+  // v0.6: crew on notice: the leave date on the status line.
+  if (c?.notice) return { ...v, leaves: c.notice.leaves, text: `${v.text ? `${v.text} · ` : ''}Leaves ${fmtDay(c.notice.leaves - 1)}` };
+  return v;
+}
+
+function statusView(g: GameState, crewId: string): CrewStatusView {
   const c = g.crew[crewId];
   if (!c) return { label: '—', tone: 'info', text: '', until: null, restUntil: null, startLabel: 'Hired', startDate: g.now, nowAt: '', travel: null };
   const joins = joinsAt(g, c);
@@ -312,6 +343,8 @@ export function crewStatusView(g: GameState, crewId: string): CrewStatusView {
   }
   if (why === 'training') {
     const to = block?.to ?? g.training.find((x) => x.crewId === c.id)?.end ?? null;
+    const cls = classBlockText(g, c.id, now, now + 1);
+    if (cls) return { ...base, label: 'Training', tone: 'info', text: `${cls.label}${to ? ` · until ${fmtDay(to - 1)}` : ''}`, until: to, restUntil: null };
     return { ...base, label: 'Training', tone: 'info', text: to ? `${trainingWhat(g, c, now, now + 1)} until ${fmtDate(to)}` : 'Training', until: to, restUntil: null };
   }
   if (why === 'leave') return { ...base, label: 'Leave', tone: 'info', text: block ? `On leave until ${fmtDate(block.to)}` : 'On leave', until: block?.to ?? null, restUntil: null };

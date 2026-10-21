@@ -10,12 +10,33 @@ import { advanceTo } from '../sim';
 import { dailyCrewCosts, monthlySalaries } from './costs';
 import { dailySickness } from './hr';
 import { addCrew, fixtureContract, fixtureGame } from './fixtures';
-import { autoRoster, checkAssignment, crewAvailability, flightCrewStatus, hireCrew, hireQuote, makeCrewMember, removeCrew, rosterOf, staffing, trainCrew } from '.';
+import { autoRoster, checkAssignment, conversionEarliest, crewAvailability, flightCrewStatus, hireCrew, hireQuote, makeCrewMember, ratedMarket, removeCrew, resignNow, rosterOf, staffing, startConversion, trainCrew } from '.';
 
 const run = (g: GameState, t: number) => advanceTo(g, t, new Set());
 const line = (g: GameState, cat: string) => (g.finance.current.lines as Record<string, number>)[cat] ?? 0;
 
 describe('hiring', () => {
+  it('rated pilots: a pool per family every 30 days; beyond it an agency fee and a longer wait; cabin crew unlimited', () => {
+    const g = fixtureGame();
+    g.company.cash = 50_000_000;
+    const m = ratedMarket(g, 'A330/340', 'CPT')!;
+    expect(m).toEqual({ pool: BAL.ratedPool.wide.CPT, left: 2, fee: Math.round(BAL.salary.CPT[1] * 12 * BAL.ratedPool.feePct / 100) * 100 });
+    expect(ratedMarket(g, 'A320', 'CC')).toBeNull();
+    const req = { role: 'CPT' as const, family: 'A330/340' as const, base: 'LIS', count: 3 };
+    const q = hireQuote(g, req);
+    expect(q.beyondPool).toBe(1);
+    expect(q.cost).toBe(3 * BAL.hireCost.pilot + m.fee);
+    expect((q.readyAt - dayStart(g.now)) / DAY).toBeGreaterThanOrEqual(Math.round(BAL.hireDaysWide.CPT * 0.8 * BAL.ratedPool.daysMult));
+    expect(hireCrew(g, req).ok).toBe(true);
+    expect(ratedMarket(g, 'A330/340', 'CPT')!.left).toBe(0);
+    expect(ratedMarket(g, 'A330/340', 'FO')!.left).toBe(BAL.ratedPool.wide.FO);
+    expect(hireQuote(g, { ...req, count: 1 }).beyondPool).toBe(1);
+    // The pool refills after 30 days.
+    g.now += 31 * DAY;
+    expect(ratedMarket(g, 'A330/340', 'CPT')!.left).toBe(2);
+    expect(hireQuote(g, { role: 'CC', family: 'A320', base: 'LIS', count: 30 }).cost).toBe(30 * BAL.hireCost.cabin);
+  });
+
   it('keeps the quoted ready date, charges once, and joins after hireDays', () => {
     const g = fixtureGame();
     const req = { role: 'FO' as const, family: 'A320' as const, base: 'LIS', count: 2 };
@@ -55,19 +76,23 @@ describe('hiring', () => {
 });
 
 describe('training', () => {
-  it('type rating: 35 days, rating added at the end', () => {
+  it('type rating (v0.6: a one-person conversion class): 42 days from the earliest start, the new type replaces the old', () => {
     const g = fixtureGame();
     const fo = Object.values(g.crew).find((c) => c.role === 'FO')!;
     const cash = g.company.cash;
     const r = trainCrew(g, fo.id, 'typeRating', 'B757/767');
     expect(r.ok).toBe(true);
-    expect(g.company.cash).toBe(cash - BAL.typeRating.pilotCost);
+    expect(g.company.cash).toBe(cash - BAL.conv.pilotCost.wide);
+    const k = Object.values(g.classes!)[0];
+    expect(k.crewIds).toEqual([fo.id]);
+    expect(k.start).toBeGreaterThanOrEqual(g.now + BAL.conv.leadDays * DAY);
+    expect(k.end - k.start).toBe(BAL.conv.pilotDays * DAY);
+    run(g, k.start + 60);
     expect(fo.status).toBe('training');
-    const end = dayStart(g.now) + BAL.typeRating.pilotDays * DAY;
-    run(g, end - 60);
+    run(g, k.end - 60);
     expect(fo.ratings).not.toContain('B757/767');
-    run(g, end + 1);
-    expect(fo.ratings).toContain('B757/767');
+    run(g, k.end + 1);
+    expect(fo.ratings).toEqual(['B757/767']);
     expect(fo.status).not.toBe('training');
   });
 
@@ -136,6 +161,24 @@ describe('capacity (crewAvailability)', () => {
     const cpt = staffing(g).find((l) => l.family === 'A320' && l.role === 'CPT')!;
     expect(cpt.need).toBe(BAL.crewSetsPerAircraft * n);
     expect(cpt.have).toBe(Object.values(g.crew).filter((c) => c.role === 'CPT').length);
+  });
+
+  it('crew on notice and pilots converting away from the type are not counted as staff', () => {
+    const g = fixtureGame();
+    g.company.cash = 50_000_000;
+    const line = (r: string) => staffing(g).find((l) => l.family === 'A320' && l.role === r)!;
+    const cpt0 = line('CPT');
+    const cc0 = line('CC');
+    const cpts = Object.values(g.crew).filter((c) => c.role === 'CPT').slice(0, 3).map((c) => c.id);
+    expect(startConversion(g, { crewIds: cpts, family: 'A330/340', start: conversionEarliest(g) }).ok).toBe(true);
+    expect(line('CPT')).toMatchObject({ have: cpt0.have - 3, converting: 3, leaving: 0 });
+    const ccs = Object.values(g.crew).filter((c) => c.role === 'CC').slice(0, 2);
+    for (const c of ccs) resignNow(g, c.id);
+    expect(line('CC')).toMatchObject({ have: cc0.have - 2, leaving: 2, converting: 0 });
+    // Cabin crew keep the old type: not converting away.
+    const more = Object.values(g.crew).filter((c) => c.role === 'CC' && !c.notice).slice(0, 2).map((c) => c.id);
+    expect(startConversion(g, { crewIds: more, family: 'A330/340', start: conversionEarliest(g) }).ok).toBe(true);
+    expect(line('CC').have).toBe(cc0.have - 2);
   });
 });
 

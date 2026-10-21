@@ -48,6 +48,8 @@ const ALL = [
   'contracts-missed', 'offer-modal', 'schedule', 'schedule-28d', 'block-sheet', 'duty-modal', 'crew', 'hire',
   'fleet', 'check-modal', 'finance', 'company', 'inbox', 'decision', 'subcharter', 'menu', 'settings', 'saves',
   'newgame-livery', 'livery-company', 'livery-aircraft', 'offer-paint', 'offer-paint-optional', 'schedule-paint', 'paint-sheet', 'map-painted', 'fleet-painted',
+  'crew-board', 'crew-board-month', 'board-drag', 'board-popover', 'crew-select', 'convert-modal', 'classes-modal', 'crew-converting', 'board-converting',
+  'crew-morale', 'crew-notice', 'train-modal', 'company-policies', 'fleet-extra', 'offer-extra', 'contracts-extra', 'duty-extra',
 ];
 const PRE_GAME = new Set(['loading', 'title', 'newgame', 'newgame-livery']);
 const VIEWS = {
@@ -469,6 +471,172 @@ Object.assign(ACTIONS, {
   'fleet-painted': async (page) => {
     const id = await ensurePainted(page);
     await nav(page, 'fleet', { sel: { kind: 'aircraft', id } });
+  },
+});
+
+// ---------- v0.6 crew ----------
+
+async function board(page, zoom = 'Week') {
+  await nav(page, 'crew', { view: 'board' });
+  await page.locator('.rb-tools .seg button', { hasText: zoom }).first().click();
+  await settle(page, 400);
+}
+
+/** A movable duty block on the board and a row below it to drag to (centre points). */
+async function dragPoints(page) {
+  return page.evaluate(() => {
+    const blks = [...document.querySelectorAll('.rb-blk[data-mv]')].filter((b) => { const r = b.getBoundingClientRect(); return r.width >= 14 && r.left > 200 && r.right < window.innerWidth - 20 && r.top > 120 && r.bottom < window.innerHeight - 100; });
+    const b = blks[0];
+    if (!b) return null;
+    const r = b.getBoundingClientRect();
+    const rows = [...document.querySelectorAll('.rb-row')].filter((x) => x.getAttribute('data-row') !== b.getAttribute('data-c'));
+    const same = rows.filter((x) => { const y = x.getBoundingClientRect(); return y.top > r.bottom && y.bottom < window.innerHeight - 90; });
+    const t = (same[1] ?? same[0])?.getBoundingClientRect();
+    if (!t) return null;
+    return { x: r.left + Math.min(r.width / 2, 20), y: r.top + r.height / 2, tx: r.left + Math.min(r.width / 2, 20) + 30, ty: t.top + t.height / 2 };
+  });
+}
+
+/** CDP long-press drag: press, hold 550 ms, move in steps; `end` drops (touchEnd) or leaves it held. */
+async function touchDrag(page, p, end) {
+  const cdp = await page.context().newCDPSession(page);
+  const pt = (x, y) => [{ x, y, id: 1, radiusX: 4, radiusY: 4, force: 1 }];
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: pt(p.x, p.y) });
+  await sleep(550);
+  const n = 12;
+  for (let i = 1; i <= n; i++) {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: pt(p.x + ((p.tx - p.x) * i) / n, p.y + ((p.ty - p.y) * i) / n) });
+    await sleep(30);
+  }
+  await sleep(250);
+  if (end) await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  return cdp;
+}
+
+/** Crew ids for a conversion: up to 12 pilots and 21 cabin crew rated on the first fleet type, none on notice. */
+const convertIds = (page) => page.evaluate(() => {
+  const g = window.__contrail.game;
+  const crew = Object.values(g.crew).filter((c) => !c.notice && c.status !== 'joining' && c.status !== 'training');
+  const pil = crew.filter((c) => ['CPT', 'FO', 'CRP'].includes(c.role)).slice(0, 12);
+  const cab = crew.filter((c) => !['CPT', 'FO', 'CRP'].includes(c.role)).slice(0, 21);
+  return [...pil, ...cab].map((c) => c.id);
+});
+
+async function ensureConversion(page, desktop) {
+  const has = await page.evaluate(() => Object.values(window.__contrail.game.classes || {}).some((k) => k.status === 'planned' || k.status === 'running'));
+  if (has) return;
+  const ids = await convertIds(page);
+  await modal(page, { kind: 'convert', crewIds: ids, family: 'A330/340' });
+  await press(page, page.locator('.modal-foot .btn-primary'), desktop);
+  await settle(page, 500);
+  await quiet(page);
+}
+
+Object.assign(ACTIONS, {
+  'crew-board': (page) => board(page),
+  'crew-board-month': (page) => board(page, 'Month'),
+  'board-drag': async (page) => {
+    await board(page);
+    const p = await dragPoints(page);
+    if (!p) throw new Error('SKIP no movable duty on the board');
+    const cdp = await touchDrag(page, p, false);
+    await settle(page, 200);
+    // Shot taken while held; the drop happens in the next screen's setup.
+    page.__heldDrag = cdp;
+  },
+  'board-popover': async (page, _s, d) => {
+    if (page.__heldDrag) { await page.__heldDrag.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }).catch(() => {}); page.__heldDrag = null; await settle(page, 300); await quiet(page); }
+    await board(page);
+    const off = page.locator('.rb-blk.k-off, .rb-blk.k-training, .rb-blk.k-joining').first();
+    if (!(await off.count())) throw new Error('SKIP no status block');
+    await press(page, off, d);
+    await settle(page, 300);
+  },
+  'crew-select': async (page, _s, d) => {
+    await nav(page, 'crew', { view: 'people' });
+    await press(page, page.locator('.sc-head-tools .btn', { hasText: 'Select' }), d);
+    await settle(page, 300);
+    for (let i = 0; i < 4; i++) await press(page, page.locator('.sc-crew-row').nth(i), d);
+    await settle(page, 300);
+  },
+  'convert-modal': async (page) => {
+    const ids = await convertIds(page);
+    await nav(page, 'crew', { view: 'people' });
+    await modal(page, { kind: 'convert', crewIds: ids, family: 'A330/340' });
+  },
+  'classes-modal': async (page, _s, d) => {
+    await nav(page, 'crew', { view: 'people' });
+    await ensureConversion(page, d);
+    await modal(page, { kind: 'classes' });
+  },
+  'crew-converting': async (page, _s, d) => {
+    await ensureConversion(page, d);
+    // Play into the first class so the strip and the list show 'Conversion A330'.
+    const start = await page.evaluate(() => Math.min(...Object.values(window.__contrail.game.classes).filter((k) => k.status !== 'cancelled').map((k) => k.start)));
+    const days = await page.evaluate((s) => Math.max(0, Math.ceil((s - window.__contrail.game.now) / 1440)) + 2, start);
+    await page.evaluate((n) => window.__contrail.dev.autoplay(n), days);
+    await quiet(page);
+    const id = await page.evaluate(() => Object.values(window.__contrail.game.classes).find((k) => k.status === 'running')?.crewIds[0]);
+    await nav(page, 'crew', { view: 'people', sel: id ? { kind: 'crew', id } : undefined });
+  },
+  'board-converting': (page) => board(page, 'Month'),
+  'crew-morale': async (page, _s, d) => {
+    await nav(page, 'crew', { view: 'people' });
+    await press(page, page.locator('.sc-morale-chip'), d);
+    await settle(page, 300);
+  },
+  'crew-notice': async (page) => {
+    const id = await page.evaluate(() => window.__contrail.dev.resign(Object.values(window.__contrail.game.crew).find((c) => c.role === 'FO' && !c.notice && c.status !== 'training')?.id));
+    await quiet(page);
+    await nav(page, 'crew', { view: 'people', sel: id ? { kind: 'crew', id } : undefined });
+  },
+  'train-modal': async (page) => {
+    const id = await pick(page, () => Object.values(window.__contrail.game.crew).find((c) => c.role === 'FO' && !c.notice)?.id);
+    await nav(page, 'crew', { view: 'people' });
+    await modal(page, { kind: 'train', crewId: id });
+  },
+  'company-policies': async (page) => {
+    await nav(page, 'company');
+    await page.evaluate(() => document.querySelector('.sc-policy-sum')?.scrollIntoView({ block: 'center' }));
+    await settle(page, 300);
+  },
+  'fleet-extra': async (page, _s, d) => {
+    const id = await pick(page, () => Object.keys(window.__contrail.game.fleet)[0]);
+    await nav(page, 'fleet', { sel: { kind: 'aircraft', id } });
+    await page.evaluate(() => document.querySelector('.sc-ac-crew')?.scrollIntoView({ block: 'center' }));
+    const card = page.locator(`.sc-ac[data-ac="${id}"] .sc-ac-crew`);
+    const x = await page.evaluate((a) => window.__contrail.game.fleet[a].crewExtra, id);
+    if (!x || x.cabin < 2) {
+      await press(page, card.locator('button[aria-label="Increase"]'), d);
+      await settle(page, 200);
+      await press(page, card.locator('button[aria-label="Increase"]'), d);
+      await settle(page, 200);
+      await press(page, card.locator('.toggle'), d);
+    }
+    await quiet(page);
+    await settle(page, 400);
+  },
+  'offer-extra': async (page, _s, d) => {
+    await nav(page, 'contracts', { view: 'market' });
+    let ok = false;
+    for (let i = 0; i < 80 && !ok; i++) {
+      ok = await page.evaluate((a) => { const s = window.__contrail; const id = s.dev.offer(a); return !!id && !!s.game.offers[id]?.requirements.extraCabinPaid; }, ['vip', 'seasonBase', 'adhoc', 'capacityLease'][i % 4]);
+    }
+    if (!ok) throw new Error('SKIP no offer with paid extra crew');
+    await settle(page, 600);
+    await page.evaluate(() => document.querySelector('.sc-extra-card')?.scrollIntoView({ block: 'center' }));
+    const t = page.locator('.sc-extra-paid .toggle');
+    if (!(await t.getAttribute('aria-pressed').then((v) => v === 'true'))) await press(page, t, d);
+    await settle(page, 400);
+  },
+  'contracts-extra': (page) => nav(page, 'contracts', { view: 'active' }),
+  'duty-extra': async (page) => {
+    const id = await pick(page, () => { const g = window.__contrail.game; const ac = Object.values(g.fleet).find((a) => a.crewExtra); const l = Object.values(g.flights).filter((f) => f.status === 'scheduled' && f.aircraftId === ac?.id && f.dutyId && f.std > g.now + 600).sort((a, b) => a.std - b.std); return l[0]?.id; });
+    if (!id) throw new Error('SKIP no rostered flight on an aircraft with extra crew');
+    await nav(page, 'schedule');
+    await modal(page, { kind: 'duty', id });
+    await page.evaluate(() => document.querySelector('.sc-chip-extra, .sc-seat.above')?.scrollIntoView({ block: 'center' }));
+    await settle(page, 300);
   },
 });
 

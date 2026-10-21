@@ -1,21 +1,27 @@
 // Crew (B5): staffing strip, filterable list with 28-day duty / block bars, and a detail panel with every
 // limit, morale and fatigue, days off and a 14-day roster; Train / Hire similar. DESIGN.md §6.3.
 
-import { GraduationCap, Lock, Search, UserPlus, Users } from 'lucide-react';
+import { ArrowDownRight, ArrowRight, ArrowUpRight, Check, CheckSquare, GraduationCap, LayoutGrid, List, Lock, Search, UserPlus, Users, X } from 'lucide-react';
 import { FlightTypeChip } from '../components/FlightType';
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { RatingFamily } from '../../data/acmiTypes';
 import { flag } from '../../data/countries';
 import { flightsRev } from '../../engine/core/entities';
 import { DAY, HOUR, dayStart, fmtDate, fmtDay, fmtTime, monthKey, monthStart, nextMonthStart, toDate } from '../../engine/core/time';
 import type { CrewMember, CrewStatus, GameState } from '../../engine/core/types';
-import { type CalBlock, crewCalendar, crewName, crewRev, crewStatusView, crewTravelNow, type CrewTravelNow, crewWindows, daysOffInMonth, LIMITS, staffing, type CrewWindows } from '../../engine/crew';
+import {
+  type CalBlock, classOf, conversionClasses, crewCalendar, crewName, crewRev, crewStatusView, crewTravelNow, type CrewTravelNow, crewWindows, daysOffInMonth, familyLabel, LIMITS,
+  moraleOf, moraleSummary, staffing, type CrewWindows,
+} from '../../engine/crew';
 import { Empty, Seg } from '../components/ui';
+import { RosterBoard } from './RosterBoard';
+import { moraleTone } from './rosterBoardLogic';
 import { money } from '../format';
 import { dutyRoute } from '../modals/DutyModal';
 import { store, useGame } from '../store';
 import { Dot, KV, LimitBar, ScreenHead, useRenderCount } from './common';
 import { CAL_KEY_LABEL, calAt, calId, calKey, calLabel, calLayer, calLegend, pickCal } from './crewLogic';
-import { CREW_STATUS_LABEL, filterCrew, limitTone, NO_FILTER, ROLE_LABEL, type CrewFilter } from './screenLogic';
+import { baseDay, CREW_STATUS_LABEL, filterCrew, isPilotRole, limitTone, NO_FILTER, ROLE_LABEL, type CrewFilter } from './screenLogic';
 
 const STATUS_TONE: Record<CrewStatus, 'good' | 'warn' | 'bad' | 'info' | 'off'> = {
   available: 'good', onDuty: 'info', resting: 'off', off: 'off', leave: 'off', sick: 'bad', training: 'warn', joining: 'warn',
@@ -25,31 +31,58 @@ const h = (min: number) => min / HOUR;
 
 function Staffing({ g }: { g: GameState }) {
   const lines = staffing(g);
-  if (!lines.length) return null;
+  // v0.6: a type crew hold with no aircraft of it (converted ahead of a delivery, or left over): idle but paid.
+  const flown = new Set(lines.map((l) => l.family));
+  const idle = new Map<string, { p: number; c: number }>();
+  for (const c of Object.values(g.crew)) {
+    for (const f of c.ratings) {
+      if (flown.has(f)) continue;
+      const x = idle.get(f) ?? { p: 0, c: 0 };
+      if (isPilotRole(c.role)) x.p++;
+      else x.c++;
+      idle.set(f, x);
+    }
+  }
+  if (!lines.length && !idle.size) return null;
   return (
     <div className="sc-staff">
       {lines.map((l) => {
         const short = l.have < l.need;
         return (
           <button key={`${l.family}-${l.role}`} className={`sc-staff-chip ${short ? 'short' : ''}`} onClick={() => store.openModal({ kind: 'hire', role: l.role, family: l.family })} data-tip={`${ROLE_LABEL[l.role]}: ${l.have} on the books, ${l.need} needed for the fleet`}>
-            <span className="tiny dim">{l.family}</span>
+            <span className="tiny dim">{familyLabel(l.family)}</span>
             <b>{l.role}</b>
             <span className={`num ${short ? 'warn' : ''}`}>{l.have}/{l.need}</span>
           </button>
         );
       })}
+      {[...idle].map(([f, x]) => (
+        <span key={f} className="sc-staff-chip idle" data-tip={`${x.p} pilots and ${x.c} cabin crew hold the ${familyLabel(f as RatingFamily)}; no aircraft of it in the fleet or on order`}>
+          <span className="tiny dim">{familyLabel(f as RatingFamily)}</span>
+          <b>No aircraft</b>
+          <span className="num tiny muted">{x.p ? `${x.p} pilot${x.p === 1 ? '' : 's'}` : ''}{x.p && x.c ? ' · ' : ''}{x.c ? `${x.c} cabin` : ''}</span>
+        </span>
+      ))}
     </div>
   );
 }
 
-function CrewRow({ c, w, on, t }: { c: CrewMember; w: CrewWindows; on: boolean; t: CrewTravelNow | null }) {
+function CrewRow({ g, c, w, on, t, selecting, checked, onTap }: { g: GameState; c: CrewMember; w: CrewWindows; on: boolean; t: CrewTravelNow | null; selecting: boolean; checked: boolean; onTap: () => void }) {
   // v0.5.2: travelling as a passenger beats the stored status ('Deadheading · DUB→LIS').
   const where = t ? `${t.kind === 'deadhead' ? 'Deadheading' : 'Positioning'} · ${t.phase === 'air' ? `${t.from}→${t.to}` : t.from}` : null;
+  // v0.6: a conversion class ('Conversion A330 · until 15 Jul', or booked) and the leave date of crew on notice.
+  const cls = classOf(g, c.id);
+  const training = c.status === 'training' ? crewStatusView(g, c.id).text.replace(/ · Leaves .*$/, '') : null;
+  const booked = cls && cls.status === 'planned' ? ` · Conversion ${familyLabel(cls.family)} from ${baseDay(g, cls.start)}` : '';
   return (
-    <button className={`sc-crew-row ${on ? 'on' : ''}`} onClick={() => store.select({ kind: 'crew', id: c.id })}>
+    <button className={`sc-crew-row ${on ? 'on' : ''} ${selecting ? 'selecting' : ''} ${checked ? 'checked' : ''}`} onClick={onTap} aria-pressed={selecting ? checked : undefined}>
+      {selecting && <span className={`rb-check ${checked ? 'on' : ''}`} aria-hidden>{checked && <Check />}</span>}
       <span className="col sc-crew-name">
-        <span className="row gap-8"><span className={`sc-role r-${c.role}`}>{c.role}</span><b className="ellipsis">{c.last}, {c.first}</b></span>
-        <span className="tiny muted row gap-4 ellipsis">{where ? <><Dot tone="info" />{where}</> : <><Dot tone={STATUS_TONE[c.status]} />{CREW_STATUS_LABEL[c.status]} · {c.loc}{c.loc !== c.base ? ` (base ${c.base})` : ''}</>}</span>
+        <span className="row gap-8"><span className={`rb-morale ${moraleTone(c.morale)}`} aria-label={`Morale ${Math.round(c.morale)}`} title={`Morale ${Math.round(c.morale)}`} /><span className={`sc-role r-${c.role}`}>{c.role}</span><b className="ellipsis">{c.last}, {c.first}</b></span>
+        <span className="tiny muted row gap-4 ellipsis">
+          {where ? <><Dot tone="info" />{where}</> : training ? <><Dot tone="warn" />{training}</> : <><Dot tone={STATUS_TONE[c.status]} />{CREW_STATUS_LABEL[c.status]} · {c.loc}{c.loc !== c.base ? ` (base ${c.base})` : ''}{booked}</>}
+          {c.notice && <span className="bad nowrap"> · Leaves {fmtDay(c.notice.leaves - 1)}</span>}
+        </span>
       </span>
       <span className="sc-crew-bars">
         <MiniBar label="Duty 28d" v={h(w.duty28d)} max={h(LIMITS.duty28d)} />
@@ -151,7 +184,7 @@ function Roster({ g, c }: { g: GameState; c: CrewMember }) {
         {Array.from({ length: 14 }, (_, i) => <span key={i}>{toDate(from + i * DAY).getUTCDate()}</span>)}
       </div>
       <div className="sc-roster-lane sc-cal-lane" ref={lane} onClick={tap} role="group" aria-label="Next 14 days: tap a block for details">
-        {layered.map((b) => {
+        {layered.map((b, i) => {
           const key = calKey(b);
           const l = pct(b.start);
           const w = pct(b.end) - l;
@@ -160,7 +193,7 @@ function Roster({ g, c }: { g: GameState; c: CrewMember }) {
           const label = b.kind === 'off' ? 'Off' : b.kind === 'rest' ? '' : b.kind === 'duty' ? (key === 'ferry' ? 'FERRY' : '') : b.label;
           const id = calId(b);
           return (
-            <span key={id} className={`sc-cal k-${key} l${calLayer(b)} ${b.legality && b.legality !== 'legal' ? b.legality : ''} ${sel && calId(sel) === id ? 'on' : ''}`} style={{ left: `${l.toFixed(3)}%`, width: `${w.toFixed(3)}%` }}>
+            <span key={`${id}-${i}`} className={`sc-cal k-${key} l${calLayer(b)} ${b.legality && b.legality !== 'legal' ? b.legality : ''} ${sel && calId(sel) === id ? 'on' : ''}`} style={{ left: `${l.toFixed(3)}%`, width: `${w.toFixed(3)}%` }}>
               {label && ppm > 0 && px >= 8 * label.length + 10 ? <span className="sc-cal-t">{label}</span> : null}
             </span>
           );
@@ -174,13 +207,13 @@ function Roster({ g, c }: { g: GameState; c: CrewMember }) {
       )}
       {sel ? <CalDetail g={g} c={c} b={sel} /> : <div className="small dim">Tap the strip for details.</div>}
       <div className="sc-duty-list">
-        {items.slice(0, 8).map((b) => {
+        {items.slice(0, 8).map((b, i) => {
           const key = calKey(b);
           const d = b.dutyId ? g.duties[b.dutyId] : undefined;
           const route = d ? dutyRoute(g, d.id) : b.flights?.length ? [b.flights[0].from, ...b.flights.map((f) => f.to)].join('–') : b.detail.split('\n')[0];
           const open = () => (d && !d.done ? store.openModal({ kind: 'duty', id: d.id }) : setSel(calId(b)));
           return (
-            <button key={calId(b)} className={`sc-duty-row small ${sel && calId(sel) === calId(b) ? 'on' : ''}`} onClick={open}>
+            <button key={`${calId(b)}-${i}`} className={`sc-duty-row small ${sel && calId(sel) === calId(b) ? 'on' : ''}`} onClick={open}>
               <span className={`sc-cal-sw k-${key}`} aria-hidden />
               <span className="dim nowrap">{rowTime(b)}</span>
               <span className="nowrap">{calLabel(b)}</span>
@@ -195,6 +228,77 @@ function Roster({ g, c }: { g: GameState; c: CrewMember }) {
         {!items.length && <div className="small muted">Nothing rostered in the next 14 days: only rest and days off.</div>}
       </div>
     </div>
+  );
+}
+
+const trendIcon = (v: number) => (v >= 2 ? <ArrowUpRight className="sc-ico-s good" /> : v <= -2 ? <ArrowDownRight className="sc-ico-s bad" /> : <ArrowRight className="sc-ico-s dim" />);
+const signed = (v: number) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(Math.round(v))}`;
+
+/** v0.6: morale bar with the 14-day trend arrow. */
+function MoraleBar({ g, c }: { g: GameState; c: CrewMember }) {
+  const m = moraleOf(g, c.id);
+  return (
+    <div className="sc-limit">
+      <div className="row between small">
+        <span className="muted">Morale</span>
+        <span className="num row gap-4">{m.value}<span className="dim"> / 100</span>{trendIcon(m.trend14d)}</span>
+      </div>
+      <div className={`bar thin ${moraleTone(m.value)}`}><span style={{ width: `${Math.min(100, m.value)}%` }} /></div>
+    </div>
+  );
+}
+
+/** v0.6: the top 3 morale drivers and the risks they bring. */
+function MoraleWhy({ g, c }: { g: GameState; c: CrewMember }) {
+  const m = moraleOf(g, c.id);
+  const why = m.drivers.filter((d) => Math.round(d.value) !== 0);
+  const resign = Math.round(m.resignPerMonth * 1000) / 10;
+  return (
+    <div className="col gap-4 sc-morale-why">
+      <div className="small muted">{why.length ? <>Why: {why.map((d) => `${d.label} ${signed(d.value)}`).join(' · ')}</> : `Steady near the company target of ${m.target}.`}</div>
+      <div className="row gap-8 wrap">
+        {m.sickMult > 1.05 && <span className={`chip sc-chip ${m.sickMult >= 1.3 ? 'bad' : 'warn'}`}>Sick risk ×{m.sickMult.toFixed(1)}</span>}
+        {!c.notice && resign > 0 && <span className={`chip sc-chip ${resign >= 1.6 ? 'bad' : resign > 0.8 ? 'warn' : ''}`} data-tip="Chance a month that they hand in their notice">Resign risk {resign}%/mo</span>}
+        {c.bondUntil !== undefined && c.bondUntil > g.now && <span className="chip sc-chip" data-tip="Company-paid type rating: resignation is much less likely until then">Bonded to {fmtDate(c.bondUntil)}</span>}
+      </div>
+    </div>
+  );
+}
+
+/** v0.6 header chip: company morale and trend; tap for pilots / cabin, low and leaving counts, the top drivers. */
+function MoraleChip({ g }: { g: GameState }) {
+  const [open, setOpen] = useState(false);
+  const nav = store.nav;
+  useEffect(() => setOpen(false), [nav]);
+  const day = Math.floor(g.now / DAY);
+  const n = Object.keys(g.crew).length;
+  const s = useMemo(() => moraleSummary(g), [g, day, n, crewRev(g)]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!n) return null;
+  return (
+    <span className="sc-pop-wrap">
+      <button className={`btn sc-morale-chip ${moraleTone(s.avg)}`} onClick={() => setOpen(!open)} aria-expanded={open}>
+        <span className={`rb-morale ${moraleTone(s.avg)}`} aria-hidden />Morale <b className="num">{s.avg}</b>
+        {Math.abs(s.trend) >= 1 && <span className={`num small ${s.trend > 0 ? 'good' : 'bad'}`}>{s.trend > 0 ? '▲' : '▼'}{Math.abs(s.trend)}</span>}
+      </button>
+      {open && (
+        <>
+          <button className="sc-pop-shade" aria-label="Close" onClick={() => setOpen(false)} />
+          <div className="sc-pop card">
+            <div className="row between"><b>Crew morale {s.avg}</b><span className="small muted">target {s.target}</span></div>
+            <KV rows={[
+              ['Pilots', String(s.pilots)],
+              ['Cabin crew', String(s.cabin)],
+              ['14-day trend', signed(s.trend) || '0'],
+              ['Below 40', String(s.low)],
+              ['On notice', String(s.leaving)],
+            ]} />
+            {s.drivers.length > 0 && <div className="small muted">Main drivers: {s.drivers.map((d) => `${d.label} ${signed(d.value)}`).join(' · ')}</div>}
+            <div className="tiny dim">Low morale brings sick calls, weaker service and resignations. Per diem, hotels and tour length are in Company → Policies.</div>
+            <button className="btn btn-sm" onClick={() => { setOpen(false); store.navigate('company'); }}>Company policies</button>
+          </div>
+        </>
+      )}
+    </span>
   );
 }
 
@@ -215,10 +319,16 @@ function Detail({ g, c }: { g: GameState; c: CrewMember }) {
           <span className="sc-flag" aria-hidden>{flag(c.nationality)}</span>
           <div className="grow" style={{ minWidth: 0 }}>
             <h3 className="ellipsis">{crewName(c)}</h3>
-            <div className="small muted">{ROLE_LABEL[c.role]} · {c.ratings.join(', ') || 'no rating'} · base {c.base}</div>
+            <div className="small muted">{ROLE_LABEL[c.role]} · {c.ratings.map(familyLabel).join(', ') || 'no rating'} · base {c.base}</div>
           </div>
           <span className={`badge ${sv.tone === 'bad' ? 'bad' : sv.tone === 'warn' ? 'warn' : sv.tone === 'good' ? 'good' : ''}`}>{sv.label}</span>
         </div>
+        {c.notice && (
+          <div className="sc-notice">
+            <span className="grow small"><b>Resigned</b> · last day {fmtDate(c.notice.leaves - 1)}</span>
+            <button className="btn btn-sm" onClick={() => store.openModal({ kind: 'hire', role: c.role, family: c.ratings[0], base: c.base })}><UserPlus /> Hire replacement</button>
+          </div>
+        )}
         {sv.text && <div className={`small sc-crew-status ${sv.tone === 'info' ? 'accent' : sv.tone}`}>{sv.text}</div>}
         <KV rows={[
           ['Now at', sv.nowAt || c.loc],
@@ -230,9 +340,10 @@ function Detail({ g, c }: { g: GameState; c: CrewMember }) {
           ['Days off so far this month', joining ? '—' : String(off)],
         ]} />
         <div className="grid-2 sc-moods">
-          <LimitBar label="Morale" value={c.morale} limit={100} unit="" tone={c.morale >= 60 ? 'good' : c.morale >= 40 ? 'warn' : 'bad'} />
+          <MoraleBar g={g} c={c} />
           <LimitBar label="Fatigue" value={c.fatigue} limit={100} unit="" tone={limitTone(c.fatigue / 100)} />
         </div>
+        <MoraleWhy g={g} c={c} />
         <div className="upper dim">Flight time limits{joining ? ` · from ${fmtDate(sv.startDate)}` : ''}</div>
         <div className="grid-2 sc-limits">
           {bar('Duty 7 days', w.duty7d, LIMITS.duty7d)}
@@ -252,35 +363,97 @@ function Detail({ g, c }: { g: GameState; c: CrewMember }) {
   );
 }
 
+const VIEW_KEY = 'bh.crewView';
+type CrewView = 'people' | 'board';
+function storedView(): CrewView {
+  try {
+    return localStorage.getItem(VIEW_KEY) === 'board' ? 'board' : 'people';
+  } catch {
+    return 'people';
+  }
+}
+
+/** v0.6: bottom bar of Select mode ('12 selected · Convert… · Clear'). */
+function SelectBar({ g, ids, onClear, onDone }: { g: GameState; ids: string[]; onClear: () => void; onDone: () => void }) {
+  const pilots = ids.filter((id) => isPilotRole(g.crew[id].role)).length;
+  return (
+    <div className="sc-selbar card">
+      <b className="nowrap">{ids.length} selected</b>
+      <span className="small muted ellipsis">{ids.length ? `${pilots} pilot${pilots === 1 ? '' : 's'} · ${ids.length - pilots} cabin crew` : 'Tap people or a group to select them'}</span>
+      <span className="grow" />
+      <button className="btn" onClick={onClear} disabled={!ids.length}>Clear</button>
+      <button className="btn btn-primary" onClick={() => store.openModal({ kind: 'convert', crewIds: ids, onBooked: onDone })} disabled={!ids.length}><GraduationCap /> Convert…</button>
+      <button className="btn btn-ghost btn-icon" onClick={onDone} aria-label="Done selecting"><X /></button>
+    </div>
+  );
+}
+
 export function CrewScreen() {
   useRenderCount('crew');
   const g = useGame();
   const [f, setF] = useState<CrewFilter>(NO_FILTER);
   const [more, setMore] = useState(false);
+  const [selecting, setSelecting] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(() => new Set());
   const rev = flightsRev(g);
   const hour = Math.floor(g.now / HOUR);
   const all = Object.values(g.crew);
+  const view: CrewView = store.nav.view === 'board' || store.nav.view === 'people' ? store.nav.view : storedView();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const list = useMemo(() => filterCrew(all, f), [g, f, hour, all.length]);
   const shown = more ? list : list.slice(0, PAGE);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const wins = useMemo(() => new Map(shown.map((c) => [c.id, crewWindows(g, c, g.now)])), [g, shown, rev, hour]);
-  const selId = store.nav.sel?.kind === 'crew' ? store.nav.sel.id : list[0]?.id;
+  // Resigned crew leave the save on their last day: a stale selection falls back to the first in the list.
+  const selId = store.nav.sel?.kind === 'crew' && g.crew[store.nav.sel.id] ? store.nav.sel.id : list[0]?.id;
   const sel = selId ? g.crew[selId] : undefined;
   const families = [...new Set(all.flatMap((c) => c.ratings))];
+  const classes = conversionClasses(g);
+  const running = classes.filter((k) => k.status === 'running').length;
+  const selected = [...picked].filter((id) => g.crew[id]);
   const set = (p: Partial<CrewFilter>) => {
     setF({ ...f, ...p });
     setMore(false);
   };
+  const setView = (v: CrewView) => {
+    try {
+      localStorage.setItem(VIEW_KEY, v);
+    } catch {
+      // storage unavailable
+    }
+    store.navigate('crew', { view: v, sel: store.nav.sel });
+  };
+  const onSelect = (ids: string[], on: boolean) => {
+    const next = new Set(picked);
+    for (const id of ids) {
+      if (on) next.add(id);
+      else next.delete(id);
+    }
+    setPicked(next);
+  };
+  const tap = (id: string) => (selecting ? onSelect([id], !picked.has(id)) : store.select({ kind: 'crew', id }));
+  const allShown = list.length > 0 && list.every((c) => picked.has(c.id));
 
   return (
-    <div className="screen sc-crew">
+    <div className={`screen sc-crew ${view === 'board' ? 'sc-crew-board' : ''}`}>
       <ScreenHead title="Crew" sub={`${all.length} people · ${all.filter((c) => c.status === 'onDuty').length} on duty now`}>
+        <Seg<CrewView> value={view} onChange={setView} options={[{ value: 'people', label: <><List className="sc-ico-s" /> People</> }, { value: 'board', label: <><LayoutGrid className="sc-ico-s" /> Roster board</> }]} />
+        <MoraleChip g={g} />
+        {classes.length > 0 && (
+          <button className="btn" onClick={() => store.openModal({ kind: 'classes' })}>
+            <GraduationCap /> {running ? `${running} class${running === 1 ? '' : 'es'} running` : `${classes.length} class${classes.length === 1 ? '' : 'es'} booked`}
+          </button>
+        )}
+        {all.length > 0 && (
+          <button className={`btn ${selecting ? 'btn-on' : ''}`} onClick={() => setSelecting(!selecting)} aria-pressed={selecting}><CheckSquare /> Select</button>
+        )}
         <button className="btn btn-primary" onClick={() => store.openModal({ kind: 'hire' })}><UserPlus /> Hire</button>
       </ScreenHead>
-      <Staffing g={g} />
+      {view === 'people' && <Staffing g={g} />}
       {!all.length ? (
         <Empty icon={<Users />} title="No crew yet">Hire pilots and cabin crew to fly your aircraft.</Empty>
+      ) : view === 'board' ? (
+        <RosterBoard g={g} selecting={selecting} selected={picked} onSelect={onSelect} />
       ) : (
         <div className="sc-crew-cols">
           <div className="col gap-8" style={{ minWidth: 0 }}>
@@ -301,9 +474,12 @@ export function CrewScreen() {
                 <Search />
                 <input className="input" value={f.q} placeholder="Name, place" onChange={(e) => set({ q: e.target.value })} />
               </label>
+              {selecting && list.length > 0 && (
+                <button className="btn" onClick={() => onSelect(list.map((c) => c.id), !allShown)}>{allShown ? 'Clear these' : `Select these ${list.length}`}</button>
+              )}
             </div>
             <div className="card sc-crew-list">
-              {shown.map((c) => <CrewRow key={c.id} c={c} w={wins.get(c.id) ?? crewWindows(g, c, g.now)} on={c.id === selId} t={crewTravelNow(g, c)} />)}
+              {shown.map((c) => <CrewRow key={c.id} g={g} c={c} w={wins.get(c.id) ?? crewWindows(g, c, g.now)} on={!selecting && c.id === selId} t={crewTravelNow(g, c)} selecting={selecting} checked={picked.has(c.id)} onTap={() => tap(c.id)} />)}
               {!list.length && <div className="muted small sc-pad">Nobody matches these filters.</div>}
               {list.length > shown.length && <button className="btn btn-ghost sc-more" onClick={() => setMore(true)}>Show all {list.length}</button>}
             </div>
@@ -311,6 +487,7 @@ export function CrewScreen() {
           {sel ? <Detail g={g} c={sel} /> : <div />}
         </div>
       )}
+      {selecting && <SelectBar g={g} ids={selected} onClear={() => setPicked(new Set())} onDone={() => { setSelecting(false); setPicked(new Set()); }} />}
     </div>
   );
 }

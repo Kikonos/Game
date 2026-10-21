@@ -10,6 +10,7 @@ import { acceptOffer, declineOffer, feasibilityAll, generateOffer } from '../eng
 import { DAY } from '../engine/core/time';
 import { pushDecision } from '../engine/core/messages';
 import { demoFlights, devFleet } from '../engine/dev';
+import { resignNow } from '../engine/crew';
 import { createGame, type NewGameOptions } from '../engine/newGame';
 import { AUTOSAVE_SLOT, saveToSlot, serialize } from '../engine/save';
 import { advanceTo, settle } from '../engine/sim';
@@ -74,7 +75,10 @@ export type ModalSpec =
   /** Hand legs of a contract to a rival operator. */
   | { kind: 'subcharter'; contractId: string; flightId?: string }
   /** v0.5.1 livery editor: the company livery or one aircraft's (Company · All white · Custom). */
-  | { kind: 'livery'; target: 'company' | { aircraftId: string } };
+  | { kind: 'livery'; target: 'company' | { aircraftId: string } }
+  /** v0.6: bulk type-rating conversion for the selected crew; the classes list (cancel per class / member). */
+  | { kind: 'convert'; crewIds: string[]; family?: RatingFamily; onBooked?: () => void }
+  | { kind: 'classes' };
 
 export interface Toast {
   id: number;
@@ -120,6 +124,8 @@ class GameStore {
   pauseReason: PauseReason | null = null;
   nav: Nav = { tab: 'map' };
   modal: ModalSpec | null = null;
+  /** v0.6: a roster-board drag in progress holds the clock like a modal (no render; the speed control stays as set). */
+  holdTime = false;
   toasts: Toast[] = [];
   settings: Settings = loadSettings();
   version = 0;
@@ -336,7 +342,7 @@ class GameStore {
   /** Advances game time by dt real ms: events up to floor(exact), React refresh at most once per game hour. */
   private frame(dt: number) {
     const g = this.game;
-    if (!g || this.paused || this.blocked || this.modal) return;
+    if (!g || this.paused || this.blocked || this.modal || this.holdTime) return;
     this.exact += dt * minutesPerMs(this.speed);
     const target = Math.floor(this.exact);
     if (target > g.now) {
@@ -393,7 +399,14 @@ class GameStore {
     if (!g) return { ok: false, error: 'No game loaded' };
     clearPause();
     this.edits++;
-    const res = fn(g);
+    let res: ActionResult<T>;
+    try {
+      res = fn(g);
+    } catch (e) {
+      // An engine throw must not take the UI down; report it as a refused action.
+      console.warn('[act]', e);
+      res = { ok: false, error: 'Something went wrong with that action.' };
+    }
     // Cross-module follow-ups (e.g. crew re-sync) and pauses the action raised (e.g. crewShortage on accept).
     settle(g);
     const pause = takePause(this.honoured());
@@ -544,6 +557,26 @@ class GameStore {
       this.emit();
       this.emitClock();
       return n;
+    },
+    /** v0.6: everyone's morale set to n (0–100). */
+    morale: (n = 30) => {
+      const g = this.game;
+      if (!g) return 0;
+      const crew = Object.values(g.crew);
+      for (const c of crew) c.morale = Math.max(0, Math.min(100, n));
+      this.emit();
+      return crew.length;
+    },
+    /** v0.6: a crew member (default: the first not on notice) resigns now, with notice. */
+    resign: (crewId?: string) => {
+      const g = this.game;
+      if (!g) return null;
+      const id = crewId ?? Object.values(g.crew).find((c) => !c.notice && c.status !== 'joining')?.id;
+      const ok = !!id && resignNow(g, id);
+      settle(g);
+      this.lastMsgId = g.messages[0]?.id ?? this.lastMsgId;
+      this.emit();
+      return ok ? id : null;
     },
     /** B5: React renders per screen (dev builds only), to check the calm-UI budget (≤ ~2/s at 4×). */
     renders: {} as Record<string, number>,

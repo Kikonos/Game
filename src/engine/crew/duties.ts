@@ -4,11 +4,12 @@
 
 import { BAL } from '../core/balance';
 import { flightsOf, nextId } from '../core/entities';
-import { complement, isPilot, reportMinutes, typeOf } from '../core/perf';
+import { reportMinutes, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { DAY, dayStart, yearOf } from '../core/time';
-import type { Contract, CrewMember, Deployment, Duty, Flight, GameState, Legality, Minute, Pairing, Role } from '../core/types';
+import type { Contract, CrewMember, CrewSlot, Deployment, Duty, Flight, GameState, Legality, Minute, Pairing, Role } from '../core/types';
 import { evalSegs, isDisruptive, LIMITS, localMin, longestWorkBlock, maxFdp, minRest, offsetAt, referenceTime, tzDeltaH, worst, type Seg, type TimelineCtx } from './rules';
+import { crewExtraFor, seatsFor, type Seat } from './extraSeats';
 import { crewCount, crewIx, dutyBlock, dutyFlights, onBlocks, restClassOf, touchCrew } from './timeline';
 
 // ---------- duty measures ----------
@@ -32,15 +33,17 @@ function shape(typeId: string, fl: Flight[], keepReport?: Minute): Shape {
   return { report, release: lastOn + rm.post, fdp: lastOn - report, sectors: fl.length, longest, dep: fl[0].from, restAt: fl[fl.length - 1].to };
 }
 
+const AUG_ALL: (0 | 1 | 2)[] = [0, 1, 2];
+const AUG_NONE: (0 | 1 | 2)[] = [0];
+
 /** Smallest legal augmentation (0, then 1/2 when allowed and ≤ 3 sectors) and its max FDP. */
 function pickAugment(sh: Shape, reportLocal: number, acclimatised: boolean, restClass: 1 | 2 | 3 | null, canAug: boolean): { augment: 0 | 1 | 2; max: number; ok: boolean } {
-  const lim = (augment: 0 | 1 | 2) => maxFdp({ reportLocal, sectors: sh.sectors, acclimatised, augment, restClass, longestBlock: sh.longest });
-  const opts: (0 | 1 | 2)[] = canAug && restClass && sh.sectors <= 3 ? [0, 1, 2] : [0];
+  const opts = canAug && restClass && sh.sectors <= 3 ? AUG_ALL : AUG_NONE;
   for (const a of opts) {
-    const m = lim(a);
+    const m = maxFdp({ reportLocal, sectors: sh.sectors, acclimatised, augment: a, restClass, longestBlock: sh.longest });
     if (sh.fdp <= m) return { augment: a, max: m, ok: true };
   }
-  return { augment: 0, max: lim(0), ok: false };
+  return { augment: 0, max: maxFdp({ reportLocal, sectors: sh.sectors, acclimatised, augment: 0, restClass, longestBlock: sh.longest }), ok: false };
 }
 
 export const canAugment = (g: GameState, restClass: 1 | 2 | 3 | null) => !!restClass && g.company.approvals.includes('augmented');
@@ -144,8 +147,11 @@ export function splitUnderWay(g: GameState, p: Pairing, d: Duty): Duty | null {
 
 const ROLE_ORDER: Role[] = ['CPT', 'FO', 'CRP', 'CSD', 'SCC', 'CC'];
 
-/** Complement for a pairing: the largest augmentation of its duties (the whole set flies every duty). */
-export function pairingRoles(g: GameState, p: Pairing): Role[] {
+/**
+ * Complement for a pairing: the largest augmentation of its duties (the whole set flies every duty), the client's
+ * required extra cabin crew, then the optional seats above the legal minimum (v0.6 crew-extra settings).
+ */
+export function pairingSeats(g: GameState, p: Pairing): Seat[] {
   const ac = p.aircraftId ? g.fleet[p.aircraftId] : undefined;
   const typeId = ac?.typeId ?? 'a320ceo';
   let augment: 0 | 1 | 2 = 0;
@@ -163,14 +169,50 @@ export function pairingRoles(g: GameState, p: Pairing): Role[] {
     }
   }
   const c: Contract | undefined = p.contractId ? g.contracts[p.contractId] : undefined;
-  const extra = g.company.policies.extraCabin + (c?.requirements.extraCabin ?? 0);
-  const roles = complement(typeId, ac?.cabin.total ?? 180, { augment, extraCabin: extra, fdp }).filter((r) => !empty || isPilot(r));
-  return roles.sort((a, b) => ROLE_ORDER.indexOf(a) - ROLE_ORDER.indexOf(b));
+  const x = crewExtraFor(g, p.aircraftId, p.contractId);
+  const seats = seatsFor(typeId, ac?.cabin.total ?? 180, x, c?.requirements.extraCabin ?? 0, { augment, fdp, pilotsOnly: empty });
+  const rank = (s: Seat) => (s.above ? 10 : 0) + ROLE_ORDER.indexOf(s.role);
+  return seats.sort((a, b) => rank(a) - rank(b));
 }
+
+/** v0.6: the legal minimum complement of a pairing (no client or company extras): pilots and cabin crew. */
+export function legalMinimum(g: GameState, p: Pairing): { pilots: number; cabin: number } {
+  const ac = p.aircraftId ? g.fleet[p.aircraftId] : undefined;
+  let augment: 0 | 1 | 2 = 0;
+  let fdp = 0;
+  for (const id of p.dutyIds) {
+    const d = g.duties[id];
+    if (!d) continue;
+    if (d.augment > augment) augment = d.augment;
+    if (d.augment > 0) fdp = Math.max(fdp, d.fdp);
+  }
+  const seats = seatsFor(ac?.typeId ?? 'a320ceo', ac?.cabin.total ?? 180, { cabin: 0, pilot: 0 }, 0, { augment, fdp });
+  const pilots = seats.filter((s) => s.role === 'CPT' || s.role === 'FO' || s.role === 'CRP').length;
+  return { pilots, cabin: seats.length - pilots };
+}
+
+/** Crew on a pairing above its legal minimum, by group (client-requested, company and optional extras). */
+export function aboveMinimum(g: GameState, p: Pairing): { pilots: number; cabin: number } {
+  const min = legalMinimum(g, p);
+  let pilots = 0;
+  let cabin = 0;
+  for (const s of p.slots) {
+    if (!s.crewId || !g.crew[s.crewId]) continue;
+    if (s.role === 'CPT' || s.role === 'FO' || s.role === 'CRP') pilots++;
+    else cabin++;
+  }
+  return { pilots: Math.max(0, pilots - min.pilots), cabin: Math.max(0, cabin - min.cabin) };
+}
+
+/** Roles of the pairing's seats (required, then above the minimum). */
+export const pairingRoles = (g: GameState, p: Pairing): Role[] => pairingSeats(g, p).map((s) => s.role);
+
+const seatKey = (s: { role: Role; above?: boolean }) => (s.above ? `${s.role}+` : s.role);
 
 /**
  * Start/end, slots and duty measures of a pairing. Slots follow the complement: assigned crew keep a slot of
- * their role; surplus slots are dropped (their crew returned for the caller to unassign).
+ * their role (an above-minimum holder moves into an empty required seat of a role they can fill); surplus slots
+ * are dropped (their crew returned for the caller to unassign).
  */
 export function refreshPairing(g: GameState, p: Pairing): string[] {
   const duties = p.dutyIds.map((id) => g.duties[id]).filter((d): d is Duty => !!d);
@@ -181,26 +223,31 @@ export function refreshPairing(g: GameState, p: Pairing): string[] {
   for (const d of duties) if (!d.done) syncDuty(g, d, p);
   p.start = p.status === 'planned' ? duties[0].report : Math.min(p.start, duties[0].report);
   p.end = duties[duties.length - 1].release;
-  const roles = pairingRoles(g, p);
+  const seats = pairingSeats(g, p);
   const dropped: string[] = [];
   // Extra seats (manual, above the complement) ride along unchanged after the complement's slots.
   const extras = p.slots.filter((s) => s.extra);
   const core = extras.length ? p.slots.filter((s) => !s.extra) : p.slots;
-  if (roles.join() !== core.map((s) => s.role).join()) {
+  if (seats.map(seatKey).join() !== core.map(seatKey).join()) {
     const old = core;
     const used = new Set<number>();
-    p.slots = roles.map((role) => {
-      const i = old.findIndex((s, k) => !used.has(k) && s.role === role && s.crewId);
-      if (i >= 0) {
+    const next: CrewSlot[] = seats.map((seat) => (seat.above ? { role: seat.role, crewId: null, above: true } : { role: seat.role, crewId: null }));
+    // Same seat kind first, then the same role across kinds (a spare takes a required seat; a required holder an above one).
+    for (const loose of [false, true]) {
+      next.forEach((slot, j) => {
+        if (slot.crewId) return;
+        const i = old.findIndex((s, k) => !used.has(k) && s.crewId && s.role === slot.role && (loose || !!s.above === !!slot.above));
+        if (i < 0) return;
         used.add(i);
-        return old[i].locked ? { role, crewId: old[i].crewId, locked: true } : { role, crewId: old[i].crewId };
-      }
-      return { role, crewId: null };
-    });
+        slot.crewId = old[i].crewId;
+        if (old[i].locked) slot.locked = true;
+        next[j] = slot;
+      });
+    }
     old.forEach((s, k) => {
       if (!used.has(k) && s.crewId) dropped.push(s.crewId);
     });
-    p.slots.push(...extras);
+    p.slots = [...next, ...extras];
   }
   let lg: Legality = 'legal';
   for (const d of duties) lg = worst(lg, d.legality);

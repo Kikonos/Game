@@ -14,6 +14,8 @@ import { DutyModal } from '../modals/DutyModal';
 import { SubcharterModal } from '../modals/SubcharterModal';
 import { TrainModal } from '../modals/TrainModal';
 import { LiveryModal } from '../modals/LiveryModal';
+import { ClassesModal } from '../modals/ClassesModal';
+import { ConvertModal } from '../modals/ConvertModal';
 import { int, money } from '../format';
 import { offline, promptInstall } from '../offline';
 import { store, useStore } from '../store';
@@ -234,5 +236,7 @@ export function GlobalModals() {
     case 'duty': return s.game ? <DutyModal id={m.id} /> : null;
     case 'subcharter': return s.game ? <SubcharterModal contractId={m.contractId} flightId={m.flightId} /> : null;
     case 'livery': return s.game ? <LiveryModal target={m.target} /> : null;
+    case 'convert': return s.game ? <ConvertModal key={m.crewIds.join()} crewIds={m.crewIds} family={m.family} onBooked={m.onBooked} /> : null;
+    case 'classes': return s.game ? <ClassesModal /> : null;
   }
 }

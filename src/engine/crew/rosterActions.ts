@@ -43,6 +43,8 @@ export interface RosterSlotView {
   name: string | null;
   locked: boolean;
   extra: boolean;
+  /** v0.6: seat above the legal minimum (crew-extra settings): optional, amber when empty. */
+  above: boolean;
   /** This crew member's legality on the pairing (null when the seat is empty). */
   level: Legality | null;
 }
@@ -76,7 +78,7 @@ export function dutyCrew(g: GameState, dutyOrFlightId: string): DutyCrewView | n
       for (const i of plan.issues) if (i.code !== 'fdp') level = worst(level ?? 'legal', issueLevelFor(g, p, d, i));
       level ??= 'legal';
     }
-    return { index, role: s.role, crewId: s.crewId, name: c ? crewName(c) : null, locked: !!s.locked, extra: !!s.extra, level };
+    return { index, role: s.role, crewId: s.crewId, name: c ? crewName(c) : null, locked: !!s.locked, extra: !!s.extra, above: !!s.above, level };
   });
   return {
     dutyId: d.id, pairingId: p.id, aircraftId: p.aircraftId, contractId: p.contractId, kind: p.tour ? 'tour' : 'trip',
@@ -144,7 +146,7 @@ export function dutyCandidates(g: GameState, dutyOrFlightId: string, role: Role)
 export interface DutyLegalityWarning {
   level: Legality;
   text: string;
-  code: IssueCode | 'missing' | 'extra';
+  code: IssueCode | 'missing' | 'extra' | 'extraEmpty';
   crewId?: string;
 }
 
@@ -165,9 +167,18 @@ export function dutyLegality(g: GameState, dutyOrFlightId: string): DutyLegality
   if (d.legality !== 'legal') {
     warnings.push({ level: d.legality, code: 'fdp', text: `FDP ${hm(d.fdp)} ${d.legality === 'illegal' ? 'over' : 'close to'} the ${hm(max)} limit${d.discretion ? ' (with discretion)' : ''}` });
   }
-  const missing = p.slots.filter((s) => !s.crewId).map((s) => s.role);
+  const missing = p.slots.filter((s) => !s.crewId && !s.above).map((s) => s.role);
   if (missing.length) warnings.push({ level: 'illegal', code: 'missing', text: `No ${missing.join(', ')}` });
   let level: Legality = worst(d.legality, missing.length ? 'illegal' : 'legal');
+  // v0.6: optional seats above the legal minimum only warn when empty.
+  const spare = p.slots.filter((s) => !s.crewId && s.above);
+  if (spare.length && !d.done) {
+    const cab = spare.filter((s) => s.role !== 'CRP').length;
+    const pil = spare.length - cab;
+    const parts = [cab ? `${cab} extra cabin seat${cab > 1 ? 's' : ''}` : '', pil ? 'the spare pilot seat' : ''].filter(Boolean).join(' and ');
+    warnings.push({ level: 'tight', code: 'extraEmpty', text: `${parts[0].toUpperCase()}${parts.slice(1)} empty` });
+    level = worst(level, 'tight');
+  }
   if (!d.done) {
     for (const s of p.slots) {
       const c = s.crewId ? g.crew[s.crewId] : undefined;
@@ -231,7 +242,10 @@ export function assignCrew(g: GameState, dutyOrFlightId: string, crewId: string,
     slot = p.slots.findIndex((s) => s.crewId === opts.replace);
     if (slot < 0) return { ok: false, error: 'That crew member is not on this trip' };
     if (!canFill(p.slots[slot].role, c.role)) return { ok: false, error: `A ${c.role} can't fill a ${p.slots[slot].role} seat` };
-  } else slot = p.slots.findIndex((s) => !s.crewId && s.role === role);
+  } else {
+    slot = p.slots.findIndex((s) => !s.crewId && !s.above && s.role === role);
+    if (slot < 0) slot = p.slots.findIndex((s) => !s.crewId && s.role === role);
+  }
   const check = issuesText(g, c, p);
   if (check.level === 'illegal' && !opts.force) return { ok: false, error: `Illegal: ${check.text}` };
   if (slot < 0) {
@@ -257,14 +271,15 @@ export function unassignCrew(g: GameState, dutyOrFlightId: string, crewId: strin
   const s = p.slots.find((y) => y.crewId === crewId);
   if (!s) return { ok: false, error: 'Not on this trip' };
   if (inProgress(g, p)) return { ok: false, error: 'A duty of this trip is under way; change the crew after it releases' };
-  if (!s.extra && !opts.force) return { ok: false, error: `The ${s.role} seat is required; assign a replacement or force it empty` };
+  const optional = !!s.extra || !!s.above;
+  if (!optional && !opts.force) return { ok: false, error: `The ${s.role} seat is required; assign a replacement or force it empty` };
   const before = new Set(p.slots.map((y) => y.crewId).filter((id): id is string => !!id));
   const role = s.role;
   releaseCrew(g, p, crewId);
   // A required seat is refilled now (auto-roster policy), by anyone but the crew member just taken off: the next
   // daily pass may be too late to position someone for an early report.
   let by: CrewMember | undefined;
-  if (!s.extra && g.company.policies.autoRoster) {
+  if (!optional && g.company.policies.autoRoster) {
     fillAll(g, [p], emptyResult(), new Set([crewId]));
     const filled = p.slots.find((y) => y.role === role && y.crewId && !before.has(y.crewId));
     by = filled ? g.crew[filled.crewId!] : undefined;
@@ -273,7 +288,7 @@ export function unassignCrew(g: GameState, dutyOrFlightId: string, crewId: strin
   touchCrew(g);
   const c = g.crew[crewId];
   const who = c ? crewName(c) : 'Crew member';
-  if (s.extra) return { ok: true, msg: `${who} taken off` };
+  if (optional) return { ok: true, msg: `${who} taken off` };
   return { ok: true, msg: by ? `${who} taken off; ${crewName(by)} takes the ${role} seat` : `${who} taken off; the ${role} seat is open` };
 }
 

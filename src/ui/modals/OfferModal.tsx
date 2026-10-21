@@ -12,12 +12,14 @@ import { AircraftArt } from '../components/AircraftArt';
 import { flightsRev } from '../../engine/core/entities';
 import { typeOf } from '../../engine/core/perf';
 import { DAY, fmtDate, fmtDay, fmtDuration, fmtTime } from '../../engine/core/time';
-import type { ContractOffer, GameState } from '../../engine/core/types';
+import type { ContractOffer, CrewExtra, GameState } from '../../engine/core/types';
+import { BAL } from '../../engine/core/balance';
+import { offerExtra } from '../../engine/crew';
 import type { CounterView } from '../../engine/contracts';
 import { Modal, Stepper, Toggle } from '../components/ui';
 import { money } from '../format';
 import { ArchIcon, Chips, Dot, KV } from '../screens/common';
-import { archLabel, counterSteps, expiryLabel, reqChips, riskChips, ROLE_LABEL, routeSummary, offerDays, type Chip } from '../screens/screenLogic';
+import { archLabel, counterSteps, expiryLabel, pctLabel, reqChips, riskChips, ROLE_LABEL, routeSummary, offerDays, type Chip } from '../screens/screenLogic';
 import { store, useGame } from '../store';
 
 const LEVEL_TONE = { ok: 'good', warn: 'warn', no: 'bad' } as const;
@@ -139,6 +141,34 @@ function PaintTermsCard({ g, o, typeId, on, onToggle, fmtP }: { g: GameState; o:
   );
 }
 
+/** v0.6: extra crew for this contract (default: the aircraft's or the company's) and the client's paid option. */
+function ExtraCrewCard({ o, x, onChange, fmtP, asking }: { o: ContractOffer; x: CrewExtra; onChange: (x: CrewExtra) => void; fmtP: (v: number) => string; asking: number }) {
+  const req = o.requirements.extraCabin;
+  const paid = o.requirements.extraCabinPaid;
+  const on = !!paid && x.cabin >= paid.n;
+  return (
+    <div className={`sc-extra-card ${on ? 'paid' : ''}`}>
+      <div className="row between gap-8">
+        <span className="col"><b>Extra cabin crew</b><span className="tiny dim">{req ? `The client requires +${req}. ` : ''}Above the legal minimum: more salaries and per diems, better morale and service.</span></span>
+        <Stepper value={x.cabin} min={req} max={BAL.crewExtra.cabinMax} onChange={(v) => onChange({ cabin: v, pilot: x.pilot })} format={(v) => `+${v}`} />
+      </div>
+      <div className="row between gap-8">
+        <span className="col"><b className="small">Spare pilot</b><span className="tiny dim">Covers a sick call away from base; no extra duty time.</span></span>
+        <Toggle on={!!x.pilot} onChange={(v) => onChange({ cabin: x.cabin, pilot: v ? 1 : 0 })} label="Spare pilot" />
+      </div>
+      {paid && (
+        <div className="row between gap-8 sc-extra-paid">
+          <span className="col">
+            <b className="small">Fly +{paid.n} cabin crew · client pays +{pctLabel(paid.pct)} (+{o.product.kind === 'wet' ? `${fmtP(Math.round(asking * paid.pct))}` : money(asking * paid.pct)})</b>
+            <span className="tiny dim">{on ? `Accept at ${fmtP(asking * (1 + paid.pct))}. The contract keeps at least ${paid.n} extra cabin crew.` : `They pay ${pctLabel(paid.pct / paid.n)} more for each extra cabin crew member, from ${paid.n}.`}</span>
+          </span>
+          <Toggle on={on} onChange={(v) => onChange({ cabin: v ? Math.max(x.cabin, paid.n) : Math.max(req, Math.min(x.cabin, paid.n - 1)), pilot: x.pilot })} label="Client-paid extra cabin crew" />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function posLine(r: FeasibilityReport): string {
   const legs = r.positionIn;
   if (!legs.length) return 'On site, no positioning';
@@ -153,9 +183,12 @@ function crewLine(r: FeasibilityReport): { text: string; tone: 'good' | 'warn' |
   return { text: `Short ${list}${r.crew.firstShort ? ` from ${fmtDay(r.crew.firstShort)}` : ''}`, tone: 'warn' };
 }
 
-function AircraftRow({ g, r, on, onPick, billBH }: { g: GameState; r: FeasibilityReport; on: boolean; onPick: () => void; billBH: number }) {
+function AircraftRow({ g, r, on, onPick, billBH, lift = 1 }: { g: GameState; r: FeasibilityReport; on: boolean; onPick: () => void; billBH: number; lift?: number }) {
   const ac = g.fleet[r.aircraftId];
   if (!ac) return null;
+  // v0.6: the client-paid extra crew lifts the price (as on the Accept button); the extra crew's cost is already in estCost.
+  const revenue = r.estRevenue * lift;
+  const margin = r.estMargin + revenue - r.estRevenue;
   const crew = crewLine(r);
   // An aircraft that can't take the job leads with why (e.g. busy on another contract), not a positioning plan.
   const block = r.level === 'no' ? r.checks.find((c) => c.level === 'no') : undefined;
@@ -169,7 +202,7 @@ function AircraftRow({ g, r, on, onPick, billBH }: { g: GameState; r: Feasibilit
           <span className={`small ${crew.tone}`}>{crew.text}</span>
         </span>
         <span className="right">
-          <b className={`num ${block ? 'dim' : r.estMargin >= 0 ? 'good' : 'bad'}`}>{money(r.estMargin)}</b>
+          <b className={`num ${block ? 'dim' : margin >= 0 ? 'good' : 'bad'}`}>{money(margin)}</b>
           <span className="tiny dim">contribution</span>
         </span>
       </button>
@@ -182,7 +215,7 @@ function AircraftRow({ g, r, on, onPick, billBH }: { g: GameState; r: Feasibilit
             </div>
           ))}
           {r.techStops.length > 0 && <div className="small muted">Fuel stops: {r.techStops.join(', ')}</div>}
-          <div className="small muted">Revenue {money(r.estRevenue)} · costs {money(r.estCost)} · {Math.round(r.estBH)} BH flown{r.estBH - billBH > 0.5 ? ` (incl. ${Math.round(r.estBH - billBH)} BH positioning and empty legs)` : ''}</div>
+          <div className="small muted">Revenue {money(revenue)}{lift > 1 ? ` (incl. client-paid extra crew +${money(revenue - r.estRevenue)})` : ''} · costs {money(r.estCost)} · {Math.round(r.estBH)} BH flown{r.estBH - billBH > 0.5 ? ` (incl. ${Math.round(r.estBH - billBH)} BH positioning and empty legs)` : ''}</div>
           {Object.entries(r.crew.byRole).some(([, v]) => v && v.short > 0) && (
             <div className="small warn">Hire or move crew: {Object.entries(r.crew.byRole).filter(([, v]) => v && v.short > 0).map(([role, v]) => `${v!.short} × ${ROLE_LABEL[role as keyof typeof ROLE_LABEL].toLowerCase()}`).join(', ')}.</div>
           )}
@@ -217,8 +250,9 @@ export function OfferModal({ offerId }: { offerId: string }) {
   const o = g.offers[offerId];
   const rev = flightsRev(g);
   const [paintOn, setPaintOn] = useState(true);
+  const [extra, setExtra] = useState<CrewExtra | null>(null);
   const paint = !!o?.paint && paintOn;
-  const reports = useMemo(() => (o ? feasibilityAll(g, o.id, { paint }) : []), [g, o, rev, g.now, paint]); // eslint-disable-line react-hooks/exhaustive-deps
+  const reports = useMemo(() => (o ? feasibilityAll(g, o.id, { paint, crewExtra: extra ?? undefined }) : []), [g, o, rev, g.now, paint, extra]); // eslint-disable-line react-hooks/exhaustive-deps
   // Paint off on a required offer: only a counter is possible, so its 'paint' row does not block the pick.
   const blocked = (r: FeasibilityReport) => r.checks.some((c) => c.level === 'no' && !(c.id === 'paint' && !paint));
   const best = reports.find((r) => !blocked(r)) ?? reports[0];
@@ -235,12 +269,18 @@ export function OfferModal({ offerId }: { offerId: string }) {
   const steps = counterSteps(asking, o.product.kind === 'wet');
   const price = steps[step - 1] ?? asking;
   const fmtP = (v: number) => (o.product.kind === 'wet' ? `${usd(v)}/BH` : money(v, 2));
+  // v0.6: extra crew for this contract; the client's paid option raises the price when met (applied at signing).
+  const crewed = o.product.kind !== 'dry';
+  const x = extra ?? offerExtra(g, sel?.aircraftId ?? null, o.requirements);
+  const paid = o.requirements.extraCabinPaid;
+  const lift = crewed && paid && x.cabin >= paid.n ? 1 + paid.pct : 1;
+  const opts = { paint, crewExtra: crewed ? x : undefined };
   const canCounter = live && !countered && !o.counter && !!sel && !blocked(sel);
   const canAccept = live && !countered && !!sel && !blocked(sel) && !mustPaint;
 
   const accept = () => {
     if (!sel) return;
-    const res = store.act((gg) => acceptOffer(gg, o.id, [sel.aircraftId], { paint }));
+    const res = store.act((gg) => acceptOffer(gg, o.id, [sel.aircraftId], opts));
     if (res.ok) {
       store.closeModal();
       if (store.nav.tab === 'contracts' && res.data) store.navigate('contracts', { view: 'active', sel: { kind: 'contract', id: res.data.contractId } });
@@ -248,7 +288,7 @@ export function OfferModal({ offerId }: { offerId: string }) {
   };
   const counter = () => {
     if (!sel) return;
-    const res = store.act((gg) => counterOffer(gg, o.id, price, [sel.aircraftId], { paint }));
+    const res = store.act((gg) => counterOffer(gg, o.id, price, [sel.aircraftId], opts));
     if (res.ok) store.closeModal();
   };
   const decline = () => {
@@ -265,11 +305,11 @@ export function OfferModal({ offerId }: { offerId: string }) {
           <CounterStatus g={g} o={o} cv={cv} fmtP={fmtP} />
         ) : (
           <span className="row gap-8 sc-counter">
-            <Stepper value={step} min={1} max={8} onChange={setStep} format={(v) => <span className="num">{fmtP(steps[v - 1])} <span className="dim">+{(v * 2.5).toFixed(1)}%</span></span>} />
+            <Stepper value={step} min={1} max={8} onChange={setStep} format={(v) => <span className="num">{fmtP(steps[v - 1] * lift)} <span className="dim">+{(v * 2.5).toFixed(1)}%</span></span>} />
             <button className="btn" onClick={counter} disabled={!canCounter}>Counter</button>
           </span>
         )}
-        <button className="btn btn-primary" onClick={accept} disabled={!canAccept} title={mustPaint ? 'The client requires their livery: counter instead' : undefined}><Check /> Accept {fmtP(asking)}</button>
+        <button className="btn btn-primary" onClick={accept} disabled={!canAccept} title={mustPaint ? 'The client requires their livery: counter instead' : undefined}><Check /> Accept {fmtP(asking * lift)}</button>
       </div>
     }>
       <div className="sc-offer-cols">
@@ -291,6 +331,7 @@ export function OfferModal({ offerId }: { offerId: string }) {
           <p className="muted sc-blurb">{o.paint ? o.blurb.replace(paintTermsText(o.paint), '').trim() : o.blurb}</p>
           <Chips chips={[...reqChips(o.requirements), ...riskChips(o.risk), ...effectChips(o)]} />
           {o.paint && <PaintTermsCard g={g} o={o} typeId={artFor(sel ? g.fleet[sel.aircraftId]?.typeId ?? 'a320ceo' : 'a320ceo')} on={paintOn} onToggle={setPaintOn} fmtP={fmtP} />}
+          {crewed && <ExtraCrewCard o={o} x={x} onChange={setExtra} fmtP={fmtP} asking={asking} />}
           <div className="upper dim">Terms</div>
           <Terms g={g} o={o} />
           <div className="upper dim">Programme</div>
@@ -300,7 +341,7 @@ export function OfferModal({ offerId }: { offerId: string }) {
           <div className="upper dim">Choose an aircraft</div>
           {!reports.length && <div className="small muted">No aircraft in the fleet.</div>}
           {reports.map((r) => (
-            <AircraftRow key={r.aircraftId} g={g} r={r} on={sel?.aircraftId === r.aircraftId} onPick={() => setPick(r.aircraftId)} billBH={o.estBH} />
+            <AircraftRow key={r.aircraftId} g={g} r={r} on={sel?.aircraftId === r.aircraftId} onPick={() => setPick(r.aircraftId)} billBH={o.estBH} lift={lift} />
           ))}
         </div>
       </div>

@@ -91,6 +91,7 @@ function emptyState(o: NewGameOptions, seed: number, now: Minute): GameState {
     maintenance: {},
     hires: [],
     training: [],
+    classes: {},
     messages: [],
     decisions: [],
     finance: { current: newStatement(monthKey(now), BAL.startCash), history: [], receivables: [] },

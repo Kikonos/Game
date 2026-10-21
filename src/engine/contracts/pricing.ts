@@ -20,6 +20,8 @@ export interface PriceInput {
   // ---- B1 extras (optional) ----
   /** Archetype multiplier override (AOG cover rolls 1.3–2.0). */
   mult?: number;
+  /** v0.6: client relation price premium (relation × BAL.morale.service.relationPremium, ±5% at ±100). */
+  loyalty?: number;
   /** Charter pass-through: departures (all legs), revenue departures (catering), crew room-nights, crew person-days away. */
   departures?: number;
   revDepartures?: number;
@@ -74,7 +76,7 @@ export function priceProduct(g: GameState, p: PriceInput): Product {
   const R = t.rateBH;
   // Wet deals price the season at the middle of the term; charters at departure.
   const { m } = rateMultiplier(g, p.typeId, isWetArchetype(p.archetype) ? Math.round((p.start + p.end) / 2) : p.start, p.lead);
-  const mult = p.mult ?? ARCH_MULT[p.archetype] ?? 1;
+  const mult = (p.mult ?? ARCH_MULT[p.archetype] ?? 1) * (1 + (p.loyalty ?? 0));
   const wide = t.body === 'wide';
   if (isWetArchetype(p.archetype)) {
     return {

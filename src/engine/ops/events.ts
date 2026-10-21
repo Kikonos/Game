@@ -14,7 +14,7 @@ import { chance, int, pick, range } from '../core/rng';
 import { DAY, fmtDateTime, fmtDay, fmtDuration, fmtTime, localMinuteOfDay, monthKey, toDate } from '../core/time';
 import type { ActionResult, Aircraft, Contract, CrewMember, CrewStatus, Decision, DecisionOption, Flight, GameState, MaintenanceEvent, MessageCat, Minute, Receivable, Role, SimEvent } from '../core/types';
 import { generateOffer, planPositioning } from '../contracts';
-import { applyDiscretion, flightCrewStatus, minRest, replaceCrew, rerosterFrom, rosterOf } from '../crew';
+import { applyDiscretion, flightCrewStatus, minRest, moraleShock, replaceCrew, rerosterFrom, rosterOf } from '../crew';
 import { applyHold, cancelCost, cancelLegs, crewBlocked, delayChain, moveFlight, pickRival, planHold, planRecovery, rivalFactor, stationOf, subcharterCost, subcharterLegs, windowLegs } from './flights';
 import { setAogEnd } from './maintenance';
 import { ticketBlock } from './commercial';
@@ -238,7 +238,7 @@ function rolesNeeded(g: GameState, f: Flight, ac: Aircraft): Role[] {
   const cs = flightCrewStatus(g, f.id);
   if (cs.level === 'ok' || cs.level === 'tight') return [];
   if (cs.missing.length) return [...cs.missing];
-  return complement(ac.typeId, ac.cabin.total, { extraCabin: g.company.policies.extraCabin });
+  return complement(ac.typeId, ac.cabin.total, { extraCabin: f.contractId ? g.contracts[f.contractId]?.requirements.extraCabin ?? 0 : 0 });
 }
 
 /**
@@ -349,12 +349,12 @@ function fillSlots(g: GameState, f: Flight): number {
   const p = d ? g.pairings[d.pairingId] : undefined;
   let n = 0;
   p?.slots.forEach((s, i) => {
-    if (s.crewId) return;
+    if (s.crewId || s.above) return;
     const r = replaceCrew(g, p.id, i);
     const c = r.ok && r.data ? g.crew[r.data.crewId] : undefined;
     if (c) {
       n++;
-      c.morale = Math.max(0, c.morale - 4);
+      moraleShock(g, c, 'pay', -4);
     }
   });
   return n;
