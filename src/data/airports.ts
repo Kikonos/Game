@@ -573,9 +573,12 @@ const RUNWAY_B1: Record<string, number> = {
   NDB: 2420, ATR: 3000, TIN: 3000, GHA: 3100, INZ: 3000, DJG: 3000, KUF: 3600, ELF: 3000, PZU: 3150,
   GAQ: 2500, AJY: 3000, SSG: 2900, ROB: 3350, FNA: 3200, CKY: 3300, BJL: 3600, LFW: 3000,
 };
-// B3: maintenance stations, tech stops, delivery airports.
-const EXTRA_B3: Record<string, Row[]> = {};
-const RUNWAY_B3: Record<string, number> = {};
+// B3: maintenance stations, tech stops, delivery airports. v0.7 ENGINE: Luton (easyJet's home base; deadhead realism).
+const EXTRA_B3: Record<string, Row[]> = {
+  UKI: [['LTN', 'Luton', 'London', 'GB', 51.875, -0.368, 1.5, 3, 0.3, 0.5]],
+};
+// v0.7: Charleston (Boeing's 787 delivery centre) 3,048 m.
+const RUNWAY_B3: Record<string, number> = { LTN: 2160, CHS: 3048 };
 
 for (const extra of [EXTRA, EXTRA_B1, EXTRA_B3]) for (const [region, rows] of Object.entries(extra)) (DATA[region] ??= []).push(...rows);
 Object.assign(RUNWAY, RUNWAY_B1, RUNWAY_B3);

@@ -257,3 +257,118 @@ describe('realistic deadhead airlines', () => {
     }
   });
 });
+
+// v0.7 (UPDATE-0.7.md §C3): per-airline reach and closed networks; the 42-pair table.
+describe('deadhead carriers v0.7: the pair table', () => {
+  /** nonstop: carriers allowed on a nonstop itinerary (null: must connect); conn: a connection is allowed (true = anywhere,
+   *  else the hubs or the hub country); never: carriers no leg may use; first: carriers the leg from the origin may not use. */
+  interface Row { pair: string; nonstop: string[] | null; conn?: boolean | string[] | { country: string } | { continents: string[] }; never?: string[]; neverFirst?: string[]; neverLast?: string[]; noVia?: string[] }
+  const EU_HUB = { continents: ['EU'] };
+  const ROWS: Row[] = [
+    { pair: 'DXB-LIS', nonstop: ['EK'], never: ['TP'] },
+    { pair: 'LIS-DXB', nonstop: ['EK'], never: ['TP'] },
+    { pair: 'DOH-LIS', nonstop: ['QR'], never: ['TP'] },
+    { pair: 'AUH-LIS', nonstop: ['EY'], conn: true, never: ['TP'] },
+    { pair: 'LIS-SOF', nonstop: ['FR', 'W6'], conn: EU_HUB, never: ['FB'] },
+    { pair: 'SOF-LIS', nonstop: ['FR', 'W6'], conn: EU_HUB, never: ['FB'] },
+    { pair: 'HAM-BOJ', nonstop: ['EW'], conn: ['MUC', 'FRA', 'VIE'], never: ['FB'], noVia: ['SOF'] },
+    { pair: 'LGW-GVA', nonstop: ['U2', 'BA'], never: ['LX'] },
+    { pair: 'LHR-GVA', nonstop: ['BA', 'LX'], never: ['U2', 'FR'] },
+    { pair: 'LTN-GVA', nonstop: ['U2'], never: ['LX', 'BA'] },
+    { pair: 'MAN-GVA', nonstop: ['U2'], never: ['LX'] },
+    { pair: 'STN-DUB', nonstop: ['FR'], never: ['EI'] },
+    { pair: 'LIS-OPO', nonstop: ['TP', 'FR'] },
+    { pair: 'LIS-FRA', nonstop: ['TP', 'LH'] },
+    { pair: 'LIS-MAD', nonstop: ['TP', 'IB', 'UX'] },
+    { pair: 'LIS-LAD', nonstop: ['TP', 'DT'] },
+    { pair: 'LIS-GRU', nonstop: ['TP', 'LA'] },
+    { pair: 'LIS-JFK', nonstop: ['TP', 'DL', 'UA', 'AA'] },
+    { pair: 'LIS-KBL', nonstop: null, conn: ['IST', 'DXB', 'DOH'] },
+    { pair: 'LIS-SIN', nonstop: null, conn: ['IST', 'DXB', 'DOH'], neverLast: ['TP'] },
+    { pair: 'VNO-RIX', nonstop: ['BT'] },
+    { pair: 'RIX-LIS', nonstop: ['BT', 'FR'], conn: true },
+    { pair: 'BUD-OTP', nonstop: ['W6'] },
+    { pair: 'BCN-PMI', nonstop: ['VY', 'FR', 'UX'] },
+    { pair: 'ORY-AGP', nonstop: ['HV', 'VY'] },
+    // Corrected (v0.7): easyJet flies Amsterdam–Lisbon from its Amsterdam base all year, alongside KLM, TAP and Transavia.
+    { pair: 'AMS-LIS', nonstop: ['KL', 'TP', 'HV', 'U2'] },
+    { pair: 'LIS-CMN', nonstop: ['AT', 'TP'], never: ['FR'] },
+    { pair: 'LIS-SID', nonstop: ['TP', 'VR'] },
+    { pair: 'IST-LIS', nonstop: ['TK', 'TP'] },
+    { pair: 'TLV-LIS', nonstop: ['TP', 'LY'] },
+    { pair: 'DXB-HAM', nonstop: ['EK'], never: ['LH'] },
+    { pair: 'DXB-SOF', nonstop: ['FZ'], never: ['FB', 'TP'] },
+    { pair: 'MAD-DXB', nonstop: ['EK'], never: ['IB'] },
+    { pair: 'CDG-DXB', nonstop: ['EK', 'AF'] },
+    { pair: 'SNN-LHR', nonstop: ['EI'] },
+    { pair: 'TLS-LIS', nonstop: ['TP', 'U2'] },
+    { pair: 'HAM-LIS', nonstop: ['TP', 'EW'] },
+    { pair: 'LIS-SCL', nonstop: null, conn: ['GRU', 'MAD'] },
+    { pair: 'LIS-CHS', nonstop: null, conn: { continents: ['EU', 'NA'] } },
+    { pair: 'LDE-LIS', nonstop: null, conn: { country: 'FR' }, never: ['U2'] },
+    { pair: 'LIS-BOJ', nonstop: null, conn: true, neverFirst: ['FB'] },
+    { pair: 'FRA-SOF', nonstop: ['LH', 'FB'] },
+  ];
+  const BANKS = [1, 4, 7, 10, 13, 16, 19, 22];
+
+  it('has the 42 rows', () => expect(ROWS).toHaveLength(42));
+
+  for (const r of ROWS) {
+    it(r.pair, () => {
+      const [a, b] = r.pair.split('-');
+      expect(AIRPORT_BY_CODE[a], a).toBeTruthy();
+      expect(AIRPORT_BY_CODE[b], b).toBeTruthy();
+      const seen = new Set<string>();
+      for (let d = 0; d < 30; d++) {
+        for (const h of BANKS) {
+          const t = T0 + d * 1440 + h * 60;
+          const legs = itinerary(a, b, t, t + ticketBlock(a, b));
+          const tag = `${r.pair} d${d} ${legs.map((l) => `${l.no} ${l.from}-${l.to}`).join(' · ')}`;
+          for (const l of legs) {
+            seen.add(l.iata);
+            expect(r.never ?? [], tag).not.toContain(l.iata);
+          }
+          expect(r.neverFirst ?? [], tag).not.toContain(legs[0].iata);
+          if (legs.length > 1) expect(r.neverLast ?? [], tag).not.toContain(legs[legs.length - 1].iata);
+          if (legs.length === 1) {
+            expect(r.nonstop, tag).not.toBeNull();
+            expect(r.nonstop, tag).toContain(legs[0].iata);
+          } else {
+            expect(legs, tag).toHaveLength(2);
+            expect(r.conn, tag).toBeTruthy();
+            const hub = legs[0].to;
+            expect(r.noVia ?? [], tag).not.toContain(hub);
+            const c = r.conn!;
+            if (Array.isArray(c)) expect(c, tag).toContain(hub);
+            else if (typeof c === 'object' && 'country' in c) expect(AIRPORT_BY_CODE[hub].country, tag).toBe(c.country);
+            else if (typeof c === 'object' && 'continents' in c) expect(c.continents, tag).toContain(AIRPORT_BY_CODE[hub].continent);
+          }
+        }
+      }
+      if (r.nonstop && !r.conn) expect(r.nonstop.some((x) => seen.has(x)), `${r.pair}: ${[...seen]}`).toBe(true);
+    });
+  }
+
+  it('regional carriers with a closed network never appear outside it', () => {
+    const closed = CARRIERS.filter((c) => c.dests);
+    expect(closed.length).toBeGreaterThanOrEqual(12);
+    const codes = AIRPORTS.filter((x) => x.size >= 2).map((x) => x.code);
+    for (const c of closed) {
+      const net = new Set([...c.hubs, ...c.dests!]);
+      for (let i = 0; i < codes.length; i += 3) {
+        for (const h of c.hubs) {
+          const x = codes[i];
+          if (x === h) continue;
+          for (const [p, q] of [[h, x], [x, h]]) {
+            const t = T0 + (i % 30) * 1440 + 9 * 60;
+            for (const l of itinerary(p, q, t, t + ticketBlock(p, q))) {
+              if (l.iata !== c.iata) continue;
+              const ok = (net.has(l.from) && net.has(l.to) && (c.hubs.includes(l.from) || c.hubs.includes(l.to))) || !!c.routes?.includes(`${l.from}-${l.to}`) || !!c.routes?.includes(`${l.to}-${l.from}`);
+              expect(ok, `${c.iata} ${l.from}-${l.to}`).toBe(true);
+            }
+          }
+        }
+      }
+    }
+  });
+});

@@ -217,4 +217,29 @@ export const BAL = {
     /** The client pays this per extra cabin crew member per block hour (RESEARCH §4.3), as a rate / price uplift. */
     paidPerBH: 75, longBlockMin: 360,
   },
+
+  // ---------- fleet & ladder v0.7 (ENGINE; UPDATE-0.7.md §6) ----------
+  /** Aircraft market (supersedes marketPerMonth / marketOfferDays / wideMarketWeight, kept so older code compiles). */
+  market7: {
+    perMonth: 1.0, maxOpen: 4, offerDays: [7, 21] as [number, number], teaserWeight: 0.3, newBuildChance: 0.1,
+    newBuildLead: [180, 420] as [number, number], newBuildMonths: [96, 144] as [number, number], newBuildRent: [1.0, 1.1] as [number, number],
+    newBuildDepositMonths: 3, lessorSiteShare: 0.5, wideAfterFilingDays: 45,
+  },
+  /** Delivery ferry: acceptance hours after handover, ferry-day limits (block min, sectors), fuel-stop turn, night stop, parking/day [NB, WB], no-pilot warning (h). */
+  delivery: { acceptH: 36, dayBlockMax: 600, daySectorsMax: 3, fuelStopTurn: 60, nightStop: 14 * 60, parkPerDay: [400, 900] as [number, number], warnH: 48 },
+  /** Lease end: notice and decision days, return check days and cost [NB, WB], half-life share, repaint factor, extension rent factors. */
+  leaseReturn: {
+    noticeDays: 120, decisionDays: 14, checkDays: [7, 14] as [number, number], checkCost: [180_000, 450_000] as [number, number],
+    halfLifeShare: 0.5, repaintFactor: 0.9, extend: { 12: 0.97, 36: 0.92 } as Record<number, number>,
+  },
+  /** Cabin refits: hangar slot lead (days); [days, cost] by target layout (narrow / wide). */
+  refit: {
+    leadDays: 7,
+    nb: { 'all-economy': [5, 120_000], 'two-class': [7, 250_000], vip: [21, 1_200_000] } as Record<string, [number, number]>,
+    wb: { 'all-economy': [14, 600_000], 'two-class': [21, 1_600_000], 'three-class': [28, 2_200_000], vip: [35, 3_000_000] } as Record<string, [number, number]>,
+  },
+  /** Ladder: days an authority finding adds, max findings, AOGs allowed per aircraft on a clean record, incident memory. */
+  ladder: { findingDays: 30, maxFindings: 2, aogPerAircraft: 0.5, incidentKeepDays: 365 },
+  /** C4 quiet-week floor: days since the last gap-fit offer, idle-window days, open-offer cap. */
+  quietFloor: { days: 5, idleDays: 2, maxOpen: 5 },
 } as const;

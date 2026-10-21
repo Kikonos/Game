@@ -1,5 +1,6 @@
 // Feasibility and aircraft selection (B1). DESIGN.md §5.1.5. Pure: no RNG, no ids, no writes.
 
+import type { CabinLayout } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { BAL } from '../core/balance';
 import { flightsOf } from '../core/entities';
@@ -9,6 +10,7 @@ import { DAY, fmtDate, fmtDateTime, fmtDay, fmtDuration, toDate } from '../core/
 import type { Aircraft, ApprovalId, ContractOffer, CrewExtra, GameState, Minute } from '../core/types';
 import { crewAvailability, offerExtra, type Availability } from '../crew';
 import { A_CHECK_DAYS, anchorsOf, chainForward, CHARTER_SLACK, DEPLOY_LEAD, gapMoves, programmeOf, type Anchor, type ChainLeg, type Programme, type Trip } from './plan';
+import { APPROVALS, gateApprovals } from '../ops/company';
 import { paintQuote, paintWindow, type PaintSlot } from './paintTerms';
 import { productValue, tripTickets } from './pricing';
 
@@ -20,6 +22,8 @@ export interface FeasibilityCheck {
   level: CheckLevel;
   label: string;
   detail?: string;
+  /** v0.7: a fix the offer screen can start ("Plan refit…"). */
+  action?: { kind: 'refit'; layout: CabinLayout };
 }
 
 /** One empty leg of a positioning plan (built with planSector; a fuel stop makes two legs, each an FTL sector). */
@@ -54,10 +58,31 @@ export interface FeasibilityReport {
 
 const RANK: Record<CheckLevel, number> = { ok: 0, warn: 1, no: 2 };
 const ETOPS_APPROVALS: [ApprovalId, number][] = [['etops240', 240], ['etops180', 180], ['etops120', 120]];
+/** v0.7: approval names for the check lines. */
+const APPROVAL_NAME: Partial<Record<ApprovalId, string>> = Object.fromEntries(APPROVALS.map((x) => [x.id, x.name]));
 /** Longest duty one unaugmented crew may fly (simplified FTL: 13 h FDP). */
 const MAX_UNAUGMENTED_FDP = 13 * 60;
 const nm = (v: number) => `${Math.round(v).toLocaleString('en-US')} nm`;
 const LAYOUT_NAME: Record<string, string> = { 'all-economy': 'all-economy', 'two-class': 'two-class', 'three-class': 'three-class', vip: 'VIP' };
+
+/** v0.7: when a delivering aircraft is home (the delivery ferry's last arrival, else the handover). */
+function homeBy(g: GameState, ac: Aircraft): Minute {
+  let t = ac.deliveredAt;
+  for (const id of ac.delivery?.ferryIds ?? []) {
+    const f = g.flights[id];
+    if (f && f.status !== 'cancelled') t = Math.max(t, f.eta ?? f.sta);
+  }
+  return t;
+}
+
+/** v0.7: a booked lease return takes the aircraft from its return ferry's departure (else the check's start). */
+function returnFrom(g: GameState, ac: Aircraft): Minute | null {
+  const r = ac.returning;
+  if (!r) return null;
+  const fs = r.ferryIds.map((id) => g.flights[id]).filter((f) => f && f.status === 'scheduled');
+  if (fs.length) return Math.min(...fs.map((f) => f.std));
+  return g.maintenance[r.maintId]?.start ?? null;
+}
 
 function describe(g: GameState, a: Anchor): string {
   if (a.kind === 'maint') {
@@ -242,17 +267,34 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   else if (have < etops) add('etops', 'no', `Routing needs ETOPS ${etops}: we hold ${have ? `ETOPS ${have}` : 'no ETOPS approval'}`, 'Apply for it under Company → Approvals.');
   else add('etops', 'ok', `ETOPS ${etops} (approved ${have})`);
 
-  // 7. Approvals.
+  // 7. Approvals (v0.7: plus the Ladder's gate for this type; a pending gate approval flies revenue only after its grant).
   const missing = req.approvals.filter((a) => !g.company.approvals.includes(a));
-  if (missing.length) add('approvals', 'no', `Needs approval: ${missing.join(', ')}`, 'Apply under Company → Approvals.');
-  else add('approvals', 'ok', req.approvals.length ? `Approvals held: ${req.approvals.join(', ')}` : 'No special approvals');
+  const gate = gateApprovals(t.tier).filter((a) => !g.company.approvals.includes(a));
+  const gateLate = gate.filter((a) => {
+    const p = g.company.pendingApprovals.find((x) => x.id === a);
+    return !p || p.done > o.start || !!p.waiting;
+  });
+  const gateText = gate.map((a) => {
+    const p = g.company.pendingApprovals.find((x) => x.id === a);
+    return `${APPROVAL_NAME[a] ?? a} ${p ? `pending, due ${fmtDate(p.done)}` : 'needed'}`;
+  }).join('; ');
+  if (missing.length) add('approvals', 'no', `Needs approval: ${missing.map((a) => APPROVAL_NAME[a] ?? a).join(', ')}`, 'Apply under Company → Ladder.');
+  else if (gateLate.length) add('approvals', 'no', `${gateText}: the ${t.short} flies revenue after the grant`, 'Company → Ladder.');
+  else if (gate.length) add('approvals', 'warn', `${gateText} (before the job starts)`, 'If the grant slips, the job cannot be flown.');
+  else add('approvals', 'ok', req.approvals.length ? `Approvals held: ${req.approvals.map((a) => APPROVAL_NAME[a] ?? a).join(', ')}` : 'No special approvals');
 
   // 8. Lease and delivery.
   const firstDep = rep.positionIn[0]?.std ?? fits[0]?.trip.std ?? o.start;
   const lastArr = rep.positionOut.length ? rep.positionOut[rep.positionOut.length - 1].sta : fits[fits.length - 1]?.trip.sta ?? o.end;
   if (ac.ownership.kind === 'dryLeaseIn' && ac.ownership.leaseEnd < Math.max(o.end, lastArr)) add('lease', 'no', `Lease returns ${fmtDate(ac.ownership.leaseEnd)}, before the job ends`);
-  else if (ac.status === 'delivering' && ac.deliveredAt > firstDep) add('lease', 'no', `Delivers ${fmtDay(ac.deliveredAt)}, after it would have to leave`);
-  else add('lease', 'ok', ac.ownership.kind === 'owned' ? 'Owned' : `Dry-leased until ${fmtDate(ac.ownership.leaseEnd)}`);
+  else if (ac.returning && (returnFrom(g, ac) ?? Infinity) < Math.max(o.end, lastArr)) add('lease', 'no', `Goes back to the lessor from ${fmtDay(returnFrom(g, ac)!)}`);
+  else if (ac.status === 'delivering' && ac.deliveredAt > firstDep) {
+    const dl = ac.delivery;
+    add('lease', 'no', dl && dl.site !== home ? `Handed over at ${dl.site} ${fmtDay(ac.deliveredAt)}, after it would have to leave` : `Delivers ${fmtDay(ac.deliveredAt)}, after it would have to leave`);
+  } else if (ac.delivery && ac.delivery.arrived === undefined && ac.delivery.site !== home) {
+    // v0.7: home-by is the delivery ferry's last arrival; positioning comes from the timeline (the ferry legs are on it).
+    add('lease', 'ok', `Home ${fmtDay(homeBy(g, ac))} after the delivery ferry`);
+  } else add('lease', 'ok', ac.ownership.kind === 'owned' ? 'Owned' : `Dry-leased until ${fmtDate(ac.ownership.leaseEnd)}`);
 
   // 9. Availability: overlaps with flights, maintenance and signed base deployments.
   let availNo = false;

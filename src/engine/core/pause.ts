@@ -1,10 +1,11 @@
 // Auto-pause requests raised by handlers and actions (runtime only, not saved).
 // Every reason raised is kept; the caller decides which ones actually stop the clock (DESIGN.md §3.3, §6.5).
 
-export type PauseReason = 'decision' | 'urgentOffer' | 'aog' | 'monthEnd' | 'contractStart' | 'crewShortage';
+/** v0.7 'marketOffer': a new aircraft market offer (UI honours it only with market alerts on). */
+export type PauseReason = 'decision' | 'urgentOffer' | 'aog' | 'monthEnd' | 'contractStart' | 'crewShortage' | 'marketOffer';
 
 /** Priority when several honoured reasons arrive in the same event (first wins for the tooltip). */
-export const PAUSE_ORDER: PauseReason[] = ['aog', 'decision', 'urgentOffer', 'crewShortage', 'contractStart', 'monthEnd'];
+export const PAUSE_ORDER: PauseReason[] = ['aog', 'decision', 'urgentOffer', 'crewShortage', 'contractStart', 'monthEnd', 'marketOffer'];
 
 const pending = new Set<PauseReason>();
 

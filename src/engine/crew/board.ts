@@ -4,7 +4,6 @@
 // locked, legality-checked, forced when red; it is tried on a copy first, so a refused move changes nothing.
 
 import type { RatingFamily } from '../../data/acmiTypes';
-import { flightsRev } from '../core/entities';
 import { canFill, typeOf } from '../core/perf';
 import type { ActionResult, CrewMember, CrewStatus, Duty, GameState, Legality, Minute, Pairing, Role } from '../core/types';
 import { crewCalendar, type CalBlock } from './calendar';
@@ -14,7 +13,7 @@ import { splitPairing } from './duties';
 import { levelOf, minRest, type Seg } from './rules';
 import { assignCrew, swapCrew } from './rosterActions';
 import { placeCrew, setFlightsCrew } from './roster';
-import { crewIx, crewRev, segsOf, ticketPrice, touchCrew, typeIdOf } from './timeline';
+import { crewIx, segsOf, ticketPrice, touchCrew, typeIdOf } from './timeline';
 
 export type MoveScope = 'duty' | 'trip';
 
@@ -62,11 +61,8 @@ const underWay = (g: GameState, p: Pairing) => openDuties(g, p).some((d) => d.re
 
 // ---------- rows ----------
 
-interface RowCache {
-  key: string;
-  rows: Map<string, BoardRow>;
-}
-const rowCache = new WeakMap<GameState, RowCache>();
+/** v0.7 C2: one cached row per crew member (key: their own revision, the window and the clock's hour). */
+const rowCache = new WeakMap<GameState, Map<string, { key: string; row: BoardRow }>>();
 
 function row(g: GameState, c: CrewMember, from: Minute, to: Minute): BoardRow {
   const blocks: BoardBlock[] = crewCalendar(g, c.id, from, to).map((b) => {
@@ -84,21 +80,41 @@ function row(g: GameState, c: CrewMember, from: Minute, to: Minute): BoardRow {
 }
 
 /**
+ * v0.7 C2: a crew member's own revision: what their row is built from (trips, duties and their sync state, tickets
+ * and rides, status, blocks, log, rest, morale). Cheap next to building the row.
+ */
+function crewKey(g: GameState, c: CrewMember): string {
+  let k = `${c.status}|${c.loc}|${Math.round(c.morale)}|${c.restUntil}|${c.notice?.leaves ?? ''}|${c.ratings.join(',')}|${c.blocks?.length ?? 0}:${c.blocks?.[0]?.from ?? ''}|${c.log.length}:${c.log[c.log.length - 1]?.end ?? ''}`;
+  const ix = crewIx(g);
+  for (const p of ix.pairingsOf.get(c.id) ?? []) {
+    k += `|${p.id}:${p.status}:${p.slots.find((s) => s.crewId === c.id)?.locked ? 'L' : ''}`;
+    for (const did of p.dutyIds) {
+      const d = g.duties[did];
+      if (d) k += `,${d.id}:${d.ev}:${d.flightsEv}:${d.report}:${d.release}:${d.legality}:${d.done ? 1 : 0}`;
+    }
+  }
+  for (const f of ix.tickets.get(c.id) ?? []) k += `|${f.id}:${f.std}:${f.sta}:${f.status}:${f.ev}`;
+  return k;
+}
+
+/**
  * Rows for the given crew over [from, to): the crew calendar's blocks (same kinds, labels and details) with the
- * duty's pairing, lock and whether it can be dragged. Pure; rows are cached per roster/flight revision, clock and
- * window, so scrolling re-reads only the rows that came into view.
+ * duty's pairing, lock and whether it can be dragged. Pure. v0.7 C2: an unchanged crew member returns the same
+ * row object (identity), keyed by their own revision, the window and the clock's hour, so a running clock or a
+ * change to someone else re-renders nothing.
  */
 export function rosterBoard(g: GameState, from: Minute, to: Minute, crewIds: string[]): BoardRow[] {
-  const key = `${crewRev(g)}:${flightsRev(g)}:${g.now}:${from}:${to}`;
+  const hour = Math.floor(g.now / 60);
   let cache = rowCache.get(g);
-  if (!cache || cache.key !== key) rowCache.set(g, (cache = { key, rows: new Map() }));
+  if (!cache) rowCache.set(g, (cache = new Map()));
   const out: BoardRow[] = [];
   for (const id of crewIds) {
     const c = g.crew[id];
     if (!c) continue;
-    let r = cache.rows.get(id);
-    if (!r) cache.rows.set(id, (r = row(g, c, from, to)));
-    out.push(r);
+    const key = `${crewKey(g, c)}#${from}:${to}:${hour}`;
+    let hit = cache.get(id);
+    if (!hit || hit.key !== key) cache.set(id, (hit = { key, row: row(g, c, from, to) }));
+    out.push(hit.row);
   }
   return out;
 }

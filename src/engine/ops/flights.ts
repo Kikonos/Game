@@ -15,6 +15,8 @@ import { DAY, fmtDuration, fmtTime } from '../core/time';
 import type { ActionResult, Aircraft, Flight, GameState, MaintenanceEvent, MessageCat, Minute, SimEvent } from '../core/types';
 import { noteLostLegs } from '../contracts/billing';
 import { applyDiscretion, boardCrew, crewIssuesFor, dropStraySpares, flightCrewStatus, guardDuty, rerosterFrom, setRestDelayHook } from '../crew';
+import { noteIncident } from './company';
+import { deliveryWaitDay } from './delivery';
 import { crewReadyAt, crewShortDecision, hasOpenDecision } from './events';
 import { aogChance, isGrounded, missCheck, startAog } from './maintenance';
 import { ageF, ageOf, bumpReliable, bumpRelation, contractOf, isBaseLeg, isRevenue, stats, turnOf, usd } from './util';
@@ -545,9 +547,15 @@ function depart(g: GameState, f: Flight, ac: Aircraft): void {
   const s = stats(g);
   s.departures++;
   const duty = f.dutyId ? g.duties[f.dutyId] : undefined;
-  if (duty?.legality === 'illegal') s.illegalFlown++;
+  if (duty?.legality === 'illegal') {
+    s.illegalFlown++;
+    noteIncident(g, 'illegalCrew', `${f.no} flew on a duty over its FDP`);
+  }
   // Every crew member legal for the duty this leg opens (rest, recovery, location, status…).
-  if (duty && duty.flightIds[0] === f.id && crewIssuesFor(g, duty).length) s.illegalCrewFlown = (s.illegalCrewFlown ?? 0) + 1;
+  if (duty && duty.flightIds[0] === f.id && crewIssuesFor(g, duty).length) {
+    s.illegalCrewFlown = (s.illegalCrewFlown ?? 0) + 1;
+    if (duty.legality !== 'illegal') noteIncident(g, 'illegalCrew', `${f.no} left with a crew member over a limit`);
+  }
   // Charter clients are compensated for long delays (> 3 h).
   const c = contractOf(g, f);
   if (c?.product.kind === 'charter' && isRevenue(f) && delayOf(f) > 180 && c.penalties.perDelay) post(g, 'penalties', -c.penalties.perDelay);
@@ -685,7 +693,7 @@ function crewProblem(g: GameState, f: Flight, ac: Aircraft): void {
     rerosterFrom(g, ac.id, g.now);
     if (!crewBlocked(g, f)) return holdFlight(g, f, 5);
   }
-  if (!isRevenue(f)) return emptyLegCrew(g, f, ac);
+  if (!isRevenue(f)) return f.purpose === 'delivery' ? deliveryWait(g, f, ac) : emptyLegCrew(g, f, ac);
   if (hasOpenDecision(g, 'crewShort', f.id) || heldFor(g, f) < BAL.crewWaitMin) return holdFlight(g, f, 30);
   if (f.crewDecided) {
     const tries = (f.crewTries ?? 0) + 1;
@@ -725,6 +733,20 @@ function emptyLegCrew(g: GameState, f: Flight, ac: Aircraft): void {
     return;
   }
   delayChain(g, f, Math.max(crewReadyAt(g, f, ac), g.now + tries * 120), 'Waiting for crew', true, true);
+  rerosterFrom(g, ac.id, g.now);
+}
+
+/**
+ * v0.7: a delivery ferry is never cancelled. Without a legal crew it waits at the site a day at a time (the whole
+ * chain moves 24 h, parking is charged daily) and the roster tries again; the 48 h warning was given earlier.
+ */
+function deliveryWait(g: GameState, f: Flight, ac: Aircraft): void {
+  for (const x of deliveryWaitDay(g, f, ac)) {
+    x.delay = 0;
+    delete x.crewHeld;
+    delete x.heldAt;
+    delete x.crewTries;
+  }
   rerosterFrom(g, ac.id, g.now);
 }
 

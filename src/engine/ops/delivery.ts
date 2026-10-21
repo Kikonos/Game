@@ -1,0 +1,367 @@
+// v0.7 delivery: handover abroad, the delivery ferry home, delivery pilots deadheading out on airlines
+// (UPDATE-0.7.md §F6.4). The ferry is planned at signing (split into ferry days with fuel stops and night stops)
+// and crewed by the auto-roster like any pilots-only ferry; a delivery ferry is never cancelled: without rated
+// pilots it waits at the site a day at a time, paying parking.
+
+import { AIRPORT_BY_CODE, AIRPORTS } from '../../data/airports';
+import { BAL } from '../core/balance';
+import { addFlight, ownFlightNo, retimeFlight } from '../core/entities';
+import { distanceNm } from '../core/geo';
+import { post } from '../core/ledger';
+import { pushMessage } from '../core/messages';
+import { blockMinutes, isPilot, maxSectorNm, runwayFit, typeOf } from '../core/perf';
+import { DAY, dayStart, fmtDate, fmtDay, fmtDuration, fmtTime, toLocal } from '../core/time';
+import type { Aircraft, Flight, GameState, Minute } from '../core/types';
+import { localToUTC, route } from '../contracts/plan';
+import { crewIx } from '../crew/timeline';
+import { commercialItinerary, itinerary, ticketBlock, type CommercialLeg } from './commercial';
+import { usd } from './util';
+
+export interface DeliveryLeg { from: string; to: string; std: Minute; sta: Minute; block: number; nightStopAfter: boolean }
+export interface DeliveryQuote {
+  site: string; where: string; handover: Minute; homeBy: Minute; legs: DeliveryLeg[]; days: number;
+  fuel: number; fees: number; crew: number; total: number;
+  /** Planned airline itinerary for the delivery pilots from home base (display only). */
+  deadhead: CommercialLeg[];
+  /** 'SCL–REC–LIS · 2 legs · 1 night stop · ≈ $96K'. */
+  text: string;
+}
+export interface DeliveryStatus {
+  phase: 'preparing' | 'handedOver' | 'ferrying' | 'waiting' | 'home';
+  site: string; where: string; handover: Minute; homeBy: Minute | null;
+  ferryIds: string[]; pilotIds: string[]; ticketIds: string[]; waitingSince: Minute | null; text: string;
+}
+
+const wideOf = (typeId: string) => (typeOf(typeId).body === 'wide' ? 1 : 0);
+const cityOf = (code: string) => AIRPORT_BY_CODE[code]?.city ?? code;
+
+// ---------- routing ----------
+
+export type Hop = { from: string; to: string; block: number };
+const routes = new Map<string, Hop[] | null>();
+
+/**
+ * Ferry legs from → to: the fuel-stop router when every leg fits a ferry day, else hops of at most a ferry day's
+ * block (10:00) between proper airports, each making progress home (a narrowbody from Jakarta takes several). Pure.
+ */
+export function ferryRoute(typeId: string, from: string, to: string): Hop[] | null {
+  const key = `${typeId}:${from}:${to}`;
+  if (routes.has(key)) return routes.get(key)!;
+  const max = BAL.delivery.dayBlockMax;
+  let r = route(typeId, from, to);
+  if (r && r.some((l) => l.block > max)) r = null;
+  if (!r) r = hops(typeId, from, to, max);
+  routes.set(key, r);
+  return r;
+}
+
+function hops(typeId: string, from: string, to: string, max: number): Hop[] | null {
+  if (runwayFit(typeId, from) === 'no' || runwayFit(typeId, to) === 'no') return null;
+  const fits = (a: string, b: string) => runwayFit(typeId, b) !== 'no' && distanceNm(a, b) <= maxSectorNm(typeId, a, b) && blockMinutes(typeId, a, b) <= max;
+  const stops = AIRPORTS.filter((x) => x.size >= 3 && runwayFit(typeId, x.code) === 'ok');
+  const out: Hop[] = [];
+  let cur = from;
+  for (let k = 0; k < 12; k++) {
+    if (fits(cur, to)) {
+      out.push({ from: cur, to, block: blockMinutes(typeId, cur, to) });
+      return out;
+    }
+    const left = distanceNm(cur, to);
+    let best: { code: string; score: number } | null = null;
+    for (const x of stops) {
+      if (x.code === cur || !fits(cur, x.code)) continue;
+      const d = distanceNm(x.code, to);
+      if (d >= left - 200) continue;
+      // The most progress; a bigger airport breaks near-ties (hotels, handling).
+      const score = d - x.size * 40;
+      if (!best || score < best.score || (score === best.score && x.code < best.code)) best = { code: x.code, score };
+    }
+    if (!best) return null;
+    out.push({ from: cur, to: best.code, block: blockMinutes(typeId, cur, best.code) });
+    cur = best.code;
+  }
+  return null;
+}
+
+/** First ferry departure: acceptance (inspection, records, test flight) after the handover, then 08:00 local at the site. */
+export function firstFerryDep(site: string, handover: Minute): Minute {
+  const t0 = handover + BAL.delivery.acceptH * 60;
+  const local = toLocal(site, t0);
+  let d = dayStart(local) + 8 * 60;
+  if (d < local) d += DAY;
+  return localToUTC(site, d);
+}
+
+/** After a night stop at `at`: 14 h after landing, but not in the small hours (07:00 local instead). */
+function nextDay(at: string, landed: Minute): Minute {
+  const t = landed + BAL.delivery.nightStop;
+  const h = Math.floor((toLocal(at, t) - dayStart(toLocal(at, t))) / 60);
+  if (h >= 7 && h < 22) return t;
+  const local = toLocal(at, t);
+  const d = dayStart(local) + 7 * 60 + (h >= 22 ? DAY : 0);
+  return localToUTC(at, d);
+}
+
+/** Ferry days: ≤ 3 sectors and ≤ 10:00 of block plus fuel-stop turns, joined by night stops of ≥ 14 h. Pure. */
+export function ferryDays(legs: Hop[], first: Minute): DeliveryLeg[] {
+  const D = BAL.delivery;
+  const out: DeliveryLeg[] = [];
+  let t = first;
+  let day0 = first;
+  let n = 0;
+  for (const h of legs) {
+    if (n > 0 && (n + 1 > D.daySectorsMax || t + h.block - day0 > D.dayBlockMax)) {
+      const last = out[out.length - 1];
+      last.nightStopAfter = true;
+      t = nextDay(last.to, last.sta);
+      day0 = t;
+      n = 0;
+    }
+    out.push({ from: h.from, to: h.to, std: t, sta: t + h.block, block: h.block, nightStopAfter: false });
+    n++;
+    t = t + h.block + D.fuelStopTurn;
+  }
+  return out;
+}
+
+export const pathText = (legs: { from: string; to: string }[]) => (legs.length ? [legs[0].from, ...legs.map((l) => l.to)].join('–') : '');
+
+// ---------- quote ----------
+
+/** Fuel and fees of ferry legs at today's fuel price. */
+export function ferryCost(typeId: string, legs: { block: number }[], fuelPrice: number): { fuel: number; fees: number } {
+  const t = typeOf(typeId);
+  const fuel = legs.reduce((s, l) => s + (l.block / 60) * t.fuelTBH * fuelPrice, 0);
+  return { fuel: Math.round(fuel), fees: legs.length * BAL.airportFees[wideOf(typeId)] };
+}
+
+const kmBand = (a: string, b: string) => {
+  const km = distanceNm(a, b) * 1.852;
+  return km < 1_500 ? 0 : km < 4_000 ? 1 : 2;
+};
+
+/** Two pilots: tickets out, hotel nights (the night before and the night stops) and per diem days. */
+export function ferryCrewCost(g: GameState, home: string, site: string, legs: DeliveryLeg[]): number {
+  if (site === home || !legs.length) return 0;
+  const nights = 1 + legs.filter((l) => l.nightStopAfter).length;
+  const pct = g.company.policies.perDiemPct / 100;
+  const hotel = BAL.hotelPerNight[g.company.policies.hotelTier] ?? BAL.hotelPerNight[4];
+  const ticket = BAL.deadheadTicket[kmBand(home, site)];
+  return Math.round(2 * ticket + 2 * nights * hotel + (nights + 1) * (BAL.perDiem.CPT + BAL.perDiem.FO) * pct);
+}
+
+/** Delivery ferry quote from a handover site to home base (legs, days, fuel, fees, crew, the pilots' airline trip out). Pure. */
+export function deliveryQuote(g: GameState, typeId: string, site: string, handover: Minute, where?: string): DeliveryQuote {
+  const home = g.company.homeBase;
+  const w = where ?? `${cityOf(site)} (${site})`;
+  if (site === home) {
+    return { site, where: w, handover, homeBy: handover, legs: [], days: 0, fuel: 0, fees: 0, crew: 0, total: 0, deadhead: [], text: `Handed over at ${cityOf(home)}: no ferry` };
+  }
+  const r = ferryRoute(typeId, site, home);
+  const legs = r ? ferryDays(r, firstFerryDep(site, handover)) : [];
+  const { fuel, fees } = ferryCost(typeId, legs, g.market.fuelPrice);
+  const crew = ferryCrewCost(g, home, site, legs);
+  const total = fuel + fees + crew;
+  // The pilots fly out the evening before (minimum rest before the ferry report).
+  let deadhead: CommercialLeg[] = [];
+  if (legs.length) {
+    const blk = ticketBlock(home, site);
+    const sta = Math.floor((legs[0].std - 14 * 60) / 5) * 5;
+    deadhead = itinerary(home, site, sta - blk, sta);
+  }
+  const stopsN = legs.filter((l) => l.nightStopAfter).length;
+  const text = legs.length
+    ? `${pathText(legs)} · ${legs.length} leg${legs.length > 1 ? 's' : ''}${stopsN ? ` · ${stopsN} night stop${stopsN > 1 ? 's' : ''}` : ''} · ≈ ${usd(total)}`
+    : `No ferry route from ${site} for the ${typeOf(typeId).short}`;
+  return {
+    site, where: w, handover, homeBy: legs.length ? legs[legs.length - 1].sta : handover, legs,
+    days: legs.length ? 1 + stopsN : 0, fuel, fees, crew, total, deadhead, text,
+  };
+}
+
+// ---------- planning and execution ----------
+
+/** Plans the delivery ferry chain (ferry legs, purpose 'delivery') from the handover site home; [] when none. */
+export function planDeliveryFerry(g: GameState, aircraftId: string): Flight[] {
+  const ac = g.fleet[aircraftId];
+  const dl = ac?.delivery;
+  if (!ac || !dl || dl.site === g.company.homeBase) return [];
+  const r = ferryRoute(ac.typeId, dl.site, g.company.homeBase);
+  if (!r) return [];
+  const legs = ferryDays(r, firstFerryDep(dl.site, dl.handover));
+  const out = legs.map((l) => {
+    const f = addFlight(g, { no: ownFlightNo(g), aircraftId, contractId: null, kind: 'ferry', from: l.from, to: l.to, std: l.std, sta: l.sta });
+    f.purpose = 'delivery';
+    return f;
+  });
+  dl.ferryIds = out.map((f) => f.id);
+  return out;
+}
+
+const ferries = (g: GameState, ac: Aircraft): Flight[] =>
+  (ac.delivery?.ferryIds ?? []).map((id) => g.flights[id]).filter((f): f is Flight => !!f);
+
+/** The pilots on the ferry legs' trips, and their airline tickets before the first of the legs. */
+export function ferryCrew(g: GameState, legs: Flight[]): { pilotIds: string[]; ticketIds: string[] } {
+  const pilots = new Set<string>();
+  const tickets = new Set<string>();
+  const pairings = new Set<string>();
+  for (const f of legs) {
+    const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+    if (d) pairings.add(d.pairingId);
+  }
+  const first = legs[0]?.std ?? Infinity;
+  for (const pid of pairings) {
+    const p = g.pairings[pid];
+    if (!p) continue;
+    for (const s of p.slots) if (s.crewId && isPilot(s.role)) pilots.add(s.crewId);
+    for (const did of p.dutyIds) {
+      for (const tid of g.duties[did]?.deadheadIds ?? []) {
+        const t = g.flights[tid];
+        if (t && t.kind === 'deadhead' && t.std < first) tickets.add(tid);
+      }
+    }
+  }
+  return { pilotIds: [...pilots], ticketIds: [...tickets] };
+}
+
+/** Delivery progress for the Fleet card and the map. Pure. */
+export function deliveryStatus(g: GameState, aircraftId: string): DeliveryStatus | null {
+  const ac = g.fleet[aircraftId];
+  const dl = ac?.delivery;
+  if (!ac || !dl) return null;
+  const fs = ferries(g, ac);
+  const homeBy = fs.length ? Math.max(...fs.map((f) => f.ata ?? f.eta ?? f.sta)) : dl.arrived ?? null;
+  const { pilotIds, ticketIds } = ferryCrew(g, fs);
+  const phase: DeliveryStatus['phase'] = dl.arrived !== undefined ? 'home'
+    : ac.status === 'delivering' ? 'preparing'
+    : fs.some((f) => f.status === 'enroute' || f.status === 'done') ? 'ferrying'
+    : dl.waitingSince !== undefined ? 'waiting' : 'handedOver';
+  const city = cityOf(dl.site);
+  const names = pilotIds.map((id) => g.crew[id]?.last).filter(Boolean).join(', ');
+  const last = fs[fs.length - 1];
+  const text = phase === 'home' ? `Delivered ${fmtDay(dl.arrived!)}`
+    : phase === 'preparing' ? `Handover at ${city} ${fmtDay(dl.handover)}${fs.length ? ` → ferry ${fmtDay(fs[0].std)}${fmtDay(last.sta) !== fmtDay(fs[0].std) ? `–${fmtDay(last.sta)}` : ''} → ${cityOf(g.company.homeBase)}` : ''}`
+    : phase === 'waiting' ? `Waiting at ${city} since ${fmtDay(dl.waitingSince!)}: no rated pilots (parking ${usd(BAL.delivery.parkPerDay[wideOf(ac.typeId)])}/day)`
+    : phase === 'ferrying' ? `Delivery ferry ${pathText(fs)} · leg ${Math.min(fs.length, fs.filter((f) => f.status === 'done').length + 1)} of ${fs.length}`
+    : `Handed over at ${city} · ferry home ${fs.length ? `${fmtDay(fs[0].std)} ${fmtTime(fs[0].std, dl.site)} local` : 'not planned'}`;
+  return {
+    phase, site: dl.site, where: dl.where, handover: dl.handover, homeBy, ferryIds: fs.map((f) => f.id), pilotIds, ticketIds,
+    waitingSince: dl.waitingSince ?? null, text: names && phase !== 'home' ? `${text} · pilots ${names}` : text,
+  };
+}
+
+/** Why our crew ride this airline ticket (map panel, roster detail). Pure. */
+export function ticketPurpose(g: GameState, ticketId: string): { kind: 'delivery' | 'return' | 'refit' | 'duty' | 'home'; aircraftId?: string; text: string } {
+  const t = g.flights[ticketId];
+  if (!t || t.kind !== 'deadhead') return { kind: 'duty', text: '' };
+  const did = crewIx(g).ticketDuty.get(ticketId);
+  const d = did ? g.duties[did] : undefined;
+  const p = d ? g.pairings[d.pairingId] : undefined;
+  if (!d || !p) return { kind: 'home', text: `Going home to ${cityOf(t.to)}` };
+  const flights = p.dutyIds.flatMap((id) => g.duties[id]?.flightIds ?? []).map((id) => g.flights[id]).filter((f): f is Flight => !!f);
+  const ac = p.aircraftId ? g.fleet[p.aircraftId] : undefined;
+  if (flights.length && t.std >= Math.max(...flights.map((f) => f.sta))) return { kind: 'home', aircraftId: ac?.id, text: `Going home to ${cityOf(t.to)} after the trip` };
+  const pf = flights.find((f) => f.purpose);
+  if (pf?.purpose) {
+    const legs = flights.filter((f) => f.purpose === pf.purpose);
+    const what = pf.purpose === 'delivery' ? 'Delivery crew' : pf.purpose === 'return' ? 'Lease return crew' : 'Refit ferry crew';
+    return { kind: pf.purpose, aircraftId: ac?.id, text: `${what} for ${ac?.reg ?? 'our aircraft'} · ferry ${legs[0].from}–${legs[legs.length - 1].to} ${fmtDay(legs[0].std)}` };
+  }
+  const first = g.flights[d.flightIds[0]];
+  return { kind: 'duty', aircraftId: ac?.id, text: first ? `Positioning for ${first.no} ${first.from}–${first.to} ${fmtDay(first.std)}` : 'Positioning for a duty' };
+}
+
+/** Handover message (aircraft.delivery at a site abroad). */
+export function handoverMessage(g: GameState, ac: Aircraft): void {
+  const dl = ac.delivery!;
+  const fs = ferries(g, ac).filter((f) => f.status === 'scheduled');
+  const { pilotIds, ticketIds } = ferryCrew(g, fs);
+  const cpt = pilotIds.map((id) => g.crew[id]).find((c) => c?.role === 'CPT');
+  const fo = pilotIds.map((id) => g.crew[id]).find((c) => c?.role === 'FO');
+  const tk = ticketIds.map((id) => g.flights[id]).filter((f): f is Flight => !!f).sort((a, b) => b.sta - a.sta)[0];
+  const lastLeg = tk ? commercialItinerary(g, tk).at(-1) : undefined;
+  const crew = cpt && fo
+    ? ` Captain ${cpt.last} and FO ${fo.last}${lastLeg ? ` ${tk!.sta <= g.now ? 'arrived' : 'arrive'} on ${lastLeg.no}` : ' are rostered'}.`
+    : ' No rated pilots are rostered yet.';
+  const block = fs.reduce((s, f) => s + f.block, 0);
+  const when = fs.length ? (dayStart(toLocal(dl.site, fs[0].std)) === dayStart(toLocal(dl.site, g.now)) + DAY ? 'tomorrow' : fmtDay(fs[0].std)) : '';
+  pushMessage(g, {
+    tone: 'info', cat: 'company', title: `${ac.reg} handed over at ${cityOf(dl.site)}`,
+    body: fs.length
+      ? `Ferry home ${when} ${fmtTime(fs[0].std, dl.site)} local: ${pathText(fs)}, ${fs.length} leg${fs.length > 1 ? 's' : ''}, ${fmtDuration(block)} block (ferry permit: 60-min routing).${crew}`
+      : `The ${typeOf(ac.typeId).name} is on the AOC.`,
+    ref: { kind: 'aircraft', id: ac.id },
+  });
+}
+
+/** 'flight.arr' of a delivery ferry: the last leg home ends the delivery. */
+export function onDeliveryArr(g: GameState, f: Flight): void {
+  if (f.purpose !== 'delivery' || !f.aircraftId) return;
+  const ac = g.fleet[f.aircraftId];
+  const dl = ac?.delivery;
+  if (!ac || !dl || dl.arrived !== undefined || f.to !== g.company.homeBase) return;
+  const fs = ferries(g, ac);
+  if (fs.some((x) => x.status === 'scheduled' || x.status === 'enroute')) return;
+  dl.arrived = g.now;
+  const flown = fs.filter((x) => x.status === 'done');
+  const { fuel, fees } = ferryCost(ac.typeId, flown.map((x) => ({ block: (x.ata ?? x.sta) - (x.atd ?? x.std) })), g.market.fuelPrice);
+  const tickets = ferryCrew(g, flown).ticketIds.reduce((s, id) => s + (g.flights[id]?.cost ?? 0), 0);
+  const days = Math.max(1, Math.round((dayStart(g.now) - dayStart(flown[0]?.atd ?? g.now)) / DAY) + 1);
+  const nights = 1 + flown.filter((x, i) => i > 0 && (x.atd ?? x.std) - (flown[i - 1].ata ?? flown[i - 1].sta) > 8 * 60).length;
+  const crew = tickets + 2 * nights * (BAL.hotelPerNight[g.company.policies.hotelTier] ?? BAL.hotelPerNight[4]);
+  pushMessage(g, {
+    tone: 'good', cat: 'company', title: `${ac.reg} is home`,
+    body: `Delivered to ${cityOf(g.company.homeBase)} after ${days} day${days > 1 ? 's' : ''} of ferry flying (${usd(fuel + fees)} fuel and fees, crew costs ${usd(crew)}).`,
+    ref: { kind: 'aircraft', id: ac.id },
+  });
+}
+
+/** 'flight.dep' of a delivery ferry: the wait (if any) is over. */
+export function onDeliveryDep(g: GameState, f: Flight): void {
+  if (f.purpose !== 'delivery' || f.status !== 'enroute' || !f.aircraftId) return;
+  const dl = g.fleet[f.aircraftId]?.delivery;
+  if (!dl || dl.waitingSince === undefined) return;
+  g.stats.deliveryWaitDays = (g.stats.deliveryWaitDays ?? 0) + Math.max(1, Math.round((g.now - dl.waitingSince) / DAY));
+  delete dl.waitingSince;
+}
+
+/**
+ * No legal crew at a delivery ferry's departure: never cancelled. The rest of the chain moves 24 h; the aircraft
+ * waits at the site (parking charged daily) and the roster tries again. Returns the moved legs.
+ */
+export function deliveryWaitDay(g: GameState, f: Flight, ac: Aircraft): Flight[] {
+  const chain = ferries(g, ac).filter((x) => x.status === 'scheduled' && x.std >= f.std);
+  if (!chain.includes(f)) chain.unshift(f);
+  for (const x of chain) retimeFlight(g, x, x.std + DAY, x.sta + DAY);
+  if (ac.delivery) ac.delivery.waitingSince ??= g.now;
+  return chain;
+}
+
+/** Daily: the 48 h no-pilots warning and parking while a delivered aircraft waits for its pilots. */
+export function dailyDelivery(g: GameState): void {
+  for (const ac of Object.values(g.fleet)) {
+    const dl = ac.delivery;
+    if (!dl || dl.arrived !== undefined) continue;
+    const fs = ferries(g, ac).filter((f) => f.status === 'scheduled');
+    if (!fs.length) continue;
+    const first = fs[0];
+    if (dl.waitingSince !== undefined && ac.status !== 'delivering') post(g, 'airportFees', -BAL.delivery.parkPerDay[wideOf(ac.typeId)]);
+    if (!dl.warned && first.std - g.now <= BAL.delivery.warnH * 60 && first.std > g.now && !pilotsOn(g, first)) {
+      dl.warned = true;
+      pushMessage(g, {
+        tone: 'warn', cat: 'crew', title: `Delivery ferry ${ac.reg} has no rated pilots`,
+        body: `No ${typeOf(ac.typeId).short}-rated captain and first officer are free on ${fmtDate(first.std)}. The aircraft waits at ${cityOf(dl.site)} until they are (parking ${usd(BAL.delivery.parkPerDay[wideOf(ac.typeId)])}/day). Hire rated pilots or book a conversion.`,
+        ref: { kind: 'aircraft', id: ac.id },
+      });
+    }
+  }
+}
+
+/** A captain and a first officer (and any relief pilot) are on the leg's duty. */
+function pilotsOn(g: GameState, f: Flight): boolean {
+  const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+  const p = d ? g.pairings[d.pairingId] : undefined;
+  if (!p) return false;
+  return p.slots.filter((s) => isPilot(s.role)).every((s) => !!s.crewId);
+}

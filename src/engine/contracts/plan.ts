@@ -133,7 +133,17 @@ export function anchorsOf(g: GameState, aircraftId: string): Anchor[] {
     out.push({ from: p.base, to: p.base, std, sta: Math.max(std, lastArrival(p, ac.typeId, slot) ?? p.to), contractId: c.id, kind: 'base', id: c.id });
   }
   out.sort((a, b) => a.std - b.std || a.sta - b.sta);
-  if (ac && !ac.flightId) out.unshift({ from: ac.at, to: ac.at, std: g.now, sta: Math.max(g.now, ac.deliveredAt), contractId: null, kind: 'start', id: '' });
+  if (ac && !ac.flightId) {
+    // v0.7: a delivered aircraft abroad is busy with its acceptance until the delivery ferry leaves (never hopped home).
+    let ready = Math.max(g.now, ac.deliveredAt);
+    if (ac.delivery && ac.delivery.arrived === undefined) {
+      for (const id of ac.delivery.ferryIds) {
+        const f = g.flights[id];
+        if (f?.status === 'scheduled' && f.from === ac.at) ready = Math.max(ready, f.std - typeOf(ac.typeId).turnMin);
+      }
+    }
+    out.unshift({ from: ac.at, to: ac.at, std: g.now, sta: ready, contractId: null, kind: 'start', id: '' });
+  }
   return out;
 }
 

@@ -14,6 +14,7 @@ import type { ActionResult, Aircraft, Flight, GameState, MaintenanceEvent, Maint
 import { clamp } from '../core/util';
 import { planPositioning } from '../contracts';
 import { rerosterFrom } from '../crew';
+import { noteIncident } from './company';
 import { aogDecision } from './events';
 import { onPaintEnd } from './paint';
 import { cancelLegs } from './flights';
@@ -48,6 +49,7 @@ function nextPlanned(g: GameState, acId: string, kind: MaintKind): MaintenanceEv
   let best: MaintenanceEvent | undefined;
   for (const m of Object.values(g.maintenance)) {
     if (m.aircraftId !== acId || m.kind !== kind || (m.status !== 'planned' && m.status !== 'inWork')) continue;
+    if (m.status === 'planned' && m.end <= g.now) continue; // stale: never started and already over
     if (!best || m.start < best.start) best = m;
   }
   return best;
@@ -95,6 +97,21 @@ export function checkStatus(g: GameState, ac: Aircraft): CheckStatus {
     cUsed,
     grounded: aUsed > tol || cUsed > tol,
   };
+}
+
+/** Share of the A/C-check interval used by time t, counting the aircraft's scheduled and airborne legs until then. Pure. */
+export function checkUsedAt(g: GameState, ac: Aircraft, kind: 'A' | 'C', t: Minute): { used: number; fh: number; limitFH: number } {
+  const ty = typeOf(ac.typeId);
+  const m = ac.maint;
+  let fh = kind === 'A' ? m.fhSinceA : m.fhSinceC;
+  for (const f of flightsOf(g, ac.id)) {
+    if (f.status !== 'scheduled' && f.status !== 'enroute') continue;
+    const end = Math.min(f.eta ?? f.sta, t);
+    if (end > f.std) fh += (end - f.std) / 60;
+  }
+  const limitFH = kind === 'A' ? ty.aCheckFH : cLimitFH(ac);
+  const cal = kind === 'A' ? (t - m.lastA) / (BAL.aCheckDays * DAY) : (t - m.lastC) / (ty.cCheckMonths * MONTH);
+  return { used: Math.max(fh / limitFH, cal), fh: Math.round(fh), limitFH: Math.round(limitFH) };
 }
 
 /** Past the overdue tolerance on either check (ferry flights to the check are still allowed). */
@@ -496,6 +513,7 @@ export function startAog(g: GameState, ac: Aircraft, f: Flight): void {
   ac.maintId = m.id;
   schedule(g, m.end, 'maint.end', m.id, m.ev);
   stats(g).aogs++;
+  noteIncident(g, 'aog');
   requestPause('aog');
   aogDecision(g, ac, f, m);
   touchFlights(g);

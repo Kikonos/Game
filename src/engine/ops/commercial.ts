@@ -63,6 +63,10 @@ const SUN_SOURCE = new Set(['GB', 'IE', 'DE', 'NL', 'BE', 'CH', 'AT', 'DK', 'SE'
 /** Longest low-cost sector (narrowbody point-to-point); the northern sun routes reach further (Scandinavia–Canaries). */
 const LCC_KM = 3_600;
 const LCC_SUN_KM = 4_200;
+/** v0.7: shortest international low-cost sector. */
+const LCC_MIN_INTL_KM = 400;
+/** v0.7: the Gulf super-hubs: their home airline (and flydubai at Dubai) takes every departure it can (§C3 rule 5). */
+const GULF_HOME: Record<string, string[]> = { DXB: ['EK', 'FZ'], DOH: ['QR'], AUH: ['EY'] };
 
 /** v0.6: airports only the low-cost carriers use (those present in the airport list). */
 export const LCC_ONLY = new Set(LCC_ONLY_ALL.filter((c) => !!AIRPORT_BY_CODE[c]));
@@ -75,6 +79,8 @@ function lccLeg(c: Carrier, base: Airport, other: Airport, km: number): boolean 
   if (c.avoid?.includes(other.code) && !c.hubs.includes(other.code)) return false;
   // v0.6: small airports only on the sun routes from the northern source markets, or the carrier's own extras.
   if (other.size < 3 && !c.hubs.includes(other.code) && !c.extra?.includes(other.code) && !(SUN_SOURCE.has(base.country) && other.tour >= 0.6)) return false;
+  // v0.7: no short international hops (rail and road win under 400 km: Vilnius–Riga is airBaltic's).
+  if (base.country !== other.country && km < LCC_MIN_INTL_KM) return false;
   // Domestic only at home, or between two of its bases in a country where it flies domestic routes (v0.6).
   if (base.country === other.country && base.country !== c.country && !(c.hubs.includes(other.code) && c.domestic?.includes(base.country))) return false;
   // Long leisure sectors only from the northern source markets.
@@ -86,17 +92,20 @@ function lccLeg(c: Carrier, base: Airport, other: Airport, km: number): boolean 
 /** Does carrier c plausibly fly a ↔ b nonstop? */
 function serves(c: Carrier, a: Airport, b: Airport, km: number): boolean {
   if (c.routes?.includes(`${a.code}-${b.code}`) || c.routes?.includes(`${b.code}-${a.code}`)) return true;
+  if (c.noRoutes?.includes(`${a.code}-${b.code}`) || c.noRoutes?.includes(`${b.code}-${a.code}`)) return false;
   if (c.maxKm !== undefined && km > c.maxKm) return false;
   if (c.kind === 'lcc') return lccLeg(c, a, b, km) || lccLeg(c, b, a, km);
   if (c.avoid?.includes(a.code) || c.avoid?.includes(b.code)) return false;
   const ha = c.hubs.includes(a.code);
   const hb = c.hubs.includes(b.code);
+  // v0.7: a closed network (the small flag carriers): hub ↔ one of its destinations only.
+  if (c.dests) return (ha && hb) || (ha && c.dests.includes(b.code)) || (hb && c.dests.includes(a.code));
   // v0.6: network and regional airlines stay out of the low-cost airports (Aer Lingus does not use Stansted).
   if ((LCC_ONLY.has(a.code) && !ha) || (LCC_ONLY.has(b.code) && !hb)) return false;
   const home = [c.country, ...(c.markets ?? [])];
   if (!ha && !hb) {
     // Domestic point-to-point on the national network (v0.6: small airports are fed from the hubs only).
-    return c.kind === 'network' && home.includes(a.country) && home.includes(b.country) && km <= 5_000 && Math.min(a.size, b.size) >= 2;
+    return c.kind === 'network' && !c.hubOnly && home.includes(a.country) && home.includes(b.country) && km <= 5_000 && Math.min(a.size, b.size) >= 2;
   }
   if (ha && hb) return true;
   const other = ha ? b : a;
@@ -109,7 +118,8 @@ function serves(c: Carrier, a: Airport, b: Airport, km: number): boolean {
   if (km <= (c.kind === 'regional' ? 3_500 : LONG_KM)) return link || (other.size >= 4 && other.biz >= 0.3) || (other.size >= 3 && other.biz >= 0.5);
   if (c.kind === 'regional' || km > 14_500) return false;
   if (SUPER.has(c.iata)) return other.size >= 4 || (link && other.size >= 2);
-  return (other.size >= 5 && hub.size >= 4) || (link && other.size >= 2);
+  // v0.7: long haul to North America goes to the gateways (size ≥ 3), not to Charleston.
+  return (other.size >= 5 && hub.size >= 4) || (link && (other.size >= 3 || (other.size >= 2 && other.continent !== 'NA')));
 }
 
 function directCarriers(from: string, to: string): Carrier[] {
@@ -255,6 +265,9 @@ function tiers(cs: Carrier[], from: string, to: string): [Carrier[], Carrier[], 
  */
 function pickCarrier(cs: Carrier[], from: string, to: string, slot: string): Carrier {
   if (!cs.length) return fallbackCarrier(from, to);
+  // v0.7: at a Gulf super-hub its home airline (and flydubai at Dubai) flies every departure it serves.
+  const gulf = [...(GULF_HOME[from] ?? []), ...(GULF_HOME[to] ?? [])];
+  if (gulf.length && cs.some((c) => gulf.includes(c.iata))) cs = cs.filter((c) => gulf.includes(c.iata));
   const h = hash(`${from}${to}${slot}`);
   const [a, b, c] = tiers(cs, from, to);
   const trunk = b.some((x) => x.hubs.includes(from) || x.hubs.includes(to));
