@@ -6,11 +6,13 @@ import { useEffect } from 'react';
 import { artFor } from '../../data/acmiTypes';
 import { typeOf } from '../../engine/core/perf';
 import { DAY, fmtDate, fmtDay, yearOf } from '../../engine/core/time';
-import type { Aircraft, AircraftOffer, GameState, LiveryRef } from '../../engine/core/types';
+import type { Aircraft, AircraftOffer, CrewExtra, GameState, LiveryRef } from '../../engine/core/types';
+import { BAL } from '../../engine/core/balance';
+import { crewExtraQuote, setCrewExtra } from '../../engine/crew';
 import { MARKET_LIVERY } from '../../data/livery';
 import { acquireAircraft, checkStatus, liveryOf, paintStatus, setAircraftLivery } from '../../engine/ops';
 import { AircraftArt } from '../components/AircraftArt';
-import { Empty, Seg } from '../components/ui';
+import { Empty, Seg, Stepper, Toggle } from '../components/ui';
 import { money } from '../format';
 import { store, useGame } from '../store';
 import { KV, ScreenHead, useRenderCount } from './common';
@@ -85,6 +87,28 @@ function LiveryRow({ g, ac }: { g: GameState; ac: Aircraft }) {
   );
 }
 
+/** v0.6: extra crew above the legal minimum on this aircraft (unset = company default), with the cost quote. */
+function CrewExtraRow({ g, ac }: { g: GameState; ac: Aircraft }) {
+  const x = ac.crewExtra ?? { cabin: g.company.policies.extraCabin, pilot: 0 as const };
+  const q = crewExtraQuote(g, ac.id, x);
+  const set = (v: CrewExtra | null) => store.act((gg) => setCrewExtra(gg, { aircraftId: ac.id }, v));
+  const extra = x.cabin + x.pilot;
+  const what = [x.cabin ? `+${x.cabin} cabin` : '', x.pilot ? 'spare pilot' : ''].filter(Boolean).join(' + ');
+  return (
+    <div className="sc-ac-crew">
+      <div className="row between small">
+        <span><span className="upper dim">Crew</span> <span className="muted">Legal minimum {q.minimum.pilots} pilots + {q.minimum.cabin} cabin</span></span>
+        {ac.crewExtra ? <button className="btn btn-sm btn-ghost" onClick={() => set(null)}>Reset</button> : <span className="tiny dim">company default</span>}
+      </div>
+      <div className="row gap-12 wrap">
+        <span className="row gap-8"><span className="small">Extra cabin</span><Stepper value={x.cabin} min={0} max={BAL.crewExtra.cabinMax} onChange={(v) => set({ cabin: v, pilot: x.pilot })} /></span>
+        <span className="row gap-8"><span className="small">Spare pilot</span><Toggle on={!!x.pilot} onChange={(v) => set({ cabin: x.cabin, pilot: v ? 1 : 0 })} label="Spare pilot" /></span>
+      </div>
+      <div className="tiny muted">{extra ? `${what} → +${q.extraPeople} people at the crew sets · ≈ ${money(q.perMonth)}/month · Morale +${q.service > 0 ? ` · Service ${q.service >= 0.4 ? '++' : '+'}` : ''}` : 'Legal minimum only. Extra crew cost salaries and per diems but lift morale and service; a spare on board covers a sick call away from base.'}</div>
+    </div>
+  );
+}
+
 function AircraftCard({ g, ac, sel }: { g: GameState; ac: Aircraft; sel: boolean }) {
   const t = typeOf(ac.typeId);
   const cs = safeCheck(g, ac);
@@ -115,6 +139,7 @@ function AircraftCard({ g, ac, sel }: { g: GameState; ac: Aircraft; sel: boolean
         ['Hours / cycles', `${Math.round(ac.hours).toLocaleString('en-US')} / ${Math.round(ac.cycles).toLocaleString('en-US')}`],
         ['ETOPS', etopsLabel(g, ac)],
       ]} />
+      <CrewExtraRow g={g} ac={ac} />
       {cs ? (
         <div className="col gap-8">
           <CheckBar label="A-check" used={cs.aUsed} due={cs.aDue} hoursLeft={cs.aHoursLeft} next={cs.nextA} onPlan={() => plan('A')} />

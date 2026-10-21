@@ -33,15 +33,17 @@ function shape(typeId: string, fl: Flight[], keepReport?: Minute): Shape {
   return { report, release: lastOn + rm.post, fdp: lastOn - report, sectors: fl.length, longest, dep: fl[0].from, restAt: fl[fl.length - 1].to };
 }
 
+const AUG_ALL: (0 | 1 | 2)[] = [0, 1, 2];
+const AUG_NONE: (0 | 1 | 2)[] = [0];
+
 /** Smallest legal augmentation (0, then 1/2 when allowed and ≤ 3 sectors) and its max FDP. */
 function pickAugment(sh: Shape, reportLocal: number, acclimatised: boolean, restClass: 1 | 2 | 3 | null, canAug: boolean): { augment: 0 | 1 | 2; max: number; ok: boolean } {
-  const lim = (augment: 0 | 1 | 2) => maxFdp({ reportLocal, sectors: sh.sectors, acclimatised, augment, restClass, longestBlock: sh.longest });
-  const opts: (0 | 1 | 2)[] = canAug && restClass && sh.sectors <= 3 ? [0, 1, 2] : [0];
+  const opts = canAug && restClass && sh.sectors <= 3 ? AUG_ALL : AUG_NONE;
   for (const a of opts) {
-    const m = lim(a);
+    const m = maxFdp({ reportLocal, sectors: sh.sectors, acclimatised, augment: a, restClass, longestBlock: sh.longest });
     if (sh.fdp <= m) return { augment: a, max: m, ok: true };
   }
-  return { augment: 0, max: lim(0), ok: false };
+  return { augment: 0, max: maxFdp({ reportLocal, sectors: sh.sectors, acclimatised, augment: 0, restClass, longestBlock: sh.longest }), ok: false };
 }
 
 export const canAugment = (g: GameState, restClass: 1 | 2 | 3 | null) => !!restClass && g.company.approvals.includes('augmented');

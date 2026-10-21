@@ -1,0 +1,212 @@
+// v0.6 roster board (UPDATE-0.6.md §F1): filters and base › rank › type groups, the virtualised row layout,
+// day columns, block and day-code text (only when it fits whole) and drag verdict labels. Pure, no React.
+
+import type { RatingFamily } from '../../data/acmiTypes';
+import { DAY } from '../../engine/core/time';
+import type { CrewMember, Role } from '../../engine/core/types';
+import type { CalBlock, DropTarget } from '../../engine/crew';
+import { calKey } from './crewLogic';
+import { isPilotRole } from './screenLogic';
+
+export type BoardZoom = 'week' | 'month';
+export type RankFilter = 'all' | 'pilots' | 'cabin' | Role;
+
+export interface BoardFilter {
+  base: string;
+  rank: RankFilter;
+  family: RatingFamily | 'all';
+  q: string;
+}
+
+export const NO_BOARD_FILTER: BoardFilter = { base: 'all', rank: 'all', family: 'all', q: '' };
+
+export const ROW_H = 52;
+export const GROUP_H = 28;
+export const HEAD_H = 40;
+export const LEFT_W = 176;
+/** Days shown: a week back, six weeks on (conversions and notice periods reach past the roster horizon). */
+export const BACK_DAYS = 7;
+export const BOARD_DAYS = 49;
+
+export type BoardItem = { kind: 'group'; key: string; label: string; ids: string[] } | { kind: 'crew'; id: string; group: string };
+
+const ROLE_ORDER: Role[] = ['CPT', 'FO', 'CRP', 'CSD', 'SCC', 'CC'];
+export const ROLE_PLURAL: Record<Role, string> = { CPT: 'Captains', FO: 'First officers', CRP: 'Relief pilots', CSD: 'Pursers', SCC: 'Senior cabin crew', CC: 'Cabin crew' };
+
+export function matchBoard(c: CrewMember, f: BoardFilter): boolean {
+  if (f.base !== 'all' && c.base !== f.base) return false;
+  if (f.rank === 'pilots' ? !isPilotRole(c.role) : f.rank === 'cabin' ? isPilotRole(c.role) : f.rank !== 'all' && c.role !== f.rank) return false;
+  if (f.family !== 'all' && !c.ratings.includes(f.family)) return false;
+  const q = f.q.trim().toLowerCase();
+  return !q || `${c.first} ${c.last} ${c.base} ${c.loc}`.toLowerCase().includes(q);
+}
+
+/**
+ * Rows grouped by base › rank › type (first rating), home base first, then by surname: one header item per group
+ * ('LIS · Captains · A320 (10)') followed by its crew.
+ */
+export function boardItems(crew: CrewMember[], f: BoardFilter, homeBase: string): BoardItem[] {
+  const groups = new Map<string, { base: string; role: Role; fam: string; list: CrewMember[] }>();
+  for (const c of crew) {
+    if (!matchBoard(c, f)) continue;
+    const fam = c.ratings[0] ?? '—';
+    const key = `${c.base}|${c.role}|${fam}`;
+    let gr = groups.get(key);
+    if (!gr) groups.set(key, (gr = { base: c.base, role: c.role, fam, list: [] }));
+    gr.list.push(c);
+  }
+  const sorted = [...groups.entries()].sort(([, a], [, b]) =>
+    (a.base === homeBase ? 0 : 1) - (b.base === homeBase ? 0 : 1) || a.base.localeCompare(b.base)
+    || ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role) || a.fam.localeCompare(b.fam));
+  const out: BoardItem[] = [];
+  for (const [key, gr] of sorted) {
+    gr.list.sort((a, b) => a.last.localeCompare(b.last) || a.first.localeCompare(b.first));
+    out.push({ kind: 'group', key, label: `${gr.base} · ${ROLE_PLURAL[gr.role]} · ${gr.fam} (${gr.list.length})`, ids: gr.list.map((c) => c.id) });
+    for (const c of gr.list) out.push({ kind: 'crew', id: c.id, group: key });
+  }
+  return out;
+}
+
+/** Top offset of every item and the total height. */
+export function boardLayout(items: BoardItem[], groupH = GROUP_H): { tops: number[]; total: number } {
+  const tops: number[] = [];
+  let y = 0;
+  for (const it of items) {
+    tops.push(y);
+    y += it.kind === 'group' ? groupH : ROW_H;
+  }
+  return { tops, total: y };
+}
+
+/** Index of the item at y (rows area coordinates), -1 outside. */
+export function itemAt(tops: number[], total: number, y: number): number {
+  if (y < 0 || y >= total || !tops.length) return -1;
+  let lo = 0;
+  let hi = tops.length - 1;
+  while (lo < hi) {
+    const m = (lo + hi + 1) >> 1;
+    if (tops[m] <= y) lo = m;
+    else hi = m - 1;
+  }
+  return lo;
+}
+
+/**
+ * Items to render for a scroll position: the visible ones plus `overscan` rows each way, snapped to `snap` items so
+ * scrolling re-renders only when the window really moves. Returns [from, to).
+ */
+export function visibleRange(tops: number[], total: number, scrollTop: number, viewH: number, overscan = 6, snap = 4): [number, number] {
+  const n = tops.length;
+  if (!n) return [0, 0];
+  const a = Math.max(0, itemAt(tops, total, Math.max(0, Math.min(total - 1, scrollTop))));
+  const b = Math.max(a, itemAt(tops, total, Math.max(0, Math.min(total - 1, scrollTop + viewH))));
+  const from = Math.max(0, Math.floor((a - overscan) / snap) * snap);
+  const to = Math.min(n, Math.ceil((b + 1 + overscan) / snap) * snap);
+  return [from, to];
+}
+
+/** Day column width: Week fits 7 days, Month 31 (minimums keep the text legible; the grid scrolls). */
+export function dayWidth(zoom: BoardZoom, viewW: number): number {
+  const w = Math.max(0, viewW - LEFT_W);
+  return zoom === 'week' ? Math.max(96, Math.floor(w / 7)) : Math.max(26, Math.floor(w / 31));
+}
+
+/** Day columns to draw for a horizontal scroll position, two days of overscan, snapped to 2 days. [from, to). */
+export function dayWindow(scrollLeft: number, viewW: number, dayW: number, nDays = BOARD_DAYS, snap = 2): [number, number] {
+  const a = Math.floor(Math.max(0, scrollLeft) / dayW) - 2;
+  const b = Math.ceil((Math.max(0, scrollLeft) + Math.max(0, viewW - LEFT_W)) / dayW) + 2;
+  return [Math.max(0, Math.floor(a / snap) * snap), Math.min(nDays, Math.ceil(b / snap) * snap)];
+}
+
+/** Text width estimate (px) at 12 px semibold; the board passes a canvas measure in the browser. */
+export const estimateW = (s: string) => s.length * 7.4;
+
+/** The first candidate that fits whole in px (with `pad` px of padding), else ''. Never truncated. */
+export function fitText(cands: string[], px: number, measure: (s: string) => number = estimateW, pad = 12): string {
+  for (const c of cands) if (c && measure(c) + pad <= px) return c;
+  return '';
+}
+
+type Blk = Pick<CalBlock, 'kind' | 'flights' | 'label'>;
+
+const route = (b: Blk) => (b.flights?.length ? [b.flights[0].from, ...b.flights.map((f) => f.to)].join('–') : '');
+
+/** Week-zoom label candidates, longest first ('NB2341 HAM–PMI–HAM' → 'HAM–PMI–HAM' → 'PMI'). */
+export function blockCands(b: Blk): string[] {
+  const k = calKey(b);
+  const r = route(b);
+  switch (k) {
+    case 'operating': {
+      const no = b.flights?.[0]?.no ?? '';
+      const dest = b.flights?.[0]?.to ?? '';
+      return [no && r ? `${no} ${r}` : '', r, dest];
+    }
+    case 'positioning': return [r ? `POS ${r}` : '', 'POS'];
+    case 'ferry': return [r ? `FERRY ${r}` : '', 'FERRY', 'FRY'];
+    case 'ride': return [r ? `POS ${r}` : '', 'POS'];
+    case 'deadhead': return [r ? `DH ${r}` : '', 'DH'];
+    case 'off': return ['OFF'];
+    case 'sick': return ['SICK'];
+    case 'joining': return ['Joining', 'JOIN'];
+    case 'training': return b.label.startsWith('Conversion') ? [b.label, 'CONV'] : [b.label, 'TRG'];
+    case 'leave': return b.label === 'Left' ? ['Left'] : ['Leave', 'LV'];
+    case 'standby': return ['Standby', 'SBY'];
+    default: return [];
+  }
+}
+
+/** Month-zoom day code of work and travel: a duty's first destination, else DH / POS. */
+export function workCode(b: Blk): string {
+  const k = calKey(b);
+  if (k === 'operating') return b.flights?.[0]?.to ?? 'DUTY';
+  if (k === 'ferry') return 'FRY';
+  if (k === 'deadhead') return 'DH';
+  if (k === 'positioning' || k === 'ride') return 'POS';
+  return '';
+}
+
+/** Work / travel blocks of a row by UTC day index from `from` (first block of each day wins: a duty over travel). */
+export function dayCodes(blocks: (Blk & Pick<CalBlock, 'start' | 'end'>)[], from: number, nDays: number): { day: number; code: string; key: string }[] {
+  const by = new Map<number, { code: string; key: string; rank: number }>();
+  for (const b of blocks) {
+    const code = workCode(b);
+    if (!code) continue;
+    const day = Math.floor((b.start - from) / DAY);
+    if (day < 0 || day >= nDays) continue;
+    const rank = calKey(b) === 'operating' || calKey(b) === 'ferry' ? 0 : 1;
+    const cur = by.get(day);
+    if (!cur || rank < cur.rank) by.set(day, { code, key: calKey(b), rank });
+  }
+  return [...by.entries()].sort((a, b) => a[0] - b[0]).map(([day, v]) => ({ day, code: v.code, key: v.key }));
+}
+
+export type TargetTone = 'legal' | 'tight' | 'illegal' | 'ineligible';
+
+/** Bubble over the drag ghost for the hovered row. */
+export function verdictText(t: DropTarget | undefined): string {
+  if (!t) return '';
+  const late = t.lateChange && t.level !== 'ineligible' ? ' · Late change: morale −2' : '';
+  if (t.level === 'ineligible') return `✗ ${t.reason}`;
+  if (t.kind === 'swap') return `${t.level === 'illegal' ? '✗ ' : ''}${t.reason}${late}`;
+  return `${t.level === 'illegal' ? '✗' : '✓'} ${t.reason}${late}`;
+}
+
+/** Counts of each verdict (toolbar summary while dragging). */
+export function targetCounts(targets: Record<string, DropTarget>, ids: string[]): Record<TargetTone, number> {
+  const out: Record<TargetTone, number> = { legal: 0, tight: 0, illegal: 0, ineligible: 0 };
+  for (const id of ids) {
+    const t = targets[id];
+    if (t) out[t.level]++;
+  }
+  return out;
+}
+
+/** Auto-scroll speed (px/s, signed) for a finger at y inside a scroller [top, bottom): up to max within edge px. */
+export function edgeSpeed(y: number, top: number, bottom: number, edge = 48, max = 600): number {
+  if (y < top + edge) return -max * Math.min(1, (top + edge - y) / edge);
+  if (y > bottom - edge) return max * Math.min(1, (y - (bottom - edge)) / edge);
+  return 0;
+}
+
+/** Morale dot tone: green ≥ 60, amber 40–59, red < 40. */
+export const moraleTone = (m: number): 'good' | 'warn' | 'bad' => (m >= 60 ? 'good' : m >= 40 ? 'warn' : 'bad');

@@ -49,7 +49,7 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
   if (f.pax) rows.push(['Passengers', String(f.pax)]);
   if (type === 'ferry') rows.push(['Crew aboard', 'Pilots only · cabin crew travel separately']);
   else if (type === 'positioning') rows.push(['Crew aboard', 'Full crew · cabin crew needed at the destination']);
-  if (aboard.riding.length) rows.push(['Riding', aboard.riding.map((id) => `${g.crew[id].role} ${crewName(g.crew[id])}`).join(', ')]);
+  if (aboard.riding.length) rows.push(['Riding', aboard.riding.filter((id) => g.crew[id]).map((id) => `${g.crew[id].role} ${crewName(g.crew[id])}`).join(', ')]);
   if (d) rows.push(['Duty', `FDP ${fmtDuration(d.fdp)} of ${fmtDuration(d.maxFdp + (d.discretion ?? 0))} · ${d.sectors} sector${d.sectors === 1 ? '' : 's'}${d.augment ? ` · +${d.augment} pilot${d.augment > 1 ? 's' : ''}` : ''}`]);
   const live = f.status === 'scheduled' && !!f.aircraftId;
   const canSub = live && !!c && (f.kind === 'revenue' || f.kind === 'techstop');

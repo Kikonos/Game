@@ -53,9 +53,10 @@ interface Pick {
 }
 
 function Seat({ s, busy, later, onChange, onRemove, onUnlock }: { s: RosterSlotView; busy: boolean; later: boolean; onChange: () => void; onRemove: () => void; onUnlock: () => void }) {
-  const tone = s.crewId ? (s.level ? LEVEL_TONE[s.level] : 'off') : later ? 'off' : 'bad';
+  // v0.6: a seat above the legal minimum (extra crew setting) is optional: amber when empty, never red.
+  const tone = s.crewId ? (s.level ? LEVEL_TONE[s.level] : 'off') : later ? 'off' : s.above ? 'warn' : 'bad';
   return (
-    <div className={`sc-seat ${s.crewId ? '' : later ? 'open' : 'vacant'} ${s.level ?? ''}`}>
+    <div className={`sc-seat ${s.crewId ? '' : later ? 'open' : s.above ? 'open above' : 'vacant'} ${s.level ?? ''}`}>
       <span className={`sc-role r-${s.role}`}>{s.role}</span>
       <span className="grow col sc-seat-who">
         <span className="row gap-8">
@@ -63,12 +64,13 @@ function Seat({ s, busy, later, onChange, onRemove, onUnlock }: { s: RosterSlotV
           {s.crewId ? (
             <button className="sc-seat-name ellipsis" onClick={() => store.navigate('crew', { sel: { kind: 'crew', id: s.crewId! } })}>{s.name}</button>
           ) : (
-            <b className={later ? 'muted' : 'bad'}>{later ? 'Open seat' : 'Empty seat'}</b>
+            <b className={later ? 'muted' : s.above ? 'warn' : 'bad'}>{later ? 'Open seat' : s.above ? 'Extra seat open' : 'Empty seat'}</b>
           )}
         </span>
         <span className="small muted row gap-8">
-          {s.crewId ? <span className={s.level ? LEVEL_TONE[s.level] : ''}>{s.level ? LEVEL_LABEL[s.level] : 'Flown'}</span> : <span>{ROLE_LABEL[s.role]} needed</span>}
-          {s.extra && <span className="chip sc-chip">extra</span>}
+          {s.crewId ? <span className={s.level ? LEVEL_TONE[s.level] : ''}>{s.level ? LEVEL_LABEL[s.level] : 'Flown'}</span> : <span>{s.above ? `Optional ${ROLE_LABEL[s.role].toLowerCase()}` : `${ROLE_LABEL[s.role]} needed`}</span>}
+          {s.above && <span className="chip sc-chip sc-chip-extra" data-tip="Above the legal minimum: optional, never blocks the departure">Extra</span>}
+          {s.extra && !s.above && <span className="chip sc-chip">added</span>}
           {s.locked && <span className="row gap-4 accent"><Lock className="sc-ico-s" />set by you</span>}
         </span>
       </span>
@@ -176,8 +178,9 @@ export function DutyModal({ id }: { id: string }) {
   const later = d.report > g.now + BAL.rosterHorizonDays * DAY && v.slots.every((x) => !x.crewId);
   const remove = (s: RosterSlotView) => {
     if (!s.crewId) return;
-    if (!s.extra && forceOff !== s.crewId) return setForceOff(s.crewId);
-    store.act((gg) => unassignCrew(gg, v.dutyId, s.crewId!, { force: !s.extra }));
+    const optional = s.extra || s.above;
+    if (!optional && forceOff !== s.crewId) return setForceOff(s.crewId);
+    store.act((gg) => unassignCrew(gg, v.dutyId, s.crewId!, { force: !optional }));
     setForceOff(null);
   };
   return (

@@ -255,6 +255,14 @@ function blockIn(segs: Seg[], i: number, a: Minute, b: Minute): number {
   return s;
 }
 
+// Module-level helpers (no closures per call in the hot path).
+const pushIssue = (issues: LegalityIssue[], code: IssueCode, level: Legality, text: string, s: Seg) => issues.push({ code, level, text, dutyId: s.dutyId });
+function cumIssue(issues: LegalityIssue[], code: IssueCode, v: number, lim: number, label: string, tgt: Seg): void {
+  if (v > lim) pushIssue(issues, code, 'illegal', `${label} ${hm(v)} > ${hm(lim)}`, tgt);
+  else if (v > lim * LIMITS.tightShare) pushIssue(issues, code, 'tight', `${label} ${hm(v)} of ${hm(lim)}`, tgt);
+}
+const segEnd = (x: Seg, slack: number) => (x.kind === 'duty' ? x.end + slack : x.end);
+
 /**
  * Checks a timeline (sorted by start). Targets: fresh segs and the planned segs after the first fresh one
  * (within 28 days); with no fresh seg, every non-log seg. Rest, FDP, rolling duty/block windows, calendar-year
@@ -270,13 +278,6 @@ export function evalSegs(ctx: TimelineCtx, segs: Seg[]): LegalityIssue[] {
       lastFreshEnd = Math.max(lastFreshEnd, segs[i].end);
     }
   }
-  const isTarget = (i: number) => {
-    const s = segs[i];
-    if (s.kind === 'log') return false;
-    if (firstFresh < 0) return true;
-    return !!s.fresh || (i > firstFresh && s.start < lastFreshEnd + 28 * DAY);
-  };
-  const add = (code: IssueCode, level: Legality, text: string, s: Seg) => issues.push({ code, level, text, dutyId: s.dutyId });
   let anchor = ctx.lastRecovery;
   let disruptive = 0;
   let prevEnd = ctx.freeSince ?? -Infinity;
@@ -286,7 +287,6 @@ export function evalSegs(ctx: TimelineCtx, segs: Seg[]): LegalityIssue[] {
   let plannedYear = 0;
   let plannedYearOf = ctx.blockYearOf;
   const slack = ctx.slack ?? 0;
-  const endOf = (x: Seg) => (x.kind === 'duty' ? x.end + slack : x.end);
   for (let i = 0; i < segs.length; i++) {
     const s = segs[i];
     // Recovery: the gap before s qualifies when it is long enough and holds two local nights.
@@ -305,47 +305,44 @@ export function evalSegs(ctx: TimelineCtx, segs: Seg[]): LegalityIssue[] {
       }
       plannedYear += s.block;
     }
-    if (isTarget(i)) {
+    const target = s.kind !== 'log' && (firstFresh < 0 || !!s.fresh || (i > firstFresh && s.start < lastFreshEnd + 28 * DAY));
+    if (target) {
       const tgt = s;
       // Rest after the previous seg (the last logged one rests until ctx.restUntil).
       if (i > 0) {
         const p = segs[i - 1];
         const restEnd = i - 1 === lastLog ? Math.max(p.end + (p.rest || 0), ctx.restUntil) : p.end + p.rest;
-        if (s.start < p.end) add('overlap', 'illegal', 'Overlaps another duty', tgt);
-        else if (s.start < restEnd) add('rest', 'illegal', `Rest ${hm(s.start - p.end)} < ${hm(restEnd - p.end)}`, tgt);
-      } else if (s.start < ctx.restUntil) add('rest', 'illegal', 'Still resting', tgt);
+        if (s.start < p.end) pushIssue(issues, 'overlap', 'illegal', 'Overlaps another duty', tgt);
+        else if (s.start < restEnd) pushIssue(issues, 'rest', 'illegal', `Rest ${hm(s.start - p.end)} < ${hm(restEnd - p.end)}`, tgt);
+      } else if (s.start < ctx.restUntil) pushIssue(issues, 'rest', 'illegal', 'Still resting', tgt);
       // Continuity: work starts where the previous duty or ticket left the crew (the first, where they are now).
       const p = i > 0 ? segs[i - 1] : null;
       if (p && p.kind !== 'log') {
-        if (p.at && s.from && p.at !== s.from) add('location', 'illegal', `At ${p.at}, not ${s.from}`, tgt);
-      } else if (ctx.loc && s.from && s.from !== ctx.loc && s.start > (ctx.now ?? Infinity)) add('location', 'illegal', `At ${ctx.loc}, not ${s.from}`, tgt);
+        if (p.at && s.from && p.at !== s.from) pushIssue(issues, 'location', 'illegal', `At ${p.at}, not ${s.from}`, tgt);
+      } else if (ctx.loc && s.from && s.from !== ctx.loc && s.start > (ctx.now ?? Infinity)) pushIssue(issues, 'location', 'illegal', `At ${ctx.loc}, not ${s.from}`, tgt);
       // The next seg must also respect this seg's rest (a later seg's start airport is checked as a target).
       const n = segs[i + 1];
       if (n && s.fresh && !n.fresh) {
-        if (n.start < s.end) add('overlap', 'illegal', 'Overlaps another duty', tgt);
-        else if (n.start < s.end + s.rest) add('rest', 'illegal', `Rest before next duty ${hm(n.start - s.end)} < ${hm(s.rest)}`, tgt);
+        if (n.start < s.end) pushIssue(issues, 'overlap', 'illegal', 'Overlaps another duty', tgt);
+        else if (n.start < s.end + s.rest) pushIssue(issues, 'rest', 'illegal', `Rest before next duty ${hm(n.start - s.end)} < ${hm(s.rest)}`, tgt);
       }
       if (s.kind === 'duty') {
-        if (s.fdp > s.maxFdp) add('fdp', 'illegal', `FDP ${hm(s.fdp)} > ${hm(s.maxFdp)}`, tgt);
-        else if (s.fdp > s.maxFdp - LIMITS.tightFdp) add('fdp', 'tight', `FDP ${hm(s.fdp)} of ${hm(s.maxFdp)}`, tgt);
+        if (s.fdp > s.maxFdp) pushIssue(issues, 'fdp', 'illegal', `FDP ${hm(s.fdp)} > ${hm(s.maxFdp)}`, tgt);
+        else if (s.fdp > s.maxFdp - LIMITS.tightFdp) pushIssue(issues, 'fdp', 'tight', `FDP ${hm(s.fdp)} of ${hm(s.maxFdp)}`, tgt);
       }
-      const cum = (code: IssueCode, v: number, lim: number, label: string) => {
-        if (v > lim) add(code, 'illegal', `${label} ${hm(v)} > ${hm(lim)}`, tgt);
-        else if (v > lim * LIMITS.tightShare) add(code, 'tight', `${label} ${hm(v)} of ${hm(lim)}`, tgt);
-      };
-      cum('duty7d', dutyIn(segs, i, s.end - 7 * DAY, s.end), LIMITS.duty7d, 'Duty 7d');
-      cum('duty14d', dutyIn(segs, i, s.end - 14 * DAY, s.end), LIMITS.duty14d, 'Duty 14d');
-      cum('duty28d', dutyIn(segs, i, s.end - 28 * DAY, s.end), LIMITS.duty28d, 'Duty 28d');
+      cumIssue(issues, 'duty7d', dutyIn(segs, i, s.end - 7 * DAY, s.end), LIMITS.duty7d, 'Duty 7d', tgt);
+      cumIssue(issues, 'duty14d', dutyIn(segs, i, s.end - 14 * DAY, s.end), LIMITS.duty14d, 'Duty 14d', tgt);
+      cumIssue(issues, 'duty28d', dutyIn(segs, i, s.end - 28 * DAY, s.end), LIMITS.duty28d, 'Duty 28d', tgt);
       if (s.block > 0) {
-        cum('block28d', blockIn(segs, i, s.end - 28 * DAY, s.end), LIMITS.block28d, 'Block 28d');
+        cumIssue(issues, 'block28d', blockIn(segs, i, s.end - 28 * DAY, s.end), LIMITS.block28d, 'Block 28d', tgt);
         const logged = ctx.blockYearOf === plannedYearOf ? ctx.blockYear : 0;
-        cum('blockYear', logged + plannedYear, LIMITS.blockYear, 'Block year');
+        cumIssue(issues, 'blockYear', logged + plannedYear, LIMITS.blockYear, 'Block year', tgt);
       }
-      if (endOf(s) > anchor + LIMITS.recoveryEvery) add('recovery', 'illegal', 'No 36 h recovery in 168 h', tgt);
+      if (segEnd(s, slack) > anchor + LIMITS.recoveryEvery) pushIssue(issues, 'recovery', 'illegal', 'No 36 h recovery in 168 h', tgt);
     }
     // Disruptive duties since the last recovery (as noteRecovery counts them from the log).
     if (s.disruptive && s.start >= anchor) disruptive++;
-    prevEnd = Math.max(prevEnd, endOf(s));
+    prevEnd = Math.max(prevEnd, segEnd(s, slack));
   }
   return issues;
 }

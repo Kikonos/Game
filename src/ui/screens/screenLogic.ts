@@ -121,9 +121,14 @@ export function reqChips(r: Requirements): Chip[] {
   if (r.longestSectorNm >= 3000) out.push({ label: `${r.longestSectorNm.toLocaleString('en-US')} nm`, tip: 'Longest sector' });
   for (const a of r.approvals) out.push({ label: a.toUpperCase(), tone: 'warn', tip: 'Approval needed' });
   if (r.extraCabin) out.push({ label: `+${r.extraCabin} cabin crew` });
+  // v0.6: the client pays for extra cabin crew above the minimum when we fly at least n.
+  if (r.extraCabinPaid) out.push({ label: `Client pays +${pctLabel(r.extraCabinPaid.pct / r.extraCabinPaid.n)} per extra cabin crew`, tone: 'good', tip: `Fly ${r.extraCabinPaid.n} or more extra cabin crew and the client pays ${pctLabel(r.extraCabinPaid.pct)} more` });
   if (r.noTechStops) out.push({ label: 'No fuel stops' });
   return out;
 }
+
+/** '0.75%' / '1.5%': a price share as a short percentage. */
+export const pctLabel = (x: number) => `${Math.round(x * 10_000) / 100}%`;
 
 /** Risk chips for risks of 0.35 or more. */
 export function riskChips(risk: ContractOffer['risk']): Chip[] {

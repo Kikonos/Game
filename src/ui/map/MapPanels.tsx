@@ -125,8 +125,12 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
   const crewFlight = cur ?? legs[0];
   const crew = crewFlight ? crewOf(g, crewFlight) : [];
   const cstat0 = crewFlight ? safe(() => flightCrewStatus(g, crewFlight.id), null) : null;
+  const dc = crewFlight?.dutyId ? safe(() => dutyCrew(g, crewFlight.id), null) : null;
+  // v0.6: seats above the legal minimum (crew-extra settings) are tagged "Extra"; empty ones listed as open.
+  const aboveIds = new Set(dc?.slots.filter((x) => x.above && x.crewId).map((x) => x.crewId as string) ?? []);
+  const openAbove = dc?.slots.filter((x) => x.above && !x.crewId) ?? [];
   // The stored duty legality can lag the live per-seat check (DutyModal); show the worse of the two.
-  const seatBad = !!crewFlight?.dutyId && cstat0?.level !== 'missing' && !!safe(() => dutyCrew(g, crewFlight.id)?.slots.some((x) => x.level === 'illegal'), false);
+  const seatBad = !!crewFlight?.dutyId && cstat0?.level !== 'missing' && !!dc?.slots.some((x) => x.level === 'illegal');
   const cstat = cstat0 && seatBad ? { ...cstat0, level: 'illegal' as const } : cstat0;
   const cs = safe(() => checkStatus(g, ac), null);
   const maint = ac.maintId ? g.maintenance[ac.maintId] : undefined;
@@ -187,7 +191,24 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
         {crew.length ? (
           <div className="op-crew">
             {crew.map((m) => (
-              <div key={m.id} className="op-crew-row"><span className="role">{m.role}</span><span className="ellipsis">{crewName(m)}</span></div>
+              <div key={m.id} className={`op-crew-row${aboveIds.has(m.id) || m.notice ? ' tagged' : ''}`}>
+                <span className="role">{m.role}</span>
+                <span className="col op-crew-who">
+                  <span className="ellipsis">{crewName(m)}</span>
+                  {(aboveIds.has(m.id) || m.notice) && (
+                    <span className="op-crew-tags">
+                      {aboveIds.has(m.id) && <span className="op-tag extra" title="Seat above the legal minimum">Extra</span>}
+                      {m.notice && <span className="op-tag notice" title="Resigned, working the notice period">Leaves {fmtDay(m.notice.leaves - 1)}</span>}
+                    </span>
+                  )}
+                </span>
+              </div>
+            ))}
+            {openAbove.map((x) => (
+              <div key={`open-${x.index}`} className="op-crew-row tagged muted">
+                <span className="role">{x.role}</span>
+                <span className="col op-crew-who"><span className="ellipsis">Open seat</span><span className="op-crew-tags"><span className="op-tag extra">Extra</span></span></span>
+              </div>
             ))}
           </div>
         ) : (

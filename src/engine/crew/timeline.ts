@@ -265,6 +265,9 @@ export function posSeg(t: TicketPlan, c: CrewMember, fresh = false): Seg {
 /** A ticket already flown on its own is in the crew log (onFlightArrCrew); only merged ones still shape the duty. */
 const flown = (t: TicketPlan): boolean => (t as Partial<Flight>).status === 'done';
 
+/** Minimum rest after a duty that started at `start` and ends at `e` in `a` (home base `base`). */
+const restAfterAt = (start: Minute, base: string, augmented: boolean, e: Minute, a: string) => minRest({ dutyMin: e - start, atHome: a === base, augmented, tzShift: tzDeltaH(base, a, e) });
+
 /**
  * Segs of duty d (pairing p) for crew c, with its out/home tickets: a ticket arriving less than minimum rest
  * before report is part of the FDP (F7); one leaving within 10 h of release extends the duty; others are
@@ -294,17 +297,16 @@ export function dutySegs(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: 
   let at = d.restAt;
   let tail: Seg | null = null;
   let merged: Seg['home'];
-  const restAfter = (e: Minute, a: string) => minRest({ dutyMin: e - start, atHome: a === c.base, augmented: d.augment > 0, tzShift: tzDeltaH(c.base, a, e) });
   if (home) {
     if (home.std - d.release < 600) {
-      merged = { id: (home as Partial<Flight>).id, from: d.restAt, std: home.std, release: d.release, rest: restAfter(d.release, d.restAt) };
+      merged = { id: (home as Partial<Flight>).id, from: d.restAt, std: home.std, release: d.release, rest: restAfterAt(start, c.base, d.augment > 0, d.release, d.restAt) };
       end = home.sta;
       at = home.to;
     } else if (!flown(home)) tail = { ...posSeg(home, c, fresh), dutyId: d.id };
   }
   segs.push({
     kind: 'duty', start, end, fdp, maxFdp: max, block: dutyBlock(g, d), sectors: d.sectors, aug: d.augment > 0,
-    disruptive: isDisruptive(tz, start, end), rest: restAfter(end, at), at, from, dutyId: d.id, fresh, home: merged, out: mergedOut,
+    disruptive: isDisruptive(tz, start, end), rest: restAfterAt(start, c.base, d.augment > 0, end, at), at, from, dutyId: d.id, fresh, home: merged, out: mergedOut,
   });
   if (tail) segs.push(tail);
   return segs;

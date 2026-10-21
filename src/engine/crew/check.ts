@@ -103,17 +103,13 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
       } else home = planHome(last, c.base);
     }
   }
-  const build = () => {
-    const out2: Seg[] = [];
-    for (const d of duties) out2.push(...dutySegs(g, c, p, d, d === first ? out : null, d === last ? home : null, true));
-    return out2;
-  };
+  const build = () => buildSegs(g, c, p, duties, out, home);
   let segs = build();
   let ftl = evalSegs({ ...ctxOf(g, c), slack }, merge(base, segs));
   // v0.5.2: a same-day ticket out (counted as FDP) whose longer first duty eats the rest or FDP of this trip:
   // the crew fly out the day before and rest at the hotel first.
   const own = new Set(p.dutyIds);
-  const bad = (l: LegalityIssue[]) => l.filter((i) => i.level === 'illegal' && (i.code === 'rest' || i.code === 'fdp') && !!i.dutyId && own.has(i.dutyId)).length;
+  const bad = (l: LegalityIssue[]) => badRestFdp(l, own);
   if (!existing && out && !out.rideId && bad(ftl)) {
     const early = planOut(g, p, first, out.from, true);
     if (early.std < out.std && early.std - BAL.deadheadCheckIn >= g.now) {
@@ -153,6 +149,22 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
   }
   issues.push(...ftl);
   return { level: levelOf(issues), issues, out, home, segs, drop: dropped.length ? dropped : undefined };
+}
+
+/** Fresh segs of the pairing's open duties with the planned tickets (out before the first, home after the last). */
+function buildSegs(g: GameState, c: CrewMember, p: Pairing, duties: Duty[], out: TicketPlan | null, home: TicketPlan | null): Seg[] {
+  const first = duties[0];
+  const last = duties[duties.length - 1];
+  const segs: Seg[] = [];
+  for (const d of duties) for (const x of dutySegs(g, c, p, d, d === first ? out : null, d === last ? home : null, true)) segs.push(x);
+  return segs;
+}
+
+/** Illegal rest or FDP issues on the pairing's own duties. */
+function badRestFdp(l: LegalityIssue[], own: Set<string>): number {
+  let n = 0;
+  for (const i of l) if (i.level === 'illegal' && (i.code === 'rest' || i.code === 'fdp') && !!i.dutyId && own.has(i.dutyId)) n++;
+  return n;
 }
 
 /**

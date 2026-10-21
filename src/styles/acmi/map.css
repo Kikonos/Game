@@ -131,6 +131,15 @@ div.worldmap { overflow: clip; }
 .op-crew { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; }
 .op-crew-row { display: flex; align-items: center; gap: 8px; font-size: 13px; min-width: 0; }
 .op-crew-row .role { font: 600 12px var(--font-mono); color: var(--text-3); width: 32px; flex-shrink: 0; }
+/* v0.6: "Extra" (seat above the legal minimum) and notice tags under a crew name. */
+.op-crew-who { min-width: 0; flex: 1; gap: 2px; }
+.op-crew-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.op-tag { font: 600 12px/1.4 var(--font-mono); padding: 0 6px; border-radius: 4px; border: 1px solid; white-space: nowrap; }
+.op-tag.extra { color: var(--info); border-color: rgba(96, 165, 250, 0.45); }
+.op-tag.notice { color: var(--warn); border-color: rgba(251, 191, 36, 0.45); }
+.op-crew-row.muted .ellipsis { color: var(--text-3); }
+.op-crew-row.tagged { align-items: flex-start; }
+.op-crew-row.tagged .role { line-height: 20px; }
 .op-leg, .op-row {
   display: flex; align-items: center; gap: 10px; width: 100%; min-height: var(--tap); padding: 6px 10px; text-align: left;
   border-radius: 12px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); font-size: 13.5px;
