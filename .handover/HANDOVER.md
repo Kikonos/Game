@@ -223,3 +223,5 @@ Fleet & market: 6 scarce aircraft market (used buys, dry-lease in, rare new slot
 Contracts & world: 9 more archetypes (Hajj drifting dates, UN multi-year, VIP/presidential, deportation moral choice, war-zone evac + war-risk insurance, medical, music tours, Antarctica) · 10 rival operators with personalities, sub-charter both ways, competing bids · 11 market cycles (fuel, seasons, crises) · 12 invented real-world events (coups, strikes, ash clouds) driving urgent work.
 Experience: 13 scenarios (e.g. "Lisbon 2019: 2× 767 + 2× 777") · 14 achievements, sound/ambient audio, tutorial hints.
 REMIND the player of this backlog once the current fixes update has shipped.
+
+### 00:33Z — check-in: livery workflow in readiness; player awake, collecting their fix list (next update goes through discuss→refine first); checkpoint pushed.
