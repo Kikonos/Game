@@ -4,13 +4,13 @@
 // to fly. Manual assignments are locked: the rolling re-plan keeps them, flagged when illegal, never silently.
 
 import { canFill, typeOf } from '../core/perf';
-import { fmtDay } from '../core/time';
-import type { ActionResult, CrewMember, Duty, GameState, Legality, Minute, Pairing, Role } from '../core/types';
+import { fmtDay, fmtTime } from '../core/time';
+import type { ActionResult, CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing, Role } from '../core/types';
 import { issueLevelFor, openDuties, planCrew } from './check';
 import { crewName } from './generate';
 import { emptyResult, fillAll, placeCrew, recheckPairing, releaseCrew } from './roster';
 import { levelOf, worst, type IssueCode } from './rules';
-import { block28, locAt, segsOf, ticketPrice, touchCrew, typeIdOf } from './timeline';
+import { block28, locAt, segsOf, ticketPrice, touchCrew, typeIdOf, viaText } from './timeline';
 
 const LEVEL_RANK: Record<Legality, number> = { legal: 0, tight: 1, illegal: 2 };
 const hm = (m: number) => `${Math.floor(m / 60)}:${String(Math.round(m % 60)).padStart(2, '0')}`;
@@ -103,6 +103,8 @@ export interface DutyCandidate {
   /** Positioning ticket to the first departure ($, 0 on wet leases where the client pays). */
   ticket: number;
   block28dH: number;
+  /** The planned trip out to the first departure, e.g. 'Deadhead LIS 09:00 → VNO 15:55 UTC (via FRA)' (none when there already). */
+  travel?: string;
 }
 
 /**
@@ -132,10 +134,15 @@ export function dutyCandidates(g: GameState, dutyOrFlightId: string, role: Role)
     const ticket = wet ? 0 : ticketPrice(loc, dep);
     const b28 = block28(segs, first.report) / 60;
     const reasons = [...new Set(issues.filter((i) => i.level !== 'legal').map((i) => i.text))];
+    const o = plan.out;
+    const lost = issues.some((i) => i.code === 'location' && i.level === 'illegal');
+    // A ride on our own empty leg (planned, or already booked: a Flight that is not a commercial ticket).
+    const ride = !!o && (!!o.rideId || ((o as Partial<Flight>).kind ?? 'deadhead') !== 'deadhead');
+    const travel = o && !lost ? `${ride ? 'Rides our flight' : 'Deadhead'} ${o.from} ${fmtTime(o.std)} → ${o.to} ${fmtTime(o.sta)} UTC${ride ? '' : viaText(o.from, o.to, o.std, o.sta)}` : undefined;
     if (c.role !== role) reasons.push(`${c.role} in a ${role} seat`);
     out.push({
       crewId: c.id, name: crewName(c), role: c.role, legal: level !== 'illegal', level, reasons, codes: [...new Set(issues.map((i) => i.code))],
-      loc, onPairing: on.has(c.id), ticket, block28dH: Math.round(b28 * 10) / 10,
+      loc, onPairing: on.has(c.id), ticket, block28dH: Math.round(b28 * 10) / 10, travel,
       score: -ticket - 2 * b28 - (c.role !== role ? 50 : 0),
     });
   }

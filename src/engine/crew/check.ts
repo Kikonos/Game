@@ -6,7 +6,7 @@ import { typeOf } from '../core/perf';
 import { fmtDay } from '../core/time';
 import type { CrewMember, Duty, GameState, Legality, Minute, Pairing } from '../core/types';
 import { evalSegs, levelOf, LIMITS, type LegalityIssue, type Seg } from './rules';
-import { aboard, crewIx, ctxOf, droppableHome, droppableOut, dutySegs, locAt, planHome, planHomeAfter, planOut, segsOf, typeIdOf, withoutTickets, type TicketPlan } from './timeline';
+import { aboard, crewIx, ctxOf, droppableHome, droppableOut, dutySegs, locAt, outTicket, planHome, planHomeAfter, planOut, segsOf, typeIdOf, withoutTickets, type TicketPlan } from './timeline';
 
 export interface CrewPlan {
   level: Legality;
@@ -89,8 +89,10 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
     }
     const loc = locAt(c, base, first.report);
     if (loc !== dep) {
-      out = planOut(g, p, first, loc);
-      if (out.std - BAL.deadheadCheckIn < g.now) issues.push({ code: 'location', level: 'illegal', text: `Can't reach ${dep} in time`, dutyId: first.id });
+      // From where they will be, once their rest after earlier work is over (crew away from base included).
+      const o = outTicket(g, p, first, loc, readyAt(c, base, first.report));
+      out = o.plan;
+      if (o.why) issues.push({ code: 'location', level: 'illegal', text: o.why, dutyId: first.id });
     }
     // No ticket home when the crew's next work starts where this trip ends, or when it is a ticket straight back
     // out there (that ticket is dropped: a hotel night or two beats two tickets).
@@ -195,6 +197,19 @@ export function crewIssuesFor(g: GameState, d: Duty): { crewId: string; issue: L
     if (i) out.push({ crewId: c.id, issue: i });
   }
   return out;
+}
+
+/**
+ * When crew c can check in for new work before t: the end of the rest after their last logged duty and after
+ * their planned work ending by t (the rest evalSegs asks for after each seg).
+ */
+function readyAt(c: CrewMember, segs: Seg[], t: Minute): Minute {
+  let ready = c.restUntil;
+  for (const s of segs) {
+    if (s.end > t) break;
+    if (s.kind !== 'log') ready = Math.max(ready, s.end + s.rest);
+  }
+  return ready;
 }
 
 /** Where the crew's next planned work within 3 days after t starts ('' when none or unknown). */
