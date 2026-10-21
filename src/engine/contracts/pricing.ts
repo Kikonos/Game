@@ -1,5 +1,6 @@
 // Pricing per RESEARCH §4 (B1). DESIGN.md §5.1.3–5.1.4.
 
+import { cabinPresets } from '../../data/cabins';
 import { ACMI_TYPES, ACMI_TYPES_LIST } from '../../data/acmiTypes';
 import { BAL } from '../core/balance';
 import { distance } from '../core/geo';
@@ -38,6 +39,8 @@ export interface PriceInput {
 /** Archetype multipliers on the reference type's ACMI rate (DESIGN §5.1.2, RESEARCH §3). */
 export const ARCH_MULT: Partial<Record<Archetype, number>> = {
   seasonBase: 1.0, aogCover: 1.5, adhoc: 1.0, sports: 1.3, repatriation: 1.5, tourSeries: 1.0, troopRotation: 1.2,
+  // v0.7: VIP work at +35% (BAL.premium.vip).
+  vip: 1 + BAL.premium.vip,
 };
 
 const roundTo = (v: number, step: number) => Math.round(v / step) * step;
@@ -163,18 +166,22 @@ const UNLOVED = new Set(['a343', 'b752']);
  * range (and layout, family) and that can fly every sector (with fuel stops unless noTechStops / noStops).
  * Unloved old types (A340-300, 757-200) only when no mainstream type fits.
  */
-export function referenceType(req: Pick<Requirements, 'minSeats' | 'maxSeats' | 'layout' | 'families' | 'noTechStops'>, sectors: [string, string][], noStops = false): string | null {
-  return refPass(req, sectors, noStops, false) ?? refPass(req, sectors, noStops, true);
+type RefReq = Pick<Requirements, 'minSeats' | 'maxSeats' | 'layout' | 'families' | 'noTechStops' | 'layouts' | 'minPremium'>;
+
+export function referenceType(req: RefReq, sectors: [string, string][], noStops = false, ulr = false): string | null {
+  return refPass(req, sectors, noStops, false, ulr) ?? refPass(req, sectors, noStops, true, ulr);
 }
 
-function refPass(req: Pick<Requirements, 'minSeats' | 'maxSeats' | 'layout' | 'families' | 'noTechStops'>, sectors: [string, string][], noStops: boolean, unloved: boolean): string | null {
+function refPass(req: RefReq, sectors: [string, string][], noStops: boolean, unloved: boolean, ulr: boolean): string | null {
   let best: { id: string; rate: number } | null = null;
+  // v0.7: accepted layouts (VIP presets when the work wants one) and premium seats.
+  const layouts = req.layouts ?? (req.layout ? [req.layout] : null);
   for (const t of ACMI_TYPES_LIST) {
-    if (!t.available || t.ulr || UNLOVED.has(t.id) !== unloved) continue;
+    if (!t.available || (t.ulr && !ulr) || UNLOVED.has(t.id) !== unloved) continue;
     if (req.families?.length && !req.families.includes(t.family)) continue;
-    const fits = t.cabins.some((c) => {
+    const fits = (layouts?.includes('vip') ? cabinPresets(t.id) : t.cabins).some((c) => {
       const seats = c.j + c.w + c.y;
-      return seats >= req.minSeats && (!req.maxSeats || seats <= req.maxSeats) && (!req.layout || c.layout === req.layout);
+      return seats >= req.minSeats && (!req.maxSeats || seats <= req.maxSeats) && (!layouts || layouts.includes(c.layout)) && (!req.minPremium || c.j + c.w >= req.minPremium);
     });
     if (!fits) continue;
     const flies = sectors.every(([a, b]) => {

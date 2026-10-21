@@ -13,7 +13,7 @@ import { pushMessage } from '../core/messages';
 import { requestPause } from '../core/pause';
 import { runwayFit, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
-import { chance, gaussian, int, pick, range, weightedPick } from '../core/rng';
+import { chance, gaussian, int, pick, range, weightedPick, type RngHolder } from '../core/rng';
 import { DAY, fmtDate, fmtDay, monthKey, yearOf } from '../core/time';
 import type { ActionResult, Aircraft, AircraftOffer, ApprovalId, Cabin, GameState, SimEvent } from '../core/types';
 import { clamp, hash } from '../core/util';
@@ -23,6 +23,12 @@ import { deliveryQuote, handoverMessage, planDeliveryFerry, type DeliveryQuote }
 import { usd } from './util';
 
 /** Real operating lessors (names only; they also trade used aircraft). */
+/**
+ * v0.7: market rolls use their own stream of the engine PRNG (seeded from the game seed and a key: the day, the
+ * offer id), so offers coming and going never shift the rest of the game's randomness. Deterministic, save-safe.
+ */
+const side = (g: GameState, key: string): RngHolder => ({ rng: hash(`${g.seed}:market:${key}`) | 0 });
+
 const LESSORS = ['AerCap', 'Avolon', 'SMBC Aviation Capital', 'BOC Aviation', 'Carlyle Aviation Partners', 'Air Lease Corporation', 'Aviation Capital Group'];
 const MONTH = 30.44 * DAY;
 const OLD = ['b763', 'a332', 'a343', 'b752'];
@@ -84,44 +90,45 @@ export function returnSiteOf(o: Pick<AircraftOffer, 'id' | 'typeId' | 'site'>): 
 /** One offer of type t (`opts.lease` forces a dry lease: the guaranteed offers). */
 function makeOffer(g: GameState, t: AcmiType, opts: { lease?: boolean; kind?: 'dryLeaseIn' | 'buy'; newBuild?: boolean; site?: string } = {}): AircraftOffer {
   const M = BAL.market7;
+  const id = nextId(g, 'mo');
+  const r = side(g, id);
   const now = yearOf(g.now);
   const old = OLD.includes(t.id);
   const index = t.body === 'wide' ? g.market.wideIndex : g.market.narrowIndex;
   const canNew = NEW_BUILD.includes(t.id) && !!FACTORIES[t.family];
-  const newBuild = canNew && (opts.newBuild ?? (!opts.lease && !opts.kind && chance(g, M.newBuildChance)));
-  const id = nextId(g, 'mo');
+  const newBuild = canNew && (opts.newBuild ?? (!opts.lease && !opts.kind && chance(r, M.newBuildChance)));
   let o: AircraftOffer;
   if (newBuild) {
-    const lead = int(g, M.newBuildLead[0], M.newBuildLead[1]);
-    const rent = Math.round((t.rentMonth * range(g, M.newBuildRent[0], M.newBuildRent[1]) * index) / 1000) * 1000;
-    const site = pick(g, FACTORIES[t.family]!.sites);
+    const lead = int(r, M.newBuildLead[0], M.newBuildLead[1]);
+    const rent = Math.round((t.rentMonth * range(r, M.newBuildRent[0], M.newBuildRent[1]) * index) / 1000) * 1000;
+    const site = pick(r, FACTORIES[t.family]!.sites);
     o = {
-      id, typeId: t.id, kind: 'dryLeaseIn', lessor: pick(g, LESSORS), builtYear: yearOf(g.now + lead * DAY), cabin: cabinOf(t), rentPerMonth: rent,
-      reservesPerFH: Math.round((t.maintBH * range(g, 0.38, 0.46)) / 10) * 10, leaseMonths: int(g, M.newBuildMonths[0] / 12, M.newBuildMonths[1] / 12) * 12, price: 0,
+      id, typeId: t.id, kind: 'dryLeaseIn', lessor: pick(r, LESSORS), builtYear: yearOf(g.now + lead * DAY), cabin: cabinOf(t), rentPerMonth: rent,
+      reservesPerFH: Math.round((t.maintBH * range(r, 0.38, 0.46)) / 10) * 10, leaseMonths: int(r, M.newBuildMonths[0] / 12, M.newBuildMonths[1] / 12) * 12, price: 0,
       deposit: M.newBuildDepositMonths * rent, leadDays: lead, expires: 0, site: site.code, where: siteText(site), newBuild: true,
     };
   } else {
-    const built = old ? int(g, 1996, 2008) : t.tier <= 1 ? int(g, 2005, 2017) : int(g, now - 16, now - 6);
+    const built = old ? int(r, 1996, 2008) : t.tier <= 1 ? int(r, 2005, 2017) : int(r, now - 16, now - 6);
     const age = now - built;
     const ageAdj = clamp(1 - (age - 12) * 0.015, 0.75, 1.15);
     const canBuy = t.body === 'narrow' || old;
-    const buy = opts.kind ? opts.kind === 'buy' && canBuy : !opts.lease && canBuy && chance(g, 0.3);
-    const rent = Math.round((t.rentMonth * range(g, 0.9, 1.15) * index * ageAdj) / 1000) * 1000;
-    const price = buy ? Math.round((t.valueUsed * range(g, 0.85, 1.1) * ageAdj) / 10_000) * 10_000 : 0;
+    const buy = opts.kind ? opts.kind === 'buy' && canBuy : !opts.lease && canBuy && chance(r, 0.3);
+    const rent = Math.round((t.rentMonth * range(r, 0.9, 1.15) * index * ageAdj) / 1000) * 1000;
+    const price = buy ? Math.round((t.valueUsed * range(r, 0.85, 1.1) * ageAdj) / 10_000) * 10_000 : 0;
     o = {
-      id, typeId: t.id, kind: buy ? 'buy' : 'dryLeaseIn', lessor: buy ? `${pick(g, LESSORS)} (used sale)` : pick(g, LESSORS),
-      builtYear: built, cabin: cabinOf(t), rentPerMonth: buy ? 0 : rent, reservesPerFH: buy ? 0 : Math.round((t.maintBH * range(g, 0.38, 0.46)) / 10) * 10,
-      leaseMonths: buy ? 0 : int(g, BAL.leaseMonths[0] / 6, BAL.leaseMonths[1] / 6) * 6, price, deposit: buy ? price : 2 * rent,
-      leadDays: t.body === 'wide' ? int(g, BAL.deliveryDaysWide[0], BAL.deliveryDaysWide[1]) : int(g, BAL.deliveryDays[0], BAL.deliveryDays[1]), expires: 0,
+      id, typeId: t.id, kind: buy ? 'buy' : 'dryLeaseIn', lessor: buy ? `${pick(r, LESSORS)} (used sale)` : pick(r, LESSORS),
+      builtYear: built, cabin: cabinOf(t), rentPerMonth: buy ? 0 : rent, reservesPerFH: buy ? 0 : Math.round((t.maintBH * range(r, 0.38, 0.46)) / 10) * 10,
+      leaseMonths: buy ? 0 : int(r, BAL.leaseMonths[0] / 6, BAL.leaseMonths[1] / 6) * 6, price, deposit: buy ? price : 2 * rent,
+      leadDays: t.body === 'wide' ? int(r, BAL.deliveryDaysWide[0], BAL.deliveryDaysWide[1]) : int(r, BAL.deliveryDays[0], BAL.deliveryDays[1]), expires: 0,
     };
     // Handover: a lessor site half the time, else the previous operator's hub.
     const ops = (EX_OPERATORS[t.id] ?? []).filter((x) => AIRPORT_BY_CODE[x.hub] && runwayFit(t.id, x.hub) !== 'no');
-    if (!ops.length || chance(g, M.lessorSiteShare)) {
-      const s = pick(g, lessorSites(t));
+    if (!ops.length || chance(r, M.lessorSiteShare)) {
+      const s = pick(r, lessorSites(t));
       o.site = s.code;
       o.where = siteText(s);
     } else {
-      const x = pick(g, ops);
+      const x = pick(r, ops);
       o.site = x.hub;
       o.exOperator = x.airline;
       o.where = `ex-${x.airline}, ${AIRPORT_BY_CODE[x.hub].city} (${x.hub})`;
@@ -131,7 +138,7 @@ function makeOffer(g: GameState, t: AcmiType, opts: { lease?: boolean; kind?: 'd
     o.site = opts.site;
     o.where = `${o.exOperator ? `ex-${o.exOperator}, ` : ''}${AIRPORT_BY_CODE[opts.site].city} (${opts.site})`;
   }
-  o.expires = g.now + int(g, M.offerDays[0], M.offerDays[1]) * DAY;
+  o.expires = g.now + int(r, M.offerDays[0], M.offerDays[1]) * DAY;
   o.created = g.now;
   return o;
 }
@@ -169,14 +176,15 @@ export function refreshMarket(g: GameState): void {
   m.narrowIndex = Math.round(clamp(m.narrowIndex + gaussian(g) * 0.03 + (1 - m.narrowIndex) * 0.2, 0.8, 1.25) * 1000) / 1000;
   m.wideIndex = Math.round(clamp(m.wideIndex + gaussian(g) * 0.03 + (1 - m.wideIndex) * 0.2, 0.8, 1.25) * 1000) / 1000;
   const month = monthKey(g.now) - monthKey(g.started);
-  if (!m.gotNarrow && (month >= 1 || chance(g, 0.5))) {
+  const r = side(g, `m${month}`);
+  if (!m.gotNarrow && (month >= 1 || chance(r, 0.5))) {
     m.gotNarrow = true;
-    postOffer(g, makeOffer(g, typeOf(chance(g, 0.6) ? 'a320ceo' : 'b738'), { lease: true }));
+    postOffer(g, makeOffer(g, typeOf(chance(r, 0.6) ? 'a320ceo' : 'b738'), { lease: true }));
   }
   // The old widebody lease shows as a teaser while the gate is still closed.
-  if (!m.gotWide && month >= 3 && (month >= 5 || chance(g, 0.4))) {
+  if (!m.gotWide && month >= 3 && (month >= 5 || chance(r, 0.4))) {
     m.gotWide = true;
-    postOffer(g, makeOffer(g, typeOf(chance(g, 0.5) ? 'b763' : 'a332'), { lease: true }));
+    postOffer(g, makeOffer(g, typeOf(chance(r, 0.5) ? 'b763' : 'a332'), { lease: true }));
   }
 }
 
@@ -188,8 +196,9 @@ export function dailyMarket(g: GameState): void {
   const m = g.market;
   m.aircraft = m.aircraft.filter((o) => o.expires > g.now);
   const M = BAL.market7;
-  if (m.aircraft.length < M.maxOpen && chance(g, M.perMonth / 30.44)) {
-    const x = weightedPick(g, eligibleTypes(g), (e) => e.w);
+  const r = side(g, `d${Math.floor(g.now / DAY)}`);
+  if (m.aircraft.length < M.maxOpen && chance(r, M.perMonth / 30.44)) {
+    const x = weightedPick(r, eligibleTypes(g), (e) => e.w);
     if (x) postOffer(g, makeOffer(g, x.t));
   }
   const filed = g.company.pendingApprovals.find((p) => p.id === 'widebody');
@@ -197,9 +206,9 @@ export function dailyMarket(g: GameState): void {
     const days = (g.now - filed.started) / DAY;
     const open = m.aircraft.some((o) => typeOf(o.typeId).body === 'wide' && aircraftGate(g, o.typeId).ok);
     if (open) m.gotWideFiled = true;
-    else if (days >= M.wideAfterFilingDays - 1 || chance(g, 1 / 20)) {
+    else if (days >= M.wideAfterFilingDays - 1 || chance(r, 1 / 20)) {
       m.gotWideFiled = true;
-      postOffer(g, makeOffer(g, typeOf(chance(g, 0.5) ? 'b763' : 'a332'), { lease: true }));
+      postOffer(g, makeOffer(g, typeOf(chance(r, 0.5) ? 'b763' : 'a332'), { lease: true }));
     }
   }
 }

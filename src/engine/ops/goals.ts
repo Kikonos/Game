@@ -4,7 +4,6 @@ import { pushMessage } from '../core/messages';
 import { typeOf } from '../core/perf';
 import { statementTotals } from '../core/ledger';
 import type { ApprovalId, GameState, GoalState } from '../core/types';
-import { setGrantHook } from './company';
 import { bumpReliable } from './util';
 
 export interface GoalDef {
@@ -125,11 +124,11 @@ export function checkGoals(g: GameState): void {
   }
 }
 
-// A granted approval with a ladder goal posts the goal (one message per event) instead of "X approved".
-setGrantHook((g, id) => {
+/** A granted approval with a ladder goal posts the goal (one message per event) instead of "X approved" (company hook). */
+export function ladderGrant(g: GameState, id: ApprovalId): boolean {
   const def = GOALS.find((d) => d.ladder?.approval === id);
   const st = def && g.goals.find((x) => x.id === def.id);
   if (!def || !st || st.done !== null) return false;
   reach(g, st, def);
   return true;
-});
+}

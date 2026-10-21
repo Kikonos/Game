@@ -7,11 +7,13 @@ import {
   checkAssignment, classOf, conversionClasses, conversionEarliest, conversionPlan, crewAvailability, crewCalendar, crewExtraFor, crewExtraQuote, crewIssuesFor, crewStatusView, crewWindows,
   daysOffInMonth, dropTargets, dutyCandidates, dutyCrew, dutyLegality, flightCrewStatus, hireQuote, moraleOf, moraleSummary, policyPreview, rosterBoard, rosterOf, staffing,
 } from '../crew';
-import { demoFlights } from '../dev';
+import { demoFlights, devGrantApproval, devMarketOffer } from '../dev';
+import { addCrew } from '../crew/fixtures';
 import { createGame } from '../newGame';
 import {
   aogChance, APPROVALS, approvalBlocker, cashForecast, checkStatus, commercialFlightsAirborne, commercialFlightsBetween, commercialItinerary, fixedCosts, flightType, GOALS,
   groundGaps, liveryOf, monthProfit, paintStatus, rotationOf, subcharterable, subcharterQuote,
+  acquireAircraft, aircraftGate, approvalReqs, bookRefit, cabinOptions, deliveryQuote, deliveryStatus, ladder, leaseView, marketView, refitQuote, refitStations, returnQuote, ticketPurpose,
 } from '../ops';
 import { deserialize, serialize } from '../save';
 import { advanceTo } from '../sim';
@@ -86,6 +88,14 @@ describe('determinism of read APIs', () => {
     // B1: a signed contract so contractProgress has something to read.
     const first = Object.values(g.offers).find((o) => feasibilityAll(g, o.id)[0]?.level !== 'no');
     if (first) acceptOffer(g, first.id, [feasibilityAll(g, first.id)[0].aircraftId]);
+    // v0.7: a widebody signed abroad (delivery ferry, deadheads), a refit booked, a lease near its end.
+    g.company.cash += 20_000_000;
+    devGrantApproval(g, 'widebody');
+    addCrew(g, { CPT: 2, FO: 2 }, 'A330/340');
+    acquireAircraft(g, devMarketOffer(g, 'a332', { site: 'SNN' }));
+    devMarketOffer(g, 'b763', { site: 'SCL' });
+    const nb = Object.values(g.fleet).find((a) => a.typeId === 'a320ceo')!;
+    bookRefit(g, nb.id, '24J/90Y', 'LIS', g.now + 20 * DAY);
     advanceTo(g, g.now + 2 * DAY);
     const before = JSON.stringify(g);
     const t = g.now;
@@ -169,6 +179,21 @@ describe('determinism of read APIs', () => {
       hireQuote(g, { role: 'FO', family: 'A320', base: 'LIS', count: 2 });
       staffing(g);
       cashForecast(g, 90);
+      // v0.7: market, delivery, lease, cabin and ladder reads.
+      marketView(g);
+      for (const ac of Object.values(g.fleet)) {
+        deliveryStatus(g, ac.id);
+        returnQuote(g, ac.id);
+        leaseView(g, ac.id);
+        aircraftGate(g, ac.typeId);
+        cabinOptions(ac.typeId);
+        refitStations(g, ac.id);
+        for (const p of cabinOptions(ac.typeId)) refitQuote(g, ac.id, p.label, 'HAM', t + 10 * DAY);
+      }
+      deliveryQuote(g, 'a320ceo', 'CGK', t + 30 * DAY);
+      for (const f of Object.values(g.flights)) if (f.kind === 'deadhead') ticketPurpose(g, f.id);
+      ladder(g);
+      for (const a of APPROVALS) approvalReqs(g, a.id);
     }
     expect(JSON.stringify(g)).toBe(before);
   });

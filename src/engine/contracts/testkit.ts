@@ -28,6 +28,9 @@ export function offer(g: GameState, archetype: ContractOffer['archetype'], opts:
   const o = generateOffer(g, archetype, { wide: false, window: false, paint: false, ...opts });
   if (!o) throw new Error(`no ${archetype} offer`);
   o.requirements.layout = undefined;
+  // v0.7 cabin rules (layouts, premium seats) off too.
+  delete o.requirements.layouts;
+  delete o.requirements.minPremium;
   o.requirements.families = undefined;
   o.requirements.minSeats = Math.min(o.requirements.minSeats, 170);
   o.expires = Math.max(o.expires, g.now + DAY);

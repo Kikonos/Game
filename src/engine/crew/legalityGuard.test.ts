@@ -2,7 +2,8 @@
 // flags that duty, not the whole trip, and the roster splits it off at once; nobody over a crew limit reports for
 // a duty (2 h check) or leaves the gate.
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { BAL } from '../core/balance';
 import { DAY } from '../core/time';
 import type { Duty, GameState, Pairing } from '../core/types';
 import { advanceTo } from '../sim';
@@ -108,6 +109,13 @@ describe('crew legality: a later duty\'s problem', () => {
 });
 
 describe('crew legality: the 2 h check and the gate', () => {
+  // v0.7: no random delays or AOGs (a delayed first leg moves the report and the 2 h check with it).
+  type Knobs = 'delayChance' | 'techDelayChance' | 'aogBase';
+  const bal = BAL as unknown as Record<Knobs, number>;
+  const saved = { delayChance: BAL.delayChance, techDelayChance: BAL.techDelayChance, aogBase: BAL.aogBase };
+  beforeEach(() => Object.assign(bal, { delayChance: 0, techDelayChance: 0, aogBase: 0 }));
+  afterEach(() => Object.assign(bal, saved));
+
   /** A crewed duty reporting away from midnight (no daily job between the injection and the check). */
   function midday(): { g: GameState; acId: string; p: Pairing; d: Duty } {
     const { g, acId } = rostered();
@@ -154,7 +162,8 @@ describe('crew legality: the 2 h check and the gate', () => {
     expect(flightCrewStatus(g, f.id).level).toBe('missing');
     advanceTo(g, f.std + 3 * 60);
     expect(f.status === 'enroute' && f.crewIds.includes(c.id)).toBe(false);
-    expect(g.decisions.some((x) => x.kind === 'crewShort') || f.status !== 'scheduled' || !!f.operatedBy).toBe(true);
+    // (v0.7: or re-planned later, still on the ground.)
+    expect(g.decisions.some((x) => x.kind === 'crewShort') || f.status !== 'scheduled' || !!f.operatedBy || f.std > g.now).toBe(true);
     expect(g.stats.illegalCrewFlown ?? 0).toBe(0);
   });
 

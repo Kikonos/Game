@@ -10,7 +10,9 @@ import { DAY, fmtDate, fmtDateTime, fmtDay, fmtDuration, toDate } from '../core/
 import type { Aircraft, ApprovalId, ContractOffer, CrewExtra, GameState, Minute } from '../core/types';
 import { crewAvailability, offerExtra, type Availability } from '../crew';
 import { A_CHECK_DAYS, anchorsOf, chainForward, CHARTER_SLACK, DEPLOY_LEAD, gapMoves, programmeOf, type Anchor, type ChainLeg, type Programme, type Trip } from './plan';
-import { APPROVALS, gateApprovals } from '../ops/company';
+import { afterRefit, cabinAt, cabinFits, layoutsOf, refitTip } from '../ops/cabin';
+import { aircraftGate, APPROVALS, gateApprovals } from '../ops/company';
+import { deliveryQuote } from '../ops/delivery';
 import { paintQuote, paintWindow, type PaintSlot } from './paintTerms';
 import { productValue, tripTickets } from './pricing';
 
@@ -194,16 +196,26 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   const wet = o.product.kind === 'wet';
   const base = o.pattern.kind === 'base';
 
-  // 1–3. Cabin and type.
-  const seats = ac.cabin.total;
-  if (seats < req.minSeats) add('seats', 'no', `${seats} seats: the client needs at least ${req.minSeats}`);
-  else if (req.maxSeats && seats > req.maxSeats) add('seats', 'no', `${seats} seats: the client wants at most ${req.maxSeats}`);
-  else add('seats', 'ok', `${seats} seats (client needs ${req.minSeats}+)`);
-  if (req.layout && ac.cabin.layout !== req.layout) {
-    const name = LAYOUT_NAME[req.layout];
-    add('layout', 'no', `Needs ${/^[aeiou]/i.test(name) ? 'an' : 'a'} ${name} cabin; ${ac.reg} is ${ac.cabin.label}`, 'Cabin reconfiguration arrives in a later version.');
-  }
-  else add('layout', 'ok', `Cabin ${ac.cabin.label}`);
+  // 1–3. Cabin and type (v0.7: a refit planned to end before the start counts).
+  const { cabin: cab, refitEnd } = cabinAt(g, ac, o.start);
+  const after = refitEnd !== null ? ` ${afterRefit(refitEnd)}` : '';
+  const seats = cab.total;
+  if (seats < req.minSeats) add('seats', 'no', `${seats} seats${after}: the client needs at least ${req.minSeats}`);
+  else if (req.maxSeats && seats > req.maxSeats) add('seats', 'no', `${seats} seats${after}: the client wants at most ${req.maxSeats}`);
+  else add('seats', 'ok', `${seats} seats${after} (client needs ${req.minSeats}+)`);
+  const wantL = layoutsOf(req);
+  const layoutNo = !!wantL && !wantL.includes(cab.layout);
+  const premiumNo = !!req.minPremium && cab.j + cab.w < req.minPremium;
+  if (layoutNo || premiumNo) {
+    const tip = refitTip(g, ac, req);
+    const names = (wantL ?? []).map((l) => LAYOUT_NAME[l]);
+    const list = names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}` : names[0] ?? '';
+    const label = layoutNo
+      ? `Needs ${/^[aeiou]/i.test(list) ? 'an' : 'a'} ${list} cabin${req.minPremium ? ` (${req.minPremium}+ premium seats)` : ''}; ${ac.reg} is ${cab.label}`
+      : `Needs ${req.minPremium}+ premium seats; ${ac.reg} has ${cab.j + cab.w ? `${cab.j + cab.w}` : 'none'} (${cab.label})`;
+    rep.checks.push({ id: 'layout', level: 'no', label, detail: tip?.text ?? 'No cabin layout of this type meets it.', ...(tip ? { action: { kind: 'refit' as const, layout: tip.layout } } : {}) });
+    rep.level = 'no';
+  } else add('layout', 'ok', `Cabin ${cab.label}${after}`);
   if (req.families?.length && !req.families.includes(t.family)) add('family', 'no', `The client only takes ${req.families.join(' or ')}-family aircraft (crew commonality)`);
   else add('family', 'ok', `${t.name}`);
 
@@ -517,10 +529,12 @@ export function marketFit(g: GameState, offerId: string): MarketFit | null {
   for (const m of g.market.aircraft) {
     if (m.expires <= g.now) continue;
     const t = typeOf(m.typeId);
-    const deliversBy = g.now + m.leadDays * DAY;
+    // v0.7: home after the delivery ferry; only types the Ladder lets us sign.
+    if (!aircraftGate(g, m.typeId).ok) continue;
+    const deliversBy = deliveryQuote(g, m.typeId, m.site ?? g.company.homeBase, g.now + m.leadDays * DAY).homeBy;
     if (deliversBy > o.start - 7 * DAY || (best && deliversBy >= best.deliversBy)) continue;
     if (m.cabin.total < req.minSeats || (req.maxSeats && m.cabin.total > req.maxSeats)) continue;
-    if ((req.layout && m.cabin.layout !== req.layout) || (req.families?.length && !req.families.includes(t.family))) continue;
+    if (!cabinFits(m.cabin, req) || (req.families?.length && !req.families.includes(t.family))) continue;
     if (!sectors.every(([a, b]) => {
       const sp = planSector(t.id, a, b);
       return sp.ok && (!noStops || !sp.techStops.length);

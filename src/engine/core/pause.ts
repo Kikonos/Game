@@ -18,11 +18,14 @@ export function clearPause(): void {
   pending.clear();
 }
 
-/** Takes and clears all pending requests; returns the highest-priority one in `honour` (any when omitted). */
+/** Opt-in reasons: honoured only when named (v0.7 market alerts), never by an omitted `honour` (tests, the bot). */
+const OPT_IN: ReadonlySet<PauseReason> = new Set(['marketOffer']);
+
+/** Takes and clears all pending requests; returns the highest-priority one in `honour` (any but the opt-in ones when omitted). */
 export function takePause(honour?: ReadonlySet<PauseReason>): PauseReason | null {
   let hit: PauseReason | null = null;
   for (const r of PAUSE_ORDER) {
-    if (pending.has(r) && (!honour || honour.has(r))) {
+    if (pending.has(r) && (honour ? honour.has(r) : !OPT_IN.has(r))) {
       hit = r;
       break;
     }

@@ -18,6 +18,15 @@
 //   later, defaults again above 66; one replacement hired per resignation; a conversion booked from surplus crew
 //   when a new type arrives (or a family is 2+ sets short far enough ahead); one extra cabin crew on widebodies;
 //   the client's paid extra cabin crew taken when staffing allows.
+// - v0.7 the Ladder: ETOPS 120 from month 4 when affordable; Widebody operations after 90 days with cash for it, 4 + 4
+//   pilots rated on (or converting to) a widebody family first (hired when the narrowbody surplus is short); augmented
+//   crews once a widebody is held and a 13 h+ widebody job was seen; ETOPS 180 / 240 when ready with $2M spare; never ULR.
+// - v0.7 market: the widebody rule above, only for types the Ladder lets us sign; a second narrowbody lease when the
+//   fleet is ≥ 75% committed over the next 60 days and cash covers the deposit + $1M; never new-build. A delivery
+//   waiting for rated pilots: two rated pilots hired (once). Lease notices: extend 12 months when the aircraft is
+//   ≥ 50% used over 90 days or a contract runs past the lease end − 30 days, else return.
+// - v0.7 refits (at most one per 180 days): an open premium sports or VIP job worth $1.2M+ whose only failing check is
+//   the cabin, when the cheapest refit ends before it and costs < 40% of it: booked, then the job taken.
 
 import LZString from 'lz-string';
 import { BAL } from '../src/engine/core/balance';
@@ -26,11 +35,16 @@ import { complement, typeOf } from '../src/engine/core/perf';
 import { DAY, dayIndex, fmtDateTime, fmtMonth, fromUTC, monthKey, toDate } from '../src/engine/core/time';
 import type { RatingFamily } from '../src/data/acmiTypes';
 import type { Archetype, ContractOffer, GameState, LedgerCat, MonthKey, Role } from '../src/engine/core/types';
-import { acceptOffer, counterOffer, feasibilityAll, type FeasibilityReport } from '../src/engine/contracts';
+import { acceptOffer, counterOffer, feasibility, feasibilityAll, type FeasibilityReport } from '../src/engine/contracts';
 import { aboveMinimum, classOf, conversionClasses, conversionEarliest, conversionPlan, hireCrew, setCrewExtra, staffing, startConversion, type StaffingLine } from '../src/engine/crew';
 import { devFleet } from '../src/engine/dev';
 import { createGame } from '../src/engine/newGame';
-import { acquireAircraft, checkStatus, groundGaps, resolveDecision, scheduleCheck } from '../src/engine/ops';
+import {
+  acquireAircraft, aircraftGate, applyApproval, approvalBlocker, APPROVALS, bookRefit, chooseLease, checkStatus, deliveryStatus, fixedCosts, groundGaps, ratedPilots,
+  refitQuote, refitStations, resolveDecision, scheduleCheck, ticketPurpose,
+} from '../src/engine/ops';
+import { refitTip } from '../src/engine/ops/cabin';
+import type { ApprovalId } from '../src/engine/core/types';
 import { deserialize, serialize } from '../src/engine/save';
 import { advanceTo, settle } from '../src/engine/sim';
 
@@ -76,10 +90,17 @@ interface Tally {
   policyChanges: string[];
   classesBooked: number;
   paidExtra: number;
+  /** v0.7: approvals filed / granted (day), market offers seen per month and teasers, signings, refits, lease choices, delivery waits handled. */
+  filed: string[];
+  signed: string[];
+  narrowSigned: number;
+  refits: string[];
+  leaseChoices: string[];
+  waitHires: number;
 }
 const newTally = (): Tally => ({
   actions: new Map(), decisions: new Map(), decMonth: new Map(), decKinds: new Map(), accepted: 0, countered: 0, firstAccept: null, wideAffordableAt: null, wideReadyAt: null, wideSigned: null, longLead: 0, paintOffers: [],
-  rehired: 0, policyChanges: [], classesBooked: 0, paidExtra: 0,
+  rehired: 0, policyChanges: [], classesBooked: 0, paidExtra: 0, filed: [], signed: [], narrowSigned: 0, refits: [], leaseChoices: [], waitHires: 0,
 });
 
 const weekOf = (g: GameState) => Math.floor((g.now - g.started) / (7 * DAY));

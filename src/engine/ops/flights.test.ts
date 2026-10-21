@@ -85,7 +85,10 @@ describe('departure and arrival', () => {
     expect(ac.maint.deferred).toBeGreaterThan(deferred);
     // A ferry is ours to pay: fuel, fees and maintenance reserves.
     expect(line(g, 'fuel')).toBeLessThan(fuel0);
-    expect(line(g, 'airportFees')).toBe(fees0 - BAL.airportFees[0]);
+    // Every ferry that has landed by now paid its fees (the other aircraft's may land first).
+    const landed = Object.values(g.flights).filter((f) => f.kind === 'ferry' && f.status === 'done').length;
+    expect(landed).toBeGreaterThanOrEqual(1);
+    expect(line(g, 'airportFees')).toBe(fees0 - BAL.airportFees[0] * landed);
     expect(line(g, 'maintenance')).toBeLessThan(maint0);
   });
 
@@ -185,7 +188,8 @@ describe('delays and ripple', () => {
 describe('schedule recovery', () => {
   it('drops the one wave that would leave over the cap and keeps the next on time', () => {
     calm();
-    const { g, ac, outs } = onBase(30);
+    // v0.7: seed moved (the market's own RNG stream shifted the main sequence; 30 now builds a 2-wave day).
+    const { g, ac, outs } = onBase(31);
     const [w1, w2] = outs();
     const back1 = unitOf(g, ac, w1)[1];
     expect(back1).toMatchObject({ from: w1.to, to: 'HAM' });
@@ -200,7 +204,7 @@ describe('schedule recovery', () => {
 
   it('a shorter hold moves the wave and only pushes the next one as far as the turn needs', () => {
     calm();
-    const { g, ac, outs } = onBase(30);
+    const { g, ac, outs } = onBase(31);
     const [w1, w2] = outs();
     const std2 = w2.std;
     const n = delayChain(g, w1, w1.std + 3 * 60, 'Test hold');
@@ -277,7 +281,8 @@ describe('AOG', () => {
     // Back in service, the leg is no longer held for the aircraft: it leaves, or (when the crew that reported
     // before the AOG is now out of hours) waits for crew re-rostering (B2).
     skip(g, out.std + 1);
-    expect(out.status === 'enroute' || out.status === 'done' || out.delayReason === 'Waiting for crew').toBe(true);
+    // (v0.7: or held a few minutes at the gate while a re-rostered crew boards.)
+    expect(out.status === 'enroute' || out.status === 'done' || out.delayReason === 'Waiting for crew' || (!!out.crewHeld && out.delay > 0 && out.delay <= 30), `${out.status} ${out.delayReason} ${out.delay} ${out.crewHeld}`).toBe(true);
   });
 
   it('the AOG chance is one roll per departure at about 1–3 a year for the startup fleet', () => {

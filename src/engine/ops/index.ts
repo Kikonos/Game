@@ -2,13 +2,15 @@
 
 import type { SimModule } from '../core/module';
 import type { GameState } from '../core/types';
-import { dailyApprovals, loadApprovals, onApprovalDone } from './company';
+import { onRefitEnd } from './cabin';
+import { dailyApprovals, loadApprovals, onApprovalDone, setGrantHook } from './company';
 import { dailyEvents, onDecisionExpire, paceDecisions } from './events';
 import { dailyFinance, onMonthEnd, onPayment, settleDeparture } from './finance';
 import { onFlightArr, onFlightDep, pruneFlights } from './flights';
-import { checkGoals, syncGoals } from './goals';
-import { onMaintEnd, onMaintStart, planChecks } from './maintenance';
+import { checkGoals, ladderGrant, syncGoals } from './goals';
+import { onMaintEnd, onMaintStart, planChecks, setMaintHooks } from './maintenance';
 import { dailyDelivery, onDeliveryArr, onDeliveryDep } from './delivery';
+import { dailyLeases, onReturnEnd, onReturnStart } from './leaseReturn';
 import { dailyMarket, loadMarket, onDelivery, onLeaseEnd, refreshMarket } from './market';
 import { dailyPaint, normaliseLivery } from './paint';
 
@@ -36,6 +38,13 @@ export {
   type CommercialFlight, type CommercialLeg,
 } from './commercial';
 
+// v0.7 hooks, wired once every module has loaded (the ops modules import each other).
+setMaintHooks((g, m) => onReturnStart(g, m), (g, m) => {
+  onRefitEnd(g, m);
+  onReturnEnd(g, m);
+});
+setGrantHook(ladderGrant);
+
 function daily(g: GameState) {
   pruneFlights(g);
   planChecks(g);
@@ -45,6 +54,7 @@ function daily(g: GameState) {
   dailyApprovals(g);
   dailyMarket(g);
   dailyDelivery(g);
+  dailyLeases(g);
   checkGoals(g);
 }
 
