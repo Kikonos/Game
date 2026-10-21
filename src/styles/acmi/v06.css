@@ -241,3 +241,5 @@
 .sc-policy-fx { color: #9fdcea; }
 .cl-members { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 16px; }
 .cl-members .cl-cancel { grid-column: 1 / -1; }
+/* Policy controls keep their width; the description wraps instead. */
+.sc-policy > :last-child:not(:first-child) { flex-shrink: 0; }
