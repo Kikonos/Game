@@ -377,7 +377,7 @@ export function onTrainingDone(g: GameState, ev: SimEvent): void {
 }
 
 /**
- * Daily sickness roll: p = 0.04/30 × (1 + max(0, 60 − morale)/50) (v0.6 morale.sickMult); sick for 2–5 days, taken off rostered work.
+ * Daily sickness roll: p = 0.04/30 × (1 + max(0, 65 − morale)/50) (v0.6 morale.sickMult); sick for 2–5 days, taken off rostered work.
  * A slot that can't be refilled becomes a B3 'sickCrew' decision.
  */
 export function dailySickness(g: GameState): void {

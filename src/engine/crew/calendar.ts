@@ -183,6 +183,20 @@ export function crewCalendar(g: GameState, crewId: string, from: Minute, to: Min
   const off: CalBlock[] = [];
   const horizon = g.now + BAL.rosterHorizonDays * DAY;
   const off0 = offsetAt(c.base, from);
+  // Past days: where the first movement after the day left from (the timeline only knows where they are now).
+  let moves: { std: Minute; from: string }[] | null = null;
+  const pastAt = (t: Minute): string => {
+    if (!moves) {
+      moves = [];
+      for (const d of rosterOf(g, crewId, from, g.now + DAY)) {
+        const f = dutyFlights(g, d).find((x) => x.status !== 'cancelled');
+        if (f) moves.push({ std: f.std, from: f.from });
+      }
+      for (const f of travelOf(g, crewId)) if (f.status !== 'cancelled') moves.push({ std: f.std, from: f.from });
+      moves.sort((a, b) => a.std - b.std);
+    }
+    return moves.find((m) => m.std >= t)?.from ?? c.loc;
+  };
   for (let d = Math.floor((from + off0) / DAY) * DAY - off0; d < to; d += DAY) {
     const day = { start: d, end: d + DAY };
     if (busy.some((w) => overlaps(w, day))) continue;
@@ -190,7 +204,7 @@ export function crewCalendar(g: GameState, crewId: string, from: Minute, to: Min
     for (const r of rest) if (r.start <= start && r.end > start) start = r.end;
     const end = Math.min(d + DAY, to);
     if (end - start < 6 * 60) continue;
-    const at = locAtTime(c, segs, start);
+    const at = start < g.now ? pastAt(start) : locAtTime(c, segs, start);
     const away = at !== c.base;
     const planned = d < horizon;
     off.push({

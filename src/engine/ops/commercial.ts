@@ -69,7 +69,9 @@ export const LCC_ONLY = new Set(LCC_ONLY_ALL.filter((c) => !!AIRPORT_BY_CODE[c])
 
 /** Does low-cost carrier c fly base → other? Point-to-point from one of its bases into its markets. */
 function lccLeg(c: Carrier, base: Airport, other: Airport, km: number): boolean {
-  if (!c.hubs.includes(base.code) || !(c.markets ?? []).includes(other.country)) return false;
+  // v0.6: the markets flown from bases in this country (easyJet Lisbon is not easyJet London).
+  const markets = c.fromBase?.[base.country] ?? c.markets ?? [];
+  if (!c.hubs.includes(base.code) || !markets.includes(other.country)) return false;
   if (c.avoid?.includes(other.code) && !c.hubs.includes(other.code)) return false;
   // v0.6: small airports only on the sun routes from the northern source markets, or the carrier's own extras.
   if (other.size < 3 && !c.hubs.includes(other.code) && !c.extra?.includes(other.code) && !(SUN_SOURCE.has(base.country) && other.tour >= 0.6)) return false;
@@ -83,6 +85,7 @@ function lccLeg(c: Carrier, base: Airport, other: Airport, km: number): boolean 
 
 /** Does carrier c plausibly fly a ↔ b nonstop? */
 function serves(c: Carrier, a: Airport, b: Airport, km: number): boolean {
+  if (c.routes?.includes(`${a.code}-${b.code}`) || c.routes?.includes(`${b.code}-${a.code}`)) return true;
   if (c.maxKm !== undefined && km > c.maxKm) return false;
   if (c.kind === 'lcc') return lccLeg(c, a, b, km) || lccLeg(c, b, a, km);
   if (c.avoid?.includes(a.code) || c.avoid?.includes(b.code)) return false;
@@ -246,14 +249,16 @@ function tiers(cs: Carrier[], from: string, to: string): [Carrier[], Carrier[], 
 
 /**
  * The carrier of one departure (`slot` = day and bank): the low-cost carriers based at either end take 70% of the
- * departures (the home airlines the rest), else the home airlines all of them; anyone else only when neither
- * flies the pair. Hash-based, so a ticket always shows the same flights. Pure.
+ * departures (50% when either end is a home airline's hub: flag-carrier trunk routes), the home airlines the
+ * rest, else the home airlines all of them; anyone else only when neither flies the pair. Hash-based, so a ticket
+ * always shows the same flights. Pure.
  */
 function pickCarrier(cs: Carrier[], from: string, to: string, slot: string): Carrier {
   if (!cs.length) return fallbackCarrier(from, to);
   const h = hash(`${from}${to}${slot}`);
   const [a, b, c] = tiers(cs, from, to);
-  const pool = a.length ? (b.length && h % 100 >= 70 ? b : a) : b.length ? b : c;
+  const trunk = b.some((x) => x.hubs.includes(from) || x.hubs.includes(to));
+  const pool = a.length ? (b.length && h % 100 >= (trunk ? 50 : 70) ? b : a) : b.length ? b : c;
   return pool[Math.floor(h / 100) % pool.length];
 }
 

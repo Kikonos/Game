@@ -252,6 +252,9 @@ export function resignRoll(g: GameState, c: CrewMember): boolean {
   return h / 4294967296 < resignChance(g, c) / 30;
 }
 
+/** Reasons people leave whatever the roster (used when no morale driver stands out). */
+const OTHER_REASONS = ['an offer from a Gulf carrier', 'a job closer to family', 'a seniority offer at a legacy airline', 'leaving flying for a ground job', 'moving abroad with a partner'];
+
 /** Resigns now: notice period, work past the leave date released, one inbox message. True when it took effect. */
 export function resignNow(g: GameState, crewId: string): boolean {
   const c = g.crew[crewId];
@@ -264,7 +267,7 @@ export function resignNow(g: GameState, crewId: string): boolean {
   const join = (BAL.hireDays as Record<string, number>)[c.role] ?? 45;
   pushMessage(g, {
     tone: 'warn', cat: 'crew', title: `${crewName(c)} (${c.role}) resigned`,
-    body: `${noticeDays(c.role)} days' notice: last day ${fmtDate(leaves - 1)}. Morale ${Math.round(c.morale)}${why.length ? `: ${why.join(', ')}` : ''}. Rated ${fam} ${ROLE_NAME[c.role]} take about ${join} days to join: hire now to keep ${BAL.crewSetsPerAircraft} sets.`,
+    body: `${noticeDays(c.role)} days' notice: last day ${fmtDate(leaves - 1)}. Morale ${Math.round(c.morale)}: ${why.length ? why.join(', ') : OTHER_REASONS[hash(c.id) % OTHER_REASONS.length]}. Rated ${fam} ${ROLE_NAME[c.role]} take about ${join} days to join: hire now to keep ${BAL.crewSetsPerAircraft} sets.`,
     ref: { kind: 'crew', id: c.id },
   });
   touchCrew(g);

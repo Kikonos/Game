@@ -399,7 +399,14 @@ class GameStore {
     if (!g) return { ok: false, error: 'No game loaded' };
     clearPause();
     this.edits++;
-    const res = fn(g);
+    let res: ActionResult<T>;
+    try {
+      res = fn(g);
+    } catch (e) {
+      // An engine throw must not take the UI down; report it as a refused action.
+      console.warn('[act]', e);
+      res = { ok: false, error: 'Something went wrong with that action.' };
+    }
     // Cross-module follow-ups (e.g. crew re-sync) and pauses the action raised (e.g. crewShortage on accept).
     settle(g);
     const pause = takePause(this.honoured());

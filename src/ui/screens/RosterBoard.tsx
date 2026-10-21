@@ -110,11 +110,14 @@ const Row = memo(function Row({ row, from, dayW, d0, d1, zoom, tone, selecting, 
           );
         })}
         {codes.map((c) => {
-          const txt = fitText([c.code], dayW, measure, 2);
+          // Wide codes (MRS, WAW) set tighter rather than vanish from a 28 px day.
+          const cw = measure(c.code);
+          const tight = cw + 2 > dayW && cw - 3 <= dayW + 1;
+          const txt = tight ? c.code : fitText([c.code], dayW, measure, 2);
           const b = row.blocks[c.i];
           return (
             <span key={c.day} className={`rb-code k-${c.key}`} style={{ left: c.day * dayW, width: dayW }} data-c={row.crewId} data-i={c.i} data-mv={b?.movable ? 1 : undefined}>
-              {txt && <span className="rb-code-t">{txt}</span>}
+              {txt && <span className={`rb-code-t ${tight ? 'tight' : ''}`}>{txt}</span>}
             </span>
           );
         })}
@@ -214,7 +217,7 @@ const RANKS: { value: RankFilter; label: string }[] = [
 export function RosterBoard({ g, selecting, selected, onSelect }: RosterBoardProps) {
   const [f, setF] = useState<BoardFilter>(NO_BOARD_FILTER);
   const [zoom, setZoomS] = useState<BoardZoom>(() => stored(ZOOM_KEY, ['week', 'month'] as const, 'week'));
-  const [scope, setScopeS] = useState<MoveScope>(() => stored(SCOPE_KEY, ['duty', 'trip'] as const, 'duty'));
+  const [scope, setScopeS] = useState<MoveScope>(() => stored(SCOPE_KEY, ['duty', 'trip'] as const, 'trip'));
   const [view, setView] = useState({ w: 900, h: 480 });
   const [range, setRange] = useState<[number, number]>([0, 24]);
   const [days, setDays] = useState<[number, number]>([0, 14]);
@@ -273,16 +276,20 @@ export function RosterBoard({ g, selecting, selected, onSelect }: RosterBoardPro
 
   // Today near the left edge on open and on Today (yesterday whole in Week, three days back in Month); a new day
   // width (resize, zoom) keeps the same day at the left edge, so a column is never cut at the name column.
+  // scrollDW: the day width scrollLeft is currently measured in.
+  const scrollDW = useRef(dayW);
   const goToday = useCallback(() => {
     const el = scroller.current;
-    if (el) el.scrollLeft = Math.max(0, (BACK_DAYS - (zoomRef.current === 'week' ? 1 : 3)) * dayWidth(zoomRef.current, el.clientWidth));
+    if (!el) return;
+    const dw = dayWidth(zoomRef.current, el.clientWidth);
+    el.scrollLeft = Math.max(0, (BACK_DAYS - (zoomRef.current === 'week' ? 1 : 3)) * dw);
+    scrollDW.current = dw;
   }, []);
   useLayoutEffect(goToday, [goToday]);
-  const prevDayW = useRef(dayW);
   useLayoutEffect(() => {
     const el = scroller.current;
-    if (el && prevDayW.current !== dayW) el.scrollLeft = Math.round(el.scrollLeft / prevDayW.current) * dayW;
-    prevDayW.current = dayW;
+    if (el && scrollDW.current !== dayW) el.scrollLeft = Math.round(el.scrollLeft / scrollDW.current) * dayW;
+    scrollDW.current = dayW;
   }, [dayW]);
   const prevFrom = useRef(from);
   useLayoutEffect(() => {
@@ -291,15 +298,11 @@ export function RosterBoard({ g, selecting, selected, onSelect }: RosterBoardPro
     if (el && prevFrom.current !== from) el.scrollLeft -= ((from - prevFrom.current) / DAY) * dayW;
     prevFrom.current = from;
   }, [from, dayW]);
+  // The day-width effect above keeps the left-edge day.
   const setZoom = (z: BoardZoom) => {
-    const el = scroller.current;
-    const day = el ? Math.round(el.scrollLeft / dayW) : 0;
     zoomRef.current = z;
     setZoomS(z);
     remember(ZOOM_KEY, z);
-    requestAnimationFrame(() => {
-      if (scroller.current) scroller.current.scrollLeft = day * dayWidth(z, scroller.current.clientWidth);
-    });
   };
   const setScope = (s: MoveScope) => {
     setScopeS(s);

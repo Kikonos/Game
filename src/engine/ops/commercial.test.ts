@@ -107,7 +107,9 @@ describe('itineraries', () => {
       const [x, y] = [a, b];
       const nonstop = itinerary(x, y, T0, T0 + ticketBlock(x, y)).length === 1;
       const based = seen.some((c) => lcc(c) && (CARRIER_BY_IATA[c].hubs.includes(x) || CARRIER_BY_IATA[c].hubs.includes(y)));
-      if (nonstop && based && home) expect(1 - home / n, pair).toBeGreaterThan(0.55);
+      // Half on a flag-carrier trunk route (a home airline's hub at either end).
+      const trunk = seen.some((c) => !lcc(c) && (CARRIER_BY_IATA[c].hubs.includes(x) || CARRIER_BY_IATA[c].hubs.includes(y)));
+      if (nonstop && based && home) expect(1 - home / n, pair).toBeGreaterThan(trunk ? 0.35 : 0.55);
       else if (nonstop && !based) expect(home / n, pair).toBeGreaterThan(0.95);
     }
   });
@@ -189,6 +191,45 @@ describe('realistic deadhead airlines', () => {
     expect(['IST', 'DXB', 'DOH']).toContain(kbl[0].to);
     const opo = picks('LIS', 'OPO').iatas;
     expect(opo.every((x) => x === 'TP' || x === 'FR')).toBe(true);
+  });
+
+  it('low-cost carriers only on the markets their base flies; regional networks; seasonal nonstops', () => {
+    // easyJet Lisbon flies to the UK, France, Switzerland, Italy… not to Scandinavia, Poland, Turkey or North Africa.
+    for (const p of ['ARN-LIS', 'BUD-LIS', 'LIS-WAW', 'LIS-ADB', 'LIS-BJV', 'LIS-TUN', 'AMS-HEL']) expect(picks(...(p.split('-') as [string, string])).iatas, p).not.toContain('U2');
+    for (const p of ['LIS-ALG', 'LIS-TUN']) {
+      const x = picks(...(p.split('-') as [string, string])).iatas;
+      expect(x, p).not.toContain('U2');
+      expect(x, p).not.toContain('FR');
+    }
+    // Turkish leisure airports from Lisbon: Turkish via Istanbul.
+    for (const to of ['ADB', 'BJV']) {
+      const t = picks('LIS', to);
+      expect(t.iatas, to).toEqual(['TK']);
+      expect(t.hubs, to).toEqual(['IST']);
+    }
+    // Croatia Airlines does not fly Zagreb–Lisbon; it and Lufthansa fly Split / Dubrovnik–Frankfurt nonstop.
+    for (let d = 0; d < 30; d++) {
+      const t = T0 + d * 1440 + 9 * 60;
+      const legs = itinerary('DBV', 'LIS', t, t + ticketBlock('DBV', 'LIS'));
+      expect(legs.some((l) => l.iata === 'OU' && l.from === 'ZAG' && l.to === 'LIS')).toBe(false);
+    }
+    const spu = picks('SPU', 'FRA');
+    expect(spu.hubs).toEqual([]);
+    expect(spu.iatas.every((x) => x === 'LH' || x === 'OU')).toBe(true);
+    // Vueling flies from its Barcelona base to Amsterdam.
+    expect(picks('BCN', 'AMS').iatas).toContain('VY');
+    // A trunk route between two flag carriers' hubs: the based low-cost carrier takes about half, not 70%.
+    const n = { lcc: 0, all: 0 };
+    for (let d = 0; d < 60; d++) {
+      for (const h of [7, 13, 19]) {
+        const t = T0 + d * 1440 + h * 60;
+        for (const l of itinerary('LIS', 'CDG', t, t + ticketBlock('LIS', 'CDG'))) {
+          n.all++;
+          if (l.iata === 'U2') n.lcc++;
+        }
+      }
+    }
+    expect(n.lcc / n.all).toBeLessThan(0.6);
   });
 
   it('over 300 seeded random European pairs: hubs in Europe, no network airline at a low-cost airport, no LCC where it avoids, deterministic', () => {

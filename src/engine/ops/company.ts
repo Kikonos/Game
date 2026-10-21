@@ -1,5 +1,6 @@
 // Approvals (progression gates) and policies (B3). DESIGN.md §5.11.
 
+import { BAL } from '../core/balance';
 import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { typeOf } from '../core/perf';
@@ -73,7 +74,7 @@ export function onApprovalDone(g: GameState, ev: SimEvent): void {
 
 export function setPolicies(g: GameState, patch: Partial<Policies>): ActionResult {
   const p = { ...g.company.policies, ...patch };
-  p.extraCabin = clamp(Math.round(p.extraCabin), 0, 2);
+  p.extraCabin = clamp(Math.round(p.extraCabin), 0, BAL.crewExtra.cabinMax);
   p.perDiemPct = clamp(Math.round(p.perDiemPct), 80, 150);
   p.hotelTier = ([3, 4, 5].includes(p.hotelTier) ? p.hotelTier : 4) as HotelTier;
   p.rotationWeeks = ([4, 5, 6].includes(p.rotationWeeks) ? p.rotationWeeks : 5) as Policies['rotationWeeks'];

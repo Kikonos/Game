@@ -441,7 +441,7 @@ export function onClassItemDone(g: GameState, item: TrainingItem): boolean {
     const kept = old.filter((f) => f !== k.family).map(familyLabel);
     const body = k.group === 'pilot'
       ? k.course === 'ccq' ? `Common type rating: they keep the ${kept.join(', ') || 'old type'} and fly both.` : `Their ${kept.join(', ') || 'old'} rating is no longer current.`
-      : `${n} cabin crew now hold the ${label}${kept.length ? ` (they keep the ${kept.join(', ')})` : ''}.`;
+      : kept.length ? `They keep the ${kept.join(', ')} as well (cabin crew hold up to 3 types).` : `The ${label} is now their only type.`;
     pushMessage(g, {
       tone: 'good', cat: 'crew', title: `${k.no} finished: ${n} ${k.group === 'pilot' ? `pilot${n > 1 ? 's' : ''} now fly the ${label}` : `cabin crew now hold the ${label}`}`,
       body, ref: c ? { kind: 'crew', id: c.id } : undefined,

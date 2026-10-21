@@ -620,7 +620,7 @@ Object.assign(ACTIONS, {
     await nav(page, 'contracts', { view: 'market' });
     let ok = false;
     for (let i = 0; i < 80 && !ok; i++) {
-      ok = await page.evaluate((a) => { const s = window.__contrail; const id = s.dev.offer(a); return !!id && !!s.game.offers[id]?.requirements.extraCabinPaid; }, ['adhoc', 'tourSeries', 'troopRotation', 'sports'][i % 4]);
+      ok = await page.evaluate((a) => { const s = window.__contrail; const id = s.dev.offer(a); return !!id && !!s.game.offers[id]?.requirements.extraCabinPaid; }, ['vip', 'seasonBase', 'adhoc', 'capacityLease'][i % 4]);
     }
     if (!ok) throw new Error('SKIP no offer with paid extra crew');
     await settle(page, 600);

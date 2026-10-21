@@ -69,7 +69,7 @@ describe('policies', () => {
   it('setPolicies clamps every field to its range', () => {
     const g = newGame(35);
     expect(setPolicies(g, { perDiemPct: 300, extraCabin: 5.4, hotelTier: 7 as HotelTier, rotationWeeks: 9 as Policies['rotationWeeks'] }).ok).toBe(true);
-    expect(g.company.policies).toMatchObject({ perDiemPct: 150, extraCabin: 2, hotelTier: 4, rotationWeeks: 5 });
+    expect(g.company.policies).toMatchObject({ perDiemPct: 150, extraCabin: 4, hotelTier: 4, rotationWeeks: 5 });
     setPolicies(g, { perDiemPct: 10, extraCabin: -1, hotelTier: 5, rotationWeeks: 4, autoRoster: false, allowTight: true });
     expect(g.company.policies).toMatchObject({ perDiemPct: 80, extraCabin: 0, hotelTier: 5, rotationWeeks: 4, autoRoster: false, allowTight: true, autoMaintenance: true, autoDeadhead: true });
     setPolicies(g, { perDiemPct: 112.6 });

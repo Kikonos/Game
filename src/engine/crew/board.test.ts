@@ -1,12 +1,15 @@
 // v0.6 roster board (UPDATE-0.6.md §F1): rows, drop-target verdicts, moving a duty or a trip, locks, forced
 // illegal moves, late-change morale, purity.
 
+import { readFileSync } from 'node:fs';
+import LZString from 'lz-string';
 import { describe, expect, it } from 'vitest';
+import { deserialize } from '../save';
 import { DAY } from '../core/time';
 import type { GameState, Pairing } from '../core/types';
 import { demoFlights } from '../dev';
 import { addCrew, fixtureGame, seasonBase } from './fixtures';
-import { autoRoster, crewCalendar, dropTargets, flightCrewStatus, moveDuty, rerosterFrom, rosterBoard, rosterOf } from '.';
+import { autoRoster, crewCalendar, dropTargets, dutyLegality, flightCrewStatus, moveDuty, rerosterFrom, rosterBoard, rosterOf } from '.';
 import { touchCrew } from './timeline';
 
 function rostered(seed = 5): GameState {
@@ -188,4 +191,54 @@ describe('moving duties', () => {
     dropTargets(g, p.dutyIds[0], cc, 'trip');
     expect(performance.now() - t0).toBeLessThan(400);
   });
+
+  it('dropTargets green ⇒ moveDuty works; a refused move changes nothing (v0.5.2 fixture, both scopes)', () => {
+    const raw = LZString.decompressFromBase64(readFileSync(new URL('../fixtures/save-v052.lz.txt', import.meta.url), 'utf8'))!;
+    const g0 = deserialize(raw);
+    let tried = 0;
+    for (const scope of ['duty', 'trip'] as const) {
+      for (const c of Object.values(g0.crew).filter((_, i) => i % 3 === 0)) {
+        const d = rosterOf(g0, c.id, g0.now, g0.now + 10 * DAY).find((x) => !x.done && x.report > g0.now);
+        if (!d) continue;
+        const t = dropTargets(g0, d.id, c.id, scope);
+        for (const v of Object.values(t).filter((x) => x.level === 'legal' || x.level === 'tight').slice(0, 3)) {
+          const g = deserialize(raw);
+          const r = moveDuty(g, d.id, c.id, v.crewId, scope);
+          expect(r.ok ? '' : `${scope} ${c.id}→${v.crewId} "${v.reason}": ${r.error}`).toBe('');
+          tried++;
+        }
+        // A refused move (ineligible target) leaves the state as it was.
+        const no = Object.values(t).find((x) => x.level === 'ineligible' && x.crewId !== c.id);
+        if (no) {
+          const g = deserialize(raw);
+          const before = JSON.stringify(g);
+          expect(moveDuty(g, d.id, c.id, no.crewId, scope).ok).toBe(false);
+          expect(JSON.stringify(g)).toBe(before);
+        }
+      }
+    }
+    expect(tried).toBeGreaterThan(30);
+  }, 60_000);
+
+  it('duty scope: the verdict names what the source is left with, and the move re-plans their next duty', () => {
+    const raw = LZString.decompressFromBase64(readFileSync(new URL('../fixtures/save-v052.lz.txt', import.meta.url), 'utf8'))!;
+    const g0 = deserialize(raw);
+    let found = false;
+    for (const c of Object.values(g0.crew)) {
+      for (const d of rosterOf(g0, c.id, g0.now, g0.now + 10 * DAY).filter((x) => !x.done && x.report > g0.now)) {
+        const hit = Object.values(dropTargets(g0, d.id, c.id, 'duty')).find((v) => v.level === 'legal' && v.kind === 'assign' && /DH /.test(v.source ?? ''));
+        if (!hit) continue;
+        expect(hit.reason).toContain(hit.source!);
+        const g = deserialize(raw);
+        expect(moveDuty(g, d.id, c.id, hit.crewId, 'duty').ok).toBe(true);
+        // The source's next duty is legal (positioned), not left stranded.
+        const next = rosterOf(g, c.id, d.release, d.release + 10 * DAY).find((x) => !x.done);
+        if (next) expect(dutyLegality(g, next.id).warnings.filter((w) => w.crewId === c.id && w.level === 'illegal')).toEqual([]);
+        found = true;
+        break;
+      }
+      if (found) break;
+    }
+    expect(found).toBe(true);
+  }, 30_000);
 });
