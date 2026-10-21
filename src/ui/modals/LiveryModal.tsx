@@ -51,18 +51,40 @@ function CompanyLivery() {
   const save = () => {
     if (store.act((gg) => setCompanyLivery(gg, lv)).ok) close();
   };
+  // "Use on all aircraft" asks first, as on the Company screen; Cancel keeps the editor open
+  const [ask, setAsk] = useState(false);
+  const fleet = Object.values(g.fleet);
+  const isLocked = (id: string) => paintStatus(g, id).locked;
+  const locked = fleet.filter((ac) => isLocked(ac.id)).length;
+  const others = fleet.filter((ac) => !isLocked(ac.id) && (ac.livery ?? 'company') !== 'company').length;
   const applyAll = () => {
+    setAsk(false);
     if (!store.act((gg) => setCompanyLivery(gg, lv), { toastOk: false }).ok) return;
     if (store.act((gg) => setFleetLivery(gg, 'company')).ok) close();
   };
   return (
-    <Sheet title="Company livery" onClose={close}>
+    <>
+    <Sheet title="Company livery" onClose={ask ? () => setAsk(false) : close}>
       <LiveryEditor
         value={lv} onChange={setLv} code={c.code} name={c.name} mode="company" types={previewTypes(fleetTypes(g))}
-        onApplyAll={applyAll} onSave={save} onCancel={close} resetTo={c.livery}
+        onApplyAll={() => setAsk(true)} onSave={save} onCancel={close} resetTo={c.livery}
         footer={<span className="lv-foot-note">Free and instant. Aircraft in client colours keep them.</span>}
       />
     </Sheet>
+    {ask && (
+      <Modal title="Company livery on every aircraft?" onClose={() => setAsk(false)} footer={
+        <>
+          <button className="btn" onClick={() => setAsk(false)}>Cancel</button>
+          <button className="btn btn-primary" onClick={applyAll}>Use on all aircraft</button>
+        </>
+      }>
+        <p className="muted">
+          Saves this livery{others > 0 ? ` and puts ${others} aircraft with their own livery back in the company colours` : ' for the whole fleet'}.
+          {locked ? ` ${locked} in client colours keep them.` : ''} Free and instant.
+        </p>
+      </Modal>
+    )}
+    </>
   );
 }
 

@@ -399,7 +399,7 @@ const ACTIONS = {
 
 /** v0.5.1: a booked client paint-in (signs a forced paint offer once); returns the maintenance id. */
 async function ensurePaintBooked(page) {
-  const find = () => page.evaluate(() => Object.values(window.__contrail.game.maintenance).find((m) => m.kind === 'paint' && m.status !== 'cancelled' && m.paint && m.paint.phase === 'in')?.id);
+  const find = () => page.evaluate(() => Object.values(window.__contrail.game.maintenance).find((m) => m.kind === 'paint' && (m.status === 'planned' || m.status === 'inWork') && m.paint && m.paint.phase === 'in')?.id);
   let id = await find();
   if (!id) {
     await page.evaluate(() => window.__contrail.dev.paintJob('full', 60));

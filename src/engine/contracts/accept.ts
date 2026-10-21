@@ -102,7 +102,7 @@ export function acceptOffer(g: GameState, offerId: string, aircraftIds: string[]
   // Paint-in first, so the positioning to the job is planned from the paint shop.
   for (const id of Object.keys(slots)) {
     const err = bookPaint(g, c, id, 'in', slots[id]);
-    if (err) pushMessage(g, { tone: 'warn', cat: 'tech', title: `Paint not booked: ${g.fleet[id].reg}`, body: `${err}. It flies ${c.title} in our colours.`, ref: { kind: 'aircraft', id } });
+    if (err) pushMessage(g, { tone: 'warn', cat: 'tech', title: `Paint not booked: ${g.fleet[id].reg}`, body: `${err}. It flies ${c.title} without the client's livery.`, ref: { kind: 'aircraft', id } });
   }
   generateFlights(g, c);
   // Charter money: deposit now, balance per trip 7–14 days before it (DESIGN §5.1.9); governments pay after the job.

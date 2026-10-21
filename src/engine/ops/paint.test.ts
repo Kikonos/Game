@@ -104,6 +104,8 @@ describe('client liveries', () => {
       expect(clientLivery(c, 'full')).toEqual(full);
       expect(normaliseLivery(full)).toEqual(full);
       expect(full.plain).toBeUndefined();
+      // A two-tone fin never gets a logo in either fin colour.
+      if (full.tail !== 'solid') expect([full.primary, full.secondary]).not.toContain(full.logo!.color);
       const dec = clientLivery(c, 'decals');
       expect(dec).toMatchObject({ primary: '#ffffff', plain: true });
       expect(dec.logo!.id === 'mono' || LOGO_IDS.includes(dec.logo!.id as never)).toBe(true);

@@ -2,7 +2,7 @@
 
 import type { RatingFamily } from '../../data/acmiTypes';
 import { BAL } from '../../engine/core/balance';
-import { DAY, HOUR, fmtDay, monthKey } from '../../engine/core/time';
+import { DAY, HOUR, fmtDay, monthKey, toLocal } from '../../engine/core/time';
 import { mghInMonth } from '../../engine/contracts/pricing';
 import type { IdleWindow } from '../../engine/contracts/offers';
 import type {
@@ -16,6 +16,16 @@ export const ARCH_LABEL: Record<Archetype, string> = {
   tourSeries: 'Tour series', troopRotation: 'Troop rotation', capacityLease: 'Capacity lease', hajj: 'Hajj', unRotation: 'UN rotation', vip: 'VIP charter',
   deportation: 'Deportation', evacuation: 'Evacuation', humanitarian: 'Humanitarian', subcharterIn: 'Sub-charter', dryLeaseOut: 'Dry lease out',
 };
+
+/** Category label; a season base of 120 days or more is long-term, as its title says. */
+export function archLabel(o: Pick<ContractOffer, 'archetype' | 'start' | 'end'>): string {
+  return o.archetype === 'seasonBase' && Math.round((o.end - o.start) / DAY) >= 120 ? 'Long-term ACMI base' : ARCH_LABEL[o.archetype];
+}
+
+/** First and last day of an offer as its blurb reads them: a base in its local days, else UTC. Format with fmtDay / fmtDate. */
+export function offerDays(o: Pick<ContractOffer, 'pattern' | 'start' | 'end'>): [number, number] {
+  return o.pattern.kind === 'base' ? [toLocal(o.pattern.base, o.start), toLocal(o.pattern.base, o.end - 1)] : [o.start, o.end];
+}
 
 export const ROLES: Role[] = ['CPT', 'FO', 'CRP', 'CSD', 'SCC', 'CC'];
 export const ROLE_LABEL: Record<Role, string> = { CPT: 'Captain', FO: 'First officer', CRP: 'Relief pilot', CSD: 'Purser (CSD)', SCC: 'Senior cabin crew', CC: 'Cabin crew' };

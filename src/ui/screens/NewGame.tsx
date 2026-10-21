@@ -123,12 +123,14 @@ export function NewGame() {
               <label>Primary colour</label>
               <div className="swatches">
                 {PALETTE.map((c) => <button key={c} className={`swatch ${livery.primary === c ? 'on' : ''}`} style={{ background: c }} onClick={() => setLivery({ ...livery, primary: c })} aria-label={`Primary ${c}`} />)}
+                {!PALETTE.includes(livery.primary) && <button className="swatch on custom" style={{ background: livery.primary }} onClick={() => setEditing(true)} aria-label={`Primary ${livery.primary} (custom)`} title="Custom colour" />}
               </div>
             </div>
             <div className="field">
               <label>Accent colour</label>
               <div className="swatches">
                 {SECONDARY.map((c) => <button key={c} className={`swatch ${livery.secondary === c ? 'on' : ''}`} style={{ background: c }} onClick={() => setLivery({ ...livery, secondary: c })} aria-label={`Accent ${c}`} />)}
+                {!SECONDARY.includes(livery.secondary) && <button className="swatch on custom" style={{ background: livery.secondary }} onClick={() => setEditing(true)} aria-label={`Accent ${livery.secondary} (custom)`} title="Custom colour" />}
               </div>
             </div>
             <div className="field ng-tail">

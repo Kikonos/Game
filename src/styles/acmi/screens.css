@@ -317,7 +317,7 @@
   background: repeating-linear-gradient(45deg, var(--pc, #8a96b3) 0 5px, color-mix(in srgb, var(--pc, #8a96b3) 55%, #1b2436) 5px 10px);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28); color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
 }
-.gl-paint { background: repeating-linear-gradient(45deg, #c2410c 0 4px, #7c2d12 4px 8px); }
+.gl-paint { background: repeating-linear-gradient(45deg, var(--pc, #8a96b3) 0 4px, color-mix(in srgb, var(--pc, #8a96b3) 55%, #1b2436) 4px 8px); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28); }
 .gantt-ac-reg { min-width: 0; }
 .gantt-ac-reg svg { flex-shrink: 0; }
 /* Fleet card livery row */

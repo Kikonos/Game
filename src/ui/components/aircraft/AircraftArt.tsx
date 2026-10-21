@@ -12,7 +12,7 @@ import { FONT_STACK } from './fontMetrics';
 import { geometry, pathPoly, type Geometry } from './geometry';
 import { LogoGlyph } from './logos';
 import { PROFILE_BY_ID } from './specs';
-import { boxCorners, inPoly, stickerLayout, type StickerBox } from './stickers';
+import { boxSamples, inPoly, sideAt, stickerLayout, type StickerBox } from './stickers';
 import { tracedFor } from './traced/load';
 import type { TracedProfile } from './traced/types';
 import type { AircraftProfile } from './types';
@@ -152,32 +152,75 @@ export function autoBodyInk(lv: Livery): string {
   return contrast(lv.primary, '#ffffff') >= 1.6 ? lv.primary : contrast(lv.secondary, '#ffffff') >= 1.6 ? lv.secondary : INK;
 }
 
-/** Fin lettering on the scheme's second-colour area (split / stripe bands): primary, else white / ink. */
+/** Lettering on the scheme's second-colour area (split / stripe bands, sweep stripe): primary, else white / ink. */
 function inkOnSecondary(lv: Livery): string {
   return contrast(lv.primary, lv.secondary) >= 2.2 ? lv.primary : lum(lv.secondary) < 0.4 ? '#ffffff' : INK;
 }
 
-const finAreas = new Map<string, ReturnType<typeof pathPoly>[]>();
-/** Is a viewBox point on the scheme's second-colour fin area? */
-function onFinSecondary(d: string, X: number, Y: number): boolean {
+/** Paint a sticker can sit on: white body (or an all-white livery), the livery colour, or its second colour. */
+type Ground = 'white' | 'primary' | 'secondary';
+const groundColour = (lv: Livery, gr: Ground) => (gr === 'white' ? '#ffffff' : gr === 'primary' ? lv.primary : lv.secondary);
+/** Auto lettering on one ground (as v0.5: second colour on the fin colour, primary on white). */
+function inkOn(lv: Livery, gr: Ground): string {
+  if (gr === 'white') return autoBodyInk(lv);
+  return gr === 'primary' ? autoFinInk(lv) : inkOnSecondary(lv);
+}
+
+const areas = new Map<string, ReturnType<typeof pathPoly>[]>();
+/** Is a viewBox point inside a livery area path (several subpaths)? */
+function onArea(d: string, X: number, Y: number): boolean {
   if (!d) return false;
-  let polys = finAreas.get(d);
-  if (!polys) finAreas.set(d, (polys = d.split(/(?=M)/).filter(Boolean).map((s) => pathPoly(s))));
+  let polys = areas.get(d);
+  if (!polys) areas.set(d, (polys = d.split(/(?=M)/).filter(Boolean).map((s) => pathPoly(s))));
   return polys.some((q) => inPoly(q, [-X, -Y]));
 }
 
-/** Auto ink for fin lettering: against the fin colour, the second-colour area, or both when it straddles the divide. */
-function finTextInk(lv: Livery, finArea: string, b: StickerBox): string {
-  const pts = [[b.cx, b.cy] as const, ...boxCorners(b)];
-  const on = pts.map(([x, y]) => onFinSecondary(finArea, x, y));
-  if (!on.some(Boolean)) return autoFinInk(lv);
-  if (on.every(Boolean)) return inkOnSecondary(lv);
-  const score = (c: string) => Math.min(contrast(c, lv.primary), contrast(c, lv.secondary));
-  return [lv.secondary, lv.primary, '#ffffff', INK].reduce((a, c) => (score(c) > score(a) + 0.01 ? c : a));
+/** Paint under a viewBox point as drawn (the fin over the crown, the second colour over the first); null off the airframe. */
+function groundAt(typeId: string, lv: Livery, X: number, Y: number): Ground | null {
+  const side = sideAt(typeId, X, Y);
+  if (!side) return null;
+  if (lv.plain) return 'white';
+  const a = artGeometry(typeId).livery(lv.tail);
+  if (side === 'fin') return onArea(a.fin, X, Y) ? 'secondary' : 'primary';
+  return onArea(a.fus2, X, Y) ? 'secondary' : onArea(a.fus, X, Y) ? 'primary' : 'white';
 }
 
-/** Background a sticker sits on (for contrast warnings): the fin colour or the white fuselage. */
-export function stickerGround(lv: Livery, side: 'fin' | 'fuselage'): string {
+/** Share of a sticker box's visible part on each ground, largest first (7 × 5 samples; empty when wholly clipped). */
+function groundsUnder(typeId: string, lv: Livery, b: StickerBox): [Ground, number][] {
+  const n = new Map<Ground, number>();
+  let k = 0;
+  for (const [X, Y] of boxSamples(b, 7, 5)) {
+    const gr = groundAt(typeId, lv, X, Y);
+    if (!gr) continue;
+    n.set(gr, (n.get(gr) ?? 0) + 1);
+    k++;
+  }
+  return [...n].map(([gr, c]): [Ground, number] => [gr, c / k]).sort((a, b) => b[1] - a[1]);
+}
+
+/**
+ * Auto lettering colour for a sticker box: the usual ink of the ground under most of it; when it
+ * straddles grounds (≥ 10 % each) and that ink fails on one, the colour with the best worst-case
+ * contrast — unless that is still weak and one ground holds ≥ 60 % of the box.
+ */
+export function stickerInk(typeId: string, lv: Livery, b: StickerBox): string {
+  const sig = groundsUnder(typeId, lv, b).filter(([, s]) => s >= 0.1);
+  if (!sig.length) return b.side === 'fin' ? autoFinInk(lv) : autoBodyInk(lv);
+  const pref = inkOn(lv, sig[0][0]);
+  if (sig.length === 1) return pref;
+  const score = (c: string) => Math.min(...sig.map(([gr]) => contrast(c, groundColour(lv, gr))));
+  if (score(pref) >= 2.2) return pref;
+  const best = [lv.secondary, lv.primary, '#ffffff', INK].reduce((a, c) => (score(c) > score(a) + 0.01 ? c : a));
+  return score(best) >= 3 || sig[0][1] < 0.6 ? best : pref;
+}
+
+/**
+ * Background a sticker sits on (for contrast warnings): with its box, the paint under most of it;
+ * without, the fin colour or the white fuselage.
+ */
+export function stickerGround(lv: Livery, side: 'fin' | 'fuselage', at?: { typeId: string; box: StickerBox }): string {
+  const top = at && groundsUnder(at.typeId, lv, at.box)[0];
+  if (top) return groundColour(lv, top[0]);
   return side === 'fin' && !lv.plain ? lv.primary : '#ffffff';
 }
 
@@ -215,8 +258,6 @@ function AircraftArtImpl({ typeId, livery, code, name, className, height, detail
   const primary = livery.primary;
   const secondary = livery.secondary;
   const plain = !!livery.plain;
-  const finInk = autoFinInk(livery);
-  const bodyInk = autoBodyInk(livery);
 
   const style = pxPerM ? { width: vb.w * pxPerM, height: vb.h * pxPerM } : { height, width: '100%' };
 
@@ -243,7 +284,7 @@ function AircraftArtImpl({ typeId, livery, code, name, className, height, detail
           x={Math.round(((b.spacing ?? 0) * fs * 1000) / 2) / 1000}
           y={Math.round((b.baseline ?? 0) * 1000) / 1000}
           fontSize={Math.round(fs * 1000) / 1000}
-          fill={t?.color ?? (b.side !== 'fin' ? bodyInk : plain ? finInk : finTextInk(livery, lv.fin, b))}
+          fill={t?.color ?? stickerInk(typeId, livery, b)}
           textAnchor="middle"
           style={{ fontFamily: FONT_STACK, fontWeight: b.weight ?? 700, letterSpacing: `${b.spacing ?? 0}em` }}
         >

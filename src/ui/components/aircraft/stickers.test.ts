@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import type { Livery, TailStyle } from '../../../engine/core/types';
-import { artGeometry } from './AircraftArt';
+import { artGeometry, contrast, stickerGround, stickerInk } from './AircraftArt';
 import { pathPoly } from './geometry';
 import { PROFILE_BY_ID } from './specs';
 import {
-  boxCorners, defaultStickers, finInset, frameToView, hitBox, inPoly, placeAt, sideAt, stickerLayout, viewToFrame,
+  boxCorners, defaultStickers, finInset, frameToView, hitBox, inPoly, MIN_VISIBLE, placeAt, sideAt, stickerLayout, viewToFrame, visibleShare,
 } from './stickers';
 import { TRACED } from './traced/load';
 
@@ -103,8 +103,9 @@ describe('legacy liveries', () => {
         const [code, titles] = stickerLayout(id, lv(tail), { code: 'BH', name: 'Block Hours' });
         expect(code.kind).toBe('code');
         expect(code.side).toBe('fin');
-        // same anchor line as v0.5 (or within 12 % of the fin when that gives clearly bigger letters)
-        expect(Math.abs(code.cy - -g.livery(tail).code.y)).toBeLessThanOrEqual((g.fin.top - g.H / 2) * 0.13);
+        // same anchor line as v0.5 (or within 12 % of the fin when that gives clearly bigger letters,
+        // up to ~24 % to step off the scheme's colour divide, e.g. the 737 split)
+        expect(Math.abs(code.cy - -g.livery(tail).code.y), `${id} ${tail}`).toBeLessThanOrEqual((g.fin.top - g.H / 2) * 0.25);
         expect(titles.kind).toBe('titles');
         expect(titles.cy).toBeCloseTo(-g.titles.y, 6);
       }
@@ -201,4 +202,36 @@ describe('inPoly', () => {
     expect(inPoly(sq, [1.5, 0.5])).toBe(false);
     expect(pathPoly('M0 0L2 0L2 -2Z')).toEqual([[0, -0], [2, -0], [2, 2]]);
   });
+});
+
+describe('auto lettering reads on the paint under it', () => {
+  const PAIRS: [string, string][] = [['#1e4fd8', '#3ee6ff'], ['#0b1f4d', '#f5c451'], ['#7a1030', '#f0b400'], ['#ffffff', '#0b1f4d'], ['#1a7a3a', '#ffffff']];
+  it('the auto fin code is at least 3:1 against its ground for every type, scheme and colour pair', () => {
+    for (const id of IDS) for (const tail of SCHEMES) for (const [primary, secondary] of PAIRS) {
+      const l = lv(tail, { primary, secondary });
+      const b = stickerLayout(id, l, { code: 'XQZ' }).find((x) => x.kind === 'code')!;
+      expect(contrast(stickerInk(id, l, b), stickerGround(l, 'fin', { typeId: id, box: b })), `${id} ${tail} ${primary}/${secondary}`).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it('titles dragged onto the painted fuselage switch ink, and the warning ground is that paint', () => {
+    const l = lv('sweep', { primary: '#0b1f4d', secondary: '#f5c451', stickers: [{ id: 'titles', kind: 'titles', side: 'fuselage', x: 0.85, y: 0.6, scale: 1 }] });
+    const b = stickerLayout('a320ceo', l, { name: 'Atlantica Wings' })[0];
+    expect(stickerGround(l, 'fuselage', { typeId: 'a320ceo', box: b })).toBe('#0b1f4d');
+    expect(contrast(stickerInk('a320ceo', l, b), '#0b1f4d')).toBeGreaterThan(3);
+    // on the white forward fuselage: primary, as v0.5
+    const w = stickerLayout('a320ceo', lv('sweep', { primary: '#0b1f4d', secondary: '#f5c451' }), { name: 'Atlantica Wings' }).find((x) => x.kind === 'titles')!;
+    expect(stickerInk('a320ceo', lv('sweep', { primary: '#0b1f4d', secondary: '#f5c451' }), w)).toBe('#0b1f4d');
+  });
+});
+
+describe('placed stickers never vanish', () => {
+  it('a sticker saved at any frame extreme is drawn with at least MIN_VISIBLE of it on the airframe', () => {
+    const ends = [[0, 0], [0, 1], [1, 0], [1, 1], [0.5, 0], [0.5, 1], [0, 0.5], [1, 0.5]];
+    for (const id of IDS) for (const kind of ['code', 'titles', 'logo'] as const) for (const side of ['fin', 'fuselage'] as const) for (const [x, y] of ends) {
+      const l = lv('solid', { logo: { id: 'arc', color: '#ffffff' }, stickers: [{ id: kind, kind, side, x, y, scale: 1 }] });
+      const b = stickerLayout(id, l, { code: 'W7', name: 'Atlantica Wings' })[0];
+      expect(visibleShare(id, b), `${id} ${kind} ${side} ${x},${y}`).toBeGreaterThanOrEqual(MIN_VISIBLE);
+    }
+  }, 30000);
 });

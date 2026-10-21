@@ -2,6 +2,8 @@ import { useId } from 'react';
 import type { Livery } from '../../engine/core/types';
 import { autoFinInk } from './aircraft/AircraftArt';
 import { LogoGlyph } from './aircraft/logos';
+import { textWidthEm } from './aircraft/fontMetrics';
+import { stickersOf } from './aircraft/stickers';
 
 const PLANE = 'M12 2c.8 0 1.3 1 1.3 2.2v5.3L21 14v2l-7.7-2.4v4.7l2.3 1.7v1.6L12 20.6l-3.6 1V20l2.3-1.7v-4.7L3 16v-2l7.7-4.5V4.2C10.7 3 11.2 2 12 2z';
 
@@ -64,8 +66,17 @@ export function TailBadge({ primary, secondary, code, size = 34, livery }: { pri
   const uid = useId().replace(/:/g, '');
   const lv: Livery = livery ?? { primary, secondary, tail: 'stripe' };
   const fin = lv.plain ? '#eef1f6' : lv.primary;
-  const text = (lv.code?.text ?? code).toUpperCase();
+  const text = (lv.code?.text ?? code).trim().toUpperCase();
   const ink = lv.code?.color ?? autoFinInk(lv);
+  // what the real fin wears: a fin logo, else the code sticker on the fin (legacy badge: the code)
+  const fin0 = livery ? stickersOf(lv).filter((s) => s.side === 'fin') : [];
+  const showLogo = !!livery?.logo && fin0.some((s) => s.kind === 'logo');
+  const showCode = !!text && !showLogo && (!livery || fin0.some((s) => s.kind === 'code'));
+  // letters fitted to the fin between its slanted edges (cap top y≈27, baseline 34: ~17 units wide);
+  // a sweep band covers the leading edge, so the code sits right of it (~13 units)
+  const sweep = !!livery && !lv.plain && lv.tail === 'sweep';
+  const room = sweep ? 13.2 : 17;
+  const fs = text ? Math.min(10, room / textWidthEm(text, lv.code?.weight ?? 700, 0.02)) : 10;
   const FIN = 'M6 40 L20 4 L34 4 L28 40 Z';
   // scheme areas inside the badge fin (legacy badge = the accent band, kept for callers without a livery)
   const area = !livery ? 'M17 40 L27 14 L34 14 L30 40 Z'
@@ -89,20 +100,20 @@ export function TailBadge({ primary, secondary, code, size = 34, livery }: { pri
         <path d={FIN} fill={fin} />
         <g clipPath={`url(#tf-${uid})`}>
           {area && <path d={area} fill={lv.secondary} opacity="0.95" />}
-          {livery?.logo && (
-            <g transform="translate(14 9) scale(0.18)"><LogoGlyph logo={livery.logo} /></g>
+          {showLogo && (
+            <g transform="translate(14 9) scale(0.18)"><LogoGlyph logo={livery!.logo!} /></g>
+          )}
+          {showCode && (
+            <text
+              x={sweep ? 22 : 20.2} y="34" textAnchor="middle" fontFamily="Space Grotesk Variable, sans-serif" fontWeight={lv.code?.weight ?? 700} fontSize={fs.toFixed(2)}
+              fill={livery ? ink : '#fff'} opacity="0.92"
+              stroke={livery ? 'rgba(13,20,36,0.55)' : undefined} strokeWidth={livery ? 0.6 : undefined} paintOrder="stroke"
+            >
+              {text}
+            </text>
           )}
         </g>
       </g>
-      {!livery?.logo && (
-        <text
-          x="20" y="36" textAnchor="middle" fontFamily="Space Grotesk Variable, sans-serif" fontWeight={lv.code?.weight ?? 700} fontSize="10"
-          fill={livery ? ink : '#fff'} opacity="0.92"
-          stroke={livery ? 'rgba(13,20,36,0.55)' : undefined} strokeWidth={livery ? 0.6 : undefined} paintOrder="stroke"
-        >
-          {text}
-        </text>
-      )}
     </svg>
   );
 }

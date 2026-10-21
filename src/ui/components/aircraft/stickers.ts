@@ -219,8 +219,8 @@ function fitRect(poly: readonly V[], a: V, aspect: number, m: number, maxH: numb
 }
 
 const insets = new Map<string, Rect | null>();
-function finRect(typeId: string, scheme: TailStyle, aspect: number): Rect | null {
-  const key = `${typeId}|${scheme}|${aspect.toFixed(3)}`;
+function finRect(typeId: string, scheme: TailStyle, aspect: number, capH = Infinity): Rect | null {
+  const key = `${typeId}|${scheme}|${aspect.toFixed(3)}|${capH.toFixed(3)}`;
   if (insets.has(key)) return insets.get(key)!;
   const { g, fin } = framesOf(typeId);
   const q = g.fin.quad;
@@ -228,15 +228,48 @@ function finRect(typeId: string, scheme: TailStyle, aspect: number): Rect | null
   const a = finAt(q, s, t);
   const chord = Math.hypot(...([0, 1].map((i) => finAt(q, 1, t)[i] - finAt(q, 0, t)[i]) as [number, number]));
   const height = Math.max(...fin.map((v) => v[1])) - Math.min(...fin.map((v) => v[1]));
+  const at = (dy: number) => fitRect(fin, [a[0], a[1] + dy * height], aspect, chord * 0.04, height * 0.9);
   // the anchor height, or up to 12 % of the fin away when that gives clearly bigger letters
-  let r = fitRect(fin, a, aspect, chord * 0.04, height * 0.9);
+  let r = at(0);
   const size = (x: Rect | null) => (x ? Math.min(x.w / aspect, x.h) : 0);
   for (const dy of [0.06, -0.06, 0.12, -0.12]) {
-    const o = fitRect(fin, [a[0], a[1] + dy * height], aspect, chord * 0.04, height * 0.9);
+    const o = at(dy);
     if (size(o) > size(r) * (1.12 + Math.abs(dy))) r = o;
+  }
+  // letters straddling the scheme's colour divide read on neither side: move off it when that keeps most of the size
+  const straddles = (x: Rect | null) => {
+    if (!x) return false;
+    const h = Math.min(x.h, x.w / aspect, capH), v = secondShare(typeId, scheme, { cx: x.cx, cy: x.cy, w: h * aspect, h });
+    return v > 0.04 && v < 0.96;
+  };
+  if (straddles(r)) {
+    let best: Rect | null = null;
+    for (const dy of [-0.06, 0.06, -0.12, 0.12, -0.18, 0.18, -0.24]) {
+      const o = at(dy);
+      if (!straddles(o) && size(o) >= size(r) * 0.6 && size(o) > size(best)) best = o;
+    }
+    if (best) r = best;
   }
   insets.set(key, r);
   return r;
+}
+
+/** Share of a world-coords rect on the scheme's second-colour fin area (9 × 5 samples). */
+const finSecond = new Map<string, V[][]>();
+function secondShare(typeId: string, scheme: TailStyle, r: Rect): number {
+  const key = `${typeId}|${scheme}`;
+  let polys = finSecond.get(key);
+  if (!polys) {
+    const d = framesOf(typeId).g.livery(scheme).fin;
+    finSecond.set(key, (polys = d ? d.split(/(?=M)/).filter(Boolean).map((x) => pathPoly(x)) : []));
+  }
+  if (!polys.length) return 0;
+  let k = 0;
+  for (let i = 0; i < 9; i++) for (let j = 0; j < 5; j++) {
+    const p: V = [r.cx + (i / 8 - 0.5) * r.w, r.cy + (j / 4 - 0.5) * r.h];
+    if (polys.some((x) => inPoly(x, p))) k++;
+  }
+  return k / 45;
 }
 
 /** Biggest square inside the fin (any height between 20 % and 65 % of it): the auto tail logo, whatever the scheme. */
@@ -328,7 +361,8 @@ export function stickerLayout(typeId: string, lv: Livery, defaults: StickerTexts
       }
       side *= scale;
       if (detail === 'simple' && st.side === 'fuselage' && side < g.L * MINI_LOGO) continue;
-      boxes.set(st.id, { id: st.id, kind: 'logo', side: st.side, cx: (at ?? c)[0], cy: (at ?? c)[1], w: side, h: side, rot });
+      const p = at ? pullOn(typeId, st, { cx: at[0], cy: at[1], w: side, h: side, rot }) : c;
+      boxes.set(st.id, { id: st.id, kind: 'logo', side: st.side, cx: p[0], cy: p[1], w: side, h: side, rot });
       continue;
     }
     const text = stickerText(lv, st.kind, defaults);
@@ -341,7 +375,7 @@ export function stickerLayout(typeId: string, lv: Livery, defaults: StickerTexts
     const hEm = ink.asc + ink.desc;
     let fs: number, c: V;
     if (st.side === 'fin') {
-      const r = finRect(typeId, scheme, wEm / hEm);
+      const r = finRect(typeId, scheme, wEm / hEm, st.kind === 'code' ? cap * hEm : Infinity);
       // never bigger than v0.5's letters; never outside the inset
       fs = r ? Math.min(r.h / hEm, r.w / wEm, st.kind === 'code' ? cap : Infinity) : fallback;
       c = r ? toView([r.cx, r.cy]) : toView([legacy.x, legacy.y]);
@@ -355,7 +389,8 @@ export function stickerLayout(typeId: string, lv: Livery, defaults: StickerTexts
     }
     if (st.kind === 'titles' && st.side === 'fuselage' && !custom) titlesEnd = band.x + fs * wEm;
     fs *= scale;
-    const p = at ?? c;
+    // a placed sticker never vanishes: mostly off the airframe, it is drawn pulled back on
+    const p = at ? pullOn(typeId, st, { cx: at[0], cy: at[1], w: fs * wEm, h: fs * hEm, rot }) : c;
     boxes.set(st.id, {
       id: st.id, kind: st.kind, side: st.side, cx: p[0], cy: p[1], w: fs * wEm, h: fs * hEm, rot,
       fontSize: fs, text, baseline: ((ink.asc - ink.desc) / 2) * fs, weight, spacing,
@@ -384,6 +419,50 @@ export function hitBox(b: Pick<StickerBox, 'cx' | 'cy' | 'w' | 'h' | 'rot'>, X: 
   const dx = X - b.cx, dy = Y - b.cy;
   const u = dx * c - dy * s, v = dx * s + dy * c;
   return Math.abs(u) <= b.w / 2 + pad && Math.abs(v) <= b.h / 2 + pad;
+}
+
+/** nu × nv sample points spread over a (rotated) box, corners included; viewBox coords. */
+export function boxSamples(b: Pick<StickerBox, 'cx' | 'cy' | 'w' | 'h' | 'rot'>, nu: number, nv: number): V[] {
+  const r = (b.rot * Math.PI) / 180, c = Math.cos(r), s = Math.sin(r);
+  const out: V[] = [];
+  for (let i = 0; i < nu; i++) for (let j = 0; j < nv; j++) {
+    const x = (i / (nu - 1) - 0.5) * b.w, y = (j / (nv - 1) - 0.5) * b.h;
+    out.push([b.cx + x * c - y * s, b.cy + x * s + y * c]);
+  }
+  return out;
+}
+
+/** Share of a box on the airframe (fin or fuselage tube): what survives the renderer's clip. */
+export function visibleShare(typeId: string, b: Pick<StickerBox, 'cx' | 'cy' | 'w' | 'h' | 'rot'>): number {
+  const pts = boxSamples(b, 9, 5);
+  return pts.filter(([X, Y]) => sideAt(typeId, X, Y)).length / pts.length;
+}
+
+/** A placed sticker keeps at least this share on the airframe; less and the layout pulls it back on. */
+export const MIN_VISIBLE = 0.5;
+
+/** Centre for a placed box that is mostly off the airframe: walked toward the middle of its side until enough shows. */
+function pullOn(typeId: string, st: StickerPlacement, b: Pick<StickerBox, 'cx' | 'cy' | 'w' | 'h' | 'rot'>): V {
+  if (visibleShare(typeId, b) >= MIN_VISIBLE) return [b.cx, b.cy];
+  // target: the same station on the frame's middle line (fin: mid-chord), held off the ends
+  // then on toward the frame's middle
+  const x = clamp(st.x ?? 0.5, 0.1, 0.9), y = clamp(st.y ?? 0.5, 0.15, 0.85);
+  // last: a point surely inside (the fin's auto inset; a skewed trace's quad can sit off its outline)
+  const fi = st.side === 'fin' ? finInset(typeId, 'solid') : undefined;
+  const mid: V = fi ? [fi.cx, fi.cy] : frameToView(typeId, 'fuselage', 0.5, 0.5);
+  let from: V = [b.cx, b.cy];
+  for (const goal of [st.side === 'fin' ? frameToView(typeId, 'fin', 0.5, y) : frameToView(typeId, 'fuselage', x, 0.5), mid]) {
+    const at = (k: number): V => [lerp(from[0], goal[0], k), lerp(from[1], goal[1], k)];
+    const ok = (k: number) => { const p = at(k); return visibleShare(typeId, { ...b, cx: p[0], cy: p[1] }) >= MIN_VISIBLE; };
+    if (ok(1)) {
+      // bisect for the first point on the way that shows enough (the drop stays as close as it can)
+      let lo = 0, hi = 1;
+      for (let i = 0; i < 8; i++) { const m = (lo + hi) / 2; if (ok(m)) hi = m; else lo = m; }
+      return at(hi);
+    }
+    from = goal;
+  }
+  return mid;
 }
 
 /** Placement for a sticker whose centre is dragged to viewBox (X, Y): the side under it (else its old side), frame coords clamped 0–1. */

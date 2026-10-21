@@ -163,15 +163,39 @@ export function normaliseLivery(l: Partial<Livery> | undefined, fallback: Livery
   return out;
 }
 
+const lum = (hex: string): number => {
+  const n = parseInt(hex.slice(1), 16);
+  const ch = (v: number) => { const c = v / 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+  return 0.2126 * ch((n >> 16) & 255) + 0.7152 * ch((n >> 8) & 255) + 0.0722 * ch(n & 255);
+};
+const contrast = (a: string, b: string): number => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+/** White or near-black for a fin logo: it sits on the fin base (p1) and the band only clips an edge,
+ *  so p1 counts three times as much as p2. Pure. */
+function finInk(p1: string, p2: string): string {
+  const score = (c: string) => Math.min(contrast(c, p1), 3 * contrast(c, p2));
+  return score('#ffffff') >= score('#0f172a') ? '#ffffff' : '#0f172a';
+}
+
+/** How the aircraft looks after a client strip: its own choice of livery. */
+function homeLook(g: GameState, ac: Aircraft): { to: string; in: string } {
+  const ref = ac.livery ?? 'company';
+  if (ref === 'white') return { to: 'back to plain white', in: 'back in plain white' };
+  if (typeof ref === 'object') return { to: 'back to its own livery', in: 'back in its own livery' };
+  return { to: `back to ${g.company.name} colours`, in: `back in ${g.company.name} colours` };
+}
+
 /** A client's livery (same client → same look on every contract). Generic colours and logos; no real marks. Pure. */
 export function clientLivery(client: Client, kind: PaintKind): Livery {
   const key = client.name;
   const un = isUN(client);
   const [p1, p2] = un ? ['#1f2937', '#4b92db'] : CLIENT_PALETTE[Math.floor(hashUnit(key) * CLIENT_PALETTE.length) % CLIENT_PALETTE.length];
   const mono = un || isGovernment(client) || client.kind === 'agency';
+  const tail = TAILS[Math.floor(hashUnit(`${key}#tail`) * TAILS.length) % TAILS.length];
+  // Full paint on a two-tone fin: the logo takes white or ink that reads on the fin, not the accent band's colour.
+  const ink = kind !== 'full' ? p1 : tail === 'solid' ? p2 : finInk(p1, p2);
   const lg: LiveryLogo = mono
-    ? { id: 'mono', color: kind === 'full' ? p2 : p1, color2: kind === 'full' ? p1 : p2, text: clientCode(client) }
-    : { id: CLIENT_LOGOS[Math.floor(hashUnit(`${key}#logo`) * CLIENT_LOGOS.length) % CLIENT_LOGOS.length], color: kind === 'full' ? p2 : p1, color2: kind === 'full' ? p1 : p2 };
+    ? { id: 'mono', color: ink, color2: kind === 'full' ? p1 : p2, text: clientCode(client) }
+    : { id: CLIENT_LOGOS[Math.floor(hashUnit(`${key}#logo`) * CLIENT_LOGOS.length) % CLIENT_LOGOS.length], color: ink, color2: kind === 'full' ? p1 : p2 };
   const stickers: StickerPlacement[] = [
     { id: 'logo', kind: 'logo', side: 'fin', scale: 1 },
     { id: 'titles', kind: 'titles', side: 'fuselage', scale: 1 },
@@ -179,7 +203,6 @@ export function clientLivery(client: Client, kind: PaintKind): Livery {
   if (kind === 'decals') {
     return { primary: '#ffffff', secondary: p1, tail: 'solid', plain: true, titles: { color: p1, weight: 700 }, code: { color: p1 }, logo: lg, stickers };
   }
-  const tail = TAILS[Math.floor(hashUnit(`${key}#tail`) * TAILS.length) % TAILS.length];
   return { primary: p1, secondary: p2, tail, titles: { weight: 700 }, logo: lg, stickers };
 }
 
@@ -295,7 +318,7 @@ export function bookPaint(g: GameState, c: Contract, aircraftId: string, phase: 
   const share = t.clientShare >= 1 ? 'all of it' : t.clientShare > 0 ? pct(t.clientShare) : 'nothing';
   pushMessage(g, phase === 'in'
     ? { tone: 'info', cat: 'tech', title: `Paint booked: ${ac.reg} in ${client} colours`, body: `${what} at ${city(m.at)}, ${fmtDay(m.start)}–${fmtDay(m.end)}. ${usd(cost)}; ${client} pays ${share}.`, ref: { kind: 'maint', id } }
-    : { tone: 'info', cat: 'tech', title: `Repaint booked: ${ac.reg} back to ${g.company.name} colours`, body: `${what} at ${city(m.at)}, ${fmtDay(m.start)}–${fmtDay(m.end)}. ${usd(cost)}${c.status === 'completed' && t.clientShare > 0 ? `; ${client} pays ${share}` : ''}.`, ref: { kind: 'maint', id } });
+    : { tone: 'info', cat: 'tech', title: `Repaint booked: ${ac.reg} ${homeLook(g, ac).to}`, body: `${what} at ${city(m.at)}, ${fmtDay(m.start)}–${fmtDay(m.end)}. ${usd(cost)}${c.status === 'completed' && t.clientShare > 0 ? `; ${client} pays ${share}` : ''}.`, ref: { kind: 'maint', id } });
   return null;
 }
 
@@ -333,7 +356,7 @@ export function onPaintEnd(g: GameState, m: MaintenanceEvent): void {
     if (amount > 0) invoice(g, { clientId: c.clientId, contractId: c.id, desc: `Paint: ${ac.reg} in ${client} colours`, amount, cat: 'otherRevenue', dueDays: c.payment.dueDays });
     pushMessage(g, {
       tone: 'good', cat: 'tech', title: `${ac.reg} now flies in ${client} colours`,
-      body: `Out of the paint shop at ${city(m.at)}. ${amount > 0 ? `${client} invoiced ${usd(amount)}.` : live ? `At our cost (${usd(m.cost)}).` : `${c.title} is cancelled: it goes back to our colours at the first slot.`}`,
+      body: `Out of the paint shop at ${city(m.at)}. ${amount > 0 ? `${client} invoiced ${usd(amount)}.` : live ? `At our cost (${usd(m.cost)}).` : `${c.title} is cancelled: it goes ${homeLook(g, ac).to} at the first slot.`}`,
       ref: { kind: 'aircraft', id: ac.id },
     });
     return;
@@ -343,7 +366,7 @@ export function onPaintEnd(g: GameState, m: MaintenanceEvent): void {
   const amount = c.status === 'completed' ? Math.round(m.cost * t.clientShare) : 0;
   if (amount > 0) invoice(g, { clientId: c.clientId, contractId: c.id, desc: `Repaint after ${c.title}: ${ac.reg}`, amount, cat: 'otherRevenue', dueDays: c.payment.dueDays });
   pushMessage(g, {
-    tone: 'info', cat: 'tech', title: `${ac.reg} back in ${g.company.name} colours`,
+    tone: 'info', cat: 'tech', title: `${ac.reg} ${homeLook(g, ac).in}`,
     body: `Repaint done at ${city(m.at)}. ${usd(m.cost)}${amount > 0 ? `; ${client} invoiced ${usd(amount)}` : ''}.`,
     ref: { kind: 'aircraft', id: ac.id },
   });

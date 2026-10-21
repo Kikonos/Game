@@ -18,8 +18,8 @@ import { money } from '../format';
 import { contractColor } from '../screens/palette';
 import { store } from '../store';
 import { paintLabel } from '../screens/scheduleLogic';
-import { expiryLabel } from '../screens/screenLogic';
-import { ARCHETYPE_LABEL, KIND_LABEL, chipInfo, upcomingLegs } from './mapLogic';
+import { archLabel, expiryLabel, offerDays } from '../screens/screenLogic';
+import { KIND_LABEL, chipInfo, upcomingLegs } from './mapLogic';
 
 const ROLE_ORDER = ['CPT', 'FO', 'CRP', 'CSD', 'SCC', 'CC'];
 const LEVEL_TONE = { ok: 'good', tight: 'warn', missing: 'bad', illegal: 'bad' } as const;
@@ -270,7 +270,7 @@ function OfferPanel({ g, id }: { g: GameState; id: string }) {
     ? `$${o.product.ratePerBH.toLocaleString('en-US')}/BH · MGH ${o.product.mghPerMonth}`
     : o.product.kind === 'charter' ? `${money(o.product.price)} charter` : `${money(o.product.rentPerMonth)}/month dry`;
   return (
-    <Panel title={o.title} kicker={ARCHETYPE_LABEL[o.archetype] ?? o.archetype} onClose={() => store.select(undefined)}>
+    <Panel title={o.title} kicker={archLabel(o)} onClose={() => store.select(undefined)}>
       <div className="row wrap op-chips">
         {o.urgency !== 'normal' && <span className={`chip tone-${o.urgency === 'urgent' ? 'bad' : 'warn'}`}>{o.urgency === 'urgent' ? 'Urgent' : 'Short notice'}</span>}
         {o.broker && <span className="chip">via {o.broker}</span>}
@@ -279,7 +279,7 @@ function OfferPanel({ g, id }: { g: GameState; id: string }) {
       <div className="op-kv">
         <div><span>Client</span><b className="ellipsis">{client?.name ?? '—'}</b></div>
         <div><span>Route</span><b className="mono">{routeSummary(o)}</b></div>
-        <div><span>Dates</span><b className="num">{fmtDay(o.start)} – {fmtDay(o.end)}</b></div>
+        <div><span>Dates</span><b className="num">{offerDays(o).map(fmtDay).join(' – ')}</b></div>
         <div><span>Product</span><b className="num">{product}</b></div>
         <div><span>Est. value</span><b className="num">{money(o.estValue)} · {Math.round(o.estBH)} BH</b></div>
         {o.paint && <div><span>Livery</span><b className={o.paint.required ? 'warn-t' : ''}>Their colours{o.paint.required ? ' · required' : ' · optional'}</b></div>}

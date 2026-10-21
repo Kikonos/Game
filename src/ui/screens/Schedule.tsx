@@ -111,7 +111,9 @@ function Legend({ g, win }: { g: GameState; win: [number, number] }) {
   }
   const list = [...first.keys()].map((id) => g.contracts[id]).filter((c) => !!c).sort((a, b) => first.get(a.id)! - first.get(b.id)!);
   const more = list.length - LEGEND_MAX;
-  const paint = Object.values(g.maintenance).some((m) => m.kind === 'paint' && m.status !== 'cancelled' && m.start < win[1] && m.end > win[0]);
+  // the legend swatch takes the colour of the first paint block on screen (blocks hatch in the client colour)
+  const pm = Object.values(g.maintenance).filter((m) => m.kind === 'paint' && m.status !== 'cancelled' && m.start < win[1] && m.end > win[0]).sort((a, b) => a.start - b.start)[0];
+  const paint = pm && ((pm.paint?.phase === 'in' ? (pm.paint && g.contracts[pm.paint.contractId]?.paint?.livery.primary) : g.company.livery.primary) ?? '#8a96b3');
   return (
     <div className="gantt-legend small muted">
       {list.slice(0, more > 0 ? LEGEND_MAX - 1 : LEGEND_MAX).map((c) => (
@@ -120,7 +122,7 @@ function Legend({ g, win }: { g: GameState; win: [number, number] }) {
       {more > 0 && <span className="gl-item" title={list.slice(LEGEND_MAX - 1).map((c) => c.title).join(' · ')}>+{more + 1} more</span>}
       <span className="gl-item"><span className="gl-sw gl-pos" />positioning</span>
       <span className="gl-item"><span className="gl-sw gl-maint" />maintenance</span>
-      {paint && <span className="gl-item"><span className="gl-sw gl-paint" />paint shop</span>}
+      {paint && <span className="gl-item"><span className="gl-sw gl-paint" style={{ ['--pc' as string]: paint }} />paint shop</span>}
       <span className="gl-item"><span className="gl-sw gl-idle" />idle 12 h+</span>
       <span className="gl-item"><span className="gl-sw gl-crew" />crew problem</span>
     </div>

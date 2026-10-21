@@ -9,7 +9,7 @@ import { ACMI_TYPES_LIST } from '../../../data/acmiTypes';
 import { AIRCRAFT } from '../../../data/aircraft';
 import { MAX_CODE, MAX_STICKERS, MAX_TITLE } from '../../../data/livery';
 import type { Livery, LiveryRef, StickerPlacement, TailStyle } from '../../../engine/core/types';
-import { AircraftArt, autoBodyInk, autoFinInk, stickerGround } from '../aircraft/AircraftArt';
+import { AircraftArt, autoBodyInk, autoFinInk, contrast, stickerGround, stickerInk } from '../aircraft/AircraftArt';
 import { defaultStickers, hitBox, placeAt, sideAt, snapTargets, stickerLayout, stickersOf, type StickerBox } from '../aircraft/stickers';
 import { ColorPicker } from './ColorPicker';
 import { LiveryPreview } from './LiveryPreview';
@@ -55,6 +55,17 @@ const TAP = 44;
 /** Snap distance in CSS px. */
 const SNAP = 8;
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
+const INK = '#16213a';
+
+/** Colours a new logo starts with: colour 1 as v0.5; colour 2 the ink that reads on the fin (not the fin colour itself). */
+function logoDefaults(lv: Livery): { color: string; color2: string } {
+  const fin = lv.plain ? '#ffffff' : lv.primary;
+  const color = lv.plain ? lv.primary : lv.secondary;
+  const pool = [...(lv.plain ? [lv.secondary] : []), '#ffffff', INK];
+  const color2 = pool.find((c) => contrast(c, fin) >= 2.2 && contrast(c, color) >= 1.5)
+    ?? pool.reduce((a, c) => (contrast(c, fin) > contrast(a, fin) ? c : a));
+  return { color, color2 };
+}
 
 interface Drag { id: string; dx: number; dy: number; pointer: number }
 interface Pinch { id: string; d0: number; s0: number }
@@ -65,6 +76,9 @@ export function LiveryEditor({ value, onChange, code, name, types, mode, aircraf
   const [tab, setTab] = useState<Tab>('scheme');
   const [selected, setSelected] = useState<string | undefined>();
   const [guides, setGuides] = useState<{ x?: number[]; y?: number[] } | undefined>();
+  const [logoNote, setLogoNote] = useState<string | undefined>();
+  /** The auto fin code was taken off by picking a logo: None puts it back. */
+  const codeOff = useRef(false);
   const svg = useRef<SVGSVGElement>(null);
   const drag = useRef<Drag | null>(null);
   const pinch = useRef<Pinch | null>(null);
@@ -118,11 +132,15 @@ export function LiveryEditor({ value, onChange, code, name, types, mode, aircraf
   };
   const hit = (X: number, Y: number, k: number): StickerBox | undefined => {
     const min = TAP / k;
-    for (let i = boxes.length - 1; i >= 0; i--) {
-      const b = boxes[i];
-      if (hitBox(b, X, Y, Math.max(0, (min - Math.min(b.w, b.h)) / 2))) return b;
-    }
-    return undefined;
+    const pad = (b: StickerBox) => Math.max(0, (min - Math.min(b.w, b.h)) / 2);
+    // 1. the selected sticker keeps its padded box; 2. a box under the finger, smallest first
+    // (a short code over the wide titles stays grabbable); 3. padded boxes, nearest centre
+    const cur = boxes.find((b) => b.id === selected);
+    if (cur && hitBox(cur, X, Y, pad(cur))) return cur;
+    const on = boxes.filter((b) => hitBox(b, X, Y));
+    if (on.length) return on.reduce((a, b) => (b.w * b.h < a.w * a.h ? b : a));
+    const near = boxes.filter((b) => hitBox(b, X, Y, pad(b)));
+    return near.length ? near.reduce((a, b) => (Math.hypot(b.cx - X, b.cy - Y) < Math.hypot(a.cx - X, a.cy - Y) ? b : a)) : undefined;
   };
   const onDown = (e: RPointerEvent<HTMLDivElement>) => {
     if (!editable) return;
@@ -205,7 +223,7 @@ export function LiveryEditor({ value, onChange, code, name, types, mode, aircraf
     while (list.some((s) => s.id === (n === 1 ? 'logo' : `logo${n}`))) n++;
     const id = n === 1 ? 'logo' : `logo${n}`;
     list.push({ id, kind: 'logo', side, scale: 1 });
-    commit({ ...cur, logo: cur.logo ?? { id: 'arc', color: cur.plain ? cur.primary : cur.secondary, color2: cur.plain ? cur.secondary : cur.primary }, stickers: list.slice(0, MAX_STICKERS) }, true);
+    commit({ ...cur, logo: cur.logo ?? { id: 'arc', ...logoDefaults(cur) }, stickers: list.slice(0, MAX_STICKERS) }, true);
     setSelected(id);
   };
   const removeSticker = (id: string) => {
@@ -216,10 +234,22 @@ export function LiveryEditor({ value, onChange, code, name, types, mode, aircraf
   const setLogo = (logo: Livery['logo']) => {
     const cur = latest();
     let list = [...stickersOf(cur)];
-    if (!logo) list = list.filter((s) => s.kind !== 'logo');
-    else if (!list.some((s) => s.kind === 'logo')) {
+    if (!logo) {
+      list = list.filter((s) => s.kind !== 'logo');
+      // the code the logo pushed off the fin (or a fin left bare) comes back
+      if (!list.some((s) => s.kind === 'code') && (codeOff.current || !list.some((s) => s.side === 'fin'))) {
+        list.unshift({ id: 'code', kind: 'code', side: 'fin', scale: 1 });
+        setLogoNote('Tail code back on the fin.');
+      } else setLogoNote(undefined);
+      codeOff.current = false;
+    } else if (!list.some((s) => s.kind === 'logo')) {
       // a new tail logo takes the fin; an auto tail code there would sit under it
+      const n = list.length;
       list = list.filter((s) => !(s.kind === 'code' && s.side === 'fin' && s.x === undefined));
+      if (list.length < n) {
+        codeOff.current = true;
+        setLogoNote('The logo takes the fin, so the tail code is hidden. Layout › Show brings it back.');
+      }
       list.unshift({ id: 'logo', kind: 'logo', side: 'fin', scale: 1 });
     }
     commit({ ...cur, logo, stickers: list.slice(0, MAX_STICKERS) }, true);
@@ -231,6 +261,8 @@ export function LiveryEditor({ value, onChange, code, name, types, mode, aircraf
   };
 
   const finInk = autoFinInk(lv), bodyInk = autoBodyInk(lv);
+  // Auto swatch and contrast warning follow the paint under the drawn box
+  const codeBox = boxes.find((b) => b.kind === 'code'), titleBox = boxes.find((b) => b.kind === 'titles');
   const codeSide = stickers.find((s) => s.kind === 'code')?.side ?? 'fin';
   const titleSide = stickers.find((s) => s.kind === 'titles')?.side ?? 'fuselage';
   const has = (id: string) => stickers.some((s) => s.id === id);
@@ -302,21 +334,26 @@ export function LiveryEditor({ value, onChange, code, name, types, mode, aircraf
             <>
               <TextBlock
                 title="Tail code" max={MAX_CODE} placeholder={code} text={lv.code?.text} shown={has('code')} onShow={(on) => showSticker('code', on)}
+                clean={(v) => v.toUpperCase().replace(/[^A-Z0-9]/g, '')}
                 onText={(t) => update({ code: { ...lv.code, text: t } })}
                 weight={lv.code?.weight ?? 700} onWeight={(w) => update({ code: { ...lv.code, weight: w } })}
               >
-                <ColorPicker label="Colour" value={lv.code?.color} auto autoColor={codeSide === 'fin' ? finInk : bodyInk} contrastWith={stickerGround(lv, codeSide)} onChange={(c) => update({ code: { ...lv.code, color: c } })} />
+                <ColorPicker label="Colour" value={lv.code?.color} auto autoColor={codeBox ? stickerInk(typeId, lv, codeBox) : codeSide === 'fin' ? finInk : bodyInk} contrastWith={stickerGround(lv, codeSide, codeBox && { typeId, box: codeBox })} onChange={(c) => update({ code: { ...lv.code, color: c } })} />
               </TextBlock>
               <TextBlock
                 title="Titles" max={MAX_TITLE} placeholder={name} text={lv.titles?.text} shown={has('titles')} onShow={(on) => showSticker('titles', on)}
+                clean={(v) => v.toUpperCase().replace(/\s+/g, ' ').replace(/^ /, '')}
                 onText={(t) => update({ titles: { ...lv.titles, text: t } })}
                 weight={lv.titles?.weight ?? 700} onWeight={(w) => update({ titles: { ...lv.titles, weight: w } })}
               >
-                <ColorPicker label="Colour" value={lv.titles?.color} auto autoColor={titleSide === 'fin' ? finInk : bodyInk} contrastWith={stickerGround(lv, titleSide)} onChange={(c) => update({ titles: { ...lv.titles, color: c } })} />
+                <ColorPicker label="Colour" value={lv.titles?.color} auto autoColor={titleBox ? stickerInk(typeId, lv, titleBox) : titleSide === 'fin' ? finInk : bodyInk} contrastWith={stickerGround(lv, titleSide, titleBox && { typeId, box: titleBox })} onChange={(c) => update({ titles: { ...lv.titles, color: c } })} />
               </TextBlock>
             </>
           ) : tab === 'logo' ? (
-            <LogoPicker value={lv.logo} onChange={setLogo} defaults={{ color: lv.plain ? lv.primary : lv.secondary, color2: lv.plain ? lv.secondary : lv.primary, text: code.slice(0, 2) }} />
+            <>
+              <LogoPicker value={lv.logo} onChange={setLogo} defaults={{ ...logoDefaults(lv), text: code.slice(0, 2) }} />
+              {logoNote && <p className="lv-note small">{logoNote}</p>}
+            </>
           ) : (
             <div className="lv-layout">
               <ul className="lv-list">
@@ -371,8 +408,10 @@ export function LiveryEditor({ value, onChange, code, name, types, mode, aircraf
   );
 }
 
-function TextBlock({ title, max, placeholder, text, onText, shown, onShow, weight, onWeight, children }: {
+function TextBlock({ title, max, placeholder, text, clean, onText, shown, onShow, weight, onWeight, children }: {
   title: string; max: number; placeholder: string; text: string | undefined; onText: (t: string | undefined) => void;
+  /** Same rule as the save-time normalise, so the preview is what gets saved. */
+  clean: (v: string) => string;
   shown: boolean; onShow: (on: boolean) => void; weight: 500 | 700; onWeight: (w: 500 | 700) => void; children: ReactNode;
 }) {
   return (
@@ -384,7 +423,7 @@ function TextBlock({ title, max, placeholder, text, onText, shown, onShow, weigh
       <div className="lv-textrow">
         <input
           className="lv-input" value={text ?? ''} placeholder={placeholder} maxLength={max} autoCorrect="off" spellCheck={false} autoCapitalize="characters"
-          onChange={(e) => onText(e.target.value ? e.target.value.toUpperCase().slice(0, max) : undefined)} aria-label={`${title} text`}
+          onChange={(e) => onText(clean(e.target.value).slice(0, max) || undefined)} aria-label={`${title} text`}
         />
         <div className="lv-seg" role="radiogroup" aria-label={`${title} weight`}>
           <button type="button" role="radio" aria-checked={weight === 700} className={weight === 700 ? 'on' : ''} onClick={() => onWeight(700)} style={{ fontWeight: 700 }}>Bold</button>

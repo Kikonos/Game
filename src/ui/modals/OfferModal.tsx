@@ -16,7 +16,7 @@ import type { ContractOffer, GameState } from '../../engine/core/types';
 import { Modal, Stepper, Toggle } from '../components/ui';
 import { money } from '../format';
 import { ArchIcon, Chips, Dot, KV } from '../screens/common';
-import { ARCH_LABEL, counterSteps, expiryLabel, reqChips, riskChips, ROLE_LABEL, routeSummary, type Chip } from '../screens/screenLogic';
+import { archLabel, counterSteps, expiryLabel, reqChips, riskChips, ROLE_LABEL, routeSummary, offerDays, type Chip } from '../screens/screenLogic';
 import { store, useGame } from '../store';
 
 const LEVEL_TONE = { ok: 'good', warn: 'warn', no: 'bad' } as const;
@@ -60,7 +60,8 @@ function Terms({ g, o }: { g: GameState; o: ContractOffer }) {
     }
     rows.push(['Fuel', p.fuelEscalation ? 'Escalation clause' : 'Our risk']);
   } else rows.push(['Rent', `${usd(p.rentPerMonth)} / month`], ['Reserves', `${usd(p.reservesPerFH)} / FH`]);
-  rows.push(['Dates', `${fmtDate(o.start)} – ${fmtDate(o.end)}`], ['Lead time', lead <= 0 ? 'Starts now' : `${lead} days`]);
+  const [d0, d1] = offerDays(o);
+  rows.push(['Dates', `${fmtDate(d0)} – ${fmtDate(d1)}${o.pattern.kind === 'base' ? ` (${o.pattern.base} local)` : ''}`], ['Lead time', lead <= 0 ? 'Starts now' : `${lead} days`]);
   rows.push(['Estimate', `Billable ≈ ${Math.round(o.estBH)} BH · ${money(o.estValue)}`]);
   const arrears = p.kind === 'charter' ? 'Invoiced after the job' : 'Monthly in arrears';
   rows.push(['Payment', `${pay.basis === 'advance' ? 'In advance' : pay.basis === 'arrears' ? arrears : 'On completion'}, net ${pay.dueDays} days`]);
@@ -254,7 +255,7 @@ export function OfferModal({ offerId }: { offerId: string }) {
       <div className="sc-offer-cols">
         <div className="sc-offer-left col gap-12">
           <div className="row gap-8 wrap">
-            <span className="upper dim">{ARCH_LABEL[o.archetype]}</span>
+            <span className="upper dim">{archLabel(o)}</span>
             {o.urgency !== 'normal' && <span className={`badge ${o.urgency === 'urgent' ? 'bad' : 'warn'}`}>{o.urgency === 'urgent' ? 'Urgent' : 'Short notice'}</span>}
             <span className="small muted">{expiryLabel(g.now, o.expires)}</span>
           </div>

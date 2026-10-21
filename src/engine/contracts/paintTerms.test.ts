@@ -156,6 +156,24 @@ describe('paint on contracts', () => {
     expect(line(g, 'otherRevenue') - other0).toBe(Math.round(m.cost * c.paint!.clientShare) + Math.round(out.cost * c.paint!.clientShare));
   });
 
+  it('the strip messages follow the aircraft livery choice', () => {
+    const g = newGame(6);
+    const o = paintBase(g, 'full', true, 21, 45);
+    const id = firstOk(g, o);
+    const r = acceptOffer(g, o.id, [id]);
+    const c = g.contracts[r.ok ? r.data!.contractId : ''];
+    g.fleet[id].livery = 'white';
+    run(g, c.end + 25 * DAY);
+    const out = g.maintenance[c.paint!.outMx![id]];
+    run(g, out.end + 60);
+    const titles = g.messages.map((m) => m.title);
+    const reg = g.fleet[id].reg;
+    expect(titles).toContain(`Repaint booked: ${reg} back to plain white`);
+    expect(titles).toContain(`${reg} back in plain white`);
+    expect(titles.some((t) => t.includes(`${g.company.name} colours`))).toBe(false);
+    expect(liveryOf(g, id).source).toBe('white');
+  });
+
   it('cancelling calls off a paint-in not started, and strips a finished one without reimbursement', () => {
     const g = newGame(8);
     const a = paintBase(g, 'decals', true, 40);

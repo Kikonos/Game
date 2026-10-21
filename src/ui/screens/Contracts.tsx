@@ -13,7 +13,7 @@ import { money } from '../format';
 import { store, useGame } from '../store';
 import { ArchIcon, Chips, ScreenHead, useRenderCount } from './common';
 import { contractColor } from './palette';
-import { ARCH_LABEL, expiryLabel, liveHook, marketOffers, missedOffers, productLine, reqChips, riskChips, routeSummary } from './screenLogic';
+import { archLabel, expiryLabel, liveHook, marketOffers, missedOffers, productLine, reqChips, riskChips, routeSummary, offerDays } from './screenLogic';
 
 type View = 'market' | 'active' | 'missed';
 
@@ -27,7 +27,7 @@ function OfferCard({ g, o, windows }: { g: GameState; o: ContractOffer; windows:
   return (
     <button className={`card sc-offer ${o.urgency}`} onClick={() => store.openModal({ kind: 'offer', offerId: o.id })}>
       <div className="row between sc-offer-top">
-        <span className="row gap-8 upper dim ellipsis"><ArchIcon a={o.archetype} />{ARCH_LABEL[o.archetype]}</span>
+        <span className="row gap-8 upper dim ellipsis"><ArchIcon a={o.archetype} />{archLabel(o)}</span>
         <span className="row gap-8 nowrap">
           {o.urgency !== 'normal' && <span className={`badge ${o.urgency === 'urgent' ? 'bad' : 'warn'}`}>{o.urgency === 'urgent' ? 'Urgent' : 'Short notice'}</span>}
           <span className={`small num ${o.expires - g.now < 12 * 60 ? 'warn' : 'muted'}`}>{expiryLabel(g.now, o.expires)}</span>
@@ -39,7 +39,7 @@ function OfferCard({ g, o, windows }: { g: GameState; o: ContractOffer; windows:
         {o.broker && <span className="chip sc-chip sc-broker">via {o.broker}</span>}
       </div>
       <div className="sc-offer-route mono ellipsis">{routeSummary(o.pattern)}</div>
-      <div className="small muted">{fmtDay(o.start)} – {fmtDay(o.end)} · {lead <= 0 ? 'starts now' : `starts in ${lead} d`}</div>
+      <div className="small muted">{offerDays(o).map(fmtDay).join(' – ')} · {lead <= 0 ? 'starts now' : `starts in ${lead} d`}</div>
       <div className="row between sc-offer-money">
         <b>{productLine(o.product)}</b>
         <span className="muted small">est. <b className="num">{money(o.estValue)}</b></span>
@@ -173,7 +173,7 @@ function Missed({ g }: { g: GameState }) {
           <ArchIcon a={o.archetype} />
           <div className="grow">
             <div className="ellipsis"><b>{o.title}</b></div>
-            <div className="small muted ellipsis">{g.clients[o.clientId]?.name} · {routeSummary(o.pattern)} · {fmtDay(o.start)} – {fmtDay(o.end)}</div>
+            <div className="small muted ellipsis">{g.clients[o.clientId]?.name} · {routeSummary(o.pattern)} · {offerDays(o).map(fmtDay).join(' – ')}</div>
           </div>
           <div className="right small nowrap">
             <div className={o.status === 'lost' ? 'warn' : 'muted'}>{MISSED_LABEL[o.status]}{o.lostTo ? ` to ${o.lostTo}` : ''}</div>
