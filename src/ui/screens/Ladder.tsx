@@ -79,14 +79,30 @@ export function LadderCard({ g }: { g: GameState }) {
       const o = el.getBoundingClientRect();
       const at = (id: string) => el.querySelector<HTMLElement>(`[data-node="${id}"]`)?.getBoundingClientRect();
       const out: Edge[] = [];
+      const cards = Array.from(el.querySelectorAll<HTMLElement>('[data-node]')).map((c) => c.getBoundingClientRect());
+      const f = (v: number) => v.toFixed(1);
       const join = (a: DOMRect | undefined, b: DOMRect | undefined, held: boolean) => {
         if (!a || !b) return;
         const x1 = a.right - o.left;
         const y1 = a.top + a.height / 2 - o.top;
         const x2 = b.left - o.left;
         const y2 = b.top + b.height / 2 - o.top;
+        // Skipping a rung: the opaque cards between would hide a straight curve, so it drops through the column gap
+        // into the clear lane (above, between or below those cards) nearest the two ends, runs along it and rises again.
+        const mid = cards.filter((c) => c.left >= a.right - 1 && c.right <= b.left + 1).map((c) => [c.top - o.top, c.bottom - o.top]);
+        if (mid.length) {
+          const lanes = [Math.min(...mid.map((m) => m[0])) - 6, ...mid.flatMap((m) => [m[0] - 5, m[1] + 5]), Math.max(...mid.map((m) => m[1])) + 8];
+          const want = (y1 + y2) / 2;
+          const ch = lanes.filter((y) => mid.every((m) => y < m[0] - 3 || y > m[1] + 3)).sort((p, q) => Math.abs(p - want) - Math.abs(q - want))[0];
+          const ga = Math.min(...cards.filter((c) => c.left >= a.right - 1).map((c) => c.left)) - o.left;
+          const gb = Math.max(...cards.filter((c) => c.right <= b.left + 1).map((c) => c.right)) - o.left;
+          if (ch !== undefined && ga < gb) {
+            out.push({ d: `M${f(x1)},${f(y1)} C${f(ga)},${f(y1)} ${f(x1)},${f(ch)} ${f(ga)},${f(ch)} L${f(gb)},${f(ch)} C${f(x2)},${f(ch)} ${f(gb)},${f(y2)} ${f(x2)},${f(y2)}`, held });
+            return;
+          }
+        }
         const mx = (x1 + x2) / 2;
-        out.push({ d: `M${x1.toFixed(1)},${y1.toFixed(1)} C${mx.toFixed(1)},${y1.toFixed(1)} ${mx.toFixed(1)},${y2.toFixed(1)} ${x2.toFixed(1)},${y2.toFixed(1)}`, held });
+        out.push({ d: `M${f(x1)},${f(y1)} C${f(mx)},${f(y1)} ${f(mx)},${f(y2)} ${f(x2)},${f(y2)}`, held });
       };
       for (const n of nodes) {
         const to = at(n.id);

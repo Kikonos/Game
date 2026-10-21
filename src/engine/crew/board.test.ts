@@ -86,6 +86,28 @@ describe('roster board row cache (v0.7 C2)', () => {
   });
 });
 
+describe('roster board row cache: the running clock', () => {
+  it('as the clock runs for two days, only rows reaching a time boundary rebuild, and every row equals a fresh build', () => {
+    const g = rostered();
+    const ids = Object.keys(g.crew);
+    const from = g.now - DAY;
+    const to = g.now + 14 * DAY;
+    let prev = rosterBoard(g, from, to, ids);
+    let rebuilt = 0;
+    let steps = 0;
+    for (let k = 0; k < 80; k++) {
+      g.now += 36;
+      const cur = rosterBoard(g, from, to, ids);
+      rebuilt += cur.filter((r, i) => r !== prev[i]).length;
+      steps++;
+      if (k % 10 === 9) expect(JSON.stringify(cur)).toBe(JSON.stringify(rosterBoard(structuredClone(g), from, to, ids)));
+      prev = cur;
+    }
+    // An hourly key rebuilt every row about every other step; now a few rows per step at most.
+    expect(rebuilt / steps).toBeLessThan(Math.max(3, ids.length * 0.1));
+  });
+});
+
 describe('drop targets', () => {
   it('verdicts: ineligible rank and rating, green assign, swaps, red with a rest reason, busy with two', () => {
     const g = rostered();

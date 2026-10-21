@@ -742,6 +742,17 @@ function emptyLegCrew(g: GameState, f: Flight, ac: Aircraft): void {
  * chain moves 24 h, parking is charged daily) and the roster tries again; the 48 h warning was given earlier.
  */
 function deliveryWait(g: GameState, f: Flight, ac: Aircraft): void {
+  // Crew who reported for it stand down (rest at the site) and the trip is planned again for tomorrow: left 'on duty'
+  // the trip would stay under way while its legs move a day at a time, and nobody could be added to it.
+  const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+  const p = d ? g.pairings[d.pairingId] : undefined;
+  if (p && p.status === 'active' && !p.dutyIds.some((id) => g.duties[id]?.done)) {
+    p.status = 'planned';
+    for (const s of p.slots) {
+      const c = s.crewId ? g.crew[s.crewId] : undefined;
+      if (c?.status === 'onDuty') c.status = c.restUntil > g.now ? 'resting' : 'available';
+    }
+  }
   const chain = deliveryWaitDay(g, f, ac);
   for (const x of chain) {
     x.delay = 0;

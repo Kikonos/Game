@@ -6,7 +6,9 @@ import { CARRIER_BY_IATA, CARRIERS } from '../../data/carriers';
 import { addDeadhead } from '../core/entities';
 import { deserialize, serialize } from '../save';
 import { addCrew, fixtureGame } from '../crew/fixtures';
-import { commercialFlightsAirborne, commercialFlightsBetween, commercialItinerary, commercialProgress, CONNECT_MIN, itinerary, LCC_ONLY, ticketBlock } from './commercial';
+import { commercialFlightsAirborne, commercialFlightsBetween, commercialItinerary, commercialProgress, CONNECT_MIN, directCarriers, itinerary, LCC_ONLY, ticketBlock } from './commercial';
+import { FACTORIES, LESSOR_SITES } from '../../data/market';
+import { HOME_BASES } from '../../data/naming';
 import { flightType } from './flightType';
 
 const T0 = 14_300_000;
@@ -308,10 +310,27 @@ describe('deadhead carriers v0.7: the pair table', () => {
     { pair: 'LDE-LIS', nonstop: null, conn: { country: 'FR' }, never: ['U2'] },
     { pair: 'LIS-BOJ', nonstop: null, conn: true, neverFirst: ['FB'] },
     { pair: 'FRA-SOF', nonstop: ['LH', 'FB'] },
+    // v0.7 fix round 1: the delivery and return sites (Shannon, Tarbes, Charleston) and the Gulf / African networks.
+    { pair: 'LIS-SNN', nonstop: null, conn: ['LHR', 'STN', 'FAO'], never: ['IB', 'UX'], neverLast: ['TP', 'BA'], noVia: ['DUB'] },
+    { pair: 'VNO-SNN', nonstop: null, conn: ['LHR', 'STN'], neverLast: ['BT'], noVia: ['DUB'] },
+    { pair: 'RIX-SNN', nonstop: null, conn: ['LHR', 'STN'], neverLast: ['BT'], noVia: ['DUB'] },
+    { pair: 'TLL-SNN', nonstop: null, conn: ['LHR', 'STN'], neverLast: ['BT'], noVia: ['DUB'] },
+    { pair: 'MAD-SNN', nonstop: null, conn: true, neverLast: ['UX', 'IB'], noVia: ['DUB'] },
+    { pair: 'MLA-SNN', nonstop: null, conn: ['LHR', 'STN'], noVia: ['DUB'] },
+    { pair: 'DXB-SNN', nonstop: null, conn: ['LHR', 'STN'], noVia: ['DUB'] },
+    { pair: 'LIS-LDE', nonstop: null, conn: ['CDG', 'ORY'], neverLast: ['TP', 'U2'] },
+    { pair: 'DXB-CHS', nonstop: null, conn: { continents: ['NA', 'EU'] }, neverLast: ['EK'] },
+    { pair: 'DXB-SCL', nonstop: null, conn: ['GRU', 'EZE', 'MAD', 'MIA', 'JFK'], neverFirst: ['LA'] },
+    { pair: 'MAD-CGK', nonstop: null, conn: true, never: ['UX', 'IB'], neverFirst: ['GA'] },
+    { pair: 'VNO-DOH', nonstop: null, conn: true, neverFirst: ['QR'] },
+    { pair: 'LIS-ADD', nonstop: null, conn: true, neverFirst: ['ET'] },
+    { pair: 'RIX-DXB', nonstop: ['BT', 'FZ'], never: ['EY'], noVia: ['AUH'] },
+    { pair: 'VNO-DXB', nonstop: ['W6', 'FZ', 'BT'], conn: true, never: ['EY'], noVia: ['AUH'] },
+    { pair: 'DXB-VNO', nonstop: ['W6', 'FZ', 'BT'], conn: true, never: ['EY', 'QR'], noVia: ['AUH', 'DOH'] },
   ];
   const BANKS = [1, 4, 7, 10, 13, 16, 19, 22];
 
-  it('has the 42 rows', () => expect(ROWS).toHaveLength(42));
+  it('has the 58 rows', () => expect(ROWS).toHaveLength(58));
 
   for (const r of ROWS) {
     it(r.pair, () => {
@@ -348,6 +367,27 @@ describe('deadhead carriers v0.7: the pair table', () => {
       if (r.nonstop && !r.conn) expect(r.nonstop.some((x) => seen.has(x)), `${r.pair}: ${[...seen]}`).toBe(true);
     });
   }
+
+  it('every home base to and from every lessor site and factory: real carriers on every leg (no fallback); Shannon, Tarbes and Charleston on their own airlines', () => {
+    const OWN: Record<string, string[]> = { SNN: ['EI', 'FR', 'UA', 'DL', 'AA'], LDE: ['AF', 'FR'], CHS: ['DL', 'UA', 'AA', 'B6', 'WN', 'AS', 'BA'] };
+    const sites = [...new Set([...LESSOR_SITES.map((x) => x.code), ...Object.values(FACTORIES).flatMap((f) => f!.sites.map((x) => x.code))])];
+    for (const home of HOME_BASES) {
+      for (const site of sites) {
+        if (site === home) continue;
+        for (const [a, b] of [[home, site], [site, home]]) {
+          for (let d = 0; d < 6; d++) {
+            const t = T0 + d * 1440 + (4 + 5 * d) * 60;
+            const legs = itinerary(a, b, t, t + ticketBlock(a, b));
+            const tag = `${a}-${b} ${legs.map((l) => `${l.no} ${l.from}-${l.to}`).join(' · ')}`;
+            for (const l of legs) {
+              expect(directCarriers(l.from, l.to).map((c) => c.iata), tag).toContain(l.iata);
+              for (const end of [l.from, l.to]) if (OWN[end]) expect(OWN[end], tag).toContain(l.iata);
+            }
+          }
+        }
+      }
+    }
+  });
 
   it('regional carriers with a closed network never appear outside it', () => {
     const closed = CARRIERS.filter((c) => c.dests);

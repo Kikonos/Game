@@ -5,12 +5,13 @@
 
 import type { RatingFamily } from '../../data/acmiTypes';
 import { canFill, typeOf } from '../core/perf';
+import { DAY } from '../core/time';
 import type { ActionResult, CrewMember, CrewStatus, Duty, GameState, Legality, Minute, Pairing, Role } from '../core/types';
 import { crewCalendar, type CalBlock } from './calendar';
 import { openDuties, planCrew } from './check';
 import { familyLabel } from './conversion';
 import { splitPairing } from './duties';
-import { levelOf, minRest, type Seg } from './rules';
+import { levelOf, minRest, offsetAt, type Seg } from './rules';
 import { assignCrew, swapCrew } from './rosterActions';
 import { placeCrew, setFlightsCrew } from './roster';
 import { crewIx, segsOf, ticketPrice, touchCrew, typeIdOf } from './timeline';
@@ -61,8 +62,32 @@ const underWay = (g: GameState, p: Pairing) => openDuties(g, p).some((d) => d.re
 
 // ---------- rows ----------
 
-/** v0.7 C2: one cached row per crew member (key: their own revision, the window and the clock's hour). */
-const rowCache = new WeakMap<GameState, Map<string, { key: string; row: BoardRow }>>();
+/** v0.7 C2: one cached row per crew member (key: their own revision and the window; valid until its next time boundary). */
+const rowCache = new WeakMap<GameState, Map<string, { key: string; row: BoardRow; at: Minute; until: Minute }>>();
+
+/**
+ * When a row built now goes stale with nothing else changing: the next start or end of one of its blocks or legs
+ * (a duty under way, a rest ending, a leg landing), the end of the rest running now, the next base-local midnight
+ * (day-off labels, the published horizon); a hire still joining moves with the clock (hourly).
+ */
+function rowUntil(g: GameState, c: CrewMember, blocks: BoardBlock[]): Minute {
+  const off = offsetAt(c.base, g.now);
+  let t = Math.floor((g.now + off) / DAY + 1) * DAY - off;
+  const at = (x: Minute | undefined) => {
+    if (x !== undefined && x > g.now && x < t) t = x;
+  };
+  at(c.restUntil);
+  if (c.status === 'joining') at(g.now + 60);
+  for (const b of blocks) {
+    at(b.start);
+    at(b.end);
+    for (const f of b.flights ?? []) {
+      at(f.std);
+      at(f.sta);
+    }
+  }
+  return t;
+}
 
 function row(g: GameState, c: CrewMember, from: Minute, to: Minute): BoardRow {
   const blocks: BoardBlock[] = crewCalendar(g, c.id, from, to).map((b) => {
@@ -104,16 +129,18 @@ function crewKey(g: GameState, c: CrewMember): string {
  * change to someone else re-renders nothing.
  */
 export function rosterBoard(g: GameState, from: Minute, to: Minute, crewIds: string[]): BoardRow[] {
-  const hour = Math.floor(g.now / 60);
   let cache = rowCache.get(g);
   if (!cache) rowCache.set(g, (cache = new Map()));
   const out: BoardRow[] = [];
   for (const id of crewIds) {
     const c = g.crew[id];
     if (!c) continue;
-    const key = `${crewKey(g, c)}#${from}:${to}:${hour}`;
+    const key = `${crewKey(g, c)}#${from}:${to}`;
     let hit = cache.get(id);
-    if (!hit || hit.key !== key) cache.set(id, (hit = { key, row: row(g, c, from, to) }));
+    if (!hit || hit.key !== key || g.now >= hit.until || g.now < hit.at) {
+      const r = row(g, c, from, to);
+      cache.set(id, (hit = { key, row: r, at: g.now, until: rowUntil(g, c, r.blocks) }));
+    }
     out.push(hit.row);
   }
   return out;

@@ -19,7 +19,7 @@ import { PLANE_PATH } from '../components/Logo';
 import { liveMinute, store } from '../store';
 import { isTouch } from '../useMedia';
 import { MAP_H, MAP_W } from './mapData';
-import { deliveryTag, headingDeg, onMap, type LabelBox, groupCommercial, lerpAngle, parkOffset, downSide, legLabelSide, placeLabels, regSlot, type RegSlot, trackCovered, trackLabelAt, type LegArc, type PinGroup, sunPoint, terminator, TYPE_STROKE } from './mapLogic';
+import { deliveryTag, headingDeg, onMap, type LabelBox, boxOverlap, groupCommercial, lerpAngle, parkOffset, downSide, legLabelSide, placeLabels, regSlot, type RegSlot, trackCovered, trackLabelAt, type LegArc, type PinGroup, sunPoint, terminator, TYPE_STROKE } from './mapLogic';
 import type { MapLayerCtx } from './WorldMap';
 
 /** Live positions shared with tap picking and focus (map units, as last drawn). */
@@ -303,6 +303,8 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
     let cmGame: GameState | null = null;
     let cmList: CommercialFlight[] = [];
     let selKey = '';
+    let underKey = '';
+    const TAG_FS = isTouch() ? 10.5 : 9.5; // .ops-ac .op-delivery-tag font size
     const lineD = (from: string, to: string) => {
       const A = AIRPORT_BY_CODE[from];
       const B = AIRPORT_BY_CODE[to];
@@ -383,6 +385,8 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
         lives.push(live);
       }
       const slot = new Map<string, number>();
+      // Labels of our parked aircraft (screen px), with the airport each stands at.
+      const ownLabels: (LabelBox & { at: string })[] = [];
       const f = 1 - Math.exp(-dt / TAXI_MS);
       settling = false;
       for (const live of lives) {
@@ -440,6 +444,36 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
           e.reg = reg;
         }
         shared.ac.set(id, [p[0] + s.ox * u, p[1] + s.oy * u]);
+        if (live.phase !== 'airborne') {
+          const ix = p[0] / u + s.ox;
+          const iy = p[1] / u + s.oy;
+          const dlv = e.el.classList.contains('dlv');
+          if (selRef.current === id || (labels && !crowd)) {
+            const by = dlv ? 38 : 25;
+            ownLabels.push({ id, at: live.at!, x: ix, y: iy + by - REG_FS * 0.35, w: e.regW, h: REG_FS });
+          }
+          if (dlv) ownLabels.push({ id, at: live.at!, x: ix, y: iy + 26 - TAG_FS * 0.35, w: 8 * TAG_FS * 0.68 + 2, h: TAG_FS });
+        }
+      }
+      // Our parked aircraft's reg and DELIVERY tag win over a neighbouring airport's code: that code fades out
+      // (the airport they stand at, and a selected one, keep theirs). Re-checked when labels move, zoom or re-render.
+      const uk = `${k.toPrecision(5)}|${ownLabels.map((b) => `${b.id}${b.x.toFixed(0)},${b.y.toFixed(0)}`).join(';')}`;
+      if (fresh || uk !== underKey) {
+        underKey = uk;
+        const svg = root.ownerSVGElement;
+        for (const ap of svg ? (Array.from(svg.querySelectorAll('.airports .ap[data-code]')) as SVGGElement[]) : []) {
+          const code = ap.dataset.code!;
+          const text = ap.querySelector('.ap-label');
+          const A = AIRPORT_BY_CODE[code];
+          const q = text && A && !ap.classList.contains('sel') ? proj([A.lon, A.lat]) : null;
+          let under = false;
+          if (q && text && ownLabels.length) {
+            const fs = Number(text.getAttribute('font-size')) || 11;
+            const box: LabelBox = { id: code, x: q[0] / u, y: q[1] / u + (Number(text.getAttribute('y')) || 0) - fs * 0.35, w: code.length * fs * 0.62 + 2, h: fs };
+            under = ownLabels.some((b) => b.at !== code && boxOverlap(b, box, 1) > 0);
+          }
+          if (under !== ap.hasAttribute('data-under')) ap.toggleAttribute('data-under', under);
+        }
       }
       // Our airborne legs: one path each from take-off to landing (types refreshed with each React render).
       const seen = new Set<string>();

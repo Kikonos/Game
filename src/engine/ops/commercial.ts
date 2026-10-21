@@ -5,7 +5,7 @@
 // same flights. Crew planning times tickets with the same itinerary (ticketBlock).
 
 import { AIRPORT_BY_CODE, type Airport } from '../../data/airports';
-import { CARRIER_BY_IATA, CARRIERS, LCC_ONLY_ALL, WORLD_HUBS, type Carrier } from '../../data/carriers';
+import { CARRIER_BY_IATA, CARRIERS, LCC_ONLY_ALL, ROUTES_ONLY_ALL, WORLD_HUBS, type Carrier } from '../../data/carriers';
 import { deadheadFlights } from '../core/entities';
 import { distance } from '../core/geo';
 import { blockMinutes } from '../core/perf';
@@ -70,6 +70,7 @@ const GULF_HOME: Record<string, string[]> = { DXB: ['EK', 'FZ'], DOH: ['QR'], AU
 
 /** v0.6: airports only the low-cost carriers use (those present in the airport list). */
 export const LCC_ONLY = new Set(LCC_ONLY_ALL.filter((c) => !!AIRPORT_BY_CODE[c]));
+const ROUTES_ONLY = new Set(ROUTES_ONLY_ALL);
 
 /** Does low-cost carrier c fly base → other? Point-to-point from one of its bases into its markets. */
 function lccLeg(c: Carrier, base: Airport, other: Airport, km: number): boolean {
@@ -94,6 +95,8 @@ function serves(c: Carrier, a: Airport, b: Airport, km: number): boolean {
   if (c.routes?.includes(`${a.code}-${b.code}`) || c.routes?.includes(`${b.code}-${a.code}`)) return true;
   if (c.noRoutes?.includes(`${a.code}-${b.code}`) || c.noRoutes?.includes(`${b.code}-${a.code}`)) return false;
   if (c.maxKm !== undefined && km > c.maxKm) return false;
+  // v0.7: the small airports served only on listed routes (Shannon, Cork, Tarbes).
+  if ((ROUTES_ONLY.has(a.code) && !c.hubs.includes(a.code)) || (ROUTES_ONLY.has(b.code) && !c.hubs.includes(b.code))) return false;
   if (c.kind === 'lcc') return lccLeg(c, a, b, km) || lccLeg(c, b, a, km);
   if (c.avoid?.includes(a.code) || c.avoid?.includes(b.code)) return false;
   const ha = c.hubs.includes(a.code);
@@ -117,7 +120,8 @@ function serves(c: Carrier, a: Airport, b: Airport, km: number): boolean {
   // Medium haul: a real city at the far end (beach-only airports are the charter and low-cost carriers' job).
   if (km <= (c.kind === 'regional' ? 3_500 : LONG_KM)) return link || (other.size >= 4 && other.biz >= 0.3) || (other.size >= 3 && other.biz >= 0.5);
   if (c.kind === 'regional' || km > 14_500) return false;
-  if (SUPER.has(c.iata)) return other.size >= 4 || (link && other.size >= 2);
+  // v0.7 fix: the super-connectors reach North America's gateways only (no Istanbul–Charleston).
+  if (SUPER.has(c.iata)) return other.size >= 4 || (link && other.size >= (other.continent === 'NA' ? 3 : 2));
   // v0.7: long haul to North America goes to the gateways (size ≥ 3), not to Charleston.
   return (other.size >= 5 && hub.size >= 4) || (link && (other.size >= 3 || (other.size >= 2 && other.continent !== 'NA')));
 }
@@ -236,7 +240,9 @@ function flightNo(c: Carrier, from: string, to: string, dep: Minute): string {
 function fallbackCarrier(from: string, to: string): Carrier {
   const ca = AIRPORT_BY_CODE[from]?.country;
   const cb = AIRPORT_BY_CODE[to]?.country;
-  return CARRIERS.find((c) => c.kind === 'network' && c.country === ca) ?? CARRIERS.find((c) => c.kind === 'network' && c.country === cb) ?? CARRIER_BY_IATA.TK;
+  // A closed network (v0.7: Emirates, Qatar…) never shows up outside it.
+  const open = (c: Carrier) => c.kind === 'network' && (!c.dests || c.dests.includes(from) || c.dests.includes(to));
+  return CARRIERS.find((c) => open(c) && c.country === ca) ?? CARRIERS.find((c) => open(c) && c.country === cb) ?? CARRIER_BY_IATA.TK;
 }
 
 /**

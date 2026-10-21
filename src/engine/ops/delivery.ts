@@ -362,13 +362,17 @@ export function onDeliveryDep(g: GameState, f: Flight): void {
 }
 
 /**
- * No legal crew at a delivery ferry's departure: never cancelled. The rest of the chain moves 24 h; the aircraft
+ * No legal crew at a delivery ferry's departure: never cancelled. The rest of the chain moves 24 h (or the days pilots
+ * from base need to get there and rest); the aircraft
  * waits at the site (parking charged daily) and the roster tries again. Returns the moved legs.
  */
 export function deliveryWaitDay(g: GameState, f: Flight, ac: Aircraft): Flight[] {
   const chain = ferries(g, ac).filter((x) => x.status === 'scheduled' && x.std >= f.std);
   if (!chain.includes(f)) chain.unshift(f);
-  for (const x of chain) retimeFlight(g, x, x.std + DAY, x.sta + DAY);
+  // Whole days, and at least long enough for pilots from base to fly out and rest (Santiago is a day away).
+  const reach = g.now + ticketBlock(g.company.homeBase, f.from) + BAL.deadheadCheckIn + 16 * 60;
+  const shift = Math.max(1, Math.ceil((reach - f.std) / DAY)) * DAY;
+  for (const x of chain) retimeFlight(g, x, x.std + shift, x.sta + shift);
   if (ac.delivery) ac.delivery.waitingSince ??= g.now;
   return chain;
 }
