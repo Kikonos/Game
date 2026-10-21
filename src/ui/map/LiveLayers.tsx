@@ -33,8 +33,8 @@ export interface LiveShared {
   pathsOwn: SVGGElement | null;
   /** Grey airline icons (above the pins, under our aircraft). */
   cmRoot: SVGGElement | null;
-  /** Airports on the map (map units; `code` when it is labelled): airline flight numbers keep clear of them. */
-  aps: { p: [number, number]; code: boolean }[];
+  /** Airports on the map (map units): airline flight numbers keep clear of their dots and codes. */
+  aps: [number, number][];
 }
 
 export const newShared = (): LiveShared => ({ ac: new Map(), cm: new Map(), night: null, nightSun: null, pathsCm: null, pathsOwn: null, cmRoot: null, aps: [] });
@@ -494,15 +494,15 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
             const obs: LabelBox[] = [];
             const codes: LabelBox[] = [];
             for (const ap of shared.aps) {
-              const ax = ap.p[0] / u;
-              const ay = ap.p[1] / u;
+              const ax = ap[0] / u;
+              const ay = ap[1] / u;
               if (ax < x0 || ax > x1 || ay < y0 || ay > y1) continue;
               obs.push({ id: '', x: ax, y: ay, w: 10, h: 10 });
-              if (ap.code) codes.push({ id: '', x: ax, y: ay - 15, w: 28, h: 15 });
+              // Any of them may show its code (all do once zoomed in a little).
+              codes.push({ id: '', x: ax, y: ay - 15, w: 28, h: 15 });
             }
             x.side = legLabelSide(track, w, NO_FS, [...obs, ...codes], x.pref);
             x.hide = trackCovered(track, x.side, w, NO_FS, codes);
-            x.el.dataset.dbg = JSON.stringify({ side: x.side, pref: x.pref, hide: x.hide.map(Number).join(''), codes: codes.map((c) => [Math.round(c.x - track[0].x), Math.round(c.y - track[0].y)]), t0: [Math.round(track[0].x), Math.round(track[0].y)], t1: [Math.round(track[32]?.x), Math.round(track[32]?.y)], n: shared.aps.length }); // DBGX
           }
           const hidden = !!x.hide[Math.round(pr * 32)];
           if (hidden !== x.hidden) x.no.classList.toggle('off', (x.hidden = hidden));

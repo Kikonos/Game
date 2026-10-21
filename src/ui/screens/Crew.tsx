@@ -8,7 +8,7 @@ import { flag } from '../../data/countries';
 import { flightsRev } from '../../engine/core/entities';
 import { DAY, HOUR, dayStart, fmtDate, fmtDay, fmtTime, monthKey, monthStart, nextMonthStart, toDate } from '../../engine/core/time';
 import type { CrewMember, CrewStatus, GameState } from '../../engine/core/types';
-import { type CalBlock, crewCalendar, crewName, crewRev, crewStatusView, crewWindows, daysOffInMonth, LIMITS, staffing, type CrewWindows } from '../../engine/crew';
+import { type CalBlock, crewCalendar, crewName, crewRev, crewStatusView, crewTravelNow, type CrewTravelNow, crewWindows, daysOffInMonth, LIMITS, staffing, type CrewWindows } from '../../engine/crew';
 import { Empty, Seg } from '../components/ui';
 import { money } from '../format';
 import { dutyRoute } from '../modals/DutyModal';
@@ -42,12 +42,14 @@ function Staffing({ g }: { g: GameState }) {
   );
 }
 
-function CrewRow({ c, w, on }: { c: CrewMember; w: CrewWindows; on: boolean }) {
+function CrewRow({ c, w, on, t }: { c: CrewMember; w: CrewWindows; on: boolean; t: CrewTravelNow | null }) {
+  // v0.5.2: travelling as a passenger beats the stored status ('Deadheading · DUB→LIS').
+  const where = t ? `${t.kind === 'deadhead' ? 'Deadheading' : 'Positioning'} · ${t.phase === 'air' ? `${t.from}→${t.to}` : t.from}` : null;
   return (
     <button className={`sc-crew-row ${on ? 'on' : ''}`} onClick={() => store.select({ kind: 'crew', id: c.id })}>
       <span className="col sc-crew-name">
         <span className="row gap-8"><span className={`sc-role r-${c.role}`}>{c.role}</span><b className="ellipsis">{c.last}, {c.first}</b></span>
-        <span className="tiny muted row gap-4 ellipsis"><Dot tone={STATUS_TONE[c.status]} />{CREW_STATUS_LABEL[c.status]} · {c.loc}{c.loc !== c.base ? ` (base ${c.base})` : ''}</span>
+        <span className="tiny muted row gap-4 ellipsis">{where ? <><Dot tone="info" />{where}</> : <><Dot tone={STATUS_TONE[c.status]} />{CREW_STATUS_LABEL[c.status]} · {c.loc}{c.loc !== c.base ? ` (base ${c.base})` : ''}</>}</span>
       </span>
       <span className="sc-crew-bars">
         <MiniBar label="Duty 28d" v={h(w.duty28d)} max={h(LIMITS.duty28d)} />
@@ -219,7 +221,7 @@ function Detail({ g, c }: { g: GameState; c: CrewMember }) {
         </div>
         {sv.text && <div className={`small sc-crew-status ${sv.tone === 'info' ? 'accent' : sv.tone}`}>{sv.text}</div>}
         <KV rows={[
-          ['Now at', c.loc],
+          ['Now at', sv.nowAt || c.loc],
           ...(joining ? [] : [['Rest until', sv.restUntil ? `${fmtDay(sv.restUntil)} ${fmtTime(sv.restUntil)} UTC` : '—'] as [string, string]]),
           ['Languages', c.languages.join(', ') || '—'],
           [sv.startLabel, fmtDate(sv.startDate)],
@@ -301,7 +303,7 @@ export function CrewScreen() {
               </label>
             </div>
             <div className="card sc-crew-list">
-              {shown.map((c) => <CrewRow key={c.id} c={c} w={wins.get(c.id) ?? crewWindows(g, c, g.now)} on={c.id === selId} />)}
+              {shown.map((c) => <CrewRow key={c.id} c={c} w={wins.get(c.id) ?? crewWindows(g, c, g.now)} on={c.id === selId} t={crewTravelNow(g, c)} />)}
               {!list.length && <div className="muted small sc-pad">Nobody matches these filters.</div>}
               {list.length > shown.length && <button className="btn btn-ghost sc-more" onClick={() => setMore(true)}>Show all {list.length}</button>}
             </div>

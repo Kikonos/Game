@@ -208,7 +208,7 @@ export function OpsMap() {
             shared.aps = airports.flatMap((a) => {
               const ap = AIRPORT_BY_CODE[a.code];
               const p = ap && ctx.proj([ap.lon, ap.lat]);
-              return p ? [{ p, code: !!a.label || a.state === 'hub' }] : [];
+              return p ? [p] : [];
             });
           }
           // The current leg is always drawn by the live paths; the arcs add the selected aircraft's next legs.
