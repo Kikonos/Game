@@ -13,7 +13,7 @@ import { deletePairing, dutyLegality, planAircraft, queueDuty, refreshPairing, s
 import { crewName } from './generate';
 import { lateChange, moraleShock, nextReport } from './morale';
 import { evalSegs, levelOf, minRest, tzDeltaH, worst, type Seg } from './rules';
-import { aboard, aboveEmpty, block28, crewCount, crewIx, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, locAt, noteRiders, passengers, planHome, planOut, segsOf, ticketPrice, touchCrew, typeIdOf, withoutTickets } from './timeline';
+import { aboard, aboveEmpty, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, locAt, noteRiders, passengers, planHome, planOut, segsOf, ticketPrice, touchCrew, typeIdOf, withoutTickets } from './timeline';
 
 export { buildDuties } from './duties';
 
@@ -1190,7 +1190,30 @@ export function flightCrewStatus(g: GameState, flightId: string): FlightCrewStat
     if (crewIssuesFor(g, d).length) return { level: 'illegal', missing };
   }
   // An empty seat above the legal minimum only warns (optional; never blocks the departure).
-  return { level: d.legality === 'tight' || p.legality === 'tight' || (!d.done && aboveEmpty(p)) ? 'tight' : 'ok', missing };
+  if (d.legality === 'tight' || (!d.done && aboveEmpty(p))) return { level: 'tight', missing };
+  // v0.6.4: a stored 'tight' can outlive the crew it was about too (fillPairing keeps the worse of old and new);
+  // confirm it live (cached per crew change) so the amber dot agrees with the Adjust crew panel.
+  return { level: p.legality === 'tight' && liveCrewLevel(g, p) !== 'legal' ? 'tight' : 'ok', missing };
+}
+
+const liveLevels = new WeakMap<GameState, { rev: number; now: Minute; m: Map<string, Legality> }>();
+/** Worst crew-level (non-FDP) issue of the pairing's assigned crew, checked live; cached until the crew change. */
+function liveCrewLevel(g: GameState, p: Pairing): Legality {
+  let c = liveLevels.get(g);
+  const rev = crewRev(g);
+  if (!c || c.rev !== rev || c.now !== g.now) liveLevels.set(g, (c = { rev, now: g.now, m: new Map() }));
+  let lv = c.m.get(p.id);
+  if (lv) return lv;
+  lv = 'legal';
+  if (openDuties(g, p).length) {
+    for (const s of p.slots) {
+      const cm = s.crewId ? g.crew[s.crewId] : undefined;
+      if (!cm) continue;
+      lv = worst(lv, levelOf(planCrew(g, cm, p, segsOf(g, cm, p.id), true).issues.filter((i) => i.code !== 'fdp')));
+    }
+  }
+  c.m.set(p.id, lv);
+  return lv;
 }
 
 const contractExtraReq = (g: GameState, contractId: string | null) => (contractId ? g.contracts[contractId]?.requirements.extraCabin ?? 0 : 0);
