@@ -5,8 +5,8 @@ import { ACMI_TYPES } from '../../data/acmiTypes';
 import { BAL } from '../core/balance';
 import { distance } from '../core/geo';
 import { deadheadFlights, flightsOf, flightsRev } from '../core/entities';
-import { ticketBlock } from '../ops/commercial';
-import { yearOf } from '../core/time';
+import { itinerary, ticketBlock } from '../ops/commercial';
+import { DAY, fmtDateTime, fmtTime, yearOf } from '../core/time';
 import type { CrewMember, Duty, Flight, GameState, Minute, Pairing } from '../core/types';
 import { isDisruptive, maxFdp, minRest, referenceTime, tzDeltaH, type RefTime, type Seg, type TimelineCtx } from './rules';
 
@@ -150,23 +150,88 @@ export const dhBlock = (from: string, to: string) => ticketBlock(from, to);
 
 const posRest = (t: TicketPlan, atHome: boolean) => minRest({ dutyMin: t.sta - t.std + CHECKIN(), atHome, augmented: false, tzShift: 0 });
 
+/** Minimum time from a ticket's arrival at the outstation to the duty's report (airport to crew room). */
+export const OUT_CONNECT = 60;
+/** Preferred arrival margin before report (delays, immigration): used whenever a ticket that early still fits. */
+export const OUT_BUFFER = 180;
+
+/** A ticket out, or why none works (`why`: then `plan` is only the best guess, not workable). */
+export interface OutTicket {
+  plan: TicketPlan;
+  why: string | null;
+}
+
+const hm = (m: number) => `${Math.floor(m / 60)}:${String(Math.round(m % 60)).padStart(2, '0')}`;
+/** '21:40' today (UTC, as the duty modal shows times), else '2 Mar 21:40'. */
+const at = (t: Minute, now: Minute) => (Math.floor(t / DAY) === Math.floor(now / DAY) ? fmtTime(t) : fmtDateTime(t));
+/** ' (via FRA)' for a ticket with a connection at a hub, else ''. Pure. */
+export const viaText = (from: string, to: string, std: Minute, sta: Minute): string => {
+  const legs = itinerary(from, to, std, sta);
+  return legs.length > 1 ? ` (via ${legs[0].to})` : '';
+};
+
 /**
- * Ticket to the first departure of duty d: same day (departs report − 3 h − block, rounded down to the hour;
- * counts as FDP) when the merged FDP keeps 30 min of slack, else the day before with minimum rest on arrival.
- * `early`: always the day before (the longer merged duty would eat the rest before the trip's next duty).
+ * Ticket to the first departure of duty d, from `from`, for crew free to check in from `ready` (their rest after
+ * earlier work; never before now). In order of preference:
+ * 1. our own empty leg there (rideTo);
+ * 2. same day, landing 3 h before report (rounded down to the hour; counts as FDP: positioning right before a
+ *    duty is FDP) when the merged FDP keeps 30 min of slack;
+ * 3. the day before, landing minimum rest before report (rest at the hotel; not FDP);
+ * 4. any later same-day ticket landing at least an hour before report whose merged FDP keeps the slack, the
+ *    arrival margin closest to 3 h.
+ * Tickets leave on the hour and take the airline itinerary's time (ticketBlock). When none can be checked in
+ * from `ready`, `why` says exactly why (earliest arrival vs report, or the FDP and the rest it would take).
+ * `early`: option 3 only (the longer merged duty would eat the rest before the trip's next duty). Pure.
  */
-export function planOut(g: GameState, p: Pairing, d: Duty, from: string, early = false): TicketPlan {
+export function outTicket(g: GameState, p: Pairing, d: Duty, from: string, ready: Minute = g.now, early = false): OutTicket {
   const to = g.flights[d.flightIds[0]]?.from ?? d.restAt;
-  const ride = early ? null : rideTo(g, from, to, d);
-  if (ride) return ride;
+  const free = Math.max(g.now, ready);
+  const ride = early ? null : rideTo(g, from, to, d, free);
+  if (ride) return { plan: ride, why: null };
   const blk = dhBlock(from, to);
-  const std = hour(d.report - 180 - blk, false);
-  const start = std - CHECKIN();
-  const { max } = fdpLimitAt(g, p, d, from, start);
-  if (!early && d.fdp + (d.report - start) <= max + (d.discretion ?? 0) - 30) return { from, to, std, sta: std + blk };
+  const mk = (std: Minute): TicketPlan => ({ from, to, std, sta: std + blk });
+  const first = hour(free + CHECKIN(), true);
   const rest = minRest({ dutyMin: blk + CHECKIN(), atHome: false, augmented: false, tzShift: 0 });
-  const std2 = hour(d.report - rest - blk, false);
-  return { from, to, std: std2, sta: std2 + blk };
+  const rested = hour(d.report - rest - blk, false);
+  if (early) return { plan: mk(rested), why: rested >= first ? null : `Rest at ${to} needed landing by ${at(rested + blk, g.now)}` };
+  const disc = d.discretion ?? 0;
+  /** Merged FDP and its limit for a ticket leaving at std. */
+  const fdpOf = (std: Minute) => {
+    const start = std - CHECKIN();
+    return { fdp: d.fdp + (d.report - start), max: fdpLimitAt(g, p, d, from, start).max + disc };
+  };
+  const fits = (std: Minute) => {
+    const x = fdpOf(std);
+    return x.fdp <= x.max - 30;
+  };
+  const pref = hour(d.report - OUT_BUFFER - blk, false);
+  const prefFits = fits(pref);
+  if (pref >= first && prefFits) return { plan: mk(pref), why: null };
+  if (rested >= first) return { plan: mk(rested), why: null };
+  const last = hour(d.report - OUT_CONNECT - blk, false);
+  let best: Minute | null = null;
+  for (let std = Math.max(first, rested + 60); std <= last; std += 60) {
+    if (!fits(std)) continue;
+    if (best === null || Math.abs(d.report - std - blk - OUT_BUFFER) <= Math.abs(d.report - best - blk - OUT_BUFFER)) best = std;
+  }
+  if (best !== null) return { plan: mk(best), why: null };
+  // Nothing works: the old best guess (same day if its FDP fits, else the day before) and the exact reason.
+  const plan = mk(prefFits ? pref : rested);
+  const t = (x: Minute) => at(x, g.now);
+  const resting = free > g.now ? `Resting at ${from} until ${t(free)}; ` : '';
+  const cap = (x: string) => (resting ? x : x[0].toUpperCase() + x.slice(1));
+  if (last < first) {
+    const arr = first + blk;
+    return { plan, why: resting + cap(`earliest arrival ${to} ${t(arr)}${viaText(from, to, first, arr)}, must land by ${t(d.report - OUT_CONNECT)} (report ${t(d.report)})`) };
+  }
+  const x = fdpOf(last);
+  const over = x.fdp > x.max ? `${hm(x.fdp)} > ${hm(x.max)} max` : `${hm(x.fdp)}, within 30 min of ${hm(x.max)} max`;
+  return { plan, why: resting + cap(`deadhead + duty FDP ${over}; rest at ${to} needed landing by ${t(rested + blk)}`) };
+}
+
+/** The planned ticket out (outTicket's plan; workable when it can still be checked in: see outTicket). */
+export function planOut(g: GameState, p: Pairing, d: Duty, from: string, early = false): TicketPlan {
+  return outTicket(g, p, d, from, g.now, early).plan;
 }
 
 interface FlightScan {
@@ -223,10 +288,10 @@ function rideLegs(g: GameState): Map<string, Flight[]> {
  * Our own empty leg from → to that lands at least an hour before the duty reports (and not more than two days
  * before), latest first: riding it is preferred to a ticket (DESIGN §5.3). Not legs of the duty itself.
  */
-function rideTo(g: GameState, from: string, to: string, d: Duty): TicketPlan | null {
+function rideTo(g: GameState, from: string, to: string, d: Duty, free: Minute): TicketPlan | null {
   let best: Flight | null = null;
   for (const f of rideLegs(g).get(`${from}>${to}`) ?? []) {
-    if (f.status !== 'scheduled' || f.dutyId === d.id || f.std - CHECKIN() < g.now || f.sta > d.report - 60 || f.sta < d.report - 2 * 1440) continue;
+    if (f.status !== 'scheduled' || f.dutyId === d.id || f.std - CHECKIN() < free || f.sta > d.report - 60 || f.sta < d.report - 2 * 1440) continue;
     if (!best || f.sta > best.sta) best = f;
   }
   return best ? { from, to, std: best.std, sta: best.sta, rideId: best.id } : null;

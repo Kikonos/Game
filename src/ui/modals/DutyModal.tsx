@@ -98,6 +98,7 @@ function Candidate({ c, confirm, swapWith, onTap }: { c: DutyCandidate; confirm:
         <span className="small muted ellipsis">
           at {c.loc} · {c.block28dH} h block in 28 d{c.ticket > 0 ? ` · ticket ${money(c.ticket)}` : ''}
         </span>
+        {c.travel && <span className="small muted sc-cand-why">{c.travel}</span>}
         {c.reasons.length > 0 && <span className={`small sc-cand-why ${LEVEL_TONE[c.level]}`}>{c.reasons.slice(0, 2).join(' · ')}</span>}
         {confirm && (
           <span className="small bad sc-cand-confirm">
