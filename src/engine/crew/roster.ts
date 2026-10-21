@@ -1184,7 +1184,10 @@ export function flightCrewStatus(g: GameState, flightId: string): FlightCrewStat
     // A crew member who can't fly a later duty of the trip only warns on the earlier ones (the roster takes them
     // off from that duty); another duty's FDP is that duty's problem. Old saves without the mark: whole trip.
     const from = p.illegalFrom ?? (p.dutyIds.some((id) => g.duties[id]?.legality === 'illegal' && !g.duties[id].done) ? Infinity : -Infinity);
-    return { level: d.report >= from ? 'illegal' : 'tight', missing };
+    if (d.report < from) return { level: 'tight', missing };
+    // v0.6.3: the stored mark is set at roster events and can outlive the crew it was about (a seat refilled, a
+    // partial re-roster); confirm it live, the same reading as the Adjust crew panel (dutyLegality).
+    if (crewIssuesFor(g, d).length) return { level: 'illegal', missing };
   }
   // An empty seat above the legal minimum only warns (optional; never blocks the departure).
   return { level: d.legality === 'tight' || p.legality === 'tight' || (!d.done && aboveEmpty(p)) ? 'tight' : 'ok', missing };

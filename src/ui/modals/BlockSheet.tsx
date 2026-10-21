@@ -7,7 +7,7 @@ import { AIRPORT_BY_CODE } from '../../data/airports';
 import { BAL } from '../../engine/core/balance';
 import { DAY, fmtDateTime, fmtDuration, fmtTime } from '../../engine/core/time';
 import type { Flight, GameState, MaintenanceEvent, Ref } from '../../engine/core/types';
-import { crewName, dutyCrew, flightCrewStatus } from '../../engine/crew';
+import { crewName, dutyCrew, dutyLegality, flightCrewStatus } from '../../engine/crew';
 import { cancelCheck, delayFlight, flightCrewAboard, flightType } from '../../engine/ops';
 import { FlightTypeChip } from '../components/FlightType';
 import { Modal, Stepper } from '../components/ui';
@@ -32,6 +32,8 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
   const cs0 = flightCrewStatus(g, f.id);
   const seat = view?.slots.some((x) => x.level === 'illegal') ? 'illegal' : view?.slots.some((x) => x.level === 'tight') ? 'tight' : null;
   const cs = seat === 'illegal' && cs0.level !== 'missing' ? { ...cs0, level: 'illegal' as const } : seat === 'tight' && cs0.level === 'ok' ? { ...cs0, level: 'tight' as const } : cs0;
+  // Why (v0.6.3): the first problem of the same check the Adjust crew panel shows (empty seats are listed above).
+  const why = (cs.level === 'illegal' || cs.level === 'tight') && f.dutyId ? dutyLegality(g, f.id).warnings.find((w) => w.code !== 'missing' && w.level !== 'legal')?.text : undefined;
   const rival = f.operatedBy ? g.rivals.find((r) => r.id === f.operatedBy)?.name : undefined;
   const [hold, setHold] = useState(0);
   // Beyond the roster horizon an empty duty is normal, not a problem.
@@ -68,6 +70,7 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
           ) : (
             <div className="row gap-8"><Dot tone={LEVEL_TONE[cs.level]} /><b>Crew {cs.level === 'ok' ? 'legal' : cs.level}</b>{cs.missing.length > 0 && <span className="small bad">missing {cs.missing.join(', ')}</span>}</div>
           )}
+          {!later && why && <div className={`small ${cs.level === 'illegal' ? 'bad' : 'warn'}`}>{why}</div>}
           {view && view.slots.some((x) => x.crewId) && (
             <div className="sc-crew-grid">
               {view.slots.filter((x) => x.crewId).map((x) => (
