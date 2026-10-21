@@ -21,8 +21,7 @@ export function Why({ refs, tone, label, className }: { refs: Ref | Ref[]; tone?
   };
   return (
     <span className={`why ${className ?? ''}`} role="button" tabIndex={0} aria-label={label ?? 'Why?'} data-tip={label ?? 'Why? Tap for the story'} onClick={open} onKeyDown={(k) => (k.key === 'Enter' || k.key === ' ') && open(k)}>
-      <span className={`sc-dot ${tone ?? 'bad'}`} aria-hidden />
-      <span className="why-t" aria-hidden>?</span>
+      <span className={`sc-dot why-dot ${tone ?? 'bad'}`} aria-hidden>?</span>
     </span>
   );
 }

@@ -23,6 +23,7 @@
 .pc-badge { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; background: rgba(148, 170, 220, 0.12); color: var(--text-2); }
 .pc-badge.low { background: rgba(251, 191, 36, 0.14); color: var(--warn); }
 .pc-badge.high { background: rgba(248, 113, 113, 0.14); color: var(--bad); }
+.pc-badge.opp { background: rgba(96, 165, 250, 0.14); color: var(--info); }
 .pc-by { margin-left: 2px; }
 .pc-do { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .pc-visual { display: flex; flex-direction: column; gap: 10px; padding: 10px 12px; border-radius: 10px; background: rgba(0, 0, 0, 0.16); border: 1px solid var(--border); }
@@ -33,6 +34,9 @@
 .pc-details-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; line-height: 1.35; }
 .pc-compact { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 8px 12px; }
 .pc-what-s { font-size: 14px; }
+button.pc-now { width: 100%; min-height: 48px; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+@media (hover: hover) { button.pc-now:hover { background: var(--panel-hover); } }
+.pc-now .pc-what-s { min-width: 0; }
 @media (max-width: 760px) {
   .pc-row { grid-template-columns: minmax(0, 1fr); }
   .pc-gauges { grid-template-columns: minmax(0, 1fr); }
@@ -91,10 +95,9 @@
 .tl-span-t { font-size: 12px; font-weight: 600; color: #08101e; line-height: 1; padding: 0 6px; white-space: nowrap; }
 .reach.timeline .rb-track { height: 14px; }
 
-/* ---------- WHY? dot ---------- */
+/* ---------- WHY? dot: the '?' inside the dot, the same look as the map's op-why ---------- */
 .why { position: relative; display: inline-grid; place-items: center; width: 44px; height: 44px; margin: -17px -14px; cursor: pointer; flex-shrink: 0; border-radius: 50%; }
-.why .sc-dot { width: 11px; height: 11px; }
-.why-t { position: absolute; right: 8px; top: 8px; font-size: 12px; font-weight: 700; line-height: 1; color: var(--text-3); }
+.why .sc-dot.why-dot { width: 18px; height: 18px; display: inline-grid; place-items: center; font-size: 11px; font-weight: 800; line-height: 1; color: #08101e; box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.1); }
 .why:focus-visible { outline: 2px solid var(--accent); }
 @media (hover: hover) { .why:hover { background: var(--panel-hover); } }
 .why.inline { margin: -17px -10px -17px -14px; }
@@ -170,6 +173,7 @@
 }
 .cc-opt.on { border-color: var(--accent); background: rgba(62, 230, 255, 0.07); }
 .cc-opt.illegal { border-color: rgba(248, 113, 113, 0.4); }
+.cc-opt.off { opacity: 0.5; cursor: default; }
 .cc-opt-main { gap: 2px; min-width: 0; }
 .cc-opt-check { display: inline-grid; place-items: center; flex-shrink: 0; width: 22px; height: 22px; border: 1.5px solid var(--border-strong); background: rgba(255, 255, 255, 0.03); color: var(--accent-ink); }
 .cc-opt-check.box { border-radius: 6px; }
@@ -239,5 +243,7 @@
 .sc-crew-row .why { margin: -17px -14px -17px -16px; }
 .sc-offer .why { margin-left: auto; }
 .fin-card { margin-bottom: 16px; }
+.fin-loss { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 6px 10px 6px 14px; margin-bottom: 16px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--border); border-left: 3px solid var(--warn); }
+.fin-loss-t { min-width: 0; font-size: 14px; line-height: 1.35; }
 .sc-recv .why { margin-left: -4px; }
 .sc-status-why { display: inline-flex; align-items: center; gap: 2px; }

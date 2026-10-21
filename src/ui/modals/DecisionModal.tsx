@@ -8,6 +8,7 @@ import { AlertTriangle, Users } from 'lucide-react';
 import { fmtDateTime } from '../../engine/core/time';
 import { leaseView, resolveDecision } from '../../engine/ops';
 import { problemAt } from '../../engine/problems';
+import { decisionBodyTail } from '../components/problemLogic';
 import { Modal } from '../components/ui';
 import { ProblemCardView } from '../components/ProblemCard';
 import { ReturnLines } from './LeaseModal';
@@ -41,7 +42,7 @@ export function DecisionModal({ decisionId }: { decisionId?: string }) {
   };
   return (
     <Modal title={d.title} icon={<AlertTriangle className="warn" />} className="decision sc-decision" onClose={close}>
-      <p className="muted">{d.body}</p>
+      {(() => { const tail = decisionBodyTail(d.body, card); return tail ? <p className="muted">{tail}</p> : null; })()}
       {card && <ProblemCardView card={card} g={g} hideActions />}
       <div className="col gap-8 mt-12">
         {d.options.map((o) => (

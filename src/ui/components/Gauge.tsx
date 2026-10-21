@@ -17,7 +17,7 @@ export function Gauge({ spec, compact }: { spec: GaugeSpec; compact?: boolean })
         <span className="gauge-fill" style={{ width: `${pct}%` }} />
         <span className="gauge-needle" style={{ left: `${pct}%` }} />
       </div>
-      {spec.by !== undefined && !compact && <div className="gauge-by tiny dim">{spec.tone === 'good' && spec.id !== 'rest' ? 'until' : 'by'} {fmtTime(spec.by)} UTC</div>}
+      {spec.by !== undefined && !compact && !(spec.id === 'rest' && spec.value >= spec.limit) && <div className="gauge-by tiny dim">{spec.tone === 'good' && spec.id !== 'rest' ? 'until' : 'by'} {fmtTime(spec.by)} UTC</div>}
     </div>
   );
 }

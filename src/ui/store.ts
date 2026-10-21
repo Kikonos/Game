@@ -6,7 +6,8 @@ import { clearPause, takePause, type PauseReason } from '../engine/core/pause';
 import { CLOCK_STEP, type GameSpeed, minutesPerMs, monthKey } from '../engine/core/time';
 import type { CabinLayout, RatingFamily } from '../data/acmiTypes';
 import type { ActionResult, ApprovalId, Archetype, CrewFix, GameState, Message, PaintKind, ProblemRef, Ref, Role } from '../engine/core/types';
-import type { TermId } from '../data/glossary';
+import { HINTS, type TermId } from '../data/glossary';
+import { problemFor } from '../engine/problems';
 import { acceptOffer, declineOffer, feasibilityAll, generateOffer } from '../engine/contracts';
 import { DAY } from '../engine/core/time';
 import { pushDecision } from '../engine/core/messages';
@@ -145,6 +146,8 @@ class GameStore {
   pauseReason: PauseReason | null = null;
   nav: Nav = { tab: 'map' };
   modal: ModalSpec | null = null;
+  /** v0.7.1: the dialog the glossary opened over (a Term's 'Glossary ›'); it comes back when the glossary closes. */
+  private modalBelow: ModalSpec | null = null;
   /** v0.6: a roster-board drag in progress holds the clock like a modal (no render; the speed control stays as set). */
   holdTime = false;
   toasts: Toast[] = [];
@@ -228,6 +231,7 @@ class GameStore {
     this.pauseReason = null;
     this.nav = { tab: 'map' };
     this.modal = null;
+    this.modalBelow = null;
     this.screen = 'game';
     this.startLoop();
   }
@@ -415,8 +419,8 @@ class GameStore {
       else if (m.topic === 'crewRed') {
         // v0.7.1 the red crew-shortage stage: its own sound (hook for the v0.9 set) and the banner as the toast title.
         sound.play('crewShortage');
-        if (this.settings.toasts) this.toast('bad', crewRedTitle(m), m.body.length > 140 ? m.body.slice(0, 137) + '…' : m.body);
-      } else if (!this.settings.toasts) continue;
+        if (this.settings.toasts && !this.modal) this.toast('bad', crewRedTitle(m), m.body.length > 140 ? m.body.slice(0, 137) + '…' : m.body);
+      } else if (!this.settings.toasts || this.modal) continue; // news waits in the Inbox while a dialog is open
       else if (m.topic === 'market') {
         if (this.settings.marketAlerts) this.toast('info', m.title.replace(/^Market: /, ''), marketToastBody(m));
       } else if (m.tone === 'bad' || m.cat === 'goal') this.toast(m.tone === 'bad' ? 'bad' : 'good', m.title, m.body.length > 140 ? m.body.slice(0, 137) + '…' : m.body);
@@ -446,6 +450,8 @@ class GameStore {
   private queueHint(m: Message) {
     const p = m.problem;
     if (!p || (m.tone !== 'warn' && m.tone !== 'bad')) return;
+    // Only kinds with a story (HINTS): never an empty dialog.
+    if (!HINTS[p.kind]) return;
     if (this.settings.hintsSeen.includes(p.kind) || this.hintShown.has(p.kind)) return;
     if (this.ladderQueue.some((q) => 'hint' in q && q.hint.kind === p.kind)) return;
     this.ladderQueue.push({ hint: p });
@@ -461,8 +467,10 @@ class GameStore {
     if (this.modal || !this.game || this.game.gameOver || this.decisionOpen || !this.ladderQueue.length) return;
     const q = this.ladderQueue.shift()!;
     if ('hint' in q) {
+      if (this.settings.hintsSeen.includes(q.hint.kind)) { this.hintShown.add(q.hint.kind); return this.flushLadder(); }
+      // Fixed by the time the slot freed: keep the hint for the next time that kind appears.
+      if (!problemFor(this.game, q.hint)) return this.flushLadder();
       this.hintShown.add(q.hint.kind);
-      if (this.settings.hintsSeen.includes(q.hint.kind)) return this.flushLadder();
       this.modal = { kind: 'problem', subject: q.hint, hint: true };
       return;
     }
@@ -549,14 +557,18 @@ class GameStore {
   }
 
   openModal(m: ModalSpec) {
+    this.modalBelow = m.kind === 'glossary' && this.modal && this.modal.kind !== 'glossary' ? this.modal : null;
     this.modal = m;
     sound.play('click');
     this.emit();
   }
 
-  closeModal() {
-    this.modal = null;
-    this.flushLadder();
+  /** Closes the dialog; the glossary goes back to the dialog it was opened over unless `all`. */
+  closeModal(opts: { all?: boolean } = {}) {
+    const below = !opts.all && this.modal?.kind === 'glossary' ? this.modalBelow : null;
+    this.modalBelow = null;
+    this.modal = below;
+    if (!below) this.flushLadder();
     this.emit();
   }
 

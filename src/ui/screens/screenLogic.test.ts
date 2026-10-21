@@ -104,6 +104,20 @@ describe('v0.7 market, cabin and inbox helpers', () => {
     expect(filterMessages(ms, 'market').map((m: { id: string }) => m.id)).toEqual(['a']);
     expect(filterMessages(ms, 'company')).toHaveLength(2);
   });
+  it('keeps only live problems and recent bad news under Problems only', async () => {
+    const { isOpportunity, showLossMonth } = await import('./screenLogic');
+    const g = newGame();
+    const ms = [
+      { id: 'a', cat: 'commercial', tone: 'warn', t: g.now, ref: { kind: 'offer', id: 'gone' }, problem: { kind: 'offerFit', ref: { kind: 'offer', id: 'gone' } }, hurt: { money: 199_000, pax: 0, delayMin: 0, level: 'high' } },
+      { id: 'b', cat: 'ops', tone: 'bad', t: g.now - DAY },
+      { id: 'c', cat: 'ops', tone: 'bad', t: g.now - 9 * DAY },
+      { id: 'd', cat: 'finance', tone: 'info', t: g.now },
+    ] as never[];
+    expect(filterMessages(ms, 'problems', g).map((m: { id: string }) => m.id)).toEqual(['b']);
+    expect(isOpportunity(ms[0])).toBe(true);
+    expect(isOpportunity(ms[1])).toBe(false);
+    expect(typeof showLossMonth(g)).toBe('boolean');
+  });
   it('shows cabin requirement chips', () => {
     const base = { minSeats: 100, approvals: [], longestSectorNm: 500 } as never as Parameters<typeof reqChips>[0];
     expect(reqChips({ ...base, layouts: ['vip'] }).map((c) => c.label)).toContain('VIP cabin');

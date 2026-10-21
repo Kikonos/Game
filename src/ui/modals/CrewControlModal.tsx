@@ -8,7 +8,7 @@ import { ArrowLeftRight, CalendarRange, Check, CircleSlash, Clock, Handshake, Ho
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { flightsRev } from '../../engine/core/entities';
 import { fmtTime } from '../../engine/core/time';
-import type { CrewFix } from '../../engine/core/types';
+import type { CrewFix, Role } from '../../engine/core/types';
 import { applyCrewFix, crewControl, crewRev, ROLE_WORD, type CrewSolution, type FixOption } from '../../engine/crew';
 import { Modal } from '../components/ui';
 import { ProblemCardView } from '../components/ProblemCard';
@@ -17,6 +17,7 @@ import { money } from '../format';
 import { Dot } from '../screens/common';
 import { spanLabel } from '../screens/screenLogic';
 import { store, useGame } from '../store';
+import { canTake, chooseWord, defaultPicks, goneText, seatPlan } from './crewControlLogic';
 
 const FIX_ICON: Record<CrewFix, ReactNode> = {
   autoFix: <Wand2 />, deadhead: <Ticket />, delay: <Clock />, jet: <PlaneTakeoff />, callIn: <PhoneCall />, discretion: <Hourglass />,
@@ -25,13 +26,13 @@ const FIX_ICON: Record<CrewFix, ReactNode> = {
 const MULTI: CrewFix[] = ['deadhead', 'callIn'];
 const LEVEL_TONE = { legal: 'good', tight: 'warn', illegal: 'bad' } as const;
 
-function Option({ o, on, onTap, multi }: { o: FixOption; on: boolean; onTap: () => void; multi: boolean }) {
+function Option({ o, on, onTap, multi, role, seat, disabled }: { o: FixOption; on: boolean; onTap: () => void; multi: boolean; role?: Role; seat?: Role; disabled?: boolean }) {
   const tone = o.level ? LEVEL_TONE[o.level] : undefined;
   return (
-    <button className={`cc-opt ${on ? 'on' : ''} ${o.level === 'illegal' ? 'illegal' : ''}`} onClick={onTap} aria-pressed={on}>
+    <button className={`cc-opt ${on ? 'on' : ''} ${o.level === 'illegal' ? 'illegal' : ''} ${disabled ? 'off' : ''}`} onClick={onTap} aria-pressed={on} disabled={disabled}>
       <span className={`cc-opt-check ${multi ? 'box' : 'radio'} ${on ? 'on' : ''}`} aria-hidden>{on && <Check />}</span>
       <span className="grow col cc-opt-main">
-        <span className="row gap-8">{tone && <Dot tone={tone} />}<b className="ellipsis">{o.label}</b></span>
+        <span className="row gap-8">{tone && <Dot tone={tone} />}{role && <span className={`sc-role r-${role}`}>{role}</span>}<b className="ellipsis">{o.label}</b>{seat && <span className="chip sc-chip good">{seat} seat</span>}</span>
         <span className="small muted">{o.sub}</span>
         {o.reason && <ReasonLine reason={o.reason} tone={o.level === 'illegal' ? 'bad' : 'warn'} />}
       </span>
@@ -114,21 +115,13 @@ export function CrewControlModal({ flightId, fix }: { flightId: string; fix?: Cr
     );
   }
   const stage = view.stage;
+  const roleOf = (id: string): Role => g.crew[id]?.role ?? 'CC';
   const sel = (x: CrewSolution) => {
     const ids = picked[x.id];
     if (ids?.length) return ids;
     if (!x.options?.length) return [];
     // Default: the first option; deadhead / call-in take one person per missing seat (best first).
-    if (MULTI.includes(x.id)) {
-      const out: string[] = [];
-      const need = view.missing.map((m) => ({ ...m }));
-      for (const o of x.options) {
-        const crew = g.crew[o.id];
-        const slot = need.find((m) => m.n > 0 && (!crew || crew.role === m.role || (m.role === 'FO' && crew.role === 'CPT') || (m.role === 'CC' && (crew.role === 'SCC' || crew.role === 'CSD'))));
-        if (slot) { slot.n--; out.push(o.id); }
-      }
-      return out.length ? out : [x.options[0].id];
-    }
+    if (MULTI.includes(x.id)) return defaultPicks(view.missing, x.options.map((o) => ({ id: o.id, role: roleOf(o.id) })));
     return [x.options[0].id];
   };
   const toggle = (x: CrewSolution, id: string) => {
@@ -201,22 +194,40 @@ export function CrewControlModal({ flightId, fix }: { flightId: string; fix?: Cr
               return (
                 <Row key={x.id} s={x} open={isOpen} onOpen={() => setOpen(isOpen ? null : x.id)}>
                   <div className="small muted">{x.desc}{!x.available && x.why ? ` ${x.why}.` : ''}</div>
-                  {x.options && x.options.length > 0 && (
-                    <div className="cc-opts">
-                      <div className="tiny dim">{multi ? `Choose who flies in (${ids.length} of ${view.missing.reduce((n, m) => n + m.n, 0)} seats)` : x.id === 'jet' ? 'Jet class' : 'Take the crew of'}</div>
-                      {x.options.slice(0, 8).map((o) => <Option key={o.id} o={o} on={ids.includes(o.id)} onTap={() => toggle(x, o.id)} multi={multi} />)}
-                      {x.options.length > 8 && <div className="tiny dim">… {x.options.length - 8} more</div>}
-                    </div>
-                  )}
+                  {x.options && x.options.length > 0 && (() => {
+                    // Candidates: the role chip, the seat each tick fills, and no second tick for a seat already taken.
+                    const plan = multi ? seatPlan(view.missing, ids.map((id) => ({ id, role: roleOf(id) }))) : null;
+                    const seats = view.missing.reduce((n, m) => n + m.n, 0);
+                    return (
+                      <div className="cc-opts">
+                        <div className="tiny dim">{multi ? `${chooseWord(x.id)} (${Math.min(ids.length, seats)} of ${seats} seat${seats === 1 ? '' : 's'})` : x.id === 'jet' ? 'Jet class' : 'Take the crew of'}</div>
+                        {x.options.slice(0, 8).map((o) => {
+                          const on = ids.includes(o.id);
+                          const role = multi ? roleOf(o.id) : undefined;
+                          return <Option key={o.id} o={o} on={on} onTap={() => toggle(x, o.id)} multi={multi} role={role} seat={plan?.seat[o.id]} disabled={!!plan && !on && !canTake(plan, role!)} />;
+                        })}
+                        {x.options.length > 8 && <div className="tiny dim">… {x.options.length - 8} more</div>}
+                      </div>
+                    );
+                  })()}
                   {x.available && (
                     <div className="cc-preview">
                       <div className="tiny dim">What changes</div>
                       {x.preview.changes.length ? x.preview.changes.slice(0, 6).map((c, i) => <div key={i} className="small row gap-8"><Check className="sc-ico-s good" /><span>{c}</span></div>) : <div className="small muted">Nothing yet.</div>}
-                      <div className={`small row gap-8 ${x.preview.after.level === 'ok' ? 'good' : x.preview.after.level === 'tight' ? 'warn' : 'bad'}`}>
-                        <Dot tone={x.preview.after.level === 'ok' ? 'good' : x.preview.after.level === 'tight' ? 'warn' : 'bad'} />
-                        <span>{x.preview.after.level === 'ok' ? `${view.no} is then crewed` : x.preview.after.level === 'tight' ? `${view.no} is then crewed, but close to a limit` : `${view.no} then still needs ${x.preview.after.missing.map((m) => `${m.n} ${m.n === 1 ? ROLE_WORD[m.role][0] : ROLE_WORD[m.role][1]}`).join(' and ') || 'a legal crew'}`}</span>
-                      </div>
-                      {x.preview.ripple.map((r, i) => <div key={i} className={`small row gap-8 ${r.tone}`}><Dot tone={r.tone} /><span><span className="mono">{r.no}</span> {r.text}</span></div>)}
+                      {(() => {
+                        // A cancel or sub-charter leaves no flight to crew: say so, and keep its own legs out of the knock-on list.
+                        const gone = goneText(x.id, view.no, x.consequences);
+                        const after = x.preview.after.level;
+                        const tone = gone ? 'off' : after === 'ok' ? 'good' : after === 'tight' ? 'warn' : 'bad';
+                        const text = gone ?? (after === 'ok' ? `${view.no} is then crewed` : after === 'tight' ? `${view.no} is then crewed, but close to a limit` : `${view.no} then still needs ${x.preview.after.missing.map((m) => `${m.n} ${m.n === 1 ? ROLE_WORD[m.role][0] : ROLE_WORD[m.role][1]}`).join(' and ') || 'a legal crew'}`);
+                        const ripple = gone ? x.preview.ripple.filter((r) => !view.unit.flightIds.includes(r.flightId)) : x.preview.ripple;
+                        return (
+                          <>
+                            <div className={`small row gap-8 ${tone === 'off' ? 'muted' : tone}`}><Dot tone={tone} /><span>{text}</span></div>
+                            {ripple.map((r, i) => <div key={i} className={`small row gap-8 ${r.tone}`}><Dot tone={r.tone} /><span><span className="mono">{r.no}</span> {r.text}</span></div>)}
+                          </>
+                        );
+                      })()}
                       {x.consequences.slice(1).map((c, i) => <div key={`c${i}`} className="small muted">{c}</div>)}
                     </div>
                   )}

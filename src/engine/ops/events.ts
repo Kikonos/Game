@@ -13,10 +13,12 @@ import { blockMinutes, canFill, complement, reportMinutes, typeOf } from '../cor
 import { schedule } from '../core/queue';
 import { chance, int, pick, range } from '../core/rng';
 import { DAY, fmtDateTime, fmtDay, fmtDuration, fmtTime, localMinuteOfDay, monthKey, toDate } from '../core/time';
-import type { ActionResult, Aircraft, Contract, CrewFix, CrewMember, CrewStatus, Decision, DecisionOption, Flight, GameState, MaintenanceEvent, MessageCat, Minute, Receivable, Role, SimEvent } from '../core/types';
+import type { ActionResult, Aircraft, Contract, CrewFix, CrewMember, CrewStatus, Decision, DecisionOption, Flight, GameState, MaintenanceEvent, MessageCat, Minute, Pairing, Receivable, Role, SimEvent } from '../core/types';
 import { generateOffer, planPositioning } from '../contracts';
 import { applyCrewFix, applyDiscretion, crewControl, flightCrewStatus, minRest, moraleShock, replaceCrew, rerosterFrom, rosterOf } from '../crew';
-import { dhBlock, OUT_CONNECT, outTicket } from '../crew/timeline';
+import { planCrew } from '../crew/check';
+import type { IssueCode } from '../crew/rules';
+import { dhBlock, OUT_CONNECT, outTicket, segsOf } from '../crew/timeline';
 import { distance } from '../core/geo';
 import { applyHold, cancelCost, cancelLegs, crewBlocked, delayChain, moveFlight, pickRival, planHold, planRecovery, rivalFactor, stationOf, subcharterCost, subcharterLegs, windowLegs } from './flights';
 import { setAogEnd } from './maintenance';
@@ -215,6 +217,8 @@ function resolveAog(g: GameState, d: Decision, opt: string): ActionResult {
 
 const SLOT_ORDER: Role[] = ['CPT', 'FO', 'CRP', 'CSD', 'SCC', 'CC'];
 const UNFIT: CrewStatus[] = ['sick', 'leave', 'training', 'joining'];
+/** Legality issues a later departure can cure (the rest are the person's, not the hour's). */
+const TIME_CURES: IssueCode[] = ['rest', 'location', 'fdp'];
 
 /** The leg and those after it until the aircraft is back where it is, or at its station (the trip to cover). */
 function tripLegs(g: GameState, ac: Aircraft, f: Flight): Flight[] {
@@ -249,10 +253,16 @@ function rolesNeeded(g: GameState, f: Flight, ac: Aircraft): Role[] {
  * and not rostered on other work in that window (crew on duty count from their release and rest). Null when the
  * seats can't all be filled from there. Pure.
  */
-function readyAt(g: GameState, roles: Role[], at: string, family: RatingFamily, need: number, own: Set<string>): Minute | null {
+function readyAt(g: GameState, roles: Role[], at: string, family: RatingFamily, need: number, own: Set<string>, p?: Pairing): Minute | null {
   const cand: { c: CrewMember; t: Minute }[] = [];
   for (const c of Object.values(g.crew)) {
     if (c.loc !== at || !c.ratings.includes(family) || UNFIT.includes(c.status)) continue;
+    // v0.7.1: the roster's own verdict. Someone it refuses for a reason no wait cures (another trip, a limit,
+    // a block, the rating) is not a crew the flight could wait for; rest, place and the day's length are.
+    if (p && !p.slots.some((s) => s.crewId === c.id)) {
+      const plan = planCrew(g, c, p, segsOf(g, c, p.id), false);
+      if (plan.issues.some((i) => i.level === 'illegal' && !TIME_CURES.includes(i.code))) continue;
+    }
     let t = c.restUntil;
     if (c.status === 'onDuty') {
       const d = rosterOf(g, c.id, g.now, g.now + 1).find((x) => x.report <= g.now && !x.done);
@@ -307,17 +317,17 @@ export function crewReadyAt(g: GameState, f: Flight, ac: Aircraft): Minute {
   const need = Math.min(14 * 60, report + legs.reduce((s, x) => s + x.block, 0) + Math.max(0, legs.length - 1) * turnOf(ac) + 30);
   const own = new Set(legs.map((x) => x.dutyId).filter((x): x is string => !!x));
   let t = Infinity;
-  const here = roles.length ? readyAt(g, roles, f.from, fam, need, own) : g.now;
-  if (here !== null) t = here + report;
   const d = f.dutyId ? g.duties[f.dutyId] : undefined;
   const p = d ? g.pairings[d.pairingId] : undefined;
+  const here = roles.length ? readyAt(g, roles, f.from, fam, need, own, p) : g.now;
+  if (here !== null) t = here + report;
   const timetable = !!d && !!p && d.flightIds[0] === f.id && roles.length > 0;
   const origins = new Set([stationOf(g, f), g.company.homeBase, ...(timetable ? nearestFreeAt(g, roles, fam, f.from, 2) : [])]);
   for (const from of origins) {
     if (from === f.from) continue;
     const blk = ticketBlock(from, f.from);
     if (timetable) {
-      const r = readyAt(g, roles, from, fam, need + blk + BAL.deadheadCheckIn, own);
+      const r = readyAt(g, roles, from, fam, need + blk + BAL.deadheadCheckIn, own, p);
       if (r === null) continue;
       const o = outTicket(g, p!, d!, from, r);
       if (!o.why) {

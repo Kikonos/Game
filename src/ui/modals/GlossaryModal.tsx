@@ -4,10 +4,9 @@
 import { BookOpenText, ChevronRight } from 'lucide-react';
 import { useEffect } from 'react';
 import { GLOSSARY, type TermId } from '../../data/glossary';
+import { glossaryTarget } from '../components/problemLogic';
 import { Modal } from '../components/ui';
 import { store } from '../store';
-
-const TAB_LABEL: Record<string, string> = { map: 'Ops Map', contracts: 'Contracts', schedule: 'Schedule', crew: 'Crew', fleet: 'Fleet', finance: 'Finance', company: 'Company', inbox: 'Inbox' };
 
 export function GlossaryModal({ term }: { term?: TermId }) {
   const ids = (Object.keys(GLOSSARY) as TermId[]).sort((a, b) => GLOSSARY[a].term.localeCompare(GLOSSARY[b].term));
@@ -17,8 +16,9 @@ export function GlossaryModal({ term }: { term?: TermId }) {
   const show = (id: TermId) => {
     const w = GLOSSARY[id].where;
     if (!w) return;
-    store.closeModal();
-    store.navigate(w.tab, { view: w.view });
+    const t = glossaryTarget(w);
+    store.closeModal({ all: true });
+    store.navigate(t.tab, { view: t.view });
   };
   return (
     <Modal size="wide" className="gl-modal" title="Glossary" icon={<BookOpenText className="accent" />} onClose={() => store.closeModal()} footer={<button className="btn btn-primary" onClick={() => store.closeModal()}>Close</button>}>
@@ -31,7 +31,7 @@ export function GlossaryModal({ term }: { term?: TermId }) {
               <div className="gl-term"><b>{e.term}</b></div>
               <div className="small muted">{e.short}</div>
               {e.where && (
-                <button className="btn btn-sm btn-ghost gl-show" onClick={() => show(id)}>Show me · {TAB_LABEL[e.where.tab] ?? e.where.tab}{e.where.view ? ` › ${e.where.view}` : ''} <ChevronRight /></button>
+                <button className="btn btn-sm btn-ghost gl-show" onClick={() => show(id)}>Show me · {glossaryTarget(e.where).label} <ChevronRight /></button>
               )}
             </div>
           );

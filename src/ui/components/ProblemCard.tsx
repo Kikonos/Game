@@ -10,7 +10,7 @@ import type { GameState } from '../../engine/core/types';
 import type { MiniMapSpec, ProblemAction, ProblemCard } from '../../engine/problems/types';
 import { store } from '../store';
 import { Gauge } from './Gauge';
-import { actionTarget } from './problemLogic';
+import { actionTarget, reachLimited } from './problemLogic';
 import { ReachBar } from './ReachBar';
 import { Plain } from './Term';
 import { Timeline } from './Timeline';
@@ -56,7 +56,7 @@ export function HurtBadges({ badges, level }: { badges: string[]; level: 'none' 
 export function Visuals({ card, all }: { card: ProblemCard; all?: boolean }) {
   const v = card.visuals;
   const parts: ReactNode[] = [];
-  if (v.reach) parts.push(<ReachBar key="reach" spec={v.reach} />);
+  if (v.reach) parts.push(<ReachBar key="reach" spec={v.reach} limited={reachLimited(card)} />);
   if (v.minimap) parts.push(<MiniMapSlot key="mini" spec={v.minimap} />);
   if (v.timeline) parts.push(<Timeline key="tl" spec={v.timeline} />);
   if (v.gauges?.length) parts.push(<div key="g" className="pc-gauges">{(all ? v.gauges : v.gauges.slice(0, 4)).map((s) => <Gauge key={`${s.id}-${s.crewId ?? ''}`} spec={s} />)}</div>);

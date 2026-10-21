@@ -201,7 +201,7 @@ export function DutyModal({ id }: { id: string }) {
     setForceOff(null);
   };
   return (
-    <Modal size="wide" className="sc-duty-modal" title={`Crew · ${route}`} icon={<Users className="accent" />} onClose={close} footer={
+    <Modal size="wide" className="sc-duty-modal" title={<span className="row gap-12 wrap"><span>Crew · {route}</span>{short && card && !pick && <span className={`cs-banner ${card.severity}`}>CREW SHORTAGE</span>}</span>} icon={<Users className="accent" />} onClose={close} footer={
       pick ? undefined : (
         <>
           <button className="btn" onClick={() => setPick({ seat: null, role: 'CC' })} disabled={busy}><Plus /> Add crew member</button>
@@ -215,7 +215,6 @@ export function DutyModal({ id }: { id: string }) {
           <div className="dm-card">
             <ProblemCardView card={card} g={g} hideActions>
               {short && first && <button className="btn btn-primary" onClick={() => store.openModal({ kind: 'crewControl', flightId: first.id })}><Users /> Crew Control</button>}
-              {short && <span className={`cs-banner ${card.severity}`}>CREW SHORTAGE</span>}
             </ProblemCardView>
           </div>
         )}

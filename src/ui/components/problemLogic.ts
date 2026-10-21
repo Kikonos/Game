@@ -1,11 +1,13 @@
 // v0.7.1 plain-language problems (UPDATE-0.7.1.md §5, §8, §10): pure helpers for the ProblemCard, the reach bar, the
 // timeline, the glossary wrapping and the card's action buttons. No React, no writes.
 
-import { GLOSSARY, TERM_WORDS, type TermId } from '../../data/glossary';
+import { GLOSSARY, TERM_WORDS, type GlossaryEntry, type TermId } from '../../data/glossary';
 import type { RatingFamily } from '../../data/acmiTypes';
+import type { Reason } from '../../engine/crew';
 import { fmtTime, HOUR } from '../../engine/core/time';
 import type { GameState, Minute, Ref, Role } from '../../engine/core/types';
-import type { ProblemAction, ReachSpec, TimelineSpec } from '../../engine/problems/types';
+import { hm } from '../../engine/problems/types';
+import type { GaugeSpec, ProblemAction, ProblemCard, ReachSpec, TimelineSpec } from '../../engine/problems/types';
 import type { ModalSpec, Tab } from '../store';
 
 export interface TextSeg {
@@ -110,12 +112,89 @@ export function timelineLayout(spec: TimelineSpec): BarLayout & { spans: SpanBox
   return { from, to, ticks, gap: null, spans };
 }
 
-/** 'The earliest flight lands 3 h 10 m too late' / 'lands with 40 min to spare'. */
-export function reachVerdict(spec: ReachSpec): string {
+/**
+ * 'The earliest flight lands 3 h 10 m too late' / 'lands with 40 min to spare'. `limited`: the ride lands in time
+ * but the day after it would run too long (the card's WHY), so the bar must not read green.
+ */
+export function reachVerdict(spec: ReachSpec, limited = false): string {
   const m = Math.abs(Math.round(spec.gapMin));
   const span = m >= HOUR ? `${Math.floor(m / HOUR)} h${m % HOUR ? ` ${m % HOUR} min` : ''}` : `${m} min`;
-  if (!spec.legs.length && spec.from === spec.to) return spec.gapMin > 0 ? `They are ready ${span} too late` : `They are at ${spec.to} and ready in time`;
-  return spec.gapMin > 0 ? `The earliest flight lands ${span} too late` : `The earliest flight lands with ${span} to spare`;
+  const tail = spec.gapMin <= 0 && limited ? ', but the day would then run too long' : '';
+  if (!spec.legs.length && spec.from === spec.to) return spec.gapMin > 0 ? `They are ready ${span} too late` : `They are at ${spec.to} and ready in time${tail}`;
+  return spec.gapMin > 0 ? `The earliest flight lands ${span} too late` : `The earliest flight lands with ${span} to spare${tail}`;
+}
+
+/** The tone of the reach verdict: red for a gap, amber when the ride lands in time but a limit bites after it. */
+export const reachTone = (spec: ReachSpec, limited = false): 'good' | 'warn' | 'bad' => (spec.gapMin > 0 ? 'bad' : limited ? 'warn' : 'good');
+
+/** Whether a card's place cause is really a day-length limit after the ride (its WHY says so, or it names the FDP). */
+export const reachLimited = (card: Pick<ProblemCard, 'why' | 'terms'>): boolean => /day would (be|then run) too long/i.test(card.why) || card.terms.includes('fdp');
+
+/** The part of a decision's body that the card does not already say (the 'It has been waiting…' tail); '' when nothing is left. */
+export function decisionBodyTail(body: string, card: Pick<ProblemCard, 'what' | 'why' | 'hurt'> | null): string {
+  if (!card) return body;
+  let t = body;
+  for (const part of [`${card.what}.`, card.what, card.why, `${card.hurt.text}.`, card.hurt.text]) if (t.includes(part)) t = t.replace(part, '');
+  t = t.replace(/\s+/g, ' ').trim();
+  return t === body.trim() ? body : t;
+}
+
+const PLACE = /^At [A-Z]{3}, not [A-Z]{3}/;
+const SUPERSEDED = /^(Overlaps another duty|On another (trip|tour)\b)/;
+
+/**
+ * The other reasons behind a person's root cause, for the 'and N more' tap: one location line at most (none when
+ * the root is a busier cause), lines the root cause already says dropped, duplicates removed.
+ */
+export function moreReasons(reason: Reason): string[] {
+  const out: string[] = [];
+  let place = false;
+  for (const t of reason.all) {
+    if (t === reason.text || out.includes(t)) continue;
+    if (PLACE.test(t)) {
+      if (place || reason.code === 'place' || reason.code === 'busy') continue;
+      place = true;
+    } else if (reason.code === 'busy' && SUPERSEDED.test(t)) continue;
+    out.push(t);
+  }
+  return out;
+}
+
+/**
+ * The rest gauge measured NOW rather than at the next report (the crew card): a person resting shows '7:30 of 10:00
+ * by 02:30' in amber; rest complete drops the 'by'. A rest that has not started yet (between two later duties) is
+ * left as planned.
+ */
+export function restNow(spec: GaugeSpec, now: Minute): GaugeSpec {
+  if (spec.id !== 'rest' || spec.by === undefined || spec.limit <= 0) return spec;
+  const left = spec.by - now;
+  if (left > spec.limit) return spec;
+  const taken = Math.max(0, Math.min(spec.limit, spec.limit - left));
+  const ok = taken >= spec.limit;
+  return {
+    ...spec, value: taken, text: `${hm(taken)} of ${hm(spec.limit)}${ok ? '' : ` by ${fmtTime(spec.by)}`}`,
+    tone: ok ? 'good' : taken >= spec.limit * 0.75 ? 'warn' : 'bad', by: ok ? undefined : spec.by,
+  };
+}
+
+/** The views each screen knows (store.nav.view); the glossary's 'Show me' must land on one of them. */
+export const KNOWN_VIEWS: Record<Tab, string[]> = {
+  map: [], contracts: ['market', 'active', 'missed'], schedule: [], crew: ['people', 'board'], fleet: ['market'], finance: [], company: [], inbox: [],
+};
+const VIEW_LABEL: Record<string, string> = { market: 'Market', active: 'Active', missed: 'Missed', people: 'People', board: 'Roster board' };
+const TAB_LABEL: Record<Tab, string> = { map: 'Ops Map', contracts: 'Contracts', schedule: 'Schedule', crew: 'Crew', fleet: 'Fleet', finance: 'Finance', company: 'Company', inbox: 'Inbox' };
+/** Older glossary targets, in the screens' own names. */
+const VIEW_ALIAS: Record<string, { tab: Tab; view?: string; label?: string }> = {
+  'crew/roster': { tab: 'crew', view: 'board' }, 'crew/policies': { tab: 'company', label: 'Policies' }, 'company/policies': { tab: 'company', label: 'Policies' },
+};
+
+/** Where a glossary entry's 'Show me' goes, with the button label in the screen's own words ('Crew › Roster board'). */
+export function glossaryTarget(where: NonNullable<GlossaryEntry['where']>): { tab: Tab; view?: string; label: string } {
+  const alias = where.view ? VIEW_ALIAS[`${where.tab}/${where.view}`] : undefined;
+  const tab = alias?.tab ?? where.tab;
+  const view = alias ? alias.view : where.view && KNOWN_VIEWS[tab].includes(where.view) ? where.view : undefined;
+  const sub = alias?.label ?? (view ? VIEW_LABEL[view] ?? view : undefined);
+  return { tab, view, label: `${TAB_LABEL[tab]}${sub ? ` › ${sub}` : ''}` };
 }
 
 /** 'TP 1342 LIS–DUS 05:10→07:10' per leg of the itinerary. */

@@ -16,6 +16,7 @@ import {
 import { crewGauges } from '../../engine/crew';
 import { problemAt } from '../../engine/problems';
 import { Gauge } from '../components/Gauge';
+import { restNow } from '../components/problemLogic';
 import { Why } from '../components/Why';
 import { Empty, Seg } from '../components/ui';
 import { RosterBoard } from './RosterBoard';
@@ -319,7 +320,7 @@ function Detail({ g, c }: { g: GameState; c: CrewMember }) {
   // Not joined yet: no rest, no days off, limits count from the start date.
   const joining = sv.startLabel === 'Joins';
   // v0.7.1 §7: the limits as fuel gauges (next duty's day length, rest, 7-day duty, 28-day and year flying).
-  const gauges = joining ? [] : crewGauges(g, c.id);
+  const gauges = joining ? [] : crewGauges(g, c.id).map((s) => restNow(s, g.now));
   const bar = (label: string, v: number, lim: number) => <LimitBar label={label} value={h(v)} limit={h(lim)} tone={limitTone(v / lim)} />;
   return (
     <div className="card sc-crew-detail">

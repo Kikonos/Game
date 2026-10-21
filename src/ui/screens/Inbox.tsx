@@ -2,16 +2,16 @@
 // read and follows its ref. DESIGN.md §6.3. v0.7.1: a 'Problems only' filter, a severity badge on every warning
 // (money / passengers / lateness) and an Explain button that unfolds the four-line card in place.
 
-import { CheckCheck, ChevronRight, HelpCircle, Hourglass, Inbox as InboxIcon, X } from 'lucide-react';
-import { useState } from 'react';
+import { CheckCheck, ChevronRight, HelpCircle, Hourglass, Inbox as InboxIcon, ShieldAlert, X } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import { fmtDateTime } from '../../engine/core/time';
 import type { GameState, Message } from '../../engine/core/types';
-import { hurtBadges, messageBadges, problemAt, problemFor } from '../../engine/problems';
+import { hurtBadges, messageBadges, problemAt, problemFor, problems, usdShort } from '../../engine/problems';
 import { HurtBadges, ProblemCardView } from '../components/ProblemCard';
 import { Empty, Tabs } from '../components/ui';
 import { store, useGame } from '../store';
 import { Dot, ScreenHead, useRenderCount } from './common';
-import { expiryLabel, filterMessages, isProblemMessage, MSG_CATS, refTarget, type MsgFilter } from './screenLogic';
+import { expiryLabel, filterMessages, isOpportunity, isProblemMessage, MSG_CATS, PROBLEM_RECENT, refTarget, type MsgFilter } from './screenLogic';
 
 const PAGE = 80;
 
@@ -72,11 +72,40 @@ function Decisions({ g }: { g: GameState }) {
 function Explain({ g, m }: { g: GameState; m: Message }) {
   const card = (m.problem ? problemFor(g, m.problem) : null) ?? (m.ref && !m.problem ? problemAt(g, m.ref) : null);
   if (card) return <ProblemCardView card={card} g={g} />;
+  // An offer that has gone was never a problem: no 'dealt with'.
+  if (isOpportunity(m)) return <div className="pc dealt"><div className="row gap-8"><Dot tone="off" /><b>This offer has gone</b></div><div className="small muted">The client placed the work elsewhere. New offers land on the Contracts market.</div></div>;
   return (
     <div className="pc dealt">
       <div className="row gap-8"><Dot tone="good" /><b>This has been dealt with</b></div>
       <div className="small muted">{m.body}</div>
       {m.hurt && <div className="row gap-8 small dim">At the time: <HurtBadges badges={hurtBadges(m.hurt)} level={m.hurt.level} /></div>}
+    </div>
+  );
+}
+
+/** The badge of a message: an offer's money is work on the table (blue), everything else what it costs. */
+function MsgBadges({ m }: { m: Message }) {
+  if (isOpportunity(m)) return m.hurt && m.hurt.money > 0 ? <span className="pc-badges"><span className="pc-badge opp">{usdShort(m.hurt.money)} of work</span></span> : null;
+  const badges = messageBadges(m);
+  return badges.length > 0 ? <HurtBadges badges={badges} level={m.hurt?.level ?? 'low'} /> : null;
+}
+
+/** 'Problems only': what is wrong right now, worst first (the same list behind every WHY? dot), each a tap to its card. */
+function ProblemsNow({ g }: { g: GameState }) {
+  const list = problems(g);
+  if (!list.length) return null;
+  return (
+    <div className="col gap-8 mb-16">
+      <div className="upper dim">Right now</div>
+      {list.slice(0, 12).map((c) => (
+        <button key={`${c.subject.kind}:${c.subject.ref.id}`} className={`pc pc-compact pc-now ${c.severity}`} onClick={() => store.openModal({ kind: 'problem', subject: c.subject })}>
+          <ShieldAlert className={`sc-ico-s ${c.severity === 'red' ? 'bad' : 'warn'}`} />
+          <b className="pc-what-s grow ellipsis">{c.what}</b>
+          <HurtBadges badges={c.hurt.badges} level={c.hurt.level} />
+          <ChevronRight className="sc-ico-s dim" />
+        </button>
+      ))}
+      {list.length > 12 && <div className="tiny dim">… and {list.length - 12} more; the dots on each screen lead to them.</div>}
     </div>
   );
 }
@@ -89,22 +118,25 @@ export function InboxScreen() {
   const [explain, setExplain] = useState<string | null>(null);
   // v0.7: market alerts off hides their messages (they stay in the save).
   const msgs = store.settings.marketAlerts ? g.messages : g.messages.filter((m) => store.shows(m));
-  const list = filterMessages(msgs, cat);
+  const hour = Math.floor(g.now / 60);
+  // The problem filter asks the engine whether each message's problem is still live: once per hour / new message.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const list = useMemo(() => filterMessages(msgs, cat, g), [g, msgs, cat, hour, g.messages.length]);
   const shown = more ? list : list.slice(0, PAGE);
   const unread = msgs.filter((m) => !m.read).length;
   const counts = new Map<string, number>();
   for (const m of msgs) if (!m.read) {
     counts.set(m.cat, (counts.get(m.cat) ?? 0) + 1);
     if (m.topic === 'market') counts.set('market', (counts.get('market') ?? 0) + 1);
-    if (isProblemMessage(m)) counts.set('problems', (counts.get('problems') ?? 0) + 1);
+    if (isProblemMessage(m, g)) counts.set('problems', (counts.get('problems') ?? 0) + 1);
   }
   const markAll = () => store.update((gg) => {
     for (const m of gg.messages) if (store.shows(m)) m.read = true;
   });
-  const problems = msgs.some(isProblemMessage) || g.decisions.length > 0;
+  const anyProblem = problems(g).length > 0 || g.decisions.length > 0 || msgs.some((m) => m.tone === 'bad' && g.now - m.t <= PROBLEM_RECENT);
   const cats: { id: MsgFilter; label: string }[] = [
     MSG_CATS[0],
-    ...(problems ? [{ id: 'problems' as const, label: 'Problems only' }] : []),
+    ...(anyProblem ? [{ id: 'problems' as const, label: 'Problems only' }] : []),
     ...MSG_CATS.slice(1).filter((c) => msgs.some((m) => m.cat === c.id)),
     ...(msgs.some((m) => m.topic === 'market') ? [{ id: 'market' as const, label: 'Market' }] : []),
   ];
@@ -117,13 +149,13 @@ export function InboxScreen() {
       <div className="sc-seg-wrap mb-8">
         <Tabs<MsgFilter> value={cat} onChange={(v) => { setCat(v); setMore(false); }} tabs={cats.map((c) => ({ id: c.id, label: c.label, count: c.id === 'all' ? unread || undefined : counts.get(c.id) }))} />
       </div>
+      {cat === 'problems' && <ProblemsNow g={g} />}
       {!list.length ? (
-        <Empty icon={<InboxIcon />} title={cat === 'problems' ? 'No problems' : 'No messages'}>{cat === 'problems' ? 'Warnings and bad news land here with their story.' : 'Operations, crew, commercial and finance news land here.'}</Empty>
+        cat === 'problems' && problems(g).length > 0 ? null : <Empty icon={<InboxIcon />} title={cat === 'problems' ? 'No problems' : 'No messages'}>{cat === 'problems' ? 'Open problems and the bad news of the last week land here with their story.' : 'Operations, crew, commercial and finance news land here.'}</Empty>
       ) : (
         <div className="card sc-list">
           {shown.map((m) => {
-            const badges = messageBadges(m);
-            const prob = isProblemMessage(m);
+            const prob = !!m.problem || m.tone === 'bad' || m.tone === 'warn';
             const on = explain === m.id;
             return (
               <div key={m.id} className={`sc-msg-wrap ${on ? 'on' : ''}`}>
@@ -131,7 +163,7 @@ export function InboxScreen() {
                   <button className={`sc-msg ${m.read ? 'read' : ''}`} onClick={() => open(g, m)}>
                     <Dot tone={m.tone} />
                     <span className="grow col gap-4" style={{ minWidth: 0 }}>
-                      <span className="row gap-8"><b className="ellipsis">{m.title}</b>{badges.length > 0 && <HurtBadges badges={badges} level={m.hurt?.level ?? 'low'} />}<span className="tiny dim nowrap">{fmtDateTime(m.t)}</span></span>
+                      <span className="row gap-8"><b className="ellipsis">{m.title}</b><MsgBadges m={m} /><span className="tiny dim nowrap">{fmtDateTime(m.t)}</span></span>
                       <span className="small muted sc-clamp">{m.body}</span>
                     </span>
                     {m.ref && <ChevronRight className="sc-ico-s dim" />}

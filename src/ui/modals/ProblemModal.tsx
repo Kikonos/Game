@@ -32,7 +32,7 @@ export function ProblemModal({ subject, hint }: { subject: ProblemRef; hint?: bo
       {card ? (
         <ProblemCardView card={card} g={g} />
       ) : (
-        <p className="muted">This has been dealt with: nothing is wrong here any more.</p>
+        <p className="muted">{h ? 'That one has been dealt with in the meantime; the card shows on the next warning of this kind.' : 'This has been dealt with: nothing is wrong here any more.'}</p>
       )}
       {h && <div className="tiny dim mt-8">Shown once, the first time this kind of problem appears. 'Don't show again' keeps it off for good; the card itself stays on every warning.</div>}
     </Modal>

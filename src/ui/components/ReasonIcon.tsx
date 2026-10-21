@@ -4,6 +4,7 @@
 import { BedDouble, BookOpen, Gauge, GraduationCap, Hourglass, MapPin, Moon, Palmtree, Plane, Thermometer, UserPlus } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import type { Reason, ReasonCode } from '../../engine/crew';
+import { moreReasons } from './problemLogic';
 
 const ICON: Record<ReasonCode, ReactNode> = {
   place: <MapPin />, rest: <BedDouble />, fdp: <Hourglass />, busy: <Plane />, sick: <Thermometer />, rating: <GraduationCap />,
@@ -22,7 +23,7 @@ export function ReasonIcon({ code }: { code: ReasonCode }) {
 /** '… is busy on AWQ815 to London until 10:30' with its icon; a tap shows the full list. */
 export function ReasonLine({ reason, tone, name }: { reason: Reason; tone?: 'warn' | 'bad'; name?: string }) {
   const [all, setAll] = useState(false);
-  const more = reason.all.filter((t) => t !== reason.text);
+  const more = moreReasons(reason);
   return (
     <span className={`reason-line small ${tone ?? ''}`}>
       <span className="row gap-4">
@@ -30,11 +31,11 @@ export function ReasonLine({ reason, tone, name }: { reason: Reason; tone?: 'war
         <span className="grow">{name ? `${name} is ` : ''}{reason.text}</span>
         {more.length > 0 && (
           <span className="reason-more" role="button" tabIndex={0} aria-expanded={all} aria-label="Every reason" onClick={(e) => { e.stopPropagation(); e.preventDefault(); setAll(!all); }} onKeyDown={(k) => { if (k.key === 'Enter' || k.key === ' ') { k.stopPropagation(); k.preventDefault(); setAll(!all); } }}>
-            {all ? 'less' : `+${more.length}`}
+            {all ? 'less' : `and ${more.length} more`}
           </span>
         )}
       </span>
-      {all && <span className="reason-all tiny muted">{reason.all.join(' · ')}</span>}
+      {all && <span className="reason-all tiny muted">{more.join(' · ')}</span>}
     </span>
   );
 }
