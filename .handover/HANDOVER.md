@@ -216,3 +216,10 @@ The player played v0.5 and is very pleased. From now on everything new ships as 
 4. **Execute** (build, review, fix).
 5. **Release** (play/ on main) and tell the player.
 Don't start building a new feature before stages 1–3 are agreed. (The v0.5.1 livery & polish update was agreed before this and continues.)
+
+## FEATURE BACKLOG (player approved all, 2026-10-21 — "save it and remind me later"; take each through discuss → brainstorm → refine → execute → release)
+People & crew: 1 roster board (crew × day, drag-drop swaps) · 2 training & currency (type ratings, recurrent checks expiring, line training) · 3 morale & attrition (tour length, days off, hotels/per diem, resignations, mission morale) · 4 standby/reserve crew + extra crew above minimum for morale · 5 unlockable automation (department heads earned via achievements — draft table above).
+Fleet & market: 6 scarce aircraft market (used buys, dry-lease in, rare new slots, lease returns) · 7 cabin reconfiguration (all-Y / 2-class / VIP; downtime & cost; gates contracts) · 8 the ladder: approvals tree (ETOPS 120/180/240, widebody ops, long-haul augmented, ULR) → 767/A330 → 777 → A350ULR.
+Contracts & world: 9 more archetypes (Hajj drifting dates, UN multi-year, VIP/presidential, deportation moral choice, war-zone evac + war-risk insurance, medical, music tours, Antarctica) · 10 rival operators with personalities, sub-charter both ways, competing bids · 11 market cycles (fuel, seasons, crises) · 12 invented real-world events (coups, strikes, ash clouds) driving urgent work.
+Experience: 13 scenarios (e.g. "Lisbon 2019: 2× 767 + 2× 777") · 14 achievements, sound/ambient audio, tutorial hints.
+REMIND the player of this backlog once the current fixes update has shipped.
