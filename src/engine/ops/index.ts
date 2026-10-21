@@ -16,7 +16,7 @@ export { resolveDecision } from './events';
 export { cashForecast, fixedCosts, monthProfit, newStatement } from './finance';
 export { delayFlight, delayOf, schedSta } from './flights';
 export { GOALS, type GoalDef } from './goals';
-export { aogChance, cancelCheck, checkAirportOk, checkStatus, groundGaps, scheduleCheck, type CheckStatus } from './maintenance';
+export { aogChance, cancelCheck, checkAirportOk, checkStatus, checkUsedAt, groundGaps, scheduleCheck, type CheckStatus } from './maintenance';
 export { acquireAircraft } from './market';
 export {
   clientCode, clientLivery, clientTitles, liveryOf, normaliseLivery, paintStatus, setAircraftLivery, setCompanyLivery, setFleetLivery, type PaintStatus, type ResolvedLivery,
