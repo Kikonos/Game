@@ -410,5 +410,6 @@ describe('deadhead carriers v0.7: the pair table', () => {
         }
       }
     }
-  });
+    // A full sweep of airport pairs (≈ 4 s alone): room under load.
+  }, 30_000);
 });

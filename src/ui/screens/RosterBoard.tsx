@@ -142,9 +142,11 @@ const Block = memo(function Block({ b, i, crewId, from, ppm, W, month }: { b: Bo
   // Work and travel labels live in the week band (weekLabels) or the month day tile; status windows label themselves.
   const txt = layer === 2 || key === 'rest' ? '' : fitText(blockCands(b), w - (b.locked ? 14 : 0), measure, month ? 4 : 12);
   const free = key === 'off' && b.label === 'Free';
+  // Sticky label only on status windows of two days or more (see .rb-blk.long).
+  const long = layer === 1 && w >= 2 * DAY * ppm;
   return (
     <span
-      className={`sc-cal rb-blk k-${key} l${layer} ${thin ? 'rb-thin' : ''} ${free ? 'free' : ''} ${b.movable ? 'mv' : ''} ${b.legality && b.legality !== 'legal' ? b.legality : ''}`}
+      className={`sc-cal rb-blk k-${key} l${layer} ${thin ? 'rb-thin' : ''} ${free ? 'free' : ''} ${b.movable ? 'mv' : ''} ${long ? 'long' : ''} ${b.legality && b.legality !== 'legal' ? b.legality : ''}`}
       style={{ left: l, width: Math.max(3, w) }}
       data-c={crewId}
       data-i={i}

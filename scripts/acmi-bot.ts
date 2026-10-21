@@ -7,7 +7,8 @@
 // Policy (a pure function of the game state, so a loaded save plays on identically):
 // - offers: base deployments first, then ad hoc fill-ins; accept the best ok/warn feasibility with a positive
 //   margin (crew shortfalls only when hires join in time); counter long-lead base deals at +5% once;
-// - crew: fill staffing (widebodies: two more pilot sets each), hire one more set when the family's pilots fly > 80% of productive hours;
+// - crew: fill staffing (widebodies: two more crew sets each, dual-type cabin crew count half; pilots past the rated pool
+//   in a second batch), hire one more set when the family's pilots fly > 80% of productive hours;
 // - maintenance: C-checks booked when warned, in the first free window (winter first); A-checks auto;
 // - decisions: swap aircraft on AOG when one is free, factor a late invoice when cash is short, else the default;
 // - fleet: lease a widebody once the cash covers its deposit, three months of its fixed costs and a cushion, the last
@@ -37,7 +38,7 @@ import { DAY, dayIndex, fmtDateTime, fmtMonth, fromUTC, monthKey, toDate } from 
 import type { RatingFamily } from '../src/data/acmiTypes';
 import type { Archetype, ContractOffer, GameState, LedgerCat, MonthKey, Role } from '../src/engine/core/types';
 import { acceptOffer, counterOffer, feasibility, type FeasibilityReport } from '../src/engine/contracts';
-import { aboveMinimum, classOf, conversionClasses, conversionEarliest, conversionPlan, hireCrew, setCrewExtra, staffing, startConversion, type StaffingLine } from '../src/engine/crew';
+import { aboveMinimum, classOf, conversionClasses, conversionEarliest, conversionPlan, hireCrew, ratedMarket, setCrewExtra, staffing, startConversion, type StaffingLine } from '../src/engine/crew';
 import { devFleet } from '../src/engine/dev';
 import { createGame } from '../src/engine/newGame';
 import {
@@ -162,8 +163,20 @@ function keepLease(g: GameState, acId: string): boolean {
 function hireFor(g: GameState, t: Tally, r: FeasibilityReport): void {
   const family = typeOf(g.fleet[r.aircraftId].typeId).family;
   for (const [role, cap] of Object.entries(r.crew.byRole)) {
-    if (cap && cap.short > 0 && hireCrew(g, { role: role as Role, family, base: g.company.homeBase, count: Math.min(30, cap.short) }).ok) act(g, t);
+    if (cap && cap.short > 0 && hireSplit(g, { role: role as Role, family, base: g.company.homeBase, count: Math.min(30, cap.short) }).ok) act(g, t);
   }
+}
+
+/**
+ * Pilots past the month's rated pool take 1.5× as long to join (all of the batch): the pool's share is hired at
+ * the normal lead, the rest in a second batch. Cabin crew in one go.
+ */
+function hireSplit(g: GameState, r: Parameters<typeof hireCrew>[1]): { ok: boolean } {
+  const left = ratedMarket(g, r.family, r.role)?.left;
+  if (left === undefined || left === 0 || r.count <= left) return hireCrew(g, r);
+  const a = hireCrew(g, { ...r, count: left });
+  const b = hireCrew(g, { ...r, count: r.count - left });
+  return { ok: a.ok || b.ok };
 }
 
 /** Client paint on or off for an offer (required: on; optional: when they pay half or more, or add a bonus). */
@@ -254,14 +267,19 @@ const crewTrouble = (g: GameState) => g.messages.filter((m) => m.cat === 'crew' 
 
 /** Fill staffing; one more set per family when its pilots run hot or crew trouble keeps costing legs, and nobody is joining. */
 function hire(g: GameState, t: Tally): void {
-  // v0.7: widebody work (slip crews at each outstation of a long-haul base, no augmented crews early on) wants two
-  // more pilot sets per widebody than the plain complement; hired at signing so they join before the first job.
+  // v0.7: widebody work (slip crews at each outstation of a long-haul base, no augmented crews early on, short-notice
+  // AOG covers with sets on station) wants two more crew sets per widebody than the plain complement; hired at
+  // signing so they join before the first job.
   const wideN = new Map<RatingFamily, number>();
   for (const ac of Object.values(g.fleet)) if (typeOf(ac.typeId).body === 'wide' && ac.status !== 'leasedOut') wideN.set(typeOf(ac.typeId).family, (wideN.get(typeOf(ac.typeId).family) ?? 0) + 1);
   for (const l of staffing(g)) {
-    const have = l.have + inClass(g, l);
-    const need = l.need + (l.role === 'CPT' || l.role === 'FO' ? 2 * (wideN.get(l.family) ?? 0) : 0);
-    if (have < need && hireCrew(g, { role: l.role, family: l.family, base: g.company.homeBase, count: Math.min(30, need - have) }).ok) act(g, t);
+    const pilot = l.role === 'CPT' || l.role === 'FO';
+    // Widebody cabin crew who also hold a narrowbody type fly both fleets: counted as half a widebody crew member.
+    const shared = !pilot && wideN.has(l.family) ? Object.values(g.crew).filter((c) => c.role === l.role && c.ratings.includes(l.family) && c.ratings.length > 1 && !c.notice).length : 0;
+    const have = l.have + inClass(g, l) - Math.ceil(shared / 2);
+    // Two more sets of every role per widebody (one set's worth of each role per extra set).
+    const need = l.need + (wideN.has(l.family) ? Math.round((2 * l.need) / Math.max(1, BAL.crewSetsPerAircraft * (wideN.get(l.family) ?? 1))) * (wideN.get(l.family) ?? 0) : 0);
+    if (have < need && hireSplit(g, { role: l.role, family: l.family, base: g.company.homeBase, count: Math.min(30, need - have) }).ok) act(g, t);
   }
   const fams = new Map<RatingFamily, { typeId: string; seats: number }>();
   for (const ac of Object.values(g.fleet)) if (ac.status !== 'delivering') fams.set(typeOf(ac.typeId).family, { typeId: ac.typeId, seats: ac.cabin.total });
@@ -273,7 +291,7 @@ function hire(g: GameState, t: Tally): void {
     if (Object.values(g.crew).some((c) => c.status === 'joining' && c.ratings.includes(family))) continue;
     const per = new Map<Role, number>();
     for (const r of complement(x.typeId, x.seats, { extraCabin: g.company.policies.extraCabin })) per.set(r, (per.get(r) ?? 0) + 1);
-    for (const [role, n] of per) if (hireCrew(g, { role, family, base: g.company.homeBase, count: n }).ok) act(g, t);
+    for (const [role, n] of per) if (hireSplit(g, { role, family, base: g.company.homeBase, count: n }).ok) act(g, t);
   }
 }
 
@@ -421,7 +439,8 @@ function fleet(g: GameState, t: Tally): void {
   const recent = g.finance.history.slice(-3);
   // v0.7: the Ladder's approval fees are an investment, not a sign of a losing quarter.
   const earning = recent.length === 3 && recent.reduce((s, st) => s + statementTotals(st.lines).profit - (st.lines.approvals ?? 0), 0) > 0;
-  for (const o of g.market.aircraft) {
+  // v0.7: the cheapest lease first (an A330-300 at $420K/month parked for months sinks the year).
+  for (const o of [...g.market.aircraft].sort((a, b) => a.rentPerMonth - b.rentPerMonth || (a.id < b.id ? -1 : 1))) {
     // v0.7: only what the Ladder lets us sign (pending counts), never a new-build slot.
     if (typeOf(o.typeId).body !== 'wide' || o.kind !== 'dryLeaseIn' || o.newBuild || o.expires <= g.now || !aircraftGate(g, o.typeId).ok) continue;
     // The family our widebody pilots fly (another only 60 days after filing with nothing of ours on offer).
@@ -442,8 +461,10 @@ function fleet(g: GameState, t: Tally): void {
         // v0.7: work the widebody can fly (after the grant).
         (due === undefined || x.start >= due + 7 * DAY),
     );
-    const timed = due !== undefined && due - g.now <= (lead + 45) * DAY;
-    if (!WIDE && (!earning || !(job || timed))) continue;
+    // Home at most about three weeks before the grant (rent runs from the handover).
+    const timed = due !== undefined && due - g.now <= (lead + 30) * DAY;
+    // Without a job to fly, only a lease the airline can carry while it waits for work ($300K/month at most).
+    if (!WIDE && (!earning || !(job || (timed && o.rentPerMonth <= 300_000)))) continue;
     if (acquireAircraft(g, o.id).ok) {
       t.wideSigned = g.now;
       t.signed.push(`${typeOf(o.typeId).short} day ${Math.floor((g.now - g.started) / DAY)} at ${o.site}`);
@@ -494,7 +515,7 @@ function ladderSteps(g: GameState, t: Tally): void {
     const r = ratedPilots(g, [fam], { booked: true });
     for (const role of ['CPT', 'FO'] as const) {
       const short = 4 - r[role];
-      if (otherwise && short > 0 && hireCrew(g, { role, family: fam, base: g.company.homeBase, count: short }).ok) act(g, t);
+      if (otherwise && short > 0 && hireSplit(g, { role, family: fam, base: g.company.homeBase, count: short }).ok) act(g, t);
     }
     if (!approvalBlocker(g, 'widebody')) file(g, t, 'widebody');
   }
@@ -599,9 +620,10 @@ function refits(g: GameState, t: Tally): void {
         if (q.end + 2 * DAY > o.start || q.cost >= 0.4 * o.estValue) break;
         const booked = bookRefit(g, ac.id, tip.label, st.code, start);
         if (booked.ok) {
-          const best = bestFit(g, o);
+          // The job on the refitted aircraft itself (bestFit could pick another one, leaving the refit for nothing).
+          const mine = feasibility(g, o.id, ac.id, { paint: paintOn(o) });
           // No job after all (another check fails with the new cabin): the refit is called off.
-          if (!best || !acceptOffer(g, o.id, [best.aircraftId], { paint: paintOn(o) }).ok) {
+          if ((mine.level !== 'ok' && mine.level !== 'warn') || mine.estMargin <= 0 || !acceptOffer(g, o.id, [ac.id], { paint: paintOn(o) }).ok) {
             cancelCheck(g, booked.data!.maintId);
             return;
           }
@@ -783,6 +805,7 @@ function onStep(): void {
     heldSeen.add(f.id);
     const k = `${typeOf(g.fleet[f.aircraftId].typeId).body === 'wide' ? 'WB' : 'NB'} ${(f.contractId && CODE[g.contracts[f.contractId]?.archetype]) || '?'} ${fmtMonth(monthKey(f.std))}`;
     heldBy.set(k, (heldBy.get(k) ?? 0) + 1);
+    if (MSGS) console.error(`${fmtDateTime(g.now)} HELD ${f.no} ${f.from}–${f.to} std ${fmtDateTime(f.std)} ${g.fleet[f.aircraftId].reg} duty ${f.dutyId ?? '-'} day ${dayN(g)}`);
   }
   for (const r of g.finance.receivables) {
     if (seenRecv.has(r.id) || !/^(Paint|Repaint)/.test(r.desc)) continue;
@@ -986,6 +1009,9 @@ for (let w = 0; w < weeks; w++) {
 const totalActions = [...tally.actions.values()].reduce((a, b) => a + b, 0);
 const summerBH = nSummer ? bhSummer / nSummer : 0;
 const margin = revenueY ? profitY / revenueY : -1;
+/** v0.7: the Ladder's approval fees are an investment (like the bot's own fleet rule): the margin gate leaves them out. */
+const ladderFees = -[...lines].filter(([c]) => c === 'approvals').reduce((a, [, v]) => a + v, 0);
+const marginEx = revenueY ? (profitY + ladderFees) / revenueY : -1;
 const aogRate = (s.aogs ?? 0) / Math.max(0.1, acYears);
 const uncShare = (s.uncovered ?? 0) / Math.max(1, s.departures ?? 0);
 const gov = g.finance.receivables.filter((r) => g.clients[r.clientId]?.kind === 'government' && (r.paid !== null || r.due < g.now));
@@ -1005,7 +1031,7 @@ const targets: [string, boolean, string][] = [
   ['no exceptions, no NaN/Infinity', errors.length === 0, errors.length ? errors[0].split('\n')[0] : 'clean'],
   ['solvent all year (no game over)', !g.gameOver, g.gameOver ? g.gameOver.reason : `month-end low ${k$(minCash)}, end ${k$(g.company.cash)}`],
   ['summer BH per aircraft 180–320', summerBH >= 180 && summerBH <= 320, summerBH.toFixed(0)],
-  ['year net margin −5%…+12%', margin >= -0.05 && margin <= 0.12, `${(margin * 100).toFixed(1)}% (${k$(profitY)} on ${k$(revenueY)})`],
+  ['year net margin −5%…+12% (ex Ladder fees)', marginEx >= -0.05 && marginEx <= 0.12, `${(marginEx * 100).toFixed(1)}% ex ${k$(ladderFees)} approvals; ${(margin * 100).toFixed(1)}% all in (${k$(profitY)} on ${k$(revenueY)})`],
   ['no illegal duties flown (FDP + crew)', illegalOf(s) === 0, `${illegalOf(s)} (FDP ${s.illegalFlown ?? 0}, crew ${s.illegalCrewFlown ?? 0})`],
   // v0.5.2 gate: was < 2%; the roster now covers tour gaps, rest slips and stretched duties.
   ['≤ 0.3% flights uncovered at departure', uncShare <= 0.003, `${(uncShare * 100).toFixed(2)}% of ${s.departures ?? 0}`],

@@ -5,7 +5,7 @@
 
 import { AIRPORT_BY_CODE, AIRPORTS } from '../../data/airports';
 import { BAL } from '../core/balance';
-import { addFlight, ownFlightNo, retimeFlight } from '../core/entities';
+import { addFlight, liveFlightsOf, ownFlightNo, retimeFlight } from '../core/entities';
 import { distanceNm, interpolateGC } from '../core/geo';
 import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
@@ -404,9 +404,14 @@ export function dailyDelivery(g: GameState): void {
     if (dl.waitingSince !== undefined && ac.status !== 'delivering') post(g, 'airportFees', -BAL.delivery.parkPerDay[wideOf(ac.typeId)]);
     if (!dl.warned && first.std - g.now <= BAL.delivery.warnH * 60 && first.std > g.now && !pilotsOn(g, first)) {
       dl.warned = true;
+      // Contract work booked soon after the ferry is due home moves behind it while it waits (a leg more than 6 h
+      // late is dropped): said now, before the first day's wait.
+      const home = fs[fs.length - 1].sta;
+      const work = liveFlightsOf(g, ac.id).find((f) => f.contractId && !f.purpose && f.std >= home && f.std < home + 3 * DAY);
       pushMessage(g, {
         tone: 'warn', cat: 'crew', title: `Delivery ferry ${ac.reg} has no rated pilots`,
-        body: `No ${typeOf(ac.typeId).short}-rated captain and first officer are free on ${fmtDate(first.std)}. The aircraft waits at ${cityOf(dl.site)} until they are (parking ${usd(BAL.delivery.parkPerDay[wideOf(ac.typeId)])}/day). Hire rated pilots or book a conversion.`,
+        body: `No ${typeOf(ac.typeId).short}-rated captain and first officer are free on ${fmtDate(first.std)}. The aircraft waits at ${cityOf(dl.site)} until they are (parking ${usd(BAL.delivery.parkPerDay[wideOf(ac.typeId)])}/day). Hire rated pilots or book a conversion.` +
+          (work ? ` Contract work from ${fmtDay(work.std)} (${work.no} ${work.from}–${work.to}) waits behind the ferry: legs that would leave more than 6 h late are dropped.` : ''),
         ref: { kind: 'aircraft', id: ac.id },
       });
     }

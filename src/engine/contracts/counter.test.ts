@@ -63,7 +63,9 @@ describe('counter state machine', () => {
     for (let seed = 1; seed <= 12; seed++) {
       const g = newGame(200 + seed);
       const o = offer(g, 'aogCover');
-      const id = fit(g, o);
+      // v0.7: a short-notice job no crew can reach in time is not flyable (feasibility 'crew' no).
+      const id = feasibilityAll(g, o.id).find((r) => r.level !== 'no')?.aircraftId;
+      if (!id) continue;
       run(g, o.start - 170);
       if (o.status !== 'open') continue;
       o.urgency = 'urgent';

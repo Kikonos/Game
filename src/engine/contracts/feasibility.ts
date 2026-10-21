@@ -5,10 +5,12 @@ import { AIRPORT_BY_CODE } from '../../data/airports';
 import { BAL } from '../core/balance';
 import { flightsOf } from '../core/entities';
 import { distanceNm } from '../core/geo';
-import { complement, etopsNeeded, maxSectorNm, planSector, reportMinutes, runwayFit, typeOf } from '../core/perf';
+import { blockMinutes, complement, etopsNeeded, maxSectorNm, planSector, reportMinutes, runwayFit, typeOf } from '../core/perf';
 import { DAY, fmtDate, fmtDateTime, fmtDay, fmtDuration, toDate } from '../core/time';
 import type { Aircraft, ApprovalId, ContractOffer, CrewExtra, GameState, Minute } from '../core/types';
 import { crewAvailability, offerExtra, type Availability } from '../crew';
+import { minRest } from '../crew/rules';
+import { dhBlock } from '../crew/timeline';
 import { A_CHECK_DAYS, anchorsOf, chainForward, CHARTER_SLACK, DEPLOY_LEAD, gapMoves, programmeOf, type Anchor, type ChainLeg, type Programme, type Trip } from './plan';
 import { afterRefit, cabinAt, cabinFits, layoutsOf, refitTip } from '../ops/cabin';
 import { aircraftGate, APPROVALS, gateApprovals, ratedPilots } from '../ops/company';
@@ -173,6 +175,41 @@ function fitTrips(g: GameState, ac: Aircraft, o: ContractOffer, prog: Programme)
 }
 
 /** Full report for one aircraft: the 12 checks of DESIGN §5.1.5 (+ client paint), positioning plan and contribution estimate. */
+/**
+ * A short-notice job flown in from far away: the positioning crew can't fly on (positioning, the turn and the first
+ * sector chain past 13 h of duty) and no crew on an airline ticket lands with minimum rest before the first report.
+ * The reason, or null when a crew can make it. Pure.
+ */
+function crewReach(g: GameState, o: ContractOffer, typeId: string, f: TripFit | undefined): string | null {
+  if (!f || !f.posIn.length) return null;
+  const rm = reportMinutes(typeId);
+  let dep: string;
+  let std: Minute;
+  let end: Minute;
+  if (f.trip.legs.length) {
+    const legs = f.trip.legs;
+    let n = 1;
+    while (n < legs.length && legs[n].kind === 'techstop') n++;
+    [dep, std, end] = [legs[0].from, legs[0].std, legs[n - 1].sta];
+  } else if (o.pattern.kind === 'base' && o.pattern.dests.length) {
+    // A base: its first wave, out and back to the first destination.
+    const b = o.pattern.base;
+    const x = o.pattern.dests[0];
+    [dep, std] = [b, Math.max(o.pattern.from, f.trip.std)];
+    end = std + blockMinutes(typeId, b, x) + typeOf(typeId).turnMin + blockMinutes(typeId, x, b);
+  } else return null;
+  const report = std - rm.report;
+  // Positioned as late as the first departure allows (the plan may fly it in earlier and wait).
+  const posDur = f.posIn[f.posIn.length - 1].sta - f.posIn[0].std;
+  const onFrom = Math.max(f.posIn[0].std, std - typeOf(typeId).turnMin - posDur) - rm.report;
+  if (end + rm.post - onFrom <= MAX_UNAUGMENTED_FDP) return null;
+  // A fresh crew: the earliest airline ticket from home, then minimum rest away from base.
+  const blk = dhBlock(g.company.homeBase, dep);
+  const lands = Math.ceil((g.now + BAL.deadheadCheckIn) / 60) * 60 + blk;
+  if (lands + minRest({ dutyMin: blk + BAL.deadheadCheckIn, atHome: false, augmented: false, tzShift: 0 }) <= report) return null;
+  return `No crew can be at ${dep} for the first departure ${fmtDateTime(std)}: the positioning crew would be on duty ${fmtDuration(end + rm.post - onFrom)}, and a crew on an airline lands ${fmtDateTime(lands)} with no time to rest`;
+}
+
 export function feasibility(g: GameState, offerId: string, aircraftId: string, opts: { paint?: boolean; crewExtra?: CrewExtra; quick?: boolean } = {}): FeasibilityReport {
   const o = g.offers[offerId];
   const ac = g.fleet[aircraftId];
@@ -453,7 +490,9 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   const duty = reportMinutes(t.id).report + prog.longestChainMin;
   const augmented = duty > MAX_UNAUGMENTED_FDP;
   const shorts = Object.entries(rep.crew.byRole).filter(([, r]) => r && r.short > 0) as [string, { short: number }][];
-  if (augmented && !g.company.approvals.includes('augmented')) add('crew', 'no', `A ${fmtDuration(duty)} duty needs an augmented crew: we have no approval for it`, 'Apply under Company → Approvals.');
+  const reach = flyable ? crewReach(g, o, t.id, fits[0]) : null;
+  if (reach) add('crew', 'no', reach, 'Too soon for this aircraft: a later start, or an aircraft already nearby.');
+  else if (augmented && !g.company.approvals.includes('augmented')) add('crew', 'no', `A ${fmtDuration(duty)} duty needs an augmented crew: we have no approval for it`, 'Apply under Company → Approvals.');
   else if (augmented && !t.restClass) add('crew', 'no', `A ${fmtDuration(duty)} duty needs an augmented crew and the ${t.short} has no crew rest seat`);
   else if (shorts.length) {
     const what = shorts.map(([role, r]) => `${r.short} ${role}`).join(', ');

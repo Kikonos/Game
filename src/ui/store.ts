@@ -1,7 +1,7 @@
 // Bridges the engine and React: owns the game state, the real-time loop (game minutes per frame),
 // navigation, modals, quiet toasts, settings and saving. DESIGN.md §3.4 and §6.
 
-import { useState, useSyncExternalStore } from 'react';
+import { startTransition, useEffect, useState, useSyncExternalStore } from 'react';
 import { clearPause, takePause, type PauseReason } from '../engine/core/pause';
 import { CLOCK_STEP, type GameSpeed, minutesPerMs, monthKey } from '../engine/core/time';
 import type { CabinLayout, RatingFamily } from '../data/acmiTypes';
@@ -720,41 +720,34 @@ applyTopGap(store.settings);
 
 /**
  * v0.7 C2: the game minute for heavy views (roster board). While the clock runs it re-renders at most once per `ms`
- * real milliseconds (trailing); when time stands still, and after any player edit, at once.
+ * real milliseconds (trailing) as a transition, so React renders it in time slices between frames; when time stands
+ * still, and after any player edit, at once.
  */
 export function useThrottledNow(ms = 1000): number {
-  const [src] = useState(() => throttledSource(ms));
-  useSyncExternalStore(src.subscribe, src.get);
+  const [, setV] = useState(0);
+  useEffect(() => {
+    let last = performance.now();
+    let edits = store.editCount;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const bump = (urgent: boolean) => {
+      if (timer) clearTimeout(timer);
+      timer = null;
+      last = performance.now();
+      edits = store.editCount;
+      if (urgent) setV((v) => v + 1);
+      else startTransition(() => setV((v) => v + 1));
+    };
+    const on = () => {
+      const t = performance.now();
+      if (!store.running || store.editCount !== edits) bump(true);
+      else if (t - last >= ms) bump(false);
+      else timer ??= setTimeout(() => bump(false), ms - (t - last));
+    };
+    const off = store.subscribe(on);
+    return () => {
+      off();
+      if (timer) clearTimeout(timer);
+    };
+  }, [ms]);
   return store.game?.now ?? 0;
-}
-
-function throttledSource(ms: number) {
-  let v = 0;
-  let last = 0;
-  let edits = -1;
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  return {
-    get: () => v,
-    subscribe: (fn: () => void) => {
-      const fire = () => {
-        if (timer) clearTimeout(timer);
-        timer = null;
-        last = performance.now();
-        edits = store.editCount;
-        v++;
-        fn();
-      };
-      const on = () => {
-        const t = performance.now();
-        if (!store.running || store.editCount !== edits || t - last >= ms) fire();
-        else timer ??= setTimeout(fire, ms - (t - last));
-      };
-      const off = store.subscribe(on);
-      return () => {
-        off();
-        if (timer) clearTimeout(timer);
-        timer = null;
-      };
-    },
-  };
 }

@@ -3,6 +3,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { BAL } from '../core/balance';
+import { reportMinutes } from '../core/perf';
 import { DAY } from '../core/time';
 import type { GameState } from '../core/types';
 import { legsOffer, newGame, run } from '../contracts/testkit';
@@ -48,10 +49,18 @@ describe('delivery ferry planning', () => {
         expect(d.length).toBeLessThanOrEqual(BAL.delivery.daySectorsMax);
         expect(d[d.length - 1].sta - d[0].std).toBeLessThanOrEqual(BAL.delivery.dayBlockMax);
       }
+      // A night stop gives the pilots their rest away from base: release to next report at least the day's duty
+      // and never under the night stop (seed 6: SCL–DSS–LIS was planned 5 minutes short, the ferry waited a month).
+      const rm = reportMinutes(q === scl ? 'b763' : q === cgk ? 'a320ceo' : 'b77l');
+      let day0 = q.legs[0].std;
       for (let i = 1; i < q.legs.length; i++) {
         const gap = q.legs[i].std - q.legs[i - 1].sta;
-        if (q.legs[i - 1].nightStopAfter) expect(gap).toBeGreaterThanOrEqual(BAL.delivery.nightStop);
-        else expect(gap).toBe(BAL.delivery.fuelStopTurn);
+        if (q.legs[i - 1].nightStopAfter) {
+          expect(gap).toBeGreaterThanOrEqual(BAL.delivery.nightStop);
+          const release = q.legs[i - 1].sta + rm.post;
+          expect(q.legs[i].std - rm.report - release, q.site).toBeGreaterThanOrEqual(Math.max(BAL.delivery.nightStop, release - (day0 - rm.report)));
+          day0 = q.legs[i].std;
+        } else expect(gap).toBe(BAL.delivery.fuelStopTurn);
         expect(q.legs[i].from).toBe(q.legs[i - 1].to);
       }
       expect(q.total).toBe(q.fuel + q.fees + q.crew);
@@ -149,6 +158,8 @@ describe('a delivery from signing to home', () => {
     const live = flightsOf(g, acId).filter((f) => f.status === 'scheduled' || f.status === 'enroute');
     for (let i = 1; i < live.length; i++) expect(live[i].std).toBeGreaterThanOrEqual(live[i - 1].sta);
     expect(deliveryStatus(g, acId)!.phase).toBe('waiting');
+    // The 48 h warning already names the contract work behind the ferry.
+    expect(g.messages.find((m) => m.title === `Delivery ferry ${ac.reg} has no rated pilots`)?.body).toMatch(/Contract work from .* waits behind the ferry/);
   });
 
   it('a delivery whose ferry legs are gone is re-planned from where the aircraft is', () => {

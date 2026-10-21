@@ -387,6 +387,8 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
       const slot = new Map<string, number>();
       // Labels of our parked aircraft (screen px), with the airport each stands at.
       const ownLabels: (LabelBox & { at: string })[] = [];
+      // Parked glyphs (stand, badges) with their labels: airline-leg flight numbers keep off them.
+      const parkedBoxes: LabelBox[] = [];
       const f = 1 - Math.exp(-dt / TAXI_MS);
       settling = false;
       for (const live of lives) {
@@ -448,6 +450,7 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
           const ix = p[0] / u + s.ox;
           const iy = p[1] / u + s.oy;
           const dlv = e.el.classList.contains('dlv');
+          parkedBoxes.push({ id, x: ix + 2, y: iy - 3, w: 36, h: 34 });
           if (selRef.current === id || (labels && !crowd)) {
             const by = dlv ? 38 : 25;
             ownLabels.push({ id, at: live.at!, x: ix, y: iy + by - REG_FS * 0.35, w: e.regW, h: REG_FS });
@@ -475,6 +478,7 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
           if (under !== ap.hasAttribute('data-under')) ap.toggleAttribute('data-under', under);
         }
       }
+      for (const b of ownLabels) parkedBoxes.push(b);
       // Our airborne legs: one path each from take-off to landing (types refreshed with each React render).
       const seen = new Set<string>();
       for (const live of lives) {
@@ -572,12 +576,17 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
               // Any of them may show its code (all do once zoomed in a little).
               codes.push({ id: '', x: ax, y: ay - 15, w: 28, h: 15 });
             }
-            x.side = legLabelSide(track, w, NO_FS, [...obs, ...codes], x.pref);
+            x.side = legLabelSide(track, w, NO_FS, [...obs, ...codes, ...parkedBoxes], x.pref);
             x.hide = trackCovered(track, x.side, w, NO_FS, codes);
           }
-          const hidden = !!x.hide[Math.round(pr * 32)];
-          if (hidden !== x.hidden) x.no.classList.toggle('off', (x.hidden = hidden));
           const [cx, cy] = trackLabelAt(ang, x.side, w, NO_FS);
+          // Fades over an airport code on this stretch, or while passing our parked aircraft (e.g. leaving our base).
+          let hidden = !!x.hide[Math.round(pr * 32)];
+          if (!hidden && parkedBoxes.length) {
+            const nb: LabelBox = { id: '', x: p[0] / u + cx, y: p[1] / u + cy, w, h: NO_FS };
+            hidden = parkedBoxes.some((o) => boxOverlap(nb, o, 1) > 6);
+          }
+          if (hidden !== x.hidden) x.no.classList.toggle('off', (x.hidden = hidden));
           const at = `${cx.toFixed(1)} ${(cy + NO_FS * 0.35).toFixed(1)}`;
           if (at !== x.at) {
             x.at = at;

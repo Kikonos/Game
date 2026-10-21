@@ -371,13 +371,19 @@ function partition(g: GameState, typeId: string, units: Flight[][]): Spec[] {
 /**
  * A unit too long for any legal duty (a positioning leg straight into a long sector, say) is cut at its sector
  * boundaries so a fresh crew can join at the outstation ("slip crew": positioned in by ticket, the other crew rests
- * there). Never at a fuel stop: a revenue sector and its tech-stop legs stay one chain.
+ * there). A revenue sector and its tech-stop legs stay one chain, unless that chain alone is too long for one crew
+ * (an early report out of Kabul with a fuel stop, say): then the crew changes at the fuel stop.
  */
 function slipUnits(g: GameState, typeId: string, u: Flight[]): Flight[][] {
   if (u.length < 2) return [u];
-  const sh = shape(typeId, u);
   const rc = typeOf(typeId).restClass;
-  if (planAugment(g, sh, rc, canAugment(g, rc)).ok) return [u];
+  const fits = (fl: Flight[]) => planAugment(g, shape(typeId, fl), rc, canAugment(g, rc)).ok;
+  if (fits(u)) return [u];
+  return bySector(u).flatMap((x) => (x.length > 1 && !fits(x) ? x.map((f) => [f]) : [x]));
+}
+
+/** A unit cut at its sector boundaries (tech-stop legs stay with their sector). */
+function bySector(u: Flight[]): Flight[][] {
   const out: Flight[][] = [];
   let cur: Flight[] = [];
   for (const f of u) {
