@@ -30,6 +30,7 @@ export {
 } from './rosterActions';
 export { salaryBill } from './costs';
 export { crewRev, ticketPrice } from './timeline';
+export { CAL_LABEL, crewCalendar, crewStatusView, joinsAt, type CalBlock, type CalFlight, type CalKind, type CrewStatusView } from './calendar';
 
 const CHECKIN = () => BAL.deadheadCheckIn;
 

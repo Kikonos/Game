@@ -47,8 +47,9 @@ export function hireCrew(g: GameState, r: HireRequest): ActionResult<{ crewIds: 
   const crewIds: string[] = [];
   for (let i = 0; i < n; i++) {
     const c = makeCrewMember(g, r.role, r.family, r.base, 'joining');
+    // `hired` is the first working day; the joining block keeps them off the roster until then (v0.5.2: no fake
+    // "rest until" the join date: the UI shows "Joins …" via crewStatusView).
     c.hired = q.readyAt;
-    c.restUntil = q.readyAt;
     c.lastRecovery = q.readyAt;
     c.blockYearOf = yearOf(q.readyAt);
     c.blocks = [{ from: g.now, to: q.readyAt, why: 'joining' }];

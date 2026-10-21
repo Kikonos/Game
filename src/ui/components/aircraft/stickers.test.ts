@@ -15,13 +15,14 @@ const lv = (tail: TailStyle, extra: Partial<Livery> = {}): Livery => ({ primary:
 const world = (p: readonly [number, number]): [number, number] => [-p[0], -p[1]];
 
 describe('airframe outlines (approved art)', () => {
-  it('fuselage, fin, windows and engine cowls are byte-identical to v0.5', () => {
+  // v0.5.2: traced crown / belly / tail cone faired (fair.ts, bounds in fair.test.ts); fin root follows
+  it('fuselage, fin, windows and engine cowls are byte-identical to the approved v0.5.2 art', () => {
     const h = createHash('sha1');
     for (const id of IDS) {
       const g = artGeometry(id);
       h.update([g.fus, g.fin.fill, g.windows, ...g.engines.map((e) => e.cowl)].join('|'));
     }
-    expect(h.digest('hex')).toBe('45dc916e19a9e3210bcb6656f8859a5b68da77cd');
+    expect(h.digest('hex')).toBe('4f7e05ccdeca3be6ca4171cf1ccab24df9ffb480');
   });
 
   it('fin.poly is the closed fill outline', () => {

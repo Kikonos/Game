@@ -5,7 +5,7 @@ import { ACMI_TYPES } from '../../data/acmiTypes';
 import { BAL } from '../core/balance';
 import { distance } from '../core/geo';
 import { deadheadFlights, flightsOf, flightsRev } from '../core/entities';
-import { blockMinutes } from '../core/perf';
+import { ticketBlock } from '../ops/commercial';
 import { yearOf } from '../core/time';
 import type { CrewMember, Duty, Flight, GameState, Minute, Pairing } from '../core/types';
 import { isDisruptive, maxFdp, minRest, referenceTime, tzDeltaH, type RefTime, type Seg, type TimelineCtx } from './rules';
@@ -141,7 +141,8 @@ export function ticketPrice(from: string, to: string): number {
   return km < 1_500 ? a : km < 4_000 ? b : c;
 }
 
-export const dhBlock = (from: string, to: string) => blockMinutes('a320ceo', from, to);
+/** Ticket door-to-door minutes: the airline itinerary (nonstop, or two legs and a connection; ops/commercial.ts). */
+export const dhBlock = (from: string, to: string) => ticketBlock(from, to);
 
 const posRest = (t: TicketPlan, atHome: boolean) => minRest({ dutyMin: t.sta - t.std + CHECKIN(), atHome, augmented: false, tzShift: 0 });
 

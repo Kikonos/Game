@@ -23,6 +23,11 @@ export {
 } from './paint';
 export { rotationOf, SUB_LEAD, subcharter, subcharterable, subcharterQuote, type SubcharterQuote } from './subcharter';
 export { usd } from './util';
+export { FLIGHT_TYPE_HINT, FLIGHT_TYPE_LABEL, FLIGHT_TYPES, flightCrewAboard, flightType, type FlightType } from './flightType';
+export {
+  commercialFlightsAirborne, commercialFlightsBetween, commercialItinerary, commercialProgress, CONNECT_MIN, itinerary, itineraryText, ticketBlock,
+  type CommercialFlight, type CommercialLeg,
+} from './commercial';
 
 function daily(g: GameState) {
   pruneFlights(g);

@@ -18,7 +18,7 @@ import LZString from 'lz-string';
 import { BAL } from '../src/engine/core/balance';
 import { statementTotals } from '../src/engine/core/ledger';
 import { complement, typeOf } from '../src/engine/core/perf';
-import { DAY, dayIndex, fmtMonth, fromUTC, monthKey, toDate } from '../src/engine/core/time';
+import { DAY, dayIndex, fmtDateTime, fmtMonth, fromUTC, monthKey, toDate } from '../src/engine/core/time';
 import type { RatingFamily } from '../src/data/acmiTypes';
 import type { Archetype, ContractOffer, GameState, LedgerCat, MonthKey, Role } from '../src/engine/core/types';
 import { acceptOffer, counterOffer, feasibilityAll, type FeasibilityReport } from '../src/engine/contracts';
@@ -34,6 +34,7 @@ const seed = Number(args[0] ?? 1);
 const days = Number(args[1] ?? 365);
 const DET = process.argv.includes('--det');
 const BIG = process.argv.includes('--big');
+const MSGS = process.argv.includes('--msgs');
 const BIG_DAYS = Number(process.env.BIG_DAYS ?? 120);
 const STEP = 6 * 60;
 
@@ -358,6 +359,8 @@ function onStep(): void {
   for (const x of g.messages) {
     if (x.id === lastMsgId) break;
     n++;
+    // --msgs: inbox lines to stderr (debugging a run).
+    if (MSGS) console.error(`${fmtDateTime(x.t)} [${x.cat}/${x.tone}] ${x.title} — ${x.body}`);
   }
   lastMsgId = g.messages[0]?.id;
   m.msgs += n;

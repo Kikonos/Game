@@ -5,8 +5,9 @@ import { AIRPORT_BY_CODE } from '../../data/airports';
 import { flightsOf } from '../../engine/core/entities';
 import { haversine } from '../../engine/core/geo';
 import { flightTimes } from '../../engine/core/query';
-import { fmtDay, fmtTime } from '../../engine/core/time';
-import type { Aircraft, Archetype, ContractOffer, Flight, GameState, Minute } from '../../engine/core/types';
+import { DAY, fmtDay, fmtTime } from '../../engine/core/time';
+import type { Aircraft, Archetype, ContractOffer, Flight, GameState, Minute, Ref } from '../../engine/core/types';
+import { commercialFlightsBetween, type CommercialFlight, type FlightType, flightType } from '../../engine/ops';
 import { contractColor } from '../screens/palette';
 
 const RAD = Math.PI / 180;
@@ -136,6 +137,55 @@ export function upNext(g: GameState, n = 3, after = -Infinity): Flight[] {
   for (const id of Object.keys(g.fleet)) for (const f of upcomingLegs(g, id, n + 1)) if (f.std + f.delay > after) all.push(f);
   return all.sort((a, b) => a.std + a.delay - (b.std + b.delay)).slice(0, n);
 }
+
+// ---------- flight types (v0.5.2) ----------
+
+/** Map stroke per flight type: colour, dash (screen px; '' = solid) and width (screen px). */
+export const TYPE_STROKE: Record<FlightType, { color: string; dash: string; width: number }> = {
+  operating: { color: '#34d399', dash: '', width: 1.8 },
+  positioning: { color: '#fbbf24', dash: '2 5', width: 1.8 },
+  ferry: { color: '#fbbf24', dash: '2 5', width: 1.8 },
+  deadhead: { color: '#9aa5bb', dash: '1.5 4', width: 1.1 },
+};
+
+/** Selection id of an airline leg on the map (a Ref of kind 'flight'): `${ticketId}:${legIndex}`. */
+export const isCommercialId = (id: string) => /:\d+$/.test(id);
+export function parseCommercialId(id: string): { ticketId: string; legIndex: number } | null {
+  const m = /^(.*):(\d+)$/.exec(id);
+  return m ? { ticketId: m[1], legIndex: Number(m[2]) } : null;
+}
+
+export interface NextRow {
+  id: string;
+  /** Departure (game minutes, delay included). */
+  t: Minute;
+  /** Registration (our aircraft) or airline flight number (deadhead). */
+  who: string;
+  from: string;
+  to: string;
+  type: FlightType;
+  /** Crew travelling (deadhead rows). */
+  crew: number;
+  sel: Ref | null;
+}
+
+/** Up Next rows: our next departures and the airline legs our crew ride, typed, after `after`; at most n. */
+export function upNextRows(g: GameState, n = 4, after = -Infinity): NextRow[] {
+  const rows: NextRow[] = upNext(g, n, after).map((f) => ({
+    id: f.id, t: f.std + f.delay, who: f.aircraftId ? g.fleet[f.aircraftId]?.reg ?? f.no : f.no, from: f.from, to: f.to,
+    type: flightType(g, f), crew: 0, sel: f.aircraftId ? { kind: 'aircraft', id: f.aircraftId } : null,
+  }));
+  const t0 = Number.isFinite(after) ? after : g.now;
+  for (const cf of commercialFlightsBetween(g, t0, t0 + 3 * DAY)) {
+    if (cf.leg.dep <= after) continue;
+    rows.push(commercialRow(cf));
+  }
+  return rows.sort((a, b) => a.t - b.t || (a.id < b.id ? -1 : 1)).slice(0, n);
+}
+
+const commercialRow = (cf: CommercialFlight): NextRow => ({
+  id: cf.id, t: cf.leg.dep, who: cf.leg.no, from: cf.leg.from, to: cf.leg.to, type: 'deadhead', crew: cf.crewIds.length, sel: { kind: 'flight', id: cf.id },
+});
 
 export interface PinGroup {
   code: string;

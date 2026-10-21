@@ -384,7 +384,10 @@ export function planAircraft(g: GameState, acId: string, from: Minute): void {
     d.flightsEv = s.flights.reduce((n, f) => n + f.ev, 0);
     d.legality = dutyLegality(d);
     const c = contractOfDuties(g, [d]);
-    if (isDeploymentContract(g, c)) {
+    // v0.5.2: an empty leg into a deployment from an outstation is a pilots-only ferry: the tour's cabin crew
+    // deadhead straight to the base instead of first flying out to the aircraft (from home they ride along).
+    const remoteIn = isDeploymentContract(g, c) && emptyDuty(g, d) && g.flights[d.flightIds[0]]?.from !== home && !specs.some((x) => x.flights[0].std < s.flights[0].std && x.flights.some((f) => f.contractId === c.id && f.kind !== 'positioning' && f.kind !== 'ferry'));
+    if (isDeploymentContract(g, c) && !remoteIn) {
       const l = byDep.get(c.id) ?? [];
       l.push(d);
       byDep.set(c.id, l);
@@ -455,13 +458,29 @@ export function setCrewTrailOkHook(f: (g: GameState, p: Pairing, c: CrewMember) 
   crewTrailOkHook = f;
 }
 
+/** Only empty legs (positioning / ferry): flown with pilots only when it is a trip of its own. */
+function emptyDuty(g: GameState, d: Duty): boolean {
+  return d.flightIds.every((id) => {
+    const k = g.flights[id]?.kind;
+    return k === 'positioning' || k === 'ferry';
+  });
+}
+
 /** Trips: from a duty until one releases at home base, a > 3-day gap, or 6 duty days (then 2 days off). */
 function buildTrips(g: GameState, acId: string, duties: Duty[]): void {
   const home = g.company.homeBase;
   const dayOf = (t: Minute) => Math.floor((t + offsetAt(home, t)) / DAY);
   let cur: Duty[] = [];
+  const empty = (d: Duty) => emptyDuty(g, d);
+  // v0.5.2: empty duties after the trip's last revenue duty are their own pilots-only trip (a ferry: the cabin
+  // crew aren't needed at the destination and go home by ticket; the pilots usually fly on, crew.planCrew drop).
   const close = () => {
-    if (cur.length) newPairing(g, cur, acId, null);
+    let k = cur.length;
+    while (k > 0 && empty(cur[k - 1])) k--;
+    if (k > 0 && k < cur.length) {
+      newPairing(g, cur.slice(0, k), acId, null);
+      newPairing(g, cur.slice(k), acId, null);
+    } else if (cur.length) newPairing(g, cur, acId, null);
     cur = [];
   };
   for (const d of duties) {
