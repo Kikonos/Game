@@ -4,7 +4,7 @@
 import { BAL } from '../core/balance';
 import { typeOf } from '../core/perf';
 import { fmtDay } from '../core/time';
-import type { CrewMember, Duty, GameState, Legality, Minute, Pairing } from '../core/types';
+import type { CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing } from '../core/types';
 import { evalSegs, levelOf, LIMITS, type LegalityIssue, type Seg } from './rules';
 import { aboard, crewIx, ctxOf, droppableHome, droppableOut, dutySegs, locAt, outTicket, planHome, planHomeAfter, planOut, segsOf, typeIdOf, withoutTickets, type TicketPlan } from './timeline';
 
@@ -50,7 +50,7 @@ function statusIssues(c: CrewMember, from: number, to: number, family: string, d
  * already bought for c (re-check of an assignment); otherwise plans new ones. `slack`: the auto-roster's planning
  * margin (TimelineCtx.slack). `leaving`: a pairing c leaves in the same change (swap).
  */
-export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], existing = false, slack = 0, leaving?: string): CrewPlan {
+export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], existing = false, slack = 0, leaving?: string, ride?: TicketPlan): CrewPlan {
   const duties = openDuties(g, p);
   if (!duties.length) return { level: 'legal', issues: [], out: null, home: null, segs: [] };
   const first = duties[0];
@@ -60,6 +60,7 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
   let home: TicketPlan | null = null;
   const issues: LegalityIssue[] = [];
   const dropped: string[] = [];
+  let booked: TicketPlan | null = null;
   if (existing) {
     for (const fid of [...first.deadheadIds, ...last.deadheadIds]) {
       const f = g.flights[fid];
@@ -87,9 +88,12 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
       base = withoutTickets(base, drop);
       dropped.push(...drop);
     }
+    // v0.7.1: a private jet already chartered for this crew member (crew/control.ts charterJet), or one being
+    // quoted (`ride`), is their ride out; a booked one leaves the base timeline (it is the duty's, not a loose ticket).
+    booked = ride ?? prebooked(g, first, c.id);
+    const bookedId = booked ? (booked as Partial<Flight>).id : undefined;
+    if (bookedId) base = withoutTickets(base, [bookedId]);
     const loc = locAt(c, base, first.report);
-    // v0.7.1: a private jet already chartered for this crew member (crew/control.ts charterJet) is their ride out.
-    const booked = prebooked(g, first, c.id);
     if (booked) out = booked;
     else if (loc !== dep) {
       // From where they will be, once their rest after earlier work is over (crew away from base included).
@@ -115,7 +119,7 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
   // the crew fly out the day before and rest at the hotel first.
   const own = new Set(p.dutyIds);
   const bad = (l: LegalityIssue[]) => badRestFdp(l, own);
-  if (!existing && out && !out.rideId && bad(ftl)) {
+  if (!existing && out && !out.rideId && !booked && bad(ftl)) {
     const early = planOut(g, p, first, out.from, true);
     if (early.std < out.std && early.std - BAL.deadheadCheckIn >= g.now) {
       const plain = out;

@@ -58,7 +58,11 @@ const KIND_RANK: ProblemKind[] = [
 const rankOf = (c: ProblemCard) => SEV[c.severity] * 100 + KIND_RANK.indexOf(c.subject.kind);
 
 const cache = new WeakMap<GameState, { key: string; list: ProblemCard[] }>();
-const keyOf = (g: GameState) => `${crewRev(g)}:${flightsRev(g)}:${Math.floor(g.now / 60)}:${g.messages.length}:${g.decisions.length}:${Math.round(g.company.cash)}:${Object.keys(g.maintenance).length}:${Object.keys(g.offers).length}`;
+const keyOf = (g: GameState) => {
+  let fh = 0;
+  for (const ac of Object.values(g.fleet)) fh += ac.maint.fhSinceA + ac.maint.fhSinceC + (ac.status === 'aog' ? 1 : 0);
+  return `${crewRev(g)}:${flightsRev(g)}:${Math.floor(g.now / 60)}:${g.messages.length}:${g.decisions.length}:${Math.round(g.company.cash)}:${Object.keys(g.maintenance).length}:${Object.keys(g.offers).length}:${g.finance.receivables.length}:${g.finance.history.length}:${Math.round(fh)}`;
+};
 
 /** Every current problem, worst first (Inbox filter, dots, hints, bot). Cached per crew/flight revision and hour. Pure. */
 export function problems(g: GameState): ProblemCard[] {
@@ -99,6 +103,12 @@ export function postProblem(g: GameState, card: ProblemCard, opts: { cat: Messag
     title: card.what, body: `${card.why} ${card.hurt.text}.${opts.tail ? ` ${opts.tail}` : ''}`, ref: card.subject.ref,
     problem: card.subject, hurt: { money: card.hurt.money, pax: card.hurt.pax, delayMin: card.hurt.delayMin, level: card.hurt.level },
   });
+}
+
+/** `problem` and `hurt` for an existing pushMessage call (the message keeps its own words). */
+export function cardMeta(card: ProblemCard | null | undefined): { problem?: ProblemRef; hurt?: Message['hurt'] } {
+  if (!card) return {};
+  return { problem: card.subject, hurt: { money: card.hurt.money, pax: card.hurt.pax, delayMin: card.hurt.delayMin, level: card.hurt.level } };
 }
 
 /** The badge strings for a message's hurt snapshot (UI). */

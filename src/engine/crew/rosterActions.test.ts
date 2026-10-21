@@ -8,6 +8,7 @@ import { demoFlights } from '../dev';
 import { deserialize, serialize } from '../save';
 import { settle } from '../sim';
 import { fixtureGame } from './fixtures';
+import { rootReason } from './reasons';
 import { assignCrew, autoRoster, dutyCandidates, dutyCrew, dutyLegality, flightCrewStatus, rerosterFrom, swapCrew, unassignCrew } from '.';
 
 function rostered(seed = 5): GameState {
@@ -173,5 +174,47 @@ describe('manual roster', () => {
     const r = assignCrew(g, d.id, pick.crewId, 'CC', { force: true });
     expect(r.ok).toBe(false);
     expect(dutyCrew(g, d.id)!.inProgress).toBe(true);
+  });
+});
+
+// v0.7.1 one reason per person (UPDATE-0.7.1.md §6): the root cause wins (busy beats place; sick beats rest), the
+// full list stays behind it, and candidates and warnings carry it.
+describe('rootReason', () => {
+  it('priority table: busy beats place, sick beats rest, hours and recovery read in plain words', () => {
+    const g = rostered();
+    const c = Object.values(g.crew)[0];
+    const busy = rootReason(g, [{ code: 'location', level: 'illegal', text: 'At LIS, not DUS' }, { code: 'overlap', level: 'illegal', text: 'On another trip until 3 Mar' }], c)!;
+    expect(busy.code).toBe('busy');
+    expect(busy.text).toMatch(/^busy on another trip/);
+    expect(busy.all).toHaveLength(2);
+    c.blocks = [{ from: g.now, to: g.now + 3 * DAY, why: 'sick' }];
+    const sick = rootReason(g, [{ code: 'rest', level: 'illegal', text: 'Rest 7:30 < 10:00' }, { code: 'status', level: 'illegal', text: 'Sick' }], c)!;
+    expect(sick.code).toBe('sick');
+    expect(sick.text).toMatch(/^sick until /);
+    delete c.blocks;
+    const hours = rootReason(g, [{ code: 'block28d', level: 'illegal', text: 'Block 28d 98:00 > 100:00' }], c)!;
+    expect(hours).toMatchObject({ code: 'hours', text: 'at 98 of 100 flying hours in 28 days' });
+    const place = rootReason(g, [{ code: 'location', level: 'illegal', text: 'Earliest arrival DUS 11:40, must land by 08:34 (report 09:34)' }], c)!;
+    expect(place).toMatchObject({ code: 'place', text: 'in Lisbon, landing 11:40 at the earliest' });
+    expect(rootReason(g, [{ code: 'recovery', level: 'illegal', text: 'No 36 h recovery in 168 h' }], c)!.code).toBe('recovery');
+    expect(rootReason(g, [{ code: 'fdp', level: 'illegal', text: 'FDP 11:45 > 11:00' }], c)).toMatchObject({ code: 'fdp', text: 'over the day limit (11:45 of 11:00)' });
+    expect(rootReason(g, [], c)).toBeNull();
+    expect(rootReason(g, [{ code: 'rest', level: 'legal', text: '' }], c)).toBeNull();
+  });
+
+  it('candidates and legality warnings carry the one reason', () => {
+    const g = rostered();
+    const p = futurePairings(g)[0];
+    const cands = dutyCandidates(g, firstDuty(p), 'CPT');
+    for (const c of cands) {
+      if (c.level === 'legal') expect(c.reason).toBeUndefined();
+      else {
+        expect(c.reason).toBeDefined();
+        expect(c.reason!.text.length).toBeGreaterThan(3);
+        expect(c.reason!.all.length).toBeGreaterThan(0);
+      }
+    }
+    const lv = dutyLegality(g, firstDuty(p));
+    for (const w of lv.warnings) if (w.crewId && w.level !== 'legal') expect(w.reason).toBeDefined();
   });
 });

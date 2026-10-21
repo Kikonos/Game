@@ -28,6 +28,10 @@
 //   ≥ 50% used over 90 days or a contract runs past the lease end − 30 days, else return.
 // - v0.7 refits (at most one per 180 days): an open premium sports or VIP job worth $1.2M+ whose only failing check is
 //   the cabin, when the cheapest refit ends before it and costs < 40% of it: booked, then the job taken.
+// - v0.7.1 Crew Control (UPDATE-0.7.1.md §16): for each crew-short flight inside 36 h, the first available fix in the
+//   order auto-fix → fly someone in → call in → swap (when the other flight stays crewed) → private jet (≤ 18 h out, when
+//   what is at stake is 1.5× the jet, at most 8 a year) → discretion → delay (≤ 6 h) → sub-charter (cheaper than cancelling);
+//   else the gate decision keeps today's defaults.
 
 import { writeFileSync } from 'node:fs';
 import LZString from 'lz-string';
@@ -38,7 +42,7 @@ import { DAY, dayIndex, fmtDateTime, fmtMonth, fromUTC, monthKey, toDate } from 
 import type { RatingFamily } from '../src/data/acmiTypes';
 import type { Archetype, ContractOffer, GameState, LedgerCat, MonthKey, Role } from '../src/engine/core/types';
 import { acceptOffer, counterOffer, feasibility, type FeasibilityReport } from '../src/engine/contracts';
-import { aboveMinimum, classOf, conversionClasses, conversionEarliest, conversionPlan, hireCrew, ratedMarket, setCrewExtra, staffing, startConversion, type StaffingLine } from '../src/engine/crew';
+import { aboveMinimum, applyCrewFix, classOf, conversionClasses, conversionEarliest, conversionPlan, crewControl, hireCrew, ratedMarket, setCrewExtra, shortFlights, staffing, startConversion, type CrewSolution, type StaffingLine } from '../src/engine/crew';
 import { devFleet } from '../src/engine/dev';
 import { createGame } from '../src/engine/newGame';
 import {
@@ -102,10 +106,12 @@ interface Tally {
   refits: string[];
   leaseChoices: string[];
   waitHires: number;
+  /** v0.7.1: Crew Control fixes applied by kind. */
+  crewFixes: Map<string, number>;
 }
 const newTally = (): Tally => ({
   actions: new Map(), decisions: new Map(), decMonth: new Map(), decKinds: new Map(), accepted: 0, countered: 0, firstAccept: null, wideAffordableAt: null, wideReadyAt: null, wideSigned: null, longLead: 0, paintOffers: [],
-  rehired: 0, policyChanges: [], classesBooked: 0, paidExtra: 0, filed: [], signed: [], narrowSigned: 0, refits: [], leaseChoices: [], waitHires: 0,
+  rehired: 0, policyChanges: [], classesBooked: 0, paidExtra: 0, filed: [], signed: [], narrowSigned: 0, refits: [], leaseChoices: [], waitHires: 0, crewFixes: new Map(),
 });
 
 const weekOf = (g: GameState) => Math.floor((g.now - g.started) / (7 * DAY));
@@ -653,8 +659,47 @@ function refits(g: GameState, t: Tally): void {
 }
 
 /** One policy pass after each clock step; the daily jobs run once per game day. */
+/**
+ * v0.7.1 Crew Control: for each short flight inside 36 h, the fixes in the §16 order until the flight is crewed
+ * (availability read without previews; only the swap guard needs one). A pure function of the state.
+ */
+function crewControlPolicy(g: GameState, t: Tally): void {
+  for (const x of shortFlights(g)) {
+    if (x.hoursLeft > 36) continue;
+    const f = g.flights[x.flightId];
+    if (!f || f.status !== 'scheduled') continue;
+    const v = crewControl(g, x.flightId, { previews: false });
+    if (!v || v.stage === 'ok') continue;
+    const sol = (id: CrewSolution['id']) => v.solutions.find((s) => s.id === id && s.available);
+    const unit = v.unit.flightIds.map((id) => g.flights[id]).filter((y) => y && y.status === 'scheduled');
+    const lateCapMin = unit.some((y) => y.contractId && g.contracts[y.contractId]?.pattern.kind === 'base') ? BAL.holdMax : 6 * 60;
+    const apply = (s: CrewSolution | undefined): boolean => {
+      if (!s) return false;
+      const r = applyCrewFix(g, x.flightId, s.id, { confirmed: true });
+      if (!r.ok) return false;
+      if (MSGS) console.error(`${fmtDateTime(g.now)} CREW CONTROL ${f.no} ${s.id}: ${r.data!.changes.join(' / ')}`);
+      act(g, t);
+      t.crewFixes.set(s.id, (t.crewFixes.get(s.id) ?? 0) + 1);
+      return r.data!.after === null;
+    };
+    if (apply(sol('autoFix')) || apply(sol('deadhead')) || apply(sol('callIn'))) continue;
+    if (sol('swap')) {
+      const full = crewControl(g, x.flightId)!.solutions.find((s) => s.id === 'swap');
+      if (full?.available && (full.preview.after.level === 'ok' || full.preview.after.level === 'tight') && !full.preview.ripple.some((r) => r.tone === 'bad') && apply(full)) continue;
+    }
+    const jet = sol('jet');
+    if (jet && x.hoursLeft <= 18 && v.card.hurt.money >= jet.cost * 1.5 && (g.stats.jets ?? 0) < 8 && apply(jet)) continue;
+    if (apply(sol('discretion'))) continue;
+    const delay = sol('delay');
+    if (delay && (delay.newDeparture ?? f.std) - f.std <= lateCapMin && apply(delay)) continue;
+    const sub = sol('subcharter');
+    if (sub && sub.cost < (sol('cancel')?.cost ?? Infinity)) apply(sub);
+  }
+}
+
 function policy(g: GameState, t: Tally, urgent: boolean, newDay: boolean): void {
   decide(g, t);
+  crewControlPolicy(g, t);
   if (newDay) {
     policies(g, t);
     rehire(g, t);
@@ -1062,6 +1107,14 @@ console.log(`cancelled legs by reason: ${[...cancels].sort((a, b) => b[1] - a[1]
 for (const e of errors.slice(0, 3)) console.log(e);
 // Soft target (information): the ladder in practice, a widebody signed with a job inside the year.
 console.log(`ladder: widebody signed ${dayOf(tally.wideSigned)}; tour series / troop rotations signed ${tally.longLead}`);
+{
+  // v0.7.1 Crew Control: ladder stages, fixes by kind, jets and their share of revenue (soft targets, §16).
+  const fixes = [...tally.crewFixes].sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(', ') || 'none';
+  const jetShare = revenueY ? (s.jetSpend ?? 0) / revenueY : 0;
+  console.log(`crew control: amber ${s.crewAmber ?? 0}, red ${s.crewRed ?? 0}, fixes {${fixes}}, jets ${s.jets ?? 0} ${k$(s.jetSpend ?? 0)} (${(jetShare * 100).toFixed(2)}% of revenue)`);
+  softTargets.push(['jets ≤ 8 a year and ≤ 1% of revenue', (s.jets ?? 0) * (365 / days) <= 8 && jetShare <= 0.01, `${s.jets ?? 0} jets, ${k$(s.jetSpend ?? 0)}`]);
+  softTargets.push(['red crew shortages ≤ 12 a year', (s.crewRed ?? 0) * (365 / days) <= 12, `${s.crewRed ?? 0} red, ${s.crewAmber ?? 0} amber`]);
+}
 // v0.5.1 client paint: jobs in the paint shop, and what paint cost net of the clients' share (all months incl. the open one).
 {
   const jobs = Object.values(g.maintenance).filter((m) => m.kind === 'paint' && m.status !== 'cancelled');

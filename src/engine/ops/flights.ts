@@ -12,7 +12,7 @@ import { blockMinutes, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { chance, next, pick, range } from '../core/rng';
 import { DAY, fmtDuration, fmtTime } from '../core/time';
-import type { ActionResult, Aircraft, Flight, GameState, MaintenanceEvent, MessageCat, Minute, SimEvent } from '../core/types';
+import type { ActionResult, Aircraft, Flight, GameState, MaintenanceEvent, Message, MessageCat, Minute, SimEvent } from '../core/types';
 import { noteLostLegs } from '../contracts/billing';
 import { applyDiscretion, boardCrew, crewIssuesFor, dropStraySpares, flightCrewStatus, guardDuty, rerosterFrom, setRestDelayHook } from '../crew';
 import { noteIncident } from './company';
@@ -20,6 +20,13 @@ import { deliveryWaitDay } from './delivery';
 import { crewReadyAt, crewShortDecision, hasOpenDecision } from './events';
 import { aogChance, isGrounded, missCheck, startAog } from './maintenance';
 import { ageF, ageOf, bumpReliable, bumpRelation, contractOf, isBaseLeg, isRevenue, stats, turnOf, usd } from './util';
+
+/** v0.7.1: the problem ref and hurt snapshot of a message about legs lost or handed over (after the fact). */
+function penaltyMeta(g: GameState, rev: Flight[], money: number): Pick<Message, 'problem' | 'hurt'> {
+  const k = rev[0] ? contractOf(g, rev[0]) : undefined;
+  const pax = rev.reduce((n, f) => n + (f.pax ?? 0), 0);
+  return { problem: k ? { kind: 'penalty', ref: { kind: 'contract', id: k.id } } : undefined, hurt: { money, pax, delayMin: 0, level: money >= BAL.crewControl.hurtLowUsd || pax >= BAL.crewControl.hurtLowPax ? 'high' : money || pax ? 'low' : 'none' } };
+}
 
 // ---------- schedule changes ----------
 
@@ -240,7 +247,7 @@ export function applyHold(g: GameState, plan: HoldPlan, reason: string, moveReas
     pushMessage(g, {
       tone: 'bad', cat: 'ops', title: `${rev.length} leg${rev.length > 1 ? 's' : ''} cancelled: ${f.no}${rev.length > 1 ? '…' : ''}`,
       body: `${reason}: ${rev.map((x) => `${x.no} ${x.from}–${x.to}`).slice(0, 4).join(', ')}${rev.length > 4 ? '…' : ''} would leave more than ${cap} h late, so ${rev.length > 1 ? 'they were' : 'it was'} dropped to keep the rest of the schedule.${pen ? ` Compensation ${usd(pen)}.` : ''}`,
-      ref: { kind: 'flight', id: f.id },
+      ref: { kind: 'flight', id: f.id }, ...penaltyMeta(g, rev, pen),
     });
   }
   let n = 0;
@@ -656,7 +663,7 @@ export function subcharterInstead(g: GameState, ac: Aircraft, legs: Flight[], wh
   pushMessage(g, {
     tone: 'warn', cat: 'crew', title: `${rev[0].no} sub-chartered${rev.length > 1 ? ` with ${rev.length - 1} more` : ''}`,
     body: `${why} ${name} flies ${rev.map((x) => `${x.no} ${x.from}–${x.to}`).join(', ')} for us (${usd(cost)}); the client is billed as usual.`,
-    ref: { kind: 'flight', id: rev[0].id },
+    ref: { kind: 'flight', id: rev[0].id }, ...penaltyMeta(g, rev, cost),
   });
   if (reroster) rerosterFrom(g, ac.id, g.now);
   return true;
@@ -671,7 +678,7 @@ function dropUnit(g: GameState, ac: Aircraft, f: Flight, reason: string, why: st
     pushMessage(g, {
       tone: 'bad', cat, title: `${rev[0].no} cancelled${rev.length > 1 ? ` with ${rev.length - 1} more` : ''}`,
       body: `${why} ${rev.map((x) => `${x.no} ${x.from}–${x.to}`).join(', ')} cancelled.${pen ? ` Compensation ${usd(pen)}.` : ''}`,
-      ref: { kind: 'flight', id: rev[0].id },
+      ref: { kind: 'flight', id: rev[0].id }, ...penaltyMeta(g, rev, pen),
     });
   }
   rerosterFrom(g, ac.id, g.now);

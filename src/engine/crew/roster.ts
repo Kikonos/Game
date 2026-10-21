@@ -534,6 +534,7 @@ export function guardDuty(g: GameState, dutyId: string): boolean {
       title: `${off.length === 1 ? 'Crew member' : `${off.length} crew`} taken off ${f?.no ?? 'a duty'}`,
       body: `${off.map((b) => crewName(g.crew[b.crewId])).join(', ')}: ${off[0].issue.text}. ${short ? `No legal replacement for ${short} seat${short > 1 ? 's' : ''} on ${what} yet.` : `Replaced on ${what}.`}`,
       ref: f ? { kind: 'flight', id: f.id } : undefined,
+      ...(short && f ? { problem: { kind: 'crewShort' as const, ref: { kind: 'flight' as const, id: f.id } }, hurt: { money: 0, pax: f.pax ?? 0, delayMin: 0, level: (f.pax ?? 0) >= BAL.crewControl.hurtLowPax ? 'high' as const : 'low' as const } } : {}),
     });
   }
   if (short) requestPause('crewShortage');

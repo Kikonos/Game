@@ -738,7 +738,7 @@ export function permitDelayFor(g: GameState, c: Contract): Flight | null {
   pushMessage(g, {
     tone: 'warn', cat: 'ops', title: `Permit delay: ${first.no}`,
     body: `The ${cn ? `${cn} ` : ''}landing permit for ${first.from}–${first.to} is not through yet. ${first.no} moved ${h} h to ${fmtDateTime(first.std)} UTC.`,
-    ref: { kind: 'flight', id: first.id },
+    ref: { kind: 'flight', id: first.id }, problem: { kind: 'penalty', ref: { kind: 'contract', id: c.id } }, hurt: { money: h > 3 ? c.penalties.perDelay : 0, pax: first.pax ?? 0, delayMin: h * 60, level: 'low' },
   });
   return first;
 }

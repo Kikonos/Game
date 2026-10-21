@@ -7,8 +7,12 @@ import { haversine } from '../../engine/core/geo';
 import { flightTimes } from '../../engine/core/query';
 import { DAY, fmtDay, fmtTime } from '../../engine/core/time';
 import type { Aircraft, Archetype, ContractOffer, Flight, GameState, Minute, Ref } from '../../engine/core/types';
+import { shortFlights } from '../../engine/crew';
 import { commercialFlightsBetween, type CommercialFlight, commercialItinerary, type FlightType, flightType } from '../../engine/ops';
 import { contractColor } from '../screens/palette';
+
+/** v0.7.1 business-jet glyph (24 × 24, nose up, same frame as PLANE_PATH): slim body, swept wings, T-tail. */
+export const JET_PATH = 'M12 1.2c.65 0 1.15.95 1.15 2.1v6.4l7.6 6.2v1.6l-7.6-2.9v5.4h2.9v1.5h-3.1l-.95 1.3-.95-1.3h-3.1v-1.5h2.9v-5.4l-7.6 2.9v-1.6l7.6-6.2V3.3C10.85 2.15 11.35 1.2 12 1.2z';
 
 const RAD = Math.PI / 180;
 const wrap180 = (d: number) => ((((d + 180) % 360) + 360) % 360) - 180;
@@ -221,7 +225,7 @@ export interface NextRow {
   id: string;
   /** Departure (game minutes, delay included). */
   t: Minute;
-  /** Registration (our aircraft) or airline flight number (deadhead). */
+  /** Registration (our aircraft), airline flight number (deadhead) or jet type (private jet). */
   who: string;
   from: string;
   to: string;
@@ -229,13 +233,37 @@ export interface NextRow {
   /** Crew travelling (deadhead rows). */
   crew: number;
   sel: Ref | null;
+  /** v0.7.1: a chartered private jet (who = its type). */
+  jet?: boolean;
+  /** v0.7.1: the flight is crew-short (the warning ladder's stage). */
+  alert?: 'amber' | 'red';
+}
+
+// ---------- v0.7.1 crew shortages ----------
+
+export interface ShortRow { flightId: string; aircraftId: string; stage: 'amber' | 'red'; hoursLeft: number; std: Minute }
+
+/** Crew-short flights (the ladder's list) by flight id and, soonest per aircraft, by aircraft id. */
+export function shortIndex(g: GameState): { byFlight: Map<string, ShortRow>; byAircraft: Map<string, ShortRow> } {
+  const byFlight = new Map<string, ShortRow>();
+  const byAircraft = new Map<string, ShortRow>();
+  for (const s of shortFlights(g)) {
+    const f = g.flights[s.flightId];
+    if (!f?.aircraftId) continue;
+    const row: ShortRow = { flightId: s.flightId, aircraftId: f.aircraftId, stage: s.stage, hoursLeft: s.hoursLeft, std: f.std };
+    byFlight.set(s.flightId, row);
+    if (!byAircraft.has(f.aircraftId)) byAircraft.set(f.aircraftId, row);
+  }
+  return { byFlight, byAircraft };
 }
 
 /** Up Next rows: our next departures and the airline legs our crew ride, typed, after `after`; at most n. */
 export function upNextRows(g: GameState, n = 4, after = -Infinity): NextRow[] {
+  const short = shortIndex(g).byFlight;
   const rows: NextRow[] = upNext(g, n, after).map((f) => ({
     id: f.id, t: f.std + f.delay, who: f.aircraftId ? g.fleet[f.aircraftId]?.reg ?? f.no : f.no, from: f.from, to: f.to,
     type: flightType(g, f), crew: 0, sel: f.aircraftId ? { kind: 'aircraft', id: f.aircraftId } : null,
+    ...(short.has(f.id) ? { alert: short.get(f.id)!.stage } : {}),
   }));
   const t0 = Number.isFinite(after) ? after : g.now;
   for (const cf of groupCommercial(commercialFlightsBetween(g, t0, t0 + 3 * DAY))) {
@@ -247,6 +275,7 @@ export function upNextRows(g: GameState, n = 4, after = -Infinity): NextRow[] {
 
 const commercialRow = (cf: CommercialFlight): NextRow => ({
   id: cf.id, t: cf.leg.dep, who: cf.leg.no, from: cf.leg.from, to: cf.leg.to, type: 'deadhead', crew: cf.crewIds.length, sel: { kind: 'flight', id: cf.id },
+  ...(cf.leg.jet ? { jet: true } : {}),
 });
 
 export interface PinGroup {
@@ -432,8 +461,10 @@ export interface ChipInfo {
   short: string;
 }
 
-/** Fleet-strip chip text (changes at most hourly when rendered from React). */
-export function chipInfo(g: GameState, ac: Aircraft, t: Minute): ChipInfo {
+/** Fleet-strip chip text (changes at most hourly when rendered from React). v0.7.1: a crew-short flight (`short`, from
+ * shortIndex) turns the chip amber/red with "CREW SHORT 08:34". */
+export function chipInfo(g: GameState, ac: Aircraft, t: Minute, short?: ShortRow): ChipInfo {
+  if (short) return { tone: short.stage === 'red' ? 'bad' : 'warn', line: `CREW SHORT ${fmtTime(short.std)}`, short: `CREW ${fmtTime(short.std)}` };
   const cur = ac.flightId ? g.flights[ac.flightId] : undefined;
   if (cur) return { tone: 'air', line: `${cur.from}→${cur.to} ETA ${fmtTime(flightTimes(cur).on)}`, short: `${cur.from}→${cur.to}` };
   if (ac.status === 'aog') return { tone: 'bad', line: `AOG at ${ac.at}`, short: `AOG ${ac.at}` };

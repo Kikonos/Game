@@ -415,6 +415,7 @@ export function dailyDelivery(g: GameState): void {
         body: `No ${typeOf(ac.typeId).short}-rated captain and first officer are free on ${fmtDate(first.std)}. The aircraft waits at ${cityOf(dl.site)} until they are (parking ${usd(BAL.delivery.parkPerDay[wideOf(ac.typeId)])}/day). Hire rated pilots or book a conversion.` +
           (work ? ` Contract work from ${fmtDay(work.std)} (${work.no} ${work.from}–${work.to}) waits behind the ferry: legs that would leave more than 6 h late are dropped.` : ''),
         ref: { kind: 'aircraft', id: ac.id },
+        problem: { kind: 'deliveryWait', ref: { kind: 'aircraft', id: ac.id } }, hurt: { money: BAL.delivery.parkPerDay[wideOf(ac.typeId)] * 7, pax: 0, delayMin: 0, level: 'low' },
       });
     }
   }

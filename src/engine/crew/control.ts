@@ -5,7 +5,7 @@
 
 import { JET_CLASSES, JETS } from '../../data/jets';
 import { BAL } from '../core/balance';
-import { addDeadhead, liveFlightsOf, removeFlights } from '../core/entities';
+import { addDeadhead, flightsRev, liveFlightsOf, removeFlights, takeFlightChanges } from '../core/entities';
 import { distance } from '../core/geo';
 import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
@@ -25,10 +25,10 @@ import { crewWindows } from './ftl';
 import { crewName } from './generate';
 import { moraleShock } from './morale';
 import { city, rootReason, type Reason, type ReasonCode } from './reasons';
-import { applyDiscretion, flightCrewStatus, placeCrew, recheckPairing, releaseCrew, rerosterFrom, setShortHook, type FlightCrewStatus } from './roster';
+import { applyDiscretion, flightCrewStatus, onFlightsChanged, placeCrew, recheckPairing, releaseCrew, rerosterFrom, setShortHook, type FlightCrewStatus } from './roster';
 import { assignCrew, dutyCandidates, type DutyCandidate } from './rosterActions';
 import { levelOf, LIMITS, minRest } from './rules';
-import { crewCount, dhBlock, locAt, OUT_CONNECT, segsOf, touchCrew, typeIdOf } from './timeline';
+import { crewCount, crewRev, dhBlock, locAt, OUT_CONNECT, segsOf, touchCrew, typeIdOf, type TicketPlan } from './timeline';
 
 export type { Reason, ReasonCode };
 export { rootReason };
@@ -305,7 +305,7 @@ export function crewShortCard(g: GameState, flightId: string): ProblemCard | nul
   } else {
     const role = x.missing[0];
     const word = ROLE_WORD[role];
-    const cands = d ? dutyCandidates(g, d.id, role).filter((c) => !c.onPairing) : [];
+    const cands = d ? candidatesOf(g, d, role).filter((c) => !c.onPairing) : [];
     const rated = Object.values(g.crew).some((c) => canFill(role, c.role) && c.ratings.includes(fam));
     const refused = cands.filter((c) => c.level === 'illegal' && c.reason);
     let cause: ReasonCode | null = null;
@@ -468,25 +468,54 @@ export function jetQuote(g: GameState, from: string, to: string, crewN: number, 
   };
 }
 
-/** Crew who could take a `role` seat if a jet brought them (the airline reach ignored), earliest ready first. Pure. */
-function jetCandidates(g: GameState, p: Pairing, d: Duty, role: Role, exclude: Set<string>): { c: CrewMember; loc: string; ready: Minute; level: Legality }[] {
+/** A jet ride as a ticket plan (check-in 30 min at the FBO, like a booked charter). */
+const jetRide = (q: JetQuote, from: string, to: string): TicketPlan => ({ from, to, std: q.wheelsUp, sta: q.arrives, charter: { cls: q.cls, model: q.model, operator: q.operator, reg: q.reg } }) as TicketPlan;
+
+/**
+ * Crew who could take a `role` seat if a jet brought them (the airline reach ignored): legal with the ride in their
+ * day (a ride landing inside minimum rest of the report counts as FDP), earliest ready first. `fdpOnly` is set when
+ * someone was refused only because the ride makes the day too long. Pure.
+ */
+function jetCandidates(g: GameState, p: Pairing, d: Duty, role: Role, exclude: Set<string>, cls?: JetClass, fdpOnly?: { v: boolean }): { c: CrewMember; loc: string; ready: Minute; level: Legality }[] {
+  const all = memoOf(g, `jc:${d.id}:${role}:${cls ?? ''}`, () => jetCandidatesAll(g, p, d, role, cls));
+  if (fdpOnly && all.fdpOnly) fdpOnly.v = true;
+  return all.list.filter((x) => !exclude.has(x.c.id));
+}
+
+function jetCandidatesAll(g: GameState, p: Pairing, d: Duty, role: Role, cls?: JetClass): { list: { c: CrewMember; loc: string; ready: Minute; level: Legality }[]; fdpOnly: boolean } {
   const dep = g.flights[d.flightIds[0]]?.from ?? d.restAt;
   const fam = typeOf(typeIdOf(g, p)).family;
   const on = new Set(p.slots.filter((s) => s.crewId).map((s) => s.crewId!));
-  const out: { c: CrewMember; loc: string; ready: Minute; level: Legality; km: number }[] = [];
+  const fdpOnly = { v: false };
+  // The nearest-ready dozen are planned (one planCrew each); the rest could only be worse rides.
+  const pool: { c: CrewMember; loc: string; ready: Minute; km: number; segs: ReturnType<typeof segsOf> }[] = [];
   for (const c of Object.values(g.crew)) {
-    if (!canFill(role, c.role) || !c.ratings.includes(fam) || on.has(c.id) || exclude.has(c.id)) continue;
+    if (!canFill(role, c.role) || !c.ratings.includes(fam) || on.has(c.id)) continue;
+    if (c.status === 'sick' || c.status === 'leave' || c.status === 'training' || c.status === 'joining') continue;
     const segs = segsOf(g, c, p.id);
     const loc = locAt(c, segs, d.report);
     if (loc === dep) continue;
-    const plan = planCrew(g, c, p, segs);
-    const issues = plan.issues.filter((i) => i.code !== 'fdp' && i.code !== 'location');
-    const level = levelOf(issues);
-    if (level === 'illegal') continue;
-    out.push({ c, loc, ready: Math.max(g.now, readyAt(c, segs, d.report)), level, km: distance(loc, dep) });
+    pool.push({ c, loc, ready: Math.max(g.now, readyAt(c, segs, d.report)), km: distance(loc, dep), segs });
   }
-  out.sort((a, b) => a.ready - b.ready || a.km - b.km || (a.c.role === role ? -1 : 1) || (a.c.id < b.c.id ? -1 : 1));
-  return out;
+  pool.sort((a, b) => a.ready - b.ready || a.km - b.km || (a.c.role === role ? -1 : 1) || (a.c.id < b.c.id ? -1 : 1));
+  const out: { c: CrewMember; loc: string; ready: Minute; level: Legality; km: number }[] = [];
+  for (const { c, loc, ready, km, segs } of pool.slice(0, 12)) {
+    const q = jetQuote(g, loc, dep, 1, ready, cls);
+    // A jet landing after the report delays the flight by the gap (runFix): the ride is judged against that later
+    // report, i.e. shifted earlier by the gap for the check.
+    const shift = Math.max(0, q.arrives + OUT_CONNECT - d.report);
+    const ride = jetRide(q, loc, dep);
+    const plan = planCrew(g, c, p, segs, false, 0, undefined, shift ? { ...ride, std: ride.std - shift, sta: ride.sta - shift } : ride);
+    // The duty's own FDP problem is the duty's (crewIllegal), not the ride's.
+    const issues = plan.issues.filter((i) => !(i.code === 'fdp' && d.legality === 'illegal'));
+    const level = levelOf(issues);
+    if (level === 'illegal') {
+      if (issues.every((i) => i.level !== 'illegal' || i.code === 'fdp' || i.code === 'rest')) fdpOnly.v = true;
+      continue;
+    }
+    out.push({ c, loc, ready, level, km });
+  }
+  return { list: out, fdpOnly: fdpOnly.v };
 }
 
 /**
@@ -606,9 +635,22 @@ function seatChanges(g: GameState, f: Flight, before: Set<string>): string[] {
 const heldBy = (p?: Pairing) => new Set(p ? p.slots.filter((s) => s.crewId).map((s) => s.crewId!) : []);
 const overtimeOf = (c: CrewMember) => Math.round((CC().callInPay * c.salary) / 21);
 
+/** Per state revision and minute: candidate searches (dutyCandidates, jetCandidates) are pure, so repeats within a step are free. */
+const memo = new WeakMap<GameState, { key: string; m: Map<string, unknown> }>();
+function memoOf<T>(g: GameState, key: string, f: () => T): T {
+  const rev = `${crewRev(g)}:${flightsRev(g)}:${g.now}`;
+  let c = memo.get(g);
+  if (!c || c.key !== rev) memo.set(g, (c = { key: rev, m: new Map() }));
+  if (c.m.has(key)) return c.m.get(key) as T;
+  const v = f();
+  c.m.set(key, v);
+  return v;
+}
+const candidatesOf = (g: GameState, d: Duty, role: Role) => memoOf(g, `dc:${d.id}:${role}`, () => dutyCandidates(g, d.id, role));
+
 /** Candidates for a missing seat: legal after their trip, not on the pairing; `here`: at the airport (call-in) or not (deadhead). */
 function seatCandidates(g: GameState, d: Duty, role: Role, here: boolean): DutyCandidate[] {
-  return dutyCandidates(g, d.id, role).filter((c) => !c.onPairing && c.level !== 'illegal' && (here ? !c.travel : !!c.travel));
+  return candidatesOf(g, d, role).filter((c) => !c.onPairing && c.level !== 'illegal' && (here ? !c.travel : !!c.travel));
 }
 
 /** The default (or chosen) crew per missing seat, one person each, from a candidate list per role. */
@@ -625,10 +667,11 @@ function pickCrew(x: Ctx, lists: Map<Role, DutyCandidate[]>, chosen?: string[]):
   return out;
 }
 
-/** Delays f until `ready` as the player would (lateness accepted) and ripples the later legs. */
+/** Delays f until `ready` as the player would (lateness accepted), ripples the later legs and re-syncs the duties now (the settle would, later). */
 function delayTo(h: GameState, f: Flight, ready: Minute): void {
   f.lateOk = Math.max(f.lateOk ?? 0, ready - (f.schedStd ?? f.std));
   delayChain(h, f, ready, 'Waiting for crew', false);
+  for (const [id, t] of takeFlightChanges(h)) onFlightsChanged(h, id, t);
 }
 
 /** Runs a fix on state h (the live game or a preview copy). */
@@ -640,8 +683,9 @@ function runFix(h: GameState, flightId: string, fix: CrewFix, opts: ApplyOpts): 
   switch (fix) {
     case 'autoFix': {
       rerosterFrom(h, ac.id, h.now);
-      const changes = seatChanges(h, f, before);
-      return { ok: true, changes: changes.length ? changes : ['Nothing changed: nobody legal is free'], cost: 0 };
+      const changes = seatChanges(h, f, before).filter((c) => !/still missing$/.test(c));
+      if (!changes.length) return { ok: false, error: 'Nobody legal is free: see the other fixes' };
+      return { ok: true, changes: [...changes, ...seatChanges(h, f, before).filter((c) => /still missing$/.test(c))], cost: 0 };
     }
     case 'deadhead':
     case 'callIn': {
@@ -681,17 +725,17 @@ function runFix(h: GameState, flightId: string, fix: CrewFix, opts: ApplyOpts): 
     }
     case 'jet': {
       if (!d || !p) return { ok: false, error: 'No crew plan for this flight yet' };
+      const cls = (opts.optionId && JET_CLASSES.includes(opts.optionId as JetClass) ? opts.optionId : undefined) as JetClass | undefined;
       const used = new Set<string>();
       const picks: { c: CrewMember; ready: Minute; loc: string }[] = [];
       for (const role of x.missing) {
-        const list = jetCandidates(h, p, d, role, used);
+        const list = jetCandidates(h, p, d, role, used, cls);
         const pick = opts.crewIds ? list.find((y) => opts.crewIds!.includes(y.c.id)) : list[0];
         if (!pick) continue;
         used.add(pick.c.id);
         picks.push({ c: pick.c, ready: pick.ready, loc: pick.loc });
       }
       if (!picks.length) return { ok: false, error: 'Nobody legal is free anywhere' };
-      const cls = (opts.optionId && JET_CLASSES.includes(opts.optionId as JetClass) ? opts.optionId : undefined) as JetClass | undefined;
       // Even a jet may land after the report: the flight is delayed first by the gap.
       let latest = 0;
       const byLoc = new Map<string, { n: number; ready: Minute }>();
@@ -703,8 +747,11 @@ function runFix(h: GameState, flightId: string, fix: CrewFix, opts: ApplyOpts): 
         const was = f.std;
         delayTo(h, f, ceil5(f.std + gap));
         changes.push(`${f.no} leaves ${at(f.std, h.now)} UTC (+${fmtDuration(f.std - was)}) so the jet can land first`);
+        // The re-sync may have crewed the seat from the station already (then no jet is needed).
+        const x2 = ctxOf(h, flightId);
+        if (!x2 || !x2.missing.length) return { ok: true, changes: [...changes, ...seatChanges(h, f, before)], cost: 0 };
       }
-      const r = charterJet(h, f.id, picks.map((y) => y.c.id), cls ?? jetClassFor(picks.length, distance(picks[0].loc, x.dep) / NM));
+      const r = charterJet(h, f.id, picks.map((y) => y.c.id).filter((id) => !heldBy(ctxOf(h, flightId)?.p).has(id)), cls ?? jetClassFor(picks.length, distance(picks[0].loc, x.dep) / NM));
       if (!r.ok) return r;
       changes.push(...seatChanges(h, f, before));
       return { ok: true, changes, cost: r.data!.cost };
@@ -873,11 +920,8 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean): CrewSolution[] {
     return { ...s, cost, preview: r.preview, newDeparture: s.newDeparture ?? r.newStd, consequences: [...s.consequences, ...r.preview.ripple.map((l) => l.text)].slice(0, 4), chips };
   };
   const hrs = (t: Minute) => `lands ${at(t, g.now)}`;
-  // a. auto-fix
-  {
-    const s = run(base('autoFix'));
-    out.push(s.available && previews && BAD(s.preview.after.level) && s.preview.changes.every((c) => /still missing|Nothing changed/.test(c)) ? no(s, 'Nobody legal is free: see the other fixes') : s);
-  }
+  // a. auto-fix (a run that changes nothing is refused by runFix, so the preview marks it unavailable).
+  out.push(run(base('autoFix')));
   // b. deadhead and e. call-in
   for (const id of ['deadhead', 'callIn'] as const) {
     const s = base(id);
@@ -930,13 +974,14 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean): CrewSolution[] {
     else {
       const used = new Set<string>();
       const picks: { c: CrewMember; ready: Minute; loc: string }[] = [];
+      const fdpOnly = { v: false };
       for (const role of x.missing) {
-        const pick = jetCandidates(g, p, d, role, used)[0];
+        const pick = jetCandidates(g, p, d, role, used, undefined, fdpOnly)[0];
         if (!pick) continue;
         used.add(pick.c.id);
         picks.push(pick);
       }
-      if (!picks.length) out.push(no(s, 'Nobody legal is free anywhere within jet range'));
+      if (!picks.length) out.push(no(s, fdpOnly.v ? "Even by jet the crew's day would be too long: delay the flight instead" : 'Nobody legal is free anywhere within jet range'));
       else {
         const byLoc = new Map<string, { n: number; ready: Minute }>();
         for (const y of picks) byLoc.set(y.loc, { n: (byLoc.get(y.loc)?.n ?? 0) + 1, ready: Math.max(byLoc.get(y.loc)?.ready ?? 0, y.ready) });
@@ -1088,7 +1133,8 @@ export function applyCrewFix(g: GameState, flightId: string, fix: CrewFix, opts:
     tone: 'info', cat: 'crew', title: `${view.no} ${fixed ? (fix === 'cancel' ? 'cancelled' : fix === 'subcharter' ? 'sub-chartered' : 'crewed') : 'still short'}: ${FIX_LABEL[fix]}`,
     body: r.changes.join('. ') + '.', ref: { kind: 'flight', id: flightId },
   });
-  return { ok: true, msg: r.changes[0], data: { changes: r.changes, after: fixed ? null : crewControl(g, flightId) } };
+  // `after` without previews (cheap): the panel re-reads crewControl for the next round anyway.
+  return { ok: true, msg: r.changes[0], data: { changes: r.changes, after: fixed ? null : crewControl(g, flightId, { previews: false }) } };
 }
 
 // ---------- shared with ops (the gate decision) ----------
