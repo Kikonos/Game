@@ -170,3 +170,25 @@ describe('crew legality: the 2 h check and the gate', () => {
     expect(g.stats.illegalCrewFlown ?? 0).toBe(0);
   });
 });
+
+describe('crew legality: a stale trip mark (v0.6.3)', () => {
+  it('a pairing still marked illegal for crew who are now legal reads as the Adjust crew panel does', () => {
+    const { g, p, duties } = rostered();
+    expect(duties.every((d) => dutyLegality(g, d.id).level !== 'illegal')).toBe(true);
+    // The mark left behind by crew who have since been replaced: from the first duty, and an old save's (no from).
+    p.legality = 'illegal';
+    p.illegalFrom = duties[0].report;
+    for (const d of duties) expect(levels(g, d)).not.toContain('illegal');
+    delete p.illegalFrom;
+    for (const d of duties) expect(levels(g, d)).not.toContain('illegal');
+  });
+
+  it('a real crew problem still reads illegal from that duty on', () => {
+    const { g, p, duties } = rostered();
+    const { early, late } = laterRecoveryProblem(g, p, duties);
+    recheckPairing(g, p);
+    expect(levels(g, late)).toContain('illegal');
+    expect(levels(g, early)).not.toContain('illegal');
+    expect(dutyLegality(g, late.id).level).toBe('illegal');
+  });
+});
