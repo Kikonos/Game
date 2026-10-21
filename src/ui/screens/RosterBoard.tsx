@@ -12,7 +12,7 @@ import type { GameState, Role } from '../../engine/core/types';
 import type { RatingFamily } from '../../data/acmiTypes';
 import { crewRev, dropTargets, familyLabel, moveDuty, rosterBoard, type BoardBlock, type BoardRow, type DropTarget, type MoveScope } from '../../engine/crew';
 import { Seg } from '../components/ui';
-import { liveMinute, store } from '../store';
+import { liveMinute, store, useThrottledNow } from '../store';
 import { CAL_KEY_LABEL, calKey, calLayer, calLegend, type CalKey } from './crewLogic';
 import {
   BACK_DAYS, BOARD_DAYS, blockCands, boardItems, boardLayout, dayCodes, dayWidth, dayWindow, edgeSpeed, fitText, HEAD_H, itemAt, LEFT_W,
@@ -214,7 +214,13 @@ const RANKS: { value: RankFilter; label: string }[] = [
   ...(['CPT', 'FO', 'CRP', 'CSD', 'SCC', 'CC'] as Role[]).map((r) => ({ value: r as RankFilter, label: `${r} · ${ROLE_PLURAL[r]}` })),
 ];
 
-export function RosterBoard({ g, selecting, selected, onSelect }: RosterBoardProps) {
+/** v0.7 C2: memo'd against the Crew screen's hourly renders; the board refreshes from useThrottledNow (≤ 1 Hz running). */
+export const RosterBoard = memo(function RosterBoard(props: RosterBoardProps) {
+  return <Board {...props} />;
+}, (a, b) => a.g === b.g && a.selecting === b.selecting && a.selected === b.selected);
+
+function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
+  const now = useThrottledNow(1000);
   const [f, setF] = useState<BoardFilter>(NO_BOARD_FILTER);
   const [zoom, setZoomS] = useState<BoardZoom>(() => stored(ZOOM_KEY, ['week', 'month'] as const, 'week'));
   const [scope, setScopeS] = useState<MoveScope>(() => stored(SCOPE_KEY, ['duty', 'trip'] as const, 'trip'));
@@ -225,13 +231,13 @@ export function RosterBoard({ g, selecting, selected, onSelect }: RosterBoardPro
   const [pop, setPop] = useState<Pop | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
 
-  const from = dayStart(g.now) - BACK_DAYS * DAY;
+  const from = dayStart(now) - BACK_DAYS * DAY;
   const to = from + BOARD_DAYS * DAY;
   const dayW = dayWidth(zoom, view.w);
   const ppm = dayW / DAY;
   const crev = crewRev(g);
   const rev = flightsRev(g);
-  const hour = Math.floor(g.now / HOUR);
+  const hour = Math.floor(now / HOUR);
   const nCrew = Object.keys(g.crew).length;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const items = useMemo(() => boardItems(Object.values(g.crew), f, g.company.homeBase), [g, f, crev, nCrew, hour]);
@@ -241,7 +247,7 @@ export function RosterBoard({ g, selecting, selected, onSelect }: RosterBoardPro
   const shown = items.slice(a, Math.min(b, items.length));
   const ids = shown.filter((x): x is Extract<BoardItem, { kind: 'crew' }> => x.kind === 'crew').map((x) => x.id);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const rows = useMemo(() => new Map(rosterBoard(g, from, to, ids).map((r) => [r.crewId, r])), [g, from, to, ids.join(), crev, rev, g.now]);
+  const rows = useMemo(() => new Map(rosterBoard(g, from, to, ids).map((r) => [r.crewId, r])), [g, from, to, ids.join(), crev, rev, now]);
 
   // Latest values for the native drag listeners.
   const live = useRef({ items, tops, total, scope, from, g });
@@ -561,7 +567,7 @@ export function RosterBoard({ g, selecting, selected, onSelect }: RosterBoardPro
   const legend = calLegend([...rows.values()].flatMap((r) => r.blocks)).filter((k) => k !== 'standby' && !(zoom === 'month' && k === 'rest'));
   const W = LEFT_W + BOARD_DAYS * dayW;
   const [d0, d1] = days;
-  const today = Math.floor((dayStart(g.now) - from) / DAY);
+  const today = Math.floor((dayStart(now) - from) / DAY);
   const nRows = items.filter((x) => x.kind === 'crew').length;
 
   return (

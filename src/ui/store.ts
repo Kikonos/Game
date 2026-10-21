@@ -1,15 +1,15 @@
 // Bridges the engine and React: owns the game state, the real-time loop (game minutes per frame),
 // navigation, modals, quiet toasts, settings and saving. DESIGN.md §3.4 and §6.
 
-import { useSyncExternalStore } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { clearPause, takePause, type PauseReason } from '../engine/core/pause';
 import { CLOCK_STEP, type GameSpeed, minutesPerMs, monthKey } from '../engine/core/time';
-import type { RatingFamily } from '../data/acmiTypes';
-import type { ActionResult, Archetype, GameState, Message, PaintKind, Ref, Role } from '../engine/core/types';
+import type { CabinLayout, RatingFamily } from '../data/acmiTypes';
+import type { ActionResult, ApprovalId, Archetype, GameState, Message, PaintKind, Ref, Role } from '../engine/core/types';
 import { acceptOffer, declineOffer, feasibilityAll, generateOffer } from '../engine/contracts';
 import { DAY } from '../engine/core/time';
 import { pushDecision } from '../engine/core/messages';
-import { demoFlights, devFleet } from '../engine/dev';
+import { demoFlights, devFleet, devGrantApproval, devMarketOffer } from '../engine/dev';
 import { resignNow } from '../engine/crew';
 import { createGame, type NewGameOptions } from '../engine/newGame';
 import { AUTOSAVE_SLOT, saveToSlot, serialize } from '../engine/save';
@@ -35,6 +35,8 @@ export interface Settings {
   /** Extra empty band above the top bar (px) — iPadOS 26 frosts the top edge of home-screen web apps. */
   topGap: 'auto' | 0 | 16 | 28 | 40;
   toasts: boolean;
+  /** v0.7: new aircraft market offers show in the Inbox with a quiet toast (off: hidden, never pause). */
+  marketAlerts: boolean;
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -46,6 +48,7 @@ const DEFAULT_SETTINGS: Settings = {
   mapAnimations: true,
   topGap: 'auto',
   toasts: true,
+  marketAlerts: true,
 };
 
 export interface Nav {
@@ -78,7 +81,13 @@ export type ModalSpec =
   | { kind: 'livery'; target: 'company' | { aircraftId: string } }
   /** v0.6: bulk type-rating conversion for the selected crew; the classes list (cancel per class / member). */
   | { kind: 'convert'; crewIds: string[]; family?: RatingFamily; onBooked?: () => void }
-  | { kind: 'classes' };
+  | { kind: 'classes' }
+  /** v0.7: sign a market offer; cabin refit; lease extend/return; an approval on the ladder; the ladder-step celebration. */
+  | { kind: 'acquire'; offerId: string }
+  | { kind: 'refit'; aircraftId: string; layout?: CabinLayout }
+  | { kind: 'lease'; aircraftId: string }
+  | { kind: 'approval'; id: ApprovalId }
+  | { kind: 'ladderStep'; messageId: string };
 
 export interface Toast {
   id: number;
@@ -147,6 +156,9 @@ class GameStore {
   private toastId = 0;
   private lastMsgId: string | null = null;
   private clockLabel = -1;
+  /** v0.7: ladder-step celebrations waiting for the modal slot; ids already shown (not saved). */
+  private ladderQueue: string[] = [];
+  private ladderSeen = new Set<string>();
 
   subscribe = (fn: () => void) => {
     this.listeners.add(fn);
@@ -195,6 +207,8 @@ class GameStore {
     this.savedMark = '';
     this.decisionDeferred = null;
     this.lastMsgId = this.game?.messages[0]?.id ?? null;
+    this.ladderQueue = [];
+    this.ladderSeen = new Set();
     this.exact = this.game?.now ?? 0;
     this.paused = true;
     this.pauseReason = null;
@@ -365,7 +379,8 @@ class GameStore {
 
   /** Pause reasons the settings honour. */
   private honoured(): Set<PauseReason> {
-    return new Set((Object.keys(this.settings.autoPause) as PauseReason[]).filter((r) => this.settings.autoPause[r]));
+    // v0.7: the market pause only with market alerts on.
+    return new Set((Object.keys(this.settings.autoPause) as PauseReason[]).filter((r) => this.settings.autoPause[r] && (r !== 'marketOffer' || this.settings.marketAlerts)));
   }
 
   private autoPause(reason: PauseReason) {
@@ -377,6 +392,21 @@ class GameStore {
 
   /** Quiet toasts for important new messages only. Returns whether anything new arrived. */
   private surfaceMessages(): boolean {
+    const fresh = this.takeFresh();
+    for (const m of fresh) {
+      // v0.7: ladder steps get the celebration card instead of a toast; market offers a quiet info toast (alerts on).
+      if (m.topic === 'ladder') this.queueLadder(m.id);
+      else if (!this.settings.toasts) continue;
+      else if (m.topic === 'market') {
+        if (this.settings.marketAlerts) this.toast('info', m.title.replace(/^Market: /, ''), marketToastBody(m));
+      } else if (m.tone === 'bad' || m.cat === 'goal') this.toast(m.tone === 'bad' ? 'bad' : 'good', m.title, m.body.length > 140 ? m.body.slice(0, 137) + '…' : m.body);
+    }
+    this.flushLadder();
+    return fresh.length > 0;
+  }
+
+  /** Messages since the last look, oldest first. */
+  private takeFresh(): Message[] {
     const g = this.game!;
     const fresh: Message[] = [];
     for (const m of g.messages) {
@@ -384,11 +414,37 @@ class GameStore {
       fresh.push(m);
     }
     this.lastMsgId = g.messages[0]?.id ?? this.lastMsgId;
-    if (!this.settings.toasts) return fresh.length > 0;
-    for (const m of fresh.reverse()) {
-      if (m.tone === 'bad' || m.cat === 'goal') this.toast(m.tone === 'bad' ? 'bad' : 'good', m.title, m.body.length > 140 ? m.body.slice(0, 137) + '…' : m.body);
-    }
-    return fresh.length > 0;
+    return fresh.reverse();
+  }
+
+  private queueLadder(id: string) {
+    if (this.ladderSeen.has(id) || this.ladderQueue.includes(id)) return;
+    this.ladderQueue.push(id);
+  }
+
+  /** Opens the next ladder celebration when the modal slot is free (never over another dialog or a decision). */
+  private flushLadder(): void {
+    if (this.modal || !this.game || this.game.gameOver || this.decisionOpen || !this.ladderQueue.length) return;
+    const id = this.ladderQueue.shift()!;
+    this.ladderSeen.add(id);
+    if (!this.game.messages.some((m) => m.id === id)) return this.flushLadder();
+    this.modal = { kind: 'ladderStep', messageId: id };
+    sound.play('success');
+  }
+
+  /** v0.7: whether the Inbox, badges and toasts show this message (market alerts can be turned off). */
+  shows(m: Message): boolean {
+    return m.topic !== 'market' || this.settings.marketAlerts;
+  }
+
+  /** v0.7: player edits so far (actions and direct updates); useThrottledNow passes these through at once. */
+  get editCount(): number {
+    return this.edits;
+  }
+
+  /** v0.7: the clock is running (time moves by itself). */
+  get running(): boolean {
+    return !!this.game && !this.paused && !this.blocked && !this.modal && !this.holdTime;
   }
 
   // ---------- actions ----------
@@ -417,8 +473,9 @@ class GameStore {
     } else {
       if (opts.toastOk !== false && res.msg) this.toast('good', res.msg);
       sound.play(opts.sound ?? 'success');
-      this.lastMsgId = g.messages[0]?.id ?? this.lastMsgId;
     }
+    // The action's own messages are not toasted (its result is); ladder steps still get their card.
+    for (const m of this.takeFresh()) if (m.topic === 'ladder') this.queueLadder(m.id);
     this.emit();
     return res;
   }
@@ -454,6 +511,7 @@ class GameStore {
 
   closeModal() {
     this.modal = null;
+    this.flushLadder();
     this.emit();
   }
 
@@ -578,9 +636,37 @@ class GameStore {
       this.emit();
       return ok ? id : null;
     },
+    /** v0.7: posts an aircraft market offer now and opens Fleet → Market; returns the offer id. */
+    marketOffer: (typeId?: string, opts?: { kind?: 'dryLeaseIn' | 'buy'; newBuild?: boolean; site?: string }) => {
+      const g = this.game;
+      if (!g) return null;
+      const id = devMarketOffer(g, typeId, opts);
+      settle(g);
+      const pause = takePause(this.honoured());
+      if (pause) this.autoPause(pause);
+      this.surfaceMessages();
+      this.navigate('fleet', { view: 'market', sel: { kind: 'market', id } });
+      return id;
+    },
+    /** v0.7: grants an approval now (the ladder goal and its celebration card follow). */
+    grant: (id: ApprovalId) => {
+      const g = this.game;
+      if (!g) return;
+      devGrantApproval(g, id);
+      settle(g);
+      this.surfaceMessages();
+      this.emit();
+    },
     /** B5: React renders per screen (dev builds only), to check the calm-UI budget (≤ ~2/s at 4×). */
     renders: {} as Record<string, number>,
   };
+}
+
+/** 'AerCap, Santiago': the lessor and handover city from a market message body (short, quiet toast). */
+function marketToastBody(m: Message): string {
+  const who = /^(.+?) offers/.exec(m.body)?.[1];
+  const at = /handed over at ([^.,]+)/.exec(m.body)?.[1];
+  return [who, at].filter(Boolean).join(', ') || (m.body.length > 100 ? m.body.slice(0, 97) + '…' : m.body);
 }
 
 export const store = new GameStore();
@@ -630,3 +716,44 @@ export function liveMinute(): number {
 }
 
 applyTopGap(store.settings);
+
+/**
+ * v0.7 C2: the game minute for heavy views (roster board). While the clock runs it re-renders at most once per `ms`
+ * real milliseconds (trailing); when time stands still, and after any player edit, at once.
+ */
+export function useThrottledNow(ms = 1000): number {
+  const [src] = useState(() => throttledSource(ms));
+  useSyncExternalStore(src.subscribe, src.get);
+  return store.game?.now ?? 0;
+}
+
+function throttledSource(ms: number) {
+  let v = 0;
+  let last = 0;
+  let edits = -1;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  return {
+    get: () => v,
+    subscribe: (fn: () => void) => {
+      const fire = () => {
+        if (timer) clearTimeout(timer);
+        timer = null;
+        last = performance.now();
+        edits = store.editCount;
+        v++;
+        fn();
+      };
+      const on = () => {
+        const t = performance.now();
+        if (!store.running || store.editCount !== edits || t - last >= ms) fire();
+        else timer ??= setTimeout(fire, ms - (t - last));
+      };
+      const off = store.subscribe(on);
+      return () => {
+        off();
+        if (timer) clearTimeout(timer);
+        timer = null;
+      };
+    },
+  };
+}

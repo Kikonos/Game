@@ -11,7 +11,7 @@ import type { GameState } from '../../engine/core/types';
 import { ccqPartner, conversionEarliest, conversionPlan, courseOf, crewName, familyLabel, startConversion } from '../../engine/crew';
 import { Modal } from '../components/ui';
 import { money } from '../format';
-import { baseDay, isPilotRole } from '../screens/screenLogic';
+import { baseDay, isPilotRole, needsConfirm } from '../screens/screenLogic';
 import { store, useGame } from '../store';
 
 const CHIP_DAYS = 56;
@@ -43,6 +43,9 @@ export function ConvertModal({ crewIds, family: fam0, onBooked }: { crewIds: str
   const live = ids.filter((id) => g.crew[id]);
   const plan = useMemo(() => conversionPlan(g, { crewIds: live, family, start: Math.max(start, earliest), drop }), [g, live.join(), family, start, earliest, drop, g.now]); // eslint-disable-line react-hooks/exhaustive-deps
   const close = () => store.closeModal();
+  // v0.7 C1: red warnings turn Book into a two-step confirm (one tap must never ground the fleet).
+  const [review, setReview] = useState(false);
+  const risky = needsConfirm(plan);
   const book = () => {
     const res = store.act((gg) => startConversion(gg, { crewIds: live, family, start: Math.max(start, earliest), drop }));
     if (!res.ok) return;
@@ -89,11 +92,24 @@ export function ConvertModal({ crewIds, family: fam0, onBooked }: { crewIds: str
   return (
     <Modal size="wide" className="cv-modal" title={`Type conversion · ${live.length} ${live.length === 1 ? 'person' : 'people'}`} icon={<GraduationCap className="accent" />} onClose={close} footer={
       <>
-        <button className="btn" onClick={close}>Cancel</button>
-        <span className="grow small muted">{picked && plan.classes.length ? `${plan.classes.length} class${plan.classes.length === 1 ? '' : 'es'} · ${bd(t0)} – ${bd(t1 - 1)}` : ''}</span>
-        <button className="btn btn-primary" onClick={book} disabled={!picked || !plan.ok}><GraduationCap /> {picked ? `Book conversion · ${money(plan.cost)}` : 'Pick a type'}</button>
+        {review && risky ? <>
+          <span className="grow small bad">Book anyway?</span>
+          <button className="btn btn-danger" onClick={book} disabled={!plan.ok}>Book anyway</button>
+          <button className="btn btn-primary" onClick={() => setReview(false)} autoFocus>Go back</button>
+        </> : <>
+          <button className="btn" onClick={close}>Cancel</button>
+          <span className="grow small muted">{picked && plan.classes.length ? `${plan.classes.length} class${plan.classes.length === 1 ? '' : 'es'} · ${bd(t0)} – ${bd(t1 - 1)}` : ''}</span>
+          <button className="btn btn-primary" onClick={risky ? () => setReview(true) : book} disabled={!picked || !plan.ok}><GraduationCap /> {!picked ? 'Pick a type' : risky ? `Review & book · ${money(plan.cost)}` : `Book conversion · ${money(plan.cost)}`}</button>
+        </>}
       </>
     }>
+      {review && risky && (
+        <div className="cv-confirm" role="alert">
+          <b>Book anyway?</b>
+          {plan.warnings.filter((w) => w.level === 'bad').map((w, i) => <div key={i} className="small bad row gap-8"><AlertTriangle className="sc-ico-s" /><span>{w.text}</span></div>)}
+          <div className="small muted">Flights in these weeks may go uncrewed.</div>
+        </div>
+      )}
       <div className="cv-cols">
         <div className="col gap-12" style={{ minWidth: 0 }}>
           <div className="upper dim">Target type</div>

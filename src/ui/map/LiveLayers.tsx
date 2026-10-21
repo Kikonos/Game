@@ -6,6 +6,8 @@
 // v0.5.2: every airborne leg draws its whole great circle from take-off to landing (one path element,
 // built once per leg and dropped on landing): operating solid green, positioning/ferry dotted amber,
 // airline deadheads thin grey dotted.
+// v0.7: an aircraft is drawn once handed over (at its handover site, possibly abroad), with a static DELIVERY tag
+// until its delivery ferry is home; before the handover it is not drawn.
 
 import { geoInterpolate, geoPath } from 'd3-geo';
 import { memo, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
@@ -17,7 +19,7 @@ import { PLANE_PATH } from '../components/Logo';
 import { liveMinute, store } from '../store';
 import { isTouch } from '../useMedia';
 import { MAP_H, MAP_W } from './mapData';
-import { headingDeg, type LabelBox, groupCommercial, lerpAngle, parkOffset, downSide, legLabelSide, placeLabels, regSlot, type RegSlot, trackCovered, trackLabelAt, type LegArc, type PinGroup, sunPoint, terminator, TYPE_STROKE } from './mapLogic';
+import { deliveryTag, headingDeg, onMap, type LabelBox, groupCommercial, lerpAngle, parkOffset, downSide, legLabelSide, placeLabels, regSlot, type RegSlot, trackCovered, trackLabelAt, type LegArc, type PinGroup, sunPoint, terminator, TYPE_STROKE } from './mapLogic';
 import type { MapLayerCtx } from './WorldMap';
 
 /** Live positions shared with tap picking and focus (map units, as last drawn). */
@@ -361,7 +363,21 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
       const parked = new Map<string, number>();
       for (const id of ids) {
         const ac = game.fleet[id];
+        const e = els.get(id);
+        // React re-renders reset the className: put the loop's own classes back.
+        if (fresh && e) {
+          e.el.classList.toggle('crowd', e.crowd);
+          e.el.classList.toggle('reg-up', e.reg === 1);
+          e.el.classList.toggle('reg-off', e.reg === 2);
+        }
         if (!ac || !AIRPORT_BY_CODE[ac.at]) continue;
+        if (!onMap(ac)) {
+          // Not handed over yet (being built or prepared at the seller's): not on the map, not tappable.
+          if (e && e.el.dataset.phase !== 'hidden') e.el.dataset.phase = 'hidden';
+          shared.ac.delete(id);
+          glide.delete(id);
+          continue;
+        }
         const live = aircraftLive(game, ac, t);
         if (live.phase !== 'airborne') parked.set(live.at!, (parked.get(live.at!) ?? 0) + 1);
         lives.push(live);
@@ -564,7 +580,7 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
         const ac = g.fleet[id];
         const [fill, outline] = glyphInk(liveryOf(g, ac).livery);
         return (
-          <g key={id} data-id={id} data-phase="parked" className={`ops-ac ${selected === id ? 'sel' : ''}`}>
+          <g key={id} data-id={id} data-phase="parked" className={`ops-ac${selected === id ? ' sel' : ''}${deliveryTag(ac) ? ' dlv' : ''}`}>
             <circle className="hit" r={HIT_R.touch} />
             <path className="hangar" d="M-15 11V-1Q0 -17 15 -1V11Z" />
             <circle className="sel-ring" r={16} />
@@ -582,6 +598,7 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
             </g>
             <text className="reg" y={25}>{ac.reg}</text>
             <text className="tag" y={-16}>FERRY</text>
+            <text className="op-delivery-tag" y={-16}>DELIVERY</text>
           </g>
         );
       })}

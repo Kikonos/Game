@@ -80,3 +80,12 @@ describe('finance and inbox helpers', () => {
     expect(filterMessages(g.messages, 'goal').every((m) => m.cat === 'goal')).toBe(true);
   });
 });
+
+describe('v0.7 conversion confirm (C1)', () => {
+  it('asks for a confirm exactly when a red warning exists', async () => {
+    const { needsConfirm } = await import('./screenLogic');
+    expect(needsConfirm({ warnings: [] })).toBe(false);
+    expect(needsConfirm({ warnings: [{ level: 'warn' }] })).toBe(false);
+    expect(needsConfirm({ warnings: [{ level: 'warn' }, { level: 'bad' }] })).toBe(true);
+  });
+});

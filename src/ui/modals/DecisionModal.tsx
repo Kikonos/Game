@@ -4,8 +4,9 @@
 
 import { AlertTriangle } from 'lucide-react';
 import { fmtDateTime } from '../../engine/core/time';
-import { resolveDecision } from '../../engine/ops';
+import { leaseView, resolveDecision } from '../../engine/ops';
 import { Modal } from '../components/ui';
+import { ReturnLines } from './LeaseModal';
 import { spanLabel } from '../screens/screenLogic';
 import { store, useStore } from '../store';
 
@@ -21,6 +22,10 @@ export function DecisionModal({ decisionId }: { decisionId?: string }) {
   };
   const close = closable ? () => store.closeModal() : () => store.deferDecision();
   const def = d.options.find((o) => o.id === d.defaultOption);
+  // v0.7: a lease-end decision shows live quotes (rent, return costs) rather than the chips from when it was posted.
+  const acId = d.kind === 'leaseEnd' && typeof d.data?.aircraftId === 'string' ? d.data.aircraftId : null;
+  const live = acId ? leaseView(g, acId) : null;
+  const chipsOf = (o: (typeof d.options)[number]) => live?.options.find((x) => x.id === o.id)?.chips ?? o.chips;
   return (
     <Modal title={d.title} icon={<AlertTriangle className="warn" />} className="decision sc-decision" onClose={close}>
       <p className="muted">{d.body}</p>
@@ -32,14 +37,15 @@ export function DecisionModal({ decisionId }: { decisionId?: string }) {
               {o.id === d.defaultOption && <span className="badge">Default</span>}
             </span>
             <span className="small muted">{o.desc}</span>
-            {!!o.chips?.length && (
+            {!!chipsOf(o)?.length && (
               <span className="sc-chips">
-                {o.chips.map((c) => <span key={c} className={`chip sc-chip ${/^[−-]/.test(c) || /−/.test(c) ? 'bad' : /^\+/.test(c) ? 'good' : ''}`}>{c}</span>)}
+                {chipsOf(o)!.map((c) => <span key={c} className={`chip sc-chip ${/^[−-]/.test(c) || /−/.test(c) ? 'bad' : /^\+/.test(c) ? 'good' : ''}`}>{c}</span>)}
               </span>
             )}
           </button>
         ))}
       </div>
+      {acId && live && <div className="mt-12"><ReturnLines g={g} aircraftId={acId} /></div>}
       <div className="small dim mt-12">
         {fmtDateTime(d.t)} UTC · {def ? `“${def.label}” applies by itself at ${fmtDateTime(d.expires)} UTC (${spanLabel(d.expires - g.now)}).` : ''}
         {!closable && s.settings.autoPause.decision ? ' Time is paused until you decide.' : ''}

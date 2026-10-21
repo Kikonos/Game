@@ -1,5 +1,5 @@
 // Company (B5): reputation, approvals (apply, progress), policies and goals; competitors for context.
-// DESIGN.md §6.3.
+// v0.7: the Ladder across the top (Ladder.tsx); IOSA and DG stay below as other approvals. DESIGN.md §6.3.
 
 import { Award, BadgeCheck, Building2, Flag as FlagIcon, Palette, Settings2, ShieldCheck, Target } from 'lucide-react';
 import { flag } from '../../data/countries';
@@ -16,6 +16,10 @@ import { Bar, Card, Seg, Stepper, Toggle } from '../components/ui';
 import { money } from '../format';
 import { store, useGame } from '../store';
 import { KV, ScreenHead, useRenderCount } from './common';
+import { LadderCard } from './Ladder';
+
+/** v0.7: approvals outside the Ladder (IOSA, DG). */
+const OTHER = new Set(['iosa', 'dg']);
 
 function Reputation({ g }: { g: GameState }) {
   const r = g.company.reputation;
@@ -46,7 +50,7 @@ function Approvals({ g }: { g: GameState }) {
   const c = g.company;
   return (
     <div className="sc-list">
-      {APPROVALS.map((a) => {
+      {APPROVALS.filter((a) => OTHER.has(a.id)).map((a) => {
         const held = c.approvals.includes(a.id);
         const p = c.pendingApprovals.find((x) => x.id === a.id);
         const block = held || p ? null : approvalBlocker(g, a.id);
@@ -204,6 +208,7 @@ export function CompanyScreen() {
   return (
     <div className="screen sc-company">
       <ScreenHead title={c.name} sub={`${c.icao} · callsign ${c.callsign} · home base ${c.homeBase}${c.ceo && c.ceo !== 'You' ? ` · CEO ${c.ceo}` : ''}`} />
+      <LadderCard g={g} />
       <div className="sc-company-cols">
         <div className="col gap-16">
           <LiveryCard g={g} />
@@ -220,7 +225,7 @@ export function CompanyScreen() {
         </div>
         <div className="col gap-16">
           <Card title="Policies" icon={<Settings2 className="ico" />}><PolicyForm g={g} /></Card>
-          <Card title="Approvals" icon={<BadgeCheck className="ico" />} bodyClass="flush"><Approvals g={g} /></Card>
+          <Card title="Other approvals" icon={<BadgeCheck className="ico" />} bodyClass="flush"><Approvals g={g} /></Card>
           {g.rivals.length > 0 && (
             <Card title="Competitors" sub="Other ACMI and charter operators bidding for the same work" bodyClass="flush">
               <div className="sc-list">

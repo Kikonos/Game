@@ -4,6 +4,8 @@
 // panels for the selection, a fleet strip bottom left and an "up next" card top left.
 // v0.5.2: every airborne leg shows its path (typed: operating / positioning / ferry), airline legs our crew
 // ride are grey icons with their flight number; Up Next and the panels carry the same type labels.
+// v0.7: aircraft appear at their handover site once handed over (DELIVERY tag until home); a selected aircraft's
+// arcs show its whole delivery / return / refit ferry chain.
 
 import { Users } from 'lucide-react';
 import { useCallback, useMemo, useRef } from 'react';
@@ -14,7 +16,7 @@ import { commercialFlightsBetween, FLIGHT_TYPE_HINT, FLIGHT_TYPE_LABEL, FLIGHT_T
 import { store, useClock, useGame } from '../store';
 import { AircraftLayer, ArcsLayer, CommercialLayer, HIT_R, type LiveShared, NightLayer, newShared, PathsLayer, PinsLayer, pinOffset } from './LiveLayers';
 import { MapPanel, TypeKey } from './MapPanels';
-import { chipInfo, fitCodes, fitFresh, isCommercialId, mapAirports, offerPins, pickNearest, selectedLegs, upNextRows } from './mapLogic';
+import { chipInfo, fitCodes, onMap, fitFresh, isCommercialId, mapAirports, offerPins, pickNearest, selectedLegs, upNextRows } from './mapLogic';
 import { type MapAirport, type MapLayerCtx, type Pad, type View, WorldMap } from './WorldMap';
 
 /** Panel width (px) kept clear when revealing a selection, and the fleet strip's height. */
@@ -169,7 +171,14 @@ export function OpsMap() {
     return {
       key: focusKey,
       at: (): [number, number] | null => {
-        if (sel.kind === 'aircraft') return shared.ac.get(sel.id) ?? null;
+        if (sel.kind === 'aircraft') {
+          // Not on the map yet (before a handover abroad): reveal where it will be handed over.
+          const at = shared.ac.get(sel.id);
+          if (at) return at;
+          const ac = refs.current.g.fleet[sel.id];
+          const a = ac && !onMap(ac) ? AIRPORT_BY_CODE[ac.at] : undefined;
+          return (a && refs.current.proj?.([a.lon, a.lat])) || null;
+        }
         if (sel.kind === 'flight') return shared.cm.get(sel.id) ?? null;
         if (sel.kind === 'airport') {
           const a = AIRPORT_BY_CODE[sel.id];

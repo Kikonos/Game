@@ -66,6 +66,8 @@ div.worldmap { overflow: clip; }
 .ops-ac[data-phase='maintenance'] .glyph { opacity: 0.6; }
 .ops-ac[data-phase='aog'] .aog-ring, .ops-ac[data-phase='aog'] .badge.aog { display: block; }
 .ops-ac[data-phase='delivering'] { opacity: 0.4; }
+/* v0.7: not handed over yet (being built, or prepared at the seller's): not on the map. */
+.ops-ac[data-phase='hidden'] { display: none; }
 .ops-ac .reg {
   fill: #e6eeff; font: 600 11px var(--font-mono); text-anchor: middle; pointer-events: none;
   paint-order: stroke; stroke: rgba(5, 9, 18, 0.9); stroke-width: 3px; stroke-linejoin: round;
@@ -80,10 +82,21 @@ div.worldmap { overflow: clip; }
 }
 .ops-ac[data-phase='airborne'][data-type='ferry'] .tag { display: block; }
 .touch .ops-ac .tag { font-size: 10.5px; }
+/* v0.7 DELIVERY tag (static): handed over abroad until the delivery ferry is home; it replaces FERRY on the way. */
+.ops-ac .op-delivery-tag {
+  display: none; fill: #7dd3fc; font: 700 9.5px var(--font-mono); letter-spacing: 0.06em; text-anchor: middle; pointer-events: none;
+  paint-order: stroke; stroke: rgba(5, 9, 18, 0.92); stroke-width: 3px; stroke-linejoin: round;
+}
+.ops-ac.dlv .op-delivery-tag { display: block; }
+.ops-ac.dlv .tag { display: none !important; }
+/* Parked, it sits under the icon (the airport code is above the dot), the reg below it. */
+.ops-ac.dlv:not([data-phase='airborne']) .op-delivery-tag { transform: translateY(42px); }
+.ops-ac.dlv:not([data-phase='airborne']) .reg { transform: translateY(13px); }
+.touch .ops-ac .op-delivery-tag { font-size: 10.5px; }
 /* Airborne near an airport: the reg slides above the icon (the FERRY tag with it), or fades where both sides are taken. */
-.ops-ac .reg, .ops-ac .tag { transition: transform 0.35s ease, opacity 0.35s ease; }
+.ops-ac .reg, .ops-ac .tag, .ops-ac .op-delivery-tag { transition: transform 0.35s ease, opacity 0.35s ease; }
 .ops-ac.reg-up .reg { transform: translateY(-42px); }
-.ops-ac.reg-up .tag { transform: translateY(-15px); }
+.ops-ac.reg-up .tag, .ops-ac.reg-up .op-delivery-tag { transform: translateY(-15px); }
 .ops-ac.reg-off .reg { opacity: 0; }
 
 /* ---------- shared bits ---------- */
@@ -192,6 +205,14 @@ div.worldmap { overflow: clip; }
 .op-type-s.positioning, .op-type-s.ferry { color: #fcd34d; }
 .op-type-s.deadhead { color: #b9c2d4; }
 .op-ferry-tag { color: #fbbf24; border-color: rgba(251, 191, 36, 0.45); font: 700 12px var(--font-mono); letter-spacing: 0.06em; }
+.op-dlv-tag { color: #7dd3fc; border-color: rgba(125, 211, 252, 0.45); font: 700 12px var(--font-mono); letter-spacing: 0.06em; }
+/* v0.7 panel blocks: delivery, refit, lease return; pilots' airline legs. */
+.op-note.info { border-color: rgba(125, 211, 252, 0.35); color: #cfe9fb; }
+.op-note .col { gap: 4px; min-width: 0; }
+.op-dh-row { gap: 8px; }
+.op-dh-row .when { margin-left: auto; white-space: nowrap; }
+.op-row > svg { width: 16px; height: 16px; flex-shrink: 0; color: var(--text-2); }
+.op-row .op-wrap { flex: 1; min-width: 0; line-height: 1.35; }
 .op-crew-link { border: none; background: none; color: var(--text); padding: 0; text-align: left; min-height: 30px; border-radius: 6px; }
 .touch .op-crew-link { min-height: var(--tap); }
 @media (hover: hover) { .op-crew-link:hover { background: var(--panel-hover); } }

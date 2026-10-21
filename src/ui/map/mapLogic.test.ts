@@ -8,11 +8,15 @@ import { demoFlights } from '../../engine/dev';
 import { createGame } from '../../engine/newGame';
 import { advanceTo } from '../../engine/sim';
 import {
-  chipInfo, commercialById, fitCodes, groupCommercial, headingDeg, isCommercialId, lerpAngle, mapAirports, offerPins, parkOffset, PARK_GAP, parseCommercialId, downSide, legLabelSide, pickNearest, placeLabels, regSlot, REG_DY,
+  awaitingDelivery, chipInfo, commercialById, deliveryTag, fitCodes, onMap, purposeChain, groupCommercial, headingDeg, isCommercialId, lerpAngle, mapAirports, offerPins, parkOffset, PARK_GAP, parseCommercialId, downSide, legLabelSide, pickNearest, placeLabels, regSlot, REG_DY,
   selectedLegs, trackLabelAt, sunElevation, sunPoint, terminator, TYPE_STROKE, upNext, upNextRows,
 } from './mapLogic';
 import { addDeadhead } from '../../engine/core/entities';
-import { commercialFlightsBetween, ticketBlock } from '../../engine/ops';
+import { acquireAircraft, commercialFlightsBetween, deliveryStatus, ticketBlock, ticketPurpose } from '../../engine/ops';
+import { devGrantApproval } from '../../engine/ops/company';
+import { devMarketOffer } from '../../engine/ops/market';
+import { addCrew } from '../../engine/crew/fixtures';
+import { DAY } from '../../engine/core/time';
 
 const game = (seed = 7) => createGame({ name: 'Atlântica Wings', code: 'AW', livery: { primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' }, base: 'LIS', seed });
 
@@ -257,5 +261,78 @@ describe('airline label side', () => {
     // Both sides taken: under, faded.
     const both = [...lis, { id: '', x: 0, y: -30 - REG_DY, w: 28, h: 15 }];
     expect(regSlot(0, -30, 50, 11, both, 0)).toBe(2);
+  });
+});
+
+describe('v0.7 deliveries on the map', () => {
+  /** Lisbon game, widebody approval and A330 pilots, an A330-200 signed for handover at Santiago. */
+  function signed() {
+    const g = game(7);
+    devGrantApproval(g, 'widebody');
+    addCrew(g, { CPT: 4, FO: 4 }, 'A330/340');
+    g.company.cash = 60_000_000;
+    const r = acquireAircraft(g, devMarketOffer(g, 'a332', { site: 'SCL' }));
+    if (!r.ok) throw new Error(r.error);
+    return { g, ac: g.fleet[r.data!.aircraftId] };
+  }
+  const run = (g: ReturnType<typeof game>, t: number) => { for (let i = 0; i < 10_000 && g.now < t; i++) advanceTo(g, t); };
+
+  it('hides it before the handover, draws it at the site with a DELIVERY tag after, clears the tag at home', () => {
+    const { g, ac } = signed();
+    const dl = ac.delivery!;
+    expect(ac.status).toBe('delivering');
+    expect(onMap(ac)).toBe(false);
+    expect(deliveryTag(ac)).toBe(false);
+    expect(fitCodes(g)).not.toContain('SCL');
+    expect(mapAirports(g).map((a) => a.code)).not.toContain('SCL');
+    expect(chipInfo(g, ac, g.now).line).toMatch(/^Handover (SCL )?\d{1,2} [A-Z][a-z]{2}$/);
+    // Selected (from the fleet strip), the arcs show the whole ferry chain home, dashed, night stops included.
+    const legs = selectedLegs(g, ac.id, 1);
+    expect(legs.map((l) => l.id)).toEqual(dl.ferryIds);
+    expect(legs[0].from).toBe('SCL');
+    expect(legs[legs.length - 1].to).toBe('LIS');
+    expect(legs.every((l) => l.dashed && !l.current)).toBe(true);
+    expect(purposeChain(g, g.flights[dl.ferryIds[1]]).map((f) => f.id)).toEqual(dl.ferryIds);
+    // The delivery pilots' airline tickets (bought with the roster, the day before) say why they fly.
+    run(g, ac.deliveredAt - DAY);
+    expect(onMap(ac)).toBe(false);
+    const ds = deliveryStatus(g, ac.id)!;
+    expect(ds.ticketIds.length).toBeGreaterThan(0);
+    expect(ticketPurpose(g, ds.ticketIds[0]).text).toMatch(new RegExp(`^Delivery crew for ${ac.reg} · ferry SCL–LIS`));
+
+    run(g, ac.deliveredAt + 60);
+    expect(onMap(ac)).toBe(true);
+    expect(ac.at).toBe('SCL');
+    expect(deliveryTag(ac)).toBe(true);
+    expect(awaitingDelivery(g, 'SCL').map((a) => a.id)).toEqual([ac.id]);
+    expect(awaitingDelivery(g, 'LIS')).toEqual([]);
+    expect(chipInfo(g, ac, g.now).line).toMatch(/^Ferry home \d{1,2} [A-Z][a-z]{2}$/);
+    expect(mapAirports(g).map((a) => a.code)).toContain('SCL');
+
+    const first = g.flights[dl.ferryIds[0]];
+    run(g, first.std + first.delay + 30);
+    expect(ac.flightId).toBe(first.id);
+    expect(deliveryTag(ac)).toBe(true);
+    const cur = selectedLegs(g, ac.id, 1);
+    expect(cur[0]).toMatchObject({ id: first.id, current: true, dashed: true });
+    expect(cur.length).toBe(dl.ferryIds.length);
+    expect(awaitingDelivery(g, 'SCL')).toEqual([]);
+
+    run(g, ac.deliveredAt + 6 * DAY);
+    expect(ac.at).toBe('LIS');
+    expect(deliveryTag(ac)).toBe(false);
+  }, 30_000);
+
+  it('chips a refit and a lease return check', () => {
+    const g = game();
+    const ac = Object.values(g.fleet)[0];
+    const end = g.now + 10 * DAY;
+    g.maintenance.m1 = { id: 'm1', aircraftId: ac.id, kind: 'refit', at: 'HAM', start: g.now, end, cost: 0, status: 'inWork', planned: true, ev: 0 };
+    ac.status = 'maintenance';
+    ac.maintId = 'm1';
+    expect(chipInfo(g, ac, g.now)).toMatchObject({ tone: 'warn', short: 'Refit HAM' });
+    expect(chipInfo(g, ac, g.now).line.length).toBeLessThanOrEqual(17);
+    g.maintenance.m1.kind = 'return';
+    expect(chipInfo(g, ac, g.now).line).toMatch(/^Return → /);
   });
 });

@@ -16,6 +16,11 @@ import { TrainModal } from '../modals/TrainModal';
 import { LiveryModal } from '../modals/LiveryModal';
 import { ClassesModal } from '../modals/ClassesModal';
 import { ConvertModal } from '../modals/ConvertModal';
+import { AcquireModal } from '../modals/AcquireModal';
+import { RefitModal } from '../modals/RefitModal';
+import { LeaseModal } from '../modals/LeaseModal';
+import { ApprovalModal } from '../modals/ApprovalModal';
+import { LadderStepModal } from '../modals/LadderStepModal';
 import { int, money } from '../format';
 import { offline, promptInstall } from '../offline';
 import { store, useStore } from '../store';
@@ -194,6 +199,10 @@ function SettingsModal() {
         <div className="set-row"><div><b>Pause for crew shortages</b><div className="tiny dim">A flight in the next 48 h has no legal crew</div></div><Toggle on={st.autoPause.crewShortage} onChange={(v) => store.setSettings({ autoPause: { ...st.autoPause, crewShortage: v } })} /></div>
         <div className="set-row"><div><b>Pause when a contract starts</b><div className="tiny dim">Watch the first flights of new work</div></div><Toggle on={st.autoPause.contractStart} onChange={(v) => store.setSettings({ autoPause: { ...st.autoPause, contractStart: v } })} /></div>
         <div className="set-row"><div><b>Pause at month end</b><div className="tiny dim">Read the statement before the next month starts</div></div><Toggle on={st.autoPause.monthEnd} onChange={(v) => store.setSettings({ autoPause: { ...st.autoPause, monthEnd: v } })} /></div>
+        <div className="set-head upper dim">Aircraft market</div>
+        <div className="set-row"><div><b>Market alerts</b><div className="tiny dim">New aircraft offers in the Inbox with a quiet notice</div></div><Toggle on={st.marketAlerts} onChange={(v) => store.setSettings({ marketAlerts: v })} label="Market alerts" /></div>
+        <div className={`set-row ${st.marketAlerts ? '' : 'set-off'}`}><div><b>Pause on new market offers</b><div className="tiny dim">{st.marketAlerts ? 'Stop the clock when an aircraft comes on the market' : 'Needs market alerts on'}</div></div><span className={st.marketAlerts ? '' : 'set-disabled'}><Toggle on={st.marketAlerts && st.autoPause.marketOffer} onChange={(v) => st.marketAlerts && store.setSettings({ autoPause: { ...st.autoPause, marketOffer: v } })} label="Pause on new market offers" /></span></div>
+        <div className="set-head upper dim">Display</div>
         <div className="set-row"><div><b>Map animations</b><div className="tiny dim">Flying aircraft on maps</div></div><Toggle on={st.mapAnimations} onChange={(v) => store.setSettings({ mapAnimations: v })} /></div>
         <div className="set-row"><div><b>Top bar spacing</b><div className="tiny dim">Moves the game below the frosted strip iPadOS adds at the top of the screen</div></div><Seg value={String(st.topGap)} onChange={(v) => store.setSettings({ topGap: v === 'auto' ? 'auto' : (Number(v) as 0 | 16 | 28 | 40) })} options={[{ value: 'auto', label: 'Auto' }, { value: '0', label: 'Off' }, { value: '16', label: '16' }, { value: '28', label: '28' }, { value: '40', label: '40' }]} /></div>
         <div className="set-row"><div><b>Pop-up notifications</b></div><Toggle on={st.toasts} onChange={(v) => store.setSettings({ toasts: v })} /></div>
@@ -238,5 +247,10 @@ export function GlobalModals() {
     case 'livery': return s.game ? <LiveryModal target={m.target} /> : null;
     case 'convert': return s.game ? <ConvertModal key={m.crewIds.join()} crewIds={m.crewIds} family={m.family} onBooked={m.onBooked} /> : null;
     case 'classes': return s.game ? <ClassesModal /> : null;
+    case 'acquire': return s.game ? <AcquireModal offerId={m.offerId} /> : null;
+    case 'refit': return s.game ? <RefitModal aircraftId={m.aircraftId} layout={m.layout} /> : null;
+    case 'lease': return s.game ? <LeaseModal aircraftId={m.aircraftId} /> : null;
+    case 'approval': return s.game ? <ApprovalModal id={m.id} /> : null;
+    case 'ladderStep': return s.game ? <LadderStepModal messageId={m.messageId} /> : null;
   }
 }

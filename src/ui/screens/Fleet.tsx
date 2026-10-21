@@ -1,22 +1,24 @@
-// Fleet (B5): aircraft cards (art, ownership, hours, A/C-check bars with Plan check, AOG risk) and the
-// scarce aircraft market below (lease / buy with a confirm). DESIGN.md §6.3.
+// Fleet (B5): aircraft cards (art, ownership, hours, A/C-check bars with Plan check, AOG risk). v0.7: a
+// Fleet · Market switch (the scarce aircraft market, Market.tsx); cards add the delivery, the lease end
+// (extend or return) and the cabin with refits. DESIGN.md §6.3, UPDATE-0.7.md §F6.7, §F7.5.
 
-import { CalendarRange, Lock, Palette, Plane, ShoppingCart, Wrench } from 'lucide-react';
+import { CalendarRange, Lock, Palette, Plane, Sofa, Wrench } from 'lucide-react';
 import { useEffect } from 'react';
 import { artFor } from '../../data/acmiTypes';
-import { typeOf } from '../../engine/core/perf';
-import { DAY, fmtDate, fmtDay, yearOf } from '../../engine/core/time';
-import type { Aircraft, AircraftOffer, CrewExtra, GameState, LiveryRef } from '../../engine/core/types';
+import { MRO_STATIONS } from '../../data/market';
+import { cabinMinimum, typeOf } from '../../engine/core/perf';
+import { fmtDate, fmtDay, yearOf } from '../../engine/core/time';
+import type { Aircraft, CrewExtra, GameState, LiveryRef } from '../../engine/core/types';
 import { BAL } from '../../engine/core/balance';
 import { crewExtraQuote, setCrewExtra } from '../../engine/crew';
-import { MARKET_LIVERY } from '../../data/livery';
-import { acquireAircraft, checkStatus, liveryOf, paintStatus, setAircraftLivery } from '../../engine/ops';
+import { cancelCheck, checkStatus, deliveryStatus, leaseView, liveryOf, paintStatus, setAircraftLivery } from '../../engine/ops';
 import { AircraftArt } from '../components/AircraftArt';
 import { Empty, Seg, Stepper, Toggle } from '../components/ui';
 import { money } from '../format';
 import { store, useGame } from '../store';
 import { KV, ScreenHead, useRenderCount } from './common';
-import { limitTone, spanLabel } from './screenLogic';
+import { MarketView } from './Market';
+import { layoutLabel, limitTone, unseenOffers } from './screenLogic';
 
 /** The type's ETOPS capability (what the engine checks) and whether the company holds an approval for it. */
 function etopsLabel(g: GameState, ac: Aircraft): string {
@@ -118,7 +120,8 @@ function AircraftCard({ g, ac, sel }: { g: GameState; ac: Aircraft; sel: boolean
   const o = ac.ownership;
   const own: [string, string][] = o.kind === 'owned'
     ? [['Owned', `book value ${money(o.bookValue)}`]]
-    : [['Lessor', o.lessor], ['Lease', `to ${fmtDate(o.leaseEnd)} · ${money(o.rentPerMonth)}/month`]];
+    : [['Lease', `${money(o.rentPerMonth)}/month`]];
+  const ds = deliveryStatus(g, ac.id);
   const plan = (kind: 'A' | 'C') => store.openModal({ kind: 'check', aircraftId: ac.id, checkKind: kind, replace: (kind === 'A' ? cs?.nextA : cs?.nextC) ?? undefined });
   const lv = liveryOf(g, ac);
   return (
@@ -134,10 +137,13 @@ function AircraftCard({ g, ac, sel }: { g: GameState; ac: Aircraft; sel: boolean
           <div className="small muted ellipsis">{t.name} · {ac.cabin.label} · {yearOf(g.now) - ac.builtYear} years</div>
         </div>
       </div>
+      {ds && ds.phase !== 'home' && <div className={`fl-row small ${ds.phase === 'waiting' ? 'warn' : ''}`}><span className="upper dim">Delivery</span><span>{ds.text}</span></div>}
       <LiveryRow g={g} ac={ac} />
+      <LeaseRow g={g} ac={ac} />
+      <CabinRow g={g} ac={ac} />
       <KV rows={[
         ...own,
-        ['At', ac.status === 'delivering' ? `arrives ${fmtDate(ac.deliveredAt)}` : ac.at],
+        ['At', ac.status === 'delivering' ? (ds ? `handover at ${ds.site} ${fmtDay(ds.handover)}` : `arrives ${fmtDate(ac.deliveredAt)}`) : ac.at],
         ['Hours / cycles', `${Math.round(ac.hours).toLocaleString('en-US')} / ${Math.round(ac.cycles).toLocaleString('en-US')}`],
         ['ETOPS', etopsLabel(g, ac)],
       ]} />
@@ -159,36 +165,51 @@ function AircraftCard({ g, ac, sel }: { g: GameState; ac: Aircraft; sel: boolean
   );
 }
 
-function acquire(o: AircraftOffer) {
-  const t = typeOf(o.typeId);
-  const lease = o.kind === 'dryLeaseIn';
-  store.openModal({
-    kind: 'confirm', title: `${lease ? 'Lease' : 'Buy'} a ${t.name}?`, confirm: lease ? 'Sign the lease' : `Buy for ${money(o.price)}`,
-    body: lease
-      ? `${o.lessor}, built ${o.builtYear}, ${o.cabin.label}. ${money(o.rentPerMonth)}/month for ${o.leaseMonths} months plus ${money(o.reservesPerFH)}/FH reserves. Deposit ${money(o.deposit)} now. Delivery in ${o.leadDays} days.`
-      : `${o.lessor}, built ${o.builtYear}, ${o.cabin.label}. ${money(o.price)} now. Delivery in ${o.leadDays} days.`,
-    onConfirm: () => store.act((gg) => acquireAircraft(gg, o.id)),
-  });
-}
+const station = (code: string) => MRO_STATIONS.find((x) => x.code === code);
 
-function MarketRow({ g, o }: { g: GameState; o: AircraftOffer }) {
-  const t = typeOf(o.typeId);
-  const lease = o.kind === 'dryLeaseIn';
+/** v0.7: lessor, lease end and return site; within 180 days 'Extend or return…'; a booked return's ferry and check. */
+function LeaseRow({ g, ac }: { g: GameState; ac: Aircraft }) {
+  const lv = leaseView(g, ac.id);
+  if (!lv) return null;
+  const ret = lv.options.find((x) => x.id === 'return');
+  const m = lv.returning ? g.maintenance[lv.returning.maintId] : undefined;
+  const f0 = lv.returning?.ferryIds.map((id) => g.flights[id]).find((f) => f && f.status === 'scheduled');
+  const soon = lv.daysLeft <= 180 || !!lv.returning || !!lv.decisionId;
   return (
-    <div className="sc-list-row">
-      <div className="sc-mkt-art"><AircraftArt typeId={artFor(o.typeId)} livery={MARKET_LIVERY} detail="simple" /></div>
-      <div className="grow" style={{ minWidth: 0 }}>
-        <div className="row gap-8"><b className="ellipsis">{t.name}</b><span className={`badge ${lease ? 'info' : 'gold'}`}>{lease ? 'Dry lease' : 'Buy'}</span></div>
-        <div className="small muted ellipsis">{o.lessor} · built {o.builtYear} · {o.cabin.label} · delivery {o.leadDays} d · offer ends in {spanLabel(o.expires - g.now)}</div>
+    <div className="fl-row fl-lease">
+      <div className="col grow" style={{ minWidth: 0 }}>
+        <span className="small"><span className="upper dim">Lease</span> {lv.lessor} until {fmtDate(lv.ends)} · return at {lv.returnSite}{ret?.cost ? ` · ≈ ${money(ret.cost)}` : ''}</span>
+        {lv.returning && m && <span className="small warn">{f0 ? `Return ferry ${fmtDay(f0.std)} · ` : ''}return check {lv.returning.site} {fmtDay(m.start)}–{fmtDay(m.end)}</span>}
+        {!lv.returning && lv.decisionId && <span className="small warn">The lessor wants an answer: extend or return</span>}
       </div>
-      <div className="right nowrap">
-        <b className="num">{lease ? `${money(o.rentPerMonth)}/mo` : money(o.price)}</b>
-        <div className="tiny dim">{lease ? `${o.leaseMonths} months · deposit ${money(o.deposit)}` : 'outright'}</div>
-      </div>
-      <button className="btn btn-primary" onClick={() => acquire(o)}><ShoppingCart /> {lease ? 'Lease' : 'Buy'}</button>
+      {soon && <button className="btn btn-sm" onClick={() => store.openModal({ kind: 'lease', aircraftId: ac.id })}>{lv.returning ? 'Change…' : 'Extend or return…'}</button>}
     </div>
   );
 }
+
+/** v0.7: the cabin (layout, seats, cabin crew minimum), Refit…, and a planned or running refit (cancel while planned). */
+function CabinRow({ g, ac }: { g: GameState; ac: Aircraft }) {
+  const m = Object.values(g.maintenance).find((x) => x.aircraftId === ac.id && x.kind === 'refit' && (x.status === 'planned' || x.status === 'inWork'));
+  const st = m ? station(m.at) : undefined;
+  const cancel = () => m && store.openModal({
+    kind: 'confirm', title: 'Cancel this refit?', confirm: 'Cancel the refit', danger: true,
+    body: `${ac.reg} stays ${ac.cabin.label}. Free before the work starts; its ferry to ${m.at} is removed.`,
+    onConfirm: () => store.act((gg) => cancelCheck(gg, m.id)),
+  });
+  const busy = ac.status === 'delivering' || !!ac.returning;
+  return (
+    <div className="fl-row fl-cabin">
+      <div className="col grow" style={{ minWidth: 0 }}>
+        <span className="small"><span className="upper dim">Cabin</span> <b>{ac.cabin.label}</b> {layoutLabel(ac.cabin.layout)} · crew minimum {cabinMinimum(ac.cabin.total)} cabin</span>
+        {m?.refit && <span className="small accent">Refit to {m.refit.cabin.label} at {st?.city ?? m.at} {fmtDay(m.start)}–{fmtDay(m.end)}{m.status === 'inWork' ? ' · in work' : ''}</span>}
+      </div>
+      {m ? (m.status === 'planned' && <button className="btn btn-sm" onClick={cancel}>Cancel refit</button>)
+        : <button className="btn btn-sm" disabled={busy} onClick={() => store.openModal({ kind: 'refit', aircraftId: ac.id })}><Sofa /> Refit…</button>}
+    </div>
+  );
+}
+
+type FleetView = 'fleet' | 'market';
 
 export function FleetScreen() {
   useRenderCount('fleet');
@@ -197,6 +218,10 @@ export function FleetScreen() {
   const sel = nav.sel?.kind === 'aircraft' ? nav.sel.id : null;
   const fleet = Object.values(g.fleet);
   const offers = g.market.aircraft.filter((o) => o.expires > g.now);
+  const view: FleetView = nav.view === 'market' ? 'market' : 'fleet';
+  const mkSel = nav.sel?.kind === 'market' ? nav.sel.id : null;
+  const fresh = view === 'market' ? 0 : unseenOffers(offers.map((o) => o.id));
+  const setView = (v: FleetView) => store.navigate('fleet', { view: v });
 
   // Deep links: navigate('fleet', {sel, view: 'check'}) opens check planning; a selected card scrolls into view.
   useEffect(() => {
@@ -212,18 +237,16 @@ export function FleetScreen() {
   const monthly = fleet.reduce((s, a) => s + (a.ownership.kind === 'dryLeaseIn' ? a.ownership.rentPerMonth : 0), 0);
   return (
     <div className="screen sc-fleet">
-      <ScreenHead title="Fleet" sub={`${fleet.length} aircraft · rent ${money(monthly)}/month`} />
-      {!fleet.length ? (
-        <Empty icon={<Wrench />} title="No aircraft">Lease one from the market below.</Empty>
+      <ScreenHead title={view === 'market' ? 'Aircraft market' : 'Fleet'} sub={view === 'market' ? `${offers.length} open offer${offers.length === 1 ? '' : 's'} · cash ${money(g.company.cash)}` : `${fleet.length} aircraft · rent ${money(monthly)}/month`}>
+        <Seg<FleetView> value={view} onChange={setView} options={[
+          { value: 'fleet', label: 'Fleet' },
+          { value: 'market', label: <span className="row gap-4">Market ({offers.length}){fresh > 0 && <span className="fl-dot" aria-label={`${fresh} new`} />}</span> },
+        ]} />
+      </ScreenHead>
+      {view === 'market' ? <MarketView g={g} sel={mkSel} /> : !fleet.length ? (
+        <Empty icon={<Wrench />} title="No aircraft">Lease one from the Market.</Empty>
       ) : (
         <div className="sc-ac-grid">{fleet.map((ac) => <AircraftCard key={ac.id} g={g} ac={ac} sel={sel === ac.id} />)}</div>
-      )}
-      <h2 className="sc-h2">Aircraft market</h2>
-      <div className="small muted mb-8">Good airframes are scarce. Offers stay open for a few days; delivery takes weeks.</div>
-      {offers.length ? (
-        <div className="card sc-list">{offers.map((o) => <MarketRow key={o.id} g={g} o={o} />)}</div>
-      ) : (
-        <div className="card sc-pad muted small">No aircraft on offer right now. Lessors call every few weeks{g.now - g.started < 30 * DAY ? '; the first offer usually comes within two months' : ''}.</div>
       )}
     </div>
   );

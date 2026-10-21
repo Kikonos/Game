@@ -6,7 +6,7 @@ import { DAY, HOUR, fmtDay, monthKey, toLocal } from '../../engine/core/time';
 import { mghInMonth } from '../../engine/contracts/pricing';
 import type { IdleWindow } from '../../engine/contracts/offers';
 import type {
-  Archetype, ContractOffer, CrewMember, CrewStatus, GameState, LedgerCat, Message, MessageCat, MonthStatement, Product, Ref, Requirements, Role, SchedulePattern,
+  AircraftOffer, Archetype, ContractOffer, CrewMember, CrewStatus, GameState, LedgerCat, Message, MessageCat, MonthStatement, Product, Ref, Requirements, Role, SchedulePattern,
 } from '../../engine/core/types';
 import { money } from '../format';
 import type { Tab } from '../store';
@@ -191,7 +191,7 @@ export const LEDGER_LABEL: Record<LedgerCat, string> = {
 const REVENUE: LedgerCat[] = ['acmiRevenue', 'charterRevenue', 'otherRevenue', 'assetSale'];
 const COSTS: LedgerCat[] = [
   'fuel', 'airportFees', 'rent', 'reserves', 'salaries', 'perDiem', 'hotels', 'deadhead', 'maintenance', 'checks', 'paint', 'insurance', 'overhead',
-  'training', 'hiring', 'penalties', 'subcharter', 'approvals', 'interest', 'capex',
+  'training', 'hiring', 'penalties', 'subcharter', 'approvals', 'interest', 'capex', 'refit', 'leaseReturn',
 ];
 
 export interface StatementRow {
@@ -254,6 +254,8 @@ export function refTarget(g: GameState, ref: Ref): DeepLink | null {
     }
     case 'airport':
       return { tab: 'map', sel: ref };
+    case 'market':
+      return { tab: 'fleet', view: 'market', sel: ref };
   }
   return null;
 }
@@ -304,3 +306,48 @@ export function liveHook(g: GameState, o: ContractOffer, windows: IdleWindow[]):
   if (at) return `Follow-on: ${ac.reg} is free at ${w.at} from ${fmtDay(Math.max(w.from, g.now))}`;
   return `Fits ${ac.reg}: free ${fmtDay(Math.max(w.from, g.now))}${w.to - w.from < 120 * DAY ? `–${fmtDay(w.to)}` : ' onwards'}`;
 }
+
+/** v0.7 C1: a conversion plan with a red warning (fleet short of legal crew, cost above cash) books only after a confirm. */
+export const needsConfirm = (plan: { warnings: { level: 'warn' | 'bad' }[] }): boolean => plan.warnings.some((w) => w.level === 'bad');
+
+// ---------- v0.7 aircraft market ----------
+
+/** Kind chip of a market offer. */
+export function offerKind(o: Pick<AircraftOffer, 'kind' | 'newBuild'>): { label: string; tone: string } {
+  if (o.newBuild) return { label: 'New-build lease', tone: 'accent' };
+  return o.kind === 'dryLeaseIn' ? { label: 'Lease used', tone: 'info' } : { label: 'Buy used', tone: 'gold' };
+}
+
+/** 'AerCap · ex-LATAM' style seller (the lessor without the engine's '(used sale)' tag). */
+export const sellerOf = (o: Pick<AircraftOffer, 'lessor'>) => o.lessor.replace(/ \(used sale\)$/, '');
+
+const SEEN_KEY = 'bh.marketSeen';
+
+function seenIds(): string[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(SEEN_KEY) ?? '[]');
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Open market offers not seen on the Market view yet (the switch's dot). */
+export function unseenOffers(ids: string[]): number {
+  const seen = new Set(seenIds());
+  return ids.filter((id) => !seen.has(id)).length;
+}
+
+/** Remembers offers shown on the Market view (last 60, per browser). */
+export function markMarketSeen(ids: string[]): void {
+  const prev = seenIds();
+  if (ids.every((id) => prev.includes(id))) return;
+  try {
+    localStorage.setItem(SEEN_KEY, JSON.stringify([...new Set([...prev, ...ids])].slice(-60)));
+  } catch {
+    // storage unavailable
+  }
+}
+
+/** 'all-economy' / 'two-class' / 'VIP' (cabin layout names as the Fleet card and refit dialog say them). */
+export const layoutLabel = (l: string) => (l === 'vip' ? 'VIP' : l);

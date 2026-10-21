@@ -1,18 +1,24 @@
 // Ops Map (B4) side panels (right, 360 px): aircraft, airport, offer and (v0.5.2) an airline leg our
 // crew ride as passengers. They re-render with the hourly emit only (calm): progress bars and
 // countdowns step once per game hour. Every leg carries its flight type (Operating / Positioning / Ferry / Deadhead).
+// v0.7: delivery, refit and lease-return blocks on the aircraft panel, aircraft awaiting delivery on the airport
+// panel, and why our crew ride an airline leg (ticketPurpose) on its panel.
 
-import { CalendarRange, FileSearch, Plane, Users, Wrench, X } from 'lucide-react';
+import { CalendarRange, FileSearch, PackageCheck, Plane, Undo2, Users, Wrench, X } from 'lucide-react';
 import { type ReactNode, useMemo } from 'react';
 import { ACMI_TYPES, artFor } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE } from '../../data/airports';
+import { MRO_STATIONS } from '../../data/market';
+import { BAL } from '../../engine/core/balance';
+import { isPilot } from '../../engine/core/perf';
 import { feasibilityAll } from '../../engine/contracts';
 import { flightsOf } from '../../engine/core/entities';
 import { currentFlight, flightTimes } from '../../engine/core/query';
 import { DAY, fmtDay, fmtDuration, fmtTime, localOffset } from '../../engine/core/time';
-import type { Aircraft, CrewMember, Flight, GameState, Ref } from '../../engine/core/types';
+import type { Aircraft, CrewMember, Flight, GameState, MaintenanceEvent, Ref } from '../../engine/core/types';
 import { crewName, dutyCrew, flightCrewStatus } from '../../engine/crew';
-import { checkStatus, CONNECT_MIN, commercialItinerary, FLIGHT_TYPE_HINT, FLIGHT_TYPE_LABEL, flightCrewAboard, type FlightType, flightType, liveryOf } from '../../engine/ops';
+import { checkStatus, CONNECT_MIN, commercialItinerary, deliveryStatus, FLIGHT_TYPE_HINT, FLIGHT_TYPE_LABEL, flightCrewAboard, type FlightType, flightType, liveryOf, ticketPurpose } from '../../engine/ops';
+import { ferryCost } from '../../engine/ops/delivery';
 import { AircraftArt } from '../components/AircraftArt';
 import { Bar } from '../components/ui';
 import { money } from '../format';
@@ -20,7 +26,7 @@ import { contractColor } from '../screens/palette';
 import { store } from '../store';
 import { paintLabel } from '../screens/scheduleLogic';
 import { archLabel, expiryLabel, offerDays } from '../screens/screenLogic';
-import { chipInfo, commercialById, parseCommercialId, upcomingLegs } from './mapLogic';
+import { awaitingDelivery, chipInfo, commercialById, deliveryTag, parseCommercialId, PURPOSE_LABEL, purposeChain, upcomingLegs } from './mapLogic';
 
 const ROLE_ORDER = ['CPT', 'FO', 'CRP', 'CSD', 'SCC', 'CC'];
 const LEVEL_TONE = { ok: 'good', tight: 'warn', missing: 'bad', illegal: 'bad' } as const;
@@ -115,6 +121,137 @@ function LegRow({ g, f, onTap }: { g: GameState; f: Flight; onTap?: () => void }
   );
 }
 
+// ---------- v0.7 delivery, refit, lease return ----------
+
+const cityOf = (code: string) => AIRPORT_BY_CODE[code]?.city ?? code;
+/** 'Lufthansa Technik, Hamburg' for a refit shop, else the city. */
+const shopOf = (code: string) => {
+  const s = MRO_STATIONS.find((x) => x.code === code);
+  return s ? `${s.name}, ${s.city}` : cityOf(code);
+};
+const localDep = (f: Flight) => `${fmtDay(f.std + f.delay)} ${fmtTime(f.std + f.delay, f.from)} local`;
+
+/** "Delivery ferry · leg 1 of 2 · fuel ≈ $41K" for a ferry leg flown for a purpose. */
+function purposeLine(g: GameState, f: Flight): string | null {
+  if (!f.purpose) return null;
+  const chain = purposeChain(g, f);
+  const ac = f.aircraftId ? g.fleet[f.aircraftId] : undefined;
+  const fuel = ac ? safe(() => ferryCost(ac.typeId, [f], g.market.fuelPrice).fuel, 0) : 0;
+  const i = chain.findIndex((x) => x.id === f.id);
+  return `${PURPOSE_LABEL[f.purpose]} · leg ${i + 1} of ${chain.length}${fuel ? ` · fuel ≈ ${money(fuel)}` : ''}`;
+}
+
+/** One row per airline leg the delivery pilots ride (still to land, else the last one), tappable to the leg's panel. */
+function PilotLegs({ g, ticketIds }: { g: GameState; ticketIds: string[] }) {
+  const t = g.now;
+  const rows = new Map<string, { id: string; no: string; from: string; to: string; dep: number; arr: number; n: number }>();
+  let last: { id: string; no: string; from: string; to: string; dep: number; arr: number; n: number } | null = null;
+  for (const tid of ticketIds) {
+    const tk = g.flights[tid];
+    if (!tk) continue;
+    safe(() => commercialItinerary(g, tk), []).forEach((l, i) => {
+      const k = `${l.no}|${l.from}|${l.dep}`;
+      const row = rows.get(k) ?? { id: `${tid}:${i}`, no: l.no, from: l.from, to: l.to, dep: l.dep, arr: l.arr, n: 0 };
+      row.n += tk.crewIds.length;
+      rows.set(k, row);
+      if (!last || l.arr > last.arr) last = row;
+    });
+  }
+  const open = [...rows.values()].filter((r) => r.arr > t).sort((a, b) => a.dep - b.dep);
+  const show = open.length ? open : last ? [last] : [];
+  return (
+    <>
+      {show.map((r) => {
+        const when = t >= r.arr ? `landed ${fmtDay(r.arr)}` : t >= r.dep ? `lands ${fmtTime(r.arr)} UTC` : `${fmtDay(r.dep)} ${fmtTime(r.dep)} UTC`;
+        return (
+          <button key={r.id} className="op-row op-dh-row" onClick={() => store.select({ kind: 'flight', id: r.id })}>
+            <TypeKey type="deadhead" />
+            <b className="mono">{r.no}</b>
+            <span className="mono small">{r.from}→{r.to}</span>
+            <span className={`small when ${t >= r.dep && t < r.arr ? 'tone-air' : 'muted'}`}>{when}</span>
+          </button>
+        );
+      })}
+    </>
+  );
+}
+
+/** Delivery block: handover, the ferry home and the delivery pilots (until the aircraft is home). */
+function DeliveryBlock({ g, ac }: { g: GameState; ac: Aircraft }) {
+  const ds = safe(() => deliveryStatus(g, ac.id), null);
+  if (!ds || ds.phase === 'home') return null;
+  const fs = ds.ferryIds.map((id) => g.flights[id]).filter((f): f is Flight => !!f);
+  const next = fs.find((f) => f.status === 'scheduled');
+  const city = cityOf(ds.site);
+  const via = fs.slice(0, -1).map((f) => f.to);
+  const legs = fs.length ? `${fs.length} leg${fs.length > 1 ? 's' : ''}${via.length ? ` via ${via.join(', ')}` : ''}` : 'no ferry planned';
+  const home = next ? `ferry home ${localDep(next)} · ${legs}` : legs;
+  const cur = ac.flightId ? g.flights[ac.flightId] : undefined;
+  // Between ferry legs: a fuel-stop turn, or a night stop (hotel) once the gap is longer than a few hours.
+  const landed = fs.filter((f) => f.status === 'done').at(-1);
+  const stop = landed && next && next.std + next.delay - (landed.ata ?? landed.sta) > 4 * 60 ? 'Night stop' : 'Fuel stop';
+  // Pilots are rostered on the normal horizon; only a near ferry without them is a worry.
+  const late = !!next && next.std + next.delay - g.now < BAL.delivery.warnH * 60;
+  const line = ds.phase === 'preparing' ? `Handover at ${city} ${fmtDay(ds.handover)} · ${home}`
+    : ds.phase === 'waiting' ? `Waiting for rated pilots since ${fmtDay(ds.waitingSince ?? g.now)} · parked at ${city}`
+    : ds.phase === 'ferrying' ? (cur?.purpose === 'delivery' ? `Delivery ferry ${fs.length ? [fs[0].from, ...fs.map((f) => f.to)].join('–') : ''}` : `${stop} at ${cityOf(ac.at)}${next ? ` · next leg ${localDep(next)}` : ''}`)
+    : `Handed over at ${city} · ${home}`;
+  const pilots = ds.pilotIds.map((id) => g.crew[id]).filter(Boolean).sort(byRole);
+  return (
+    <Section title="Delivery">
+      <div className={`op-note ${ds.phase === 'waiting' ? 'warn' : 'info'}`}>
+        <PackageCheck />
+        <span className="col">
+          <span>{line}</span>
+          {ds.where && ds.phase !== 'ferrying' && <span className="small muted">{ds.where}</span>}
+        </span>
+      </div>
+      {pilots.length ? (
+        <div className="small muted">Pilots {pilots.map((m) => `${m.role === 'CPT' ? 'Capt' : m.role} ${m.last}`).join(', ')}</div>
+      ) : (
+        <div className={`small ${late ? 'tone-warn' : 'muted'}`}>{late ? 'No rated pilots rostered yet.' : 'Delivery pilots are rostered nearer the time.'}</div>
+      )}
+      {ds.ticketIds.length > 0 && ds.phase !== 'ferrying' && <PilotLegs g={g} ticketIds={ds.ticketIds} />}
+    </Section>
+  );
+}
+
+/** A planned (not yet started) refit or lease-return check of this aircraft. */
+function plannedOf(g: GameState, ac: Aircraft, kind: 'refit' | 'return'): MaintenanceEvent | undefined {
+  if (kind === 'return') {
+    const m = ac.returning ? g.maintenance[ac.returning.maintId] : undefined;
+    return m?.status === 'planned' ? m : undefined;
+  }
+  return Object.values(g.maintenance).filter((m) => m.aircraftId === ac.id && m.kind === 'refit' && m.status === 'planned').sort((a, b) => a.start - b.start)[0];
+}
+
+/** Planned refit and lease return lines (in-work ones show under Now). */
+function PlannedBlocks({ g, ac }: { g: GameState; ac: Aircraft }) {
+  const rf = plannedOf(g, ac, 'refit');
+  const rt = plannedOf(g, ac, 'return');
+  if (!rf && !rt) return null;
+  const ferryTo = (m: MaintenanceEvent) => {
+    const f = (m.ferryIds ?? ac.returning?.ferryIds ?? []).map((id) => g.flights[id]).find((x) => x?.status === 'scheduled');
+    return f ? `ferry ${fmtDay(f.std + f.delay)}, ` : '';
+  };
+  return (
+    <Section title="Planned">
+      {rf && (
+        <div className="op-note">
+          <Wrench />
+          <span>Cabin refit to {rf.refit?.cabin.label ?? 'a new layout'} at {shopOf(rf.at)}: {ferryTo(rf)}{fmtDay(rf.start)} – {fmtDay(rf.end)}</span>
+        </div>
+      )}
+      {rt && (
+        <div className="op-note">
+          <Undo2 />
+          <span>Lease return at {cityOf(rt.at)}: {ferryTo(rt)}return check {fmtDay(rt.start)} – {fmtDay(rt.end)}</span>
+        </div>
+      )}
+    </Section>
+  );
+}
+
 // ---------- aircraft ----------
 
 function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
@@ -131,7 +268,12 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
   const openAbove = dc?.slots.filter((x) => x.above && !x.crewId) ?? [];
   // The stored duty legality can lag the live per-seat check (DutyModal); show the worse of the two.
   const seatBad = !!crewFlight?.dutyId && cstat0?.level !== 'missing' && !!dc?.slots.some((x) => x.level === 'illegal');
-  const cstat = cstat0 && seatBad ? { ...cstat0, level: 'illegal' as const } : cstat0;
+  const cstat1 = cstat0 && seatBad ? { ...cstat0, level: 'illegal' as const } : cstat0;
+  // An empty leg not rostered yet is flown by pilots only (the uncrewed complement lists the cabin too).
+  const pilotsOnly = !!crewFlight && !crewFlight.dutyId && (crewFlight.kind === 'ferry' || crewFlight.kind === 'positioning');
+  const cstat = cstat1 && pilotsOnly ? { ...cstat1, missing: cstat1.missing.filter((r) => isPilot(r)) } : cstat1;
+  // A delivery / return / refit ferry days away is crewed on the normal roster horizon: not a worry yet.
+  const later = pilotsOnly && !!crewFlight?.purpose && crewFlight.std + crewFlight.delay - t > BAL.delivery.warnH * 60;
   const cs = safe(() => checkStatus(g, ac), null);
   const maint = ac.maintId ? g.maintenance[ac.maintId] : undefined;
   const chip = chipInfo(g, ac, t);
@@ -149,7 +291,7 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
     now = (
       <>
         <div className="row between"><b className="mono op-big">{cur.from} → {cur.to}</b><span className="row op-tight">{curType && <TypeChip type={curType} />}<span className="mono small muted">{cur.no}</span></span></div>
-        {curType && curType !== 'operating' && <div className="small muted">{FLIGHT_TYPE_HINT[curType]}</div>}
+        {cur.purpose ? <div className="small muted">{purposeLine(g, cur)}</div> : curType && curType !== 'operating' && <div className="small muted">{FLIGHT_TYPE_HINT[curType]}</div>}
         <Bar value={prog} size="thin" />
         <div className="op-kv">
           <div><span>Off blocks</span><b className="num">{fmtTime(off)} UTC</b></div>
@@ -158,6 +300,17 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
           {cur.delay > 0 && <div><span>Delay</span><b className="num warn-t">+{fmtDuration(cur.delay)}{cur.delayReason ? ` · ${cur.delayReason}` : ''}</b></div>}
         </div>
       </>
+    );
+  } else if (maint && ac.status === 'maintenance' && (maint.kind === 'refit' || maint.kind === 'return')) {
+    now = (
+      <div className="op-note warn">
+        {maint.kind === 'refit' ? <Wrench /> : <Undo2 />}
+        <span>
+          {maint.kind === 'refit'
+            ? `Cabin shop at ${shopOf(maint.at)}: refit to ${maint.refit?.cabin.label ?? 'a new layout'}, back ${fmtDay(maint.end)}`
+            : `Lease return check at ${cityOf(maint.at)} until ${fmtDay(maint.end)}`}
+        </span>
+      </div>
     );
   } else if (maint && (ac.status === 'maintenance' || ac.status === 'aog')) {
     now = (
@@ -169,6 +322,8 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
         </span>
       </div>
     );
+  } else if (ac.status === 'delivering') {
+    now = <div className="op-note"><PackageCheck /><span>Not handed over yet · {ac.delivery ? `at ${cityOf(ac.delivery.site)} ${fmtDay(ac.delivery.handover)}` : `delivery ${fmtDay(ac.deliveredAt)}`}</span></div>;
   } else {
     now = <div className="op-note"><Plane /><span>{ac.status === 'aog' ? 'AOG' : 'Parked'} at {ap?.city ?? ac.at} ({ac.at}) · {fmtTime(t, ac.at)} local</span></div>;
   }
@@ -178,15 +333,18 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
       <div className="op-art"><AircraftArt typeId={artFor(ac.typeId)} livery={lv.livery} code={lv.code} name={lv.name} /></div>
       {lv.source === 'client' && <div className="small muted op-livery">In {lv.clientName} colours{lv.contractId && g.contracts[lv.contractId] ? ` for ${g.contracts[lv.contractId].title}` : ''}</div>}
       <div className="row wrap op-chips">
-        <span className={`chip tone-${chip.tone}`}><Dot tone={chip.tone} />{cur ? 'Airborne' : ac.status === 'available' ? 'Available' : ac.status === 'aog' ? 'AOG' : ac.status === 'maintenance' ? 'Maintenance' : ac.status}</span>
-        {curType === 'ferry' && <span className="chip op-ferry-tag">FERRY</span>}
+        <span className={`chip tone-${chip.tone}`}><Dot tone={chip.tone} />{cur ? 'Airborne' : ac.status === 'available' ? 'Available' : ac.status === 'aog' ? 'AOG' : ac.status === 'maintenance' ? 'Maintenance' : ac.status === 'delivering' ? 'Delivering' : ac.status}</span>
+        {curType === 'ferry' && !deliveryTag(ac) && <span className="chip op-ferry-tag">FERRY</span>}
+        {deliveryTag(ac) && <span className="chip op-dlv-tag">DELIVERY</span>}
         <span className="chip">{ac.ownership.kind === 'owned' ? 'Owned' : 'Dry-leased in'}</span>
         <span className="chip">{ac.builtYear}</span>
       </div>
       <Section title={cur ? 'Current flight' : 'Now'}>{now}</Section>
+      <DeliveryBlock g={g} ac={ac} />
+      <PlannedBlocks g={g} ac={ac} />
       <Section
         title={cur ? 'Crew on board' : crewFlight ? `Crew for ${crewFlight.no}` : 'Crew'}
-        aside={cstat && <span className={`small tone-${LEVEL_TONE[cstat.level]}`}><Dot tone={LEVEL_TONE[cstat.level]} />{LEVEL_TEXT[cstat.level]}</span>}
+        aside={later ? <span className="small muted">Rostered later</span> : cstat && <span className={`small tone-${LEVEL_TONE[cstat.level]}`}><Dot tone={LEVEL_TONE[cstat.level]} />{LEVEL_TEXT[cstat.level]}</span>}
       >
         {crew.length ? (
           <div className="op-crew">
@@ -214,7 +372,7 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
         ) : (
           <div className="small muted">{crewFlight ? 'No crew rostered yet.' : 'No flights planned.'}</div>
         )}
-        {cstat && cstat.missing.length > 0 && <div className="small tone-bad op-gap">Missing: {cstat.missing.join(', ')}</div>}
+        {cstat && !later && cstat.missing.length > 0 && <div className="small tone-bad op-gap">Missing: {cstat.missing.join(', ')}</div>}
         {riders.length > 0 && (
           <>
             <div className="small muted op-gap">Riding as passengers</div>
@@ -252,7 +410,8 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
 function AirportPanel({ g, code }: { g: GameState; code: string }) {
   const a = AIRPORT_BY_CODE[code];
   const t = g.now;
-  const here = Object.values(g.fleet).filter((ac) => (!ac.flightId && ac.at === code) || (ac.flightId && g.flights[ac.flightId]?.to === code));
+  const waiting = awaitingDelivery(g, code);
+  const here = Object.values(g.fleet).filter((ac) => !waiting.includes(ac) && ((!ac.flightId && ac.at === code) || (ac.flightId && g.flights[ac.flightId]?.to === code)));
   const hotel = Object.values(g.crew).filter((m) => m.loc === code && m.base !== code && m.status !== 'onDuty' && m.status !== 'joining');
   const based = code === g.company.homeBase ? Object.values(g.crew).filter((m) => m.loc === code && (m.status === 'available' || m.status === 'off' || m.status === 'resting')).length : 0;
   const offers = Object.values(g.offers).filter((o) => o.status === 'open' && o.pin === code);
@@ -277,6 +436,18 @@ function AirportPanel({ g, code }: { g: GameState; code: string }) {
           );
         }) : <div className="small muted">None here.</div>}
       </Section>
+      {waiting.length > 0 && (
+        <Section title="Aircraft awaiting delivery here">
+          {waiting.map((ac) => {
+            const ci = chipInfo(g, ac, t);
+            return (
+              <button key={ac.id} className="op-row" onClick={() => store.select({ kind: 'aircraft', id: ac.id })}>
+                <Dot tone={ci.tone} /><b className="mono">{ac.reg}</b><span className="small muted ellipsis">{ACMI_TYPES[ac.typeId]?.short ?? ac.typeId} · {ci.line}</span>
+              </button>
+            );
+          })}
+        </Section>
+      )}
       <Section title="Crew in hotel" aside={hotel.length ? <span className="small muted">{hotel.length}</span> : undefined}>
         {hotel.length ? (
           <div className="op-crew">
@@ -382,6 +553,8 @@ function CommercialPanel({ g, id }: { g: GameState; id: string }) {
   const prog = Math.max(0, Math.min(1, (t - leg.dep) / Math.max(1, leg.arr - leg.dep)));
   const crew = cf.crewIds.map((c) => g.crew[c]).filter(Boolean).sort(byRole);
   const dest = AIRPORT_BY_CODE[ticket.to];
+  const why = safe(() => ticketPurpose(g, ticket.id), null);
+  const whyAc = why?.aircraftId ? g.fleet[why.aircraftId] : undefined;
   return (
     <Panel title={<span className="mono">{leg.no}</span>} kicker={`Deadhead · ${leg.airline}`} onClose={() => store.select(undefined)}>
       <div className="row wrap op-chips">
@@ -418,6 +591,18 @@ function CommercialPanel({ g, id }: { g: GameState; id: string }) {
         {crew.length ? <CrewRows crew={crew} /> : <div className="small muted">Nobody of ours on this ticket any more.</div>}
         <div className="small muted op-gap">Travelling as passengers to {dest?.city ?? ticket.to} ({ticket.to}){legs.length > 1 ? ` via ${legs[0].to}` : ''}.</div>
       </Section>
+      {why?.text && (
+        <Section title="Purpose">
+          {whyAc ? (
+            <button className="op-row" onClick={() => store.select({ kind: 'aircraft', id: whyAc.id })}>
+              {why.kind === 'delivery' ? <PackageCheck /> : why.kind === 'return' ? <Undo2 /> : why.kind === 'refit' ? <Wrench /> : <Plane />}
+              <span className="op-wrap">{why.text}</span>
+            </button>
+          ) : (
+            <div className="op-row static"><Plane /><span className="op-wrap">{why.text}</span></div>
+          )}
+        </Section>
+      )}
     </Panel>
   );
 }
