@@ -11,6 +11,7 @@ import { money } from '../format';
 import { WorldMap, type MapRoute } from '../map/WorldMap';
 import { offline, promptInstall } from '../offline';
 import { store, useStore } from '../store';
+import { CURRENT } from '../../data/whatsNew';
 
 const AMBIENT: [string, string][] = [
   ['LHR', 'JFK'], ['DXB', 'LHR'], ['SIN', 'SYD'], ['HND', 'LAX'], ['CDG', 'GRU'], ['FRA', 'PVG'], ['DOH', 'JNB'],
@@ -33,6 +34,10 @@ export function Title() {
   useOffline();
   const save = useMemo(() => latestSave(), []);
   const [show, setShow] = useState(0);
+  // "What's new" once per version, after the loading screen (never over another dialog).
+  useEffect(() => {
+    if (store.settings.seenWhatsNew !== CURRENT.version && !store.modal) store.openModal({ kind: 'whatsNew' });
+  }, []);
   // Advance every 6 s; a tap on the card skips ahead and restarts the timer.
   useEffect(() => {
     const id = setTimeout(() => setShow((s) => (s + 1) % SHOWCASE.length), 6000);
@@ -129,7 +134,7 @@ export function Title() {
           {offline.online ? <Wifi size={14} /> : <WifiOff size={14} />}
           {offline.ready ? 'Offline ready — plays without internet' : offline.online ? 'Online' : 'Offline mode'}
         </span>
-        <span className="dim small">v0.7 Fleet &amp; Ladder · {AIRPORTS.length} airports · {SHOWCASE.length} aircraft types</span>
+        <span className="dim small">{CURRENT.version} {CURRENT.name} · {AIRPORTS.length} airports · {SHOWCASE.length} aircraft types</span>
       </div>
       <GlobalModals />
     </div>

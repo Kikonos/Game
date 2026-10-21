@@ -37,6 +37,8 @@ export interface Settings {
   toasts: boolean;
   /** v0.7: new aircraft market offers show in the Inbox with a quiet toast (off: hidden, never pause). */
   marketAlerts: boolean;
+  /** The newest "What's new" version the player has dismissed ('' = never). */
+  seenWhatsNew: string;
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -49,6 +51,7 @@ const DEFAULT_SETTINGS: Settings = {
   topGap: 'auto',
   toasts: true,
   marketAlerts: true,
+  seenWhatsNew: '',
 };
 
 export interface Nav {
@@ -87,7 +90,8 @@ export type ModalSpec =
   | { kind: 'refit'; aircraftId: string; layout?: CabinLayout; /** back to this offer when done */ offerId?: string }
   | { kind: 'lease'; aircraftId: string }
   | { kind: 'approval'; id: ApprovalId }
-  | { kind: 'ladderStep'; messageId: string };
+  | { kind: 'ladderStep'; messageId: string }
+  | { kind: 'whatsNew' };
 
 export interface Toast {
   id: number;
