@@ -8,7 +8,7 @@ import { flightsRev } from '../../engine/core/entities';
 import { typeOf } from '../../engine/core/perf';
 import { DAY, HOUR, dayStart, fmtDate, fmtDateTime, fmtDay } from '../../engine/core/time';
 import type { ActionResult, GameState } from '../../engine/core/types';
-import { cancelCheck, checkAirportOk, checkStatus, groundGaps, scheduleCheck } from '../../engine/ops';
+import { cancelCheck, checkAirportOk, checkStatus, checkUsedAt, groundGaps, scheduleCheck } from '../../engine/ops';
 import { Modal, Seg, Stepper } from '../components/ui';
 import { KV } from '../screens/common';
 import { durLabel } from '../screens/scheduleLogic';
@@ -49,7 +49,16 @@ export function CheckModal({ aircraftId, checkKind, replace }: { aircraftId: str
   const custom = pick === -1;
   const chosen: Slot | undefined = custom ? { start: dayStart(g.now) + day * DAY + hour * HOUR, at, gap: 0 } : slots[pick];
   const airports = [g.company.homeBase, ac.at].filter((x, i, a) => a.indexOf(x) === i && checkAirportOk(g, kind, x));
-  const old = replace ? g.maintenance[replace] : undefined;
+  // An existing booking of this kind is moved, not refused (the auto-planner may have booked it beyond the Schedule view).
+  const oldId = replace ?? (kind === 'A' ? st.nextA : st.nextC);
+  const old = oldId ? g.maintenance[oldId] : undefined;
+  const inWork = old?.status === 'inWork';
+  const proj = chosen ? checkUsedAt(g, ac, kind, chosen.start) : null;
+  const projLine = proj && (
+    <span className={`small ${proj.used > 1 ? 'bad' : proj.used > 0.9 ? 'warn' : 'good'}`}>
+      By then: {Math.round(proj.used * 100)}% used · {Math.max(0, 100 - Math.round(proj.used * 100))}% left ({proj.fh} / {proj.limitFH} FH)
+    </span>
+  );
 
   const book = () => {
     if (!chosen) return;
@@ -70,7 +79,7 @@ export function CheckModal({ aircraftId, checkKind, replace }: { aircraftId: str
     <Modal title={`Plan a check: ${ac.reg}`} icon={<Wrench className="accent" />} onClose={() => store.closeModal()} footer={
       <>
         <button className="btn" onClick={() => store.closeModal()}>Cancel</button>
-        <button className="btn btn-primary" onClick={book} disabled={!chosen}><Wrench /> Book {kind}-check</button>
+        <button className="btn btn-primary" onClick={book} disabled={!chosen || inWork}><Wrench /> {old && !inWork ? 'Move' : 'Book'} {kind}-check</button>
       </>
     }>
       <div className="col gap-16">
@@ -81,7 +90,7 @@ export function CheckModal({ aircraftId, checkKind, replace }: { aircraftId: str
         <KV rows={[
           ['A-check due', `${fmtDate(st.aDue)} · ${Math.max(0, st.aHoursLeft)} FH left (${Math.round(st.aUsed * 100)}% used)`],
           ['C-check due', `${fmtDate(st.cDue)} · ${Math.round(st.cUsed * 100)}% used`],
-          ...(old ? [['Replacing', `${old.kind}-check ${fmtDateTime(old.start)} at ${old.at}`] as [string, string]] : []),
+          ...(old ? [[inWork ? 'In work' : 'Booked', `${old.kind}-check ${fmtDateTime(old.start)} UTC at ${old.at}${inWork ? '' : ' · pick a new slot to move it'}`] as [string, string]] : []),
         ]} />
         <div className="upper dim">Suggested slots</div>
         <div className="col gap-8">
@@ -91,11 +100,13 @@ export function CheckModal({ aircraftId, checkKind, replace }: { aircraftId: str
               <b>{fmtDateTime(s.start)} UTC</b>
               <span className="muted">{s.at} · {AIRPORT_BY_CODE[s.at]?.city}</span>
               <span className="dim small">ground time {durLabel(s.gap)}</span>
+              {pick === i && projLine}
             </button>
           ))}
           <button className={`sc-slot ${custom ? 'on' : ''}`} onClick={() => setPick(-1)}>
             <b>Custom slot</b>
             <span className="muted">{custom && chosen ? `${fmtDateTime(chosen.start)} UTC at ${chosen.at}` : 'Choose a date, time and airport'}</span>
+            {custom && projLine}
           </button>
           {custom && (
             <div className="row wrap gap-16 sc-custom">

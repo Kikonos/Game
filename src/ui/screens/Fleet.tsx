@@ -42,10 +42,12 @@ function safeCheck(g: GameState, ac: Aircraft) {
 
 function CheckBar({ label, used, due, hoursLeft, next, onPlan }: { label: string; used: number; due: number; hoursLeft: number; next: string | null; onPlan: () => void }) {
   const tone = limitTone(used);
+  const mx = useGame().maintenance;
+  const nm = next ? mx[next] : undefined;
   return (
     <div className="sc-check-bar">
       <div className="row between small">
-        <span><b>{label}</b> <span className="muted">{next ? `booked ${next}` : `due ${fmtDay(due)}`}</span></span>
+        <span><b>{label}</b> <span className="muted">{nm ? `booked ${fmtDay(nm.start)} at ${nm.at}` : `due ${fmtDay(due)}`}</span></span>
         <span className="num dim">{Math.max(0, Math.round(hoursLeft))} FH left</span>
       </div>
       <div className="row gap-8">
@@ -117,7 +119,7 @@ function AircraftCard({ g, ac, sel }: { g: GameState; ac: Aircraft; sel: boolean
   const own: [string, string][] = o.kind === 'owned'
     ? [['Owned', `book value ${money(o.bookValue)}`]]
     : [['Lessor', o.lessor], ['Lease', `to ${fmtDate(o.leaseEnd)} · ${money(o.rentPerMonth)}/month`]];
-  const plan = (kind: 'A' | 'C') => store.openModal({ kind: 'check', aircraftId: ac.id, checkKind: kind });
+  const plan = (kind: 'A' | 'C') => store.openModal({ kind: 'check', aircraftId: ac.id, checkKind: kind, replace: (kind === 'A' ? cs?.nextA : cs?.nextC) ?? undefined });
   const lv = liveryOf(g, ac);
   return (
     <div className={`card sc-ac ${sel ? 'selected' : ''}`} data-ac={ac.id}>
