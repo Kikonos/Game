@@ -34,7 +34,7 @@ export function ApprovalModal({ id }: { id: ApprovalId }) {
     if (def.cost <= co.cash * 0.25) return doApply();
     store.openModal({
       kind: 'confirm', title: `Apply for ${def.name}?`, confirm: `Apply · ${money(def.cost)}`,
-      body: `${money(def.cost)} is ${Math.round((def.cost / Math.max(1, co.cash)) * 100)}% of the cash on hand. The authority takes about ${def.days} days; the fee is not refunded.`,
+      body: `${money(def.cost)} is ${Math.round((def.cost / Math.max(1, co.cash)) * 100)}% of the cash on hand. The authority takes about ${def.days} days; the fee is not refunded.${def.grantCost ? ` ${money(def.grantCost)} more is due at the grant.` : ''}`,
       onConfirm: doApply,
     });
   };
@@ -70,7 +70,7 @@ export function ApprovalModal({ id }: { id: ApprovalId }) {
             ))}
           </div>
           {id === 'widebody' && <div className="small muted mt-8">Booked conversions count for filing; the grant needs them finished. Time the class to end near your first widebody’s handover: converted pilots fly only the new type.</div>}
-          <div className="small muted mt-8">{money(def.cost)} filing fee · about {def.days} days. Granted only with pilots actually rated and a clean record; a crew legality incident while pending adds 30 days.</div>
+          <div className="small muted mt-8">{money(def.cost)} filing fee{def.grantCost ? ` + ${money(def.grantCost)} at the grant` : ''} · about {def.days} days. Granted only with pilots actually rated and a clean record; a crew legality incident while pending adds 30 days.</div>
         </>
       )}
       {node && (node.unlocksTypes.length > 0 || node.unlocksWork) && (

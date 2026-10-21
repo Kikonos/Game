@@ -57,7 +57,7 @@ function NodeCard({ n, held }: { n: LadderNode; held: ReadonlySet<ApprovalId> })
       <span className={`badge ${st.tone}`}>{n.state === 'held' ? <BadgeCheck /> : st.locked ? <Lock /> : null}{st.label}</span>
       {n.state === 'pending' && n.pending && <Bar value={n.pending.progress} size="thin" />}
       {unmet && <span className={`tiny ld-req ${st.locked ? 'muted' : ''}`}>{unmet}</span>}
-      {n.state !== 'held' && <span className="tiny dim">{money(n.cost)} · {n.days} days</span>}
+      {n.state !== 'held' && <span className="tiny dim">{money(n.cost)}{n.grantCost ? ` + ${money(n.grantCost)}` : ''} · {n.days} days</span>}
       {types.length > 0 && <span className="ld-types">{types.slice(0, 4).map((t) => <span key={t} className="ld-type">{t}</span>)}</span>}
     </button>
   );
