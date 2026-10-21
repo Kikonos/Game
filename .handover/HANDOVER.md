@@ -233,3 +233,5 @@ REMIND the player of this backlog once the current fixes update has shipped.
 ### 00:53Z (04:53 Dubai) — v0.5.2 player fixes: stage 4 (execute)
 - Player agreed: terms table (Operating green solid / Positioning full crew dotted amber / Ferry pilots-only dotted amber+FERRY / Deadhead commercial grey icon+flight no.), real airlines for deadheads, ship as v0.5.2 after v0.5.1.
 - **Workflow wf_4080b073-2c3 (task wxunzbtq7)**, script scratchpad/acmi/v052.js (backup .handover/v052.js; player screenshots in scratchpad/acmi/v052/ref/). Resume with resumeFromRunId if it dies. When ready=true: commit acmi → merge into claude/contrail-airline-game → play/ → push branch + main → verify live → tell the player (Dubai time) → then REMIND them of the FEATURE BACKLOG.
+
+### 01:32Z — check-in: v0.5.2 run alive; checkpoint pushed.
