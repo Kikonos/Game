@@ -193,9 +193,11 @@ export function clientLivery(client: Client, kind: PaintKind): Livery {
   const tail = TAILS[Math.floor(hashUnit(`${key}#tail`) * TAILS.length) % TAILS.length];
   // Full paint on a two-tone fin: the logo takes white or ink that reads on the fin, not the accent band's colour.
   const ink = kind !== 'full' ? p1 : tail === 'solid' ? p2 : finInk(p1, p2);
+  // the glyph's second tone must not be the fin colour (it would vanish): accent, or white/ink on a solid fin
+  const tone2 = kind === 'full' && tail === 'solid' ? finInk(p1, p1) : p2;
   const lg: LiveryLogo = mono
     ? { id: 'mono', color: ink, color2: kind === 'full' ? p1 : p2, text: clientCode(client) }
-    : { id: CLIENT_LOGOS[Math.floor(hashUnit(`${key}#logo`) * CLIENT_LOGOS.length) % CLIENT_LOGOS.length], color: ink, color2: kind === 'full' ? p1 : p2 };
+    : { id: CLIENT_LOGOS[Math.floor(hashUnit(`${key}#logo`) * CLIENT_LOGOS.length) % CLIENT_LOGOS.length], color: ink, color2: tone2 };
   const stickers: StickerPlacement[] = [
     { id: 'logo', kind: 'logo', side: 'fin', scale: 1 },
     { id: 'titles', kind: 'titles', side: 'fuselage', scale: 1 },

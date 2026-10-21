@@ -104,11 +104,13 @@ function AircraftLivery({ aircraftId }: { aircraftId: string }) {
   const save = () => {
     if (store.act((gg) => setAircraftLivery(gg, ac.id, ref)).ok) close();
   };
+  // Custom from All white starts from the company livery (as on the Fleet card), not a blank airframe
+  const pickRef = (r: LiveryRef) => setRef(typeof r === 'object' && ref === 'white' ? { custom: structuredClone(c.livery) } : r);
   return (
     <Sheet title={<><span className="mono">{ac.reg}</span> livery</>} onClose={close}>
       <LiveryEditor
         value={value} onChange={(l) => setRef({ custom: l })} code={code} name={name} mode="aircraft"
-        types={previewTypes([artFor(ac.typeId)])} aircraft={{ ref, onRef: setRef, locked: st.locked ? st.why ?? 'In client colours' : undefined }}
+        types={previewTypes([artFor(ac.typeId)])} aircraft={{ ref, onRef: pickRef, locked: st.locked ? st.why ?? 'In client colours' : undefined }}
         onSave={st.locked ? undefined : save} onCancel={close}
         footer={st.locked ? undefined : <span className="lv-foot-note">Free and instant.</span>}
       />

@@ -164,8 +164,10 @@ export function DutyModal({ id }: { id: string }) {
     );
   }
   const ac = v.aircraftId ? g.fleet[v.aircraftId] : undefined;
-  const c = v.contractId ? g.contracts[v.contractId] : undefined;
   const first = g.flights[d.flightIds[0]];
+  // the work this duty flies (a trip's pairing can start on an earlier contract)
+  const cid = d.flightIds.map((x) => g.flights[x]?.contractId).find(Boolean) ?? v.contractId;
+  const c = cid ? g.contracts[cid] : undefined;
   const open = v.dutyIds.map((x) => g.duties[x]).filter((x) => x && !x.done);
   const busy = v.inProgress;
   const route = dutyRoute(g, d.id);

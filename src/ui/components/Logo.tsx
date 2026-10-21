@@ -73,7 +73,7 @@ export function TailBadge({ primary, secondary, code, size = 34, livery }: { pri
   const showLogo = !!livery?.logo && fin0.some((s) => s.kind === 'logo');
   const showCode = !!text && !showLogo && (!livery || fin0.some((s) => s.kind === 'code'));
   // letters fitted to the fin between its slanted edges (cap top y≈27, baseline 34: ~17 units wide);
-  // a sweep band covers the leading edge, so the code sits right of it (~13 units)
+  // a sweep band covers the leading edge, so the code and logo sit right of it (code ~13 units)
   const sweep = !!livery && !lv.plain && lv.tail === 'sweep';
   const room = sweep ? 13.2 : 17;
   const fs = text ? Math.min(10, room / textWidthEm(text, lv.code?.weight ?? 700, 0.02)) : 10;
@@ -101,7 +101,7 @@ export function TailBadge({ primary, secondary, code, size = 34, livery }: { pri
         <g clipPath={`url(#tf-${uid})`}>
           {area && <path d={area} fill={lv.secondary} opacity="0.95" />}
           {showLogo && (
-            <g transform="translate(14 9) scale(0.18)"><LogoGlyph logo={livery!.logo!} /></g>
+            <g transform={sweep ? 'translate(18 13.5) scale(0.13)' : 'translate(16.5 12.5) scale(0.145)'}><LogoGlyph logo={livery!.logo!} /></g>
           )}
           {showCode && (
             <text
