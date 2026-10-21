@@ -257,3 +257,7 @@ REMIND the player of this backlog once the current fixes update has shipped.
 ### 08:23Z — v0.5.3 hotfix released (8023bb0): apple-mobile-web-app-status-bar-style black-translucent → black (iPadOS 26 frosted scroll-edge fade under the status bar blurred the top bar in full-screen home-screen mode). Also committed on acmi so v0.6 keeps it. Player may need to delete + re-add the home-screen icon for iOS to pick up the new status-bar style.
 
 ### 08:32Z — v0.5.4 hotfix released (f67f6d1): the frost persisted (also in window mode) → it's iPadOS 26's frosted top edge on web apps, not our CSS. Added Settings → 'Top bar spacing' (Auto = 28 px when installed; Off/16/28/40) via --top-gap added to --safe-t. Ported to acmi (store.ts, app.css, Modals.tsx) so v0.6 keeps it — UI lane must not drop it.
+
+### 10:18Z (14:18 Dubai) — v0.6 Crew RELEASED ✅; v0.7 building
+- v0.6 (wf_43a05165-adf) ready=true: 31 findings / 26 confirmed+fixed, 509 tests, 0 console errors, old v0.5.2 save loads. Release bc0f744, live verified. Low leftovers folded into the v0.7 spec as carry-overs (convert-modal confirm, board perf, deadhead carriers DXB/SOF/LGW, seed-2 pacing, flaky timing test).
+- **v0.7 running: wf_3620a54d-d47 (task wstfbndwa)**, args in scratchpad/acmi/updates/args-v0.7.json (= specs.json v0.7). Resume with Workflow({scriptPath: updates/update.js, resumeFromRunId: "wf_3620a54d-d47", args: <that JSON>}).
