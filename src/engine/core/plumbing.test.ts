@@ -4,8 +4,8 @@
 import { describe, expect, it } from 'vitest';
 import { acceptOffer, cancelCost, cancelPenalty, contractProgress, counterView, feasibility, feasibilityAll, generateOffer, marketFit, paintQuote, paintWindow, productValue } from '../contracts';
 import {
-  checkAssignment, classOf, conversionClasses, conversionEarliest, conversionPlan, crewAvailability, crewCalendar, crewExtraFor, crewExtraQuote, crewIssuesFor, crewStatusView, crewWindows,
-  daysOffInMonth, dropTargets, dutyCandidates, dutyCrew, dutyLegality, flightCrewStatus, hireQuote, moraleOf, moraleSummary, policyPreview, rosterBoard, rosterOf, staffing,
+  checkAssignment, classOf, conversionClasses, conversionEarliest, conversionPlan, crewAvailability, crewCalendar, crewControl, crewExtraFor, crewExtraQuote, crewGauges, crewIssuesFor, crewStatusView, crewWindows,
+  daysOffInMonth, dropTargets, dutyCandidates, dutyCrew, dutyLegality, flightCrewStatus, hireQuote, jetQuote, moraleOf, moraleSummary, policyPreview, rosterBoard, rosterOf, shortFlights, staffing,
 } from '../crew';
 import { demoFlights, devGrantApproval, devMarketOffer } from '../dev';
 import { addCrew } from '../crew/fixtures';
@@ -14,6 +14,7 @@ import {
   aogChance, APPROVALS, approvalBlocker, cashForecast, checkStatus, commercialFlightsAirborne, commercialFlightsBetween, commercialItinerary, fixedCosts, flightType, GOALS,
   groundGaps, liveryOf, monthProfit, paintStatus, rotationOf, subcharterable, subcharterQuote,
   acquireAircraft, aircraftGate, approvalReqs, bookRefit, cabinOptions, deliveryQuote, deliveryStatus, ladder, leaseView, marketView, refitQuote, refitStations, returnQuote, ticketPurpose,
+  problemAt, problemFor, problems,
 } from '../ops';
 import { deserialize, serialize } from '../save';
 import { advanceTo } from '../sim';
@@ -194,6 +195,17 @@ describe('determinism of read APIs', () => {
       for (const f of Object.values(g.flights)) if (f.kind === 'deadhead') ticketPurpose(g, f.id);
       ladder(g);
       for (const a of APPROVALS) approvalReqs(g, a.id);
+      // v0.7.1: Crew Control, jets, gauges, the ladder list and every problem card (previews run on copies).
+      shortFlights(g);
+      const some = Object.values(g.flights).filter((f) => f.status === 'scheduled' && f.aircraftId).slice(0, 2);
+      for (const f of some) crewControl(g, f.id);
+      jetQuote(g, 'LIS', 'DUS', 4, t);
+      for (const c of Object.values(g.crew).slice(0, 3)) crewGauges(g, c.id);
+      problems(g);
+      for (const f of some) problemAt(g, { kind: 'flight', id: f.id });
+      for (const ac of Object.keys(g.fleet)) problemAt(g, { kind: 'aircraft', id: ac });
+      problemFor(g, { kind: 'cashLow', ref: { kind: 'cash', id: 'cash' } });
+      for (const o of Object.values(g.offers)) problemFor(g, { kind: 'offerFit', ref: { kind: 'offer', id: o.id } });
     }
     expect(JSON.stringify(g)).toBe(before);
   });

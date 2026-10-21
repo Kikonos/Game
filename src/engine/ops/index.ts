@@ -32,6 +32,8 @@ export {
 } from './paint';
 export { rotationOf, SUB_LEAD, subcharter, subcharterable, subcharterQuote, type SubcharterQuote } from './subcharter';
 export { usd } from './util';
+// v0.7.1 every problem as one card (engine/problems).
+export { hurtBadges, messageBadges, postProblem, problemAt, problemFor, problems, type GaugeSpec, type Hurt, type MiniMapSpec, type ProblemAction, type ProblemCard, type ReachSpec, type TimelineSpec } from '../problems';
 export { FLIGHT_TYPE_HINT, FLIGHT_TYPE_LABEL, FLIGHT_TYPES, flightCrewAboard, flightType, type FlightType } from './flightType';
 export {
   commercialFlightsAirborne, commercialFlightsBetween, commercialItinerary, commercialProgress, CONNECT_MIN, itinerary, itineraryText, ticketBlock,

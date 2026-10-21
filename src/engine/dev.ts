@@ -5,7 +5,9 @@ import { addFlight, ownFlightNo } from './core/entities';
 import { blockMinutes } from './core/perf';
 import { flightsOf } from './core/entities';
 import { nextId } from './core/entities';
-import type { GameState } from './core/types';
+import type { GameState, Role } from './core/types';
+import { escalateShortages } from './crew/control';
+import { recheckPairing, releaseCrew, setFlightsCrew } from './crew/roster';
 
 /** Out-and-back legs from each aircraft's position, starting in 30 min, for `days` days (ferries by default: no client). */
 export function demoFlights(g: GameState, dests = ['FAO', 'FNC', 'PMI', 'TFS', 'OPO', 'AGP'], days = 3, kind: 'ferry' | 'revenue' = 'ferry'): number {
@@ -47,3 +49,27 @@ export { resignNow } from './crew/morale';
 export { devMarketOffer } from './ops/market';
 /** v0.7: grants an approval now (as if the authority finished). Dev/test helper. */
 export { devGrantApproval } from './ops/company';
+
+/**
+ * v0.7.1: empties the required seats (`roles`, default the pilots) of the next crewed flight departing within
+ * `hours` (default 10) and runs the ladder, so Crew Control has something to show; returns the flight id ('' when
+ * nothing qualifies). Dev/test helper.
+ */
+export function devCrewShortage(g: GameState, opts: { hours?: number; roles?: Role[] } = {}): string {
+  const hours = opts.hours ?? 10;
+  const roles = opts.roles ?? ['CPT', 'FO'];
+  const cands = Object.values(g.flights)
+    .filter((f) => f.status === 'scheduled' && f.aircraftId && f.kind !== 'deadhead' && f.dutyId && f.std > g.now && f.std <= g.now + hours * 60 && f.crewIds.length > 0)
+    .sort((a, b) => a.std - b.std || (a.id < b.id ? -1 : 1));
+  for (const f of cands) {
+    const d = g.duties[f.dutyId!];
+    const p = d ? g.pairings[d.pairingId] : undefined;
+    if (!p || d.flightIds[0] !== f.id || d.report <= g.now) continue;
+    for (const s of p.slots) if (s.crewId && roles.includes(s.role)) releaseCrew(g, p, s.crewId);
+    setFlightsCrew(g, p);
+    recheckPairing(g, p);
+    escalateShortages(g);
+    return f.id;
+  }
+  return '';
+}

@@ -242,4 +242,22 @@ export const BAL = {
   ladder: { findingDays: 30, maxFindings: 2, aogPerAircraft: 0.5, incidentKeepDays: 365 },
   /** C4 quiet-week floor: days since the last gap-fit offer, idle-window days, open-offer cap. */
   quietFloor: { days: 5, idleDays: 2, maxOpen: 5 },
+
+  // ---------- crew control v0.7.1 (ENGINE; UPDATE-0.7.1.md §14) ----------
+  crewControl: {
+    amberH: 48, redH: 12,
+    /** Call-in: overtime as a multiple of a day's pay (salary / 21); morale shock. Swap: morale for crew moved at short notice. */
+    callInPay: 1.5, callInMorale: -4, swapMorale: -2,
+    /** Cancel from Crew Control: reputation per leg (max 3), as the decisions. */
+    cancelRep: 3,
+    jet: {
+      rate: { light: 4_500, midsize: 6_000, heavy: 8_500 } as Record<string, number>,
+      seats: { light: 6, midsize: 8, heavy: 13 } as Record<string, number>,
+      rangeNm: { light: 1_700, midsize: 2_100, heavy: 4_000 } as Record<string, number>,
+      cruiseKt: { light: 400, midsize: 430, heavy: 470 } as Record<string, number>,
+      positioningH: 1.0, minH: 2, fees: 2_500, fuelStopMin: 45, fuelStopFee: 1_500, fboLeadMin: 150, checkInMin: 30, taxiMin: 25,
+    },
+    /** Hurt levels: 'low' below these. */
+    hurtLowUsd: 10_000, hurtLowPax: 100,
+  },
 } as const;

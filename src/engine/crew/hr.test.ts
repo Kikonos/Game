@@ -245,18 +245,29 @@ describe('checkAssignment', () => {
 });
 
 describe('shortage and sickness', () => {
-  it('uncovered flights within 48 h: one crew message and a crewShortage pause', () => {
+  it('uncovered flights within 48 h: one amber crew message (the v0.7.1 ladder), no pause until 12 h', () => {
     const g = fixtureGame();
     for (const c of Object.values(g.crew)) if (c.role === 'CPT') delete g.crew[c.id];
     demoFlights(g, undefined, 3, 'revenue');
     clearPause();
     const res = autoRoster(g);
     expect(res.uncovered.length).toBeGreaterThan(0);
+    // The demo flights start in 30 min: the first wave is red (one message per duty, the pause), the later ones
+    // amber (one message per batch, no pause). Every message carries the problem card and its hurt snapshot.
     expect(takePause()).toBe('crewShortage');
-    expect(g.messages.filter((m) => m.cat === 'crew' && m.title.startsWith('No crew'))).toHaveLength(1);
-    // Warned once per flight.
+    const red = g.messages.filter((m) => m.cat === 'crew' && m.tone === 'bad' && m.topic === 'crewRed');
+    const amber = g.messages.filter((m) => m.cat === 'crew' && m.tone === 'warn' && m.problem?.kind === 'crewShort');
+    expect(red.length).toBeGreaterThan(0);
+    expect(amber).toHaveLength(1);
+    expect(red[0].problem?.kind).toBe('crewShort');
+    expect(amber[0].hurt).toBeDefined();
+    expect(res.uncovered.map((id) => g.flights[id].crewAlert)).toContain('amber');
+    expect(res.uncovered.map((id) => g.flights[id].crewAlert)).toContain('red');
+    // Warned once per flight: a second pass adds nothing and pauses nothing.
     clearPause();
+    const n = g.messages.length;
     autoRoster(g);
+    expect(g.messages.length).toBe(n);
     expect(takePause()).toBeNull();
   });
 

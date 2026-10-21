@@ -88,7 +88,10 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
       dropped.push(...drop);
     }
     const loc = locAt(c, base, first.report);
-    if (loc !== dep) {
+    // v0.7.1: a private jet already chartered for this crew member (crew/control.ts charterJet) is their ride out.
+    const booked = prebooked(g, first, c.id);
+    if (booked) out = booked;
+    else if (loc !== dep) {
       // From where they will be, once their rest after earlier work is over (crew away from base included).
       const o = outTicket(g, p, first, loc, readyAt(c, base, first.report));
       out = o.plan;
@@ -199,11 +202,21 @@ export function crewIssuesFor(g: GameState, d: Duty): { crewId: string; issue: L
   return out;
 }
 
+/** v0.7.1: a chartered jet (Flight with `charter`) carrying c to duty d's first departure, still to land. */
+function prebooked(g: GameState, d: Duty, crewId: string): TicketPlan | null {
+  const dep = g.flights[d.flightIds[0]]?.from ?? d.restAt;
+  for (const fid of d.deadheadIds) {
+    const f = g.flights[fid];
+    if (f && f.charter && f.status === 'scheduled' && f.to === dep && f.sta <= d.report && aboard(f, crewId)) return f;
+  }
+  return null;
+}
+
 /**
  * When crew c can check in for new work before t: the end of the rest after their last logged duty and after
  * their planned work ending by t (the rest evalSegs asks for after each seg).
  */
-function readyAt(c: CrewMember, segs: Seg[], t: Minute): Minute {
+export function readyAt(c: CrewMember, segs: Seg[], t: Minute): Minute {
   let ready = c.restUntil;
   for (const s of segs) {
     if (s.end > t) break;

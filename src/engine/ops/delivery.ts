@@ -312,6 +312,8 @@ export function ticketPurpose(g: GameState, ticketId: string): { kind: 'delivery
     return { kind: pf.purpose, aircraftId: ac?.id, text: `${what} for ${ac?.reg ?? 'our aircraft'} · ferry ${legs[0].from}–${legs[legs.length - 1].to} ${fmtDay(legs[0].std)}` };
   }
   const first = g.flights[d.flightIds[0]];
+  // v0.7.1: a chartered jet names itself.
+  if (t.charter) return { kind: 'duty', aircraftId: ac?.id, text: first ? `Private jet for ${first.no} · ${t.charter.model} (${t.charter.operator})` : `Private jet · ${t.charter.model} (${t.charter.operator})` };
   return { kind: 'duty', aircraftId: ac?.id, text: first ? `Positioning for ${first.no} ${first.from}–${first.to} ${fmtDay(first.std)}` : 'Positioning for a duty' };
 }
 

@@ -187,7 +187,7 @@ export function filterCrew(list: CrewMember[], f: CrewFilter): CrewMember[] {
 export const LEDGER_LABEL: Record<LedgerCat, string> = {
   acmiRevenue: 'ACMI (block hours)', charterRevenue: 'Charter', otherRevenue: 'Other revenue',
   fuel: 'Fuel', airportFees: 'Airport & handling', rent: 'Aircraft rent', reserves: 'Maintenance reserves', salaries: 'Salaries',
-  perDiem: 'Per diems', hotels: 'Crew hotels', deadhead: 'Crew deadheads', maintenance: 'Line maintenance', checks: 'Checks',
+  perDiem: 'Per diems', hotels: 'Crew hotels', deadhead: 'Crew deadheads', crewJet: 'Crew jet charters', maintenance: 'Line maintenance', checks: 'Checks',
   insurance: 'Insurance', overhead: 'Overhead', training: 'Training', hiring: 'Hiring', penalties: 'Penalties', subcharter: 'Sub-charter',
   approvals: 'Approvals', interest: 'Interest', capex: 'Aircraft purchases', assetSale: 'Asset sales', paint: 'Paint & livery',
   refit: 'Cabin refits', leaseReturn: 'Lease returns',
