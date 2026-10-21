@@ -1,8 +1,8 @@
 // Contracts (B5): Market (offer cards, urgent first), Active (MGH progress, next flight, crew problems,
 // cancel with penalty) and Missed. DESIGN.md §6.3.
 
-import { AlertTriangle, CalendarRange, CircleSlash, FileSearch, Handshake, Inbox as InboxIcon, Palette, Users } from 'lucide-react';
-import { useMemo } from 'react';
+import { AlertTriangle, CalendarRange, ChevronDown, CircleSlash, FileSearch, Handshake, Inbox as InboxIcon, Palette, Users } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import { flag } from '../../data/countries';
 import { cancelContract, cancelCost, contractProgress, counterView, idleWindows, type IdleWindow, leadDays } from '../../engine/contracts';
 import { flightsRev } from '../../engine/core/entities';
@@ -98,16 +98,26 @@ function paintLine(g: GameState, c: Contract): string {
 
 /** v0.6: this contract's extra crew (overrides the aircraft's); locked at the number the client pays for. */
 function ContractExtra({ g, c }: { g: GameState; c: Contract }) {
+  const [open, setOpen] = useState(false);
   const eff = crewExtraFor(g, c.aircraftIds[0] ?? null, c.id);
   const min = Math.max(c.requirements.extraCabin, eff.paidMin);
   const set = (x: CrewExtra | null) => store.act((gg) => setCrewExtra(gg, { contractId: c.id }, x));
   const src = eff.paidMin ? `client pays for ${eff.paidMin}` : eff.source === 'client' ? 'client request' : eff.source === 'contract' ? 'set for this contract' : eff.source === 'aircraft' ? 'aircraft setting' : 'company default';
+  const what = eff.cabin || eff.pilot ? [eff.cabin ? `+${eff.cabin} cabin` : '', eff.pilot ? 'spare pilot' : ''].filter(Boolean).join(' · ') : 'legal minimum';
+  if (!open) {
+    return (
+      <button className="sc-extra-sum small" onClick={() => setOpen(true)} aria-expanded={false}>
+        <Users className="sc-ico-s" /><span>Crew: <b>{what}</b></span><span className="dim">{src}</span><ChevronDown className="sc-ico-s dim" />
+      </button>
+    );
+  }
   return (
     <div className="row gap-12 wrap sc-contract-extra">
       <span className="row gap-8"><span className="small">Extra cabin</span><Stepper value={eff.cabin} min={min} max={BAL.crewExtra.cabinMax} onChange={(v) => set({ cabin: v, pilot: eff.pilot })} format={(v) => `+${v}`} /></span>
       <span className="row gap-8"><span className="small">Spare pilot</span><Toggle on={!!eff.pilot} onChange={(v) => set({ cabin: eff.cabin, pilot: v ? 1 : 0 })} label="Spare pilot" /></span>
       <span className="tiny dim">{src}</span>
       {c.crewExtra && !eff.paidMin && <button className="btn btn-sm btn-ghost" onClick={() => set(null)}>Reset</button>}
+      <button className="btn btn-sm btn-ghost" onClick={() => setOpen(false)}>Done</button>
     </div>
   );
 }

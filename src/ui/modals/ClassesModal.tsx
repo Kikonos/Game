@@ -4,7 +4,8 @@
 import { GraduationCap, UserMinus } from 'lucide-react';
 import { useState } from 'react';
 import type { TrainingClass } from '../../engine/core/types';
-import { DAY, fmtDay } from '../../engine/core/time';
+import { DAY } from '../../engine/core/time';
+import { baseDay } from '../screens/screenLogic';
 import { cancelConversion, conversionClasses, crewName, familyLabel, refundShare } from '../../engine/crew';
 import { Bar, Empty, Modal } from '../components/ui';
 import { money } from '../format';
@@ -48,7 +49,7 @@ export function ClassesModal() {
                 <button className="cl-head" onClick={() => setOpen(on ? null : k.id)} aria-expanded={on}>
                   <span className="col grow" style={{ minWidth: 0 }}>
                     <span className="row gap-8"><b>{k.no}</b><span className={`badge ${running ? 'info' : ''}`}>{running ? `Day ${day} of ${Math.round((k.end - k.start) / DAY)}` : 'Booked'}</span></span>
-                    <span className="small muted ellipsis">Conversion {familyLabel(k.family)} · {k.crewIds.length} {k.group === 'pilot' ? 'pilots' : 'cabin crew'}{k.course === 'ccq' ? ' · common type' : ''} · {fmtDay(k.start)} – {fmtDay(k.end - 1)}</span>
+                    <span className="small muted ellipsis">Conversion {familyLabel(k.family)} · {k.crewIds.length} {k.group === 'pilot' ? 'pilots' : 'cabin crew'}{k.course === 'ccq' ? ' · common type' : ''} · {baseDay(g, k.start)} – {baseDay(g, k.end - 1)}</span>
                   </span>
                   <span className="right nowrap"><b className="num">{money(k.costPerHead * k.crewIds.length)}</b><span className="tiny dim">{share ? `${Math.round(share * 100)}% refundable` : 'paid'}</span></span>
                 </button>

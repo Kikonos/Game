@@ -104,7 +104,7 @@ function CrewExtraRow({ g, ac }: { g: GameState; ac: Aircraft }) {
         <span className="row gap-8"><span className="small">Extra cabin</span><Stepper value={x.cabin} min={0} max={BAL.crewExtra.cabinMax} onChange={(v) => set({ cabin: v, pilot: x.pilot })} /></span>
         <span className="row gap-8"><span className="small">Spare pilot</span><Toggle on={!!x.pilot} onChange={(v) => set({ cabin: x.cabin, pilot: v ? 1 : 0 })} label="Spare pilot" /></span>
       </div>
-      <div className="tiny muted">{extra ? `${what} → +${q.extraPeople} people at the crew sets · ≈ ${money(q.perMonth)}/month · Morale +${q.service > 0 ? ` · Service ${q.service >= 0.4 ? '++' : '+'}` : ''}` : 'Legal minimum only. Extra crew cost salaries and per diems but lift morale and service; a spare on board covers a sick call away from base.'}</div>
+      <div className="tiny muted">{extra ? `${what} → +${q.extraPeople} people over ${Math.round(q.extraPeople / Math.max(1, extra))} crew sets · ≈ ${money(q.perMonth)}/month · Morale +${q.service > 0 ? ` · Service ${q.service >= 0.4 ? '++' : '+'}` : ''}` : 'Legal minimum only. Extra crew cost salaries and per diems but lift morale and service; a spare on board covers a sick call away from base.'}</div>
     </div>
   );
 }

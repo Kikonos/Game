@@ -76,25 +76,34 @@ function Approvals({ g }: { g: GameState }) {
 
 const signedK = (v: number) => `${v >= 0 ? '+' : '−'}${money(Math.abs(v))}`;
 
-/** v0.6: one-line morale / cost effect of a policy against the market default (policyPreview, pure). */
-function effect(g: GameState, patch: Partial<Policies>, morale: string | null): string {
-  const p = policyPreview(g, patch);
-  const dT = p.targetNow - p.target;
-  const dC = p.costNow - p.costPerMonth;
+/**
+ * v0.6: one-line morale / cost effect of a policy (policyPreview, pure): the current setting against the market
+ * standard, or at the market standard what the next step up would do.
+ */
+function effect(g: GameState, market: Partial<Policies>, up: Partial<Policies>, label: string, morale: (p: Policies) => string | null): string {
+  const p = g.company.policies;
+  const atMarket = (Object.keys(market) as (keyof Policies)[]).every((k) => p[k] === market[k]);
+  const pv = policyPreview(g, atMarket ? up : market);
+  const sign = atMarket ? 1 : -1;
+  const dT = Math.round(sign * (pv.target - pv.targetNow) * 10) / 10;
+  const dC = sign * (pv.costPerMonth - pv.costNow);
   const parts: string[] = [];
-  if (morale) parts.push(morale);
-  else if (Math.round(dT)) parts.push(`Morale target ${dT > 0 ? '+' : '−'}${Math.abs(Math.round(dT))}`);
+  const m = morale(atMarket ? { ...p, ...up } : p);
+  if (m) parts.push(m);
+  else if (dT) parts.push(`Morale target ${dT > 0 ? '+' : '−'}${Math.abs(dT)}`);
   if (Math.abs(dC) >= 500) parts.push(`≈ ${signedK(dC)}/month`);
-  return parts.length ? `${parts.join(' · ')} vs market` : 'Market standard';
+  if (!parts.length) return atMarket ? 'Market standard' : '';
+  return atMarket ? `${label}: ${parts.join(' · ')}` : `${parts.join(' · ')} vs market`;
 }
+
+const hotelMorale = (p: Policies) => (p.hotelTier === 5 ? 'Morale + on nights away' : p.hotelTier === 3 ? 'Morale − on nights away' : null);
 
 function PolicyForm({ g }: { g: GameState }) {
   const p = g.company.policies;
   const set = (patch: Partial<Policies>) => store.act((gg) => setPolicies(gg, patch), { toastOk: false });
   const row = (label: string, desc: string, ctl: React.ReactNode, fx?: string) => (
-    <div className="set-row sc-policy"><div><b>{label}</b><div className="tiny dim">{desc}</div>{fx && <div className="tiny accent sc-policy-fx">{fx}</div>}</div>{ctl}</div>
+    <div className="set-row sc-policy"><div><b>{label}</b><div className="tiny dim">{desc}</div>{fx && <div className="tiny sc-policy-fx">{fx}</div>}</div>{ctl}</div>
   );
-  const hotelMorale = p.hotelTier === 5 ? 'Morale + on nights away' : p.hotelTier === 3 ? 'Morale − on nights away' : null;
   const market = policyPreview(g, { perDiemPct: 100, rotationWeeks: 5, hotelTier: 4 });
   return (
     <div className="col">
@@ -103,11 +112,11 @@ function PolicyForm({ g }: { g: GameState }) {
       {row('Auto deadhead', 'Buy deadhead tickets for crew automatically', <Toggle on={p.autoDeadhead} onChange={(v) => set({ autoDeadhead: v })} label="Auto deadhead" />)}
       {row('Auto A-checks', 'Plan A-checks in free slots (C-checks need you)', <Toggle on={p.autoMaintenance} onChange={(v) => set({ autoMaintenance: v })} label="Auto A-checks" />)}
       {row('Default extra cabin crew', 'Above the legal minimum; each aircraft and contract can set its own', <Stepper value={p.extraCabin} min={0} max={2} onChange={(v) => set({ extraCabin: v })} />)}
-      {row('Crew hotels', 'Better hotels lift morale and cost more', <Seg<number> value={p.hotelTier} onChange={(v) => set({ hotelTier: v as Policies['hotelTier'] })} options={[3, 4, 5].map((v) => ({ value: v, label: `${v}★` }))} />, effect(g, { hotelTier: 4 }, hotelMorale))}
-      {row('Per diems', '100% is the market rate', <Stepper value={p.perDiemPct} min={80} max={150} step={10} onChange={(v) => set({ perDiemPct: v })} format={(v) => `${v}%`} />, effect(g, { perDiemPct: 100 }, null))}
-      {row('Rotation', 'Weeks away before crews rotate home', <Seg<number> value={p.rotationWeeks} onChange={(v) => set({ rotationWeeks: v as Policies['rotationWeeks'] })} options={[4, 5, 6].map((v) => ({ value: v, label: `${v} wk` }))} />, effect(g, { rotationWeeks: 5 }, null))}
+      {row('Crew hotels', 'Better hotels lift morale and cost more', <Seg<number> value={p.hotelTier} onChange={(v) => set({ hotelTier: v as Policies['hotelTier'] })} options={[3, 4, 5].map((v) => ({ value: v, label: `${v}★` }))} />, effect(g, { hotelTier: 4 }, { hotelTier: 5 }, 'At 5★', hotelMorale))}
+      {row('Per diems', '100% is the market rate', <Stepper value={p.perDiemPct} min={80} max={150} step={10} onChange={(v) => set({ perDiemPct: v })} format={(v) => `${v}%`} />, effect(g, { perDiemPct: 100 }, { perDiemPct: 110 }, 'At 110%', () => null))}
+      {row('Rotation', 'Weeks away before crews rotate home', <Seg<number> value={p.rotationWeeks} onChange={(v) => set({ rotationWeeks: v as Policies['rotationWeeks'] })} options={[4, 5, 6].map((v) => ({ value: v, label: `${v} wk` }))} />, effect(g, { rotationWeeks: 5 }, { rotationWeeks: 4 }, 'At 4 weeks', () => null))}
       <div className="set-row sc-policy sc-policy-sum">
-        <div><b>Crew morale target {market.targetNow}</b><div className="tiny dim">{market.target !== market.targetNow ? `${market.target} at market policies · ` : ''}crew drift toward it; hotels, days off away and long tours move them day to day</div></div>
+        <div><b>Crew morale target {market.targetNow}</b><div className="tiny dim">{market.target !== market.targetNow ? `${market.target} at market policies · ` : ''}Crew drift toward it; hotels, days off away and long tours move them day to day</div></div>
         <span className="num muted small nowrap">{Object.keys(g.crew).length ? `now ${moraleSummary(g).avg}` : ''}</span>
       </div>
     </div>

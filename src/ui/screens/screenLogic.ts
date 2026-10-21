@@ -127,6 +127,9 @@ export function reqChips(r: Requirements): Chip[] {
   return out;
 }
 
+/** v0.6: a day at the home base ('3 Jun'): conversion classes run on base-local days. */
+export const baseDay = (g: Pick<GameState, 'company'>, t: number) => fmtDay(toLocal(g.company.homeBase, t));
+
 /** '0.75%' / '1.5%': a price share as a short percentage. */
 export const pctLabel = (x: number) => `${Math.round(x * 10_000) / 100}%`;
 

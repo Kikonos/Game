@@ -76,7 +76,7 @@
 .rb-body { position: relative; }
 .rb-col { position: absolute; top: 0; bottom: 0; border-left: 1px solid rgba(148, 170, 220, 0.06); pointer-events: none; }
 .rb-col.we { background: rgba(148, 170, 220, 0.035); }
-.rb-now { position: absolute; left: 0; top: 0; bottom: 0; width: 2px; margin-left: -1px; z-index: 1; background: var(--accent); box-shadow: 0 0 6px rgba(62, 230, 255, 0.5); pointer-events: none; will-change: transform; }
+.rb-now { position: absolute; left: 0; top: 0; bottom: 0; width: 2px; margin-left: -1px; z-index: 0; background: var(--accent); box-shadow: 0 0 6px rgba(62, 230, 255, 0.5); pointer-events: none; will-change: transform; }
 .rb-group { position: relative; z-index: 2; display: flex; align-items: center; border-bottom: 1px solid var(--border); background: rgba(17, 26, 44, 0.96); }
 .rb-group-l { position: sticky; left: 0; display: flex; align-items: center; gap: 12px; padding: 0 12px; color: var(--text-2); white-space: nowrap; }
 .rb-group-all { min-height: 36px; }
@@ -207,3 +207,12 @@
 }
 .z-month .rb-blk .sc-cal-t { padding: 0 2px; }
 .z-month .rb-blk.k-off { align-items: flex-start; padding-top: 9px; }
+.sc-policy .stepper, .sc-extra-card .stepper, .sc-ac-crew .stepper, .sc-contract-extra .stepper, .sc-extra-card .toggle { flex-shrink: 0; }
+.sc-extra-sum {
+  display: inline-flex; align-items: center; gap: 8px; align-self: flex-start; min-height: 44px; padding: 0 12px; margin: -4px 0;
+  border-radius: 10px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text-2); font: inherit; cursor: pointer;
+}
+.sc-extra-sum b { color: var(--text); font-weight: 600; }
+.sc-policy-fx { color: #9fdcea; }
+.cl-members { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 16px; }
+.cl-members .cl-cancel { grid-column: 1 / -1; }

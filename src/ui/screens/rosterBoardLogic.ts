@@ -115,7 +115,8 @@ export function dayWidth(zoom: BoardZoom, viewW: number): number {
 export function dayWindow(scrollLeft: number, viewW: number, dayW: number, nDays = BOARD_DAYS, snap = 2): [number, number] {
   const a = Math.floor(Math.max(0, scrollLeft) / dayW) - 2;
   const b = Math.ceil((Math.max(0, scrollLeft) + Math.max(0, viewW - LEFT_W)) / dayW) + 2;
-  return [Math.max(0, Math.floor(a / snap) * snap), Math.min(nDays, Math.ceil(b / snap) * snap)];
+  const to = Math.min(nDays, Math.ceil(b / snap) * snap);
+  return [Math.min(to, Math.max(0, Math.floor(a / snap) * snap)), to];
 }
 
 /** Text width estimate (px) at 12 px semibold; the board passes a canvas measure in the browser. */

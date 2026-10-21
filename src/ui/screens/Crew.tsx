@@ -3,7 +3,7 @@
 
 import { ArrowDownRight, ArrowRight, ArrowUpRight, Check, CheckSquare, GraduationCap, LayoutGrid, List, Lock, Search, UserPlus, Users, X } from 'lucide-react';
 import { FlightTypeChip } from '../components/FlightType';
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flag } from '../../data/countries';
 import { flightsRev } from '../../engine/core/entities';
 import { DAY, HOUR, dayStart, fmtDate, fmtDay, fmtTime, monthKey, monthStart, nextMonthStart, toDate } from '../../engine/core/time';
@@ -20,7 +20,7 @@ import { dutyRoute } from '../modals/DutyModal';
 import { store, useGame } from '../store';
 import { Dot, KV, LimitBar, ScreenHead, useRenderCount } from './common';
 import { CAL_KEY_LABEL, calAt, calId, calKey, calLabel, calLayer, calLegend, pickCal } from './crewLogic';
-import { CREW_STATUS_LABEL, filterCrew, isPilotRole, limitTone, NO_FILTER, ROLE_LABEL, type CrewFilter } from './screenLogic';
+import { baseDay, CREW_STATUS_LABEL, filterCrew, isPilotRole, limitTone, NO_FILTER, ROLE_LABEL, type CrewFilter } from './screenLogic';
 
 const STATUS_TONE: Record<CrewStatus, 'good' | 'warn' | 'bad' | 'info' | 'off'> = {
   available: 'good', onDuty: 'info', resting: 'off', off: 'off', leave: 'off', sick: 'bad', training: 'warn', joining: 'warn',
@@ -53,7 +53,7 @@ function CrewRow({ g, c, w, on, t, selecting, checked, onTap }: { g: GameState; 
   // v0.6: a conversion class ('Conversion A330 · until 15 Jul', or booked) and the leave date of crew on notice.
   const cls = classOf(g, c.id);
   const training = c.status === 'training' ? crewStatusView(g, c.id).text.replace(/ · Leaves .*$/, '') : null;
-  const booked = cls && cls.status === 'planned' ? ` · Conversion ${familyLabel(cls.family)} from ${fmtDay(cls.start)}` : '';
+  const booked = cls && cls.status === 'planned' ? ` · Conversion ${familyLabel(cls.family)} from ${baseDay(g, cls.start)}` : '';
   return (
     <button className={`sc-crew-row ${on ? 'on' : ''} ${selecting ? 'selecting' : ''} ${checked ? 'checked' : ''}`} onClick={onTap} aria-pressed={selecting ? checked : undefined}>
       {selecting && <span className={`rb-check ${checked ? 'on' : ''}`} aria-hidden>{checked && <Check />}</span>}
@@ -164,7 +164,7 @@ function Roster({ g, c }: { g: GameState; c: CrewMember }) {
         {Array.from({ length: 14 }, (_, i) => <span key={i}>{toDate(from + i * DAY).getUTCDate()}</span>)}
       </div>
       <div className="sc-roster-lane sc-cal-lane" ref={lane} onClick={tap} role="group" aria-label="Next 14 days: tap a block for details">
-        {layered.map((b) => {
+        {layered.map((b, i) => {
           const key = calKey(b);
           const l = pct(b.start);
           const w = pct(b.end) - l;
@@ -173,7 +173,7 @@ function Roster({ g, c }: { g: GameState; c: CrewMember }) {
           const label = b.kind === 'off' ? 'Off' : b.kind === 'rest' ? '' : b.kind === 'duty' ? (key === 'ferry' ? 'FERRY' : '') : b.label;
           const id = calId(b);
           return (
-            <span key={id} className={`sc-cal k-${key} l${calLayer(b)} ${b.legality && b.legality !== 'legal' ? b.legality : ''} ${sel && calId(sel) === id ? 'on' : ''}`} style={{ left: `${l.toFixed(3)}%`, width: `${w.toFixed(3)}%` }}>
+            <span key={`${id}-${i}`} className={`sc-cal k-${key} l${calLayer(b)} ${b.legality && b.legality !== 'legal' ? b.legality : ''} ${sel && calId(sel) === id ? 'on' : ''}`} style={{ left: `${l.toFixed(3)}%`, width: `${w.toFixed(3)}%` }}>
               {label && ppm > 0 && px >= 8 * label.length + 10 ? <span className="sc-cal-t">{label}</span> : null}
             </span>
           );
@@ -187,13 +187,13 @@ function Roster({ g, c }: { g: GameState; c: CrewMember }) {
       )}
       {sel ? <CalDetail g={g} c={c} b={sel} /> : <div className="small dim">Tap the strip for details.</div>}
       <div className="sc-duty-list">
-        {items.slice(0, 8).map((b) => {
+        {items.slice(0, 8).map((b, i) => {
           const key = calKey(b);
           const d = b.dutyId ? g.duties[b.dutyId] : undefined;
           const route = d ? dutyRoute(g, d.id) : b.flights?.length ? [b.flights[0].from, ...b.flights.map((f) => f.to)].join('–') : b.detail.split('\n')[0];
           const open = () => (d && !d.done ? store.openModal({ kind: 'duty', id: d.id }) : setSel(calId(b)));
           return (
-            <button key={calId(b)} className={`sc-duty-row small ${sel && calId(sel) === calId(b) ? 'on' : ''}`} onClick={open}>
+            <button key={`${calId(b)}-${i}`} className={`sc-duty-row small ${sel && calId(sel) === calId(b) ? 'on' : ''}`} onClick={open}>
               <span className={`sc-cal-sw k-${key}`} aria-hidden />
               <span className="dim nowrap">{rowTime(b)}</span>
               <span className="nowrap">{calLabel(b)}</span>
@@ -248,6 +248,8 @@ function MoraleWhy({ g, c }: { g: GameState; c: CrewMember }) {
 /** v0.6 header chip: company morale and trend; tap for pilots / cabin, low and leaving counts, the top drivers. */
 function MoraleChip({ g }: { g: GameState }) {
   const [open, setOpen] = useState(false);
+  const nav = store.nav;
+  useEffect(() => setOpen(false), [nav]);
   const day = Math.floor(g.now / DAY);
   const n = Object.keys(g.crew).length;
   const s = useMemo(() => moraleSummary(g), [g, day, n, crewRev(g)]); // eslint-disable-line react-hooks/exhaustive-deps

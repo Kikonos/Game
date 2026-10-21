@@ -600,19 +600,27 @@ Object.assign(ACTIONS, {
     await page.evaluate(() => document.querySelector('.sc-policy-sum')?.scrollIntoView({ block: 'center' }));
     await settle(page, 300);
   },
-  'fleet-extra': async (page) => {
+  'fleet-extra': async (page, _s, d) => {
     const id = await pick(page, () => Object.keys(window.__contrail.game.fleet)[0]);
-    await page.evaluate((x) => window.__contrail.act((g) => { const ac = g.fleet[x]; ac.crewExtra = { cabin: 2, pilot: 1 }; return { ok: true }; }, { toastOk: false }), id);
-    await quiet(page);
     await nav(page, 'fleet', { sel: { kind: 'aircraft', id } });
     await page.evaluate(() => document.querySelector('.sc-ac-crew')?.scrollIntoView({ block: 'center' }));
-    await settle(page, 300);
+    const card = page.locator(`.sc-ac[data-ac="${id}"] .sc-ac-crew`);
+    const x = await page.evaluate((a) => window.__contrail.game.fleet[a].crewExtra, id);
+    if (!x || x.cabin < 2) {
+      await press(page, card.locator('button[aria-label="Increase"]'), d);
+      await settle(page, 200);
+      await press(page, card.locator('button[aria-label="Increase"]'), d);
+      await settle(page, 200);
+      await press(page, card.locator('.toggle'), d);
+    }
+    await quiet(page);
+    await settle(page, 400);
   },
   'offer-extra': async (page, _s, d) => {
     await nav(page, 'contracts', { view: 'market' });
     let ok = false;
-    for (let i = 0; i < 40 && !ok; i++) {
-      ok = await page.evaluate(() => { const s = window.__contrail; const id = s.dev.offer('adhoc'); return !!id && !!s.game.offers[id]?.requirements.extraCabinPaid; });
+    for (let i = 0; i < 80 && !ok; i++) {
+      ok = await page.evaluate((a) => { const s = window.__contrail; const id = s.dev.offer(a); return !!id && !!s.game.offers[id]?.requirements.extraCabinPaid; }, ['adhoc', 'tourSeries', 'troopRotation', 'sports'][i % 4]);
     }
     if (!ok) throw new Error('SKIP no offer with paid extra crew');
     await settle(page, 600);
@@ -627,6 +635,8 @@ Object.assign(ACTIONS, {
     if (!id) throw new Error('SKIP no rostered flight on an aircraft with extra crew');
     await nav(page, 'schedule');
     await modal(page, { kind: 'duty', id });
+    await page.evaluate(() => document.querySelector('.sc-chip-extra, .sc-seat.above')?.scrollIntoView({ block: 'center' }));
+    await settle(page, 300);
   },
 });
 

@@ -6,12 +6,12 @@ import { AlertTriangle, GraduationCap, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { ACMI_TYPES_LIST, type RatingFamily } from '../../data/acmiTypes';
 import { typeOf } from '../../engine/core/perf';
-import { DAY, fmtDay, toDate, toLocal } from '../../engine/core/time';
+import { DAY, toDate, toLocal } from '../../engine/core/time';
 import type { GameState } from '../../engine/core/types';
 import { ccqPartner, conversionEarliest, conversionPlan, courseOf, crewName, familyLabel, startConversion } from '../../engine/crew';
 import { Modal } from '../components/ui';
 import { money } from '../format';
-import { isPilotRole } from '../screens/screenLogic';
+import { baseDay, isPilotRole } from '../screens/screenLogic';
 import { store, useGame } from '../store';
 
 const CHIP_DAYS = 56;
@@ -57,6 +57,7 @@ export function ConvertModal({ crewIds, family: fam0 }: { crewIds: string[]; fam
   const t1 = plan.classes.length ? Math.max(...plan.classes.map((k) => k.end)) : start + DAY;
   const pct = (t: number) => ((t - t0) / Math.max(1, t1 - t0)) * 100;
   const base = g.company.homeBase;
+  const bd = (t: number) => baseDay(g, t);
   const days = Array.from({ length: CHIP_DAYS }, (_, i) => earliest + i * DAY);
   const label = familyLabel(family);
   const pc = courseOf('pilot', 'full', family);
@@ -86,7 +87,7 @@ export function ConvertModal({ crewIds, family: fam0 }: { crewIds: string[]; fam
     <Modal size="wide" className="cv-modal" title={`Type conversion · ${live.length} ${live.length === 1 ? 'person' : 'people'}`} icon={<GraduationCap className="accent" />} onClose={close} footer={
       <>
         <button className="btn" onClick={close}>Cancel</button>
-        <span className="grow small muted">{plan.classes.length ? `${plan.classes.length} class${plan.classes.length === 1 ? '' : 'es'} · ${fmtDay(t0)} – ${fmtDay(t1 - 1)}` : ''}</span>
+        <span className="grow small muted">{plan.classes.length ? `${plan.classes.length} class${plan.classes.length === 1 ? '' : 'es'} · ${bd(t0)} – ${bd(t1 - 1)}` : ''}</span>
         <button className="btn btn-primary" onClick={book} disabled={!plan.ok}><GraduationCap /> Book conversion · {money(plan.cost)}</button>
       </>
     }>
@@ -131,14 +132,14 @@ export function ConvertModal({ crewIds, family: fam0 }: { crewIds: string[]; fam
               <div key={k.no} className="cv-class">
                 <div className="row between small">
                   <b>{k.no}</b>
-                  <span className="muted">{k.crewIds.length} {k.group === 'pilot' ? 'pilot' : 'cabin crew'}{k.group === 'pilot' && k.crewIds.length !== 1 ? 's' : ''} · {fmtDay(k.start)} – {fmtDay(k.end - 1)}</span>
+                  <span className="muted">{k.crewIds.length} {k.group === 'pilot' ? 'pilot' : 'cabin crew'}{k.group === 'pilot' && k.crewIds.length !== 1 ? 's' : ''} · {bd(k.start)} – {bd(k.end - 1)}</span>
                 </div>
                 <div className="cv-track">
                   <span className={`cv-bar ${k.group}`} style={{ left: `${pct(k.start)}%`, width: `${Math.max(2, pct(k.end) - pct(k.start))}%` }}>
                     {k.phases.map((p) => <span key={p.label} className="cv-phase" style={{ width: `${((p.to - p.from) / (k.end - k.start)) * 100}%` }} />)}
                   </span>
                 </div>
-                <div className="tiny dim">{k.phases.map((p) => `${p.label} ${fmtDay(p.from)}`).join(' · ')}</div>
+                <div className="tiny dim">{k.phases.map((p) => `${p.label} ${bd(p.from)}`).join(' · ')}</div>
               </div>
             ))}
           </div>
