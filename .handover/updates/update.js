@@ -13,7 +13,8 @@ const V = args.version
 const WT = '/home/user/wt/acmi'
 const SCRATCH = `/tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/acmi/updates/${V}`
 const DOC = `${WT}/docs/acmi/${args.doc}`
-const OPUS = { model: 'opus', effort: 'high' }
+// Model per update: args.model ('fable' for v0.7.1 at the player's request), default opus; always high effort.
+const OPUS = { model: args.model ?? 'opus', effort: 'high' }
 const PORT0 = 6200 + Math.round(parseFloat(V.slice(1)) * 100) % 100 * 10
 
 const COMMON = `
