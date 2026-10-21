@@ -10,6 +10,7 @@ import { acceptOffer, declineOffer, feasibilityAll, generateOffer } from '../eng
 import { DAY } from '../engine/core/time';
 import { pushDecision } from '../engine/core/messages';
 import { demoFlights, devFleet } from '../engine/dev';
+import { resignNow } from '../engine/crew';
 import { createGame, type NewGameOptions } from '../engine/newGame';
 import { AUTOSAVE_SLOT, saveToSlot, serialize } from '../engine/save';
 import { advanceTo, settle } from '../engine/sim';
@@ -31,6 +32,8 @@ export interface Settings {
   /** Which engine pause requests actually stop the clock. */
   autoPause: Record<PauseReason, boolean>;
   mapAnimations: boolean;
+  /** Extra empty band above the top bar (px) — iPadOS 26 frosts the top edge of home-screen web apps. */
+  topGap: 'auto' | 0 | 16 | 28 | 40;
   toasts: boolean;
 }
 
@@ -41,6 +44,7 @@ const DEFAULT_SETTINGS: Settings = {
   autosave: true,
   autoPause: { decision: true, urgentOffer: true, aog: true, monthEnd: false, contractStart: false, crewShortage: true },
   mapAnimations: true,
+  topGap: 'auto',
   toasts: true,
 };
 
@@ -71,7 +75,10 @@ export type ModalSpec =
   /** Hand legs of a contract to a rival operator. */
   | { kind: 'subcharter'; contractId: string; flightId?: string }
   /** v0.5.1 livery editor: the company livery or one aircraft's (Company · All white · Custom). */
-  | { kind: 'livery'; target: 'company' | { aircraftId: string } };
+  | { kind: 'livery'; target: 'company' | { aircraftId: string } }
+  /** v0.6: bulk type-rating conversion for the selected crew; the classes list (cancel per class / member). */
+  | { kind: 'convert'; crewIds: string[]; family?: RatingFamily }
+  | { kind: 'classes' };
 
 export interface Toast {
   id: number;
@@ -82,6 +89,18 @@ export interface Toast {
 }
 
 const SETTINGS_KEY = 'contrail-acmi:settings';
+
+/** Pushes the shell below the band iPadOS 26 blurs at the top of web apps ('auto' = 28 px when installed). */
+export function applyTopGap(s: Pick<Settings, 'topGap'>) {
+  try {
+    const nav = navigator as Navigator & { standalone?: boolean };
+    const installed = nav.standalone === true || matchMedia('(display-mode: standalone)').matches;
+    const px = s.topGap === 'auto' ? (installed ? 28 : 0) : s.topGap;
+    document.documentElement.style.setProperty('--top-gap', `${px}px`);
+  } catch {
+    // no DOM (tests)
+  }
+}
 
 function loadSettings(): Settings {
   try {
@@ -446,6 +465,7 @@ class GameStore {
   setSettings(p: Partial<Settings>) {
     this.settings = { ...this.settings, ...p };
     sound.configure(this.settings.sound, this.settings.volume);
+    applyTopGap(this.settings);
     try {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(this.settings));
     } catch {
@@ -529,6 +549,26 @@ class GameStore {
       this.emitClock();
       return n;
     },
+    /** v0.6: everyone's morale set to n (0–100). */
+    morale: (n = 30) => {
+      const g = this.game;
+      if (!g) return 0;
+      const crew = Object.values(g.crew);
+      for (const c of crew) c.morale = Math.max(0, Math.min(100, n));
+      this.emit();
+      return crew.length;
+    },
+    /** v0.6: a crew member (default: the first not on notice) resigns now, with notice. */
+    resign: (crewId?: string) => {
+      const g = this.game;
+      if (!g) return null;
+      const id = crewId ?? Object.values(g.crew).find((c) => !c.notice && c.status !== 'joining')?.id;
+      const ok = !!id && resignNow(g, id);
+      settle(g);
+      this.lastMsgId = g.messages[0]?.id ?? this.lastMsgId;
+      this.emit();
+      return ok ? id : null;
+    },
     /** B5: React renders per screen (dev builds only), to check the calm-UI budget (≤ ~2/s at 4×). */
     renders: {} as Record<string, number>,
   };
@@ -579,3 +619,5 @@ export function useClock(): number {
 export function liveMinute(): number {
   return store.exact;
 }
+
+applyTopGap(store.settings);
