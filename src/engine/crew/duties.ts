@@ -45,6 +45,19 @@ function pickAugment(sh: Shape, reportLocal: number, acclimatised: boolean, rest
 
 export const canAugment = (g: GameState, restClass: 1 | 2 | 3 | null) => !!restClass && g.company.approvals.includes('augmented');
 
+/**
+ * Plan-time augmentation: the stricter of the two clocks the crew may be on at report (v0.5.2): home base for
+ * the first 48 h away (FTL state B, syncDuty), the departure airport after. Cutting only by the departure clock
+ * left early 4-sector days one band over the limit once measured in their pairing.
+ */
+function planAugment(g: GameState, sh: Shape, rc: 1 | 2 | 3 | null, canAug: boolean): ReturnType<typeof pickAugment> {
+  const a = pickAugment(sh, localMin(sh.dep, sh.report), true, rc, canAug);
+  const home = g.company.homeBase;
+  if (!a.ok || sh.dep === home || tzDeltaH(home, sh.dep, sh.report) === 0) return a;
+  const b = pickAugment(sh, localMin(home, sh.report), true, rc, canAug);
+  return !b.ok || b.augment > a.augment || (b.augment === a.augment && b.max < a.max) ? b : a;
+}
+
 export function dutyLegality(d: Duty): Legality {
   const max = d.maxFdp + (d.discretion ?? 0);
   return d.fdp > max ? 'illegal' : d.fdp > max - LIMITS.tightFdp ? 'tight' : 'legal';
@@ -84,6 +97,47 @@ export function queueDuty(g: GameState, d: Duty): void {
     schedule(g, Math.max(d.report, g.now), 'duty.report', d.id, d.ev);
   }
   schedule(g, Math.max(d.release, g.now), 'duty.release', d.id, d.ev);
+}
+
+/**
+ * v0.5.2: a duty under way whose next leg now leaves a night-stop after the last landing (an AOG or a long hold
+ * away from base) ends at that landing: the crew go to the hotel and the later legs become a duty of their own
+ * (own report, FDP and rest), not one duty stretched over days. Tickets home move to the new duty. The caller
+ * re-sorts the pairing (refreshPairing). The new duty, or null.
+ */
+export function splitUnderWay(g: GameState, p: Pairing, d: Duty): Duty | null {
+  if (d.done || d.report > g.now) return null;
+  const fl = dutyFlights(g, d).filter((f) => f.status !== 'cancelled');
+  const typeId = (p.aircraftId && g.fleet[p.aircraftId]?.typeId) || 'a320ceo';
+  const rm = reportMinutes(typeId);
+  for (let i = 1; i < fl.length; i++) {
+    const a = fl[i - 1];
+    const b = fl[i];
+    if (a.status !== 'done' || b.status !== 'scheduled') continue;
+    const landed = onBlocks(a);
+    const need = minRest({ dutyMin: landed - d.report, atHome: a.to === g.company.homeBase, augmented: d.augment > 0, tzShift: 0 }) + rm.report + rm.post;
+    if (b.std - landed < need) continue;
+    const later = fl.slice(i);
+    const d2: Duty = {
+      id: nextId(g, 'du'), pairingId: p.id, report: Number.MAX_SAFE_INTEGER, release: 0, flightIds: later.map((f) => f.id), deadheadIds: [], sectors: 0,
+      fdp: 0, maxFdp: 0, augment: 0, restAt: '', legality: 'legal', ev: 0, flightsEv: 0,
+    };
+    g.duties[d2.id] = d2;
+    for (const f of later) f.dutyId = d2.id;
+    d.flightIds = fl.slice(0, i).map((f) => f.id);
+    d2.deadheadIds = d.deadheadIds.filter((id) => (g.flights[id]?.std ?? 0) > landed);
+    d.deadheadIds = d.deadheadIds.filter((id) => !d2.deadheadIds.includes(id));
+    p.dutyIds.push(d2.id);
+    syncDuty(g, d, p);
+    syncDuty(g, d2, p);
+    if (crewCount(p) > 0) {
+      queueDuty(g, d);
+      queueDuty(g, d2);
+    }
+    touchCrew(g);
+    return d2;
+  }
+  return null;
 }
 
 // ---------- pairings ----------
@@ -248,7 +302,7 @@ function partition(g: GameState, typeId: string, units: Flight[][]): Spec[] {
       const sh = shape(typeId, fl);
       const single = i === j - 1;
       if (!single && sh.fdp > 19 * 60) break;
-      const pa = pickAugment(sh, localMin(sh.dep, sh.report), true, rc, canAug);
+      const pa = planAugment(g, sh, rc, canAug);
       const tight = sh.fdp > pa.max - LIMITS.tightFdp;
       if (!single && (!pa.ok || (tight && !allowTight))) continue;
       const prev = best[i];
@@ -276,7 +330,7 @@ function slipUnits(g: GameState, typeId: string, u: Flight[]): Flight[][] {
   if (u.length < 2) return [u];
   const sh = shape(typeId, u);
   const rc = typeOf(typeId).restClass;
-  if (pickAugment(sh, localMin(sh.dep, sh.report), true, rc, canAugment(g, rc)).ok) return [u];
+  if (planAugment(g, sh, rc, canAugment(g, rc)).ok) return [u];
   const out: Flight[][] = [];
   let cur: Flight[] = [];
   for (const f of u) {
@@ -376,15 +430,18 @@ export function planAircraft(g: GameState, acId: string, from: Minute): void {
     delete d.done;
     g.duties[d.id] = d;
     for (const f of s.flights) f.dutyId = d.id;
-    // Provisional measures (D-state at departure); refreshPairing re-measures in pairing context.
+    // Provisional measures (the stricter clock); refreshPairing re-measures in pairing context.
     const sh = shape(typeId, s.flights);
     const rc = typeOf(typeId).restClass;
-    const pa = pickAugment(sh, localMin(sh.dep, sh.report), true, rc, canAugment(g, rc));
+    const pa = planAugment(g, sh, rc, canAugment(g, rc));
     Object.assign(d, { report: sh.report, release: sh.release, fdp: sh.fdp, sectors: sh.sectors, augment: pa.augment, maxFdp: pa.max, restAt: sh.restAt });
     d.flightsEv = s.flights.reduce((n, f) => n + f.ev, 0);
     d.legality = dutyLegality(d);
     const c = contractOfDuties(g, [d]);
-    if (isDeploymentContract(g, c)) {
+    // v0.5.2: an empty leg into a deployment from an outstation is a pilots-only ferry: the tour's cabin crew
+    // deadhead straight to the base instead of first flying out to the aircraft (from home they ride along).
+    const remoteIn = isDeploymentContract(g, c) && emptyDuty(g, d) && g.flights[d.flightIds[0]]?.from !== home && !specs.some((x) => x.flights[0].std < s.flights[0].std && x.flights.some((f) => f.contractId === c.id && f.kind !== 'positioning' && f.kind !== 'ferry'));
+    if (isDeploymentContract(g, c) && !remoteIn) {
       const l = byDep.get(c.id) ?? [];
       l.push(d);
       byDep.set(c.id, l);
@@ -455,13 +512,29 @@ export function setCrewTrailOkHook(f: (g: GameState, p: Pairing, c: CrewMember) 
   crewTrailOkHook = f;
 }
 
+/** Only empty legs (positioning / ferry): flown with pilots only when it is a trip of its own. */
+function emptyDuty(g: GameState, d: Duty): boolean {
+  return d.flightIds.every((id) => {
+    const k = g.flights[id]?.kind;
+    return k === 'positioning' || k === 'ferry';
+  });
+}
+
 /** Trips: from a duty until one releases at home base, a > 3-day gap, or 6 duty days (then 2 days off). */
 function buildTrips(g: GameState, acId: string, duties: Duty[]): void {
   const home = g.company.homeBase;
   const dayOf = (t: Minute) => Math.floor((t + offsetAt(home, t)) / DAY);
   let cur: Duty[] = [];
+  const empty = (d: Duty) => emptyDuty(g, d);
+  // v0.5.2: empty duties after the trip's last revenue duty are their own pilots-only trip (a ferry: the cabin
+  // crew aren't needed at the destination and go home by ticket; the pilots usually fly on, crew.planCrew drop).
   const close = () => {
-    if (cur.length) newPairing(g, cur, acId, null);
+    let k = cur.length;
+    while (k > 0 && empty(cur[k - 1])) k--;
+    if (k > 0 && k < cur.length) {
+      newPairing(g, cur.slice(0, k), acId, null);
+      newPairing(g, cur.slice(k), acId, null);
+    } else if (cur.length) newPairing(g, cur, acId, null);
     cur = [];
   };
   for (const d of duties) {

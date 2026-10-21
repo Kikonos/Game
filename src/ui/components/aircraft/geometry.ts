@@ -4,6 +4,7 @@
 import type { TailStyle } from '../../../engine/core/types';
 import { COCKPIT } from './cockpit';
 import { Box, D, add, chainPts, cubic, lerp, lerpV, rad, relax, sampleChain, splitTail, yAt, type V } from './path';
+import { CABIN, FAIR, fairLine } from './fair';
 import type { TracedProfile } from './traced/types';
 import type { AircraftProfile, EngineSpec, EngineStyle, FairingSpec, FinSpec, TipDevice, WindowRow, WingSpec } from './types';
 
@@ -69,6 +70,8 @@ export interface Geometry {
   wing: { fill: string; tip: string; tipEdge?: string; lines: string; shade?: string; shadow?: { c: V; rx: number; ry: number } };
   engines: EngineGeo[];
   windows: string;
+  /** The window rows as slim bands, one per run between doors and gaps (drawn instead of `windows` when small). */
+  windowBands: string;
   doors: string;
   /** Radome joint, fairing seam and similar fine lines on the fuselage. */
   lines: string;
@@ -113,6 +116,8 @@ interface Frame {
   top: V[];
   bottom: V[];
   outline?: V[];
+  /** Traced fin polygon (world), its root moved with the faired crown. */
+  fin?: V[];
   tip: V;
   X: (x: number) => number;
   Y: (y: number) => number;
@@ -151,8 +156,18 @@ function tracedFrame(t: TracedProfile, p: AircraftProfile): Frame {
   // x non-decreasing so the crown/belly lookups stay single-valued
   const mono = (pts: V[]): V[] => pts.map((v, i, a) => (i && v[0] < a[i - 1][0] ? [a[i - 1][0], v[1]] : v));
   const line = (pts: readonly (readonly [number, number])[]): V[] => (pts.length ? relax(mono(pts.map(P))) : []);
-  const top = line(t.top), bottom = line(t.bottom);
-  return { t, H: Hf * L, top, bottom, outline: outline && relax(outline.map(P)), tip: top[0] ?? P([0, 0]), X, Y, P };
+  // crown, belly and tail cone faired between the approved nose and tail-cone tip (fair.ts)
+  const fTop = fairLine(t.top, FAIR, t.cabin ?? CABIN);
+  const top = line(fTop), bottom = line(fairLine(t.bottom));
+  // fin vertices on (or just above) the crown follow it, fading out 0.012 L above
+  const rawTop = mono(t.top.map((q): V => q)), fairTop = fTop.map((q): V => q);
+  const fin = t.fin && t.fin.length >= 3
+    ? t.fin.map(([x, y]) => {
+      const k = Math.max(0, 1 - Math.abs(y - yAt(rawTop, x)) / 0.012);
+      return P([x, y + k * (yAt(fairTop, x) - yAt(rawTop, x))]);
+    })
+    : undefined;
+  return { t, H: Hf * L, top, bottom, outline: outline && relax(outline.map(P)), fin, tip: top[0] ?? P([0, 0]), X, Y, P };
 }
 
 /** Topmost and lowest crossing (frame y) of a closed polygon with the vertical line at x. */
@@ -416,7 +431,7 @@ function build(p: AircraftProfile, t?: TracedProfile): Geometry {
   // in outline mode the upper envelope already includes the fin, so "above the crown" is judged
   // against the traced top line when there is one, else the mid-fuselage crown
   const finRef = fr?.outline ? (fr.top.length >= 2 ? (x: number) => yAt(fr.top, x) : () => crown) : upperY;
-  const tracedPoly = fr && t?.fin && t.fin.length >= 3 ? t.fin.map(fr.P) : undefined;
+  const tracedPoly = fr?.fin;
   const finG = (tracedPoly && tracedFin(tracedPoly, p, H, finRef, box, !fr?.outline))
     ?? (fr?.outline && tracedFin(fr.outline, p, H, finRef, box, false))
     ?? paramFin(p, H, L, upperY, box);
@@ -523,14 +538,27 @@ function build(p: AircraftProfile, t?: TracedProfile): Geometry {
   const doors = new D();
   for (const d of doorBox) doors.rrect(d.x, d.y, d.w, d.h, Math.min(d.w, d.h) * 0.2);
   const win = new D();
+  // small sizes: each run of windows (between doors, exits, gaps) as one slim band
+  const band = new D();
   for (const row of rows) {
+    let run: [number, number] | undefined;
+    const flush = () => {
+      if (!run) return;
+      const bh = row.h * 0.62;
+      band.rrect(run[0] - row.w / 2, row.y - bh / 2, run[1] - run[0] + row.w, bh, bh / 2);
+      run = undefined;
+    };
     for (let x = row.x0; x <= row.x1 + 1e-6; x += row.pitch) {
       const hit = doorBox.some((d) => d.kind !== 'cargo' && x + row.w / 2 > d.x - 0.12 && x - row.w / 2 < d.x + d.w + 0.12 && row.y > d.y && row.y < d.y + d.h + 0.3);
-      if (hit || row.gaps?.some(([a, b]) => x >= a && x <= b)) continue;
       // traced airframe: spec deck rows only where they sit inside it
-      if (fr && (row.y + row.h / 2 > upperY(x) - H * 0.04 || row.y - row.h / 2 < lowerY(x) + H * 0.04)) continue;
+      if (hit || row.gaps?.some(([a, b]) => x >= a && x <= b) || (fr && (row.y + row.h / 2 > upperY(x) - H * 0.04 || row.y - row.h / 2 < lowerY(x) + H * 0.04))) {
+        flush();
+        continue;
+      }
       win.rrect(x - row.w / 2, row.y - row.h / 2, row.w, row.h, row.w * 0.45);
+      run = run ? [run[0], x] : [x, x];
     }
+    flush();
   }
   if (p.nose.radome && !fr?.outline) {
     const rx = p.nose.radome * H;
@@ -614,6 +642,7 @@ function build(p: AircraftProfile, t?: TracedProfile): Geometry {
     wing: { ...wingG, shadow },
     engines,
     windows: win.toString(),
+    windowBands: band.toString(),
     doors: doors.toString(),
     lines: lines.toString(),
     apu: apu.toString(),

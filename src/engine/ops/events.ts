@@ -17,6 +17,7 @@ import { generateOffer, planPositioning } from '../contracts';
 import { applyDiscretion, flightCrewStatus, minRest, replaceCrew, rerosterFrom, rosterOf } from '../crew';
 import { applyHold, cancelCost, cancelLegs, crewBlocked, delayChain, moveFlight, pickRival, planHold, planRecovery, rivalFactor, stationOf, subcharterCost, subcharterLegs, windowLegs } from './flights';
 import { setAogEnd } from './maintenance';
+import { ticketBlock } from './commercial';
 import { bumpReliable, bumpRelation, isRevenue, stats, turnOf, usd } from './util';
 
 type Data = Record<string, string | number | boolean>;
@@ -291,7 +292,8 @@ export function crewReadyAt(g: GameState, f: Flight, ac: Aircraft): Minute {
   if (here !== null) t = here + report;
   for (const from of new Set([stationOf(g, f), g.company.homeBase])) {
     if (from === f.from) continue;
-    let travel = BAL.deadheadCheckIn + blockMinutes('a320ceo', from, f.from) + 180;
+    // v0.5.2: tickets take the airline itinerary's time (a connection included), as crew planning books them.
+    let travel = BAL.deadheadCheckIn + ticketBlock(from, f.from) + 180;
     // Too long for one duty with the ticket in it: the crew flies out the day before and rests first.
     if (travel + need > 13 * 60) travel += 10 * 60;
     const r = readyAt(g, roles, from, fam, need + travel, own);

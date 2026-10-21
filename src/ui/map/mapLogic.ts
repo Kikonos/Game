@@ -5,8 +5,9 @@ import { AIRPORT_BY_CODE } from '../../data/airports';
 import { flightsOf } from '../../engine/core/entities';
 import { haversine } from '../../engine/core/geo';
 import { flightTimes } from '../../engine/core/query';
-import { fmtDay, fmtTime } from '../../engine/core/time';
-import type { Aircraft, Archetype, ContractOffer, Flight, GameState, Minute } from '../../engine/core/types';
+import { DAY, fmtDay, fmtTime } from '../../engine/core/time';
+import type { Aircraft, Archetype, ContractOffer, Flight, GameState, Minute, Ref } from '../../engine/core/types';
+import { commercialFlightsBetween, type CommercialFlight, commercialItinerary, type FlightType, flightType } from '../../engine/ops';
 import { contractColor } from '../screens/palette';
 
 const RAD = Math.PI / 180;
@@ -137,6 +138,82 @@ export function upNext(g: GameState, n = 3, after = -Infinity): Flight[] {
   return all.sort((a, b) => a.std + a.delay - (b.std + b.delay)).slice(0, n);
 }
 
+// ---------- flight types (v0.5.2) ----------
+
+/** Map stroke per flight type: colour, dash (screen px; '' = solid) and width (screen px). */
+export const TYPE_STROKE: Record<FlightType, { color: string; dash: string; width: number }> = {
+  operating: { color: '#34d399', dash: '', width: 1.8 },
+  positioning: { color: '#fbbf24', dash: '2 5', width: 1.8 },
+  ferry: { color: '#fbbf24', dash: '2 5', width: 1.8 },
+  deadhead: { color: '#9aa5bb', dash: '1.5 4', width: 1.1 },
+};
+
+/** Selection id of an airline leg on the map (a Ref of kind 'flight'): `${ticketId}:${legIndex}`. */
+export const isCommercialId = (id: string) => /:\d+$/.test(id);
+export function parseCommercialId(id: string): { ticketId: string; legIndex: number } | null {
+  const m = /^(.*):(\d+)$/.exec(id);
+  return m ? { ticketId: m[1], legIndex: Number(m[2]) } : null;
+}
+
+/**
+ * One entry per airline flight: crew on separate tickets for the same flight (same number, route and
+ * departure) share one icon, row and panel. Keeps the first id (input order); crew merged in order.
+ */
+export function groupCommercial(list: CommercialFlight[]): CommercialFlight[] {
+  const by = new Map<string, CommercialFlight>();
+  for (const cf of list) {
+    const k = `${cf.leg.no}|${cf.leg.from}|${cf.leg.dep}`;
+    const hit = by.get(k);
+    if (!hit) by.set(k, { ...cf, crewIds: [...cf.crewIds] });
+    else for (const id of cf.crewIds) if (!hit.crewIds.includes(id)) hit.crewIds.push(id);
+  }
+  return [...by.values()];
+}
+
+/** The airline flight a map selection id points at, with every ticket's crew on it (null once the ticket is gone). */
+export function commercialById(g: GameState, id: string): CommercialFlight | null {
+  const ref = parseCommercialId(id);
+  const ticket = ref ? g.flights[ref.ticketId] : undefined;
+  const leg = ticket && ref ? commercialItinerary(g, ticket)[ref.legIndex] : undefined;
+  if (!ticket || !leg || !ref) return null;
+  const same = commercialFlightsBetween(g, leg.dep, leg.arr).filter((c) => c.leg.no === leg.no && c.leg.from === leg.from && c.leg.dep === leg.dep);
+  const crewIds = [...ticket.crewIds];
+  for (const c of same) for (const x of c.crewIds) if (!crewIds.includes(x)) crewIds.push(x);
+  return { id, ticketId: ticket.id, leg, legIndex: ref.legIndex, legCount: commercialItinerary(g, ticket).length, crewIds };
+}
+
+export interface NextRow {
+  id: string;
+  /** Departure (game minutes, delay included). */
+  t: Minute;
+  /** Registration (our aircraft) or airline flight number (deadhead). */
+  who: string;
+  from: string;
+  to: string;
+  type: FlightType;
+  /** Crew travelling (deadhead rows). */
+  crew: number;
+  sel: Ref | null;
+}
+
+/** Up Next rows: our next departures and the airline legs our crew ride, typed, after `after`; at most n. */
+export function upNextRows(g: GameState, n = 4, after = -Infinity): NextRow[] {
+  const rows: NextRow[] = upNext(g, n, after).map((f) => ({
+    id: f.id, t: f.std + f.delay, who: f.aircraftId ? g.fleet[f.aircraftId]?.reg ?? f.no : f.no, from: f.from, to: f.to,
+    type: flightType(g, f), crew: 0, sel: f.aircraftId ? { kind: 'aircraft', id: f.aircraftId } : null,
+  }));
+  const t0 = Number.isFinite(after) ? after : g.now;
+  for (const cf of groupCommercial(commercialFlightsBetween(g, t0, t0 + 3 * DAY))) {
+    if (cf.leg.dep <= after) continue;
+    rows.push(commercialRow(cf));
+  }
+  return rows.sort((a, b) => a.t - b.t || (a.id < b.id ? -1 : 1)).slice(0, n);
+}
+
+const commercialRow = (cf: CommercialFlight): NextRow => ({
+  id: cf.id, t: cf.leg.dep, who: cf.leg.no, from: cf.leg.from, to: cf.leg.to, type: 'deadhead', crew: cf.crewIds.length, sel: { kind: 'flight', id: cf.id },
+});
+
 export interface PinGroup {
   code: string;
   offers: ContractOffer[];
@@ -224,6 +301,80 @@ export function placeLabels(boxes: LabelBox[], gap = 2): Set<string> {
     out.add(b.id);
   }
   return out;
+}
+
+/** Overlap area (px²) of two boxes, each grown by `gap` on every side; 0 when apart. */
+export function boxOverlap(a: LabelBox, b: LabelBox, gap = 0): number {
+  const ox = (a.w + b.w) / 2 + gap * 2 - Math.abs(a.x - b.x);
+  const oy = (a.h + b.h) / 2 + gap * 2 - Math.abs(a.y - b.y);
+  return ox > 0 && oy > 0 ? ox * oy : 0;
+}
+
+/**
+ * Centre (screen px from the icon) of a label riding beside a moving icon: across the track, on the
+ * travel-right (`side` 1) or travel-left (-1) of heading `ang` (headingDeg), clear of a `r` px icon.
+ * The leg's own airports lie on the track, so they never sit under it; it turns smoothly with the track.
+ */
+export function trackLabelAt(ang: number, side: 1 | -1, w: number, h: number, r = 13): [number, number] {
+  const a = ((ang - 90) * Math.PI) / 180;
+  const nx = -Math.sin(a) * side;
+  const ny = Math.cos(a) * side;
+  const d = r + (Math.abs(nx) * w) / 2 + (Math.abs(ny) * h) / 2;
+  return [nx * d, ny * d];
+}
+
+/** Track side whose normal points down the screen (or right, on a north–south track): under the icon, away from codes drawn above dots. */
+export function downSide(ang: number): 1 | -1 {
+  const [nx, ny] = trackLabelAt(ang, 1, 0, 0, 1);
+  return ny > 0.25 || (ny > -0.25 && nx > 0) ? 1 : -1;
+}
+
+/** Per track point: does the label on `side` cover any obstacle (by more than a sliver)? */
+export function trackCovered(track: { x: number; y: number; ang: number }[], side: 1 | -1, w: number, h: number, obstacles: LabelBox[]): boolean[] {
+  return track.map((t) => {
+    const [cx, cy] = trackLabelAt(t.ang, side, w, h);
+    const b = { id: '', x: t.x + cx, y: t.y + cy, w, h };
+    return obstacles.some((o) => boxOverlap(b, o, 1) > 6);
+  });
+}
+
+/** Our reg label's centre offset from the icon (screen px): under it (as parked), or above it while that covers an airport. */
+export const REG_DY = 21;
+/** 0 = under the icon, 1 = above it, 2 = under but faded (both cover an airport dot or code). */
+export type RegSlot = 0 | 1 | 2;
+
+/**
+ * Where our airborne aircraft's reg label sits right now (icon at x/y, screen px): under the icon unless
+ * that covers an airport dot or code (just after take-off, on short final), then above it. Hysteresis
+ * (a label leaves a slot on a clear overlap, returns only with a margin) keeps it from hopping back and forth.
+ */
+export function regSlot(x: number, y: number, w: number, h: number, obstacles: LabelBox[], prev: RegSlot): RegSlot {
+  const bad = (dy: number, held: boolean) => {
+    // Held: covered once it is more than 1.5 px into a box; taken back only with 2 px to spare.
+    const m = held ? -1.5 : 2;
+    return obstacles.some((o) => Math.abs(x - o.x) < (w + o.w) / 2 + m && Math.abs(y + dy - o.y) < (h + o.h) / 2 + m);
+  };
+  if (!bad(REG_DY, prev === 0)) return 0;
+  return bad(-REG_DY, prev === 1) ? 2 : 1;
+}
+
+/**
+ * Side for a leg's label, chosen once per leg (and zoom) so it never hops mid-flight: `pref`, unless the
+ * other side covers clearly less of the obstacles over the whole track (`track` = icon point and heading, screen px).
+ */
+export function legLabelSide(track: { x: number; y: number; ang: number }[], w: number, h: number, obstacles: LabelBox[], pref: 1 | -1): 1 | -1 {
+  const cover = (side: 1 | -1) => {
+    let c = 0;
+    for (const t of track) {
+      const [cx, cy] = trackLabelAt(t.ang, side, w, h);
+      for (const o of obstacles) c += boxOverlap({ id: '', x: t.x + cx, y: t.y + cy, w, h }, o, 2);
+    }
+    return c;
+  };
+  const a = cover(pref);
+  if (a === 0) return pref;
+  const other = pref === 1 ? -1 : 1;
+  return cover(other) < a * 0.5 ? other : pref;
 }
 
 export const ARCHETYPE_LABEL: Partial<Record<Archetype, string>> = {

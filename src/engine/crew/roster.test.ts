@@ -261,6 +261,28 @@ describe('deadheads', () => {
     expect(g.pairings[d.pairingId].slots.map((s) => s.role)).toEqual(['CPT', 'FO']);
   });
 
+  it('pilots stay at the hotel for a ferry out of the station next day instead of flying home and back out', () => {
+    const g = fixtureGame();
+    const ac = Object.values(g.fleet)[0];
+    ac.at = 'LIS';
+    const day = Math.floor(g.now / DAY) * DAY;
+    // A short operating day into ZAG (its ticket home would leave the same evening), the ferry back 30 h later.
+    const std = day + 2 * DAY + 8 * 60;
+    addFlight(g, { no: 'AW1', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'LIS', to: 'ZAG', std, sta: std + 185 });
+    addFlight(g, { no: 'AW2', aircraftId: ac.id, contractId: null, kind: 'ferry', from: 'ZAG', to: 'LIS', std: std + 30 * 60, sta: std + 30 * 60 + 185 });
+    const res = autoRoster(g);
+    expect(res.uncovered).toEqual([]);
+    const ps = Object.values(g.pairings).sort((a, b) => a.start - b.start);
+    expect(ps).toHaveLength(2);
+    const pilots = (p: Pairing) => p.slots.filter((x) => x.role === 'CPT' || x.role === 'FO').map((x) => x.crewId).sort();
+    expect(pilots(ps[1])).toEqual(pilots(ps[0]));
+    const tickets = Object.values(g.flights).filter((f) => f.kind === 'deadhead' && f.status !== 'cancelled');
+    for (const id of pilots(ps[0])) expect(tickets.filter((f) => f.crewIds.includes(id!))).toEqual([]);
+    // Cabin crew aren't needed on the ferry: they go home by ticket.
+    expect(tickets.some((f) => f.from === 'ZAG' && f.to === 'LIS' && f.crewIds.length === 4)).toBe(true);
+    expect(allCrewLegal(g)).toEqual([]);
+  });
+
   it('wet leases: the client buys crew tickets (no cost to us)', () => {
     const { g, ac, k } = awayTrip(true);
     const std = Math.floor(g.now / DAY) * DAY + 2 * DAY + 9 * 60;

@@ -9,7 +9,7 @@ import type { CrewMember, GameState, Minute, SimEvent } from '../core/types';
 import { dailyCrewCosts, monthlySalaries } from './costs';
 import { deletePairing, planAircraft } from './duties';
 import { dailySickness, onCrewJoin, onTrainingDone } from './hr';
-import { autoRoster, guardDuty, onFlightsChanged, recheckAfterRelease, recheckNext, recheckSoon, sendStrandedHome } from './roster';
+import { autoRoster, guardDuty, onFlightsChanged, recheckAfterRelease, recheckNext, recheckSoon, sendStrandedHome, stayOn } from './roster';
 import { minRest, nightsIn, LIMITS } from './rules';
 import { aboard, crewCount, crewIx, dutyBlock, dutyFlights, dutySegs, onBlocks, passengers, touchCrew } from './timeline';
 
@@ -20,7 +20,7 @@ export {
 export { crewName, makeCrewMember, salaryFor } from './generate';
 export { crewAvailability, hireCrew, hireQuote, staffing, trainCrew, type Availability, type HireRequest, type RoleCapacity, type StaffingLine } from './hr';
 export {
-  applyDiscretion, autoRoster, boardCrew, buildDuties, flightCrewStatus, guardDuty, onFlightsChanged, removeCrew, replaceCrew, rerosterFrom, rosterOf,
+  applyDiscretion, autoRoster, boardCrew, buildDuties, flightCrewStatus, guardDuty, onFlightsChanged, removeCrew, replaceCrew, rerosterFrom, rosterOf, setRestDelayHook,
   type FlightCrewStatus, type RosterResult,
 } from './roster';
 export { crewIssuesFor } from './check';
@@ -30,6 +30,7 @@ export {
 } from './rosterActions';
 export { salaryBill } from './costs';
 export { crewRev, ticketPrice } from './timeline';
+export { CAL_LABEL, crewCalendar, crewStatusView, crewTravelNow, joinsAt, type CalBlock, type CalFlight, type CalKind, type CrewStatusView, type CrewTravelNow } from './calendar';
 
 const CHECKIN = () => BAL.deadheadCheckIn;
 
@@ -205,6 +206,9 @@ function daily(g: GameState) {
   if (g.company.policies.autoRoster) {
     recheckSoon(g);
     autoRoster(g);
+    // Crew flying home only to fly straight back out stay at the hotel instead.
+    const stayed = stayOn(g);
+    if (stayed.length) recheckNext(g, stayed);
   }
   sendStrandedHome(g);
 }

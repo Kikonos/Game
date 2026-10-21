@@ -2,13 +2,14 @@
 // Flight: times UTC/local, crew and legality, contract link. Maintenance: reschedule / cancel.
 
 import { CalendarClock, ChevronLeft, Clock, FileSignature, Handshake, Lock, Palette, Search, Trash2, Users, Wrench } from 'lucide-react';
-import { useState } from 'react';
+import { type ReactNode, useState } from 'react';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { BAL } from '../../engine/core/balance';
 import { DAY, fmtDateTime, fmtDuration, fmtTime } from '../../engine/core/time';
 import type { Flight, GameState, MaintenanceEvent, Ref } from '../../engine/core/types';
-import { dutyCrew, flightCrewStatus } from '../../engine/crew';
-import { cancelCheck, delayFlight } from '../../engine/ops';
+import { crewName, dutyCrew, flightCrewStatus } from '../../engine/crew';
+import { cancelCheck, delayFlight, flightCrewAboard, flightType } from '../../engine/ops';
+import { FlightTypeChip } from '../components/FlightType';
 import { Modal, Stepper } from '../components/ui';
 import { money } from '../format';
 import { Dot, KV } from '../screens/common';
@@ -16,7 +17,6 @@ import { contractColor } from '../screens/palette';
 import { durLabel, paintLabel } from '../screens/scheduleLogic';
 import { store, useGame } from '../store';
 
-const KIND: Record<Flight['kind'], string> = { revenue: 'Revenue', positioning: 'Positioning (empty)', ferry: 'Ferry', techstop: 'Revenue with fuel stop', deadhead: 'Deadhead' };
 const STATUS: Record<Flight['status'], string> = { scheduled: 'Scheduled', enroute: 'En route', done: 'Landed', cancelled: 'Cancelled' };
 const LEVEL_TONE = { ok: 'good', tight: 'warn', missing: 'bad', illegal: 'bad' } as const;
 
@@ -36,15 +36,20 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
   const [hold, setHold] = useState(0);
   // Beyond the roster horizon an empty duty is normal, not a problem.
   const later = cs.level === 'missing' && f.std > g.now + BAL.rosterHorizonDays * DAY && !(view?.slots.some((x) => x.crewId));
-  const rows: [string, string][] = [
+  const type = flightType(g, f);
+  const aboard = flightCrewAboard(g, f);
+  const rows: [ReactNode, ReactNode][] = [
     ['Aircraft', rival ? `Sub-chartered to ${rival}` : ac ? `${ac.reg}` : '—'],
-    ['Type', KIND[f.kind]],
+    ['Type', <span className="row gap-8 sc-ft-row"><FlightTypeChip type={type} />{f.kind === 'techstop' && <span className="small muted">fuel stop</span>}</span>],
     ['Status', `${STATUS[f.status]}${f.delay ? ` · ${fmtDuration(f.delay)} late${f.delayReason ? ` (${f.delayReason})` : ''}` : ''}`],
     ['Departs', both(f.atd ?? f.std + f.delay, f.from)],
     ['Arrives', both(f.ata ?? f.eta ?? f.sta + f.delay, f.to)],
     ['Block', fmtDuration(f.block)],
   ];
   if (f.pax) rows.push(['Passengers', String(f.pax)]);
+  if (type === 'ferry') rows.push(['Crew aboard', 'Pilots only · cabin crew travel separately']);
+  else if (type === 'positioning') rows.push(['Crew aboard', 'Full crew · cabin crew needed at the destination']);
+  if (aboard.riding.length) rows.push(['Riding', aboard.riding.map((id) => `${g.crew[id].role} ${crewName(g.crew[id])}`).join(', ')]);
   if (d) rows.push(['Duty', `FDP ${fmtDuration(d.fdp)} of ${fmtDuration(d.maxFdp + (d.discretion ?? 0))} · ${d.sectors} sector${d.sectors === 1 ? '' : 's'}${d.augment ? ` · +${d.augment} pilot${d.augment > 1 ? 's' : ''}` : ''}`]);
   const live = f.status === 'scheduled' && !!f.aircraftId;
   const canSub = live && !!c && (f.kind === 'revenue' || f.kind === 'techstop');
@@ -202,7 +207,7 @@ export function BlockSheet({ refs, idle }: { refs: Ref[]; idle?: { aircraftId: s
           return (
             <button key={r.id} className="sc-slot" style={k !== undefined ? { ['--kc' as string]: contractColor(k) } : undefined} onClick={() => setOpen(r)}>
               <b className="row gap-8">{k !== undefined && <span className="sc-kdot" />}{titleOf(g, r)}</b>
-              <span className="muted">{fmtDateTime(t)} UTC{f ? ` · ${KIND[f.kind]}` : ''}</span>
+              <span className="muted row gap-8">{fmtDateTime(t)} UTC{f && <FlightTypeChip type={flightType(g, f)} />}</span>
             </button>
           );
         })}

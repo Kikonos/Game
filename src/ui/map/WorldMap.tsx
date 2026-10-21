@@ -773,7 +773,30 @@ export function WorldMap({
       commit();
       return;
     }
-    if (!cancelled) tap(e.clientX, e.clientY, e.pointerType !== 'mouse', e.timeStamp);
+    if (cancelled) return;
+    swallowClick();
+    tap(e.clientX, e.clientY, e.pointerType !== 'mouse', e.timeStamp);
+  };
+
+  // A tap selects on pointerup; the panel it opens can land under the finger, and that same tap's click
+  // would then hit a button in it (a crew row). Swallow that one click (none follows a later pointerdown).
+  const swallowClick = () => {
+    const until = performance.now() + 400;
+    const off = () => {
+      window.removeEventListener('click', onClick, true);
+      window.removeEventListener('pointerdown', off, true);
+      window.clearTimeout(timer);
+    };
+    const onClick = (ev: MouseEvent) => {
+      off();
+      // A click on the map itself is the normal case: let it through.
+      if (performance.now() > until || wrapRef.current?.contains(ev.target as Node)) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+    };
+    window.addEventListener('click', onClick, true);
+    window.addEventListener('pointerdown', off, true);
+    const timer = window.setTimeout(off, 450);
   };
 
   // Wheel (mouse, trackpad scroll and Chrome's ctrl+wheel trackpad pinch) and Safari's trackpad gesture events.

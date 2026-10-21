@@ -1,30 +1,43 @@
 // Ops Map (B4) SVG layers: night terminator (WorldMap backdrop: its own composited layer, slid
-// sideways by the sun without a repaint), selected-aircraft arcs (under the airports), offer pins and
-// aircraft glyphs (above). Aircraft and the terminator move in one imperative rAF loop (30 fps on
-// touch, full rate while zooming; no React render per frame); the rest re-renders with the hourly emit.
+// sideways by the sun without a repaint), flight paths and selected-aircraft arcs (under the airports),
+// offer pins, airline legs carrying our crew (grey) and our aircraft glyphs (above). Aircraft, airline
+// legs, their paths and the terminator move in one imperative rAF loop (30 fps on touch, full rate while
+// zooming; no React render per frame); the rest re-renders with the hourly emit.
+// v0.5.2: every airborne leg draws its whole great circle from take-off to landing (one path element,
+// built once per leg and dropped on landing): operating solid green, positioning/ferry dotted amber,
+// airline deadheads thin grey dotted.
 
 import { geoInterpolate, geoPath } from 'd3-geo';
 import { memo, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { aircraftLive, type AircraftLive } from '../../engine/core/query';
 import type { GameState, Livery } from '../../engine/core/types';
-import { liveryOf } from '../../engine/ops';
+import { commercialFlightsBetween, commercialProgress, type CommercialFlight, type FlightType, flightType, liveryOf } from '../../engine/ops';
 import { PLANE_PATH } from '../components/Logo';
 import { liveMinute, store } from '../store';
 import { isTouch } from '../useMedia';
 import { MAP_H, MAP_W } from './mapData';
-import { headingDeg, type LabelBox, lerpAngle, parkOffset, placeLabels, type LegArc, type PinGroup, sunPoint, terminator } from './mapLogic';
+import { headingDeg, type LabelBox, groupCommercial, lerpAngle, parkOffset, downSide, legLabelSide, placeLabels, regSlot, type RegSlot, trackCovered, trackLabelAt, type LegArc, type PinGroup, sunPoint, terminator, TYPE_STROKE } from './mapLogic';
 import type { MapLayerCtx } from './WorldMap';
 
 /** Live positions shared with tap picking and focus (map units, as last drawn). */
 export interface LiveShared {
   ac: Map<string, [number, number]>;
+  /** Airline legs with our crew aboard, by CommercialFlight id. */
+  cm: Map<string, [number, number]>;
   night: SVGPathElement | null;
   /** Subsolar point the night path was built for (it is then slid by the sun's longitude change). */
   nightSun: [number, number] | null;
+  /** Path groups (underlay): airline legs under ours. */
+  pathsCm: SVGGElement | null;
+  pathsOwn: SVGGElement | null;
+  /** Grey airline icons (above the pins, under our aircraft). */
+  cmRoot: SVGGElement | null;
+  /** Airports on the map (map units): airline flight numbers keep clear of their dots and codes. */
+  aps: [number, number][];
 }
 
-export const newShared = (): LiveShared => ({ ac: new Map(), night: null, nightSun: null });
+export const newShared = (): LiveShared => ({ ac: new Map(), cm: new Map(), night: null, nightSun: null, pathsCm: null, pathsOwn: null, cmRoot: null, aps: [] });
 
 /** Frame cost stats for perf checks (console: __contrailMap). */
 const stats = { frames: 0, avgMs: 0, maxMs: 0, reset() { this.frames = 0; this.avgMs = 0; this.maxMs = 0; } };
@@ -34,6 +47,28 @@ const WRENCH = 'M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 
 /** Hit radius in screen px (44 px target on touch). */
 export const HIT_R = { touch: 22, mouse: 14 };
 const GLYPH_PX = 22;
+/** Airline icons: a little smaller than ours. */
+const CM_GLYPH_PX = 20;
+/** Airline legs are fetched for this many game minutes at a time, then filtered per frame. */
+const CM_BUCKET = 10;
+const NS = 'http://www.w3.org/2000/svg';
+
+function svgEl<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string | number>, parent?: Element): SVGElementTagNameMap[K] {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, String(attrs[k]));
+  parent?.appendChild(e);
+  return e;
+}
+
+/** A flight path element styled for its type (dash and width are screen px: non-scaling stroke). */
+function stylePath(e: SVGPathElement, type: FlightType) {
+  const st = TYPE_STROKE[type];
+  e.setAttribute('class', `ops-path ${type}`);
+  e.setAttribute('stroke', st.color);
+  e.setAttribute('stroke-width', String(st.width));
+  if (st.dash) e.setAttribute('stroke-dasharray', st.dash);
+  else e.removeAttribute('stroke-dasharray');
+}
 /** Taxi easing time constant (ms) between the runway point and a parking stand. */
 const TAXI_MS = 140;
 const PARK_ANGLE = 0;
@@ -78,6 +113,35 @@ export const NightLayer = memo(function NightLayer({ shared, proj, shift }: { sh
       <path ref={ref} />
     </g>
   );
+});
+
+// ---------- always-on flight paths ----------
+
+/** Groups the live loop fills with one path per airborne leg (render as the WorldMap `underlay`, under the arcs). */
+export const PathsLayer = memo(function PathsLayer({ shared }: { shared: LiveShared }) {
+  const cm = useRef<SVGGElement>(null);
+  const own = useRef<SVGGElement>(null);
+  useLayoutEffect(() => {
+    shared.pathsCm = cm.current;
+    shared.pathsOwn = own.current;
+    return () => { shared.pathsCm = null; shared.pathsOwn = null; };
+  }, [shared]);
+  return (
+    <g className="ops-paths" pointerEvents="none">
+      <g ref={cm} className="cm" />
+      <g ref={own} className="own" />
+    </g>
+  );
+});
+
+/** Group the live loop fills with grey airline icons (render between the pins and our aircraft). */
+export const CommercialLayer = memo(function CommercialLayer({ shared }: { shared: LiveShared }) {
+  const ref = useRef<SVGGElement>(null);
+  useLayoutEffect(() => {
+    shared.cmRoot = ref.current;
+    return () => { shared.cmRoot = null; };
+  }, [shared]);
+  return <g ref={ref} className="ops-cm" />;
 });
 
 // ---------- arcs ----------
@@ -185,7 +249,12 @@ export function luminance(hex: string): number {
 
 interface Glide { ox: number; oy: number; ang: number }
 
-export function AircraftLayer({ ctx, g, shared, selected }: { ctx: MapLayerCtx; g: GameState; shared: LiveShared; selected?: string }) {
+/** Our airborne leg's path element. */
+interface OwnPath { el: SVGPathElement; acId: string; type: FlightType; from: string; to: string }
+/** An airline leg on the map: icon group, rotating glyph and path. */
+interface CmEl { el: SVGGElement; glyph: SVGGElement; no: SVGTextElement; side: 1 | -1; pref: 1 | -1; sideK: number; sideAps: LiveShared['aps'] | null; at: string; hide: boolean[]; hidden: boolean; path: SVGPathElement | null; gi: (t: number) => [number, number]; cf: CommercialFlight }
+
+export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ctx: MapLayerCtx; g: GameState; shared: LiveShared; selected?: string; selectedFlight?: string }) {
   const ref = useRef<SVGGElement>(null);
   const ids = Object.keys(g.fleet);
   const idsKey = ids.join(',');
@@ -193,6 +262,8 @@ export function AircraftLayer({ ctx, g, shared, selected }: { ctx: MapLayerCtx; 
   ctxRef.current = ctx;
   const selRef = useRef(selected);
   selRef.current = selected;
+  const selFRef = useRef(selectedFlight);
+  selFRef.current = selectedFlight;
   /** Bumped by React renders so the loop redraws once even when time stands still. */
   const dirty = useRef(true);
   dirty.current = true;
@@ -200,13 +271,16 @@ export function AircraftLayer({ ctx, g, shared, selected }: { ctx: MapLayerCtx; 
   useEffect(() => {
     const root = ref.current;
     if (!root) return;
-    const els = new Map<string, { el: SVGGElement; glyph: SVGGElement; crowd: boolean }>();
+    const REG_FS = isTouch() ? 12 : 11; // .ops-ac .reg font size
+    const els = new Map<string, { el: SVGGElement; glyph: SVGGElement; crowd: boolean; reg: RegSlot; regW: number }>();
     for (const el of Array.from(root.children) as SVGGElement[]) {
       const id = el.dataset.id!;
-      els.set(id, { el, glyph: el.querySelector('.glyph') as SVGGElement, crowd: false });
+      const reg = el.querySelector('.reg')?.textContent ?? '';
+      els.set(id, { el, glyph: el.querySelector('.glyph') as SVGGElement, crowd: false, reg: 0, regW: reg.length * REG_FS * 0.62 + 2 });
     }
     const glide = new Map<string, Glide>();
     const minFrame = isTouch() ? 1000 / 30 - 3 : 0;
+    const NO_FS = isTouch() ? 11.5 : 10.5; // .ops-cmf .no font size
     let raf = 0;
     let last = 0;
     let lastT = NaN;
@@ -215,6 +289,24 @@ export function AircraftLayer({ ctx, g, shared, selected }: { ctx: MapLayerCtx; 
     let lastSun: [number, number] | null = null;
     let labels: boolean | null = null;
     let settling = true;
+    // Paths and airline legs (built once per leg; d rebuilt only when the projection changes).
+    const own = new Map<string, OwnPath>();
+    const cms = new Map<string, CmEl>();
+    let ownRoot: SVGGElement | null = null;
+    let cmPathRoot: SVGGElement | null = null;
+    let cmRoot: SVGGElement | null = null;
+    let projUsed: MapLayerCtx['proj'] | null = null;
+    let gen: ReturnType<typeof geoPath> | null = null;
+    let cmKey = '';
+    let cmGame: GameState | null = null;
+    let cmList: CommercialFlight[] = [];
+    let selKey = '';
+    const lineD = (from: string, to: string) => {
+      const A = AIRPORT_BY_CODE[from];
+      const B = AIRPORT_BY_CODE[to];
+      return (A && B && gen!({ type: 'LineString', coordinates: [[A.lon, A.lat], [B.lon, B.lat]] })) || '';
+    };
+    const dropCm = (id: string, c: CmEl) => { c.el.remove(); c.path?.remove(); cms.delete(id); shared.cm.delete(id); };
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
       if (document.visibilityState === 'hidden') return;
@@ -228,12 +320,26 @@ export function AircraftLayer({ ctx, g, shared, selected }: { ctx: MapLayerCtx; 
       const c = ctxRef.current;
       const t = liveMinute();
       const k = c.liveK();
-      if (t === lastT && k === lastK && !settling && !dirty.current) return;
+      const rooted = shared.pathsOwn === ownRoot && shared.pathsCm === cmPathRoot && shared.cmRoot === cmRoot;
+      if (t === lastT && k === lastK && !settling && !dirty.current && rooted && c.proj === projUsed) return;
       const t0 = performance.now();
+      const fresh = dirty.current;
       dirty.current = false;
       lastT = t;
       lastK = k;
       const proj = c.proj;
+      if (!rooted || proj !== projUsed) {
+        // (Re)mounted groups or a new projection: rebuild every path and icon.
+        for (const p of own.values()) p.el.remove();
+        own.clear();
+        for (const [id, x] of cms) dropCm(id, x);
+        ownRoot = shared.pathsOwn;
+        cmPathRoot = shared.pathsCm;
+        cmRoot = shared.cmRoot;
+        projUsed = proj;
+        gen = geoPath(proj);
+        selKey = '';
+      }
       // Terminator: slid sideways on the compositor as the sun moves; rebuilt (one backdrop repaint)
       // when the slide nears the layer's margin (also after a zoom: the margin is in screen px) or the declination has drifted.
       if (shared.night) {
@@ -298,7 +404,150 @@ export function AircraftLayer({ ctx, g, shared, selected }: { ctx: MapLayerCtx; 
         e.glyph.setAttribute('transform', `rotate(${s.ang.toFixed(1)})`);
         if (e.el.dataset.phase !== live.phase) e.el.dataset.phase = live.phase;
         if (e.crowd !== crowd) e.el.classList.toggle('crowd', (e.crowd = crowd));
+        // Airborne, the reg moves above the icon (or fades) while under it would cover an airport dot or code.
+        let reg: RegSlot = 0;
+        if (live.phase === 'airborne') {
+          const ix = p[0] / u + s.ox;
+          const iy = p[1] / u + s.oy;
+          const obs: LabelBox[] = [];
+          for (const ap of shared.aps) {
+            const ax = ap[0] / u;
+            const ay = ap[1] / u;
+            if (Math.abs(ax - ix) > 70 || Math.abs(ay - iy) > 60) continue;
+            obs.push({ id: '', x: ax, y: ay, w: 10, h: 10 }, { id: '', x: ax, y: ay - 15, w: 28, h: 15 });
+          }
+          if (obs.length) reg = regSlot(ix, iy, e.regW, REG_FS, obs, e.reg);
+        }
+        if (reg !== e.reg) {
+          e.el.classList.toggle('reg-up', reg === 1);
+          e.el.classList.toggle('reg-off', reg === 2);
+          e.reg = reg;
+        }
         shared.ac.set(id, [p[0] + s.ox * u, p[1] + s.oy * u]);
+      }
+      // Our airborne legs: one path each from take-off to landing (types refreshed with each React render).
+      const seen = new Set<string>();
+      for (const live of lives) {
+        const f = live.phase === 'airborne' ? live.flight : undefined;
+        const e = els.get(live.aircraft.id);
+        if (!f) {
+          if (e && e.el.dataset.type) e.el.dataset.type = '';
+          continue;
+        }
+        seen.add(f.id);
+        let op = own.get(f.id);
+        if (!op && ownRoot) {
+          const type = flightType(game, f);
+          const el = svgEl('path', { d: lineD(f.from, f.to) }, ownRoot);
+          stylePath(el, type);
+          own.set(f.id, (op = { el, acId: live.aircraft.id, type, from: f.from, to: f.to }));
+          selKey = '';
+        } else if (op && fresh) {
+          const type = flightType(game, f);
+          if (type !== op.type) stylePath(op.el, (op.type = type));
+          if (op.from !== f.from || op.to !== f.to) op.el.setAttribute('d', lineD((op.from = f.from), (op.to = f.to)));
+          selKey = '';
+        }
+        if (e && op && e.el.dataset.type !== op.type) e.el.dataset.type = op.type;
+      }
+      for (const [id, op] of own) if (!seen.has(id)) { op.el.remove(); own.delete(id); }
+      // Airline legs carrying our crew: fetched per CM_BUCKET minutes (and per emit), filtered to the airborne ones.
+      if (cmRoot) {
+        const b = Math.floor(t / CM_BUCKET) * CM_BUCKET;
+        const key = `${store.version}:${b}`;
+        if (key !== cmKey || cmGame !== game) {
+          cmKey = key;
+          cmGame = game;
+          cmList = groupCommercial(commercialFlightsBetween(game, b, b + CM_BUCKET));
+        }
+        const up = new Set<string>();
+        for (const cf of cmList) {
+          if (cf.leg.dep > t || cf.leg.arr <= t) continue;
+          const A = AIRPORT_BY_CODE[cf.leg.from];
+          const B = AIRPORT_BY_CODE[cf.leg.to];
+          if (!A || !B) continue;
+          up.add(cf.id);
+          let x = cms.get(cf.id);
+          if (!x) {
+            const el = svgEl('g', { class: 'ops-cmf', 'data-id': cf.id }, cmRoot);
+            svgEl('circle', { class: 'hit', r: HIT_R.touch }, el);
+            svgEl('circle', { class: 'sel-ring', r: 14 }, el);
+            const glyph = svgEl('g', { class: 'glyph' }, el);
+            svgEl('path', { d: PLANE_PATH, transform: `scale(${CM_GLYPH_PX / 24}) translate(-12 -12)` }, glyph);
+            const no = svgEl('text', { class: 'no' }, el);
+            no.textContent = cf.leg.no;
+            const path = cmPathRoot ? svgEl('path', { d: lineD(cf.leg.from, cf.leg.to) }, cmPathRoot) : null;
+            if (path) stylePath(path, 'deadhead');
+            // Preferred side: below the track (right of a north–south one), from the leg's chord.
+            const pa = proj([A.lon, A.lat]);
+            const pb = proj([B.lon, B.lat]);
+            const pref = pa && pb ? downSide(headingDeg(pa, pb, MAP_W)) : 1;
+            no.setAttribute('text-anchor', 'middle');
+            cms.set(cf.id, (x = { el, glyph, no, side: pref, pref, sideK: 0, sideAps: null, at: '', hide: [], hidden: false, path, gi: geoInterpolate([A.lon, A.lat], [B.lon, B.lat]), cf }));
+            selKey = '';
+          }
+          x.cf = cf;
+          const pr = commercialProgress(cf, t);
+          const p = proj(x.gi(pr));
+          if (!p) continue;
+          const a = proj(x.gi(Math.max(0, pr - 0.004)));
+          const q = proj(x.gi(Math.min(1, pr + 0.004)));
+          const ang = a && q && (a[0] !== q[0] || a[1] !== q[1]) ? headingDeg(a, q, MAP_W) : 0;
+          x.el.setAttribute('transform', `translate(${p[0].toFixed(2)} ${p[1].toFixed(2)}) scale(${u.toPrecision(4)})`);
+          x.glyph.setAttribute('transform', `rotate(${ang.toFixed(1)})`);
+          // The flight number rides across the track on one side per leg (re-chosen after a zoom): the
+          // preferred one unless the other covers clearly fewer airport codes and dots over the whole leg.
+          // Where it would still sit on an airport code (passing close by one), it fades out for that stretch.
+          const w = cf.leg.no.length * NO_FS * 0.62 + 2;
+          if (!x.sideK || Math.abs(k / x.sideK - 1) > 0.12 || x.sideAps !== shared.aps) {
+            x.sideK = k;
+            x.sideAps = shared.aps;
+            const track: { x: number; y: number; ang: number }[] = [];
+            for (let i = 0; i <= 32; i++) {
+              const f0 = i / 32;
+              const s0 = proj(x.gi(f0));
+              const s1 = proj(x.gi(f0 + 0.004));
+              if (s0 && s1) track.push({ x: s0[0] / u, y: s0[1] / u, ang: headingDeg(s0, s1, MAP_W) });
+            }
+            const xs = track.map((s) => s.x);
+            const ys = track.map((s) => s.y);
+            const [x0, x1, y0, y1] = [Math.min(...xs) - 90, Math.max(...xs) + 90, Math.min(...ys) - 60, Math.max(...ys) + 60];
+            const obs: LabelBox[] = [];
+            const codes: LabelBox[] = [];
+            for (const ap of shared.aps) {
+              const ax = ap[0] / u;
+              const ay = ap[1] / u;
+              if (ax < x0 || ax > x1 || ay < y0 || ay > y1) continue;
+              obs.push({ id: '', x: ax, y: ay, w: 10, h: 10 });
+              // Any of them may show its code (all do once zoomed in a little).
+              codes.push({ id: '', x: ax, y: ay - 15, w: 28, h: 15 });
+            }
+            x.side = legLabelSide(track, w, NO_FS, [...obs, ...codes], x.pref);
+            x.hide = trackCovered(track, x.side, w, NO_FS, codes);
+          }
+          const hidden = !!x.hide[Math.round(pr * 32)];
+          if (hidden !== x.hidden) x.no.classList.toggle('off', (x.hidden = hidden));
+          const [cx, cy] = trackLabelAt(ang, x.side, w, NO_FS);
+          const at = `${cx.toFixed(1)} ${(cy + NO_FS * 0.35).toFixed(1)}`;
+          if (at !== x.at) {
+            x.at = at;
+            x.no.setAttribute('x', cx.toFixed(1));
+            x.no.setAttribute('y', (cy + NO_FS * 0.35).toFixed(1));
+          }
+          shared.cm.set(cf.id, p);
+        }
+        for (const [id, x] of cms) if (!up.has(id)) dropCm(id, x);
+      }
+      // Selection: highlight the selected aircraft's path, or the selected airline leg and its path.
+      const sk = `${selRef.current ?? ''}|${selFRef.current ?? ''}`;
+      if (sk !== selKey) {
+        selKey = sk;
+        for (const op of own.values()) op.el.classList.toggle('sel', op.acId === selRef.current);
+        for (const [id, x] of cms) {
+          const on = id === selFRef.current;
+          x.el.classList.toggle('sel', on);
+          x.path?.classList.toggle('sel', on);
+        }
       }
       const ms = performance.now() - t0;
       stats.frames++;
@@ -332,6 +581,7 @@ export function AircraftLayer({ ctx, g, shared, selected }: { ctx: MapLayerCtx; 
               <path d="M0 -4V1M0 3.6V3.7" />
             </g>
             <text className="reg" y={25}>{ac.reg}</text>
+            <text className="tag" y={-16}>FERRY</text>
           </g>
         );
       })}

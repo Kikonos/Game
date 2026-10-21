@@ -10,6 +10,10 @@
 //   ?gallery=float[&codes=WW,MQ,XQZ]      tail code v0.5 (left, needs zzLegacyArt.tmp.tsx) | now (right)
 //   ?gallery=clip[&stickers=0]            magenta stickers at scale 3 in the corners (stickers=0: mask)
 //   ?gallery=editor                       the LiveryEditor sheet with local state
+// v0.5.2 checks:
+//   ?gallery=lod[&types=…&detail=simple]  each type at 60…720 px wide (windows/doors level of detail, artLod)
+//   ?gallery=crown[&types=…]              each type alone at 1150 px wide (crown / belly / tail cone fairing)
+//   &fair=0                               raw traces, no fairing (before/after comparisons)
 //   &logo=<id>|mono &plain=1 &codecolor=#hex &weight=500   override the chosen livery
 
 import '@fontsource-variable/inter';
@@ -24,6 +28,7 @@ import { AIRCRAFT } from '../data/aircraft';
 import { LOGO_IDS, type LogoId } from '../data/livery';
 import type { Livery, StickerPlacement, TailStyle } from '../engine/core/types';
 import { AircraftArt, artMetrics, artViewBox, type AircraftArtProps } from '../ui/components/aircraft/AircraftArt';
+import { fairing } from '../ui/components/aircraft/fair';
 import { LOGOS, LogoGlyph } from '../ui/components/aircraft/logos';
 import { TRACED } from '../ui/components/aircraft/traced/load';
 import { TailBadge } from '../ui/components/Logo';
@@ -62,6 +67,7 @@ const SIZES = ['hero', 'card', 'mini'] as const;
 type Size = (typeof SIZES)[number];
 
 const q = new URLSearchParams(location.search);
+if (q.get('fair') === '0') fairing.on = false;
 const list = (k: string) => q.get(k)?.split(',').map((s) => s.trim()).filter(Boolean);
 const types = (list('types') ?? Object.keys(NAMES)).filter((id) => NAMES[id] || TRACED.has(id));
 const liveryKey = q.get('livery') ?? 'blockhours';
@@ -435,6 +441,42 @@ function ClipCheck() {
   );
 }
 
+const LOD_W = [60, 90, 120, 150, 220, 320, 480, 720];
+
+/** Each type in boxes of growing width (art fills the box, as in Fleet / market / map panels). */
+function LodSheet() {
+  const det = q.get('detail') === 'simple' ? 'simple' : 'full';
+  return (
+    <div className="g-lod">
+      {types.map((t) => (
+        <section className="g-size" key={t} data-type={t}>
+          <h2>{t}</h2>
+          <div className="g-panel" style={{ background: BGS.dark, display: 'flex', alignItems: 'end', gap: 12, flexWrap: 'wrap' }}>
+            {LOD_W.map((w) => (
+              <div key={w} className="g-box" data-w={w} style={{ width: w, height: Math.round(w * 0.36) }}>
+                <AircraftArt typeId={t} livery={livery} code={code} name={name} detail={det} height="100%" />
+              </div>
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+/** One type per row, 1150 px wide: the crown, belly and tail cone at a size where a bump shows. */
+function CrownSheet() {
+  return (
+    <div className="g-crown">
+      {types.map((t) => (
+        <figure className="g-cell" key={t} data-type={t} data-size="crown" style={{ width: 1150, margin: '0 0 16px' }}>
+          <AircraftArt typeId={t} livery={livery} code={code} name={name} />
+        </figure>
+      ))}
+    </div>
+  );
+}
+
 function EditorDemo() {
   const [lv, setLv] = useState<Livery>(livery);
   return (
@@ -454,7 +496,7 @@ function Gallery() {
         <h1>Aircraft art</h1>
         <span>{types.length} types · livery {liveryKey} ({livery.tail})</span>
       </div>
-      {mode === 'logos' ? <LogoSheet /> : mode === 'float' ? <FloatCheck /> : mode === 'clip' ? <ClipCheck /> : mode === 'compare' ? (
+      {mode === 'lod' ? <LodSheet /> : mode === 'crown' ? <CrownSheet /> : mode === 'logos' ? <LogoSheet /> : mode === 'float' ? <FloatCheck /> : mode === 'clip' ? <ClipCheck /> : mode === 'compare' ? (
         (list('type') ?? types.filter((id) => TRACED.has(id))).map((id) => <CompareRef key={id} id={id} />)
       ) : mode === 'sheet' ? (
         [...TRACED.keys()].sort().map((id) => <SheetRow key={id} id={id} w={num('w', 440)} />)

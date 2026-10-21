@@ -6,7 +6,7 @@ import { typeOf } from '../core/perf';
 import { fmtDay } from '../core/time';
 import type { CrewMember, Duty, GameState, Legality, Minute, Pairing } from '../core/types';
 import { evalSegs, levelOf, LIMITS, type LegalityIssue, type Seg } from './rules';
-import { aboard, crewIx, ctxOf, dutySegs, locAt, planHome, planHomeAfter, planOut, segsOf, typeIdOf, type TicketPlan } from './timeline';
+import { aboard, crewIx, ctxOf, droppableHome, droppableOut, dutySegs, locAt, planHome, planHomeAfter, planOut, segsOf, typeIdOf, withoutTickets, type TicketPlan } from './timeline';
 
 export interface CrewPlan {
   level: Legality;
@@ -81,13 +81,10 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
     if (at !== dep && !started) issues.push({ code: 'location', level: 'illegal', text: `At ${at}, not ${dep}`, dutyId: first.id });
   } else {
     // Still at the departure airport with a ticket home around this trip: they stay on instead.
-    const drop: string[] = [];
-    for (const x of base) {
-      if (x.kind !== 'pos' || !x.ticketId || x.from !== dep || x.at !== c.base || x.start + BAL.deadheadCheckIn <= g.now) continue;
-      if (x.start >= first.report - 2 * 1440 && x.start < last.release + 1440 && locAt(c, base, x.start) === dep) drop.push(x.ticketId);
-    }
+    // Not onto a tour: its crews come out fresh for the rotation.
+    const drop = p.tour ? [] : droppableHome(g, c, base, dep, first.report, last.release);
     if (drop.length) {
-      base = base.filter((x) => !x.ticketId || !drop.includes(x.ticketId));
+      base = withoutTickets(base, drop);
       dropped.push(...drop);
     }
     const loc = locAt(c, base, first.report);
@@ -95,8 +92,16 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
       out = planOut(g, p, first, loc);
       if (out.std - BAL.deadheadCheckIn < g.now) issues.push({ code: 'location', level: 'illegal', text: `Can't reach ${dep} in time`, dutyId: first.id });
     }
-    // No ticket home when the crew's next work starts where this trip ends.
-    if (last.restAt !== c.base && nextFrom(base, last.release) !== last.restAt) home = planHome(last, c.base);
+    // No ticket home when the crew's next work starts where this trip ends, or when it is a ticket straight back
+    // out there (that ticket is dropped: a hotel night or two beats two tickets).
+    if (last.restAt !== c.base && nextFrom(base, last.release) !== last.restAt) {
+      const back = p.tour ? [] : droppableOut(g, c, base, last.restAt, last.release);
+      const stay = back.length ? withoutTickets(base, back) : base;
+      if (back.length && nextFrom(stay, last.release) === last.restAt) {
+        base = stay;
+        dropped.push(...back);
+      } else home = planHome(last, c.base);
+    }
   }
   const build = () => {
     const out2: Seg[] = [];
@@ -105,6 +110,23 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
   };
   let segs = build();
   let ftl = evalSegs({ ...ctxOf(g, c), slack }, merge(base, segs));
+  // v0.5.2: a same-day ticket out (counted as FDP) whose longer first duty eats the rest or FDP of this trip:
+  // the crew fly out the day before and rest at the hotel first.
+  const own = new Set(p.dutyIds);
+  const bad = (l: LegalityIssue[]) => l.filter((i) => i.level === 'illegal' && (i.code === 'rest' || i.code === 'fdp') && !!i.dutyId && own.has(i.dutyId)).length;
+  if (!existing && out && !out.rideId && bad(ftl)) {
+    const early = planOut(g, p, first, out.from, true);
+    if (early.std < out.std && early.std - BAL.deadheadCheckIn >= g.now) {
+      const plain = out;
+      out = early;
+      const s2 = build();
+      const f2 = evalSegs({ ...ctxOf(g, c), slack }, merge(base, s2));
+      if (bad(f2) < bad(ftl)) {
+        segs = s2;
+        ftl = f2;
+      } else out = plain;
+    }
+  }
   // A new ticket home that would break the 168 h recovery: the crew take their recovery at the hotel first.
   if (!existing && home && ftl.some((i) => i.code === 'recovery' && i.level === 'illegal' && i.dutyId === last.id)) {
     const plain = home;

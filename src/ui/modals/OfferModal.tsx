@@ -6,13 +6,14 @@ import { useMemo, useState } from 'react';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { flag } from '../../data/countries';
 import { artFor } from '../../data/acmiTypes';
-import { acceptOffer, askingPrice, counterOffer, declineOffer, feasibilityAll, leadDays, paintQuote, paintTermsText, type FeasibilityReport } from '../../engine/contracts';
+import { acceptOffer, askingPrice, counterOffer, counterView, declineOffer, feasibilityAll, leadDays, paintQuote, paintTermsText, type FeasibilityReport } from '../../engine/contracts';
 import { clientCode, clientTitles } from '../../engine/ops';
 import { AircraftArt } from '../components/AircraftArt';
 import { flightsRev } from '../../engine/core/entities';
 import { typeOf } from '../../engine/core/perf';
 import { DAY, fmtDate, fmtDay, fmtDuration, fmtTime } from '../../engine/core/time';
 import type { ContractOffer, GameState } from '../../engine/core/types';
+import type { CounterView } from '../../engine/contracts';
 import { Modal, Stepper, Toggle } from '../components/ui';
 import { money } from '../format';
 import { ArchIcon, Chips, Dot, KV } from '../screens/common';
@@ -191,6 +192,26 @@ function AircraftRow({ g, r, on, onPick, billBH }: { g: GameState; r: Feasibilit
   );
 }
 
+/** v0.5.2 counter state in the footer: pending (clock paused, reply time), refused, met halfway or accepted. */
+function CounterStatus({ g, o, cv, fmtP }: { g: GameState; o: ContractOffer; cv: CounterView; fmtP: (v: number) => string }) {
+  const client = g.clients[o.clientId]?.name ?? 'The client';
+  const when = (t: number) => `${fmtDay(t)} ${fmtTime(t)} UTC`;
+  const [head, sub, tone] =
+    cv.state === 'pending'
+      ? [`Counter ${fmtP(cv.price)} sent`, `${client} replies by ${when(cv.replyBy ?? g.now)}. The offer's clock is paused until then.`, 'accent']
+      : cv.state === 'halfway'
+        ? [`${client} met us halfway: ${fmtP(cv.asking)}`, `We asked ${fmtP(cv.price)}. Accept by ${when(o.expires)} or let it go; no second counter.`, 'warn']
+        : cv.state === 'refused'
+          ? [`Counter ${fmtP(cv.price)} refused`, `The asking price stands until ${when(o.expires)}.`, 'muted']
+          : [`Counter ${fmtP(cv.price)} accepted`, 'The contract is signed.', 'good'];
+  return (
+    <span className={`col sc-counter-state ${cv.state}`}>
+      <b className={`small ${tone}`}>{head}</b>
+      <span className="tiny muted">{sub}</span>
+    </span>
+  );
+}
+
 export function OfferModal({ offerId }: { offerId: string }) {
   const g = useGame();
   const o = g.offers[offerId];
@@ -208,6 +229,7 @@ export function OfferModal({ offerId }: { offerId: string }) {
   const cl = g.clients[o.clientId];
   const live = o.status === 'open' || o.status === 'countered';
   const countered = o.status === 'countered';
+  const cv = counterView(g, o.id);
   const asking = askingPrice(o.paint && !paintOn ? paintQuote(o, false) : o);
   const mustPaint = !!o.paint?.required && !paintOn;
   const steps = counterSteps(asking, o.product.kind === 'wet');
@@ -239,10 +261,8 @@ export function OfferModal({ offerId }: { offerId: string }) {
       <div className="sc-offer-foot">
         <button className="btn btn-ghost" onClick={decline} disabled={!live}><X /> Decline</button>
         <span className="grow" />
-        {o.counter?.result === 'refused' ? (
-          <span className="small muted">Counter refused: the asking price stands.</span>
-        ) : countered ? (
-          <span className="small accent">Counter {fmtP(o.counter!.price)} sent. Waiting for the reply.</span>
+        {cv ? (
+          <CounterStatus g={g} o={o} cv={cv} fmtP={fmtP} />
         ) : (
           <span className="row gap-8 sc-counter">
             <Stepper value={step} min={1} max={8} onChange={setStep} format={(v) => <span className="num">{fmtP(steps[v - 1])} <span className="dim">+{(v * 2.5).toFixed(1)}%</span></span>} />
@@ -257,7 +277,11 @@ export function OfferModal({ offerId }: { offerId: string }) {
           <div className="row gap-8 wrap">
             <span className="upper dim">{archLabel(o)}</span>
             {o.urgency !== 'normal' && <span className={`badge ${o.urgency === 'urgent' ? 'bad' : 'warn'}`}>{o.urgency === 'urgent' ? 'Urgent' : 'Short notice'}</span>}
-            <span className="small muted">{expiryLabel(g.now, o.expires)}</span>
+            {cv?.state === 'pending' ? (
+              <span className="small accent">Clock paused · reply by {fmtDay(cv.replyBy ?? g.now)} {fmtTime(cv.replyBy ?? g.now)} UTC</span>
+            ) : (
+              <span className="small muted">{expiryLabel(g.now, o.expires)}</span>
+            )}
           </div>
           <div>
             <b>{cl ? `${flag(cl.country)} ${cl.name}` : 'Client'}</b>

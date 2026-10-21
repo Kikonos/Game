@@ -2,7 +2,8 @@
 
 import { BAL } from '../core/balance';
 import { addFlight, flightsOf, ownFlightNo, removeFlights } from '../core/entities';
-import { blockMinutes, typeOf } from '../core/perf';
+import { typeOf } from '../core/perf';
+import { ticketBlock } from '../ops/commercial';
 import { DAY, dayStart } from '../core/time';
 import type { Contract, Flight, GameState, Minute } from '../core/types';
 import {
@@ -136,7 +137,7 @@ function crewFree(g: GameState, aircraftId: string, X: string, earliest: Minute)
   if (g.now - landed < 3 * 60) return earliest;
   const home = g.company.homeBase;
   // A short ticket the same morning; a long one the day before, with minimum rest on arrival (FDP).
-  const blk = X === home ? 0 : blockMinutes('a320ceo', home, X);
+  const blk = X === home ? 0 : ticketBlock(home, X);
   const lead = X === home ? 120 : blk + (blk <= 180 ? 6 * 60 : 14 * 60);
   return Math.ceil((g.now + lead) / 5) * 5;
 }

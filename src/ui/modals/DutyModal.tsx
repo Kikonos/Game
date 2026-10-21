@@ -14,6 +14,8 @@ import {
   type DutyCandidate, type DutyCrewView, type RosterSlotView,
 } from '../../engine/crew';
 import { Modal, Seg } from '../components/ui';
+import { FlightTypeChip } from '../components/FlightType';
+import { flightType } from '../../engine/ops';
 import { money } from '../format';
 import { Dot } from '../screens/common';
 import { contractColor } from '../screens/palette';
@@ -203,6 +205,16 @@ export function DutyModal({ id }: { id: string }) {
             </span>
           </div>
           {c && <span className="chip sc-chip sc-kchip ellipsis" style={{ ['--kc' as string]: contractColor(c.color) }}><span className="sc-kdot" />{c.title}</span>}
+        </div>
+        <div className="sc-legs" aria-label="Legs of this duty">
+          {d.flightIds.map((id) => g.flights[id]).filter((f) => f && f.status !== 'cancelled').map((f) => (
+            <div key={f.id} className="sc-leg-row small">
+              <span className="mono">{f.no}</span>
+              <span className="mono">{f.from}–{f.to}</span>
+              <span className="dim num">{fmtTime(f.atd ?? f.std)}–{fmtTime(f.ata ?? f.sta)} UTC</span>
+              <FlightTypeChip type={flightType(g, f)} />
+            </div>
+          ))}
         </div>
         {later ? (
           <div className="sc-legal later">

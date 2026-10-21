@@ -7,7 +7,6 @@ import { accrue, cashOnly, invoice, post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { requestPause } from '../core/pause';
 import { schedule } from '../core/queue';
-import { int } from '../core/rng';
 import { DAY, fmtDay, monthKey, monthStart } from '../core/time';
 import { clamp } from '../core/util';
 import type { ActionResult, Contract, ContractOffer, GameState, Minute, OfferStatus, Product, SimEvent } from '../core/types';
@@ -19,6 +18,7 @@ import { mghInMonth, productValue } from './pricing';
 import { generateFlights, relinkPositioning } from './schedule';
 import { bookPaint, cancelPaintFor } from '../ops/paint';
 import { paintQuote, paintWindow, type PaintSlot } from './paintTerms';
+import { replyTime } from './counter';
 
 // ---------- offers ----------
 
@@ -154,7 +154,7 @@ export function dailyContracts(g: GameState): void {
   }
 }
 
-/** Proposes a different price (rate per BH or charter price); the client replies after BAL.counterReplyHours. */
+/** Proposes a different price (rate per BH or charter price); the client replies before the offer lapses (counter.ts). */
 export function counterOffer(g: GameState, offerId: string, price: number, aircraftIds: string[], opts: SignOpts = {}): ActionResult {
   const o = g.offers[offerId];
   if (!o) return { ok: false, error: 'Offer not found' };
@@ -168,12 +168,15 @@ export function counterOffer(g: GameState, offerId: string, price: number, aircr
     const no = firstNo(feasibility(g, offerId, id, { paint }), !paint);
     if (no) return { ok: false, error: `${g.fleet[id].reg}: ${no.label}` };
   }
-  const replyAt = g.now + int(g, BAL.counterReplyHours[0], BAL.counterReplyHours[1]) * 60;
-  o.counter = { price: Math.round(price), at: g.now, replyAt, aircraftIds: ids };
+  // v0.5.2: the client always answers before the offer lapses (its expiry clock pauses while the counter is
+  // pending) and before the job needs to get going (an hour before the positioning leaves).
+  const replyAt = replyTime(g, o, ids, paint);
+  o.counter = { price: Math.round(price), at: g.now, replyAt, aircraftIds: ids, left: Math.max(60, o.expires - g.now) };
   if (o.paint) o.counter.paint = paint;
   o.status = 'countered';
   schedule(g, replyAt, 'offer.reply', o.id);
-  return { ok: true, msg: `Counter sent. ${g.clients[o.clientId]?.name ?? 'The client'} will answer within ${BAL.counterReplyHours[1]} h.` };
+  const hrs = Math.max(1, Math.ceil((replyAt - g.now) / 60));
+  return { ok: true, msg: `Counter sent. ${g.clients[o.clientId]?.name ?? 'The client'} will answer within ${hrs > 20 ? 'a day' : `${hrs} h`}; the offer won't lapse meanwhile.` };
 }
 
 export function declineOffer(g: GameState, offerId: string): ActionResult {

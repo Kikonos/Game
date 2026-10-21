@@ -5,7 +5,7 @@
 // caller gets nose-right; this component only assigns colours, z-order and
 // level of detail.
 
-import { memo, useId, type Ref } from 'react';
+import { memo, useCallback, useId, useLayoutEffect, useRef, useState, type Ref } from 'react';
 import { artFor } from '../../../data/acmiTypes';
 import type { Livery } from '../../../engine/core/types';
 import { FONT_STACK } from './fontMetrics';
@@ -28,7 +28,7 @@ export interface AircraftArtProps {
   /** Accepted for compatibility; gear is never drawn. */
   gear?: boolean;
   height?: number | string;
-  /** 'simple' drops windows, doors, titles and fine lines for ~90px thumbnails. */
+  /** 'simple' drops titles and fine lines for ~90px thumbnails; windows and doors follow the drawn size (`artLod`). */
   detail?: 'full' | 'simple';
   /** Fixed scale in CSS px per metre (sets both width and height) — for same-scale comparisons. */
   pxPerM?: number;
@@ -238,6 +238,22 @@ const FUS_STOPS: readonly (readonly [number, string])[] = [
   [0, '#e3e8f0'], [0.07, '#f8fafd'], [0.24, '#ffffff'], [0.52, '#f2f5f9'], [0.78, '#dbe2ec'], [1, '#b6c1d2'],
 ];
 
+/**
+ * Level of detail of the windows and doors by drawn scale (CSS px per metre) and screen density
+ * (`dpr`, capped at 3): `full` as drawn, `card` separate windows kept ≥ ~1 device px with a hairline
+ * and darker door outlines, `band` each run of windows as one slim band — only where separate
+ * windows would merge: under 4.6 px/m at 1× (pitch ~2.4 px), under 5.2 device px/m on dense screens
+ * (the 2× iPad Fleet card ~3.9 and market row ~2.8 CSS px/m keep their windows; minis, swatches band).
+ */
+export type ArtLod = 'full' | 'card' | 'band';
+export function artLod(pxPerM: number, dpr = 1): ArtLod {
+  const d = Math.max(1, Math.min(dpr || 1, 3));
+  return pxPerM * d < (d > 1 ? 5.2 : 4.6) ? 'band' : pxPerM < 8 ? 'card' : 'full';
+}
+/** Screen density for artLod (1 outside a browser). */
+export const screenDpr = (): number => (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+const DOOR_SMALL = 'rgba(28,42,68,0.55)';
+
 const PLAIN_ACCENT = '#c9d1dd';
 const SELECT = '#3ee6ff';
 
@@ -249,6 +265,32 @@ function AircraftArtImpl({ typeId, livery, code, name, className, height, detail
   const sil = g.outline;
   const full = detail === 'full';
   const vb = artViewBox(typeId);
+  // drawn scale: given (pxPerM, numeric height), else measured after layout (before paint)
+  const guess = pxPerM ?? (typeof height === 'number' ? height / vb.h : full ? 99 : 3);
+  const [measured, setMeasured] = useState<number>();
+  const el = useRef<SVGSVGElement | null>(null);
+  const setRef = useCallback((n: SVGSVGElement | null) => {
+    el.current = n;
+    if (typeof svgRef === 'function') svgRef(n);
+    else if (svgRef) (svgRef as { current: SVGSVGElement | null }).current = n;
+  }, [svgRef]);
+  useLayoutEffect(() => {
+    const n = el.current;
+    if (!n || pxPerM) return;
+    const take = (w: number, h: number) => {
+      if (!(w > 0 && h > 0)) return;
+      const k = Math.min(w / vb.w, h / vb.h);
+      // re-render only when the level of detail changes
+      const d = screenDpr();
+      setMeasured((m) => (m !== undefined && artLod(m, d) === artLod(k, d) ? m : k));
+    };
+    take(n.clientWidth, n.clientHeight);
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver((es) => es.forEach((e) => take(e.contentRect.width, e.contentRect.height)));
+    ro.observe(n);
+    return () => ro.disconnect();
+  }, [pxPerM, vb.w, vb.h]);
+  const lod = artLod(measured ?? guess, screenDpr());
   const lv = g.livery(livery.tail);
   const id = (k: string) => `${uid}-${k}`;
   const url = (k: string) => `url(#${id(k)})`;
@@ -323,7 +365,7 @@ function AircraftArtImpl({ typeId, livery, code, name, className, height, detail
 
   return (
     <svg
-      ref={svgRef}
+      ref={setRef}
       className={`aircraft-art${className ? ` ${className}` : ''}`}
       viewBox={`${f(vb.x)} ${f(vb.y)} ${f(vb.w)} ${f(vb.h)}`}
       preserveAspectRatio="xMidYMid meet"
@@ -413,8 +455,12 @@ function AircraftArtImpl({ typeId, livery, code, name, className, height, detail
         {boxes.length > 0 && <g clipPath={g.zones ? url('tz') : undefined}>{boxes.map((b) => sticker(b, 'f'))}</g>}
         {g.cockpit.mask && <path d={g.cockpit.mask} fill="#0e1526" />}
       </g>
-      {full && <path d={g.windows} fill={WINDOW} />}
-      {full && <path d={g.doors} fill="none" stroke={FINE} strokeWidth={0.55} style={ns} />}
+      {lod === 'band'
+        ? <path d={g.windowBands} fill={WINDOW} stroke={WINDOW} strokeWidth={0.5} style={ns} />
+        : <path d={g.windows} fill={WINDOW} stroke={lod === 'card' ? WINDOW : undefined} strokeWidth={lod === 'card' ? 0.35 : undefined} style={lod === 'card' ? ns : undefined} />}
+      {lod === 'full'
+        ? <path d={g.doors} fill="none" stroke={FINE} strokeWidth={0.55} style={ns} />
+        : <path d={g.doors} fill="none" stroke={DOOR_SMALL} strokeWidth={lod === 'card' ? 0.8 : 0.7} style={ns} />}
       {full && g.lines && <path d={g.lines} fill="none" stroke={FINE} strokeWidth={0.6} style={ns} />}
       {g.cockpit.list
         ? g.cockpit.list.map((d, i) => <path key={i} d={d} fill={PANE} mask={url(`pm${i}`)} />)

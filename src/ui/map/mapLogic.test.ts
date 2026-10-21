@@ -8,8 +8,11 @@ import { demoFlights } from '../../engine/dev';
 import { createGame } from '../../engine/newGame';
 import { advanceTo } from '../../engine/sim';
 import {
-  chipInfo, fitCodes, headingDeg, lerpAngle, mapAirports, offerPins, parkOffset, PARK_GAP, pickNearest, placeLabels, selectedLegs, sunElevation, sunPoint, terminator, upNext,
+  chipInfo, commercialById, fitCodes, groupCommercial, headingDeg, isCommercialId, lerpAngle, mapAirports, offerPins, parkOffset, PARK_GAP, parseCommercialId, downSide, legLabelSide, pickNearest, placeLabels, regSlot, REG_DY,
+  selectedLegs, trackLabelAt, sunElevation, sunPoint, terminator, TYPE_STROKE, upNext, upNextRows,
 } from './mapLogic';
+import { addDeadhead } from '../../engine/core/entities';
+import { commercialFlightsBetween, ticketBlock } from '../../engine/ops';
 
 const game = (seed = 7) => createGame({ name: 'Atlântica Wings', code: 'AW', livery: { primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' }, base: 'LIS', seed });
 
@@ -185,5 +188,74 @@ describe('selection data', () => {
       { id: 'ACE', x: 44, y: 10, w: 22, h: 12 },
     ]);
     expect([...kept]).toEqual(['TFS', 'FUE']);
+  });
+});
+
+describe('v0.5.2 flight types and airline legs', () => {
+  it('styles every type: operating solid, empty legs dotted amber, deadheads thin grey dotted', () => {
+    expect(TYPE_STROKE.operating.dash).toBe('');
+    expect(TYPE_STROKE.positioning.dash).not.toBe('');
+    expect(TYPE_STROKE.ferry.color).toBe(TYPE_STROKE.positioning.color);
+    expect(TYPE_STROKE.deadhead.width).toBeLessThan(TYPE_STROKE.operating.width);
+  });
+
+  it('parses airline-leg selection ids', () => {
+    expect(isCommercialId('f12:0')).toBe(true);
+    expect(isCommercialId('f12')).toBe(false);
+    expect(parseCommercialId('f1a:1')).toEqual({ ticketId: 'f1a', legIndex: 1 });
+    expect(parseCommercialId('a3')).toBeNull();
+  });
+
+  it('one icon/row per airline flight, crew from every ticket on it; Up Next lists it as Deadhead', () => {
+    const g = game();
+    const crew = Object.keys(g.crew).slice(0, 3);
+    const std = g.now + 120;
+    const sta = std + ticketBlock('LIS', 'FRA');
+    const a = addDeadhead(g, { crewIds: [crew[0]], from: 'LIS', to: 'FRA', std, sta, cost: 0 });
+    addDeadhead(g, { crewIds: [crew[1], crew[2]], from: 'LIS', to: 'FRA', std, sta, cost: 0 });
+    const legs = groupCommercial(commercialFlightsBetween(g, std, std + 10));
+    expect(legs).toHaveLength(1);
+    expect(legs[0].crewIds.sort()).toEqual([...crew].sort());
+    const cf = commercialById(g, `${a.id}:0`)!;
+    expect(cf.crewIds).toHaveLength(3);
+    expect(cf.leg.no).toMatch(/^[A-Z0-9]{2} \d+$/);
+    const rows = upNextRows(g, 4, g.now).filter((r) => r.type === 'deadhead');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ who: cf.leg.no, from: 'LIS', crew: 3, sel: { kind: 'flight', id: legs[0].id } });
+    expect(commercialById(g, 'nope:0')).toBeNull();
+  });
+});
+
+describe('airline label side', () => {
+  const W = 50;
+  const H = 11;
+  const east = Array.from({ length: 11 }, (_, i) => ({ x: i * 20, y: 0, ang: 90 })); // headingDeg: 90 = east
+  const code = (x: number, y: number) => ({ id: '', x, y: y - 15, w: 28, h: 15 });
+  it('rides across the track, below an east-west leg and right of a north-south one', () => {
+    expect(downSide(90)).toBe(1);
+    expect(downSide(270)).toBe(-1);
+    const [x, y] = trackLabelAt(90, downSide(90), W, H);
+    expect(Math.abs(x)).toBeLessThan(1e-9);
+    expect(y).toBeGreaterThan(13);
+    const [nx, ny] = trackLabelAt(0, downSide(0), W, H); // north
+    expect(nx).toBeGreaterThan(13 + W / 2 - 1e-9);
+    expect(Math.abs(ny)).toBeLessThan(1e-9);
+  });
+  it('keeps the leg\'s own airport codes clear and only changes side for a clearly better one', () => {
+    expect(legLabelSide(east, W, H, [code(0, 0), code(200, 0)], 1)).toBe(1);
+    expect(legLabelSide(east, W, H, [code(100, 40)], 1)).toBe(-1);
+  });
+  it('lifts our reg off an airport code just after take-off and puts it back once clear', () => {
+    // LIS dot at (0, 0), its code drawn above it; our icon climbing north, 30 px above the dot.
+    const lis = [{ id: '', x: 0, y: 0, w: 10, h: 10 }, { id: '', x: 0, y: -15, w: 28, h: 15 }];
+    expect(regSlot(0, -30, 50, 11, lis, 0)).toBe(1);
+    expect(regSlot(0, -30 - REG_DY * 3, 50, 11, lis, 1)).toBe(0);
+    // Hysteresis: a sliver of overlap neither lifts it nor lets it back.
+    const y = -15 - 7.5 - 5.5 - REG_DY + 1; // under box just 1 px into the code
+    expect(regSlot(0, y, 50, 11, lis, 0)).toBe(0);
+    expect(regSlot(0, y, 50, 11, lis, 1)).toBe(1);
+    // Both sides taken: under, faded.
+    const both = [...lis, { id: '', x: 0, y: -30 - REG_DY, w: 28, h: 15 }];
+    expect(regSlot(0, -30, 50, 11, both, 0)).toBe(2);
   });
 });

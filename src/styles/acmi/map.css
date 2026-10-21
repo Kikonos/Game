@@ -5,6 +5,9 @@
    ========================================================================== */
 .ops-map { position: absolute; inset: 0; overflow: hidden; --op-bg: rgba(12, 19, 34, 0.97); --op-air: #7dd3fc; }
 .ops-map .worldmap { position: absolute; inset: 0; }
+/* The land/backdrop layers overhang the map by a margin: clip (not hidden) so focusing a zoom button can never
+   scroll the map box and slide the controls and layers off their places. */
+div.worldmap { overflow: clip; }
 
 /* Calm: the generic map's hub pulse and selection pop are off here. */
 .ops-map .ap .pulse { animation: none; opacity: 0.16; }
@@ -13,6 +16,30 @@
 /* ---------- layers ---------- */
 .ops-night path { fill: rgba(0, 0, 0, 0.28); stroke: none; }
 .ops-arcs path { fill: none; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+
+/* v0.5.2 flight paths (one per airborne leg, take-off to landing; colour/dash/width set per type by the live loop:
+   operating solid green, positioning + ferry dotted amber, airline deadhead thin grey dotted). */
+.ops-paths path { fill: none; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; stroke-opacity: 0.75; }
+.ops-paths path.operating { stroke-opacity: 0.6; }
+.ops-paths path.deadhead { stroke-opacity: 0.8; }
+.ops-paths path.sel { stroke-opacity: 1; stroke-width: 2.8px; }
+.ops-paths path.deadhead.sel { stroke-width: 1.8px; }
+
+/* Airline legs our crew ride: grey glyph (no livery), flight number riding along on the right. */
+.ops-cmf { cursor: pointer; }
+.ops-cmf .hit { fill: transparent; stroke: none; }
+.ops-cmf .sel-ring { display: none; fill: rgba(255, 255, 255, 0.06); stroke: #cbd3e1; stroke-width: 1.3; }
+.ops-cmf.sel .sel-ring { display: block; }
+.ops-cmf .glyph path { fill: #848ea2; stroke: #d3d9e4; stroke-width: 1.5px; stroke-linejoin: round; }
+.ops-cmf .no {
+  fill: #b9c2d4; font: 600 10.5px var(--font-mono); pointer-events: none;
+  paint-order: stroke; stroke: rgba(5, 9, 18, 0.9); stroke-width: 3px; stroke-linejoin: round;
+}
+.touch .ops-cmf .no { font-size: 11.5px; }
+.ops-cmf.sel .no { fill: #eef2f8; }
+/* Faded while it passes close over an airport code (never a hop: one fade out, one back). */
+.ops-cmf .no { transition: opacity 0.4s ease; }
+.ops-cmf .no.off { opacity: 0; }
 
 .ops-pin { cursor: pointer; }
 .ops-pin .hit, .ops-ac .hit { fill: transparent; stroke: none; }
@@ -46,6 +73,18 @@
 .ops-aircraft.labels .ops-ac .reg, .ops-ac.sel .reg { display: block; }
 .ops-aircraft.labels .ops-ac.crowd:not(.sel) .reg { display: none; }
 .touch .ops-ac .reg { font-size: 12px; }
+/* FERRY tag above an airborne ferry (pilots only, empty). */
+.ops-ac .tag {
+  display: none; fill: #fbbf24; font: 700 9.5px var(--font-mono); letter-spacing: 0.06em; text-anchor: middle; pointer-events: none;
+  paint-order: stroke; stroke: rgba(5, 9, 18, 0.92); stroke-width: 3px; stroke-linejoin: round;
+}
+.ops-ac[data-phase='airborne'][data-type='ferry'] .tag { display: block; }
+.touch .ops-ac .tag { font-size: 10.5px; }
+/* Airborne near an airport: the reg slides above the icon (the FERRY tag with it), or fades where both sides are taken. */
+.ops-ac .reg, .ops-ac .tag { transition: transform 0.35s ease, opacity 0.35s ease; }
+.ops-ac.reg-up .reg { transform: translateY(-42px); }
+.ops-ac.reg-up .tag { transform: translateY(-15px); }
+.ops-ac.reg-off .reg { opacity: 0; }
 
 /* ---------- shared bits ---------- */
 .op-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--text-3); }
@@ -130,18 +169,42 @@
 @media (hover: hover) { .ops-chip:hover { background: rgba(24, 34, 56, 0.96); } }
 .touch .ops-chip:active { background: rgba(24, 34, 56, 0.96); }
 
-/* ---------- up next (top left) ---------- */
-.ops-next { position: absolute; top: 12px; left: var(--edge-l); z-index: 5; width: 252px; padding: 8px 6px 6px; background: var(--op-bg); display: flex; flex-direction: column; }
+/* ---------- flight types (same words and line samples everywhere) ---------- */
+.ops-tkey { display: inline-block; width: 16px; height: 0; flex-shrink: 0; border-top: 2px solid #34d399; vertical-align: middle; }
+.ops-tkey.positioning, .ops-tkey.ferry { border-top: 2.5px dotted #fbbf24; }
+.ops-tkey.deadhead { border-top: 2px dotted #9aa5bb; }
+.ops-type { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 12px; font-weight: 600; }
+.ops-type.operating { color: #6ee7b7; }
+.ops-type.positioning, .ops-type.ferry { color: #fcd34d; }
+.ops-type.deadhead { color: #b9c2d4; }
+.op-type { gap: 6px; }
+.op-type-s { font-size: 12px; font-weight: 600; white-space: nowrap; flex-shrink: 0; }
+.op-type-s.operating { color: #6ee7b7; }
+.op-type-s.positioning, .op-type-s.ferry { color: #fcd34d; }
+.op-type-s.deadhead { color: #b9c2d4; }
+.op-ferry-tag { color: #fbbf24; border-color: rgba(251, 191, 36, 0.45); font: 700 12px var(--font-mono); letter-spacing: 0.06em; }
+.op-crew-link { border: none; background: none; color: var(--text); padding: 0; text-align: left; min-height: 30px; border-radius: 6px; }
+.touch .op-crew-link { min-height: var(--tap); }
+@media (hover: hover) { .op-crew-link:hover { background: var(--panel-hover); } }
+.touch .op-crew-link:active { background: var(--panel-hover); }
+.op-cm-leg { gap: 8px; }
+.op-cm-leg.on { border-color: rgba(203, 211, 225, 0.5); }
+
+/* ---------- up next (top left): time · aircraft / airline flight · route · type ---------- */
+.ops-next { position: absolute; top: 12px; left: var(--edge-l); z-index: 5; width: 372px; padding: 8px 6px 6px; background: var(--op-bg); display: flex; flex-direction: column; }
 .ops-next .upper { padding: 0 8px 4px; }
 .ops-next-row {
-  display: grid; grid-template-columns: 62px 1fr auto; align-items: center; gap: 8px; min-height: 36px; padding: 0 8px;
+  display: grid; grid-template-columns: 62px 68px 74px 1fr; align-items: center; gap: 8px; min-height: 36px; padding: 0 8px;
   border: none; background: none; color: var(--text); text-align: left; border-radius: 8px; font-size: 12.5px;
 }
+.ops-next-row > b { min-width: 0; }
+.ops-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 6px 8px 2px; margin-top: 4px; border-top: 1px solid var(--border); font-size: 12px; color: var(--text-2); }
+.ops-legend > span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .touch .ops-next-row { min-height: var(--tap); }
 @media (hover: hover) { .ops-next-row:hover { background: var(--panel-hover); } }
 .ops-next-row sup { font-size: 12px; line-height: 0; margin-left: 2px; }
-.ops-next.dated { width: 278px; }
-.ops-next.dated .ops-next-row { grid-template-columns: 88px 1fr auto; }
+.ops-next.dated { width: 398px; }
+.ops-next.dated .ops-next-row { grid-template-columns: 88px 68px 74px 1fr; }
 .ops-next-row > span:first-child { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .touch .ops-next-row:active { background: var(--panel-hover); }
 
@@ -150,3 +213,5 @@
 .ops-map .map-zoom .btn { backdrop-filter: none; -webkit-backdrop-filter: none; background: var(--op-bg); }
 .ops-map.panel-open .map-zoom { right: calc(var(--edge-r) + 360px + 12px); }
 .op-crew-btn { width: 100%; margin-top: 8px; }
+.ops-type-n { display: inline-flex; align-items: center; gap: 2px; font-weight: 500; color: var(--text-2); }
+.ops-type-n svg { width: 12px; height: 12px; }

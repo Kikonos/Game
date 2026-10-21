@@ -263,7 +263,7 @@ describe('offer lifecycle', () => {
     const price = o.product.kind === 'charter' ? o.product.price : 0;
     expect(counterOffer(g, o.id, price, [id]).ok).toBe(true);
     expect(o.status).toBe('countered');
-    expect(o.counter!.replyAt - g.now).toBeGreaterThanOrEqual(BAL.counterReplyHours[0] * 60);
+    expect(o.counter!.replyAt - g.now).toBeGreaterThanOrEqual(60);
     expect(counterOffer(g, o.id, price, [id]).ok).toBe(false);
     g.now = Math.min(o.counter!.replyAt, o.expires - 1);
     onOfferReply(g, { t: g.now, seq: 0, type: 'offer.reply', id: o.id, v: 0 });
@@ -280,9 +280,10 @@ describe('offer lifecycle', () => {
     expect(counterOffer(g, o.id, Math.round(price * (o.floor + 0.05)), [id]).ok).toBe(true);
     g.now = Math.min(o.counter!.replyAt, o.expires - 1);
     onOfferReply(g, { t: g.now, seq: 0, type: 'offer.reply', id: o.id, v: 0 });
-    expect(o.counter!.result).toBe('refused');
+    // v0.5.2: refused (asking stands) or met halfway (midpoint on the table); either way the offer reopens.
+    expect(['refused', 'halfway']).toContain(o.counter!.result);
     expect(o.status).toBe('open');
-    expect(o.product.kind === 'charter' && o.product.price).toBe(price);
+    expect(o.product.kind === 'charter' && o.product.price).toBe(o.counter!.result === 'refused' ? price : o.counter!.offer);
   });
 
   it('the new game starts on 1 March 2027', () => {

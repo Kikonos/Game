@@ -2,11 +2,14 @@
 // pure read APIs and compact saves (DESIGN.md §3.3, §4.1–4.2, §7.2).
 
 import { describe, expect, it } from 'vitest';
-import { acceptOffer, cancelCost, cancelPenalty, contractProgress, feasibility, feasibilityAll, generateOffer, marketFit, paintQuote, paintWindow, productValue } from '../contracts';
-import { checkAssignment, crewAvailability, crewIssuesFor, crewWindows, daysOffInMonth, dutyCandidates, dutyCrew, dutyLegality, flightCrewStatus, hireQuote, rosterOf, staffing } from '../crew';
+import { acceptOffer, cancelCost, cancelPenalty, contractProgress, counterView, feasibility, feasibilityAll, generateOffer, marketFit, paintQuote, paintWindow, productValue } from '../contracts';
+import { checkAssignment, crewAvailability, crewCalendar, crewIssuesFor, crewStatusView, crewWindows, daysOffInMonth, dutyCandidates, dutyCrew, dutyLegality, flightCrewStatus, hireQuote, rosterOf, staffing } from '../crew';
 import { demoFlights } from '../dev';
 import { createGame } from '../newGame';
-import { aogChance, APPROVALS, approvalBlocker, cashForecast, checkStatus, fixedCosts, GOALS, groundGaps, liveryOf, monthProfit, paintStatus, rotationOf, subcharterable, subcharterQuote } from '../ops';
+import {
+  aogChance, APPROVALS, approvalBlocker, cashForecast, checkStatus, commercialFlightsAirborne, commercialFlightsBetween, commercialItinerary, fixedCosts, flightType, GOALS,
+  groundGaps, liveryOf, monthProfit, paintStatus, rotationOf, subcharterable, subcharterQuote,
+} from '../ops';
 import { deserialize, serialize } from '../save';
 import { advanceTo } from '../sim';
 import { addDeadhead, flightsOf, reassignFlights, retimeFlight, subcharterFlights, takeFlightChanges } from './entities';
@@ -104,11 +107,21 @@ describe('determinism of read APIs', () => {
         paintStatus(g, ac.id);
         paintWindow(g, ac.id, { days: 2 }, t + 30 * DAY, t + DAY);
       }
-      for (const f of Object.values(g.flights)) flightCrewStatus(g, f.id);
+      for (const f of Object.values(g.flights)) {
+        flightCrewStatus(g, f.id);
+        flightType(g, f);
+        commercialItinerary(g, f);
+      }
       for (const c of Object.values(g.crew).slice(0, 10)) {
         crewWindows(g, c, t);
         rosterOf(g, c.id, t, t + 14 * DAY);
+        // v0.5.2: crew card strip and header.
+        crewCalendar(g, c.id, t - DAY, t + 14 * DAY);
+        crewStatusView(g, c.id);
       }
+      for (const o of Object.values(g.offers)) counterView(g, o.id);
+      commercialFlightsBetween(g, t - DAY, t + 3 * DAY);
+      for (let k = 0; k < 48; k++) commercialFlightsAirborne(g, t + k * 60);
       // Engine-lane screen reads: manual roster, sub-charter quotes, fleet gaps, finance, company, inbox.
       for (const d of Object.values(g.duties).slice(0, 6)) {
         dutyCrew(g, d.id);

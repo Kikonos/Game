@@ -5,6 +5,21 @@
 windows and engines are approved artwork: **never change them** — `stickers.test.ts` hashes
 `g.fus`, `g.fin.fill`, `g.windows` and every engine cowl and fails on any change.
 
+**Fairing (v0.5.2)**: the traced top / bottom lines are drawn through `fairLine` (`fair.ts`): the nose
+(x < 0.09 L) and the tail-cone tip (x > 0.975 L) stay exactly as traced; between them a stiff Whittaker
+smoother (second + third differences, eased off at both junctions) keeps every point within 0.0012 L
+(junctions) … 0.0032 L (cabin) of the trace — no crown / belly bumps. Fin vertices on the crown follow
+it. The trace files stay the record; `fair.test.ts` checks the bounds per type. `?fair=0` in the gallery
+draws the raw traces. Silhouette traces (`outline`, the Concorde) are not faired.
+
+**Fairing**: traced crown / belly lines are faired in `fair.ts`; the crown is held straight over the
+constant-section span `TracedProfile.cabin` (default `CABIN` 0.2–0.65 L; 747 aft of the hump).
+
+**Level of detail**: windows and doors follow the drawn scale and screen density (`artLod(pxPerM, dpr)`,
+measured after layout): `full` ≥ 8 CSS px/m, `card` (separate windows ≥ ~1 device px, darker door
+outlines), `band` below 4.6 px/m at 1× or 5.2 device px/m on dense screens (each run of windows one slim
+band, `g.windowBands`; the 2× iPad Fleet card and market rows keep separate windows). `detail="simple"` only drops titles and fine lines.
+
 ## Files
 
 | File | What |
@@ -47,7 +62,8 @@ All `stickers.ts` exports speak viewBox coords: `frameToView` / `viewToFrame` (i
 `sideAt`, `placeAt` (drag → side + clamped frame coords), `stickerLayout` (boxes in draw order),
 `hitBox`, `snapTargets`, `airframeClipPaths`. Text never mirrors.
 
-**Detail `simple`** (≤ 120 px): fin stickers stay; fuselage text drops; fuselage logos stay if ≥ 6 % of L.
+**Detail `simple`** (≤ 120 px): fin stickers stay; fuselage text drops; fuselage logos stay if ≥ 6 % of L;
+windows and doors stay (as bands at small sizes).
 
 **Auto ink**: fin text uses the accent when it reads on the fin (2.2:1), else white / ink; on a split or
 stripe area it switches, and a box straddling the divide gets the colour that reads on both. Fuselage text
@@ -73,4 +89,6 @@ lock message (client paint).
 - `?gallery=clip[&stickers=0]` — magenta stickers at scale 3 in the corners (`stickers=0` = the silhouette mask);
   diff the two screenshots: no magenta pixel may fall outside the mask.
 - `?gallery=editor[&livery=…]` — the editor sheet with local state (`#g-livery-json` holds the value).
+- `?gallery=lod[&types=…&detail=simple]` — each type at 60…720 px wide (window / door level of detail).
+- `?gallery=crown[&types=…][&fair=0]` — each type 1150 px wide, for crown / belly / tail-cone checks (raw with `fair=0`).
 - `?gallery=compare&type=<id>`, `?gallery=sheet` — traced-profile reference overlays (see `src/dev/gallery.tsx`).

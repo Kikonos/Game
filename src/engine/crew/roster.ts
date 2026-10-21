@@ -1,7 +1,7 @@
 // Auto-roster, change sync and disruption APIs (B2). DESIGN.md §4.2, §5.3.
 
 import { BAL } from '../core/balance';
-import { addDeadhead, flightsOf, removeFlights, retimeFlight, touchFlights } from '../core/entities';
+import { addDeadhead, deadheadFlights, flightsOf, removeFlights, retimeFlight, touchFlights } from '../core/entities';
 import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { requestPause } from '../core/pause';
@@ -9,10 +9,10 @@ import { canFill, complement, typeOf } from '../core/perf';
 import { DAY, fmtDateTime } from '../core/time';
 import type { ActionResult, CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing, Role } from '../core/types';
 import { acceptable, crewIssuesFor, mergeSegs, openDuties, otherTrip, planCrew, type CrewPlan } from './check';
-import { deletePairing, dutyLegality, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setCrewTrailOkHook, setReleaseHook, setRetickHook, splitPairing, syncDuty } from './duties';
+import { deletePairing, dutyLegality, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setCrewTrailOkHook, setReleaseHook, setRetickHook, splitPairing, splitUnderWay, syncDuty } from './duties';
 import { crewName } from './generate';
-import { evalSegs, levelOf, worst, type Seg } from './rules';
-import { aboard, block28, crewCount, crewIx, ctxOf, dhBlock, dutySegs, locAt, noteRiders, passengers, planHome, planOut, segsOf, ticketPrice, touchCrew, typeIdOf } from './timeline';
+import { evalSegs, levelOf, minRest, tzDeltaH, worst, type Seg } from './rules';
+import { aboard, block28, crewCount, crewIx, ctxOf, dhBlock, droppableHome, dutySegs, locAt, noteRiders, passengers, planHome, planOut, segsOf, ticketPrice, touchCrew, typeIdOf, withoutTickets } from './timeline';
 
 export { buildDuties } from './duties';
 
@@ -169,6 +169,13 @@ function retimeTickets(g: GameState, p: Pairing, d: Duty, moved: Set<string>): v
     // Home tickets leave after report; tickets out leave before it.
     if (f.std > d.report) {
       if (f.from === d.restAt && f.std < d.release + 30) std = Math.ceil((d.release + 60) / 60) * 60;
+      else if (f.from === d.restAt && f.std - d.release >= 600) {
+        // v0.5.2: a ticket home after rest (planHome) leaves once the rest is over again: a later release
+        // would otherwise put its check-in inside the rest and the whole crew off the duty at the gate.
+        const rest = minRest({ dutyMin: d.release - d.report, atHome: false, augmented: d.augment > 0, tzShift: tzDeltaH(f.to, f.from, d.release) });
+        const need = Math.ceil((d.release + rest + BAL.deadheadCheckIn) / 60) * 60;
+        if (f.std < need) std = need;
+      }
     } else if (f.to === dep && f.sta > d.report && f.std > g.now) {
       const t = planOut(g, p, d, f.from);
       if (!t.rideId && t.std - BAL.deadheadCheckIn >= g.now) std = t.std;
@@ -291,6 +298,60 @@ export function recheckAfterRelease(g: GameState, p: Pairing): void {
   if (g.company.policies.autoRoster) for (const ac of acs) rerosterFrom(g, ac, g.now);
 }
 
+/** Longest stay at an outstation between two trips that beats flying home and straight back out. */
+const STAY_MAX = 30 * 60;
+
+/**
+ * Daily (v0.5.2): crew holding a ticket home from X and a ticket straight back out to X for their next trip,
+ * reporting within STAY_MAX of the release, stay at the hotel instead (DESIGN §5.3): both tickets are dropped
+ * (bought ones are sunk) when the hotel nights cost less than the two tickets and the timeline stays as legal.
+ * Not around a tour (its crews rotate through base). Returns the crew who stayed.
+ */
+export function stayOn(g: GameState): string[] {
+  const night = BAL.hotelPerNight[g.company.policies.hotelTier] ?? BAL.hotelPerNight[4];
+  const live = (id: string | undefined) => {
+    const f = id ? g.flights[id] : undefined;
+    return !!f && f.kind === 'deadhead' && f.status === 'scheduled' && f.std - BAL.deadheadCheckIn > g.now;
+  };
+  const tour = (x: Seg | undefined) => !!x?.dutyId && !!g.pairings[g.duties[x.dutyId]?.pairingId ?? '']?.tour;
+  const ticketed = new Set<string>();
+  for (const f of deadheadFlights(g)) if (live(f.id)) for (const id of f.crewIds) ticketed.add(id);
+  const stayed: string[] = [];
+  for (const c of Object.values(g.crew)) {
+    if (!ticketed.has(c.id)) continue;
+    const all = segsOf(g, c);
+    const segs = all.filter((x) => x.kind !== 'log');
+    for (let i = 0; i < segs.length; i++) {
+      const a = segs[i];
+      // The ticket home: merged into the duty, or a positioning seg right after it.
+      let home: string | undefined;
+      let from = 0;
+      let st = '';
+      let prev: Seg | undefined;
+      if (a.kind === 'duty' && a.home?.id && a.at === c.base) [home, from, st, prev] = [a.home.id, a.home.release, a.home.from, a];
+      else if (a.kind === 'pos' && a.ticketId && a.at === c.base && segs[i - 1]?.kind === 'duty') [home, from, st, prev] = [a.ticketId, segs[i - 1].end, a.from ?? '', segs[i - 1]];
+      if (!home || !live(home) || !st || st === c.base || tour(prev)) continue;
+      // The ticket back out: merged into the next duty, or a positioning seg right before it.
+      const b = segs[i + 1];
+      let out: string | undefined;
+      let to = 0;
+      let next: Seg | undefined;
+      if (b?.kind === 'duty' && b.out?.id && b.out.to === st) [out, to, next] = [b.out.id, b.out.start, b];
+      else if (b?.kind === 'pos' && b.ticketId && b.at === st && segs[i + 2]?.kind === 'duty') [out, to, next] = [b.ticketId, segs[i + 2].start, segs[i + 2]];
+      if (!out || !live(out) || tour(next) || to <= from || to - from > STAY_MAX) continue;
+      if (Math.ceil((to - from) / DAY) * night >= ticketPrice(st, c.base) + ticketPrice(c.base, st)) continue;
+      const ctx = ctxOf(g, c);
+      const bad = (s: Seg[]) => evalSegs(ctx, s).filter((x) => x.level === 'illegal').length;
+      if (bad(withoutTickets(all, [home, out])) > bad(all)) continue;
+      dropPlanned(g, c.id, [home, out]);
+      stayed.push(c.id);
+      break;
+    }
+  }
+  if (stayed.length) touchCrew(g);
+  return stayed;
+}
+
 /** Daily: crew left away from base with no trip ahead and no ticket go home (after a split or a dissolved trip). */
 export function sendStrandedHome(g: GameState): void {
   const away = Object.values(g.crew).filter((c) => c.loc !== c.base && c.status !== 'onDuty');
@@ -386,6 +447,36 @@ function laterBroken(g: GameState, crewIds: string[], p: Pairing): Set<string> {
   return acs;
 }
 
+/** Longest report slip for a crew still resting (ops move the legs; beyond it the seat is refilled or left short). */
+const REST_SLIP = 3 * 60;
+
+let restDelayHook: ((g: GameState, f: Flight, std: Minute) => boolean) | null = null;
+/** Ops registers how a duty's first leg is delayed for crew rest (ops/flights.ts delayChain). */
+export function setRestDelayHook(f: (g: GameState, f: Flight, std: Minute) => boolean): void {
+  restDelayHook = f;
+}
+
+/**
+ * A duty not yet reported whose full crew is held up only by rest still running (restUntil past the report, by
+ * at most REST_SLIP): its first leg is delayed so the report falls when the rest ends, and the duty re-measured.
+ * True when the legs moved.
+ */
+function slipForRest(g: GameState, d: Duty, ids: string[]): boolean {
+  const p = g.pairings[d.pairingId];
+  const f = g.flights[d.flightIds[0]];
+  if (!restDelayHook || !p?.aircraftId || d.report <= g.now || !f || f.status !== 'scheduled' || p.slots.some((s) => !s.crewId)) return false;
+  let end = 0;
+  for (const id of ids) {
+    const c = g.crew[id];
+    if (!c || c.status === 'onDuty' || c.restUntil <= d.report) return false;
+    end = Math.max(end, c.restUntil);
+  }
+  const slip = Math.ceil((end - d.report) / 5) * 5;
+  if (slip > REST_SLIP || !restDelayHook(g, f, f.std + slip)) return false;
+  onFlightsChanged(g, p.aircraftId, g.now);
+  return true;
+}
+
 /**
  * Last line before a duty (2 h before report, and at the gate): no crew member may fly it over a limit. Crew with
  * a crew-level issue are re-rostered (their later trips give way first, then this aircraft is re-planned); anyone
@@ -404,8 +495,14 @@ export function guardDuty(g: GameState, dutyId: string): boolean {
   d = g.duties[dutyId];
   let short = 0;
   if (d && !d.done && g.pairings[d.pairingId]) {
-    const bad = crewIssuesFor(g, d);
-    if (bad.length) {
+    let bad = crewIssuesFor(g, d);
+    // v0.5.2: nobody to swap, but the crew are only short of rest (a late finish the day before): the duty
+    // reports when their rest ends (its legs move up to REST_SLIP later) rather than flying uncovered.
+    if (bad.length && slipForRest(g, d, bad.map((b) => b.crewId))) {
+      d = g.duties[dutyId];
+      bad = d && !d.done ? crewIssuesFor(g, d) : [];
+    }
+    if (d && bad.length) {
       const p = g.pairings[d.pairingId];
       const q = openDuties(g, p)[0] === d ? p : splitPairing(g, p, d.report) ?? p;
       for (const b of bad) releaseCrew(g, q, b.crewId);
@@ -437,7 +534,7 @@ export function guardDuty(g: GameState, dutyId: string): boolean {
 
 const copySeg = (x: Seg): Seg => ({
   kind: x.kind, start: x.start, end: x.end, fdp: x.fdp, maxFdp: x.maxFdp, block: x.block, sectors: x.sectors, aug: x.aug,
-  disruptive: x.disruptive, rest: x.rest, at: x.at, from: x.from, dutyId: x.dutyId, fresh: false,
+  disruptive: x.disruptive, rest: x.rest, at: x.at, from: x.from, dutyId: x.dutyId, fresh: false, home: x.home && { ...x.home }, out: x.out && { ...x.out },
 });
 
 /** Cheap pre-check: a planned seg overlaps [from, to) or its rest runs past `from` (certainly illegal). */
@@ -520,7 +617,10 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
   const pool: { c: CrewMember; score: number; rank: number }[] = [];
   for (const c of ctx.crew) {
     if (!fitRoles.has(c.role) || !c.ratings.includes(family) || inP.has(c.id) || exclude?.has(c.id)) continue;
-    const segs = ctx.of(c);
+    // v0.5.2: crew still at the departure airport with a ticket home around this trip stay on instead
+    // (planCrew drops that ticket): the pilots of a trip fly its trailing ferry.
+    const all = ctx.of(c);
+    const segs = p.tour ? all : withoutTickets(all, droppableHome(g, c, all, dep, first.report, spanTo));
     if (busyAt(segs, first.report, first.release)) continue;
     const loc = locAt(c, segs, first.report);
     let tp = price.get(loc);
@@ -576,6 +676,18 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
   }
   if (!plans.size) return;
   buyTickets(g, p, plans, res);
+  // The run's timelines learn the tickets home just bought, so a later trip from there can drop them (droppableHome).
+  const lastD = duties[duties.length - 1];
+  for (const [id, plan] of plans) {
+    const h = plan.home;
+    if (!h) continue;
+    const f = h.rideId ? g.flights[h.rideId] : lastD.deadheadIds.map((x) => g.flights[x]).find((x) => x && x.from === h.from && x.to === h.to && x.std === h.std && x.crewIds.includes(id));
+    if (!f) continue;
+    for (const x of ctx.segs.get(id) ?? []) {
+      if (x.kind === 'pos' && !x.ticketId && x.from === h.from && x.at === h.to && x.end === h.sta) x.ticketId = f.id;
+      else if (x.kind === 'duty' && x.home && !x.home.id && x.home.from === h.from && x.home.std === h.std && x.at === h.to) x.home.id = f.id;
+    }
+  }
   setFlightsCrew(g, p);
   if (!hadCrew) for (const d of duties) queueDuty(g, d);
   let level: Legality = 'legal';
@@ -621,8 +733,44 @@ export function fillAll(g: GameState, ps: Pairing[], res: RosterResult, exclude?
   if (!ps.length) return;
   crewIx(g);
   const ctx = new Ctx(g);
-  for (const p of ps) if (g.pairings[p.id]) fillPairing(g, ctx, p, res, exclude);
+  for (const p of ps) {
+    if (!g.pairings[p.id]) continue;
+    fillPairing(g, ctx, p, res, exclude);
+    // v0.5.2: a tour seat nobody can take from its first duty (a sickness, a crew just off another tour) is
+    // filled from the first later duty someone can: the tour is split there, so only the gap goes uncovered.
+    let q: Pairing | null = p;
+    for (let n = 0; q && n < 3; n++) {
+      q = q.tour ? splitTourGap(g, ctx, q, exclude) : null;
+      if (q) fillPairing(g, ctx, q, res, exclude);
+    }
+  }
   touchCrew(g);
+}
+
+/**
+ * A tour with an empty seat: the first later duty (after the first open one) from which a legal crew member
+ * could take that seat for the rest of the tour; the tour is split there and the later part returned (null:
+ * no seat open, or nobody fits any later part).
+ */
+function splitTourGap(g: GameState, ctx: Ctx, p: Pairing, exclude?: Set<string>): Pairing | null {
+  const open = openDuties(g, p);
+  const roles = [...new Set(p.slots.filter((s) => !s.crewId).map((s) => s.role))];
+  if (!roles.length || open.length < 2) return null;
+  const family = typeOf(typeIdOf(g, p)).family;
+  const inP = new Set(p.slots.filter((s) => s.crewId).map((s) => s.crewId!));
+  const end = open[open.length - 1].release;
+  const pool = ctx.crew.filter((c) => !inP.has(c.id) && !exclude?.has(c.id) && c.ratings.includes(family) && roles.some((r) => canFill(r, c.role)));
+  const horizon = g.now + BAL.rosterHorizonDays * DAY;
+  for (let k = 1; k < open.length; k++) {
+    const d = open[k];
+    if (d.report > horizon) return null;
+    const probe: Pairing = { ...p, dutyIds: open.slice(k).map((x) => x.id), start: d.report };
+    for (const c of pool) {
+      if (ctx.onTrip(c.id, d.report, end) || busyAt(ctx.of(c), d.report, d.release)) continue;
+      if (acceptable(g, planCrew(g, c, probe, ctx.of(c), false, BAL.rosterSlack))) return splitPairing(g, p, d.report);
+    }
+  }
+  return null;
 }
 
 /**
@@ -685,10 +833,13 @@ export function onFlightsChanged(g: GameState, aircraftId: string, t: Minute): v
       }
       d.flightIds = keep;
       syncDuty(g, d, p);
+      // A leg under way now leaving a night-stop later: the duty ends at the last landing (hotel, then a new duty).
+      const d2 = splitUnderWay(g, p, d);
       if (crewCount(p) > 0) {
         queueDuty(g, d);
         const moved = new Set<string>();
         retimeTickets(g, p, d, moved);
+        if (d2) retimeTickets(g, p, d2, moved);
         if (moved.size) later.push([p, moved]);
       }
     }

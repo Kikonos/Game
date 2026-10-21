@@ -351,7 +351,14 @@ export interface ContractOffer {
   /** Hidden walk-away multiplier on the asking price (counters above it are refused). */
   floor: number;
   /** Player counter awaiting the client's reply. B1: aircraft chosen for it, and the client's answer once given. */
-  counter?: { price: number; at: Minute; replyAt: Minute; aircraftIds?: string[]; result?: 'accepted' | 'refused'; /** v0.5.1: paint on (default) or off. */ paint?: boolean };
+  counter?: {
+    price: number; at: Minute; replyAt: Minute; aircraftIds?: string[];
+    /** v0.5.2: 'halfway' = the client met us halfway (`offer`, now the price on the table). */
+    result?: 'accepted' | 'refused' | 'halfway';
+    /** v0.5.1: paint on (default) or off. */ paint?: boolean;
+    /** v0.5.2: expiry minutes left when sent (the clock is paused while the counter is pending), and the client's halfway price. */
+    left?: number; offer?: number;
+  };
   status: OfferStatus;
   /** Map pin airport. */
   pin: string;

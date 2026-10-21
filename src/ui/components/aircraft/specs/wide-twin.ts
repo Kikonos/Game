@@ -59,6 +59,7 @@ export function stretchTrace(src: TracedProfile, srcM: number, typeId: string, d
     typeId,
     source,
     lengthPx: (src.lengthPx * dstM) / srcM,
+    cabin: src.cabin && [X(src.cabin[0]), X(src.cabin[1])],
     lengthM: dstM,
     top: line(src.top),
     bottom: line(src.bottom),

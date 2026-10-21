@@ -5,7 +5,7 @@ import { ACMI_TYPES } from '../../data/acmiTypes';
 import { BAL } from '../core/balance';
 import { distance } from '../core/geo';
 import { deadheadFlights, flightsOf, flightsRev } from '../core/entities';
-import { blockMinutes } from '../core/perf';
+import { ticketBlock } from '../ops/commercial';
 import { yearOf } from '../core/time';
 import type { CrewMember, Duty, Flight, GameState, Minute, Pairing } from '../core/types';
 import { isDisruptive, maxFdp, minRest, referenceTime, tzDeltaH, type RefTime, type Seg, type TimelineCtx } from './rules';
@@ -141,23 +141,25 @@ export function ticketPrice(from: string, to: string): number {
   return km < 1_500 ? a : km < 4_000 ? b : c;
 }
 
-export const dhBlock = (from: string, to: string) => blockMinutes('a320ceo', from, to);
+/** Ticket door-to-door minutes: the airline itinerary (nonstop, or two legs and a connection; ops/commercial.ts). */
+export const dhBlock = (from: string, to: string) => ticketBlock(from, to);
 
 const posRest = (t: TicketPlan, atHome: boolean) => minRest({ dutyMin: t.sta - t.std + CHECKIN(), atHome, augmented: false, tzShift: 0 });
 
 /**
  * Ticket to the first departure of duty d: same day (departs report − 3 h − block, rounded down to the hour;
  * counts as FDP) when the merged FDP keeps 30 min of slack, else the day before with minimum rest on arrival.
+ * `early`: always the day before (the longer merged duty would eat the rest before the trip's next duty).
  */
-export function planOut(g: GameState, p: Pairing, d: Duty, from: string): TicketPlan {
+export function planOut(g: GameState, p: Pairing, d: Duty, from: string, early = false): TicketPlan {
   const to = g.flights[d.flightIds[0]]?.from ?? d.restAt;
-  const ride = rideTo(g, from, to, d);
+  const ride = early ? null : rideTo(g, from, to, d);
   if (ride) return ride;
   const blk = dhBlock(from, to);
   const std = hour(d.report - 180 - blk, false);
   const start = std - CHECKIN();
   const { max } = fdpLimitAt(g, p, d, from, start);
-  if (d.fdp + (d.report - start) <= max + (d.discretion ?? 0) - 30) return { from, to, std, sta: std + blk };
+  if (!early && d.fdp + (d.report - start) <= max + (d.discretion ?? 0) - 30) return { from, to, std, sta: std + blk };
   const rest = minRest({ dutyMin: blk + CHECKIN(), atHome: false, augmented: false, tzShift: 0 });
   const std2 = hour(d.report - rest - blk, false);
   return { from, to, std: std2, sta: std2 + blk };
@@ -272,8 +274,10 @@ export function dutySegs(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: 
   let max = d.maxFdp + (d.discretion ?? 0);
   let tz = referenceTime(p.base, dep, Math.min(p.start, d.report), d.report).tz;
   let from = dep;
+  let mergedOut: Seg['out'];
   if (out) {
     if (d.report - out.sta < posRest(out, false)) {
+      mergedOut = { id: (out as Partial<Flight>).id, to: dep, start, fdp, maxFdp: max, disruptive: isDisruptive(tz, start, d.release) };
       start = out.std - CHECKIN();
       from = out.from;
       fdp = d.fdp + (d.report - start);
@@ -285,17 +289,18 @@ export function dutySegs(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: 
   let end = d.release;
   let at = d.restAt;
   let tail: Seg | null = null;
+  let merged: Seg['home'];
+  const restAfter = (e: Minute, a: string) => minRest({ dutyMin: e - start, atHome: a === c.base, augmented: d.augment > 0, tzShift: tzDeltaH(c.base, a, e) });
   if (home) {
     if (home.std - d.release < 600) {
+      merged = { id: (home as Partial<Flight>).id, from: d.restAt, std: home.std, release: d.release, rest: restAfter(d.release, d.restAt) };
       end = home.sta;
       at = home.to;
     } else if (!flown(home)) tail = { ...posSeg(home, c, fresh), dutyId: d.id };
   }
   segs.push({
     kind: 'duty', start, end, fdp, maxFdp: max, block: dutyBlock(g, d), sectors: d.sectors, aug: d.augment > 0,
-    disruptive: isDisruptive(tz, start, end),
-    rest: minRest({ dutyMin: end - start, atHome: at === c.base, augmented: d.augment > 0, tzShift: tzDeltaH(c.base, at, end) }),
-    at, from, dutyId: d.id, fresh,
+    disruptive: isDisruptive(tz, start, end), rest: restAfter(end, at), at, from, dutyId: d.id, fresh, home: merged, out: mergedOut,
   });
   if (tail) segs.push(tail);
   return segs;
@@ -341,6 +346,57 @@ export function segsOf(g: GameState, c: CrewMember, excludePairing?: string): Se
     segs.push(posSeg(f, c));
   }
   return segs.sort(bySeg);
+}
+
+/** A seg of a deployment tour: its crews rotate through base, so their tickets are never dropped. */
+const onTour = (g: GameState, x: Seg): boolean => !!(x.dutyId && g.pairings[g.duties[x.dutyId]?.pairingId ?? '']?.tour);
+
+/**
+ * Tickets home from `dep` that a trip from dep in [report, release) makes unnecessary: the crew are still there
+ * (a positioning seg, or a ticket merged into the duty before it) and stay on instead of flying home and back out
+ * (DESIGN §5.3: a hotel night is cheaper than two tickets). Not tickets already checked in, nor a tour's. Pure.
+ */
+export function droppableHome(g: GameState, c: CrewMember, segs: Seg[], dep: string, report: Minute, release: Minute): string[] {
+  const out: string[] = [];
+  const now = g.now;
+  const near = (start: Minute) => start + CHECKIN() > now && start >= report - 2 * 1440 && start < release + 1440;
+  for (const x of segs) {
+    if (onTour(g, x)) continue;
+    if (x.kind === 'pos' && x.ticketId && x.from === dep && x.at === c.base && near(x.start) && locAt(c, segs, x.start) === dep) out.push(x.ticketId);
+    else if (x.kind === 'duty' && x.home?.id && x.home.from === dep && x.at === c.base && near(x.home.std - CHECKIN())) out.push(x.home.id);
+  }
+  return out;
+}
+
+/**
+ * Tickets out of base to `station` that become unnecessary when a trip ends there at `release`: the crew's next
+ * work is a trip from the station they were going to fly back out to (the first thing after release, within two
+ * days), so they stay on instead of flying home first. Not tickets already checked in. Pure.
+ */
+export function droppableOut(g: GameState, c: CrewMember, segs: Seg[], station: string, release: Minute): string[] {
+  const now = g.now;
+  for (const x of segs) {
+    if (x.kind === 'log' || x.end <= release) continue;
+    if (x.start < release || x.start >= release + 2 * 1440 || onTour(g, x)) return [];
+    if (x.kind === 'pos' && x.ticketId && x.from === c.base && x.at === station && x.start > now) return [x.ticketId];
+    if (x.kind === 'duty' && x.out?.id && x.from === c.base && x.out.to === station && x.start > now) return [x.out.id];
+    return [];
+  }
+  return [];
+}
+
+/** The timeline without the given tickets (positioning segs removed, merged ones taken off their duty). */
+export function withoutTickets(segs: Seg[], ids: string[]): Seg[] {
+  if (!ids.length) return segs;
+  const out: Seg[] = [];
+  for (const x of segs) {
+    if (x.ticketId && ids.includes(x.ticketId)) continue;
+    let y = x;
+    if (y.home?.id && ids.includes(y.home.id)) y = { ...y, end: y.home.release, at: y.home.from, rest: y.home.rest, home: undefined };
+    if (y.out?.id && ids.includes(y.out.id)) y = { ...y, start: y.out.start, fdp: y.out.fdp, maxFdp: y.out.maxFdp, from: y.out.to, disruptive: y.out.disruptive, out: undefined };
+    out.push(y);
+  }
+  return out;
 }
 
 /** Where the crew member will be at t (end of the last planned seg before t, else now). */
