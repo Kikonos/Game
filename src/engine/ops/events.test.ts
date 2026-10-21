@@ -210,7 +210,7 @@ describe('crew short', () => {
     expect(duty.discretion).toBeGreaterThanOrEqual(120);
     expect(duty.legality).not.toBe('illegal');
     expect(f.crewDecided).toBe(true);
-    crew.forEach((c, i) => expect(c.morale).toBe(Math.max(0, morale[i] - 3)));
+    crew.forEach((c, i) => expect(c.morale).toBeCloseTo(Math.max(0, morale[i] - 3), 5));
   });
 
   it('no discretion beyond 2 h: wait for a legal crew, sub-charter or cancel', () => {

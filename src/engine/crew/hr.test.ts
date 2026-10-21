@@ -55,19 +55,23 @@ describe('hiring', () => {
 });
 
 describe('training', () => {
-  it('type rating: 35 days, rating added at the end', () => {
+  it('type rating (v0.6: a one-person conversion class): 42 days from the earliest start, the new type replaces the old', () => {
     const g = fixtureGame();
     const fo = Object.values(g.crew).find((c) => c.role === 'FO')!;
     const cash = g.company.cash;
     const r = trainCrew(g, fo.id, 'typeRating', 'B757/767');
     expect(r.ok).toBe(true);
-    expect(g.company.cash).toBe(cash - BAL.typeRating.pilotCost);
+    expect(g.company.cash).toBe(cash - BAL.conv.pilotCost.wide);
+    const k = Object.values(g.classes!)[0];
+    expect(k.crewIds).toEqual([fo.id]);
+    expect(k.start).toBeGreaterThanOrEqual(g.now + BAL.conv.leadDays * DAY);
+    expect(k.end - k.start).toBe(BAL.conv.pilotDays * DAY);
+    run(g, k.start + 60);
     expect(fo.status).toBe('training');
-    const end = dayStart(g.now) + BAL.typeRating.pilotDays * DAY;
-    run(g, end - 60);
+    run(g, k.end - 60);
     expect(fo.ratings).not.toContain('B757/767');
-    run(g, end + 1);
-    expect(fo.ratings).toContain('B757/767');
+    run(g, k.end + 1);
+    expect(fo.ratings).toEqual(['B757/767']);
     expect(fo.status).not.toBe('training');
   });
 

@@ -5,7 +5,7 @@
 // same flights. Crew planning times tickets with the same itinerary (ticketBlock).
 
 import { AIRPORT_BY_CODE, type Airport } from '../../data/airports';
-import { CARRIER_BY_IATA, CARRIERS, WORLD_HUBS, type Carrier } from '../../data/carriers';
+import { CARRIER_BY_IATA, CARRIERS, LCC_ONLY_ALL, WORLD_HUBS, type Carrier } from '../../data/carriers';
 import { deadheadFlights } from '../core/entities';
 import { distance } from '../core/geo';
 import { blockMinutes } from '../core/perf';
@@ -60,39 +60,47 @@ const legBlock = (a: string, b: string) => blockMinutes(distance(a, b) > LONG_KM
 const SUPER = new Set(['EK', 'QR', 'EY', 'TK', 'ET']);
 /** Source markets whose low-cost carriers fly the long leisure sectors (UK to Sharm, Germany to Antalya…). */
 const SUN_SOURCE = new Set(['GB', 'IE', 'DE', 'NL', 'BE', 'CH', 'AT', 'DK', 'SE', 'NO', 'FI', 'PL', 'CZ', 'HU']);
-/** Longest low-cost sector (narrowbody point-to-point). */
+/** Longest low-cost sector (narrowbody point-to-point); the northern sun routes reach further (Scandinavia–Canaries). */
 const LCC_KM = 3_600;
+const LCC_SUN_KM = 4_200;
+
+/** v0.6: airports only the low-cost carriers use (those present in the airport list). */
+export const LCC_ONLY = new Set(LCC_ONLY_ALL.filter((c) => !!AIRPORT_BY_CODE[c]));
 
 /** Does low-cost carrier c fly base → other? Point-to-point from one of its bases into its markets. */
 function lccLeg(c: Carrier, base: Airport, other: Airport, km: number): boolean {
   if (!c.hubs.includes(base.code) || !(c.markets ?? []).includes(other.country)) return false;
   if (c.avoid?.includes(other.code) && !c.hubs.includes(other.code)) return false;
-  if (other.size < 3 && other.tour < 0.8 && !c.hubs.includes(other.code)) return false;
-  // Domestic only at home (or between two of its own bases).
-  if (base.country === other.country && base.country !== c.country && !c.hubs.includes(other.code)) return false;
+  // v0.6: small airports only on the sun routes from the northern source markets, or the carrier's own extras.
+  if (other.size < 3 && !c.hubs.includes(other.code) && !c.extra?.includes(other.code) && !(SUN_SOURCE.has(base.country) && other.tour >= 0.6)) return false;
+  // Domestic only at home, or between two of its bases in a country where it flies domestic routes (v0.6).
+  if (base.country === other.country && base.country !== c.country && !(c.hubs.includes(other.code) && c.domestic?.includes(base.country))) return false;
   // Long leisure sectors only from the northern source markets.
   if (km > 3_000 && other.biz < 0.2 && !SUN_SOURCE.has(base.country)) return false;
+  if (km > (c.maxKm ?? LCC_KM) && !(SUN_SOURCE.has(base.country) && other.tour >= 0.6 && km <= LCC_SUN_KM)) return false;
   return true;
 }
 
 /** Does carrier c plausibly fly a ↔ b nonstop? */
 function serves(c: Carrier, a: Airport, b: Airport, km: number): boolean {
   if (c.maxKm !== undefined && km > c.maxKm) return false;
-  if (c.kind === 'lcc') return km <= (c.maxKm ?? LCC_KM) && (lccLeg(c, a, b, km) || lccLeg(c, b, a, km));
+  if (c.kind === 'lcc') return lccLeg(c, a, b, km) || lccLeg(c, b, a, km);
   if (c.avoid?.includes(a.code) || c.avoid?.includes(b.code)) return false;
   const ha = c.hubs.includes(a.code);
   const hb = c.hubs.includes(b.code);
+  // v0.6: network and regional airlines stay out of the low-cost airports (Aer Lingus does not use Stansted).
+  if ((LCC_ONLY.has(a.code) && !ha) || (LCC_ONLY.has(b.code) && !hb)) return false;
   const home = [c.country, ...(c.markets ?? [])];
   if (!ha && !hb) {
-    // Domestic point-to-point on the national network.
-    return c.kind === 'network' && home.includes(a.country) && home.includes(b.country) && km <= 5_000 && Math.max(a.size, b.size) >= 2;
+    // Domestic point-to-point on the national network (v0.6: small airports are fed from the hubs only).
+    return c.kind === 'network' && home.includes(a.country) && home.includes(b.country) && km <= 5_000 && Math.min(a.size, b.size) >= 2;
   }
   if (ha && hb) return true;
   const other = ha ? b : a;
   const hub = ha ? a : b;
   if (c.reach && !home.includes(other.country) && !c.reach.includes(other.country)) return false;
   const link = linked(c.country, other.country) || home.includes(other.country);
-  if (SUPER.has(c.iata) && km <= LONG_KM) return true;
+  if (SUPER.has(c.iata) && km <= LONG_KM && other.size >= 2) return true;
   if (km <= 2_500) return link || other.size >= 3 || (other.size >= 2 && other.biz >= 0.2);
   // Medium haul: a real city at the far end (beach-only airports are the charter and low-cost carriers' job).
   if (km <= (c.kind === 'regional' ? 3_500 : LONG_KM)) return link || (other.size >= 4 && other.biz >= 0.3) || (other.size >= 3 && other.biz >= 0.5);
@@ -111,6 +119,52 @@ function directCarriers(from: string, to: string): Carrier[] {
 
 const routings = new Map<string, Routing>();
 
+interface Conn {
+  score: number;
+  h: string;
+  c1: Carrier[];
+  c2: Carrier[];
+}
+
+/**
+ * v0.6 connection hubs, in tiers (the first tier with a valid connection wins): 1. hubs and low-cost bases in
+ * the origin or destination country; 2. hubs on the same continent as both ends; 3. the world hubs (the Gulf and
+ * Istanbul super-connectors get their bonus only here, between continents). Inside a tier the shortest way round
+ * wins, −400 km for one airline on both legs (its own hub, or two low-cost legs at its base).
+ */
+function connection(from: string, to: string, A: Airport, B: Airport): Conn | null {
+  const ends = new Set([A.country, B.country]);
+  const t1 = new Set<string>();
+  for (const c of CARRIERS) {
+    if (c.kind !== 'lcc' && ends.has(c.country)) for (const h of c.hubs) t1.add(h);
+    if (c.kind === 'lcc') for (const h of c.hubs) if (ends.has(AIRPORT_BY_CODE[h]?.country ?? '')) t1.add(h);
+  }
+  const sameCont = A.continent === B.continent;
+  const t2 = new Set<string>();
+  if (sameCont) {
+    for (const c of CARRIERS) if (c.kind !== 'lcc') for (const h of c.hubs) if (AIRPORT_BY_CODE[h]?.continent === A.continent) t2.add(h);
+    for (const h of WORLD_HUBS) if (AIRPORT_BY_CODE[h]?.continent === A.continent) t2.add(h);
+  }
+  const tiers: [Set<string>, boolean][] = [[t1, false], [t2, false], [new Set(WORLD_HUBS), !sameCont]];
+  for (const [hubs, superOk] of tiers) {
+    let best: Conn | null = null;
+    for (const h of [...hubs].sort()) {
+      if (h === from || h === to || !AIRPORT_BY_CODE[h]) continue;
+      const c1 = directCarriers(from, h);
+      if (!c1.length) continue;
+      const c2 = directCarriers(h, to);
+      if (!c2.length) continue;
+      const same = c1.some((c) => c2.includes(c));
+      const km = distance(from, h) + distance(h, to);
+      const superHub = superOk && km > 3_000 && c1.some((c) => SUPER.has(c.iata) && c.hubs.includes(h) && c2.includes(c));
+      const score = km - (same ? 400 : 0) - (superHub ? 700 : 0);
+      if (!best || score < best.score || (score === best.score && h < best.h)) best = { score, h, c1, c2 };
+    }
+    if (best) return best;
+  }
+  return null;
+}
+
 /** The pair's routing: nonstop when someone flies it, else one connection at the best hub. Pure, cached. */
 function routing(from: string, to: string): Routing {
   const key = `${from}>${to}`;
@@ -122,23 +176,9 @@ function routing(from: string, to: string): Routing {
     const b = from === to ? 0 : legBlock(from, to);
     r = { legs: [{ from, to, carriers: direct, block: b }], total: b };
   } else {
-    const ca = AIRPORT_BY_CODE[from].country;
-    const cb = AIRPORT_BY_CODE[to].country;
-    const flagHubs = CARRIERS.filter((c) => c.kind !== 'lcc' && (c.country === ca || c.country === cb)).flatMap((c) => c.hubs);
-    let best: { score: number; h: string; c1: Carrier[]; c2: Carrier[] } | null = null;
-    for (const h of [...new Set([...flagHubs, ...WORLD_HUBS])]) {
-      if (h === from || h === to || !AIRPORT_BY_CODE[h]) continue;
-      const c1 = directCarriers(from, h);
-      const c2 = directCarriers(h, to);
-      if (!c1.length || !c2.length) continue;
-      const same = c1.some((c) => c2.includes(c));
-      // Shortest way round; one airline through its own hub beats a self-made connection, and on long thin
-      // routes the big connectors (Istanbul, the Gulf, Addis) beat a smaller hub that happens to be on the way.
-      const km = distance(from, h) + distance(h, to);
-      const superHub = km > 3_000 && c1.some((c) => SUPER.has(c.iata) && c.hubs.includes(h) && c2.includes(c));
-      const score = km - (same ? 400 : 0) - (flagHubs.includes(h) ? 150 : 0) - (superHub ? 700 : 0);
-      if (!best || score < best.score || (score === best.score && h < best.h)) best = { score, h, c1, c2 };
-    }
+    const A = AIRPORT_BY_CODE[from];
+    const B = AIRPORT_BY_CODE[to];
+    const best = connection(from, to, A, B);
     if (best) {
       // Through an airline's own hub its passengers stay on that airline.
       const own = best.c1.filter((c) => best!.c2.includes(c) && c.hubs.includes(best!.h));
@@ -185,19 +225,36 @@ function fallbackCarrier(from: string, to: string): Carrier {
   return CARRIERS.find((c) => c.kind === 'network' && c.country === ca) ?? CARRIERS.find((c) => c.kind === 'network' && c.country === cb) ?? CARRIER_BY_IATA.TK;
 }
 
-/** The flag or hub carriers of either end (network and regional airlines based there). */
-const homeOf = (c: Carrier, a: string, b: string) => c.kind !== 'lcc' && (c.hubs.includes(a) || c.hubs.includes(b));
+/**
+ * v0.6 carrier tiers on a nonstop pair: A, the low-cost carriers based at either end; B, the network and regional
+ * airlines of either country or with a hub at either end; C, anyone else who flies it.
+ */
+function tiers(cs: Carrier[], from: string, to: string): [Carrier[], Carrier[], Carrier[]] {
+  const ca = AIRPORT_BY_CODE[from]?.country;
+  const cb = AIRPORT_BY_CODE[to]?.country;
+  const a: Carrier[] = [];
+  const b: Carrier[] = [];
+  const c: Carrier[] = [];
+  for (const x of cs) {
+    const based = x.hubs.includes(from) || x.hubs.includes(to);
+    if (x.kind === 'lcc' && based) a.push(x);
+    else if (x.kind !== 'lcc' && (based || x.country === ca || x.country === cb)) b.push(x);
+    else c.push(x);
+  }
+  return [a, b, c];
+}
 
 /**
- * The carrier of one departure (`slot` = day and bank): the flag/hub carriers of either end take about 60% of
- * the departures (more when they are most of the field), the rest is shared evenly. Pure.
+ * The carrier of one departure (`slot` = day and bank): the low-cost carriers based at either end take 70% of the
+ * departures (the home airlines the rest), else the home airlines all of them; anyone else only when neither
+ * flies the pair. Hash-based, so a ticket always shows the same flights. Pure.
  */
 function pickCarrier(cs: Carrier[], from: string, to: string, slot: string): Carrier {
   if (!cs.length) return fallbackCarrier(from, to);
   const h = hash(`${from}${to}${slot}`);
-  const home = cs.filter((c) => homeOf(c, from, to));
-  if (home.length && home.length < cs.length && h % 100 < 60) return home[Math.floor(h / 100) % home.length];
-  return cs[Math.floor(h / 100) % cs.length];
+  const [a, b, c] = tiers(cs, from, to);
+  const pool = a.length ? (b.length && h % 100 >= 70 ? b : a) : b.length ? b : c;
+  return pool[Math.floor(h / 100) % pool.length];
 }
 
 /**

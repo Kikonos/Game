@@ -3,6 +3,7 @@
 import { BAL } from '../core/balance';
 import { post } from '../core/ledger';
 import type { CrewMember, GameState, Pairing } from '../core/types';
+import { salariesLate } from './morale';
 import { crewIx } from './timeline';
 
 /** The pairing a crew member is on (or just finished) now. */
@@ -36,6 +37,8 @@ export function monthlySalaries(g: GameState): void {
   for (const c of Object.values(g.crew)) if (c.status !== 'joining') total += c.salary;
   post(g, 'salaries', -Math.round(total * (1 + BAL.onCosts)));
   for (const c of Object.values(g.crew)) c.discretion = 0;
+  // v0.6: paid out of a negative balance, salaries are late.
+  if (total > 0 && g.company.cash < 0) salariesLate(g);
 }
 
 /** Monthly salary bill including on-costs (for forecasts). */

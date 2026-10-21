@@ -3,7 +3,10 @@
 
 import { describe, expect, it } from 'vitest';
 import { acceptOffer, cancelCost, cancelPenalty, contractProgress, counterView, feasibility, feasibilityAll, generateOffer, marketFit, paintQuote, paintWindow, productValue } from '../contracts';
-import { checkAssignment, crewAvailability, crewCalendar, crewIssuesFor, crewStatusView, crewWindows, daysOffInMonth, dutyCandidates, dutyCrew, dutyLegality, flightCrewStatus, hireQuote, rosterOf, staffing } from '../crew';
+import {
+  checkAssignment, classOf, conversionClasses, conversionEarliest, conversionPlan, crewAvailability, crewCalendar, crewExtraFor, crewExtraQuote, crewIssuesFor, crewStatusView, crewWindows,
+  daysOffInMonth, dropTargets, dutyCandidates, dutyCrew, dutyLegality, flightCrewStatus, hireQuote, moraleOf, moraleSummary, policyPreview, rosterBoard, rosterOf, staffing,
+} from '../crew';
 import { demoFlights } from '../dev';
 import { createGame } from '../newGame';
 import {
@@ -145,6 +148,24 @@ describe('determinism of read APIs', () => {
       for (const a of APPROVALS) approvalBlocker(g, a.id);
       inboxCounts(g);
       crewAvailability(g, 'A320', 'a320ceo', t, t + 30 * DAY, 200);
+      // v0.6: roster board, conversion plans, morale, extra crew.
+      const ids = Object.keys(g.crew);
+      rosterBoard(g, t, t + 31 * DAY, ids.slice(0, 20));
+      for (const d of Object.values(g.duties).slice(0, 2)) {
+        const p = g.pairings[d.pairingId];
+        const holder = p?.slots.find((x) => x.crewId)?.crewId;
+        if (holder) for (const scope of ['duty', 'trip'] as const) dropTargets(g, d.id, holder, scope);
+      }
+      conversionPlan(g, { crewIds: ids.slice(0, 12), family: 'A330/340', start: conversionEarliest(g) });
+      conversionClasses(g);
+      classOf(g, ids[0]);
+      moraleOf(g, ids[0]);
+      moraleSummary(g);
+      policyPreview(g, { perDiemPct: 120, hotelTier: 5, rotationWeeks: 4 });
+      for (const ac of Object.keys(g.fleet)) {
+        crewExtraFor(g, ac, null);
+        crewExtraQuote(g, ac, { cabin: 2, pilot: 1 });
+      }
       hireQuote(g, { role: 'FO', family: 'A320', base: 'LIS', count: 2 });
       staffing(g);
       cashForecast(g, 90);

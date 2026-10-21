@@ -14,7 +14,7 @@ import { chance, int, pick, range } from '../core/rng';
 import { DAY, fmtDateTime, fmtDay, fmtDuration, fmtTime, localMinuteOfDay, monthKey, toDate } from '../core/time';
 import type { ActionResult, Aircraft, Contract, CrewMember, CrewStatus, Decision, DecisionOption, Flight, GameState, MaintenanceEvent, MessageCat, Minute, Receivable, Role, SimEvent } from '../core/types';
 import { generateOffer, planPositioning } from '../contracts';
-import { applyDiscretion, flightCrewStatus, minRest, replaceCrew, rerosterFrom, rosterOf } from '../crew';
+import { applyDiscretion, flightCrewStatus, minRest, moraleShock, replaceCrew, rerosterFrom, rosterOf } from '../crew';
 import { applyHold, cancelCost, cancelLegs, crewBlocked, delayChain, moveFlight, pickRival, planHold, planRecovery, rivalFactor, stationOf, subcharterCost, subcharterLegs, windowLegs } from './flights';
 import { setAogEnd } from './maintenance';
 import { ticketBlock } from './commercial';
@@ -354,7 +354,7 @@ function fillSlots(g: GameState, f: Flight): number {
     const c = r.ok && r.data ? g.crew[r.data.crewId] : undefined;
     if (c) {
       n++;
-      c.morale = Math.max(0, c.morale - 4);
+      moraleShock(g, c, 'pay', -4);
     }
   });
   return n;

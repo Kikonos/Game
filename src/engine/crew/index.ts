@@ -6,10 +6,12 @@ import type { SimModule } from '../core/module';
 import { schedule } from '../core/queue';
 import { DAY, yearOf } from '../core/time';
 import type { CrewMember, GameState, Minute, SimEvent } from '../core/types';
+import { cancelConversion, classOf, dailyClasses } from './conversion';
 import { dailyCrewCosts, monthlySalaries } from './costs';
 import { deletePairing, planAircraft } from './duties';
 import { dailySickness, onCrewJoin, onTrainingDone } from './hr';
-import { autoRoster, guardDuty, onFlightsChanged, recheckAfterRelease, recheckNext, recheckSoon, sendStrandedHome, stayOn } from './roster';
+import { dailyMorale, monthlyMorale, noteService, onDutyMorale, settleService, setResignHooks } from './morale';
+import { autoRoster, guardDuty, onFlightsChanged, recheckAfterRelease, recheckNext, recheckSoon, removeCrew, sendStrandedHome, stayOn } from './roster';
 import { minRest, nightsIn, LIMITS } from './rules';
 import { aboard, crewCount, crewIx, dutyBlock, dutyFlights, dutySegs, onBlocks, passengers, touchCrew } from './timeline';
 
@@ -32,10 +34,13 @@ export { salaryBill } from './costs';
 export { crewRev, ticketPrice } from './timeline';
 export { dropTargets, moveDuty, rosterBoard, type BoardBlock, type BoardRow, type DropTarget, type MoveScope } from './board';
 export {
-  cancelConversion, classOf, conversionClasses, conversionPlan, familyLabel, startConversion,
+  cancelConversion, ccqPartner, classOf, conversionClasses, conversionEarliest, conversionPlan, courseOf, familyLabel, refundShare, startConversion,
   type ConversionClassPlan, type ConversionPlan, type ConversionRequest,
 } from './conversion';
-export { moraleOf, moraleSummary, policyPreview, type MoraleDriverView, type MoraleSummary, type MoraleView } from './morale';
+export {
+  MORALE_LABEL, moraleOf, moraleShock, moraleSummary, moraleTarget, onContractDoneMorale, policyPreview, resignChance, resignNow, sickMult,
+  type MoraleDriverView, type MoraleSummary, type MoraleView,
+} from './morale';
 export { crewExtraQuote, setCrewExtra } from './extra';
 export { crewExtraFor, offerExtra, paidMinOf, seatsFor, type CrewExtraSource, type EffectiveExtra, type Seat } from './extraSeats';
 export { CAL_LABEL, crewCalendar, crewStatusView, crewTravelNow, joinsAt, type CalBlock, type CalFlight, type CalKind, type CrewStatusView, type CrewTravelNow } from './calendar';
@@ -130,7 +135,9 @@ function onDutyRelease(g: GameState, ev: SimEvent): void {
     if (d.restAt === c.base) c.awaySince = null;
   }
   d.done = true;
-  if (p.dutyIds.every((id) => !g.duties[id] || g.duties[id].done)) p.status = 'done';
+  const last = p.dutyIds.every((id) => !g.duties[id] || g.duties[id].done);
+  if (last) p.status = 'done';
+  onDutyMorale(g, p, last);
   touchCrew(g);
   recheckAfterRelease(g, p);
 }
@@ -146,6 +153,7 @@ function onFlightArrCrew(g: GameState, ev: SimEvent): void {
   const rest = minRest({ dutyMin: f.sta - f.std + CHECKIN(), atHome: false, augmented: false, tzShift: 0 });
   const merged = !!d && ((f.sta <= d.report && d.report - f.sta < rest) || (f.std >= d.release && f.std - d.release < 600));
   if (f.kind !== 'deadhead') for (const id of f.crewIds) if (g.crew[id]) g.crew[id].loc = f.to;
+  noteService(g, f);
   const missed: string[] = [];
   for (const id of pax) {
     const c = g.crew[id];
@@ -205,11 +213,13 @@ function prune(g: GameState): void {
 }
 
 function daily(g: GameState) {
+  dailyClasses(g);
   refreshStatuses(g);
   prune(g);
   dailyCrewCosts(g);
   for (const c of Object.values(g.crew)) if (c.status !== 'onDuty') c.fatigue = Math.max(0, c.fatigue - 6);
   dailySickness(g);
+  dailyMorale(g);
   // Keep the published roster horizon filled (auto-roster policy), then bring home anyone left without work away.
   if (g.company.policies.autoRoster) {
     recheckSoon(g);
@@ -260,9 +270,32 @@ function rosterNewFlights(g: GameState): void {
   for (const id of acs) for (const f of flightsOf(g, id)) if (f.status === 'scheduled' && f.std >= g.now && f.std < until && !placed.has(f.id)) skip.add(f.id);
 }
 
+/** Month end: salaries (late when cash goes negative), the morale line, wet leases' service score. */
+function monthly(g: GameState): void {
+  monthlySalaries(g);
+  monthlyMorale(g);
+  for (const k of Object.values(g.contracts)) if (k.status === 'active' && k.product.kind === 'wet') settleService(g, k);
+}
+
+// v0.6 resignations: work past the leave date goes back to the roster (a planned class seat is given up); on the
+// day they leave, every trip from then is re-crewed and the record goes (callers tolerate missing crew ids).
+setResignHooks(
+  (g, c) => {
+    const k = classOf(g, c.id);
+    if (k && k.status === 'planned') cancelConversion(g, k.id, c.id);
+    removeCrew(g, c.id, c.notice!.leaves, c.notice!.leaves + 3650 * DAY);
+  },
+  (g, c) => {
+    removeCrew(g, c.id, g.now, g.now + 3650 * DAY);
+    g.training = g.training.filter((x) => x.crewId !== c.id);
+    for (const k of Object.values(g.classes ?? {})) if (k.crewIds.includes(c.id) && k.status !== 'done') k.crewIds = k.crewIds.filter((x) => x !== c.id);
+  },
+);
+
 export const crewModule: SimModule = {
   name: 'crew',
   load(g) {
+    g.classes ??= {};
     const y = yearOf(g.now);
     for (const c of Object.values(g.crew)) c.blockYearOf ??= y;
     touchCrew(g);
@@ -282,7 +315,7 @@ export const crewModule: SimModule = {
   },
   handlers: {
     day: daily,
-    month: monthlySalaries,
+    month: monthly,
     'duty.report': onDutyReport,
     'duty.release': onDutyRelease,
     'flight.arr': onFlightArrCrew,

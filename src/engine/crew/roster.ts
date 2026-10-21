@@ -11,6 +11,7 @@ import type { ActionResult, CrewMember, Duty, Flight, GameState, Legality, Minut
 import { acceptable, crewIssuesFor, mergeSegs, openDuties, otherTrip, planCrew, type CrewPlan } from './check';
 import { deletePairing, dutyLegality, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setCrewTrailOkHook, setReleaseHook, setRetickHook, splitPairing, splitUnderWay, syncDuty } from './duties';
 import { crewName } from './generate';
+import { lateChange, moraleShock, nextReport } from './morale';
 import { evalSegs, levelOf, minRest, tzDeltaH, worst, type Seg } from './rules';
 import { aboard, aboveEmpty, block28, crewCount, crewIx, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, locAt, noteRiders, passengers, planHome, planOut, segsOf, ticketPrice, touchCrew, typeIdOf, withoutTickets } from './timeline';
 
@@ -133,8 +134,12 @@ export function buyTickets(g: GameState, p: Pairing, plans: Map<string, CrewPlan
   for (const gr of groups.values()) buyTicket(g, p, gr.d, gr.ids, gr.t, res);
 }
 
+/** v0.6: the crew member whose own absence (sickness, course, leaving) is being rostered around: no late-change hit. */
+let ownRelease: string | null = null;
+
 /** Takes a crew member off a pairing: slot, flights still to fly and unused tickets (cancelled when empty). */
 export function releaseCrew(g: GameState, p: Pairing, crewId: string): void {
+  if (crewId !== ownRelease && p.slots.some((s) => s.crewId === crewId)) lateChange(g, crewId, nextReport(g, p));
   for (const s of p.slots) {
     if (s.crewId !== crewId) continue;
     s.crewId = null;
@@ -670,6 +675,7 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
       slot.crewId = c.id;
       inP.add(c.id);
       plans.set(c.id, plan);
+      lateChange(g, c.id, nextReport(g, p));
       if (plan.drop) ctx.segs.set(c.id, ctx.of(c).filter((x) => !x.ticketId || !plan.drop!.includes(x.ticketId)));
       ctx.add(c, plan.segs);
       ctx.take(c.id, first.report, spanTo);
@@ -1055,7 +1061,7 @@ export function applyDiscretion(g: GameState, dutyId: string): ActionResult {
     const c = s.crewId ? g.crew[s.crewId] : undefined;
     if (!c) continue;
     c.discretion++;
-    c.morale = Math.max(0, c.morale - 3);
+    moraleShock(g, c, 'discretion', -3);
     c.fatigue = Math.min(100, c.fatigue + 10);
   }
   if (requiredEmpty(p)) fillAll(g, [p], emptyResult());
@@ -1105,7 +1111,12 @@ export function removeCrew(g: GameState, crewId: string, from: Minute, to: Minut
     const q = openDuties(g, p).some((d) => d.report < from) ? splitPairing(g, p, from) : null;
     hit.push(q ?? p);
   }
-  for (const p of hit) releaseCrew(g, p, crewId);
+  ownRelease = crewId;
+  try {
+    for (const p of hit) releaseCrew(g, p, crewId);
+  } finally {
+    ownRelease = null;
+  }
   if (c.loc !== c.base) sendHome(g, c, hit[0]);
   fillAll(g, hit, res, new Set([crewId]));
   for (const p of hit) if (g.pairings[p.id]) recheckPairing(g, p);
@@ -1123,6 +1134,7 @@ export function placeCrew(g: GameState, p: Pairing, slot: number, c: CrewMember)
   const hadCrew = crewCount(p) > 0;
   const plan = planCrew(g, c, p, segsOf(g, c, p.id));
   p.slots[slot].crewId = c.id;
+  lateChange(g, c.id, nextReport(g, p));
   buyTickets(g, p, new Map([[c.id, plan]]), emptyResult());
   setFlightsCrew(g, p);
   if (!hadCrew) for (const d of openDuties(g, p)) queueDuty(g, d);

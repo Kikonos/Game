@@ -12,7 +12,9 @@ import { chance, int } from '../core/rng';
 import { DAY, dayStart, fmtDate, fmtDateTime, yearOf } from '../core/time';
 import type { ActionResult, CrewExtra, CrewMember, GameState, Minute, Role, SimEvent, TrainingKind } from '../core/types';
 import { hashUnit } from '../core/util';
+import { conversionEarliest, onClassItemDone, startConversion } from './conversion';
 import { crewExtraFor, rolesWithExtra } from './extraSeats';
+import { sickMult } from './morale';
 import { crewName, makeCrewMember, salaryFor } from './generate';
 import { removeCrew, rosterOf } from './roster';
 import { block28, crewIx, segsOf, touchCrew } from './timeline';
@@ -63,29 +65,29 @@ export function hireCrew(g: GameState, r: HireRequest): ActionResult<{ crewIds: 
   return { ok: true, msg: `${n} ${ROLE_NAME[r.role]}${n > 1 && !ROLE_NAME[r.role].endsWith('crew') ? 's' : ''} joining ${fmtDate(q.readyAt)}`, data: { crewIds } };
 }
 
-const TRAINING: Record<TrainingKind, (c: CrewMember) => { days: number; cost: number }> = {
-  typeRating: (c) => (isPilot(c.role) ? { days: BAL.typeRating.pilotDays, cost: BAL.typeRating.pilotCost } : { days: BAL.typeRating.cabinDays, cost: BAL.typeRating.cabinCost }),
-  conversion: (c) => (isPilot(c.role) ? { days: BAL.conversion.pilotDays, cost: BAL.conversion.pilotCost } : { days: BAL.conversion.cabinDays, cost: BAL.conversion.cabinCost }),
+const TRAINING: Record<'command' | 'sccm', () => { days: number; cost: number }> = {
   command: () => ({ days: BAL.commandUpgrade.days, cost: BAL.commandUpgrade.cost }),
   sccm: () => ({ days: BAL.sccmCourse.days, cost: BAL.sccmCourse.cost }),
 };
 
-/** Type rating, command upgrade, SCCM course or conversion: status 'training' until done (rostered work is re-crewed). */
+/**
+ * Type rating, command upgrade, SCCM course or conversion: status 'training' until done (rostered work is re-crewed).
+ * v0.6: a type rating or conversion is a one-person conversion class (startConversion: same rules and prices).
+ */
 export function trainCrew(g: GameState, crewId: string, kind: TrainingKind, family: RatingFamily): ActionResult {
   const c = g.crew[crewId];
   if (!c) return { ok: false, error: 'Crew member not found' };
-  if (c.status === 'training' || c.status === 'joining' || c.status === 'sick') return { ok: false, error: `${crewName(c)} is ${c.status}` };
   if (kind === 'typeRating' || kind === 'conversion') {
-    if (c.ratings.includes(family)) return { ok: false, error: 'Already rated' };
-    if (!isPilot(c.role) && c.ratings.length >= 3) return { ok: false, error: 'Cabin crew hold at most 3 types' };
-    if (kind === 'conversion' && !c.ratings.length) return { ok: false, error: 'Conversion needs an existing rating' };
+    const r = startConversion(g, { crewIds: [crewId], family, start: conversionEarliest(g) });
+    return r.ok ? { ok: true, msg: r.msg } : r;
   }
+  if (c.status === 'training' || c.status === 'joining' || c.status === 'sick') return { ok: false, error: `${crewName(c)} is ${c.status}` };
   if (kind === 'command') {
     if (c.role !== 'FO') return { ok: false, error: 'Only first officers upgrade to captain' };
     if (c.totalHours < BAL.commandUpgrade.minHours) return { ok: false, error: `Needs ${BAL.commandUpgrade.minHours.toLocaleString('en-US')} h (has ${Math.round(c.totalHours).toLocaleString('en-US')})` };
   }
   if (kind === 'sccm' && c.role !== 'CC') return { ok: false, error: 'Only cabin crew take the SCCM course' };
-  const { days, cost } = TRAINING[kind](c);
+  const { days, cost } = TRAINING[kind]();
   if (g.company.cash < cost) return { ok: false, error: 'Not enough cash' };
   const start = g.now;
   const end = dayStart(g.now) + days * DAY;
@@ -287,6 +289,7 @@ export function onTrainingDone(g: GameState, ev: SimEvent): void {
   const item = g.training.find((x) => x.id === ev.id);
   if (!item) return;
   g.training = g.training.filter((x) => x.id !== ev.id);
+  if (onClassItemDone(g, item)) return;
   const c = g.crew[item.crewId];
   if (!c) return;
   if (item.kind === 'typeRating' || item.kind === 'conversion') {
@@ -303,14 +306,14 @@ export function onTrainingDone(g: GameState, ev: SimEvent): void {
 }
 
 /**
- * Daily sickness roll: p = 0.04/30 × (1 + max(0, 60 − morale)/100); sick for 2–5 days, taken off rostered work.
+ * Daily sickness roll: p = 0.04/30 × (1 + max(0, 60 − morale)/50) (v0.6 morale.sickMult); sick for 2–5 days, taken off rostered work.
  * A slot that can't be refilled becomes a B3 'sickCrew' decision.
  */
 export function dailySickness(g: GameState): void {
   for (const c of Object.values(g.crew)) {
     if (c.status === 'sick' || c.status === 'joining' || c.status === 'training' || c.status === 'leave' || c.status === 'onDuty') continue;
     if (c.blocks?.some((b) => b.why === 'sick' && b.to > g.now)) continue;
-    const p = (BAL.sickPerMonth / 30) * (1 + Math.max(0, 60 - c.morale) / 100);
+    const p = (BAL.sickPerMonth / 30) * sickMult(c.morale);
     if (!chance(g, p)) continue;
     const days = int(g, BAL.sickDays[0], BAL.sickDays[1]);
     // A sick call covers the coming days (crew call in the evening before): today's duties stay, tomorrow's are

@@ -20,13 +20,24 @@ export interface Carrier {
   maxKm?: number;
   /** Network/regional: the only countries it flies to abroad (Binter: the Canaries' neighbours). */
   reach?: string[];
+  /** v0.6 low-cost: small airports (size < 3) it serves besides its bases and the sun routes. */
+  extra?: string[];
+  /** v0.6 low-cost: foreign countries where it flies domestic routes between two of its bases (Ryanair LIS–OPO). */
+  domestic?: string[];
 }
 
-type Extra = Pick<Carrier, 'avoid' | 'maxKm' | 'reach'>;
+type Extra = Pick<Carrier, 'avoid' | 'maxKm' | 'reach' | 'extra' | 'domestic'>;
 
 const N = (iata: string, name: string, country: string, hubs: string[], markets?: string[], x?: Extra): Carrier => ({ iata, name, country, kind: 'network', hubs, markets, ...x });
 const R = (iata: string, name: string, country: string, hubs: string[], markets?: string[], x?: Extra): Carrier => ({ iata, name, country, kind: 'regional', hubs, markets, ...x });
 const L = (iata: string, name: string, country: string, hubs: string[], markets: string[], x?: Extra): Carrier => ({ iata, name, country, kind: 'lcc', hubs, markets, ...x });
+
+/**
+ * v0.6: airports only the low-cost carriers use (network and regional airlines stay out unless it is their own
+ * hub): Stansted, Luton, Charleroi, Beauvais, Hahn, Bergamo, Ciampino, Treviso, Skavsta, Modlin, Girona, Reus,
+ * Eindhoven, Schönefeld. Only the codes present in airports.ts are kept.
+ */
+export const LCC_ONLY_ALL = ['STN', 'LTN', 'CRL', 'BVA', 'HHN', 'BGY', 'CIA', 'TSF', 'NYO', 'WMI', 'GRO', 'REU', 'EIN', 'SXF'];
 
 /** Big slot-bound hubs the European low-cost carriers stay out of (unless one is their own base). */
 const HUBS_NO_LCC = ['LHR', 'CDG', 'FRA', 'MUC', 'AMS', 'ZRH', 'IST'];
@@ -68,9 +79,9 @@ export const CARRIERS: Carrier[] = [
   R('ZB', 'Air Albania', 'AL', ['TIA']),
   N('TK', 'Turkish Airlines', 'TR', ['IST']),
   // Europe: low-cost
-  L('FR', 'Ryanair', 'IE', ['DUB', 'STN', 'MAN', 'BCN', 'MAD', 'AGP', 'LIS', 'OPO', 'FAO', 'PMI', 'CRL', 'FCO', 'NAP', 'WAW', 'KRK', 'MLA', 'RIX', 'VNO', 'BUD', 'OTP', 'ZAG', 'ATH', 'BER', 'CPH', 'VIE', 'PRG', 'SOF', 'TLL', 'MRS', 'RAK'], EU_LCC_RYANAIR, { avoid: [...HUBS_NO_LCC, 'LGW', 'ORY', 'LIN', 'MXP', 'DUS', 'GVA', 'CMN'] }),
-  L('U2', 'easyJet', 'GB', ['LGW', 'BRS', 'MAN', 'EDI', 'GLA', 'BFS', 'GVA', 'LIS', 'OPO', 'FAO', 'MXP', 'NAP', 'VCE', 'CDG', 'ORY', 'NCE', 'LYS', 'TLS', 'BOD', 'NTE', 'AMS', 'BER', 'BCN', 'MAD', 'PMI', 'AGP', 'ALC'], EU_LCC_EASYJET, { avoid: [...HUBS_NO_LCC, 'DUB', 'CMN'] }),
-  L('W6', 'Wizz Air', 'HU', ['BUD', 'OTP', 'CLJ', 'SOF', 'VAR', 'WAW', 'KRK', 'GDN', 'VNO', 'RIX', 'BEG', 'TIA', 'FCO', 'NAP', 'MXP', 'VCE', 'BLQ', 'TBS', 'LCA', 'AUH'], EU_LCC_WIZZ, { avoid: [...HUBS_NO_LCC, 'ORY', 'CMN'] }),
+  L('FR', 'Ryanair', 'IE', ['DUB', 'STN', 'MAN', 'BCN', 'MAD', 'AGP', 'LIS', 'OPO', 'FAO', 'PMI', 'CRL', 'FCO', 'NAP', 'WAW', 'KRK', 'MLA', 'RIX', 'VNO', 'BUD', 'OTP', 'ZAG', 'ATH', 'BER', 'CPH', 'VIE', 'PRG', 'SOF', 'TLL', 'MRS', 'RAK'], EU_LCC_RYANAIR, { avoid: [...HUBS_NO_LCC, 'LGW', 'ORY', 'LIN', 'MXP', 'DUS', 'GVA', 'CMN'], domestic: ['PT', 'ES', 'IT', 'GB'] }),
+  L('U2', 'easyJet', 'GB', ['LGW', 'BRS', 'MAN', 'EDI', 'GLA', 'BFS', 'GVA', 'LIS', 'OPO', 'FAO', 'MXP', 'NAP', 'VCE', 'CDG', 'ORY', 'NCE', 'LYS', 'TLS', 'BOD', 'NTE', 'AMS', 'BER', 'BCN', 'MAD', 'PMI', 'AGP', 'ALC'], EU_LCC_EASYJET, { avoid: [...HUBS_NO_LCC, 'DUB', 'CMN'], domestic: ['FR', 'IT'] }),
+  L('W6', 'Wizz Air', 'HU', ['BUD', 'OTP', 'CLJ', 'SOF', 'VAR', 'WAW', 'KRK', 'GDN', 'VNO', 'RIX', 'BEG', 'TIA', 'FCO', 'NAP', 'MXP', 'VCE', 'BLQ', 'TBS', 'LCA', 'AUH'], EU_LCC_WIZZ, { avoid: [...HUBS_NO_LCC, 'ORY', 'CMN'], domestic: ['IT'] }),
   L('VY', 'Vueling', 'ES', ['BCN', 'FCO', 'ORY', 'PMI', 'AGP', 'SVQ', 'BIO'], ['ES', 'FR', 'IT', 'PT', 'GB', 'NL', 'BE', 'DE', 'CH', 'GR', 'MA', 'IE', 'DK'], { avoid: [...HUBS_NO_LCC, 'CMN'] }),
   L('HV', 'Transavia', 'NL', ['AMS', 'EIN', 'ORY', 'NTE', 'LYS'], ['NL', 'FR', 'ES', 'PT', 'IT', 'GR', 'MA', 'TN', 'TR', 'EG', 'IL', 'CV'], { avoid: [...HUBS_NO_LCC, 'CMN'] }),
   L('LS', 'Jet2', 'GB', ['MAN', 'BHX', 'STN', 'BRS', 'NCL', 'GLA', 'EDI'], ['GB', 'ES', 'PT', 'GR', 'CY', 'TR', 'IT', 'HR', 'MT', 'BG'], { avoid: [...HUBS_NO_LCC, 'LGW', 'LCY'] }),

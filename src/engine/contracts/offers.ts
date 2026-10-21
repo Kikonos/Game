@@ -8,7 +8,7 @@ import { nextId } from '../core/entities';
 import { distance, distanceNm } from '../core/geo';
 import { pushMessage } from '../core/messages';
 import { requestPause } from '../core/pause';
-import { complement, etopsNeeded, planSector, typeOf } from '../core/perf';
+import { blockMinutes, complement, etopsNeeded, planSector, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { chance, int, next, pick, range, weightedPick } from '../core/rng';
 import { DAY, dayIndex, fmtDay, fmtTime, fromUTC, localMinuteOfDay, toDate, toLocal } from '../core/time';
@@ -746,6 +746,15 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
     o.paint = paint;
     o.blurb = `${o.blurb} ${paintTermsText(paint)}`;
   }
+  // v0.6: some clients pay for extra cabin crew (long sectors on ad hoc, tour series and troop rotations; sports).
+  const X = BAL.crewExtra;
+  const longSector = sectors.some(([a, b]) => blockMinutes(ref, a, b) >= X.longBlockMin);
+  const pc = d.archetype === 'sports' ? X.paidChanceSports : longSector && (d.archetype === 'adhoc' || d.archetype === 'tourSeries' || d.archetype === 'troopRotation') ? X.paidChanceLong : 0;
+  if (pc > 0 && chance(sideRng(g, `xc:${o.id}`), pc)) {
+    const n = wide ? 2 : 1;
+    requirements.extraCabinPaid = { n, pct: Math.round(X.paidPctPer * n * 10_000) / 10_000 };
+    o.blurb = `${o.blurb} The client pays ${(X.paidPctPer * 100).toFixed(2).replace(/0$/, '')}% more per extra cabin crew member (${n} wanted).`;
+  }
   g.offers[o.id] = o;
   schedule(g, o.expires, 'offer.expire', o.id);
   // Urgent work we could actually fly stops the clock (setting) and gets an inbox line; the rest just pins the map.
@@ -792,7 +801,11 @@ export function generateOffer(g: GameState, archetype?: Archetype, opts: OfferOp
     const d = build(ctx);
     if (d && opts.paint !== undefined) d.paint = opts.paint;
     const o = d && finalize(g, d, ctx.aspire);
-    if (o) return o;
+    if (o) {
+      // v0.6: the last gap-fit offer (the quiet-week floor looks at it).
+      if (ctx.window) g.stats.lastGapOfferAt = g.now;
+      return o;
+    }
   }
   return null;
 }
@@ -910,11 +923,29 @@ export function fmtPrice(p: Product): string {
   return `$${p.rentPerMonth.toLocaleString('en-US')}/month`;
 }
 
-/** Daily: drop closed offers after 14 days (the "missed" list keeps them that long). */
+/** Daily: drop closed offers after 14 days (the "missed" list keeps them that long); the quiet-week floor. */
 export function dailyOffers(g: GameState): void {
   for (const o of Object.values(g.offers)) {
     if (o.status === 'open' || o.status === 'countered') continue;
     o.closedAt ??= g.now;
     if (g.now - o.closedAt > 14 * DAY) delete g.offers[o.id];
   }
+  quietWeekOffer(g);
+}
+
+/**
+ * v0.6 quiet-week floor (UPDATE-0.6.md §C2): one gap-fit offer when none came for 6 days, an aircraft has an idle
+ * window of 3+ days within 45 days and fewer than 4 offers are open. Steadier, not more (offersPerWeek is lower).
+ */
+export function quietWeekOffer(g: GameState): ContractOffer | null {
+  const last = g.stats.lastGapOfferAt ?? g.started;
+  if (g.now - last < 6 * DAY) return null;
+  if (Object.values(g.offers).filter((o) => o.status === 'open').length >= 4) return null;
+  const ws = idleWindows(g, 3, 45).filter((w) => w.from < g.now + 45 * DAY);
+  if (!ws.length) return null;
+  const w = weightedPick(g, ws, (x) => Math.sqrt((x.to - x.from) / DAY))!;
+  const o = generateOffer(g, undefined, { window: w });
+  // Tried today either way (a fleet with nothing that fits waits another 6 days).
+  g.stats.lastGapOfferAt = g.now;
+  return o;
 }

@@ -593,8 +593,10 @@ export interface CrewMember {
   moraleWhy?: Partial<Record<MoraleDriver, number>>;
   /** v0.6: company-paid pilot conversion bond (resignation × bondFactor until then). */
   bondUntil?: Minute;
-  /** v0.6: morale 14 days ago ring (daily samples, newest last, max 15) for the trend arrow. */
+  /** v0.6: daily morale samples (newest last, max 15) for the 14-day trend arrow. */
   moraleHist?: number[];
+  /** v0.6: last late-notice roster change hit (at most one a day). */
+  lateAt?: Minute;
 }
 
 export interface CrewSlot {

@@ -10,7 +10,7 @@ import { schedule } from '../core/queue';
 import { DAY, fmtDay, monthKey, monthStart } from '../core/time';
 import { clamp } from '../core/util';
 import type { ActionResult, Contract, ContractOffer, CrewExtra, GameState, Minute, OfferStatus, Product, SimEvent } from '../core/types';
-import { autoRoster, flightCrewStatus } from '../crew';
+import { autoRoster, crewExtraFor, flightCrewStatus, onContractDoneMorale } from '../crew';
 import { billContractMonth, issueBill } from './billing';
 import { feasibility } from './feasibility';
 import { baseDayOf, flownRotations, programmeOf } from './plan';
@@ -70,7 +70,7 @@ export function acceptOffer(g: GameState, offerId: string, aircraftIds: string[]
   if (o.paint?.required && !paint && !opts.priced) return { ok: false, error: 'The client requires their livery on the aircraft' };
   const slots: Record<string, PaintSlot> = {};
   for (const id of ids) {
-    const rep = feasibility(g, offerId, id, { paint });
+    const rep = feasibility(g, offerId, id, { paint, crewExtra: opts.crewExtra });
     const no = firstNo(rep, !paint);
     if (no) return { ok: false, error: `${g.fleet[id].reg}: ${no.label}` };
     if (paint) {
@@ -97,6 +97,7 @@ export function acceptOffer(g: GameState, offerId: string, aircraftIds: string[]
   };
   if (o.paint) c.paint = { ...structuredClone(o.paint), accepted: paint, inMx: {}, outMx: {} };
   g.contracts[c.id] = c;
+  signCrewExtra(g, c, ids[0], opts.crewExtra);
   closeOffer(g, o, 'accepted');
   const prog = programmeOf(c, g.fleet[ids[0]].typeId);
   c.planRevMin = prog.revenueMin;
@@ -126,6 +127,22 @@ export function acceptOffer(g: GameState, offerId: string, aircraftIds: string[]
   const regs = ids.map((id) => g.fleet[id].reg).join(' + ');
   pushMessage(g, { tone: 'good', cat: 'commercial', title: `Signed: ${c.title}`, body: `${g.clients[c.clientId]?.name ?? 'Client'} · ${regs} · ${fmtDay(c.start)}–${fmtDay(c.end)}.`, ref: { kind: 'contract', id: c.id } });
   return { ok: true, msg: `Signed: ${c.title}`, data: { contractId: c.id } };
+}
+
+/**
+ * v0.6: the contract's extra crew (chosen at signing), and the client's paid option: flying at least n extra cabin
+ * crew raises the rate or price by pct and locks the contract at n or more for its life.
+ */
+function signCrewExtra(g: GameState, c: Contract, aircraftId: string, x: CrewExtra | undefined): void {
+  if (x) c.crewExtra = { cabin: clamp(Math.round(x.cabin), 0, BAL.crewExtra.cabinMax), pilot: x.pilot ? 1 : 0 };
+  const paid = c.requirements.extraCabinPaid;
+  if (!paid) return;
+  const eff = crewExtraFor(g, aircraftId, c.id);
+  if (eff.cabin < paid.n) return;
+  c.extraPaid = true;
+  c.crewExtra = { cabin: Math.max(eff.cabin, paid.n), pilot: eff.pilot ? 1 : 0 };
+  const p = c.product;
+  setPrice(c, (p.kind === 'wet' ? p.ratePerBH : p.kind === 'charter' ? p.price : p.rentPerMonth) * (1 + paid.pct));
 }
 
 const tripMin = (t: { legs: { kind: string; std: number; sta: number }[] }) => t.legs.filter((l) => l.kind !== 'positioning').reduce((s, l) => s + l.sta - l.std, 0);
@@ -377,6 +394,8 @@ export function onContractEnd(g: GameState, ev: SimEvent): void {
 
 function completeContract(g: GameState, c: Contract): void {
   c.status = 'completed';
+  // v0.6: service quality settles into the client relation; a job well done thanks its crews.
+  onContractDoneMorale(g, c);
   if (c.product.kind === 'wet') {
     const months = new Set<number>(Object.keys(c.use).map(Number));
     for (let k = monthKey(c.start); monthStart(k) < c.end; k++) months.add(k);
