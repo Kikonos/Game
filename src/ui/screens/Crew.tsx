@@ -14,7 +14,7 @@ import { money } from '../format';
 import { dutyRoute } from '../modals/DutyModal';
 import { store, useGame } from '../store';
 import { Dot, KV, LimitBar, ScreenHead, useRenderCount } from './common';
-import { CAL_KEY_LABEL, calAt, calId, calKey, calLayer, calLegend, pickCal } from './crewLogic';
+import { CAL_KEY_LABEL, calAt, calId, calKey, calLabel, calLayer, calLegend, pickCal } from './crewLogic';
 import { CREW_STATUS_LABEL, filterCrew, limitTone, NO_FILTER, ROLE_LABEL, type CrewFilter } from './screenLogic';
 
 const STATUS_TONE: Record<CrewStatus, 'good' | 'warn' | 'bad' | 'info' | 'off'> = {
@@ -85,7 +85,7 @@ function CalDetail({ g, c, b }: { g: GameState; c: CrewMember; b: CalBlock }) {
     <div className={`sc-cal-detail k-${key}`}>
       <div className="row gap-8">
         <span className={`sc-cal-sw k-${key}`} aria-hidden />
-        <b>{b.label}</b>
+        <b>{calLabel(b)}</b>
         {b.legality && b.legality !== 'legal' && <span className={`badge ${b.legality === 'tight' ? 'warn' : 'bad'}`}>{b.legality}</span>}
         {d && locked(g, d.pairingId, c.id) && <Lock className="sc-ico-s accent" aria-label="set by you" />}
         <span className="grow" />
@@ -181,7 +181,7 @@ function Roster({ g, c }: { g: GameState; c: CrewMember }) {
             <button key={calId(b)} className={`sc-duty-row small ${sel && calId(sel) === calId(b) ? 'on' : ''}`} onClick={open}>
               <span className={`sc-cal-sw k-${key}`} aria-hidden />
               <span className="dim nowrap">{rowTime(b)}</span>
-              <span className="nowrap">{b.label}</span>
+              <span className="nowrap">{calLabel(b)}</span>
               <span className={`${b.flights?.length ? 'mono' : ''} ellipsis grow dim`}>{route}</span>
               {d && locked(g, d.pairingId, c.id) && <Lock className="sc-ico-s accent" aria-label="set by you" />}
               {b.legality && b.legality !== 'legal' && <Dot tone={b.legality === 'tight' ? 'warn' : 'bad'} />}
@@ -203,6 +203,8 @@ function Detail({ g, c }: { g: GameState; c: CrewMember }) {
   const k = monthKey(g.now);
   // So far (through today): later days have no roster yet and would all count as off.
   const off = daysOffInMonth(g, c, monthStart(k), Math.min(nextMonthStart(g.now), dayStart(g.now) + DAY));
+  // Not joined yet: no rest, no days off, limits count from the start date.
+  const joining = sv.startLabel === 'Joins';
   const bar = (label: string, v: number, lim: number) => <LimitBar label={label} value={h(v)} limit={h(lim)} tone={limitTone(v / lim)} />;
   return (
     <div className="card sc-crew-detail">
@@ -218,18 +220,18 @@ function Detail({ g, c }: { g: GameState; c: CrewMember }) {
         {sv.text && <div className={`small sc-crew-status ${sv.tone === 'info' ? 'accent' : sv.tone}`}>{sv.text}</div>}
         <KV rows={[
           ['Now at', c.loc],
-          ['Rest until', sv.restUntil ? `${fmtDay(sv.restUntil)} ${fmtTime(sv.restUntil)} UTC` : '—'],
+          ...(joining ? [] : [['Rest until', sv.restUntil ? `${fmtDay(sv.restUntil)} ${fmtTime(sv.restUntil)} UTC` : '—'] as [string, string]]),
           ['Languages', c.languages.join(', ') || '—'],
           [sv.startLabel, fmtDate(sv.startDate)],
           ['Total hours', Math.round(c.totalHours).toLocaleString('en-US')],
           ['Salary', `${money(c.salary)}/month`],
-          ['Days off so far this month', String(off)],
+          ['Days off so far this month', joining ? '—' : String(off)],
         ]} />
         <div className="grid-2 sc-moods">
           <LimitBar label="Morale" value={c.morale} limit={100} unit="" tone={c.morale >= 60 ? 'good' : c.morale >= 40 ? 'warn' : 'bad'} />
           <LimitBar label="Fatigue" value={c.fatigue} limit={100} unit="" tone={limitTone(c.fatigue / 100)} />
         </div>
-        <div className="upper dim">Flight time limits</div>
+        <div className="upper dim">Flight time limits{joining ? ` · from ${fmtDate(sv.startDate)}` : ''}</div>
         <div className="grid-2 sc-limits">
           {bar('Duty 7 days', w.duty7d, LIMITS.duty7d)}
           {bar('Duty 14 days', w.duty14d, LIMITS.duty14d)}

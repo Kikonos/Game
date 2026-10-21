@@ -1,7 +1,8 @@
 // v0.5.2 crew calendar strip and card header.
 
 import { describe, expect, it } from 'vitest';
-import { addFlight } from '../core/entities';
+import { addDeadhead, addFlight } from '../core/entities';
+import { ticketBlock } from '../ops/commercial';
 import { isPilot } from '../core/perf';
 import { DAY, fmtDate } from '../core/time';
 import type { Flight, GameState } from '../core/types';
@@ -28,6 +29,41 @@ const noOverlap = (bs: ReturnType<typeof crewCalendar>) => {
   const flat = bs.filter((b) => ['duty', 'positioning', 'deadhead', 'rest', 'off'].includes(b.kind));
   for (let i = 1; i < flat.length; i++) expect(flat[i].start, `${flat[i - 1].kind}→${flat[i].kind}`).toBeGreaterThanOrEqual(flat[i - 1].end);
 };
+
+describe('crew travelling', () => {
+  it('crew on an airline deadhead read Deadheading in the air, not Available or Resting at the departure', () => {
+    const g = fixtureGame(53);
+    const ids = addCrew(g, { CPT: 1, CC: 1 });
+    for (const id of ids) g.crew[id].loc = 'CFU';
+    const std = g.now + 120;
+    const f = addDeadhead(g, { crewIds: ids, from: 'CFU', to: 'LIS', std, sta: std + ticketBlock('CFU', 'LIS'), cost: 0 });
+    g.now = std - 30;
+    expect(crewStatusView(g, ids[0]).label).toBe('Deadheading');
+    expect(crewStatusView(g, ids[0]).nowAt).toMatch(/check-in/);
+    g.now = std + 30;
+    const v = crewStatusView(g, ids[0]);
+    expect(v.label).toBe('Deadheading');
+    expect(v.text).toMatch(/^[A-Z0-9]{2} \d+ CFU→LIS · lands \d\d:\d\d$/);
+    expect(v.nowAt).toBe('in the air CFU→LIS');
+    expect(v.until).toBe(f.sta);
+    expect(v.travel?.flightId).toBe(f.id);
+    g.now = f.sta + 1;
+    expect(crewStatusView(g, ids[0]).label).not.toBe('Deadheading');
+  });
+
+  it('calendar blocks have unique kind/start keys (no doubled rest block)', () => {
+    const g = fixtureGame(54);
+    trip(g);
+    for (let t = g.now; t < g.now + 5 * DAY; t += 6 * 60) {
+      advanceTo(g, t, new Set());
+      for (const c of Object.values(g.crew)) {
+        const bs = crewCalendar(g, c.id, g.now, g.now + 14 * DAY);
+        const keys = bs.map((b) => `${b.kind}-${b.dutyId ?? ''}-${b.start}`);
+        expect(new Set(keys).size, c.id).toBe(keys.length);
+      }
+    }
+  });
+});
 
 describe('crew calendar', () => {
   it('a joining captain: "Joins <date>", no fake rest, the strip shows the joining period', () => {

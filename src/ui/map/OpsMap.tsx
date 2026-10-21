@@ -118,6 +118,8 @@ export function OpsMap() {
     return out;
   }, [apList, legs, selAp, cmAps]);
 
+  /** Airports and projection shared.aps was built for (rebuilt only when they change). */
+  const apsFor = useRef<{ a: MapAirport[] | null; proj: MapLayerCtx['proj'] | null }>({ a: null, proj: null });
   const refs = useRef({ g, pins, marked, airports, proj: null as MapLayerCtx['proj'] | null });
   refs.current.g = g;
   refs.current.pins = pins;
@@ -201,7 +203,14 @@ export function OpsMap() {
         backdrop={(ctx) => <NightLayer shared={shared} proj={ctx.proj} shift={ctx.backShift} />}
         underlay={(ctx) => {
           refs.current.proj = ctx.proj;
-          shared.aps = airports.map((a) => { const ap = AIRPORT_BY_CODE[a.code]; return ap && ctx.proj([ap.lon, ap.lat]); }).filter((q): q is [number, number] => !!q);
+          if (apsFor.current.a !== airports || apsFor.current.proj !== ctx.proj) {
+            apsFor.current = { a: airports, proj: ctx.proj };
+            shared.aps = airports.flatMap((a) => {
+              const ap = AIRPORT_BY_CODE[a.code];
+              const p = ap && ctx.proj([ap.lon, ap.lat]);
+              return p ? [{ p, code: !!a.label || a.state === 'hub' }] : [];
+            });
+          }
           // The current leg is always drawn by the live paths; the arcs add the selected aircraft's next legs.
           return (
             <>

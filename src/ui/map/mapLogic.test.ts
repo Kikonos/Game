@@ -8,8 +8,8 @@ import { demoFlights } from '../../engine/dev';
 import { createGame } from '../../engine/newGame';
 import { advanceTo } from '../../engine/sim';
 import {
-  chipInfo, commercialById, fitCodes, groupCommercial, headingDeg, isCommercialId, lerpAngle, mapAirports, offerPins, parkOffset, PARK_GAP, parseCommercialId, pickLabelSide, pickNearest, placeLabels,
-  selectedLegs, sunElevation, sunPoint, terminator, TYPE_STROKE, upNext, upNextRows,
+  chipInfo, commercialById, fitCodes, groupCommercial, headingDeg, isCommercialId, lerpAngle, mapAirports, offerPins, parkOffset, PARK_GAP, parseCommercialId, downSide, legLabelSide, pickNearest, placeLabels,
+  selectedLegs, trackLabelAt, sunElevation, sunPoint, terminator, TYPE_STROKE, upNext, upNextRows,
 } from './mapLogic';
 import { addDeadhead } from '../../engine/core/entities';
 import { commercialFlightsBetween, ticketBlock } from '../../engine/ops';
@@ -226,17 +226,23 @@ describe('v0.5.2 flight types and airline legs', () => {
   });
 });
 
-describe('moving label side', () => {
-  const sides = [{ id: '', x: 30, y: 0, w: 40, h: 11 }, { id: '', x: 0, y: -18, w: 40, h: 11 }, { id: '', x: -30, y: 0, w: 40, h: 11 }, { id: '', x: 0, y: 20, w: 40, h: 11 }];
-  it('keeps the preferred side when clear and dodges an airport code', () => {
-    expect(pickLabelSide(sides, [1, 3, 0, 2], [], -1)).toBe(1);
-    const ap = { id: '', x: 0, y: -20, w: 30, h: 28 }; // code right above the icon (leaving AMS)
-    expect(pickLabelSide(sides, [1, 3, 0, 2], [ap], 1)).toBe(3);
+describe('airline label side', () => {
+  const W = 50;
+  const H = 11;
+  const east = Array.from({ length: 11 }, (_, i) => ({ x: i * 20, y: 0, ang: 90 })); // headingDeg: 90 = east
+  const code = (x: number, y: number) => ({ id: '', x, y: y - 15, w: 28, h: 15 });
+  it('rides across the track, below an east-west leg and right of a north-south one', () => {
+    expect(downSide(90)).toBe(1);
+    expect(downSide(270)).toBe(-1);
+    const [x, y] = trackLabelAt(90, downSide(90), W, H);
+    expect(Math.abs(x)).toBeLessThan(1e-9);
+    expect(y).toBeGreaterThan(13);
+    const [nx, ny] = trackLabelAt(0, downSide(0), W, H); // north
+    expect(nx).toBeGreaterThan(13 + W / 2 - 1e-9);
+    expect(Math.abs(ny)).toBeLessThan(1e-9);
   });
-  it('does not flap at an edge and returns once the preferred side is well clear', () => {
-    const near = { id: '', x: 0, y: -42, w: 30, h: 28 }; // 3 px clear of 'above': fine for staying, not for returning
-    expect(pickLabelSide(sides, [1, 3, 0, 2], [near], 3)).toBe(3);
-    expect(pickLabelSide(sides, [1, 3, 0, 2], [near], 1)).toBe(1);
-    expect(pickLabelSide(sides, [1, 3, 0, 2], [{ ...near, y: -60 }], 3)).toBe(1);
+  it('keeps the leg\'s own airport codes clear and only changes side for a clearly better one', () => {
+    expect(legLabelSide(east, W, H, [code(0, 0), code(200, 0)], 1)).toBe(1);
+    expect(legLabelSide(east, W, H, [code(100, 40)], 1)).toBe(-1);
   });
 });

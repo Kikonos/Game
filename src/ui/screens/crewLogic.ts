@@ -8,9 +8,15 @@ import type { FlightType } from '../../engine/ops';
 export type CalKey = 'operating' | 'positioning' | 'ferry' | 'ride' | 'deadhead' | 'rest' | 'off' | 'sick' | 'joining' | 'training' | 'leave' | 'standby';
 
 export const CAL_KEY_LABEL: Record<CalKey, string> = {
-  operating: 'Duty', positioning: 'Positioning duty', ferry: 'Ferry duty', ride: 'Positioning (riding)', deadhead: 'Deadhead',
+  operating: 'Operating', positioning: 'Positioning', ferry: 'Ferry', ride: 'Positioning (passenger)', deadhead: 'Deadhead',
   rest: 'Rest', off: 'Day off', sick: 'Sick', joining: 'Joining', training: 'Training', leave: 'Leave', standby: 'Standby',
 };
+
+/** Block title for the detail card and the list: the agreed flight-type words for work and travel, the engine's label otherwise. */
+export function calLabel(b: Pick<CalBlock, 'kind' | 'flights' | 'label'>): string {
+  const k = calKey(b);
+  return k === 'operating' || k === 'positioning' || k === 'ferry' || k === 'ride' || k === 'deadhead' ? CAL_KEY_LABEL[k] : b.label;
+}
 
 /** Legend order: work first, then travel, status windows, rest and days off. */
 export const CAL_KEYS: CalKey[] = ['operating', 'positioning', 'ferry', 'ride', 'deadhead', 'standby', 'sick', 'joining', 'training', 'leave', 'rest', 'off'];

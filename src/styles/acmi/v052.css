@@ -12,6 +12,9 @@
 /* ---------- flight type key + chip ---------- */
 .ft-key { display: inline-block; width: 18px; height: 0; flex-shrink: 0; border-top: 2px solid var(--ft-operating); vertical-align: middle; }
 .ft-key.positioning, .ft-key.ferry { border-top: 2.5px dotted var(--ft-positioning); }
+.ft-key.ferry { position: relative; }
+/* Ferry's own mark: a solid amber start bar on the dotted line (Positioning is dotted only). */
+.ft-key.ferry::before { content: ''; position: absolute; left: 0; top: -4.5px; width: 3px; height: 7px; border-radius: 1px; background: var(--ft-ferry); }
 .ft-key.deadhead { border-top: 2px dotted var(--ft-deadhead); }
 .ft-chip {
   display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 999px; flex-shrink: 0;
@@ -27,9 +30,9 @@
   top: 14px; height: 28px; color: #fde68a; background: rgba(251, 191, 36, 0.1);
   box-shadow: none; border: 2px dotted var(--ft-positioning); text-shadow: none;
 }
-.gb.gb-pos.ferry { background: rgba(7, 11, 20, 0.6); }
+.gb.gb-pos.ferry { background: rgba(7, 11, 20, 0.6); border-left: 4px solid var(--ft-ferry); }
 .gb.gb-pos > span { font-weight: 650; }
-.gb.gb-pos .gb-tag { font-size: 11px; letter-spacing: 0.06em; margin-right: 4px; color: var(--ft-ferry); }
+.gb.gb-pos .gb-tag { font-size: 12px; letter-spacing: 0.03em; margin-right: 4px; color: var(--ft-ferry); }
 .gl-item .ft-key { width: 22px; }
 /* Operating blocks are solid in their contract colour: the key shows a few. */
 .gl-sw.gl-op { background: linear-gradient(90deg, #4f8cff 0 34%, #2cc4a8 34% 67%, #e8a93a 67%); }
@@ -37,6 +40,9 @@
 
 /* ---------- crew calendar strip ---------- */
 .sc-roster-lane.sc-cal-lane { height: 30px; cursor: pointer; }
+/* iPad: a 44 px touch target (pickCal's 12 px slop covers the width of thin blocks). */
+.touch .sc-roster-lane.sc-cal-lane { height: 44px; }
+.touch .sc-cal.k-rest { top: 15px; bottom: 15px; }
 .sc-cal { position: absolute; top: 3px; bottom: 3px; min-width: 3px; border-radius: 3px; display: flex; align-items: center; overflow: hidden; }
 .sc-cal.l0 { top: 0; bottom: 0; border-radius: 0; }
 .sc-cal.l1 { z-index: 1; }
@@ -58,7 +64,7 @@
 .k-off { --c: #2dd4bf; }
 .sc-cal.k-operating { background: var(--c); color: #04121a; }
 .sc-cal.k-positioning { background: rgba(251, 191, 36, 0.22); border: 1.5px dotted var(--c); color: #fde68a; }
-.sc-cal.k-ferry { background: rgba(7, 11, 20, 0.5); border: 1.5px dotted var(--c); color: var(--c); }
+.sc-cal.k-ferry { background: rgba(7, 11, 20, 0.5); border: 1.5px dotted var(--c); border-left: 3px solid var(--c); color: var(--c); }
 .sc-cal.k-ride { background: repeating-linear-gradient(135deg, rgba(251, 191, 36, 0.55) 0 3px, rgba(251, 191, 36, 0.12) 3px 6px); color: #fde68a; }
 .sc-cal.k-deadhead { background: rgba(154, 165, 187, 0.22); border: 1.5px dotted var(--c); color: #dfe5f1; }
 .sc-cal.k-standby { background: rgba(62, 230, 255, 0.14); border: 1.5px dashed var(--c); color: var(--c); }
@@ -71,7 +77,7 @@
 .sc-cal.k-off .sc-cal-t { font-weight: 550; }
 .sc-cal-sw { display: inline-block; width: 14px; height: 10px; border-radius: 3px; flex-shrink: 0; background: var(--c); }
 .sc-cal-sw.k-positioning { background: rgba(251, 191, 36, 0.22); border: 1.5px dotted var(--c); }
-.sc-cal-sw.k-ferry { background: transparent; border: 1.5px dotted var(--c); }
+.sc-cal-sw.k-ferry { background: transparent; border: 1.5px dotted var(--c); border-left: 3px solid var(--c); }
 .sc-cal-sw.k-ride { background: repeating-linear-gradient(135deg, rgba(251, 191, 36, 0.7) 0 2px, rgba(251, 191, 36, 0.15) 2px 4px); }
 .sc-cal-sw.k-deadhead { background: rgba(154, 165, 187, 0.25); border: 1.5px dotted var(--c); }
 .sc-cal-sw.k-standby { background: transparent; border: 1.5px dashed var(--c); }
@@ -98,5 +104,5 @@
 .sc-legs { display: flex; flex-direction: column; gap: 4px; }
 .sc-leg-row { display: grid; grid-template-columns: 70px 76px 1fr auto; align-items: center; gap: 8px; }
 .gl-sw.gl-ft { background: rgba(251, 191, 36, 0.1); border: 2px dotted var(--ft-positioning); }
-.gl-sw.gl-ft.ferry { background: transparent; }
+.gl-sw.gl-ft.ferry { background: transparent; border-left: 4px solid var(--ft-ferry); }
 .sc-kv .sc-ft-row { justify-content: flex-end; }

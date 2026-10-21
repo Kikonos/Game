@@ -4,7 +4,7 @@
 // Pure read APIs (no RNG, no writes).
 
 import { BAL } from '../core/balance';
-import { deadheadFlights } from '../core/entities';
+import { deadheadFlights, flightsRev } from '../core/entities';
 import { DAY, fmtDate, fmtDateTime, fmtDay, fmtDuration, fmtTime } from '../core/time';
 import type { CrewMember, Duty, Flight, GameState, Legality, Minute, TrainingKind } from '../core/types';
 import { commercialItinerary } from '../ops/commercial';
@@ -243,11 +243,27 @@ export interface CrewStatusView {
 
 const arrow = (a: string, b: string) => `${a}→${b}`;
 
+/** Tickets and rides per crew member, once per flight revision (membership only; times and status are read live). */
+const travelIx = new WeakMap<GameState, { rev: number; by: Map<string, Flight[]> }>();
+function travelOf(g: GameState, crewId: string): Flight[] {
+  const rev = flightsRev(g);
+  let ix = travelIx.get(g);
+  if (!ix || ix.rev !== rev) {
+    const by = new Map<string, Flight[]>();
+    const add = (id: string, f: Flight) => (by.get(id) ?? by.set(id, []).get(id)!).push(f);
+    for (const f of deadheadFlights(g)) for (const id of f.crewIds) add(id, f);
+    for (const f of Object.values(g.flights)) for (const id of f.riders ?? []) add(id, f);
+    travelIx.set(g, (ix = { rev, by }));
+  }
+  return ix.by.get(crewId) ?? [];
+}
+
 /** The journey carrying c now (check-in to arrival): an airline ticket or a ride on our own leg. Pure. */
 export function crewTravelNow(g: GameState, c: CrewMember): CrewTravelNow | null {
   const now = g.now;
-  for (const f of deadheadFlights(g)) {
-    if (f.status === 'cancelled' || f.sta <= now || f.std - BAL.deadheadCheckIn > now || !f.crewIds.includes(c.id)) continue;
+  const mine = travelOf(g, c.id);
+  for (const f of mine) {
+    if (f.kind !== 'deadhead' || f.status === 'cancelled' || f.sta <= now || f.std - BAL.deadheadCheckIn > now || !f.crewIds.includes(c.id)) continue;
     const legs = commercialItinerary(g, f);
     if (!legs.length) continue;
     const i = legs.findIndex((l) => l.arr > now);
@@ -255,8 +271,8 @@ export function crewTravelNow(g: GameState, c: CrewMember): CrewTravelNow | null
     const phase = now < legs[0].dep ? 'checkIn' : now >= l.dep ? 'air' : 'connecting';
     return { kind: 'deadhead', flightId: f.id, no: l.no, from: l.from, to: l.to, dep: l.dep, arr: l.arr, dest: f.to, end: f.sta, phase };
   }
-  for (const f of Object.values(g.flights)) {
-    if (!f.riders?.includes(c.id) || f.status === 'cancelled' || f.status === 'done') continue;
+  for (const f of mine) {
+    if (f.kind === 'deadhead' || !f.riders?.includes(c.id) || f.status === 'cancelled' || f.status === 'done') continue;
     const dep = f.atd ?? f.std;
     const arr = f.ata ?? f.eta ?? f.sta;
     if (dep - BAL.deadheadCheckIn > now || arr <= now) continue;

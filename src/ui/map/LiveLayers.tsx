@@ -17,7 +17,7 @@ import { PLANE_PATH } from '../components/Logo';
 import { liveMinute, store } from '../store';
 import { isTouch } from '../useMedia';
 import { MAP_H, MAP_W } from './mapData';
-import { headingDeg, type LabelBox, groupCommercial, lerpAngle, parkOffset, pickLabelSide, placeLabels, type LegArc, type PinGroup, sunPoint, terminator, TYPE_STROKE } from './mapLogic';
+import { headingDeg, type LabelBox, groupCommercial, lerpAngle, parkOffset, downSide, legLabelSide, placeLabels, trackCovered, trackLabelAt, type LegArc, type PinGroup, sunPoint, terminator, TYPE_STROKE } from './mapLogic';
 import type { MapLayerCtx } from './WorldMap';
 
 /** Live positions shared with tap picking and focus (map units, as last drawn). */
@@ -33,8 +33,8 @@ export interface LiveShared {
   pathsOwn: SVGGElement | null;
   /** Grey airline icons (above the pins, under our aircraft). */
   cmRoot: SVGGElement | null;
-  /** Airports on the map (map units): airline flight numbers keep clear of their dots and codes. */
-  aps: [number, number][];
+  /** Airports on the map (map units; `code` when it is labelled): airline flight numbers keep clear of them. */
+  aps: { p: [number, number]; code: boolean }[];
 }
 
 export const newShared = (): LiveShared => ({ ac: new Map(), cm: new Map(), night: null, nightSun: null, pathsCm: null, pathsOwn: null, cmRoot: null, aps: [] });
@@ -49,8 +49,6 @@ export const HIT_R = { touch: 22, mouse: 14 };
 const GLYPH_PX = 22;
 /** Airline icons: a little smaller than ours. */
 const CM_GLYPH_PX = 20;
-/** Flight-number text attributes per side: right, above, left, below. */
-const NO_AT: [string, string, string][] = [['13', '4', 'start'], ['0', '-14', 'middle'], ['-13', '4', 'end'], ['0', '24', 'middle']];
 /** Airline legs are fetched for this many game minutes at a time, then filtered per frame. */
 const CM_BUCKET = 10;
 const NS = 'http://www.w3.org/2000/svg';
@@ -254,7 +252,7 @@ interface Glide { ox: number; oy: number; ang: number }
 /** Our airborne leg's path element. */
 interface OwnPath { el: SVGPathElement; acId: string; type: FlightType; from: string; to: string }
 /** An airline leg on the map: icon group, rotating glyph and path. */
-interface CmEl { el: SVGGElement; glyph: SVGGElement; no: SVGTextElement; side: number; path: SVGPathElement | null; gi: (t: number) => [number, number]; cf: CommercialFlight }
+interface CmEl { el: SVGGElement; glyph: SVGGElement; no: SVGTextElement; side: 1 | -1; pref: 1 | -1; sideK: number; sideAps: LiveShared['aps'] | null; at: string; hide: boolean[]; hidden: boolean; path: SVGPathElement | null; gi: (t: number) => [number, number]; cf: CommercialFlight }
 
 export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ctx: MapLayerCtx; g: GameState; shared: LiveShared; selected?: string; selectedFlight?: string }) {
   const ref = useRef<SVGGElement>(null);
@@ -459,7 +457,12 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
             no.textContent = cf.leg.no;
             const path = cmPathRoot ? svgEl('path', { d: lineD(cf.leg.from, cf.leg.to) }, cmPathRoot) : null;
             if (path) stylePath(path, 'deadhead');
-            cms.set(cf.id, (x = { el, glyph, no, side: -1, path, gi: geoInterpolate([A.lon, A.lat], [B.lon, B.lat]), cf }));
+            // Preferred side: below the track (right of a north–south one), from the leg's chord.
+            const pa = proj([A.lon, A.lat]);
+            const pb = proj([B.lon, B.lat]);
+            const pref = pa && pb ? downSide(headingDeg(pa, pb, MAP_W)) : 1;
+            no.setAttribute('text-anchor', 'middle');
+            cms.set(cf.id, (x = { el, glyph, no, side: pref, pref, sideK: 0, sideAps: null, at: '', hide: [], hidden: false, path, gi: geoInterpolate([A.lon, A.lat], [B.lon, B.lat]), cf }));
             selKey = '';
           }
           x.cf = cf;
@@ -471,36 +474,44 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
           const ang = a && q && (a[0] !== q[0] || a[1] !== q[1]) ? headingDeg(a, q, MAP_W) : 0;
           x.el.setAttribute('transform', `translate(${p[0].toFixed(2)} ${p[1].toFixed(2)}) scale(${u.toPrecision(4)})`);
           x.glyph.setAttribute('transform', `rotate(${ang.toFixed(1)})`);
-          // The flight number sits off the path (above when flying east–west, right of the icon otherwise)
-          // and moves to another side while that one would cover an airport code or one of our aircraft.
-          const ew = Math.abs(Math.sin((ang * Math.PI) / 180)) > 0.6;
-          const sx = p[0] / u;
-          const sy = p[1] / u;
-          const obs: LabelBox[] = [];
-          for (const ap of shared.aps) {
-            const ax = ap[0] / u - sx;
-            const ay = ap[1] / u - sy;
-            if (Math.abs(ax) < 90 && Math.abs(ay) < 50) obs.push({ id: '', x: ax, y: ay - 8, w: 30, h: 28 });
-          }
-          for (const q of shared.ac.values()) {
-            const ax = q[0] / u - sx;
-            const ay = q[1] / u - sy;
-            if (Math.abs(ax) < 90 && Math.abs(ay) < 50) obs.push({ id: '', x: ax, y: ay + 8, w: 44, h: 36 });
-          }
+          // The flight number rides across the track on one side per leg (re-chosen after a zoom): the
+          // preferred one unless the other covers clearly fewer airport codes and dots over the whole leg.
+          // Where it would still sit on an airport code (passing close by one), it fades out for that stretch.
           const w = cf.leg.no.length * NO_FS * 0.62 + 2;
-          const sides: LabelBox[] = [
-            { id: '', x: 13 + w / 2, y: 0, w, h: NO_FS }, // right
-            { id: '', x: 0, y: -18, w, h: NO_FS }, // above
-            { id: '', x: -13 - w / 2, y: 0, w, h: NO_FS }, // left
-            { id: '', x: 0, y: 20, w, h: NO_FS }, // below
-          ];
-          const side = obs.length ? pickLabelSide(sides, ew ? [1, 3, 0, 2] : [0, 2, 1, 3], obs, x.side) : ew ? 1 : 0;
-          if (side !== x.side) {
-            x.side = side;
-            const [nx, ny, anchor] = NO_AT[side];
-            x.no.setAttribute('x', nx);
-            x.no.setAttribute('y', ny);
-            x.no.setAttribute('text-anchor', anchor);
+          if (!x.sideK || Math.abs(k / x.sideK - 1) > 0.12 || x.sideAps !== shared.aps) {
+            x.sideK = k;
+            x.sideAps = shared.aps;
+            const track: { x: number; y: number; ang: number }[] = [];
+            for (let i = 0; i <= 32; i++) {
+              const f0 = i / 32;
+              const s0 = proj(x.gi(f0));
+              const s1 = proj(x.gi(f0 + 0.004));
+              if (s0 && s1) track.push({ x: s0[0] / u, y: s0[1] / u, ang: headingDeg(s0, s1, MAP_W) });
+            }
+            const xs = track.map((s) => s.x);
+            const ys = track.map((s) => s.y);
+            const [x0, x1, y0, y1] = [Math.min(...xs) - 90, Math.max(...xs) + 90, Math.min(...ys) - 60, Math.max(...ys) + 60];
+            const obs: LabelBox[] = [];
+            const codes: LabelBox[] = [];
+            for (const ap of shared.aps) {
+              const ax = ap.p[0] / u;
+              const ay = ap.p[1] / u;
+              if (ax < x0 || ax > x1 || ay < y0 || ay > y1) continue;
+              obs.push({ id: '', x: ax, y: ay, w: 10, h: 10 });
+              if (ap.code) codes.push({ id: '', x: ax, y: ay - 15, w: 28, h: 15 });
+            }
+            x.side = legLabelSide(track, w, NO_FS, [...obs, ...codes], x.pref);
+            x.hide = trackCovered(track, x.side, w, NO_FS, codes);
+            x.el.dataset.dbg = JSON.stringify({ side: x.side, pref: x.pref, hide: x.hide.map(Number).join(''), codes: codes.map((c) => [Math.round(c.x - track[0].x), Math.round(c.y - track[0].y)]), t0: [Math.round(track[0].x), Math.round(track[0].y)], t1: [Math.round(track[32]?.x), Math.round(track[32]?.y)], n: shared.aps.length }); // DBGX
+          }
+          const hidden = !!x.hide[Math.round(pr * 32)];
+          if (hidden !== x.hidden) x.no.classList.toggle('off', (x.hidden = hidden));
+          const [cx, cy] = trackLabelAt(ang, x.side, w, NO_FS);
+          const at = `${cx.toFixed(1)} ${(cy + NO_FS * 0.35).toFixed(1)}`;
+          if (at !== x.at) {
+            x.at = at;
+            x.no.setAttribute('x', cx.toFixed(1));
+            x.no.setAttribute('y', (cy + NO_FS * 0.35).toFixed(1));
           }
           shared.cm.set(cf.id, p);
         }

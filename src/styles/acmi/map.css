@@ -37,6 +37,9 @@ div.worldmap { overflow: clip; }
 }
 .touch .ops-cmf .no { font-size: 11.5px; }
 .ops-cmf.sel .no { fill: #eef2f8; }
+/* Faded while it passes close over an airport code (never a hop: one fade out, one back). */
+.ops-cmf .no { transition: opacity 0.4s ease; }
+.ops-cmf .no.off { opacity: 0; }
 
 .ops-pin { cursor: pointer; }
 .ops-pin .hit, .ops-ac .hit { fill: transparent; stroke: none; }

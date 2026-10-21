@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CalBlock, CalFlight } from '../../engine/crew';
 import { DAY, HOUR } from '../../engine/core/time';
-import { calAt, calKey, calLayer, calLegend, dutyType, pickCal } from './crewLogic';
+import { calAt, calKey, calLabel, calLayer, calLegend, dutyType, pickCal } from './crewLogic';
 
 const fl = (type: CalFlight['type']): CalFlight => ({ id: type, no: 'AW 1', from: 'LIS', to: 'OPO', std: 0, sta: 60, type });
 const blk = (kind: CalBlock['kind'], start: number, end: number, flights?: CalFlight[]): CalBlock => ({ kind, start, end, label: kind, detail: '', flights });
@@ -14,6 +14,10 @@ describe('crew calendar strip', () => {
     expect(dutyType({ flights: [] })).toBe('operating');
     expect(calKey(blk('positioning', 0, 1))).toBe('ride');
     expect(calKey(blk('sick', 0, 1))).toBe('sick');
+    expect(calLabel({ ...blk('duty', 0, 1, [fl('operating')]), label: 'Duty' })).toBe('Operating');
+    expect(calLabel(blk('duty', 0, 1, [fl('ferry')]))).toBe('Ferry');
+    expect(calLabel(blk('positioning', 0, 1))).toBe('Positioning (passenger)');
+    expect(calLabel({ ...blk('off', 0, 1), label: 'Free' })).toBe('Free');
   });
 
   it('layers rest/off under status windows under work and travel', () => {

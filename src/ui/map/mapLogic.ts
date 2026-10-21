@@ -311,24 +311,50 @@ export function boxOverlap(a: LabelBox, b: LabelBox, gap = 0): number {
 }
 
 /**
- * Side for a moving label (`sides[i]` = its box on side i): stays on `cur` while that is clear, else takes
- * the first clear side in `order`, else the least covered one. Returns to the preferred side (order[0])
- * only once it is clear by a wider margin, so a label crossing an edge never flaps.
+ * Centre (screen px from the icon) of a label riding beside a moving icon: across the track, on the
+ * travel-right (`side` 1) or travel-left (-1) of heading `ang` (headingDeg), clear of a `r` px icon.
+ * The leg's own airports lie on the track, so they never sit under it; it turns smoothly with the track.
  */
-export function pickLabelSide(sides: LabelBox[], order: number[], obstacles: LabelBox[], cur: number): number {
-  const cover = (i: number, gap: number) => obstacles.reduce((s, o) => s + boxOverlap(sides[i], o, gap), 0);
-  const pref = order[0];
-  if (cur !== pref && cover(pref, 6) === 0) return pref;
-  if (cur >= 0 && cover(cur, 2) === 0) return cur;
-  let best = pref;
-  let bestC = Infinity;
-  for (const i of order) {
-    const c = cover(i, 2);
-    if (c === 0) return i;
-    if (c < bestC) { bestC = c; best = i; }
-  }
-  // Nothing clear: only move when clearly better than where it is.
-  return cur >= 0 && cover(cur, 2) <= bestC * 1.5 ? cur : best;
+export function trackLabelAt(ang: number, side: 1 | -1, w: number, h: number, r = 13): [number, number] {
+  const a = ((ang - 90) * Math.PI) / 180;
+  const nx = -Math.sin(a) * side;
+  const ny = Math.cos(a) * side;
+  const d = r + (Math.abs(nx) * w) / 2 + (Math.abs(ny) * h) / 2;
+  return [nx * d, ny * d];
+}
+
+/** Track side whose normal points down the screen (or right, on a north–south track): under the icon, away from codes drawn above dots. */
+export function downSide(ang: number): 1 | -1 {
+  const [nx, ny] = trackLabelAt(ang, 1, 0, 0, 1);
+  return ny > 0.25 || (ny > -0.25 && nx > 0) ? 1 : -1;
+}
+
+/** Per track point: does the label on `side` cover any obstacle (by more than a sliver)? */
+export function trackCovered(track: { x: number; y: number; ang: number }[], side: 1 | -1, w: number, h: number, obstacles: LabelBox[]): boolean[] {
+  return track.map((t) => {
+    const [cx, cy] = trackLabelAt(t.ang, side, w, h);
+    const b = { id: '', x: t.x + cx, y: t.y + cy, w, h };
+    return obstacles.some((o) => boxOverlap(b, o, 1) > 6);
+  });
+}
+
+/**
+ * Side for a leg's label, chosen once per leg (and zoom) so it never hops mid-flight: `pref`, unless the
+ * other side covers clearly less of the obstacles over the whole track (`track` = icon point and heading, screen px).
+ */
+export function legLabelSide(track: { x: number; y: number; ang: number }[], w: number, h: number, obstacles: LabelBox[], pref: 1 | -1): 1 | -1 {
+  const cover = (side: 1 | -1) => {
+    let c = 0;
+    for (const t of track) {
+      const [cx, cy] = trackLabelAt(t.ang, side, w, h);
+      for (const o of obstacles) c += boxOverlap({ id: '', x: t.x + cx, y: t.y + cy, w, h }, o, 2);
+    }
+    return c;
+  };
+  const a = cover(pref);
+  if (a === 0) return pref;
+  const other = pref === 1 ? -1 : 1;
+  return cover(other) < a * 0.5 ? other : pref;
 }
 
 export const ARCHETYPE_LABEL: Partial<Record<Archetype, string>> = {
