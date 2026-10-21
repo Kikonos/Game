@@ -225,3 +225,7 @@ Experience: 13 scenarios (e.g. "Lisbon 2019: 2× 767 + 2× 777") · 14 achieveme
 REMIND the player of this backlog once the current fixes update has shipped.
 
 ### 00:33Z — check-in: livery workflow in readiness; player awake, collecting their fix list (next update goes through discuss→refine first); checkpoint pushed.
+
+### 00:51Z (04:51 Dubai) — v0.5.1 RELEASED ✅
+- Livery workflow wf_74482358-686 ready=true (22 findings, 17 confirmed+fixed; 344 tests; seeds 1–6 in margin band). acmi afaf266; release 3171345 on claude/contrail-airline-game + main; live index asset verified, 0 console errors.
+- NEXT: v0.5.2 player fixes — in stage 2/3 (refining). Player's list: A top-bar blur; B counter-offer expires before client replies; C roster strip shows sick/joining/training/off/standby/positioning/deadhead + "Joining" card dates; D commercial deadhead flights on the map (grey icon + flight-number label, tap for details); E always-on current flight path (operating green solid, positioning/ferry dotted amber); F flight type labels in Up Next/map/schedule; G art: windows/details missing at small sizes, bumpy crown from over-literal tracing (smooth while keeping noses). Waiting on answers: terminology table, real airlines for deadheads, release order.
