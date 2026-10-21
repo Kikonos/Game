@@ -25,7 +25,7 @@ export function DecisionModal({ decisionId }: { decisionId?: string }) {
   // v0.7: a lease-end decision shows live quotes (rent, return costs) rather than the chips from when it was posted.
   const acId = d.kind === 'leaseEnd' && typeof d.data?.aircraftId === 'string' ? d.data.aircraftId : null;
   const live = acId ? leaseView(g, acId) : null;
-  const chipsOf = (o: (typeof d.options)[number]) => live?.options.find((x) => x.id === o.id)?.chips ?? o.chips;
+  const chipsOf = (o: (typeof d.options)[number]) => (live?.options.find((x) => x.id === o.id)?.chips ?? o.chips)?.filter((c) => !/^Deposit \$0 back$/.test(c));
   return (
     <Modal title={d.title} icon={<AlertTriangle className="warn" />} className="decision sc-decision" onClose={close}>
       <p className="muted">{d.body}</p>

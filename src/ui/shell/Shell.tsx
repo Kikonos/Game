@@ -44,7 +44,8 @@ function useNavBadges(): Partial<Record<Tab, string>> {
   const b: Partial<Record<Tab, string>> = {};
   if (offers) b.contracts = count(offers);
   if (alerts) b.inbox = count(alerts);
-  else if (g.messages.some((m) => !m.read)) b.inbox = '';
+  // v0.7: hidden market alerts don't light the dot.
+  else if (g.messages.some((m) => !m.read && store.shows(m))) b.inbox = '';
   return b;
 }
 
@@ -108,6 +109,7 @@ function PauseBadge() {
       s.openModal({ kind: 'sheet', refs: [ref] });
     }
     else if (reason === 'contractStart') s.navigate('schedule');
+    else if (reason === 'marketOffer') s.navigate('fleet', { view: 'market' });
     else s.navigate('inbox');
   };
   return (

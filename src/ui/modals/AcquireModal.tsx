@@ -13,7 +13,7 @@ import { AircraftArt } from '../components/AircraftArt';
 import { Modal } from '../components/ui';
 import { money } from '../format';
 import { KV } from '../screens/common';
-import { GateChip } from '../screens/Market';
+import { dayIn, GateChip, typeName } from '../screens/Market';
 import { offerKind, sellerOf } from '../screens/screenLogic';
 import { store, useGame } from '../store';
 
@@ -53,14 +53,14 @@ export function AcquireModal({ offerId }: { offerId: string }) {
     { k: 'sign', title: `Sign today, ${fmtDay(g.now)}`, sub: lease ? `Deposit ${money(o.deposit)} now` : `${money(o.price)} now` },
   ];
   if (q.deadhead.length) steps.push({ k: 'dh', title: 'Pilots fly out on airlines', sub: q.deadhead.map((l) => `${l.no} ${l.from}–${l.to} ${fmtDay(l.dep)} ${fmtTime(l.dep, l.from)}`).join(' · ') });
-  steps.push({ k: 'hand', title: `Handover at ${site} · ${fmtDay(q.handover)}`, sub: q.legs.length ? 'Acceptance: inspection, records and a test flight (36 h)' : 'At our base: no ferry' });
+  steps.push({ k: 'hand', title: `Handover at ${site} · ${dayIn(g.now, q.handover)}`, sub: q.legs.length ? 'Acceptance: inspection, records and a test flight (36 h)' : 'At our base: no ferry' });
   q.legs.forEach((l, i) => steps.push({
-    k: `leg${i}`, title: `Ferry ${l.from}–${l.to} · ${fmtDay(l.std)} ${fmtTime(l.std, l.from)} local`, sub: `${fmtDuration(l.block)} block${l.nightStopAfter ? ` · night stop at ${city(l.to)}` : ''}`,
+    k: `leg${i}`, title: `Ferry ${l.from}–${l.to} · ${dayIn(g.now, l.std)} ${fmtTime(l.std, l.from)} local`, sub: `${fmtDuration(l.block)} block${l.nightStopAfter ? ` · night stop at ${city(l.to)}` : ''}`,
   }));
-  if (q.legs.length) steps.push({ k: 'home', title: `Home at ${city(g.company.homeBase)} · ~${fmtDay(q.homeBy)}`, tone: 'good' });
+  if (q.legs.length) steps.push({ k: 'home', title: `Home at ${city(g.company.homeBase)} · ~${dayIn(g.now, q.homeBy)}`, tone: 'good' });
   const kind = offerKind(o);
   return (
-    <Modal className="aq-modal" title={`${lease ? 'Lease' : 'Buy'} ${t.short}`} icon={<ShoppingCart className="accent" />} onClose={close} footer={
+    <Modal className="aq-modal" title={`${lease ? 'Lease' : 'Buy'} ${o.newBuild ? 'a new-build ' : 'an '}${typeName(o.typeId)}`} icon={<ShoppingCart className="accent" />} onClose={close} footer={
       <>
         <button className="btn" onClick={close}>Cancel</button>
         <button className="btn btn-primary" onClick={sign} disabled={!v.gate.ok}><ShoppingCart /> {label}</button>

@@ -28,7 +28,7 @@ export function firstUnmet(n: LadderNode): string | null {
   if (n.pending?.waiting) return n.pending.waiting;
   const r = n.reqs.find((x) => !x.ok);
   if (!r) return n.state === 'pending' ? null : 'Every requirement met';
-  return r.have ? `${r.label} · ${r.have} now` : r.label;
+  return r.have ? `${r.label} · ${/^[\d$]/.test(r.have) ? `${r.have} now` : r.have}` : r.label;
 }
 
 function NodeCard({ n }: { n: LadderNode }) {

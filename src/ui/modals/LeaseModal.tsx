@@ -47,7 +47,7 @@ export function LeaseModal({ aircraftId }: { aircraftId: string }) {
           return (
             <button key={o.id} className={`decision-opt sc-opt ${cur ? 'current' : ''}`} onClick={() => pick(o.id)} disabled={cur}>
               <span className="row between gap-8"><b>{o.label}</b>{o.id === 'extend12' && <span className="badge">Default</span>}{cur && <span className="badge info">Booked</span>}</span>
-              <span className="sc-chips">{o.chips.map((c) => <span key={c} className="chip sc-chip">{c}</span>)}</span>
+              <span className="sc-chips">{o.chips.filter((c) => !/^Deposit \$0 back$/.test(c)).map((c) => <span key={c} className="chip sc-chip">{c}</span>)}</span>
             </button>
           );
         })}

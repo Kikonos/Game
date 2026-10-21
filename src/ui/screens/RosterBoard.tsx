@@ -13,6 +13,7 @@ import type { RatingFamily } from '../../data/acmiTypes';
 import { crewRev, dropTargets, familyLabel, moveDuty, rosterBoard, type BoardBlock, type BoardRow, type DropTarget, type MoveScope } from '../../engine/crew';
 import { Seg } from '../components/ui';
 import { liveMinute, store, useThrottledNow } from '../store';
+import { useRenderCount } from './common';
 import { CAL_KEY_LABEL, calKey, calLayer, calLegend, type CalKey } from './crewLogic';
 import {
   BACK_DAYS, BOARD_DAYS, blockCands, boardItems, boardLayout, dayCodes, dayWidth, dayWindow, edgeSpeed, fitText, HEAD_H, itemAt, LEFT_W,
@@ -221,6 +222,7 @@ export const RosterBoard = memo(function RosterBoard(props: RosterBoardProps) {
 
 function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
   const now = useThrottledNow(1000);
+  useRenderCount('board');
   const [f, setF] = useState<BoardFilter>(NO_BOARD_FILTER);
   const [zoom, setZoomS] = useState<BoardZoom>(() => stored(ZOOM_KEY, ['week', 'month'] as const, 'week'));
   const [scope, setScopeS] = useState<MoveScope>(() => stored(SCOPE_KEY, ['duty', 'trip'] as const, 'trip'));

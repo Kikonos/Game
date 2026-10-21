@@ -84,7 +84,7 @@ export type ModalSpec =
   | { kind: 'classes' }
   /** v0.7: sign a market offer; cabin refit; lease extend/return; an approval on the ladder; the ladder-step celebration. */
   | { kind: 'acquire'; offerId: string }
-  | { kind: 'refit'; aircraftId: string; layout?: CabinLayout }
+  | { kind: 'refit'; aircraftId: string; layout?: CabinLayout; /** back to this offer when done */ offerId?: string }
   | { kind: 'lease'; aircraftId: string }
   | { kind: 'approval'; id: ApprovalId }
   | { kind: 'ladderStep'; messageId: string };
@@ -476,6 +476,7 @@ class GameStore {
     }
     // The action's own messages are not toasted (its result is); ladder steps still get their card.
     for (const m of this.takeFresh()) if (m.topic === 'ladder') this.queueLadder(m.id);
+    this.flushLadder();
     this.emit();
     return res;
   }

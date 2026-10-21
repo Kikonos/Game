@@ -3,7 +3,7 @@
 // lessor's reinstatement at the lease return and any clash on the right. Books through bookRefit.
 
 import { AlertTriangle, Sofa } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CabinLayout } from '../../data/acmiTypes';
 import { flightsRev } from '../../engine/core/entities';
 import { typeOf } from '../../engine/core/perf';
@@ -17,7 +17,7 @@ import { store, useGame } from '../store';
 
 const WEEKS = 8;
 
-export function RefitModal({ aircraftId, layout }: { aircraftId: string; layout?: CabinLayout }) {
+export function RefitModal({ aircraftId, layout, offerId }: { aircraftId: string; layout?: CabinLayout; offerId?: string }) {
   const g = useGame();
   const ac = g.fleet[aircraftId];
   const presets = useMemo(() => (ac ? cabinOptions(ac.typeId) : []), [ac]);
@@ -34,7 +34,15 @@ export function RefitModal({ aircraftId, layout }: { aircraftId: string; layout?
   const quotes = useMemo(() => new Map(days.map((t) => [t, refitQuote(g, aircraftId, label, station, t)])), [g, aircraftId, label, station, days, rev]); // eslint-disable-line react-hooks/exhaustive-deps
   const [picked, setDay] = useState<number | null>(null);
   const start = picked ?? days.find((t) => quotes.get(t)?.ok) ?? days[0];
-  const close = () => store.closeModal();
+  const strip = useRef<HTMLDivElement>(null);
+  // The chosen day (first free one by default) scrolls into the strip, without moving the page.
+  useEffect(() => {
+    const el = strip.current;
+    const on = el?.querySelector<HTMLElement>('.cv-day.on');
+    if (el && on && (on.offsetLeft < el.scrollLeft || on.offsetLeft + on.offsetWidth > el.scrollLeft + el.clientWidth)) el.scrollLeft = on.offsetLeft - 8;
+  }, [start, label, station]);
+  // Opened from an offer's 'Plan refit…': back to that offer.
+  const close = () => (offerId && store.game?.offers[offerId] ? store.openModal({ kind: 'offer', offerId }) : store.closeModal());
   if (!ac) return null;
   const q = quotes.get(start) ?? refitQuote(g, aircraftId, label, station, start);
   const leased = ac.ownership.kind === 'dryLeaseIn';
@@ -76,7 +84,7 @@ export function RefitModal({ aircraftId, layout }: { aircraftId: string; layout?
             {!stations.length && <span className="small muted">No refit station can take this aircraft.</span>}
           </div>
           <div className="upper dim">Start</div>
-          <div className="cv-days" role="group" aria-label="Start day">
+          <div className="cv-days rf-days" ref={strip} role="group" aria-label="Start day">
             {days.map((d) => {
               const dq = quotes.get(d);
               const dt = toDate(d);

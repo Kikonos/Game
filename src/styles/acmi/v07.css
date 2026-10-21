@@ -114,3 +114,10 @@ button.ld-node { cursor: pointer; font: inherit; }
   .mk-grid, .aq-cols { grid-template-columns: minmax(0, 1fr); }
   .ld-grid { grid-template-columns: repeat(5, minmax(150px, 1fr)); overflow-x: auto; }
 }
+.rf-days { position: relative; }
+
+/* ---------- schedule: delivering band (before handover) ---------- */
+.gb-band { background: rgba(148, 170, 220, 0.1); box-shadow: inset 0 0 0 1px rgba(148, 170, 220, 0.22); color: var(--text-2); font-weight: 500; top: 14px; height: 28px; border-radius: 8px; pointer-events: none; }
+.gb-band > span { padding-left: 10px; }
+.ls-step-award { display: grid; place-items: center; margin: 10px 0 14px; }
+.ls-step-award svg { width: 56px; height: 56px; color: var(--gold); stroke-width: 1.5; }

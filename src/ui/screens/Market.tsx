@@ -8,7 +8,7 @@ import { artFor } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { MARKET_LIVERY } from '../../data/livery';
 import { typeOf } from '../../engine/core/perf';
-import { DAY, fmtDay } from '../../engine/core/time';
+import { DAY, fmtDate, fmtDay, yearOf } from '../../engine/core/time';
 import type { GameState } from '../../engine/core/types';
 import { marketView, type MarketOfferView } from '../../engine/ops';
 import { AircraftArt } from '../components/AircraftArt';
@@ -17,10 +17,16 @@ import { money } from '../format';
 import { store } from '../store';
 import { markMarketSeen, offerKind, sellerOf } from './screenLogic';
 
-/** '12 Jan · home ~14 Jan'. */
-export function handoverLine(v: Pick<MarketOfferView, 'quote'>): string {
+/** '12 Jan', or '12 Jan 2028' outside the current year. */
+export const dayIn = (now: number, t: number) => (yearOf(t) === yearOf(now) ? fmtDay(t) : fmtDate(t));
+
+/** Type name without the maker: 'A330-200', '767-300ER'. */
+export const typeName = (typeId: string) => typeOf(typeId).name.replace(/^(Airbus|Boeing) /, '');
+
+/** 'Handover 12 Jan · home ~14 Jan'. */
+export function handoverLine(now: number, v: Pick<MarketOfferView, 'quote'>): string {
   const q = v.quote;
-  return `Handover ${fmtDay(q.handover)}${q.legs.length ? ` · home ~${fmtDay(q.homeBy)}` : ' at our base'}`;
+  return `Handover ${dayIn(now, q.handover)}${q.legs.length ? ` · home ~${dayIn(now, q.homeBy)}` : ' at our base'}`;
 }
 
 /** 'LA 8070 LIS–GRU · LA 3456 GRU–SCL' (the first airline itinerary of the delivery pilots). */
@@ -38,9 +44,8 @@ export function GateChip({ v }: { v: Pick<MarketOfferView, 'gate'> }) {
   return <span className="chip mk-chip good">{gt.text === 'No approval needed' ? 'No approval needed' : 'Approved'}</span>;
 }
 
-function OfferCard({ v, sel }: { v: MarketOfferView; sel: boolean }) {
+function OfferCard({ now, v, sel }: { now: number; v: MarketOfferView; sel: boolean }) {
   const o = v.offer;
-  const t = typeOf(o.typeId);
   const kind = offerKind(o);
   const site = v.quote.site;
   const country = AIRPORT_BY_CODE[site]?.country;
@@ -52,7 +57,7 @@ function OfferCard({ v, sel }: { v: MarketOfferView; sel: boolean }) {
         <div className="mk-art"><AircraftArt typeId={artFor(o.typeId)} livery={MARKET_LIVERY} detail="simple" /></div>
         <div className="grow" style={{ minWidth: 0 }}>
           <div className="row gap-8 between">
-            <b className="ellipsis">{t.short} · {o.builtYear} · {o.cabin.label}</b>
+            <b className="ellipsis">{typeName(o.typeId)} · {o.builtYear} · {o.cabin.label}</b>
             <span className={`badge ${kind.tone}`}>{kind.label}</span>
           </div>
           <div className="small muted mk-where">{sellerOf(o)} · {(o.where ?? site).replace(/^Airbus, |^Boeing, /, '')}{country ? <> <Flag country={country} /></> : null}</div>
@@ -63,7 +68,7 @@ function OfferCard({ v, sel }: { v: MarketOfferView; sel: boolean }) {
         {lease && <span className="small dim"> · reserves ${o.reservesPerFH.toLocaleString('en-US')}/FH</span>}
       </div>
       <div className="mk-deliv small">
-        <div>{handoverLine(v)}</div>
+        <div>{handoverLine(now, v)}</div>
         {v.quote.legs.length > 0 && <div className="muted">Ferry {v.quote.text}</div>}
         {dh && <div className="muted ellipsis">Pilots deadhead out: {dh}</div>}
       </div>
@@ -97,7 +102,7 @@ export function MarketView({ g, sel }: { g: GameState; sel: string | null }) {
     <>
       <div className="small muted mb-8">Good airframes are scarce: about one offer a month, open for one to three weeks. Aircraft are handed over where they are; our pilots fly out on airlines and ferry them home.</div>
       {list.length ? (
-        <div className="mk-grid">{list.map((v) => <OfferCard key={v.offer.id} v={v} sel={sel === v.offer.id} />)}</div>
+        <div className="mk-grid">{list.map((v) => <OfferCard key={v.offer.id} now={g.now} v={v} sel={sel === v.offer.id} />)}</div>
       ) : (
         <div className="card sc-pad muted small">No aircraft on offer right now. Lessors call every few weeks{early ? '; the first offer usually comes within two months' : ''}. Turn on market alerts in Settings to hear about new ones.</div>
       )}

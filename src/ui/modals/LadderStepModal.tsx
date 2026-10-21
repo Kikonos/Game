@@ -35,6 +35,7 @@ export function LadderStepModal({ messageId }: { messageId: string }) {
       </>
     }>
       <div className="ls-step-k upper dim">A step up the ladder</div>
+      {!types.length && <div className="ls-step-award"><Award /></div>}
       {types.length > 0 && (
         <div className="ap-types ls-step-types">
           {types.map((t) => (

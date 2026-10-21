@@ -183,7 +183,7 @@ function crewLine(r: FeasibilityReport): { text: string; tone: 'good' | 'warn' |
   return { text: `Short ${list}${r.crew.firstShort ? ` from ${fmtDay(r.crew.firstShort)}` : ''}`, tone: 'warn' };
 }
 
-function AircraftRow({ g, r, on, onPick, billBH, lift = 1 }: { g: GameState; r: FeasibilityReport; on: boolean; onPick: () => void; billBH: number; lift?: number }) {
+function AircraftRow({ g, r, on, onPick, billBH, lift = 1, offerId }: { g: GameState; r: FeasibilityReport; on: boolean; onPick: () => void; billBH: number; lift?: number; offerId: string }) {
   const ac = g.fleet[r.aircraftId];
   if (!ac) return null;
   // v0.6: the client-paid extra crew lifts the price (as on the Accept button); the extra crew's cost is already in estCost.
@@ -212,6 +212,7 @@ function AircraftRow({ g, r, on, onPick, billBH, lift = 1 }: { g: GameState; r: 
             <div key={c.id} className="sc-check">
               <Dot tone={LEVEL_TONE[c.level]} />
               <span className="grow"><span>{c.label}</span>{c.detail && <span className="small muted"> · {c.detail}</span>}</span>
+              {c.action?.kind === 'refit' && <button className="btn btn-sm" onClick={() => store.openModal({ kind: 'refit', aircraftId: r.aircraftId, layout: c.action!.layout, offerId })}>Plan refit…</button>}
             </div>
           ))}
           {r.techStops.length > 0 && <div className="small muted">Fuel stops: {r.techStops.join(', ')}</div>}
@@ -341,7 +342,7 @@ export function OfferModal({ offerId }: { offerId: string }) {
           <div className="upper dim">Choose an aircraft</div>
           {!reports.length && <div className="small muted">No aircraft in the fleet.</div>}
           {reports.map((r) => (
-            <AircraftRow key={r.aircraftId} g={g} r={r} on={sel?.aircraftId === r.aircraftId} onPick={() => setPick(r.aircraftId)} billBH={o.estBH} lift={lift} />
+            <AircraftRow key={r.aircraftId} g={g} r={r} on={sel?.aircraftId === r.aircraftId} onPick={() => setPick(r.aircraftId)} billBH={o.estBH} lift={lift} offerId={o.id} />
           ))}
         </div>
       </div>

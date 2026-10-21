@@ -18,7 +18,8 @@ export const IDLE_MIN = 12 * HOUR;
 /** Touch slop for picking (px). */
 export const TAP_SLOP = 44;
 
-export type BlockKind = 'flight' | 'pos' | 'maint' | 'idle' | 'pill' | 'sub';
+/** v0.7 'band': a delivering aircraft before its handover (grey, not tappable). */
+export type BlockKind = 'flight' | 'pos' | 'maint' | 'idle' | 'pill' | 'sub' | 'band';
 
 export interface GanttBlock {
   key: string;
@@ -47,6 +48,16 @@ export function paintLabel(g: GameState, m: MaintenanceEvent): string {
   if (m.paint?.phase === 'out') return c?.paint?.kind === 'decals' ? 'Decals off' : 'Repaint';
   const client = c ? g.clients[c.clientId]?.name : undefined;
   return client ? `Paint · ${client}` : 'Paint shop';
+}
+
+const PURPOSE_LABEL: Record<NonNullable<Flight['purpose']>, string> = { delivery: 'Delivery', return: 'Return', refit: 'Refit' };
+
+/** Maintenance block label and short label: 'C-check LIS', 'Refit → 24J/90Y · HAM', 'Lease return SNN'. */
+export function maintLabel(m: MaintenanceEvent): [string, string] {
+  if (m.kind === 'AOG') return [`AOG ${m.at}`, 'AOG'];
+  if (m.kind === 'refit') return [`Refit → ${m.refit?.cabin.label ?? 'new cabin'} · ${m.at}`, 'Refit'];
+  if (m.kind === 'return') return [`Lease return ${m.at}`, 'Return'];
+  return [`${m.kind}-check ${m.at}`, m.kind];
 }
 
 const colorOf = (g: GameState, f: Flight) => (f.contractId ? g.contracts[f.contractId]?.color ?? null : null);
@@ -84,9 +95,11 @@ export function rowBlocks(g: GameState, aircraftId: string, from: Minute, to: Mi
     if (e < from || s > to) continue;
     const empty = f.kind === 'positioning' || f.kind === 'ferry';
     const ftype = flightType(g, f);
+    // v0.7: delivery, lease-return and refit ferries say why they fly.
+    const why = f.purpose ? PURPOSE_LABEL[f.purpose] : null;
     out.push({
       key: f.id, kind: empty ? 'pos' : 'flight', start: s, end: e, color: colorOf(g, f), ftype,
-      label: `${f.no} ${f.from}-${f.to}`, short: ftype === 'ferry' ? 'FERRY' : f.to, refs: [{ kind: 'flight', id: f.id }],
+      label: why ? `${why} ${f.from}-${f.to}` : `${f.no} ${f.from}-${f.to}`, short: ftype === 'ferry' || why ? 'FERRY' : f.to, refs: [{ kind: 'flight', id: f.id }],
       crew: crewFlag(g, f, horizon), done: f.status === 'done', at: f.from,
     });
   }
@@ -101,7 +114,16 @@ export function rowBlocks(g: GameState, aircraftId: string, from: Minute, to: Mi
       out.push({ key: m.id, kind: 'maint', start: m.start, end: m.end, color: null, label: `${paintLabel(g, m)} · ${m.at}`, short: 'Paint', refs: [{ kind: 'maint', id: m.id }], done: m.status === 'done', at: m.at, paint: fill ?? '#8a96b3' });
       continue;
     }
-    out.push({ key: m.id, kind: 'maint', start: m.start, end: m.end, color: null, label: m.kind === 'AOG' ? `AOG ${m.at}` : `${m.kind}-check ${m.at}`, short: m.kind, refs: [{ kind: 'maint', id: m.id }], done: m.status === 'done', at: m.at });
+    const [label, short] = maintLabel(m);
+    out.push({ key: m.id, kind: 'maint', start: m.start, end: m.end, color: null, label, short, refs: [{ kind: 'maint', id: m.id }], done: m.status === 'done', at: m.at });
+  }
+  // v0.7: before the handover a delivering aircraft shows a grey band to the handover at its site.
+  const dac = g.fleet[aircraftId];
+  if (dac?.status === 'delivering') {
+    const site = dac.delivery?.site ?? dac.at;
+    const hand = dac.delivery?.handover ?? dac.deliveredAt;
+    busy.push([g.now, hand, site]);
+    if (hand > from && g.now < to) out.push({ key: `band-${aircraftId}`, kind: 'band', start: Math.max(g.now, from - DAY), end: hand, color: null, label: `Delivering · handover ${site} ${fmtDay(hand)}`, short: 'DLV', refs: [], at: site });
   }
   // Legs sub-chartered away from this aircraft's contracts: outlined in its row.
   for (const f of Object.values(g.flights)) {
@@ -191,7 +213,7 @@ export interface Hit {
 export function pickBlocks(blocks: GanttBlock[], t: Minute, ppm: number, slop = TAP_SLOP): Hit[] {
   const hits: Hit[] = [];
   for (const b of blocks) {
-    if (b.kind === 'idle') continue;
+    if (b.kind === 'idle' || b.kind === 'band') continue;
     const dist = t < b.start ? (b.start - t) * ppm : t > b.end ? (t - b.end) * ppm : 0;
     if (dist <= slop) hits.push({ block: b, dist, width: (b.end - b.start) * ppm });
   }

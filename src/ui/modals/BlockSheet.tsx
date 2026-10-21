@@ -14,7 +14,7 @@ import { Modal, Stepper } from '../components/ui';
 import { money } from '../format';
 import { Dot, KV } from '../screens/common';
 import { contractColor } from '../screens/palette';
-import { durLabel, paintLabel } from '../screens/scheduleLogic';
+import { durLabel, maintLabel, paintLabel } from '../screens/scheduleLogic';
 import { store, useGame } from '../store';
 
 const STATUS: Record<Flight['status'], string> = { scheduled: 'Scheduled', enroute: 'En route', done: 'Landed', cancelled: 'Cancelled' };
@@ -143,6 +143,7 @@ function MaintDetail({ g, m }: { g: GameState; m: MaintenanceEvent }) {
   if (m.kind === 'paint') return <PaintDetail g={g} m={m} />;
   const ac = g.fleet[m.aircraftId];
   const canEdit = m.status === 'planned' && (m.kind === 'A' || m.kind === 'C');
+  const refit = m.kind === 'refit' && m.status === 'planned';
   return (
     <div className="col gap-12">
       <KV rows={[
@@ -153,7 +154,10 @@ function MaintDetail({ g, m }: { g: GameState; m: MaintenanceEvent }) {
         ['Cost', money(m.cost)],
         ['Status', `${m.status === 'inWork' ? 'In work' : m.status[0].toUpperCase() + m.status.slice(1)}${m.planned ? '' : ' · unplanned'}`],
         ...(m.cause ? [['Cause', m.cause] as [string, string]] : []),
+        ...(m.refit ? [['New cabin', m.refit.cabin.label] as [string, string]] : []),
+        ...(m.leaseReturn ? [['Lease return', 'the aircraft leaves the fleet at the end'] as [string, string]] : []),
       ]} />
+      {refit && <button className="btn btn-danger" onClick={() => { const r = store.act((gg) => cancelCheck(gg, m.id)); if (r.ok) store.closeModal(); }}><Trash2 /> Cancel refit</button>}
       {canEdit && (
         <div className="row gap-8">
           <button className="btn" onClick={() => store.openModal({ kind: 'check', aircraftId: m.aircraftId, checkKind: m.kind as 'A' | 'C', replace: m.id })}><CalendarClock /> Reschedule</button>
@@ -170,7 +174,7 @@ function titleOf(g: GameState, r: Ref): string {
     return f ? `${f.no} ${f.from} → ${f.to}` : 'Flight';
   }
   const m = g.maintenance[r.id];
-  return m ? (m.kind === 'AOG' ? `AOG repair at ${m.at}` : m.kind === 'paint' ? `${paintLabel(g, m)} at ${m.at}` : `${m.kind}-check at ${m.at}`) : 'Maintenance';
+  return m ? (m.kind === 'AOG' ? `AOG repair at ${m.at}` : m.kind === 'paint' ? `${paintLabel(g, m)} at ${m.at}` : m.kind === 'refit' || m.kind === 'return' ? maintLabel(m)[0] : `${m.kind}-check at ${m.at}`) : 'Maintenance';
 }
 
 export function BlockSheet({ refs, idle }: { refs: Ref[]; idle?: { aircraftId: string; from: number; to: number; at: string } }) {

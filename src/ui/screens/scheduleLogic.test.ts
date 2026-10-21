@@ -122,3 +122,12 @@ describe('paint blocks (v0.5.1)', () => {
     expect(paintLabel(g, m)).toBe(`Paint · ${g.clients[o!.clientId].name}`);
   });
 });
+
+describe('v0.7 maintenance labels', () => {
+  it('names refits and lease returns', async () => {
+    const { maintLabel } = await import('./scheduleLogic');
+    expect(maintLabel({ kind: 'refit', at: 'HAM', refit: { cabin: { label: '24J/90Y' } } } as never)).toEqual(['Refit → 24J/90Y · HAM', 'Refit']);
+    expect(maintLabel({ kind: 'return', at: 'SNN' } as never)).toEqual(['Lease return SNN', 'Return']);
+    expect(maintLabel({ kind: 'C', at: 'LIS' } as never)).toEqual(['C-check LIS', 'C']);
+  });
+});

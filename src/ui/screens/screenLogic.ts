@@ -115,7 +115,12 @@ export function reqChips(r: Requirements): Chip[] {
   const out: Chip[] = [{ label: r.maxSeats ? `${r.minSeats}–${r.maxSeats} seats` : `${r.minSeats}+ seats`, tip: 'Seats the client needs' }];
   if (r.body === 'wide') out.push({ label: 'Widebody' });
   if (r.families?.length && r.families.length <= 2) out.push({ label: r.families.join(' / ') });
-  if (r.layout && r.layout !== 'all-economy') out.push({ label: r.layout === 'vip' ? 'VIP cabin' : r.layout.replace('-', ' ') });
+  // v0.7: accepted layouts (supersede `layout`) and premium seats.
+  const layouts = r.layouts ?? (r.layout ? [r.layout] : null);
+  if (layouts?.length === 1 && layouts[0] === 'all-economy' && r.minSeats >= 174) out.push({ label: `Max seats ${r.minSeats}+`, tone: 'warn', tip: 'All-economy, high-density cabin' });
+  else if (layouts?.length === 1 && layouts[0] === 'vip') out.push({ label: 'VIP cabin', tone: 'warn', tip: 'Needs a VIP layout (refit on the Fleet card)' });
+  else if (layouts && !layouts.includes('all-economy')) out.push({ label: layouts.length === 1 ? layouts[0].replace('-', ' ') : 'Premium cabin', tip: `Cabins: ${layouts.map((l) => (l === 'vip' ? 'VIP' : l)).join(', ')}` });
+  if (r.minPremium) out.push({ label: `Premium ${r.minPremium}+`, tip: 'Business and premium-economy seats' });
   if (r.etops) out.push({ label: `ETOPS ${r.etops}`, tone: 'warn', tip: 'Needs ETOPS approval and a capable twin' });
   if (r.minRunwayM && r.minRunwayM < 2400) out.push({ label: `Runway ${r.minRunwayM.toLocaleString('en-US')} m`, tone: 'warn', tip: 'Short runway on the programme' });
   if (r.longestSectorNm >= 3000) out.push({ label: `${r.longestSectorNm.toLocaleString('en-US')} nm`, tip: 'Longest sector' });
@@ -213,8 +218,11 @@ export function statementView(current: MonthStatement, history: MonthStatement[]
   return { months, rows };
 }
 
-export function filterMessages(list: Message[], cat: MessageCat | 'all'): Message[] {
-  return cat === 'all' ? list : list.filter((m) => m.cat === cat);
+/** v0.7: 'market' filters by topic (aircraft market alerts). */
+export type MsgFilter = MessageCat | 'all' | 'market';
+
+export function filterMessages(list: Message[], cat: MsgFilter): Message[] {
+  return cat === 'all' ? list : cat === 'market' ? list.filter((m) => m.topic === 'market') : list.filter((m) => m.cat === cat);
 }
 
 export interface DeepLink {

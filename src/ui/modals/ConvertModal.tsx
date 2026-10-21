@@ -93,7 +93,7 @@ export function ConvertModal({ crewIds, family: fam0, onBooked }: { crewIds: str
     <Modal size="wide" className="cv-modal" title={`Type conversion · ${live.length} ${live.length === 1 ? 'person' : 'people'}`} icon={<GraduationCap className="accent" />} onClose={close} footer={
       <>
         {review && risky ? <>
-          <span className="grow small bad">Book anyway?</span>
+          <span className="grow small muted">Red warnings above: check them first.</span>
           <button className="btn btn-danger" onClick={book} disabled={!plan.ok}>Book anyway</button>
           <button className="btn btn-primary" onClick={() => setReview(false)} autoFocus>Go back</button>
         </> : <>
