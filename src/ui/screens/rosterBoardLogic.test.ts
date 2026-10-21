@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { DAY } from '../../engine/core/time';
 import type { CrewMember, Role } from '../../engine/core/types';
-import type { CalBlock, DropTarget } from '../../engine/crew';
+import type { BoardRow, CalBlock, DropTarget } from '../../engine/crew';
 import {
-  blockCands, boardItems, boardLayout, dayCodes, dayWidth, dayWindow, edgeSpeed, fitText, GROUP_H, itemAt, LEFT_W, matchBoard, moraleTone, NO_BOARD_FILTER,
+  blockCands, blockKeys, boardItems, itemsSig, rowSig, boardLayout, dayCodes, dayWidth, dayWindow, edgeSpeed, fitText, GROUP_H, itemAt, LEFT_W, matchBoard, moraleTone, NO_BOARD_FILTER,
   ROW_H, verdictText, visibleRange, weekLabels, workCode,
 } from './rosterBoardLogic';
 
@@ -147,5 +147,32 @@ describe('drag verdicts', () => {
   });
   it('morale tones', () => {
     expect([moraleTone(72), moraleTone(60), moraleTone(59), moraleTone(40), moraleTone(39)]).toEqual(['good', 'good', 'warn', 'warn', 'bad']);
+  });
+});
+
+describe('board refresh (v0.7 C2)', () => {
+  const row = (blocks: CalBlock[]): BoardRow =>
+    ({ crewId: 'a', name: 'Ana Zeta', role: 'CC', base: 'LIS', families: ['A320'], morale: 70, leaves: null, status: 'active', blocks: blocks.map((b) => ({ ...b, movable: true })) } as unknown as BoardRow);
+  it('row signature: equal content, equal string; any drawn change differs', () => {
+    const a = row([blk({ flights: [fl('TP1', 'LIS', 'OPO')] })]);
+    expect(rowSig(a)).toBe(rowSig(row([blk({ flights: [fl('TP1', 'LIS', 'OPO')] })])));
+    expect(rowSig(a)).not.toBe(rowSig(row([blk({ legality: 'tight', flights: [fl('TP1', 'LIS', 'OPO')] })])));
+    expect(rowSig(a)).not.toBe(rowSig(row([blk({ flights: [fl('TP1', 'LIS', 'FAO')] })])));
+    expect(rowSig(a)).not.toBe(rowSig({ ...a, morale: 69 }));
+  });
+  it('block keys survive a block going before them and stay unique', () => {
+    const r = blk({ kind: 'rest', start: 0, end: 60, label: 'Rest' });
+    const d = blk({ kind: 'duty', start: 60, end: 120, dutyId: 'd1' });
+    const o = blk({ kind: 'off', start: 120, end: 1560, label: 'Free' });
+    const k1 = blockKeys([r, d, o]);
+    const k2 = blockKeys([d, o]);
+    expect(k2).toEqual(k1.slice(1));
+    expect(new Set(blockKeys([o, { ...o }])).size).toBe(2);
+  });
+  it('items signature follows groups and order', () => {
+    const list = [crew('a', 'CC'), crew('b', 'CPT')];
+    const x = boardItems(list, NO_BOARD_FILTER, 'LIS');
+    expect(itemsSig(x)).toBe(itemsSig(boardItems(list, NO_BOARD_FILTER, 'LIS')));
+    expect(itemsSig(x)).not.toBe(itemsSig(boardItems([list[0]], NO_BOARD_FILTER, 'LIS')));
   });
 });

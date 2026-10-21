@@ -7,7 +7,7 @@ import { cabinMinimum, isPilot } from '../core/perf';
 import { demoFlights } from '../dev';
 import { DAY } from '../core/time';
 import type { GameState } from '../core/types';
-import { feasibility } from '../contracts';
+import { acceptOffer, feasibility } from '../contracts';
 import { addAircraft, legsOffer, newGame, owned, run } from '../contracts/testkit';
 import { cancelCheck } from './maintenance';
 import { bookRefit, cabinOptions, refitQuote, refitStations } from './cabin';
@@ -83,6 +83,23 @@ describe('refits', () => {
     const f = flightsOf(g, ac.id).find((x) => x.status === 'scheduled' && x.kind === 'revenue' && x.dutyId)!;
     const p = g.pairings[g.duties[f.dutyId!].pairingId];
     expect(p.slots.filter((x) => !isPilot(x.role) && !x.above && !x.extra).length).toBe(3);
+  });
+
+  it('a refit that would shrink the cabin below signed work after it is refused and names the contract', () => {
+    const g = newGame(3);
+    const ac = owned(g);
+    const t = g.now + 50 * DAY;
+    const o = legsOffer(g, [['LIS', 'FAO', t], ['FAO', 'LIS', t + DAY]], 174);
+    o.title = 'Troop rotation to Mogadishu';
+    const s = acceptOffer(g, o.id, [ac.id]);
+    if (!s.ok) throw new Error(s.error);
+    const q = refitQuote(g, ac.id, '12J/156Y', 'LIS', g.now + 10 * DAY);
+    expect(q.ok).toBe(false);
+    expect(q.breaks).toEqual(['Troop rotation to Mogadishu needs 174+ seats (refit gives 168)']);
+    expect(q.why).toBe('Troop rotation to Mogadishu needs 174+ seats (refit gives 168)');
+    expect(bookRefit(g, ac.id, '24J/90Y', 'LIS', g.now + 10 * DAY).ok).toBe(false);
+    // After the last leg the same refit is fine.
+    expect(refitQuote(g, ac.id, '12J/156Y', 'LIS', t + 3 * DAY)).toMatchObject({ ok: true, breaks: [] });
   });
 
   it('cancelled before the start: nothing paid, the ferry removed; in work it cannot be cancelled', () => {

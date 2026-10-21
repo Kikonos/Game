@@ -22,6 +22,8 @@ export interface RefitQuote {
   ok: boolean; why: string | null; cabin: Cabin; days: number; cost: number; start: Minute; end: Minute;
   station: string; ferryIn: DeliveryLeg[]; seatsFrom: number; seatsTo: number; cabinMinFrom: number; cabinMinTo: number;
   opens: string[]; closes: string[]; reinstateAtReturn: number | null; clashes: string[];
+  /** Signed work still flying after the refit that the new cabin can't carry ("Troop rotation … needs 174+ seats (refit gives 168)"). */
+  breaks: string[];
 }
 
 const LAYOUT_NAME: Record<CabinLayout, string> = { 'all-economy': 'all-economy', 'two-class': 'two-class', 'three-class': 'three-class', vip: 'VIP' };
@@ -99,7 +101,7 @@ export function refitQuote(g: GameState, aircraftId: string, label: string, stat
   const empty: Cabin = ac?.cabin ?? { j: 0, w: 0, y: 0, total: 0, label, layout: 'all-economy' };
   const base: RefitQuote = {
     ok: false, why: null, cabin: empty, days: 0, cost: 0, start, end: start, station, ferryIn: [], seatsFrom: empty.total, seatsTo: empty.total,
-    cabinMinFrom: cabinMinimum(empty.total), cabinMinTo: cabinMinimum(empty.total), opens: [], closes: [], reinstateAtReturn: null, clashes: [],
+    cabinMinFrom: cabinMinimum(empty.total), cabinMinTo: cabinMinimum(empty.total), opens: [], closes: [], reinstateAtReturn: null, clashes: [], breaks: [],
   };
   if (!ac) return { ...base, why: 'Aircraft not found' };
   const preset = cabinOptions(ac.typeId).find((p) => p.label === label);
@@ -139,7 +141,16 @@ export function refitQuote(g: GameState, aircraftId: string, label: string, stat
   for (const c of Object.values(g.contracts)) {
     if ((c.status === 'signed' || c.status === 'active') && c.aircraftIds.includes(ac.id) && c.pattern.kind === 'base' && c.generatedUntil < c.pattern.to && c.pattern.to > busyFrom && Math.max(c.generatedUntil, c.pattern.from) < end) q.clashes.push(c.title);
   }
+  // Signed work still flying after the refit must fit the new cabin (seats, layout, premium seats).
+  for (const c of Object.values(g.contracts)) {
+    if ((c.status !== 'signed' && c.status !== 'active') || !c.aircraftIds.includes(ac.id)) continue;
+    const later = (c.pattern.kind === 'base' && c.pattern.to > end) || flightsOf(g, ac.id).some((f) => f.contractId === c.id && f.status === 'scheduled' && f.std >= end);
+    if (!later) continue;
+    const b = cabinBreak(cabin, c.requirements);
+    if (b) q.breaks.push(`${c.title} ${b}`);
+  }
   if (r.length && loc.free + turn > ferryStart) return why(`${ac.reg} can't reach ${station} by then`);
+  if (q.breaks.length) return why(q.breaks.length > 1 ? `${q.breaks[0]}; ${q.breaks.length - 1} more signed contract${q.breaks.length > 2 ? 's' : ''} won't fit` : q.breaks[0]);
   if (q.clashes.length) return why(`Clashes with ${q.clashes.length > 1 ? `${q.clashes.length} commitments` : q.clashes[0]}${q.clashes.length > 1 ? ` from ${q.clashes[0]}` : ''}: move them first`);
   return { ...q, ok: true };
 }
@@ -192,6 +203,16 @@ export const layoutsOf = (req: Pick<Requirements, 'layout' | 'layouts'>): CabinL
 export function cabinFits(c: Pick<Cabin, 'j' | 'w' | 'layout'>, req: Pick<Requirements, 'layout' | 'layouts' | 'minPremium'>): boolean {
   const ls = layoutsOf(req);
   return (!ls || ls.includes(c.layout)) && (!req.minPremium || c.j + c.w >= req.minPremium);
+}
+
+/** Why a cabin can't carry the work ("needs 174+ seats (refit gives 168)"), else null. Pure. */
+export function cabinBreak(c: Cabin, req: Pick<Requirements, 'minSeats' | 'maxSeats' | 'layout' | 'layouts' | 'minPremium'>): string | null {
+  if (c.total < req.minSeats) return `needs ${req.minSeats}+ seats (refit gives ${c.total})`;
+  if (req.maxSeats && c.total > req.maxSeats) return `wants at most ${req.maxSeats} seats (refit gives ${c.total})`;
+  const ls = layoutsOf(req);
+  if (ls && !ls.includes(c.layout)) return `needs a ${ls.map(layoutName).join(' or ')} cabin (refit gives ${c.label})`;
+  if (req.minPremium && c.j + c.w < req.minPremium) return `needs ${req.minPremium}+ premium seats (refit gives ${c.j + c.w})`;
+  return null;
 }
 
 /** The cabin flying at `t`: today's, or the one a planned or running refit fits before then (with its end). Pure. */

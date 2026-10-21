@@ -53,6 +53,7 @@
 .ls-lines { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--border); }
 .sc-opt.current { border-color: var(--info); }
 .sc-opt:disabled { opacity: 0.7; cursor: default; transform: none; }
+.sc-opt.on { border-color: var(--accent); background: rgba(62, 230, 255, 0.08); box-shadow: inset 0 0 0 1px var(--accent); }
 
 /* ---------- the Ladder (Company) ---------- */
 .ld-card { margin-bottom: 16px; }
@@ -114,7 +115,13 @@ button.ld-node { cursor: pointer; font: inherit; }
   .mk-grid, .aq-cols { grid-template-columns: minmax(0, 1fr); }
   .ld-grid { grid-template-columns: repeat(5, minmax(150px, 1fr)); overflow-x: auto; }
 }
-.rf-days { position: relative; }
+.rf-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.rf-grid .cv-day { min-width: 0; }
+.rf-blank { min-height: 56px; }
+.rf-nav .btn-icon { min-width: 44px; min-height: 44px; }
+.cv-fit { align-self: flex-start; }
+.cv-fit.on { border-color: var(--accent); color: var(--accent); }
+.ls-step-reward { margin-top: -4px; }
 
 /* ---------- schedule: delivering band (before handover) ---------- */
 .gb-band { background: rgba(148, 170, 220, 0.1); box-shadow: inset 0 0 0 1px rgba(148, 170, 220, 0.22); color: var(--text-2); font-weight: 500; top: 14px; height: 28px; border-radius: 8px; pointer-events: none; }

@@ -4,7 +4,7 @@
 import type { RatingFamily } from '../../data/acmiTypes';
 import { DAY } from '../../engine/core/time';
 import type { CrewMember, Role } from '../../engine/core/types';
-import { familyLabel, type CalBlock, type DropTarget } from '../../engine/crew';
+import { familyLabel, type BoardRow, type CalBlock, type DropTarget } from '../../engine/crew';
 import { calKey, calLayer } from './crewLogic';
 import { isPilotRole } from './screenLogic';
 
@@ -265,3 +265,28 @@ export function edgeSpeed(y: number, top: number, bottom: number, edge = 48, max
 
 /** Morale dot tone: green ≥ 60, amber 40–59, red < 40. */
 export const moraleTone = (m: number): 'good' | 'warn' | 'bad' => (m >= 60 ? 'good' : m >= 40 ? 'warn' : 'bad');
+
+/** v0.7 C2: everything a board row draws, as one string; equal strings let the board keep the old row object. */
+export function rowSig(r: BoardRow): string {
+  let s = `${r.crewId}|${r.name}|${r.role}|${r.base}|${r.morale}|${r.leaves ?? ''}|${r.status}|${r.families.join(',')}`;
+  for (const b of r.blocks) {
+    s += `#${b.kind}:${b.start}:${b.end}:${b.label}:${b.detail}:${b.dutyId ?? ''}:${b.pairingId ?? ''}:${b.legality ?? ''}:${b.locked ? 1 : 0}:${b.movable ? 1 : 0}:${b.at ?? ''}`;
+    for (const f of b.flights ?? []) s += `,${f.id}/${f.no}/${f.from}/${f.to}/${f.std}/${f.sta}/${f.type}`;
+  }
+  return s;
+}
+
+/** Keys for a row's blocks that survive blocks appearing or going before them (kind, start, duty), unique. */
+export function blockKeys(blocks: CalBlock[]): string[] {
+  const seen = new Set<string>();
+  return blocks.map((b) => {
+    const k0 = `${b.kind}|${b.start}|${b.dutyId ?? b.label}`;
+    let k = k0;
+    for (let n = 2; seen.has(k); n++) k = `${k0}#${n}`;
+    seen.add(k);
+    return k;
+  });
+}
+
+/** Board items as one string (same groups, labels and order → same string). */
+export const itemsSig = (items: BoardItem[]) => items.map((x) => (x.kind === 'group' ? `g:${x.key}:${x.label}:${x.ids.join(',')}` : `c:${x.id}`)).join(';');

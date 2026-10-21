@@ -1,9 +1,11 @@
 // v0.7 cabin refit (UPDATE-0.7.md §F7.5): layout, MRO station (nearest first, ferry block) and start day on the
 // left; what it costs, the seats and cabin-crew minimum before and after, what work it opens and closes, the
-// lessor's reinstatement at the lease return and any clash on the right. Books through bookRefit.
+// lessor's reinstatement at the lease return and any clash on the right. Books through bookRefit. v0.7 fix: start
+// days as a Monday-aligned two-week grid with arrows (8 weeks by default); with none free, the first free slot
+// up to 26 weeks out, one tap away.
 
-import { AlertTriangle, Sofa } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { AlertTriangle, ChevronLeft, ChevronRight, Sofa } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import type { CabinLayout } from '../../data/acmiTypes';
 import { flightsRev } from '../../engine/core/entities';
 import { typeOf } from '../../engine/core/perf';
@@ -16,6 +18,9 @@ import { layoutLabel } from '../screens/screenLogic';
 import { store, useGame } from '../store';
 
 const WEEKS = 8;
+/** How far the first-free-slot scan looks. */
+const SCAN_WEEKS = 26;
+const PAGE = 14;
 
 export function RefitModal({ aircraftId, layout, offerId }: { aircraftId: string; layout?: CabinLayout; offerId?: string }) {
   const g = useGame();
@@ -28,23 +33,36 @@ export function RefitModal({ aircraftId, layout, offerId }: { aircraftId: string
   const earliest = g.now + BAL.refit.leadDays * DAY - 60;
   const days = useMemo(() => {
     const out: number[] = [];
-    for (let t = dayStart(g.now) + BAL.refit.leadDays * DAY + 6 * HOUR; out.length < WEEKS * 7; t += DAY) if (t >= earliest) out.push(t);
+    for (let t = dayStart(g.now) + BAL.refit.leadDays * DAY + 6 * HOUR; out.length < SCAN_WEEKS * 7; t += DAY) if (t >= earliest) out.push(t);
     return out;
   }, [g.now, earliest]); // eslint-disable-line react-hooks/exhaustive-deps
-  const quotes = useMemo(() => new Map(days.map((t) => [t, refitQuote(g, aircraftId, label, station, t)])), [g, aircraftId, label, station, days, rev]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Quotes on demand (the visible page and the first-free scan), cached per layout / station / plan revision.
+  const quotes = useMemo(() => new Map<number, ReturnType<typeof refitQuote>>(), [g, aircraftId, label, station, days, rev]); // eslint-disable-line react-hooks/exhaustive-deps
+  const quote = (t: number) => {
+    let x = quotes.get(t);
+    if (!x) quotes.set(t, (x = refitQuote(g, aircraftId, label, station, t)));
+    return x;
+  };
+  const firstFree = useMemo(() => days.find((t) => quote(t).ok) ?? null, [quotes]); // eslint-disable-line react-hooks/exhaustive-deps
   const [picked, setDay] = useState<number | null>(null);
-  const start = picked ?? days.find((t) => quotes.get(t)?.ok) ?? days[0];
-  const strip = useRef<HTMLDivElement>(null);
-  // The chosen day (first free one by default) scrolls into the strip, without moving the page.
-  useEffect(() => {
-    const el = strip.current;
-    const on = el?.querySelector<HTMLElement>('.cv-day.on');
-    if (el && on && (on.offsetLeft < el.scrollLeft || on.offsetLeft + on.offsetWidth > el.scrollLeft + el.clientWidth)) el.scrollLeft = on.offsetLeft - 8;
-  }, [start, label, station]);
+  const start = picked ?? firstFree ?? days[0];
+  // Two-week pages from the Monday on or before the first day; the default page holds the chosen day.
+  const mon0 = days[0] - ((toDate(days[0]).getUTCDay() + 6) % 7) * DAY;
+  const pageOf = (t: number) => Math.floor((t - mon0) / (PAGE * DAY));
+  const lastPage = pageOf(days[days.length - 1]);
+  const [pg, setPg] = useState<number | null>(null);
+  const page = Math.min(lastPage, Math.max(0, pg ?? pageOf(start)));
+  const cells = Array.from({ length: PAGE }, (_, k) => mon0 + (page * PAGE + k) * DAY);
+  const inRange = (t: number) => t >= days[0] && t <= days[days.length - 1];
+  const late = firstFree === null || firstFree >= days[0] + WEEKS * 7 * DAY;
+  const pick = (t: number) => {
+    setDay(t);
+    setPg(null);
+  };
   // Opened from an offer's 'Plan refit…': back to that offer.
   const close = () => (offerId && store.game?.offers[offerId] ? store.openModal({ kind: 'offer', offerId }) : store.closeModal());
   if (!ac) return null;
-  const q = quotes.get(start) ?? refitQuote(g, aircraftId, label, station, start);
+  const q = quote(start);
   const leased = ac.ownership.kind === 'dryLeaseIn';
   const book = () => {
     if (store.act((gg) => bookRefit(gg, aircraftId, label, station, start)).ok) close();
@@ -66,7 +84,7 @@ export function RefitModal({ aircraftId, layout, offerId }: { aircraftId: string
             {presets.map((p) => {
               const cur = p.label === ac.cabin.label;
               return (
-                <button key={p.label} className={`cv-chip rf-chip ${p.label === label ? 'on' : ''} ${cur ? 'off' : ''}`} onClick={() => { setLabel(p.label); setDay(null); }} aria-pressed={p.label === label}>
+                <button key={p.label} className={`cv-chip rf-chip ${p.label === label ? 'on' : ''} ${cur ? 'off' : ''}`} onClick={() => { setLabel(p.label); setDay(null); setPg(null); }} aria-pressed={p.label === label}>
                   <b>{p.label}</b>
                   <span className="tiny dim">{cur ? 'current' : `${layoutLabel(p.layout)} · ${p.j + p.w + p.y} seats`}</span>
                 </button>
@@ -76,21 +94,29 @@ export function RefitModal({ aircraftId, layout, offerId }: { aircraftId: string
           <div className="upper dim">Station</div>
           <div className="cv-chips">
             {stations.map((s) => (
-              <button key={s.code} className={`cv-chip rf-chip ${s.code === station ? 'on' : ''}`} onClick={() => { setStation(s.code); setDay(null); }} aria-pressed={s.code === station}>
+              <button key={s.code} className={`cv-chip rf-chip ${s.code === station ? 'on' : ''}`} onClick={() => { setStation(s.code); setDay(null); setPg(null); }} aria-pressed={s.code === station}>
                 <b>{s.name.split(', ').pop()}</b>
                 <span className="tiny dim">{s.ferryBlock ? `ferry ${fmtDuration(s.ferryBlock)}` : 'here'}</span>
               </button>
             ))}
             {!stations.length && <span className="small muted">No refit station can take this aircraft.</span>}
           </div>
-          <div className="upper dim">Start</div>
-          <div className="cv-days rf-days" ref={strip} role="group" aria-label="Start day">
-            {days.map((d) => {
-              const dq = quotes.get(d);
+          <div className="row between gap-8">
+            <span className="upper dim">Start</span>
+            <span className="row gap-4 rf-nav">
+              <button className="btn btn-sm btn-icon" onClick={() => setPg(page - 1)} disabled={page <= 0} aria-label="Earlier weeks"><ChevronLeft /></button>
+              <span className="small muted nowrap">{fmtDay(Math.max(cells[0], days[0]))} – {fmtDay(Math.min(cells[PAGE - 1], days[days.length - 1]))}</span>
+              <button className="btn btn-sm btn-icon" onClick={() => setPg(page + 1)} disabled={page >= lastPage} aria-label="Later weeks"><ChevronRight /></button>
+            </span>
+          </div>
+          <div className="rf-grid" role="group" aria-label="Start day">
+            {cells.map((d) => {
+              if (!inRange(d)) return <span key={d} className="rf-blank" aria-hidden />;
+              const dq = quote(d);
               const dt = toDate(d);
               const on = d === start;
               return (
-                <button key={d} className={`cv-day ${dt.getUTCDay() === 1 ? 'mon' : ''} ${on ? 'on' : ''} ${dq?.ok ? '' : 'rf-off'}`} onClick={() => setDay(d)} aria-pressed={on} title={dq?.ok ? undefined : dq?.why ?? undefined}>
+                <button key={d} className={`cv-day ${dt.getUTCDay() === 1 ? 'mon' : ''} ${on ? 'on' : ''} ${dq.ok ? '' : 'rf-off'}`} onClick={() => pick(d)} aria-pressed={on} title={dq.ok ? undefined : dq.why ?? undefined}>
                   <span className="tiny">{dt.toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' })}</span>
                   <b>{dt.getUTCDate()}</b>
                   <span className="tiny dim">{dt.toLocaleDateString('en-GB', { month: 'short', timeZone: 'UTC' })}</span>
@@ -98,6 +124,14 @@ export function RefitModal({ aircraftId, layout, offerId }: { aircraftId: string
               );
             })}
           </div>
+          {late && (
+            <div className="row gap-8 small warn wrap">
+              {firstFree !== null ? <>
+                <span>Nothing free in the next {WEEKS} weeks. First free slot: {fmtDay(firstFree)}.</span>
+                {start !== firstFree && <button className="btn btn-sm" onClick={() => pick(firstFree)}>Go to {fmtDay(firstFree)}</button>}
+              </> : <span>No free slot in the next {SCAN_WEEKS} weeks here: move flights first or try another station.</span>}
+            </div>
+          )}
           <div className="small dim">Hangar slots open {BAL.refit.leadDays} days ahead. Greyed days clash with flights or checks.</div>
         </div>
         <div className="col gap-12 cv-right" style={{ minWidth: 0 }}>

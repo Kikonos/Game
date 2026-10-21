@@ -13,9 +13,11 @@ describe('approvals (v0.7 ladder)', () => {
   it('the ladder costs, times and prerequisites (UPDATE-0.7 §F8.1), then IOSA and DG', () => {
     const rows = APPROVALS.map((a) => [a.id, a.cost, a.days, a.requires.join('+')]);
     expect(rows).toEqual([
-      ['etops120', 250_000, 120, ''], ['widebody', 600_000, 120, ''], ['etops180', 350_000, 150, 'etops120'], ['augmented', 300_000, 90, 'widebody'],
+      ['etops120', 250_000, 120, ''], ['widebody', 300_000, 120, ''], ['etops180', 350_000, 150, 'etops120'], ['augmented', 300_000, 90, 'widebody'],
       ['etops240', 500_000, 180, 'etops180+augmented'], ['ulr', 900_000, 180, 'etops240+augmented'], ['iosa', 180_000, 240, ''], ['dg', 60_000, 60, ''],
     ]);
+    // Widebody operations: $300K at filing, $300K at the grant ($600K in all).
+    expect(APPROVALS.find((a) => a.id === 'widebody')!.grantCost).toBe(300_000);
   });
 
   it('blockers name the first failing requirement: prerequisites, held-for days, fleet, operations, crew, reliability, record, cash', () => {
@@ -75,7 +77,7 @@ describe('approvals (v0.7 ladder)', () => {
     if (fo >= 4 && pil.CPT >= 4) expect(approvalBlocker(g, 'widebody')).toBeNull();
     // …and approvalReqs lists the checklist (✓/✗ with have/need).
     const reqs = approvalReqs(g, 'widebody');
-    expect(reqs.map((r) => r.label)).toEqual(['90 days of operations', expect.stringMatching(/^4 CPT \+ 4 FO rated on .* or converting$/), 'Reliability 62', 'Clean record: 90 days', 'Cash $600K']);
+    expect(reqs.map((r) => r.label)).toEqual(['90 days of operations', expect.stringMatching(/^4 CPT \+ 4 FO rated on .* or converting$/), 'Reliability 62', 'Clean record: 90 days', 'Cash $300K']);
     expect(reqs[0]).toMatchObject({ ok: true, have: '91 days', need: '90 days' });
   });
 
@@ -87,9 +89,9 @@ describe('approvals (v0.7 ladder)', () => {
     expect(approvalBlocker(g, 'widebody')).toBeNull();
     const cash = g.company.cash;
     expect(applyApproval(g, 'widebody').ok).toBe(true);
-    expect(g.company.cash).toBe(cash - 600_000);
+    expect(g.company.cash).toBe(cash - 300_000);
     const p = g.company.pendingApprovals[0];
-    expect(p).toMatchObject({ id: 'widebody', started: g.now, done: g.now + 120 * DAY, cost: 600_000 });
+    expect(p).toMatchObject({ id: 'widebody', started: g.now, done: g.now + 120 * DAY, cost: 300_000 });
     expect(approvalBlocker(g, 'widebody')).toBe('In progress');
     expect(aircraftGate(g, 'a332')).toMatchObject({ ok: true, pending: ['widebody'], missing: [] });
     expect(aircraftGate(g, 'a332').text).toMatch(/^Widebody operations pending \(due .*\): you can sign; it flies revenue after approval$/);
@@ -129,7 +131,7 @@ describe('approvals (v0.7 ladder)', () => {
     expect(goal[0].body).toMatch(/You can now sign 767-300ERs, A330s and A340s/);
     expect(g.messages.some((m) => m.title === 'Widebody operations approved')).toBe(false);
     expect(g.goals.find((x) => x.id === 'widebodyOps')!.done).not.toBeNull();
-    // Paid once.
+    // Paid in two halves: at filing and at the grant.
     expect([g.finance.current, ...g.finance.history].reduce((s, st) => s + (st.lines.approvals ?? 0), 0)).toBe(-600_000);
   });
 

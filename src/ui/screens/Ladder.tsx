@@ -6,41 +6,57 @@ import { Award, BadgeCheck, Lock, TrendingUp } from 'lucide-react';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { typeOf } from '../../engine/core/perf';
 import { fmtDate, fmtDay } from '../../engine/core/time';
-import type { GameState } from '../../engine/core/types';
-import { ladder, RUNG0_TYPES, type LadderNode } from '../../engine/ops';
+import type { ApprovalId, GameState } from '../../engine/core/types';
+import { ladder, RUNG0_TYPES, type ApprovalReq, type LadderNode } from '../../engine/ops';
 import { Bar, Card } from '../components/ui';
 import { money } from '../format';
 import { store } from '../store';
 
 const shortOf = (ids: string[]) => ids.map((id) => typeOf(id)?.short ?? id);
 
-/** The status chip of a node. */
-export function nodeStatus(n: LadderNode): { label: string; tone: string } {
-  if (n.state === 'held') return { label: `Held since ${fmtDay(n.heldSince ?? 0)}`, tone: 'good' };
-  if (n.state === 'pending') return { label: n.pending?.waiting ? 'Waiting for crew' : `In progress · due ${fmtDay(n.pending?.done ?? 0)}`, tone: n.pending?.waiting ? 'warn' : 'info' };
-  if (n.state === 'ready') return { label: 'Ready to apply', tone: 'accent' };
-  return { label: 'Locked', tone: '' };
+/** Whether a node waits on a prerequisite approval not yet held (Locked) rather than on its own requirements (Not ready). */
+export const prereqMissing = (n: LadderNode, held: ReadonlySet<ApprovalId>) => n.requires.some((r) => !held.has(r));
+
+/** The status chip of a node. `held`: the approvals held (Locked vs Not ready). */
+export function nodeStatus(n: LadderNode, held?: ReadonlySet<ApprovalId>): { label: string; tone: string; locked: boolean } {
+  if (n.state === 'held') return { label: `Held since ${fmtDay(n.heldSince ?? 0)}`, tone: 'good', locked: false };
+  if (n.state === 'pending') return { label: n.pending?.waiting ? 'Waiting for crew' : `In progress · due ${fmtDay(n.pending?.done ?? 0)}`, tone: n.pending?.waiting ? 'warn' : 'info', locked: false };
+  if (n.state === 'ready') return { label: 'Ready to apply', tone: 'accent', locked: false };
+  if (held && !prereqMissing(n, held)) return { label: 'Not ready', tone: '', locked: false };
+  return { label: 'Locked', tone: '', locked: true };
 }
 
-/** First unmet requirement in one line ('4 CPT + 4 FO rated on B767 · 0 + 0 now'). */
+/** A requirement's label in player words: 'ETOPS 120 held 120 days' → 'Needs ETOPS 120 for 120 days'. */
+export function reqLabel(r: ApprovalReq): string {
+  const m = /^(.+) held(?: (\d+) days)?$/.exec(r.label);
+  return m ? `Needs ${m[1]}${m[2] ? ` for ${m[2]} days` : ''}` : r.label;
+}
+
+/** The filing fee: met once the application is in. */
+export const isCashReq = (r: ApprovalReq) => /^Cash /.test(r.label);
+
+/** First unmet requirement in one line ('4 CPT + 4 FO rated on B767 · 0 + 0 now'). A filed node shows only what it waits for. */
 export function firstUnmet(n: LadderNode): string | null {
   if (n.state === 'held') return null;
-  if (n.pending?.waiting) return n.pending.waiting;
+  if (n.state === 'pending') return n.pending?.waiting ?? (n.pending?.findings ? `${n.pending.findings} authority finding${n.pending.findings > 1 ? 's' : ''}: +${n.pending.findings * 30} days` : null);
   const r = n.reqs.find((x) => !x.ok);
-  if (!r) return n.state === 'pending' ? null : 'Every requirement met';
-  return r.have ? `${r.label} · ${/^[\d$]/.test(r.have) ? `${r.have} now` : r.have}` : r.label;
+  if (!r) return 'Every requirement met';
+  const label = reqLabel(r);
+  if (!r.have || r.have === 'not held') return label;
+  if (/ held \d+ days$/.test(r.label)) return `${label} · ${r.have.replace(/ days$/, '')} so far`;
+  return `${label} · ${/^[\d$]/.test(r.have) ? `${r.have} now` : r.have}`;
 }
 
-function NodeCard({ n }: { n: LadderNode }) {
-  const st = nodeStatus(n);
+function NodeCard({ n, held }: { n: LadderNode; held: ReadonlySet<ApprovalId> }) {
+  const st = nodeStatus(n, held);
   const unmet = firstUnmet(n);
   const types = shortOf(n.unlocksTypes);
   return (
     <button className={`ld-node s-${n.state}`} data-node={n.id} onClick={() => store.openModal({ kind: 'approval', id: n.id })}>
       <b className="ld-name">{n.name}</b>
-      <span className={`badge ${st.tone}`}>{n.state === 'held' ? <BadgeCheck /> : n.state === 'locked' ? <Lock /> : null}{st.label}</span>
+      <span className={`badge ${st.tone}`}>{n.state === 'held' ? <BadgeCheck /> : st.locked ? <Lock /> : null}{st.label}</span>
       {n.state === 'pending' && n.pending && <Bar value={n.pending.progress} size="thin" />}
-      {unmet && <span className={`tiny ld-req ${n.state === 'locked' ? 'muted' : ''}`}>{unmet}</span>}
+      {unmet && <span className={`tiny ld-req ${st.locked ? 'muted' : ''}`}>{unmet}</span>}
       {n.state !== 'held' && <span className="tiny dim">{money(n.cost)} · {n.days} days</span>}
       {types.length > 0 && <span className="ld-types">{types.slice(0, 4).map((t) => <span key={t} className="ld-type">{t}</span>)}</span>}
     </button>
@@ -54,6 +70,7 @@ export function LadderCard({ g }: { g: GameState }) {
   const box = useRef<HTMLDivElement>(null);
   const [edges, setEdges] = useState<Edge[]>([]);
   const nodes = rungs.flatMap((r) => r.nodes);
+  const heldIds = new Set<ApprovalId>(g.company.approvals);
   const sig = nodes.map((n) => `${n.id}:${n.state}:${firstUnmet(n)}`).join();
   useLayoutEffect(() => {
     const el = box.current;
@@ -103,7 +120,7 @@ export function LadderCard({ g }: { g: GameState }) {
                   <span className="tiny dim">Our AOC as it started</span>
                   <span className="ld-types">{shortOf(RUNG0_TYPES).slice(0, 5).map((t) => <span key={t} className="ld-type">{t}</span>)}</span>
                 </div>
-              ) : r.nodes.map((n) => <NodeCard key={n.id} n={n} />)}
+              ) : r.nodes.map((n) => <NodeCard key={n.id} n={n} held={heldIds} />)}
             </div>
           );
         })}

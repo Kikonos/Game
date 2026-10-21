@@ -33,20 +33,24 @@ const wideOf = (ac: Aircraft) => (typeOf(ac.typeId).body === 'wide' ? 1 : 0);
 const siteCity = (code: string) => LESSOR_SITES.find((s) => s.code === code)?.city ?? AIRPORT_BY_CODE[code]?.city ?? code;
 const lessorOf = (ac: Aircraft) => (ac.ownership.kind === 'dryLeaseIn' ? ac.ownership.lessor.replace(' (used sale)', '') : '');
 
-/** Rent for an extension: today's rent × the term factor × the market index. */
+const indexOf = (g: GameState, ac: Aircraft) => (typeOf(ac.typeId).body === 'wide' ? g.market.wideIndex : g.market.narrowIndex);
+
+/** Rent for an extension: today's rent × the term factor × the market's move since the rent was set. */
 function extendedRent(g: GameState, ac: Aircraft, months: 12 | 36): number {
   if (ac.ownership.kind !== 'dryLeaseIn') return 0;
-  const index = typeOf(ac.typeId).body === 'wide' ? g.market.wideIndex : g.market.narrowIndex;
-  return Math.round((ac.ownership.rentPerMonth * BAL.leaseReturn.extend[months] * index) / 1000) * 1000;
+  return Math.round((ac.ownership.rentPerMonth * BAL.leaseReturn.extend[months] * (indexOf(g, ac) / (ac.ownership.index ?? 1))) / 1000) * 1000;
 }
 
 const pct = (a: number, b: number) => `${a <= b ? '−' : '+'}${Math.abs(Math.round((1 - a / b) * 100))}%`;
 
-/** Share of the C-check interval used by the lease end (flight hours now, the calendar then). */
+/** Share of the C-check interval used at the lease end: the C-checks due before then reset it (calendar share mod 1);
+ *  with none due first, the larger of today's flight-hour share and the calendar share. In [0, 1]. */
 function usedC(g: GameState, ac: Aircraft, at: Minute): number {
   const t = typeOf(ac.typeId);
   const fhLimit = t.body === 'wide' ? BAL.cCheckFH.wide : BAL.cCheckFH.narrow;
-  return Math.max(ac.maint.fhSinceC / fhLimit, (Math.max(at, g.now) - ac.maint.lastC) / (t.cCheckMonths * MONTH));
+  const cal = (Math.max(at, g.now) - ac.maint.lastC) / (t.cCheckMonths * MONTH);
+  const frac = cal >= 1 ? cal % 1 : Math.max(ac.maint.fhSinceC / fhLimit, cal);
+  return Math.min(1, Math.max(0, frac));
 }
 
 /** The return: ferry to the return site, check, half-life, cabin back as delivered, white repaint; deposit back. Pure. */
@@ -130,6 +134,7 @@ export function chooseLease(g: GameState, aircraftId: string, choice: LeaseChoic
   const rent = extendedRent(g, ac, months);
   own.leaseEnd = Math.round(own.leaseEnd + months * MONTH);
   own.rentPerMonth = rent;
+  own.index = indexOf(g, ac);
   own.noticeGiven = false;
   schedule(g, own.leaseEnd, 'lease.end', ac.id);
   g.stats.leaseExtensions = (g.stats.leaseExtensions ?? 0) + 1;
@@ -193,7 +198,11 @@ export function dailyLeases(g: GameState): void {
 export function onReturnStart(g: GameState, m: MaintenanceEvent): void {
   if (m.kind !== 'return') return;
   const ac = g.fleet[m.aircraftId];
-  post(g, 'leaseReturn', -(ac?.returning?.quote ?? m.cost));
+  // Priced on the day the check starts (the aircraft's real condition), not the estimate at booking.
+  const amt = (ac && returnQuote(g, ac.id)?.total) ?? ac?.returning?.quote ?? m.cost;
+  if (ac?.returning) ac.returning.quote = amt;
+  m.cost = amt;
+  post(g, 'leaseReturn', -amt);
 }
 
 /** Return check end: deposit back, part-month costs settled, the aircraft leaves the fleet. */
@@ -211,6 +220,6 @@ export function onReturnEnd(g: GameState, m: MaintenanceEvent): void {
   const parts = (q?.lines ?? []).map((l) => `${l.label.replace(/^Return check$/, 'check').replace(/^Half-life compensation$/, 'half-life').replace(/^Strip and white repaint$/, 'repaint').replace(/^Cabin back to /, 'cabin back to ')} ${usd(l.amount)}`);
   pushMessage(g, {
     tone: 'info', cat: 'company', title: `${ac.reg} returned to ${lessorOf(ac)}`,
-    body: `Redelivered at ${siteCity(m.at)} after a ${Math.round((m.end - m.start) / DAY)}-day return check. Return costs ${usd(ac.returning?.quote ?? m.cost)}${parts.length ? ` (${parts.join(', ')})` : ''}.${own.deposit ? ` Deposit ${usd(own.deposit)} refunded.` : ''} The ferry crew deadheads home.`,
+    body: `Redelivered at ${siteCity(m.at)} after a ${Math.round((m.end - m.start) / DAY)}-day return check. Return costs ${usd(ac.returning?.quote ?? m.cost)}${parts.length ? ` (${parts.join(', ')})` : ''}.${own.deposit ? ` Deposit ${usd(own.deposit)} refunded.` : ''}${ac.returning?.ferryIds.length ? ' The ferry crew deadheads home.' : ''}`,
   });
 }

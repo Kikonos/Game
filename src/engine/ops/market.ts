@@ -88,7 +88,7 @@ export function returnSiteOf(o: Pick<AircraftOffer, 'id' | 'typeId' | 'site'>): 
 }
 
 /** One offer of type t (`opts.lease` forces a dry lease: the guaranteed offers). */
-function makeOffer(g: GameState, t: AcmiType, opts: { lease?: boolean; kind?: 'dryLeaseIn' | 'buy'; newBuild?: boolean; site?: string } = {}): AircraftOffer {
+function makeOffer(g: GameState, t: AcmiType, opts: { lease?: boolean; kind?: 'dryLeaseIn' | 'buy'; newBuild?: boolean; site?: string; depositMonths?: number; handoverAt?: number } = {}): AircraftOffer {
   const M = BAL.market7;
   const id = nextId(g, 'mo');
   const r = side(g, id);
@@ -100,7 +100,7 @@ function makeOffer(g: GameState, t: AcmiType, opts: { lease?: boolean; kind?: 'd
   let o: AircraftOffer;
   if (newBuild) {
     const lead = int(r, M.newBuildLead[0], M.newBuildLead[1]);
-    const rent = Math.round((t.rentMonth * range(r, M.newBuildRent[0], M.newBuildRent[1]) * index) / 1000) * 1000;
+    const rent = Math.round(((t.rentNew ?? t.rentMonth) * range(r, M.newBuildRent[0], M.newBuildRent[1]) * index) / 1000) * 1000;
     const site = pick(r, FACTORIES[t.family]!.sites);
     o = {
       id, typeId: t.id, kind: 'dryLeaseIn', lessor: pick(r, LESSORS), builtYear: yearOf(g.now + lead * DAY), cabin: cabinOf(t), rentPerMonth: rent,
@@ -108,9 +108,14 @@ function makeOffer(g: GameState, t: AcmiType, opts: { lease?: boolean; kind?: 'd
       deposit: M.newBuildDepositMonths * rent, leadDays: lead, expires: 0, site: site.code, where: siteText(site), newBuild: true,
     };
   } else {
-    const built = old ? int(r, 1996, 2008) : t.tier <= 1 ? int(r, 2005, 2017) : int(r, now - 16, now - 6);
+    // Within the type's production years (no A321neo before 2017, no 757 after 2004).
+    const [lo, hi] = old ? [1996, 2008] : t.tier <= 1 ? [2005, 2017] : [now - 16, now - 6];
+    const from = Math.max(lo, t.firstYear ?? lo);
+    const to = Math.min(hi, t.lastYear ?? hi, now - 1);
+    const built = from <= to ? int(r, from, to) : int(r, Math.min(t.firstYear ?? lo, now - 1), Math.min(t.lastYear ?? now - 1, now - 1));
     const age = now - built;
-    const ageAdj = clamp(1 - (age - 12) * 0.015, 0.75, 1.15);
+    // Steeper past 18 years (lessors price old jets down fast).
+    const ageAdj = clamp(1 - (age - 12) * 0.02 - Math.max(0, age - 18) * 0.04, 0.55, 1.15);
     const canBuy = t.body === 'narrow' || old;
     const buy = opts.kind ? opts.kind === 'buy' && canBuy : !opts.lease && canBuy && chance(r, 0.3);
     const rent = Math.round((t.rentMonth * range(r, 0.9, 1.15) * index * ageAdj) / 1000) * 1000;
@@ -118,7 +123,7 @@ function makeOffer(g: GameState, t: AcmiType, opts: { lease?: boolean; kind?: 'd
     o = {
       id, typeId: t.id, kind: buy ? 'buy' : 'dryLeaseIn', lessor: buy ? `${pick(r, LESSORS)} (used sale)` : pick(r, LESSORS),
       builtYear: built, cabin: cabinOf(t), rentPerMonth: buy ? 0 : rent, reservesPerFH: buy ? 0 : Math.round((t.maintBH * range(r, 0.38, 0.46)) / 10) * 10,
-      leaseMonths: buy ? 0 : int(r, BAL.leaseMonths[0] / 6, BAL.leaseMonths[1] / 6) * 6, price, deposit: buy ? price : 2 * rent,
+      leaseMonths: buy ? 0 : int(r, BAL.leaseMonths[0] / 6, BAL.leaseMonths[1] / 6) * 6, price, deposit: buy ? price : (opts.depositMonths ?? 2) * rent,
       leadDays: t.body === 'wide' ? int(r, BAL.deliveryDaysWide[0], BAL.deliveryDaysWide[1]) : int(r, BAL.deliveryDays[0], BAL.deliveryDays[1]), expires: 0,
     };
     // Handover: a lessor site half the time, else the previous operator's hub.
@@ -135,9 +140,16 @@ function makeOffer(g: GameState, t: AcmiType, opts: { lease?: boolean; kind?: 'd
     }
   }
   if (opts.site && AIRPORT_BY_CODE[opts.site] && opts.site !== o.site) {
+    // Another site: the ex-operator only when it is that operator's hub.
+    const x = (EX_OPERATORS[t.id] ?? []).find((e) => e.hub === opts.site);
     o.site = opts.site;
-    o.where = `${o.exOperator ? `ex-${o.exOperator}, ` : ''}${AIRPORT_BY_CODE[opts.site].city} (${opts.site})`;
+    if (x) o.exOperator = x.airline;
+    else delete o.exOperator;
+    const s = LESSOR_SITES.find((l) => l.code === opts.site);
+    o.where = s ? siteText(s) : `${o.exOperator ? `ex-${o.exOperator}, ` : ''}${AIRPORT_BY_CODE[opts.site].city} (${opts.site})`;
   }
+  if (opts.handoverAt !== undefined) o.leadDays = Math.max(BAL.deliveryDays[0], Math.round((opts.handoverAt - g.now) / DAY));
+  o.index = index;
   o.expires = g.now + int(r, M.offerDays[0], M.offerDays[1]) * DAY;
   o.created = g.now;
   return o;
@@ -156,7 +168,7 @@ function postOffer(g: GameState, o: AircraftOffer): void {
   const weeks = Math.round(o.leadDays / 7);
   const lead = o.leadDays < 14 ? `${o.leadDays} days` : o.leadDays < 120 ? `about ${weeks} weeks` : `about ${Math.round(o.leadDays / 30.44)} months`;
   const terms = o.kind === 'buy' ? `Price ${usd(o.price)}` : `${usd(o.rentPerMonth)}/month for ${o.leaseMonths} months, deposit ${usd(o.deposit)}`;
-  const city = o.site ? AIRPORT_BY_CODE[o.site]?.city ?? o.site : 'base';
+  const city = o.site ? siteCity(o.site) : 'base';
   const who = o.newBuild
     ? `${o.lessor} offers a new-build ${shortName(t)} slot (delivery ${yearOf(g.now + o.leadDays * DAY)}, ${o.cabin.label})`
     : `${o.lessor.replace(' (used sale)', '')} offers ${o.exOperator ? `an ex-${o.exOperator}` : /^[AEIOU8]/.test(shortName(t)) ? 'an' : 'a'} ${shortName(t)} (${o.builtYear}, ${o.cabin.label})`;
@@ -210,7 +222,8 @@ export function dailyMarket(g: GameState): void {
     if (days >= M.wideAfterFilingDays) m.gotWideFiled = true;
     else if (!open && (days >= M.wideAfterFilingDays - 1 || chance(r, 1 / 20))) {
       m.gotWideFiled = true;
-      postOffer(g, makeOffer(g, typeOf(chance(r, 0.5) ? 'b763' : 'a332'), { lease: true }));
+      // A lessor keen to place an old widebody: one month's deposit, handed over around the approval's due date.
+      postOffer(g, makeOffer(g, typeOf(chance(r, 0.5) ? 'b763' : 'a332'), { lease: true, depositMonths: 1, handoverAt: filed.done + int(r, -15, 15) * DAY }));
     }
   }
 }
@@ -252,7 +265,7 @@ export function acquireAircraft(g: GameState, offerId: string): ActionResult<{ a
       ? { kind: 'owned', bookValue: o.price, ...(o.newBuild ? { newBuild: true } : {}) }
       : {
           kind: 'dryLeaseIn', lessor: o.lessor, rentPerMonth: o.rentPerMonth, reservesPerFH: o.reservesPerFH, leaseStart: handover, leaseEnd: handover + Math.round(o.leaseMonths * MONTH), deposit: o.deposit,
-          returnSite: returnSiteOf(o), deliveredLayout: o.cabin.layout, ...(o.newBuild ? { newBuild: true } : {}),
+          returnSite: returnSiteOf(o), deliveredLayout: o.cabin.layout, index: o.index ?? (t.body === 'wide' ? g.market.wideIndex : g.market.narrowIndex), ...(o.newBuild ? { newBuild: true } : {}),
         },
     builtYear: o.builtYear, hours, cycles: Math.round(hours / (t.body === 'wide' ? 4.5 : 1.7)),
     // Delivered fresh from a redelivery check (new-build: zero time).
@@ -270,7 +283,7 @@ export function acquireAircraft(g: GameState, offerId: string): ActionResult<{ a
   touchFlights(g);
   const rated = ratedPilots(g, [t.family]);
   const fam = familyLabel(t.family);
-  const city = AIRPORT_BY_CODE[site]?.city ?? site;
+  const city = siteCity(site);
   const ferry = legs.length
     ? ` Handover at ${city}${o.exOperator ? ` (ex-${o.exOperator})` : ''} on ${fmtDay(handover)}; ferry home ${fmtDay(legs[0].std)}${fmtDay(legs[legs.length - 1].sta) !== fmtDay(legs[0].std) ? `–${fmtDay(legs[legs.length - 1].sta)}` : ''}${legs.length > 1 ? ` via ${legs.slice(0, -1).map((l) => AIRPORT_BY_CODE[l.to]?.city ?? l.to).join(', ')}` : ''}. Our pilots deadhead out on airline flights before that.`
     : ` Handover at ${city} on ${fmtDay(handover)}.`;
@@ -280,7 +293,7 @@ export function acquireAircraft(g: GameState, offerId: string): ActionResult<{ a
     body: `${o.kind === 'buy' ? `Bought for ${usd(o.price)}` : `Leased from ${o.lessor} at ${usd(o.rentPerMonth)}/month for ${o.leaseMonths} months`}.${ferry}${crew}`,
     ref: { kind: 'aircraft', id: ac.id },
   });
-  return { ok: true, msg: `${ac.reg} handed over ${fmtDay(handover)} at ${city}`, data: { aircraftId: ac.id } };
+  return { ok: true, msg: `${ac.reg} signed · handover at ${city} ${fmtDay(handover)}`, data: { aircraftId: ac.id } };
 }
 
 /** 'aircraft.delivery': on the AOC at the handover site (v0.6 deliveries without a site: at home base). */

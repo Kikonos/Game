@@ -2,13 +2,14 @@
 // skipped with a reason; cabin crew at 3 types choose the rating they give up) on the left; the classes the
 // engine forms (max 20, pilots and cabin apart, staggered), cost and fleet-short warnings on the right.
 
-import { AlertTriangle, GraduationCap, X } from 'lucide-react';
+import { AlertTriangle, Check, GraduationCap, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { ACMI_TYPES_LIST, type RatingFamily } from '../../data/acmiTypes';
 import { typeOf } from '../../engine/core/perf';
 import { DAY, toDate, toLocal } from '../../engine/core/time';
 import type { GameState } from '../../engine/core/types';
 import { ccqPartner, conversionEarliest, conversionPlan, courseOf, crewName, familyLabel, startConversion } from '../../engine/crew';
+import { approvalReqs, ratedPilots } from '../../engine/ops';
 import { Modal } from '../components/ui';
 import { money } from '../format';
 import { baseDay, isPilotRole, needsConfirm } from '../screens/screenLogic';
@@ -68,6 +69,30 @@ export function ConvertModal({ crewIds, family: fam0, onBooked }: { crewIds: str
   const label = familyLabel(family);
   const pc = courseOf('pilot', 'full', family);
   const cc = courseOf('cabin', 'full', family);
+  const nSkip = picked ? live.filter((id) => skipped.has(id)).length : 0;
+  // v0.7: a widebody target before Widebody operations is held: the 4 + 4 the filing needs after this booking,
+  // and a start that ends the course near the first such aircraft's handover (converted pilots fly only it).
+  const wide = ACMI_TYPES_LIST.some((t) => t.family === family && t.body === 'wide');
+  const wbNeed = useMemo(() => {
+    if (!wide || g.company.approvals.includes('widebody')) return null;
+    const m = /^(\d+) \+ (\d+)$/.exec(approvalReqs(g, 'widebody').find((r) => / rated on /.test(r.label))?.need ?? '');
+    return m ? { CPT: Number(m[1]), FO: Number(m[2]) } : null;
+  }, [g, wide, g.now]); // eslint-disable-line react-hooks/exhaustive-deps
+  let wbLine: { ok: boolean; text: string } | null = null;
+  if (wbNeed && picked) {
+    const r = ratedPilots(g, [family], { booked: true });
+    const add = { CPT: 0, FO: 0 };
+    for (const k of plan.classes) if (k.group === 'pilot') for (const id of k.crewIds) { const role = g.crew[id]?.role; if (role === 'CPT' || role === 'FO') add[role]++; }
+    const cpt = r.CPT + add.CPT;
+    const fo = r.FO + add.FO;
+    const ok = cpt >= wbNeed.CPT && fo >= wbNeed.FO;
+    wbLine = { ok, text: `Widebody operations needs ${wbNeed.CPT} + ${wbNeed.FO} ${label} pilots: after this booking ${cpt} + ${fo}${ok ? '' : ` (${Math.max(0, wbNeed.CPT - cpt)} CPT + ${Math.max(0, wbNeed.FO - fo)} FO short)`}.` };
+  }
+  const arriving = Object.values(g.fleet)
+    .filter((a) => a.status === 'delivering' && typeOf(a.typeId).family === family)
+    .map((a) => ({ reg: a.reg, at: a.delivery?.arrived ?? a.delivery?.handover ?? a.deliveredAt }))
+    .sort((a, b) => a.at - b.at)[0];
+  const fitDay = arriving ? earliest + Math.min(CHIP_DAYS - 1, Math.max(0, Math.round((arriving.at - pc.days * DAY - earliest) / DAY))) * DAY : null;
 
   const person = (id: string) => {
     const c = g.crew[id];
@@ -90,7 +115,7 @@ export function ConvertModal({ crewIds, family: fam0, onBooked }: { crewIds: str
   };
 
   return (
-    <Modal size="wide" className="cv-modal" title={`Type conversion · ${live.length} ${live.length === 1 ? 'person' : 'people'}`} icon={<GraduationCap className="accent" />} onClose={close} footer={
+    <Modal size="wide" className="cv-modal" title={`Type conversion · ${nSkip ? `${live.length - nSkip} of ` : ''}${live.length} ${live.length === 1 ? 'person' : 'people'}`} icon={<GraduationCap className="accent" />} onClose={close} footer={
       <>
         {review && risky ? <>
           <span className="grow small muted">Red warnings above: check them first.</span>
@@ -98,7 +123,7 @@ export function ConvertModal({ crewIds, family: fam0, onBooked }: { crewIds: str
           <button className="btn btn-primary" onClick={() => setReview(false)} autoFocus>Go back</button>
         </> : <>
           <button className="btn" onClick={close}>Cancel</button>
-          <span className="grow small muted">{picked && plan.classes.length ? `${plan.classes.length} class${plan.classes.length === 1 ? '' : 'es'} · ${bd(t0)} – ${bd(t1 - 1)}` : ''}</span>
+          <span className="grow small muted">{picked && plan.classes.length ? `${live.length - nSkip} of ${live.length} booked${nSkip ? ` · ${nSkip} skipped` : ''} · ${plan.classes.length} class${plan.classes.length === 1 ? '' : 'es'} · ${bd(t0)} – ${bd(t1 - 1)}` : ''}</span>
           <button className="btn btn-primary" onClick={risky ? () => setReview(true) : book} disabled={!picked || !plan.ok}><GraduationCap /> {!picked ? 'Pick a type' : risky ? `Review & book · ${money(plan.cost)}` : `Book conversion · ${money(plan.cost)}`}</button>
         </>}
       </>
@@ -136,6 +161,11 @@ export function ConvertModal({ crewIds, family: fam0, onBooked }: { crewIds: str
               );
             })}
           </div>
+          {arriving && fitDay !== null && (
+            <button className={`btn btn-sm cv-fit ${Math.abs(fitDay - start) < DAY / 2 ? 'on' : ''}`} onClick={() => setStart(fitDay)}>
+              End near {arriving.reg}’s arrival · {bd(arriving.at)}
+            </button>
+          )}
           <div className="small dim">Pilots {pc.days} days (ground school, simulator, base and line training) · cabin crew {cc.days} days. Classes of up to 20; pilot classes start 14 days apart, two cabin classes at a time.</div>
           {pilots.length > 0 && <div className="upper dim">Pilots ({pilots.length})</div>}
           {pilots.length > 0 && <div className="cv-people">{pilots.map(person)}</div>}
@@ -170,6 +200,7 @@ export function ConvertModal({ crewIds, family: fam0, onBooked }: { crewIds: str
             <div className="row between"><b>Total</b><b className="num">{money(plan.cost)}</b></div>
             <div className="tiny dim">Charged once at booking. Full refund up to 14 days before a class, half after, none once it runs.</div>
           </div>
+          {wbLine && <div className={`small row gap-8 cv-warn ${wbLine.ok ? 'good' : 'warn'}`}>{wbLine.ok ? <Check className="sc-ico-s" /> : <AlertTriangle className="sc-ico-s" />}<span>{wbLine.text} Booked conversions count for filing; time the class to end near the first {label}’s arrival.</span></div>}
           {plan.warnings.length > 0 && (
             <div className="col gap-4">
               {plan.warnings.map((w, i) => (

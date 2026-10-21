@@ -165,6 +165,7 @@ export type Ownership =
       kind: 'dryLeaseIn'; lessor: string; rentPerMonth: number; reservesPerFH: number; leaseStart: Minute; leaseEnd: Minute; /** B3: refundable deposit paid at signing. */ deposit?: number;
       /** v0.7: redelivery airport (load ??= homeBase); cabin at delivery (load ??= current); new-build; 120-day notice given. */
       returnSite?: string; deliveredLayout?: CabinLayout; newBuild?: boolean; noticeGiven?: boolean;
+      /** v0.7: the market index the rent was set at (absent = 1); extensions move rent by the index since. */ index?: number;
     };
 
 /** v0.7: handover abroad and the delivery ferry home. */
@@ -917,6 +918,8 @@ export interface AircraftOffer {
   exOperator?: string;
   newBuild?: boolean;
   created?: Minute;
+  /** v0.7: the market index the rent was priced at (absent = 1). */
+  index?: number;
 }
 
 export interface Market {

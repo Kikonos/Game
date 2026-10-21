@@ -11,6 +11,7 @@ import { APPROVALS, applyApproval, approvalBlocker, approvalReqs, ladder } from 
 import { AircraftArt } from '../components/AircraftArt';
 import { Bar, Modal } from '../components/ui';
 import { money } from '../format';
+import { isCashReq, reqLabel } from '../screens/Ladder';
 import { store, useGame } from '../store';
 
 export function ApprovalModal({ id }: { id: ApprovalId }) {
@@ -22,7 +23,8 @@ export function ApprovalModal({ id }: { id: ApprovalId }) {
   const co = g.company;
   const held = co.approvals.includes(id);
   const p = co.pendingApprovals.find((x) => x.id === id);
-  const reqs = approvalReqs(g, id);
+  // Filed: the fee is paid, so the cash line goes.
+  const reqs = approvalReqs(g, id).filter((r) => !(p && isCashReq(r)));
   const blocker = held || p ? null : approvalBlocker(g, id);
   const lv = co.livery;
   const doApply = () => {
@@ -62,11 +64,12 @@ export function ApprovalModal({ id }: { id: ApprovalId }) {
             {reqs.map((r) => (
               <div key={r.label} className={`ap-req ${r.ok ? 'ok' : 'no'}`}>
                 {r.ok ? <Check className="sc-ico-s good" /> : <X className="sc-ico-s bad" />}
-                <span className="grow small">{r.label}</span>
+                <span className="grow small">{reqLabel(r)}</span>
                 {(r.have || r.need) && <span className="small num nowrap">{r.have ?? ''}{r.need && r.have !== r.need ? <span className="dim"> / {r.need}</span> : null}</span>}
               </div>
             ))}
           </div>
+          {id === 'widebody' && <div className="small muted mt-8">Booked conversions count for filing; the grant needs them finished. Time the class to end near your first widebody’s handover: converted pilots fly only the new type.</div>}
           <div className="small muted mt-8">{money(def.cost)} filing fee · about {def.days} days. Granted only with pilots actually rated and a clean record; a crew legality incident while pending adds 30 days.</div>
         </>
       )}

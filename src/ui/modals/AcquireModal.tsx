@@ -36,6 +36,9 @@ export function AcquireModal({ offerId }: { offerId: string }) {
   const lease = o.kind === 'dryLeaseIn';
   const now = lease ? o.deposit : o.price;
   const after = g.company.cash - now;
+  // The engine refuses below the deposit (a buy's deposit is the price).
+  const short = g.company.cash < o.deposit;
+  const blocker = !v.gate.ok ? 'Approval needed first' : short ? `Needs ${money(o.deposit)} · ${money(g.company.cash)} cash` : null;
   const sign = () => {
     const res = store.act((gg) => acquireAircraft(gg, o.id));
     if (!res.ok) return;
@@ -49,21 +52,34 @@ export function AcquireModal({ offerId }: { offerId: string }) {
   else if (after < 500_000) warns.push({ tone: 'warn', text: `Leaves ${money(after)} in cash after signing.` });
   const site = city(q.site);
   const label = lease ? `${o.newBuild ? 'Sign new-build lease' : 'Sign lease'} · ${money(o.deposit)} deposit` : `Buy · ${money(o.price)}`;
-  const steps: { k: string; title: string; sub?: string; tone?: string }[] = [
-    { k: 'sign', title: `Sign today, ${fmtDay(g.now)}`, sub: lease ? `Deposit ${money(o.deposit)} now` : `${money(o.price)} now` },
+  // In time order (the pilots arrive after the handover, for the ferry); the airline itinerary is an estimate.
+  const steps: { k: string; t: number; title: string; sub?: string; tone?: string }[] = [
+    { k: 'sign', t: g.now, title: `Sign today, ${fmtDay(g.now)}`, sub: lease ? `Deposit ${money(o.deposit)} now` : `${money(o.price)} now` },
   ];
-  if (q.deadhead.length) steps.push({ k: 'dh', title: 'Pilots fly out on airlines', sub: q.deadhead.map((l) => `${l.no} ${l.from}–${l.to} ${fmtDay(l.dep)} ${fmtTime(l.dep, l.from)}`).join(' · ') });
-  steps.push({ k: 'hand', title: `Handover at ${site} · ${dayIn(g.now, q.handover)}`, sub: q.legs.length ? 'Acceptance: inspection, records and a test flight (36 h)' : 'At our base: no ferry' });
+  const dh = q.deadhead;
+  if (dh.length) steps.push({
+    k: 'dh', t: dh[0].dep, title: `Pilots fly out on airlines · ${dayIn(g.now, dh[0].dep)}`,
+    sub: `e.g. ${dh.map((l) => `${l.no} ${l.from}–${l.to} ${fmtDay(l.dep)} ${fmtTime(l.dep, l.from)}`).join(' · ')} (booked nearer the date)`,
+  });
+  steps.push({
+    k: 'hand', t: q.handover, title: `Handover at ${site} · ${dayIn(g.now, q.handover)}`,
+    sub: q.legs.length ? `${lease ? 'Lessor' : 'Seller'} acceptance: inspection, records and test flight (36 h)` : 'At our base: no ferry',
+  });
   q.legs.forEach((l, i) => steps.push({
-    k: `leg${i}`, title: `Ferry ${l.from}–${l.to} · ${dayIn(g.now, l.std)} ${fmtTime(l.std, l.from)} local`, sub: `${fmtDuration(l.block)} block${l.nightStopAfter ? ` · night stop at ${city(l.to)}` : ''}`,
+    k: `leg${i}`, t: l.std, title: `Ferry ${l.from}–${l.to} · ${dayIn(g.now, l.std)} ${fmtTime(l.std, l.from)} local`, sub: `${fmtDuration(l.block)} block${l.nightStopAfter ? ` · night stop at ${city(l.to)}` : ''}`,
   }));
-  if (q.legs.length) steps.push({ k: 'home', title: `Home at ${city(g.company.homeBase)} · ~${dayIn(g.now, q.homeBy)}`, tone: 'good' });
+  if (q.legs.length) steps.push({ k: 'home', t: q.homeBy, title: `Home at ${city(g.company.homeBase)} · ~${dayIn(g.now, q.homeBy)}`, tone: 'good' });
+  steps.sort((a, b) => a.t - b.t);
+  const name = typeName(o.typeId);
+  // 'an A330', 'an 8…', 'an 11…/18…'; 'a 737'.
+  const article = o.newBuild ? 'a new-build ' : /^(A|E|8|1[18]\d\d(?!\d))/.test(name) ? 'an ' : 'a ';
   const kind = offerKind(o);
   return (
-    <Modal className="aq-modal" title={`${lease ? 'Lease' : 'Buy'} ${o.newBuild ? 'a new-build ' : 'an '}${typeName(o.typeId)}`} icon={<ShoppingCart className="accent" />} onClose={close} footer={
+    <Modal className="aq-modal" title={`${lease ? 'Lease' : 'Buy'} ${article}${name}`} icon={<ShoppingCart className="accent" />} onClose={close} footer={
       <>
+        {blocker && <span className="grow small warn">{blocker}</span>}
         <button className="btn" onClick={close}>Cancel</button>
-        <button className="btn btn-primary" onClick={sign} disabled={!v.gate.ok}><ShoppingCart /> {label}</button>
+        <button className="btn btn-primary" onClick={sign} disabled={!!blocker}><ShoppingCart /> {label}</button>
       </>
     }>
       <div className="aq-top">

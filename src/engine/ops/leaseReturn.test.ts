@@ -79,6 +79,34 @@ describe('return quote', () => {
   });
 });
 
+describe('return quote over a long lease', () => {
+  it('a 54-month A320 lease: the C-checks during the lease reset the half-life share, so the return lands in $0.3–1.2M', () => {
+    const { g, ac } = ending(4, Math.round(54 * 30.44));
+    ac.maint.lastC = g.now - 150 * DAY;
+    ac.maint.fhSinceC = 1_200;
+    const q = returnQuote(g, ac.id)!;
+    expect(q.total).toBeGreaterThanOrEqual(300_000);
+    expect(q.total).toBeLessThanOrEqual(1_200_000);
+    // Lease end just before the second C-check is due: close to a full interval used, never above it.
+    const own = ac.ownership as Extract<Aircraft['ownership'], { kind: 'dryLeaseIn' }>;
+    own.leaseEnd = ac.maint.lastC + 2 * 24 * MONTH - 10 * DAY;
+    const half = returnQuote(g, ac.id)!.lines.find((l) => l.label === 'Half-life compensation')!.amount;
+    expect(half).toBeGreaterThan(0);
+    expect(half).toBeLessThanOrEqual(0.5 * BAL.checkCost.C[0] * 0.5);
+  });
+
+  it('extensions move the rent by the market index since signing, not by the index again', () => {
+    const { g, ac } = ending(4, 100);
+    const own = ac.ownership as Extract<Aircraft['ownership'], { kind: 'dryLeaseIn' }>;
+    own.index = 1.15;
+    g.market.narrowIndex = 1.15;
+    const rent0 = own.rentPerMonth;
+    expect(leaseView(g, ac.id)!.options[0].rent).toBe(Math.round((rent0 * 0.97) / 1000) * 1000);
+    expect(chooseLease(g, ac.id, 'extend12').ok).toBe(true);
+    expect(own.index).toBe(1.15);
+  });
+});
+
 describe('returning the aircraft', () => {
   it('books a ferry and a check ending at the lease end; costs at the start; deposit back and the aircraft gone at the end', () => {
     const { g, ac } = ending(5, 40);

@@ -19,6 +19,10 @@ export function LadderStepModal({ messageId }: { messageId: string }) {
   const acType = m.ref?.kind === 'aircraft' ? g.fleet[m.ref.id]?.typeId : undefined;
   const types = (def?.ladder?.types?.length ? def.ladder.types : acType ? [acType] : []).slice(0, 3);
   const co = g.company;
+  // The body ends '… (B763 · A332) Reliability +1.': the art names the types; the reward gets its own line.
+  const bm = /^([\s\S]*?)\s*(?:\(([^()]*)\))?\s*(Reliability [+−-]\d+)\.?$/.exec(m.body);
+  const body = bm ? bm[1] : m.body;
+  const reward = bm?.[3];
   const see = () => {
     store.update((gg) => {
       const x = gg.messages.find((y) => y.id === messageId);
@@ -43,7 +47,8 @@ export function LadderStepModal({ messageId }: { messageId: string }) {
           ))}
         </div>
       )}
-      <p className="muted">{m.body}</p>
+      <p className="muted">{body}</p>
+      {reward && <div className="tiny dim ls-step-reward">Reward: {reward}</div>}
     </Modal>
   );
 }

@@ -6,10 +6,10 @@
 import { AIRPORT_BY_CODE, AIRPORTS } from '../../data/airports';
 import { BAL } from '../core/balance';
 import { addFlight, ownFlightNo, retimeFlight } from '../core/entities';
-import { distanceNm } from '../core/geo';
+import { distanceNm, interpolateGC } from '../core/geo';
 import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
-import { blockMinutes, isPilot, maxSectorNm, runwayFit, typeOf } from '../core/perf';
+import { blockMinutes, etopsNeeded, isPilot, maxSectorNm, runwayFit, typeOf } from '../core/perf';
 import { DAY, dayStart, fmtDate, fmtDay, fmtDuration, fmtTime, toLocal } from '../core/time';
 import type { Aircraft, Flight, GameState, Minute } from '../core/types';
 import { localToUTC, route } from '../contracts/plan';
@@ -40,26 +40,56 @@ const cityOf = (code: string) => AIRPORT_BY_CODE[code]?.city ?? code;
 export type Hop = { from: string; to: string; block: number };
 const routes = new Map<string, Hop[] | null>();
 
+/** No fuel stop in sanctioned or war-zone states (lessors' and export rules). */
+const NO_STOP = new Set(['IR', 'AF', 'LY', 'SD', 'YE', 'SY', 'KP', 'RU', 'BY', 'UA']);
+/** Airspace closed to European operators: Russia, Belarus, Ukraine (lat/lon boxes, Baltic states and Finland left out). */
+const CLOSED: [number, number, number, number][] = [
+  [51.2, 53.9, 23.5, 32.8], [53.9, 55.0, 26.5, 32.8], [55.0, 56.2, 27.5, 32.8], [54.3, 55.3, 19.6, 22.9],
+  [45.3, 52.4, 30.0, 40.2], [48.3, 52.4, 24.2, 30.0],
+  [50.0, 70.0, 32.0, 60.0], [55.5, 61.0, 28.3, 32.0], [43.3, 50.0, 37.0, 48.0],
+  [55.0, 78.0, 60.0, 180.0], [51.5, 55.0, 82.0, 120.0], [53.3, 55.0, 120.0, 130.0], [48.0, 55.0, 130.0, 180.0], [42.6, 48.0, 131.0, 139.0], [45.9, 48.0, 141.6, 145.0],
+];
+const closedAt = (lat: number, lon: number) => CLOSED.some(([a, b, c, d]) => lat >= a && lat <= b && lon >= c && lon <= d);
+
+/** The great circle a → b enters closed airspace (sampled every 50 nm). Pure. */
+export function closedSector(a: string, b: string): boolean {
+  const p = AIRPORT_BY_CODE[a];
+  const q = AIRPORT_BY_CODE[b];
+  if (!p || !q || Math.max(p.lon, q.lon) < 19.6) return false;
+  const n = Math.max(2, Math.ceil(distanceNm(a, b) / 50));
+  for (let i = 0; i <= n; i++) {
+    const [lon, lat] = interpolateGC(p.lon, p.lat, q.lon, q.lat, i / n);
+    if (closedAt(lat, lon)) return true;
+  }
+  return false;
+}
+
+/** A ferry sector we may plan: no stop in a sanctioned state; for a European operator, not through closed airspace. */
+const sectorOk = (a: string, b: string, europe: boolean) => !NO_STOP.has(AIRPORT_BY_CODE[b]?.country ?? '') && (!europe || !closedSector(a, b));
+
 /**
- * Ferry legs from → to: the fuel-stop router when every leg fits a ferry day, else hops of at most a ferry day's
- * block (10:00) between proper airports, each making progress home (a narrowbody from Jakarta takes several). Pure.
+ * Ferry legs from → to: the fuel-stop router when every leg fits a ferry day (and avoids sanctioned stops and, for
+ * a European operator flying home, Russian/Belarusian/Ukrainian airspace), else hops of at most a ferry day's block
+ * (10:00) between proper airports, each making progress home (a narrowbody from Jakarta takes several). Pure.
  */
 export function ferryRoute(typeId: string, from: string, to: string): Hop[] | null {
   const key = `${typeId}:${from}:${to}`;
   if (routes.has(key)) return routes.get(key)!;
   const max = BAL.delivery.dayBlockMax;
+  const europe = AIRPORT_BY_CODE[to]?.continent === 'EU';
   let r = route(typeId, from, to);
-  if (r && r.some((l) => l.block > max)) r = null;
-  if (!r) r = hops(typeId, from, to, max);
+  if (r && r.some((l) => l.block > max || !sectorOk(l.from, l.to, europe))) r = null;
+  if (!r) r = hops(typeId, from, to, max, europe);
   routes.set(key, r);
   return r;
 }
 
-function hops(typeId: string, from: string, to: string, max: number): Hop[] | null {
+function hops(typeId: string, from: string, to: string, max: number, europe: boolean): Hop[] | null {
   if (runwayFit(typeId, from) === 'no' || runwayFit(typeId, to) === 'no') return null;
-  const fits = (a: string, b: string) => runwayFit(typeId, b) !== 'no' && distanceNm(a, b) <= maxSectorNm(typeId, a, b) && blockMinutes(typeId, a, b) <= max;
-  const stops = AIRPORTS.filter((x) => x.size >= 3 && runwayFit(typeId, x.code) === 'ok');
+  const fits = (a: string, b: string) => runwayFit(typeId, b) !== 'no' && distanceNm(a, b) <= maxSectorNm(typeId, a, b) && blockMinutes(typeId, a, b) <= max && sectorOk(a, b, europe);
+  const stops = AIRPORTS.filter((x) => x.size >= 3 && runwayFit(typeId, x.code) === 'ok' && !NO_STOP.has(x.country));
   const out: Hop[] = [];
+  const seen = new Set([from]);
   let cur = from;
   for (let k = 0; k < 12; k++) {
     if (fits(cur, to)) {
@@ -68,16 +98,21 @@ function hops(typeId: string, from: string, to: string, max: number): Hop[] | nu
     }
     const left = distanceNm(cur, to);
     let best: { code: string; score: number } | null = null;
-    for (const x of stops) {
-      if (x.code === cur || !fits(cur, x.code)) continue;
-      const d = distanceNm(x.code, to);
-      if (d >= left - 200) continue;
-      // The most progress; a bigger airport breaks near-ties (hotels, handling).
-      const score = d - x.size * 40;
-      if (!best || score < best.score || (score === best.score && x.code < best.code)) best = { code: x.code, score };
+    // The most progress home; round closed airspace a sideways hop is allowed (never back to a stop already used).
+    for (const pass of [200, -600]) {
+      for (const x of stops) {
+        if (seen.has(x.code) || !fits(cur, x.code)) continue;
+        const d = distanceNm(x.code, to);
+        if (d >= left - pass) continue;
+        // A bigger airport breaks near-ties (hotels, handling).
+        const score = d - x.size * 40;
+        if (!best || score < best.score || (score === best.score && x.code < best.code)) best = { code: x.code, score };
+      }
+      if (best || !europe) break;
     }
     if (!best) return null;
     out.push({ from: cur, to: best.code, block: blockMinutes(typeId, cur, best.code) });
+    seen.add(best.code);
     cur = best.code;
   }
   return null;
@@ -289,7 +324,7 @@ export function handoverMessage(g: GameState, ac: Aircraft): void {
   pushMessage(g, {
     tone: 'info', cat: 'company', title: `${ac.reg} handed over at ${cityOf(dl.site)}`,
     body: fs.length
-      ? `Ferry home ${when} ${fmtTime(fs[0].std, dl.site)} local: ${pathText(fs)}, ${fs.length} leg${fs.length > 1 ? 's' : ''}, ${fmtDuration(block)} block (ferry permit: 60-min routing).${crew}`
+      ? `Ferry home ${when} ${fmtTime(fs[0].std, dl.site)} local: ${pathText(fs)}, ${fs.length} leg${fs.length > 1 ? 's' : ''}, ${fmtDuration(block)} block (${fs.some((f) => etopsNeeded(ac.typeId, f.from, f.to) > 0) ? 'ferry permit: non-revenue, one-off ETOPS authorisation' : 'ferry permit: 60-min routing'}).${crew}`
       : `The ${typeOf(ac.typeId).name} is on the AOC.`,
     ref: { kind: 'aircraft', id: ac.id },
   });
@@ -344,7 +379,11 @@ export function dailyDelivery(g: GameState): void {
     const dl = ac.delivery;
     if (!dl || dl.arrived !== undefined) continue;
     const fs = ferries(g, ac).filter((f) => f.status === 'scheduled');
-    if (!fs.length) continue;
+    if (!fs.length) {
+      // Handed over, not home and no ferry left (its legs were lost): a new ferry from where the aircraft is.
+      if (ac.status !== 'delivering' && !ac.flightId && !ferries(g, ac).some((f) => f.status === 'enroute')) replanFerry(g, ac);
+      continue;
+    }
     const first = fs[0];
     if (dl.waitingSince !== undefined && ac.status !== 'delivering') post(g, 'airportFees', -BAL.delivery.parkPerDay[wideOf(ac.typeId)]);
     if (!dl.warned && first.std - g.now <= BAL.delivery.warnH * 60 && first.std > g.now && !pilotsOn(g, first)) {
@@ -356,6 +395,32 @@ export function dailyDelivery(g: GameState): void {
       });
     }
   }
+}
+
+/** A new delivery ferry from where the aircraft is (from 08:00 local tomorrow); at home base the delivery ends. */
+function replanFerry(g: GameState, ac: Aircraft): void {
+  const dl = ac.delivery!;
+  const home = g.company.homeBase;
+  if (ac.at === home) {
+    dl.arrived = g.now;
+    return;
+  }
+  const r = ferryRoute(ac.typeId, ac.at, home);
+  if (!r) return;
+  const local = toLocal(ac.at, g.now + 12 * 60);
+  const legs = ferryDays(r, localToUTC(ac.at, dayStart(local) + 8 * 60 + (local - dayStart(local) > 8 * 60 ? DAY : 0)));
+  const out = legs.map((l) => {
+    const f = addFlight(g, { no: ownFlightNo(g), aircraftId: ac.id, contractId: null, kind: 'ferry', from: l.from, to: l.to, std: l.std, sta: l.sta });
+    f.purpose = 'delivery';
+    return f;
+  });
+  dl.ferryIds = [...dl.ferryIds.filter((id) => g.flights[id]?.status === 'done'), ...out.map((f) => f.id)];
+  dl.waitingSince ??= g.now;
+  pushMessage(g, {
+    tone: 'warn', cat: 'ops', title: `Delivery ferry re-planned: ${ac.reg}`,
+    body: `${ac.reg} is still at ${cityOf(ac.at)}. New ferry home ${fmtDay(out[0].std)}: ${pathText(legs)}.`,
+    ref: { kind: 'aircraft', id: ac.id },
+  });
 }
 
 /** A captain and a first officer (and any relief pilot) are on the leg's duty. */

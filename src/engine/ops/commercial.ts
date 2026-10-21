@@ -122,7 +122,8 @@ function serves(c: Carrier, a: Airport, b: Airport, km: number): boolean {
   return (other.size >= 5 && hub.size >= 4) || (link && (other.size >= 3 || (other.size >= 2 && other.continent !== 'NA')));
 }
 
-function directCarriers(from: string, to: string): Carrier[] {
+/** Carriers flying from → to nonstop. Pure. */
+export function directCarriers(from: string, to: string): Carrier[] {
   const a = AIRPORT_BY_CODE[from];
   const b = AIRPORT_BY_CODE[to];
   if (!a || !b) return [];

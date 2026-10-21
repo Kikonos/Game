@@ -11,7 +11,7 @@ import type { Aircraft, ApprovalId, ContractOffer, CrewExtra, GameState, Minute 
 import { crewAvailability, offerExtra, type Availability } from '../crew';
 import { A_CHECK_DAYS, anchorsOf, chainForward, CHARTER_SLACK, DEPLOY_LEAD, gapMoves, programmeOf, type Anchor, type ChainLeg, type Programme, type Trip } from './plan';
 import { afterRefit, cabinAt, cabinFits, layoutsOf, refitTip } from '../ops/cabin';
-import { aircraftGate, APPROVALS, gateApprovals } from '../ops/company';
+import { aircraftGate, APPROVALS, gateApprovals, ratedPilots } from '../ops/company';
 import { deliveryQuote } from '../ops/delivery';
 import { paintQuote, paintWindow, type PaintSlot } from './paintTerms';
 import { productValue, tripTickets } from './pricing';
@@ -305,7 +305,11 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
     add('lease', 'no', dl && dl.site !== home ? `Handed over at ${dl.site} ${fmtDay(ac.deliveredAt)}, after it would have to leave` : `Delivers ${fmtDay(ac.deliveredAt)}, after it would have to leave`);
   } else if (ac.delivery && ac.delivery.arrived === undefined && ac.delivery.site !== home) {
     // v0.7: home-by is the delivery ferry's last arrival; positioning comes from the timeline (the ferry legs are on it).
-    add('lease', 'ok', `Home ${fmtDay(homeBy(g, ac))} after the delivery ferry`);
+    // Without rated pilots (or already waiting at the site) that date is not firm: each day without them moves it.
+    const r = ratedPilots(g, [typeOf(ac.typeId).family]);
+    const firm = r.CPT >= 1 && r.FO >= 1 && ac.delivery.waitingSince === undefined;
+    if (firm) add('lease', 'ok', `Home ${fmtDay(homeBy(g, ac))} after the delivery ferry`);
+    else add('lease', 'warn', `Home ${fmtDay(homeBy(g, ac))} after the delivery ferry, if rated pilots fly it`, ac.delivery.waitingSince !== undefined ? 'The aircraft is waiting at the site for rated pilots: every day without them moves the ferry and this job.' : `No ${typeOf(ac.typeId).short}-rated pilots yet: the ferry waits a day at a time until they are.`);
   } else add('lease', 'ok', ac.ownership.kind === 'owned' ? 'Owned' : `Dry-leased until ${fmtDate(ac.ownership.leaseEnd)}`);
 
   // 9. Availability: overlaps with flights, maintenance and signed base deployments.

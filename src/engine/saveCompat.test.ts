@@ -96,3 +96,20 @@ describe('v0.7 load defaults', () => {
     }, 90_000);
   }
 });
+
+describe('v0.7 reload keeps pending approvals pending', () => {
+  it('a widebody signed while Widebody operations is pending: a save and reload grants nothing', async () => {
+    const { newGame } = await import('./contracts/testkit');
+    const { devMarketOffer } = await import('./ops/market');
+    const { acquireAircraft } = await import('./ops');
+    const g = newGame(11);
+    g.company.pendingApprovals.push({ id: 'widebody', started: g.now, done: g.now + 120 * DAY, cost: 300_000 });
+    g.company.cash = 10_000_000;
+    const r = acquireAircraft(g, devMarketOffer(g, 'a332', { site: 'IST' }));
+    if (!r.ok) throw new Error(r.error);
+    const again = deserialize(serialize(g));
+    expect(again.company.approvals).not.toContain('widebody');
+    expect(again.company.pendingApprovals.map((p) => p.id)).toEqual(['widebody']);
+    expect(deserialize(serialize(again)).company.approvals).toEqual(g.company.approvals);
+  });
+});

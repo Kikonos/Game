@@ -108,7 +108,10 @@ function reach(g: GameState, st: GoalState, def: (typeof GOALS)[number]): void {
   if (def.ladder) {
     const ac = goalAircraft(g, def.id);
     const types = def.ladder.types?.length ? ` (${ladderTypes(def.ladder.types).join(' · ')})` : '';
-    pushMessage(g, { tone: 'good', cat: 'goal', topic: 'ladder', title: `Goal reached: ${def.title}`, body: `${def.ladder.body}${types} Reliability +1.`, ...(ac ? { ref: { kind: 'aircraft' as const, id: ac } } : {}) });
+    let body = def.ladder.body;
+    // ETOPS 180 needs a 180-capable twin: an all-A320 fleet is told so.
+    if (def.id === 'etops120' && !Object.values(g.fleet).some((a) => typeOf(a.typeId).engines === 2 && typeOf(a.typeId).etopsMax >= 180)) body = body.replace(/Next: .*$/, 'Next: ETOPS 180 needs a 180-capable twin (A321neo, 757 or a widebody).');
+    pushMessage(g, { tone: 'good', cat: 'goal', topic: 'ladder', title: `Goal reached: ${def.title}`, body: `${body}${types} Reliability +1.`, ...(ac ? { ref: { kind: 'aircraft' as const, id: ac } } : {}) });
     return;
   }
   pushMessage(g, { tone: 'good', cat: 'goal', title: `Goal reached: ${def.title}`, body: `${def.desc} Reliability +1.` });

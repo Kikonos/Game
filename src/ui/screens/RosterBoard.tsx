@@ -16,7 +16,7 @@ import { liveMinute, store, useThrottledNow } from '../store';
 import { useRenderCount } from './common';
 import { CAL_KEY_LABEL, calKey, calLayer, calLegend, type CalKey } from './crewLogic';
 import {
-  BACK_DAYS, BOARD_DAYS, blockCands, boardItems, boardLayout, dayCodes, dayWidth, dayWindow, edgeSpeed, fitText, HEAD_H, itemAt, LEFT_W,
+  BACK_DAYS, BOARD_DAYS, blockCands, blockKeys, boardItems, itemsSig, rowSig, boardLayout, dayCodes, dayWidth, dayWindow, edgeSpeed, fitText, HEAD_H, itemAt, LEFT_W,
   moraleTone, NO_BOARD_FILTER, ROLE_PLURAL, verdictText, visibleRange, weekLabels, type BoardFilter, type BoardItem, type BoardZoom, type RankFilter,
 } from './rosterBoardLogic';
 
@@ -77,6 +77,7 @@ const Row = memo(function Row({ row, from, dayW, d0, d1, zoom, tone, selecting, 
   const hi = from + d1 * DAY;
   const W = BOARD_DAYS * dayW;
   const month = zoom === 'month';
+  const keys = blockKeys(row.blocks);
   const blocks = row.blocks
     .map((b, i) => [b, i] as const)
     .filter(([b]) => b.end > lo && b.start < hi && !(month && b.kind === 'rest'))
@@ -101,7 +102,7 @@ const Row = memo(function Row({ row, from, dayW, d0, d1, zoom, tone, selecting, 
         {row.leaves !== null && row.leaves < hi && (
           <span className="rb-left" style={{ left: Math.max(0, (row.leaves - from) * ppm), width: Math.max(0, W - Math.max(0, (row.leaves - from) * ppm)) }} />
         )}
-        {blocks.map(([b, i]) => <Block key={i} b={b} i={i} crewId={row.crewId} from={from} ppm={ppm} W={W} month={month} />)}
+        {blocks.map(([b, i]) => <Block key={keys[i]} b={b} i={i} crewId={row.crewId} from={from} ppm={ppm} W={W} month={month} />)}
         {labels.map((l) => {
           const b = row.blocks[l.i];
           return (
@@ -127,7 +128,7 @@ const Row = memo(function Row({ row, from, dayW, d0, d1, zoom, tone, selecting, 
   );
 });
 
-function Block({ b, i, crewId, from, ppm, W, month }: { b: BoardBlock; i: number; crewId: string; from: number; ppm: number; W: number; month: boolean }) {
+const Block = memo(function Block({ b, i, crewId, from, ppm, W, month }: { b: BoardBlock; i: number; crewId: string; from: number; ppm: number; W: number; month: boolean }) {
   const key = calKey(b);
   const layer = calLayer(b);
   const l = Math.max(0, (b.start - from) * ppm);
@@ -150,7 +151,7 @@ function Block({ b, i, crewId, from, ppm, W, month }: { b: BoardBlock; i: number
       {b.locked && w >= 16 && <Lock className="rb-lock" aria-label="set by you" />}
     </span>
   );
-}
+});
 
 /** Today line in the grid, moved every frame from liveMinute() (no React renders). */
 function TodayLine({ from, ppm }: { from: number; ppm: number }) {
@@ -241,15 +242,40 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
   const rev = flightsRev(g);
   const hour = Math.floor(now / HOUR);
   const nCrew = Object.keys(g.crew).length;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const items = useMemo(() => boardItems(Object.values(g.crew), f, g.company.homeBase), [g, f, crev, nCrew, hour]);
+  // v0.7 C2: an hourly rebuild that changes nothing keeps the previous items (no re-layout, no row re-render).
+  const itemsRef = useRef<{ sig: string; items: BoardItem[] } | null>(null);
+  const items = useMemo(() => {
+    const next = boardItems(Object.values(g.crew), f, g.company.homeBase);
+    const sig = itemsSig(next);
+    if (itemsRef.current?.sig === sig) return itemsRef.current.items;
+    itemsRef.current = { sig, items: next };
+    return next;
+  }, [g, f, crev, nCrew, hour]); // eslint-disable-line react-hooks/exhaustive-deps
   const groupH = selecting ? 44 : 28;
   const { tops, total } = useMemo(() => boardLayout(items, groupH), [items, groupH]);
   const [a, b] = range;
   const shown = items.slice(a, Math.min(b, items.length));
   const ids = shown.filter((x): x is Extract<BoardItem, { kind: 'crew' }> => x.kind === 'crew').map((x) => x.id);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const rows = useMemo(() => new Map(rosterBoard(g, from, to, ids).map((r) => [r.crewId, r])), [g, from, to, ids.join(), crev, rev, now]);
+  // Rows whose content is unchanged keep their old object, so the memo'd Row skips them (the engine rebuilds every
+  // visible row each game hour: under a second at 4×).
+  const stable = useRef(new Map<string, { sig: string; row: BoardRow }>());
+  const rows = useMemo(() => {
+    const out = new Map<string, BoardRow>();
+    for (const r of rosterBoard(g, from, to, ids)) {
+      const prev = stable.current.get(r.crewId);
+      if (prev?.row === r) {
+        out.set(r.crewId, r);
+        continue;
+      }
+      const sig = rowSig(r);
+      if (prev && prev.sig === sig) out.set(r.crewId, prev.row);
+      else {
+        stable.current.set(r.crewId, { sig, row: r });
+        out.set(r.crewId, r);
+      }
+    }
+    return out;
+  }, [g, from, to, ids.join(), crev, rev, now]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Latest values for the native drag listeners.
   const live = useRef({ items, tops, total, scope, from, g });

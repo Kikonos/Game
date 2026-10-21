@@ -364,7 +364,8 @@ export function legOutcome(g: GameState, outcome: number): void {
  * under the contract (no compensation, no reliability or relation effect here). Returns the compensation paid.
  */
 export function cancelLegs(g: GameState, legs: Flight[], reason: string, repPerLeg: number, agreed = false): number {
-  const live = legs.filter((f) => f.status === 'scheduled');
+  // v0.7: a delivery ferry is never cancelled (it waits at the site instead).
+  const live = legs.filter((f) => f.status === 'scheduled' && f.purpose !== 'delivery');
   if (!live.length) return 0;
   const pen = agreed ? 0 : cancelCost(g, live);
   if (!agreed) noteLostLegs(g, live);
@@ -417,7 +418,7 @@ export function pickRival(g: GameState, typeId: string): string {
 
 /** Hands revenue legs to a rival (still billed to our client), drops the empty legs; posts the cost. */
 export function subcharterLegs(g: GameState, legs: Flight[], rivalId: string, cost: number): number {
-  const live = legs.filter((f) => f.status === 'scheduled');
+  const live = legs.filter((f) => f.status === 'scheduled' && f.purpose !== 'delivery');
   const rev = live.filter(isRevenue);
   const empty = live.filter((f) => !isRevenue(f));
   if (empty.length) removeFlights(g, empty.map((f) => f.id));
@@ -741,12 +742,17 @@ function emptyLegCrew(g: GameState, f: Flight, ac: Aircraft): void {
  * chain moves 24 h, parking is charged daily) and the roster tries again; the 48 h warning was given earlier.
  */
 function deliveryWait(g: GameState, f: Flight, ac: Aircraft): void {
-  for (const x of deliveryWaitDay(g, f, ac)) {
+  const chain = deliveryWaitDay(g, f, ac);
+  for (const x of chain) {
     x.delay = 0;
     delete x.crewHeld;
     delete x.heldAt;
     delete x.crewTries;
   }
+  // Work planned after the ferry moves behind it (a wave that would leave too late is dropped, as for any delay).
+  const last = chain.reduce((a, b) => (b.sta > a.sta ? b : a), chain[0]);
+  const behind = last && flightsOf(g, ac.id).find((x) => x.status === 'scheduled' && x.purpose !== 'delivery' && x.std >= f.std && x.std < last.sta + turnOf(ac));
+  if (behind) delayChain(g, behind, last.sta + turnOf(ac), 'Delivery ferry delayed');
   rerosterFrom(g, ac.id, g.now);
 }
 

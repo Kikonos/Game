@@ -16,7 +16,10 @@ export interface ApprovalDef {
   id: ApprovalId;
   name: string;
   desc: string;
+  /** Paid at filing. */
   cost: number;
+  /** Paid when the authority grants it (manuals, consultants and the inspection billed over time). */
+  grantCost?: number;
   days: number;
   /** Other approvals needed first. */
   requires: ApprovalId[];
@@ -25,7 +28,7 @@ export interface ApprovalDef {
 /** v0.7: the Ladder (rungs 1–4, in ladder order), then the other approvals (RESEARCH §6). */
 export const APPROVALS: ApprovalDef[] = [
   { id: 'etops120', name: 'ETOPS 120', desc: 'Twin-engine operations up to 120 minutes from an alternate: the Azores, Cape Verde and the thin North Atlantic on an A321LR.', cost: 250_000, days: 120, requires: [] },
-  { id: 'widebody', name: 'Widebody operations', desc: 'The authority accepts widebodies on our AOC: manuals, training, engineering and a widebody type on the operations specification.', cost: 600_000, days: 120, requires: [] },
+  { id: 'widebody', name: 'Widebody operations', desc: 'The authority accepts widebodies on our AOC: manuals, training, engineering and a widebody type on the operations specification.', cost: 300_000, grantCost: 300_000, days: 120, requires: [] },
   { id: 'etops180', name: 'ETOPS 180', desc: 'The South Atlantic direct and the Indian Ocean. Needs ETOPS 120 held for 120 days.', cost: 350_000, days: 150, requires: ['etops120'] },
   { id: 'augmented', name: 'Long-haul augmented crews', desc: 'Duties over 13 hours with 3–4 pilots and in-flight rest (FDP up to 18 h).', cost: 300_000, days: 90, requires: ['widebody'] },
   { id: 'etops240', name: 'ETOPS 240', desc: 'Remote oceans and the prestige long haul. Needs ETOPS 180 held for 180 days and augmented crews.', cost: 500_000, days: 180, requires: ['etops180', 'augmented'] },
@@ -252,7 +255,7 @@ export function applyApproval(g: GameState, id: ApprovalId): ActionResult {
   const done = g.now + def.days * DAY;
   g.company.pendingApprovals.push({ id, started: g.now, done, cost: def.cost });
   schedule(g, done, 'approval.done', id);
-  pushMessage(g, { tone: 'info', cat: 'company', title: `${def.name}: application filed`, body: `${usd(def.cost)} paid. The authority expects to finish by ${fmtDate(done)}.` });
+  pushMessage(g, { tone: 'info', cat: 'company', title: `${def.name}: application filed`, body: `${usd(def.cost)} paid${def.grantCost ? `; ${usd(def.grantCost)} more at the grant` : ''}. The authority expects to finish by ${fmtDate(done)}.` });
   return { ok: true, msg: `${def.name} under way, done ${fmtDate(done)}` };
 }
 
@@ -272,8 +275,10 @@ function grant(g: GameState, i: number): void {
   const [p] = co.pendingApprovals.splice(i, 1);
   if (!co.approvals.includes(p.id)) co.approvals.push(p.id);
   (co.approvalsAt ??= {})[p.id] = g.now;
-  if (grantHook?.(g, p.id)) return;
   const def = defOf(p.id);
+  // The second half of a split fee (dev grants and v0.6 aircraft cost nothing).
+  if (def?.grantCost && p.cost > 0) post(g, 'approvals', -def.grantCost);
+  if (grantHook?.(g, p.id)) return;
   pushMessage(g, { tone: 'good', cat: 'company', title: `${def?.name ?? p.id} approved`, body: `${def?.desc ?? ''} New work is open to us.` });
 }
 
@@ -329,7 +334,7 @@ export function setPolicies(g: GameState, patch: Partial<Policies>): ActionResul
 export interface ApprovalReq { label: string; ok: boolean; have?: string; need?: string }
 export type NodeState = 'held' | 'pending' | 'ready' | 'locked';
 export interface LadderNode {
-  id: ApprovalId; name: string; desc: string; state: NodeState; cost: number; days: number;
+  id: ApprovalId; name: string; desc: string; state: NodeState; cost: number; /** Paid at the grant (0 = none). */ grantCost: number; days: number;
   requires: ApprovalId[]; reqs: ApprovalReq[]; blocker: string | null;
   heldSince: Minute | null; pending: (PendingApproval & { progress: number }) | null;
   unlocksTypes: string[]; unlocksWork: string;
@@ -381,7 +386,7 @@ function node(g: GameState, id: ApprovalId): LadderNode {
   const blocker = held || p ? null : approvalBlocker(g, id);
   const u = UNLOCKS[id];
   return {
-    id, name: def.name, desc: def.desc, state: held ? 'held' : p ? 'pending' : blocker ? 'locked' : 'ready', cost: def.cost, days: def.days,
+    id, name: def.name, desc: def.desc, state: held ? 'held' : p ? 'pending' : blocker ? 'locked' : 'ready', cost: def.cost, grantCost: def.grantCost ?? 0, days: def.days,
     requires: [...def.requires], reqs: approvalReqs(g, id), blocker,
     heldSince: held ? (co.approvalsAt?.[id] ?? g.started) : null,
     pending: p ? { ...p, progress: clamp((g.now - p.started) / Math.max(1, p.done - p.started), 0, 1) } : null,
@@ -412,14 +417,23 @@ export function devGrantApproval(g: GameState, id: ApprovalId): void {
   grant(g, co.pendingApprovals.length - 1);
 }
 
-/** v0.7 load: grant dates for held approvals; aircraft already in the fleet keep flying (their gate approvals are granted). */
+/**
+ * v0.7 load: grant dates for held approvals. Only on the first v0.7 load of a v0.6 save, aircraft already flying keep
+ * flying (their gate approvals are granted); later loads never grant (a widebody signed while pending stays pending).
+ */
 export function loadApprovals(g: GameState): void {
   const co = g.company;
+  const firstV07 = co.approvalsAt === undefined;
   co.approvalsAt ??= {};
   for (const id of co.approvals) co.approvalsAt[id] ??= g.started;
+  if (!firstV07) {
+    g.stats.incidents ??= [];
+    return;
+  }
   for (const ac of Object.values(g.fleet)) {
+    if (ac.status === 'delivering') continue;
     for (const id of gateApprovals(typeOf(ac.typeId).tier)) {
-      if (co.approvals.includes(id)) continue;
+      if (co.approvals.includes(id) || co.pendingApprovals.some((p) => p.id === id)) continue;
       co.approvals.push(id);
       co.approvalsAt[id] ??= g.started;
       co.pendingApprovals = co.pendingApprovals.filter((p) => p.id !== id);

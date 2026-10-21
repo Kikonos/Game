@@ -5,7 +5,9 @@ import { describe, expect, it } from 'vitest';
 import { BAL } from '../core/balance';
 import { DAY } from '../core/time';
 import type { GameState } from '../core/types';
-import { newGame, run } from '../contracts/testkit';
+import { legsOffer, newGame, run } from '../contracts/testkit';
+import { acceptOffer } from '../contracts';
+import { flightsOf, removeFlights } from '../core/entities';
 import { crewCalendar } from '../crew';
 import { addCrew } from '../crew/fixtures';
 import { devGrantApproval } from './company';
@@ -131,5 +133,34 @@ describe('a delivery from signing to home', () => {
     expect(ac.delivery!.waitingSince).toBeUndefined();
     expect(g.stats.deliveryWaitDays).toBeGreaterThanOrEqual(3);
     expect(ac.at).toBe('LIS');
+  });
+
+  it('work signed behind a ferry with no rated pilots moves behind it (or is dropped); the ferry itself is never cancelled', () => {
+    const g = newGame(5);
+    const acId = signed(g, 'b738', 'OSL');
+    const ac = g.fleet[acId];
+    const homeBy = deliveryStatus(g, acId)!.homeBy!;
+    const o = legsOffer(g, [['LIS', 'FAO', homeBy + 8 * 60], ['FAO', 'LIS', homeBy + 11 * 60]], 150);
+    expect(acceptOffer(g, o.id, [acId]).ok).toBe(true);
+    run(g, homeBy + 5 * DAY);
+    const ferry = ac.delivery!.ferryIds.map((id) => g.flights[id]);
+    expect(ferry.length).toBeGreaterThan(0);
+    for (const f of ferry) expect(f.status).not.toBe('cancelled');
+    const live = flightsOf(g, acId).filter((f) => f.status === 'scheduled' || f.status === 'enroute');
+    for (let i = 1; i < live.length; i++) expect(live[i].std).toBeGreaterThanOrEqual(live[i - 1].sta);
+    expect(deliveryStatus(g, acId)!.phase).toBe('waiting');
+  });
+
+  it('a delivery whose ferry legs are gone is re-planned from where the aircraft is', () => {
+    const g = newGame(6);
+    const acId = signed(g, 'a320ceo', 'SNN');
+    const ac = g.fleet[acId];
+    run(g, ac.deliveredAt + 60);
+    removeFlights(g, [...ac.delivery!.ferryIds]);
+    run(g, g.now + 2 * DAY);
+    const fs = ac.delivery!.ferryIds.map((id) => g.flights[id]).filter(Boolean);
+    expect(fs.length).toBeGreaterThan(0);
+    expect(fs[0]).toMatchObject({ purpose: 'delivery', from: 'SNN' });
+    expect(g.messages.some((m) => m.title === `Delivery ferry re-planned: ${ac.reg}`)).toBe(true);
   });
 });
