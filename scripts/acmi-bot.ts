@@ -7,7 +7,7 @@
 // Policy (a pure function of the game state, so a loaded save plays on identically):
 // - offers: base deployments first, then ad hoc fill-ins; accept the best ok/warn feasibility with a positive
 //   margin (crew shortfalls only when hires join in time); counter long-lead base deals at +5% once;
-// - crew: fill staffing, hire one more set when the family's pilots fly > 80% of productive hours;
+// - crew: fill staffing (widebodies: two more pilot sets each), hire one more set when the family's pilots fly > 80% of productive hours;
 // - maintenance: C-checks booked when warned, in the first free window (winter first); A-checks auto;
 // - decisions: swap aircraft on AOG when one is free, factor a late invoice when cash is short, else the default;
 // - fleet: lease a widebody once the cash covers its deposit, three months of its fixed costs and a cushion, the last
@@ -28,6 +28,7 @@
 // - v0.7 refits (at most one per 180 days): an open premium sports or VIP job worth $1.2M+ whose only failing check is
 //   the cabin, when the cheapest refit ends before it and costs < 40% of it: booked, then the job taken.
 
+import { writeFileSync } from 'node:fs';
 import LZString from 'lz-string';
 import { BAL } from '../src/engine/core/balance';
 import { statementTotals } from '../src/engine/core/ledger';
@@ -62,6 +63,8 @@ const POLICY = process.argv.find((a) => a.startsWith('--policy='))?.slice(9).spl
 /** Extra cabin crew on every aircraft (--extra=2). */
 const EXTRA = Number(process.argv.find((a) => a.startsWith('--extra='))?.slice(8) ?? 0);
 const BIG_DAYS = Number(process.env.BIG_DAYS ?? 120);
+/** --dump=<day>,<file>: the save at the first step past that game day (debugging a run). */
+const DUMP = process.argv.find((a) => a.startsWith('--dump='))?.slice(7).split(',');
 const STEP = 6 * 60;
 
 const newGame = () => createGame({ name: 'Atlântica Wings', code: 'AW', livery: { primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' }, base: 'LIS', seed });
@@ -108,6 +111,7 @@ const weekOf = (g: GameState) => Math.floor((g.now - g.started) / (7 * DAY));
 const act = (g: GameState, t: Tally, n = 1) => t.actions.set(weekOf(g), (t.actions.get(weekOf(g)) ?? 0) + n);
 
 const isBase = (o: ContractOffer) => o.pattern.kind === 'base' || o.archetype === 'seasonBase' || o.archetype === 'aogCover';
+const CODE: Partial<Record<Archetype, string>> = { seasonBase: 'SB', aogCover: 'AC', adhoc: 'AH', sports: 'SP', repatriation: 'RP', tourSeries: 'TS', troopRotation: 'TR', evacuation: 'EV', vip: 'VI' };
 const hash = (s: string) => [...s].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 7) >>> 0;
 
 /** Pilot block hours over productive capacity, last 28 days (crew logs), for a rating family. */
@@ -250,9 +254,14 @@ const crewTrouble = (g: GameState) => g.messages.filter((m) => m.cat === 'crew' 
 
 /** Fill staffing; one more set per family when its pilots run hot or crew trouble keeps costing legs, and nobody is joining. */
 function hire(g: GameState, t: Tally): void {
+  // v0.7: widebody work (slip crews at each outstation of a long-haul base, no augmented crews early on) wants two
+  // more pilot sets per widebody than the plain complement; hired at signing so they join before the first job.
+  const wideN = new Map<RatingFamily, number>();
+  for (const ac of Object.values(g.fleet)) if (typeOf(ac.typeId).body === 'wide' && ac.status !== 'leasedOut') wideN.set(typeOf(ac.typeId).family, (wideN.get(typeOf(ac.typeId).family) ?? 0) + 1);
   for (const l of staffing(g)) {
     const have = l.have + inClass(g, l);
-    if (have < l.need && hireCrew(g, { role: l.role, family: l.family, base: g.company.homeBase, count: Math.min(30, l.need - have) }).ok) act(g, t);
+    const need = l.need + (l.role === 'CPT' || l.role === 'FO' ? 2 * (wideN.get(l.family) ?? 0) : 0);
+    if (have < need && hireCrew(g, { role: l.role, family: l.family, base: g.company.homeBase, count: Math.min(30, need - have) }).ok) act(g, t);
   }
   const fams = new Map<RatingFamily, { typeId: string; seats: number }>();
   for (const ac of Object.values(g.fleet)) if (ac.status !== 'delivering') fams.set(typeOf(ac.typeId).family, { typeId: ac.typeId, seats: ac.cabin.total });
@@ -763,8 +772,18 @@ const abroad = new Set<string>();
 let maxWait = 0;
 let illegalAtFerry = 0;
 
+/** Revenue legs held for crew at departure (the 'uncovered' stat), by body and contract archetype. */
+const heldSeen = new Set<string>();
+const heldBy = new Map<string, number>();
+
 function onStep(): void {
   const m = mon(monthKey(g.now));
+  for (const f of Object.values(g.flights)) {
+    if (!f.crewHeld || heldSeen.has(f.id) || (f.kind !== 'revenue' && f.kind !== 'techstop') || !f.aircraftId || !g.fleet[f.aircraftId]) continue;
+    heldSeen.add(f.id);
+    const k = `${typeOf(g.fleet[f.aircraftId].typeId).body === 'wide' ? 'WB' : 'NB'} ${(f.contractId && CODE[g.contracts[f.contractId]?.archetype]) || '?'} ${fmtMonth(monthKey(f.std))}`;
+    heldBy.set(k, (heldBy.get(k) ?? 0) + 1);
+  }
   for (const r of g.finance.receivables) {
     if (seenRecv.has(r.id) || !/^(Paint|Repaint)/.test(r.desc)) continue;
     seenRecv.add(r.id);
@@ -790,6 +809,7 @@ function onStep(): void {
   prev = { aogs: s.aogs ?? 0, illegal: ill };
   if (dayIndex(g.now) === lastDay && g.now < end) return;
   lastDay = dayIndex(g.now);
+  if (DUMP && dayN(g) === Number(DUMP[0])) writeFileSync(DUMP[1], serialize(g));
   // v0.7 deliveries: airline tickets of delivery crews, ferry legs flown, waits.
   for (const f of Object.values(g.flights)) {
     if (f.kind === 'deadhead' && f.status !== 'cancelled' && !dhSeen.has(f.id)) {
@@ -854,7 +874,6 @@ const runSecs = (performance.now() - wall) / 1000;
 
 // ---------- report ----------
 
-const CODE: Partial<Record<Archetype, string>> = { seasonBase: 'SB', aogCover: 'AC', adhoc: 'AH', sports: 'SP', repatriation: 'RP', tourSeries: 'TS', troopRotation: 'TR', evacuation: 'EV', vip: 'VI' };
 const monthStart = (k: MonthKey) => fromUTC(Math.floor(k / 12), (k % 12) + 1, 1);
 const contractsIn = (k: MonthKey) => {
   const n = new Map<string, number>();
@@ -1012,6 +1031,7 @@ console.log(
     `fleet ${Object.values(g.fleet).map((a) => typeOf(a.typeId).short).join('+')}, crew ${Object.keys(g.crew).length}, messages ${msgCount}`,
 );
 console.log(`decisions answered: ${[...tally.decKinds].sort((a, b) => b[1] - a[1]).map(([c, v]) => `${c} ${v}`).join(', ') || 'none'}`);
+console.log(`uncovered at departure (held for crew): ${[...heldBy].map(([k, v]) => `${k} ${v}`).join(', ') || 'none'}`);
 console.log(`cancelled legs by reason: ${[...cancels].sort((a, b) => b[1] - a[1]).map(([c, v]) => `${c} ${v}`).join(', ') || 'none'}`);
 for (const e of errors.slice(0, 3)) console.log(e);
 // Soft target (information): the ladder in practice, a widebody signed with a job inside the year.

@@ -7,7 +7,9 @@
 import { AlertTriangle, ChevronLeft, ChevronRight, Sofa } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { CabinLayout } from '../../data/acmiTypes';
-import { flightsRev } from '../../engine/core/entities';
+import type { GameState, Minute } from '../../engine/core/types';
+import { flightsOf, flightsRev } from '../../engine/core/entities';
+import { route } from '../../engine/contracts/plan';
 import { typeOf } from '../../engine/core/perf';
 import { DAY, HOUR, dayStart, fmtDay, fmtDuration, toDate } from '../../engine/core/time';
 import { BAL } from '../../engine/core/balance';
@@ -21,6 +23,24 @@ const WEEKS = 8;
 /** How far the first-free-slot scan looks. */
 const SCAN_WEEKS = 26;
 const PAGE = 14;
+
+/** Where the aircraft will be at t (its last planned arrival before t), as refitQuote's ferry in measures it. Pure. */
+function plannedAt(g: GameState, aircraftId: string, t: Minute): string {
+  const ac = g.fleet[aircraftId];
+  let at = ac.at;
+  let free = g.now;
+  const cur = ac.flightId ? g.flights[ac.flightId] : undefined;
+  if (cur) {
+    at = cur.to;
+    free = cur.eta ?? cur.sta;
+  }
+  for (const f of flightsOf(g, aircraftId)) {
+    if (f.status !== 'scheduled' || f.sta > t || f.sta < free) continue;
+    at = f.to;
+    free = f.sta;
+  }
+  return at;
+}
 
 export function RefitModal({ aircraftId, layout, offerId }: { aircraftId: string; layout?: CabinLayout; offerId?: string }) {
   const g = useGame();
@@ -63,6 +83,9 @@ export function RefitModal({ aircraftId, layout, offerId }: { aircraftId: string
   const close = () => (offerId && store.game?.offers[offerId] ? store.openModal({ kind: 'offer', offerId }) : store.closeModal());
   if (!ac) return null;
   const q = quote(start);
+  // v0.7 fix: station ferry times from where it will be on the chosen start day (the summary's 'Ferry in' leg).
+  const from = plannedAt(g, aircraftId, start - 1);
+  const ferryTo = (code: string) => route(ac.typeId, from, code)?.reduce((n, l) => n + l.block, 0) ?? null;
   const leased = ac.ownership.kind === 'dryLeaseIn';
   const book = () => {
     if (store.act((gg) => bookRefit(gg, aircraftId, label, station, start)).ok) close();
@@ -93,12 +116,15 @@ export function RefitModal({ aircraftId, layout, offerId }: { aircraftId: string
           </div>
           <div className="upper dim">Station</div>
           <div className="cv-chips">
-            {stations.map((s) => (
-              <button key={s.code} className={`cv-chip rf-chip ${s.code === station ? 'on' : ''}`} onClick={() => { setStation(s.code); setDay(null); setPg(null); }} aria-pressed={s.code === station}>
-                <b>{s.name.split(', ').pop()}</b>
-                <span className="tiny dim">{s.ferryBlock ? `ferry ${fmtDuration(s.ferryBlock)}` : 'here'}</span>
-              </button>
-            ))}
+            {stations.map((s) => {
+              const fb = ferryTo(s.code);
+              return (
+                <button key={s.code} className={`cv-chip rf-chip ${s.code === station ? 'on' : ''}`} onClick={() => { setStation(s.code); setDay(null); setPg(null); }} aria-pressed={s.code === station}>
+                  <b>{s.name.split(', ').pop()}</b>
+                  <span className="tiny dim">{fb === null ? 'no ferry route' : fb ? `ferry ${fmtDuration(fb)}` : 'here'}</span>
+                </button>
+              );
+            })}
             {!stations.length && <span className="small muted">No refit station can take this aircraft.</span>}
           </div>
           <div className="row between gap-8">

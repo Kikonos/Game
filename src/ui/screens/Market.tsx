@@ -104,7 +104,7 @@ export function MarketView({ g, sel }: { g: GameState; sel: string | null }) {
       {list.length ? (
         <div className="mk-grid">{list.map((v) => <OfferCard key={v.offer.id} now={g.now} v={v} sel={sel === v.offer.id} />)}</div>
       ) : (
-        <div className="card sc-pad muted small">No aircraft on offer right now. Lessors call every few weeks{early ? '; the first offer usually comes within two months' : ''}. Turn on market alerts in Settings to hear about new ones.</div>
+        <div className="card sc-pad muted small">No aircraft on offer right now. Lessors call every few weeks{early ? '; the first offer usually comes within two months' : ''}.{store.settings.marketAlerts ? ' Market alerts are on: you will hear about new ones.' : ' Turn on market alerts in Settings to hear about new ones.'}</div>
       )}
     </>
   );

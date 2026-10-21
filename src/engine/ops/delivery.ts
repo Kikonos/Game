@@ -9,7 +9,7 @@ import { addFlight, ownFlightNo, retimeFlight } from '../core/entities';
 import { distanceNm, interpolateGC } from '../core/geo';
 import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
-import { blockMinutes, etopsNeeded, isPilot, maxSectorNm, runwayFit, typeOf } from '../core/perf';
+import { blockMinutes, etopsNeeded, isPilot, maxSectorNm, reportMinutes, runwayFit, typeOf } from '../core/perf';
 import { DAY, dayStart, fmtDate, fmtDay, fmtDuration, fmtTime, toLocal } from '../core/time';
 import type { Aircraft, Flight, GameState, Minute } from '../core/types';
 import { localToUTC, route } from '../contracts/plan';
@@ -127,9 +127,14 @@ export function firstFerryDep(site: string, handover: Minute): Minute {
   return localToUTC(site, d);
 }
 
-/** After a night stop at `at`: 14 h after landing, but not in the small hours (07:00 local instead). */
-function nextDay(at: string, landed: Minute): Minute {
-  const t = landed + BAL.delivery.nightStop;
+/**
+ * After a night stop at `at`: from release (landing + post-flight) at least the minimum rest away from base (the
+ * day's duty, never under the 14 h night stop) to the next report, but not in the small hours (07:00 local instead).
+ */
+function nextDay(at: string, landed: Minute, day0: Minute, typeId?: string): Minute {
+  const rm = typeId ? reportMinutes(typeId) : { report: 0, post: 0 };
+  const release = landed + rm.post;
+  const t = release + Math.max(BAL.delivery.nightStop, release - (day0 - rm.report)) + rm.report;
   const h = Math.floor((toLocal(at, t) - dayStart(toLocal(at, t))) / 60);
   if (h >= 7 && h < 22) return t;
   const local = toLocal(at, t);
@@ -137,8 +142,11 @@ function nextDay(at: string, landed: Minute): Minute {
   return localToUTC(at, d);
 }
 
-/** Ferry days: ≤ 3 sectors and ≤ 10:00 of block plus fuel-stop turns, joined by night stops of ≥ 14 h. Pure. */
-export function ferryDays(legs: Hop[], first: Minute): DeliveryLeg[] {
+/**
+ * Ferry days: ≤ 3 sectors and ≤ 10:00 of block plus fuel-stop turns, joined by night stops long enough for the
+ * pilots' rest (with `typeId`: its report and post-flight times; see nextDay). Pure.
+ */
+export function ferryDays(legs: Hop[], first: Minute, typeId?: string): DeliveryLeg[] {
   const D = BAL.delivery;
   const out: DeliveryLeg[] = [];
   let t = first;
@@ -148,7 +156,7 @@ export function ferryDays(legs: Hop[], first: Minute): DeliveryLeg[] {
     if (n > 0 && (n + 1 > D.daySectorsMax || t + h.block - day0 > D.dayBlockMax)) {
       const last = out[out.length - 1];
       last.nightStopAfter = true;
-      t = nextDay(last.to, last.sta);
+      t = nextDay(last.to, last.sta, day0, typeId);
       day0 = t;
       n = 0;
     }
@@ -193,7 +201,7 @@ export function deliveryQuote(g: GameState, typeId: string, site: string, handov
     return { site, where: w, handover, homeBy: handover, legs: [], days: 0, fuel: 0, fees: 0, crew: 0, total: 0, deadhead: [], text: `Handed over at ${cityOf(home)}: no ferry` };
   }
   const r = ferryRoute(typeId, site, home);
-  const legs = r ? ferryDays(r, firstFerryDep(site, handover)) : [];
+  const legs = r ? ferryDays(r, firstFerryDep(site, handover), typeId) : [];
   const { fuel, fees } = ferryCost(typeId, legs, g.market.fuelPrice);
   const crew = ferryCrewCost(g, home, site, legs);
   const total = fuel + fees + crew;
@@ -223,7 +231,7 @@ export function planDeliveryFerry(g: GameState, aircraftId: string): Flight[] {
   if (!ac || !dl || dl.site === g.company.homeBase) return [];
   const r = ferryRoute(ac.typeId, dl.site, g.company.homeBase);
   if (!r) return [];
-  const legs = ferryDays(r, firstFerryDep(dl.site, dl.handover));
+  const legs = ferryDays(r, firstFerryDep(dl.site, dl.handover), ac.typeId);
   const out = legs.map((l) => {
     const f = addFlight(g, { no: ownFlightNo(g), aircraftId, contractId: null, kind: 'ferry', from: l.from, to: l.to, std: l.std, sta: l.sta });
     f.purpose = 'delivery';
@@ -372,7 +380,11 @@ export function deliveryWaitDay(g: GameState, f: Flight, ac: Aircraft): Flight[]
   // Whole days, and at least long enough for pilots from base to fly out and rest (Santiago is a day away).
   const reach = g.now + ticketBlock(g.company.homeBase, f.from) + BAL.deadheadCheckIn + 16 * 60;
   const shift = Math.max(1, Math.ceil((reach - f.std) / DAY)) * DAY;
-  for (const x of chain) retimeFlight(g, x, x.std + shift, x.sta + shift);
+  // Re-spaced as ferry days from the new start (night stops long enough for the rest: a chain planned too tight,
+  // e.g. in an older save, would otherwise wait for ever).
+  chain.sort((a, b) => a.std - b.std);
+  const legs = ferryDays(chain.map((x) => ({ from: x.from, to: x.to, block: x.sta - x.std })), chain[0].std + shift, ac.typeId);
+  chain.forEach((x, i) => retimeFlight(g, x, legs[i].std, legs[i].sta));
   if (ac.delivery) ac.delivery.waitingSince ??= g.now;
   return chain;
 }
@@ -412,7 +424,7 @@ function replanFerry(g: GameState, ac: Aircraft): void {
   const r = ferryRoute(ac.typeId, ac.at, home);
   if (!r) return;
   const local = toLocal(ac.at, g.now + 12 * 60);
-  const legs = ferryDays(r, localToUTC(ac.at, dayStart(local) + 8 * 60 + (local - dayStart(local) > 8 * 60 ? DAY : 0)));
+  const legs = ferryDays(r, localToUTC(ac.at, dayStart(local) + 8 * 60 + (local - dayStart(local) > 8 * 60 ? DAY : 0)), ac.typeId);
   const out = legs.map((l) => {
     const f = addFlight(g, { no: ownFlightNo(g), aircraftId: ac.id, contractId: null, kind: 'ferry', from: l.from, to: l.to, std: l.std, sta: l.sta });
     f.purpose = 'delivery';

@@ -295,7 +295,8 @@ async function newGame(page, desktop) {
 
 let started = false;
 async function ensureGame(page, saveJson, desktop) {
-  const inGame = await page.evaluate(() => !!window.__contrail && window.__contrail.screen === 'game').catch(() => false);
+  // A suspended company (long harness runs) starts over, so later screens show a live game.
+  const inGame = await page.evaluate(() => !!window.__contrail && window.__contrail.screen === 'game' && !window.__contrail.game?.gameOver).catch(() => false);
   if (!inGame || !started) {
     if (saveJson) {
       // The autosave slot accepts plain JSON; the title screen then offers Continue.
@@ -535,6 +536,9 @@ async function ensureConversion(page, desktop) {
   await modal(page, { kind: 'convert', crewIds: ids, family: 'A330/340' });
   await press(page, page.locator('.modal-foot .btn-primary'), desktop);
   await settle(page, 500);
+  // v0.7: red warnings turn Book into a two-step confirm.
+  const anyway = page.getByRole('button', { name: /Book anyway/ });
+  if (await anyway.count()) { await press(page, anyway.first(), desktop); await settle(page, 500); }
   await quiet(page);
 }
 
@@ -579,7 +583,8 @@ Object.assign(ACTIONS, {
     await ensureConversion(page, d);
     // Play into the first class so the strip and the list show 'Conversion A330'.
     const start = await page.evaluate(() => Math.min(...Object.values(window.__contrail.game.classes).filter((k) => k.status !== 'cancelled').map((k) => k.start)));
-    const days = await page.evaluate((s) => Math.max(0, Math.ceil((s - window.__contrail.game.now) / 1440)) + 2, start);
+    if (!Number.isFinite(start)) throw new Error('SKIP no conversion class booked');
+    const days = await page.evaluate((s) => Math.min(60, Math.max(0, Math.ceil((s - window.__contrail.game.now) / 1440)) + 2), start);
     await page.evaluate((n) => window.__contrail.dev.autoplay(n), days);
     await quiet(page);
     const id = await page.evaluate(() => Object.values(window.__contrail.game.classes).find((k) => k.status === 'running')?.crewIds[0]);
@@ -802,7 +807,8 @@ async function run() {
         if (res.smallTargets && !desktop) flags.push(`${res.smallTargets}/${res.tapTargets} targets <${MIN_TARGET}px: ${res.smallTargetSamples.join(' | ')}`);
         if (res.smallText) flags.push(`${res.smallText} text <${MIN_TEXT}px: ${res.smallTextSamples.join(' | ')}`);
         if (res.dialog?.out) flags.push(`dialog ${res.dialog.h}px does not fit the ${res.vh}px viewport`);
-        console.log(`- ${screen} [${res.tier}]: ${path.basename(file)}${flags.length ? '' : ' OK'}`);
+        const day = await page.evaluate(() => { const g = window.__contrail?.game; return g ? `day ${Math.floor((g.now - g.started) / 1440)}${g.gameOver ? ' GAME OVER' : ''}` : '-'; }).catch(() => '-');
+        console.log(`- ${screen} [${res.tier}] (${day}): ${path.basename(file)}${flags.length ? '' : ' OK'}`);
         for (const f of flags) console.log(`    ${f}`);
       } catch (e) {
         if (String(e.message).startsWith('SKIP')) { console.log(`- ${screen}: skipped (${String(e.message).slice(5)})`); continue; }

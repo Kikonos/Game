@@ -488,6 +488,7 @@ button.chip:disabled { opacity: 0.45; cursor: default; }
 .settings { display: flex; flex-direction: column; }
 .set-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--border); }
 .set-row:last-child { border-bottom: none; }
+.set-row .seg button { min-width: 44px; }
 .handbook { display: flex; flex-direction: column; gap: 16px; }
 .handbook h3 { font-size: 15px; margin-bottom: 4px; color: var(--accent); }
 .handbook ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 5px; }

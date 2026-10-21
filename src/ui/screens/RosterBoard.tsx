@@ -58,6 +58,9 @@ function measure(s: string): number {
 }
 
 const fmtLeave = (t: number) => fmtDay(t - 1);
+const WD_SHORT = new Intl.DateTimeFormat('en-GB', { weekday: 'short', timeZone: 'UTC' });
+const WD_NARROW = new Intl.DateTimeFormat('en-GB', { weekday: 'narrow', timeZone: 'UTC' });
+const MON_SHORT = new Intl.DateTimeFormat('en-GB', { month: 'short', timeZone: 'UTC' });
 
 interface RowProps {
   row: BoardRow;
@@ -597,6 +600,23 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
   const [d0, d1] = days;
   const today = Math.floor((dayStart(now) - from) / DAY);
   const nRows = items.filter((x) => x.kind === 'crew').length;
+  // v0.7 C2: day header and columns only change with the window (toLocaleDateString was the board's top self cost).
+  const head = useMemo(() => Array.from({ length: d1 - d0 }, (_, k) => {
+    const i = d0 + k;
+    const dt = toDate(from + i * DAY);
+    const wd = dt.getUTCDay();
+    return (
+      <span key={i} className={`rb-day ${wd === 0 || wd === 6 ? 'we' : ''} ${i === today ? 'today' : ''}`} style={{ left: LEFT_W + i * dayW, width: dayW }}>
+        {zoom === 'week' ? <>{WD_SHORT.format(dt)} <b>{dt.getUTCDate()}</b> {MON_SHORT.format(dt)}</>
+          : <><span className="rb-wd">{WD_NARROW.format(dt)}</span><b>{dt.getUTCDate()}</b></>}
+      </span>
+    );
+  }), [d0, d1, from, dayW, today, zoom]);
+  const cols = useMemo(() => Array.from({ length: d1 - d0 }, (_, k) => {
+    const i = d0 + k;
+    const wd = toDate(from + i * DAY).getUTCDay();
+    return <span key={i} className={`rb-col ${wd === 0 || wd === 6 ? 'we' : ''}`} style={{ left: LEFT_W + i * dayW, width: dayW }} />;
+  }), [d0, d1, from, dayW]);
 
   return (
     <div className="rb">
@@ -626,24 +646,10 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
         <div className="rb-canvas" style={{ width: W }}>
           <div className="rb-head" style={{ width: W }}>
             <div className="rb-corner small muted">{nRows} crew</div>
-            {Array.from({ length: d1 - d0 }, (_, k) => {
-              const i = d0 + k;
-              const dt = toDate(from + i * DAY);
-              const wd = dt.getUTCDay();
-              return (
-                <span key={i} className={`rb-day ${wd === 0 || wd === 6 ? 'we' : ''} ${i === today ? 'today' : ''}`} style={{ left: LEFT_W + i * dayW, width: dayW }}>
-                  {zoom === 'week' ? <>{dt.toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' })} <b>{dt.getUTCDate()}</b> {dt.toLocaleDateString('en-GB', { month: 'short', timeZone: 'UTC' })}</>
-                    : <><span className="rb-wd">{dt.toLocaleDateString('en-GB', { weekday: 'narrow', timeZone: 'UTC' })}</span><b>{dt.getUTCDate()}</b></>}
-                </span>
-              );
-            })}
+            {head}
           </div>
           <div className="rb-body" style={{ height: total }}>
-            {Array.from({ length: d1 - d0 }, (_, k) => {
-              const i = d0 + k;
-              const wd = toDate(from + i * DAY).getUTCDay();
-              return <span key={i} className={`rb-col ${wd === 0 || wd === 6 ? 'we' : ''}`} style={{ left: LEFT_W + i * dayW, width: dayW }} />;
-            })}
+            {cols}
             <TodayLine from={from} ppm={ppm} />
             <div style={{ height: tops[a] ?? 0 }} />
             {shown.map((it) => {
