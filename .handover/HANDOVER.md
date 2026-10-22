@@ -352,3 +352,4 @@ Player notes (22 Oct, with top-bar screenshot .handover/updates/topbar-space.jpg
   - HOLD for the v0.8 release.
   - PORT ORDER: v0.8 ready → merge v074 into acmi (whatsNew order v0.8, v0.7.4, ...) → fix pack (specs v0.8.x-fixpack) → verify → release.
   - Language-pass note: the Crew Planning verdict line repeats the stats shown above it. Trim it in the language pass.
+- 21:45Z: v0.8 workflow wf_4a73dcaa-1c0 FINISHED with ready=true (round 1, 967 tests). acmi committed. NEXT: merge-v074 agent, then the fixpack agent (plus a Newcomer offer-weight leftover), then verify and release.
