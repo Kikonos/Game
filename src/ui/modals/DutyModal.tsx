@@ -6,6 +6,7 @@
 import { ArrowLeftRight, ChevronLeft, Lock, LockOpen, Plus, UserMinus, Users } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { flightsRev } from '../../engine/core/entities';
+import { seatLabel } from '../../engine/core/perf';
 import { BAL } from '../../engine/core/balance';
 import { DAY, fmtDateTime, fmtDuration, fmtTime } from '../../engine/core/time';
 import type { GameState, Role } from '../../engine/core/types';
@@ -19,7 +20,7 @@ import { FlightTypeChip } from '../components/FlightType';
 import { GaugeRow } from '../components/Gauge';
 import { ProblemCardView } from '../components/ProblemCard';
 import { ReasonLine } from '../components/ReasonIcon';
-import { Plain } from '../components/Term';
+import { Plain, Term } from '../components/Term';
 import { flightType } from '../../engine/ops';
 import { money } from '../format';
 import { Dot } from '../screens/common';
@@ -69,7 +70,7 @@ function Seat({ s, busy, later, onChange, onRemove, onUnlock }: { s: RosterSlotV
   const tone = s.crewId ? (s.level ? LEVEL_TONE[s.level] : 'off') : later ? 'off' : s.above ? 'warn' : 'bad';
   return (
     <div className={`sc-seat ${s.crewId ? '' : later ? 'open' : s.above ? 'open above' : 'vacant'} ${s.level ?? ''}`}>
-      <span className={`sc-role r-${s.role}`}>{s.role}</span>
+      <span className={`sc-role r-${s.role}`}>{seatLabel(s.role, (s.crewId && store.game?.crew[s.crewId]?.role) || s.role)}</span>
       <span className="grow col sc-seat-who">
         <span className="row gap-8">
           <Dot tone={tone} />
@@ -97,14 +98,14 @@ function Seat({ s, busy, later, onChange, onRemove, onUnlock }: { s: RosterSlotV
   );
 }
 
-function Candidate({ c, confirm, swapWith, onTap }: { c: DutyCandidate; confirm: boolean; swapWith: boolean; onTap: () => void }) {
+function Candidate({ c, confirm, swapWith, onTap, seat }: { c: DutyCandidate; confirm: boolean; swapWith: boolean; onTap: () => void; seat: Role }) {
   return (
     <button className={`sc-cand ${c.level} ${confirm ? 'confirm' : ''}`} onClick={onTap}>
       <Dot tone={LEVEL_TONE[c.level]} />
       <span className="grow col sc-cand-main">
         <span className="row gap-8">
           <b className="ellipsis">{c.name}</b>
-          <span className={`sc-role r-${c.role}`}>{c.role}</span>
+          <span className={`sc-role r-${c.role}`}>{seatLabel(seat, c.role)}</span>
           {c.onPairing && <span className="chip sc-chip">on this trip</span>}
         </span>
         <span className="small muted ellipsis">
@@ -155,10 +156,19 @@ function Picker({ g, v, pick, setPick, back }: { g: GameState; v: DutyCrewView; 
       </div>
       {!list.length && <div className="small muted sc-pad">Nobody rated on this type can take a {pick.role} seat. Hire or train crew from the Crew tab.</div>}
       <div className="col">
-        {shown.map((c) => (
-          <Candidate key={c.crewId} c={c} confirm={confirm === c.crewId} swapWith={!!holder && c.codes.includes('overlap') && !!overlapDuty(g, v, c.crewId)} onTap={() => tap(c)} />
+        {shown.filter((c) => !c.asFo).map((c) => (
+          <Candidate key={c.crewId} c={c} seat={pick.role} confirm={confirm === c.crewId} swapWith={!!holder && c.codes.includes('overlap') && !!overlapDuty(g, v, c.crewId)} onTap={() => tap(c)} />
         ))}
       </div>
+      {/* v0.7.2 §2: captains for an FO/CRP seat in their own group, after the FOs (pay stays; morale dips past twice a month). */}
+      {shown.some((c) => c.asFo) && (
+        <div className="col">
+          <div className="upper dim sc-asfo-head"><Term id="asFo">Captain flying as {pick.role}</Term> <span className="tiny muted">same pay · morale dips past twice a month</span></div>
+          {shown.filter((c) => c.asFo).map((c) => (
+            <Candidate key={c.crewId} c={c} seat={pick.role} confirm={confirm === c.crewId} swapWith={!!holder && c.codes.includes('overlap') && !!overlapDuty(g, v, c.crewId)} onTap={() => tap(c)} />
+          ))}
+        </div>
+      )}
       {list.length > shown.length && <button className="btn btn-ghost" onClick={() => setAll(true)}>Show all {list.length}</button>}
     </div>
   );

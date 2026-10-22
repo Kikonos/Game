@@ -6,8 +6,7 @@
 //
 // Policy (a pure function of the game state, so a loaded save plays on identically):
 // - offers: base deployments first, then ad hoc fill-ins; accept the best ok/warn feasibility with a positive
-//   margin (crew shortfalls only when hires join in time); counter long-lead base deals at +5% once (v0.7.2: in a quiet
-//   week, one charter worth $100K+ more than ten days out too);
+//   margin (crew shortfalls only when hires join in time); counter long-lead base deals at +5% once;
 // - crew: fill staffing (widebodies: two more crew sets each, dual-type cabin crew count half; pilots past the rated pool
 //   in a second batch), hire one more set when the family's pilots fly > 80% of productive hours;
 // - maintenance: C-checks booked when warned, in the first free window (winter first); A-checks auto;
@@ -241,7 +240,6 @@ function offers(g: GameState, t: Tally): void {
     .sort((a, b) => Number(isBase(b)) - Number(isBase(a)) || b.estValue - a.estValue);
   // v0.7: a calendar under half full over the next month takes ad hoc work up to 45 days out.
   const hungry = open.length > 0 && committed(g, 30) < 0.5;
-  const quiet = !Object.values(g.contracts).some((c) => c.signed > g.now - 7 * DAY) && !Object.values(g.offers).some((x) => x.status === 'countered');
   for (const o of open) {
     const span = Math.max(1, (o.end - o.start) / DAY);
     if (span > 10 && o.estBH / span < 3) continue;
@@ -253,15 +251,6 @@ function offers(g: GameState, t: Tally): void {
     // A long-lead base deal is worth one counter at +5%; a refusal reopens it at the asking price.
     if (isBase(o) && !o.counter && o.product.kind === 'wet' && o.start > g.now + 14 * DAY && o.expires > g.now + 36 * 60) {
       if (counterOffer(g, o.id, o.product.ratePerBH * 1.05, [best.aircraftId], { paint: paintOn(o) }).ok) {
-        t.countered++;
-        act(g, t);
-        continue;
-      }
-    }
-    // v0.7.2 a quiet week (nothing signed for 7 days, no counter waiting): a charter worth $100K+ more than ten days out
-    // is worth one counter at +5% (a refusal keeps the asking price; the job is taken on the reply).
-    if (quiet && !isBase(o) && !o.counter && o.product.kind === 'charter' && o.estValue >= 100_000 && o.start > g.now + 10 * DAY && o.expires > g.now + 36 * 60) {
-      if (counterOffer(g, o.id, Math.round((o.product.price * 1.05) / 100) * 100, [best.aircraftId], { paint: paintOn(o) }).ok) {
         t.countered++;
         act(g, t);
         continue;

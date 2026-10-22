@@ -12,10 +12,10 @@ import { DAY, fmtDate, fmtDay, yearOf } from '../../engine/core/time';
 import type { GameState } from '../../engine/core/types';
 import { marketView, type MarketOfferView } from '../../engine/ops';
 import { AircraftArt } from '../components/AircraftArt';
-import { Flag } from '../components/ui';
+import { Flag, Toggle } from '../components/ui';
 import { money } from '../format';
-import { store } from '../store';
-import { markMarketSeen, offerKind, sellerOf } from './screenLogic';
+import { store, useStore } from '../store';
+import { markMarketSeen, offerKind, sellerOf, unseenOffers } from './screenLogic';
 
 /** '12 Jan', or '12 Jan 2028' outside the current year. */
 export const dayIn = (now: number, t: number) => (yearOf(t) === yearOf(now) ? fmtDay(t) : fmtDate(t));
@@ -75,6 +75,8 @@ function OfferCard({ now, v, sel }: { now: number; v: MarketOfferView; sel: bool
       <div className="mk-chips">
         <GateChip v={v} />
         <span className={`chip mk-chip ${v.crew.level === 'ok' ? 'good' : v.crew.level}`}>{v.crew.text}</span>
+        {/* v0.7.2 §3.4: widebodies come with bunks or without (short-haul types never have any). */}
+        {typeOf(o.typeId).body === 'wide' && <span className={`chip mk-chip ${o.crewRest?.bunks ? 'good' : ''}`}>Crew rest: {o.crewRest?.bunks ? 'bunks' : o.crewRest?.seats ? `seats (${o.crewRest.seats})` : 'none'}</span>}
         <span className="chip mk-chip">{v.daysLeft <= 1 ? 'Last day' : `Open ${v.daysLeft} more days`}</span>
       </div>
       <div className="row gap-8 mk-foot">
@@ -88,23 +90,45 @@ function OfferCard({ now, v, sel }: { now: number; v: MarketOfferView; sel: bool
   );
 }
 
+/** v0.7.2 F2: the market alert toggles live here (moved from Settings). */
+function MarketAlerts() {
+  const s = useStore();
+  const st = s.settings;
+  return (
+    <div className="card mk-alerts">
+      <span className="row gap-8"><b className="small">Market alerts</b><Toggle on={st.marketAlerts} onChange={(v) => store.setSettings({ marketAlerts: v })} label="Market alerts" /></span>
+      <span className={`row gap-8 ${st.marketAlerts ? '' : 'set-off'}`}>
+        <b className="small">Pause on new offers</b>
+        <span className={st.marketAlerts ? '' : 'set-disabled'}><Toggle on={st.marketAlerts && st.autoPause.marketOffer} onChange={(v) => st.marketAlerts && store.setSettings({ autoPause: { ...st.autoPause, marketOffer: v } })} label="Pause on new offers" /></span>
+        {!st.marketAlerts && <span className="tiny dim">Needs market alerts on</span>}
+      </span>
+      <span className="tiny dim grow mk-alerts-note">Alerts: an Inbox message, a quiet notice and a chip in the top bar.</span>
+    </div>
+  );
+}
+
 export function MarketView({ g, sel }: { g: GameState; sel: string | null }) {
   const list = marketView(g);
   const ids = list.map((v) => v.offer.id).join();
   // Seen on visit: the switch's dot clears; a deep link (Inbox) scrolls to its card.
   useEffect(() => {
-    markMarketSeen(list.map((v) => v.offer.id));
+    const ids = list.map((v) => v.offer.id);
+    const fresh = unseenOffers(ids) > 0;
+    markMarketSeen(ids);
+    // v0.7.2: the top bar's offer chip goes once seen.
+    if (fresh) store.emit();
     if (sel) document.querySelector(`.mk-card[data-offer="${sel}"]`)?.scrollIntoView({ block: 'nearest' });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ids, sel]);
   const early = g.now - g.started < 30 * DAY;
   return (
     <>
+      <MarketAlerts />
       <div className="small muted mb-8">Good airframes are scarce: about one offer a month, open for one to three weeks. Aircraft are handed over where they are; our pilots fly out on airlines and ferry them home.</div>
       {list.length ? (
         <div className="mk-grid">{list.map((v) => <OfferCard key={v.offer.id} now={g.now} v={v} sel={sel === v.offer.id} />)}</div>
       ) : (
-        <div className="card sc-pad muted small">No aircraft on offer right now. Lessors call every few weeks{early ? '; the first offer usually comes within two months' : ''}.{store.settings.marketAlerts ? ' Market alerts are on: you will hear about new ones.' : ' Turn on market alerts in Settings to hear about new ones.'}</div>
+        <div className="card sc-pad muted small">No aircraft on offer right now. Lessors call every few weeks{early ? '; the first offer usually comes within two months' : ''}.{store.settings.marketAlerts ? ' Market alerts are on: you will hear about new ones.' : ' Turn on market alerts above to hear about new ones.'}</div>
       )}
     </>
   );

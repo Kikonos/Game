@@ -2,19 +2,20 @@
 // Fleet · Market switch (the scarce aircraft market, Market.tsx); cards add the delivery, the lease end
 // (extend or return) and the cabin with refits. DESIGN.md §6.3, UPDATE-0.7.md §F6.7, §F7.5.
 
-import { CalendarRange, Lock, Palette, Plane, Sofa, Wrench } from 'lucide-react';
-import { useEffect } from 'react';
+import { BadgeDollarSign, CalendarRange, HelpCircle, Lock, Palette, Plane, Sofa, Undo2, Wrench, X } from 'lucide-react';
+import { type ReactNode, useEffect, useState } from 'react';
 import { artFor } from '../../data/acmiTypes';
 import { MRO_STATIONS } from '../../data/market';
 import { cabinMinimum, typeOf } from '../../engine/core/perf';
-import { fmtDate, fmtDay, yearOf } from '../../engine/core/time';
+import { DAY, fmtDate, fmtDay, yearOf } from '../../engine/core/time';
 import type { Aircraft, CrewExtra, GameState, LiveryRef } from '../../engine/core/types';
 import { BAL } from '../../engine/core/balance';
 import { crewExtraQuote, setCrewExtra, shortFlights } from '../../engine/crew';
-import { cancelCheck, checkStatus, deliveryStatus, leaseView, liveryOf, paintStatus, setAircraftLivery } from '../../engine/ops';
+import { cancelCheck, checkStatus, deliveryStatus, leastUsed, type LeastUsedRow, leaseView, liveryOf, paintStatus, setAircraftLivery } from '../../engine/ops';
 import { problemAt } from '../../engine/problems';
 import { AircraftArt } from '../components/AircraftArt';
 import { Why } from '../components/Why';
+import { Term } from '../components/Term';
 import { Empty, Seg, Stepper, Toggle } from '../components/ui';
 import { money } from '../format';
 import { spanLabel } from './screenLogic';
@@ -116,7 +117,32 @@ function CrewExtraRow({ g, ac }: { g: GameState; ac: Aircraft }) {
   );
 }
 
-function AircraftCard({ g, ac, sel }: { g: GameState; ac: Aircraft; sel: boolean }) {
+/** v0.7.2 §6.3 'Which one?': the one-line answer on the least used aircraft, with what to do about it. */
+function LeastUsedLine({ ac, least, onClose }: { ac: Aircraft; least: LeastUsedRow; onClose: () => void }) {
+  const lease = ac.ownership.kind === 'dryLeaseIn';
+  return (
+    <div className="fl-which">
+      <div className="col grow" style={{ minWidth: 0 }}>
+        <b className="small">The least used: {Math.round(least.bh90)} BH in {least.days} days ({least.perDay.toFixed(1)} BH a day){least.days < 90 ? `, counted for ${least.days} days` : ''}</b>
+        <span className="small muted">{lease ? 'Leased: handing it back early saves rent, for a fee.' : 'Owned: selling it brings cash in; signed work must be moved first.'}</span>
+      </div>
+      {lease
+        ? <button className="btn btn-sm" onClick={() => store.openModal({ kind: 'lease', aircraftId: ac.id, tab: 'early' })}><Undo2 /> Return early…</button>
+        : <button className="btn btn-sm" onClick={() => store.openModal({ kind: 'sell', aircraftId: ac.id })}><BadgeDollarSign /> Sell…</button>}
+      <button className="btn btn-ghost btn-icon btn-sm" onClick={onClose} aria-label="Close"><X /></button>
+    </div>
+  );
+}
+
+/** v0.7.2: 'bunks (class 1)' · 'seats (last row, 8)' · 'none'. */
+export function crewRestLabel(ac: Pick<Aircraft, 'crewRest'>): string {
+  const r = ac.crewRest;
+  if (r?.bunks) return 'bunks (class 1)';
+  if (r?.seats) return `seats (last row, ${r.seats})`;
+  return 'none';
+}
+
+function AircraftCard({ g, ac, sel, least, onLeastClose }: { g: GameState; ac: Aircraft; sel: boolean; least?: LeastUsedRow; onLeastClose: () => void }) {
   const t = typeOf(ac.typeId);
   const cs = safeCheck(g, ac);
   const [label, tone] = STATUS[ac.status];
@@ -144,6 +170,7 @@ function AircraftCard({ g, ac, sel }: { g: GameState; ac: Aircraft; sel: boolean
           <div className="small muted ellipsis">{t.name} · {ac.cabin.label} · {yearOf(g.now) - ac.builtYear} years</div>
         </div>
       </div>
+      {least && <LeastUsedLine ac={ac} least={least} onClose={onLeastClose} />}
       {ds && ds.phase !== 'home' && <div className={`fl-row small ${ds.phase === 'waiting' ? 'warn' : ''}`}><span className="upper dim">Delivery</span><span>{ds.text}</span></div>}
       {sf && short && (
         <div className="fl-row small cs-fleet">
@@ -160,6 +187,8 @@ function AircraftCard({ g, ac, sel }: { g: GameState; ac: Aircraft; sel: boolean
         ['At', ac.status === 'delivering' ? (ds ? `handover at ${ds.site} ${fmtDay(ds.handover)}` : `arrives ${fmtDate(ac.deliveredAt)}`) : ac.at],
         ['Hours / cycles', `${Math.round(ac.hours).toLocaleString('en-US')} / ${Math.round(ac.cycles).toLocaleString('en-US')}`],
         ['ETOPS', etopsLabel(g, ac)],
+        // v0.7.2 §3.4: bunks (class 1) or crew rest seats (class 3) or none; widebodies only (short-haul never has any).
+        ...(t.body === 'wide' ? [[<Term key="cr" id="crewRest">Crew rest</Term>, crewRestLabel(ac)] as [ReactNode, string]] : []),
       ]} />
       <CrewExtraRow g={g} ac={ac} />
       {cs ? (
@@ -171,9 +200,15 @@ function AircraftCard({ g, ac, sel }: { g: GameState; ac: Aircraft; sel: boolean
       ) : (
         <div className="small muted">Maintenance status unavailable.</div>
       )}
-      <div className="row gap-8">
+      {ac.sale && (
+        <div className="fl-row small fl-sale"><span className="upper dim">Sold</span><span className="grow">to {ac.sale.buyer} for {money(ac.sale.price)} · handover {fmtDay(ac.sale.closes)}</span><button className="btn btn-sm" onClick={() => store.openModal({ kind: 'sell', aircraftId: ac.id })}>Sale…</button></div>
+      )}
+      <div className="row gap-8 fl-actions">
         <button className="btn grow" onClick={() => store.navigate('schedule', { sel: { kind: 'aircraft', id: ac.id } })}><CalendarRange /> Schedule</button>
         <button className="btn grow" onClick={() => store.navigate('map', { sel: { kind: 'aircraft', id: ac.id } })}><Plane /> On map</button>
+        {/* v0.7.2 §6: sell what we own; hand a lease back early (90+ days left). */}
+        {o.kind === 'owned' && !ac.sale && ac.status !== 'delivering' && <button className="btn grow" onClick={() => store.openModal({ kind: 'sell', aircraftId: ac.id })}><BadgeDollarSign /> Sell…</button>}
+        {o.kind === 'dryLeaseIn' && !ac.returning && ac.status !== 'delivering' && o.leaseEnd - g.now >= 90 * DAY && <button className="btn grow" onClick={() => store.openModal({ kind: 'lease', aircraftId: ac.id, tab: 'early' })}><Undo2 /> Return early…</button>}
       </div>
     </div>
   );
@@ -215,7 +250,7 @@ function CabinRow({ g, ac }: { g: GameState; ac: Aircraft }) {
     <div className="fl-row fl-cabin">
       <div className="col grow" style={{ minWidth: 0 }}>
         <span className="small"><span className="upper dim">Cabin</span> <b>{ac.cabin.label}</b> {layoutLabel(ac.cabin.layout)} · crew minimum {cabinMinimum(ac.cabin.total)} cabin</span>
-        {m?.refit && <span className="small accent">Refit to {m.refit.cabin.label} at {st?.city ?? m.at} {fmtDay(m.start)}–{fmtDay(m.end)}{m.status === 'inWork' ? ' · in work' : ''}</span>}
+        {m?.refit && <span className="small accent">{m.refit.restSeats !== undefined ? (m.refit.restSeats ? 'Crew rest seats fitted' : 'Crew rest seats removed') : `Refit to ${m.refit.cabin.label}`} at {st?.city ?? m.at} {fmtDay(m.start)}–{fmtDay(m.end)}{m.status === 'inWork' ? ' · in work' : ''}</span>}
       </div>
       {m ? (m.status === 'planned' && <button className="btn btn-sm" onClick={cancel}>Cancel refit</button>)
         : <button className="btn btn-sm" disabled={busy} onClick={() => store.openModal({ kind: 'refit', aircraftId: ac.id })}><Sofa /> Refit…</button>}
@@ -248,10 +283,20 @@ export function FleetScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sel, nav.view]);
 
+  // v0.7.2 §6.3 'Which one?': the least used aircraft over 90 days (leases first: they cost rent).
+  const [which, setWhich] = useState(false);
+  const leased = leastUsed(g, 'leased');
+  const least = which ? (leased[0] ?? leastUsed(g, 'any')[0]) : undefined;
+  const pickLeast = () => {
+    const l = leased[0] ?? leastUsed(g, 'any')[0];
+    setWhich(true);
+    if (l) store.navigate('fleet', { sel: { kind: 'aircraft', id: l.aircraftId } });
+  };
   const monthly = fleet.reduce((s, a) => s + (a.ownership.kind === 'dryLeaseIn' ? a.ownership.rentPerMonth : 0), 0);
   return (
     <div className="screen sc-fleet">
       <ScreenHead title={view === 'market' ? 'Aircraft market' : 'Fleet'} sub={view === 'market' ? `${offers.length} open offer${offers.length === 1 ? '' : 's'} · cash ${money(g.company.cash)}` : `${fleet.length} aircraft · rent ${money(monthly)}/month`}>
+        {view === 'fleet' && fleet.length > 1 && <button className="btn" onClick={pickLeast} aria-label="Which one? Show the least used aircraft"><HelpCircle /> Which one?</button>}
         <Seg<FleetView> value={view} onChange={setView} options={[
           { value: 'fleet', label: 'Fleet' },
           { value: 'market', label: <span className="row gap-4">Market ({offers.length}){fresh > 0 && <span className="fl-dot" aria-label={`${fresh} new`} />}</span> },
@@ -260,7 +305,7 @@ export function FleetScreen() {
       {view === 'market' ? <MarketView g={g} sel={mkSel} /> : !fleet.length ? (
         <Empty icon={<Wrench />} title="No aircraft">Lease one from the Market.</Empty>
       ) : (
-        <div className="sc-ac-grid">{fleet.map((ac) => <AircraftCard key={ac.id} g={g} ac={ac} sel={sel === ac.id} />)}</div>
+        <div className="sc-ac-grid">{fleet.map((ac) => <AircraftCard key={ac.id} g={g} ac={ac} sel={sel === ac.id} least={least?.aircraftId === ac.id ? least : undefined} onLeastClose={() => setWhich(false)} />)}</div>
       )}
     </div>
   );

@@ -1,5 +1,6 @@
 // Game shell for iPad landscape: top bar (company, UTC clock, speed control, cash, alerts, menu)
 // and a left rail of eight screens. No ticker (calm visuals). DESIGN.md §6.1. Owner: architect → B5.
+// v0.7.2: the live ops strip (OpsStrip) fills the space between the speed control and cash.
 
 import {
   Bell, Building2, CalendarRange, FileSignature, Globe2, Inbox as InboxIcon, Menu, Pause, Plane, Play, Users, Wallet,
@@ -18,6 +19,7 @@ import { FleetScreen } from '../screens/Fleet';
 import { InboxScreen } from '../screens/Inbox';
 import { ScheduleScreen } from '../screens/Schedule';
 import { refTarget } from '../screens/screenLogic';
+import { OpsStrip } from './OpsStrip';
 import { shortFlights } from '../../engine/crew';
 import { type GameSpeed, SPEED_LABEL, type Tab, store, useClock, useGame, useStore } from '../store';
 import { useMedia, useTier } from '../useMedia';
@@ -112,7 +114,11 @@ function PauseBadge() {
       s.openModal({ kind: 'sheet', refs: [ref] });
     }
     else if (reason === 'contractStart') s.navigate('schedule');
-    else if (reason === 'marketOffer') s.navigate('fleet', { view: 'market' });
+    else if (reason === 'marketOffer') {
+      // v0.7.2: straight to the newest offer.
+      const o = g?.market.aircraft.filter((x) => x.expires > g.now).at(-1);
+      s.navigate('fleet', { view: 'market', sel: o ? { kind: 'market', id: o.id } : undefined });
+    }
     else s.navigate('inbox');
   };
   return (
@@ -162,14 +168,16 @@ function Alerts() {
   );
 }
 
-function TopBar() {
+function TopBar({ compact }: { compact: boolean }) {
+  const s = useStore();
+  const badgeKey = s.blocked ? 'decision' : s.paused ? s.pauseReason ?? '' : '';
   return (
     <header className="topbar">
       <CompanyPill />
       <div className="tb-sep" />
       <Clock />
       <SpeedControl />
-      <PauseBadge />
+      <OpsStrip badge={<PauseBadge />} badgeKey={badgeKey} compact={compact} />
       <div className="tb-right">
         <CashBlock />
         <Alerts />
@@ -225,7 +233,7 @@ export function Shell() {
   const tab = s.nav.tab;
   return (
     <div className={`shell acmi ${tier === 'compact' ? 'compact-acmi' : 'medium'}`}>
-      <TopBar />
+      <TopBar compact={tier === 'compact'} />
       <Rail />
       <main className={`main ${tab === 'map' ? 'no-scroll' : ''}`}>
         {tab === 'map' && <OpsMap />}

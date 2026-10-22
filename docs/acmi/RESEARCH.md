@@ -367,6 +367,8 @@ Break-even is about 160 BH/month. Old widebodies combine cheap rent with expensi
 
 ### 5.1 Flight time limitations: simplified EASA rule set (implement as written)
 
+> v0.7.2: the rules are restated by article in docs/acmi/EASA-FTL.md, the reference for crew rules from now on. v0.7.2: CSD/SCC merged into PUR (the game's cabin ranks are PUR and CC).
+
 Source: Reg. (EU) 83/2014 (ORO.FTL / CS FTL.1). Times are h:mm. The "reference time" is local time where the crew is acclimatised. Use 15-minute resolution. Show each duty as **legal / tight / illegal**.
 
 **F1. Basic maximum FDP (2 pilots, acclimatised).** `maxFDP = base(report time) − 0:30 × max(0, sectors − 2)`, with a floor of 9:00. This exactly reproduces Table 2.

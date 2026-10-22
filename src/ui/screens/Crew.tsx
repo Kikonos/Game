@@ -54,10 +54,12 @@ function Staffing({ g }: { g: GameState }) {
       {lines.map((l) => {
         const short = l.have < l.need;
         return (
-          <button key={`${l.family}-${l.role}`} className={`sc-staff-chip ${short ? 'short' : ''}`} onClick={() => store.openModal({ kind: 'hire', role: l.role, family: l.family })} data-tip={`${ROLE_LABEL[l.role]}: ${l.have} on the books, ${l.need} needed for the fleet`}>
+          <button key={`${l.family}-${l.role}`} className={`sc-staff-chip ${short ? 'short' : ''}`} onClick={() => store.openModal({ kind: 'hire', role: l.role, family: l.family })} data-tip={`${ROLE_LABEL[l.role]}: ${l.have} on the books, ${l.need} needed for the fleet${l.shared ? `; ${l.shared} also fly another type` : ''}`} aria-label={`${familyLabel(l.family)} ${l.role}: ${l.have} of ${l.need}${l.shared ? `, ${l.shared} also on another type` : ''}. Hire`}>
             <span className="tiny dim">{familyLabel(l.family)}</span>
             <b>{l.role}</b>
             <span className={`num ${short ? 'warn' : ''}`}>{l.have}/{l.need}</span>
+            {/* v0.7.2: multi-type cabin crew counted here who also hold another fleet type. */}
+            {!!l.shared && <span className="tiny muted sc-staff-shared">{l.shared} shared</span>}
           </button>
         );
       })}

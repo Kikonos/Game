@@ -7,7 +7,8 @@ import { AIRPORT_BY_CODE } from '../../data/airports';
 import { BAL } from '../../engine/core/balance';
 import { DAY, fmtDateTime, fmtDuration, fmtTime } from '../../engine/core/time';
 import type { Flight, GameState, MaintenanceEvent, Ref } from '../../engine/core/types';
-import { crewName, dutyCrew, dutyLegality, flightCrewStatus } from '../../engine/crew';
+import { crewName, dutyCrew, dutyLegality, flightCrewStatus, restSeatsBlocked } from '../../engine/crew';
+import { seatLabel } from '../../engine/core/perf';
 import { cancelCheck, delayFlight, flightCrewAboard, flightType } from '../../engine/ops';
 import { problemAt } from '../../engine/problems';
 import { FlightTypeChip } from '../components/FlightType';
@@ -51,6 +52,9 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
     ['Block', fmtDuration(f.block)],
   ];
   if (f.pax) rows.push(['Passengers', String(f.pax)]);
+  // v0.7.2 §3.4: crew rest seats blocked on this flight (its duty needs in-flight rest).
+  const blocked = f.kind !== 'deadhead' && ac ? restSeatsBlocked(g, f.id) : 0;
+  if (blocked && ac) rows.push(['Seats', <span className="warn">{ac.cabin.total} · {ac.cabin.total - blocked} sellable on this flight ({blocked} blocked for crew rest)</span>]);
   if (type === 'ferry') rows.push(['Crew aboard', 'Pilots only · cabin crew travel separately']);
   else if (type === 'positioning') rows.push(['Crew aboard', 'Full crew · cabin crew needed at the destination']);
   if (aboard.riding.length) rows.push(['Riding', aboard.riding.filter((id) => g.crew[id]).map((id) => `${g.crew[id].role} ${crewName(g.crew[id])}`).join(', ')]);
@@ -67,7 +71,7 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
   return (
     <div className="col gap-12">
       {card && (
-        <ProblemCardView card={card} g={g} hideActions>
+        <ProblemCardView card={card} g={g} hideActions={short}>
           {short && <button className="btn btn-primary" onClick={() => store.openModal({ kind: 'crewControl', flightId: f.id })}><Users /> Crew Control</button>}
           {short && f.crewAlert && <span className={`cs-banner ${card.severity}`}>CREW SHORTAGE</span>}
         </ProblemCardView>
@@ -86,7 +90,7 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
             <div className="sc-crew-grid">
               {view.slots.filter((x) => x.crewId).map((x) => (
                 <button key={x.crewId} className={`sc-crew-chip ${x.level ?? ''}`} onClick={() => store.navigate('crew', { sel: { kind: 'crew', id: x.crewId! } })}>
-                  <span className="mono dim">{x.role}</span><span className="ellipsis grow">{x.name}</span>
+                  <span className="mono dim">{seatLabel(x.role, g.crew[x.crewId!]?.role ?? x.role)}</span><span className="ellipsis grow">{x.name}</span>
                   {x.locked && <Lock className="sc-ico-s accent" aria-label="set by you" />}
                   {x.level && x.level !== 'legal' && <Dot tone={x.level === 'tight' ? 'warn' : 'bad'} />}
                 </button>

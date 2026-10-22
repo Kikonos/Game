@@ -163,9 +163,9 @@ So a long duty needs 1–2 extra cabin crew to keep the service running while co
   These seats are sold unless the duty needs in-flight rest (`restSeatsBlocked`, `sellableSeats`). Class 2 is kept
   in the tables for completeness; no aircraft offers it in v0.7.2.
 - `CABIN_REST` and `cabinInflightRest(fdp, cls)` (null = not allowed). `complement()` adds cabin crew for rest on
-  class 2/3 facilities (+1 above 14:30, +2 above 16:00, est.). A class 3 facility cannot reach an FDP the table
-  refuses: its pilot limit (14:00/15:00, +1:00) plus the 15 min cabin difference stays ≤ 16:15, and the
-  `cabinInflightRest` check refuses anything above 16:00 on class 3 (tested).
+  class 2/3 facilities (+1 above 14:30, +2 above 16:00, est.). An augmented FDP is capped so the cabin crew (reporting
+  15 min earlier on widebodies) stay inside their table: `maxFdp` takes `cabinFdpCap(cls) − cabinEarly` (class 1
+  18:30, class 2 17:00, class 3 16:00). Only 4 pilots on class 3 with the +1:00 bonus feel it: 16:00 → 15:45 (tested).
 - Rest after an augmented duty away: 14 h (`minRest`).
 
 ---
@@ -241,7 +241,7 @@ and reserve are not in v0.7.2: a missing crew member is replaced by someone off 
 | Commander's discretion | ORO.FTL.205(f) | `DISCRETION` | "discretion constants" |
 | Augmented FDP | CS FTL.1.205(c) | `AUG_FDP`, `AUG_BONUS`, `AUG_BONUS_FT`, `AUG_MAX_SECTORS`, `FDP_CAP` | "maxFdp F3 (augmented)" |
 | Rest facility per airframe | CS FTL.1.205(b) | `crewRest.ts restClassAt`, `restSeatsBlocked`, `sellableSeats` | `crew/crewRest.test.ts` |
-| Cabin crew in-flight rest | CS FTL.1.205(c) | `CABIN_REST`, `cabinInflightRest` | "cabin crew in-flight rest table" |
+| Cabin crew in-flight rest | CS FTL.1.205(c) | `CABIN_REST`, `cabinInflightRest`, `cabinFdpCap` | "cabin crew in-flight rest table" |
 | Cumulative duty and block | ORO.FTL.210 | `LIMITS` | "limits table", "enforces …", "1,000 h in 12 months" |
 | Rest home/away/augmented | ORO.FTL.235(a)(b) | `minRest` | "minRest F8" |
 | Extended recovery | ORO.FTL.235(d) | `LIMITS.recovery`, `recoveryEvery`, `recoveryLong` | "needs a 36 h recovery …", "extends recovery to 60 h …" |

@@ -11,7 +11,7 @@ import { problemFor } from '../engine/problems';
 import { acceptOffer, declineOffer, feasibilityAll, generateOffer } from '../engine/contracts';
 import { DAY } from '../engine/core/time';
 import { pushDecision } from '../engine/core/messages';
-import { demoFlights, devCrewShortage, devFleet, devGrantApproval, devMarketOffer } from '../engine/dev';
+import { demoFlights, devCrewShortage, devFleet, devGrantApproval, devMarketOffer, devRestSeats, devSaleReady } from '../engine/dev';
 import { resignNow } from '../engine/crew';
 import { createGame, type NewGameOptions } from '../engine/newGame';
 import { AUTOSAVE_SLOT, saveToSlot, serialize } from '../engine/save';
@@ -92,8 +92,10 @@ export type ModalSpec =
   | { kind: 'classes' }
   /** v0.7: sign a market offer; cabin refit; lease extend/return; an approval on the ladder; the ladder-step celebration. */
   | { kind: 'acquire'; offerId: string }
-  | { kind: 'refit'; aircraftId: string; layout?: CabinLayout; /** back to this offer when done */ offerId?: string }
-  | { kind: 'lease'; aircraftId: string }
+  | { kind: 'refit'; aircraftId: string; layout?: CabinLayout; /** back to this offer when done */ offerId?: string; /** v0.7.2 open on crew rest seats */ rest?: boolean }
+  | { kind: 'lease'; aircraftId: string; /** v0.7.2 'early': the early-return tab */ tab?: 'renew' | 'early' }
+  /** v0.7.2: sell an owned aircraft (quote, blockers, confirm; cancel an agreed sale). */
+  | { kind: 'sell'; aircraftId: string }
   | { kind: 'approval'; id: ApprovalId }
   | { kind: 'ladderStep'; messageId: string }
   | { kind: 'whatsNew' }
@@ -726,6 +728,28 @@ class GameStore {
       if (pause) this.autoPause(pause);
       this.surfaceMessages();
       if (id) this.openModal({ kind: 'crewControl', flightId: id });
+      this.emit();
+      return id;
+    },
+    /** v0.7.2: an A330-300 with crew rest seats and an augmented duty booked; opens its flight sheet; returns the flight id. */
+    restSeats: () => {
+      const g = this.game;
+      if (!g) return '';
+      const id = devRestSeats(g);
+      settle(g);
+      this.lastMsgId = g.messages[0]?.id ?? this.lastMsgId;
+      if (id) this.openModal({ kind: 'sheet', refs: [{ kind: 'flight', id }] });
+      this.emit();
+      return id;
+    },
+    /** v0.7.2: an owned aircraft with no work after 10 days (sellable); opens the sale dialog; returns its id. */
+    saleReady: () => {
+      const g = this.game;
+      if (!g) return '';
+      const id = devSaleReady(g);
+      settle(g);
+      this.lastMsgId = g.messages[0]?.id ?? this.lastMsgId;
+      if (id) this.openModal({ kind: 'sell', aircraftId: id });
       this.emit();
       return id;
     },

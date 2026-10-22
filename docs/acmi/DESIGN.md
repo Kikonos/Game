@@ -80,7 +80,7 @@ The source of truth for data shapes is `src/engine/core/types.ts`. This document
 - `operatedBy`: the rival operating a sub-chartered leg (aircraftId null, still billed to our client).
 
 **CrewMember.** Named (`first`, `last`), with `nationality` and `languages`.
-- `role`: `CPT | FO | CRP` (cruise relief pilot) `| CSD` (cabin service director, the widebody SCCM) `| SCC` (senior cabin crew: SCCM on narrowbodies, No. 2 on widebodies) `| CC`.
+- `role`: `CPT | FO | CRP` (cruise relief pilot) `| PUR` (purser, the senior cabin crew member / SCCM) `| CC`. v0.7.2: CSD/SCC merged into PUR (migrated in the crew module's load); flight time rules: docs/acmi/EASA-FTL.md.
 - `ratings`: rating families; cabin crew may hold at most 3.
 - `base`, `loc` (current airport) and `status`.
 - `restUntil`.
@@ -112,7 +112,7 @@ The source of truth for data shapes is `src/engine/core/types.ts`. This document
 - **Fleet:** two A320ceo with 180Y cabins at the chosen base:
   - one owned, built 2006, book value $9.5M, higher deferred-defect level, C-check about 15 months ago;
   - one dry-leased in, built 2013, $228k/month plus $380/FH reserves, lease to Mar 2031.
-- **Crew:** 60 named crew, rated A320, at base. That is 10 CPT, 10 FO, 10 SCC and 30 CC, or 10 complete A320 complements (2 pilots + SCCM + 3 CC; the narrowbody SCCM is an SCC), about 5 sets per aircraft. Names follow the base's crew mix (`data/names.ts`).
+- **Crew:** 60 named crew, rated A320, at base. That is 10 CPT, 10 FO, 10 PUR and 30 CC, or 10 complete A320 complements (2 pilots + a purser (SCCM) + 3 CC; v0.7.2: CSD/SCC merged into PUR), about 5 sets per aircraft. Names follow the base's crew mix (`data/names.ts`).
 - **Cash:** $3.0M (`BAL.startCash`). Fixed costs are about $0.87M a month (rent $228k, insurance $84k, overhead $280k, salaries with on-costs about $274k), which gives about 3.5 months of runway.
 - **Reputation:** reliable 60, clean 70. No approvals.
 - **Maintenance clock:** the owned A320 starts 520 FH and 70 days into its A-check interval (750 FH / 120 days), so its A-check falls due around 20 April, inside the first summer programme. Base patterns reserve maintenance nights for exactly this (§5.1.6).
@@ -504,9 +504,9 @@ if augment > 0 and sectors ≤ 3:
 
 **Cabin crew complement.** `complement(typeId, seats, {augment, extraCabin})` (done) gives:
 - cockpit: 2 pilots, CPT/FO/CRP with one extra pilot, or 2 CPT + 2 FO with two. ULR types get 4 pilots only on duties that need augment 2;
-- cabin: `ceil(seats/50)` + `company.policies.extraCabin` + `requirements.extraCabin`, plus in-flight-rest cabin crew on long augmented FDPs with class 2/3 rest (+1 above 14:30, +2 above 16:00; F3; pass `fdp`). The SCCM slot is CSD on widebodies and SCC on narrowbodies, plus a widebody No. 2 (SCC) from 8 cabin crew; the rest are CC.
+- cabin: `ceil(seats/50)` + `company.policies.extraCabin` + `requirements.extraCabin`, plus in-flight-rest cabin crew on long augmented FDPs with class 2/3 rest (+1 above 14:30, +2 above 16:00; F3; pass `fdp`). v0.7.2: exactly one PUR (the SCCM), a second only on two-deck types (A380, 747); the rest are CC (CSD/SCC merged into PUR).
 
-`canFill` lets seniors fly junior positions (CSD → SCC/CC, SCC → CC, FO → CRP).
+`canFill` lets seniors fly junior positions (PUR → CC, FO → CRP; v0.7.2: CPT → FO/CRP only when no FO is free, labelled 'CPT (as FO)').
 
 ### 5.3 Duties, pairings, deployments and the auto-roster (B2)
 
@@ -539,7 +539,7 @@ Example (A320 at HAM, 2 waves): a HAM–PMI rotation is 155 + 40 + 155 min. Wave
    - `−deadheadCost(loc → first departure)`, where an existing deployment at that base counts as 0;
    - `−2 × block28d hours` (fairness);
    - `+30` if they flew this aircraft's or contract's previous pairing (crew family);
-   - `−50` for overqualification (CSD in a CC slot);
+   - `−50` for overqualification (PUR in a CC slot);
    - `−(70 − morale)/2` if the mission is unpleasant (`effects.morale < 0`);
    - tie-break on crew id.
 4. Take the best candidate. Crew who must travel get one ticket per group travelling together (`addDeadhead`):
@@ -567,7 +567,7 @@ Example (A320 at HAM, 2 waves): a HAM–PMI rotation is 155 + 40 + 155 min. Wave
 - **Training:**
   - type rating: pilots 35 days, $45k; cabin 7 days, $3k;
   - command upgrade FO→CPT: 42 days, $22k, needs 4,000 h;
-  - SCCM course CC→SCC: 4 days.
+  - SCCM (purser) course CC→PUR: 4 days.
   - `training.done` adds the rating or role and updates the salary.
 - **Daily:**
   - per diem `BAL.perDiem[role] × policies.perDiemPct/100` (CPT $108, FO $76, cabin $54; RESEARCH §5.3) per crew member away (`awaySince ≠ null`) → `perDiem`;
@@ -933,13 +933,13 @@ Goals are checked daily and posted as a `goal` message (a toast) with reliable +
 | charterDeposit / balance days | 30% / 7 | §4.3 |
 | brokerCommission | 5% | §4.3 |
 | counterFloor / reply | 1.04–1.18 × asking / 6–30 h | design |
-| salary (NB / WB rating) | CPT 9,400/12,000 · FO 5,300/7,000 · CRP 4,300 · CSD 2,600/3,000 · SCC 2,300/2,600 · CC 1,900/2,100 | §5.5, season-averaged, USD |
+| salary (NB / WB rating) | CPT 9,400/12,000 · FO 5,300/7,000 · CRP 4,300 · PUR 2,500/2,900 · CC 1,900/2,100 (v0.7.2: CSD/SCC merged into PUR) | §5.5, season-averaged, USD |
 | onCosts | 20% | §5.5 |
-| perDiem | CPT $108 · FO/CRP $76 · CSD $60 · SCC/CC $54 per day, × `policies.perDiemPct` | RESEARCH §5.3 (€100/€70/€50) |
+| perDiem | CPT $108 · FO/CRP $76 · PUR $60 · CC $54 per day, × `policies.perDiemPct` | RESEARCH §5.3 (€100/€70/€50) |
 | maintEvery (base patterns) | 7 days | contractual maintenance night |
 | hotelPerNight | 3★ $90 · 4★ $140 · 5★ $230 | est. |
 | deadheadTicket | $250 / $600 / $1,300 by distance | §5.3 |
-| hireDays | CPT 60 · FO 45 · CRP 45 · CSD/SCC 35 · CC 50 | §5.4 (rated) |
+| hireDays | CPT 60 · FO 45 · CRP 45 · PUR/CC 7 (v0.7.2: cabin crew join in about a week) | §5.4 (rated) |
 | hireCost | pilot $9k · cabin $2k | est. |
 | typeRating | pilot 35 d $45k · cabin 7 d $3k | §5.4 |
 | commandUpgrade | 42 d, $22k, 4,000 h | §5.4 |
