@@ -1,7 +1,7 @@
 // v0.7.1 fuel-gauge bars for limits (UPDATE-0.7.1.md §5, §7): a rounded track, the fill in green / amber / red, a
 // needle at the value, the label left and '10:45 of 11:00' right, 'by 06:00' under it. Static.
 
-import { fmtTime } from '../../engine/core/time';
+import { fmtDateTime, fmtTime } from '../../engine/core/time';
 import type { GaugeSpec } from '../../engine/problems/types';
 
 export function Gauge({ spec, compact }: { spec: GaugeSpec; compact?: boolean }) {
@@ -17,7 +17,7 @@ export function Gauge({ spec, compact }: { spec: GaugeSpec; compact?: boolean })
         <span className="gauge-fill" style={{ width: `${pct}%` }} />
         <span className="gauge-needle" style={{ left: `${pct}%` }} />
       </div>
-      {spec.by !== undefined && !compact && !(spec.id === 'rest' && spec.value >= spec.limit) && <div className="gauge-by tiny dim">{spec.tone === 'good' && spec.id !== 'rest' ? 'until' : 'by'} {fmtTime(spec.by)} UTC</div>}
+      {spec.by !== undefined && !compact && !(spec.id === 'rest' && spec.value >= spec.limit) && <div className="gauge-by tiny dim">{spec.tone === 'good' && spec.id !== 'rest' ? 'until' : 'by'} {spec.unit === 'pct' ? fmtDateTime(spec.by) : fmtTime(spec.by)} UTC</div>}
     </div>
   );
 }

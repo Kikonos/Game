@@ -9,9 +9,10 @@ export function BarTicks({ ticks, airport, side }: { ticks: BarTick[]; airport: 
     <div className={`rb-labels ${side}`}>
       {ticks.filter((t) => t.side === side).map((t) => {
         const [utc, local] = tickTimes(t.t, airport);
-        const edge = t.x < 8 ? 'left' : t.x > 92 ? 'right' : '';
+        const lx = t.lx ?? t.x;
+        const edge = lx < 8 ? 'left' : lx > 92 ? 'right' : '';
         return (
-          <div key={t.key} className={`rb-lab ${edge} ${t.tone ?? ''}`} style={{ left: `${t.x}%` }}>
+          <div key={t.key} className={`rb-lab ${edge} ${t.tone ?? ''}`} style={{ left: `${lx}%` }}>
             <b>{t.label}</b>
             <span className="num">{utc}</span>
             <span className="num dim">{local}</span>

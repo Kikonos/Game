@@ -41,8 +41,18 @@ function Option({ o, on, onTap, multi, role, seat, disabled }: { o: FixOption; o
   );
 }
 
+const seatWords = (m: { role: Role; n: number }[]) => m.map((x) => `${x.n} ${x.n === 1 ? ROLE_WORD[x.role][0] : ROLE_WORD[x.role][1]}`).join(' and ');
+/** 'Still needs 1 senior cabin crew afterwards': an available fix that leaves the flight short says so on its row. */
+function leftover(s: CrewSolution): string | null {
+  const a = s.preview.after;
+  if (!s.available || a.level === 'ok' || a.level === 'tight' || a.level === 'cancelled' || a.level === 'subchartered') return null;
+  return a.missing.length ? `Still needs ${seatWords(a.missing)} afterwards` : 'Still not a legal crew afterwards';
+}
+
 function Row({ s, open, onOpen, children }: { s: CrewSolution; open: boolean; onOpen: () => void; children?: ReactNode }) {
-  const timing = s.newDeparture !== null ? `leaves ${fmtTime(s.newDeparture)}` : s.chips.find((c) => /^lands|^arrives|^wheels/i.test(c));
+  const left = leftover(s);
+  // The engine's own timing chip ('leaves 15:45 (+11h 45m)', 'lands 06:50') wins; else one from the new departure.
+  const timing = s.chips.find((c) => /^leaves|^lands|^arrives|^wheels/i.test(c)) ?? (s.newDeparture !== null ? `leaves ${fmtTime(s.newDeparture)}` : undefined);
   // The engine's chips carry the price when there is one; our own cost chip only says 'free'.
   const chips = s.chips.filter((c) => c !== timing);
   const priced = chips.some((c) => /^[−-]?\$/.test(c));
@@ -64,7 +74,7 @@ function Row({ s, open, onOpen, children }: { s: CrewSolution; open: boolean; on
               <span className="chip sc-chip">not now</span>
             )}
           </span>
-          <span className={`small ${s.available ? 'muted' : 'dim'} ellipsis`}>{s.available ? s.consequences[0] ?? s.desc : s.why ?? s.desc}</span>
+          <span className={`small ${left ? 'warn' : s.available ? 'muted' : 'dim'} ellipsis`}>{left ?? (s.available ? s.consequences[0] ?? s.desc : s.why ?? s.desc)}</span>
         </span>
       </button>
       {open && <div className="cc-row-body">{children}</div>}
@@ -193,7 +203,7 @@ export function CrewControlModal({ flightId, fix }: { flightId: string; fix?: Cr
               const canApply = x.available && (!x.options?.length || ids.length > 0);
               return (
                 <Row key={x.id} s={x} open={isOpen} onOpen={() => setOpen(isOpen ? null : x.id)}>
-                  <div className="small muted">{x.desc}{!x.available && x.why ? ` ${x.why}.` : ''}</div>
+                  <div className="small muted">{x.desc}</div>
                   {x.options && x.options.length > 0 && (() => {
                     // Candidates: the role chip, the seat each tick fills, and no second tick for a seat already taken.
                     const plan = multi ? seatPlan(view.missing, ids.map((id) => ({ id, role: roleOf(id) }))) : null;
@@ -241,7 +251,7 @@ export function CrewControlModal({ flightId, fix }: { flightId: string; fix?: Cr
                         {x.cost > 0 && <span className="small muted">{money(x.cost)}{x.newDeparture !== null && x.newDeparture > view.std ? ` · ${spanLabel(x.newDeparture - view.std)} late` : ''}</span>}
                       </>
                     ) : (
-                      <span className="small dim">{x.why ?? 'Not available for this flight.'}</span>
+                      <span className="small dim">{x.why ? `${x.why}.` : 'Not available for this flight.'}</span>
                     )}
                   </div>
                 </Row>

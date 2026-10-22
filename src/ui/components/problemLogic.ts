@@ -52,6 +52,8 @@ export interface BarTick {
   x: number;
   /** Alternating rows so neighbouring labels never overlap. */
   side: 'above' | 'below';
+  /** Where the label sits (0–100): the tick's x, pushed along when two labels of one row would overlap. */
+  lx?: number;
   tone?: 'good' | 'warn' | 'bad';
 }
 
@@ -66,9 +68,20 @@ export interface BarLayout {
 const pos = (t: Minute, from: Minute, to: Minute) => Math.max(0, Math.min(100, ((t - from) / Math.max(1, to - from)) * 100));
 
 /** Alternates label rows in time order; a tick within `near` % of the previous one on the same side is pushed to the other. */
-function alternate<T extends { x: number; side: 'above' | 'below' }>(ticks: T[]): T[] {
+/** Labels of one row at least this far apart (% of the bar: 'Earliest landing' is ~95 px in a 400 px card). */
+const LABEL_GAP = 24;
+
+function alternate<T extends { x: number; side: 'above' | 'below'; lx?: number }>(ticks: T[]): T[] {
   const sorted = [...ticks].sort((a, b) => a.x - b.x);
   sorted.forEach((t, i) => (t.side = i % 2 ? 'below' : 'above'));
+  // Labels two apart share a row: push the later one along (never the tick), then pull a run back from the right edge.
+  for (const side of ['above', 'below'] as const) {
+    const row = sorted.filter((t) => t.side === side);
+    let prev = -Infinity;
+    for (const t of row) { t.lx = Math.max(t.x, prev + LABEL_GAP); prev = t.lx; }
+    const over = prev - 100;
+    if (over > 0) for (const t of row) t.lx = Math.max(0, (t.lx ?? t.x) - over);
+  }
   return sorted;
 }
 

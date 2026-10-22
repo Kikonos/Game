@@ -228,7 +228,11 @@ function planNow(g: GameState, f: Flight): void {
   else rerosterFrom(g, f.aircraftId, g.now);
 }
 
-/** Marks every open leg of the duty (and its pairing's other short duties) at once: later legs never re-warn. */
+/**
+ * Marks every open leg of the duty (and its pairing's other short duties) at once: the legs of one duty never re-warn.
+ * A short sibling duty further out takes the stage it is at itself (amber beyond 12 h), so it still gets its own red
+ * and pause at 12 h when it stays short after the first duty is fixed.
+ */
 function markDuty(g: GameState, f: Flight, mark: 'amber' | 'red'): void {
   const d = f.dutyId ? g.duties[f.dutyId] : undefined;
   const p = d ? g.pairings[d.pairingId] : undefined;
@@ -237,7 +241,8 @@ function markDuty(g: GameState, f: Flight, mark: 'amber' | 'red'): void {
     const y = g.flights[id];
     if (!y || y.status !== 'scheduled') continue;
     if (y === f || flightCrewStatus(g, id).level === 'missing' || flightCrewStatus(g, id).level === 'illegal') {
-      if (mark === 'red' || !y.crewAlert) y.crewAlert = mark;
+      const own = mark === 'red' && y.dutyId !== f.dutyId && y.std - g.now > BAL.crewControl.redH * 60 ? 'amber' : mark;
+      if (own === 'red' || !y.crewAlert) y.crewAlert = own;
     }
   }
 }

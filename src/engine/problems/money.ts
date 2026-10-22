@@ -43,7 +43,9 @@ export function cashLowCard(g: GameState): ProblemCard | null {
 }
 
 export function invoiceOverdueCard(g: GameState, receivableId: string): ProblemCard | null {
-  const r = g.finance.receivables.find((x) => x.id === receivableId);
+  // By receivable id, or (the card's own ref is the contract) the oldest overdue invoice of that contract.
+  const r = g.finance.receivables.find((x) => x.id === receivableId)
+    ?? g.finance.receivables.filter((x) => x.contractId === receivableId && x.paid === null && x.due <= g.now - 7 * DAY).sort((a, b) => a.due - b.due)[0];
   if (!r || r.paid !== null || r.due > g.now - 7 * DAY) return null;
   const cl = g.clients[r.clientId];
   const days = Math.floor((g.now - r.due) / DAY);

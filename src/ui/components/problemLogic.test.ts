@@ -30,6 +30,13 @@ describe('reach bar', () => {
     expect(reachVerdict(spec)).toBe('The earliest flight lands 3 h too late');
     expect(reachVerdict({ ...spec, earliestArrival: 7 * HOUR + 20, gapMin: -40 })).toBe('The earliest flight lands with 40 min to spare');
     expect(reachLayout({ ...spec, gapMin: -40 }).gap).toBeNull();
+    // Ticks bunched at the end: labels of one row keep their distance, the ticks stay put, nothing leaves the bar.
+    const tight = reachLayout({ ...spec, now: 0, mustLandBy: 590, report: 600, departure: 610, earliestArrival: 595, gapMin: 5 });
+    for (const side of ['above', 'below'] as const) {
+      const row = tight.ticks.filter((t) => t.side === side);
+      for (let i = 1; i < row.length; i++) expect((row[i].lx ?? row[i].x) - (row[i - 1].lx ?? row[i - 1].x)).toBeGreaterThanOrEqual(24);
+    }
+    for (const t of tight.ticks) { expect(t.lx ?? t.x).toBeLessThanOrEqual(100); expect(t.x).toBe(tight.ticks.find((u) => u.key === t.key)!.x); }
   });
   it('lays a timeline out on the same scale', () => {
     const tl: TimelineSpec = { from: 0, to: 600, marks: [{ t: 0, label: 'Fault' }, { t: 540, label: 'Repaired', tone: 'good' }], spans: [{ from: 0, to: 540, label: 'Repair', tone: 'bad' }] };

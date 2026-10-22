@@ -512,6 +512,42 @@ describe('the warning ladder', () => {
   });
 });
 
+describe('the warning ladder: a tour', () => {
+  it('a short sibling duty further out takes its own stage, so it gets its own red and pause at 12 h', () => {
+    const t = trip('DUS', 'FNC', 17 * 60, 5);
+    const { g, acId } = t;
+    const ac = g.fleet[acId];
+    const k = g.contracts[g.flights[t.flightId].contractId!];
+    const std2 = g.flights[t.flightId].std + DAY;
+    const b = blockMinutes(ac.typeId, 'DUS', 'FNC');
+    const f3 = addFlight(g, { no: 'AW818', aircraftId: acId, contractId: k.id, kind: 'revenue', from: 'DUS', to: 'FNC', std: std2, sta: std2 + b, pax: 170 });
+    addFlight(g, { no: 'AW819', aircraftId: acId, contractId: k.id, kind: 'revenue', from: 'FNC', to: 'DUS', std: std2 + b + 50, sta: std2 + 2 * b + 50, pax: 160 });
+    buildDuties(g, acId, g.now, g.now + 5 * DAY);
+    autoRoster(g);
+    const { d, p } = live(g, t.flightId);
+    const d2 = g.duties[g.flights[f3.id].dutyId!];
+    expect(d2.pairingId).toBe(p.id); // one tour, two duties
+    const was = p.slots.find((x) => x.role === 'CPT' && x.crewId)!.crewId!;
+    releaseCrew(g, p, was);
+    setFlightsCrew(g, p);
+    for (const c of Object.values(g.crew)) if (c.role === 'CPT') { c.blocks = [{ from: g.now - DAY, to: g.now + 10 * DAY, why: 'leave' }]; c.status = 'leave'; }
+    g.now = d.report - 10 * 60;
+    clearPause();
+    escalateShortages(g);
+    expect(g.flights[t.flightId].crewAlert).toBe('red');
+    expect(takePause()).toBe('crewShortage');
+    expect(g.flights[f3.id].crewAlert).toBe('amber'); // the next day's duty is not red yet
+    // The first duty departs short (gate); the second reaches 12 h still short: its own red, message and pause.
+    g.now = d2.report - 10 * 60;
+    const n = g.messages.length;
+    escalateShortages(g);
+    expect(g.flights[f3.id].crewAlert).toBe('red');
+    expect(g.messages.length).toBe(n + 1);
+    expect(g.messages[0].title).toMatch(/^CREW SHORTAGE: AW818/);
+    expect(takePause()).toBe('crewShortage');
+  });
+});
+
 describe('crewReadyAt on the real timetable', () => {
   it('equals the ticket arrival + connection + report for a reachable origin, and the earliest arrival when not; never before now + 60', () => {
     const { g, flightId, d, p, acId, was } = shortOfCaptain('DUS', 'FNC', 40);
