@@ -142,8 +142,9 @@ describe('crew calendar', () => {
     t.out.riders = [extra.id];
     touchFlights(g);
     expect(crewCalendar(g, extra.id, from, from + 14 * DAY).find((b) => b.kind === 'positioning')?.detail).toMatch(/Riding our ferry leg/);
-    // The header follows the day: on duty, then resting.
-    advanceTo(g, at(g, 3, 9 * 60));
+    // The header follows the day: on duty, then resting (through any auto-pause: v0.8 urgent offers pause too).
+    const t9 = at(g, 3, 9 * 60);
+    for (let i = 0; i < 50 && g.now < t9; i++) advanceTo(g, t9);
     expect(crewStatusView(g, cabin).label).toBe('On duty');
   });
 });

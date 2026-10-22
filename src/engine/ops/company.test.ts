@@ -15,6 +15,8 @@ describe('approvals (v0.7 ladder)', () => {
     expect(rows).toEqual([
       ['etops120', 250_000, 120, ''], ['widebody', 300_000, 120, ''], ['etops180', 350_000, 150, 'etops120'], ['augmented', 300_000, 90, 'widebody'],
       ['etops240', 500_000, 180, 'etops180+augmented'], ['ulr', 900_000, 180, 'etops240+augmented'], ['iosa', 180_000, 240, ''], ['dg', 60_000, 60, ''],
+      // v0.8 Antarctic blue-ice runways.
+      ['polar', 250_000, 90, 'widebody+etops180'],
     ]);
     // Widebody operations: $300K at filing, $300K at the grant ($600K in all).
     expect(APPROVALS.find((a) => a.id === 'widebody')!.grantCost).toBe(300_000);

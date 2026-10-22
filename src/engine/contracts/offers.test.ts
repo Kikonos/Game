@@ -253,7 +253,8 @@ describe('offer flow (acceptance: 30/60 days from a new game)', () => {
       const later = [...seen.values()].filter((x) => x.o.created > t0);
       const in30 = later.filter((x) => x.o.created <= t0 + 30 * DAY);
       expect(in30.length).toBeGreaterThanOrEqual(12);
-      expect(in30.length).toBeLessThanOrEqual(25);
+      // v0.8: rivals hiring us, dry-lease requests, world-event work and repeat business come on top.
+      expect(in30.length).toBeLessThanOrEqual(30);
       total += in30.length;
       fit += in30.filter((x) => x.fit).length;
       expect(later.some((x) => x.o.archetype === 'seasonBase')).toBe(true);
@@ -263,7 +264,8 @@ describe('offer flow (acceptance: 30/60 days from a new game)', () => {
       const kinds = new Set(later.map((x) => x.o.archetype));
       expect(kinds.size).toBeGreaterThanOrEqual(5);
     }
-    expect(fit / total).toBeGreaterThanOrEqual(0.7);
+    // v0.8: UN rotations (IOSA), medical airbridges (dangerous goods) and tours (premium cabins) are ladder work too.
+    expect(fit / total).toBeGreaterThanOrEqual(0.65);
   });
 
   it('gap-fit offers land in a real idle window when the fleet is busy', () => {

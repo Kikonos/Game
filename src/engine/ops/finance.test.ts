@@ -1,6 +1,6 @@
 // Statements, receivables, solvency and the cash forecast (B3). DESIGN.md §5.7, BUILD-PLAN B3 acceptance.
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, onTestFinished } from 'vitest';
 import { BAL } from '../core/balance';
 import { flightsOf } from '../core/entities';
 import { invoice, statementTotals } from '../core/ledger';
@@ -227,7 +227,7 @@ describe('receivables', () => {
     const dA = g.decisions.find((d) => d.kind === 'latePayment' && d.data?.receivableId === a.id)!;
     const dB = g.decisions.find((d) => d.kind === 'latePayment' && d.data?.receivableId === b.id)!;
     expect(dA && dB).toBeTruthy();
-    expect(dA.options.map((o) => o.id)).toEqual(['wait', 'factor', 'threaten']);
+    expect(dA.options.map((o) => o.id)).toEqual(['wait', 'waive', 'factor', 'threaten']);
     expect(dA.defaultOption).toBe('wait');
     // Factor: cash now less 8%, booked as interest; the receivable is settled.
     const cash = g.company.cash;
@@ -363,6 +363,13 @@ describe('cashForecast', () => {
 
 describe('flying costs and billing', () => {
   it('wet-lease legs carry no fuel or fees; charter legs pay fuel, fees and catering; MGH invoiced at month end', () => {
+    // No AOG on the measured leg (an AOG roll would hold it: v0.8 shifted this seed's luck).
+    const bal = BAL as unknown as { aogBase: number };
+    const aog0 = bal.aogBase;
+    bal.aogBase = 0;
+    onTestFinished(() => {
+      bal.aogBase = aog0;
+    });
     const g = newGame(29);
     const ac = leased(g);
     const c = signBase(g, g.now + 3 * DAY, 30, [ac.id]);

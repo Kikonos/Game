@@ -22,7 +22,7 @@ import { crewReadyAt, crewShortDecision, hasOpenDecision } from './events';
 import { aogChance, isGrounded, missCheck, startAog } from './maintenance';
 import { ageF, ageOf, bumpReliable, contractOf, isBaseLeg, isRevenue, stats, turnOf, usd } from './util';
 import { bumpClient, forgiveDelay, LEVEL_NAME, levelOf } from '../contracts/relations';
-import { closedAtDeparture, payWarRisk, whiteout } from './world';
+import { closedAtDeparture, payWarRisk, strikeDelay, whiteout } from './world';
 import { noteHiredThem } from '../contracts/rivals';
 
 /** v0.7.1: the problem ref and hurt snapshot of a message about legs lost or handed over (after the fact). */
@@ -620,8 +620,13 @@ export function onFlightDep(g: GameState, ev: SimEvent): void {
     crewProblem(g, f, ac);
     return;
   }
-  // 3. Random delay, rolled once per flight.
+  // 3. Random delay, rolled once per flight (v0.8: an ATC strike on its countries first, not our fault).
   if (f.delayReason === undefined) {
+    const st = strikeDelay(g, f);
+    if (st) {
+      delayChain(g, f, g.now + st.min, st.reason);
+      return;
+    }
     const d = rollDelay(g, ac);
     if (d) {
       const n = delayChain(g, f, g.now + d.min, d.reason);

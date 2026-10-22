@@ -28,6 +28,7 @@ import { ARCH_MULT, defaultSeats, isWetArchetype, priceProduct, productValue, re
 import { LEVEL_PERKS, levelOf, standingRate } from './relations';
 import { rivalTakes, rollRivalBid } from './rivals';
 import { warRiskLandings } from '../ops/world';
+import { demandFactor } from '../ops/market';
 import { fuelFactor, MISSION_BUILDERS, missionWeights, presidential, rollClientCabin, WINDOW_FIT_V08 } from './missions';
 
 // ---------- process ----------
@@ -40,7 +41,8 @@ export function offerRate(g: GameState): number {
   const n = Object.values(g.fleet).filter((a) => a.status !== 'stored' && a.status !== 'leasedOut').length;
   const fleetF = 0.7 + 0.15 * n;
   const repF = 0.6 + (0.8 * g.company.reputation.reliable) / 100;
-  return (BAL.offersPerWeek / 7) * fleetF * SEASON_F[toDate(g.now).getUTCMonth()] * repF;
+  // v0.8 market cycle: volume × (fleet-weighted segment index)² (slump ≈ 0.67, boom ≈ 1.32).
+  return (BAL.offersPerWeek / 7) * fleetF * SEASON_F[toDate(g.now).getUTCMonth()] * repF * demandFactor(g);
 }
 
 /** Queues the next 'offer.spawn': gamma(3) gaps with the Poisson mean (steadier than exponential, same rate). */

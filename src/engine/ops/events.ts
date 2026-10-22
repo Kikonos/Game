@@ -1,6 +1,7 @@
 // Random operational events and the decision resolvers (B3). DESIGN.md §5.8.
 // Every resolver is keyed by decision.kind; it applies its effects and the decision is removed.
 
+import { hash } from '../core/util';
 import { chooseLease, type LeaseChoice } from './leaseReturn';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { COUNTRIES } from '../../data/countries';
@@ -676,8 +677,7 @@ function extraRotation(g: GameState, c: Contract): boolean {
       { id: 'accept', label: 'Fly it', desc: `${ac.reg} flies two more legs; a crew gets an extra duty and ${ac.reg}'s A-check (${aLeft} FH left) comes ${bh.toFixed(1)} FH sooner. A favour they remember.`, tone: earn > maint ? 'good' : 'warn', chips: [earn ? `+${usd(earn)}` : 'No extra revenue', `−${usd(maint)} maintenance`, `Relation +${BAL.v08.rel.extraLeg}`, favourChip(g, c.clientId, BAL.v08.rel.extraLeg)] },
       { id: 'decline', label: 'Decline', desc: 'The aircraft and crews keep their rest; the client notes it.', chips: [`Relation ${BAL.v08.rel.decline}`] },
     ],
-    // v0.8 favours count: a client below Trusted gets the yes while the A-check has room.
-    defaultOption: earn > maint || (levelOf(g, cl) !== 'trusted' && levelOf(g, cl) !== 'partner' && aLeft >= 30) ? 'accept' : 'decline', expires: g.now + DAY, ref: { kind: 'contract', id: c.id },
+    defaultOption: earn > maint ? 'accept' : 'decline', expires: g.now + DAY, ref: { kind: 'contract', id: c.id },
     data: { contractId: c.id, kind: 'extra', aircraftId: ac.id, dest, std },
   });
   return true;
@@ -829,7 +829,9 @@ export function clientFeeFor(g: GameState, c: Contract): boolean {
   if (!ac) return false;
   const wide = typeOf(ac.typeId).body === 'wide';
   const F = BAL.v08.rel.fee[wide ? 'wide' : 'narrow'];
-  const fee = int(g, F[0] / 1000, F[1] / 1000) * 1000;
+  // Rolled on a side stream (seed, contract, day): the main sequence is unchanged by v0.8.
+  const r = { rng: hash(`${g.seed}:fee:${c.id}:${Math.floor(g.now / DAY)}`) | 0 };
+  const fee = int(r, F[0] / 1000, F[1] / 1000) * 1000;
   const mine = Object.values(g.flights).filter((f) => f.contractId === c.id && f.status === 'scheduled' && f.aircraftId && isRevenue(f)).sort((a, b) => a.std - b.std);
   let legs: Flight[] = [];
   let what = '';
@@ -847,7 +849,7 @@ export function clientFeeFor(g: GameState, c: Contract): boolean {
     what = `moves ${f.no} ${f.from}–${f.to} by a day`;
     for (const x of [...legs].reverse()) moveFlight(g, x, x.std + DAY, 'Client request');
   }
-  const why = pick(g, ['their crew shortage', 'a slot problem at their end', 'their passengers were rebooked', 'a change in their programme']);
+  const why = pick(r, ['their crew shortage', 'a slot problem at their end', 'their passengers were rebooked', 'a change in their programme']);
   const trusted = lv === 'trusted' || lv === 'partner';
   ask(g, {
     kind: 'clientFee', title: `${cl.name} ${what}`,
@@ -880,7 +882,7 @@ function resolveClientFee(g: GameState, d: Decision, opt: string): ActionResult 
 
 function clientFees(g: GameState): void {
   for (const c of Object.values(g.contracts)) {
-    if (c.status !== 'active' || c.dry || !chance(g, BAL.v08.rel.clientFeeWeekly / 7)) continue;
+    if (c.status !== 'active' || c.dry || !chance({ rng: hash(`${g.seed}:feeday:${c.id}:${Math.floor(g.now / DAY)}`) | 0 }, BAL.v08.rel.clientFeeWeekly / 7)) continue;
     clientFeeFor(g, c);
   }
 }

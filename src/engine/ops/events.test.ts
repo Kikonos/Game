@@ -307,7 +307,8 @@ describe('late payment and rescue', () => {
 
   it('offers wait (default), factor and threaten', () => {
     const { d } = late();
-    expect(d.options.map((o) => o.id)).toEqual(['wait', 'factor', 'threaten']);
+    // v0.8: waiving the interest is a favour (+3 relation).
+    expect(d.options.map((o) => o.id)).toEqual(['wait', 'waive', 'factor', 'threaten']);
     expect(d.defaultOption).toBe('wait');
   });
 
@@ -382,7 +383,7 @@ describe('client change requests', () => {
     const cl = g.clients[c.clientId];
     const rel = cl.relation;
     resolveDecision(g, d.id, 'decline');
-    expect(cl.relation).toBe(rel - 3);
+    expect(cl.relation).toBe(rel + BAL.v08.rel.decline);
   });
 
   it('a later departure on a trip moves the leg and earns the change fee', () => {

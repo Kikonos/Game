@@ -11,8 +11,12 @@ import { cabinFrom } from '../newGame';
 import { ACMI_TYPES } from '../../data/acmiTypes';
 import { nextId } from '../core/entities';
 
-export const newGame = (seed = 7, base = 'LIS'): GameState =>
-  createGame({ name: 'Atlântica Wings', code: 'AW', livery: { primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' }, base, seed });
+/** A new game. v0.8: as an Established company (the v0.7.x offer flow these tests check); `newcomer` keeps it new. */
+export const newGame = (seed = 7, base = 'LIS', newcomer = false): GameState => {
+  const g = createGame({ name: 'Atlântica Wings', code: 'AW', livery: { primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' }, base, seed });
+  if (!newcomer) g.company.standing = 1;
+  return g;
+};
 
 /** Advances to t through every auto-pause (tests honour all reasons). */
 export function run(g: GameState, t: Minute): void {

@@ -365,7 +365,8 @@ describe('cancellations and sub-charter', () => {
     const pen = cancelLegs(g, [pos, ...legs], 'Test', 1);
     expect(pen).toBe(2 * c.penalties.perCancelledLeg);
     expect(line(g, 'penalties')).toBe(pen0 - pen);
-    expect(client.relation).toBe(rel0 - 4);
+    // v0.8: −3 a leg we cancel (§1.3).
+    expect(client.relation).toBe(rel0 + 2 * BAL.v08.rel.cancelLeg);
     expect(g.stats.cancelled).toBe(2);
     expect(g.company.reputation.reliable).toBeLessThan(rep0 - 2);
     expect(legs.every((f) => f.status === 'cancelled' && f.delayReason === 'Test')).toBe(true);

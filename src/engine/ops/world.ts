@@ -226,6 +226,8 @@ export function dailyWorld(g: GameState): void {
     if (t0 !== undefined && g.now - t0 < W().sameKindDays * DAY) return false;
     if (k === 'engineCrisis' && t0 !== undefined && g.now - t0 < 365 * DAY) return false;
     if (k === 'recession' && t0 !== undefined && g.now - t0 < 730 * DAY) return false;
+    // A new game starts steady for at least 9 months (§4.2): no recession before then.
+    if (k === 'recession' && g.now - g.started < 270 * DAY) return false;
     return WORLD_EVENT_TPLS.some((t) => t.kind === k && allowed(g, t));
   });
   const kind = weightedPick(r, kinds, ([, x]) => x)?.[0] as WorldEventKind | undefined;
@@ -421,6 +423,18 @@ export function cancelForceMajeure(g: GameState, legs: Flight[], reason: string)
   if (empty.length) removeFlights(g, empty);
   statsV08(g).legsFm += n;
   return n;
+}
+
+/** An air traffic controllers' strike on this leg's countries: minutes late and the reason, else null. Pure. */
+export function strikeDelay(g: GameState, f: Flight): { min: number; reason: string } | null {
+  const cs = [AIRPORT_BY_CODE[f.from]?.country, AIRPORT_BY_CODE[f.to]?.country];
+  for (const e of eventsOf(g)) {
+    const t = TPL_BY_ID[e.tpl];
+    if (!isLive(g, e) || !t?.delayCountries || !t.delayMin || !cs.some((c) => c && t.delayCountries!.includes(c))) continue;
+    const k = 0.5 + hashUnit(`${g.seed}:atc:${f.id}`);
+    return { min: Math.round((t.delayMin * k) / 5) * 5, reason: `ATC strike: ${e.title.replace(/ \(.*\)$/, '')}` };
+  }
+  return null;
 }
 
 /** Departure check (ops flights.ts): a leg to or from a closed airport does not leave; true when held. */

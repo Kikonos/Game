@@ -3,6 +3,7 @@
 // rival can hire us (sub-charter in). Views are pure; refresh / bids / load are action-side.
 
 import { AIRPORT_BY_CODE } from '../../data/airports';
+import { inHajjPhase } from '../../data/worldCalendar';
 import { BAL } from '../core/balance';
 import { nextId } from '../core/entities';
 import { distance } from '../core/geo';
@@ -60,7 +61,9 @@ export function loadFor(g: GameState, r: Rival): number {
   const ph = phase === 'boom' ? 0.1 : phase === 'slump' ? -0.15 : phase === 'soft' ? -0.05 : 0;
   const st = r.personality === 'big' ? 0.05 : r.personality === 'premium' ? -0.05 : 0;
   const noise = (next(side(g, `load:${r.id}:${monthKey(g.now)}`)) - 0.5) * 0.1;
-  return Math.round(clamp(seasonLoad(g.now) + ph + st + noise, 0.3, 0.98) * 100) / 100;
+  // Hajj weeks keep widebody operators busy.
+  const hajj = inHajjPhase(g.now) && r.fleet.some((f) => f.count > 0 && typeOf(f.typeId).body === 'wide') ? 0.1 : 0;
+  return Math.round(clamp(seasonLoad(g.now) + ph + st + noise + hajj, 0.3, 0.98) * 100) / 100;
 }
 
 function logRival(g: GameState, r: Rival, text: string): void {

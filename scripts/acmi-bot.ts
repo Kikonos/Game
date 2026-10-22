@@ -72,6 +72,9 @@ import { chainAugment } from '../src/engine/contracts/offers';
 import { programmeOf } from '../src/engine/contracts/plan';
 import { deserialize, serialize } from '../src/engine/save';
 import { advanceTo, settle } from '../src/engine/sim';
+import { LEVEL_ORDER, levelOf } from '../src/engine/contracts/relations';
+import { warRiskAt } from '../src/engine/ops/world';
+
 
 const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 const seed = Number(args[0] ?? 1);
@@ -141,18 +144,30 @@ interface Tally {
   restRefits: string[];
   aug4: number;
   earlyReturnDay: number | null;
+  /** v0.8: signings by archetype code, the last deportation, flights asked about war-risk cover once, dry leases (months, income). */
+  types: Map<string, number>;
+  lastDeport: number | null;
+  insWaited: Set<string>;
+  dryLeases: number;
 }
 const newTally = (): Tally => ({
   actions: new Map(), decisions: new Map(), decMonth: new Map(), decKinds: new Map(), accepted: 0, countered: 0, firstAccept: null, wideAffordableAt: null, wideReadyAt: null, wideSigned: null, longLead: 0, paintOffers: [],
   rehired: 0, policyChanges: [], classesBooked: 0, paidExtra: 0, filed: [], signed: [], narrowSigned: 0, refits: [], leaseChoices: [], waitHires: 0, crewFixes: new Map(),
   cHubs: [], hubTravel: 0, restSeats: 0, multiHires: 0, earlyReturnDay: null, restRefits: [], aug4: 0,
+  types: new Map(), lastDeport: null, insWaited: new Set(), dryLeases: 0,
 });
 
 const weekOf = (g: GameState) => Math.floor((g.now - g.started) / (7 * DAY));
 const act = (g: GameState, t: Tally, n = 1) => t.actions.set(weekOf(g), (t.actions.get(weekOf(g)) ?? 0) + n);
 
 const isBase = (o: ContractOffer) => o.pattern.kind === 'base' || o.archetype === 'seasonBase' || o.archetype === 'aogCover';
-const CODE: Partial<Record<Archetype, string>> = { seasonBase: 'SB', aogCover: 'AC', adhoc: 'AH', sports: 'SP', repatriation: 'RP', tourSeries: 'TS', troopRotation: 'TR', evacuation: 'EV', vip: 'VI' };
+const CODE: Partial<Record<Archetype, string>> = {
+  seasonBase: 'SB', aogCover: 'AC', adhoc: 'AH', sports: 'SP', repatriation: 'RP', tourSeries: 'TS', troopRotation: 'TR', evacuation: 'EV', vip: 'VI',
+  // v0.8
+  hajj: 'HJ', unRotation: 'UN', deportation: 'DP', medical: 'MD', musicTour: 'MT', antarctic: 'AN', capacityLease: 'CL', subcharterIn: 'SI', dryLeaseOut: 'DL', humanitarian: 'HU',
+};
+/** v0.8 the client's level rank (Partner first at equal value). */
+const levelRank = (g: GameState, o: ContractOffer) => LEVEL_ORDER.indexOf(levelOf(g, g.clients[o.clientId]));
 const hash = (s: string) => [...s].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 7) >>> 0;
 
 /** Pilot block hours over productive capacity, last 28 days (crew logs), for a rating family. */
@@ -192,6 +207,21 @@ function decide(g: GameState, t: Tally): void {
     // v0.7.3 otherwise the cheapest way through (an AOG team or a short wait before sub-chartering a long series).
     else if (d.kind === 'aog') opt = [...d.options].filter((o) => usable(o.id)).sort((a, b) => aogCost(a.chips ?? []) - aogCost(b.chips ?? []) || Number(b.id === d.defaultOption) - Number(a.id === d.defaultOption))[0]?.id ?? opt;
     else if (d.kind === 'latePayment' && g.company.cash < 600_000 && usable('factor')) opt = 'factor';
+    // v0.8 favours: Trusted+ clients get the late-payment interest waived; a client below Trusted gets its extra
+    // rotation or later departure while the A-check has 30 FH of room; small late-change fees are waived (Known+).
+    else if (d.kind === 'latePayment' && usable('waive') && ['trusted', 'partner'].includes(levelOf(g, g.clients[String(d.data?.clientId ?? '')]))) opt = 'waive';
+    else if (d.kind === 'changeRequest' && opt !== 'accept' && usable('accept')) {
+      const c = g.contracts[String(d.data?.contractId ?? '')];
+      const ac = c ? g.fleet[String(d.data?.aircraftId ?? '')] ?? g.fleet[g.flights[String(d.data?.flightId ?? '')]?.aircraftId ?? ''] : undefined;
+      const below = c && !['trusted', 'partner'].includes(levelOf(g, g.clients[c.clientId]));
+      if (below && ac && typeOf(ac.typeId).aCheckFH - ac.maint.fhSinceA >= 30 && !/fresh crew/.test(d.options.find((o) => o.id === 'accept')?.chips?.join(' ') ?? '')) opt = 'accept';
+    } else if (d.kind === 'clientFee') opt = Number(d.data?.fee ?? 0) < 10_000 ? 'waive' : 'bill';
+    else if (d.kind === 'airspace') opt = 'wait';
+    else if (d.kind === 'uninsurable') {
+      const fid = String(d.data?.flightId ?? '');
+      opt = t.insWaited.has(fid) ? 'cancel' : 'wait';
+      t.insWaited.add(fid);
+    }
     else if (d.kind === 'rescue') opt = 'accept';
     else if (d.kind === 'leaseEnd') opt = keepLease(g, String(d.data?.aircraftId ?? '')) ? 'extend12' : 'return';
     if (resolveDecision(g, d.id, opt).ok || resolveDecision(g, d.id, d.defaultOption).ok) {
@@ -280,15 +310,22 @@ function offers(g: GameState, t: Tally): void {
   const open = Object.values(g.offers)
     .filter((o) => o.status === 'open' && o.start >= g.now && g.now < o.expires)
     .filter((o) => o.created > g.now - DAY || (dayIndex(g.now) + hash(o.id)) % 3 === 0)
-    .sort((a, b) => Number(isBase(b)) - Number(isBase(a)) || b.estValue - a.estValue);
+    // v0.8 Partner / Trusted clients first at equal value (their rate perk counts).
+    .sort((a, b) => Number(isBase(b)) - Number(isBase(a)) || levelRank(g, b) - levelRank(g, a) || b.estValue - a.estValue);
   // v0.7: a calendar under half full over the next month takes ad hoc work up to 45 days out.
   const hungry = open.length > 0 && committed(g, 30) < 0.5;
   for (const o of open) {
     const span = Math.max(1, (o.end - o.start) / DAY);
-    if (span > 10 && o.estBH / span < 3) continue;
-    // Ad hoc work inside 30 days (v0.6: was three weeks); tour series and troop rotations up to 90 days out.
-    const longLead = o.archetype === 'tourSeries' || o.archetype === 'troopRotation';
-    if (!isBase(o) && o.start > g.now + (longLead ? 90 : hungry ? 45 : 30) * DAY) continue;
+    // v0.8 dry leases have their own policy; deportation at most once a year and only with a clean record (70+);
+    // no evacuation into level-3 war risk.
+    if (o.archetype === 'dryLeaseOut') continue;
+    if (o.archetype === 'deportation' && (g.company.reputation.clean < 70 || (t.lastDeport !== null && g.now - t.lastDeport < 365 * DAY))) continue;
+    if (o.archetype === 'evacuation' && warRiskAt(g, o.pin) > 2) continue;
+    if (span > 10 && o.estBH / span < 3 && o.archetype !== 'unRotation') continue;
+    // Ad hoc work inside 30 days (v0.6: was three weeks); tour series and troop rotations up to 90 days out (v0.8:
+    // and the long-lead new work: Hajj, UN rotations, tours, Antarctica, deportation frameworks).
+    const longLead = o.archetype === 'tourSeries' || o.archetype === 'troopRotation' || o.archetype === 'unRotation' || o.archetype === 'hajj' || o.archetype === 'musicTour' || o.archetype === 'antarctic' || o.archetype === 'deportation';
+    if (!isBase(o) && o.start > g.now + (longLead ? (o.archetype === 'hajj' || o.archetype === 'antarctic' ? 200 : 90) : hungry ? 45 : 30) * DAY) continue;
     const best = bestFit(g, o);
     if (!best && process.argv.includes('--why') && o.created > g.now - DAY) {
       for (const id of seatsFit(g, o)) {
@@ -309,10 +346,50 @@ function offers(g: GameState, t: Tally): void {
     const xc = paidExtra(g, o, best.aircraftId);
     if (acceptOffer(g, o.id, [best.aircraftId], { paint: paintOn(o), crewExtra: xc ?? undefined }).ok) {
       t.accepted++;
+      const code = CODE[o.archetype] ?? o.archetype;
+      t.types.set(code, (t.types.get(code) ?? 0) + 1);
+      if (o.archetype === 'deportation') t.lastDeport = g.now;
       if (xc) t.paidExtra++;
       if (o.paint) t.paintOffers.push(`${o.paint.kind}${o.paint.required ? '/req' : ''}/${Math.round(o.paint.clientShare * 100)}%${paintOn(o) ? '' : ' declined'}`);
       if (longLead) t.longLead++;
       t.firstAccept ??= g.now;
+      act(g, t);
+    }
+  }
+}
+
+/** One aircraft's share of the next `days` already committed (ground gaps of a day or more are free). */
+function acCommitted(g: GameState, acId: string, days: number): number {
+  const ac = g.fleet[acId];
+  if (!ac) return 1;
+  let idle = 0;
+  for (const gp of groundGaps(g, ac, g.now, g.now + days * DAY)) if (gp.to - gp.from >= DAY) idle += gp.to - gp.from;
+  return 1 - idle / (days * DAY);
+}
+
+/**
+ * v0.8 dry lease out (§13): October–March, an owned narrowbody under 30 % committed over the next 60 days takes a
+ * fitting dry-lease request; never the last narrowbody of a family with base work running.
+ */
+function dryLeases(g: GameState, t: Tally): void {
+  const mo = toDate(g.now).getUTCMonth();
+  if (!(mo >= 9 || mo <= 2)) return;
+  for (const o of Object.values(g.offers)) {
+    if (o.archetype !== 'dryLeaseOut' || o.status !== 'open' || !o.dryFor || o.expires <= g.now) continue;
+    // Back before the summer peak (seed 4 leased one of its two A320s out from March to July and lost the summer).
+    const back = toDate(o.end).getUTCMonth();
+    if (o.end - g.now > 240 * DAY || (back >= 5 && back <= 8)) continue;
+    const ac = g.fleet[o.dryFor];
+    if (!ac || ac.ownership.kind !== 'owned' || typeOf(ac.typeId).body !== 'narrow' || ac.status === 'leasedOut') continue;
+    const fam = typeOf(ac.typeId).family;
+    const others = Object.values(g.fleet).filter((a) => a.id !== ac.id && typeOf(a.typeId).family === fam && a.status !== 'leasedOut' && a.status !== 'delivering');
+    const baseLive = Object.values(g.contracts).some((c) => (c.status === 'active' || c.status === 'signed') && c.pattern.kind === 'base' && c.aircraftIds.some((id) => g.fleet[id] && typeOf(g.fleet[id].typeId).family === fam));
+    if (!others.length && baseLive) continue;
+    if (acCommitted(g, ac.id, 60) >= 0.3) continue;
+    if (feasibility(g, o.id, ac.id).level === 'no') continue;
+    if (acceptOffer(g, o.id, [ac.id]).ok) {
+      t.dryLeases++;
+      t.types.set('DL', (t.types.get('DL') ?? 0) + 1);
       act(g, t);
     }
   }
@@ -686,8 +763,9 @@ function fleet(g: GameState, t: Tally): void {
     if (typeOf(o.typeId).family !== wideFamily(g) && g.now - filed < 60 * DAY) continue;
     // Acquirable (the target): deposit plus three months of rent and insurance, with $1M left to run the airline.
     if (g.company.cash >= o.deposit + 3 * (o.rentPerMonth + typeOf(o.typeId).insuranceMonth) + 1_000_000) t.wideAffordableAt ??= g.now;
-    // v0.7.3 three months of its fixed costs after the deposit (v0.7.2: one), and $500K to run the airline.
-    if (g.company.cash < o.deposit + (WIDE ? 1_000_000 : 3 * wideMonth(o.rentPerMonth, o.typeId, o.cabin.total) + 500_000)) continue;
+    // v0.8 two months of its fixed costs after the deposit (v0.7.3: three) and $300K (was $500K) to run the airline.
+    if (process.env.WHYW && g.now % DAY < 6 * 60) console.error(`d${dayN(g)} ${o.typeId} cash ${Math.round(g.company.cash / 1e3)}k need ${Math.round((o.deposit + 2 * wideMonth(o.rentPerMonth, o.typeId, o.cabin.total) + 300_000) / 1e3)}k`);
+    if (g.company.cash < o.deposit + (WIDE ? 1_000_000 : 2 * wideMonth(o.rentPerMonth, o.typeId, o.cabin.total) + 300_000)) continue;
     t.wideReadyAt ??= g.now;
     // v0.7: home after the delivery ferry; a widebody job worth $1M+ starting 1–4 months after that (or, from day 150
     // on the ladder, the widebody itself: wide work follows a widebody fleet).
@@ -705,7 +783,8 @@ function fleet(g: GameState, t: Tally): void {
     const timed = due !== undefined;
     // Without a job to fly, only a lease the airline can carry while it waits for work ($300K/month at most; v0.7.3 the
     // last quarter earned three months of its fixed costs: seed 6 signed an A340 off a thin autumn and lost $1.2M).
-    const carry = timed && o.rentPerMonth <= 300_000 && qProfit >= 3 * wideMonth(o.rentPerMonth, o.typeId, o.cabin.total);
+    const carry = timed && o.rentPerMonth <= 300_000 && qProfit >= 2 * wideMonth(o.rentPerMonth, o.typeId, o.cabin.total);
+    if (process.env.WHYW && g.now % DAY < 6 * 60) console.error(`d${dayN(g)} ${o.typeId} rent ${Math.round(o.rentPerMonth / 1e3)}k earning=${earning} q=${Math.round(qProfit / 1e3)}k wm=${Math.round(wideMonth(o.rentPerMonth, o.typeId, o.cabin.total) / 1e3)}k job=${!!job} carry=${carry} due=${due === undefined ? "-" : Math.round((due - g.now) / DAY)} lead=${lead}`);
     if (!WIDE && (!earning || !(job || carry))) continue;
     if (acquireAircraft(g, o.id).ok) {
       t.wideSigned = g.now;
@@ -750,7 +829,8 @@ function ladderSteps(g: GameState, t: Tally): void {
   // Off a good half-year (approval fees aside): the filing half of the fee ($300K; the rest at the grant) plus $1M and a
   // month of fixed costs in hand (the lessor's post-filing widebody wants one month's deposit, handed over near the grant).
   const q = g.finance.history.slice(-6).reduce((s, st) => s + statementTotals(st.lines).profit - (st.lines.approvals ?? 0), 0);
-  if (dayN(g) >= 120 && wideLease && q >= 600_000 && !held(g, 'widebody') && cash >= cost('widebody') + 1_000_000 + monthFixed(g)) {
+  // v0.8 (§8 widebody on 2–4 seeds): from day 150 without a lease on show (the market posts one after filing), off $450K.
+  if (dayN(g) >= 120 && (wideLease || dayN(g) >= 150) && q >= 450_000 && !held(g, 'widebody') && cash >= cost('widebody') + 1_000_000 + monthFixed(g)) {
     // Pilots are hired only when they are all that's missing (never for an application the record still blocks).
     const otherwise = approvalReqs(g, 'widebody').every((r) => r.ok || / CPT \+ /.test(r.label));
     const fam = wideFamily(g);
@@ -771,6 +851,9 @@ function ladderSteps(g: GameState, t: Tally): void {
     }));
   if (wideHeld && longJob && !held(g, 'augmented') && !approvalBlocker(g, 'augmented') && cash >= cost('augmented') + 2_000_000) file(g, t, 'augmented');
   for (const id of ['etops180', 'etops240'] as ApprovalId[]) if (!held(g, id) && !approvalBlocker(g, id) && cash >= cost(id) + 2_000_000) file(g, t, id);
+  // v0.8 Antarctica: blue-ice runway operations once a widebody and ETOPS 180 are held and an Antarctic job is on offer.
+  const ice = Object.values(g.offers).some((o) => o.archetype === 'antarctic' && o.status === 'open');
+  if (ice && wideHeld && g.company.approvals.includes('etops180') && !held(g, 'polar') && !approvalBlocker(g, 'polar') && cash >= cost('polar') + 2_000_000) file(g, t, 'polar');
 }
 
 /**
@@ -969,6 +1052,7 @@ function policy(g: GameState, t: Tally, urgent: boolean, newDay: boolean): void 
     narrowGrowth(g, t);
     deliveryWaits(g, t);
     refits(g, t);
+    dryLeases(g, t);
   }
   if (newDay || urgent) offers(g, t);
 }
@@ -1109,6 +1193,12 @@ const augSeen = new Set<string>();
 let restBad = 0;
 /** v0.7.3 home standby crew-days held (windows seen). */
 const sbySeen = new Set<string>();
+/** v0.8 market phase by quarter, fuel range, first Trusted client day, mixed-crew contracts seen. */
+const phases: string[] = [];
+let fuelMin = Infinity;
+let fuelMax = 0;
+let trustedAt: number | null = null;
+const mixedSeen = new Set<string>();
 
 function onStep(): void {
   const m = mon(monthKey(g.now));
@@ -1198,6 +1288,13 @@ function onStep(): void {
     }
   }
   acYears += Object.values(g.fleet).filter((a) => a.status !== 'delivering').length / 365;
+  // v0.8 market and relationships.
+  fuelMin = Math.min(fuelMin, g.market.fuelPrice);
+  fuelMax = Math.max(fuelMax, g.market.fuelPrice);
+  const q = Math.floor(dayN(g) / 91.3);
+  if (phases.length <= q) phases.push(g.market.cycle?.phase ?? 'steady');
+  if (trustedAt === null && Object.values(g.clients).some((c) => c.level === 'trusted' || c.level === 'partner')) trustedAt = g.now;
+  for (const c of Object.values(g.contracts)) if (c.requirements.clientCabin?.n) mixedSeen.add(c.id);
   for (const d of Object.values(g.duties)) {
     if (!d.done || seenDuty.has(d.id)) continue;
     seenDuty.add(d.id);
@@ -1454,6 +1551,29 @@ console.log(
   softTargets.push(['month-end cash ≥ 0 and the year ends ≥ 0 (v0.7.1 seed 6: −2657k low)', minCash >= 0 && g.company.cash >= 0, `month-end low ${k$(minCash)}, end ${k$(g.company.cash)}`]);
   softTargets.push(['captains as FO ≤ 24 duties a year', (s.asFo ?? 0) <= 24 * (days / 365), `${s.asFo ?? 0}`]);
   targets.push(['delivery ferries: 0 illegal duties, no wait > 30 days', illegalAtFerry === 0 && maxWait <= 30, `${ferryLegs.size} legs, ${illegalAtFerry} illegal, longest wait ${maxWait.toFixed(0)} days`]);
+}
+{
+  // v0.8 (UPDATE-0.8.md §13).
+  const v8 = g.stats.v08 ?? { lostToRival: 0, subIn: 0, dryLeases: 0, dryMonths: 0, worldEvents: 0, closuresHit: 0, legsRerouted: 0, legsFm: 0, warRiskPaid: 0, injunctions: 0, whiteouts: 0, levelUps: 0, feesWaived: 0 };
+  const lv = { unhappy: 0, new: 0, known: 0, trusted: 0, partner: 0 } as Record<string, number>;
+  for (const c of Object.values(g.clients)) lv[c.level ?? 'new']++;
+  const lw = v8.lostWhy ?? { cheaper: 0, closer: 0, sooner: 0 };
+  const byRival = Object.entries(v8.subByRival ?? {}).map(([id, n]) => `${g.rivals.find((r) => r.id === id)?.name ?? id} ${n}`).join(', ');
+  const types = [...tally.types.entries()].sort().map(([k, n]) => `${k} ${n}`).join(' ');
+  let dryIncome = 0;
+  for (const st of [...g.finance.history, g.finance.current]) dryIncome += st.lines.leaseIncome ?? 0;
+  console.log(
+    `v0.8: levels U/N/K/T/P ${lv.unhappy}/${lv.new}/${lv.known}/${lv.trusted}/${lv.partner} · standing Est. ${dayOf(v8.establishedAt ?? null)}, Resp. ${dayOf(v8.respectedAt ?? null)} · types ${types || '-'} · ` +
+      `lost to rivals ${v8.lostToRival} (cheaper ${lw.cheaper}/closer ${lw.closer}/sooner ${lw.sooner}) · sub-charter out ${s.subchartered ?? 0} (${byRival || '-'}) in ${v8.subIn} · ` +
+      `events ${v8.worldEvents} (closures hit ${v8.closuresHit}, legs rerouted ${v8.legsRerouted}, FM cancels ${v8.legsFm}, war-risk ${k$(v8.warRiskPaid)}, injunctions ${v8.injunctions}, whiteouts ${v8.whiteouts}) · ` +
+      `phases by quarter ${phases.join('/')} · fuel ${fuelMin}–${fuelMax} · dry leases ${v8.dryLeases} (${v8.dryMonths} months, ${k$(dryIncome)}) · mixed-crew contracts ${mixedSeen.size} · fees waived ${v8.feesWaived} · runtime ${runSecs.toFixed(1)} s`,
+  );
+  softTargets.push(['Established by day 240 (≥ 5 of seeds 1–6, v0.8)', v8.establishedAt !== undefined && v8.establishedAt - g.started <= 240 * DAY, dayOf(v8.establishedAt ?? null)]);
+  softTargets.push(['a Trusted client by day 365 (≥ 4 of seeds 1–6, v0.8)', trustedAt !== null, dayOf(trustedAt)]);
+  softTargets.push(['a widebody signed (2–4 of seeds 1–6, v0.8)', tally.wideSigned !== null, dayOf(tally.wideSigned)]);
+  softTargets.push(['≥ 1 offer lost to a rival with a reason (v0.8)', v8.lostToRival >= 1, `${v8.lostToRival}`]);
+  softTargets.push(['a world event touching our flights (≥ 3 of seeds 1–6, v0.8)', v8.closuresHit + v8.legsRerouted + (v8.warRiskPaid > 0 ? 1 : 0) > 0, `closures ${v8.closuresHit}, rerouted ${v8.legsRerouted}, war-risk ${k$(v8.warRiskPaid)}`]);
+  softTargets.push(['a dry lease (≥ 2 of seeds 1–6, v0.8)', v8.dryLeases >= 1, `${v8.dryLeases}`]);
 }
 console.log('\ntargets');
 for (const [name, ok, val] of targets) console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${name.padEnd(38)} ${val}`);

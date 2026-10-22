@@ -200,6 +200,7 @@ export function refreshMarket(g: GameState): void {
   m.narrowIndex = Math.round(clamp(m.narrowIndex + (tgt + cy.narrowOff - m.narrowIndex) * C.pull + gaussian(g) * C.noise, C.clamp[0], C.clamp[1]) * 1000) / 1000;
   m.wideIndex = Math.round(clamp(m.wideIndex + (tgt + cy.wideOff - m.wideIndex) * C.pull + gaussian(g) * C.noise, C.clamp[0], C.clamp[1]) * 1000) / 1000;
   m.shocks = (m.shocks ?? []).filter((x) => x.until > g.now);
+  hajjShock(g);
   const month = monthKey(g.now) - monthKey(g.started);
   const r = side(g, `m${month}`);
   if (!m.gotNarrow && (month >= 1 || chance(r, 0.5))) {
@@ -231,7 +232,8 @@ export function dailyMarket(g: GameState): void {
   const filed = g.company.pendingApprovals.find((p) => p.id === 'widebody');
   if (!m.gotWideFiled && filed) {
     const days = (g.now - filed.started) / DAY;
-    const open = m.aircraft.some((o) => typeOf(o.typeId).body === 'wide' && o.kind === 'dryLeaseIn' && aircraftGate(g, o.typeId).ok);
+    // v0.8 only one handed over near the grant counts (one open on the filing day lapses months before it).
+    const open = m.aircraft.some((o) => typeOf(o.typeId).body === 'wide' && o.kind === 'dryLeaseIn' && aircraftGate(g, o.typeId).ok && g.now + o.leadDays * DAY >= filed.done - 30 * DAY);
     if (days >= M.wideAfterFilingDays) m.gotWideFiled = true;
     else if (!open && (days >= M.wideAfterFilingDays - 1 || chance(r, 1 / 20))) {
       m.gotWideFiled = true;
@@ -436,6 +438,17 @@ export function setPhase(g: GameState, phase: MarketPhase, months: number, r: Rn
   const off = () => Math.round(range(r, -C.offset, C.offset) * 1000) / 1000;
   g.market.cycle = { phase, since: g.now, until: g.now + Math.round(months * MONTH_MIN), narrowOff: off(), wideOff: off() };
   if (was && was !== phase) pushMessage(g, { tone: phase === 'boom' ? 'good' : phase === 'steady' ? 'info' : 'warn', cat: 'commercial', title: PHASE_TITLE[phase], body: PHASE_BODY[phase] });
+}
+
+/** A Hajj overlapping June raises widebody demand +0.08 for its weeks (added a month ahead, once). */
+function hajjShock(g: GameState): void {
+  const h = nextHajj(g.now, 1)[0];
+  if (!h || g.now < h.pre[0] - 31 * DAY) return;
+  const june = (t: number) => new Date(Date.UTC(2000, 0, 1) + t * 60_000).getUTCMonth() === 5;
+  if (!june(h.pre[0]) && !june(h.pre[1]) && !june(h.post[0]) && !june(h.post[1])) return;
+  const text = `Hajj ${h.ah} in June`;
+  if ((g.market.shocks ?? []).some((x) => x.text === text)) return;
+  addShock(g, { seg: 'wide', delta: 0.08, until: h.post[1], text });
 }
 
 /** Demand index of a segment with today's shocks (pricing and offer volume read this). Pure. */

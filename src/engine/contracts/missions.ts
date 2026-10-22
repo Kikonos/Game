@@ -577,15 +577,21 @@ export function dailyRepeats(g: GameState): void {
   }
 }
 
+/** The repeat-business roll of a contract: its client's level chance (Known 30 %, Trusted 50 %, Partner 80 %). Pure. */
+export function repeatHit(g: GameState, contractId: string): boolean {
+  const c = g.contracts[contractId];
+  const cl = c ? g.clients[c.clientId] : undefined;
+  const p = cl ? perks(g, cl).repeat : 0;
+  return p > 0 && chance(sideRng(g, `repeat:${contractId}`), p);
+}
+
 /** At completion (or 45 days before a base programme ends): the client's level's chance of the same work again. */
 export function rollRepeat(g: GameState, contractId: string): ContractOffer | null {
   const c = g.contracts[contractId];
   if (!c || c.repeatRolled || c.archetype === 'subcharterIn' || c.archetype === 'dryLeaseOut' || c.archetype === 'evacuation' || c.archetype === 'humanitarian' || c.archetype === 'hajj') return null;
   c.repeatRolled = true;
   const cl = g.clients[c.clientId];
-  if (!cl) return null;
-  const p = perks(g, cl).repeat;
-  if (!p || !chance(sideRng(g, `repeat:${c.id}`), p)) return null;
+  if (!cl || !repeatHit(g, c.id)) return null;
   const wide = typeOf(g.fleet[c.aircraftIds[0]]?.typeId ?? 'a320ceo').body === 'wide';
   // A summer base completed after August comes back for next summer (April); the rest 20–120 days out.
   const y = toDate(g.now).getUTCFullYear();

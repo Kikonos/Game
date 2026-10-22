@@ -216,13 +216,13 @@ describe('feasibility', () => {
 
 describe('crew reach (v0.7 fix round 2)', () => {
   it('a short-notice job flown in from far: no crew can be there legally, so crew is no (the roster would hold it)', () => {
-    // Seed 207: AOG cover at Antalya from 05:00 the same day, the aircraft at Lisbon.
-    const g = newGame(207);
+    // Seed 201 (v0.8; was 207): AOG cover at Dakar from 06:00 the same day, the aircraft at Lisbon.
+    const g = newGame(201);
     const o = offer(g, 'aogCover');
     const ac = Object.keys(g.fleet)[0];
     const c = check(feasibility(g, o.id, ac), 'crew');
     expect(c.level).toBe('no');
-    expect(c.label).toMatch(/^No crew can be at AYT for the first departure .*: the positioning crew would be on duty 13h/);
+    expect(c.label).toMatch(/^No crew can be at [A-Z]{3} for the first departure .*: the positioning crew would be on duty 13h/);
     // The same job with a day's notice: a crew flies out on an airline and rests first.
     o.start += DAY;
     if (o.pattern.kind === 'base') o.pattern.from += DAY;

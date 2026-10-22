@@ -13,6 +13,24 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.8',
+    name: 'World',
+    features: [
+      'Clients remember you: New → Known → Trusted → Partner. Trusted clients pay more, ask you first, pay sooner and forgive a small delay; favours like an extra rotation now count.',
+      'A new airline starts with the work nobody wants: short, cheap, odd hours. Fly it well and better offers come.',
+      'New work: Hajj airlifts that move 11 days earlier every year, UN rotations for a year or two, presidential flights, deportation flights (well paid, but your crews and reputation pay too), evacuations with war-risk insurance, medical airbridges, music tours and Antarctica on blue ice.',
+      'Real rivals with their own styles bid for the same jobs, sometimes win (and you’re told why), and hire each other — and you.',
+      'The market moves: booms and slumps, fuel, seasons and Hajj. A simple outlook on the Contracts screen.',
+      'The world happens: coups, strikes, ash clouds, disasters, airline failures and closed airspace in real places, with urgent work and real risk. Closed airspace is shaded on the map.',
+      'Dry leases: rent an aircraft to another airline without crew; your pilots deliver it and fetch it back.',
+      'Mixed crews: the client brings most of the cabin crew, like Getjet’s A330 for Air Sénégal; you fly the purser.',
+    ],
+    improvements: [
+      'Favours and change requests now say what they do for the relationship.',
+      'The timeline says when a base programme simply continues instead of ‘nothing booked’.',
+    ],
+  },
+  {
     version: 'v0.7.3',
     name: 'In-flight Rest & EASA',
     features: [
