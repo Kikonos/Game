@@ -167,6 +167,14 @@ describe('feasibility', () => {
     expect(none.level).toBe('no');
     expect(none.label).toMatch(/^No crew rest → ✗ a \d+:\d\d day needs in-flight rest/);
     expect(none.action).toEqual({ kind: 'restRefit', option: 'curtainJ' });
+    // ULR work needs class 1 for both pilots and cabin crew (C6)
+    o.requirements.approvals.push('ulr');
+    wb.rest = { fc: { cls: 1, kind: 'fcrc', places: 2 }, cc: { cls: 2, kind: 'jSeats', places: 5 } };
+    const ulr = check(feasibility(g, o.id, wb.id), 'rest');
+    expect(ulr.level).toBe('no');
+    expect(ulr.label).toMatch(/^ULR needs bunks for pilots and cabin crew \(class 1\)/);
+    wb.rest = { fc: { cls: 1, kind: 'fcrc', places: 2 }, cc: { cls: 1, kind: 'ccrc', places: 8 } };
+    expect(check(feasibility(g, o.id, wb.id), 'rest').level).toBe('ok');
   });
 
   it('rest: the real Table 2 limit for the report time (C7)', () => {

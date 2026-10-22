@@ -35,7 +35,7 @@ const hm = (m: number) => `${Math.floor(Math.max(0, m) / 60)}:${String(Math.roun
  * the cruise was too short): verdict chip, the facilities, why it fails, the static timeline. A long unaugmented
  * widebody day gets one greyed line instead.
  */
-function RestSection({ g, f, ac, d }: { g: GameState; f: Flight; ac: Aircraft; d?: Duty }) {
+function RestSection({ g, f, ac, d, legal }: { g: GameState; f: Flight; ac: Aircraft; d?: Duty; legal: boolean }) {
   const plan = restPlanForFlight(g, f.id);
   if (!plan) {
     if (!d || typeOf(ac.typeId).body !== 'wide' || d.fdp < 10 * 60) return null;
@@ -46,7 +46,10 @@ function RestSection({ g, f, ac, d }: { g: GameState; f: Flight; ac: Aircraft; d
       </div>
     );
   }
-  const v = restVerdict(plan)!;
+  // The roster split a too-short-cruise day with a fresh crew (slipShort): this duty flies unaugmented and legal.
+  const lastId = d && !d.augment && legal && d.fdp <= d.maxFdp && !plan.ok && plan.code === 'tooShort' ? d.flightIds.filter((id) => g.flights[id]?.status !== 'cancelled').at(-1) : undefined;
+  const at = lastId ? g.flights[lastId]?.to : undefined;
+  const v = at ? { tone: 'info', text: `In-flight rest not possible: the roster split the day at ${AIRPORT_BY_CODE[at]?.city ?? at}` } : restVerdict(plan)!;
   const rest = restOf(g, ac.id);
   const pilots = 2 + plan.augment;
   return (
@@ -59,7 +62,7 @@ function RestSection({ g, f, ac, d }: { g: GameState; f: Flight; ac: Aircraft; d
         <span><b>{pilots} pilots</b> <span className="muted">· rest in {restShort(rest.fc)} · <Term id="landingPilots">landing pilots</Term> 2 h in a row, the others 90 min</span></span>
         <span><b>Cabin crew</b> <span className="muted">· {restShort(rest.cc)}{plan.cabinNeed !== null ? ` · ${hm(plan.cabinNeed)} each (a ${hm(plan.cabinFdp)} day${plan.band ? `, band ${plan.band}` : ''})` : ''} · half stay in the cabin</span></span>
       </div>
-      {!plan.ok && plan.why && <div className="small bad">{plan.why}.</div>}
+      {!plan.ok && plan.why && <div className={`small ${at ? 'muted' : 'bad'}`}>{plan.why}.</div>}
       {plan.extraCabin > 0 && <div className="small warn">+{plan.extraCabin} cabin crew fly so that everyone gets their rest.</div>}
       {plan.cruise.length > 0 && <RestTimeline g={g} plan={plan} />}
     </div>
@@ -119,7 +122,7 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
       )}
       <div className="small muted">{AIRPORT_BY_CODE[f.from]?.city ?? f.from} → {AIRPORT_BY_CODE[f.to]?.city ?? f.to}</div>
       <KV rows={rows} />
-      {ac && f.kind !== 'deadhead' && f.status !== 'cancelled' && <RestSection g={g} f={f} ac={ac} d={d} />}
+      {ac && f.kind !== 'deadhead' && f.status !== 'cancelled' && <RestSection g={g} f={f} ac={ac} d={d} legal={cs.level !== 'illegal'} />}
       {f.aircraftId && f.kind !== 'deadhead' && (
         <div className="col gap-8">
           {later ? (

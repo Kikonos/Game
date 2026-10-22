@@ -11,7 +11,7 @@ import { problems } from '../ops';
 import { addCrew, fixtureContract, fixtureGame } from './fixtures';
 import { applyCrewFix, autoRoster, buildDuties, crewControl, fdpWhy, restPlan, restPlanForFlight, setDutyAugment } from '.';
 import { syncDuty } from './duties';
-import { dailyStandby, dropStandby, onStandby } from './standby';
+import { callIfOnStandby, dailyStandby, dropStandby, onStandby } from './standby';
 import { evalSegs, type Seg } from './rules';
 import { ctxOf, dutySegs, segsOf } from './timeline';
 import { createGame } from '../newGame';
@@ -198,6 +198,20 @@ describe('home standby (CS FTL.1.225(b))', () => {
     c.standby = [run];
     dropStandby(g, c, g.now + 3 * DAY);
     expect(c.standby).toEqual([run]);
+  });
+  it('a duty given at short notice before the window, reporting inside it, counts as a call (the duty replaces the standby)', () => {
+    const g = newDev();
+    const c = Object.values(g.crew).find((x) => x.role === 'CPT')!;
+    c.standby = [{ from: g.now + 5 * H, to: g.now + 17 * H }];
+    expect(callIfOnStandby(g, c.id, g.now + 20 * H)).toBe(false);
+    expect(callIfOnStandby(g, c.id, g.now + 8 * H)).toBe(true);
+    expect(g.stats.standbyCalls).toBe(1);
+    // no standby time counted: the window is not marked called (dropStandby removes it with the assignment)
+    expect(c.standby[0].calledAt).toBeUndefined();
+    // a window more than 12 h away is ordinary rostering
+    c.standby = [{ from: g.now + 14 * H, to: g.now + 26 * H }];
+    expect(callIfOnStandby(g, c.id, g.now + 16 * H)).toBe(false);
+    expect(g.stats.standbyCalls).toBe(1);
   });
   it('Crew Control calls a captain on standby first: no overtime, the call counted', () => {
     const g = newDev();

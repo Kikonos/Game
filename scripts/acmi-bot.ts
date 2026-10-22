@@ -12,9 +12,10 @@
 // - crew: fill staffing (widebodies: two more crew sets each, dual-type cabin crew count half; pilots past the rated pool
 //   in a second batch), hire one more set when the family's pilots fly > 80% of productive hours;
 // - maintenance: C-checks booked when warned, in the first free window (winter first); A-checks auto;
-// - decisions: swap aircraft on AOG when one is free, factor a late invoice when cash is short, else the default;
+// - decisions: swap aircraft on AOG when one is free, else the cheapest option by its chips (v0.7.3), factor a late
+//   invoice when cash is short, else the default;
 // - fleet: lease a widebody once the cash covers its deposit, three months of its fixed costs and a cushion, the last
-//   quarter was profitable and a big widebody job starts after delivery;
+//   quarter was profitable and a big widebody job starts after delivery; its crew hired to join a week before it can fly;
 // - client paint (v0.5.1): required paint is accepted with the job; optional paint is taken when the client pays at
 //   least half or adds a rate bonus; never countered away;
 // - v0.6 crew: per diem 110% when company morale sits below 55 for two weeks, 5★ hotels if still below 52 four weeks
@@ -55,7 +56,7 @@ import { DAY, dayIndex, fmtDateTime, fmtMonth, fromUTC, monthKey, toDate } from 
 import type { RatingFamily } from '../src/data/acmiTypes';
 import type { Archetype, ContractOffer, GameState, LedgerCat, MonthKey, Role } from '../src/engine/core/types';
 import { acceptOffer, counterOffer, feasibility, type FeasibilityReport } from '../src/engine/contracts';
-import { aboveMinimum, applyCrewFix, restOf, restPlan, setDutyAugment, classOf, conversionClasses, conversionEarliest, conversionPlan, crewControl, hireCrew, ratedMarket, setCrewExtra, shortFlights, staffing, startConversion, type CrewSolution, type StaffingLine } from '../src/engine/crew';
+import { aboveMinimum, applyCrewFix, hireQuote, restOf, restPlan, setDutyAugment, classOf, conversionClasses, conversionEarliest, conversionPlan, crewControl, hireCrew, ratedMarket, setCrewExtra, shortFlights, staffing, startConversion, type CrewSolution, type StaffingLine } from '../src/engine/crew';
 import { devFleet, devGrantApproval } from '../src/engine/dev';
 import { createGame } from '../src/engine/newGame';
 import {
@@ -166,15 +167,35 @@ function pilotUtil(g: GameState, family: RatingFamily): number {
   return n ? block / 60 / (n * BAL.pilotBHMonth * (28 / 30.4)) : 0;
 }
 
+/**
+ * v0.7.3 what an AOG option costs, read off its chips: the money (repair, team, sub-charter, compensation for legs
+ * cancelled) plus $10K per reliability point (a hold that cancels legs costs 3, like cancelling).
+ */
+function aogCost(chips: string[]): number {
+  let cost = 0;
+  let rel = 0;
+  for (const c of chips) {
+    const m = /^[−-]\$([\d.]+)([KM]?)$/.exec(c);
+    if (m) cost += Number(m[1]) * (m[2] === 'M' ? 1e6 : m[2] === 'K' ? 1e3 : 1);
+    const r = /reliability −([\d.]+)/i.exec(c);
+    if (r) rel += Number(r[1]);
+    else if (/legs? cancelled$/.test(c)) rel += 3;
+  }
+  return cost + 10_000 * rel;
+}
+
 function decide(g: GameState, t: Tally): void {
   for (const d of [...g.decisions]) {
     const usable = (id: string) => d.options.some((o) => o.id === id && !o.chips?.includes('Unavailable'));
     let opt = d.defaultOption;
     if (d.kind === 'aog' && usable('swap')) opt = 'swap';
+    // v0.7.3 otherwise the cheapest way through (an AOG team or a short wait before sub-chartering a long series).
+    else if (d.kind === 'aog') opt = [...d.options].filter((o) => usable(o.id)).sort((a, b) => aogCost(a.chips ?? []) - aogCost(b.chips ?? []) || Number(b.id === d.defaultOption) - Number(a.id === d.defaultOption))[0]?.id ?? opt;
     else if (d.kind === 'latePayment' && g.company.cash < 600_000 && usable('factor')) opt = 'factor';
     else if (d.kind === 'rescue') opt = 'accept';
     else if (d.kind === 'leaseEnd') opt = keepLease(g, String(d.data?.aircraftId ?? '')) ? 'extend12' : 'return';
     if (resolveDecision(g, d.id, opt).ok || resolveDecision(g, d.id, d.defaultOption).ok) {
+      if (MSGS) console.error(`${fmtDateTime(g.now)} DECISION ${d.kind}:${opt} ${d.title} — ${d.options.map((o) => `${o.id}[${(o.chips ?? []).join('; ')}]`).join(' ')}`);
       act(g, t);
       t.decisions.set(weekOf(g), (t.decisions.get(weekOf(g)) ?? 0) + 1);
       t.decMonth.set(monthKey(g.now), (t.decMonth.get(monthKey(g.now)) ?? 0) + 1);
@@ -341,6 +362,9 @@ function hire(g: GameState, t: Tally): void {
     const have = l.have + inClass(g, l) - Math.ceil(shared / 2);
     // Two more sets of every role per widebody (one set's worth of each role per extra set).
     const need = l.need + (wideN.has(l.family) ? Math.round((2 * l.need) / Math.max(1, BAL.crewSetsPerAircraft * (wideN.get(l.family) ?? 1))) * (wideN.get(l.family) ?? 0) : 0);
+    // v0.7.3 a widebody's crew join about a week before it can fly revenue (home and Widebody operations granted),
+    // not at the signing: their salaries ran for months with the aircraft still parked or on its way.
+    if (wideN.has(l.family) && hireQuote(g, { role: l.role, family: l.family, base: g.company.homeBase, count: 1 }).readyAt < wideFrom(g, l.family) - 7 * DAY) continue;
     if (have < need && hireSplit(g, { role: l.role, family: l.family, base: g.company.homeBase, count: Math.min(30, need - have) }).ok) act(g, t);
   }
   const fams = new Map<RatingFamily, { typeId: string; seats: number }>();
@@ -355,6 +379,14 @@ function hire(g: GameState, t: Tally): void {
     for (const r of complement(x.typeId, x.seats, { extraCabin: g.company.policies.extraCabin })) per.set(r, (per.get(r) ?? 0) + 1);
     for (const [role, n] of per) if (hireSplit(g, { role, family, base: g.company.homeBase, count: n }).ok) act(g, t);
   }
+}
+
+/** v0.7.3 when a widebody family first flies revenue: its first aircraft home and Widebody operations granted. */
+function wideFrom(g: GameState, family: RatingFamily): number {
+  const acs = Object.values(g.fleet).filter((a) => typeOf(a.typeId).body === 'wide' && typeOf(a.typeId).family === family);
+  const home = Math.min(...acs.map((a) => (a.status === 'delivering' ? a.deliveredAt : g.now)));
+  const grant = g.company.approvals.includes('widebody') ? g.now : g.company.pendingApprovals.find((p) => p.id === 'widebody')?.done ?? g.now;
+  return Math.max(home, grant);
 }
 
 /** v0.6: crew of a staffing line's role booked on a class onto its family (they count once the course ends). */
@@ -616,14 +648,14 @@ function sales(g: GameState, t: Tally): void {
   }
 }
 
-/** A widebody's own monthly fixed costs: rent, insurance, overhead share, 5 crew sets with on-costs. */
+/** A widebody's own monthly fixed costs: rent, insurance, overhead share, the crew sets hire() keeps (5 + 2) with on-costs. */
 function wideMonth(rent: number, typeId: string, seats: number): number {
-  const sets = complement(typeId, seats).reduce((s, r) => s + (BAL.salary[r]?.[1] ?? 3_000), 0) * BAL.crewSetsPerAircraft * (1 + BAL.onCosts);
+  const sets = complement(typeId, seats).reduce((s, r) => s + (BAL.salary[r]?.[1] ?? 3_000), 0) * (BAL.crewSetsPerAircraft + 2) * (1 + BAL.onCosts);
   return rent + typeOf(typeId).insuranceMonth + BAL.overheadPerAircraft + sets;
 }
 
 /**
- * Signed when the deposit, three months of the widebody's fixed costs (crew included) and a $1.5M cushion are in the bank, only
+ * Signed when the deposit, three months of the widebody's fixed costs (its 7 crew sets included) and $500K are in the bank, only
  * while the last three months were profitable and a widebody base of 75+ days worth $2.5M+ starts far enough out for delivery
  * and crew hiring (but within 75 days of delivery, so the new aircraft isn't parked for months); that job is then taken as
  * soon as the aircraft can fly it.
@@ -632,7 +664,8 @@ function fleet(g: GameState, t: Tally): void {
   if (Object.values(g.fleet).some((a) => typeOf(a.typeId).body === 'wide')) return;
   const recent = g.finance.history.slice(-3);
   // v0.7: the Ladder's approval fees are an investment, not a sign of a losing quarter.
-  const earning = recent.length === 3 && recent.reduce((s, st) => s + statementTotals(st.lines).profit - (st.lines.approvals ?? 0), 0) > 0;
+  const qProfit = recent.reduce((s, st) => s + statementTotals(st.lines).profit - (st.lines.approvals ?? 0), 0);
+  const earning = recent.length === 3 && qProfit > 0;
   // v0.7: the cheapest lease first (an A330-300 at $420K/month parked for months sinks the year).
   for (const o of [...g.market.aircraft].sort((a, b) => a.rentPerMonth - b.rentPerMonth || (a.id < b.id ? -1 : 1))) {
     // v0.7: only what the Ladder lets us sign (pending counts), never a new-build slot.
@@ -642,7 +675,8 @@ function fleet(g: GameState, t: Tally): void {
     if (typeOf(o.typeId).family !== wideFamily(g) && g.now - filed < 60 * DAY) continue;
     // Acquirable (the target): deposit plus three months of rent and insurance, with $1M left to run the airline.
     if (g.company.cash >= o.deposit + 3 * (o.rentPerMonth + typeOf(o.typeId).insuranceMonth) + 1_000_000) t.wideAffordableAt ??= g.now;
-    if (g.company.cash < o.deposit + (WIDE ? 1_000_000 : wideMonth(o.rentPerMonth, o.typeId, o.cabin.total) + 500_000)) continue;
+    // v0.7.3 three months of its fixed costs after the deposit (v0.7.2: one), and $500K to run the airline.
+    if (g.company.cash < o.deposit + (WIDE ? 1_000_000 : 3 * wideMonth(o.rentPerMonth, o.typeId, o.cabin.total) + 500_000)) continue;
     t.wideReadyAt ??= g.now;
     // v0.7: home after the delivery ferry; a widebody job worth $1M+ starting 1–4 months after that (or, from day 150
     // on the ladder, the widebody itself: wide work follows a widebody fleet).
@@ -658,11 +692,13 @@ function fleet(g: GameState, t: Tally): void {
     // v0.7.2 not before the grant is near: home at most about two weeks before it (rent and crew run from the handover).
     if (!WIDE && due !== undefined && due - g.now > (lead + 14) * DAY) continue;
     const timed = due !== undefined;
-    // Without a job to fly, only a lease the airline can carry while it waits for work ($300K/month at most).
-    if (!WIDE && (!earning || !(job || (timed && o.rentPerMonth <= 300_000)))) continue;
+    // Without a job to fly, only a lease the airline can carry while it waits for work ($300K/month at most; v0.7.3 the
+    // last quarter earned three months of its fixed costs: seed 6 signed an A340 off a thin autumn and lost $1.2M).
+    const carry = timed && o.rentPerMonth <= 300_000 && qProfit >= 3 * wideMonth(o.rentPerMonth, o.typeId, o.cabin.total);
+    if (!WIDE && (!earning || !(job || carry))) continue;
     if (acquireAircraft(g, o.id).ok) {
       t.wideSigned = g.now;
-      t.signed.push(`${typeOf(o.typeId).short} day ${Math.floor((g.now - g.started) / DAY)} at ${o.site}`);
+      t.signed.push(`${typeOf(o.typeId).short} day ${Math.floor((g.now - g.started) / DAY)} at ${o.site}${job ? '' : ' (no job yet)'}`);
       act(g, t);
       conversions(g, t);
       hire(g, t);

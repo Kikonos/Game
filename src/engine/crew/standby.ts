@@ -142,11 +142,29 @@ export function callFromStandby(g: GameState, crewId: string): boolean {
 /**
  * v0.7.3 crew placed on a trip whose first report falls inside their running home standby window are called out
  * (design §3.7: roster picks, auto-fix and sick-call cover count as calls): the window closes at that report.
+ * Told at short notice before the window starts (the night's roster run, crew control in the evening) for a report
+ * inside it, the standby crew member covers the gap too: counted as a call, while the duty simply replaces the
+ * standby (CS FTL.1.225: no standby time counts when the duty is given before it starts; the caller drops it).
  */
 export function callIfOnStandby(g: GameState, crewId: string, report: Minute | undefined): boolean {
-  if (report === undefined) return false;
-  const w = onStandby(g, crewId, g.now);
-  return !!w && report >= g.now && report < w.to && callFromStandby(g, crewId);
+  const c = g.crew[crewId];
+  if (report === undefined || !c) return false;
+  const w = standbyFor(g, c, report);
+  if (!w) return false;
+  if (w.from <= g.now) return callFromStandby(g, crewId);
+  g.stats.standbyCalls = (g.stats.standbyCalls ?? 0) + 1;
+  return true;
+}
+
+/**
+ * v0.7.3 the standby window a duty reporting at `report` calls c out of: running now, or starting within
+ * BAL.v073.standby.noticeMin (short notice), not called yet, the report inside it (or in the wake-up hour before). Pure.
+ */
+export function standbyFor(g: GameState, c: CrewMember, report: Minute): { from: Minute; to: Minute } | null {
+  const S = BAL.v073.standby;
+  if (report < g.now) return null;
+  const w = c.standby?.find((s) => s.calledAt === undefined && s.from - g.now <= S.noticeMin && g.now < s.to && report < s.to && report >= Math.min(g.now, s.from - S.wakeMin));
+  return w ? { from: w.from, to: w.to } : null;
 }
 
 /** v0.7.3 called out from home standby at this moment (no overtime, no morale hit for a lost day off). */

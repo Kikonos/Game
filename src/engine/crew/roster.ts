@@ -11,7 +11,7 @@ import type { ActionResult, CrewMember, Duty, Flight, GameState, Legality, Minut
 import { acceptable, crewIssuesFor, mergeSegs, openDuties, otherTrip, planCrew, type CrewPlan } from './check';
 import { deletePairing, dutyLegality, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setCrewTrailOkHook, setReleaseHook, setRetickHook, splitPairing, splitUnderWay, syncDuty } from './duties';
 import { crewName } from './generate';
-import { callIfOnStandby, dropStandby } from './standby';
+import { callIfOnStandby, dropStandby, standbyFor } from './standby';
 import { lateChange, moraleShock, nextReport } from './morale';
 import { cabinFdpCap, DISCRETION, evalSegs, levelOf, minRest, tzDeltaH, worst, type Seg } from './rules';
 import { planRest, restCabinN, restLegs, restOf, restPlan } from './restPlan';
@@ -570,6 +570,8 @@ function busyAt(segs: Seg[], from: Minute, to: Minute): boolean {
   for (let k = lo - 1; k >= 0 && k >= lo - 4; k--) {
     const s = segs[k];
     if (s.kind === 'log') break;
+    // v0.7.3 home standby is there to be used: the legality check reads it (a call-out, or replaced by the duty).
+    if (s.kind === 'sby') continue;
     if (s.end + s.rest > from) return true;
   }
   return false;
@@ -655,6 +657,8 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
     let score = -tp - 2 * (block28(segs, first.report) / 60);
     if (prev.has(c.id)) score += 30;
     if (unpleasant) score -= (70 - c.morale) / 2;
+    // v0.7.3 short notice: the day's standby crew are called first (crew control's order; no lost day off).
+    if (c.standby && standbyFor(g, c, first.report)) score += 60;
     pool.push({ c, score, rank: ctx.rank.get(c.id)! });
   }
   pool.sort((a, b) => b.score - a.score || a.rank - b.rank);

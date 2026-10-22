@@ -297,8 +297,8 @@ export const BAL = {
     split: { excludeMin: 60, minNet: 180, hotelFrom: 360, cap: 960, lounge: 25, dayRoom: 90 },
     /** Delayed reporting: a change made this long (hours) before the notified report is a re-published roster, not a delay. */
     delayed: { republishH: 18 },
-    /** Home standby: from 06:00 local for `hours`, per rating family and role, rostered `aheadDays` ahead; woken `wakeMin` before; crew keep `minDaysOff` free days a month. */
-    standby: { fromLocal: 360, hours: 12, perFamily: { CPT: 1, FO: 1, PUR: 1, CC: 1 } as Record<string, number>, aheadDays: 2, wakeMin: 60, minDaysOff: 8 },
+    /** Home standby: from 06:00 local for `hours`, per rating family and role, rostered `aheadDays` ahead; woken `wakeMin` before; crew keep `minDaysOff` free days a month; a duty given up to `noticeMin` before the window counts as a call. */
+    standby: { fromLocal: 360, hours: 12, perFamily: { CPT: 1, FO: 1, PUR: 1, CC: 1 } as Record<string, number>, aheadDays: 2, wakeMin: 60, minDaysOff: 8, noticeMin: 12 * 60 },
     /** Wet ACMI rate uplift when the longest chain needs 3 (1) or 4 (2) pilots. */
     augRate: { 1: 0.03, 2: 0.06 } as Record<number, number>,
   },
