@@ -1,8 +1,9 @@
 // Company (B5): reputation, approvals (apply, progress), policies and goals; competitors for context.
 // v0.7: the Ladder across the top (Ladder.tsx); IOSA and DG stay below as other approvals. DESIGN.md §6.3.
 
+import { useMemo } from 'react';
 import { Award, BadgeCheck, Building2, ChevronRight, Flag as FlagIcon, Medal, Palette, Settings2, ShieldCheck, Target } from 'lucide-react';
-import { rivalSummary, standing, STANDING_NAME } from '../../engine/contracts';
+import { clientList, rivalSummary, standing, STANDING_NAME } from '../../engine/contracts';
 import { BAL } from '../../engine/core/balance';
 import { fmtDate } from '../../engine/core/time';
 import type { GameState, Policies } from '../../engine/core/types';
@@ -237,7 +238,9 @@ export function CompanyScreen() {
   // v0.8: Overview · Clients · Rivals (older deep links such as 'ladder' land on the overview).
   const nv = store.nav.view;
   const view: View = nv === 'clients' || nv === 'rivals' ? nv : 'overview';
-  const nClients = Object.values(g.clients).filter((x) => (x.jobs ?? 0) > 0 || Object.values(g.contracts).some((k) => k.clientId === x.id && (k.status === 'signed' || k.status === 'active'))).length;
+  // Same rule as the Clients list's first filter (a job done, a contract or an open offer); moves at most daily.
+  const day = Math.floor(g.now / 1440);
+  const nClients = useMemo(() => clientList(g, 'working').length, [g, day, store.editCount]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className={`screen sc-company v8-company ${view}`}>
       <ScreenHead title={c.name} sub={`${c.icao} · callsign ${c.callsign} · home base ${c.homeBase}${c.ceo && c.ceo !== 'You' ? ` · CEO ${c.ceo}` : ''}`}>

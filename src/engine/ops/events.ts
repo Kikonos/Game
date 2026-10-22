@@ -27,6 +27,7 @@ import { setAogEnd } from './maintenance';
 import { ticketBlock } from './commercial';
 import { bumpReliable, isRevenue, stats, turnOf, usd } from './util';
 import { bumpClient, favourChip, levelOf, statsV08 } from '../contracts/relations';
+import { mghFor } from '../contracts/billing';
 import { cancelForceMajeure, resolveAirspace, resolveUninsurable } from './world';
 
 type Data = Record<string, string | number | boolean>;
@@ -155,7 +156,7 @@ export function aogDecision(g: GameState, ac: Aircraft, f: Flight, m: Maintenanc
   const teamEnd = g.now + Math.round((m.end - g.now) * BAL.aogTeamFactor);
   const teamCost = Math.round(range(g, BAL.aogTeamCost[0], BAL.aogTeamCost[1]) / 100) * 100;
   const roll = range(g, BAL.subcharterFactor[0], BAL.subcharterFactor[1]);
-  const rivalId = pickRival(g, ac.typeId);
+  const rivalId = pickRival(g, ac.typeId, [f]);
   const factor = Math.round(roll * rivalFactor(g, rivalId) * 100) / 100;
   const holdC = planHold(g, ac, m.at, fixC);
   const holdT = planHold(g, ac, m.at, teamEnd + 30);
@@ -376,7 +377,7 @@ export function crewShortDecision(g: GameState, f: Flight, ac: Aircraft): void {
   // v0.7.3 ORO.FTL.205(f): only once the crew have reported (unforeseen, at or after report).
   const canDisc = !!d && d.report <= g.now && !cs.missing.length && over > 0 && over <= discretionMax(g, d) && !d.discretion;
   const roll = range(g, BAL.subcharterFactor[0], BAL.subcharterFactor[1]);
-  const rivalId = pickRival(g, ac.typeId);
+  const rivalId = pickRival(g, ac.typeId, legs);
   const factor = Math.round(roll * rivalFactor(g, rivalId) * 100) / 100;
   const ready = crewReadyAt(g, f, ac);
   const wait = ready - g.now;
@@ -521,7 +522,7 @@ function resolveSick(g: GameState, d: Decision, opt: string): ActionResult {
       return { ok: true, msg: ok === 'ok' || ok === 'tight' ? `${f.no} is crewed again` : `Nobody could be called in yet: ops will try again before ${f.no}` };
     }
     case 'subcharter': {
-      const rival = pickRival(g, ac.typeId);
+      const rival = pickRival(g, ac.typeId, legs);
       const factor = range(g, BAL.subcharterFactor[0], BAL.subcharterFactor[1]) * rivalFactor(g, rival);
       const out: { hit?: SubHit } = {};
       const n = subcharterLegs(g, legs, rival, subcharterCost(g, legs, factor), out);
@@ -665,14 +666,14 @@ function extraRotation(g: GameState, c: Contract): boolean {
   const k = monthKey(std);
   let monthMin = c.use[k]?.blockMin ?? 0;
   for (const f of flightsOf(g, ac.id)) if (f.contractId === c.id && f.status === 'scheduled' && isRevenue(f) && monthKey(f.std) === k) monthMin += f.block;
-  const mgh = c.product.mghPerMonth * c.aircraftIds.length;
+  const mgh = mghFor(c, k);
   const paid = Math.max(0, Math.min(bh, monthMin / 60 + bh - mgh));
   const earn = Math.round(paid * c.product.ratePerBH * c.product.excessRate);
   const maint = Math.round(typeOf(ac.typeId).maintBH * bh);
   const aLeft = Math.max(0, Math.round(typeOf(ac.typeId).aCheckFH - ac.maint.fhSinceA));
   ask(g, {
     kind: 'changeRequest', title: `${cl?.name ?? 'Client'} asks for an extra rotation`,
-    body: `${p.base}–${dest}–${p.base} on ${fmtDay(std)}, off blocks ${fmtTime(std, p.base)} local. ${bh.toFixed(1)} BH, paid only above the month's ${Math.round(mgh)} guaranteed hours: ${earn ? `about ${paid.toFixed(1)} BH of it would be` : 'this month is planned below it, so it earns nothing extra'}.`,
+    body: `${p.base}–${dest}–${p.base} on ${fmtDay(std)}, off blocks ${fmtTime(std, p.base)} local. ${bh.toFixed(1)} BH, paid only above the ${Math.round(mgh)} hours guaranteed ${mgh < c.product.mghPerMonth * c.aircraftIds.length - 1 ? 'for this job that month' : 'that month'}: ${earn ? `about ${paid.toFixed(1)} BH of it would be` : 'this month is planned below it, so it earns nothing extra'}.`,
     options: [
       { id: 'accept', label: 'Fly it', desc: `${ac.reg} flies two more legs; a crew gets an extra duty and ${ac.reg}'s A-check (${aLeft} FH left) comes ${bh.toFixed(1)} FH sooner. A favour they remember.`, tone: earn > maint ? 'good' : 'warn', chips: [earn ? `+${usd(earn)}` : 'No extra revenue', `−${usd(maint)} maintenance`, `Relation +${BAL.v08.rel.extraLeg}`, favourChip(g, c.clientId, BAL.v08.rel.extraLeg)] },
       { id: 'decline', label: 'Decline', desc: 'The aircraft and crews keep their rest; the client notes it.', chips: [`Relation ${BAL.v08.rel.decline}`] },

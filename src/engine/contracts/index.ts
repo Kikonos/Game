@@ -18,7 +18,7 @@ export { billContractMonth, type BillingLine } from './billing';
 export { feasibility, feasibilityAll, marketFit, offerRestLine, type MarketFit, type CheckId, type CheckLevel, type FeasibilityCheck, type FeasibilityReport, type PositioningLeg } from './feasibility';
 export { fmtPrice, generateOffer, idleWindows, type IdleWindow, type OfferOpts } from './offers';
 export { counterOdds, counterView, type CounterOdds, type CounterView } from './counter';
-export { priceProduct, productValue, rateMultiplier } from './pricing';
+export { mghLabel, priceProduct, productValue, rateMultiplier } from './pricing';
 export { generateFlights, planPositioning, relinkPositioning } from './schedule';
 // v0.8 (UPDATE-0.8.md §12).
 export {

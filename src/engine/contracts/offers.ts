@@ -760,7 +760,9 @@ function tourSeries(ctx: Ctx): Draft | null {
 function troopRotation(ctx: Ctx): Draft | null {
   const { g, wide, o } = ctx;
   // v0.5.1: some rotations fly peacekeepers for the UN (they may want UN titles on the aircraft).
-  const un = !o.client && chance(sideRng(g, `un:${g.seq}:${g.now}`), 0.3) ? Object.values(g.clients).find((c) => /^UN Department of Peace/.test(c.name)) : undefined;
+  // v0.8: the UN only charters audited operators (Established and IOSA held or under way, as unRotation).
+  const unOk = standingOf(g) >= 1 && [...g.company.approvals, ...g.company.pendingApprovals.map((p) => p.id)].includes('iosa');
+  const un = !o.client && chance(sideRng(g, `un:${g.seq}:${g.now}`), 0.3) && unOk ? Object.values(g.clients).find((c) => /^UN Department of Peace/.test(c.name)) : undefined;
   const client = (o.client && g.clients[o.client]) || un || ministry(g, 'Defence');
   if (!client) return null;
   const home = g.company.homeBase;

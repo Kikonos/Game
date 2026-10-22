@@ -75,7 +75,7 @@ export function v08Lines(g: GameState, o: ContractOffer, wide: boolean, airports
   const legs = o.pattern.kind === 'legs' ? o.pattern.legs : [];
   for (const code of airports) {
     const firstUse = legs.find((l) => l.from === code || l.to === code)?.dep ?? o.start;
-    const e = closedAirport(g, code, firstUse);
+    const e = closedAirport(g, code, firstUse, o.eventId);
     if (e) {
       out.push({ id: 'airspace', level: 'no', label: `${city(code)} is closed (${e.title}) until about ${fmtDay(e.end)}`, detail: 'Force majeure: nothing can fly there before it reopens.' });
       break;
@@ -83,7 +83,7 @@ export function v08Lines(g: GameState, o: ContractOffer, wide: boolean, airports
   }
   if (!out.some((x) => x.id === 'airspace')) {
     for (const e of eventsOf(g)) {
-      if (!isLive(g, e) || !e.closed || !e.zoneId) continue;
+      if (!isLive(g, e) || !e.closed || !e.zoneId || e.id === o.eventId) continue;
       const z = ZONE_BY_ID[e.zoneId];
       if (z && sectors.some(([a, b]) => crosses(z, a, b))) {
         out.push({ id: 'airspace', level: 'warn', label: `Rerouted around ${z.adj} airspace: about +${z.detourMin} min a leg while it is closed` });

@@ -227,7 +227,7 @@ function Missed({ g }: { g: GameState }) {
           <ArchIcon a={o.archetype} />
           <div className="grow">
             <div className="ellipsis"><b>{o.title}</b></div>
-            <div className="small muted ellipsis">{g.clients[o.clientId]?.name} · {routeSummary(o.pattern)} · {offerDays(o).map(fmtDay).join(' – ')}</div>
+            <div className="small muted ellipsis">{[g.clients[o.clientId]?.name, routeSummary(o.pattern), offerDays(o).map(fmtDay).join(' – ')].filter(Boolean).join(' · ')}</div>
             {o.lostWhy && <div className="small warn ellipsis">{o.lostTo ?? 'A rival'} {o.lostWhy}</div>}
           </div>
           <div className="right small nowrap">
@@ -256,7 +256,7 @@ function HeadStrip({ g }: { g: GameState }) {
         <ChevronRight className="sc-ico-s dim" />
       </button>
       <button className="v8-outlook-btn" onClick={() => store.openModal({ kind: 'outlook' })} aria-label="Market outlook">
-        <OutlookTiles o={o} />
+        <OutlookTiles o={o} now={g.now} />
       </button>
     </div>
   );

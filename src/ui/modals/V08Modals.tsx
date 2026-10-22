@@ -49,23 +49,42 @@ export function RivalModal({ rivalId }: { rivalId: string }) {
 // ---------- outlook ----------
 
 const PHASE_NAME = { boom: 'Boom', steady: 'Steady', soft: 'Soft', slump: 'Slump' } as const;
-const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 const toneOf = (i: number) => (i >= 1.04 ? 'good' : i <= 0.92 ? 'bad' : i < 0.96 ? 'warn' : '');
 
+/** 'High ↑', 'Normal' (no arrow inside the normal band), 'Soft ↓'. */
+function demandWord(i: number, t: -1 | 0 | 1): string {
+  const w = i >= 1.12 ? 'High' : i >= 1.04 ? 'Firm' : i >= 0.96 ? 'Normal' : i >= 0.88 ? 'Soft' : 'Weak';
+  return w === 'Normal' || !t ? w : `${w} ${t > 0 ? '↑' : '↓'}`;
+}
+
+/** 'Hajj flights in 43 d' when the next inbound airlift starts within 120 days. */
+function hajjLine(o: MarketOutlook, now: number): string {
+  const h = o.hajj.find((x) => x.pre[0] > now);
+  const d = h ? Math.ceil((h.pre[0] - now) / DAY) : 0;
+  if (h && d <= 120) return `Hajj flights in ${d} d`;
+  const on = o.hajj.find((x) => x.pre[0] <= now && x.post[1] > now);
+  return on ? (now < on.pre[1] ? 'Hajj flights now (in)' : now >= on.post[0] ? 'Hajj flights now (home)' : 'Hajj now') : '';
+}
+
 /** The four outlook tiles (Contracts head strip; larger in the dialog). Static: values change at most monthly. */
-export function OutlookTiles({ o, big }: { o: MarketOutlook; big?: boolean }) {
+export function OutlookTiles({ o, now, big }: { o: MarketOutlook; now: number; big?: boolean }) {
   const fuelTone = o.fuel.price > 900 ? 'warn' : '';
+  const hl = hajjLine(o, now);
   return (
     <div className={`v8-tiles ${big ? 'big' : ''}`}>
-      <span className={`v8-tile ${toneOf(o.narrow.index)}`}><span className="v8-tile-k">Narrowbody</span><b>{cap(o.narrow.text.replace(/^Narrowbody demand ?/, '')) || 'Steady'}</b></span>
-      <span className={`v8-tile ${toneOf(o.wide.index)}`}><span className="v8-tile-k">Widebody</span><b>{cap(o.wide.text.replace(/^Widebody demand ?/, '')) || 'Steady'}</b></span>
+      <span className={`v8-tile ${toneOf(o.narrow.index)}`}><span className="v8-tile-k">Narrowbody</span><b>{demandWord(o.narrow.index, o.narrow.trend)}</b></span>
+      <span className={`v8-tile ${toneOf(o.wide.index)}`}><span className="v8-tile-k">Widebody</span><b>{demandWord(o.wide.index, o.wide.trend)}</b></span>
       <span className={`v8-tile ${fuelTone}`}><span className="v8-tile-k">Fuel</span><b>{o.fuel.text.replace(/^Fuel /, '')}</b></span>
-      <span className="v8-tile"><span className="v8-tile-k">{PHASE_NAME[o.phase]} market</span><b className="ellipsis">{o.season.name}</b></span>
+      <span className="v8-tile v8-tile-season">
+        <span className="v8-tile-k">{PHASE_NAME[o.phase]} market</span>
+        <b>{o.season.name.split(' · ')[0]}</b>
+        {hl && <span className="v8-tile-sub">{hl}</span>}
+      </span>
     </div>
   );
 }
 
-interface Bar { from: number; to: number; label: string; cls: string }
+interface Bar { from: number; to: number; label: string; cls: string; short?: string }
 
 function seasonBars(from: number, to: number): Bar[] {
   const out: Bar[] = [];
@@ -74,7 +93,7 @@ function seasonBars(from: number, to: number): Bar[] {
     const cls = m >= 5 && m <= 8 ? 'peak' : m >= 10 || m <= 2 ? 'trough' : 'shoulder';
     const last = out[out.length - 1];
     if (last && last.cls === cls) last.to = nextMonthStart(t);
-    else out.push({ from: t, to: nextMonthStart(t), cls, label: cls === 'peak' ? 'Summer peak' : cls === 'trough' ? 'Winter trough' : '' });
+    else out.push({ from: t, to: nextMonthStart(t), cls, label: cls === 'peak' ? 'Summer peak' : cls === 'trough' ? 'Winter trough' : '', short: cls === 'peak' ? 'Summer' : cls === 'trough' ? 'Winter' : '' });
   }
   return out;
 }
@@ -90,27 +109,38 @@ function Calendar({ g, o }: { g: GameState; o: MarketOutlook }) {
     if (b.to <= from || b.from >= to) return null;
     const l = pos(b.from);
     const w = Math.max(0.8, pos(b.to) - l);
-    return <span key={i} className={`v8-cal-bar ${b.cls}`} style={{ left: `${l}%`, width: `${w}%` }}>{w > 6 ? b.label : ''}</span>;
+    // Under ~100 px the short label ('In', 'Winter'); the full text stays in the tooltip and the lines below.
+    const txt = w > 13 ? b.label : w > 4 ? (b.short ?? b.label) : '';
+    const bar = <span key={i} className={`v8-cal-bar ${b.cls}`} style={{ left: `${l}%`, width: `${w}%` }} title={b.label}>{txt}</span>;
+    // A short event names itself beside its bar (each event has its own lane).
+    if (b.cls !== 'event' || txt === b.label || l + w > 70) return bar;
+    return [bar, <span key={`${i}t`} className="v8-cal-tag small muted" style={{ left: `calc(${l + w}% + 6px)` }}>{b.label}</span>];
   };
   const months: number[] = [];
   for (let t = from; t < to; t = nextMonthStart(t)) months.push(t);
   const hajj: Bar[] = o.hajj.flatMap((h) => [
-    { from: h.pre[0], to: h.pre[1], cls: 'hajj', label: `Hajj ${h.ah} in` },
+    { from: h.pre[0], to: h.pre[1], cls: 'hajj', label: `Hajj ${h.ah} in`, short: 'In' },
     { from: h.post[0], to: h.post[1], cls: 'hajj', label: 'home' },
   ]);
-  const ant: Bar[] = [{ from: o.antarctic[0], to: o.antarctic[1], cls: 'ant', label: 'Antarctic season' }];
+  const ant: Bar[] = [{ from: o.antarctic[0], to: o.antarctic[1], cls: 'ant', label: 'Antarctic season', short: 'Antarctic' }];
   // The next season too (it may start inside the window when this one has passed).
-  ant.push({ from: o.antarctic[0] + 365 * DAY, to: o.antarctic[1] + 365 * DAY, cls: 'ant', label: 'Antarctic season' });
-  const events: Bar[] = worldEvents(g, { active: true }).map((e) => ({ from: e.start, to: e.end, cls: 'event', label: e.title }));
-  const rows: [string, Bar[]][] = [['Season', seasonBars(from, to)], ['Hajj', hajj], ['Antarctica', ant], ...(events.length ? [['Events', events] as [string, Bar[]]] : [])];
+  ant.push({ from: o.antarctic[0] + 365 * DAY, to: o.antarctic[1] + 365 * DAY, cls: 'ant', label: 'Antarctic season', short: 'Antarctic' });
+  // Overlapping events go on separate lanes (at most 3; the rest share the last).
+  const lanes: Bar[][] = [];
+  for (const e of [...worldEvents(g, { active: true })].sort((a, b) => a.start - b.start)) {
+    const b: Bar = { from: e.start, to: e.end, cls: 'event', label: e.title, short: e.title.split(/[\s–-]/)[0] };
+    const lane = lanes.find((ln) => ln[ln.length - 1].to <= b.from) ?? (lanes.length < 3 ? (lanes[lanes.length] = []) : lanes[2]);
+    lane.push(b);
+  }
+  const rows: [string, Bar[]][] = [['Season', seasonBars(from, to)], ['Hajj', hajj], ['Antarctica', ant], ...lanes.map((ln, i) => [i ? '' : 'Events', ln] as [string, Bar[]])];
   return (
     <div className="v8-cal">
       <div className="v8-cal-row v8-cal-head">
         <span className="v8-cal-k" />
         <span className="v8-cal-track">{months.map((t) => <span key={t} className="v8-cal-m" style={{ left: `${pos(t)}%` }}>{fmtMonth(monthKey(t)).split(' ')[0]}</span>)}</span>
       </div>
-      {rows.map(([k, bars]) => (
-        <div key={k} className="v8-cal-row">
+      {rows.map(([k, bars], ri) => (
+        <div key={ri} className="v8-cal-row">
           <span className="v8-cal-k small muted">{k}</span>
           <span className="v8-cal-track">{bars.map(bar)}<span className="v8-cal-now" style={{ left: `${pos(g.now)}%` }} /></span>
         </div>
@@ -127,7 +157,7 @@ export function OutlookModal() {
       <button className="btn btn-primary" onClick={() => store.closeModal()}>Done</button>
     }>
       <div className="col gap-12">
-        <OutlookTiles o={o} big />
+        <OutlookTiles o={o} now={g.now} big />
         <p className="muted v8-phase">{o.phaseText} {o.season.text}</p>
         <div className="small dim">{o.offersText}. The outlook changes once a month; long contracts keep the rate they were signed at.</div>
         <div className="upper dim">Next 12 months</div>

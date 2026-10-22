@@ -12,7 +12,9 @@ import { blockMinutes, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { chance, next, pick, range } from '../core/rng';
 import { DAY, fmtDuration, fmtTime, monthKey } from '../core/time';
-import type { ActionResult, Aircraft, Contract, Flight, GameState, MaintenanceEvent, Message, MessageCat, Minute, SimEvent } from '../core/types';
+import type { ActionResult, Aircraft, Contract, Flight, GameState, MaintenanceEvent, Message, MessageCat, Minute, Rival, SimEvent } from '../core/types';
+import { AIRPORT_BY_CODE } from '../../data/airports';
+import { distance } from '../core/geo';
 import { noteLostLegs } from '../contracts/billing';
 import { isSoft } from '../contracts/plan';
 import { applyDiscretion, boardCrew, crewIssuesFor, dropStraySpares, flightCrewStatus, guardDuty, rerosterFrom, restSeatsBlocked, setRestDelayHook } from '../crew';
@@ -23,7 +25,7 @@ import { aogChance, isGrounded, missCheck, startAog } from './maintenance';
 import { ageF, ageOf, bumpReliable, contractOf, isBaseLeg, isRevenue, stats, turnOf, usd } from './util';
 import { bumpClient, forgiveDelay, LEVEL_NAME, levelOf } from '../contracts/relations';
 import { closedAtDeparture, payWarRisk, strikeDelay, whiteout } from './world';
-import { noteHiredThem } from '../contracts/rivals';
+import { isActive, noteHiredThem } from '../contracts/rivals';
 
 /** v0.7.1: the problem ref and hurt snapshot of a message about legs lost or handed over (after the fact). */
 function penaltyMeta(g: GameState, rev: Flight[], money: number): Pick<Message, 'problem' | 'hurt'> {
@@ -432,11 +434,32 @@ export function subcharterCost(g: GameState, legs: Flight[], factor: number): nu
 /** A rival's price level (its priceFactor; 1 when unknown). */
 export const rivalFactor = (g: GameState, rivalId: string): number => g.rivals.find((r) => r.id === rivalId)?.priceFactor ?? 1;
 
-/** Rival for a sub-charter: one flying the same family if possible (picked with the RNG). */
-export function pickRival(g: GameState, typeId: string): string {
+/** v0.8 rivals that can take legs of ours: active, never the contract's own client (a rival we fly for), same family when any. Pure. */
+export function rivalsFor(g: GameState, typeId: string | null, legs: Flight[] = []): Rival[] {
+  const c = legs.length ? contractOf(g, legs[0]) : undefined;
+  const cl = c ? g.clients[c.clientId] : undefined;
+  const ok = g.rivals.filter((r) => isActive(r) && (!c || (r.clientId !== c.clientId && r.id !== cl?.rivalId)));
+  if (!typeId) return ok;
   const fam = typeOf(typeId).family;
-  const fit = g.rivals.filter((r) => r.fleet.some((x) => typeOf(x.typeId).family === fam));
-  const pool = fit.length ? fit : g.rivals;
+  const fit = ok.filter((r) => r.fleet.some((x) => x.count > 0 && typeOf(x.typeId).family === fam));
+  return fit.length ? fit : ok;
+}
+
+/** v0.8 what a rival charges to position to the first leg and home from the last (ferry hours at 40 % of its type's rate). Pure. */
+export function positioningCost(r: Rival, legs: Flight[], typeId: string): number {
+  if (!legs.length || !AIRPORT_BY_CODE[r.base]) return 0;
+  const km = distance(r.base, legs[0].from) + distance(legs[legs.length - 1].to, r.base);
+  return Math.round(((km / 800) * typeOf(typeId).rateBH * 0.4) / 100) * 100;
+}
+
+/** Rival for a sub-charter: one flying the same family (never the contract's client), picked with the RNG among the 3 nearest the first leg. */
+export function pickRival(g: GameState, typeId: string, legs: Flight[] = []): string {
+  let pool = rivalsFor(g, typeId, legs);
+  const from = legs[0]?.from;
+  if (from && AIRPORT_BY_CODE[from]) {
+    const d = (r: Rival) => (AIRPORT_BY_CODE[r.base] ? distance(r.base, from) : 1e9);
+    pool = [...pool].sort((a, b) => d(a) - d(b) || a.id.localeCompare(b.id)).slice(0, 3);
+  }
   return pool.length ? pick(g, pool).id : '';
 }
 
@@ -844,7 +867,7 @@ export function subcharterInstead(g: GameState, ac: Aircraft, legs: Flight[], wh
   const live = legs.filter((x) => x.status === 'scheduled');
   const rev = live.filter(isRevenue);
   if (!rev.length) return false;
-  const rivalId = pickRival(g, ac.typeId);
+  const rivalId = pickRival(g, ac.typeId, live);
   if (!rivalId) return false;
   const cost = subcharterCost(g, live, range(g, BAL.subcharterFactor[0], BAL.subcharterFactor[1]) * rivalFactor(g, rivalId));
   if (cost >= cancelCost(g, live) + subcharterCost(g, live, 1)) return false;

@@ -22,7 +22,7 @@ import { replyTime } from './counter';
 import { bumpClient, noteJobDone, statsV08 } from './relations';
 import { noteHiredUs } from './rivals';
 import { rollRepeat } from './missions';
-import { cancelDry, signDryLease } from '../ops/dryLease';
+import { cancelDry, recallDry, recallTerms, signDryLease } from '../ops/dryLease';
 
 // ---------- offers ----------
 
@@ -275,7 +275,8 @@ export function cancelPenalty(g: GameState, contractId: string): number {
     return Math.round(p.ratePerBH * mgh * n);
   }
   if (p.kind === 'charter') return Math.round(Math.max(0, p.price * (1 - brokerCut(c)) - (c.accrued ?? 0)));
-  return 0;
+  // v0.8 a delivered dry lease is recalled: one month's rent to the lessee.
+  return recallTerms(g, c)?.penalty ?? 0;
 }
 
 /** Charter money invoiced and already paid by the client (unpaid = still open receivables). */
@@ -313,7 +314,7 @@ function settleCharter(g: GameState, c: Contract, target: number, desc: string):
 export function cancelCost(g: GameState, contractId: string): { penalty: number; refund: number; total: number } {
   const c = g.contracts[contractId];
   const penalty = cancelPenalty(g, contractId);
-  const refund = c && c.product.kind === 'charter' ? Math.round(Math.max(0, charterPaid(g, c) - (c.accrued ?? 0))) : 0;
+  const refund = c && c.product.kind === 'charter' ? Math.round(Math.max(0, charterPaid(g, c) - (c.accrued ?? 0))) : c?.dry ? recallTerms(g, c)?.refund ?? 0 : 0;
   return { penalty, refund, total: penalty + refund };
 }
 
@@ -322,6 +323,17 @@ export function cancelContract(g: GameState, contractId: string): ActionResult {
   const c = g.contracts[contractId];
   if (!c) return { ok: false, error: 'Contract not found' };
   if (c.status !== 'signed' && c.status !== 'active') return { ok: false, error: 'This contract is already closed' };
+  // v0.8 a delivered dry lease can't just stop: we recall her (back in 2 days, ferried home, a month's rent to them).
+  if (c.dry && c.dry.leasedAt !== undefined) {
+    const res = recallDry(g, c);
+    if (!res.ok) return res;
+    const ac = g.fleet[c.aircraftIds[0]];
+    g.company.reputation.reliable = clamp(g.company.reputation.reliable - 3, 0, 100);
+    bumpClient(g, c.clientId, -20, `We recalled ${ac?.reg ?? 'the aircraft'} early`);
+    const { penalty, refund } = res.data!;
+    pushMessage(g, { tone: 'warn', cat: 'commercial', title: `Recalled: ${c.title}`, body: `${g.clients[c.clientId]?.name ?? 'The lessee'} hands ${ac?.reg ?? 'her'} back in 2 days and our pilots ferry her home. One month's rent ($${penalty.toLocaleString('en-US')}) compensates them${refund ? `, and $${refund.toLocaleString('en-US')} of prepaid rent goes back` : ''}.`, ref: { kind: 'contract', id: c.id }, hurt: { money: penalty + refund, pax: 0, delayMin: 0, level: 'low' } });
+    return { ok: true, msg: `Recalled ${c.title}` };
+  }
   const penalty = cancelPenalty(g, contractId);
   const future = Object.values(g.flights).filter((f) => f.contractId === c.id && f.status === 'scheduled').map((f) => f.id);
   removeFlights(g, future);

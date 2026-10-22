@@ -33,6 +33,8 @@ export interface WorldEventTpl {
   fuel?: [number, number];
   title: string;
   body: string;
+  /** Text when the closure roll fails (templates with 0 < closeP < 1): title and body never promise a closure. */
+  open?: { title: string; body: string };
   /** Reopening message (closures only). */
   reopen?: string;
 }
@@ -58,6 +60,7 @@ export const WORLD_EVENT_TPLS: WorldEventTpl[] = [
     id: 'coupChad', kind: 'coup', at: 'NDJ', country: 'TD', zoneId: 'chad', closeP: 0.6, warRisk: 2, work: ['evacuation'],
     title: "Soldiers seize N'Djamena", reopen: "Chad's airspace has reopened",
     body: "Troops hold the airport and the radio in N'Djamena. Flights are suspended until at least {until}; aid agencies want their staff out through Cairo.",
+    open: { title: "Soldiers seize N'Djamena", body: "Troops hold the presidency and the radio in N'Djamena. The airport stays open under military control until at least {until}; aid agencies want their staff out through Cairo." },
   },
   // ---------- strikes ----------
   {
@@ -143,11 +146,13 @@ export const WORLD_EVENT_TPLS: WorldEventTpl[] = [
     id: 'warSudan', kind: 'war', at: 'PZU', country: 'SD', zoneId: 'sudan', closeP: 0.5, warRisk: 3, work: ['evacuation'],
     title: 'Fighting reaches Khartoum: Sudan closes its airspace', reopen: "Sudan's airspace has reopened",
     body: "Heavy fighting has spread from Khartoum. Sudan's airspace is closed to overflights until at least {until}; foreign ministries are evacuating through Port Sudan to Jeddah.",
+    open: { title: "Fighting reaches Khartoum: insurers pull cover for Sudan", body: "Heavy fighting has spread from Khartoum. Sudan's airspace stays open, but war-risk insurers list the whole country until at least {until}; foreign ministries are evacuating through Port Sudan to Jeddah." },
   },
   {
     id: 'warLebanon', kind: 'war', at: 'BEY', country: 'LB', zoneId: 'levant', closeP: 0.3, warRisk: 3, work: ['evacuation'],
-    title: 'Israel–Lebanon escalation: insurers re-price Beirut', reopen: 'Beirut and Tel Aviv airspace has reopened',
-    body: "Strikes and rocket fire across the border: war-risk insurers have re-priced Beirut and Tel Aviv. Foreign ministries want their citizens out via Larnaca.",
+    title: 'Israel–Lebanon escalation: Lebanese airspace closes', reopen: 'Beirut and Tel Aviv airspace has reopened',
+    body: "Strikes and rocket fire across the border: Lebanon's airspace is closed until at least {until} and war-risk insurers have re-priced Beirut and Tel Aviv. Foreign ministries want their citizens out via Larnaca.",
+    open: { title: 'Israel–Lebanon escalation: insurers re-price Beirut', body: "Strikes and rocket fire across the border: war-risk insurers have re-priced Beirut and Tel Aviv until at least {until}. Foreign ministries want their citizens out via Larnaca." },
   },
   {
     id: 'warRedSea', kind: 'war', at: 'ADE', country: 'YE', zoneId: 'yemen', closeP: 1, warRisk: 3, work: [], fuel: [0.12, 0.25],
@@ -158,17 +163,20 @@ export const WORLD_EVENT_TPLS: WorldEventTpl[] = [
     id: 'warLibya', kind: 'war', at: 'MJI', country: 'LY', zoneId: 'libya', closeP: 0.5, warRisk: 3, work: ['evacuation'],
     title: 'Clashes in Tripoli close Mitiga', reopen: 'Libyan airspace has reopened',
     body: "Militias are fighting around Mitiga airport. Libya's airspace is closed until at least {until}; Malta is the staging point for evacuations.",
+    open: { title: "Clashes around Mitiga: insurers list Libya", body: "Militias are fighting near Mitiga airport. Libya's airspace stays open, but insurers list it as a war zone until at least {until}; Malta is the staging point for evacuations." },
   },
   {
     id: 'warIraq', kind: 'war', at: 'EBL', country: 'IQ', zoneId: 'iraq', closeP: 0.5, warRisk: 2, work: ['evacuation'], fuel: [0.08, 0.15],
-    title: 'Drone strikes on Erbil', reopen: 'Iraqi airspace has reopened',
-    body: "Drone and missile strikes around Erbil: Iraqi airspace may close at short notice until at least {until}. Oil companies and ministries want staff out through Amman.",
+    title: 'Drone strikes on Erbil: Iraq closes its airspace', reopen: 'Iraqi airspace has reopened',
+    body: "Drone and missile strikes around Erbil: Iraqi airspace is closed until at least {until}. Oil companies and ministries want staff out through Amman.",
+    open: { title: 'Drone strikes on Erbil', body: "Drone and missile strikes around Erbil: Iraqi airspace may close at short notice until at least {until}. Oil companies and ministries want staff out through Amman." },
   },
   // ---------- unrest ----------
   {
     id: 'unrestHaiti', kind: 'unrest', at: 'PAP', country: 'HT', zoneId: 'haiti', closeP: 0.7, warRisk: 1, work: ['evacuation'],
     title: 'Gang violence closes Port-au-Prince airport', reopen: 'Port-au-Prince airport has reopened',
     body: "Gunfire near Toussaint Louverture has closed the airport until at least {until}. Embassies are moving their staff to Santo Domingo.",
+    open: { title: "Gang violence around Port-au-Prince airport", body: "Gunfire near Toussaint Louverture: the airport stays open under armed guard until at least {until}, and embassies are moving their staff to Santo Domingo." },
   },
   {
     id: 'unrestEthiopia', kind: 'unrest', at: 'ADD', country: 'ET', zoneId: 'ethiopia', warRisk: 1, work: ['repatriation'],

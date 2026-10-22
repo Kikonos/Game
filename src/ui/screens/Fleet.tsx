@@ -11,8 +11,9 @@ import { DAY, fmtDate, fmtDay, yearOf } from '../../engine/core/time';
 import type { Aircraft, CrewExtra, GameState, LiveryRef, MaintenanceEvent } from '../../engine/core/types';
 import { BAL } from '../../engine/core/balance';
 import { crewExtraQuote, restOf, setCrewExtra, shortFlights } from '../../engine/crew';
-import { cancelCheck, checkStatus, deliveryStatus, dryLeaseOf, leastUsed, type LeastUsedRow, leaseView, liveryOf, paintStatus, restRefitOptions, setAircraftLivery } from '../../engine/ops';
+import { cancelCheck, checkStatus, deliveryStatus, dryLeaseOf, leastUsed, type LeastUsedRow, leaseView, paintStatus, restRefitOptions, setAircraftLivery } from '../../engine/ops';
 import { problemAt } from '../../engine/problems';
+import { mapLivery } from '../map/mapLogic';
 import { AircraftArt } from '../components/AircraftArt';
 import { artRest } from '../components/aircraft/restGlyph';
 import { Why } from '../components/Why';
@@ -68,7 +69,7 @@ function CheckBar({ label, used, due, hoursLeft, next, onPlan, aircraftId }: { l
 type RefKind = 'company' | 'white' | 'custom';
 
 /** Livery row: Company · All white · Custom (+ Edit), or why it is locked (client paint on or booked). */
-function LiveryRow({ g, ac }: { g: GameState; ac: Aircraft }) {
+function LiveryRow({ g, ac, out }: { g: GameState; ac: Aircraft; out?: boolean }) {
   const st = paintStatus(g, ac.id);
   const ref = ac.livery ?? 'company';
   const kind: RefKind = typeof ref === 'object' ? 'custom' : ref;
@@ -87,6 +88,8 @@ function LiveryRow({ g, ac }: { g: GameState; ac: Aircraft }) {
       </div>
     );
   }
+  // Leased out: the lessee's paint rule applies; nothing to switch.
+  if (out) return null;
   return (
     <div className="sc-ac-livery">
       <span className="upper dim">Livery</span>
@@ -164,7 +167,10 @@ function AircraftCard({ g, ac, sel, least, onLeastClose }: { g: GameState; ac: A
     : [['Lease', `${money(o.rentPerMonth)}/month`]];
   const ds = deliveryStatus(g, ac.id);
   const plan = (kind: 'A' | 'C') => store.openModal({ kind: 'check', aircraftId: ac.id, checkKind: kind, replace: (kind === 'A' ? cs?.nextA : cs?.nextC) ?? undefined });
-  const lv = liveryOf(g, ac);
+  const lv = mapLivery(g, ac);
+  // v0.8: leased out dry, the lessee flies, maintains (line and A-checks) and crews it.
+  const out = ac.status === 'leasedOut';
+  const lessee = out ? dryLeaseOf(g, ac.id)?.lessee ?? 'the lessee' : '';
   // v0.7.1 §3.12 / §10: the crew-shortage row and a WHY? beside a red/amber status (AOG, grounded, stuck delivery).
   const short = shortFlights(g).find((x) => g.flights[x.flightId]?.aircraftId === ac.id);
   const sf = short ? g.flights[short.flightId] : undefined;
@@ -177,7 +183,7 @@ function AircraftCard({ g, ac, sel, least, onLeastClose }: { g: GameState; ac: A
           <div className="row gap-8">
             <b className="mono sc-ac-reg">{ac.reg}</b>
             <span className="sc-status-why"><span className={`badge ${tone}`}>{label}</span>{acProblem && <Why refs={{ kind: 'aircraft', id: ac.id }} tone={acProblem.severity === 'red' ? 'bad' : 'warn'} className="inline" />}</span>
-            {cs && cs.risk >= 0.5 && <span className={`badge ${cs.risk >= 0.9 ? 'bad' : 'warn'}`} data-tip="Chance of a technical fault grows with deferred defects and overdue checks">AOG risk</span>}
+            {!out && cs && cs.risk >= 0.5 && <span className={`badge ${cs.risk >= 0.9 ? 'bad' : 'warn'}`} data-tip="Chance of a technical fault grows with deferred defects and overdue checks">AOG risk</span>}
           </div>
           <div className="small muted ellipsis">{t.name} · {ac.cabin.label} · {yearOf(g.now) - ac.builtYear} years</div>
         </div>
@@ -192,9 +198,9 @@ function AircraftCard({ g, ac, sel, least, onLeastClose }: { g: GameState; ac: A
           <button className="btn btn-sm" onClick={() => store.openModal({ kind: 'crewControl', flightId: sf.id })}>Crew Control</button>
         </div>
       )}
-      <LiveryRow g={g} ac={ac} />
+      <LiveryRow g={g} ac={ac} out={out} />
       <LeaseRow g={g} ac={ac} />
-      <CabinRow g={g} ac={ac} />
+      <CabinRow g={g} ac={ac} out={out} />
       <KV rows={[
         ...own,
         ['At', ac.status === 'delivering' ? (ds ? `handover at ${ds.site} ${fmtDay(ds.handover)}` : `arrives ${fmtDate(ac.deliveredAt)}`) : ac.at],
@@ -203,10 +209,11 @@ function AircraftCard({ g, ac, sel, least, onLeastClose }: { g: GameState; ac: A
         // v0.7.3 §2.6 item 1: pilots' and cabin crew's rest (every type) and the longest day it allows.
         ...restRows(g, restOf(g, ac.id), ac.typeId),
       ]} />
-      <CrewExtraRow g={g} ac={ac} />
+      {!out && <CrewExtraRow g={g} ac={ac} />}
       {cs ? (
         <div className="col gap-8">
-          <CheckBar label="A-check" used={cs.aUsed} due={cs.aDue} hoursLeft={cs.aHoursLeft} next={cs.nextA} onPlan={() => plan('A')} aircraftId={ac.id} />
+          {out ? <div className="fl-row small"><span className="upper dim">A-check</span><span className="muted">Line and A-checks by {lessee} during the lease; no crew from us</span></div>
+            : <CheckBar label="A-check" used={cs.aUsed} due={cs.aDue} hoursLeft={cs.aHoursLeft} next={cs.nextA} onPlan={() => plan('A')} aircraftId={ac.id} />}
           <CheckBar label="C-check" used={cs.cUsed} due={cs.cDue} hoursLeft={cs.cHoursLeft} next={cs.nextC} onPlan={() => plan('C')} aircraftId={ac.id} />
           {cs.grounded && <div className="small bad">Past the check tolerance: grounded until the check is done.</div>}
         </div>
@@ -250,7 +257,7 @@ function LeaseRow({ g, ac }: { g: GameState; ac: Aircraft }) {
 }
 
 /** v0.7: the cabin (layout, seats, cabin crew minimum), Refit…, and a planned or running refit (cancel while planned). */
-function CabinRow({ g, ac }: { g: GameState; ac: Aircraft }) {
+function CabinRow({ g, ac, out }: { g: GameState; ac: Aircraft; out?: boolean }) {
   const m = Object.values(g.maintenance).find((x) => x.aircraftId === ac.id && x.kind === 'refit' && (x.status === 'planned' || x.status === 'inWork'));
   const st = m ? station(m.at) : undefined;
   const cancel = () => m && store.openModal({
@@ -267,7 +274,7 @@ function CabinRow({ g, ac }: { g: GameState; ac: Aircraft }) {
         {m?.refit && <span className="small accent">{m.restFit ? `${REST_FIT_LABEL[m.restFit]}${m.restFit === 'removeRecliners' ? '' : ' fitted'}` : m.refit.restSeats !== undefined ? (m.refit.restSeats ? 'Crew rest seats fitted' : 'Crew rest seats removed') : `Refit to ${m.refit.cabin.label}`} at {st?.city ?? m.at} {fmtDay(m.start)}–{fmtDay(m.end)}{m.status === 'inWork' ? ' · in work' : ''}</span>}
       </div>
       {m ? (m.status === 'planned' && <button className="btn btn-sm" onClick={cancel}>Cancel refit</button>)
-        : <span className="row gap-8">
+        : !out && <span className="row gap-8">
           {/* v0.7.3 §2.6 item 1: straight to the refit modal's crew rest section when there is anything to fit. */}
           {rest && <button className="btn btn-sm fl-rest-btn" disabled={busy} onClick={() => store.openModal({ kind: 'refit', aircraftId: ac.id, section: 'rest' })}><BedDouble /> Crew rest…</button>}
           <button className="btn btn-sm" disabled={busy} onClick={() => store.openModal({ kind: 'refit', aircraftId: ac.id })}><Sofa /> Refit…</button>

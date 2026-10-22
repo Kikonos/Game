@@ -72,7 +72,8 @@ function Terms({ g, o }: { g: GameState; o: ContractOffer }) {
   } else rows.push(['Rent', `${usd(p.rentPerMonth)} / month`], ['Reserves', `${usd(p.reservesPerFH)} / FH`]);
   const [d0, d1] = offerDays(o);
   rows.push(['Dates', `${fmtDate(d0)} – ${fmtDate(d1)}${o.pattern.kind === 'base' ? ` (${o.pattern.base} local)` : ''}`], ['Lead time', lead <= 0 ? 'Starts now' : `${lead} days`]);
-  rows.push(['Estimate', `Billable ≈ ${Math.round(o.estBH)} BH · ${money(o.estValue)}`]);
+  // A dry lease bills no block hours (rent and reserves only).
+  rows.push(['Estimate', p.kind === 'dry' ? money(o.estValue) : `Billable ≈ ${Math.round(o.estBH)} BH · ${money(o.estValue)}`]);
   const arrears = p.kind === 'charter' ? 'Invoiced after the job' : 'Monthly in arrears';
   rows.push(['Payment', `${pay.basis === 'advance' ? 'In advance' : pay.basis === 'arrears' ? arrears : 'On completion'}, net ${pay.dueDays} days`]);
   rows.push(['If we cancel', o.penalties.cancelScale.map(([d, f]) => `${d} d ${Math.round(f * 100)}%`).join(' · ') || '—']);
@@ -184,6 +185,7 @@ function posLine(r: FeasibilityReport): string {
 }
 
 function crewLine(r: FeasibilityReport): { text: string; tone: 'good' | 'warn' | 'bad' } {
+  if (!r.crew.setsNeeded) return { text: 'No crew from us: aircraft only', tone: 'good' };
   const short = Object.entries(r.crew.byRole).filter(([, v]) => v && v.short > 0);
   if (!short.length) return { text: `Crew OK (${r.crew.setsAvailable}/${r.crew.setsNeeded} sets)`, tone: 'good' };
   const list = short.map(([role, v]) => `${v!.short} ${role}`).join(', ');
@@ -421,7 +423,11 @@ export function OfferModal({ offerId }: { offerId: string }) {
   const canCounter = live && !countered && !o.counter && !!sel && !blocked(sel);
   const canAccept = live && !countered && !!sel && !blocked(sel) && !mustPaint;
   // v0.7.1 §13: one plain sentence on what is in the way (crew, aircraft, range, cabin, paint) or a counter about to expire.
-  const fit = live ? problemAt(g, { kind: 'offer', id: o.id }) : null;
+  const fit0 = live ? problemAt(g, { kind: 'offer', id: o.id }) : null;
+  // The moral / dry / Hajj / mixed panel already says the mission line: no second card when it is all the card says.
+  const missionOnly = (c: NonNullable<typeof fit0>) => c.subject.kind === 'offerFit' && c.severity !== 'red' && hasPanel(o) && c.details.length === 1
+    && reports.some((r) => r.checks.some((k) => k.id === 'mission' && c.details[0].startsWith(k.label)));
+  const fit = fit0 && !missionOnly(fit0) ? fit0 : null;
   // v0.7.3 §2.9: what a long job needs ('Longest day 15:40 · needs 3 pilots + bunks, or 4 pilots + business seats').
   const restLine = offerRestLine(g, o.id);
 
@@ -489,9 +495,12 @@ export function OfferModal({ offerId }: { offerId: string }) {
           <div className="upper dim">Terms</div>
           <Terms g={g} o={o} />
           <ClientBlock g={g} o={o} />
-          <div className="upper dim">Programme</div>
-          {restLine && <div className="small of-rest"><BedDouble /><span>{restLine}</span></div>}
-          <Programme o={o} />
+          {/* A dry lease has no programme of ours: the dry panel shows ferry out · lease · ferry back. */}
+          {o.product.kind !== 'dry' && <>
+            <div className="upper dim">Programme</div>
+            {restLine && <div className="small of-rest"><BedDouble /><span>{restLine}</span></div>}
+            <Programme o={o} />
+          </>}
         </div>
         <div className="sc-offer-right col gap-8">
           <div className="upper dim">Choose an aircraft</div>

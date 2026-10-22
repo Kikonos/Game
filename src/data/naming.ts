@@ -1,5 +1,7 @@
 // Naming kit: the player's own company presets are fictional; clients, brokers and rivals are real companies.
 
+import type { RatingFamily } from './acmiTypes';
+
 export interface CompanyPreset {
   name: string;
   code: string;
@@ -56,12 +58,30 @@ export const RIVALS: RivalSeed[] = [
   { name: 'Wamos Air', country: 'ES', base: 'MAD', fleet: F(['a332', 2], ['a333', 5]), personality: 'steady' },
   { name: 'Privilege Style', country: 'ES', base: 'PMI', fleet: F(['b752', 3], ['b772', 2]), personality: 'premium' },
   { name: 'Avion Express', country: 'LT', base: 'VNO', fleet: F(['a320ceo', 12], ['a321ceo', 5]), personality: 'big' },
-  { name: 'GetJet Airlines', country: 'LT', base: 'VNO', fleet: F(['a320ceo', 6], ['b738', 2]), personality: 'cheap' },
+  { name: 'GetJet Airlines', country: 'LT', base: 'VNO', fleet: F(['a320ceo', 6], ['b738', 2], ['a333', 2]), personality: 'cheap' },
   { name: 'Airhub Airlines', country: 'MT', base: 'MLA', fleet: F(['a320ceo', 4], ['b738', 2]), personality: 'cheap' },
   { name: 'Air Atlanta Icelandic', country: 'IS', base: 'KEF', fleet: F(['b744', 6], ['a333', 2]), personality: 'big' },
   { name: 'Titan Airways', country: 'GB', base: 'STN', fleet: F(['a321ceo', 3], ['a321neo', 2]), personality: 'rescue' },
   { name: 'Global Crossing Airlines', country: 'US', base: 'MIA', fleet: F(['a320ceo', 6], ['a321ceo', 6]), personality: 'steady' },
 ];
+
+/**
+ * v0.8 rating families each airline client flies (approximate 2026 fleets; dry-lease lessees and family checks).
+ * Missing: any family; [] none of ours (A220 / Embraer operators).
+ */
+export const AIRLINE_FAMILIES: Record<string, RatingFamily[]> = {
+  'SAS Scandinavian Airlines': ['A320', 'A330/340', 'A350'], 'Aer Lingus': ['A320', 'A330/340'], airBaltic: [], 'Croatia Airlines': ['A320'],
+  'LOT Polish Airlines': ['B737', 'B787'], Condor: ['A320', 'A330/340', 'B757/767'], Eurowings: ['A320'], Lufthansa: ['A320', 'A330/340', 'A350', 'B747', 'B787'],
+  'TAP Air Portugal': ['A320', 'A330/340'], 'Royal Air Maroc': ['B737', 'B787'], 'Royal Jordanian': ['A320', 'B787'], 'Air Sénégal': ['A320', 'A330/340'],
+  'TAAG Angola Airlines': ['B737', 'B777', 'B787'], Airlink: [], 'LATAM Brasil': ['A320', 'B777', 'B787'], 'GOL Linhas Aéreas': ['B737'],
+  'Azul Brazilian Airlines': ['A320', 'A330/340'], 'Air Canada': ['A320', 'B737', 'B777', 'B787', 'A330/340'], 'LATAM Perú': ['A320', 'B787'],
+  'Vietnam Airlines': ['A320', 'B787', 'A350'], Saudia: ['A320', 'A330/340', 'B777', 'B787'], flynas: ['A320', 'A330/340'], 'Bulgaria Air': ['A320'],
+  'Fiji Airways': ['B737', 'A330/340', 'A350'], 'Jet2.com': ['B737', 'A320', 'B757/767'], 'TUI fly Belgium': ['B737', 'B787'], 'Corendon Airlines': ['B737'],
+  'Aegean Airlines': ['A320'], 'Garuda Indonesia': ['B737', 'A330/340', 'B777'], 'Biman Bangladesh Airlines': ['B737', 'B777', 'B787'], 'Air Algérie': ['B737', 'A330/340'],
+};
+
+/** Whether an airline client flies this family (unknown airlines: yes). Pure. */
+export const fliesFamily = (name: string, family: RatingFamily): boolean => !AIRLINE_FAMILIES[name] || AIRLINE_FAMILIES[name].includes(family);
 
 /** Airliner group-charter brokers (RESEARCH §2.5). */
 export const BROKERS = ['Chapman Freeborn', 'Air Charter Service', 'Air Partner', 'ACC Aviation', 'Hunt & Palmer'];

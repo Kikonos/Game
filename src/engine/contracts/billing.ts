@@ -96,6 +96,18 @@ export function noteLostLegs(g: GameState, legs: Flight[]): void {
   }
 }
 
+/** Guaranteed hours of a wet contract-month, all aircraft: MGH pro-rated to the active days (Hajj: inside `terms`). */
+export function mghFor(c: Contract, month: MonthKey): number {
+  if (c.product.kind !== 'wet') return 0;
+  const m = c.product.mghPerMonth;
+  const end = Math.min(c.end, c.cancelledAt ?? Infinity);
+  // v0.8 terms (Hajj phases): MGH only inside them.
+  const one = c.terms?.length
+    ? c.terms.reduce((s, [a, b]) => s + mghInMonth(m, a, Math.min(b, end), month), 0)
+    : mghInMonth(m, c.start, end, month);
+  return one * c.aircraftIds.length;
+}
+
 const fmtUSD = (v: number) => `$${Math.round(v).toLocaleString('en-US')}`;
 
 /**
@@ -110,11 +122,7 @@ export function billContractMonth(_g: GameState, c: Contract, month: MonthKey): 
   const line = (desc: string, amount: number): BillingLine => ({ contractId: c.id, clientId: c.clientId, desc, amount: Math.round(amount), cat: 'acmiRevenue' });
   const u = c.use[month] ?? { blockMin: 0, cycles: 0, shortCycles: 0 };
   const flown = u.blockMin / 60;
-  const end = Math.min(c.end, c.cancelledAt ?? Infinity);
-  // v0.8 terms (Hajj phases): MGH only inside them.
-  const full = (c.terms?.length
-    ? c.terms.reduce((s, [a, b]) => s + mghInMonth(p.mghPerMonth, a, Math.min(b, end), month), 0)
-    : mghInMonth(p.mghPerMonth, c.start, end, month)) * c.aircraftIds.length;
+  const full = mghFor(c, month);
   // Hours we failed to fly (our cancellations) are not guaranteed to us.
   const lost = (u.lostMin ?? 0) / 60;
   const mgh = full > 0.05 ? Math.max(Math.min(flown, full), full - lost) : full;

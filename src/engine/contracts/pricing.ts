@@ -150,6 +150,15 @@ export function mghTotal(mghPerMonth: number, start: Minute, end: Minute): numbe
   return s;
 }
 
+/** Offer/contract MGH text: 'MGH 244' (per month), or 'MGH ≈40 BH for the job' when the term (or Hajj phases) is under a month. */
+export function mghLabel(product: Product, start: Minute, end: Minute, terms?: [Minute, Minute][]): string {
+  if (product.kind !== 'wet') return '';
+  const span = terms?.length ? terms.reduce((s, [a, b]) => s + Math.max(0, b - a), 0) : end - start;
+  if (span >= 28 * DAY) return `MGH ${product.mghPerMonth}`;
+  const job = terms?.length ? terms.reduce((s, [a, b]) => s + mghTotal(product.mghPerMonth, a, b), 0) : mghTotal(product.mghPerMonth, start, end);
+  return `MGH ≈${Math.round(job)} BH for the job`;
+}
+
 /** Contract value at a price for one aircraft (wet: MGH × rate + excess over it; charter: price; dry: rent). v0.8: MGH over `terms` only when given (Hajj phases). */
 export function productValue(product: Product, estBH: number, start: Minute, end: Minute, terms?: [Minute, Minute][]): number {
   if (product.kind === 'charter') return product.price;

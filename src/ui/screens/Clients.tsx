@@ -8,6 +8,7 @@ import { type ReactNode, useMemo, useState } from 'react';
 import { flag } from '../../data/countries';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { clientList, clientView, LEVEL_NAME, LEVEL_ORDER, perkLines, type ClientLevel, type ClientView } from '../../engine/contracts';
+import { BAL } from '../../engine/core/balance';
 import { fmtDay, fmtMonth, monthKey } from '../../engine/core/time';
 import type { ClientKind, GameState } from '../../engine/core/types';
 import { problemFor } from '../../engine/problems';
@@ -35,13 +36,17 @@ export function LevelPill({ level, text }: { level: ClientLevel; text?: string }
   return <span className={`v8-level ${level}`}>{text ?? LEVEL_NAME[level]}</span>;
 }
 
-/** Relation thresholds of the next level (BAL.v08.levels) for the thin bar: 0–1 of the way. */
+/** Way to the next level (BAL.v08.levels), 0–1: the lower of relation progress and jobs done / jobs needed. */
 function towardNext(v: ClientView): number {
-  const at: Record<ClientLevel, [number, number]> = { unhappy: [-40, -5], new: [-15, 0], known: [-15, 30], trusted: [30, 60], partner: [60, 100] };
-  if (v.level === 'new') return v.jobs ? 1 : 0;
-  if (v.level === 'partner') return 1;
-  const [a, b] = at[v.level];
-  return Math.max(0, Math.min(1, (v.relation - a) / (b - a)));
+  const L = BAL.v08.levels;
+  const cl = (x: number) => Math.max(0, Math.min(1, x));
+  switch (v.level) {
+    case 'new': return v.jobs ? 1 : 0;
+    case 'unhappy': return cl((v.relation + 40) / (L.unhappyBack + 40));
+    case 'known': return Math.min(cl(v.relation / L.trusted[0]), cl(v.jobs / L.trusted[1]));
+    case 'trusted': return Math.min(cl((v.relation - L.trusted[0]) / (L.partner[0] - L.trusted[0])), cl(v.jobs / L.partner[1]));
+    default: return 1;
+  }
 }
 
 /** The five steps, the current one filled (static). */
@@ -149,7 +154,7 @@ export function ClientsView({ g }: { g: GameState }) {
   const day = Math.floor(g.now / 1440);
   const nUnhappy = Object.values(g.clients).filter((c) => c.level === 'unhappy').length;
   // Levels move at most daily; the list follows the day and player edits.
-  const list = useMemo(() => clientList(g, filter), [g, filter, day, store.editCount]); // eslint-disable-line react-hooks/exhaustive-deps
+  const list = useMemo(() => clientList(g, filter).sort((a, b) => +(b.level === 'unhappy') - +(a.level === 'unhappy')), [g, filter, day, store.editCount]); // eslint-disable-line react-hooks/exhaustive-deps
   const selId = store.nav.sel?.kind === 'client' ? store.nav.sel.id : list[0]?.id;
   const v = selId ? clientView(g, selId) : null;
   return (
@@ -157,7 +162,7 @@ export function ClientsView({ g }: { g: GameState }) {
       <div className="card v8-pane v8-list">
         <div className="v8-list-head">
           <Seg<Filter> value={filter} onChange={setFilter} options={[
-            { value: 'working', label: 'Working with us' },
+            { value: 'working', label: 'With us or offering' },
             { value: 'all', label: 'All' },
             { value: 'unhappy', label: `Unhappy${nUnhappy ? ` ${nUnhappy}` : ''}` },
           ]} />

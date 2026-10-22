@@ -273,7 +273,7 @@ export function standingRate(g: GameState): number {
 
 const STANDING_EFFECTS: Record<0 | 1 | 2, string[]> = {
   0: ['Rates 8 % lower', 'Season bases of 30–45 days', 'Odd hours and unloved routes', 'Demanding clients', 'No VIP, presidential, UN, capacity-lease or Antarctic work'],
-  1: ['Normal rates', 'Normal programmes at normal hours', 'UN rotations and VIP work'],
+  1: ['Normal rates', 'Normal programmes at normal hours', 'VIP work; UN rotations once IOSA-registered'],
   2: ['Rates 4 % higher', 'Capacity leases of 6–12 months', 'Presidential and Antarctic work', 'Season bases up to 7 months'],
 };
 const STANDING_TEXT: Record<0 | 1 | 2, string> = {

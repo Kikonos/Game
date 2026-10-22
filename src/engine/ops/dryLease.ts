@@ -36,6 +36,12 @@ const side = (g: GameState, key: string): RngHolder => ({ rng: hash(`${g.seed}:d
 const isDry = (c: Contract | undefined): c is Contract & { dry: NonNullable<Contract['dry']> } => !!c?.dry && c.product.kind === 'dry';
 const live = (c: Contract) => c.status === 'signed' || c.status === 'active';
 
+/** The lessor's sub-lease consent fee for this airframe (leased in only; owned: none). Pure. */
+export function consentFor(ac: Aircraft): number {
+  if (ac.ownership.kind !== 'dryLeaseIn') return 0;
+  return typeOf(ac.typeId).body === 'wide' ? D().consent.wide : D().consent.narrow;
+}
+
 /** Span of a list of flights [first std, last sta] (fallback when none). */
 function spanOf(g: GameState, ids: string[], fallback: [Minute, Minute]): [Minute, Minute] {
   const fs = ids.map((id) => g.flights[id]).filter((f): f is Flight => !!f && f.status !== 'cancelled');
@@ -173,7 +179,7 @@ export function dryFeasibility(g: GameState, o: ContractOffer, ac: Aircraft, rep
   if (rep.checks.some((c) => c.level === 'no' && c.id === 'dryLease')) rep.level = 'no';
   if (ac.ownership.kind === 'dryLeaseIn') {
     if (ac.ownership.leaseEnd < o.end + 30 * DAY) add('lease', 'no', `Our own lease ends ${fmtDay(ac.ownership.leaseEnd)}, too soon after the return`);
-    else add('lease', 'ok', `Leased in: the lessor consents for ${usd(d.consent)}`);
+    else add('lease', 'ok', `Leased in: the lessor consents for ${usd(consentFor(ac))}`);
   } else add('lease', 'ok', 'Owned');
   if (ac.sale || ac.returning) add('lease', 'no', ac.sale ? `Sold to ${ac.sale.buyer}` : 'Going back to its lessor');
   const pilots = ratedPilots(g, [t.family]);
@@ -181,13 +187,16 @@ export function dryFeasibility(g: GameState, o: ContractOffer, ac: Aircraft, rep
   else add('crew', 'ok', 'Two of our pilots ferry it out and fetch it back; no crew during the lease');
   const months = Math.max(1, Math.round((o.end - o.start) / MONTH));
   add('dryLease', 'ok', `Dry lease: they fly it with their crews${d.paint ? ' in their colours' : ''}; about ${(d.fhPerMonth * months).toLocaleString('en-US')} FH on our airframe`);
-  // Money: rent and reserves in, the two ferries and the consent fee out.
+  // Money: rent and reserves in; the two ferries, the consent fee and the wear the reserves pay for (their hours
+  // bring our checks and life-limited parts closer: the reserves are set aside for them, not profit) out.
   const p = o.product.kind === 'dry' ? o.product : null;
   const ferryBH = [...plan.out, ...plan.back].reduce((s, l) => s + (l.sta - l.std), 0) / 60;
   const ferryCost = ferryBH * (t.fuelTBH * g.market.fuelPrice + t.maintBH) + (plan.out.length + plan.back.length) * BAL.airportFees[t.body === 'wide' ? 1 : 0];
+  const span = (o.end - o.start) / MONTH;
+  const wear = p ? p.reservesPerFH * d.fhPerMonth * span : 0;
   rep.estBH = Math.round(ferryBH * 10) / 10;
-  rep.estRevenue = p ? Math.round((p.rentPerMonth + p.reservesPerFH * d.fhPerMonth) * ((o.end - o.start) / MONTH)) : 0;
-  rep.estCost = Math.round(ferryCost + d.consent);
+  rep.estRevenue = p ? Math.round((p.rentPerMonth + p.reservesPerFH * d.fhPerMonth) * span) : 0;
+  rep.estCost = Math.round(ferryCost + consentFor(ac) + wear);
   rep.estMargin = rep.estRevenue - rep.estCost;
   return rep;
 }
@@ -207,10 +216,12 @@ export function signDryLease(g: GameState, c: Contract, o: ContractOffer): Actio
   };
   const out = plan.out.map(mk);
   const back = plan.back.map(mk);
-  c.dry = { site: d.site, fhPerMonth: d.fhPerMonth, deposit: d.deposit, outIds: out.map((f) => f.id), backIds: back.map((f) => f.id), fh: 0, leaseEnd: c.end, consent: d.consent, ...(d.paint ? { paint: d.paint } : {}) };
+  // The consent fee follows the airframe picked (the offer's figure was an estimate on the one it was made for).
+  const consent = consentFor(ac);
+  c.dry = { site: d.site, fhPerMonth: d.fhPerMonth, deposit: d.deposit, outIds: out.map((f) => f.id), backIds: back.map((f) => f.id), fh: 0, leaseEnd: c.end, consent, ...(d.paint ? { paint: d.paint } : {}) };
   c.generatedUntil = c.end;
   cashOnly(g, d.deposit);
-  if (d.consent) post(g, 'rent', -d.consent);
+  if (consent) post(g, 'rent', -consent);
   const arr = out.length ? out[out.length - 1].sta : c.start - DAY;
   schedule(g, Math.max(g.now + 1, arr + 5), 'lease.out', c.id);
   statsV08(g).dryLeases++;
@@ -298,8 +309,8 @@ export function dailyDryLeases(g: GameState): void {
       d.rentMonth = k;
       statsV08(g).dryMonths++;
       billReserves(g, c);
-      const end = (d.leaseEnd ?? c.end) + (d.late ?? 0) * DAY;
-      billRent(g, c, monthStart(k), Math.min(end, monthStart(k + 1)));
+      // Up to the agreed end only: late days are billed as holdover (onLeaseBack).
+      billRent(g, c, monthStart(k), Math.min(d.leaseEnd ?? c.end, monthStart(k + 1)));
     }
   }
 }
@@ -389,12 +400,57 @@ export function onLeaseFerryHome(g: GameState, f: Flight): void {
 
 /** Completes a dry lease: relation (on time +6, late returns their fault: no effect), job counted, message. */
 function completeDry(g: GameState, c: Contract): void {
+  if (c.dry?.recalled !== undefined) {
+    c.status = 'cancelled';
+    const ac = g.fleet[c.aircraftIds[0]];
+    pushMessage(g, { tone: 'info', cat: 'commercial', title: `${ac?.reg ?? 'The aircraft'} is home from ${g.clients[c.clientId]?.name ?? 'the lessee'}`, body: `The recalled lease is closed; the deposit is back with them. ${Math.round(c.dry.fh).toLocaleString('en-US')} FH flown by them on our airframe.`, ref: { kind: 'contract', id: c.id } });
+    return;
+  }
   c.status = 'completed';
   g.stats.contractsDone++;
   noteJobDone(g, c.clientId);
   bumpClient(g, c.clientId, BAL.v08.rel.done, `Leased them ${c.title.replace(/^Dry lease: /, 'a ')}`);
   const fh = Math.round(c.dry?.fh ?? 0);
   pushMessage(g, { tone: 'good', cat: 'commercial', title: `Completed: ${c.title}`, body: `${fh.toLocaleString('en-US')} FH flown by ${g.clients[c.clientId]?.name ?? 'the lessee'} on our airframe; the deposit is back.`, ref: { kind: 'contract', id: c.id } });
+}
+
+/** Early-recall terms of a delivered dry lease: back in 2 days, one month's rent to the lessee, the unused prepaid rent refunded. Pure. */
+export function recallTerms(g: GameState, c: Contract): { at: Minute; penalty: number; refund: number } | null {
+  if (!isDry(c) || !live(c) || c.dry.leasedAt === undefined || c.dry.returnedAt !== undefined || c.product.kind !== 'dry') return null;
+  const at = Math.ceil((g.now + 2 * DAY) / 60) * 60;
+  const end = c.dry.leaseEnd ?? c.end;
+  if (at >= end) return null;
+  // Rent is billed a month ahead to the month end (or the agreed end).
+  const billedTo = Math.min(end, monthStart(monthKey(g.now) + 1));
+  const refund = Math.max(0, Math.round((c.product.rentPerMonth * (billedTo - at)) / MONTH));
+  return { at, penalty: Math.round(c.product.rentPerMonth), refund };
+}
+
+/**
+ * Recalls a delivered dry lease (accept.ts cancelContract after delivery): the lessee hands her back in 2 days, the
+ * return ferries move up and bring her home (the deposit comes back as usual); one month's rent compensates them.
+ */
+export function recallDry(g: GameState, c: Contract): ActionResult<{ penalty: number; refund: number }> {
+  const t = recallTerms(g, c);
+  if (!t || !isDry(c)) return { ok: false, error: c.dry?.returnedAt !== undefined ? 'She is already on her way home' : 'The lease ends within two days anyway' };
+  const d = c.dry;
+  const plan = ferryLegs(g.fleet[c.aircraftIds[0]]?.typeId ?? 'a320ceo', d.site, g.company.homeBase, { leave: t.at + DAY + 8 * 60 });
+  const back = d.backIds.map((id) => g.flights[id]).filter((f): f is Flight => !!f && f.status === 'scheduled').sort((a, b) => a.std - b.std);
+  if (plan && back.length === plan.length) back.forEach((f, i) => retimeFlight(g, f, plan[i].std, plan[i].sta));
+  else if (back.length) {
+    const dt = t.at + DAY + 8 * 60 - back[0].std;
+    for (const f of back) retimeFlight(g, f, f.std + dt, f.sta + dt);
+  }
+  d.recalled = g.now;
+  d.leaseEnd = t.at;
+  d.late = 0;
+  c.cancelledAt = g.now;
+  if (t.refund) post(g, 'leaseIncome', -t.refund);
+  if (t.penalty) post(g, 'penalties', -t.penalty);
+  schedule(g, t.at, 'lease.back', c.id);
+  // Pilots for the moved ferries.
+  autoRoster(g, { aircraftIds: c.aircraftIds });
+  return { ok: true, data: { penalty: t.penalty, refund: t.refund } };
 }
 
 /** Cancels a dry lease before delivery (accept.ts cancelContract): the ferries go, the deposit is refunded. */

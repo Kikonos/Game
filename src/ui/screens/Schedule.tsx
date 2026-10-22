@@ -12,7 +12,8 @@ import type { Aircraft, GameState } from '../../engine/core/types';
 import { TailBadge } from '../components/Logo';
 import { ColourLegend } from '../components/ColourLegend';
 import { Empty, Seg } from '../components/ui';
-import { FLIGHT_TYPE_HINT, liveryOf } from '../../engine/ops';
+import { FLIGHT_TYPE_HINT } from '../../engine/ops';
+import { mapLivery } from '../map/mapLogic';
 import { liveMinute, store, useGame } from '../store';
 import { Dot, ScreenHead, useRenderCount } from './common';
 import { contractColor } from './palette';
@@ -148,7 +149,7 @@ const LEGEND_MAX = 6;
 
 /** The fin the aircraft wears now (client colours during a painted contract). */
 function AcBadge({ g, ac }: { g: GameState; ac: Aircraft }) {
-  const lv = liveryOf(g, ac);
+  const lv = mapLivery(g, ac);
   return <TailBadge primary={lv.livery.primary} secondary={lv.livery.secondary} code={lv.code} livery={lv.livery} size={20} />;
 }
 

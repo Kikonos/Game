@@ -8,7 +8,7 @@ import { TPL_BY_ID, WORLD_EVENT_TPLS, type WorldEventTpl } from '../../data/worl
 import { inRing, WORLD_ZONES, ZONE_BY_ID, type WorldZone } from '../../data/worldZones';
 import { BAL } from '../core/balance';
 import { cancelFlight, nextId, removeFlights, retimeFlight } from '../core/entities';
-import { interpolateGC } from '../core/geo';
+import { distance, interpolateGC } from '../core/geo';
 import { invoice, post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { typeOf } from '../core/perf';
@@ -89,10 +89,10 @@ export function warRiskAt(g: GameState, code: string): 0 | 1 | 2 | 3 {
   return lv as 0 | 1 | 2 | 3;
 }
 
-/** The live event closing this airport at t (its airspace or the airport itself). Pure. */
-export function closedAirport(g: GameState, code: string, t: Minute = g.now): WorldEvent | null {
+/** The live event closing this airport at t (its airspace or the airport itself); never `exempt` (the event whose own work it is: an evacuation or relief permit). Pure. */
+export function closedAirport(g: GameState, code: string, t: Minute = g.now, exempt?: string): WorldEvent | null {
   for (const e of eventsOf(g)) {
-    if (e.done || t < e.start || t >= e.end) continue;
+    if (e.done || t < e.start || t >= e.end || e.id === exempt) continue;
     if (e.airportClosedUntil && e.at === code && t < e.airportClosedUntil) return e;
     if (e.closed && e.zoneId && ZONE_BY_ID[e.zoneId] && inZone(ZONE_BY_ID[e.zoneId], code)) return e;
   }
@@ -180,6 +180,8 @@ export function closureHits(g: GameState, e: WorldEvent): { held: Flight[]; over
   const z = e.zoneId ? ZONE_BY_ID[e.zoneId] : undefined;
   for (const f of Object.values(g.flights)) {
     if (f.status !== 'scheduled' || !f.aircraftId || f.kind === 'deadhead' || f.std >= e.end + 1440) continue;
+    // The event's own work (evacuation, relief) flies under a permit.
+    if (f.contractId && g.contracts[f.contractId]?.eventId === e.id) continue;
     const touch = (code: string) => (e.airportClosedUntil && code === e.at) || (e.closed && z && inZone(z, code));
     if (touch(f.from) || touch(f.to)) held.push(f);
     else if (e.closed && z && crosses(z, f.from, f.to)) over.push(f);
@@ -243,11 +245,15 @@ export function startEvent(g: GameState, t: WorldEventTpl, r: RngHolder = side(g
   const days = t.kind === 'recession' ? int(r, 6, 12) * 30 : int(r, D[0], D[1]);
   const rival = t.entity === '{rival}' ? weightedPick(r, g.rivals.filter((x) => isActive(x) && x.personality !== 'big'), (x) => (x.personality === 'cheap' ? 3 : 1)) : undefined;
   const fill = (s: string) => s.replace(/\{rival\}/g, rival?.name ?? 'A rival').replace(/\{until\}/g, fmtDay(g.now + days * DAY));
+  // The closure is rolled first so the text never promises one that didn't happen.
+  const closed = !!(t.zoneId && t.closeP && chance(r, t.closeP));
+  const text = !closed && t.open ? t.open : t;
+  const at = rival?.base ?? t.at;
   const e: WorldEvent = {
-    id: nextId(g, 'we'), kind: t.kind, tpl: t.id, title: fill(t.title), body: fill(t.body), country: t.country, at: rival?.base ?? t.at,
+    id: nextId(g, 'we'), kind: t.kind, tpl: t.id, title: fill(text.title), body: fill(text.body), country: rival ? AIRPORT_BY_CODE[at]?.country ?? t.country : t.country, at,
     start: g.now, end: g.now + days * DAY, offerIds: [], flightsHit: 0, ev: 0,
     ...(t.zoneId ? { zoneId: t.zoneId } : {}),
-    ...(t.zoneId && t.closeP && chance(r, t.closeP) ? { closed: true } : {}),
+    ...(closed ? { closed: true } : {}),
     ...(t.warRisk ? { warRisk: t.warRisk } : {}),
     ...(t.airportDays ? { airportClosedUntil: g.now + int(r, t.airportDays[0], t.airportDays[1]) * DAY } : {}),
     ...(rival ? { rivalId: rival.id, entity: rival.name } : t.entity ? { entity: t.entity } : {}),
@@ -282,7 +288,10 @@ function makeWork(g: GameState, e: WorldEvent, n: number): void {
     const z = e.zoneId ? ZONE_BY_ID[e.zoneId] : undefined;
     const pair = z?.staging?.find(([a, b]) => AIRPORT_BY_CODE[a] && AIRPORT_BY_CODE[b]);
     const cover = (t?.coverFor ?? []).map((name) => Object.values(g.clients).find((c) => c.name === name)).find((c) => !!c);
-    const rivalClients = e.rivalId ? Object.values(g.clients).filter((c) => c.kind === 'airline' && !c.rivalId && AIRPORT_BY_CODE[c.base]?.continent === 'EU') : [];
+    // A failed airline's or rival's work goes to the airlines nearest its base (its own market).
+    const rivalClients = (e.rivalId || e.kind === 'airlineFailure') && AIRPORT_BY_CODE[e.at]
+      ? Object.values(g.clients).filter((c) => c.kind === 'airline' && !c.rivalId && AIRPORT_BY_CODE[c.base]).sort((a, b) => distance(a.base, e.at) - distance(b.base, e.at) || a.id.localeCompare(b.id)).slice(0, 3)
+      : [];
     // The work is drawn from the event's own stream: an event never shifts the game's main random sequence.
     const main = g.rng;
     g.rng = hash(`${g.seed}:work:${e.id}:${e.offerIds.length}:${kind}`) | 0;
@@ -475,7 +484,8 @@ export function strikeDelay(g: GameState, f: Flight): { min: number; reason: str
 
 /** Departure check (ops flights.ts): a leg to or from a closed airport does not leave; true when held. */
 export function closedAtDeparture(g: GameState, f: Flight): WorldEvent | null {
-  return closedAirport(g, f.from) ?? closedAirport(g, f.to);
+  const own = f.contractId ? g.contracts[f.contractId]?.eventId : undefined;
+  return closedAirport(g, f.from, g.now, own) ?? closedAirport(g, f.to, g.now, own);
 }
 
 // ---------- war-risk cover (§5.4) ----------

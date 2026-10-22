@@ -3,12 +3,11 @@
 
 import { BAL } from '../core/balance';
 import { dayStart, fmtDay } from '../core/time';
-import { typeOf } from '../core/perf';
 import { hashUnit } from '../core/util';
 import type { ActionResult, Flight, GameState, Rival } from '../core/types';
 import { levelOf } from '../contracts/relations';
-import { isActive, type RivalStyle } from '../contracts/rivals';
-import { cancelCost, noticeText, subcharterCost, subcharterLegs, subHit, unitOf, type SubHit } from './flights';
+import { type RivalStyle } from '../contracts/rivals';
+import { cancelCost, noticeText, positioningCost, rivalsFor, subcharterCost, subcharterLegs, subHit, unitOf, type SubHit } from './flights';
 import { contractOf, isRevenue } from './util';
 
 /** Legs closer than this to departure can't be handed over any more (the rival needs to position). */
@@ -85,9 +84,10 @@ function levelDiscount(g: GameState, r: Rival): number {
 
 /**
  * v0.8 (UPDATE-0.8.md §3.4) up to three rivals' prices for flying these legs (all of one contract), cheapest
- * available first: active rivals flying the same family (else any), today's factor (fixed per contract, rival and
- * day) × their price level × our level as their client. A rival booked over 90 % shows when it has an aircraft
- * again. Pure.
+ * available first: active rivals flying the same family (else any; never the contract's client), today's factor
+ * (fixed per contract, rival and day) × their price level × our level as their client, plus positioning from their
+ * base. The best-quality free operator is always one of the three. A rival booked over 90 % shows when it has an
+ * aircraft again. Pure.
  */
 export function subcharterQuotes(g: GameState, flightIds: string[]): SubcharterQuote[] {
   const legs = flightIds.map((id) => g.flights[id]).filter((f) => live(g, f));
@@ -95,10 +95,9 @@ export function subcharterQuotes(g: GameState, flightIds: string[]): SubcharterQ
   const cid = legs[0].contractId;
   if (!cid || legs.some((f) => f.contractId !== cid)) return [];
   const ac = legs[0].aircraftId ? g.fleet[legs[0].aircraftId] : undefined;
-  const fam = ac ? typeOf(ac.typeId).family : null;
-  const active = g.rivals.filter(isActive);
-  const fit = active.filter((r) => !fam || r.fleet.some((x) => x.count > 0 && typeOf(x.typeId).family === fam));
-  const pool = fit.length ? fit : active;
+  const typeId = ac?.typeId ?? 'a320ceo';
+  // Never the rival that is this contract's client (we fly for them).
+  const pool = rivalsFor(g, ac ? ac.typeId : null, legs);
   if (!pool.length) return [];
   const day = dayStart(g.now);
   const [lo, hi] = BAL.subcharterFactor;
@@ -108,20 +107,26 @@ export function subcharterQuotes(g: GameState, flightIds: string[]): SubcharterQ
   const base = subcharterHit(g, legs.map((f) => f.id));
   const bh = Math.round(rev.reduce((s, f) => s + f.block, 0) / 6) / 10;
   const out = pool.map((rival): SubcharterQuote => {
-    // Planned hand-overs (not an AOG scramble) price in the lower part of the band.
-    const factor = (lo + hashUnit(`subf:${cid}:${day}:${rival.id}`) * (hi - lo) * 0.6) * rival.priceFactor * levelDiscount(g, rival);
+    // Planned hand-overs (not an AOG scramble) price in the lower part of the band; the rival's id leads the key
+    // (FNV spreads the first characters best). Plus positioning from its base and home again.
+    const factor = (lo + hashUnit(`${rival.id}:subf:${cid}:${day}`) * (hi - lo) * 0.6) * rival.priceFactor * levelDiscount(g, rival);
     const load = rival.load ?? 0.7;
     const available = load < BAL.v08.rivals.quoteLoadMax;
     const hit: SubcharterHit = { ...base, relation: Math.round(base.relation * (1.5 - rival.quality) * 10) / 10 };
     return {
       flightIds: legs.map((f) => f.id), revenueLegs: rev.length, bh, rivalId: rival.id, rivalName: rival.name,
-      cost: subcharterCost(g, legs, factor), revenue, cancel, validUntil: day + 1440, hit,
+      cost: subcharterCost(g, legs, factor) + positioningCost(rival, legs, typeId), revenue, cancel, validUntil: day + 1440, hit,
       quality: rival.quality, available, style: rival.personality,
-      ...(available ? {} : { why: `No aircraft free until ${fmtDay(day + (3 + Math.floor(hashUnit(`subfree:${rival.id}:${day}`) * 18)) * 1440)}` }),
+      ...(available ? {} : { why: `No aircraft free until ${fmtDay(day + (3 + Math.floor(hashUnit(`${rival.id}:subfree:${day}`) * 18)) * 1440)}` }),
     };
   });
   out.sort((a, b) => Number(b.available) - Number(a.available) || a.cost - b.cost);
-  return out.slice(0, BAL.v08.rivals.quotes);
+  const n = BAL.v08.rivals.quotes;
+  const top = out.slice(0, n);
+  // Always show the best operator free (the quality trade-off), in place of the dearest of the cheap ones.
+  const best = out.filter((q) => q.available).sort((a, b) => b.quality - a.quality || a.cost - b.cost)[0];
+  if (best && !top.includes(best) && top.length >= n) top[n - 1] = best;
+  return top;
 }
 
 /** The cheapest available quote (v0.7.2 single-quote API; Crew Control, the AOG decision and the bot use it). Pure. */

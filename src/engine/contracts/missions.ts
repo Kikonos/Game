@@ -5,6 +5,7 @@
 
 import { ACMI_TYPES } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE, AIRPORTS, type Airport } from '../../data/airports';
+import { fliesFamily } from '../../data/naming';
 import { nextHajj } from '../../data/worldCalendar';
 import { WORLD_ZONES } from '../../data/worldZones';
 import { BAL } from '../core/balance';
@@ -67,12 +68,17 @@ function hajj(ctx: Ctx): Draft | null {
   const legs: LegTemplate[] = [];
   const prefix = clientPrefix(client.name);
   let no = 3000 + int(g, 0, 50) * 10;
+  const ref = wide ? 'a333' : 'a320ceo';
+  const blk = (a: string, b: string) => blockMinutes(ref, a, b);
+  // Real Hajj ACMI flies the aircraft hard (13–16 BH a day): a same-day turn at JED/MED when report + both sectors +
+  // the turn fit a 13 h duty (16 h augmented on a widebody); longer sectors night-stop at the holy city and rotate every other day.
+  const daily = 60 + blk(origin, 'JED') + blk('JED', origin) + 150 <= (wide ? 16 : 13) * 60;
   for (const [phase, inbound] of [[h.pre, true], [h.post, false]] as const) {
-    for (let t = phase[0]; t + DAY <= phase[1]; t += 2 * DAY) {
+    for (let t = phase[0]; t + DAY <= phase[1]; t += daily ? DAY : 2 * DAY) {
       const holy = chance(g, 0.7) ? 'JED' : 'MED';
-      const out = atLocal(origin, t, 10 * 60);
-      const block = blockMinutes(wide ? 'a333' : 'a320ceo', origin, holy);
-      const back = Math.max(atLocal(holy, out + DAY, 14 * 60), out + block + 10 * 60);
+      const out = atLocal(origin, t, daily ? 8 * 60 : 10 * 60);
+      const block = blk(origin, holy);
+      const back = daily ? Math.ceil((out + block + 150) / 5) * 5 : Math.max(atLocal(holy, out + DAY, 14 * 60), out + block + 10 * 60);
       legs.push({ from: origin, to: holy, dep: out, flightNo: `${prefix}${no++}`, pax: inbound ? pax : 0 });
       legs.push({ from: holy, to: origin, dep: back, flightNo: `${prefix}${no++}`, pax: inbound ? 0 : pax });
     }
@@ -82,17 +88,23 @@ function hajj(ctx: Ctx): Draft | null {
   const june = month(h.post[1]) >= 5 && month(h.post[0]) <= 6;
   const first = legs[0].dep;
   const last = legs[legs.length - 1];
-  const terms: [Minute, Minute][] = [[first, legs[mid - 1].dep + DAY], [legs[mid].dep, last.dep + DAY]];
+  // Terms end when the phase's last leg is on blocks (the panel and the blurb read the same days).
+  const onBlocks = (l: LegTemplate) => l.dep + blk(l.from, l.to);
+  const terms: [Minute, Minute][] = [[first, onBlocks(legs[mid - 1])], [legs[mid].dep, onBlocks(last)]];
+  // MGH never above what the programme flies (the client pays for its own idle days, not for ours).
+  const days = terms.reduce((s, [a, b]) => s + (b - a), 0) / DAY;
+  const planned = (legs.reduce((s, l) => s + blk(l.from, l.to), 0) / 60 / Math.max(1, days)) * 30.44;
+  const mgh = Math.max(100, Math.min(wide ? 300 : 240, Math.floor((planned * 0.95) / 10) * 10));
   const tn = (a: Minute, b: Minute) => `${fmtDay(a)} – ${fmtDay(b)}`;
   return {
     archetype: 'hajj', client,
     title: `Hajj ${h.ah} airlift ${origin}–JED/MED`,
-    blurb: `${client.name}: Hajj ${h.ah} airlift ${origin}–JED/MED for about ${pax} pilgrims a flight. In: ${tn(first, legs[mid - 1].dep)}; home: ${tn(legs[mid].dep, last.dep)}. ` +
-      `Every other leg flies empty, and the client pays those hours too. Max-seat cabin, no alcohol on board, Zamzam water in the hold on the way home.`,
+    blurb: `${client.name}: Hajj ${h.ah} airlift ${origin}–JED/MED for about ${pax} pilgrims a flight. In: ${tn(...terms[0])}; home: ${tn(...terms[1])}. ` +
+      `${daily ? 'One rotation a day, turning at the holy city' : 'A rotation every other day, night-stopping at the holy city'}; every other leg flies empty, and the client pays those hours too. Max-seat cabin, no alcohol on board, Zamzam water in the hold on the way home.`,
     pattern: { kind: 'legs', legs },
     req: { minSeats: wide ? 300 : 180, layouts: ['all-economy'], extraCabin: 0, approvals: [], body: wide ? 'wide' : 'narrow' },
     start: first, end: last.dep + DAY, expiresIn: range(g, 5, 10) * DAY,
-    wet: true, mult: V.arch.hajj[june ? 1 : 0], mghPerMonth: wide ? 300 : 240, terms,
+    wet: true, mult: V.arch.hajj[june ? 1 : 0], mghPerMonth: mgh, terms,
     effects: { morale: 2 }, risk: { disruption: 0.2, politics: 0.1, permit: 0.15 }, dueDays: client.kind === 'government' ? 30 : undefined,
     pin: 'JED', hook: hookFor(ctx),
   };
@@ -233,6 +245,23 @@ function evacuation(ctx: Ctx): Draft | null {
   const back = blockMinutes(typeRef, x, hub);
   let t = o.start ?? atLocal(hub, g.now + int(g, 12, 48) * 60, int(g, 12, 32) * 30);
   if (t < g.now + 10 * 60) t += DAY;
+  // Never an evacuation no aircraft of ours could reach in time: ferry at cruise (+15 %, a fuel stop per range
+  // hop) plus 6 h to find a crew and get going; the client waits up to 3 days for the nearest one.
+  const minSeats = wide ? 250 : 150;
+  const fleet = Object.values(g.fleet).filter((a) => a.cabin.total >= minSeats && a.status !== 'leasedOut' && AIRPORT_BY_CODE[a.at]);
+  if (Object.keys(g.fleet).length && o.start === undefined) {
+    const atlantic = (a: string, b: string) => (AIRPORT_BY_CODE[a].lon < -30) !== (AIRPORT_BY_CODE[b].lon < -30);
+    const travel = (a: (typeof fleet)[number]) => {
+      const T = typeOf(a.typeId);
+      const nm = distanceNm(a.at, hub);
+      // An ocean crossing needs ETOPS 180 (type and approval) on a twin that can't make it in one hop.
+      if (atlantic(a.at, hub) && nm > T.rangeNm * 0.9 && (T.etopsMax < 180 || !g.company.approvals.includes('etops180'))) return Infinity;
+      return (nm / T.cruiseKt) * 60 * 1.15 + Math.floor(nm / (T.rangeNm * 0.9)) * 90 + 6 * 60;
+    };
+    const soonest = Math.min(Infinity, ...fleet.map(travel));
+    if (soonest > 72 * 60) return null;
+    if (t < g.now + soonest) t = Math.ceil((g.now + soonest) / 30) * 30;
+  }
   const pax = wide ? int(g, 260, 300) : int(g, 150, 178);
   const legs: LegTemplate[] = [];
   for (let i = 0; i < n; i++) {
@@ -241,17 +270,19 @@ function evacuation(ctx: Ctx): Draft | null {
     legs.push({ from: x, to: hub, dep, flightNo: '', pax });
     t = Math.ceil((dep + back + 60) / 15) * 15;
   }
-  if (capital !== hub) legs.push({ from: hub, to: capital, dep: t + 60, flightNo: '', pax });
+  // Home to the capital only when the type reaches it non-stop; else the ministry books scheduled flights from the hub.
+  const home = capital !== hub && distanceNm(hub, capital) <= typeOf(typeRef).rangeNm * 0.95;
+  if (home) legs.push({ from: hub, to: capital, dep: t + 60, flightNo: '', pax });
   const level = Math.max(2, warRiskAt(g, x));
   const cover = warRiskCost(level, wide) * n;
   const last = legs[legs.length - 1];
   return {
     archetype: 'evacuation', client,
     title: `Evacuation ${city(x)}–${city(hub)}`,
-    blurb: `${client.name}: ${n} shuttles ${city(hub)}–${city(x)} to bring out about ${pax * n} citizens, then ${city(hub)}–${city(capital)}. First departure ${fmtDay(legs[0].dep)}. ` +
+    blurb: `${client.name}: ${n} shuttles ${city(hub)}–${city(x)} to bring out about ${pax * n} citizens, ${home ? `then ${city(hub)}–${city(capital)}` : `who fly home from ${city(hub)} on scheduled flights`}. First departure ${fmtDay(legs[0].dep)}. ` +
       `No night stop at ${city(x)} (2 h on the ground at most); war-risk cover ${n} × $${Math.round(cover / n / 1000)}K is in the price and can be withdrawn at short notice.`,
     pattern: { kind: 'legs', legs },
-    req: { minSeats: wide ? 250 : 150, extraCabin: 0, approvals: [] },
+    req: { minSeats, extraCabin: 0, approvals: [] },
     start: legs[0].dep, end: last.dep + 8 * 60, expiresIn: Math.min(int(g, 4, 10) * 60, Math.max(90, legs[0].dep - g.now - 6 * 60)),
     mult: V.arch.evacuation, passThrough: cover, effects: { morale: 6, clean: 3, reliable: 1 }, risk: { disruption: 0.6, politics: 0.5, permit: 0.4 }, dueDays: 30,
     pin: x, hook: hookFor(ctx), eventId: o.eventId,
@@ -616,7 +647,8 @@ const rentOf = (g: GameState, typeId: string, r: { rng: number }) => {
 /** Airline clients outside our home market (and outside Europe) that could take the aircraft at their base. */
 function lessees(g: GameState, typeId: string): Client[] {
   const homeCountry = AIRPORT_BY_CODE[g.company.homeBase]?.country;
-  return clientsOf(g, ['airline'], (c) => !c.rivalId && c.country !== homeCountry && !EUROPE.has(c.country) && exists(c.base) && !!route(typeId, g.company.homeBase, c.base));
+  const fam = typeOf(typeId).family;
+  return clientsOf(g, ['airline'], (c) => !c.rivalId && c.country !== homeCountry && !EUROPE.has(c.country) && exists(c.base) && fliesFamily(c.name, fam) && !!route(typeId, g.company.homeBase, c.base));
 }
 
 /**
@@ -721,12 +753,13 @@ export function devHajj(g: GameState): string {
   return o?.id ?? '';
 }
 
-/** A dry-lease offer for an owned narrowbody to TAAG; the offer id. Dev/test helper. */
+/** A dry-lease offer for an owned narrowbody (to TAAG when it flies the type); the offer id. Dev/test helper. */
 export function devDryLease(g: GameState): string {
   const ac = Object.values(g.fleet).find((a) => typeOf(a.typeId).body === 'narrow' && a.ownership.kind === 'owned') ?? Object.values(g.fleet).find((a) => typeOf(a.typeId).body === 'narrow');
   if (!ac) return '';
   const w = idleWindows(g, 75, 330).find((x) => x.aircraftId === ac.id) ?? { aircraftId: ac.id, from: g.now + 12 * 60, to: g.now + 330 * DAY, at: ac.at, afterContract: null };
-  const taag = Object.values(g.clients).find((c) => c.name === 'TAAG Angola Airlines');
+  // TAAG when it flies the type (737/777/787), else a lessee that does.
+  const taag = Object.values(g.clients).find((c) => c.name === 'TAAG Angola Airlines' && fliesFamily(c.name, typeOf(ac.typeId).family));
   return makeDryLeaseOffer(g, w, taag?.id)?.id ?? '';
 }
 

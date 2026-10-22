@@ -511,9 +511,12 @@ export function WorldMap({
     return codes && codes.length ? fitView(rotate, codes, geo, fitPad, fitCentreRef.current?.()) : clampView({ k: 1, x: 0, y: 0 }, geo);
   };
   const restored = useRef(false);
+  /** Size of the last fit: the ResizeObserver's first (same-size) report must not refit over a reveal. */
+  const fitWH = useRef('');
   const doFit = useCallback((animated = false) => {
     const geo = measure();
     if (geo.w <= 0) return;
+    fitWH.current = `${geo.w}x${geo.h}`;
     setBox((b) => (b.w === geo.w && b.h === geo.h ? b : geo));
     const target = fitTarget(geo);
     fitK.current = target.k;
@@ -543,6 +546,8 @@ export function WorldMap({
   useLayoutEffect(() => {
     doFit();
   }, [doFit]);
+  // An unmount (or StrictMode's rehearsal of one) restores the remembered view again on the next mount.
+  useLayoutEffect(() => () => { restored.current = false; }, []);
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -551,7 +556,7 @@ export function WorldMap({
       const geo = measure();
       setBox((b) => (b.w === geo.w && b.h === geo.h ? b : geo));
       // Rotation / Split View / panel changes: refit until the player has moved the map.
-      if (!userMoved.current) fitRef.current();
+      if (!userMoved.current) { if (`${geo.w}x${geo.h}` !== fitWH.current) fitRef.current(); }
       else if (!busy()) { apply(clampView(live.current, geo)); commit(); }
     });
     ro.observe(el);
@@ -876,12 +881,15 @@ export function WorldMap({
   useEffect(() => {
     const padOpt = revealRef.current;
     if (!focusKey || !padOpt || !interactive) return;
-    const id = requestAnimationFrame(() => {
+    let id = 0;
+    let tries = 0;
+    const reveal = () => {
       const f = focusRef.current;
       const a = f ? undefined : selected ? AIRPORT_BY_CODE[selected] : undefined;
       const at: FocusAt | null | undefined = f ? f.at() : a ? proj([a.lon, a.lat]) : null;
       const fa = !at ? null : Array.isArray(at) ? { pts: [at], box: [0, 0, 0, 0] } : { pts: at.pts, box: at.box ?? [0, 0, 0, 0] };
-      if (!fa || !fa.pts.length || busy()) return;
+      // Just mounted (pins not placed yet, a fit or restore still running): try again over the next frames.
+      if (!fa || !fa.pts.length || busy()) { if (++tries < 12) id = requestAnimationFrame(reveal); return; }
       const pad = typeof padOpt === 'function' ? padOpt() : padOpt;
       const geo = measure();
       const v = live.current;
@@ -898,7 +906,8 @@ export function WorldMap({
       const dx = shift(0, bl, br, pad[3] + m, geo.w - pad[1] - m);
       const dy = shift(1, bt, bb, pad[0] + m, geo.h - pad[2] - m);
       if (dx || dy) flyTo(clampView({ k: v.k, x: v.x + dx / geo.s, y: v.y + dy / geo.s }, geo), 360);
-    });
+    };
+    id = requestAnimationFrame(reveal);
     return () => cancelAnimationFrame(id);
   }, [focusKey, interactive, proj]); // eslint-disable-line react-hooks/exhaustive-deps
 

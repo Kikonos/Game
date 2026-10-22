@@ -607,6 +607,8 @@ export interface DryLeaseState {
   consent?: number;
   /** The lessee flies it in its colours. */
   paint?: 'full' | 'decals';
+  /** v0.8 we recalled it early (cancel after delivery): when. */
+  recalled?: Minute;
 }
 
 // ======================================================================

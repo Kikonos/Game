@@ -116,12 +116,14 @@ export interface Chip {
 /** Requirement chips: seats, body/families, ETOPS, runway, approvals. */
 export function reqChips(r: Requirements): Chip[] {
   // v0.8: a dry lease needs no seats (aircraft only).
-  const out: Chip[] = r.minSeats > 0 ? [{ label: r.maxSeats ? `${r.minSeats}–${r.maxSeats} seats` : `${r.minSeats}+ seats`, tip: 'Seats the client needs' }] : [];
+  const layouts = r.layouts ?? (r.layout ? [r.layout] : null);
+  const maxSeats = layouts?.length === 1 && layouts[0] === 'all-economy' && r.minSeats >= 174;
+  // 'Max seats N+' already says the seats; no plain chip beside it.
+  const out: Chip[] = r.minSeats > 0 && !maxSeats ? [{ label: r.maxSeats ? `${r.minSeats}–${r.maxSeats} seats` : `${r.minSeats}+ seats`, tip: 'Seats the client needs' }] : [];
   if (r.body === 'wide') out.push({ label: 'Widebody' });
   if (r.families?.length && r.families.length <= 2) out.push({ label: r.families.join(' / ') });
   // v0.7: accepted layouts (supersede `layout`) and premium seats.
-  const layouts = r.layouts ?? (r.layout ? [r.layout] : null);
-  if (layouts?.length === 1 && layouts[0] === 'all-economy' && r.minSeats >= 174) out.push({ label: `Max seats ${r.minSeats}+`, tone: 'warn', tip: 'All-economy, high-density cabin' });
+  if (maxSeats) out.push({ label: `Max seats ${r.minSeats}+`, tone: 'warn', tip: 'All-economy, high-density cabin' });
   else if (layouts?.length === 1 && layouts[0] === 'vip') out.push({ label: 'VIP cabin', tone: 'warn', tip: 'Needs a VIP layout (refit on the Fleet card)' });
   else if (layouts && !layouts.includes('all-economy')) out.push({ label: layouts.length === 1 ? layouts[0].replace('-', ' ') : 'Premium cabin', tip: `Cabins: ${layouts.map((l) => (l === 'vip' ? 'VIP' : l)).join(', ')}` });
   if (r.minPremium) out.push({ label: `Premium ${r.minPremium}+`, tip: 'Business and premium-economy seats' });

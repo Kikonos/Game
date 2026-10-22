@@ -99,7 +99,8 @@ export function ProblemCardView({ card, compact, g, hideActions, onAction, child
         <span className="pc-k">Does it hurt?</span>
         <span className="pc-hurt">
           <span className={`pc-hurt-t ${card.hurt.level}`}>{card.hurt.text}</span>
-          <HurtBadges badges={card.hurt.badges} level={card.hurt.level} />
+          {/* 'no cost' under a 'Yes: −5 % …' line contradicts it: the text says the hurt. */}
+          <HurtBadges badges={card.hurt.level === 'none' ? card.hurt.badges : card.hurt.badges.filter((b) => b !== 'no cost')} level={card.hurt.level} />
           {card.by !== undefined && card.by > g.now && <span className="tiny dim pc-by">by {fmtDateTime(card.by)} UTC</span>}
         </span>
       </div>
