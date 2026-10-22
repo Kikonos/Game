@@ -5,10 +5,10 @@ import { BAL } from '../../engine/core/balance';
 import { statementTotals } from '../../engine/core/ledger';
 import { problemFor } from '../../engine/problems';
 import { DAY, HOUR, fmtDay, monthKey, toLocal } from '../../engine/core/time';
-import { mghInMonth } from '../../engine/contracts/pricing';
+import { mghInMonth, mghLabel } from '../../engine/contracts/pricing';
 import type { IdleWindow } from '../../engine/contracts/offers';
 import type {
-  AircraftOffer, Archetype, ContractOffer, CrewMember, CrewStatus, GameState, LedgerCat, Message, MessageCat, MonthStatement, Product, Ref, Requirements, Role, SchedulePattern,
+  AircraftOffer, Archetype, Minute, ContractOffer, CrewMember, CrewStatus, GameState, LedgerCat, Message, MessageCat, MonthStatement, Product, Ref, Requirements, Role, SchedulePattern,
 } from '../../engine/core/types';
 import { money } from '../format';
 import type { Tab } from '../store';
@@ -100,9 +100,9 @@ export function routeSummary(p: SchedulePattern): string {
 
 const k = (v: number) => money(v);
 
-/** '$3,950/BH · MGH 200', '$412K charter', '$228K/month dry'. */
-export function productLine(p: Product): string {
-  if (p.kind === 'wet') return `$${p.ratePerBH.toLocaleString('en-US')}/BH · MGH ${p.mghPerMonth}`;
+/** '$3,950/BH · MGH 200', '$412K charter', '$228K/month dry'; with the dates a short job reads 'MGH ≈24 BH for the job'. */
+export function productLine(p: Product, span?: { start: Minute; end: Minute; terms?: [Minute, Minute][] }): string {
+  if (p.kind === 'wet') return `$${p.ratePerBH.toLocaleString('en-US')}/BH · ${span ? mghLabel(p, span.start, span.end, span.terms) : `MGH ${p.mghPerMonth}`}`;
   if (p.kind === 'charter') return `${k(p.price)} charter`;
   return `${k(p.rentPerMonth)}/month dry`;
 }

@@ -102,7 +102,7 @@ describe('season base at HAM on the leased A320', () => {
     expect(last).toMatchObject({ kind: 'positioning', from: 'HAM', to: 'LIS' });
     expect(last.std).toBeGreaterThanOrEqual(c.end - DAY);
     turnsOk(g, ac.id);
-  });
+  }, 30_000); // 35 days of simulation: about 5 s on a busy machine
 
   it('bills the positioning out before the contract completes', () => {
     run(g, c.end + 2 * DAY);

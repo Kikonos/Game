@@ -58,7 +58,7 @@ function OfferCard({ g, o, windows }: { g: GameState; o: ContractOffer; windows:
       <div className="sc-offer-route mono ellipsis">{routeSummary(o.pattern)}</div>
       <div className="small muted">{offerDays(o).map(fmtDay).join(' – ')} · {lead <= 0 ? 'starts now' : `starts in ${lead} d`}</div>
       <div className="row between sc-offer-money">
-        <b>{productLine(o.product)}</b>
+        <b>{productLine(o.product, o)}</b>
         <span className="muted small">est. <b className="num">{money(o.estValue)}</b></span>
       </div>
       <Chips chips={v08Chips(o, offerClientLine(g, o.id), offerCompetition(g, o.id).level)} />
@@ -152,7 +152,7 @@ function ContractRow({ g, c, sel }: { g: GameState; c: Contract; sel: boolean })
           <b className="ellipsis">{c.title}</b>
           <span className={`badge ${c.status === 'active' ? 'good' : c.status === 'cancelled' ? 'bad' : ''}`}>{STATUS_LABEL[c.status]}</span>
         </div>
-        <div className="small muted ellipsis">{cl?.name ?? 'Client'} · <span className="mono">{regs}</span> · {fmtDay(c.start)} – {fmtDay(c.end)} · {productLine(c.product)}</div>
+        <div className="small muted ellipsis">{cl?.name ?? 'Client'} · <span className="mono">{regs}</span> · {fmtDay(c.start)} – {fmtDay(c.end)} · {productLine(c.product, c)}</div>
         {c.paint?.accepted && open && <div className="small muted ellipsis row gap-4"><Palette className="sc-ico-s" />{paintLine(g, c)}</div>}
         {open && (
           <div className="row gap-16 small sc-contract-facts">

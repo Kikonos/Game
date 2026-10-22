@@ -223,8 +223,8 @@ function AircraftRow({ g, r, on, onPick, billBH, lift = 1, offerId, long }: { g:
       </button>
       {on && (
         <div className="sc-feas-checks">
-          {r.checks.map((c) => (
-            <div key={c.id} className="sc-check">
+          {r.checks.map((c, i) => (
+            <div key={`${c.id}-${i}`} className="sc-check">
               <Dot tone={LEVEL_TONE[c.level]} />
               <span className="grow"><span>{c.label}</span>{c.detail && <span className="small muted"> · {c.detail}</span>}</span>
               {c.action?.kind === 'refit' && <button className="btn btn-sm" onClick={() => store.openModal({ kind: 'refit', aircraftId: r.aircraftId, layout: c.action!.layout, offerId })}>Plan refit…</button>}

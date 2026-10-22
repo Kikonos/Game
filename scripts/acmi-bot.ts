@@ -359,25 +359,16 @@ function offers(g: GameState, t: Tally): void {
   }
 }
 
-/** One aircraft's share of the next `days` already committed (ground gaps of a day or more are free). */
-function acCommitted(g: GameState, acId: string, days: number): number {
-  const ac = g.fleet[acId];
-  if (!ac) return 1;
-  let idle = 0;
-  for (const gp of groundGaps(g, ac, g.now, g.now + days * DAY)) if (gp.to - gp.from >= DAY) idle += gp.to - gp.from;
-  return 1 - idle / (days * DAY);
-}
-
 /**
- * v0.8 dry lease out (§13): an aircraft free over the whole lease takes a fitting dry-lease request: a narrowbody October–March and back before the summer peak (never the last of a family with base work
- * running); a widebody any time it has no job in the window; a leased-in airframe when the lessor's consent fee is
- * under 15 % of the rent it brings.
+ * v0.8 dry lease out (§13): an aircraft free over the whole lease takes a fitting dry-lease request: a narrowbody
+ * going out October–February and back before the summer peak (never the last of a family with base work running);
+ * a widebody any time it has no job in the window; a leased-in airframe when the lessor's consent fee is under 15 %
+ * of the rent it brings.
  */
 function dryLeases(g: GameState, t: Tally): void {
   for (const o of Object.values(g.offers)) {
     if (o.archetype !== 'dryLeaseOut' || o.status !== 'open' || !o.dryFor || o.expires <= g.now) continue;
     const ac = g.fleet[o.dryFor];
-    if (process.env.DRYDBG) console.error('DRY', fmtDateTime(g.now), o.title, ac?.reg, ac?.ownership.kind, fmtDateTime(o.start), fmtDateTime(o.end), acCommitted(g, o.dryFor, 60).toFixed(2), feasibility(g, o.id, o.dryFor).checks.filter((c) => c.level === 'no').map((c) => c.label).join('|'));
     if (!ac || ac.status === 'leasedOut' || o.product.kind !== 'dry') continue;
     const wide = typeOf(ac.typeId).body === 'wide';
     if (ac.ownership.kind !== 'owned') {
@@ -386,11 +377,13 @@ function dryLeases(g: GameState, t: Tally): void {
     }
     // Back before the summer peak (seed 4 leased one of its two A320s out from March to July and lost the summer).
     const back = toDate(o.end).getUTCMonth();
-    // A narrowbody never misses the summer peak (June–August) and is back within 8 months.
+    // A narrowbody goes out in winter (October–February), never misses the summer peak (June–August) and is back
+    // within 8 months.
     const peak = (y: number) => fromUTC(y, 6, 1);
     const y0 = toDate(o.start).getUTCFullYear();
     const overlapsSummer = [y0, y0 + 1].some((y) => o.start < peak(y) + 92 * DAY && o.end > peak(y));
-    if (!wide && (overlapsSummer || o.end - g.now > 240 * DAY)) continue;
+    const startMo = toDate(o.start).getUTCMonth();
+    if (!wide && (overlapsSummer || o.end - g.now > 240 * DAY || !(startMo >= 9 || startMo <= 1))) continue;
     const fam = typeOf(ac.typeId).family;
     const others = Object.values(g.fleet).filter((a) => a.id !== ac.id && typeOf(a.typeId).family === fam && a.status !== 'leasedOut' && a.status !== 'delivering');
     const baseLive = Object.values(g.contracts).some((c) => (c.status === 'active' || c.status === 'signed') && c.pattern.kind === 'base' && c.aircraftIds.some((id) => g.fleet[id] && typeOf(g.fleet[id].typeId).family === fam));

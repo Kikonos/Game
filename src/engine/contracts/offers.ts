@@ -1135,6 +1135,8 @@ export function onOfferExpire(g: GameState, ev: SimEvent): void {
   if (bidder && b) return rivalTakes(g, o, bidder, b.why);
   const lost = chance(g, o.firstRefusal ? BAL.v08.firstRefusalLost : 0.7);
   closeOffer(g, o, lost ? 'lost' : 'expired', lost ? rivalName(g, o) : undefined);
+  // The missed list always says why: here we simply let the offer lapse.
+  if (lost) o.lostWhy = 'took it when our offer lapsed without an answer';
 }
 
 /**

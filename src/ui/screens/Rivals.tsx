@@ -56,7 +56,7 @@ export function RivalDetail({ v, inModal }: { v: RivalView; inModal?: boolean })
         <div className="upper dim">Fleet</div>
         <div className="v8-fleet">
           {v.fleet.map((f) => (
-            <span key={f.typeId} className="v8-fleet-row small"><span>{typeOf(f.typeId).short}</span><b className="num">{f.count}</b></span>
+            <span key={f.typeId} className="v8-fleet-row small"><span>{typeOf(f.typeId).name}</span><b className="num">{f.count}</b></span>
           ))}
           {!v.fleet.length && <span className="small dim">No aircraft</span>}
         </div>

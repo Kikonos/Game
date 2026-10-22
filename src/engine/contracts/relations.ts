@@ -226,7 +226,9 @@ export function offerClientLine(g: GameState, offerId: string): { level: ClientL
   const nx = nextLevel(g, c);
   const jobs = c.jobs ?? 0;
   const progress = `${jobs} job${jobs === 1 ? '' : 's'}, relation ${Math.round(c.relation)}${nx ? `: ${LEVEL_NAME[nx.level]} with ${nx.need}` : ': top level'}`;
-  return { level, chip: levelChip(level), lines, progress };
+  // The chip shows the rate this offer was priced with (the level may have moved since it was made).
+  const chip = level === 'new' ? levelChip(level) : `${LEVEL_NAME[level]}${lp ? ` · ${pct(lp)}` : ''}`;
+  return { level, chip, lines, progress };
 }
 
 // ---------- company standing (§1.6) ----------

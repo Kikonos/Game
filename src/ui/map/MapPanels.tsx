@@ -19,7 +19,7 @@ import { AIRPORT_BY_CODE } from '../../data/airports';
 import { MRO_STATIONS } from '../../data/market';
 import { BAL } from '../../engine/core/balance';
 import { isPilot, seatLabel } from '../../engine/core/perf';
-import { feasibilityAll } from '../../engine/contracts';
+import { feasibilityAll, mghLabel } from '../../engine/contracts';
 import { flightsOf } from '../../engine/core/entities';
 import { currentFlight, flightTimes } from '../../engine/core/query';
 import { DAY, fmtDay, fmtDuration, fmtTime, localOffset } from '../../engine/core/time';
@@ -637,7 +637,7 @@ function OfferPanel({ g, id }: { g: GameState; id: string }) {
   const client = g.clients[o.clientId];
   const left = o.expires - g.now;
   const product = o.product.kind === 'wet'
-    ? `$${o.product.ratePerBH.toLocaleString('en-US')}/BH · MGH ${o.product.mghPerMonth}`
+    ? `$${o.product.ratePerBH.toLocaleString('en-US')}/BH · ${mghLabel(o.product, o.start, o.end, o.terms)}`
     : o.product.kind === 'charter' ? `${money(o.product.price)} charter` : `${money(o.product.rentPerMonth)}/month dry`;
   return (
     <Panel title={o.title} kicker={archLabel(o)} onClose={() => store.select(undefined)}>

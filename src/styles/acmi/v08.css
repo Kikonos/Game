@@ -106,7 +106,7 @@
 .v8-tile.bad b { color: var(--bad); }
 .v8-tiles.big .v8-tile { width: auto; min-height: 64px; padding: 8px 12px; }
 .v8-tiles.big .v8-tile b { font-size: 16px; }
-.v8-tile-sub { font-size: 11.5px; line-height: 14px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.v8-tile-sub { font-size: 12px; line-height: 14px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .v8-tile-season b, .v8-tile-season .v8-tile-k { line-height: 15px; }
 .v8-tiles:not(.big) .v8-tile-season { padding-top: 3px; padding-bottom: 3px; }
 .v8-tiles.big .v8-tile-sub { font-size: 13px; line-height: 17px; }
