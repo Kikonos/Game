@@ -143,7 +143,8 @@ export function etopsNeeded(typeId: string, from: string, to: string): number {
   if (hit !== undefined) return hit;
   const A = AIRPORT_BY_CODE[from];
   const B = AIRPORT_BY_CODE[to];
-  const adequate = AIRPORTS.filter((x) => x.runwayM >= ADEQUATE_RUNWAY_M && !x.ice);
+  // v0.8 the blue-ice runways alternate for each other (Troll / Wolf's Fang), as on the real Antarctic flights.
+  const adequate = AIRPORTS.filter((x) => x.runwayM >= ADEQUATE_RUNWAY_M);
   const n = Math.max(2, Math.ceil(distanceNm(from, to) / 150));
   let worstNm = 0;
   for (let i = 1; i < n; i++) {

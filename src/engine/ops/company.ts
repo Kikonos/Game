@@ -36,6 +36,8 @@ export const APPROVALS: ApprovalDef[] = [
   { id: 'ulr', name: 'Ultra-long-range (FRMS)', desc: 'Sectors over 16 hours with 4 pilots under a fatigue risk management system.', cost: 900_000, days: 180, requires: ['etops240', 'augmented'] },
   { id: 'iosa', name: 'IOSA registration', desc: 'IATA audit many airline clients require. Needs 12 months of operations.', cost: 180_000, days: 240, requires: [] },
   { id: 'dg', name: 'Dangerous goods', desc: 'Weapons, rescue gear, aid cargo and medical oxygen.', cost: 60_000, days: 60, requires: [] },
+  // v0.8 (UPDATE-0.8.md §2.8) Antarctic flights.
+  { id: 'polar', name: 'Blue-ice runway operations', desc: 'Blue-ice runway operations: polar survival kit, crew training and round-trip fuel planning.', cost: 250_000, days: 90, requires: ['widebody', 'etops180'] },
 ];
 
 const defOf = (id: ApprovalId) => APPROVALS.find((a) => a.id === id);

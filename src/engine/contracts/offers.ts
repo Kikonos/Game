@@ -14,7 +14,6 @@ import { dutyNeed } from '../crew/duties';
 import { schedule } from '../core/queue';
 import { chance, int, next, pick, range, weightedPick } from '../core/rng';
 import { DAY, dayIndex, fmtDay, fmtTime, fromUTC, localMinuteOfDay, toDate, toLocal } from '../core/time';
-import { clamp } from '../core/util';
 import type {
   AcRest, ApprovalId, Archetype, Client, ContractOffer, GameState, LegTemplate, Minute, OfferEffects, PaintKind, Product, Requirements, SchedulePattern, SimEvent,
 } from '../core/types';
@@ -28,7 +27,8 @@ import { anchorsOf, computeWaves, localToUTC, programmeOf, route, routeMinutes, 
 import { ARCH_MULT, defaultSeats, isWetArchetype, priceProduct, productValue, referenceType, tripTickets } from './pricing';
 import { LEVEL_PERKS, levelOf, standingRate } from './relations';
 import { rivalTakes, rollRivalBid } from './rivals';
-import { MISSION_BUILDERS, missionWeights, rollClientCabin, WINDOW_FIT_V08 } from './missions';
+import { warRiskLandings } from '../ops/world';
+import { fuelFactor, MISSION_BUILDERS, missionWeights, presidential, rollClientCabin, WINDOW_FIT_V08 } from './missions';
 
 // ---------- process ----------
 
@@ -118,6 +118,12 @@ export interface OfferOpts {
   variant?: 'group' | 'diaspora' | 'pilgrimage' | 'music' | 'oneway';
   /** v0.5.1 client paint: false = never; true = roll as usual; a kind = force a request of that kind (tests, dev helper). */
   paint?: boolean | { kind: PaintKind; required?: boolean };
+  /** v0.8: evacuation staging hub; the world event; the rival hiring us and its end client; the contract repeated. */
+  staging?: string;
+  eventId?: string;
+  rival?: string;
+  endClient?: string;
+  repeatOf?: string;
 }
 
 export interface Ctx {
@@ -358,7 +364,9 @@ function aogCover(ctx: Ctx): Draft | null {
   if (ctx.window) days = Math.min(days, Math.floor((ctx.window.to - start) / DAY));
   if (days < 2) return null;
   const pool = wide ? airportsWithin(base, 2500, 7000, (a) => a.size >= 3) : airportsWithin(base, 400, 2500, (a) => a.size >= 2 && (a.tour >= 0.6 || a.size >= 3));
-  const dests = o.dests ?? pickN(g, pool, wide ? int(g, 1, 2) : int(g, 2, 5), (a) => a.size + a.tour * 2).map((a) => a.code);
+  // v0.8 a Newcomer flies the unloved routes (small airports first).
+  const unloved = standingOf(g) === 0;
+  const dests = o.dests ?? pickN(g, pool, wide ? int(g, 1, 2) : int(g, 2, 5), (a) => (unloved ? 6 - a.size : a.size) + a.tour * 2).map((a) => a.code);
   if (!dests.length) return null;
   const minSeats = wide ? 250 : pick(g, [150, 165, 174]);
   const req = { minSeats, extraCabin: 0, approvals: [] as ApprovalId[] };
@@ -497,7 +505,7 @@ function adhoc(ctx: Ctx): Draft | null {
     const pool = wide
       ? airportsWithin(client.base, 5000, 9000, (a) => a.tour >= 0.7 && F.groupDestOk(group, a))
       : airportsWithin(client.base, 600, 3500, (a) => (a.tour >= 0.6 || a.size >= 4 || !!group.dests) && F.groupDestOk(group, a));
-    const dest = o.airport ?? weightedPick(g, pool, (a) => a.tour + a.size / 5)?.code;
+    const dest = o.airport ?? weightedPick(g, pool, (a) => a.tour + (standingOf(g) === 0 ? (6 - a.size) / 5 : a.size / 5))?.code;
     if (!dest) return null;
     const oneWay = chance(g, 0.2) || maxBack < 1;
     const back = Math.max(1, Math.min(int(g, ...(group.back ?? [2, 6])), maxBack));
@@ -798,6 +806,11 @@ const VIP_KINDS = [['government', 0.4], ['corporate', 0.4], ['music', 0.2]] as c
  */
 function vip(ctx: Ctx): Draft | null {
   const { g, o } = ctx;
+  // v0.8 a Respected company: half the government VIP work is presidential (§2.3).
+  if (!o.client && standingOf(g) === 2 && chance(sideRng(g, `pres:${g.seq}:${g.now}`), 0.5)) {
+    const p = presidential(ctx);
+    if (p) return p;
+  }
   const wideOk = ctx.aspire || g.company.approvals.includes('widebody') || g.company.pendingApprovals.some((p) => p.id === 'widebody');
   const wide = ctx.wide && wideOk;
   const kind = weightedPick(g, VIP_KINDS, ([, w]) => w)![0];
@@ -838,12 +851,16 @@ function vip(ctx: Ctx): Draft | null {
   return d;
 }
 
-const BUILDERS: Partial<Record<Archetype, (ctx: Ctx) => Draft | null>> = { seasonBase, aogCover, adhoc, sports, repatriation, tourSeries, troopRotation, vip, ...MISSION_BUILDERS };
+const BUILDERS: Partial<Record<Archetype, (ctx: Ctx) => Draft | null>> = { seasonBase, aogCover, adhoc, sports, repatriation, tourSeries, troopRotation, vip };
+/** v0.8 builder of an archetype (the missions are looked up at call time: missions.ts imports this module). */
+const builderOf = (a: Archetype) => BUILDERS[a] ?? MISSION_BUILDERS[a];
+/** v0.8 the season-base builder (capacity leases reuse it). */
+export const seasonBaseDraft = (ctx: Ctx) => seasonBase(ctx);
 
 /** Archetype weights for the current month (season bases before summer, sports outside June–July…). */
 function weights(g: GameState): [Archetype, number][] {
   const mo = toDate(g.now).getUTCMonth();
-  return [
+  const list: [Archetype, number][] = [
     ['seasonBase', mo <= 4 ? 0.24 : mo === 5 ? 0.12 : mo <= 7 ? 0.08 : 0.14],
     ['aogCover', mo >= 5 && mo <= 8 ? 0.17 : 0.13],
     ['adhoc', 0.25],
@@ -853,21 +870,20 @@ function weights(g: GameState): [Archetype, number][] {
     ['troopRotation', 0.06],
     // v0.7: VIP work, twice as often once we fly a VIP cabin. v0.8: not for a Newcomer.
     ['vip', standingOf(g) === 0 ? 0 : Object.values(g.fleet).some((a) => a.cabin.layout === 'vip') ? 0.08 : 0.04],
-    // v0.8 more contract types (missions.ts).
-    ...missionWeights(g),
   ];
+  // v0.8 more contract types (missions.ts); fuel over $900/t: charter clients wait (× 0.85).
+  return [...list.map(([a, w]): [Archetype, number] => [a, w * fuelFactor(g, a)]), ...missionWeights(g)];
 }
 
 /** Per archetype: lead from now to start [min, max] and the room it needs inside a window, in days. */
 const WINDOW_FIT: Partial<Record<Archetype, [number, number, number]>> = {
   seasonBase: [14, 60, 32], aogCover: [0.08, 1, 2], repatriation: [1, 3, 2], adhoc: [3, 30, 2], sports: [7, 60, 2.5], troopRotation: [30, 90, 16], tourSeries: [30, 120, 21],
   vip: [5, 45, 3],
-  ...WINDOW_FIT_V08,
 };
 
 /** Archetypes that can live inside an idle window (its start reachable within the lead, enough room after it). */
 function fitsWindow(a: Archetype, w: IdleWindow, now: Minute): boolean {
-  const f = WINDOW_FIT[a];
+  const f = WINDOW_FIT[a] ?? WINDOW_FIT_V08[a];
   if (!f) return false;
   const from = Math.max(w.from, now + f[0] * DAY);
   return from <= now + f[1] * DAY && (w.to - from) / DAY >= f[2];
@@ -933,6 +949,8 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   const wet = isWetArchetype(d.archetype) || !!d.wet;
   const gov = isGovernment(d.client);
   // v0.8 the client's level (Unhappy −5 % … Partner +15 %) and our standing (Newcomer −8 %, Respected +4 %).
+  // v0.8 a charter built while war risk is listed prices the cover in (per landing at a war-risk airport).
+  if (!wet && d.archetype !== 'evacuation' && p.kind === 'legs') d.passThrough = (d.passThrough ?? 0) + warRiskLandings(g, p.legs, typeOf(ref).body === 'wide');
   const levelPct = d.product ? 0 : perks(g, d.client).rate;
   const standingPct = d.product ? 0 : standingRate(g);
   const product: Product = d.product ?? priceProduct(g, {
@@ -1056,12 +1074,14 @@ export function generateOffer(g: GameState, archetype?: Archetype, opts: OfferOp
     }
   }
   for (let i = 0; i < tries.length; i++) {
-    const build = BUILDERS[tries[i]];
+    const build = builderOf(tries[i]);
     if (!build) continue;
     // Last attempt drops the window so a forced archetype still appears.
     const ctx: Ctx = { g, wide, aspire: opts.wide ?? mode === 'aspire', window: i === tries.length - 1 && !opts.window ? undefined : window, o: opts };
     const d = build(ctx);
     if (d && opts.paint !== undefined) d.paint = opts.paint;
+    if (d && opts.repeatOf) d.repeatOf = opts.repeatOf;
+    if (d && opts.eventId) d.eventId = opts.eventId;
     const o = d && finalize(g, d, ctx.aspire);
     if (o) {
       // v0.6: the last gap-fit offer (the quiet-week floor looks at it).

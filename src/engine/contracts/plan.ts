@@ -3,6 +3,7 @@
 // base patterns → daily waves with maintenance nights and monthly drops to targetBH;
 // aircraft anchors (hard commitments) and empty-move chains between them.
 
+import { dryAnchor } from '../ops/dryLease';
 import type { ChainShape } from '../crew/duties';
 import { liveFlightsOf } from '../core/entities';
 import { blockMinutes, planSector, TECH_STOP_MIN, typeOf } from '../core/perf';
@@ -133,6 +134,9 @@ export function anchorsOf(g: GameState, aircraftId: string): Anchor[] {
     const std = Math.max(c.generatedUntil, firstDeparture(p, ac.typeId, slot) ?? p.from);
     out.push({ from: p.base, to: p.base, std, sta: Math.max(std, lastArrival(p, ac.typeId, slot) ?? p.to), contractId: c.id, kind: 'base', id: c.id });
   }
+  // v0.8 a dry lease out holds the aircraft at the lessee's base between its two ferries.
+  const dry = dryAnchor(g, aircraftId);
+  if (dry) out.push({ ...dry, kind: 'base', id: dry.contractId });
   out.sort((a, b) => a.std - b.std || a.sta - b.sta);
   if (ac && !ac.flightId) {
     // v0.7: a delivered aircraft abroad is busy with its acceptance until the delivery ferry leaves (never hopped home).

@@ -11,8 +11,8 @@ import { pushMessage } from '../core/messages';
 import { blockMinutes, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { chance, next, pick, range } from '../core/rng';
-import { DAY, fmtDuration, fmtTime } from '../core/time';
-import type { ActionResult, Aircraft, Flight, GameState, MaintenanceEvent, Message, MessageCat, Minute, SimEvent } from '../core/types';
+import { DAY, fmtDuration, fmtTime, monthKey } from '../core/time';
+import type { ActionResult, Aircraft, Contract, Flight, GameState, MaintenanceEvent, Message, MessageCat, Minute, SimEvent } from '../core/types';
 import { noteLostLegs } from '../contracts/billing';
 import { isSoft } from '../contracts/plan';
 import { applyDiscretion, boardCrew, crewIssuesFor, dropStraySpares, flightCrewStatus, guardDuty, rerosterFrom, restSeatsBlocked, setRestDelayHook } from '../crew';
@@ -21,7 +21,8 @@ import { deliveryWaitDay } from './delivery';
 import { crewReadyAt, crewShortDecision, hasOpenDecision } from './events';
 import { aogChance, isGrounded, missCheck, startAog } from './maintenance';
 import { ageF, ageOf, bumpReliable, contractOf, isBaseLeg, isRevenue, stats, turnOf, usd } from './util';
-import { bumpClient } from '../contracts/relations';
+import { bumpClient, forgiveDelay, LEVEL_NAME, levelOf } from '../contracts/relations';
+import { closedAtDeparture, payWarRisk, whiteout } from './world';
 import { noteHiredThem } from '../contracts/rivals';
 
 /** v0.7.1: the problem ref and hurt snapshot of a message about legs lost or handed over (after the fact). */
@@ -598,10 +599,17 @@ export function onFlightDep(g: GameState, ev: SimEvent): void {
     if (due && due.from === f.from) return moveFlight(g, f, Math.max(due.sta + turnOf(ac), g.now + 90), 'Re-planned');
   }
   // 1. Aircraft readiness (on blocks here at least a turn ago).
-  if (ac.status === 'aog' || ac.status === 'maintenance' || ac.status === 'delivering' || ac.flightId || ac.at !== f.from || turnReady(g, ac) > g.now) {
+  if (ac.status === 'aog' || ac.status === 'maintenance' || ac.status === 'delivering' || ac.status === 'leasedOut' || ac.flightId || ac.at !== f.from || turnReady(g, ac) > g.now) {
     notReady(g, f, ac);
     return;
   }
+  // v0.8 world events: a closed airport holds the leg (force majeure, no lateness cap); a whiteout turns an ice leg back.
+  const closed = closedAtDeparture(g, f);
+  if (closed) {
+    f.closedBy = closed.id;
+    return quietHold(g, f, 60);
+  }
+  if (whiteout(g, f)) return;
   // Grounded past the check tolerance: revenue legs stay on the ground; empty legs fly on a ferry permit.
   if (isRevenue(f) && isGrounded(g, ac)) {
     return dropUnit(g, ac, f, 'Aircraft grounded: check overdue', `${ac.reg} is grounded: a check is overdue (book it on the Fleet screen).`, 'tech');
@@ -710,10 +718,41 @@ function depart(g: GameState, f: Flight, ac: Aircraft): void {
     s.illegalCrewFlown = (s.illegalCrewFlown ?? 0) + 1;
     if (duty.legality !== 'illegal') noteIncident(g, 'illegalCrew', `${f.no} left with a crew member over a limit`);
   }
-  // Charter clients are compensated for long delays (> 3 h).
+  // Charter clients are compensated for long delays (> 3 h). v0.8: a Trusted client forgives a few a month; presidential
+  // standards notice anything over 30 min (× 3); our own late legs cost relation (−1, at most −4 a contract-month).
   const c = contractOf(g, f);
-  if (c?.product.kind === 'charter' && isRevenue(f) && delayOf(f) > 180 && c.penalties.perDelay) post(g, 'penalties', -c.penalties.perDelay);
+  if (c && isRevenue(f)) lateLeg(g, f, c);
+  // v0.8 war-risk cover for the landing (re-billed to a wet client).
+  payWarRisk(g, f);
   touchStatus(g, ac.id);
+}
+
+/** Delays nobody at our end controls (ATC, weather, the client, the world). */
+const NOT_OURS = /^(ATC|Weather|Late passengers|Airport congestion|Client|Landing permit|Waiting:|Closed:|Whiteout|Moved to)/;
+
+/**
+ * v0.8 (§1.3, §1.4, §2.3) a revenue leg leaving late by our fault: over 3 h, charter compensation and relation −1
+ * (at most −4 a contract-month), unless a Trusted / Partner client forgives it (n a month); presidential standards:
+ * over 30 min costs compensation × 3 and relation −3.
+ */
+function lateLeg(g: GameState, f: Flight, c: Contract): void {
+  const late = delayOf(f);
+  const vip = c.requirements.standards === 'vip';
+  if (late <= (vip ? 30 : 180)) return;
+  const ours = !NOT_OURS.test(f.delayReason ?? '');
+  const pen = c.product.kind === 'charter' ? c.penalties.perDelay * (vip ? 3 : 1) : 0;
+  if (ours && !vip && forgiveDelay(g, c.clientId)) {
+    pushMessage(g, { tone: 'info', cat: 'commercial', title: `${g.clients[c.clientId]?.name ?? 'The client'} let it go`, body: `${f.no} left ${fmtDuration(late)} late; they forgave it (${LEVEL_NAME[levelOf(g, g.clients[c.clientId])]} client): no compensation, no harm done.`, ref: { kind: 'flight', id: f.id } });
+    return;
+  }
+  if (pen) post(g, 'penalties', -pen);
+  if (!ours) return;
+  const k = monthKey(g.now);
+  const used = c.lateHits && c.lateHits[0] === k ? c.lateHits[1] : 0;
+  const d = vip ? -3 : Math.max(BAL.v08.rel.lateCap - used, BAL.v08.rel.lateLeg);
+  if (d >= 0) return;
+  c.lateHits = [k, used + d];
+  bumpClient(g, c.clientId, d, `${f.no} left ${fmtDuration(late)} late`);
 }
 
 /**

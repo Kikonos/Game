@@ -141,6 +141,18 @@ export function nextLevel(g: GameState, c: Client): { level: ClientLevel; need: 
   }
 }
 
+/** The favour chip on a change request: 'Condor: Known → 26/30 to Trusted' after `delta`. Pure. */
+export function favourChip(g: GameState, clientId: string, delta: number): string {
+  const c = g.clients[clientId];
+  if (!c) return '';
+  const nx = nextLevel(g, c);
+  const lv = LEVEL_NAME[levelOf(g, c)];
+  const rel = Math.round(c.relation + delta);
+  const L = V.levels;
+  const need = nx?.level === 'trusted' ? L.trusted[0] : nx?.level === 'partner' ? L.partner[0] : null;
+  return nx && need !== null ? `${c.name}: ${lv} → ${rel}/${need} to ${LEVEL_NAME[nx.level]}` : `${c.name}: ${lv}, relation ${rel}`;
+}
+
 /** 'Fly their next job on time…' — why a client is unhappy, from the log's worst recent reasons. Pure. */
 export function unhappyReasons(c: Client): string[] {
   return [...(c.log ?? [])].filter((x) => x[1] < 0).sort((a, b) => a[1] - b[1]).slice(0, 3).map((x) => x[2]);
@@ -204,7 +216,7 @@ export function offerClientLine(g: GameState, offerId: string): { level: ClientL
   const lines: string[] = [];
   const lp = o.levelPct ?? 0;
   if (lp) lines.push(`${pct(lp)} rate (${LEVEL_NAME[level]} client, included)`);
-  if (o.standingPct) lines.push(`${pct(o.standingPct)} rate (${STANDING_NAME[(g.company.standing ?? 0) as 0 | 1 | 2]} company, included)`);
+  if (o.standingPct) lines.push(`${pct(o.standingPct)} rate (${o.standingPct < 0 ? 'Newcomer' : 'Respected'} company, included)`);
   if (o.firstRefusal) lines.push('First refusal: no rival will take it before it expires');
   if (p.forgive) lines.push(`${p.forgive} small delay${p.forgive > 1 ? 's' : ''} a month forgiven`);
   if (p.payDays) lines.push(`Pays ${p.payDays} days sooner`);

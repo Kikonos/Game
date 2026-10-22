@@ -7,7 +7,7 @@ import { COUNTRIES } from '../../data/countries';
 import type { RatingFamily } from '../../data/acmiTypes';
 import { BAL } from '../core/balance';
 import { addFlight, flightsOf, reassignFlights } from '../core/entities';
-import { cashOnly, post } from '../core/ledger';
+import { cashOnly, invoice, post } from '../core/ledger';
 import { pushDecision, pushMessage } from '../core/messages';
 import { blockMinutes, canFill, complement, reportMinutes, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
@@ -24,7 +24,9 @@ import { distance } from '../core/geo';
 import { applyHold, cancelCost, cancelLegs, crewBlocked, delayChain, moveFlight, noticeText, pickRival, planHold, planRecovery, rivalFactor, stationOf, subcharterCost, subcharterLegs, subHit, windowLegs, type SubHit } from './flights';
 import { setAogEnd } from './maintenance';
 import { ticketBlock } from './commercial';
-import { bumpReliable, bumpRelation, isRevenue, stats, turnOf, usd } from './util';
+import { bumpReliable, isRevenue, stats, turnOf, usd } from './util';
+import { bumpClient, favourChip, levelOf, statsV08 } from '../contracts/relations';
+import { cancelForceMajeure, resolveAirspace, resolveUninsurable } from './world';
 
 type Data = Record<string, string | number | boolean>;
 const num = (d: Data | undefined, k: string) => Number(d?.[k] ?? 0);
@@ -55,7 +57,11 @@ function recentAsks(g: GameState): number[] {
  */
 export const canAsk = (g: GameState) => g.decisions.length < BAL.maxOpenDecisions && recentAsks(g).length < BAL.maxDecisionsWeek - 1;
 
-const CAT: Record<string, MessageCat> = { aog: 'tech', crewShort: 'crew', sickCrew: 'crew', latePayment: 'finance', rescue: 'finance', changeRequest: 'commercial', leaseEnd: 'company' };
+const CAT: Record<string, MessageCat> = {
+  aog: 'tech', crewShort: 'crew', sickCrew: 'crew', latePayment: 'finance', rescue: 'finance', changeRequest: 'commercial', leaseEnd: 'company',
+  // v0.8
+  clientFee: 'commercial', airspace: 'ops', uninsurable: 'ops',
+};
 
 /** Applies the default (or the next workable option) and explains it in the inbox. `lead` opens the message body. */
 function autoApply(g: GameState, d: Omit<Decision, 'id' | 't'>, lead = 'Operations chose'): void {
@@ -72,7 +78,7 @@ function autoApply(g: GameState, d: Omit<Decision, 'id' | 't'>, lead = 'Operatio
 }
 
 /** Posts a decision; an optional one over the pacing budget is applied by operations instead (inbox message). */
-function ask(g: GameState, d: Omit<Decision, 'id' | 't'>, must = false): Decision | null {
+export function ask(g: GameState, d: Omit<Decision, 'id' | 't'>, must = false): Decision | null {
   if (!must && !canAsk(g)) {
     autoApply(g, d);
     return null;
@@ -541,6 +547,8 @@ export function latePaymentDecision(g: GameState, r: Receivable): void {
     body: `${usd(r.amount)} for ${r.desc} was due ${fmtDay(r.due)}.`,
     options: [
       { id: 'wait', label: 'Wait', desc: 'They usually pay in the end; until then the cash is not ours.', chips: [`${usd(r.amount)} outstanding`, 'No cost'] },
+      // v0.8 a favour: waive the 3 % a year late-payment interest.
+      { id: 'waive', label: 'Waive the interest', desc: 'Wait, and tell them we will not charge late-payment interest. A favour they remember.', tone: 'good', chips: [`Relation +${BAL.v08.rel.waiveInterest}`, `${usd(r.amount)} outstanding`] },
       { id: 'factor', label: 'Sell the invoice', desc: `A factor pays now, less ${Math.round(BAL.factorDiscount * 100)}%.`, tone: 'warn', chips: [`+${usd(r.amount * (1 - BAL.factorDiscount))} now`, usd(-r.amount * BAL.factorDiscount)] },
       live
         ? { id: 'threaten', label: 'Threaten to suspend service', desc: 'A letter saying we stop flying for them unless paid; usually works within a week, but they will not forget it.', tone: 'bad', chips: ['Relation −20', '70%: paid within 7 days'] }
@@ -555,6 +563,10 @@ function resolveLatePayment(g: GameState, d: Decision, opt: string): ActionResul
   if (!r || r.paid !== null) return { ok: true, msg: 'Already paid' };
   const name = g.clients[r.clientId]?.name ?? 'The client';
   if (opt === 'wait') return { ok: true, msg: `We keep waiting for ${name}` };
+  if (opt === 'waive') {
+    bumpClient(g, r.clientId, BAL.v08.rel.waiveInterest, 'Waived the late-payment interest');
+    return { ok: true, msg: `Interest waived; we keep waiting for ${name}` };
+  }
   if (opt === 'factor') {
     const fee = Math.round(r.amount * BAL.factorDiscount);
     cashOnly(g, r.amount);
@@ -564,7 +576,7 @@ function resolveLatePayment(g: GameState, d: Decision, opt: string): ActionResul
     return { ok: true, msg: `Invoice sold: ${usd(r.amount - fee)} in` };
   }
   if (opt === 'threaten') {
-    bumpRelation(g, r.clientId, -20);
+    bumpClient(g, r.clientId, -20, 'We threatened to stop flying over an invoice');
     if (chance(g, 0.7)) {
       r.payAt = Math.min(r.payAt, g.now + int(g, 1, 7) * DAY);
       schedule(g, r.payAt, 'payment', r.id);
@@ -661,10 +673,11 @@ function extraRotation(g: GameState, c: Contract): boolean {
     kind: 'changeRequest', title: `${cl?.name ?? 'Client'} asks for an extra rotation`,
     body: `${p.base}–${dest}–${p.base} on ${fmtDay(std)}, off blocks ${fmtTime(std, p.base)} local. ${bh.toFixed(1)} BH, paid only above the month's ${Math.round(mgh)} guaranteed hours: ${earn ? `about ${paid.toFixed(1)} BH of it would be` : 'this month is planned below it, so it earns nothing extra'}.`,
     options: [
-      { id: 'accept', label: 'Fly it', desc: `${ac.reg} flies two more legs; a crew gets an extra duty and ${ac.reg}'s A-check (${aLeft} FH left) comes ${bh.toFixed(1)} FH sooner.`, tone: earn > maint ? 'good' : 'warn', chips: [earn ? `+${usd(earn)}` : 'No extra revenue', `−${usd(maint)} maintenance`, 'Relation +2'] },
-      { id: 'decline', label: 'Decline', desc: 'The aircraft and crews keep their rest; the client notes it.', chips: ['Relation −3'] },
+      { id: 'accept', label: 'Fly it', desc: `${ac.reg} flies two more legs; a crew gets an extra duty and ${ac.reg}'s A-check (${aLeft} FH left) comes ${bh.toFixed(1)} FH sooner. A favour they remember.`, tone: earn > maint ? 'good' : 'warn', chips: [earn ? `+${usd(earn)}` : 'No extra revenue', `−${usd(maint)} maintenance`, `Relation +${BAL.v08.rel.extraLeg}`, favourChip(g, c.clientId, BAL.v08.rel.extraLeg)] },
+      { id: 'decline', label: 'Decline', desc: 'The aircraft and crews keep their rest; the client notes it.', chips: [`Relation ${BAL.v08.rel.decline}`] },
     ],
-    defaultOption: earn > maint ? 'accept' : 'decline', expires: g.now + DAY, ref: { kind: 'contract', id: c.id },
+    // v0.8 favours count: a client below Trusted gets the yes while the A-check has room.
+    defaultOption: earn > maint || (levelOf(g, cl) !== 'trusted' && levelOf(g, cl) !== 'partner' && aLeft >= 30) ? 'accept' : 'decline', expires: g.now + DAY, ref: { kind: 'contract', id: c.id },
     data: { contractId: c.id, kind: 'extra', aircraftId: ac.id, dest, std },
   });
   return true;
@@ -688,8 +701,8 @@ function retimeRequest(g: GameState, c: Contract): boolean {
     kind: 'changeRequest', title: `${cl?.name ?? 'Client'} wants to move ${f.no}`,
     body: `${f.from}–${f.to} on ${fmtDay(f.std)}: depart ${fmtDuration(min)} later (${fmtTime(f.std + min, f.from)} local) for a late group. They pay a change fee; later legs move with it.`,
     options: [
-      { id: 'accept', label: 'Agree', desc: over ? "The crew's duty would run past its limit: the roster swaps in a fresh crew, if one is free." : 'Later legs of the aircraft shift if needed.', tone: over || tight ? 'warn' : 'good', chips: [`+${usd(fee)}`, `+${fmtDuration(min)}`, duty] },
-      { id: 'decline', label: 'Decline', desc: 'Keep the schedule; the client notes it.', chips: ['Relation −3'] },
+      { id: 'accept', label: 'Agree', desc: over ? "The crew's duty would run past its limit: the roster swaps in a fresh crew, if one is free." : 'Later legs of the aircraft shift if needed. A favour they remember.', tone: over || tight ? 'warn' : 'good', chips: [`+${usd(fee)}`, `+${fmtDuration(min)}`, duty, `Relation +${BAL.v08.rel.retime}`, favourChip(g, c.clientId, BAL.v08.rel.retime)] },
+      { id: 'decline', label: 'Decline', desc: 'Keep the schedule; the client notes it.', chips: [`Relation ${BAL.v08.rel.decline}`] },
     ],
     defaultOption: over ? 'decline' : 'accept', expires: g.now + DAY, ref: { kind: 'flight', id: f.id },
     data: { contractId: c.id, kind: 'retime', flightId: f.id, minutes: min, fee },
@@ -706,7 +719,7 @@ function resolveChange(g: GameState, d: Decision, opt: string): ActionResult {
   const c = g.contracts[str(d.data, 'contractId')];
   if (!c) return { ok: true };
   if (opt === 'decline') {
-    bumpRelation(g, c.clientId, -3);
+    bumpClient(g, c.clientId, BAL.v08.rel.decline, 'Said no to their change request');
     return { ok: true, msg: 'Declined' };
   }
   if (opt !== 'accept') return { ok: false, error: 'Unknown option' };
@@ -715,7 +728,7 @@ function resolveChange(g: GameState, d: Decision, opt: string): ActionResult {
     if (!f || f.status !== 'scheduled') return { ok: true, msg: 'The flight has already left' };
     delayChain(g, f, f.std + num(d.data, 'minutes'), 'Client request');
     post(g, 'otherRevenue', num(d.data, 'fee'));
-    bumpRelation(g, c.clientId, 2);
+    bumpClient(g, c.clientId, BAL.v08.rel.retime, `Moved ${f.no} as they asked`);
     return { ok: true, msg: `${f.no} moved to ${fmtTime(f.std)} UTC` };
   }
   const ac = g.fleet[str(d.data, 'aircraftId')];
@@ -731,7 +744,7 @@ function resolveChange(g: GameState, d: Decision, opt: string): ActionResult {
   const no = freePair(g, p.prefix);
   addFlight(g, { no: `${p.prefix}${no}`, aircraftId: ac.id, contractId: c.id, kind: 'revenue', from: p.base, to: dest, std, sta: std + out });
   addFlight(g, { no: `${p.prefix}${no + 1}`, aircraftId: ac.id, contractId: c.id, kind: 'revenue', from: dest, to: p.base, std: std + out + turn, sta: end });
-  bumpRelation(g, c.clientId, 2);
+  bumpClient(g, c.clientId, BAL.v08.rel.extraLeg, `Flew the extra ${p.base}–${dest} rotation`);
   return { ok: true, msg: `Extra rotation to ${dest} on ${fmtDay(std)}` };
 }
 
@@ -801,9 +814,81 @@ export function seasonNudge(g: GameState): boolean {
   return true;
 }
 
+// ---------- v0.8 client late changes: bill or waive the fee (§1.5) ----------
+
+/**
+ * A Known+ client cancels a rotation within 12 h (its slot, crew or passenger problem) or moves a charter a day;
+ * the contract allows a late-change fee: bill it (relation −1) or waive it (+4, default for Trusted and Partner).
+ * The legs go as force majeure (off the month's MGH, no reliability effect).
+ */
+export function clientFeeFor(g: GameState, c: Contract): boolean {
+  const cl = g.clients[c.clientId];
+  const lv = levelOf(g, cl);
+  if (!cl || (lv !== 'known' && lv !== 'trusted' && lv !== 'partner') || !canAsk(g)) return false;
+  const ac = g.fleet[c.aircraftIds[0]];
+  if (!ac) return false;
+  const wide = typeOf(ac.typeId).body === 'wide';
+  const F = BAL.v08.rel.fee[wide ? 'wide' : 'narrow'];
+  const fee = int(g, F[0] / 1000, F[1] / 1000) * 1000;
+  const mine = Object.values(g.flights).filter((f) => f.contractId === c.id && f.status === 'scheduled' && f.aircraftId && isRevenue(f)).sort((a, b) => a.std - b.std);
+  let legs: Flight[] = [];
+  let what = '';
+  if (c.pattern.kind === 'base') {
+    const f = mine.find((x) => x.std > g.now + 2 * 60 && x.std <= g.now + 12 * 60 && x.from === (c.pattern as { base: string }).base);
+    const back = f && mine.find((x) => x.std >= f.sta && x.from === f.to);
+    if (!f || !back) return false;
+    legs = [f, back];
+    what = `cancels ${f.no}/${back.no.slice(-2)} ${f.from}–${f.to}–${back.to}`;
+    cancelForceMajeure(g, legs, `${cl.name} cancelled`);
+  } else {
+    const f = mine.find((x) => x.std > g.now + 2 * DAY && x.std <= g.now + 10 * DAY);
+    if (!f) return false;
+    legs = mine.filter((x) => x.std >= f.std);
+    what = `moves ${f.no} ${f.from}–${f.to} by a day`;
+    for (const x of [...legs].reverse()) moveFlight(g, x, x.std + DAY, 'Client request');
+  }
+  const why = pick(g, ['their crew shortage', 'a slot problem at their end', 'their passengers were rebooked', 'a change in their programme']);
+  const trusted = lv === 'trusted' || lv === 'partner';
+  ask(g, {
+    kind: 'clientFee', title: `${cl.name} ${what}`,
+    body: `${why[0].toUpperCase()}${why.slice(1)}, not ours. The contract allows a ${usd(fee)} late-change fee.`,
+    options: [
+      { id: 'bill', label: 'Bill the fee', desc: 'The contract says so; they pay, and they notice.', chips: [`+${usd(fee)}`, `Relation ${BAL.v08.rel.billFee}`] },
+      { id: 'waive', label: 'Waive it', desc: 'A favour they remember.', tone: 'good', chips: [`Relation +${BAL.v08.rel.waiveFee}`, favourChip(g, cl.id, BAL.v08.rel.waiveFee)] },
+    ],
+    defaultOption: trusted ? 'waive' : 'bill', expires: g.now + DAY, ref: { kind: 'contract', id: c.id }, data: { contractId: c.id, fee },
+  });
+  return true;
+}
+
+function resolveClientFee(g: GameState, d: Decision, opt: string): ActionResult {
+  const c = g.contracts[str(d.data, 'contractId')];
+  if (!c) return { ok: true };
+  const fee = num(d.data, 'fee');
+  if (opt === 'bill') {
+    invoice(g, { clientId: c.clientId, contractId: c.id, desc: `Late-change fee: ${c.title}`, amount: fee, cat: 'otherRevenue', dueDays: c.payment.dueDays });
+    bumpClient(g, c.clientId, BAL.v08.rel.billFee, 'Billed a late-change fee');
+    return { ok: true, msg: `${usd(fee)} billed` };
+  }
+  if (opt === 'waive') {
+    bumpClient(g, c.clientId, BAL.v08.rel.waiveFee, 'Waived a late-change fee');
+    statsV08(g).feesWaived++;
+    return { ok: true, msg: 'Fee waived' };
+  }
+  return { ok: false, error: 'Unknown option' };
+}
+
+function clientFees(g: GameState): void {
+  for (const c of Object.values(g.contracts)) {
+    if (c.status !== 'active' || c.dry || !chance(g, BAL.v08.rel.clientFeeWeekly / 7)) continue;
+    clientFeeFor(g, c);
+  }
+}
+
 /** Daily rolls: client change requests, permit delays, season nudges, urgent evacuation offers (via contracts). */
 export function dailyEvents(g: GameState): void {
   changeRequests(g);
+  clientFees(g);
   permitDelays(g);
   seasonNudge(g);
   if (chance(g, BAL.evacuationPerDay)) generateOffer(g, 'repatriation', { start: g.now + int(g, 20, 60) * 60 });
@@ -821,6 +906,10 @@ const RESOLVERS: Record<string, Resolver> = {
   changeRequest: resolveChange,
   // v0.7: the 120-day lease notice (extend 12 / 36 months or return).
   leaseEnd: (g, d, opt) => chooseLease(g, String(d.data?.aircraftId ?? ''), opt as LeaseChoice),
+  // v0.8: closed airspace (wait / cancel), war-risk cover withdrawn, a client's late change (bill / waive the fee).
+  airspace: (g, d, opt) => resolveAirspace(g, d, opt),
+  uninsurable: (g, d, opt) => resolveUninsurable(g, d, opt),
+  clientFee: (g, d, opt) => resolveClientFee(g, d, opt),
 };
 
 /** Applies a decision option (dispatch on decision.kind) and removes the decision. Failed options keep it open. */

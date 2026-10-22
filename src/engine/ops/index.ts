@@ -16,6 +16,8 @@ import { dailyMarket, loadMarket, onDelivery, onLeaseEnd, refreshMarket } from '
 import { dailyPaint, normaliseLivery } from './paint';
 import { loadRest, rollRestFor } from '../crew/restPlan';
 import { DAY } from '../core/time';
+import { dailyDryLeases, onLeaseBack, onLeaseFerryHome, onLeaseOut } from './dryLease';
+import { dailyWorld, loadWorld, onWorldEnd } from './world';
 
 export {
   APPROVALS, aircraftGate, applyApproval, approvalBlocker, approvalReqs, cleanRecord, gateApprovals, ladder, ratedPilots, RUNG0_TYPES, setPolicies,
@@ -65,12 +67,16 @@ function daily(g: GameState) {
   pruneFlights(g);
   planChecks(g);
   dailyPaint(g);
+  // v0.8 world events: new ones, closures catching new legs, war-risk cover withdrawn, court injunctions.
+  dailyWorld(g);
   dailyEvents(g);
   dailyFinance(g);
   dailyApprovals(g);
   dailyMarket(g);
   dailyDelivery(g);
   dailyLeases(g);
+  // v0.8 the lessee's hours and the monthly rent and reserves of dry leases out.
+  dailyDryLeases(g);
   checkGoals(g);
   // v0.7.3 in-flight rest cards (rest too short, a 4th pilot for seats, extra cabin crew) inside the roster horizon.
   postRestProblems(g);
@@ -92,7 +98,7 @@ export const opsModule: SimModule = {
   settle: paceDecisions,
   load(g) {
     // v0.8 world events (none in older saves).
-    g.world ??= { events: [] };
+    loadWorld(g);
     loadApprovals(g);
     loadMarket(g);
     syncGoals(g);
@@ -120,6 +126,7 @@ export const opsModule: SimModule = {
       onFlightArr(g, ev);
       const f = g.flights[ev.id];
       if (f?.purpose && f.status === 'done') onDeliveryArr(g, f);
+      if (f?.purpose === 'lease' && f.status === 'done') onLeaseFerryHome(g, f);
     },
     'maint.start': onMaintStart,
     'maint.end': onMaintEnd,
@@ -135,5 +142,9 @@ export const opsModule: SimModule = {
     'decision.expire': onDecisionExpire,
     // v0.7.2 an agreed aircraft sale closes.
     'aircraft.sale': onSaleClose,
+    // v0.8 a dry lease out starts at the lessee's base / ends.
+    'lease.out': onLeaseOut,
+    'lease.back': onLeaseBack,
+    'world.end': onWorldEnd,
   },
 };

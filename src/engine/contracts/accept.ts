@@ -19,6 +19,10 @@ import { generateFlights, relinkPositioning } from './schedule';
 import { bookPaint, cancelPaintFor } from '../ops/paint';
 import { paintQuote, paintWindow, type PaintSlot } from './paintTerms';
 import { replyTime } from './counter';
+import { bumpClient, noteJobDone, statsV08 } from './relations';
+import { noteHiredUs } from './rivals';
+import { rollRepeat } from './missions';
+import { cancelDry, signDryLease } from '../ops/dryLease';
 
 // ---------- offers ----------
 
@@ -66,6 +70,8 @@ export function acceptOffer(g: GameState, offerId: string, aircraftIds: string[]
   let ids = [...new Set(aircraftIds)].filter((id) => g.fleet[id]);
   if (!ids.length) return { ok: false, error: 'Choose an aircraft' };
   if (o.pattern.kind === 'legs') ids = ids.slice(0, 1);
+  // v0.8 a dry lease out: no flying of ours but the two ferries (ops/dryLease.ts).
+  if (o.product.kind === 'dry') return acceptDry(g, o, ids[0]);
   const paint = !!o.paint && opts.paint !== false;
   if (o.paint?.required && !paint && !opts.priced) return { ok: false, error: 'The client requires their livery on the aircraft' };
   const slots: Record<string, PaintSlot> = {};
@@ -123,9 +129,47 @@ export function acceptOffer(g: GameState, offerId: string, aircraftIds: string[]
   }
   schedule(g, Math.max(g.now, c.start), 'contract.start', c.id);
   schedule(g, Math.max(g.now + 1, c.end), 'contract.end', c.id);
+  if (o.terms) c.terms = o.terms.map(([a, b]) => [a, b] as [Minute, Minute]);
+  if (o.eventId) c.eventId = o.eventId;
+  // v0.8 a presidential job flies a spare pilot on every duty.
+  if (c.requirements.extraPilot) c.crewExtra = { cabin: c.crewExtra?.cabin ?? crewExtraFor(g, ids[0], c.id).cabin, pilot: 1 };
+  // v0.8 short-notice cover is a favour; a rival hiring us counts on both sides.
+  if (o.urgency === 'urgent') bumpClient(g, c.clientId, BAL.v08.rel.urgentSign, `Took ${c.title} at short notice`);
+  if (c.archetype === 'subcharterIn') {
+    statsV08(g).subIn++;
+    const rv = g.clients[c.clientId]?.rivalId;
+    if (rv) noteHiredUs(g, rv, c.title);
+  }
   autoRoster(g, { aircraftIds: ids });
   const regs = ids.map((id) => g.fleet[id].reg).join(' + ');
   pushMessage(g, { tone: 'good', cat: 'commercial', title: `Signed: ${c.title}`, body: `${g.clients[c.clientId]?.name ?? 'Client'} · ${regs} · ${fmtDay(c.start)}–${fmtDay(c.end)}.`, ref: { kind: 'contract', id: c.id } });
+  return { ok: true, msg: `Signed: ${c.title}`, data: { contractId: c.id } };
+}
+
+/** v0.8 signs a dry lease out on one aircraft: the contract, the deposit and both ferries (ops/dryLease.ts). */
+function acceptDry(g: GameState, o: ContractOffer, aircraftId: string): ActionResult<{ contractId: string }> {
+  const no = firstNo(feasibility(g, o.id, aircraftId));
+  if (no) return { ok: false, error: `${g.fleet[aircraftId].reg}: ${no.label}` };
+  const used = new Set(Object.values(g.contracts).filter((c) => c.status === 'signed' || c.status === 'active').map((c) => c.color));
+  let color = 0;
+  while (used.has(color) && color < 7) color++;
+  const c: Contract = {
+    id: nextId(g, 'k'), offerId: o.id, archetype: o.archetype, clientId: o.clientId, title: o.title,
+    product: structuredClone(o.product), pattern: { kind: 'legs', legs: [] }, requirements: structuredClone(o.requirements),
+    penalties: structuredClone(o.penalties), payment: { ...o.payment }, effects: { ...o.effects },
+    aircraftIds: [aircraftId], start: o.start, end: o.end, signed: g.now, status: 'signed', generatedUntil: o.end,
+    use: {}, billedMonths: [], color, balanceAt: null, invoiced: 0, accrued: 0, legsFlown: 0, legsOnTime: 0,
+  };
+  g.contracts[c.id] = c;
+  const res = signDryLease(g, c, o);
+  if (!res.ok) {
+    delete g.contracts[c.id];
+    return { ok: false, error: res.error };
+  }
+  closeOffer(g, o, 'accepted');
+  schedule(g, Math.max(g.now, c.start), 'contract.start', c.id);
+  const ac = g.fleet[aircraftId];
+  pushMessage(g, { tone: 'good', cat: 'commercial', title: `Signed: ${c.title}`, body: `${g.clients[c.clientId]?.name ?? 'Lessee'} · ${ac.reg} · ${fmtDay(c.start)}–${fmtDay(c.end)}. Our pilots ferry her out; the deposit is in.`, ref: { kind: 'contract', id: c.id } });
   return { ok: true, msg: `Signed: ${c.title}`, data: { contractId: c.id } };
 }
 
@@ -298,10 +342,11 @@ export function cancelContract(g: GameState, contractId: string): ActionResult {
   }
   if (penalty > 0) post(g, 'penalties', -penalty);
   c.status = 'cancelled';
+  if (c.dry) cancelDry(g, c);
   const rep = g.company.reputation;
   rep.reliable = clamp(rep.reliable - 5, 0, 100);
   const cl = g.clients[c.clientId];
-  if (cl) cl.relation = clamp(cl.relation - 30, -100, 100);
+  bumpClient(g, c.clientId, -30, `We cancelled ${c.title}`);
   for (const id of c.aircraftIds) relinkPositioning(g, id);
   const money = `Penalty $${penalty.toLocaleString('en-US')}${refund ? ` and $${refund.toLocaleString('en-US')} prepaid refunded` : ''}.`;
   pushMessage(g, { tone: 'bad', cat: 'commercial', title: `Cancelled: ${c.title}`, body: `${money} ${cl?.name ?? 'The client'} will remember this.`, ref: { kind: 'contract', id: c.id }, problem: { kind: 'contractCancelled', ref: { kind: 'contract', id: c.id } }, hurt: { money: Math.round(penalty), pax: 0, delayMin: 0, level: penalty >= 10_000 ? 'high' : 'low' } });
@@ -380,7 +425,7 @@ export function onContractStart(g: GameState, ev: SimEvent): void {
 /** 'contract.end': waits for the last leg (delayed positioning out), then completes: final bills, effects, stats. */
 export function onContractEnd(g: GameState, ev: SimEvent): void {
   const c = g.contracts[ev.id];
-  if (!c || (c.status !== 'signed' && c.status !== 'active')) return;
+  if (!c || (c.status !== 'signed' && c.status !== 'active') || c.dry) return;
   let last = 0;
   for (const f of Object.values(g.flights)) {
     if (f.contractId !== c.id || (f.status !== 'scheduled' && f.status !== 'enroute')) continue;
@@ -428,8 +473,14 @@ function completeContract(g: GameState, c: Contract): void {
   if (e.reliable && (c.archetype !== 'seasonBase' || onTime >= 0.85)) rep.reliable = clamp(rep.reliable + e.reliable, 0, 100);
   if (e.clean) rep.clean = clamp(rep.clean + e.clean, 0, 100);
   const cl = g.clients[c.clientId];
-  if (cl) cl.relation = clamp(cl.relation + (c.archetype === 'aogCover' ? 10 : onTime >= 0.85 ? 5 : -5), -100, 100);
+  // v0.8 completion moves the relation (§1.3) and counts a job; repeat business may follow.
+  const R = BAL.v08.rel;
+  const d = c.archetype === 'aogCover' ? R.doneAog : onTime >= 0.85 ? R.done : R.doneBad;
+  bumpClient(g, c.clientId, d, d > 0 ? `Completed ${c.title}${flown ? `, ${Math.round(onTime * 100)} % on time` : ''}` : `${c.title}: only ${Math.round(onTime * 100)} % on time`);
+  noteJobDone(g, c.clientId);
+  // Deportation: the press noticed (clean −2 a flight with returnees, capped −10 a contract; billed as flown).
   g.stats.contractsDone++;
+  rollRepeat(g, c.id);
   // Legs a rival flew for us or that were cancelled (still in the flight table), so "0 legs flown" reads right.
   let sub = 0;
   let cx = 0;

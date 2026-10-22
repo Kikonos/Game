@@ -34,11 +34,12 @@ export function fixedCosts(g: GameState, k: MonthKey): { rent: number; insurance
   let insurance = 0;
   let n = 0;
   for (const ac of Object.values(g.fleet)) {
-    if (ac.status === 'leasedOut') continue;
     const s = shareOfMonth(ac, k);
     if (s <= 0) continue;
     n += s;
     if (ac.ownership.kind === 'dryLeaseIn') rent += ac.ownership.rentPerMonth * s;
+    // v0.8 a dry lease out: the lessee insures the airframe; our rent and overhead keep running.
+    if (ac.status === 'leasedOut') continue;
     insurance += typeOf(ac.typeId).insuranceMonth * s;
   }
   return { rent: Math.round(rent), insurance: Math.round(insurance), overhead: Math.round(BAL.overheadBase + BAL.overheadPerAircraft * n) };
@@ -49,11 +50,10 @@ export function fixedCosts(g: GameState, k: MonthKey): { rent: number; insurance
  * per-aircraft overhead now, since month end only sees the fleet that is left. Call just before it is deleted.
  */
 export function settleDeparture(g: GameState, ac: GameState['fleet'][string]): void {
-  if (ac.status === 'leasedOut') return;
   const s = shareOfMonth(ac, g.finance.current.month);
   if (s <= 0) return;
   if (ac.ownership.kind === 'dryLeaseIn') post(g, 'rent', -Math.round(ac.ownership.rentPerMonth * s));
-  post(g, 'insurance', -Math.round(typeOf(ac.typeId).insuranceMonth * s));
+  if (ac.status !== 'leasedOut') post(g, 'insurance', -Math.round(typeOf(ac.typeId).insuranceMonth * s));
   post(g, 'overhead', -Math.round(BAL.overheadPerAircraft * s));
 }
 

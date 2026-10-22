@@ -1,6 +1,7 @@
 // Money primitive: every cash movement goes through post() so the month statement stays complete.
 // Accrual-light: revenue is posted when invoiced (receivable), cash moves when paid (ops/finance.ts).
 
+import { BAL } from './balance';
 import { nextId } from './entities';
 import { schedule } from './queue';
 import { chance, int } from './rng';
@@ -45,7 +46,9 @@ export function statementTotals(lines: Partial<Record<LedgerCat, number>>): { re
 export function invoice(g: GameState, inv: { clientId: string; contractId: string | null; desc: string; amount: number; cat: LedgerCat; dueDays: number; deferred?: boolean }): Receivable {
   const c = g.clients[inv.clientId];
   const due = g.now + inv.dueDays * 1440;
-  const late = c && !chance(g, c.payReliability) ? int(g, c.lateDays[0], c.lateDays[1]) : 0;
+  // v0.8 Trusted / Partner clients pay more reliably (+0.10 / +0.20, at most 0.98).
+  const boost = c?.level ? BAL.v08.perks[c.level].payBoost : 0;
+  const late = c && !chance(g, boost ? Math.min(0.98, c.payReliability + boost) : c.payReliability) ? int(g, c.lateDays[0], c.lateDays[1]) : 0;
   const r: Receivable = {
     id: nextId(g, 'r'), clientId: inv.clientId, contractId: inv.contractId, desc: inv.desc, amount: Math.round(inv.amount),
     issued: g.now, due, payAt: due + late * 1440, paid: null, cat: inv.cat,

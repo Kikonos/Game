@@ -5,6 +5,7 @@ import { accrue, invoice } from '../core/ledger';
 import { DAY, fmtMonth, monthKey, monthStart } from '../core/time';
 import type { Contract, Flight, GameState, LedgerCat, MonthKey, SimEvent } from '../core/types';
 import { mghInMonth } from './pricing';
+import { bumpClient } from './relations';
 
 export interface BillingLine {
   contractId: string;
@@ -48,9 +49,40 @@ export function onFlightArrivedContracts(g: GameState, ev: SimEvent): void {
     }
   }
   if (rev) {
+    const onTime = (f.atd ?? f.std) - f.std <= 15;
     c.legsFlown = (c.legsFlown ?? 0) + 1;
-    if ((f.atd ?? f.std) - f.std <= 15) c.legsOnTime = (c.legsOnTime ?? 0) + 1;
+    if (onTime) c.legsOnTime = (c.legsOnTime ?? 0) + 1;
     g.stats.blockMin += block;
+    // v0.8 the month's on-time share (wet: the relation at month close).
+    const u = (c.use[monthKey(g.now)] ??= { blockMin: 0, cycles: 0, shortCycles: 0 });
+    u.legs = (u.legs ?? 0) + 1;
+    if (onTime) u.onTime = (u.onTime ?? 0) + 1;
+    // v0.8 deportation: the press notices every flight with returnees (clean −2, capped −10 a contract).
+    if (c.archetype === 'deportation' && (f.pax ?? 0) > 0) {
+      const D = BAL.v08.deport;
+      const hit = Math.max(D.cleanCap - (c.cleanHit ?? 0), D.cleanPerLeg);
+      if (hit < 0) {
+        c.cleanHit = (c.cleanHit ?? 0) + hit;
+        const rep = g.company.reputation;
+        rep.clean = Math.max(0, Math.round((rep.clean + hit) * 100) / 100);
+      }
+    }
+  }
+}
+
+/**
+ * v0.8 a charter leg the client still pays although it did not fly (a court injunction): its share of the price is
+ * earned as if flown. Wet legs keep the month's guarantee anyway.
+ */
+export function creditCancelledLeg(g: GameState, f: Flight): void {
+  const c = f.contractId ? g.contracts[f.contractId] : undefined;
+  if (!c || c.product.kind !== 'charter' || c.status === 'cancelled') return;
+  const net = c.product.price * (1 - (c.broker ? BAL.brokerCommission : 0));
+  const amount = Math.min(Math.round((net * f.block) / Math.max(1, c.planRevMin ?? f.block)), Math.round(net - (c.accrued ?? 0)));
+  if (c.revMinDone !== undefined) c.revMinDone += f.block;
+  if (amount > 0) {
+    accrue(g, 'charterRevenue', amount);
+    c.accrued = (c.accrued ?? 0) + amount;
   }
 }
 
@@ -79,7 +111,10 @@ export function billContractMonth(_g: GameState, c: Contract, month: MonthKey): 
   const u = c.use[month] ?? { blockMin: 0, cycles: 0, shortCycles: 0 };
   const flown = u.blockMin / 60;
   const end = Math.min(c.end, c.cancelledAt ?? Infinity);
-  const full = mghInMonth(p.mghPerMonth, c.start, end, month) * c.aircraftIds.length;
+  // v0.8 terms (Hajj phases): MGH only inside them.
+  const full = (c.terms?.length
+    ? c.terms.reduce((s, [a, b]) => s + mghInMonth(p.mghPerMonth, a, Math.min(b, end), month), 0)
+    : mghInMonth(p.mghPerMonth, c.start, end, month)) * c.aircraftIds.length;
   // Hours we failed to fly (our cancellations) are not guaranteed to us.
   const lost = (u.lostMin ?? 0) / 60;
   const mgh = full > 0.05 ? Math.max(Math.min(flown, full), full - lost) : full;
@@ -120,5 +155,16 @@ export function onMonthContracts(g: GameState, ev: SimEvent): void {
     if (!overlaps && !c.use[month]) continue;
     if (!overlaps && c.start >= me + 40 * DAY) continue;
     issueBill(g, c, month, billContractMonth(g, c, month));
+    monthRelation(g, c, month);
   }
+}
+
+/** v0.8 (§1.3) a wet month flown: ≥ 90 % of legs on time +4, ≥ 75 % +1, below −2. */
+export function monthRelation(g: GameState, c: Contract, month: MonthKey): void {
+  const u = c.use[month];
+  if (!u?.legs) return;
+  const share = (u.onTime ?? 0) / u.legs;
+  const R = BAL.v08.rel.wetMonth;
+  const d = share >= 0.9 ? R[0] : share >= 0.75 ? R[1] : R[2];
+  bumpClient(g, c.clientId, d, `${fmtMonth(month)}: ${Math.round(share * 100)} % of ${u.legs} legs on time`);
 }

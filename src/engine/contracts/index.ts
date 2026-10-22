@@ -5,11 +5,12 @@ import type { SimModule } from '../core/module';
 import type { GameState, SimEvent } from '../core/types';
 import { dailyContracts, onContractEnd, onContractStart } from './accept';
 import { onFlightArrivedContracts, onMonthContracts } from './billing';
-import { seedClients, seedRivals } from './clients';
+import { loadClients, seedClients, seedRivals } from './clients';
 import { dailyOffers, loadCounters, onOfferExpire, onOfferReply, onOfferSpawn, openingOffers, scheduleNextOffer } from './offers';
 import { extendBaseSchedules, relinkPositioning } from './schedule';
 import { dailyRelations, loadRelations, monthlyRelationDrift } from './relations';
 import { loadRivals, onRivalBid, refreshRivals } from './rivals';
+import { dailyDryLease, dailyRepeats, dailySubIn } from './missions';
 
 export { acceptOffer, askingPrice, cancelContract, cancelCost, cancelPenalty, contractProgress, counterOffer, declineOffer, leadDays, type ContractProgress, type SignOpts } from './accept';
 export { paintQuote, paintTermsText, paintWindow, type PaintSlot } from './paintTerms';
@@ -30,8 +31,13 @@ function daily(g: GameState) {
   dailyOffers(g);
   dailyContracts(g);
   extendBaseSchedules(g);
-  // v0.8 client levels (hysteresis) and company standing.
+  // v0.8 client levels (hysteresis) and company standing; rivals asking us, dry-lease requests, repeat business.
   dailyRelations(g);
+  if (!g.gameOver) {
+    dailySubIn(g);
+    dailyDryLease(g);
+    dailyRepeats(g);
+  }
 }
 
 function monthly(g: GameState, ev: SimEvent) {
@@ -58,6 +64,7 @@ export const contractsModule: SimModule = {
   load(g) {
     g.rivals ??= [];
     if (!g.rivals.length) seedRivals(g);
+    loadClients(g);
     loadRivals(g);
     loadRelations(g);
     loadCounters(g);

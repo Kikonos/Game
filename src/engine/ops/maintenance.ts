@@ -22,7 +22,8 @@ import { aogDecision } from './events';
 import { onPaintEnd } from './paint';
 import { cancelLegs } from './flights';
 import { bookCCheck } from './cHub';
-import { ageOf, bumpRelation, contractOf, isRevenue, stats, usd } from './util';
+import { ageOf, contractOf, isRevenue, stats, usd } from './util';
+import { bumpClient } from '../contracts/relations';
 
 export interface CheckStatus {
   /** A-check: flight hours remaining and due date (FH limit reached by planned flying, or the calendar, whichever first). */
@@ -271,7 +272,7 @@ export function scheduleCheck(
     rerosterFrom(g, ac.id, g.now);
   } else {
     // Clear the way: soft empty legs go back to contracts; base legs dropped with notice (relation −1 each).
-    for (const f of drop) bumpRelation(g, contractOf(g, f)?.clientId, -1);
+    for (const f of drop) bumpClient(g, contractOf(g, f)?.clientId, -1, `Dropped ${f.no} for our ${kind}-check`);
     if (drop.length) cancelLegs(g, drop, `${kind}-check`, 0, true);
     if (soft.length) removeFlights(g, soft.map((f) => f.id));
   }

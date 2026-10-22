@@ -1,7 +1,7 @@
 // Real clients and rivals from the naming kit (B1).
 
 import { AIRPORT_BY_CODE } from '../../data/airports';
-import { CLIENT_SEEDS, CLIENT_SEEDS_B1, RIVALS, RIVALS_B1, type ClientSeed } from '../../data/naming';
+import { CLIENT_SEEDS, CLIENT_SEEDS_B1, CLIENT_SEEDS_V08, RIVALS, RIVALS_B1, type ClientSeed } from '../../data/naming';
 import { nextId } from '../core/entities';
 import { distance } from '../core/geo';
 import { typeOf } from '../core/perf';
@@ -39,19 +39,33 @@ function behaviour(s: ClientSeed): Pick<Client, 'payReliability' | 'lateDays' | 
 
 const ROLE_BY_NAME: Record<string, ClientSeed['role']> = {};
 const SEED_BY_NAME: Record<string, ClientSeed> = {};
-for (const s of [...CLIENT_SEEDS, ...CLIENT_SEEDS_B1]) {
+const ALL_SEEDS = [...CLIENT_SEEDS, ...CLIENT_SEEDS_B1, ...CLIENT_SEEDS_V08];
+for (const s of ALL_SEEDS) {
   SEED_BY_NAME[s.name] = s;
   if (s.role) ROLE_BY_NAME[s.name] = s.role;
 }
 
 /** Seeds g.clients at new game (skips seeds whose base airport is unknown). */
 export function seedClients(g: GameState): void {
-  for (const s of [...CLIENT_SEEDS, ...CLIENT_SEEDS_B1]) {
+  for (const s of ALL_SEEDS) {
     if (!AIRPORT_BY_CODE[s.base]) continue;
     const c: Client = { id: nextId(g, 'cl'), name: s.name, kind: s.kind, country: s.country, base: s.base, ...behaviour(s), relation: 0 };
     g.clients[c.id] = c;
   }
 }
+
+/** v0.8 load: clients added since the save was made (Hajj, presidencies, interior, health, polar), by name. */
+export function loadClients(g: GameState): void {
+  const have = new Set(Object.values(g.clients).map((c) => c.name));
+  for (const s of ALL_SEEDS) {
+    if (have.has(s.name) || !AIRPORT_BY_CODE[s.base]) continue;
+    const c: Client = { id: nextId(g, 'cl'), name: s.name, kind: s.kind, country: s.country, base: s.base, ...behaviour(s), relation: 0 };
+    g.clients[c.id] = c;
+  }
+}
+
+/** v0.8 the client's special role (hajj, presidency, interior, health, polar, foreign, defence, aid…). */
+export const roleOf = (c: Client | undefined): ClientSeed['role'] | undefined => (c ? ROLE_BY_NAME[c.name] : undefined);
 
 const PRICE: Record<Rival['personality'], [number, number]> = { cheap: [0.88, 0.6], premium: [1.15, 0.9], rescue: [1.1, 0.8], military: [1.05, 0.85], steady: [1.0, 0.75], big: [0.95, 0.75] };
 
@@ -83,6 +97,8 @@ const IATA: Record<string, string> = {
   'Air Sénégal': 'HC', 'TAAG Angola Airlines': 'DT', Airlink: '4Z', 'LATAM Brasil': 'JJ', 'GOL Linhas Aéreas': 'G3',
   'Azul Brazilian Airlines': 'AD', 'Air Canada': 'AC', 'LATAM Perú': 'LP', 'Vietnam Airlines': 'VN', Saudia: 'SV', flynas: 'XY',
   'Aegean Airlines': 'A3', 'Bulgaria Air': 'FB', 'Corendon Airlines': 'XC', 'Fiji Airways': 'FJ', 'Jet2.com': 'LS', 'TUI fly Belgium': 'TB',
+  // v0.8
+  'Garuda Indonesia': 'GA', 'Biman Bangladesh Airlines': 'BG', 'Air Algérie': 'AH',
 };
 /** Every designator a client flies under (preset company codes must avoid these). */
 export const CLIENT_DESIGNATORS: readonly string[] = Object.values(IATA);

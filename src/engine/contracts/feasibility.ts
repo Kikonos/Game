@@ -20,6 +20,8 @@ import { deliveryQuote } from '../ops/delivery';
 import { paintQuote, paintWindow, type PaintSlot } from './paintTerms';
 import { possessive } from './flavor';
 import { productValue, tripTickets } from './pricing';
+import { v08Lines } from './missionChecks';
+import { dryFeasibility } from '../ops/dryLease';
 
 export type CheckId = 'seats' | 'layout' | 'family' | 'range' | 'runway' | 'etops' | 'approvals' | 'availability' | 'maintenance' | 'crew' | 'positioning' | 'lease' | 'paint' | 'restSeats' | /** v0.7.3 */ 'rest'
   /** v0.8 */ | 'mission' | 'warRisk' | 'airspace' | 'clientCrew' | 'dryLease';
@@ -230,6 +232,8 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
     add('availability', 'no', 'Offer or aircraft not found');
     return rep;
   }
+  // v0.8 a dry lease out has its own checks (no flying of ours but the ferries).
+  if (o.product.kind === 'dry') return dryFeasibility(g, o, ac, rep, add);
   const t = typeOf(ac.typeId);
   const turn = t.turnMin;
   const req = o.requirements;
@@ -275,6 +279,12 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
       const fit = runwayFit(t.id, c);
       if (fit === 'no') runwayNo.set(c, `${c} runway ${AIRPORT_BY_CODE[c]?.runwayM ?? 0} m; the ${t.short} needs ${t.minRunwayM} m`);
       else if (fit === 'limited') runwayLtd.add(c);
+    }
+    // v0.8 no fuel on the ice: the aircraft carries the way back (Antarctica).
+    if (req.roundTrip && (AIRPORT_BY_CODE[b]?.ice || AIRPORT_BY_CODE[a]?.ice)) {
+      const ice = AIRPORT_BY_CODE[b]?.ice ? b : a;
+      const gate = ice === b ? a : b;
+      if (2 * distanceNm(a, b) > usable) rangeNo.push(`No fuel at ${AIRPORT_BY_CODE[ice]?.city ?? ice}: ${gate}–${ice}–${gate} is ${nm(2 * distanceNm(a, b))} without refuelling; the ${t.short} reaches ${nm(usable)}`);
     }
     const sp = planSector(t.id, a, b);
     if (!sp.ok) {
@@ -335,6 +345,8 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   else if (gateLate.length) add('approvals', 'no', `${gateText}: the ${t.short} flies revenue after the grant`, 'Company → Ladder.');
   else if (gate.length) add('approvals', 'warn', `${gateText} (before the job starts)`, 'If the grant slips, the job cannot be flown.');
   else add('approvals', 'ok', req.approvals.length ? `Approvals held: ${req.approvals.map((a) => APPROVAL_NAME[a] ?? a).join(', ')}` : 'No special approvals');
+  // v0.8 what the work needs, closures, war-risk cover, the client's cabin crew (one sentence each).
+  for (const x of v08Lines(g, o, t.body === 'wide', prog.airports, sectors)) add(x.id, x.level, x.label, x.detail);
 
   // 8. Lease and delivery.
   const firstDep = rep.positionIn[0]?.std ?? fits[0]?.trip.std ?? o.start;

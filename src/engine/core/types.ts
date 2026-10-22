@@ -482,6 +482,8 @@ export interface ContractOffer {
   dryFor?: string;
   /** v0.8 billing terms inside [start, end) (Hajj phases): MGH only over these. */
   terms?: [Minute, Minute][];
+  /** v0.8 dry lease out terms: the lessee's base, expected FH a month, deposit, lessor consent fee (leased-in), their paint, months. */
+  dry?: { site: string; fhPerMonth: number; deposit: number; consent: number; paint?: 'full' | 'decals'; months: number };
 }
 
 /** v0.5.1 client paint. decals = plain white body + client titles + fin logo. */
@@ -515,6 +517,9 @@ export interface MonthUse {
   shortCycles: number;
   /** Block minutes of revenue legs we cancelled ourselves (non-performance: off the month's MGH). */
   lostMin?: number;
+  /** v0.8 revenue legs flown this month and those on time (≤ 15 min): the month's relation move. */
+  legs?: number;
+  onTime?: number;
 }
 
 export interface Contract {
@@ -600,6 +605,8 @@ export interface DryLeaseState {
   leaseEnd?: Minute;
   /** Lessor consent fee paid (leased-in airframe). */
   consent?: number;
+  /** The lessee flies it in its colours. */
+  paint?: 'full' | 'decals';
 }
 
 // ======================================================================
@@ -672,6 +679,8 @@ export interface Flight {
   detour?: number;
   /** v0.8 war-risk cover paid for this landing ($). */
   warRisk?: number;
+  /** v0.8 insurers withdrew war-risk cover: asked (the decision is open), or 'wait' (asked again in a day). */
+  uninsured?: 'asked' | 'wait' | 'ok';
 }
 
 /** v0.7.1 private-jet charter classes (data/jets.ts). */
@@ -1315,6 +1324,10 @@ export interface WorldEvent {
   offerIds: string[]; flightsHit: number; done?: boolean;
   /** Version for the queued start/end. */
   ev?: number;
+  /** Offers still to come from it (within 48 h of the start); work kinds left. */
+  workLeft?: string[];
+  /** Flights rerouted around it so far. */
+  rerouted?: number;
 }
 
 export interface GameState {

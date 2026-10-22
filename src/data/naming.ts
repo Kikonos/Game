@@ -44,21 +44,21 @@ export interface RivalSeed {
   base: string;
   /** Typical fleet, approximate (acmiTypes ids): drives sub-charter matching and who wins a lost offer. */
   fleet: { typeId: string; count: number }[];
-  personality: 'cheap' | 'premium' | 'rescue' | 'military' | 'steady';
+  personality: 'cheap' | 'premium' | 'rescue' | 'military' | 'steady' | /** v0.8 */ 'big';
 }
 
 const F = (...xs: [string, number][]) => xs.map(([typeId, count]) => ({ typeId, count }));
 
 /** Real ACMI / charter operators used as competing bidders and sub-charter partners (SmartLynx ceased in Nov 2025: excluded). */
 export const RIVALS: RivalSeed[] = [
-  { name: 'Hi Fly', country: 'PT', base: 'LIS', fleet: F(['a332', 2], ['a333', 2], ['a343', 2], ['a359', 1]), personality: 'steady' },
+  { name: 'Hi Fly', country: 'PT', base: 'LIS', fleet: F(['a332', 2], ['a333', 2], ['a343', 2], ['a359', 1]), personality: 'premium' },
   { name: 'euroAtlantic airways', country: 'PT', base: 'LIS', fleet: F(['b763', 3], ['b772', 1]), personality: 'steady' },
   { name: 'Wamos Air', country: 'ES', base: 'MAD', fleet: F(['a332', 2], ['a333', 5]), personality: 'steady' },
   { name: 'Privilege Style', country: 'ES', base: 'PMI', fleet: F(['b752', 3], ['b772', 2]), personality: 'premium' },
-  { name: 'Avion Express', country: 'LT', base: 'VNO', fleet: F(['a320ceo', 12], ['a321ceo', 5]), personality: 'cheap' },
+  { name: 'Avion Express', country: 'LT', base: 'VNO', fleet: F(['a320ceo', 12], ['a321ceo', 5]), personality: 'big' },
   { name: 'GetJet Airlines', country: 'LT', base: 'VNO', fleet: F(['a320ceo', 6], ['b738', 2]), personality: 'cheap' },
   { name: 'Airhub Airlines', country: 'MT', base: 'MLA', fleet: F(['a320ceo', 4], ['b738', 2]), personality: 'cheap' },
-  { name: 'Air Atlanta Icelandic', country: 'IS', base: 'KEF', fleet: F(['b744', 6], ['a333', 2]), personality: 'steady' },
+  { name: 'Air Atlanta Icelandic', country: 'IS', base: 'KEF', fleet: F(['b744', 6], ['a333', 2]), personality: 'big' },
   { name: 'Titan Airways', country: 'GB', base: 'STN', fleet: F(['a321ceo', 3], ['a321neo', 2]), personality: 'rescue' },
   { name: 'Global Crossing Airlines', country: 'US', base: 'MIA', fleet: F(['a320ceo', 6], ['a321ceo', 6]), personality: 'steady' },
 ];
@@ -73,7 +73,7 @@ export interface ClientSeed {
   /** Hub or home airport (season bases, AOG cover, home games). */
   base: string;
   /** Special handling: ministries, aid bodies, single-purpose agencies. */
-  role?: 'foreign' | 'defence' | 'aid' | 'marine' | 'diaspora' | 'pilgrim';
+  role?: 'foreign' | 'defence' | 'aid' | 'marine' | 'diaspora' | 'pilgrim' | /** v0.8 */ 'hajj' | 'presidency' | 'interior' | 'health' | 'polar';
   /** Marine crewing: a cruise line (ship crews) or a cargo/tanker ship manager (crew changes). */
   marine?: 'cruise' | 'ships';
   /** Sports: 'big' clubs fly widebody pre-season tours. */
@@ -185,8 +185,30 @@ export const CLIENT_SEEDS_B1: ClientSeed[] = [
   { name: 'BBC Studios', kind: 'corporate', country: 'GB', base: 'LHR' },
 ];
 
+// ---------- v0.8 (UPDATE-0.8.md §2): Hajj, presidencies, interior ministries, health and polar clients ----------
+
+export const CLIENT_SEEDS_V08: ClientSeed[] = [
+  { name: 'Garuda Indonesia', kind: 'airline', country: 'ID', base: 'CGK', role: 'hajj' },
+  { name: 'Biman Bangladesh Airlines', kind: 'airline', country: 'BD', base: 'DAC', role: 'hajj' },
+  { name: 'National Hajj Commission of Nigeria', kind: 'government', country: 'NG', base: 'ABV', role: 'hajj' },
+  { name: 'Pakistan Ministry of Religious Affairs', kind: 'government', country: 'PK', base: 'ISB', role: 'hajj' },
+  { name: 'Air Algérie', kind: 'airline', country: 'DZ', base: 'ALG', role: 'hajj' },
+  { name: 'Presidência da República de Angola', kind: 'government', country: 'AO', base: 'LAD', role: 'presidency' },
+  { name: 'Présidence de la République du Sénégal', kind: 'government', country: 'SN', base: 'DSS', role: 'presidency' },
+  { name: 'Office of the President of Ghana', kind: 'government', country: 'GH', base: 'ACC', role: 'presidency' },
+  { name: 'Presidency of Nigeria', kind: 'government', country: 'NG', base: 'ABV', role: 'presidency' },
+  { name: 'UK Home Office', kind: 'government', country: 'GB', base: 'STN', role: 'interior' },
+  { name: 'Spanish Ministry of the Interior', kind: 'government', country: 'ES', base: 'MAD', role: 'interior' },
+  { name: 'German Federal Police', kind: 'government', country: 'DE', base: 'BER', role: 'interior' },
+  { name: 'World Health Organization (WHO)', kind: 'agency', country: 'CH', base: 'GVA', role: 'health' },
+  { name: 'International SOS', kind: 'agency', country: 'GB', base: 'LHR', role: 'health' },
+  { name: 'White Desert', kind: 'tourOperator', country: 'ZA', base: 'CPT', role: 'polar' },
+  { name: 'Norwegian Polar Institute (DROMLAN)', kind: 'government', country: 'NO', base: 'CPT', role: 'polar' },
+  { name: 'Antarctic Logistics & Expeditions', kind: 'agency', country: 'US', base: 'PUQ', role: 'polar' },
+];
+
 export const RIVALS_B1: RivalSeed[] = [
   { name: 'Heston Airlines', country: 'LT', base: 'VNO', fleet: F(['a320ceo', 6]), personality: 'cheap' },
   { name: 'KlasJet', country: 'LT', base: 'VNO', fleet: F(['b738', 3], ['a320ceo', 2]), personality: 'premium' },
-  { name: 'Smartwings', country: 'CZ', base: 'PRG', fleet: F(['b738', 20]), personality: 'steady' },
+  { name: 'Smartwings', country: 'CZ', base: 'PRG', fleet: F(['b738', 20]), personality: 'big' },
 ];

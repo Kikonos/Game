@@ -630,6 +630,8 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
   const family = typeOf(typeIdOf(g, p)).family;
   const contract = p.contractId ? g.contracts[p.contractId] : undefined;
   const unpleasant = (contract?.effects.morale ?? 0) < 0;
+  // v0.8 deportation flights: crew whose morale is under 45 refuse them.
+  const refuseBelow = contract?.archetype === 'deportation' ? BAL.v08.deport.refuseBelow : -1;
   const prev = previousCrew(g, p);
   const hadCrew = crewCount(p) > 0;
   promoteSpares(g, p);
@@ -645,7 +647,7 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
   const price = new Map<string, number>();
   const pool: { c: CrewMember; score: number; rank: number }[] = [];
   for (const c of ctx.crew) {
-    if (!fitRoles.has(c.role) || !c.ratings.includes(family) || inP.has(c.id) || exclude?.has(c.id)) continue;
+    if (!fitRoles.has(c.role) || !c.ratings.includes(family) || inP.has(c.id) || exclude?.has(c.id) || c.morale < refuseBelow) continue;
     // v0.5.2: crew still at the departure airport with a ticket home around this trip stay on instead
     // (planCrew drops that ticket): the pilots of a trip fly its trailing ferry.
     const all = ctx.of(c);

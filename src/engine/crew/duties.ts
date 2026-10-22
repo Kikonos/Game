@@ -2,6 +2,7 @@
 // stations (home base, deployment base, night-stops), partitioned into FDPs by dynamic programming, then
 // chained into trips (base → base) or deployment tours (staggered crew sets on station).
 
+import { dropClientSeats } from './clientCrew';
 import { BAL } from '../core/balance';
 import { flightsOf, nextId } from '../core/entities';
 import { cabinMinimum, reportMinutes, typeOf } from '../core/perf';
@@ -354,8 +355,11 @@ export function pairingSeats(g: GameState, p: Pairing): Seat[] {
     }
   }
   const c: Contract | undefined = p.contractId ? g.contracts[p.contractId] : undefined;
-  const x = crewExtraFor(g, p.aircraftId, p.contractId);
-  const seats = seatsFor(typeId, ac?.cabin.total ?? 180, x, c?.requirements.extraCabin ?? 0, { augment, restCabin, pilotsOnly: empty });
+  let x = crewExtraFor(g, p.aircraftId, p.contractId);
+  // v0.8 mixed crew: the client staffs part of the cabin (no company extra on top); we fill only our share.
+  const cc = c?.requirements.clientCabin;
+  if (cc && cc.n > 0) x = { ...x, cabin: Math.min(x.cabin, c?.requirements.extraCabin ?? 0) };
+  const seats = dropClientSeats(seatsFor(typeId, ac?.cabin.total ?? 180, x, c?.requirements.extraCabin ?? 0, { augment, restCabin, pilotsOnly: empty }), empty ? undefined : cc);
   const rank = (s: Seat) => (s.above ? 10 : 0) + ROLE_ORDER.indexOf(s.role);
   return seats.sort((a, b) => rank(a) - rank(b));
 }
@@ -371,7 +375,8 @@ export function legalMinimum(g: GameState, p: Pairing): { pilots: number; cabin:
     if (d.augment > augment) augment = d.augment;
     if (d.augment > 0) restCabin = Math.max(restCabin, d.restExtra ?? 0);
   }
-  const seats = seatsFor(ac?.typeId ?? 'a320ceo', ac?.cabin.total ?? 180, { cabin: 0, pilot: 0 }, 0, { augment, restCabin });
+  const c = p.contractId ? g.contracts[p.contractId] : undefined;
+  const seats = dropClientSeats(seatsFor(ac?.typeId ?? 'a320ceo', ac?.cabin.total ?? 180, { cabin: 0, pilot: 0 }, 0, { augment, restCabin }), c?.requirements.clientCabin);
   const pilots = seats.filter((s) => s.role === 'CPT' || s.role === 'FO' || s.role === 'CRP').length;
   return { pilots, cabin: seats.length - pilots };
 }
