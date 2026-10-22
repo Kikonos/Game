@@ -32,14 +32,14 @@ export function dealings(v: RivalView): string {
 
 const fleetLine = (v: RivalView) => `${v.fleetCount} aircraft${v.fleetDelta ? ` (${v.fleetDelta > 0 ? '+' : '−'}${Math.abs(v.fleetDelta)} this year)` : ''}`;
 
-export function RivalDetail({ v }: { v: RivalView }) {
+export function RivalDetail({ v, inModal }: { v: RivalView; inModal?: boolean }) {
   const ap = AIRPORT_BY_CODE[v.base];
   return (
     <div className="col gap-12 v8-detail">
       <div className="row gap-12">
         <span className="v8-flag-l" aria-hidden>{flag(v.country)}</span>
         <div className="grow" style={{ minWidth: 0 }}>
-          <div className="row gap-8"><b className="v8-name ellipsis">{v.name}</b><StyleChip v={v} /></div>
+          <div className="row gap-8">{!inModal && <b className="v8-name ellipsis">{v.name}</b>}<StyleChip v={v} /></div>
           <div className="small muted ellipsis">{v.base}{ap ? ` ${ap.city}` : ''} · {fleetLine(v)}</div>
         </div>
       </div>

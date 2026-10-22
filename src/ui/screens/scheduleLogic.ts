@@ -7,6 +7,7 @@ import { DAY, HOUR, dayStart, fmtDay, fmtTime } from '../../engine/core/time';
 import type { Flight, GameState, MaintenanceEvent, Minute, Ref } from '../../engine/core/types';
 import { crewRev, dutyLegality, flightCrewStatus } from '../../engine/crew';
 import { flightType, type FlightType } from '../../engine/ops/flightType';
+import { dryLeaseView } from '../../engine/ops/dryLease';
 
 export type ZoomDays = 3 | 7 | 28;
 /** Pixels per hour at each zoom preset when the view width is unknown (the screen fits the preset to the width). */
@@ -19,7 +20,9 @@ export const IDLE_MIN = 12 * HOUR;
 export const TAP_SLOP = 44;
 
 /** v0.7 'band': a delivering aircraft before its handover (grey, not tappable). */
-export type BlockKind = 'flight' | 'pos' | 'maint' | 'idle' | 'pill' | 'sub' | 'band';
+export type BlockKind = 'flight' | 'pos' | 'maint' | 'idle' | 'pill' | 'sub' | 'band'
+  /** v0.8 a dry lease out at the lessee (tappable: its sheet); a base programme that continues past its generated days. */
+  | 'lease' | 'cont';
 
 export interface GanttBlock {
   key: string;
@@ -138,17 +141,47 @@ export function rowBlocks(g: GameState, aircraftId: string, from: Minute, to: Mi
     const rival = g.rivals.find((r) => r.id === f.operatedBy)?.name ?? 'rival';
     out.push({ key: f.id, kind: 'sub', start: s, end: e, color: colorOf(g, f), label: `${f.no} by ${rival}`, short: 'SUB', refs: [{ kind: 'flight', id: f.id }], done: f.status === 'done' });
   }
+  // v0.8 dry lease out: one block at the lessee between the delivery and the return ferries.
+  for (const c of Object.values(g.contracts)) {
+    if (!c.dry || c.status === 'cancelled' || !c.aircraftIds.includes(aircraftId)) continue;
+    const v = dryLeaseView(g, c.id);
+    if (!v) continue;
+    const [s, e] = [v.out[1], v.back[0]];
+    busy.push([s, e, v.site]);
+    if (e < from || s > to) continue;
+    out.push({ key: `lease-${c.id}`, kind: 'lease', start: s, end: e, color: c.color, label: `Dry lease · ${v.lessee} at ${v.site}`, short: 'LEASE', refs: [{ kind: 'contract', id: c.id }], done: v.phase === 'done', at: v.site });
+  }
   const ac = g.fleet[aircraftId];
   // Gaps run from now to the timeline end (`until`), so the label shows the whole gap, not the visible slice.
   const end = Math.max(to, opts.until ?? to);
   for (const gap of idleGaps(busy, g.now, end, ac?.at ?? '')) {
     if (gap.to < from || gap.from > to) continue;
+    // v0.8: a gap past the generated days of a base programme still running is the programme continuing.
+    const cont = continuing(g, aircraftId, gap.from);
+    if (cont) {
+      const cEnd = Math.min(gap.to, cont.to);
+      out.push({ key: `cont-${gap.from}`, kind: 'cont', start: gap.from, end: cEnd, color: cont.color, label: cont.label, short: 'CONT', refs: [], at: gap.at });
+      if (gap.to - cEnd >= IDLE_MIN) out.push({ key: `idle-${cEnd}`, kind: 'idle', start: cEnd, end: gap.to, color: null, label: gap.to >= end ? `free at ${cont.base} · nothing booked` : `idle ${durLabel(gap.to - cEnd)}`, refs: [], at: cont.base });
+      continue;
+    }
     // A gap that runs to the timeline end has no next commitment: say so instead of an arbitrary length.
     const label = gap.to >= end ? `free at ${gap.at} · nothing booked` : `idle ${durLabel(gap.to - gap.from)}`;
     out.push({ key: `idle-${gap.from}`, kind: 'idle', start: gap.from, end: gap.to, color: null, label, refs: [], at: gap.at });
   }
   const sorted = out.sort((a, b) => a.start - b.start || a.end - b.end);
   return opts.pills ? dayPills(sorted) : sorted;
+}
+
+/** v0.8 the base programme flying on this aircraft whose flights are generated day by day past `t`, if any. */
+export function continuing(g: GameState, aircraftId: string, t: Minute): { to: Minute; color: number; label: string; base: string } | null {
+  for (const c of Object.values(g.contracts)) {
+    const p = c.pattern;
+    if (p.kind !== 'base' || (c.status !== 'active' && c.status !== 'signed') || !c.aircraftIds.includes(aircraftId)) continue;
+    if (c.generatedUntil >= p.to || p.to <= t || c.generatedUntil > t + DAY || c.start > t + DAY || c.generatedUntil < g.now - DAY) continue;
+    const client = g.clients[c.clientId]?.name ?? 'Client';
+    return { to: p.to, color: c.color, base: p.base, label: `${client} programme continues · flights added daily until ${fmtDay(p.to)}` };
+  }
+  return null;
 }
 
 /** Free gaps of at least IDLE_MIN in [from, to) between busy intervals (sorted or not). `at` = where the aircraft waits. */
@@ -216,7 +249,7 @@ export interface Hit {
 export function pickBlocks(blocks: GanttBlock[], t: Minute, ppm: number, slop = TAP_SLOP): Hit[] {
   const hits: Hit[] = [];
   for (const b of blocks) {
-    if (b.kind === 'idle' || b.kind === 'band') continue;
+    if (b.kind === 'idle' || b.kind === 'band' || b.kind === 'cont') continue;
     const dist = t < b.start ? (b.start - t) * ppm : t > b.end ? (t - b.end) * ppm : 0;
     if (dist <= slop) hits.push({ block: b, dist, width: (b.end - b.start) * ppm });
   }

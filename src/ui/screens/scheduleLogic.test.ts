@@ -146,3 +146,23 @@ describe('trip swap press (v0.7.2.1)', () => {
     expect(pressFlight(g, blocks, g.now + 8 * DAY, ppm)).toBeNull();
   });
 });
+
+describe('programme continues (v0.8)', () => {
+  it('labels the gap past a base programme\'s generated days as the programme continuing, not idle', () => {
+    const g = newGame(11);
+    const o = generateOffer(g, 'seasonBase', { wide: false, start: g.now + 5 * DAY, days: 120 });
+    expect(o).toBeTruthy();
+    const ac = Object.values(g.fleet).find((a) => feasibility(g, o!.id, a.id).level !== 'no');
+    expect(ac).toBeTruthy();
+    expect(acceptOffer(g, o!.id, [ac!.id]).ok).toBe(true);
+    const c = Object.values(g.contracts).find((k) => k.offerId === o!.id)!;
+    expect(c.generatedUntil).toBeLessThan((c.pattern as { to: number }).to);
+    const blocks = rowBlocks(g, ac!.id, g.now, c.end + 20 * DAY, { until: c.end + 20 * DAY });
+    const cont = blocks.find((b) => b.kind === 'cont');
+    expect(cont).toBeTruthy();
+    expect(cont!.label).toMatch(/programme continues · flights added daily until/);
+    expect(cont!.start).toBeGreaterThanOrEqual(c.generatedUntil - DAY);
+    // Not tappable as a block (it is not an idle gap either).
+    expect(pickBlocks(blocks, cont!.start + HOUR, ppmOf(7)).some((h) => h.block.kind === 'cont')).toBe(false);
+  });
+});

@@ -115,7 +115,8 @@ export interface Chip {
 
 /** Requirement chips: seats, body/families, ETOPS, runway, approvals. */
 export function reqChips(r: Requirements): Chip[] {
-  const out: Chip[] = [{ label: r.maxSeats ? `${r.minSeats}–${r.maxSeats} seats` : `${r.minSeats}+ seats`, tip: 'Seats the client needs' }];
+  // v0.8: a dry lease needs no seats (aircraft only).
+  const out: Chip[] = r.minSeats > 0 ? [{ label: r.maxSeats ? `${r.minSeats}–${r.maxSeats} seats` : `${r.minSeats}+ seats`, tip: 'Seats the client needs' }] : [];
   if (r.body === 'wide') out.push({ label: 'Widebody' });
   if (r.families?.length && r.families.length <= 2) out.push({ label: r.families.join(' / ') });
   // v0.7: accepted layouts (supersede `layout`) and premium seats.
@@ -222,7 +223,7 @@ export function statementView(current: MonthStatement, history: MonthStatement[]
 }
 
 /** v0.7: 'market' filters by topic (aircraft market alerts). v0.7.1: 'problems' = messages about a problem still open, and bad news of the last week. */
-export type MsgFilter = MessageCat | 'all' | 'market' | 'problems';
+export type MsgFilter = MessageCat | 'all' | 'market' | 'problems' | /** v0.8 world events */ 'world';
 
 /** Bad news stays under 'Problems only' this long. */
 export const PROBLEM_RECENT = 7 * DAY;
@@ -239,6 +240,7 @@ export const isOpportunity = (m: Message): boolean => m.ref?.kind === 'offer' &&
 export function filterMessages(list: Message[], cat: MsgFilter, g?: GameState): Message[] {
   if (cat === 'all') return list;
   if (cat === 'market') return list.filter((m) => m.topic === 'market');
+  if (cat === 'world') return list.filter((m) => m.topic === 'world');
   if (cat === 'problems') return g ? list.filter((m) => isProblemMessage(m, g)) : list.filter((m) => !!m.problem || m.tone === 'bad');
   return list.filter((m) => m.cat === cat);
 }

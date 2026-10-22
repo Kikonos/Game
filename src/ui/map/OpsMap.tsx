@@ -249,7 +249,17 @@ export function OpsMap() {
   const onSelect = useCallback((code: string | null) => store.select(code ? { kind: 'airport', id: code } : undefined), []);
   const fitFn = useCallback(() => fitCodes(refs.current.g), []);
   const fitCentre = useCallback(() => (fitFresh(refs.current.g) ? refs.current.g.company.homeBase : undefined), []);
-  const revealPad = useCallback((): Pad => [12, store.nav.sel ? PANEL_W + 40 : 12, STRIP_H + 8, 12], []);
+  const revealPad = useCallback((): Pad => {
+    // v0.8: an event pin is small and often far off (Iceland, Sudan): keep it clear of the open Up Next card too.
+    const s = store.nav.sel;
+    let top = 12;
+    if (s?.kind === 'event') {
+      const card = document.querySelector('.ops-map .ops-next:not(.folded)');
+      const map = document.querySelector('.ops-map');
+      if (card && map) top = Math.max(top, card.getBoundingClientRect().bottom - map.getBoundingClientRect().top + 12);
+    }
+    return [top, s ? PANEL_W + 40 : 12, STRIP_H + 8, 12];
+  }, []);
 
   const focusKey = sel && panelOpen ? `${sel.kind}:${sel.id}` : '';
   const focus = useMemo(() => {
@@ -288,7 +298,8 @@ export function OpsMap() {
           // Its pin (off the map once the event is over: nothing to reveal).
           const p = refs.current.evPins.find((x) => x.eventId === sel.id);
           const at = p && apPt(p.at);
-          return at ? { pts: [at], box: [Math.max(14, 14 - p.off[0]), Math.max(14, 14 - p.off[1]), 14, 14] } : null;
+          // A roomy box: the pin (up-left of its airport) lands well inside, clear of the zoom buttons by the panel.
+          return at ? { pts: [at], box: [40 - p.off[0], 40 - p.off[1], 90, 40] } : null;
         }
         const o = refs.current.g.offers[sel.id];
         return o ? pinPoint(o.pin, 0) : null;

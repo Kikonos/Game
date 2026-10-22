@@ -128,6 +128,7 @@ export function InboxScreen() {
   for (const m of msgs) if (!m.read) {
     counts.set(m.cat, (counts.get(m.cat) ?? 0) + 1);
     if (m.topic === 'market') counts.set('market', (counts.get('market') ?? 0) + 1);
+    if (m.topic === 'world') counts.set('world', (counts.get('world') ?? 0) + 1);
     if (isProblemMessage(m, g)) counts.set('problems', (counts.get('problems') ?? 0) + 1);
   }
   const markAll = () => store.update((gg) => {
@@ -139,6 +140,7 @@ export function InboxScreen() {
     ...(anyProblem ? [{ id: 'problems' as const, label: 'Problems only' }] : []),
     ...MSG_CATS.slice(1).filter((c) => msgs.some((m) => m.cat === c.id)),
     ...(msgs.some((m) => m.topic === 'market') ? [{ id: 'market' as const, label: 'Market' }] : []),
+    ...(msgs.some((m) => m.topic === 'world') ? [{ id: 'world' as const, label: 'World' }] : []),
   ];
   return (
     <div className="screen sc-inbox">

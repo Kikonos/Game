@@ -69,7 +69,7 @@ export function ClientDetail({ g, v, inModal }: { g: GameState; v: ClientView; i
       <div className="row gap-12">
         <span className="v8-flag-l" aria-hidden>{flag(v.country)}</span>
         <div className="grow" style={{ minWidth: 0 }}>
-          <div className="row gap-8"><b className="v8-name ellipsis">{v.name}</b><LevelPill level={v.level} /></div>
+          <div className="row gap-8">{!inModal && <b className="v8-name ellipsis">{v.name}</b>}<LevelPill level={v.level} /></div>
           <div className="small muted ellipsis">{KIND_LABEL[v.kind]} · {v.base}{ap ? ` ${ap.city}` : ''} · {v.jobs} job{v.jobs === 1 ? '' : 's'} done{v.lastJob ? ` · last ${fmtMonth(monthKey(v.lastJob))}` : ''} · relation {v.relation}</div>
         </div>
       </div>

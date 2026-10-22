@@ -11,7 +11,7 @@ import { DAY, fmtDate, fmtDay, yearOf } from '../../engine/core/time';
 import type { Aircraft, CrewExtra, GameState, LiveryRef, MaintenanceEvent } from '../../engine/core/types';
 import { BAL } from '../../engine/core/balance';
 import { crewExtraQuote, restOf, setCrewExtra, shortFlights } from '../../engine/crew';
-import { cancelCheck, checkStatus, deliveryStatus, leastUsed, type LeastUsedRow, leaseView, liveryOf, paintStatus, restRefitOptions, setAircraftLivery } from '../../engine/ops';
+import { cancelCheck, checkStatus, deliveryStatus, dryLeaseOf, leastUsed, type LeastUsedRow, leaseView, liveryOf, paintStatus, restRefitOptions, setAircraftLivery } from '../../engine/ops';
 import { problemAt } from '../../engine/problems';
 import { AircraftArt } from '../components/AircraftArt';
 import { artRest } from '../components/aircraft/restGlyph';
@@ -141,6 +141,19 @@ export const REST_FIT_LABEL: Record<NonNullable<MaintenanceEvent['restFit']>, st
   ldmcr: 'Lower-deck crew rest module', fcrc: 'Flight crew rest compartment', overhead: 'Overhead crew rest',
 };
 
+/** v0.8 a dry lease out: 'to TAAG until 30 Apr · 412 FH flown by them · next C-check after return'. */
+function DryLeaseRow({ g, acId }: { g: GameState; acId: string }) {
+  const v = dryLeaseOf(g, acId);
+  if (!v) return null;
+  const when = v.phase === 'signed' || v.phase === 'delivering' ? `delivery ${fmtDay(v.out[0])}, back ${fmtDay(v.lease[1])}` : `until ${fmtDay(v.lease[1])} · ${v.fhSoFar.toLocaleString('en-US')} FH flown by them`;
+  return (
+    <button className="fl-row small v8-fleet-lease" onClick={() => store.openModal({ kind: 'sheet', refs: [{ kind: 'contract', id: v.contractId }] })}>
+      <span className="upper dim">Dry lease</span>
+      <span className="col grow" style={{ minWidth: 0 }}><span>to {v.lessee} · {when}</span><span className="dim">{v.cCheck}</span></span>
+    </button>
+  );
+}
+
 function AircraftCard({ g, ac, sel, least, onLeastClose }: { g: GameState; ac: Aircraft; sel: boolean; least?: LeastUsedRow; onLeastClose: () => void }) {
   const t = typeOf(ac.typeId);
   const cs = safeCheck(g, ac);
@@ -171,6 +184,7 @@ function AircraftCard({ g, ac, sel, least, onLeastClose }: { g: GameState; ac: A
       </div>
       {least && <LeastUsedLine g={g} ac={ac} least={least} onClose={onLeastClose} />}
       {ds && ds.phase !== 'home' && <div className={`fl-row small ${ds.phase === 'waiting' ? 'warn' : ''}`}><span className="upper dim">Delivery</span><span>{ds.text}</span></div>}
+      <DryLeaseRow g={g} acId={ac.id} />
       {sf && short && (
         <div className="fl-row small cs-fleet">
           <span className={`cs-banner ${short.stage}`}>CREW SHORTAGE</span>

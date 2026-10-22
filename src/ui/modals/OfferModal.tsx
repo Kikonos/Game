@@ -1,12 +1,17 @@
 // Offer review (B5): terms, schedule and effects on the left; per-aircraft feasibility (traffic lights,
 // positioning, crew capacity, contribution) on the right; Decline / Counter / Accept. DESIGN.md §6.3.
 
-import { BedDouble, Check, Palette, X } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { BedDouble, Check, ChevronRight, Palette, Scale, Swords, Users, X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { flag } from '../../data/countries';
 import { artFor } from '../../data/acmiTypes';
-import { acceptOffer, askingPrice, counterOffer, counterView, declineOffer, feasibilityAll, leadDays, offerRestLine, paintQuote, paintTermsText, type FeasibilityReport } from '../../engine/contracts';
+import { acceptOffer, askingPrice, counterOffer, counterView, declineOffer, deportationCleanHit, feasibilityAll, leadDays, markOfferSeen, offerClientLine, offerCompetition, offerRestLine, paintQuote, paintTermsText, type FeasibilityReport } from '../../engine/contracts';
+import { mixedCrewFlavour, mixedCrewText } from '../../engine/crew';
+import { problemFor } from '../../engine/problems';
+import { LevelPill } from '../screens/Clients';
+import { dryMoney, ourCabin } from '../screens/v08Logic';
+import { SeatStrip } from './v08Bits';
 import { clientCode, clientTitles, restRefitOptions } from '../../engine/ops';
 import { AircraftArt } from '../components/AircraftArt';
 import { flightsRev } from '../../engine/core/entities';
@@ -237,6 +242,128 @@ function AircraftRow({ g, r, on, onPick, billBH, lift = 1, offerId, long }: { g:
   );
 }
 
+// ---------- v0.8 blocks (UPDATE-0.8.md §1.8, §2, §3.3, §6.4, §7.2) ----------
+
+/** The client block: level pill, the perks that apply to this offer, the way to the next level; Unhappy: the card. */
+function ClientBlock({ g, o }: { g: GameState; o: ContractOffer }) {
+  const line = offerClientLine(g, o.id);
+  const cl = g.clients[o.clientId];
+  if (!line || !cl) return null;
+  const card = line.level === 'unhappy' ? problemFor(g, { kind: 'clientUnhappy', ref: { kind: 'client', id: cl.id } }) : null;
+  return (
+    <div className="v8-box v8-client-block">
+      <div className="row gap-8 between">
+        <span className="row gap-8" style={{ minWidth: 0 }}><Users className="sc-ico-s accent" /><b className="ellipsis">{cl.name}</b><LevelPill level={line.level} /></span>
+        <button className="btn btn-ghost btn-sm" onClick={() => store.openModal({ kind: 'client', clientId: cl.id })}>Client <ChevronRight /></button>
+      </div>
+      {line.lines.length > 0 && <ul className="v8-lines">{line.lines.map((l) => <li key={l}>{l}</li>)}</ul>}
+      <div className="small dim">{line.progress}</div>
+      {card && <ProblemCardView card={card} g={g} hideActions />}
+    </div>
+  );
+}
+
+/** 'Avion Express (Low fares) is also quoting; they usually decide fast.' Never the exact time. */
+function CompetitionLine({ g, o }: { g: GameState; o: ContractOffer }) {
+  const c = offerCompetition(g, o.id);
+  if (!c.text) return null;
+  const tone = o.firstRefusal ? 'good' : c.level === 'strong' ? 'warn' : 'muted';
+  return (
+    <div className={`v8-comp small ${tone}`}>
+      <Swords className="sc-ico-s" /><span className="grow">{c.text}</span>
+      {c.rivalId && <button className="btn btn-ghost btn-sm" onClick={() => store.openModal({ kind: 'rival', rivalId: c.rivalId! })}>Rival <ChevronRight /></button>}
+    </div>
+  );
+}
+
+/** Deportation: the moral panel (well paid; crews and reputation pay too). No extra confirm. */
+function MoralPanel({ o }: { o: ContractOffer }) {
+  const hit = deportationCleanHit(o);
+  const D = BAL.v08.deport;
+  return (
+    <div className="v8-panel v8-moral">
+      <div className="row gap-8"><Scale className="sc-ico-s warn" /><b>A moral choice</b></div>
+      <ul className="v8-lines">
+        <li>Well paid: +{Math.round(BAL.premium.deportation * 100)} %.</li>
+        <li>Crews dislike it: morale −{Math.abs(D.morale)} for everyone who flies it; crew under {D.refuseBelow} morale refuse.</li>
+        <li>The press may notice: clean −{Math.abs(D.cleanPerLeg)} a flight (this one: about −{Math.abs(hit)}).</li>
+        <li>Clients who care (sports clubs, corporate and aid clients) will call less while clean is under 60.</li>
+      </ul>
+    </div>
+  );
+}
+
+/** Hajj: the two phases (the gap around the Day of Arafah is free) and the empty legs. */
+function HajjPanel({ o }: { o: ContractOffer }) {
+  const t = o.terms ?? [];
+  const legs = o.pattern.kind === 'legs' ? o.pattern.legs : [];
+  const empty = legs.filter((l) => !l.pax).length;
+  return (
+    <div className="v8-panel">
+      <b>Hajj airlift</b>
+      {t.length >= 2 && <div className="small">In: {fmtDay(t[0][0])} – {fmtDay(t[0][1])} · home: {fmtDay(t[1][0])} – {fmtDay(t[1][1])}. The days around the Day of Arafah are free.</div>}
+      <div className="small muted">{empty ? `${empty} of ${legs.length} legs fly empty` : 'Every other leg flies empty'}; the client pays those hours too. Max-seat cabin, no alcohol on board.</div>
+    </div>
+  );
+}
+
+/** Dry lease: ferry out · lease · ferry back (static), the money, their hours on our airframe, and the card. */
+function DryPanel({ g, o }: { g: GameState; o: ContractOffer }) {
+  const m = dryMoney(o);
+  if (!m || !o.dry) return null;
+  const card = problemFor(g, { kind: 'dryLeaseInfo', ref: { kind: 'offer', id: o.id } });
+  const site = AIRPORT_BY_CODE[o.dry.site]?.city ?? o.dry.site;
+  return (
+    <div className="v8-panel">
+      <b>Dry lease: aircraft only</b>
+      <div className="v8-dry-line" role="img" aria-label="Ferry out, lease, ferry back">
+        <span className="v8-dry-seg ferry">Ferry out</span>
+        <span className="v8-dry-seg lease">{m.months} months at {site}</span>
+        <span className="v8-dry-seg ferry">Ferry back</span>
+      </div>
+      <div className="row between tiny dim"><span>{fmtDay(o.start)}</span><span>{fmtDay(o.end)}</span></div>
+      <KV rows={[
+        ['Rent', `${money(m.rent / m.months)} × ${m.months} months = ${money(m.rent)}`],
+        ['Reserves', `${usd((o.product as { reservesPerFH: number }).reservesPerFH)} per FH × about ${m.fh.toLocaleString('en-US')} FH = ${money(m.reserves)}`],
+        ['Deposit', `${money(m.deposit)} in at signing, back at the return less any damage`],
+        ...(m.consent ? [['Lessor consent', `${money(m.consent)} at signing (sub-lease)`] as [string, string]] : []),
+        ['Their hours', `About ${m.fh.toLocaleString('en-US')} FH on our airframe; line and A-checks are theirs, the C-check stays ours`],
+        ...(o.dry.paint ? [['Paint', `In their colours (${o.dry.paint === 'full' ? 'full repaint' : 'decals'}), at their cost`] as [string, string]] : []),
+      ]} />
+      <div className="small muted">Our pilots fly the delivery and the return ferries (we pay that fuel); no crew from us during the lease.</div>
+      {card && <ProblemCardView card={card} g={g} hideActions />}
+    </div>
+  );
+}
+
+/** Mixed crew: one square per cabin seat (ours with roles, theirs grey), the sentence and the flavour. */
+function MixedPanel({ g, o }: { g: GameState; o: ContractOffer }) {
+  const cc = o.requirements.clientCabin;
+  const text = mixedCrewText(g, o.id);
+  if (!cc || !text) return null;
+  const name = g.clients[o.clientId]?.name ?? 'Client';
+  return (
+    <div className="v8-panel">
+      <b>Mixed cabin crew</b>
+      <SeatStrip ours={ourCabin(cc)} theirs={cc.leads ? ['PUR', ...Array.from({ length: cc.n - 1 }, () => 'CC' as const)] : Array.from({ length: cc.n }, () => 'CC' as const)} client={name} />
+      <div className="small">{text}</div>
+      {mixedCrewFlavour(g, o.id).map((l) => <div key={l} className="small dim">{l}</div>)}
+    </div>
+  );
+}
+
+/** Whether the offer has an archetype panel (its 'mission' line is then in the panel's words). */
+const hasPanel = (o: ContractOffer) => o.product.kind === 'dry' || o.archetype === 'deportation' || o.archetype === 'hajj' || !!o.requirements.clientCabin?.n;
+
+/** The archetype panel that applies (a mixed cabin can come on top of a Hajj airlift). */
+function ArchPanel({ g, o }: { g: GameState; o: ContractOffer }) {
+  if (o.product.kind === 'dry') return <DryPanel g={g} o={o} />;
+  if (o.archetype === 'deportation') return <MoralPanel o={o} />;
+  const mixed = o.requirements.clientCabin?.n ? <MixedPanel g={g} o={o} /> : null;
+  if (o.archetype === 'hajj') return <>{<HajjPanel o={o} />}{mixed}</>;
+  return mixed;
+}
+
 /** v0.5.2 counter state in the footer: pending (clock paused, reply time), refused, met halfway or accepted. */
 function CounterStatus({ g, o, cv, fmtP }: { g: GameState; o: ContractOffer; cv: CounterView; fmtP: (v: number) => string }) {
   const client = g.clients[o.clientId]?.name ?? 'The client';
@@ -270,6 +397,10 @@ export function OfferModal({ offerId }: { offerId: string }) {
   const best = reports.find((r) => !blocked(r)) ?? reports[0];
   const [pick, setPick] = useState<string | null>(null);
   const [step, setStep] = useState(2);
+  // v0.8: opened = seen (a rival win is then announced in the Inbox).
+  useEffect(() => {
+    if (store.game?.offers[offerId] && !store.game.offers[offerId].seen) store.update((gg) => markOfferSeen(gg, offerId));
+  }, [offerId]);
   if (!o) return null;
   const sel = reports.find((r) => r.aircraftId === (pick ?? best?.aircraftId));
   const cl = g.clients[o.clientId];
@@ -280,7 +411,7 @@ export function OfferModal({ offerId }: { offerId: string }) {
   const mustPaint = !!o.paint?.required && !paintOn;
   const steps = counterSteps(asking, o.product.kind === 'wet');
   const price = steps[step - 1] ?? asking;
-  const fmtP = (v: number) => (o.product.kind === 'wet' ? `${usd(v)}/BH` : money(v, 2));
+  const fmtP = (v: number) => (o.product.kind === 'wet' ? `${usd(v)}/BH` : o.product.kind === 'dry' ? `${money(v)}/month` : money(v, 2));
   // v0.6: extra crew for this contract; the client's paid option raises the price when met (applied at signing).
   const crewed = o.product.kind !== 'dry';
   const x = extra ?? offerExtra(g, sel?.aircraftId ?? null, o.requirements);
@@ -346,11 +477,18 @@ export function OfferModal({ offerId }: { offerId: string }) {
           </div>
           <p className="muted sc-blurb">{o.paint ? o.blurb.replace(paintTermsText(o.paint), '').trim() : o.blurb}</p>
           <Chips chips={[...reqChips(o.requirements), ...riskChips(o.risk), ...effectChips(o)]} />
+          {live && <CompetitionLine g={g} o={o} />}
+          <ArchPanel g={g} o={o} />
+          {sel && !hasPanel(o) && (() => {
+            const mission = sel.checks.find((c) => c.id === 'mission');
+            return mission ? <div className={`small v8-mission ${LEVEL_TONE[mission.level]}`}><Dot tone={LEVEL_TONE[mission.level]} /><span>{mission.label}{mission.detail ? ` · ${mission.detail}` : ''}</span></div> : null;
+          })()}
           {fit && <ProblemCardView card={{ ...fit, actions: fit.actions.filter((a) => a.id !== 'review') }} g={g} hideActions={fit.actions.every((a) => a.id === 'review')} onAction={(a) => runAction(g, a)} />}
           {o.paint && <PaintTermsCard g={g} o={o} typeId={artFor(sel ? g.fleet[sel.aircraftId]?.typeId ?? 'a320ceo' : 'a320ceo')} on={paintOn} onToggle={setPaintOn} fmtP={fmtP} />}
           {crewed && <ExtraCrewCard o={o} x={x} onChange={setExtra} fmtP={fmtP} asking={asking} />}
           <div className="upper dim">Terms</div>
           <Terms g={g} o={o} />
+          <ClientBlock g={g} o={o} />
           <div className="upper dim">Programme</div>
           {restLine && <div className="small of-rest"><BedDouble /><span>{restLine}</span></div>}
           <Programme o={o} />

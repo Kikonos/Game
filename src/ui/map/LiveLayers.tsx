@@ -15,12 +15,12 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { aircraftLive, type AircraftLive } from '../../engine/core/query';
 import type { GameState, Livery } from '../../engine/core/types';
-import { commercialFlightsBetween, commercialProgress, type CommercialFlight, type FlightType, flightType, liveryOf } from '../../engine/ops';
+import { commercialFlightsBetween, commercialProgress, type CommercialFlight, type FlightType, flightType } from '../../engine/ops';
 import { PLANE_PATH } from '../components/Logo';
 import { liveMinute, store } from '../store';
 import { isTouch } from '../useMedia';
 import { MAP_H, MAP_W } from './mapData';
-import { deliveryTag, headingDeg, JET_PATH, leasedOut, onMap, type LabelBox, boxOverlap, groupCommercial, lerpAngle, parkOffset, downSide, legLabelSide, placeLabels, regSlot, type RegSlot, trackCovered, trackLabelAt, type LegArc, type PinGroup, sunPoint, terminator, TYPE_STROKE } from './mapLogic';
+import { deliveryTag, headingDeg, JET_PATH, leasedOut, mapLivery, onMap, type LabelBox, boxOverlap, groupCommercial, lerpAngle, parkOffset, downSide, legLabelSide, placeLabels, regSlot, type RegSlot, trackCovered, trackLabelAt, type LegArc, type PinGroup, sunPoint, terminator, TYPE_STROKE } from './mapLogic';
 import type { MapLayerCtx } from './WorldMap';
 
 /** Live positions shared with tap picking and focus (map units, as last drawn). */
@@ -627,7 +627,7 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
     <g ref={ref} className="ops-aircraft">
       {ids.map((id) => {
         const ac = g.fleet[id];
-        const [fill, outline] = glyphInk(liveryOf(g, ac).livery);
+        const [fill, outline] = glyphInk(mapLivery(g, ac).livery);
         return (
           <g key={id} data-id={id} data-phase="parked" className={`ops-ac${selected === id ? ' sel' : ''}${deliveryTag(ac) ? ' dlv' : leasedOut(ac) ? ' lsd' : ''}`}>
             <circle className="hit" r={HIT_R.touch} />

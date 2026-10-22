@@ -10,7 +10,8 @@ import { flightsRev } from '../../engine/core/entities';
 import { DAY, HOUR, dayStart, fmtDay, toDate } from '../../engine/core/time';
 import type { GameState, Role } from '../../engine/core/types';
 import type { RatingFamily } from '../../data/acmiTypes';
-import { crewRev, dropTargets, familyLabel, moveDuty, rosterBoard, type BoardBlock, type BoardRow, type DropTarget, type MoveScope } from '../../engine/crew';
+import { clientCrewRows, crewRev, dropTargets, familyLabel, moveDuty, rosterBoard, type BoardBlock, type BoardRow, type DropTarget, type MoveScope } from '../../engine/crew';
+import type { CalBlock } from '../../engine/crew/calendar';
 import { ColourLegend } from '../components/ColourLegend';
 import { Seg } from '../components/ui';
 import { liveMinute, store, useThrottledNow } from '../store';
@@ -18,7 +19,7 @@ import { useRenderCount } from './common';
 import { seatLabel } from '../../engine/core/perf';
 import { CAL_KEY_LABEL, calKey, calLayer, calLegend, type CalKey } from './crewLogic';
 import {
-  BACK_DAYS, BOARD_DAYS, blockCands, blockKeys, boardItems, itemsSig, rowSig, boardLayout, dayCodes, dayWidth, dayWindow, edgeSpeed, fitText, HEAD_H, itemAt, LEFT_W,
+  BACK_DAYS, BOARD_DAYS, blockCands, blockKeys, boardItems, clientItems, itemsSig, rowSig, boardLayout, dayCodes, dayWidth, dayWindow, edgeSpeed, fitText, HEAD_H, itemAt, LEFT_W,
   moraleTone, NO_BOARD_FILTER, ROLE_PLURAL, splitMark, verdictText, visibleRange, weekLabels, type BoardFilter, type BoardItem, type BoardZoom, type RankFilter,
 } from './rosterBoardLogic';
 
@@ -75,6 +76,23 @@ interface RowProps {
   selecting: boolean;
   checked: boolean;
 }
+
+/** v0.8 a client cabin crew row: grey blocks for their duties, no names, nothing to tap or drag. */
+const ClientLane = memo(function ClientLane({ label, blocks, from, dayW, d0, d1 }: { label: string; blocks: CalBlock[]; from: number; dayW: number; d0: number; d1: number }) {
+  const ppm = dayW / DAY;
+  const lo = from + d0 * DAY;
+  const hi = from + d1 * DAY;
+  return (
+    <div className="rb-row v8-cc-row" aria-disabled>
+      <div className="rb-name v8-cc-name"><span className="col rb-name-txt"><b className="ellipsis small">{label.split(' · ')[0]}</b><span className="tiny dim">{label.split(' · ')[1] ?? 'cabin crew'}</span></span></div>
+      <div className="rb-lane" style={{ width: BOARD_DAYS * dayW }}>
+        {blocks.filter((b) => b.end > lo && b.start < hi).map((b) => (
+          <span key={`${b.dutyId}-${b.start}`} className="v8-cc-block" style={{ left: Math.max(0, (b.start - from) * ppm), width: Math.max(3, (b.end - b.start) * ppm) }} title={b.detail} />
+        ))}
+      </div>
+    </div>
+  );
+});
 
 const Row = memo(function Row({ row, from, dayW, d0, d1, zoom, tone, selecting, checked }: RowProps) {
   const ppm = dayW / DAY;
@@ -258,13 +276,15 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
   const nCrew = Object.keys(g.crew).length;
   // v0.7 C2: an hourly rebuild that changes nothing keeps the previous items (no re-layout, no row re-render).
   const itemsRef = useRef<{ sig: string; items: BoardItem[] } | null>(null);
+  // v0.8 mixed-crew contracts: the client's cabin crew as grey rows after ours.
+  const clientRows = useMemo(() => clientCrewRows(g, from, to), [g, from, to, rev, crev, hour]); // eslint-disable-line react-hooks/exhaustive-deps
   const items = useMemo(() => {
-    const next = boardItems(Object.values(g.crew), f, g.company.homeBase);
+    const next = [...boardItems(Object.values(g.crew), f, g.company.homeBase), ...clientItems(clientRows, f)];
     const sig = itemsSig(next);
     if (itemsRef.current?.sig === sig) return itemsRef.current.items;
     itemsRef.current = { sig, items: next };
     return next;
-  }, [g, f, crev, nCrew, hour]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [g, f, crev, nCrew, hour, clientRows]); // eslint-disable-line react-hooks/exhaustive-deps
   const groupH = selecting ? 44 : 28;
   const { tops, total } = useMemo(() => boardLayout(items, groupH), [items, groupH]);
   const [a, b] = range;
@@ -675,10 +695,14 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
                   <div key={it.key} className="rb-group" style={{ height: groupH }}>
                     <span className="rb-group-l">
                       <b className="small">{it.label}</b>
-                      {selecting && <button className="btn btn-sm rb-group-all" data-group={it.key}>{all ? 'Clear group' : 'Select all'}</button>}
+                      {selecting && it.ids.length > 0 && <button className="btn btn-sm rb-group-all" data-group={it.key}>{all ? 'Clear group' : 'Select all'}</button>}
                     </span>
                   </div>
                 );
+              }
+              if (it.kind === 'client') {
+                const cr = clientRows.find((x) => x.key === it.id);
+                return cr ? <ClientLane key={`k-${it.id}`} label={cr.label} blocks={cr.blocks} from={from} dayW={dayW} d0={d0} d1={d1} /> : <div key={`k-${it.id}`} className="rb-row" />;
               }
               const r = rows.get(it.id);
               if (!r) return <div key={it.id} className="rb-row" />;

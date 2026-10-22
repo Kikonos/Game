@@ -28,6 +28,7 @@ import { ProblemModal } from '../modals/ProblemModal';
 import { GlossaryModal } from '../modals/GlossaryModal';
 import { TripMoveModal } from '../modals/TripMoveModal';
 import { MaintMoveModal } from '../modals/MaintMoveModal';
+import { ClientModal, OutlookModal, RivalModal, WorldEventModal } from '../modals/V08Modals';
 import { CURRENT } from '../../data/whatsNew';
 import { int, money } from '../format';
 import { offline, promptInstall } from '../offline';
@@ -252,7 +253,7 @@ export function GlobalModals() {
     case 'check': return s.game ? <CheckModal aircraftId={m.aircraftId} checkKind={m.checkKind} replace={m.replace} restFit={m.restFit} backToRefit={m.backToRefit} suggest={m.suggest} after={m.after} /> : null;
     case 'sheet': return s.game ? <BlockSheet refs={m.refs} idle={m.idle} /> : null;
     case 'duty': return s.game ? <DutyModal id={m.id} /> : null;
-    case 'subcharter': return s.game ? <SubcharterModal contractId={m.contractId} flightId={m.flightId} /> : null;
+    case 'subcharter': return s.game ? <SubcharterModal contractId={m.contractId} flightId={m.flightId} rivalId={m.rivalId} /> : null;
     case 'livery': return s.game ? <LiveryModal target={m.target} /> : null;
     case 'convert': return s.game ? <ConvertModal key={m.crewIds.join()} crewIds={m.crewIds} family={m.family} onBooked={m.onBooked} /> : null;
     case 'classes': return s.game ? <ClassesModal /> : null;
@@ -268,5 +269,9 @@ export function GlobalModals() {
     case 'glossary': return <GlossaryModal term={m.term} />;
     case 'tripMove': return s.game ? <TripMoveModal key={`${m.flightId}>${m.targetId}`} flightId={m.flightId} targetId={m.targetId} /> : null;
     case 'maintMove': return s.game ? <MaintMoveModal key={`${m.maintId}@${m.start}`} maintId={m.maintId} start={m.start} /> : null;
+    case 'client': return s.game ? <ClientModal clientId={m.clientId} /> : null;
+    case 'rival': return s.game ? <RivalModal rivalId={m.rivalId} /> : null;
+    case 'outlook': return s.game ? <OutlookModal /> : null;
+    case 'worldEvent': return s.game ? <WorldEventModal eventId={m.eventId} /> : null;
   }
 }

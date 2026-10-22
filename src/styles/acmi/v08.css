@@ -1,0 +1,202 @@
+/* v0.8 World: Company Overview/Clients/Rivals, client and rival dialogs, the Contracts head strips, offer blocks,
+   the outlook calendar, mixed-crew seats, dry lease, client crew rows. Static: nothing here animates. */
+
+/* ---------- level pills (Unhappy · New · Known · Trusted · Partner) ---------- */
+.v8-level {
+  display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap;
+  background: var(--panel-2); border: 1px solid var(--border); color: var(--text-2);
+}
+.v8-level.unhappy { color: var(--bad); border-color: rgba(248, 113, 113, 0.4); background: rgba(248, 113, 113, 0.08); }
+.v8-level.known { color: #c7d2fe; border-color: rgba(165, 180, 252, 0.35); }
+.v8-level.trusted { color: var(--good); border-color: rgba(52, 211, 153, 0.4); background: rgba(52, 211, 153, 0.08); }
+.v8-level.partner { color: #fde68a; border-color: rgba(251, 191, 36, 0.45); background: rgba(251, 191, 36, 0.08); }
+
+.v8-strip { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
+.v8-step {
+  text-align: center; padding: 6px 4px; font-size: 12px; border-radius: 8px; color: var(--text-3);
+  background: var(--panel-2); border: 1px solid var(--border); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.v8-step.past { color: var(--text-2); }
+.v8-step.on { color: var(--text); font-weight: 650; border-color: var(--accent); background: rgba(62, 230, 255, 0.1); }
+.v8-step.on.unhappy { border-color: var(--bad); background: rgba(248, 113, 113, 0.1); }
+.v8-step.on.trusted { border-color: var(--good); background: rgba(52, 211, 153, 0.1); }
+.v8-step.on.partner { border-color: var(--warn); background: rgba(251, 191, 36, 0.1); }
+
+.v8-thin { display: block; height: 4px; border-radius: 999px; background: rgba(148, 170, 220, 0.14); overflow: hidden; margin-top: 6px; }
+.v8-thin > span { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
+.v8-thin > .unhappy, .v8-thin > .bad { background: var(--bad); }
+.v8-thin > .trusted, .v8-thin > .good { background: var(--good); }
+.v8-thin > .partner, .v8-thin > .warn { background: var(--warn); }
+.v8-thin > .new, .v8-thin > .known { background: #a5b4fc; }
+
+/* ---------- Company: Overview · Clients · Rivals ---------- */
+.v8-company .sc-head { flex-wrap: nowrap; }
+.v8-company .sc-head .grow { min-width: 0; }
+.v8-split { display: grid; grid-template-columns: 460px minmax(0, 1fr); gap: 16px; align-items: start; }
+.v8-pane {
+  max-height: calc(100dvh - var(--topbar-h) - var(--safe-t, 0px) - var(--safe-b, 0px) - 128px); min-height: 320px;
+  overflow-y: auto; overscroll-behavior: contain; padding: 0;
+}
+.v8-pane-r { padding: 16px 18px; }
+.v8-list-head { position: sticky; top: 0; z-index: 1; padding: 10px 12px; background: var(--panel-solid); border-bottom: 1px solid var(--border); }
+.v8-list-head .seg button { min-height: 40px; font-size: 13px; }
+.v8-row {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 8px 14px; text-align: left;
+  font: inherit; color: inherit; background: transparent; border: none; border-bottom: 1px solid rgba(148, 170, 220, 0.07); cursor: pointer;
+}
+.v8-row.on { background: rgba(62, 230, 255, 0.07); box-shadow: inset 3px 0 0 var(--accent); }
+.v8-row:active { background: var(--panel-hover); }
+.v8-row.ceased { opacity: 0.55; }
+.v8-row-r { align-items: flex-end; gap: 4px; flex-shrink: 0; }
+.v8-kind { display: inline-flex; color: var(--text-3); }
+.v8-kind svg { width: 15px; height: 15px; }
+.v8-detail { min-width: 0; }
+.v8-flag-l { font-size: 30px; line-height: 1; }
+.v8-name { font-size: 18px; font-weight: 650; }
+.v8-box { padding: 12px 14px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
+.v8-lines { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; font-size: 13px; color: var(--text-2); }
+.v8-log { display: grid; grid-template-columns: 52px 34px minmax(0, 1fr); gap: 8px; padding: 3px 0; align-items: baseline; }
+.v8-log2 { grid-template-columns: 52px minmax(0, 1fr); }
+.v8-link {
+  display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 10px; width: 100%; text-align: left; font: inherit; color: inherit;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; cursor: pointer; min-width: 0;
+}
+.v8-link:active { background: var(--panel-hover); }
+.v8-style.cheap { color: #fca5a5; border-color: rgba(248, 113, 113, 0.3); }
+.v8-style.premium { color: #fde68a; border-color: rgba(251, 191, 36, 0.35); }
+.v8-style.steady { color: #a7f3d0; border-color: rgba(52, 211, 153, 0.3); }
+.v8-style.big { color: #bae6fd; border-color: rgba(125, 211, 252, 0.35); }
+.v8-style.rescue { color: #fdba74; border-color: rgba(251, 146, 60, 0.35); }
+.v8-style.military { color: #c4b5fd; border-color: rgba(167, 139, 250, 0.35); }
+.v8-style-text { margin: 0; }
+.v8-fleet { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 4px 16px; }
+.v8-fleet-row { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; border-bottom: 1px dashed rgba(148, 170, 220, 0.12); }
+.v8-rivals-link {
+  display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 10px 16px; text-align: left; font: inherit; color: var(--text-2);
+  cursor: pointer; width: 100%;
+}
+.v8-tiers { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+.v8-tier { text-align: center; padding: 7px 4px; font-size: 13px; border-radius: 8px; color: var(--text-3); background: var(--panel-2); border: 1px solid var(--border); }
+.v8-tier.past { color: var(--text-2); }
+.v8-tier.on { color: var(--text); font-weight: 650; border-color: var(--accent); background: rgba(62, 230, 255, 0.1); }
+
+/* ---------- Contracts head: standing strip + outlook tiles ---------- */
+.v8-head-strip { display: flex; gap: 10px; margin: -4px 0 14px; align-items: stretch; min-width: 0; }
+.v8-standing {
+  display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 6px 12px; flex: 1 1 0; min-width: 0; text-align: left;
+  font: inherit; color: inherit; background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; cursor: pointer;
+}
+.v8-standing > svg:first-child { color: var(--accent); flex-shrink: 0; }
+.v8-standing.t0 > svg:first-child { color: var(--text-3); }
+.v8-standing.t2 > svg:first-child { color: var(--warn); }
+.v8-standing b { font-size: 13.5px; font-weight: 600; }
+.v8-st-text { font-weight: 450; }
+.v8-outlook-btn { padding: 0; border: none; background: none; font: inherit; color: inherit; cursor: pointer; flex: 0 1 auto; min-width: 0; }
+.v8-tiles { display: flex; gap: 6px; height: 100%; }
+.v8-tiles.big { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.v8-tile {
+  display: flex; flex-direction: column; justify-content: center; gap: 1px; min-height: 52px; padding: 5px 10px; min-width: 0; text-align: left;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; width: 118px;
+}
+.v8-tile:last-child { width: 176px; }
+.v8-tile b { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.v8-tile-k { font-size: 12px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.v8-tile.good b { color: var(--good); }
+.v8-tile.warn b { color: var(--warn); }
+.v8-tile.bad b { color: var(--bad); }
+.v8-tiles.big .v8-tile { width: auto; min-height: 64px; padding: 8px 12px; }
+.v8-tiles.big .v8-tile b { font-size: 16px; }
+
+/* ---------- offer dialog blocks ---------- */
+.v8-client-block .btn-sm { min-height: 36px; }
+.v8-comp { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--border); }
+.v8-comp.warn { border-color: rgba(251, 191, 36, 0.4); background: rgba(251, 191, 36, 0.06); }
+.v8-comp.good { border-color: rgba(52, 211, 153, 0.35); background: rgba(52, 211, 153, 0.06); }
+.v8-comp .btn-sm { min-height: 36px; }
+.v8-panel { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--border); }
+.v8-moral { border-color: rgba(251, 191, 36, 0.4); background: rgba(251, 191, 36, 0.05); }
+.v8-mission { display: flex; align-items: center; gap: 8px; }
+.v8-dry-line { display: grid; grid-template-columns: 1fr 5fr 1fr; gap: 3px; }
+.v8-dry-seg { padding: 6px 6px; font-size: 12px; text-align: center; border-radius: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.v8-dry-seg.ferry { background: rgba(148, 170, 220, 0.16); color: var(--text-2); }
+.v8-dry-seg.lease { background: rgba(62, 230, 255, 0.14); color: var(--accent); font-weight: 600; }
+
+/* mixed-crew seat strip: ours accent with roles, theirs grey */
+.v8-seats { display: flex; flex-wrap: wrap; gap: 4px; }
+.v8-seat { min-width: 44px; height: 30px; padding: 0 4px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; font-size: 12px; font-weight: 600; }
+.v8-seat.ours { background: rgba(62, 230, 255, 0.16); color: var(--accent); border: 1px solid rgba(62, 230, 255, 0.4); }
+.v8-seat.theirs { background: rgba(148, 170, 220, 0.12); color: var(--text-3); border: 1px dashed rgba(148, 170, 220, 0.3); font-weight: 500; }
+.v8-client-crew { display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 4px 10px; border-radius: 8px; color: var(--text-3); background: rgba(148, 170, 220, 0.06); border: 1px dashed rgba(148, 170, 220, 0.22); }
+.v8-cc-dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(148, 170, 220, 0.5); flex-shrink: 0; }
+
+/* sub-charter quotes */
+.v8-quote {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 8px 12px; text-align: left; font: inherit; color: inherit;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; cursor: pointer;
+}
+.v8-quote.on { border-color: var(--accent); background: rgba(62, 230, 255, 0.07); }
+.v8-quote:disabled { opacity: 0.55; cursor: default; }
+.v8-dots { display: inline-flex; gap: 3px; }
+.v8-dots span { width: 7px; height: 7px; border-radius: 50%; background: rgba(148, 170, 220, 0.25); }
+.v8-dots span.on { background: var(--accent); }
+
+/* ---------- outlook calendar ---------- */
+.v8-modal.modal { width: min(640px, 100%); }
+.v8-modal.modal.wide { width: min(860px, 100%); }
+.v8-phase { margin: 0; }
+.v8-cal { display: flex; flex-direction: column; gap: 4px; }
+.v8-cal-row { display: grid; grid-template-columns: 86px minmax(0, 1fr); gap: 8px; align-items: center; }
+.v8-cal-track { position: relative; height: 26px; border-radius: 6px; background: rgba(148, 170, 220, 0.06); overflow: hidden; }
+.v8-cal-head .v8-cal-track { background: none; height: 18px; overflow: visible; }
+.v8-cal-m { position: absolute; top: 0; font-size: 12px; color: var(--text-3); padding-left: 3px; border-left: 1px solid rgba(148, 170, 220, 0.2); }
+.v8-cal-bar { position: absolute; top: 3px; bottom: 3px; border-radius: 4px; font-size: 12px; line-height: 20px; padding: 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.v8-cal-bar.peak { background: rgba(251, 191, 36, 0.22); color: #fde68a; }
+.v8-cal-bar.trough { background: rgba(125, 211, 252, 0.14); color: #bae6fd; }
+.v8-cal-bar.shoulder { background: rgba(148, 170, 220, 0.1); }
+.v8-cal-bar.hajj { background: rgba(52, 211, 153, 0.22); color: #a7f3d0; }
+.v8-cal-bar.ant { background: rgba(226, 232, 240, 0.18); color: #e2e8f0; }
+.v8-cal-bar.event { background: rgba(248, 113, 113, 0.2); color: #fecaca; }
+.v8-cal-now { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent); }
+
+/* world event glyph */
+.v8-ev-ico { display: inline-flex; color: var(--warn); }
+.v8-ev-ico svg { width: 20px; height: 20px; }
+
+/* ---------- schedule: dry lease block, a base programme that continues ---------- */
+.gb-lease {
+  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--kc, #8a96b3) 55%, transparent) 0 8px, color-mix(in srgb, var(--kc, #8a96b3) 35%, transparent) 8px 16px);
+  box-shadow: inset 0 0 0 1px var(--kc, #8a96b3); color: var(--text); top: 12px; height: 32px;
+}
+.gb-lease > span { padding-left: 10px; }
+.gb-cont {
+  background: color-mix(in srgb, var(--kc, #8a96b3) 12%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--kc, #8a96b3) 45%, transparent);
+  color: var(--text-2); font-weight: 500; top: 18px; height: 20px; border-radius: 10px;
+}
+.gb-cont > span { padding-left: 10px; }
+
+/* ---------- roster board: client cabin crew (grey, not draggable) ---------- */
+.v8-cc-group { color: var(--text-3); }
+
+@media (max-width: 1100px) {
+  .v8-split { grid-template-columns: 380px minmax(0, 1fr); }
+  .v8-tile { width: 108px; }
+}
+@media (max-width: 760px) {
+  .v8-split { grid-template-columns: minmax(0, 1fr); }
+  .v8-pane { max-height: none; }
+  .v8-head-strip { flex-direction: column; }
+  .v8-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .v8-tile { width: auto; }
+}
+
+/* fleet card: dry lease row (a button styled as the card's rows) */
+.v8-fleet-lease { width: 100%; text-align: left; font: inherit; color: inherit; background: none; border-left: none; border-right: none; border-bottom: none; cursor: pointer; }
+.v8-cc-row .rb-name { color: var(--text-3); }
+.v8-cc-block {
+  position: absolute; top: 16px; height: 22px; border-radius: 5px; pointer-events: none;
+  background: repeating-linear-gradient(135deg, rgba(148, 170, 220, 0.22) 0 5px, rgba(148, 170, 220, 0.1) 5px 10px);
+  box-shadow: inset 0 0 0 1px rgba(148, 170, 220, 0.3);
+}
+.v8-seat-key { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.v8-seat-key.ours { background: rgba(62, 230, 255, 0.3); border: 1px solid rgba(62, 230, 255, 0.5); }
+.v8-seat-key.theirs { background: rgba(148, 170, 220, 0.14); border: 1px dashed rgba(148, 170, 220, 0.4); }

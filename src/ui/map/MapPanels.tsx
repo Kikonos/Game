@@ -26,7 +26,7 @@ import { DAY, fmtDay, fmtDuration, fmtTime, localOffset } from '../../engine/cor
 import type { Aircraft, CrewMember, Flight, GameState, MaintenanceEvent, ProblemRef, Ref, Role } from '../../engine/core/types';
 import type { DryLeaseView } from '../../engine/ops';
 import { crewName, crewShortCard, dutyCrew, flightCrewStatus, restNow, restOf, restSeatsBlocked, restText, sellableSeats, seatsText } from '../../engine/crew';
-import { checkStatus, CONNECT_MIN, commercialItinerary, deliveryStatus, dryLeaseOf, FLIGHT_TYPE_HINT, FLIGHT_TYPE_LABEL, flightCrewAboard, type FlightType, flightType, flightZone, liveryOf, problemAt, ticketPurpose, worldEvent, worldZones } from '../../engine/ops';
+import { checkStatus, CONNECT_MIN, commercialItinerary, deliveryStatus, dryLeaseOf, FLIGHT_TYPE_HINT, FLIGHT_TYPE_LABEL, flightCrewAboard, type FlightType, flightType, flightZone, problemAt, ticketPurpose, worldEvent, worldZones } from '../../engine/ops';
 import { ferryCost } from '../../engine/ops/delivery';
 import { AircraftArt } from '../components/AircraftArt';
 import { artRest } from '../components/aircraft/restGlyph';
@@ -36,7 +36,7 @@ import { contractColor } from '../screens/palette';
 import { type ModalSpec, store } from '../store';
 import { paintLabel } from '../screens/scheduleLogic';
 import { archLabel, expiryLabel, offerDays } from '../screens/screenLogic';
-import { awaitingDelivery, chipInfo, commercialById, deliveryTag, EVENT_KIND_LABEL, EVENT_TONE, leasedOut, parseCommercialId, PURPOSE_LABEL, purposeChain, restChip, restingLine, restSeatNoun, shortIndex, type ShortRow, upcomingLegs } from './mapLogic';
+import { awaitingDelivery, chipInfo, commercialById, deliveryTag, EVENT_KIND_LABEL, EVENT_TONE, leasedOut, mapLivery, parseCommercialId, PURPOSE_LABEL, purposeChain, restChip, restingLine, restSeatNoun, shortIndex, type ShortRow, upcomingLegs } from './mapLogic';
 import { MiniMap } from './MiniMap';
 import { eventIcon } from './WorldLayer';
 
@@ -377,14 +377,15 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
   const pilotsOnly = !!crewFlight && !crewFlight.dutyId && (crewFlight.kind === 'ferry' || crewFlight.kind === 'positioning');
   const cstat = cstat1 && pilotsOnly ? { ...cstat1, missing: cstat1.missing.filter((r) => isPilot(r)) } : cstat1;
   // A delivery / return / refit ferry days away is crewed on the normal roster horizon: not a worry yet.
-  const later = pilotsOnly && !!crewFlight?.purpose && crewFlight.std + crewFlight.delay - t > BAL.delivery.warnH * 60;
+  // v0.8: so is the ferry home of a dry-leased aircraft months out.
+  const later = (pilotsOnly || leasedOut(ac)) && !!crewFlight?.purpose && crewFlight.std + crewFlight.delay - t > BAL.delivery.warnH * 60;
   const cs = safe(() => checkStatus(g, ac), null);
   const maint = ac.maintId ? g.maintenance[ac.maintId] : undefined;
   const chip = chipInfo(g, ac, t);
   const lease = safe(() => dryLeaseOf(g, ac.id), null);
   const curZone = cur ? safe(() => flightZone(g, cur.id), null) : null;
   const ap = AIRPORT_BY_CODE[ac.at];
-  const lv = liveryOf(g, ac);
+  const lv = mapLivery(g, ac);
   // The ops stub returns zeros; show check data only once it means something.
   const csKnown = !!cs && (cs.aHoursLeft > 0 || cs.cHoursLeft > 0 || !!cs.nextA || !!cs.nextC || cs.risk > 0);
   // v0.7.1: the ladder's list (crewAlert set and still short) drives the banner; the card gives the one-sentence why.

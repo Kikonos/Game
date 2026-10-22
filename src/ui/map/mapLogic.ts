@@ -8,7 +8,7 @@ import { flightTimes } from '../../engine/core/query';
 import { DAY, fmtDay, fmtTime } from '../../engine/core/time';
 import type { AcRest, Aircraft, Archetype, ContractOffer, Flight, GameState, Minute, Ref, RestFacility, RestKind, WorldEventKind } from '../../engine/core/types';
 import { crewAway, shortFlights } from '../../engine/crew';
-import { commercialFlightsBetween, type CommercialFlight, commercialItinerary, dryLeaseOf, type FlightType, flightType } from '../../engine/ops';
+import { clientCode, clientLivery, clientTitles, commercialFlightsBetween, type CommercialFlight, commercialItinerary, dryLeaseOf, type FlightType, flightType, liveryOf, type ResolvedLivery } from '../../engine/ops';
 import { contractColor } from '../screens/palette';
 
 /** v0.7.1 business-jet glyph (24 × 24, nose up, same frame as PLANE_PATH): slim body, swept wings, T-tail. */
@@ -325,6 +325,8 @@ export function fitCodes(g: GameState): string[] {
     if (f) s.add(f.to);
   }
   for (const p of offerPins(g)) if (near(p.code)) s.add(p.code);
+  // v0.8: live world events near the base (their pins).
+  for (const e of g.world?.events ?? []) if (!e.done && e.start <= g.now && g.now < e.end && near(e.at)) s.add(e.at);
   return [...s].filter((c) => AIRPORT_BY_CODE[c]);
 }
 
@@ -595,7 +597,7 @@ export function placeEventPins(pins: { eventId: string; at: string; kind: WorldE
     const i = n.get(p.at) ?? 0;
     n.set(p.at, i + 1);
     const busy = marked.has(p.at) || offerAt.has(p.at);
-    const off: [number, number] = busy ? [-22 - i * EVENT_PIN_GAP, -20] : [-i * EVENT_PIN_GAP, 0];
+    const off: [number, number] = busy ? [-22 - i * EVENT_PIN_GAP, -20] : [i ? -i * EVENT_PIN_GAP : 0, 0];
     return { ...p, off };
   });
 }
@@ -613,3 +615,16 @@ export const EVENT_KIND_LABEL: Record<WorldEventKind, string> = {
   coup: 'Coup', strike: 'Strike', ash: 'Volcanic ash', disaster: 'Disaster', airlineFailure: 'Airline failure', war: 'War', airspace: 'Airspace closure',
   unrest: 'Unrest', engineCrisis: 'Engine crisis', recession: 'Recession',
 };
+
+/**
+ * The livery the map and its panel draw: liveryOf, plus (v0.8) a dry-leased-out aircraft in the lessee's paint
+ * (Contract.dry.paint carries no PaintTerms, which liveryOf reads; a no-op once it does). Pure.
+ */
+export function mapLivery(g: GameState, ac: Aircraft): ResolvedLivery {
+  const lv = liveryOf(g, ac);
+  if (lv.source === 'client' || !ac.paintedFor) return lv;
+  const c = g.contracts[ac.paintedFor];
+  const cl = c ? g.clients[c.clientId] : undefined;
+  if (!c?.dry?.paint || !cl) return lv;
+  return { livery: clientLivery(cl, c.dry.paint), code: clientCode(cl), name: clientTitles(cl), source: 'client', contractId: c.id, clientName: cl.name };
+}

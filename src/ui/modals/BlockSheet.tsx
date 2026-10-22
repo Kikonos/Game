@@ -7,9 +7,10 @@ import { AIRPORT_BY_CODE } from '../../data/airports';
 import { BAL } from '../../engine/core/balance';
 import { DAY, fmtDateTime, fmtDay, fmtDuration, fmtTime } from '../../engine/core/time';
 import type { Aircraft, Duty, Flight, GameState, MaintenanceEvent, Ref } from '../../engine/core/types';
-import { crewName, dutyCrew, dutyLegality, flightCrewStatus, restOf, restPlanForFlight, restSeatsBlocked, restShort, restVerdict } from '../../engine/crew';
+import { clientCrewOf, crewName, dutyCrew, dutyLegality, flightCrewStatus, restOf, restPlanForFlight, restSeatsBlocked, restShort, restVerdict } from '../../engine/crew';
 import { seatLabel, typeOf } from '../../engine/core/perf';
-import { cabinOptions, cancelCheck, checkStatus, delayFlight, flightCrewAboard, flightType, refitSlots } from '../../engine/ops';
+import { cabinOptions, cancelCheck, checkStatus, delayFlight, dryLeaseView, flightCrewAboard, flightType, flightZone, refitSlots } from '../../engine/ops';
+import { ClientCrewRow } from './v08Bits';
 import { gapCheck, type GapOption } from '../../engine/ops/maintMove';
 import { problemAt } from '../../engine/problems';
 import { tripOf, tripTargets } from '../../engine/ops/tripMove';
@@ -134,6 +135,11 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
   if (type === 'ferry') rows.push(['Crew aboard', 'Pilots only · cabin crew travel separately']);
   else if (type === 'positioning') rows.push(['Crew aboard', 'Full crew · cabin crew needed at the destination']);
   if (aboard.riding.length) rows.push(['Riding', aboard.riding.filter((id) => g.crew[id]).map((id) => `${g.crew[id].role} ${crewName(g.crew[id])}`).join(', ')]);
+  // v0.8: a world event holds, reroutes or charges war-risk cover on this leg (tap: the event).
+  const zone = f.status === 'scheduled' ? flightZone(g, f.id) : null;
+  if (zone) rows.push(['World event', <button className={`chip sc-chip ${zone.effect === 'held' ? 'bad' : 'warn'}`} onClick={() => store.openModal({ kind: 'worldEvent', eventId: zone.eventId })}>{zone.text}</button>]);
+  if (f.warRisk) rows.push(['War-risk cover', `${money(f.warRisk)} for this landing`]);
+  if (f.purpose === 'lease' && c?.dry) rows.push(['Dry lease', `${c.dry.outIds.includes(f.id) ? 'Delivery' : 'Return'} ferry · ${g.clients[c.clientId]?.name ?? 'lessee'} at ${c.dry.site}`]);
   if (d) rows.push(['Duty', `Day length ${hm(d.fdp)} of ${hm(d.maxFdp + (d.discretion ?? 0))} · ${d.sectors} sector${d.sectors === 1 ? '' : 's'}${d.augment ? ` · ${2 + d.augment} pilots` : ''}${d.ext ? ' · planned extension' : ''}${d.split ? ' · split duty' : ''}`]);
   const live = f.status === 'scheduled' && !!f.aircraftId;
   const canSub = live && !!c && (f.kind === 'revenue' || f.kind === 'techstop');
@@ -176,6 +182,10 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
               ))}
             </div>
           )}
+          {(() => {
+            const cc = f.dutyId && (f.kind === 'revenue' || f.kind === 'techstop') ? clientCrewOf(g, f.dutyId) : null;
+            return cc ? <ClientCrewRow label={cc.label} roles={cc.roles} /> : null;
+          })()}
           {f.status === 'scheduled' && (
             view ? (
               <button className="btn" onClick={() => store.openModal({ kind: 'duty', id: f.id })}><Users /> Adjust crew</button>
@@ -322,8 +332,46 @@ function titleOf(g: GameState, r: Ref): string {
   return m ? (m.kind === 'AOG' ? `AOG repair at ${m.at}` : m.kind === 'paint' ? `${paintLabel(g, m)} at ${m.at}` : m.kind === 'refit' || m.kind === 'return' ? maintLabel(m)[0] : `${m.kind}-check at ${m.at}`) : 'Maintenance';
 }
 
+/** v0.8 a dry lease out (the Gantt's lease block): phases, money, the lessee's hours, the C-check line. */
+function DryLeaseDetail({ g, contractId }: { g: GameState; contractId: string }) {
+  const v = dryLeaseView(g, contractId);
+  if (!v) return null;
+  const ac = g.fleet[v.aircraftId];
+  const PHASE = { signed: 'Signed: delivery ferry ahead', delivering: 'Delivery ferry under way', leased: 'With the lessee', returning: 'Coming back', done: 'Returned' } as const;
+  return (
+    <div className="col gap-12">
+      <div className="small muted">{ac?.reg ?? 'Aircraft'} with {v.lessee} at {AIRPORT_BY_CODE[v.site]?.city ?? v.site} · {PHASE[v.phase]}</div>
+      <KV rows={[
+        ['Ferry out', `${fmtDay(v.out[0])} – ${fmtDay(v.out[1])} · our pilots, then home by deadhead`],
+        ['Lease', `${fmtDay(v.lease[0])} – ${fmtDay(v.lease[1])}${v.late ? ` (${v.late} days late)` : ''}`],
+        ['Ferry back', `${fmtDay(v.back[0])} – ${fmtDay(v.back[1])} · return inspection 2 days at base`],
+        ['Rent', `${money(v.rent)} a month, in advance`],
+        ['Reserves', `$${v.reservesPerFH.toLocaleString('en-US')} per FH, monthly in arrears`],
+        ['Their hours', `${v.fhSoFar.toLocaleString('en-US')} FH so far of about ${v.fhExpected.toLocaleString('en-US')}`],
+        ['Income so far', money(v.income)],
+        ['Deposit', `${money(v.deposit)} held, back at the return`],
+        ['C-check', v.cCheck],
+        ...(v.damage ? [['Damage', v.damage] as [string, string]] : []),
+      ]} />
+      <button className="btn sc-link" onClick={() => store.navigate('contracts', { view: 'active', sel: { kind: 'contract', id: contractId } })}><FileSignature /> <span className="ellipsis">Contract</span></button>
+    </div>
+  );
+}
+
 export function BlockSheet({ refs, idle }: { refs: Ref[]; idle?: { aircraftId: string; from: number; to: number; at: string } }) {
   const g = useGame();
+  const lease = refs.find((r) => r.kind === 'contract' && g.contracts[r.id]?.dry);
+  if (lease) {
+    return (
+      <Modal title={`Dry lease · ${g.clients[g.contracts[lease.id].clientId]?.name ?? 'lessee'}`} icon={<CalendarClock className="accent" />} onClose={() => store.closeModal()}>
+        <DryLeaseDetail g={g} contractId={lease.id} />
+      </Modal>
+    );
+  }
+  return <SheetBody g={g} refs={refs} idle={idle} />;
+}
+
+function SheetBody({ g, refs, idle }: { g: GameState; refs: Ref[]; idle?: { aircraftId: string; from: number; to: number; at: string } }) {
   const live = refs.filter((r) => (r.kind === 'flight' ? g.flights[r.id] : g.maintenance[r.id]));
   const [open, setOpen] = useState<Ref | null>(live.length === 1 ? live[0] : null);
   const close = () => store.closeModal();

@@ -72,6 +72,10 @@ const ALL = [
   'which-one', 'check-hub', 'whats-new-072',
   'fleet-rest', 'market-rest-filter', 'flight-sheet-rest', 'flight-sheet-rest-tooshort', 'duty-why', 'offer-rest-lines',
   'refit-crew-rest', 'check-c-restfit', 'roster-board-aug', 'crew-control-standby', 'whats-new-073',
+  'company-clients', 'company-client-unhappy', 'company-rivals', 'contracts-head-standing-outlook', 'offer-trusted-first-refusal',
+  'offer-rivals-bidding', 'offer-hajj', 'offer-deportation-moral', 'offer-mixed-crew', 'outlook-modal', 'subcharter-3-quotes',
+  'inbox-world-event', 'world-event-modal', 'client-modal', 'schedule-programme-continues', 'roster-board-client-crew', 'duty-client-seats',
+  'offer-dry-lease', 'schedule-dry-lease', 'fleet-dry-lease', 'whats-new-08',
 ];
 const PRE_GAME = new Set(['loading', 'title', 'newgame', 'newgame-livery']);
 const VIEWS = {
@@ -1010,6 +1014,181 @@ Object.assign(ACTIONS, {
     if (await row.count()) { await press(page, row, d); await settle(page, 400); }
   },
   'whats-new-073': (page) => modal(page, { kind: 'whatsNew' }),
+});
+
+// ---------- v0.8 World ----------
+
+/** Opens a dev offer (dev.hajj, dev.dryLease…) on the Contracts market; SKIP when the engine built none. */
+async function devOffer(page, name) {
+  const id = await page.evaluate((n) => { const s = window.__contrail; s.closeModal(); return s.dev[n](); }, name);
+  if (!id) throw new Error(`SKIP dev.${name} built nothing`);
+  await settle(page, 700);
+  return id;
+}
+
+/** A signed mixed-crew contract: dev.mixedCrew, else a season base given 'all but the purser' signed through the offer
+ *  dialog (shots only); returns one of its duty ids. */
+async function ensureMixed(page, d) {
+  let id = await page.evaluate(() => {
+    const s = window.__contrail; s.closeModal();
+    if (s.__mixed && s.game.duties[s.__mixed]) return s.__mixed;
+    const id = s.dev.mixedCrew(); s.closeModal();
+    return (s.__mixed = id);
+  });
+  for (let i = 0; !id && i < 14; i++) {
+    const oid = await page.evaluate((k) => {
+      const s = window.__contrail; s.closeModal();
+      const id = s.dev.offer(['seasonBase', 'aogCover'][k % 2]);
+      const o = id && s.game.offers[id];
+      if (!o || o.product.kind !== 'wet') return '';
+      o.requirements.clientCabin = { n: 3, of: 4, leads: false };
+      s.closeModal(); s.openModal({ kind: 'offer', offerId: id });
+      return id;
+    }, i);
+    if (!oid) continue;
+    await settle(page, 500);
+    const btn = page.locator('.sc-offer-foot .btn-primary');
+    if (!(await btn.isEnabled().catch(() => false))) continue;
+    await press(page, btn, d);
+    await settle(page, 600);
+    id = await page.evaluate((x) => {
+      const s = window.__contrail; s.closeModal();
+      const g = s.game;
+      const k = Object.values(g.contracts).find((c) => c.offerId === x);
+      const ds = k ? Object.values(g.pairings).filter((q) => q.contractId === k.id).flatMap((q) => q.dutyIds) : [];
+      const rev = ds.find((id) => g.duties[id]?.flightIds.some((f) => g.flights[f]?.kind === 'revenue'));
+      return (s.__mixed = rev ?? ds[0] ?? '');
+    }, oid);
+  }
+  if (!id) throw new Error('SKIP no mixed-crew contract could be signed');
+  await settle(page, 400);
+  return id;
+}
+
+/** The Schedule scrolled to t (minutes) at a zoom. */
+async function scheduleAt(page, d, t, sel, zoom) {
+  await nav(page, 'schedule', { sel: sel ? { kind: 'aircraft', id: sel } : undefined, view: String(t) });
+  if (zoom) await press(page, page.locator('.sc-schedule .seg button', { hasText: zoom }), d).catch(() => {});
+  await settle(page, 500);
+}
+
+Object.assign(ACTIONS, {
+  'company-clients': async (page) => {
+    await page.evaluate(() => { const s = window.__contrail; s.closeModal(); s.dev.level(undefined, 'trusted'); });
+    await settle(page, 600);
+  },
+  'company-client-unhappy': async (page) => {
+    await page.evaluate(() => {
+      const s = window.__contrail; s.closeModal();
+      const c = Object.values(s.game.clients).find((x) => x.kind !== 'airline' && !x.rivalId) ?? Object.values(s.game.clients)[1];
+      s.dev.level(c.id, 'unhappy');
+    });
+    await settle(page, 600);
+  },
+  'company-rivals': (page) => nav(page, 'company', { view: 'rivals' }),
+  'contracts-head-standing-outlook': (page) => nav(page, 'contracts', { view: 'market' }),
+  'offer-trusted-first-refusal': async (page) => {
+    const id = await page.evaluate(() => {
+      const s = window.__contrail; s.closeModal();
+      const o = Object.values(s.game.offers).find((x) => x.status === 'open');
+      if (!o) return '';
+      s.dev.level(o.clientId, 'trusted');
+      o.firstRefusal = true; o.levelPct = 0.08;
+      return o.id;
+    });
+    if (!id) throw new Error('SKIP no open offer');
+    await nav(page, 'contracts', { view: 'market' });
+    await modal(page, { kind: 'offer', offerId: id });
+  },
+  'offer-rivals-bidding': (page) => devOffer(page, 'rivalBid'),
+  'offer-hajj': (page) => devOffer(page, 'hajj'),
+  'offer-deportation-moral': (page) => devOffer(page, 'deportation'),
+  'offer-mixed-crew': async (page) => {
+    const id = await page.evaluate(() => {
+      const s = window.__contrail; s.closeModal();
+      for (let i = 0; i < 40; i++) {
+        const oid = s.dev.offer(['seasonBase', 'aogCover', 'capacityLease'][i % 3]);
+        s.closeModal();
+        const o = oid && s.game.offers[oid];
+        if (o && o.requirements.clientCabin) return oid;
+      }
+      // None rolled: give the first wet offer the 'all but the purser' split (shots only).
+      const o = Object.values(s.game.offers).find((x) => x.status === 'open' && x.product.kind === 'wet');
+      if (!o) return '';
+      o.requirements.clientCabin = { n: 3, of: 4, leads: false };
+      return o.id;
+    });
+    if (!id) throw new Error('SKIP no wet offer');
+    await nav(page, 'contracts', { view: 'market' });
+    await modal(page, { kind: 'offer', offerId: id });
+  },
+  'outlook-modal': async (page) => { await nav(page, 'contracts', { view: 'market' }); await modal(page, { kind: 'outlook' }); },
+  'subcharter-3-quotes': async (page) => {
+    const r = await pick(page, () => { const g = window.__contrail.game; const f = Object.values(g.flights).filter((x) => x.status === 'scheduled' && x.contractId && x.kind === 'revenue' && x.std > g.now + 12 * 60).sort((a, b) => a.std - b.std)[0]; return f ? { c: f.contractId, f: f.id } : null; });
+    if (!r) throw new Error('SKIP no flight to hand over');
+    await nav(page, 'contracts', { view: 'active' });
+    await modal(page, { kind: 'subcharter', contractId: r.c, flightId: r.f });
+  },
+  'inbox-world-event': async (page) => {
+    await page.evaluate(() => { const s = window.__contrail; s.dev.world('war'); s.closeModal(); });
+    await nav(page, 'inbox');
+  },
+  'world-event-modal': async (page) => {
+    const id = await page.evaluate(() => { const s = window.__contrail; const e = (s.game.world?.events ?? []).filter((x) => !x.done).at(-1); return e?.id ?? s.dev.world('coup'); });
+    if (!id) throw new Error('SKIP no world event');
+    await modal(page, { kind: 'worldEvent', eventId: id });
+  },
+  'client-modal': async (page) => {
+    const id = await pick(page, () => Object.values(window.__contrail.game.clients).find((c) => (c.jobs ?? 0) > 0 || c.level === 'trusted')?.id);
+    if (!id) throw new Error('SKIP no client');
+    await modal(page, { kind: 'client', clientId: id });
+  },
+  'schedule-programme-continues': async (page, _s, d) => {
+    const r = await page.evaluate(() => {
+      const s = window.__contrail; s.closeModal();
+      const k = Object.values(s.game.contracts).find((c) => c.pattern.kind === 'base' && (c.status === 'active' || c.status === 'signed') && c.generatedUntil < c.pattern.to);
+      return k ? { t: k.generatedUntil - 2 * 1440, ac: k.aircraftIds[0] } : null;
+    });
+    if (!r) throw new Error('SKIP no base programme still being generated');
+    await scheduleAt(page, d, r.t, r.ac, '7 days');
+  },
+  'offer-dry-lease': async (page) => {
+    const id = await devOffer(page, 'dryLease');
+    await page.evaluate((x) => { window.__contrail.__dryOffer = x; }, id);
+  },
+  'schedule-dry-lease': async (page, _s, d) => {
+    // Sign the dry lease shown above (the offer dialog's Accept), then the Gantt with its lease block.
+    let open = await page.evaluate(() => { const s = window.__contrail; const id = s.__dryOffer; return !!id && s.game.offers[id]?.status === 'open'; });
+    if (!open) {
+      const id = await devOffer(page, 'dryLease');
+      await page.evaluate((x) => { window.__contrail.__dryOffer = x; }, id);
+      open = true;
+    } else await page.evaluate(() => { const s = window.__contrail; s.openModal({ kind: 'offer', offerId: s.__dryOffer }); });
+    await settle(page, 600);
+    const btn = page.locator('.sc-offer-foot .btn-primary');
+    if (!(await btn.isEnabled().catch(() => false))) throw new Error('SKIP dry lease cannot be signed');
+    await press(page, btn, d);
+    await settle(page, 600);
+    const r = await page.evaluate(() => { const s = window.__contrail; s.closeModal(); const k = Object.values(s.game.contracts).find((c) => c.dry); return k ? { ac: k.aircraftIds[0], t: k.start - 4 * 1440 } : null; });
+    if (!r) throw new Error('SKIP no dry lease signed');
+    await scheduleAt(page, d, r.t, r.ac, '28 days');
+  },
+  'fleet-dry-lease': async (page) => {
+    const ac = await pick(page, () => Object.values(window.__contrail.game.contracts).find((c) => c.dry)?.aircraftIds[0] ?? '');
+    if (!ac) throw new Error('SKIP no dry lease');
+    await nav(page, 'fleet', { sel: { kind: 'aircraft', id: ac } });
+  },
+  'roster-board-client-crew': async (page, _s, d) => {
+    await ensureMixed(page, d);
+    await board(page);
+    await page.evaluate(() => { const el = document.querySelector('.rb-scroll'); if (el) el.scrollTop = el.scrollHeight; });
+    await settle(page, 600);
+  },
+  'duty-client-seats': async (page, _s, d) => {
+    const id = await ensureMixed(page, d);
+    await modal(page, { kind: 'duty', id });
+  },
+  'whats-new-08': (page) => modal(page, { kind: 'whatsNew' }),
 });
 
 async function scrollNext(page) {

@@ -3,7 +3,7 @@ import { AIRPORT_BY_CODE } from '../../data/airports';
 import { flightsOf } from '../../engine/core/entities';
 import { aircraftLive } from '../../engine/core/query';
 import { fmtTime, fromUTC } from '../../engine/core/time';
-import type { ContractOffer } from '../../engine/core/types';
+import type { ContractOffer, GameState } from '../../engine/core/types';
 import { demoFlights, devRestPlan } from '../../engine/dev';
 import { restNow, restPlanForFlight } from '../../engine/crew';
 import { createGame } from '../../engine/newGame';
@@ -11,7 +11,12 @@ import { advanceTo } from '../../engine/sim';
 import {
   awaitingDelivery, chipInfo, commercialById, deliveryTag, fitCodes, onMap, purposeChain, groupCommercial, headingDeg, isCommercialId, lerpAngle, mapAirports, offerPins, parkOffset, PARK_GAP, parseCommercialId, downSide, legLabelSide, pickNearest, placeLabels, regSlot, REG_DY,
   JET_PATH, restChip, restingLine, restSeatNoun, selectedLegs, shortIndex, trackLabelAt, sunElevation, sunPoint, terminator, TYPE_STROKE, upNext, upNextRows,
+  EVENT_PIN_GAP, leasedOut, mapLivery, placeEventPins, ringLabelAt, ringPath,
 } from './mapLogic';
+import { projection } from './mapData';
+import { WORLD_ZONES } from '../../data/worldZones';
+import { devWorldEvent } from '../../engine/dev';
+import { worldEventPins, worldZones } from '../../engine/ops';
 import { addDeadhead } from '../../engine/core/entities';
 import { acquireAircraft, commercialFlightsBetween, deliveryStatus, ticketBlock, ticketPurpose } from '../../engine/ops';
 import { devGrantApproval } from '../../engine/ops/company';
@@ -491,5 +496,97 @@ describe('v0.7.3 crew rest on the aircraft panel', () => {
     const a = restingLine(restNow(g, acId, g.now));
     expect(a).toMatch(/^Resting: .*\((bunk|business seat)\) until \d\d:\d\d.* UTC$/);
     expect(restingLine(restNow(g, acId, g.now))).toBe(a);
+  });
+});
+
+describe('v0.8 world zones, event pins and leased aircraft', () => {
+  const proj = projection(0);
+
+  it('projects a zone ring as one closed path and labels it inside its shape', () => {
+    const sudan = WORLD_ZONES.find((z) => z.id === 'sudan')!;
+    const d = ringPath(sudan.ring, proj);
+    expect(d.startsWith('M')).toBe(true);
+    expect(d.endsWith('Z')).toBe(true);
+    expect(d.split('L').length).toBe(sudan.ring.length);
+    const at = ringLabelAt(sudan.ring, proj)!;
+    const pts = sudan.ring.map((p) => proj(p)!);
+    const xs = pts.map((p) => p[0]);
+    const ys = pts.map((p) => p[1]);
+    expect(at.x).toBeGreaterThan(Math.min(...xs));
+    expect(at.x).toBeLessThan(Math.max(...xs));
+    expect(at.y).toBeGreaterThan(Math.min(...ys));
+    expect(at.y).toBeLessThan(Math.max(...ys));
+    expect(at.w).toBeCloseTo(Math.max(...xs) - Math.min(...xs), 5);
+    // Khartoum lies inside, near the label; winding order does not matter.
+    const krt = proj([32.55, 15.6])!;
+    expect(Math.hypot(at.x - krt[0], at.y - krt[1])).toBeLessThan(at.w / 3);
+    const back = ringLabelAt([...sudan.ring].reverse(), proj)!;
+    expect(back.x).toBeCloseTo(at.x, 6);
+    expect(ringLabelAt([[0, 0], [1, 1]], proj)).toBeNull();
+    expect(ringPath([], proj)).toBe('');
+  });
+
+  it('every zone ring projects and labels on the ops map', () => {
+    for (const z of WORLD_ZONES) {
+      expect(ringPath(z.ring, proj), z.id).not.toBe('');
+      expect(ringLabelAt(z.ring, proj), z.id).not.toBeNull();
+    }
+  });
+
+  it('places event pins on the spot, or up-left of a marked airport or offer diamond, stepping left at one airport', () => {
+    const pins = [
+      { eventId: 'e1', at: 'NIM', kind: 'coup' as const, title: 'Coup' },
+      { eventId: 'e2', at: 'LIS', kind: 'strike' as const, title: 'Strike' },
+      { eventId: 'e3', at: 'LIS', kind: 'ash' as const, title: 'Ash' },
+      { eventId: 'e4', at: 'PZU', kind: 'war' as const, title: 'War' },
+    ];
+    const out = placeEventPins(pins, new Set(['LIS']), new Set(['PZU']));
+    expect(out.map((p) => p.off)).toEqual([[0, 0], [-22, -20], [-22 - EVENT_PIN_GAP, -20], [-22, -20]]);
+    expect(out[0]).toMatchObject({ eventId: 'e1', at: 'NIM', kind: 'coup' });
+    // Clear of the offer diamond (left, r 8.5) and the airport code (above): at least a finger apart from the dot.
+    expect(Math.hypot(...out[1].off)).toBeGreaterThan(22);
+  });
+
+  it('a started world event gives a zone the map can draw and a pin at a known airport', () => {
+    const g = game(5);
+    const id = devWorldEvent(g, 'war');
+    expect(id).not.toBe('');
+    const pins = worldEventPins(g);
+    const pin = pins.find((p) => p.eventId === id)!;
+    expect(AIRPORT_BY_CODE[pin.at]).toBeDefined();
+    const zones = worldZones(g);
+    expect(worldZones(g)).toBe(zones);
+    for (const z of zones) expect(ringPath(z.ring, proj)).not.toBe('');
+  });
+
+  it('chips a leased-out aircraft as leased at the lessee base', () => {
+    const g = game();
+    const ac = Object.values(g.fleet)[0];
+    ac.status = 'leasedOut';
+    ac.at = 'LAD';
+    expect(leasedOut(ac)).toBe(true);
+    const ci = chipInfo(g, ac, g.now);
+    expect(ci.tone).toBe('idle');
+    expect(ci.line).toBe('Leased LAD');
+    expect(ci.short).toBe('Leased LAD');
+    expect(onMap(ac)).toBe(true);
+    expect(mapAirports(g).some((a) => a.code === 'LAD')).toBe(true);
+  });
+});
+
+describe('v0.8 lessee paint', () => {
+  it('draws a dry-leased aircraft in the lessee colours while painted for the lease', () => {
+    const g = game();
+    const ac = Object.values(g.fleet)[0];
+    const cl = Object.values(g.clients)[0];
+    const base = mapLivery(g, ac);
+    expect(base.source).not.toBe('client');
+    g.contracts.cx = { id: 'cx', clientId: cl.id, dry: { paint: 'full' } } as unknown as GameState['contracts'][string];
+    ac.paintedFor = 'cx';
+    const lv = mapLivery(g, ac);
+    expect(lv.source).toBe('client');
+    expect(lv.clientName).toBe(cl.name);
+    delete ac.paintedFor;
+    expect(mapLivery(g, ac).source).toBe(base.source);
   });
 });

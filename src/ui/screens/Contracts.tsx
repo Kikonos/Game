@@ -1,10 +1,13 @@
 // Contracts (B5): Market (offer cards, urgent first), Active (MGH progress, next flight, crew problems,
 // cancel with penalty) and Missed. DESIGN.md §6.3.
 
-import { AlertTriangle, CalendarRange, ChevronDown, CircleSlash, FileSearch, Handshake, Inbox as InboxIcon, Palette, Users } from 'lucide-react';
+import { AlertTriangle, CalendarRange, ChevronDown, ChevronRight, CircleSlash, FileSearch, Handshake, Inbox as InboxIcon, Medal, Palette, Users } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { flag } from '../../data/countries';
-import { cancelContract, cancelCost, contractProgress, counterView, idleWindows, type IdleWindow, leadDays } from '../../engine/contracts';
+import { cancelContract, cancelCost, contractProgress, counterView, idleWindows, type IdleWindow, leadDays, offerClientLine, offerCompetition, standing } from '../../engine/contracts';
+import { marketOutlook } from '../../engine/ops';
+import { OutlookTiles } from '../modals/V08Modals';
+import { v08Chips } from './v08Logic';
 import { flightsRev } from '../../engine/core/entities';
 import { DAY, fmtDateTime, fmtDay } from '../../engine/core/time';
 import type { Contract, ContractOffer, CrewExtra, GameState } from '../../engine/core/types';
@@ -58,7 +61,8 @@ function OfferCard({ g, o, windows }: { g: GameState; o: ContractOffer; windows:
         <b>{productLine(o.product)}</b>
         <span className="muted small">est. <b className="num">{money(o.estValue)}</b></span>
       </div>
-      <Chips chips={chips.slice(0, 6)} />
+      <Chips chips={v08Chips(o, offerClientLine(g, o.id), offerCompetition(g, o.id).level)} />
+      <Chips chips={chips.slice(0, 4)} />
       {cv && <div className={`small sc-counter-line ${cv.tone === 'info' ? 'accent' : cv.tone}`}>{cv.text}</div>}
       {hook && !cv && <div className="small dim ellipsis">{hook}</div>}
     </button>
@@ -224,6 +228,7 @@ function Missed({ g }: { g: GameState }) {
           <div className="grow">
             <div className="ellipsis"><b>{o.title}</b></div>
             <div className="small muted ellipsis">{g.clients[o.clientId]?.name} · {routeSummary(o.pattern)} · {offerDays(o).map(fmtDay).join(' – ')}</div>
+            {o.lostWhy && <div className="small warn ellipsis">{o.lostTo ?? 'A rival'} {o.lostWhy}</div>}
           </div>
           <div className="right small nowrap">
             <div className={o.status === 'lost' ? 'warn' : 'muted'}>{MISSED_LABEL[o.status]}{o.lostTo ? ` to ${o.lostTo}` : ''}</div>
@@ -231,6 +236,28 @@ function Missed({ g }: { g: GameState }) {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+/** v0.8 the standing strip (tap: Company › Overview) and the market outlook tiles (tap: the outlook dialog). */
+function HeadStrip({ g }: { g: GameState }) {
+  const day = Math.floor(g.now / DAY);
+  // Standing and the outlook move at most daily / monthly.
+  const [st, o] = useMemo(() => [standing(g), marketOutlook(g)], [g, day, g.company.standing]); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <div className="v8-head-strip">
+      <button className={`v8-standing t${st.tier}`} onClick={() => store.navigate('company', { view: 'overview' })} aria-label={`Standing: ${st.name}`}>
+        <Medal className="sc-ico-s" />
+        <span className="col" style={{ minWidth: 0 }}>
+          <b className="ellipsis">{st.name} · <span className="muted v8-st-text">{st.text.toLowerCase()}</span></b>
+          {st.next && <span className="small dim ellipsis">{st.next}</span>}
+        </span>
+        <ChevronRight className="sc-ico-s dim" />
+      </button>
+      <button className="v8-outlook-btn" onClick={() => store.openModal({ kind: 'outlook' })} aria-label="Market outlook">
+        <OutlookTiles o={o} />
+      </button>
     </div>
   );
 }
@@ -252,6 +279,7 @@ export function ContractsScreen() {
           { id: 'missed', label: 'Missed', count: nMissed },
         ]} />
       </ScreenHead>
+      <HeadStrip g={g} />
       {view === 'market' && <Market g={g} />}
       {view === 'active' && <Active g={g} sel={nav.sel?.kind === 'contract' ? nav.sel.id : null} />}
       {view === 'missed' && <Missed g={g} />}

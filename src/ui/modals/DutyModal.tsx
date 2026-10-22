@@ -3,6 +3,8 @@
 // choices are shown red with reasons and need a second tap ("assign anyway"); they stay flagged on the schedule.
 // Engine: crew/rosterActions.ts (dutyCrew, dutyCandidates, dutyLegality, assignCrew, unassignCrew, swapCrew, unlockCrew).
 
+import { clientCrewOf } from '../../engine/crew';
+import { ClientCrewRow } from './v08Bits';
 import { ArrowLeftRight, BedDouble, ChevronDown, ChevronLeft, ChevronRight, Lock, LockOpen, Plus, UserMinus, Users } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { flightsRev } from '../../engine/core/entities';
@@ -296,6 +298,9 @@ export function DutyModal({ id }: { id: string }) {
   const open = v.dutyIds.map((x) => g.duties[x]).filter((x) => x && !x.done);
   const busy = v.inProgress;
   const route = dutyRoute(g, d.id);
+  // v0.8 mixed crew: the client's cabin crew as grey rows after our seats.
+  // (only on duties that carry passengers: a ferry flies pilots only).
+  const clientCrew = d.flightIds.some((x) => g.flights[x]?.kind === 'revenue' || g.flights[x]?.kind === 'techstop') ? clientCrewOf(g, d.id) : null;
   const later = d.report > g.now + BAL.rosterHorizonDays * DAY && v.slots.every((x) => !x.crewId);
   // v0.7.1 §4: the same four-line card as the flight sheet and the Inbox, with Crew Control for a shortage.
   const card = first && !later ? problemAt(g, { kind: 'flight', id: first.id }) : null;
@@ -381,6 +386,7 @@ export function DutyModal({ id }: { id: string }) {
                 )}
               </div>
             ))}
+            {clientCrew && <ClientCrewRow label={`${clientCrew.label} · not rostered by us`} roles={clientCrew.roles} />}
             <div className="tiny dim">Seats you set are locked: the rolling re-plan keeps them (flagged red if they become illegal). Tap the open lock to hand a seat back to the auto-roster.</div>
           </div>
         )}

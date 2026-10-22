@@ -28,7 +28,9 @@ export const LEFT_W = 176;
 export const BACK_DAYS = 7;
 export const BOARD_DAYS = 49;
 
-export type BoardItem = { kind: 'group'; key: string; label: string; ids: string[] } | { kind: 'crew'; id: string; group: string };
+export type BoardItem = { kind: 'group'; key: string; label: string; ids: string[] } | { kind: 'crew'; id: string; group: string }
+  /** v0.8 a mixed-crew contract's client cabin crew: one grey row, no names, not draggable. */
+  | { kind: 'client'; id: string; group: string };
 
 const ROLE_ORDER: Role[] = ['CPT', 'FO', 'CRP', 'PUR', 'CC'];
 export const ROLE_PLURAL: Record<Role, string> = { CPT: 'Captains', FO: 'First officers', CRP: 'Relief pilots', PUR: 'Pursers', CC: 'Cabin crew' };
@@ -312,4 +314,13 @@ export function blockKeys(blocks: CalBlock[]): string[] {
 }
 
 /** Board items as one string (same groups, labels and order → same string). */
-export const itemsSig = (items: BoardItem[]) => items.map((x) => (x.kind === 'group' ? `g:${x.key}:${x.label}:${x.ids.join(',')}` : `c:${x.id}`)).join(';');
+export const itemsSig = (items: BoardItem[]) => items.map((x) => (x.kind === 'group' ? `g:${x.key}:${x.label}:${x.ids.join(',')}` : x.kind === 'client' ? `k:${x.id}` : `c:${x.id}`)).join(';');
+
+/** v0.8 the 'Client cabin crew' group after our crew: shown with every rank or the cabin ranks, no search. */
+export function clientItems(rows: { key: string; label: string }[], f: Pick<BoardFilter, 'rank' | 'q'>): BoardItem[] {
+  if (!rows.length || f.q.trim() || !(f.rank === 'all' || f.rank === 'PUR' || f.rank === 'CC')) return [];
+  return [
+    { kind: 'group', key: 'client-crew', label: `Client cabin crew · flown with ours, rostered by the client (${rows.length})`, ids: [] },
+    ...rows.map((r) => ({ kind: 'client' as const, id: r.key, group: 'client-crew' })),
+  ];
+}

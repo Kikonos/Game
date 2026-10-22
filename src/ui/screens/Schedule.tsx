@@ -81,7 +81,7 @@ interface TripDrag {
 
 function Block({ b, from, ppm, win0 }: { b: GanttBlock; from: number; ppm: number; win0: number }) {
   const x = (b.start - from) * ppm;
-  const w = Math.max(b.kind === 'idle' ? 0 : 3, (b.end - b.start) * ppm);
+  const w = Math.max(b.kind === 'idle' || b.kind === 'cont' ? 0 : 3, (b.end - b.start) * ppm);
   const k = b.color !== null ? contractColor(b.color) : undefined;
   // The short label only when it fits whole (12 px padding + ≈ 9 px per bold capital): never 'L…'.
   const text = w >= 64 ? b.label : b.short && w >= 12 + (b.short.length === 1 ? 7.5 : 9 * b.short.length) ? b.short : '';
@@ -90,7 +90,7 @@ function Block({ b, from, ppm, win0 }: { b: GanttBlock; from: number; ppm: numbe
   // v0.7.1 §3.12: a flight the crew-shortage ladder marked carries CREW SHORT in front of its label when it fits.
   const short = !!b.alert && w >= 150 && text === b.label;
   // Long idle gaps that start off-screen: keep the label near the visible left edge (window start + 18 h).
-  const shift = b.kind === 'idle' ? Math.min(Math.max(0, (win0 + 18 * 60 - b.start) * ppm), Math.max(0, w - 90)) : 0;
+  const shift = b.kind === 'idle' || b.kind === 'cont' || b.kind === 'lease' ? Math.min(Math.max(0, (win0 + 18 * 60 - b.start) * ppm), Math.max(0, w - 90)) : 0;
   return (
     <div
       data-k={b.key}
@@ -203,7 +203,8 @@ export function ScheduleScreen() {
   /** Where `pending` lands in the view (0.5 = centre). */
   const pendingFrac = useRef(0.5);
   const sel = store.nav.sel?.kind === 'aircraft' ? store.nav.sel.id : null;
-  const fleet = Object.values(g.fleet).filter((a) => a.status !== 'leasedOut' || sel === a.id);
+  // v0.8: an aircraft leased out dry keeps its row (the lease block sits between its two ferries).
+  const fleet = Object.values(g.fleet);
 
   const syncWin = () => {
     const el = scroller.current;
