@@ -56,3 +56,17 @@ export function goneText(fix: CrewFix, no: string, consequences: string[]): stri
   }
   return null;
 }
+
+/** v0.7.2 F3: 'Hurts: reliability −2 · the client notices' chips: red at −3 or worse, amber otherwise; null for other chips. */
+export function hurtTone(chip: string): 'bad' | 'warn' | null {
+  const m = /^Hurts: reliability [−-](\d+(?:\.\d+)?)/.exec(chip);
+  if (!m) return /^Hurts:/.test(chip) ? 'warn' : null;
+  return Number(m[1]) >= 3 ? 'bad' : 'warn';
+}
+
+/** Chips to show (at most `n`), keeping any 'Hurts: …' chip. */
+export function keepHurt(chips: string[], n: number): string[] {
+  const hurt = chips.filter((c) => /^Hurts:/.test(c));
+  const rest = chips.filter((c) => !/^Hurts:/.test(c));
+  return [...rest.slice(0, Math.max(0, n - hurt.length)), ...hurt];
+}

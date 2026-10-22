@@ -27,10 +27,14 @@
  *                  v0.7 fleet & ladder (run last: they post market offers, grant Widebody operations, sign an A330 at
  *                  Santiago and book a VIP refit):
  *                    convert-confirm,fleet-market,acquire-modal,company-ladder,approval-modal,ladder-step,acquire-widebody,
- *                    fleet-delivering,schedule-delivering,refit-modal,fleet-refit,schedule-refit,lease-modal,settings-market,inbox-market
+ *                    fleet-delivering,schedule-delivering,refit-modal,fleet-refit,schedule-refit,lease-modal,market-toggles,inbox-market
  *                  v0.7.1 crew control + plain language (run last: they empty the pilot seats of the next flight):
  *                    crew-control,crew-control-jet,problem-modal,inbox-problems,glossary,duty-gauges,schedule-why,term-popover,hint,
  *                    fleet-short,settings-glossary
+ *                  v0.7.2 crew rules & fleet (run last: they post a market offer, empty pilot seats, add an A330-300 with crew
+ *                  rest seats, agree a sale and book a C-check at a hub):
+ *                    topbar-strip,topbar-strip-warnings,hire-multitype,refit-earliest,refit-rest-seats,flight-sheet-rest-seats,sell,
+ *                    return-early,which-one,check-hub,whats-new-072
  *   --save         an exported save (.blockhours.json) to load for the in-game screens; without it the harness
  *                  starts a new game from the New Game screen (--base, default LIS) and plays --days
  *                  game days (default 40) with __contrail.dev.autoplay so every screen has real data
@@ -58,8 +62,10 @@ const ALL = [
   'crew-board', 'crew-board-month', 'board-drag', 'board-popover', 'crew-select', 'convert-modal', 'classes-modal', 'crew-converting', 'board-converting',
   'crew-morale', 'crew-notice', 'train-modal', 'company-policies', 'fleet-extra', 'offer-extra', 'contracts-extra', 'duty-extra',
   'convert-confirm', 'fleet-market', 'acquire-modal', 'company-ladder', 'approval-modal', 'ladder-step', 'acquire-widebody', 'fleet-delivering',
-  'schedule-delivering', 'refit-modal', 'fleet-refit', 'schedule-refit', 'lease-modal', 'settings-market', 'inbox-market',
+  'schedule-delivering', 'refit-modal', 'fleet-refit', 'schedule-refit', 'lease-modal', 'market-toggles', 'inbox-market',
   'crew-control', 'crew-control-jet', 'problem-modal', 'inbox-problems', 'glossary', 'duty-gauges', 'schedule-why', 'term-popover', 'hint', 'fleet-short', 'settings-glossary',
+  'topbar-strip', 'topbar-strip-warnings', 'hire-multitype', 'refit-earliest', 'flight-sheet-rest-seats', 'refit-rest-seats', 'sell', 'return-early',
+  'which-one', 'check-hub', 'whats-new-072',
 ];
 const PRE_GAME = new Set(['loading', 'title', 'newgame', 'newgame-livery']);
 const VIEWS = {
@@ -735,11 +741,8 @@ Object.assign(ACTIONS, {
     await nav(page, 'fleet', { sel: { kind: 'aircraft', id } });
     await modal(page, { kind: 'lease', aircraftId: id });
   },
-  'settings-market': async (page) => {
-    await modal(page, { kind: 'settings' });
-    await page.evaluate(() => document.querySelector('.set-head')?.scrollIntoView({ block: 'start' }));
-    await settle(page, 300);
-  },
+  // v0.7.2 F2: the market alert toggles moved from Settings to Fleet → Market.
+  'market-toggles': (page) => nav(page, 'fleet', { view: 'market' }),
   'inbox-market': async (page, _s, d) => {
     await nav(page, 'inbox');
     const tab = page.getByRole('tab', { name: /^Market/ });
@@ -836,6 +839,69 @@ Object.assign(ACTIONS, {
     await page.evaluate(() => [...document.querySelectorAll('.set-head')].find((e) => /Plain/.test(e.textContent))?.scrollIntoView({ block: 'start' }));
     await settle(page, 300);
   },
+});
+
+// ---------- v0.7.2 crew rules & fleet ----------
+
+Object.assign(ACTIONS, {
+  'topbar-strip': (page) => nav(page, 'map'),
+  'topbar-strip-warnings': async (page) => {
+    await page.evaluate(() => { const s = window.__contrail; s.dev.marketOffer(); s.closeModal(); });
+    await ensureShortage(page);
+    await quiet(page);
+    await nav(page, 'map');
+  },
+  'hire-multitype': async (page, _s, d) => {
+    await nav(page, 'crew');
+    await modal(page, { kind: 'hire', role: 'CC' });
+    for (const t of ['A330', '777']) {
+      const b = page.locator('.hm-tick', { hasText: t }).first();
+      if (await b.count()) await press(page, b, d);
+    }
+    await settle(page, 300);
+  },
+  'refit-earliest': async (page) => {
+    const id = await pick(page, () => Object.values(window.__contrail.game.fleet).find((a) => a.status !== 'delivering')?.id);
+    if (!id) throw new Error('SKIP no aircraft');
+    await nav(page, 'fleet', { sel: { kind: 'aircraft', id } });
+    await modal(page, { kind: 'refit', aircraftId: id });
+  },
+  'flight-sheet-rest-seats': async (page) => {
+    const id = await page.evaluate(() => window.__contrail.dev.restSeats());
+    if (!id) throw new Error('SKIP no rest-seats flight');
+    await settle(page, 600);
+  },
+  'refit-rest-seats': async (page) => {
+    const ac = await pick(page, () => { const g = window.__contrail.game; return Object.values(g.fleet).find((a) => a.crewRest && !a.crewRest.bunks && a.typeId.startsWith('a33'))?.id; });
+    if (!ac) throw new Error('SKIP no widebody without bunks');
+    await nav(page, 'fleet', { sel: { kind: 'aircraft', id: ac } });
+    await modal(page, { kind: 'refit', aircraftId: ac, rest: true });
+  },
+  sell: async (page) => {
+    const id = await page.evaluate(() => window.__contrail.dev.saleReady());
+    if (!id) throw new Error('SKIP no owned aircraft');
+    await settle(page, 600);
+  },
+  'return-early': async (page) => {
+    const id = await pick(page, () => Object.values(window.__contrail.game.fleet).find((a) => a.ownership.kind === 'dryLeaseIn' && !a.returning)?.id);
+    if (!id) throw new Error('SKIP no leased aircraft');
+    await nav(page, 'fleet', { sel: { kind: 'aircraft', id } });
+    await modal(page, { kind: 'lease', aircraftId: id, tab: 'early' });
+  },
+  'which-one': async (page, _s, d) => {
+    await nav(page, 'fleet');
+    const b = page.getByRole('button', { name: /Which one/ });
+    if (!(await b.count())) throw new Error('SKIP one aircraft only');
+    await press(page, b.first(), d);
+    await settle(page, 500);
+  },
+  'check-hub': async (page) => {
+    const id = await pick(page, () => Object.values(window.__contrail.game.fleet).find((a) => a.status !== 'delivering' && !a.sale)?.id);
+    if (!id) throw new Error('SKIP no aircraft');
+    await nav(page, 'fleet', { sel: { kind: 'aircraft', id } });
+    await modal(page, { kind: 'check', aircraftId: id, checkKind: 'C' });
+  },
+  'whats-new-072': (page) => modal(page, { kind: 'whatsNew' }),
 });
 
 async function scrollNext(page) {

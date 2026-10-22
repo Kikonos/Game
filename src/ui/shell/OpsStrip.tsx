@@ -6,6 +6,7 @@
 import { AlertTriangle, Plane, Users, Wrench } from 'lucide-react';
 import { type ReactNode, useLayoutEffect, useRef, useState } from 'react';
 import { CLOCK_STEP, fmtTime } from '../../engine/core/time';
+import { countdown, fitStrip, type StripId } from './opsStripLogic';
 import type { GameState } from '../../engine/core/types';
 import { shortFlights } from '../../engine/crew';
 import { opsStripFacts } from '../../engine/ops';
@@ -14,7 +15,6 @@ import { typeName } from '../screens/Market';
 import { unseenOffers } from '../screens/screenLogic';
 import { store, useClock, useGame } from '../store';
 
-export type StripId = 'crewShort' | 'aog' | 'market' | 'next' | 'airborne' | 'onTime' | 'crew';
 
 export interface StripItem {
   id: StripId;
@@ -25,16 +25,6 @@ export interface StripItem {
   value: string;
   aria: string;
   go: () => void;
-}
-
-/** Drop order when space is short (first goes first). */
-export const DROP: StripId[] = ['crew', 'onTime', 'airborne', 'next'];
-
-/** '1:20' to a departure (h:mm), '0:05'; past 24 h the UTC time. */
-export function countdown(min: number, dep: number): string {
-  const m = Math.max(0, Math.round(min));
-  if (m >= 24 * 60) return fmtTime(dep);
-  return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
 }
 
 /** Open, unexpired market offers the player has not looked at (market alerts on). */
@@ -102,26 +92,6 @@ export function stripItems(g: GameState, shown: number): StripItem[] {
     aria: `${f.crewOnDuty} crew on duty, ${f.crewAtHotels} at hotels. Open Crew`, go: () => store.navigate('crew'),
   });
   return out;
-}
-
-/** Which items fit in `room` px: drop facts in DROP order, then fold warnings after the first into a '+N' chip. Pure. */
-export function fitStrip(items: { id: StripId; warn: boolean; w: number }[], room: number, gap: number, plusW: number): { show: Set<StripId>; folded: number } {
-  const show = new Set(items.map((i) => i.id));
-  const width = (extra = 0) => {
-    const vis = items.filter((i) => show.has(i.id));
-    return vis.reduce((s, i) => s + i.w, 0) + gap * Math.max(0, vis.length - 1 + (extra ? 1 : 0)) + extra;
-  };
-  for (const id of DROP) {
-    if (width() <= room) return { show, folded: 0 };
-    show.delete(id);
-  }
-  const warns = items.filter((i) => i.warn);
-  let folded = 0;
-  while (width(folded ? plusW : 0) > room && warns.length - folded > 1) {
-    folded++;
-    show.delete(warns[warns.length - folded].id);
-  }
-  return { show, folded };
 }
 
 const ICON: Partial<Record<StripId, ReactNode>> = { crewShort: <Users />, aog: <Wrench />, market: <Plane /> };

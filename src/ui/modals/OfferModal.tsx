@@ -215,6 +215,8 @@ function AircraftRow({ g, r, on, onPick, billBH, lift = 1, offerId }: { g: GameS
               <Dot tone={LEVEL_TONE[c.level]} />
               <span className="grow"><span>{c.label}</span>{c.detail && <span className="small muted"> · {c.detail}</span>}</span>
               {c.action?.kind === 'refit' && <button className="btn btn-sm" onClick={() => store.openModal({ kind: 'refit', aircraftId: r.aircraftId, layout: c.action!.layout, offerId })}>Plan refit…</button>}
+              {/* v0.7.2 §3: no crew rest on the aircraft, or too few seats once the rest row is blocked. */}
+              {!c.action && c.level !== 'ok' && (c.id === 'restSeats' || /no crew rest/i.test(`${c.label} ${c.detail ?? ''}`)) && !g.fleet[r.aircraftId]?.crewRest?.bunks && <button className="btn btn-sm" onClick={() => store.openModal({ kind: 'refit', aircraftId: r.aircraftId, offerId, rest: true })}>Plan crew rest…</button>}
             </div>
           ))}
           {r.techStops.length > 0 && <div className="small muted">Fuel stops: {r.techStops.join(', ')}</div>}

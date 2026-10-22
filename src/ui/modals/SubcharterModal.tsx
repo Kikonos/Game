@@ -1,5 +1,6 @@
 // Sub-charter (B5 + integration): hand a rotation, some days of a base programme or the rest of a charter to a
-// rival operator at their price. The client is still billed; reliability takes no hit. Compared with cancelling.
+// rival operator at their price. The client is still billed. v0.7.2 F3: the client notices: each leg handed over
+// costs reliability, more when it becomes a habit (subcharterHit, shown as a 'Hurts' chip). Compared with cancelling.
 
 import { Handshake } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -8,6 +9,7 @@ import { DAY, fmtDateTime, fmtDay } from '../../engine/core/time';
 import { Modal, Toggle } from '../components/ui';
 import { money } from '../format';
 import { KV } from '../screens/common';
+import { hurtTone } from './crewControlLogic';
 import { store, useGame } from '../store';
 import type { Flight } from '../../engine/core/types';
 import { rotationOf, subcharter, subcharterable, subcharterQuote } from '../../engine/ops';
@@ -84,6 +86,7 @@ export function SubcharterModal({ contractId, flightId }: { contractId: string; 
             ['Legs', `${q.revenueLegs} revenue leg${q.revenueLegs > 1 ? 's' : ''} · ${q.bh.toFixed(1)} BH`],
             ['Still billed to the client', money(q.revenue)],
             ['Their price', money(q.cost)],
+            ['The client notices', <span className={`chip sc-chip ${hurtTone(`Hurts: ${q.hit.text}`) ?? 'warn'}`}>Hurts: {q.hit.text}</span>],
             ['Cancelling instead', q.cancel ? `${money(q.cancel)} compensation, reliability falls` : 'no compensation, reliability falls'],
           ]} />
         ) : (
