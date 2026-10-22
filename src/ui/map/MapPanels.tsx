@@ -3,8 +3,10 @@
 // countdowns step once per game hour. Every leg carries its flight type (Operating / Positioning / Ferry / Deadhead).
 // v0.7: delivery, refit and lease-return blocks on the aircraft panel, aircraft awaiting delivery on the airport
 // panel, and why our crew ride an airline leg (ticketPurpose) on its panel.
+// v0.7.1: a CREW SHORTAGE banner, the card's one-sentence why, its mini-map and a Crew Control button on a crew-short
+// flight's aircraft panel; WHY? on red/amber leg dots (opens the problem card); the chartered private jet's panel.
 
-import { CalendarRange, FileSearch, PackageCheck, Plane, Undo2, Users, Wrench, X } from 'lucide-react';
+import { CalendarRange, FileSearch, LifeBuoy, PackageCheck, Plane, Undo2, Users, Wrench, X } from 'lucide-react';
 import { type ReactNode, useMemo } from 'react';
 import { ACMI_TYPES, artFor } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE } from '../../data/airports';
@@ -15,22 +17,57 @@ import { feasibilityAll } from '../../engine/contracts';
 import { flightsOf } from '../../engine/core/entities';
 import { currentFlight, flightTimes } from '../../engine/core/query';
 import { DAY, fmtDay, fmtDuration, fmtTime, localOffset } from '../../engine/core/time';
-import type { Aircraft, CrewMember, Flight, GameState, MaintenanceEvent, Ref } from '../../engine/core/types';
-import { crewName, dutyCrew, flightCrewStatus } from '../../engine/crew';
-import { checkStatus, CONNECT_MIN, commercialItinerary, deliveryStatus, FLIGHT_TYPE_HINT, FLIGHT_TYPE_LABEL, flightCrewAboard, type FlightType, flightType, liveryOf, ticketPurpose } from '../../engine/ops';
+import type { Aircraft, CrewMember, Flight, GameState, MaintenanceEvent, ProblemRef, Ref } from '../../engine/core/types';
+import { crewName, crewShortCard, dutyCrew, flightCrewStatus, seatsText } from '../../engine/crew';
+import { checkStatus, CONNECT_MIN, commercialItinerary, deliveryStatus, FLIGHT_TYPE_HINT, FLIGHT_TYPE_LABEL, flightCrewAboard, type FlightType, flightType, liveryOf, problemAt, ticketPurpose } from '../../engine/ops';
 import { ferryCost } from '../../engine/ops/delivery';
 import { AircraftArt } from '../components/AircraftArt';
 import { Bar } from '../components/ui';
 import { money } from '../format';
 import { contractColor } from '../screens/palette';
-import { store } from '../store';
+import { type ModalSpec, store } from '../store';
 import { paintLabel } from '../screens/scheduleLogic';
 import { archLabel, expiryLabel, offerDays } from '../screens/screenLogic';
-import { awaitingDelivery, chipInfo, commercialById, deliveryTag, parseCommercialId, PURPOSE_LABEL, purposeChain, upcomingLegs } from './mapLogic';
+import { awaitingDelivery, chipInfo, commercialById, deliveryTag, parseCommercialId, PURPOSE_LABEL, purposeChain, shortIndex, type ShortRow, upcomingLegs } from './mapLogic';
+import { MiniMap } from './MiniMap';
 
 const ROLE_ORDER = ['CPT', 'FO', 'CRP', 'CSD', 'SCC', 'CC'];
 const LEVEL_TONE = { ok: 'good', tight: 'warn', missing: 'bad', illegal: 'bad' } as const;
 const LEVEL_TEXT = { ok: 'Legal', tight: 'Tight', missing: 'Uncrewed', illegal: 'Illegal' } as const;
+
+// ---------- v0.7.1 problem cards (the modal kinds come with the UI lane's store additions, UPDATE-0.7.1.md §15) ----------
+
+/** Opens the Crew Control panel for a flight. */
+export const openCrewControl = (flightId: string) => store.openModal({ kind: 'crewControl', flightId } as unknown as ModalSpec);
+/** Opens the plain-language card behind a red/amber dot (nothing when the entity has no problem any more). */
+export function openProblem(g: GameState, ref: Ref): boolean {
+  const card = safe(() => problemAt(g, ref), null);
+  if (!card) return false;
+  store.openModal({ kind: 'problem', subject: card.subject as ProblemRef } as unknown as ModalSpec);
+  return true;
+}
+
+/** Missing seats in player words ('1 captain and 2 cabin crew'): roles counted in seat order. */
+const SEAT_ORDER = ['CPT', 'FO', 'CRP', 'CSD', 'SCC', 'CC'] as const;
+const groupSeats = (roles: CrewMember['role'][]) => SEAT_ORDER.flatMap((role) => {
+  const n = roles.filter((r) => r === role).length;
+  return n ? [{ role, n }] : [];
+});
+
+/** The CREW SHORTAGE banner (static, upper-case mono) for a ladder stage. */
+export const ShortBanner = ({ stage, small }: { stage: 'amber' | 'red'; small?: boolean }) => (
+  <span className={`op-banner ${stage}${small ? ' small' : ''}`}>CREW SHORTAGE</span>
+);
+
+/** A red/amber dot with a 44 px WHY? hit that opens the card; a plain dot otherwise. */
+function Why({ g, tone, ref }: { g: GameState; tone: string; ref: Ref }) {
+  if (tone !== 'bad' && tone !== 'warn') return <Dot tone={tone} />;
+  return (
+    <button className="op-why" onClick={(e) => { e.stopPropagation(); openProblem(g, ref); }} aria-label="Why?" title="Why?">
+      <Dot tone={tone} />
+    </button>
+  );
+}
 
 /** Never let a module stub or a half-built API take the map down. */
 function safe<T>(fn: () => T, fallback: T): T {
@@ -101,23 +138,27 @@ function crewOf(g: GameState, f: Flight): CrewMember[] {
   return ids.map((id) => g.crew[id]).filter(Boolean).sort(byRole);
 }
 
-function LegRow({ g, f, onTap }: { g: GameState; f: Flight; onTap?: () => void }) {
+function LegRow({ g, f, onTap, short }: { g: GameState; f: Flight; onTap?: () => void; short?: ShortRow }) {
   const c = f.contractId ? g.contracts[f.contractId] : undefined;
   const dep = f.std + f.delay;
   const cs = safe(() => flightCrewStatus(g, f.id), { level: 'ok' as const, missing: [] });
   const type = safe(() => flightType(g, f), 'operating' as FlightType);
+  // v0.7.1: the row is a div so the WHY? dot can be its own 44 px button inside it.
+  const Main = onTap ? 'button' : 'span';
   return (
-    <button className="op-leg" onClick={onTap} disabled={!onTap}>
-      <span className="op-leg-k" style={{ background: c ? contractColor(c.color) : 'var(--text-3)' }} />
-      <span className="col" style={{ minWidth: 0, flex: 1 }}>
-        <span className="row op-tight"><b className="mono">{f.from}→{f.to}</b><span className="small muted mono">{f.no}</span></span>
-        <span className="small muted ellipsis">
-          {fmtDay(dep)} {fmtTime(dep)} UTC · {fmtDuration(f.block)}{f.kind === 'techstop' ? ' · fuel stop' : ''}{f.delay ? ` · +${fmtDuration(f.delay)}` : ''}
+    <div className={`op-leg${onTap ? ' tappable' : ''}`}>
+      <Main className="op-leg-main" onClick={onTap}>
+        <span className="op-leg-k" style={{ background: c ? contractColor(c.color) : 'var(--text-3)' }} />
+        <span className="col" style={{ minWidth: 0, flex: 1 }}>
+          <span className="row op-tight"><b className="mono">{f.from}→{f.to}</b><span className="small muted mono">{f.no}</span></span>
+          <span className="small muted ellipsis">
+            {fmtDay(dep)} {fmtTime(dep)} UTC · {fmtDuration(f.block)}{f.kind === 'techstop' ? ' · fuel stop' : ''}{f.delay ? ` · +${fmtDuration(f.delay)}` : ''}
+          </span>
         </span>
-      </span>
-      <span className={`op-type-s ${type}`}>{FLIGHT_TYPE_LABEL[type]}</span>
-      <Dot tone={LEVEL_TONE[cs.level]} />
-    </button>
+        {short ? <ShortBanner stage={short.stage} small /> : <span className={`op-type-s ${type}`}>{FLIGHT_TYPE_LABEL[type]}</span>}
+      </Main>
+      <Why g={g} tone={LEVEL_TONE[cs.level]} ref={{ kind: 'flight', id: f.id }} />
+    </div>
   );
 }
 
@@ -281,6 +322,10 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
   const lv = liveryOf(g, ac);
   // The ops stub returns zeros; show check data only once it means something.
   const csKnown = !!cs && (cs.aHoursLeft > 0 || cs.cHoursLeft > 0 || !!cs.nextA || !!cs.nextC || cs.risk > 0);
+  // v0.7.1: the ladder's list (crewAlert set and still short) drives the banner; the card gives the one-sentence why.
+  const short = safe(() => shortIndex(g).byFlight, new Map<string, ShortRow>());
+  const shortRow = crewFlight && !cur ? short.get(crewFlight.id) : undefined;
+  const shortCard = shortRow ? safe(() => crewShortCard(g, shortRow.flightId), null) : null;
 
   let now: ReactNode;
   const curType = cur ? safe(() => flightType(g, cur), 'operating' as FlightType) : null;
@@ -344,8 +389,17 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
       <PlannedBlocks g={g} ac={ac} />
       <Section
         title={cur ? 'Crew on board' : crewFlight ? `Crew for ${crewFlight.no}` : 'Crew'}
-        aside={later ? <span className="small muted">Rostered later</span> : cstat && <span className={`small tone-${LEVEL_TONE[cstat.level]}`}><Dot tone={LEVEL_TONE[cstat.level]} />{LEVEL_TEXT[cstat.level]}</span>}
+        aside={shortRow ? <ShortBanner stage={shortRow.stage} /> : later ? <span className="small muted">Rostered later</span> : cstat && <span className={`small tone-${LEVEL_TONE[cstat.level]}`}><Dot tone={LEVEL_TONE[cstat.level]} />{LEVEL_TEXT[cstat.level]}</span>}
       >
+        {shortRow && crewFlight && (
+          <div className={`op-short ${shortRow.stage}`}>
+            <div className="op-short-what">{shortCard?.what ?? `${crewFlight.no} has no crew`}<span className="small muted"> · departs {fmtTime(crewFlight.std)} UTC, in {fmtDuration(Math.max(0, crewFlight.std - t))}</span></div>
+            {shortCard?.why && <div className="small op-short-why">{shortCard.why}</div>}
+            {shortCard?.hurt.text && <div className="small muted">Does it hurt? {shortCard.hurt.text}</div>}
+            {shortCard?.visuals.minimap && <MiniMap spec={shortCard.visuals.minimap} width={322} />}
+            <button className="btn btn-primary op-crew-btn" onClick={() => openCrewControl(crewFlight.id)}><LifeBuoy /> Crew Control</button>
+          </div>
+        )}
         {crew.length ? (
           <div className="op-crew">
             {crew.map((m) => (
@@ -372,7 +426,7 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
         ) : (
           <div className="small muted">{crewFlight ? 'No crew rostered yet.' : 'No flights planned.'}</div>
         )}
-        {cstat && !later && cstat.missing.length > 0 && <div className="small tone-bad op-gap">Missing: {cstat.missing.join(', ')}</div>}
+        {cstat && !later && cstat.missing.length > 0 && <div className="small tone-bad op-gap">Missing: {seatsText(groupSeats(cstat.missing))}</div>}
         {riders.length > 0 && (
           <>
             <div className="small muted op-gap">Riding as passengers</div>
@@ -384,7 +438,7 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
         )}
       </Section>
       <Section title="Next legs">
-        {legs.length ? legs.map((f) => <LegRow key={f.id} g={g} f={f} />) : <div className="small muted">Nothing scheduled. Idle aircraft earn nothing: check the market.</div>}
+        {legs.length ? legs.map((f) => <LegRow key={f.id} g={g} f={f} short={short.get(f.id)} />) : <div className="small muted">Nothing scheduled. Idle aircraft earn nothing: check the market.</div>}
       </Section>
       <Section title="Maintenance">
         {csKnown && cs ? (
@@ -418,6 +472,7 @@ function AirportPanel({ g, code }: { g: GameState; code: string }) {
   const deps: Flight[] = [];
   for (const id of Object.keys(g.fleet)) for (const f of flightsOf(g, id)) if (f.status === 'scheduled' && f.from === code && f.std + f.delay < t + DAY) deps.push(f);
   deps.sort((x, y) => x.std + x.delay - (y.std + y.delay));
+  const short = safe(() => shortIndex(g), { byFlight: new Map<string, ShortRow>(), byAircraft: new Map<string, ShortRow>() });
   if (!a) return null;
   return (
     <Panel title={a.name} kicker={`${code} · ${a.city}`} onClose={() => store.select(undefined)}>
@@ -428,7 +483,7 @@ function AirportPanel({ g, code }: { g: GameState; code: string }) {
       </div>
       <Section title="Our aircraft">
         {here.length ? here.map((ac) => {
-          const ci = chipInfo(g, ac, t);
+          const ci = chipInfo(g, ac, t, short.byAircraft.get(ac.id));
           return (
             <button key={ac.id} className="op-row" onClick={() => store.select({ kind: 'aircraft', id: ac.id })}>
               <Dot tone={ci.tone} /><b className="mono">{ac.reg}</b><span className="small muted ellipsis">{ac.flightId ? `Inbound · ${ci.line}` : ci.line}</span>
@@ -458,7 +513,7 @@ function AirportPanel({ g, code }: { g: GameState; code: string }) {
       </Section>
       {deps.length > 0 && (
         <Section title="Departures, next 24 h">
-          {deps.slice(0, 4).map((f) => <LegRow key={f.id} g={g} f={f} onTap={f.aircraftId ? () => store.select({ kind: 'aircraft', id: f.aircraftId! }) : undefined} />)}
+          {deps.slice(0, 4).map((f) => <LegRow key={f.id} g={g} f={f} short={short.byFlight.get(f.id)} onTap={f.aircraftId ? () => store.select({ kind: 'aircraft', id: f.aircraftId! }) : undefined} />)}
         </Section>
       )}
       <Section title="Offers from here">
@@ -555,10 +610,14 @@ function CommercialPanel({ g, id }: { g: GameState; id: string }) {
   const dest = AIRPORT_BY_CODE[ticket.to];
   const why = safe(() => ticketPurpose(g, ticket.id), null);
   const whyAc = why?.aircraftId ? g.fleet[why.aircraftId] : undefined;
+  // v0.7.1: a chartered private jet (ticket.charter): the type is the title, the operator the kicker.
+  const jet = leg.jet ? ticket.charter : undefined;
+  const whyText = why?.text && jet && ticket.cost ? `${why.text} · ${money(ticket.cost)}` : why?.text;
   return (
-    <Panel title={<span className="mono">{leg.no}</span>} kicker={`Deadhead · ${leg.airline}`} onClose={() => store.select(undefined)}>
+    <Panel title={jet ? jet.model : <span className="mono">{leg.no}</span>} kicker={jet ? `Private jet · ${jet.operator}` : `Deadhead · ${leg.airline}`} onClose={() => store.select(undefined)}>
       <div className="row wrap op-chips">
         <TypeChip type="deadhead" />
+        {jet && <span className="chip op-jet-tag">PRIVATE JET</span>}
         <span className={`chip ${state === 'air' ? 'tone-air' : ''}`}>{state === 'air' ? 'Airborne' : state === 'before' ? 'Scheduled' : 'Landed'}</span>
         {legs.length > 1 && <span className="chip">Leg {ref.legIndex + 1} of {legs.length}</span>}
       </div>
@@ -566,7 +625,12 @@ function CommercialPanel({ g, id }: { g: GameState; id: string }) {
         <div className="row between"><b className="mono op-big">{leg.from} → {leg.to}</b><span className="small muted ellipsis">{A?.city ?? leg.from} – {B?.city ?? leg.to}</span></div>
         {state === 'air' && <Bar value={prog} size="thin" />}
         <div className="op-kv">
-          <div><span>Airline</span><b className="ellipsis">{leg.airline} ({leg.iata})</b></div>
+          {jet ? (
+            <>
+              <div><span>Operator</span><b className="ellipsis">{jet.operator}</b></div>
+              <div><span>Aircraft</span><b className="ellipsis">{jet.model} · <span className="mono">{jet.reg}</span></b></div>
+            </>
+          ) : <div><span>Airline</span><b className="ellipsis">{leg.airline} ({leg.iata})</b></div>}
           <div><span>Departs</span><b className="num">{fmtDay(leg.dep)} · {utcLocal(leg.dep, leg.from)}</b></div>
           <div><span>Arrives</span><b className="num">{fmtDay(leg.arr)} · {utcLocal(leg.arr, leg.to)}</b></div>
           {state === 'air' && <div><span>Time to landing</span><b className="num">{fmtDuration(Math.max(0, leg.arr - t))}</b></div>}
@@ -589,17 +653,17 @@ function CommercialPanel({ g, id }: { g: GameState; id: string }) {
       )}
       <Section title="Our crew on board" aside={<span className="small muted">{crew.length}</span>}>
         {crew.length ? <CrewRows crew={crew} /> : <div className="small muted">Nobody of ours on this ticket any more.</div>}
-        <div className="small muted op-gap">Travelling as passengers to {dest?.city ?? ticket.to} ({ticket.to}){legs.length > 1 ? ` via ${legs[0].to}` : ''}.</div>
+        <div className="small muted op-gap">{jet ? 'Flown' : 'Travelling as passengers'} to {dest?.city ?? ticket.to} ({ticket.to}){legs.length > 1 ? ` via ${legs[0].to}` : ''}.</div>
       </Section>
-      {why?.text && (
+      {whyText && why && (
         <Section title="Purpose">
           {whyAc ? (
             <button className="op-row" onClick={() => store.select({ kind: 'aircraft', id: whyAc.id })}>
               {why.kind === 'delivery' ? <PackageCheck /> : why.kind === 'return' ? <Undo2 /> : why.kind === 'refit' ? <Wrench /> : <Plane />}
-              <span className="op-wrap">{why.text}</span>
+              <span className="op-wrap">{whyText}</span>
             </button>
           ) : (
-            <div className="op-row static"><Plane /><span className="op-wrap">{why.text}</span></div>
+            <div className="op-row static"><Plane /><span className="op-wrap">{whyText}</span></div>
           )}
         </Section>
       )}

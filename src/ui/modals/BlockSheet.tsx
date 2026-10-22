@@ -9,7 +9,9 @@ import { DAY, fmtDateTime, fmtDuration, fmtTime } from '../../engine/core/time';
 import type { Flight, GameState, MaintenanceEvent, Ref } from '../../engine/core/types';
 import { crewName, dutyCrew, dutyLegality, flightCrewStatus } from '../../engine/crew';
 import { cancelCheck, delayFlight, flightCrewAboard, flightType } from '../../engine/ops';
+import { problemAt } from '../../engine/problems';
 import { FlightTypeChip } from '../components/FlightType';
+import { ProblemCardView } from '../components/ProblemCard';
 import { Modal, Stepper } from '../components/ui';
 import { money } from '../format';
 import { Dot, KV } from '../screens/common';
@@ -59,8 +61,17 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
     const r = store.act((gg) => delayFlight(gg, f.id, hold * 30, 'Held by operations'));
     if (r.ok) setHold(0);
   };
+  // v0.7.1 §4: the four-line card on top (crew shortage, illegal or tight crew, an uncrewed ferry), the banner while the ladder mark stands.
+  const card = live && !later && f.kind !== 'deadhead' ? problemAt(g, { kind: 'flight', id: f.id }) : null;
+  const short = !!card && (card.subject.kind === 'crewShort' || card.subject.kind === 'crewIllegal' || card.subject.kind === 'ferryUncrewed');
   return (
     <div className="col gap-12">
+      {card && (
+        <ProblemCardView card={card} g={g} hideActions>
+          {short && <button className="btn btn-primary" onClick={() => store.openModal({ kind: 'crewControl', flightId: f.id })}><Users /> Crew Control</button>}
+          {short && f.crewAlert && <span className={`cs-banner ${card.severity}`}>CREW SHORTAGE</span>}
+        </ProblemCardView>
+      )}
       <div className="small muted">{AIRPORT_BY_CODE[f.from]?.city ?? f.from} → {AIRPORT_BY_CODE[f.to]?.city ?? f.to}</div>
       <KV rows={rows} />
       {f.aircraftId && f.kind !== 'deadhead' && (
@@ -70,7 +81,7 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
           ) : (
             <div className="row gap-8"><Dot tone={LEVEL_TONE[cs.level]} /><b>Crew {cs.level === 'ok' ? 'legal' : cs.level}</b>{cs.missing.length > 0 && <span className="small bad">missing {cs.missing.join(', ')}</span>}</div>
           )}
-          {!later && why && <div className={`small ${cs.level === 'illegal' ? 'bad' : 'warn'}`}>{why}</div>}
+          {!later && why && !card && <div className={`small ${cs.level === 'illegal' ? 'bad' : 'warn'}`}>{why}</div>}
           {view && view.slots.some((x) => x.crewId) && (
             <div className="sc-crew-grid">
               {view.slots.filter((x) => x.crewId).map((x) => (

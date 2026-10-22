@@ -46,6 +46,8 @@ export interface CommercialLeg {
   to: string;
   dep: Minute;
   arr: Minute;
+  /** v0.7.1: a chartered private jet (airline = operator, no = type): the map draws the jet glyph. */
+  jet?: boolean;
 }
 
 /** A routing for a city pair: carriers per leg (equivalent alternatives; one is picked per day) and via hub. */
@@ -331,7 +333,10 @@ export function commercialItinerary(_g: GameState, f: Flight): CommercialLeg[] {
   const k = `${f.from}${f.to}${f.std}:${f.sta}`;
   const hit = legCache.get(f);
   if (hit && hit.k === k) return hit.legs;
-  const legs = itinerary(f.from, f.to, f.std, f.sta);
+  // v0.7.1: a chartered jet is one leg flown by its operator (crew/control.ts charterJet).
+  const legs = f.charter
+    ? [{ airline: f.charter.operator, iata: 'PJ', no: f.charter.model, from: f.from, to: f.to, dep: f.std, arr: f.sta, jet: true }]
+    : itinerary(f.from, f.to, f.std, f.sta);
   legCache.set(f, { k, legs });
   return legs;
 }

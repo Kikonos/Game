@@ -10,11 +10,16 @@ import { BAL } from '../../engine/core/balance';
 import { DAY, fmtDateTime, fmtDuration, fmtTime } from '../../engine/core/time';
 import type { GameState, Role } from '../../engine/core/types';
 import {
-  assignCrew, crewRev, dutyCandidates, dutyCrew, dutyLegality, dutyOf, rosterOf, swapCrew, unassignCrew, unlockCrew,
+  assignCrew, crewGauges, crewRev, dutyCandidates, dutyCrew, dutyLegality, dutyOf, rosterOf, swapCrew, unassignCrew, unlockCrew,
   type DutyCandidate, type DutyCrewView, type RosterSlotView,
 } from '../../engine/crew';
+import { problemAt } from '../../engine/problems';
 import { Modal, Seg } from '../components/ui';
 import { FlightTypeChip } from '../components/FlightType';
+import { GaugeRow } from '../components/Gauge';
+import { ProblemCardView } from '../components/ProblemCard';
+import { ReasonLine } from '../components/ReasonIcon';
+import { Plain } from '../components/Term';
 import { flightType } from '../../engine/ops';
 import { money } from '../format';
 import { Dot } from '../screens/common';
@@ -50,6 +55,13 @@ interface Pick {
   /** Seat being changed (null: add a crew member above the complement). */
   seat: RosterSlotView | null;
   role: Role;
+}
+
+/** v0.7.1 §7: the three gauges that matter for a seat (day length, rest, 28-day flying) under the name. */
+function SeatGauges({ g, crewId, dutyId }: { g: GameState; crewId: string; dutyId: string }) {
+  const specs = crewGauges(g, crewId, dutyId).filter((x) => x.id === 'fdp' || x.id === 'rest' || x.id === 'block28d');
+  if (!specs.length) return null;
+  return <div className="sc-seat-gauges"><GaugeRow specs={specs} /></div>;
 }
 
 function Seat({ s, busy, later, onChange, onRemove, onUnlock }: { s: RosterSlotView; busy: boolean; later: boolean; onChange: () => void; onRemove: () => void; onUnlock: () => void }) {
@@ -99,7 +111,8 @@ function Candidate({ c, confirm, swapWith, onTap }: { c: DutyCandidate; confirm:
           at {c.loc} · {c.block28dH} h block in 28 d{c.ticket > 0 ? ` · ticket ${money(c.ticket)}` : ''}
         </span>
         {c.travel && <span className="small muted sc-cand-why">{c.travel}</span>}
-        {c.reasons.length > 0 && <span className={`small sc-cand-why ${LEVEL_TONE[c.level]}`}>{c.reasons.slice(0, 2).join(' · ')}</span>}
+        {/* v0.7.1 §6: one reason per person with its icon; the full list behind a tap. */}
+        {c.reason ? <ReasonLine reason={c.reason} tone={c.level === 'illegal' ? 'bad' : 'warn'} /> : c.reasons.length > 0 && <span className={`small sc-cand-why ${LEVEL_TONE[c.level]}`}>{c.reasons.slice(0, 2).join(' · ')}</span>}
         {confirm && (
           <span className="small bad sc-cand-confirm">
             {swapWith ? 'Tap again to swap them between the two trips.' : 'Tap again to assign anyway. The duty stays flagged red until you fix it.'}
@@ -177,6 +190,9 @@ export function DutyModal({ id }: { id: string }) {
   const busy = v.inProgress;
   const route = dutyRoute(g, d.id);
   const later = d.report > g.now + BAL.rosterHorizonDays * DAY && v.slots.every((x) => !x.crewId);
+  // v0.7.1 §4: the same four-line card as the flight sheet and the Inbox, with Crew Control for a shortage.
+  const card = first && !later ? problemAt(g, { kind: 'flight', id: first.id }) : null;
+  const short = card && (card.subject.kind === 'crewShort' || card.subject.kind === 'crewIllegal' || card.subject.kind === 'ferryUncrewed');
   const remove = (s: RosterSlotView) => {
     if (!s.crewId) return;
     const optional = s.extra || s.above;
@@ -185,7 +201,7 @@ export function DutyModal({ id }: { id: string }) {
     setForceOff(null);
   };
   return (
-    <Modal size="wide" className="sc-duty-modal" title={`Crew · ${route}`} icon={<Users className="accent" />} onClose={close} footer={
+    <Modal size="wide" className="sc-duty-modal" title={<span className="row gap-12 wrap"><span>Crew · {route}</span>{short && card && !pick && <span className={`cs-banner ${card.severity}`}>CREW SHORTAGE</span>}</span>} icon={<Users className="accent" />} onClose={close} footer={
       pick ? undefined : (
         <>
           <button className="btn" onClick={() => setPick({ seat: null, role: 'CC' })} disabled={busy}><Plus /> Add crew member</button>
@@ -195,13 +211,20 @@ export function DutyModal({ id }: { id: string }) {
       )
     }>
       <div className="col gap-12">
+        {card && !pick && (
+          <div className="dm-card">
+            <ProblemCardView card={card} g={g} hideActions>
+              {short && first && <button className="btn btn-primary" onClick={() => store.openModal({ kind: 'crewControl', flightId: first.id })}><Users /> Crew Control</button>}
+            </ProblemCardView>
+          </div>
+        )}
         <div className="sc-duty-head">
           <div className="col gap-4" style={{ minWidth: 0 }}>
             <span className="small muted">
               Report {fmtDateTime(d.report)} UTC{first ? ` (${fmtTime(d.report, first.from)} at ${first.from})` : ''} · release {fmtTime(d.release)} UTC
             </span>
             <span className="small muted">
-              FDP {fmtDuration(d.fdp)} of {fmtDuration(d.maxFdp + (d.discretion ?? 0))} · {d.sectors} sector{d.sectors === 1 ? '' : 's'}{d.augment ? ` · +${d.augment} pilot${d.augment > 1 ? 's' : ''}` : ''}
+              <Plain text="FDP" terms={['fdp']} /> {fmtDuration(d.fdp)} of {fmtDuration(d.maxFdp + (d.discretion ?? 0))} · {d.sectors} sector{d.sectors === 1 ? '' : 's'}{d.augment ? ` · +${d.augment} pilot${d.augment > 1 ? 's' : ''}` : ''}
               {ac ? ` · ${ac.reg}` : ''}
             </span>
             <span className="small dim">
@@ -242,6 +265,7 @@ export function DutyModal({ id }: { id: string }) {
             {v.slots.map((s) => (
               <div key={`${s.index}-${s.crewId ?? 'empty'}`} className="col gap-4">
                 <Seat s={s} busy={busy} later={later} onChange={() => setPick({ seat: s, role: s.role })} onRemove={() => remove(s)} onUnlock={() => s.crewId && store.act((gg) => unlockCrew(gg, v.dutyId, s.crewId!), { toastOk: false })} />
+                {s.crewId && !later && <SeatGauges g={g} crewId={s.crewId} dutyId={v.dutyId} />}
                 {forceOff && forceOff === s.crewId && (
                   <div className="sc-force row gap-8">
                     <span className="small bad grow">{g.company.policies.autoRoster

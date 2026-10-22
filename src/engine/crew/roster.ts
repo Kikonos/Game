@@ -67,6 +67,12 @@ type TicketLike = { from: string; to: string; std: Minute; sta: Minute; rideId?:
 
 /** Buys a ticket for a group and attaches it to a duty; cost posted to 'deadhead' unless the client pays. */
 function buyTicket(g: GameState, p: Pairing, d: Duty, crewIds: string[], t: TicketLike, res: RosterResult): Flight {
+  // v0.7.1: a chartered jet already booked for these crew (planCrew used it as their ride out): nothing to buy.
+  const booked = (t as Partial<Flight>).id ? g.flights[(t as Partial<Flight>).id!] : undefined;
+  if (booked && booked.charter && booked.status === 'scheduled') {
+    if (!d.deadheadIds.includes(booked.id)) d.deadheadIds.push(booked.id);
+    return booked;
+  }
   const ride = t.rideId ? g.flights[t.rideId] : undefined;
   if (ride && ride.status === 'scheduled') {
     ride.riders = [...new Set([...(ride.riders ?? []), ...crewIds])];
@@ -528,6 +534,7 @@ export function guardDuty(g: GameState, dutyId: string): boolean {
       title: `${off.length === 1 ? 'Crew member' : `${off.length} crew`} taken off ${f?.no ?? 'a duty'}`,
       body: `${off.map((b) => crewName(g.crew[b.crewId])).join(', ')}: ${off[0].issue.text}. ${short ? `No legal replacement for ${short} seat${short > 1 ? 's' : ''} on ${what} yet.` : `Replaced on ${what}.`}`,
       ref: f ? { kind: 'flight', id: f.id } : undefined,
+      ...(short && f ? { problem: { kind: 'crewShort' as const, ref: { kind: 'flight' as const, id: f.id } }, hurt: { money: 0, pax: f.pax ?? 0, delayMin: 0, level: (f.pax ?? 0) >= BAL.crewControl.hurtLowPax ? 'high' as const : 'low' as const } } : {}),
     });
   }
   if (short) requestPause('crewShortage');
@@ -764,14 +771,24 @@ function uncoveredOf(g: GameState, ps: Pairing[], from: Minute, to: Minute): str
   return out;
 }
 
-/** Uncovered flights departing within 48 h: one message per batch and a crewShortage pause (warned once per flight, saved). */
+let shortHook: ((g: GameState) => void) | null = null;
+/** v0.7.1: crew/control.ts registers the warning ladder (amber ≤ 48 h message, red ≤ 12 h + pause). */
+export function setShortHook(f: (g: GameState) => void): void {
+  shortHook = f;
+}
+
+/**
+ * Uncovered flights departing within 48 h: the v0.7.1 ladder (escalateShortages) marks and messages them; without
+ * it (tests of the roster alone) the old one message per batch and a crewShortage pause.
+ */
 function warnShort(g: GameState, ids: string[]): void {
+  if (shortHook) return shortHook(g);
   const soon = ids.filter((id) => {
     const f = g.flights[id];
-    return !!f && !f.crewWarned && f.std < g.now + 2 * DAY;
+    return !!f && !f.crewAlert && !f.crewWarned && f.std < g.now + 2 * DAY;
   });
   if (!soon.length) return;
-  for (const id of soon) g.flights[id].crewWarned = true;
+  for (const id of soon) g.flights[id].crewAlert = 'amber';
   const fl = soon.map((id) => g.flights[id]).sort((a, b) => a.std - b.std);
   const f = fl[0];
   pushMessage(g, {

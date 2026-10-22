@@ -8,6 +8,7 @@ import { fmtDay, fmtTime } from '../core/time';
 import type { ActionResult, CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing, Role } from '../core/types';
 import { issueLevelFor, openDuties, planCrew } from './check';
 import { crewName } from './generate';
+import { rootReason, type Reason } from './reasons';
 import { emptyResult, fillAll, placeCrew, recheckPairing, releaseCrew } from './roster';
 import { levelOf, worst, type IssueCode } from './rules';
 import { block28, locAt, segsOf, ticketPrice, touchCrew, typeIdOf, viaText } from './timeline';
@@ -105,6 +106,10 @@ export interface DutyCandidate {
   block28dH: number;
   /** The planned trip out to the first departure, e.g. 'Deadhead LIS 09:00 → VNO 15:55 UTC (via FRA)' (none when there already). */
   travel?: string;
+  /** v0.7.1: when that trip out lands (the ticket's arrival). */
+  arrives?: Minute;
+  /** v0.7.1: the one root reason when not clean (UPDATE-0.7.1.md §6). */
+  reason?: Reason;
 }
 
 /**
@@ -142,7 +147,8 @@ export function dutyCandidates(g: GameState, dutyOrFlightId: string, role: Role)
     if (c.role !== role) reasons.push(`${c.role} in a ${role} seat`);
     out.push({
       crewId: c.id, name: crewName(c), role: c.role, legal: level !== 'illegal', level, reasons, codes: [...new Set(issues.map((i) => i.code))],
-      loc, onPairing: on.has(c.id), ticket, block28dH: Math.round(b28 * 10) / 10, travel,
+      loc, onPairing: on.has(c.id), ticket, block28dH: Math.round(b28 * 10) / 10, travel, arrives: o && !lost ? o.sta : undefined,
+      reason: level !== 'legal' ? rootReason(g, issues, c, p) ?? undefined : undefined,
       score: -ticket - 2 * b28 - (c.role !== role ? 50 : 0),
     });
   }
@@ -155,6 +161,8 @@ export interface DutyLegalityWarning {
   text: string;
   code: IssueCode | 'missing' | 'extra' | 'extraEmpty';
   crewId?: string;
+  /** v0.7.1: the crew member's one root reason (crew warnings). */
+  reason?: Reason;
 }
 
 export interface DutyLegalityView {
@@ -175,7 +183,7 @@ export function dutyLegality(g: GameState, dutyOrFlightId: string): DutyLegality
     warnings.push({ level: d.legality, code: 'fdp', text: `FDP ${hm(d.fdp)} ${d.legality === 'illegal' ? 'over' : 'close to'} the ${hm(max)} limit${d.discretion ? ' (with discretion)' : ''}` });
   }
   const missing = p.slots.filter((s) => !s.crewId && !s.above).map((s) => s.role);
-  if (missing.length) warnings.push({ level: 'illegal', code: 'missing', text: `No ${missing.join(', ')}` });
+  if (missing.length) warnings.push({ level: 'illegal', code: 'missing', text: `No ${seatWords(missing)} yet` });
   let level: Legality = worst(d.legality, missing.length ? 'illegal' : 'legal');
   // v0.6: optional seats above the legal minimum only warn when empty.
   const spare = p.slots.filter((s) => !s.crewId && s.above);
@@ -194,12 +202,14 @@ export function dutyLegality(g: GameState, dutyOrFlightId: string): DutyLegality
       // Issues of this duty (rating and status sit on the first duty they hit); an earlier duty of the trip the crew
       // member can't fly breaks this one too, a later one only warns (the same reading as flightCrewStatus). Other
       // trips' issues are theirs; a loose ticket's (no duty) is no duty's.
+      const mine = plan.issues.filter((i) => i.code !== 'fdp' && issueLevelFor(g, p, d, i) !== 'legal');
+      const reason = mine.length ? rootReason(g, mine, c, p) ?? undefined : undefined;
       for (const i of plan.issues) {
         const lv = i.code === 'fdp' ? 'legal' : issueLevelFor(g, p, d, i);
         if (lv === 'legal') continue;
         const x = i.dutyId && i.dutyId !== d.id ? g.duties[i.dutyId] : undefined;
         const when = x ? ` (${x.report < d.report ? 'earlier' : 'later'} duty, ${fmtDay(x.report)})` : '';
-        warnings.push({ level: lv, code: i.code, text: `${crewName(c)}: ${i.text}${when}`, crewId: c.id });
+        warnings.push({ level: lv, code: i.code, text: `${crewName(c)}: ${i.text}${when}`, crewId: c.id, reason });
         level = worst(level, lv);
       }
     }
@@ -213,6 +223,19 @@ export function dutyLegality(g: GameState, dutyOrFlightId: string): DutyLegality
 export interface RosterOpts {
   /** Accept an illegal assignment (it stays flagged red) or leave a required seat empty. */
   force?: boolean;
+}
+
+/** v0.7.1 plain words for empty seats: ['CPT', 'FO', 'CC', 'CC'] → 'captain, first officer and 2 cabin crew'. */
+const SEAT_WORD: Record<Role, [string, string]> = {
+  CPT: ['captain', 'captains'], FO: ['first officer', 'first officers'], CRP: ['relief pilot', 'relief pilots'],
+  CSD: ['cabin manager', 'cabin managers'], SCC: ['senior cabin crew', 'senior cabin crew'], CC: ['cabin crew', 'cabin crew'],
+};
+function seatWords(roles: Role[]): string {
+  const parts = (Object.keys(SEAT_WORD) as Role[]).map((r) => {
+    const n = roles.filter((x) => x === r).length;
+    return n === 0 ? '' : n === 1 ? SEAT_WORD[r][0] : `${n} ${SEAT_WORD[r][1]}`;
+  }).filter(Boolean);
+  return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts[0] ?? '';
 }
 
 function issuesText(g: GameState, c: CrewMember, p: Pairing): { level: Legality; text: string } {

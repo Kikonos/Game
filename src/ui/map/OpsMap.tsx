@@ -7,8 +7,8 @@
 // v0.7: aircraft appear at their handover site once handed over (DELIVERY tag until home); a selected aircraft's
 // arcs show its whole delivery / return / refit ferry chain.
 
-import { Users } from 'lucide-react';
-import { useCallback, useMemo, useRef } from 'react';
+import { HelpCircle, Users, X } from 'lucide-react';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { DAY, fmtDay, fmtTime } from '../../engine/core/time';
 import type { GameState, Ref } from '../../engine/core/types';
@@ -16,7 +16,7 @@ import { commercialFlightsBetween, FLIGHT_TYPE_HINT, FLIGHT_TYPE_LABEL, FLIGHT_T
 import { store, useClock, useGame } from '../store';
 import { AircraftLayer, ArcsLayer, CommercialLayer, HIT_R, type LiveShared, NightLayer, newShared, PathsLayer, PinsLayer, pinOffset } from './LiveLayers';
 import { MapPanel, TypeKey } from './MapPanels';
-import { awaitingDelivery, chipInfo, commercialById, fitCodes, onMap, fitFresh, isCommercialId, mapAirports, offerPins, pickNearest, selectedLegs, upNextRows } from './mapLogic';
+import { awaitingDelivery, chipInfo, commercialById, fitCodes, onMap, fitFresh, isCommercialId, JET_PATH, mapAirports, offerPins, pickNearest, selectedLegs, shortIndex, upNextRows } from './mapLogic';
 import { type FocusAt, type MapAirport, type MapLayerCtx, type Pad, type View, WorldMap } from './WorldMap';
 
 /** Panel width (px) kept clear when revealing a selection, and the fleet strip's height. */
@@ -35,10 +35,12 @@ function FleetStrip({ g, sel, panelOpen }: { g: GameState; sel?: Ref; panelOpen:
   if (!list.length) return null;
   // Fixed-width chips: the hourly status text never reflows the strip.
   const compact = list.length > (panelOpen ? FULL_CHIPS - 1 : FULL_CHIPS);
+  // v0.7.1: a crew-short flight turns its aircraft's chip amber/red ("CREW SHORT 08:34").
+  const short = shortIndex(g).byAircraft;
   return (
     <div className={`ops-strip ${compact ? 'compact' : ''}`} role="list" aria-label="Fleet">
       {list.map((ac) => {
-        const ci = chipInfo(g, ac, g.now);
+        const ci = chipInfo(g, ac, g.now, short.get(ac.id));
         const on = sel?.kind === 'aircraft' && sel.id === ac.id;
         return (
           <button key={ac.id} role="listitem" className={`ops-chip ${on ? 'on' : ''}`} title={`${ac.reg} · ${ci.line}`} onClick={() => store.select(on ? undefined : { kind: 'aircraft', id: ac.id })}>
@@ -64,6 +66,42 @@ function depLabel(now: number, t: number) {
   return <>{fmtTime(t)}{d === 1 && <sup className="dim">+1</sup>}</>;
 }
 
+/** v0.7.1 colour legend for the map's crew layer: what the lines, icons, dots and chips mean. */
+const LEGEND: { swatch: ReactNode; label: string }[] = [
+  { swatch: <TypeKey type="operating" />, label: 'Solid green: our aircraft flying passengers' },
+  { swatch: <TypeKey type="positioning" />, label: 'Dotted amber: our aircraft flying empty (positioning or ferry)' },
+  { swatch: <TypeKey type="deadhead" />, label: 'Thin dotted grey: our crew riding an airline or a private jet' },
+  { swatch: <svg width={16} height={16} viewBox="0 0 24 24" aria-hidden><path d={JET_PATH} fill="#848ea2" stroke="#d3d9e4" strokeWidth={1.5} /></svg>, label: 'Grey icon: an airline flight or a private jet (their aircraft, our crew)' },
+  { swatch: <span className="op-dot good" />, label: 'Green dot: the flight has a legal crew' },
+  { swatch: <span className="op-dot warn" />, label: 'Amber: tight, or a crew shortage two days out' },
+  { swatch: <span className="op-dot bad" />, label: 'Red: no legal crew, under 12 hours to go (CREW SHORTAGE)' },
+  { swatch: <span className="op-dot air" />, label: 'Blue: airborne' },
+  { swatch: <span className="op-dot" />, label: 'Grey chip: idle, or a delivery not yet started' },
+];
+
+function MapLegend() {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  // Any tap elsewhere closes it.
+  useEffect(() => {
+    if (!open) return;
+    const off = (e: PointerEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('pointerdown', off, true);
+    return () => document.removeEventListener('pointerdown', off, true);
+  }, [open]);
+  return (
+    <div className="ops-help" ref={ref}>
+      <button className="btn btn-ghost btn-icon ops-help-btn" onClick={() => setOpen((v) => !v)} aria-label="What the colours mean" aria-expanded={open} title="What the colours mean"><HelpCircle /></button>
+      {open && (
+        <div className="ops-help-pop card" role="dialog" aria-label="What the colours mean">
+          <div className="row between ops-help-h"><span className="upper dim">What the colours mean</span><button className="btn btn-ghost btn-icon" onClick={() => setOpen(false)} aria-label="Close"><X /></button></div>
+          {LEGEND.map((l, i) => <div key={i} className="ops-help-row"><span className="ops-help-sw">{l.swatch}</span><span>{l.label}</span></div>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function UpNext({ g }: { g: GameState }) {
   // Steps with the clock label (10–30 game min), so a leg that has gone drops out between hourly emits.
   const now = useClock();
@@ -74,15 +112,21 @@ function UpNext({ g }: { g: GameState }) {
     <div className={`ops-next card ${dated ? 'dated' : ''}`} aria-label="Up next">
       <div className="upper dim">Up next</div>
       {list.map((r) => (
-        <button key={r.id} className={`ops-next-row ${r.type}`} onClick={() => r.sel && store.select(r.sel)} title={FLIGHT_TYPE_HINT[r.type]}>
+        // v0.7.1: a private jet row names the jet type under "Private jet"; a crew-short flight carries the CREW SHORT chip.
+        <button key={r.id} className={`ops-next-row ${r.type}${r.jet ? ' jet' : ''}`} onClick={() => r.sel && store.select(r.sel)} title={r.jet ? 'A chartered private jet positioning our crew' : FLIGHT_TYPE_HINT[r.type]}>
           <span className="mono">{depLabel(now, r.t)}</span>
-          <b className="mono ellipsis">{r.who}</b>
+          <b className={`ellipsis${r.jet ? '' : ' mono'}`}>{r.who}</b>
           <span className="mono muted">{r.from}→{r.to}</span>
-          <span className={`ops-type ${r.type}`}><TypeKey type={r.type} />{FLIGHT_TYPE_LABEL[r.type]}{r.crew ? <span className="ops-type-n" aria-label={`${r.crew} crew`}><Users aria-hidden />{r.crew}</span> : null}</span>
+          <span className={`ops-type ${r.type}`}>
+            <TypeKey type={r.type} />
+            {r.alert ? <span className={`ops-short ${r.alert}`}>CREW SHORT</span> : r.jet ? 'Private jet' : FLIGHT_TYPE_LABEL[r.type]}
+            {r.crew ? <span className="ops-type-n" aria-label={`${r.crew} crew`}><Users aria-hidden />{r.crew}</span> : null}
+          </span>
         </button>
       ))}
       <div className="ops-legend" aria-label="Flight types">
         {FLIGHT_TYPES.map((t) => <span key={t} title={FLIGHT_TYPE_HINT[t]}><TypeKey type={t} />{FLIGHT_TYPE_LABEL[t]}</span>)}
+        <MapLegend />
       </div>
     </div>
   );

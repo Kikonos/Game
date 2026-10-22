@@ -202,7 +202,10 @@ describe('crew short', () => {
 
   it('discretion is offered and the default when the overrun is 2 h or less', () => {
     const { g, f, duty, d } = overrun(60);
-    expect(d.options.map((o) => o.id)).toEqual(['standby', 'discretion', 'subcharter', 'cancel']);
+    // v0.7.1: the options are Crew Control's fixes (discretion first; delay and cancel always offered).
+    expect(d.options.map((o) => o.id)).toContain('discretion');
+    expect(d.options.map((o) => o.id)).toContain('delay');
+    expect(d.options.map((o) => o.id)).toContain('cancel');
     expect(d.defaultOption).toBe('discretion');
     const crew = g.pairings[duty.pairingId].slots.map((s) => g.crew[s.crewId!]);
     const morale = crew.map((c) => c.morale);
@@ -215,10 +218,12 @@ describe('crew short', () => {
 
   it('no discretion beyond 2 h: wait for a legal crew, sub-charter or cancel', () => {
     const { g, f, d } = overrun(180);
-    expect(d.options.map((o) => o.id)).toEqual(['standby', 'subcharter', 'cancel']);
-    expect(['standby', 'subcharter']).toContain(d.defaultOption);
+    expect(d.options.map((o) => o.id)).not.toContain('discretion');
+    expect(d.options.map((o) => o.id)).toContain('delay');
+    expect(d.options.map((o) => o.id)).toContain('cancel');
+    expect(['delay', 'subcharter']).toContain(d.defaultOption);
     const std = f.std;
-    expect(resolveDecision(g, d.id, 'standby').ok).toBe(true);
+    expect(resolveDecision(g, d.id, 'delay').ok).toBe(true);
     expect(f.crewDecided).toBe(true);
     expect(f.status === 'cancelled' || f.std > std).toBe(true);
   });

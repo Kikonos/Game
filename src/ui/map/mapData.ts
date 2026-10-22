@@ -39,6 +39,11 @@ export function projection(rotate = 0): GeoProjection {
   return p;
 }
 
+/** v0.7.1 mini-maps: the land drawn with any projection (clip it to the view first so the path stays small). */
+export function landPathFor(proj: GeoProjection): string {
+  return land ? geoPath(proj)(land) ?? '' : '';
+}
+
 const pathCache = new Map<number, { land: string; borders: string; graticule: string }>();
 
 export function basePaths(rotate = 0) {

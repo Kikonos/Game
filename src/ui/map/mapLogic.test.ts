@@ -2,14 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { flightsOf } from '../../engine/core/entities';
 import { aircraftLive } from '../../engine/core/query';
-import { fromUTC } from '../../engine/core/time';
+import { fmtTime, fromUTC } from '../../engine/core/time';
 import type { ContractOffer } from '../../engine/core/types';
 import { demoFlights } from '../../engine/dev';
 import { createGame } from '../../engine/newGame';
 import { advanceTo } from '../../engine/sim';
 import {
   awaitingDelivery, chipInfo, commercialById, deliveryTag, fitCodes, onMap, purposeChain, groupCommercial, headingDeg, isCommercialId, lerpAngle, mapAirports, offerPins, parkOffset, PARK_GAP, parseCommercialId, downSide, legLabelSide, pickNearest, placeLabels, regSlot, REG_DY,
-  selectedLegs, trackLabelAt, sunElevation, sunPoint, terminator, TYPE_STROKE, upNext, upNextRows,
+  JET_PATH, selectedLegs, shortIndex, trackLabelAt, sunElevation, sunPoint, terminator, TYPE_STROKE, upNext, upNextRows,
 } from './mapLogic';
 import { addDeadhead } from '../../engine/core/entities';
 import { acquireAircraft, commercialFlightsBetween, deliveryStatus, ticketBlock, ticketPurpose } from '../../engine/ops';
@@ -334,5 +334,88 @@ describe('v0.7 deliveries on the map', () => {
     expect(chipInfo(g, ac, g.now).line.length).toBeLessThanOrEqual(17);
     g.maintenance.m1.kind = 'return';
     expect(chipInfo(g, ac, g.now).line).toMatch(/^Return → /);
+  });
+});
+
+// ---------- v0.7.1 ----------
+
+/** One out-and-back DUS–FNC (aircraft at DUS, crew at LIS) rostered, then its captain taken off `hoursBefore` the report. */
+async function shortOfCaptain(hoursBefore: number, dest = 'FNC', othersOnLeave = false, seed = 5) {
+  const { addFlight } = await import('../../engine/core/entities');
+  const { blockMinutes } = await import('../../engine/core/perf');
+  const { buildDuties } = await import('../../engine/crew/duties');
+  const { fixtureContract, fixtureGame } = await import('../../engine/crew/fixtures');
+  const { autoRoster, releaseCrew, setFlightsCrew } = await import('../../engine/crew/roster');
+  const { escalateShortages } = await import('../../engine/crew');
+  const g = fixtureGame(seed);
+  const acId = Object.keys(g.fleet)[0];
+  const ac = g.fleet[acId];
+  ac.at = 'DUS';
+  const std = Math.floor(g.now / DAY) * DAY + 2 * DAY + 17 * 60;
+  const b = blockMinutes(ac.typeId, 'DUS', dest);
+  const k = fixtureContract(g, { pattern: { kind: 'legs', legs: [] }, aircraftIds: [acId], start: std - DAY, end: std + 2 * DAY, product: { kind: 'charter', price: 120_000, depositPct: 0.3, balanceDaysBefore: 7, fuelEscalation: false }, penalties: { cancelScale: [], perDelay: 2_500, perCancelledLeg: 15_000 } });
+  const f1 = addFlight(g, { no: 'AW816', aircraftId: acId, contractId: k.id, kind: 'revenue', from: 'DUS', to: dest, std, sta: std + b, pax: 170 });
+  const f2 = addFlight(g, { no: 'AW817', aircraftId: acId, contractId: k.id, kind: 'revenue', from: dest, to: 'DUS', std: std + b + 50, sta: std + 2 * b + 50, pax: 160 });
+  buildDuties(g, acId, g.now, g.now + 5 * DAY);
+  addCrew(g, { CPT: 2, FO: 2, SCC: 1, CC: 3 });
+  autoRoster(g);
+  const d = g.duties[g.flights[f1.id].dutyId!];
+  const p = g.pairings[d.pairingId];
+  const was = p.slots.find((s) => s.role === 'CPT' && s.crewId)!.crewId!;
+  releaseCrew(g, p, was);
+  setFlightsCrew(g, p);
+  g.now = d.report - hoursBefore * 60;
+  // Only the released captain (at base) is free: the jet is the way to get a captain to DUS in time.
+  if (othersOnLeave) for (const c of Object.values(g.crew)) if (c.role === 'CPT' && c.id !== was) { c.blocks = [{ from: g.now - DAY, to: g.now + 10 * DAY, why: 'leave' }]; c.status = 'leave'; }
+  escalateShortages(g);
+  return { g, flightId: f1.id, backId: f2.id, acId, was };
+}
+
+describe('v0.7.1 crew shortages and private jets on the map', () => {
+  it('indexes the ladder list, tones the chip and chips the Up Next row', async () => {
+    const { g, flightId: id, backId, acId } = await shortOfCaptain(10);
+    const f = g.flights[id];
+    expect(f.crewAlert).toBe('red');
+    const ix = shortIndex(g);
+    const row = ix.byFlight.get(id)!;
+    expect(row).toMatchObject({ flightId: id, aircraftId: acId, stage: 'red', std: f.std });
+    expect(ix.byAircraft.get(acId)!.flightId).toBe(id);
+    const ac = g.fleet[acId];
+    const ci = chipInfo(g, ac, g.now, row);
+    expect(ci.tone).toBe('bad');
+    expect(ci.line).toBe(`CREW SHORT ${fmtTime(f.std)}`);
+    expect(ci.line.length).toBeLessThanOrEqual(17);
+    expect(ci.short.length).toBeLessThanOrEqual(10);
+    expect(chipInfo(g, ac, g.now, { ...row, stage: 'amber' }).tone).toBe('warn');
+    expect(chipInfo(g, ac, g.now).line).not.toMatch(/CREW/);
+    const rows = upNextRows(g, 8);
+    expect(rows.find((r) => r.id === id)?.alert).toBe('red');
+    // The return leg shares the duty (short too); the airline legs carry no chip.
+    expect(rows.find((r) => r.id === backId)?.alert).toBeTruthy();
+    expect(rows.filter((r) => r.id !== id && r.id !== backId).every((r) => !r.alert)).toBe(true);
+    // Two days out it is amber.
+    const amber = await shortOfCaptain(40);
+    expect(shortIndex(amber.g).byFlight.get(amber.flightId)?.stage).toBe('amber');
+  });
+
+  it('rows a chartered private jet by its type, flagged jet, with our crew aboard', async () => {
+    const { charterJet, crewControl } = await import('../../engine/crew');
+    const { g, flightId: id, was } = await shortOfCaptain(6, 'LHR', true);
+    const view = crewControl(g, id, { previews: false });
+    expect(view?.solutions.find((s) => s.id === 'jet')?.available).toBe(true);
+    const r = charterJet(g, id, [was], 'midsize');
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const t = g.flights[r.data!.ticketIds[0]];
+    expect(t.charter).toBeTruthy();
+    const cfs = commercialFlightsBetween(g, t.std - 1, t.sta + 1).filter((c) => c.ticketId === t.id);
+    expect(cfs.length).toBe(1);
+    expect(cfs[0].leg).toMatchObject({ jet: true, no: t.charter!.model, airline: t.charter!.operator });
+    const row = upNextRows(g, 12, t.std - 1).find((x) => x.id === cfs[0].id);
+    expect(row).toMatchObject({ jet: true, who: t.charter!.model, type: 'deadhead', crew: t.crewIds.length });
+    expect(commercialById(g, cfs[0].id)?.leg.jet).toBe(true);
+    // The flight is crewed now: no banner.
+    expect(shortIndex(g).byFlight.has(id)).toBe(false);
+    expect(JET_PATH.startsWith('M12 1.2')).toBe(true);
   });
 });

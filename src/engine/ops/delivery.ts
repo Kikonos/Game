@@ -312,6 +312,8 @@ export function ticketPurpose(g: GameState, ticketId: string): { kind: 'delivery
     return { kind: pf.purpose, aircraftId: ac?.id, text: `${what} for ${ac?.reg ?? 'our aircraft'} · ferry ${legs[0].from}–${legs[legs.length - 1].to} ${fmtDay(legs[0].std)}` };
   }
   const first = g.flights[d.flightIds[0]];
+  // v0.7.1: a chartered jet names itself.
+  if (t.charter) return { kind: 'duty', aircraftId: ac?.id, text: first ? `Private jet for ${first.no} · ${t.charter.model} (${t.charter.operator})` : `Private jet · ${t.charter.model} (${t.charter.operator})` };
   return { kind: 'duty', aircraftId: ac?.id, text: first ? `Positioning for ${first.no} ${first.from}–${first.to} ${fmtDay(first.std)}` : 'Positioning for a duty' };
 }
 
@@ -413,6 +415,7 @@ export function dailyDelivery(g: GameState): void {
         body: `No ${typeOf(ac.typeId).short}-rated captain and first officer are free on ${fmtDate(first.std)}. The aircraft waits at ${cityOf(dl.site)} until they are (parking ${usd(BAL.delivery.parkPerDay[wideOf(ac.typeId)])}/day). Hire rated pilots or book a conversion.` +
           (work ? ` Contract work from ${fmtDay(work.std)} (${work.no} ${work.from}–${work.to}) waits behind the ferry: legs that would leave more than 6 h late are dropped.` : ''),
         ref: { kind: 'aircraft', id: ac.id },
+        problem: { kind: 'deliveryWait', ref: { kind: 'aircraft', id: ac.id } }, hurt: { money: BAL.delivery.parkPerDay[wideOf(ac.typeId)] * 7, pax: 0, delayMin: 0, level: 'low' },
       });
     }
   }

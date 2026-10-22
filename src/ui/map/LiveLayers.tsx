@@ -19,7 +19,7 @@ import { PLANE_PATH } from '../components/Logo';
 import { liveMinute, store } from '../store';
 import { isTouch } from '../useMedia';
 import { MAP_H, MAP_W } from './mapData';
-import { deliveryTag, headingDeg, onMap, type LabelBox, boxOverlap, groupCommercial, lerpAngle, parkOffset, downSide, legLabelSide, placeLabels, regSlot, type RegSlot, trackCovered, trackLabelAt, type LegArc, type PinGroup, sunPoint, terminator, TYPE_STROKE } from './mapLogic';
+import { deliveryTag, headingDeg, JET_PATH, onMap, type LabelBox, boxOverlap, groupCommercial, lerpAngle, parkOffset, downSide, legLabelSide, placeLabels, regSlot, type RegSlot, trackCovered, trackLabelAt, type LegArc, type PinGroup, sunPoint, terminator, TYPE_STROKE } from './mapLogic';
 import type { MapLayerCtx } from './WorldMap';
 
 /** Live positions shared with tap picking and focus (map units, as last drawn). */
@@ -51,6 +51,8 @@ export const HIT_R = { touch: 22, mouse: 14 };
 const GLYPH_PX = 22;
 /** Airline icons: a little smaller than ours. */
 const CM_GLYPH_PX = 20;
+/** v0.7.1 chartered private jets: smaller still, in the same grey ink. */
+const JET_GLYPH_PX = 18;
 /** Airline legs are fetched for this many game minutes at a time, then filtered per frame. */
 const CM_BUCKET = 10;
 const NS = 'http://www.w3.org/2000/svg';
@@ -523,11 +525,13 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
           up.add(cf.id);
           let x = cms.get(cf.id);
           if (!x) {
-            const el = svgEl('g', { class: 'ops-cmf', 'data-id': cf.id }, cmRoot);
+            // A chartered private jet (leg.jet) flies like an airline leg, with the business-jet glyph and its type as the label.
+            const jet = !!cf.leg.jet;
+            const el = svgEl('g', { class: jet ? 'ops-cmf jet' : 'ops-cmf', 'data-id': cf.id }, cmRoot);
             svgEl('circle', { class: 'hit', r: HIT_R.touch }, el);
             svgEl('circle', { class: 'sel-ring', r: 14 }, el);
             const glyph = svgEl('g', { class: 'glyph' }, el);
-            svgEl('path', { d: PLANE_PATH, transform: `scale(${CM_GLYPH_PX / 24}) translate(-12 -12)` }, glyph);
+            svgEl('path', { d: jet ? JET_PATH : PLANE_PATH, transform: `scale(${(jet ? JET_GLYPH_PX : CM_GLYPH_PX) / 24}) translate(-12 -12)` }, glyph);
             const no = svgEl('text', { class: 'no' }, el);
             no.textContent = cf.leg.no;
             const path = cmPathRoot ? svgEl('path', { d: lineD(cf.leg.from, cf.leg.to) }, cmPathRoot) : null;

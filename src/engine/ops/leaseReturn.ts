@@ -9,6 +9,7 @@ import { BAL } from '../core/balance';
 import { flightsOf, removeFlights, touchFlights } from '../core/entities';
 import { cashOnly, post } from '../core/ledger';
 import { pushDecision, pushMessage } from '../core/messages';
+import { cardMeta, leaseReturnCard } from '../problems';
 import { typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { DAY, fmtDate, fmtDay } from '../core/time';
@@ -177,7 +178,7 @@ export function dailyLeases(g: GameState): void {
       const m = g.maintenance[ac.returning.maintId];
       if (!m || m.status === 'cancelled') {
         delete ac.returning;
-        pushMessage(g, { tone: 'warn', cat: 'company', title: `Lease return slipped: ${ac.reg}`, body: `The return check at ${siteCity(own.returnSite ?? g.company.homeBase)} fell through. Book the return again or extend; at the lease end it rolls on a month at +10%.`, ref: { kind: 'aircraft', id: ac.id } });
+        pushMessage(g, { tone: 'warn', cat: 'company', title: `Lease return slipped: ${ac.reg}`, body: `The return check at ${siteCity(own.returnSite ?? g.company.homeBase)} fell through. Book the return again or extend; at the lease end it rolls on a month at +10%.`, ref: { kind: 'aircraft', id: ac.id }, ...cardMeta(leaseReturnCard(g, ac.id)) });
       }
       continue;
     }

@@ -7,6 +7,7 @@ import { BAL } from '../core/balance';
 import { nextId } from '../core/entities';
 import { distance, distanceNm } from '../core/geo';
 import { pushMessage } from '../core/messages';
+import { cardMeta, offerFitCard } from '../problems';
 import { requestPause } from '../core/pause';
 import { blockMinutes, complement, etopsNeeded, planSector, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
@@ -878,7 +879,7 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   // Urgent work we could actually fly stops the clock (setting) and gets an inbox line; the rest just pins the map.
   if (urgency === 'urgent' && Object.keys(g.fleet).some((id) => feasibility(g, o.id, id, { quick: true }).level !== 'no')) {
     requestPause('urgentOffer');
-    pushMessage(g, { tone: 'warn', cat: 'commercial', title: `Urgent: ${o.title}`, body: `${d.client.name} needs an answer by ${fmtDay(o.expires)} ${fmtTime(o.expires)} UTC.`, ref: { kind: 'offer', id: o.id } });
+    pushMessage(g, { tone: 'warn', cat: 'commercial', title: `Urgent: ${o.title}`, body: `${d.client.name} needs an answer by ${fmtDay(o.expires)} ${fmtTime(o.expires)} UTC.`, ref: { kind: 'offer', id: o.id }, ...cardMeta(offerFitCard(g, o.id)), hurt: { money: o.estValue, pax: 0, delayMin: 0, level: 'high' } });
   }
   return o;
 }
@@ -1010,7 +1011,7 @@ export function onOfferReply(g: GameState, ev: SimEvent): void {
     pushMessage(g, {
       tone: 'warn', cat: 'commercial', title: `${client} met us halfway: ${o.title}`,
       body: `They won't go to our counter but offer ${fmtPrice(o.product)} (they asked ${was}). Accept by ${until}, or let it go.`,
-      ref: { kind: 'offer', id: o.id },
+      ref: { kind: 'offer', id: o.id }, problem: { kind: 'counterExpiry', ref: { kind: 'offer', id: o.id } }, hurt: { money: o.estValue, pax: 0, delayMin: 0, level: 'high' },
     });
     if (o.urgency === 'urgent') requestPause('urgentOffer');
     return;

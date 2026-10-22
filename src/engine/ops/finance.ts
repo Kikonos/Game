@@ -4,6 +4,7 @@
 import { BAL } from '../core/balance';
 import { cashOnly, post, statementTotals } from '../core/ledger';
 import { pushMessage } from '../core/messages';
+import { cardMeta, cashLowCard, invoiceOverdueCard, postProblem } from '../problems';
 import { requestPause } from '../core/pause';
 import { typeOf } from '../core/perf';
 import { DAY, fmtMonth, monthKey, monthStart } from '../core/time';
@@ -109,7 +110,7 @@ export function dailyFinance(g: GameState): void {
     if (over >= 30 && (r.nudged ?? 0) < 30) {
       r.nudged = 30;
       if (g.decisions.length < BAL.maxOpenDecisions) latePaymentDecision(g, r);
-      else pushMessage(g, { tone: 'warn', cat: 'finance', title: `${g.clients[r.clientId]?.name ?? 'A client'} is 30 days late`, body: `${usd(r.amount)} for ${r.desc}.` });
+      else pushMessage(g, { tone: 'warn', cat: 'finance', title: `${g.clients[r.clientId]?.name ?? 'A client'} is 30 days late`, body: `${usd(r.amount)} for ${r.desc}.`, ref: r.contractId ? { kind: 'contract', id: r.contractId } : undefined, ...cardMeta(invoiceOverdueCard(g, r.id)) });
     } else if (over >= 7 && (r.nudged ?? 0) < 7) {
       r.nudged = 7;
       // Late interest (BAL.lateInterest a year) is flavour in v0.5: shown, never collected.
@@ -140,7 +141,9 @@ export function dailyFinance(g: GameState): void {
     const low = Math.min(...cashForecast(g, 30).map((p) => p.cash));
     if (low < 0) {
       f.lowCashAt = g.now;
-      pushMessage(g, { tone: 'bad', cat: 'finance', title: 'Cash is running out', body: `The 30-day forecast dips to ${usd(low)}. Find work, chase receivables or cut costs.` });
+      const card = cashLowCard(g);
+      if (card) postProblem(g, card, { cat: 'finance', tone: 'bad', tail: 'Find work, chase receivables or cut costs.' });
+      else pushMessage(g, { tone: 'bad', cat: 'finance', title: 'Cash is running out', body: `The 30-day forecast dips to ${usd(low)}. Find work, chase receivables or cut costs.` });
     }
   }
 }

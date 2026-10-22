@@ -558,7 +558,28 @@ export interface Flight {
   crewWarned?: boolean;
   /** v0.7: why an empty ferry flies (labels, map, ticket purpose). */
   purpose?: 'delivery' | 'return' | 'refit';
+  /** v0.7.1 crew-shortage ladder stage reached (amber ≤ 48 h, red ≤ 12 h); load: crewWarned → 'amber'. */
+  crewAlert?: 'amber' | 'red';
+  /** v0.7.1 a chartered business jet carrying our crew (kind 'deadhead'). */
+  charter?: { cls: JetClass; model: string; operator: string; reg: string };
 }
+
+/** v0.7.1 private-jet charter classes (data/jets.ts). */
+export type JetClass = 'light' | 'midsize' | 'heavy';
+
+/** v0.7.1 Crew Control fixes (crew/control.ts). */
+export type CrewFix = 'autoFix' | 'deadhead' | 'delay' | 'jet' | 'callIn' | 'discretion' | 'swap' | 'subcharter' | 'cancel';
+
+/** v0.7.1 every kind of problem a ProblemCard can be about (engine/problems). */
+export type ProblemKind =
+  | 'crewShort' | 'crewIllegal' | 'crewTight' | 'crewReach' | 'crewRest' | 'crewFdp' | 'crewSick' | 'crewResigned'
+  | 'aog' | 'checkDue' | 'checkOverdue' | 'checkClash' | 'checkNoSlot' | 'grounded'
+  | 'offerFit' | 'counterExpiry' | 'changeRequest' | 'penalty' | 'contractCancelled'
+  | 'cashLow' | 'invoiceOverdue' | 'lossMonth' | 'leaseDue' | 'goalMiss'
+  | 'deliveryWait' | 'ferryUncrewed' | 'refit' | 'leaseReturn';
+
+/** v0.7.1 what a card is about: the entity (as a message Ref) plus the kind. */
+export interface ProblemRef { kind: ProblemKind; ref: Ref }
 
 // ======================================================================
 // Crew (B2)
@@ -788,6 +809,8 @@ export interface MaintenanceEvent {
   refit?: { cabin: Cabin };
   /** v0.7 lease return check: the aircraft leaves the fleet at the end. */
   leaseReturn?: boolean;
+  /** v0.7.1 AOG: how it is being fixed once decided (the card's WHY); undefined while the decision is open or in old saves. */
+  fix?: 'local' | 'courier' | 'team';
 }
 
 // ======================================================================
@@ -797,8 +820,8 @@ export interface MaintenanceEvent {
 export type MessageCat = 'ops' | 'crew' | 'commercial' | 'tech' | 'finance' | 'company' | 'goal';
 
 export interface Ref {
-  /** v0.7 'market': an aircraft market offer. */
-  kind: 'flight' | 'aircraft' | 'contract' | 'offer' | 'crew' | 'maint' | 'airport' | 'market';
+  /** v0.7 'market': an aircraft market offer. v0.7.1 'cash' | 'statement' (Finance), 'decision' (the decision modal). */
+  kind: 'flight' | 'aircraft' | 'contract' | 'offer' | 'crew' | 'maint' | 'airport' | 'market' | 'cash' | 'statement' | 'decision';
   id: string;
 }
 
@@ -811,8 +834,11 @@ export interface Message {
   body: string;
   read: boolean;
   ref?: Ref;
-  /** v0.7: market alerts (UI may hide them) and ladder steps (celebration). */
-  topic?: 'market' | 'ladder';
+  /** v0.7: market alerts (UI may hide them) and ladder steps (celebration). v0.7.1 'crewRed': the red crew-shortage stage (sound hook). */
+  topic?: 'market' | 'ladder' | 'crewRed';
+  /** v0.7.1 the problem this message is about, and its severity when posted (a snapshot for the badge once the problem is gone). */
+  problem?: ProblemRef;
+  hurt?: { money: number; pax: number; delayMin: number; level: 'none' | 'low' | 'high' };
 }
 
 export interface DecisionOption {
@@ -850,7 +876,9 @@ export type LedgerCat =
   /** v0.5.1: client paint-in and strip. */
   | 'paint'
   /** v0.7: cabin refits; lease return costs. */
-  | 'refit' | 'leaseReturn';
+  | 'refit' | 'leaseReturn'
+  /** v0.7.1: private jets chartered to position crew. */
+  | 'crewJet';
 
 export interface MonthStatement {
   month: MonthKey;
@@ -968,7 +996,9 @@ export type SimEventType =
   | 'payment'
   | 'aircraft.delivery' | 'lease.end'
   | 'approval.done'
-  | 'decision.expire';
+  | 'decision.expire'
+  /** v0.7.1: the hourly crew-shortage ladder tick (crew/control.ts escalateShortages). */
+  | 'crew.alert';
 
 export interface SimEvent {
   t: Minute;
@@ -1032,6 +1062,12 @@ export interface Stats {
   leaseReturns?: number;
   leaseExtensions?: number;
   findings?: number;
+  /** v0.7.1 Crew Control: jets chartered and spend, fixes applied by kind, ladder stages reached. load: crewFixes ??= {} */
+  jets?: number;
+  jetSpend?: number;
+  crewFixes?: Partial<Record<CrewFix, number>>;
+  crewAmber?: number;
+  crewRed?: number;
 }
 
 export interface GameState {

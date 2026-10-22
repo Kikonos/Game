@@ -8,7 +8,7 @@ import { acceptOffer, feasibilityAll } from './contracts';
 import { DAY } from './core/time';
 import type { GameState } from './core/types';
 import { moraleSummary, rosterBoard } from './crew';
-import { resolveDecision } from './ops';
+import { problems, resolveDecision } from './ops';
 import { deserialize, serialize } from './save';
 import { advanceTo } from './sim';
 
@@ -60,9 +60,9 @@ describe('v0.5.2 saves', () => {
 
 // v0.7 (UPDATE-0.7.md §10): the v0.5.2 fixture and a v0.6 save (made by the v0.6 release code: an A321 delivering,
 // dry leases) load with the v0.7 defaults, play 60 days with no NaN, and the v0.6 delivery joins at home base.
-describe('v0.7 load defaults', () => {
-  const v06 = () => LZString.decompressFromBase64(readFileSync(new URL('./fixtures/save-v06.lz.txt', import.meta.url), 'utf8'))!;
+const v06 = () => LZString.decompressFromBase64(readFileSync(new URL('./fixtures/save-v06.lz.txt', import.meta.url), 'utf8'))!;
 
+describe('v0.7 load defaults', () => {
   for (const [name, text] of [['v0.5.2', raw], ['v0.6', v06]] as const) {
     it(`${name}: ladder, market and lease defaults; 60 days played cleanly`, () => {
       const g = deserialize(text());
@@ -94,6 +94,37 @@ describe('v0.7 load defaults', () => {
       const again = deserialize(serialize(g));
       expect(again.now).toBe(g.now);
     }, 90_000);
+  }
+});
+
+// v0.7.1 (UPDATE-0.7.1.md §13, §17): the v0.5.2, v0.6 and a v0.7 save (made by the v0.7 release code, 60 days in) load
+// with the crew-control defaults, play 60 days and serialise clean; crewWarned marks become the amber stage.
+describe('v0.7.1 load defaults', () => {
+  const v07 = () => LZString.decompressFromBase64(readFileSync(new URL('./fixtures/save-v07.lz.txt', import.meta.url), 'utf8'))!;
+
+  for (const [name, text] of [['v0.5.2', raw], ['v0.6', v06], ['v0.7', v07]] as const) {
+    it(`${name}: crewAlert from crewWarned, crewFixes default, the ladder tick queued; 60 days played cleanly`, () => {
+      const file = JSON.parse(text()) as { state: GameState };
+      // A hand-made crewWarned mark on a scheduled flight loads as the amber stage.
+      const warned = Object.values(file.state.flights).find((f) => f.status === 'scheduled' && f.aircraftId);
+      if (warned) warned.crewWarned = true;
+      const g = deserialize(JSON.stringify(file));
+      expect(g.stats.crewFixes).toEqual({});
+      expect(g.queue.filter((e) => e.type === 'crew.alert')).toHaveLength(1);
+      if (warned) expect(g.flights[warned.id].crewAlert).toBe('amber');
+      for (const f of Object.values(g.flights)) if (!f.crewWarned) expect(f.crewAlert).toBeUndefined();
+      expect(() => problems(g)).not.toThrow();
+      const end = g.now + 60 * DAY;
+      while (g.now < end && !g.gameOver) {
+        advanceTo(g, Math.min(end, g.now + 6 * 60), new Set());
+        play(g);
+      }
+      expect(g.gameOver).toBeNull();
+      expect(bad(g)).toEqual([]);
+      const again = deserialize(serialize(g));
+      expect(again.now).toBe(g.now);
+      expect(again.queue.filter((e) => e.type === 'crew.alert')).toHaveLength(1);
+    }, 120_000);
   }
 });
 

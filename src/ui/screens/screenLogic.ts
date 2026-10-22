@@ -2,6 +2,8 @@
 
 import type { RatingFamily } from '../../data/acmiTypes';
 import { BAL } from '../../engine/core/balance';
+import { statementTotals } from '../../engine/core/ledger';
+import { problemFor } from '../../engine/problems';
 import { DAY, HOUR, fmtDay, monthKey, toLocal } from '../../engine/core/time';
 import { mghInMonth } from '../../engine/contracts/pricing';
 import type { IdleWindow } from '../../engine/contracts/offers';
@@ -187,7 +189,7 @@ export function filterCrew(list: CrewMember[], f: CrewFilter): CrewMember[] {
 export const LEDGER_LABEL: Record<LedgerCat, string> = {
   acmiRevenue: 'ACMI (block hours)', charterRevenue: 'Charter', otherRevenue: 'Other revenue',
   fuel: 'Fuel', airportFees: 'Airport & handling', rent: 'Aircraft rent', reserves: 'Maintenance reserves', salaries: 'Salaries',
-  perDiem: 'Per diems', hotels: 'Crew hotels', deadhead: 'Crew deadheads', maintenance: 'Line maintenance', checks: 'Checks',
+  perDiem: 'Per diems', hotels: 'Crew hotels', deadhead: 'Crew deadheads', crewJet: 'Crew jet charters', maintenance: 'Line maintenance', checks: 'Checks',
   insurance: 'Insurance', overhead: 'Overhead', training: 'Training', hiring: 'Hiring', penalties: 'Penalties', subcharter: 'Sub-charter',
   approvals: 'Approvals', interest: 'Interest', capex: 'Aircraft purchases', assetSale: 'Asset sales', paint: 'Paint & livery',
   refit: 'Cabin refits', leaseReturn: 'Lease returns',
@@ -218,11 +220,33 @@ export function statementView(current: MonthStatement, history: MonthStatement[]
   return { months, rows };
 }
 
-/** v0.7: 'market' filters by topic (aircraft market alerts). */
-export type MsgFilter = MessageCat | 'all' | 'market';
+/** v0.7: 'market' filters by topic (aircraft market alerts). v0.7.1: 'problems' = messages about a problem still open, and bad news of the last week. */
+export type MsgFilter = MessageCat | 'all' | 'market' | 'problems';
 
-export function filterMessages(list: Message[], cat: MsgFilter): Message[] {
-  return cat === 'all' ? list : cat === 'market' ? list.filter((m) => m.topic === 'market') : list.filter((m) => m.cat === cat);
+/** Bad news stays under 'Problems only' this long. */
+export const PROBLEM_RECENT = 7 * DAY;
+
+/** A message belongs under 'Problems only' while its problem is still live (the WHY? dots agree), or as bad news of the last week. */
+export function isProblemMessage(m: Message, g: GameState): boolean {
+  if (m.problem) return problemFor(g, m.problem) !== null;
+  return m.tone === 'bad' && g.now - m.t <= PROBLEM_RECENT;
+}
+
+/** An offer is an opportunity, not a penalty: its money badge reads '$199K of work' in blue. */
+export const isOpportunity = (m: Message): boolean => m.ref?.kind === 'offer' && m.tone !== 'bad';
+
+export function filterMessages(list: Message[], cat: MsgFilter, g?: GameState): Message[] {
+  if (cat === 'all') return list;
+  if (cat === 'market') return list.filter((m) => m.topic === 'market');
+  if (cat === 'problems') return g ? list.filter((m) => isProblemMessage(m, g)) : list.filter((m) => !!m.problem || m.tone === 'bad');
+  return list.filter((m) => m.cat === cat);
+}
+
+/** The loss-month line on Finance only while this month is losing too, or after two losing months in a row (else it is last month's news). */
+export function showLossMonth(g: GameState): boolean {
+  if (statementTotals(g.finance.current.lines).profit < 0) return true;
+  const closed = g.finance.history.filter((h) => h.closed && h.month !== g.finance.current.month).sort((a, b) => b.month - a.month);
+  return closed.length >= 2 && statementTotals(closed[0].lines).profit < 0 && statementTotals(closed[1].lines).profit < 0;
 }
 
 export interface DeepLink {

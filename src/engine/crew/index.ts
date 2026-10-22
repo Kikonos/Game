@@ -45,6 +45,12 @@ export {
 export { crewExtraQuote, setCrewExtra } from './extra';
 export { crewExtraFor, offerExtra, paidMinOf, seatsFor, type CrewExtraSource, type EffectiveExtra, type Seat } from './extraSeats';
 export { CAL_LABEL, crewCalendar, crewStatusView, crewTravelNow, joinsAt, type CalBlock, type CalFlight, type CalKind, type CrewStatusView, type CrewTravelNow } from './calendar';
+// v0.7.1 Crew Control (UPDATE-0.7.1.md §15).
+export {
+  applyCrewFix, cancelTrip, charterJet, crewControl, crewGauges, crewShortCard, escalateShortages, FIX_LABEL, jetQuote, reachFor, ROLE_WORD, rootReason, seatsText, shortFlights,
+  type ApplyOpts, type CrewControlView, type CrewSolution, type FixOption, type FixPreview, type JetQuote, type Reason, type ReasonCode, type SeatNeed,
+} from './control';
+import { escalateShortages } from './control';
 
 const CHECKIN = () => BAL.deadheadCheckIn;
 
@@ -300,12 +306,33 @@ setResignHooks(
   },
 );
 
+/** v0.7.1: the ladder ticks on the hour as a sim event (saved in the queue, so a reload plays on identically). */
+function queueAlert(g: GameState): void {
+  if (g.queue.some((e) => e.type === 'crew.alert')) return;
+  schedule(g, Math.floor(g.now / 60) * 60 + 60, 'crew.alert', '');
+}
+
+function onCrewAlert(g: GameState): void {
+  // The hourly check re-rosters a freshly short aircraft before warning (a roster not yet run is not a shortage).
+  escalateShortages(g, { reroster: true });
+  schedule(g, Math.floor(g.now / 60) * 60 + 60, 'crew.alert', '');
+}
+
 export const crewModule: SimModule = {
   name: 'crew',
+  init(g) {
+    // The same defaults load sets (a fresh game and a reloaded one serialise alike).
+    g.stats.crewFixes ??= {};
+    queueAlert(g);
+  },
   load(g) {
     g.classes ??= {};
     const y = yearOf(g.now);
     for (const c of Object.values(g.crew)) c.blockYearOf ??= y;
+    // v0.7.1: the old 48 h warning mark becomes the amber stage; fix tallies default.
+    for (const f of Object.values(g.flights)) if (f.crewWarned && !f.crewAlert) f.crewAlert = 'amber';
+    g.stats.crewFixes ??= {};
+    queueAlert(g);
     touchCrew(g);
   },
   settle(g) {
@@ -329,5 +356,6 @@ export const crewModule: SimModule = {
     'flight.arr': onFlightArrCrew,
     'crew.join': onCrewJoin,
     'training.done': onTrainingDone,
+    'crew.alert': onCrewAlert,
   },
 };

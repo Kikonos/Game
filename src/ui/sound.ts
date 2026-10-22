@@ -1,6 +1,7 @@
 // Tiny synthesized UI sound set (no audio files, so it works offline).
 
-export type SoundName = 'click' | 'tick' | 'success' | 'error' | 'alert' | 'cash' | 'levelup' | 'whoosh';
+/** v0.7.1 'crewShortage': the red crew-shortage stage (the 'alert' pattern until the v0.9 sound set). */
+export type SoundName = 'click' | 'tick' | 'success' | 'error' | 'alert' | 'cash' | 'levelup' | 'whoosh' | 'crewShortage';
 
 class Sound {
   private ctx: AudioContext | null = null;
@@ -52,6 +53,7 @@ class Sound {
       case 'success': this.tone(660, 0, 0.12, 'sine', 0.08); this.tone(990, 0.07, 0.18, 'sine', 0.07); break;
       case 'error': this.tone(220, 0, 0.18, 'triangle', 0.08, 160); break;
       case 'alert': this.tone(740, 0, 0.14, 'sine', 0.07); this.tone(740, 0.18, 0.14, 'sine', 0.07); break;
+      case 'crewShortage': this.tone(740, 0, 0.14, 'sine', 0.07); this.tone(740, 0.18, 0.14, 'sine', 0.07); this.tone(620, 0.4, 0.2, 'sine', 0.06); break;
       case 'cash': this.tone(1320, 0, 0.08, 'triangle', 0.035); this.tone(1760, 0.06, 0.12, 'triangle', 0.03); break;
       case 'levelup':
         [523, 659, 784, 1046].forEach((f, i) => this.tone(f, i * 0.09, 0.3, 'sine', 0.07));

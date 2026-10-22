@@ -349,8 +349,11 @@ export function ctxOf(g: GameState, c: CrewMember): TimelineCtx {
   };
 }
 
+/** v0.7.1: check-in before a ride: the FBO's 30 min for a chartered jet, the airline's for a ticket. */
+export const checkInOf = (t: TicketPlan): number => ((t as Partial<Flight>).charter ? BAL.crewControl.jet.checkInMin : CHECKIN());
+
 export function posSeg(t: TicketPlan, c: CrewMember, fresh = false): Seg {
-  return { kind: 'pos', start: t.std - CHECKIN(), end: t.sta, fdp: 0, maxFdp: 0, block: 0, sectors: 0, aug: false, disruptive: false, rest: posRest(t, t.to === c.base), at: t.to, from: t.from, dutyId: undefined, ticketId: (t as Partial<Flight>).id, fresh };
+  return { kind: 'pos', start: t.std - checkInOf(t), end: t.sta, fdp: 0, maxFdp: 0, block: 0, sectors: 0, aug: false, disruptive: false, rest: posRest(t, t.to === c.base), at: t.to, from: t.from, dutyId: undefined, ticketId: (t as Partial<Flight>).id, fresh };
 }
 
 /** A ticket already flown on its own is in the crew log (onFlightArrCrew); only merged ones still shape the duty. */
@@ -376,7 +379,7 @@ export function dutySegs(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: 
   if (out) {
     if (d.report - out.sta < posRest(out, false)) {
       mergedOut = { id: (out as Partial<Flight>).id, to: dep, start, fdp, maxFdp: max, disruptive: isDisruptive(tz, start, d.release) };
-      start = out.std - CHECKIN();
+      start = out.std - checkInOf(out);
       from = out.from;
       fdp = d.fdp + (d.report - start);
       const lim = fdpLimitAt(g, p, d, out.from, start);

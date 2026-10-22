@@ -12,7 +12,7 @@ import { FLIGHT_TYPE_LABEL, flightType, type FlightType } from '../ops/flightTyp
 import { classBlockText } from './conversion';
 import { rosterOf } from './roster';
 import { offsetAt } from './rules';
-import { dutyFlights, segsOf } from './timeline';
+import { crewIx, dutyFlights, segsOf } from './timeline';
 
 export type CalKind = 'duty' | 'positioning' | 'deadhead' | 'sick' | 'joining' | 'training' | 'leave' | 'off' | 'standby' | 'rest';
 
@@ -54,6 +54,14 @@ const KIND_ORDER: CalKind[] = ['joining', 'sick', 'training', 'leave', 'duty', '
 const hhmm = (t: Minute) => fmtTime(t);
 const span = (a: Minute, b: Minute) => (Math.floor(a / DAY) === Math.floor(b / DAY) ? `${fmtDay(a)} ${hhmm(a)}–${hhmm(b)}` : `${fmtDateTime(a)} – ${fmtDateTime(b)}`);
 const calFlight = (g: GameState, f: Flight): CalFlight => ({ id: f.id, no: f.no, from: f.from, to: f.to, std: f.atd ?? f.std, sta: f.ata ?? f.sta, type: flightType(g, f) });
+
+/** v0.7.1: ' (chartered for AWQ816)' from the duty the jet positions for. */
+function jetFor(g: GameState, t: Flight): string {
+  const did = crewIx(g).ticketDuty.get(t.id);
+  const d = did ? g.duties[did] : undefined;
+  const f = d ? g.flights[d.flightIds[0]] : undefined;
+  return f ? ` (chartered for ${f.no})` : '';
+}
 
 const TRAINING_WHAT: Record<TrainingKind, string> = { typeRating: 'type rating', conversion: 'conversion course', command: 'Command upgrade', sccm: 'SCCM course' };
 
@@ -121,8 +129,10 @@ function travelBlocks(g: GameState, c: CrewMember, from: Minute, to: Minute): Ca
     const legs = commercialItinerary(g, f);
     const via = legs.map((l) => `${l.no} ${l.from}–${l.to} ${hhmm(l.dep)}–${hhmm(l.arr)} (${l.airline})`).join(' · ');
     out.push({
-      kind: 'deadhead', start: f.std - BAL.deadheadCheckIn, end: f.sta, label: 'Deadhead', flightIds: [f.id], flights: [calFlight(g, f)],
-      detail: `${f.from}–${f.to} as a passenger, check-in ${hhmm(f.std - BAL.deadheadCheckIn)}\n${via}`,
+      kind: 'deadhead', start: f.std - (f.charter ? BAL.crewControl.jet.checkInMin : BAL.deadheadCheckIn), end: f.sta, label: f.charter ? 'Private jet' : 'Deadhead', flightIds: [f.id], flights: [calFlight(g, f)],
+      detail: f.charter
+        ? `${f.charter.operator} ${f.charter.model} ${f.from}–${f.to} ${hhmm(f.std)}–${hhmm(f.sta)}${jetFor(g, f)}`
+        : `${f.from}–${f.to} as a passenger, check-in ${hhmm(f.std - BAL.deadheadCheckIn)}\n${via}`,
     });
   }
   for (const f of mine) {

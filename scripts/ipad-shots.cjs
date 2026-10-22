@@ -28,6 +28,9 @@
  *                  Santiago and book a VIP refit):
  *                    convert-confirm,fleet-market,acquire-modal,company-ladder,approval-modal,ladder-step,acquire-widebody,
  *                    fleet-delivering,schedule-delivering,refit-modal,fleet-refit,schedule-refit,lease-modal,settings-market,inbox-market
+ *                  v0.7.1 crew control + plain language (run last: they empty the pilot seats of the next flight):
+ *                    crew-control,crew-control-jet,problem-modal,inbox-problems,glossary,duty-gauges,schedule-why,term-popover,hint,
+ *                    fleet-short,settings-glossary
  *   --save         an exported save (.blockhours.json) to load for the in-game screens; without it the harness
  *                  starts a new game from the New Game screen (--base, default LIS) and plays --days
  *                  game days (default 40) with __contrail.dev.autoplay so every screen has real data
@@ -56,6 +59,7 @@ const ALL = [
   'crew-morale', 'crew-notice', 'train-modal', 'company-policies', 'fleet-extra', 'offer-extra', 'contracts-extra', 'duty-extra',
   'convert-confirm', 'fleet-market', 'acquire-modal', 'company-ladder', 'approval-modal', 'ladder-step', 'acquire-widebody', 'fleet-delivering',
   'schedule-delivering', 'refit-modal', 'fleet-refit', 'schedule-refit', 'lease-modal', 'settings-market', 'inbox-market',
+  'crew-control', 'crew-control-jet', 'problem-modal', 'inbox-problems', 'glossary', 'duty-gauges', 'schedule-why', 'term-popover', 'hint', 'fleet-short', 'settings-glossary',
 ];
 const PRE_GAME = new Set(['loading', 'title', 'newgame', 'newgame-livery']);
 const VIEWS = {
@@ -303,6 +307,9 @@ async function ensureGame(page, saveJson, desktop) {
       await page.goto(args.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
       await page.evaluate((text) => { localStorage.clear(); localStorage.setItem('contrail-acmi:save:auto', text); }, saveJson);
       await gotoFresh(page);
+      // The "What's new" pop-up (once per version) would cover Continue after a cleared localStorage.
+      await page.evaluate(() => window.__contrail.closeModal());
+      await settle(page, 300);
       await press(page, page.getByRole('button', { name: /Continue/ }).first(), desktop);
     } else {
       await newGame(page, desktop);
@@ -745,6 +752,88 @@ Object.assign(ACTIONS, {
     await nav(page, 'schedule');
     await modal(page, { kind: 'duty', id });
     await page.evaluate(() => document.querySelector('.sc-chip-extra, .sc-seat.above')?.scrollIntoView({ block: 'center' }));
+    await settle(page, 300);
+  },
+});
+
+// ---------- v0.7.1 crew control + plain language ----------
+
+/** A flight the crew-shortage ladder has marked (empties the next flight's pilot seats once); returns its id. */
+async function ensureShortage(page) {
+  const find = () => page.evaluate(() => { const g = window.__contrail.game; return Object.values(g.flights).filter((f) => f.crewAlert && f.status === 'scheduled' && f.aircraftId && f.crewIds.length === 0).sort((a, b) => a.std - b.std)[0]?.id; });
+  let id = await find();
+  for (const h of [10, 24, 48]) {
+    if (id) break;
+    id = await page.evaluate((hours) => window.__contrail.dev.crewShortage(hours) || undefined, h);
+  }
+  if (!id) throw new Error('SKIP no flight to make crew-short');
+  await quiet(page);
+  return id;
+}
+
+Object.assign(ACTIONS, {
+  'crew-control': async (page) => {
+    const id = await ensureShortage(page);
+    await nav(page, 'schedule');
+    await modal(page, { kind: 'crewControl', flightId: id });
+  },
+  'crew-control-jet': async (page) => {
+    const id = await ensureShortage(page);
+    await nav(page, 'schedule');
+    await modal(page, { kind: 'crewControl', flightId: id, fix: 'jet' });
+    await page.evaluate(() => document.querySelector('.cc-row.open')?.scrollIntoView({ block: 'start' }));
+    await settle(page, 300);
+  },
+  'problem-modal': async (page) => {
+    const id = await ensureShortage(page);
+    await nav(page, 'schedule');
+    await modal(page, { kind: 'problem', subject: { kind: 'crewShort', ref: { kind: 'flight', id } } });
+  },
+  'inbox-problems': async (page, _s, d) => {
+    await ensureShortage(page);
+    await nav(page, 'inbox');
+    const tab = page.getByRole('tab', { name: /^Problems only/ });
+    if (await tab.count()) await press(page, tab.first(), d);
+    await settle(page, 300);
+    const ex = page.locator('.sc-explain').first();
+    if (await ex.count()) await press(page, ex, d);
+    await settle(page, 500);
+  },
+  glossary: (page) => modal(page, { kind: 'glossary', term: 'fdp' }),
+  'duty-gauges': async (page) => {
+    const id = await ensureShortage(page);
+    await nav(page, 'schedule');
+    await modal(page, { kind: 'duty', id });
+  },
+  'schedule-why': async (page) => {
+    const id = await ensureShortage(page);
+    const f = await page.evaluate((x) => { const f = window.__contrail.game.flights[x]; return { ac: f.aircraftId, t: f.std }; }, id);
+    await nav(page, 'schedule', { sel: { kind: 'aircraft', id: f.ac }, view: String(f.t - 6 * 60) });
+    await modal(page, { kind: 'sheet', refs: [{ kind: 'flight', id }] });
+  },
+  'term-popover': async (page, _s, d) => {
+    // The duty modal always carries one term (FDP in its header); the card's own terms depend on the cause.
+    const id = await ensureShortage(page);
+    await nav(page, 'schedule');
+    await modal(page, { kind: 'duty', id });
+    const t = page.locator('.modal .term').first();
+    if (!(await t.count())) throw new Error('SKIP no glossary term on the card');
+    await press(page, t, d);
+    await settle(page, 300);
+  },
+  hint: async (page) => {
+    const id = await ensureShortage(page);
+    await nav(page, 'schedule');
+    await modal(page, { kind: 'problem', subject: { kind: 'crewShort', ref: { kind: 'flight', id } }, hint: true });
+  },
+  'fleet-short': async (page) => {
+    const id = await ensureShortage(page);
+    const ac = await page.evaluate((x) => window.__contrail.game.flights[x].aircraftId, id);
+    await nav(page, 'fleet', { sel: { kind: 'aircraft', id: ac } });
+  },
+  'settings-glossary': async (page) => {
+    await modal(page, { kind: 'settings' });
+    await page.evaluate(() => [...document.querySelectorAll('.set-head')].find((e) => /Plain/.test(e.textContent))?.scrollIntoView({ block: 'start' }));
     await settle(page, 300);
   },
 });

@@ -1,6 +1,6 @@
 // Global dialogs (menu, saves, settings, confirm) and the in-game modal slot (decisions, game over).
 
-import { Download, FolderOpen, Home, Play, PlusCircle, RefreshCw, Save, Settings as SettingsIcon, Sparkles, Trash2, Upload } from 'lucide-react';
+import { BookOpenText, Download, FolderOpen, Home, Lightbulb, Play, PlusCircle, RefreshCw, Save, Settings as SettingsIcon, Sparkles, Trash2, Upload } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { DAY, fmtDate } from '../../engine/core/time';
 import { AUTOSAVE_SLOT, SLOTS, deleteSlot, deserialize, listSaves, loadFromSlot, saveToSlot, serialize } from '../../engine/save';
@@ -22,6 +22,9 @@ import { LeaseModal } from '../modals/LeaseModal';
 import { ApprovalModal } from '../modals/ApprovalModal';
 import { LadderStepModal } from '../modals/LadderStepModal';
 import { WhatsNewModal } from '../modals/WhatsNewModal';
+import { CrewControlModal } from '../modals/CrewControlModal';
+import { ProblemModal } from '../modals/ProblemModal';
+import { GlossaryModal } from '../modals/GlossaryModal';
 import { CURRENT } from '../../data/whatsNew';
 import { int, money } from '../format';
 import { offline, promptInstall } from '../offline';
@@ -209,6 +212,9 @@ function SettingsModal() {
         <div className="set-row"><div><b>Top bar spacing</b><div className="tiny dim">Moves the game below the frosted strip iPadOS adds at the top of the screen</div></div><Seg value={String(st.topGap)} onChange={(v) => store.setSettings({ topGap: v === 'auto' ? 'auto' : (Number(v) as 0 | 16 | 28 | 40) })} options={[{ value: 'auto', label: 'Auto' }, { value: '0', label: 'Off' }, { value: '16', label: '16' }, { value: '28', label: '28' }, { value: '40', label: '40' }]} /></div>
         <div className="set-row"><div><b>Pop-up notifications</b></div><Toggle on={st.toasts} onChange={(v) => store.setSettings({ toasts: v })} /></div>
         <div className="set-row"><div><b>What's new</b><div className="tiny dim">{CURRENT.version} {CURRENT.name}</div></div><button className="btn btn-sm" onClick={() => store.openModal({ kind: 'whatsNew' })}><Sparkles /> Show</button></div>
+        <div className="set-head upper dim">Plain language</div>
+        <div className="set-row"><div><b>Glossary</b><div className="tiny dim">What FDP, deadhead, AOG, sub-charter and the other words mean</div></div><button className="btn btn-sm" onClick={() => store.openModal({ kind: 'glossary' })}><BookOpenText /> Open</button></div>
+        <div className="set-row"><div><b>First-time hints</b><div className="tiny dim">{st.hintsSeen.length ? `${st.hintsSeen.length} kind${st.hintsSeen.length === 1 ? '' : 's'} of problem switched off` : 'A one-paragraph story the first time each kind of problem appears'}</div></div><button className="btn btn-sm" onClick={() => store.setSettings({ hintsSeen: [] })} disabled={!st.hintsSeen.length}><Lightbulb /> Show again</button></div>
         <div className="set-row"><div><b>Offline play</b><div className="tiny dim">{offline.ready ? 'Installed — the game works without internet.' : 'Caches after the first online visit.'}</div></div>
           {offline.installPrompt ? <button className="btn btn-sm" onClick={() => void promptInstall()}><Download /> Install app</button> : <span className={`badge ${offline.ready ? 'good' : ''}`}>{offline.ready ? 'Ready' : 'Pending'}</span>}
         </div>
@@ -256,5 +262,8 @@ export function GlobalModals() {
     case 'approval': return s.game ? <ApprovalModal id={m.id} /> : null;
     case 'ladderStep': return s.game ? <LadderStepModal messageId={m.messageId} /> : null;
     case 'whatsNew': return <WhatsNewModal />;
+    case 'crewControl': return s.game ? <CrewControlModal key={m.flightId} flightId={m.flightId} fix={m.fix} /> : null;
+    case 'problem': return s.game ? <ProblemModal subject={m.subject} hint={m.hint} /> : null;
+    case 'glossary': return <GlossaryModal term={m.term} />;
   }
 }

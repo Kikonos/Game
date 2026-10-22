@@ -304,7 +304,7 @@ export function cancelContract(g: GameState, contractId: string): ActionResult {
   if (cl) cl.relation = clamp(cl.relation - 30, -100, 100);
   for (const id of c.aircraftIds) relinkPositioning(g, id);
   const money = `Penalty $${penalty.toLocaleString('en-US')}${refund ? ` and $${refund.toLocaleString('en-US')} prepaid refunded` : ''}.`;
-  pushMessage(g, { tone: 'bad', cat: 'commercial', title: `Cancelled: ${c.title}`, body: `${money} ${cl?.name ?? 'The client'} will remember this.`, ref: { kind: 'contract', id: c.id } });
+  pushMessage(g, { tone: 'bad', cat: 'commercial', title: `Cancelled: ${c.title}`, body: `${money} ${cl?.name ?? 'The client'} will remember this.`, ref: { kind: 'contract', id: c.id }, problem: { kind: 'contractCancelled', ref: { kind: 'contract', id: c.id } }, hurt: { money: Math.round(penalty), pax: 0, delayMin: 0, level: penalty >= 10_000 ? 'high' : 'low' } });
   return { ok: true, msg: `Cancelled ${c.title}` };
 }
 

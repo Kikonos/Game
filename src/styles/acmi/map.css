@@ -249,3 +249,77 @@ div.worldmap { overflow: clip; }
 .op-crew-btn { width: 100%; margin-top: 8px; }
 .ops-type-n { display: inline-flex; align-items: center; gap: 2px; font-weight: 500; color: var(--text-2); }
 .ops-type-n svg { width: 12px; height: 12px; }
+
+/* ==========================================================================
+   v0.7.1 Crew Control on the map: private-jet glyph, CREW SHORTAGE banners, WHY? dots, the crew-layer legend,
+   the mini-map. Static: nothing here animates.
+   ========================================================================== */
+/* A chartered private jet flies like an airline leg, in the same grey ink (its type rides along as the label). */
+.ops-cmf.jet .glyph path { fill: #8d97ab; stroke: #dde3ee; stroke-width: 1.3px; }
+
+/* CREW SHORTAGE banner (panel section header, leg rows). */
+.op-banner {
+  display: inline-block; font: 700 11px/18px var(--font-mono); letter-spacing: 0.08em; padding: 0 7px; border-radius: 5px;
+  border: 1px solid; white-space: nowrap; flex-shrink: 0;
+}
+.op-banner.amber { color: #fde68a; border-color: rgba(251, 191, 36, 0.55); background: rgba(251, 191, 36, 0.1); }
+.op-banner.red { color: #fecaca; border-color: rgba(248, 113, 113, 0.6); background: rgba(248, 113, 113, 0.12); }
+.op-banner.small { font-size: 11px; line-height: 16px; padding: 0 5px; letter-spacing: 0.06em; }
+/* The shortage block: what, the one-sentence why, does it hurt, the mini-map, Crew Control. */
+.op-short { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(251, 191, 36, 0.4); background: rgba(251, 191, 36, 0.06); }
+.op-short.red { border-color: rgba(248, 113, 113, 0.45); background: rgba(248, 113, 113, 0.07); }
+.op-short-what { font-size: 14px; font-weight: 600; line-height: 1.3; }
+.op-short-why { color: var(--text-2); line-height: 1.4; }
+.op-short .op-crew-btn { margin-top: 4px; }
+.op-short .minimap { width: 100%; height: auto; display: block; border-radius: 10px; }
+
+/* Leg rows: the row is a div; the leg itself and the WHY? dot are separate 44 px targets inside it. */
+.op-leg { padding: 0 0 0 10px; gap: 4px; }
+.op-leg-main { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; min-height: var(--tap); padding: 6px 0; border: none; background: none; color: inherit; font: inherit; text-align: left; border-radius: 10px; }
+.op-leg:not(.tappable) .op-leg-main { cursor: default; }
+.op-leg .op-leg-main + .op-dot { margin-right: 18px; }
+.op-why { width: var(--tap); height: var(--tap); display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; border: none; background: none; border-radius: 50%; padding: 0; }
+.op-why .op-dot { width: 10px; height: 10px; box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.12); }
+@media (hover: hover) { .op-why:hover { background: var(--panel-hover); } }
+.touch .op-why:active { background: var(--panel-hover); }
+.op-jet-tag { color: #cbd3e1; border-color: rgba(203, 211, 225, 0.45); font: 700 12px var(--font-mono); letter-spacing: 0.06em; }
+
+/* Up Next: the private jet's type (not mono) and the CREW SHORT chip in the type cell. */
+.ops-next-row.jet { grid-template-columns: 62px 104px 74px 1fr; }
+.ops-next.dated .ops-next-row.jet { grid-template-columns: 88px 104px 74px 1fr; }
+.ops-next-row.jet > b { font-size: 12px; }
+.ops-short { font: 700 11px/16px var(--font-mono); letter-spacing: 0.06em; padding: 0 5px; border-radius: 4px; border: 1px solid; }
+.ops-short.amber { color: #fde68a; border-color: rgba(251, 191, 36, 0.55); }
+.ops-short.red { color: #fecaca; border-color: rgba(248, 113, 113, 0.6); }
+.ops-next-row .ops-type:has(.ops-short) .ops-tkey { display: none; }
+
+/* The crew-layer legend: a "?" at the end of the Up Next type legend, a popover under it. */
+.ops-legend { align-items: center; }
+.ops-help { margin-left: auto; position: relative; display: flex; }
+.ops-help-btn { width: var(--tap); height: var(--tap); margin: -10px -8px -10px 0; color: var(--text-2); }
+.ops-help-btn svg { width: 18px; height: 18px; }
+.ops-help-pop { position: absolute; top: calc(100% + 4px); right: -8px; width: 344px; z-index: 7; padding: 8px 12px 12px; background: var(--op-bg); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45); display: flex; flex-direction: column; gap: 6px; }
+.ops-help-h { align-items: center; margin-bottom: 2px; }
+.ops-help-h .btn-icon { width: var(--tap); height: var(--tap); margin: -8px -12px -8px 0; }
+.ops-help-row { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--text); line-height: 1.3; }
+.ops-help-sw { width: 20px; display: inline-flex; justify-content: center; flex-shrink: 0; }
+.ops-help-sw .op-dot { width: 9px; height: 9px; }
+.ops-help-sw svg { display: block; }
+
+/* Mini-map (static SVG): sea, land, dashed legs, crew dots, the departure ring, labels. */
+.minimap { display: block; max-width: 100%; }
+.minimap .mm-sea { fill: #0a1326; }
+.minimap .mm-land { fill: #19243b; stroke: rgba(120, 160, 230, 0.28); stroke-width: 0.6; }
+.minimap .mm-leg { fill: none; stroke: #9aa5bb; stroke-width: 1.3; stroke-dasharray: 2 4; stroke-linecap: round; }
+.minimap .mm-leg.jet { stroke: #b9c2d4; }
+/* No flight lands in time: the straight gap, red dashed, with its note at the middle. */
+.minimap .mm-leg.none { stroke: rgba(248, 113, 113, 0.75); stroke-dasharray: 3 4; }
+.minimap .mm-none { text-anchor: middle; fill: #fecaca; font-size: 10px; font-weight: 600; }
+.minimap .mm-dot { fill: #b9c2d4; stroke: rgba(5, 9, 18, 0.9); stroke-width: 1.2; }
+.minimap .mm-ap.dep .mm-dot { fill: #fbbf24; }
+.minimap .mm-ring { fill: rgba(251, 191, 36, 0.12); stroke: #fbbf24; stroke-width: 1.5; }
+.minimap text { font: 600 10.5px var(--font-mono); fill: #d7deea; text-anchor: start; paint-order: stroke; stroke: rgba(5, 9, 18, 0.9); stroke-width: 3px; stroke-linejoin: round; }
+.minimap .mm-label, .minimap .mm-times { text-anchor: middle; }
+.minimap .mm-sub, .minimap .mm-times { font-weight: 500; fill: #aab4c8; font-size: 10px; }
+.minimap .mm-ap.dep .mm-code { fill: #fde68a; }
+.minimap .mm-glyph path { fill: #8d97ab; stroke: #dde3ee; stroke-width: 1.2; stroke-linejoin: round; }

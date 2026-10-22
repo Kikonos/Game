@@ -13,6 +13,11 @@ import {
   type CalBlock, classOf, conversionClasses, crewCalendar, crewName, crewRev, crewStatusView, crewTravelNow, type CrewTravelNow, crewWindows, daysOffInMonth, familyLabel, LIMITS,
   moraleOf, moraleSummary, staffing, type CrewWindows,
 } from '../../engine/crew';
+import { crewGauges } from '../../engine/crew';
+import { problemAt } from '../../engine/problems';
+import { Gauge } from '../components/Gauge';
+import { restNow } from '../components/problemLogic';
+import { Why } from '../components/Why';
 import { Empty, Seg } from '../components/ui';
 import { RosterBoard } from './RosterBoard';
 import { moraleTone } from './rosterBoardLogic';
@@ -74,13 +79,16 @@ function CrewRow({ g, c, w, on, t, selecting, checked, onTap }: { g: GameState; 
   const cls = classOf(g, c.id);
   const training = c.status === 'training' ? crewStatusView(g, c.id).text.replace(/ · Leaves .*$/, '') : null;
   const booked = cls && cls.status === 'planned' ? ` · Conversion ${familyLabel(cls.family)} from ${baseDay(g, cls.start)}` : '';
+  // v0.7.1 §10: a WHY? dot when a problem sits on this person (sick with a trip to cover, resigned with trips ahead).
+  const prob = c.status === 'sick' || c.notice ? problemAt(g, { kind: 'crew', id: c.id }) : null;
   return (
     <button className={`sc-crew-row ${on ? 'on' : ''} ${selecting ? 'selecting' : ''} ${checked ? 'checked' : ''}`} onClick={onTap} aria-pressed={selecting ? checked : undefined}>
       {selecting && <span className={`rb-check ${checked ? 'on' : ''}`} aria-hidden>{checked && <Check />}</span>}
       <span className="col sc-crew-name">
         <span className="row gap-8"><span className={`rb-morale ${moraleTone(c.morale)}`} aria-label={`Morale ${Math.round(c.morale)}`} title={`Morale ${Math.round(c.morale)}`} /><span className={`sc-role r-${c.role}`}>{c.role}</span><b className="ellipsis">{c.last}, {c.first}</b></span>
         <span className="tiny muted row gap-4 ellipsis">
-          {where ? <><Dot tone="info" />{where}</> : training ? <><Dot tone="warn" />{training}</> : <><Dot tone={STATUS_TONE[c.status]} />{CREW_STATUS_LABEL[c.status]} · {c.loc}{c.loc !== c.base ? ` (base ${c.base})` : ''}{booked}</>}
+          {prob ? <Why refs={{ kind: 'crew', id: c.id }} tone={prob.severity === 'red' ? 'bad' : 'warn'} /> : null}
+          {where ? <>{!prob && <Dot tone="info" />}{where}</> : training ? <>{!prob && <Dot tone="warn" />}{training}</> : <>{!prob && <Dot tone={STATUS_TONE[c.status]} />}{CREW_STATUS_LABEL[c.status]} · {c.loc}{c.loc !== c.base ? ` (base ${c.base})` : ''}{booked}</>}
           {c.notice && <span className="bad nowrap"> · Leaves {fmtDay(c.notice.leaves - 1)}</span>}
         </span>
       </span>
@@ -311,6 +319,8 @@ function Detail({ g, c }: { g: GameState; c: CrewMember }) {
   const off = daysOffInMonth(g, c, monthStart(k), Math.min(nextMonthStart(g.now), dayStart(g.now) + DAY));
   // Not joined yet: no rest, no days off, limits count from the start date.
   const joining = sv.startLabel === 'Joins';
+  // v0.7.1 §7: the limits as fuel gauges (next duty's day length, rest, 7-day duty, 28-day and year flying).
+  const gauges = joining ? [] : crewGauges(g, c.id).map((s) => restNow(s, g.now));
   const bar = (label: string, v: number, lim: number) => <LimitBar label={label} value={h(v)} limit={h(lim)} tone={limitTone(v / lim)} />;
   return (
     <div className="card sc-crew-detail">
@@ -346,11 +356,15 @@ function Detail({ g, c }: { g: GameState; c: CrewMember }) {
         <MoraleWhy g={g} c={c} />
         <div className="upper dim">Flight time limits{joining ? ` · from ${fmtDate(sv.startDate)}` : ''}</div>
         <div className="grid-2 sc-limits">
-          {bar('Duty 7 days', w.duty7d, LIMITS.duty7d)}
-          {bar('Duty 14 days', w.duty14d, LIMITS.duty14d)}
-          {bar('Duty 28 days', w.duty28d, LIMITS.duty28d)}
-          {bar('Block 28 days', w.block28d, LIMITS.block28d)}
-          {bar('Block this year', w.blockYear, LIMITS.blockYear)}
+          {gauges.length ? gauges.map((s) => <Gauge key={s.id} spec={s} />) : (
+            <>
+              {bar('Duty 7 days', w.duty7d, LIMITS.duty7d)}
+              {bar('Duty 28 days', w.duty28d, LIMITS.duty28d)}
+              {bar('Block 28 days', w.block28d, LIMITS.block28d)}
+              {bar('Block this year', w.blockYear, LIMITS.blockYear)}
+            </>
+          )}
+          {gauges.length > 0 && bar('Duty 28 days', w.duty28d, LIMITS.duty28d)}
         </div>
         <div className="row between"><span className="upper dim">Next 14 days</span><span className="small dim">tap for details · a duty to change its crew</span></div>
         <Roster key={c.id} g={g} c={c} />

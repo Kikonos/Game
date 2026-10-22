@@ -5,6 +5,7 @@ import { BAL } from '../core/balance';
 import { flightsOf, nextId, removeFlights, touchFlights } from '../core/entities';
 import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
+import { cardMeta, checkCard, noSlotCard, refitMissedCard } from '../problems';
 import { blockMinutes, typeOf } from '../core/perf';
 import { requestPause } from '../core/pause';
 import { schedule } from '../core/queue';
@@ -264,7 +265,11 @@ export function missCheck(g: GameState, m: MaintenanceEvent, why: string): void 
   if (ferries.length) removeFlights(g, ferries);
   touchFlights(g);
   const ac = g.fleet[m.aircraftId];
-  pushMessage(g, { tone: 'warn', cat: 'tech', title: `${m.kind === 'paint' ? 'Paint-shop slot' : m.kind === 'refit' ? 'Cabin refit slot' : m.kind === 'return' ? 'Lease return check' : `${m.kind}-check`} missed: ${ac?.reg ?? m.aircraftId}`, body: `${why}. The check needs a new slot${m.kind === 'A' && g.company.policies.autoMaintenance ? ': operations will re-plan it' : ''}.`, ref: { kind: 'aircraft', id: m.aircraftId } });
+  pushMessage(g, {
+    tone: 'warn', cat: 'tech', title: `${m.kind === 'paint' ? 'Paint-shop slot' : m.kind === 'refit' ? 'Cabin refit slot' : m.kind === 'return' ? 'Lease return check' : `${m.kind}-check`} missed: ${ac?.reg ?? m.aircraftId}`,
+    body: `${why}. The check needs a new slot${m.kind === 'A' && g.company.policies.autoMaintenance ? ': operations will re-plan it' : ''}.`, ref: { kind: 'aircraft', id: m.aircraftId },
+    ...cardMeta(m.kind === 'refit' ? refitMissedCard(g, m.id) : ac ? checkCard(g, ac.id) : null),
+  });
 }
 
 export function cancelCheck(g: GameState, maintId: string): ActionResult {
@@ -389,7 +394,7 @@ export function planChecks(g: GameState): void {
         pushMessage(g, {
           tone: 'warn', cat: 'tech', title: `A-check due: ${ac.reg}`,
           body: `Due ${fmtDate(st.aDue)} (${Math.max(0, st.aHoursLeft)} FH left)${g.company.policies.autoMaintenance ? ' and no ground slot is free' : ''}. Book it on the Fleet screen or free the aircraft for a night.`,
-          ref: { kind: 'aircraft', id: ac.id },
+          ref: { kind: 'aircraft', id: ac.id }, ...cardMeta(checkCard(g, ac.id) ?? noSlotCard(g, ac.id)),
         });
       }
     }
@@ -405,7 +410,7 @@ export function planChecks(g: GameState): void {
         pushMessage(g, {
           tone: w <= 30 ? 'bad' : 'warn', cat: 'tech', title: `C-check due in ${Math.max(0, days)} days: ${ac.reg}`,
           body: `${dur} days at ${g.company.homeBase}, due ${fmtDate(st.cDue)}. ${s ? `Free window: ${fmtDay(s.from)}–${fmtDay(s.to)}${s.to - s.from > 60 * DAY ? ' (open)' : ''}.` : 'No free window yet: plan around your contracts.'} Winter checks cost no summer revenue.`,
-          ref: { kind: 'aircraft', id: ac.id },
+          ref: { kind: 'aircraft', id: ac.id }, ...cardMeta(checkCard(g, ac.id)),
         });
       }
     }
@@ -423,7 +428,7 @@ function forceCheck(g: GameState, ac: Aircraft, st: CheckStatus): void {
   const legs = flightsOf(g, ac.id).filter((f) => f.status === 'scheduled' && f.std < start + dur + 60);
   if (legs.length) cancelLegs(g, legs, `${ac.reg} grounded`, 0);
   const r = scheduleCheck(g, ac.id, kind, start, at);
-  if (r.ok) pushMessage(g, { tone: 'bad', cat: 'tech', title: `${ac.reg} grounded for its ${kind}-check`, body: `The check was overdue. ${legs.length} legs cancelled.`, ref: { kind: 'aircraft', id: ac.id } });
+  if (r.ok) pushMessage(g, { tone: 'bad', cat: 'tech', title: `${ac.reg} grounded for its ${kind}-check`, body: `The check was overdue. ${legs.length} legs cancelled.`, ref: { kind: 'aircraft', id: ac.id }, problem: { kind: 'grounded', ref: { kind: 'aircraft', id: ac.id } }, hurt: { money: 0, pax: 0, delayMin: 0, level: legs.length ? 'high' : 'low' } });
 }
 
 // ---------- events ----------

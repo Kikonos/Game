@@ -4,7 +4,7 @@
 import { BAL } from '../core/balance';
 import { typeOf } from '../core/perf';
 import { fmtDay } from '../core/time';
-import type { CrewMember, Duty, GameState, Legality, Minute, Pairing } from '../core/types';
+import type { CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing } from '../core/types';
 import { evalSegs, levelOf, LIMITS, type LegalityIssue, type Seg } from './rules';
 import { aboard, crewIx, ctxOf, droppableHome, droppableOut, dutySegs, locAt, outTicket, planHome, planHomeAfter, planOut, segsOf, typeIdOf, withoutTickets, type TicketPlan } from './timeline';
 
@@ -50,7 +50,7 @@ function statusIssues(c: CrewMember, from: number, to: number, family: string, d
  * already bought for c (re-check of an assignment); otherwise plans new ones. `slack`: the auto-roster's planning
  * margin (TimelineCtx.slack). `leaving`: a pairing c leaves in the same change (swap).
  */
-export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], existing = false, slack = 0, leaving?: string): CrewPlan {
+export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], existing = false, slack = 0, leaving?: string, ride?: TicketPlan): CrewPlan {
   const duties = openDuties(g, p);
   if (!duties.length) return { level: 'legal', issues: [], out: null, home: null, segs: [] };
   const first = duties[0];
@@ -60,6 +60,7 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
   let home: TicketPlan | null = null;
   const issues: LegalityIssue[] = [];
   const dropped: string[] = [];
+  let booked: TicketPlan | null = null;
   if (existing) {
     for (const fid of [...first.deadheadIds, ...last.deadheadIds]) {
       const f = g.flights[fid];
@@ -87,8 +88,14 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
       base = withoutTickets(base, drop);
       dropped.push(...drop);
     }
+    // v0.7.1: a private jet already chartered for this crew member (crew/control.ts charterJet), or one being
+    // quoted (`ride`), is their ride out; a booked one leaves the base timeline (it is the duty's, not a loose ticket).
+    booked = ride ?? prebooked(g, first, c.id);
+    const bookedId = booked ? (booked as Partial<Flight>).id : undefined;
+    if (bookedId) base = withoutTickets(base, [bookedId]);
     const loc = locAt(c, base, first.report);
-    if (loc !== dep) {
+    if (booked) out = booked;
+    else if (loc !== dep) {
       // From where they will be, once their rest after earlier work is over (crew away from base included).
       const o = outTicket(g, p, first, loc, readyAt(c, base, first.report));
       out = o.plan;
@@ -112,7 +119,7 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
   // the crew fly out the day before and rest at the hotel first.
   const own = new Set(p.dutyIds);
   const bad = (l: LegalityIssue[]) => badRestFdp(l, own);
-  if (!existing && out && !out.rideId && bad(ftl)) {
+  if (!existing && out && !out.rideId && !booked && bad(ftl)) {
     const early = planOut(g, p, first, out.from, true);
     if (early.std < out.std && early.std - BAL.deadheadCheckIn >= g.now) {
       const plain = out;
@@ -199,11 +206,21 @@ export function crewIssuesFor(g: GameState, d: Duty): { crewId: string; issue: L
   return out;
 }
 
+/** v0.7.1: a chartered jet (Flight with `charter`) carrying c to duty d's first departure, still to land. */
+function prebooked(g: GameState, d: Duty, crewId: string): TicketPlan | null {
+  const dep = g.flights[d.flightIds[0]]?.from ?? d.restAt;
+  for (const fid of d.deadheadIds) {
+    const f = g.flights[fid];
+    if (f && f.charter && f.status === 'scheduled' && f.to === dep && f.sta <= d.report && aboard(f, crewId)) return f;
+  }
+  return null;
+}
+
 /**
  * When crew c can check in for new work before t: the end of the rest after their last logged duty and after
  * their planned work ending by t (the rest evalSegs asks for after each seg).
  */
-function readyAt(c: CrewMember, segs: Seg[], t: Minute): Minute {
+export function readyAt(c: CrewMember, segs: Seg[], t: Minute): Minute {
   let ready = c.restUntil;
   for (const s of segs) {
     if (s.end > t) break;

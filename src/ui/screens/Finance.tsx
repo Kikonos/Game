@@ -1,18 +1,21 @@
 // Finance (B5): KPIs, monthly statement (current month + last 5 closed), 90-day cash forecast and
 // receivables by due date. DESIGN.md §6.3.
 
-import { Banknote, Clock, Landmark, TrendingUp, Wallet } from 'lucide-react';
-import { useMemo } from 'react';
+import { Banknote, Clock, Landmark, TrendingUp, Wallet, X } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import { statementTotals } from '../../engine/core/ledger';
 import { DAY, fmtDay, fmtMonth } from '../../engine/core/time';
 import type { GameState } from '../../engine/core/types';
 import { cashForecast } from '../../engine/ops';
+import { problemAt } from '../../engine/problems';
 import { LineChart } from '../components/charts';
+import { ProblemCardView } from '../components/ProblemCard';
+import { Why } from '../components/Why';
 import { Card, Kpi } from '../components/ui';
 import { money } from '../format';
 import { store, useGame } from '../store';
-import { ScreenHead, useRenderCount } from './common';
-import { earnedUnbilled, statementView } from './screenLogic';
+import { Dot, ScreenHead, useRenderCount } from './common';
+import { earnedUnbilled, showLossMonth, statementView } from './screenLogic';
 
 const tone = (v: number) => (v < 0 ? 'bad' : v > 0 ? 'good' : '');
 
@@ -55,10 +58,12 @@ function Receivables({ g }: { g: GameState }) {
       {open.slice(0, 30).map((r) => {
         const cl = g.clients[r.clientId];
         const late = g.now - r.due;
+        // v0.7.1 §14: a WHY? on an invoice the engine calls a problem (30 days late).
+        const prob = late > 0 && r.contractId ? problemAt(g, { kind: 'contract', id: r.contractId }) : null;
         return (
           <div key={r.id} className={`sc-list-row sc-recv ${late > 0 ? 'late' : ''}`} onClick={() => r.contractId && store.navigate('contracts', { view: 'active', sel: { kind: 'contract', id: r.contractId } })}>
             <div className="grow" style={{ minWidth: 0 }}>
-              <div className="row gap-8"><b className="ellipsis">{cl?.name ?? 'Client'}</b>{cl?.kind === 'government' && <span className="chip sc-chip">Government</span>}{r.factored && <span className="chip sc-chip">Factored</span>}</div>
+              <div className="row gap-8">{prob && <Why refs={{ kind: 'contract', id: r.contractId! }} tone={prob.severity === 'red' ? 'bad' : 'warn'} />}<b className="ellipsis">{cl?.name ?? 'Client'}</b>{cl?.kind === 'government' && <span className="chip sc-chip">Government</span>}{r.factored && <span className="chip sc-chip">Factored</span>}</div>
               <div className="small muted ellipsis">{r.desc} · issued {fmtDay(r.issued)}</div>
             </div>
             <div className="right nowrap">
@@ -91,9 +96,24 @@ export function FinanceScreen() {
   const low = fc.reduce((m, p) => Math.min(m, p.cash), Infinity);
   // Wet leases invoice at month end; show what is already earned so mid-month profit is not misleading.
   const earned = earnedUnbilled(g);
+  // v0.7.1 §14: the cash card on top with the date it bites; a losing month is one calm line (only while this month
+  // is losing too, or after two in a row), which the player can put away. The full card stays behind Explain in the Inbox.
+  const cash = problemAt(g, { kind: 'cash', id: 'cash' });
+  const loss = problemAt(g, { kind: 'statement', id: String(g.finance.current.month) });
+  const [lossHidden, setLossHidden] = useState<string | null>(null);
+  const showLoss = loss && loss.subject.kind === 'lossMonth' && showLossMonth(g) && lossHidden !== loss.subject.ref.id;
   return (
     <div className="screen sc-finance">
       <ScreenHead title="Finance" sub={`${fmtMonth(g.finance.current.month, false)} so far · revenue when invoiced (wet leases at month end), costs when incurred`} />
+      {cash && <div className="fin-card"><ProblemCardView card={cash} g={g} /></div>}
+      {showLoss && (
+        <div className="fin-loss">
+          <Dot tone="warn" />
+          <span className="grow fin-loss-t"><b>{loss.what}.</b> <span className="muted">{loss.why}</span></span>
+          <button className="btn btn-sm" onClick={() => store.navigate('contracts')}>Find work</button>
+          <button className="btn btn-ghost btn-icon" onClick={() => setLossHidden(loss.subject.ref.id)} aria-label="Put this away"><X /></button>
+        </div>
+      )}
       <div className="sc-kpis">
         <Kpi label="Cash" icon={<Wallet />} value={<span className={g.company.cash < 0 ? 'bad' : ''}>{money(g.company.cash)}</span>} sub={fc.length ? `90-day low ${money(low)}` : undefined} />
         <Kpi label="Revenue" icon={<TrendingUp />} value={money(cur.revenue)} sub={earned > 0 ? <span className="good">+{money(earned)} earned, invoiced at month end</span> : 'invoiced this month'} />
