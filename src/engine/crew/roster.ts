@@ -1076,14 +1076,24 @@ function rehome(g: GameState, p: Pairing): void {
 
 // ---------- disruption APIs ----------
 
-/** Commander's discretion (B3 crewShort decision): maxFdp +2:00 (+3:00 augmented), crew.discretion++, morale −3. */
+/** v0.7.3 why commander's discretion is not available before report (ORO.FTL.205(f): unforeseen, at or after report). */
+export const DISCRETION_BEFORE_REPORT = 'Only after the crew have reported: for a planned day use a fresh crew, a delay or an augmented crew';
+
+/**
+ * Commander's discretion (ORO.FTL.205(f)): only once the crew have reported, for something unforeseen; up to 2 h
+ * (3 h with an augmented crew) on the basic FDP after a planned extension (GM1 ORO.FTL.205(f)(1)(i)), else on the
+ * duty's limit; crew.discretion++, morale −3.
+ */
 export function applyDiscretion(g: GameState, dutyId: string): ActionResult {
   const d = g.duties[dutyId];
   const p = d && g.pairings[d.pairingId];
   if (!d || !p) return { ok: false, error: 'Duty not found' };
   if (d.done) return { ok: false, error: 'Duty already flown' };
   if (d.discretion) return { ok: false, error: 'Discretion already used on this duty' };
-  d.discretion = d.augment > 0 ? DISCRETION.augmented : DISCRETION.basic;
+  if (d.report > g.now) return { ok: false, error: DISCRETION_BEFORE_REPORT };
+  const up = d.augment > 0 ? DISCRETION.augmented : DISCRETION.basic;
+  d.discretion = d.ext && d.basicFdp ? Math.max(0, d.basicFdp + up - d.maxFdp) : up;
+  if (!d.discretion) return { ok: false, error: 'Discretion adds nothing on a planned extension' };
   d.legality = dutyLegality(d);
   for (const s of p.slots) {
     const c = s.crewId ? g.crew[s.crewId] : undefined;

@@ -176,7 +176,7 @@ describe('previews and apply', () => {
     expect(flightCrewStatus(g, flightId).level).not.toBe('missing');
   });
 
-  it("commander's discretion: only with every seat filled, over by ≤ 2 h and unused", () => {
+  it("commander's discretion: only after report, with every seat filled, over by ≤ 2 h and unused", () => {
     const t = trip('DUS', 'FNC');
     const { g, flightId } = t;
     autoRoster(g);
@@ -191,6 +191,13 @@ describe('previews and apply', () => {
     v = crewControl(g, flightId)!;
     expect(v.card.what).toBe("AW816's crew can't legally fly it");
     expect(v.card.why).toMatch(/^The crew's day would run/);
+    // v0.7.3 ORO.FTL.205(f): only for the unforeseen, at or after report: never for a planned day.
+    const before = v.solutions.find((x) => x.id === 'discretion')!;
+    expect(before.available).toBe(false);
+    expect(before.why).toMatch(/^Only after the crew have reported/);
+    expect(applyCrewFix(g, flightId, 'discretion').ok).toBe(false);
+    g.now = d.report + 10;
+    v = crewControl(g, flightId)!;
     const s = v.solutions.find((x) => x.id === 'discretion')!;
     expect(s.available).toBe(true);
     expect(s.rank).toBe(1);

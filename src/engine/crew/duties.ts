@@ -4,7 +4,7 @@
 
 import { BAL } from '../core/balance';
 import { flightsOf, nextId } from '../core/entities';
-import { cabinMinimum, reportMinutes } from '../core/perf';
+import { cabinMinimum, reportMinutes, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { DAY, dayStart, yearOf } from '../core/time';
 import type { AcRest, Contract, CrewMember, CrewSlot, Deployment, Duty, Flight, GameState, Legality, Minute, Pairing, Role } from '../core/types';
@@ -14,7 +14,7 @@ import {
 } from './rules';
 import { crewExtraFor, seatsFor, type Seat } from './extraSeats';
 import { cabinEarly, cabinEarlyOf, crewCount, crewIx, dutyBlock, dutyFlights, onBlocks, touchCrew } from './timeline';
-import { planRest, restOf, type RestLeg } from './restPlan';
+import { planRest, restOf, type RestLeg, type RestPlan } from './restPlan';
 
 // ---------- duty measures ----------
 
@@ -1004,19 +1004,71 @@ export function buildDuties(g: GameState, aircraftId: string, from: Minute, to: 
 
 // ---------- v0.7.3 contract chains (UPDATE-0.7.3.md §2.9) ----------
 
-/** An operated chain of a programme (trip legs between crew-change stations), UTC, offsets applied. */
-export interface ChainShape { from: string; std: Minute; legs: { std: Minute; sta: Minute }[] }
+/** An operated chain of a programme (legs between crew-change stations, no night stop), UTC, offsets applied. */
+export interface ChainShape { from: string; std: Minute; legs: { std: Minute; sta: Minute; from?: string; to?: string }[] }
 
 export interface DutyNeed {
-  mode: 'basic' | 'split' | 'ext' | 'aug1' | 'aug2' | 'none';
+  mode: PlanMode | 'none';
+  /** The chain's FDP (report to the last landing) and the limit of the plan found (Table 2 when none). */
   fdp: number;
   max: number;
-  plan: import('./restPlan').RestPlan | null;
+  /** The rest plan of an augmented need, or the failed plan that rules augmentation out. */
+  plan: RestPlan | null;
+  /** 'Longest day 12:40 of 13:00 (2 pilots)', 'Bunks → 3 pilots, 16 h limit ✓', … */
   text: string;
+  /** What blocks it when mode is 'none': no facility, cruise too short, no approval, too long whatever the rest. */
+  why?: 'noRest' | 'tooShort' | 'approval' | 'tooLong' | 'cabin';
 }
 
-/** v0.7.3 what crewing a chain on this type and these facilities needs (the first legal plan). Pure. STUB */
-export function dutyNeed(_g: GameState, _typeId: string, _rest: import('../core/types').AcRest, chain: ChainShape): DutyNeed {
-  const fdp = chain.legs.length ? chain.legs[chain.legs.length - 1].sta - chain.legs[0].std : 0;
-  return { mode: 'none', fdp, max: 0, plan: null, text: '' };
+const kindWords = (r: AcRest): string => {
+  const f = r.fc;
+  if (!f) return 'No crew rest';
+  return f.kind === 'fcrc' || f.kind === 'ccrc' ? 'Bunks' : f.kind === 'ldmcr' ? 'Lower-deck bunks' : f.kind === 'jSeats' ? `Business seats (class ${f.cls})` : `Recliners (class ${f.cls})`;
+};
+
+/**
+ * v0.7.3 what crewing one chain on this type and these facilities needs (UPDATE-0.7.3.md §2.9 C7): Table 2 at the
+ * chain's report time and sectors (acclimatised at the departure), then split duty, a planned extension, 3 and 4
+ * pilots with the rest plan. Pure.
+ */
+export function dutyNeed(g: GameState, typeId: string, rest: AcRest, chain: ChainShape): DutyNeed {
+  const fl: Flight[] = chain.legs.map((l, i) => ({
+    id: `chain${i}`, from: l.from ?? (i ? `X${i}` : chain.from), to: l.to ?? `X${i + 1}`, std: l.std, sta: l.sta, block: l.sta - l.std, status: 'scheduled',
+  } as Flight));
+  if (!fl.length) return { mode: 'basic', fdp: 0, max: 0, plan: null, text: '' };
+  const sh = shape(typeId, fl);
+  const approved = g.company.approvals.includes('augmented');
+  const t = typeOf(typeId);
+  const seats = t.cabins[0] ? t.cabins[0].j + t.cabins[0].w + t.cabins[0].y : 180;
+  const ctx: PlanCtx = { rest, canAug: approved && !!rest.fc && !!rest.cc, split: true, ext: true, cabinN: Math.max(cabinMinimum(seats), 1) };
+  const pa = pickPlan(sh, { reportLocal: localMin(sh.dep, sh.report), acclimatised: true, tz: sh.dep }, ctx);
+  const hmm = (m: number) => `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
+  const hrs = (m: number) => (m % 60 ? hmm(m) : `${m / 60} h`);
+  if (pa.ok) {
+    if (pa.mode === 'basic') return { mode: 'basic', fdp: sh.fdp, max: pa.max, plan: null, text: `Longest day ${hmm(sh.fdp)} of ${hmm(pa.max)} (2 pilots)` };
+    if (pa.mode === 'ext') return { mode: 'ext', fdp: sh.fdp, max: pa.max, plan: null, text: `Longest day ${hmm(sh.fdp)}: a planned extension (${hmm(pa.max)}), twice a week per crew` };
+    if (pa.mode === 'split') return { mode: 'split', fdp: sh.fdp, max: pa.max, plan: null, text: `Longest day ${hmm(sh.fdp)}: a split duty (a ${hmm(pa.split!.net)} break on the ground → ${hmm(pa.max)})` };
+    const plan = planRest(legsOf(fl), rest, pa.augment as 1 | 2, sh.fdp + pa.early, ctx.cabinN);
+    const blocked = Math.max(0, ...Object.values(plan.blocked));
+    const pilots = pa.augment === 1 ? '3 pilots' : 'needs a 4th pilot';
+    const seatsLine = blocked ? ` · ${blocked} ${rest.fc?.kind === 'recliners' ? 'recliners' : 'business seats'} blocked on the long legs` : '';
+    const extra = plan.extraCabin ? ` · ${plan.extraCabin} more cabin crew for in-flight rest` : '';
+    return { mode: pa.mode, fdp: sh.fdp, max: pa.max, plan, text: `${kindWords(rest)} → ${pilots}, ${hrs(pa.max)} limit${pa.augment === 1 ? ' ✓' : ''}${seatsLine}${extra}` };
+  }
+  // Not plannable: why.
+  const day = hmm(sh.fdp);
+  if (!rest.fc || !rest.cc) return { mode: 'none', fdp: sh.fdp, max: pa.max, plan: null, text: `No crew rest → ✗ a ${day} day needs in-flight rest`, why: 'noRest' };
+  if (!approved) return { mode: 'none', fdp: sh.fdp, max: pa.max, plan: null, text: `A ${day} day needs an augmented crew: we have no approval for it`, why: 'approval' };
+  for (const a of [2, 1] as const) {
+    const lim = augLimitOf(rest.fc.cls, rest.cc.cls, a, longSector(sh.sectors, sh.longest), sh.early);
+    if (sh.fdp > lim.max || sh.sectors > AUG_MAX_SECTORS) continue;
+    const plan = planRest(legsOf(fl), rest, a, sh.fdp + lim.early, ctx.cabinN);
+    if (plan.code === 'tooShort') {
+      const longest = Math.max(...fl.map((f) => f.block));
+      return { mode: 'none', fdp: sh.fdp, max: pa.max, plan, text: `The cruise is too short for in-flight rest (${fl.length} leg${fl.length > 1 ? 's' : ''} of ${hmm(longest)})`, why: 'tooShort' };
+    }
+    return { mode: 'none', fdp: sh.fdp, max: pa.max, plan, text: plan.why ?? `A ${day} day doesn't fit the cabin crew's rest`, why: 'cabin' };
+  }
+  if (sh.sectors > AUG_MAX_SECTORS) return { mode: 'none', fdp: sh.fdp, max: pa.max, plan: null, text: `A ${day} day with ${sh.sectors} sectors: in-flight rest allows at most 3`, why: 'tooLong' };
+  return { mode: 'none', fdp: sh.fdp, max: pa.max, plan: null, text: `A ${day} day is longer than ${kindWords(rest).toLowerCase()} allow even with 4 pilots`, why: 'tooLong' };
 }

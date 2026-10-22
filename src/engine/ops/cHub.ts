@@ -36,6 +36,8 @@ export interface CCheckOption {
 export interface CheckTicket { crewIds: string[]; no: string; from: string; to: string; dep: Minute; cost: number }
 
 const city = (code: string) => AIRPORT_BY_CODE[code]?.city ?? code;
+/** v0.7.3 extra days a crew rest compartment adds to the check. */
+const addOf = (r?: 'fcrc' | 'overhead') => (r ? BAL.v073.restRefit[r].addDays : 0);
 const up = (t: Minute) => Math.ceil(t / 30) * 30;
 
 /** Ferry legs from → to departing `dep` (night stops on long chains); [] when already there; null: no route. */
@@ -48,14 +50,14 @@ function ferryLegs(ac: Aircraft, from: string, to: string, dep: Minute): Deliver
 const span = (legs: DeliveryLeg[]) => (legs.length ? legs[legs.length - 1].sta - legs[0].std : 0);
 
 /** The whole window a hub check needs from `at`: ferry out (landing a turn before), check, ferry home. */
-function windowAt(g: GameState, ac: Aircraft, hub: string, at: string, start: Minute) {
+function windowAt(g: GameState, ac: Aircraft, hub: string, at: string, start: Minute, restFit?: 'fcrc' | 'overhead') {
   const turn = typeOf(ac.typeId).turnMin;
   const out0 = ferryLegs(ac, at, hub, 0);
   const home0 = ferryLegs(ac, hub, g.company.homeBase, 0);
   if (!out0 || !home0) return null;
   const outDep = start - turn - span(out0);
   const ferryOut = ferryLegs(ac, at, hub, outDep)!;
-  const end = start + durationOf(ac, 'C');
+  const end = start + durationOf(ac, 'C') + addOf(restFit) * DAY;
   const ferryHome = ferryLegs(ac, hub, g.company.homeBase, end + BAL.v072.cHub.homeAfterMin)!;
   const from = ferryOut.length ? ferryOut[0].std - turn : start;
   const to = ferryHome.length ? ferryHome[ferryHome.length - 1].sta + turn : end;
@@ -63,7 +65,7 @@ function windowAt(g: GameState, ac: Aircraft, hub: string, at: string, start: Mi
 }
 
 /** Earliest check starts at a hub whose window holds ferry out + check + ferry home (one a week in a long gap). Pure. */
-export function cCheckSlots(g: GameState, aircraftId: string, hub: string, n = 6, _restFit?: 'fcrc' | 'overhead'): Minute[] {
+export function cCheckSlots(g: GameState, aircraftId: string, hub: string, n = 6, restFit?: 'fcrc' | 'overhead'): Minute[] {
   const ac = g.fleet[aircraftId];
   if (!ac || !cHubAt(typeOf(ac.typeId).family, hub)) return [];
   const out: Minute[] = [];
@@ -73,7 +75,7 @@ export function cCheckSlots(g: GameState, aircraftId: string, hub: string, n = 6
     if (!o) continue;
     let start = up(Math.max(gp.from, g.now + BAL.ferryLeadMin) + turn + span(o) + turn + 30);
     for (; out.length < n; start += 7 * DAY) {
-      const w = windowAt(g, ac, hub, gp.at, start);
+      const w = windowAt(g, ac, hub, gp.at, start, restFit);
       if (!w || w.to > gp.to) break;
       out.push(start);
     }
@@ -83,30 +85,32 @@ export function cCheckSlots(g: GameState, aircraftId: string, hub: string, n = 6
 }
 
 /** One option per hub of the aircraft's family (at `start`, else its first slot), cheapest total first. Pure. */
-export function cCheckOptions(g: GameState, aircraftId: string, start?: Minute, _restFit?: 'fcrc' | 'overhead'): CCheckOption[] {
+export function cCheckOptions(g: GameState, aircraftId: string, start?: Minute, restFit?: 'fcrc' | 'overhead'): CCheckOption[] {
   const ac = g.fleet[aircraftId];
   if (!ac) return [];
   const home = g.company.homeBase;
   const base = checkCostOf(ac, 'C');
+  const extra = restFit ? BAL.v073.restRefit[restFit].cost : 0;
+  const dur = durationOf(ac, 'C') + addOf(restFit) * DAY;
   const out: CCheckOption[] = [];
   const leaving = disposalWhy(g, ac);
   for (const hub of C_HUBS[typeOf(ac.typeId).family]) {
     if (leaving) {
       const t = start ?? g.now;
-      const checkCost = Math.round(base * hub.price);
-      out.push({ hub, ok: false, why: leaving, start: t, end: t + durationOf(ac, 'C'), ferryOut: [], ferryHome: [], checkCost, ferryCost: 0, crewCost: 0, total: checkCost, awayDays: 0 });
+      const checkCost = Math.round(base * hub.price) + extra;
+      out.push({ hub, ok: false, why: leaving, start: t, end: t + dur, ferryOut: [], ferryHome: [], checkCost, ferryCost: 0, crewCost: 0, total: checkCost, awayDays: 0 });
       continue;
     }
-    const s = start ?? cCheckSlots(g, ac.id, hub.code, 1)[0];
-    const checkCost = Math.round(base * hub.price);
-    const none: CCheckOption = { hub, ok: false, why: null, start: s ?? g.now, end: (s ?? g.now) + durationOf(ac, 'C'), ferryOut: [], ferryHome: [], checkCost, ferryCost: 0, crewCost: 0, total: checkCost, awayDays: 0 };
+    const s = start ?? cCheckSlots(g, ac.id, hub.code, 1, restFit)[0];
+    const checkCost = Math.round(base * hub.price) + extra;
+    const none: CCheckOption = { hub, ok: false, why: null, start: s ?? g.now, end: (s ?? g.now) + dur, ferryOut: [], ferryHome: [], checkCost, ferryCost: 0, crewCost: 0, total: checkCost, awayDays: 0 };
     if (s === undefined) {
       out.push({ ...none, why: 'No free window long enough in the next year' });
       continue;
     }
     const gp = groundGaps(g, ac, g.now, s + 365 * DAY).find((x) => x.from <= s && x.to > s);
     const at = gp?.at ?? ac.at;
-    const w = windowAt(g, ac, hub.code, at, s);
+    const w = windowAt(g, ac, hub.code, at, s, restFit);
     if (!w) {
       out.push({ ...none, why: `No ferry route to ${hub.city}` });
       continue;
@@ -117,7 +121,7 @@ export function cCheckOptions(g: GameState, aircraftId: string, start?: Minute, 
     const crewCost = ferryCrewCost(g, home, hub.code, w.ferryOut) + ferryCrewCost(g, home, hub.code, w.ferryHome);
     const first = w.ferryOut[0]?.std ?? s;
     const last = w.ferryHome[w.ferryHome.length - 1]?.sta ?? w.end;
-    const why = !gp ? `${ac.reg} is busy then` : w.from < Math.max(gp.from, g.now) || w.to > gp.to ? `The ferries and the ${typeOf(ac.typeId).cCheckDays}-day check don't fit around ${ac.reg}'s work then` : null;
+    const why = !gp ? `${ac.reg} is busy then` : w.from < Math.max(gp.from, g.now) || w.to > gp.to ? `The ferries and the ${Math.round(dur / DAY)}-day check don't fit around ${ac.reg}'s work then` : null;
     out.push({
       hub, ok: !why, why, start: s, end: w.end, ferryOut: w.ferryOut, ferryHome: w.ferryHome, checkCost, ferryCost: ferry, crewCost,
       total: checkCost + ferry + crewCost, awayDays: Math.round(((last - first) / DAY) * 10) / 10,
@@ -133,6 +137,7 @@ export function cCheckOptions(g: GameState, aircraftId: string, start?: Minute, 
  */
 export function bookCCheck(g: GameState, aircraftId: string, hub: string, start: Minute, opts: boolean | { forced?: boolean; restFit?: 'fcrc' | 'overhead' } = false): ActionResult<{ maintId: string }> {
   const forced = typeof opts === 'boolean' ? opts : !!opts.forced;
+  const restFit = typeof opts === 'boolean' ? undefined : opts.restFit;
   const ac = g.fleet[aircraftId];
   if (!ac) return { ok: false, error: 'Aircraft not found' };
   const leaving = forced ? null : disposalWhy(g, ac);
@@ -143,7 +148,7 @@ export function bookCCheck(g: GameState, aircraftId: string, hub: string, start:
   const homeR = ferryRoute(ac.typeId, hub, home);
   if (!homeR) return { ok: false, error: `No ferry route home from ${h.city}` };
   // The ferry home must be clear too.
-  const end = Math.round(Math.max(start, g.now)) + durationOf(ac, 'C');
+  const end = Math.round(Math.max(start, g.now)) + durationOf(ac, 'C') + addOf(restFit) * DAY;
   const homeLegs = ferryDays(homeR, end + BAL.v072.cHub.homeAfterMin, ac.typeId);
   const homeBy = homeLegs.length ? homeLegs[homeLegs.length - 1].sta : end;
   const clash = flightsOf(g, ac.id).find((f) => (f.status === 'scheduled' || f.status === 'enroute') && f.kind !== 'positioning' && f.std < homeBy + 30 && f.sta > end);
@@ -151,6 +156,12 @@ export function bookCCheck(g: GameState, aircraftId: string, hub: string, start:
   const r = scheduleCheck(g, ac.id, 'C', start, hub, { hub: h, forced });
   if (!r.ok) return r;
   const m = g.maintenance[r.data!.maintId];
+  // v0.7.3 a crew rest compartment fitted with the check: longer, dearer, fitted at its end.
+  if (restFit) {
+    m.end += addOf(restFit) * DAY;
+    m.cost += BAL.v073.restRefit[restFit].cost;
+    m.restFit = restFit;
+  }
   const legs = ferryDays(homeR, m.end + BAL.v072.cHub.homeAfterMin, ac.typeId).map((l) => {
     const f = addFlight(g, { no: ownFlightNo(g), aircraftId: ac.id, contractId: null, kind: 'ferry', from: l.from, to: l.to, std: l.std, sta: l.sta });
     f.purpose = 'check';
@@ -160,11 +171,11 @@ export function bookCCheck(g: GameState, aircraftId: string, hub: string, start:
   touchFlights(g);
   rerosterFrom(g, ac.id, g.now);
   const out = (m.ferryIds ?? []).map((id) => g.flights[id]).filter((f): f is Flight => !!f);
-  const opt = cCheckOptions(g, ac.id, m.start).find((o) => o.hub.code === hub);
+  const opt = cCheckOptions(g, ac.id, m.start, restFit).find((o) => o.hub.code === hub);
   const all = m.cost + (opt ? opt.ferryCost + opt.crewCost : 0);
   pushMessage(g, {
     tone: 'info', cat: 'tech', title: `C-check booked: ${ac.reg} at ${h.name}`,
-    body: `${h.name}, ${h.city}: ${fmtDay(m.start)}–${fmtDay(m.end)}.${out.length ? ` Ferry out ${fmtDay(out[0].std)} ${out[0].from}–${out[out.length - 1].to},` : ''} home ${legs.length ? fmtDay(legs[0].std) : fmtDay(m.end)}; the pilots fly home and back on airline flights. About ${usd(all)} all in.`,
+    body: `${h.name}, ${h.city}: ${fmtDay(m.start)}–${fmtDay(m.end)}${restFit ? `, plus a ${restFit === 'fcrc' ? 'flight crew rest compartment' : 'overhead crew rest'} (+${addOf(restFit)} days, ${usd(BAL.v073.restRefit[restFit].cost)})` : ''}.${out.length ? ` Ferry out ${fmtDay(out[0].std)} ${out[0].from}–${out[out.length - 1].to},` : ''} home ${legs.length ? fmtDay(legs[0].std) : fmtDay(m.end)}; the pilots fly home and back on airline flights. About ${usd(all)} all in.`,
     ref: { kind: 'maint', id: m.id },
   });
   return { ok: true, msg: `C-check at ${h.name} ${fmtDay(m.start)}–${fmtDay(m.end)}`, data: { maintId: m.id } };

@@ -1,5 +1,6 @@
-// v0.7.2 crew rest per airframe (UPDATE-0.7.2.md §3): bunks (class 1), crew rest seats (class 3), blocked seats,
-// passengers offloaded, and the cabin crew's earlier report on widebodies (ORO.FTL.205(c)).
+// Crew rest per airframe. v0.7.2 (UPDATE-0.7.2.md §3) blocked seats, passengers offloaded, the cabin crew's earlier
+// report on widebodies (ORO.FTL.205(c)); v0.7.3 (UPDATE-0.7.3.md §2.1) separate pilot and cabin crew facilities and
+// the migration of the v0.7.2 {bunks, seats}.
 
 import { describe, expect, it } from 'vitest';
 import { addFlight } from '../core/entities';
@@ -8,15 +9,18 @@ import type { GameState } from '../core/types';
 import { offloadRestSeats } from '../ops/flights';
 import { addCrew, fixtureContract, fixtureGame } from './fixtures';
 import { defaultCrewRest, restClassAt, restSeatsBlocked, sellableSeats } from './crewRest';
+import { migrateRest, restOf } from './restPlan';
+import type { AcRest } from '../core/types';
 import { dutySegs } from './timeline';
 import { buildDuties } from '.';
 
-const wide = (g: GameState, rest: { bunks: boolean; seats: number }) => {
+const wide = (g: GameState, old: { bunks: boolean; seats: number }) => {
   g.company.approvals.push('augmented');
   const ac = Object.values(g.fleet)[0];
   ac.typeId = 'a333';
   ac.cabin = { ...ac.cabin, total: 300, y: 300, j: 0, w: 0 };
-  ac.crewRest = rest;
+  ac.crewRest = old;
+  ac.rest = migrateRest({ ...ac, rest: undefined });
   addCrew(g, { CPT: 3, FO: 4, PUR: 4, CC: 14 }, 'A330/340');
   return ac;
 };
@@ -29,21 +33,37 @@ const longLeg = (g: GameState, acId: string, blockMin = 12 * 60 + 30) => {
 };
 
 describe('crew rest per airframe', () => {
-  it('restClassAt: bunks → 1, crew rest seats → 3, none → null; old widebodies default to bunks', () => {
+  it('v0.7.3 migration of the v0.7.2 {bunks, seats} (UPDATE-0.7.3.md §2.1 table)', () => {
+    const cab = (j: number) => ({ j, w: 0, y: 300 - j, total: 300, label: '', layout: 'two-class' as const });
+    const fc1 = { cls: 1, kind: 'fcrc', places: 2 };
+    expect(migrateRest({ typeId: 'b763', cabin: cab(16), crewRest: { bunks: true, seats: 0 } })).toEqual({ fc: fc1, cc: { cls: 1, kind: 'ldmcr', places: 6 } });
+    expect(migrateRest({ typeId: 'b772', cabin: cab(30), crewRest: { bunks: true, seats: 0 } })).toEqual({ fc: fc1, cc: { cls: 1, kind: 'ccrc', places: 8 } });
+    // grandfathered recliners: plain economy seats are no rest facility any more (C9)
+    expect(migrateRest({ typeId: 'a333', cabin: cab(0), crewRest: { bunks: false, seats: 8 } })).toEqual({ fc: { cls: 3, kind: 'recliners', places: 2 }, cc: { cls: 3, kind: 'recliners', places: 6 } });
+    // nothing, but business seats: curtained class 2 (pilots 2; cabin crew min(J − 2, ⌈typical / 2⌉))
+    expect(migrateRest({ typeId: 'a333', cabin: cab(24), crewRest: { bunks: false, seats: 0 } })).toEqual({ fc: { cls: 2, kind: 'jSeats', places: 2 }, cc: { cls: 2, kind: 'jSeats', places: 5 } });
+    expect(migrateRest({ typeId: 'a333', cabin: cab(0), crewRest: { bunks: false, seats: 0 } })).toEqual({ fc: null, cc: null });
+    // absent (older saves, start fleet): widebodies whose type had a rest class get bunks
+    expect(migrateRest({ typeId: 'a332', cabin: cab(18) })).toEqual({ fc: fc1, cc: { cls: 1, kind: 'ldmcr', places: 7 } });
+    expect(migrateRest({ typeId: 'a320ceo', cabin: cab(0) })).toEqual({ fc: null, cc: null });
+    // idempotent
+    const r: AcRest = { fc: null, cc: { cls: 2, kind: 'jSeats', places: 4 } };
+    expect(migrateRest({ typeId: 'a333', cabin: cab(24), rest: r })).toBe(r);
+    expect(defaultCrewRest('a333')).toEqual({ bunks: true, seats: 0 });
+    expect(defaultCrewRest('a320ceo')).toEqual({ bunks: false, seats: 0 });
+  });
+  it('restOf / restClassAt (deprecated: the pilots\' class)', () => {
     const g = fixtureGame();
     const ac = Object.values(g.fleet)[0];
     expect(restClassAt(g, ac.id)).toBeNull();
-    ac.crewRest = { bunks: false, seats: 8 };
-    expect(restClassAt(g, ac.id)).toBe(3);
-    ac.crewRest = { bunks: true, seats: 0 };
-    expect(restClassAt(g, ac.id)).toBe(1);
-    expect(defaultCrewRest('a333')).toEqual({ bunks: true, seats: 0 });
-    expect(defaultCrewRest('b763')).toEqual({ bunks: true, seats: 0 });
-    expect(defaultCrewRest('a320ceo')).toEqual({ bunks: false, seats: 0 });
+    expect(restOf(g, ac.id)).toEqual({ fc: null, cc: null });
+    ac.rest = { fc: { cls: 2, kind: 'jSeats', places: 2 }, cc: { cls: 1, kind: 'ldmcr', places: 7 } };
+    expect(restClassAt(g, ac.id)).toBe(2);
     expect(restClassAt(g, null)).toBeNull();
+    expect(restOf(g, null)).toEqual({ fc: null, cc: null });
   });
 
-  it('an augmented duty on crew rest seats gets the class 3 limit; bunks the class 1 limit; none: no augmentation', () => {
+  it('an augmented duty on crew rest recliners gets the class 3 limit; bunks the class 1 limit; none: no augmentation', () => {
     const seats = fixtureGame();
     const a = longLeg(seats, wide(seats, { bunks: false, seats: 8 }).id);
     expect(a.d.augment).toBe(1);
@@ -58,7 +78,7 @@ describe('crew rest per airframe', () => {
     expect(c.d.legality).toBe('illegal');
   });
 
-  it('rest seats are blocked only when the duty needs in-flight rest; passengers beyond the sellable seats are offloaded once', () => {
+  it('rest seats are blocked only when someone rests in them; passengers beyond the sellable seats are offloaded once', () => {
     const g = fixtureGame();
     const ac = wide(g, { bunks: false, seats: 8 });
     const { f } = longLeg(g, ac.id);
@@ -75,7 +95,7 @@ describe('crew rest per airframe', () => {
     expect((g.finance.current.lines.penalties ?? 0) - before).toBe(-8 * 350);
     expect(g.messages.filter((m) => m.problem?.kind === 'restSeats').length).toBe(1);
     // With bunks nothing is blocked.
-    ac.crewRest = { bunks: true, seats: 0 };
+    ac.rest = { fc: { cls: 1, kind: 'fcrc', places: 2 }, cc: { cls: 1, kind: 'ldmcr', places: 7 } };
     expect(restSeatsBlocked(g, f.id)).toBe(0);
   });
 });

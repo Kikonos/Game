@@ -26,7 +26,7 @@ import { crewWindows } from './ftl';
 import { crewName } from './generate';
 import { moraleShock } from './morale';
 import { city, rootReason, type Reason, type ReasonCode } from './reasons';
-import { applyDiscretion, autoRoster, flightCrewStatus, onFlightsChanged, placeCrew, recheckPairing, releaseCrew, rerosterFrom, setShortHook, type FlightCrewStatus } from './roster';
+import { applyDiscretion, autoRoster, DISCRETION_BEFORE_REPORT, flightCrewStatus, onFlightsChanged, placeCrew, recheckPairing, releaseCrew, rerosterFrom, setShortHook, type FlightCrewStatus } from './roster';
 import { assignCrew, dutyCandidates, type DutyCandidate } from './rosterActions';
 import { DISCRETION, levelOf, LIMITS, minRest } from './rules';
 import { crewCount, crewRev, dhBlock, locAt, OUT_CONNECT, segsOf, touchCrew, typeIdOf, type TicketPlan } from './timeline';
@@ -118,7 +118,7 @@ const FIX_DESC: Record<CrewFix, string> = {
   delay: 'The flight waits until a legal crew can take it; later legs move.',
   jet: 'A business jet brings the crew in within hours. Dear, but fast.',
   callIn: 'Someone off duty at the airport comes in: overtime pay, a morale hit.',
-  discretion: "The captain extends the crew's day by up to two hours.",
+  discretion: "After reporting, if something unforeseen happens, the captain may extend the crew's day: up to 2 h (3 h with an augmented crew).",
   swap: "Take the crew of another flight; that flight then needs a crew.",
   subcharter: 'A rival airline flies it; we still bill the client.',
   cancel: 'Compensation to the client and a reliability hit.',
@@ -1292,6 +1292,7 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean): CrewSolution[] {
     const over = d ? d.fdp - d.maxFdp - (d.discretion ?? 0) : 0;
     if (!d) out.push(no(s, 'No duty'));
     else if (x.missing.length) out.push(no(s, 'Seats are empty: discretion does not crew a flight'));
+    else if (d.report > g.now) out.push(no(s, DISCRETION_BEFORE_REPORT));
     else if (d.discretion) out.push(no(s, 'Already used on this duty'));
     else if (over <= 0) out.push(no(s, 'The duty is not over its limit'));
     else if (over > (d.augment > 0 ? DISCRETION.augmented : DISCRETION.basic)) out.push(no(s, `Over by ${fmtDuration(over)}: more than discretion allows`));

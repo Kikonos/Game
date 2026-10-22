@@ -1,18 +1,20 @@
 // Feasibility and aircraft selection (B1). DESIGN.md §5.1.5. Pure: no RNG, no ids, no writes.
 
-import type { CabinLayout } from '../../data/acmiTypes';
+import { ACMI_TYPES, type CabinLayout } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { BAL } from '../core/balance';
 import { flightsOf } from '../core/entities';
 import { distanceNm } from '../core/geo';
 import { blockMinutes, complement, etopsNeeded, maxSectorNm, planSector, reportMinutes, runwayFit, typeOf } from '../core/perf';
 import { DAY, fmtDate, fmtDateTime, fmtDay, fmtDuration, toDate } from '../core/time';
-import type { Aircraft, ApprovalId, ContractOffer, CrewExtra, GameState, Minute, RestRefitId } from '../core/types';
-import { crewAvailability, offerExtra, restClassAt, type Availability } from '../crew';
+import type { AcRest, Aircraft, ApprovalId, ContractOffer, CrewExtra, GameState, Minute, RestRefitId } from '../core/types';
+import { crewAvailability, offerExtra, type Availability } from '../crew';
+import { dutyNeed, type ChainShape, type DutyNeed } from '../crew/duties';
+import { restOf } from '../crew/restPlan';
 import { minRest } from '../crew/rules';
 import { dhBlock } from '../crew/timeline';
-import { A_CHECK_DAYS, anchorsOf, chainForward, CHARTER_SLACK, DEPLOY_LEAD, gapMoves, programmeOf, type Anchor, type ChainLeg, type Programme, type Trip } from './plan';
-import { afterRefit, cabinAt, cabinFits, layoutsOf, refitTip } from '../ops/cabin';
+import { A_CHECK_DAYS, anchorsOf, chainForward, chainsOf, CHARTER_SLACK, DEPLOY_LEAD, gapMoves, longestChains, programmeOf, type Anchor, type ChainLeg, type Programme, type Trip } from './plan';
+import { afterRefit, cabinAt, cabinFits, layoutsOf, refitTip, restAfterRefit, restRefitOptions } from '../ops/cabin';
 import { aircraftGate, APPROVALS, gateApprovals, ratedPilots } from '../ops/company';
 import { deliveryQuote } from '../ops/delivery';
 import { paintQuote, paintWindow, type PaintSlot } from './paintTerms';
@@ -65,8 +67,6 @@ const RANK: Record<CheckLevel, number> = { ok: 0, warn: 1, no: 2 };
 const ETOPS_APPROVALS: [ApprovalId, number][] = [['etops240', 240], ['etops180', 180], ['etops120', 120]];
 /** v0.7: approval names for the check lines. */
 const APPROVAL_NAME: Partial<Record<ApprovalId, string>> = Object.fromEntries(APPROVALS.map((x) => [x.id, x.name]));
-/** Longest duty one unaugmented crew may fly (simplified FTL: 13 h FDP). */
-const MAX_UNAUGMENTED_FDP = 13 * 60;
 const nm = (v: number) => `${Math.round(v).toLocaleString('en-US')} nm`;
 const LAYOUT_NAME: Record<string, string> = { 'all-economy': 'all-economy', 'two-class': 'two-class', 'three-class': 'three-class', vip: 'VIP' };
 
@@ -203,7 +203,8 @@ function crewReach(g: GameState, o: ContractOffer, typeId: string, f: TripFit | 
   // Positioned as late as the first departure allows (the plan may fly it in earlier and wait).
   const posDur = f.posIn[f.posIn.length - 1].sta - f.posIn[0].std;
   const onFrom = Math.max(f.posIn[0].std, std - typeOf(typeId).turnMin - posDur) - rm.report;
-  if (end + rm.post - onFrom <= MAX_UNAUGMENTED_FDP) return null;
+  // Table 2's best cell: a crew positioned in the same day can fly it (a quick screen; the roster measures it exactly).
+  if (end + rm.post - onFrom <= 13 * 60) return null;
   // A fresh crew: the earliest airline ticket from home, then minimum rest away from base.
   const blk = dhBlock(g.company.homeBase, dep);
   const lands = Math.ceil((g.now + BAL.deadheadCheckIn) / 60) * 60 + blk;
@@ -492,24 +493,30 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   const xc = offerExtra(g, aircraftId, o.requirements, opts.crewExtra);
   // v0.7 `quick` (a caller that only wants a flyable pick): no crew capacity sizing once another check says no.
   rep.crew = flyable && !(opts.quick && rep.level === 'no') ? crewAvailability(g, t.family, t.id, winFrom, Math.max(winFrom + DAY, winTo), progBH, xc) : empty;
-  const duty = reportMinutes(t.id).report + prog.longestChainMin;
-  const augmented = duty > MAX_UNAUGMENTED_FDP;
   const shorts = Object.entries(rep.crew.byRole).filter(([, r]) => r && r.short > 0) as [string, { short: number }][];
   const reach = flyable ? crewReach(g, o, t.id, fits[0]) : null;
+  // v0.7.3 C7 the real limit for each long chain's report time and sectors, then extension / split / 3 or 4 pilots
+  // with this airframe's rest facilities and the rest plan (the worst chain wins).
+  const rest = restOf(g, ac.id);
+  const rn = restNeed(g, o, t.id, rest, prog.chains);
+  const augmented = rn.need?.mode === 'aug1' || rn.need?.mode === 'aug2';
   if (reach) add('crew', 'no', reach, 'Too soon for this aircraft: a later start, or an aircraft already nearby.');
-  else if (augmented && !g.company.approvals.includes('augmented')) add('crew', 'no', `A ${fmtDuration(duty)} duty needs an augmented crew: we have no approval for it`, 'Apply under Company → Approvals.');
-  else if (augmented && !restClassAt(g, ac.id)) add('crew', 'no', `A ${fmtDuration(duty)} duty needs an augmented crew and ${ac.reg} has no crew rest`, t.body === 'wide' ? 'Fit crew rest seats (Fleet → Refit), or pick an aircraft with bunks.' : undefined);
   else if (shorts.length) {
     const what = shorts.map(([role, r]) => `${r.short} ${role}`).join(', ');
     add('crew', 'warn', `Short of crew: ${what}${rep.crew.firstShort ? ` from ${fmtDay(rep.crew.firstShort)}` : ''}`, 'Hire, or the roster will deadhead crew from other work; sets may run tight.');
   } else if (!rep.crew.setsNeeded && !Object.keys(rep.crew.byRole).length) add('crew', 'warn', 'Crew capacity not checked yet');
-  else add('crew', augmented ? 'warn' : 'ok', `${augmented ? 'Augmented crew on long sectors; needs' : 'Needs'} ${rep.crew.setsNeeded} crew set${rep.crew.setsNeeded === 1 ? '' : 's'}, ${rep.crew.setsAvailable} free`);
-  // v0.7.2 crew rest seats (no bunks): the last row is blocked on the long legs.
-  const rs = ac.crewRest;
-  if (augmented && rs && !rs.bunks && rs.seats > 0) {
-    const sellable = cab.total - rs.seats;
-    const lvl = sellable < o.requirements.minSeats ? 'no' : sellable < o.requirements.minSeats + rs.seats ? 'warn' : 'ok';
-    add('restSeats', lvl, `Crew rest seats: ${rs.seats} seats blocked on the long legs, ${sellable} sellable (needs ${o.requirements.minSeats})`);
+  else add('crew', 'ok', `Needs ${rep.crew.setsNeeded} crew set${rep.crew.setsNeeded === 1 ? '' : 's'}, ${rep.crew.setsAvailable} free`);
+  if (rn.line) {
+    const fix = rn.level === 'no' && rn.need?.why === 'noRest' ? restRefitFix(g, ac.id, o, t.id, prog.chains) : null;
+    rep.checks.push({ id: 'rest', level: rn.level, label: rn.line, ...(rn.detail ? { detail: rn.detail } : {}), ...(fix ? { action: { kind: 'restRefit', option: fix } } : {}) });
+    if (RANK[rn.level] > RANK[rep.level]) rep.level = rn.level;
+  }
+  // Seats curtained off for crew rest on the long legs (seat-based facilities only).
+  const blocked = rn.blocked;
+  if (augmented && blocked > 0) {
+    const sellable = cab.total - blocked;
+    const lvl = sellable < o.requirements.minSeats ? 'no' : sellable < o.requirements.minSeats + blocked ? 'warn' : 'ok';
+    add('restSeats', lvl, `Crew rest: ${blocked} seats blocked on the long legs, ${sellable} sellable (needs ${o.requirements.minSeats})`);
   }
 
   // Estimates (contribution: variable costs only).
@@ -521,7 +528,7 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   rep.estRevenue = Math.round(product.kind === 'wet' ? productValue(product, revBH + (product.positioningBillable ? posBH : 0), o.start, o.end) : productValue(product, revBH, o.start, o.end) * (1 - (o.broker ? BAL.brokerCommission : 0)));
   const age = Math.max(0, toDate(g.now).getUTCFullYear() - ac.builtYear - 12);
   let cost = t.maintBH * bh * (1 + age * BAL.maintAgeFactor);
-  const crewN = complement(t.id, seats, { extraCabin: xc.cabin }).length + xc.pilot;
+  const crewN = complement(t.id, seats, { extraCabin: xc.cabin, augment: rn.need?.mode === 'aug2' ? 2 : rn.need?.mode === 'aug1' ? 1 : 0, restCabin: rn.need?.plan?.extraCabin ?? 0 }).length + xc.pilot;
   const perDiem = ((BAL.perDiem.CPT + BAL.perDiem.FO + (crewN - 2) * BAL.perDiem.CC) / crewN) * (g.company.policies.perDiemPct / 100);
   const hotel = BAL.hotelPerNight[g.company.policies.hotelTier] ?? 140;
   if (base && prog.base) {
@@ -600,10 +607,74 @@ export function marketFit(g: GameState, offerId: string): MarketFit | null {
   return best;
 }
 
+// ---------- v0.7.3 the rest line (UPDATE-0.7.3.md §2.9) ----------
+
+const NEED_RANK: Record<DutyNeed['mode'], number> = { basic: 0, split: 1, ext: 2, aug1: 3, aug2: 4, none: 9 };
+
+/** The programme's chains cut at the home base (a crew change) as well as at night stops: the 5 longest. */
+function crewChains(g: GameState, chains: ChainShape[]): ChainShape[] {
+  const home = g.company.homeBase;
+  return longestChains(chains.flatMap((c) => chainsOf(c.legs.map((l, i) => ({ std: l.std, sta: l.sta, from: l.from ?? (i ? '?' : c.from), to: l.to ?? '?' })), home)));
+}
+
+/** The worst chain's need on this type and facilities, the check line, its level and the seats it blocks. Pure. */
+export function restNeed(g: GameState, o: ContractOffer, typeId: string, rest: AcRest, chains: ChainShape[]): { need: DutyNeed | null; level: CheckLevel; line: string | null; detail?: string; blocked: number } {
+  let worst: DutyNeed | null = null;
+  let blocked = 0;
+  for (const c of crewChains(g, chains)) {
+    const n = dutyNeed(g, typeId, rest, c);
+    if (n.plan?.ok) blocked = Math.max(blocked, ...Object.values(n.plan.blocked), 0);
+    if (!worst || NEED_RANK[n.mode] > NEED_RANK[worst.mode] || (n.mode === worst.mode && n.fdp > worst.fdp)) worst = n;
+  }
+  const ulr = o.requirements.approvals.includes('ulr');
+  if (ulr && !(rest.fc?.cls === 1 && rest.cc?.cls === 1)) return { need: worst, level: 'no', line: 'ULR needs bunks for pilots and cabin crew (class 1)', blocked };
+  if (!worst) return { need: null, level: 'ok', line: null, blocked };
+  const level: CheckLevel = worst.mode === 'none' ? 'no' : worst.mode === 'aug2' || (worst.plan?.extraCabin ?? 0) > 0 ? 'warn' : 'ok';
+  const detail = worst.mode === 'none' && worst.why === 'noRest' ? 'Fit crew rest (Fleet → Crew rest), or pick an aircraft with bunks.' : worst.mode === 'ext' ? 'Each crew member may fly at most 2 extended days in any 7.' : undefined;
+  return { need: worst, level, line: worst.text, detail, blocked };
+}
+
+/** The cheapest home-base crew rest refit that makes every chain plannable on this aircraft, else null. Pure. */
+export function restRefitFix(g: GameState, aircraftId: string, o: ContractOffer, typeId: string, chains: ChainShape[]): RestRefitId | null {
+  const ac = g.fleet[aircraftId];
+  if (!ac) return null;
+  const opts = restRefitOptions(g, aircraftId).filter((x) => x.where === 'home' && x.ok && x.id !== 'removeRecliners').sort((a, b) => a.cost - b.cost);
+  for (const x of opts) {
+    const after = restAfterRefit(ac, x.id).rest;
+    if (restNeed(g, o, typeId, after, chains).level !== 'no') return x.id;
+  }
+  return null;
+}
+
 /**
- * v0.7.3 for long-haul offers (longest chain + report over 13 h on the smallest fitting widebody type): 'Longest day
- * 15:40 · needs 3 pilots + bunks, or 4 pilots + business seats'; null otherwise. Pure. STUB
+ * v0.7.3 for long-haul offers (the longest chain + report over 13 h on the smallest fitting widebody type): 'Longest
+ * day 15:40 · needs 3 pilots + bunks, or 4 pilots + business seats'; null otherwise. Pure.
  */
-export function offerRestLine(_g: GameState, _offerId: string): string | null {
+export function offerRestLine(g: GameState, offerId: string): string | null {
+  const o = g.offers[offerId];
+  if (!o) return null;
+  const types = Object.values(ACMI_TYPES).filter((t) => t.body === 'wide' && t.available).sort((a, b) => a.maxSeats - b.maxSeats);
+  for (const t of types) {
+    const cabin = t.cabins[0];
+    if (cabin.j + cabin.w + cabin.y < o.requirements.minSeats) continue;
+    const prog = programmeOf(o, t.id);
+    if (!prog.ok) continue;
+    const chains = crewChains(g, prog.chains);
+    if (!chains.length) return null;
+    const c = chains[0];
+    const day = c.legs[c.legs.length - 1].sta - c.std + reportMinutes(t.id).report;
+    if (day <= 13 * 60) return null;
+    const hmm = `${Math.floor(day / 60)}:${String(day % 60).padStart(2, '0')}`;
+    const fc1: AcRest = { fc: { cls: 1, kind: 'fcrc', places: 2 }, cc: { cls: 1, kind: 'ccrc', places: 8 } };
+    const j2: AcRest = { fc: { cls: 2, kind: 'jSeats', places: 2 }, cc: { cls: 2, kind: 'jSeats', places: 5 } };
+    const need = (r: AcRest) => dutyNeed(g, t.id, r, c);
+    const a = need(fc1);
+    const b = need(j2);
+    const say = (n: DutyNeed, what: string) => (n.mode === 'aug1' ? `3 pilots + ${what}` : n.mode === 'aug2' ? `4 pilots + ${what}` : n.mode === 'none' ? null : 'no in-flight rest');
+    const parts = [say(a, 'bunks'), say(b, 'business seats')].filter((x): x is string => !!x);
+    if (parts.includes('no in-flight rest')) return `Longest day ${hmm} · fits a planned extension or a split duty`;
+    if (!parts.length) return `Longest day ${hmm} · too long for in-flight rest`;
+    return `Longest day ${hmm} · needs ${[...new Set(parts)].join(', or ')}`;
+  }
   return null;
 }

@@ -16,7 +16,7 @@ describe('feasibility', () => {
     const o = hamBase(g, g.now + 20 * DAY, 45);
     const r = feasibility(g, o.id, leased(g).id);
     const ids = r.checks.map((c) => c.id).sort();
-    expect(ids).toEqual(['approvals', 'availability', 'crew', 'etops', 'family', 'layout', 'lease', 'maintenance', 'positioning', 'range', 'runway', 'seats']);
+    expect(ids).toEqual(['approvals', 'availability', 'crew', 'etops', 'family', 'layout', 'lease', 'maintenance', 'positioning', 'range', 'rest', 'runway', 'seats']);
     for (const c of r.checks) expect(c.label.length).toBeGreaterThan(5);
     expect(r.level).not.toBe('no');
     expect(r.positionIn[0]).toMatchObject({ from: 'LIS', to: 'HAM' });
@@ -144,16 +144,39 @@ describe('feasibility', () => {
     expect(check(feasibility(g, o.id, ac.id), 'lease').level).toBe('no');
   });
 
-  it('crew: long duties need the augmented approval', () => {
+  it('rest: long duties need the augmented approval and in-flight rest on the aircraft (v0.7.3)', () => {
     const g = newGame(30);
     const wb = addAircraft(g, 'b772');
     g.company.approvals.push('etops120', 'etops180');
     const o = legsOffer(g, [['LIS', 'HKG', g.now + 8 * DAY]], 250);
-    const r = check(feasibility(g, o.id, wb.id), 'crew');
+    const r = check(feasibility(g, o.id, wb.id), 'rest');
     expect(r.level).toBe('no');
     expect(r.label).toMatch(/augmented/);
     g.company.approvals.push('augmented');
-    expect(check(feasibility(g, o.id, wb.id), 'crew').level).not.toBe('no');
+    const ok = check(feasibility(g, o.id, wb.id), 'rest');
+    expect(ok.level).toBe('ok');
+    expect(ok.label).toMatch(/^Bunks → 3 pilots, \d+ h limit ✓/);
+    // business seats (class 2): 15 h with 3 pilots (+1 h on one long sector), 2 + 5 seats blocked on the long leg
+    wb.rest = { fc: { cls: 2, kind: 'jSeats', places: 2 }, cc: { cls: 2, kind: 'jSeats', places: 5 } };
+    const j = check(feasibility(g, o.id, wb.id), 'rest');
+    expect(j.label).toMatch(/^Business seats \(class 2\) → 3 pilots, 16 h limit ✓ · 7 business seats blocked on the long legs/);
+    expect(check(feasibility(g, o.id, wb.id), 'restSeats').label).toMatch(/7 seats blocked/);
+    // no rest at all: no, with the cheapest home refit that fixes it
+    wb.rest = { fc: null, cc: null };
+    const none = check(feasibility(g, o.id, wb.id), 'rest');
+    expect(none.level).toBe('no');
+    expect(none.label).toMatch(/^No crew rest → ✗ a \d+:\d\d day needs in-flight rest/);
+    expect(none.action).toEqual({ kind: 'restRefit', option: 'curtainJ' });
+  });
+
+  it('rest: the real Table 2 limit for the report time (C7)', () => {
+    const g = newGame(33);
+    const ac = owned(g);
+    // A 06:00 LIS report (05:00 UTC in winter… the offer dates decide): 2 sectors well inside 13:00 → ok, "2 pilots".
+    const o = legsOffer(g, [['LIS', 'FAO', g.now + 5 * DAY + 7 * 60], ['FAO', 'LIS', g.now + 5 * DAY + 9 * 60]], 150);
+    const r = check(feasibility(g, o.id, ac.id), 'rest');
+    expect(r.level).toBe('ok');
+    expect(r.label).toMatch(/^Longest day \d+:\d\d of \d+:\d\d \(2 pilots\)/);
   });
 
   it('reports are pure and feasibilityAll is best first', () => {

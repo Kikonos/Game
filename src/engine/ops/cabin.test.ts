@@ -10,7 +10,7 @@ import type { GameState } from '../core/types';
 import { acceptOffer, feasibility } from '../contracts';
 import { addAircraft, legsOffer, newGame, owned, run } from '../contracts/testkit';
 import { cancelCheck } from './maintenance';
-import { bookRefit, bookRestSeats, cabinOptions, REST_SEATS, refitQuote, refitSlots, refitStations, restSeatsQuote } from './cabin';
+import { bookRefit, bookRestRefit, bookRestSeats, cabinOptions, REST_SEATS, refitQuote, refitSlots, refitStations, restRefitOptions, restRefitQuote, restSeatsQuote } from './cabin';
 import { leased } from '../contracts/testkit';
 
 const line = (g: GameState, cat: 'refit') => [g.finance.current, ...g.finance.history].reduce((s, st) => s + (st.lines[cat] ?? 0), 0);
@@ -192,27 +192,48 @@ describe('v0.7.2 refits start straight away, at home base', () => {
     expect(r.busyWhy).toMatch(/^The new cabin won't serve signed work: /);
   });
 
-  it('crew rest seats: 2 days and $30K at home base; the last row is fitted at the end; never on narrowbodies or with bunks', () => {
+  it('v0.7.3 crew rest refits: options per type, what each opens; home refits change the facilities at the end', () => {
     const g = newGame(4);
-    const nb = owned(g);
-    expect(restSeatsQuote(g, nb.id, true, g.now + DAY).why).toBe('Narrowbodies never need crew rest seats');
+    g.company.approvals.push('augmented');
+    // narrowbodies: only the A321LR and 757 can take recliners
+    expect(restRefitOptions(g, owned(g).id)).toEqual([]);
+    const lr = addAircraft(g, 'a321neo');
+    expect(restRefitOptions(g, lr.id).map((o) => [o.id, o.cls, o.days, o.cost, o.seats])).toEqual([['recliners', 3, 3, 100_000, -3]]);
+    // an A330-200 with no rest: curtained business seats, recliners, the lower-deck module, a pilots' compartment with a C-check
     const wb = addAircraft(g, 'a332');
-    expect(wb.crewRest).toEqual({ bunks: true, seats: 0 });
-    expect(restSeatsQuote(g, wb.id, true, g.now + DAY).why).toMatch(/has bunks/);
-    wb.crewRest = { bunks: false, seats: 0 };
-    const slots = refitSlots(g, wb.id, REST_SEATS);
-    expect(slots.slots[0].end - slots.slots[0].start).toBe(2 * DAY);
-    const q = restSeatsQuote(g, wb.id, true, slots.slots[0].start);
-    expect(q).toMatchObject({ ok: true, days: 2, cost: 30_000, station: 'LIS', seatsFrom: q.seatsTo });
-    const r = bookRestSeats(g, wb.id, true, slots.slots[0].start);
+    expect(wb.rest).toEqual({ fc: { cls: 1, kind: 'fcrc', places: 2 }, cc: { cls: 1, kind: 'ldmcr', places: 7 } });
+    expect(restRefitOptions(g, wb.id)).toEqual([]);
+    wb.rest = { fc: null, cc: null };
+    const opts = restRefitOptions(g, wb.id);
+    expect(opts.map((o) => [o.id, o.where, o.cls, o.seats])).toEqual([['curtainJ', 'home', 2, 0], ['recliners', 'home', 3, -9], ['ldmcr', 'home', 1, 0], ['fcrc', 'cCheck', 1, 0]]);
+    expect(opts[0].opens).toBe('Opens: 15 h days with 3 pilots (was 13 h); cabin crew rest in business seats (2:00 on a 15 h day)');
+    expect(restSeatsQuote(g, owned(g).id, true, g.now + DAY).ok).toBe(false);
+    // book the curtain (1 day, $15K): at the end business seats are class 2 rest for both sides
+    const slots = refitSlots(g, wb.id, 'rest:curtainJ');
+    expect(slots.slots[0].end - slots.slots[0].start).toBe(DAY);
+    const q = restRefitQuote(g, wb.id, 'curtainJ', slots.slots[0].start);
+    expect(q).toMatchObject({ ok: true, days: 1, cost: 15_000, station: 'LIS' });
+    const r = bookRestRefit(g, wb.id, 'curtainJ', slots.slots[0].start);
     if (!r.ok) throw new Error(r.error);
-    const m = g.maintenance[r.data!.maintId];
-    expect(m.refit).toMatchObject({ restSeats: 8 });
-    run(g, m.end + 60);
-    expect(wb.crewRest).toEqual({ bunks: false, seats: 8 });
-    expect(wb.cabin.total).toBe(q.seatsTo);
-    expect(line(g, 'refit')).toBe(-30_000);
-    expect(restSeatsQuote(g, wb.id, true, g.now + DAY).why).toBe('Crew rest seats are already fitted');
-    expect(restSeatsQuote(g, wb.id, false, g.now + DAY).ok).toBe(true);
+    expect(g.maintenance[r.data!.maintId].restFit).toBe('curtainJ');
+    run(g, g.maintenance[r.data!.maintId].end + 60);
+    expect(wb.rest).toEqual({ fc: { cls: 2, kind: 'jSeats', places: 2 }, cc: { cls: 2, kind: 'jSeats', places: 5 } });
+    expect(line(g, 'refit')).toBe(-15_000);
+    expect(g.stats.restRefits).toBe(1);
+    expect(g.messages.some((m) => /lower-deck|curtain/i.test(m.title))).toBe(true);
+    // now the module would free the business seats
+    const ld = restRefitOptions(g, wb.id).find((o) => o.id === 'ldmcr')!;
+    expect(ld.opens).toBe('Opens: cabin crew rest in bunks (1:45 instead of 2:00 on a 15 h day); 5 business seats back on sale');
+    // recliners on a 767 cost 8 seats; the v0.7.2 wrappers fit and remove them
+    const b767 = addAircraft(g, 'b763');
+    b767.rest = { fc: null, cc: null };
+    const rq = restSeatsQuote(g, b767.id, true, refitSlots(g, b767.id, REST_SEATS).slots[0].start);
+    expect(rq).toMatchObject({ ok: true, days: 4, cost: 220_000, seatsTo: b767.cabin.total - 8 });
+    const rb = bookRestSeats(g, b767.id, true, rq.start);
+    if (!rb.ok) throw new Error(rb.error);
+    run(g, g.maintenance[rb.data!.maintId].end + 60);
+    expect(b767.rest).toEqual({ fc: { cls: 3, kind: 'recliners', places: 2 }, cc: { cls: 3, kind: 'recliners', places: 4 } });
+    expect(b767.cabin.total).toBe(rq.seatsTo);
+    expect(restRefitOptions(g, b767.id).map((o) => o.id)).toContain('removeRecliners');
   });
 });

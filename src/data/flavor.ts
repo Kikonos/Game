@@ -18,3 +18,8 @@ export const AVIATION_FACTS = [
   'An Airbus A380 can hold 320,000 litres of fuel — enough to fill a small swimming pool.',
   'Aircraft are struck by lightning about once a year on average — and fly on safely.',
 ];
+
+/** v0.7.3 the aviation authority a discretion report goes to, by the home base's country (else 'the authority'). */
+export const AUTHORITY: Record<string, string> = {
+  PT: 'ANAC', ES: 'AESA', MT: 'Transport Malta CAD', LT: 'the TKA', LV: 'the CAA Latvia', DE: 'the LBA', IE: 'the IAA', GB: 'the UK CAA', FR: 'the DGAC', IT: 'ENAC',
+};

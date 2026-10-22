@@ -167,7 +167,8 @@ describe('v0.7.2 load: ranks merged into PUR, crew rest defaults', () => {
         if (p.status !== 'planned' || !p.slots.some((s) => s.role === 'PUR' || s.role === 'CC')) continue;
         expect(p.slots.filter((s) => s.role === 'PUR').length).toBe(1);
       }
-      for (const ac of Object.values(g.fleet)) expect(ac.crewRest).toEqual({ bunks: typeOf(ac.typeId).body === 'wide', seats: 0 });
+      // v0.7.3 old widebodies keep bunks for pilots and cabin crew; narrowbodies have no in-flight rest.
+      for (const ac of Object.values(g.fleet)) expect(!!ac.rest?.fc && ac.rest.fc.cls === 1 && ac.rest.cc?.cls === 1).toBe(typeOf(ac.typeId).body === 'wide');
       expect(migrateRanks(g)).toBe(0);
       const end = g.now + 30 * DAY;
       while (g.now < end && !g.gameOver) {

@@ -465,6 +465,11 @@ function forceCheck(g: GameState, ac: Aircraft, st: CheckStatus): void {
 // ---------- events ----------
 
 let maintStartHook: ((g: GameState, m: MaintenanceEvent) => void) | null = null;
+/** v0.7.3 a crew rest refit added to a C-check is fitted when the check ends (cabin.ts onRestFitEnd). */
+let restFitHook: ((g: GameState, m: MaintenanceEvent) => void) | null = null;
+export function setRestFitHook(f: (g: GameState, m: MaintenanceEvent) => void): void {
+  restFitHook = f;
+}
 let maintEndHook: ((g: GameState, m: MaintenanceEvent) => void) | null = null;
 /** v0.7: cabin.ts (refit end) and leaseReturn.ts (return check start and end) hook in here. */
 export function setMaintHooks(start: (g: GameState, m: MaintenanceEvent) => void, end: (g: GameState, m: MaintenanceEvent) => void): void {
@@ -561,6 +566,7 @@ export function onMaintEnd(g: GameState, ev: SimEvent): void {
   if (m.kind === 'AOG') mc.deferred *= 0.7;
   if (ac.maintId === m.id) ac.maintId = null;
   if (ac.status === 'maintenance' || ac.status === 'aog') ac.status = 'available';
+  if (m.kind === 'C' && m.restFit) restFitHook?.(g, m);
   pushMessage(g, {
     tone: m.kind === 'AOG' ? 'good' : 'info', cat: 'tech',
     title: m.kind === 'AOG' ? `${ac.reg} back in service` : `${m.kind}-check done: ${ac.reg}`,

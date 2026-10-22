@@ -9,7 +9,8 @@ import { distance, distanceNm } from '../core/geo';
 import { pushMessage } from '../core/messages';
 import { cardMeta, offerFitCard } from '../problems';
 import { requestPause } from '../core/pause';
-import { blockMinutes, complement, etopsNeeded, planSector, typeOf } from '../core/perf';
+import { blockMinutes, complement, etopsNeeded, planSector, reportMinutes, typeOf } from '../core/perf';
+import { augLimitOf, longSector } from '../crew/rules';
 import { schedule } from '../core/queue';
 import { chance, int, next, pick, range, weightedPick } from '../core/rng';
 import { DAY, dayIndex, fmtDay, fmtTime, fromUTC, localMinuteOfDay, toDate, toLocal } from '../core/time';
@@ -23,7 +24,7 @@ import { feasibility } from './feasibility';
 import { adhocGroupClients, clientPrefix, clientsOf, isBigClub, isCruiseLine, isDiaspora, isGovernment, isMarineCrewing, isPilgrim, ministry, rivalFor } from './clients';
 import * as F from './flavor';
 import { paintTermsText, rollPaint, sideRng } from './paintTerms';
-import { anchorsOf, computeWaves, localToUTC, programmeOf, route, routeMinutes } from './plan';
+import { anchorsOf, computeWaves, localToUTC, programmeOf, route, routeMinutes, type ChainShape } from './plan';
 import { ARCH_MULT, defaultSeats, isWetArchetype, priceProduct, productValue, referenceType, tripTickets } from './pricing';
 
 // ---------- process ----------
@@ -826,7 +827,8 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   let emptyMin = prog.emptyMin;
   let deps = prog.trips.reduce((s, t) => s + t.legs.length, 0) || (prog.base?.rotations ?? 0) * 2;
   const revDeps = prog.trips.reduce((s, t) => s + t.legs.filter((l) => l.kind !== 'positioning').length, 0);
-  const crewN = complement(ref, defaultSeats(ref), { extraCabin: d.req.extraCabin }).length;
+  const aug = chainAugment(ref, prog.chains);
+  const crewN = complement(ref, defaultSeats(ref), { extraCabin: d.req.extraCabin, augment: aug }).length;
   let roomNights = 0;
   let crewDays = 0;
   let tickets = 0;
@@ -853,6 +855,9 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
     mult: d.mult, departures: deps, revDepartures: revDeps, roomNights, crewDays, tickets, government: gov, mghPerMonth: d.mghPerMonth,
     loyalty: clamp(g.clients[d.client.id]?.relation ?? d.client.relation ?? 0, -100, 100) * BAL.morale.service.relationPremium,
   });
+  // v0.7.3 heavy crews cost more: a wet rate +3 % when the longest chain needs 3 pilots on the type it was sized
+  // for, +6 % for 4 (that type's usual rest facilities).
+  if (product.kind === 'wet' && aug) product.ratePerBH = Math.round(product.ratePerBH * (1 + (BAL.v073.augRate[aug] ?? 0)));
   const lead = d.start - g.now;
   const urgency = lead < 72 * 60 ? 'urgent' : lead < 7 * DAY ? 'short' : 'normal';
   const maxExp = urgency === 'urgent' ? lead - 60 : lead - 12 * 60;
@@ -1104,4 +1109,22 @@ export function quietWeekOffer(g: GameState): ContractOffer | null {
   // Tried today either way (a fleet with nothing that fits waits another 6 days).
   g.stats.lastGapOfferAt = g.now;
   return o;
+}
+
+/**
+ * v0.7.3 extra pilots the longest chain of a programme needs on a type with its usual facilities (bunks where most
+ * airframes have them, else curtained business seats): 0 within 14 h (Table 2 or a planned extension). Pure.
+ */
+export function chainAugment(typeId: string, chains: ChainShape[]): 0 | 1 | 2 {
+  const t = typeOf(typeId);
+  const c = chains[0];
+  if (!c || t.body !== 'wide') return 0;
+  const fdp = c.legs[c.legs.length - 1].sta - c.std + reportMinutes(typeId).report;
+  if (fdp <= 14 * 60) return 0;
+  const R = t.rest;
+  const fc = R.fcrcShare >= 0.5 ? 1 : t.rest.jClass;
+  const cc = R.ccrcShare >= 0.5 ? 1 : t.rest.jClass;
+  const longest = Math.max(...c.legs.map((l) => l.sta - l.std));
+  const long = longSector(c.legs.length, longest);
+  return fdp <= augLimitOf(fc, cc, 1, long, 0).max ? 1 : 2;
 }

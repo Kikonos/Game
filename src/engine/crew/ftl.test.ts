@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { fromUTC } from '../core/time';
-import { acclimState, AUG_FDP, CABIN_REST, cabinFdpCap, cabinInflightRest, DISCRETION, evalSegs, FDP_BANDS, isDisruptive, LIMITS, longestWorkBlock, maxFdp, minRest, nightsIn, referenceTime, type Seg, type TimelineCtx } from './rules';
+import { acclimState, AUG_FDP, augLimitOf, CABIN_REST, cabinFdpCap, cabinInflightRest, DISCRETION, disruptiveKinds, evalSegs, EXT_TABLE, extFdp, FDP_BANDS, isDisruptive, LIMITS, localDaysIn, longestWorkBlock, maxFdp, minRest, nightsIn, referenceTime, splitFdp, STANDBY, standbyAwakeOk, standbyCut, TZ_NIGHTS, tzNights, woclMinutes, type Seg, type TimelineCtx } from './rules';
 
 const hm = (s: string) => {
   const [h, m] = s.split(':').map(Number);
@@ -75,13 +75,19 @@ describe('minRest F8', () => {
     expect(minRest({ dutyMin: 13 * 60, atHome: true, augmented: false, tzShift: 0 })).toBe(13 * 60);
     expect(minRest({ dutyMin: 11 * 60, atHome: false, augmented: false, tzShift: 0 })).toBe(11 * 60);
   });
-  it('is 14 h away after an augmented FDP or a ≥ 4 h time shift', () => {
+  it('is 14 h away after a ≥ 4 h time shift, and after any augmented FDP wherever the crew rest (C4)', () => {
     expect(minRest({ dutyMin: 9 * 60, atHome: false, augmented: true, tzShift: 0 })).toBe(14 * 60);
     expect(minRest({ dutyMin: 9 * 60, atHome: false, augmented: false, tzShift: 4 })).toBe(14 * 60);
     expect(minRest({ dutyMin: 9 * 60, atHome: false, augmented: false, tzShift: 3.5 })).toBe(10 * 60);
     expect(minRest({ dutyMin: 16 * 60, atHome: false, augmented: true, tzShift: 0 })).toBe(16 * 60);
-    // at home the augmented rule does not apply
-    expect(minRest({ dutyMin: 9 * 60, atHome: true, augmented: true, tzShift: 8 })).toBe(12 * 60);
+    // v0.7.3 CS FTL.1.205(c)(6): after an augmented FDP at home too (≥ duty or 14 h); the time shift rule stays away only
+    expect(minRest({ dutyMin: 9 * 60, atHome: true, augmented: true, tzShift: 8 })).toBe(14 * 60);
+    expect(minRest({ dutyMin: 15 * 60, atHome: true, augmented: true, tzShift: 0 })).toBe(15 * 60);
+    expect(minRest({ dutyMin: 9 * 60, atHome: true, augmented: false, tzShift: 8 })).toBe(12 * 60);
+  });
+  it('v0.7.3 adds 4 h after a planned extension (ORO.FTL.205(d), the post-flight option)', () => {
+    expect(minRest({ dutyMin: 14 * 60, atHome: true, augmented: false, tzShift: 0, extended: true })).toBe(18 * 60);
+    expect(minRest({ dutyMin: 8 * 60, atHome: false, augmented: false, tzShift: 0, extended: true })).toBe(14 * 60);
   });
 });
 
@@ -298,25 +304,33 @@ describe('cabin crew in-flight rest table', () => {
   it('rows by extended FDP and rest class', () => {
     expect(CABIN_REST.map((r) => [r.upTo, r.c1, r.c2, r.c3])).toEqual([
       [870, 90, 90, 90], [900, 105, 120, 140], [930, 120, 140, 160], [960, 135, 160, 180], [990, 155, 180, null],
-      [1020, 180, 205, null], [1050, 205, null, null], [1080, 230, null, null], [1110, 265, null, null],
+      [1020, 180, 205, null], [1050, 205, null, null], [1080, 230, null, null],
     ]);
   });
   it('cabinInflightRest picks the row; null when the class does not allow it', () => {
     expect(cabinInflightRest(hm('14:00'), 3)).toBe(90);
     expect(cabinInflightRest(hm('15:10'), 2)).toBe(140);
     expect(cabinInflightRest(hm('16:15'), 3)).toBeNull();
-    expect(cabinInflightRest(hm('18:15'), 1)).toBe(265);
-    expect(cabinInflightRest(hm('18:45'), 1)).toBeNull();
+    // v0.7.3 C1: the table ends at 17:31–18:00 (3:50); nothing above 18:00
+    expect(cabinInflightRest(hm('18:00'), 1)).toBe(230);
+    expect(cabinInflightRest(hm('18:15'), 1)).toBeNull();
+    expect(cabinInflightRest(hm('17:15'), 2)).toBeNull();
   });
-  it('an augmented FDP never exceeds what the cabin crew may reach (their report is earlier)', () => {
-    expect([cabinFdpCap(1), cabinFdpCap(2), cabinFdpCap(3)]).toEqual([hm('18:30'), hm('17:00'), hm('16:00')]);
-    // 4 pilots, class 3, one long sector: 15:00 + 1:00 = 16:00 for pilots, capped to 15:45 with a 15 min cabin report.
+  it('an augmented FDP never exceeds what the cabin crew may reach: they report with the pilots when their table would bind (C2)', () => {
+    expect([cabinFdpCap(1), cabinFdpCap(2), cabinFdpCap(3)]).toEqual([hm('18:00'), hm('17:00'), hm('16:00')]);
+    // 4 pilots, class 3, one long sector: 15:00 + 1:00 = 16:00 for pilots; the cabin crew report with them (early 0).
     const m = (restClass: 1 | 2 | 3, cabinEarly: number) => maxFdp({ reportLocal: hm('08:00'), sectors: 1, acclimatised: true, augment: 2, restClass, longestBlock: 11 * 60, cabinEarly });
     expect(m(3, 0)).toBe(hm('16:00'));
-    expect(m(3, 15)).toBe(hm('15:45'));
-    expect(cabinInflightRest(m(3, 15) + 15, 3)).not.toBeNull();
+    expect(m(3, 15)).toBe(hm('16:00'));
+    expect(augLimitOf(3, 3, 2, true, 15)).toEqual({ max: hm('16:00'), early: 0, capBy: 'pilots' });
+    // 4 pilots + class 1 + one long sector: 18:00 with the cabin crew reporting with the pilots.
     expect(m(1, 15)).toBe(hm('18:00'));
-    expect(cabinInflightRest(m(1, 15) + 15, 1)).not.toBeNull();
+    expect(augLimitOf(1, 1, 2, true, 15)).toEqual({ max: hm('18:00'), early: 0, capBy: 'pilots' });
+    // 3 pilots + class 1 (16:00): the cabin crew keep their 15 min earlier report (16:15 is inside their table).
+    expect(augLimitOf(1, 1, 1, false, 15)).toEqual({ max: hm('16:00'), early: 15, capBy: 'pilots' });
+    // pilots in bunks, cabin crew on recliners: capped by the cabin crew's table (16:00).
+    expect(augLimitOf(1, 3, 2, true, 15)).toEqual({ max: hm('16:00'), early: 0, capBy: 'cabin' });
+    expect(maxFdp({ reportLocal: hm('08:00'), sectors: 1, acclimatised: true, augment: 2, restClass: 1, cabinClass: 2, longestBlock: 11 * 60 })).toBe(hm('17:00'));
   });
 });
 
@@ -330,5 +344,136 @@ describe('cumulative limits (ORO.FTL.210) v0.7.2', () => {
     expect(codes([duty(0, 6, 7, 300, true)], ctx({ block12m: 900 * 60 }))).not.toContain('blockYear:illegal');
     // absent (old saves): only the calendar year counts
     expect(codes([duty(0, 6, 7, 300, true)], ctx())).not.toContain('blockYear:illegal');
+  });
+});
+
+// ---------- v0.7.3 (UPDATE-0.7.3.md §1, §3; the player's EASA guide) ----------
+
+describe('v0.7.3 corrections', () => {
+  it('C5: more than 10 sectors is never legal (Table 2 ends at 10)', () => {
+    expect(fdp('08:00', 10)).toBe(hm('9:00'));
+    expect(fdp('08:00', 11)).toBe(0);
+  });
+  it('C10: early type disruptive kinds; WOCL 02:00–05:59 is separate from night duty 02:00–04:59', () => {
+    const at = (h: string) => T0 + hm(h) - 60; // LIS is UTC+1 in June
+    const k = (a: string, b: string) => disruptiveKinds('LIS', at(a), at(b) + (hm(b) < hm(a) ? 1440 : 0));
+    expect(k('04:59', '12:00')).toEqual({ early: false, late: false, night: true });
+    expect(k('05:00', '12:00')).toEqual({ early: true, late: false, night: false });
+    expect(k('05:59', '12:00')).toEqual({ early: true, late: false, night: false });
+    expect(k('06:00', '12:00')).toEqual({ early: false, late: false, night: false });
+    expect(k('12:00', '22:59')).toEqual({ early: false, late: false, night: false });
+    expect(k('12:00', '23:00')).toEqual({ early: false, late: true, night: false });
+    expect(k('15:00', '01:59')).toEqual({ early: false, late: true, night: false });
+    expect(k('15:00', '02:00')).toEqual({ early: false, late: false, night: false });
+    expect(k('15:00', '02:30')).toEqual({ early: false, late: false, night: true });
+    expect(isDisruptive('LIS', at('05:30'), at('11:00'))).toBe(true);
+    // WOCL encroachment counts 05:00–05:59 too (not a night duty).
+    expect(woclMinutes('LIS', at('05:00'), at('12:00'))).toBe(60);
+    expect(woclMinutes('LIS', at('01:00'), at('09:00'))).toBe(240);
+  });
+});
+
+describe('planned extension (ORO.FTL.205(d), CS FTL.1.205(b))', () => {
+  const N = null;
+  // The guide's table literally: start of FDP → 1–2 / 3 / 4 / 5 sectors.
+  const T: [string, string, (string | null)[]][] = [
+    ['06:00', '06:14', [N, N, N, N]],
+    ['06:15', '06:29', ['13:15', '12:45', '12:15', '11:45']],
+    ['06:30', '06:44', ['13:30', '13:00', '12:30', '12:00']],
+    ['06:45', '06:59', ['13:45', '13:15', '12:45', '12:15']],
+    ['07:00', '13:29', ['14:00', '13:30', '13:00', '12:30']],
+    ['13:30', '13:59', ['13:45', '13:15', '12:45', N]],
+    ['14:00', '14:29', ['13:30', '13:00', '12:30', N]],
+    ['14:30', '14:59', ['13:15', '12:45', '12:15', N]],
+    ['15:00', '15:29', ['13:00', '12:30', '12:00', N]],
+    ['15:30', '15:59', ['12:45', N, N, N]],
+    ['16:00', '16:29', ['12:30', N, N, N]],
+    ['16:30', '16:59', ['12:15', N, N, N]],
+    ['17:00', '17:29', ['12:00', N, N, N]],
+    ['17:30', '17:59', ['11:45', N, N, N]],
+    ['18:00', '18:29', ['11:30', N, N, N]],
+    ['18:30', '18:59', ['11:15', N, N, N]],
+    ['19:00', '23:59', [N, N, N, N]],
+    ['00:00', '03:59', [N, N, N, N]],
+    ['04:00', '05:59', [N, N, N, N]],
+  ];
+  it.each(T)('report %s–%s', (a, b, cells) => {
+    for (const t of [a, b]) {
+      const got = [1, 3, 4, 5].map((s) => extFdp(hm(t), s, 0));
+      expect(got).toEqual(cells.map((c) => (c === null ? null : hm(c))));
+      expect(extFdp(hm(t), 2, 0)).toBe(got[0]);
+    }
+  });
+  it('6 or more sectors: never', () => {
+    expect(extFdp(hm('08:00'), 6, 0)).toBeNull();
+  });
+  it('the table has 16 rows from 06:00 to 18:59', () => {
+    expect(EXT_TABLE).toHaveLength(16);
+    expect(EXT_TABLE[0][0]).toBe(hm('06:00'));
+    expect(EXT_TABLE[EXT_TABLE.length - 1][1]).toBe(hm('19:00'));
+  });
+  it('sector limits by WOCL encroachment: none 5, ≤ 2 h 4, more 2', () => {
+    expect(extFdp(hm('08:00'), 5, 0)).toBe(hm('12:30'));
+    expect(extFdp(hm('08:00'), 5, 30)).toBeNull();
+    expect(extFdp(hm('08:00'), 4, 120)).toBe(hm('13:00'));
+    expect(extFdp(hm('08:00'), 3, 121)).toBeNull();
+    expect(extFdp(hm('08:00'), 2, 300)).toBe(hm('14:00'));
+  });
+});
+
+describe('split duty (CS FTL.1.220)', () => {
+  it('adds half the net break, in 15 min steps; nothing under 3 h; 16:00 ceiling', () => {
+    expect(splitFdp(hm('12:00'), hm('2:59'))).toBeNull();
+    expect(splitFdp(hm('12:00'), hm('3:00'))).toBe(hm('13:30'));
+    expect(splitFdp(hm('12:00'), hm('4:00'))).toBe(hm('14:00'));
+    expect(splitFdp(hm('11:00'), hm('5:00'))).toBe(hm('13:30'));
+    expect(splitFdp(hm('10:00'), hm('6:00'))).toBe(hm('13:00'));
+    expect(splitFdp(hm('11:00'), hm('8:00'))).toBe(hm('15:00'));
+    expect(splitFdp(hm('13:00'), hm('8:00'))).toBe(hm('16:00'));
+    expect(splitFdp(hm('12:00'), hm('3:20'))).toBe(hm('13:30'));
+  });
+});
+
+describe('standby (CS FTL.1.225)', () => {
+  const at = (h: string, day = 0) => T0 + day * 1440 + hm(h) - 60; // LIS local
+  it('home: no cut within 6 h; beyond 6 h minute for minute; 8 h when augmented or split', () => {
+    expect(standbyCut('home', at('08:00'), at('14:00'), 'LIS', false)).toBe(0);
+    expect(standbyCut('home', at('08:00'), at('16:00'), 'LIS', false)).toBe(120);
+    expect(standbyCut('home', at('08:00'), at('16:00'), 'LIS', true)).toBe(0);
+    expect(standbyCut('home', at('08:00'), at('17:00'), 'LIS', true)).toBe(60);
+  });
+  it('home: 23:00–07:00 does not count until contacted (06:00 start: the first hour is free)', () => {
+    expect(standbyCut('home', at('06:00'), at('14:00'), 'LIS', false)).toBe(60);
+    expect(standbyCut('home', at('06:00'), at('14:00'), 'LIS', false, at('06:30'))).toBe(90);
+    // guide example 6: standby 07:00, report 15:00 → 2 h off
+    expect(standbyCut('home', at('07:00'), at('15:00'), 'LIS', false)).toBe(120);
+  });
+  it('airport: beyond 4 h; standby + FDP ≤ 16 h', () => {
+    expect(standbyCut('airport', at('06:00'), at('10:00'), 'LIS', false)).toBe(0);
+    expect(standbyCut('airport', at('06:00'), at('12:30'), 'LIS', false)).toBe(150);
+    expect(STANDBY.airportTotal).toBe(16 * 60);
+  });
+  it('the 18 h awake cap (woken an hour before standby)', () => {
+    expect(standbyAwakeOk(at('06:00'), at('23:00'))).toBe(true);
+    expect(standbyAwakeOk(at('06:00'), at('23:01'))).toBe(false);
+    // guide example 6: standby 07:00, FDP to 01:00 → 19 h awake
+    expect(standbyAwakeOk(at('07:00'), at('01:00', 1))).toBe(false);
+  });
+});
+
+describe('time zones (CS FTL.1.235(b)(3)(i))', () => {
+  it('local nights at home by max difference and hours since the first report', () => {
+    expect(TZ_NIGHTS).toEqual([[2, 2, 3, 3], [2, 3, 3, 4], [2, 3, 4, 5]]);
+    const rows: [number, number[]][] = [[5, [2, 2, 3, 3]], [6, [2, 2, 3, 3]], [8, [2, 3, 3, 4]], [9, [2, 3, 3, 4]], [11, [2, 3, 4, 5]], [12, [2, 3, 4, 5]]];
+    for (const [d, want] of rows) expect([47, 48, 71.9, 72, 95.9, 96, 200].map((h) => tzNights(d, h))).toEqual([want[0], want[1], want[1], want[2], want[2], want[3], want[3]]);
+    expect(tzNights(3.5, 100)).toBe(0);
+    // guide example 7: 9 h behind, back after 80 h → 3 local nights
+    expect(tzNights(9, 80)).toBe(3);
+  });
+  it('local days: whole 00:00–24:00 days at base', () => {
+    const at = (h: string, day = 0) => T0 + day * 1440 + hm(h) - 60;
+    expect(localDaysIn('LIS', at('20:00'), at('08:00', 3))).toBe(2);
+    expect(localDaysIn('LIS', at('00:00', 1), at('00:00', 3))).toBe(2);
+    expect(localDaysIn('LIS', at('00:01', 1), at('00:00', 3))).toBe(1);
   });
 });

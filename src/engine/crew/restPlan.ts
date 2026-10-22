@@ -426,10 +426,55 @@ function nameTurns(g: GameState, plan: RestPlan, slots: { role: string; crewId: 
   }
 }
 
-/** v0.7.3 the rest plan of the duty a flight belongs to. Pure. */
+/**
+ * v0.7.3 a duty the roster had to split with a fresh crew because the cruise was too short for in-flight rest: the
+ * next duty on the aircraft starts where this one ends within 3 h, the two together would fit the augmented limit
+ * with the aircraft's facilities, but the rest plan is 'tooShort'. The failed plan and the next duty, else null. Pure.
+ */
+export function slipShort(g: GameState, dutyId: string): { plan: RestPlan; next: Duty; fdp: number; max: number } | null {
+  const d = g.duties[dutyId];
+  if (!d || d.augment > 0 || d.done) return null;
+  const p = g.pairings[d.pairingId];
+  const ac = p?.aircraftId ? g.fleet[p.aircraftId] : undefined;
+  if (!ac || !g.company.approvals.includes('augmented')) return null;
+  const rest = restOf(g, ac.id);
+  if (!rest.fc || !rest.cc) return null;
+  const last = g.flights[d.flightIds[d.flightIds.length - 1]];
+  if (!last) return null;
+  let next: Duty | null = null;
+  for (const x of Object.values(g.duties)) {
+    const f0 = g.flights[x.flightIds[0]];
+    if (x.id === d.id || x.done || !f0 || f0.aircraftId !== ac.id || f0.from !== last.to || f0.std < last.sta || f0.std > last.sta + 3 * H) continue;
+    if (!next || f0.std < g.flights[next.flightIds[0]].std) next = x;
+  }
+  if (!next) return null;
+  const legs = [...restLegs(g, d), ...restLegs(g, next)];
+  if (legs.length > 3) return null;
+  const fdp = legs[legs.length - 1].sta - d.report;
+  const early = typeEarly(ac.typeId);
+  let longest = 0;
+  for (const l of legs) longest = Math.max(longest, l.sta - l.std);
+  for (const a of [1, 2] as const) {
+    const lim = augLimitOf(rest.fc.cls, rest.cc.cls, a, legs.length <= 2 && longest - 20 > 9 * H, early);
+    if (fdp > lim.max) continue;
+    const plan = planRest(legs, rest, a, fdp + lim.early, restCabinN(g, d));
+    if (plan.code === 'tooShort') {
+      nameTurns(g, plan, p.slots);
+      return { plan, next, fdp, max: lim.max };
+    }
+    return null;
+  }
+  return null;
+}
+
+/**
+ * v0.7.3 the rest plan of the duty a flight belongs to; for a duty split with a fresh crew because the cruise was
+ * too short (slipShort), the failed plan ('Not possible', with its why). Pure.
+ */
 export function restPlanForFlight(g: GameState, flightId: string): RestPlan | null {
   const f = g.flights[flightId];
-  return f?.dutyId ? restPlan(g, f.dutyId) : null;
+  if (!f?.dutyId) return null;
+  return restPlan(g, f.dutyId) ?? slipShort(g, f.dutyId)?.plan ?? null;
 }
 
 /** v0.7.3 crew resting on an aircraft at t (map panel): names, where and until when. Pure. */

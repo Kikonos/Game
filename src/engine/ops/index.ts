@@ -2,13 +2,14 @@
 
 import type { SimModule } from '../core/module';
 import type { GameState } from '../core/types';
-import { onRefitEnd } from './cabin';
+import { onRefitEnd, onRestFitEnd } from './cabin';
+setRestFitHook(onRestFitEnd);
 import { dailyApprovals, loadApprovals, onApprovalDone, setGrantHook } from './company';
 import { dailyEvents, onDecisionExpire, paceDecisions } from './events';
 import { dailyFinance, onMonthEnd, onPayment, settleDeparture } from './finance';
 import { onFlightArr, onFlightDep, pruneFlights } from './flights';
 import { checkGoals, ladderGrant, syncGoals } from './goals';
-import { onMaintEnd, onMaintStart, planChecks, setMaintHooks } from './maintenance';
+import { onMaintEnd, onMaintStart, planChecks, setMaintHooks, setRestFitHook } from './maintenance';
 import { dailyDelivery, onDeliveryArr, onDeliveryDep } from './delivery';
 import { dailyLeases, onReturnEnd, onReturnStart } from './leaseReturn';
 import { dailyMarket, loadMarket, onDelivery, onLeaseEnd, refreshMarket } from './market';

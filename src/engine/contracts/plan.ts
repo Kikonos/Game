@@ -3,6 +3,7 @@
 // base patterns → daily waves with maintenance nights and monthly drops to targetBH;
 // aircraft anchors (hard commitments) and empty-move chains between them.
 
+import type { ChainShape } from '../crew/duties';
 import { liveFlightsOf } from '../core/entities';
 import { blockMinutes, planSector, TECH_STOP_MIN, typeOf } from '../core/perf';
 import { DAY, dayIndex, localOffset, monthKey, monthStart, toLocal } from '../core/time';
@@ -186,12 +187,51 @@ export interface Programme {
   sectors: [string, string][];
   /** Base patterns: days and rotations. */
   base?: { days: number; rotations: number };
+  /** v0.7.3 the 5 longest operated chains (legs without a night-stop gap), distinct by shape (crew/duties.ts dutyNeed). */
+  chains: ChainShape[];
+}
+
+
+/** A gap this long between legs is a night stop (10 h rest away plus report and post-flight). */
+const CHAIN_GAP = 11 * 60;
+
+export type { ChainShape };
+
+/** Legs cut into chains at night-stop gaps (and after any arrival at `cut`, a crew-change station). */
+export function chainsOf(legs: { std: Minute; sta: Minute; from: string; to: string }[], cut?: string): ChainShape[] {
+  const all: ChainShape[] = [];
+  let cur: ChainShape | null = null;
+  let last: { sta: Minute; to: string } | null = null;
+  for (const l of [...legs].sort((a, b) => a.std - b.std)) {
+    if (!cur || !last || l.std - last.sta >= CHAIN_GAP || (cut && last.to === cut)) {
+      cur = { from: l.from, std: l.std, legs: [] };
+      all.push(cur);
+    }
+    cur.legs.push({ std: l.std, sta: l.sta, from: l.from, to: l.to });
+    last = l;
+  }
+  return all;
+}
+
+/** The `n` longest chains, distinct by shape (start time of day, departure and leg offsets). */
+export function longestChains(chains: ChainShape[], n = 5): ChainShape[] {
+  const span = (c: ChainShape) => c.legs[c.legs.length - 1].sta - c.std;
+  const seen = new Set<string>();
+  const out: ChainShape[] = [];
+  for (const c of [...chains].filter((x) => x.legs.length).sort((a, b) => span(b) - span(a) || a.std - b.std)) {
+    const key = `${c.from}@${c.std % 1440}:${c.legs.map((l) => `${l.std - c.std}-${l.sta - c.std}`).join()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(c);
+    if (out.length >= n) break;
+  }
+  return out;
 }
 
 /** Legs pattern on a type: fuel stops, turn minima (shift later, never earlier), internal empty legs, trips split by ≥ TRIP_GAP. */
 export function planLegs(p: LegsPattern, typeId: string, noTechStops = false): Programme {
   const t = typeOf(typeId);
-  const res: Programme = { ok: true, trips: [], techStops: [], shiftMin: 0, revenueMin: 0, emptyMin: 0, longestChainMin: 0, airports: [], sectors: [] };
+  const res: Programme = { ok: true, trips: [], techStops: [], shiftMin: 0, revenueMin: 0, emptyMin: 0, longestChainMin: 0, airports: [], sectors: [], chains: [] };
   const tpls = p.legs.map((l, i) => ({ l, i })).sort((a, b) => a.l.dep - b.l.dep);
   let trip: Trip | null = null;
   let last: PlanLeg | null = null;
@@ -250,6 +290,14 @@ export function planLegs(p: LegsPattern, typeId: string, noTechStops = false): P
     tr.sta = tr.legs[tr.legs.length - 1].sta;
   }
   res.airports = [...ap];
+  // v0.7.3 crew chains: each sector with its fuel stops (a longer day can always be cut there with a slip crew).
+  const sectorChains: ChainShape[] = [];
+  for (const l of res.trips.flatMap((tr) => tr.legs)) {
+    const last = sectorChains[sectorChains.length - 1];
+    if (l.kind === 'techstop' && last) last.legs.push({ std: l.std, sta: l.sta, from: l.from, to: l.to });
+    else sectorChains.push({ from: l.from, std: l.std, legs: [{ std: l.std, sta: l.sta, from: l.from, to: l.to }] });
+  }
+  res.chains = longestChains(sectorChains);
   return res;
 }
 
@@ -406,8 +454,12 @@ export function planBase(p: BasePattern, typeId: string, slot = 0): Programme {
   }
   const res: Programme = {
     ok: true, trips: [], techStops: [], shiftMin: 0, revenueMin, emptyMin: 0, longestChainMin: 0,
-    airports: [p.base, ...p.dests], sectors: p.dests.flatMap((d) => [[p.base, d], [d, p.base]] as [string, string][]), base: { days: days.length, rotations },
+    airports: [p.base, ...p.dests], sectors: p.dests.flatMap((d) => [[p.base, d], [d, p.base]] as [string, string][]), base: { days: days.length, rotations }, chains: [],
   };
+  // v0.7.3 crew chains: each sector of a rotation (the roster can always slip a crew at the far end).
+  const rots: ChainShape[] = [];
+  for (const d of days) for (const r of d) rots.push({ from: p.base, std: r.outStd, legs: [{ std: r.outStd, sta: r.outSta, from: p.base, to: r.dest }] }, { from: r.dest, std: r.backStd, legs: [{ std: r.backStd, sta: r.backSta, from: r.dest, to: p.base }] });
+  res.chains = longestChains(rots);
   for (const [a, b] of res.sectors) {
     const sp = planSector(typeId, a, b);
     if (!sp.ok) return { ...res, ok: false, reason: `${a}–${b}: ${sp.reason === 'runway' ? 'runway' : 'range'}` };

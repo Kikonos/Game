@@ -365,7 +365,8 @@ export function crewShortDecision(g: GameState, f: Flight, ac: Aircraft): void {
   const cs = flightCrewStatus(g, f.id);
   const legs = tripLegs(g, ac, f);
   const over = d ? d.fdp - d.maxFdp - (d.discretion ?? 0) : 0;
-  const canDisc = !!d && !cs.missing.length && over > 0 && over <= (d.augment > 0 ? DISCRETION.augmented : DISCRETION.basic) && !d.discretion;
+  // v0.7.3 ORO.FTL.205(f): only once the crew have reported (unforeseen, at or after report).
+  const canDisc = !!d && d.report <= g.now && !cs.missing.length && over > 0 && over <= (d.augment > 0 ? DISCRETION.augmented : DISCRETION.basic) && !d.discretion;
   const roll = range(g, BAL.subcharterFactor[0], BAL.subcharterFactor[1]);
   const rivalId = pickRival(g, ac.typeId);
   const factor = Math.round(roll * rivalFactor(g, rivalId) * 100) / 100;
@@ -394,7 +395,7 @@ export function crewShortDecision(g: GameState, f: Flight, ac: Aircraft): void {
     if (id === 'cancel' && !s) return { id, label: 'Cancel the trip', desc: 'Compensation and a reliability hit.', tone: 'bad', chips: [usd(-pen), 'Reliability −3', legsChip(legs)] };
     return { id, label: s!.label, desc: s!.desc, tone: tone(id), chips: s!.chips.length ? s!.chips : id === 'delay' ? [`Delay ~${fmtDuration(wait)}`, ...holdChips(g, later)] : [] };
   });
-  if (canDisc && !options.some((o) => o.id === 'discretion')) options.splice(1, 0, { id: 'discretion', label: "Commander's discretion", desc: `The captain extends the duty by ${fmtDuration(over)} (max 2 h).`, tone: 'warn', chips: ['Morale −3', `FDP +${fmtDuration(over)}`] });
+  if (canDisc && !options.some((o) => o.id === 'discretion')) options.splice(1, 0, { id: 'discretion', label: "Commander's discretion", desc: `The captain extends the duty by ${fmtDuration(over)} (up to 2 h, 3 h with an augmented crew).`, tone: 'warn', chips: ['Morale −3', `FDP +${fmtDuration(over)}`] });
   // Sub-charter when waiting would cancel revenue legs and the rival costs less than their compensation and fares.
   const lost = cancelCost(g, later.cancels) + subcharterCost(g, later.cancels, 1);
   const def = canDisc ? 'discretion' : revCount(legs) && revCount(later.cancels) && sub < lost && options.some((o) => o.id === 'subcharter') ? 'subcharter' : 'delay';

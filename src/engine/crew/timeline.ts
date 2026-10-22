@@ -8,7 +8,7 @@ import { deadheadFlights, flightsOf, flightsRev } from '../core/entities';
 import { itinerary, ticketBlock } from '../ops/commercial';
 import { DAY, fmtDateTime, fmtTime, monthKey, yearOf } from '../core/time';
 import type { CrewMember, Duty, Flight, GameState, Minute, Pairing } from '../core/types';
-import { isDisruptive, maxFdp, minRest, referenceTime, tzDeltaH, type RefTime, type Seg, type TimelineCtx } from './rules';
+import { disruptiveKinds, isDisruptive, maxFdp, minRest, referenceTime, tzDeltaH, type RefTime, type Seg, type TimelineCtx } from './rules';
 import { restOf } from './restPlan';
 
 // ---------- index ----------
@@ -385,7 +385,7 @@ export function posSeg(t: TicketPlan, c: CrewMember, fresh = false): Seg {
 const flown = (t: TicketPlan): boolean => (t as Partial<Flight>).status === 'done';
 
 /** Minimum rest after a duty that started at `start` and ends at `e` in `a` (home base `base`). */
-const restAfterAt = (start: Minute, base: string, augmented: boolean, e: Minute, a: string) => minRest({ dutyMin: e - start, atHome: a === base, augmented, tzShift: tzDeltaH(base, a, e) });
+const restAfterAt = (start: Minute, base: string, augmented: boolean, e: Minute, a: string, extended = false) => minRest({ dutyMin: e - start, atHome: a === base, augmented, tzShift: tzDeltaH(base, a, e), extended });
 
 /**
  * Segs of duty d (pairing p) for crew c, with its out/home tickets: a ticket arriving less than minimum rest
@@ -395,7 +395,7 @@ const restAfterAt = (start: Minute, base: string, augmented: boolean, e: Minute,
 export function dutySegs(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: TicketPlan | null, home: TicketPlan | null, fresh = false): Seg[] {
   const segs: Seg[] = [];
   const dep = g.flights[d.flightIds[0]]?.from ?? d.restAt;
-  const early = isCabin(c) ? cabinEarly(g, p) : 0;
+  const early = isCabin(c) ? cabinEarly(g, p, d) : 0;
   let start = d.report - early;
   let fdp = d.fdp + early;
   let max = d.maxFdp + (d.discretion ?? 0) + early;
@@ -419,14 +419,16 @@ export function dutySegs(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: 
   let merged: Seg['home'];
   if (home) {
     if (home.std - d.release < 600) {
-      merged = { id: (home as Partial<Flight>).id, from: d.restAt, std: home.std, release: d.release, rest: restAfterAt(start, c.base, d.augment > 0, d.release, d.restAt) };
+      merged = { id: (home as Partial<Flight>).id, from: d.restAt, std: home.std, release: d.release, rest: restAfterAt(start, c.base, d.augment > 0, d.release, d.restAt, !!d.ext) };
       end = home.sta;
       at = home.to;
     } else if (!flown(home)) tail = { ...posSeg(home, c, fresh), dutyId: d.id };
   }
+  const k = disruptiveKinds(tz, start, end);
   segs.push({
     kind: 'duty', start, end, fdp, maxFdp: max, block: dutyBlock(g, d), sectors: d.sectors, aug: d.augment > 0,
-    disruptive: isDisruptive(tz, start, end), rest: restAfterAt(start, c.base, d.augment > 0, end, at), at, from, dutyId: d.id, fresh, home: merged, out: mergedOut,
+    disruptive: k.early || k.late || k.night, early: k.early, late: k.late, night: k.night, ...(d.ext ? { ext: true } : {}),
+    rest: restAfterAt(start, c.base, d.augment > 0, end, at, !!d.ext), at, from, dutyId: d.id, fresh, home: merged, out: mergedOut,
   });
   if (tail) segs.push(tail);
   return segs;
@@ -454,7 +456,7 @@ function logSegs(c: CrewMember): Seg[] {
   if (hit && hit.n === c.log.length) return hit.segs;
   const segs = c.log.map((e) => ({
     kind: 'log' as const, start: e.start, end: e.end, fdp: e.fdp, maxFdp: Infinity, block: e.block, sectors: e.sectors, aug: e.augmented,
-    disruptive: e.disruptive, rest: 0, at: '', dutyId: undefined, fresh: false,
+    disruptive: e.disruptive, rest: 0, at: '', dutyId: undefined, fresh: false, ext: e.ext, early: e.early, late: e.late, night: e.night,
   }));
   logSegCache.set(c.log, { n: c.log.length, segs });
   return segs;
