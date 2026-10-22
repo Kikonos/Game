@@ -6,7 +6,7 @@ import { flightsRev } from '../core/entities';
 import { pushMessage } from '../core/messages';
 import type { GameState, Message, MessageCat, ProblemKind, ProblemRef, Ref } from '../core/types';
 import { crewRev } from '../crew/timeline';
-import { cabinRestCard, captainAsFoCard, crewFlightCard, crewProblems, crewResignedCard, crewSickCard, restFacilityCard, restSeatsCard, restTooShortCard } from './crew';
+import { cabinRestCard, captainAsFoCard, crewFlightCard, crewProblems, crewResignedCard, crewSickCard, restCards, restFacilityCard, restSeatsCard, restTooShortCard } from './crew';
 import { changeRequestCard, commercialProblems, contractCancelledCard, counterExpiryCard, offerFitCard, penaltyCard } from './commercial';
 import { deliveryWaitCard, ferryUncrewedCard, fleetProblems, leaseReturnCard, refitMissedCard, saleCard } from './fleet';
 import { cashLowCard, invoiceOverdueCard, leaseDueCard, lossMonthCard, moneyProblems } from './money';
@@ -125,3 +125,25 @@ export function cardMeta(card: ProblemCard | null | undefined): { problem?: Prob
 
 /** The badge strings for a message's hurt snapshot (UI). */
 export const messageBadges = (m: Message): string[] => (m.hurt ? hurtBadges(m.hurt) : []);
+
+/**
+ * v0.7.3 the in-flight rest cards as Inbox messages (daily): once per contract and kind (a flight without a contract:
+ * once per duty); restTooShort once per duty. Counts Stats.restTooShort.
+ */
+export function postRestProblems(g: GameState): void {
+  for (const card of restCards(g)) {
+    const f = g.flights[card.subject.ref.id];
+    if (!f) continue;
+    const kind = card.subject.kind;
+    const key = kind !== 'restTooShort' && f.contractId ? `c:${f.contractId}` : `d:${f.dutyId ?? f.id}`;
+    const seen = g.messages.some((m) => {
+      if (m.problem?.kind !== kind || m.ref?.kind !== 'flight') return false;
+      const mf = g.flights[m.ref.id];
+      if (!mf) return false;
+      return (kind !== 'restTooShort' && mf.contractId ? `c:${mf.contractId}` : `d:${mf.dutyId ?? mf.id}`) === key;
+    });
+    if (seen) continue;
+    postProblem(g, card, { cat: 'crew' });
+    if (kind === 'restTooShort') g.stats.restTooShort = (g.stats.restTooShort ?? 0) + 1;
+  }
+}

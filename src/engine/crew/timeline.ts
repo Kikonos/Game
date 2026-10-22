@@ -8,7 +8,7 @@ import { deadheadFlights, flightsOf, flightsRev } from '../core/entities';
 import { itinerary, ticketBlock } from '../ops/commercial';
 import { DAY, fmtDateTime, fmtTime, monthKey, yearOf } from '../core/time';
 import type { CrewMember, Duty, Flight, GameState, Minute, Pairing } from '../core/types';
-import { disruptiveKinds, isDisruptive, maxFdp, minRest, referenceTime, tzDeltaH, type RefTime, type Seg, type TimelineCtx } from './rules';
+import { disruptiveKinds, isDisruptive, maxFdp, minRest, referenceTime, standbyCut, tzDeltaH, type RefTime, type Seg, type TimelineCtx } from './rules';
 import { restOf } from './restPlan';
 
 // ---------- index ----------
@@ -371,6 +371,7 @@ export function ctxOf(g: GameState, c: CrewMember): TimelineCtx {
   return {
     base: c.base, restUntil: c.restUntil, lastRecovery: c.lastRecovery, blockYear: c.blockYear, blockYearOf: c.blockYearOf ?? yearOf(g.now),
     freeSince: c.log.length ? undefined : c.restUntil - 12 * 60, loc: c.loc, now: g.now, block12m: block12m(c, g.now),
+    twoDays: c.twoDays, rot: c.rot, tzBack: c.tzBack,
   };
 }
 
@@ -427,7 +428,7 @@ export function dutySegs(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: 
   const k = disruptiveKinds(tz, start, end);
   segs.push({
     kind: 'duty', start, end, fdp, maxFdp: max, block: dutyBlock(g, d), sectors: d.sectors, aug: d.augment > 0,
-    disruptive: k.early || k.late || k.night, early: k.early, late: k.late, night: k.night, ...(d.ext ? { ext: true } : {}),
+    disruptive: k.early || k.late || k.night, early: k.early, late: k.late, night: k.night, ...(d.ext ? { ext: true } : {}), ...(d.split ? { split: true } : {}),
     rest: restAfterAt(start, c.base, d.augment > 0, end, at, !!d.ext), at, from, dutyId: d.id, fresh, home: merged, out: mergedOut,
   });
   if (tail) segs.push(tail);
@@ -483,7 +484,36 @@ export function segsOf(g: GameState, c: CrewMember, excludePairing?: string): Se
     if (!live(f) || own.has(f.id)) continue;
     segs.push(posSeg(f, c));
   }
-  return segs.sort(bySeg);
+  segs.sort(bySeg);
+  if (c.standby?.length) addStandby(g, c, segs);
+  return segs;
+}
+
+/**
+ * v0.7.3 home standby windows in a timeline (CS FTL.1.225(b)): 25 % duty, not rest. A called window ends at the
+ * report of the duty it was called for, whose max FDP shrinks by the standby beyond 6 h (8 h augmented or split;
+ * 23:00–07:00 before the call not counted) and which carries the 18 h awake cap. Uncalled windows stay whole
+ * (evalSegs drops one a planned duty takes over).
+ */
+function addStandby(g: GameState, c: CrewMember, segs: Seg[]): void {
+  for (const w of c.standby ?? []) {
+    if (w.to < g.now - 2 * 1440) continue;
+    if (w.calledAt === undefined) {
+      segs.push({
+        kind: 'sby', start: w.from, end: w.to, fdp: 0, maxFdp: 0, block: 0, sectors: 0, aug: false, disruptive: false, share: 0.25,
+        rest: minRest({ dutyMin: 0, atHome: true, augmented: false, tzShift: 0 }), at: c.base, from: c.base,
+      });
+      continue;
+    }
+    const k = segs.findIndex((x) => x.kind === 'duty' && x.start >= w.calledAt! - 60 && x.start < w.calledAt! + 1440);
+    const end = k >= 0 ? segs[k].start : w.calledAt;
+    if (k >= 0) {
+      const y = segs[k];
+      segs[k] = { ...y, maxFdp: y.maxFdp - standbyCut('home', w.from, y.start, c.base, y.aug || !!y.split, w.calledAt), sbyFrom: w.from };
+    }
+    if (end > w.from) segs.push({ kind: 'sby', start: w.from, end, fdp: 0, maxFdp: 0, block: 0, sectors: 0, aug: false, disruptive: false, share: 0.25, rest: 0, at: c.base, from: c.base });
+  }
+  segs.sort(bySeg);
 }
 
 /** A seg of a deployment tour: its crews rotate through base, so their tickets are never dropped. */

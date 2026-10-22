@@ -29,7 +29,8 @@ import { city, rootReason, type Reason, type ReasonCode } from './reasons';
 import { applyDiscretion, autoRoster, DISCRETION_BEFORE_REPORT, flightCrewStatus, onFlightsChanged, placeCrew, recheckPairing, releaseCrew, rerosterFrom, setShortHook, type FlightCrewStatus } from './roster';
 import { assignCrew, dutyCandidates, type DutyCandidate } from './rosterActions';
 import { DISCRETION, levelOf, LIMITS, minRest } from './rules';
-import { crewCount, crewRev, dhBlock, locAt, OUT_CONNECT, segsOf, touchCrew, typeIdOf, type TicketPlan } from './timeline';
+import { cabinEarly, crewCount, crewRev, dhBlock, locAt, OUT_CONNECT, segsOf, touchCrew, typeIdOf, type TicketPlan } from './timeline';
+import { callFromStandby } from './standby';
 
 export type { Reason, ReasonCode };
 export { rootReason };
@@ -749,7 +750,9 @@ const candidatesOf = (g: GameState, d: Duty, role: Role) => memoOf(g, `dc:${d.id
 
 /** Candidates for a missing seat: legal after their trip, not on the pairing; `here`: at the airport (call-in) or not (deadhead). */
 function seatCandidates(g: GameState, d: Duty, role: Role, here: boolean): DutyCandidate[] {
-  return candidatesOf(g, d, role).filter((c) => !c.onPairing && c.level !== 'illegal' && (here ? !c.travel : !!c.travel));
+  const list = candidatesOf(g, d, role).filter((c) => !c.onPairing && c.level !== 'illegal' && (here ? !c.travel : !!c.travel));
+  // v0.7.3 a call-in takes crew on home standby first (no overtime, no morale hit).
+  return here ? [...list.filter((c) => c.standby), ...list.filter((c) => !c.standby)] : list;
 }
 
 /** The default (or chosen) crew per missing seat, one person each, from a candidate list per role. */
@@ -887,7 +890,13 @@ function runFix(h: GameState, flightId: string, fix: CrewFix, opts: ApplyOpts): 
         const r = assignCrew(h, f.id, crewId, role);
         if (!r.ok) continue;
         const c = h.crew[crewId];
-        if (fix === 'callIn') {
+        if (fix === 'callIn' && callFromStandby(h, crewId)) {
+          const nd = h.duties[d.id] ?? d;
+          const seg = segsOf(h, c).find((x) => x.dutyId === nd.id && x.kind === 'duty');
+          const until = seg ? seg.start + seg.maxFdp : nd.report + nd.maxFdp;
+          const cut = seg && seg.maxFdp < nd.maxFdp + (nd.discretion ?? 0) + (c.role === 'PUR' || c.role === 'CC' ? cabinEarly(h, h.pairings[nd.pairingId] ?? p!, nd) : 0);
+          changes.push(`${role === 'CPT' ? 'Capt. ' : ''}${crewName(c)} called from home standby: no overtime; their day may run to ${fmtTime(until)} UTC${cut ? ' (standby beyond 6 h shortens it)' : ''}`);
+        } else if (fix === 'callIn') {
           const ot = overtimeOf(c);
           post(h, 'salaries', -ot);
           moraleShock(h, c, 'pay', CC().callInMorale);
@@ -1156,10 +1165,11 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean): CrewSolution[] {
     for (const role of new Set(x.missing)) {
       for (const c of seatCandidates(g, d, role, id === 'callIn').slice(0, 6)) {
         const cm = g.crew[c.crewId];
-        const ot = id === 'callIn' ? overtimeOf(cm) : 0;
+        const sby = id === 'callIn' && c.standby;
+        const ot = id === 'callIn' && !sby ? overtimeOf(cm) : 0;
         options.push({
-          id: c.crewId, label: `${c.name} · ${c.loc}${id === 'callIn' && cm.status === 'off' ? ' · day off' : ''}`,
-          sub: id === 'callIn' ? `${usd(ot)} overtime · morale ${CC().callInMorale}` : `${c.travel ?? ''} · ${c.level === 'tight' ? 'tight after' : 'legal after'}`,
+          id: c.crewId, label: `${c.name} · ${c.loc}${sby ? ` · On home standby since ${fmtTime(c.standby!.from, g.company.homeBase)}` : id === 'callIn' ? ' · Day off: called in' : ''}`,
+          sub: sby ? 'No overtime · standby beyond 6 h shortens the day' : id === 'callIn' ? `${usd(ot)} overtime · morale ${CC().callInMorale}` : `${c.travel ?? ''} · ${c.level === 'tight' ? 'tight after' : 'legal after'}`,
           cost: id === 'callIn' ? ot : c.ticket, arrives: c.arrives, level: c.level, reason: c.reason,
         });
       }
@@ -1171,7 +1181,7 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean): CrewSolution[] {
     s.options = options;
     const first = options[0];
     s.cost = first.cost;
-    s.chips = id === 'callIn' ? [usd(first.cost), `Morale ${CC().callInMorale}`] : [usd(first.cost), first.arrives !== undefined ? hrs(first.arrives) : ''].filter(Boolean);
+    s.chips = id === 'callIn' ? (first.cost ? [usd(first.cost), `Morale ${CC().callInMorale}`] : ['No overtime', 'Home standby']) : [usd(first.cost), first.arrives !== undefined ? hrs(first.arrives) : ''].filter(Boolean);
     out.push(run(s));
   }
   // c. delay: the departure the roster itself accepts (tried on copies), never a guess.

@@ -417,6 +417,10 @@ export interface Seg {
   early?: boolean;
   late?: boolean;
   night?: boolean;
+  /** v0.7.3 a split duty (the 8 h standby threshold, CS FTL.1.225(b)). */
+  split?: boolean;
+  /** v0.7.3 called out from home standby that began then (the 18 h awake cap). */
+  sbyFrom?: Minute;
 }
 
 export interface TimelineCtx {
@@ -440,6 +444,11 @@ export interface TimelineCtx {
    * follows it, so a routine delay doesn't break a fresh roster (0 when re-checking work in place).
    */
   slack?: number;
+  /** v0.7.3 recovery rests with 2 whole local days logged per month; key 0 = the first month tracked (absent: none checked). */
+  twoDays?: Record<number, number>;
+  /** v0.7.3 the current rotation away from base and the last return from one ≥ 4 h away (CS FTL.1.235(b)). */
+  rot?: { start: Minute; maxTz: number; dir: -1 | 0 | 1 };
+  tzBack?: { back: Minute; nights: number; dir: -1 | 1 };
 }
 
 export type IssueCode = 'fdp' | 'rest' | 'duty7d' | 'duty14d' | 'duty28d' | 'block28d' | 'blockYear' | 'recovery' | 'rating' | 'location' | 'status' | 'overlap' | 'workBlock'
@@ -482,23 +491,26 @@ function windowsAt(segs: Seg[], i: number, b: Minute): Float64Array {
     const x = segs[k];
     if (x.end <= a28 && x.start < a28 - 2 * DAY) break;
     const hi = Math.min(b, x.end);
+    // v0.7.3 home standby counts 25 % (CS FTL.1.225(b)(3)).
+    const sh = x.share ?? 1;
     if (on7) {
       if (x.end <= a7 && x.start < a7 - 2 * DAY) on7 = false;
-      else d7 += Math.max(0, hi - Math.max(a7, x.start));
+      else d7 += sh * Math.max(0, hi - Math.max(a7, x.start));
     }
     if (on14) {
       if (x.end <= a14 && x.start < a14 - 2 * DAY) on14 = false;
-      else d14 += Math.max(0, hi - Math.max(a14, x.start));
+      else d14 += sh * Math.max(0, hi - Math.max(a14, x.start));
     }
-    d28 += Math.max(0, hi - Math.max(a28, x.start));
+    d28 += sh * Math.max(0, hi - Math.max(a28, x.start));
     if (x.end > a28 && x.end <= b) blk += x.block;
   }
   for (let k = i + 1; k < segs.length && segs[k].start < b; k++) {
     const x = segs[k];
     const hi = Math.min(b, x.end);
-    d7 += Math.max(0, hi - Math.max(a7, x.start));
-    d14 += Math.max(0, hi - Math.max(a14, x.start));
-    d28 += Math.max(0, hi - Math.max(a28, x.start));
+    const sh = x.share ?? 1;
+    d7 += sh * Math.max(0, hi - Math.max(a7, x.start));
+    d14 += sh * Math.max(0, hi - Math.max(a14, x.start));
+    d28 += sh * Math.max(0, hi - Math.max(a28, x.start));
   }
   WIN[0] = d7;
   WIN[1] = d14;
@@ -520,8 +532,9 @@ const segEnd = (x: Seg, slack: number) => (x.kind === 'duty' ? x.end + slack : x
  * (within 28 days); with no fresh seg, every non-log seg. Rest, FDP, rolling duty/block windows, calendar-year
  * block and the 36/60 h recovery every 168 h.
  */
-export function evalSegs(ctx: TimelineCtx, segs: Seg[]): LegalityIssue[] {
+export function evalSegs(ctx: TimelineCtx, segsIn: Seg[]): LegalityIssue[] {
   const issues: LegalityIssue[] = [];
+  const segs = standbyView(ctx, segsIn);
   let firstFresh = -1;
   let lastFreshEnd = -Infinity;
   for (let i = 0; i < segs.length; i++) {
@@ -540,8 +553,22 @@ export function evalSegs(ctx: TimelineCtx, segs: Seg[]): LegalityIssue[] {
   let plannedYearOf = ctx.blockYearOf;
   let planned12m = 0;
   const slack = ctx.slack ?? 0;
+  // v0.7.3 two local days twice a month (ORO.FTL.235(d)): planned qualifying gaps per month; months checked from
+  // the one after tracking began (ctx.twoDays[0]).
+  const td = ctx.twoDays;
+  const tdFrom = td?.[0] ?? Infinity;
+  const tdPlanned = new Map<number, number>();
+  let tdChecked = -1;
+  // v0.7.3 time-zone recovery (CS FTL.1.235(b)): the rotation under way and the last return.
+  let rot = ctx.rot ? { ...ctx.rot } : null;
+  let back = ctx.tzBack ? { ...ctx.tzBack } : null;
+  let lastAwayDir: -1 | 0 | 1 = back?.dir ?? 0;
   for (let i = 0; i < segs.length; i++) {
     const s = segs[i];
+    // Planned recovery gaps with 2 whole local days, by the month of the first whole day.
+    if (td && s.kind !== 'log' && prevEnd > -Infinity && s.start - prevEnd >= LIMITS.recovery) {
+      for (const [mk, n] of twoDayCredits(ctx.base, prevEnd, s.start)) tdPlanned.set(mk, Math.min(2, (tdPlanned.get(mk) ?? 0) + n));
+    }
     // Recovery: the gap before s qualifies when it is long enough and holds two local nights.
     if (prevEnd > -Infinity) {
       const need = disruptive >= LIMITS.disruptiveMax ? LIMITS.recoveryLong : LIMITS.recovery;
@@ -583,6 +610,34 @@ export function evalSegs(ctx: TimelineCtx, segs: Seg[]): LegalityIssue[] {
       if (s.kind === 'duty') {
         if (s.fdp > s.maxFdp) pushIssue(issues, 'fdp', 'illegal', `FDP ${hm(s.fdp)} > ${hm(s.maxFdp)}`, tgt);
         else if (s.fdp > s.maxFdp - LIMITS.tightFdp) pushIssue(issues, 'fdp', 'tight', `FDP ${hm(s.fdp)} of ${hm(s.maxFdp)}`, tgt);
+        // v0.7.3 called from home standby: at most 18 h awake by the end of the FDP (woken an hour before standby).
+        if (s.sbyFrom !== undefined && !standbyAwakeOk(s.sbyFrom, s.start + s.fdp)) pushIssue(issues, 'standby', 'illegal', `On standby from ${hm(localMin(ctx.base, s.sbyFrom))}: more than 18 h awake by the end of the day`, tgt);
+        // v0.7.3 planned extension: at most 2 in any 7 days per crew member (CS FTL.1.205(b)).
+        if (s.ext) {
+          let n = 0;
+          for (let k = i; k >= 0 && segs[k].start > s.start - 7 * DAY; k--) if (segs[k].ext) n++;
+          if (n > EXT_PER_WEEK) pushIssue(issues, 'ext7d', 'illegal', `Already ${EXT_PER_WEEK} extended days this week (the rule allows ${EXT_PER_WEEK} in any 7 days)`, tgt);
+        }
+      }
+      // v0.7.3 the last duty before (log or planned): consecutive nights, late/night → early at home base.
+      let pd: Seg | null = null;
+      for (let k = i - 1; k >= 0; k--) if (segs[k].kind === 'duty' || segs[k].kind === 'log') { pd = segs[k]; break; }
+      if (pd && s.kind === 'duty' && s.night && pd.night && s.sectors > NIGHT_MAX_SECTORS && s.start - pd.end < 2 * DAY) pushIssue(issues, 'nightSectors', 'illegal', `Consecutive night duties: at most ${NIGHT_MAX_SECTORS} sectors (this one has ${s.sectors})`, tgt);
+      if (pd && (s.kind === 'duty' || s.kind === 'sby') && s.early && s.from === ctx.base && (pd.late || pd.night) && s.start - pd.end < 2 * DAY && nightsIn(ctx.base, segs[i - 1].end, s.start) < 1) {
+        pushIssue(issues, 'lateEarly', 'illegal', 'Finished late and starts early: the rest must include a whole local night (8 h between 22:00 and 08:00)', tgt);
+      }
+      // v0.7.3 time-zone recovery at home base after a ≥ 4 h rotation (CS FTL.1.235(b)(3)(i)).
+      if (back && s.start >= back.back && s.kind !== 'log' && nightsIn(ctx.base, back.back, s.start) < back.nights) {
+        pushIssue(issues, 'tzRest', 'illegal', `Back from a trip across time zones: ${back.nights} local nights at home before the next duty`, tgt);
+      }
+      // v0.7.3 two local days twice a month: checked at the first work of a later month.
+      if (td && s.kind !== 'log') {
+        const ms = monthOf(s.start);
+        // Past months are history: from the current month (and never the first month tracked) on.
+        for (let m = Math.max(tdChecked + 1, tdFrom + 1, monthOf(ctx.now ?? s.start)); m < ms; m++) {
+          tdChecked = m;
+          if ((td[m] ?? 0) + (tdPlanned.get(m) ?? 0) < 2) pushIssue(issues, 'twoDays', 'illegal', 'Twice a month crew need a weekend of 2 whole days off', tgt);
+        }
       }
       const w = windowsAt(segs, i, s.end);
       cumIssue(issues, 'duty7d', w[0], LIMITS.duty7d, 'Duty 7d', tgt);
@@ -599,8 +654,108 @@ export function evalSegs(ctx: TimelineCtx, segs: Seg[]): LegalityIssue[] {
     // Disruptive duties since the last recovery (as noteRecovery counts them from the log).
     if (s.disruptive && s.start >= anchor) disruptive++;
     prevEnd = Math.max(prevEnd, segEnd(s, slack));
+    // Rotations of planned work: away from the end of a seg resting elsewhere, back when one ends at base.
+    if (s.kind !== 'log' && s.at) {
+      if (s.at !== ctx.base) {
+        const dz = signedTz(ctx.base, s.at, s.end);
+        if (!rot) {
+          // Changing direction (both ≥ 4 h): 3 local nights at home between the rotations (CS FTL.1.235(b)(4)).
+          rot = { start: s.start, maxTz: 0, dir: 0 };
+          const dir = Math.abs(dz) >= 4 ? (Math.sign(dz) as -1 | 1) : 0;
+          if (target && back && dir && lastAwayDir && dir !== lastAwayDir && nightsIn(ctx.base, back.back, s.start) < TZ_ALTERNATE_NIGHTS) {
+            pushIssue(issues, 'tzRest', 'illegal', `Changing from ${lastAwayDir > 0 ? 'eastbound' : 'westbound'} to ${dir > 0 ? 'eastbound' : 'westbound'} needs ${TZ_ALTERNATE_NIGHTS} local nights at home in between`, s);
+          }
+        }
+        if (Math.abs(dz) > rot.maxTz) {
+          rot.maxTz = Math.abs(dz);
+          rot.dir = Math.sign(dz) as -1 | 0 | 1;
+        }
+      } else if (rot) {
+        if (rot.maxTz >= 4) {
+          back = { back: s.end, nights: tzNights(rot.maxTz, (s.end - rot.start) / H), dir: rot.dir === 1 ? 1 : -1 };
+          lastAwayDir = back.dir;
+        }
+        rot = null;
+      }
+    }
   }
   return issues;
+}
+
+/** v0.7.3 extended FDPs allowed per crew member in any 7 days. */
+const EXT_PER_WEEK = 2;
+const monthOf = (t: Minute) => {
+  const d = new Date(Date.UTC(2000, 0, 1) + t * 60_000);
+  return d.getUTCFullYear() * 12 + d.getUTCMonth();
+};
+/**
+ * v0.7.3 two-local-day recoveries a free stretch [from, to] gives, by month: its whole local days at `tz` counted per
+ * month, two days making one (at most 2 a month); nothing when it holds fewer than 2 whole days.
+ */
+export function twoDayCredits(tz: string, from: Minute, to: Minute): Map<number, number> {
+  const out = new Map<number, number>();
+  const off = offsetAt(tz, from);
+  const n = localDaysIn(tz, from, to);
+  if (n < 2) return out;
+  const first = Math.ceil((from + off) / DAY) * DAY - off;
+  const days = new Map<number, number>();
+  for (let k = 0; k < Math.min(n, 62); k++) {
+    const mk = monthOf(first + k * DAY + 12 * H);
+    days.set(mk, (days.get(mk) ?? 0) + 1);
+  }
+  for (const [mk, d] of days) if (d >= 2) out.set(mk, Math.min(2, Math.floor(d / 2)));
+  // A stretch whose days split 1 + 1 across two months still is one 2-day recovery (the month of its first day).
+  if (!out.size) out.set(monthOf(first + 12 * H), 1);
+  return out;
+}
+/** Signed zone difference of b vs a at t, hours in [−12, 12] (east +). */
+export function signedTz(a: string, b: string, t: Minute): number {
+  let d = (offsetAt(b, t) - offsetAt(a, t)) / H;
+  if (d > 12) d -= 24;
+  if (d < -12) d += 24;
+  return d;
+}
+
+/**
+ * v0.7.3 home standby in a timeline (CS FTL.1.225(b)): a standby window not yet started that overlaps planned work
+ * is replaced by it (dropped); one already running when a duty reports inside it is a call-out: the standby counts
+ * until the report (25 %, no rest in between), the duty's max FDP shrinks by the standby beyond 6 h (8 h augmented
+ * or split; 23:00–07:00 before the call not counted) and the awake cap applies. Unchanged without standby segs.
+ */
+function standbyView(ctx: TimelineCtx, segs: Seg[]): Seg[] {
+  let any = false;
+  for (const x of segs) if (x.kind === 'sby') { any = true; break; }
+  if (!any) return segs;
+  const now = ctx.now ?? -Infinity;
+  const drop = new Set<number>();
+  const called = new Map<number, number>();
+  for (let i = 0; i < segs.length; i++) {
+    const x = segs[i];
+    if (x.kind !== 'sby') continue;
+    let w = -1;
+    for (let k = 0; k < segs.length; k++) {
+      const y = segs[k];
+      if (k !== i && y.kind !== 'sby' && y.kind !== 'log' && y.start < x.end && y.end > x.start) { w = k; break; }
+    }
+    if (w < 0) continue;
+    const y = segs[w];
+    if (x.start > now || y.kind !== 'duty' || y.start < x.start) drop.add(i);
+    else called.set(i, w);
+  }
+  const out: Seg[] = [];
+  const cutOf = new Map<number, Seg>();
+  for (const [i, w] of called) {
+    const x = segs[i];
+    const y = segs[w];
+    cutOf.set(w, { ...y, maxFdp: y.maxFdp - standbyCut('home', x.start, y.start, ctx.base, y.aug || !!y.split), sbyFrom: x.start });
+  }
+  for (let i = 0; i < segs.length; i++) {
+    if (drop.has(i)) continue;
+    const w = called.get(i);
+    if (w !== undefined) out.push({ ...segs[i], end: segs[w].start, rest: 0 });
+    else out.push(cutOf.get(i) ?? segs[i]);
+  }
+  return out;
 }
 
 /** End of the latest qualifying recovery rest before t (lastRecovery when none in the timeline). */

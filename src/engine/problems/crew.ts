@@ -3,13 +3,18 @@
 
 import { BAL } from '../core/balance';
 import { seatLabel, typeOf } from '../core/perf';
-import { DAY, fmtDay, fmtDateTime, fmtDuration } from '../core/time';
-import type { GameState, ProblemRef } from '../core/types';
+import { DAY, fmtDay, fmtDateTime } from '../core/time';
+import type { GameState, ProblemRef, RestFacility } from '../core/types';
 import { crewGauges, crewShortCard, shortFlights } from '../crew/control';
 import { crewName } from '../crew/generate';
 import { dutyLegality } from '../crew/rosterActions';
 import { flightCrewStatus, rosterOf } from '../crew/roster';
 import { restSeatsBlocked } from '../crew/crewRest';
+import { isSeatRest, restOf, restPlan, restText, slipShort } from '../crew/restPlan';
+import { augLimitOf, longSector } from '../crew/rules';
+import { ticketPrice } from '../crew/timeline';
+import { AIRPORT_BY_CODE } from '../../data/airports';
+import type { TermId } from '../../data/glossary';
 import { mkHurt, usdShort, type ProblemCard } from './types';
 
 /** The crew card for a flight: shortage / illegal (Crew Control's), or a tight crew (amber, no fix needed yet). */
@@ -98,6 +103,8 @@ export function crewProblems(g: GameState): ProblemCard[] {
       if (r && r.hurt.pax > 0) out.push(r);
     }
   }
+  // v0.7.3 in-flight rest (rest too short, a 4th pilot for seats, extra cabin crew) inside the roster horizon.
+  out.push(...restCards(g));
   for (const c of Object.values(g.crew)) {
     if (c.status === 'sick' || c.blocks?.some((b) => b.why === 'sick' && b.from <= g.now + 7 * DAY && b.to > g.now)) {
       const card = crewSickCard(g, c.id);
@@ -141,7 +148,7 @@ export function captainAsFoCard(g: GameState, flightId: string): ProblemCard | n
   };
 }
 
-/** Seats taken out of sale for crew rest on a flight (the duty needs in-flight rest, the aircraft has no bunks). Pure. */
+/** Seats taken out of sale for crew rest on a flight (someone rests in curtained business seats or recliners on it). Pure. */
 export function restSeatsCard(g: GameState, flightId: string): ProblemCard | null {
   const f = g.flights[flightId];
   const ac = f?.aircraftId ? g.fleet[f.aircraftId] : undefined;
@@ -150,15 +157,19 @@ export function restSeatsCard(g: GameState, flightId: string): ProblemCard | nul
   const off = g.messages.find((m) => m.problem?.kind === 'restSeats' && m.ref?.id === f.id);
   if (!blocked && !off) return null;
   const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+  const rest = restOf(g, ac.id);
+  const seat = [rest.fc, rest.cc].find((x) => x && isSeatRest(x)) ?? null;
+  const what = seat?.kind === 'recliners' ? 'crew rest recliners' : 'business seats';
   const total = ac.cabin.total;
-  const sellable = total - (blocked || (ac.crewRest?.seats ?? 0));
+  const sellable = total - blocked;
   const pax = f.pax ?? 0;
   const n = off?.hurt?.pax ?? Math.max(0, pax - sellable);
   const money = off?.hurt?.money ?? n * BAL.v072.restSeats.offloadPerPax;
+  const title = `${f.no} can sell ${sellable} of ${total} seats`;
   return {
     subject: { kind: 'restSeats', ref: { kind: 'flight', id: f.id } }, severity: n > 0 ? 'red' : 'amber',
-    title: `${f.no} can sell ${sellable} of ${total} seats`, what: `${f.no} can sell ${sellable} of ${total} seats`,
-    why: `The ${d ? fmtDuration(d.fdp) : 'long'} duty needs in-flight rest and ${ac.reg} has no bunks, so the last row is curtained off.`,
+    title, what: title,
+    why: `The ${d ? hrs(d.fdp) : 'long'} day needs in-flight rest; ${blocked} ${what} are curtained off as class ${seat?.cls ?? 2} crew rest.`,
     hurt: n > 0
       ? { ...mkHurt({ money, pax: n, what: 'compensation' }), text: `Yes: ${n} passenger${n > 1 ? 's' : ''} ${off ? 'offloaded' : 'to offload at departure'}, ${usdShort(money)}` }
       : { ...mkHurt({}), text: `Not much: the load is ${pax || 'below the sellable seats'}` },
@@ -166,23 +177,152 @@ export function restSeatsCard(g: GameState, flightId: string): ProblemCard | nul
       { id: 'schedule', label: 'Swap aircraft', open: { tab: 'schedule', sel: { kind: 'flight', id: f.id } }, primary: true },
       { id: 'refit', label: 'Plan crew rest', open: { modal: 'refit', id: ac.id } },
     ],
-    details: [`${blocked || ac.crewRest?.seats || 0} crew rest seats (class 3) on ${ac.reg}`, `Booked ${pax} passengers`], visuals: {}, terms: ['restSeats', 'restClass3', 'crewRest'], by: f.std,
+    details: [`${blocked} ${what} blocked (class ${seat?.cls ?? 2} crew rest) on ${ac.reg}`, `Booked ${pax} passengers`], visuals: {}, terms: ['restSeats', seat?.kind === 'recliners' ? 'restClass3' : 'restClass2', 'crewRest'], by: f.std,
   };
 }
 
 // ---------- v0.7.3 in-flight rest (UPDATE-0.7.3.md §2.7) ----------
 
-/** A duty needs a 4th pilot (or an extension / split) only because of its aircraft's rest class (flight = its first leg). Pure. */
-export function restFacilityCard(_g: GameState, _flightId: string): ProblemCard | null {
+const hmm = (m: number) => `${Math.floor(Math.max(0, m) / 60)}:${String(Math.round(Math.max(0, m) % 60)).padStart(2, '0')}`;
+const hrs = (m: number) => (m % 60 ? hmm(m) : `${m / 60} h`);
+const kindName = (f: RestFacility): string => (f.kind === 'jSeats' ? 'business seats' : f.kind === 'recliners' ? 'crew rest recliners' : f.kind === 'ldmcr' ? 'lower-deck bunks' : 'bunks');
+const restTerms = (f: RestFacility | null): TermId[] => (!f ? [] : f.kind === 'jSeats' ? ['restClass2'] : f.kind === 'recliners' ? ['recliners', 'restClass3'] : f.kind === 'ldmcr' ? ['ldmcr', 'restClass1'] : f.kind === 'fcrc' ? ['fcrc', 'restClass1'] : ['ccrc', 'restClass1']);
+
+/** The duty of a flight id (the card's ref is the duty's first leg), with its aircraft and facilities. */
+function dutyOfFlight(g: GameState, flightId: string) {
+  const f = g.flights[flightId];
+  const d = f?.dutyId ? g.duties[f.dutyId] : undefined;
+  const ac = f?.aircraftId ? g.fleet[f.aircraftId] : undefined;
+  if (!f || !d || !ac || d.done || f.status === 'cancelled') return null;
+  const first = g.flights[d.flightIds[0]] ?? f;
+  const lastF = g.flights[d.flightIds[d.flightIds.length - 1]] ?? f;
+  return { f: first, d, ac, rest: restOf(g, ac.id), route: `${first.from}–${lastF.to}` };
+}
+
+/** Another aircraft of the same family with class 1 rest for both sides, free around the duty (a swap hint). */
+function bunkAircraft(g: GameState, acId: string): string | null {
+  const ac = g.fleet[acId];
+  if (!ac) return null;
+  const fam = typeOf(ac.typeId).family;
+  for (const x of Object.values(g.fleet)) {
+    if (x.id === acId || typeOf(x.typeId).family !== fam || x.status === 'delivering' || x.status === 'stored' || x.status === 'leasedOut') continue;
+    const r = restOf(g, x.id);
+    if (r.fc?.cls === 1 && r.cc?.cls === 1) return x.reg;
+  }
   return null;
 }
 
-/** No in-flight rest possible on a flight's duty (the cruise is too short). Pure. */
-export function restTooShortCard(_g: GameState, _flightId: string): ProblemCard | null {
-  return null;
+/** A trip's cost of one more crew member (a day's pay, per diem and a hotel night), est. */
+const extraCrewCost = (g: GameState, role: 'CRP' | 'CC', days: number) =>
+  Math.round(((BAL.salary[role]?.[1] ?? 3_000) / 21) * days + (BAL.perDiem[role] ?? 60) * days + (BAL.hotelPerNight[g.company.policies.hotelTier] ?? 140) * Math.max(1, days - 1));
+
+/** A duty flies with 4 pilots only because the aircraft's rest is seats, not bunks (3 pilots in bunks would do). Pure. */
+export function restFacilityCard(g: GameState, flightId: string): ProblemCard | null {
+  const x = dutyOfFlight(g, flightId);
+  if (!x || x.d.augment !== 2 || !x.rest.fc || !x.rest.cc || x.rest.fc.cls === 1) return null;
+  const { f, d, ac } = x;
+  const fc = x.rest.fc;
+  const cc = x.rest.cc;
+  const long = longSector(d.sectors, Math.max(...d.flightIds.map((id) => g.flights[id]?.block ?? 0)));
+  const bunks = augLimitOf(1, 1, 1, long, 0).max;
+  if (d.fdp > bunks) return null;
+  const three = augLimitOf(fc.cls, cc.cls, 1, long, 0).max;
+  const other = bunkAircraft(g, ac.id);
+  const plan = restPlan(g, d.id);
+  const blocked = plan ? Math.max(0, ...Object.values(plan.blocked)) : 0;
+  const days = Math.max(1, Math.ceil((d.release - d.report) / 1440) + 1);
+  const cost = extraCrewCost(g, 'CRP', days);
+  const what = `${f.no} ${x.route} needs a 4th pilot.`;
+  return {
+    subject: { kind: 'restFacility', ref: { kind: 'flight', id: f.id } }, severity: 'amber',
+    title: what, what,
+    why: `${ac.reg} has no bunks: its ${kindName(fc)} are class ${fc.cls} rest, which allow ${hrs(three)} with 3 pilots. The day is ${hmm(d.fdp)}.`,
+    hurt: { ...mkHurt({ money: cost, what: 'crew cost' }), text: `A 4th pilot's pay and hotel (about ${usdShort(cost)} a trip)${blocked && isSeatRest(fc) ? `; ${fc.places} more ${kindName(fc)} blocked` : ''}` },
+    actions: [
+      ...(other ? [{ id: 'swap', label: `Use ${other} (has bunks)`, open: { tab: 'schedule' as const, sel: { kind: 'flight' as const, id: f.id } }, primary: true }] : []),
+      { id: 'refit', label: 'Plan a crew rest refit', open: { modal: 'refit', id: ac.id }, primary: !other },
+      { id: 'ok', label: 'OK, fly with 4 pilots', open: { modal: 'duty', id: d.id } },
+    ],
+    details: [`Pilots rest: ${restText(fc, 'fc', ac.typeId)}`, `Cabin crew rest: ${restText(cc, 'cc', ac.typeId)}`, `With bunks: ${hrs(bunks)} with 3 pilots`],
+    visuals: {}, terms: ['augmented', ...restTerms(fc), 'inflightRest'], by: f.std,
+  };
 }
 
-/** A duty needs extra cabin crew so everyone can rest. Pure. */
-export function cabinRestCard(_g: GameState, _flightId: string): ProblemCard | null {
-  return null;
+/** No in-flight rest possible on a flight's duty: the cruise is too short (the roster slips a fresh crew, or nobody fits). Pure. */
+export function restTooShortCard(g: GameState, flightId: string): ProblemCard | null {
+  const x = dutyOfFlight(g, flightId);
+  if (!x) return null;
+  const { f, d, ac } = x;
+  const slip = slipShort(g, d.id);
+  const own = !slip && d.augment > 0 ? restPlan(g, d.id) : null;
+  const plan = slip?.plan ?? (own && !own.ok && own.code === 'tooShort' ? own : null);
+  if (!plan) return null;
+  const fdp = slip?.fdp ?? d.fdp;
+  const basic = d.basicFdp ?? 13 * 60;
+  const station = slip ? g.flights[slip.next.flightIds[0]]?.from ?? d.restAt : d.restAt;
+  const city = AIRPORT_BY_CODE[station]?.city ?? station;
+  const crewN = g.pairings[d.pairingId]?.slots.length ?? 4;
+  const cost = slip ? Math.round(crewN * (ticketPrice(g.company.homeBase, station) + (BAL.hotelPerNight[g.company.policies.hotelTier] ?? 140))) : 0;
+  const can4 = !!restPlan(g, d.id, { augment: 2 })?.ok;
+  const short = (plan.why ?? '').replace(/^The cruise is too short for in-flight rest \(/, 'The cruise is too short (').replace(/; the /, '; the ');
+  const what = `No in-flight rest possible on ${f.no}.`;
+  return {
+    subject: { kind: 'restTooShort', ref: { kind: 'flight', id: f.id } }, severity: 'red',
+    title: what, what,
+    why: `${short.endsWith('.') ? short : `${short}.`} Without rest the limit is ${hmm(basic)}; the day is ${hmm(fdp)}.`,
+    hurt: slip
+      ? { ...mkHurt({ money: cost, what: 'tickets and a hotel' }), text: `Yes: the roster splits it with a fresh crew at ${city} (tickets and a hotel, ~${usdShort(cost)})` }
+      : { ...mkHurt({ pax: f.pax ?? 0, legs: d.flightIds.length, what: 'at risk' }), text: `Yes: no legal crew, ${d.flightIds.length} legs at risk` },
+    actions: [
+      ...(can4 ? [{ id: 'aug4', label: 'Fly it with 4 pilots', open: { modal: 'duty' as const, id: d.id }, primary: true }] : []),
+      { id: 'retime', label: 'Retime the first leg', open: { tab: 'schedule', sel: { kind: 'flight', id: f.id } }, primary: !can4 },
+      { id: 'crewControl', label: 'Crew Control', open: { modal: 'crewControl', id: f.id } },
+    ],
+    details: plan.cruise.map((c) => `${g.flights[c.flightId]?.no ?? c.flightId}: cruise ${hmm(Math.max(0, c.to - c.from))}`).concat([`${ac.reg}: ${restText(x.rest.fc, 'fc', ac.typeId)}`]),
+    visuals: {}, terms: ['inflightRest', 'landingPilots', 'augmented'], by: f.std,
+  };
+}
+
+/** A duty needs extra cabin crew so everyone can rest in the cruise. Pure. */
+export function cabinRestCard(g: GameState, flightId: string): ProblemCard | null {
+  const x = dutyOfFlight(g, flightId);
+  if (!x || !(x.d.restExtra ?? 0) || x.d.augment === 0 || !x.rest.cc) return null;
+  const { f, d, ac } = x;
+  const cc = x.rest.cc;
+  const plan = restPlan(g, d.id);
+  if (!plan?.ok || plan.cabinNeed === null) return null;
+  const n = d.restExtra!;
+  const base = plan.cabin.reduce((s, t) => s + t.n, 0) - n;
+  const days = Math.max(1, Math.ceil((d.release - d.report) / 1440) + 1);
+  const cost = n * extraCrewCost(g, 'CC', days);
+  const what = `${f.no} needs ${n} more cabin crew.`;
+  const ldm = typeOf(ac.typeId).rest.ldmcr && cc.cls !== 1;
+  const other = bunkAircraft(g, ac.id);
+  return {
+    subject: { kind: 'cabinRest', ref: { kind: 'flight', id: f.id } }, severity: 'amber',
+    title: what, what,
+    why: `On a ${hmm(plan.cabinFdp)} day with class ${cc.cls} ${kindName(cc)} each flight attendant needs ${hmm(plan.cabinNeed)} rest. With ${base} crew and half of them in the cabin, the cruise only fits if ${base + n} fly.`,
+    hurt: { ...mkHurt({ money: cost, what: 'crew cost' }), text: `${n} × per diem and hotel (about ${usdShort(cost)} a trip)` },
+    actions: [
+      ...(other ? [{ id: 'swap', label: 'Swap to an aircraft with bunks', open: { tab: 'schedule' as const, sel: { kind: 'flight' as const, id: f.id } }, primary: true }] : []),
+      ...(ldm ? [{ id: 'refit', label: 'Plan a lower-deck module', open: { modal: 'refit' as const, id: ac.id }, primary: !other }] : []),
+      { id: 'ok', label: 'OK', open: { modal: 'duty', id: d.id }, primary: !other && !ldm },
+    ],
+    details: [`Band ${plan.band}, class ${cc.cls}: ${hmm(plan.cabinNeed)} each`, `Cabin crew rest: ${restText(cc, 'cc', ac.typeId)}`],
+    visuals: {}, terms: ['inflightRest', 'cabinCrew', ...restTerms(cc)], by: f.std,
+  };
+}
+
+/** v0.7.3 the in-flight rest cards of duties reporting in the next `days` days (first legs), worst first. Pure. */
+export function restCards(g: GameState, days = BAL.rosterHorizonDays): ProblemCard[] {
+  const out: ProblemCard[] = [];
+  for (const d of Object.values(g.duties)) {
+    if (d.done || d.report < g.now || d.report > g.now + days * DAY || !d.flightIds.length) continue;
+    const ac = g.fleet[g.flights[d.flightIds[0]]?.aircraftId ?? ''];
+    if (!ac || typeOf(ac.typeId).body !== 'wide' && !restOf(g, ac.id).fc) continue;
+    const fid = d.flightIds[0];
+    const c = restTooShortCard(g, fid) ?? restFacilityCard(g, fid) ?? cabinRestCard(g, fid);
+    if (c) out.push(c);
+  }
+  return out;
 }

@@ -13,7 +13,12 @@ export { aboveMinimum, legalMinimum } from './duties';
 import { dailySickness, onCrewJoin, onTrainingDone } from './hr';
 import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, settleService, setResignHooks } from './morale';
 import { autoRoster, guardDuty, onFlightsChanged, recheckAfterRelease, recheckNext, recheckSoon, removeCrew, sendStrandedHome, stayOn } from './roster';
-import { minRest, nightsIn, LIMITS } from './rules';
+import { localMin, minRest, nightsIn, LIMITS, signedTz, twoDayCredits, tzNights } from './rules';
+import { dailyStandby } from './standby';
+import { AUTHORITY } from '../../data/flavor';
+import { AIRPORT_BY_CODE } from '../../data/airports';
+import { pushMessage } from '../core/messages';
+import { post } from '../core/ledger';
 import { aboard, crewCount, crewIx, dutyBlock, dutyFlights, dutySegs, onBlocks, passengers, touchCrew, touchCrewState } from './timeline';
 
 export {
@@ -91,6 +96,33 @@ function noteRecovery(c: CrewMember, t: Minute): void {
   const dis = c.log.filter((e) => e.start >= c.lastRecovery && e.disruptive).length;
   const need = dis >= LIMITS.disruptiveMax ? LIMITS.recoveryLong : LIMITS.recovery;
   if (t - prevEnd >= need && nightsIn(c.base, prevEnd, t) >= 2) c.lastRecovery = Math.max(c.lastRecovery, t);
+  // v0.7.3 ORO.FTL.235(d): recovery rests with 2 whole local days, by the month of the first one (key 0: tracking began).
+  if (t - prevEnd >= LIMITS.recovery) {
+    for (const [mk, n] of twoDayCredits(c.base, prevEnd, t)) {
+      const td = (c.twoDays ??= { 0: mk });
+      td[mk] = Math.min(2, (td[mk] ?? 0) + n);
+      for (const k in td) if (+k && +k < mk - 3) delete td[k];
+    }
+  }
+}
+
+/**
+ * v0.7.3 rotations across time zones (CS FTL.1.235(b)): resting away extends the rotation (its largest zone
+ * difference and direction); back at base a rotation ≥ 4 h away leaves the local nights due at home.
+ */
+function noteRotation(c: CrewMember, at: string, report: Minute, end: Minute): void {
+  if (at !== c.base) {
+    const dz = signedTz(c.base, at, end);
+    const r = (c.rot ??= { start: report, maxTz: 0, dir: 0 });
+    if (Math.abs(dz) > r.maxTz) {
+      r.maxTz = Math.abs(dz);
+      r.dir = Math.sign(dz) as -1 | 0 | 1;
+    }
+    return;
+  }
+  if (!c.rot) return;
+  if (c.rot.maxTz >= 4) c.tzBack = { back: end, nights: tzNights(c.rot.maxTz, (end - c.rot.start) / 60), dir: c.rot.dir === 1 ? 1 : -1 };
+  delete c.rot;
 }
 
 /**
@@ -108,6 +140,18 @@ function onDutyReport(g: GameState, ev: SimEvent): void {
   }
   if (p.status === 'planned') p.status = 'active';
   const dep = g.flights[d.flightIds[0]]?.from ?? d.restAt;
+  // v0.7.3 CS FTL.1.205(d): a delay announced before the crew left keeps the told report's limit (one note when it bites).
+  if (d.notified !== undefined && d.report > d.notified && d.report - d.notified < 10 * 60 && d.legality !== 'legal') {
+    const f0 = g.flights[d.flightIds[0]];
+    const hmT = (t: Minute) => `${String(Math.floor((localMin(dep, t)) / 60)).padStart(2, '0')}:${String(localMin(dep, t) % 60).padStart(2, '0')}`;
+    const hmD = (m: number) => `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
+    pushMessage(g, {
+      tone: 'info', cat: 'crew', title: `Delayed report: ${f0?.no ?? 'a duty'}`,
+      body: `${f0?.no ?? 'The'} crew were told to report at ${hmT(d.notified)} and now report at ${hmT(d.report)}: the limit stays ${hmD(d.maxFdp)}${d.report - d.notified < 4 * 60 ? ' (the earlier band) because the delay is under 4 hours' : ', the more limiting of the two reports'}.`,
+      ref: f0 ? { kind: 'flight', id: f0.id } : undefined,
+    });
+    g.stats.delayedReports = (g.stats.delayedReports ?? 0) + 1;
+  }
   for (const s of p.slots) {
     const c = s.crewId ? g.crew[s.crewId] : undefined;
     if (!c) continue;
@@ -172,11 +216,28 @@ function onDutyRelease(g: GameState, ev: SimEvent): void {
     c.restUntil = Math.max(c.restUntil, seg.end + seg.rest);
     c.status = 'resting';
     c.loc = d.restAt;
+    noteRotation(c, seg.at || d.restAt, seg.start, seg.end);
     c.fatigue = Math.min(100, c.fatigue + Math.round(d.fdp / 60));
     if (d.restAt === c.base) c.awaySince = null;
     if (c.role === 'CPT' && (s.role === 'FO' || s.role === 'CRP')) captainAsFo(g, c, d.report);
   }
   d.done = true;
+  // v0.7.3 ORO.FTL.205(f)(5): discretion over 1 h is reported to the authority within 28 days (one message).
+  const over = d.fdp - (d.ext && d.basicFdp ? d.basicFdp : d.maxFdp);
+  if (d.discretion && over > 60) {
+    const f0 = g.flights[d.flightIds[0]];
+    const auth = AUTHORITY[AIRPORT_BY_CODE[g.company.homeBase]?.country ?? ''] ?? 'the authority';
+    pushMessage(g, { tone: 'info', cat: 'crew', title: `Discretion report filed: ${f0?.no ?? 'a duty'}`, body: `${f0?.no ?? 'The'} crew ran ${Math.floor(over / 60)}:${String(over % 60).padStart(2, '0')} over their limit; reported to ${auth} within 28 days.`, ref: f0 ? { kind: 'flight', id: f0.id } : undefined });
+    g.stats.discretionReports = (g.stats.discretionReports ?? 0) + 1;
+  }
+  // v0.7.3 split duty: the crew room or a hotel day room at the break (CS FTL.1.220(d)).
+  if (d.split) {
+    const S = BAL.v073.split;
+    const n = p.slots.filter((s) => s.crewId).length;
+    if (n) post(g, 'hotels', -n * (d.split.room === 'hotel' ? S.dayRoom : S.lounge));
+    g.stats.splits = (g.stats.splits ?? 0) + 1;
+  }
+  if (d.ext) g.stats.extensions = (g.stats.extensions ?? 0) + 1;
   const last = p.dutyIds.every((id) => !g.duties[id] || g.duties[id].done);
   if (last) p.status = 'done';
   onDutyMorale(g, p, last);
@@ -209,6 +270,7 @@ function onFlightArrCrew(g: GameState, ev: SimEvent): void {
     c.loc = f.to;
     if (f.to === c.base) c.awaySince = null;
     else if (c.awaySince === null) c.awaySince = f.std;
+    if (f.to === c.base) noteRotation(c, f.to, f.std, f.ata ?? f.sta);
     if (!merged) {
       const off = f.atd ?? f.std;
       const on = f.ata ?? f.sta;
@@ -278,6 +340,8 @@ function daily(g: GameState) {
     if (stayed.length) recheckNext(g, stayed);
   }
   sendStrandedHome(g);
+  // v0.7.3 home standby for the next days (crew free anyway; Crew Control calls them first).
+  dailyStandby(g);
 }
 
 const lastHour = new WeakMap<GameState, number>();
@@ -358,6 +422,7 @@ export const crewModule: SimModule = {
   init(g) {
     // The same defaults load sets (a fresh game and a reloaded one serialise alike).
     g.stats.crewFixes ??= {};
+    for (const c of Object.values(g.crew)) c.twoDays ??= { 0: monthKey(g.now) };
     queueAlert(g);
   },
   load(g) {
@@ -366,6 +431,8 @@ export const crewModule: SimModule = {
     g.classes ??= {};
     const y = yearOf(g.now);
     for (const c of Object.values(g.crew)) c.blockYearOf ??= y;
+    // v0.7.3 two local days twice a month: tracked from the load month (that month counts as satisfied).
+    for (const c of Object.values(g.crew)) c.twoDays ??= { 0: monthKey(g.now) };
     // v0.7.1: the old 48 h warning mark becomes the amber stage; fix tallies default.
     for (const f of Object.values(g.flights)) if (f.crewWarned && !f.crewAlert) f.crewAlert = 'amber';
     g.stats.crewFixes ??= {};

@@ -7,8 +7,10 @@ import { BAL } from '../core/balance';
 import { cabinMinimum, typeOf } from '../core/perf';
 import { fmtDuration } from '../core/time';
 import type { AcRest, Aircraft, AircraftOffer, Duty, Flight, GameState, Minute, RestFacility, RestKind } from '../core/types';
-import { hashUnit } from '../core/util';
+import { hash } from '../core/util';
+import { range, type RngHolder } from '../core/rng';
 import { augLimitOf, cabinFdpCap, cabinInflightRest } from './rules';
+import { crewIx } from './timeline';
 
 const H = 60;
 const NONE: AcRest = { fc: null, cc: null };
@@ -65,8 +67,8 @@ export function rollRest(typeId: string, j: number, u: () => number): AcRest {
 
 /** v0.7.3 the start fleet / dev fleet roll: deterministic from the aircraft id (widebodies only). Pure. */
 export function rollRestFor(id: string, typeId: string, j: number): AcRest {
-  let k = 0;
-  return rollRest(typeId, j, () => hashUnit(`${id}:rest:${k++}`));
+  const h: RngHolder = { rng: hash(`${id}:rest`) | 0 };
+  return rollRest(typeId, j, () => range(h, 0, 1));
 }
 
 /**
@@ -302,7 +304,9 @@ export function planRest(legs: RestLeg[], rest: AcRest, augment: 1 | 2, cabinFdp
   const pw = legs.map((l) => ({ a: l.std + B.tocMin, b: l.sta - B.todMin - B.wakeMin }));
   const pg = pilotGroups(rest.fc, augment);
   const pat = placeBackwards(pg, pw);
-  const miss = pat.findIndex((x) => x < 0);
+  // The group that found no room first (placed from the last backwards: the landing pilots).
+  let miss = -1;
+  for (let k = pat.length - 1; k >= 0 && miss < 0; k--) if (pat[k] < 0) miss = k;
   if (miss >= 0) {
     const longest = legs.reduce((m, l) => (l.sta - l.std > m.sta - m.std ? l : m), legs[0]);
     const cr = Math.max(0, longest.sta - longest.std - B.tocMin - B.todMin);
@@ -442,10 +446,14 @@ export function slipShort(g: GameState, dutyId: string): { plan: RestPlan; next:
   const last = g.flights[d.flightIds[d.flightIds.length - 1]];
   if (!last) return null;
   let next: Duty | null = null;
-  for (const x of Object.values(g.duties)) {
-    const f0 = g.flights[x.flightIds[0]];
-    if (x.id === d.id || x.done || !f0 || f0.aircraftId !== ac.id || f0.from !== last.to || f0.std < last.sta || f0.std > last.sta + 3 * H) continue;
-    if (!next || f0.std < g.flights[next.flightIds[0]].std) next = x;
+  for (const q of crewIx(g).byAircraft.get(ac.id) ?? []) {
+    if (q.end < last.sta || q.start > last.sta + 6 * H) continue;
+    for (const id of q.dutyIds) {
+      const x = g.duties[id];
+      const f0 = x ? g.flights[x.flightIds[0]] : undefined;
+      if (!x || x.id === d.id || x.done || !f0 || f0.from !== last.to || f0.std < last.sta || f0.std > last.sta + 3 * H) continue;
+      if (!next || f0.std < g.flights[next.flightIds[0]].std) next = x;
+    }
   }
   if (!next) return null;
   const legs = [...restLegs(g, d), ...restLegs(g, next)];

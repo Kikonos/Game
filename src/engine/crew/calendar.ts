@@ -16,7 +16,7 @@ import { crewIx, dutyFlights, segsOf } from './timeline';
 
 export type CalKind = 'duty' | 'positioning' | 'deadhead' | 'sick' | 'joining' | 'training' | 'leave' | 'off' | 'standby' | 'rest';
 
-/** Strip labels (one word). 'standby' is reserved: the engine has no standby duty yet. */
+/** Strip labels (one word). v0.7.3 'standby': home standby ("Standby 06:00–18:00 at home"). */
 export const CAL_LABEL: Record<CalKind, string> = {
   duty: 'Duty', positioning: 'Positioning', deadhead: 'Deadhead', sick: 'Sick', joining: 'Joining', training: 'Training',
   leave: 'Leave', off: 'Day off', standby: 'Standby', rest: 'Rest',
@@ -167,6 +167,12 @@ export function crewCalendar(g: GameState, crewId: string, from: Minute, to: Min
     work.push({ kind: 'duty', start: e.start, end: e.end, label: 'Duty', detail: `Flown: ${e.sectors} sector${e.sectors > 1 ? 's' : ''}, block ${fmtDuration(e.block, true)}, FDP ${fmtDuration(e.fdp, true)}` });
   }
   work.push(...travelBlocks(g, c, from, to));
+  // v0.7.3 home standby windows (a planned duty that took one over shows as the duty).
+  for (const w of c.standby ?? []) {
+    const end = w.calledAt ?? w.to;
+    if (end <= from || w.from >= to || (w.calledAt === undefined && work.some((x) => x.kind === 'duty' && overlaps(x, { start: w.from, end: w.to })))) continue;
+    work.push({ kind: 'standby', start: w.from, end, label: 'Standby', detail: `Standby ${hhmm(w.from)}–${hhmm(w.to)} at home${w.calledAt !== undefined ? `, called out ${hhmm(w.calledAt)}` : ''}` });
+  }
   work.sort((a, b) => a.start - b.start);
 
   // Rest after each duty and journey (planned timeline), and the rest running now.

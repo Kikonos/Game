@@ -100,7 +100,9 @@ function row(g: GameState, c: CrewMember, from: Minute, to: Minute): BoardRow {
     const p = d ? g.pairings[d.pairingId] : undefined;
     if (!d || !p) return { ...b, movable: false };
     const seat = p.slots.find((s) => s.crewId === c.id);
-    return { ...b, pairingId: p.id, locked: !!seat?.locked, movable: !d.done && d.report > g.now && !!seat && !underWay(g, p) };
+    // v0.7.3 augmented (3P / 4P), planned extension (+1h) and split duty tags.
+    const tags = { ...(d.augment ? { aug: d.augment as 1 | 2 } : {}), ...(d.ext ? { ext: true } : {}), ...(d.split ? { split: true } : {}) };
+    return { ...b, ...tags, pairingId: p.id, locked: !!seat?.locked, movable: !d.done && d.report > g.now && !!seat && !underWay(g, p) };
   });
   return {
     crewId: c.id, name: `${c.last}, ${c.first.charAt(0)}.`, role: c.role, base: c.base, families: [...c.ratings], morale: Math.round(c.morale),

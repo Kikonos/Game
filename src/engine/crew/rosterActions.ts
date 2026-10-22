@@ -3,6 +3,7 @@
 // or tour), so a duty or flight id resolves to its pairing and a change applies to that pairing's duties still
 // to fly. Manual assignments are locked: the rolling re-plan keeps them, flagged when illegal, never silently.
 
+import { onStandby } from './standby';
 import { canFill, typeOf } from '../core/perf';
 import { fmtDay, fmtTime } from '../core/time';
 import type { ActionResult, CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing, Role } from '../core/types';
@@ -155,11 +156,14 @@ export function dutyCandidates(g: GameState, dutyOrFlightId: string, role: Role)
     // v0.7.2 a captain for a first officer's seat: their own group 'Captain flying as FO', after the first officers
     // of the same legality (the UI groups by asFo).
     const asFo = c.role === 'CPT' && (role === 'FO' || role === 'CRP');
+    // v0.7.3 on home standby now (Crew Control calls them first: no overtime).
+    const sby = onStandby(g, c.id, g.now);
     if (c.role !== role) reasons.push(asFo ? 'Captain flying as FO' : `${c.role} in a ${role} seat`);
     out.push({
       crewId: c.id, name: crewName(c), role: c.role, ...(asFo ? { asFo: true as const } : {}), legal: level !== 'illegal', level, reasons, codes: [...new Set(issues.map((i) => i.code))],
       loc, onPairing: on.has(c.id), ticket, block28dH: Math.round(b28 * 10) / 10, travel, arrives: o && !lost ? o.sta : undefined,
       reason: level !== 'legal' ? rootReason(g, issues, c, p) ?? undefined : undefined,
+      ...(sby ? { standby: { from: sby.from } } : {}),
       score: -ticket - 2 * b28 - (c.role !== role ? 50 : 0),
     });
   }

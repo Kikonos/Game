@@ -187,3 +187,36 @@ describe('the plan of a rostered duty', () => {
     expect(now.some((x) => x.where === 'fcrc' && x.until === t.end && x.names[0].startsWith('CRP'))).toBe(true);
   });
 });
+
+describe('market roll (UPDATE-0.7.3.md §2.1)', () => {
+  it('per-type shares over 500 airframes within ±5 %, deterministic per id', async () => {
+    const { ACMI_TYPES_LIST } = await import('../../data/acmiTypes');
+    const { rollRestFor } = await import('./restPlan');
+    for (const t of ACMI_TYPES_LIST.filter((x) => x.body === 'wide')) {
+      const j = t.cabins[0].j;
+      let fc = 0;
+      let cc = 0;
+      let curtain = 0;
+      let open = 0;
+      for (let i = 0; i < 500; i++) {
+        const r = rollRestFor(`a${i}`, t.id, j);
+        expect(rollRestFor(`a${i}`, t.id, j)).toEqual(r);
+        if (r.fc?.kind === 'fcrc') fc++;
+        if (r.cc?.cls === 1) {
+          cc++;
+          expect(r.cc.kind).toBe(t.rest.ccrcKind);
+          expect(r.cc.places).toBe(t.rest.ccrcPlaces);
+        }
+        if (r.fc?.kind !== 'fcrc') {
+          open++;
+          if (r.fc?.kind === 'jSeats') curtain++;
+        }
+      }
+      expect(Math.abs(fc / 500 - t.rest.fcrcShare), t.id).toBeLessThanOrEqual(0.05);
+      expect(Math.abs(cc / 500 - t.rest.ccrcShare), t.id).toBeLessThanOrEqual(0.05);
+      if (open > 50 && j >= 4) expect(Math.abs(curtain / open - t.rest.jCurtainShare), t.id).toBeLessThanOrEqual(0.1);
+    }
+    // narrowbodies never roll rest
+    expect(rollRestFor('a1', 'a321neo', 16)).toEqual({ fc: null, cc: null });
+  });
+});

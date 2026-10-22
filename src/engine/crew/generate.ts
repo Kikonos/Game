@@ -5,7 +5,7 @@ import { AIRPORT_BY_CODE } from '../../data/airports';
 import { CREW_MIX, DEFAULT_MIX, NAMES } from '../../data/names';
 import { BAL } from '../core/balance';
 import { nextId } from '../core/entities';
-import { yearOf } from '../core/time';
+import { monthKey, yearOf } from '../core/time';
 import { chance, int, next, pick, weightedPick } from '../core/rng';
 import type { CrewMember, CrewStatus, GameState, Role } from '../core/types';
 
@@ -61,6 +61,8 @@ export function makeCrewMember(g: GameState, role: Role, family: RatingFamily, b
     hired: g.now,
     discretion: 0,
     totalHours,
+    // v0.7.3 two local days twice a month: tracked from the month they join.
+    twoDays: { 0: monthKey(g.now) },
   };
 }
 

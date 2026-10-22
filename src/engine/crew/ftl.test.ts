@@ -477,3 +477,67 @@ describe('time zones (CS FTL.1.235(b)(3)(i))', () => {
     expect(localDaysIn('LIS', at('00:01', 1), at('00:00', 3))).toBe(1);
   });
 });
+
+describe('v0.7.3 timeline rules', () => {
+  // T0 is Monday 7 Jun 2027 00:00 UTC; LIS is UTC+1.
+  it('ext7d: at most 2 planned extensions in any 7 days per crew member', () => {
+    const e = { ext: true };
+    expect(codes([duty(0, 7, 13, 0, true, e), duty(2, 7, 13, 0, true, e)])).not.toContain('ext7d:illegal');
+    expect(codes([duty(0, 7, 13, 0, true, e), duty(2, 7, 13, 0, true, e), duty(4, 7, 13, 0, true, e)])).toContain('ext7d:illegal');
+    // the first falls out of the 7 days
+    expect(codes([duty(0, 7, 13, 0, true, e), duty(2, 7, 13, 0, true, e), duty(7, 8, 13, 0, true, e)])).not.toContain('ext7d:illegal');
+  });
+  it('lateEarly: a late finish then an early start at home needs a local night in between', () => {
+    // 15:40–00:40 local (late finish), then a 05:30 local start the same night: illegal; the next morning: legal.
+    const late = duty(0, 14 + 40 / 60, 9, 0, false, { late: true, from: 'LIS' });
+    const early = (d: number) => duty(d, 4.5, 6, 0, true, { early: true, from: 'LIS', rest: 0 });
+    expect(codes([{ ...late, rest: 0 }, early(1)])).toContain('lateEarly:illegal');
+    // a local night is 8 h between 22:00 and 08:00: before a 05:30 start only the night before last counts
+    expect(codes([{ ...late, rest: 0 }, early(2)])).toContain('lateEarly:illegal');
+    expect(codes([{ ...late, rest: 0 }, early(3)])).not.toContain('lateEarly:illegal');
+    // away from base the rule doesn't apply
+    expect(codes([{ ...late, rest: 0 }, { ...early(1), from: 'FAO' }])).not.toContain('lateEarly:illegal');
+  });
+  it('nightSectors: consecutive night duties with more than 4 sectors', () => {
+    const night = (d: number, sectors: number, fresh = false) => duty(d, 22, 8, 0, fresh, { night: true, sectors, rest: 0 });
+    expect(codes([night(0, 4), night(1, 5, true)])).toContain('nightSectors:illegal');
+    expect(codes([night(0, 4), night(1, 4, true)])).not.toContain('nightSectors:illegal');
+    expect(codes([duty(0, 8, 8, 0, false, { rest: 0 }), night(1, 5, true)])).not.toContain('nightSectors:illegal');
+  });
+  it('twoDays: twice a month a recovery with 2 whole local days; the first month tracked never', () => {
+    // June 2027 (month key 2027*12+5): a dense month with one 2-day break, then the first duty in July.
+    const jun = 2027 * 12 + 5;
+    const segs: Seg[] = [];
+    for (let d = 0; d < 23; d++) if (d !== 10 && d !== 11 && d !== 12) segs.push(duty(d, 8, 9, 0, false, { rest: 0 }));
+    segs.push(duty(24, 8, 9, 0, true, { rest: 0 }));
+    const c = (td: Record<number, number>) => ctx({ twoDays: td, now: T0 });
+    expect(codes(segs, c({ 0: jun - 1 }))).toContain('twoDays:illegal');
+    expect(codes(segs, c({ 0: jun - 1, [jun]: 1 }))).not.toContain('twoDays:illegal');
+    expect(codes(segs, c({ 0: jun }))).not.toContain('twoDays:illegal');
+    // absent (old saves): not checked
+    expect(codes(segs, ctx({ now: T0 }))).not.toContain('twoDays:illegal');
+  });
+  it('tzRest: local nights at home after a rotation 4+ h away; 3 between alternating directions', () => {
+    // LIS → CUN (UTC−5: 6 h behind LIS in June), 3 days away, back on day 3: 3 local nights before the next duty.
+    const out = duty(0, 10, 12, 0, false, { at: 'CUN', from: 'LIS', rest: 0 });
+    const back = duty(3, 1, 11, 0, false, { at: 'LIS', from: 'CUN', rest: 0 });
+    const next = (d: number) => duty(d, 9, 8, 0, true, { from: 'LIS' });
+    expect(codes([out, back, next(5)])).toContain('tzRest:illegal');
+    expect(codes([out, back, next(7)])).not.toContain('tzRest:illegal');
+    // from the crew's state: just back from a 5-night rotation
+    expect(codes([next(2)], ctx({ tzBack: { back: T0 + 1440, nights: 3, dir: -1 } }))).toContain('tzRest:illegal');
+    // west (CUN, back within 48 h: 2 nights) then east (BKK, +6 h): 3 local nights between the two needed
+    const back1 = duty(1, 18, 10, 0, false, { at: 'LIS', from: 'CUN', rest: 0 });
+    const east = (d: number) => duty(d, 10, 10, 0, true, { at: 'BKK', from: 'LIS', rest: 0 });
+    expect(evalSegs(ctx(), [out, back1, east(4)]).map((i) => i.text)).toContain('Changing from westbound to eastbound needs 3 local nights at home in between');
+    expect(codes([out, back1, east(5)])).not.toContain('tzRest:illegal');
+  });
+  it('home standby counts 25 % towards the duty windows', () => {
+    const sby = (d: number): Seg => ({ kind: 'sby', start: T0 + d * 1440 + 5 * 60, end: T0 + d * 1440 + 17 * 60, fdp: 0, maxFdp: 0, block: 0, sectors: 0, aug: false, disruptive: false, share: 0.25, rest: 720, at: 'LIS', from: 'LIS' });
+    // 5 duties of 11 h + two 12 h standbys at 25 % (6 h) = 61 h > 60 h in 7 days; 10.6 h duties: 59 h (tight, not illegal)
+    const week = (len: number) => [sby(0), sby(1), ...[2, 3, 4, 5].map((d) => duty(d, 6, len, 0, false, { rest: 0 })), duty(6, 6, len, 0, true, { rest: 0 })];
+    expect(codes(week(11))).toContain('duty7d:illegal');
+    expect(codes(week(10.6))).toContain('duty7d:tight');
+    expect(codes(week(10.6))).not.toContain('duty7d:illegal');
+  });
+});
