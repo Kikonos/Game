@@ -75,4 +75,5 @@
 
 /* ---- v0.7.2 leftovers: WHY? dot text 12 px on touch; lists clear the home indicator ---- */
 .touch .why .sc-dot.why-dot { width: 20px; height: 20px; font-size: 12px; }
-.sc-fleet .sc-ac-grid, .sc-fleet .mk-grid, .sc-crew-list { padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
+/* v0.7.3 release: the scrolling crew list, fleet grid, market grid and inbox list end above the home indicator. */
+.sc-fleet .sc-ac-grid, .sc-fleet .mk-grid, .sc-crew-list, .sc-inbox .sc-list { padding-bottom: calc(env(safe-area-inset-bottom) + 20px); }
