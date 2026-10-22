@@ -52,7 +52,7 @@ import { devFleet } from '../src/engine/dev';
 import { createGame } from '../src/engine/newGame';
 import {
   acquireAircraft, aircraftGate, applyApproval, approvalBlocker, approvalReqs, APPROVALS, bookCCheck, bookRefit, bookRestSeats, cancelCheck, cCheckOptions, cCheckSlots, checkStatus, deliveryStatus,
-  earlyReturnQuote, fixedCosts, groundGaps, leastUsed, ratedPilots, refitQuote, refitSlots, refitStations, resolveDecision, returnEarly, ticketPurpose,
+  earlyReturnQuote, fixedCosts, groundGaps, leastUsed, ratedPilots, refitQuote, refitSlots, refitStations, resolveDecision, returnEarly, saleQuote, sellAircraft, ticketPurpose,
 } from '../src/engine/ops';
 import { REST_SEATS } from '../src/engine/ops/cabin';
 import { cabinAt, cabinFits, refitTip } from '../src/engine/ops/cabin';
@@ -503,6 +503,25 @@ function earlyReturns(g: GameState, t: Tally): void {
   }
 }
 
+/**
+ * v0.7.2 cash below zero for a week: sell the least-used owned aircraft (under 2 BH a day over a tracked week or more,
+ * no signed work in the way), at most one a year.
+ */
+function sales(g: GameState, t: Tally): void {
+  const neg = g.finance.negSince;
+  if (neg === null || neg === undefined || g.now - neg < 7 * DAY) return;
+  if ((g.stats.sales ?? 0) + Object.values(g.fleet).filter((a) => a.sale).length > Math.floor(dayN(g) / 365)) return;
+  for (const row of leastUsed(g, 'owned')) {
+    if (!row.enough || row.perDay >= 2) continue;
+    const q = saleQuote(g, row.aircraftId);
+    if (q.ok && sellAircraft(g, row.aircraftId, q.price).ok) {
+      t.leaseChoices.push(`${g.fleet[row.aircraftId].reg} sold ${fmtDateTime(q.closes).slice(0, 6)}`);
+      act(g, t);
+      return;
+    }
+  }
+}
+
 /** A widebody's own monthly fixed costs: rent, insurance, overhead share, 5 crew sets with on-costs. */
 function wideMonth(rent: number, typeId: string, seats: number): number {
   const sets = complement(typeId, seats).reduce((s, r) => s + (BAL.salary[r]?.[1] ?? 3_000), 0) * BAL.crewSetsPerAircraft * (1 + BAL.onCosts);
@@ -542,8 +561,9 @@ function fleet(g: GameState, t: Tally): void {
         // v0.7: work the widebody can fly (after the grant).
         (due === undefined || x.start >= due + 7 * DAY),
     );
-    // Home at most about three weeks before the grant (rent runs from the handover).
-    const timed = due !== undefined && due - g.now <= (lead + 30) * DAY;
+    // v0.7.2 not before the grant is near: home at most about two weeks before it (rent and crew run from the handover).
+    if (!WIDE && due !== undefined && due - g.now > (lead + 14) * DAY) continue;
+    const timed = due !== undefined;
     // Without a job to fly, only a lease the airline can carry while it waits for work ($300K/month at most).
     if (!WIDE && (!earning || !(job || (timed && o.rentPerMonth <= 300_000)))) continue;
     if (acquireAircraft(g, o.id).ok) {
@@ -787,6 +807,7 @@ function policy(g: GameState, t: Tally, urgent: boolean, newDay: boolean): void 
     checks(g, t);
     restSeats(g, t);
     earlyReturns(g, t);
+    sales(g, t);
     ladderSteps(g, t);
     fleet(g, t);
     narrowGrowth(g, t);
@@ -900,6 +921,8 @@ let lastDay = dayIndex(g.now);
 const seenDuty = new Set<string>();
 let dutiesFlown = 0;
 let dutiesExtra = 0;
+let negFrom: number | null = null;
+let negMaxDays = 0;
 let headDays = 0;
 let headN = 0;
 let moraleMin = 100;
@@ -1010,6 +1033,11 @@ function onStep(): void {
     const dp = g.pairings[d.pairingId];
     if (dp && aboveMinimum(g, dp).cabin + aboveMinimum(g, dp).pilots > 0) dutiesExtra++;
   }
+  // v0.7.2 the longest run of negative cash (the solvency target fails past the rescue window).
+  if (g.company.cash < 0) {
+    negFrom ??= g.now;
+    negMaxDays = Math.max(negMaxDays, (g.now - negFrom) / DAY);
+  } else negFrom = null;
   const staff = Object.values(g.crew).filter((c) => c.status !== 'joining');
   headDays += staff.length;
   headN++;
@@ -1163,7 +1191,7 @@ const resignRate = ((g.stats.resigned ?? 0) + staffNow.filter((c) => c.notice).l
 const softTargets: [string, boolean, string][] = [];
 const targets: [string, boolean, string][] = [
   ['no exceptions, no NaN/Infinity', errors.length === 0, errors.length ? errors[0].split('\n')[0] : 'clean'],
-  ['solvent all year (no game over)', !g.gameOver, g.gameOver ? g.gameOver.reason : `month-end low ${k$(minCash)}, end ${k$(g.company.cash)}`],
+  ['solvent all year (no game over, cash < 0 ≤ rescue days)', !g.gameOver && negMaxDays <= BAL.rescueDays && g.company.cash >= 0, g.gameOver ? g.gameOver.reason : `month-end low ${k$(minCash)}, end ${k$(g.company.cash)}, longest below 0 ${Math.round(negMaxDays)} days`],
   ['summer BH per aircraft 180–320', summerBH >= 180 && summerBH <= 320, summerBH.toFixed(0)],
   ['year net margin −5%…+12% (ex Ladder fees)', marginEx >= -0.05 && marginEx <= 0.12, `${(marginEx * 100).toFixed(1)}% ex ${k$(ladderFees)} approvals; ${(margin * 100).toFixed(1)}% all in (${k$(profitY)} on ${k$(revenueY)})`],
   ['no illegal duties flown (FDP + crew)', illegalOf(s) === 0, `${illegalOf(s)} (FDP ${s.illegalFlown ?? 0}, crew ${s.illegalCrewFlown ?? 0})`],

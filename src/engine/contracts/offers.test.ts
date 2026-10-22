@@ -462,6 +462,29 @@ describe('v0.7.2 contract titles (F4)', () => {
     }
   });
 
+  it('titles: no "s\'s", Easter/Christmas capitalised, missions match the client, long-haul and half-term gated', () => {
+    const g = newGame(1);
+    for (let seed = 0; seed < 300; seed++) {
+      g.rng = (seed * 104729 + 7) >>> 0;
+      g.offers = {};
+      for (const a of ['tourSeries', 'troopRotation', 'seasonBase'] as const) {
+        for (const wide of [false, true]) {
+          const o = generateOffer(g, a, { window: false, wide });
+          if (!o) continue;
+          const who = g.clients[o.clientId]?.name ?? '';
+          expect(o.title).not.toMatch(/s's\b/);
+          expect(o.title).not.toMatch(/\b(easter|christmas)\b/);
+          if (/^UN Department/.test(who)) expect(o.title).not.toMatch(/EU|AUSSOM|KFOR/);
+          if (/Peacekeeper rotation for/.test(o.title)) expect(o.title).not.toMatch(/Atalanta|AUSSOM|EUTM/);
+          if (a === 'tourSeries' && (/long-haul/.test(o.title) || wide)) expect(F.longHaulBrand(who)).toBe(true);
+          if (/Half-term/.test(o.title)) expect(g.clients[o.clientId].country).toBe('GB');
+        }
+      }
+    }
+    expect(F.possessive('Eurowings')).toBe("Eurowings'");
+    expect(F.possessive('TUI')).toBe("TUI's");
+  });
+
   it('pickTitle avoids the last title, then appends the month', () => {
     const r = { rng: 1 };
     const x = { client: 'TUI Deutschland', brand: 'TUI', from: 'FRA', to: 'PMI', fromCity: 'Frankfurt', toCity: 'Palma', season: 'summer' as const, month: 'June', n: 6 };

@@ -39,6 +39,8 @@ const cityOf = (code: string) => AIRPORT_BY_CODE[code]?.city ?? code;
 
 export type Hop = { from: string; to: string; block: number };
 const routes = new Map<string, Hop[] | null>();
+/** A direct ferry around closed airspace flies this much further. */
+const DETOUR = 1.2;
 
 /** No fuel stop in sanctioned or war-zone states (lessors' and export rules). */
 const NO_STOP = new Set(['IR', 'AF', 'LY', 'SD', 'YE', 'SY', 'KP', 'RU', 'BY', 'UA']);
@@ -77,8 +79,13 @@ export function ferryRoute(typeId: string, from: string, to: string): Hop[] | nu
   if (routes.has(key)) return routes.get(key)!;
   const max = BAL.delivery.dayBlockMax;
   const europe = AIRPORT_BY_CODE[to]?.continent === 'EU';
-  let r = route(typeId, from, to);
-  if (r && r.some((l) => l.block > max || !sectorOk(l.from, l.to, europe))) r = null;
+  const r0 = route(typeId, from, to);
+  let r = r0 && r0.some((l) => l.block > max || !sectorOk(l.from, l.to, europe)) ? null : r0;
+  // v0.7.2 a short sector refused only for closed airspace flies one direct hop around it (+20%), not fuel stops.
+  if (!r && r0 && r0.every((l) => l.block <= max) && from !== to && !NO_STOP.has(AIRPORT_BY_CODE[to]?.country ?? '')) {
+    const block = Math.round(blockMinutes(typeId, from, to) * DETOUR);
+    if (distanceNm(from, to) * DETOUR <= maxSectorNm(typeId, from, to) && block <= max) r = [{ from, to, block }];
+  }
   if (!r) r = hops(typeId, from, to, max, europe);
   routes.set(key, r);
   return r;

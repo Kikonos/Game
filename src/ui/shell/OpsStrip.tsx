@@ -1,7 +1,7 @@
 // v0.7.2 top bar live ops strip (UPDATE-0.7.2.md F8, F2): the pause badge and warnings first (crew shortage, AOG,
 // a new market offer), then calm two-line facts (Airborne · Next · On time today · Crew), each a button to its screen.
 // Moves only on the clock step (CLOCK_STEP); no ticker, no animation. Items that don't fit drop by priority
-// (CREW → ON TIME → AIRBORNE → NEXT), then extra warnings fold into '+N'. Widths come from a hidden measuring row.
+// (CREW, then warning chips slim to icon + value, then ON TIME → AIRBORNE → NEXT), then extra warnings fold into '+N'. Widths come from a hidden measuring row.
 
 import { AlertTriangle, Plane, Users, Wrench } from 'lucide-react';
 import { type ReactNode, useLayoutEffect, useRef, useState } from 'react';
@@ -22,6 +22,8 @@ export interface StripItem {
   warn: boolean;
   tone: 'bad' | 'warn' | 'info' | '';
   label: string;
+  /** Beside the label, normal case ('in 1h 20m', '3 Apr 00:10'). */
+  sub?: string;
   value: string;
   aria: string;
   go: () => void;
@@ -71,9 +73,11 @@ export function stripItems(g: GameState, shown: number): StripItem[] {
   }
   if (f.next) {
     const n = f.next;
+    const when = countdown(n.dep, shown);
+    const reg = n.aircraftId ? g.fleet[n.aircraftId]?.reg : undefined;
     out.push({
-      id: 'next', warn: false, tone: '', label: 'Next', value: `${n.no} ${n.from}→${n.to} in ${countdown(n.dep - shown, n.dep)}`,
-      aria: `Next departure ${n.no} ${n.from} to ${n.to}. Open the flight`,
+      id: 'next', warn: false, tone: '', label: 'Next', sub: when, value: `${n.no} ${n.from}→${n.to}`,
+      aria: `Next departure ${n.no}${reg ? ` (${reg})` : ''} ${n.from} to ${n.to}, ${when}. Open the flight`,
       go: () => {
         store.navigate('schedule', n.aircraftId ? { sel: { kind: 'aircraft', id: n.aircraftId } } : {});
         store.openModal({ kind: 'sheet', refs: [{ kind: 'flight', id: n.flightId }] });
@@ -96,14 +100,18 @@ export function stripItems(g: GameState, shown: number): StripItem[] {
 
 const ICON: Partial<Record<StripId, ReactNode>> = { crewShort: <Users />, aog: <Wrench />, market: <Plane /> };
 
-function Item({ it, measure }: { it: StripItem; measure?: boolean }) {
+/** One strip button. `slim` (warnings only): icon + value on one line, the label in the tooltip. */
+function Item({ it, measure, slim }: { it: StripItem; measure?: string; slim?: boolean }) {
+  const thin = slim && it.warn;
   return (
-    <button className={`os-item ${it.warn ? 'os-warn' : 'os-fact'} ${it.tone}`} data-strip={it.id} onClick={measure ? undefined : it.go} aria-label={it.aria} tabIndex={measure ? -1 : undefined}>
+    <button className={`os-item ${it.warn ? 'os-warn' : 'os-fact'} ${thin ? 'os-slim' : ''} ${it.tone}`} data-strip={measure ? `${it.id}${measure}` : it.id} onClick={measure ? undefined : it.go} aria-label={it.aria} title={thin ? it.label : undefined} tabIndex={measure ? -1 : undefined}>
       {it.warn && <span className="os-ico" aria-hidden>{ICON[it.id] ?? <AlertTriangle />}</span>}
-      <span className="os-txt">
-        <span className="os-k">{it.label}</span>
-        <span className="os-v">{it.value}</span>
-      </span>
+      {thin ? <span className="os-v">{it.value}</span> : (
+        <span className="os-txt">
+          <span className="os-k">{it.label}{it.sub && <span className="os-sub"> {it.sub}</span>}</span>
+          <span className="os-v">{it.value}</span>
+        </span>
+      )}
     </button>
   );
 }
@@ -120,8 +128,8 @@ export function OpsStrip({ badge, badgeKey, compact }: { badge: ReactNode; badge
   const all = stripItems(g, shown).filter((i) => !compact || i.warn || i.id === 'next');
   const box = useRef<HTMLDivElement>(null);
   const meter = useRef<HTMLDivElement>(null);
-  const [fit, setFit] = useState<{ show: string; folded: number }>({ show: all.map((i) => i.id).join(), folded: 0 });
-  const sig = all.map((i) => `${i.id}:${i.label}:${i.value}`).join('|');
+  const [fit, setFit] = useState<{ show: string; folded: number; slim: boolean }>({ show: all.map((i) => i.id).join(), folded: 0, slim: false });
+  const sig = all.map((i) => `${i.id}:${i.label}:${i.sub ?? ''}:${i.value}`).join('|');
 
   useLayoutEffect(() => {
     const el = box.current;
@@ -130,10 +138,11 @@ export function OpsStrip({ badge, badgeKey, compact }: { badge: ReactNode; badge
     const run = () => {
       const badgeW = (el.querySelector('.pause-badge') as HTMLElement | null)?.offsetWidth ?? 0;
       const room = el.clientWidth - (badgeW ? badgeW + GAP : 0);
-      const widths = all.map((i) => ({ id: i.id, warn: i.warn, w: (m.querySelector(`[data-strip="${i.id}"]`) as HTMLElement | null)?.offsetWidth ?? 0 }));
+      const wOf = (k: string) => (m.querySelector(`[data-strip="${k}"]`) as HTMLElement | null)?.offsetWidth ?? 0;
+      const widths = all.map((i) => ({ id: i.id, warn: i.warn, w: wOf(`${i.id}-m`), ws: i.warn ? wOf(`${i.id}-s`) : undefined }));
       const r = fitStrip(widths, room, GAP, PLUS_W);
       const show = all.filter((i) => r.show.has(i.id)).map((i) => i.id).join();
-      setFit((p) => (p.show === show && p.folded === r.folded ? p : { show, folded: r.folded }));
+      setFit((p) => (p.show === show && p.folded === r.folded && p.slim === r.slim ? p : { show, folded: r.folded, slim: r.slim }));
     };
     run();
     const ro = new ResizeObserver(run);
@@ -148,12 +157,13 @@ export function OpsStrip({ badge, badgeKey, compact }: { badge: ReactNode; badge
   return (
     <div className="tb-strip" ref={box} role="group" aria-label="Live operations">
       {badge}
-      {vis.map((it) => <Item key={it.id} it={it} />)}
+      {vis.map((it) => <Item key={it.id} it={it} slim={fit.slim} />)}
       {fit.folded > 0 && hidden[0] && (
         <button className="os-item os-plus" onClick={hidden[0].go} aria-label={`${hidden.length} more warning${hidden.length === 1 ? '' : 's'}: ${hidden.map((h) => h.label).join(', ')}`}>+{hidden.length}</button>
       )}
       <div className="os-meter" ref={meter} aria-hidden>
-        {all.map((it) => <Item key={it.id} it={it} measure />)}
+        {all.map((it) => <Item key={it.id} it={it} measure="-m" />)}
+        {all.filter((it) => it.warn).map((it) => <Item key={`${it.id}-s`} it={it} measure="-s" slim />)}
       </div>
     </div>
   );

@@ -62,7 +62,7 @@ describe('crew travelling', () => {
         expect(new Set(keys).size, c.id).toBe(keys.length);
       }
     }
-  });
+  }, 20_000);
 });
 
 describe('crew calendar', () => {

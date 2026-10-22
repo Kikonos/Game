@@ -274,8 +274,8 @@ export const BAL = {
     asFo: { freePerMonth: 2, morale: -3 },
     /** Crew rest seats (last economy row): refit days and cost; passengers offloaded when a duty becomes augmented. */
     restSeats: { days: 2, cost: 30_000, offloadPerPax: 350 },
-    /** Aircraft sale: days to close, broker, utilisation norms [narrow, wide], VIP cabin adjustment, C-check life share priced in. */
-    sale: { daysMin: 10, daysMax: 20, broker: 0.02, fhYear: [3_000, 4_500] as [number, number], cyclesYear: [1_500, 700] as [number, number], vipAdj: -0.08, cLifeShare: 0.5 },
+    /** Aircraft sale: days to close, quick-sale discount, broker, a first-year cap (share of the price paid), utilisation norms [narrow, wide], VIP cabin adjustment, C-check life share priced in. */
+    sale: { daysMin: 10, daysMax: 20, discount: 0.06, broker: 0.02, firstYearCap: 0.97, fhYear: [3_000, 4_500] as [number, number], cyclesYear: [1_500, 700] as [number, number], vipAdj: -0.08, cLifeShare: 0.5 },
     /** Early lease return: notice, minimum lease left, fee (share of the months left, at least feeMinMonths of rent). */
     earlyReturn: { noticeDays: 30, minLeftDays: 90, feeShare: 0.5, feeMinMonths: 3 },
     /** C-check hubs: the ferry home leaves this long after the check ends (minutes). */

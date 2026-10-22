@@ -28,9 +28,14 @@ export interface SaleQuote {
   closes: Minute;
   bookValue: number;
   gain: number;
-  /** 'TUI summer programme: 12 legs after 14 Nov'. */
+  /** 'TUI summer programme: 12 legs after 14 Nov'; 'C-check at Lufthansa Technik Sofia 11–25 Apr: cancel it or sell after 25 Apr'. */
   blockers: string[];
+  /** v0.7.2 the first check, refit or other booking in the way (its ferries can't be sub-chartered). */
+  booking?: SaleBooking;
 }
+
+/** A booking that blocks a sale: cancel it, or sell after `until` (its ferry home landed). */
+export interface SaleBooking { maintId: string; kind: string; until: Minute; text: string }
 
 const BUYERS = ['AerCap', 'Avolon', 'SMBC Aviation Capital', 'BOC Aviation', 'Carlyle Aviation Partners', 'Air Lease Corporation', 'Aviation Capital Group'];
 const r1k = (v: number) => Math.round(v / 1000) * 1000;
@@ -67,13 +72,27 @@ export function saleQuote(g: GameState, aircraftId: string): SaleQuote {
   const cUsed = Math.min(1, Math.max(0, checkStatus(g, ac).cUsed));
   const cLife = cUsed * BAL.checkCost.C[w] * S.cLifeShare;
   const vip = ac.cabin.layout === 'vip' ? (market + use) * S.vipAdj : 0;
-  const before = market + use - cLife + vip;
+  const gross = market + use - cLife + vip;
+  // A quick sale to a trader, then the broker; in the first year never above what we paid (moved by the index since).
+  const discount = gross * S.discount;
+  let before = gross - discount;
+  const own = ac.ownership.kind === 'owned' ? ac.ownership : undefined;
+  let cap = 0;
+  if (own?.boughtAt !== undefined && own.boughtPrice && g.now - own.boughtAt < 365 * DAY) {
+    const limit = (own.boughtPrice * (index / (own.boughtIndex || 1)) * S.firstYearCap) / (1 - S.broker);
+    if (before > limit) {
+      cap = limit - before;
+      before = limit;
+    }
+  }
   const broker = before * S.broker;
   const lines = [
     { label: `Market value ${ac.builtYear} ${t.short}`, amount: r1k(market) },
     { label: hoursAdj * cyclesAdj >= 1 ? 'Low hours and cycles' : 'High hours and cycles', amount: r1k(use) },
     { label: 'C-check life used', amount: -r1k(cLife) },
     ...(vip ? [{ label: 'VIP cabin (few buyers)', amount: r1k(vip) }] : []),
+    { label: `Quick sale ${Math.round(S.discount * 100)}%`, amount: -r1k(discount) },
+    ...(cap ? [{ label: 'Bought this year: below the price we paid', amount: r1k(cap) }] : []),
     { label: `Broker ${Math.round(S.broker * 100)}%`, amount: -r1k(broker) },
   ];
   const price = Math.max(0, Math.round((before - broker) / 10_000) * 10_000);
@@ -83,28 +102,39 @@ export function saleQuote(g: GameState, aircraftId: string): SaleQuote {
   if (ac.sale) return { ...q, why: `Already sold to ${ac.sale.buyer}: hands over ${fmtDay(ac.sale.closes)}` };
   if (ac.status === 'delivering') return { ...q, why: `${ac.reg} has not been delivered yet` };
   if (ac.status === 'leasedOut' || ac.status === 'stored') return { ...q, why: `${ac.reg} is not on the AOC` };
-  q.blockers = blockersOf(g, ac, closes);
+  const b = blockersOf(g, ac, closes);
+  q.blockers = b.lines;
+  if (b.booking) q.booking = b.booking;
   return { ...q, ok: !q.blockers.length, why: q.blockers[0] ?? null };
 }
 
-/** Signed work or checks after the aircraft must leave for the handover (one line per contract). */
-function blockersOf(g: GameState, ac: Aircraft, closes: Minute): string[] {
+/** Signed work or bookings after the aircraft must leave for the handover (one line per contract or booking). */
+function blockersOf(g: GameState, ac: Aircraft, closes: Minute): { lines: string[]; booking: SaleBooking | null } {
   const home = g.company.homeBase;
   const leave = closes - (ac.at === home ? 0 : 2 * DAY);
   const n = new Map<string, number>();
   for (const f of flightsOf(g, ac.id)) {
-    if ((f.status !== 'scheduled' && f.status !== 'enroute') || f.kind === 'positioning' || f.purpose === 'sale' || (f.eta ?? f.sta) <= leave) continue;
+    // check, refit, return and delivery ferries belong to their booking (listed below), not 'Other flights'
+    if ((f.status !== 'scheduled' && f.status !== 'enroute') || f.kind === 'positioning' || f.purpose || (f.eta ?? f.sta) <= leave) continue;
     const k = f.contractId ?? '';
     n.set(k, (n.get(k) ?? 0) + 1);
   }
-  const out = [...n].map(([k, c]) => `${k ? g.contracts[k]?.title ?? 'A contract' : 'Other flights'}: ${c} leg${c > 1 ? 's' : ''} after ${fmtDay(leave)}`);
+  const lines = [...n].map(([k, c]) => `${k ? g.contracts[k]?.title ?? 'A contract' : 'Other flights'}: ${c} leg${c > 1 ? 's' : ''} after ${fmtDay(leave)}`);
   for (const c of Object.values(g.contracts)) {
-    if ((c.status === 'signed' || c.status === 'active') && c.aircraftIds.includes(ac.id) && !n.has(c.id) && (c.pattern.kind === 'base' ? c.pattern.to : c.end) > leave) out.push(`${c.title}: runs to ${fmtDay(c.pattern.kind === 'base' ? c.pattern.to : c.end)}`);
+    if ((c.status === 'signed' || c.status === 'active') && c.aircraftIds.includes(ac.id) && !n.has(c.id) && (c.pattern.kind === 'base' ? c.pattern.to : c.end) > leave) lines.push(`${c.title}: runs to ${fmtDay(c.pattern.kind === 'base' ? c.pattern.to : c.end)}`);
   }
+  let booking: SaleBooking | null = null;
   for (const m of Object.values(g.maintenance)) {
-    if (m.aircraftId === ac.id && (m.status === 'planned' || m.status === 'inWork') && m.end > leave && m.kind !== 'AOG') out.push(`${m.kind === 'A' || m.kind === 'C' ? `${m.kind}-check` : m.kind} booked ${fmtDay(m.start)}`);
+    if (m.aircraftId !== ac.id || (m.status !== 'planned' && m.status !== 'inWork') || m.kind === 'AOG') continue;
+    const back = (m.homeIds ?? []).map((id) => g.flights[id]).filter((f) => f && f.status !== 'cancelled');
+    const until = back.length ? Math.max(...back.map((f) => f.sta)) : m.end;
+    if (until <= leave) continue;
+    const what = m.kind === 'A' || m.kind === 'C' ? `${m.kind}-check` : m.kind === 'refit' ? 'Cabin refit' : m.kind === 'return' ? 'Lease return check' : m.kind === 'paint' ? 'Paint' : m.kind;
+    const text = `${what}${m.hub ? ` at ${m.hub.name}` : ''} ${fmtDay(m.start)}–${fmtDay(m.end)}: cancel it or sell after ${fmtDay(until)}`;
+    lines.push(text);
+    if (!booking) booking = { maintId: m.id, kind: m.kind, until, text };
   }
-  return out;
+  return { lines, booking };
 }
 
 /** Agrees the sale at the quoted price; it closes on `closes` (a ferry home is booked when it would be elsewhere). */
@@ -187,9 +217,16 @@ export function onSaleClose(g: GameState, ev: SimEvent): void {
   });
 }
 
-export interface LeastUsedRow { aircraftId: string; bh90: number; perDay: number; days: number }
+export interface LeastUsedRow {
+  aircraftId: string; bh90: number; perDay: number; days: number;
+  /** At least a week of tracking: false → say 'not enough history yet' rather than name it. */
+  enough: boolean;
+}
 
-/** Aircraft by utilisation over the last 90 days (block hours from bhDays), lowest first. Pure. */
+/**
+ * Aircraft by utilisation over the last 90 days (block hours from bhDays over the days it was in the fleet and
+ * tracked, idle days included), lowest first; rows with less than a week of history last. Pure.
+ */
 export function leastUsed(g: GameState, kind: 'owned' | 'leased' | 'any'): LeastUsedRow[] {
   const today = Math.floor(g.now / DAY);
   const out: LeastUsedRow[] = [];
@@ -199,9 +236,9 @@ export function leastUsed(g: GameState, kind: 'owned' | 'leased' | 'any'): Least
     if (kind === 'leased' && ac.ownership.kind !== 'dryLeaseIn') continue;
     const bd = (ac.bhDays ?? []).filter(([d]) => d > today - 90);
     const min = bd.reduce((s, [, m]) => s + m, 0);
-    const since = Math.max(Math.floor(ac.deliveredAt / DAY), bd.length ? Math.min(bd[0][0], today) : today);
+    const since = Math.max(Math.floor(ac.deliveredAt / DAY), ac.bhSince ?? -Infinity);
     const days = Math.max(1, Math.min(90, today - since + 1));
-    out.push({ aircraftId: ac.id, bh90: Math.round(min / 6) / 10, perDay: Math.round((min / 60 / days) * 100) / 100, days });
+    out.push({ aircraftId: ac.id, bh90: Math.round(min / 6) / 10, perDay: Math.round((min / 60 / days) * 100) / 100, days, enough: days >= 7 });
   }
-  return out.sort((a, b) => a.perDay - b.perDay || a.bh90 - b.bh90 || (a.aircraftId < b.aircraftId ? -1 : 1));
+  return out.sort((a, b) => Number(b.enough) - Number(a.enough) || a.perDay - b.perDay || a.bh90 - b.bh90 || (a.aircraftId < b.aircraftId ? -1 : 1));
 }

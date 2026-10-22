@@ -617,8 +617,14 @@ function titleFor(ctx: Ctx, arch: string, client: Client, x: Omit<F.TitleCtx, 'c
 
 function tourSeries(ctx: Ctx): Draft | null {
   const { g, wide, o } = ctx;
-  const client = nearClient(ctx, clientsOf(g, ['tourOperator'], (c) => !!AIRPORT_BY_CODE[c.base]));
+  const ops = clientsOf(g, ['tourOperator'], (c) => !!AIRPORT_BY_CODE[c.base]);
+  let client = nearClient(ctx, ops);
   if (!client) return null;
+  // v0.7.2 widebody programmes go to tour operators that fly long-haul (side RNG: the offer stream is unchanged).
+  if (wide && !o.client && !F.longHaulBrand(client.name)) {
+    const lh = ops.filter((c) => F.longHaulBrand(c.name));
+    if (lh.length) client = pick(sideRng(g, `lh:${g.seq}:${g.now}`), lh);
+  }
   const base = client.base;
   const resorts = (wide ? F.RESORTS_WB : F.RESORTS_NB).filter((c) => {
     if (!AIRPORT_BY_CODE[c] || c === base) return false;
@@ -689,9 +695,11 @@ function troopRotation(ctx: Ctx): Draft | null {
     legs.push({ from: mission, to: home, dep: atLocal(mission, out + DAY, 9 * 60), flightNo: '', pax });
   }
   const last = legs[legs.length - 1];
+  // v0.7.2 the UN names only its own missions; a ministry flies to any (a national contingent).
+  const ms = F.MISSION_NAMES[mission] && (!un || F.MISSION_NAMES[mission].org === 'UN') ? F.MISSION_NAMES[mission] : undefined;
   return {
     archetype: 'troopRotation', client,
-    title: titleFor(ctx, un ? 'unRotation' : 'troopRotation', client, { from: home, to: mission, n, start: legs[0].dep, event: F.MISSION_NAMES[mission] }, un ? `UN rotation to ${city(mission)}` : `Troop rotation to ${city(mission)}`),
+    title: titleFor(ctx, un ? 'unRotation' : 'troopRotation', client, { from: home, to: mission, n, start: legs[0].dep, event: ms?.name, pk: ms?.pk }, un ? `UN rotation to ${city(mission)}` : `Troop rotation to ${city(mission)}`),
     blurb: `${client.name}: ${n} rotations ${home}–${mission} ${pick(g, F.MISSIONS)}, every ${step || 1} days or so from ${fmtDay(legs[0].dep)}. Night-stop at ${mission}, security-vetted crew, payment in arrears.`,
     pattern: { kind: 'legs', legs },
     // v0.7: max seats (NB 174+ / WB 300+); the UN wants all-economy.

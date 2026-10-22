@@ -160,7 +160,7 @@ export interface Company {
 // ======================================================================
 
 export type Ownership =
-  | { kind: 'owned'; bookValue: number; /** v0.7 */ newBuild?: boolean }
+  | { kind: 'owned'; bookValue: number; /** v0.7 */ newBuild?: boolean; /** v0.7.2 bought on the market: when, price and index (the sale cap in the first year). */ boughtAt?: Minute; boughtPrice?: number; boughtIndex?: number }
   | {
       kind: 'dryLeaseIn'; lessor: string; rentPerMonth: number; reservesPerFH: number; leaseStart: Minute; leaseEnd: Minute; /** B3: refundable deposit paid at signing. */ deposit?: number;
       /** v0.7: redelivery airport (load ??= homeBase); cabin at delivery (load ??= current); new-build; 120-day notice given. */
@@ -247,6 +247,8 @@ export interface Aircraft {
   crewRest?: { bunks: boolean; seats: number };
   /** v0.7.2 daily block minutes [dayIndex, min], last 90 days. */
   bhDays?: [number, number][];
+  /** v0.7.2 day index bhDays tracking began (game start or the first load of an older save). load: ??= today */
+  bhSince?: number;
   /** v0.7.2 an agreed sale (closes with 'aircraft.sale'). */
   sale?: { buyer: string; price: number; agreed: Minute; closes: Minute; ferryIds?: string[] };
 }

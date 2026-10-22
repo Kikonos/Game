@@ -244,7 +244,7 @@ export function RefitModal({ aircraftId, layout, offerId, rest }: { aircraftId: 
             </div>
           )}
           {mode === 'cabin' && leased && <div className="small muted">{q.reinstateAtReturn ? `Leased: the lessor consents; reinstated at the lease return ≈ ${money(q.reinstateAtReturn)}.` : 'Leased: back to the delivered cabin, nothing to reinstate.'}</div>}
-          {!q.ok && q.why && <div className="small row gap-8 cv-warn bad"><AlertTriangle className="sc-ico-s" /><span>{q.why}</span></div>}
+          {!q.ok && q.why && !booked && <div className="small row gap-8 cv-warn bad"><AlertTriangle className="sc-ico-s" /><span>{q.why}</span></div>}
         </div>
       </div>
     </Modal>

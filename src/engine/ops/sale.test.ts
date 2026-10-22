@@ -6,6 +6,7 @@ import { DAY } from '../core/time';
 import type { GameState } from '../core/types';
 import { leased, newGame, owned, run } from '../contracts/testkit';
 import { cancelSale, saleQuote, sellAircraft } from './sale';
+import { acquireAircraft, devMarketOffer } from './market';
 
 const line = (g: GameState, cat: 'assetSale') => [g.finance.current, ...g.finance.history].reduce((s, st) => s + (st.lines[cat] ?? 0), 0);
 
@@ -15,7 +16,7 @@ describe('selling an owned aircraft', () => {
     const ac = owned(g);
     const base = saleQuote(g, ac.id);
     expect(base.ok).toBe(true);
-    expect(base.lines.map((l) => l.label)).toEqual([`Market value ${ac.builtYear} A320`, expect.stringMatching(/hours and cycles$/), '−C-check life used', 'Broker 2%']);
+    expect(base.lines.map((l) => l.label)).toEqual([`Market value ${ac.builtYear} A320`, expect.stringMatching(/hours and cycles$/), 'C-check life used', 'Quick sale 6%', 'Broker 2%']);
     expect(base.price).toBeGreaterThan(0);
     const p = (f: () => void) => {
       const was = structuredClone(ac);
@@ -71,6 +72,43 @@ describe('selling an owned aircraft', () => {
     expect(b.sale).toBeUndefined();
     run(h, h.now + 25 * DAY);
     expect(h.fleet[b.id]).toBeDefined();
+  });
+
+  it('buying and selling straight back loses money at an unchanged index (200 offers)', () => {
+    const g = newGame(3);
+    g.company.cash = 1e12;
+    const free: number[] = [];
+    for (let i = 0; i < 200; i++) {
+      const id = devMarketOffer(g, i % 2 ? 'a321ceo' : 'a320ceo', { kind: 'buy' });
+      const o = g.market.aircraft.find((x) => x.id === id)!;
+      const r = acquireAircraft(g, id);
+      if (!r.ok) throw new Error(r.error);
+      const ac = g.fleet[r.data!.aircraftId];
+      ac.status = 'available';
+      ac.at = g.company.homeBase;
+      const q = saleQuote(g, ac.id);
+      expect(q.ok, q.why ?? '').toBe(true);
+      expect(q.price / o.price).toBeLessThan(1);
+      // Without the first-year cap the spread alone still loses money on average.
+      if (ac.ownership.kind === 'owned') delete ac.ownership.boughtAt;
+      free.push(saleQuote(g, ac.id).price / o.price);
+    }
+    const mean = free.reduce((a, b) => a + b, 0) / free.length;
+    expect(mean).toBeLessThan(0.95);
+    expect(mean).toBeGreaterThan(0.75);
+  });
+
+  it('a booked C-check is its own blocker (not "Other flights"): cancel it or sell after it', () => {
+    const g = newGame(3);
+    const ac = owned(g);
+    const t = g.now + 40 * DAY;
+    g.maintenance.mx = { id: 'mx', aircraftId: ac.id, kind: 'C', at: 'SOF', start: t, end: t + 14 * DAY, status: 'planned', cost: 500_000, hub: { code: 'SOF', name: 'Lufthansa Technik Sofia', price: 0.85 } } as never;
+    addFlight(g, { no: 'AW6', aircraftId: ac.id, contractId: null, kind: 'ferry', from: 'SOF', to: 'LIS', std: t + 15 * DAY, sta: t + 15 * DAY + 240 }).purpose = 'check';
+    const q = saleQuote(g, ac.id);
+    expect(q.ok).toBe(false);
+    expect(q.blockers).toHaveLength(1);
+    expect(q.blockers[0]).toMatch(/^C-check at Lufthansa Technik Sofia .+: cancel it or sell after /);
+    expect(q.booking).toMatchObject({ maintId: 'mx', kind: 'C' });
   });
 
   it('away from home: a ferry home (purpose sale) is booked before the handover', () => {

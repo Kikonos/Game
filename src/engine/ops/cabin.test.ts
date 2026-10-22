@@ -178,6 +178,20 @@ describe('v0.7.2 refits start straight away, at home base', () => {
     expect(refitQuote(g, ac.id, '12J/156Y', 'LIS', r2.slots[0].start).ok).toBe(true);
   });
 
+  it('no slot in 26 weeks: busyWhy names the signed work the new cabin cannot serve, not the first refusal', () => {
+    const g = newGame(3);
+    const ac = owned(g);
+    const t = g.now + DAY;
+    // Away at Faro for the whole horizon, on a job that needs more seats than 12J/156Y has.
+    const o = legsOffer(g, [['LIS', 'FAO', t], ['FAO', 'LIS', t + 200 * DAY]], 150);
+    const s = acceptOffer(g, o.id, [ac.id]);
+    if (!s.ok) throw new Error(s.error);
+    g.contracts[s.data!.contractId].requirements.minSeats = 175;
+    const r = refitSlots(g, ac.id, '12J/156Y');
+    expect(r.slots.length).toBe(0);
+    expect(r.busyWhy).toMatch(/^The new cabin won't serve signed work: /);
+  });
+
   it('crew rest seats: 2 days and $30K at home base; the last row is fitted at the end; never on narrowbodies or with bunks', () => {
     const g = newGame(4);
     const nb = owned(g);

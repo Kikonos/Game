@@ -204,15 +204,23 @@ export function refitSlots(g: GameState, aircraftId: string, label: string, n = 
   for (let t = first + DAY; t < horizon; t += DAY) cand.add(t);
   const slots: RefitSlot[] = [];
   let firstWhy: string | null = null;
+  // With no slot at all, the real blocker: signed work the new cabin can't serve, else a clash, else the first refusal
+  // (an aircraft away from base is refused 'can't reach' early on, which hides the later reasons).
+  let breakWhy: string | null = null;
+  let clashWhy: string | null = null;
   for (const t of [...cand].filter((x) => x >= first && x < horizon).sort((a, b) => a - b)) {
     if (slots.length && t < slots[slots.length - 1].start + DAY / 2) continue;
     const q = quote(t);
     if (!q.days) return { ...none, busyWhy: q.why };
     if (q.ok) slots.push({ start: q.start, end: q.end, ok: true, why: null });
-    else if (t === first) firstWhy = q.why;
+    else {
+      if (t === first) firstWhy = q.why;
+      if (q.breaks.length) breakWhy = `The new cabin won't serve signed work: ${q.breaks[0]}${q.breaks.length > 1 ? ` (and ${q.breaks.length - 1} more)` : ''}`;
+      else if (q.clashes.length) clashWhy = `Clashes with ${q.clashes[q.clashes.length - 1]}: move it first`;
+    }
     if (slots.length >= n) break;
   }
-  if (!slots.length) return { slots, busyUntil: null, busyWhy: firstWhy };
+  if (!slots.length) return { slots, busyUntil: null, busyWhy: breakWhy ?? clashWhy ?? firstWhy };
   const busyUntil = slots[0].start > first + 12 * 60 ? slots[0].start : null;
   return { slots, busyUntil, busyWhy: busyUntil ? busyText(g, ac, slots[0].start) ?? firstWhy : null };
 }

@@ -120,7 +120,8 @@ function makeOffer(g: GameState, t: AcmiType, opts: { lease?: boolean; kind?: 'd
     const canBuy = t.body === 'narrow' || old;
     const buy = opts.kind ? opts.kind === 'buy' && canBuy : !opts.lease && canBuy && chance(r, 0.3);
     const rent = Math.round((t.rentMonth * range(r, 0.9, 1.15) * index * ageAdj) / 1000) * 1000;
-    const price = buy ? Math.round((t.valueUsed * range(r, 0.85, 1.1) * ageAdj) / 10_000) * 10_000 : 0;
+    // v0.7.2 priced like a sale (the market index included), so buying and selling straight back loses the spread.
+    const price = buy ? Math.round((t.valueUsed * range(r, 0.95, 1.12) * ageAdj * index) / 10_000) * 10_000 : 0;
     o = {
       id, typeId: t.id, kind: buy ? 'buy' : 'dryLeaseIn', lessor: buy ? `${pick(r, LESSORS)} (used sale)` : pick(r, LESSORS),
       builtYear: built, cabin: cabinOf(t), rentPerMonth: buy ? 0 : rent, reservesPerFH: buy ? 0 : Math.round((t.maintBH * range(r, 0.38, 0.46)) / 10) * 10,
@@ -261,16 +262,19 @@ export function acquireAircraft(g: GameState, offerId: string): ActionResult<{ a
   const handover = g.now + o.leadDays * DAY;
   const site = o.site ?? g.company.homeBase;
   const age = Math.max(0, yearOf(g.now) - o.builtYear);
-  const hours = o.newBuild ? 0 : Math.round(age * (t.body === 'wide' ? 3_600 : 2_600) * range(g, 0.85, 1.1));
+  // v0.7.2 hours and cycles on the sale model's norms (its adjustments average 1.0 on a fresh purchase).
+  const S = BAL.v072.sale;
+  const w = t.body === 'wide' ? 1 : 0;
+  const hours = o.newBuild ? 0 : Math.round(age * S.fhYear[w] * range(g, 0.85, 1.15));
   const ac: Aircraft = {
     id: nextId(g, 'a'), reg: registration(g), typeId: o.typeId,
     ownership: o.kind === 'buy'
-      ? { kind: 'owned', bookValue: o.price, ...(o.newBuild ? { newBuild: true } : {}) }
+      ? { kind: 'owned', bookValue: o.price, boughtAt: g.now, boughtPrice: o.price, boughtIndex: o.index ?? (w ? g.market.wideIndex : g.market.narrowIndex), ...(o.newBuild ? { newBuild: true } : {}) }
       : {
           kind: 'dryLeaseIn', lessor: o.lessor, rentPerMonth: o.rentPerMonth, reservesPerFH: o.reservesPerFH, leaseStart: handover, leaseEnd: handover + Math.round(o.leaseMonths * MONTH), deposit: o.deposit,
           returnSite: returnSiteOf(o), deliveredLayout: o.cabin.layout, index: o.index ?? (t.body === 'wide' ? g.market.wideIndex : g.market.narrowIndex), ...(o.newBuild ? { newBuild: true } : {}),
         },
-    builtYear: o.builtYear, hours, cycles: Math.round(hours / (t.body === 'wide' ? 4.5 : 1.7)),
+    builtYear: o.builtYear, hours, cycles: Math.round((hours * S.cyclesYear[w]) / S.fhYear[w]),
     // Delivered fresh from a redelivery check (new-build: zero time).
     maint: o.newBuild
       ? { fhSinceA: 0, lastA: handover, fhSinceC: 0, lastC: handover, deferred: 0 }

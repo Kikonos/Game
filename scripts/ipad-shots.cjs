@@ -33,7 +33,7 @@
  *                    fleet-short,settings-glossary
  *                  v0.7.2 crew rules & fleet (run last: they post a market offer, empty pilot seats, add an A330-300 with crew
  *                  rest seats, agree a sale and book a C-check at a hub):
- *                    topbar-strip,topbar-strip-warnings,hire-multitype,refit-earliest,refit-rest-seats,flight-sheet-rest-seats,sell,
+ *                    topbar-strip,topbar-strip-warnings,hire-multitype,refit-earliest,refit-booked,refit-rest-seats,flight-sheet-rest-seats,sell,
  *                    return-early,which-one,check-hub,whats-new-072
  *   --save         an exported save (.blockhours.json) to load for the in-game screens; without it the harness
  *                  starts a new game from the New Game screen (--base, default LIS) and plays --days
@@ -64,7 +64,7 @@ const ALL = [
   'convert-confirm', 'fleet-market', 'acquire-modal', 'company-ladder', 'approval-modal', 'ladder-step', 'acquire-widebody', 'fleet-delivering',
   'schedule-delivering', 'refit-modal', 'fleet-refit', 'schedule-refit', 'lease-modal', 'market-toggles', 'inbox-market',
   'crew-control', 'crew-control-jet', 'problem-modal', 'inbox-problems', 'glossary', 'duty-gauges', 'schedule-why', 'term-popover', 'hint', 'fleet-short', 'settings-glossary',
-  'topbar-strip', 'topbar-strip-warnings', 'hire-multitype', 'refit-earliest', 'flight-sheet-rest-seats', 'refit-rest-seats', 'sell', 'return-early',
+  'topbar-strip', 'topbar-strip-warnings', 'hire-multitype', 'refit-earliest', 'refit-booked', 'flight-sheet-rest-seats', 'refit-rest-seats', 'sell', 'return-early',
   'which-one', 'check-hub', 'whats-new-072',
 ];
 const PRE_GAME = new Set(['loading', 'title', 'newgame', 'newgame-livery']);
@@ -865,9 +865,16 @@ Object.assign(ACTIONS, {
     const id = await pick(page, () => {
       const g = window.__contrail.game;
       const booked = new Set(Object.values(g.maintenance).filter((m) => m.kind === 'refit' && (m.status === 'planned' || m.status === 'inWork')).map((m) => m.aircraftId));
-      return Object.values(g.fleet).find((a) => a.status !== 'delivering' && !a.returning && !a.sale && !booked.has(a.id))?.id;
+      const free = Object.values(g.fleet).filter((a) => a.status !== 'delivering' && !a.returning && !a.sale && !booked.has(a.id));
+      return (free.find((a) => a.at === g.company.homeBase) ?? free[0])?.id;
     });
     if (!id) throw new Error('SKIP no aircraft without a refit');
+    await nav(page, 'fleet', { sel: { kind: 'aircraft', id } });
+    await modal(page, { kind: 'refit', aircraftId: id });
+  },
+  'refit-booked': async (page) => {
+    const id = await pick(page, () => Object.values(window.__contrail.game.maintenance).find((m) => m.kind === 'refit' && m.status === 'planned')?.aircraftId);
+    if (!id) throw new Error('SKIP no refit booked (run fleet-refit first)');
     await nav(page, 'fleet', { sel: { kind: 'aircraft', id } });
     await modal(page, { kind: 'refit', aircraftId: id });
   },

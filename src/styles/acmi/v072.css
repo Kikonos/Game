@@ -78,3 +78,6 @@
 /* Toned values inside the sheet's key/value rows (.sc-kv span greys every span). */
 .sc-kv b .warn { color: var(--warn); }
 .sc-kv b .bad { color: var(--bad); }
+/* F8 NEXT: the 'in 1h 20m' / '3 Apr 00:10' beside the label, normal case. Slim warning chips: icon + value. */
+.os-sub { text-transform: none; letter-spacing: 0; font-weight: 600; color: var(--text-2); }
+.os-slim { gap: 6px; padding-inline: 8px; }

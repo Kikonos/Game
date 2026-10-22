@@ -119,16 +119,24 @@ export function saleCard(g: GameState, aircraftId: string): ProblemCard | null {
   if (ac.ownership.kind !== 'owned') return null;
   const q = saleQuote(g, ac.id);
   if (q.ok || !q.blockers.length) return null;
-  const first = flightsOf(g, ac.id).find((f) => f.status === 'scheduled' && f.contractId);
+  const first = flightsOf(g, ac.id).find((f) => f.status === 'scheduled' && f.contractId && !f.purpose);
+  // v0.7.2 only a booking in the way (a check or refit): its ferries can't be sub-chartered.
+  const onlyBooking = !!q.booking && q.blockers.length === 1;
+  const actions: ProblemCard['actions'] = onlyBooking
+    ? [
+        { id: 'cancelCheck', label: q.booking!.kind === 'A' || q.booking!.kind === 'C' ? 'Cancel the check' : 'Cancel the booking', open: { modal: 'check', id: ac.id }, primary: true },
+        { id: 'schedule', label: `Sell after ${fmtDay(q.booking!.until)}`, open: { tab: 'schedule', sel: { kind: 'aircraft', id: ac.id } } },
+      ]
+    : [
+        ...(first ? [{ id: 'subcharter', label: 'Sub-charter those legs', open: { modal: 'subcharter' as const, id: first.id }, primary: true }] : []),
+        { id: 'schedule', label: 'Open Schedule', open: { tab: 'schedule', sel: { kind: 'aircraft', id: ac.id } } },
+      ];
   return {
     subject: { kind: 'sale', ref: { kind: 'aircraft', id: ac.id } }, severity: 'amber',
     title: `${ac.reg} can't be sold yet`, what: `${ac.reg} can't be sold yet`,
     why: `${q.blockers[0]}${q.blockers.length > 1 ? ` (and ${q.blockers.length - 1} more)` : ''}.`,
     hurt: { ...mkHurt({}), text: 'Not yet: nothing lost' },
-    actions: [
-      ...(first ? [{ id: 'subcharter', label: 'Sub-charter those legs', open: { modal: 'subcharter' as const, id: first.id }, primary: true }] : []),
-      { id: 'schedule', label: 'Open Schedule', open: { tab: 'schedule', sel: { kind: 'aircraft', id: ac.id } } },
-    ],
+    actions,
     details: q.blockers, visuals: {}, terms: ['marketValue'],
   };
 }

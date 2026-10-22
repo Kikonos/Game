@@ -203,6 +203,7 @@ describe('v0.7.2 which one? (least used)', () => {
     a.bhDays = [[today - 10, 600], [today - 5, 600]];
     b.bhDays = [[today - 10, 60]];
     a.deliveredAt = b.deliveredAt = g.now - 200 * DAY;
+    a.bhSince = b.bhSince = today - 200;
     const rows = leastUsed(g, 'any');
     expect(rows.map((x) => x.aircraftId)).toEqual([b.id, a.id]);
     expect(rows[1].bh90).toBe(20);
@@ -210,5 +211,21 @@ describe('v0.7.2 which one? (least used)', () => {
     // Entries older than 90 days do not count.
     b.bhDays = [[today - 120, 6000]];
     expect(leastUsed(g, 'any').find((x) => x.aircraftId === b.id)!.bh90).toBe(0);
+  });
+
+  it('idle most of 90 days then busy for 6 ranks as little used; fresh tracking is not enough history', () => {
+    const g = newGame(3);
+    const [a, b] = Object.values(g.fleet);
+    const today = Math.floor(g.now / DAY);
+    a.deliveredAt = b.deliveredAt = g.now - 200 * DAY;
+    a.bhSince = b.bhSince = today - 200;
+    a.bhDays = Array.from({ length: 6 }, (_, i) => [today - i, 360] as [number, number]); // 36 BH in the last 6 days
+    b.bhDays = Array.from({ length: 90 }, (_, i) => [today - i, 300] as [number, number]); // 450 BH over 90 days
+    const rows = leastUsed(g, 'any');
+    expect(rows[0].aircraftId).toBe(a.id);
+    expect(rows[0].days).toBe(90);
+    // An older save loaded today: no history yet, so nothing is named as least used.
+    a.bhSince = b.bhSince = today;
+    expect(leastUsed(g, 'any').every((x) => !x.enough)).toBe(true);
   });
 });

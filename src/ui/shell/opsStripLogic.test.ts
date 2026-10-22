@@ -29,11 +29,28 @@ describe('v0.7.2 ops strip fit', () => {
     const one = fitStrip(items(['crewShort']), 10, 8, 52);
     expect([...one.show]).toEqual(['crewShort']);
   });
-  it('counts down in h:mm, then shows the time', () => {
-    expect(countdown(80, 0)).toBe('1:20');
-    expect(countdown(5, 0)).toBe('0:05');
-    expect(countdown(-3, 0)).toBe('0:00');
-    expect(countdown(25 * 60, 8 * 60 + 30)).toBe('08:30');
+  it('says when as the whole phrase: a duration under 24 h, a date and time (no "in") from 24 h', () => {
+    const now = 1440 * 3 + 8 * 60 + 30;
+    expect(countdown(now + 80, now)).toBe('in 1h 20m');
+    expect(countdown(now + 5, now)).toBe('in 5m');
+    expect(countdown(now + 600, now)).toBe('in 10h');
+    expect(countdown(now - 3, now)).toBe('now');
+    expect(countdown(now + 24 * 60 - 1, now)).toBe('in 23h 59m');
+    const at24 = countdown(now + 24 * 60, now);
+    expect(at24).not.toMatch(/^in /);
+    expect(at24).toMatch(/ 08:30$/);
+    const far = countdown(now + 40 * 60, now);
+    expect(far).toMatch(/^\d{1,2} [A-Z][a-z]{2} 00:30$/);
+  });
+  it('slims warning chips before dropping ON TIME, so two facts sit beside a warning', () => {
+    const it = [{ id: 'market' as const, warn: true, w: 170, ws: 120 }, ...items([])];
+    // full: 170+180+80+100+160 + 4·8 = 722; without CREW 554; slim 504.
+    const r = fitStrip(it, 510, 8, 52);
+    expect(r.slim).toBe(true);
+    expect([...r.show].sort()).toEqual(['airborne', 'market', 'next', 'onTime']);
+    const wide = fitStrip(it, 560, 8, 52);
+    expect(wide.slim).toBe(false);
+    expect(wide.show.has('crew')).toBe(false);
   });
 });
 

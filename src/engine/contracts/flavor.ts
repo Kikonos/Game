@@ -157,7 +157,7 @@ export interface DiasporaBlurb { client: string; dest: string; reason: string; d
 export const DIASPORA_BLURBS: ((x: DiasporaBlurb) => string)[] = [
   (x) => `${x.client} has a full load of families flying home to ${x.dest} ${x.reason}, with heavy bags. Out ${x.day}, back ${x.back} days later.`,
   (x) => `${x.client} sold every seat to ${x.dest} ${x.reason} in a weekend: families, gifts and boxes of food. Out ${x.day}, back ${x.back} days later; the bags will weigh out before the seats do.`,
-  (x) => `${x.client}'s ${x.dest} charter ${x.reason}: grandparents, children and a hold full of presents. Out ${x.day}, back ${x.back} days later.`,
+  (x) => `${possessive(x.client)} ${x.dest} charter ${x.reason}: grandparents, children and a hold full of presents. Out ${x.day}, back ${x.back} days later.`,
 ];
 
 /** Diaspora routes and reasons per agency; DIASPORA is the fallback. */
@@ -192,7 +192,7 @@ export interface TourBlurb { client: string; n: number; wd: string; first: strin
 export const TOUR_SERIES_BLURBS: ((x: TourBlurb) => string)[] = [
   (x) => `${x.client}: ${x.n} weekly rotations every ${x.wd}, ${x.first}–${x.last}. Out at ${x.out} local, back the same day; no fuel stops. Paid per rotation with a fuel-escalation clause.`,
   (x) => `${x.client} has sold ${x.n} ${x.wd} departures (${x.first}–${x.last}) and needs the aircraft: out at ${x.out} local, straight back with the returning guests. No fuel stops; paid per rotation, fuel escalation above the index.`,
-  (x) => `A ${x.wd} rotation for ${x.client}'s brochure: ${x.n} weeks from ${x.first} to ${x.last}, departing ${x.out} local. Their reps meet every flight, so on-time matters more than catering. Paid per rotation with a fuel clause.`,
+  (x) => `A ${x.wd} rotation for ${possessive(x.client)} brochure: ${x.n} weeks from ${x.first} to ${x.last}, departing ${x.out} local. Their reps meet every flight, so on-time matters more than catering. Paid per rotation with a fuel clause.`,
 ];
 
 /** League games stay in the club's country; cup ties and European nights go abroad. 'Short' titles only under 700 km. */
@@ -240,6 +240,8 @@ export interface TitleCtx {
   wide?: boolean;
   /** Mission name (troop rotations), event or type short name. */
   event?: string;
+  /** v0.7.2 the mission is peacekeeping ('Peacekeeper rotation for …'). */
+  pk?: boolean;
   /** Country adjective of the client ('Portuguese'). */
   nation?: string;
   type?: string;
@@ -273,11 +275,21 @@ export const monthOf = (startUtc: number) => MONTHS[new Date(startUtc * 60_000).
 
 const SEASON_WORD: Record<Season, string> = { winter: 'Winter', ski: 'Ski', easter: 'Easter', summer: 'Summer', autumn: 'Autumn', christmas: 'Christmas' };
 
-/** Peacekeeping and training missions by airport (real mission names). */
-export const MISSION_NAMES: Record<string, string> = {
-  BGF: 'MINUSCA', JUB: 'UNMISS', GOM: 'MONUSCO', FIH: 'MONUSCO', BEY: 'UNIFIL', LCA: 'UNFICYP', SJJ: 'EUFOR Althea', PRN: 'KFOR',
-  BKO: 'EUTM Mali', MGQ: 'AUSSOM', DJI: 'EU Atalanta',
+/** Missions by airport (real names): who runs them and whether they are peacekeeping. */
+export interface Mission { name: string; org: 'UN' | 'EU' | 'AU' | 'NATO'; pk: boolean }
+export const MISSION_NAMES: Record<string, Mission> = {
+  BGF: { name: 'MINUSCA', org: 'UN', pk: true }, JUB: { name: 'UNMISS', org: 'UN', pk: true }, GOM: { name: 'MONUSCO', org: 'UN', pk: true },
+  FIH: { name: 'MONUSCO', org: 'UN', pk: true }, BEY: { name: 'UNIFIL', org: 'UN', pk: true }, LCA: { name: 'UNFICYP', org: 'UN', pk: true },
+  SJJ: { name: 'EUFOR Althea', org: 'EU', pk: true }, PRN: { name: 'KFOR', org: 'NATO', pk: true },
+  MGQ: { name: 'AUSSOM', org: 'AU', pk: false }, DJI: { name: 'EU Atalanta', org: 'EU', pk: false },
 };
+/** Tour operators that fly long-haul (widebody programmes); Jet2, Novatours, Čedok and Sunweb stay short-haul. */
+export const LONGHAUL_BRANDS = ['TUI', 'Corendon', 'Schauinsland', 'Sunwing', 'Abercrombie & Kent'];
+export const longHaulBrand = (name: string) => LONGHAUL_BRANDS.some((b) => brandOf(name).startsWith(b) || name.startsWith(b));
+/** "Eurowings'" / "TUI's". */
+export const possessive = (name: string) => (/s$/i.test(name) ? `${name}'` : `${name}'s`);
+/** 'summer', 'Easter', 'Christmas' (mid-sentence). */
+const seasonMid = (s: Season) => (s === 'easter' || s === 'christmas' ? SEASON_WORD[s] : SEASON_WORD[s].toLowerCase());
 export const NATIONS: Record<string, string> = {
   PT: 'Portuguese', ES: 'Spanish', LT: 'Lithuanian', MT: 'Maltese', LV: 'Latvian', CZ: 'Czech', BG: 'Bulgarian', EE: 'Estonian', GB: 'British',
   DE: 'German', FR: 'French', IT: 'Italian', PL: 'Polish', NL: 'Dutch', IE: 'Irish', BE: 'Belgian', AT: 'Austrian', SE: 'Swedish', FI: 'Finnish',
@@ -292,7 +304,7 @@ export const TITLES: Partial<Record<string, TitleFn[]>> = {
     (x) => `${x.brand} weekend rotation to ${x.toCity}`,
     (x) => `${x.brand} ${x.toCity} flights`,
     when((x) => x.season === 'winter' || x.season === 'autumn' || x.season === 'easter', (x) => `${SEASON_WORD[x.season]} sun to ${x.toCity} for ${x.brand}`),
-    when((x) => x.season !== 'christmas' && x.season !== 'ski', (x) => `Half-term charters ${x.fromCity}–${x.toCity}`),
+    when((x) => x.nation === 'British' && x.season !== 'christmas' && x.season !== 'ski', (x) => `Half-term charters ${x.fromCity}–${x.toCity}`),
     when((x) => x.season === 'easter', (x) => `Easter programme to ${x.toCity}`),
     when((x) => x.season === 'autumn', (x) => `Autumn sun: ${x.toCity}`),
     when((x) => x.season === 'ski', (x) => `${x.brand} ski charters ${x.fromCity}–${x.toCity}`),
@@ -300,7 +312,7 @@ export const TITLES: Partial<Record<string, TitleFn[]>> = {
     when((x) => x.to === 'FAO', (x) => `Golf season to Faro for ${x.brand}`),
     when((x) => CANARIES.includes(x.to) && (x.season === 'winter' || x.season === 'christmas' || x.season === 'autumn'), (x) => `${x.brand} winter sun to the Canaries`),
     when((x) => x.season === 'christmas' && MARKETS.includes(x.to), (x) => `Christmas markets programme ${x.toCity}`),
-    when((x) => !!x.wide, (x) => `${x.brand} long-haul sun to ${x.toCity}`),
+    when((x) => !!x.wide && longHaulBrand(x.client), (x) => `${x.brand} long-haul sun to ${x.toCity}`),
     (x) => `${x.brand} holiday flights ${x.fromCity}–${x.toCity}`,
     (x) => `${x.brand} ${x.month} departures to ${x.toCity}`,
     when((x) => x.season !== 'ski', (x) => `${x.toCity} beach programme for ${x.brand}`),
@@ -309,7 +321,7 @@ export const TITLES: Partial<Record<string, TitleFn[]>> = {
   seasonBase: [
     when((x) => x.season === 'summer', (x) => `${x.brand} summer peak at ${x.fromCity}`),
     (x) => `Extra capacity for ${x.brand} at ${x.fromCity}`,
-    (x) => `${x.brand}'s ${SEASON_WORD[x.season].toLowerCase()} wet lease, ${x.fromCity}`,
+    (x) => `${possessive(x.brand)} ${seasonMid(x.season)} wet lease, ${x.fromCity}`,
     when((x) => x.season === 'summer' || x.season === 'christmas' || x.season === 'easter', (x) => `${x.brand} holiday peak cover`),
     (x) => `Base deployment ${x.fromCity} for ${x.brand}`,
     when((x) => x.n >= 120, (x) => `${x.brand} year-round capacity at ${x.fromCity}`),
@@ -330,14 +342,14 @@ export const TITLES: Partial<Record<string, TitleFn[]>> = {
   troopRotation: [
     when((x) => !!x.event, (x) => `${x.event} troop rotation`),
     when((x) => !!x.nation, (x) => `${x.nation} contingent rotation to ${x.toCity}`),
-    when((x) => !!x.event, (x) => `Peacekeeper rotation for ${x.event}`),
+    when((x) => !!x.event && !!x.pk, (x) => `Peacekeeper rotation for ${x.event}`),
     when((x) => !!x.event, (x) => `${x.event} contingent swap, ${x.toCity}`),
     (x) => `Troop rotation to ${x.toCity}`,
     (x) => `Roulement flights to ${x.toCity}`,
     when((x) => !!x.nation, (x) => `${x.nation} forces to ${x.toCity}`),
   ],
   unRotation: [
-    when((x) => !!x.event, (x) => `Peacekeeper rotation for ${x.event}`),
+    when((x) => !!x.event && !!x.pk, (x) => `Peacekeeper rotation for ${x.event}`),
     when((x) => !!x.event, (x) => `${x.event} troop rotation`),
     (x) => `UN rotation to ${x.toCity}`,
     when((x) => !!x.event, (x) => `${x.event} contingent swap, ${x.toCity}`),
