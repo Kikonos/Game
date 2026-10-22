@@ -498,8 +498,10 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   // v0.7.3 C7 the real limit for each long chain's report time and sectors, then extension / split / 3 or 4 pilots
   // with this airframe's rest facilities and the rest plan (the worst chain wins).
   const rest = restOf(g, ac.id);
-  // As the roster builds the duties: positioning in and out joined to the trip's own legs (one crew flies both).
-  const chains = [...prog.chains, ...fits.flatMap((f) => chainsOf([...f.posIn, ...f.trip.legs, ...f.posOut].map((l) => ({ std: l.std, sta: l.sta, from: l.from, to: l.to }))))];
+  // As the roster builds the duties: positioning in and out joined to the trip's own legs when one crew can fly
+  // them as one duty (else the roster slips a fresh crew at the outstation and the trip's own chains stand).
+  const joined = crewChains(g, fits.filter((f) => f.posIn.length || f.posOut.length).flatMap((f) => chainsOf([...f.posIn, ...f.trip.legs, ...f.posOut].map((l) => ({ std: l.std, sta: l.sta, from: l.from, to: l.to })))));
+  const chains = [...prog.chains, ...joined.filter((c) => dutyNeed(g, t.id, rest, c).mode !== 'none')];
   const rn = restNeed(g, o, t.id, rest, chains);
   const augmented = rn.need?.mode === 'aug1' || rn.need?.mode === 'aug2';
   if (reach) add('crew', 'no', reach, 'Too soon for this aircraft: a later start, or an aircraft already nearby.');

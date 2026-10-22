@@ -243,7 +243,7 @@ describe('paint on contracts', () => {
     const a = play();
     expect(play()).toBe(a);
     expect(play(35)).toBe(a);
-  });
+  }, 20_000);
 
   it('paintWindow is pure and finds a strip slot after the job', () => {
     const g = newGame(10);

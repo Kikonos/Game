@@ -3,6 +3,7 @@
 //   npx tsx scripts/acmi-bot.ts [seed] [days]        one game (default seed 1, 365 days)
 //   npx tsx scripts/acmi-bot.ts [seed] --det         determinism: same seed twice to day 180, and save/load at day 90
 //   npx tsx scripts/acmi-bot.ts [seed] [days] --wide  v0.6: lease the first affordable widebody (conversion classes)
+//   … --wide --aug  v0.7.3: with Widebody operations and augmented crews granted at the start (in-flight rest in play)
 //   … --msgs (inbox lines to stderr) · --why (v0.7.3: why each new offer found no aircraft, to stderr) · --dump=day,file
 //
 // Policy (a pure function of the game state, so a loaded save plays on identically):
@@ -55,7 +56,7 @@ import type { RatingFamily } from '../src/data/acmiTypes';
 import type { Archetype, ContractOffer, GameState, LedgerCat, MonthKey, Role } from '../src/engine/core/types';
 import { acceptOffer, counterOffer, feasibility, type FeasibilityReport } from '../src/engine/contracts';
 import { aboveMinimum, applyCrewFix, restOf, restPlan, setDutyAugment, classOf, conversionClasses, conversionEarliest, conversionPlan, crewControl, hireCrew, ratedMarket, setCrewExtra, shortFlights, staffing, startConversion, type CrewSolution, type StaffingLine } from '../src/engine/crew';
-import { devFleet } from '../src/engine/dev';
+import { devFleet, devGrantApproval } from '../src/engine/dev';
 import { createGame } from '../src/engine/newGame';
 import {
   acquireAircraft, aircraftGate, applyApproval, approvalBlocker, approvalReqs, APPROVALS, bookCCheck, bookRefit, bookRestRefit, cancelCheck, cCheckOptions, cCheckSlots, checkStatus, deliveryStatus,
@@ -66,6 +67,8 @@ import { deliveryQuote } from '../src/engine/ops/delivery';
 import { restCards } from '../src/engine/problems/crew';
 import type { ProblemCard } from '../src/engine/problems/types';
 import type { ApprovalId } from '../src/engine/core/types';
+import { chainAugment } from '../src/engine/contracts/offers';
+import { programmeOf } from '../src/engine/contracts/plan';
 import { deserialize, serialize } from '../src/engine/save';
 import { advanceTo, settle } from '../src/engine/sim';
 
@@ -77,6 +80,8 @@ const BIG = process.argv.includes('--big');
 const MSGS = process.argv.includes('--msgs');
 /** v0.6: take the first widebody lease the cash allows (exercises conversions and widebody extra crew). */
 const WIDE = process.argv.includes('--wide');
+/** v0.7.3 long-haul test mode: Widebody operations and augmented crews granted at the start (exercises in-flight rest). */
+const AUG = process.argv.includes('--aug');
 /** Fixed crew policies for the whole run (hotel★,perDiem%,tourWeeks), e.g. --policy=3,80,6 for stingy play. */
 const POLICY = process.argv.find((a) => a.startsWith('--policy='))?.slice(9).split(',').map(Number);
 /** Extra cabin crew on every aircraft (--extra=2). */
@@ -86,7 +91,11 @@ const BIG_DAYS = Number(process.env.BIG_DAYS ?? 120);
 const DUMP = process.argv.find((a) => a.startsWith('--dump='))?.slice(7).split(',');
 const STEP = 6 * 60;
 
-const newGame = () => createGame({ name: 'Atlântica Wings', code: 'AW', livery: { primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' }, base: 'LIS', seed });
+const newGame = () => {
+  const g = createGame({ name: 'Atlântica Wings', code: 'AW', livery: { primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' }, base: 'LIS', seed });
+  if (AUG) for (const id of ['widebody', 'augmented'] as const) devGrantApproval(g, id);
+  return g;
+};
 
 // ---------- policy (pure in g) ----------
 
@@ -705,8 +714,14 @@ function ladderSteps(g: GameState, t: Tally): void {
     }
     if (!approvalBlocker(g, 'widebody')) file(g, t, 'widebody');
   }
-  const wideHeld = Object.values(g.fleet).some((a) => typeOf(a.typeId).body === 'wide' && a.status !== 'delivering');
-  const longJob = Object.values(g.offers).some((o) => o.requirements.body === 'wide' && o.pattern.kind === 'legs' && o.pattern.legs.some((l) => l.dep && o.requirements.longestSectorNm > 13 * 470));
+  const wideTypes = [...new Set(Object.values(g.fleet).filter((a) => typeOf(a.typeId).body === 'wide' && a.status !== 'delivering').map((a) => a.typeId))];
+  const wideHeld = wideTypes.length > 0;
+  // v0.7.3 an open job a held widebody type would fly with 3 or 4 pilots (the roster's own reading of each chain, C7).
+  const longJob = wideHeld && !held(g, 'augmented') && Object.values(g.offers).some((o) => o.status === 'open' && o.expires > g.now && o.estValue >= 300_000
+    && wideTypes.some((tid) => {
+      const prog = programmeOf(o, tid);
+      return prog.ok && chainAugment(g, tid, prog.chains).aug > 0;
+    }));
   if (wideHeld && longJob && !held(g, 'augmented') && !approvalBlocker(g, 'augmented') && cash >= cost('augmented') + 2_000_000) file(g, t, 'augmented');
   for (const id of ['etops180', 'etops240'] as ApprovalId[]) if (!held(g, id) && !approvalBlocker(g, id) && cash >= cost(id) + 2_000_000) file(g, t, id);
 }
@@ -1039,9 +1054,12 @@ const heldBy = new Map<string, number>();
 /** v0.7.3 augmented duties seen airborne, and those flown with a rest plan that is not possible (hard target 0). */
 const augSeen = new Set<string>();
 let restBad = 0;
+/** v0.7.3 home standby crew-days held (windows seen). */
+const sbySeen = new Set<string>();
 
 function onStep(): void {
   const m = mon(monthKey(g.now));
+  for (const c of Object.values(g.crew)) for (const w of c.standby ?? []) if (w.from <= g.now) sbySeen.add(`${c.id}:${w.from}`);
   for (const f of Object.values(g.flights)) {
     if (!f.crewHeld || heldSeen.has(f.id) || (f.kind !== 'revenue' && f.kind !== 'techstop') || !f.aircraftId || !g.fleet[f.aircraftId]) continue;
     heldSeen.add(f.id);
@@ -1370,8 +1388,13 @@ console.log(
     const cls = [1, 2, 3].map((k) => aug.filter((d) => restOf(g, g.pairings[d.pairingId]?.aircraftId ?? null).fc?.cls === k).length);
     const notPossible = aug.filter((d) => !d.legacyRest && restPlan(g, d.id)?.ok === false).length;
     const extraCc = aug.filter((d) => (d.restExtra ?? 0) > 0).length;
-    console.log(`v0.7.3: augmented duties ${aug.length} (3P ${aug.filter((d) => d.augment === 1).length} / 4P ${aug.filter((d) => d.augment === 2).length}; class 1 ${cls[0]} / 2 ${cls[1]} / 3 ${cls[2]}), rest plans not possible ${notPossible}, extra cabin crew for rest ${extraCc}, extensions ${s.extensions ?? 0}, splits ${s.splits ?? 0}, standby call-ins ${s.standbyCalls ?? 0}, delayed reports ${s.delayedReports ?? 0}, rest refits [${tally.restRefits.join(', ') || '-'}], 4 pilots for a short cruise ${tally.aug4}, discretion reports ${s.discretionReports ?? 0}`);
+    console.log(`v0.7.3: augmented duties flown ${augSeen.size}, standby crew-days held ${sbySeen.size}, in the state ${aug.length} (3P ${aug.filter((d) => d.augment === 1).length} / 4P ${aug.filter((d) => d.augment === 2).length}; class 1 ${cls[0]} / 2 ${cls[1]} / 3 ${cls[2]}), rest plans not possible ${notPossible}, extra cabin crew for rest ${extraCc}, extensions ${s.extensions ?? 0}, splits ${s.splits ?? 0}, standby call-ins ${s.standbyCalls ?? 0}, delayed reports ${s.delayedReports ?? 0}, rest refits [${tally.restRefits.join(', ') || '-'}], 4 pilots for a short cruise ${tally.aug4}, discretion reports ${s.discretionReports ?? 0}`);
   }
+  if (WIDE && AUG) {
+    softTargets.push(['augmented duties ≥ 20 on --wide --aug seeds 1–3 (v0.7.3)', augSeen.size >= 20 * (days / 365), `${augSeen.size} flown`]);
+    softTargets.push(['the rest-plan check covers ≥ 1 duty (v0.7.3)', augSeen.size >= 1, `${augSeen.size} augmented duties checked`]);
+  }
+  softTargets.push(['standby call-ins ≥ 3 a year (v0.7.3)', (s.standbyCalls ?? 0) >= 3 * (days / 365), `${s.standbyCalls ?? 0} call-ins, ${sbySeen.size} standby crew-days`]);
   targets.push(['C-check ferries: 0 illegal duties', illegalAtCheck === 0, `${checkLegs.size} legs, ${illegalAtCheck} illegal`]);
   // v0.7.1 runs end at 90–97 from a 60 start; sub-chartering (F3) may take a few points of it.
   softTargets.push(['reliability ends ≥ 85 (v0.7.1: 90–97)', g.company.reputation.reliable >= 85, `${reliable0.toFixed(1)} → ${g.company.reputation.reliable.toFixed(1)} (sub-charters ${s.subHit ?? 0})`]);

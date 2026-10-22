@@ -67,10 +67,16 @@ export function dailyStandby(g: GameState): void {
     const from = localAt(home, g.now + k * DAY + 12 * 60, S.fromLocal);
     const to = from + S.hours * 60;
     if (to <= g.now || from < g.now) continue;
+    // Crew already on this window, by family and role (counted once per day).
+    const on = new Map<string, number>();
+    for (const c of Object.values(g.crew)) {
+      if (!c.standby?.some((w) => w.from === from)) continue;
+      for (const r of c.ratings as string[]) on.set(`${r}|${c.role}`, (on.get(`${r}|${c.role}`) ?? 0) + 1);
+    }
     for (const fam of [...fams].sort()) {
       for (const role of Object.keys(S.perFamily).sort() as Role[]) {
         const need = S.perFamily[role] ?? 0;
-        const have = Object.values(g.crew).filter((c) => c.role === role && (c.ratings as string[]).includes(fam) && c.standby?.some((w) => w.from === from)).length;
+        const have = on.get(`${fam}|${role}`) ?? 0;
         if (have >= need) continue;
         // Cheap filters first, least worked (logged duty, 28 days) first; the full legality check only until filled.
         const pool: { c: CrewMember; work: number }[] = [];
@@ -95,6 +101,7 @@ export function dailyStandby(g: GameState): void {
         }
         for (const { c } of picks.slice(0, need - have)) {
           (c.standby ??= []).push({ from, to });
+          for (const r of c.ratings as string[]) on.set(`${r}|${c.role}`, (on.get(`${r}|${c.role}`) ?? 0) + 1);
           changed = true;
         }
       }
@@ -131,3 +138,17 @@ export function callFromStandby(g: GameState, crewId: string): boolean {
   touchCrewState(g);
   return true;
 }
+
+/**
+ * v0.7.3 crew placed on a trip whose first report falls inside their running home standby window are called out
+ * (design §3.7: roster picks, auto-fix and sick-call cover count as calls): the window closes at that report.
+ */
+export function callIfOnStandby(g: GameState, crewId: string, report: Minute | undefined): boolean {
+  if (report === undefined) return false;
+  const w = onStandby(g, crewId, g.now);
+  return !!w && report >= g.now && report < w.to && callFromStandby(g, crewId);
+}
+
+/** v0.7.3 called out from home standby at this moment (no overtime, no morale hit for a lost day off). */
+export const calledNow = (g: GameState, crewId: string): boolean => !!g.crew[crewId]?.standby?.some((w) => w.calledAt === g.now);
+

@@ -14,6 +14,7 @@ import { setDutyAugment } from './explain';
 import { longestDay, planRest, restNow, restPlan, restPlanForFlight, restText, restVerdict, slipShort, type RestLeg } from './restPlan';
 import { touchCrew } from './timeline';
 import { restTooShortCard } from '../problems/crew';
+import { chainAugment } from '../contracts/offers';
 
 const H = 60;
 const T = 1_000_000;
@@ -303,4 +304,14 @@ describe('v0.7.3 fixes', () => {
     expect(setDutyAugment(g, d.id, 2).ok).toBe(false);
     expect(restVerdict(restPlan(g, d.id))?.text).toBe('Planned before the new rules');
   });
+
+  it('pricing reads the limit at the report time (C7): an evening 12 h day needs 3 pilots, a morning one none', () => {
+    const g = fixtureGame();
+    const day = Math.floor(g.now / DAY) * DAY + 3 * DAY;
+    const chain = (h: number) => [{ from: 'LIS', std: day + h * H, legs: [{ std: day + h * H, sta: day + h * H + 11 * H, from: 'LIS', to: 'GRU' }] }];
+    expect(chainAugment(g, 'a332', chain(21)).aug).toBe(1);
+    expect(chainAugment(g, 'a332', chain(9)).aug).toBe(0);
+    expect(chainAugment(g, 'a320ceo', chain(21)).aug).toBe(0);
+  });
 });
+

@@ -30,7 +30,7 @@ import { applyDiscretion, autoRoster, DISCRETION_BEFORE_REPORT, flightCrewStatus
 import { assignCrew, dutyCandidates, type DutyCandidate } from './rosterActions';
 import { DISCRETION, levelOf, LIMITS, minRest } from './rules';
 import { cabinEarly, crewCount, crewRev, dhBlock, locAt, OUT_CONNECT, segsOf, touchCrew, typeIdOf, type TicketPlan } from './timeline';
-import { callFromStandby } from './standby';
+import { callFromStandby, calledNow } from './standby';
 
 export type { Reason, ReasonCode };
 export { rootReason };
@@ -432,7 +432,7 @@ export function crewShortCard(g: GameState, flightId: string): ProblemCard | nul
       const until = r.until ?? gauge?.by;
       why = until !== undefined && until > d.report
         ? `${crewName(cm)} is the nearest free ${word[0]}, but their rest at ${city(pick!.loc)} ends at ${at(until, g.now)}, after the ${at(d.report, g.now)} report.`
-        : `${crewName(cm)} is the nearest free ${word[0]}, but ${/^(finished|back|due)\b/.test(r.text) ? `they ${r.text.replace(/^finished/, 'finished')}` : `is ${r.text}`}.`;
+        : `${crewName(cm)} is the nearest free ${word[0]}, but they ${/^finished\b/.test(r.text) ? '' : 'are '}${r.text}.`;
       terms.push('rest');
     } else if (r.code === 'fdp' && d) {
       why = `${crewName(cm)} could take it, but their day would run ${r.text.replace(/^over the day limit \(?/, '').replace(/\)$/, '')}.`;
@@ -899,7 +899,8 @@ function runFix(h: GameState, flightId: string, fix: CrewFix, opts: ApplyOpts): 
         const r = assignCrew(h, f.id, crewId, role);
         if (!r.ok) continue;
         const c = h.crew[crewId];
-        if (fix === 'callIn' && callFromStandby(h, crewId)) {
+        // (placing them may already have called them out: the roster counts a placement inside a running window)
+        if (fix === 'callIn' && (callFromStandby(h, crewId) || calledNow(h, crewId))) {
           const nd = h.duties[d.id] ?? d;
           const seg = segsOf(h, c).find((x) => x.dutyId === nd.id && x.kind === 'duty');
           const until = seg ? seg.start + seg.maxFdp : nd.report + nd.maxFdp;

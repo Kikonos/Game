@@ -123,18 +123,48 @@ export function restGlyphs(typeId: string, rest: ArtRest): RestGlyph[] {
   return out;
 }
 
-/** Glyph shapes inside a box (viewBox units): bunk = two stacked bars, recliner = seat with back and leg rest. */
-export function bunkBars(b: RestGlyph): { x: number; y: number; w: number; h: number }[] {
-  const bh = b.h * 0.36;
+/** Desktop tooltip for the marks: who rests where (e.g. "Crew rest: pilots' bunks · business seats for cabin crew"). */
+const WHERE: Record<RestKind, string> = {
+  fcrc: 'bunks behind the cockpit', ccrc: 'overhead bunks', ldmcr: 'lower-deck bunk module',
+  jSeats: 'curtained business seats', recliners: 'crew rest recliners',
+};
+export function restTitle(rest: ArtRest): string {
+  if (rest.fc && rest.fc === rest.cc) return `Crew rest: ${WHERE[rest.fc]} for pilots and cabin crew`;
+  const parts: string[] = [];
+  if (rest.fc) parts.push(`pilots' ${WHERE[rest.fc]}`);
+  if (rest.cc) parts.push(`${WHERE[rest.cc]} for cabin crew`);
+  return `Crew rest: ${parts.join(' · ')}`;
+}
+
+/** A box grown about its centre to at least w × h (viewBox units). */
+const grow = (b: { x: number; y: number; w: number; h: number }, w: number, h: number) => {
+  const W = Math.max(b.w, w), H = Math.max(b.h, h);
+  return { x: r3(b.x - (W - b.w) / 2), y: r3(b.y - (H - b.h) / 2), w: r3(W), h: r3(H) };
+};
+
+/**
+ * Glyph shapes inside a box (viewBox units): bunk = two stacked bars. `unit` = viewBox units per CSS px:
+ * the mark never drops under 7 px wide with bars 1.8 px high and a 0.9 px gap, so it reads on a 120 px Market thumbnail.
+ */
+export function bunkBars(b: RestGlyph, unit = 0): { x: number; y: number; w: number; h: number }[] {
+  const bh = Math.max(b.h * 0.38, 1.8 * unit), gap = Math.max(b.h - 2 * bh, 0.9 * unit);
+  const o = grow(b, 7 * unit, 2 * bh + gap);
   return [
-    { x: b.x, y: b.y, w: b.w, h: bh },
-    { x: b.x, y: r3(b.y + b.h - bh), w: b.w, h: bh },
+    { x: o.x, y: o.y, w: o.w, h: r3(bh) },
+    { x: o.x, y: r3(o.y + o.h - bh), w: o.w, h: r3(bh) },
   ];
 }
 
-/** Recliner outline path (nose right: the seat faces the nose, back leaning aft). */
-export function reclinerPath(b: RestGlyph): string {
-  const { x, y, w, h } = b;
+/** Business seat block, at least 3 px high, with seat dividers when there is room (≥ 3 px a seat). */
+export function seatBlock(b: RestGlyph, unit = 0): { box: { x: number; y: number; w: number; h: number }; ticks: number[] } {
+  const box = grow(b, 0, 3 * unit);
+  const n = unit > 0 && box.w / unit < 12 ? 0 : 3;
+  return { box, ticks: Array.from({ length: n }, (_, i) => r3(box.x + ((i + 1) * box.w) / (n + 1))) };
+}
+
+/** Recliner outline path (nose right: the seat faces the nose, back leaning aft); at least 7 × 6 px. */
+export function reclinerPath(b: RestGlyph, unit = 0): string {
+  const { x, y, w, h } = grow(b, 7 * unit, 6 * unit);
   const p = (u: number, v: number) => `${r3(x + u * w)} ${r3(y + v * h)}`;
   // back (leaning aft = left), cushion, leg rest raised towards the nose, one pedestal
   return `M${p(0.06, 0.04)}L${p(0.3, 0.7)}L${p(0.7, 0.7)}L${p(0.96, 0.46)}M${p(0.5, 0.7)}L${p(0.5, 0.96)}M${p(0.34, 0.96)}L${p(0.66, 0.96)}`;

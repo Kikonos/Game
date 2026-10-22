@@ -17,6 +17,7 @@ import type { ActionResult, Aircraft, Contract, CrewFix, CrewMember, CrewStatus,
 import { generateOffer, planPositioning } from '../contracts';
 import { applyCrewFix, applyDiscretion, crewControl, flightCrewStatus, minRest, moraleShock, replaceCrew, rerosterFrom, rosterOf } from '../crew';
 import { planCrew } from '../crew/check';
+import { calledNow } from '../crew/standby';
 import { DISCRETION, type IssueCode } from '../crew/rules';
 import { dhBlock, OUT_CONNECT, outTicket, segsOf } from '../crew/timeline';
 import { distance } from '../core/geo';
@@ -411,7 +412,7 @@ export function crewShortDecision(g: GameState, f: Flight, ac: Aircraft): void {
   });
 }
 
-/** Fills empty slots of the flight's trip (called-in crew lose a day off: morale −4). */
+/** Fills empty slots of the flight's trip (crew off duty called in lose a day off: morale −4; home standby first, no hit). */
 function fillSlots(g: GameState, f: Flight): number {
   const d = f.dutyId ? g.duties[f.dutyId] : undefined;
   const p = d ? g.pairings[d.pairingId] : undefined;
@@ -422,7 +423,7 @@ function fillSlots(g: GameState, f: Flight): number {
     const c = r.ok && r.data ? g.crew[r.data.crewId] : undefined;
     if (c) {
       n++;
-      moraleShock(g, c, 'pay', -4);
+      if (!calledNow(g, c.id)) moraleShock(g, c, 'pay', -4);
     }
   });
   return n;

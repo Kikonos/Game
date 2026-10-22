@@ -393,7 +393,36 @@ const restAfterAt = (start: Minute, base: string, augmented: boolean, e: Minute,
  * before report is part of the FDP (F7); one leaving within 10 h of release extends the duty; others are
  * separate positioning segs.
  */
+/** v0.7.3 dutySegs memo per duty (the hot path of the roster): segs are read-only, so cached ones are shared. */
+interface SegMemo { k: string; n: number[]; segs: Seg[] }
+const dutySegMemo = new WeakMap<Duty, SegMemo[]>();
+const tkS = (t: TicketPlan | null) => (t ? `${(t as Partial<Flight>).id ?? ''}${t.from}${t.to}${(t as Partial<Flight>).status ?? ''}` : '-');
+
 export function dutySegs(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: TicketPlan | null, home: TicketPlan | null, fresh = false): Seg[] {
+  const rest = p.aircraftId ? g.fleet[p.aircraftId]?.rest : undefined;
+  const f0 = g.flights[d.flightIds[0]];
+  // Every input of dutySegsRaw: strings (ids, places, flags) and numbers (times, limits), compared without building a key.
+  const k = `${isCabin(c) ? 1 : 0}${fresh ? 1 : 0}${d.ext ? 1 : 0}${d.split ? 1 : 0}${c.base}${p.base}${d.restAt}${f0?.from ?? ''}${f0?.status ?? ''}${p.aircraftId ?? ''}|${tkS(out)}|${tkS(home)}`;
+  const n = [d.ev, d.flightsEv, d.report, d.release, d.fdp, d.maxFdp, d.discretion ?? 0, d.cabinEarly ?? -1, d.augment, d.sectors, d.flightIds.length, p.start, rest?.fc?.cls ?? 0, rest?.cc?.cls ?? 0,
+    out?.std ?? -1, out?.sta ?? -1, home?.std ?? -1, home?.sta ?? -1];
+  let list = dutySegMemo.get(d);
+  if (list) {
+    outer: for (const m of list) {
+      if (m.k !== k) continue;
+      for (let i = 0; i < n.length; i++) if (m.n[i] !== n[i]) continue outer;
+      // The duty's block changes as its legs land (actual block times): read fresh.
+      const block = dutyBlock(g, d);
+      return m.segs.map((x) => (x.kind === 'duty' && x.block !== block ? { ...x, block } : x));
+    }
+  }
+  const segs = dutySegsRaw(g, c, p, d, out, home, fresh);
+  if (!list) dutySegMemo.set(d, (list = []));
+  if (list.length >= 8) list.shift();
+  list.push({ k, n, segs });
+  return segs.slice();
+}
+
+function dutySegsRaw(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: TicketPlan | null, home: TicketPlan | null, fresh: boolean): Seg[] {
   const segs: Seg[] = [];
   const dep = g.flights[d.flightIds[0]]?.from ?? d.restAt;
   const early = isCabin(c) ? cabinEarly(g, p, d) : 0;

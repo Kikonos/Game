@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement } from 'react';
 import { describe, expect, it } from 'vitest';
 import { AircraftArt, artGeometry, artViewBox } from './AircraftArt';
-import { artRest, restGlyphs } from './restGlyph';
+import { artRest, bunkBars, restGlyphs, restTitle, seatBlock } from './restGlyph';
 
 const LV = { primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' as const };
 /** Glyph centre as [share of the fuselage from the nose, height above the centreline (m)]. */
@@ -80,5 +80,19 @@ describe('v0.7.3 crew rest glyphs', () => {
     expect(none).not.toContain('data-rest');
     const thumb = renderToStaticMarkup(createElement(AircraftArt, { typeId: 'b77w', livery: LV, detail: 'simple', height: 20, rest: { fc: 'fcrc', cc: 'ccrc' } }));
     expect(thumb).not.toContain('data-rest');
+  });
+
+  it('keeps the marks readable at thumbnail size (min px) and names them for desktop', () => {
+    const unit = 1 / 1.8; // ~120 px Market art of an A330-300
+    const [bk] = restGlyphs('a333', { fc: 'fcrc', cc: null });
+    const [a, b] = bunkBars(bk, unit);
+    expect(a.w / unit).toBeGreaterThanOrEqual(7 - 1e-3);
+    expect(a.h / unit).toBeGreaterThanOrEqual(1.8 - 1e-3);
+    expect((b.y - a.y - a.h) / unit).toBeGreaterThanOrEqual(0.9 - 1e-2);
+    const [js] = restGlyphs('a333', { fc: 'jSeats', cc: 'jSeats' });
+    expect(seatBlock(js, unit).box.h / unit).toBeGreaterThanOrEqual(3 - 1e-3);
+    expect(restTitle({ fc: 'fcrc', cc: 'jSeats' })).toBe("Crew rest: pilots' bunks behind the cockpit · curtained business seats for cabin crew");
+    const svg = renderToStaticMarkup(createElement(AircraftArt, { typeId: 'a333', livery: LV, rest: { fc: 'fcrc', cc: 'jSeats' } }));
+    expect(svg).toContain('<title>Crew rest:');
   });
 });
