@@ -55,7 +55,7 @@ import { complement, typeOf } from '../src/engine/core/perf';
 import { DAY, dayIndex, fmtDateTime, fmtMonth, fromUTC, monthKey, toDate } from '../src/engine/core/time';
 import type { RatingFamily } from '../src/data/acmiTypes';
 import type { Archetype, ContractOffer, CrewFix, GameState, LedgerCat, MonthKey, Role } from '../src/engine/core/types';
-import { acceptOffer, counterOffer, feasibility, type FeasibilityReport } from '../src/engine/contracts';
+import { acceptOffer, counterOffer, feasibility, offerCompetition, type FeasibilityReport } from '../src/engine/contracts';
 import { aboveMinimum, applyCrewFix, hireQuote, restOf, restPlan, setDutyAugment, classOf, conversionClasses, conversionEarliest, conversionPlan, crewControl, hireCrew, ratedMarket, setCrewExtra, shortFlights, staffing, startConversion, type CrewSolution, type StaffingLine } from '../src/engine/crew';
 import { devFleet, devGrantApproval } from '../src/engine/dev';
 import { createGame } from '../src/engine/newGame';
@@ -318,11 +318,16 @@ function offers(g: GameState, t: Tally): void {
     if (o.archetype === 'dryLeaseOut') continue;
     if (o.archetype === 'deportation' && (g.company.reputation.clean < 70 || Object.values(g.contracts).some((c) => c.archetype === 'deportation' && g.now - c.signed < 365 * DAY))) continue;
     if (o.archetype === 'evacuation' && warRiskAt(g, o.pin) > 2) continue;
+    // Hajj only with a widebody of 300+ seats free for both phases (§13; a narrowbody airlift from Islamabad, crewed
+    // from Lisbon, lost seed 2 every other rotation).
+    if (o.archetype === 'hajj' && (o.requirements.body !== 'wide' || !Object.values(g.fleet).some((a) => typeOf(a.typeId).body === 'wide' && a.cabin.total >= 300))) continue;
     if (span > 10 && o.estBH / span < 3 && o.archetype !== 'unRotation') continue;
     // Ad hoc work inside 30 days (v0.6: was three weeks); tour series and troop rotations up to 90 days out (v0.8:
     // and the long-lead new work: Hajj, UN rotations, tours, Antarctica, deportation frameworks).
     const longLead = o.archetype === 'tourSeries' || o.archetype === 'troopRotation' || o.archetype === 'unRotation' || o.archetype === 'hajj' || o.archetype === 'musicTour' || o.archetype === 'antarctic' || o.archetype === 'deportation';
-    if (!isBase(o) && o.start > g.now + (longLead ? (o.archetype === 'hajj' || o.archetype === 'antarctic' ? 200 : 90) : hungry ? 45 : 30) * DAY) continue;
+    // v0.8 (§13) an offer rivals are keen on is decided now: up to 90 days out instead of waiting for it to come closer.
+    const keen = offerCompetition(g, o.id).level === 'strong';
+    if (!isBase(o) && o.start > g.now + (longLead ? (o.archetype === 'hajj' || o.archetype === 'antarctic' ? 200 : 90) : keen ? 90 : hungry ? 45 : 30) * DAY) continue;
     const best = bestFit(g, o);
     if (!best && process.argv.includes('--why') && o.created > g.now - DAY) {
       for (const id of seatsFit(g, o)) {

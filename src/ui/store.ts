@@ -11,6 +11,9 @@ import { problemFor } from '../engine/problems';
 import { acceptOffer, declineOffer, feasibilityAll, generateOffer } from '../engine/contracts';
 import { DAY } from '../engine/core/time';
 import { pushDecision } from '../engine/core/messages';
+import type { ClientLevel } from '../engine/contracts';
+import type { WorldEventKind } from '../engine/core/types';
+import { devDeportation, devDryLease, devEvacuation, devHajj, devLevel, devMixedCrew, devRivalBid, devWorldEvent } from '../engine/dev';
 import { demoFlights, devCrewShortage, devExtension, devFleet, devGrantApproval, devMarketOffer, devRestPlan, devRestSeats, devSaleReady, devShortCruise, devSplit, devStandby } from '../engine/dev';
 import { resignNow } from '../engine/crew';
 import { createGame, type NewGameOptions } from '../engine/newGame';
@@ -84,7 +87,7 @@ export type ModalSpec =
   /** Manual roster adjustment for a duty's trip (duty id or flight id). */
   | { kind: 'duty'; id: string }
   /** Hand legs of a contract to a rival operator. */
-  | { kind: 'subcharter'; contractId: string; flightId?: string }
+  | { kind: 'subcharter'; contractId: string; flightId?: string; /** v0.8 the rival to pre-select */ rivalId?: string }
   /** v0.5.1 livery editor: the company livery or one aircraft's (Company · All white · Custom). */
   | { kind: 'livery'; target: 'company' | { aircraftId: string } }
   /** v0.6: bulk type-rating conversion for the selected crew; the classes list (cancel per class / member). */
@@ -106,7 +109,12 @@ export type ModalSpec =
   /** v0.7.2.1 trip swap: confirm moving the trip of a flight to another aircraft (money before / after). */
   | { kind: 'tripMove'; flightId: string; targetId: string }
   /** v0.7.2.2 check planning: confirm moving a booked A/C-check or refit along its aircraft's timeline. */
-  | { kind: 'maintMove'; maintId: string; start: number };
+  | { kind: 'maintMove'; maintId: string; start: number }
+  /** v0.8 World: a client's relationship, a rival operator, the market outlook, a world event. */
+  | { kind: 'client'; clientId: string }
+  | { kind: 'rival'; rivalId: string }
+  | { kind: 'outlook' }
+  | { kind: 'worldEvent'; eventId: string };
 
 export interface Toast {
   id: number;
@@ -562,6 +570,21 @@ class GameStore {
     return id;
   }
 
+  /** v0.8 dev offers: builds one, settles, opens the offer dialog on the Contracts market; returns the offer id. */
+  private devOffer(build: (g: GameState) => string): string {
+    const g = this.game;
+    if (!g) return '';
+    const id = build(g);
+    settle(g);
+    this.lastMsgId = g.messages[0]?.id ?? this.lastMsgId;
+    if (id && g.offers[id]) {
+      this.nav = { tab: 'contracts', view: 'market' };
+      this.openModal({ kind: 'offer', offerId: id });
+    }
+    this.emit();
+    return id;
+  }
+
   // ---------- navigation & UI ----------
 
   navigate(tab: Tab, extra: Omit<Nav, 'tab'> = {}) {
@@ -775,6 +798,34 @@ class GameStore {
       settle(g);
       this.lastMsgId = g.messages[0]?.id ?? this.lastMsgId;
       if (id) this.openModal({ kind: 'sell', aircraftId: id });
+      this.emit();
+      return id;
+    },
+    /** v0.8 dev scenes: each builds an offer (opens the offer dialog), a mixed-crew duty (duty modal), a client level
+     *  (Company › Clients) or a world event (its dialog); returns the id ('' when none fits). */
+    hajj: () => this.devOffer(devHajj),
+    dryLease: () => this.devOffer(devDryLease),
+    deportation: () => this.devOffer(devDeportation),
+    evacuation: () => this.devOffer(devEvacuation),
+    rivalBid: () => this.devOffer(devRivalBid),
+    mixedCrew: () => this.devScene(devMixedCrew, 'duty'),
+    level: (clientId?: string, level?: ClientLevel) => {
+      const g = this.game;
+      if (!g) return '';
+      const id = devLevel(g, clientId, level);
+      settle(g);
+      this.lastMsgId = g.messages[0]?.id ?? this.lastMsgId;
+      if (id) this.navigate('company', { view: 'clients', sel: { kind: 'client', id } });
+      else this.emit();
+      return id;
+    },
+    world: (kind?: WorldEventKind, tpl?: string) => {
+      const g = this.game;
+      if (!g) return '';
+      const id = devWorldEvent(g, kind, tpl);
+      settle(g);
+      this.surfaceMessages();
+      if (id) this.openModal({ kind: 'worldEvent', eventId: id });
       this.emit();
       return id;
     },

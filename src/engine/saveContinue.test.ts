@@ -35,8 +35,8 @@ describe('save, reload, continue', () => {
   it('continues identically with flights in the air', () => {
     const g = createGame({ name: 'Atlântica Wings', code: 'AW', livery: { primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' }, base: 'LIS', seed: 7 });
     run(g, g.started + 20 * DAY);
-    // Step on until an aircraft is airborne.
-    for (let i = 0; i < 480 && !Object.values(g.flights).some((f) => f.status === 'enroute' && f.aircraftId); i++) advanceTo(g, g.now + 30, new Set());
+    // Step on until an aircraft is airborne (v0.8: up to 30 days; the first programme may start weeks out).
+    for (let i = 0; i < 1500 && !Object.values(g.flights).some((f) => f.status === 'enroute' && f.aircraftId); i++) advanceTo(g, g.now + 30, new Set());
     const airborne = Object.values(g.flights).filter((f) => f.status === 'enroute' && f.aircraftId);
     expect(airborne.length).toBeGreaterThan(0);
     expect(Object.keys(g.contracts).length).toBeGreaterThan(0);

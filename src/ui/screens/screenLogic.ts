@@ -196,10 +196,10 @@ export const LEDGER_LABEL: Record<LedgerCat, string> = {
   refit: 'Cabin refits', leaseReturn: 'Lease returns', leaseIncome: 'Lease income', warRisk: 'War-risk cover',
 };
 
-const REVENUE: LedgerCat[] = ['acmiRevenue', 'charterRevenue', 'otherRevenue', 'assetSale'];
+const REVENUE: LedgerCat[] = ['acmiRevenue', 'charterRevenue', 'otherRevenue', /** v0.8 */ 'leaseIncome', 'assetSale'];
 const COSTS: LedgerCat[] = [
   'fuel', 'airportFees', 'rent', 'reserves', 'salaries', 'perDiem', 'hotels', 'deadhead', 'maintenance', 'checks', 'paint', 'insurance', 'overhead',
-  'training', 'hiring', 'penalties', 'subcharter', 'approvals', 'interest', 'capex', 'refit', 'leaseReturn',
+  'training', 'hiring', 'penalties', 'subcharter', 'approvals', 'interest', 'capex', 'refit', 'leaseReturn', /** v0.8 */ 'warRisk',
 ];
 
 export interface StatementRow {
@@ -289,6 +289,13 @@ export function refTarget(g: GameState, ref: Ref): DeepLink | null {
       return { tab: 'map', sel: ref };
     case 'market':
       return { tab: 'fleet', view: 'market', sel: ref };
+    // v0.8: a client / rival opens its pane on Company; a world event its pin on the map.
+    case 'client':
+      return { tab: 'company', view: 'clients', sel: ref };
+    case 'rival':
+      return { tab: 'company', view: 'rivals', sel: ref };
+    case 'event':
+      return { tab: 'map', sel: ref };
   }
   return null;
 }

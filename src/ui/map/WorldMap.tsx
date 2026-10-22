@@ -84,6 +84,9 @@ interface Props {
   revealPad?: Pad | (() => Pad);
   /** Extra SVG layers above the airports (ops map: aircraft, terminator, pins). */
   layers?: (ctx: MapLayerCtx) => ReactNode;
+  /** v0.8: static shapes painted with the land in its composited layer (ops map: world-event zones). Repainted only
+   * when the land is (gesture end, out of margin) or when this content changes: keep it stable during gestures. */
+  ground?: (ctx: MapLayerCtx) => ReactNode;
   /** SVG layers between the land and the airports (ops map: arcs). */
   underlay?: (ctx: MapLayerCtx) => ReactNode;
   /** A big, slow layer right above the land in its own composited layer (ops map: night), shifted with ctx.backShift. */
@@ -327,7 +330,7 @@ interface Gesture {
  */
 export function WorldMap({
   rotate = 0, routes, airports, fit, fitPad, interactive = true, animate = true, accent = '#3ee6ff', selected, onSelect, onSelectRoute, onHover,
-  tooltip, regionLabels, className, planesKey, controls = true, revealPad, layers, underlay, backdrop, onTap, fitFn, fitCentre, focus, memo,
+  tooltip, regionLabels, className, planesKey, controls = true, revealPad, layers, underlay, ground, backdrop, onTap, fitFn, fitCentre, focus, memo,
 }: Props) {
   const touch = useTouch();
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -1038,6 +1041,7 @@ export function WorldMap({
         <svg viewBox={layerVB} preserveAspectRatio="none" style={svgFill}>
           <g ref={baseG}>
             <BaseLayers rotate={rotate} />
+            {ground?.(ctx)}
           </g>
         </svg>
       </div>

@@ -9,8 +9,10 @@
 // the hotel list counted as pilots and cabin crew.
 // v0.7.3: the rest chip names both sides (pilots · cabin crew), the bunk glyph on the art, and airborne on an augmented
 // duty one calm 'Resting: … until …' line (restNow, on the clock step only).
+// v0.8: the world-event panel (what it does, our legs it touches, the work it created, More → the event modal); a leg
+// held, rerouted or paying war-risk cover says so; a dry-leased aircraft's panel names the lessee and the dates.
 
-import { CalendarRange, FileSearch, LifeBuoy, PackageCheck, Plane, Undo2, Users, Wrench, X } from 'lucide-react';
+import { CalendarRange, FileSearch, Info, KeyRound, LifeBuoy, PackageCheck, Plane, Undo2, Users, Wrench, X } from 'lucide-react';
 import { type ReactNode, useMemo } from 'react';
 import { ACMI_TYPES, artFor } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE } from '../../data/airports';
@@ -22,8 +24,9 @@ import { flightsOf } from '../../engine/core/entities';
 import { currentFlight, flightTimes } from '../../engine/core/query';
 import { DAY, fmtDay, fmtDuration, fmtTime, localOffset } from '../../engine/core/time';
 import type { Aircraft, CrewMember, Flight, GameState, MaintenanceEvent, ProblemRef, Ref, Role } from '../../engine/core/types';
+import type { DryLeaseView } from '../../engine/ops';
 import { crewName, crewShortCard, dutyCrew, flightCrewStatus, restNow, restOf, restSeatsBlocked, restText, sellableSeats, seatsText } from '../../engine/crew';
-import { checkStatus, CONNECT_MIN, commercialItinerary, deliveryStatus, FLIGHT_TYPE_HINT, FLIGHT_TYPE_LABEL, flightCrewAboard, type FlightType, flightType, liveryOf, problemAt, ticketPurpose } from '../../engine/ops';
+import { checkStatus, CONNECT_MIN, commercialItinerary, deliveryStatus, dryLeaseOf, FLIGHT_TYPE_HINT, FLIGHT_TYPE_LABEL, flightCrewAboard, type FlightType, flightType, flightZone, liveryOf, problemAt, ticketPurpose, worldEvent, worldZones } from '../../engine/ops';
 import { ferryCost } from '../../engine/ops/delivery';
 import { AircraftArt } from '../components/AircraftArt';
 import { artRest } from '../components/aircraft/restGlyph';
@@ -33,8 +36,9 @@ import { contractColor } from '../screens/palette';
 import { type ModalSpec, store } from '../store';
 import { paintLabel } from '../screens/scheduleLogic';
 import { archLabel, expiryLabel, offerDays } from '../screens/screenLogic';
-import { awaitingDelivery, chipInfo, commercialById, deliveryTag, parseCommercialId, PURPOSE_LABEL, purposeChain, restChip, restingLine, restSeatNoun, shortIndex, type ShortRow, upcomingLegs } from './mapLogic';
+import { awaitingDelivery, chipInfo, commercialById, deliveryTag, EVENT_KIND_LABEL, EVENT_TONE, leasedOut, parseCommercialId, PURPOSE_LABEL, purposeChain, restChip, restingLine, restSeatNoun, shortIndex, type ShortRow, upcomingLegs } from './mapLogic';
 import { MiniMap } from './MiniMap';
+import { eventIcon } from './WorldLayer';
 
 const ROLE_ORDER = ['CPT', 'FO', 'CRP', 'PUR', 'CC'];
 const LEVEL_TONE = { ok: 'good', tight: 'warn', missing: 'bad', illegal: 'bad' } as const;
@@ -155,6 +159,7 @@ function LegRow({ g, f, onTap, short }: { g: GameState; f: Flight; onTap?: () =>
   const dep = f.std + f.delay;
   const cs = safe(() => flightCrewStatus(g, f.id), { level: 'ok' as const, missing: [] });
   const type = safe(() => flightType(g, f), 'operating' as FlightType);
+  const zone = safe(() => flightZone(g, f.id), null);
   // v0.7.1: the row is a div so the WHY? dot can be its own 44 px button inside it.
   const Main = onTap ? 'button' : 'span';
   return (
@@ -166,6 +171,7 @@ function LegRow({ g, f, onTap, short }: { g: GameState; f: Flight; onTap?: () =>
           <span className="small muted ellipsis">
             {fmtDay(dep)} {fmtTime(dep)} UTC · {fmtDuration(f.block)}{f.kind === 'techstop' ? ' · fuel stop' : ''}{f.delay ? ` · +${fmtDuration(f.delay)}` : ''}
           </span>
+          {zone && <span className={`small ellipsis op-zone ${zone.effect}`}>{zone.text}</span>}
         </span>
         {short ? <ShortBanner stage={short.stage} small /> : <span className={`op-type-s ${type}`}>{FLIGHT_TYPE_LABEL[type]}</span>}
       </Main>
@@ -318,6 +324,31 @@ function PlannedBlocks({ g, ac }: { g: GameState; ac: Aircraft }) {
   );
 }
 
+// ---------- v0.8 dry lease out ----------
+
+const LEASE_PHASE: Record<DryLeaseView['phase'], string> = { signed: 'Signed', delivering: 'Delivery ferry', leased: 'With the lessee', returning: 'Coming back', done: 'Done' };
+
+/** Dry lease out: who has her, until when, their hours on our airframe, what it earns, the C-check (ours). */
+function LeaseBlock({ g, v }: { g: GameState; v: DryLeaseView }) {
+  const c = g.contracts[v.contractId];
+  return (
+    <Section title="Dry lease" aside={<span className="small muted">{LEASE_PHASE[v.phase]}</span>}>
+      <div className="op-kv">
+        <div><span>Lessee</span><b className="ellipsis">{v.lessee} · {cityOf(v.site)}</b></div>
+        <div><span>Delivery ferry</span><b className="num">{fmtDay(v.out[0])}</b></div>
+        <div><span>Lease</span><b className="num">{fmtDay(v.lease[0])} – {fmtDay(v.lease[1])}{v.late ? <span className="warn-t"> · {v.late} d late</span> : null}</b></div>
+        <div><span>Ferry home</span><b className="num">{fmtDay(v.back[0])}</b></div>
+        <div><span>Rent</span><b className="num">{money(v.rent)}/month + {money(v.reservesPerFH)}/FH</b></div>
+        {(v.phase === 'leased' || v.phase === 'returning') && <div><span>Their hours</span><b className="num">{v.fhSoFar.toLocaleString('en-US')} of ≈ {v.fhExpected.toLocaleString('en-US')} FH</b></div>}
+        {v.income > 0 && <div><span>Invoiced</span><b className="num">{money(v.income)}</b></div>}
+      </div>
+      {v.damage && <div className="op-note warn"><Wrench /><span>{v.damage}</span></div>}
+      {v.cCheck && <div className="small muted">{v.cCheck}</div>}
+      {c && <div className="small muted">No crew of ours on board while leased: their pilots and cabin crew fly her{c.paint || g.fleet[v.aircraftId]?.paintedFor ? `, in ${v.lessee} colours` : ''}.</div>}
+    </Section>
+  );
+}
+
 // ---------- aircraft ----------
 
 function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
@@ -350,6 +381,8 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
   const cs = safe(() => checkStatus(g, ac), null);
   const maint = ac.maintId ? g.maintenance[ac.maintId] : undefined;
   const chip = chipInfo(g, ac, t);
+  const lease = safe(() => dryLeaseOf(g, ac.id), null);
+  const curZone = cur ? safe(() => flightZone(g, cur.id), null) : null;
   const ap = AIRPORT_BY_CODE[ac.at];
   const lv = liveryOf(g, ac);
   // The ops stub returns zeros; show check data only once it means something.
@@ -369,6 +402,7 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
       <>
         <div className="row between"><b className="mono op-big">{cur.from} → {cur.to}</b><span className="row op-tight">{curType && <TypeChip type={curType} />}<span className="mono small muted">{cur.no}</span></span></div>
         {cur.purpose ? <div className="small muted">{purposeLine(g, cur)}</div> : curType && curType !== 'operating' && <div className="small muted">{FLIGHT_TYPE_HINT[curType]}</div>}
+        {curZone && <div className={`small op-zone ${curZone.effect}`}>{curZone.text}</div>}
         <Bar value={prog} size="thin" />
         <div className="op-kv">
           <div><span>Off blocks</span><b className="num">{fmtTime(off)} UTC</b></div>
@@ -399,6 +433,8 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
         </span>
       </div>
     );
+  } else if (leasedOut(ac)) {
+    now = <div className="op-note"><KeyRound /><span>{lease ? `Leased to ${lease.lessee} until ${fmtDay(lease.lease[1])}` : 'Leased out'} · at {ap?.city ?? ac.at} ({ac.at}), flown by their crews</span></div>;
   } else if (ac.status === 'delivering') {
     now = <div className="op-note"><PackageCheck /><span>Not handed over yet · {ac.delivery ? `at ${cityOf(ac.delivery.site)} ${fmtDay(ac.delivery.handover)}` : `delivery ${fmtDay(ac.deliveredAt)}`}</span></div>;
   } else {
@@ -410,15 +446,17 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
       <div className="op-art"><AircraftArt typeId={artFor(ac.typeId)} livery={lv.livery} code={lv.code} name={lv.name} rest={artRest(rest)} /></div>
       {lv.source === 'client' && <div className="small muted op-livery">In {lv.clientName} colours{lv.contractId && g.contracts[lv.contractId] ? ` for ${g.contracts[lv.contractId].title}` : ''}</div>}
       <div className="row wrap op-chips">
-        <span className={`chip tone-${chip.tone}`}><Dot tone={chip.tone} />{cur ? 'Airborne' : ac.status === 'available' ? 'Available' : ac.status === 'aog' ? 'AOG' : ac.status === 'maintenance' ? 'Maintenance' : ac.status === 'delivering' ? 'Delivering' : ac.status}</span>
+        <span className={`chip tone-${chip.tone}`}><Dot tone={chip.tone} />{cur ? 'Airborne' : ac.status === 'available' ? 'Available' : ac.status === 'aog' ? 'AOG' : ac.status === 'maintenance' ? 'Maintenance' : ac.status === 'delivering' ? 'Delivering' : ac.status === 'leasedOut' ? 'Leased out' : ac.status}</span>
         {curType === 'ferry' && !deliveryTag(ac) && <span className="chip op-ferry-tag">FERRY</span>}
         {deliveryTag(ac) && <span className="chip op-dlv-tag">DELIVERY</span>}
+        {leasedOut(ac) && <span className="chip op-leased-tag">LEASED</span>}
         <span className="chip">{ac.ownership.kind === 'owned' ? 'Owned' : 'Dry-leased in'}</span>
         {restChip(rest) && <span className="chip op-rest-chip" title={`Pilots: ${restText(rest.fc, 'fc', ac.typeId)} · Cabin crew: ${restText(rest.cc, 'cc', ac.typeId)}`}>{restChip(rest)}</span>}
         <span className="chip">{ac.builtYear}</span>
       </div>
       <Section title={cur ? 'Current flight' : 'Now'}>{now}</Section>
       <DeliveryBlock g={g} ac={ac} />
+      {lease && <LeaseBlock g={g} v={lease} />}
       <PlannedBlocks g={g} ac={ac} />
       <Section
         title={cur ? 'Crew on board' : crewFlight ? `Crew for ${crewFlight.no}` : 'Crew'}
@@ -720,6 +758,60 @@ function CommercialPanel({ g, id }: { g: GameState; id: string }) {
   );
 }
 
+// ---------- v0.8 world event ----------
+
+const ZONE_CHIP = { closed: 'Airspace closed', warRisk: 'War risk', ash: 'Ash' } as const;
+
+function EventPanel({ g, id }: { g: GameState; id: string }) {
+  const ev = safe(() => worldEvent(g, id), null);
+  if (!ev) return null;
+  const Icon = eventIcon(ev.kind);
+  const tone = EVENT_TONE[ev.kind];
+  const flights = ev.flights.map((f) => g.flights[f]).filter((f): f is Flight => !!f).sort((a, b) => a.std - b.std);
+  const offers = ev.offers.map((o) => g.offers[o]).filter(Boolean);
+  const zoneStyle = ev.zoneId ? safe(() => worldZoneStyle(g, ev.id), null) : null;
+  const moreModal = () => store.openModal({ kind: 'worldEvent', eventId: ev.id } as unknown as ModalSpec);
+  return (
+    <Panel title={ev.title} kicker={<span className={`op-ev-kicker ${tone}`}><Icon aria-hidden />{EVENT_KIND_LABEL[ev.kind]} · {ev.place}</span>} onClose={() => store.select(undefined)}>
+      <div className="row wrap op-chips">
+        <span className={`chip ${ev.active ? `tone-${tone === 'ash' ? 'warn' : tone}` : ''}`}>{ev.active ? `Until ${fmtDay(ev.end)}` : `Over · ${fmtDay(ev.end)}`}</span>
+        {zoneStyle && <span className={`chip op-zone-chip ${zoneStyle}`}>{ZONE_CHIP[zoneStyle]}</span>}
+        <span className="chip">Since {fmtDay(ev.start)}</span>
+      </div>
+      {ev.body && <div className="small op-ev-body">{ev.body}</div>}
+      {ev.effects.length > 0 && (
+        <Section title="What it does">
+          <ul className="op-ev-effects">{ev.effects.map((e, i) => <li key={i}>{e}</li>)}</ul>
+        </Section>
+      )}
+      <Section title="Our legs" aside={flights.length ? <span className="small muted">{flights.length}</span> : undefined}>
+        {flights.length
+          ? flights.slice(0, 6).map((f) => <LegRow key={f.id} g={g} f={f} onTap={f.aircraftId ? () => store.select({ kind: 'aircraft', id: f.aircraftId! }) : undefined} />)
+          : <div className="small muted">None of our legs are touched.</div>}
+        {flights.length > 6 && <div className="small muted">and {flights.length - 6} more</div>}
+      </Section>
+      {offers.length > 0 && (
+        <Section title="Work it created">
+          {offers.map((o) => (
+            <button key={o.id} className="op-row" onClick={() => store.select({ kind: 'offer', id: o.id })}>
+              <FileSearch />
+              <span className="op-wrap">{o.title}<span className="small muted"> · {g.clients[o.clientId]?.name ?? ''}{o.urgency === 'urgent' ? ' · urgent' : ''}</span></span>
+            </button>
+          ))}
+        </Section>
+      )}
+      <div className="op-actions">
+        <button className="btn" onClick={moreModal}><Info />More</button>
+      </div>
+    </Panel>
+  );
+}
+
+/** The zone style an event shades on the map (closed / war risk / ash), or null. */
+function worldZoneStyle(g: GameState, eventId: string) {
+  return worldZones(g).find((z) => z.eventId === eventId)?.style ?? null;
+}
+
 /** The panel for the current map selection, or null. */
 export function MapPanel({ g, sel }: { g: GameState; sel?: Ref }) {
   if (!sel) return null;
@@ -727,5 +819,6 @@ export function MapPanel({ g, sel }: { g: GameState; sel?: Ref }) {
   if (sel.kind === 'aircraft' && g.fleet[sel.id]) return <AircraftPanel g={g} ac={g.fleet[sel.id]} />;
   if (sel.kind === 'airport' && AIRPORT_BY_CODE[sel.id]) return <AirportPanel g={g} code={sel.id} />;
   if (sel.kind === 'offer' && g.offers[sel.id]) return <OfferPanel g={g} id={sel.id} />;
+  if (sel.kind === 'event') return <EventPanel g={g} id={sel.id} />;
   return null;
 }

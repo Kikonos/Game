@@ -7,17 +7,20 @@
 // v0.7: aircraft appear at their handover site once handed over (DELIVERY tag until home); a selected aircraft's
 // arcs show its whole delivery / return / refit ferry chain.
 // v0.7.2: Up Next is a compact departures board (5 rows, grid lines, the "?" legend in its header) that folds away.
+// v0.8: world-event zones painted with the land (static), their labels and event pins (tap → event panel); a
+// dry-leased-out aircraft stands at the lessee's base in their paint with a LEASED tag.
 
 import { ChevronDown, ChevronUp, HelpCircle, Users, X } from 'lucide-react';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { DAY, fmtDay, fmtTime } from '../../engine/core/time';
 import type { GameState, Ref } from '../../engine/core/types';
-import { commercialFlightsBetween, FLIGHT_TYPE_HINT, FLIGHT_TYPE_LABEL } from '../../engine/ops';
+import { commercialFlightsBetween, FLIGHT_TYPE_HINT, FLIGHT_TYPE_LABEL, worldEventPins, worldZones } from '../../engine/ops';
 import { store, useClock, useGame } from '../store';
 import { AircraftLayer, ArcsLayer, CommercialLayer, HIT_R, type LiveShared, NightLayer, newShared, PathsLayer, PinsLayer, pinOffset } from './LiveLayers';
 import { MapPanel, TypeKey } from './MapPanels';
-import { awaitingDelivery, chipInfo, commercialById, fitCodes, onMap, fitFresh, isCommercialId, JET_PATH, mapAirports, offerPins, pickNearest, selectedLegs, shortIndex, upNextRows } from './mapLogic';
+import { awaitingDelivery, chipInfo, commercialById, fitCodes, onMap, fitFresh, isCommercialId, JET_PATH, mapAirports, offerPins, pickNearest, placeEventPins, selectedLegs, shortIndex, upNextRows } from './mapLogic';
+import { EventPinsLayer, hatchUnit, ZoneGround, ZoneLabels } from './WorldLayer';
 import { type FocusAt, type MapAirport, type MapLayerCtx, type Pad, type View, WorldMap } from './WorldMap';
 
 /** Panel width (px) kept clear when revealing a selection, and the fleet strip's height. */
@@ -25,6 +28,11 @@ const PANEL_W = 360;
 const STRIP_H = 70;
 /** Screen px around an aircraft icon its labels can reach (left, top, right, bottom: reg and DELIVERY tag under it). */
 const AC_LABEL_BOX: [number, number, number, number] = [36, 20, 36, 46];
+/** Never let a half-built engine view take the map down. */
+function safe<T>(fn: () => T, fallback: T): T {
+  try { return fn(); } catch { return fallback; }
+}
+
 /** View per game, so a tab switch returns to the same framing. */
 const views = new WeakMap<GameState, { view: View | null }>();
 
@@ -158,7 +166,7 @@ export function OpsMap() {
   const g = useGame();
   const sel = store.nav.sel;
   const selCm = sel?.kind === 'flight' && isCommercialId(sel.id) ? sel.id : undefined;
-  const panelOpen = !!sel && (sel.kind === 'aircraft' || sel.kind === 'airport' || sel.kind === 'offer' || !!selCm);
+  const panelOpen = !!sel && (sel.kind === 'aircraft' || sel.kind === 'airport' || sel.kind === 'offer' || sel.kind === 'event' || !!selCm);
   const sharedRef = useRef<LiveShared | null>(null);
   const shared = (sharedRef.current ??= newShared());
   let memo = views.get(g);
@@ -171,6 +179,10 @@ export function OpsMap() {
   const legs = useMemo(() => (sel?.kind === 'aircraft' ? selectedLegs(g, sel.id) : []), [g, hour, v, sel?.kind, sel?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const nextArcs = useMemo(() => legs.filter((l) => !l.current), [legs]);
   const marked = useMemo(() => new Set(apList.filter((a) => a.label).map((a) => a.code)), [apList]);
+  // v0.8 world: zones keep their array identity while unchanged (drawn once); pins step with the hourly emit.
+  const zones = useMemo(() => safe(() => worldZones(g), []), [g, hour, v]); // eslint-disable-line react-hooks/exhaustive-deps
+  const evPins = useMemo(() => placeEventPins(safe(() => worldEventPins(g), []), marked, new Set(pins.map((p) => p.code))), [g, hour, v, marked, pins]); // eslint-disable-line react-hooks/exhaustive-deps
+  const selEv = sel?.kind === 'event' ? sel.id : undefined;
   const selAp = sel?.kind === 'airport' ? sel.id : undefined;
   // Ends of the airline legs our crew ride this hour (dots; codes when selected).
   const cmAps = useMemo(() => {
@@ -190,9 +202,10 @@ export function OpsMap() {
 
   /** Airports and projection shared.aps was built for (rebuilt only when they change). */
   const apsFor = useRef<{ a: MapAirport[] | null; proj: MapLayerCtx['proj'] | null }>({ a: null, proj: null });
-  const refs = useRef({ g, pins, marked, airports, proj: null as MapLayerCtx['proj'] | null });
+  const refs = useRef({ g, pins, evPins, marked, airports, proj: null as MapLayerCtx['proj'] | null });
   refs.current.g = g;
   refs.current.pins = pins;
+  refs.current.evPins = evPins;
   refs.current.marked = marked;
   refs.current.airports = airports;
 
@@ -208,7 +221,7 @@ export function OpsMap() {
   // The nearest aircraft, offer pin or airport dot within a finger's reach wins; airports fall through to WorldMap.
   const onTap = useCallback((m: [number, number], unit: number, finger: boolean) => {
     const r = (finger ? HIT_R.touch : HIT_R.mouse) * unit;
-    const { g: game, pins: pinList, airports: aps, proj } = refs.current;
+    const { g: game, pins: pinList, evPins: evList, airports: aps, proj } = refs.current;
     type Hit = { x: number; y: number; item: Ref | null };
     const items: Hit[] = [];
     for (const [id, p] of shared.ac) if (game.fleet[id]) items.push({ x: p[0], y: p[1], item: { kind: 'aircraft', id } });
@@ -216,6 +229,11 @@ export function OpsMap() {
     for (const p of pinList) {
       const q = pinPoint(p.code, unit);
       if (q) items.push({ x: q[0], y: q[1], item: p.offers.length === 1 ? { kind: 'offer', id: p.offers[0].id } : { kind: 'airport', id: p.code } });
+    }
+    for (const p of evList) {
+      const ap = AIRPORT_BY_CODE[p.at];
+      const q = ap && proj?.([ap.lon, ap.lat]);
+      if (q) items.push({ x: q[0] + p.off[0] * unit, y: q[1] + p.off[1] * unit, item: { kind: 'event', id: p.eventId } });
     }
     for (const a of aps) {
       const ap = AIRPORT_BY_CODE[a.code];
@@ -266,6 +284,12 @@ export function OpsMap() {
           const a = AIRPORT_BY_CODE[sel.id];
           return (a && refs.current.proj?.([a.lon, a.lat])) || null;
         }
+        if (sel.kind === 'event') {
+          // Its pin (off the map once the event is over: nothing to reveal).
+          const p = refs.current.evPins.find((x) => x.eventId === sel.id);
+          const at = p && apPt(p.at);
+          return at ? { pts: [at], box: [Math.max(14, 14 - p.off[0]), Math.max(14, 14 - p.off[1]), 14, 14] } : null;
+        }
         const o = refs.current.g.offers[sel.id];
         return o ? pinPoint(o.pin, 0) : null;
       },
@@ -292,6 +316,7 @@ export function OpsMap() {
         focus={focus}
         memo={memo}
         backdrop={(ctx) => <NightLayer shared={shared} proj={ctx.proj} shift={ctx.backShift} />}
+        ground={(ctx) => <ZoneGround zones={zones} proj={ctx.proj} hatch={hatchUnit(ctx.px, ctx.k)} />}
         underlay={(ctx) => {
           refs.current.proj = ctx.proj;
           if (apsFor.current.a !== airports || apsFor.current.proj !== ctx.proj) {
@@ -305,6 +330,7 @@ export function OpsMap() {
           // The current leg is always drawn by the live paths; the arcs add the selected aircraft's next legs.
           return (
             <>
+              <ZoneLabels zones={zones} proj={ctx.proj} unit={ctx.unit} selected={selEv ? zones.find((z) => z.eventId === selEv)?.eventId : undefined} />
               <PathsLayer shared={shared} />
               <ArcsLayer legs={nextArcs} proj={ctx.proj} />
             </>
@@ -313,6 +339,7 @@ export function OpsMap() {
         layers={(ctx) => (
           <>
             <PinsLayer pins={pins} marked={marked} proj={ctx.proj} unit={ctx.unit} selected={selPin} />
+            <EventPinsLayer pins={evPins} proj={ctx.proj} unit={ctx.unit} selected={selEv} />
             <CommercialLayer shared={shared} />
             <AircraftLayer ctx={ctx} g={g} shared={shared} selected={selAc} selectedFlight={selCm} />
           </>

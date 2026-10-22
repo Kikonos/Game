@@ -8,6 +8,7 @@
 // airline deadheads thin grey dotted.
 // v0.7: an aircraft is drawn once handed over (at its handover site, possibly abroad), with a static DELIVERY tag
 // until its delivery ferry is home; before the handover it is not drawn.
+// v0.8: an aircraft dry-leased out stands at the lessee's base (in their paint when painted) with a grey LEASED tag.
 
 import { geoInterpolate, geoPath } from 'd3-geo';
 import { memo, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
@@ -19,7 +20,7 @@ import { PLANE_PATH } from '../components/Logo';
 import { liveMinute, store } from '../store';
 import { isTouch } from '../useMedia';
 import { MAP_H, MAP_W } from './mapData';
-import { deliveryTag, headingDeg, JET_PATH, onMap, type LabelBox, boxOverlap, groupCommercial, lerpAngle, parkOffset, downSide, legLabelSide, placeLabels, regSlot, type RegSlot, trackCovered, trackLabelAt, type LegArc, type PinGroup, sunPoint, terminator, TYPE_STROKE } from './mapLogic';
+import { deliveryTag, headingDeg, JET_PATH, leasedOut, onMap, type LabelBox, boxOverlap, groupCommercial, lerpAngle, parkOffset, downSide, legLabelSide, placeLabels, regSlot, type RegSlot, trackCovered, trackLabelAt, type LegArc, type PinGroup, sunPoint, terminator, TYPE_STROKE } from './mapLogic';
 import type { MapLayerCtx } from './WorldMap';
 
 /** Live positions shared with tap picking and focus (map units, as last drawn). */
@@ -451,7 +452,8 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
         if (live.phase !== 'airborne') {
           const ix = p[0] / u + s.ox;
           const iy = p[1] / u + s.oy;
-          const dlv = e.el.classList.contains('dlv');
+          // DELIVERY (v0.7) or LEASED (v0.8) under the icon, the reg below it.
+          const dlv = e.el.classList.contains('dlv') || e.el.classList.contains('lsd');
           parkedBoxes.push({ id, x: ix + 2, y: iy - 3, w: 36, h: 34 });
           if (selRef.current === id || (labels && !crowd)) {
             const by = dlv ? 38 : 25;
@@ -627,7 +629,7 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
         const ac = g.fleet[id];
         const [fill, outline] = glyphInk(liveryOf(g, ac).livery);
         return (
-          <g key={id} data-id={id} data-phase="parked" className={`ops-ac${selected === id ? ' sel' : ''}${deliveryTag(ac) ? ' dlv' : ''}`}>
+          <g key={id} data-id={id} data-phase="parked" className={`ops-ac${selected === id ? ' sel' : ''}${deliveryTag(ac) ? ' dlv' : leasedOut(ac) ? ' lsd' : ''}`}>
             <circle className="hit" r={HIT_R.touch} />
             <path className="hangar" d="M-15 11V-1Q0 -17 15 -1V11Z" />
             <circle className="sel-ring" r={16} />
@@ -646,6 +648,7 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
             <text className="reg" y={25}>{ac.reg}</text>
             <text className="tag" y={-16}>FERRY</text>
             <text className="op-delivery-tag" y={-16}>DELIVERY</text>
+            <text className="op-leased-tag" y={-16}>LEASED</text>
           </g>
         );
       })}

@@ -6,9 +6,9 @@ import { flightsOf } from '../../engine/core/entities';
 import { haversine } from '../../engine/core/geo';
 import { flightTimes } from '../../engine/core/query';
 import { DAY, fmtDay, fmtTime } from '../../engine/core/time';
-import type { AcRest, Aircraft, Archetype, ContractOffer, Flight, GameState, Minute, Ref, RestFacility, RestKind } from '../../engine/core/types';
+import type { AcRest, Aircraft, Archetype, ContractOffer, Flight, GameState, Minute, Ref, RestFacility, RestKind, WorldEventKind } from '../../engine/core/types';
 import { crewAway, shortFlights } from '../../engine/crew';
-import { commercialFlightsBetween, type CommercialFlight, commercialItinerary, type FlightType, flightType } from '../../engine/ops';
+import { commercialFlightsBetween, type CommercialFlight, commercialItinerary, dryLeaseOf, type FlightType, flightType } from '../../engine/ops';
 import { contractColor } from '../screens/palette';
 
 /** v0.7.1 business-jet glyph (24 × 24, nose up, same frame as PLANE_PATH): slim body, swept wings, T-tail. */
@@ -482,6 +482,12 @@ export function chipInfo(g: GameState, ac: Aircraft, t: Minute, short?: ShortRow
     if (m?.kind === 'return') return { tone: 'warn', line: `Return → ${fmtDay(m.end)}`, short: `Return ${m.at}` };
     return { tone: 'warn', line: m ? `${m.kind === 'AOG' ? 'Repair' : `${m.kind}-check`} → ${fmtDay(m.end)}` : `Hangar ${ac.at}`, short: `Hangar ${ac.at}` };
   }
+  // v0.8: with the lessee ('Leased LAD 14 Mar').
+  if (ac.status === 'leasedOut') {
+    const v = dryLeaseOf(g, ac.id);
+    const full = v ? `Leased ${ac.at} ${fmtDay(v.lease[1])}` : `Leased ${ac.at}`;
+    return { tone: 'idle', line: full.length <= 17 ? full : `Leased ${ac.at}`, short: `Leased ${ac.at}` };
+  }
   const dl = ac.delivery;
   if (ac.status === 'delivering') {
     if (!dl) return { tone: 'idle', line: `Delivery ${fmtDay(ac.deliveredAt)}`, short: 'Delivery' };
@@ -537,3 +543,73 @@ export function restingLine(rows: { names: string[]; where: RestKind; until: Min
 export function restSeatNoun(r: AcRest): string {
   return r.cc?.kind === 'jSeats' || r.fc?.kind === 'jSeats' ? 'business seats' : 'seats';
 }
+
+// ---------- v0.8 world events and dry leases ----------
+
+type Proj = (p: [number, number]) => [number, number] | null;
+
+/** Projected outline of a zone ring as straight segments between its points (map units); '' when nothing projects. Pure. */
+export function ringPath(ring: [number, number][], proj: Proj): string {
+  let d = '';
+  for (const p of ring) {
+    const q = proj(p);
+    if (q) d += `${d ? 'L' : 'M'}${q[0].toFixed(1)} ${q[1].toFixed(1)}`;
+  }
+  return d ? `${d}Z` : '';
+}
+
+/** Area centroid and width (map units) of a projected ring, for its label; null for a degenerate ring. Pure. */
+export function ringLabelAt(ring: [number, number][], proj: Proj): { x: number; y: number; w: number } | null {
+  const q = ring.map((p) => proj(p)).filter(Boolean) as [number, number][];
+  if (q.length < 3) return null;
+  let a = 0;
+  let cx = 0;
+  let cy = 0;
+  for (let i = 0; i < q.length; i++) {
+    const [x0, y0] = q[i];
+    const [x1, y1] = q[(i + 1) % q.length];
+    const c = x0 * y1 - x1 * y0;
+    a += c;
+    cx += (x0 + x1) * c;
+    cy += (y0 + y1) * c;
+  }
+  const xs = q.map((p) => p[0]);
+  if (Math.abs(a) < 1e-9) return null;
+  return { x: cx / (3 * a), y: cy / (3 * a), w: Math.max(...xs) - Math.min(...xs) };
+}
+
+/** An event pin as drawn: its airport and the screen-px offset from the airport dot. */
+export interface EventPin { eventId: string; at: string; kind: WorldEventKind; title: string; off: [number, number] }
+
+/** Event glyph gap (screen px) between pins at one airport. */
+export const EVENT_PIN_GAP = 24;
+
+/**
+ * Screen-px offsets for event pins: on the spot at an airport with nothing else drawn; up-left of the dot where we
+ * already mark the airport (code above, parked aircraft right) or an offer diamond sits (left); several at one airport
+ * step further left. Pure.
+ */
+export function placeEventPins(pins: { eventId: string; at: string; kind: WorldEventKind; title: string }[], marked: Set<string>, offerAt: Set<string>): EventPin[] {
+  const n = new Map<string, number>();
+  return pins.map((p) => {
+    const i = n.get(p.at) ?? 0;
+    n.set(p.at, i + 1);
+    const busy = marked.has(p.at) || offerAt.has(p.at);
+    const off: [number, number] = busy ? [-22 - i * EVENT_PIN_GAP, -20] : [-i * EVENT_PIN_GAP, 0];
+    return { ...p, off };
+  });
+}
+
+/** Pin tone by kind: closures and fighting muted red, ash grey, the rest amber. */
+export const EVENT_TONE: Record<WorldEventKind, 'bad' | 'warn' | 'ash'> = {
+  coup: 'bad', war: 'bad', unrest: 'bad', airspace: 'bad', strike: 'warn', disaster: 'warn', airlineFailure: 'warn', engineCrisis: 'warn', recession: 'warn', ash: 'ash',
+};
+
+/** v0.8: an aircraft dry-leased out (with the lessee, at their base). */
+export const leasedOut = (ac: Aircraft) => ac.status === 'leasedOut';
+
+/** Event kind in the panel kicker. */
+export const EVENT_KIND_LABEL: Record<WorldEventKind, string> = {
+  coup: 'Coup', strike: 'Strike', ash: 'Volcanic ash', disaster: 'Disaster', airlineFailure: 'Airline failure', war: 'War', airspace: 'Airspace closure',
+  unrest: 'Unrest', engineCrisis: 'Engine crisis', recession: 'Recession',
+};

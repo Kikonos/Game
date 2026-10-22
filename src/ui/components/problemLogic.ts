@@ -246,6 +246,11 @@ export function actionTarget(g: GameState, a: ProblemAction): ActionTarget {
     case 'aircraft': return { nav: { tab: 'fleet', sel: { kind: 'aircraft', id } } };
     case 'crew': return { nav: { tab: 'crew', sel: { kind: 'crew', id } } };
     case 'contract': return { nav: { tab: 'contracts', view: 'active', sel: { kind: 'contract', id } } };
+    // v0.8 World.
+    case 'client': return { modal: { kind: 'client', clientId: id } };
+    case 'rival': return { modal: { kind: 'rival', rivalId: id } };
+    case 'worldEvent': return { modal: { kind: 'worldEvent', eventId: id } };
+    case 'outlook': return { modal: { kind: 'outlook' } };
   }
   return null;
 }

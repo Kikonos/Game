@@ -1,9 +1,8 @@
 // Company (B5): reputation, approvals (apply, progress), policies and goals; competitors for context.
 // v0.7: the Ladder across the top (Ladder.tsx); IOSA and DG stay below as other approvals. DESIGN.md §6.3.
 
-import { Award, BadgeCheck, Building2, Flag as FlagIcon, Palette, Settings2, ShieldCheck, Target } from 'lucide-react';
-import { flag } from '../../data/countries';
-import { rivalFleetText } from '../../engine/contracts/clients';
+import { Award, BadgeCheck, Building2, ChevronRight, Flag as FlagIcon, Medal, Palette, Settings2, ShieldCheck, Target } from 'lucide-react';
+import { rivalSummary, standing, STANDING_NAME } from '../../engine/contracts';
 import { BAL } from '../../engine/core/balance';
 import { fmtDate } from '../../engine/core/time';
 import type { GameState, Policies } from '../../engine/core/types';
@@ -12,11 +11,41 @@ import { APPROVALS, applyApproval, approvalBlocker, GOALS, liveryOf, paintStatus
 import { moraleSummary, policyPreview } from '../../engine/crew';
 import { AircraftArt } from '../components/AircraftArt';
 import { TailBadge } from '../components/Logo';
-import { Bar, Card, Seg, Stepper, Toggle } from '../components/ui';
+import { Bar, Card, Seg, Stepper, Tabs, Toggle } from '../components/ui';
 import { money } from '../format';
 import { store, useGame } from '../store';
 import { KV, ScreenHead, useRenderCount } from './common';
 import { LadderCard } from './Ladder';
+import { ClientsView } from './Clients';
+import { RivalsView } from './Rivals';
+
+type View = 'overview' | 'clients' | 'rivals';
+
+/** v0.8 company standing (§1.6): three static steps, what this one brings, what is missing for the next. */
+export function StandingCard({ g }: { g: GameState }) {
+  const st = standing(g);
+  return (
+    <Card title="Standing" icon={<Medal className="ico" />} sub={st.text}>
+      <div className="v8-tiers" role="img" aria-label={`Standing: ${st.name}`}>
+        {([0, 1, 2] as const).map((t) => (
+          <span key={t} className={`v8-tier ${t === st.tier ? 'on' : t < st.tier ? 'past' : ''}`}>{STANDING_NAME[t]}</span>
+        ))}
+      </div>
+      <ul className="v8-lines mt-8">{st.effects.map((e) => <li key={e}>{e}</li>)}</ul>
+      {st.progress.length > 0 && (
+        <div className="col gap-8 mt-8">
+          {st.progress.map((p) => (
+            <div key={p.label} className="v8-prog">
+              <div className="row between small"><span className="muted">{p.label}</span><span className={`num ${p.have >= p.need ? 'good' : ''}`}>{p.have} / {p.need}</span></div>
+              <Bar value={p.need ? p.have / p.need : 1} size="thin" tone={p.have >= p.need ? 'good' : undefined} />
+            </div>
+          ))}
+        </div>
+      )}
+      {st.next && <div className="small mt-8"><span className="muted">Still needed:</span> {st.next}</div>}
+    </Card>
+  );
+}
 
 /** v0.7: approvals outside the Ladder (IOSA, DG). */
 const OTHER = new Set(['iosa', 'dg']);
@@ -205,14 +234,36 @@ export function CompanyScreen() {
   const g = useGame();
   const c = g.company;
   const fleet = Object.values(g.fleet).length;
+  // v0.8: Overview · Clients · Rivals (older deep links such as 'ladder' land on the overview).
+  const nv = store.nav.view;
+  const view: View = nv === 'clients' || nv === 'rivals' ? nv : 'overview';
+  const nClients = Object.values(g.clients).filter((x) => (x.jobs ?? 0) > 0 || Object.values(g.contracts).some((k) => k.clientId === x.id && (k.status === 'signed' || k.status === 'active'))).length;
   return (
-    <div className="screen sc-company">
-      <ScreenHead title={c.name} sub={`${c.icao} · callsign ${c.callsign} · home base ${c.homeBase}${c.ceo && c.ceo !== 'You' ? ` · CEO ${c.ceo}` : ''}`} />
+    <div className={`screen sc-company v8-company ${view}`}>
+      <ScreenHead title={c.name} sub={`${c.icao} · callsign ${c.callsign} · home base ${c.homeBase}${c.ceo && c.ceo !== 'You' ? ` · CEO ${c.ceo}` : ''}`}>
+        <Tabs<View> value={view} onChange={(v) => store.navigate('company', { view: v })} tabs={[
+          { id: 'overview', label: 'Overview' },
+          { id: 'clients', label: 'Clients', count: nClients || undefined },
+          { id: 'rivals', label: 'Rivals', count: g.rivals.filter((r) => (r.status ?? 'active') === 'active').length || undefined },
+        ]} />
+      </ScreenHead>
+      {view === 'clients' && <ClientsView g={g} />}
+      {view === 'rivals' && <RivalsView g={g} />}
+      {view === 'overview' && <Overview g={g} fleet={fleet} />}
+    </div>
+  );
+}
+
+function Overview({ g, fleet }: { g: GameState; fleet: number }) {
+  const c = g.company;
+  return (
+    <>
       <LadderCard g={g} />
       <div className="sc-company-cols">
         <div className="col gap-16">
           <LiveryCard g={g} />
           <Card title="Reputation" icon={<ShieldCheck className="ico" />}><Reputation g={g} /></Card>
+          <StandingCard g={g} />
           <Card title="Goals" icon={<FlagIcon className="ico" />}><Goals g={g} /></Card>
           <Card title="Company" icon={<Building2 className="ico" />}>
             <KV rows={[
@@ -227,22 +278,12 @@ export function CompanyScreen() {
           <Card title="Policies" icon={<Settings2 className="ico" />}><PolicyForm g={g} /></Card>
           <Card title="Other approvals" icon={<BadgeCheck className="ico" />} bodyClass="flush"><Approvals g={g} /></Card>
           {g.rivals.length > 0 && (
-            <Card title="Competitors" sub="Other ACMI and charter operators bidding for the same work" bodyClass="flush">
-              <div className="sc-list">
-                {g.rivals.map((r) => (
-                  <div key={r.id} className="sc-list-row">
-                    <span className="sc-flag-s" aria-hidden>{flag(r.country)}</span>
-                    <div className="grow" style={{ minWidth: 0 }}>
-                      <b className="ellipsis">{r.name}</b>
-                      <div className="small muted ellipsis">{rivalFleetText(r)}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </Card>
+            <button className="card v8-rivals-link" onClick={() => store.navigate('company', { view: 'rivals' })}>
+              <span className="grow">{rivalSummary(g)}</span><ChevronRight className="sc-ico-s dim" />
+            </button>
           )}
         </div>
       </div>
-    </div>
+    </>
   );
 }

@@ -341,3 +341,58 @@ div.worldmap { overflow: clip; }
 /* v0.7.3 crew rest: the two-sided rest chip may wrap (a soft box, not a pill); the airborne resting line is static text. */
 .op-chips .op-rest-chip { white-space: normal; border-radius: 10px; line-height: 1.3; height: auto; min-height: 0; padding-top: 4px; padding-bottom: 4px; text-align: left; }
 .op-resting { line-height: 1.4; }
+
+/* ---------- v0.8 world events (static: zones painted with the land, pins and labels never animate) ---------- */
+.ops-zones path { vector-effect: non-scaling-stroke; }
+.ops-zones .zone .fill { stroke: none; }
+.ops-zones .zone .hatch-fill { stroke: none; }
+.ops-zones .zone .edge { fill: none; stroke-linejoin: round; }
+.ops-zones .hatch { stroke: rgba(232, 108, 98, 0.42); }
+.ops-zones .zone.closed .fill { fill: rgba(214, 92, 84, 0.18); }
+.ops-zones .zone.closed .edge { stroke: rgba(232, 118, 108, 0.6); stroke-width: 1.1; }
+.ops-zones .zone.warRisk .fill { fill: rgba(240, 170, 60, 0.05); }
+.ops-zones .zone.warRisk .edge { stroke: rgba(245, 180, 70, 0.75); stroke-width: 1.2; stroke-dasharray: 6 4; }
+.ops-zones .zone.ash .fill { fill: rgba(160, 168, 182, 0.22); }
+.ops-zones .zone.ash .edge { stroke: rgba(190, 198, 212, 0.45); stroke-width: 1; }
+.ops-zone-labels .zone-sel { fill: none; stroke: #fff; stroke-opacity: 0.7; stroke-width: 1.5; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.ops-zone-labels .zone-label {
+  font: 600 11px var(--font-mono); letter-spacing: 0.04em; text-anchor: middle; fill: #f3c1bb;
+  paint-order: stroke; stroke: rgba(5, 9, 18, 0.85); stroke-width: 3px; stroke-linejoin: round;
+}
+.ops-zone-labels .warRisk .zone-label { fill: #fcd9a0; }
+.ops-zone-labels .ash .zone-label { fill: #d6dbe4; }
+
+.ops-ev { cursor: pointer; }
+.ops-ev .hit { fill: transparent; stroke: none; }
+.ops-ev .disc { fill: #1a2234; stroke-width: 1.6; }
+.ops-ev .glyph { pointer-events: none; }
+.ops-ev.bad .disc { stroke: #e8766c; }
+.ops-ev.bad .glyph { color: #f4a49b; }
+.ops-ev.warn .disc { stroke: var(--warn); }
+.ops-ev.warn .glyph { color: #fde68a; }
+.ops-ev.ash .disc { stroke: #aab3c3; }
+.ops-ev.ash .glyph { color: #dfe4ec; }
+.ops-ev .sel-ring { fill: rgba(255, 255, 255, 0.08); stroke: #fff; stroke-width: 1.5; }
+
+/* v0.8 LEASED tag (static, grey): a dry-leased-out aircraft at the lessee's base; under the icon like DELIVERY. */
+.ops-ac .op-leased-tag {
+  display: none; fill: #b5bdcc; font: 700 9.5px var(--font-mono); letter-spacing: 0.06em; text-anchor: middle; pointer-events: none;
+  paint-order: stroke; stroke: rgba(5, 9, 18, 0.92); stroke-width: 3px; stroke-linejoin: round;
+}
+.ops-ac.lsd .op-leased-tag { display: block; transform: translateY(42px); }
+.ops-ac.lsd:not([data-phase='airborne']) .reg { transform: translateY(13px); }
+.touch .ops-ac .op-leased-tag { font-size: 10.5px; }
+.op-leased-tag.chip { color: #c3cad6; border-color: rgba(195, 202, 214, 0.4); font: 700 12px var(--font-mono); letter-spacing: 0.06em; }
+
+/* Event panel and leg lines. */
+.op-ev-kicker { display: inline-flex; align-items: center; gap: 6px; }
+.op-ev-kicker svg { width: 14px; height: 14px; }
+.op-ev-kicker.bad svg { color: #f4a49b; }
+.op-ev-kicker.warn svg { color: var(--warn); }
+.op-ev-body { color: var(--text-2); line-height: 1.45; }
+.op-ev-effects { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text-2); line-height: 1.4; }
+.op-zone-chip.closed { color: #f4a49b; }
+.op-zone-chip.warRisk { color: #fcd9a0; }
+.op-zone.held { color: var(--warn); }
+.op-zone.detour { color: var(--text-2); }
+.op-zone.warRisk { color: #fcd9a0; }

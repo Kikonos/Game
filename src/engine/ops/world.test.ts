@@ -62,6 +62,11 @@ describe('closures (§5.4)', () => {
     expect(into.fl[0].std).toBe(e.end + 3 * 60);
     expect(into.fl[1].std).toBeGreaterThan(into.fl[0].std);
     expect(g.clients[into.c.clientId].relation).toBe(rel0);
+    // A leg of the same programme caught later follows that answer: no second question.
+    delete into.fl[1].closedBy;
+    dailyWorld(g);
+    expect(g.decisions.some((x) => x.kind === 'airspace' && x.data?.contractId === into.c.id)).toBe(false);
+    expect(into.fl[1].closedBy).toBe(e.id);
     // Views for the UI and map.
     expect(worldEvent(g, e.id)?.active).toBe(true);
     expect(worldEvents(g, { active: true }).map((x) => x.id)).toContain(e.id);

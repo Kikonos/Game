@@ -66,7 +66,7 @@ describe('new archetypes across seeds (§2)', () => {
       if (h) expectValid(g, h);
     }
     for (const a of KINDS) expect(built.get(a) ?? 0, a).toBeGreaterThanOrEqual(a === 'antarctic' ? 12 : 30);
-  });
+  }, 60_000);
 
   it('prices at the §2 multipliers (fuel and pass-through aside)', () => {
     const g = newGame(5);

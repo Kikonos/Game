@@ -283,9 +283,17 @@ function makeWork(g: GameState, e: WorldEvent, n: number): void {
     const pair = z?.staging?.find(([a, b]) => AIRPORT_BY_CODE[a] && AIRPORT_BY_CODE[b]);
     const cover = (t?.coverFor ?? []).map((name) => Object.values(g.clients).find((c) => c.name === name)).find((c) => !!c);
     const rivalClients = e.rivalId ? Object.values(g.clients).filter((c) => c.kind === 'airline' && !c.rivalId && AIRPORT_BY_CODE[c.base]?.continent === 'EU') : [];
-    const client = cover?.id ?? (rivalClients.length ? pick(g, rivalClients).id : undefined);
-    const at = kind === 'evacuation' && pair ? pair[0] : e.at;
-    const o = eventOffer(g, kind, at, e.id, { staging: pair?.[1], client, sar: e.kind === 'disaster' });
+    // The work is drawn from the event's own stream: an event never shifts the game's main random sequence.
+    const main = g.rng;
+    g.rng = hash(`${g.seed}:work:${e.id}:${e.offerIds.length}:${kind}`) | 0;
+    let o: ReturnType<typeof eventOffer> = null;
+    try {
+      const client = cover?.id ?? (rivalClients.length ? pick(g, rivalClients).id : undefined);
+      const at = kind === 'evacuation' && pair ? pair[0] : e.at;
+      o = eventOffer(g, kind, at, e.id, { staging: pair?.[1], client, sar: e.kind === 'disaster' });
+    } finally {
+      g.rng = main;
+    }
     if (o) e.offerIds.push(o.id);
   }
 }
@@ -354,6 +362,18 @@ function applyClosure(g: GameState, e: WorldEvent, first: boolean, again = false
       waitLegs(g, k, e);
       continue;
     }
+    // Legs of a programme the player was already asked about for this closure join that question or follow its
+    // answer (no new question every day).
+    if (g.decisions.some((d) => d.kind === 'airspace' && d.data?.eventId === e.id && d.data?.contractId === k.id)) continue;
+    const prior = Object.values(g.flights).filter((f) => f.contractId === k.id && f.closedBy === e.id && !legs.includes(f));
+    if (prior.some((f) => f.status === 'scheduled')) {
+      waitLegs(g, k, e);
+      continue;
+    }
+    if (prior.some((f) => f.status === 'cancelled')) {
+      cancelForceMajeure(g, legs, `Cancelled: ${e.title}`);
+      continue;
+    }
     ask(g, {
       kind: 'airspace', title: `${e.title}: ${legs.length} leg${legs.length > 1 ? 's' : ''} of ${k.title}`,
       body: `${legs.map((f) => `${f.no} ${f.from}–${f.to}`).slice(0, 3).join(', ')} cannot fly while it is closed (until about ${fmtDay(until)}). Force majeure: no penalty either way.`,
@@ -377,16 +397,32 @@ function applyClosure(g: GameState, e: WorldEvent, first: boolean, again = false
 /** When flights may use the closed airport again. */
 const closedUntil = (e: WorldEvent) => (e.closed ? e.end : Math.min(e.end, e.airportClosedUntil ?? e.end));
 
-/** Wait: the contract's held legs (and its later legs on that aircraft) move to 3 h after the reopening, spacing kept. */
+/**
+ * Wait: the contract's held legs move to 3 h after the reopening, their spacing kept; its later legs on that aircraft
+ * move only as far as the turn needs (a long programme is not pushed back by the whole closure).
+ */
 function waitLegs(g: GameState, k: Contract, e: WorldEvent): number {
   const until = closedUntil(e) + 3 * 60;
   const held = Object.values(g.flights).filter((f) => f.contractId === k.id && f.status === 'scheduled' && f.closedBy === e.id && f.std < until).sort((a, b) => a.std - b.std);
   if (!held.length) return 0;
   const shift = until - held[0].std;
   if (shift <= 0) return 0;
-  const later = Object.values(g.flights).filter((f) => f.contractId === k.id && f.status === 'scheduled' && f.aircraftId && f.std >= held[0].std).sort((a, b) => a.std - b.std);
-  for (const f of later) moveFlight(g, f, f.std + shift, `Waiting: ${e.title}`);
-  return later.length;
+  const ids = new Set(held.map((f) => f.id));
+  const later = Object.values(g.flights).filter((f) => f.contractId === k.id && f.status === 'scheduled' && f.aircraftId && f.std >= held[0].std && !ids.has(f.id)).sort((a, b) => a.std - b.std);
+  let moved = 0;
+  for (const f of held) {
+    moveFlight(g, f, f.std + shift, `Waiting: ${e.title}`);
+    moved++;
+  }
+  const turn = (f: Flight) => (f.aircraftId && g.fleet[f.aircraftId] ? typeOf(g.fleet[f.aircraftId].typeId).turnMin : 45);
+  let ready = held[held.length - 1].sta + turn(held[held.length - 1]);
+  for (const f of later) {
+    if (f.std >= ready) break;
+    moveFlight(g, f, ready, `Waiting: ${e.title}`);
+    ready = f.sta + turn(f);
+    moved++;
+  }
+  return moved;
 }
 
 /** Resolver of 'airspace' decisions: wait (retime) or cancel as force majeure. */
