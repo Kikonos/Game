@@ -35,15 +35,25 @@ export function fitStrip(items: FitItem[], room: number, gap: number, plusW: num
     return vis.reduce((s, i) => s + w(i), 0) + gap * Math.max(0, vis.length - 1 + (extra ? 1 : 0)) + extra;
   };
   const warns = items.filter((i) => i.warn);
+  // A dropped fact comes back when it fits in the room a wider, higher-priority one left (no empty gap).
+  const refill = () => {
+    for (const id of [...DROP].reverse()) {
+      if (show.has(id) || !items.some((i) => i.id === id)) continue;
+      show.add(id);
+      if (width() > room) show.delete(id);
+    }
+    return { show, folded: 0, slim };
+  };
   for (const id of DROP) {
-    if (width() <= room) return { show, folded: 0, slim };
+    if (width() <= room) return refill();
     if (id === 'onTime' && warns.length) {
       slim = true;
-      if (width() <= room) return { show, folded: 0, slim };
+      if (width() <= room) return refill();
     }
     show.delete(id);
   }
   if (warns.length) slim = true;
+  if (width() <= room) return refill();
   let folded = 0;
   while (width(folded ? plusW : 0) > room && warns.length - folded > 1) {
     folded++;

@@ -160,7 +160,7 @@ export function restSeatsCard(g: GameState, flightId: string): ProblemCard | nul
     title: `${f.no} can sell ${sellable} of ${total} seats`, what: `${f.no} can sell ${sellable} of ${total} seats`,
     why: `The ${d ? fmtDuration(d.fdp) : 'long'} duty needs in-flight rest and ${ac.reg} has no bunks, so the last row is curtained off.`,
     hurt: n > 0
-      ? { ...mkHurt({ money, pax: n, what: 'compensation' }), text: `Yes: ${n} passenger${n > 1 ? 's' : ''} offloaded, ${usdShort(money)}` }
+      ? { ...mkHurt({ money, pax: n, what: 'compensation' }), text: `Yes: ${n} passenger${n > 1 ? 's' : ''} ${off ? 'offloaded' : 'to offload at departure'}, ${usdShort(money)}` }
       : { ...mkHurt({}), text: `Not much: the load is ${pax || 'below the sellable seats'}` },
     actions: [
       { id: 'schedule', label: 'Swap aircraft', open: { tab: 'schedule', sel: { kind: 'flight', id: f.id } }, primary: true },

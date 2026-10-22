@@ -120,8 +120,9 @@ function blockersOf(g: GameState, ac: Aircraft, closes: Minute): { lines: string
     n.set(k, (n.get(k) ?? 0) + 1);
   }
   const lines = [...n].map(([k, c]) => `${k ? g.contracts[k]?.title ?? 'A contract' : 'Other flights'}: ${c} leg${c > 1 ? 's' : ''} after ${fmtDay(leave)}`);
+  // Only base deployments roll legs forward (not yet built); other patterns' legs all exist, so moved or sub-chartered ones no longer block.
   for (const c of Object.values(g.contracts)) {
-    if ((c.status === 'signed' || c.status === 'active') && c.aircraftIds.includes(ac.id) && !n.has(c.id) && (c.pattern.kind === 'base' ? c.pattern.to : c.end) > leave) lines.push(`${c.title}: runs to ${fmtDay(c.pattern.kind === 'base' ? c.pattern.to : c.end)}`);
+    if ((c.status === 'signed' || c.status === 'active') && c.pattern.kind === 'base' && c.aircraftIds.includes(ac.id) && !n.has(c.id) && c.pattern.to > leave) lines.push(`${c.title}: runs to ${fmtDay(c.pattern.to)}`);
   }
   let booking: SaleBooking | null = null;
   for (const m of Object.values(g.maintenance)) {
@@ -213,7 +214,7 @@ export function onSaleClose(g: GameState, ev: SimEvent): void {
   const gain = s.price - book;
   pushMessage(g, {
     tone: 'good', cat: 'company', title: `${ac.reg} sold to ${s.buyer}`,
-    body: `${ac.reg} sold to ${s.buyer} for ${usd(s.price)}. Handed over at ${ac.at}; a ${usd(Math.abs(gain))} ${gain >= 0 ? 'gain' : 'loss'} over book value.${kept}`,
+    body: `${ac.reg} sold to ${s.buyer} for ${usd(s.price)}. Handed over at ${ac.at}; a ${usd(Math.abs(gain))} ${gain >= 0 ? 'gain over' : 'loss against'} book value.${kept}`,
   });
 }
 

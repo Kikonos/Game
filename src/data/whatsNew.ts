@@ -18,7 +18,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     features: [
       'Real EASA flight time rules for pilots and cabin crew, written up from the regulation: duty limits by report time and sectors, in-flight rest by rest facility class, rest, and the yearly limits.',
       "Crew rest per aircraft: some widebodies have bunks, some don't. Without bunks you can curtain off the last economy row as crew rest seats; they still sell when nobody needs to rest.",
-      'Pursers and cabin crew: CSD and SCC are now simply PUR, one per aircraft (two on the A380).',
+      'Pursers and cabin crew: CSD and SCC are now simply PUR, the purser in charge of the cabin: one on every flight (two on the A380 and 747).',
       "Captains can fly as first officers when no first officer is free. They keep their pay, but don't like it more than twice a month.",
       'Hire flight attendants for up to three aircraft types at once; they join in about a week.',
       "Sell owned aircraft and hand leased ones back early. 'Which one?' points at the least used.",

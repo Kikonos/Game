@@ -52,6 +52,13 @@ describe('v0.7.2 ops strip fit', () => {
     expect(wide.slim).toBe(false);
     expect(wide.show.has('crew')).toBe(false);
   });
+  it('a smaller fact fills the room NEXT could not (no empty gap beside two warnings)', () => {
+    const it = [{ id: 'crewShort' as const, warn: true, w: 170, ws: 128 }, { id: 'market' as const, warn: true, w: 170, ws: 134 }, ...items([])];
+    // slim warnings 128+8+134 = 270; + NEXT 188 = 458 > 395; + AIRBORNE 88 = 358.
+    const r = fitStrip(it, 395, 8, 52);
+    expect([...r.show].sort()).toEqual(['airborne', 'crewShort', 'market']);
+    expect(r.slim).toBe(true);
+  });
 });
 
 describe('v0.7.2 sub-charter Hurts chips', () => {

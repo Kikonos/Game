@@ -1191,7 +1191,8 @@ const resignRate = ((g.stats.resigned ?? 0) + staffNow.filter((c) => c.notice).l
 const softTargets: [string, boolean, string][] = [];
 const targets: [string, boolean, string][] = [
   ['no exceptions, no NaN/Infinity', errors.length === 0, errors.length ? errors[0].split('\n')[0] : 'clean'],
-  ['solvent all year (no game over, cash < 0 ≤ rescue days)', !g.gameOver && negMaxDays <= BAL.rescueDays && g.company.cash >= 0, g.gameOver ? g.gameOver.reason : `month-end low ${k$(minCash)}, end ${k$(g.company.cash)}, longest below 0 ${Math.round(negMaxDays)} days`],
+  // v0.7.2 below zero past the rescue window fails (the rescue offer would come); a month-end below 0 warns (soft).
+  ['solvent all year (no game over, cash < 0 ≤ rescue days)', !g.gameOver && negMaxDays <= BAL.rescueDays, g.gameOver ? g.gameOver.reason : `month-end low ${k$(minCash)}, end ${k$(g.company.cash)}, longest below 0 ${Math.round(negMaxDays)} days`],
   ['summer BH per aircraft 180–320', summerBH >= 180 && summerBH <= 320, summerBH.toFixed(0)],
   ['year net margin −5%…+12% (ex Ladder fees)', marginEx >= -0.05 && marginEx <= 0.12, `${(marginEx * 100).toFixed(1)}% ex ${k$(ladderFees)} approvals; ${(margin * 100).toFixed(1)}% all in (${k$(profitY)} on ${k$(revenueY)})`],
   ['no illegal duties flown (FDP + crew)', illegalOf(s) === 0, `${illegalOf(s)} (FDP ${s.illegalFlown ?? 0}, crew ${s.illegalCrewFlown ?? 0})`],
@@ -1264,6 +1265,7 @@ console.log(
   targets.push(['C-check ferries: 0 illegal duties', illegalAtCheck === 0, `${checkLegs.size} legs, ${illegalAtCheck} illegal`]);
   // v0.7.1 runs end at 90–97 from a 60 start; sub-chartering (F3) may take a few points of it.
   softTargets.push(['reliability ends ≥ 85 (v0.7.1: 90–97)', g.company.reputation.reliable >= 85, `${reliable0.toFixed(1)} → ${g.company.reputation.reliable.toFixed(1)} (sub-charters ${s.subHit ?? 0})`]);
+  softTargets.push(['month-end cash ≥ 0 and the year ends ≥ 0 (v0.7.1 seed 6: −2657k low)', minCash >= 0 && g.company.cash >= 0, `month-end low ${k$(minCash)}, end ${k$(g.company.cash)}`]);
   softTargets.push(['captains as FO ≤ 24 duties a year', (s.asFo ?? 0) <= 24 * (days / 365), `${s.asFo ?? 0}`]);
   targets.push(['delivery ferries: 0 illegal duties, no wait > 30 days', illegalAtFerry === 0 && maxWait <= 30, `${ferryLegs.size} legs, ${illegalAtFerry} illegal, longest wait ${maxWait.toFixed(0)} days`]);
 }
