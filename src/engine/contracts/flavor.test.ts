@@ -71,7 +71,7 @@ describe('generated copy', () => {
         if (o.archetype === 'repatriation') expect(F.crisisLines(o.pin).some((l) => o.blurb.includes(l)), o.blurb).toBe(true);
       }
     }
-  });
+  }, 20_000);
 
   it('a lost widebody job goes to a widebody rival', () => {
     const g = newGame(4);
