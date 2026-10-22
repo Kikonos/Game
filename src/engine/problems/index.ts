@@ -6,7 +6,7 @@ import { flightsRev } from '../core/entities';
 import { pushMessage } from '../core/messages';
 import type { GameState, Message, MessageCat, ProblemKind, ProblemRef, Ref } from '../core/types';
 import { crewRev } from '../crew/timeline';
-import { captainAsFoCard, crewFlightCard, crewProblems, crewResignedCard, crewSickCard, restSeatsCard } from './crew';
+import { cabinRestCard, captainAsFoCard, crewFlightCard, crewProblems, crewResignedCard, crewSickCard, restFacilityCard, restSeatsCard, restTooShortCard } from './crew';
 import { changeRequestCard, commercialProblems, contractCancelledCard, counterExpiryCard, offerFitCard, penaltyCard } from './commercial';
 import { deliveryWaitCard, ferryUncrewedCard, fleetProblems, leaseReturnCard, refitMissedCard, saleCard } from './fleet';
 import { cashLowCard, invoiceOverdueCard, leaseDueCard, lossMonthCard, moneyProblems } from './money';
@@ -16,7 +16,7 @@ import { hurtBadges, type ProblemCard } from './types';
 export { hurtBadges, lateText, limitTone, mkHurt, usdShort } from './types';
 export type { GaugeSpec, Hurt, MiniMapSpec, ProblemAction, ProblemCard, ReachSpec, TimelineSpec } from './types';
 export type { ProblemKind, ProblemRef };
-export { crewFlightCard, crewSickCard, crewResignedCard, aogCard, checkCard, checkClashCard, noSlotCard, offerFitCard, counterExpiryCard, changeRequestCard, contractCancelledCard, cashLowCard, invoiceOverdueCard, lossMonthCard, leaseDueCard, deliveryWaitCard, ferryUncrewedCard, refitMissedCard, leaseReturnCard, captainAsFoCard, restSeatsCard, saleCard };
+export { crewFlightCard, crewSickCard, crewResignedCard, aogCard, checkCard, checkClashCard, noSlotCard, offerFitCard, counterExpiryCard, changeRequestCard, contractCancelledCard, cashLowCard, invoiceOverdueCard, lossMonthCard, leaseDueCard, deliveryWaitCard, ferryUncrewedCard, refitMissedCard, leaseReturnCard, captainAsFoCard, restSeatsCard, saleCard, restFacilityCard, restTooShortCard, cabinRestCard };
 
 /** The card for one problem (null = no problem, or not any more). Pure. */
 export function problemFor(g: GameState, subject: ProblemRef): ProblemCard | null {
@@ -51,6 +51,10 @@ export function problemFor(g: GameState, subject: ProblemRef): ProblemCard | nul
     case 'restSeats': return restSeatsCard(g, id);
     case 'captainAsFo': return captainAsFoCard(g, id);
     case 'sale': return saleCard(g, id);
+    // v0.7.3 (ref: the duty's first flight)
+    case 'restFacility': return restFacilityCard(g, id);
+    case 'restTooShort': return restTooShortCard(g, id);
+    case 'cabinRest': return cabinRestCard(g, id);
   }
 }
 
@@ -60,6 +64,8 @@ const KIND_RANK: ProblemKind[] = [
   'invoiceOverdue', 'checkDue', 'checkNoSlot', 'offerFit', 'leaseReturn', 'leaseDue', 'refit', 'crewResigned', 'crewTight', 'lossMonth', 'penalty', 'contractCancelled', 'crewReach', 'crewRest', 'crewFdp', 'goalMiss',
   // v0.7.2
   'restSeats', 'captainAsFo', 'sale',
+  // v0.7.3
+  'restTooShort', 'restFacility', 'cabinRest',
 ];
 const rankOf = (c: ProblemCard) => SEV[c.severity] * 100 + KIND_RANK.indexOf(c.subject.kind);
 

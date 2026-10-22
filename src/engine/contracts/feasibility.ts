@@ -7,7 +7,7 @@ import { flightsOf } from '../core/entities';
 import { distanceNm } from '../core/geo';
 import { blockMinutes, complement, etopsNeeded, maxSectorNm, planSector, reportMinutes, runwayFit, typeOf } from '../core/perf';
 import { DAY, fmtDate, fmtDateTime, fmtDay, fmtDuration, toDate } from '../core/time';
-import type { Aircraft, ApprovalId, ContractOffer, CrewExtra, GameState, Minute } from '../core/types';
+import type { Aircraft, ApprovalId, ContractOffer, CrewExtra, GameState, Minute, RestRefitId } from '../core/types';
 import { crewAvailability, offerExtra, restClassAt, type Availability } from '../crew';
 import { minRest } from '../crew/rules';
 import { dhBlock } from '../crew/timeline';
@@ -19,7 +19,7 @@ import { paintQuote, paintWindow, type PaintSlot } from './paintTerms';
 import { possessive } from './flavor';
 import { productValue, tripTickets } from './pricing';
 
-export type CheckId = 'seats' | 'layout' | 'family' | 'range' | 'runway' | 'etops' | 'approvals' | 'availability' | 'maintenance' | 'crew' | 'positioning' | 'lease' | 'paint' | 'restSeats';
+export type CheckId = 'seats' | 'layout' | 'family' | 'range' | 'runway' | 'etops' | 'approvals' | 'availability' | 'maintenance' | 'crew' | 'positioning' | 'lease' | 'paint' | 'restSeats' | /** v0.7.3 */ 'rest';
 export type CheckLevel = 'ok' | 'warn' | 'no';
 
 export interface FeasibilityCheck {
@@ -28,7 +28,7 @@ export interface FeasibilityCheck {
   label: string;
   detail?: string;
   /** v0.7: a fix the offer screen can start ("Plan refit…"). */
-  action?: { kind: 'refit'; layout: CabinLayout };
+  action?: { kind: 'refit'; layout: CabinLayout } | /** v0.7.3 */ { kind: 'restRefit'; option: RestRefitId; /** absent (lets older UI code read .layout) */ layout?: undefined };
 }
 
 /** One empty leg of a positioning plan (built with planSector; a fuel stop makes two legs, each an FTL sector). */
@@ -598,4 +598,12 @@ export function marketFit(g: GameState, offerId: string): MarketFit | null {
     best = { marketOfferId: m.id, typeId: m.typeId, deliversBy };
   }
   return best;
+}
+
+/**
+ * v0.7.3 for long-haul offers (longest chain + report over 13 h on the smallest fitting widebody type): 'Longest day
+ * 15:40 · needs 3 pilots + bunks, or 4 pilots + business seats'; null otherwise. Pure. STUB
+ */
+export function offerRestLine(_g: GameState, _offerId: string): string | null {
+  return null;
 }

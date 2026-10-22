@@ -10,7 +10,7 @@ import { DAY, fmtDate } from '../core/time';
 import type { ActionResult, Aircraft, ApprovalId, GameState, HotelTier, Minute, PendingApproval, Policies, SimEvent } from '../core/types';
 import { clamp } from '../core/util';
 import { familyLabel } from '../crew/conversion';
-import { restClassAt } from '../crew/crewRest';
+import { restOf } from '../crew/restPlan';
 import { usd } from './util';
 
 export interface ApprovalDef {
@@ -190,8 +190,9 @@ function reqsOf(g: GameState, id: ApprovalId, booked: boolean): Req[] {
     }
     case 'augmented': {
       out.push({ label: 'Widebody operations held', ok: g.company.approvals.includes('widebody'), why: 'Needs Widebody operations first' });
-      const acs = fleetD.filter((a) => typeOf(a.typeId).body === 'wide' && restClassAt(g, a.id) !== null);
-      out.push({ label: 'A widebody with crew rest in the fleet or delivering', ok: acs.length > 0, why: 'Needs a widebody with a crew rest in the fleet or on order' });
+      // v0.7.3 in-flight rest for both the pilots and the cabin crew (any class).
+      const acs = fleetD.filter((a) => { const r = restOf(g, a.id); return typeOf(a.typeId).body === 'wide' && !!r.fc && !!r.cc; });
+      out.push({ label: 'A widebody with crew rest in the fleet or delivering', ok: acs.length > 0, why: 'Needs a widebody with crew rest for both pilots and cabin crew in the fleet or on order' });
       out.push(crewReq(g, wideFamilies(), 6, false, 'a widebody family'));
       out.push(reliabilityReq(g, 65));
       break;
@@ -212,8 +213,9 @@ function reqsOf(g: GameState, id: ApprovalId, booked: boolean): Req[] {
       out.push({ label: 'ETOPS 240 and augmented crews held', ok: ['etops240', 'augmented'].every((x) => g.company.approvals.includes(x as ApprovalId)), why: 'Needs ETOPS 240 and Long-haul augmented crews first' });
       const n = g.stats.augmentedDuties ?? 0;
       out.push({ label: '20 augmented duties flown', ok: n >= 20, have: `${n}`, need: '20', why: `Needs 20 augmented duties flown (${n} so far)` });
-      const acs = fleetD.filter((a) => typeOf(a.typeId).ulr && restClassAt(g, a.id) === 1);
-      out.push({ label: 'A ULR-capable aircraft in the fleet or delivering', ok: acs.length > 0, why: 'Needs a ULR-capable aircraft with bunks (class 1 crew rest)' });
+      // v0.7.3 ULR needs class 1 rest for both the pilots and the cabin crew.
+      const acs = fleetD.filter((a) => { const r = restOf(g, a.id); return typeOf(a.typeId).ulr && r.fc?.cls === 1 && r.cc?.cls === 1; });
+      out.push({ label: 'A ULR-capable aircraft in the fleet or delivering', ok: acs.length > 0, why: 'Needs a ULR-capable aircraft with bunks for pilots and cabin crew (class 1 crew rest)' });
       out.push(crewReq(g, familiesOf(acs), 8, false, 'it'));
       out.push(reliabilityReq(g, 75), cleanReq(g, 365));
       break;

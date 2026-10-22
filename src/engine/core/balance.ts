@@ -281,4 +281,25 @@ export const BAL = {
     /** C-check hubs: the ferry home leaves this long after the check ends (minutes). */
     cHub: { homeAfterMin: 180 },
   },
+
+  // ---------- in-flight rest & EASA v0.7.3 (ENGINE; UPDATE-0.7.3.md §6) ----------
+  v073: {
+    /** Rest plan: cruise from take-off + tocMin to landing − todMin; pilots awake wakeMin before top of descent; cabin crew rest from take-off + cabinAfterTakeoff to landing − cabinBeforeLanding. */
+    rest: { tocMin: 40, todMin: 40, wakeMin: 30, cabinAfterTakeoff: 105, cabinBeforeLanding: 70, maxExtraCabin: 2, tightSpare: 30, roundMin: 5 },
+    /** Crew rest refits (est.): home-base days and cost; C-check add-ons: extra days and cost. */
+    restRefit: {
+      curtainJ: { days: 1, cost: 15_000 }, reclinersNarrow: { days: 3, cost: 100_000 }, reclinersWide: { days: 4, cost: 220_000 },
+      removeRecliners: { days: 2, cost: 30_000 }, ldmcr: { days: 6, cost: 950_000 }, fcrc: { addDays: 10, cost: 1_900_000 }, overhead: { addDays: 14, cost: 2_600_000 },
+    },
+    /** Planned extension (CS FTL.1.205(b)): per crew member in any 7 days; extra rest after (post-flight option). */
+    ext: { perWeek: 2, restAfterMin: 240 },
+    /** Split duty (CS FTL.1.220): minutes excluded from the break, minimum net break, hotel from, FDP cap, crew room / day room per crew member. */
+    split: { excludeMin: 60, minNet: 180, hotelFrom: 360, cap: 960, lounge: 25, dayRoom: 90 },
+    /** Delayed reporting: a change made this long (hours) before the notified report is a re-published roster, not a delay. */
+    delayed: { republishH: 18 },
+    /** Home standby: from 06:00 local for `hours`, per rating family and role, rostered `aheadDays` ahead; woken `wakeMin` before; crew keep `minDaysOff` free days a month. */
+    standby: { fromLocal: 360, hours: 12, perFamily: { CPT: 1, FO: 1, PUR: 1, CC: 1 } as Record<string, number>, aheadDays: 2, wakeMin: 60, minDaysOff: 8 },
+    /** Wet ACMI rate uplift when the longest chain needs 3 (1) or 4 (2) pilots. */
+    augRate: { 1: 0.03, 2: 0.06 } as Record<number, number>,
+  },
 } as const;

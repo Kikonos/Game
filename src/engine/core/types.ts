@@ -243,8 +243,10 @@ export interface Aircraft {
   delivery?: DeliveryInfo;
   /** v0.7: lease return booked (ferry + return check). */
   returning?: { site: string; maintId: string; ferryIds: string[]; quote: number; /** v0.7.2 early-return fee (posted when the return check starts). */ earlyFee?: number };
-  /** v0.7.2 bunks (class 1) and crew rest seats fitted (last economy row, class 3; 0 none). load: ??= by type. */
+  /** @deprecated v0.7.3: read `rest` (kept for the migration). v0.7.2 bunks and crew rest seats. */
   crewRest?: { bunks: boolean; seats: number };
+  /** v0.7.3 pilots' and cabin crew's in-flight rest facilities. load: ??= migrateRest(ac) */
+  rest?: AcRest;
   /** v0.7.2 daily block minutes [dayIndex, min], last 90 days. */
   bhDays?: [number, number][];
   /** v0.7.2 day index bhDays tracking began (game start or the first load of an older save). load: ??= today */
@@ -252,6 +254,15 @@ export interface Aircraft {
   /** v0.7.2 an agreed sale (closes with 'aircraft.sale'). */
   sale?: { buyer: string; price: number; agreed: Minute; closes: Minute; ferryIds?: string[] };
 }
+
+/** v0.7.3 kind of in-flight rest facility (UPDATE-0.7.3.md §2.1). */
+export type RestKind = 'fcrc' | 'ccrc' | 'ldmcr' | 'jSeats' | 'recliners';
+/** v0.7.3 one in-flight rest facility (CS FTL.1.205(c)): class, kind and how many crew can rest in it at once. */
+export interface RestFacility { cls: 1 | 2 | 3; kind: RestKind; places: number }
+/** v0.7.3 pilots' (fc) and cabin crew's (cc) facilities; null = none. Both may be the same seats (jSeats / recliners). */
+export interface AcRest { fc: RestFacility | null; cc: RestFacility | null }
+/** v0.7.3 crew rest refits (ops/cabin.ts). */
+export type RestRefitId = 'curtainJ' | 'recliners' | 'removeRecliners' | 'ldmcr' | 'fcrc' | 'overhead';
 
 /** v0.6: crew above the legal minimum (per aircraft or contract): cabin 0–4, one spare pilot. */
 export interface CrewExtra {
@@ -590,7 +601,9 @@ export type ProblemKind =
   | 'cashLow' | 'invoiceOverdue' | 'lossMonth' | 'leaseDue' | 'goalMiss'
   | 'deliveryWait' | 'ferryUncrewed' | 'refit' | 'leaseReturn'
   /** v0.7.2 */
-  | 'restSeats' | 'captainAsFo' | 'sale';
+  | 'restSeats' | 'captainAsFo' | 'sale'
+  /** v0.7.3 */
+  | 'restFacility' | 'restTooShort' | 'cabinRest';
 
 /** v0.7.1 what a card is about: the entity (as a message Ref) plus the kind. */
 export interface ProblemRef { kind: ProblemKind; ref: Ref }
@@ -617,6 +630,11 @@ export interface DutyLogEntry {
   augmented: boolean;
   /** Early, late or night duty (counts towards the 4-disruptive ERRP extension). */
   disruptive: boolean;
+  /** v0.7.3 planned extension (CS FTL.1.205(b)); early start / late finish / night duty (CS FTL.1.235(a)). */
+  ext?: true;
+  early?: boolean;
+  late?: boolean;
+  night?: boolean;
 }
 
 /** v0.6: morale drivers (crew card "why"). */
@@ -672,6 +690,14 @@ export interface CrewMember {
   asFoAt?: Minute[];
   /** v0.7.2 block minutes per month, last 12 (1,000 h / 12 months). */
   blockMonths?: Record<MonthKey, number>;
+  /** v0.7.3 recovery rests holding 2 whole local days, per month (ORO.FTL.235(d)). */
+  twoDays?: Record<MonthKey, number>;
+  /** v0.7.3 current rotation away (time zones, CS FTL.1.235(b)): first report, max zone difference, direction. */
+  rot?: { start: Minute; maxTz: number; dir: -1 | 0 | 1 };
+  /** v0.7.3 last return from a rotation ≥ 4 h away: local nights needed at base. */
+  tzBack?: { back: Minute; nights: number; dir: -1 | 1 };
+  /** v0.7.3 home standby windows (next days; CS FTL.1.225(b)). */
+  standby?: { from: Minute; to: Minute; calledAt?: Minute }[];
 }
 
 export interface CrewSlot {
@@ -712,6 +738,22 @@ export interface Duty {
   done?: boolean;
   /** B2: commander's discretion granted on top of maxFdp (minutes). */
   discretion?: number;
+  /** v0.7.3 planned extension (CS FTL.1.205(b)); set only by the planner. */
+  ext?: true;
+  /** v0.7.3 split duty (CS FTL.1.220): where, net break, crew room or hotel, the flight after the break. */
+  split?: { at: string; net: number; room: 'lounge' | 'hotel'; flightId: string };
+  /** v0.7.3 Table 2/3 max FDP (discretion base after an extension). */
+  basicFdp?: number;
+  /** v0.7.3 cabin crew report this much before the pilots (absent = type default; 0 when their table would bind). */
+  cabinEarly?: number;
+  /** v0.7.3 extra cabin crew the rest plan needs. */
+  restExtra?: number;
+  /** v0.7.3 report time the crew were told (delayed reporting, CS FTL.1.205(d)). */
+  notified?: Minute;
+  /** v0.7.3 the player chose 4 pilots. */
+  forceAug?: 2;
+  /** v0.7.3 crewed at load from an older save within 72 h: augmentation kept without a rest-plan check. */
+  legacyRest?: true;
 }
 
 /** A crew complement's trip: duties from base back to base (or a deployment at a client base). */
@@ -827,6 +869,8 @@ export interface MaintenanceEvent {
   paint?: { phase: 'in' | 'out'; contractId: string };
   /** v0.7 cabin refit: the cabin fitted at the end. */
   refit?: { cabin: Cabin; /** v0.7.2 crew rest seats at the end */ restSeats?: number };
+  /** v0.7.3 crew rest refit fitted at the end (home refit or C-check add-on). */
+  restFit?: RestRefitId;
   /** v0.7 lease return check: the aircraft leaves the fleet at the end. */
   leaseReturn?: boolean;
   /** v0.7.1 AOG: how it is being fixed once decided (the card's WHY); undefined while the decision is open or in old saves. */
@@ -971,8 +1015,10 @@ export interface AircraftOffer {
   created?: Minute;
   /** v0.7: the market index the rent was priced at (absent = 1). */
   index?: number;
-  /** v0.7.2 crew rest fitted (rolled at creation, copied on acquisition). */
+  /** @deprecated v0.7.3: read `rest`. v0.7.2 crew rest fitted (rolled at creation, copied on acquisition). */
   crewRest?: { bunks: boolean; seats: number };
+  /** v0.7.3 in-flight rest facilities (rolled at creation, copied on acquisition; old open offers: ??= migrateRest). */
+  rest?: AcRest;
 }
 
 export interface Market {
@@ -1104,6 +1150,14 @@ export interface Stats {
   sales?: number;
   earlyReturns?: number;
   asFo?: number;
+  /** v0.7.3 planned extensions, split duties, standby call-ins, crew rest refits, delayed reports, discretion reports, rest plans not possible. */
+  extensions?: number;
+  splits?: number;
+  standbyCalls?: number;
+  restRefits?: number;
+  delayedReports?: number;
+  discretionReports?: number;
+  restTooShort?: number;
 }
 
 export interface GameState {

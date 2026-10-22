@@ -23,6 +23,10 @@ export interface BoardBlock extends CalBlock {
   locked?: boolean;
   /** A duty the player can drag (not flown, not under way). */
   movable: boolean;
+  /** v0.7.3 augmented duty (3P / 4P), planned extension (+1h), split duty. */
+  aug?: 1 | 2;
+  ext?: boolean;
+  split?: boolean;
 }
 
 export interface BoardRow {

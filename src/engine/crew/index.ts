@@ -56,6 +56,17 @@ export { migrateRanks } from './migrate';
 // v0.7.2 (UPDATE-0.7.2.md §12).
 export { crewAway, type CrewAway } from './away';
 export { restClassAt, restSeatsBlocked, sellableSeats } from './crewRest';
+// v0.7.3 (UPDATE-0.7.3.md §7).
+export {
+  augLimit, cabinBand, hasBunks, isSeatRest, longestDay, migrateRest, planRest, restNow, restOf, restPlan, restPlanForFlight, restShort, restText, restVerdict, restWhere,
+  type LongestDay, type RestLeg, type RestPlan, type RestSeat, type RestTurn,
+} from './restPlan';
+export { fdpWhy, setDutyAugment, type FdpWhy } from './explain';
+export { onStandby } from './standby';
+export { dutyNeed, type ChainShape, type DutyNeed } from './duties';
+export {
+  EXT_TABLE, extFdp, disruptiveKinds, FTL_TYPE, STANDBY, standbyAwakeOk, standbyCut, TZ_NIGHTS, tzNights, WOCL, cabinFdpCap,
+} from './rules';
 
 const CHECKIN = () => BAL.deadheadCheckIn;
 

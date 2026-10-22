@@ -170,17 +170,14 @@ export function reportMinutes(typeId: string): { report: number; post: number } 
 }
 
 /**
- * Crew for one duty. `augment` comes from the duty's FDP need (ULR types get 4 pilots only on sectors that need it).
- * `fdp` (minutes): long augmented FDPs on class 2/3 rest add cabin crew for in-flight rest (+1 above 14:30, +2 above 16:00).
+ * Crew for one duty. `augment` comes from the duty's plan (ULR types get 4 pilots only on sectors that need it).
+ * v0.7.3 `restCabin`: extra cabin crew the in-flight rest plan needs (crew/restPlan.ts; on augmented duties only).
  */
-export function complement(typeId: string, seats: number, opts: { augment?: 0 | 1 | 2; extraCabin?: number; fdp?: number; restClass?: 1 | 2 | 3 | null } = {}): Role[] {
+export function complement(typeId: string, seats: number, opts: { augment?: 0 | 1 | 2; extraCabin?: number; restCabin?: number } = {}): Role[] {
   const t = typeOf(typeId);
-  // v0.7.2 the airframe's rest class (bunks 1, crew rest seats 3) when known, else the type's.
-  const rc = opts.restClass !== undefined ? opts.restClass : t.restClass;
   const augment = opts.augment ?? 0;
   const cockpit: Role[] = augment === 2 ? ['CPT', 'CPT', 'FO', 'FO'] : augment === 1 ? ['CPT', 'FO', 'CRP'] : ['CPT', 'FO'];
-  const fdp = opts.fdp ?? 0;
-  const restCabin = augment > 0 && (rc === 2 || rc === 3) ? (fdp > 960 ? 2 : fdp > 870 ? 1 : 0) : 0;
+  const restCabin = augment > 0 ? Math.max(0, Math.round(opts.restCabin ?? 0)) : 0;
   const cabinN = Math.max(cabinMinimum(seats), 1) + (opts.extraCabin ?? 0) + restCabin;
   // v0.7.2: exactly one purser (the SCCM); a second (deputy, upper deck) only on two-deck types.
   const cabin: Role[] = ['PUR'];

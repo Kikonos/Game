@@ -13,14 +13,14 @@ import { dailyDelivery, onDeliveryArr, onDeliveryDep } from './delivery';
 import { dailyLeases, onReturnEnd, onReturnStart } from './leaseReturn';
 import { dailyMarket, loadMarket, onDelivery, onLeaseEnd, refreshMarket } from './market';
 import { dailyPaint, normaliseLivery } from './paint';
-import { defaultCrewRest } from '../crew/crewRest';
+import { loadRest, rollRestFor } from '../crew/restPlan';
 import { DAY } from '../core/time';
 
 export {
   APPROVALS, aircraftGate, applyApproval, approvalBlocker, approvalReqs, cleanRecord, gateApprovals, ladder, ratedPilots, RUNG0_TYPES, setPolicies,
   type AircraftGate, type ApprovalDef, type ApprovalReq, type LadderNode, type LadderRung, type NodeState,
 } from './company';
-export { bookRefit, bookRestSeats, cabinOptions, refitQuote, refitSlots, refitStations, restSeatsQuote, type RefitQuote, type RefitSlot } from './cabin';
+export { addRestToCCheck, bookRefit, bookRestRefit, bookRestSeats, cabinOptions, refitQuote, refitSlots, refitStations, restRefitOptions, restRefitQuote, restSeatsQuote, type RefitQuote, type RefitSlot, type RestRefitOption } from './cabin';
 // v0.7.2 (UPDATE-0.7.2.md §12).
 export { opsStripFacts, type OpsStripFacts } from './strip';
 export { cancelSale, leastUsed, saleQuote, sellAircraft, type LeastUsedRow, type SaleQuote } from './sale';
@@ -75,7 +75,8 @@ export const opsModule: SimModule = {
     loadApprovals(g);
     loadMarket(g);
     refreshMarket(g);
-    for (const ac of Object.values(g.fleet)) ac.crewRest ??= defaultCrewRest(ac.typeId);
+    // v0.7.3 the start fleet's rest facilities: the market roll, deterministic per aircraft (widebodies only).
+    for (const ac of Object.values(g.fleet)) ac.rest ??= rollRestFor(ac.id, ac.typeId, ac.cabin.j);
     for (const ac of Object.values(g.fleet)) ac.bhSince ??= Math.floor(g.now / DAY);
   },
   // Decisions other modules post (crew's sickCrew) join the pacing budget as they appear.
@@ -87,8 +88,8 @@ export const opsModule: SimModule = {
     g.finance.negSince ??= null;
     // v0.5.1 liveries: client paint of a contract no longer in the save is gone; the company livery normalised (idempotent).
     for (const ac of Object.values(g.fleet)) if (ac.paintedFor && !g.contracts[ac.paintedFor]) delete ac.paintedFor;
-    // v0.7.2 crew rest per airframe (old widebodies keep bunks).
-    for (const ac of Object.values(g.fleet)) ac.crewRest ??= defaultCrewRest(ac.typeId);
+    // v0.7.3 pilots' and cabin crew's rest facilities from the v0.7.2 {bunks, seats} (old widebodies keep bunks).
+    loadRest(g);
     // v0.7.2 utilisation counts from the first load that tracks it (older saves have no bhDays).
     for (const ac of Object.values(g.fleet)) ac.bhSince ??= Math.floor(g.now / DAY);
     g.company.livery = normaliseLivery(g.company.livery);

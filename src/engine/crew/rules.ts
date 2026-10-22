@@ -1,5 +1,6 @@
-// EASA FTL rules (Reg. (EU) 965/2012 Annex III Subpart FTL as amended by 83/2014; CS FTL.1). The reference is
-// docs/acmi/EASA-FTL.md (v0.7.2): every table here is written there by article and pinned in ftl.test.ts.
+// EASA FTL rules (Reg. (EU) 965/2012 Annex III Subpart FTL as amended by Reg. (EU) 83/2014; CS FTL.1 = ED Decision
+// 2014/002/R as amended by ED Decision 2023/023/R). The reference is docs/acmi/EASA-FTL.md (v0.7.3, rewritten
+// against the player's guide): every table here is written there by article and pinned in ftl.test.ts.
 // Pure functions on minutes; no GameState.
 
 import { DAY, dayStart, localOffset, yearOf } from '../core/time';
@@ -40,16 +41,23 @@ export interface FdpInput {
   acclimatised: boolean;
   /** Extra pilots (in-flight rest). */
   augment: 0 | 1 | 2;
+  /** The pilots' rest facility class (CS FTL.1.205(c)(2)). */
   restClass: 1 | 2 | 3 | null;
+  /** v0.7.3 the cabin crew's rest facility class (CS FTL.1.205(c)(3)); absent = restClass. */
+  cabinClass?: 1 | 2 | 3 | null;
   /** Longest sector block time (for the +1:00 augmented bonus). */
   longestBlock: number;
-  /** v0.7.2 cabin crew report this much earlier (ORO.FTL.205(c)); caps augmented FDPs by the cabin rest table. */
+  /**
+   * v0.7.2 cabin crew report this much earlier (ORO.FTL.205(c)). v0.7.3: no longer cuts the limit (the cabin crew
+   * report with the pilots when their table would bind; augLimit); kept for old callers.
+   */
   cabinEarly?: number;
 }
 
 /**
- * ORO.FTL.205(b)(1) Table 1, the 1–2 sector column: [from, to) local reference time (minutes after midnight) → max
- * FDP. Reports outside every band (17:00–04:59) get FDP_OUTSIDE. Each sector above 2 costs SECTOR_STEP, floor FDP_FLOOR.
+ * ORO.FTL.205(b)(1) Table 2 (basic max daily FDP, acclimatised crew), the 1–2 sector column: [from, to) local
+ * reference time (minutes after midnight) → max FDP. Reports outside every band (17:00–04:59) get FDP_OUTSIDE. Each
+ * sector above 2 costs SECTOR_STEP, floor FDP_FLOOR.
  */
 export const FDP_BANDS: readonly (readonly [number, number, number])[] = [
   [5 * H, 5 * H + 15, 12 * H], [5 * H + 15, 5 * H + 30, 12 * H + 15], [5 * H + 30, 5 * H + 45, 12 * H + 30], [5 * H + 45, 6 * H, 12 * H + 45],
@@ -58,19 +66,21 @@ export const FDP_BANDS: readonly (readonly [number, number, number])[] = [
   [15 * H + 30, 16 * H, 11 * H + 45], [16 * H, 16 * H + 30, 11 * H + 30], [16 * H + 30, 17 * H, 11 * H + 15],
 ];
 export const FDP_OUTSIDE = 11 * H;
-/** ORO.FTL.205(b)(2) Table 2: unknown acclimatised state (X), 1–2 sectors (same sector step and floor). */
+/** ORO.FTL.205(b)(2) Table 3: unknown state of acclimatisation (X), 1–2 sectors (same sector step and floor). Table 4 (FRM) is not used. */
 export const FDP_UNKNOWN = 11 * H;
 export const SECTOR_STEP = 30;
 export const FDP_FLOOR = 9 * H;
-/** Table 1 stops at 10 sectors. */
+/** Table 2 stops at 10 sectors: more is never planned (v0.7.3 enforced). */
 export const MAX_SECTORS = 10;
+/** CS FTL.1.205(a)(1): consecutive night duties are computed with at most 4 sectors (the game: every night duty). */
+export const NIGHT_MAX_SECTORS = 4;
 
-/** CS FTL.1.205(c): augmented FDP by extra pilots (1: 3 pilots, 2: 4 pilots) and rest facility class. */
+/** CS FTL.1.205(c)(2)(i)/(ii): augmented FDP by extra pilots (1: 3 pilots, 2: 4 pilots) and the pilots' rest facility class. */
 export const AUG_FDP: Readonly<Record<1 | 2, Readonly<Record<1 | 2 | 3, number>>>> = {
   1: { 1: 16 * H, 2: 15 * H, 3: 14 * H },
   2: { 1: 17 * H, 2: 16 * H, 3: 15 * H },
 };
-/** +1:00 when the duty has ≤ 2 sectors and one of more than AUG_BONUS_FT continuous flight time; ≤ 3 sectors; 18:00 cap. */
+/** CS FTL.1.205(c)(4): +1:00 when the duty has ≤ 2 sectors and one of more than AUG_BONUS_FT continuous flight time; (c)(1) ≤ 3 sectors; 18:00 cap. */
 export const AUG_BONUS = H;
 export const AUG_BONUS_FT = 9 * H;
 export const AUG_MAX_SECTORS = 3;
@@ -78,12 +88,17 @@ export const FDP_CAP = 18 * H;
 /** Taxi out + in taken off the block time to estimate continuous flight time (bonus test). */
 export const TAXI_ALLOWANCE = 20;
 
-/** ORO.FTL.205(f) commander's discretion: +2:00, +3:00 augmented; the rest after may be reduced, never below 10:00. */
+/**
+ * ORO.FTL.205(f) commander's discretion, only for unforeseen circumstances at or after report: +2:00, +3:00 augmented,
+ * on the basic FDP even after a planned extension (GM1 ORO.FTL.205(f)(1)(i)); the rest after may be reduced, never
+ * below 10:00 (the game never reduces it); a report to the authority within 28 days when over 1:00.
+ */
 export const DISCRETION = { basic: 2 * H, augmented: 3 * H, minRest: 10 * H } as const;
 
 /**
- * CS FTL.1.205(c) minimum in-flight rest for cabin crew by extended FDP (up to and including `upTo`) and rest class;
- * null = that class does not allow this FDP. Beyond the last row: not allowed.
+ * CS FTL.1.205(c)(3) minimum in-flight rest for cabin crew by extended FDP (up to and including `upTo`) and the cabin
+ * crew's rest class; null = that class does not allow this FDP. The table ends at 17:31–18:00 (v0.7.3: the extra
+ * 18:01–18:30 row is gone); beyond it: not allowed.
  */
 export const CABIN_REST: readonly { upTo: number; c1: number; c2: number | null; c3: number | null }[] = [
   { upTo: 14 * H + 30, c1: 90, c2: 90, c3: 90 },
@@ -94,7 +109,6 @@ export const CABIN_REST: readonly { upTo: number; c1: number; c2: number | null;
   { upTo: 17 * H, c1: 180, c2: 205, c3: null },
   { upTo: 17 * H + 30, c1: 205, c2: null, c3: null },
   { upTo: 18 * H, c1: 230, c2: null, c3: null },
-  { upTo: 18 * H + 30, c1: 265, c2: null, c3: null },
 ];
 
 /** Minimum in-flight rest (minutes) for cabin crew on an extended FDP with a class 1/2/3 facility; null = not allowed. */
@@ -104,31 +118,133 @@ export function cabinInflightRest(fdp: number, cls: 1 | 2 | 3): number | null {
   return cls === 1 ? row.c1 : cls === 2 ? row.c2 : row.c3;
 }
 
-/** v0.7.2 the longest cabin crew extended FDP a rest class allows (the last CABIN_REST row it is not refused). */
+/** The longest cabin crew extended FDP a rest class allows (the last CABIN_REST row it is not refused): 18:00 / 17:00 / 16:00. */
 export function cabinFdpCap(cls: 1 | 2 | 3): number {
   let cap = 0;
   for (const r of CABIN_REST) if ((cls === 1 ? r.c1 : cls === 2 ? r.c2 : r.c3) !== null) cap = r.upTo;
   return cap;
 }
 
-/** Table 1 max FDP (1–2 sectors) by local reference report time. */
+/** Table 2 max FDP (1–2 sectors) by local reference report time. */
 export function baseFdp(reportLocal: number): number {
   const m = ((Math.floor(reportLocal) % DAY) + DAY) % DAY;
   for (const [a, b, fdp] of FDP_BANDS) if (m >= a && m < b) return fdp;
   return FDP_OUTSIDE;
 }
 
-/** Max FDP: Table 1/2 less SECTOR_STEP per sector above 2 (floor FDP_FLOOR); augmented: AUG_FDP (+AUG_BONUS), FDP_CAP. */
+/** The CS FTL.1.205(c)(4) long-sector test: ≤ 2 sectors and one with more than 9:00 continuous flight time. */
+export const longSector = (sectors: number, longestBlock: number) => sectors <= 2 && longestBlock - TAXI_ALLOWANCE > AUG_BONUS_FT;
+
+/**
+ * v0.7.3 augmented max FDP (C2): the pilots' CS FTL.1.205(c)(2) value for their class (+1:00 on one long sector,
+ * 18:00 cap). When that plus the cabin crew's early report would pass the cabin crew's CS FTL.1.205(c)(3) table for
+ * their class, the cabin crew report with the pilots (early 0); only if the pilots' value alone passes it is the
+ * limit capped by the cabin table.
+ */
+export function augLimitOf(fcCls: 1 | 2 | 3, ccCls: 1 | 2 | 3, augment: 1 | 2, long: boolean, typeEarly: number): { max: number; early: number; capBy: 'pilots' | 'cabin' } {
+  const pilots = Math.min(FDP_CAP, AUG_FDP[augment][fcCls] + (long ? AUG_BONUS : 0));
+  const cap = cabinFdpCap(ccCls);
+  if (pilots > cap) return { max: cap, early: 0, capBy: 'cabin' };
+  return { max: pilots, early: pilots + typeEarly > cap ? 0 : typeEarly, capBy: 'pilots' };
+}
+
+/**
+ * Max FDP: Table 2 (acclimatised) or Table 3 (X) less SECTOR_STEP per sector above 2 (floor FDP_FLOOR); augmented
+ * (≤ 3 sectors): augLimitOf. More than MAX_SECTORS sectors: 0 (never legal).
+ */
 export function maxFdp(i: FdpInput): number {
+  if (i.sectors > MAX_SECTORS) return 0;
   if (i.augment > 0 && i.restClass && i.sectors <= AUG_MAX_SECTORS) {
-    let fdp = AUG_FDP[i.augment as 1 | 2][i.restClass];
-    if (i.sectors <= 2 && i.longestBlock - TAXI_ALLOWANCE > AUG_BONUS_FT) fdp += AUG_BONUS;
-    // v0.7.2 the cabin crew (reporting `cabinEarly` before) must still get their in-flight rest (CABIN_REST).
-    return Math.min(FDP_CAP, fdp, cabinFdpCap(i.restClass) - (i.cabinEarly ?? 0));
+    const cc = i.cabinClass === undefined ? i.restClass : i.cabinClass;
+    if (cc) return augLimitOf(i.restClass, cc, i.augment as 1 | 2, longSector(i.sectors, i.longestBlock), i.cabinEarly ?? 0).max;
   }
   const base = i.acclimatised ? baseFdp(i.reportLocal) : FDP_UNKNOWN;
   return Math.max(FDP_FLOOR, base - SECTOR_STEP * Math.max(0, i.sectors - 2));
 }
+
+// ---------- v0.7.3 planned extension (ORO.FTL.205(d), CS FTL.1.205(b)) ----------
+
+/** WOCL (ORO.FTL.105(28)): 02:00–05:59 in the acclimatised time zone (minutes after local midnight, [from, to)). */
+export const WOCL = { from: 2 * H, to: 6 * H } as const;
+/** Night duty (ORO.FTL.105(9)): encroaches any part of 02:00–04:59. */
+export const NIGHT = { from: 2 * H, to: 5 * H } as const;
+
+/**
+ * CS FTL.1.205(b): [from, to) local reference report time → max FDP with a planned extension for 1–2 / 3 / 4 / 5
+ * sectors; null = not allowed. Outside every row (19:00–06:14 and 06:00–06:14): not allowed.
+ */
+export const EXT_TABLE: readonly (readonly [number, number, number | null, number | null, number | null, number | null])[] = [
+  [6 * H, 6 * H + 15, null, null, null, null],
+  [6 * H + 15, 6 * H + 30, 13 * H + 15, 12 * H + 45, 12 * H + 15, 11 * H + 45],
+  [6 * H + 30, 6 * H + 45, 13 * H + 30, 13 * H, 12 * H + 30, 12 * H],
+  [6 * H + 45, 7 * H, 13 * H + 45, 13 * H + 15, 12 * H + 45, 12 * H + 15],
+  [7 * H, 13 * H + 30, 14 * H, 13 * H + 30, 13 * H, 12 * H + 30],
+  [13 * H + 30, 14 * H, 13 * H + 45, 13 * H + 15, 12 * H + 45, null],
+  [14 * H, 14 * H + 30, 13 * H + 30, 13 * H, 12 * H + 30, null],
+  [14 * H + 30, 15 * H, 13 * H + 15, 12 * H + 45, 12 * H + 15, null],
+  [15 * H, 15 * H + 30, 13 * H, 12 * H + 30, 12 * H, null],
+  [15 * H + 30, 16 * H, 12 * H + 45, null, null, null],
+  [16 * H, 16 * H + 30, 12 * H + 30, null, null, null],
+  [16 * H + 30, 17 * H, 12 * H + 15, null, null, null],
+  [17 * H, 17 * H + 30, 12 * H, null, null, null],
+  [17 * H + 30, 18 * H, 11 * H + 45, null, null, null],
+  [18 * H, 18 * H + 30, 11 * H + 30, null, null, null],
+  [18 * H + 30, 19 * H, 11 * H + 15, null, null, null],
+];
+
+/** CS FTL.1.205(b) sector limit with a planned extension by WOCL encroachment: none 5, ≤ 2 h 4, more 2. */
+export const extSectorCap = (woclMin: number) => (woclMin <= 0 ? 5 : woclMin <= 2 * H ? 4 : 2);
+
+/** Max FDP with a planned extension (CS FTL.1.205(b) table and the WOCL sector caps); null = not allowed. */
+export function extFdp(reportLocal: number, sectors: number, woclMin: number): number | null {
+  if (sectors < 1 || sectors > extSectorCap(woclMin)) return null;
+  const m = ((Math.floor(reportLocal) % DAY) + DAY) % DAY;
+  const row = EXT_TABLE.find(([a, b]) => m >= a && m < b);
+  if (!row) return null;
+  return row[Math.max(2, sectors)] ?? null;
+}
+
+/** Minutes of [start, end] inside a daily local window [from, to) at `tz` (reference clock). */
+export function localOverlap(tz: string, start: Minute, end: Minute, from: number, to: number): number {
+  const off = offsetAt(tz, start);
+  const a = start + off;
+  const b = end + off;
+  let n = 0;
+  for (let w = dayStart(a) - DAY + from; w < b; w += DAY) n += Math.max(0, Math.min(b, w + (to - from)) - Math.max(a, w));
+  return n;
+}
+
+/** WOCL encroachment (minutes) of a duty [report, end] at the reference clock. */
+export const woclMinutes = (tz: string, report: Minute, end: Minute) => localOverlap(tz, report, end, WOCL.from, WOCL.to);
+
+// ---------- v0.7.3 split duty (ORO.FTL.220, CS FTL.1.220) ----------
+
+/** CS FTL.1.220(c): up to 50 % of the net break (≥ 3 h) added to the basic max, in 15 min steps, 16:00 ceiling (EASA FAQ). */
+export function splitFdp(basic: number, net: number): number | null {
+  if (net < 3 * H) return null;
+  return Math.min(16 * H, basic + Math.floor(net / 2 / 15) * 15);
+}
+
+// ---------- v0.7.3 standby (ORO.FTL.225, CS FTL.1.225) ----------
+
+/** CS FTL.1.225: other (home) standby at most 16 h; standby + FDP ≤ 18 h awake; airport standby + FDP ≤ 16 h. */
+export const STANDBY = { homeMax: 16 * H, awakeMax: 18 * H, airportTotal: 16 * H, homeFree: 6 * H, homeFreeAug: 8 * H, airportFree: 4 * H, wakeMin: 60 } as const;
+
+/**
+ * Minutes off the max FDP for crew called from standby (CS FTL.1.225): airport standby beyond 4 h; home standby
+ * beyond 6 h (8 h when the duty is augmented or split), not counting standby time between 23:00 and 07:00 (local at
+ * `tz`) before they were contacted. Standby counts from its start to the report.
+ */
+export function standbyCut(kind: 'home' | 'airport', sbyFrom: Minute, report: Minute, tz: string, augOrSplit: boolean, contacted?: Minute): number {
+  const len = Math.max(0, report - sbyFrom);
+  if (kind === 'airport') return Math.max(0, len - STANDBY.airportFree);
+  const quietTo = Math.min(report, contacted ?? report);
+  const quiet = quietTo > sbyFrom ? localOverlap(tz, sbyFrom, quietTo, 23 * H, 31 * H) : 0;
+  return Math.max(0, len - quiet - (augOrSplit ? STANDBY.homeFreeAug : STANDBY.homeFree));
+}
+
+/** CS FTL.1.225(b) awake cap: from waking (wakeMin before standby starts) to the end of the FDP ≤ 18 h. */
+export const standbyAwakeOk = (sbyFrom: Minute, fdpEnd: Minute): boolean => fdpEnd - (sbyFrom - STANDBY.wakeMin) <= STANDBY.awakeMax;
 
 export interface RestInput {
   /** Previous duty length (minutes). */
@@ -137,19 +253,22 @@ export interface RestInput {
   augmented: boolean;
   /** Time-zone shift of the trip in hours. */
   tzShift: number;
+  /** v0.7.3 after a planned extension: +4 h (ORO.FTL.205(d), the post-flight option). */
+  extended?: boolean;
 }
 
 /**
- * ORO.FTL.235(a)/(b) minimum rest: max(duty, 12 h home / 10 h away); CS FTL.1.205(c) / CS FTL.1.235(b): 14 h away
- * after an augmented FDP or a ≥ 4 h time-zone shift.
+ * ORO.FTL.235(a)/(b) minimum rest: max(duty, 12 h home / 10 h away). v0.7.3: 14 h after any augmented FDP wherever
+ * the crew rest (CS FTL.1.205(c)(6)) and away after a ≥ 4 h time-zone shift (CS FTL.1.235(b)(3)(ii)); +4 h after a
+ * planned extension.
  */
 export function minRest(i: RestInput): number {
   let base = i.atHome ? 12 * H : 10 * H;
-  if (!i.atHome && (i.augmented || i.tzShift >= 4)) base = 14 * H;
-  return Math.max(i.dutyMin, base);
+  if (i.augmented || (!i.atHome && i.tzShift >= 4)) base = 14 * H;
+  return Math.max(i.dutyMin, base) + (i.extended ? 4 * H : 0);
 }
 
-/** ORO.FTL.210 cumulative limits and ORO.FTL.235(d) / CS FTL.1.235 recovery. */
+/** ORO.FTL.210 cumulative limits, ORO.FTL.235(d) recurrent extended recovery rest and CS FTL.1.235(a)(2). */
 export const LIMITS = {
   duty7d: 60 * H,
   duty14d: 110 * H,
@@ -167,12 +286,12 @@ export const LIMITS = {
   /** "tight" margins: FDP within 30 min of max, cumulative above 95 %. */
   tightFdp: 30,
   tightShare: 0.95,
-  /** Work block inside a tour: at most 6 duty days, then 2 days off. */
+  /** Company policy, not EASA: a work block inside a tour of at most 6 duty days, then 2 days off. */
   blockDays: 6,
   daysOff: 2,
 } as const;
 
-// ---------- acclimatisation (CS FTL.1.105, simplified) ----------
+// ---------- acclimatisation (ORO.FTL.105(1) Table 1, simplified: the reference is the home base clock) ----------
 
 export type Acclim = 'B' | 'X' | 'D';
 
@@ -206,14 +325,47 @@ export function referenceTime(base: string, dep: string, tripStart: Minute, repo
   return { state, reportLocal: localMin(tz, report), tz };
 }
 
-/** Early start, late finish or night: the duty touches a local 23:00–06:00 window (reference clock). */
-export function isDisruptive(tz: string, start: Minute, end: Minute): boolean {
-  const off = offsetAt(tz, start);
-  const a = start + off;
-  const b = end + off;
-  for (let w = dayStart(a) - DAY + 23 * H; w < b; w += DAY) if (w < b && w + 7 * H > a) return true;
-  return false;
+/** v0.7.3 disruptive schedules (ORO.FTL.105(8)): the early type for every home base (ARO.OPS.230; EASA-FTL.md §1). */
+export const FTL_TYPE = 'early' as const;
+
+/**
+ * v0.7.3 CS FTL.1.235(a), early type: early start = duty starts 05:00–05:59; late finish = duty ends 23:00–01:59;
+ * night duty = encroaches any part of 02:00–04:59 (reference clock).
+ */
+export function disruptiveKinds(tz: string, start: Minute, end: Minute): { early: boolean; late: boolean; night: boolean } {
+  const s = localMin(tz, start);
+  const e = localMin(tz, end);
+  return { early: s >= 5 * H && s < 6 * H, late: e >= 23 * H || e < 2 * H, night: localOverlap(tz, start, end, NIGHT.from, NIGHT.to) > 0 };
 }
+
+/** Early start, late finish or night duty (disruptiveKinds). */
+export function isDisruptive(tz: string, start: Minute, end: Minute): boolean {
+  const k = disruptiveKinds(tz, start, end);
+  return k.early || k.late || k.night;
+}
+
+/** v0.7.3 local days (ORO.FTL.105(15)): whole 00:00–24:00 days at `tz` inside [from, to]. */
+export function localDaysIn(tz: string, from: Minute, to: Minute): number {
+  const off = offsetAt(tz, from);
+  const a = from + off;
+  const b = to + off;
+  const first = Math.ceil(a / DAY) * DAY;
+  return Math.max(0, Math.floor((b - first) / DAY));
+}
+
+/**
+ * v0.7.3 CS FTL.1.235(b)(3)(i): local nights at home base after a rotation, by its max time difference (rows ≤ 6,
+ * ≤ 9, ≤ 12 h) and the hours since its first report (< 48, 48–71:59, 72–95:59, ≥ 96).
+ */
+export const TZ_NIGHTS: readonly (readonly [number, number, number, number])[] = [[2, 2, 3, 3], [2, 3, 3, 4], [2, 3, 4, 5]];
+/** Local nights needed at base after a rotation (0 below a 4 h difference). */
+export function tzNights(maxDiffH: number, hoursSinceReport: number): number {
+  if (maxDiffH < 4) return 0;
+  const row = TZ_NIGHTS[maxDiffH <= 6 ? 0 : maxDiffH <= 9 ? 1 : 2];
+  return row[hoursSinceReport < 48 ? 0 : hoursSinceReport < 72 ? 1 : hoursSinceReport < 96 ? 2 : 3];
+}
+/** CS FTL.1.235(b)(4): local nights at home between alternating east/west rotations. */
+export const TZ_ALTERNATE_NIGHTS = 3;
 
 /** Local nights inside [from, to]: 8 h falling between 22:00 and 08:00 at `tz` (EASA ORO.FTL.105). */
 export function nightsIn(tz: string, from: Minute, to: Minute): number {
@@ -229,7 +381,8 @@ export function nightsIn(tz: string, from: Minute, to: Minute): number {
 
 /** One stretch of duty in a crew member's (or a virtual crew set's) timeline. */
 export interface Seg {
-  kind: 'log' | 'duty' | 'pos';
+  /** v0.7.3 'sby': home standby (25 % duty; not rest). */
+  kind: 'log' | 'duty' | 'pos' | 'sby';
   start: Minute;
   end: Minute;
   fdp: number;
@@ -257,6 +410,13 @@ export interface Seg {
   out?: { id?: string; to: string; start: Minute; fdp: number; maxFdp: number; disruptive: boolean };
   /** Being checked (a candidate assignment). */
   fresh?: boolean;
+  /** v0.7.3 share of the seg counted towards the 7/14/28-day duty windows (home standby 0.25; absent = 1). */
+  share?: number;
+  /** v0.7.3 planned extension; early start / late finish / night duty (CS FTL.1.235(a)). */
+  ext?: boolean;
+  early?: boolean;
+  late?: boolean;
+  night?: boolean;
 }
 
 export interface TimelineCtx {
@@ -282,7 +442,9 @@ export interface TimelineCtx {
   slack?: number;
 }
 
-export type IssueCode = 'fdp' | 'rest' | 'duty7d' | 'duty14d' | 'duty28d' | 'block28d' | 'blockYear' | 'recovery' | 'rating' | 'location' | 'status' | 'overlap' | 'workBlock';
+export type IssueCode = 'fdp' | 'rest' | 'duty7d' | 'duty14d' | 'duty28d' | 'block28d' | 'blockYear' | 'recovery' | 'rating' | 'location' | 'status' | 'overlap' | 'workBlock'
+  /** v0.7.3 */
+  | 'ext7d' | 'nightSectors' | 'lateEarly' | 'twoDays' | 'tzRest' | 'standby';
 
 export interface LegalityIssue {
   code: IssueCode;

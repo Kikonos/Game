@@ -12,7 +12,7 @@ import { extendBaseSchedules, relinkPositioning } from './schedule';
 export { acceptOffer, askingPrice, cancelContract, cancelCost, cancelPenalty, contractProgress, counterOffer, declineOffer, leadDays, type ContractProgress, type SignOpts } from './accept';
 export { paintQuote, paintTermsText, paintWindow, type PaintSlot } from './paintTerms';
 export { billContractMonth, type BillingLine } from './billing';
-export { feasibility, feasibilityAll, marketFit, type MarketFit, type CheckId, type CheckLevel, type FeasibilityCheck, type FeasibilityReport, type PositioningLeg } from './feasibility';
+export { feasibility, feasibilityAll, marketFit, offerRestLine, type MarketFit, type CheckId, type CheckLevel, type FeasibilityCheck, type FeasibilityReport, type PositioningLeg } from './feasibility';
 export { fmtPrice, generateOffer, idleWindows, type IdleWindow, type OfferOpts } from './offers';
 export { counterOdds, counterView, type CounterOdds, type CounterView } from './counter';
 export { priceProduct, productValue, rateMultiplier } from './pricing';

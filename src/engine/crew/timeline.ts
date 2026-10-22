@@ -9,7 +9,7 @@ import { itinerary, ticketBlock } from '../ops/commercial';
 import { DAY, fmtDateTime, fmtTime, monthKey, yearOf } from '../core/time';
 import type { CrewMember, Duty, Flight, GameState, Minute, Pairing } from '../core/types';
 import { isDisruptive, maxFdp, minRest, referenceTime, tzDeltaH, type RefTime, type Seg, type TimelineCtx } from './rules';
-import { restClassAt } from './crewRest';
+import { restOf } from './restPlan';
 
 // ---------- index ----------
 
@@ -131,9 +131,10 @@ export const typeIdOf = (g: GameState, p: Pairing): string => (p.aircraftId && g
 /**
  * v0.7.2 ORO.FTL.205(c): cabin crew report this much before the pilots (widebodies); their FDP counts from their
  * own report and their max FDP grows by the same difference, so FDP legality is unchanged; rest after grows.
+ * v0.7.3 per duty (`d.cabinEarly`: 0 when their in-flight rest table would bind, C2), else the type's.
  */
-export function cabinEarly(g: GameState, p: Pairing): number {
-  return cabinEarlyOf(typeIdOf(g, p));
+export function cabinEarly(g: GameState, p: Pairing, d?: Duty): number {
+  return d?.cabinEarly ?? cabinEarlyOf(typeIdOf(g, p));
 }
 export function cabinEarlyOf(typeId: string): number {
   const t = ACMI_TYPES[typeId];
@@ -157,16 +158,18 @@ export function dutyBlock(g: GameState, d: Duty): number {
   return b;
 }
 
-/** v0.7.2 the pairing's aircraft's in-flight rest class (per airframe: bunks 1, crew rest seats 3). */
-export const restClassOf = (g: GameState, p: Pairing): 1 | 2 | 3 | null => restClassAt(g, p.aircraftId);
-
-
-/** Max FDP for a duty of pairing p reporting at `report` from `dep` (reference time per acclimatisation). */
+/**
+ * Max FDP for a duty of pairing p reporting at `report` from `dep` (reference time per acclimatisation; positioning
+ * merged before the duty). v0.7.3: an augmented duty keeps its augmented limit (it does not vary with report time);
+ * an extended or split duty its planned limit when this report is the duty's own.
+ */
 export function fdpLimitAt(g: GameState, p: Pairing, d: Duty, dep: string, report: Minute): { max: number; ref: RefTime } {
   const ref = referenceTime(p.base, dep, Math.min(p.start, report), report);
   let longest = 0;
   for (const f of dutyFlights(g, d)) longest = Math.max(longest, f.block);
-  const max = maxFdp({ reportLocal: ref.reportLocal, sectors: d.sectors, acclimatised: ref.state !== 'X', augment: d.augment, restClass: restClassOf(g, p), longestBlock: longest, cabinEarly: cabinEarly(g, p) });
+  const rest = restOf(g, p.aircraftId);
+  let max = maxFdp({ reportLocal: ref.reportLocal, sectors: d.sectors, acclimatised: ref.state !== 'X', augment: d.augment, restClass: rest.fc?.cls ?? null, cabinClass: rest.cc?.cls ?? null, longestBlock: longest });
+  if ((d.ext || d.split) && report === d.report) max = Math.max(max, d.maxFdp);
   return { max, ref };
 }
 

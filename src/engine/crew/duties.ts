@@ -4,14 +4,17 @@
 
 import { BAL } from '../core/balance';
 import { flightsOf, nextId } from '../core/entities';
-import { reportMinutes } from '../core/perf';
+import { cabinMinimum, reportMinutes } from '../core/perf';
 import { schedule } from '../core/queue';
 import { DAY, dayStart, yearOf } from '../core/time';
-import type { Contract, CrewMember, CrewSlot, Deployment, Duty, Flight, GameState, Legality, Minute, Pairing, Role } from '../core/types';
-import { evalSegs, isDisruptive, LIMITS, localMin, longestWorkBlock, maxFdp, minRest, offsetAt, referenceTime, tzDeltaH, worst, type Seg, type TimelineCtx } from './rules';
+import type { AcRest, Contract, CrewMember, CrewSlot, Deployment, Duty, Flight, GameState, Legality, Minute, Pairing, Role } from '../core/types';
+import {
+  AUG_MAX_SECTORS, augLimitOf, disruptiveKinds, evalSegs, extFdp, LIMITS, localMin, longestWorkBlock, longSector, MAX_SECTORS, maxFdp, minRest, NIGHT_MAX_SECTORS, offsetAt, referenceTime,
+  splitFdp, tzDeltaH, woclMinutes, worst, type Seg, type TimelineCtx,
+} from './rules';
 import { crewExtraFor, seatsFor, type Seat } from './extraSeats';
 import { cabinEarly, cabinEarlyOf, crewCount, crewIx, dutyBlock, dutyFlights, onBlocks, touchCrew } from './timeline';
-import { restClassAt } from './crewRest';
+import { planRest, restOf, type RestLeg } from './restPlan';
 
 // ---------- duty measures ----------
 
@@ -23,8 +26,11 @@ interface Shape {
   longest: number;
   dep: string;
   restAt: string;
-  /** v0.7.2 cabin crew report this much earlier (widebodies). */
+  /** v0.7.2 cabin crew report this much earlier (widebodies): the type's value (pickPlan may drop it, C2). */
   early: number;
+  /** v0.7.3 the operated legs (split duty, rest plan, WOCL). */
+  fl: Flight[];
+  lastOn: Minute;
 }
 
 function shape(typeId: string, fl: Flight[], keepReport?: Minute): Shape {
@@ -33,35 +39,131 @@ function shape(typeId: string, fl: Flight[], keepReport?: Minute): Shape {
   const lastOn = onBlocks(fl[fl.length - 1]);
   let longest = 0;
   for (const f of fl) longest = Math.max(longest, f.block);
-  return { report, release: lastOn + rm.post, fdp: lastOn - report, sectors: fl.length, longest, dep: fl[0].from, restAt: fl[fl.length - 1].to, early: cabinEarlyOf(typeId) };
+  return { report, release: lastOn + rm.post, fdp: lastOn - report, sectors: fl.length, longest, dep: fl[0].from, restAt: fl[fl.length - 1].to, early: cabinEarlyOf(typeId), fl, lastOn };
 }
 
-const AUG_ALL: (0 | 1 | 2)[] = [0, 1, 2];
-const AUG_NONE: (0 | 1 | 2)[] = [0];
+/** v0.7.3 how a duty is made legal (UPDATE-0.7.3.md §2.3): Table 2/3, split duty, planned extension, 3 or 4 pilots. */
+export type PlanMode = 'basic' | 'split' | 'ext' | 'aug1' | 'aug2';
+/** Partition cost of each mode (fewest duties first, then the cheapest way to make them legal). */
+const MODE_COST: Record<PlanMode, number> = { basic: 0, split: 0.25, ext: 0.5, aug1: 1, aug2: 2 };
 
-/** Smallest legal augmentation (0, then 1/2 when allowed and ≤ 3 sectors) and its max FDP. */
-function pickAugment(sh: Shape, reportLocal: number, acclimatised: boolean, restClass: 1 | 2 | 3 | null, canAug: boolean): { augment: 0 | 1 | 2; max: number; ok: boolean } {
-  const opts = canAug && restClass && sh.sectors <= 3 ? AUG_ALL : AUG_NONE;
-  for (const a of opts) {
-    const m = maxFdp({ reportLocal, sectors: sh.sectors, acclimatised, augment: a, restClass, longestBlock: sh.longest, cabinEarly: sh.early });
-    if (sh.fdp <= m) return { augment: a, max: m, ok: true };
+interface PlanPick {
+  mode: PlanMode;
+  augment: 0 | 1 | 2;
+  max: number;
+  /** Table 2/3 max (the discretion base after an extension). */
+  basic: number;
+  ok: boolean;
+  /** Cabin crew early report on this duty (0 when their rest table would bind). */
+  early: number;
+  /** Extra cabin crew the rest plan needs. */
+  restExtra: number;
+  split?: NonNullable<Duty['split']>;
+}
+
+interface PlanCtx {
+  rest: AcRest;
+  /** The company holds the augmented crew approval. */
+  canAug: boolean;
+  /** Split duty allowed (a single unit when planning; the duty already split when re-measuring). */
+  split: boolean;
+  /** Planned extension allowed (planning a single unit; or kept when re-measuring). */
+  ext: boolean;
+  /** The player asked for 4 pilots. */
+  forceAug?: boolean;
+  /** v0.7.3 crewed at load from an older save: augmentation without the rest-plan check. */
+  legacy?: boolean;
+  cabinN: number;
+}
+
+/** A Table 2 report time and the clock it is read on. */
+interface RefAt { reportLocal: number; acclimatised: boolean; tz: string }
+
+const legsOf = (fl: Flight[]): RestLeg[] => fl.map((f) => ({ id: f.id, std: f.status === 'done' || f.status === 'enroute' ? f.atd ?? f.std : f.std, sta: onBlocks(f) }));
+
+/** v0.7.3 the longest ground break of a duty at one airport as a split duty (CS FTL.1.220), or null under 3 h net. */
+export function splitOf(fl: Flight[], tz: string): (NonNullable<Duty['split']> & { gap: number }) | null {
+  const S = BAL.v073.split;
+  let best: (NonNullable<Duty['split']> & { gap: number }) | null = null;
+  for (let i = 1; i < fl.length; i++) {
+    const a = fl[i - 1];
+    const b = fl[i];
+    if (a.to !== b.from) continue;
+    const gap = b.std - onBlocks(a);
+    const net = gap - S.excludeMin;
+    if (net < S.minNet || (best && net <= best.net)) continue;
+    const room: 'lounge' | 'hotel' = net >= S.hotelFrom || woclMinutes(tz, onBlocks(a), b.std) > 0 ? 'hotel' : 'lounge';
+    best = { at: a.to, net, room, flightId: b.id, gap };
   }
-  return { augment: 0, max: maxFdp({ reportLocal, sectors: sh.sectors, acclimatised, augment: 0, restClass, longestBlock: sh.longest, cabinEarly: sh.early }), ok: false };
+  return best;
 }
-
-export const canAugment = (g: GameState, restClass: 1 | 2 | 3 | null) => !!restClass && g.company.approvals.includes('augmented');
 
 /**
- * Plan-time augmentation: the stricter of the two clocks the crew may be on at report (v0.5.2): home base for
- * the first 48 h away (FTL state B, syncDuty), the departure airport after. Cutting only by the departure clock
- * left early 4-sector days one band over the limit once measured in their pairing.
+ * v0.7.3 the first legal plan in the order basic → split → extension → 3 pilots → 4 pilots (the player's "4 pilots"
+ * first), each tried only when allowed; augmentation needs both rest facilities, ≤ 3 sectors and a rest plan that
+ * fits the cruise (CS FTL.1.205(c)(1)). Not legal: the basic limit with ok false.
  */
-function planAugment(g: GameState, sh: Shape, rc: 1 | 2 | 3 | null, canAug: boolean): ReturnType<typeof pickAugment> {
-  const a = pickAugment(sh, localMin(sh.dep, sh.report), true, rc, canAug);
+function pickPlan(sh: Shape, ref: RefAt, ctx: PlanCtx): PlanPick {
+  const basic = maxFdp({ reportLocal: ref.reportLocal, sectors: sh.sectors, acclimatised: ref.acclimatised, augment: 0, restClass: null, longestBlock: sh.longest });
+  const fail: PlanPick = { mode: 'basic', augment: 0, max: basic, basic, ok: false, early: sh.early, restExtra: 0 };
+  const aug = (a: 1 | 2): PlanPick | null => {
+    const { fc, cc } = ctx.rest;
+    if (!ctx.canAug || !fc || !cc || sh.sectors > AUG_MAX_SECTORS) return null;
+    const lim = augLimitOf(fc.cls, cc.cls, a, longSector(sh.sectors, sh.longest), sh.early);
+    if (sh.fdp > lim.max) return null;
+    let extra = 0;
+    if (!ctx.legacy) {
+      const plan = planRest(legsOf(sh.fl), ctx.rest, a, sh.fdp + lim.early, ctx.cabinN);
+      if (!plan.ok) return null;
+      extra = plan.extraCabin;
+    }
+    return { mode: a === 1 ? 'aug1' : 'aug2', augment: a, max: lim.max, basic, ok: true, early: lim.early, restExtra: extra };
+  };
+  if (ctx.forceAug) {
+    const x = aug(2);
+    if (x) return x;
+  }
+  if (sh.sectors <= MAX_SECTORS && sh.fdp <= basic) return { ...fail, ok: true };
+  if (ctx.split && sh.sectors <= MAX_SECTORS) {
+    const sp = splitOf(sh.fl, ref.tz);
+    const m = sp ? splitFdp(basic, sp.net) : null;
+    if (sp && m !== null && sh.fdp <= m) return { ...fail, mode: 'split', max: m, ok: true, split: { at: sp.at, net: sp.net, room: sp.room, flightId: sp.flightId } };
+  }
+  if (ctx.ext && ref.acclimatised) {
+    const m = extFdp(ref.reportLocal, sh.sectors, woclMinutes(ref.tz, sh.report, sh.lastOn));
+    if (m !== null && sh.fdp <= m) return { ...fail, mode: 'ext', max: m, ok: true };
+  }
+  for (const a of ctx.forceAug ? ([] as (1 | 2)[]) : ([1, 2] as const)) {
+    const x = aug(a);
+    if (x) return x;
+  }
+  return fail;
+}
+
+export const canAugment = (g: GameState, rest: AcRest | 1 | 2 | 3 | null) => (typeof rest === 'object' && rest !== null ? !!rest.fc && !!rest.cc : !!rest) && g.company.approvals.includes('augmented');
+
+/** v0.7.3 cabin crew a plan is made for: the legal minimum plus the client's required extra cabin crew. */
+function planCabinN(g: GameState, acId: string | null, fl: Flight[]): number {
+  const ac = acId ? g.fleet[acId] : undefined;
+  let req = 0;
+  for (const f of fl) {
+    const c = f.contractId ? g.contracts[f.contractId] : undefined;
+    if (c) req = Math.max(req, c.requirements.extraCabin ?? 0);
+  }
+  return Math.max(cabinMinimum(ac?.cabin.total ?? 180), 1) + req;
+}
+
+/**
+ * Plan-time choice: the stricter of the two clocks the crew may be on at report (v0.5.2): home base for the first
+ * 48 h away (FTL state B, syncDuty), the departure airport after. Cutting only by the departure clock left early
+ * 4-sector days one band over the limit once measured in their pairing.
+ */
+function planAugment(g: GameState, sh: Shape, ctx: PlanCtx): PlanPick {
+  const a = pickPlan(sh, { reportLocal: localMin(sh.dep, sh.report), acclimatised: true, tz: sh.dep }, ctx);
   const home = g.company.homeBase;
   if (!a.ok || sh.dep === home || tzDeltaH(home, sh.dep, sh.report) === 0) return a;
-  const b = pickAugment(sh, localMin(home, sh.report), true, rc, canAug);
-  return !b.ok || b.augment > a.augment || (b.augment === a.augment && b.max < a.max) ? b : a;
+  const b = pickPlan(sh, { reportLocal: localMin(home, sh.report), acclimatised: true, tz: home }, ctx);
+  return !b.ok || MODE_COST[b.mode] > MODE_COST[a.mode] || (b.mode === a.mode && b.max < a.max) ? b : a;
 }
 
 export function dutyLegality(d: Duty): Legality {
@@ -69,23 +171,89 @@ export function dutyLegality(d: Duty): Legality {
   return d.fdp > max ? 'illegal' : d.fdp > max - LIMITS.tightFdp ? 'tight' : 'legal';
 }
 
-/** Re-measures a duty from its flights in its pairing's context (reference time, augmentation). */
+/** v0.7.3 the duty's planning mode. */
+export const modeOf = (d: Duty): PlanMode => (d.augment === 2 ? 'aug2' : d.augment === 1 ? 'aug1' : d.ext ? 'ext' : d.split ? 'split' : 'basic');
+
+/** Stores a plan on a duty (augmentation, limit, extension / split, basic limit, cabin early report, extra cabin crew). */
+function applyPick(d: Duty, pa: PlanPick): void {
+  d.augment = pa.augment;
+  d.maxFdp = pa.max;
+  d.basicFdp = pa.basic;
+  d.cabinEarly = pa.early;
+  if (pa.mode === 'ext' && pa.ok) d.ext = true;
+  else delete d.ext;
+  if (pa.mode === 'split' && pa.split) d.split = pa.split;
+  else delete d.split;
+  if (pa.restExtra) d.restExtra = pa.restExtra;
+  else delete d.restExtra;
+}
+
+/**
+ * v0.7.3 the limit of a reported duty in the mode it reported with (never re-planned under way): the augmented,
+ * extended or split maximum when still measurable, else Table 2/3.
+ */
+function keepMode(d: Duty, sh: Shape, ref: RefAt, rest: AcRest): PlanPick {
+  const basic = maxFdp({ reportLocal: ref.reportLocal, sectors: sh.sectors, acclimatised: ref.acclimatised, augment: 0, restClass: null, longestBlock: sh.longest });
+  const base: PlanPick = { mode: 'basic', augment: 0, max: basic, basic, ok: sh.fdp <= basic, early: d.cabinEarly ?? sh.early, restExtra: d.restExtra ?? 0 };
+  if (d.augment > 0 && rest.fc && rest.cc && sh.sectors <= AUG_MAX_SECTORS) {
+    const lim = augLimitOf(rest.fc.cls, rest.cc.cls, d.augment as 1 | 2, longSector(sh.sectors, sh.longest), sh.early);
+    return { ...base, mode: d.augment === 1 ? 'aug1' : 'aug2', augment: d.augment, max: lim.max, ok: sh.fdp <= lim.max };
+  }
+  if (d.ext) {
+    const m = extFdp(ref.reportLocal, sh.sectors, woclMinutes(ref.tz, sh.report, sh.lastOn));
+    if (m !== null) return { ...base, mode: 'ext', max: m, ok: sh.fdp <= m };
+  }
+  if (d.split) {
+    const sp = splitOf(sh.fl, ref.tz);
+    const m = sp ? splitFdp(basic, sp.net) : null;
+    if (sp && m !== null) return { ...base, mode: 'split', max: m, ok: sh.fdp <= m, split: { at: sp.at, net: sp.net, room: sp.room, flightId: sp.flightId } };
+  }
+  return base;
+}
+
+/**
+ * Re-measures a duty from its flights in its pairing's context (reference time, plan). v0.7.3: the same plan order
+ * as planning, but an extension or split only kept (never added), a reported duty's mode never changed, and
+ * delayed reporting (CS FTL.1.205(d)): with crew notified of an earlier report, a delay under 4 h keeps the
+ * notified report's limit, 4–10 h takes the more limiting, 10 h or more is a new day.
+ */
 export function syncDuty(g: GameState, d: Duty, p: Pairing): void {
   const fl = dutyFlights(g, d).filter((f) => f.status !== 'cancelled');
   if (!fl.length) return;
   const typeId = (p.aircraftId && g.fleet[p.aircraftId]?.typeId) || 'a320ceo';
-  const reported = p.status === 'active' && d.report <= g.now && crewCount(p) > 0;
+  const crewed = crewCount(p) > 0;
+  const reported = p.status === 'active' && d.report <= g.now && crewed;
   const sh = shape(typeId, fl, reported ? d.report : undefined);
-  const ref = referenceTime(p.base, sh.dep, Math.min(p.start, sh.report), sh.report);
-  const rc = restClassAt(g, p.aircraftId);
-  const pa = pickAugment(sh, ref.reportLocal, ref.state !== 'X', rc, canAugment(g, rc));
+  const refOf = (report: Minute): RefAt => {
+    const r = referenceTime(p.base, sh.dep, Math.min(p.start, report), report);
+    return { reportLocal: r.reportLocal, acclimatised: r.state !== 'X', tz: r.tz };
+  };
+  const ref = refOf(sh.report);
+  const rest = restOf(g, p.aircraftId);
+  let pa: PlanPick;
+  if (reported) pa = keepMode(d, sh, ref, rest);
+  else {
+    const ctx: PlanCtx = { rest, canAug: canAugment(g, rest), split: !!d.split, ext: !!d.ext, forceAug: d.forceAug === 2, legacy: d.legacyRest, cabinN: planCabinN(g, p.aircraftId, fl) };
+    pa = pickPlan(sh, ref, ctx);
+    // Delayed reporting: only once crew were told a report time.
+    if (!crewed) delete d.notified;
+    else if (d.notified === undefined) d.notified = sh.report;
+    else if (sh.report !== d.notified) {
+      const delay = sh.report - d.notified;
+      if (g.now <= d.notified - BAL.v073.delayed.republishH * 60 || delay >= 10 * 60) d.notified = sh.report;
+      else if (delay > 0) {
+        // The limit read at the notified report; the FDP still counts from the delayed one.
+        const told = pickPlan(sh, refOf(d.notified), ctx);
+        if (delay < 4 * 60 || !told.ok || (pa.ok && told.max < pa.max)) pa = told;
+      }
+    }
+  }
   d.flightIds = fl.map((f) => f.id);
   d.report = sh.report;
   d.release = sh.release;
   d.fdp = sh.fdp;
   d.sectors = sh.sectors;
-  d.augment = pa.augment;
-  d.maxFdp = pa.max;
+  applyPick(d, pa);
   d.restAt = sh.restAt;
   d.flightsEv = fl.reduce((s, f) => s + f.ev, 0);
   d.legality = dutyLegality(d);
@@ -121,7 +289,7 @@ export function splitUnderWay(g: GameState, p: Pairing, d: Duty): Duty | null {
     const b = fl[i];
     if (a.status !== 'done' || b.status !== 'scheduled') continue;
     const landed = onBlocks(a);
-    const need = minRest({ dutyMin: landed - d.report + cabinEarly(g, p), atHome: a.to === g.company.homeBase, augmented: d.augment > 0, tzShift: 0 }) + rm.report + rm.post;
+    const need = minRest({ dutyMin: landed - d.report + cabinEarly(g, p, d), atHome: a.to === g.company.homeBase, augmented: d.augment > 0, tzShift: tzDeltaH(g.company.homeBase, a.to, landed), extended: !!d.ext }) + rm.report + rm.post;
     if (b.std - landed < need) continue;
     const later = fl.slice(i);
     const d2: Duty = {
@@ -158,14 +326,14 @@ export function pairingSeats(g: GameState, p: Pairing): Seat[] {
   const ac = p.aircraftId ? g.fleet[p.aircraftId] : undefined;
   const typeId = ac?.typeId ?? 'a320ceo';
   let augment: 0 | 1 | 2 = 0;
-  let fdp = 0;
+  let restCabin = 0;
   // Cabin crew are needed only when passengers are carried: a trip of empty legs flies with its pilots.
   let empty = true;
   for (const id of p.dutyIds) {
     const d = g.duties[id];
     if (!d) continue;
     if (d.augment > augment) augment = d.augment;
-    if (d.augment > 0) fdp = Math.max(fdp, d.fdp);
+    if (d.augment > 0) restCabin = Math.max(restCabin, d.restExtra ?? 0);
     for (const fid of d.flightIds) {
       const k = g.flights[fid]?.kind;
       if (k && k !== 'positioning' && k !== 'ferry') empty = false;
@@ -173,7 +341,7 @@ export function pairingSeats(g: GameState, p: Pairing): Seat[] {
   }
   const c: Contract | undefined = p.contractId ? g.contracts[p.contractId] : undefined;
   const x = crewExtraFor(g, p.aircraftId, p.contractId);
-  const seats = seatsFor(typeId, ac?.cabin.total ?? 180, x, c?.requirements.extraCabin ?? 0, { augment, fdp, pilotsOnly: empty, restClass: restClassAt(g, p.aircraftId) });
+  const seats = seatsFor(typeId, ac?.cabin.total ?? 180, x, c?.requirements.extraCabin ?? 0, { augment, restCabin, pilotsOnly: empty });
   const rank = (s: Seat) => (s.above ? 10 : 0) + ROLE_ORDER.indexOf(s.role);
   return seats.sort((a, b) => rank(a) - rank(b));
 }
@@ -182,14 +350,14 @@ export function pairingSeats(g: GameState, p: Pairing): Seat[] {
 export function legalMinimum(g: GameState, p: Pairing): { pilots: number; cabin: number } {
   const ac = p.aircraftId ? g.fleet[p.aircraftId] : undefined;
   let augment: 0 | 1 | 2 = 0;
-  let fdp = 0;
+  let restCabin = 0;
   for (const id of p.dutyIds) {
     const d = g.duties[id];
     if (!d) continue;
     if (d.augment > augment) augment = d.augment;
-    if (d.augment > 0) fdp = Math.max(fdp, d.fdp);
+    if (d.augment > 0) restCabin = Math.max(restCabin, d.restExtra ?? 0);
   }
-  const seats = seatsFor(ac?.typeId ?? 'a320ceo', ac?.cabin.total ?? 180, { cabin: 0, pilot: 0 }, 0, { augment, fdp, restClass: restClassAt(g, p.aircraftId) });
+  const seats = seatsFor(ac?.typeId ?? 'a320ceo', ac?.cabin.total ?? 180, { cabin: 0, pilot: 0 }, 0, { augment, restCabin });
   const pilots = seats.filter((s) => s.role === 'CPT' || s.role === 'FO' || s.role === 'CRP').length;
   return { pilots, cabin: seats.length - pilots };
 }
@@ -337,10 +505,16 @@ interface Spec {
 
 const keyOf = (fl: Flight[]) => fl.map((f) => f.id).join(',');
 
-/** Fewest duties, then least augmentation, then the most slack on the tightest duty (DESIGN §5.3 step 3). */
-function partition(g: GameState, typeId: string, rc: 1 | 2 | 3 | null, units: Flight[][]): Spec[] {
-  const canAug = canAugment(g, rc);
+/**
+ * Fewest duties, then the cheapest plan (basic < split < extension < 3 < 4 pilots), then the most slack on the
+ * tightest duty (DESIGN §5.3 step 3). v0.7.3: split duty and planned extension only for a single unit (they rescue
+ * a long out-and-back or outstation wait, never merge two units into a longer day); never more than 10 sectors, nor
+ * more than 4 on a night duty (CS FTL.1.205(a)(1), applied to every night duty).
+ */
+function partition(g: GameState, acId: string, typeId: string, rest: AcRest, units: Flight[][]): Spec[] {
+  const canAug = canAugment(g, rest);
   const allowTight = g.company.policies.allowTight;
+  const home = g.company.homeBase;
   interface Best { count: number; aug: number; slack: number; prev: number; flights: Flight[] }
   const best: (Best | null)[] = new Array(units.length + 1).fill(null);
   best[0] = { count: 0, aug: 0, slack: Infinity, prev: -1, flights: [] };
@@ -350,13 +524,14 @@ function partition(g: GameState, typeId: string, rc: 1 | 2 | 3 | null, units: Fl
       fl = [...units[i], ...fl];
       const sh = shape(typeId, fl);
       const single = i === j - 1;
-      if (!single && sh.fdp > 19 * 60) break;
-      const pa = planAugment(g, sh, rc, canAug);
+      if (!single && (sh.fdp > 19 * 60 || sh.sectors > MAX_SECTORS)) break;
+      const pa = planAugment(g, sh, { rest, canAug, split: single, ext: single, cabinN: planCabinN(g, acId, fl) });
       const tight = sh.fdp > pa.max - LIMITS.tightFdp;
       if (!single && (!pa.ok || (tight && !allowTight))) continue;
+      if (!single && sh.sectors > NIGHT_MAX_SECTORS && disruptiveKinds(home, sh.report, sh.lastOn).night) continue;
       const prev = best[i];
       if (!prev) continue;
-      const cand: Best = { count: prev.count + 1, aug: prev.aug + pa.augment, slack: Math.min(prev.slack, pa.max - sh.fdp), prev: i, flights: fl };
+      const cand: Best = { count: prev.count + 1, aug: prev.aug + MODE_COST[pa.mode], slack: Math.min(prev.slack, pa.max - sh.fdp), prev: i, flights: fl };
       const cur = best[j];
       if (!cur || cand.count < cur.count || (cand.count === cur.count && (cand.aug < cur.aug || (cand.aug === cur.aug && cand.slack > cur.slack)))) best[j] = cand;
     }
@@ -376,9 +551,9 @@ function partition(g: GameState, typeId: string, rc: 1 | 2 | 3 | null, units: Fl
  * there). A revenue sector and its tech-stop legs stay one chain, unless that chain alone is too long for one crew
  * (an early report out of Kabul with a fuel stop, say): then the crew changes at the fuel stop.
  */
-function slipUnits(g: GameState, typeId: string, rc: 1 | 2 | 3 | null, u: Flight[]): Flight[][] {
+function slipUnits(g: GameState, acId: string, typeId: string, rest: AcRest, u: Flight[]): Flight[][] {
   if (u.length < 2) return [u];
-  const fits = (fl: Flight[]) => planAugment(g, shape(typeId, fl), rc, canAugment(g, rc)).ok;
+  const fits = (fl: Flight[]) => planAugment(g, shape(typeId, fl), { rest, canAug: canAugment(g, rest), split: true, ext: true, cabinN: planCabinN(g, acId, fl) }).ok;
   if (fits(u)) return [u];
   return bySector(u).flatMap((x) => (x.length > 1 && !fits(x) ? x.map((f) => [f]) : [x]));
 }
@@ -409,7 +584,7 @@ export function planAircraft(g: GameState, acId: string, from: Minute): void {
   const ac = g.fleet[acId];
   if (!ac) return;
   const typeId = ac.typeId;
-  const rc = restClassAt(g, acId);
+  const rest = restOf(g, acId);
   const home = g.company.homeBase;
   const ix = crewIx(g);
   const old = new Map<string, Duty>();
@@ -470,7 +645,7 @@ export function planAircraft(g: GameState, acId: string, from: Minute): void {
       }
     }
     if (u.length) units.push(u);
-    specs.push(...partition(g, typeId, rc, units.flatMap((x) => slipUnits(g, typeId, rc, x))));
+    specs.push(...partition(g, acId, typeId, rest, units.flatMap((x) => slipUnits(g, acId, typeId, rest, x))));
   }
 
   // Duty records (reused when the flights are the same).
@@ -488,10 +663,12 @@ export function planAircraft(g: GameState, acId: string, from: Minute): void {
     delete d.done;
     g.duties[d.id] = d;
     for (const f of s.flights) f.dutyId = d.id;
-    // Provisional measures (the stricter clock); refreshPairing re-measures in pairing context.
+    // Provisional measures (the stricter clock); refreshPairing re-measures in pairing context (keeping the plan's
+    // extension or split, chosen here for a single unit).
     const sh = shape(typeId, s.flights);
-    const pa = planAugment(g, sh, rc, canAugment(g, rc));
-    Object.assign(d, { report: sh.report, release: sh.release, fdp: sh.fdp, sectors: sh.sectors, augment: pa.augment, maxFdp: pa.max, restAt: sh.restAt });
+    const pa = planAugment(g, sh, { rest, canAug: canAugment(g, rest), split: true, ext: true, forceAug: d.forceAug === 2, cabinN: planCabinN(g, acId, s.flights) });
+    Object.assign(d, { report: sh.report, release: sh.release, fdp: sh.fdp, sectors: sh.sectors, restAt: sh.restAt });
+    applyPick(d, pa);
     d.flightsEv = s.flights.reduce((n, f) => n + f.ev, 0);
     d.legality = dutyLegality(d);
     const c = contractOfDuties(g, [d]);
@@ -646,12 +823,13 @@ function virtualSeg(g: GameState, d: Duty, tripStart: Minute, base: string, fres
   const dep = g.flights[d.flightIds[0]]?.from ?? d.restAt;
   const tz = referenceTime(base, dep, Math.min(tripStart, d.report), d.report).tz;
   const p = g.pairings[d.pairingId];
-  const early = p ? cabinEarly(g, p) : 0;
+  const early = p ? cabinEarly(g, p, d) : 0;
   const start = d.report - early;
+  const k = disruptiveKinds(tz, start, d.release);
   return {
     kind: 'duty', start, end: d.release, fdp: d.fdp + early, maxFdp: d.maxFdp + (d.discretion ?? 0) + early, block: dutyBlock(g, d), sectors: d.sectors,
-    aug: d.augment > 0, disruptive: isDisruptive(tz, start, d.release),
-    rest: minRest({ dutyMin: d.release - start, atHome: d.restAt === base, augmented: d.augment > 0, tzShift: tzDeltaH(base, d.restAt, d.release) }),
+    aug: d.augment > 0, disruptive: k.early || k.late || k.night, early: k.early, late: k.late, night: k.night, ...(d.ext ? { ext: true } : {}),
+    rest: minRest({ dutyMin: d.release - start, atHome: d.restAt === base, augmented: d.augment > 0, tzShift: tzDeltaH(base, d.restAt, d.release), extended: !!d.ext }),
     at: d.restAt, from: dep, dutyId: d.id, fresh,
   };
 }
@@ -822,4 +1000,23 @@ export function buildDuties(g: GameState, aircraftId: string, from: Minute, to: 
     }
   }
   return out.sort((a, b) => a.report - b.report);
+}
+
+// ---------- v0.7.3 contract chains (UPDATE-0.7.3.md §2.9) ----------
+
+/** An operated chain of a programme (trip legs between crew-change stations), UTC, offsets applied. */
+export interface ChainShape { from: string; std: Minute; legs: { std: Minute; sta: Minute }[] }
+
+export interface DutyNeed {
+  mode: 'basic' | 'split' | 'ext' | 'aug1' | 'aug2' | 'none';
+  fdp: number;
+  max: number;
+  plan: import('./restPlan').RestPlan | null;
+  text: string;
+}
+
+/** v0.7.3 what crewing a chain on this type and these facilities needs (the first legal plan). Pure. STUB */
+export function dutyNeed(_g: GameState, _typeId: string, _rest: import('../core/types').AcRest, chain: ChainShape): DutyNeed {
+  const fdp = chain.legs.length ? chain.legs[chain.legs.length - 1].sta - chain.legs[0].std : 0;
+  return { mode: 'none', fdp, max: 0, plan: null, text: '' };
 }

@@ -63,7 +63,7 @@ function windowAt(g: GameState, ac: Aircraft, hub: string, at: string, start: Mi
 }
 
 /** Earliest check starts at a hub whose window holds ferry out + check + ferry home (one a week in a long gap). Pure. */
-export function cCheckSlots(g: GameState, aircraftId: string, hub: string, n = 6): Minute[] {
+export function cCheckSlots(g: GameState, aircraftId: string, hub: string, n = 6, _restFit?: 'fcrc' | 'overhead'): Minute[] {
   const ac = g.fleet[aircraftId];
   if (!ac || !cHubAt(typeOf(ac.typeId).family, hub)) return [];
   const out: Minute[] = [];
@@ -83,7 +83,7 @@ export function cCheckSlots(g: GameState, aircraftId: string, hub: string, n = 6
 }
 
 /** One option per hub of the aircraft's family (at `start`, else its first slot), cheapest total first. Pure. */
-export function cCheckOptions(g: GameState, aircraftId: string, start?: Minute): CCheckOption[] {
+export function cCheckOptions(g: GameState, aircraftId: string, start?: Minute, _restFit?: 'fcrc' | 'overhead'): CCheckOption[] {
   const ac = g.fleet[aircraftId];
   if (!ac) return [];
   const home = g.company.homeBase;
@@ -128,9 +128,11 @@ export function cCheckOptions(g: GameState, aircraftId: string, start?: Minute):
 
 /**
  * Books the C-check at a hub: ferry out, check, ferry home (crewed by the auto-roster, pilots on airline tickets).
- * `forced`: the overdue path (grounded), allowed on a sold or returning aircraft.
+ * `forced` (or opts.forced): the overdue path (grounded), allowed on a sold or returning aircraft. v0.7.3
+ * opts.restFit: a crew rest compartment fitted with the check (longer check, its cost added).
  */
-export function bookCCheck(g: GameState, aircraftId: string, hub: string, start: Minute, forced = false): ActionResult<{ maintId: string }> {
+export function bookCCheck(g: GameState, aircraftId: string, hub: string, start: Minute, opts: boolean | { forced?: boolean; restFit?: 'fcrc' | 'overhead' } = false): ActionResult<{ maintId: string }> {
+  const forced = typeof opts === 'boolean' ? opts : !!opts.forced;
   const ac = g.fleet[aircraftId];
   if (!ac) return { ok: false, error: 'Aircraft not found' };
   const leaving = forced ? null : disposalWhy(g, ac);

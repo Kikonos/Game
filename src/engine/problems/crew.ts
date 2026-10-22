@@ -169,3 +169,20 @@ export function restSeatsCard(g: GameState, flightId: string): ProblemCard | nul
     details: [`${blocked || ac.crewRest?.seats || 0} crew rest seats (class 3) on ${ac.reg}`, `Booked ${pax} passengers`], visuals: {}, terms: ['restSeats', 'restClass3', 'crewRest'], by: f.std,
   };
 }
+
+// ---------- v0.7.3 in-flight rest (UPDATE-0.7.3.md §2.7) ----------
+
+/** A duty needs a 4th pilot (or an extension / split) only because of its aircraft's rest class (flight = its first leg). Pure. */
+export function restFacilityCard(_g: GameState, _flightId: string): ProblemCard | null {
+  return null;
+}
+
+/** No in-flight rest possible on a flight's duty (the cruise is too short). Pure. */
+export function restTooShortCard(_g: GameState, _flightId: string): ProblemCard | null {
+  return null;
+}
+
+/** A duty needs extra cabin crew so everyone can rest. Pure. */
+export function cabinRestCard(_g: GameState, _flightId: string): ProblemCard | null {
+  return null;
+}

@@ -11,9 +11,10 @@ import { touchCrew } from './crew/timeline';
 import { blockMinutes } from './core/perf';
 import { flightsOf } from './core/entities';
 import { nextId } from './core/entities';
-import type { GameState, Role } from './core/types';
+import type { AcRest, GameState, Role } from './core/types';
 import { escalateShortages } from './crew/control';
 import { recheckPairing, releaseCrew, setFlightsCrew } from './crew/roster';
+import { migrateRest } from './crew/restPlan';
 
 /** Out-and-back legs from each aircraft's position, starting in 30 min, for `days` days (ferries by default: no client). */
 export function demoFlights(g: GameState, dests = ['FAO', 'FNC', 'PMI', 'TFS', 'OPO', 'AGP'], days = 3, kind: 'ferry' | 'revenue' = 'ferry'): number {
@@ -91,7 +92,8 @@ export function devRestSeats(g: GameState): string {
   for (const a of ['widebody', 'augmented'] as const) if (!g.company.approvals.includes(a)) g.company.approvals.push(a);
   const t = ACMI_TYPES.a333;
   const id = nextId(g, 'a');
-  const ac = { ...structuredClone(base), id, reg: `${g.company.regPrefix}DVR`, typeId: t.id, cabin: cabinFrom(t.cabins[t.cabins.length - 1]), at: home, flightId: null, status: 'available' as const, maintId: null, crewRest: { bunks: false, seats: t.yAbreast }, bhDays: [] };
+  const ac = { ...structuredClone(base), id, reg: `${g.company.regPrefix}DVR`, typeId: t.id, cabin: cabinFrom(t.cabins[t.cabins.length - 1]), at: home, flightId: null, status: 'available' as const, maintId: null, crewRest: { bunks: false, seats: t.yAbreast }, rest: undefined as AcRest | undefined, bhDays: [] };
+  ac.rest = migrateRest(ac);
   ac.maint = { ...ac.maint, fhSinceA: 0, lastA: g.now, fhSinceC: 0, lastC: g.now };
   g.fleet[id] = ac;
   for (const [role, n] of [['CPT', 3], ['FO', 4], ['PUR', 3], ['CC', 24]] as const) for (let i = 0; i < n; i++) {
@@ -118,4 +120,27 @@ export function devSaleReady(g: GameState): string {
   for (const m of Object.values(g.maintenance)) if (m.aircraftId === ac.id && m.status === 'planned' && m.end > g.now + 10 * DAY) m.status = 'cancelled';
   touchFlights(g);
   return ac.id;
+}
+
+// ---------- v0.7.3 (UPDATE-0.7.3.md §7): each returns the id to open ----------
+
+/** An A330 with business seats (class 2) and an LIS–GRU augmented duty; the long flight's id. STUB */
+export function devRestPlan(_g: GameState): string {
+  return '';
+}
+/** A 3-sector augmented day with 3 h legs (restTooShort); a flight id. STUB */
+export function devShortCruise(_g: GameState): string {
+  return '';
+}
+/** An A320 13:40 out-and-back planned as an extension; the duty id. STUB */
+export function devExtension(_g: GameState): string {
+  return '';
+}
+/** An A320 out-and-back with a 4:30 wait at FNC (split duty); the duty id. STUB */
+export function devSplit(_g: GameState): string {
+  return '';
+}
+/** A crew-short flight at base with a captain on home standby; the flight id. STUB */
+export function devStandby(_g: GameState): string {
+  return '';
 }

@@ -7,7 +7,10 @@ export type TermId =
   | 'fdp' | 'deadhead' | 'positioning' | 'tight' | 'discretion' | 'acmi' | 'wetLease' | 'subcharter' | 'aog' | 'standby' | 'rest' | 'blockHours'
   | 'mgh' | 'ferry' | 'augmented' | 'etops' | 'aCheck' | 'cCheck' | 'perDiem' | 'recovery' | 'privateJet'
   /** v0.7.2 */
-  | 'pur' | 'cabinCrew' | 'crewRest' | 'restClass1' | 'restClass3' | 'restSeats' | 'mro' | 'dryLease' | 'asFo' | 'marketValue' | 'earlyReturn';
+  | 'pur' | 'cabinCrew' | 'crewRest' | 'restClass1' | 'restClass3' | 'restSeats' | 'mro' | 'dryLease' | 'asFo' | 'marketValue' | 'earlyReturn'
+  /** v0.7.3 */
+  | 'restClass2' | 'fcrc' | 'ccrc' | 'ldmcr' | 'recliners' | 'inflightRest' | 'landingPilots' | 'extension' | 'splitDuty' | 'delayedReport'
+  | 'homeStandby' | 'wocl' | 'disruptive' | 'tzRest' | 'twoDays';
 
 export interface GlossaryEntry {
   term: string;
@@ -25,7 +28,7 @@ export const GLOSSARY: Record<TermId, GlossaryEntry> = {
   deadhead: { term: 'Deadhead', short: 'Crew travelling as passengers on another airline to get to their flight.', where: { tab: 'map' } },
   positioning: { term: 'Positioning', short: 'Flying our own aircraft empty to where the work is.', where: { tab: 'schedule' } },
   tight: { term: 'Tight', short: 'Legal, but within 30 minutes or 5% of a limit; one delay breaks it.', where: { tab: 'crew', view: 'board' } },
-  discretion: { term: 'Discretion', short: "The captain may extend the crew's day by up to 2 hours once; the crew get tired and grumpy.", where: { tab: 'crew', view: 'board' } },
+  discretion: { term: 'Discretion', short: "The captain may extend the crew's day after reporting, if something unforeseen happens: up to 2 h (3 h with an augmented crew).", where: { tab: 'crew', view: 'board' } },
   acmi: { term: 'ACMI', short: 'We provide Aircraft, Crew, Maintenance and Insurance; the client pays per block hour, fuel and airport fees.', where: { tab: 'contracts' } },
   wetLease: { term: 'Wet lease', short: 'Same as ACMI: our aircraft and crew fly for the client, who pays per block hour.', where: { tab: 'contracts' } },
   subcharter: { term: 'Sub-charter', short: "Paying a rival airline to fly our client's flight; we still bill the client. Clients notice: each leg handed over costs reliability, more when it becomes a habit.", where: { tab: 'contracts' } },
@@ -35,7 +38,7 @@ export const GLOSSARY: Record<TermId, GlossaryEntry> = {
   blockHours: { term: 'Block hours', short: 'Time from pushing back to parking; what clients pay for.', where: { tab: 'finance' } },
   mgh: { term: 'MGH', short: 'Minimum guaranteed hours: the block hours a wet-lease client pays for every month, flown or not.', where: { tab: 'contracts' } },
   ferry: { term: 'Ferry', short: 'An empty flight with no client: to a check, a delivery or a return.', where: { tab: 'schedule' } },
-  augmented: { term: 'Augmented', short: 'A third (or fourth) pilot on board so the crew can rest in turns on a long flight.', where: { tab: 'company' } },
+  augmented: { term: 'Augmented', short: 'A third or fourth pilot so each can rest in flight; allows 14–18 h days depending on the rest facility.', where: { tab: 'company' } },
   etops: { term: 'ETOPS', short: 'Permission to fly far from the nearest airport over water (120, 180 or 240 minutes).', where: { tab: 'company' } },
   aCheck: { term: 'A-check', short: 'A light overnight inspection every few hundred flight hours.', where: { tab: 'fleet' } },
   cCheck: { term: 'C-check', short: 'A heavy check in a hangar every couple of years; the aircraft is out for days.', where: { tab: 'fleet' } },
@@ -44,15 +47,31 @@ export const GLOSSARY: Record<TermId, GlossaryEntry> = {
   privateJet: { term: 'Private jet', short: 'A business jet chartered to fly our crew to their aircraft in hours; dear, but fast.', where: { tab: 'map' } },
   pur: { term: 'PUR', short: 'Purser: the senior cabin crew member in charge of the cabin (SCCM). One on every flight.', where: { tab: 'crew', view: 'people' } },
   cabinCrew: { term: 'CC', short: 'Cabin crew: the flight attendants, one for every 50 seats at least. They can hold up to three aircraft types.', where: { tab: 'crew', view: 'people' } },
-  crewRest: { term: 'Crew rest', short: 'A crew rest compartment: bunks hidden above or below the cabin where crew sleep on long flights (class 1 rest).', where: { tab: 'fleet' } },
+  crewRest: { term: 'Crew rest', short: 'Where crew sleep on long flights: bunks (class 1), business seats (class 2) or recliners (class 3). Pilots and cabin crew have their own.', where: { tab: 'fleet' } },
   restClass1: { term: 'Class 1 rest', short: 'Class 1 rest: a bunk or flat bed away from passengers. Allows the longest duty days.', where: { tab: 'fleet' } },
-  restClass3: { term: 'Class 3 rest', short: 'Class 3 rest: an economy seat that reclines at least 40°, with a leg rest, behind a curtain.', where: { tab: 'fleet' } },
-  restSeats: { term: 'Crew rest seats', short: 'The last economy row curtained off for resting crew; sold to passengers when nobody needs to rest.', where: { tab: 'fleet' } },
+  restClass3: { term: 'Class 3 rest', short: "Class 3 rest: a crew rest recliner (at least 40°, with a leg rest) behind a curtain, not next to passengers. A normal economy seat doesn't count.", where: { tab: 'fleet' } },
+  restSeats: { term: 'Crew rest seats', short: 'Seats curtained off for resting crew on long days; sold to passengers on other flights.', where: { tab: 'fleet' } },
   mro: { term: 'MRO', short: 'Maintenance, repair and overhaul: the hangar company that does heavy checks.', where: { tab: 'fleet' } },
   dryLease: { term: 'Dry lease', short: 'Renting an aircraft without crew; we fly it on our licence and hand it back at the end.', where: { tab: 'fleet' } },
   asFo: { term: 'Captain as FO', short: "A captain sitting in the first officer's seat because no first officer was free. Same pay.", where: { tab: 'crew', view: 'board' } },
   marketValue: { term: 'Market value', short: 'What a buyer pays for an aircraft today: its type, age, hours, cycles and the next heavy check.', where: { tab: 'fleet' } },
   earlyReturn: { term: 'Early return', short: 'Handing a leased aircraft back before the lease ends: the lessor charges a fee to find the next airline.', where: { tab: 'fleet' } },
+  // v0.7.3
+  restClass2: { term: 'Class 2 rest', short: 'Class 2 rest: a business seat that reclines at least 45°, curtained off from passengers.', where: { tab: 'fleet' } },
+  fcrc: { term: 'Pilots’ bunks', short: "The pilots' bunk room by the cockpit (flight crew rest compartment): class 1 rest.", where: { tab: 'fleet' } },
+  ccrc: { term: 'Cabin crew bunks', short: "The cabin crew's bunks, hidden above the cabin or below it: class 1 rest.", where: { tab: 'fleet' } },
+  ldmcr: { term: 'Lower-deck crew rest module', short: 'A bunk module loaded into the aft cargo hold for the cabin crew (A330, A340): class 1 rest.', where: { tab: 'fleet' } },
+  recliners: { term: 'Crew rest recliners', short: 'Crew rest recliners with leg rests in place of the last economy rows: class 3 rest. They sell as economy seats when nobody rests.', where: { tab: 'fleet' } },
+  inflightRest: { term: 'In-flight rest', short: 'Sleep on board: on long days part of the crew rests in turns while the others work.', where: { tab: 'schedule' } },
+  landingPilots: { term: 'Landing pilots', short: 'The two pilots who land the last flight: they need 2 hours’ rest in a row, the others 90 minutes.', where: { tab: 'schedule' } },
+  extension: { term: 'Planned extension', short: 'A planned extra hour (up to 14 h), at most twice a week per person, with 4 h more rest after.', where: { tab: 'crew', view: 'board' } },
+  splitDuty: { term: 'Split duty', short: "A long wait on the ground (3 h or more) adds half of it to the day; a hotel room when it's 6 h or at night.", where: { tab: 'crew', view: 'board' } },
+  delayedReport: { term: 'Delayed report', short: 'Crew told to come later before they leave the hotel: under 4 h the day keeps its original limit.', where: { tab: 'crew', view: 'board' } },
+  homeStandby: { term: 'Home standby', short: 'On call at home: 25 % counts as duty; called after 6 h, the day gets shorter.', where: { tab: 'crew', view: 'board' } },
+  wocl: { term: 'WOCL', short: "02:00–05:59 body-clock time: the hours we're least alert.", where: { tab: 'crew', view: 'board' } },
+  disruptive: { term: 'Disruptive duty', short: 'Early starts (05:00–05:59), late finishes (23:00–01:59) and nights (any time 02:00–04:59).', where: { tab: 'crew', view: 'board' } },
+  tzRest: { term: 'Time-zone rest', short: 'After a trip 4 or more time zones away: 2–5 local nights at home before the next duty.', where: { tab: 'crew', view: 'board' } },
+  twoDays: { term: 'Two-day weekend', short: 'Twice a month the weekly rest is 2 whole local days.', where: { tab: 'crew', view: 'board' } },
 };
 
 /** Words that the UI wraps in <Term> when they appear in a card's text (lower-case match). */
@@ -63,6 +82,10 @@ export const TERM_WORDS: [string, TermId][] = [
   ['weekly rest', 'recovery'], ['private jet', 'privateJet'],
   ['purser', 'pur'], ['crew rest seats', 'restSeats'], ['crew rest', 'crewRest'], ['class 1 rest', 'restClass1'], ['class 3 rest', 'restClass3'], ['MRO', 'mro'],
   ['dry lease', 'dryLease'], ['market value', 'marketValue'], ['early return', 'earlyReturn'],
+  // v0.7.3 (longer phrases first where they overlap)
+  ['class 2 rest', 'restClass2'], ['lower-deck crew rest module', 'ldmcr'], ['crew rest recliners', 'recliners'], ['in-flight rest', 'inflightRest'],
+  ['landing pilots', 'landingPilots'], ['planned extension', 'extension'], ['split duty', 'splitDuty'], ['delayed report', 'delayedReport'],
+  ['home standby', 'homeStandby'], ['WOCL', 'wocl'], ['disruptive', 'disruptive'], ['two-day weekend', 'twoDays'], ["pilots' bunks", 'fcrc'],
 ];
 
 /** First-time hints: one plain paragraph the first time each kind of problem appears (Settings.hintsSeen). */
@@ -125,7 +148,19 @@ export const HINTS: Partial<Record<ProblemKind, { title: string; text: string }>
   },
   restSeats: {
     title: 'Seats blocked for crew rest',
-    text: 'On a long duty the crew must rest in turns during the flight. An aircraft without bunks curtains off its last economy row for them, so those seats cannot be sold on that flight. On shorter duties they sell as normal.',
+    text: 'On a long duty the crew must rest in turns during the flight. An aircraft without bunks curtains off business seats (or crew rest recliners) for them, so those seats cannot be sold on the legs where someone rests. On shorter duties they sell as normal.',
+  },
+  restFacility: {
+    title: 'A long day that needs a 4th pilot',
+    text: 'How long a crew may work depends on where they can sleep on board: bunks (class 1) allow the longest days, curtained business seats (class 2) an hour less, recliners (class 3) two hours less. When the aircraft only has seats, a 4th pilot or another aircraft makes the day legal.',
+  },
+  restTooShort: {
+    title: 'No time to sleep on board',
+    text: 'In-flight rest only counts in the cruise: each pilot needs 90 minutes in a row, the two who land 2 hours. On short legs there is no room for that, so the day falls back to the normal limit and the roster needs a fresh crew.',
+  },
+  cabinRest: {
+    title: 'More cabin crew so everyone can rest',
+    text: 'On long days every flight attendant needs a set rest on board (longer on seats than in bunks), while half the crew keep working in the cabin. When the cruise is too short for everyone, one or two extra cabin crew fly so the turns fit.',
   },
   captainAsFo: {
     title: 'A captain flying as first officer',

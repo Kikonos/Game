@@ -194,7 +194,7 @@ describe('augmentation', () => {
     const ac = Object.values(g.fleet)[0];
     ac.typeId = 'a333';
     ac.cabin = { ...ac.cabin, total: 300, y: 300, j: 0, w: 0 };
-    ac.crewRest = { bunks: true, seats: 0 };
+    ac.rest = { fc: { cls: 1, kind: 'fcrc', places: 2 }, cc: { cls: 1, kind: 'ldmcr', places: 7 } };
     addCrew(g, { CPT: 3, FO: 4, PUR: 4, CC: 14 }, 'A330/340');
     const std = Math.floor(g.now / DAY) * DAY + 2 * DAY + 20 * 60;
     fixtureContract(g, { aircraftIds: [ac.id], start: std, end: std + DAY, pattern: { kind: 'legs', legs: [] }, product: { kind: 'charter', price: 1, depositPct: 0, balanceDaysBefore: 0, fuelEscalation: false } });

@@ -13,6 +13,24 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.7.3',
+    name: 'In-flight Rest & EASA',
+    features: [
+      'In-flight rest is now real: every widebody has its own rest for pilots and for cabin crew (bunks, business seats or recliners), and long days only work if everyone can actually sleep on the way.',
+      'Tap any long flight to see who rests when, where and for how long: pilots by name, cabin crew in groups, and whether the plan is OK, tight or impossible.',
+      "Every aircraft shows its longest possible day: '16 h with 3 pilots · 17 h with 4'. The Market can show only aircraft with bunks.",
+      'Crew rest refits: curtain off business seats, fit recliners (also on the A321LR and 757), a lower-deck bunk module on the A330/A340, or a bunk room for the pilots with the next C-check.',
+      'Planned extensions (+1 h, twice a week), split duties on long ground waits and home standby crew you can call in without overtime.',
+      'The rest rules you know: a local night’s sleep before an early start after a late finish, two-day weekends twice a month, and recovery nights at home after trips across time zones.',
+    ],
+    improvements: [
+      'The EASA rules were checked line by line against the current regulation: the cabin crew rest table ends at 18 h, rest after any augmented day is at least 14 h, and the captain’s discretion is only for surprises on the day.',
+      'Contract checks use the real limit for the report time and each aircraft’s rest, and say exactly what a long job needs.',
+      'Delays announced before the crew leave the hotel keep the original day limit, as the rules say.',
+      'Small fixes: the WHY? dot is easier to read, lists clear the iPad’s home bar.',
+    ],
+  },
+  {
     version: 'v0.7.2',
     name: 'Crew Rules & Fleet',
     features: [

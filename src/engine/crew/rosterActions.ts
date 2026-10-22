@@ -112,6 +112,8 @@ export interface DutyCandidate {
   arrives?: Minute;
   /** v0.7.1: the one root reason when not clean (UPDATE-0.7.1.md §6). */
   reason?: Reason;
+  /** v0.7.3 on home standby at the report (Crew Control call-in: no overtime). */
+  standby?: { from: Minute };
 }
 
 /**

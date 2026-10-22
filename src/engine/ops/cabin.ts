@@ -11,7 +11,7 @@ import { flightsOf } from '../core/entities';
 import { pushMessage } from '../core/messages';
 import { cabinMinimum, typeOf } from '../core/perf';
 import { DAY, fmtDate, fmtDay } from '../core/time';
-import type { ActionResult, Aircraft, Cabin, GameState, MaintenanceEvent, Minute, Requirements } from '../core/types';
+import type { ActionResult, Aircraft, Cabin, GameState, MaintenanceEvent, Minute, Requirements, RestRefitId } from '../core/types';
 import { route, routeMinutes, timeChain } from '../contracts/plan';
 import { rerosterFrom } from '../crew';
 import type { DeliveryLeg } from './delivery';
@@ -381,3 +381,43 @@ export function refitTip(g: GameState, ac: Aircraft, req: Pick<Requirements, 'la
 
 /** "after the refit 1 Jun". */
 export const afterRefit = (end: Minute) => `after the refit ${fmtDate(end).replace(/ \d{4}$/, '')}`;
+
+// ---------- v0.7.3 crew rest refits (UPDATE-0.7.3.md §2.10) ----------
+
+export interface RestRefitOption {
+  id: RestRefitId;
+  label: string;
+  side: 'fc' | 'cc' | 'both';
+  cls: 1 | 2 | 3;
+  /** Home base (refitSlots) or added to a C-check at an MRO hub. */
+  where: 'home' | 'cCheck';
+  /** Est.; cCheck: extra days on the check. */
+  days: number;
+  cost: number;
+  /** Cabin seat change (−8). */
+  seats: number;
+  /** 'Opens: 16 h days with 3 pilots (was 15 h)'. */
+  opens: string;
+  ok: boolean;
+  why: string | null;
+}
+
+/** v0.7.3 the crew rest refits an aircraft can have. Pure. STUB */
+export function restRefitOptions(_g: GameState, _aircraftId: string): RestRefitOption[] {
+  return [];
+}
+
+/** v0.7.3 a home-base crew rest refit from `start`. Pure. STUB */
+export function restRefitQuote(g: GameState, aircraftId: string, _id: RestRefitId, start: Minute): RefitQuote {
+  return restSeatsQuote(g, aircraftId, true, start);
+}
+
+/** v0.7.3 books a home-base crew rest refit. STUB */
+export function bookRestRefit(_g: GameState, _aircraftId: string, _id: RestRefitId, _start: Minute): ActionResult<{ maintId: string }> {
+  return { ok: false, error: 'Not available yet' };
+}
+
+/** v0.7.3 adds (or with null removes) a compartment refit on a booked C-check. STUB */
+export function addRestToCCheck(_g: GameState, _maintId: string, _id: 'fcrc' | 'overhead' | null): ActionResult {
+  return { ok: false, error: 'Not available yet' };
+}

@@ -3,7 +3,6 @@
 // late-notice changes, missions, extra crew, careers and late salaries. Low morale brings sick calls, worse
 // service and resignations with notice. Daily from the crew module; read APIs are pure.
 
-import { restClassAt } from './crewRest';
 import { BAL } from '../core/balance';
 import { pushMessage } from '../core/messages';
 import { complement, isPilot } from '../core/perf';
@@ -140,7 +139,7 @@ export function legService(g: GameState, f: Flight): number | null {
   const S = M().service;
   const avg = cabin.reduce((s, c) => s + c.morale, 0) / cabin.length;
   const d = f.dutyId ? g.duties[f.dutyId] : undefined;
-  const legal = complement(ac.typeId, ac.cabin.total, { augment: d?.augment, fdp: d?.fdp, restClass: restClassAt(g, ac.id) }).filter((r) => !isPilot(r)).length;
+  const legal = complement(ac.typeId, ac.cabin.total, { augment: d?.augment, restCabin: d?.restExtra }).filter((r) => !isPilot(r)).length;
   const above = Math.max(0, cabin.length - legal);
   return clamp((avg - 60) / 30, -1, 1) * S.moraleW + Math.min(S.extraMax, S.extraPer * above);
 }
