@@ -1,0 +1,1401 @@
+EASA Flight Time Limitations (Subpart FTL / CS
+FTL.1) for CAT Aeroplane Pilots and Cabin Crew —
+Reference Document (current as of 22 October
+2026)
+For EU scheduled and charter commercial air transport (CAT) aeroplane operations, the
+binding rules are still the 2014 Subpart FTL (Regulation (EU) No 965/2012 Annex III, as
+inserted by Regulation (EU) No 83/2014, applicable since 18 February 2016)             skybrary   plus
+CS FTL.1.   europa     luftfartstilsynet   Pilots and cabin crew share the same FDP tables,
+cumulative limits and rest rules. Three differences matter: cabin crew FDP may be extended
+by up to 1 hour of earlier reporting (ORO.FTL.205(c));         raven   cabin crew have their own in-
+flight rest table (CS FTL.1.205(c)(3)); and only flight crew augmentation unlocks long-haul
+extensions.   luftfartstilsynet
+
+
+
+TL;DR
+   Core limits (unchanged since 2016): basic max FDP for acclimatised crew is 13:00 at
+   best (1–2 sectors, reporting 06:00–13:29), falling to 9:00. Planned extension +1 h, max
+   twice per 7 days; augmented crew 14–17 h (+1 h for a single sector over 9 h);
+   commander's discretion +2 h (+3 h augmented). Duty 60/110/190 h per 7/14/28 days;
+   flight time 100 h/28 days, 900 h/calendar year, 1,000 h/12 months. Rest ≥ preceding
+   duty, minimum 12 h at home base or 10 h away (incl. 8 h sleep opportunity); 36 h reset
+   incl. 2 local nights at most every 168 h.
+   Cabin crew follow pilot rules except: FDP can be longer by the reporting-time
+   difference (max 1 h) while still based on the flight crew's report time; minimum in-flight
+   rest comes from a separate CS FTL.1.205(c)(3) table up to an 18:00 FDP (class 3 not
+   allowed above 16:00, class 2 not above 17:00).
+   2026 status: no change to scheduled/charter numbers; the only CS change since 2016
+   is ED Decision 2023/023/R (appropriate FRM for late finishes and long night duties,
+   three night-duty subtypes). New FTL for air taxi, AEMS and single-pilot operations
+   (EASA Opinion No 02/2026) was adopted by the Commission as a delegated act on 8
+   September 2026. Council document 12992/26 (Brussels, 10 September 2026) states
+   that "It shall apply from 15 October 2028"; EASA's Opinion had proposed 1 September
+   2028. It is not yet in force. UK mirrors the 2016 EU rules without the 2023 amendment;
+   UAE (GCAA) and FAA Part 117 use materially different numbers.
+
+
+
+
+0. Quick-Reference Cheat-Sheet
+
+ Item                Limit                                                  Reference
+
+ Basic max FDP,      13:00 (best) → 9:00 (min), by report time and          ORO.FTL.205(b)
+ acclimatised        sectors (Table 2)                                      (1)
+
+ Max FDP,
+                                                                            ORO.FTL.205(b)
+ unknown             11:00 (1–2 sectors) → 9:00
+                                                                            (2)
+ acclimatisation
+
+ Max FDP,
+ unknown                                                                    ORO.FTL.205(b)
+                     12:00 (1–2 sectors) → 9:00
+ acclimatisation                                                            (3)
+ with FRM
+
+ Planned
+                     +1:00, max 2× in any 7 consecutive days; max 5/4/2
+ extension                                                                  ORO.FTL.205(d);
+                     sectors by WOCL encroachment; not allowed for
+ without in-flight                                                          CS FTL.1.205(b)
+                     reports 19:00–06:14
+ rest
+
+ Rest around a
+                                                                            ORO.FTL.205(d)
+ planned             +2 h pre- and post-flight rest, or +4 h post-flight
+                                                                            (1)
+ extension
+
+ Augmented, 1                                                               CS FTL.1.205(c)
+                     14 h (class 3) / 15 h (class 2) / 16 h (class 1)
+ extra pilot                                                                (2)(i)
+
+ Augmented, 2                                                               CS FTL.1.205(c)
+                     15 h / 16 h / 17 h
+ extra pilots                                                               (2)(ii)
+
+ Long-sector         +1 h if 1 sector has more than 9 h continuous flight   CS FTL.1.205(c)
+ bonus               time and max 2 sectors                                 (4)
+
+ In-flight rest
+                     90 consecutive min each; 2 consecutive h for           CS FTL.1.205(c)
+ minimum (flight
+                     landing pilots; max 3 sectors                          (1)
+ crew)
+
+ Rest at
+                                                                            CS FTL.1.205(c)
+ destination after   ≥ preceding duty or 14 h
+                                                                            (6)
+ augmented FDP
+Cabin crew early   Extended by reporting difference, max 1:00; max
+                                                                           ORO.FTL.205(c)
+reporting          FDP based on flight crew report caa
+
+Commander's        +2 h (+3 h augmented); rest after ≥ 10 h; report to
+                                                                           ORO.FTL.205(f)
+discretion         authority within 28 days if over 1 h
+
+Delayed            Delay < 4 h: max FDP from original report; ≥ 4 h:
+                                                                           CS FTL.1.205(d)
+reporting          more limiting of the two; ≥ 10 h undisturbed = rest
+
+Duty hours         60 h / 7 days; 110 h / 14 days; 190 h / 28 days caa     ORO.FTL.210(a)
+
+Flight time        100 h / 28 days; 900 h / calendar year; 1,000 h / 12
+                                                                           ORO.FTL.210(b)
+(block)            consecutive calendar months caa
+
+                   Break ≥ 3 h net (min 30 min for pre/post-flight
+Split duty                                                                 CS FTL.1.220
+                   duties and travel); FDP + 50 % of break
+
+                   FDP reduced by standby beyond 4 h; standby +
+Airport standby                                                            CS FTL.1.225(a)
+                   FDP ≤ 16 h
+
+                   Max 16 h; 25 % counts as duty; FDP reduced by
+Other standby      standby beyond 6 h (8 h if augmented or split); 18      CS FTL.1.225(b)
+                   h awake cap
+
+Min rest, home
+                   ≥ preceding duty or 12 h                                ORO.FTL.235(a)
+base
+
+                   ≥ preceding duty or 10 h, incl. 8 h sleep
+Min rest, away                                                             ORO.FTL.235(b)
+                   opportunity
+
+Reduced rest       Min 12 h home / 10 h away; max 2 between
+                                                                           CS FTL.1.235(c)
+(FRM only)         recovery rests
+
+Recurrent
+                   ≥ 36 h incl. 2 local nights; ≤ 168 h between; 2 local
+extended                                                                   ORO.FTL.235(d)
+                   days twice per month
+recovery rest
+
+                   Late/night → early at home base: rest includes 1
+Disruptive
+                   local night; 4+ disruptive duties between recovery      CS FTL.1.235(a)
+schedules
+                   rests → next recovery rest 60 h
+
+                   Consecutive nights: max 4 sectors per duty;
+Night duties       appropriate FRM for night duties over 10 h and late     CS FTL.1.205(a)
+                   finishes europa
+ Time zones                Rotation with time difference ≥ 4 h: 2–5 local nights    CS FTL.1.235(b)
+                           at home base (table); away: ≥ duty or 14 h               (3)
+
+ Records                   24 months                                                ORO.FTL.245
+
+ Roster                                                                             AMC1
+                           14 days in advance
+ publication                                                                        ORO.FTL.110(a)
+
+
+Operator-specific (approved IFTSS) flag. Every CS FTL.1 number, and everything stated
+as "the scheme shall specify", can differ for your operator. The competent authority
+approves each operator's Individual Flight Time Specification Scheme (IFTSS), which may
+deviate from CS FTL.1 (Article 76(7) of Regulation (EU) 2018/1139, formerly Article 22(2) of
+Regulation 216/2008) or derogate from the implementing rule (Article 71 of 2018/1139).
+Collective labour agreements may be more protective. The operator's Operations Manual
+Part A, chapter 7, always prevails for the individual crew member.
+
+
+
+
+1. Scope, legal structure and status (October 2026)
+Legal layers
+
+   Implementing rule (binding): Regulation (EU) No 965/2012, Annex III (Part-ORO),
+   Subpart FTL, ORO.FTL.100–ORO.FTL.250, inserted by Regulation (EU) No 83/2014 (OJ L
+   28, 31.1.2014), applicable since 18 February 2016.           skybrary +2   The Member State opt-
+   out from ORO.FTL.205(e) (national in-flight rest rules) expired on 17 February 2017.
+     eurocockpit +2    Companion Part-ARO points: ARO.OPS.230 (authority picks "early type"
+   or "late type" disruptive schedules) and ARO.OPS.235 (IFTSS approval).                 legislation
+
+   Certification specifications: CS FTL.1 (ED Decision 2014/002/R), amended by ED
+   Decision 2023/023/R ("CS-FTL.1 Issue 1, Amendment 1" — night duties and late finish
+   duties).    europa +2
+
+   AMC/GM to Part-ORO, plus EASA's ORO.FTL FAQs (interpretive, not binding).
+   Consolidated text: EASA Easy Access Rules for Air Operations, Revision 24 (March
+   2026).     europa    europa
+
+
+Scope and exclusions
+
+   Subpart FTL applies to flight crew and cabin crew (not other service personnel).
+     europa    CS FTL.1 applies to scheduled and charter operations, excluding EMS, air taxi
+   and single-pilot operations (CS FTL.1.100).         luftfartstilsynet
+
+   Under Article 8 of Regulation 965/2012, air taxi (non-scheduled on-demand CAT with
+   aeroplanes of MOPSC 19 or less; Article 2(6)), aeroplane EMS and single-pilot CAT
+   aeroplane operations remain under Subpart Q of Annex III to Regulation (EEC) No
+   3922/91 ("EU-OPS Subpart Q") plus national law. Helicopter CAT (including HEMS) is
+   under national law.     europa +3
+
+   Subpart Q (13 h basic FDP, −30 min per sector from the third, max −2 h, minus WOCL
+   encroachment) is now legacy.        wordpress   EASA Opinion No 02/2026, §2.1, states:
+   "Subpart Q has some fundamental gaps: it does not establish a maximum daily FDP for
+   single-pilot and AEMS operations, and it does not provide for standby, in-flight rest and
+   split duty", leaving "no uniform level of safety, and no level playing field".
+
+Pending change — air taxi, AEMS and single-pilot FTL (RMT.0492 subtask 1 and
+RMT.0493)
+
+   Process: NPA 2017-17 → NPA 2024-106 → EASA Opinion No 02/2026 (6 February 2026)
+   → Commission Delegated Regulation C(2026) 6142 final (8 September 2026),
+   transmitted to the Council on 10 September 2026 (document 12992/26).             europa +4
+
+   Content:
+       splits Article 8 into Subpart FTL (A) for scheduled/charter and Subpart FTL (B) for air
+       taxi and AEMS;
+       defines "charter operation" for FTL as non-scheduled on-demand CAT with MOPSC
+       of 20 or more;
+       adds definitions of AEMS flight and scheduled operation;
+       repeals Regulation 3922/91 from its date of application;
+       per Council document 12992/26, "It shall apply from 15 October 2028" (EASA's
+       Opinion had proposed 1 September 2028); the updated ARO.OPS.235/ORO.FTL.125
+       apply from entry into force.
+
+   Single-pilot scheduled/charter and single-pilot air taxi/AEMS are treated equivalently.
+   The Opinion amends ORO.FTL.205 and ORO.FTL.240 for single-pilot flying, including an
+   8-hour limit on the daily FDP for single-pilot multi-sector duties.
+   None of this is in force in October 2026.
+
+Effectiveness reviews (Article 9b)
+
+   Phase 1 (published 28 February 2019): increased probability of high fatigue on night
+   duties and late finishes, for pilots and cabin crew;     europa   led to ED Decision
+   2023/023/R.    europa
+
+   Phase 2, "FTL 2.0" (EASA.2019.C31; Deliverable 2.6, 23 April 2025). NLR ran it with DLR,
+   FIOH, Stockholm University and Jeppesen; per NLR's 9 July 2025 release it followed
+   more than 220 flight and cabin crew at eight airlines. Findings:
+       "the basic set-up in the regulation of limiting the maximum basic FDP duration for
+        acclimatised crew as a function of the start time of the duty and workload (the
+        number of sectors) is sound";
+        fatigue rises with FDP length and sectors (higher for more than 6 sectors);
+        highest fatigue on overnight FDPs over 11 h in an unknown state of acclimatisation
+        (point estimate close to 0.7, few observations);
+        "38% of the pilots reported using controlled rest".
+
+     No rule change from FTL 2.0 had been adopted as of October 2026. NLR's release says
+     the study recommended "expanding current requirements for appropriate FRM and
+     applying it to all flight duty periods lasting ten hours or more" and keeping the 18-hour
+     awake cap for standby.
+
+
+
+
+2. Key definitions (ORO.FTL.105) and glossary
+
+ #         Term                Definition (summarised closely to the rule text)
+
+                               Circadian clock synchronised to the time zone where the crew
+                               member is; considered acclimatised to a 2-hour-wide band
+ (1)       Acclimatised        around local time at the point of departure. caa      aviation   If
+                               the next duty starts more than 2 h away in local time, Table 1
+                               applies.
+
+                               Local time at the reporting point within a 2-hour band around
+                               the local time to which the crew member is acclimatised caa
+ (2)       Reference time
+                               (GM: acclimatised to Helsinki, reporting in London → London
+                               time).
+
+                               For standby and split duty: quiet place not open to the public,
+                               light/temperature control, furniture allowing sleep (GM: seat
+ (3)       Accommodation
+                               reclining ≥ 45°, ≥ 50 cm wide, leg/foot support), capacity for all
+                               crew, food and drink.
+
+                               For standby, split duty and rest: separate room per crew
+           Suitable
+ (4)                           member, quiet, with bed, ventilation, temperature and light
+           accommodation
+                               control, food and drink. aviation
+
+                               More than the minimum flight crew, allowing each to leave the
+           Augmented
+ (5)                           post for in-flight rest and be replaced by a qualified flight crew
+           flight crew
+                               member. wordpress
+
+
+ (6)       Break               Time within an FDP, shorter than rest, counting as duty, free of
+                        all tasks.
+
+       Delayed          Postponement of a scheduled FDP by the operator before the
+(7)
+       reporting        crew member leaves the place of rest.
+
+                        Roster disrupting the optimal sleep window via early starts, late
+                        finishes or night duties. Early type: early start 05:00–05:59;
+       Disruptive
+(8)                     late finish 23:00–01:59. Late type: early start 05:00–06:59;
+       schedule
+                        late finish 00:00–01:59. caa Authority chooses one type
+                        (ARO.OPS.230). caa
+
+                        Duty encroaching any part of 02:00–04:59 in the acclimatised
+(9)    Night duty
+                        time zone. caa
+
+                        Any task for the operator: flight duty, administrative work,
+(10)   Duty
+                        training/checking, positioning, some elements of standby.
+
+                        From required reporting until free of all duties, including post-
+(11)   Duty period
+                        flight duty.
+
+                        From reporting for a duty including a sector or sectors until the
+(12)   FDP              aircraft finally comes to rest with engines shut down after the
+                        last sector as an operating crew member.
+
+                        Aeroplanes: from first moving from the parking place for take-
+       Flight time
+(13)                    off until at rest on the parking position with all engines or
+       (block time)
+                        propellers shut down.
+
+                        Location assigned by the operator where the crew member
+(14)   Home base        normally starts and ends duty and the operator is not normally
+                        responsible for accommodation.
+
+(15)   Local day        24 h from 00:00 local time.
+
+(16)   Local night      8 hours falling between 22:00 and 08:00 local time.
+
+                        Crew member carrying out duties in an aircraft during a sector.
+       Operating crew
+(17)                    GM: remains operating during in-flight rest; in-flight rest counts
+       member
+                        in full as FDP and for ORO.FTL.210.
+
+                        Transfer of a non-operating crew member at the operator's
+(18)   Positioning      behest, excluding home-to-reporting-place travel at home base
+                        and local transfers to/from the place of rest.
+
+
+(19)   Rest facility    Bunk or seat with leg and foot support suitable for sleeping on
+                             board.
+
+                             Period of availability for an assignment notified at least 10 hours
+ (20)    Reserve
+                             in advance.
+
+                             Continuous, uninterrupted, defined period free of all duties,
+ (21)    Rest period
+                             standby and reserve.
+
+                             Duty or duties (≥ 1 flight duty) and rest out of home base,
+ (22)    Rotation            starting at home base and ending on return there for rest
+                             without operator accommodation.
+
+         Single day free     For Directive 2000/79/EC: one day and two local nights free of
+ (23)
+         of duty             duty and standby, notified in advance.
+
+                             From first moving for take-off until at rest on the parking
+ (24)    Sector
+                             position after landing.
+
+                             Pre-notified, defined availability for an assignment without an
+ (25)    Standby
+                             intervening rest period.
+
+ (26)    Airport standby     Standby at the airport.
+
+ (27)    Other standby       Standby at home or in suitable accommodation. caa
+
+ (28)    WOCL                02:00–05:59 in the acclimatised time zone. caa
+
+
+Related terms not in ORO.FTL.105:
+
+   Unknown state of acclimatisation ("X") — Table 1 / GM1 ORO.FTL.105(1).
+   Recurrent extended recovery rest — ORO.FTL.235(d).
+   Split duty — ORO.FTL.220 / CS FTL.1.220.
+   In-flight rest classes 1/2/3 — CS FTL.1.205(c).
+   Appropriate FRM — GM1 CS FTL.1.205(a)(2): fatigue risk management through the
+   safety risk management process within prescriptive limits, distinct from a fully-fledged
+   FRM under ORO.FTL.120.     europa
+
+
+
+
+3. Responsibilities, FRM, IFTSS and derogations
+Operator responsibilities (ORO.FTL.110):
+
+   publish rosters sufficiently in advance (AMC: 14 days);
+    plan FDPs so crew remain sufficiently free from fatigue;
+    set reporting times allowing for ground duties;
+    consider the cumulative effects of long duty with minimum rest;
+    avoid seriously disruptive patterns such as alternating day/night duties;
+    apply the ARO.OPS.230 disruptive type;
+    provide sufficient rest;
+    plan and notify recurrent extended recovery rest;
+    plan FDPs to be achievable;
+    (j) change a schedule or crew arrangements if actual operations exceed the
+    maximum FDP on more than 33 % of the flight duties in that schedule during a
+    scheduled seasonal period, monitored through roster-robustness indicators
+    (AMC1/GM1 ORO.FTL.110(j)).
+
+Crew member responsibilities (ORO.FTL.115): comply with CAT.GEN.MPA.100(b) (do not
+operate when unfit or fatigued); make optimum use of rest opportunities and facilities.
+ luftfartstilsynet
+
+
+Fatigue risk management (ORO.FTL.120):
+
+    When required, FRM is part of the management system and described in the Operations
+    Manual. It covers policy, documentation, scientific principles, hazard identification
+    (predictive, proactive, reactive), risk mitigation, safety assurance and promotion
+    (guidance: ICAO Doc 9966).
+    A fully-fledged FRM is mandatory for Table 4 (ORO.FTL.205(b)(3)), for reduced rest (CS
+    FTL.1.235(c)(2))    europa   and in practice for any CS deviation.
+    "Appropriate FRM" is required for night duties over 10 h and late finishes (CS
+    FTL.1.205(a)(2)).   europa
+
+
+Flight time specification schemes / IFTSS (ORO.FTL.125):
+
+    Schemes must comply with the Basic Regulation, Subpart FTL and other law including
+    Directive 2000/79/EC, and be approved before use.
+    Deviations from the CS require a full description and safety assessment (former Article
+    22(2) of Regulation 216/2008, now Article 76(7) of 2018/1139).
+    Derogations from the implementing rule follow former Article 14(6) (now Article 71).
+    Within 2 years of a deviation or derogation, the operator must analyse data scientifically
+    and report to the authority (ORO.FTL.125(d); ARO.OPS.235(d)).        luftfartstilsynet
+
+
+Collective agreements. Recital (4) of Regulation 83/2014 and the EASA FAQ confirm that
+more protective national social legislation and collective labour agreements are not
+precluded.     europa
+
+
+
+
+4. Home base (ORO.FTL.200 / CS FTL.1.200) and
+acclimatisation
+   The operator assigns a home base to each crew member (ORO.FTL.200): a single
+   airport location assigned with a high degree of permanence (CS FTL.1.200(a)).
+     luftfartstilsynet
+
+   Change of home base: the first recurrent extended recovery rest before duty at the
+   new base increases to 72 h, including 3 local nights; travel between bases is
+   positioning (CS FTL.1.200(b); ORO.FTL.235(e)(3)).                    luftfartstilsynet
+
+   GM1 CS FTL.1.200: consider temporary accommodation nearer base if the commute
+   usually exceeds 90 minutes.           luftfartstilsynet
+
+
+
+4.1 Table 1 — Determining acclimatisation (ORO.FTL.105(1))
+Rows: time difference (h) between reference time and local time where the next duty starts.
+Columns: time elapsed since reporting at reference time.
+
+
+ Time difference            < 48 h   48:00–71:59              72:00–95:59           96:00–119:59   ≥ 120 h
+
+ <4                         B        D                        D                     D              D
+
+ ≤6                         B        X                        D                     D              D
+
+ ≤9                         B        X                        X                     D              D
+
+ ≤ 12                       B        X                        X                     X              D
+
+
+B = acclimatised to departure time zone; D = acclimatised to where the next duty starts; X =
+unknown state of acclimatisation.         luftfartstilsynet       eurocockpit
+
+
+Applying Table 1 (GM1–GM3 ORO.FTL.105(1)):
+
+   The crew member stays acclimatised to the reference time for 47:59 after reporting.
+   After 48 h they are "X" unless they remain in the first-arrival time zone long enough to
+   become "D".           europa
+
+   If they move to another time zone while "X", they stay "X" until one of these happens:
+        they take the CS FTL.1.235(b)(3) rest at home base or at the new location; or
+        they become acclimatised there per Table 1 (using the greater time difference and
+         time since first reporting at home base).
+
+
+
+
+5. Maximum daily FDP
+
+5.1 Table 2 — Basic maximum daily FDP, acclimatised crew (ORO.FTL.205(b)
+(1))
+
+ Start
+              1–2      3        4         5          6       7       8       9       10
+ of FDP
+
+ 06:00–
+              13:00    12:30    12:00     11:30      11:00   10:30   10:00   09:30   09:00
+ 13:29
+
+ 13:30–
+              12:45    12:15    11:45     11:15      10:45   10:15   09:45   09:15   09:00
+ 13:59
+
+ 14:00–
+              12:30    12:00    11:30     11:00      10:30   10:00   09:30   09:00   09:00
+ 14:29
+
+ 14:30–
+              12:15    11:45    11:15     10:45      10:15   09:45   09:15   09:00   09:00
+ 14:59
+
+ 15:00–
+              12:00    11:30    11:00     10:30      10:00   09:30   09:00   09:00   09:00
+ 15:29
+
+ 15:30–
+              11:45    11:15    10:45     10:15      09:45   09:15   09:00   09:00   09:00
+ 15:59
+
+ 16:00–
+              11:30    11:00    10:30     10:00      09:30   09:00   09:00   09:00   09:00
+ 16:29
+
+ 16:30–
+              11:15    10:45    10:15     09:45      09:15   09:00   09:00   09:00   09:00
+ 16:59
+
+ 17:00–
+              11:00    10:30    10:00     09:30      09:00   09:00   09:00   09:00   09:00
+ 04:59
+
+ 05:00–
+              12:00    11:30    11:00     10:30      10:00   09:30   09:00   09:00   09:00
+ 05:14
+
+ 05:15–
+              12:15    11:45    11:15     10:45      10:15   09:45   09:15   09:00   09:00
+ 05:29
+ 05:30–
+               12:30       12:00          11:30         11:00   10:30    10:00    09:30       09:00       09:00
+ 05:44
+
+ 05:45–
+               12:45       12:15          11:45         11:15   10:45    10:15    09:45       09:15       09:00
+ 05:59
+
+
+Reading the table:
+
+   −30 min per sector from the 3rd sector, floor 9:00.
+   Every report from 17:00 to 04:59 is capped at 11:00 (EASA calls these "de facto night
+   duties").    europa
+
+   For consecutive night duties the FDP is computed with at most 4 sectors (CS
+   FTL.1.205(a)(1)).         luftfartstilsynet
+
+   EASA FAQ: the absolute 16 h ceiling applies to basic FDPs and FDPs extended without
+   in-flight rest.     europa
+
+
+
+5.2 Table 3 — Unknown state of acclimatisation (ORO.FTL.205(b)(2))
+
+ Sectors          1–2              3               4            5         6           7               8
+
+ Max FDP          11:00            10:30           10:00        09:30     09:00       09:00           09:00
+
+
+
+5.3 Table 4 — Unknown state of acclimatisation, operator has FRM
+(ORO.FTL.205(b)(3))
+
+ Sectors             1–2            3               4           5         6          7                8
+
+ Max FDP             12:00          11:30           11:00       10:30     10:00      09:30            09:00
+
+
+Table 4 requires an approved FRM that continuously monitors that the required safety
+performance is maintained.              luftfartstilsynet
+
+
+
+
+6. Extensions of FDP
+
+6.1 Planned extension without in-flight rest (ORO.FTL.205(d), CS
+FTL.1.205(b))
+   Up to +1 h, no more than twice in any 7 consecutive days, per individual crew member
+   (EASA FAQ);         europa      europa      acclimatised crew only.   europa   luftfartstilsynet
+   Compensating rest: +2 h to both pre- and post-flight minimum rest, or +4 h post-flight.
+   For consecutive extended FDPs, the extra rest between them is provided consecutively.
+    luftfartstilsynet
+
+   Must be planned in advance. Sector limits:
+       5 if the WOCL is not encroached;
+       4 if encroached by 2 h or less;
+       2 if encroached by more than 2 h.
+
+   Cannot be combined with in-flight rest or split duty in the same duty period
+   (ORO.FTL.205(d)(4)).    gov +2
+
+
+Table — Maximum daily FDP with extension (CS FTL.1.205(b))
+
+
+                                     1–2
+ Starting time of FDP                              3 sectors     4 sectors        5 sectors
+                                     sectors
+
+                                     Not           Not           Not              Not
+ 06:00–06:14
+                                     allowed       allowed       allowed          allowed
+
+ 06:15–06:29                         13:15         12:45         12:15            11:45
+
+ 06:30–06:44                         13:30         13:00         12:30            12:00
+
+ 06:45–06:59                         13:45         13:15         12:45            12:15
+
+ 07:00–13:29                         14:00         13:30         13:00            12:30
+
+                                                                                  Not
+ 13:30–13:59                         13:45         13:15         12:45
+                                                                                  allowed
+
+                                                                                  Not
+ 14:00–14:29                         13:30         13:00         12:30
+                                                                                  allowed
+
+                                                                                  Not
+ 14:30–14:59                         13:15         12:45         12:15
+                                                                                  allowed
+
+                                                                                  Not
+ 15:00–15:29                         13:00         12:30         12:00
+                                                                                  allowed
+
+                                                   Not           Not              Not
+ 15:30–15:59                         12:45
+                                                   allowed       allowed          allowed
+
+                                                   Not           Not              Not
+ 16:00–16:29                         12:30
+                                                   allowed       allowed          allowed
+                                                        Not            Not             Not
+  16:30–16:59                            12:15
+                                                        allowed        allowed         allowed
+
+                                                        Not            Not             Not
+  17:00–17:29                            12:00
+                                                        allowed        allowed         allowed
+
+                                                        Not            Not             Not
+  17:30–17:59                            11:45
+                                                        allowed        allowed         allowed
+
+                                                        Not            Not             Not
+  18:00–18:29                            11:30
+                                                        allowed        allowed         allowed
+
+                                                        Not            Not             Not
+  18:30–18:59                            11:15
+                                                        allowed        allowed         allowed
+
+                                         Not            Not            Not             Not
+  19:00–03:59
+                                         allowed        allowed        allowed         allowed
+
+  04:00–05:59 (all 15-minute             Not            Not            Not             Not
+  bands)                                 allowed        allowed        allowed         allowed
+
+
+Practical consequence: no planned extension for any report from 19:00 to 06:14, including
+early starts before 06:15.   skai-tech   caa
+
+
+
+6.2 Extension with in-flight rest — augmented flight crew (ORO.FTL.205(e),
+CS FTL.1.205(c))
+
+  Class    Minimum standard (CS FTL.1.205(c))
+
+           Bunk or other surface allowing a flat or near-flat sleeping position; reclines to ≥ 80°
+  Class
+           back angle to the vertical; separate from both flight crew compartment and
+  1
+           passenger cabin; control of light; isolation from noise and disturbance.
+
+           Cabin seat reclining ≥ 45° back angle to the vertical; pitch ≥ 55 in (137.5 cm); width
+  Class
+           ≥ 20 in (50 cm); leg and foot support; separated from passengers by at least a
+  2
+           curtain; reasonably free from disturbance.
+
+           Seat in cabin or flight crew compartment reclining ≥ 40° from the vertical; leg and
+  Class
+           foot support; separated from passengers by at least a curtain; not adjacent to any
+  3
+           seat occupied by passengers.
+
+
+Maximum FDP with in-flight rest — flight crew (CS FTL.1.205(c)(2) and (c)(4))
+  Augmentation                                                         Class   Class      Class
+                                                                       3       2          1
+
+  +1 pilot (e.g. 3-pilot crew)                                         14:00   15:00      16:00
+
+  +2 pilots (e.g. 4-pilot crew)                                        15:00   16:00      17:00
+
+  +1 pilot, 1 sector > 9 h continuous flight time, max 2 sectors       15:00   16:00      17:00
+
+  +2 pilots, 1 sector > 9 h continuous flight time, max 2
+                                                                       16:00   17:00      18:00
+  sectors
+
+
+Conditions (CS FTL.1.205(c)(1), (5)–(7)):
+
+    max 3 sectors;
+    every crew member gets at least 90 consecutive minutes of in-flight rest, and the
+    landing pilots at least 2 consecutive hours (EASA FAQ: if the cruise is too short for this,
+    no extension);
+    rest is taken in cruise and allocated to optimise landing-pilot alertness (GM);
+    all time in the rest facility counts as FDP;
+    destination rest ≥ preceding duty or 14 h;
+    no positioning sector to join the operating crew on the same flight.
+
+These limits do not vary with report time or WOCL.          sitcpla
+
+
+
+6.3 Cabin crew in-flight rest (CS FTL.1.205(c)(3))
+Cabin crew FDP is tied to the flight crew's augmented FDP. Each cabin crew member must
+receive at least:
+
+
+  Maximum extended FDP                     Class 1           Class 2            Class 3
+
+  up to 14:30                              1:30              1:30               1:30
+
+  14:31–15:00                              1:45              2:00               2:20
+
+  15:01–15:30                              2:00              2:20               2:40
+
+  15:31–16:00                              2:15              2:40               3:00
+
+  16:01–16:30                              2:35              3:00               Not allowed
+
+  16:31–17:00                              3:00              3:25               Not allowed
+ 17:01–17:30                              3:25          Not allowed           Not allowed
+
+ 17:31–18:00                              3:50          Not allowed           Not allowed
+
+
+Interpretation:
+
+   The table reaches 18:00 to cover the flight crew maximum (4 pilots, class 1, long-sector
+   bonus) and/or the cabin crew's earlier report. It does not by itself authorise an 18 h FDP.
+   UK CAA guidance (CAP 1265): the operator must show the cruise allows every cabin
+   crew member the minimum rest for the selected band, considering rest facilities, cabin
+   crew numbers and service requirements. For example, with class 1 rest and every cabin
+   crew member getting at least 2:35, the FDP may be nominated against the 16:30 limit.
+
+
+
+
+7. Cabin crew–specific rules (what differs from pilots)
+
+ Topic                        Flight crew        Cabin crew                   Reference
+
+                                                 Apply, but max FDP
+                                                                              ORO.FTL.205(b),
+ Basic FDP tables (2, 3, 4)   Apply              computed from the flight
+                                                                              (c)
+                                                 crew report time
+
+                                                 FDP extended by
+ Earlier reporting for                           reporting difference,
+                              n/a                                             ORO.FTL.205(c)
+ briefing                                        max 1 h; FDP starts at
+                                                 cabin crew report
+
+ Extension without in-        +1 h, 2× per
+                                                 Same (per individual)        ORO.FTL.205(d)
+ flight rest                  7 days
+
+                              Table by
+                                                 Minimum rest table by        CS FTL.1.205(c)
+ In-flight rest extension     extra pilots
+                                                 FDP band and class           (2) vs (c)(3)
+                              and class
+
+                              Commander
+                                                 Applies to whole crew; all
+                              decides after                                   ORO.FTL.205(f)
+ Commander's discretion                          crew consulted on
+                              consulting                                      (3)
+                                                 alertness
+                              crew
+
+ Cumulative limits, rest,
+                                                                              ORO.FTL.210–
+ standby, reserve,
+                              Same               Same                         235; CS
+ disruptive schedules,
+                                                                              FTL.1.225–235
+ time-zone rest
+  Earlier reporting does not allow a later finish than the flight crew's maximum; it only lets
+  the cabin FDP start earlier.
+  There is no separate cabin crew Table 2 and no flat extra hour — a key difference from
+  the UAE rules.
+  Reporting times may legitimately differ between flight and cabin crew (EASA FAQ).
+  Extra cabin crew carried within basic limits do not need in-flight rest; it is required only
+  when the FDP is extended under CS FTL.1.205(c).
+
+
+
+
+8. Unforeseen circumstances — commander's discretion
+(ORO.FTL.205(f))
+  Applies only to unforeseen circumstances starting at or after reporting.
+  FDP increase: the maximum from ORO.FTL.205(b) and (e) or ORO.FTL.220 may be
+  increased by up to 2 h, or up to 3 h if augmented.          caa   GM1 ORO.FTL.205(f)(1)(i): use
+  the basic FDP from (b) as the base even if the FDP was a planned extension under (d).
+   legislation   luftfartstilsynet
+
+  Last sector: if the increase is exceeded after take-off on the final sector, the flight may
+  continue to destination or alternate.   luftfartstilsynet
+
+  Rest: may be reduced but never below 10 h.         wordpress      luftfartstilsynet
+
+  Commander's duties:
+      reduce the FDP and/or increase rest where severe fatigue could result ((f)(2); (a)(2));
+      consult all crew on alertness ((f)(3));
+      report to the operator ((f)(4)).
+
+  Reporting to the authority: if the increase or reduction exceeds 1 h, the operator sends
+  the report with comments to the authority within 28 days ((f)(5)). The process must be
+  non-punitive and described in the Operations Manual ((f)(6)).
+  AMC1 ORO.FTL.205(f): discretion is exceptional and should be avoided at home base
+  and hubs where standby/reserve crew should be available. Consider WOCL, weather,
+  operational complexity, malfunctions, training duties, sectors, circadian disruption and
+  individual condition.
+  EASA FAQ: discretion is needed only when the actual FDP will exceed the maximum
+  allowed FDP.
+9. Delayed reporting (ORO.FTL.205(g), CS FTL.1.205(d))
+Delayed reporting is allowed only with Operations Manual procedures that set:
+
+   a notification time allowing the crew member to stay in suitable accommodation;
+   a contact mode;
+   minimum/maximum notification times;
+   avoidance of sleep disturbance (GM1 CS FTL.1.205(d)).
+
+Records must be kept.
+
+
+ Situation                   Max FDP based on         FDP starts counting
+
+ One notification, delay     Original reporting
+                                                      At the delayed reporting time
+ <4h                         time
+
+                             More limiting of
+ One notification, delay
+                             original or delayed      At the delayed reporting time
+ ≥4h
+                             time
+
+                                                      1 h after the second notification, or at the
+ Second notification         Per rows above
+                                                      original delayed time if earlier
+
+ Delay ≥ 10 h, crew not      Delay counts as a
+                                                      New FDP calculated normally
+ further disturbed           rest period
+
+
+
+
+10. Cumulative duty and flight time limits (ORO.FTL.210)
+
+ Limit                           Value
+
+ Duty                            60 h in any 7 consecutive days caa
+
+ Duty                            110 h in any 14 consecutive days caa
+
+                                 190 h in any 28 consecutive days, spread as evenly as
+ Duty
+                                 practicable caa
+
+ Flight time (as operating
+                                 100 h in any 28 consecutive days caa
+ crew)
+
+ Flight time                     900 h in any calendar year caa
+  Flight time                    1,000 h in any 12 consecutive calendar months caa
+
+
+What counts:
+
+   post-flight duty counts as duty (minimum time set in the Operations Manual;
+   ORO.FTL.210(c), AMC1);       caa
+
+   positioning counts in full as duty (ORO.FTL.215(b));
+   airport standby counts in full (ORO.FTL.225(c));
+   other standby counts at 25 % (CS FTL.1.225(b)(3));
+   reserve does not count (CS FTL.1.230(b));
+   in-flight rest counts in full (GM1 ORO.FTL.105(17));
+   flight time counts only sectors flown as operating crew.
+
+Limits apply identically to pilots and cabin crew.
+
+
+
+
+11. Positioning, split duty, standby and reserve
+
+11.1 Positioning (ORO.FTL.215)
+   Positioning after reporting but before operating counts as FDP but not as a sector.
+   All positioning counts as duty.
+   Positioning after the last operating sector is duty, not FDP.
+
+
+11.2 Split duty (ORO.FTL.220, CS FTL.1.220)
+
+  Rule                 Detail
+
+  Minimum break        3 consecutive hours on the ground (CS FTL.1.220(a))
+
+                       Post/pre-flight duties and travel, min total 30 min, actual times in
+  Excluded
+                       Operations Manual (b)
+
+                       Up to 50 % of the break added to the ORO.FTL.205(b) maximum (c)
+  FDP increase
+                        luftfartstilsynet
+
+
+  Suitable
+                       Required for a break ≥ 6 h or one encroaching the WOCL (d) europa
+  accommodation
+
+  Otherwise            Break time beyond 6 h or inside the WOCL does not count for the
+  (accommodation)      extension (e)
+                           Not with in-flight rest (f), not with a planned extension (ORO.FTL.205(d)
+ Combinations
+                           (4)), not after reduced rest (ORO.FTL.220(c))
+
+ Counting                  Break counts in full as FDP (ORO.FTL.220(b))
+
+
+
+ Net break                                                                  FDP increase
+
+ 3:00                                                                       +1:30
+
+ 4:00                                                                       +2:00
+
+ 5:00                                                                       +2:30
+
+ 6:00                                                                       +3:00
+
+ 8:00 (suitable accommodation, no WOCL)                                     +4:00
+
+
+
+11.3 Standby (ORO.FTL.225, CS FTL.1.225)
+   Standby and airport duties must be rostered with start/end notified in advance. Airport
+   duty counts in full as duty and the FDP counts from the airport duty report. The operator
+   provides accommodation for airport standby.
+   Airport standby (CS FTL.1.225(a)):
+        if no FDP follows, it is followed by ORO.FTL.235 rest;
+        if an FDP starts, the FDP counts from its start and the max FDP is reduced by
+        standby beyond 4 h;
+        standby + FDP max 16 h.
+
+Other standby (CS FTL.1.225(b))
+
+
+ Rule                            Detail
+
+ Max duration                    16 h
+
+ Awake time                      Procedures must keep standby + FDP from exceeding 18 h awake
+
+ ORO.FTL.210 counting            25 % of standby counts as duty
+
+ After standby                   Rest per ORO.FTL.235
+
+ End                             On reporting at the designated reporting point
+
+ Called within first 6 h         Max FDP counts from reporting
+ Called after 6 h           Max FDP reduced by standby beyond 6 h
+
+ In-flight rest or split
+                            6 h thresholds become 8 h
+ duty
+
+ Standby starting           Time between 23:00 and 07:00 does not count toward reductions
+ 23:00–07:00                until contacted
+
+ Response time              Must allow reasonable time from place of rest to reporting point
+
+
+   GM: a full minimum rest between call and report is not standby; the actual report time is
+   used for ORO.FTL.235.
+   FTL 2.0 found the 18 h awake cap "could be working effectively", but prior sleep matters
+   more than time awake.    europa
+
+
+
+11.4 Reserve (ORO.FTL.230, CS FTL.1.230)
+   Reserve must be rostered. The scheme sets the maximum reserve period duration and
+   the number of consecutive reserve days (within ORO.FTL.235(d)).
+   An assigned FDP counts from reporting.
+   Reserve does not count as duty for ORO.FTL.210 or ORO.FTL.235.
+   Each reserve day includes a rostered 8 h no-contact period. Assignments need at
+   least 10 h notice, which may include the 8 h period (GM2).
+   Unused reserve cannot retrospectively become recurrent extended recovery rest (GM1
+   ORO.FTL.230(a)).
+
+
+
+
+12. Rest periods (ORO.FTL.235, CS FTL.1.235)
+
+12.1 Minimum rest
+   Home base (ORO.FTL.235(a)): ≥ preceding duty or 12 h, whichever greater. If the
+   operator provides suitable accommodation at home base, the away minimum may apply
+   ("back-to-back", GM1 ORO.FTL.235(a)(2)).
+   Away (ORO.FTL.235(b)): ≥ preceding duty or 10 h, incl. an 8 h sleep opportunity plus
+   travel and physiological needs. AMC1: physiological needs = 1 h; if travel to
+   accommodation exceeds 30 min, rest increases by twice the excess.         luftfartstilsynet
+
+   Special cases:
+        after a planned extension: +2 h pre/post or +4 h post (ORO.FTL.205(d));
+        after an augmented FDP: ≥ duty or 14 h (CS FTL.1.205(c)(6));
+        after commander's discretion: never below 10 h (ORO.FTL.205(f)(1)(iii)).
+
+
+12.2 Reduced rest (ORO.FTL.235(c), CS FTL.1.235(c))
+    Only under FRM.
+    Minimum 12 h at home base, 10 h away.
+    The next rest is extended, and the next FDP reduced, by the difference between the
+    normal minimum and the reduced rest.
+    Max 2 reduced rests between recurrent extended recovery rests; split duty may not
+    follow.
+    In practice it only bites after duties longer than 12 h at base or 10 h away.
+
+
+12.3 Recurrent extended recovery rest (ORO.FTL.235(d))
+    Minimum 36 h including 2 local nights.
+    No more than 168 h between the end of one and the start of the next.
+    Increased to 2 local days twice every month.
+    Applies to reserve crew too (GM1 CS FTL.1.230(c)).
+
+
+12.4 Disruptive schedules and night duties
+The early/late type is set by the national authority (ARO.OPS.230). An unofficial blog, the
+"Understanding EASA ORO.FTL 2016" site (ARO.OPS.230 page), lists:
+
+    early type: Germany, Austria, Ireland, Italy, Norway, Sweden, Denmark, Finland,
+    Switzerland, Poland, Czechia, Croatia, Cyprus, Malta and others;
+    late type: France, Spain, the Netherlands, the UK, Belgium, Greece, Luxembourg, Latvia,
+    Slovakia and Turkey;
+    Bulgaria: "Most Restrictive".
+
+This is not an EASA source — verify with your authority or Operations Manual.
+
+
+                        Early type                                  Late type
+
+  Early start           Duty starts 05:00–05:59                     Duty starts 05:00–06:59
+
+  Late finish           Duty ends 23:00–01:59                       Duty ends 00:00–01:59
+
+  Night duty (both)     Encroaches any part of 02:00–04:59          Same
+
+
+    Transition at home base: late finish/night duty → early start requires 1 local night in the
+   intervening rest (CS FTL.1.235(a)(1)).   raven    EASA FAQ: this applies when the early duty
+   is an FDP, or a standby/airport duty leading to an FDP — not, for example, a simulator
+   session.
+   Accumulation: 4 or more night duties, early starts or late finishes between two
+   extended recovery rests → the second extended recovery rest becomes 60 h (CS
+   FTL.1.235(a)(2)).
+   Consecutive nights: max 4 sectors per duty (CS FTL.1.205(a)(1)); with the 17:00–04:59
+   row this caps them at 10:00.   europa
+
+   Appropriate FRM (ED Decision 2023/023/R) for night duties over 10 h and late finish
+   duties (CS FTL.1.205(a)(2)).   europa    europa
+
+   Three night-duty subtypes must be distinguished and ranked by probability of high
+   fatigue at top of descent (CS FTL.1.205(a)(3)):
+    1. FDPs starting 02:00–04:59;
+    2. FDPs ending 02:00–05:59 and starting at 01:59 or earlier;
+    3. FDPs ending at 06:00 or later and starting at 01:59 or earlier.
+
+   Guidance (GM1–GM5 CS FTL.1.205(a)(2)):
+       avoid long nights after recovery rest;
+       delay preceding finish times progressively;
+       start blocks with a shorter FDP;
+       roster blocks of identical duties;
+       allow no more than one transition between disruptive types between recovery rests;
+       crew should sleep in the afternoon before nights;
+       the Prior Sleep Wake Model is one possible tool.
+
+   Training item (k), "optimum use of sleep opportunities", was added to AMC1
+   ORO.FTL.250.    europa
+
+
+
+12.5 Time-zone compensation (CS FTL.1.235(b))
+The operator must monitor rotations and adapt rosters.
+
+At home base after a rotation with a time difference of 4 h or more — minimum local
+nights of rest (CS FTL.1.235(b)(3)(i)):
+
+
+                                                             <                            ≥
+ Max time difference (h) between reference time and                 48:00–     72:00–
+                                                             48                           96
+ local time where crew rests                                        71:59      95:59
+                                                             h                            h
+
+ ≤6                                                          2      2          3          3
+  ≤9                                                        2      3           3          4
+
+  ≤ 12                                                      2      3           4          5
+
+
+Columns: time elapsed since reporting for the first FDP of the rotation.
+
+   Away, after an FDP with a time difference ≥ 4 h: rest ≥ preceding duty or 14 h ((b)(3)
+   (ii)). Once between recovery rests, this may also apply at home base with suitable
+   accommodation.
+   Alternating east–west/west–east rotations: at least 3 local nights at home base
+   between them ((b)(4)).
+   GM:
+         the elapsed-time clock stops on return to home base for rest;
+         for rotations of 3 or more FDPs, use the greatest time difference from the original
+         reference time;
+         if crossing in both directions, use the most zones crossed in any one FDP.
+
+
+
+
+13. Nutrition, records and training
+   Nutrition (ORO.FTL.240): a meal and drink opportunity during the FDP, especially
+   when it exceeds 6 h. The Operations Manual sets minimum duration and meal windows
+   (AMC1 example: an FDP from 11:00 to 22:00 gives two meal opportunities).
+   Records (ORO.FTL.245), kept 24 months:
+         flight times;
+         start, duration and end of each duty period and FDP;
+         rest periods and days free of duty;
+         assigned home base;
+         reports on extended FDPs and reduced rest.
+         Copies go on request to the crew member or another operator. Records for crew
+         working for more than one operator are also kept 24 months.
+
+   Fatigue management training (ORO.FTL.250, AMC1): initial and recurrent, for crew,
+   rostering staff and managers. Syllabus:
+         regulatory requirements;
+         sleep and circadian basics;
+         causes and effects of fatigue;
+       countermeasures;
+       lifestyle;
+       sleep disorders;
+       long-range and heavy short-haul effects;
+       multiple time zones;
+       crew responsibility for rest;
+       since 2023, optimum use of sleep opportunities before and during disruptive duties.
+
+
+
+
+14. Worked examples (standard CS FTL.1; check your IFTSS)
+Example 1 — Acclimatised, 2 sectors, report 06:00.
+
+   Table 2, row 06:00–13:29, 1–2 sectors → max FDP 13:00, ending by 19:00 on-blocks.
+   Planned extension: CS FTL.1.205(b) row 06:00–06:14 → Not allowed. A 07:00 report
+   would allow 14:00, subject to the 2-in-7 limit and extra rest.
+   Commander's discretion → up to 15:00.
+
+Example 2 — Long-haul, 3 pilots, class 1 bunk, 1 sector of 12 h.
+
+   CS FTL.1.205(c)(2)(i)(C) → 16:00, plus (c)(4) → 17:00.
+   Each pilot needs ≥ 90 consecutive min rest; the landing pilots ≥ 2 consecutive h.
+   Discretion up to +3 h. Destination rest ≥ max(preceding duty, 14 h).
+   With 4 pilots and class 1: 17:00, or 18:00 with the long-sector bonus.
+
+Example 3 — Cabin crew on Example 2.
+
+   Flight crew max 17:00 → cabin crew in class 1, band 16:31–17:00 → 3:00 minimum each.
+   Class 2 seats → 3:25; class 3 → not allowed above 16:00.
+   If cabin crew report 1 h earlier, their FDP may be 18:00 from their own report; band
+   17:31–18:00 (class 1 only) → 3:50 each.
+
+Example 4 — Cabin crew reporting 1 h earlier (short-haul).
+
+   Flight crew report 07:00, 3 sectors → 12:30, ending 19:30.
+   Cabin crew report 06:00 → max FDP still based on 07:00 (12:30) plus the 1:00
+   difference = 13:30 from 06:00, ending 19:30.
+   Reporting at 05:30 (1:30 earlier) still allows only +1:00: 13:30, ending 19:00.
+
+Example 5 — Split duty.
+   Report 08:00, 4 sectors → 12:00.
+   Ground time 4:30 with 30 min allotted to duties and travel → net break 4:00 → +2:00 →
+   max FDP 14:00.
+   Accommodation is required; suitable accommodation only if the break is ≥ 6 h or
+   touches the WOCL.
+   Not allowed after reduced rest or with a planned extension.
+
+Example 6 — Home standby.
+
+   Other standby 07:00–23:00 (16 h). Called 14:00, reports 15:00 for 2 sectors.
+   Standby 8 h → FDP reduced by 2 h. Table 2 row 15:00–15:29 → 12:00 − 2:00 = 10:00,
+   ending 01:00.
+   Awake check: woken 06:30 → 01:00 = 18:30, beyond the 18 h awake procedure, so the
+   operator must shorten the FDP or provide rest.
+   Duty counted for ORO.FTL.210: 25 % × 8 h = 2 h plus the FDP.
+
+Example 7 — Rest after a rotation.
+
+   Rotation resting 9 h behind home base, returning 80 h after first report → CS
+   FTL.1.235(b)(3)(i) row ≤ 9, column 72:00–95:59 → 3 local nights at home base.
+   Away from base after a 9:00 duty with a 50 min hotel transfer: 10:00 + 2 × 20 min =
+   10:40 (AMC1 ORO.FTL.235(b)).
+
+
+
+
+15. Comparison with other regimes
+
+                                                                             FAA Part 117
+ Item        EASA (EU)        UK CAA       UAE GCAA (Subpart Q model)
+                                                                             (US)
+
+             Reg.
+                              UK Reg.
+             965/2012                      CAR-OPS 1 Subpart Q content,
+                              965/2012
+ Legal       Subpart FTL                   now housed in CAR-AIR OPS         14 CFR Part
+                              (retained)
+ basis       + CS FTL.1                    Part-ORO Subpart FTL (".G"        117
+                              + UK CS
+             (incl. 2023                   points)
+                              FTL.1
+             amendment)
+
+                                                                             No — pilots
+                                                                             only; flight
+ Covers                                                                      attendants
+ cabin       Yes              Yes          Yes (CAR-OPS 1.1135)              under Part
+ crew?                                                                       121
+                                                                              (§121.467)
+
+ Max                                                                          14 h (report
+ basic                                      14:00 (report 08:00–12:59, 1      07:00–11:59,
+             13:00 (1–2
+ FDP (2-                       13:00        sector), −45 min per extra        1–2
+             sectors)
+ pilot,                                     sector, floor 9:00                segments)
+ best)                                                                            ecfr
+
+
+             60/110/190 h                   Flight crew 55 h (60 h for        FDP 60 h/168
+ Duty
+             per 7/14/28       Same         delays)/7 days, 95 h/14, 190      h; 190 h/672
+ limits
+             days                           h/28                              h
+
+             100 h/28
+             days; 900                                                        100 h/672 h;
+ Flight                                     Pilots 100 h/28 days; 900 h/12
+             h/calendar        Same                                           1,000 h/365
+ time                                       months
+             year; 1,000                                                      days
+             h/12 months
+
+                                                                              10 h incl. 8 h
+             ≥ duty or 12 h
+                                                                              uninterrupted
+             (home) / 10 h                  ≥ duty or 12 h (11 h away with
+ Min rest                      Same                                           sleep
+             (away, incl. 8                 suitable accommodation)
+                                                                              opportunity
+             h sleep)
+                                                                                  ecfr
+
+
+                                                                              30
+             36 h incl. 2
+ Weekly                                     Days-off rules (e.g. 7 days off   consecutive
+             local nights      Same
+ reset                                      per 28)                           h free per
+             per 168 h
+                                                                              168 h ecfr
+
+             FDP +
+                                            Cabin FDP 1 h longer than
+             reporting
+                               Same         flight crew; duty 60
+ Cabin       difference
+                               (CAP         (65)/105/210 h; flight time 100   Part 121, not
+ crew        (max 1 h);
+                               1265         h/28 days and 1,000 h/12          Part 117
+ specifics   separate in-
+                               guidance)    months; rest ≥ duty − 1 h or 11
+             flight rest
+                                            h
+             table
+
+
+UK.
+
+   The UK kept Subpart FTL and CS FTL.1 after Brexit, so tables and limits are identical,
+   and the UK CAA uses "late type" disruptive schedules.     wordpress
+
+   Difference: the UK CS FTL.1.205(a) in the CAA regulatory library still reads "appropriate
+   fatigue risk management … night duties of more than 10 hours", without EASA's 2023
+   extension to late finishes or the three night-duty subtypes.    caa
+   Guidance: CAP 1265.
+
+UAE (relevant if Dubai-based).
+
+   UAE operators do not apply EASA ORO.FTL. CAR-AIR OPS Issue 01 (16 May 2021) Part-
+   ORO ORO.FTL.100.G stated: "All operators shall comply with Subpart Q of CAR-OPS 1,
+   Issue 07 of 03 September 2020".        wordpress   gcaa
+
+   The current Part-ORO is Issue 03 (15 April 2025), with "Subpart FTL – amended"; its
+   section titles mirror Subpart Q topics.    gcaa    gcaa
+
+   Figures above come from the Subpart Q text effective 1 January 2017, which also
+   provides:
+       In-flight relief: at least 3 h rest; a bunk extends the FDP by half the rest taken, max
+       18 h (19 h cabin crew); a seat by one third, max 15 h (16 h cabin crew).
+       Split duty: a break of 3–10 h extends the FDP by half the break.
+       Commander's discretion: maximum 3 h except in emergency; report to GCAA within
+       14 days if over 2 h.   wordpress
+
+       Days off: max 7 consecutive duty days; 2 consecutive days off in any 14; at least 7
+       days off in any 28; a single day off includes two local nights (34 h minimum).
+        wordpress
+
+       Two-pilot sectors over 7 h count as several sectors (e.g. 7:01–9:00 = 2 sectors
+       acclimatised).   wordpress
+
+
+   Issue 07 (2020) and Issue 03 (2025) may have changed some figures; check your
+   operator's GCAA-approved scheme.
+
+FAA Part 117.
+
+   Pilots only.
+   Table B: FDP 9–14 h by acclimated start time and segments;       hraizon   augmented limits
+   in Table C.
+   Rest 10 h with an 8 h sleep opportunity; 30 h free in every 168 h.
+   100 flight hours per 672 h, 1,000 per 365 days; FDP 60 h per 168 h and 190 h per 672 h.
+
+
+
+
+16. Caveats
+   Currency: Regulation 965/2012 Subpart FTL as amended by Regulation 83/2014; CS
+   FTL.1 Issue 1 Amendment 1 (ED Decision 2023/023/R); EASA Easy Access Rules for Air
+   Operations Revision 24 (March 2026); rulemaking status as of 22 October 2026.
+   Pending delegated act: the 8 September 2026 Commission Delegated Regulation on
+air taxi, AEMS and single-pilot FTL was not yet published in the Official Journal; its 2028
+date and content may change. Do not apply it yet.
+CS figures are defaults: an approved IFTSS may differ; your Operations Manual Part A
+chapter 7 governs legality; CLAs can be stricter.
+Authority choices vary: early vs late disruptive type and FRM approvals (Table 4,
+reduced rest) differ by State; the per-country early/late list is from a secondary
+compilation.
+Interpretive material: EASA ORO.FTL FAQs and UK CAP 1265 are aids, not law.
+UAE figures are from the 2017 Subpart Q text; the 2025 CAR-AIR OPS Part-ORO
+Subpart FTL text was not verified line by line.
+Official texts to keep alongside:
+   Regulation (EU) No 83/2014 and consolidated Regulation (EU) No 965/2012 (EUR-
+   Lex);
+   EASA Easy Access Rules for Air Operations;
+   ED Decision 2023/023/R;
+   EASA ORO.FTL FAQ;
+   EASA Opinion No 02/2026 and Commission document C(2026) 6142;
+   EASA FTL effectiveness reports (2019; FTL 2.0, 2025);
+   UK CAA regulatory library and CAP 1265;
+   GCAA CAR-AIR OPS Part-ORO (Issue 03, 15 April 2025);
+   14 CFR Part 117 (eCFR).
+
