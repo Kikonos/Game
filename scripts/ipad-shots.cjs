@@ -635,7 +635,8 @@ Object.assign(ACTIONS, {
     await settle(page, 300);
   },
   'fleet-extra': async (page, _s, d) => {
-    const id = await pick(page, () => Object.keys(window.__contrail.game.fleet)[0]);
+    // v0.8: a leased-out aircraft has no crew block (no crew from us).
+    const id = await pick(page, () => { const f = Object.values(window.__contrail.game.fleet); return (f.find((a) => a.status !== 'leasedOut' && a.status !== 'delivering') ?? f[0]).id; });
     await nav(page, 'fleet', { sel: { kind: 'aircraft', id } });
     await page.evaluate(() => document.querySelector('.sc-ac-crew')?.scrollIntoView({ block: 'center' }));
     const card = page.locator(`.sc-ac[data-ac="${id}"] .sc-ac-crew`);
@@ -723,13 +724,13 @@ Object.assign(ACTIONS, {
     await nav(page, 'schedule', { sel: { kind: 'aircraft', id } });
   },
   'refit-modal': async (page) => {
-    const id = await pick(page, () => Object.values(window.__contrail.game.fleet).find((a) => a.status !== 'delivering' && a.cabin.layout !== 'vip')?.id);
+    const id = await pick(page, () => Object.values(window.__contrail.game.fleet).find((a) => a.status !== 'delivering' && a.status !== 'leasedOut' && a.cabin.layout !== 'vip')?.id);
     if (!id) throw new Error('SKIP no aircraft to refit');
     await nav(page, 'fleet', { sel: { kind: 'aircraft', id } });
     await modal(page, { kind: 'refit', aircraftId: id, layout: 'vip' });
   },
   'fleet-refit': async (page, _s, d) => {
-    const ac = await pick(page, () => Object.values(window.__contrail.game.fleet).find((a) => a.status !== 'delivering' && a.cabin.layout !== 'vip')?.id);
+    const ac = await pick(page, () => Object.values(window.__contrail.game.fleet).find((a) => a.status !== 'delivering' && a.status !== 'leasedOut' && a.cabin.layout !== 'vip')?.id);
     if (ac) {
       await modal(page, { kind: 'refit', aircraftId: ac, layout: 'vip' });
       await press(page, page.locator('.modal-foot .btn-primary'), d);
