@@ -354,3 +354,4 @@ Player notes (22 Oct, with top-bar screenshot .handover/updates/topbar-space.jpg
   - Language-pass note: the Crew Planning verdict line repeats the stats shown above it. Trim it in the language pass.
 - 21:45Z: v0.8 workflow wf_4a73dcaa-1c0 FINISHED with ready=true (round 1, 967 tests). acmi committed. NEXT: merge-v074 agent, then the fixpack agent (plus a Newcomer offer-weight leftover), then verify and release.
 - 21:50Z: The merge-v074 agent ade56030a7429b4b9 is running in acmi. It will commit and push as 'Merge v0.7.4 Crew & Cabin into v0.8'. If it dies: check git status in acmi and finish the merge by hand.
+- 22:40Z: Merge done: 4275188 on origin/acmi, 980/980 tests. Next: the fixpack agent.
