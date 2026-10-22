@@ -31,7 +31,7 @@ function trip(dep: string, dest: string, hhmm = 17 * 60, seed = 5): { g: GameSta
   const f1 = addFlight(g, { no: 'AW816', aircraftId: acId, contractId: k.id, kind: 'revenue', from: dep, to: dest, std, sta: std + b, pax: 170 });
   addFlight(g, { no: 'AW817', aircraftId: acId, contractId: k.id, kind: 'revenue', from: dest, to: dep, std: std + b + 50, sta: std + 2 * b + 50, pax: 160 });
   const d = buildDuties(g, acId, g.now, g.now + 5 * DAY)[0];
-  const crew = addCrew(g, { CPT: 2, FO: 2, SCC: 1, CC: 3 });
+  const crew = addCrew(g, { CPT: 2, FO: 2, PUR: 1, CC: 3 });
   return { g, d, p: g.pairings[d.pairingId], crew, flightId: f1.id, acId };
 }
 

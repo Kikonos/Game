@@ -12,7 +12,7 @@ import { acceptable, crewIssuesFor, mergeSegs, openDuties, otherTrip, planCrew, 
 import { deletePairing, dutyLegality, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setCrewTrailOkHook, setReleaseHook, setRetickHook, splitPairing, splitUnderWay, syncDuty } from './duties';
 import { crewName } from './generate';
 import { lateChange, moraleShock, nextReport } from './morale';
-import { evalSegs, levelOf, minRest, tzDeltaH, worst, type Seg } from './rules';
+import { DISCRETION, evalSegs, levelOf, minRest, tzDeltaH, worst, type Seg } from './rules';
 import { aboard, aboveEmpty, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, locAt, noteRiders, passengers, planHome, planOut, segsOf, ticketPrice, touchCrew, typeIdOf, withoutTickets } from './timeline';
 
 export { buildDuties } from './duties';
@@ -29,7 +29,7 @@ export interface RosterResult {
 
 export const emptyResult = (): RosterResult => ({ assigned: 0, uncovered: [], deadheads: 0, cost: 0 });
 
-const SLOT_ORDER: Role[] = ['CPT', 'FO', 'CRP', 'CSD', 'SCC', 'CC'];
+const SLOT_ORDER: Role[] = ['CPT', 'FO', 'CRP', 'PUR', 'CC'];
 
 /** On wet leases the client buys crew tickets and hotels (RESEARCH §2.2). */
 export function clientPaysCrewTravel(g: GameState, p: Pairing | undefined): boolean {
@@ -606,6 +606,9 @@ function previousCrew(g: GameState, p: Pairing): Set<string> {
   return new Set(best ? best.slots.filter((s) => s.crewId).map((s) => s.crewId!) : []);
 }
 
+/** v0.7.2 a captain in an FO or relief-pilot seat (the auto-roster's last resort). */
+const asFo = (slot: Role, role: Role) => role === 'CPT' && (slot === 'FO' || slot === 'CRP');
+
 /** Fills a pairing's empty slots with the best-scoring legal crew (DESIGN §5.3 steps 1–4, 6). */
 function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, exclude?: Set<string>): void {
   const duties = openDuties(g, p);
@@ -647,6 +650,7 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
   }
   pool.sort((a, b) => b.score - a.score || a.rank - b.rank);
   // Per slot, candidates in score order: the same-role stream merged lazily with the overqualified one (−50).
+  // v0.7.2: captains for an FO/CRP seat form a third stream, used only once the other two are exhausted.
   // A crew member's plan does not depend on the slot, so one refused is not re-planned for the next slot.
   const refused = new Set<string>();
   const skip = (x: (typeof pool)[number]) => inP.has(x.c.id) || refused.has(x.c.id);
@@ -655,12 +659,16 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
     const role = slot.role;
     let i = 0;
     let j = 0;
+    let k = 0;
     for (;;) {
       while (i < pool.length && (pool[i].c.role !== role || skip(pool[i]))) i++;
-      while (j < pool.length && (pool[j].c.role === role || !canFill(role, pool[j].c.role) || skip(pool[j]))) j++;
-      if (i >= pool.length && j >= pool.length) break;
+      while (j < pool.length && (pool[j].c.role === role || asFo(role, pool[j].c.role) || !canFill(role, pool[j].c.role) || skip(pool[j]))) j++;
       let x;
-      if (j >= pool.length) x = pool[i++];
+      if (i >= pool.length && j >= pool.length) {
+        while (k < pool.length && (!asFo(role, pool[k].c.role) || skip(pool[k]))) k++;
+        if (k >= pool.length) break;
+        x = pool[k++];
+      } else if (j >= pool.length) x = pool[i++];
       else if (i >= pool.length) x = pool[j++];
       else {
         const a = pool[i];
@@ -1075,7 +1083,7 @@ export function applyDiscretion(g: GameState, dutyId: string): ActionResult {
   if (!d || !p) return { ok: false, error: 'Duty not found' };
   if (d.done) return { ok: false, error: 'Duty already flown' };
   if (d.discretion) return { ok: false, error: 'Discretion already used on this duty' };
-  d.discretion = d.augment > 0 ? 180 : 120;
+  d.discretion = d.augment > 0 ? DISCRETION.augmented : DISCRETION.basic;
   d.legality = dutyLegality(d);
   for (const s of p.slots) {
     const c = s.crewId ? g.crew[s.crewId] : undefined;

@@ -17,7 +17,7 @@ import type { ActionResult, Aircraft, Contract, CrewFix, CrewMember, CrewStatus,
 import { generateOffer, planPositioning } from '../contracts';
 import { applyCrewFix, applyDiscretion, crewControl, flightCrewStatus, minRest, moraleShock, replaceCrew, rerosterFrom, rosterOf } from '../crew';
 import { planCrew } from '../crew/check';
-import type { IssueCode } from '../crew/rules';
+import { DISCRETION, type IssueCode } from '../crew/rules';
 import { dhBlock, OUT_CONNECT, outTicket, segsOf } from '../crew/timeline';
 import { distance } from '../core/geo';
 import { applyHold, cancelCost, cancelLegs, crewBlocked, delayChain, moveFlight, pickRival, planHold, planRecovery, rivalFactor, stationOf, subcharterCost, subcharterLegs, windowLegs } from './flights';
@@ -217,7 +217,7 @@ function resolveAog(g: GameState, d: Decision, opt: string): ActionResult {
 
 // ---------- crew short ----------
 
-const SLOT_ORDER: Role[] = ['CPT', 'FO', 'CRP', 'CSD', 'SCC', 'CC'];
+const SLOT_ORDER: Role[] = ['CPT', 'FO', 'CRP', 'PUR', 'CC'];
 const UNFIT: CrewStatus[] = ['sick', 'leave', 'training', 'joining'];
 /** Legality issues a later departure can cure (the rest are the person's, not the hour's). */
 const TIME_CURES: IssueCode[] = ['rest', 'location', 'fdp'];
@@ -362,7 +362,7 @@ export function crewShortDecision(g: GameState, f: Flight, ac: Aircraft): void {
   const cs = flightCrewStatus(g, f.id);
   const legs = tripLegs(g, ac, f);
   const over = d ? d.fdp - d.maxFdp - (d.discretion ?? 0) : 0;
-  const canDisc = !!d && !cs.missing.length && over > 0 && over <= 120 && !d.discretion;
+  const canDisc = !!d && !cs.missing.length && over > 0 && over <= (d.augment > 0 ? DISCRETION.augmented : DISCRETION.basic) && !d.discretion;
   const roll = range(g, BAL.subcharterFactor[0], BAL.subcharterFactor[1]);
   const rivalId = pickRival(g, ac.typeId);
   const factor = Math.round(roll * rivalFactor(g, rivalId) * 100) / 100;

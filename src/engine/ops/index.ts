@@ -18,9 +18,14 @@ export {
   APPROVALS, aircraftGate, applyApproval, approvalBlocker, approvalReqs, cleanRecord, gateApprovals, ladder, ratedPilots, RUNG0_TYPES, setPolicies,
   type AircraftGate, type ApprovalDef, type ApprovalReq, type LadderNode, type LadderRung, type NodeState,
 } from './company';
-export { bookRefit, cabinOptions, refitQuote, refitStations, type RefitQuote } from './cabin';
+export { bookRefit, bookRestSeats, cabinOptions, refitQuote, refitSlots, refitStations, restSeatsQuote, type RefitQuote, type RefitSlot } from './cabin';
+// v0.7.2 (UPDATE-0.7.2.md §12).
+export { opsStripFacts, type OpsStripFacts } from './strip';
+export { cancelSale, leastUsed, saleQuote, sellAircraft, type LeastUsedRow, type SaleQuote } from './sale';
+export { bookCCheck, cCheckOptions, cCheckSlots, checkLogistics, type CCheckOption, type CheckTicket } from './cHub';
+export { C_HUBS, type CHub } from '../../data/mro';
 export { deliveryQuote, deliveryStatus, ferryRoute, ticketPurpose, type DeliveryLeg, type DeliveryQuote, type DeliveryStatus } from './delivery';
-export { chooseLease, leaseView, returnQuote, type LeaseChoice, type LeaseView, type ReturnQuote } from './leaseReturn';
+export { chooseLease, earlyReturnQuote, leaseView, returnEarly, returnQuote, type EarlyReturnQuote, type LeaseChoice, type LeaseView, type ReturnQuote } from './leaseReturn';
 export { resolveDecision } from './events';
 export { cashForecast, fixedCosts, monthProfit, newStatement } from './finance';
 export { delayFlight, delayOf, schedSta } from './flights';
@@ -30,7 +35,7 @@ export { acquireAircraft, eligibleTypes, marketView, returnSiteOf, type MarketOf
 export {
   clientCode, clientLivery, clientTitles, liveryOf, normaliseLivery, paintStatus, setAircraftLivery, setCompanyLivery, setFleetLivery, type PaintStatus, type ResolvedLivery,
 } from './paint';
-export { rotationOf, SUB_LEAD, subcharter, subcharterable, subcharterQuote, type SubcharterQuote } from './subcharter';
+export { rotationOf, SUB_LEAD, subcharter, subcharterable, subcharterHit, subcharterQuote, type SubcharterHit, type SubcharterQuote } from './subcharter';
 export { usd } from './util';
 // v0.7.1 every problem as one card (engine/problems).
 export { hurtBadges, messageBadges, postProblem, problemAt, problemFor, problems, type GaugeSpec, type Hurt, type MiniMapSpec, type ProblemAction, type ProblemCard, type ReachSpec, type TimelineSpec } from '../problems';

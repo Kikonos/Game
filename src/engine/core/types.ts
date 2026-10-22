@@ -242,7 +242,13 @@ export interface Aircraft {
   /** v0.7: handover abroad and the delivery ferry (unset on v0.6 deliveries: handover at base, no ferry). */
   delivery?: DeliveryInfo;
   /** v0.7: lease return booked (ferry + return check). */
-  returning?: { site: string; maintId: string; ferryIds: string[]; quote: number };
+  returning?: { site: string; maintId: string; ferryIds: string[]; quote: number; /** v0.7.2 early-return fee (posted when the return check starts). */ earlyFee?: number };
+  /** v0.7.2 bunks (class 1) and crew rest seats fitted (last economy row, class 3; 0 none). load: ??= by type. */
+  crewRest?: { bunks: boolean; seats: number };
+  /** v0.7.2 daily block minutes [dayIndex, min], last 90 days. */
+  bhDays?: [number, number][];
+  /** v0.7.2 an agreed sale (closes with 'aircraft.sale'). */
+  sale?: { buyer: string; price: number; agreed: Minute; closes: Minute; ferryIds?: string[] };
 }
 
 /** v0.6: crew above the legal minimum (per aircraft or contract): cabin 0–4, one spare pilot. */
@@ -271,6 +277,8 @@ export interface Client {
   cleanSensitivity: number;
   /** Relationship −100…100; grows with good work, drops with failures. */
   relation: number;
+  /** v0.7.2 last offer title (no repeats). */
+  lastTitle?: string;
 }
 
 export type Archetype =
@@ -496,6 +504,8 @@ export interface Contract {
   service?: { sum: number; n: number };
   /** v0.6: the client pays for extra cabin crew (accepted at signing). */
   extraPaid?: boolean;
+  /** v0.7.2 std of legs handed to rivals (90-day reliability cost). */
+  subLegs?: Minute[];
 }
 
 // ======================================================================
@@ -557,7 +567,7 @@ export interface Flight {
   /** B2: the crew-shortage warning was given for this flight (once; saved so a reload does not repeat it). */
   crewWarned?: boolean;
   /** v0.7: why an empty ferry flies (labels, map, ticket purpose). */
-  purpose?: 'delivery' | 'return' | 'refit';
+  purpose?: 'delivery' | 'return' | 'refit' | /** v0.7.2 */ 'check' | 'sale';
   /** v0.7.1 crew-shortage ladder stage reached (amber ≤ 48 h, red ≤ 12 h); load: crewWarned → 'amber'. */
   crewAlert?: 'amber' | 'red';
   /** v0.7.1 a chartered business jet carrying our crew (kind 'deadhead'). */
@@ -576,7 +586,9 @@ export type ProblemKind =
   | 'aog' | 'checkDue' | 'checkOverdue' | 'checkClash' | 'checkNoSlot' | 'grounded'
   | 'offerFit' | 'counterExpiry' | 'changeRequest' | 'penalty' | 'contractCancelled'
   | 'cashLow' | 'invoiceOverdue' | 'lossMonth' | 'leaseDue' | 'goalMiss'
-  | 'deliveryWait' | 'ferryUncrewed' | 'refit' | 'leaseReturn';
+  | 'deliveryWait' | 'ferryUncrewed' | 'refit' | 'leaseReturn'
+  /** v0.7.2 */
+  | 'restSeats' | 'captainAsFo' | 'sale';
 
 /** v0.7.1 what a card is about: the entity (as a message Ref) plus the kind. */
 export interface ProblemRef { kind: ProblemKind; ref: Ref }
@@ -585,9 +597,9 @@ export interface ProblemRef { kind: ProblemKind; ref: Ref }
 // Crew (B2)
 // ======================================================================
 
-/** CPT captain · FO first officer · CRP cruise-relief pilot · CSD cabin service director (SCCM, widebody purser) ·
- *  SCC senior cabin crew (SCCM on narrowbodies, No. 2 on widebodies) · CC cabin crew. */
-export type Role = 'CPT' | 'FO' | 'CRP' | 'CSD' | 'SCC' | 'CC';
+/** CPT captain · FO first officer · CRP cruise-relief pilot · PUR purser (the senior cabin crew member, SCCM) · CC cabin crew.
+ *  v0.7.2: CSD and SCC merged into PUR (migrated in the crew module's load). */
+export type Role = 'CPT' | 'FO' | 'CRP' | 'PUR' | 'CC';
 
 export type CrewStatus = 'available' | 'onDuty' | 'resting' | 'off' | 'leave' | 'sick' | 'training' | 'joining';
 
@@ -654,6 +666,10 @@ export interface CrewMember {
   moraleHist?: number[];
   /** v0.6: last late-notice roster change hit (at most one a day). */
   lateAt?: Minute;
+  /** v0.7.2 reports flown in an FO/CRP seat as a captain (30 days). */
+  asFoAt?: Minute[];
+  /** v0.7.2 block minutes per month, last 12 (1,000 h / 12 months). */
+  blockMonths?: Record<MonthKey, number>;
 }
 
 export interface CrewSlot {
@@ -747,6 +763,8 @@ export interface HireOrder {
   ordered: Minute;
   ready: Minute;
   cost: number;
+  /** v0.7.2 cabin crew hired for several types (family first). */
+  families?: RatingFamily[];
 }
 
 export type TrainingKind = 'typeRating' | 'command' | 'sccm' | 'conversion';
@@ -806,11 +824,14 @@ export interface MaintenanceEvent {
   /** v0.5.1: client paint-in or strip at a paint shop. */
   paint?: { phase: 'in' | 'out'; contractId: string };
   /** v0.7 cabin refit: the cabin fitted at the end. */
-  refit?: { cabin: Cabin };
+  refit?: { cabin: Cabin; /** v0.7.2 crew rest seats at the end */ restSeats?: number };
   /** v0.7 lease return check: the aircraft leaves the fleet at the end. */
   leaseReturn?: boolean;
   /** v0.7.1 AOG: how it is being fixed once decided (the card's WHY); undefined while the decision is open or in old saves. */
   fix?: 'local' | 'courier' | 'team';
+  /** v0.7.2 C-check at an MRO hub; ferry home legs. */
+  hub?: { code: string; name: string; price: number };
+  homeIds?: string[];
 }
 
 // ======================================================================
@@ -948,6 +969,8 @@ export interface AircraftOffer {
   created?: Minute;
   /** v0.7: the market index the rent was priced at (absent = 1). */
   index?: number;
+  /** v0.7.2 crew rest fitted (rolled at creation, copied on acquisition). */
+  crewRest?: { bunks: boolean; seats: number };
 }
 
 export interface Market {
@@ -998,7 +1021,9 @@ export type SimEventType =
   | 'approval.done'
   | 'decision.expire'
   /** v0.7.1: the hourly crew-shortage ladder tick (crew/control.ts escalateShortages). */
-  | 'crew.alert';
+  | 'crew.alert'
+  /** v0.7.2: an agreed aircraft sale closes (ops/sale.ts). */
+  | 'aircraft.sale';
 
 export interface SimEvent {
   t: Minute;
@@ -1068,6 +1093,11 @@ export interface Stats {
   crewFixes?: Partial<Record<CrewFix, number>>;
   crewAmber?: number;
   crewRed?: number;
+  /** v0.7.2: std of company legs sub-chartered (90 days); aircraft sold; leases returned early; captain-as-FO duties. */
+  subLog?: Minute[];
+  sales?: number;
+  earlyReturns?: number;
+  asFo?: number;
 }
 
 export interface GameState {

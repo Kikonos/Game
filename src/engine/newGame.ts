@@ -104,8 +104,8 @@ function emptyState(o: NewGameOptions, seed: number, now: Minute): GameState {
   };
 }
 
-/** Starting roster: 10 A320 sets of 1 CPT + 1 FO + 1 SCCM (SCC on narrowbodies) + 3 CC (180Y). */
-const STARTUP_CREW: [Role, number][] = [['CPT', 10], ['FO', 10], ['SCC', 10], ['CC', 30]];
+/** Starting roster: 10 A320 sets of 1 CPT + 1 FO + 1 purser (PUR, the SCCM) + 3 CC (180Y). */
+const STARTUP_CREW: [Role, number][] = [['CPT', 10], ['FO', 10], ['PUR', 10], ['CC', 30]];
 
 /** Normalised options: trimmed name, 2-char code, a known base. */
 export function normaliseOptions(o: NewGameOptions): NewGameOptions {

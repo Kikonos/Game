@@ -23,6 +23,31 @@ import { usd } from './util';
 
 export interface ReturnQuote { site: string; lines: { label: string; amount: number }[]; total: number; deposit: number; checkDays: number; ferry: DeliveryLeg[] }
 export type LeaseChoice = 'extend12' | 'extend36' | 'return';
+
+/** v0.7.2 handing a lease back early (UPDATE-0.7.2.md §6.2). */
+export interface EarlyReturnQuote {
+  ok: boolean; why: string | null;
+  /** The return check ends (the lessor wants 30 days' notice). */
+  end: Minute;
+  fee: number;
+  rentSaved: number; returnCosts: ReturnQuote; deposit: number;
+  /** rentSaved + deposit − fee − returnCosts.total. */
+  net: number;
+  blockers: string[];
+}
+
+/** An early return ending at `end` (default: the first day ≥ notice with no signed work from the ferry out on). Pure. */
+export function earlyReturnQuote(g: GameState, aircraftId: string, end?: Minute): EarlyReturnQuote {
+  void aircraftId;
+  const rq: ReturnQuote = { site: '', lines: [], total: 0, deposit: 0, checkDays: 0, ferry: [] };
+  return { ok: false, why: 'v0.7.2 stub', end: end ?? g.now, fee: 0, rentSaved: 0, returnCosts: rq, deposit: 0, net: 0, blockers: [] };
+}
+
+/** Books the early return: ferry to the return site, return check ending at `end`, the fee when it starts. */
+export function returnEarly(g: GameState, aircraftId: string, end: Minute): ActionResult {
+  void g; void aircraftId; void end;
+  return { ok: false, error: 'v0.7.2 stub' };
+}
 export interface LeaseView {
   lessor: string; ends: Minute; daysLeft: number; rent: number; returnSite: string;
   options: { id: LeaseChoice; label: string; rent?: number; cost?: number; chips: string[] }[];

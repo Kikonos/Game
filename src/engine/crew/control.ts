@@ -28,18 +28,18 @@ import { moraleShock } from './morale';
 import { city, rootReason, type Reason, type ReasonCode } from './reasons';
 import { applyDiscretion, autoRoster, flightCrewStatus, onFlightsChanged, placeCrew, recheckPairing, releaseCrew, rerosterFrom, setShortHook, type FlightCrewStatus } from './roster';
 import { assignCrew, dutyCandidates, type DutyCandidate } from './rosterActions';
-import { levelOf, LIMITS, minRest } from './rules';
+import { DISCRETION, levelOf, LIMITS, minRest } from './rules';
 import { crewCount, crewRev, dhBlock, locAt, OUT_CONNECT, segsOf, touchCrew, typeIdOf, type TicketPlan } from './timeline';
 
 export type { Reason, ReasonCode };
 export { rootReason };
 
 const CC = () => BAL.crewControl;
-const SLOT_ORDER: Role[] = ['CPT', 'FO', 'CRP', 'CSD', 'SCC', 'CC'];
+const SLOT_ORDER: Role[] = ['CPT', 'FO', 'CRP', 'PUR', 'CC'];
 /** Player words for a seat: singular, plural. */
 export const ROLE_WORD: Record<Role, [string, string]> = {
   CPT: ['captain', 'captains'], FO: ['first officer', 'first officers'], CRP: ['relief pilot', 'relief pilots'],
-  CSD: ['cabin manager', 'cabin managers'], SCC: ['senior cabin crew', 'senior cabin crew'], CC: ['cabin crew', 'cabin crew'],
+  PUR: ['purser', 'pursers'], CC: ['cabin crew', 'cabin crew'],
 };
 const at = (t: Minute, now: Minute) => (Math.floor(t / DAY) === Math.floor(now / DAY) ? fmtTime(t) : fmtDateTime(t));
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
@@ -1294,7 +1294,7 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean): CrewSolution[] {
     else if (x.missing.length) out.push(no(s, 'Seats are empty: discretion does not crew a flight'));
     else if (d.discretion) out.push(no(s, 'Already used on this duty'));
     else if (over <= 0) out.push(no(s, 'The duty is not over its limit'));
-    else if (over > (d.augment > 0 ? 180 : 120)) out.push(no(s, `Over by ${fmtDuration(over)}: more than discretion allows`));
+    else if (over > (d.augment > 0 ? DISCRETION.augmented : DISCRETION.basic)) out.push(no(s, `Over by ${fmtDuration(over)}: more than discretion allows`));
     else {
       s.chips = ['Free', `FDP +${fmtDuration(over)}`, 'Morale −3 each', 'Fatigue +10'];
       out.push(run(s));

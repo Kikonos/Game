@@ -52,7 +52,7 @@ describe('crew WHY (v0.7.1 fixes 4 and 16)', () => {
     const k = fixtureContract(g, { pattern: { kind: 'legs', legs: [] }, aircraftIds: [acId], start: std - DAY, end: std + 2 * DAY, product: { kind: 'charter', price: 120_000, depositPct: 0.3, balanceDaysBefore: 7, fuelEscalation: false }, penalties: { cancelScale: [], perDelay: 2_500, perCancelledLeg: 15_000 } });
     const f1 = addFlight(g, { no: 'AW816', aircraftId: acId, contractId: k.id, kind: 'revenue', from: 'DUS', to: 'FNC', std, sta: std + b, pax: 170 });
     addFlight(g, { no: 'AW817', aircraftId: acId, contractId: k.id, kind: 'revenue', from: 'FNC', to: 'DUS', std: std + b + 50, sta: std + 2 * b + 50, pax: 160 });
-    addCrew(g, { CPT: 2, FO: 2, SCC: 1, CC: 3 });
+    addCrew(g, { CPT: 2, FO: 2, PUR: 1, CC: 3 });
     // No duty yet: the card says so instead of 'nobody is free'.
     const none = crewShortCard(g, f1.id)!;
     expect(none).not.toBeNull();

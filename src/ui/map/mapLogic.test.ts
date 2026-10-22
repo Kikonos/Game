@@ -357,7 +357,7 @@ async function shortOfCaptain(hoursBefore: number, dest = 'FNC', othersOnLeave =
   const f1 = addFlight(g, { no: 'AW816', aircraftId: acId, contractId: k.id, kind: 'revenue', from: 'DUS', to: dest, std, sta: std + b, pax: 170 });
   const f2 = addFlight(g, { no: 'AW817', aircraftId: acId, contractId: k.id, kind: 'revenue', from: dest, to: 'DUS', std: std + b + 50, sta: std + 2 * b + 50, pax: 160 });
   buildDuties(g, acId, g.now, g.now + 5 * DAY);
-  addCrew(g, { CPT: 2, FO: 2, SCC: 1, CC: 3 });
+  addCrew(g, { CPT: 2, FO: 2, PUR: 1, CC: 3 });
   autoRoster(g);
   const d = g.duties[g.flights[f1.id].dutyId!];
   const p = g.pairings[d.pairingId];

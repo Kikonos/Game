@@ -1,4 +1,6 @@
-// Simplified EASA FTL rules (RESEARCH §5.1, DESIGN.md §5.2). Pure functions on minutes; no GameState.
+// EASA FTL rules (Reg. (EU) 965/2012 Annex III Subpart FTL as amended by 83/2014; CS FTL.1). The reference is
+// docs/acmi/EASA-FTL.md (v0.7.2): every table here is written there by article and pinned in ftl.test.ts.
+// Pure functions on minutes; no GameState.
 
 import { DAY, dayStart, localOffset, yearOf } from '../core/time';
 import type { Legality, Minute } from '../core/types';
@@ -43,30 +45,79 @@ export interface FdpInput {
   longestBlock: number;
 }
 
-/** F1 base max FDP (1–2 sectors) by local report time, 15-minute bands. */
-export function baseFdp(reportLocal: number): number {
-  const m = ((Math.floor(reportLocal) % DAY) + DAY) % DAY;
-  if (m >= 5 * H && m < 6 * H) return 12 * H + 15 * Math.floor((m - 5 * H) / 15);
-  if (m >= 6 * H && m < 13 * H + 30) return 13 * H;
-  if (m >= 13 * H + 30 && m < 17 * H) return 12 * H + 45 - 15 * Math.floor((m - (13 * H + 30)) / 30);
-  return 11 * H;
-}
+/**
+ * ORO.FTL.205(b)(1) Table 1, the 1–2 sector column: [from, to) local reference time (minutes after midnight) → max
+ * FDP. Reports outside every band (17:00–04:59) get FDP_OUTSIDE. Each sector above 2 costs SECTOR_STEP, floor FDP_FLOOR.
+ */
+export const FDP_BANDS: readonly (readonly [number, number, number])[] = [
+  [5 * H, 5 * H + 15, 12 * H], [5 * H + 15, 5 * H + 30, 12 * H + 15], [5 * H + 30, 5 * H + 45, 12 * H + 30], [5 * H + 45, 6 * H, 12 * H + 45],
+  [6 * H, 13 * H + 30, 13 * H],
+  [13 * H + 30, 14 * H, 12 * H + 45], [14 * H, 14 * H + 30, 12 * H + 30], [14 * H + 30, 15 * H, 12 * H + 15], [15 * H, 15 * H + 30, 12 * H],
+  [15 * H + 30, 16 * H, 11 * H + 45], [16 * H, 16 * H + 30, 11 * H + 30], [16 * H + 30, 17 * H, 11 * H + 15],
+];
+export const FDP_OUTSIDE = 11 * H;
+/** ORO.FTL.205(b)(2) Table 2: unknown acclimatised state (X), 1–2 sectors (same sector step and floor). */
+export const FDP_UNKNOWN = 11 * H;
+export const SECTOR_STEP = 30;
+export const FDP_FLOOR = 9 * H;
+/** Table 1 stops at 10 sectors. */
+export const MAX_SECTORS = 10;
 
-/** F3 augmented FDP by extra pilots and rest facility class (1 bunk … 3 seat). */
-const AUG: Record<1 | 2, Record<1 | 2 | 3, number>> = {
+/** CS FTL.1.205(c): augmented FDP by extra pilots (1: 3 pilots, 2: 4 pilots) and rest facility class. */
+export const AUG_FDP: Readonly<Record<1 | 2, Readonly<Record<1 | 2 | 3, number>>>> = {
   1: { 1: 16 * H, 2: 15 * H, 3: 14 * H },
   2: { 1: 17 * H, 2: 16 * H, 3: 15 * H },
 };
+/** +1:00 when the duty has ≤ 2 sectors and one of more than AUG_BONUS_FT continuous flight time; ≤ 3 sectors; 18:00 cap. */
+export const AUG_BONUS = H;
+export const AUG_BONUS_FT = 9 * H;
+export const AUG_MAX_SECTORS = 3;
+export const FDP_CAP = 18 * H;
+/** Taxi out + in taken off the block time to estimate continuous flight time (bonus test). */
+export const TAXI_ALLOWANCE = 20;
 
-/** Max FDP (F1 table, −0:30 per sector above 2, 9:00 floor; F3 augmented table, +1:00 long-sector bonus, 18:00 cap). */
+/** ORO.FTL.205(f) commander's discretion: +2:00, +3:00 augmented; the rest after may be reduced, never below 10:00. */
+export const DISCRETION = { basic: 2 * H, augmented: 3 * H, minRest: 10 * H } as const;
+
+/**
+ * CS FTL.1.205(c) minimum in-flight rest for cabin crew by extended FDP (up to and including `upTo`) and rest class;
+ * null = that class does not allow this FDP. Beyond the last row: not allowed.
+ */
+export const CABIN_REST: readonly { upTo: number; c1: number; c2: number | null; c3: number | null }[] = [
+  { upTo: 14 * H + 30, c1: 90, c2: 90, c3: 90 },
+  { upTo: 15 * H, c1: 105, c2: 120, c3: 140 },
+  { upTo: 15 * H + 30, c1: 120, c2: 140, c3: 160 },
+  { upTo: 16 * H, c1: 135, c2: 160, c3: 180 },
+  { upTo: 16 * H + 30, c1: 155, c2: 180, c3: null },
+  { upTo: 17 * H, c1: 180, c2: 205, c3: null },
+  { upTo: 17 * H + 30, c1: 205, c2: null, c3: null },
+  { upTo: 18 * H, c1: 230, c2: null, c3: null },
+  { upTo: 18 * H + 30, c1: 265, c2: null, c3: null },
+];
+
+/** Minimum in-flight rest (minutes) for cabin crew on an extended FDP with a class 1/2/3 facility; null = not allowed. */
+export function cabinInflightRest(fdp: number, cls: 1 | 2 | 3): number | null {
+  const row = CABIN_REST.find((r) => fdp <= r.upTo);
+  if (!row) return null;
+  return cls === 1 ? row.c1 : cls === 2 ? row.c2 : row.c3;
+}
+
+/** Table 1 max FDP (1–2 sectors) by local reference report time. */
+export function baseFdp(reportLocal: number): number {
+  const m = ((Math.floor(reportLocal) % DAY) + DAY) % DAY;
+  for (const [a, b, fdp] of FDP_BANDS) if (m >= a && m < b) return fdp;
+  return FDP_OUTSIDE;
+}
+
+/** Max FDP: Table 1/2 less SECTOR_STEP per sector above 2 (floor FDP_FLOOR); augmented: AUG_FDP (+AUG_BONUS), FDP_CAP. */
 export function maxFdp(i: FdpInput): number {
-  if (i.augment > 0 && i.restClass && i.sectors <= 3) {
-    let fdp = AUG[i.augment as 1 | 2][i.restClass];
-    if (i.sectors <= 2 && i.longestBlock - 20 > 9 * H) fdp += H;
-    return Math.min(18 * H, fdp);
+  if (i.augment > 0 && i.restClass && i.sectors <= AUG_MAX_SECTORS) {
+    let fdp = AUG_FDP[i.augment as 1 | 2][i.restClass];
+    if (i.sectors <= 2 && i.longestBlock - TAXI_ALLOWANCE > AUG_BONUS_FT) fdp += AUG_BONUS;
+    return Math.min(FDP_CAP, fdp);
   }
-  const base = i.acclimatised ? baseFdp(i.reportLocal) : 11 * H;
-  return Math.max(9 * H, base - 30 * Math.max(0, i.sectors - 2));
+  const base = i.acclimatised ? baseFdp(i.reportLocal) : FDP_UNKNOWN;
+  return Math.max(FDP_FLOOR, base - SECTOR_STEP * Math.max(0, i.sectors - 2));
 }
 
 export interface RestInput {
@@ -78,20 +129,25 @@ export interface RestInput {
   tzShift: number;
 }
 
-/** F8 minimum rest: max(duty, 12 h home / 10 h away); 14 h away after an augmented FDP or a ≥ 4 h shift. */
+/**
+ * ORO.FTL.235(a)/(b) minimum rest: max(duty, 12 h home / 10 h away); CS FTL.1.205(c) / CS FTL.1.235(b): 14 h away
+ * after an augmented FDP or a ≥ 4 h time-zone shift.
+ */
 export function minRest(i: RestInput): number {
   let base = i.atHome ? 12 * H : 10 * H;
   if (!i.atHome && (i.augmented || i.tzShift >= 4)) base = 14 * H;
   return Math.max(i.dutyMin, base);
 }
 
-/** Cumulative limits (F10) and recovery (F9). */
+/** ORO.FTL.210 cumulative limits and ORO.FTL.235(d) / CS FTL.1.235 recovery. */
 export const LIMITS = {
   duty7d: 60 * H,
   duty14d: 110 * H,
   duty28d: 190 * H,
   block28d: 100 * H,
   blockYear: 900 * H,
+  /** v0.7.2: 1,000 h of flight time in any 12 consecutive calendar months. */
+  block12m: 1000 * H,
   recovery: 36 * H,
   /** Recovery after 4 or more disruptive duties since the last one. */
   recoveryLong: 60 * H,
@@ -202,6 +258,8 @@ export interface TimelineCtx {
   /** Logged block minutes in calendar year `blockYearOf`. */
   blockYear: number;
   blockYearOf: number;
+  /** v0.7.2 logged block minutes in this calendar month and the 11 before (absent = 0: old saves). */
+  block12m?: number;
   /** End of the last duty when the log is empty (time off before the first seg counts towards recovery). */
   freeSince?: Minute;
   /** Where the crew member is now and the time: the first planned work starting later must start there. */
@@ -308,6 +366,7 @@ export function evalSegs(ctx: TimelineCtx, segs: Seg[]): LegalityIssue[] {
   // Planned block per calendar year, accumulated in time order (segs end in order for non-overlapping timelines).
   let plannedYear = 0;
   let plannedYearOf = ctx.blockYearOf;
+  let planned12m = 0;
   const slack = ctx.slack ?? 0;
   for (let i = 0; i < segs.length; i++) {
     const s = segs[i];
@@ -326,6 +385,7 @@ export function evalSegs(ctx: TimelineCtx, segs: Seg[]): LegalityIssue[] {
         plannedYear = 0;
       }
       plannedYear += s.block;
+      planned12m += s.block;
     }
     const target = s.kind !== 'log' && (firstFresh < 0 || !!s.fresh || (i > firstFresh && s.start < lastFreshEnd + 28 * DAY));
     if (target) {
@@ -360,6 +420,7 @@ export function evalSegs(ctx: TimelineCtx, segs: Seg[]): LegalityIssue[] {
         cumIssue(issues, 'block28d', w[3], LIMITS.block28d, 'Block 28d', tgt);
         const logged = ctx.blockYearOf === plannedYearOf ? ctx.blockYear : 0;
         cumIssue(issues, 'blockYear', logged + plannedYear, LIMITS.blockYear, 'Block year', tgt);
+        if (ctx.block12m) cumIssue(issues, 'blockYear', ctx.block12m + planned12m, LIMITS.block12m, 'Block 12 months', tgt);
       }
       if (segEnd(s, slack) > anchor + LIMITS.recoveryEvery) pushIssue(issues, 'recovery', 'illegal', 'No 36 h recovery in 168 h', tgt);
     }

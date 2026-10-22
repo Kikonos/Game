@@ -47,6 +47,8 @@ export function problemFor(g: GameState, subject: ProblemRef): ProblemCard | nul
     case 'ferryUncrewed': return ferryUncrewedCard(g, id);
     case 'refit': return refitMissedCard(g, id);
     case 'leaseReturn': return leaseReturnCard(g, id);
+    // v0.7.2 (builders land with their features).
+    case 'restSeats': case 'captainAsFo': case 'sale': return null;
   }
 }
 

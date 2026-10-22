@@ -14,7 +14,7 @@ export interface SeatPlan {
   open: SeatNeed[];
 }
 
-/** A person of `role` can sit in a `slot` seat (a captain may take the FO seat; CSD/SCC can work as CC). */
+/** A person of `role` can sit in a `slot` seat (a captain may take the FO seat; a purser can work as CC). */
 export const fits = (slot: Role, role: Role): boolean => slot === role || canFill(slot, role) || (slot === 'FO' && role === 'CPT');
 
 /** Assigns the picks, in order, to the missing seats: an exact match first, then any seat they can fill. */

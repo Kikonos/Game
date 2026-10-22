@@ -5,7 +5,9 @@ import type { ProblemKind } from '../engine/core/types';
 
 export type TermId =
   | 'fdp' | 'deadhead' | 'positioning' | 'tight' | 'discretion' | 'acmi' | 'wetLease' | 'subcharter' | 'aog' | 'standby' | 'rest' | 'blockHours'
-  | 'mgh' | 'ferry' | 'augmented' | 'etops' | 'aCheck' | 'cCheck' | 'perDiem' | 'recovery' | 'privateJet';
+  | 'mgh' | 'ferry' | 'augmented' | 'etops' | 'aCheck' | 'cCheck' | 'perDiem' | 'recovery' | 'privateJet'
+  /** v0.7.2 */
+  | 'pur' | 'cabinCrew' | 'crewRest' | 'restClass1' | 'restClass3' | 'restSeats' | 'mro' | 'dryLease' | 'asFo' | 'marketValue' | 'earlyReturn';
 
 export interface GlossaryEntry {
   term: string;
@@ -26,7 +28,7 @@ export const GLOSSARY: Record<TermId, GlossaryEntry> = {
   discretion: { term: 'Discretion', short: "The captain may extend the crew's day by up to 2 hours once; the crew get tired and grumpy.", where: { tab: 'crew', view: 'board' } },
   acmi: { term: 'ACMI', short: 'We provide Aircraft, Crew, Maintenance and Insurance; the client pays per block hour, fuel and airport fees.', where: { tab: 'contracts' } },
   wetLease: { term: 'Wet lease', short: 'Same as ACMI: our aircraft and crew fly for the client, who pays per block hour.', where: { tab: 'contracts' } },
-  subcharter: { term: 'Sub-charter', short: "Paying a rival airline to fly our client's flight; we still bill the client.", where: { tab: 'contracts' } },
+  subcharter: { term: 'Sub-charter', short: "Paying a rival airline to fly our client's flight; we still bill the client. Clients notice: each leg handed over costs reliability, more when it becomes a habit.", where: { tab: 'contracts' } },
   aog: { term: 'AOG', short: "Aircraft on ground: broken and can't fly until repaired.", where: { tab: 'fleet' } },
   standby: { term: 'Standby', short: 'Crew kept free at a base to cover sickness and surprises.', where: { tab: 'crew' } },
   rest: { term: 'Rest', short: 'The time off a crew member needs before the next duty: 12 h at home, 10 h away.', where: { tab: 'crew', view: 'board' } },
@@ -40,6 +42,17 @@ export const GLOSSARY: Record<TermId, GlossaryEntry> = {
   perDiem: { term: 'Per diem', short: 'Daily allowance paid to crew while away from base.', where: { tab: 'company' } },
   recovery: { term: 'Weekly rest', short: 'At least 36 hours off, with two local nights, every week.', where: { tab: 'crew', view: 'board' } },
   privateJet: { term: 'Private jet', short: 'A business jet chartered to fly our crew to their aircraft in hours; dear, but fast.', where: { tab: 'map' } },
+  pur: { term: 'PUR', short: 'Purser: the senior cabin crew member in charge of the cabin (SCCM). One on every flight.', where: { tab: 'crew', view: 'people' } },
+  cabinCrew: { term: 'CC', short: 'Cabin crew: the flight attendants, one for every 50 seats at least. They can hold up to three aircraft types.', where: { tab: 'crew', view: 'people' } },
+  crewRest: { term: 'Crew rest', short: 'A crew rest compartment: bunks hidden above or below the cabin where crew sleep on long flights (class 1 rest).', where: { tab: 'fleet' } },
+  restClass1: { term: 'Class 1 rest', short: 'Class 1 rest: a bunk or flat bed away from passengers. Allows the longest duty days.', where: { tab: 'fleet' } },
+  restClass3: { term: 'Class 3 rest', short: 'Class 3 rest: an economy seat that reclines at least 40°, with a leg rest, behind a curtain.', where: { tab: 'fleet' } },
+  restSeats: { term: 'Crew rest seats', short: 'The last economy row curtained off for resting crew; sold to passengers when nobody needs to rest.', where: { tab: 'fleet' } },
+  mro: { term: 'MRO', short: 'Maintenance, repair and overhaul: the hangar company that does heavy checks.', where: { tab: 'fleet' } },
+  dryLease: { term: 'Dry lease', short: 'Renting an aircraft without crew; we fly it on our licence and hand it back at the end.', where: { tab: 'fleet' } },
+  asFo: { term: 'Captain as FO', short: "A captain sitting in the first officer's seat because no first officer was free. Same pay.", where: { tab: 'crew', view: 'board' } },
+  marketValue: { term: 'Market value', short: 'What a buyer pays for an aircraft today: its type, age, hours, cycles and the next heavy check.', where: { tab: 'fleet' } },
+  earlyReturn: { term: 'Early return', short: 'Handing a leased aircraft back before the lease ends: the lessor charges a fee to find the next airline.', where: { tab: 'fleet' } },
 };
 
 /** Words that the UI wraps in <Term> when they appear in a card's text (lower-case match). */
@@ -48,6 +61,8 @@ export const TERM_WORDS: [string, TermId][] = [
   ['wet lease', 'wetLease'], ['sub-charter', 'subcharter'], ['AOG', 'aog'], ['standby', 'standby'], ['rest', 'rest'], ['block hours', 'blockHours'],
   ['MGH', 'mgh'], ['ferry', 'ferry'], ['augmented', 'augmented'], ['ETOPS', 'etops'], ['A-check', 'aCheck'], ['C-check', 'cCheck'], ['per diem', 'perDiem'],
   ['weekly rest', 'recovery'], ['private jet', 'privateJet'],
+  ['purser', 'pur'], ['crew rest seats', 'restSeats'], ['crew rest', 'crewRest'], ['class 1 rest', 'restClass1'], ['class 3 rest', 'restClass3'], ['MRO', 'mro'],
+  ['dry lease', 'dryLease'], ['market value', 'marketValue'], ['early return', 'earlyReturn'],
 ];
 
 /** First-time hints: one plain paragraph the first time each kind of problem appears (Settings.hintsSeen). */
@@ -107,5 +122,17 @@ export const HINTS: Partial<Record<ProblemKind, { title: string; text: string }>
   leaseReturn: {
     title: 'A lease coming to an end',
     text: 'A leased aircraft goes back to its lessor with a return check, its original cabin and a white paint. You can extend the lease instead; decide before the notice date.',
+  },
+  restSeats: {
+    title: 'Seats blocked for crew rest',
+    text: 'On a long duty the crew must rest in turns during the flight. An aircraft without bunks curtains off its last economy row for them, so those seats cannot be sold on that flight. On shorter duties they sell as normal.',
+  },
+  captainAsFo: {
+    title: 'A captain flying as first officer',
+    text: 'When no first officer is free, a captain may sit in the right-hand seat. It is legal and the pay stays the same, but captains do not like doing it more than twice a month. Hiring first officers fixes it.',
+  },
+  sale: {
+    title: 'Selling an aircraft',
+    text: 'A buyer pays the market value less the coming heavy check and a broker fee. Every flight booked on the aircraft after the handover must move to another aircraft or a rival first.',
   },
 };

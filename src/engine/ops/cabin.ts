@@ -26,6 +26,32 @@ export interface RefitQuote {
   breaks: string[];
 }
 
+/** v0.7.2 a refit window at home base (earliest first). */
+export interface RefitSlot { start: Minute; end: Minute; ok: boolean; why: string | null }
+
+/** Earliest refit windows (n ≤ 6) scanning 26 weeks; why the first free day is later than today. Pure. */
+export function refitSlots(g: GameState, aircraftId: string, label: string, n = 6): { slots: RefitSlot[]; busyUntil: Minute | null; busyWhy: string | null } {
+  void g; void aircraftId; void label; void n;
+  return { slots: [], busyUntil: null, busyWhy: null };
+}
+
+/** v0.7.2 fitting (or removing) crew rest seats: the last economy row behind a curtain. Pure; cabin unchanged. */
+export function restSeatsQuote(g: GameState, aircraftId: string, fit: boolean, start: Minute): RefitQuote {
+  void fit;
+  const ac = g.fleet[aircraftId];
+  const cabin: Cabin = ac?.cabin ?? { j: 0, w: 0, y: 0, total: 0, label: '', layout: 'all-economy' };
+  return {
+    ok: false, why: 'v0.7.2 stub', cabin, days: 0, cost: 0, start, end: start, station: g.company.homeBase, ferryIn: [], seatsFrom: cabin.total, seatsTo: cabin.total,
+    cabinMinFrom: cabinMinimum(cabin.total), cabinMinTo: cabinMinimum(cabin.total), opens: [], closes: [], reinstateAtReturn: null, clashes: [], breaks: [],
+  };
+}
+
+/** Books crew rest seats (fit or remove) as a short refit at home base. */
+export function bookRestSeats(g: GameState, aircraftId: string, fit: boolean, start: Minute): ActionResult<{ maintId: string }> {
+  void g; void aircraftId; void fit; void start;
+  return { ok: false, error: 'v0.7.2 stub' };
+}
+
 const LAYOUT_NAME: Record<CabinLayout, string> = { 'all-economy': 'all-economy', 'two-class': 'two-class', 'three-class': 'three-class', vip: 'VIP' };
 export const layoutName = (l: CabinLayout) => LAYOUT_NAME[l];
 

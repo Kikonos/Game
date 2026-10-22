@@ -138,7 +138,7 @@ export const onMap = (ac: Aircraft) => ac.status !== 'delivering' || !!ac.flight
 /** Static DELIVERY tag: handed over abroad, until it is home (deliveryStatus phase handedOver | waiting | ferrying). */
 export const deliveryTag = (ac: Aircraft) => !!ac.delivery && ac.delivery.arrived === undefined && ac.status !== 'delivering';
 
-export const PURPOSE_LABEL: Record<NonNullable<Flight['purpose']>, string> = { delivery: 'Delivery ferry', return: 'Lease return ferry', refit: 'Refit ferry' };
+export const PURPOSE_LABEL: Record<NonNullable<Flight['purpose']>, string> = { delivery: 'Delivery ferry', return: 'Lease return ferry', refit: 'Refit ferry', check: 'C-check ferry', sale: 'Sale ferry' };
 
 /** The ferry chain a purpose leg belongs to (delivery, lease return or refit ferry legs, in order); [f] when unknown. */
 export function purposeChain(g: GameState, f: Flight): Flight[] {

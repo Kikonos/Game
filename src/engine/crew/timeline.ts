@@ -6,7 +6,7 @@ import { BAL } from '../core/balance';
 import { distance } from '../core/geo';
 import { deadheadFlights, flightsOf, flightsRev } from '../core/entities';
 import { itinerary, ticketBlock } from '../ops/commercial';
-import { DAY, fmtDateTime, fmtTime, yearOf } from '../core/time';
+import { DAY, fmtDateTime, fmtTime, monthKey, yearOf } from '../core/time';
 import type { CrewMember, Duty, Flight, GameState, Minute, Pairing } from '../core/types';
 import { isDisruptive, maxFdp, minRest, referenceTime, tzDeltaH, type RefTime, type Seg, type TimelineCtx } from './rules';
 
@@ -126,6 +126,26 @@ export function dutyFlights(g: GameState, d: Duty): Flight[] {
 }
 
 export const typeIdOf = (g: GameState, p: Pairing): string => (p.aircraftId && g.fleet[p.aircraftId]?.typeId) || 'a320ceo';
+
+/**
+ * v0.7.2 ORO.FTL.205(c): cabin crew report this much before the pilots (widebodies); their FDP counts from their
+ * own report and their max FDP grows by the same difference, so FDP legality is unchanged; rest after grows.
+ */
+export function cabinEarly(g: GameState, p: Pairing): number {
+  const t = ACMI_TYPES[typeIdOf(g, p)];
+  return t ? BAL.v072.ftl.cabinEarlyMin[t.body] : 0;
+}
+const isCabin = (c: CrewMember) => c.role === 'PUR' || c.role === 'CC';
+
+/** v0.7.2 logged block minutes in the 12 calendar months up to `t` (this month and the 11 before). */
+export function block12m(c: CrewMember, t: Minute): number {
+  const bm = c.blockMonths;
+  if (!bm) return 0;
+  const k = monthKey(t);
+  let s = 0;
+  for (const key in bm) if (+key > k - 12 && +key <= k) s += bm[key];
+  return s;
+}
 
 export function dutyBlock(g: GameState, d: Duty): number {
   let b = 0;
@@ -345,7 +365,7 @@ export function planHomeAfter(d: Duty, to: string, wait: number): TicketPlan {
 export function ctxOf(g: GameState, c: CrewMember): TimelineCtx {
   return {
     base: c.base, restUntil: c.restUntil, lastRecovery: c.lastRecovery, blockYear: c.blockYear, blockYearOf: c.blockYearOf ?? yearOf(g.now),
-    freeSince: c.log.length ? undefined : c.restUntil - 12 * 60, loc: c.loc, now: g.now,
+    freeSince: c.log.length ? undefined : c.restUntil - 12 * 60, loc: c.loc, now: g.now, block12m: block12m(c, g.now),
   };
 }
 
@@ -370,9 +390,10 @@ const restAfterAt = (start: Minute, base: string, augmented: boolean, e: Minute,
 export function dutySegs(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: TicketPlan | null, home: TicketPlan | null, fresh = false): Seg[] {
   const segs: Seg[] = [];
   const dep = g.flights[d.flightIds[0]]?.from ?? d.restAt;
-  let start = d.report;
-  let fdp = d.fdp;
-  let max = d.maxFdp + (d.discretion ?? 0);
+  const early = isCabin(c) ? cabinEarly(g, p) : 0;
+  let start = d.report - early;
+  let fdp = d.fdp + early;
+  let max = d.maxFdp + (d.discretion ?? 0) + early;
   let tz = referenceTime(p.base, dep, Math.min(p.start, d.report), d.report).tz;
   let from = dep;
   let mergedOut: Seg['out'];
@@ -383,7 +404,7 @@ export function dutySegs(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: 
       from = out.from;
       fdp = d.fdp + (d.report - start);
       const lim = fdpLimitAt(g, p, d, out.from, start);
-      max = lim.max + (d.discretion ?? 0);
+      max = lim.max + (d.discretion ?? 0) + early;
       tz = lim.ref.tz;
     } else if (!flown(out)) segs.push({ ...posSeg(out, c, fresh), dutyId: d.id });
   }

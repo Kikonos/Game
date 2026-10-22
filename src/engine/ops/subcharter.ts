@@ -27,6 +27,17 @@ export interface SubcharterQuote {
   cancel: number;
   /** Quote valid until (the rival re-prices daily). */
   validUntil: number;
+  /** v0.7.2 what the hand-over costs in reliability and client relation. */
+  hit: SubcharterHit;
+}
+
+/** v0.7.2 a hand-over's reliability cost: 'reliability −2 · the client notices'. */
+export interface SubcharterHit { reliability: number; relation: number; text: string }
+
+/** The reliability and relation a hand-over of these legs would cost (UPDATE-0.7.2.md F3). Pure. */
+export function subcharterHit(g: GameState, flightIds: string[]): SubcharterHit {
+  void g; void flightIds;
+  return { reliability: 0, relation: 0, text: '' };
 }
 
 const live = (g: GameState, f: Flight | undefined): f is Flight =>
@@ -80,7 +91,7 @@ export function subcharterQuote(g: GameState, flightIds: string[]): SubcharterQu
   return {
     flightIds: legs.map((f) => f.id), revenueLegs: rev.length, bh: Math.round(rev.reduce((s, f) => s + f.block, 0) / 6) / 10,
     rivalId: rival.id, rivalName: rival.name, cost: subcharterCost(g, legs, factor), revenue: legRevenue(g, legs), cancel: cancelCost(g, legs),
-    validUntil: day + 1440,
+    validUntil: day + 1440, hit: subcharterHit(g, legs.map((f) => f.id)),
   };
 }
 

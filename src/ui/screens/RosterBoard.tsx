@@ -219,7 +219,7 @@ export interface RosterBoardProps {
 
 const RANKS: { value: RankFilter; label: string }[] = [
   { value: 'all', label: 'All ranks' }, { value: 'pilots', label: 'Pilots' }, { value: 'cabin', label: 'Cabin' },
-  ...(['CPT', 'FO', 'CRP', 'CSD', 'SCC', 'CC'] as Role[]).map((r) => ({ value: r as RankFilter, label: `${r} · ${ROLE_PLURAL[r]}` })),
+  ...(['CPT', 'FO', 'CRP', 'PUR', 'CC'] as Role[]).map((r) => ({ value: r as RankFilter, label: `${r} · ${ROLE_PLURAL[r]}` })),
 ];
 
 /** v0.7 C2: memo'd against the Crew screen's hourly renders; the board refreshes from useThrottledNow (≤ 1 Hz running). */

@@ -10,7 +10,7 @@ import { DAY, dayStart, yearOf } from '../core/time';
 import type { Contract, CrewMember, CrewSlot, Deployment, Duty, Flight, GameState, Legality, Minute, Pairing, Role } from '../core/types';
 import { evalSegs, isDisruptive, LIMITS, localMin, longestWorkBlock, maxFdp, minRest, offsetAt, referenceTime, tzDeltaH, worst, type Seg, type TimelineCtx } from './rules';
 import { crewExtraFor, seatsFor, type Seat } from './extraSeats';
-import { crewCount, crewIx, dutyBlock, dutyFlights, onBlocks, restClassOf, touchCrew } from './timeline';
+import { cabinEarly, crewCount, crewIx, dutyBlock, dutyFlights, onBlocks, restClassOf, touchCrew } from './timeline';
 
 // ---------- duty measures ----------
 
@@ -145,7 +145,7 @@ export function splitUnderWay(g: GameState, p: Pairing, d: Duty): Duty | null {
 
 // ---------- pairings ----------
 
-const ROLE_ORDER: Role[] = ['CPT', 'FO', 'CRP', 'CSD', 'SCC', 'CC'];
+const ROLE_ORDER: Role[] = ['CPT', 'FO', 'CRP', 'PUR', 'CC'];
 
 /**
  * Complement for a pairing: the largest augmentation of its duties (the whole set flies every duty), the client's
@@ -640,14 +640,17 @@ interface TourState {
   days: number[];
 }
 
-/** A duty as a virtual crew set's seg (no tickets). */
+/** A duty as a virtual crew set's seg (no tickets); v0.7.2 from the cabin crew's earlier report (the longer day). */
 function virtualSeg(g: GameState, d: Duty, tripStart: Minute, base: string, fresh = false): Seg {
   const dep = g.flights[d.flightIds[0]]?.from ?? d.restAt;
   const tz = referenceTime(base, dep, Math.min(tripStart, d.report), d.report).tz;
+  const p = g.pairings[d.pairingId];
+  const early = p ? cabinEarly(g, p) : 0;
+  const start = d.report - early;
   return {
-    kind: 'duty', start: d.report, end: d.release, fdp: d.fdp, maxFdp: d.maxFdp + (d.discretion ?? 0), block: dutyBlock(g, d), sectors: d.sectors,
-    aug: d.augment > 0, disruptive: isDisruptive(tz, d.report, d.release),
-    rest: minRest({ dutyMin: d.release - d.report, atHome: d.restAt === base, augmented: d.augment > 0, tzShift: tzDeltaH(base, d.restAt, d.release) }),
+    kind: 'duty', start, end: d.release, fdp: d.fdp + early, maxFdp: d.maxFdp + (d.discretion ?? 0) + early, block: dutyBlock(g, d), sectors: d.sectors,
+    aug: d.augment > 0, disruptive: isDisruptive(tz, start, d.release),
+    rest: minRest({ dutyMin: d.release - start, atHome: d.restAt === base, augmented: d.augment > 0, tzShift: tzDeltaH(base, d.restAt, d.release) }),
     at: d.restAt, from: dep, dutyId: d.id, fresh,
   };
 }

@@ -12,7 +12,7 @@ import { flightCrewAboard, flightType } from './flightType';
 function trip(g: GameState) {
   const ac = Object.values(g.fleet)[0];
   ac.at = 'LIS';
-  addCrew(g, { CPT: 3, FO: 3, SCC: 3, CC: 9 });
+  addCrew(g, { CPT: 3, FO: 3, PUR: 3, CC: 9 });
   const c = fixtureContract(g, { aircraftIds: [ac.id], start: at(g, 2), end: at(g, 5), pattern: { kind: 'legs', legs: [] }, archetype: 'adhoc' });
   const mk = (kind: Flight['kind'], from: string, to: string, d: number, hhmm: number, blk: number) =>
     addFlight(g, { no: `X${d}${hhmm}`, aircraftId: ac.id, contractId: c.id, kind, from, to, std: at(g, d, hhmm), sta: at(g, d, hhmm) + blk });
@@ -67,7 +67,7 @@ describe('flight types', () => {
 
   it('into a deployment from an outstation: a pilots-only ferry; the tour cabin crew deadhead to the base', () => {
     const g = fixtureGame(44);
-    addCrew(g, { CPT: 4, FO: 4, SCC: 4, CC: 12 });
+    addCrew(g, { CPT: 4, FO: 4, PUR: 4, CC: 12 });
     const ac = Object.values(g.fleet)[0];
     const c = seasonBase(g, ac.id, 'HAM', 'PMI', [6 * 60, 13 * 60], 21);
     ac.at = 'ZAG';

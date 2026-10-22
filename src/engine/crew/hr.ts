@@ -25,10 +25,12 @@ export interface HireRequest {
   family: RatingFamily;
   base: string;
   count: number;
+  /** v0.7.2 cabin crew: 1–3 types (family first); pilots ignore it. */
+  families?: RatingFamily[];
 }
 
-const ROLES: Role[] = ['CPT', 'FO', 'CRP', 'CSD', 'SCC', 'CC'];
-const ROLE_NAME: Record<Role, string> = { CPT: 'captain', FO: 'first officer', CRP: 'relief pilot', CSD: 'purser', SCC: 'senior cabin crew', CC: 'cabin crew' };
+const ROLES: Role[] = ['CPT', 'FO', 'CRP', 'PUR', 'CC'];
+const ROLE_NAME: Record<Role, string> = { CPT: 'captain', FO: 'first officer', CRP: 'relief pilot', PUR: 'purser', CC: 'cabin crew' };
 
 export interface RatedMarket {
   /** Rated pilots of this family and rank on the market every 30 days, and how many are left now. */
@@ -120,7 +122,7 @@ export function trainCrew(g: GameState, crewId: string, kind: TrainingKind, fami
     if (c.role !== 'FO') return { ok: false, error: 'Only first officers upgrade to captain' };
     if (c.totalHours < BAL.commandUpgrade.minHours) return { ok: false, error: `Needs ${BAL.commandUpgrade.minHours.toLocaleString('en-US')} h (has ${Math.round(c.totalHours).toLocaleString('en-US')})` };
   }
-  if (kind === 'sccm' && c.role !== 'CC') return { ok: false, error: 'Only cabin crew take the SCCM course' };
+  if (kind === 'sccm' && c.role !== 'CC') return { ok: false, error: 'Only cabin crew take the purser course' };
   const { days, cost } = TRAINING[kind]();
   if (g.company.cash < cost) return { ok: false, error: 'Not enough cash' };
   const start = g.now;
@@ -242,7 +244,7 @@ export function crewAvailability(g: GameState, family: RatingFamily, typeId: str
   const minAvail: Partial<Record<Role, number>> = {};
   let firstShort: Minute | null = null;
   for (let d = 0; d < days; d++) {
-    // Spill seniors down: FO → CRP, CSD → SCC → CC.
+    // Spill seniors down: FO → CRP, PUR → CC (captains never spill into FO seats: hire FOs).
     const left: Record<Role, number> = Object.fromEntries(ROLES.map((r) => [r, supply[r][d] - held[r][d]])) as Record<Role, number>;
     const spill = (fromR: Role, toR: Role) => {
       const surplus = left[fromR] - (need[fromR] ?? 0);
@@ -253,9 +255,7 @@ export function crewAvailability(g: GameState, family: RatingFamily, typeId: str
       }
     };
     spill('FO', 'CRP');
-    spill('CSD', 'SCC');
-    spill('CSD', 'CC');
-    spill('SCC', 'CC');
+    spill('PUR', 'CC');
     for (const r of ROLES) {
       const n = need[r];
       if (!n) continue;
@@ -289,6 +289,8 @@ export interface StaffingLine {
   leaving: number;
   /** v0.6: rated crew booked on a conversion that ends their rating on this type (not in have). */
   converting: number;
+  /** v0.7.2 cabin crew counted here who also hold another type in the fleet. */
+  shared?: number;
 }
 
 /**
@@ -386,12 +388,12 @@ export function onTrainingDone(g: GameState, ev: SimEvent): void {
   if (item.kind === 'typeRating' || item.kind === 'conversion') {
     if (!c.ratings.includes(item.family)) c.ratings.push(item.family);
   } else if (item.kind === 'command') c.role = 'CPT';
-  else if (item.kind === 'sccm') c.role = 'SCC';
+  else if (item.kind === 'sccm') c.role = 'PUR';
   const wide = c.ratings.find((f) => salaryFor(c.role, f) !== salaryFor(c.role, 'A320'));
   c.salary = salaryFor(c.role, wide ?? c.ratings[0] ?? 'A320');
   clearBlock(c, 'training');
   if (c.status === 'training') c.status = 'available';
-  const what = item.kind === 'command' ? 'command upgrade' : item.kind === 'sccm' ? 'SCCM course' : `${item.family} ${item.kind === 'conversion' ? 'conversion' : 'type rating'}`;
+  const what = item.kind === 'command' ? 'command upgrade' : item.kind === 'sccm' ? 'Purser course' : `${item.family} ${item.kind === 'conversion' ? 'conversion' : 'type rating'}`;
   pushMessage(g, { tone: 'good', cat: 'crew', title: `${crewName(c)} finished training`, body: `Completed the ${what}.`, ref: { kind: 'crew', id: c.id } });
   touchCrew(g);
 }

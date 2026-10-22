@@ -92,6 +92,8 @@ export interface DutyCandidate {
   name: string;
   /** The crew member's own role (a senior may fill a junior seat). */
   role: Role;
+  /** v0.7.2 a captain listed for an FO/CRP seat ('Captain flying as FO' group, after the FOs). */
+  asFo?: true;
   legal: boolean;
   level: Legality;
   /** Why not legal (or tight), short and player-facing; empty when clean. */
@@ -228,7 +230,7 @@ export interface RosterOpts {
 /** v0.7.1 plain words for empty seats: ['CPT', 'FO', 'CC', 'CC'] → 'captain, first officer and 2 cabin crew'. */
 const SEAT_WORD: Record<Role, [string, string]> = {
   CPT: ['captain', 'captains'], FO: ['first officer', 'first officers'], CRP: ['relief pilot', 'relief pilots'],
-  CSD: ['cabin manager', 'cabin managers'], SCC: ['senior cabin crew', 'senior cabin crew'], CC: ['cabin crew', 'cabin crew'],
+  PUR: ['purser', 'pursers'], CC: ['cabin crew', 'cabin crew'],
 };
 function seatWords(roles: Role[]): string {
   const parts = (Object.keys(SEAT_WORD) as Role[]).map((r) => {

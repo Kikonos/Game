@@ -106,7 +106,7 @@ describe('training', () => {
     const cc = Object.values(g.crew).find((c) => c.role === 'CC')!;
     expect(trainCrew(g, cc.id, 'sccm', 'A320').ok).toBe(true);
     run(g, dayStart(g.now) + BAL.sccmCourse.days * DAY + 1);
-    expect(cc.role).toBe('SCC');
+    expect(cc.role).toBe('PUR');
     expect(fo.role).toBe('FO');
     run(g, dayStart(g.now) + BAL.commandUpgrade.days * DAY);
     expect(fo.role).toBe('CPT');
@@ -235,7 +235,7 @@ describe('checkAssignment', () => {
   it('removeCrew (sickness) frees the window and refills the slots', () => {
     const g = fixtureGame();
     demoFlights(g, undefined, 7, 'revenue');
-    addCrew(g, { CPT: 2, FO: 2, SCC: 2, CC: 4 });
+    addCrew(g, { CPT: 2, FO: 2, PUR: 2, CC: 4 });
     autoRoster(g);
     const c = Object.values(g.crew).find((x) => x.role === 'CPT' && rosterOf(g, x.id, g.now + DAY, g.now + 4 * DAY).length)!;
     const res = removeCrew(g, c.id, g.now + DAY, g.now + 4 * DAY);

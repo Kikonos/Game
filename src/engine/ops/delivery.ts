@@ -294,8 +294,12 @@ export function deliveryStatus(g: GameState, aircraftId: string): DeliveryStatus
   };
 }
 
+const PURPOSE_CREW: Record<NonNullable<Flight['purpose']>, string> = {
+  delivery: 'Delivery crew', return: 'Lease return crew', refit: 'Refit ferry crew', check: 'C-check ferry crew', sale: 'Sale ferry crew',
+};
+
 /** Why our crew ride this airline ticket (map panel, roster detail). Pure. */
-export function ticketPurpose(g: GameState, ticketId: string): { kind: 'delivery' | 'return' | 'refit' | 'duty' | 'home'; aircraftId?: string; text: string } {
+export function ticketPurpose(g: GameState, ticketId: string): { kind: 'delivery' | 'return' | 'refit' | 'check' | 'sale' | 'duty' | 'home'; aircraftId?: string; text: string } {
   const t = g.flights[ticketId];
   if (!t || t.kind !== 'deadhead') return { kind: 'duty', text: '' };
   const did = crewIx(g).ticketDuty.get(ticketId);
@@ -308,7 +312,7 @@ export function ticketPurpose(g: GameState, ticketId: string): { kind: 'delivery
   const pf = flights.find((f) => f.purpose);
   if (pf?.purpose) {
     const legs = flights.filter((f) => f.purpose === pf.purpose);
-    const what = pf.purpose === 'delivery' ? 'Delivery crew' : pf.purpose === 'return' ? 'Lease return crew' : 'Refit ferry crew';
+    const what = PURPOSE_CREW[pf.purpose];
     return { kind: pf.purpose, aircraftId: ac?.id, text: `${what} for ${ac?.reg ?? 'our aircraft'} · ferry ${legs[0].from}–${legs[legs.length - 1].to} ${fmtDay(legs[0].std)}` };
   }
   const first = g.flights[d.flightIds[0]];

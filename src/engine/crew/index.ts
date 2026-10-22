@@ -4,7 +4,7 @@ import { BAL } from '../core/balance';
 import { flightsOf, flightsRev, takeFlightChanges } from '../core/entities';
 import type { SimModule } from '../core/module';
 import { schedule } from '../core/queue';
-import { DAY, yearOf } from '../core/time';
+import { DAY, monthKey, yearOf } from '../core/time';
 import type { CrewMember, GameState, Minute, SimEvent } from '../core/types';
 import { cancelConversion, classOf, dailyClasses } from './conversion';
 import { dailyCrewCosts, monthlySalaries } from './costs';
@@ -17,7 +17,7 @@ import { minRest, nightsIn, LIMITS } from './rules';
 import { aboard, crewCount, crewIx, dutyBlock, dutyFlights, dutySegs, onBlocks, passengers, touchCrew, touchCrewState } from './timeline';
 
 export {
-  checkAssignment, crewWindows, daysOffInMonth, LIMITS, maxFdp, minRest, restAfter,
+  AUG_FDP, CABIN_REST, cabinInflightRest, checkAssignment, crewWindows, daysOffInMonth, DISCRETION, FDP_BANDS, LIMITS, maxFdp, minRest, restAfter,
   acclimState, referenceTime, type Acclim, type CrewWindows, type FdpInput, type IssueCode, type LegalityIssue, type LegalityReport, type RestInput,
 } from './ftl';
 export { crewName, makeCrewMember, salaryFor } from './generate';
@@ -51,6 +51,11 @@ export {
   type ApplyOpts, type CrewControlView, type CrewSolution, type FixOption, type FixPreview, type JetQuote, type Reason, type ReasonCode, type SeatNeed,
 } from './control';
 import { escalateShortages } from './control';
+import { migrateRanks } from './migrate';
+export { migrateRanks } from './migrate';
+// v0.7.2 (UPDATE-0.7.2.md §12).
+export { crewAway, type CrewAway } from './away';
+export { restClassAt, restSeatsBlocked, sellableSeats } from './crewRest';
 
 const CHECKIN = () => BAL.deadheadCheckIn;
 
@@ -134,6 +139,11 @@ function onDutyRelease(g: GameState, ev: SimEvent): void {
       c.blockYearOf = y;
     }
     c.blockYear += block;
+    // v0.7.2 1,000 h in 12 months: block by calendar month, the last 12 kept.
+    const mk = monthKey(g.now);
+    const bm = (c.blockMonths ??= {});
+    bm[mk] = (bm[mk] ?? 0) + block;
+    for (const key in bm) if (+key <= mk - 12) delete bm[key];
     c.totalHours += block / 60;
     c.restUntil = Math.max(c.restUntil, seg.end + seg.rest);
     c.status = 'resting';
@@ -326,6 +336,8 @@ export const crewModule: SimModule = {
     queueAlert(g);
   },
   load(g) {
+    // v0.7.2: CSD/SCC → PUR before anything reads roles.
+    migrateRanks(g);
     g.classes ??= {};
     const y = yearOf(g.now);
     for (const c of Object.values(g.crew)) c.blockYearOf ??= y;

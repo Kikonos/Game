@@ -73,3 +73,15 @@ export function devCrewShortage(g: GameState, opts: { hours?: number; roles?: Ro
   }
   return '';
 }
+
+/** v0.7.2: a widebody without bunks, crew rest seats fitted and an augmented duty booked; returns its flight id ('' when none). Dev/test helper. */
+export function devRestSeats(g: GameState): string {
+  void g;
+  return '';
+}
+
+/** v0.7.2: an owned aircraft with no work after 10 days (ready to sell); returns its id ('' when none). Dev/test helper. */
+export function devSaleReady(g: GameState): string {
+  void g;
+  return '';
+}

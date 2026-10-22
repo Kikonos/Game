@@ -35,11 +35,12 @@ describe('tour seats', () => {
     const tour = Object.values(g.pairings).filter((p) => p.tour && openDuties(g, p).length >= 4).sort((a, b) => a.start - b.start)[0];
     const fo = tour.slots.find((s) => s.role === 'FO')!;
     const sick = g.crew[fo.crewId!];
-    // The tour's FO is sick over its first two duties; every other FO is busy (excluded).
+    // The tour's FO is sick over its first two duties; every other FO (and every captain who could fly as FO) is busy (excluded).
     const ds = openDuties(g, tour);
     sick.blocks = [{ from: ds[0].report - DAY, to: ds[1].release + 60, why: 'sick' }];
     releaseCrew(g, tour, sick.id);
-    const others = new Set(Object.values(g.crew).filter((c) => c.role === 'FO' && c.id !== sick.id).map((c) => c.id));
+    const inTour = new Set(tour.slots.map((s) => s.crewId));
+    const others = new Set(Object.values(g.crew).filter((c) => (c.role === 'FO' || (c.role === 'CPT' && !inTour.has(c.id))) && c.id !== sick.id).map((c) => c.id));
     fillAll(g, [tour], emptyResult(), others);
     const parts = Object.values(g.pairings).filter((p) => p.tour && p.slots.some((s) => s.crewId === sick.id) && p.dutyIds.some((id) => ds.some((d) => d.id === id)));
     expect(parts).toHaveLength(1);

@@ -15,7 +15,7 @@ export interface TextSeg {
   term?: TermId;
 }
 
-const ROLES: Role[] = ['CPT', 'FO', 'CRP', 'CSD', 'SCC', 'CC'];
+const ROLES: Role[] = ['CPT', 'FO', 'CRP', 'PUR', 'CC'];
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**

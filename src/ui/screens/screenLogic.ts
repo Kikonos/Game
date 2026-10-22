@@ -29,8 +29,8 @@ export function offerDays(o: Pick<ContractOffer, 'pattern' | 'start' | 'end'>): 
   return o.pattern.kind === 'base' ? [toLocal(o.pattern.base, o.start), toLocal(o.pattern.base, o.end - 1)] : [o.start, o.end];
 }
 
-export const ROLES: Role[] = ['CPT', 'FO', 'CRP', 'CSD', 'SCC', 'CC'];
-export const ROLE_LABEL: Record<Role, string> = { CPT: 'Captain', FO: 'First officer', CRP: 'Relief pilot', CSD: 'Purser (CSD)', SCC: 'Senior cabin crew', CC: 'Cabin crew' };
+export const ROLES: Role[] = ['CPT', 'FO', 'CRP', 'PUR', 'CC'];
+export const ROLE_LABEL: Record<Role, string> = { CPT: 'Captain', FO: 'First officer', CRP: 'Relief pilot', PUR: 'Purser', CC: 'Cabin crew' };
 export const isPilotRole = (r: Role) => r === 'CPT' || r === 'FO' || r === 'CRP';
 
 export const CREW_STATUS_LABEL: Record<CrewStatus, string> = {
@@ -168,7 +168,7 @@ export interface CrewFilter {
 
 export const NO_FILTER: CrewFilter = { group: 'all', role: 'all', status: 'all', rating: 'all', q: '' };
 
-const ROLE_RANK: Record<Role, number> = { CPT: 0, FO: 1, CRP: 2, CSD: 3, SCC: 4, CC: 5 };
+const ROLE_RANK: Record<Role, number> = { CPT: 0, FO: 1, CRP: 2, PUR: 3, CC: 4 };
 
 /** Filters and sorts crew: role, then surname. */
 export function filterCrew(list: CrewMember[], f: CrewFilter): CrewMember[] {

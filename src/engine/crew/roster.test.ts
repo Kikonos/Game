@@ -144,7 +144,7 @@ describe('changes through core helpers', () => {
   const tightPair = () => {
     const g = fixtureGame();
     const keep = new Set<string>();
-    for (const role of ['CPT', 'FO', 'SCC', 'CC', 'CC', 'CC'] as const) keep.add(Object.values(g.crew).find((c) => c.role === role && !keep.has(c.id))!.id);
+    for (const role of ['CPT', 'FO', 'PUR', 'CC', 'CC', 'CC'] as const) keep.add(Object.values(g.crew).find((c) => c.role === role && !keep.has(c.id))!.id);
     for (const id of Object.keys(g.crew)) if (!keep.has(id)) delete g.crew[id];
     const ac = Object.values(g.fleet)[0];
     const day = Math.floor(g.now / DAY) * DAY;
@@ -164,7 +164,7 @@ describe('changes through core helpers', () => {
   it('a 4 h delay rerosters: the next duty stays legal by swapping to standby crew', () => {
     const { g, d2, delay } = tightPair();
     const first = g.pairings[d2.pairingId].slots.map((s) => s.crewId);
-    addCrew(g, { CPT: 1, FO: 1, SCC: 1, CC: 3 });
+    addCrew(g, { CPT: 1, FO: 1, PUR: 1, CC: 3 });
     delay();
     expect(g.duties[d2.id].report).toBe(d2.report);
     const [a, b] = Object.values(g.duties).sort((x, y) => x.report - y.report);
@@ -193,7 +193,7 @@ describe('augmentation', () => {
     const ac = Object.values(g.fleet)[0];
     ac.typeId = 'a333';
     ac.cabin = { ...ac.cabin, total: 300, y: 300, j: 0, w: 0 };
-    addCrew(g, { CPT: 3, FO: 4, CSD: 2, SCC: 2, CC: 14 }, 'A330/340');
+    addCrew(g, { CPT: 3, FO: 4, PUR: 4, CC: 14 }, 'A330/340');
     const std = Math.floor(g.now / DAY) * DAY + 2 * DAY + 20 * 60;
     fixtureContract(g, { aircraftIds: [ac.id], start: std, end: std + DAY, pattern: { kind: 'legs', legs: [] }, product: { kind: 'charter', price: 1, depositPct: 0, balanceDaysBefore: 0, fuelEscalation: false } });
     const f = { no: 'AW1', aircraftId: ac.id, contractId: null, kind: 'revenue' as const, from: 'LIS', to: 'GRU', std, sta: std + 12 * 60 + 30 };
@@ -299,7 +299,7 @@ describe('performance', () => {
   const month = () => {
     const g = fixtureGame();
     devFleet(g, 4);
-    addCrew(g, { CPT: 10, FO: 10, SCC: 10, CC: 30 });
+    addCrew(g, { CPT: 10, FO: 10, PUR: 10, CC: 30 });
     demoFlights(g, undefined, 30, 'revenue');
     return g;
   };
