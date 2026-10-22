@@ -3,7 +3,7 @@ import { acceptOffer, feasibility, generateOffer } from '../../engine/contracts'
 import { leased, legsOffer, newGame } from '../../engine/contracts/testkit';
 import { DAY, HOUR, dayStart } from '../../engine/core/time';
 import {
-  axisTicks, chooseHits, dayPills, idleAt, idleGaps, paintLabel, pickBlocks, ppmOf, rowBlocks, timelineSpan, visibleWindow, type GanttBlock,
+  axisTicks, chooseHits, dayPills, idleAt, idleGaps, paintLabel, pickBlocks, ppmOf, pressFlight, rowBlocks, timelineSpan, visibleWindow, type GanttBlock,
 } from './scheduleLogic';
 
 const blk = (key: string, start: number, end: number, kind: GanttBlock['kind'] = 'flight', color: number | null = 0): GanttBlock => ({
@@ -129,5 +129,20 @@ describe('v0.7 maintenance labels', () => {
     expect(maintLabel({ kind: 'refit', at: 'HAM', refit: { cabin: { label: '24J/90Y' } } } as never)).toEqual(['Refit → 24J/90Y · HAM', 'Refit']);
     expect(maintLabel({ kind: 'return', at: 'SNN' } as never)).toEqual(['Lease return SNN', 'Return']);
     expect(maintLabel({ kind: 'C', at: 'LIS' } as never)).toEqual(['C-check LIS', 'C']);
+  });
+});
+
+describe('trip swap press (v0.7.2.1)', () => {
+  it('a long press picks the flight under the finger, never maintenance or idle', () => {
+    const g = newGame(3);
+    const ac = leased(g);
+    const t = g.now + 3 * DAY + 8 * HOUR;
+    const o = legsOffer(g, [['LIS', 'DUS', t], ['DUS', 'LIS', t + 5 * HOUR]], 150);
+    expect(acceptOffer(g, o.id, [ac.id]).ok).toBe(true);
+    const ppm = ppmOf(7);
+    const blocks = rowBlocks(g, ac.id, g.now, g.now + 10 * DAY);
+    const legs = blocks.filter((b) => b.kind === 'flight');
+    expect(pressFlight(g, blocks, legs[1].start + 30, ppm)).toBe(legs[1].key);
+    expect(pressFlight(g, blocks, g.now + 8 * DAY, ppm)).toBeNull();
   });
 });

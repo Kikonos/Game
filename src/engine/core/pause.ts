@@ -33,3 +33,17 @@ export function takePause(honour?: ReadonlySet<PauseReason>): PauseReason | null
   pending.clear();
   return hit;
 }
+
+/**
+ * v0.7.2.1: runs a preview on a copy of the game with pause requests isolated: whatever the copy raises is dropped
+ * and the requests already pending are kept, so a quote never stops (or un-stops) the real clock.
+ */
+export function isolatePauses<T>(fn: () => T): T {
+  const saved = [...pending];
+  try {
+    return fn();
+  } finally {
+    pending.clear();
+    for (const r of saved) pending.add(r);
+  }
+}

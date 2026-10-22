@@ -8,7 +8,7 @@ import { DAY, dayStart } from '../core/time';
 import type { Contract, Flight, GameState, Minute } from '../core/types';
 import {
   anchorsOf, baseDayOf, baseDays, baseDayStart, baseFlightNo, chainBackward, chainForward, CHARTER_SLACK, DEPLOY_LEAD, flownRotations, gapMoves,
-  isSoft, planLegs, type Anchor, type ChainLeg,
+  isSoft, planLegs, route, type Anchor, type ChainLeg,
 } from './plan';
 
 const horizonEnd = (g: GameState) => dayStart(g.now) + BAL.scheduleHorizonDays * DAY;
@@ -158,6 +158,31 @@ function chainOk(legs: Flight[], X: string, Y: string | null, earliest: Minute):
   return Y === null || legs[legs.length - 1].to === Y;
 }
 
+/** The airports an empty move from → to calls at (fuel stops included), or null without a route. */
+function routePath(typeId: string, from: string, to: string): string[] | null {
+  const r = route(typeId, from, to);
+  return r ? [from, ...r.map((l) => l.to)] : null;
+}
+
+const samePath = (a: string[], b: string[] | null) => !!b && a.length === b.length && a.every((x, i) => x === b[i]);
+
+/**
+ * v0.7.2.2 (player bug: a moved trip left its ferries on the old aircraft): a continuous chain is only kept when it
+ * is a move the planner itself would make between X and Y (Y null: the end of the schedule): the direct route (its
+ * fuel stops), or, where a hop home is allowed, out home and back on. A loop that leaves and comes back to the same
+ * airport for nothing (LIS–MAN–LIS around a trip that went to another aircraft) or detours through a station no
+ * commitment needs any more is an orphan: it is removed and the gap re-planned.
+ */
+function chainSane(typeId: string, legs: Flight[], X: string, Y: string | null, home: string, allowHop: boolean): boolean {
+  const path = [legs[0].from, ...legs.map((f) => f.to)];
+  // End of the schedule: only the way home is ever planned.
+  if (Y === null) return X !== home && samePath(path, routePath(typeId, X, home));
+  if (X !== Y && samePath(path, routePath(typeId, X, Y))) return true;
+  if (!allowHop || X === home || Y === home) return false;
+  const k = path.indexOf(home);
+  return k > 0 && samePath(path.slice(0, k + 1), routePath(typeId, X, home)) && samePath(path.slice(k), routePath(typeId, home, Y));
+}
+
 /**
  * Keeps exactly one empty-leg chain between consecutive commitments at different airports (DESIGN §5.1.6): soft
  * positioning legs that no longer link their neighbours are removed and re-planned (as late as possible; late
@@ -201,7 +226,7 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     if (!b) {
       // End gap: after a live contract's last leg, go home.
       const wantHome = live(g, a.contractId) && X !== home && a.kind !== 'maint';
-      if (legs.length ? chainOk(legs, X, null, earliest) : !wantHome) continue;
+      if (legs.length ? chainOk(legs, X, null, earliest) && chainSane(typeId, legs, X, null, home, false) : !wantHome) continue;
       remove.push(...legs.map((f) => f.id));
       if (wantHome) {
         const ch = chainForward(typeId, X, home, crewFree(g, aircraftId, X, earliest));
@@ -215,7 +240,7 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     const latest = b.std - turn;
     const hop = X === Y ? gapMoves(typeId, X, Y, crewFree(g, aircraftId, X, earliest), latest, home, allowHop) : null;
     if (X === Y && !legs.length && !hop?.length) continue;
-    if (legs.length && chainOk(legs, X, Y, earliest)) continue;
+    if (legs.length && chainOk(legs, X, Y, earliest) && chainSane(typeId, legs, X, Y, home, allowHop)) continue;
     remove.push(...legs.map((f) => f.id));
     const inId = live(g, b.contractId) ? b.contractId : live(g, a.contractId) ? a.contractId : null;
     if (X === Y) {

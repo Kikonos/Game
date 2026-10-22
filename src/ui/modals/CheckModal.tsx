@@ -40,9 +40,14 @@ function suggestions(g: GameState, acId: string, kind: Kind, dur: number): Slot[
 
 type RestFit = 'fcrc' | 'overhead';
 
-export function CheckModal({ aircraftId, checkKind, replace, restFit, backToRefit }: { aircraftId: string; checkKind?: Kind; replace?: string; restFit?: RestFit; backToRefit?: boolean }) {
-  const [kind, setKind] = useState<Kind>(checkKind ?? (restFit ? 'C' : 'A'));
-  return kind === 'C' ? <CCheckModal aircraftId={aircraftId} replace={replace} setKind={setKind} restFit={restFit} backToRefit={backToRefit} /> : <ACheckModal aircraftId={aircraftId} replace={replace} kind={kind} setKind={setKind} />;
+/** v0.7.2.2 `suggest` / `after`: opened from an idle gap in the Schedule (the slot in that gap first). */
+export function CheckModal({ aircraftId, checkKind, replace, restFit, backToRefit, suggest, after }: { aircraftId: string; checkKind?: Kind; replace?: string; restFit?: RestFit; backToRefit?: boolean; suggest?: { start: number; at: string }; after?: number }) {
+  const first: Kind = checkKind ?? (restFit ? 'C' : 'A');
+  const [kind, setKind] = useState<Kind>(first);
+  const mine = kind === first;
+  return kind === 'C'
+    ? <CCheckModal aircraftId={aircraftId} replace={replace} setKind={setKind} restFit={restFit} backToRefit={backToRefit} hub0={mine ? suggest?.at : undefined} after={mine ? after : undefined} />
+    : <ACheckModal aircraftId={aircraftId} replace={replace} kind={kind} setKind={setKind} suggest={mine ? suggest : undefined} />;
 }
 
 const asFit = (x: unknown): RestFit | undefined => (x === 'fcrc' || x === 'overhead' ? x : undefined);
@@ -51,7 +56,7 @@ const legsBlock = (legs: { block: number }[]) => legs.reduce((n, l) => n + l.blo
 const pct = (p: number) => (p === 1 ? 'base price' : `${p < 1 ? '−' : '+'}${Math.round(Math.abs(1 - p) * 100)}%`);
 
 /** v0.7.2 §7.3: the C-check at an MRO hub. */
-function CCheckModal({ aircraftId, replace, setKind, restFit, backToRefit }: { aircraftId: string; replace?: string; setKind: (k: Kind) => void; restFit?: RestFit; backToRefit?: boolean }) {
+function CCheckModal({ aircraftId, replace, setKind, restFit, backToRefit, hub0, after }: { aircraftId: string; replace?: string; setKind: (k: Kind) => void; restFit?: RestFit; backToRefit?: boolean; hub0?: string; after?: number }) {
   const g = useGame();
   const ac = g.fleet[aircraftId];
   const rev = flightsRev(g);
@@ -65,9 +70,10 @@ function CCheckModal({ aircraftId, replace, setKind, restFit, backToRefit }: { a
   const nMaint = Object.keys(g.maintenance).length;
   const restOpt = useMemo(() => restRefitOptions(g, aircraftId).find((o) => o.where === 'cCheck'), [g, aircraftId, rev, nMaint]); // eslint-disable-line react-hooks/exhaustive-deps
   const opts = useMemo(() => cCheckOptions(g, aircraftId, undefined, fit), [g, aircraftId, rev, g.now, fit]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [hub, setHub] = useState<string | null>(null);
+  // v0.7.2.2 from an idle gap: that gap's airport first when it is a hub, and windows from the gap's start.
+  const [hub, setHub] = useState<string | null>(hub0 && opts.some((o) => o.hub.code === hub0) ? hub0 : null);
   const code = hub ?? opts[0]?.hub.code ?? '';
-  const slots = useMemo(() => (code ? cCheckSlots(g, aircraftId, code, 4, fit) : []), [g, aircraftId, code, rev, g.now, fit]); // eslint-disable-line react-hooks/exhaustive-deps
+  const slots = useMemo(() => (code ? cCheckSlots(g, aircraftId, code, 4, fit, after ?? 0) : []), [g, aircraftId, code, rev, g.now, fit, after]); // eslint-disable-line react-hooks/exhaustive-deps
   const [pick, setPick] = useState<number | null>(null);
   const start = pick !== null && slots.includes(pick) ? pick : slots[0];
   const opt: CCheckOption | undefined = useMemo(() => (start !== undefined ? cCheckOptions(g, aircraftId, start, fit).find((o) => o.hub.code === code) : undefined), [g, aircraftId, start, code, rev, fit]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -188,7 +194,7 @@ function CCheckModal({ aircraftId, replace, setKind, restFit, backToRefit }: { a
   );
 }
 
-function ACheckModal({ aircraftId, replace, kind, setKind }: { aircraftId: string; replace?: string; kind: Kind; setKind: (k: Kind) => void }) {
+function ACheckModal({ aircraftId, replace, kind, setKind, suggest }: { aircraftId: string; replace?: string; kind: Kind; setKind: (k: Kind) => void; suggest?: { start: number; at: string } }) {
   const g = useGame();
   const ac = g.fleet[aircraftId];
   const [pick, setPick] = useState<number>(0);
@@ -198,7 +204,14 @@ function ACheckModal({ aircraftId, replace, kind, setKind }: { aircraftId: strin
   const rev = flightsRev(g);
   const t = ac ? typeOf(ac.typeId) : null;
   const dur = t ? (kind === 'A' ? t.aCheckHours * HOUR : t.cCheckDays * DAY) : 0;
-  const slots = useMemo(() => suggestions(g, aircraftId, kind, dur), [g, aircraftId, kind, dur, rev, g.now]); // eslint-disable-line react-hooks/exhaustive-deps
+  const slots = useMemo(() => {
+    const list = suggestions(g, aircraftId, kind, dur);
+    // v0.7.2.2 from an idle gap: that gap's slot first (and pre-picked).
+    if (!suggest || suggest.start < g.now) return list;
+    const ac0 = g.fleet[aircraftId];
+    const gp = ac0 ? groundGaps(g, ac0, g.now, suggest.start + 365 * DAY).find((x) => x.from <= suggest.start && x.to > suggest.start) : undefined;
+    return [{ start: suggest.start, at: suggest.at, gap: gp ? gp.to - gp.from : 0 }, ...list.filter((x) => x.start !== suggest.start)].slice(0, 6);
+  }, [g, aircraftId, kind, dur, rev, g.now, suggest?.start, suggest?.at]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!ac || !t) return null;
   const st = checkStatus(g, ac);
   const custom = pick === -1;
@@ -254,7 +267,7 @@ function ACheckModal({ aircraftId, replace, kind, setKind }: { aircraftId: strin
             <button key={s.start} className={`sc-slot ${pick === i ? 'on' : ''}`} onClick={() => setPick(i)}>
               <b>{fmtDateTime(s.start)} UTC</b>
               <span className="muted">{s.at} · {AIRPORT_BY_CODE[s.at]?.city}</span>
-              <span className="dim small">ground time {durLabel(s.gap)}</span>
+              <span className="dim small">{suggest && s.start === suggest.start ? `in this gap${s.gap ? ` · ground time ${durLabel(s.gap)}` : ''}` : `ground time ${durLabel(s.gap)}`}</span>
               {pick === i && projLine}
             </button>
           ))}

@@ -1,16 +1,19 @@
 // Schedule detail sheet (B5): the flight(s) or maintenance near a Gantt tap, or an idle gap.
 // Flight: times UTC/local, crew and legality, contract link. Maintenance: reschedule / cancel.
 
-import { CalendarClock, ChevronLeft, Clock, FileSignature, Handshake, Lock, Palette, Search, Trash2, Users, Wrench } from 'lucide-react';
-import { type ReactNode, useState } from 'react';
+import { ArrowRightLeft, CalendarClock, ChevronLeft, ChevronRight, Clock, FileSignature, Handshake, Lock, Palette, Search, Sofa, Trash2, Users, Wrench } from 'lucide-react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { BAL } from '../../engine/core/balance';
-import { DAY, fmtDateTime, fmtDuration, fmtTime } from '../../engine/core/time';
+import { DAY, fmtDateTime, fmtDay, fmtDuration, fmtTime } from '../../engine/core/time';
 import type { Aircraft, Duty, Flight, GameState, MaintenanceEvent, Ref } from '../../engine/core/types';
 import { crewName, dutyCrew, dutyLegality, flightCrewStatus, restOf, restPlanForFlight, restSeatsBlocked, restShort, restVerdict } from '../../engine/crew';
 import { seatLabel, typeOf } from '../../engine/core/perf';
-import { cancelCheck, delayFlight, flightCrewAboard, flightType } from '../../engine/ops';
+import { cabinOptions, cancelCheck, checkStatus, delayFlight, flightCrewAboard, flightType, refitSlots } from '../../engine/ops';
+import { gapCheck, type GapOption } from '../../engine/ops/maintMove';
 import { problemAt } from '../../engine/problems';
+import { tripOf, tripTargets } from '../../engine/ops/tripMove';
+import { usdSigned } from './TripMoveModal';
 import { FlightTypeChip } from '../components/FlightType';
 import { ProblemCardView } from '../components/ProblemCard';
 import { restSeatWord } from '../components/RestLines';
@@ -69,6 +72,30 @@ function RestSection({ g, f, ac, d, legal }: { g: GameState; f: Flight; ac: Airc
   );
 }
 
+/** v0.7.2.1 'Move trip to…': every other aircraft with its net (+$/−$) or why it can't; a choice opens the confirm. */
+function MoveTripList({ g, f }: { g: GameState; f: Flight }) {
+  const list = tripTargets(g, f.id);
+  if (!list.length) return <div className="small muted">No other aircraft in the fleet.</div>;
+  return (
+    <div className="col gap-6 tm-list">
+      {list.map((q) => {
+        const ac = g.fleet[q.targetId];
+        return (
+          <button key={q.targetId} className={`tm-pick ${q.ok ? '' : 'blocked'}`} disabled={!q.ok} onClick={() => store.openModal({ kind: 'tripMove', flightId: f.id, targetId: q.targetId })}>
+            <span className="col tm-pick-ac"><b className="mono">{q.targetReg}</b><span className="tiny muted">{ac ? `${typeOf(ac.typeId).short} · ${ac.cabin.label}` : ''}</span></span>
+            {q.ok ? (
+              <span className={`tm-pick-net num ${q.verdict === 'gain' ? 'good' : q.verdict === 'loss' ? 'bad' : 'muted'}`}>{q.verdict === 'same' ? 'about the same' : usdSigned(q.net)}</span>
+            ) : (
+              <span className="tm-pick-why small">{q.reasons[0]}</span>
+            )}
+            {q.ok && <ChevronRight className="tm-pick-go" />}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
   const c = f.contractId ? g.contracts[f.contractId] : undefined;
   const ac = f.aircraftId ? g.fleet[f.aircraftId] : undefined;
@@ -82,6 +109,11 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
   const why = (cs.level === 'illegal' || cs.level === 'tight') && f.dutyId ? dutyLegality(g, f.id).warnings.find((w) => w.code !== 'missing' && w.level !== 'legal')?.text : undefined;
   const rival = f.operatedBy ? g.rivals.find((r) => r.id === f.operatedBy)?.name : undefined;
   const [hold, setHold] = useState(0);
+  const [moving, setMoving] = useState(false);
+  const moveRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (moving) moveRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [moving]);
   // Beyond the roster horizon an empty duty is normal, not a problem.
   const later = cs.level === 'missing' && f.std > g.now + BAL.rosterHorizonDays * DAY && !(view?.slots.some((x) => x.crewId));
   const type = flightType(g, f);
@@ -105,6 +137,8 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
   if (d) rows.push(['Duty', `Day length ${hm(d.fdp)} of ${hm(d.maxFdp + (d.discretion ?? 0))} · ${d.sectors} sector${d.sectors === 1 ? '' : 's'}${d.augment ? ` · ${2 + d.augment} pilots` : ''}${d.ext ? ' · planned extension' : ''}${d.split ? ' · split duty' : ''}`]);
   const live = f.status === 'scheduled' && !!f.aircraftId;
   const canSub = live && !!c && (f.kind === 'revenue' || f.kind === 'techstop');
+  // v0.7.2.1: the trip this leg belongs to (moves whole to another aircraft).
+  const trip = live && !!c && f.kind !== 'ferry' && !f.purpose ? tripOf(g, f.id) : null;
   const doHold = () => {
     const r = store.act((gg) => delayFlight(gg, f.id, hold * 30, 'Held by operations'));
     if (r.ok) setHold(0);
@@ -156,6 +190,14 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
           <Stepper value={hold} min={0} max={8} onChange={setHold} format={(v) => (v ? `+${v * 30} min` : 'Hold')} />
           <button className="btn" onClick={doHold} disabled={!hold}><Clock /> Delay</button>
           {canSub && <button className="btn" onClick={() => store.openModal({ kind: 'subcharter', contractId: c!.id, flightId: f.id })}><Handshake /> Sub-charter</button>}
+          {trip && <button className={`btn ${moving ? 'active' : ''}`} onClick={() => setMoving(!moving)} disabled={!trip.ok} title={trip.ok ? `Move ${trip.label} to another aircraft` : trip.reason}><ArrowRightLeft /> Move trip to…</button>}
+        </div>
+      )}
+      {live && trip && !trip.ok && <div className="small muted">{trip.reason}.</div>}
+      {moving && trip?.ok && (
+        <div className="col gap-8" ref={moveRef}>
+          <div className="small muted">Move the whole trip <b>{trip.label}</b> ({trip.moved.length} leg{trip.moved.length > 1 ? 's' : ''}) to:</div>
+          <MoveTripList g={g} f={f} />
         </div>
       )}
       {c && (
@@ -217,6 +259,7 @@ function MaintDetail({ g, m }: { g: GameState; m: MaintenanceEvent }) {
         ...(m.refit ? [['New cabin', m.refit.cabin.label] as [string, string]] : []),
         ...(m.leaseReturn ? [['Lease return', 'the aircraft leaves the fleet at the end'] as [string, string]] : []),
       ]} />
+      {(refit || canEdit) && <div className="small muted">Tip: on the Schedule, hold this block and slide it along the row to move it.</div>}
       {refit && <button className="btn btn-danger" onClick={() => { const r = store.act((gg) => cancelCheck(gg, m.id)); if (r.ok) store.closeModal(); }}><Trash2 /> Cancel refit</button>}
       {canEdit && (
         <div className="row gap-8">
@@ -224,6 +267,48 @@ function MaintDetail({ g, m }: { g: GameState; m: MaintenanceEvent }) {
           <button className="btn btn-danger" onClick={() => { const r = store.act((gg) => cancelCheck(gg, m.id)); if (r.ok) store.closeModal(); }}><Trash2 /> Cancel check</button>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * v0.7.2.2 the idle gap's own work: Book C-check, Book A-check, Cabin refit, each pre-filled for this aircraft at this
+ * gap. Under each check: the interval usage if done at the gap's start and the next due date (disabled with the reason
+ * when the gap is too short or the aircraft can't get there); under the refit: the earliest window in the gap.
+ */
+function GapActions({ g, idle }: { g: GameState; idle: { aircraftId: string; from: number; to: number; at: string } }) {
+  const ac = g.fleet[idle.aircraftId];
+  const from = Math.max(idle.from, g.now);
+  const at = idle.at || ac.at;
+  const st = checkStatus(g, ac);
+  const opt = (k: 'A' | 'C') => gapCheck(g, ac.id, k, from, idle.to, at);
+  const c = opt('C');
+  const a = opt('A');
+  const booked = (id: string | null) => (id && g.maintenance[id]?.status === 'planned' ? g.maintenance[id] : undefined);
+  const refitBooked = Object.values(g.maintenance).find((m) => m.aircraftId === ac.id && m.kind === 'refit' && (m.status === 'planned' || m.status === 'inWork'));
+  const label = cabinOptions(ac.typeId).find((p) => p.label !== ac.cabin.label)?.label;
+  const rs = !refitBooked && label ? refitSlots(g, ac.id, label, 1, from) : null;
+  const rslot = rs?.slots[0];
+  const inGap = !!rslot && rslot.start < idle.to;
+  const check = (k: 'A' | 'C', o: GapOption) => {
+    const old = booked(k === 'A' ? st.nextA : st.nextC);
+    return (
+      <button key={k} className={`gap-act ${o.ok ? '' : 'blocked'}`} disabled={!o.ok} onClick={() => o.ok && o.start !== null && o.at && store.openModal({ kind: 'check', aircraftId: ac.id, checkKind: k, suggest: { start: o.start, at: o.at }, after: from, ...(old ? { replace: old.id } : {}) })}>
+        <b className="row gap-6"><Wrench /> Book {k}-check</b>
+        <span className={`small gap-use ${o.level ?? ''}`}>{o.text}</span>
+        <span className="tiny muted">{o.ok ? `${fmtDay(o.start!)} ${fmtTime(o.start!)} at ${o.at}${old ? ` · moves the one booked ${fmtDay(old.start)}` : ''}` : o.why}</span>
+      </button>
+    );
+  };
+  return (
+    <div className="gap-acts">
+      {check('C', c)}
+      {check('A', a)}
+      <button className="gap-act" onClick={() => store.openModal({ kind: 'refit', aircraftId: ac.id, after: from })}>
+        <b className="row gap-6"><Sofa /> Cabin refit</b>
+        <span className="small muted">now {ac.cabin.label}</span>
+        <span className="tiny muted">{refitBooked ? `Refit booked ${fmtDay(refitBooked.start)}: see it` : inGap ? `Earliest in this gap: ${fmtDay(rslot!.start)} – ${fmtDay(rslot!.end)}` : `${durLabel(idle.to - from)} free here: pick the layout, the planner starts at ${fmtDay(from)}`}</span>
+      </button>
     </div>
   );
 }
@@ -249,6 +334,7 @@ export function BlockSheet({ refs, idle }: { refs: Ref[]; idle?: { aircraftId: s
         <button className="btn btn-primary" onClick={() => store.navigate('contracts', { view: 'market' })}><Search /> Find work</button>
       }>
         <p className="muted">{ac?.reg} is free at {idle.at || ac?.at} from {fmtDateTime(idle.from)} to {fmtDateTime(idle.to)} UTC. Idle aircraft cost rent and insurance every day; brokers send gap-fit offers for windows like this.</p>
+        {ac && <GapActions g={g} idle={idle} />}
       </Modal>
     );
   }

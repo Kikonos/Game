@@ -86,7 +86,7 @@ function RestOptionRow({ o, on, onPick }: { o: RestRefitOption; on: boolean; onP
   );
 }
 
-export function RefitModal({ aircraftId, layout, offerId, rest, restOption }: { aircraftId: string; layout?: CabinLayout; offerId?: string; rest?: boolean; restOption?: RestRefitId }) {
+export function RefitModal({ aircraftId, layout, offerId, rest, restOption, after }: { aircraftId: string; layout?: CabinLayout; offerId?: string; rest?: boolean; restOption?: RestRefitId; /** v0.7.2.2 from an idle gap: windows from here */ after?: number }) {
   const g = useGame();
   const ac = g.fleet[aircraftId];
   const t = ac ? typeOf(ac.typeId) : null;
@@ -106,7 +106,7 @@ export function RefitModal({ aircraftId, layout, offerId, rest, restOption }: { 
   const rev = flightsRev(g);
   const key = mode === 'rest' ? (ropt && !viaCheck ? `rest:${ropt.id}` : '') : label;
   const nMaint = Object.keys(g.maintenance).length;
-  const plan = useMemo(() => (key ? refitSlots(g, aircraftId, key, SLOTS) : { slots: [], busyUntil: null, busyWhy: null }), [g, aircraftId, key, rev, g.now, nMaint]); // eslint-disable-line react-hooks/exhaustive-deps
+  const plan = useMemo(() => (key ? refitSlots(g, aircraftId, key, SLOTS, after ?? 0) : { slots: [], busyUntil: null, busyWhy: null }), [g, aircraftId, key, rev, g.now, nMaint, after]); // eslint-disable-line react-hooks/exhaustive-deps
   const quoteAt = (s: Minute): RefitQuote => (mode === 'rest' ? restRefitQuote(g, aircraftId, ropt?.id ?? 'curtainJ', s) : refitQuote(g, aircraftId, label, station, s));
   // Custom days (the grid behind 'Another day…'), quoted on demand.
   const days = useMemo(() => {

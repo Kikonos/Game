@@ -31,6 +31,27 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
+    version: 'v0.7.2.2',
+    name: 'Check planning',
+    features: [
+      "Drag A/C checks and cabin refits along the timeline: on the Schedule, hold a booked A-check, C-check or cabin refit for a moment, then slide it left or right along its aircraft's row. While you drag you see the new date and, for checks, how much of the interval is used by then (green, amber, red; over 100% is not allowed) and whether the slot is free. Let go to confirm.",
+      "Book from an idle gap: tap an 'idle …' gap and choose Book C-check, Book A-check or Cabin refit. Each opens with a slot inside that gap, and the check buttons show how much of the interval would be used by then and when it is due, so you can book at the right time.",
+    ],
+    improvements: [
+      "Moving a trip to another aircraft now also removes the first aircraft's ferry flights for it (out to the trip and back), and re-plans its next ferry only if it is really needed.",
+    ],
+  },
+  {
+    version: 'v0.7.2.1',
+    name: 'Trip swap',
+    features: [
+      "Move a trip to another aircraft: on the Schedule, hold a flight for a moment, then drag it onto another aircraft's row. The whole trip goes with it (out and back, like DUB–DUS–DUB). The row turns green when that aircraft can take it, red with the reason when it can't.",
+      "Before anything moves, a pop-up shows whether you gain or lose money and why: revenue, fuel, maintenance, airport fees, ferry flights, crew tickets and hotels, side by side for both aircraft, plus the crew who change and what the first aircraft is free for.",
+      "No dragging needed: tap a flight and choose 'Move trip to…' to see every other aircraft with what the move would earn or cost.",
+    ],
+    improvements: [],
+  },
+  {
     version: 'v0.7.2',
     name: 'Crew Rules & Fleet',
     features: [
