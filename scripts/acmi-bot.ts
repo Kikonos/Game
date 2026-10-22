@@ -37,6 +37,12 @@
 //   once are hired as one multi-type order; a widebody without bunks gets crew rest seats once augmented crews are held;
 //   a lease is returned early only when it is the least used, under 1 BH a day for 90 days, with no work for 60 days,
 //   6+ months left and a positive net (once a year); never sells. Captains fly as FO through the auto-roster only.
+// - v0.7.3 (UPDATE-0.7.3.md §8): the feasibility rest line counts like any check, an aircraft whose rest line is ok
+//   preferred over warn; crew rest refits once per aircraft while holding augmented crews, for a signed duty without
+//   rest (restFacility card) or an open job that fails only on rest: curtained J seats when J ≥ 4, else recliners;
+//   an A330/A340 with ≥ 8 augmented duties within 30 days on business-seat cabin rest gets a lower-deck module (cash
+//   ≥ $3M after); pilots' bunks added to a C-check under the same count on class 2 pilot rest; never overhead
+//   compartments. restTooShort → fly it with 4 pilots. Crew Control's call-in takes standby crew first (engine).
 
 import { writeFileSync } from 'node:fs';
 import LZString from 'lz-string';
@@ -47,14 +53,13 @@ import { DAY, dayIndex, fmtDateTime, fmtMonth, fromUTC, monthKey, toDate } from 
 import type { RatingFamily } from '../src/data/acmiTypes';
 import type { Archetype, ContractOffer, GameState, LedgerCat, MonthKey, Role } from '../src/engine/core/types';
 import { acceptOffer, counterOffer, feasibility, type FeasibilityReport } from '../src/engine/contracts';
-import { aboveMinimum, applyCrewFix, classOf, conversionClasses, conversionEarliest, conversionPlan, crewControl, hireCrew, ratedMarket, setCrewExtra, shortFlights, staffing, startConversion, type CrewSolution, type StaffingLine } from '../src/engine/crew';
+import { aboveMinimum, applyCrewFix, restOf, restPlan, setDutyAugment, classOf, conversionClasses, conversionEarliest, conversionPlan, crewControl, hireCrew, ratedMarket, setCrewExtra, shortFlights, staffing, startConversion, type CrewSolution, type StaffingLine } from '../src/engine/crew';
 import { devFleet } from '../src/engine/dev';
 import { createGame } from '../src/engine/newGame';
 import {
-  acquireAircraft, aircraftGate, applyApproval, approvalBlocker, approvalReqs, APPROVALS, bookCCheck, bookRefit, bookRestSeats, cancelCheck, cCheckOptions, cCheckSlots, checkStatus, deliveryStatus,
-  earlyReturnQuote, fixedCosts, groundGaps, leastUsed, ratedPilots, refitQuote, refitSlots, refitStations, resolveDecision, returnEarly, saleQuote, sellAircraft, ticketPurpose,
+  acquireAircraft, aircraftGate, applyApproval, approvalBlocker, approvalReqs, APPROVALS, bookCCheck, bookRefit, bookRestRefit, cancelCheck, cCheckOptions, cCheckSlots, checkStatus, deliveryStatus,
+  earlyReturnQuote, fixedCosts, groundGaps, leastUsed, problems, ratedPilots, refitQuote, refitSlots, refitStations, resolveDecision, restRefitOptions, returnEarly, saleQuote, sellAircraft, ticketPurpose,
 } from '../src/engine/ops';
-import { REST_SEATS } from '../src/engine/ops/cabin';
 import { cabinAt, cabinFits, refitTip } from '../src/engine/ops/cabin';
 import { deliveryQuote } from '../src/engine/ops/delivery';
 import type { ApprovalId } from '../src/engine/core/types';
@@ -119,12 +124,15 @@ interface Tally {
   hubTravel: number;
   restSeats: number;
   multiHires: number;
+  /** v0.7.3: crew rest refits booked ('reg option'), duties moved to 4 pilots. */
+  restRefits: string[];
+  aug4: number;
   earlyReturnDay: number | null;
 }
 const newTally = (): Tally => ({
   actions: new Map(), decisions: new Map(), decMonth: new Map(), decKinds: new Map(), accepted: 0, countered: 0, firstAccept: null, wideAffordableAt: null, wideReadyAt: null, wideSigned: null, longLead: 0, paintOffers: [],
   rehired: 0, policyChanges: [], classesBooked: 0, paidExtra: 0, filed: [], signed: [], narrowSigned: 0, refits: [], leaseChoices: [], waitHires: 0, crewFixes: new Map(),
-  cHubs: [], hubTravel: 0, restSeats: 0, multiHires: 0, earlyReturnDay: null,
+  cHubs: [], hubTravel: 0, restSeats: 0, multiHires: 0, earlyReturnDay: null, restRefits: [], aug4: 0,
 });
 
 const weekOf = (g: GameState) => Math.floor((g.now - g.started) / (7 * DAY));
@@ -219,8 +227,10 @@ function bestFit(g: GameState, o: ContractOffer): FeasibilityReport | null {
   if (!ids.length) return null;
   const all = ids.map((id) => feasibility(g, o.id, id, { paint: paintOn(o), quick: true }));
   const rank = { ok: 0, warn: 1, no: 2 } as const;
+  // v0.7.3 an aircraft whose rest line is ok before one where it warns (a 4th pilot, a tight plan).
+  const restRank = (r: FeasibilityReport) => rank[r.checks.find((c) => c.id === 'rest')?.level ?? 'ok'];
   return (
-    all.sort((a, b) => rank[a.level] - rank[b.level] || b.estMargin - a.estMargin).find((r) => {
+    all.sort((a, b) => rank[a.level] - rank[b.level] || restRank(a) - restRank(b) || b.estMargin - a.estMargin).find((r) => {
       if ((r.level !== 'ok' && r.level !== 'warn') || r.estMargin <= 0) return false;
       const crew = r.checks.find((c) => c.id === 'crew');
       return !crew || crew.level === 'ok' || (r.crew.firstShort !== null && r.crew.firstShort > g.now + 70 * DAY);
@@ -455,8 +465,18 @@ function checks(g: GameState, t: Tally): void {
       }
     }
     cands.sort((a, b) => Number(b.winter) - Number(a.winter) || a.total - b.total || a.start - b.start);
+    // v0.7.3 pilots' bunks with the check for an aircraft flying ≥ 8 augmented duties on class 2 pilot rest.
+    const fcrc = g.company.approvals.includes('augmented') && restOf(g, ac.id).fc?.cls === 2 && !hadRestFit(g, ac.id) && augDuties(g, ac.id) >= 8
+      && restRefitOptions(g, ac.id).some((o) => o.id === 'fcrc' && o.ok);
     for (const c of cands) {
-      const opt = cCheckOptions(g, ac.id, c.start).find((o) => o.hub.code === c.hub);
+      const opt = cCheckOptions(g, ac.id, c.start, fcrc ? 'fcrc' : undefined).find((o) => o.hub.code === c.hub);
+      if (fcrc && bookCCheck(g, ac.id, c.hub, c.start, { restFit: 'fcrc' }).ok) {
+        t.restRefits.push(`${ac.reg} fcrc (C-check)`);
+        t.cHubs.push(c.hub);
+        t.hubTravel += opt ? opt.ferryCost + opt.crewCost : 0;
+        act(g, t);
+        break;
+      }
       if (bookCCheck(g, ac.id, c.hub, c.start).ok) {
         t.cHubs.push(c.hub);
         t.hubTravel += opt ? opt.ferryCost + opt.crewCost : 0;
@@ -467,16 +487,72 @@ function checks(g: GameState, t: Tally): void {
   }
 }
 
-/** v0.7.2 a widebody without bunks gets crew rest seats (first slot) once augmented crews are held (once per aircraft). */
-function restSeats(g: GameState, t: Tally): void {
+/** v0.7.3 augmented duties on this aircraft reporting within 30 days either side of now (the state holds no older ones). */
+function augDuties(g: GameState, acId: string): number {
+  let n = 0;
+  for (const d of Object.values(g.duties)) {
+    if (d.augment > 0 && Math.abs(d.report - g.now) <= 30 * DAY && g.pairings[d.pairingId]?.aircraftId === acId) n++;
+  }
+  return n;
+}
+
+/** v0.7.3 a crew rest refit already booked or done on this aircraft (once per aircraft). */
+const hadRestFit = (g: GameState, acId: string) => Object.values(g.maintenance).some((m) => m.aircraftId === acId && m.restFit && m.status !== 'cancelled');
+
+/**
+ * v0.7.3 crew rest refits (UPDATE-0.7.3.md §8), once per aircraft while holding augmented crews: a signed duty with no
+ * rest (restFacility card) or an open job failing only on rest → curtained J seats (J ≥ 4) else recliners, first slot;
+ * an A330/A340 flying ≥ 8 augmented duties on business-seat cabin rest → a lower-deck module when $3M stay after it.
+ */
+function restRefits(g: GameState, t: Tally): void {
   if (!g.company.approvals.includes('augmented')) return;
+  const signed = new Set<string>();
+  for (const c of problems(g)) {
+    if (c.subject.kind !== 'restFacility') continue;
+    const ac = g.flights[c.subject.ref.id]?.aircraftId;
+    if (ac) signed.add(ac);
+  }
   for (const ac of Object.values(g.fleet)) {
-    const r = ac.crewRest;
-    if (typeOf(ac.typeId).body !== 'wide' || ac.status === 'delivering' || ac.sale || ac.returning || !r || r.bunks || r.seats > 0) continue;
+    if (ac.status === 'delivering' || ac.sale || ac.returning || hadRestFit(g, ac.id)) continue;
     if (Object.values(g.maintenance).some((m) => m.aircraftId === ac.id && m.kind === 'refit' && (m.status === 'planned' || m.status === 'inWork'))) continue;
-    const slot = refitSlots(g, ac.id, REST_SEATS, 1).slots[0];
-    if (slot && bookRestSeats(g, ac.id, true, slot.start).ok) {
-      t.restSeats++;
+    const opts = restRefitOptions(g, ac.id).filter((o) => o.ok && o.where === 'home');
+    const rest = restOf(g, ac.id);
+    let pick: (typeof opts)[number] | undefined;
+    if (!rest.fc || !rest.cc) {
+      const wanted = signed.has(ac.id) || openRestJob(g, ac.id);
+      if (wanted) pick = opts.find((o) => o.id === 'curtainJ') ?? opts.find((o) => o.id === 'recliners');
+    } else if (rest.cc.kind === 'jSeats' && augDuties(g, ac.id) >= 8) {
+      const ld = opts.find((o) => o.id === 'ldmcr');
+      if (ld && g.company.cash - ld.cost >= 3_000_000) pick = ld;
+    }
+    if (!pick) continue;
+    const slot = refitSlots(g, ac.id, `rest:${pick.id}`, 1).slots[0];
+    if (slot && bookRestRefit(g, ac.id, pick.id, slot.start).ok) {
+      t.restRefits.push(`${ac.reg} ${pick.id}`);
+      act(g, t);
+    }
+  }
+}
+
+/** v0.7.3 an open job (seen this week, $500k+) that this aircraft fails only on its in-flight rest, a refit fixing it. */
+function openRestJob(g: GameState, acId: string): boolean {
+  for (const o of Object.values(g.offers)) {
+    if (o.status !== 'open' || o.estValue < 500_000 || o.start < g.now + 21 * DAY || !seatsFit(g, o).includes(acId)) continue;
+    const rep = feasibility(g, o.id, acId, { quick: true });
+    const no = rep.checks.filter((c) => c.level === 'no');
+    if (no.length === 1 && no[0].id === 'rest' && no[0].action?.kind === 'restRefit') return true;
+  }
+  return false;
+}
+
+/** v0.7.3 a duty whose cruise is too short for 3 pilots' rest: fly it with 4 pilots when the plan allows (once per duty). */
+function restTooShort(g: GameState, t: Tally): void {
+  for (const c of problems(g)) {
+    if (c.subject.kind !== 'restTooShort') continue;
+    const d = g.duties[g.flights[c.subject.ref.id]?.dutyId ?? ''];
+    if (!d || d.forceAug || d.report <= g.now) continue;
+    if (setDutyAugment(g, d.id, 2).ok) {
+      t.aug4++;
       act(g, t);
     }
   }
@@ -805,7 +881,8 @@ function policy(g: GameState, t: Tally, urgent: boolean, newDay: boolean): void 
     conversions(g, t);
     hire(g, t);
     checks(g, t);
-    restSeats(g, t);
+    restRefits(g, t);
+    restTooShort(g, t);
     earlyReturns(g, t);
     sales(g, t);
     ladderSteps(g, t);
@@ -948,6 +1025,9 @@ let illegalAtFerry = 0;
 /** Revenue legs held for crew at departure (the 'uncovered' stat), by body and contract archetype. */
 const heldSeen = new Set<string>();
 const heldBy = new Map<string, number>();
+/** v0.7.3 augmented duties seen airborne, and those flown with a rest plan that is not possible (hard target 0). */
+const augSeen = new Set<string>();
+let restBad = 0;
 
 function onStep(): void {
   const m = mon(monthKey(g.now));
@@ -957,6 +1037,16 @@ function onStep(): void {
     const k = `${typeOf(g.fleet[f.aircraftId].typeId).body === 'wide' ? 'WB' : 'NB'} ${(f.contractId && CODE[g.contracts[f.contractId]?.archetype]) || '?'} ${fmtMonth(monthKey(f.std))}`;
     heldBy.set(k, (heldBy.get(k) ?? 0) + 1);
     if (MSGS) console.error(`${fmtDateTime(g.now)} HELD ${f.no} ${f.from}–${f.to} std ${fmtDateTime(f.std)} ${g.fleet[f.aircraftId].reg} duty ${f.dutyId ?? '-'} day ${dayN(g)}`);
+  }
+  for (const f of Object.values(g.flights)) {
+    if (f.status !== 'enroute' || !f.dutyId || augSeen.has(f.dutyId)) continue;
+    const d = g.duties[f.dutyId];
+    if (!d || d.augment === 0) continue;
+    augSeen.add(d.id);
+    if (!d.legacyRest && restPlan(g, d.id)?.ok === false) {
+      restBad++;
+      if (MSGS) console.error(`${fmtDateTime(g.now)} REST PLAN NOT POSSIBLE ${f.no} duty ${d.id}: ${restPlan(g, d.id)?.why}`);
+    }
   }
   for (const r of g.finance.receivables) {
     if (seenRecv.has(r.id) || !/^(Paint|Repaint)/.test(r.desc)) continue;
@@ -1196,6 +1286,7 @@ const targets: [string, boolean, string][] = [
   ['summer BH per aircraft 180–320', summerBH >= 180 && summerBH <= 320, summerBH.toFixed(0)],
   ['year net margin −5%…+12% (ex Ladder fees)', marginEx >= -0.05 && marginEx <= 0.12, `${(marginEx * 100).toFixed(1)}% ex ${k$(ladderFees)} approvals; ${(margin * 100).toFixed(1)}% all in (${k$(profitY)} on ${k$(revenueY)})`],
   ['no illegal duties flown (FDP + crew)', illegalOf(s) === 0, `${illegalOf(s)} (FDP ${s.illegalFlown ?? 0}, crew ${s.illegalCrewFlown ?? 0})`],
+  ['0 duties flown with an impossible rest plan (v0.7.3)', restBad === 0, `${restBad} of ${augSeen.size} augmented duties`],
   // v0.5.2 gate: was < 2%; the roster now covers tour gaps, rest slips and stretched duties.
   ['≤ 0.3% flights uncovered at departure', uncShare <= 0.003, `${(uncShare * 100).toFixed(2)}% of ${s.departures ?? 0}`],
   ['≥ 1 meaningful action per week', totalActions / weeks >= 1 && activeWeeks / weeks >= 0.8, `${(totalActions / weeks).toFixed(1)}/wk, ${activeWeeks}/${weeks} weeks${idle.length ? ` (idle: ${idle.join(' ')})` : ''}`],
@@ -1261,7 +1352,15 @@ console.log(
   softTargets.push(['ladder: widebody ops filed by day 200, a widebody signed by day 365 (≥ 4 of seeds 1–6)', tally.filed.some((f) => f.startsWith('widebody ') && Number(f.split(' day ')[1]) <= 200) && tally.wideSigned !== null, `filed ${tally.filed.find((f) => f.startsWith('widebody ')) ?? 'never'}; signed ${dayOf(tally.wideSigned)}`]);
   softTargets.push(['delivery pilots on airline deadheads (when handed over abroad)', abroad.size === 0 || dhDelivery.size > 0, `${dhDelivery.size} tickets for ${abroad.size} abroad`]);
   // v0.7.2 crew rules & fleet.
-  console.log(`v0.7.2: sub-chartered legs ${s.subchartered ?? 0} (reliability ${s.subHit ?? 0}), C-checks at hubs [${tally.cHubs.join(', ') || '-'}], ferry+ticket cost ${Math.round(tally.hubTravel / 1000)}k, ferry legs ${checkLegs.size}, rest seats fitted ${tally.restSeats}, captains as FO ${s.asFo ?? 0}, multi-type cabin hires ${tally.multiHires}, early returns ${s.earlyReturns ?? 0}, sales ${s.sales ?? 0}`);
+  console.log(`v0.7.2: sub-chartered legs ${s.subchartered ?? 0} (reliability ${s.subHit ?? 0}), C-checks at hubs [${tally.cHubs.join(', ') || '-'}], ferry+ticket cost ${Math.round(tally.hubTravel / 1000)}k, ferry legs ${checkLegs.size}, captains as FO ${s.asFo ?? 0}, multi-type cabin hires ${tally.multiHires}, early returns ${s.earlyReturns ?? 0}, sales ${s.sales ?? 0}`);
+  // v0.7.3 in-flight rest & EASA.
+  {
+    const aug = Object.values(g.duties).filter((d) => d.augment > 0);
+    const cls = [1, 2, 3].map((k) => aug.filter((d) => restOf(g, g.pairings[d.pairingId]?.aircraftId ?? null).fc?.cls === k).length);
+    const notPossible = aug.filter((d) => !d.legacyRest && restPlan(g, d.id)?.ok === false).length;
+    const extraCc = aug.filter((d) => (d.restExtra ?? 0) > 0).length;
+    console.log(`v0.7.3: augmented duties ${aug.length} (3P ${aug.filter((d) => d.augment === 1).length} / 4P ${aug.filter((d) => d.augment === 2).length}; class 1 ${cls[0]} / 2 ${cls[1]} / 3 ${cls[2]}), rest plans not possible ${notPossible}, extra cabin crew for rest ${extraCc}, extensions ${s.extensions ?? 0}, splits ${s.splits ?? 0}, standby call-ins ${s.standbyCalls ?? 0}, delayed reports ${s.delayedReports ?? 0}, rest refits [${tally.restRefits.join(', ') || '-'}], 4 pilots for a short cruise ${tally.aug4}, discretion reports ${s.discretionReports ?? 0}`);
+  }
   targets.push(['C-check ferries: 0 illegal duties', illegalAtCheck === 0, `${checkLegs.size} legs, ${illegalAtCheck} illegal`]);
   // v0.7.1 runs end at 90–97 from a 60 start; sub-chartering (F3) may take a few points of it.
   softTargets.push(['reliability ends ≥ 85 (v0.7.1: 90–97)', g.company.reputation.reliable >= 85, `${reliable0.toFixed(1)} → ${g.company.reputation.reliable.toFixed(1)} (sub-charters ${s.subHit ?? 0})`]);

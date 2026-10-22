@@ -86,6 +86,12 @@ export function rootReason(g: GameState, issues: LegalityIssue[], c: CrewMember,
     set('hours', m ? `at ${toH(m[1], m[2])} of ${toH(m[3], m[4])} ${what}` : `over the ${what} limit`);
   }
   if (has('recovery')) set('recovery', `due a weekly rest (${LIMITS.recovery / 60} h off) first`);
+  // v0.7.3 rules (UPDATE-0.7.3.md §3): extension / night sectors / standby read as the day limit, the rest rules as rest.
+  const day = has('ext7d') ?? has('nightSectors') ?? has('standby');
+  if (day && !codes.has('fdp')) set('fdp', day.code === 'ext7d' ? 'already 2 extended days this week' : day.code === 'standby' ? 'on standby since early: the day would run past 18 h awake' : 'a second night in a row with more than 4 sectors');
+  const rest2 = has('lateEarly') ?? has('tzRest');
+  if (rest2 && !codes.has('rest')) set('rest', rest2.code === 'lateEarly' ? 'finished late: needs a whole local night before an early start' : 'back from a trip across time zones: needs local nights at home first');
+  if (has('twoDays') && !codes.has('recovery')) set('recovery', 'due a 2-day weekend off this month');
   const loc = has('location');
   if (loc) {
     const arr = /earliest arrival (\w{3}) ([^,]+), must land by/i.exec(loc.text);

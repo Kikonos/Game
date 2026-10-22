@@ -516,6 +516,10 @@ describe('v0.7.3 timeline rules', () => {
     expect(codes(segs, c({ 0: jun }))).not.toContain('twoDays:illegal');
     // absent (old saves): not checked
     expect(codes(segs, ctx({ now: T0 }))).not.toContain('twoDays:illegal');
+    // idle all June with the last logged work before the timeline window (workEnd): the free month counts
+    const july = [duty(31, 8, 9, 0, true, { rest: 0 })];
+    expect(codes(july, ctx({ twoDays: { 0: jun - 1 }, now: T0 }))).toContain('twoDays:illegal');
+    expect(codes(july, ctx({ twoDays: { 0: jun - 1 }, now: T0, workEnd: T0 - 3 * 1440 }))).not.toContain('twoDays:illegal');
   });
   it('tzRest: local nights at home after a rotation 4+ h away; 3 between alternating directions', () => {
     // LIS → CUN (UTC−5: 6 h behind LIS in June), 3 days away, back on day 3: 3 local nights before the next duty.

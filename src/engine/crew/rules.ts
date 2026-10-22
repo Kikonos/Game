@@ -446,6 +446,8 @@ export interface TimelineCtx {
   slack?: number;
   /** v0.7.3 recovery rests with 2 whole local days logged per month; key 0 = the first month tracked (absent: none checked). */
   twoDays?: Record<number, number>;
+  /** v0.7.3 end of the last logged work (log segs older than the timeline window are not in it). */
+  workEnd?: Minute;
   /** v0.7.3 the current rotation away from base and the last return from one ≥ 4 h away (CS FTL.1.235(b)). */
   rot?: { start: Minute; maxTz: number; dir: -1 | 0 | 1 };
   tzBack?: { back: Minute; nights: number; dir: -1 | 1 };
@@ -566,8 +568,9 @@ export function evalSegs(ctx: TimelineCtx, segsIn: Seg[]): LegalityIssue[] {
   for (let i = 0; i < segs.length; i++) {
     const s = segs[i];
     // Planned recovery gaps with 2 whole local days, by the month of the first whole day.
-    if (td && s.kind !== 'log' && prevEnd > -Infinity && s.start - prevEnd >= LIMITS.recovery) {
-      for (const [mk, n] of twoDayCredits(ctx.base, prevEnd, s.start)) tdPlanned.set(mk, Math.min(2, (tdPlanned.get(mk) ?? 0) + n));
+    const tdPrev = Math.max(prevEnd, ctx.workEnd ?? -Infinity);
+    if (td && s.kind !== 'log' && tdPrev > -Infinity && s.start - tdPrev >= LIMITS.recovery) {
+      for (const [mk, n] of twoDayCredits(ctx.base, tdPrev, s.start)) tdPlanned.set(mk, Math.min(2, (tdPlanned.get(mk) ?? 0) + n));
     }
     // Recovery: the gap before s qualifies when it is long enough and holds two local nights.
     if (prevEnd > -Infinity) {
@@ -586,7 +589,8 @@ export function evalSegs(ctx: TimelineCtx, segsIn: Seg[]): LegalityIssue[] {
       plannedYear += s.block;
       planned12m += s.block;
     }
-    const target = s.kind !== 'log' && (firstFresh < 0 || !!s.fresh || (i > firstFresh && s.start < lastFreshEnd + 28 * DAY));
+    // v0.7.3 a standby window already over is history (it still counts in the duty windows).
+    const target = s.kind !== 'log' && !(s.kind === 'sby' && s.end <= (ctx.now ?? -Infinity)) && (firstFresh < 0 || !!s.fresh || (i > firstFresh && s.start < lastFreshEnd + 28 * DAY));
     if (target) {
       const tgt = s;
       // Rest after the previous seg (the last logged one rests until ctx.restUntil).
@@ -699,7 +703,8 @@ export function twoDayCredits(tz: string, from: Minute, to: Minute): Map<number,
   if (n < 2) return out;
   const first = Math.ceil((from + off) / DAY) * DAY - off;
   const days = new Map<number, number>();
-  for (let k = 0; k < Math.min(n, 62); k++) {
+  // The last 62 days at most: only the months near the end are checked.
+  for (let k = Math.max(0, n - 62); k < n; k++) {
     const mk = monthOf(first + k * DAY + 12 * H);
     days.set(mk, (days.get(mk) ?? 0) + 1);
   }

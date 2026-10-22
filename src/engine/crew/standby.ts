@@ -21,7 +21,7 @@ export function standbySeg(c: CrewMember, w: NonNullable<CrewMember['standby']>[
   const to = end ?? w.to;
   return {
     kind: 'sby', start: w.from, end: to, fdp: 0, maxFdp: 0, block: 0, sectors: 0, aug: false, disruptive: false, share: 0.25,
-    rest: end !== undefined ? 0 : minRest({ dutyMin: 0, atHome: true, augmented: false, tzShift: 0 }), at: c.base, from: c.base,
+    rest: end !== undefined ? 0 : minRest({ dutyMin: 0, atHome: true, augmented: false, tzShift: 0 }), at: '', from: c.base,
   };
 }
 

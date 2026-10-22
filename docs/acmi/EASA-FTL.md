@@ -1,15 +1,27 @@
 # EASA flight time limitations: the BLOCK HOURS reference
 
-Written for v0.7.2 "Crew Rules & Fleet" and kept as the reference for every later crew update. It restates the rules
-by article from **Regulation (EU) No 965/2012, Annex III (Part-ORO), Subpart FTL** as amended by **Regulation (EU)
-No 83/2014**, and the certification specifications **CS FTL.1** (ED Decision 2014/024/R). RESEARCH.md §5.1 holds the
-same numbers in the order the game first used them; this file is the one to cite. Each section ends with a **Game**
-line: what `src/engine/crew/rules.ts` implements, simplifies or leaves out. Times are h:mm; the engine works in
-minutes at 15-minute resolution. Where a number is an estimate rather than the regulation it says "est.".
+Rewritten for v0.7.3 "In-flight Rest & EASA"; the single crew-rules reference (RESEARCH.md §5.1 and UPDATE-0.7.2.md
+defer to it). It follows the structure of the player's EASA FTL reference guide (current 22 Oct 2026). Each section
+cites the article and ends with a **Game** line: implemented, simplified or not modelled, with the symbol in
+`src/engine/crew/rules.ts` unless another file is named. Times are h:mm; the engine works in minutes.
 
-Scope: commercial air transport by aeroplane, scheduled and charter (ACMI included). The same Subpart applies to
-**flight crew and cabin crew** unless an article says otherwise (cabin crew FDP, ORO.FTL.205(c); cabin in-flight rest,
-CS FTL.1.205(c)). The FAA's Part 117 is not modelled.
+---
+
+## 0. Status and sources
+
+- **Implementing rule:** Regulation (EU) No 965/2012, Annex III (Part-ORO), **Subpart FTL** (ORO.FTL.100–250),
+  inserted by **Regulation (EU) No 83/2014**, applicable since 18 Feb 2016. Pilots and cabin crew share it.
+- **Certification specifications:** **CS FTL.1**, ED Decision **2014/002/R**, amended by ED Decision **2023/023/R**
+  (CS-FTL.1 Issue 1, Amendment 1: night duties and late finishes). Consolidated: EASA Easy Access Rules for Air
+  Operations, **Revision 24** (March 2026). AMC/GM and EASA's ORO.FTL FAQ are interpretive.
+- **Authority:** the player's guide. Where it and anything else disagree, the guide wins.
+- **Operator caveat:** every CS number is a default; an approved IFTSS (ORO.FTL.125) may differ, and the operator's
+  OM-A chapter 7 governs the individual crew member. The game plays the CS defaults.
+- **Not in force:** the air-taxi / AEMS / single-pilot FTL (Delegated Regulation C(2026) 6142, from 15 Oct 2028).
+- **Other regimes:** UAE GCAA (Subpart Q model), UK CAA (2016 rules without the 2023 amendment) and FAA Part 117
+  differ. A Dubai base still flies these EASA rules.
+
+**Game:** CS FTL.1 defaults for every company and base (an EU AOC flying ACMI).
 
 ---
 
@@ -17,36 +29,36 @@ CS FTL.1.205(c)). The FAA's Part 117 is not modelled.
 
 | Term | Meaning | Game |
 |---|---|---|
-| **Duty** | Any task for the operator, including positioning, standby with duty, training, office work. | Every `Seg` (duty, pos) counts towards the duty windows. |
-| **FDP** (flight duty period) | From report for a duty that includes a sector until on-blocks at the end of the last sector as an operating crew member. | `Duty.fdp` = report → last on-blocks; `Duty.release` adds post-flight duty. |
-| **Reference time** | Local time at the place the crew member is acclimatised to (where the report time is read in the FDP tables). | `referenceTime()` |
-| **Acclimatised** | Table 1 of ORO.FTL.105(1): state **B** (still on the departure time zone), **D** (acclimatised to the new place) or **X** (unknown state). | `acclimState()` |
-| **WOCL** | Window of circadian low, 02:00–05:59 in the time zone the crew is acclimatised to. | `isDisruptive()` (night duty) |
-| **Local night** | 8 hours between 22:00 and 08:00 local. | `nightsIn()` |
-| **Disruptive schedule** | Early start (05:00–05:59), late finish (23:00–01:59), night duty (encroaching 02:00–04:59 in any part). The "late type" variants (early 05:00–06:59, late 00:00–01:59) are an operator choice. | `isDisruptive()` uses the early-type bands. |
-| **Sector** | One flight between take-off and landing, as an operating crew member. | `Duty.sectors` |
-| **Positioning** | Transferring a non-operating crew member at the operator's request (our airline tickets, "deadheads"). | Ticket segs (`kind: 'pos'`). |
-| **Augmented crew** | More than the minimum flight crew so that each pilot can leave the controls for in-flight rest. | `Duty.augment` 1 (3 pilots) or 2 (4 pilots). |
-| **Rest period** | A continuous, uninterrupted and defined period after a duty. | `Seg.rest` |
+| Acclimatised | Table 1 below: **B** (departure zone), **D** (new zone) or **X** (unknown). | `acclimState` |
+| Reference time | Local time at the reporting point, in the zone the crew are acclimatised to. | `referenceTime` |
+| WOCL | **02:00–05:59** in the acclimatised zone. | `WOCL` (extension sector caps, split duty) |
+| Night duty | Encroaches any part of **02:00–04:59**. Separate from the WOCL. | `NIGHT`, `disruptiveKinds().night` |
+| Local night | 8 h between 22:00 and 08:00 local. | `nightsIn` |
+| Local day | 24 h from 00:00 local. | `localDaysIn` |
+| Disruptive schedule | Early start, late finish or night duty; the authority picks early or late type (ARO.OPS.230). | `FTL_TYPE = 'early'` |
+| Duty / FDP | Duty = any task for the operator. FDP = report → on-blocks after the last operated sector. | `Duty.fdp`, `Duty.release` |
+| Rest facility | A bunk or seat with leg and foot support suitable for sleeping on board. | `RestFacility` |
+| Standby / reserve | Standby: notified availability, no rest in between. Reserve: ≥ 10 h notice. | §10 |
+| Augmented flight crew | More than the minimum flight crew, so each pilot can leave the post for in-flight rest. | `Duty.augment` 1 / 2 |
+| Rotation | Duties and rest away, from home base until rest at home base again. | `CrewMember.rot` |
 
-**Acclimatisation (ORO.FTL.105(1), Table 1).** Rows: time difference between the reference time and local time
-where the next duty starts; columns: time elapsed since reporting at the reference time.
+**Table 1 (ORO.FTL.105(1)).** Rows: time difference between reference time and the next duty's local time;
+columns: time since reporting at reference time.
 
-| Time difference | < 48 h | 48:00–71:59 | 72:00–95:59 | 96:00–119:59 | ≥ 120 h |
+| Difference | < 48 h | 48:00–71:59 | 72:00–95:59 | 96:00–119:59 | ≥ 120 h |
 |---|---|---|---|---|---|
 | < 4 h | B | D | D | D | D |
 | ≤ 6 h | B | X | D | D | D |
 | ≤ 9 h | B | X | X | D | D |
 | ≤ 12 h | B | X | X | X | D |
 
-Game: implemented as written (`acclimState`, pinned in `ftl.test.ts` "acclimatisation (B/X/D)").
+**Game:** implemented (`acclimState`, `referenceTime`; test "acclimatisation (B/X/D)").
 
 ---
 
-## 2. Maximum daily FDP (ORO.FTL.205(b), (c))
+## 2. Maximum daily FDP (ORO.FTL.205(b), (c); CS FTL.1.205(a))
 
-**ORO.FTL.205(b)(1) Table 2: acclimatised crew members** (the game's code calls it Table 1: the first FDP table).
-Start of FDP at reference time × sectors.
+**Table 2: acclimatised (ORO.FTL.205(b)(1)).** Report at reference time × sectors.
 
 | Report | 1–2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
 |---|---|---|---|---|---|---|---|---|---|
@@ -64,192 +76,313 @@ Start of FDP at reference time × sectors.
 | 05:30–05:44 | 12:30 | 12:00 | 11:30 | 11:00 | 10:30 | 10:00 | 9:30 | 9:00 | 9:00 |
 | 05:45–05:59 | 12:45 | 12:15 | 11:45 | 11:15 | 10:45 | 10:15 | 9:45 | 9:15 | 9:00 |
 
-Every cell equals the 1–2 sector value less 0:30 per sector above 2, never below 9:00. The table stops at 10 sectors.
+−0:30 per sector from the 3rd, floor 9:00; the table ends at 10 sectors.
 
-**ORO.FTL.205(b)(2) Table 3: unknown state of acclimatisation (X).** 1–2: 11:00 · 3: 10:30 · 4: 10:00 · 5: 9:30 ·
-6: 9:00 · 7: 9:00 · 8: 9:00. (Table 4, the same under an approved fatigue risk management scheme, starts at 12:00;
-not used.)
+**Table 3: unknown state, X (ORO.FTL.205(b)(2)).** 1–2: 11:00 · 3: 10:30 · 4: 10:00 · 5: 9:30 · 6–8: 9:00.
+**Table 4** (X with an approved FRM, (b)(3)): 12:00 → 9:00; not used.
 
-**ORO.FTL.205(c) cabin crew.** The maximum daily FDP of cabin crew is the flight crew's, **extended by the
-difference in reporting time** between cabin crew and flight crew, as long as the difference does not exceed 1 hour.
-Cabin crew FDP counts from their own (earlier) report.
+**Cabin crew (ORO.FTL.205(c)).** Their maximum is the flight crew's, from the flight crew's report, extended by the
+reporting difference (≤ 1 h); it never lets them finish later than the pilots' maximum.
 
-**Consecutive nights (ORO.FTL.205(e)).** FDPs encroaching the WOCL: at most 4 sectors (est. in the game's planner:
-long rotations rarely meet it).
+**Consecutive night duties (CS FTL.1.205(a)(1)):** at most 4 sectors per duty (with the 17:00–04:59 row: ≤ 10:00).
 
-**Game:**
-- `FDP_BANDS` (13 report bands → 1–2 sector FDP), `FDP_OUTSIDE` 11:00 (17:00–04:59), `SECTOR_STEP` 0:30,
-  `FDP_FLOOR` 9:00, `MAX_SECTORS` 10, `FDP_UNKNOWN` 11:00 (state X). `baseFdp()`, `maxFdp()`.
-- Cabin crew: `BAL.v072.ftl.cabinEarlyMin` = 0 on narrowbodies, **15 min on widebodies**. Their duty seg starts
-  15 min before the pilots' report; FDP and max FDP both grow by 15 (`timeline.ts cabinEarly`), so FDP legality is
-  the pilots'; their duty, rest after and the cumulative windows grow by 15. The ticket home after a long duty is
-  planned on the cabin crew's longer day (`planHome(…, early)`).
-- Night sector limit: not enforced (the game's contract patterns never plan 5+ WOCL sectors).
-
----
-
-## 3. Planned extension (ORO.FTL.205(d), CS FTL.1.205(a))
-
-+1:00 without in-flight rest, at most **twice in any 7 consecutive days**; not for reports 19:00–06:14 (the WOCL
-rule). Rest before and after grows by 2 h each, or by 4 h after. Sectors: ≤ 5 when the WOCL is not encroached, ≤ 4
-when encroached ≤ 2 h, ≤ 2 when encroached more. Planned in advance, never decided on the day.
-
-| Report | 06:15 | 06:30 | 06:45 | 07:00–13:29 | 13:30 | 14:00 | 14:30 | 15:00 | 15:30 | 16:00 | 16:30 | 17:00 | 17:30 | 18:00 | 18:30–18:59 |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1–2 sectors | 13:15 | 13:30 | 13:45 | 14:00 | 13:45 | 13:30 | 13:15 | 13:00 | 12:45 | 12:30 | 12:15 | 12:00 | 11:45 | 11:30 | 11:15 |
-
-**Game: documented, not simulated.** The roster never plans extensions; an over-long day is a Crew Control problem
-(commander's discretion, swap, sub-charter).
-
----
-
-## 4. Commander's discretion (ORO.FTL.205(f))
-
-In unforeseen circumstances on the day, the commander may extend the FDP by up to **2:00**, or **3:00 with an
-augmented crew**. Sectors after the WOCL may be limited; the following rest may be reduced but **never below 10 h**.
-Use over 1 h is reported to the authority (and every use is logged for fatigue risk management).
-
-**Game:** `DISCRETION = { basic: 120, augmented: 180, minRest: 600 }`; offered only by Crew Control on a duty already
-over its limit (`crew/control.ts`, `applyDiscretion`). Costs morale and fatigue; once per duty.
-
----
-
-## 5. In-flight rest and augmented crew (CS FTL.1.205(b), (c))
-
-**Rest facility classes (CS FTL.1.205(b)):**
-- **Class 1:** a bunk or other surface allowing a flat sleeping position, separated from the flight deck and the
-  passenger cabin, with control of light and noise (the crew rest compartment: overhead on the 777/787, lower deck
-  on the A330/A340/A350).
-- **Class 2:** a seat in the cabin reclining at least 45° to the vertical, pitch ≥ 55 in (137.5 cm), width ≥ 20 in
-  (50 cm), leg and foot support, separated from passengers by at least a curtain giving darkness and some sound
-  mitigation.
-- **Class 3:** a seat in the cabin or flight deck reclining at least **40°**, with leg and foot support, separated
-  from passengers by at least a curtain, not next to a seat occupied by passengers.
-
-**Augmented flight crew FDP (CS FTL.1.205(c)(1)):**
-
-| Flight crew | Class 1 | Class 2 | Class 3 |
-|---|---|---|---|
-| 3 pilots (+1) | 16:00 | 15:00 | 14:00 |
-| 4 pilots (+2) | 17:00 | 16:00 | 15:00 |
-
-- **+1:00** when the FDP has at most 2 sectors and one of them exceeds **9 h of continuous flight time**.
-- At most **3 sectors** with augmentation. Absolute maximum **18:00**.
-- Minimum in-flight rest: **2 consecutive hours** for the pilots at the controls for landing, **90 minutes** for each
-  other pilot.
-- Minimum rest at destination: at least the preceding duty or **14 h**, whichever is longer.
-
-**Cabin crew minimum in-flight rest (CS FTL.1.205(c), the cabin crew table)** by the cabin crew's extended FDP:
-
-| Extended FDP up to | Class 1 | Class 2 | Class 3 |
-|---|---|---|---|
-| 14:30 | 1:30 | 1:30 | 1:30 |
-| 15:00 | 1:45 | 2:00 | 2:20 |
-| 15:30 | 2:00 | 2:20 | 2:40 |
-| 16:00 | 2:15 | 2:40 | 3:00 |
-| 16:30 | 2:35 | 3:00 | not allowed |
-| 17:00 | 3:00 | 3:25 | not allowed |
-| 17:30 | 3:25 | not allowed | not allowed |
-| 18:00 | 3:50 | not allowed | not allowed |
-| 18:30 | 4:25 | not allowed | not allowed |
-
-So a long duty needs 1–2 extra cabin crew to keep the service running while colleagues rest (est.).
+**16 h ceiling (EASA FAQ):** applies to basic FDPs and FDPs extended without in-flight rest.
 
 **Game:**
-- `AUG_FDP`, `AUG_BONUS` (+1:00), `AUG_BONUS_FT` (9:00, block less `TAXI_ALLOWANCE` 20 min), `AUG_MAX_SECTORS` 3,
-  `FDP_CAP` 18:00; more than 3 sectors falls back to the basic table.
-- v0.7.2 rest per **airframe**, not per type: `Aircraft.crewRest = { bunks, seats }`. Bunks are class 1. Without
-  bunks the player may fit **crew rest seats**: the last economy row behind a curtain, class 3 (`restClassAt`).
-  These seats are sold unless the duty needs in-flight rest (`restSeatsBlocked`, `sellableSeats`). Class 2 is kept
-  in the tables for completeness; no aircraft offers it in v0.7.2.
-- `CABIN_REST` and `cabinInflightRest(fdp, cls)` (null = not allowed). `complement()` adds cabin crew for rest on
-  class 2/3 facilities (+1 above 14:30, +2 above 16:00, est.). An augmented FDP is capped so the cabin crew (reporting
-  15 min earlier on widebodies) stay inside their table: `maxFdp` takes `cabinFdpCap(cls) − cabinEarly` (class 1
-  18:30, class 2 17:00, class 3 16:00). Only 4 pilots on class 3 with the +1:00 bonus feel it: 16:00 → 15:45 (tested).
-- Rest after an augmented duty away: 14 h (`minRest`).
+- `FDP_BANDS`, `FDP_OUTSIDE` (11:00), `SECTOR_STEP`, `FDP_FLOOR`, `MAX_SECTORS` (10: `maxFdp` returns 0 above,
+  `partition` refuses), `FDP_UNKNOWN`, `baseFdp`, `maxFdp`.
+- Cabin crew report `BAL.v072.ftl.cabinEarlyMin` (15 min) earlier on widebodies; per duty `Duty.cabinEarly` is 0
+  when the pilots' augmented limit plus that would pass the cabin crew's table (§4).
+- `NIGHT_MAX_SECTORS` 4: the planner never builds a night duty with more; `evalSegs` flags a second consecutive one
+  (`'nightSectors'`). Simplified-safe: applied to every night duty.
 
 ---
 
-## 6. Cumulative limits (ORO.FTL.210)
+## 3. Planned extension (ORO.FTL.205(d); CS FTL.1.205(b))
 
-- **Duty:** 60 h in any 7 consecutive days; 110 h in any 14; 190 h in any 28 (spread as evenly as practicable).
-- **Flight time (block):** 100 h in any 28 consecutive days; **900 h in any calendar year**; **1,000 h in any 12
-  consecutive calendar months**.
-- Post-flight duty counts as duty.
+Up to +1:00 **without in-flight rest**, at most **twice in any 7 consecutive days per crew member**, acclimatised
+crew only, planned in advance. Rest: +2 h before and after, or **+4 h after**. Never combined with in-flight rest or
+split duty (ORO.FTL.205(d)(4)). Sectors: **5** if the WOCL is not encroached, **4** if by ≤ 2 h, **2** if by more.
 
-**Game:** `LIMITS.duty7d / duty14d / duty28d / block28d / blockYear / block12m`. The 12-month limit (v0.7.2) reads
-`CrewMember.blockMonths` (block minutes by calendar month, the last 12 kept, written at duty release); old saves
-start empty, so only the 900 h calendar-year check bites until a year of history exists.
+| Report | 1–2 | 3 | 4 | 5 |
+|---|---|---|---|---|
+| 06:00–06:14 | — | — | — | — |
+| 06:15–06:29 | 13:15 | 12:45 | 12:15 | 11:45 |
+| 06:30–06:44 | 13:30 | 13:00 | 12:30 | 12:00 |
+| 06:45–06:59 | 13:45 | 13:15 | 12:45 | 12:15 |
+| 07:00–13:29 | 14:00 | 13:30 | 13:00 | 12:30 |
+| 13:30–13:59 | 13:45 | 13:15 | 12:45 | — |
+| 14:00–14:29 | 13:30 | 13:00 | 12:30 | — |
+| 14:30–14:59 | 13:15 | 12:45 | 12:15 | — |
+| 15:00–15:29 | 13:00 | 12:30 | 12:00 | — |
+| 15:30–15:59 | 12:45 | — | — | — |
+| 16:00–16:29 | 12:30 | — | — | — |
+| 16:30–16:59 | 12:15 | — | — | — |
+| 17:00–17:29 | 12:00 | — | — | — |
+| 17:30–17:59 | 11:45 | — | — | — |
+| 18:00–18:29 | 11:30 | — | — | — |
+| 18:30–18:59 | 11:15 | — | — | — |
+| 19:00–06:14 | — | — | — | — |
+
+"—" = not allowed; 6 or more sectors: never.
+
+**Game:** implemented. `EXT_TABLE`, `extSectorCap`, `woclMinutes`, `extFdp`; `pickPlan` tries `ext` after `basic`
+and `split`, for a single unit, at planning only (`syncDuty` keeps or drops it, never adds it). `Duty.ext`,
+`Duty.basicFdp`; `minRest({ extended })` +4 h; `evalSegs` `'ext7d'` (> 2 in 7 days, per crew member).
 
 ---
 
-## 7. Rest (ORO.FTL.235, CS FTL.1.235)
+## 4. In-flight rest and augmented crew (ORO.FTL.205(e); CS FTL.1.205(c))
 
-- **(a) At home base:** at least as long as the preceding duty, or **12 h**, whichever is greater.
-- **(b) Away from home base:** at least as long as the preceding duty, or **10 h**, whichever is greater; it includes
-  an **8 h sleep opportunity** besides travel and physiological needs.
-- **(d) Recurrent extended recovery rest:** at least **36 h including 2 local nights**, never more than **168 h**
-  between the end of one and the start of the next; **twice a month** it is extended to **2 local days**.
-- **CS FTL.1.235(b) disruptive schedules:** 4 or more early/late/night duties between two recovery rests extend
-  the next to **60 h** (est. wording; the game uses it as written in RESEARCH F9).
-- **CS FTL.1.235(a) time-zone differences:** after rotations with ≥ 4 h difference, local nights at home base:
+**Classes ((c)(1)):**
+- **Class 1:** a bunk or other flat or near-flat surface (≥ 80° back angle from the vertical), separate from the
+  flight deck and the cabin, with light control and isolation from noise.
+- **Class 2:** a cabin seat reclining ≥ 45°, pitch ≥ 55 in (137.5 cm), width ≥ 20 in (50 cm), leg and foot support,
+  separated from passengers by at least a curtain, reasonably free from disturbance.
+- **Class 3:** a seat in the cabin or flight deck reclining ≥ 40°, leg and foot support, at least a curtain from
+  passengers, not next to a seat occupied by passengers. **A plain economy seat is not a rest facility.**
 
-| Max time difference | < 48 h | 48–71 h | 72–95 h | ≥ 96 h |
+**Flight crew ((c)(2)(i)/(ii), (c)(4)):**
+
+| Augmentation | Class 3 | Class 2 | Class 1 |
+|---|---|---|---|
+| +1 pilot | 14:00 | 15:00 | 16:00 |
+| +2 pilots | 15:00 | 16:00 | 17:00 |
+| +1, one sector > 9 h flight time, ≤ 2 sectors | 15:00 | 16:00 | 17:00 |
+| +2, one sector > 9 h flight time, ≤ 2 sectors | 16:00 | 17:00 | 18:00 |
+
+Conditions ((c)(1), (5)–(7)): at most **3 sectors**; each pilot **90 consecutive minutes** of rest, the **landing
+pilots 2 consecutive hours** (EASA FAQ: if the cruise is too short for this, no extension); rest in cruise, placed
+for landing-pilot alertness (GM); time in the facility is FDP; **rest at destination ≥ preceding duty or 14 h**
+((c)(6)); no positioning sector to join the crew. The limits do not vary with report time or WOCL.
+
+**Cabin crew ((c)(3)):** minimum in-flight rest each, by their extended FDP.
+
+| Extended FDP | Class 1 | Class 2 | Class 3 |
+|---|---|---|---|
+| up to 14:30 | 1:30 | 1:30 | 1:30 |
+| 14:31–15:00 | 1:45 | 2:00 | 2:20 |
+| 15:01–15:30 | 2:00 | 2:20 | 2:40 |
+| 15:31–16:00 | 2:15 | 2:40 | 3:00 |
+| 16:01–16:30 | 2:35 | 3:00 | not allowed |
+| 16:31–17:00 | 3:00 | 3:25 | not allowed |
+| 17:01–17:30 | 3:25 | not allowed | not allowed |
+| 17:31–18:00 | 3:50 | not allowed | not allowed |
+
+The table ends at 18:00 and does not by itself authorise an 18 h FDP. UK CAA CAP 1265: the operator must show the
+cruise gives every cabin crew member the band's rest, given facilities, numbers and service.
+
+**Game:**
+- Two facilities per airframe, `Aircraft.rest = { fc, cc }` (`restOf`): pilots' bunks (`fcrc`, class 1), overhead or
+  lower-deck bunks (`ccrc`, `ldmcr`, class 1), curtained business seats (`jSeats`, class 2), crew rest recliners
+  (`recliners`, class 3). Rolled per airframe from `AcmiType.rest` shares (`rollRest`); v0.7.2 saves migrate
+  (`migrateRest`): bunks → class 1 both sides, v0.7.2 rest seats → recliners, J cabins → curtained J seats.
+  Duties crewed within 72 h of loading an old save keep their plan (`Duty.legacyRest`).
+- `AUG_FDP`, `AUG_BONUS`, `AUG_BONUS_FT` (9:00 flight time = block − `TAXI_ALLOWANCE`), `AUG_MAX_SECTORS`, `FDP_CAP`
+  18:00, `augLimitOf`. Augmentation needs the `augmented` approval and both facilities.
+- **The rest plan** (`crew/restPlan.ts planRest`, `restPlan`): pilots placed backwards from the last leg (landing
+  pilots 120 min last, others 90), turns inside `[std + 40, sta − 70]`; cabin crew in groups with **half the crew
+  working** (game rule after CAP 1265), inside `[std + 105, sta − 70]`; up to 2 extra cabin crew when the groups
+  don't fit (`Duty.restExtra`). Failure codes `noFacility`, `sectors`, `tooShort`, `cabinClass`, `cabinFit`.
+  Seat facilities are blocked from sale only on legs where someone rests in them (`restSeatsBlocked`).
+- `CABIN_REST`, `cabinInflightRest`, `cabinFdpCap` (class 1 18:00, 2 17:00, 3 16:00). C2: the cabin crew report with
+  the pilots when the early report would pass their table; only then is the limit capped.
+- `minRest({ augmented })` 14 h wherever the crew rest (home too).
+
+---
+
+## 5. Commander's discretion (ORO.FTL.205(f))
+
+Only for unforeseen circumstances **at or after report**. The maximum from (b), (e) or ORO.FTL.220 may grow by up
+to **2 h, or 3 h with an augmented crew**; after a planned extension the base is the **basic** FDP (GM1
+ORO.FTL.205(f)(1)(i)). The rest after may be reduced, **never below 10 h**. Over 1 h: a report to the authority within
+28 days ((f)(5)), non-punitive. AMC: exceptional; avoid at home base and hubs where standby crew should exist.
+
+**Game:** `DISCRETION = { basic: 120, augmented: 180, minRest: 600 }`. `applyDiscretion` refuses before report
+(`DISCRETION_BEFORE_REPORT`); base = `basicFdp` after an extension, the augmented or split maximum otherwise. The game
+never reduces rest. Over 1 h at release: one inbox note "Discretion report filed" naming the authority
+(`data/flavor.ts AUTHORITY`), `Stats.discretionReports`.
+
+---
+
+## 6. Delayed reporting (ORO.FTL.205(g); CS FTL.1.205(d))
+
+| Situation | Max FDP from | FDP counts from |
+|---|---|---|
+| One notification, delay < 4 h | the original report | the delayed report |
+| One notification, delay ≥ 4 h | the more limiting of original and delayed | the delayed report |
+| Second notification | as above | 1 h after it, or the delayed time if earlier |
+| Delay ≥ 10 h, crew undisturbed | the delay is rest: a new FDP | the delayed report |
+
+**Game:** `Duty.notified` (the report the crew were told); a change ≥ 18 h before it re-publishes the roster
+(`BAL.v073.delayed.republishH`). `syncDuty` applies the three rows; one info message when it bites,
+`Stats.delayedReports`. Second notification: not modelled.
+
+---
+
+## 7. Cumulative limits (ORO.FTL.210)
+
+Duty **60 h / 7 days, 110 h / 14, 190 h / 28**. Flight time **100 h / 28 days, 900 h / calendar year, 1,000 h / 12
+consecutive calendar months**. What counts as duty: post-flight duty; positioning 100 % (ORO.FTL.215); airport
+standby 100 %; other standby **25 %** (CS FTL.1.225(b)(3)); reserve 0 (CS FTL.1.230); in-flight rest 100 % (GM1
+ORO.FTL.105(17)). Flight time counts operated sectors only.
+
+**Game:** `LIMITS.duty7d / duty14d / duty28d / block28d / blockYear / block12m`; `windowsAt` multiplies each seg by
+`Seg.share` (home standby 0.25). `CrewMember.blockMonths` feeds the 12-month limit.
+
+---
+
+## 8. Positioning (ORO.FTL.215)
+
+Positioning after report and before operating is FDP but not a sector; all positioning is duty; positioning after the
+last operated sector is duty, not FDP.
+
+**Game:** implemented: tickets out are FDP, not sectors; tickets home are duty (`posSeg`, `planHome`).
+
+---
+
+## 9. Split duty (ORO.FTL.220; CS FTL.1.220)
+
+A break of **≥ 3 consecutive hours** on the ground, net of post/pre-flight duty and travel (≥ 30 min in total), adds
+**up to 50 % of the break** to the ORO.FTL.205(b) maximum. Accommodation always; **suitable accommodation** for a
+break ≥ 6 h or one touching the WOCL, otherwise break time beyond 6 h or inside the WOCL does not count. Not with
+in-flight rest, a planned extension or after reduced rest. The break counts in full as FDP.
+
+| Net break | 3:00 | 4:00 | 5:00 | 6:00 | 8:00 (suitable accommodation) |
+|---|---|---|---|---|---|
+| FDP increase | +1:30 | +2:00 | +2:30 | +3:00 | +4:00 |
+
+**Game:** implemented for a single unit: net = ground time − 60 min (`BAL.v073.split.excludeMin`); `splitFdp` adds
+half the net in 15-minute steps, ceiling 16:00. Hotel day room from 6 h net or when the break touches the WOCL,
+else the airport crew room (costs to `hotels` at release). `Duty.split`, `Stats.splits`.
+
+---
+
+## 10. Standby and reserve (ORO.FTL.225, 230; CS FTL.1.225, 1.230)
+
+**Airport standby ((a)):** 100 % duty; the FDP is reduced by standby beyond 4 h; standby + FDP ≤ 16 h.
+**Other (home) standby ((b)):** at most 16 h; 25 % counts as duty; called within the first 6 h the FDP counts from
+report; called later, the max FDP is reduced by standby beyond 6 h (**8 h** with in-flight rest or split duty);
+standby between 23:00 and 07:00 does not count until contacted; procedures keep standby + FDP within **18 h awake**.
+**Reserve (CS FTL.1.230):** ≥ 10 h notice, an 8 h no-contact period, not duty.
+
+**Game:** home standby is rostered daily: per rating family 1 CPT, 1 FO, 1 PUR, 1 CC at home base 06:00–18:00 local,
+2 days ahead, keeping 8 free days a month (`crew/standby.ts dailyStandby`, `CrewMember.standby`). A called crew
+member's own max FDP shrinks (`standbyCut`) and the awake cap applies (woken 1 h before, `standbyAwakeOk`,
+`'standby'`). Crew Control calls standby crew first, no overtime. Airport standby: `standbyCut('airport', …)` tested,
+not rostered. Reserve: not modelled.
+
+---
+
+## 11. Rest (ORO.FTL.235; CS FTL.1.235)
+
+| Case | Minimum | Article |
+|---|---|---|
+| Home base | ≥ preceding duty or 12 h | ORO.FTL.235(a) |
+| Away | ≥ preceding duty or 10 h, incl. 8 h sleep opportunity | ORO.FTL.235(b) |
+| After a planned extension | +4 h after (or +2 h before and after) | ORO.FTL.205(d) |
+| After an augmented FDP | ≥ preceding duty or 14 h | CS FTL.1.205(c)(6) |
+| Away after an FDP ≥ 4 h time difference | ≥ preceding duty or 14 h | CS FTL.1.235(b)(3)(ii) |
+| After discretion | never below 10 h | ORO.FTL.205(f) |
+
+**Reduced rest** (CS FTL.1.235(c)): FRM only; not used.
+
+**Recurrent extended recovery rest (ORO.FTL.235(d)):** ≥ **36 h including 2 local nights**, ≤ **168 h** between the
+end of one and the start of the next; **twice every month it is 2 local days**.
+
+**Disruptive schedules (CS FTL.1.235(a)):** early type: early start 05:00–05:59, late finish 23:00–01:59; late type:
+05:00–06:59 and 00:00–01:59; night duty both. A **late finish or night duty followed by an early start at home
+base** needs **1 local night** in the rest between (an FDP, or a standby leading to one). **4 or more** disruptive
+duties between recovery rests → the next one is **60 h**. Appropriate FRM for night duties > 10 h and late finishes,
+and the three night subtypes (2023/023/R): operator processes.
+
+**Time zones (CS FTL.1.235(b)(3)(i)):** after a rotation with ≥ 4 h difference, local nights at home base, by the
+largest difference and time since the rotation's first report:
+
+| Max difference | < 48 h | 48:00–71:59 | 72:00–95:59 | ≥ 96 h |
 |---|---|---|---|---|
 | ≤ 6 h | 2 | 2 | 3 | 3 |
 | ≤ 9 h | 2 | 3 | 3 | 4 |
 | ≤ 12 h | 2 | 3 | 4 | 5 |
 
-Away after a ≥ 4 h time-zone shift, the rest is at least 14 h (CS FTL.1.235(a)(2), as the game applies it).
+Alternating east–west and west–east rotations: **3 local nights** at home between them ((b)(4)).
 
-**Game:** `minRest()` (home 12 h, away 10 h, 14 h away after augmentation or a ≥ 4 h shift, longer duty wins);
-`LIMITS.recovery` 36 h with 2 local nights, `recoveryEvery` 168 h, `recoveryLong` 60 h after 4 disruptive duties.
-The twice-monthly 2 local days are **documented, not enforced**: the roster's work block (at most 6 days on, then
-2 off) already gives them. The time-zone table is applied through the 14 h away rule and the recovery check, not
-cell by cell.
-
-**Days off (not Subpart FTL):** at least 7 days free of all duty per calendar month and 96 a year come from the
-aviation working-time directive (Council Directive 2000/79/EC, Annex, clause 9), not from ORO.FTL. The roster plans
-them (`daysOffInMonth`).
-
----
-
-## 8. Split duty, standby and reserve: documented, not simulated
-
-- **Split duty (CS FTL.1.220):** a ground break of ≥ 3 consecutive hours (excluding 30 min of post/pre-flight
-  duty) extends the FDP by **50 % of the break**; accommodation is needed when the break is ≥ 6 h or touches the
-  WOCL; not combined with in-flight rest.
-- **Airport standby (ORO.FTL.225, CS FTL.1.225(a)):** counts 100 % as duty; an FDP assigned from it is reduced by
-  the standby time beyond 4 h; standby + FDP ≤ 16 h.
-- **Other standby (CS FTL.1.225(b)):** at most 16 h; 25 % counts as duty; the FDP is reduced by standby beyond 6 h
-  (8 h with augmentation or split duty); at most 18 h awake.
-- **Reserve (CS FTL.1.230):** notified at least 10 h ahead, with an 8 h protected sleep window; not duty.
-- **Positioning (ORO.FTL.220):** always duty; positioning before an operating sector is FDP but **not a sector**.
-
-**Game:** positioning is implemented (tickets out are FDP, not sectors; tickets home are duty). Split duty, standby
-and reserve are not in v0.7.2: a missing crew member is replaced by someone off duty (Crew Control), not standby.
+**Game:**
+- `minRest({ dutyMin, atHome, augmented, tzShift, extended })`.
+- `LIMITS.recovery` 36 h + 2 local nights, `recoveryEvery` 168 h, `recoveryLong` 60 h after `disruptiveMax` 4.
+- 2 local days: `twoDayCredits` (whole 00:00–24:00 days at base, by month), `CrewMember.twoDays` (logged at report,
+  key 0 = first month tracked), `evalSegs` `'twoDays'` at the first work of a later month; months before the load
+  month are never checked.
+- `FTL_TYPE = 'early'` for every base (Portugal is not in the guide's list; early type is the stricter for late
+  finishes). `disruptiveKinds`, `'lateEarly'`.
+- `TZ_NIGHTS`, `tzNights`, `TZ_ALTERNATE_NIGHTS`; `CrewMember.rot` / `tzBack`; `'tzRest'`.
 
 ---
 
-## 9. How BLOCK HOURS applies it
+## 12. Days off (Directive 2000/79/EC) and the work block
 
-| Rule | Article | `crew/rules.ts` (or file) | Test (`crew/ftl.test.ts` unless noted) |
+At least **7 days free of all duty per calendar month and 96 a year** (Council Directive 2000/79/EC, Annex, clause
+9). Not ORO.FTL.235(e) (235(e)(3) is the 72 h recovery after a change of home base).
+
+**Game:** `daysOffInMonth` (`crew/ftl.ts`) plans them. The roster's work block (at most 6 days on, then 2 off;
+`longestWorkBlock`) is **company policy, not EASA**.
+
+---
+
+## 13. Records and roster publication (ORO.FTL.245, AMC1 ORO.FTL.110(a))
+
+Records kept 24 months: flight times, duty and FDP start/end, rest and days off, home base, reports on extended FDPs
+and reduced rest. Rosters published **14 days** ahead.
+
+**Game:** simplified: `CrewMember.log` keeps the recent duties the rules read (pruned), `blockMonths` 12 months;
+`Stats` count extensions, splits, standby calls, delayed and discretion reports. The roster plans as far as the
+contracts are signed; a change ≥ 18 h before report is a new roster (§6).
+
+---
+
+## 14. How BLOCK HOURS applies it
+
+Tests in `crew/ftl.test.ts` unless a file is named.
+
+| Rule | Article | Symbol | Test |
 |---|---|---|---|
-| FDP acclimatised, by report band and sectors | ORO.FTL.205(b)(1) | `FDP_BANDS`, `FDP_OUTSIDE`, `SECTOR_STEP`, `FDP_FLOOR`, `MAX_SECTORS`, `baseFdp`, `maxFdp` | "EASA FDP table (ORO.FTL.205(b)(1))" |
-| FDP unknown state | ORO.FTL.205(b)(2) | `FDP_UNKNOWN` | "unknown state (ORO.FTL.205(b)(2))" |
-| Cabin crew FDP from their earlier report | ORO.FTL.205(c) | `BAL.v072.ftl.cabinEarlyMin`, `timeline.ts cabinEarly` | "cabin crew report 15 min earlier on widebodies" |
-| Planned extension | ORO.FTL.205(d) | not simulated | — |
-| Commander's discretion | ORO.FTL.205(f) | `DISCRETION` | "discretion constants" |
-| Augmented FDP | CS FTL.1.205(c) | `AUG_FDP`, `AUG_BONUS`, `AUG_BONUS_FT`, `AUG_MAX_SECTORS`, `FDP_CAP` | "maxFdp F3 (augmented)" |
-| Rest facility per airframe | CS FTL.1.205(b) | `crewRest.ts restClassAt`, `restSeatsBlocked`, `sellableSeats` | `crew/crewRest.test.ts` |
-| Cabin crew in-flight rest | CS FTL.1.205(c) | `CABIN_REST`, `cabinInflightRest`, `cabinFdpCap` | "cabin crew in-flight rest table" |
-| Cumulative duty and block | ORO.FTL.210 | `LIMITS` | "limits table", "enforces …", "1,000 h in 12 months" |
-| Rest home/away/augmented | ORO.FTL.235(a)(b) | `minRest` | "minRest F8" |
-| Extended recovery | ORO.FTL.235(d) | `LIMITS.recovery`, `recoveryEvery`, `recoveryLong` | "needs a 36 h recovery …", "extends recovery to 60 h …" |
 | Acclimatisation | ORO.FTL.105(1) | `acclimState`, `referenceTime` | "acclimatisation (B/X/D)" |
-| Disruptive duties, local nights | ORO.FTL.105 | `isDisruptive`, `nightsIn` | "disruptive duties and local nights" |
-| Split duty, standby, reserve | CS FTL.1.220/225/230 | not simulated | — |
+| Table 2 | ORO.FTL.205(b)(1) | `FDP_BANDS`, `baseFdp`, `maxFdp` | "EASA FDP table (ORO.FTL.205(b)(1))" |
+| Table 3 | ORO.FTL.205(b)(2) | `FDP_UNKNOWN` | "unknown state (ORO.FTL.205(b)(2))" |
+| ≤ 10 sectors (C5) | ORO.FTL.205(b) | `MAX_SECTORS` | "C5: more than 10 sectors is never legal …" |
+| Cabin crew earlier report | ORO.FTL.205(c) | `cabinEarly`, `Duty.cabinEarly` | `crewRest.test.ts` "cabin crew report 15 min earlier on widebodies" |
+| Consecutive nights ≤ 4 sectors (C6) | CS FTL.1.205(a)(1) | `NIGHT_MAX_SECTORS` | "nightSectors: consecutive night duties …" |
+| Planned extension | ORO.FTL.205(d), CS FTL.1.205(b) | `EXT_TABLE`, `extFdp`, `extSectorCap` | "planned extension (…)", "ext7d: …" |
+| Augmented FDP | CS FTL.1.205(c)(2), (4) | `AUG_FDP`, `augLimitOf` | "maxFdp F3 (augmented)", "augmented crew (CS FTL.1.205(c)) pinned" |
+| Cabin rest table (C1, C2) | CS FTL.1.205(c)(3) | `CABIN_REST`, `cabinFdpCap` | "cabin crew in-flight rest table"; `rules073.test.ts` "C2: …" |
+| Facilities, migration (C8, C9) | CS FTL.1.205(c)(1) | `restOf`, `migrateRest`, `rollRest` | `crewRest.test.ts` "v0.7.3 migration …"; `restPlan.test.ts` "market roll …" |
+| Rest plan | CS FTL.1.205(c)(1), (3) | `planRest`, `restPlan` | `restPlan.test.ts` "pilots …", "cabin crew …" |
+| Seats out of sale | CS FTL.1.205(c)(1) | `restSeatsBlocked` | `restPlan.test.ts` "seats out of sale" |
+| Plan order | — | `pickPlan`, `MODE_COST` | `rules073.test.ts` "the plan order …" |
+| Rest after augmented (C4) | CS FTL.1.205(c)(6) | `minRest` | "minRest F8" |
+| Discretion (C3) | ORO.FTL.205(f) | `DISCRETION`, `applyDiscretion` | "discretion constants …"; `control.test.ts` |
+| Delayed reporting | ORO.FTL.205(g), CS FTL.1.205(d) | `syncDuty`, `Duty.notified` | `rules073.test.ts` "delayed reporting …" |
+| Cumulative limits | ORO.FTL.210 | `LIMITS`, `windowsAt` | "enforces …", "1,000 h in 12 months …" |
+| Positioning | ORO.FTL.215 | `posSeg` | "requires each duty to start where …" |
+| Split duty | CS FTL.1.220 | `splitFdp`, `Duty.split` | "split duty (CS FTL.1.220)" |
+| Home / airport standby | CS FTL.1.225 | `standbyCut`, `standbyAwakeOk`, `dailyStandby` | "standby (CS FTL.1.225)"; `rules073.test.ts` "home standby …" |
+| Minimum rest | ORO.FTL.235(a), (b) | `minRest` | "minRest F8" |
+| Recovery 36 h / 168 h / 60 h | ORO.FTL.235(d), CS FTL.1.235(a)(2) | `LIMITS.recovery*` | "needs a 36 h recovery …", "extends recovery to 60 h …" |
+| 2 local days twice a month | ORO.FTL.235(d) | `twoDayCredits`, `'twoDays'` | "twoDays: …" |
+| Disruptive kinds (C10) | CS FTL.1.235(a) | `FTL_TYPE`, `disruptiveKinds` | "C10: early type disruptive kinds …" |
+| Late/night → early | CS FTL.1.235(a)(1) | `'lateEarly'` | "lateEarly: …" |
+| Time zones | CS FTL.1.235(b) | `TZ_NIGHTS`, `tzNights`, `'tzRest'` | "time zones (…)", "tzRest: …" |
+| Contract feasibility (C7) | ORO.FTL.205 | `restNeed`, `dutyNeed` | `contracts/feasibility.test.ts` "rest: …" |
 
-Ranks (v0.7.2): cabin crew are **PUR** (purser, the senior cabin crew member, ORO.CC.200) and **CC**. Every crew has
-exactly one PUR; two-deck types (A380, 747) carry a second as deputy. CSD and SCC from earlier versions were merged
-into PUR when a save loads.
+---
+
+## 15. Not modelled
+
+- Table 4 and any FRM-based scheme; reduced rest (CS FTL.1.235(c)).
+- Hotel transfer > 30 min adding twice the excess to rest (AMC1 ORO.FTL.235(b)).
+- A second notification of a delay (CS FTL.1.205(d)).
+- Roster robustness, ORO.FTL.110(j) (33 % of duties over the maximum in a season).
+- The three night-duty subtypes and appropriate FRM (CS FTL.1.205(a)(2), (3)).
+- Reserve (CS FTL.1.230); airport standby is coded but never rostered.
+- The 72 h recovery after a change of home base (CS FTL.1.200(b)); crew never change base.
+- Subpart Q, the 2028 air-taxi / AEMS rules, UAE GCAA, UK CAA differences, FAA Part 117.

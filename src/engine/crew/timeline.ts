@@ -371,7 +371,7 @@ export function ctxOf(g: GameState, c: CrewMember): TimelineCtx {
   return {
     base: c.base, restUntil: c.restUntil, lastRecovery: c.lastRecovery, blockYear: c.blockYear, blockYearOf: c.blockYearOf ?? yearOf(g.now),
     freeSince: c.log.length ? undefined : c.restUntil - 12 * 60, loc: c.loc, now: g.now, block12m: block12m(c, g.now),
-    twoDays: c.twoDays, rot: c.rot, tzBack: c.tzBack,
+    twoDays: c.twoDays, workEnd: c.log.length ? c.log[c.log.length - 1].end : c.restUntil - 12 * 60, rot: c.rot, tzBack: c.tzBack,
   };
 }
 
@@ -490,7 +490,8 @@ export function segsOf(g: GameState, c: CrewMember, excludePairing?: string): Se
 }
 
 /**
- * v0.7.3 home standby windows in a timeline (CS FTL.1.225(b)): 25 % duty, not rest. A called window ends at the
+ * v0.7.3 home standby windows in a timeline (CS FTL.1.225(b)): 25 % duty, not rest; they start at base and move
+ * nobody (no `at`, so where the crew are stays the last movement's). A called window ends at the
  * report of the duty it was called for, whose max FDP shrinks by the standby beyond 6 h (8 h augmented or split;
  * 23:00–07:00 before the call not counted) and which carries the 18 h awake cap. Uncalled windows stay whole
  * (evalSegs drops one a planned duty takes over).
@@ -501,7 +502,7 @@ function addStandby(g: GameState, c: CrewMember, segs: Seg[]): void {
     if (w.calledAt === undefined) {
       segs.push({
         kind: 'sby', start: w.from, end: w.to, fdp: 0, maxFdp: 0, block: 0, sectors: 0, aug: false, disruptive: false, share: 0.25,
-        rest: minRest({ dutyMin: 0, atHome: true, augmented: false, tzShift: 0 }), at: c.base, from: c.base,
+        rest: minRest({ dutyMin: 0, atHome: true, augmented: false, tzShift: 0 }), at: '', from: c.base,
       });
       continue;
     }
@@ -511,7 +512,7 @@ function addStandby(g: GameState, c: CrewMember, segs: Seg[]): void {
       const y = segs[k];
       segs[k] = { ...y, maxFdp: y.maxFdp - standbyCut('home', w.from, y.start, c.base, y.aug || !!y.split, w.calledAt), sbyFrom: w.from };
     }
-    if (end > w.from) segs.push({ kind: 'sby', start: w.from, end, fdp: 0, maxFdp: 0, block: 0, sectors: 0, aug: false, disruptive: false, share: 0.25, rest: 0, at: c.base, from: c.base });
+    if (end > w.from) segs.push({ kind: 'sby', start: w.from, end, fdp: 0, maxFdp: 0, block: 0, sectors: 0, aug: false, disruptive: false, share: 0.25, rest: 0, at: '', from: c.base });
   }
   segs.sort(bySeg);
 }

@@ -232,7 +232,10 @@ export function syncDuty(g: GameState, d: Duty, p: Pairing): void {
   const rest = restOf(g, p.aircraftId);
   let pa: PlanPick;
   if (reported) pa = keepMode(d, sh, ref, rest);
-  else {
+  else if (d.legacyRest && d.augment > 0) {
+    // v0.7.3 crewed before the in-flight rest rules (an older save, within 72 h of loading): kept as rostered.
+    pa = { ...keepMode(d, sh, ref, rest), mode: d.augment === 1 ? 'aug1' : 'aug2', augment: d.augment, max: d.maxFdp, ok: sh.fdp <= d.maxFdp };
+  } else {
     const ctx: PlanCtx = { rest, canAug: canAugment(g, rest), split: !!d.split, ext: !!d.ext, forceAug: d.forceAug === 2, legacy: d.legacyRest, cabinN: planCabinN(g, p.aircraftId, fl) };
     pa = pickPlan(sh, ref, ctx);
     // Delayed reporting: only once crew were told a report time.

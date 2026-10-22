@@ -1,5 +1,7 @@
 # BLOCK HOURS v0.7.2 "Crew Rules & Fleet": design
 
+> v0.7.3: several citations and the cabin rest table here were corrected; EASA-FTL.md is the reference.
+
 Plan of record for v0.7.2, written for three lanes that build in parallel: ENGINE, UI and MAP. BRIEF.md "Player decisions" override everything (real names, invented events, Dubai player, iPad landscape 1180×820 / Safari 1180×750, calm visuals, 1×/2×/4× only). RESEARCH.md supplies the numbers; this update adds **docs/acmi/EASA-FTL.md** as the crew-rules reference for every later crew update. DESIGN.md and BUILD-PLAN.md ground rules hold:
 - engine RNG only; read APIs pure (added to `core/plumbing.test.ts`); ids via `nextId`;
 - money only through the ledger helpers; flights only through the core helpers;

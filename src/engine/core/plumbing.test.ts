@@ -1,6 +1,9 @@
 // Cross-module plumbing the builders rely on: pauses, deadheads, reassign/sub-charter, change marks,
 // pure read APIs and compact saves (DESIGN.md §3.3, §4.1–4.2, §7.2).
 
+import { dutyNeed, fdpWhy, longestDay, onStandby, restNow, restOf, restPlan, restPlanForFlight, restText } from '../crew';
+import { offerRestLine } from '../contracts';
+import { restRefitOptions, restRefitQuote } from '../ops';
 import { describe, expect, it } from 'vitest';
 import { acceptOffer, cancelCost, cancelPenalty, contractProgress, counterView, feasibility, feasibilityAll, generateOffer, marketFit, paintQuote, paintWindow, productValue } from '../contracts';
 import {
@@ -232,6 +235,28 @@ describe('determinism of read APIs', () => {
         problemFor(g, { kind: 'restSeats', ref: { kind: 'flight', id: f.id } });
       }
       for (const m of Object.values(g.maintenance)) checkLogistics(g, m.id);
+      // v0.7.3 in-flight rest, the why of a day, contract rest lines, refits, standby.
+      for (const ac of Object.values(g.fleet)) {
+        const r = restOf(g, ac.id);
+        longestDay(g, r, ac.typeId);
+        restText(r.fc, 'fc', ac.typeId);
+        restRefitOptions(g, ac.id);
+        for (const o of restRefitOptions(g, ac.id)) restRefitQuote(g, ac.id, o.id, t + 5 * DAY);
+        restNow(g, ac.id, t);
+      }
+      for (const d of Object.values(g.duties).slice(0, 20)) {
+        restPlan(g, d.id);
+        restPlan(g, d.id, { augment: 2 });
+        fdpWhy(g, d.id);
+      }
+      for (const f of some) {
+        restPlanForFlight(g, f.id);
+        restSeatsBlocked(g, f.id);
+        for (const k of ['restFacility', 'restTooShort', 'cabinRest'] as const) problemFor(g, { kind: k, ref: { kind: 'flight', id: f.id } });
+      }
+      for (const o of Object.values(g.offers)) offerRestLine(g, o.id);
+      dutyNeed(g, 'a332', { fc: { cls: 2, kind: 'jSeats', places: 2 }, cc: { cls: 2, kind: 'jSeats', places: 5 } }, { from: 'LIS', std: t + DAY, legs: [{ std: t + DAY, sta: t + DAY + 12 * 60 }] });
+      for (const c of Object.values(g.crew).slice(0, 5)) onStandby(g, c.id, t);
     }
     expect(JSON.stringify(g)).toBe(before);
   });
