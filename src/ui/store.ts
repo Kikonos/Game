@@ -559,6 +559,8 @@ class GameStore {
   openModal(m: ModalSpec) {
     this.modalBelow = m.kind === 'glossary' && this.modal && this.modal.kind !== 'glossary' ? this.modal : null;
     this.modal = m;
+    // A dialog takes the stage: quiet toasts (already in the Inbox) must not cover its header.
+    this.toasts = [];
     sound.play('click');
     this.emit();
   }

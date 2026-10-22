@@ -183,7 +183,7 @@ export function dutyLegality(g: GameState, dutyOrFlightId: string): DutyLegality
     warnings.push({ level: d.legality, code: 'fdp', text: `FDP ${hm(d.fdp)} ${d.legality === 'illegal' ? 'over' : 'close to'} the ${hm(max)} limit${d.discretion ? ' (with discretion)' : ''}` });
   }
   const missing = p.slots.filter((s) => !s.crewId && !s.above).map((s) => s.role);
-  if (missing.length) warnings.push({ level: 'illegal', code: 'missing', text: `No ${missing.join(', ')}` });
+  if (missing.length) warnings.push({ level: 'illegal', code: 'missing', text: `No ${seatWords(missing)} yet` });
   let level: Legality = worst(d.legality, missing.length ? 'illegal' : 'legal');
   // v0.6: optional seats above the legal minimum only warn when empty.
   const spare = p.slots.filter((s) => !s.crewId && s.above);
@@ -223,6 +223,19 @@ export function dutyLegality(g: GameState, dutyOrFlightId: string): DutyLegality
 export interface RosterOpts {
   /** Accept an illegal assignment (it stays flagged red) or leave a required seat empty. */
   force?: boolean;
+}
+
+/** v0.7.1 plain words for empty seats: ['CPT', 'FO', 'CC', 'CC'] → 'captain, first officer and 2 cabin crew'. */
+const SEAT_WORD: Record<Role, [string, string]> = {
+  CPT: ['captain', 'captains'], FO: ['first officer', 'first officers'], CRP: ['relief pilot', 'relief pilots'],
+  CSD: ['cabin manager', 'cabin managers'], SCC: ['senior cabin crew', 'senior cabin crew'], CC: ['cabin crew', 'cabin crew'],
+};
+function seatWords(roles: Role[]): string {
+  const parts = (Object.keys(SEAT_WORD) as Role[]).map((r) => {
+    const n = roles.filter((x) => x === r).length;
+    return n === 0 ? '' : n === 1 ? SEAT_WORD[r][0] : `${n} ${SEAT_WORD[r][1]}`;
+  }).filter(Boolean);
+  return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts[0] ?? '';
 }
 
 function issuesText(g: GameState, c: CrewMember, p: Pairing): { level: Legality; text: string } {
