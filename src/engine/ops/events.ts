@@ -15,10 +15,10 @@ import { chance, int, pick, range } from '../core/rng';
 import { DAY, fmtDateTime, fmtDay, fmtDuration, fmtTime, localMinuteOfDay, monthKey, toDate } from '../core/time';
 import type { ActionResult, Aircraft, Contract, CrewFix, CrewMember, CrewStatus, Decision, DecisionOption, Flight, GameState, MaintenanceEvent, MessageCat, Minute, Pairing, Receivable, Role, SimEvent } from '../core/types';
 import { generateOffer, planPositioning } from '../contracts';
-import { applyCrewFix, applyDiscretion, crewControl, flightCrewStatus, minRest, moraleShock, replaceCrew, rerosterFrom, rosterOf } from '../crew';
+import { applyCrewFix, applyDiscretion, crewControl, discretionMax, flightCrewStatus, minRest, moraleShock, replaceCrew, rerosterFrom, rosterOf } from '../crew';
 import { planCrew } from '../crew/check';
 import { calledNow } from '../crew/standby';
-import { DISCRETION, type IssueCode } from '../crew/rules';
+import { type IssueCode } from '../crew/rules';
 import { dhBlock, OUT_CONNECT, outTicket, segsOf } from '../crew/timeline';
 import { distance } from '../core/geo';
 import { applyHold, cancelCost, cancelLegs, crewBlocked, delayChain, moveFlight, noticeText, pickRival, planHold, planRecovery, rivalFactor, stationOf, subcharterCost, subcharterLegs, subHit, windowLegs, type SubHit } from './flights';
@@ -367,7 +367,7 @@ export function crewShortDecision(g: GameState, f: Flight, ac: Aircraft): void {
   const legs = tripLegs(g, ac, f);
   const over = d ? d.fdp - d.maxFdp - (d.discretion ?? 0) : 0;
   // v0.7.3 ORO.FTL.205(f): only once the crew have reported (unforeseen, at or after report).
-  const canDisc = !!d && d.report <= g.now && !cs.missing.length && over > 0 && over <= (d.augment > 0 ? DISCRETION.augmented : DISCRETION.basic) && !d.discretion;
+  const canDisc = !!d && d.report <= g.now && !cs.missing.length && over > 0 && over <= discretionMax(g, d) && !d.discretion;
   const roll = range(g, BAL.subcharterFactor[0], BAL.subcharterFactor[1]);
   const rivalId = pickRival(g, ac.typeId);
   const factor = Math.round(roll * rivalFactor(g, rivalId) * 100) / 100;

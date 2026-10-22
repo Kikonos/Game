@@ -196,7 +196,9 @@ function dutyOfFlight(g: GameState, flightId: string) {
   if (!f || !d || !ac || d.done || f.status === 'cancelled') return null;
   const first = g.flights[d.flightIds[0]] ?? f;
   const lastF = g.flights[d.flightIds[d.flightIds.length - 1]] ?? f;
-  return { f: first, d, ac, rest: restOf(g, ac.id), route: `${first.from}–${lastF.to}` };
+  // The whole day's stations (an out-and-back reads AMM–MAA–AMM, not AMM–AMM).
+  const stops = [first.from, ...d.flightIds.map((id) => g.flights[id]?.to).filter((x): x is string => !!x)];
+  return { f: first, d, ac, rest: restOf(g, ac.id), route: stops.length <= 5 ? stops.join('–') : `${first.from}–${lastF.to}` };
 }
 
 /** Another aircraft of the same family with class 1 rest for both sides, free around the duty (a swap hint). */

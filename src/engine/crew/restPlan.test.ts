@@ -13,6 +13,7 @@ import { syncDuty } from './duties';
 import { setDutyAugment } from './explain';
 import { longestDay, planRest, restNow, restPlan, restPlanForFlight, restText, restVerdict, slipShort, type RestLeg } from './restPlan';
 import { touchCrew } from './timeline';
+import { discretionMax } from './roster';
 import { restTooShortCard } from '../problems/crew';
 import { chainAugment } from '../contracts/offers';
 
@@ -312,6 +313,16 @@ describe('v0.7.3 fixes', () => {
     expect(chainAugment(g, 'a332', chain(21)).aug).toBe(1);
     expect(chainAugment(g, 'a332', chain(9)).aug).toBe(0);
     expect(chainAugment(g, 'a320ceo', chain(21)).aug).toBe(0);
+  });
+
+  it("commander's discretion never takes the cabin crew's day past their rest table (18:00 on bunks)", () => {
+    const { g, ac, std } = setup();
+    addFlight(g, { no: 'AW6', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'LIS', to: 'GRU', std, sta: std + 12 * H + 30 });
+    const [d] = buildDuties(g, ac.id, g.now, g.now + 5 * DAY);
+    expect(d.augment).toBe(1);
+    const room = 18 * H - (d.cabinEarly ?? 0) - d.maxFdp;
+    expect(discretionMax(g, d)).toBe(Math.max(0, Math.min(3 * H, room)));
+    expect(d.maxFdp + discretionMax(g, d) + (d.cabinEarly ?? 0)).toBeLessThanOrEqual(18 * H);
   });
 });
 

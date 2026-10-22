@@ -433,15 +433,17 @@ export function restPlan(g: GameState, dutyId: string, opts: { augment?: 1 | 2 }
   const early = d.cabinEarly ?? typeEarly(ac?.typeId ?? 'a320ceo');
   const legs = restLegs(g, d);
   const n = restCabinN(g, d);
-  const key = `${augment}:${d.legacyRest ? 'L' : ''}${d.fdp}:${early}:${n}:${JSON.stringify(rest)}:${legs.map((l) => `${l.id}@${l.std}-${l.sta}`).join()}:${p ? p.slots.map((s) => s.crewId ?? '-').join() : ''}`;
+  const key = `${augment}:${d.legacyRest ? 'L' : ''}${d.basicFdp ?? ''}:${d.fdp}:${early}:${n}:${JSON.stringify(rest)}:${legs.map((l) => `${l.id}@${l.std}-${l.sta}`).join()}:${p ? p.slots.map((s) => s.crewId ?? '-').join() : ''}`;
+  // A day that has shrunk under the no-rest limit (a leg cancelled or split off under way) needs no in-flight rest.
+  const moot = (x: RestPlan) => (!x.ok && !opts.augment && d.basicFdp !== undefined && d.fdp <= d.basicFdp ? null : x);
   const hit = memo.get(d);
-  if (hit && hit.key === key) return hit.plan;
+  if (hit && hit.key === key) return moot(hit.plan);
   if (!legs.length) return null;
   const plan = planRest(legs, rest, augment, d.fdp + early, n);
   if (d.legacyRest) plan.legacy = true;
   if (p) nameTurns(g, plan, p.slots);
   memo.set(d, { key, plan });
-  return plan;
+  return moot(plan);
 }
 
 /** Fills crewIds: pilots by seat (the second CPT/FO are CPT2/FO2), cabin crew in slot order by group. */

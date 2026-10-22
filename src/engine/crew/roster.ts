@@ -1,7 +1,7 @@
 // Auto-roster, change sync and disruption APIs (B2). DESIGN.md §4.2, §5.3.
 
 import { BAL } from '../core/balance';
-import { addDeadhead, deadheadFlights, flightsOf, removeFlights, retimeFlight, touchTickets } from '../core/entities';
+import { addDeadhead, deadheadFlights, flightsOf, markFlightsChanged, removeFlights, retimeFlight, touchTickets } from '../core/entities';
 import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { requestPause } from '../core/pause';
@@ -13,7 +13,8 @@ import { deletePairing, dutyLegality, planAircraft, queueDuty, refreshPairing, s
 import { crewName } from './generate';
 import { callIfOnStandby, dropStandby } from './standby';
 import { lateChange, moraleShock, nextReport } from './morale';
-import { DISCRETION, evalSegs, levelOf, minRest, tzDeltaH, worst, type Seg } from './rules';
+import { cabinFdpCap, DISCRETION, evalSegs, levelOf, minRest, tzDeltaH, worst, type Seg } from './rules';
+import { planRest, restCabinN, restLegs, restOf, restPlan } from './restPlan';
 import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, locAt, noteRiders, passengers, planHome, planOut, segsOf, ticketPrice, touchCrew, typeIdOf, withoutTickets } from './timeline';
 
 export { buildDuties } from './duties';
@@ -498,6 +499,13 @@ function slipForRest(g: GameState, d: Duty, ids: string[]): boolean {
 export function guardDuty(g: GameState, dutyId: string): boolean {
   let d = g.duties[dutyId];
   if (!d || d.done) return true;
+  // v0.7.3 an augmented duty whose rest plan no longer works (the aircraft's facilities changed) is re-planned at the
+  // next settle (onFlightsChanged → syncDuty → pickPlan), never flown as planned.
+  const p00 = g.pairings[d.pairingId];
+  if (d.augment > 0 && !d.legacyRest && d.report > g.now && p00?.aircraftId && restPlan(g, d.id)?.ok === false) {
+    d.flightsEv = -1;
+    markFlightsChanged(g, p00.aircraftId, d.report);
+  }
   const found = crewIssuesFor(g, d);
   if (!found.length) return true;
   const p0 = g.pairings[d.pairingId];
@@ -1087,6 +1095,29 @@ export const DISCRETION_BEFORE_REPORT = 'Only after the crew have reported: for 
  * (3 h with an augmented crew) on the basic FDP after a planned extension (GM1 ORO.FTL.205(f)(1)(i)), else on the
  * duty's limit; crew.discretion++, morale −3.
  */
+/**
+ * v0.7.3 the most commander's discretion can add to a duty (ORO.FTL.205(f): 2 h, 3 h augmented). On an augmented
+ * duty with cabin crew aboard it never takes their day past the CS FTL.1.205(c)(3) table for their rest class
+ * (18:00 / 17:00 / 16:00), nor past a day whose cabin rest no longer fits the cruise (15 min steps). Pure.
+ */
+export function discretionMax(g: GameState, d: Duty): number {
+  const up = d.augment > 0 ? DISCRETION.augmented : DISCRETION.basic;
+  if (d.augment === 0) return up;
+  const rest = restOf(g, g.pairings[d.pairingId]?.aircraftId ?? null);
+  const n = restCabinN(g, d);
+  if (!rest.cc || n === 0) return up;
+  const early = d.cabinEarly ?? 0;
+  let x = Math.max(0, Math.min(up, cabinFdpCap(rest.cc.cls) - early - d.maxFdp));
+  // ... nor past what the cabin crew aboard can rest for in this cruise (a longer day needs more rest each).
+  const legs = restLegs(g, d);
+  const fits = (m: number) => {
+    const plan = planRest(legs, rest, d.augment as 1 | 2, d.maxFdp + m + early, n);
+    return plan.ok && plan.extraCabin <= (d.restExtra ?? 0);
+  };
+  while (x > 0 && legs.length && !fits(x)) x = Math.max(0, x - 15);
+  return x;
+}
+
 export function applyDiscretion(g: GameState, dutyId: string): ActionResult {
   const d = g.duties[dutyId];
   const p = d && g.pairings[d.pairingId];
@@ -1094,9 +1125,12 @@ export function applyDiscretion(g: GameState, dutyId: string): ActionResult {
   if (d.done) return { ok: false, error: 'Duty already flown' };
   if (d.discretion) return { ok: false, error: 'Discretion already used on this duty' };
   if (d.report > g.now) return { ok: false, error: DISCRETION_BEFORE_REPORT };
-  const up = d.augment > 0 ? DISCRETION.augmented : DISCRETION.basic;
-  d.discretion = d.ext && d.basicFdp ? Math.max(0, d.basicFdp + up - d.maxFdp) : up;
-  if (!d.discretion) return { ok: false, error: 'Discretion adds nothing on a planned extension' };
+  const up = discretionMax(g, d);
+  d.discretion = d.ext && d.basicFdp ? Math.max(0, Math.min(up, d.basicFdp + up - d.maxFdp)) : up;
+  if (!d.discretion) {
+    delete d.discretion;
+    return { ok: false, error: d.augment > 0 ? "Discretion adds nothing: the cabin crew's day is at the most their rest allows" : 'Discretion adds nothing on a planned extension' };
+  }
   d.legality = dutyLegality(d);
   for (const s of p.slots) {
     const c = s.crewId ? g.crew[s.crewId] : undefined;

@@ -26,7 +26,7 @@ import { crewWindows } from './ftl';
 import { crewName } from './generate';
 import { moraleShock } from './morale';
 import { city, rootReason, type Reason, type ReasonCode } from './reasons';
-import { applyDiscretion, autoRoster, DISCRETION_BEFORE_REPORT, flightCrewStatus, onFlightsChanged, placeCrew, recheckPairing, releaseCrew, rerosterFrom, setShortHook, type FlightCrewStatus } from './roster';
+import { applyDiscretion, autoRoster, discretionMax, DISCRETION_BEFORE_REPORT, flightCrewStatus, onFlightsChanged, placeCrew, recheckPairing, releaseCrew, rerosterFrom, setShortHook, type FlightCrewStatus } from './roster';
 import { assignCrew, dutyCandidates, type DutyCandidate } from './rosterActions';
 import { DISCRETION, levelOf, LIMITS, minRest } from './rules';
 import { cabinEarly, crewCount, crewRev, dhBlock, locAt, OUT_CONNECT, segsOf, touchCrew, typeIdOf, type TicketPlan } from './timeline';
@@ -1316,7 +1316,7 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean): CrewSolution[] {
     else if (d.report > g.now) out.push(no(s, DISCRETION_BEFORE_REPORT));
     else if (d.discretion) out.push(no(s, 'Already used on this duty'));
     else if (over <= 0) out.push(no(s, 'The duty is not over its limit'));
-    else if (over > (d.augment > 0 ? DISCRETION.augmented : DISCRETION.basic)) out.push(no(s, `Over by ${fmtDuration(over)}: more than discretion allows`));
+    else if (over > discretionMax(g, d)) out.push(no(s, `Over by ${fmtDuration(over)}: more than discretion allows${d.augment > 0 && discretionMax(g, d) < DISCRETION.augmented ? " (the cabin crew's rest allows no longer day)" : ''}`));
     else {
       s.chips = ['Free', `FDP +${fmtDuration(over)}`, 'Morale −3 each', 'Fatigue +10'];
       out.push(run(s));
