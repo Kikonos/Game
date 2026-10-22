@@ -348,3 +348,7 @@ Player notes (22 Oct, with top-bar screenshot .handover/updates/topbar-space.jpg
   - Crew slip at a fuel stop: yes, LATER. Recorded in specs.json later-ideas.crew-slip.
   - REMIND the player about a game-wide language and redundancy pass after the v0.8 release. Recorded in later-ideas.language-pass.
 - 22:05Z: The player wants the Boeing 747-400. It was switched off since the first data files, with no recorded reason. Added as fixpack item 6, ships with v0.8.
+- 20:20Z: v0.7.4 DONE. Commit 6eb9bed on branch v074, pushed to origin/v074. tsc clean, 900/900 tests, build OK, 0 console errors. Screenshots in scratchpad/v074/shots.
+  - HOLD for the v0.8 release.
+  - PORT ORDER: v0.8 ready → merge v074 into acmi (whatsNew order v0.8, v0.7.4, ...) → fix pack (specs v0.8.x-fixpack) → verify → release.
+  - Language-pass note: the Crew Planning verdict line repeats the stats shown above it. Trim it in the language pass.
