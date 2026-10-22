@@ -559,7 +559,9 @@ export function evalSegs(ctx: TimelineCtx, segsIn: Seg[]): LegalityIssue[] {
   // the one after tracking began (ctx.twoDays[0]).
   const td = ctx.twoDays;
   const tdFrom = td?.[0] ?? Infinity;
-  const tdPlanned = new Map<number, number>();
+  // Months before now's are never checked: gaps ending before it (less a day for the base clock) are skipped.
+  const tdMin = !td ? Infinity : ctx.now !== undefined ? monthStartOf(ctx.now) - DAY : -Infinity;
+  let tdPlanned: Map<number, number> | null = null;
   let tdChecked = -1;
   // v0.7.3 time-zone recovery (CS FTL.1.235(b)): the rotation under way and the last return.
   let rot = ctx.rot ? { ...ctx.rot } : null;
@@ -568,9 +570,12 @@ export function evalSegs(ctx: TimelineCtx, segsIn: Seg[]): LegalityIssue[] {
   for (let i = 0; i < segs.length; i++) {
     const s = segs[i];
     // Planned recovery gaps with 2 whole local days, by the month of the first whole day.
-    const tdPrev = Math.max(prevEnd, ctx.workEnd ?? -Infinity);
-    if (td && s.kind !== 'log' && tdPrev > -Infinity && s.start - tdPrev >= LIMITS.recovery) {
-      for (const [mk, n] of twoDayCredits(ctx.base, tdPrev, s.start)) tdPlanned.set(mk, Math.min(2, (tdPlanned.get(mk) ?? 0) + n));
+    if (td && s.kind !== 'log' && s.start >= tdMin) {
+      const tdPrev = Math.max(prevEnd, ctx.workEnd ?? -Infinity);
+      if (tdPrev > -Infinity && s.start - tdPrev >= LIMITS.recovery) {
+        tdPlanned ??= new Map();
+        for (const [mk, n] of twoDayCredits(ctx.base, tdPrev, s.start)) tdPlanned.set(mk, Math.min(2, (tdPlanned.get(mk) ?? 0) + n));
+      }
     }
     // Recovery: the gap before s qualifies when it is long enough and holds two local nights.
     if (prevEnd > -Infinity) {
@@ -640,7 +645,7 @@ export function evalSegs(ctx: TimelineCtx, segsIn: Seg[]): LegalityIssue[] {
         // Past months are history: from the current month (and never the first month tracked) on.
         for (let m = Math.max(tdChecked + 1, tdFrom + 1, monthOf(ctx.now ?? s.start)); m < ms; m++) {
           tdChecked = m;
-          if ((td[m] ?? 0) + (tdPlanned.get(m) ?? 0) < 2) pushIssue(issues, 'twoDays', 'illegal', 'Twice a month crew need a weekend of 2 whole days off', tgt);
+          if ((td[m] ?? 0) + (tdPlanned?.get(m) ?? 0) < 2) pushIssue(issues, 'twoDays', 'illegal', 'Twice a month crew need a weekend of 2 whole days off', tgt);
         }
       }
       const w = windowsAt(segs, i, s.end);
@@ -688,10 +693,23 @@ export function evalSegs(ctx: TimelineCtx, segsIn: Seg[]): LegalityIssue[] {
 
 /** v0.7.3 extended FDPs allowed per crew member in any 7 days. */
 const EXT_PER_WEEK = 2;
-const monthOf = (t: Minute) => {
+/** UTC month key of t (year × 12 + month); the bounds of the last 4 months looked up are cached (evalSegs' hot path). */
+const MO: { from: number; to: number; m: number }[] = [];
+let mo = { from: 0, to: -1, m: 0 };
+const monthOf = (t: Minute): number => {
+  if (t >= mo.from && t < mo.to) return mo.m;
+  for (const x of MO) if (t >= x.from && t < x.to) return (mo = x).m;
   const d = new Date(Date.UTC(2000, 0, 1) + t * 60_000);
-  return d.getUTCFullYear() * 12 + d.getUTCMonth();
+  const y = d.getUTCFullYear();
+  const m = d.getUTCMonth();
+  const base = Date.UTC(2000, 0, 1);
+  mo = { from: (Date.UTC(y, m, 1) - base) / 60_000, to: (Date.UTC(y, m + 1, 1) - base) / 60_000, m: y * 12 + m };
+  MO.unshift(mo);
+  if (MO.length > 4) MO.pop();
+  return mo.m;
 };
+/** Start (UTC minute) of t's month. */
+const monthStartOf = (t: Minute): Minute => (monthOf(t), mo.from);
 /**
  * v0.7.3 two-local-day recoveries a free stretch [from, to] gives, by month: its whole local days at `tz` counted per
  * month, two days making one (at most 2 a month); nothing when it holds fewer than 2 whole days.
@@ -702,13 +720,13 @@ export function twoDayCredits(tz: string, from: Minute, to: Minute): Map<number,
   const n = localDaysIn(tz, from, to);
   if (n < 2) return out;
   const first = Math.ceil((from + off) / DAY) * DAY - off;
-  const days = new Map<number, number>();
-  // The last 62 days at most: only the months near the end are checked.
-  for (let k = Math.max(0, n - 62); k < n; k++) {
+  // The last 62 days at most (only the months near the end are checked), a month at a time.
+  for (let k = Math.max(0, n - 62); k < n; ) {
     const mk = monthOf(first + k * DAY + 12 * H);
-    days.set(mk, (days.get(mk) ?? 0) + 1);
+    const kEnd = Math.min(n, Math.ceil((mo.to - first - 12 * H) / DAY));
+    if (kEnd - k >= 2) out.set(mk, Math.min(2, Math.floor((kEnd - k) / 2)));
+    k = kEnd;
   }
-  for (const [mk, d] of days) if (d >= 2) out.set(mk, Math.min(2, Math.floor(d / 2)));
   // A stretch whose days split 1 + 1 across two months still is one 2-day recovery (the month of its first day).
   if (!out.size) out.set(monthOf(first + 12 * H), 1);
   return out;
@@ -732,11 +750,19 @@ function standbyView(ctx: TimelineCtx, segs: Seg[]): Seg[] {
   for (const x of segs) if (x.kind === 'sby') { any = true; break; }
   if (!any) return segs;
   const now = ctx.now ?? -Infinity;
+  // Work being planned (fresh, not standby) takes over every window not started yet up to a day after it (the
+  // roster's assignment drops them: crew/standby.ts dropStandby).
+  let freshEnd = -Infinity;
+  for (const x of segs) if (x.fresh && x.kind !== 'sby') freshEnd = Math.max(freshEnd, x.end);
   const drop = new Set<number>();
   const called = new Map<number, number>();
   for (let i = 0; i < segs.length; i++) {
     const x = segs[i];
     if (x.kind !== 'sby') continue;
+    if (ctx.now !== undefined && x.start > now && x.start < freshEnd + DAY) {
+      drop.add(i);
+      continue;
+    }
     let w = -1;
     for (let k = 0; k < segs.length; k++) {
       const y = segs[k];

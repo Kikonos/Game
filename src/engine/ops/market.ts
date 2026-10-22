@@ -281,6 +281,8 @@ export function acquireAircraft(g: GameState, offerId: string): ActionResult<{ a
       : { fhSinceA: 0, lastA: handover, fhSinceC: Math.round(range(g, 0.1, 0.4) * (t.body === 'wide' ? 6000 : 7500)), lastC: handover - int(g, 60, 300) * DAY, deferred: 0.03 },
     cabin: { ...o.cabin }, etops: t.body === 'wide' ? Math.min(180, t.etopsMax) : 0, rest: structuredClone(migrateRest(o)),
     at: site, flightId: null, status: 'delivering', maintId: null, deliveredAt: handover,
+    // Utilisation tracked from signing (a reload would set it at the load day otherwise: save/load determinism).
+    bhSince: Math.floor(g.now / DAY),
     delivery: { site, where: o.where ?? `${AIRPORT_BY_CODE[site]?.city ?? site} (${site})`, handover, ferryIds: [] },
   };
   g.fleet[ac.id] = ac;

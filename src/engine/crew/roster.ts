@@ -11,6 +11,7 @@ import type { ActionResult, CrewMember, Duty, Flight, GameState, Legality, Minut
 import { acceptable, crewIssuesFor, mergeSegs, openDuties, otherTrip, planCrew, type CrewPlan } from './check';
 import { deletePairing, dutyLegality, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setCrewTrailOkHook, setReleaseHook, setRetickHook, splitPairing, splitUnderWay, syncDuty } from './duties';
 import { crewName } from './generate';
+import { dropStandby } from './standby';
 import { lateChange, moraleShock, nextReport } from './morale';
 import { DISCRETION, evalSegs, levelOf, minRest, tzDeltaH, worst, type Seg } from './rules';
 import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, locAt, noteRiders, passengers, planHome, planOut, segsOf, ticketPrice, touchCrew, typeIdOf, withoutTickets } from './timeline';
@@ -688,6 +689,7 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
         continue;
       }
       slot.crewId = c.id;
+      dropStandby(g, c, spanTo + DAY);
       inP.add(c.id);
       plans.set(c.id, plan);
       lateChange(g, c.id, nextReport(g, p));
@@ -1172,6 +1174,8 @@ export function placeCrew(g: GameState, p: Pairing, slot: number, c: CrewMember)
   const hadCrew = crewCount(p) > 0;
   const plan = planCrew(g, c, p, segsOf(g, c, p.id));
   p.slots[slot].crewId = c.id;
+  const od = openDuties(g, p);
+  if (od.length) dropStandby(g, c, od[od.length - 1].release + DAY);
   lateChange(g, c.id, nextReport(g, p));
   buyTickets(g, p, new Map([[c.id, plan]]), emptyResult());
   setFlightsCrew(g, p);

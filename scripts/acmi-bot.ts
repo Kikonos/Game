@@ -58,10 +58,12 @@ import { devFleet } from '../src/engine/dev';
 import { createGame } from '../src/engine/newGame';
 import {
   acquireAircraft, aircraftGate, applyApproval, approvalBlocker, approvalReqs, APPROVALS, bookCCheck, bookRefit, bookRestRefit, cancelCheck, cCheckOptions, cCheckSlots, checkStatus, deliveryStatus,
-  earlyReturnQuote, fixedCosts, groundGaps, leastUsed, problems, ratedPilots, refitQuote, refitSlots, refitStations, resolveDecision, restRefitOptions, returnEarly, saleQuote, sellAircraft, ticketPurpose,
+  earlyReturnQuote, fixedCosts, groundGaps, leastUsed, ratedPilots, refitQuote, refitSlots, refitStations, resolveDecision, restRefitOptions, returnEarly, saleQuote, sellAircraft, ticketPurpose,
 } from '../src/engine/ops';
 import { cabinAt, cabinFits, refitTip } from '../src/engine/ops/cabin';
 import { deliveryQuote } from '../src/engine/ops/delivery';
+import { restCards } from '../src/engine/problems/crew';
+import type { ProblemCard } from '../src/engine/problems/types';
 import type { ApprovalId } from '../src/engine/core/types';
 import { deserialize, serialize } from '../src/engine/save';
 import { advanceTo, settle } from '../src/engine/sim';
@@ -257,6 +259,12 @@ function offers(g: GameState, t: Tally): void {
     const longLead = o.archetype === 'tourSeries' || o.archetype === 'troopRotation';
     if (!isBase(o) && o.start > g.now + (longLead ? 90 : hungry ? 45 : 30) * DAY) continue;
     const best = bestFit(g, o);
+    if (!best && process.argv.includes('--why') && o.created > g.now - DAY) {
+      for (const id of seatsFit(g, o)) {
+        const r = feasibility(g, o.id, id, { paint: paintOn(o), quick: true });
+        console.error(`${fmtDateTime(g.now)} WHY ${o.archetype} ${o.id} ${g.fleet[id].reg} ${r.level} m${Math.round(r.estMargin / 1000)}k ${r.checks.filter((c) => c.level !== 'ok').map((c) => `${c.id}:${c.level}:${c.label}`).join(' | ')}`);
+      }
+    }
     if (!best) continue;
     // A long-lead base deal is worth one counter at +5%; a refusal reopens it at the asking price.
     if (isBase(o) && !o.counter && o.product.kind === 'wet' && o.start > g.now + 14 * DAY && o.expires > g.now + 36 * 60) {
@@ -504,10 +512,10 @@ const hadRestFit = (g: GameState, acId: string) => Object.values(g.maintenance).
  * rest (restFacility card) or an open job failing only on rest → curtained J seats (J ≥ 4) else recliners, first slot;
  * an A330/A340 flying ≥ 8 augmented duties on business-seat cabin rest → a lower-deck module when $3M stay after it.
  */
-function restRefits(g: GameState, t: Tally): void {
+function restRefits(g: GameState, t: Tally, cards: ProblemCard[]): void {
   if (!g.company.approvals.includes('augmented')) return;
   const signed = new Set<string>();
-  for (const c of problems(g)) {
+  for (const c of cards) {
     if (c.subject.kind !== 'restFacility') continue;
     const ac = g.flights[c.subject.ref.id]?.aircraftId;
     if (ac) signed.add(ac);
@@ -546,8 +554,8 @@ function openRestJob(g: GameState, acId: string): boolean {
 }
 
 /** v0.7.3 a duty whose cruise is too short for 3 pilots' rest: fly it with 4 pilots when the plan allows (once per duty). */
-function restTooShort(g: GameState, t: Tally): void {
-  for (const c of problems(g)) {
+function restTooShort(g: GameState, t: Tally, cards: ProblemCard[]): void {
+  for (const c of cards) {
     if (c.subject.kind !== 'restTooShort') continue;
     const d = g.duties[g.flights[c.subject.ref.id]?.dutyId ?? ''];
     if (!d || d.forceAug || d.report <= g.now) continue;
@@ -881,8 +889,10 @@ function policy(g: GameState, t: Tally, urgent: boolean, newDay: boolean): void 
     conversions(g, t);
     hire(g, t);
     checks(g, t);
-    restRefits(g, t);
-    restTooShort(g, t);
+    // v0.7.3 the rest cards (widebodies held with augmented crews only: the cards read every duty's rest plan).
+    const cards = g.company.approvals.includes('augmented') && Object.values(g.fleet).some((a) => typeOf(a.typeId).body === 'wide') ? restCards(g) : [];
+    restRefits(g, t, cards);
+    restTooShort(g, t, cards);
     earlyReturns(g, t);
     sales(g, t);
     ladderSteps(g, t);

@@ -103,6 +103,19 @@ export function dailyStandby(g: GameState): void {
   if (changed) touchCrewState(g);
 }
 
+/**
+ * v0.7.3 planned work replaces standby: c's windows not started yet and starting before `until` are dropped (the
+ * daily standby roster refills the day with someone else). Matches evalSegs, which ignores them for fresh work.
+ */
+export function dropStandby(g: GameState, c: CrewMember, until: Minute): void {
+  if (!c.standby) return;
+  const keep = c.standby.filter((w) => w.calledAt !== undefined || w.from <= g.now || w.from >= until);
+  if (keep.length === c.standby.length) return;
+  if (keep.length) c.standby = keep;
+  else delete c.standby;
+  touchCrewState(g);
+}
+
 /** Any planned duty or ticket of c overlapping [from, to). */
 function overlapsWork(g: GameState, c: CrewMember, from: Minute, to: Minute): boolean {
   return segsOf(g, c).some((s) => s.kind !== 'log' && s.kind !== 'sby' && s.start < to && s.end > from);

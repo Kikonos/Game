@@ -11,8 +11,9 @@ import { problems } from '../ops';
 import { addCrew, fixtureContract, fixtureGame } from './fixtures';
 import { applyCrewFix, autoRoster, buildDuties, crewControl, fdpWhy, restPlan, restPlanForFlight, setDutyAugment } from '.';
 import { syncDuty } from './duties';
-import { dailyStandby, onStandby } from './standby';
-import { dutySegs, segsOf } from './timeline';
+import { dailyStandby, dropStandby, onStandby } from './standby';
+import { evalSegs, type Seg } from './rules';
+import { ctxOf, dutySegs, segsOf } from './timeline';
 import { createGame } from '../newGame';
 
 const H = 60;
@@ -175,6 +176,28 @@ describe('home standby (CS FTL.1.225(b))', () => {
     // standby is not rest, and counts 25 %
     const c = on[0];
     expect(segsOf(g, c).some((s) => s.kind === 'sby' && s.share === 0.25)).toBe(true);
+  });
+  it('planned work replaces standby not yet started: the check ignores it, the assignment drops it', () => {
+    const g = newDev();
+    dailyStandby(g);
+    const c = Object.values(g.crew).find((x) => x.role === 'CPT' && x.standby?.some((w) => w.from > g.now))!;
+    const w = c.standby!.find((x) => x.from > g.now)!;
+    const ctx = ctxOf(g, c);
+    const sby = segsOf(g, c).find((x) => x.kind === 'sby' && x.start === w.from)!;
+    // A fresh duty overlapping the window: legal (the window is dropped from the view), as is one 2 days later.
+    const duty = (start: number): Seg => ({ kind: 'duty', start, end: start + 8 * H, fdp: 7 * H, maxFdp: 13 * H, block: 5 * H, sectors: 2, aug: false, disruptive: false, rest: 12 * H, at: 'LIS', from: 'LIS', dutyId: 'x', fresh: true });
+    for (const t of [w.from + 2 * H, w.to + 2 * DAY]) {
+      const issues = evalSegs(ctx, [...segsOf(g, c), duty(t)].sort((a, b) => a.start - b.start));
+      expect(issues.filter((i) => i.level === 'illegal').map((i) => i.code)).toEqual([]);
+    }
+    expect(sby.share).toBe(0.25);
+    dropStandby(g, c, w.to + 3 * DAY);
+    expect(c.standby?.some((x) => x.from === w.from) ?? false).toBe(false);
+    // A window already running stays (it is a call-out if a duty reports inside it).
+    const run = { from: g.now - H, to: g.now + 11 * H };
+    c.standby = [run];
+    dropStandby(g, c, g.now + 3 * DAY);
+    expect(c.standby).toEqual([run]);
   });
   it('Crew Control calls a captain on standby first: no overtime, the call counted', () => {
     const g = newDev();
