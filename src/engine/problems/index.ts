@@ -6,9 +6,9 @@ import { flightsRev } from '../core/entities';
 import { pushMessage } from '../core/messages';
 import type { GameState, Message, MessageCat, ProblemKind, ProblemRef, Ref } from '../core/types';
 import { crewRev } from '../crew/timeline';
-import { crewFlightCard, crewProblems, crewResignedCard, crewSickCard } from './crew';
+import { captainAsFoCard, crewFlightCard, crewProblems, crewResignedCard, crewSickCard, restSeatsCard } from './crew';
 import { changeRequestCard, commercialProblems, contractCancelledCard, counterExpiryCard, offerFitCard, penaltyCard } from './commercial';
-import { deliveryWaitCard, ferryUncrewedCard, fleetProblems, leaseReturnCard, refitMissedCard } from './fleet';
+import { deliveryWaitCard, ferryUncrewedCard, fleetProblems, leaseReturnCard, refitMissedCard, saleCard } from './fleet';
 import { cashLowCard, invoiceOverdueCard, leaseDueCard, lossMonthCard, moneyProblems } from './money';
 import { aogCard, checkCard, checkClashCard, noSlotCard, techProblems } from './tech';
 import { hurtBadges, type ProblemCard } from './types';
@@ -16,7 +16,7 @@ import { hurtBadges, type ProblemCard } from './types';
 export { hurtBadges, lateText, limitTone, mkHurt, usdShort } from './types';
 export type { GaugeSpec, Hurt, MiniMapSpec, ProblemAction, ProblemCard, ReachSpec, TimelineSpec } from './types';
 export type { ProblemKind, ProblemRef };
-export { crewFlightCard, crewSickCard, crewResignedCard, aogCard, checkCard, checkClashCard, noSlotCard, offerFitCard, counterExpiryCard, changeRequestCard, contractCancelledCard, cashLowCard, invoiceOverdueCard, lossMonthCard, leaseDueCard, deliveryWaitCard, ferryUncrewedCard, refitMissedCard, leaseReturnCard };
+export { crewFlightCard, crewSickCard, crewResignedCard, aogCard, checkCard, checkClashCard, noSlotCard, offerFitCard, counterExpiryCard, changeRequestCard, contractCancelledCard, cashLowCard, invoiceOverdueCard, lossMonthCard, leaseDueCard, deliveryWaitCard, ferryUncrewedCard, refitMissedCard, leaseReturnCard, captainAsFoCard, restSeatsCard, saleCard };
 
 /** The card for one problem (null = no problem, or not any more). Pure. */
 export function problemFor(g: GameState, subject: ProblemRef): ProblemCard | null {
@@ -47,8 +47,10 @@ export function problemFor(g: GameState, subject: ProblemRef): ProblemCard | nul
     case 'ferryUncrewed': return ferryUncrewedCard(g, id);
     case 'refit': return refitMissedCard(g, id);
     case 'leaseReturn': return leaseReturnCard(g, id);
-    // v0.7.2 (builders land with their features).
-    case 'restSeats': case 'captainAsFo': case 'sale': return null;
+    // v0.7.2
+    case 'restSeats': return restSeatsCard(g, id);
+    case 'captainAsFo': return captainAsFoCard(g, id);
+    case 'sale': return saleCard(g, id);
   }
 }
 
@@ -56,6 +58,8 @@ const SEV = { red: 0, amber: 1 } as const;
 const KIND_RANK: ProblemKind[] = [
   'aog', 'grounded', 'crewShort', 'crewIllegal', 'ferryUncrewed', 'cashLow', 'checkOverdue', 'checkClash', 'deliveryWait', 'crewSick', 'counterExpiry', 'changeRequest',
   'invoiceOverdue', 'checkDue', 'checkNoSlot', 'offerFit', 'leaseReturn', 'leaseDue', 'refit', 'crewResigned', 'crewTight', 'lossMonth', 'penalty', 'contractCancelled', 'crewReach', 'crewRest', 'crewFdp', 'goalMiss',
+  // v0.7.2
+  'restSeats', 'captainAsFo', 'sale',
 ];
 const rankOf = (c: ProblemCard) => SEV[c.severity] * 100 + KIND_RANK.indexOf(c.subject.kind);
 

@@ -24,7 +24,7 @@ export interface Hurt {
   badges: string[];
 }
 
-export type ModalKind = 'crewControl' | 'duty' | 'check' | 'subcharter' | 'hire' | 'offer' | 'refit' | 'lease' | 'decision' | 'sheet' | 'market' | 'aircraft' | 'crew' | 'contract';
+export type ModalKind = 'crewControl' | 'duty' | 'check' | 'subcharter' | 'hire' | 'offer' | 'refit' | 'lease' | 'decision' | 'sheet' | 'market' | 'aircraft' | 'crew' | 'contract' | /** v0.7.2 */ 'sell' | 'cCheck';
 export type TabId = 'map' | 'contracts' | 'schedule' | 'crew' | 'fleet' | 'finance' | 'company' | 'inbox';
 
 export interface ProblemAction {

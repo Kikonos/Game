@@ -15,7 +15,10 @@ import {
   groundGaps, liveryOf, monthProfit, paintStatus, rotationOf, subcharterable, subcharterQuote,
   acquireAircraft, aircraftGate, approvalReqs, bookRefit, cabinOptions, deliveryQuote, deliveryStatus, ladder, leaseView, marketView, refitQuote, refitStations, returnQuote, ticketPurpose,
   problemAt, problemFor, problems,
+  cCheckOptions, cCheckSlots, checkLogistics, earlyReturnQuote, leastUsed, opsStripFacts, refitSlots, restSeatsQuote, saleQuote, subcharterHit,
 } from '../ops';
+import { crewAway, restClassAt, restSeatsBlocked, sellableSeats } from '../crew';
+import { seatLabel } from './perf';
 import { deserialize, serialize } from '../save';
 import { advanceTo } from '../sim';
 import { addDeadhead, flightsOf, reassignFlights, retimeFlight, subcharterFlights, takeFlightChanges } from './entities';
@@ -206,6 +209,29 @@ describe('determinism of read APIs', () => {
       for (const ac of Object.keys(g.fleet)) problemAt(g, { kind: 'aircraft', id: ac });
       problemFor(g, { kind: 'cashLow', ref: { kind: 'cash', id: 'cash' } });
       for (const o of Object.values(g.offers)) problemFor(g, { kind: 'offerFit', ref: { kind: 'offer', id: o.id } });
+      // v0.7.2 reads and quotes.
+      crewAway(g);
+      opsStripFacts(g);
+      leastUsed(g, 'any');
+      seatLabel('FO', 'CPT');
+      for (const ac of Object.values(g.fleet)) {
+        refitSlots(g, ac.id, ac.cabin.label === '180Y' ? '12J/156Y' : '180Y', 2);
+        restSeatsQuote(g, ac.id, true, t + 5 * DAY);
+        saleQuote(g, ac.id);
+        earlyReturnQuote(g, ac.id);
+        restClassAt(g, ac.id);
+        const opts = cCheckOptions(g, ac.id);
+        for (const o of opts) cCheckSlots(g, ac.id, o.hub.code, 2);
+        problemFor(g, { kind: 'sale', ref: { kind: 'aircraft', id: ac.id } });
+      }
+      for (const f of some) {
+        subcharterHit(g, [f.id]);
+        restSeatsBlocked(g, f.id);
+        sellableSeats(g, f.id);
+        problemFor(g, { kind: 'captainAsFo', ref: { kind: 'flight', id: f.id } });
+        problemFor(g, { kind: 'restSeats', ref: { kind: 'flight', id: f.id } });
+      }
+      for (const m of Object.values(g.maintenance)) checkLogistics(g, m.id);
     }
     expect(JSON.stringify(g)).toBe(before);
   });

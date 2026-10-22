@@ -356,7 +356,11 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
     else if (a.kind === 'flight') rep.conflicts.flights.push(a.id);
     else if (a.kind === 'base') for (const f of flightsOf(g, ac.id)) if (f.contractId === a.contractId && f.status === 'scheduled') { rep.conflicts.flights.push(f.id); break; }
   }
-  if (!flyable) add('availability', 'warn', 'Not checked: the aircraft cannot fly the routes');
+  // v0.7.2 an aircraft being sold takes no new work.
+  if (ac.sale) {
+    availNo = true;
+    add('availability', 'no', `Sold: goes to ${ac.sale.buyer} on ${fmtDay(ac.sale.closes)}`);
+  } else if (!flyable) add('availability', 'warn', 'Not checked: the aircraft cannot fly the routes');
   else if (conflicts.length) {
     const soft = base && conflicts.every((a) => a.kind === 'maint' && g.maintenance[a.id]?.kind === 'A' && g.maintenance[a.id]?.status === 'planned');
     availNo = !soft;

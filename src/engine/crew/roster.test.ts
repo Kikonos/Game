@@ -373,10 +373,16 @@ describe('v0.7.2 captains flying as first officers', () => {
   it('the duty picker lists captains for an FO seat after the first officers, labelled', () => {
     const { g, p } = oneDay(true);
     const list = dutyCandidates(g, p.dutyIds[0], 'FO');
-    const firstCpt = list.findIndex((c) => c.role === 'CPT');
-    expect(firstCpt).toBeGreaterThan(0);
-    expect(list.slice(firstCpt).every((c) => c.asFo && c.reasons.includes('Captain flying as FO'))).toBe(true);
-    expect(list.slice(0, firstCpt).every((c) => c.role === 'FO' && !c.asFo)).toBe(true);
+    const caps = list.filter((c) => c.role === 'CPT');
+    expect(caps.length).toBeGreaterThan(0);
+    expect(caps.every((c) => c.asFo && c.reasons.includes('Captain flying as FO'))).toBe(true);
+    expect(list.filter((c) => c.role === 'FO').every((c) => !c.asFo)).toBe(true);
+    // Within each legality level the first officers come first.
+    for (const lv of ['legal', 'tight', 'illegal'] as const) {
+      const row = list.filter((c) => c.level === lv);
+      const k = row.findIndex((c) => c.asFo);
+      if (k >= 0) expect(row.slice(k).every((c) => c.asFo)).toBe(true);
+    }
   });
   it('morale: free twice in 30 days, −3 from the third time; counted in stats', () => {
     const g = fixtureGame();

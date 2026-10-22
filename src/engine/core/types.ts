@@ -1095,6 +1095,8 @@ export interface Stats {
   crewRed?: number;
   /** v0.7.2: std of company legs sub-chartered (90 days); aircraft sold; leases returned early; captain-as-FO duties. */
   subLog?: Minute[];
+  /** v0.7.2: reliability lost to sub-charters, all time (≤ 0). */
+  subHit?: number;
   sales?: number;
   earlyReturns?: number;
   asFo?: number;

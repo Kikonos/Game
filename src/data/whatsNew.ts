@@ -13,6 +13,28 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.7.2',
+    name: 'Crew Rules & Fleet',
+    features: [
+      'Real EASA flight time rules for pilots and cabin crew, written up from the regulation: duty limits by report time and sectors, in-flight rest by rest facility class, rest, and the yearly limits.',
+      "Crew rest per aircraft: some widebodies have bunks, some don't. Without bunks you can curtain off the last economy row as crew rest seats; they still sell when nobody needs to rest.",
+      'Pursers and cabin crew: CSD and SCC are now simply PUR, one per aircraft (two on the A380).',
+      "Captains can fly as first officers when no first officer is free. They keep their pay, but don't like it more than twice a month.",
+      'Hire flight attendants for up to three aircraft types at once; they join in about a week.',
+      "Sell owned aircraft and hand leased ones back early. 'Which one?' points at the least used.",
+      "C-checks at real maintenance hubs: Sofia, Malta, Miami, Amman, Manila and more. Your pilots ferry the aircraft out, fly home on airline flights and fetch it when it's done.",
+      "A live strip in the top bar: warnings first, then aircraft airborne, the next departure, today's on-time and where your crew are.",
+    ],
+    improvements: [
+      'Sub-chartering now costs reliability: clients notice when someone else flies their passengers.',
+      'Contracts have real names: TUI summer programmes, Jet2 weekend rotations, ski charters, peacekeeper rotations.',
+      'Market alerts live on the Market page; a new offer shows in the top bar.',
+      'Cabin refits start as soon as the aircraft is free, at your home base.',
+      'Up Next is a compact departures board you can fold away.',
+      'The white dot stays on a city while any of your crew are still there.',
+    ],
+  },
+  {
     version: 'v0.7.1',
     name: 'Crew Control',
     features: [

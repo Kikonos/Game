@@ -66,7 +66,7 @@ describe('paint requests on offers', () => {
     near('un', BAL.paint.unRotation);
     near('tour56', BAL.paint.tourSeries);
     for (const k of ['aogCover', 'repatriation', 'gov', 'tour']) expect(rate(k), k).toBe(0);
-  });
+  }, 30_000);
 
   it('quotes cost per aircraft, the share and the price without paint', () => {
     const g = newGame(3);

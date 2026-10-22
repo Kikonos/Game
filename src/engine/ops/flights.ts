@@ -450,6 +450,7 @@ export function subcharterLegs(g: GameState, legs: Flight[], rivalId: string, co
   stats(g).subchartered += rev.length;
   if (rev.length) {
     bumpReliable(g, hit.reliability);
+    stats(g).subHit = Math.round(((stats(g).subHit ?? 0) + hit.reliability) * 10) / 10;
     for (const [clientId, d] of hit.byClient) bumpRelation(g, clientId, d);
     const log = (stats(g).subLog ??= []);
     for (const f of rev) {

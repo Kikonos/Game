@@ -105,3 +105,18 @@ describe('cabin crew report 15 min earlier on widebodies', () => {
     expect(segStart(n, 'CC').s.start).toBe(segStart(n, 'CPT').s.start);
   });
 });
+
+describe('dev helpers (v0.7.2)', () => {
+  it('devRestSeats books an augmented duty on a rest-seats widebody; devSaleReady frees an owned aircraft', async () => {
+    const { devRestSeats, devSaleReady } = await import('../dev');
+    const { createGame } = await import('../newGame');
+    const { saleQuote } = await import('../ops/sale');
+    const g = createGame({ name: 'Dev Air', code: 'DV', livery: { primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' }, base: 'LIS', seed: 9 });
+    const fid = devRestSeats(g);
+    expect(fid).not.toBe('');
+    expect(restSeatsBlocked(g, fid)).toBe(8);
+    expect(sellableSeats(g, fid)).toBe(g.fleet[g.flights[fid].aircraftId!].cabin.total - 8);
+    const id = devSaleReady(g);
+    expect(saleQuote(g, id).ok).toBe(true);
+  });
+});

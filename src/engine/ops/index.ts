@@ -23,6 +23,7 @@ export { bookRefit, bookRestSeats, cabinOptions, refitQuote, refitSlots, refitSt
 // v0.7.2 (UPDATE-0.7.2.md §12).
 export { opsStripFacts, type OpsStripFacts } from './strip';
 export { cancelSale, leastUsed, saleQuote, sellAircraft, type LeastUsedRow, type SaleQuote } from './sale';
+import { onSaleClose } from './sale';
 export { bookCCheck, cCheckOptions, cCheckSlots, checkLogistics, type CCheckOption, type CheckTicket } from './cHub';
 export { C_HUBS, type CHub } from '../../data/mro';
 export { deliveryQuote, deliveryStatus, ferryRoute, ticketPurpose, type DeliveryLeg, type DeliveryQuote, type DeliveryStatus } from './delivery';
@@ -116,5 +117,7 @@ export const opsModule: SimModule = {
     },
     'approval.done': onApprovalDone,
     'decision.expire': onDecisionExpire,
+    // v0.7.2 an agreed aircraft sale closes.
+    'aircraft.sale': onSaleClose,
   },
 };

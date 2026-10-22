@@ -146,7 +146,8 @@ export function dutyCandidates(g: GameState, dutyOrFlightId: string, role: Role)
     // A ride on our own empty leg (planned, or already booked: a Flight that is not a commercial ticket).
     const ride = !!o && (!!o.rideId || ((o as Partial<Flight>).kind ?? 'deadhead') !== 'deadhead');
     const travel = o && !lost ? `${ride ? 'Rides our flight' : 'Deadhead'} ${o.from} ${fmtTime(o.std)} → ${o.to} ${fmtTime(o.sta)} UTC${ride ? '' : viaText(o.from, o.to, o.std, o.sta)}` : undefined;
-    // v0.7.2 a captain for a first officer's seat: their own group 'Captain flying as FO', after the first officers.
+    // v0.7.2 a captain for a first officer's seat: their own group 'Captain flying as FO', after the first officers
+    // of the same legality (the UI groups by asFo).
     const asFo = c.role === 'CPT' && (role === 'FO' || role === 'CRP');
     if (c.role !== role) reasons.push(asFo ? 'Captain flying as FO' : `${c.role} in a ${role} seat`);
     out.push({
@@ -156,7 +157,7 @@ export function dutyCandidates(g: GameState, dutyOrFlightId: string, role: Role)
       score: -ticket - 2 * b28 - (c.role !== role ? 50 : 0),
     });
   }
-  out.sort((a, b) => Number(!!a.asFo) - Number(!!b.asFo) || LEVEL_RANK[a.level] - LEVEL_RANK[b.level] || Number(a.onPairing) - Number(b.onPairing) || b.score - a.score || (a.crewId < b.crewId ? -1 : 1));
+  out.sort((a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level] || Number(!!a.asFo) - Number(!!b.asFo) || Number(a.onPairing) - Number(b.onPairing) || b.score - a.score || (a.crewId < b.crewId ? -1 : 1));
   return out.map(({ score: _s, ...c }) => c);
 }
 

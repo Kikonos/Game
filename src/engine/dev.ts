@@ -1,7 +1,13 @@
 // Developer helpers (console: __contrail.dev). Lets the map and screens be built before the
 // contract generator exists: demo flights on the fleet. Not used by the game itself.
 
-import { addFlight, ownFlightNo } from './core/entities';
+import { ACMI_TYPES } from '../data/acmiTypes';
+import { addFlight, ownFlightNo, removeFlights, touchFlights } from './core/entities';
+import { DAY } from './core/time';
+import { cabinFrom } from './newGame';
+import { makeCrewMember } from './crew/generate';
+import { rerosterFrom } from './crew';
+import { touchCrew } from './crew/timeline';
 import { blockMinutes } from './core/perf';
 import { flightsOf } from './core/entities';
 import { nextId } from './core/entities';
@@ -74,14 +80,42 @@ export function devCrewShortage(g: GameState, opts: { hours?: number; roles?: Ro
   return '';
 }
 
-/** v0.7.2: a widebody without bunks, crew rest seats fitted and an augmented duty booked; returns its flight id ('' when none). Dev/test helper. */
+/**
+ * v0.7.2: a widebody (an A330-300 clone at home base) without bunks, crew rest seats fitted, its crew hired and an
+ * augmented LIS–GRU duty booked two days out with a full load; returns the long flight's id. Dev/test helper.
+ */
 export function devRestSeats(g: GameState): string {
-  void g;
-  return '';
+  const base = Object.values(g.fleet)[0];
+  if (!base) return '';
+  const home = g.company.homeBase;
+  for (const a of ['widebody', 'augmented'] as const) if (!g.company.approvals.includes(a)) g.company.approvals.push(a);
+  const t = ACMI_TYPES.a333;
+  const id = nextId(g, 'a');
+  const ac = { ...structuredClone(base), id, reg: `${g.company.regPrefix}DVR`, typeId: t.id, cabin: cabinFrom(t.cabins[t.cabins.length - 1]), at: home, flightId: null, status: 'available' as const, maintId: null, crewRest: { bunks: false, seats: t.yAbreast }, bhDays: [] };
+  ac.maint = { ...ac.maint, fhSinceA: 0, lastA: g.now, fhSinceC: 0, lastC: g.now };
+  g.fleet[id] = ac;
+  for (const [role, n] of [['CPT', 3], ['FO', 4], ['PUR', 3], ['CC', 24]] as const) for (let i = 0; i < n; i++) {
+    const c = makeCrewMember(g, role, t.family, home);
+    g.crew[c.id] = c;
+  }
+  const dest = home === 'GRU' ? 'LIS' : 'GRU';
+  const std = Math.ceil((g.now + 2 * DAY) / 60) * 60;
+  const blk = Math.max(12 * 60 + 30, blockMinutes(t.id, home, dest));
+  const f = addFlight(g, { no: ownFlightNo(g), aircraftId: id, contractId: null, kind: 'revenue', from: home, to: dest, std, sta: std + blk, pax: ac.cabin.total });
+  addFlight(g, { no: ownFlightNo(g), aircraftId: id, contractId: null, kind: 'revenue', from: dest, to: home, std: std + blk + DAY, sta: std + 2 * blk + DAY, pax: ac.cabin.total - 20 });
+  touchCrew(g);
+  rerosterFrom(g, id, g.now);
+  return f.id;
 }
 
-/** v0.7.2: an owned aircraft with no work after 10 days (ready to sell); returns its id ('' when none). Dev/test helper. */
+/** v0.7.2: an owned aircraft with no work after 10 days (its later legs removed): ready to sell; returns its id ('' when none). Dev/test helper. */
 export function devSaleReady(g: GameState): string {
-  void g;
-  return '';
+  const ac = Object.values(g.fleet).find((a) => a.ownership.kind === 'owned' && !a.sale && a.status !== 'delivering');
+  if (!ac) return '';
+  const later = flightsOf(g, ac.id).filter((f) => f.status === 'scheduled' && f.std > g.now + 10 * DAY);
+  if (later.length) removeFlights(g, later.map((f) => f.id));
+  for (const c of Object.values(g.contracts)) if ((c.status === 'signed' || c.status === 'active') && c.pattern.kind === 'base' && c.aircraftIds.includes(ac.id) && c.pattern.to > g.now + 10 * DAY) c.aircraftIds = c.aircraftIds.filter((x) => x !== ac.id);
+  for (const m of Object.values(g.maintenance)) if (m.aircraftId === ac.id && m.status === 'planned' && m.end > g.now + 10 * DAY) m.status = 'cancelled';
+  touchFlights(g);
+  return ac.id;
 }

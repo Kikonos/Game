@@ -98,7 +98,7 @@ describe('AOG decision', () => {
     expect(m.cost).toBe(cost + Number(d.data!.teamCost));
   });
 
-  it('sub-charter: a rival flies the legs, still under the contract; the cost is posted and reliability holds', () => {
+  it('sub-charter: a rival flies the legs, still under the contract; the cost is posted and the client notices (v0.7.2)', () => {
     const { g, ac, c, m, d } = aog();
     const win = windowLegs(g, ac, m.at, m.end + 30).filter(isRevenue);
     expect(win.length).toBeGreaterThan(0);
@@ -112,7 +112,8 @@ describe('AOG decision', () => {
       expect(f.aircraftId).toBeNull();
     }
     expect(line(g, 'subcharter')).toBeLessThan(sub);
-    expect(g.company.reputation.reliable).toBe(rel);
+    expect(g.company.reputation.reliable).toBeLessThan(rel);
+    expect(rel - g.company.reputation.reliable).toBeLessThanOrEqual(BAL.v072.sub.capPerAction);
     expect(stats(g).subchartered - n0).toBe(win.length);
   });
 
