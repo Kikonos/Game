@@ -30,7 +30,7 @@ describe('conversion classes', () => {
 
   it('12 pilots + 33 cabin → P1 (12), C1 (17), C2 (16); pilots CPT/FO alternately', () => {
     const g = rich();
-    const ids = [...addCrew(g, { CPT: 6, FO: 6 }), ...addCrew(g, { CSD: 3, SCC: 6, CC: 24 })];
+    const ids = [...addCrew(g, { CPT: 6, FO: 6 }), ...addCrew(g, { PUR: 9, CC: 24 })];
     const plan = conversionPlan(g, { crewIds: ids, family: 'A330/340', start: start(g) });
     expect(plan.ok).toBe(true);
     expect(plan.classes.map((k) => [k.no, k.crewIds.length])).toEqual([['A330-P1', 12], ['A330-C1', 17], ['A330-C2', 16]]);
@@ -213,7 +213,7 @@ describe('conversion classes', () => {
     run(h, end);
     expect(JSON.stringify(h.crew)).toBe(JSON.stringify(g.crew));
     expect(JSON.stringify(h.classes)).toBe(JSON.stringify(g.classes));
-    const [x] = addCrew(g, { SCC: 1 }, 'B737');
+    const [x] = addCrew(g, { PUR: 1 }, 'B737');
     expect(trainCrew(g, x, 'typeRating', 'A320').ok).toBe(true);
     expect(classOf(g, x)?.crewIds).toEqual([x]);
   });

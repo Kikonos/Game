@@ -39,6 +39,8 @@ const cityOf = (code: string) => AIRPORT_BY_CODE[code]?.city ?? code;
 
 export type Hop = { from: string; to: string; block: number };
 const routes = new Map<string, Hop[] | null>();
+/** A direct ferry around closed airspace flies this much further. */
+const DETOUR = 1.2;
 
 /** No fuel stop in sanctioned or war-zone states (lessors' and export rules). */
 const NO_STOP = new Set(['IR', 'AF', 'LY', 'SD', 'YE', 'SY', 'KP', 'RU', 'BY', 'UA']);
@@ -77,8 +79,13 @@ export function ferryRoute(typeId: string, from: string, to: string): Hop[] | nu
   if (routes.has(key)) return routes.get(key)!;
   const max = BAL.delivery.dayBlockMax;
   const europe = AIRPORT_BY_CODE[to]?.continent === 'EU';
-  let r = route(typeId, from, to);
-  if (r && r.some((l) => l.block > max || !sectorOk(l.from, l.to, europe))) r = null;
+  const r0 = route(typeId, from, to);
+  let r = r0 && r0.some((l) => l.block > max || !sectorOk(l.from, l.to, europe)) ? null : r0;
+  // v0.7.2 a short sector refused only for closed airspace flies one direct hop around it (+20%), not fuel stops.
+  if (!r && r0 && r0.every((l) => l.block <= max) && from !== to && !NO_STOP.has(AIRPORT_BY_CODE[to]?.country ?? '')) {
+    const block = Math.round(blockMinutes(typeId, from, to) * DETOUR);
+    if (distanceNm(from, to) * DETOUR <= maxSectorNm(typeId, from, to) && block <= max) r = [{ from, to, block }];
+  }
   if (!r) r = hops(typeId, from, to, max, europe);
   routes.set(key, r);
   return r;
@@ -294,8 +301,12 @@ export function deliveryStatus(g: GameState, aircraftId: string): DeliveryStatus
   };
 }
 
+const PURPOSE_CREW: Record<NonNullable<Flight['purpose']>, string> = {
+  delivery: 'Delivery crew', return: 'Lease return crew', refit: 'Refit ferry crew', check: 'C-check ferry crew', sale: 'Sale ferry crew',
+};
+
 /** Why our crew ride this airline ticket (map panel, roster detail). Pure. */
-export function ticketPurpose(g: GameState, ticketId: string): { kind: 'delivery' | 'return' | 'refit' | 'duty' | 'home'; aircraftId?: string; text: string } {
+export function ticketPurpose(g: GameState, ticketId: string): { kind: 'delivery' | 'return' | 'refit' | 'check' | 'sale' | 'duty' | 'home'; aircraftId?: string; text: string } {
   const t = g.flights[ticketId];
   if (!t || t.kind !== 'deadhead') return { kind: 'duty', text: '' };
   const did = crewIx(g).ticketDuty.get(ticketId);
@@ -304,11 +315,19 @@ export function ticketPurpose(g: GameState, ticketId: string): { kind: 'delivery
   if (!d || !p) return { kind: 'home', text: `Going home to ${cityOf(t.to)}` };
   const flights = p.dutyIds.flatMap((id) => g.duties[id]?.flightIds ?? []).map((id) => g.flights[id]).filter((f): f is Flight => !!f);
   const ac = p.aircraftId ? g.fleet[p.aircraftId] : undefined;
-  if (flights.length && t.std >= Math.max(...flights.map((f) => f.sta))) return { kind: 'home', aircraftId: ac?.id, text: `Going home to ${cityOf(t.to)} after the trip` };
   const pf = flights.find((f) => f.purpose);
+  // v0.7.2 C-check ferries: the pilots fly home after the ferry out, and back out for the ferry home.
+  if (pf?.purpose === 'check') {
+    const legs = flights.filter((f) => f.purpose === 'check');
+    const out = legs[0].from === g.company.homeBase || t.std >= Math.max(...legs.map((f) => f.sta));
+    return out
+      ? { kind: 'check', aircraftId: ac?.id, text: `Home after ferrying ${ac?.reg ?? 'our aircraft'} to ${cityOf(legs[legs.length - 1].to)} for its C-check` }
+      : { kind: 'check', aircraftId: ac?.id, text: `Out to ${cityOf(legs[0].from)} to ferry ${ac?.reg ?? 'our aircraft'} home after its C-check` };
+  }
+  if (flights.length && t.std >= Math.max(...flights.map((f) => f.sta))) return { kind: 'home', aircraftId: ac?.id, text: `Going home to ${cityOf(t.to)} after the trip` };
   if (pf?.purpose) {
     const legs = flights.filter((f) => f.purpose === pf.purpose);
-    const what = pf.purpose === 'delivery' ? 'Delivery crew' : pf.purpose === 'return' ? 'Lease return crew' : 'Refit ferry crew';
+    const what = PURPOSE_CREW[pf.purpose];
     return { kind: pf.purpose, aircraftId: ac?.id, text: `${what} for ${ac?.reg ?? 'our aircraft'} · ferry ${legs[0].from}–${legs[legs.length - 1].to} ${fmtDay(legs[0].std)}` };
   }
   const first = g.flights[d.flightIds[0]];

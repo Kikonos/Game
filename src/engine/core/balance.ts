@@ -39,19 +39,19 @@ export const BAL = {
   // ---------- crew & HR (B2) ----------
   /** Monthly gross salary by role (narrowbody / widebody rating), USD, season-averaged. */
   salary: {
-    CPT: [9_400, 12_000], FO: [5_300, 7_000], CRP: [4_300, 4_300], CSD: [2_600, 3_000], SCC: [2_300, 2_600], CC: [1_900, 2_100],
+    CPT: [9_400, 12_000], FO: [5_300, 7_000], CRP: [4_300, 4_300], PUR: [2_500, 2_900], CC: [1_900, 2_100],
   } as Record<string, [number, number]>,
   /** Employer on-costs on salaries (RESEARCH §5.5: +10–35%; v0.5.1 mid-range, was 0.2). */
   onCosts: 0.25,
   /** Per diem per day away by role (USD; RESEARCH §5.3: CPT €100, FO €70, cabin €50), scaled by policies.perDiemPct. */
-  perDiem: { CPT: 108, FO: 76, CRP: 76, CSD: 60, SCC: 54, CC: 54 } as Record<string, number>,
+  perDiem: { CPT: 108, FO: 76, CRP: 76, PUR: 60, CC: 54 } as Record<string, number>,
   hotelPerNight: { 3: 90, 4: 140, 5: 230 } as Record<number, number>,
   /** Positioning ticket by distance: < 1,500 km, < 4,000 km, beyond. */
   deadheadTicket: [250, 600, 1_300],
-  /** Days from order to joining (rated crew), and cost per hire. */
-  hireDays: { CPT: 60, FO: 45, CRP: 45, CSD: 35, SCC: 35, CC: 50 } as Record<string, number>,
+  /** Days from order to joining (rated crew), and cost per hire. v0.7.2: cabin crew join in about a week. */
+  hireDays: { CPT: 60, FO: 45, CRP: 45, PUR: 7, CC: 7 } as Record<string, number>,
   /** Rated widebody crew come off the market faster (long-haul operators shedding staff), days. */
-  hireDaysWide: { CPT: 40, FO: 35, CRP: 35, CSD: 30, SCC: 30, CC: 35 } as Record<string, number>,
+  hireDaysWide: { CPT: 40, FO: 35, CRP: 35, PUR: 7, CC: 7 } as Record<string, number>,
   hireCost: { pilot: 9_000, cabin: 2_000 },
   /**
    * v0.6 rated pilots on the market per family every 30 days (RESEARCH §5.4: rated captains are scarce). Hires beyond
@@ -234,7 +234,8 @@ export const BAL = {
   },
   /** Cabin refits: hangar slot lead (days); [days, cost] by target layout (narrow / wide). */
   refit: {
-    leadDays: 7,
+    /** v0.7.2: 0, a refit starts as soon as the aircraft is free (at home base). */
+    leadDays: 0,
     nb: { 'all-economy': [5, 120_000], 'two-class': [7, 250_000], vip: [21, 1_200_000] } as Record<string, [number, number]>,
     wb: { 'all-economy': [14, 600_000], 'two-class': [21, 1_600_000], 'three-class': [28, 2_200_000], vip: [35, 3_000_000] } as Record<string, [number, number]>,
   },
@@ -259,5 +260,25 @@ export const BAL = {
     },
     /** Hurt levels: 'low' below these. */
     hurtLowUsd: 10_000, hurtLowPax: 100,
+  },
+
+  // ---------- crew rules & fleet v0.7.2 (ENGINE; UPDATE-0.7.2.md §11) ----------
+  v072: {
+    /** Cabin crew report this much earlier than the pilots (ORO.FTL.205(c)); their FDP and max FDP both grow by it. */
+    ftl: { cabinEarlyMin: { narrow: 0, wide: 15 } },
+    /** Sub-charter reliability: base … max per leg, by contract share and company count in windowDays; at most capPerClient per client in capDays. */
+    sub: { base: 0.3, max: 1.0, shareFrom: 0.1, shareSpan: 0.233, nFrom: 4, nSpan: 16, capPerClient: 8, capDays: 7, relationPerLeg: 0.5, relationCap: 4, windowDays: 90 },
+    /** Cabin crew hires: days to join, days and cost share per extra type. */
+    cabinHire: { days: 7, extraTypeDays: 3, extraTypeCost: 0.5 },
+    /** Captains in an FO seat: free uses per 30 days, then morale each time. */
+    asFo: { freePerMonth: 2, morale: -3 },
+    /** Crew rest seats (last economy row): refit days and cost; passengers offloaded when a duty becomes augmented. */
+    restSeats: { days: 2, cost: 30_000, offloadPerPax: 350 },
+    /** Aircraft sale: days to close, quick-sale discount, broker, a first-year cap (share of the price paid), utilisation norms [narrow, wide], VIP cabin adjustment, C-check life share priced in. */
+    sale: { daysMin: 10, daysMax: 20, discount: 0.06, broker: 0.02, firstYearCap: 0.97, fhYear: [3_000, 4_500] as [number, number], cyclesYear: [1_500, 700] as [number, number], vipAdj: -0.08, cLifeShare: 0.5 },
+    /** Early lease return: notice, minimum lease left, fee (share of the months left, at least feeMinMonths of rent). */
+    earlyReturn: { noticeDays: 30, minLeftDays: 90, feeShare: 0.5, feeMinMonths: 3 },
+    /** C-check hubs: the ferry home leaves this long after the check ends (minutes). */
+    cHub: { homeAfterMin: 180 },
   },
 } as const;

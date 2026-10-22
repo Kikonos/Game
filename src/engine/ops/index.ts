@@ -13,14 +13,22 @@ import { dailyDelivery, onDeliveryArr, onDeliveryDep } from './delivery';
 import { dailyLeases, onReturnEnd, onReturnStart } from './leaseReturn';
 import { dailyMarket, loadMarket, onDelivery, onLeaseEnd, refreshMarket } from './market';
 import { dailyPaint, normaliseLivery } from './paint';
+import { defaultCrewRest } from '../crew/crewRest';
+import { DAY } from '../core/time';
 
 export {
   APPROVALS, aircraftGate, applyApproval, approvalBlocker, approvalReqs, cleanRecord, gateApprovals, ladder, ratedPilots, RUNG0_TYPES, setPolicies,
   type AircraftGate, type ApprovalDef, type ApprovalReq, type LadderNode, type LadderRung, type NodeState,
 } from './company';
-export { bookRefit, cabinOptions, refitQuote, refitStations, type RefitQuote } from './cabin';
+export { bookRefit, bookRestSeats, cabinOptions, refitQuote, refitSlots, refitStations, restSeatsQuote, type RefitQuote, type RefitSlot } from './cabin';
+// v0.7.2 (UPDATE-0.7.2.md §12).
+export { opsStripFacts, type OpsStripFacts } from './strip';
+export { cancelSale, leastUsed, saleQuote, sellAircraft, type LeastUsedRow, type SaleQuote } from './sale';
+import { onSaleClose } from './sale';
+export { bookCCheck, cCheckOptions, cCheckSlots, checkLogistics, type CCheckOption, type CheckTicket } from './cHub';
+export { C_HUBS, type CHub } from '../../data/mro';
 export { deliveryQuote, deliveryStatus, ferryRoute, ticketPurpose, type DeliveryLeg, type DeliveryQuote, type DeliveryStatus } from './delivery';
-export { chooseLease, leaseView, returnQuote, type LeaseChoice, type LeaseView, type ReturnQuote } from './leaseReturn';
+export { chooseLease, earlyReturnQuote, leaseView, returnEarly, returnQuote, type EarlyReturnQuote, type LeaseChoice, type LeaseView, type ReturnQuote } from './leaseReturn';
 export { resolveDecision } from './events';
 export { cashForecast, fixedCosts, monthProfit, newStatement } from './finance';
 export { delayFlight, delayOf, schedSta } from './flights';
@@ -30,7 +38,7 @@ export { acquireAircraft, eligibleTypes, marketView, returnSiteOf, type MarketOf
 export {
   clientCode, clientLivery, clientTitles, liveryOf, normaliseLivery, paintStatus, setAircraftLivery, setCompanyLivery, setFleetLivery, type PaintStatus, type ResolvedLivery,
 } from './paint';
-export { rotationOf, SUB_LEAD, subcharter, subcharterable, subcharterQuote, type SubcharterQuote } from './subcharter';
+export { rotationOf, SUB_LEAD, subcharter, subcharterable, subcharterHit, subcharterQuote, type SubcharterHit, type SubcharterQuote } from './subcharter';
 export { usd } from './util';
 // v0.7.1 every problem as one card (engine/problems).
 export { hurtBadges, messageBadges, postProblem, problemAt, problemFor, problems, type GaugeSpec, type Hurt, type MiniMapSpec, type ProblemAction, type ProblemCard, type ReachSpec, type TimelineSpec } from '../problems';
@@ -67,6 +75,8 @@ export const opsModule: SimModule = {
     loadApprovals(g);
     loadMarket(g);
     refreshMarket(g);
+    for (const ac of Object.values(g.fleet)) ac.crewRest ??= defaultCrewRest(ac.typeId);
+    for (const ac of Object.values(g.fleet)) ac.bhSince ??= Math.floor(g.now / DAY);
   },
   // Decisions other modules post (crew's sickCrew) join the pacing budget as they appear.
   settle: paceDecisions,
@@ -77,6 +87,10 @@ export const opsModule: SimModule = {
     g.finance.negSince ??= null;
     // v0.5.1 liveries: client paint of a contract no longer in the save is gone; the company livery normalised (idempotent).
     for (const ac of Object.values(g.fleet)) if (ac.paintedFor && !g.contracts[ac.paintedFor]) delete ac.paintedFor;
+    // v0.7.2 crew rest per airframe (old widebodies keep bunks).
+    for (const ac of Object.values(g.fleet)) ac.crewRest ??= defaultCrewRest(ac.typeId);
+    // v0.7.2 utilisation counts from the first load that tracks it (older saves have no bhDays).
+    for (const ac of Object.values(g.fleet)) ac.bhSince ??= Math.floor(g.now / DAY);
     g.company.livery = normaliseLivery(g.company.livery);
   },
   handlers: {
@@ -107,5 +121,7 @@ export const opsModule: SimModule = {
     },
     'approval.done': onApprovalDone,
     'decision.expire': onDecisionExpire,
+    // v0.7.2 an agreed aircraft sale closes.
+    'aircraft.sale': onSaleClose,
   },
 };

@@ -4,12 +4,12 @@ import { canTake, chooseWord, defaultPicks, goneText, seatPlan } from './crewCon
 describe('Crew Control candidates: seats and wording', () => {
   const missing = [{ role: 'CPT' as const, n: 1 }, { role: 'CC' as const, n: 2 }];
   it('fills seats in pick order, exact role first, and blocks a second tick on a taken seat', () => {
-    const plan = seatPlan(missing, [{ id: 'a', role: 'CPT' }, { id: 'b', role: 'FO' }, { id: 'c', role: 'SCC' }]);
+    const plan = seatPlan(missing, [{ id: 'a', role: 'CPT' }, { id: 'b', role: 'FO' }, { id: 'c', role: 'PUR' }]);
     expect(plan.seat).toEqual({ a: 'CPT', c: 'CC' });
     expect(plan.open).toEqual([{ role: 'CC', n: 1 }]);
     expect(canTake(plan, 'CPT')).toBe(false);
     expect(canTake(plan, 'CC')).toBe(true);
-    expect(canTake(plan, 'CSD')).toBe(true);
+    expect(canTake(plan, 'PUR')).toBe(true);
     expect(canTake(seatPlan(missing, [{ id: 'a', role: 'CPT' }, { id: 'c', role: 'CC' }, { id: 'd', role: 'CC' }]), 'CC')).toBe(false);
   });
   it('lets a captain take an FO seat', () => {

@@ -92,6 +92,8 @@ export interface DutyCandidate {
   name: string;
   /** The crew member's own role (a senior may fill a junior seat). */
   role: Role;
+  /** v0.7.2 a captain listed for an FO/CRP seat ('Captain flying as FO' group, after the FOs). */
+  asFo?: true;
   legal: boolean;
   level: Legality;
   /** Why not legal (or tight), short and player-facing; empty when clean. */
@@ -128,9 +130,13 @@ export function dutyCandidates(g: GameState, dutyOrFlightId: string, role: Role)
   const family = typeOf(typeIdOf(g, p)).family;
   const wet = p.contractId ? g.contracts[p.contractId]?.product.kind === 'wet' : false;
   const on = new Set(p.slots.filter((s) => s.crewId).map((s) => s.crewId!));
+  // v0.7.2 crew already on the trip are listed only for their own seat's role (a seated captain is never offered
+  // for the FO seat: moving them would empty the left seat, and assignCrew refuses it anyway).
+  const seatOf = new Map(p.slots.filter((s) => s.crewId).map((s) => [s.crewId!, s.role] as const));
   const out: (DutyCandidate & { score: number })[] = [];
   for (const c of Object.values(g.crew)) {
     if (!canFill(role, c.role) || !c.ratings.includes(family)) continue;
+    if (on.has(c.id) && seatOf.get(c.id) !== role) continue;
     const segs = segsOf(g, c, p.id);
     const plan = planCrew(g, c, p, segs, on.has(c.id));
     const issues = plan.issues.filter((i) => i.code !== 'fdp');
@@ -144,15 +150,18 @@ export function dutyCandidates(g: GameState, dutyOrFlightId: string, role: Role)
     // A ride on our own empty leg (planned, or already booked: a Flight that is not a commercial ticket).
     const ride = !!o && (!!o.rideId || ((o as Partial<Flight>).kind ?? 'deadhead') !== 'deadhead');
     const travel = o && !lost ? `${ride ? 'Rides our flight' : 'Deadhead'} ${o.from} ${fmtTime(o.std)} → ${o.to} ${fmtTime(o.sta)} UTC${ride ? '' : viaText(o.from, o.to, o.std, o.sta)}` : undefined;
-    if (c.role !== role) reasons.push(`${c.role} in a ${role} seat`);
+    // v0.7.2 a captain for a first officer's seat: their own group 'Captain flying as FO', after the first officers
+    // of the same legality (the UI groups by asFo).
+    const asFo = c.role === 'CPT' && (role === 'FO' || role === 'CRP');
+    if (c.role !== role) reasons.push(asFo ? 'Captain flying as FO' : `${c.role} in a ${role} seat`);
     out.push({
-      crewId: c.id, name: crewName(c), role: c.role, legal: level !== 'illegal', level, reasons, codes: [...new Set(issues.map((i) => i.code))],
+      crewId: c.id, name: crewName(c), role: c.role, ...(asFo ? { asFo: true as const } : {}), legal: level !== 'illegal', level, reasons, codes: [...new Set(issues.map((i) => i.code))],
       loc, onPairing: on.has(c.id), ticket, block28dH: Math.round(b28 * 10) / 10, travel, arrives: o && !lost ? o.sta : undefined,
       reason: level !== 'legal' ? rootReason(g, issues, c, p) ?? undefined : undefined,
       score: -ticket - 2 * b28 - (c.role !== role ? 50 : 0),
     });
   }
-  out.sort((a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level] || Number(a.onPairing) - Number(b.onPairing) || b.score - a.score || (a.crewId < b.crewId ? -1 : 1));
+  out.sort((a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level] || Number(!!a.asFo) - Number(!!b.asFo) || Number(a.onPairing) - Number(b.onPairing) || b.score - a.score || (a.crewId < b.crewId ? -1 : 1));
   return out.map(({ score: _s, ...c }) => c);
 }
 
@@ -228,7 +237,7 @@ export interface RosterOpts {
 /** v0.7.1 plain words for empty seats: ['CPT', 'FO', 'CC', 'CC'] → 'captain, first officer and 2 cabin crew'. */
 const SEAT_WORD: Record<Role, [string, string]> = {
   CPT: ['captain', 'captains'], FO: ['first officer', 'first officers'], CRP: ['relief pilot', 'relief pilots'],
-  CSD: ['cabin manager', 'cabin managers'], SCC: ['senior cabin crew', 'senior cabin crew'], CC: ['cabin crew', 'cabin crew'],
+  PUR: ['purser', 'pursers'], CC: ['cabin crew', 'cabin crew'],
 };
 function seatWords(roles: Role[]): string {
   const parts = (Object.keys(SEAT_WORD) as Role[]).map((r) => {

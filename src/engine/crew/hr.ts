@@ -25,10 +25,12 @@ export interface HireRequest {
   family: RatingFamily;
   base: string;
   count: number;
+  /** v0.7.2 cabin crew: 1–3 types (family first); pilots ignore it. */
+  families?: RatingFamily[];
 }
 
-const ROLES: Role[] = ['CPT', 'FO', 'CRP', 'CSD', 'SCC', 'CC'];
-const ROLE_NAME: Record<Role, string> = { CPT: 'captain', FO: 'first officer', CRP: 'relief pilot', CSD: 'purser', SCC: 'senior cabin crew', CC: 'cabin crew' };
+const ROLES: Role[] = ['CPT', 'FO', 'CRP', 'PUR', 'CC'];
+const ROLE_NAME: Record<Role, string> = { CPT: 'captain', FO: 'first officer', CRP: 'relief pilot', PUR: 'purser', CC: 'cabin crew' };
 
 export interface RatedMarket {
   /** Rated pilots of this family and rank on the market every 30 days, and how many are left now. */
@@ -61,10 +63,21 @@ export function hireQuote(g: GameState, r: HireRequest): { cost: number; readyAt
   const m = ratedMarket(g, r.family, r.role);
   const beyondPool = m ? Math.max(0, n - m.left) : 0;
   const fee = m ? m.fee * beyondPool : 0;
-  const cost = (isPilot(r.role) ? BAL.hireCost.pilot : BAL.hireCost.cabin) * n + fee;
-  const base = ((wideFamily(r.family) ? BAL.hireDaysWide : BAL.hireDays)[r.role] ?? 45) * (beyondPool ? BAL.ratedPool.daysMult : 1);
+  // v0.7.2 cabin crew join in about a week; each extra type adds days and half the hiring cost.
+  const H = BAL.v072.cabinHire;
+  const k = isPilot(r.role) ? 1 : hireFamilies(r).length;
+  const cost = (isPilot(r.role) ? BAL.hireCost.pilot : BAL.hireCost.cabin * (1 + H.extraTypeCost * (k - 1))) * n + fee;
+  const base = isPilot(r.role)
+    ? ((wideFamily(r.family) ? BAL.hireDaysWide : BAL.hireDays)[r.role] ?? 45) * (beyondPool ? BAL.ratedPool.daysMult : 1)
+    : H.days + H.extraTypeDays * (k - 1);
   const days = Math.round(base * (0.8 + 0.4 * hashUnit(`${r.role}${r.base}${g.now}`)));
   return { cost, readyAt: dayStart(g.now) + days * DAY, beyondPool, fee };
+}
+
+/** v0.7.2 the types a hire holds: pilots one; cabin crew the family plus `families` (distinct, family first). */
+export function hireFamilies(r: HireRequest): RatingFamily[] {
+  if (isPilot(r.role)) return [r.family];
+  return [...new Set([r.family, ...(r.families ?? [])])];
 }
 
 /** Creates 'joining' crew members, charges hiring cost, queues 'crew.join' at readyAt. */
@@ -73,12 +86,15 @@ export function hireCrew(g: GameState, r: HireRequest): ActionResult<{ crewIds: 
   if (!ROLES.includes(r.role)) return { ok: false, error: 'Unknown role' };
   if (n < 1 || n > 30) return { ok: false, error: 'Hire between 1 and 30 at a time' };
   if (!AIRPORT_BY_CODE[r.base]) return { ok: false, error: 'Unknown base' };
-  if (!Object.values(ACMI_TYPES).some((t) => t.family === r.family)) return { ok: false, error: 'Unknown type family' };
+  const fams = hireFamilies(r);
+  if (fams.some((f) => !Object.values(ACMI_TYPES).some((t) => t.family === f))) return { ok: false, error: 'Unknown type family' };
+  if (fams.length > 3) return { ok: false, error: 'Cabin crew hold up to 3 types' };
   const q = hireQuote(g, r);
   if (g.company.cash < q.cost) return { ok: false, error: 'Not enough cash' };
   const crewIds: string[] = [];
   for (let i = 0; i < n; i++) {
     const c = makeCrewMember(g, r.role, r.family, r.base, 'joining');
+    if (fams.length > 1) c.ratings = [...fams];
     // `hired` is the first working day; the joining block keeps them off the roster until then (v0.5.2: no fake
     // "rest until" the join date: the UI shows "Joins …" via crewStatusView).
     c.hired = q.readyAt;
@@ -86,7 +102,7 @@ export function hireCrew(g: GameState, r: HireRequest): ActionResult<{ crewIds: 
     c.blockYearOf = yearOf(q.readyAt);
     c.blocks = [{ from: g.now, to: q.readyAt, why: 'joining' }];
     g.crew[c.id] = c;
-    g.hires.push({ id: nextId(g, 'h'), role: r.role, family: r.family, base: r.base, crewId: c.id, ordered: g.now, ready: q.readyAt, cost: q.cost / n });
+    g.hires.push({ id: nextId(g, 'h'), role: r.role, family: r.family, base: r.base, crewId: c.id, ordered: g.now, ready: q.readyAt, cost: q.cost / n, ...(fams.length > 1 ? { families: [...fams] } : {}) });
     schedule(g, q.readyAt, 'crew.join', c.id);
     crewIds.push(c.id);
   }
@@ -120,7 +136,7 @@ export function trainCrew(g: GameState, crewId: string, kind: TrainingKind, fami
     if (c.role !== 'FO') return { ok: false, error: 'Only first officers upgrade to captain' };
     if (c.totalHours < BAL.commandUpgrade.minHours) return { ok: false, error: `Needs ${BAL.commandUpgrade.minHours.toLocaleString('en-US')} h (has ${Math.round(c.totalHours).toLocaleString('en-US')})` };
   }
-  if (kind === 'sccm' && c.role !== 'CC') return { ok: false, error: 'Only cabin crew take the SCCM course' };
+  if (kind === 'sccm' && c.role !== 'CC') return { ok: false, error: 'Only cabin crew take the purser course' };
   const { days, cost } = TRAINING[kind]();
   if (g.company.cash < cost) return { ok: false, error: 'Not enough cash' };
   const start = g.now;
@@ -242,7 +258,7 @@ export function crewAvailability(g: GameState, family: RatingFamily, typeId: str
   const minAvail: Partial<Record<Role, number>> = {};
   let firstShort: Minute | null = null;
   for (let d = 0; d < days; d++) {
-    // Spill seniors down: FO → CRP, CSD → SCC → CC.
+    // Spill seniors down: FO → CRP, PUR → CC (captains never spill into FO seats: hire FOs).
     const left: Record<Role, number> = Object.fromEntries(ROLES.map((r) => [r, supply[r][d] - held[r][d]])) as Record<Role, number>;
     const spill = (fromR: Role, toR: Role) => {
       const surplus = left[fromR] - (need[fromR] ?? 0);
@@ -253,9 +269,7 @@ export function crewAvailability(g: GameState, family: RatingFamily, typeId: str
       }
     };
     spill('FO', 'CRP');
-    spill('CSD', 'SCC');
-    spill('CSD', 'CC');
-    spill('SCC', 'CC');
+    spill('PUR', 'CC');
     for (const r of ROLES) {
       const n = need[r];
       if (!n) continue;
@@ -289,6 +303,8 @@ export interface StaffingLine {
   leaving: number;
   /** v0.6: rated crew booked on a conversion that ends their rating on this type (not in have). */
   converting: number;
+  /** v0.7.2 cabin crew counted here who also hold another type in the fleet. */
+  shared?: number;
 }
 
 /**
@@ -331,23 +347,27 @@ export function staffing(g: GameState): StaffingLine[] {
       if (lost.length) losing.set(id, [...(losing.get(id) ?? []), ...lost]);
     }
   }
-  const count = new Map<string, { have: number; leaving: number; converting: number }>();
+  const count = new Map<string, { have: number; leaving: number; converting: number; shared: number }>();
   for (const c of Object.values(g.crew)) {
     for (const f of c.ratings) {
       const key = `${f}:${c.role}`;
       let x = count.get(key);
-      if (!x) count.set(key, (x = { have: 0, leaving: 0, converting: 0 }));
+      if (!x) count.set(key, (x = { have: 0, leaving: 0, converting: 0, shared: 0 }));
       if (c.notice) x.leaving++;
       else if (losing.get(c.id)?.includes(f)) x.converting++;
-      else x.have++;
+      else {
+        x.have++;
+        // v0.7.2 cabin crew on several types also count towards another fleet family.
+        if (!isPilot(c.role) && c.ratings.some((o) => o !== f && fams.has(o))) x.shared++;
+      }
     }
   }
   const out: StaffingLine[] = [];
   for (const [family, need] of fams) {
     for (const r of ROLES) {
       if (!need[r]) continue;
-      const x = count.get(`${family}:${r}`) ?? { have: 0, leaving: 0, converting: 0 };
-      out.push({ family, role: r, need: need[r]!, ...x });
+      const { shared, ...x } = count.get(`${family}:${r}`) ?? { have: 0, leaving: 0, converting: 0, shared: 0 };
+      out.push({ family, role: r, need: need[r]!, ...x, ...(shared ? { shared } : {}) });
     }
   }
   return out;
@@ -386,12 +406,12 @@ export function onTrainingDone(g: GameState, ev: SimEvent): void {
   if (item.kind === 'typeRating' || item.kind === 'conversion') {
     if (!c.ratings.includes(item.family)) c.ratings.push(item.family);
   } else if (item.kind === 'command') c.role = 'CPT';
-  else if (item.kind === 'sccm') c.role = 'SCC';
+  else if (item.kind === 'sccm') c.role = 'PUR';
   const wide = c.ratings.find((f) => salaryFor(c.role, f) !== salaryFor(c.role, 'A320'));
   c.salary = salaryFor(c.role, wide ?? c.ratings[0] ?? 'A320');
   clearBlock(c, 'training');
   if (c.status === 'training') c.status = 'available';
-  const what = item.kind === 'command' ? 'command upgrade' : item.kind === 'sccm' ? 'SCCM course' : `${item.family} ${item.kind === 'conversion' ? 'conversion' : 'type rating'}`;
+  const what = item.kind === 'command' ? 'command upgrade' : item.kind === 'sccm' ? 'Purser course' : `${item.family} ${item.kind === 'conversion' ? 'conversion' : 'type rating'}`;
   pushMessage(g, { tone: 'good', cat: 'crew', title: `${crewName(c)} finished training`, body: `Completed the ${what}.`, ref: { kind: 'crew', id: c.id } });
   touchCrew(g);
 }

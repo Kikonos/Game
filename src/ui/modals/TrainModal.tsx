@@ -1,5 +1,5 @@
 // Training (B5, v0.6): type conversion (the bulk ConvertModal for this one person: same rules and prices),
-// command upgrade or SCCM course for one crew member (crew.trainCrew).
+// command upgrade or purser course for one crew member (crew.trainCrew).
 
 import { ArrowRight, GraduationCap } from 'lucide-react';
 import { useState } from 'react';
@@ -14,7 +14,7 @@ import { ROLE_LABEL } from '../screens/screenLogic';
 import { store, useGame } from '../store';
 
 type Kind = 'convert' | Extract<TrainingKind, 'command' | 'sccm'>;
-const KIND_LABEL: Record<Kind, string> = { convert: 'Type conversion…', command: 'Command upgrade', sccm: 'SCCM course' };
+const KIND_LABEL: Record<Kind, string> = { convert: 'Type conversion…', command: 'Command upgrade', sccm: 'Purser course' };
 
 export function TrainModal({ crewId }: { crewId: string }) {
   const g = useGame();

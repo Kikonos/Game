@@ -15,6 +15,7 @@ import { ColourLegend } from '../components/ColourLegend';
 import { Seg } from '../components/ui';
 import { liveMinute, store, useThrottledNow } from '../store';
 import { useRenderCount } from './common';
+import { seatLabel } from '../../engine/core/perf';
 import { CAL_KEY_LABEL, calKey, calLayer, calLegend, type CalKey } from './crewLogic';
 import {
   BACK_DAYS, BOARD_DAYS, blockCands, blockKeys, boardItems, itemsSig, rowSig, boardLayout, dayCodes, dayWidth, dayWindow, edgeSpeed, fitText, HEAD_H, itemAt, LEFT_W,
@@ -219,7 +220,7 @@ export interface RosterBoardProps {
 
 const RANKS: { value: RankFilter; label: string }[] = [
   { value: 'all', label: 'All ranks' }, { value: 'pilots', label: 'Pilots' }, { value: 'cabin', label: 'Cabin' },
-  ...(['CPT', 'FO', 'CRP', 'CSD', 'SCC', 'CC'] as Role[]).map((r) => ({ value: r as RankFilter, label: `${r} · ${ROLE_PLURAL[r]}` })),
+  ...(['CPT', 'FO', 'CRP', 'PUR', 'CC'] as Role[]).map((r) => ({ value: r as RankFilter, label: `${r} · ${ROLE_PLURAL[r]}` })),
 ];
 
 /** v0.7 C2: memo'd against the Crew screen's hourly renders; the board refreshes from useThrottledNow (≤ 1 Hz running). */
@@ -593,7 +594,12 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
       return;
     }
     const k = calKey(b);
-    setPop({ x: e.clientX, y: e.clientY, key: k, title: b.kind === 'training' || b.kind === 'leave' ? b.label : b.label === 'Free' ? 'Not rostered yet' : CAL_KEY_LABEL[k], detail: b.detail });
+    // v0.7.2 §2: a flown duty in a junior seat says so ('CPT (as FO)').
+    const cm = g.crew[blk.dataset.c!];
+    const d = b.dutyId ? g.duties[b.dutyId] : undefined;
+    const slot = d && cm ? g.pairings[d.pairingId]?.slots.find((x) => x.crewId === cm.id) : undefined;
+    const as = slot && cm && slot.role !== cm.role ? `\nSeat: ${seatLabel(slot.role, cm.role)}` : '';
+    setPop({ x: e.clientX, y: e.clientY, key: k, title: b.kind === 'training' || b.kind === 'leave' ? b.label : b.label === 'Free' ? 'Not rostered yet' : CAL_KEY_LABEL[k], detail: b.detail + as });
   };
 
   const families = useMemo(() => [...new Set(Object.values(g.crew).flatMap((c) => c.ratings))].sort() as RatingFamily[], [g, nCrew, crev]); // eslint-disable-line react-hooks/exhaustive-deps

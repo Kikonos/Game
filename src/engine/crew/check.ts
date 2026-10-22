@@ -6,7 +6,7 @@ import { typeOf } from '../core/perf';
 import { fmtDay } from '../core/time';
 import type { CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing } from '../core/types';
 import { evalSegs, levelOf, LIMITS, type LegalityIssue, type Seg } from './rules';
-import { aboard, crewIx, ctxOf, droppableHome, droppableOut, dutySegs, locAt, outTicket, planHome, planHomeAfter, planOut, segsOf, typeIdOf, withoutTickets, type TicketPlan } from './timeline';
+import { aboard, cabinEarly, crewIx, ctxOf, droppableHome, droppableOut, dutySegs, locAt, outTicket, planHome, planHomeAfter, planOut, segsOf, typeIdOf, withoutTickets, type TicketPlan } from './timeline';
 
 export interface CrewPlan {
   level: Legality;
@@ -109,7 +109,7 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
       if (back.length && nextFrom(stay, last.release) === last.restAt) {
         base = stay;
         dropped.push(...back);
-      } else home = planHome(last, c.base);
+      } else home = planHome(last, c.base, cabinEarly(g, p));
     }
   }
   const build = () => buildSegs(g, c, p, duties, out, home);

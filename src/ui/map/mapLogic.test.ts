@@ -357,7 +357,7 @@ async function shortOfCaptain(hoursBefore: number, dest = 'FNC', othersOnLeave =
   const f1 = addFlight(g, { no: 'AW816', aircraftId: acId, contractId: k.id, kind: 'revenue', from: 'DUS', to: dest, std, sta: std + b, pax: 170 });
   const f2 = addFlight(g, { no: 'AW817', aircraftId: acId, contractId: k.id, kind: 'revenue', from: dest, to: 'DUS', std: std + b + 50, sta: std + 2 * b + 50, pax: 160 });
   buildDuties(g, acId, g.now, g.now + 5 * DAY);
-  addCrew(g, { CPT: 2, FO: 2, SCC: 1, CC: 3 });
+  addCrew(g, { CPT: 2, FO: 2, PUR: 1, CC: 3 });
   autoRoster(g);
   const d = g.duties[g.flights[f1.id].dutyId!];
   const p = g.pairings[d.pairingId];
@@ -417,5 +417,41 @@ describe('v0.7.1 crew shortages and private jets on the map', () => {
     // The flight is crewed now: no banner.
     expect(shortIndex(g).byFlight.has(id)).toBe(false);
     expect(JET_PATH.startsWith('M12 1.2')).toBe(true);
+  });
+});
+
+describe('v0.7.2 hotel dots and C-check ferries', () => {
+  it('keeps a crew station dot while anyone is still there; drops it when the last one leaves', async () => {
+    const { touchCrewState } = await import('../../engine/crew/timeline');
+    const g = game();
+    const ids = addCrew(g, { CPT: 1, CC: 1 });
+    const codes = () => mapAirports(g).map((a) => a.code);
+    expect(codes()).not.toContain('FUE');
+    for (const id of ids) Object.assign(g.crew[id], { loc: 'FUE', status: 'resting' });
+    touchCrewState(g);
+    expect(mapAirports(g).find((a) => a.code === 'FUE')).toEqual({ code: 'FUE', hub: false, label: false });
+    // One flies home: the other keeps the dot.
+    g.crew[ids[0]].loc = 'LIS';
+    touchCrewState(g);
+    expect(codes()).toContain('FUE');
+    g.crew[ids[1]].loc = 'LIS';
+    touchCrewState(g);
+    expect(codes()).not.toContain('FUE');
+  });
+
+  it('a C-check ferry chain is the ferry out or the ferry home, labelled', async () => {
+    const { newGame, owned } = await import('../../engine/contracts/testkit');
+    const { bookCCheck, cCheckSlots } = await import('../../engine/ops/cHub');
+    const { PURPOSE_LABEL } = await import('./mapLogic');
+    const g = newGame(3);
+    const ac = owned(g);
+    const r = bookCCheck(g, ac.id, 'SOF', cCheckSlots(g, ac.id, 'SOF', 1)[0] + 3 * DAY);
+    if (!r.ok) throw new Error(r.error);
+    const m = g.maintenance[r.data!.maintId];
+    const out = m.ferryIds!;
+    const home = m.homeIds!;
+    expect(purposeChain(g, g.flights[out[out.length - 1]]).map((f) => f.id)).toEqual(out);
+    expect(purposeChain(g, g.flights[home[0]]).map((f) => f.id)).toEqual(home);
+    expect(PURPOSE_LABEL[g.flights[home[0]].purpose!]).toBe('C-check ferry');
   });
 });

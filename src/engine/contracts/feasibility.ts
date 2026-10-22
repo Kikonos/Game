@@ -8,7 +8,7 @@ import { distanceNm } from '../core/geo';
 import { blockMinutes, complement, etopsNeeded, maxSectorNm, planSector, reportMinutes, runwayFit, typeOf } from '../core/perf';
 import { DAY, fmtDate, fmtDateTime, fmtDay, fmtDuration, toDate } from '../core/time';
 import type { Aircraft, ApprovalId, ContractOffer, CrewExtra, GameState, Minute } from '../core/types';
-import { crewAvailability, offerExtra, type Availability } from '../crew';
+import { crewAvailability, offerExtra, restClassAt, type Availability } from '../crew';
 import { minRest } from '../crew/rules';
 import { dhBlock } from '../crew/timeline';
 import { A_CHECK_DAYS, anchorsOf, chainForward, CHARTER_SLACK, DEPLOY_LEAD, gapMoves, programmeOf, type Anchor, type ChainLeg, type Programme, type Trip } from './plan';
@@ -16,9 +16,10 @@ import { afterRefit, cabinAt, cabinFits, layoutsOf, refitTip } from '../ops/cabi
 import { aircraftGate, APPROVALS, gateApprovals, ratedPilots } from '../ops/company';
 import { deliveryQuote } from '../ops/delivery';
 import { paintQuote, paintWindow, type PaintSlot } from './paintTerms';
+import { possessive } from './flavor';
 import { productValue, tripTickets } from './pricing';
 
-export type CheckId = 'seats' | 'layout' | 'family' | 'range' | 'runway' | 'etops' | 'approvals' | 'availability' | 'maintenance' | 'crew' | 'positioning' | 'lease' | 'paint';
+export type CheckId = 'seats' | 'layout' | 'family' | 'range' | 'runway' | 'etops' | 'approvals' | 'availability' | 'maintenance' | 'crew' | 'positioning' | 'lease' | 'paint' | 'restSeats';
 export type CheckLevel = 'ok' | 'warn' | 'no';
 
 export interface FeasibilityCheck {
@@ -356,7 +357,11 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
     else if (a.kind === 'flight') rep.conflicts.flights.push(a.id);
     else if (a.kind === 'base') for (const f of flightsOf(g, ac.id)) if (f.contractId === a.contractId && f.status === 'scheduled') { rep.conflicts.flights.push(f.id); break; }
   }
-  if (!flyable) add('availability', 'warn', 'Not checked: the aircraft cannot fly the routes');
+  // v0.7.2 an aircraft being sold takes no new work.
+  if (ac.sale) {
+    availNo = true;
+    add('availability', 'no', `Sold: goes to ${ac.sale.buyer} on ${fmtDay(ac.sale.closes)}`);
+  } else if (!flyable) add('availability', 'warn', 'Not checked: the aircraft cannot fly the routes');
   else if (conflicts.length) {
     const soft = base && conflicts.every((a) => a.kind === 'maint' && g.maintenance[a.id]?.kind === 'A' && g.maintenance[a.id]?.status === 'planned');
     availNo = !soft;
@@ -425,7 +430,7 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
       const ferry = blockMin(slot.ferryIn);
       const where = `${what} at ${AIRPORT_BY_CODE[slot.shop]?.city ?? slot.shop}, ${fmtDay(slot.start)}–${fmtDay(slot.end)}`;
       const detail = `${slot.ferryIn.length ? `Ferry ${routeText(slot.ferryIn)} ${fmtDuration(ferry)}. ` : ''}Blocks the aircraft like a check. ${ac.livery === 'white' ? 'Back to plain white' : typeof ac.livery === 'object' ? 'Back in its own livery' : 'Back in our colours'} after the job (${pt.stripDays} day${pt.stripDays > 1 ? 's' : ''}).`;
-      if (other && (other.status === 'active' || other.status === 'signed')) add('paint', 'warn', `${where}: it flies ${other.title} in ${g.clients[other.clientId]?.name ?? 'another client'}'s colours until then`, detail);
+      if (other && (other.status === 'active' || other.status === 'signed')) add('paint', 'warn', `${where}: it flies ${other.title} in ${possessive(g.clients[other.clientId]?.name ?? 'another client')} colours until then`, detail);
       else if (ferry > BAL.paint.longFerryMin) add('paint', 'warn', `${where}: long ferry to the shop (${fmtDuration(ferry)})`, detail);
       else add('paint', 'ok', where, detail);
     }
@@ -493,12 +498,19 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   const reach = flyable ? crewReach(g, o, t.id, fits[0]) : null;
   if (reach) add('crew', 'no', reach, 'Too soon for this aircraft: a later start, or an aircraft already nearby.');
   else if (augmented && !g.company.approvals.includes('augmented')) add('crew', 'no', `A ${fmtDuration(duty)} duty needs an augmented crew: we have no approval for it`, 'Apply under Company → Approvals.');
-  else if (augmented && !t.restClass) add('crew', 'no', `A ${fmtDuration(duty)} duty needs an augmented crew and the ${t.short} has no crew rest seat`);
+  else if (augmented && !restClassAt(g, ac.id)) add('crew', 'no', `A ${fmtDuration(duty)} duty needs an augmented crew and ${ac.reg} has no crew rest`, t.body === 'wide' ? 'Fit crew rest seats (Fleet → Refit), or pick an aircraft with bunks.' : undefined);
   else if (shorts.length) {
     const what = shorts.map(([role, r]) => `${r.short} ${role}`).join(', ');
     add('crew', 'warn', `Short of crew: ${what}${rep.crew.firstShort ? ` from ${fmtDay(rep.crew.firstShort)}` : ''}`, 'Hire, or the roster will deadhead crew from other work; sets may run tight.');
   } else if (!rep.crew.setsNeeded && !Object.keys(rep.crew.byRole).length) add('crew', 'warn', 'Crew capacity not checked yet');
   else add('crew', augmented ? 'warn' : 'ok', `${augmented ? 'Augmented crew on long sectors; needs' : 'Needs'} ${rep.crew.setsNeeded} crew set${rep.crew.setsNeeded === 1 ? '' : 's'}, ${rep.crew.setsAvailable} free`);
+  // v0.7.2 crew rest seats (no bunks): the last row is blocked on the long legs.
+  const rs = ac.crewRest;
+  if (augmented && rs && !rs.bunks && rs.seats > 0) {
+    const sellable = cab.total - rs.seats;
+    const lvl = sellable < o.requirements.minSeats ? 'no' : sellable < o.requirements.minSeats + rs.seats ? 'warn' : 'ok';
+    add('restSeats', lvl, `Crew rest seats: ${rs.seats} seats blocked on the long legs, ${sellable} sellable (needs ${o.requirements.minSeats})`);
+  }
 
   // Estimates (contribution: variable costs only).
   const posBH = posMin / 60;

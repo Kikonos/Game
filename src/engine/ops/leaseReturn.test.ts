@@ -7,7 +7,8 @@ import { DAY } from '../core/time';
 import type { Aircraft, GameState } from '../core/types';
 import { leased, newGame, run } from '../contracts/testkit';
 import { resolveDecision } from './events';
-import { chooseLease, dailyLeases, leaseView, returnQuote } from './leaseReturn';
+import { chooseLease, dailyLeases, earlyReturnQuote, leaseView, returnEarly, returnQuote } from './leaseReturn';
+import { leastUsed } from './sale';
 
 const MONTH = 30.44 * DAY;
 const line = (g: GameState, cat: 'leaseReturn') => [g.finance.current, ...g.finance.history].reduce((s, st) => s + (st.lines[cat] ?? 0), 0);
@@ -148,5 +149,83 @@ describe('returning the aircraft', () => {
     expect(chooseLease(g, ac.id, 'extend36').ok).toBe(true);
     expect(ac.returning).toBeUndefined();
     expect(m.status).toBe('cancelled');
+  });
+});
+
+describe('v0.7.2 returning a lease early', () => {
+  it('fee = max(3, half the months left) × rent; 30 days notice; the default end is the first free day after it', () => {
+    const { g, ac } = ending(3, 400);
+    if (ac.ownership.kind !== 'dryLeaseIn') throw new Error('no lease');
+    const rent = ac.ownership.rentPerMonth;
+    const q = earlyReturnQuote(g, ac.id);
+    expect(q.ok).toBe(true);
+    expect(q.end).toBeGreaterThanOrEqual(g.now + 30 * DAY);
+    const months = (ac.ownership.leaseEnd - q.end) / MONTH;
+    expect(q.fee).toBe(Math.round((Math.max(3, 0.5 * months) * rent) / 1000) * 1000);
+    expect(q.net).toBe(q.rentSaved + q.deposit - q.fee - q.returnCosts.total);
+    expect(earlyReturnQuote(g, ac.id, g.now + 10 * DAY).ok).toBe(false);
+    // Under 90 days left: the normal return.
+    const short = ending(3, 80);
+    expect(earlyReturnQuote(short.g, short.ac.id).why).toMatch(/normal return/);
+  });
+
+  it('books the return check ending on the new date; the fee is posted when it starts; the aircraft leaves at the end', () => {
+    const { g, ac } = ending(4, 400);
+    const q = earlyReturnQuote(g, ac.id);
+    const r = returnEarly(g, ac.id, q.end);
+    if (!r.ok) throw new Error(r.error);
+    expect(ac.ownership.kind === 'dryLeaseIn' && ac.ownership.leaseEnd).toBe(q.end);
+    expect(ac.returning?.earlyFee).toBe(q.fee);
+    expect(g.stats.earlyReturns).toBe(1);
+    const m = g.maintenance[ac.returning!.maintId];
+    run(g, m.start + 60);
+    expect(line(g, 'leaseReturn')).toBe(-(m.cost + q.fee));
+    run(g, m.end + 60);
+    expect(g.fleet[ac.id]).toBeUndefined();
+  });
+
+  it('signed work after the ferry out blocks it and is named', () => {
+    const { g, ac } = ending(5, 400);
+    const t = g.now + 40 * DAY;
+    addFlight(g, { no: 'AW9', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'LIS', to: 'FAO', std: t, sta: t + 60 });
+    const q = earlyReturnQuote(g, ac.id, g.now + 35 * DAY);
+    expect(q.ok).toBe(false);
+    expect(q.blockers[0]).toMatch(/^Other flights: 1 leg after/);
+    expect(earlyReturnQuote(g, ac.id).end).toBeGreaterThan(t);
+  });
+});
+
+describe('v0.7.2 which one? (least used)', () => {
+  it('orders by block hours a day over the last 90 days, lowest first', () => {
+    const g = newGame(3);
+    const [a, b] = Object.values(g.fleet);
+    const today = Math.floor(g.now / DAY);
+    a.bhDays = [[today - 10, 600], [today - 5, 600]];
+    b.bhDays = [[today - 10, 60]];
+    a.deliveredAt = b.deliveredAt = g.now - 200 * DAY;
+    a.bhSince = b.bhSince = today - 200;
+    const rows = leastUsed(g, 'any');
+    expect(rows.map((x) => x.aircraftId)).toEqual([b.id, a.id]);
+    expect(rows[1].bh90).toBe(20);
+    expect(leastUsed(g, 'leased').every((x) => g.fleet[x.aircraftId].ownership.kind === 'dryLeaseIn')).toBe(true);
+    // Entries older than 90 days do not count.
+    b.bhDays = [[today - 120, 6000]];
+    expect(leastUsed(g, 'any').find((x) => x.aircraftId === b.id)!.bh90).toBe(0);
+  });
+
+  it('idle most of 90 days then busy for 6 ranks as little used; fresh tracking is not enough history', () => {
+    const g = newGame(3);
+    const [a, b] = Object.values(g.fleet);
+    const today = Math.floor(g.now / DAY);
+    a.deliveredAt = b.deliveredAt = g.now - 200 * DAY;
+    a.bhSince = b.bhSince = today - 200;
+    a.bhDays = Array.from({ length: 6 }, (_, i) => [today - i, 360] as [number, number]); // 36 BH in the last 6 days
+    b.bhDays = Array.from({ length: 90 }, (_, i) => [today - i, 300] as [number, number]); // 450 BH over 90 days
+    const rows = leastUsed(g, 'any');
+    expect(rows[0].aircraftId).toBe(a.id);
+    expect(rows[0].days).toBe(90);
+    // An older save loaded today: no history yet, so nothing is named as least used.
+    a.bhSince = b.bhSince = today;
+    expect(leastUsed(g, 'any').every((x) => !x.enough)).toBe(true);
   });
 });

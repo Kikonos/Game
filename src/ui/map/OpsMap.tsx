@@ -6,13 +6,14 @@
 // ride are grey icons with their flight number; Up Next and the panels carry the same type labels.
 // v0.7: aircraft appear at their handover site once handed over (DELIVERY tag until home); a selected aircraft's
 // arcs show its whole delivery / return / refit ferry chain.
+// v0.7.2: Up Next is a compact departures board (5 rows, grid lines, the "?" legend in its header) that folds away.
 
-import { HelpCircle, Users, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, HelpCircle, Users, X } from 'lucide-react';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { DAY, fmtDay, fmtTime } from '../../engine/core/time';
 import type { GameState, Ref } from '../../engine/core/types';
-import { commercialFlightsBetween, FLIGHT_TYPE_HINT, FLIGHT_TYPE_LABEL, FLIGHT_TYPES } from '../../engine/ops';
+import { commercialFlightsBetween, FLIGHT_TYPE_HINT, FLIGHT_TYPE_LABEL } from '../../engine/ops';
 import { store, useClock, useGame } from '../store';
 import { AircraftLayer, ArcsLayer, CommercialLayer, HIT_R, type LiveShared, NightLayer, newShared, PathsLayer, PinsLayer, pinOffset } from './LiveLayers';
 import { MapPanel, TypeKey } from './MapPanels';
@@ -77,6 +78,7 @@ const LEGEND: { swatch: ReactNode; label: string }[] = [
   { swatch: <span className="op-dot bad" />, label: 'Red: no legal crew, under 12 hours to go (CREW SHORTAGE)' },
   { swatch: <span className="op-dot air" />, label: 'Blue: airborne' },
   { swatch: <span className="op-dot" />, label: 'Grey chip: idle, or a delivery not yet started' },
+  { swatch: <span className="ops-help-ap" />, label: 'White dot: an airport we fly to, or where our crew are at a hotel' },
 ];
 
 function MapLegend() {
@@ -102,32 +104,52 @@ function MapLegend() {
   );
 }
 
+/** Up Next fold: a per-viewer convenience (browser storage can be missing or blocked; defaults open). */
+const FOLD_KEY = 'bh:upNextCollapsed';
+const readFold = () => {
+  try { return localStorage.getItem(FOLD_KEY) === '1'; } catch { return false; }
+};
+const writeFold = (v: boolean) => {
+  try { if (v) localStorage.setItem(FOLD_KEY, '1'); else localStorage.removeItem(FOLD_KEY); } catch { /* not stored */ }
+};
+
+/** Up Next rows (a departures board). */
+const NEXT_ROWS = 5;
+
 function UpNext({ g }: { g: GameState }) {
   // Steps with the clock label (10–30 game min), so a leg that has gone drops out between hourly emits.
   const now = useClock();
-  const list = upNextRows(g, 4, now);
+  const [folded, setFolded] = useState(readFold);
+  const list = upNextRows(g, NEXT_ROWS, now);
   if (!list.length) return null;
   const dated = list.some((r) => dayOff(now, r.t) > 1);
+  const fold = () => setFolded((v) => { writeFold(!v); return !v; });
   return (
-    <div className={`ops-next card ${dated ? 'dated' : ''}`} aria-label="Up next">
-      <div className="upper dim">Up next</div>
-      {list.map((r) => (
-        // v0.7.1: a private jet row names the jet type under "Private jet"; a crew-short flight carries the CREW SHORT chip.
-        <button key={r.id} className={`ops-next-row ${r.type}${r.jet ? ' jet' : ''}`} onClick={() => r.sel && store.select(r.sel)} title={r.jet ? 'A chartered private jet positioning our crew' : FLIGHT_TYPE_HINT[r.type]}>
-          <span className="mono">{depLabel(now, r.t)}</span>
-          <b className={`ellipsis${r.jet ? '' : ' mono'}`}>{r.who}</b>
-          <span className="mono muted">{r.from}→{r.to}</span>
-          <span className={`ops-type ${r.type}`}>
-            <TypeKey type={r.type} />
-            {r.alert ? <span className={`ops-short ${r.alert}`}>CREW SHORT</span> : r.jet ? 'Private jet' : FLIGHT_TYPE_LABEL[r.type]}
-            {r.crew ? <span className="ops-type-n" aria-label={`${r.crew} crew`}><Users aria-hidden />{r.crew}</span> : null}
-          </span>
-        </button>
-      ))}
-      <div className="ops-legend" aria-label="Flight types">
-        {FLIGHT_TYPES.map((t) => <span key={t} title={FLIGHT_TYPE_HINT[t]}><TypeKey type={t} />{FLIGHT_TYPE_LABEL[t]}</span>)}
+    <div className={`ops-next card${dated ? ' dated' : ''}${folded ? ' folded' : ''}`} aria-label="Up next">
+      <div className="ops-next-h">
+        <span className="upper dim">Up next</span>
         <MapLegend />
+        <button className="btn btn-ghost btn-icon ops-next-fold" onClick={fold} aria-expanded={!folded} aria-label={folded ? 'Show up next' : 'Fold up next'} title={folded ? 'Show' : 'Fold'}>
+          {folded ? <ChevronDown /> : <ChevronUp />}
+        </button>
       </div>
+      {!folded && (
+        <div className="ops-next-grid" role="list">
+          {list.map((r) => (
+            // v0.7.1: a private jet row names the jet type under "Private jet"; a crew-short flight carries the CREW SHORT chip.
+            <button key={r.id} role="listitem" className={`ops-next-row ${r.type}${r.jet ? ' jet' : ''}`} onClick={() => r.sel && store.select(r.sel)} title={r.jet ? 'A chartered private jet positioning our crew' : FLIGHT_TYPE_HINT[r.type]}>
+              <span className="mono">{depLabel(now, r.t)}</span>
+              <b className={`ellipsis${r.jet ? '' : ' mono'}`}>{r.who}</b>
+              <span className="mono muted">{r.from}→{r.to}</span>
+              <span className={`ops-type ${r.type}`}>
+                <TypeKey type={r.type} />
+                {r.alert ? <span className={`ops-short ${r.alert}`}>CREW SHORT</span> : r.jet ? 'Private jet' : FLIGHT_TYPE_LABEL[r.type]}
+                {r.crew ? <span className="ops-type-n" aria-label={`${r.crew} crew`}><Users aria-hidden />{r.crew}</span> : null}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

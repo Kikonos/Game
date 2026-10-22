@@ -6,7 +6,9 @@ import { BAL } from '../core/balance';
 import { typeOf } from '../core/perf';
 import { DAY, fmtDay } from '../core/time';
 import type { GameState } from '../core/types';
+import { flightsOf } from '../core/entities';
 import { deliveryStatus } from '../ops/delivery';
+import { saleQuote } from '../ops/sale';
 import { leaseView, returnQuote } from '../ops/leaseReturn';
 import { usd } from '../ops/util';
 import { crewFlightCard } from './crew';
@@ -80,6 +82,11 @@ export function fleetProblems(g: GameState): ProblemCard[] {
     if (d) out.push(d);
     const l = leaseReturnCard(g, ac.id);
     if (l) out.push(l);
+    // v0.7.2 an agreed sale stays on the list until the handover.
+    if (ac.sale) {
+      const s = saleCard(g, ac.id);
+      if (s) out.push(s);
+    }
   }
   for (const f of Object.values(g.flights)) {
     if (!f.purpose || f.status !== 'scheduled') continue;
@@ -92,4 +99,44 @@ export function fleetProblems(g: GameState): ProblemCard[] {
     if (c) out.push(c);
   }
   return out;
+}
+
+/** v0.7.2 a sale agreed (amber info until the handover), or one the player wants that signed work still blocks. Pure. */
+export function saleCard(g: GameState, aircraftId: string): ProblemCard | null {
+  const ac = g.fleet[aircraftId];
+  if (!ac) return null;
+  if (ac.sale) {
+    const s = ac.sale;
+    return {
+      subject: { kind: 'sale', ref: { kind: 'aircraft', id: ac.id } }, severity: 'amber',
+      title: `${ac.reg} goes to ${s.buyer} on ${fmtDay(s.closes)}`, what: `${ac.reg} goes to ${s.buyer} on ${fmtDay(s.closes)}`,
+      why: `We agreed to sell it for ${usd(s.price)}; it takes no new work and is handed over at ${city(g.company.homeBase)}.`,
+      hurt: { ...mkHurt({}), text: 'Not much: the buyer pays on handover' },
+      actions: [{ id: 'sell', label: 'Sale…', open: { modal: 'sell', id: ac.id }, primary: true }, { id: 'fleet', label: 'Fleet', open: { tab: 'fleet', sel: { kind: 'aircraft', id: ac.id } } }],
+      details: [`Agreed ${fmtDay(s.agreed)}`, ...(s.ferryIds?.length ? ['A ferry brings it home first'] : [])], visuals: {}, terms: ['marketValue'], by: s.closes,
+    };
+  }
+  if (ac.ownership.kind !== 'owned') return null;
+  const q = saleQuote(g, ac.id);
+  if (q.ok || !q.blockers.length) return null;
+  const first = flightsOf(g, ac.id).find((f) => f.status === 'scheduled' && f.contractId && !f.purpose);
+  // v0.7.2 only a booking in the way (a check or refit): its ferries can't be sub-chartered.
+  const onlyBooking = !!q.booking && q.blockers.length === 1;
+  const actions: ProblemCard['actions'] = onlyBooking
+    ? [
+        { id: 'cancelCheck', label: q.booking!.kind === 'A' || q.booking!.kind === 'C' ? 'Cancel the check' : 'Cancel the booking', open: { modal: 'check', id: ac.id }, primary: true },
+        { id: 'schedule', label: `Sell after ${fmtDay(q.booking!.until)}`, open: { tab: 'schedule', sel: { kind: 'aircraft', id: ac.id } } },
+      ]
+    : [
+        ...(first ? [{ id: 'subcharter', label: 'Sub-charter those legs', open: { modal: 'subcharter' as const, id: first.id }, primary: true }] : []),
+        { id: 'schedule', label: 'Open Schedule', open: { tab: 'schedule', sel: { kind: 'aircraft', id: ac.id } } },
+      ];
+  return {
+    subject: { kind: 'sale', ref: { kind: 'aircraft', id: ac.id } }, severity: 'amber',
+    title: `${ac.reg} can't be sold yet`, what: `${ac.reg} can't be sold yet`,
+    why: `${q.blockers[0]}${q.blockers.length > 1 ? ` (and ${q.blockers.length - 1} more)` : ''}.`,
+    hurt: { ...mkHurt({}), text: 'Not yet: nothing lost' },
+    actions,
+    details: q.blockers, visuals: {}, terms: ['marketValue'],
+  };
 }

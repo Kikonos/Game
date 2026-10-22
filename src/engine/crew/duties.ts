@@ -4,13 +4,14 @@
 
 import { BAL } from '../core/balance';
 import { flightsOf, nextId } from '../core/entities';
-import { reportMinutes, typeOf } from '../core/perf';
+import { reportMinutes } from '../core/perf';
 import { schedule } from '../core/queue';
 import { DAY, dayStart, yearOf } from '../core/time';
 import type { Contract, CrewMember, CrewSlot, Deployment, Duty, Flight, GameState, Legality, Minute, Pairing, Role } from '../core/types';
 import { evalSegs, isDisruptive, LIMITS, localMin, longestWorkBlock, maxFdp, minRest, offsetAt, referenceTime, tzDeltaH, worst, type Seg, type TimelineCtx } from './rules';
 import { crewExtraFor, seatsFor, type Seat } from './extraSeats';
-import { crewCount, crewIx, dutyBlock, dutyFlights, onBlocks, restClassOf, touchCrew } from './timeline';
+import { cabinEarly, cabinEarlyOf, crewCount, crewIx, dutyBlock, dutyFlights, onBlocks, touchCrew } from './timeline';
+import { restClassAt } from './crewRest';
 
 // ---------- duty measures ----------
 
@@ -22,6 +23,8 @@ interface Shape {
   longest: number;
   dep: string;
   restAt: string;
+  /** v0.7.2 cabin crew report this much earlier (widebodies). */
+  early: number;
 }
 
 function shape(typeId: string, fl: Flight[], keepReport?: Minute): Shape {
@@ -30,7 +33,7 @@ function shape(typeId: string, fl: Flight[], keepReport?: Minute): Shape {
   const lastOn = onBlocks(fl[fl.length - 1]);
   let longest = 0;
   for (const f of fl) longest = Math.max(longest, f.block);
-  return { report, release: lastOn + rm.post, fdp: lastOn - report, sectors: fl.length, longest, dep: fl[0].from, restAt: fl[fl.length - 1].to };
+  return { report, release: lastOn + rm.post, fdp: lastOn - report, sectors: fl.length, longest, dep: fl[0].from, restAt: fl[fl.length - 1].to, early: cabinEarlyOf(typeId) };
 }
 
 const AUG_ALL: (0 | 1 | 2)[] = [0, 1, 2];
@@ -40,10 +43,10 @@ const AUG_NONE: (0 | 1 | 2)[] = [0];
 function pickAugment(sh: Shape, reportLocal: number, acclimatised: boolean, restClass: 1 | 2 | 3 | null, canAug: boolean): { augment: 0 | 1 | 2; max: number; ok: boolean } {
   const opts = canAug && restClass && sh.sectors <= 3 ? AUG_ALL : AUG_NONE;
   for (const a of opts) {
-    const m = maxFdp({ reportLocal, sectors: sh.sectors, acclimatised, augment: a, restClass, longestBlock: sh.longest });
+    const m = maxFdp({ reportLocal, sectors: sh.sectors, acclimatised, augment: a, restClass, longestBlock: sh.longest, cabinEarly: sh.early });
     if (sh.fdp <= m) return { augment: a, max: m, ok: true };
   }
-  return { augment: 0, max: maxFdp({ reportLocal, sectors: sh.sectors, acclimatised, augment: 0, restClass, longestBlock: sh.longest }), ok: false };
+  return { augment: 0, max: maxFdp({ reportLocal, sectors: sh.sectors, acclimatised, augment: 0, restClass, longestBlock: sh.longest, cabinEarly: sh.early }), ok: false };
 }
 
 export const canAugment = (g: GameState, restClass: 1 | 2 | 3 | null) => !!restClass && g.company.approvals.includes('augmented');
@@ -74,7 +77,7 @@ export function syncDuty(g: GameState, d: Duty, p: Pairing): void {
   const reported = p.status === 'active' && d.report <= g.now && crewCount(p) > 0;
   const sh = shape(typeId, fl, reported ? d.report : undefined);
   const ref = referenceTime(p.base, sh.dep, Math.min(p.start, sh.report), sh.report);
-  const rc = restClassOf(g, p);
+  const rc = restClassAt(g, p.aircraftId);
   const pa = pickAugment(sh, ref.reportLocal, ref.state !== 'X', rc, canAugment(g, rc));
   d.flightIds = fl.map((f) => f.id);
   d.report = sh.report;
@@ -118,7 +121,7 @@ export function splitUnderWay(g: GameState, p: Pairing, d: Duty): Duty | null {
     const b = fl[i];
     if (a.status !== 'done' || b.status !== 'scheduled') continue;
     const landed = onBlocks(a);
-    const need = minRest({ dutyMin: landed - d.report, atHome: a.to === g.company.homeBase, augmented: d.augment > 0, tzShift: 0 }) + rm.report + rm.post;
+    const need = minRest({ dutyMin: landed - d.report + cabinEarly(g, p), atHome: a.to === g.company.homeBase, augmented: d.augment > 0, tzShift: 0 }) + rm.report + rm.post;
     if (b.std - landed < need) continue;
     const later = fl.slice(i);
     const d2: Duty = {
@@ -145,7 +148,7 @@ export function splitUnderWay(g: GameState, p: Pairing, d: Duty): Duty | null {
 
 // ---------- pairings ----------
 
-const ROLE_ORDER: Role[] = ['CPT', 'FO', 'CRP', 'CSD', 'SCC', 'CC'];
+const ROLE_ORDER: Role[] = ['CPT', 'FO', 'CRP', 'PUR', 'CC'];
 
 /**
  * Complement for a pairing: the largest augmentation of its duties (the whole set flies every duty), the client's
@@ -170,7 +173,7 @@ export function pairingSeats(g: GameState, p: Pairing): Seat[] {
   }
   const c: Contract | undefined = p.contractId ? g.contracts[p.contractId] : undefined;
   const x = crewExtraFor(g, p.aircraftId, p.contractId);
-  const seats = seatsFor(typeId, ac?.cabin.total ?? 180, x, c?.requirements.extraCabin ?? 0, { augment, fdp, pilotsOnly: empty });
+  const seats = seatsFor(typeId, ac?.cabin.total ?? 180, x, c?.requirements.extraCabin ?? 0, { augment, fdp, pilotsOnly: empty, restClass: restClassAt(g, p.aircraftId) });
   const rank = (s: Seat) => (s.above ? 10 : 0) + ROLE_ORDER.indexOf(s.role);
   return seats.sort((a, b) => rank(a) - rank(b));
 }
@@ -186,7 +189,7 @@ export function legalMinimum(g: GameState, p: Pairing): { pilots: number; cabin:
     if (d.augment > augment) augment = d.augment;
     if (d.augment > 0) fdp = Math.max(fdp, d.fdp);
   }
-  const seats = seatsFor(ac?.typeId ?? 'a320ceo', ac?.cabin.total ?? 180, { cabin: 0, pilot: 0 }, 0, { augment, fdp });
+  const seats = seatsFor(ac?.typeId ?? 'a320ceo', ac?.cabin.total ?? 180, { cabin: 0, pilot: 0 }, 0, { augment, fdp, restClass: restClassAt(g, p.aircraftId) });
   const pilots = seats.filter((s) => s.role === 'CPT' || s.role === 'FO' || s.role === 'CRP').length;
   return { pilots, cabin: seats.length - pilots };
 }
@@ -335,8 +338,7 @@ interface Spec {
 const keyOf = (fl: Flight[]) => fl.map((f) => f.id).join(',');
 
 /** Fewest duties, then least augmentation, then the most slack on the tightest duty (DESIGN §5.3 step 3). */
-function partition(g: GameState, typeId: string, units: Flight[][]): Spec[] {
-  const rc = typeOf(typeId).restClass;
+function partition(g: GameState, typeId: string, rc: 1 | 2 | 3 | null, units: Flight[][]): Spec[] {
   const canAug = canAugment(g, rc);
   const allowTight = g.company.policies.allowTight;
   interface Best { count: number; aug: number; slack: number; prev: number; flights: Flight[] }
@@ -374,9 +376,8 @@ function partition(g: GameState, typeId: string, units: Flight[][]): Spec[] {
  * there). A revenue sector and its tech-stop legs stay one chain, unless that chain alone is too long for one crew
  * (an early report out of Kabul with a fuel stop, say): then the crew changes at the fuel stop.
  */
-function slipUnits(g: GameState, typeId: string, u: Flight[]): Flight[][] {
+function slipUnits(g: GameState, typeId: string, rc: 1 | 2 | 3 | null, u: Flight[]): Flight[][] {
   if (u.length < 2) return [u];
-  const rc = typeOf(typeId).restClass;
   const fits = (fl: Flight[]) => planAugment(g, shape(typeId, fl), rc, canAugment(g, rc)).ok;
   if (fits(u)) return [u];
   return bySector(u).flatMap((x) => (x.length > 1 && !fits(x) ? x.map((f) => [f]) : [x]));
@@ -408,6 +409,7 @@ export function planAircraft(g: GameState, acId: string, from: Minute): void {
   const ac = g.fleet[acId];
   if (!ac) return;
   const typeId = ac.typeId;
+  const rc = restClassAt(g, acId);
   const home = g.company.homeBase;
   const ix = crewIx(g);
   const old = new Map<string, Duty>();
@@ -468,7 +470,7 @@ export function planAircraft(g: GameState, acId: string, from: Minute): void {
       }
     }
     if (u.length) units.push(u);
-    specs.push(...partition(g, typeId, units.flatMap((x) => slipUnits(g, typeId, x))));
+    specs.push(...partition(g, typeId, rc, units.flatMap((x) => slipUnits(g, typeId, rc, x))));
   }
 
   // Duty records (reused when the flights are the same).
@@ -488,7 +490,6 @@ export function planAircraft(g: GameState, acId: string, from: Minute): void {
     for (const f of s.flights) f.dutyId = d.id;
     // Provisional measures (the stricter clock); refreshPairing re-measures in pairing context.
     const sh = shape(typeId, s.flights);
-    const rc = typeOf(typeId).restClass;
     const pa = planAugment(g, sh, rc, canAugment(g, rc));
     Object.assign(d, { report: sh.report, release: sh.release, fdp: sh.fdp, sectors: sh.sectors, augment: pa.augment, maxFdp: pa.max, restAt: sh.restAt });
     d.flightsEv = s.flights.reduce((n, f) => n + f.ev, 0);
@@ -640,14 +641,17 @@ interface TourState {
   days: number[];
 }
 
-/** A duty as a virtual crew set's seg (no tickets). */
+/** A duty as a virtual crew set's seg (no tickets); v0.7.2 from the cabin crew's earlier report (the longer day). */
 function virtualSeg(g: GameState, d: Duty, tripStart: Minute, base: string, fresh = false): Seg {
   const dep = g.flights[d.flightIds[0]]?.from ?? d.restAt;
   const tz = referenceTime(base, dep, Math.min(tripStart, d.report), d.report).tz;
+  const p = g.pairings[d.pairingId];
+  const early = p ? cabinEarly(g, p) : 0;
+  const start = d.report - early;
   return {
-    kind: 'duty', start: d.report, end: d.release, fdp: d.fdp, maxFdp: d.maxFdp + (d.discretion ?? 0), block: dutyBlock(g, d), sectors: d.sectors,
-    aug: d.augment > 0, disruptive: isDisruptive(tz, d.report, d.release),
-    rest: minRest({ dutyMin: d.release - d.report, atHome: d.restAt === base, augmented: d.augment > 0, tzShift: tzDeltaH(base, d.restAt, d.release) }),
+    kind: 'duty', start, end: d.release, fdp: d.fdp + early, maxFdp: d.maxFdp + (d.discretion ?? 0) + early, block: dutyBlock(g, d), sectors: d.sectors,
+    aug: d.augment > 0, disruptive: isDisruptive(tz, start, d.release),
+    rest: minRest({ dutyMin: d.release - start, atHome: d.restAt === base, augmented: d.augment > 0, tzShift: tzDeltaH(base, d.restAt, d.release) }),
     at: d.restAt, from: dep, dutyId: d.id, fresh,
   };
 }

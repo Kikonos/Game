@@ -100,9 +100,11 @@ export function moneyProblems(g: GameState): ProblemCard[] {
   const out: ProblemCard[] = [];
   const cash = cashLowCard(g);
   if (cash) out.push(cash);
+  // One card per contract (its subject): two overdue invoices of one contract are one problem.
+  const seen = new Set<string>();
   for (const r of g.finance.receivables) {
     const c = invoiceOverdueCard(g, r.id);
-    if (c) out.push(c);
+    if (c && !seen.has(c.subject.ref.id)) { seen.add(c.subject.ref.id); out.push(c); }
   }
   const loss = lossMonthCard(g);
   if (loss && g.now - nextMonthStart(g.now - 31 * DAY) <= 7 * DAY) out.push(loss);

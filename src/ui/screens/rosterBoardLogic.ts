@@ -30,8 +30,8 @@ export const BOARD_DAYS = 49;
 
 export type BoardItem = { kind: 'group'; key: string; label: string; ids: string[] } | { kind: 'crew'; id: string; group: string };
 
-const ROLE_ORDER: Role[] = ['CPT', 'FO', 'CRP', 'CSD', 'SCC', 'CC'];
-export const ROLE_PLURAL: Record<Role, string> = { CPT: 'Captains', FO: 'First officers', CRP: 'Relief pilots', CSD: 'Pursers', SCC: 'Senior cabin crew', CC: 'Cabin crew' };
+const ROLE_ORDER: Role[] = ['CPT', 'FO', 'CRP', 'PUR', 'CC'];
+export const ROLE_PLURAL: Record<Role, string> = { CPT: 'Captains', FO: 'First officers', CRP: 'Relief pilots', PUR: 'Pursers', CC: 'Cabin crew' };
 
 export function matchBoard(c: CrewMember, f: BoardFilter): boolean {
   if (f.base !== 'all' && c.base !== f.base) return false;

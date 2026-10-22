@@ -1,14 +1,19 @@
 // Check planning (B5): A- or C-check for one aircraft. Suggests ground gaps at eligible airports
 // (ops.groundGaps / checkAirportOk) or a custom slot; books through ops.scheduleCheck. DESIGN.md §6.3.
+// v0.7.2 (UPDATE-0.7.2.md §7.3): C-checks happen at real MRO hubs by type: the hub list (price level, ferry each way,
+// all-in total, days away) first, then the earliest windows (cCheckSlots), then the plan in one line; a booked hub
+// check lists its ferries and the pilots' airline tickets (checkLogistics). A-checks are unchanged.
 
-import { Wrench } from 'lucide-react';
+import { Plane, Ticket, Wrench } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { flightsRev } from '../../engine/core/entities';
 import { typeOf } from '../../engine/core/perf';
-import { DAY, HOUR, dayStart, fmtDate, fmtDateTime, fmtDay } from '../../engine/core/time';
+import { DAY, HOUR, dayStart, fmtDate, fmtDateTime, fmtDay, fmtDuration, fmtTime } from '../../engine/core/time';
 import type { ActionResult, GameState } from '../../engine/core/types';
-import { cancelCheck, checkAirportOk, checkStatus, checkUsedAt, groundGaps, scheduleCheck } from '../../engine/ops';
+import { bookCCheck, cCheckOptions, cCheckSlots, cancelCheck, checkAirportOk, checkLogistics, checkStatus, checkUsedAt, groundGaps, scheduleCheck, type CCheckOption } from '../../engine/ops';
+import { Term } from '../components/Term';
+import { money } from '../format';
 import { Modal, Seg, Stepper } from '../components/ui';
 import { KV } from '../screens/common';
 import { durLabel } from '../screens/scheduleLogic';
@@ -33,9 +38,121 @@ function suggestions(g: GameState, acId: string, kind: Kind, dur: number): Slot[
 }
 
 export function CheckModal({ aircraftId, checkKind, replace }: { aircraftId: string; checkKind?: Kind; replace?: string }) {
+  const [kind, setKind] = useState<Kind>(checkKind ?? 'A');
+  return kind === 'C' ? <CCheckModal aircraftId={aircraftId} replace={replace} setKind={setKind} /> : <ACheckModal aircraftId={aircraftId} replace={replace} kind={kind} setKind={setKind} />;
+}
+
+const legsBlock = (legs: { block: number }[]) => legs.reduce((n, l) => n + l.block, 0);
+const pct = (p: number) => (p === 1 ? 'base price' : `${p < 1 ? '−' : '+'}${Math.round(Math.abs(1 - p) * 100)}%`);
+
+/** v0.7.2 §7.3: the C-check at an MRO hub. */
+function CCheckModal({ aircraftId, replace, setKind }: { aircraftId: string; replace?: string; setKind: (k: Kind) => void }) {
   const g = useGame();
   const ac = g.fleet[aircraftId];
-  const [kind, setKind] = useState<Kind>(checkKind ?? 'A');
+  const rev = flightsRev(g);
+  const opts = useMemo(() => cCheckOptions(g, aircraftId), [g, aircraftId, rev, g.now]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [hub, setHub] = useState<string | null>(null);
+  const code = hub ?? opts[0]?.hub.code ?? '';
+  const slots = useMemo(() => (code ? cCheckSlots(g, aircraftId, code, 4) : []), [g, aircraftId, code, rev, g.now]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [pick, setPick] = useState<number | null>(null);
+  const start = pick !== null && slots.includes(pick) ? pick : slots[0];
+  const opt: CCheckOption | undefined = useMemo(() => (start !== undefined ? cCheckOptions(g, aircraftId, start).find((o) => o.hub.code === code) : undefined), [g, aircraftId, start, code, rev]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!ac) return null;
+  const t = typeOf(ac.typeId);
+  const st = checkStatus(g, ac);
+  const oldId = replace ?? st.nextC;
+  const old = oldId ? g.maintenance[oldId] : undefined;
+  const inWork = old?.status === 'inWork';
+  const lg = old ? checkLogistics(g, old.id) : null;
+  const proj = start !== undefined ? checkUsedAt(g, ac, 'C', start) : null;
+  const book = () => {
+    if (start === undefined || !code) return;
+    const res = store.act((gg): ActionResult<{ maintId: string }> => {
+      if (old && old.status === 'planned') {
+        const keep = { start: old.start, at: old.at, hub: old.hub?.code };
+        const c = cancelCheck(gg, old.id);
+        if (!c.ok) return c;
+        const r = bookCCheck(gg, ac.id, code, start);
+        if (!r.ok) {
+          if (keep.hub) bookCCheck(gg, ac.id, keep.hub, keep.start);
+          else scheduleCheck(gg, ac.id, 'C', keep.start, keep.at);
+        }
+        return r;
+      }
+      return bookCCheck(gg, ac.id, code, start);
+    });
+    if (res.ok) store.closeModal();
+  };
+  const fo = opt?.ferryOut ?? [];
+  const fh = opt?.ferryHome ?? [];
+  return (
+    <Modal title={`Plan a check: ${ac.reg}`} icon={<Wrench className="accent" />} onClose={() => store.closeModal()} footer={
+      <>
+        <span className="grow small muted">{opt?.ok ? `About ${money(opt.total)} all in` : ''}</span>
+        <button className="btn" onClick={() => store.closeModal()}>Cancel</button>
+        <button className="btn btn-primary" onClick={book} disabled={start === undefined || !opt?.ok || inWork}><Wrench /> {old && !inWork ? `Move C-check${opt ? ` to ${opt.hub.city}` : ''}` : `Book C-check${opt ? ` at ${opt.hub.city}` : ''}`}</button>
+      </>
+    }>
+      <div className="col gap-12">
+        <div className="row between wrap gap-12">
+          <Seg<Kind> value="C" onChange={setKind} options={[{ value: 'A', label: 'A-check' }, { value: 'C', label: 'C-check' }]} />
+          <span className="small muted">{t.cCheckDays} days at an <Term id="mro">MRO</Term> hub · due {fmtDate(st.cDue)} ({Math.round(st.cUsed * 100)}% used)</span>
+        </div>
+        {old && (
+          <div className="ck-booked small">
+            <b>{inWork ? 'In work' : 'Booked'}: {old.hub ? `${old.hub.name}, ` : ''}{AIRPORT_BY_CODE[old.at]?.city ?? old.at} {fmtDay(old.start)}–{fmtDay(old.end)}</b>
+            {lg && (
+              <div className="col gap-4 mt-4">
+                {[...lg.ferryOut.map((f) => ['Ferry out', f] as const), ...lg.ferryHome.map((f) => ['Ferry home', f] as const)].map(([k, f]) => (
+                  <span key={f.id} className="row gap-8"><Plane className="sc-ico-s" /><span className="muted">{k}</span> <span className="mono">{f.no}</span> {f.from}→{f.to} {fmtDay(f.std)} {fmtTime(f.std)}</span>
+                ))}
+                {lg.tickets.map((x) => (
+                  <span key={`${x.no}${x.dep}`} className="row gap-8"><Ticket className="sc-ico-s" /><span className="muted">{x.crewIds.length} pilot{x.crewIds.length === 1 ? '' : 's'}</span> <span className="mono">{x.no}</span> {x.from}→{x.to} {fmtDay(x.dep)}{x.cost ? ` · ${money(x.cost)}` : ''}</span>
+                ))}
+                {!lg.tickets.length && <span className="muted">Airline tickets for the pilots are bought when the ferries are rostered (up to 14 days ahead).</span>}
+              </div>
+            )}
+            {!inWork && <div className="muted mt-4">Pick a hub and a window to move it.</div>}
+          </div>
+        )}
+        <div className="upper dim">Hubs for the {t.short}</div>
+        <div className="col gap-8">
+          {opts.map((o) => (
+            <button key={o.hub.code} className={`sc-slot ck-hub ${o.hub.code === code ? 'on' : ''}`} aria-pressed={o.hub.code === code} onClick={() => { setHub(o.hub.code); setPick(null); }}>
+              <span className="row between gap-8"><b>{o.hub.name}</b><b className="num">{money(o.total)}</b></span>
+              <span className="row between gap-8 small">
+                <span className="muted">{o.hub.city} ({o.hub.code}) · {pct(o.hub.price)} · ferry {o.ferryOut.length ? fmtDuration(legsBlock(o.ferryOut)) : '—'} each way · {o.awayDays} days away</span>
+                {!o.ok && o.why && <span className="warn">{o.why}</span>}
+              </span>
+            </button>
+          ))}
+          {!opts.length && <div className="small muted">No MRO hub takes this type.</div>}
+        </div>
+        <div className="upper dim">Earliest windows</div>
+        <div className="row wrap gap-8">
+          {slots.map((s0, i) => (
+            <button key={s0} className={`cv-chip rf-chip ${s0 === start ? 'on' : ''}`} aria-pressed={s0 === start} onClick={() => setPick(s0)}>
+              <b>{fmtDay(s0)}</b><span className="tiny dim">{i === 0 ? 'earliest' : fmtTime(s0)}</span>
+            </button>
+          ))}
+          {!slots.length && <span className="small muted">No window long enough for the ferries and the check in the next year: clear some flights first.</span>}
+        </div>
+        {opt && start !== undefined && (
+          <div className="cv-cost small ck-plan">
+            <span>{fo.length ? <>Ferry out <b>{fmtDay(fo[0].std)} {fmtTime(fo[0].std)}</b> {fo[0].from}→{fo[fo.length - 1].to} ({fmtDuration(legsBlock(fo))}) · </> : null}check <b>{fmtDay(opt.start)}–{fmtDay(opt.end)}</b>{fh.length ? <> · ferry home <b>{fmtDay(fh[0].std)} {fmtTime(fh[0].std)}</b></> : null}</span>
+            <span className="muted">Check {money(opt.checkCost)} · ferries {money(opt.ferryCost)} · 2 pilots fly home and back out on airline tickets, hotels ≈ {money(opt.crewCost)}</span>
+            {proj && <span className={proj.used > 1 ? 'bad' : proj.used > 0.9 ? 'warn' : 'good'}>By then: {Math.round(proj.used * 100)}% used ({proj.fh} / {proj.limitFH} FH)</span>}
+            {!opt.ok && opt.why && <span className="warn">{opt.why}</span>}
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+function ACheckModal({ aircraftId, replace, kind, setKind }: { aircraftId: string; replace?: string; kind: Kind; setKind: (k: Kind) => void }) {
+  const g = useGame();
+  const ac = g.fleet[aircraftId];
   const [pick, setPick] = useState<number>(0);
   const [day, setDay] = useState(1);
   const [hour, setHour] = useState(22);

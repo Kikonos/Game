@@ -23,6 +23,98 @@ import { usd } from './util';
 
 export interface ReturnQuote { site: string; lines: { label: string; amount: number }[]; total: number; deposit: number; checkDays: number; ferry: DeliveryLeg[] }
 export type LeaseChoice = 'extend12' | 'extend36' | 'return';
+
+/** v0.7.2 handing a lease back early (UPDATE-0.7.2.md §6.2). */
+export interface EarlyReturnQuote {
+  ok: boolean; why: string | null;
+  /** The return check ends (the lessor wants 30 days' notice). */
+  end: Minute;
+  fee: number;
+  rentSaved: number; returnCosts: ReturnQuote; deposit: number;
+  /** rentSaved + deposit − fee − returnCosts.total. */
+  net: number;
+  blockers: string[];
+}
+
+/**
+ * v0.7.2 an early return ending at `end` (default: the first day after the 30-day notice with no signed work from the
+ * ferry out on): the lessor's fee (max(3, half the months left) × rent), the rent saved, the return costs (as at the
+ * lease end, priced for `end`) and the deposit back. Not with under 90 days left (the normal return). Pure.
+ */
+export function earlyReturnQuote(g: GameState, aircraftId: string, end?: Minute): EarlyReturnQuote {
+  const ac = g.fleet[aircraftId];
+  const E = BAL.v072.earlyReturn;
+  const rq0: ReturnQuote = { site: '', lines: [], total: 0, deposit: 0, checkDays: 0, ferry: [] };
+  const no = (why: string, e = end ?? g.now): EarlyReturnQuote => ({ ok: false, why, end: e, fee: 0, rentSaved: 0, returnCosts: rq0, deposit: 0, net: 0, blockers: [] });
+  if (!ac || ac.ownership.kind !== 'dryLeaseIn') return no('Not a leased aircraft');
+  const own = ac.ownership;
+  if (ac.status === 'delivering') return no(`${ac.reg} has not been delivered yet`);
+  if (ac.returning) return no('The return is already booked');
+  if (own.leaseEnd - g.now < E.minLeftDays * DAY) return no(`Under ${E.minLeftDays} days left: use the normal return`);
+  const w = wideOf(ac);
+  const checkDays = BAL.leaseReturn.checkDays[w];
+  const turn = typeOf(ac.typeId).turnMin;
+  const site = own.returnSite ?? g.company.homeBase;
+  const r = route(ac.typeId, g.company.homeBase, site);
+  const ferryMin = r && r.length ? routeMinutes(r) + 2 * turn : 0;
+  const earliest = Math.ceil((g.now + E.noticeDays * DAY) / DAY) * DAY + 12 * 60;
+  // Signed work that keeps it busy: legs (not soft positioning), checks, base programmes.
+  const work: { end: Minute; what: string; contractId: string | null }[] = [];
+  for (const f of flightsOf(g, ac.id)) if ((f.status === 'scheduled' || f.status === 'enroute') && f.kind !== 'positioning') work.push({ end: f.eta ?? f.sta, what: `${f.no} ${f.from}–${f.to}`, contractId: f.contractId });
+  for (const m of Object.values(g.maintenance)) if (m.aircraftId === ac.id && (m.status === 'planned' || m.status === 'inWork')) work.push({ end: m.end, what: `${m.kind === 'A' || m.kind === 'C' ? `${m.kind}-check` : m.kind} ${fmtDay(m.start)}`, contractId: null });
+  for (const c of Object.values(g.contracts)) if ((c.status === 'signed' || c.status === 'active') && c.aircraftIds.includes(ac.id)) work.push({ end: c.pattern.kind === 'base' ? c.pattern.to : c.end, what: c.title, contractId: c.id });
+  const busyEnd = Math.max(0, ...work.map((x) => x.end));
+  const e = end ?? Math.max(earliest, Math.ceil((busyEnd + ferryMin + checkDays * DAY) / DAY) * DAY + 12 * 60);
+  if (e < earliest - 60) return no(`The lessor wants ${E.noticeDays} days' notice: from ${fmtDay(earliest)}`, e);
+  if (own.leaseEnd - e < E.minLeftDays * DAY) return no(`That leaves under ${E.minLeftDays} days of the lease: use the normal return`, e);
+  const ferryOut = e - checkDays * DAY - ferryMin;
+  const blockers: string[] = [];
+  const byContract = new Map<string, number>();
+  for (const f of flightsOf(g, ac.id)) {
+    if (f.status !== 'scheduled' || f.kind === 'positioning' || (f.eta ?? f.sta) <= ferryOut) continue;
+    const k = f.contractId ?? '';
+    byContract.set(k, (byContract.get(k) ?? 0) + 1);
+  }
+  for (const [k, n] of byContract) blockers.push(`${k ? g.contracts[k]?.title ?? 'A contract' : 'Other flights'}: ${n} leg${n > 1 ? 's' : ''} after ${fmtDay(ferryOut)}`);
+  for (const c of Object.values(g.contracts)) {
+    if ((c.status === 'signed' || c.status === 'active') && c.aircraftIds.includes(ac.id) && c.pattern.kind === 'base' && c.pattern.to > ferryOut && !byContract.has(c.id)) blockers.push(`${c.title}: runs to ${fmtDay(c.pattern.to)}`);
+  }
+  const rq = returnQuote(g, ac.id, e)!;
+  const monthsLeft = (own.leaseEnd - e) / MONTH;
+  const fee = Math.round((Math.max(E.feeMinMonths, E.feeShare * monthsLeft) * own.rentPerMonth) / 1000) * 1000;
+  const rentSaved = Math.round((monthsLeft * own.rentPerMonth) / 1000) * 1000;
+  const deposit = own.deposit ?? 0;
+  const net = rentSaved + deposit - fee - rq.total;
+  return { ok: !blockers.length, why: blockers.length ? blockers[0] : null, end: e, fee, rentSaved, returnCosts: rq, deposit, net, blockers };
+}
+
+/** v0.7.2 books the early return: the lease now ends at `end`; ferry to the return site and the return check; the fee is posted when the check starts. */
+export function returnEarly(g: GameState, aircraftId: string, end: Minute): ActionResult {
+  const q = earlyReturnQuote(g, aircraftId, end);
+  if (!q.ok) return { ok: false, error: q.why ?? 'Cannot return it early' };
+  const ac = g.fleet[aircraftId];
+  if (ac.ownership.kind !== 'dryLeaseIn') return { ok: false, error: 'Not a leased aircraft' };
+  const own = ac.ownership;
+  const was = own.leaseEnd;
+  own.leaseEnd = q.end;
+  const r = bookLeaseReturn(g, ac);
+  if (!r.ok) {
+    own.leaseEnd = was;
+    return r;
+  }
+  ac.returning!.earlyFee = q.fee;
+  own.noticeGiven = true;
+  const dec = openDecision(g, aircraftId);
+  if (dec) g.decisions.splice(g.decisions.indexOf(dec), 1);
+  g.stats.earlyReturns = (g.stats.earlyReturns ?? 0) + 1;
+  pushMessage(g, {
+    tone: 'info', cat: 'company', title: `${ac.reg} goes back to ${lessorOf(ac)} early`,
+    body: `The lease now ends ${fmtDay(q.end)} instead of ${fmtDay(was)}. Early-return fee ${usd(q.fee)} (paid when the return check starts); about ${usd(q.rentSaved)} of rent saved.`,
+    ref: { kind: 'aircraft', id: ac.id },
+  });
+  return { ok: true, msg: `${ac.reg} returns ${fmtDay(q.end)} · fee ${usd(q.fee)}` };
+}
+
 export interface LeaseView {
   lessor: string; ends: Minute; daysLeft: number; rent: number; returnSite: string;
   options: { id: LeaseChoice; label: string; rent?: number; cost?: number; chips: string[] }[];
@@ -55,16 +147,18 @@ function usedC(g: GameState, ac: Aircraft, at: Minute): number {
 }
 
 /** The return: ferry to the return site, check, half-life, cabin back as delivered, white repaint; deposit back. Pure. */
-export function returnQuote(g: GameState, aircraftId: string): ReturnQuote | null {
+export function returnQuote(g: GameState, aircraftId: string, at?: Minute): ReturnQuote | null {
   const ac = g.fleet[aircraftId];
   if (!ac || ac.ownership.kind !== 'dryLeaseIn') return null;
   const own = ac.ownership;
+  // v0.7.2 `at`: an early return's end (default the lease end).
+  const endAt = at ?? own.leaseEnd;
   const w = wideOf(ac);
   const L = BAL.leaseReturn;
   const site = own.returnSite ?? g.company.homeBase;
   const checkDays = L.checkDays[w];
   const lines: { label: string; amount: number }[] = [{ label: 'Return check', amount: L.checkCost[w] }];
-  const half = Math.round((Math.max(0, usedC(g, ac, own.leaseEnd) - 0.5) * BAL.checkCost.C[w] * L.halfLifeShare) / 1000) * 1000;
+  const half = Math.round((Math.max(0, usedC(g, ac, endAt) - 0.5) * BAL.checkCost.C[w] * L.halfLifeShare) / 1000) * 1000;
   if (half > 0) lines.push({ label: 'Half-life compensation', amount: half });
   const cabin = reinstateCost(ac);
   if (cabin) lines.push({ label: `Cabin back to ${layoutName(own.deliveredLayout ?? ac.cabin.layout)}`, amount: cabin });
@@ -73,7 +167,7 @@ export function returnQuote(g: GameState, aircraftId: string): ReturnQuote | nul
     lines.push({ label: 'Strip and white repaint', amount: Math.round((((lo + hi) / 2) * L.repaintFactor) / 1000) * 1000 });
   }
   const r = route(ac.typeId, g.company.homeBase, site);
-  const start = own.leaseEnd - checkDays * DAY;
+  const start = endAt - checkDays * DAY;
   const ferry = r && r.length ? timeChain(r, start - typeOf(ac.typeId).turnMin - routeMinutes(r)).map((l) => ({ ...l, block: l.sta - l.std, nightStopAfter: false })) : [];
   return { site, lines, total: lines.reduce((s, l) => s + l.amount, 0), deposit: own.deposit ?? 0, checkDays, ferry };
 }
@@ -204,6 +298,8 @@ export function onReturnStart(g: GameState, m: MaintenanceEvent): void {
   if (ac?.returning) ac.returning.quote = amt;
   m.cost = amt;
   post(g, 'leaseReturn', -amt);
+  // v0.7.2 an early return's fee to the lessor.
+  if (ac?.returning?.earlyFee) post(g, 'leaseReturn', -ac.returning.earlyFee);
 }
 
 /** Return check end: deposit back, part-month costs settled, the aircraft leaves the fleet. */

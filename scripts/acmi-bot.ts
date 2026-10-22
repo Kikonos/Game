@@ -32,6 +32,11 @@
 //   order auto-fix → fly someone in → call in → swap (when the other flight stays crewed) → private jet (≤ 18 h out, ≥ 100
 //   passengers, leaving 3 h+ sooner than waiting for a ticket, at most 8 a year) → discretion → delay (≤ 6 h) → sub-charter (cheaper than cancelling);
 //   else the gate decision keeps today's defaults.
+// - v0.7.2 (UPDATE-0.7.2.md §13): C-checks at MRO hubs (cCheckOptions → the cheapest hub whose slot ends before the due
+//   date, winter first; bookCCheck books the ferries and the pilots' tickets); cabin crew short on two fleet families at
+//   once are hired as one multi-type order; a widebody without bunks gets crew rest seats once augmented crews are held;
+//   a lease is returned early only when it is the least used, under 1 BH a day for 90 days, with no work for 60 days,
+//   6+ months left and a positive net (once a year); never sells. Captains fly as FO through the auto-roster only.
 
 import { writeFileSync } from 'node:fs';
 import LZString from 'lz-string';
@@ -46,9 +51,10 @@ import { aboveMinimum, applyCrewFix, classOf, conversionClasses, conversionEarli
 import { devFleet } from '../src/engine/dev';
 import { createGame } from '../src/engine/newGame';
 import {
-  acquireAircraft, aircraftGate, applyApproval, approvalBlocker, approvalReqs, APPROVALS, bookRefit, cancelCheck, checkStatus, deliveryStatus, fixedCosts, groundGaps, ratedPilots,
-  refitQuote, refitStations, resolveDecision, scheduleCheck, ticketPurpose,
+  acquireAircraft, aircraftGate, applyApproval, approvalBlocker, approvalReqs, APPROVALS, bookCCheck, bookRefit, bookRestSeats, cancelCheck, cCheckOptions, cCheckSlots, checkStatus, deliveryStatus,
+  earlyReturnQuote, fixedCosts, groundGaps, leastUsed, ratedPilots, refitQuote, refitSlots, refitStations, resolveDecision, returnEarly, saleQuote, sellAircraft, ticketPurpose,
 } from '../src/engine/ops';
+import { REST_SEATS } from '../src/engine/ops/cabin';
 import { cabinAt, cabinFits, refitTip } from '../src/engine/ops/cabin';
 import { deliveryQuote } from '../src/engine/ops/delivery';
 import type { ApprovalId } from '../src/engine/core/types';
@@ -108,10 +114,17 @@ interface Tally {
   waitHires: number;
   /** v0.7.1: Crew Control fixes applied by kind. */
   crewFixes: Map<string, number>;
+  /** v0.7.2: hub C-checks booked (hub codes), their ferry + ticket cost, rest seats booked, multi-type cabin hires, early return day. */
+  cHubs: string[];
+  hubTravel: number;
+  restSeats: number;
+  multiHires: number;
+  earlyReturnDay: number | null;
 }
 const newTally = (): Tally => ({
   actions: new Map(), decisions: new Map(), decMonth: new Map(), decKinds: new Map(), accepted: 0, countered: 0, firstAccept: null, wideAffordableAt: null, wideReadyAt: null, wideSigned: null, longLead: 0, paintOffers: [],
   rehired: 0, policyChanges: [], classesBooked: 0, paidExtra: 0, filed: [], signed: [], narrowSigned: 0, refits: [], leaseChoices: [], waitHires: 0, crewFixes: new Map(),
+  cHubs: [], hubTravel: 0, restSeats: 0, multiHires: 0, earlyReturnDay: null,
 });
 
 const weekOf = (g: GameState) => Math.floor((g.now - g.started) / (7 * DAY));
@@ -278,6 +291,21 @@ function hire(g: GameState, t: Tally): void {
   // signing so they join before the first job.
   const wideN = new Map<RatingFamily, number>();
   for (const ac of Object.values(g.fleet)) if (typeOf(ac.typeId).body === 'wide' && ac.status !== 'leasedOut') wideN.set(typeOf(ac.typeId).family, (wideN.get(typeOf(ac.typeId).family) ?? 0) + 1);
+  // v0.7.2 cabin crew short on two fleet families at once: one multi-type order covers both (they count in each).
+  const short = new Map<Role, { family: RatingFamily; n: number }[]>();
+  for (const l of staffing(g)) {
+    if (l.role !== 'PUR' && l.role !== 'CC') continue;
+    const n = l.need - l.have - inClass(g, l);
+    if (n > 0) short.set(l.role, [...(short.get(l.role) ?? []), { family: l.family, n }]);
+  }
+  for (const [role, xs] of short) {
+    if (xs.length < 2) continue;
+    const [a, b] = [...xs].sort((x, y) => y.n - x.n || (x.family < y.family ? -1 : 1));
+    if (hireCrew(g, { role, family: a.family, families: [a.family, b.family], base: g.company.homeBase, count: Math.min(30, b.n) }).ok) {
+      t.multiHires++;
+      act(g, t);
+    }
+  }
   for (const l of staffing(g)) {
     const pilot = l.role === 'CPT' || l.role === 'FO';
     // Widebody cabin crew who also hold a narrowbody type fly both fleets: counted as half a widebody crew member.
@@ -408,22 +436,88 @@ function conversions(g: GameState, t: Tally): void {
   }
 }
 
-/** C-checks: booked once warned (≤ 90 days), in the first free window long enough (winter preferred). */
+/**
+ * v0.7.2 C-checks at MRO hubs: once warned (≤ 90 days), the cheapest hub whose slot ends before the due date (+20 days
+ * of tolerance), a winter slot first; bookCCheck books the ferries out and home (the roster tickets the pilots).
+ */
 function checks(g: GameState, t: Tally): void {
   for (const ac of Object.values(g.fleet)) {
-    if (ac.status === 'delivering') continue;
+    if (ac.status === 'delivering' || ac.sale || ac.returning) continue;
     const st = checkStatus(g, ac);
     if (st.nextC || st.cDue - g.now > 90 * DAY) continue;
-    const ty = typeOf(ac.typeId);
-    const need = ty.cCheckDays * DAY + DAY;
-    const gaps = groundGaps(g, ac, g.now + DAY, st.cDue + 20 * DAY).filter((x) => x.to - x.from >= need);
-    const winter = gaps.find((x) => [10, 11, 0, 1, 2].includes(toDate(x.from).getUTCMonth()));
-    for (const gap of winter ? [winter, ...gaps] : gaps) {
-      const lead = gap.at === g.company.homeBase ? 120 : 120 + ty.turnMin + 6 * 60;
-      if (scheduleCheck(g, ac.id, 'C', gap.from + lead, g.company.homeBase).ok) {
+    const dur = typeOf(ac.typeId).cCheckDays * DAY;
+    const cands: { hub: string; start: number; total: number; winter: boolean }[] = [];
+    for (const o of cCheckOptions(g, ac.id)) {
+      if (!o.ok) continue;
+      for (const s0 of cCheckSlots(g, ac.id, o.hub.code, 8)) {
+        if (s0 + dur > st.cDue + 20 * DAY) break;
+        cands.push({ hub: o.hub.code, start: s0, total: o.total, winter: [10, 11, 0, 1, 2].includes(toDate(s0).getUTCMonth()) });
+      }
+    }
+    cands.sort((a, b) => Number(b.winter) - Number(a.winter) || a.total - b.total || a.start - b.start);
+    for (const c of cands) {
+      const opt = cCheckOptions(g, ac.id, c.start).find((o) => o.hub.code === c.hub);
+      if (bookCCheck(g, ac.id, c.hub, c.start).ok) {
+        t.cHubs.push(c.hub);
+        t.hubTravel += opt ? opt.ferryCost + opt.crewCost : 0;
         act(g, t);
         break;
       }
+    }
+  }
+}
+
+/** v0.7.2 a widebody without bunks gets crew rest seats (first slot) once augmented crews are held (once per aircraft). */
+function restSeats(g: GameState, t: Tally): void {
+  if (!g.company.approvals.includes('augmented')) return;
+  for (const ac of Object.values(g.fleet)) {
+    const r = ac.crewRest;
+    if (typeOf(ac.typeId).body !== 'wide' || ac.status === 'delivering' || ac.sale || ac.returning || !r || r.bunks || r.seats > 0) continue;
+    if (Object.values(g.maintenance).some((m) => m.aircraftId === ac.id && m.kind === 'refit' && (m.status === 'planned' || m.status === 'inWork'))) continue;
+    const slot = refitSlots(g, ac.id, REST_SEATS, 1).slots[0];
+    if (slot && bookRestSeats(g, ac.id, true, slot.start).ok) {
+      t.restSeats++;
+      act(g, t);
+    }
+  }
+}
+
+/**
+ * v0.7.2 an early lease return (at most one a year): the least-used leased aircraft, under 1 BH a day over 90 tracked
+ * days, no work in the next 60 days, 6+ months left and a positive net (rent saved + deposit − fee − return costs).
+ */
+function earlyReturns(g: GameState, t: Tally): void {
+  if ((g.stats.earlyReturns ?? 0) > Math.floor(dayN(g) / 365)) return;
+  const row = leastUsed(g, 'leased')[0];
+  const ac = row ? g.fleet[row.aircraftId] : undefined;
+  if (!row || !ac || ac.ownership.kind !== 'dryLeaseIn' || row.days < 90 || row.perDay >= 1) return;
+  if (ac.ownership.leaseEnd - g.now < 182 * DAY) return;
+  const busy = Object.values(g.flights).some((f) => f.aircraftId === ac.id && f.status === 'scheduled' && f.kind !== 'positioning' && f.std < g.now + 60 * DAY)
+    || Object.values(g.contracts).some((c) => (c.status === 'signed' || c.status === 'active') && c.aircraftIds.includes(ac.id));
+  if (busy) return;
+  const q = earlyReturnQuote(g, ac.id);
+  if (q.ok && q.net > 0 && returnEarly(g, ac.id, q.end).ok) {
+    t.earlyReturnDay = dayN(g);
+    t.leaseChoices.push(`${ac.reg} early ${fmtDateTime(q.end).slice(0, 6)}`);
+    act(g, t);
+  }
+}
+
+/**
+ * v0.7.2 cash below zero for a week: sell the least-used owned aircraft (under 2 BH a day over a tracked week or more,
+ * no signed work in the way), at most one a year.
+ */
+function sales(g: GameState, t: Tally): void {
+  const neg = g.finance.negSince;
+  if (neg === null || neg === undefined || g.now - neg < 7 * DAY) return;
+  if ((g.stats.sales ?? 0) + Object.values(g.fleet).filter((a) => a.sale).length > Math.floor(dayN(g) / 365)) return;
+  for (const row of leastUsed(g, 'owned')) {
+    if (!row.enough || row.perDay >= 2) continue;
+    const q = saleQuote(g, row.aircraftId);
+    if (q.ok && sellAircraft(g, row.aircraftId, q.price).ok) {
+      t.leaseChoices.push(`${g.fleet[row.aircraftId].reg} sold ${fmtDateTime(q.closes).slice(0, 6)}`);
+      act(g, t);
+      return;
     }
   }
 }
@@ -467,8 +561,9 @@ function fleet(g: GameState, t: Tally): void {
         // v0.7: work the widebody can fly (after the grant).
         (due === undefined || x.start >= due + 7 * DAY),
     );
-    // Home at most about three weeks before the grant (rent runs from the handover).
-    const timed = due !== undefined && due - g.now <= (lead + 30) * DAY;
+    // v0.7.2 not before the grant is near: home at most about two weeks before it (rent and crew run from the handover).
+    if (!WIDE && due !== undefined && due - g.now > (lead + 14) * DAY) continue;
+    const timed = due !== undefined;
     // Without a job to fly, only a lease the airline can carry while it waits for work ($300K/month at most).
     if (!WIDE && (!earning || !(job || (timed && o.rentPerMonth <= 300_000)))) continue;
     if (acquireAircraft(g, o.id).ok) {
@@ -710,6 +805,9 @@ function policy(g: GameState, t: Tally, urgent: boolean, newDay: boolean): void 
     conversions(g, t);
     hire(g, t);
     checks(g, t);
+    restSeats(g, t);
+    earlyReturns(g, t);
+    sales(g, t);
     ladderSteps(g, t);
     fleet(g, t);
     narrowGrowth(g, t);
@@ -823,6 +921,8 @@ let lastDay = dayIndex(g.now);
 const seenDuty = new Set<string>();
 let dutiesFlown = 0;
 let dutiesExtra = 0;
+let negFrom: number | null = null;
+let negMaxDays = 0;
 let headDays = 0;
 let headN = 0;
 let moraleMin = 100;
@@ -838,6 +938,9 @@ const dhDelivery = new Set<string>();
 const dhSeen = new Set<string>();
 const ferryLegs = new Set<string>();
 let ferryBH = 0;
+const checkLegs = new Set<string>();
+let illegalAtCheck = 0;
+const reliable0 = g.company.reputation.reliable;
 const abroad = new Set<string>();
 let maxWait = 0;
 let illegalAtFerry = 0;
@@ -887,6 +990,12 @@ function onStep(): void {
       dhSeen.add(f.id);
       if (ticketPurpose(g, f.id).kind === 'delivery') dhDelivery.add(f.id);
     }
+    // v0.7.2 hub C-check ferries flown, and any illegal duty on them.
+    if (f.purpose === 'check' && f.status === 'done' && !checkLegs.has(f.id)) {
+      checkLegs.add(f.id);
+      const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+      if (d?.legality === 'illegal') illegalAtCheck++;
+    }
     if (f.purpose === 'delivery' && f.status === 'done' && !ferryLegs.has(f.id)) {
       ferryLegs.add(f.id);
       ferryBH += ((f.ata ?? f.sta) - (f.atd ?? f.std)) / 60;
@@ -924,6 +1033,11 @@ function onStep(): void {
     const dp = g.pairings[d.pairingId];
     if (dp && aboveMinimum(g, dp).cabin + aboveMinimum(g, dp).pilots > 0) dutiesExtra++;
   }
+  // v0.7.2 the longest run of negative cash (the solvency target fails past the rescue window).
+  if (g.company.cash < 0) {
+    negFrom ??= g.now;
+    negMaxDays = Math.max(negMaxDays, (g.now - negFrom) / DAY);
+  } else negFrom = null;
   const staff = Object.values(g.crew).filter((c) => c.status !== 'joining');
   headDays += staff.length;
   headN++;
@@ -1077,7 +1191,8 @@ const resignRate = ((g.stats.resigned ?? 0) + staffNow.filter((c) => c.notice).l
 const softTargets: [string, boolean, string][] = [];
 const targets: [string, boolean, string][] = [
   ['no exceptions, no NaN/Infinity', errors.length === 0, errors.length ? errors[0].split('\n')[0] : 'clean'],
-  ['solvent all year (no game over)', !g.gameOver, g.gameOver ? g.gameOver.reason : `month-end low ${k$(minCash)}, end ${k$(g.company.cash)}`],
+  // v0.7.2 below zero past the rescue window fails (the rescue offer would come); a month-end below 0 warns (soft).
+  ['solvent all year (no game over, cash < 0 ≤ rescue days)', !g.gameOver && negMaxDays <= BAL.rescueDays, g.gameOver ? g.gameOver.reason : `month-end low ${k$(minCash)}, end ${k$(g.company.cash)}, longest below 0 ${Math.round(negMaxDays)} days`],
   ['summer BH per aircraft 180–320', summerBH >= 180 && summerBH <= 320, summerBH.toFixed(0)],
   ['year net margin −5%…+12% (ex Ladder fees)', marginEx >= -0.05 && marginEx <= 0.12, `${(marginEx * 100).toFixed(1)}% ex ${k$(ladderFees)} approvals; ${(margin * 100).toFixed(1)}% all in (${k$(profitY)} on ${k$(revenueY)})`],
   ['no illegal duties flown (FDP + crew)', illegalOf(s) === 0, `${illegalOf(s)} (FDP ${s.illegalFlown ?? 0}, crew ${s.illegalCrewFlown ?? 0})`],
@@ -1145,6 +1260,13 @@ console.log(
   console.log(`refits: ${s.refits ?? 0} done [${tally.refits.join(', ') || '-'}] ${k$(refitCost)}; leases: ${s.leaseExtensions ?? 0} extended, ${s.leaseReturns ?? 0} returned ${k$(retCost)}`);
   softTargets.push(['ladder: widebody ops filed by day 200, a widebody signed by day 365 (≥ 4 of seeds 1–6)', tally.filed.some((f) => f.startsWith('widebody ') && Number(f.split(' day ')[1]) <= 200) && tally.wideSigned !== null, `filed ${tally.filed.find((f) => f.startsWith('widebody ')) ?? 'never'}; signed ${dayOf(tally.wideSigned)}`]);
   softTargets.push(['delivery pilots on airline deadheads (when handed over abroad)', abroad.size === 0 || dhDelivery.size > 0, `${dhDelivery.size} tickets for ${abroad.size} abroad`]);
+  // v0.7.2 crew rules & fleet.
+  console.log(`v0.7.2: sub-chartered legs ${s.subchartered ?? 0} (reliability ${s.subHit ?? 0}), C-checks at hubs [${tally.cHubs.join(', ') || '-'}], ferry+ticket cost ${Math.round(tally.hubTravel / 1000)}k, ferry legs ${checkLegs.size}, rest seats fitted ${tally.restSeats}, captains as FO ${s.asFo ?? 0}, multi-type cabin hires ${tally.multiHires}, early returns ${s.earlyReturns ?? 0}, sales ${s.sales ?? 0}`);
+  targets.push(['C-check ferries: 0 illegal duties', illegalAtCheck === 0, `${checkLegs.size} legs, ${illegalAtCheck} illegal`]);
+  // v0.7.1 runs end at 90–97 from a 60 start; sub-chartering (F3) may take a few points of it.
+  softTargets.push(['reliability ends ≥ 85 (v0.7.1: 90–97)', g.company.reputation.reliable >= 85, `${reliable0.toFixed(1)} → ${g.company.reputation.reliable.toFixed(1)} (sub-charters ${s.subHit ?? 0})`]);
+  softTargets.push(['month-end cash ≥ 0 and the year ends ≥ 0 (v0.7.1 seed 6: −2657k low)', minCash >= 0 && g.company.cash >= 0, `month-end low ${k$(minCash)}, end ${k$(g.company.cash)}`]);
+  softTargets.push(['captains as FO ≤ 24 duties a year', (s.asFo ?? 0) <= 24 * (days / 365), `${s.asFo ?? 0}`]);
   targets.push(['delivery ferries: 0 illegal duties, no wait > 30 days', illegalAtFerry === 0 && maxWait <= 30, `${ferryLegs.size} legs, ${illegalAtFerry} illegal, longest wait ${maxWait.toFixed(0)} days`]);
 }
 console.log('\ntargets');

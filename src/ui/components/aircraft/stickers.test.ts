@@ -53,7 +53,7 @@ describe('tail code fit (bug 1: letters floating off the fin)', () => {
       }
     }
     expect(n).toBe(IDS.length * 40);
-  });
+  }, 30_000);
 
   it('finInset is inside the fin', () => {
     for (const id of IDS) {

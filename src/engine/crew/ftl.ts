@@ -1,4 +1,4 @@
-// Simplified EASA FTL (RESEARCH §5.1, DESIGN.md §5.2): public checks on crew members and duties. (B2)
+// EASA FTL (docs/acmi/EASA-FTL.md, RESEARCH §5.1, DESIGN.md §5.2): public checks on crew members and duties. (B2)
 // Pure rules live in rules.ts; timelines in timeline.ts.
 
 import { DAY, yearOf } from '../core/time';
@@ -6,10 +6,10 @@ import type { CrewMember, Duty, GameState, Legality, Minute } from '../core/type
 import { planCrew } from './check';
 import { dutyLegality as dutyLevel } from './duties';
 import { LIMITS, levelOf, minRest, recoveryAnchor, type LegalityIssue } from './rules';
-import { ctxOf, segsOf } from './timeline';
+import { block12m, ctxOf, segsOf } from './timeline';
 
 export {
-  acclimState, baseFdp, isDisruptive, LIMITS, longestWorkBlock, maxFdp, minRest, nightsIn, referenceTime, tzDeltaH,
+  acclimState, AUG_FDP, baseFdp, CABIN_REST, cabinInflightRest, DISCRETION, FDP_BANDS, isDisruptive, LIMITS, longestWorkBlock, maxFdp, minRest, nightsIn, referenceTime, tzDeltaH,
   type Acclim, type FdpInput, type IssueCode, type LegalityIssue, type RefTime, type RestInput,
 } from './rules';
 
@@ -24,6 +24,8 @@ export interface CrewWindows {
   duty28d: number;
   block28d: number;
   blockYear: number;
+  /** v0.7.2 block minutes in this calendar month and the 11 before (logged + planned). */
+  block12m: number;
   restUntil: Minute;
   /** Latest start of the next 36 h recovery rest. */
   recoveryDue: Minute;
@@ -35,11 +37,13 @@ export function crewWindows(g: GameState, c: CrewMember, t: Minute): CrewWindows
   const dutyIn = (a: Minute) => segs.reduce((n, s) => n + Math.max(0, Math.min(t, s.end) - Math.max(a, s.start)), 0);
   let block28d = 0;
   let planned = 0;
+  let planned12m = 0;
   const y = yearOf(t);
   let restUntil = c.restUntil;
   for (const s of segs) {
     if (s.end > t - 28 * DAY && s.end <= t) block28d += s.block;
     if (s.kind !== 'log' && s.end <= t && yearOf(s.end) === y) planned += s.block;
+    if (s.kind !== 'log' && s.end <= t) planned12m += s.block;
     if (s.kind !== 'log' && s.end <= t) restUntil = Math.max(restUntil, s.end + s.rest);
   }
   const ctx = ctxOf(g, c);
@@ -49,6 +53,7 @@ export function crewWindows(g: GameState, c: CrewMember, t: Minute): CrewWindows
     duty28d: dutyIn(t - 28 * DAY),
     block28d,
     blockYear: (ctx.blockYearOf === y ? c.blockYear : 0) + planned,
+    block12m: block12m(c, t) + planned12m,
     restUntil,
     recoveryDue: recoveryAnchor(ctx, segs, t) + LIMITS.recoveryEvery,
   };

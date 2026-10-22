@@ -56,6 +56,14 @@ describe('card actions and banners', () => {
     expect(actionTarget(g, { id: 's', label: 'x', open: { modal: 'subcharter', id: 'nope' } })).toBeNull();
     expect(actionTarget(g, { id: 'd', label: 'x', open: { modal: 'decision', id: 'gone' } })).toEqual({ nav: { tab: 'inbox' } });
   });
+  it('v0.7.2: sale, C-check hub and crew rest actions', () => {
+    const g = newGame();
+    expect(actionTarget(g, { id: 'sell', label: 'Sale…', open: { modal: 'sell', id: 'a1' } })).toEqual({ modal: { kind: 'sell', aircraftId: 'a1' } });
+    expect(actionTarget(g, { id: 'c', label: 'x', open: { modal: 'cCheck', id: 'a1' } })).toEqual({ modal: { kind: 'check', aircraftId: 'a1', checkKind: 'C' } });
+    expect(actionTarget(g, { id: 'planCheck', label: 'Plan at Sofia', open: { modal: 'check', id: 'a1' } })).toEqual({ modal: { kind: 'check', aircraftId: 'a1', checkKind: 'C' } });
+    expect(actionTarget(g, { id: 'planCheck', label: 'Plan check', open: { modal: 'check', id: 'a1' } })).toEqual({ modal: { kind: 'check', aircraftId: 'a1' } });
+    expect(actionTarget(g, { id: 'refit', label: 'Plan crew rest', open: { modal: 'refit', id: 'a1' } })).toEqual({ modal: { kind: 'refit', aircraftId: 'a1', rest: true } });
+  });
   it('tones the CREW SHORTAGE banner by the ladder stage', () => {
     expect(crewBanner(undefined, 30)).toBeNull();
     expect(crewBanner('amber', 30)).toBe('amber');

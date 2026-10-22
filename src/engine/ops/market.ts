@@ -18,6 +18,7 @@ import { DAY, fmtDate, fmtDay, monthKey, yearOf } from '../core/time';
 import type { ActionResult, Aircraft, AircraftOffer, ApprovalId, Cabin, GameState, SimEvent } from '../core/types';
 import { clamp, hash } from '../core/util';
 import { familyLabel } from '../crew/conversion';
+import { defaultCrewRest } from '../crew/crewRest';
 import { aircraftGate, APPROVALS, ratedPilots, type AircraftGate } from './company';
 import { deliveryQuote, handoverMessage, planDeliveryFerry, type DeliveryQuote } from './delivery';
 import { usd } from './util';
@@ -119,7 +120,8 @@ function makeOffer(g: GameState, t: AcmiType, opts: { lease?: boolean; kind?: 'd
     const canBuy = t.body === 'narrow' || old;
     const buy = opts.kind ? opts.kind === 'buy' && canBuy : !opts.lease && canBuy && chance(r, 0.3);
     const rent = Math.round((t.rentMonth * range(r, 0.9, 1.15) * index * ageAdj) / 1000) * 1000;
-    const price = buy ? Math.round((t.valueUsed * range(r, 0.85, 1.1) * ageAdj) / 10_000) * 10_000 : 0;
+    // v0.7.2 priced like a sale (the market index included), so buying and selling straight back loses the spread.
+    const price = buy ? Math.round((t.valueUsed * range(r, 0.95, 1.12) * ageAdj * index) / 10_000) * 10_000 : 0;
     o = {
       id, typeId: t.id, kind: buy ? 'buy' : 'dryLeaseIn', lessor: buy ? `${pick(r, LESSORS)} (used sale)` : pick(r, LESSORS),
       builtYear: built, cabin: cabinOf(t), rentPerMonth: buy ? 0 : rent, reservesPerFH: buy ? 0 : Math.round((t.maintBH * range(r, 0.38, 0.46)) / 10) * 10,
@@ -152,6 +154,8 @@ function makeOffer(g: GameState, t: AcmiType, opts: { lease?: boolean; kind?: 'd
   o.index = index;
   o.expires = g.now + int(r, M.offerDays[0], M.offerDays[1]) * DAY;
   o.created = g.now;
+  // v0.7.2 crew rest compartment per airframe (bunks), rolled last on the offer's own stream.
+  o.crewRest = { bunks: t.bunkShare >= 1 || (t.bunkShare > 0 && chance(r, t.bunkShare)), seats: 0 };
   return o;
 }
 
@@ -258,21 +262,24 @@ export function acquireAircraft(g: GameState, offerId: string): ActionResult<{ a
   const handover = g.now + o.leadDays * DAY;
   const site = o.site ?? g.company.homeBase;
   const age = Math.max(0, yearOf(g.now) - o.builtYear);
-  const hours = o.newBuild ? 0 : Math.round(age * (t.body === 'wide' ? 3_600 : 2_600) * range(g, 0.85, 1.1));
+  // v0.7.2 hours and cycles on the sale model's norms (its adjustments average 1.0 on a fresh purchase).
+  const S = BAL.v072.sale;
+  const w = t.body === 'wide' ? 1 : 0;
+  const hours = o.newBuild ? 0 : Math.round(age * S.fhYear[w] * range(g, 0.85, 1.15));
   const ac: Aircraft = {
     id: nextId(g, 'a'), reg: registration(g), typeId: o.typeId,
     ownership: o.kind === 'buy'
-      ? { kind: 'owned', bookValue: o.price, ...(o.newBuild ? { newBuild: true } : {}) }
+      ? { kind: 'owned', bookValue: o.price, boughtAt: g.now, boughtPrice: o.price, boughtIndex: o.index ?? (w ? g.market.wideIndex : g.market.narrowIndex), ...(o.newBuild ? { newBuild: true } : {}) }
       : {
           kind: 'dryLeaseIn', lessor: o.lessor, rentPerMonth: o.rentPerMonth, reservesPerFH: o.reservesPerFH, leaseStart: handover, leaseEnd: handover + Math.round(o.leaseMonths * MONTH), deposit: o.deposit,
           returnSite: returnSiteOf(o), deliveredLayout: o.cabin.layout, index: o.index ?? (t.body === 'wide' ? g.market.wideIndex : g.market.narrowIndex), ...(o.newBuild ? { newBuild: true } : {}),
         },
-    builtYear: o.builtYear, hours, cycles: Math.round(hours / (t.body === 'wide' ? 4.5 : 1.7)),
+    builtYear: o.builtYear, hours, cycles: Math.round((hours * S.cyclesYear[w]) / S.fhYear[w]),
     // Delivered fresh from a redelivery check (new-build: zero time).
     maint: o.newBuild
       ? { fhSinceA: 0, lastA: handover, fhSinceC: 0, lastC: handover, deferred: 0 }
       : { fhSinceA: 0, lastA: handover, fhSinceC: Math.round(range(g, 0.1, 0.4) * (t.body === 'wide' ? 6000 : 7500)), lastC: handover - int(g, 60, 300) * DAY, deferred: 0.03 },
-    cabin: { ...o.cabin }, etops: t.body === 'wide' ? Math.min(180, t.etopsMax) : 0,
+    cabin: { ...o.cabin }, etops: t.body === 'wide' ? Math.min(180, t.etopsMax) : 0, crewRest: { ...(o.crewRest ?? defaultCrewRest(o.typeId)) },
     at: site, flightId: null, status: 'delivering', maintId: null, deliveredAt: handover,
     delivery: { site, where: o.where ?? `${AIRPORT_BY_CODE[site]?.city ?? site} (${site})`, handover, ferryIds: [] },
   };

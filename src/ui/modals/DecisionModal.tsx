@@ -12,6 +12,7 @@ import { decisionBodyTail } from '../components/problemLogic';
 import { Modal } from '../components/ui';
 import { ProblemCardView } from '../components/ProblemCard';
 import { ReturnLines } from './LeaseModal';
+import { hurtTone } from './crewControlLogic';
 import { spanLabel } from '../screens/screenLogic';
 import { store, useStore } from '../store';
 
@@ -54,7 +55,7 @@ export function DecisionModal({ decisionId }: { decisionId?: string }) {
             <span className="small muted">{o.desc}</span>
             {!!chipsOf(o)?.length && (
               <span className="sc-chips">
-                {chipsOf(o)!.map((c) => <span key={c} className={`chip sc-chip ${/^[−-]/.test(c) || /−/.test(c) ? 'bad' : /^\+/.test(c) ? 'good' : ''}`}>{c}</span>)}
+                {chipsOf(o)!.map((c) => <span key={c} className={`chip sc-chip ${hurtTone(c) ?? (/^[−-]/.test(c) || /−/.test(c) ? 'bad' : /^\+/.test(c) ? 'good' : '')}`}>{c}</span>)}
               </span>
             )}
           </button>

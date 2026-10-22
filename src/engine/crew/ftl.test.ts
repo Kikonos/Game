@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { fromUTC } from '../core/time';
-import { acclimState, evalSegs, isDisruptive, LIMITS, longestWorkBlock, maxFdp, minRest, nightsIn, referenceTime, type Seg, type TimelineCtx } from './rules';
+import { acclimState, AUG_FDP, CABIN_REST, cabinFdpCap, cabinInflightRest, DISCRETION, evalSegs, FDP_BANDS, isDisruptive, LIMITS, longestWorkBlock, maxFdp, minRest, nightsIn, referenceTime, type Seg, type TimelineCtx } from './rules';
 
 const hm = (s: string) => {
   const [h, m] = s.split(':').map(Number);
@@ -228,5 +228,107 @@ describe('timeline legality', () => {
 
   it('exposes the limits table', () => {
     expect(LIMITS).toMatchObject({ duty7d: 3600, duty14d: 6600, duty28d: 11400, block28d: 6000, blockYear: 54000, recovery: 2160, recoveryLong: 3600, recoveryEvery: 10080 });
+  });
+});
+
+// ---------- v0.7.2: the tables pinned by article (docs/acmi/EASA-FTL.md) ----------
+
+describe('EASA FDP table (ORO.FTL.205(b)(1))', () => {
+  // The regulation's table written out (report band × 1–2, 3 … 10 sectors), not computed.
+  const TABLE: [string, string[]][] = [
+    ['06:00', ['13:00', '12:30', '12:00', '11:30', '11:00', '10:30', '10:00', '9:30', '9:00']],
+    ['13:30', ['12:45', '12:15', '11:45', '11:15', '10:45', '10:15', '9:45', '9:15', '9:00']],
+    ['14:00', ['12:30', '12:00', '11:30', '11:00', '10:30', '10:00', '9:30', '9:00', '9:00']],
+    ['14:30', ['12:15', '11:45', '11:15', '10:45', '10:15', '9:45', '9:15', '9:00', '9:00']],
+    ['15:00', ['12:00', '11:30', '11:00', '10:30', '10:00', '9:30', '9:00', '9:00', '9:00']],
+    ['15:30', ['11:45', '11:15', '10:45', '10:15', '9:45', '9:15', '9:00', '9:00', '9:00']],
+    ['16:00', ['11:30', '11:00', '10:30', '10:00', '9:30', '9:00', '9:00', '9:00', '9:00']],
+    ['16:30', ['11:15', '10:45', '10:15', '9:45', '9:15', '9:00', '9:00', '9:00', '9:00']],
+    ['17:00', ['11:00', '10:30', '10:00', '9:30', '9:00', '9:00', '9:00', '9:00', '9:00']],
+    ['05:00', ['12:00', '11:30', '11:00', '10:30', '10:00', '9:30', '9:00', '9:00', '9:00']],
+    ['05:15', ['12:15', '11:45', '11:15', '10:45', '10:15', '9:45', '9:15', '9:00', '9:00']],
+    ['05:30', ['12:30', '12:00', '11:30', '11:00', '10:30', '10:00', '9:30', '9:00', '9:00']],
+    ['05:45', ['12:45', '12:15', '11:45', '11:15', '10:45', '10:15', '9:45', '9:15', '9:00']],
+  ];
+  // Band edges: first and last minute of each band.
+  const EDGES: Record<string, string[]> = {
+    '06:00': ['06:00', '13:29'], '13:30': ['13:30', '13:59'], '14:00': ['14:00', '14:29'], '14:30': ['14:30', '14:59'], '15:00': ['15:00', '15:29'],
+    '15:30': ['15:30', '15:59'], '16:00': ['16:00', '16:29'], '16:30': ['16:30', '16:59'], '17:00': ['17:00', '04:59'], '05:00': ['05:00', '05:14'],
+    '05:15': ['05:15', '05:29'], '05:30': ['05:30', '05:44'], '05:45': ['05:45', '05:59'],
+  };
+  it.each(TABLE)('report band %s × sectors 1–10', (band, row) => {
+    for (const t of EDGES[band]) {
+      expect(fdp(t, 1)).toBe(hm(row[0]));
+      for (let s = 2; s <= 10; s++) expect(fdp(t, s)).toBe(hm(row[Math.max(0, s - 2)]));
+    }
+  });
+  it('FDP_BANDS covers 05:00–16:59 in 15/30-minute bands', () => {
+    expect(FDP_BANDS.length).toBe(12);
+    expect(FDP_BANDS[0][0]).toBe(hm('05:00'));
+    expect(FDP_BANDS[FDP_BANDS.length - 1][1]).toBe(hm('17:00'));
+  });
+});
+
+describe('unknown state (ORO.FTL.205(b)(2))', () => {
+  it('Table 3: 11:00, 10:30, 10:00, 9:30, 9:00, 9:00 for 1–2 … 7 sectors', () => {
+    expect([2, 3, 4, 5, 6, 7].map((s) => fdp('09:00', s, false))).toEqual(['11:00', '10:30', '10:00', '9:30', '9:00', '9:00'].map(hm));
+    expect(fdp('09:00', 1, false)).toBe(hm('11:00'));
+  });
+});
+
+describe('augmented crew (CS FTL.1.205(c)) pinned', () => {
+  it('AUG_FDP literal', () => {
+    expect(AUG_FDP).toEqual({ 1: { 1: 960, 2: 900, 3: 840 }, 2: { 1: 1020, 2: 960, 3: 900 } });
+  });
+  it('no bonus at 3 sectors; > 3 sectors falls back to the basic table; 18:00 cap', () => {
+    const m = (augment: 1 | 2, restClass: 1 | 2 | 3, sectors: number, longestBlock: number) => maxFdp({ reportLocal: hm('08:00'), sectors, acclimatised: true, augment, restClass, longestBlock });
+    expect(m(1, 1, 3, 10 * 60)).toBe(hm('16:00'));
+    expect(m(1, 1, 4, 10 * 60)).toBe(hm('12:00'));
+    expect(m(2, 1, 2, 12 * 60)).toBe(hm('18:00'));
+  });
+});
+
+describe('discretion constants (ORO.FTL.205(f))', () => {
+  it('+2:00, +3:00 augmented, rest never below 10:00', () => {
+    expect(DISCRETION).toEqual({ basic: 120, augmented: 180, minRest: 600 });
+  });
+});
+
+describe('cabin crew in-flight rest table', () => {
+  it('rows by extended FDP and rest class', () => {
+    expect(CABIN_REST.map((r) => [r.upTo, r.c1, r.c2, r.c3])).toEqual([
+      [870, 90, 90, 90], [900, 105, 120, 140], [930, 120, 140, 160], [960, 135, 160, 180], [990, 155, 180, null],
+      [1020, 180, 205, null], [1050, 205, null, null], [1080, 230, null, null], [1110, 265, null, null],
+    ]);
+  });
+  it('cabinInflightRest picks the row; null when the class does not allow it', () => {
+    expect(cabinInflightRest(hm('14:00'), 3)).toBe(90);
+    expect(cabinInflightRest(hm('15:10'), 2)).toBe(140);
+    expect(cabinInflightRest(hm('16:15'), 3)).toBeNull();
+    expect(cabinInflightRest(hm('18:15'), 1)).toBe(265);
+    expect(cabinInflightRest(hm('18:45'), 1)).toBeNull();
+  });
+  it('an augmented FDP never exceeds what the cabin crew may reach (their report is earlier)', () => {
+    expect([cabinFdpCap(1), cabinFdpCap(2), cabinFdpCap(3)]).toEqual([hm('18:30'), hm('17:00'), hm('16:00')]);
+    // 4 pilots, class 3, one long sector: 15:00 + 1:00 = 16:00 for pilots, capped to 15:45 with a 15 min cabin report.
+    const m = (restClass: 1 | 2 | 3, cabinEarly: number) => maxFdp({ reportLocal: hm('08:00'), sectors: 1, acclimatised: true, augment: 2, restClass, longestBlock: 11 * 60, cabinEarly });
+    expect(m(3, 0)).toBe(hm('16:00'));
+    expect(m(3, 15)).toBe(hm('15:45'));
+    expect(cabinInflightRest(m(3, 15) + 15, 3)).not.toBeNull();
+    expect(m(1, 15)).toBe(hm('18:00'));
+    expect(cabinInflightRest(m(1, 15) + 15, 1)).not.toBeNull();
+  });
+});
+
+describe('cumulative limits (ORO.FTL.210) v0.7.2', () => {
+  it('limits literal', () => {
+    expect(LIMITS).toMatchObject({ duty7d: 3600, duty14d: 6600, duty28d: 11400, block28d: 6000, blockYear: 54000, block12m: 60000 });
+  });
+  it('1,000 h in 12 months: logged months plus planned block', () => {
+    const c = ctx({ lastRecovery: T0 + 40 * 1440, block12m: 998 * 60 });
+    expect(codes([duty(0, 6, 7, 300, true)], c)).toContain('blockYear:illegal');
+    expect(codes([duty(0, 6, 7, 300, true)], ctx({ block12m: 900 * 60 }))).not.toContain('blockYear:illegal');
+    // absent (old saves): only the calendar year counts
+    expect(codes([duty(0, 6, 7, 300, true)], ctx())).not.toContain('blockYear:illegal');
   });
 });

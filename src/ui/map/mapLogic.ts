@@ -7,7 +7,7 @@ import { haversine } from '../../engine/core/geo';
 import { flightTimes } from '../../engine/core/query';
 import { DAY, fmtDay, fmtTime } from '../../engine/core/time';
 import type { Aircraft, Archetype, ContractOffer, Flight, GameState, Minute, Ref } from '../../engine/core/types';
-import { shortFlights } from '../../engine/crew';
+import { crewAway, shortFlights } from '../../engine/crew';
 import { commercialFlightsBetween, type CommercialFlight, commercialItinerary, type FlightType, flightType } from '../../engine/ops';
 import { contractColor } from '../screens/palette';
 
@@ -138,15 +138,20 @@ export const onMap = (ac: Aircraft) => ac.status !== 'delivering' || !!ac.flight
 /** Static DELIVERY tag: handed over abroad, until it is home (deliveryStatus phase handedOver | waiting | ferrying). */
 export const deliveryTag = (ac: Aircraft) => !!ac.delivery && ac.delivery.arrived === undefined && ac.status !== 'delivering';
 
-export const PURPOSE_LABEL: Record<NonNullable<Flight['purpose']>, string> = { delivery: 'Delivery ferry', return: 'Lease return ferry', refit: 'Refit ferry' };
+export const PURPOSE_LABEL: Record<NonNullable<Flight['purpose']>, string> = { delivery: 'Delivery ferry', return: 'Lease return ferry', refit: 'Refit ferry', check: 'C-check ferry', sale: 'Sale ferry' };
 
-/** The ferry chain a purpose leg belongs to (delivery, lease return or refit ferry legs, in order); [f] when unknown. */
+/** The ferry chain a purpose leg belongs to (delivery, lease return, refit, C-check or sale ferry legs, in order); [f] when unknown. */
 export function purposeChain(g: GameState, f: Flight): Flight[] {
   const ac = f.aircraftId ? g.fleet[f.aircraftId] : undefined;
   let ids: string[] | undefined;
   if (f.purpose === 'delivery') ids = ac?.delivery?.ferryIds;
   else if (f.purpose === 'return') ids = ac?.returning?.ferryIds;
   else if (f.purpose === 'refit') ids = Object.values(g.maintenance).find((m) => m.aircraftId === f.aircraftId && m.ferryIds?.includes(f.id))?.ferryIds;
+  else if (f.purpose === 'check') {
+    // v0.7.2 C-check at an MRO hub: the ferry out and the ferry home are separate chains.
+    const m = Object.values(g.maintenance).find((x) => x.aircraftId === f.aircraftId && (x.ferryIds?.includes(f.id) || x.homeIds?.includes(f.id)));
+    ids = m?.homeIds?.includes(f.id) ? m.homeIds : m?.ferryIds;
+  } else if (f.purpose === 'sale') ids = ac?.sale?.ferryIds;
   const legs = (ids ?? []).map((id) => g.flights[id]).filter((x): x is Flight => !!x).sort((a, b) => a.std - b.std);
   return legs.some((x) => x.id === f.id) ? legs : [f];
 }
@@ -323,7 +328,8 @@ export function fitCodes(g: GameState): string[] {
   return [...s].filter((c) => AIRPORT_BY_CODE[c]);
 }
 
-/** Airports drawn on the map: base (hub), our aircraft and their next 48 h of legs, active contract bases. */
+/** Airports drawn on the map: base (hub), our aircraft and their next 48 h of legs, active contract bases, and (v0.7.2)
+ * every station where any of our crew still is (hotel, waiting for a ticket, between duties of a tour). */
 export function mapAirports(g: GameState): { code: string; hub: boolean; label: boolean }[] {
   const base = g.company.homeBase;
   const out = new Map<string, boolean>([[base, true]]);
@@ -342,6 +348,7 @@ export function mapAirports(g: GameState): { code: string; hub: boolean; label: 
   for (const c of Object.values(g.contracts)) {
     if ((c.status === 'active' || c.status === 'signed') && c.pattern.kind === 'base' && !out.has(c.pattern.base)) out.set(c.pattern.base, false);
   }
+  for (const code of crewAway(g).at.keys()) if (!out.has(code)) out.set(code, false);
   return [...out].filter(([c]) => AIRPORT_BY_CODE[c]).map(([code, label]) => ({ code, hub: code === base, label }));
 }
 

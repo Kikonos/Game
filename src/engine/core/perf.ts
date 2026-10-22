@@ -170,33 +170,40 @@ export function reportMinutes(typeId: string): { report: number; post: number } 
 }
 
 /**
- * Crew positions for one duty. augment: extra pilots (1 → CRP relief, 2 → a second CPT + FO).
- * Cabin: SCCM (CSD on widebodies, else SCC) + a widebody No. 2 (SCC) from 8 cabin crew, rest CC.
- */
-/**
  * Crew for one duty. `augment` comes from the duty's FDP need (ULR types get 4 pilots only on sectors that need it).
  * `fdp` (minutes): long augmented FDPs on class 2/3 rest add cabin crew for in-flight rest (+1 above 14:30, +2 above 16:00).
  */
-export function complement(typeId: string, seats: number, opts: { augment?: 0 | 1 | 2; extraCabin?: number; fdp?: number } = {}): Role[] {
+export function complement(typeId: string, seats: number, opts: { augment?: 0 | 1 | 2; extraCabin?: number; fdp?: number; restClass?: 1 | 2 | 3 | null } = {}): Role[] {
   const t = typeOf(typeId);
+  // v0.7.2 the airframe's rest class (bunks 1, crew rest seats 3) when known, else the type's.
+  const rc = opts.restClass !== undefined ? opts.restClass : t.restClass;
   const augment = opts.augment ?? 0;
   const cockpit: Role[] = augment === 2 ? ['CPT', 'CPT', 'FO', 'FO'] : augment === 1 ? ['CPT', 'FO', 'CRP'] : ['CPT', 'FO'];
   const fdp = opts.fdp ?? 0;
-  const restCabin = augment > 0 && (t.restClass === 2 || t.restClass === 3) ? (fdp > 960 ? 2 : fdp > 870 ? 1 : 0) : 0;
+  const restCabin = augment > 0 && (rc === 2 || rc === 3) ? (fdp > 960 ? 2 : fdp > 870 ? 1 : 0) : 0;
   const cabinN = Math.max(cabinMinimum(seats), 1) + (opts.extraCabin ?? 0) + restCabin;
-  const cabin: Role[] = [t.body === 'wide' ? 'CSD' : 'SCC'];
-  if (t.body === 'wide' && cabinN >= 8) cabin.push('SCC');
+  // v0.7.2: exactly one purser (the SCCM); a second (deputy, upper deck) only on two-deck types.
+  const cabin: Role[] = ['PUR'];
+  if (t.pursers === 2 && cabinN >= 2) cabin.push('PUR');
   while (cabin.length < cabinN) cabin.push('CC');
   return [...cockpit, ...cabin];
 }
 
-/** Roles that may fill a slot (seniors can fly junior positions). */
+/**
+ * Roles that may fill a slot (seniors can fly junior positions). v0.7.2: a captain may sit in an FO or CRP seat
+ * (the auto-roster only when no FO is free); never an FO as captain; a purser may work a CC position.
+ */
 export function canFill(slot: Role, role: Role): boolean {
   if (slot === role) return true;
-  if (slot === 'CRP') return role === 'FO';
-  if (slot === 'SCC') return role === 'CSD';
-  if (slot === 'CC') return role === 'SCC' || role === 'CSD';
+  if (slot === 'FO') return role === 'CPT';
+  if (slot === 'CRP') return role === 'FO' || role === 'CPT';
+  if (slot === 'CC') return role === 'PUR';
   return false;
+}
+
+/** v0.7.2 seat label: 'CPT (as FO)' when someone senior sits in a junior seat, else the seat's role. */
+export function seatLabel(slot: Role, role: Role): string {
+  return slot === role ? slot : `${role} (as ${slot})`;
 }
 
 export const isPilot = (r: Role) => r === 'CPT' || r === 'FO' || r === 'CRP';

@@ -38,6 +38,9 @@ describe('manual roster', () => {
     // The FO already on the trip is listed as onPairing.
     const holder = p.slots.find((s) => s.role === 'FO')!.crewId!;
     expect(list.find((c) => c.crewId === holder)?.onPairing).toBe(true);
+    // v0.7.2 the trip's own captain is never offered for the FO seat ('Captain flying as FO' would empty the left seat).
+    const cpt = p.slots.find((s) => s.role === 'CPT')!.crewId!;
+    expect(list.some((c) => c.crewId === cpt)).toBe(false);
     // A flight id resolves to its duty.
     const fid = g.duties[firstDuty(p)].flightIds[0];
     expect(dutyCandidates(g, fid, 'FO').map((c) => c.crewId)).toEqual(list.map((c) => c.crewId));

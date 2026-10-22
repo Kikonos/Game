@@ -10,6 +10,7 @@ import { DAY, fmtDate } from '../core/time';
 import type { ActionResult, Aircraft, ApprovalId, GameState, HotelTier, Minute, PendingApproval, Policies, SimEvent } from '../core/types';
 import { clamp } from '../core/util';
 import { familyLabel } from '../crew/conversion';
+import { restClassAt } from '../crew/crewRest';
 import { usd } from './util';
 
 export interface ApprovalDef {
@@ -189,7 +190,7 @@ function reqsOf(g: GameState, id: ApprovalId, booked: boolean): Req[] {
     }
     case 'augmented': {
       out.push({ label: 'Widebody operations held', ok: g.company.approvals.includes('widebody'), why: 'Needs Widebody operations first' });
-      const acs = fleetD.filter((a) => typeOf(a.typeId).body === 'wide' && typeOf(a.typeId).restClass !== null);
+      const acs = fleetD.filter((a) => typeOf(a.typeId).body === 'wide' && restClassAt(g, a.id) !== null);
       out.push({ label: 'A widebody with crew rest in the fleet or delivering', ok: acs.length > 0, why: 'Needs a widebody with a crew rest in the fleet or on order' });
       out.push(crewReq(g, wideFamilies(), 6, false, 'a widebody family'));
       out.push(reliabilityReq(g, 65));
@@ -211,8 +212,8 @@ function reqsOf(g: GameState, id: ApprovalId, booked: boolean): Req[] {
       out.push({ label: 'ETOPS 240 and augmented crews held', ok: ['etops240', 'augmented'].every((x) => g.company.approvals.includes(x as ApprovalId)), why: 'Needs ETOPS 240 and Long-haul augmented crews first' });
       const n = g.stats.augmentedDuties ?? 0;
       out.push({ label: '20 augmented duties flown', ok: n >= 20, have: `${n}`, need: '20', why: `Needs 20 augmented duties flown (${n} so far)` });
-      const acs = fleetD.filter((a) => typeOf(a.typeId).ulr);
-      out.push({ label: 'A ULR-capable aircraft in the fleet or delivering', ok: acs.length > 0, why: 'Needs a ULR-capable aircraft' });
+      const acs = fleetD.filter((a) => typeOf(a.typeId).ulr && restClassAt(g, a.id) === 1);
+      out.push({ label: 'A ULR-capable aircraft in the fleet or delivering', ok: acs.length > 0, why: 'Needs a ULR-capable aircraft with bunks (class 1 crew rest)' });
       out.push(crewReq(g, familiesOf(acs), 8, false, 'it'));
       out.push(reliabilityReq(g, 75), cleanReq(g, 365));
       break;

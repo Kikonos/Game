@@ -1,6 +1,7 @@
 // v0.7.1 maintenance problems as ProblemCards (UPDATE-0.7.1.md §9.1): AOG, checks due / overdue / grounded, a
 // planned check clashing with flights, no ground slot. Numbers from ops/maintenance read APIs. Pure.
 
+import { C_HUBS } from '../../data/mro';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { BAL } from '../core/balance';
 import { liveFlightsOf } from '../core/entities';
@@ -103,7 +104,8 @@ export function checkCard(g: GameState, aircraftId: string): ProblemCard | null 
     what: overdue ? `${ac.reg}'s ${kind}-check is overdue` : `${ac.reg} needs its ${kind}-check by ${fmtDay(due)}`,
     why: `${used}% of the interval is used and no slot is booked${overdue ? `: it is grounded once ${Math.round(BAL.overdueTolerance * 100)}% over` : ''}.`,
     hurt: mkHurt({ money: cancelCost(g, legs), pax: paxOf(ac, legs), legs: legs.filter(isRevenue).length, what: 'at stake once grounded', extra: legs.length ? `grounded after ${fmtDay(due)}` : undefined }),
-    actions: [{ id: 'planCheck', label: 'Plan check', open: { modal: 'check', id: ac.id }, primary: true }, { id: 'schedule', label: 'Schedule', open: { tab: 'schedule', sel: { kind: 'aircraft', id: ac.id } } }],
+    // v0.7.2 a C-check goes to an MRO hub: the cheapest named on the button ('Plan at Sofia').
+    actions: [{ id: 'planCheck', label: kind === 'C' ? `Plan at ${C_HUBS[t.family][0]?.city ?? 'an MRO'}` : 'Plan check', open: { modal: 'check', id: ac.id }, primary: true }, { id: 'schedule', label: 'Schedule', open: { tab: 'schedule', sel: { kind: 'aircraft', id: ac.id } } }],
     details: [`A-check ${Math.round(st.aUsed * 100)}% used (${Math.round(st.aHoursLeft)} FH left), due ${fmtDay(st.aDue)}`, `C-check ${Math.round(st.cUsed * 100)}% used, due ${fmtDay(st.cDue)}`, ...(g.company.policies.autoMaintenance && kind === 'A' ? ['Auto-maintenance will book the A-check when a ground slot fits'] : [])],
     visuals: { gauges: which.map((k) => checkGauge(g, ac, k)) }, terms: [kind === 'A' ? 'aCheck' : 'cCheck'], by: due,
   };

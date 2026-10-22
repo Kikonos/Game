@@ -163,7 +163,7 @@ export function NewGame() {
               </div>
               <ul className="ng-tips small muted">
                 <li>2× A320ceo 180Y at {base}: one owned (2006), one dry-leased in (2013){reg ? `, on the ${reg} register` : ''}.</li>
-                <li>60 crew based at {base}: 10 captains, 10 first officers, 10 senior cabin crew, 30 cabin crew.</li>
+                <li>60 crew based at {base}: 10 captains, 10 first officers, 10 pursers, 30 cabin crew.</li>
                 <li>{money(BAL.startCash, 1)} in the bank. Rent and salaries are due every month.</li>
               </ul>
             </div>

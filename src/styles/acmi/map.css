@@ -224,23 +224,35 @@ div.worldmap { overflow: clip; }
 .op-cm-leg { gap: 8px; }
 .op-cm-leg.on { border-color: rgba(203, 211, 225, 0.5); }
 
-/* ---------- up next (top left): time · aircraft / airline flight · route · type ---------- */
-.ops-next { position: absolute; top: 12px; left: var(--edge-l); z-index: 5; width: 372px; padding: 8px 6px 6px; background: var(--op-bg); display: flex; flex-direction: column; }
-.ops-next .upper { padding: 0 8px 4px; }
-.ops-next-row {
-  display: grid; grid-template-columns: 62px 68px 74px 1fr; align-items: center; gap: 8px; min-height: 36px; padding: 0 8px;
-  border: none; background: none; color: var(--text); text-align: left; border-radius: 8px; font-size: 12.5px;
+/* ---------- up next (top left): a departures board, time | flight / reg | route | type (v0.7.2) ---------- */
+.ops-next {
+  position: absolute; top: 12px; left: var(--edge-l); z-index: 5; width: 360px; padding: 0; background: var(--op-bg);
+  display: flex; flex-direction: column; --next-line: rgba(148, 170, 220, 0.16); --next-cols: 66px 84px 78px 1fr;
 }
-.ops-next-row > b { min-width: 0; }
-.ops-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 6px 8px 2px; margin-top: 4px; border-top: 1px solid var(--border); font-size: 12px; color: var(--text-2); }
-.ops-legend > span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-.touch .ops-next-row { min-height: var(--tap); }
+.ops-next.dated { width: 404px; --next-cols: 106px 84px 78px 1fr; }
+.ops-next-h { display: flex; align-items: center; gap: 2px; height: 32px; padding: 0 0 0 10px; }
+.ops-next-h .upper { flex: 1; }
+.ops-next-h .ops-help { margin-left: 0; }
+.ops-next-h .ops-help-btn, .ops-next-fold { width: 36px; height: 32px; margin: 0; color: var(--text-2); }
+.touch .ops-next-h .ops-help-btn, .touch .ops-next-fold { width: var(--tap); height: var(--tap); margin: -6px 0; }
+.ops-next-fold svg { width: 18px; height: 18px; }
+.ops-next-grid { border-top: 1px solid var(--next-line); }
+.ops-next-row {
+  display: grid; grid-template-columns: var(--next-cols); align-items: stretch; width: 100%; height: 30px; padding: 0;
+  border: none; border-bottom: 1px solid var(--next-line); background: none; color: var(--text); text-align: left; border-radius: 0; font-size: 12px;
+}
+.touch .ops-next-row { height: var(--tap); }
+.ops-next-row:last-child { border-bottom: none; border-radius: 0 0 calc(var(--r-lg) - 1px) calc(var(--r-lg) - 1px); }
+.ops-next-row > * { display: flex; align-items: center; min-width: 0; padding: 0 8px; border-left: 1px solid var(--next-line); overflow: hidden; }
+.ops-next-row > :first-child { border-left: none; padding-left: 10px; }
+.ops-next-row > b { display: block; line-height: 30px; text-overflow: ellipsis; white-space: nowrap; }
+.touch .ops-next-row > b { line-height: var(--tap); }
 @media (hover: hover) { .ops-next-row:hover { background: var(--panel-hover); } }
-.ops-next-row sup { font-size: 12px; line-height: 0; margin-left: 2px; }
-.ops-next.dated { width: 398px; }
-.ops-next.dated .ops-next-row { grid-template-columns: 88px 68px 74px 1fr; }
+.ops-next-row sup { font-size: 11px; line-height: 0; margin-left: 2px; }
 .ops-next-row > span:first-child { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .touch .ops-next-row:active { background: var(--panel-hover); }
+.ops-next-row .ops-type { gap: 5px; font-size: 12px; }
+.ops-next-row .ops-tkey { width: 12px; }
 
 /* ---------- zoom controls clear of the panel ---------- */
 .ops-map .map-zoom { bottom: 12px; }
@@ -285,16 +297,14 @@ div.worldmap { overflow: clip; }
 .op-jet-tag { color: #cbd3e1; border-color: rgba(203, 211, 225, 0.45); font: 700 12px var(--font-mono); letter-spacing: 0.06em; }
 
 /* Up Next: the private jet's type (not mono) and the CREW SHORT chip in the type cell. */
-.ops-next-row.jet { grid-template-columns: 62px 104px 74px 1fr; }
-.ops-next.dated .ops-next-row.jet { grid-template-columns: 88px 104px 74px 1fr; }
 .ops-next-row.jet > b { font-size: 12px; }
 .ops-short { font: 700 11px/16px var(--font-mono); letter-spacing: 0.06em; padding: 0 5px; border-radius: 4px; border: 1px solid; }
+.touch .ops-short { font-size: 12px; letter-spacing: 0.04em; }
 .ops-short.amber { color: #fde68a; border-color: rgba(251, 191, 36, 0.55); }
 .ops-short.red { color: #fecaca; border-color: rgba(248, 113, 113, 0.6); }
 .ops-next-row .ops-type:has(.ops-short) .ops-tkey { display: none; }
 
-/* The crew-layer legend: a "?" at the end of the Up Next type legend, a popover under it. */
-.ops-legend { align-items: center; }
+/* The crew-layer legend: a "?" in the Up Next header (v0.7.2), a popover under it. */
 .ops-help { margin-left: auto; position: relative; display: flex; }
 .ops-help-btn { width: var(--tap); height: var(--tap); margin: -10px -8px -10px 0; color: var(--text-2); }
 .ops-help-btn svg { width: 18px; height: 18px; }
@@ -305,6 +315,10 @@ div.worldmap { overflow: clip; }
 .ops-help-sw { width: 20px; display: inline-flex; justify-content: center; flex-shrink: 0; }
 .ops-help-sw .op-dot { width: 9px; height: 9px; }
 .ops-help-sw svg { display: block; }
+.ops-help-ap { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #e8edf6; }
+/* v0.7.2 a captain in the first officer's seat ('CPT (as FO)'); crew rest seats blocked on the leg. */
+.op-crew-row .role.as { width: auto; min-width: 32px; white-space: nowrap; color: #fcd34d; }
+.op-crew-row:has(.role.as) { grid-column: 1 / -1; }
 
 /* Mini-map (static SVG): sea, land, dashed legs, crew dots, the departure ring, labels. */
 .minimap { display: block; max-width: 100%; }

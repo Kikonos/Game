@@ -15,7 +15,7 @@ export interface TextSeg {
   term?: TermId;
 }
 
-const ROLES: Role[] = ['CPT', 'FO', 'CRP', 'CSD', 'SCC', 'CC'];
+const ROLES: Role[] = ['CPT', 'FO', 'CRP', 'PUR', 'CC'];
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
@@ -226,7 +226,10 @@ export function actionTarget(g: GameState, a: ProblemAction): ActionTarget {
   switch (o.modal) {
     case 'crewControl': return { modal: { kind: 'crewControl', flightId: id } };
     case 'duty': return { modal: { kind: 'duty', id } };
-    case 'check': return { modal: { kind: 'check', aircraftId: id } };
+    // v0.7.2: 'Plan at Sofia' (a C-check card) opens the hub list.
+    case 'check': return { modal: /^Plan at /.test(a.label) ? { kind: 'check', aircraftId: id, checkKind: 'C' } : { kind: 'check', aircraftId: id } };
+    case 'cCheck': return { modal: { kind: 'check', aircraftId: id, checkKind: 'C' } };
+    case 'sell': return { modal: { kind: 'sell', aircraftId: id } };
     case 'subcharter': {
       const f = g.flights[id];
       const cid = f?.contractId ?? (g.contracts[id] ? id : undefined);
@@ -234,7 +237,8 @@ export function actionTarget(g: GameState, a: ProblemAction): ActionTarget {
     }
     case 'hire': return { modal: ROLES.includes(id as Role) ? { kind: 'hire', role: id as Role } : { kind: 'hire', family: id as RatingFamily } };
     case 'offer': return { modal: { kind: 'offer', offerId: id } };
-    case 'refit': return { modal: { kind: 'refit', aircraftId: id } };
+    // v0.7.2: 'Plan crew rest' opens the refit dialog on crew rest seats.
+    case 'refit': return { modal: /crew rest/i.test(a.label) ? { kind: 'refit', aircraftId: id, rest: true } : { kind: 'refit', aircraftId: id } };
     case 'lease': return { modal: { kind: 'lease', aircraftId: id } };
     case 'decision': return g.decisions.some((d) => d.id === id) ? { modal: { kind: 'decision', decisionId: id } } : { nav: { tab: 'inbox' } };
     case 'sheet': return { modal: { kind: 'sheet', refs: [{ kind: 'flight', id }, { kind: 'maint', id }] } };

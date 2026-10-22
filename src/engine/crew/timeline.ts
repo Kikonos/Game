@@ -6,9 +6,10 @@ import { BAL } from '../core/balance';
 import { distance } from '../core/geo';
 import { deadheadFlights, flightsOf, flightsRev } from '../core/entities';
 import { itinerary, ticketBlock } from '../ops/commercial';
-import { DAY, fmtDateTime, fmtTime, yearOf } from '../core/time';
+import { DAY, fmtDateTime, fmtTime, monthKey, yearOf } from '../core/time';
 import type { CrewMember, Duty, Flight, GameState, Minute, Pairing } from '../core/types';
 import { isDisruptive, maxFdp, minRest, referenceTime, tzDeltaH, type RefTime, type Seg, type TimelineCtx } from './rules';
+import { restClassAt } from './crewRest';
 
 // ---------- index ----------
 
@@ -127,25 +128,45 @@ export function dutyFlights(g: GameState, d: Duty): Flight[] {
 
 export const typeIdOf = (g: GameState, p: Pairing): string => (p.aircraftId && g.fleet[p.aircraftId]?.typeId) || 'a320ceo';
 
+/**
+ * v0.7.2 ORO.FTL.205(c): cabin crew report this much before the pilots (widebodies); their FDP counts from their
+ * own report and their max FDP grows by the same difference, so FDP legality is unchanged; rest after grows.
+ */
+export function cabinEarly(g: GameState, p: Pairing): number {
+  return cabinEarlyOf(typeIdOf(g, p));
+}
+export function cabinEarlyOf(typeId: string): number {
+  const t = ACMI_TYPES[typeId];
+  return t ? BAL.v072.ftl.cabinEarlyMin[t.body] : 0;
+}
+const isCabin = (c: CrewMember) => c.role === 'PUR' || c.role === 'CC';
+
+/** v0.7.2 logged block minutes in the 12 calendar months up to `t` (this month and the 11 before). */
+export function block12m(c: CrewMember, t: Minute): number {
+  const bm = c.blockMonths;
+  if (!bm) return 0;
+  const k = monthKey(t);
+  let s = 0;
+  for (const key in bm) if (+key > k - 12 && +key <= k) s += bm[key];
+  return s;
+}
+
 export function dutyBlock(g: GameState, d: Duty): number {
   let b = 0;
   for (const f of dutyFlights(g, d)) b += f.status === 'done' && f.ata !== undefined && f.atd !== undefined ? f.ata - f.atd : f.block;
   return b;
 }
 
-export const restClassOf = (g: GameState, p: Pairing): 1 | 2 | 3 | null => {
-  const t = p.aircraftId ? g.fleet[p.aircraftId]?.typeId : undefined;
-  return t ? (typeLookup(t)?.restClass ?? null) : null;
-};
+/** v0.7.2 the pairing's aircraft's in-flight rest class (per airframe: bunks 1, crew rest seats 3). */
+export const restClassOf = (g: GameState, p: Pairing): 1 | 2 | 3 | null => restClassAt(g, p.aircraftId);
 
-const typeLookup = (id: string) => ACMI_TYPES[id];
 
 /** Max FDP for a duty of pairing p reporting at `report` from `dep` (reference time per acclimatisation). */
 export function fdpLimitAt(g: GameState, p: Pairing, d: Duty, dep: string, report: Minute): { max: number; ref: RefTime } {
   const ref = referenceTime(p.base, dep, Math.min(p.start, report), report);
   let longest = 0;
   for (const f of dutyFlights(g, d)) longest = Math.max(longest, f.block);
-  const max = maxFdp({ reportLocal: ref.reportLocal, sectors: d.sectors, acclimatised: ref.state !== 'X', augment: d.augment, restClass: restClassOf(g, p), longestBlock: longest });
+  const max = maxFdp({ reportLocal: ref.reportLocal, sectors: d.sectors, acclimatised: ref.state !== 'X', augment: d.augment, restClass: restClassOf(g, p), longestBlock: longest, cabinEarly: cabinEarly(g, p) });
   return { max, ref };
 }
 
@@ -324,12 +345,13 @@ function rideTo(g: GameState, from: string, to: string, d: Duty, free: Minute): 
 }
 
 /** Ticket home after the last duty: same day when the whole duty stays within 13 h, else after minimum rest. */
-export function planHome(d: Duty, to: string): TicketPlan {
+export function planHome(d: Duty, to: string, early = 0): TicketPlan {
+  // v0.7.2 `early`: the cabin crew's earlier report (one ticket for the whole crew: the longest day sets the rest).
   const from = d.restAt;
   const blk = dhBlock(from, to);
   const std = hour(d.release + 60, true);
-  if (std + blk - d.report <= 13 * 60) return { from, to, std, sta: std + blk };
-  const rest = minRest({ dutyMin: d.release - d.report, atHome: false, augmented: d.augment > 0, tzShift: tzDeltaH(to, from, d.release) });
+  if (std + blk - d.report + early <= 13 * 60) return { from, to, std, sta: std + blk };
+  const rest = minRest({ dutyMin: d.release - d.report + early, atHome: false, augmented: d.augment > 0, tzShift: tzDeltaH(to, from, d.release) });
   const std2 = hour(d.release + rest + CHECKIN(), true);
   return { from, to, std: std2, sta: std2 + blk };
 }
@@ -345,7 +367,7 @@ export function planHomeAfter(d: Duty, to: string, wait: number): TicketPlan {
 export function ctxOf(g: GameState, c: CrewMember): TimelineCtx {
   return {
     base: c.base, restUntil: c.restUntil, lastRecovery: c.lastRecovery, blockYear: c.blockYear, blockYearOf: c.blockYearOf ?? yearOf(g.now),
-    freeSince: c.log.length ? undefined : c.restUntil - 12 * 60, loc: c.loc, now: g.now,
+    freeSince: c.log.length ? undefined : c.restUntil - 12 * 60, loc: c.loc, now: g.now, block12m: block12m(c, g.now),
   };
 }
 
@@ -370,9 +392,10 @@ const restAfterAt = (start: Minute, base: string, augmented: boolean, e: Minute,
 export function dutySegs(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: TicketPlan | null, home: TicketPlan | null, fresh = false): Seg[] {
   const segs: Seg[] = [];
   const dep = g.flights[d.flightIds[0]]?.from ?? d.restAt;
-  let start = d.report;
-  let fdp = d.fdp;
-  let max = d.maxFdp + (d.discretion ?? 0);
+  const early = isCabin(c) ? cabinEarly(g, p) : 0;
+  let start = d.report - early;
+  let fdp = d.fdp + early;
+  let max = d.maxFdp + (d.discretion ?? 0) + early;
   let tz = referenceTime(p.base, dep, Math.min(p.start, d.report), d.report).tz;
   let from = dep;
   let mergedOut: Seg['out'];
@@ -383,7 +406,7 @@ export function dutySegs(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: 
       from = out.from;
       fdp = d.fdp + (d.report - start);
       const lim = fdpLimitAt(g, p, d, out.from, start);
-      max = lim.max + (d.discretion ?? 0);
+      max = lim.max + (d.discretion ?? 0) + early;
       tz = lim.ref.tz;
     } else if (!flown(out)) segs.push({ ...posSeg(out, c, fresh), dutyId: d.id });
   }

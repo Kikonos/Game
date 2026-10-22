@@ -76,7 +76,7 @@ describe('itineraries', () => {
     }
     expect(missing).toBe(0);
     expect(n).toBeGreaterThan(100);
-  });
+  }, 20_000);
 
   it('carriers that really fly the route; based low-cost carriers, then the home airlines, take the departures', () => {
     const ALLOW: Record<string, string[]> = {

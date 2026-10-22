@@ -26,6 +26,12 @@ export interface RefitQuote {
   breaks: string[];
 }
 
+/** v0.7.2 a refit window at home base (earliest first). */
+export interface RefitSlot { start: Minute; end: Minute; ok: boolean; why: string | null }
+
+/** v0.7.2 the label refitSlots takes for fitting or removing crew rest seats (no cabin change). */
+export const REST_SEATS = 'restSeats';
+
 const LAYOUT_NAME: Record<CabinLayout, string> = { 'all-economy': 'all-economy', 'two-class': 'two-class', 'three-class': 'three-class', vip: 'VIP' };
 export const layoutName = (l: CabinLayout) => LAYOUT_NAME[l];
 
@@ -63,17 +69,16 @@ function whereAt(g: GameState, ac: Aircraft, t: Minute): { at: string; free: Min
 
 const stationsFor = (ac: Aircraft) => MRO_STATIONS.filter((s) => AIRPORT_BY_CODE[s.code] && (s.wide || typeOf(ac.typeId).body !== 'wide'));
 
-/** Shops that can take this aircraft's body, nearest first by ferry block from where it is. Pure. */
+/** v0.7.2 cabin work happens in our own hangar at home base ("{Company} hangar, {city}"). */
+const homeHangar = (g: GameState) => `${g.company.name} hangar, ${AIRPORT_BY_CODE[g.company.homeBase]?.city ?? g.company.homeBase}`;
+
+/** v0.7.2 where a refit can be done: the home base only (the ferry block from where the aircraft is). Pure. */
 export function refitStations(g: GameState, aircraftId: string): { code: string; name: string; ferryBlock: number }[] {
   const ac = g.fleet[aircraftId];
   if (!ac) return [];
-  return stationsFor(ac)
-    .map((s) => {
-      const r = route(ac.typeId, ac.at, s.code);
-      return { code: s.code, name: `${s.name}, ${s.city}`, ferryBlock: r ? r.reduce((n, l) => n + l.block, 0) : Infinity };
-    })
-    .filter((s) => Number.isFinite(s.ferryBlock))
-    .sort((a, b) => a.ferryBlock - b.ferryBlock || (a.code < b.code ? -1 : 1));
+  const home = g.company.homeBase;
+  const r = route(ac.typeId, ac.at, home);
+  return r ? [{ code: home, name: homeHangar(g), ferryBlock: r.reduce((n, l) => n + l.block, 0) }] : [];
 }
 
 /** Work a cabin can bid for (the §F7.3 rules), for "opens / closes". */
@@ -116,12 +121,18 @@ export function refitQuote(g: GameState, aircraftId: string, label: string, stat
     ...base, cabin, days: terms.days, cost: terms.cost, end, seatsTo: cabin.total, cabinMinTo: cabinMinimum(cabin.total),
     opens: toW.filter((x) => !fromW.includes(x)), closes: fromW.filter((x) => !toW.includes(x)), reinstateAtReturn: reinstateCost(ac, preset.layout),
   };
-  const st = MRO_STATIONS.find((s) => s.code === station);
   const why = (w: string) => ({ ...q, why: w });
   if (ac.cabin.label === label) return why(`Already ${label}`);
-  if (!st || !AIRPORT_BY_CODE[station]) return why('Not a refit station');
-  if (!st.wide && typeOf(ac.typeId).body === 'wide') return why(`${st.name} at ${st.city} takes narrowbodies only`);
-  if (ac.status === 'delivering' || ac.status === 'stored' || ac.status === 'leasedOut' || ac.returning) return why(`${ac.reg} is not on the AOC for a refit`);
+  return refitWindow(g, ac, q, station);
+}
+
+/** Station, lead, ferry in, clashes and signed work that must still fit (refits and crew rest seats). Pure. */
+function refitWindow(g: GameState, ac: Aircraft, q: RefitQuote, station: string): RefitQuote {
+  const { start, end, cabin } = q;
+  const why = (w: string) => ({ ...q, why: w });
+  // v0.7.2 cabin work at home base only (an older booking elsewhere still completes as booked).
+  if (station !== g.company.homeBase || !AIRPORT_BY_CODE[station]) return why('Cabin work is done in our own hangar at home base');
+  if (ac.status === 'delivering' || ac.status === 'stored' || ac.status === 'leasedOut' || ac.returning || ac.sale) return why(`${ac.reg} is not on the AOC for a refit`);
   if (start < g.now + BAL.refit.leadDays * DAY - 60) return why(`Hangar slots from ${fmtDay(g.now + BAL.refit.leadDays * DAY)}`);
   if (Object.values(g.maintenance).some((m) => m.aircraftId === ac.id && m.kind === 'refit' && (m.status === 'planned' || m.status === 'inWork'))) return why(`${ac.reg} already has a refit booked`);
   // The ferry in (when it is elsewhere), timed to land a turn before the slot.
@@ -155,6 +166,123 @@ export function refitQuote(g: GameState, aircraftId: string, label: string, stat
   return { ...q, ok: true };
 }
 
+/** Station name for messages: our hangar at home base, else the MRO (older bookings). */
+const stationName = (g: GameState, code: string) => {
+  if (code === g.company.homeBase) return homeHangar(g);
+  const st = MRO_STATIONS.find((s) => s.code === code);
+  return st ? `${st.name}, ${st.city}` : (AIRPORT_BY_CODE[code]?.city ?? code);
+};
+
+/**
+ * v0.7.2 the earliest refit windows at home base (n ≤ 6, earliest first) over the next 26 weeks: right away when the
+ * aircraft is free, else after each commitment ends. `label` is a cabin preset, or REST_SEATS for crew rest seats
+ * (fit when none are fitted, else remove). busyWhy names the commitment that pushes the first slot past today. Pure.
+ */
+export function refitSlots(g: GameState, aircraftId: string, label: string, n = 6): { slots: RefitSlot[]; busyUntil: Minute | null; busyWhy: string | null } {
+  const ac = g.fleet[aircraftId];
+  const none = { slots: [], busyUntil: null, busyWhy: null };
+  if (!ac) return none;
+  const home = g.company.homeBase;
+  const quote = (t: Minute) => (label === REST_SEATS ? restSeatsQuote(g, aircraftId, !(ac.crewRest?.seats ?? 0), t) : refitQuote(g, aircraftId, label, home, t));
+  const turn = typeOf(ac.typeId).turnMin;
+  const up = (t: Minute) => Math.ceil(t / 30) * 30;
+  const first = up(g.now + 60);
+  const horizon = g.now + 26 * 7 * DAY;
+  // Candidates: now, after every leg or check ends (plus a ferry home), and each day at the same hour.
+  const cand = new Set<Minute>([first]);
+  for (const f of flightsOf(g, ac.id)) {
+    if ((f.status !== 'scheduled' && f.status !== 'enroute') || f.sta > horizon) continue;
+    const r = route(ac.typeId, f.to, home);
+    cand.add(up((f.eta ?? f.sta) + turn + (r && r.length ? routeMinutes(r) + turn : 0)));
+  }
+  for (const m of Object.values(g.maintenance)) {
+    if (m.aircraftId === ac.id && (m.status === 'planned' || m.status === 'inWork') && m.end < horizon) {
+      const r = route(ac.typeId, m.at, home);
+      cand.add(up(m.end + (r && r.length ? routeMinutes(r) + 2 * turn : 0)));
+    }
+  }
+  for (let t = first + DAY; t < horizon; t += DAY) cand.add(t);
+  const slots: RefitSlot[] = [];
+  let firstWhy: string | null = null;
+  // With no slot at all, the real blocker: signed work the new cabin can't serve, else a clash, else the first refusal
+  // (an aircraft away from base is refused 'can't reach' early on, which hides the later reasons).
+  let breakWhy: string | null = null;
+  let clashWhy: string | null = null;
+  for (const t of [...cand].filter((x) => x >= first && x < horizon).sort((a, b) => a - b)) {
+    if (slots.length && t < slots[slots.length - 1].start + DAY / 2) continue;
+    const q = quote(t);
+    if (!q.days) return { ...none, busyWhy: q.why };
+    if (q.ok) slots.push({ start: q.start, end: q.end, ok: true, why: null });
+    else {
+      if (t === first) firstWhy = q.why;
+      if (q.breaks.length) breakWhy = `The new cabin won't serve signed work: ${q.breaks[0]}${q.breaks.length > 1 ? ` (and ${q.breaks.length - 1} more)` : ''}`;
+      else if (q.clashes.length) clashWhy = `Clashes with ${q.clashes[q.clashes.length - 1]}: move it first`;
+    }
+    if (slots.length >= n) break;
+  }
+  if (!slots.length) return { slots, busyUntil: null, busyWhy: breakWhy ?? clashWhy ?? firstWhy };
+  const busyUntil = slots[0].start > first + 12 * 60 ? slots[0].start : null;
+  return { slots, busyUntil, busyWhy: busyUntil ? busyText(g, ac, slots[0].start) ?? firstWhy : null };
+}
+
+/** "Busy until 14 Nov: flies the TUI summer programme" (the last commitment before t). */
+function busyText(g: GameState, ac: Aircraft, t: Minute): string | null {
+  let last: { end: Minute; what: string } | null = null;
+  for (const f of flightsOf(g, ac.id)) {
+    if ((f.status !== 'scheduled' && f.status !== 'enroute') || f.kind === 'positioning' || f.std >= t) continue;
+    const c = f.contractId ? g.contracts[f.contractId] : undefined;
+    const end = f.eta ?? f.sta;
+    if (!last || end > last.end) last = { end, what: c ? `flies ${c.title}` : `flies ${f.no} ${f.from}–${f.to}` };
+  }
+  for (const m of Object.values(g.maintenance)) {
+    if (m.aircraftId !== ac.id || (m.status !== 'planned' && m.status !== 'inWork') || m.start >= t) continue;
+    if (!last || m.end > last.end) last = { end: m.end, what: m.kind === 'A' || m.kind === 'C' ? `in its ${m.kind}-check` : m.kind === 'refit' ? 'in a refit' : `in the hangar (${m.kind})` };
+  }
+  return last ? `Busy until ${fmtDay(last.end)}: ${last.what}` : null;
+}
+
+/**
+ * v0.7.2 fitting (or removing) crew rest seats: the last economy row behind a curtain (class 3 rest) at home base,
+ * BAL.v072.restSeats days and cost. Not on narrowbodies, aircraft with bunks or cabins without a full economy row.
+ * Pure; the cabin stays the same (the seats still sell when no duty needs in-flight rest).
+ */
+export function restSeatsQuote(g: GameState, aircraftId: string, fit: boolean, start: Minute): RefitQuote {
+  const ac = g.fleet[aircraftId];
+  const cabin: Cabin = ac?.cabin ?? { j: 0, w: 0, y: 0, total: 0, label: '', layout: 'all-economy' };
+  const R = BAL.v072.restSeats;
+  const q: RefitQuote = {
+    ok: false, why: null, cabin, days: R.days, cost: R.cost, start, end: start + R.days * DAY, station: g.company.homeBase, ferryIn: [], seatsFrom: cabin.total, seatsTo: cabin.total,
+    cabinMinFrom: cabinMinimum(cabin.total), cabinMinTo: cabinMinimum(cabin.total), opens: [], closes: [], reinstateAtReturn: null, clashes: [], breaks: [],
+  };
+  if (!ac) return { ...q, why: 'Aircraft not found' };
+  const t = typeOf(ac.typeId);
+  const rest = ac.crewRest ?? { bunks: false, seats: 0 };
+  if (t.body !== 'wide') return { ...q, why: 'Narrowbodies never need crew rest seats' };
+  if (rest.bunks) return { ...q, why: `${ac.reg} has bunks (class 1 crew rest)` };
+  if (fit && rest.seats > 0) return { ...q, why: 'Crew rest seats are already fitted' };
+  if (!fit && rest.seats <= 0) return { ...q, why: 'No crew rest seats to remove' };
+  if (fit && cabin.y < t.yAbreast) return { ...q, why: 'No full economy row to curtain off' };
+  if (fit) q.opens.push('augmented long-haul duties (class 3 rest)');
+  else q.closes.push('augmented long-haul duties');
+  return refitWindow(g, ac, q, g.company.homeBase);
+}
+
+/** v0.7.2 books crew rest seats (fit or remove) as a short refit at home base; at the end crewRest.seats changes. */
+export function bookRestSeats(g: GameState, aircraftId: string, fit: boolean, start: Minute): ActionResult<{ maintId: string }> {
+  const q = restSeatsQuote(g, aircraftId, fit, start);
+  if (!q.ok) return { ok: false, error: q.why ?? 'Cannot book this work' };
+  const ac = g.fleet[aircraftId];
+  const seats = fit ? typeOf(ac.typeId).yAbreast : 0;
+  const r = scheduleCheck(g, aircraftId, 'refit', start, q.station, { refit: { cabin: ac.cabin, days: q.days, cost: q.cost, restSeats: seats } });
+  if (!r.ok) return r;
+  pushMessage(g, {
+    tone: 'info', cat: 'tech', title: `Crew rest seats ${fit ? 'booked' : 'removal booked'}: ${ac.reg}`,
+    body: `${homeHangar(g)}: ${fmtDay(start)}–${fmtDay(q.end)} (${q.days} days, ${usd(q.cost)}, paid when the work starts).${fit ? ` The last economy row (${seats} seats) is curtained off for resting crew on long duties; it still sells on flights that need no in-flight rest.` : ''}${q.ferryIn.length ? ` Ferry in ${q.ferryIn[0].from}–${q.station} ${fmtDay(q.ferryIn[0].std)}.` : ''}`,
+    ref: { kind: 'maint', id: r.data!.maintId },
+  });
+  return { ok: true, msg: `Crew rest seats ${fmtDay(start)}–${fmtDay(q.end)}`, data: r.data };
+}
+
 /** Books a refit: a 'refit' check at the station (ferry booked when elsewhere); paid at the start of the work. */
 export function bookRefit(g: GameState, aircraftId: string, label: string, station: string, start: Minute): ActionResult<{ maintId: string }> {
   const q = refitQuote(g, aircraftId, label, station, start);
@@ -162,13 +290,12 @@ export function bookRefit(g: GameState, aircraftId: string, label: string, stati
   const ac = g.fleet[aircraftId];
   const r = scheduleCheck(g, aircraftId, 'refit', start, station, { refit: { cabin: q.cabin, days: q.days, cost: q.cost } });
   if (!r.ok) return r;
-  const st = MRO_STATIONS.find((s) => s.code === station)!;
   pushMessage(g, {
     tone: 'info', cat: 'tech', title: `Refit booked: ${ac.reg} to ${q.cabin.label}`,
-    body: `${st.name}, ${st.city}: ${fmtDay(start)}–${fmtDay(q.end)} (${q.days} days, ${usd(q.cost)}, paid when the work starts).${q.ferryIn.length ? ` Ferry in ${q.ferryIn[0].from}–${station} ${fmtDay(q.ferryIn[0].std)}.` : ''}${q.reinstateAtReturn ? ` The lessor wants it back as delivered: about ${usd(q.reinstateAtReturn)} at the lease return.` : ''}`,
+    body: `${stationName(g, station)}: ${fmtDay(start)}–${fmtDay(q.end)} (${q.days} days, ${usd(q.cost)}, paid when the work starts).${q.ferryIn.length ? ` Ferry in ${q.ferryIn[0].from}–${station} ${fmtDay(q.ferryIn[0].std)}.` : ''}${q.reinstateAtReturn ? ` The lessor wants it back as delivered: about ${usd(q.reinstateAtReturn)} at the lease return.` : ''}`,
     ref: { kind: 'maint', id: r.data!.maintId },
   });
-  return { ok: true, msg: `Refit to ${q.cabin.label} at ${st.city} ${fmtDay(start)}–${fmtDay(q.end)}`, data: r.data };
+  return { ok: true, msg: `Refit to ${q.cabin.label} at ${AIRPORT_BY_CODE[station]?.city ?? station} ${fmtDay(start)}–${fmtDay(q.end)}`, data: r.data };
 }
 
 /** 'maint.end' of a refit: the new cabin, re-rostered duties for the new complement, one message. */
@@ -176,11 +303,24 @@ export function onRefitEnd(g: GameState, m: MaintenanceEvent): void {
   if (m.kind !== 'refit' || !m.refit) return;
   const ac = g.fleet[m.aircraftId];
   if (!ac) return;
+  // v0.7.2 crew rest seats: the cabin stays; the rest class changes (duties re-measured).
+  if (m.refit.restSeats !== undefined) {
+    const rest = (ac.crewRest ??= { bunks: false, seats: 0 });
+    rest.seats = m.refit.restSeats;
+    rerosterFrom(g, ac.id, g.now);
+    pushMessage(g, {
+      tone: 'good', cat: 'tech', title: `${ac.reg}: crew rest seats ${rest.seats ? 'fitted' : 'removed'}`,
+      body: rest.seats
+        ? `The last economy row (${rest.seats} seats) now has a curtain for resting crew (class 3 rest): long duties can carry an augmented crew. The seats still sell on flights that need no in-flight rest.`
+        : `The last economy row is back in full sale. No crew rest on board: no augmented duties.`,
+      ref: { kind: 'aircraft', id: ac.id },
+    });
+    return;
+  }
   const was = ac.cabin;
   ac.cabin = { ...m.refit.cabin };
   g.stats.refits = (g.stats.refits ?? 0) + 1;
   rerosterFrom(g, ac.id, g.now);
-  const st = MRO_STATIONS.find((s) => s.code === m.at);
   const fromW = workOf(ac.typeId, was);
   const toW = workOf(ac.typeId, ac.cabin);
   const opens = toW.filter((x) => !fromW.includes(x));
@@ -189,7 +329,7 @@ export function onRefitEnd(g: GameState, m: MaintenanceEvent): void {
   const minTo = cabinMinimum(ac.cabin.total);
   pushMessage(g, {
     tone: 'good', cat: 'tech', title: `${ac.reg} refitted: ${ac.cabin.label}${ac.cabin.layout === 'vip' ? ' VIP' : ''}`,
-    body: `Out of the ${st?.name ?? 'cabin'} hangar at ${st?.city ?? m.at} after ${Math.round((m.end - m.start) / DAY)} days (${usd(m.cost)}). Cabin crew minimum ${minTo}${minTo !== minFrom ? ` (was ${minFrom})` : ''}.${opens.length ? ` It can now bid for ${opens.join(' and ')}.` : ''}${closes.length ? ` No longer: ${closes.join(', ')}.` : ''}`,
+    body: `Out of the hangar (${stationName(g, m.at)}) after ${Math.round((m.end - m.start) / DAY)} days (${usd(m.cost)}). Cabin crew minimum ${minTo}${minTo !== minFrom ? ` (was ${minFrom})` : ''}.${opens.length ? ` It can now bid for ${opens.join(' and ')}.` : ''}${closes.length ? ` No longer: ${closes.join(', ')}.` : ''}`,
     ref: { kind: 'aircraft', id: ac.id },
   });
 }

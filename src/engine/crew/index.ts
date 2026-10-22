@@ -4,24 +4,24 @@ import { BAL } from '../core/balance';
 import { flightsOf, flightsRev, takeFlightChanges } from '../core/entities';
 import type { SimModule } from '../core/module';
 import { schedule } from '../core/queue';
-import { DAY, yearOf } from '../core/time';
+import { DAY, monthKey, yearOf } from '../core/time';
 import type { CrewMember, GameState, Minute, SimEvent } from '../core/types';
 import { cancelConversion, classOf, dailyClasses } from './conversion';
 import { dailyCrewCosts, monthlySalaries } from './costs';
 import { deletePairing, planAircraft } from './duties';
 export { aboveMinimum, legalMinimum } from './duties';
 import { dailySickness, onCrewJoin, onTrainingDone } from './hr';
-import { dailyMorale, monthlyMorale, noteService, onDutyMorale, settleService, setResignHooks } from './morale';
+import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, settleService, setResignHooks } from './morale';
 import { autoRoster, guardDuty, onFlightsChanged, recheckAfterRelease, recheckNext, recheckSoon, removeCrew, sendStrandedHome, stayOn } from './roster';
 import { minRest, nightsIn, LIMITS } from './rules';
 import { aboard, crewCount, crewIx, dutyBlock, dutyFlights, dutySegs, onBlocks, passengers, touchCrew, touchCrewState } from './timeline';
 
 export {
-  checkAssignment, crewWindows, daysOffInMonth, LIMITS, maxFdp, minRest, restAfter,
+  AUG_FDP, CABIN_REST, cabinInflightRest, checkAssignment, crewWindows, daysOffInMonth, DISCRETION, FDP_BANDS, LIMITS, maxFdp, minRest, restAfter,
   acclimState, referenceTime, type Acclim, type CrewWindows, type FdpInput, type IssueCode, type LegalityIssue, type LegalityReport, type RestInput,
 } from './ftl';
 export { crewName, makeCrewMember, salaryFor } from './generate';
-export { crewAvailability, hireCrew, hireQuote, ratedMarket, staffing, trainCrew, type Availability, type HireRequest, type RatedMarket, type RoleCapacity, type StaffingLine } from './hr';
+export { crewAvailability, hireCrew, hireFamilies, hireQuote, ratedMarket, staffing, trainCrew, type Availability, type HireRequest, type RatedMarket, type RoleCapacity, type StaffingLine } from './hr';
 export {
   applyDiscretion, autoRoster, boardCrew, dropStraySpares, promoteSpares, buildDuties, flightCrewStatus, guardDuty, onFlightsChanged, removeCrew, replaceCrew, rerosterFrom, rosterOf, setRestDelayHook,
   type FlightCrewStatus, type RosterResult,
@@ -51,8 +51,23 @@ export {
   type ApplyOpts, type CrewControlView, type CrewSolution, type FixOption, type FixPreview, type JetQuote, type Reason, type ReasonCode, type SeatNeed,
 } from './control';
 import { escalateShortages } from './control';
+import { migrateRanks } from './migrate';
+export { migrateRanks } from './migrate';
+// v0.7.2 (UPDATE-0.7.2.md §12).
+export { crewAway, type CrewAway } from './away';
+export { restClassAt, restSeatsBlocked, sellableSeats } from './crewRest';
 
 const CHECKIN = () => BAL.deadheadCheckIn;
+
+/** v0.7.2 a captain flew in a first officer's seat: pay stays; from the third time in 30 days, morale −3 each time. */
+export function captainAsFo(g: GameState, c: CrewMember, report: Minute): void {
+  const A = BAL.v072.asFo;
+  const recent = (c.asFoAt ?? []).filter((t) => t > g.now - 30 * DAY);
+  recent.push(report);
+  c.asFoAt = recent;
+  g.stats.asFo = (g.stats.asFo ?? 0) + 1;
+  if (recent.length > A.freePerMonth) moraleShock(g, c, 'career', A.morale);
+}
 
 /**
  * ERRP bookkeeping before work starting at t (a duty report or a logged ticket): the time off since the last
@@ -134,12 +149,18 @@ function onDutyRelease(g: GameState, ev: SimEvent): void {
       c.blockYearOf = y;
     }
     c.blockYear += block;
+    // v0.7.2 1,000 h in 12 months: block by calendar month, the last 12 kept.
+    const mk = monthKey(g.now);
+    const bm = (c.blockMonths ??= {});
+    bm[mk] = (bm[mk] ?? 0) + block;
+    for (const key in bm) if (+key <= mk - 12) delete bm[key];
     c.totalHours += block / 60;
     c.restUntil = Math.max(c.restUntil, seg.end + seg.rest);
     c.status = 'resting';
     c.loc = d.restAt;
     c.fatigue = Math.min(100, c.fatigue + Math.round(d.fdp / 60));
     if (d.restAt === c.base) c.awaySince = null;
+    if (c.role === 'CPT' && (s.role === 'FO' || s.role === 'CRP')) captainAsFo(g, c, d.report);
   }
   d.done = true;
   const last = p.dutyIds.every((id) => !g.duties[id] || g.duties[id].done);
@@ -326,6 +347,8 @@ export const crewModule: SimModule = {
     queueAlert(g);
   },
   load(g) {
+    // v0.7.2: CSD/SCC → PUR before anything reads roles.
+    migrateRanks(g);
     g.classes ??= {};
     const y = yearOf(g.now);
     for (const c of Object.values(g.crew)) c.blockYearOf ??= y;

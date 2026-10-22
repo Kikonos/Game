@@ -17,7 +17,7 @@ import { money } from '../format';
 import { Dot } from '../screens/common';
 import { spanLabel } from '../screens/screenLogic';
 import { store, useGame } from '../store';
-import { canTake, chooseWord, defaultPicks, goneText, seatPlan } from './crewControlLogic';
+import { canTake, chooseWord, defaultPicks, goneText, hurtTone, keepHurt, seatPlan } from './crewControlLogic';
 
 const FIX_ICON: Record<CrewFix, ReactNode> = {
   autoFix: <Wand2 />, deadhead: <Ticket />, delay: <Clock />, jet: <PlaneTakeoff />, callIn: <PhoneCall />, discretion: <Hourglass />,
@@ -68,7 +68,7 @@ function Row({ s, open, onOpen, children }: { s: CrewSolution; open: boolean; on
               <>
                 {!priced && <span className={`chip sc-chip ${s.cost > 0 ? '' : 'good'}`}>{s.cost > 0 ? money(s.cost) : 'free'}</span>}
                 {timing && <span className="chip sc-chip">{timing}</span>}
-                {chips.slice(0, 3).map((c) => <span key={c} className={`chip sc-chip ${/−|Morale|Fatigue|Reliab/.test(c) ? 'warn' : ''}`}>{c}</span>)}
+                {keepHurt(chips, 3).map((c) => <span key={c} className={`chip sc-chip ${hurtTone(c) ?? (/−|Morale|Fatigue|Reliab/.test(c) ? 'warn' : '')}`}>{c}</span>)}
               </>
             ) : (
               <span className="chip sc-chip">not now</span>

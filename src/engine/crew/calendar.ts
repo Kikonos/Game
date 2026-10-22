@@ -63,7 +63,7 @@ function jetFor(g: GameState, t: Flight): string {
   return f ? ` (chartered for ${f.no})` : '';
 }
 
-const TRAINING_WHAT: Record<TrainingKind, string> = { typeRating: 'type rating', conversion: 'conversion course', command: 'Command upgrade', sccm: 'SCCM course' };
+const TRAINING_WHAT: Record<TrainingKind, string> = { typeRating: 'type rating', conversion: 'conversion course', command: 'Command upgrade', sccm: 'Purser course' };
 
 function trainingWhat(g: GameState, c: CrewMember, from: Minute, to: Minute): string {
   const it = g.training.find((x) => x.crewId === c.id && x.start < to && x.end > from);

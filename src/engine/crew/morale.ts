@@ -3,6 +3,7 @@
 // late-notice changes, missions, extra crew, careers and late salaries. Low morale brings sick calls, worse
 // service and resignations with notice. Daily from the crew module; read APIs are pure.
 
+import { restClassAt } from './crewRest';
 import { BAL } from '../core/balance';
 import { pushMessage } from '../core/messages';
 import { complement, isPilot } from '../core/perf';
@@ -139,7 +140,7 @@ export function legService(g: GameState, f: Flight): number | null {
   const S = M().service;
   const avg = cabin.reduce((s, c) => s + c.morale, 0) / cabin.length;
   const d = f.dutyId ? g.duties[f.dutyId] : undefined;
-  const legal = complement(ac.typeId, ac.cabin.total, { augment: d?.augment, fdp: d?.fdp }).filter((r) => !isPilot(r)).length;
+  const legal = complement(ac.typeId, ac.cabin.total, { augment: d?.augment, fdp: d?.fdp, restClass: restClassAt(g, ac.id) }).filter((r) => !isPilot(r)).length;
   const above = Math.max(0, cabin.length - legal);
   return clamp((avg - 60) / 30, -1, 1) * S.moraleW + Math.min(S.extraMax, S.extraPer * above);
 }
@@ -220,7 +221,7 @@ function dailyDrivers(g: GameState, c: CrewMember, target: number): Partial<Reco
 /** Notice period for a resignation (pilots 60 days, cabin 30). */
 const noticeDays = (r: Role) => (isPilot(r) ? M().noticeDays.pilot : M().noticeDays.cabin);
 
-const ROLE_NAME: Record<Role, string> = { CPT: 'captains', FO: 'first officers', CRP: 'relief pilots', CSD: 'pursers', SCC: 'senior cabin crew', CC: 'cabin crew' };
+const ROLE_NAME: Record<Role, string> = { CPT: 'captains', FO: 'first officers', CRP: 'relief pilots', PUR: 'pursers', CC: 'cabin crew' };
 
 let resignHook: ((g: GameState, c: CrewMember) => void) | null = null;
 let leaveHook: ((g: GameState, c: CrewMember) => void) | null = null;

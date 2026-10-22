@@ -1,12 +1,12 @@
 // Player sub-charter (BRIEF core loop step 7): hand legs we can't or won't fly to a rival operator at their
-// price; the client is still billed, the cost goes to 'subcharter', reliability takes no hit (DESIGN §5.8).
+// price; the client is still billed, the cost goes to 'subcharter'. v0.7.2: the client notices (reliability, F3).
 
 import { BAL } from '../core/balance';
 import { dayStart } from '../core/time';
 import { typeOf } from '../core/perf';
 import { hashUnit } from '../core/util';
 import type { ActionResult, Flight, GameState } from '../core/types';
-import { cancelCost, subcharterCost, subcharterLegs, unitOf } from './flights';
+import { cancelCost, noticeText, subcharterCost, subcharterLegs, subHit, unitOf, type SubHit } from './flights';
 import { contractOf, isRevenue } from './util';
 
 /** Legs closer than this to departure can't be handed over any more (the rival needs to position). */
@@ -27,6 +27,18 @@ export interface SubcharterQuote {
   cancel: number;
   /** Quote valid until (the rival re-prices daily). */
   validUntil: number;
+  /** v0.7.2 what the hand-over costs in reliability and client relation. */
+  hit: SubcharterHit;
+}
+
+/** v0.7.2 a hand-over's reliability cost: 'reliability −2 · the client notices'. */
+export interface SubcharterHit { reliability: number; relation: number; text: string }
+
+/** The reliability and relation a hand-over of these legs would cost (UPDATE-0.7.2.md F3). Pure. */
+export function subcharterHit(g: GameState, flightIds: string[]): SubcharterHit {
+  const rev = flightIds.map((id) => g.flights[id]).filter((f): f is Flight => !!f && f.status === 'scheduled' && f.purpose !== 'delivery' && isRevenue(f));
+  const h = subHit(g, rev);
+  return { reliability: h.reliability, relation: h.relation, text: h.text };
 }
 
 const live = (g: GameState, f: Flight | undefined): f is Flight =>
@@ -80,7 +92,7 @@ export function subcharterQuote(g: GameState, flightIds: string[]): SubcharterQu
   return {
     flightIds: legs.map((f) => f.id), revenueLegs: rev.length, bh: Math.round(rev.reduce((s, f) => s + f.block, 0) / 6) / 10,
     rivalId: rival.id, rivalName: rival.name, cost: subcharterCost(g, legs, factor), revenue: legRevenue(g, legs), cancel: cancelCost(g, legs),
-    validUntil: day + 1440,
+    validUntil: day + 1440, hit: subcharterHit(g, legs.map((f) => f.id)),
   };
 }
 
@@ -90,6 +102,7 @@ export function subcharter(g: GameState, flightIds: string[], expectCost?: numbe
   if (!q) return { ok: false, error: 'Those legs can no longer be handed over' };
   if (expectCost !== undefined && q.cost > expectCost) return { ok: false, error: `${q.rivalName} now asks $${Math.round(q.cost / 1000)}K; review the quote again` };
   const legs = q.flightIds.map((id) => g.flights[id]);
-  const n = subcharterLegs(g, legs, q.rivalId, q.cost);
-  return { ok: true, msg: `${q.rivalName} flies ${n} leg${n === 1 ? '' : 's'} for us`, data: { legs: n, cost: q.cost, rivalName: q.rivalName } };
+  const out: { hit?: SubHit } = {};
+  const n = subcharterLegs(g, legs, q.rivalId, q.cost, out);
+  return { ok: true, msg: `${q.rivalName} flies ${n} leg${n === 1 ? '' : 's'} for us.${noticeText(g, legs[0], out.hit)}`, data: { legs: n, cost: q.cost, rivalName: q.rivalName } };
 }
