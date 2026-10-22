@@ -332,3 +332,12 @@ Player notes (22 Oct, with top-bar screenshot .handover/updates/topbar-space.jpg
 ### 18:45Z 22 Oct — PLAYER notes → mini update v0.7.4 "Crew & Cabin" building now (Opus agent, worktree /home/user/wt/v074, branch v074 from 870f855): (1) Crew planning view per aircraft type with crew SETS + 'Round up to complete sets' hire; (2) refit costs researched (quick 48 h seat reconfiguration vs full retrofit; sources into RESEARCH.md) + client-paid cabin changes on long-term contracts like paint; (3) 767-300ER never has bunks (player's experience; migrate saves); (4) every aircraft always has curtained economy rest seats (class 3 in-game; strict EASA needs 40°+leg rest — told the player, doing it their way unless they object) and business-seat rest (class 2) when J is installed, following the current layout; rest seats always count in capacity, blocked only on rest flights. DEFAULT: release together with v0.8 (port v074 into acmi before the v0.8 release, like v0722) unless the player asks for it sooner. PENDING PORT: v074.
 
 - 18:48Z: v0.7.4 addition sent to agent a601d01b9f6b3582d. Bunks come as a pair: pilot bunks (FCRC) always come with cabin crew bunks (CCRC), and the reverse. Covers the combined data roll, market, start fleet, refits (one combined option), migration, tests, glossary, EASA-FTL.md and What's new.
+
+- 21:40Z: The player sent 13 screenshots of issues (copies in .handover/updates/shots-2210/). Diagnosis below. Waiting for the player to say go, and when to ship.
+  1. Seat need is not tied to passengers. offers.ts tourSeries wide: pax 260-300 but minSeats 250. Troop rotation: pax 150-170 but minSeats 174. Narrow tour rounds pax up to 10. FIX: minSeats = max pax on any leg.
+  2. Body is never checked. Season base "widebody" lets an A320 pass the family line (shown green). FIX: add a body check.
+  3. Offers no crew can fly. Repatriation and pre-season tour go through fuel stops with a duty day over 18 h. v0.7.3's ulrDest fix covered only ULR offers. Repatriation also falls back to a 10 h chain when route() is null (DIL), so the legs end up 25 h apart. FIX: drop the offer. IDEA (needs the player's OK): a crew slip at the fuel stop.
+  4. Crew Control offers a jet that lands after the airline ticket. FIX: hide the dominated jet option or explain it.
+  5. Schedule.tsx shows "in check" for a refit. FIX: show "in refit".
+  6. The 767's art shows bunk glyphs. Already being fixed in v0.7.4.
+  Yellow (longest day 13 h): correct under EASA. Asked the player what they expected.
