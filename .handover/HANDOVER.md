@@ -347,3 +347,4 @@ Player notes (22 Oct, with top-bar screenshot .handover/updates/topbar-space.jpg
   - Remove the rest marks from the aircraft drawings. Sent to the v0.7.4 agent.
   - Crew slip at a fuel stop: yes, LATER. Recorded in specs.json later-ideas.crew-slip.
   - REMIND the player about a game-wide language and redundancy pass after the v0.8 release. Recorded in later-ideas.language-pass.
+- 22:05Z: The player wants the Boeing 747-400. It was switched off since the first data files, with no recorded reason. Added as fixpack item 6, ships with v0.8.
