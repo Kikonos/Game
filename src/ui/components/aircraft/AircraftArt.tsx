@@ -11,7 +11,6 @@ import type { Livery } from '../../../engine/core/types';
 import { FONT_STACK } from './fontMetrics';
 import { geometry, pathPoly, type Geometry } from './geometry';
 import { LogoGlyph } from './logos';
-import { bunkBars, reclinerPath, restGlyphs, restTitle, seatBlock, type ArtRest } from './restGlyph';
 import { PROFILE_BY_ID } from './specs';
 import { boxSamples, inPoly, sideAt, stickerLayout, type StickerBox } from './stickers';
 import { tracedFor } from './traced/load';
@@ -39,8 +38,6 @@ export interface AircraftArtProps {
   selected?: string;
   /** Livery editor only: snap guides in viewBox coords (thin cyan lines). */
   guides?: { x?: number[]; y?: number[] };
-  /** v0.7.3 crew rest marks (static bunk / seat glyphs where the compartment is); none at detail 'simple' under 90 px wide. */
-  rest?: ArtRest;
 }
 
 const FALLBACK = 'a320neo';
@@ -259,11 +256,8 @@ const DOOR_SMALL = 'rgba(28,42,68,0.55)';
 
 const PLAIN_ACCENT = '#c9d1dd';
 const SELECT = '#3ee6ff';
-// crew rest marks: the app accent (--accent) as a soft tint; bunk bars = accent 45% on white, opaque
-const REST_ACCENT = '#3ee6ff';
-const REST_TINT = '#a6f2ff';
 
-function AircraftArtImpl({ typeId, livery, code, name, className, height, detail = 'full', pxPerM, svgRef, selected, guides, rest }: AircraftArtProps) {
+function AircraftArtImpl({ typeId, livery, code, name, className, height, detail = 'full', pxPerM, svgRef, selected, guides }: AircraftArtProps) {
   const uid = useId().replace(/:/g, '');
   const g: Geometry = artGeometry(typeId);
   const p = g.p;
@@ -342,10 +336,6 @@ function AircraftArtImpl({ typeId, livery, code, name, className, height, detail
     );
   };
   const sel = selected ? boxes.find((b) => b.id === selected) : undefined;
-  // v0.7.3 crew rest glyphs (viewBox coords, drawn over the airframe; static)
-  const restMarks = rest && (full || (measured ?? guess) * vb.w >= 90) ? restGlyphs(typeId, rest) : [];
-  // viewBox units per CSS px (min glyph sizes)
-  const restUnit = 1 / (measured ?? guess);
 
   const far = g.engines.filter((e) => e.spec.far);
   const near = [...g.engines.filter((e) => !e.spec.far && e.spec.inboard), ...g.engines.filter((e) => !e.spec.far && !e.spec.inboard)];
@@ -529,32 +519,6 @@ function AircraftArtImpl({ typeId, livery, code, name, className, height, detail
         </g>
       )}
       </g>
-      {restMarks.length > 0 && (
-        <g className="art-rest" pointerEvents={svgRef ? 'none' : 'visiblePainted'} stroke={INK} strokeOpacity={0.6} strokeWidth={1} strokeLinejoin="round">
-          {rest && <title>{restTitle(rest)}</title>}
-          {restMarks.map((m, i) => {
-            if (m.kind === 'bunk') {
-              return bunkBars(m, restUnit).map((b, j) => <rect key={`${i}${j}`} data-rest="bunk" x={f(b.x)} y={f(b.y)} width={f(b.w)} height={f(b.h)} rx={f(b.h * 0.35)} fill={REST_TINT} style={ns} />);
-            }
-            if (m.kind === 'seats') {
-              const { box: b, ticks } = seatBlock(m, restUnit);
-              return (
-                <g key={i} data-rest="seats">
-                  <rect x={f(b.x)} y={f(b.y)} width={f(b.w)} height={f(b.h)} rx={f(b.h * 0.3)} fill="#ffffff" fillOpacity={0.7} stroke="none" />
-                  <rect x={f(b.x)} y={f(b.y)} width={f(b.w)} height={f(b.h)} rx={f(b.h * 0.3)} fill={REST_ACCENT} fillOpacity={0.35} strokeOpacity={0.45} style={ns} />
-                  {ticks.map((x) => <line key={x} x1={f(x)} x2={f(x)} y1={f(b.y + b.h * 0.25)} y2={f(b.y + b.h * 0.75)} strokeOpacity={0.4} style={ns} />)}
-                </g>
-              );
-            }
-            return (
-              <g key={i} data-rest="recliner" fill="none" strokeLinecap="round">
-                <path d={reclinerPath(m, restUnit)} stroke="#ffffff" strokeOpacity={0.8} strokeWidth={3} style={ns} />
-                <path d={reclinerPath(m, restUnit)} strokeWidth={1.3} style={ns} />
-              </g>
-            );
-          })}
-        </g>
-      )}
       {guides && (
         <g pointerEvents="none" stroke={SELECT} strokeWidth={1} opacity={0.85}>
           {guides.x?.map((x) => <line key={`x${x}`} x1={f(x)} x2={f(x)} y1={f(vb.y)} y2={f(vb.y + vb.h)} style={ns} />)}
@@ -565,10 +529,10 @@ function AircraftArtImpl({ typeId, livery, code, name, className, height, detail
   );
 }
 
-/** Shallow props compare, with `rest` by value (callers may build it inline). */
+/** Shallow props compare. */
 const sameProps = (a: AircraftArtProps, b: AircraftArtProps): boolean => {
   const ka = Object.keys(a) as (keyof AircraftArtProps)[];
   if (ka.length !== Object.keys(b).length) return false;
-  return ka.every((k) => k === 'rest' ? a.rest?.fc === b.rest?.fc && a.rest?.cc === b.rest?.cc : Object.is(a[k], b[k]));
+  return ka.every((k) => Object.is(a[k], b[k]));
 };
 export const AircraftArt = memo(AircraftArtImpl, sameProps);

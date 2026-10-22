@@ -10,7 +10,7 @@ import type { GameState } from '../core/types';
 import { acceptOffer, feasibility } from '../contracts';
 import { addAircraft, legsOffer, newGame, owned, run } from '../contracts/testkit';
 import { cancelCheck } from './maintenance';
-import { bookRefit, bookRestRefit, bookRestSeats, cabinOptions, REST_SEATS, refitQuote, refitSlots, refitStations, restRefitOptions, restRefitQuote, restSeatsQuote } from './cabin';
+import { bookRefit, restAfterRefit, bookRestSeats, cabinOptions, REST_SEATS, refitQuote, refitSlots, refitStations, restRefitOptions, restSeatsQuote } from './cabin';
 import { leased } from '../contracts/testkit';
 
 const line = (g: GameState, cat: 'refit') => [g.finance.current, ...g.finance.history].reduce((s, st) => s + (st.lines[cat] ?? 0), 0);
@@ -46,12 +46,16 @@ describe('refits', () => {
     const g = newGame(3);
     const ac = leased(g);
     const q = refitQuote(g, ac.id, '24J/90Y', 'LIS', g.now + 10 * DAY);
-    expect(q).toMatchObject({ ok: true, days: 21, cost: 1_200_000, seatsFrom: 180, seatsTo: 114, cabinMinFrom: 4, cabinMinTo: 3, reinstateAtReturn: 120_000, ferryIn: [] });
+    // v0.7.4 VIP is the full retrofit with new premium seats; the standard layouts are a quick 48 h reconfiguration.
+    expect(q).toMatchObject({ ok: true, kind: 'full', days: 21, cost: 1_600_000, seatsFrom: 180, seatsTo: 114, cabinMinFrom: 4, cabinMinTo: 3, reinstateAtReturn: 30_000, ferryIn: [] });
     expect(q.opens).toContain('VIP and state work');
+    // the business seats bring class 2 crew rest with them (economy seats were class 3)
+    expect(q.opens).toContain('crew rest in business seats (class 2)');
     expect(q.closes).toEqual(['troop rotations (174+)', 'pilgrimage (180+)']);
     expect(q.end - q.start).toBe(21 * DAY);
-    expect(refitQuote(g, ac.id, '12J/156Y', 'LIS', g.now + 10 * DAY)).toMatchObject({ days: 7, cost: 250_000 });
-    expect(refitQuote(g, addAircraft(g, 'b772').id, '40J/180Y', 'LIS', g.now + 10 * DAY)).toMatchObject({ days: 35, cost: 3_000_000 });
+    expect(refitQuote(g, ac.id, '12J/156Y', 'LIS', g.now + 10 * DAY)).toMatchObject({ kind: 'quick', days: 2, cost: 40_000 });
+    expect(refitQuote(g, addAircraft(g, 'b772').id, '40J/180Y', 'LIS', g.now + 10 * DAY)).toMatchObject({ kind: 'full', days: 28, cost: 4_000_000 });
+    expect(refitQuote(g, addAircraft(g, 'b772').id, '400Y', 'LIS', g.now + 10 * DAY)).toMatchObject({ kind: 'quick', days: 2, cost: 80_000 });
     expect(refitQuote(g, owned(g).id, '24J/90Y', 'LIS', g.now + 10 * DAY).reinstateAtReturn).toBeNull();
   });
 
@@ -63,16 +67,16 @@ describe('refits', () => {
     const r = bookRefit(g, ac.id, '24J/90Y', 'LIS', start);
     if (!r.ok) throw new Error(r.error);
     const m = g.maintenance[r.data!.maintId];
-    expect(m).toMatchObject({ kind: 'refit', at: 'LIS', start, end: start + 21 * DAY, cost: 1_200_000, refit: { cabin: { label: '24J/90Y', layout: 'vip', total: 114 } } });
+    expect(m).toMatchObject({ kind: 'refit', at: 'LIS', start, end: start + 21 * DAY, cost: 1_600_000, refit: { cabin: { label: '24J/90Y', layout: 'vip', total: 114 } } });
     expect(m.ferryIds?.length).toBeGreaterThan(0);
     expect(g.flights[m.ferryIds![m.ferryIds!.length - 1]]).toMatchObject({ kind: 'ferry', purpose: 'refit', to: 'LIS' });
     expect(g.messages[0].title).toBe(`Refit booked: ${ac.reg} to 24J/90Y`);
     run(g, start + 60);
     expect(m.status).toBe('inWork');
-    expect(line(g, 'refit')).toBe(-1_200_000);
+    expect(line(g, 'refit')).toBe(-1_600_000);
     run(g, m.end + 60);
     expect(m.status).toBe('done');
-    expect(line(g, 'refit')).toBe(-1_200_000);
+    expect(line(g, 'refit')).toBe(-1_600_000);
     expect(ac.cabin).toMatchObject({ label: '24J/90Y', layout: 'vip', total: 114 });
     expect(ac.at).toBe('LIS');
     expect(g.stats.refits).toBe(1);
@@ -134,7 +138,7 @@ describe('the cabin rules in feasibility', () => {
     const rep = feasibility(g, o.id, ac.id);
     const c = rep.checks.find((x) => x.id === 'layout')!;
     expect(c).toMatchObject({ level: 'no', label: `Needs a VIP cabin; ${ac.reg} is 180Y`, action: { kind: 'refit', layout: 'vip' } });
-    expect(c.detail).toBe('Refit to 24J/90Y at Lisbon: 21 days, $1.20M');
+    expect(c.detail).toBe('Refit to 24J/90Y in our hangar: 21 days, $1.60M');
     expect(bookRefit(g, ac.id, '24J/90Y', 'LIS', g.now + 10 * DAY).ok).toBe(true);
     const after = feasibility(g, o.id, ac.id).checks.find((x) => x.id === 'layout')!;
     expect(after.level).toBe('ok');
@@ -163,16 +167,17 @@ describe('v0.7.2 refits start straight away, at home base', () => {
     const r = refitSlots(g, ac.id, '12J/156Y');
     expect(r.slots.length).toBe(6);
     expect(r.slots[0].start).toBeLessThanOrEqual(g.now + 90);
-    expect(r.slots[0].end - r.slots[0].start).toBe(7 * DAY);
+    expect(r.slots[0].end - r.slots[0].start).toBe(2 * DAY);
     expect(r.busyUntil).toBeNull();
     for (let i = 1; i < r.slots.length; i++) expect(r.slots[i].start).toBeGreaterThan(r.slots[i - 1].start);
     const t = g.now + DAY;
-    const o = legsOffer(g, [['LIS', 'FAO', t], ['FAO', 'LIS', t + 3 * DAY]], 150);
+    // (v0.7.4 a 2-day reconfiguration fits between trips that leave a gap at home, so the job turns round in a day)
+    const o = legsOffer(g, [['LIS', 'FAO', t], ['FAO', 'LIS', t + DAY]], 150);
     o.title = 'TUI summer programme Lisbon–Faro';
     const s = acceptOffer(g, o.id, [ac.id]);
     if (!s.ok) throw new Error(s.error);
     const r2 = refitSlots(g, ac.id, '12J/156Y');
-    expect(r2.slots[0].start).toBeGreaterThan(t + 3 * DAY);
+    expect(r2.slots[0].start).toBeGreaterThan(t + DAY);
     expect(r2.busyUntil).toBe(r2.slots[0].start);
     expect(r2.busyWhy).toMatch(/^Busy until .+: flies TUI summer programme Lisbon–Faro$/);
     expect(refitQuote(g, ac.id, '12J/156Y', 'LIS', r2.slots[0].start).ok).toBe(true);
@@ -192,48 +197,43 @@ describe('v0.7.2 refits start straight away, at home base', () => {
     expect(r.busyWhy).toMatch(/^The new cabin won't serve signed work: /);
   });
 
-  it('v0.7.3 crew rest refits: options per type, what each opens; home refits change the facilities at the end', () => {
+  it('v0.7.3/v0.7.4 crew rest refits: seats need none; recliners (class 2) on cabins without business seats; bunks only as a pair', () => {
     const g = newGame(4);
     g.company.approvals.push('augmented');
-    // narrowbodies: only the A321LR and 757 can take recliners
+    // an A320: curtained economy seats come with the cabin; no refit to offer
     expect(restRefitOptions(g, owned(g).id)).toEqual([]);
+    // the A321LR (all economy) can take class 2 recliners
     const lr = addAircraft(g, 'a321neo');
-    expect(restRefitOptions(g, lr.id).map((o) => [o.id, o.cls, o.days, o.cost, o.seats])).toEqual([['recliners', 3, 3, 100_000, -3]]);
-    // an A330-200 with no rest: curtained business seats, recliners, the lower-deck module, a pilots' compartment with a C-check
+    expect(restRefitOptions(g, lr.id).map((o) => [o.id, o.cls, o.days, o.cost, o.seats])).toEqual([['recliners', 2, 3, 100_000, -3]]);
+    // an A330-200 with bunks: nothing to add
     const wb = addAircraft(g, 'a332');
     expect(wb.rest).toEqual({ fc: { cls: 1, kind: 'fcrc', places: 2 }, cc: { cls: 1, kind: 'ldmcr', places: 7 } });
     expect(restRefitOptions(g, wb.id)).toEqual([]);
+    // without bunks, two-class: the business seats are class 2 already; only the bunks (both crews) with a C-check
     wb.rest = { fc: null, cc: null };
+    expect(restRefitOptions(g, wb.id).map((o) => [o.id, o.where, o.cls, o.side])).toEqual([['fcrc', 'cCheck', 1, 'both']]);
+    expect(restAfterRefit(wb, 'fcrc').fitted).toEqual({ fc: { cls: 1, kind: 'fcrc', places: 2 }, cc: { cls: 1, kind: 'ldmcr', places: 7 } });
+    // an old lower-deck module booking fits both kinds of bunks too
+    expect(restAfterRefit(wb, 'ldmcr').fitted).toEqual(restAfterRefit(wb, 'fcrc').fitted);
+    // all economy: recliners offered as well
+    wb.cabin = { j: 0, w: 0, y: 330, total: 330, label: '330Y', layout: 'all-economy' };
     const opts = restRefitOptions(g, wb.id);
-    expect(opts.map((o) => [o.id, o.where, o.cls, o.seats])).toEqual([['curtainJ', 'home', 2, 0], ['recliners', 'home', 3, -9], ['ldmcr', 'home', 1, 0], ['fcrc', 'cCheck', 1, 0]]);
-    expect(opts[0].opens).toBe('Opens: 15 h days with 3 pilots (was 13 h); cabin crew rest in business seats (2:00 on a 15 h day)');
-    expect(restSeatsQuote(g, owned(g).id, true, g.now + DAY).ok).toBe(false);
-    // book the curtain (1 day, $15K): at the end business seats are class 2 rest for both sides
-    const slots = refitSlots(g, wb.id, 'rest:curtainJ');
-    expect(slots.slots[0].end - slots.slots[0].start).toBe(DAY);
-    const q = restRefitQuote(g, wb.id, 'curtainJ', slots.slots[0].start);
-    expect(q).toMatchObject({ ok: true, days: 1, cost: 15_000, station: 'LIS' });
-    const r = bookRestRefit(g, wb.id, 'curtainJ', slots.slots[0].start);
-    if (!r.ok) throw new Error(r.error);
-    expect(g.maintenance[r.data!.maintId].restFit).toBe('curtainJ');
-    run(g, g.maintenance[r.data!.maintId].end + 60);
-    expect(wb.rest).toEqual({ fc: { cls: 2, kind: 'jSeats', places: 2 }, cc: { cls: 2, kind: 'jSeats', places: 5 } });
-    expect(line(g, 'refit')).toBe(-15_000);
-    expect(g.stats.restRefits).toBe(1);
-    expect(g.messages.some((m) => /lower-deck|curtain/i.test(m.title))).toBe(true);
-    // now the module would free the business seats
-    const ld = restRefitOptions(g, wb.id).find((o) => o.id === 'ldmcr')!;
-    expect(ld.opens).toBe('Opens: cabin crew rest in bunks (1:45 instead of 2:00 on a 15 h day); 5 business seats back on sale');
-    // recliners on a 767 cost 8 seats; the v0.7.2 wrappers fit and remove them
+    expect(opts.map((o) => [o.id, o.where, o.cls, o.seats])).toEqual([['recliners', 'home', 2, -9], ['fcrc', 'cCheck', 1, 0]]);
+    expect(opts[0].opens).toMatch(/^Opens: 15 h days with 3 pilots \(was 14 h\)/);
+    // recliners on a 767 (all economy) cost 8 seats; the v0.7.2 wrappers fit and remove them
     const b767 = addAircraft(g, 'b763');
-    b767.rest = { fc: null, cc: null };
+    expect(b767.rest).toEqual({ fc: null, cc: null });
+    // 16J/251Y: business seats are class 2; the 767 never takes bunks
+    expect(restRefitOptions(g, b767.id)).toEqual([]);
+    b767.cabin = { j: 0, w: 0, y: 309, total: 309, label: '309Y', layout: 'all-economy' };
     const rq = restSeatsQuote(g, b767.id, true, refitSlots(g, b767.id, REST_SEATS).slots[0].start);
     expect(rq).toMatchObject({ ok: true, days: 4, cost: 220_000, seatsTo: b767.cabin.total - 8 });
     const rb = bookRestSeats(g, b767.id, true, rq.start);
     if (!rb.ok) throw new Error(rb.error);
     run(g, g.maintenance[rb.data!.maintId].end + 60);
-    expect(b767.rest).toEqual({ fc: { cls: 3, kind: 'recliners', places: 2 }, cc: { cls: 3, kind: 'recliners', places: 4 } });
+    expect(b767.rest).toEqual({ fc: { cls: 2, kind: 'recliners', places: 2 }, cc: { cls: 2, kind: 'recliners', places: 4 } });
     expect(b767.cabin.total).toBe(rq.seatsTo);
-    expect(restRefitOptions(g, b767.id).map((o) => o.id)).toContain('removeRecliners');
+    expect(g.stats.restRefits).toBe(1);
+    expect(restRefitOptions(g, b767.id).map((o) => o.id)).toEqual(['removeRecliners']);
   });
 });

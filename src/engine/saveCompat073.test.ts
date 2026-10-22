@@ -2,6 +2,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { DAY } from './core/time';
+import { BAL } from './core/balance';
 import type { GameState } from './core/types';
 import { restPlan } from './crew/restPlan';
 import { evalSegs } from './crew/rules';
@@ -21,7 +22,8 @@ describe('v0.7.3 load: pilot and cabin crew rest facilities', () => {
     const before = new Map(Object.values(file.state.duties).map((d) => [d.id, d.legality]));
     const g = deserialize(JSON.stringify(file));
     const reg = (r: string) => Object.values(g.fleet).find((a) => a.reg.endsWith(r))!;
-    expect(reg('DVR').rest).toEqual({ fc: { cls: 3, kind: 'recliners', places: 2 }, cc: { cls: 3, kind: 'recliners', places: 6 } });
+    // (v0.7.4: crew rest recliners are class 2)
+    expect(reg('DVR').rest).toEqual({ fc: { cls: 2, kind: 'recliners', places: 2 }, cc: { cls: 2, kind: 'recliners', places: 6 } });
     expect(reg('DVS').rest).toEqual({ fc: null, cc: null });
     expect(reg('DVT').rest).toEqual({ fc: { cls: 1, kind: 'fcrc', places: 2 }, cc: { cls: 1, kind: 'ldmcr', places: 7 } });
     for (const ac of Object.values(g.fleet)) if (typeOf(ac.typeId).body === 'narrow') expect(ac.rest).toEqual({ fc: null, cc: null });
@@ -43,7 +45,11 @@ describe('v0.7.3 load: pilot and cabin crew rest facilities', () => {
     }
     expect(g.gameOver).toBeNull();
     expect(bad(g)).toEqual([]);
-    for (const c of Object.values(g.crew)) expect(evalSegs(ctxOf(g, c), segsOf(g, c)).filter((i) => i.level === 'illegal' && i.code !== 'location').map((i) => `${c.id}:${i.code}`)).toEqual([]);
+    // Inside the published roster (v0.7.4: a far-off duty may carry a stale ticket home until the roster reaches it;
+    // the roster re-plans it when it comes within the horizon).
+    const horizon = g.now + BAL.rosterHorizonDays * DAY;
+    const near = (i: { dutyId?: string }) => !i.dutyId || (g.duties[i.dutyId]?.report ?? 0) <= horizon;
+    for (const c of Object.values(g.crew)) expect(evalSegs(ctxOf(g, c), segsOf(g, c)).filter((i) => i.level === 'illegal' && i.code !== 'location' && near(i)).map((i) => `${c.id}:${i.code}`)).toEqual([]);
     const again = deserialize(serialize(g));
     expect(JSON.parse(serialize(again)).state).toEqual(JSON.parse(serialize(g)).state);
   }, 240_000);

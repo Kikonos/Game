@@ -8,6 +8,7 @@ import { Modal, Seg, Toggle } from '../components/ui';
 import { DecisionModal } from '../modals/DecisionModal';
 import { CheckModal } from '../modals/CheckModal';
 import { HireModal } from '../modals/HireModal';
+import { RoundUpModal } from '../modals/RoundUpModal';
 import { OfferModal } from '../modals/OfferModal';
 import { BlockSheet } from '../modals/BlockSheet';
 import { DutyModal } from '../modals/DutyModal';
@@ -249,6 +250,7 @@ export function GlobalModals() {
     case 'offer': return s.game ? <OfferModal offerId={m.offerId} /> : null;
     case 'decision': return s.game ? <DecisionModal decisionId={m.decisionId} /> : null;
     case 'hire': return s.game ? <HireModal {...m} /> : null;
+    case 'roundUp': return s.game ? <RoundUpModal family={m.family} target={m.target} /> : null;
     case 'train': return s.game ? <TrainModal crewId={m.crewId} /> : null;
     case 'check': return s.game ? <CheckModal aircraftId={m.aircraftId} checkKind={m.checkKind} replace={m.replace} restFit={m.restFit} backToRefit={m.backToRefit} suggest={m.suggest} after={m.after} /> : null;
     case 'sheet': return s.game ? <BlockSheet refs={m.refs} idle={m.idle} /> : null;

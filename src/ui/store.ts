@@ -14,7 +14,7 @@ import { pushDecision } from '../engine/core/messages';
 import type { ClientLevel } from '../engine/contracts';
 import type { WorldEventKind } from '../engine/core/types';
 import { devDeportation, devDryLease, devEvacuation, devHajj, devLevel, devMixedCrew, devRivalBid, devWorldEvent } from '../engine/dev';
-import { demoFlights, devCrewShortage, devExtension, devFleet, devGrantApproval, devMarketOffer, devRestPlan, devRestSeats, devSaleReady, devShortCruise, devSplit, devStandby } from '../engine/dev';
+import { demoFlights, devAddType, devCrewShortage, devExtension, devFleet, devGrantApproval, devMarketOffer, devRestPlan, devRestSeats, devSaleReady, devShortCruise, devSplit, devStandby } from '../engine/dev';
 import { resignNow } from '../engine/crew';
 import { createGame, type NewGameOptions } from '../engine/newGame';
 import { AUTOSAVE_SLOT, saveToSlot, serialize } from '../engine/save';
@@ -80,6 +80,8 @@ export type ModalSpec =
   /** B5: a decision opened from the Inbox (closable); hire, training and check planning dialogs. */
   | { kind: 'decision'; decisionId: string }
   | { kind: 'hire'; role?: Role; family?: RatingFamily; base?: string }
+  /** v0.7.4 Crew planning round-up: hire the crew that complete `target` sets of a family. */
+  | { kind: 'roundUp'; family: RatingFamily; target: number }
   | { kind: 'train'; crewId: string }
   | { kind: 'check'; aircraftId: string; checkKind?: 'A' | 'C'; replace?: string; /** v0.7.3 tick the crew rest add-on */ restFit?: 'fcrc' | 'overhead'; /** v0.7.3 back to the refit modal's crew rest section */ backToRefit?: boolean; /** v0.7.2.2 from an idle gap: the slot to offer first (A: start and airport; C: windows from `after` at this hub). */ suggest?: { start: number; at: string }; after?: number }
   /** B5: Schedule detail sheet for the blocks near a tap (flights, maintenance) or an idle gap. */
@@ -656,6 +658,26 @@ class GameStore {
     offer: (archetype?: Archetype) => {
       if (!this.game) return null;
       const o = generateOffer(this.game, archetype);
+      if (o) this.openModal({ kind: 'offer', offerId: o.id });
+      this.emit();
+      return o?.id ?? null;
+    },
+    /** v0.7.4: an aircraft of a type at home base with its crew (e.g. 'b763'); returns its id. */
+    addType: (typeId: string, cabinIx = 0) => {
+      const g = this.game;
+      if (!g) return '';
+      const id = devAddType(g, typeId, cabinIx);
+      settle(g);
+      this.emit();
+      return id;
+    },
+    /** v0.7.4: a long season base whose client wants its cabin (forced request); opens the offer modal. */
+    cabinOffer: (layout: 'two-class' | 'all-economy' = 'two-class', required = false, share = 1) => {
+      const g = this.game;
+      if (!g) return null;
+      let o = null;
+      // A season base whose cabin rules allow the layout asked for (some want 174+ seats: all economy only).
+      for (let i = 0; i < 8 && !(o && o.cabin?.layout === layout); i++) o = generateOffer(g, 'seasonBase', { cabin: { layout, required, share, revert: true }, paint: false, wide: false, start: g.now + 40 * DAY, days: 120 });
       if (o) this.openModal({ kind: 'offer', offerId: o.id });
       this.emit();
       return o?.id ?? null;

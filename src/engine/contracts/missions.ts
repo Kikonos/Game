@@ -579,6 +579,16 @@ export function rollClientCabin(g: GameState, d: Draft, ref: string, req: Requir
   return { n: Math.max(1, n), of: M, leads };
 }
 
+/**
+ * v0.7.4 × v0.8: a mixed-crew clause on an offer whose client also wants its own cabin is counted on that cabin's
+ * seats (M cabin crew for them): their senior leading, they bring all M; otherwise up to the n first rolled, always
+ * leaving our purser. Pure.
+ */
+export function clientCrewOnCabin(ref: string, cc: NonNullable<Requirements['clientCabin']>, seats: number): NonNullable<Requirements['clientCabin']> {
+  const M = complement(ref, seats).filter((x) => x === 'PUR' || x === 'CC').length;
+  return { n: cc.leads ? M : Math.max(1, Math.min(cc.n, M - 1)), of: M, leads: cc.leads };
+}
+
 // ---------- daily: sub-charter in, repeat business ----------
 
 const rivalClient = (g: GameState, r: Rival) => (r.clientId ? g.clients[r.clientId] : undefined);

@@ -514,7 +514,7 @@ export function chipInfo(g: GameState, ac: Aircraft, t: Minute, short?: ShortRow
 
 // ---------- v0.7.3 crew rest on the aircraft panel ----------
 
-const REST_WORD: Record<RestKind, string> = { fcrc: 'bunks', ccrc: 'bunks', ldmcr: 'lower-deck module', jSeats: 'business seats', recliners: 'recliners' };
+const REST_WORD: Record<RestKind, string> = { fcrc: 'bunks', ccrc: 'bunks', ldmcr: 'lower-deck module', jSeats: 'business seats', recliners: 'recliners', ySeats: 'economy seats' };
 const restWord = (f: RestFacility | null) => (f ? REST_WORD[f.kind] : 'none');
 
 /** Aircraft panel chip: 'Rest: pilots bunks · cabin crew business seats' ('Rest: pilots & cabin crew bunks' when alike); null when the aircraft has no crew rest at all. */
@@ -524,7 +524,7 @@ export function restChip(r: AcRest): string | null {
   return `Rest: pilots ${restWord(r.fc)} · cabin crew ${restWord(r.cc)}`;
 }
 
-const WHERE: Record<RestKind, string> = { fcrc: 'bunk', ccrc: 'bunk', ldmcr: 'lower deck', jSeats: 'business seat', recliners: 'recliner' };
+const WHERE: Record<RestKind, string> = { fcrc: 'bunk', ccrc: 'bunk', ldmcr: 'lower deck', jSeats: 'business seat', recliners: 'recliner', ySeats: 'economy seat' };
 const PILOT_NAME = /^(Capt\.|FO|CRP)\b/;
 
 /**
@@ -543,7 +543,7 @@ export function restingLine(rows: { names: string[]; where: RestKind; until: Min
 
 /** Seats line noun for the blocked rest seats: 'business seats' / 'seats'. */
 export function restSeatNoun(r: AcRest): string {
-  return r.cc?.kind === 'jSeats' || r.fc?.kind === 'jSeats' ? 'business seats' : 'seats';
+  return r.cc?.kind === 'jSeats' || r.fc?.kind === 'jSeats' ? 'business seats' : r.cc?.kind === 'ySeats' || r.fc?.kind === 'ySeats' ? 'economy seats' : 'seats';
 }
 
 // ---------- v0.8 world events and dry leases ----------

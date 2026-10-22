@@ -1,6 +1,7 @@
 // Crew rest per airframe. v0.7.2: bunks (class 1) or crew rest seats. v0.7.3 (UPDATE-0.7.3.md §2.1, §2.5): separate
-// pilot and cabin crew facilities (crew/restPlan.ts restOf); a plain economy seat is not a rest facility. Seats of a
-// seat-based facility (curtained business seats, crew rest recliners) sell unless someone rests in them on that leg.
+// pilot and cabin crew facilities (crew/restPlan.ts restOf). v0.7.4: every aircraft has curtained economy seats (class
+// 3) and, with business seats in the cabin, curtained business seats (class 2). Seats of a seat-based facility
+// (business / economy seats, crew rest recliners) sell unless someone rests in them on that leg.
 
 import { ACMI_TYPES } from '../../data/acmiTypes';
 import type { GameState } from '../core/types';
@@ -12,7 +13,7 @@ import { restOf, restPlan } from './restPlan';
  */
 export function defaultCrewRest(typeId: string): { bunks: boolean; seats: number } {
   const t = ACMI_TYPES[typeId];
-  return { bunks: !!t && t.body === 'wide' && t.restClass !== null, seats: 0 };
+  return { bunks: !!t && t.body === 'wide' && t.restClass === 1, seats: 0 };
 }
 
 /** @deprecated v0.7.3: the pilots' facility class (restOf(…).fc?.cls); null without one. Pure. */

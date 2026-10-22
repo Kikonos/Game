@@ -15,13 +15,14 @@ import type { AcRest, ActionResult, Aircraft, Cabin, Flight, GameState, Maintena
 import { C_HUBS } from '../../data/mro';
 import { schedule } from '../core/queue';
 import { cabinInflightRest } from '../crew/rules';
-import { jSeatsFor, longestDay, migrateRest, restText } from '../crew/restPlan';
+import { bunksFor, effectiveRest, longestDay, migrateRest, restOfAc, restShort, restText } from '../crew/restPlan';
 import { retimeFlight } from '../core/entities';
 import { route, routeMinutes, timeChain } from '../contracts/plan';
 import { rerosterFrom } from '../crew';
 import type { DeliveryLeg } from './delivery';
 import { scheduleCheck } from './maintenance';
 import { usd } from './util';
+import { onClientCabinEnd } from './clientCabin';
 
 export interface RefitQuote {
   ok: boolean; why: string | null; cabin: Cabin; days: number; cost: number; start: Minute; end: Minute;
@@ -29,7 +30,15 @@ export interface RefitQuote {
   opens: string[]; closes: string[]; reinstateAtReturn: number | null; clashes: string[];
   /** Signed work still flying after the refit that the new cabin can't carry ("Troop rotation … needs 174+ seats (refit gives 168)"). */
   breaks: string[];
+  /** v0.7.4 'quick' (a reconfiguration with seats we hold, about 48 h) or 'full' (new premium seats, weeks). */
+  kind?: RefitKind;
+  /** v0.7.4 the crew's rest before and after (the curtained seats follow the cabin: business seats appear or go). */
+  restFrom?: AcRest;
+  restTo?: AcRest;
 }
+
+/** v0.7.4 a quick reconfiguration (seats we hold: convertible seats, moved rows and class divider, curtains) or a full retrofit with new premium seats. */
+export type RefitKind = 'quick' | 'full';
 
 /** v0.7.2 a refit window at home base (earliest first). */
 export interface RefitSlot { start: Minute; end: Minute; ok: boolean; why: string | null }
@@ -47,11 +56,18 @@ export function cabinOptions(typeId: string): CabinPreset[] {
 
 export const cabinOf = (p: CabinPreset): Cabin => ({ j: p.j, w: p.w, y: p.y, total: p.j + p.w + p.y, label: p.label, layout: p.layout });
 
-/** Days and cost of a refit to a layout (narrowbody / widebody table). */
-export function refitTerms(typeId: string, layout: CabinLayout): { days: number; cost: number } | null {
+/**
+ * Days and cost of a refit to a layout (narrowbody / widebody table, docs/acmi/RESEARCH.md §13). v0.7.4: the type's
+ * standard layouts are a QUICK reconfiguration (about 48 h, tens of thousands); VIP is a full retrofit with new
+ * premium seats (weeks, millions).
+ */
+export function refitTerms(typeId: string, layout: CabinLayout): { days: number; cost: number; kind: RefitKind } | null {
   const t = BAL.refit[typeOf(typeId).body === 'wide' ? 'wb' : 'nb'][layout];
-  return t ? { days: t[0], cost: t[1] } : null;
+  return t ? { days: t[0], cost: t[1], kind: layout === 'vip' ? 'full' : 'quick' } : null;
 }
+
+/** v0.7.4 'Quick reconfiguration · 2 days' / 'Full retrofit, new seats · 28 days'. */
+export const refitKindText = (k: RefitKind, days: number) => `${k === 'quick' ? 'Quick reconfiguration' : 'Full retrofit with new seats'} · ${days} day${days === 1 ? '' : 's'}`;
 
 /** Where the aircraft is at t (its last arrival before t), else where it is now. */
 function whereAt(g: GameState, ac: Aircraft, t: Minute): { at: string; free: Minute } {
@@ -122,9 +138,17 @@ export function refitQuote(g: GameState, aircraftId: string, label: string, stat
   const end = start + terms.days * DAY;
   const fromW = workOf(ac.typeId, ac.cabin);
   const toW = workOf(ac.typeId, cabin);
+  const restFrom = restOfAc(ac);
+  const restTo = effectiveRest(ac.typeId, cabin, ac.rest ?? migrateRest(ac));
+  const opens = toW.filter((x) => !fromW.includes(x));
+  const closes = fromW.filter((x) => !toW.includes(x));
+  // v0.7.4 the curtained seats follow the cabin: business seats for crew rest appear (class 2) or go (economy seats, class 3).
+  const better = (a: AcRest, b: AcRest) => (b.cc?.cls ?? 9) < (a.cc?.cls ?? 9) || (b.fc?.cls ?? 9) < (a.fc?.cls ?? 9);
+  if (better(restFrom, restTo)) opens.push(`crew rest in ${restShort(restTo.cc)}`);
+  else if (better(restTo, restFrom)) closes.push(`crew rest in ${restShort(restFrom.cc)} (now ${restShort(restTo.cc)})`);
   const q: RefitQuote = {
     ...base, cabin, days: terms.days, cost: terms.cost, end, seatsTo: cabin.total, cabinMinTo: cabinMinimum(cabin.total),
-    opens: toW.filter((x) => !fromW.includes(x)), closes: fromW.filter((x) => !toW.includes(x)), reinstateAtReturn: reinstateCost(ac, preset.layout),
+    opens, closes, reinstateAtReturn: reinstateCost(ac, preset.layout), kind: terms.kind, restFrom, restTo,
   };
   const why = (w: string) => ({ ...q, why: w });
   if (ac.cabin.label === label) return why(`Already ${label}`);
@@ -154,6 +178,11 @@ function refitWindow(g: GameState, ac: Aircraft, q: RefitQuote, station: string)
   for (const m of Object.values(g.maintenance)) {
     if (m.aircraftId === ac.id && (m.status === 'planned' || m.status === 'inWork') && m.start < end && m.end > busyFrom) q.clashes.push(`${m.kind === 'A' || m.kind === 'C' ? `${m.kind}-check` : m.kind} ${fmtDay(m.start)}`);
   }
+  // v0.7.4 (quick 2-day refits fit between legs): the aircraft leaves the hangar at home base, so the next leg after
+  // the work must start there (an away trip's return leg can't be flown from the hangar).
+  let next: Flight | null = null;
+  for (const f of flightsOf(g, ac.id)) if (f.status === 'scheduled' && f.std >= end && (!next || f.std < next.std)) next = f;
+  if (next && next.from !== station) q.clashes.push(`${next.no} ${next.from}–${next.to} ${fmtDay(next.std)}`);
   for (const c of Object.values(g.contracts)) {
     if ((c.status === 'signed' || c.status === 'active') && c.aircraftIds.includes(ac.id) && c.pattern.kind === 'base' && c.generatedUntil < c.pattern.to && c.pattern.to > busyFrom && Math.max(c.generatedUntil, c.pattern.from) < end) q.clashes.push(c.title);
   }
@@ -272,7 +301,7 @@ export function bookRefit(g: GameState, aircraftId: string, label: string, stati
   if (!r.ok) return r;
   pushMessage(g, {
     tone: 'info', cat: 'tech', title: `Refit booked: ${ac.reg} to ${q.cabin.label}`,
-    body: `${stationName(g, station)}: ${fmtDay(start)}–${fmtDay(q.end)} (${q.days} days, ${usd(q.cost)}, paid when the work starts).${q.ferryIn.length ? ` Ferry in ${q.ferryIn[0].from}–${station} ${fmtDay(q.ferryIn[0].std)}.` : ''}${q.reinstateAtReturn ? ` The lessor wants it back as delivered: about ${usd(q.reinstateAtReturn)} at the lease return.` : ''}`,
+    body: `${q.kind === 'quick' ? 'A quick reconfiguration' : 'A full retrofit with new seats'} at ${stationName(g, station)}: ${fmtDay(start)}–${fmtDay(q.end)} (${q.days} day${q.days === 1 ? '' : 's'}, ${usd(q.cost)}, paid when the work starts).${q.ferryIn.length ? ` Ferry in ${q.ferryIn[0].from}–${station} ${fmtDay(q.ferryIn[0].std)}.` : ''}${q.reinstateAtReturn ? ` The lessor wants it back as delivered: about ${usd(q.reinstateAtReturn)} at the lease return.` : ''}`,
     ref: { kind: 'maint', id: r.data!.maintId },
   });
   return { ok: true, msg: `Refit to ${q.cabin.label} at ${AIRPORT_BY_CODE[station]?.city ?? station} ${fmtDay(start)}–${fmtDay(q.end)}`, data: r.data };
@@ -302,8 +331,12 @@ export function onRefitEnd(g: GameState, m: MaintenanceEvent): void {
     return;
   }
   const was = ac.cabin;
+  const restWas = restOfAc(ac);
   ac.cabin = { ...m.refit.cabin };
+  const restNow = restOfAc(ac);
   g.stats.refits = (g.stats.refits ?? 0) + 1;
+  // v0.7.4 a client's reconfiguration: their share invoiced (clientcabin.ts).
+  if (m.clientCabin) onClientCabinEnd(g, m);
   rerosterFrom(g, ac.id, g.now);
   const fromW = workOf(ac.typeId, was);
   const toW = workOf(ac.typeId, ac.cabin);
@@ -313,7 +346,7 @@ export function onRefitEnd(g: GameState, m: MaintenanceEvent): void {
   const minTo = cabinMinimum(ac.cabin.total);
   pushMessage(g, {
     tone: 'good', cat: 'tech', title: `${ac.reg} refitted: ${ac.cabin.label}${ac.cabin.layout === 'vip' ? ' VIP' : ''}`,
-    body: `Out of the hangar (${stationName(g, m.at)}) after ${Math.round((m.end - m.start) / DAY)} days (${usd(m.cost)}). Cabin crew minimum ${minTo}${minTo !== minFrom ? ` (was ${minFrom})` : ''}.${opens.length ? ` It can now bid for ${opens.join(' and ')}.` : ''}${closes.length ? ` No longer: ${closes.join(', ')}.` : ''}`,
+    body: `Out of the hangar (${stationName(g, m.at)}) after ${Math.round((m.end - m.start) / DAY)} day${Math.round((m.end - m.start) / DAY) === 1 ? '' : 's'} (${usd(m.cost)}). Cabin crew minimum ${minTo}${minTo !== minFrom ? ` (was ${minFrom})` : ''}.${restNow.cc?.kind !== restWas.cc?.kind ? ` Crew rest now in ${restShort(restNow.cc)} (was ${restShort(restWas.cc)}).` : ''}${opens.length ? ` It can now bid for ${opens.join(' and ')}.` : ''}${closes.length ? ` No longer: ${closes.join(', ')}.` : ''}`,
     ref: { kind: 'aircraft', id: ac.id },
   });
 }
@@ -360,7 +393,8 @@ export function refitTip(g: GameState, ac: Aircraft, req: Pick<Requirements, 'la
   if (!best) return null;
   const home = g.company.homeBase;
   const st = stationsFor(ac).map((s) => ({ s, b: route(ac.typeId, home, s.code) })).filter((x) => x.b).sort((a, b) => routeMinutes(a.b!) - routeMinutes(b.b!))[0]?.s;
-  return { layout: best.p.layout, label: best.p.label, text: `Refit to ${best.p.label}${st ? ` at ${st.city}` : ''}: ${best.days} days, ${usd(best.cost)}` };
+  void st;
+  return { layout: best.p.layout, label: best.p.label, text: `${best.days <= 3 ? 'Quick reconfiguration' : 'Refit'} to ${best.p.label} in our hangar: ${best.days} day${best.days === 1 ? '' : 's'}, ${usd(best.cost)}` };
 }
 
 /** "after the refit 1 Jun". */
@@ -388,53 +422,53 @@ export interface RestRefitOption {
 
 const REFIT_LABEL: Record<RestRefitId, string> = {
   curtainJ: 'Curtain off business seats', recliners: 'Crew rest recliners', removeRecliners: 'Remove the crew rest recliners',
-  ldmcr: 'Lower-deck crew rest module', fcrc: 'Flight crew rest compartment', overhead: 'Overhead crew rest',
+  ldmcr: 'Crew bunks (pilots and cabin crew)', fcrc: 'Crew bunks: pilots’ room and lower-deck module', overhead: 'Crew bunks: overhead, pilots and cabin crew',
 };
+export const restRefitLabel = (id: RestRefitId) => REFIT_LABEL[id];
 const hmm = (m: number) => `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
 const hrs = (m: number) => (m % 60 ? hmm(m) : `${m / 60} h`);
 const presetOf = (ac: Aircraft) => cabinOptions(ac.typeId).find((p) => p.label === ac.cabin.label);
 
-/** v0.7.3 the facilities and cabin after a crew rest refit (UPDATE-0.7.3.md §2.10). Pure. */
-export function restAfterRefit(ac: Aircraft, id: RestRefitId): { rest: AcRest; cabin: Cabin } {
+/**
+ * v0.7.3 the facilities and cabin after a crew rest refit (UPDATE-0.7.3.md §2.10). v0.7.4: `fitted` is what gets
+ * stored (bunks always both kinds, recliners class 2); `rest` what the crew can use then (with the curtained seats of
+ * the cabin). Pure.
+ */
+export function restAfterRefit(ac: Aircraft, id: RestRefitId): { rest: AcRest; fitted: AcRest; cabin: Cabin } {
   const t = typeOf(ac.typeId);
   const R = t.rest;
   const now = ac.rest ?? migrateRest(ac);
-  const rest: AcRest = { fc: now.fc ? { ...now.fc } : null, cc: now.cc ? { ...now.cc } : null };
+  let fitted: AcRest = { fc: now.fc ? { ...now.fc } : null, cc: now.cc ? { ...now.cc } : null };
   let cabin: Cabin = { ...ac.cabin };
   switch (id) {
     case 'curtainJ':
-      rest.fc ??= jSeatsFor(ac.typeId, cabin.j, 'fc');
-      rest.cc ??= jSeatsFor(ac.typeId, cabin.j, 'cc');
+      // v0.7.4 business seats are always there for crew rest: nothing to fit (an old booking ends as a no-op).
       break;
     case 'recliners': {
       const r = R.recliners;
       if (!r) break;
       const lost = r.rowsLost * t.yAbreast - r.places;
       cabin = { ...cabin, y: cabin.y - lost, total: cabin.total - lost };
-      const fcEmpty = !rest.fc;
-      if (fcEmpty) rest.fc = { cls: 3, kind: 'recliners', places: r.fc };
-      if (!rest.cc) rest.cc = { cls: 3, kind: 'recliners', places: fcEmpty ? r.places - r.fc : r.places };
+      const fcEmpty = !fitted.fc;
+      if (fcEmpty) fitted.fc = { cls: 2, kind: 'recliners', places: r.fc };
+      if (!fitted.cc) fitted.cc = { cls: 2, kind: 'recliners', places: fcEmpty ? r.places - r.fc : r.places };
       break;
     }
     case 'removeRecliners': {
-      if (rest.fc?.kind === 'recliners') rest.fc = null;
-      if (rest.cc?.kind === 'recliners') rest.cc = null;
+      if (fitted.fc?.kind === 'recliners') fitted.fc = null;
+      if (fitted.cc?.kind === 'recliners') fitted.cc = null;
       const p = presetOf(ac);
       if (p) cabin = { ...cabin, j: p.j, w: p.w, y: p.y, total: p.j + p.w + p.y };
       break;
     }
     case 'ldmcr':
-      rest.cc = { cls: 1, kind: 'ldmcr', places: R.ccrcKind === 'ldmcr' && R.ccrcPlaces ? R.ccrcPlaces : 7 };
-      break;
     case 'fcrc':
-      rest.fc = { cls: 1, kind: 'fcrc', places: 2 };
-      break;
     case 'overhead':
-      if (rest.fc?.cls !== 1) rest.fc = { cls: 1, kind: 'fcrc', places: 2 };
-      if (rest.cc?.cls !== 1) rest.cc = { cls: 1, kind: 'ccrc', places: R.ccrcPlaces || 8 };
+      // v0.7.4 bunks come as a pair: the pilots' room and the cabin crew's bunks together.
+      fitted = bunksFor(ac.typeId);
       break;
   }
-  return { rest, cabin };
+  return { rest: effectiveRest(ac.typeId, cabin, fitted), fitted, cabin };
 }
 
 /** 'Opens: 16 h days with 3 pilots (was 15 h)' and the like: what a facility change does to the longest day. */
@@ -462,14 +496,20 @@ export function opensText(g: GameState, typeId: string, before: AcRest, after: A
   return parts.length ? `Opens: ${parts.join('; ')}` : 'Opens: nothing new for the longest day';
 }
 
-/** v0.7.3 the crew rest refits an aircraft can have (UPDATE-0.7.3.md §2.10), each with what it opens. Pure. */
+/**
+ * v0.7.3 the crew rest refits an aircraft can have (UPDATE-0.7.3.md §2.10), each with what it opens. v0.7.4: the
+ * curtained business / economy seats need no refit (they follow the cabin); crew rest recliners (class 2) on a cabin
+ * without business seats; crew bunks only as one option for pilots AND cabin crew, with a C-check at a hub (never
+ * on the 767). Pure.
+ */
 export function restRefitOptions(g: GameState, aircraftId: string): RestRefitOption[] {
   const ac = g.fleet[aircraftId];
   if (!ac) return [];
   const t = typeOf(ac.typeId);
   const R = t.rest;
   const B = BAL.v073.restRefit;
-  const rest = ac.rest ?? migrateRest(ac);
+  const fitted = ac.rest ?? migrateRest(ac);
+  const rest = restOfAc(ac);
   const wide = t.body === 'wide';
   const out: RestRefitOption[] = [];
   const hub = !!C_HUBS[t.family]?.length;
@@ -477,22 +517,21 @@ export function restRefitOptions(g: GameState, aircraftId: string): RestRefitOpt
     const after = restAfterRefit(ac, id);
     out.push({
       id, label: REFIT_LABEL[id], side, cls, where, days, cost, seats: after.cabin.total - ac.cabin.total,
-      opens: id === 'removeRecliners' ? `Opens: ${ac.cabin.total < after.cabin.total ? `${after.cabin.total - ac.cabin.total} seats back in sale; ` : ''}no in-flight rest where the recliners were` : opensText(g, ac.typeId, rest, after.rest),
+      opens: id === 'removeRecliners' ? `Opens: ${ac.cabin.total < after.cabin.total ? `${after.cabin.total - ac.cabin.total} seats back in sale; ` : ''}the crew rest in ${restShort(after.rest.cc)} again` : opensText(g, ac.typeId, rest, after.rest),
       ok: !why, why,
     });
   };
-  const empty = !rest.fc || !rest.cc;
-  const side = (): RestRefitOption['side'] => (!rest.fc && !rest.cc ? 'both' : !rest.fc ? 'fc' : 'cc');
-  if (wide && empty) add('curtainJ', side(), t.rest.jClass, 'home', B.curtainJ.days, B.curtainJ.cost, ac.cabin.j >= 4 ? null : 'Needs 4 or more business seats (a two-class cabin)');
-  if (R.recliners && empty) {
-    const nb = !wide;
-    const c = nb ? B.reclinersNarrow : B.reclinersWide;
-    add('recliners', side(), 3, 'home', c.days, c.cost, ac.cabin.y >= R.recliners.rowsLost * t.yAbreast + 30 ? null : 'Not enough economy rows');
+  const bunks = fitted.fc?.cls === 1 && fitted.cc?.cls === 1;
+  // Recliners: only where the crew would otherwise rest in economy seats (business seats are class 2 already).
+  if (R.recliners && !fitted.fc && !fitted.cc && !bunks && ((rest.fc?.cls ?? 9) > 2 || (rest.cc?.cls ?? 9) > 2)) {
+    const c = wide ? B.reclinersWide : B.reclinersNarrow;
+    add('recliners', 'both', 2, 'home', c.days, c.cost, ac.cabin.y >= R.recliners.rowsLost * t.yAbreast + 30 ? null : 'Not enough economy rows');
   }
-  if (rest.fc?.kind === 'recliners' || rest.cc?.kind === 'recliners') add('removeRecliners', rest.fc?.kind === 'recliners' && rest.cc?.kind === 'recliners' ? 'both' : rest.fc?.kind === 'recliners' ? 'fc' : 'cc', 3, 'home', B.removeRecliners.days, B.removeRecliners.cost, null);
-  if (R.ldmcr && rest.cc?.cls !== 1) add('ldmcr', 'cc', 1, 'home', B.ldmcr.days, B.ldmcr.cost, null);
-  if (R.mro === 'fcrc' && rest.fc?.cls !== 1) add('fcrc', 'fc', 1, 'cCheck', B.fcrc.addDays, B.fcrc.cost, hub ? null : 'No C-check hub for this type');
-  if (R.mro === 'overhead' && (rest.fc?.cls !== 1 || rest.cc?.cls !== 1)) add('overhead', rest.fc?.cls !== 1 && rest.cc?.cls !== 1 ? 'both' : rest.fc?.cls !== 1 ? 'fc' : 'cc', 1, 'cCheck', B.overhead.addDays, B.overhead.cost, hub ? null : 'No C-check hub for this type');
+  if (fitted.fc?.kind === 'recliners' || fitted.cc?.kind === 'recliners') add('removeRecliners', fitted.fc?.kind === 'recliners' && fitted.cc?.kind === 'recliners' ? 'both' : fitted.fc?.kind === 'recliners' ? 'fc' : 'cc', 2, 'home', B.removeRecliners.days, B.removeRecliners.cost, null);
+  if (R.mro && !bunks) {
+    const c = B[R.mro];
+    add(R.mro, 'both', 1, 'cCheck', c.addDays, c.cost, hub ? null : 'No C-check hub for this type');
+  }
   return out;
 }
 
@@ -540,6 +579,7 @@ export function addRestToCCheck(g: GameState, maintId: string, id: 'fcrc' | 'ove
   if (!ac) return { ok: false, error: 'Aircraft not found' };
   const B = BAL.v073.restRefit;
   const cur = m.restFit === 'fcrc' || m.restFit === 'overhead' ? B[m.restFit] : null;
+  // (v0.7.4: either id now fits bunks for pilots and cabin crew together.)
   if (id) {
     const opt = restRefitOptions(g, ac.id).find((o) => o.id === id);
     if (!opt || !opt.ok) return { ok: false, error: opt?.why ?? `${REFIT_LABEL[id]} is not offered for ${ac.reg}` };
@@ -575,9 +615,9 @@ export function onRestFitEnd(g: GameState, m: MaintenanceEvent): void {
   if (!m.restFit) return;
   const ac = g.fleet[m.aircraftId];
   if (!ac) return;
-  const before = ac.rest ?? migrateRest(ac);
+  const before = restOfAc(ac);
   const after = restAfterRefit(ac, m.restFit);
-  ac.rest = after.rest;
+  ac.rest = after.fitted;
   if (m.kind === 'refit') ac.cabin = { ...(m.refit?.cabin ?? after.cabin) };
   g.stats.restRefits = (g.stats.restRefits ?? 0) + 1;
   rerosterFrom(g, ac.id, g.now);

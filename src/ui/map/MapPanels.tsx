@@ -29,7 +29,6 @@ import { crewName, crewShortCard, dutyCrew, flightCrewStatus, restNow, restOf, r
 import { checkStatus, CONNECT_MIN, commercialItinerary, deliveryStatus, dryLeaseOf, FLIGHT_TYPE_HINT, FLIGHT_TYPE_LABEL, flightCrewAboard, type FlightType, flightType, flightZone, problemAt, ticketPurpose, worldEvent, worldZones } from '../../engine/ops';
 import { ferryCost } from '../../engine/ops/delivery';
 import { AircraftArt } from '../components/AircraftArt';
-import { artRest } from '../components/aircraft/restGlyph';
 import { Bar } from '../components/ui';
 import { money } from '../format';
 import { contractColor } from '../screens/palette';
@@ -444,7 +443,7 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
 
   return (
     <Panel title={<span className="mono">{ac.reg}</span>} kicker={`${type?.name ?? ac.typeId} · ${ac.cabin.label}`} onClose={() => store.select(undefined)}>
-      <div className="op-art"><AircraftArt typeId={artFor(ac.typeId)} livery={lv.livery} code={lv.code} name={lv.name} rest={artRest(rest)} /></div>
+      <div className="op-art"><AircraftArt typeId={artFor(ac.typeId)} livery={lv.livery} code={lv.code} name={lv.name} /></div>
       {lv.source === 'client' && <div className="small muted op-livery">In {lv.clientName} colours{lv.contractId && g.contracts[lv.contractId] ? ` for ${g.contracts[lv.contractId].title}` : ''}</div>}
       <div className="row wrap op-chips">
         <span className={`chip tone-${chip.tone}`}><Dot tone={chip.tone} />{cur ? 'Airborne' : ac.status === 'available' ? 'Available' : ac.status === 'aog' ? 'AOG' : ac.status === 'maintenance' ? 'Maintenance' : ac.status === 'delivering' ? 'Delivering' : ac.status === 'leasedOut' ? 'Leased out' : ac.status}</span>

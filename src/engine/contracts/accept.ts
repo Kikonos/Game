@@ -17,7 +17,9 @@ import { baseDayOf, flownRotations, programmeOf } from './plan';
 import { mghInMonth, productValue } from './pricing';
 import { generateFlights, relinkPositioning } from './schedule';
 import { bookPaint, cancelPaintFor } from '../ops/paint';
-import { paintQuote, paintWindow, type PaintSlot } from './paintTerms';
+import { paintWindow, type PaintSlot } from './paintTerms';
+import { termsProduct } from './cabinTerms';
+import { bookClientCabin, cancelClientCabinFor } from '../ops/clientCabin';
 import { replyTime } from './counter';
 import { bumpClient, noteJobDone, statsV08 } from './relations';
 import { noteHiredUs } from './rivals';
@@ -48,11 +50,13 @@ export function closeOffer(g: GameState, o: ContractOffer, status: OfferStatus, 
 /** Broker commission share (5%) when the job came through a broker. */
 export const brokerCut = (c: { broker?: string }) => (c.broker ? BAL.brokerCommission : 0);
 
-const firstNo = (rep: ReturnType<typeof feasibility>, skipPaint = false) => rep.checks.find((c) => c.level === 'no' && !(skipPaint && c.id === 'paint'));
+const firstNo = (rep: ReturnType<typeof feasibility>, skipPaint = false, skipCabin = false) => rep.checks.find((c) => c.level === 'no' && !(skipPaint && c.id === 'paint') && !(skipCabin && c.id === 'cabinReq'));
 
 /** v0.5.1 accept/counter options: client paint on (default when the offer has it) or off; `priced` = counter reply (price final). */
 export interface SignOpts {
   paint?: boolean;
+  /** v0.7.4: the client's cabin request on (default when the offer has one) or off (optional requests only). */
+  cabin?: boolean;
   priced?: boolean;
   /** v0.6: extra crew for this contract (paid option met when cabin ≥ requirements.extraCabin + extraCabinPaid.n). */
   crewExtra?: CrewExtra;
@@ -74,11 +78,15 @@ export function acceptOffer(g: GameState, offerId: string, aircraftIds: string[]
   if (o.product.kind === 'dry') return acceptDry(g, o, ids[0]);
   const paint = !!o.paint && opts.paint !== false;
   if (o.paint?.required && !paint && !opts.priced) return { ok: false, error: 'The client requires their livery on the aircraft' };
+  // v0.7.4 the client's cabin request (a quick reconfiguration before the start).
+  const cabinOn = !!o.cabin && (opts.cabin !== false || o.cabin.required);
   const slots: Record<string, PaintSlot> = {};
+  const cabinSlots: Record<string, { label: string; start: Minute; from: string }> = {};
   for (const id of ids) {
-    const rep = feasibility(g, offerId, id, { paint, crewExtra: opts.crewExtra });
+    const rep = feasibility(g, offerId, id, { paint, cabin: cabinOn, crewExtra: opts.crewExtra });
     const no = firstNo(rep, !paint);
     if (no) return { ok: false, error: `${g.fleet[id].reg}: ${no.label}` };
+    if (cabinOn && rep.cabinSlot) cabinSlots[id] = { ...rep.cabinSlot, from: g.fleet[id].cabin.label };
     if (paint) {
       // Each aircraft's own first departure (base slots are staggered).
       const tr = programmeOf(o, g.fleet[id].typeId, ids.indexOf(id)).trips[0];
@@ -94,7 +102,7 @@ export function acceptOffer(g: GameState, offerId: string, aircraftIds: string[]
   const c: Contract = {
     id: nextId(g, 'k'),
     offerId: o.id, archetype: o.archetype, clientId: o.clientId, broker: o.broker, title: o.title,
-    product: paint || opts.priced ? structuredClone(o.product) : paintQuote(o, false).product, pattern: structuredClone(o.pattern), requirements: structuredClone(o.requirements),
+    product: opts.priced ? structuredClone(o.product) : termsProduct(o, { paint, cabin: cabinOn }), pattern: structuredClone(o.pattern), requirements: structuredClone(o.requirements),
     penalties: structuredClone(o.penalties), payment: { ...o.payment }, effects: { ...o.effects },
     aircraftIds: ids, start: o.start, end: o.end, signed: g.now, status: 'signed',
     generatedUntil: o.pattern.kind === 'base' ? o.pattern.from : o.end,
@@ -102,6 +110,11 @@ export function acceptOffer(g: GameState, offerId: string, aircraftIds: string[]
     invoiced: 0, accrued: 0, legsFlown: 0, legsOnTime: 0,
   };
   if (o.paint) c.paint = { ...structuredClone(o.paint), accepted: paint, inMx: {}, outMx: {} };
+  if (o.cabin) {
+    c.cabin = { ...structuredClone(o.cabin), accepted: cabinOn, from: {}, inMx: {}, outMx: {} };
+    // The contract flies the client's layout (a later refit may not take it away).
+    if (cabinOn) c.requirements.layouts = [o.cabin.layout];
+  }
   g.contracts[c.id] = c;
   signCrewExtra(g, c, ids[0], opts.crewExtra);
   closeOffer(g, o, 'accepted');
@@ -112,6 +125,13 @@ export function acceptOffer(g: GameState, offerId: string, aircraftIds: string[]
   for (const id of Object.keys(slots)) {
     const err = bookPaint(g, c, id, 'in', slots[id]);
     if (err) pushMessage(g, { tone: 'warn', cat: 'tech', title: `Paint not booked: ${g.fleet[id].reg}`, body: `${err}. It flies ${c.title} without the client's livery.`, ref: { kind: 'aircraft', id } });
+  }
+  // v0.7.4 the client's cabin: a quick reconfiguration in our hangar before the start (flights planned after it).
+  for (const id of Object.keys(cabinSlots)) {
+    const x = cabinSlots[id];
+    const err = bookClientCabin(g, c, id, 'in', x.label, x.start);
+    if (err) pushMessage(g, { tone: 'warn', cat: 'tech', title: `Cabin not booked: ${g.fleet[id].reg}`, body: `${err}. Book the ${x.label} reconfiguration from the Fleet screen before ${fmtDay(c.start)}.`, ref: { kind: 'aircraft', id } });
+    else c.cabin!.from![id] = x.from;
   }
   generateFlights(g, c);
   // Charter money: deposit now, balance per trip 7–14 days before it (DESIGN §5.1.9); governments pay after the job.
@@ -341,6 +361,7 @@ export function cancelContract(g: GameState, contractId: string): ActionResult {
   removeFlights(g, future);
   // v0.5.1: paint-ins not started are called off; finished paint is stripped (dailyPaint), not reimbursed.
   cancelPaintFor(g, c);
+  cancelClientCabinFor(g, c);
   c.cancelledAt = g.now;
   if (c.product.kind === 'wet' && g.now > c.start) {
     // Bill what was flown this month (MGH pro-rated to today); the penalty covers the rest of the term.

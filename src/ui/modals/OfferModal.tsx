@@ -1,12 +1,16 @@
 // Offer review (B5): terms, schedule and effects on the left; per-aircraft feasibility (traffic lights,
 // positioning, crew capacity, contribution) on the right; Decline / Counter / Accept. DESIGN.md §6.3.
 
-import { BedDouble, Check, ChevronRight, Palette, Scale, Swords, Users, X } from 'lucide-react';
+import { BedDouble, Check, ChevronRight, Palette, Scale, Sofa, Swords, Users, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { Term } from '../components/Term';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { flag } from '../../data/countries';
 import { artFor } from '../../data/acmiTypes';
-import { acceptOffer, askingPrice, counterOffer, counterView, declineOffer, deportationCleanHit, feasibilityAll, leadDays, markOfferSeen, offerClientLine, offerCompetition, offerRestLine, paintQuote, paintTermsText, type FeasibilityReport } from '../../engine/contracts';
+import {
+  acceptOffer, askingPrice, cabinQuote, cabinTarget, counterOffer, counterView, declineOffer, deportationCleanHit, feasibilityAll, leadDays, markOfferSeen, offerClientLine, offerCompetition,
+  offerRestLine, paintQuote, paintTermsText, termsProduct, type FeasibilityReport,
+} from '../../engine/contracts';
 import { mixedCrewFlavour, mixedCrewText } from '../../engine/crew';
 import { problemFor } from '../../engine/problems';
 import { LevelPill } from '../screens/Clients';
@@ -145,6 +149,39 @@ function PaintTermsCard({ g, o, typeId, on, onToggle, fmtP }: { g: GameState; o:
         </div>
         <Toggle on={on} onChange={onToggle} label="Paint in client livery" />
       </div>
+    </div>
+  );
+}
+
+/** v0.7.4 client cabin request: the layout they want, the quick reconfiguration before the start, who pays, on/off when optional. */
+function CabinTermsCard({ g, o, aircraftId, on, onToggle, fmtP }: { g: GameState; o: ContractOffer; aircraftId: string | null; on: boolean; onToggle: (v: boolean) => void; fmtP: (v: number) => string }) {
+  const t = o.cabin!;
+  const ac = aircraftId ? g.fleet[aircraftId] : undefined;
+  const target = ac ? cabinTarget(ac.typeId, t.layout) : null;
+  const q = ac ? cabinQuote(t, ac.typeId, ac.cabin.layout) : null;
+  const ours = q ? q.cost + q.back - q.reimbursed : 0;
+  const offPrice = askingPrice({ product: termsProduct(o, { cabin: false }) });
+  const words = t.layout === 'two-class' ? 'Business and economy (two-class)' : t.layout === 'all-economy' ? 'All economy' : t.layout;
+  return (
+    <div className={`sc-paint-card ${t.required ? 'required' : ''}`}>
+      <div className="row gap-8 between">
+        <span className="row gap-8"><Sofa className="sc-ico-s accent" /><b><Term id="clientCabin">Their cabin</Term> for the contract</b></span>
+        <span className={`badge ${t.required ? 'warn' : 'info'}`}>{t.required ? 'Required' : 'Optional'}</span>
+      </div>
+      <KV rows={[
+        ['Cabin', `${words}${target ? ` · ${target.label}` : ''}${ac ? (target && ac.cabin.label === target.label ? ` · ${ac.reg} already has it` : ` · ${ac.reg} is ${ac.cabin.label} now`) : ''}`],
+        ['Work', q && q.days ? `Quick reconfiguration · ${q.days * 24} h in our hangar before the start${t.revert ? '; put back after' : ''}` : q ? 'Nothing to change' : `Quick reconfiguration · about ${t.days * 24} h`],
+        ['Who pays', `${t.clientShare >= 1 ? 'They pay all of it' : 'They pay half'}${t.revert ? ' (also putting it back)' : ''}${q && q.cost ? ` · ${money(q.cost + q.back)}${ours > 0 ? `, our share ${money(ours)}` : ''}` : ''}`],
+      ]} />
+      {!t.required && (
+        <div className="set-row sc-paint-toggle">
+          <div>
+            <b>Fit their cabin</b>
+            <div className="tiny dim">{on ? `Accept at ${fmtP(askingPrice(o))}.` : `Without it: ${fmtP(offPrice)} (−${Math.round(t.declinePct * 100)}%).`}</div>
+          </div>
+          <Toggle on={on} onChange={onToggle} label="Fit the client's cabin" />
+        </div>
+      )}
     </div>
   );
 }
@@ -386,14 +423,25 @@ function CounterStatus({ g, o, cv, fmtP }: { g: GameState; o: ContractOffer; cv:
   );
 }
 
+/** The blurb without the paint and cabin lines (they have their own cards). */
+const blurbOf = (o: ContractOffer) => {
+  let b = o.blurb;
+  if (o.paint) b = b.replace(paintTermsText(o.paint), '');
+  // Only the cabin sentence (cabinTermsText: one sentence, no inner full stop); later lines stay.
+  if (o.cabin) b = b.replace(/ They want (an all-economy|a two-class|a three-class|a VIP) cabin[^.]*\./, '');
+  return b.trim();
+};
+
 export function OfferModal({ offerId }: { offerId: string }) {
   const g = useGame();
   const o = g.offers[offerId];
   const rev = flightsRev(g);
   const [paintOn, setPaintOn] = useState(true);
+  const [cabinOn, setCabinOn] = useState(true);
   const [extra, setExtra] = useState<CrewExtra | null>(null);
   const paint = !!o?.paint && paintOn;
-  const reports = useMemo(() => (o ? feasibilityAll(g, o.id, { paint, crewExtra: extra ?? undefined }) : []), [g, o, rev, g.now, paint, extra]); // eslint-disable-line react-hooks/exhaustive-deps
+  const cabin = !!o?.cabin && (cabinOn || o.cabin.required);
+  const reports = useMemo(() => (o ? feasibilityAll(g, o.id, { paint, cabin, crewExtra: extra ?? undefined }) : []), [g, o, rev, g.now, paint, cabin, extra]); // eslint-disable-line react-hooks/exhaustive-deps
   // Paint off on a required offer: only a counter is possible, so its 'paint' row does not block the pick.
   const blocked = (r: FeasibilityReport) => r.checks.some((c) => c.level === 'no' && !(c.id === 'paint' && !paint));
   const best = reports.find((r) => !blocked(r)) ?? reports[0];
@@ -409,7 +457,7 @@ export function OfferModal({ offerId }: { offerId: string }) {
   const live = o.status === 'open' || o.status === 'countered';
   const countered = o.status === 'countered';
   const cv = counterView(g, o.id);
-  const asking = askingPrice(o.paint && !paintOn ? paintQuote(o, false) : o);
+  const asking = askingPrice((o.paint && !paintOn) || (o.cabin && !cabin) ? { product: termsProduct(o, { paint: paintOn, cabin }) } : o);
   const mustPaint = !!o.paint?.required && !paintOn;
   const steps = counterSteps(asking, o.product.kind === 'wet');
   const price = steps[step - 1] ?? asking;
@@ -419,7 +467,7 @@ export function OfferModal({ offerId }: { offerId: string }) {
   const x = extra ?? offerExtra(g, sel?.aircraftId ?? null, o.requirements);
   const paid = o.requirements.extraCabinPaid;
   const lift = crewed && paid && x.cabin >= paid.n ? 1 + paid.pct : 1;
-  const opts = { paint, crewExtra: crewed ? x : undefined };
+  const opts = { paint, cabin, crewExtra: crewed ? x : undefined };
   const canCounter = live && !countered && !o.counter && !!sel && !blocked(sel);
   const canAccept = live && !countered && !!sel && !blocked(sel) && !mustPaint;
   // v0.7.1 §13: one plain sentence on what is in the way (crew, aircraft, range, cabin, paint) or a counter about to expire.
@@ -481,7 +529,7 @@ export function OfferModal({ offerId }: { offerId: string }) {
             {o.broker && <span className="chip sc-chip sc-broker">via {o.broker} (5%)</span>}
             <div className="small muted mono">{routeSummary(o.pattern)}</div>
           </div>
-          <p className="muted sc-blurb">{o.paint ? o.blurb.replace(paintTermsText(o.paint), '').trim() : o.blurb}</p>
+          <p className="muted sc-blurb">{blurbOf(o)}</p>
           <Chips chips={[...reqChips(o.requirements), ...riskChips(o.risk), ...effectChips(o)]} />
           {live && <CompetitionLine g={g} o={o} />}
           <ArchPanel g={g} o={o} />
@@ -491,6 +539,7 @@ export function OfferModal({ offerId }: { offerId: string }) {
           })()}
           {fit && <ProblemCardView card={{ ...fit, actions: fit.actions.filter((a) => a.id !== 'review') }} g={g} hideActions={fit.actions.every((a) => a.id === 'review')} onAction={(a) => runAction(g, a)} />}
           {o.paint && <PaintTermsCard g={g} o={o} typeId={artFor(sel ? g.fleet[sel.aircraftId]?.typeId ?? 'a320ceo' : 'a320ceo')} on={paintOn} onToggle={setPaintOn} fmtP={fmtP} />}
+          {o.cabin && <CabinTermsCard g={g} o={o} aircraftId={sel?.aircraftId ?? null} on={cabinOn} onToggle={setCabinOn} fmtP={fmtP} />}
           {crewed && <ExtraCrewCard o={o} x={x} onChange={setExtra} fmtP={fmtP} asking={asking} />}
           <div className="upper dim">Terms</div>
           <Terms g={g} o={o} />

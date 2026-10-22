@@ -522,7 +522,16 @@ export function segsOf(g: GameState, c: CrewMember, excludePairing?: string): Se
   }
   for (const f of ix.tickets.get(c.id) ?? []) {
     if (!live(f) || own.has(f.id)) continue;
-    segs.push(posSeg(f, c));
+    const ps = posSeg(f, c);
+    // v0.7.4 a released duty's ticket home already inside its log entry (logged up to the landing) is not counted twice.
+    // Its landing is still where the crew will be: the log entry carries it (a copy; the cached seg stays as logged), so
+    // the roster plans the next ticket out from there and not from where the crew are until it flies.
+    const k = segs.findIndex((l) => l.kind === 'log' && l.start <= ps.start && l.end >= ps.end);
+    if (k >= 0) {
+      if (segs[k].at !== ps.at) segs[k] = { ...segs[k], at: ps.at };
+      continue;
+    }
+    segs.push(ps);
   }
   segs.sort(bySeg);
   if (c.standby?.length) addStandby(g, c, segs);
@@ -608,12 +617,15 @@ export function withoutTickets(segs: Seg[], ids: string[]): Seg[] {
   return out;
 }
 
-/** Where the crew member will be at t (end of the last planned seg before t, else now). */
+/**
+ * Where the crew member will be at t (end of the last planned seg before t, else now). Logged duties carry no place,
+ * except one ending with a ticket home still to land (segsOf): the crew will be where it lands.
+ */
 export function locAt(c: CrewMember, segs: Seg[], t: Minute): string {
   let at = c.loc;
   for (const s of segs) {
     if (s.end > t) break;
-    if (s.kind !== 'log' && s.at) at = s.at;
+    if (s.at) at = s.at;
   }
   return at;
 }

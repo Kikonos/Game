@@ -140,7 +140,10 @@ and `split`, for a single unit, at planning only (`syncDuty` keeps or drops it, 
 - **Class 2:** a cabin seat reclining ≥ 45°, pitch ≥ 55 in (137.5 cm), width ≥ 20 in (50 cm), leg and foot support,
   separated from passengers by at least a curtain, reasonably free from disturbance.
 - **Class 3:** a seat in the cabin or flight deck reclining ≥ 40°, leg and foot support, at least a curtain from
-  passengers, not next to a seat occupied by passengers. **A plain economy seat is not a rest facility.**
+  passengers, not next to a seat occupied by passengers.
+- **v0.7.4 game rule, curtained economy seats:** the player's operators used these; the game treats them as class 3
+  rest. (The strict EASA definition asks for ≥ 40° recline with leg and foot support, which a standard economy seat
+  does not have.)
 
 **Flight crew ((c)(2)(i)/(ii), (c)(4)):**
 
@@ -173,13 +176,27 @@ The table ends at 18:00 and does not by itself authorise an 18 h FDP. UK CAA CAP
 cruise gives every cabin crew member the band's rest, given facilities, numbers and service.
 
 **Game:**
-- Two facilities per airframe, `Aircraft.rest = { fc, cc }` (`restOf`): pilots' bunks (`fcrc`, class 1), overhead or
-  lower-deck bunks (`ccrc`, `ldmcr`, class 1), curtained business seats (`jSeats`, class 2), crew rest recliners
-  (`recliners`, class 3). Rolled per airframe from `AcmiType.rest` shares (`rollRest`); v0.7.2 saves migrate
-  (`migrateRest`): bunks → class 1 both sides, v0.7.2 rest seats → recliners, J cabins → curtained J seats.
-  Duties crewed within 72 h of loading an old save keep their plan (`Duty.legacyRest`).
+- Two facilities per airframe (`restOf` → `effectiveRest`): what is **fitted** (`Aircraft.rest = { fc, cc }`) and
+  the curtained seats of the **current cabin**, the better per side (a fitted facility wins a tie). Fitted: pilots'
+  bunks (`fcrc`, class 1) with overhead or lower-deck cabin crew bunks (`ccrc`, `ldmcr`, class 1), or crew rest
+  recliners (`recliners`, class 2 since v0.7.4). Seats (v0.7.4, `seatRest`): **every aircraft** has curtained economy
+  seats (`ySeats`, class 3; narrowbodies too); a cabin with 4+ business seats has curtained business seats (`jSeats`,
+  class 2). The seats are not a facility and not a capacity loss: they stay in the seat total and are blocked only on
+  legs where someone rests in them. A refit to two-class turns business-seat rest on; to all-economy, off.
+- **Bunks come as a pair (v0.7.4):** pilot bunks and cabin crew bunks always together (one roll per airframe,
+  `TypeRest.bunkShare`; one combined refit with a C-check; `fittedRest` pairs an old save's single kind with the
+  type's default). **The 767-300ER never has bunks** (the player's experience overrides the audit's 0.25 / 0.15
+  shares); the game's 767s rest crew in curtained business or economy seats.
+- Migrations: v0.7.2 saves (`migrateRest`): bunks → class 1 both sides, v0.7.2 rest seats → recliners. v0.7.3 saves
+  (`loadRest074`, once per airframe, `Aircraft.restV` 2): seat entries dropped (they follow the cabin), recliners
+  class 2, bunks paired, a 767's game-given bunks removed with an inbox note; its open augmented duties are re-planned
+  (a trip already under way keeps its crew as rostered). Duties crewed within 72 h of loading a v0.7.2 save keep
+  their plan (`Duty.legacyRest`).
 - `AUG_FDP`, `AUG_BONUS`, `AUG_BONUS_FT` (9:00 flight time = block − `TAXI_ALLOWANCE`), `AUG_MAX_SECTORS`, `FDP_CAP`
-  18:00, `augLimitOf`. Augmentation needs the `augmented` approval and both facilities.
+  18:00, `augLimitOf`. Augmentation needs the `augmented` approval and both facilities (v0.7.4: every aircraft has
+  them, at worst class 3 seats: a narrowbody can fly 14 h with 3 pilots / 15 h with 4 where the cruise allows the
+  90 / 120 min rest). The fleet card shows the longest day short: '13 h · up to 17 h' (`longestDay().text`; the
+  extension, who rests where and the approval in `detail`).
 - **The rest plan** (`crew/restPlan.ts planRest`, `restPlan`): pilots placed backwards from the last leg (landing
   pilots 120 min last, others 90), turns inside `[std + 40, sta − 70]`; cabin crew in groups with **half the crew
   working** (game rule after CAP 1265), inside `[std + 105, sta − 70]`; up to 2 extra cabin crew when the groups

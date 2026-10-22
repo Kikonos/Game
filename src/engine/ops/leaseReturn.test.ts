@@ -75,7 +75,7 @@ describe('return quote', () => {
     ac.cabin = { j: 24, w: 0, y: 90, total: 114, label: '24J/90Y', layout: 'vip' };
     const q2 = returnQuote(g, ac.id)!;
     expect(q2.lines.map((l) => l.label)).toEqual(['Return check', 'Half-life compensation', 'Cabin back to all-economy']);
-    expect(q2.lines[2].amount).toBe(120_000);
+    expect(q2.lines[2].amount).toBe(30_000); // v0.7.4 a quick reconfiguration back to 180Y
     expect(returnQuote(g, Object.values(g.fleet).find((a) => a.ownership.kind === 'owned')!.id)).toBeNull();
   });
 });

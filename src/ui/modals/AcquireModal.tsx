@@ -10,7 +10,6 @@ import { typeOf } from '../../engine/core/perf';
 import { fmtDay, fmtDuration, fmtTime } from '../../engine/core/time';
 import { acquireAircraft, marketView } from '../../engine/ops';
 import { AircraftArt } from '../components/AircraftArt';
-import { artRest } from '../components/aircraft/restGlyph';
 import { Modal } from '../components/ui';
 import { money } from '../format';
 import { KV } from '../screens/common';
@@ -85,7 +84,7 @@ export function AcquireModal({ offerId }: { offerId: string }) {
       </>
     }>
       <div className="aq-top">
-        <div className="aq-art"><AircraftArt typeId={artFor(o.typeId)} livery={MARKET_LIVERY} detail="simple" rest={artRest(offerRest(v))} /></div>
+        <div className="aq-art"><AircraftArt typeId={artFor(o.typeId)} livery={MARKET_LIVERY} detail="simple" /></div>
         <div className="col gap-4 grow" style={{ minWidth: 0 }}>
           <div className="row gap-8"><b>{t.name}</b><span className={`badge ${kind.tone}`}>{kind.label}</span></div>
           <div className="small muted">{sellerOf(o)} · {o.where ?? q.site} · built {o.builtYear} · {o.cabin.label}</div>

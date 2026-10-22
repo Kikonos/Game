@@ -247,8 +247,14 @@ export interface Aircraft {
   returning?: { site: string; maintId: string; ferryIds: string[]; quote: number; /** v0.7.2 early-return fee (posted when the return check starts). */ earlyFee?: number };
   /** @deprecated v0.7.3: read `rest` (kept for the migration). v0.7.2 bunks and crew rest seats. */
   crewRest?: { bunks: boolean; seats: number };
-  /** v0.7.3 pilots' and cabin crew's in-flight rest facilities. load: ??= migrateRest(ac) */
+  /**
+   * v0.7.3 pilots' and cabin crew's in-flight rest facilities. load: ??= migrateRest(ac). v0.7.4: only what is FITTED
+   * (bunks, crew rest recliners); the curtained business / economy seats of the current cabin are always there on top
+   * (restPlan.restOf / effectiveRest).
+   */
   rest?: AcRest;
+  /** v0.7.4 the rest model the facilities are stored in (2 = fitted only, bunks paired; set by the load migration). */
+  restV?: 2;
   /** v0.7.2 daily block minutes [dayIndex, min], last 90 days. */
   bhDays?: [number, number][];
   /** v0.7.2 day index bhDays tracking began (game start or the first load of an older save). load: ??= today */
@@ -257,8 +263,8 @@ export interface Aircraft {
   sale?: { buyer: string; price: number; agreed: Minute; closes: Minute; ferryIds?: string[] };
 }
 
-/** v0.7.3 kind of in-flight rest facility (UPDATE-0.7.3.md §2.1). */
-export type RestKind = 'fcrc' | 'ccrc' | 'ldmcr' | 'jSeats' | 'recliners';
+/** v0.7.3 kind of in-flight rest facility (UPDATE-0.7.3.md §2.1). v0.7.4 'ySeats': curtained economy seats (every aircraft). */
+export type RestKind = 'fcrc' | 'ccrc' | 'ldmcr' | 'jSeats' | 'recliners' | 'ySeats';
 /** v0.7.3 one in-flight rest facility (CS FTL.1.205(c)): class, kind and how many crew can rest in it at once. */
 export interface RestFacility { cls: 1 | 2 | 3; kind: RestKind; places: number }
 /** v0.7.3 pilots' (fc) and cabin crew's (cc) facilities; null = none. Both may be the same seats (jSeats / recliners). */
@@ -484,6 +490,26 @@ export interface ContractOffer {
   terms?: [Minute, Minute][];
   /** v0.8 dry lease out terms: the lessee's base, expected FH a month, deposit, lessor consent fee (leased-in), their paint, months. */
   dry?: { site: string; fhPerMonth: number; deposit: number; consent: number; paint?: 'full' | 'decals'; months: number };
+  /** v0.7.4: the client wants a cabin layout for the contract (a quick reconfiguration at their expense). */
+  cabin?: CabinTerms;
+}
+
+/**
+ * v0.7.4 a client cabin request ('client wants a two-class cabin for this contract'): a quick reconfiguration (about
+ * 48 h at our hangar) before the first departure, paid by the client in full or half, optionally put back after.
+ */
+export interface CabinTerms {
+  layout: CabinLayout;
+  /** true: a condition of the deal; false: optional, `declinePct` off the rate/price without it. */
+  required: boolean;
+  declinePct: number;
+  /** Share of the reconfiguration (and the change back) the client pays: 1 or 0.5. */
+  clientShare: number;
+  /** Quoted per aircraft on the offer's reference type (the real cost follows the aircraft's type). */
+  cost: number;
+  days: number;
+  /** Put back to the aircraft's own cabin after the contract (at the same share). */
+  revert: boolean;
 }
 
 /** v0.5.1 client paint. decals = plain white body + client titles + fin logo. */
@@ -564,6 +590,8 @@ export interface Contract {
   cancelledAt?: Minute;
   /** v0.5.1: client paint agreed (accepted) or declined; paint-in / strip maintenance ids per aircraft. */
   paint?: PaintTerms & { accepted: boolean; inMx?: Record<string, string>; outMx?: Record<string, string>; warned?: boolean };
+  /** v0.7.4: the client's cabin request; per aircraft the cabin it had (`from`, for the change back) and the bookings. */
+  cabin?: CabinTerms & { accepted: boolean; from?: Record<string, string>; inMx?: Record<string, string>; outMx?: Record<string, string>; warned?: boolean };
   /** v0.6: extra crew for this contract (overrides the aircraft's); locked ≥ requirements.extraCabinPaid.n when paid. */
   crewExtra?: CrewExtra;
   /** v0.6: service score accumulator over revenue legs (morale + extra crew). */
@@ -971,6 +999,8 @@ export interface MaintenanceEvent {
   refit?: { cabin: Cabin; /** v0.7.2 crew rest seats at the end */ restSeats?: number };
   /** v0.7.3 crew rest refit fitted at the end (home refit or C-check add-on). */
   restFit?: RestRefitId;
+  /** v0.7.4 a client cabin reconfiguration ('in' before the contract, 'out' the change back): the client's share is invoiced at the end. */
+  clientCabin?: { contractId: string; phase: 'in' | 'out' };
   /** v0.7 lease return check: the aircraft leaves the fleet at the end. */
   leaseReturn?: boolean;
   /** v0.7.1 AOG: how it is being fixed once decided (the card's WHY); undefined while the decision is open or in old saves. */

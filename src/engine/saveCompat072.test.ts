@@ -33,8 +33,13 @@ describe('v0.7.2 load: ranks merged into PUR, crew rest defaults', () => {
         if (p.status !== 'planned' || !p.slots.some((s) => s.role === 'PUR' || s.role === 'CC')) continue;
         expect(p.slots.filter((s) => s.role === 'PUR').length).toBe(1);
       }
-      // v0.7.3 old widebodies keep bunks for pilots and cabin crew; narrowbodies have no in-flight rest.
-      for (const ac of Object.values(g.fleet)) expect(!!ac.rest?.fc && ac.rest.fc.cls === 1 && ac.rest.cc?.cls === 1).toBe(typeOf(ac.typeId).body === 'wide');
+      // v0.7.3 old widebodies keep bunks for pilots and cabin crew (v0.7.4: never the 767, bunks always as a pair);
+      // narrowbodies have nothing fitted (their curtained economy seats follow the cabin).
+      for (const ac of Object.values(g.fleet)) {
+        const t = typeOf(ac.typeId);
+        expect(!!ac.rest?.fc && ac.rest.fc.cls === 1 && ac.rest.cc?.cls === 1, ac.typeId).toBe(t.body === 'wide' && t.rest.bunkShare > 0);
+        expect(ac.rest?.fc?.cls === 1).toBe(ac.rest?.cc?.cls === 1);
+      }
       expect(migrateRanks(g)).toBe(0);
       const end = g.now + 30 * DAY;
       while (g.now < end && !g.gameOver) {

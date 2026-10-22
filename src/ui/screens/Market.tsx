@@ -10,10 +10,9 @@ import { MARKET_LIVERY } from '../../data/livery';
 import { typeOf } from '../../engine/core/perf';
 import { DAY, fmtDate, fmtDay, yearOf } from '../../engine/core/time';
 import type { GameState } from '../../engine/core/types';
-import { hasBunks, migrateRest } from '../../engine/crew';
+import { hasBunks, restOfAc } from '../../engine/crew';
 import { marketView, type MarketOfferView } from '../../engine/ops';
 import { AircraftArt } from '../components/AircraftArt';
-import { artRest } from '../components/aircraft/restGlyph';
 import { RestTwoLiner } from '../components/RestLines';
 import { Flag, Toggle } from '../components/ui';
 import { money } from '../format';
@@ -57,7 +56,7 @@ function OfferCard({ g, now, v, sel }: { g: GameState; now: number; v: MarketOff
   return (
     <div className={`card mk-card ${sel ? 'selected' : ''} ${v.gate.ok ? '' : 'locked'}`} data-offer={o.id}>
       <div className="mk-top">
-        <div className="mk-art"><AircraftArt typeId={artFor(o.typeId)} livery={MARKET_LIVERY} detail="simple" rest={artRest(offerRest(v))} /></div>
+        <div className="mk-art"><AircraftArt typeId={artFor(o.typeId)} livery={MARKET_LIVERY} detail="simple" /></div>
         <div className="grow" style={{ minWidth: 0 }}>
           <div className="row gap-8 between">
             <b className="ellipsis">{typeName(o.typeId)} · {o.builtYear} · {o.cabin.label}</b>
@@ -94,8 +93,8 @@ function OfferCard({ g, now, v, sel }: { g: GameState; now: number; v: MarketOff
   );
 }
 
-/** v0.7.3 an offer's rolled rest facilities (old open offers migrated on the fly). */
-export const offerRest = (v: Pick<MarketOfferView, 'offer'>) => v.offer.rest ?? migrateRest(v.offer);
+/** v0.7.3 an offer's rest as the crew would use it (v0.7.4: rolled bunks, else the curtained seats of its cabin). */
+export const offerRest = (v: Pick<MarketOfferView, 'offer'>) => restOfAc(v.offer);
 
 /** v0.7.2 F2: the market alert toggles live here (moved from Settings). */
 function MarketAlerts() {

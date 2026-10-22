@@ -1,7 +1,9 @@
 // FTL rules (RESEARCH §5.1 F1, F3, F8–F10; DESIGN §5.2): tables, acclimatisation, rest, windows, recovery.
 
 import { describe, expect, it } from 'vitest';
-import { fromUTC } from '../core/time';
+import { DAY, fromUTC } from '../core/time';
+import type { CrewMember } from '../core/types';
+import { locAt } from './timeline';
 import { acclimState, AUG_FDP, augLimitOf, CABIN_REST, cabinFdpCap, cabinInflightRest, DISCRETION, disruptiveKinds, evalSegs, EXT_TABLE, extFdp, FDP_BANDS, isDisruptive, LIMITS, localDaysIn, longestWorkBlock, maxFdp, minRest, nightsIn, referenceTime, splitFdp, STANDBY, standbyAwakeOk, standbyCut, TZ_NIGHTS, tzNights, woclMinutes, type Seg, type TimelineCtx } from './rules';
 
 const hm = (s: string) => {
@@ -171,6 +173,18 @@ describe('timeline legality', () => {
     expect(codes([away, ticket, duty(1, 16, 6, 0, true, { from: 'KBL' })])).toEqual(['location:illegal']);
     // a fresh duty ending elsewhere than the next planned one starts is flagged too
     expect(codes([duty(0, 6, 8, 0, true, { at: 'MAD' }), duty(1, 6, 8, 0, false, { from: 'LIS' })])).toEqual(['location:illegal']);
+  });
+
+  it('after a logged duty whose ticket home is still to land, the crew are where it lands (v0.7.4 segsOf)', () => {
+    // Released at KBL; the ticket home to LIS is inside the log entry, which carries its landing.
+    const logged: Seg = { ...duty(0, 6, 8), kind: 'log', at: 'LIS', dutyId: undefined };
+    const now = ctx({ now: T0 + 13 * 60, loc: 'KBL' });
+    expect(codes([logged, duty(1, 6, 8, 0, true, { from: 'LIS' })], now)).toEqual([]);
+    expect(codes([logged, duty(1, 6, 8, 0, true, { from: 'KBL' })], now)).toEqual(['location:illegal']);
+    expect(locAt({ loc: 'KBL' } as CrewMember, [logged], T0 + DAY)).toBe('LIS');
+    // a log entry without a ticket home: where they are now
+    expect(codes([{ ...logged, at: '' }, duty(1, 6, 8, 0, true, { from: 'KBL' })], now)).toEqual([]);
+    expect(locAt({ loc: 'KBL' } as CrewMember, [{ ...logged, at: '' }], T0 + DAY)).toBe('KBL');
   });
 
   it('respects the rest after the last logged duty', () => {

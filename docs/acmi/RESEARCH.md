@@ -1191,3 +1191,40 @@ Deduplicated from the three research files and grouped by topic. One item (the A
 - Maintenance checks overview: https://en.wikipedia.org/wiki/Aircraft_maintenance_checks
 - Engine costs: https://aircargoweek.com/the-true-cost-of-engine-maintenance/ · https://airwaysmag.com/new-post/airline-engine-bills-rise-groundings-ease
 - Turnarounds: https://ansperformance.eu/economics/cba/standard-inputs/latest/chapters/turnaround_time.html · https://www.oag.com/blog/science-aircraft-turnarounds
+
+---
+
+## 13. Cabin reconfiguration and refit costs (v0.7.4)
+
+Researched October 2026 for the player's report that refits were far too expensive. Airlines and MROs rarely publish per-job prices, so the game's numbers are estimates built from the data points below; they are marked est. in `BAL.refit`.
+
+**What the sources say**
+- **Seat prices (2019 industry figures):** economy seats about $3,000–5,000 each; long-haul premium economy $10,000–15,000; standard business seats $60,000–100,000; premium lie-flat and first $150,000–300,000 and up (Alton Aviation Consultancy and Aircraft Interiors International, quoted by The Points Guy).
+- **Labour on a narrowbody:** a 737-800 going from a two-class 158-seat cabin to a single-class 189-seat cabin takes "over 500 man-hours", plus new economy seats, windows, passenger service units and the paperwork (IBA). That is a *real* reconfiguration with new parts, not a move of existing seats.
+- **Widebody retrofits:** seats are 20–30% of a two-class reconfiguration; monuments (galleys, lavatories, closets) and IFE follow (IBA). Emirates' in-house 777-300ER reseats averaged **23 days** of downtime per aircraft (Aircraft Interiors Expo, Ground Events data). Hawaiian's CEO put its 18-seat lie-flat A330 premium cabin at about **$1 million per aircraft** (seat price undisclosed; one source). Full programmes with new monuments run to many millions per aircraft and weeks of downtime; a heavy retrofit done with a C-check can take months.
+- **Quick changes:** ACMI and charter operators switch between high-density and two-class layouts with movable class dividers and convertible seats (Cyprus Airways' charter/ACMI A320s; KlasJet adds a business cabin for ACMI customers "as customers need"). Seat-maker patents describe convertible rows (seven economy seats into six business seats) made exactly to avoid the "at least overnight" out-of-service time of a seat swap. The player (a former euroAtlantic flight attendant on 767/777) remembers a client seat change being done in **48 hours**.
+
+**Game model (`BAL.refit`, `ops/cabin.ts refitTerms`)**
+
+| Job | What it is | Narrowbody | Widebody |
+|---|---|---|---|
+| Quick reconfiguration (all-economy ↔ two-class, three-class) | seats we hold (convertible business seats, stored rows), moved class divider and curtains, re-pitch, LOPA / weight-and-balance paperwork; ~150–250 man-hours narrow, 400–700 wide | 2 days, $30,000 (all-economy) / $40,000 (two-class) | 2 days, $80,000 / $95,000; three-class 3 days, $140,000 |
+| Partial refresh (documented, not a game option) | new covers, carpets, curtains, re-foam, existing seats | ~1 week, $150,000–300,000 | ~1–2 weeks, $0.4–0.8M |
+| Full retrofit with new premium seats (the game's VIP cabin) | new business / lie-flat seats ($60–100k each), monuments, wiring, certification | 21 days, $1.6M (24 seats of business) | 28 days, $4.0M (30–48 business seats) |
+
+Was (v0.7–v0.7.3): 5–7 days and $120–250k for a narrowbody layout change, 14–28 days and $0.6–2.2M on a widebody: the price and time of new-seat retrofits for what charter operators do with seats they already hold.
+
+**Crew rest refits (re-checked, unchanged except bunks as a pair):** curtained business and economy seats need no refit any more (they come with the cabin). Crew rest recliners with leg rests $100k narrow / $220k wide (3–4 days); the pilots' rest compartment plus a lower-deck module for the cabin crew (A330/A340) $2.8M with a C-check (+12 days; the A330 FCRC is a C-check job at $1.5–2.5M, the lower-deck module about $1M); overhead compartments for both crews (777/787/A350/747) $2.6M (+14 days). The 767-300ER never has bunks (the player's experience; the game's 767s rest crew in curtained seats).
+
+**Client cabin requests (`BAL.clientCabin`):** long season bases (30% from 120 days, 15% from 60), capacity leases (20%) and long tour series (6%) may ask for a cabin within the layouts the work accepts; half are a condition of the deal; the client pays all (70%) or half (30%) of the quick reconfiguration, and in 70% of requests also of putting it back. An optional request declined costs 2–4% of the rate.
+
+**Sources**
+- IBA, "Narrowbody aircraft reconfiguration trends": https://www.iba.aero/news/narrowbody-aircraft-reconfiguration-trends/
+- IBA, "Widebody aircraft reconfiguration trends": https://www.iba.aero/news/widebody-aircraft-reconfiguration-trends/
+- The Points Guy, "How much do airplane parts cost" (seat prices, Alton Aviation / Aircraft Interiors International, 2019): https://thepointsguy.com/news/how-much-do-airplane-parts-cost-from-4-amenity-kits-to-1000000-first-class-seats
+- Aircraft Interiors Expo, "Airlines chase the sweet spot cabin with Boeing 777-300ER retrofits" (Emirates 23-day average downtime): https://www.aircraftinteriorsexpo.com/en-gb/blog/industry-insights/airlines-boeing-777-300er-retrofits.html
+- KHON2 (Hawaiian Airlines CEO Mark Dunkerley: the A330 lie-flat retrofit "about $1 million per plane", 18 lie-flat seats, 294 → 278 seats; date not shown, single source): https://digital-release.khon2.com/?p=25910 · rollout context: https://futuretravelexperience.com/2016/05/hawaiian-airlines-welcomes-first-a330-featuring-lie-flat-premium-seating
+- Cyprus Airways, Charters & ACMI (curtain-divider layout switches, short-notice mobilisation): https://www.cyprusairways.com/en/charters-acmi
+- KlasJet, "Reconfigures ACMI aircraft for business class accommodation": https://klasjet.aero/klasjet-reconfigures-acmi-aircraft-for-business-class-accommodation/
+- Boeing convertible seating patent (seven economy → six business per row): https://patents.justia.com/patent/5284379 · convertible seat patent noting seat swaps take the aircraft out of service "at least overnight": https://patents.google.com/patent/US5509722A
+- Sofema, EASA CS-25 practical examples for cabin reconfigurations (LOPA / AICD paperwork): https://sassofia.com/wp-content/uploads/2024/11/EASA-CS-25-Practical-Examples-Related-to-Cabin-Re-Configurations.pdf

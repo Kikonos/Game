@@ -205,15 +205,16 @@ describe('gapCheck (book from an idle gap)', () => {
 });
 
 describe('v0.7.3 crew rest work moves as booked', () => {
-  it('a crew rest refit (curtained business seats) moves with its option, cabin and price, and is fitted at the end', async () => {
+  it('a crew rest refit (recliners on an all-economy cabin) moves with its option, cabin and price, and is fitted at the end', async () => {
     const { addAircraft } = await import('../contracts/testkit');
     const { bookRestRefit, refitSlots } = await import('./cabin');
     const g = newGame(4);
     g.company.approvals.push('augmented');
     const wb = addAircraft(g, 'a332');
     wb.rest = { fc: null, cc: null };
-    const slot = refitSlots(g, wb.id, 'rest:curtainJ', 6, g.now + 5 * DAY).slots[0];
-    const r = bookRestRefit(g, wb.id, 'curtainJ', slot.start);
+    wb.cabin = { j: 0, w: 0, y: 330, total: 330, label: '330Y', layout: 'all-economy' };
+    const slot = refitSlots(g, wb.id, 'rest:recliners', 6, g.now + 5 * DAY).slots[0];
+    const r = bookRestRefit(g, wb.id, 'recliners', slot.start);
     if (!r.ok) throw new Error(r.error);
     settle(g);
     const m = g.maintenance[r.data!.maintId];
@@ -221,11 +222,12 @@ describe('v0.7.3 crew rest work moves as booked', () => {
     expect(c.ok, c.reason ?? '').toBe(true);
     expect(c.what).toBe('crew rest refit');
     const { m: n } = moveAndAgree(g, m.id, m.start + 3 * DAY);
-    expect(n).toMatchObject({ kind: 'refit', restFit: 'curtainJ', cost: m.cost, start: m.start + 3 * DAY, end: m.end + 3 * DAY });
+    expect(n).toMatchObject({ kind: 'refit', restFit: 'recliners', cost: m.cost, start: m.start + 3 * DAY, end: m.end + 3 * DAY });
     expect(n.refit?.cabin).toEqual(m.refit?.cabin);
     expect(g.messages.some((x) => x.title === `Crew rest refit moved: ${wb.reg}`)).toBe(true);
     run(g, n.end + 60);
-    expect(wb.rest).toEqual({ fc: { cls: 2, kind: 'jSeats', places: 2 }, cc: { cls: 2, kind: 'jSeats', places: 5 } });
+    expect(wb.rest).toEqual({ fc: { cls: 2, kind: 'recliners', places: 2 }, cc: { cls: 2, kind: 'recliners', places: 5 } });
+    expect(wb.cabin.total).toBe(321);
   }, 60_000);
 
   it('a hub C-check with a flight crew rest compartment keeps it (same extra days and price) at the same hub', async () => {

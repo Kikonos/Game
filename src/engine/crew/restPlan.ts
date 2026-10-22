@@ -4,9 +4,10 @@
 
 import { ACMI_TYPES } from '../../data/acmiTypes';
 import { BAL } from '../core/balance';
-import { cabinMinimum, typeOf } from '../core/perf';
+import { cabinMinimum } from '../core/perf';
 import { fmtDuration } from '../core/time';
 import { markFlightsChanged } from '../core/entities';
+import { pushMessage } from '../core/messages';
 import type { AcRest, Aircraft, AircraftOffer, Duty, Flight, GameState, Minute, Pairing, RestFacility, RestKind } from '../core/types';
 import { hash } from '../core/util';
 import { range, type RngHolder } from '../core/rng';
@@ -20,11 +21,15 @@ const NONE: AcRest = { fc: null, cc: null };
 // ---------- facilities ----------
 
 const fcrc = (): RestFacility => ({ cls: 1, kind: 'fcrc', places: 2 });
+/** The type's cabin crew bunks (class 1); a type without its own count gets ⌈typical cabin crew / 2⌉ bunks. */
 const ccrcOf = (typeId: string): RestFacility | null => {
   const t = ACMI_TYPES[typeId];
-  if (!t || !t.rest.ccrcPlaces) return null;
-  return { cls: 1, kind: t.rest.ccrcKind, places: t.rest.ccrcPlaces };
+  if (!t) return null;
+  return { cls: 1, kind: t.rest.ccrcKind, places: t.rest.ccrcPlaces || Math.max(2, Math.ceil(t.cabinTypical / 2)) };
 };
+/** v0.7.4 crew bunks always come as a pair: pilots' compartment and cabin crew compartment (class 1 both). */
+export const bunksFor = (typeId: string): AcRest => ({ fc: fcrc(), cc: ccrcOf(typeId) });
+
 /** Curtained business seats for one side (pilots 2; cabin crew min(J − 2, ⌈typical / 2⌉)); null without J ≥ 4. */
 export function jSeatsFor(typeId: string, j: number, side: 'fc' | 'cc'): RestFacility | null {
   const t = ACMI_TYPES[typeId];
@@ -33,38 +38,87 @@ export function jSeatsFor(typeId: string, j: number, side: 'fc' | 'cc'): RestFac
   return { cls: t.rest.jClass, kind: 'jSeats', places };
 }
 
+/** v0.7.4 curtained economy seats for one side (class 3): pilots 2, cabin crew ⌈typical / 2⌉. Every aircraft has them. */
+export function ySeatsFor(typeId: string, side: 'fc' | 'cc'): RestFacility | null {
+  const t = ACMI_TYPES[typeId];
+  if (!t) return null;
+  return { cls: 3, kind: 'ySeats', places: side === 'fc' ? 2 : Math.max(1, Math.ceil(t.cabinTypical / 2)) };
+}
+
+/**
+ * v0.7.4 the seat rest every aircraft has from its CURRENT cabin (not a fitted facility, no capacity lost: the seats
+ * are blocked only on legs where someone rests in them): curtained business seats (class 2) when the cabin has 4+
+ * business seats, else curtained economy seats (class 3). Pure.
+ */
+export function seatRest(typeId: string, cabin: { j: number }): AcRest {
+  return { fc: jSeatsFor(typeId, cabin.j, 'fc') ?? ySeatsFor(typeId, 'fc'), cc: jSeatsFor(typeId, cabin.j, 'cc') ?? ySeatsFor(typeId, 'cc') };
+}
+
+/** The better of two facilities for one side (lower class); a fitted one wins a tie (it costs no seats in sale). */
+const better = (fitted: RestFacility | null, seats: RestFacility | null): RestFacility | null => (!fitted ? seats : !seats || fitted.cls <= seats.cls ? fitted : seats);
+
+/**
+ * v0.7.4 what the crew can actually rest in: per side the better of the fitted facility (bunks, recliners) and the
+ * curtained seats of the current cabin. Every aircraft has rest for both crews (at worst class 3). Pure.
+ */
+export function effectiveRest(typeId: string, cabin: { j: number }, fitted: AcRest): AcRest {
+  if (!ACMI_TYPES[typeId]) return fitted;
+  const s = seatRest(typeId, cabin);
+  return { fc: better(fitted.fc, s.fc), cc: better(fitted.cc, s.cc) };
+}
+
+/**
+ * v0.7.4 the fitted facilities in today's model (idempotent): seat entries dropped (they follow the cabin now),
+ * crew rest recliners class 2, and bunks paired: pilot bunks without cabin crew bunks get the type's cabin crew
+ * bunks, and the reverse. `noBunks` (a 767 the game gave bunks) drops both. Pure.
+ */
+export function fittedRest(typeId: string, r: AcRest, noBunks = false): AcRest {
+  const keep = (f: RestFacility | null): RestFacility | null => (!f || f.kind === 'jSeats' || f.kind === 'ySeats' ? null : f.kind === 'recliners' ? { ...f, cls: 2 } : { ...f });
+  let fc = keep(r.fc);
+  let cc = keep(r.cc);
+  if (noBunks) {
+    if (fc?.cls === 1) fc = null;
+    if (cc?.cls === 1) cc = null;
+  }
+  if (fc?.cls === 1 && cc?.cls !== 1) cc = ccrcOf(typeId);
+  if (cc?.cls === 1 && fc?.cls !== 1) fc = fcrc();
+  return { fc, cc };
+}
+
 /**
  * v0.7.3 the v0.7.2 crew rest of an airframe or offer in the new model (UPDATE-0.7.3.md §2.1 migration table):
- * bunks → the type's compartments; rest seats → grandfathered class 3 recliners; nothing on a two-class cabin →
- * curtained business seats (class 2); nothing recorded (older saves, start fleet) → bunks on a widebody whose type
- * had a rest class. Idempotent (returns `rest` when already set). Pure.
+ * bunks → the type's compartments (v0.7.4: both, paired); rest seats → crew rest recliners; nothing recorded (older
+ * saves, start fleet) → bunks on a type whose standard is bunks. v0.7.4: the FITTED facilities only (seats follow
+ * the cabin: effectiveRest). Idempotent (returns `rest` when already set). Pure.
  */
 export function migrateRest(x: Pick<Aircraft, 'typeId' | 'cabin' | 'crewRest' | 'rest'> | Pick<AircraftOffer, 'typeId' | 'cabin' | 'crewRest' | 'rest'>): AcRest {
   if (x.rest) return x.rest;
   const t = ACMI_TYPES[x.typeId];
   if (!t) return { ...NONE };
-  const old = x.crewRest ?? { bunks: t.body === 'wide' && t.restClass !== null, seats: 0 };
-  if (old.bunks) return { fc: fcrc(), cc: ccrcOf(x.typeId) ?? jSeatsFor(x.typeId, x.cabin.j, 'cc') };
-  if (old.seats > 0) return { fc: { cls: 3, kind: 'recliners', places: Math.min(2, old.seats) }, cc: { cls: 3, kind: 'recliners', places: Math.max(1, old.seats - 2) } };
-  if (t.body === 'wide' && x.cabin.j >= 4) return { fc: jSeatsFor(x.typeId, x.cabin.j, 'fc'), cc: jSeatsFor(x.typeId, x.cabin.j, 'cc') };
+  const old = x.crewRest ?? { bunks: t.body === 'wide' && t.restClass === 1, seats: 0 };
+  // (A 767 the game gave bunks keeps them here; the v0.7.4 load takes them off with a message: loadRest074.)
+  if (old.bunks) return bunksFor(x.typeId);
+  if (old.seats > 0) return { fc: { cls: 2, kind: 'recliners', places: Math.min(2, old.seats) }, cc: { cls: 2, kind: 'recliners', places: Math.max(1, old.seats - 2) } };
   return { ...NONE };
 }
 
+/** v0.7.4 an airframe's or offer's rest as the crew use it (fitted + the seats of its cabin). Pure. */
+export const restOfAc = (x: Pick<Aircraft, 'typeId' | 'cabin' | 'crewRest' | 'rest'> | Pick<AircraftOffer, 'typeId' | 'cabin' | 'crewRest' | 'rest'>): AcRest =>
+  effectiveRest(x.typeId, x.cabin, migrateRest(x));
+
 /**
- * v0.7.3 market roll of an airframe's facilities (`u()` gives uniform numbers in [0, 1)): a pilots' compartment and a
- * cabin crew compartment (independent), then curtained business seats for a side still empty. Pure.
+ * v0.7.3 market roll of an airframe's FITTED facilities (`u()` gives uniform numbers in [0, 1)). v0.7.4: ONE roll for
+ * crew bunks, always both kinds (pilots and cabin crew); the 767 never. Three draws kept so the market stream stays
+ * as before. Pure.
  */
-export function rollRest(typeId: string, j: number, u: () => number): AcRest {
+export function rollRest(typeId: string, _j: number, u: () => number): AcRest {
   const t = ACMI_TYPES[typeId];
   if (!t || t.body !== 'wide') return { ...NONE };
-  const R = t.rest;
   const a = u();
-  const b = u();
-  const c = u();
-  const fc = R.fcrcShare >= 1 || (R.fcrcShare > 0 && a < R.fcrcShare) ? fcrc() : null;
-  const cc = R.ccrcShare >= 1 || (R.ccrcShare > 0 && b < R.ccrcShare) ? ccrcOf(typeId) : null;
-  const curtain = R.jCurtainShare > 0 && c < R.jCurtainShare;
-  return { fc: fc ?? (curtain ? jSeatsFor(typeId, j, 'fc') : null), cc: cc ?? (curtain ? jSeatsFor(typeId, j, 'cc') : null) };
+  u();
+  u();
+  const share = t.rest.bunkShare;
+  return share >= 1 || (share > 0 && a < share) ? bunksFor(typeId) : { ...NONE };
 }
 
 /** v0.7.3 the start fleet / dev fleet roll: deterministic from the aircraft id (widebodies only). Pure. */
@@ -107,11 +161,66 @@ export function loadRest(g: GameState): void {
   }
 }
 
-/** v0.7.3 an airframe's facilities (migrated on the fly when an old record has none); {null, null} when unknown. Pure. */
+/**
+ * v0.7.4 load (idempotent, ??= style): every airframe's facilities into the v0.7.4 model once (`restV` 2): seat
+ * entries dropped (the seats of the current cabin are always there), recliners class 2, bunks paired, and the bunks
+ * the game gave a 767-300ER taken off (the type never has them; bunks the player fitted stay). When the crew's rest
+ * got worse on a side (only those 767s), every open augmented duty on it is checked again: a trip already under way
+ * keeps its crew as rostered (`legacyRest`), the rest are re-planned at the first settle; one inbox message each.
+ * Open market offers are normalised too. Returns the aircraft ids whose rest got worse.
+ */
+export function loadRest074(g: GameState): string[] {
+  for (const o of g.market?.aircraft ?? []) if (o.rest) o.rest = fittedRest(o.typeId, o.rest, (ACMI_TYPES[o.typeId]?.rest.bunkShare ?? 1) === 0);
+  const out: string[] = [];
+  for (const ac of Object.values(g.fleet)) {
+    if (ac.restV === 2) continue;
+    const t = ACMI_TYPES[ac.typeId];
+    const old = ac.rest ?? migrateRest(ac);
+    const fitted = Object.values(g.maintenance).some((m) => m.aircraftId === ac.id && m.status === 'done' && (m.restFit === 'fcrc' || m.restFit === 'ldmcr' || m.restFit === 'overhead'));
+    const noBunks = !!t && t.rest.bunkShare === 0 && !t.rest.mro && !fitted;
+    ac.rest = fittedRest(ac.typeId, old, noBunks);
+    ac.restV = 2;
+    const now = restOfAc(ac);
+    const worse = (a: RestFacility | null, b: RestFacility | null) => (b?.cls ?? 9) > (a?.cls ?? 9);
+    if (!worse(old.fc, now.fc) && !worse(old.cc, now.cc)) continue;
+    out.push(ac.id);
+    let kept = 0;
+    let replanned = 0;
+    for (const p of Object.values(g.pairings)) {
+      if (p.aircraftId !== ac.id) continue;
+      const open = p.dutyIds.map((id) => g.duties[id]).filter((d): d is Duty => !!d && !d.done && d.augment > 0);
+      if (!open.length) continue;
+      if (p.status === 'active') {
+        for (const d of open) d.legacyRest = true;
+        kept += open.length;
+        continue;
+      }
+      for (const d of open) {
+        d.flightsEv = -1;
+        markFlightsChanged(g, ac.id, Math.min(d.report, g.flights[d.flightIds[0]]?.std ?? d.report));
+        replanned++;
+      }
+    }
+    const lostBunks = old.fc?.cls === 1 && now.fc?.cls !== 1;
+    const dut = (n: number) => `${n} long dut${n === 1 ? 'y' : 'ies'}`;
+    pushMessage(g, {
+      tone: replanned ? 'warn' : 'info', cat: 'crew',
+      title: lostBunks ? `${ac.reg}: no crew bunks (${t?.short ?? ac.typeId})` : `${ac.reg}: crew rest changed`,
+      body: `${lostBunks ? `The ${t?.name ?? 'type'} never has crew bunks, so ${ac.reg} no longer shows them. ` : ''}Pilots rest in ${restText(now.fc, 'fc', ac.typeId)}; cabin crew in ${restText(now.cc, 'cc', ac.typeId)}.${replanned ? ` ${dut(replanned)} planned for bunks ${replanned === 1 ? 'is' : 'are'} being re-rostered for this rest (more pilots, or a crew change on the way).` : ''}${kept ? ` ${dut(kept)} of a trip already under way keep${kept === 1 ? 's' : ''} the crew as rostered.` : ''}${!replanned && !kept ? ' No planned duty needed the bunks.' : ''}`,
+      ref: { kind: 'aircraft', id: ac.id },
+    });
+  }
+  return out;
+}
+
+/**
+ * v0.7.3 an airframe's facilities (migrated on the fly when an old record has none); {null, null} when unknown.
+ * v0.7.4: as the crew use them: the fitted facilities plus the curtained seats of its current cabin. Pure.
+ */
 export function restOf(g: GameState, aircraftId: string | null): AcRest {
   const ac = aircraftId ? g.fleet[aircraftId] : undefined;
   if (!ac) return NONE;
-  return ac.rest ?? migrateRest(ac);
+  return restOfAc(ac);
 }
 
 const KIND_TEXT: Record<RestKind, [string, string]> = {
@@ -120,9 +229,12 @@ const KIND_TEXT: Record<RestKind, [string, string]> = {
   ldmcr: ['lower-deck crew rest module', 'bunk'],
   jSeats: ['business seats, curtained', 'seat'],
   recliners: ['crew rest recliners', 'seat'],
+  ySeats: ['economy seats, curtained', 'seat'],
 };
 /** Short word for where someone rests (timeline labels): 'bunk', 'lower deck', 'business seat', 'recliner'. */
-export const restWhere = (k: RestKind): string => (k === 'fcrc' || k === 'ccrc' ? 'bunk' : k === 'ldmcr' ? 'lower deck' : k === 'jSeats' ? 'business seat' : 'recliner');
+export const restWhere = (k: RestKind): string => (k === 'fcrc' || k === 'ccrc' ? 'bunk' : k === 'ldmcr' ? 'lower deck' : k === 'jSeats' ? 'business seat' : k === 'ySeats' ? 'economy seat' : 'recliner');
+/** Plural words for a facility kind: 'bunks', 'lower-deck bunks', 'business seats', 'economy seats', 'recliners'. */
+export const restWords = (k: RestKind): string => (k === 'fcrc' || k === 'ccrc' ? 'bunks' : k === 'ldmcr' ? 'lower-deck bunks' : k === 'jSeats' ? 'business seats' : k === 'ySeats' ? 'economy seats' : 'recliners');
 
 /**
  * 'bunks by the cockpit (class 1, 2 bunks)', 'overhead bunks (class 1, 8 bunks)', 'lower-deck bunks (class 1, 14
@@ -139,11 +251,11 @@ export function restText(f: RestFacility | null, _side: 'fc' | 'cc', typeId?: st
 /** Short form for chips: 'bunks (class 1)', 'lower-deck module (class 1)', 'business seats (class 2)', 'recliners (class 3)', 'none'. Pure. */
 export function restShort(f: RestFacility | null): string {
   if (!f) return 'none';
-  const w = f.kind === 'fcrc' || f.kind === 'ccrc' ? 'bunks' : f.kind === 'ldmcr' ? 'lower-deck module' : f.kind === 'jSeats' ? 'business seats' : 'recliners';
+  const w = f.kind === 'fcrc' || f.kind === 'ccrc' ? 'bunks' : f.kind === 'ldmcr' ? 'lower-deck module' : f.kind === 'jSeats' ? 'business seats' : f.kind === 'ySeats' ? 'economy seats' : 'recliners';
   return `${w} (class ${f.cls})`;
 }
 
-export const isSeatRest = (f: RestFacility | null): boolean => !!f && (f.kind === 'jSeats' || f.kind === 'recliners');
+export const isSeatRest = (f: RestFacility | null): boolean => !!f && (f.kind === 'jSeats' || f.kind === 'recliners' || f.kind === 'ySeats');
 export const hasBunks = (r: AcRest): boolean => r.fc?.cls === 1 || r.cc?.cls === 1;
 
 // ---------- augmented limits (pilots' table capped by the cabin crew's, C2) ----------
@@ -343,7 +455,7 @@ export function planRest(legs: RestLeg[], rest: AcRest, augment: 1 | 2, cabinFdp
   // Cabin crew.
   const need = cabinInflightRest(cabinFdp, rest.cc.cls);
   if (need === null) {
-    return { ...fail('cabinClass', `Class ${rest.cc.cls} ${rest.cc.kind === 'recliners' ? 'recliners allow' : rest.cc.kind === 'jSeats' ? 'business seats allow' : 'rest allows'} at most a ${hm(cabinFdpCap(rest.cc.cls))} cabin crew day; this one is ${hm(cabinFdp)}`), pilots };
+    return { ...fail('cabinClass', `Class ${rest.cc.cls} ${rest.cc.kind === 'recliners' || rest.cc.kind === 'jSeats' || rest.cc.kind === 'ySeats' ? `${restWords(rest.cc.kind)} allow` : 'rest allows'} at most a ${hm(cabinFdpCap(rest.cc.cls))} cabin crew day; this one is ${hm(cabinFdp)}`), pilots };
   }
   const cw = legs.map((l) => ({ a: l.std + B.cabinAfterTakeoff, b: l.sta - B.cabinBeforeLanding }));
   let cabin: RestTurn[] | null = null;
@@ -360,7 +472,7 @@ export function planRest(legs: RestLeg[], rest: AcRest, augment: 1 | 2, cabinFdp
   }
   if (!cabin) {
     const cr = Math.max(0, ...cw.map((w) => w.b - w.a));
-    const where = rest.cc.kind === 'jSeats' ? 'business seats' : rest.cc.kind === 'recliners' ? 'recliners' : 'bunks';
+    const where = restWords(rest.cc.kind);
     return { ...fail('cabinFit', `${cabinN} cabin crew with ${rest.cc.places} ${where} can't all get ${hm(need)} rest in the ${hm(cr)} of cruise`), pilots, cabinNeed: need };
   }
   // Seats out of sale on legs where someone rests in seats.
@@ -376,7 +488,14 @@ export function planRest(legs: RestLeg[], rest: AcRest, augment: 1 | 2, cabinFdp
 
 // ---------- the plan of a duty ----------
 
-const legOf = (f: Flight): RestLeg => ({ id: f.id, std: f.status === 'done' || f.status === 'enroute' ? f.atd ?? f.std : f.std, sta: f.status === 'done' ? f.ata ?? f.sta : f.status === 'enroute' ? f.eta ?? f.sta : f.sta });
+/**
+ * A leg for the rest plan: from its actual departure once flying, for its SCHEDULED block (v0.7.4: a few minutes of
+ * tailwind don't turn a planned rest into an impossible one; delays move the whole leg).
+ */
+const legOf = (f: Flight): RestLeg => {
+  const std = f.status === 'done' || f.status === 'enroute' ? f.atd ?? f.std : f.std;
+  return { id: f.id, std, sta: std + (f.sta - f.std) };
+};
 
 /** Operated legs of a duty for the rest plan (cancelled legs and tickets left out). */
 export function restLegs(g: GameState, d: Duty): RestLeg[] {
@@ -571,7 +690,10 @@ export interface LongestDay {
   aug2Long: number | null;
   /** What limits the longest augmented day. */
   capBy: 'pilots' | 'cabin' | null;
+  /** v0.7.4 'Longest day: 13 h · up to 17 h'. */
   text: string;
+  /** v0.7.4 the details for the tooltip: the extension, who rests where, the approval. */
+  detail: string;
 }
 
 const hrs = (m: number) => (m % 60 ? hm(m) : `${m / 60} h`);
@@ -586,32 +708,22 @@ export function longestDay(g: GameState, rest: AcRest, typeId: string): LongestD
   const a2 = augLimit(rest, 2, false, early);
   const a1L = augLimit(rest, 1, true, early);
   const a2L = augLimit(rest, 2, true, early);
-  const out: LongestDay = { basic, ext, aug1: a1?.max ?? null, aug2: a2?.max ?? null, aug1Long: a1L?.max ?? null, aug2Long: a2L?.max ?? null, capBy: a2L?.capBy ?? null, text: '' };
-  const head = `Longest day: ${hrs(basic)} (${hrs(ext)} as a planned extension)`;
-  if (!rest.fc && !rest.cc) {
-    out.text = typeOf(typeId).body === 'wide' ? `${head} · no in-flight rest` : head;
-    return out;
-  }
-  if (!rest.fc || !rest.cc) {
-    out.text = `${head} · no in-flight rest for the ${rest.fc ? 'cabin crew' : 'pilots'}`;
-    return out;
-  }
-  if (!approved) {
-    out.text = `${head} · needs the Augmented crew approval`;
-    return out;
-  }
-  const x1 = a1!.max;
-  const x2 = a2!.max;
-  const x2L = a2L!.max;
-  const capWord = rest.cc.kind === 'recliners' ? 'recliners' : rest.cc.kind === 'jSeats' ? 'business seats' : 'bunks';
-  const capNote = a2L!.capBy === 'cabin' ? ` (the cabin crew's ${capWord} allow ${hrs(cabinFdpCap(rest.cc.cls))})` : '';
-  if (x2L <= x1) out.text = `Longest day: ${hrs(x1)} with 3 or 4 pilots${capNote}`;
-  else {
-    let t = `Longest day: ${hrs(x1)} with 3 pilots`;
-    if (x2 > x1) t += ` · ${hrs(x2)} with 4`;
-    if (x2L > x2) t += ` (${hrs(x2L)} on one long sector)`;
-    out.text = t + (x2L > x2 || x2 > x1 ? capNote : '');
-  }
+  const out: LongestDay = { basic, ext, aug1: a1?.max ?? null, aug2: a2?.max ?? null, aug1Long: a1L?.max ?? null, aug2Long: a2L?.max ?? null, capBy: a2L?.capBy ?? null, text: '', detail: '' };
+  // v0.7.4 the card line is just '13 h · up to 17 h': the plain 2-pilot limit, then the most this aircraft's own rest
+  // allows with the best augmented crew (the one-long-sector bonus only where the type can fly a 9 h+ sector). The
+  // extension, the approval and who limits it go into `detail` (the tooltip).
+  const t = ACMI_TYPES[typeId];
+  const canLong = !!t && t.rangeNm / t.cruiseKt > 9.3;
+  const best = Math.max(0, ...[a1, a2, canLong ? a1L : null, canLong ? a2L : null].map((x) => x?.max ?? 0));
+  const bestCap = (canLong ? a2L : a2)?.capBy ?? null;
+  out.text = best > basic ? `Longest day: ${hrs(basic)} · up to ${hrs(best)}` : `Longest day: ${hrs(basic)}`;
+  const parts = [`${hrs(basic)} with 2 pilots (${hrs(ext)} as a planned extension, twice a week per crew).`];
+  if (best > basic && rest.fc && rest.cc) {
+    const capWord = restWords(rest.cc.kind);
+    parts.push(`Up to ${hrs(best)} with ${a1 && best <= a1.max ? 3 : 4} pilots resting on board (pilots in ${restWords(rest.fc.kind)}, cabin crew in ${capWord})${bestCap === 'cabin' ? `; the cabin crew's ${capWord} allow ${hrs(cabinFdpCap(rest.cc.cls))}` : ''}.`);
+    if (!approved) parts.push('Longer days need the Augmented crew approval (Ladder).');
+  } else if (!rest.fc || !rest.cc) parts.push(`No in-flight rest for the ${!rest.fc && !rest.cc ? 'crew' : rest.fc ? 'cabin crew' : 'pilots'}.`);
+  out.detail = parts.join(' ');
   return out;
 }
 

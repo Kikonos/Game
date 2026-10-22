@@ -31,6 +31,25 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
+    version: 'v0.7.4',
+    name: 'Crew & Cabin',
+    features: [
+      "Crew planning: a new Planning view on the Crew screen shows, for each aircraft type, how many full crews (crew sets) you need, how many are complete now and with the people joining, and which role is short. One line says it all: 'A320 family: 4 aircraft · 5 sets each = 20 sets needed · you have 18 complete · short 2 CPT, 1 PUR, 2 CC'.",
+      'Round up: one button hires exactly the crew that complete your sets (or rounds up to the next full set), with the type ratings, join dates, total cost and the monthly payroll change, and one confirm.',
+      'Cabin crew who hold two types are counted once, where they are needed most, and shown as shared.',
+      'Cabin changes are now realistic: changing between the normal layouts (all economy, business and economy) is a quick reconfiguration of about 48 hours for tens of thousands of dollars. Only a VIP cabin with new premium seats is the long, expensive job.',
+      'Clients may ask for their own cabin on long contracts ("they want a two-class cabin"), done in 48 hours before the start at their expense (all or half, often putting it back after too), shown on the offer like a paint job.',
+      'Every aircraft can rest its crew: curtained economy seats on all of them (narrowbodies too), and curtained business seats on any aircraft with a business cabin. They are not lost seats: they are only blocked on flights where someone actually rests. Refit to two-class and business-seat rest comes with it.',
+      'The Boeing 767-300ER never has crew bunks any more, as in real life. Bunks always come as a pair: pilots and cabin crew together.',
+    ],
+    improvements: [
+      "Fleet cards show the longest day in short: '13 h · up to 17 h'. Tap 'Longest day' for the details (the extension, who rests where, the approval).",
+      'The crew rest marks are gone from the aircraft drawings: the rest is in the text rows.',
+      'Crew rest recliners now count as class 2 rest, so they are a real upgrade on an all-economy cabin. Bunk refits fit pilots and cabin crew together.',
+      "Old saves: a 767 that showed bunks loses them, with an inbox note, and any long duty that needed them is re-planned. Everything else carries on as it was.",
+    ],
+  },
+  {
     version: 'v0.7.3',
     name: 'In-flight Rest & EASA',
     features: [

@@ -41,11 +41,12 @@
 //   a lease is returned early only when it is the least used, under 1 BH a day for 90 days, with no work for 60 days,
 //   6+ months left and a positive net (once a year); never sells. Captains fly as FO through the auto-roster only.
 // - v0.7.3 (UPDATE-0.7.3.md §8): the feasibility rest line counts like any check, an aircraft whose rest line is ok
-//   preferred over warn; crew rest refits once per aircraft while holding augmented crews, for a signed duty without
-//   rest (restFacility card) or an open job that fails only on rest: curtained J seats when J ≥ 4, else recliners;
-//   an A330/A340 with ≥ 8 augmented duties within 30 days on business-seat cabin rest gets a lower-deck module (cash
-//   ≥ $3M after); pilots' bunks added to a C-check under the same count on class 2 pilot rest; never overhead
-//   compartments. restTooShort → fly it with 4 pilots. Crew Control's call-in takes standby crew first (engine).
+//   preferred over warn; crew rest refits once per aircraft while holding augmented crews, for a signed duty that
+//   needs better rest (restFacility card) or an open job that fails only on rest: recliners on an economy-seat cabin
+//   (v0.7.4; business seats and economy seats need no refit); crew bunks (pilots and cabin crew together) added to a
+//   C-check for an A330/A340 with ≥ 8 augmented duties on class 2 rest; never overhead compartments. restTooShort →
+//   fly it with 4 pilots. Crew Control's call-in takes standby crew first (engine).
+// - v0.7.4: client cabin requests are taken as offered (the bot signs with them on); refits are quick and cheap now.
 
 import { writeFileSync } from 'node:fs';
 import LZString from 'lz-string';
@@ -650,12 +651,10 @@ function restRefits(g: GameState, t: Tally, cards: ProblemCard[]): void {
     const opts = restRefitOptions(g, ac.id).filter((o) => o.ok && o.where === 'home');
     const rest = restOf(g, ac.id);
     let pick: (typeof opts)[number] | undefined;
-    if (!rest.fc || !rest.cc) {
+    // v0.7.4 every aircraft rests its crew in curtained seats; recliners (class 2) lift an all-economy cabin's class 3.
+    if ((rest.cc?.cls ?? 3) >= 3 || (rest.fc?.cls ?? 3) >= 3) {
       const wanted = signed.has(ac.id) || openRestJob(g, ac.id);
-      if (wanted) pick = opts.find((o) => o.id === 'curtainJ') ?? opts.find((o) => o.id === 'recliners');
-    } else if (rest.cc.kind === 'jSeats' && augDuties(g, ac.id) >= 8) {
-      const ld = opts.find((o) => o.id === 'ldmcr');
-      if (ld && g.company.cash - ld.cost >= 3_000_000) pick = ld;
+      if (wanted) pick = opts.find((o) => o.id === 'recliners');
     }
     // v0.7.3 pilots' bunks added to a C-check already booked, for an aircraft flying ≥ 8 augmented duties on class 2.
     if (!pick && rest.fc?.cls === 2 && augDuties(g, ac.id) >= 8 && restRefitOptions(g, ac.id).some((o) => o.id === 'fcrc' && o.ok)) {
@@ -1547,6 +1546,13 @@ console.log(
   const refitCost = [...g.finance.history, g.finance.current].reduce((x, st) => x + (st.lines.refit ?? 0), 0);
   const retCost = [...g.finance.history, g.finance.current].reduce((x, st) => x + (st.lines.leaseReturn ?? 0), 0);
   console.log(`refits: ${s.refits ?? 0} done [${tally.refits.join(', ') || '-'}] ${k$(refitCost)}; leases: ${s.leaseExtensions ?? 0} extended, ${s.leaseReturns ?? 0} returned ${k$(retCost)}`);
+  {
+    // v0.7.4 client cabin requests: offered, signed with the cabin on, reconfigurations done (client-paid).
+    const offered = Object.values(g.offers).filter((o) => o.cabin).length + Object.values(g.contracts).filter((c) => c.cabin).length;
+    const signed = Object.values(g.contracts).filter((c) => c.cabin?.accepted);
+    const mx = Object.values(g.maintenance).filter((m) => m.clientCabin && m.status === 'done');
+    console.log(`v0.7.4: client cabin requests seen ${offered}, signed with the cabin ${signed.length}, reconfigurations done ${mx.length} (${k$(mx.reduce((a, m) => a + m.cost, 0))}, client share invoiced on completion)`);
+  }
   softTargets.push(['ladder: widebody ops filed by day 200, a widebody signed by day 365 (≥ 4 of seeds 1–6)', tally.filed.some((f) => f.startsWith('widebody ') && Number(f.split(' day ')[1]) <= 200) && tally.wideSigned !== null, `filed ${tally.filed.find((f) => f.startsWith('widebody ')) ?? 'never'}; signed ${dayOf(tally.wideSigned)}`]);
   softTargets.push(['delivery pilots on airline deadheads (when handed over abroad)', abroad.size === 0 || dhDelivery.size > 0, `${dhDelivery.size} tickets for ${abroad.size} abroad`]);
   // v0.7.2 crew rules & fleet.

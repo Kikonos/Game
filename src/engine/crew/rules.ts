@@ -609,7 +609,11 @@ export function evalSegs(ctx: TimelineCtx, segsIn: Seg[]): LegalityIssue[] {
       const p = i > 0 ? segs[i - 1] : null;
       if (p && p.kind !== 'log') {
         if (p.at && s.from && p.at !== s.from) pushIssue(issues, 'location', 'illegal', `At ${p.at}, not ${s.from}`, tgt);
-      } else if (ctx.loc && s.from && s.from !== ctx.loc && s.start > (ctx.now ?? Infinity)) pushIssue(issues, 'location', 'illegal', `At ${ctx.loc}, not ${s.from}`, tgt);
+      } else {
+        // After a logged duty: where they are now, or where its ticket home still to land takes them (v0.7.4 segsOf).
+        const loc = p?.at || ctx.loc;
+        if (loc && s.from && s.from !== loc && s.start > (ctx.now ?? Infinity)) pushIssue(issues, 'location', 'illegal', `At ${loc}, not ${s.from}`, tgt);
+      }
       // The next seg must also respect this seg's rest (a later seg's start airport is checked as a target).
       const n = segs[i + 1];
       if (n && s.fresh && !n.fresh) {

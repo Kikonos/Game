@@ -150,17 +150,23 @@ describe('texts', () => {
   it('longestDay', () => {
     const g = fixtureGame();
     g.company.approvals.push('augmented');
-    expect(longestDay(g, bunks, 'a333').text).toBe('Longest day: 16 h with 3 pilots · 17 h with 4 (18 h on one long sector)');
-    expect(longestDay(g, { fc: J(2), cc: J(5) }, 'a333').text).toBe('Longest day: 15 h with 3 pilots · 16 h with 4 (17 h on one long sector)');
-    expect(longestDay(g, { fc: REC(2), cc: REC(6) }, 'a333').text).toBe('Longest day: 14 h with 3 pilots · 15 h with 4 (16 h on one long sector)');
-    expect(longestDay(g, { fc: FCRC, cc: J(5) }, 'a333').text).toBe("Longest day: 16 h with 3 pilots · 17 h with 4 (the cabin crew's business seats allow 17 h)");
-    expect(longestDay(g, { fc: FCRC, cc: REC(6) }, 'a333').text).toBe("Longest day: 16 h with 3 or 4 pilots (the cabin crew's recliners allow 16 h)");
-    expect(longestDay(g, { fc: FCRC, cc: null }, 'a333').text).toBe('Longest day: 13 h (14 h as a planned extension) · no in-flight rest for the cabin crew');
-    expect(longestDay(g, { fc: null, cc: null }, 'a320ceo').text).toBe('Longest day: 13 h (14 h as a planned extension)');
+    // v0.7.4 the short line: the 2-pilot limit, then the most this aircraft's rest allows with the best augmented crew
+    expect(longestDay(g, bunks, 'a333').text).toBe('Longest day: 13 h · up to 18 h');
+    expect(longestDay(g, { fc: J(2), cc: J(5) }, 'a333').text).toBe('Longest day: 13 h · up to 17 h');
+    expect(longestDay(g, { fc: REC(2), cc: REC(6) }, 'a333').text).toBe(`Longest day: 13 h · up to ${REC(2).cls === 3 ? 16 : 17} h`);
+    expect(longestDay(g, { fc: FCRC, cc: J(5) }, 'a333').text).toBe('Longest day: 13 h · up to 17 h');
+    expect(longestDay(g, { fc: FCRC, cc: J(5) }, 'a333').detail).toMatch(/the cabin crew's business seats allow 17 h/);
+    expect(longestDay(g, { fc: FCRC, cc: null }, 'a333').text).toBe('Longest day: 13 h');
+    expect(longestDay(g, { fc: null, cc: null }, 'a320ceo').text).toBe('Longest day: 13 h');
+    // no 9 h sector on an A320: no long-sector bonus on its economy seats
+    expect(longestDay(g, { fc: { cls: 3, kind: 'ySeats', places: 2 }, cc: { cls: 3, kind: 'ySeats', places: 2 } }, 'a320ceo').text).toBe('Longest day: 13 h · up to 15 h');
     const ld = longestDay(g, bunks, 'a333');
     expect([ld.basic, ld.ext, ld.aug1, ld.aug2, ld.aug1Long, ld.aug2Long]).toEqual([13 * H, 14 * H, 16 * H, 17 * H, 17 * H, 18 * H]);
+    expect(ld.detail).toMatch(/^13 h with 2 pilots \(14 h as a planned extension, twice a week per crew\)\. Up to 18 h with 4 pilots/);
     g.company.approvals = g.company.approvals.filter((a) => a !== 'augmented');
-    expect(longestDay(g, bunks, 'a333').text).toBe('Longest day: 13 h (14 h as a planned extension) · needs the Augmented crew approval');
+    // the approval is a detail (tooltip), not on the line
+    expect(longestDay(g, bunks, 'a333').text).toBe('Longest day: 13 h · up to 18 h');
+    expect(longestDay(g, bunks, 'a333').detail).toMatch(/need the Augmented crew approval/);
   });
 });
 
@@ -195,36 +201,30 @@ describe('the plan of a rostered duty', () => {
   });
 });
 
-describe('market roll (UPDATE-0.7.3.md §2.1)', () => {
-  it('per-type shares over 500 airframes within ±5 %, deterministic per id', async () => {
+describe('market roll (UPDATE-0.7.3.md §2.1; v0.7.4 bunks as a pair)', () => {
+  it('per-type bunk share over 500 airframes within ±5 %, deterministic per id, never one kind of bunk alone', async () => {
     const { ACMI_TYPES_LIST } = await import('../../data/acmiTypes');
     const { rollRestFor } = await import('./restPlan');
     for (const t of ACMI_TYPES_LIST.filter((x) => x.body === 'wide')) {
       const j = t.cabins[0].j;
-      let fc = 0;
-      let cc = 0;
-      let curtain = 0;
-      let open = 0;
+      let both = 0;
       for (let i = 0; i < 500; i++) {
         const r = rollRestFor(`a${i}`, t.id, j);
         expect(rollRestFor(`a${i}`, t.id, j)).toEqual(r);
-        if (r.fc?.kind === 'fcrc') fc++;
-        if (r.cc?.cls === 1) {
-          cc++;
-          expect(r.cc.kind).toBe(t.rest.ccrcKind);
-          expect(r.cc.places).toBe(t.rest.ccrcPlaces);
-        }
-        if (r.fc?.kind !== 'fcrc') {
-          open++;
-          if (r.fc?.kind === 'jSeats') curtain++;
-        }
+        // Fitted facilities only: bunks for both crews, or nothing (the seats follow the cabin).
+        expect(r.fc?.cls === 1, t.id).toBe(r.cc?.cls === 1);
+        if (r.fc) {
+          both++;
+          expect(r.fc.kind).toBe('fcrc');
+          expect(r.cc!.kind).toBe(t.rest.ccrcKind);
+          if (t.rest.ccrcPlaces) expect(r.cc!.places).toBe(t.rest.ccrcPlaces);
+        } else expect(r.cc).toBeNull();
       }
-      expect(Math.abs(fc / 500 - t.rest.fcrcShare), t.id).toBeLessThanOrEqual(0.05);
-      expect(Math.abs(cc / 500 - t.rest.ccrcShare), t.id).toBeLessThanOrEqual(0.05);
-      if (open > 50 && j >= 4) expect(Math.abs(curtain / open - t.rest.jCurtainShare), t.id).toBeLessThanOrEqual(0.1);
+      expect(Math.abs(both / 500 - t.rest.bunkShare), t.id).toBeLessThanOrEqual(0.05);
     }
-    // narrowbodies never roll rest
+    // narrowbodies never roll bunks; the 767-300ER never has them
     expect(rollRestFor('a1', 'a321neo', 16)).toEqual({ fc: null, cc: null });
+    for (let i = 0; i < 200; i++) expect(rollRestFor(`b${i}`, 'b763', 16)).toEqual({ fc: null, cc: null });
   });
 });
 
@@ -293,7 +293,7 @@ describe('v0.7.3 fixes', () => {
 
   it('4 pilots on a duty planned before the rules: re-planned under them, refused when the rest plan fails', () => {
     const { g, ac, std } = setup();
-    addFlight(g, { no: 'AW5', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'LIS', to: 'GRU', std, sta: std + 12 * H + 30 });
+    const f = addFlight(g, { no: 'AW5', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'LIS', to: 'GRU', std, sta: std + 12 * H + 30 });
     const [d] = buildDuties(g, ac.id, g.now, g.now + 5 * DAY);
     d.legacyRest = true;
     expect(setDutyAugment(g, d.id, 2).ok).toBe(true);
@@ -301,7 +301,10 @@ describe('v0.7.3 fixes', () => {
     expect(d.legacyRest).toBeUndefined();
     setDutyAugment(g, d.id, null);
     d.legacyRest = true;
+    // v0.7.4 every aircraft has seat rest: make the rest plan fail on the cruise instead (a 2 h leg).
     ac.rest = { fc: null, cc: null };
+    f.sta = std + 2 * H;
+    f.block = 2 * H;
     expect(setDutyAugment(g, d.id, 2).ok).toBe(false);
     expect(restVerdict(restPlan(g, d.id))?.text).toBe('Planned before the new rules');
   });
@@ -312,6 +315,7 @@ describe('v0.7.3 fixes', () => {
     const chain = (h: number) => [{ from: 'LIS', std: day + h * H, legs: [{ std: day + h * H, sta: day + h * H + 11 * H, from: 'LIS', to: 'GRU' }] }];
     expect(chainAugment(g, 'a332', chain(21)).aug).toBe(1);
     expect(chainAugment(g, 'a332', chain(9)).aug).toBe(0);
+    // narrowbody work is priced without in-flight rest (v0.7.4: their economy seats are a fallback)
     expect(chainAugment(g, 'a320ceo', chain(21)).aug).toBe(0);
   });
 

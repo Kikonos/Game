@@ -11,6 +11,7 @@ import { cardMeta, offerFitCard } from '../problems';
 import { requestPause } from '../core/pause';
 import { blockMinutes, complement, etopsNeeded, planSector, typeOf } from '../core/perf';
 import { dutyNeed } from '../crew/duties';
+import { bunksFor, seatRest } from '../crew/restPlan';
 import { schedule } from '../core/queue';
 import { chance, int, next, pick, range, weightedPick } from '../core/rng';
 import { DAY, dayIndex, fmtDay, fmtTime, fromUTC, localMinuteOfDay, toDate, toLocal } from '../core/time';
@@ -23,13 +24,14 @@ import { feasibility, ulrNeed, type UlrNeed } from './feasibility';
 import { adhocGroupClients, clientPrefix, clientsOf, isBigClub, isCruiseLine, isDiaspora, isGovernment, isMarineCrewing, isPilgrim, ministry, rivalFor } from './clients';
 import * as F from './flavor';
 import { paintTermsText, rollPaint, sideRng } from './paintTerms';
+import { cabinTarget, cabinTermsText, rollCabin } from './cabinTerms';
 import { anchorsOf, computeWaves, localToUTC, programmeOf, route, routeMinutes, type ChainShape } from './plan';
 import { ARCH_MULT, defaultSeats, isWetArchetype, priceProduct, productValue, referenceType, tripTickets } from './pricing';
 import { LEVEL_PERKS, levelOf, standingRate } from './relations';
 import { rivalTakes, rollRivalBid } from './rivals';
 import { inWarZone, warRiskLandings } from '../ops/world';
 import { demandFactor } from '../ops/market';
-import { fuelFactor, MISSION_BUILDERS, missionWeights, presidential, rollClientCabin, WINDOW_FIT_V08 } from './missions';
+import { clientCrewOnCabin, fuelFactor, MISSION_BUILDERS, missionWeights, presidential, rollClientCabin, WINDOW_FIT_V08 } from './missions';
 
 // ---------- process ----------
 
@@ -126,6 +128,8 @@ export interface OfferOpts {
   rival?: string;
   endClient?: string;
   repeatOf?: string;
+  /** v0.7.4 client cabin: false = never; a layout = force a request for it (tests, dev helper). */
+  cabin?: false | { layout: CabinLayout; required?: boolean; share?: number; revert?: boolean };
 }
 
 export interface Ctx {
@@ -153,6 +157,8 @@ export interface Draft {
   expiresIn: number;
   /** v0.5.1: OfferOpts.paint passed through. */
   paint?: OfferOpts['paint'];
+  /** v0.7.4: OfferOpts.cabin passed through. */
+  cabin?: OfferOpts['cabin'];
   mult?: number;
   mghPerMonth?: number;
   effects: OfferEffects;
@@ -1030,6 +1036,23 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
     o.paint = paint;
     o.blurb = `${o.blurb} ${paintTermsText(paint)}`;
   }
+  // v0.7.4: long work may come with a cabin the client wants (a quick reconfiguration at their expense).
+  const cabin = d.cabin === false ? undefined : rollCabin(g, o, ref, d.cabin);
+  if (cabin) {
+    o.cabin = cabin;
+    o.blurb = `${o.blurb} ${cabinTermsText(cabin, ref)}`;
+    // v0.8 mixed crew on the client's cabin: their crew counted on its seats, the rate cut following.
+    const cc0 = requirements.clientCabin;
+    const to = cabinTarget(ref, cabin.layout);
+    if (cc0 && to && product.kind === 'wet') {
+      const cc = clientCrewOnCabin(ref, cc0, to.j + to.w + to.y);
+      if (cc.n !== cc0.n || cc.of !== cc0.of) {
+        requirements.clientCabin = cc;
+        product.ratePerBH = Math.max(1000, product.ratePerBH - BAL.v08.mixedCrew.perCabinBH * (cc.n - cc0.n));
+        o.estValue = productValue(product, revBH, d.start, d.end, d.terms);
+      }
+    }
+  }
   // v0.6: some clients pay for extra cabin crew above their requirement: long sectors on ad hoc, tour series and
   // troop rotations, VIP, season bases and long wet leases ($75 per crew member per block hour, as a rate uplift or,
   // on a charter, over its billable hours including positioning). Sports require theirs (priced in).
@@ -1102,6 +1125,7 @@ export function generateOffer(g: GameState, archetype?: Archetype, opts: OfferOp
     if (d && opts.paint !== undefined) d.paint = opts.paint;
     if (d && opts.repeatOf) d.repeatOf = opts.repeatOf;
     if (d && opts.eventId) d.eventId = opts.eventId;
+    if (d && opts.cabin !== undefined) d.cabin = opts.cabin;
     const o = d && finalize(g, d, ctx.aspire);
     if (o) {
       // v0.6: the last gap-fit offer (the quiet-week floor looks at it).
@@ -1272,12 +1296,11 @@ export function quietWeekOffer(g: GameState): ContractOffer | null {
  */
 export function chainAugment(g: GameState, typeId: string, chains: ChainShape[]): { aug: 0 | 1 | 2; extraCabin: number } {
   const t = typeOf(typeId);
+  // Narrowbody work is sized to fit without in-flight rest (their curtained economy seats are a fallback, not priced).
   if (!chains.length || t.body !== 'wide') return { aug: 0, extraCabin: 0 };
-  const R = t.rest;
-  const rest: AcRest = {
-    fc: R.fcrcShare >= 0.5 ? { cls: 1, kind: 'fcrc', places: 2 } : { cls: R.jClass, kind: 'jSeats', places: 2 },
-    cc: R.ccrcShare >= 0.5 && R.ccrcPlaces ? { cls: 1, kind: R.ccrcKind, places: R.ccrcPlaces } : { cls: R.jClass, kind: 'jSeats', places: Math.max(2, Math.ceil(t.cabinTypical / 2)) },
-  };
+  // v0.7.4 bunks (pilots and cabin crew together) where most airframes have them, else the curtained seats of the
+  // type's usual cabin (business seats, or economy seats on an all-economy narrowbody).
+  const rest: AcRest = t.rest.bunkShare >= 0.5 ? bunksFor(typeId) : seatRest(typeId, t.cabins[0]);
   // Priced as if the company held the augmented crew approval (the client pays for the crew the job needs).
   const gx: GameState = g.company.approvals.includes('augmented') ? g : { ...g, company: { ...g.company, approvals: [...g.company.approvals, 'augmented'] } };
   let aug: 0 | 1 | 2 = 0;

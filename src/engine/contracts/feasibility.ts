@@ -14,16 +14,20 @@ import { restOf } from '../crew/restPlan';
 import { minRest } from '../crew/rules';
 import { dhBlock } from '../crew/timeline';
 import { A_CHECK_DAYS, anchorsOf, chainForward, chainsOf, CHARTER_SLACK, DEPLOY_LEAD, gapMoves, longestChains, programmeOf, type Anchor, type ChainLeg, type Programme, type Trip } from './plan';
-import { afterRefit, cabinAt, cabinFits, layoutsOf, refitTip, restAfterRefit, restRefitOptions } from '../ops/cabin';
+import { afterRefit, cabinAt, cabinFits, cabinOf, layoutsOf, refitTip, restAfterRefit, restRefitOptions } from '../ops/cabin';
 import { aircraftGate, APPROVALS, gateApprovals, ratedPilots } from '../ops/company';
 import { deliveryQuote } from '../ops/delivery';
 import { paintQuote, paintWindow, type PaintSlot } from './paintTerms';
+import { cabinQuote, cabinTarget, termsProduct } from './cabinTerms';
+import { clientCabinSlot } from '../ops/clientCabin';
+import { usd } from '../ops/util';
 import { possessive } from './flavor';
 import { productValue, tripTickets } from './pricing';
 import { v08Lines } from './missionChecks';
 import { dryFeasibility } from '../ops/dryLease';
 
 export type CheckId = 'seats' | 'layout' | 'family' | 'range' | 'runway' | 'etops' | 'approvals' | 'availability' | 'maintenance' | 'crew' | 'positioning' | 'lease' | 'paint' | 'restSeats' | /** v0.7.3 */ 'rest'
+  /** v0.7.4 client cabin request */ | 'cabinReq'
   /** v0.8 */ | 'mission' | 'warRisk' | 'airspace' | 'clientCrew' | 'dryLease';
 export type CheckLevel = 'ok' | 'warn' | 'no';
 
@@ -65,6 +69,8 @@ export interface FeasibilityReport {
   estMargin: number;
   /** v0.5.1: paint-shop slot before the job (offers with client paint, paint on). */
   paint?: PaintSlot;
+  /** v0.7.4: the client's reconfiguration window (offers with a cabin request, on, when the cabin must change). */
+  cabinSlot?: { label: string; start: Minute };
 }
 
 const RANK: Record<CheckLevel, number> = { ok: 0, warn: 1, no: 2 };
@@ -216,7 +222,7 @@ function crewReach(g: GameState, o: ContractOffer, typeId: string, f: TripFit | 
   return `No crew can be at ${dep} for the first departure ${fmtDateTime(std)}: the positioning crew would be on duty ${fmtDuration(end + rm.post - onFrom)}, and a crew on an airline lands ${fmtDateTime(lands)} with no time to rest`;
 }
 
-export function feasibility(g: GameState, offerId: string, aircraftId: string, opts: { paint?: boolean; crewExtra?: CrewExtra; quick?: boolean } = {}): FeasibilityReport {
+export function feasibility(g: GameState, offerId: string, aircraftId: string, opts: { paint?: boolean; cabin?: boolean; crewExtra?: CrewExtra; quick?: boolean } = {}): FeasibilityReport {
   const o = g.offers[offerId];
   const ac = g.fleet[aircraftId];
   const empty: Availability = { setsNeeded: 0, setsAvailable: 0, byRole: {}, firstShort: null };
@@ -242,8 +248,13 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   const base = o.pattern.kind === 'base';
 
   // 1–3. Cabin and type (v0.7: a refit planned to end before the start counts).
-  const { cabin: cab, refitEnd } = cabinAt(g, ac, o.start);
-  const after = refitEnd !== null ? ` ${afterRefit(refitEnd)}` : '';
+  const { cabin: cab0, refitEnd } = cabinAt(g, ac, o.start);
+  // v0.7.4 a client cabin request (on): the work flies the client's layout after a quick reconfiguration.
+  const cabinOn = !!o.cabin && (opts.cabin !== false || o.cabin.required);
+  const target = o.cabin ? cabinTarget(ac.typeId, o.cabin.layout) : null;
+  const changing = cabinOn && !!target && cab0.layout !== o.cabin!.layout;
+  const cab = changing ? cabinOf(target!) : cab0;
+  const after = changing ? ' after the client’s reconfiguration' : refitEnd !== null ? ` ${afterRefit(refitEnd)}` : '';
   const seats = cab.total;
   if (seats < req.minSeats) add('seats', 'no', `${seats} seats${after}: the client needs at least ${req.minSeats}`);
   else if (req.maxSeats && seats > req.maxSeats) add('seats', 'no', `${seats} seats${after}: the client wants at most ${req.maxSeats}`);
@@ -451,6 +462,28 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
     }
   }
 
+  // 10c. v0.7.4 the client's cabin request: a quick reconfiguration in our hangar ending a day before the job.
+  let cabinCost = 0;
+  if (o.cabin && !cabinOn) add('cabinReq', 'ok', `Client cabin declined: ${Math.round(o.cabin.declinePct * 100)}% off the ${wet ? 'rate' : 'price'}`);
+  else if (o.cabin && !target) add('cabinReq', 'no', `The client wants a ${LAYOUT_NAME[o.cabin.layout]} cabin; the ${t.short} has no such layout`);
+  else if (o.cabin && target) {
+    const q = cabinQuote(o.cabin, ac.typeId, cab0.layout);
+    const pays = o.cabin.clientShare >= 1 ? 'client pays' : 'client pays half';
+    if (!changing) add('cabinReq', 'ok', `Client cabin: ${ac.reg} is already ${cab0.label}, nothing to change`);
+    else {
+      const first = fits[0];
+      const before = first ? (first.posIn.length ? first.posIn[0].std : first.trip.std) : null;
+      const slot = flyable && !availNo && before !== null ? clientCabinSlot(g, ac.id, target.label, before) : null;
+      if (!flyable || availNo || before === null) add('cabinReq', availNo ? 'no' : 'warn', 'Cabin change not planned: the aircraft is busy');
+      else if (!slot) add('cabinReq', 'no', `No 2-day window in our hangar to reconfigure to ${target.label} before ${fmtDateTime(before)} UTC`, 'The aircraft is busy until then, or signed work after it needs the current cabin.');
+      else {
+        rep.cabinSlot = { label: target.label, start: slot.start };
+        cabinCost = q.cost + q.back - q.reimbursed;
+        add('cabinReq', 'ok', `Client cabin: quick reconfiguration to ${target.label}, ${fmtDay(slot.start)}–${fmtDay(slot.end)} (${pays}, ${usd(q.cost)}${q.back ? ` + ${usd(q.back)} to put back` : ''})`, `${q.days * 24} h in our hangar; the cabin crew minimum follows the new seats.`);
+      }
+    }
+  }
+
   // 11. Maintenance due inside the window (A-check by FH or calendar, C-check by months).
   const winFrom = firstDep;
   const winTo = lastArr;
@@ -525,7 +558,8 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   } else if (!rep.crew.setsNeeded && !Object.keys(rep.crew.byRole).length) add('crew', 'warn', 'Crew capacity not checked yet');
   else add('crew', 'ok', `Needs ${rep.crew.setsNeeded} crew set${rep.crew.setsNeeded === 1 ? '' : 's'}, ${rep.crew.setsAvailable} free`);
   if (rn.line) {
-    const fix = rn.level === 'no' && rn.need?.why === 'noRest' ? restRefitFix(g, ac.id, o, t.id, chains) : null;
+    // v0.7.4 seat rest everywhere: a refit can also lift a day that is too long for the seats (recliners, class 2).
+    const fix = rn.level === 'no' && (rn.need?.why === 'noRest' || rn.need?.why === 'tooLong' || rn.need?.why === 'cabin') ? restRefitFix(g, ac.id, o, t.id, chains) : null;
     rep.checks.push({ id: 'rest', level: rn.level, label: rn.line, ...(rn.detail ? { detail: rn.detail } : {}), ...(fix ? { action: { kind: 'restRefit', option: fix } } : {}) });
     if (RANK[rn.level] > RANK[rep.level]) rep.level = rn.level;
   }
@@ -542,7 +576,7 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   const revBH = prog.revenueMin / 60;
   const bh = revBH + prog.emptyMin / 60 + posBH;
   rep.estBH = Math.round(bh * 10) / 10;
-  const product = paintQuote(o, paintOn).product;
+  const product = termsProduct(o, { paint: paintOn, cabin: cabinOn });
   rep.estRevenue = Math.round(product.kind === 'wet' ? productValue(product, revBH + (product.positioningBillable ? posBH : 0), o.start, o.end) : productValue(product, revBH, o.start, o.end) * (1 - (o.broker ? BAL.brokerCommission : 0)));
   const age = Math.max(0, toDate(g.now).getUTCFullYear() - ac.builtYear - 12);
   let cost = t.maintBH * bh * (1 + age * BAL.maintAgeFactor);
@@ -575,13 +609,14 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
     const ferryBH = rep.paint ? (blockMin(rep.paint.ferryIn) + blockMin(rep.paint.ferryOut)) / 60 : 0;
     cost += q.cost - q.reimbursed + ferryBH * (t.maintBH + t.fuelTBH * g.market.fuelPrice);
   }
+  cost += cabinCost;
   rep.estCost = Math.round(cost);
   rep.estMargin = rep.estRevenue - rep.estCost;
   return rep;
 }
 
 /** One report per fleet aircraft, best first (ok before warn before no, then margin). */
-export function feasibilityAll(g: GameState, offerId: string, opts: { paint?: boolean; crewExtra?: CrewExtra } = {}): FeasibilityReport[] {
+export function feasibilityAll(g: GameState, offerId: string, opts: { paint?: boolean; cabin?: boolean; crewExtra?: CrewExtra } = {}): FeasibilityReport[] {
   return Object.keys(g.fleet)
     .map((id) => feasibility(g, offerId, id, opts))
     .sort((a, b) => RANK[a.level] - RANK[b.level] || b.estMargin - a.estMargin);
@@ -648,7 +683,7 @@ export function ulrNeed(g: GameState, home: string, far: string, out: Minute, ba
   let best: UlrNeed | null = null;
   for (const t of ACMI_TYPES_LIST) {
     const R = t.rest;
-    if (!t.available || t.body !== 'wide' || !(R.fcrcShare > 0 || R.mro) || !((R.ccrcShare > 0 && R.ccrcPlaces > 0) || R.ldmcr || R.mro === 'overhead')) continue;
+    if (!t.available || t.body !== 'wide' || !(R.bunkShare > 0 || R.mro)) continue;
     let worst: DutyNeed | null = null;
     for (const [a, b, std] of [[home, far, out], [far, home, back]] as [string, string, Minute][]) {
       const sp = planSector(t.id, a, b);
@@ -687,7 +722,10 @@ export function restNeed(g: GameState, o: ContractOffer, typeId: string, rest: A
   if (ulr && !(rest.fc?.cls === 1 && rest.cc?.cls === 1)) return { need: worst, level: 'no', line: 'ULR needs bunks for pilots and cabin crew (class 1)', blocked };
   if (!worst) return { need: null, level: 'ok', line: null, blocked };
   const level: CheckLevel = worst.mode === 'none' ? 'no' : worst.mode === 'aug2' || (worst.plan?.extraCabin ?? 0) > 0 ? 'warn' : 'ok';
-  const detail = worst.mode === 'none' && worst.why === 'noRest' ? (typeOf(typeId).body === 'wide' || typeOf(typeId).rest.recliners ? 'Fit crew rest (Fleet → Crew rest), or pick an aircraft with bunks.' : 'Pick an aircraft with crew rest (a widebody with bunks).') : worst.mode === 'ext' ? 'Each crew member may fly at most 2 extended days in any 7.' : undefined;
+  const R = typeOf(typeId).rest;
+  const detail = worst.mode === 'none' && (worst.why === 'noRest' || worst.why === 'tooLong' || worst.why === 'cabin')
+    ? (R.recliners || R.mro ? 'Better crew rest (Fleet → Crew rest: recliners or bunks), or pick an aircraft with bunks.' : 'Pick an aircraft with better crew rest (business seats or bunks).')
+    : worst.mode === 'ext' ? 'Each crew member may fly at most 2 extended days in any 7.' : undefined;
   return { need: worst, level, line: worst.text, detail, blocked };
 }
 

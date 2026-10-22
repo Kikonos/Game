@@ -274,12 +274,14 @@ describe('v0.7.3 in-flight rest on the new aircraft', () => {
     return { g, w1, w2, leg: legs[0] };
   }
 
-  it('a long-haul trip needs the rest it gets now: refused onto an aircraft with no crew rest', () => {
+  it('a long-haul trip needs the rest it gets now: on economy seats (class 3) the quote says it needs a 4th pilot', () => {
     const { g, w2, leg } = longHaul();
+    // v0.7.4 nothing fitted and all economy: the crew rest in curtained economy seats (class 3)
     w2.rest = { fc: null, cc: null };
-    const q = quoteTripMove(g, leg.id, w2.id, { quick: true });
-    expect(q.ok).toBe(false);
-    expect(q.reasons[0]).toMatch(new RegExp(`^${w2.reg} can't crew this trip legally: no crew rest on board, and a \\d+:\\d\\d day needs in-flight rest$`));
+    w2.cabin = { j: 0, w: 0, y: 330, total: 330, label: '330Y', layout: 'all-economy' };
+    const q = quoteTripMove(g, leg.id, w2.id);
+    expect(q.ok, q.reasons.join('; ')).toBe(true);
+    expect(q.notes.some((n) => n.startsWith(`On ${w2.reg}: Economy seats (class 3) → needs a 4th pilot`))).toBe(true);
   });
 
   it('onto an aircraft with bunks: the quote says it is a 3-pilot day; after the move the duty is augmented and legal', () => {

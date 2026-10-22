@@ -161,12 +161,16 @@ describe('feasibility', () => {
     const j = check(feasibility(g, o.id, wb.id), 'rest');
     expect(j.label).toMatch(/^Business seats \(class 2\) → 3 pilots, 16 h limit ✓ · 7 business seats blocked on the long legs/);
     expect(check(feasibility(g, o.id, wb.id), 'restSeats').label).toMatch(/7 seats blocked/);
-    // no rest at all: no, with the cheapest home refit that fixes it
+    // v0.7.4 nothing fitted: the business seats of its cabin are always there (class 2), the same day
     wb.rest = { fc: null, cc: null };
-    const none = check(feasibility(g, o.id, wb.id), 'rest');
-    expect(none.level).toBe('no');
-    expect(none.label).toMatch(/^No crew rest → ✗ a \d+:\d\d day needs in-flight rest/);
-    expect(none.action).toEqual({ kind: 'restRefit', option: 'curtainJ' });
+    expect(check(feasibility(g, o.id, wb.id), 'rest').label).toMatch(/^Business seats \(class 2\) → 3 pilots, 16 h limit ✓/);
+    // all economy: curtained economy seats (class 3): a 4th pilot, or no when even that is too short; recliners as the fix
+    wb.cabin = { j: 0, w: 0, y: 400, total: 400, label: '400Y', layout: 'all-economy' };
+    const y = check(feasibility(g, o.id, wb.id), 'rest');
+    expect(y.level).not.toBe('ok');
+    expect(y.label).toMatch(/conomy seats/);
+    if (y.level === 'no') expect(y.action).toEqual({ kind: 'restRefit', option: 'recliners' });
+    wb.cabin = { j: 30, w: 24, y: 239, total: 293, label: '30J/24W/239Y', layout: 'three-class' };
     // ULR work needs class 1 for both pilots and cabin crew (C6)
     o.requirements.approvals.push('ulr');
     wb.rest = { fc: { cls: 1, kind: 'fcrc', places: 2 }, cc: { cls: 2, kind: 'jSeats', places: 5 } };

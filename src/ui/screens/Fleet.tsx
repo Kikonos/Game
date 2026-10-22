@@ -15,7 +15,6 @@ import { cancelCheck, checkStatus, deliveryStatus, dryLeaseOf, leastUsed, type L
 import { problemAt } from '../../engine/problems';
 import { mapLivery } from '../map/mapLogic';
 import { AircraftArt } from '../components/AircraftArt';
-import { artRest } from '../components/aircraft/restGlyph';
 import { Why } from '../components/Why';
 import { restRows } from '../components/RestLines';
 import { Empty, Seg, Stepper, Toggle } from '../components/ui';
@@ -141,7 +140,7 @@ function LeastUsedLine({ g, ac, least, onClose }: { g: GameState; ac: Aircraft; 
 /** v0.7.3 the crew rest refit a maintenance event fits, in a few words ('lower-deck crew rest module'). */
 export const REST_FIT_LABEL: Record<NonNullable<MaintenanceEvent['restFit']>, string> = {
   curtainJ: 'Curtained business seats', recliners: 'Crew rest recliners', removeRecliners: 'Crew rest recliners removed',
-  ldmcr: 'Lower-deck crew rest module', fcrc: 'Flight crew rest compartment', overhead: 'Overhead crew rest',
+  ldmcr: 'Crew bunks (pilots and cabin crew)', fcrc: 'Crew bunks (pilots and cabin crew)', overhead: 'Crew bunks (pilots and cabin crew)',
 };
 
 /** v0.8 a dry lease out: 'to TAAG until 30 Apr · 412 FH flown by them · next C-check after return'. */
@@ -178,7 +177,7 @@ function AircraftCard({ g, ac, sel, least, onLeastClose }: { g: GameState; ac: A
   return (
     <div className={`card sc-ac ${sel ? 'selected' : ''}`} data-ac={ac.id}>
       <div className="sc-ac-top">
-        <div className="sc-ac-art"><AircraftArt typeId={artFor(ac.typeId)} livery={lv.livery} code={lv.code} name={lv.name} rest={artRest(restOf(g, ac.id))} /></div>
+        <div className="sc-ac-art"><AircraftArt typeId={artFor(ac.typeId)} livery={lv.livery} code={lv.code} name={lv.name} /></div>
         <div className="grow" style={{ minWidth: 0 }}>
           <div className="row gap-8">
             <b className="mono sc-ac-reg">{ac.reg}</b>
@@ -271,7 +270,7 @@ function CabinRow({ g, ac, out }: { g: GameState; ac: Aircraft; out?: boolean })
     <div className="fl-row fl-cabin">
       <div className="col grow" style={{ minWidth: 0 }}>
         <span className="small"><span className="upper dim">Cabin</span> <b>{ac.cabin.label}</b> {layoutLabel(ac.cabin.layout)} · crew minimum {cabinMinimum(ac.cabin.total)} cabin</span>
-        {m?.refit && <span className="small accent">{m.restFit ? `${REST_FIT_LABEL[m.restFit]}${m.restFit === 'removeRecliners' ? '' : ' fitted'}` : m.refit.restSeats !== undefined ? (m.refit.restSeats ? 'Crew rest seats fitted' : 'Crew rest seats removed') : `Refit to ${m.refit.cabin.label}`} at {st?.city ?? m.at} {fmtDay(m.start)}–{fmtDay(m.end)}{m.status === 'inWork' ? ' · in work' : ''}</span>}
+        {m?.refit && <span className="small accent">{m.restFit ? `${REST_FIT_LABEL[m.restFit]}${m.restFit === 'removeRecliners' ? '' : ' fitted'}` : m.refit.restSeats !== undefined ? (m.refit.restSeats ? 'Crew rest seats fitted' : 'Crew rest seats removed') : `${m.clientCabin ? 'Client cabin: ' : ''}${m.end - m.start <= 3 * DAY ? 'Quick reconfiguration' : 'Refit'} to ${m.refit.cabin.label}`} at {st?.city ?? m.at} {fmtDay(m.start)}–{fmtDay(m.end)}{m.status === 'inWork' ? ' · in work' : ''}</span>}
       </div>
       {m ? (m.status === 'planned' && <button className="btn btn-sm" onClick={cancel}>Cancel refit</button>)
         : !out && <span className="row gap-8">
