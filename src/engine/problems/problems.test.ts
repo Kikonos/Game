@@ -229,3 +229,28 @@ describe('cards', () => {
     }
   });
 });
+
+describe('v0.7.3 restFacility card', () => {
+  it('only when 3 pilots on these seats would not do (not on a short day the player gave 4 pilots)', async () => {
+    const { devRestPlan } = await import('../dev');
+    const { restFacilityCard } = await import('./crew');
+    const { setDutyAugment } = await import('../crew');
+    const { removeFlights, ownFlightNo } = await import('../core/entities');
+    const { touchCrew } = await import('../crew/timeline');
+    const { rerosterFrom } = await import('../crew');
+    const g = fixtureGame(9);
+    const id = devRestPlan(g);
+    const f0 = g.flights[id];
+    setDutyAugment(g, f0.dutyId!, 2);
+    expect(restFacilityCard(g, id)).toBeNull(); // a 13 h day: 3 pilots on business seats would do
+    const ac = f0.aircraftId!;
+    const std = f0.std;
+    removeFlights(g, Object.values(g.flights).filter((x) => x.aircraftId === ac).map((x) => x.id));
+    const blk = 14 * 60 + 40;
+    const f = addFlight(g, { no: ownFlightNo(g), aircraftId: ac, contractId: null, kind: 'revenue', from: 'LIS', to: 'GRU', std, sta: std + blk, pax: 250 });
+    addFlight(g, { no: ownFlightNo(g), aircraftId: ac, contractId: null, kind: 'revenue', from: 'GRU', to: 'LIS', std: std + blk + DAY, sta: std + 2 * blk + DAY, pax: 250 });
+    touchCrew(g);
+    rerosterFrom(g, ac, g.now);
+    expect(restFacilityCard(g, f.id)?.what).toMatch(/needs a 4th pilot/);
+  });
+});

@@ -235,5 +235,5 @@ describe('placed stickers never vanish', () => {
       const b = stickerLayout(id, l, { code: 'W7', name: 'Atlantica Wings' })[0];
       expect(visibleShare(id, b), `${id} ${kind} ${side} ${x},${y}`).toBeGreaterThanOrEqual(MIN_VISIBLE);
     }
-  }, 30000);
+  }, 90_000); // ~25 s alone; headroom when the suite runs on a loaded machine
 });

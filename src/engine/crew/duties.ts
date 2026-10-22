@@ -9,7 +9,7 @@ import { schedule } from '../core/queue';
 import { DAY, dayStart, yearOf } from '../core/time';
 import type { AcRest, Contract, CrewMember, CrewSlot, Deployment, Duty, Flight, GameState, Legality, Minute, Pairing, Role } from '../core/types';
 import {
-  AUG_MAX_SECTORS, augLimitOf, disruptiveKinds, evalSegs, extFdp, LIMITS, localMin, longestWorkBlock, longSector, MAX_SECTORS, maxFdp, minRest, NIGHT_MAX_SECTORS, offsetAt, referenceTime,
+  AUG_MAX_SECTORS, augLimitOf, disruptiveKinds, FDP_CAP, evalSegs, extFdp, LIMITS, localMin, longestWorkBlock, longSector, MAX_SECTORS, maxFdp, minRest, NIGHT_MAX_SECTORS, offsetAt, referenceTime,
   splitFdp, tzDeltaH, woclMinutes, worst, type Seg, type TimelineCtx,
 } from './rules';
 import { crewExtraFor, seatsFor, type Seat } from './extraSeats';
@@ -1071,6 +1071,7 @@ export function dutyNeed(g: GameState, typeId: string, rest: AcRest, chain: Chai
   }
   // Not plannable: why.
   const day = hmm(sh.fdp);
+  if (sh.fdp > FDP_CAP) return { mode: 'none', fdp: sh.fdp, max: pa.max, plan: null, text: `A ${day} day is longer than any crew may fly (18 h even with 4 pilots in bunks)`, why: 'tooLong' };
   if (!rest.fc || !rest.cc) return { mode: 'none', fdp: sh.fdp, max: pa.max, plan: null, text: `No crew rest → ✗ a ${day} day needs in-flight rest`, why: 'noRest' };
   if (!approved) return { mode: 'none', fdp: sh.fdp, max: pa.max, plan: null, text: `A ${day} day needs an augmented crew: we have no approval for it`, why: 'approval' };
   for (const a of [2, 1] as const) {

@@ -229,6 +229,7 @@ export function restFacilityCard(g: GameState, flightId: string): ProblemCard | 
   const bunks = augLimitOf(1, 1, 1, long, 0).max;
   if (d.fdp > bunks) return null;
   const three = augLimitOf(fc.cls, cc.cls, 1, long, 0).max;
+  if (d.fdp <= three) return null; // 3 pilots would do on these seats: 4 is not the facility's doing (e.g. the player chose it)
   const other = bunkAircraft(g, ac.id);
   const plan = restPlan(g, d.id);
   const blocked = plan ? Math.max(0, ...Object.values(plan.blocked)) : 0;

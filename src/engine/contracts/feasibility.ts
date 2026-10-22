@@ -634,7 +634,7 @@ export function restNeed(g: GameState, o: ContractOffer, typeId: string, rest: A
   if (ulr && !(rest.fc?.cls === 1 && rest.cc?.cls === 1)) return { need: worst, level: 'no', line: 'ULR needs bunks for pilots and cabin crew (class 1)', blocked };
   if (!worst) return { need: null, level: 'ok', line: null, blocked };
   const level: CheckLevel = worst.mode === 'none' ? 'no' : worst.mode === 'aug2' || (worst.plan?.extraCabin ?? 0) > 0 ? 'warn' : 'ok';
-  const detail = worst.mode === 'none' && worst.why === 'noRest' ? 'Fit crew rest (Fleet → Crew rest), or pick an aircraft with bunks.' : worst.mode === 'ext' ? 'Each crew member may fly at most 2 extended days in any 7.' : undefined;
+  const detail = worst.mode === 'none' && worst.why === 'noRest' ? (typeOf(typeId).body === 'wide' || typeOf(typeId).rest.recliners ? 'Fit crew rest (Fleet → Crew rest), or pick an aircraft with bunks.' : 'Pick an aircraft with crew rest (a widebody with bunks).') : worst.mode === 'ext' ? 'Each crew member may fly at most 2 extended days in any 7.' : undefined;
   return { need: worst, level, line: worst.text, detail, blocked };
 }
 
