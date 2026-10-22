@@ -52,7 +52,7 @@ export function paintLabel(g: GameState, m: MaintenanceEvent): string {
   return client ? `Paint · ${client}` : 'Paint shop';
 }
 
-const PURPOSE_LABEL: Record<NonNullable<Flight['purpose']>, string> = { delivery: 'Delivery', return: 'Return', refit: 'Refit', check: 'C-check', sale: 'Sale' };
+const PURPOSE_LABEL: Record<NonNullable<Flight['purpose']>, string> = { delivery: 'Delivery', return: 'Return', refit: 'Refit', check: 'C-check', sale: 'Sale', lease: 'Dry lease' };
 
 /** Maintenance block label and short label: 'C-check LIS', 'Refit → 24J/90Y · HAM', 'Lease return SNN'. */
 export function maintLabel(m: MaintenanceEvent): [string, string] {

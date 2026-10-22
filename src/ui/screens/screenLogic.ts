@@ -17,6 +17,7 @@ export const ARCH_LABEL: Record<Archetype, string> = {
   seasonBase: 'Season ACMI base', aogCover: 'AOG cover', adhoc: 'Ad hoc charter', sports: 'Sports charter', repatriation: 'Repatriation',
   tourSeries: 'Tour series', troopRotation: 'Troop rotation', capacityLease: 'Capacity lease', hajj: 'Hajj', unRotation: 'UN rotation', vip: 'VIP charter',
   deportation: 'Deportation', evacuation: 'Evacuation', humanitarian: 'Humanitarian', subcharterIn: 'Sub-charter', dryLeaseOut: 'Dry lease out',
+  medical: 'Medical airbridge', musicTour: 'Music tour', antarctic: 'Antarctica',
 };
 
 /** Category label; a season base of 120 days or more is long-term, as its title says. */
@@ -192,7 +193,7 @@ export const LEDGER_LABEL: Record<LedgerCat, string> = {
   perDiem: 'Per diems', hotels: 'Crew hotels', deadhead: 'Crew deadheads', crewJet: 'Crew jet charters', maintenance: 'Line maintenance', checks: 'Checks',
   insurance: 'Insurance', overhead: 'Overhead', training: 'Training', hiring: 'Hiring', penalties: 'Penalties', subcharter: 'Sub-charter',
   approvals: 'Approvals', interest: 'Interest', capex: 'Aircraft purchases', assetSale: 'Asset sales', paint: 'Paint & livery',
-  refit: 'Cabin refits', leaseReturn: 'Lease returns',
+  refit: 'Cabin refits', leaseReturn: 'Lease returns', leaseIncome: 'Lease income', warRisk: 'War-risk cover',
 };
 
 const REVENUE: LedgerCat[] = ['acmiRevenue', 'charterRevenue', 'otherRevenue', 'assetSale'];

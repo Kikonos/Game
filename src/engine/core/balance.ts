@@ -302,4 +302,56 @@ export const BAL = {
     /** Wet ACMI rate uplift when the longest chain needs 3 (1) or 4 (2) pilots. */
     augRate: { 1: 0.03, 2: 0.06 } as Record<number, number>,
   },
+
+  // ---------- world v0.8 (ENGINE; UPDATE-0.8.md §11) ----------
+  v08: {
+    /** Relation moves (§1.3): wet month ≥ 90 % / ≥ 75 % / below on time; completion; favours; our failures; monthly drift for idle clients. */
+    rel: {
+      wetMonth: [4, 1, -2] as [number, number, number], done: 6, doneAog: 10, doneBad: -5, extraLeg: 4, retime: 3, urgentSign: 3, waiveFee: 4, waiveInterest: 3,
+      billFee: -1, decline: -2, cancelLeg: -3, lateLeg: -1, lateCap: -4, driftIdleDays: 120, drift: 1, clientFeeWeekly: 0.03,
+      fee: { narrow: [4_000, 12_000] as [number, number], wide: [8_000, 25_000] as [number, number] },
+    },
+    /** Level thresholds (§1.2): relation, and [relation, jobs]; a level drops only `hysteresis` below its threshold. */
+    levels: { unhappy: -15, unhappyBack: -5, knownDown: -25, trusted: [30, 2] as [number, number], partner: [60, 4] as [number, number], hysteresis: 10 },
+    /** What each level brings (§1.4): rate, offer weight, length/MGH factors, first refusal, days paid sooner, on-time pay boost, delays forgiven a month, repeat chance. */
+    perks: {
+      unhappy: { rate: -0.05, offers: 0.3, length: 1, mgh: 0, first: false, payDays: 0, payBoost: 0, forgive: 0, repeat: 0 },
+      new: { rate: 0, offers: 1, length: 1, mgh: 0, first: false, payDays: 0, payBoost: 0, forgive: 0, repeat: 0 },
+      known: { rate: 0.03, offers: 1.3, length: 1, mgh: 0, first: false, payDays: 0, payBoost: 0, forgive: 0, repeat: 0.3 },
+      trusted: { rate: 0.08, offers: 1.7, length: 1.25, mgh: 0.1, first: true, payDays: 3, payBoost: 0.1, forgive: 1, repeat: 0.5 },
+      partner: { rate: 0.15, offers: 2.2, length: 1.5, mgh: 0.15, first: true, payDays: 5, payBoost: 0.2, forgive: 3, repeat: 0.8 },
+    },
+    /** First refusal: extra hours on the offer; chance a lapsed one still goes to a rival. */
+    firstRefusalH: 48, firstRefusalLost: 0.3,
+    /** Company standing (§1.6). */
+    standing: {
+      est: { done: 3, days: 120, reliable: 55 }, resp: { done: 10, days: 365, reliable: 70, clean: 50 }, respDown: { reliable: 60, clean: 40 },
+      newcomerRate: -0.08, respectedRate: 0.04, newcomerBaseDays: [30, 45] as [number, number], newcomerMgh: [160, 200] as [number, number],
+      oddHours: 0.4, demandingDelay: 1.5, demandingPay: 1.5, respectedBaseDays: 210,
+    },
+    /** Archetype multipliers (§2; RESEARCH §3). */
+    arch: { hajj: [1.2, 1.35] as [number, number], un: 1.1, unLong: -0.1, presidential: 1.75, deportation: 1.4, evacuation: 2.2, medical: 1.7, music: 1.8, musicIdleBH: 2, antarctic: 2.5, humanitarian: 1.6, capacity: 0.92, subIn: [1.1, 1.6] as [number, number] },
+    /** Mission effects: deportation clean per flown leg and cap, morale for its crews, refusal below this morale. */
+    deport: { cleanPerLeg: -2, cleanCap: -10, morale: -4, refuseBelow: 45 },
+    /** Rival bids (§3.3), sub-charter in (§3.5), quotes (§3.4). */
+    rivals: { bidBase: 0.25, bidSlope: 0.5, bidMin: 0.15, bidMax: 0.8, askPerDay: 0.03, quotes: 3, quoteLoadMax: 0.9, bidLoadMax: 0.95, closerKm: 1000, cheaperBelow: 0.97 },
+    /** Market cycle (§4). */
+    market: {
+      target: { boom: 1.15, steady: 1, soft: 0.92, slump: 0.82 } as Record<string, number>, pull: 0.25, noise: 0.02, clamp: [0.75, 1.3] as [number, number], fuelHigh: 900,
+      months: { boom: [6, 12], steady: [9, 18], soft: [6, 12], slump: [6, 12] } as Record<string, [number, number]>, offset: 0.05,
+    },
+    /** World events (§5). */
+    world: {
+      perDay: 0.07, maxActive: 3, sameKindDays: 20, warRisk: { narrow: [8_000, 20_000, 45_000] as [number, number, number], wideMult: 1.8 }, uninsurable: 0.1, injunction: 0.12, whiteout: 0.12, extend: 0.3,
+      weights: { strike: 0.22, disaster: 0.14, war: 0.12, airlineFailure: 0.1, unrest: 0.1, coup: 0.08, ash: 0.08, airspace: 0.08, engineCrisis: 0.04, recession: 0.04 } as Record<string, number>,
+      days: { strike: [1, 3], ash: [1, 4], coup: [5, 14], war: [10, 40], unrest: [3, 10], disaster: [7, 21], airspace: [7, 30], airlineFailure: [60, 60], engineCrisis: [120, 180], recession: [180, 360] } as Record<string, [number, number]>,
+    },
+    /** Dry lease out (§6; RESEARCH §4.6). */
+    dry: {
+      reserves: { narrow: 420, wide: 850 }, fh: { narrow: 230, wide: 330 }, consent: { narrow: 20_000, wide: 40_000 }, late: 0.15, lateDays: [3, 20] as [number, number], holdover: 1.5,
+      damage: 0.08, damageCost: [80_000, 600_000] as [number, number], damageDays: [4, 12] as [number, number], lesseeShare: 0.7, inspectionDays: 2, hPerCycle: { narrow: 1.8, wide: 5 },
+    },
+    /** Mixed crew (§7): the rate falls per client cabin crew member per block hour; offer shares. */
+    mixedCrew: { perCabinBH: 75, share: { far: 0.35, eu: 0.1, hajj: 0.5 } },
+  },
 } as const;

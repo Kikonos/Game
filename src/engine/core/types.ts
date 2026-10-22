@@ -153,6 +153,8 @@ export interface Company {
   nextFlightNo: number;
   /** v0.7: when each approval was granted. load: ??= {}, held ones ← g.started. */
   approvalsAt?: Partial<Record<ApprovalId, Minute>>;
+  /** v0.8 company standing: 0 Newcomer · 1 Established · 2 Respected. load: ??= standingFor(g). */
+  standing?: 0 | 1 | 2;
 }
 
 // ======================================================================
@@ -292,12 +294,29 @@ export interface Client {
   relation: number;
   /** v0.7.2 last offer title (no repeats). */
   lastTitle?: string;
+  /** v0.8 relationship level (stored with hysteresis). load: ??= levelFor(g, c) */
+  level?: ClientLevel;
+  /** v0.8 contracts completed for them; first and last job (completion). load: from contracts */
+  jobs?: number;
+  firstJob?: Minute | null;
+  lastJob?: Minute | null;
+  /** v0.8 last 8 relation changes: [time, delta, plain reason]. load: ??= [] */
+  log?: [Minute, number, string][];
+  /** v0.8 small delays forgiven this month: [month, count]. */
+  forgiven?: [MonthKey, number];
+  /** v0.8 this client is a rival operator (sub-charter in). */
+  rivalId?: string;
 }
+
+/** v0.8 client relationship level (contracts/relations.ts). */
+export type ClientLevel = 'unhappy' | 'new' | 'known' | 'trusted' | 'partner';
 
 export type Archetype =
   | 'seasonBase' | 'aogCover' | 'adhoc' | 'sports' | 'repatriation' | 'tourSeries' | 'troopRotation'
   // v0.7+
-  | 'capacityLease' | 'hajj' | 'unRotation' | 'vip' | 'deportation' | 'evacuation' | 'humanitarian' | 'subcharterIn' | 'dryLeaseOut';
+  | 'capacityLease' | 'hajj' | 'unRotation' | 'vip' | 'deportation' | 'evacuation' | 'humanitarian' | 'subcharterIn' | 'dryLeaseOut'
+  // v0.8
+  | 'medical' | 'musicTour' | 'antarctic';
 
 export type Product =
   /** ACMI / wet lease: rate per block hour against a monthly minimum. Client pays fuel, fees, hotels. */
@@ -329,6 +348,16 @@ export interface Requirements {
   minPremium?: number;
   /** v0.6: client pays pct of price/rate when we fly ≥ n extra cabin crew. */
   extraCabinPaid?: { n: number; pct: number; /** v0.6: USD per extra cabin crew member per block hour behind pct. */ perBH?: number };
+  /** v0.8 mixed crew: the client provides n of `of` cabin crew; leads = its SCCM is the senior (our purser stays home). */
+  clientCabin?: { n: number; of: number; leads: boolean };
+  /** v0.8 no fuel at the far end: the range check uses 2 × the sector (Antarctica). */
+  roundTrip?: boolean;
+  /** v0.8 medical: stretchers on board (6 seats each). */
+  stretchers?: number;
+  /** v0.8 presidential: a spare pilot on every duty. */
+  extraPilot?: 1;
+  /** v0.8 presidential standards: delays over 30 min cost perDelay × 3 and relation. */
+  standards?: 'vip';
 }
 
 /** A revenue leg the client wants flown (times are the client's scheduled departures). */
@@ -434,6 +463,23 @@ export interface ContractOffer {
   hook?: string;
   /** v0.5.1: the client wants the aircraft in its livery for the contract. */
   paint?: PaintTerms;
+  /** v0.8 a rival's hidden timed bid (offers.ts finalize; 'rival.bid'): who, when, its price factor and why it wins. */
+  rivalBid?: { rivalId: string; at: Minute; factor: number; why: string };
+  /** v0.8 a Trusted/Partner client asked us first (+48 h, no rival bid). */
+  firstRefusal?: boolean;
+  /** v0.8 repeat business: the contract it repeats. */
+  repeatOf?: string;
+  /** v0.8 the player opened or countered it (markOfferSeen): a rival win is announced. */
+  seen?: boolean;
+  /** v0.8 relationship-level and company-standing rate parts in the price (0.08 = +8 %). */
+  levelPct?: number;
+  standingPct?: number;
+  /** v0.8 why a rival took it (plain text). */
+  lostWhy?: string;
+  /** v0.8 the world event that created it. */
+  eventId?: string;
+  /** v0.8 dry lease out: the aircraft it was offered for (gap-fit). */
+  dryFor?: string;
 }
 
 /** v0.5.1 client paint. decals = plain white body + client titles + fin logo. */
@@ -519,6 +565,39 @@ export interface Contract {
   extraPaid?: boolean;
   /** v0.7.2 std of legs handed to rivals (90-day reliability cost). */
   subLegs?: Minute[];
+  /** v0.8 dry lease out (ops/dryLease.ts). */
+  dry?: DryLeaseState;
+  /** v0.8 billing terms inside [start, end) (Hajj phases): MGH only over these. */
+  terms?: [Minute, Minute][];
+  /** v0.8 the world event that created it; repeat-offer chance rolled. */
+  eventId?: string;
+  repeatRolled?: boolean;
+  /** v0.8 late legs that cost relation this month [month, n] (cap), and the deportation clean hit so far. */
+  lateHits?: [MonthKey, number];
+  cleanHit?: number;
+}
+
+/** v0.8 a dry lease out: delivery ferry, the lease at the lessee's base, the return ferry. */
+export interface DryLeaseState {
+  site: string;
+  fhPerMonth: number;
+  deposit: number;
+  outIds: string[];
+  backIds: string[];
+  leasedAt?: Minute;
+  returnedAt?: Minute;
+  /** Flight hours the lessee flew on our airframe. */
+  fh: number;
+  /** Days late (holdover). */
+  late?: number;
+  damage?: { cost: number; days: number; maintId?: string; what?: string };
+  /** Reserves FH invoiced so far; the month rent last invoiced. */
+  fhBilled?: number;
+  rentMonth?: MonthKey;
+  /** The scheduled end of the lease (before any late return). */
+  leaseEnd?: Minute;
+  /** Lessor consent fee paid (leased-in airframe). */
+  consent?: number;
 }
 
 // ======================================================================
@@ -580,11 +659,17 @@ export interface Flight {
   /** B2: the crew-shortage warning was given for this flight (once; saved so a reload does not repeat it). */
   crewWarned?: boolean;
   /** v0.7: why an empty ferry flies (labels, map, ticket purpose). */
-  purpose?: 'delivery' | 'return' | 'refit' | /** v0.7.2 */ 'check' | 'sale';
+  purpose?: 'delivery' | 'return' | 'refit' | /** v0.7.2 */ 'check' | 'sale' | /** v0.8 dry lease ferries */ 'lease';
   /** v0.7.1 crew-shortage ladder stage reached (amber ≤ 48 h, red ≤ 12 h); load: crewWarned → 'amber'. */
   crewAlert?: 'amber' | 'red';
   /** v0.7.1 a chartered business jet carrying our crew (kind 'deadhead'). */
   charter?: { cls: JetClass; model: string; operator: string; reg: string };
+  /** v0.8 held by a closed airport (world event id). */
+  closedBy?: string;
+  /** v0.8 rerouted around a closed zone: extra minutes (set once). */
+  detour?: number;
+  /** v0.8 war-risk cover paid for this landing ($). */
+  warRisk?: number;
 }
 
 /** v0.7.1 private-jet charter classes (data/jets.ts). */
@@ -603,7 +688,9 @@ export type ProblemKind =
   /** v0.7.2 */
   | 'restSeats' | 'captainAsFo' | 'sale'
   /** v0.7.3 */
-  | 'restFacility' | 'restTooShort' | 'cabinRest';
+  | 'restFacility' | 'restTooShort' | 'cabinRest'
+  /** v0.8 */
+  | 'clientUnhappy' | 'lostToRival' | 'airspaceClosed' | 'uninsurable' | 'leaseLate' | 'leaseDamage' | 'dryLeaseInfo';
 
 /** v0.7.1 what a card is about: the entity (as a message Ref) plus the kind. */
 export interface ProblemRef { kind: ProblemKind; ref: Ref }
@@ -888,7 +975,9 @@ export type MessageCat = 'ops' | 'crew' | 'commercial' | 'tech' | 'finance' | 'c
 
 export interface Ref {
   /** v0.7 'market': an aircraft market offer. v0.7.1 'cash' | 'statement' (Finance), 'decision' (the decision modal). */
-  kind: 'flight' | 'aircraft' | 'contract' | 'offer' | 'crew' | 'maint' | 'airport' | 'market' | 'cash' | 'statement' | 'decision';
+  kind: 'flight' | 'aircraft' | 'contract' | 'offer' | 'crew' | 'maint' | 'airport' | 'market' | 'cash' | 'statement' | 'decision'
+    /** v0.8 */
+    | 'client' | 'rival' | 'event';
   id: string;
 }
 
@@ -902,7 +991,7 @@ export interface Message {
   read: boolean;
   ref?: Ref;
   /** v0.7: market alerts (UI may hide them) and ladder steps (celebration). v0.7.1 'crewRed': the red crew-shortage stage (sound hook). */
-  topic?: 'market' | 'ladder' | 'crewRed';
+  topic?: 'market' | 'ladder' | 'crewRed' | /** v0.8 world events (never toast) */ 'world';
   /** v0.7.1 the problem this message is about, and its severity when posted (a snapshot for the badge once the problem is gone). */
   problem?: ProblemRef;
   hurt?: { money: number; pax: number; delayMin: number; level: 'none' | 'low' | 'high' };
@@ -945,7 +1034,9 @@ export type LedgerCat =
   /** v0.7: cabin refits; lease return costs. */
   | 'refit' | 'leaseReturn'
   /** v0.7.1: private jets chartered to position crew. */
-  | 'crewJet';
+  | 'crewJet'
+  /** v0.8: dry lease out rent and reserves; war-risk insurance per landing. */
+  | 'leaseIncome' | 'warRisk';
 
 export interface MonthStatement {
   month: MonthKey;
@@ -1033,7 +1124,18 @@ export interface Market {
   gotWide?: boolean;
   /** v0.7: the post-filing widebody offer was made. */
   gotWideFiled?: boolean;
+  /** v0.8 market cycle (ops/market.ts). load: ??= steady until now + 9 months */
+  cycle?: { phase: MarketPhase; since: Minute; until: Minute; narrowOff: number; wideOff: number };
+  /** v0.8 demand shocks added by segIndex. load: ??= [] */
+  shocks?: MarketShock[];
+  /** v0.8 last month's indices and fuel (outlook trend arrows). */
+  prev?: { narrow: number; wide: number; fuel: number };
 }
+
+/** v0.8 ACMI market phase. */
+export type MarketPhase = 'boom' | 'steady' | 'soft' | 'slump';
+/** v0.8 a demand shock on a segment until a time. */
+export interface MarketShock { id: string; seg: 'narrow' | 'wide' | 'all'; delta: number; until: Minute; text: string; eventId?: string }
 
 export interface Rival {
   id: string;
@@ -1044,7 +1146,22 @@ export interface Rival {
   /** Price multiplier vs list (0.85–1.2) and service quality 0–1. */
   priceFactor: number;
   quality: number;
-  personality: 'cheap' | 'premium' | 'rescue' | 'military' | 'steady';
+  personality: 'cheap' | 'premium' | 'rescue' | 'military' | 'steady' | /** v0.8 */ 'big';
+  /** v0.8 (contracts/rivals.ts load). */
+  status?: 'active' | 'ceased';
+  ceasedAt?: Minute;
+  /** v0.8 its Client record (kind 'operator') for sub-charter in. */
+  clientId?: string;
+  /** v0.8 0–1 how booked this month. */
+  load?: number;
+  /** v0.8 last 10: fleet changes, jobs it took, hires both ways. */
+  log?: [Minute, string][];
+  won?: number;
+  hiredThem?: number;
+  hiredUs?: number;
+  /** v0.8 aircraft count 12 months ago (rolling monthly history, newest last, max 13). */
+  fleetYearAgo?: number;
+  fleetHist?: number[];
 }
 
 export interface GoalState {
@@ -1071,7 +1188,9 @@ export type SimEventType =
   /** v0.7.1: the hourly crew-shortage ladder tick (crew/control.ts escalateShortages). */
   | 'crew.alert'
   /** v0.7.2: an agreed aircraft sale closes (ops/sale.ts). */
-  | 'aircraft.sale';
+  | 'aircraft.sale'
+  /** v0.8: a rival's bid lands; a world event starts / ends; a dry lease starts / is collected. */
+  | 'rival.bid' | 'world.start' | 'world.end' | 'lease.out' | 'lease.back';
 
 export interface SimEvent {
   t: Minute;
@@ -1158,6 +1277,42 @@ export interface Stats {
   delayedReports?: number;
   discretionReports?: number;
   restTooShort?: number;
+  /** v0.8 counters (bot print, Company). load: ??= zeros */
+  v08?: StatsV08;
+}
+
+export interface StatsV08 {
+  lostToRival: number; subIn: number; dryLeases: number; dryMonths: number; worldEvents: number; closuresHit: number; legsRerouted: number;
+  legsFm: number; warRiskPaid: number; injunctions: number; whiteouts: number; levelUps: number; feesWaived: number;
+  /** Lost-to-rival reasons. */
+  lostWhy?: { cheaper: number; closer: number; sooner: number };
+  /** Hand-overs by rival id. */
+  subByRival?: Record<string, number>;
+  /** Day the company became Established / Respected. */
+  establishedAt?: Minute; respectedAt?: Minute;
+}
+
+/** v0.8 world events (ops/world.ts). */
+export type WorldEventKind = 'coup' | 'strike' | 'ash' | 'disaster' | 'airlineFailure' | 'war' | 'airspace' | 'unrest' | 'engineCrisis' | 'recession';
+export interface WorldEvent {
+  id: string; kind: WorldEventKind;
+  /** Template id (data/worldEvents.ts). */
+  tpl: string;
+  title: string; body: string;
+  /** ISO-2 country and the focus airport (map pin). */
+  country: string; at: string;
+  start: Minute; end: Minute; extended?: boolean;
+  /** Zone (data/worldZones.ts); airspace closed while active. */
+  zoneId?: string; closed?: boolean;
+  /** Airport closed (disasters) until this time. */
+  airportClosedUntil?: Minute;
+  /** War-risk level for the zone's airports. */
+  warRisk?: 1 | 2 | 3;
+  /** The airline / rival / ministry involved (text); a rival that ceased. */
+  entity?: string; rivalId?: string;
+  offerIds: string[]; flightsHit: number; done?: boolean;
+  /** Version for the queued start/end. */
+  ev?: number;
 }
 
 export interface GameState {
@@ -1191,6 +1346,8 @@ export interface GameState {
   finance: Finance;
   market: Market;
   rivals: Rival[];
+  /** v0.8 invented world events. load: ??= { events: [] } */
+  world?: { events: WorldEvent[]; lastKind?: Partial<Record<WorldEventKind, Minute>> };
   goals: GoalState[];
   stats: Stats;
   /** Binary min-heap ordered by (t, seq). */

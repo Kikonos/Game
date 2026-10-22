@@ -21,7 +21,8 @@ import { paintQuote, paintWindow, type PaintSlot } from './paintTerms';
 import { possessive } from './flavor';
 import { productValue, tripTickets } from './pricing';
 
-export type CheckId = 'seats' | 'layout' | 'family' | 'range' | 'runway' | 'etops' | 'approvals' | 'availability' | 'maintenance' | 'crew' | 'positioning' | 'lease' | 'paint' | 'restSeats' | /** v0.7.3 */ 'rest';
+export type CheckId = 'seats' | 'layout' | 'family' | 'range' | 'runway' | 'etops' | 'approvals' | 'availability' | 'maintenance' | 'crew' | 'positioning' | 'lease' | 'paint' | 'restSeats' | /** v0.7.3 */ 'rest'
+  /** v0.8 */ | 'mission' | 'warRisk' | 'airspace' | 'clientCrew' | 'dryLease';
 export type CheckLevel = 'ok' | 'warn' | 'no';
 
 export interface FeasibilityCheck {
@@ -30,7 +31,8 @@ export interface FeasibilityCheck {
   label: string;
   detail?: string;
   /** v0.7: a fix the offer screen can start ("Plan refit…"). */
-  action?: { kind: 'refit'; layout: CabinLayout } | /** v0.7.3 */ { kind: 'restRefit'; option: RestRefitId; /** absent (lets older UI code read .layout) */ layout?: undefined };
+  action?: { kind: 'refit'; layout: CabinLayout } | /** v0.7.3 */ { kind: 'restRefit'; option: RestRefitId; /** absent (lets older UI code read .layout) */ layout?: undefined }
+    | /** v0.8 book the C-check first */ { kind: 'cCheck'; aircraftId: string; layout?: undefined };
 }
 
 /** One empty leg of a positioning plan (built with planSector; a fuel stop makes two legs, each an FTL sector). */

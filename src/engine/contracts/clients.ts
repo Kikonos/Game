@@ -53,7 +53,7 @@ export function seedClients(g: GameState): void {
   }
 }
 
-const PRICE: Record<Rival['personality'], [number, number]> = { cheap: [0.88, 0.6], premium: [1.15, 0.9], rescue: [1.1, 0.8], military: [1.05, 0.85], steady: [1.0, 0.75] };
+const PRICE: Record<Rival['personality'], [number, number]> = { cheap: [0.88, 0.6], premium: [1.15, 0.9], rescue: [1.1, 0.8], military: [1.05, 0.85], steady: [1.0, 0.75], big: [0.95, 0.75] };
 
 /** Seeds g.rivals (names for "a rival took it"; B3 sub-charters to them). */
 export function seedRivals(g: GameState): void {

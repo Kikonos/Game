@@ -302,11 +302,11 @@ export function deliveryStatus(g: GameState, aircraftId: string): DeliveryStatus
 }
 
 const PURPOSE_CREW: Record<NonNullable<Flight['purpose']>, string> = {
-  delivery: 'Delivery crew', return: 'Lease return crew', refit: 'Refit ferry crew', check: 'C-check ferry crew', sale: 'Sale ferry crew',
+  delivery: 'Delivery crew', return: 'Lease return crew', refit: 'Refit ferry crew', check: 'C-check ferry crew', sale: 'Sale ferry crew', lease: 'Dry-lease ferry crew',
 };
 
 /** Why our crew ride this airline ticket (map panel, roster detail). Pure. */
-export function ticketPurpose(g: GameState, ticketId: string): { kind: 'delivery' | 'return' | 'refit' | 'check' | 'sale' | 'duty' | 'home'; aircraftId?: string; text: string } {
+export function ticketPurpose(g: GameState, ticketId: string): { kind: 'delivery' | 'return' | 'refit' | 'check' | 'sale' | 'lease' | 'duty' | 'home'; aircraftId?: string; text: string } {
   const t = g.flights[ticketId];
   if (!t || t.kind !== 'deadhead') return { kind: 'duty', text: '' };
   const did = crewIx(g).ticketDuty.get(ticketId);
