@@ -157,9 +157,9 @@ describe('Antarctica (§2.8)', () => {
     const a330 = addAircraft(g, 'a333');
     const r2 = feasibility(g, o.id, a330.id);
     expect(r2.checks.find((c) => c.id === 'range')?.level ?? 'ok').not.toBe('no');
-    expect(r2.checks.find((c) => c.id === 'approvals')?.level).toBe('no');
+    expect(r2.checks.find((c) => c.id === 'approvals')?.label).toMatch(/Blue-ice/);
     g.company.approvals.push('polar');
-    expect(feasibility(g, o.id, a330.id).checks.find((c) => c.id === 'approvals')?.level ?? 'ok').not.toBe('no');
+    expect(feasibility(g, o.id, a330.id).checks.find((c) => c.id === 'approvals')?.label ?? '').not.toMatch(/Blue-ice/);
   });
 
   it('offers come in the season, ask for polar, round-trip fuel and a widebody', () => {
@@ -185,9 +185,10 @@ describe('deportation (§2.4)', () => {
     expect(deportationCleanHit(o!)).toBe(Math.max(-10, -2 * n));
     expect(deportationCleanHit({ archetype: 'deportation', pattern: { kind: 'legs', legs: Array.from({ length: 8 }, () => ({ from: 'LIS', to: 'LOS', dep: 0, flightNo: '', pax: 100 })) } })).toBe(-10);
     o!.requirements.minSeats = 150;
+    g.company.approvals.push('etops120');
     const ac = Object.values(g.fleet)[0];
     const res = acceptOffer(g, o!.id, [ac.id]);
-    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error(res.error);
     const c = g.contracts[res.data!.contractId];
     const flown = Object.values(g.flights).filter((f) => f.contractId === c.id && f.kind === 'revenue');
     const clean0 = g.company.reputation.clean;
@@ -207,17 +208,18 @@ describe('deportation (§2.4)', () => {
     let o: ContractOffer | null = null;
     for (let i = 0; i < 12 && !o; i++) o = generateOffer(g, 'deportation', { wide: false, window: false });
     o!.requirements.minSeats = 150;
+    g.company.approvals.push('etops120');
     const res = acceptOffer(g, o!.id, [Object.values(g.fleet)[0].id]);
-    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error(res.error);
     const cid = res.data!.contractId;
     const seated = () => Object.values(g.pairings).filter((p) => p.contractId === cid).flatMap((p) => p.slots.filter((s) => s.crewId).map((s) => g.crew[s.crewId!]));
     // Clear the auto-roster's picks, make everybody unhappy and roster again.
-    for (const p of Object.values(g.pairings)) if (p.contractId === cid) for (const s of p.slots) s.crewId = undefined;
+    for (const p of Object.values(g.pairings)) if (p.contractId === cid) for (const s of p.slots) s.crewId = null;
     for (const c of Object.values(g.crew)) c.morale = 40;
-    autoRoster(g);
+    autoRoster(g, { to: g.now + 120 * DAY });
     expect(seated().length).toBe(0);
     for (const c of Object.values(g.crew)) c.morale = 60;
-    autoRoster(g);
+    autoRoster(g, { to: g.now + 120 * DAY });
     expect(seated().length).toBeGreaterThan(0);
     expect(seated().every((c) => c.morale >= BAL.v08.deport.refuseBelow)).toBe(true);
   });

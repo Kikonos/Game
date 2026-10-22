@@ -4,6 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { EX_OPERATORS, FACTORIES, LESSOR_SITES, MRO_STATIONS, NEW_BUILD } from '../../data/market';
+import { BAL } from '../core/balance';
 import { clearPause, takePause } from '../core/pause';
 import { typeOf } from '../core/perf';
 import { DAY, monthKey, monthStart } from '../core/time';
@@ -12,7 +13,7 @@ import { leased, newGame } from '../contracts/testkit';
 import { advanceTo } from '../sim';
 import { aircraftGate, devGrantApproval } from './company';
 import { itinerary, ticketBlock } from './commercial';
-import { acquireAircraft, dailyMarket, devMarketOffer, eligibleTypes, marketView, onDelivery, onLeaseEnd, refreshMarket, returnSiteOf } from './market';
+import { acquireAircraft, addShock, dailyMarket, demandFactor, devMarketOffer, eligibleTypes, marketOutlook, marketView, onDelivery, onLeaseEnd, refreshMarket, returnSiteOf, segIndex, setPhase } from './market';
 
 const REAL_LESSORS = ['AerCap', 'Avolon', 'SMBC Aviation Capital', 'BOC Aviation', 'Carlyle Aviation Partners', 'Air Lease Corporation', 'Aviation Capital Group'];
 const ev = (g: GameState, type: SimEvent['type'], id: string): SimEvent => ({ t: g.now, seq: 0, type, id, v: 0 });
@@ -298,5 +299,100 @@ describe('refreshMarket', () => {
     expect(g.market.fuelPrice).toBeGreaterThanOrEqual(550);
     expect(g.market.fuelPrice).toBeLessThanOrEqual(1050);
     for (const i of [g.market.narrowIndex, g.market.wideIndex]) expect(i).toBeGreaterThanOrEqual(0.8);
+  });
+});
+
+// ---------- v0.8 market cycle and outlook (UPDATE-0.8.md §4, §14) ----------
+
+describe('market cycle (v0.8 §4)', () => {
+  it('starts steady for 9 months; 50 years of phases follow the transition table and lengths', () => {
+    const g = newGame(21);
+    expect(g.market.cycle?.phase).toBe('steady');
+    expect(Math.round((g.market.cycle!.until - g.now) / (30.44 * DAY))).toBe(9);
+    const seen = new Map<string, number>();
+    const pairs = new Set<string>();
+    let prev: string | null = null;
+    let since = g.now;
+    let changes = 0;
+    for (let i = 0; i < 600; i++) {
+      g.now = monthStart(monthKey(g.now) + 1);
+      g.messages.length = 0;
+      refreshMarket(g);
+      const cy = g.market.cycle!;
+      if (cy.since === g.now) {
+        changes++;
+        if (prev) pairs.add(`${prev}>${cy.phase}`);
+        // Lengths: boom 6–12, steady 9–18, soft 6–12, slump 6–12 months.
+        const len = Math.round((cy.until - cy.since) / (30.44 * DAY));
+        const [lo, hi] = ({ boom: [6, 12], steady: [9, 18], soft: [6, 12], slump: [6, 12] } as Record<string, number[]>)[cy.phase];
+        expect(len).toBeGreaterThanOrEqual(lo);
+        expect(len).toBeLessThanOrEqual(hi);
+        // One message when the phase actually changes.
+        if (prev && prev !== cy.phase) expect(g.messages.some((m) => /The ACMI market/.test(m.title))).toBe(true);
+        since = g.now;
+      }
+      prev = cy.phase;
+      seen.set(cy.phase, (seen.get(cy.phase) ?? 0) + 1);
+      expect(g.market.narrowIndex).toBeGreaterThanOrEqual(0.75);
+      expect(g.market.narrowIndex).toBeLessThanOrEqual(1.3);
+    }
+    expect(since).toBeGreaterThan(0);
+    expect(changes).toBeGreaterThan(35);
+    for (const p of ['boom', 'steady', 'soft', 'slump']) expect(seen.get(p) ?? 0, p).toBeGreaterThan(30);
+    // Never steady → slump or boom → slump directly (only through soft).
+    expect(pairs.has('steady>slump')).toBe(false);
+    expect(pairs.has('boom>slump')).toBe(false);
+    expect(pairs.has('slump>boom')).toBe(false);
+  });
+
+  it('the index converges to the phase target (± offset) within 6 months', () => {
+    // Months 6–12 over 20 seeds: the index sits within 0.05 of target + offset (monthly noise N(0, 0.02)).
+    for (const phase of ['boom', 'slump'] as const) {
+      const tgt = BAL.v08.market.target[phase];
+      let err = 0;
+      let k = 0;
+      for (let seed = 1; seed <= 20; seed++) {
+        const g = newGame(seed);
+        g.market.narrowIndex = 1.0;
+        g.market.wideIndex = 1.0;
+        g.market.cycle = { phase, since: g.now, until: g.now + 400 * DAY, narrowOff: 0.03, wideOff: -0.02 };
+        for (let i = 1; i <= 12; i++) {
+          g.now = monthStart(monthKey(g.now) + 1);
+          refreshMarket(g);
+          if (i < 6) continue;
+          err += Math.abs(g.market.narrowIndex - (tgt + 0.03)) + Math.abs(g.market.wideIndex - (tgt - 0.02));
+          k += 2;
+        }
+      }
+      expect(err / k, phase).toBeLessThan(0.05);
+    }
+  });
+
+  it('shocks add to segIndex and expire; demand factor is the index squared; the outlook is pure', () => {
+    const g = newGame(23);
+    g.market.narrowIndex = 0.9;
+    g.market.wideIndex = 1.0;
+    g.market.shocks = [];
+    addShock(g, { seg: 'narrow', delta: 0.12, until: g.now + 10 * DAY, text: 'GTF inspections' });
+    expect(segIndex(g, 'narrow')).toBeCloseTo(1.02, 5);
+    expect(segIndex(g, 'wide')).toBeCloseTo(1.0, 5);
+    expect(demandFactor(g)).toBeCloseTo(1.02 * 1.02, 2);
+    const before = JSON.stringify(g);
+    const o = marketOutlook(g);
+    expect(JSON.stringify(g)).toBe(before);
+    expect(o.shocks[0].text).toMatch(/^GTF inspections: \+12 % narrowbody demand until /);
+    expect(o.hajj.length).toBe(3);
+    expect(o.narrow.text).toMatch(/^Narrowbody demand/);
+    g.now += 11 * DAY;
+    expect(segIndex(g, 'narrow')).toBeCloseTo(0.9, 5);
+    g.now = monthStart(monthKey(g.now) + 1);
+    refreshMarket(g);
+    expect(g.market.shocks!.some((x) => x.text === 'GTF inspections')).toBe(false);
+    // setPhase: a recession's slump, one message.
+    const n = g.messages.length;
+    setPhase(g, 'slump', 8);
+    expect(g.market.cycle!.phase).toBe('slump');
+    expect(g.messages.length).toBe(n + 1);
+    expect(g.messages[0].title).toBe('The ACMI market is in a slump');
   });
 });

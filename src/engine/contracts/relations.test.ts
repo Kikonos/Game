@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { BAL } from '../core/balance';
 import { DAY, fromUTC, monthKey } from '../core/time';
-import type { Client, Contract, GameState } from '../core/types';
+import type { Client, Contract, ContractOffer, GameState } from '../core/types';
 import { fixtureContract } from '../crew/fixtures';
 import { resolveDecision } from '../ops';
 import { latePaymentDecision } from '../ops/events';
@@ -208,7 +208,7 @@ describe('what each level brings (§1.4)', () => {
     let lost = 0;
     const N = 400;
     for (let i = 0; i < N; i++) {
-      const x = { ...o, id: `fr${i}`, status: 'open' as const, rivalBid: undefined };
+      const x = { ...o, id: `fr${i}`, status: 'open' as ContractOffer['status'], rivalBid: undefined };
       g.offers[x.id] = x;
       g.now = x.expires;
       // onOfferExpire via the module (the main RNG draws the 30 %).

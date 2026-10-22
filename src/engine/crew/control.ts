@@ -838,23 +838,43 @@ function delayTimes(g: GameState, x: Ctx): Minute[] {
   return [...times].sort((a, b) => a - b).slice(0, 6);
 }
 
+/**
+ * v0.8 speed: a copy of the state for a preview. Duty logs and the inbox only ever grow by new entries, so the copy
+ * gets its own arrays holding the same entries (a third cheaper than cloning them).
+ */
+function previewCopy(g: GameState): GameState {
+  const { crew, messages, ...rest } = g;
+  const h = structuredClone(rest) as GameState;
+  h.crew = {};
+  for (const id in crew) {
+    const { log, ...c } = crew[id];
+    h.crew[id] = { ...structuredClone(c), log: log?.slice() ?? log };
+  }
+  h.messages = messages.slice();
+  return h;
+}
+
 /** The soonest of delayTimes at which the roster crews the flight, tried on copies; null when none works. Memoized per step. */
 function delayPlan(g: GameState, x: Ctx): { at: Minute } | null {
   return memoOf(g, `dp:${x.f.id}`, () => {
-    for (const at of delayTimes(g, x)) {
-      const h = structuredClone(g);
+    const tryAt = (at: Minute) => {
+      const h = previewCopy(g);
       previewing++;
-      let ok = false;
       try {
-        ok = tryDelay(h, x.f.id, at);
+        return tryDelay(h, x.f.id, at);
       } catch {
-        ok = false;
+        return false;
       } finally {
         previewing--;
       }
-      if (ok) return { at };
-    }
-    return null;
+    };
+    // v0.8 speed: the latest time first: when even that leaves the flight short, the earlier ones do too (a later
+    // departure only gives crews more time), so a hopeless flight costs one copy instead of six.
+    const times = delayTimes(g, x);
+    const last = times[times.length - 1];
+    if (last === undefined || !tryAt(last)) return null;
+    for (const at of times.slice(0, -1)) if (tryAt(at)) return { at };
+    return { at: last };
   });
 }
 
@@ -1114,7 +1134,7 @@ function ledgerDiff(g: GameState, h: GameState): number {
 }
 
 function previewOf(g: GameState, x: Ctx, fix: CrewFix, opts: ApplyOpts, before: Snap): { preview: FixPreview; cost: number; newStd: Minute | null; ok: boolean; error?: string } {
-  const h = structuredClone(g);
+  const h = previewCopy(g);
   previewing++;
   let r: Run;
   try {

@@ -126,8 +126,11 @@ export function anchorsOf(g: GameState, aircraftId: string): Anchor[] {
     if (m.aircraftId !== aircraftId || (m.status !== 'planned' && m.status !== 'inWork') || m.end <= g.now) continue;
     out.push({ from: m.at, to: m.at, std: m.start, sta: m.end, contractId: null, kind: 'maint', id: m.id });
   }
+  let dryHere = false;
   for (const c of Object.values(g.contracts)) {
-    if ((c.status !== 'signed' && c.status !== 'active') || c.pattern.kind !== 'base' || !c.aircraftIds.includes(aircraftId)) continue;
+    if ((c.status !== 'signed' && c.status !== 'active') || !c.aircraftIds.includes(aircraftId)) continue;
+    if (c.dry) dryHere = true;
+    if (c.pattern.kind !== 'base') continue;
     const p = c.pattern;
     if (c.generatedUntil >= p.to || !ac) continue;
     const slot = c.aircraftIds.indexOf(aircraftId);
@@ -135,7 +138,7 @@ export function anchorsOf(g: GameState, aircraftId: string): Anchor[] {
     out.push({ from: p.base, to: p.base, std, sta: Math.max(std, lastArrival(p, ac.typeId, slot) ?? p.to), contractId: c.id, kind: 'base', id: c.id });
   }
   // v0.8 a dry lease out holds the aircraft at the lessee's base between its two ferries.
-  const dry = dryAnchor(g, aircraftId);
+  const dry = dryHere ? dryAnchor(g, aircraftId) : null;
   if (dry) out.push({ ...dry, kind: 'base', id: dry.contractId });
   out.sort((a, b) => a.std - b.std || a.sta - b.sta);
   if (ac && !ac.flightId) {

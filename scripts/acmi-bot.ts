@@ -378,13 +378,15 @@ function dryLeases(g: GameState, t: Tally): void {
     if (o.archetype !== 'dryLeaseOut' || o.status !== 'open' || !o.dryFor || o.expires <= g.now) continue;
     // Back before the summer peak (seed 4 leased one of its two A320s out from March to July and lost the summer).
     const back = toDate(o.end).getUTCMonth();
-    if (o.end - g.now > 240 * DAY || (back >= 5 && back <= 8)) continue;
+    if (o.end - g.now > 240 * DAY || (back >= 6 && back <= 8)) continue;
     const ac = g.fleet[o.dryFor];
     if (!ac || ac.ownership.kind !== 'owned' || typeOf(ac.typeId).body !== 'narrow' || ac.status === 'leasedOut') continue;
     const fam = typeOf(ac.typeId).family;
     const others = Object.values(g.fleet).filter((a) => a.id !== ac.id && typeOf(a.typeId).family === fam && a.status !== 'leasedOut' && a.status !== 'delivering');
     const baseLive = Object.values(g.contracts).some((c) => (c.status === 'active' || c.status === 'signed') && c.pattern.kind === 'base' && c.aircraftIds.some((id) => g.fleet[id] && typeOf(g.fleet[id].typeId).family === fam));
     if (!others.length && baseLive) continue;
+    // ... and two more of the family keep flying when it is back only in June.
+    if (back === 5 && others.length < 2) continue;
     if (acCommitted(g, ac.id, 60) >= 0.3) continue;
     if (feasibility(g, o.id, ac.id).level === 'no') continue;
     if (acceptOffer(g, o.id, [ac.id]).ok) {
@@ -760,11 +762,12 @@ function fleet(g: GameState, t: Tally): void {
     if (typeOf(o.typeId).body !== 'wide' || o.kind !== 'dryLeaseIn' || o.newBuild || o.expires <= g.now || !aircraftGate(g, o.typeId).ok) continue;
     // The family our widebody pilots fly (another only 60 days after filing with nothing of ours on offer).
     const filed = g.company.pendingApprovals.find((p) => p.id === 'widebody')?.started ?? g.company.approvalsAt?.widebody ?? g.now;
-    if (typeOf(o.typeId).family !== wideFamily(g) && g.now - filed < 60 * DAY) continue;
+    // v0.8 as the comment says: only while one of our family is on offer (the post-filing A330 lapsed unseen).
+    const ours = g.market.aircraft.some((x) => x.kind === 'dryLeaseIn' && x.expires > g.now && typeOf(x.typeId).family === wideFamily(g));
+    if (typeOf(o.typeId).family !== wideFamily(g) && g.now - filed < 60 * DAY && ours) continue;
     // Acquirable (the target): deposit plus three months of rent and insurance, with $1M left to run the airline.
     if (g.company.cash >= o.deposit + 3 * (o.rentPerMonth + typeOf(o.typeId).insuranceMonth) + 1_000_000) t.wideAffordableAt ??= g.now;
     // v0.8 two months of its fixed costs after the deposit (v0.7.3: three) and $300K (was $500K) to run the airline.
-    if (process.env.WHYW && g.now % DAY < 6 * 60) console.error(`d${dayN(g)} ${o.typeId} cash ${Math.round(g.company.cash / 1e3)}k need ${Math.round((o.deposit + 2 * wideMonth(o.rentPerMonth, o.typeId, o.cabin.total) + 300_000) / 1e3)}k`);
     if (g.company.cash < o.deposit + (WIDE ? 1_000_000 : 2 * wideMonth(o.rentPerMonth, o.typeId, o.cabin.total) + 300_000)) continue;
     t.wideReadyAt ??= g.now;
     // v0.7: home after the delivery ferry; a widebody job worth $1M+ starting 1–4 months after that (or, from day 150
@@ -783,8 +786,10 @@ function fleet(g: GameState, t: Tally): void {
     const timed = due !== undefined;
     // Without a job to fly, only a lease the airline can carry while it waits for work ($300K/month at most; v0.7.3 the
     // last quarter earned three months of its fixed costs: seed 6 signed an A340 off a thin autumn and lost $1.2M).
-    const carry = timed && o.rentPerMonth <= 300_000 && qProfit >= 2 * wideMonth(o.rentPerMonth, o.typeId, o.cabin.total);
-    if (process.env.WHYW && g.now % DAY < 6 * 60) console.error(`d${dayN(g)} ${o.typeId} rent ${Math.round(o.rentPerMonth / 1e3)}k earning=${earning} q=${Math.round(qProfit / 1e3)}k wm=${Math.round(wideMonth(o.rentPerMonth, o.typeId, o.cabin.total) / 1e3)}k job=${!!job} carry=${carry} due=${due === undefined ? "-" : Math.round((due - g.now) / DAY)} lead=${lead}`);
+    // v0.8 1.5× (2× signed none of seeds 1–6: a $110K A330-200 against an $868K quarter).
+    // ... and, with no job to pay for it, the v0.7.3 cushion (seed 3 signed a 767 that way and spent 13 days below zero).
+    const wm = wideMonth(o.rentPerMonth, o.typeId, o.cabin.total);
+    const carry = timed && o.rentPerMonth <= 300_000 && qProfit >= 1.5 * wm && g.company.cash >= o.deposit + 3 * wm + 500_000;
     if (!WIDE && (!earning || !(job || carry))) continue;
     if (acquireAircraft(g, o.id).ok) {
       t.wideSigned = g.now;
@@ -990,6 +995,9 @@ function refits(g: GameState, t: Tally): void {
  * v0.7.1 Crew Control: for each short flight inside 36 h, the fixes in the §16 order until the flight is crewed
  * (availability read without previews; only the swap guard needs one). A pure function of the state.
  */
+/** When crewControlPolicy last weighed the expensive fixes per flight (game time). */
+const restSeen = new Map<string, number>();
+
 function crewControlPolicy(g: GameState, t: Tally): void {
   for (const x of shortFlights(g)) {
     if (x.hoursLeft > 36) continue;
@@ -1016,6 +1024,12 @@ function crewControlPolicy(g: GameState, t: Tally): void {
     const sw = view(['swap'], true);
     const full = sw && sol(sw, 'swap');
     if (full && (full.preview.after.level === 'ok' || full.preview.after.level === 'tight') && !full.preview.ripple.some((r) => r.tone === 'bad') && apply(full)) continue;
+    // v0.8 speed: the delay and jet searches (copies of the state) only in the last 14 h, once a step (the roster's
+    // own fixes often land before; 73 searches a year cost seed 5 five seconds).
+    if (x.hoursLeft > 14 || restSeen.get(x.flightId) === g.now) continue;
+    // ... and never for an empty ferry: the schedule retimes it itself (seed 5 searched one MAD–LIS ferry 28 times).
+    if (f.kind === 'ferry') continue;
+    restSeen.set(x.flightId, g.now);
     const rest = view(['jet', 'delay', 'discretion', 'subcharter', 'cancel']);
     if (!rest || rest.stage === 'ok') continue;
     // A jet when it gets a crew there at least 3 h sooner than waiting for a ticket, with passengers at stake.
@@ -1025,7 +1039,8 @@ function crewControlPolicy(g: GameState, t: Tally): void {
     const waitDep = delay ? (delay.newDeparture ?? f.std) : Infinity;
     if (jet && x.hoursLeft <= 18 && v.unit.pax >= 100 && jetDep + 180 <= waitDep && (g.stats.jets ?? 0) < 8 && apply(jet)) continue;
     if (apply(sol(rest, 'discretion'))) continue;
-    if (delay && (delay.newDeparture ?? f.std) - f.std <= lateCapMin && apply(delay)) continue;
+    // v0.8 the cap counts from the original time (seed 5 delayed one leg 11 times, half a day each).
+    if (delay && (delay.newDeparture ?? f.std) - (f.schedStd ?? f.std) <= lateCapMin && apply(delay)) continue;
     const sub = sol(rest, 'subcharter');
     if (sub && sub.cost < (sol(rest, 'cancel')?.cost ?? Infinity)) apply(sub);
   }
