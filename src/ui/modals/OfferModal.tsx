@@ -1,13 +1,13 @@
 // Offer review (B5): terms, schedule and effects on the left; per-aircraft feasibility (traffic lights,
 // positioning, crew capacity, contribution) on the right; Decline / Counter / Accept. DESIGN.md §6.3.
 
-import { Check, Palette, X } from 'lucide-react';
+import { BedDouble, Check, Palette, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { flag } from '../../data/countries';
 import { artFor } from '../../data/acmiTypes';
-import { acceptOffer, askingPrice, counterOffer, counterView, declineOffer, feasibilityAll, leadDays, paintQuote, paintTermsText, type FeasibilityReport } from '../../engine/contracts';
-import { clientCode, clientTitles } from '../../engine/ops';
+import { acceptOffer, askingPrice, counterOffer, counterView, declineOffer, feasibilityAll, leadDays, offerRestLine, paintQuote, paintTermsText, type FeasibilityReport } from '../../engine/contracts';
+import { clientCode, clientTitles, restRefitOptions } from '../../engine/ops';
 import { AircraftArt } from '../components/AircraftArt';
 import { flightsRev } from '../../engine/core/entities';
 import { typeOf } from '../../engine/core/perf';
@@ -185,7 +185,7 @@ function crewLine(r: FeasibilityReport): { text: string; tone: 'good' | 'warn' |
   return { text: `Short ${list}${r.crew.firstShort ? ` from ${fmtDay(r.crew.firstShort)}` : ''}`, tone: 'warn' };
 }
 
-function AircraftRow({ g, r, on, onPick, billBH, lift = 1, offerId }: { g: GameState; r: FeasibilityReport; on: boolean; onPick: () => void; billBH: number; lift?: number; offerId: string }) {
+function AircraftRow({ g, r, on, onPick, billBH, lift = 1, offerId, long }: { g: GameState; r: FeasibilityReport; on: boolean; onPick: () => void; billBH: number; lift?: number; offerId: string; long: boolean }) {
   const ac = g.fleet[r.aircraftId];
   if (!ac) return null;
   // v0.6: the client-paid extra crew lifts the price (as on the Accept button); the extra crew's cost is already in estCost.
@@ -194,6 +194,11 @@ function AircraftRow({ g, r, on, onPick, billBH, lift = 1, offerId }: { g: GameS
   const crew = crewLine(r);
   // An aircraft that can't take the job leads with why (e.g. busy on another contract), not a positioning plan.
   const block = r.level === 'no' ? r.checks.find((c) => c.level === 'no') : undefined;
+  // v0.7.3 §2.6 item 6: the rest line on every aircraft of a long job (✓ / needs a 4th pilot / needs a refit), and on
+  // any job where it is not simply OK.
+  const rest = r.checks.find((c) => c.id === 'rest');
+  const restShown = rest && rest !== block && (long || rest.level !== 'ok') ? rest : undefined;
+  const openRest = (c: FeasibilityReport['checks'][number]) => store.openModal({ kind: 'refit', aircraftId: r.aircraftId, offerId, section: 'rest', restOption: c.action?.kind === 'restRefit' ? c.action.option : undefined });
   return (
     <div className={`sc-feas ${on ? 'on' : ''} ${r.level}`}>
       <button className="sc-feas-head" onClick={onPick} aria-expanded={on}>
@@ -202,6 +207,7 @@ function AircraftRow({ g, r, on, onPick, billBH, lift = 1, offerId }: { g: GameS
           <span className="row gap-8"><b className="mono">{ac.reg}</b><span className="small muted">{typeOf(ac.typeId).short} · {ac.cabin.label}</span></span>
           {block ? <span className="small bad ellipsis">{block.label}</span> : <span className="small muted ellipsis">{posLine(r)}</span>}
           <span className={`small ${crew.tone}`}>{crew.text}</span>
+          {restShown && <span className={`small of-rest ${LEVEL_TONE[restShown.level]}`}><BedDouble />{restShown.label}</span>}
         </span>
         <span className="right">
           <b className={`num ${block ? 'dim' : margin >= 0 ? 'good' : 'bad'}`}>{money(margin)}</b>
@@ -215,8 +221,9 @@ function AircraftRow({ g, r, on, onPick, billBH, lift = 1, offerId }: { g: GameS
               <Dot tone={LEVEL_TONE[c.level]} />
               <span className="grow"><span>{c.label}</span>{c.detail && <span className="small muted"> · {c.detail}</span>}</span>
               {c.action?.kind === 'refit' && <button className="btn btn-sm" onClick={() => store.openModal({ kind: 'refit', aircraftId: r.aircraftId, layout: c.action!.layout, offerId })}>Plan refit…</button>}
-              {/* v0.7.2 §3: no crew rest on the aircraft, or too few seats once the rest row is blocked. */}
-              {!c.action && c.level !== 'ok' && (c.id === 'restSeats' || /no crew rest/i.test(`${c.label} ${c.detail ?? ''}`)) && !g.fleet[r.aircraftId]?.crewRest?.bunks && <button className="btn btn-sm" onClick={() => store.openModal({ kind: 'refit', aircraftId: r.aircraftId, offerId, rest: true })}>Plan crew rest…</button>}
+              {/* v0.7.3 §2.9: the cheapest crew rest refit that makes the job legal; the seats check offers the section too. */}
+              {c.action?.kind === 'restRefit' && <button className="btn btn-sm" onClick={() => openRest(c)}>Plan a refit…</button>}
+              {!c.action && c.level !== 'ok' && (c.id === 'restSeats' || c.id === 'rest') && restRefitOptions(g, r.aircraftId).some((x) => x.ok) && <button className="btn btn-sm" onClick={() => openRest(c)}>Crew rest refits…</button>}
             </div>
           ))}
           {r.techStops.length > 0 && <div className="small muted">Fuel stops: {r.techStops.join(', ')}</div>}
@@ -284,6 +291,8 @@ export function OfferModal({ offerId }: { offerId: string }) {
   const canAccept = live && !countered && !!sel && !blocked(sel) && !mustPaint;
   // v0.7.1 §13: one plain sentence on what is in the way (crew, aircraft, range, cabin, paint) or a counter about to expire.
   const fit = live ? problemAt(g, { kind: 'offer', id: o.id }) : null;
+  // v0.7.3 §2.9: what a long job needs ('Longest day 15:40 · needs 3 pilots + bunks, or 4 pilots + business seats').
+  const restLine = offerRestLine(g, o.id);
 
   const accept = () => {
     if (!sel) return;
@@ -343,13 +352,14 @@ export function OfferModal({ offerId }: { offerId: string }) {
           <div className="upper dim">Terms</div>
           <Terms g={g} o={o} />
           <div className="upper dim">Programme</div>
+          {restLine && <div className="small of-rest"><BedDouble /><span>{restLine}</span></div>}
           <Programme o={o} />
         </div>
         <div className="sc-offer-right col gap-8">
           <div className="upper dim">Choose an aircraft</div>
           {!reports.length && <div className="small muted">No aircraft in the fleet.</div>}
           {reports.map((r) => (
-            <AircraftRow key={r.aircraftId} g={g} r={r} on={sel?.aircraftId === r.aircraftId} onPick={() => setPick(r.aircraftId)} billBH={o.estBH} lift={lift} offerId={o.id} />
+            <AircraftRow key={r.aircraftId} g={g} r={r} on={sel?.aircraftId === r.aircraftId} onPick={() => setPick(r.aircraftId)} billBH={o.estBH} lift={lift} offerId={o.id} long={!!restLine} />
           ))}
         </div>
       </div>

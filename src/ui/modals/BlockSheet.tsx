@@ -6,13 +6,16 @@ import { type ReactNode, useState } from 'react';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { BAL } from '../../engine/core/balance';
 import { DAY, fmtDateTime, fmtDuration, fmtTime } from '../../engine/core/time';
-import type { Flight, GameState, MaintenanceEvent, Ref } from '../../engine/core/types';
-import { crewName, dutyCrew, dutyLegality, flightCrewStatus, restSeatsBlocked } from '../../engine/crew';
-import { seatLabel } from '../../engine/core/perf';
+import type { Aircraft, Duty, Flight, GameState, MaintenanceEvent, Ref } from '../../engine/core/types';
+import { crewName, dutyCrew, dutyLegality, flightCrewStatus, restOf, restPlanForFlight, restSeatsBlocked, restShort, restVerdict } from '../../engine/crew';
+import { seatLabel, typeOf } from '../../engine/core/perf';
 import { cancelCheck, delayFlight, flightCrewAboard, flightType } from '../../engine/ops';
 import { problemAt } from '../../engine/problems';
 import { FlightTypeChip } from '../components/FlightType';
 import { ProblemCardView } from '../components/ProblemCard';
+import { restSeatWord } from '../components/RestLines';
+import { RestTimeline } from '../components/RestTimeline';
+import { Term } from '../components/Term';
 import { Modal, Stepper } from '../components/ui';
 import { money } from '../format';
 import { Dot, KV } from '../screens/common';
@@ -25,6 +28,43 @@ const LEVEL_TONE = { ok: 'good', tight: 'warn', missing: 'bad', illegal: 'bad' }
 
 
 const both = (t: number, ap: string) => `${fmtDateTime(t)} UTC · ${fmtTime(t, ap)} ${ap}`;
+const hm = (m: number) => `${Math.floor(Math.max(0, m) / 60)}:${String(Math.round(Math.max(0, m) % 60)).padStart(2, '0')}`;
+
+/**
+ * v0.7.3 §2.6 item 4: the In-flight rest section of a flight on an augmented duty (or one the roster split because
+ * the cruise was too short): verdict chip, the facilities, why it fails, the static timeline. A long unaugmented
+ * widebody day gets one greyed line instead.
+ */
+function RestSection({ g, f, ac, d }: { g: GameState; f: Flight; ac: Aircraft; d?: Duty }) {
+  const plan = restPlanForFlight(g, f.id);
+  if (!plan) {
+    if (!d || typeOf(ac.typeId).body !== 'wide' || d.fdp < 10 * 60) return null;
+    return (
+      <div className="rt-sec off">
+        <span className="upper dim"><Term id="inflightRest">In-flight rest</Term></span>
+        <span className="small muted">No in-flight rest needed: {hm(d.fdp)} of {hm(d.maxFdp)}</span>
+      </div>
+    );
+  }
+  const v = restVerdict(plan)!;
+  const rest = restOf(g, ac.id);
+  const pilots = 2 + plan.augment;
+  return (
+    <div className="rt-sec">
+      <div className="rt-sec-head">
+        <span className="upper dim"><Term id="inflightRest">In-flight rest</Term></span>
+        <span className={`badge ${v.tone}`}>{v.text}</span>
+      </div>
+      <div className="small rt-facts">
+        <span><b>{pilots} pilots</b> <span className="muted">· rest in {restShort(rest.fc)} · <Term id="landingPilots">landing pilots</Term> 2 h in a row, the others 90 min</span></span>
+        <span><b>Cabin crew</b> <span className="muted">· {restShort(rest.cc)}{plan.cabinNeed !== null ? ` · ${hm(plan.cabinNeed)} each (a ${hm(plan.cabinFdp)} day${plan.band ? `, band ${plan.band}` : ''})` : ''} · half stay in the cabin</span></span>
+      </div>
+      {!plan.ok && plan.why && <div className="small bad">{plan.why}.</div>}
+      {plan.extraCabin > 0 && <div className="small warn">+{plan.extraCabin} cabin crew fly so that everyone gets their rest.</div>}
+      {plan.cruise.length > 0 && <RestTimeline g={g} plan={plan} />}
+    </div>
+  );
+}
 
 function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
   const c = f.contractId ? g.contracts[f.contractId] : undefined;
@@ -55,11 +95,11 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
   const blocked = f.kind !== 'deadhead' && ac ? restSeatsBlocked(g, f.id) : 0;
   const offload = blocked && ac && f.status === 'scheduled' ? Math.max(0, (f.pax ?? 0) - (ac.cabin.total - blocked)) : 0;
   if (f.pax) rows.push(['Passengers', offload ? <span className="warn">{f.pax} booked · {(f.pax ?? 0) - offload} fly ({offload} offloaded at departure)</span> : String(f.pax)]);
-  if (blocked && ac) rows.push(['Seats', <span className="warn">{ac.cabin.total} · {ac.cabin.total - blocked} sellable on this flight ({blocked} blocked for crew rest)</span>]);
+  if (blocked && ac) rows.push(['Seats', <span className="warn">{ac.cabin.total} · {ac.cabin.total - blocked} sellable ({blocked} {restSeatWord(restOf(g, ac.id)) ?? 'seats'} blocked for crew rest)</span>]);
   if (type === 'ferry') rows.push(['Crew aboard', 'Pilots only · cabin crew travel separately']);
   else if (type === 'positioning') rows.push(['Crew aboard', 'Full crew · cabin crew needed at the destination']);
   if (aboard.riding.length) rows.push(['Riding', aboard.riding.filter((id) => g.crew[id]).map((id) => `${g.crew[id].role} ${crewName(g.crew[id])}`).join(', ')]);
-  if (d) rows.push(['Duty', `FDP ${fmtDuration(d.fdp)} of ${fmtDuration(d.maxFdp + (d.discretion ?? 0))} · ${d.sectors} sector${d.sectors === 1 ? '' : 's'}${d.augment ? ` · +${d.augment} pilot${d.augment > 1 ? 's' : ''}` : ''}`]);
+  if (d) rows.push(['Duty', `Day length ${hm(d.fdp)} of ${hm(d.maxFdp + (d.discretion ?? 0))} · ${d.sectors} sector${d.sectors === 1 ? '' : 's'}${d.augment ? ` · ${2 + d.augment} pilots` : ''}${d.ext ? ' · planned extension' : ''}${d.split ? ' · split duty' : ''}`]);
   const live = f.status === 'scheduled' && !!f.aircraftId;
   const canSub = live && !!c && (f.kind === 'revenue' || f.kind === 'techstop');
   const doHold = () => {
@@ -79,6 +119,7 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
       )}
       <div className="small muted">{AIRPORT_BY_CODE[f.from]?.city ?? f.from} → {AIRPORT_BY_CODE[f.to]?.city ?? f.to}</div>
       <KV rows={rows} />
+      {ac && f.kind !== 'deadhead' && f.status !== 'cancelled' && <RestSection g={g} f={f} ac={ac} d={d} />}
       {f.aircraftId && f.kind !== 'deadhead' && (
         <div className="col gap-8">
           {later ? (

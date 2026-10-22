@@ -247,7 +247,7 @@ export function GlobalModals() {
     case 'decision': return s.game ? <DecisionModal decisionId={m.decisionId} /> : null;
     case 'hire': return s.game ? <HireModal {...m} /> : null;
     case 'train': return s.game ? <TrainModal crewId={m.crewId} /> : null;
-    case 'check': return s.game ? <CheckModal aircraftId={m.aircraftId} checkKind={m.checkKind} replace={m.replace} /> : null;
+    case 'check': return s.game ? <CheckModal aircraftId={m.aircraftId} checkKind={m.checkKind} replace={m.replace} restFit={m.restFit} backToRefit={m.backToRefit} /> : null;
     case 'sheet': return s.game ? <BlockSheet refs={m.refs} idle={m.idle} /> : null;
     case 'duty': return s.game ? <DutyModal id={m.id} /> : null;
     case 'subcharter': return s.game ? <SubcharterModal contractId={m.contractId} flightId={m.flightId} /> : null;
@@ -255,7 +255,7 @@ export function GlobalModals() {
     case 'convert': return s.game ? <ConvertModal key={m.crewIds.join()} crewIds={m.crewIds} family={m.family} onBooked={m.onBooked} /> : null;
     case 'classes': return s.game ? <ClassesModal /> : null;
     case 'acquire': return s.game ? <AcquireModal offerId={m.offerId} /> : null;
-    case 'refit': return s.game ? <RefitModal aircraftId={m.aircraftId} layout={m.layout} offerId={m.offerId} rest={m.rest} /> : null;
+    case 'refit': return s.game ? <RefitModal aircraftId={m.aircraftId} layout={m.layout} offerId={m.offerId} rest={m.rest || m.section === 'rest'} restOption={m.restOption} /> : null;
     case 'lease': return s.game ? <LeaseModal aircraftId={m.aircraftId} tab={m.tab} /> : null;
     case 'sell': return s.game ? <SellModal aircraftId={m.aircraftId} /> : null;
     case 'approval': return s.game ? <ApprovalModal id={m.id} /> : null;

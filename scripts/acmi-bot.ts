@@ -3,6 +3,7 @@
 //   npx tsx scripts/acmi-bot.ts [seed] [days]        one game (default seed 1, 365 days)
 //   npx tsx scripts/acmi-bot.ts [seed] --det         determinism: same seed twice to day 180, and save/load at day 90
 //   npx tsx scripts/acmi-bot.ts [seed] [days] --wide  v0.6: lease the first affordable widebody (conversion classes)
+//   … --msgs (inbox lines to stderr) · --why (v0.7.3: why each new offer found no aircraft, to stderr) · --dump=day,file
 //
 // Policy (a pure function of the game state, so a loaded save plays on identically):
 // - offers: base deployments first, then ad hoc fill-ins; accept the best ok/warn feasibility with a positive

@@ -35,6 +35,10 @@
  *                  rest seats, agree a sale and book a C-check at a hub):
  *                    topbar-strip,topbar-strip-warnings,hire-multitype,refit-earliest,refit-booked,refit-rest-seats,flight-sheet-rest-seats,sell,
  *                    return-early,which-one,check-hub,whats-new-072
+ *                  v0.7.3 in-flight rest & EASA (run last: they add an A330-200 with curtained business seats and an
+ *                  augmented LIS long-haul, a short-cruise A330, a captain on home standby):
+ *                    fleet-rest,market-rest-filter,flight-sheet-rest,flight-sheet-rest-tooshort,duty-why,offer-rest-lines,
+ *                    refit-crew-rest,check-c-restfit,roster-board-aug,crew-control-standby,whats-new-073
  *   --save         an exported save (.blockhours.json) to load for the in-game screens; without it the harness
  *                  starts a new game from the New Game screen (--base, default LIS) and plays --days
  *                  game days (default 40) with __contrail.dev.autoplay so every screen has real data
@@ -66,6 +70,8 @@ const ALL = [
   'crew-control', 'crew-control-jet', 'problem-modal', 'inbox-problems', 'glossary', 'duty-gauges', 'schedule-why', 'term-popover', 'hint', 'fleet-short', 'settings-glossary',
   'topbar-strip', 'topbar-strip-warnings', 'hire-multitype', 'refit-earliest', 'refit-booked', 'flight-sheet-rest-seats', 'refit-rest-seats', 'sell', 'return-early',
   'which-one', 'check-hub', 'whats-new-072',
+  'fleet-rest', 'market-rest-filter', 'flight-sheet-rest', 'flight-sheet-rest-tooshort', 'duty-why', 'offer-rest-lines',
+  'refit-crew-rest', 'check-c-restfit', 'roster-board-aug', 'crew-control-standby', 'whats-new-073',
 ];
 const PRE_GAME = new Set(['loading', 'title', 'newgame', 'newgame-livery']);
 const VIEWS = {
@@ -884,7 +890,7 @@ Object.assign(ACTIONS, {
     await settle(page, 600);
   },
   'refit-rest-seats': async (page) => {
-    const ac = await pick(page, () => { const g = window.__contrail.game; return Object.values(g.fleet).find((a) => a.crewRest && !a.crewRest.bunks && a.typeId.startsWith('a33'))?.id; });
+    const ac = await pick(page, () => { const g = window.__contrail.game; return Object.values(g.fleet).find((a) => a.typeId.startsWith('a33') && a.rest && a.rest.fc?.cls !== 1)?.id; });
     if (!ac) throw new Error('SKIP no widebody without bunks');
     await nav(page, 'fleet', { sel: { kind: 'aircraft', id: ac } });
     await modal(page, { kind: 'refit', aircraftId: ac, rest: true });
@@ -914,6 +920,88 @@ Object.assign(ACTIONS, {
     await modal(page, { kind: 'check', aircraftId: id, checkKind: 'C' });
   },
   'whats-new-072': (page) => modal(page, { kind: 'whatsNew' }),
+});
+
+// ---------- v0.7.3 in-flight rest & EASA ----------
+
+/** The A330 with business-seat rest and its augmented long-haul (dev.restPlan, built once); closes the sheet it opens. */
+async function ensureRestPlan(page) {
+  const r = await page.evaluate(() => {
+    const s = window.__contrail;
+    let id = s.__restFlight && s.game.flights[s.__restFlight] ? s.__restFlight : '';
+    if (!id) { id = s.dev.restPlan(); s.__restFlight = id; }
+    s.closeModal();
+    const f = id ? s.game.flights[id] : null;
+    return f ? { flightId: id, aircraftId: f.aircraftId, dutyId: f.dutyId } : null;
+  });
+  if (!r) throw new Error('SKIP dev.restPlan built nothing');
+  await settle(page, 400);
+  return r;
+}
+
+Object.assign(ACTIONS, {
+  'fleet-rest': async (page) => {
+    const r = await ensureRestPlan(page);
+    await nav(page, 'fleet', { sel: { kind: 'aircraft', id: r.aircraftId } });
+  },
+  'market-rest-filter': async (page, _s, d) => {
+    await page.evaluate(() => { const s = window.__contrail; s.dev.marketOffer('a332'); s.dev.marketOffer('b77w'); s.dev.marketOffer('a333'); s.closeModal(); });
+    await nav(page, 'fleet', { view: 'market' });
+    await press(page, page.locator('.mk-filter').first(), d);
+    await settle(page, 400);
+  },
+  'flight-sheet-rest': async (page) => {
+    const r = await ensureRestPlan(page);
+    await modal(page, { kind: 'sheet', refs: [{ kind: 'flight', id: r.flightId }] });
+  },
+  'flight-sheet-rest-tooshort': async (page) => {
+    const id = await page.evaluate(() => window.__contrail.dev.shortCruise());
+    if (!id) throw new Error('SKIP dev.shortCruise built nothing');
+    await settle(page, 700);
+  },
+  'duty-why': async (page, _s, d) => {
+    const r = await ensureRestPlan(page);
+    await modal(page, { kind: 'duty', id: r.dutyId ?? r.flightId });
+    const why = page.locator('.dm-why-btn').first();
+    if (await why.count()) await press(page, why, d);
+    const rest = page.locator('.dm-rest-toggle').first();
+    if (await rest.count()) await press(page, rest, d);
+    await settle(page, 400);
+  },
+  'offer-rest-lines': async (page) => {
+    await ensureRestPlan(page);
+    let found = false;
+    for (let i = 0; i < 40 && !found; i++) {
+      await page.evaluate((k) => { const s = window.__contrail; s.closeModal(); s.dev.offer(['troopRotation', 'hajj', 'repatriation', 'unRotation', 'sports', 'capacityLease', 'humanitarian', 'tourSeries'][k % 8]); }, i);
+      await settle(page, 300);
+      found = (await page.locator('.sc-offer-modal .of-rest').count()) > 0;
+    }
+    if (!found) throw new Error('SKIP no long-haul offer generated');
+  },
+  'refit-crew-rest': async (page) => {
+    const r = await ensureRestPlan(page);
+    await nav(page, 'fleet', { sel: { kind: 'aircraft', id: r.aircraftId } });
+    await modal(page, { kind: 'refit', aircraftId: r.aircraftId, section: 'rest' });
+  },
+  'check-c-restfit': async (page) => {
+    const r = await ensureRestPlan(page);
+    await nav(page, 'fleet', { sel: { kind: 'aircraft', id: r.aircraftId } });
+    await modal(page, { kind: 'check', aircraftId: r.aircraftId, checkKind: 'C', restFit: 'fcrc' });
+  },
+  'roster-board-aug': async (page) => {
+    await ensureRestPlan(page);
+    await board(page);
+    const sel = page.locator('select[aria-label="Type"]');
+    if (await sel.count()) { await sel.selectOption('A330/340').catch(() => {}); await settle(page, 600); }
+  },
+  'crew-control-standby': async (page, _s, d) => {
+    const id = await page.evaluate(() => window.__contrail.dev.standby());
+    if (!id) throw new Error('SKIP dev.standby built nothing');
+    await settle(page, 700);
+    const row = page.locator('[data-fix="callIn"] .cc-row-head').first();
+    if (await row.count()) { await press(page, row, d); await settle(page, 400); }
+  },
+  'whats-new-073': (page) => modal(page, { kind: 'whatsNew' }),
 });
 
 async function scrollNext(page) {

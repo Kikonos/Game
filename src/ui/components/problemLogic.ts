@@ -237,8 +237,8 @@ export function actionTarget(g: GameState, a: ProblemAction): ActionTarget {
     }
     case 'hire': return { modal: ROLES.includes(id as Role) ? { kind: 'hire', role: id as Role } : { kind: 'hire', family: id as RatingFamily } };
     case 'offer': return { modal: { kind: 'offer', offerId: id } };
-    // v0.7.2: 'Plan crew rest' opens the refit dialog on crew rest seats.
-    case 'refit': return { modal: /crew rest/i.test(a.label) ? { kind: 'refit', aircraftId: id, rest: true } : { kind: 'refit', aircraftId: id } };
+    // v0.7.2: 'Plan crew rest' opens the refit dialog on crew rest; v0.7.3 'Plan a lower-deck module' picks that option.
+    case 'refit': return { modal: /lower-deck/i.test(a.label) ? { kind: 'refit', aircraftId: id, section: 'rest', restOption: 'ldmcr' } : /crew rest|bunk|recliner/i.test(a.label) ? { kind: 'refit', aircraftId: id, section: 'rest' } : { kind: 'refit', aircraftId: id } };
     case 'lease': return { modal: { kind: 'lease', aircraftId: id } };
     case 'decision': return g.decisions.some((d) => d.id === id) ? { modal: { kind: 'decision', decisionId: id } } : { nav: { tab: 'inbox' } };
     case 'sheet': return { modal: { kind: 'sheet', refs: [{ kind: 'flight', id }, { kind: 'maint', id }] } };

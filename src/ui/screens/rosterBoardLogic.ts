@@ -128,12 +128,35 @@ export function fitText(cands: string[], px: number, measure: (s: string) => num
   return '';
 }
 
-type Blk = Pick<CalBlock, 'kind' | 'flights' | 'label'>;
+type Blk = Pick<CalBlock, 'kind' | 'flights' | 'label'> & { aug?: 1 | 2; ext?: boolean; split?: boolean };
+
+/** v0.7.3 separator before a duty's mark in a label; the board draws the mark as a tag (a bed icon for 3P / 4P). */
+export const MARK_SEP = '\u2003';
+
+/** v0.7.3 a duty's mark: '3P' / '4P' (augmented, in-flight rest), '+1h' (planned extension), 'SPLIT', else ''. */
+export function dutyMark(b: Pick<Blk, 'kind' | 'aug' | 'ext' | 'split'>): string {
+  if (b.kind !== 'duty') return '';
+  return b.aug ? `${2 + b.aug}P` : b.ext ? '+1h' : b.split ? 'SPLIT' : '';
+}
 
 const route = (b: Blk) => (b.flights?.length ? [b.flights[0].from, ...b.flights.map((f) => f.to)].join('–') : '');
 
 /** Week-zoom label candidates, longest first ('NB2341 HAM–PMI–HAM' → 'NB2341 HAM–PMI' → 'HAM–PMI–HAM' → 'PMI'). */
 export function blockCands(b: Blk): string[] {
+  const base = baseCands(b);
+  const mark = dutyMark(b);
+  if (!mark) return base;
+  // Marked first (longest first), then the plain words, then the mark alone on a short bar.
+  return [...base.filter(Boolean).map((c) => `${c}${MARK_SEP}${mark}`), ...base, `${MARK_SEP}${mark}`];
+}
+
+/** 'NB2341 HAM–PMI' with its mark split off (the mark '' when none). */
+export function splitMark(text: string): [string, string] {
+  const i = text.indexOf(MARK_SEP);
+  return i < 0 ? [text, ''] : [text.slice(0, i), text.slice(i + MARK_SEP.length)];
+}
+
+function baseCands(b: Blk): string[] {
   const k = calKey(b);
   const r = route(b);
   switch (k) {

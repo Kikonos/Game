@@ -4,14 +4,14 @@
 // all-in total, days away) first, then the earliest windows (cCheckSlots), then the plan in one line; a booked hub
 // check lists its ferries and the pilots' airline tickets (checkLogistics). A-checks are unchanged.
 
-import { Plane, Ticket, Wrench } from 'lucide-react';
+import { Check, Plane, Ticket, Wrench } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { flightsRev } from '../../engine/core/entities';
 import { typeOf } from '../../engine/core/perf';
 import { DAY, HOUR, dayStart, fmtDate, fmtDateTime, fmtDay, fmtDuration, fmtTime } from '../../engine/core/time';
 import type { ActionResult, GameState } from '../../engine/core/types';
-import { bookCCheck, cCheckOptions, cCheckSlots, cancelCheck, checkAirportOk, checkLogistics, checkStatus, checkUsedAt, groundGaps, scheduleCheck, type CCheckOption } from '../../engine/ops';
+import { addRestToCCheck, bookCCheck, cCheckOptions, cCheckSlots, cancelCheck, checkAirportOk, checkLogistics, checkStatus, checkUsedAt, groundGaps, restRefitOptions, scheduleCheck, type CCheckOption } from '../../engine/ops';
 import { Term } from '../components/Term';
 import { money } from '../format';
 import { Modal, Seg, Stepper } from '../components/ui';
@@ -37,26 +37,39 @@ function suggestions(g: GameState, acId: string, kind: Kind, dur: number): Slot[
   return out;
 }
 
-export function CheckModal({ aircraftId, checkKind, replace }: { aircraftId: string; checkKind?: Kind; replace?: string }) {
-  const [kind, setKind] = useState<Kind>(checkKind ?? 'A');
-  return kind === 'C' ? <CCheckModal aircraftId={aircraftId} replace={replace} setKind={setKind} /> : <ACheckModal aircraftId={aircraftId} replace={replace} kind={kind} setKind={setKind} />;
+type RestFit = 'fcrc' | 'overhead';
+
+export function CheckModal({ aircraftId, checkKind, replace, restFit, backToRefit }: { aircraftId: string; checkKind?: Kind; replace?: string; restFit?: RestFit; backToRefit?: boolean }) {
+  const [kind, setKind] = useState<Kind>(checkKind ?? (restFit ? 'C' : 'A'));
+  return kind === 'C' ? <CCheckModal aircraftId={aircraftId} replace={replace} setKind={setKind} restFit={restFit} backToRefit={backToRefit} /> : <ACheckModal aircraftId={aircraftId} replace={replace} kind={kind} setKind={setKind} />;
 }
+
+const asFit = (x: unknown): RestFit | undefined => (x === 'fcrc' || x === 'overhead' ? x : undefined);
 
 const legsBlock = (legs: { block: number }[]) => legs.reduce((n, l) => n + l.block, 0);
 const pct = (p: number) => (p === 1 ? 'base price' : `${p < 1 ? '−' : '+'}${Math.round(Math.abs(1 - p) * 100)}%`);
 
 /** v0.7.2 §7.3: the C-check at an MRO hub. */
-function CCheckModal({ aircraftId, replace, setKind }: { aircraftId: string; replace?: string; setKind: (k: Kind) => void }) {
+function CCheckModal({ aircraftId, replace, setKind, restFit, backToRefit }: { aircraftId: string; replace?: string; setKind: (k: Kind) => void; restFit?: RestFit; backToRefit?: boolean }) {
   const g = useGame();
   const ac = g.fleet[aircraftId];
   const rev = flightsRev(g);
-  const opts = useMemo(() => cCheckOptions(g, aircraftId), [g, aircraftId, rev, g.now]); // eslint-disable-line react-hooks/exhaustive-deps
+  // v0.7.3 §2.10: a flight crew rest compartment / overhead crew rest fitted with the check (ticked from the refit
+  // modal, or already on the booked check).
+  const [fit, setFit] = useState<RestFit | undefined>(() => {
+    if (restFit) return restFit;
+    const id = replace ?? (ac ? checkStatus(g, ac).nextC : null);
+    return asFit(id ? g.maintenance[id]?.restFit : undefined);
+  });
+  const nMaint = Object.keys(g.maintenance).length;
+  const restOpt = useMemo(() => restRefitOptions(g, aircraftId).find((o) => o.where === 'cCheck'), [g, aircraftId, rev, nMaint]); // eslint-disable-line react-hooks/exhaustive-deps
+  const opts = useMemo(() => cCheckOptions(g, aircraftId, undefined, fit), [g, aircraftId, rev, g.now, fit]); // eslint-disable-line react-hooks/exhaustive-deps
   const [hub, setHub] = useState<string | null>(null);
   const code = hub ?? opts[0]?.hub.code ?? '';
-  const slots = useMemo(() => (code ? cCheckSlots(g, aircraftId, code, 4) : []), [g, aircraftId, code, rev, g.now]); // eslint-disable-line react-hooks/exhaustive-deps
+  const slots = useMemo(() => (code ? cCheckSlots(g, aircraftId, code, 4, fit) : []), [g, aircraftId, code, rev, g.now, fit]); // eslint-disable-line react-hooks/exhaustive-deps
   const [pick, setPick] = useState<number | null>(null);
   const start = pick !== null && slots.includes(pick) ? pick : slots[0];
-  const opt: CCheckOption | undefined = useMemo(() => (start !== undefined ? cCheckOptions(g, aircraftId, start).find((o) => o.hub.code === code) : undefined), [g, aircraftId, start, code, rev]); // eslint-disable-line react-hooks/exhaustive-deps
+  const opt: CCheckOption | undefined = useMemo(() => (start !== undefined ? cCheckOptions(g, aircraftId, start, fit).find((o) => o.hub.code === code) : undefined), [g, aircraftId, start, code, rev, fit]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!ac) return null;
   const t = typeOf(ac.typeId);
   const st = checkStatus(g, ac);
@@ -69,27 +82,37 @@ function CCheckModal({ aircraftId, replace, setKind }: { aircraftId: string; rep
     if (start === undefined || !code) return;
     const res = store.act((gg): ActionResult<{ maintId: string }> => {
       if (old && old.status === 'planned') {
-        const keep = { start: old.start, at: old.at, hub: old.hub?.code };
+        const keep = { start: old.start, at: old.at, hub: old.hub?.code, restFit: asFit(old.restFit) };
         const c = cancelCheck(gg, old.id);
         if (!c.ok) return c;
-        const r = bookCCheck(gg, ac.id, code, start);
+        const r = bookCCheck(gg, ac.id, code, start, { restFit: fit });
         if (!r.ok) {
-          if (keep.hub) bookCCheck(gg, ac.id, keep.hub, keep.start);
+          if (keep.hub) bookCCheck(gg, ac.id, keep.hub, keep.start, { restFit: keep.restFit });
           else scheduleCheck(gg, ac.id, 'C', keep.start, keep.at);
         }
         return r;
       }
-      return bookCCheck(gg, ac.id, code, start);
+      return bookCCheck(gg, ac.id, code, start, { restFit: fit });
     });
-    if (res.ok) store.closeModal();
+    if (res.ok) done();
   };
+  const done = () => (backToRefit ? store.openModal({ kind: 'refit', aircraftId, section: 'rest' }) : store.closeModal());
+  // On a booked check the tick changes it at once (addRestToCCheck); otherwise it shapes the hubs, windows and booking.
+  const planned = old?.status === 'planned' ? old : undefined;
+  const toggleFit = () => {
+    const next = fit ? undefined : asFit(restOpt?.id);
+    if (planned) {
+      if (store.act((gg) => addRestToCCheck(gg, planned.id, next ?? null)).ok) setFit(next);
+    } else setFit(next);
+  };
+  const fitShown = !!restOpt || !!fit;
   const fo = opt?.ferryOut ?? [];
   const fh = opt?.ferryHome ?? [];
   return (
-    <Modal title={`Plan a check: ${ac.reg}`} icon={<Wrench className="accent" />} onClose={() => store.closeModal()} footer={
+    <Modal title={`Plan a check: ${ac.reg}`} icon={<Wrench className="accent" />} onClose={done} footer={
       <>
         <span className="grow small muted">{opt?.ok ? `About ${money(opt.total)} all in` : ''}</span>
-        <button className="btn" onClick={() => store.closeModal()}>Cancel</button>
+        <button className="btn" onClick={done}>{planned && !inWork && backToRefit ? 'Done' : 'Cancel'}</button>
         <button className="btn btn-primary" onClick={book} disabled={start === undefined || !opt?.ok || inWork}><Wrench /> {old && !inWork ? `Move C-check${opt ? ` to ${opt.hub.city}` : ''}` : `Book C-check${opt ? ` at ${opt.hub.city}` : ''}`}</button>
       </>
     }>
@@ -114,6 +137,16 @@ function CCheckModal({ aircraftId, replace, setKind }: { aircraftId: string; rep
             )}
             {!inWork && <div className="muted mt-4">Pick a hub and a window to move it.</div>}
           </div>
+        )}
+        {fitShown && (
+          <button className={`ck-restfit ${fit ? 'on' : ''}`} aria-pressed={!!fit} onClick={toggleFit} disabled={inWork || (!fit && !restOpt?.ok)}>
+            <span className="hm-box" aria-hidden>{fit && <Check />}</span>
+            <span className="col grow" style={{ minWidth: 0 }}>
+              <b className="small">Also fit {fit === 'overhead' || restOpt?.id === 'overhead' ? 'an overhead crew rest' : 'a flight crew rest compartment'}{restOpt ? ` (+${restOpt.days} days, ~${money(restOpt.cost)})` : ''}{planned && fit ? ' · on this check' : ''}</b>
+              {restOpt && <span className="small good">{restOpt.opens}</span>}
+              {restOpt && !restOpt.ok && restOpt.why && <span className="small warn">{restOpt.why}</span>}
+            </span>
+          </button>
         )}
         <div className="upper dim">Hubs for the {t.short}</div>
         <div className="col gap-8">

@@ -4,7 +4,7 @@
 // engine's dropTargets verdict, the ghost bubble names the hovered row's reason, a red drop asks first. Nothing
 // animates but the ghost; the drag runs on refs (no React render per move).
 
-import { CalendarDays, Check, Lock } from 'lucide-react';
+import { BedDouble, CalendarDays, Check, Lock } from 'lucide-react';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flightsRev } from '../../engine/core/entities';
 import { DAY, HOUR, dayStart, fmtDay, toDate } from '../../engine/core/time';
@@ -19,7 +19,7 @@ import { seatLabel } from '../../engine/core/perf';
 import { CAL_KEY_LABEL, calKey, calLayer, calLegend, type CalKey } from './crewLogic';
 import {
   BACK_DAYS, BOARD_DAYS, blockCands, blockKeys, boardItems, itemsSig, rowSig, boardLayout, dayCodes, dayWidth, dayWindow, edgeSpeed, fitText, HEAD_H, itemAt, LEFT_W,
-  moraleTone, NO_BOARD_FILTER, ROLE_PLURAL, verdictText, visibleRange, weekLabels, type BoardFilter, type BoardItem, type BoardZoom, type RankFilter,
+  moraleTone, NO_BOARD_FILTER, ROLE_PLURAL, splitMark, verdictText, visibleRange, weekLabels, type BoardFilter, type BoardItem, type BoardZoom, type RankFilter,
 } from './rosterBoardLogic';
 
 const ZOOM_KEY = 'bh.boardZoom';
@@ -112,7 +112,7 @@ const Row = memo(function Row({ row, from, dayW, d0, d1, zoom, tone, selecting, 
           const b = row.blocks[l.i];
           return (
             <span key={`h${l.i}`} className={`rb-hit k-${calKey(b)}`} style={{ left: l.hx, width: l.hw }} data-c={row.crewId} data-i={l.i} data-mv={b.movable ? 1 : undefined}>
-              {l.text && <span className="rb-lbl" style={{ left: l.lx - l.hx, width: l.lw }}>{l.text}</span>}
+              {l.text && <span className="rb-lbl" style={{ left: l.lx - l.hx, width: l.lw }}><LabelText text={l.text} /></span>}
             </span>
           );
         })}
@@ -132,6 +132,13 @@ const Row = memo(function Row({ row, from, dayW, d0, d1, zoom, tone, selecting, 
     </div>
   );
 });
+
+/** v0.7.3 a label with its duty mark drawn as a tag: bed icon + 3P/4P, +1h, SPLIT. Static. */
+function LabelText({ text }: { text: string }) {
+  const [base, mark] = splitMark(text);
+  if (!mark) return <>{text}</>;
+  return <>{base}<span className="rb-mark" aria-label={mark === '+1h' ? 'planned extension' : mark === 'SPLIT' ? 'split duty' : `${mark[0]} pilots, in-flight rest`}>{mark.endsWith('P') && <BedDouble aria-hidden />}{mark}</span></>;
+}
 
 const Block = memo(function Block({ b, i, crewId, from, ppm, W, month }: { b: BoardBlock; i: number; crewId: string; from: number; ppm: number; W: number; month: boolean }) {
   const key = calKey(b);
@@ -154,7 +161,7 @@ const Block = memo(function Block({ b, i, crewId, from, ppm, W, month }: { b: Bo
       data-i={i}
       data-mv={b.movable ? 1 : undefined}
     >
-      {txt && <span className="sc-cal-t">{txt}</span>}
+      {txt && <span className="sc-cal-t"><LabelText text={txt} /></span>}
       {b.locked && w >= 16 && <Lock className="rb-lock" aria-label="set by you" />}
     </span>
   );
@@ -482,7 +489,7 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
       const b = rowsRef.current.get(crewId)?.blocks[Number(i)];
       if (!b?.dutyId) return null;
       const bar = hit.classList.contains('rb-blk') ? hit : hit.parentElement?.querySelector<HTMLElement>(`.rb-blk[data-i="${i}"]`) ?? hit;
-      const label = blockCands(b).find((c) => c && measure(c) <= 220) ?? '';
+      const label = splitMark(blockCands(b).find((c) => c && measure(c) <= 220) ?? '').filter(Boolean).join(' ');
       return { phase: 'press', touch, x0: x, y0: y, x, y, crewId, dutyId: b.dutyId, el: bar, label, timer: 0, offX: 0, offY: 0, hover: null, raf: 0, t: 0 };
     };
 
@@ -604,7 +611,7 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
 
   const families = useMemo(() => [...new Set(Object.values(g.crew).flatMap((c) => c.ratings))].sort() as RatingFamily[], [g, nCrew, crev]); // eslint-disable-line react-hooks/exhaustive-deps
   const bases = useMemo(() => [...new Set(Object.values(g.crew).map((c) => c.base))].sort(), [g, nCrew]); // eslint-disable-line react-hooks/exhaustive-deps
-  const legend = calLegend([...rows.values()].flatMap((r) => r.blocks)).filter((k) => k !== 'standby' && !(zoom === 'month' && k === 'rest'));
+  const legend = calLegend([...rows.values()].flatMap((r) => r.blocks)).filter((k) => !(zoom === 'month' && k === 'rest'));
   const W = LEFT_W + BOARD_DAYS * dayW;
   const [d0, d1] = days;
   const today = Math.floor((dayStart(now) - from) / DAY);
@@ -693,6 +700,10 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
           { swatch: 'ring-amber', label: 'Amber ring: legal but tight (one delay breaks it)' },
           { swatch: 'ring-red', label: 'Red ring: cannot legally fly as rostered' },
           { swatch: 'idle', label: 'Faint hatch: not rostered yet (beyond 14 days)' },
+          { swatch: <span className="sc-cal-sw k-standby" aria-hidden />, label: 'Dashed: home standby 06:00–18:00, on call without overtime' },
+          { swatch: <span className="rb-mark"><BedDouble aria-hidden />3P</span>, label: '3P / 4P: an augmented crew, resting in turns in flight' },
+          { swatch: <span className="rb-mark">+1h</span>, label: '+1h: a planned extension (at most twice a week each)' },
+          { swatch: <span className="rb-mark">SPLIT</span>, label: 'SPLIT: a split duty, a long wait on the ground adds to the day' },
         ]} />
         <span className="grow" />
         <span className="tiny dim">{drag ? 'Drop on a green or amber row · red asks first · grey can’t take it' : 'Tap a duty to change its crew · long-press to drag it to someone else'}</span>

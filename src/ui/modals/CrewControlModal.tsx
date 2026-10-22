@@ -28,11 +28,13 @@ const LEVEL_TONE = { legal: 'good', tight: 'warn', illegal: 'bad' } as const;
 
 function Option({ o, on, onTap, multi, role, seat, disabled }: { o: FixOption; on: boolean; onTap: () => void; multi: boolean; role?: Role; seat?: Role; disabled?: boolean }) {
   const tone = o.level ? LEVEL_TONE[o.level] : undefined;
+  // v0.7.3 a call-in candidate on home standby: the name in bold, the standby as a chip (no overtime).
+  const sby = /^(.*) · On home standby since (\S+)$/.exec(o.label);
   return (
     <button className={`cc-opt ${on ? 'on' : ''} ${o.level === 'illegal' ? 'illegal' : ''} ${disabled ? 'off' : ''}`} onClick={onTap} aria-pressed={on} disabled={disabled}>
       <span className={`cc-opt-check ${multi ? 'box' : 'radio'} ${on ? 'on' : ''}`} aria-hidden>{on && <Check />}</span>
       <span className="grow col cc-opt-main">
-        <span className="row gap-8">{tone && <Dot tone={tone} />}{role && <span className={`sc-role r-${role}`}>{role}</span>}<b className="ellipsis">{o.label}</b>{seat && <span className="chip sc-chip good">{seat} seat</span>}</span>
+        <span className="row gap-8">{tone && <Dot tone={tone} />}{role && <span className={`sc-role r-${role}`}>{role}</span>}<b className="ellipsis">{sby ? sby[1] : o.label}</b>{seat && <span className="chip sc-chip good nowrap">{seat} seat</span>}{sby && <span className="chip sc-chip good nowrap">Standby since {sby[2]}</span>}</span>
         <span className="small muted">{o.sub}</span>
         {o.reason && <ReasonLine reason={o.reason} tone={o.level === 'illegal' ? 'bad' : 'warn'} />}
       </span>

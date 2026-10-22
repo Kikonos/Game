@@ -337,3 +337,7 @@ div.worldmap { overflow: clip; }
 .minimap .mm-sub, .minimap .mm-times { font-weight: 500; fill: #aab4c8; font-size: 10px; }
 .minimap .mm-ap.dep .mm-code { fill: #fde68a; }
 .minimap .mm-glyph path { fill: #8d97ab; stroke: #dde3ee; stroke-width: 1.2; stroke-linejoin: round; }
+
+/* v0.7.3 crew rest: the two-sided rest chip may wrap (a soft box, not a pill); the airborne resting line is static text. */
+.op-chips .op-rest-chip { white-space: normal; border-radius: 10px; line-height: 1.3; height: auto; min-height: 0; padding-top: 4px; padding-bottom: 4px; text-align: left; }
+.op-resting { line-height: 1.4; }

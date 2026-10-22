@@ -3,24 +3,25 @@
 // choices are shown red with reasons and need a second tap ("assign anyway"); they stay flagged on the schedule.
 // Engine: crew/rosterActions.ts (dutyCrew, dutyCandidates, dutyLegality, assignCrew, unassignCrew, swapCrew, unlockCrew).
 
-import { ArrowLeftRight, ChevronLeft, Lock, LockOpen, Plus, UserMinus, Users } from 'lucide-react';
+import { ArrowLeftRight, BedDouble, ChevronDown, ChevronLeft, ChevronRight, Lock, LockOpen, Plus, UserMinus, Users } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { flightsRev } from '../../engine/core/entities';
 import { seatLabel } from '../../engine/core/perf';
 import { BAL } from '../../engine/core/balance';
-import { DAY, fmtDateTime, fmtDuration, fmtTime } from '../../engine/core/time';
+import { DAY, fmtDateTime, fmtTime } from '../../engine/core/time';
 import type { GameState, Role } from '../../engine/core/types';
 import {
-  assignCrew, crewGauges, crewRev, dutyCandidates, dutyCrew, dutyLegality, dutyOf, rosterOf, swapCrew, unassignCrew, unlockCrew,
+  assignCrew, crewGauges, crewRev, dutyCandidates, dutyCrew, dutyLegality, dutyOf, fdpWhy, restPlanForFlight, restVerdict, rosterOf, setDutyAugment, swapCrew, unassignCrew, unlockCrew,
   type DutyCandidate, type DutyCrewView, type RosterSlotView,
 } from '../../engine/crew';
 import { problemAt } from '../../engine/problems';
-import { Modal, Seg } from '../components/ui';
+import { Modal, Seg, Toggle } from '../components/ui';
+import { RestTimeline } from '../components/RestTimeline';
 import { FlightTypeChip } from '../components/FlightType';
 import { GaugeRow } from '../components/Gauge';
 import { ProblemCardView } from '../components/ProblemCard';
 import { ReasonLine } from '../components/ReasonIcon';
-import { Plain, Term } from '../components/Term';
+import { Term } from '../components/Term';
 import { flightType } from '../../engine/ops';
 import { money } from '../format';
 import { Dot } from '../screens/common';
@@ -174,6 +175,74 @@ function Picker({ g, v, pick, setPick, back }: { g: GameState; v: DutyCrewView; 
   );
 }
 
+const hm = (m: number) => `${Math.floor(Math.max(0, m) / 60)}:${String(Math.round(Math.max(0, m) % 60)).padStart(2, '0')}`;
+
+/**
+ * v0.7.3 §2.6 item 5: 'Day length 15:20 of 16:00 · Why 16:00?' expanding the engine's reasons (fdpWhy), the rest
+ * plan behind one tap (the static timeline) and 'Fly it with 4 pilots' where 3 are planned or the cruise is too short.
+ */
+function DayLength({ g, dutyId, ac }: { g: GameState; dutyId: string; ac?: string }) {
+  const [open, setOpen] = useState(false);
+  const [rest, setRest] = useState(false);
+  const d = g.duties[dutyId];
+  const crev = crewRev(g);
+  const rev = flightsRev(g);
+  const why = useMemo(() => fdpWhy(g, dutyId), [g, dutyId, rev, crev, g.now]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!d) return null;
+  const plan = d.flightIds[0] ? restPlanForFlight(g, d.flightIds[0]) : null;
+  const verdict = restVerdict(plan);
+  const limit = d.maxFdp + (d.discretion ?? 0);
+  const four = d.forceAug === 2;
+  const offer4 = !d.done && (d.augment === 1 || four || plan?.code === 'tooShort');
+  const reported = d.report <= g.now;
+  const mode = why?.mode;
+  const modeLabel = mode === 'aug1' ? '3 pilots' : mode === 'aug2' ? '4 pilots' : mode === 'ext' ? 'Extension' : mode === 'basic' ? 'No rest' : null;
+  return (
+    <div className="col gap-8">
+      <span className="small muted row gap-8 wrap">
+        <span><Term id="fdp">Day length</Term> <b className="num">{hm(d.fdp)}</b> of <b className="num">{hm(limit)}</b></span>
+        {why && <button className="dm-why-btn" onClick={() => setOpen(!open)} aria-expanded={open}>{open ? 'Hide why' : `Why ${hm(limit)}?`}</button>}
+        <span>· {d.sectors} sector{d.sectors === 1 ? '' : 's'} · {2 + d.augment} pilots{d.ext ? ' · planned extension' : ''}{d.split ? ' · split duty' : ''}{ac ? ` · ${ac}` : ''}</span>
+      </span>
+      {open && why && (
+        <div className="dm-why small">
+          <span>{why.why.replace(/^Why [^?]*\? /, '')}</span>
+          {why.cabin && <span>{why.cabin}</span>}
+          <span className="dm-why-opts">
+            {why.options.map((o) => <span key={o.label} className={`chip sc-chip ${o.label === modeLabel ? 'on' : ''}`}>{o.label} {o.max === null ? '—' : hm(o.max)}</span>)}
+          </span>
+          {why.notes.map((n, i) => <span key={i} className={i === why.notes.length - 1 ? 'dim' : 'muted'}>{n}</span>)}
+        </div>
+      )}
+      {plan && verdict && (
+        <>
+          <button className="dm-rest-toggle" onClick={() => setRest(!rest)} aria-expanded={rest}>
+            <BedDouble />
+            <span className="grow small"><Term id="inflightRest">In-flight rest</Term> plan</span>
+            <span className={`badge ${verdict.tone}`}>{verdict.text}</span>
+            {rest ? <ChevronDown /> : <ChevronRight />}
+          </button>
+          {rest && (
+            <div className="col gap-8">
+              {!plan.ok && plan.why && <span className="small bad">{plan.why}.</span>}
+              {plan.cruise.length > 0 && <RestTimeline g={g} plan={plan} />}
+            </div>
+          )}
+        </>
+      )}
+      {offer4 && (
+        <div className="dm-aug">
+          <span className="col grow">
+            <b className="small">Fly it with 4 pilots</b>
+            <span className="small muted">{reported ? 'The crew have reported: no change now.' : four ? 'Two pilots rest at a time; the roster finds the 4th pilot.' : plan?.code === 'tooShort' ? 'Pairs rest 90 min and 2 h: may fit where 3 pilots one by one do not.' : 'A 4th pilot allows a longer day and more rest each, for a 4th pilot’s pay and hotel.'}</span>
+          </span>
+          {!reported && <Toggle on={four} onChange={(v) => store.act((gg) => setDutyAugment(gg, d.id, v ? 2 : null))} label="Fly it with 4 pilots" />}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function DutyModal({ id }: { id: string }) {
   const g = useGame();
   const [pick, setPick] = useState<Pick | null>(null);
@@ -233,10 +302,7 @@ export function DutyModal({ id }: { id: string }) {
             <span className="small muted">
               Report {fmtDateTime(d.report)} UTC{first ? ` (${fmtTime(d.report, first.from)} at ${first.from})` : ''} · release {fmtTime(d.release)} UTC
             </span>
-            <span className="small muted">
-              <Plain text="FDP" terms={['fdp']} /> {fmtDuration(d.fdp)} of {fmtDuration(d.maxFdp + (d.discretion ?? 0))} · {d.sectors} sector{d.sectors === 1 ? '' : 's'}{d.augment ? ` · +${d.augment} pilot${d.augment > 1 ? 's' : ''}` : ''}
-              {ac ? ` · ${ac.reg}` : ''}
-            </span>
+            <DayLength g={g} dutyId={d.id} ac={ac?.reg} />
             <span className="small dim">
               {v.kind === 'tour' ? 'Deployment tour' : 'Trip'} of {open.length} dut{open.length === 1 ? 'y' : 'ies'} still to fly: a change applies to all of them.
             </span>

@@ -13,7 +13,8 @@ import { AircraftArt } from '../components/AircraftArt';
 import { Modal } from '../components/ui';
 import { money } from '../format';
 import { KV } from '../screens/common';
-import { dayIn, GateChip, typeName } from '../screens/Market';
+import { dayIn, GateChip, offerRest, typeName } from '../screens/Market';
+import { RestTwoLiner } from '../components/RestLines';
 import { offerKind, sellerOf } from '../screens/screenLogic';
 import { store, useGame } from '../store';
 
@@ -88,6 +89,7 @@ export function AcquireModal({ offerId }: { offerId: string }) {
           <div className="row gap-8"><b>{t.name}</b><span className={`badge ${kind.tone}`}>{kind.label}</span></div>
           <div className="small muted">{sellerOf(o)} · {o.where ?? q.site} · built {o.builtYear} · {o.cabin.label}</div>
           <div className="row gap-8 wrap"><GateChip v={v} /><span className={`chip mk-chip ${v.crew.level === 'ok' ? 'good' : v.crew.level}`}>{v.crew.text}</span></div>
+          <RestTwoLiner g={g} rest={offerRest(v)} typeId={o.typeId} />
         </div>
       </div>
       <div className="aq-cols">

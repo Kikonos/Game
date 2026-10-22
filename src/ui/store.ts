@@ -5,13 +5,13 @@ import { startTransition, useEffect, useState, useSyncExternalStore } from 'reac
 import { clearPause, takePause, type PauseReason } from '../engine/core/pause';
 import { CLOCK_STEP, type GameSpeed, minutesPerMs, monthKey } from '../engine/core/time';
 import type { CabinLayout, RatingFamily } from '../data/acmiTypes';
-import type { ActionResult, ApprovalId, Archetype, CrewFix, GameState, Message, PaintKind, ProblemRef, Ref, Role } from '../engine/core/types';
+import type { ActionResult, ApprovalId, Archetype, CrewFix, GameState, Message, PaintKind, ProblemRef, Ref, RestRefitId, Role } from '../engine/core/types';
 import { HINTS, type TermId } from '../data/glossary';
 import { problemFor } from '../engine/problems';
 import { acceptOffer, declineOffer, feasibilityAll, generateOffer } from '../engine/contracts';
 import { DAY } from '../engine/core/time';
 import { pushDecision } from '../engine/core/messages';
-import { demoFlights, devCrewShortage, devFleet, devGrantApproval, devMarketOffer, devRestSeats, devSaleReady } from '../engine/dev';
+import { demoFlights, devCrewShortage, devExtension, devFleet, devGrantApproval, devMarketOffer, devRestPlan, devRestSeats, devSaleReady, devShortCruise, devSplit, devStandby } from '../engine/dev';
 import { resignNow } from '../engine/crew';
 import { createGame, type NewGameOptions } from '../engine/newGame';
 import { AUTOSAVE_SLOT, saveToSlot, serialize } from '../engine/save';
@@ -78,7 +78,7 @@ export type ModalSpec =
   | { kind: 'decision'; decisionId: string }
   | { kind: 'hire'; role?: Role; family?: RatingFamily; base?: string }
   | { kind: 'train'; crewId: string }
-  | { kind: 'check'; aircraftId: string; checkKind?: 'A' | 'C'; replace?: string }
+  | { kind: 'check'; aircraftId: string; checkKind?: 'A' | 'C'; replace?: string; /** v0.7.3 tick the crew rest add-on */ restFit?: 'fcrc' | 'overhead'; /** v0.7.3 back to the refit modal's crew rest section */ backToRefit?: boolean }
   /** B5: Schedule detail sheet for the blocks near a tap (flights, maintenance) or an idle gap. */
   | { kind: 'sheet'; refs: Ref[]; idle?: { aircraftId: string; from: number; to: number; at: string } }
   /** Manual roster adjustment for a duty's trip (duty id or flight id). */
@@ -92,7 +92,7 @@ export type ModalSpec =
   | { kind: 'classes' }
   /** v0.7: sign a market offer; cabin refit; lease extend/return; an approval on the ladder; the ladder-step celebration. */
   | { kind: 'acquire'; offerId: string }
-  | { kind: 'refit'; aircraftId: string; layout?: CabinLayout; /** back to this offer when done */ offerId?: string; /** v0.7.2 open on crew rest seats */ rest?: boolean }
+  | { kind: 'refit'; aircraftId: string; layout?: CabinLayout; /** back to this offer when done */ offerId?: string; /** v0.7.2 open on crew rest seats */ rest?: boolean; /** v0.7.3 open on the crew rest section, this option picked */ section?: 'rest'; restOption?: RestRefitId }
   | { kind: 'lease'; aircraftId: string; /** v0.7.2 'early': the early-return tab */ tab?: 'renew' | 'early' }
   /** v0.7.2: sell an owned aircraft (quote, blockers, confirm; cancel an agreed sale). */
   | { kind: 'sell'; aircraftId: string }
@@ -543,6 +543,18 @@ class GameStore {
     this.emit();
   }
 
+  /** v0.7.3 dev scenes: builds one, settles, opens it (flight sheet / duty modal / Crew Control); returns the id. */
+  private devScene(build: (g: GameState) => string, open: 'sheet' | 'duty' | 'crewControl'): string {
+    const g = this.game;
+    if (!g) return '';
+    const id = build(g);
+    settle(g);
+    this.lastMsgId = g.messages[0]?.id ?? this.lastMsgId;
+    if (id) this.openModal(open === 'sheet' ? { kind: 'sheet', refs: [{ kind: 'flight', id }] } : open === 'duty' ? { kind: 'duty', id } : { kind: 'crewControl', flightId: id });
+    this.emit();
+    return id;
+  }
+
   // ---------- navigation & UI ----------
 
   navigate(tab: Tab, extra: Omit<Nav, 'tab'> = {}) {
@@ -742,6 +754,12 @@ class GameStore {
       this.emit();
       return id;
     },
+    /** v0.7.3 §7: dev scenes; each opens the flight sheet (flight id) or the duty modal (duty id) and returns the id. */
+    restPlan: () => this.devScene(devRestPlan, 'sheet'),
+    shortCruise: () => this.devScene(devShortCruise, 'sheet'),
+    extension: () => this.devScene(devExtension, 'duty'),
+    split: () => this.devScene(devSplit, 'duty'),
+    standby: () => this.devScene(devStandby, 'crewControl'),
     /** v0.7.2: an owned aircraft with no work after 10 days (sellable); opens the sale dialog; returns its id. */
     saleReady: () => {
       const g = this.game;

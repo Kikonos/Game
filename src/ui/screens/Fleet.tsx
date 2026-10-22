@@ -2,20 +2,20 @@
 // Fleet · Market switch (the scarce aircraft market, Market.tsx); cards add the delivery, the lease end
 // (extend or return) and the cabin with refits. DESIGN.md §6.3, UPDATE-0.7.md §F6.7, §F7.5.
 
-import { BadgeDollarSign, CalendarRange, HelpCircle, Lock, Palette, Plane, Sofa, Undo2, Wrench, X } from 'lucide-react';
-import { type ReactNode, useEffect, useState } from 'react';
+import { BadgeDollarSign, BedDouble, CalendarRange, HelpCircle, Lock, Palette, Plane, Sofa, Undo2, Wrench, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { artFor } from '../../data/acmiTypes';
 import { MRO_STATIONS } from '../../data/market';
 import { cabinMinimum, typeOf } from '../../engine/core/perf';
 import { DAY, fmtDate, fmtDay, yearOf } from '../../engine/core/time';
-import type { Aircraft, CrewExtra, GameState, LiveryRef } from '../../engine/core/types';
+import type { Aircraft, CrewExtra, GameState, LiveryRef, MaintenanceEvent } from '../../engine/core/types';
 import { BAL } from '../../engine/core/balance';
-import { crewExtraQuote, setCrewExtra, shortFlights } from '../../engine/crew';
-import { cancelCheck, checkStatus, deliveryStatus, leastUsed, type LeastUsedRow, leaseView, liveryOf, paintStatus, setAircraftLivery } from '../../engine/ops';
+import { crewExtraQuote, restOf, setCrewExtra, shortFlights } from '../../engine/crew';
+import { cancelCheck, checkStatus, deliveryStatus, leastUsed, type LeastUsedRow, leaseView, liveryOf, paintStatus, restRefitOptions, setAircraftLivery } from '../../engine/ops';
 import { problemAt } from '../../engine/problems';
 import { AircraftArt } from '../components/AircraftArt';
 import { Why } from '../components/Why';
-import { Term } from '../components/Term';
+import { restRows } from '../components/RestLines';
 import { Empty, Seg, Stepper, Toggle } from '../components/ui';
 import { money } from '../format';
 import { spanLabel } from './screenLogic';
@@ -134,13 +134,11 @@ function LeastUsedLine({ g, ac, least, onClose }: { g: GameState; ac: Aircraft; 
   );
 }
 
-/** v0.7.2: 'bunks (class 1)' · 'seats (last row, 8)' · 'none'. */
-export function crewRestLabel(ac: Pick<Aircraft, 'crewRest'>): string {
-  const r = ac.crewRest;
-  if (r?.bunks) return 'bunks (class 1)';
-  if (r?.seats) return `seats (last row, ${r.seats})`;
-  return 'none';
-}
+/** v0.7.3 the crew rest refit a maintenance event fits, in a few words ('lower-deck crew rest module'). */
+export const REST_FIT_LABEL: Record<NonNullable<MaintenanceEvent['restFit']>, string> = {
+  curtainJ: 'Curtained business seats', recliners: 'Crew rest recliners', removeRecliners: 'Crew rest recliners removed',
+  ldmcr: 'Lower-deck crew rest module', fcrc: 'Flight crew rest compartment', overhead: 'Overhead crew rest',
+};
 
 function AircraftCard({ g, ac, sel, least, onLeastClose }: { g: GameState; ac: Aircraft; sel: boolean; least?: LeastUsedRow; onLeastClose: () => void }) {
   const t = typeOf(ac.typeId);
@@ -187,8 +185,8 @@ function AircraftCard({ g, ac, sel, least, onLeastClose }: { g: GameState; ac: A
         ['At', ac.status === 'delivering' ? (ds ? `handover at ${ds.site} ${fmtDay(ds.handover)}` : `arrives ${fmtDate(ac.deliveredAt)}`) : ac.at],
         ['Hours / cycles', `${Math.round(ac.hours).toLocaleString('en-US')} / ${Math.round(ac.cycles).toLocaleString('en-US')}`],
         ['ETOPS', etopsLabel(g, ac)],
-        // v0.7.2 §3.4: bunks (class 1) or crew rest seats (class 3) or none; widebodies only (short-haul never has any).
-        ...(t.body === 'wide' ? [[<Term key="cr" id="crewRest">Crew rest</Term>, crewRestLabel(ac)] as [ReactNode, string]] : []),
+        // v0.7.3 §2.6 item 1: pilots' and cabin crew's rest (every type) and the longest day it allows.
+        ...restRows(g, restOf(g, ac.id), ac.typeId),
       ]} />
       <CrewExtraRow g={g} ac={ac} />
       {cs ? (
@@ -246,14 +244,19 @@ function CabinRow({ g, ac }: { g: GameState; ac: Aircraft }) {
     onConfirm: () => store.act((gg) => cancelCheck(gg, m.id)),
   });
   const busy = ac.status === 'delivering' || !!ac.returning;
+  const rest = restRefitOptions(g, ac.id).length > 0;
   return (
     <div className="fl-row fl-cabin">
       <div className="col grow" style={{ minWidth: 0 }}>
         <span className="small"><span className="upper dim">Cabin</span> <b>{ac.cabin.label}</b> {layoutLabel(ac.cabin.layout)} · crew minimum {cabinMinimum(ac.cabin.total)} cabin</span>
-        {m?.refit && <span className="small accent">{m.refit.restSeats !== undefined ? (m.refit.restSeats ? 'Crew rest seats fitted' : 'Crew rest seats removed') : `Refit to ${m.refit.cabin.label}`} at {st?.city ?? m.at} {fmtDay(m.start)}–{fmtDay(m.end)}{m.status === 'inWork' ? ' · in work' : ''}</span>}
+        {m?.refit && <span className="small accent">{m.restFit ? `${REST_FIT_LABEL[m.restFit]}${m.restFit === 'removeRecliners' ? '' : ' fitted'}` : m.refit.restSeats !== undefined ? (m.refit.restSeats ? 'Crew rest seats fitted' : 'Crew rest seats removed') : `Refit to ${m.refit.cabin.label}`} at {st?.city ?? m.at} {fmtDay(m.start)}–{fmtDay(m.end)}{m.status === 'inWork' ? ' · in work' : ''}</span>}
       </div>
       {m ? (m.status === 'planned' && <button className="btn btn-sm" onClick={cancel}>Cancel refit</button>)
-        : <button className="btn btn-sm" disabled={busy} onClick={() => store.openModal({ kind: 'refit', aircraftId: ac.id })}><Sofa /> Refit…</button>}
+        : <span className="row gap-8">
+          {/* v0.7.3 §2.6 item 1: straight to the refit modal's crew rest section when there is anything to fit. */}
+          {rest && <button className="btn btn-sm fl-rest-btn" disabled={busy} onClick={() => store.openModal({ kind: 'refit', aircraftId: ac.id, section: 'rest' })}><BedDouble /> Crew rest…</button>}
+          <button className="btn btn-sm" disabled={busy} onClick={() => store.openModal({ kind: 'refit', aircraftId: ac.id })}><Sofa /> Refit…</button>
+        </span>}
     </div>
   );
 }

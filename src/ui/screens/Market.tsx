@@ -2,16 +2,18 @@
 // terms, where the aircraft is handed over, the delivery ferry and the pilots' airline deadheads, and chips for
 // the ladder gate, rated crew and how long the offer stays open. Lease… / Buy… opens the AcquireModal.
 
-import { Lock, ShoppingCart, TrendingUp } from 'lucide-react';
-import { useEffect } from 'react';
+import { BedDouble, Lock, ShoppingCart, TrendingUp } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { artFor } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { MARKET_LIVERY } from '../../data/livery';
 import { typeOf } from '../../engine/core/perf';
 import { DAY, fmtDate, fmtDay, yearOf } from '../../engine/core/time';
 import type { GameState } from '../../engine/core/types';
+import { hasBunks, migrateRest } from '../../engine/crew';
 import { marketView, type MarketOfferView } from '../../engine/ops';
 import { AircraftArt } from '../components/AircraftArt';
+import { RestTwoLiner } from '../components/RestLines';
 import { Flag, Toggle } from '../components/ui';
 import { money } from '../format';
 import { store, useStore } from '../store';
@@ -44,7 +46,7 @@ export function GateChip({ v }: { v: Pick<MarketOfferView, 'gate'> }) {
   return <span className="chip mk-chip good">{gt.text === 'No approval needed' ? 'No approval needed' : 'Approved'}</span>;
 }
 
-function OfferCard({ now, v, sel }: { now: number; v: MarketOfferView; sel: boolean }) {
+function OfferCard({ g, now, v, sel }: { g: GameState; now: number; v: MarketOfferView; sel: boolean }) {
   const o = v.offer;
   const kind = offerKind(o);
   const site = v.quote.site;
@@ -67,6 +69,8 @@ function OfferCard({ now, v, sel }: { now: number; v: MarketOfferView; sel: bool
         <b className="num">{termsLine(v)}</b>
         {lease && <span className="small dim"> · reserves ${o.reservesPerFH.toLocaleString('en-US')}/FH</span>}
       </div>
+      {/* v0.7.3 §2.6 item 2: pilots' and cabin crew's rest, rolled per airframe, and the longest day they allow. */}
+      <RestTwoLiner g={g} rest={offerRest(v)} typeId={o.typeId} />
       <div className="mk-deliv small">
         <div>{handoverLine(now, v)}</div>
         {v.quote.legs.length > 0 && <div className="muted">Ferry {v.quote.text}</div>}
@@ -75,8 +79,7 @@ function OfferCard({ now, v, sel }: { now: number; v: MarketOfferView; sel: bool
       <div className="mk-chips">
         <GateChip v={v} />
         <span className={`chip mk-chip ${v.crew.level === 'ok' ? 'good' : v.crew.level}`}>{v.crew.text}</span>
-        {/* v0.7.2 §3.4: widebodies come with bunks or without (short-haul types never have any). */}
-        {typeOf(o.typeId).body === 'wide' && <span className={`chip mk-chip ${o.crewRest?.bunks ? 'good' : ''}`}>Crew rest: {o.crewRest?.bunks ? 'bunks' : o.crewRest?.seats ? `seats (${o.crewRest.seats})` : 'none'}</span>}
+        {hasBunks(offerRest(v)) && <span className="chip mk-chip good"><BedDouble className="sc-ico-s" />Bunks</span>}
         <span className="chip mk-chip">{v.daysLeft <= 1 ? 'Last day' : `Open ${v.daysLeft} more days`}</span>
       </div>
       <div className="row gap-8 mk-foot">
@@ -89,6 +92,9 @@ function OfferCard({ now, v, sel }: { now: number; v: MarketOfferView; sel: bool
     </div>
   );
 }
+
+/** v0.7.3 an offer's rolled rest facilities (old open offers migrated on the fly). */
+export const offerRest = (v: Pick<MarketOfferView, 'offer'>) => v.offer.rest ?? migrateRest(v.offer);
 
 /** v0.7.2 F2: the market alert toggles live here (moved from Settings). */
 function MarketAlerts() {
@@ -108,11 +114,14 @@ function MarketAlerts() {
 }
 
 export function MarketView({ g, sel }: { g: GameState; sel: string | null }) {
-  const list = marketView(g);
-  const ids = list.map((v) => v.offer.id).join();
+  const all = marketView(g);
+  // v0.7.3 'Has bunks': offers with any class 1 facility (local to the visit).
+  const [bunks, setBunks] = useState(false);
+  const list = bunks ? all.filter((v) => hasBunks(offerRest(v))) : all;
+  const ids = all.map((v) => v.offer.id).join();
   // Seen on visit: the switch's dot clears; a deep link (Inbox) scrolls to its card.
   useEffect(() => {
-    const ids = list.map((v) => v.offer.id);
+    const ids = all.map((v) => v.offer.id);
     const fresh = unseenOffers(ids) > 0;
     markMarketSeen(ids);
     // v0.7.2: the top bar's offer chip goes once seen.
@@ -124,9 +133,14 @@ export function MarketView({ g, sel }: { g: GameState; sel: string | null }) {
   return (
     <>
       <MarketAlerts />
-      <div className="small muted mb-8">Good airframes are scarce: about one offer a month, open for one to three weeks. Aircraft are handed over where they are; our pilots fly out on airlines and ferry them home.</div>
+      <div className="row gap-12 mb-8 mk-intro">
+        <span className="small muted grow">Good airframes are scarce: about one offer a month, open for one to three weeks. Aircraft are handed over where they are; our pilots fly out on airlines and ferry them home.</span>
+        <button className={`mk-filter ${bunks ? 'on' : ''}`} aria-pressed={bunks} onClick={() => setBunks(!bunks)}><BedDouble /> Has bunks{bunks ? ` (${list.length})` : ''}</button>
+      </div>
       {list.length ? (
-        <div className="mk-grid">{list.map((v) => <OfferCard key={v.offer.id} now={g.now} v={v} sel={sel === v.offer.id} />)}</div>
+        <div className="mk-grid">{list.map((v) => <OfferCard key={v.offer.id} g={g} now={g.now} v={v} sel={sel === v.offer.id} />)}</div>
+      ) : bunks && all.length ? (
+        <div className="card sc-pad muted small">None of the {all.length} offer{all.length === 1 ? '' : 's'} has bunks (class 1 rest for the pilots or the cabin crew). <button className="btn btn-sm" onClick={() => setBunks(false)}>Show all</button></div>
       ) : (
         <div className="card sc-pad muted small">No aircraft on offer right now. Lessors call every few weeks{early ? '; the first offer usually comes within two months' : ''}.{store.settings.marketAlerts ? ' Market alerts are on: you will hear about new ones.' : ' Turn on market alerts above to hear about new ones.'}</div>
       )}

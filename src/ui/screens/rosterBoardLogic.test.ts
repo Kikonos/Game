@@ -3,7 +3,7 @@ import { DAY } from '../../engine/core/time';
 import type { CrewMember, Role } from '../../engine/core/types';
 import type { BoardRow, CalBlock, DropTarget } from '../../engine/crew';
 import {
-  blockCands, blockKeys, boardItems, itemsSig, rowSig, boardLayout, dayCodes, dayWidth, dayWindow, edgeSpeed, fitText, GROUP_H, itemAt, LEFT_W, matchBoard, moraleTone, NO_BOARD_FILTER,
+  blockCands, blockKeys, boardItems, dutyMark, MARK_SEP, splitMark, itemsSig, rowSig, boardLayout, dayCodes, dayWidth, dayWindow, edgeSpeed, fitText, GROUP_H, itemAt, LEFT_W, matchBoard, moraleTone, NO_BOARD_FILTER,
   ROW_H, verdictText, visibleRange, weekLabels, workCode,
 } from './rosterBoardLogic';
 
@@ -174,5 +174,23 @@ describe('board refresh (v0.7 C2)', () => {
     const x = boardItems(list, NO_BOARD_FILTER, 'LIS');
     expect(itemsSig(x)).toBe(itemsSig(boardItems(list, NO_BOARD_FILTER, 'LIS')));
     expect(itemsSig(x)).not.toBe(itemsSig(boardItems([list[0]], NO_BOARD_FILTER, 'LIS')));
+  });
+});
+
+describe('v0.7.3 duty marks', () => {
+  it('3P / 4P / +1h / SPLIT on duties only, marked labels first then plain', () => {
+    const duty = blk({ flights: [fl('AW201', 'LIS', 'GRU')] });
+    expect(dutyMark({ ...duty, aug: 1 })).toBe('3P');
+    expect(dutyMark({ ...duty, aug: 2 })).toBe('4P');
+    expect(dutyMark({ ...duty, ext: true })).toBe('+1h');
+    expect(dutyMark({ ...duty, split: true })).toBe('SPLIT');
+    expect(dutyMark({ kind: 'deadhead', aug: 1 })).toBe('');
+    const c = blockCands({ ...duty, aug: 1 });
+    expect(c[0]).toBe(`AW201 LIS–GRU${MARK_SEP}3P`);
+    expect(c).toContain('AW201 LIS–GRU');
+    expect(c[c.length - 1]).toBe(`${MARK_SEP}3P`);
+    expect(splitMark(c[0])).toEqual(['AW201 LIS–GRU', '3P']);
+    expect(splitMark('AW201')).toEqual(['AW201', '']);
+    expect(blockCands(duty)).not.toContain(`${MARK_SEP}3P`);
   });
 });

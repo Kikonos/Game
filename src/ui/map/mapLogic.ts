@@ -6,7 +6,7 @@ import { flightsOf } from '../../engine/core/entities';
 import { haversine } from '../../engine/core/geo';
 import { flightTimes } from '../../engine/core/query';
 import { DAY, fmtDay, fmtTime } from '../../engine/core/time';
-import type { Aircraft, Archetype, ContractOffer, Flight, GameState, Minute, Ref } from '../../engine/core/types';
+import type { AcRest, Aircraft, Archetype, ContractOffer, Flight, GameState, Minute, Ref, RestFacility, RestKind } from '../../engine/core/types';
 import { crewAway, shortFlights } from '../../engine/crew';
 import { commercialFlightsBetween, type CommercialFlight, commercialItinerary, type FlightType, flightType } from '../../engine/ops';
 import { contractColor } from '../screens/palette';
@@ -502,4 +502,38 @@ export function chipInfo(g: GameState, ac: Aircraft, t: Minute, short?: ShortRow
   const soon = dep - t < 20 * 60;
   const when = soon ? fmtTime(dep) : `· ${fmtDay(dep)}`;
   return { tone: dep - t < 24 * 60 ? 'good' : 'idle', line: `${next.from}→${next.to} ${when}`, short: soon ? `${next.to} ${fmtTime(dep)}` : `${next.to} ${fmtDay(dep)}` };
+}
+
+// ---------- v0.7.3 crew rest on the aircraft panel ----------
+
+const REST_WORD: Record<RestKind, string> = { fcrc: 'bunks', ccrc: 'bunks', ldmcr: 'lower-deck module', jSeats: 'business seats', recliners: 'recliners' };
+const restWord = (f: RestFacility | null) => (f ? REST_WORD[f.kind] : 'none');
+
+/** Aircraft panel chip: 'Rest: pilots bunks · cabin crew business seats' ('Rest: pilots & cabin crew bunks' when alike); null when the aircraft has no crew rest at all. */
+export function restChip(r: AcRest): string | null {
+  if (!r.fc && !r.cc) return null;
+  if (r.fc && r.cc && restWord(r.fc) === restWord(r.cc)) return `Rest: pilots & cabin crew ${restWord(r.fc)}`;
+  return `Rest: pilots ${restWord(r.fc)} · cabin crew ${restWord(r.cc)}`;
+}
+
+const WHERE: Record<RestKind, string> = { fcrc: 'bunk', ccrc: 'bunk', ldmcr: 'lower deck', jSeats: 'business seat', recliners: 'recliner' };
+const PILOT_NAME = /^(Capt\.|FO|CRP)\b/;
+
+/**
+ * The one calm airborne line from `restNow` rows: 'Resting: Capt. Silva (bunk) until 14:20 UTC'; several rows
+ * joined with ' · ', a cabin crew group as '4 cabin crew'. null when nobody rests now.
+ */
+export function restingLine(rows: { names: string[]; where: RestKind; until: Minute }[]): string | null {
+  if (!rows.length) return null;
+  const parts = rows.map((r) => {
+    const pilots = r.names.filter((n) => PILOT_NAME.test(n));
+    const who = pilots.length === r.names.length ? r.names.join(', ') : r.names.length > 1 ? `${r.names.length} cabin crew` : r.names[0];
+    return `${who} (${WHERE[r.where]}) until ${fmtTime(r.until)}`;
+  });
+  return `Resting: ${parts.join(' · ')} UTC`;
+}
+
+/** Seats line noun for the blocked rest seats: 'business seats' / 'seats'. */
+export function restSeatNoun(r: AcRest): string {
+  return r.cc?.kind === 'jSeats' || r.fc?.kind === 'jSeats' ? 'business seats' : 'seats';
 }

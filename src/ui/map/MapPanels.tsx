@@ -7,6 +7,8 @@
 // flight's aircraft panel; WHY? on red/amber leg dots (opens the problem card); the chartered private jet's panel.
 // v0.7.2: seats named by the seat flown ('CPT (as FO)'), crew rest seats blocked on the leg, C-check / sale ferries,
 // the hotel list counted as pilots and cabin crew.
+// v0.7.3: the rest chip names both sides (pilots · cabin crew), the bunk glyph on the art, and airborne on an augmented
+// duty one calm 'Resting: … until …' line (restNow, on the clock step only).
 
 import { CalendarRange, FileSearch, LifeBuoy, PackageCheck, Plane, Undo2, Users, Wrench, X } from 'lucide-react';
 import { type ReactNode, useMemo } from 'react';
@@ -20,17 +22,18 @@ import { flightsOf } from '../../engine/core/entities';
 import { currentFlight, flightTimes } from '../../engine/core/query';
 import { DAY, fmtDay, fmtDuration, fmtTime, localOffset } from '../../engine/core/time';
 import type { Aircraft, CrewMember, Flight, GameState, MaintenanceEvent, ProblemRef, Ref, Role } from '../../engine/core/types';
-import { crewName, crewShortCard, dutyCrew, flightCrewStatus, restSeatsBlocked, sellableSeats, seatsText } from '../../engine/crew';
+import { crewName, crewShortCard, dutyCrew, flightCrewStatus, restNow, restOf, restSeatsBlocked, restText, sellableSeats, seatsText } from '../../engine/crew';
 import { checkStatus, CONNECT_MIN, commercialItinerary, deliveryStatus, FLIGHT_TYPE_HINT, FLIGHT_TYPE_LABEL, flightCrewAboard, type FlightType, flightType, liveryOf, problemAt, ticketPurpose } from '../../engine/ops';
 import { ferryCost } from '../../engine/ops/delivery';
 import { AircraftArt } from '../components/AircraftArt';
+import { artRest } from '../components/aircraft/restGlyph';
 import { Bar } from '../components/ui';
 import { money } from '../format';
 import { contractColor } from '../screens/palette';
 import { type ModalSpec, store } from '../store';
 import { paintLabel } from '../screens/scheduleLogic';
 import { archLabel, expiryLabel, offerDays } from '../screens/screenLogic';
-import { awaitingDelivery, chipInfo, commercialById, deliveryTag, parseCommercialId, PURPOSE_LABEL, purposeChain, shortIndex, type ShortRow, upcomingLegs } from './mapLogic';
+import { awaitingDelivery, chipInfo, commercialById, deliveryTag, parseCommercialId, PURPOSE_LABEL, purposeChain, restChip, restingLine, restSeatNoun, shortIndex, type ShortRow, upcomingLegs } from './mapLogic';
 import { MiniMap } from './MiniMap';
 
 const ROLE_ORDER = ['CPT', 'FO', 'CRP', 'PUR', 'CC'];
@@ -325,8 +328,12 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
   const crewFlight = cur ?? legs[0];
   const seats = crewFlight ? seatsOf(g, crewFlight) : new Map<string, Role>();
   const crew = crewFlight ? crewOf(g, crewFlight, seats) : [];
-  // v0.7.2 crew rest seats (last economy row, curtained) blocked on a leg that needs in-flight rest.
+  // v0.7.3 crew rest facilities (pilots / cabin crew), seats blocked on a leg where someone rests, and who rests now
+  // (the panel renders on the hourly emit: the line steps with the clock only).
+  const rest = safe(() => restOf(g, ac.id), { fc: null, cc: null });
   const restBlocked = crewFlight ? safe(() => restSeatsBlocked(g, crewFlight.id), 0) : 0;
+  const hourKey = Math.floor(t / 60);
+  const resting = useMemo(() => (cur ? safe(() => restingLine(restNow(g, ac.id, t)), null) : null), [ac.id, cur?.id, hourKey, store.version]); // eslint-disable-line react-hooks/exhaustive-deps
   const cstat0 = crewFlight ? safe(() => flightCrewStatus(g, crewFlight.id), null) : null;
   const dc = crewFlight?.dutyId ? safe(() => dutyCrew(g, crewFlight.id), null) : null;
   // v0.6: seats above the legal minimum (crew-extra settings) are tagged "Extra"; empty ones listed as open.
@@ -400,14 +407,14 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
 
   return (
     <Panel title={<span className="mono">{ac.reg}</span>} kicker={`${type?.name ?? ac.typeId} · ${ac.cabin.label}`} onClose={() => store.select(undefined)}>
-      <div className="op-art"><AircraftArt typeId={artFor(ac.typeId)} livery={lv.livery} code={lv.code} name={lv.name} /></div>
+      <div className="op-art"><AircraftArt typeId={artFor(ac.typeId)} livery={lv.livery} code={lv.code} name={lv.name} rest={artRest(rest)} /></div>
       {lv.source === 'client' && <div className="small muted op-livery">In {lv.clientName} colours{lv.contractId && g.contracts[lv.contractId] ? ` for ${g.contracts[lv.contractId].title}` : ''}</div>}
       <div className="row wrap op-chips">
         <span className={`chip tone-${chip.tone}`}><Dot tone={chip.tone} />{cur ? 'Airborne' : ac.status === 'available' ? 'Available' : ac.status === 'aog' ? 'AOG' : ac.status === 'maintenance' ? 'Maintenance' : ac.status === 'delivering' ? 'Delivering' : ac.status}</span>
         {curType === 'ferry' && !deliveryTag(ac) && <span className="chip op-ferry-tag">FERRY</span>}
         {deliveryTag(ac) && <span className="chip op-dlv-tag">DELIVERY</span>}
         <span className="chip">{ac.ownership.kind === 'owned' ? 'Owned' : 'Dry-leased in'}</span>
-        {ac.crewRest && (ac.crewRest.bunks || ac.crewRest.seats > 0) && <span className="chip">{ac.crewRest.bunks ? 'Crew rest: bunks' : 'Crew rest: seats'}</span>}
+        {restChip(rest) && <span className="chip op-rest-chip" title={`Pilots: ${restText(rest.fc, 'fc', ac.typeId)} · Cabin crew: ${restText(rest.cc, 'cc', ac.typeId)}`}>{restChip(rest)}</span>}
         <span className="chip">{ac.builtYear}</span>
       </div>
       <Section title={cur ? 'Current flight' : 'Now'}>{now}</Section>
@@ -457,10 +464,11 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
         )}
         {cstat && !later && cstat.missing.length > 0 && <div className="small tone-bad op-gap">Missing: {seatsText(groupSeats(cstat.missing))}</div>}
         {crewFlight && restBlocked > 0 && (
-          <div className="small muted op-gap op-rest-seats" title="The last economy row is curtained off for the crew's in-flight rest on this leg">
-            {restBlocked} seats blocked for crew rest · {safe(() => sellableSeats(g, crewFlight.id), ac.cabin.total - restBlocked)} on sale
+          <div className="small muted op-gap op-rest-seats" title="Seats curtained off for the crew's in-flight rest on this leg">
+            {restBlocked} {restSeatNoun(rest)} blocked for crew rest · {safe(() => sellableSeats(g, crewFlight.id), ac.cabin.total - restBlocked)} on sale
           </div>
         )}
+        {resting && <div className="small muted op-gap op-resting">{resting}</div>}
         {riders.length > 0 && (
           <>
             <div className="small muted op-gap">Riding as passengers</div>

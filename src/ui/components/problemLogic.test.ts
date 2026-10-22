@@ -62,7 +62,9 @@ describe('card actions and banners', () => {
     expect(actionTarget(g, { id: 'c', label: 'x', open: { modal: 'cCheck', id: 'a1' } })).toEqual({ modal: { kind: 'check', aircraftId: 'a1', checkKind: 'C' } });
     expect(actionTarget(g, { id: 'planCheck', label: 'Plan at Sofia', open: { modal: 'check', id: 'a1' } })).toEqual({ modal: { kind: 'check', aircraftId: 'a1', checkKind: 'C' } });
     expect(actionTarget(g, { id: 'planCheck', label: 'Plan check', open: { modal: 'check', id: 'a1' } })).toEqual({ modal: { kind: 'check', aircraftId: 'a1' } });
-    expect(actionTarget(g, { id: 'refit', label: 'Plan crew rest', open: { modal: 'refit', id: 'a1' } })).toEqual({ modal: { kind: 'refit', aircraftId: 'a1', rest: true } });
+    expect(actionTarget(g, { id: 'refit', label: 'Plan crew rest', open: { modal: 'refit', id: 'a1' } })).toEqual({ modal: { kind: 'refit', aircraftId: 'a1', section: 'rest' } });
+    // v0.7.3 the cabin rest card's 'Plan a lower-deck module' picks that refit.
+    expect(actionTarget(g, { id: 'refit', label: 'Plan a lower-deck module', open: { modal: 'refit', id: 'a1' } })).toEqual({ modal: { kind: 'refit', aircraftId: 'a1', section: 'rest', restOption: 'ldmcr' } });
   });
   it('tones the CREW SHORTAGE banner by the ladder stage', () => {
     expect(crewBanner(undefined, 30)).toBeNull();

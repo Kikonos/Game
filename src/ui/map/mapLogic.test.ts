@@ -4,12 +4,13 @@ import { flightsOf } from '../../engine/core/entities';
 import { aircraftLive } from '../../engine/core/query';
 import { fmtTime, fromUTC } from '../../engine/core/time';
 import type { ContractOffer } from '../../engine/core/types';
-import { demoFlights } from '../../engine/dev';
+import { demoFlights, devRestPlan } from '../../engine/dev';
+import { restNow, restPlanForFlight } from '../../engine/crew';
 import { createGame } from '../../engine/newGame';
 import { advanceTo } from '../../engine/sim';
 import {
   awaitingDelivery, chipInfo, commercialById, deliveryTag, fitCodes, onMap, purposeChain, groupCommercial, headingDeg, isCommercialId, lerpAngle, mapAirports, offerPins, parkOffset, PARK_GAP, parseCommercialId, downSide, legLabelSide, pickNearest, placeLabels, regSlot, REG_DY,
-  JET_PATH, selectedLegs, shortIndex, trackLabelAt, sunElevation, sunPoint, terminator, TYPE_STROKE, upNext, upNextRows,
+  JET_PATH, restChip, restingLine, restSeatNoun, selectedLegs, shortIndex, trackLabelAt, sunElevation, sunPoint, terminator, TYPE_STROKE, upNext, upNextRows,
 } from './mapLogic';
 import { addDeadhead } from '../../engine/core/entities';
 import { acquireAircraft, commercialFlightsBetween, deliveryStatus, ticketBlock, ticketPurpose } from '../../engine/ops';
@@ -453,5 +454,42 @@ describe('v0.7.2 hotel dots and C-check ferries', () => {
     expect(purposeChain(g, g.flights[out[out.length - 1]]).map((f) => f.id)).toEqual(out);
     expect(purposeChain(g, g.flights[home[0]]).map((f) => f.id)).toEqual(home);
     expect(PURPOSE_LABEL[g.flights[home[0]].purpose!]).toBe('C-check ferry');
+  });
+});
+
+describe('v0.7.3 crew rest on the aircraft panel', () => {
+  it('names both sides in the chip, nothing without rest', () => {
+    expect(restChip({ fc: { cls: 1, kind: 'fcrc', places: 2 }, cc: { cls: 2, kind: 'jSeats', places: 4 } })).toBe('Rest: pilots bunks · cabin crew business seats');
+    expect(restChip({ fc: { cls: 1, kind: 'fcrc', places: 2 }, cc: null })).toBe('Rest: pilots bunks · cabin crew none');
+    expect(restChip({ fc: null, cc: { cls: 1, kind: 'ldmcr', places: 7 } })).toBe('Rest: pilots none · cabin crew lower-deck module');
+    expect(restChip({ fc: { cls: 2, kind: 'jSeats', places: 2 }, cc: { cls: 2, kind: 'jSeats', places: 5 } })).toBe('Rest: pilots & cabin crew business seats');
+    expect(restChip({ fc: { cls: 1, kind: 'fcrc', places: 2 }, cc: { cls: 1, kind: 'ccrc', places: 8 } })).toBe('Rest: pilots & cabin crew bunks');
+    expect(restChip({ fc: null, cc: null })).toBeNull();
+    expect(restSeatNoun({ fc: null, cc: { cls: 2, kind: 'jSeats', places: 4 } })).toBe('business seats');
+    expect(restSeatNoun({ fc: null, cc: { cls: 3, kind: 'recliners', places: 3 } })).toBe('seats');
+  });
+
+  it('writes one calm resting line: pilots by name, a cabin crew group by count', () => {
+    expect(restingLine([])).toBeNull();
+    const t = fromUTC(2027, 3, 1, 14, 20);
+    expect(restingLine([{ names: ['Capt. Silva'], where: 'fcrc', until: t }])).toBe(`Resting: Capt. Silva (bunk) until ${fmtTime(t)} UTC`);
+    expect(restingLine([{ names: ['Ana Reis', 'Rui Melo', 'Eva Lobo', 'Inês Sá'], where: 'ldmcr', until: t }])).toBe(`Resting: 4 cabin crew (lower deck) until ${fmtTime(t)} UTC`);
+    expect(restingLine([{ names: ['FO Costa'], where: 'jSeats', until: t }, { names: ['Ana Reis'], where: 'jSeats', until: t + 30 }]))
+      .toBe(`Resting: FO Costa (business seat) until ${fmtTime(t)} · Ana Reis (business seat) until ${fmtTime(t + 30)} UTC`);
+  });
+
+  it('finds someone resting mid-cruise on an augmented long-haul, and the line is pure', () => {
+    const g = game(11);
+    const id = devRestPlan(g);
+    expect(id).not.toBe('');
+    const plan = restPlanForFlight(g, id);
+    expect(plan?.ok).toBe(true);
+    const turn = plan!.pilots.find((x) => x.flightId === id)!;
+    const acId = g.flights[id].aircraftId!;
+    advanceTo(g, turn.start + 5);
+    expect(g.fleet[acId].flightId).toBe(id);
+    const a = restingLine(restNow(g, acId, g.now));
+    expect(a).toMatch(/^Resting: .*\((bunk|business seat)\) until \d\d:\d\d.* UTC$/);
+    expect(restingLine(restNow(g, acId, g.now))).toBe(a);
   });
 });
