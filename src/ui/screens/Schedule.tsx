@@ -17,8 +17,9 @@ import { liveMinute, store, useGame } from '../store';
 import { Dot, ScreenHead, useRenderCount } from './common';
 import { contractColor } from './palette';
 import {
-  axisTicks, chooseHits, idleAt, pickBlocks, ppmOf, rowBlocks, timelineSpan, visibleWindow, type GanttBlock, type ZoomDays,
+  axisTicks, chooseHits, idleAt, pickBlocks, ppmOf, pressFlight, rowBlocks, timelineSpan, visibleWindow, type GanttBlock, type ZoomDays,
 } from './scheduleLogic';
+import { quoteTripMove, tripOf, type TripMoveQuote, type TripView } from '../../engine/ops/tripMove';
 
 const ZOOMS: ZoomDays[] = [3, 7, 28];
 const STATUS_TONE: Record<Aircraft['status'], 'good' | 'warn' | 'bad' | 'info' | 'off'> = {
@@ -37,6 +38,34 @@ const loadZoom = (): ZoomDays => {
   }
 };
 
+// ---------- v0.7.2.1 trip swap: long-press a flight, drag its whole trip onto another aircraft's row ----------
+
+/** Hold this long to pick a trip up (a shorter tap opens the flight sheet as before). */
+const LONG_PRESS = 350;
+/** A finger that moves this far before the long press is scrolling: no pick-up. */
+const TOUCH_SLOP = 10;
+/** A mouse picks up after moving this far with the button down (or after the long press). */
+const MOUSE_SLOP = 6;
+/** When the last drag ended (its release is not a tap). */
+let dragEndedAt = 0;
+
+interface TripDrag {
+  phase: 'press' | 'drag';
+  touch: boolean;
+  x0: number;
+  y0: number;
+  x: number;
+  y: number;
+  flightId: string;
+  sourceId: string;
+  timer: number;
+  trip?: TripView;
+  ghost?: HTMLDivElement;
+  bubble?: HTMLDivElement;
+  hover: string | null;
+  quotes: Map<string, TripMoveQuote>;
+}
+
 function Block({ b, from, ppm, win0 }: { b: GanttBlock; from: number; ppm: number; win0: number }) {
   const x = (b.start - from) * ppm;
   const w = Math.max(b.kind === 'idle' ? 0 : 3, (b.end - b.start) * ppm);
@@ -51,6 +80,7 @@ function Block({ b, from, ppm, win0 }: { b: GanttBlock; from: number; ppm: numbe
   const shift = b.kind === 'idle' ? Math.min(Math.max(0, (win0 + 18 * 60 - b.start) * ppm), Math.max(0, w - 90)) : 0;
   return (
     <div
+      data-k={b.key}
       className={`gb gb-${b.kind}${b.ftype && b.ftype !== 'operating' ? ` ${b.ftype}` : ''}${b.paint ? ' gb-paint' : ''}${b.done ? ' done' : ''}${b.crew ? ` crew-${b.crew}` : ''}${b.alert ? ' crew-short' : ''}`}
       style={{ transform: `translateX(${x.toFixed(1)}px)`, width: w, ['--kc' as string]: k, ['--pc' as string]: b.paint }}
     >
@@ -62,6 +92,8 @@ function Block({ b, from, ppm, win0 }: { b: GanttBlock; from: number; ppm: numbe
 function Row({ g, ac, from, until, win, zoom, ppm, sel }: { g: GameState; ac: Aircraft; from: number; until: number; win: [number, number]; zoom: ZoomDays; ppm: number; sel: boolean }) {
   const blocks = rowBlocks(g, ac.id, win[0], win[1], { pills: zoom === 28, until });
   const onClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    // The release of a trip drag is not a tap.
+    if (performance.now() - dragEndedAt < 450) return;
     const r = e.currentTarget.getBoundingClientRect();
     const t = from + (e.clientX - r.left) / ppm;
     const picked = chooseHits(pickBlocks(blocks, t, ppm));
@@ -271,6 +303,187 @@ export function ScheduleScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zoom, from, ppm]);
 
+  // v0.7.2.1 trip swap. Touch: hold a flight ~350 ms, then drag (moving first scrolls as usual; a scroll cancels the
+  // press). Mouse: hold, or press and move. Rows light green / red under the finger with the reason; release on
+  // another aircraft opens the confirm pop-up. No animation beyond the ghost following the finger.
+  const card = useRef<HTMLDivElement>(null);
+  const liveRef = useRef({ g, from, to, ppm, win, zoom });
+  liveRef.current = { g, from, to, ppm, win, zoom };
+  const dragRef = useRef<TripDrag | null>(null);
+  useEffect(() => {
+    const el = card.current;
+    const sc = scroller.current;
+    if (!el || !sc) return;
+    const rows = (id: string | null) => (id ? [...el.querySelectorAll<HTMLElement>(`[data-ac="${CSS.escape(id)}"]`)] : []);
+    const setHover = (d: TripDrag, id: string | null) => {
+      if (id === d.hover) return;
+      for (const r of rows(d.hover)) r.classList.remove('tm-ok', 'tm-no', 'tm-hover');
+      d.hover = id;
+      if (!id || id === d.sourceId) return;
+      const gg = liveRef.current.g;
+      let q = d.quotes.get(id);
+      if (!q) d.quotes.set(id, (q = quoteTripMove(gg, d.flightId, id, { quick: true })));
+      for (const r of rows(id)) r.classList.add('tm-hover', q.ok ? 'tm-ok' : 'tm-no');
+    };
+    const place = (d: TripDrag) => {
+      const gh = d.ghost;
+      if (gh) gh.style.transform = `translate(${Math.round(d.x - gh.offsetWidth / 2)}px, ${Math.round(d.y - 58)}px)`;
+      const hit = document.elementFromPoint(d.x, d.y)?.closest<HTMLElement>('[data-ac]');
+      setHover(d, hit && el.contains(hit) ? hit.dataset.ac ?? null : null);
+      const b = d.bubble;
+      if (!b) return;
+      const gg = liveRef.current.g;
+      const q = d.hover ? d.quotes.get(d.hover) : undefined;
+      b.textContent = !d.hover || d.hover === d.sourceId ? `Drop ${d.trip?.label ?? 'the trip'} on another aircraft` : q?.ok ? `${gg.fleet[d.hover]?.reg ?? ''}: release to see the money` : q?.reasons[0] ?? '';
+      b.className = `tm-bubble ${!d.hover || d.hover === d.sourceId ? '' : q?.ok ? 'ok' : 'no'}`;
+      const bw = b.offsetWidth || 240;
+      b.style.left = `${Math.round(Math.min(Math.max(d.x, bw / 2 + 8), window.innerWidth - bw / 2 - 8))}px`;
+      b.style.top = `${Math.round(Math.min(d.y + 30, window.innerHeight - (b.offsetHeight || 34) - 6))}px`;
+    };
+    const pickup = (d: TripDrag) => {
+      const gg = liveRef.current.g;
+      const trip = tripOf(gg, d.flightId);
+      if (!trip.ok) {
+        dragRef.current = null;
+        dragEndedAt = performance.now();
+        store.toast('warn', "This trip can't change aircraft", trip.reason);
+        return;
+      }
+      d.phase = 'drag';
+      d.trip = trip;
+      store.holdTime = true;
+      el.classList.add('tm-drag');
+      for (const f of trip.legs) for (const b of el.querySelectorAll<HTMLElement>(`.gb[data-k="${CSS.escape(f.id)}"]`)) b.classList.add('gb-picked');
+      for (const r of rows(d.sourceId)) r.classList.add('tm-src');
+      const k = trip.contractId ? gg.contracts[trip.contractId]?.color : undefined;
+      const ghost = document.createElement('div');
+      ghost.className = 'tm-ghost';
+      if (k !== undefined) ghost.style.setProperty('--kc', contractColor(k));
+      ghost.textContent = `${trip.label} · ${gg.fleet[d.sourceId]?.reg ?? ''}`;
+      const bubble = document.createElement('div');
+      bubble.className = 'tm-bubble';
+      document.body.append(ghost, bubble);
+      d.ghost = ghost;
+      d.bubble = bubble;
+      place(d);
+    };
+    const finish = (drop: boolean) => {
+      const d = dragRef.current;
+      dragRef.current = null;
+      if (!d) return;
+      window.clearTimeout(d.timer);
+      if (d.phase !== 'drag') return;
+      store.holdTime = false;
+      dragEndedAt = performance.now();
+      d.ghost?.remove();
+      d.bubble?.remove();
+      el.classList.remove('tm-drag');
+      for (const x of el.querySelectorAll('.gb-picked')) x.classList.remove('gb-picked');
+      for (const x of el.querySelectorAll('.tm-src, .tm-hover')) x.classList.remove('tm-src', 'tm-hover', 'tm-ok', 'tm-no');
+      if (drop && d.hover && d.hover !== d.sourceId) store.openModal({ kind: 'tripMove', flightId: d.flightId, targetId: d.hover });
+    };
+    const press = (target: EventTarget | null, x: number, y: number, touch: boolean): TripDrag | null => {
+      const row = (target as Element | null)?.closest?.<HTMLElement>('.gantt-row');
+      const acId = row?.dataset.ac;
+      if (!row || !acId) return null;
+      const { g: gg, from: f0, to: t1, ppm: p, win: w, zoom: z } = liveRef.current;
+      const t = f0 + (x - row.getBoundingClientRect().left) / p;
+      const id = pressFlight(gg, rowBlocks(gg, acId, w[0], w[1], { pills: z === 28, until: t1 }), t, p);
+      if (!id) return null;
+      return { phase: 'press', touch, x0: x, y0: y, x, y, flightId: id, sourceId: acId, timer: 0, hover: null, quotes: new Map() };
+    };
+    const arm = (d: TripDrag) => {
+      d.timer = window.setTimeout(() => {
+        if (dragRef.current === d && d.phase === 'press') pickup(d);
+      }, LONG_PRESS);
+      dragRef.current = d;
+    };
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1 || dragRef.current) return finish(false);
+      const t = e.touches[0];
+      const d = press(e.target, t.clientX, t.clientY, true);
+      if (d) arm(d);
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      const d = dragRef.current;
+      if (!d || !d.touch) return;
+      const t = e.touches[0];
+      d.x = t.clientX;
+      d.y = t.clientY;
+      if (d.phase === 'press') {
+        if (Math.hypot(d.x - d.x0, d.y - d.y0) > TOUCH_SLOP) finish(false);
+        return;
+      }
+      e.preventDefault();
+      place(d);
+    };
+    const onTouchEnd = (e: TouchEvent) => {
+      const d = dragRef.current;
+      if (!d || !d.touch) return;
+      if (d.phase === 'drag') e.preventDefault();
+      finish(e.type === 'touchend');
+    };
+    const onDown = (e: PointerEvent) => {
+      if (e.pointerType === 'touch' || e.button !== 0 || dragRef.current) return;
+      const d = press(e.target, e.clientX, e.clientY, false);
+      if (d) arm(d);
+    };
+    const onMove = (e: PointerEvent) => {
+      const d = dragRef.current;
+      if (!d || d.touch) return;
+      d.x = e.clientX;
+      d.y = e.clientY;
+      if (d.phase === 'press') {
+        if (Math.hypot(d.x - d.x0, d.y - d.y0) >= MOUSE_SLOP) {
+          window.clearTimeout(d.timer);
+          pickup(d);
+        }
+        return;
+      }
+      e.preventDefault();
+      place(d);
+    };
+    const onUp = () => {
+      const d = dragRef.current;
+      if (d && !d.touch) finish(true);
+    };
+    // A scroll (the Gantt sideways, the page up and down) before the pick-up is a scroll, not a press.
+    const onScroll = () => {
+      if (dragRef.current?.phase === 'press') finish(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && dragRef.current) finish(false);
+    };
+    const onMenu = (e: Event) => {
+      if (dragRef.current) e.preventDefault();
+    };
+    el.addEventListener('touchstart', onTouchStart, { passive: true });
+    el.addEventListener('touchmove', onTouchMove, { passive: false });
+    el.addEventListener('touchend', onTouchEnd, { passive: false });
+    el.addEventListener('touchcancel', onTouchEnd, { passive: false });
+    el.addEventListener('pointerdown', onDown);
+    el.addEventListener('contextmenu', onMenu);
+    sc.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('scroll', onScroll, { passive: true, capture: true });
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      finish(false);
+      el.removeEventListener('touchstart', onTouchStart);
+      el.removeEventListener('touchmove', onTouchMove);
+      el.removeEventListener('touchend', onTouchEnd);
+      el.removeEventListener('touchcancel', onTouchEnd);
+      el.removeEventListener('pointerdown', onDown);
+      el.removeEventListener('contextmenu', onMenu);
+      sc.removeEventListener('scroll', onScroll);
+      window.removeEventListener('scroll', onScroll, { capture: true });
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [fleet.length > 0]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const base = g.company.homeBase;
   const off = localOffset(base, g.now) / 60;
   const offLabel = off === 0 ? 'UTC' : `UTC${off > 0 ? '+' : '−'}${Math.abs(off)}`;
@@ -287,7 +500,7 @@ export function ScheduleScreen() {
   const ticks = axisTicks(win[0], win[1], zoom);
   return (
     <div className="screen sc-schedule">
-      <ScreenHead title="Schedule" sub={<>Times in UTC · {base} local is {offLabel} · tap a row for details · pinch to zoom</>}>
+      <ScreenHead title="Schedule" sub={<>Times in UTC · {base} local is {offLabel} · tap a flight for details · hold and drag it to move the trip · pinch to zoom</>}>
         <button className="btn" onClick={() => scrollTo(g.now)}><Crosshair /> Today</button>
         <Seg<ZoomDays> value={zoom} onChange={setZoom} options={ZOOMS.map((z) => ({ value: z, label: `${z} days` }))} />
         <ColourLegend title="Schedule colours" items={[
@@ -301,11 +514,11 @@ export function ScheduleScreen() {
         ]} />
       </ScreenHead>
       <Legend g={g} win={win} />
-      <div className="gantt card">
+      <div className="gantt card" ref={card}>
         <div className="gantt-left">
           <div className="gantt-corner tiny dim">{fleet.length} aircraft</div>
           {fleet.map((ac) => (
-            <button key={ac.id} className={`gantt-ac ${sel === ac.id ? 'sel' : ''}`} onClick={() => store.navigate('fleet', { sel: { kind: 'aircraft', id: ac.id } })}>
+            <button key={ac.id} data-ac={ac.id} className={`gantt-ac ${sel === ac.id ? 'sel' : ''}`} onClick={() => performance.now() - dragEndedAt > 450 && store.navigate('fleet', { sel: { kind: 'aircraft', id: ac.id } })}>
               <span className="row gap-8 gantt-ac-reg"><AcBadge g={g} ac={ac} /><b className="mono">{ac.reg}</b></span>
               <span className="tiny muted ellipsis">{typeOf(ac.typeId).short} · {ac.cabin.label}</span>
               <span className="tiny ellipsis row gap-4"><Dot tone={STATUS_TONE[ac.status]} />{ac.at} · {STATUS_LABEL[ac.status]}</span>

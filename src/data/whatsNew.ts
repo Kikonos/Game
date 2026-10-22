@@ -13,6 +13,16 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.7.2.1',
+    name: 'Trip swap',
+    features: [
+      "Move a trip to another aircraft: on the Schedule, hold a flight for a moment, then drag it onto another aircraft's row. The whole trip goes with it (out and back, like DUB–DUS–DUB). The row turns green when that aircraft can take it, red with the reason when it can't.",
+      "Before anything moves, a pop-up shows whether you gain or lose money and why: revenue, fuel, maintenance, airport fees, ferry flights, crew tickets and hotels, side by side for both aircraft, plus the crew who change and what the first aircraft is free for.",
+      "No dragging needed: tap a flight and choose 'Move trip to…' to see every other aircraft with what the move would earn or cost.",
+    ],
+    improvements: [],
+  },
+  {
     version: 'v0.7.2',
     name: 'Crew Rules & Fleet',
     features: [

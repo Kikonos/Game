@@ -19,6 +19,7 @@ import {
 } from '../ops';
 import { crewAway, restClassAt, restSeatsBlocked, sellableSeats } from '../crew';
 import { seatLabel } from './perf';
+import { quoteTripMove, tripOf, tripTargets } from '../ops/tripMove';
 import { deserialize, serialize } from '../save';
 import { advanceTo } from '../sim';
 import { addDeadhead, flightsOf, reassignFlights, retimeFlight, subcharterFlights, takeFlightChanges } from './entities';
@@ -232,6 +233,12 @@ describe('determinism of read APIs', () => {
         problemFor(g, { kind: 'restSeats', ref: { kind: 'flight', id: f.id } });
       }
       for (const m of Object.values(g.maintenance)) checkLogistics(g, m.id);
+      // v0.7.2.1 trip swap: the trip, quick checks and full quotes (the move previewed on a copy).
+      for (const f of some) {
+        tripOf(g, f.id);
+        tripTargets(g, f.id);
+        for (const ac of Object.keys(g.fleet)) quoteTripMove(g, f.id, ac, { quick: true });
+      }
     }
     expect(JSON.stringify(g)).toBe(before);
   });

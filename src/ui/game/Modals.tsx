@@ -26,6 +26,7 @@ import { WhatsNewModal } from '../modals/WhatsNewModal';
 import { CrewControlModal } from '../modals/CrewControlModal';
 import { ProblemModal } from '../modals/ProblemModal';
 import { GlossaryModal } from '../modals/GlossaryModal';
+import { TripMoveModal } from '../modals/TripMoveModal';
 import { CURRENT } from '../../data/whatsNew';
 import { int, money } from '../format';
 import { offline, promptInstall } from '../offline';
@@ -264,5 +265,6 @@ export function GlobalModals() {
     case 'crewControl': return s.game ? <CrewControlModal key={m.flightId} flightId={m.flightId} fix={m.fix} /> : null;
     case 'problem': return s.game ? <ProblemModal subject={m.subject} hint={m.hint} /> : null;
     case 'glossary': return <GlossaryModal term={m.term} />;
+    case 'tripMove': return s.game ? <TripMoveModal key={`${m.flightId}>${m.targetId}`} flightId={m.flightId} targetId={m.targetId} /> : null;
   }
 }

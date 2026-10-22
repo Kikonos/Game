@@ -102,7 +102,9 @@ export type ModalSpec =
   /** v0.7.1: Crew Control for a flight (a fix pre-expanded); the four-line card of a problem (hint: first-time story); the glossary. */
   | { kind: 'crewControl'; flightId: string; fix?: CrewFix }
   | { kind: 'problem'; subject: ProblemRef; hint?: boolean }
-  | { kind: 'glossary'; term?: TermId };
+  | { kind: 'glossary'; term?: TermId }
+  /** v0.7.2.1 trip swap: confirm moving the trip of a flight to another aircraft (money before / after). */
+  | { kind: 'tripMove'; flightId: string; targetId: string };
 
 export interface Toast {
   id: number;

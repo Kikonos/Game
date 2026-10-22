@@ -1,8 +1,8 @@
 // Schedule detail sheet (B5): the flight(s) or maintenance near a Gantt tap, or an idle gap.
 // Flight: times UTC/local, crew and legality, contract link. Maintenance: reschedule / cancel.
 
-import { CalendarClock, ChevronLeft, Clock, FileSignature, Handshake, Lock, Palette, Search, Trash2, Users, Wrench } from 'lucide-react';
-import { type ReactNode, useState } from 'react';
+import { ArrowRightLeft, CalendarClock, ChevronLeft, ChevronRight, Clock, FileSignature, Handshake, Lock, Palette, Search, Trash2, Users, Wrench } from 'lucide-react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { BAL } from '../../engine/core/balance';
 import { DAY, fmtDateTime, fmtDuration, fmtTime } from '../../engine/core/time';
@@ -11,6 +11,9 @@ import { crewName, dutyCrew, dutyLegality, flightCrewStatus, restSeatsBlocked } 
 import { seatLabel } from '../../engine/core/perf';
 import { cancelCheck, delayFlight, flightCrewAboard, flightType } from '../../engine/ops';
 import { problemAt } from '../../engine/problems';
+import { tripOf, tripTargets } from '../../engine/ops/tripMove';
+import { typeOf } from '../../engine/core/perf';
+import { usdSigned } from './TripMoveModal';
 import { FlightTypeChip } from '../components/FlightType';
 import { ProblemCardView } from '../components/ProblemCard';
 import { Modal, Stepper } from '../components/ui';
@@ -26,6 +29,30 @@ const LEVEL_TONE = { ok: 'good', tight: 'warn', missing: 'bad', illegal: 'bad' }
 
 const both = (t: number, ap: string) => `${fmtDateTime(t)} UTC · ${fmtTime(t, ap)} ${ap}`;
 
+/** v0.7.2.1 'Move trip to…': every other aircraft with its net (+$/−$) or why it can't; a choice opens the confirm. */
+function MoveTripList({ g, f }: { g: GameState; f: Flight }) {
+  const list = tripTargets(g, f.id);
+  if (!list.length) return <div className="small muted">No other aircraft in the fleet.</div>;
+  return (
+    <div className="col gap-6 tm-list">
+      {list.map((q) => {
+        const ac = g.fleet[q.targetId];
+        return (
+          <button key={q.targetId} className={`tm-pick ${q.ok ? '' : 'blocked'}`} disabled={!q.ok} onClick={() => store.openModal({ kind: 'tripMove', flightId: f.id, targetId: q.targetId })}>
+            <span className="col tm-pick-ac"><b className="mono">{q.targetReg}</b><span className="tiny muted">{ac ? `${typeOf(ac.typeId).short} · ${ac.cabin.label}` : ''}</span></span>
+            {q.ok ? (
+              <span className={`tm-pick-net num ${q.verdict === 'gain' ? 'good' : q.verdict === 'loss' ? 'bad' : 'muted'}`}>{q.verdict === 'same' ? 'about the same' : usdSigned(q.net)}</span>
+            ) : (
+              <span className="tm-pick-why small">{q.reasons[0]}</span>
+            )}
+            {q.ok && <ChevronRight className="tm-pick-go" />}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
   const c = f.contractId ? g.contracts[f.contractId] : undefined;
   const ac = f.aircraftId ? g.fleet[f.aircraftId] : undefined;
@@ -39,6 +66,11 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
   const why = (cs.level === 'illegal' || cs.level === 'tight') && f.dutyId ? dutyLegality(g, f.id).warnings.find((w) => w.code !== 'missing' && w.level !== 'legal')?.text : undefined;
   const rival = f.operatedBy ? g.rivals.find((r) => r.id === f.operatedBy)?.name : undefined;
   const [hold, setHold] = useState(0);
+  const [moving, setMoving] = useState(false);
+  const moveRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (moving) moveRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [moving]);
   // Beyond the roster horizon an empty duty is normal, not a problem.
   const later = cs.level === 'missing' && f.std > g.now + BAL.rosterHorizonDays * DAY && !(view?.slots.some((x) => x.crewId));
   const type = flightType(g, f);
@@ -62,6 +94,8 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
   if (d) rows.push(['Duty', `FDP ${fmtDuration(d.fdp)} of ${fmtDuration(d.maxFdp + (d.discretion ?? 0))} · ${d.sectors} sector${d.sectors === 1 ? '' : 's'}${d.augment ? ` · +${d.augment} pilot${d.augment > 1 ? 's' : ''}` : ''}`]);
   const live = f.status === 'scheduled' && !!f.aircraftId;
   const canSub = live && !!c && (f.kind === 'revenue' || f.kind === 'techstop');
+  // v0.7.2.1: the trip this leg belongs to (moves whole to another aircraft).
+  const trip = live && !!c && f.kind !== 'ferry' && !f.purpose ? tripOf(g, f.id) : null;
   const doHold = () => {
     const r = store.act((gg) => delayFlight(gg, f.id, hold * 30, 'Held by operations'));
     if (r.ok) setHold(0);
@@ -112,6 +146,14 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
           <Stepper value={hold} min={0} max={8} onChange={setHold} format={(v) => (v ? `+${v * 30} min` : 'Hold')} />
           <button className="btn" onClick={doHold} disabled={!hold}><Clock /> Delay</button>
           {canSub && <button className="btn" onClick={() => store.openModal({ kind: 'subcharter', contractId: c!.id, flightId: f.id })}><Handshake /> Sub-charter</button>}
+          {trip && <button className={`btn ${moving ? 'active' : ''}`} onClick={() => setMoving(!moving)} disabled={!trip.ok} title={trip.ok ? `Move ${trip.label} to another aircraft` : trip.reason}><ArrowRightLeft /> Move trip to…</button>}
+        </div>
+      )}
+      {live && trip && !trip.ok && <div className="small muted">{trip.reason}.</div>}
+      {moving && trip?.ok && (
+        <div className="col gap-8" ref={moveRef}>
+          <div className="small muted">Move the whole trip <b>{trip.label}</b> ({trip.moved.length} leg{trip.moved.length > 1 ? 's' : ''}) to:</div>
+          <MoveTripList g={g} f={f} />
         </div>
       )}
       {c && (

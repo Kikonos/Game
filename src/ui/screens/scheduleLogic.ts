@@ -273,3 +273,16 @@ export function timelineSpan(g: GameState): [Minute, Minute] {
   for (const m of Object.values(g.maintenance)) if (m.status === 'planned' && m.end > last) last = m.end;
   return [from, Math.min(dayStart(last) + 2 * DAY, dayStart(g.now) + 180 * DAY)];
 }
+
+/**
+ * v0.7.2.1 trip swap: the flight a long press at minute `t` picks up: the flight or positioning block under the finger
+ * (nearest within the tap slop); in a 28-day pill, its leg nearest in time. Null over maintenance, idle or nothing.
+ */
+export function pressFlight(g: GameState, blocks: GanttBlock[], t: Minute, ppm: number): string | null {
+  const hit = pickBlocks(blocks, t, ppm).find((h) => h.block.kind === 'flight' || h.block.kind === 'pos' || h.block.kind === 'pill');
+  if (!hit) return null;
+  const mid = (f: Flight) => (f.std + f.sta) / 2;
+  const ids = hit.block.refs.filter((r) => r.kind === 'flight' && g.flights[r.id]).map((r) => r.id);
+  ids.sort((a, b) => Math.abs(mid(g.flights[a]) - t) - Math.abs(mid(g.flights[b]) - t) || (a < b ? -1 : 1));
+  return ids[0] ?? null;
+}
