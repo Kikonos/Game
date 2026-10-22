@@ -341,3 +341,9 @@ Player notes (22 Oct, with top-bar screenshot .handover/updates/topbar-space.jpg
   5. Schedule.tsx shows "in check" for a refit. FIX: show "in refit".
   6. The 767's art shows bunk glyphs. Already being fixed in v0.7.4.
   Yellow (longest day 13 h): correct under EASA. Asked the player what they expected.
+- 21:55Z: The player's answers on the screenshot issues.
+  - Fixes 1-5 ship WITH v0.8. Spec is in specs.json 'v0.8.x-fixpack'. Build them in acmi after the v0.8 workflow returns and after the v074 port, then verify and release.
+  - Longest-day card: show "13 h · up to 17 h" and nothing else. Sent to the v0.7.4 agent.
+  - Remove the rest marks from the aircraft drawings. Sent to the v0.7.4 agent.
+  - Crew slip at a fuel stop: yes, LATER. Recorded in specs.json later-ideas.crew-slip.
+  - REMIND the player about a game-wide language and redundancy pass after the v0.8 release. Recorded in later-ideas.language-pass.
