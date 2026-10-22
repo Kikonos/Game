@@ -208,8 +208,9 @@ The twice-monthly 2 local days are **documented, not enforced**: the roster's wo
 2 off) already gives them. The time-zone table is applied through the 14 h away rule and the recovery check, not
 cell by cell.
 
-**Days off (ORO.FTL.235(e), est. for the game):** 7 days free of duty per calendar month, 96 a year. The roster
-plans them (`daysOffInMonth`).
+**Days off (not Subpart FTL):** at least 7 days free of all duty per calendar month and 96 a year come from the
+aviation working-time directive (Council Directive 2000/79/EC, Annex, clause 9), not from ORO.FTL. The roster plans
+them (`daysOffInMonth`).
 
 ---
 
