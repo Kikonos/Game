@@ -10,7 +10,8 @@ import { settle } from '../sim';
 import { evalSegs, LIMITS } from './rules';
 import { ctxOf, segsOf } from './timeline';
 import { addCrew, fixtureContract, fixtureGame, seasonBase } from './fixtures';
-import { autoRoster, buildDuties, crewWindows, flightCrewStatus, rosterOf } from '.';
+import { autoRoster, buildDuties, captainAsFo, crewWindows, dutyCandidates, flightCrewStatus, rosterOf } from '.';
+import { canFill, seatLabel } from '../core/perf';
 
 const scheduled = (g: GameState) => Object.values(g.flights).filter((f) => f.aircraftId && f.status === 'scheduled');
 const crewedDuties = (g: GameState): Duty[] => Object.values(g.duties).filter((d) => g.pairings[d.pairingId]?.slots.some((s) => s.crewId));
@@ -193,6 +194,7 @@ describe('augmentation', () => {
     const ac = Object.values(g.fleet)[0];
     ac.typeId = 'a333';
     ac.cabin = { ...ac.cabin, total: 300, y: 300, j: 0, w: 0 };
+    ac.crewRest = { bunks: true, seats: 0 };
     addCrew(g, { CPT: 3, FO: 4, PUR: 4, CC: 14 }, 'A330/340');
     const std = Math.floor(g.now / DAY) * DAY + 2 * DAY + 20 * 60;
     fixtureContract(g, { aircraftIds: [ac.id], start: std, end: std + DAY, pattern: { kind: 'legs', legs: [] }, product: { kind: 'charter', price: 1, depositPct: 0, balanceDaysBefore: 0, fuelEscalation: false } });
@@ -340,5 +342,51 @@ describe('flights added outside an accept', () => {
     settle(h);
     expect(Object.keys(h.pairings).length).toBeGreaterThan(0);
     expect(scheduled(h).every((f) => !f.crewIds.length)).toBe(true);
+  });
+});
+
+describe('v0.7.2 captains flying as first officers', () => {
+  const oneDay = (keepFo: boolean) => {
+    const g = fixtureGame();
+    for (const c of Object.values(g.crew)) if (c.role === 'FO' && !keepFo) delete g.crew[c.id];
+    const ac = Object.values(g.fleet)[0];
+    const std = Math.floor(g.now / DAY) * DAY + 2 * DAY + 8 * 60;
+    addFlight(g, { no: 'AW7', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'LIS', to: 'FAO', std, sta: std + 60 });
+    addFlight(g, { no: 'AW8', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'FAO', to: 'LIS', std: std + 120, sta: std + 180 });
+    const [d] = buildDuties(g, ac.id, g.now, g.now + 5 * DAY);
+    autoRoster(g, { aircraftIds: [ac.id] });
+    const p = g.pairings[g.duties[d.id].pairingId];
+    return { g, p };
+  };
+  it('an FO seat with no FO free gets a captain (CPT (as FO)); with an FO free, the FO; never an FO as captain', () => {
+    const none = oneDay(false);
+    const fo = none.p.slots.find((s) => s.role === 'FO')!;
+    expect(none.g.crew[fo.crewId!].role).toBe('CPT');
+    expect(seatLabel(fo.role, none.g.crew[fo.crewId!].role)).toBe('CPT (as FO)');
+    const cpt = none.p.slots.find((s) => s.role === 'CPT')!;
+    expect(none.g.crew[cpt.crewId!].role).toBe('CPT');
+    const some = oneDay(true);
+    expect(some.g.crew[some.p.slots.find((s) => s.role === 'FO')!.crewId!].role).toBe('FO');
+    expect(canFill('CPT', 'FO')).toBe(false);
+    expect(canFill('FO', 'CPT')).toBe(true);
+  });
+  it('the duty picker lists captains for an FO seat after the first officers, labelled', () => {
+    const { g, p } = oneDay(true);
+    const list = dutyCandidates(g, p.dutyIds[0], 'FO');
+    const firstCpt = list.findIndex((c) => c.role === 'CPT');
+    expect(firstCpt).toBeGreaterThan(0);
+    expect(list.slice(firstCpt).every((c) => c.asFo && c.reasons.includes('Captain flying as FO'))).toBe(true);
+    expect(list.slice(0, firstCpt).every((c) => c.role === 'FO' && !c.asFo)).toBe(true);
+  });
+  it('morale: free twice in 30 days, −3 from the third time; counted in stats', () => {
+    const g = fixtureGame();
+    const c = Object.values(g.crew).find((x) => x.role === 'CPT')!;
+    const m0 = c.morale;
+    captainAsFo(g, c, g.now);
+    captainAsFo(g, c, g.now);
+    expect(c.morale).toBe(m0);
+    captainAsFo(g, c, g.now);
+    expect(c.morale).toBe(m0 - 3);
+    expect(g.stats.asFo).toBe(3);
   });
 });

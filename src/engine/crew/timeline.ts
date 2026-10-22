@@ -9,6 +9,7 @@ import { itinerary, ticketBlock } from '../ops/commercial';
 import { DAY, fmtDateTime, fmtTime, monthKey, yearOf } from '../core/time';
 import type { CrewMember, Duty, Flight, GameState, Minute, Pairing } from '../core/types';
 import { isDisruptive, maxFdp, minRest, referenceTime, tzDeltaH, type RefTime, type Seg, type TimelineCtx } from './rules';
+import { restClassAt } from './crewRest';
 
 // ---------- index ----------
 
@@ -132,7 +133,10 @@ export const typeIdOf = (g: GameState, p: Pairing): string => (p.aircraftId && g
  * own report and their max FDP grows by the same difference, so FDP legality is unchanged; rest after grows.
  */
 export function cabinEarly(g: GameState, p: Pairing): number {
-  const t = ACMI_TYPES[typeIdOf(g, p)];
+  return cabinEarlyOf(typeIdOf(g, p));
+}
+export function cabinEarlyOf(typeId: string): number {
+  const t = ACMI_TYPES[typeId];
   return t ? BAL.v072.ftl.cabinEarlyMin[t.body] : 0;
 }
 const isCabin = (c: CrewMember) => c.role === 'PUR' || c.role === 'CC';
@@ -153,19 +157,16 @@ export function dutyBlock(g: GameState, d: Duty): number {
   return b;
 }
 
-export const restClassOf = (g: GameState, p: Pairing): 1 | 2 | 3 | null => {
-  const t = p.aircraftId ? g.fleet[p.aircraftId]?.typeId : undefined;
-  return t ? (typeLookup(t)?.restClass ?? null) : null;
-};
+/** v0.7.2 the pairing's aircraft's in-flight rest class (per airframe: bunks 1, crew rest seats 3). */
+export const restClassOf = (g: GameState, p: Pairing): 1 | 2 | 3 | null => restClassAt(g, p.aircraftId);
 
-const typeLookup = (id: string) => ACMI_TYPES[id];
 
 /** Max FDP for a duty of pairing p reporting at `report` from `dep` (reference time per acclimatisation). */
 export function fdpLimitAt(g: GameState, p: Pairing, d: Duty, dep: string, report: Minute): { max: number; ref: RefTime } {
   const ref = referenceTime(p.base, dep, Math.min(p.start, report), report);
   let longest = 0;
   for (const f of dutyFlights(g, d)) longest = Math.max(longest, f.block);
-  const max = maxFdp({ reportLocal: ref.reportLocal, sectors: d.sectors, acclimatised: ref.state !== 'X', augment: d.augment, restClass: restClassOf(g, p), longestBlock: longest });
+  const max = maxFdp({ reportLocal: ref.reportLocal, sectors: d.sectors, acclimatised: ref.state !== 'X', augment: d.augment, restClass: restClassOf(g, p), longestBlock: longest, cabinEarly: cabinEarly(g, p) });
   return { max, ref };
 }
 
@@ -344,12 +345,13 @@ function rideTo(g: GameState, from: string, to: string, d: Duty, free: Minute): 
 }
 
 /** Ticket home after the last duty: same day when the whole duty stays within 13 h, else after minimum rest. */
-export function planHome(d: Duty, to: string): TicketPlan {
+export function planHome(d: Duty, to: string, early = 0): TicketPlan {
+  // v0.7.2 `early`: the cabin crew's earlier report (one ticket for the whole crew: the longest day sets the rest).
   const from = d.restAt;
   const blk = dhBlock(from, to);
   const std = hour(d.release + 60, true);
-  if (std + blk - d.report <= 13 * 60) return { from, to, std, sta: std + blk };
-  const rest = minRest({ dutyMin: d.release - d.report, atHome: false, augmented: d.augment > 0, tzShift: tzDeltaH(to, from, d.release) });
+  if (std + blk - d.report + early <= 13 * 60) return { from, to, std, sta: std + blk };
+  const rest = minRest({ dutyMin: d.release - d.report + early, atHome: false, augmented: d.augment > 0, tzShift: tzDeltaH(to, from, d.release) });
   const std2 = hour(d.release + rest + CHECKIN(), true);
   return { from, to, std: std2, sta: std2 + blk };
 }

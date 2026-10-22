@@ -308,8 +308,16 @@ export function ticketPurpose(g: GameState, ticketId: string): { kind: 'delivery
   if (!d || !p) return { kind: 'home', text: `Going home to ${cityOf(t.to)}` };
   const flights = p.dutyIds.flatMap((id) => g.duties[id]?.flightIds ?? []).map((id) => g.flights[id]).filter((f): f is Flight => !!f);
   const ac = p.aircraftId ? g.fleet[p.aircraftId] : undefined;
-  if (flights.length && t.std >= Math.max(...flights.map((f) => f.sta))) return { kind: 'home', aircraftId: ac?.id, text: `Going home to ${cityOf(t.to)} after the trip` };
   const pf = flights.find((f) => f.purpose);
+  // v0.7.2 C-check ferries: the pilots fly home after the ferry out, and back out for the ferry home.
+  if (pf?.purpose === 'check') {
+    const legs = flights.filter((f) => f.purpose === 'check');
+    const out = legs[0].from === g.company.homeBase || t.std >= Math.max(...legs.map((f) => f.sta));
+    return out
+      ? { kind: 'check', aircraftId: ac?.id, text: `Home after ferrying ${ac?.reg ?? 'our aircraft'} to ${cityOf(legs[legs.length - 1].to)} for its C-check` }
+      : { kind: 'check', aircraftId: ac?.id, text: `Out to ${cityOf(legs[0].from)} to ferry ${ac?.reg ?? 'our aircraft'} home after its C-check` };
+  }
+  if (flights.length && t.std >= Math.max(...flights.map((f) => f.sta))) return { kind: 'home', aircraftId: ac?.id, text: `Going home to ${cityOf(t.to)} after the trip` };
   if (pf?.purpose) {
     const legs = flights.filter((f) => f.purpose === pf.purpose);
     const what = PURPOSE_CREW[pf.purpose];

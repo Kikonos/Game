@@ -1324,8 +1324,8 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean): CrewSolution[] {
     if (!q) out.push(no(s, x.revLegs ? 'Too close to departure for a rival to position' : 'No revenue legs to hand over'));
     else {
       s.cost = q.cost;
-      s.chips = [usd(q.cost), `we still bill ${usd(q.revenue)}`, q.rivalName];
-      s.consequences.push(`${q.rivalName} flies ${plural(q.revenueLegs, 'leg')}; no reliability hit`);
+      s.chips = [usd(q.cost), `Hurts: ${q.hit.text}`, `we still bill ${usd(q.revenue)}`, q.rivalName];
+      s.consequences.push(`${q.rivalName} flies ${plural(q.revenueLegs, 'leg')}; ${q.hit.text.replace(' · ', ', ')}`);
       out.push(run(s));
     }
   }

@@ -298,3 +298,42 @@ describe('shortage and sickness', () => {
     expect(dec?.data).toMatchObject({ crewId: sick!.id });
   });
 });
+
+describe('v0.7.2 cabin crew hires (F5, §5)', () => {
+  it('cabin crew join in about a week (±20%); pilots keep their longer lead', () => {
+    const g = fixtureGame();
+    for (const role of ['PUR', 'CC'] as const) {
+      const days = (hireQuote(g, { role, family: 'A320', base: 'LIS', count: 2 }).readyAt - dayStart(g.now)) / DAY;
+      expect(days).toBeGreaterThanOrEqual(6);
+      expect(days).toBeLessThanOrEqual(8);
+    }
+    expect((hireQuote(g, { role: 'FO', family: 'A320', base: 'LIS', count: 1 }).readyAt - dayStart(g.now)) / DAY).toBeGreaterThanOrEqual(36);
+  });
+
+  it('several types: $2,000 / $3,000 / $4,000 a head and ~7 / 10 / 13 days; a 4th type refused; pilots ignore families', () => {
+    const g = fixtureGame();
+    const q = (families: ('A320' | 'A330/340' | 'B777' | 'B737')[]) => hireQuote(g, { role: 'CC', family: families[0], families, base: 'LIS', count: 3 });
+    expect([q(['A320']).cost, q(['A320', 'A330/340']).cost, q(['A320', 'A330/340', 'B777']).cost]).toEqual([6_000, 9_000, 12_000]);
+    const d2 = (q(['A320', 'A330/340']).readyAt - dayStart(g.now)) / DAY;
+    expect(d2).toBeGreaterThanOrEqual(8);
+    expect(d2).toBeLessThanOrEqual(12);
+    const r = hireCrew(g, { role: 'CC', family: 'A320', families: ['A320', 'A330/340'], base: 'LIS', count: 2 });
+    if (!r.ok) throw new Error(r.error);
+    for (const id of r.data!.crewIds) expect(g.crew[id].ratings).toEqual(['A320', 'A330/340']);
+    expect(g.hires[g.hires.length - 1].families).toEqual(['A320', 'A330/340']);
+    expect(hireCrew(g, { role: 'CC', family: 'A320', families: ['A330/340', 'B777', 'B737'], base: 'LIS', count: 1 }).ok).toBe(false);
+    expect(hireQuote(g, { role: 'FO', family: 'A320', families: ['A320', 'B777'], base: 'LIS', count: 1 }).cost).toBe(BAL.hireCost.pilot);
+  });
+
+  it('staffing counts cabin crew who also hold another fleet type as shared', () => {
+    const g = fixtureGame();
+    const wb = Object.values(g.fleet)[1];
+    wb.typeId = 'a333';
+    const cc = Object.values(g.crew).filter((c) => c.role === 'CC').slice(0, 4);
+    for (const c of cc) c.ratings = ['A320', 'A330/340'];
+    const l = staffing(g).find((x) => x.family === 'A330/340' && x.role === 'CC')!;
+    expect(l.have).toBe(4);
+    expect(l.shared).toBe(4);
+    expect(staffing(g).find((x) => x.family === 'A320' && x.role === 'CC')!.shared).toBe(4);
+  });
+});

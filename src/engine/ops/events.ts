@@ -20,7 +20,7 @@ import { planCrew } from '../crew/check';
 import { DISCRETION, type IssueCode } from '../crew/rules';
 import { dhBlock, OUT_CONNECT, outTicket, segsOf } from '../crew/timeline';
 import { distance } from '../core/geo';
-import { applyHold, cancelCost, cancelLegs, crewBlocked, delayChain, moveFlight, pickRival, planHold, planRecovery, rivalFactor, stationOf, subcharterCost, subcharterLegs, windowLegs } from './flights';
+import { applyHold, cancelCost, cancelLegs, crewBlocked, delayChain, moveFlight, noticeText, pickRival, planHold, planRecovery, rivalFactor, stationOf, subcharterCost, subcharterLegs, subHit, windowLegs, type SubHit } from './flights';
 import { setAogEnd } from './maintenance';
 import { ticketBlock } from './commercial';
 import { bumpReliable, bumpRelation, isRevenue, stats, turnOf, usd } from './util';
@@ -160,7 +160,7 @@ export function aogDecision(g: GameState, ac: Aircraft, f: Flight, m: Maintenanc
     swap
       ? { id: 'swap', label: `Swap in ${swap.ac.reg}`, desc: swap.from === m.at ? `${swap.ac.reg} is here and free: it takes over the legs.` : `${swap.ac.reg} ferries ${swap.from}–${m.at} and takes over the legs.`, tone: 'good', chips: [swap.from === m.at ? 'No ferry' : `Ferry ${fmtDuration(blockMinutes(swap.ac.typeId, swap.from, m.at))}`, `First leg ${fmtTime(swap.moves[0]?.std ?? swap.arrive)} UTC`, legsChip(win)] }
       : { id: 'swap', label: 'Swap aircraft', desc: 'No other aircraft of this type is free to take over now.', tone: 'bad', chips: ['Unavailable'] },
-    { id: 'subcharter', label: `Sub-charter to ${rivalName(g, rivalId)}`, desc: 'A rival flies the legs; we still bill the client. No reliability hit.', tone: 'warn', chips: [usd(-sub), legsChip(win)] },
+    { id: 'subcharter', label: `Sub-charter to ${rivalName(g, rivalId)}`, desc: `A rival flies the legs; we still bill the client. Hurts: ${subHit(g, win.filter(isRevenue)).text || 'nothing'}.`, tone: 'warn', chips: [usd(-sub), `Hurts: ${subHit(g, win.filter(isRevenue)).text || 'nothing'}`, legsChip(win)] },
     { id: 'cancel', label: 'Cancel the legs', desc: 'Compensation to the client and a reliability hit.', tone: 'bad', chips: [usd(-pen), 'Reliability −3', legsChip(win)] },
   ];
   // Sub-charter is the default only when the wait would cancel legs and it is cheaper than their compensation and fares.
@@ -203,8 +203,9 @@ function resolveAog(g: GameState, d: Decision, opt: string): ActionResult {
     case 'subcharter': {
       const win = windowLegs(g, ac, m.at, fix());
       const rival = str(d.data, 'rivalId');
-      const n = subcharterLegs(g, win, rival, subcharterCost(g, win, num(d.data, 'factor') || 1.5));
-      return { ok: true, msg: `${rivalName(g, rival)} flies ${plural(n, 'leg')} for us` };
+      const out: { hit?: SubHit } = {};
+      const n = subcharterLegs(g, win, rival, subcharterCost(g, win, num(d.data, 'factor') || 1.5), out);
+      return { ok: true, msg: `${rivalName(g, rival)} flies ${plural(n, 'leg')} for us.${noticeText(g, win.find(isRevenue), out.hit)}` };
     }
     case 'cancel': {
       const win = windowLegs(g, ac, m.at, fix());
@@ -465,8 +466,9 @@ function resolveCrewShort(g: GameState, d: Decision, opt: string): ActionResult 
       const r = applyCrewFix(g, f.id, 'subcharter', { confirmed: true });
       if (r.ok) return { ok: true, msg: r.msg };
       const rival = str(d.data, 'rivalId');
-      const n = subcharterLegs(g, legs, rival, subcharterCost(g, legs, num(d.data, 'factor') || 1.5));
-      return { ok: true, msg: `${rivalName(g, rival)} flies ${plural(n, 'leg')} for us` };
+      const out: { hit?: SubHit } = {};
+      const n = subcharterLegs(g, legs, rival, subcharterCost(g, legs, num(d.data, 'factor') || 1.5), out);
+      return { ok: true, msg: `${rivalName(g, rival)} flies ${plural(n, 'leg')} for us.${noticeText(g, legs.find(isRevenue), out.hit)}` };
     }
     case 'cancel': {
       const r = applyCrewFix(g, f.id, 'cancel', { confirmed: true });
@@ -510,8 +512,9 @@ function resolveSick(g: GameState, d: Decision, opt: string): ActionResult {
     case 'subcharter': {
       const rival = pickRival(g, ac.typeId);
       const factor = range(g, BAL.subcharterFactor[0], BAL.subcharterFactor[1]) * rivalFactor(g, rival);
-      const n = subcharterLegs(g, legs, rival, subcharterCost(g, legs, factor));
-      return { ok: true, msg: `${rivalName(g, rival)} flies ${plural(n, 'leg')} for us` };
+      const out: { hit?: SubHit } = {};
+      const n = subcharterLegs(g, legs, rival, subcharterCost(g, legs, factor), out);
+      return { ok: true, msg: `${rivalName(g, rival)} flies ${plural(n, 'leg')} for us.${noticeText(g, legs.find(isRevenue), out.hit)}` };
     }
     case 'cancel': {
       const pen = cancelLegs(g, legs, 'Crew sickness', 3);

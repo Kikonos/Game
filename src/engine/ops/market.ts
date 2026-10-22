@@ -18,6 +18,7 @@ import { DAY, fmtDate, fmtDay, monthKey, yearOf } from '../core/time';
 import type { ActionResult, Aircraft, AircraftOffer, ApprovalId, Cabin, GameState, SimEvent } from '../core/types';
 import { clamp, hash } from '../core/util';
 import { familyLabel } from '../crew/conversion';
+import { defaultCrewRest } from '../crew/crewRest';
 import { aircraftGate, APPROVALS, ratedPilots, type AircraftGate } from './company';
 import { deliveryQuote, handoverMessage, planDeliveryFerry, type DeliveryQuote } from './delivery';
 import { usd } from './util';
@@ -152,6 +153,8 @@ function makeOffer(g: GameState, t: AcmiType, opts: { lease?: boolean; kind?: 'd
   o.index = index;
   o.expires = g.now + int(r, M.offerDays[0], M.offerDays[1]) * DAY;
   o.created = g.now;
+  // v0.7.2 crew rest compartment per airframe (bunks), rolled last on the offer's own stream.
+  o.crewRest = { bunks: t.bunkShare >= 1 || (t.bunkShare > 0 && chance(r, t.bunkShare)), seats: 0 };
   return o;
 }
 
@@ -272,7 +275,7 @@ export function acquireAircraft(g: GameState, offerId: string): ActionResult<{ a
     maint: o.newBuild
       ? { fhSinceA: 0, lastA: handover, fhSinceC: 0, lastC: handover, deferred: 0 }
       : { fhSinceA: 0, lastA: handover, fhSinceC: Math.round(range(g, 0.1, 0.4) * (t.body === 'wide' ? 6000 : 7500)), lastC: handover - int(g, 60, 300) * DAY, deferred: 0.03 },
-    cabin: { ...o.cabin }, etops: t.body === 'wide' ? Math.min(180, t.etopsMax) : 0,
+    cabin: { ...o.cabin }, etops: t.body === 'wide' ? Math.min(180, t.etopsMax) : 0, crewRest: { ...(o.crewRest ?? defaultCrewRest(o.typeId)) },
     at: site, flightId: null, status: 'delivering', maintId: null, deliveredAt: handover,
     delivery: { site, where: o.where ?? `${AIRPORT_BY_CODE[site]?.city ?? site} (${site})`, handover, ferryIds: [] },
   };

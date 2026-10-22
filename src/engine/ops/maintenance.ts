@@ -2,7 +2,8 @@
 
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { BAL } from '../core/balance';
-import { flightsOf, nextId, removeFlights, touchFlights } from '../core/entities';
+import { flightsOf, nextId, removeFlights, retimeFlight, touchFlights } from '../core/entities';
+import { C_HUBS, cHubAt, type CHub } from '../../data/mro';
 import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { cardMeta, checkCard, noSlotCard, refitMissedCard } from '../problems';
@@ -10,7 +11,7 @@ import { blockMinutes, typeOf } from '../core/perf';
 import { requestPause } from '../core/pause';
 import { schedule } from '../core/queue';
 import { int, pick, range } from '../core/rng';
-import { DAY, fmtDate, fmtDateTime, fmtDay, toDate } from '../core/time';
+import { DAY, fmtDate, fmtDateTime, fmtDay, fmtTime, toDate } from '../core/time';
 import type { ActionResult, Aircraft, Cabin, Flight, GameState, MaintenanceEvent, MaintKind, Minute, SimEvent } from '../core/types';
 import { clamp } from '../core/util';
 import { planPositioning } from '../contracts';
@@ -19,6 +20,7 @@ import { noteIncident } from './company';
 import { aogDecision } from './events';
 import { onPaintEnd } from './paint';
 import { cancelLegs } from './flights';
+import { bookCCheck } from './cHub';
 import { ageOf, bumpRelation, contractOf, isRevenue, stats, usd } from './util';
 
 export interface CheckStatus {
@@ -43,8 +45,8 @@ export interface CheckStatus {
 const MONTH = 30.44 * DAY;
 const cLimitFH = (ac: Aircraft) => (typeOf(ac.typeId).body === 'wide' ? BAL.cCheckFH.wide : BAL.cCheckFH.narrow);
 /** What a check costs us: a C-check is mostly paid out of maintenance reserves (leased) or the per-BH provision (owned). */
-const checkCostOf = (ac: Aircraft, kind: 'A' | 'C') => Math.round(BAL.checkCost[kind][typeOf(ac.typeId).body === 'wide' ? 1 : 0] * (kind === 'C' ? 1 - BAL.cReserveCover : 1));
-const durationOf = (ac: Aircraft, kind: 'A' | 'C') => (kind === 'A' ? typeOf(ac.typeId).aCheckHours * 60 : typeOf(ac.typeId).cCheckDays * DAY);
+export const checkCostOf = (ac: Aircraft, kind: 'A' | 'C') => Math.round(BAL.checkCost[kind][typeOf(ac.typeId).body === 'wide' ? 1 : 0] * (kind === 'C' ? 1 - BAL.cReserveCover : 1));
+export const durationOf = (ac: Aircraft, kind: 'A' | 'C') => (kind === 'A' ? typeOf(ac.typeId).aCheckHours * 60 : typeOf(ac.typeId).cCheckDays * DAY);
 
 function nextPlanned(g: GameState, acId: string, kind: MaintKind): MaintenanceEvent | undefined {
   let best: MaintenanceEvent | undefined;
@@ -140,11 +142,15 @@ export function aogChance(g: GameState, ac: Aircraft, airport: string): number {
 
 /**
  * A-checks at home base, at the station of a base programme (the client's line maintenance; the aircraft's own
- * when given) or any major airport (size ≥ 4); C-checks at home base only.
+ * when given) or any major airport (size ≥ 4); v0.7.2 C-checks at the family's MRO hubs only.
  */
 export function checkAirportOk(g: GameState, kind: 'A' | 'C', at: string, aircraftId?: string): boolean {
+  // v0.7.2 C-checks at the type family's MRO hubs (data/mro.ts); a booking already made at base stays valid.
+  if (kind === 'C') {
+    const ac = aircraftId ? g.fleet[aircraftId] : undefined;
+    return !!ac && !!cHubAt(typeOf(ac.typeId).family, at);
+  }
   if (at === g.company.homeBase) return true;
-  if (kind !== 'A') return false;
   if ((AIRPORT_BY_CODE[at]?.size ?? 0) >= 4) return true;
   return Object.values(g.contracts).some((c) => (c.status === 'active' || c.status === 'signed') && c.pattern.kind === 'base' && c.pattern.base === at && (!aircraftId || c.aircraftIds.includes(aircraftId)));
 }
@@ -185,8 +191,9 @@ export function scheduleCheck(
   g: GameState, aircraftId: string, kind: MaintKind, start: Minute, at: string,
   opts: {
     dropLegs?: boolean; auto?: boolean; /** v0.5.1 client paint at a paint shop (paint.ts books it and posts the message). */ paint?: { contractId: string; phase: 'in' | 'out'; days: number; cost: number };
-    /** v0.7 cabin refit at an MRO station (cabin.ts books it and posts the message). */ refit?: { cabin: Cabin; days: number; cost: number };
+    /** v0.7 cabin refit at an MRO station (cabin.ts books it and posts the message); v0.7.2 restSeats: crew rest seats at the end. */ refit?: { cabin: Cabin; days: number; cost: number; restSeats?: number };
     /** v0.7 lease return check at the return site (leaseReturn.ts books it); `end` fixes the end (the lease end). */ leaseReturn?: { days: number; cost: number };
+    /** v0.7.2 a C-check at an MRO hub (cHub.ts books it, the ferry home and the message). */ hub?: CHub;
   } = {},
 ): ActionResult<{ maintId: string }> {
   const ac = g.fleet[aircraftId];
@@ -196,7 +203,7 @@ export function scheduleCheck(
   if (kind !== 'A' && kind !== 'C' && !pt) return { ok: false, error: 'Only A- and C-checks can be booked' };
   if (ac.status === 'delivering' || ac.status === 'stored' || ac.status === 'leasedOut') return { ok: false, error: `${ac.reg} is not on the AOC` };
   if (!AIRPORT_BY_CODE[at]) return { ok: false, error: 'Unknown airport' };
-  if (!pt && !checkAirportOk(g, kind as 'A' | 'C', at, ac.id)) return { ok: false, error: kind === 'C' ? 'C-checks are done at the home base' : 'A-checks need the home base, a deployment base or a major airport' };
+  if (!pt && !checkAirportOk(g, kind as 'A' | 'C', at, ac.id)) return { ok: false, error: kind === 'C' ? `C-checks are done at an MRO hub for the ${typeOf(ac.typeId).short}` : 'A-checks need the home base, a deployment base or a major airport' };
   if (!pt && nextPlanned(g, ac.id, kind)) return { ok: false, error: `${ac.reg} already has a ${kind}-check booked` };
   start = Math.round(Math.max(start, g.now));
   const end = start + (pt ? pt.days * DAY : durationOf(ac, kind as 'A' | 'C'));
@@ -224,8 +231,12 @@ export function scheduleCheck(
     id: nextId(g, 'mx'), aircraftId: ac.id, kind, at, start, end, cost: pt ? pt.cost : checkCostOf(ac, kind as 'A' | 'C'), status: 'planned', planned: true, ev: 0, booked: g.now, bookedStart: start,
   };
   if (opts.paint && kind === 'paint') m.paint = { phase: opts.paint.phase, contractId: opts.paint.contractId };
-  if (opts.refit && kind === 'refit') m.refit = { cabin: { ...opts.refit.cabin } };
+  if (opts.refit && kind === 'refit') m.refit = { cabin: { ...opts.refit.cabin }, ...(opts.refit.restSeats !== undefined ? { restSeats: opts.refit.restSeats } : {}) };
   if (opts.leaseReturn && kind === 'return') m.leaseReturn = true;
+  if (opts.hub && kind === 'C') {
+    m.hub = { code: opts.hub.code, name: opts.hub.name, price: opts.hub.price };
+    m.cost = Math.round(m.cost * opts.hub.price);
+  }
   g.maintenance[m.id] = m;
   if (needFerry) {
     // The ferry is planned against the check (an anchor now); without one the slot can't be reached.
@@ -239,6 +250,7 @@ export function scheduleCheck(
     m.ferryIds = legs.map((f) => f.id);
     // v0.7: why the empty leg flies (labels, map, ticket purpose).
     if (kind === 'refit' || kind === 'return') for (const f of legs) f.purpose = kind;
+    if (m.hub) for (const f of legs) f.purpose = 'check';
     // Crew the ferry now (a set may have to position for it), not at its departure.
     rerosterFrom(g, ac.id, g.now);
   } else {
@@ -250,6 +262,8 @@ export function scheduleCheck(
   schedule(g, start, 'maint.start', m.id, m.ev);
   touchFlights(g);
   if (pt) return { ok: true, msg: `${kind === 'paint' ? 'Paint shop' : kind === 'refit' ? 'Cabin shop' : 'Return check'} at ${AIRPORT_BY_CODE[at]?.city ?? at}`, data: { maintId: m.id } };
+  // v0.7.2 hub C-checks: cHub.ts posts the one message (with the ferries and tickets).
+  if (m.hub) return { ok: true, msg: `C-check at ${m.hub.name}`, data: { maintId: m.id } };
   const where = AIRPORT_BY_CODE[at]?.city ?? at;
   const msg = `${kind}-check for ${ac.reg} at ${where}, ${fmtDateTime(start)}–${fmtDateTime(end)} UTC${drop.length ? ` (${drop.length} leg${drop.length > 1 ? 's' : ''} dropped with notice)` : ''}`;
   pushMessage(g, { tone: 'info', cat: 'tech', title: `${kind}-check booked: ${ac.reg}`, body: `${msg}.${opts.auto ? ' Planned automatically.' : ''}`, ref: { kind: 'maint', id: m.id } });
@@ -261,7 +275,7 @@ export function missCheck(g: GameState, m: MaintenanceEvent, why: string): void 
   if (m.status !== 'planned') return;
   m.status = 'cancelled';
   m.ev++;
-  const ferries = (m.ferryIds ?? []).filter((id) => g.flights[id]?.status === 'scheduled');
+  const ferries = [...(m.ferryIds ?? []), ...(m.homeIds ?? [])].filter((id) => g.flights[id]?.status === 'scheduled');
   if (ferries.length) removeFlights(g, ferries);
   touchFlights(g);
   const ac = g.fleet[m.aircraftId];
@@ -281,7 +295,7 @@ export function cancelCheck(g: GameState, maintId: string): ActionResult {
   if (m.kind === 'return') return { ok: false, error: 'Change the lease choice instead' };
   m.status = 'cancelled';
   m.ev++;
-  const ferries = (m.ferryIds ?? []).filter((id) => g.flights[id]?.status === 'scheduled');
+  const ferries = [...(m.ferryIds ?? []), ...(m.homeIds ?? [])].filter((id) => g.flights[id]?.status === 'scheduled');
   if (ferries.length) removeFlights(g, ferries);
   touchFlights(g);
   return { ok: true, msg: m.kind === 'refit' ? 'Refit cancelled' : `${m.kind}-check cancelled` };
@@ -409,7 +423,7 @@ export function planChecks(g: GameState): void {
         const dur = typeOf(ac.typeId).cCheckDays;
         pushMessage(g, {
           tone: w <= 30 ? 'bad' : 'warn', cat: 'tech', title: `C-check due in ${Math.max(0, days)} days: ${ac.reg}`,
-          body: `${dur} days at ${g.company.homeBase}, due ${fmtDate(st.cDue)}. ${s ? `Free window: ${fmtDay(s.from)}–${fmtDay(s.to)}${s.to - s.from > 60 * DAY ? ' (open)' : ''}.` : 'No free window yet: plan around your contracts.'} Winter checks cost no summer revenue.`,
+          body: `${dur} days at an MRO hub (${C_HUBS[typeOf(ac.typeId).family].map((h) => h.city).join(' or ')}), due ${fmtDate(st.cDue)}. ${s ? `Free window: ${fmtDay(s.from)}–${fmtDay(s.to)}${s.to - s.from > 60 * DAY ? ' (open)' : ''}.` : 'No free window yet: plan around your contracts.'} Winter checks cost no summer revenue.`,
           ref: { kind: 'aircraft', id: ac.id }, ...cardMeta(checkCard(g, ac.id)),
         });
       }
@@ -422,12 +436,15 @@ export function planChecks(g: GameState): void {
 function forceCheck(g: GameState, ac: Aircraft, st: CheckStatus): void {
   const kind: 'A' | 'C' = st.cUsed > 1 + BAL.overdueTolerance ? 'C' : 'A';
   if (nextPlanned(g, ac.id, kind)) return;
-  const at = checkAirportOk(g, kind, ac.at, ac.id) ? ac.at : g.company.homeBase;
+  // v0.7.2 an overdue C-check goes to the nearest hub for the family (a ferry permit).
+  const hubs = C_HUBS[typeOf(ac.typeId).family];
+  const near = [...hubs].sort((a, b) => blockMinutes(ac.typeId, ac.at, a.code) - blockMinutes(ac.typeId, ac.at, b.code))[0];
+  const at = checkAirportOk(g, kind, ac.at, ac.id) ? ac.at : kind === 'C' && near ? near.code : g.company.homeBase;
   const dur = durationOf(ac, kind);
   const start = g.now + (at === ac.at ? 60 : BAL.ferryLeadMin + typeOf(ac.typeId).turnMin + blockMinutes(ac.typeId, ac.at, at));
   const legs = flightsOf(g, ac.id).filter((f) => f.status === 'scheduled' && f.std < start + dur + 60);
   if (legs.length) cancelLegs(g, legs, `${ac.reg} grounded`, 0);
-  const r = scheduleCheck(g, ac.id, kind, start, at);
+  const r = kind === 'C' && cHubAt(typeOf(ac.typeId).family, at) ? bookCCheck(g, ac.id, at, start) : scheduleCheck(g, ac.id, kind, start, at);
   if (r.ok) pushMessage(g, { tone: 'bad', cat: 'tech', title: `${ac.reg} grounded for its ${kind}-check`, body: `The check was overdue. ${legs.length} legs cancelled.`, ref: { kind: 'aircraft', id: ac.id }, problem: { kind: 'grounded', ref: { kind: 'aircraft', id: ac.id } }, hurt: { money: 0, pax: 0, delayMin: 0, level: legs.length ? 'high' : 'low' } });
 }
 
@@ -475,6 +492,7 @@ export function onMaintStart(g: GameState, ev: SimEvent): void {
     m.end = ready + dur;
     m.ev++;
     schedule(g, m.start, 'maint.start', m.id, m.ev);
+    retimeHome(g, m);
     touchFlights(g);
     return;
   }
@@ -532,10 +550,24 @@ export function onMaintEnd(g: GameState, ev: SimEvent): void {
   pushMessage(g, {
     tone: m.kind === 'AOG' ? 'good' : 'info', cat: 'tech',
     title: m.kind === 'AOG' ? `${ac.reg} back in service` : `${m.kind}-check done: ${ac.reg}`,
-    body: m.kind === 'AOG' ? `${m.cause ?? 'Fault'} fixed at ${m.at}. Repair ${usd(m.cost)}.` : `${ac.reg} is released to service at ${m.at}. ${usd(m.cost)}.`,
+    body: m.kind === 'AOG' ? `${m.cause ?? 'Fault'} fixed at ${m.at}. Repair ${usd(m.cost)}.` : `${ac.reg} is released to service at ${m.hub ? m.hub.name : m.at}. ${usd(m.cost)}.${homeText(g, m)}`,
     ref: { kind: 'aircraft', id: ac.id },
   });
 }
+
+/** v0.7.2 the ferry home after a hub C-check leaves BAL.v072.cHub.homeAfterMin after the check ends (retimed when it moves). */
+function retimeHome(g: GameState, m: MaintenanceEvent): void {
+  const legs = (m.homeIds ?? []).map((id) => g.flights[id]).filter((f): f is Flight => f?.status === 'scheduled');
+  if (!legs.length) return;
+  const shift = m.end + BAL.v072.cHub.homeAfterMin - legs[0].std;
+  if (shift <= 0) return;
+  for (const f of legs) retimeFlight(g, f, f.std + shift, f.sta + shift);
+}
+
+const homeText = (g: GameState, m: MaintenanceEvent) => {
+  const f = m.homeIds?.map((id) => g.flights[id]).find((x) => x?.status === 'scheduled');
+  return f ? ` Ferrying home ${fmtDay(f.std)} ${fmtTime(f.std)} UTC.` : '';
+};
 
 // ---------- AOG ----------
 

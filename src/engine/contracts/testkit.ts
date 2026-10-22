@@ -1,5 +1,6 @@
 // Test helpers for the contracts module (B1). Not used by the game.
 
+import { defaultCrewRest } from '../crew/crewRest';
 import { createGame } from '../newGame';
 import { advanceTo } from '../sim';
 import { DAY } from '../core/time';
@@ -46,7 +47,7 @@ export function addAircraft(g: GameState, typeId: string): Aircraft {
   const base = Object.values(g.fleet)[0];
   const id = nextId(g, 'a');
   const t = ACMI_TYPES[typeId];
-  const ac: Aircraft = { ...structuredClone(base), id, reg: `TEST${id}`, typeId, cabin: cabinFrom(t.cabins[0]), ownership: { kind: 'owned', bookValue: 1 }, at: g.company.homeBase, flightId: null, status: 'available' };
+  const ac: Aircraft = { ...structuredClone(base), id, reg: `TEST${id}`, typeId, cabin: cabinFrom(t.cabins[0]), ownership: { kind: 'owned', bookValue: 1 }, at: g.company.homeBase, flightId: null, status: 'available', crewRest: defaultCrewRest(typeId) };
   ac.maint = { ...ac.maint, fhSinceA: 0, lastA: g.now, fhSinceC: 0, lastC: g.now };
   g.fleet[id] = ac;
   return ac;

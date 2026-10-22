@@ -10,7 +10,7 @@ import type { GameState } from '../core/types';
 import { acceptOffer, feasibility } from '../contracts';
 import { addAircraft, legsOffer, newGame, owned, run } from '../contracts/testkit';
 import { cancelCheck } from './maintenance';
-import { bookRefit, cabinOptions, refitQuote, refitStations } from './cabin';
+import { bookRefit, bookRestSeats, cabinOptions, REST_SEATS, refitQuote, refitSlots, refitStations, restSeatsQuote } from './cabin';
 import { leased } from '../contracts/testkit';
 
 const line = (g: GameState, cat: 'refit') => [g.finance.current, ...g.finance.history].reduce((s, st) => s + (st.lines[cat] ?? 0), 0);
@@ -29,18 +29,17 @@ describe('cabin layouts', () => {
 });
 
 describe('refits', () => {
-  it('stations: widebodies only where the shop takes them; nearest first', () => {
+  it('stations: our own hangar at home base only (v0.7.2)', () => {
     const g = newGame(3);
     const nb = refitStations(g, owned(g).id);
-    expect(nb[0]).toMatchObject({ code: 'LIS', ferryBlock: 0 });
-    expect(nb.map((s) => s.code)).toContain('VNO');
+    expect(nb).toEqual([{ code: 'LIS', name: `${g.company.name} hangar, Lisbon`, ferryBlock: 0 }]);
     const wb = addAircraft(g, 'a332');
-    expect(refitStations(g, wb.id).map((s) => s.code)).not.toContain('VNO');
+    expect(refitStations(g, wb.id).map((s) => s.code)).toEqual(['LIS']);
     const q = refitQuote(g, wb.id, '36J/150Y', 'VNO', g.now + 10 * DAY);
     expect(q.ok).toBe(false);
-    expect(q.why).toBe('FL Technics at Vilnius takes narrowbodies only');
+    expect(q.why).toBe('Cabin work is done in our own hangar at home base');
     expect(refitQuote(g, wb.id, '18J/282Y', 'LIS', g.now + 10 * DAY).why).toBe('Already 18J/282Y');
-    expect(refitQuote(g, wb.id, '36J/150Y', 'LIS', g.now + 2 * DAY).why).toMatch(/^Hangar slots from /);
+    expect(refitQuote(g, wb.id, '36J/150Y', 'LIS', g.now - 2 * 60).why).toMatch(/^Hangar slots from /);
   });
 
   it('quote: days and cost by layout and body, seats and crew minimum, what it opens and closes, reinstatement on a lease', () => {
@@ -59,13 +58,14 @@ describe('refits', () => {
   it('booked away from base: ferries in, posts the refit once at the start, changes the cabin at the end and re-rosters for the new complement', () => {
     const g = newGame(5);
     const ac = owned(g);
+    ac.at = 'HAM';
     const start = g.now + 10 * DAY;
-    const r = bookRefit(g, ac.id, '24J/90Y', 'HAM', start);
+    const r = bookRefit(g, ac.id, '24J/90Y', 'LIS', start);
     if (!r.ok) throw new Error(r.error);
     const m = g.maintenance[r.data!.maintId];
-    expect(m).toMatchObject({ kind: 'refit', at: 'HAM', start, end: start + 21 * DAY, cost: 1_200_000, refit: { cabin: { label: '24J/90Y', layout: 'vip', total: 114 } } });
+    expect(m).toMatchObject({ kind: 'refit', at: 'LIS', start, end: start + 21 * DAY, cost: 1_200_000, refit: { cabin: { label: '24J/90Y', layout: 'vip', total: 114 } } });
     expect(m.ferryIds?.length).toBeGreaterThan(0);
-    for (const id of m.ferryIds!) expect(g.flights[id]).toMatchObject({ kind: 'ferry', purpose: 'refit', to: 'HAM' });
+    expect(g.flights[m.ferryIds![m.ferryIds!.length - 1]]).toMatchObject({ kind: 'ferry', purpose: 'refit', to: 'LIS' });
     expect(g.messages[0].title).toBe(`Refit booked: ${ac.reg} to 24J/90Y`);
     run(g, start + 60);
     expect(m.status).toBe('inWork');
@@ -74,7 +74,7 @@ describe('refits', () => {
     expect(m.status).toBe('done');
     expect(line(g, 'refit')).toBe(-1_200_000);
     expect(ac.cabin).toMatchObject({ label: '24J/90Y', layout: 'vip', total: 114 });
-    expect(ac.at).toBe('HAM');
+    expect(ac.at).toBe('LIS');
     expect(g.stats.refits).toBe(1);
     expect(g.messages.some((x) => x.title === `${ac.reg} refitted: 24J/90Y VIP` && /Cabin crew minimum 3 \(was 4\)/.test(x.body))).toBe(true);
     // New flying is crewed for 114 seats: 3 cabin crew at the minimum (was 4).
@@ -105,7 +105,8 @@ describe('refits', () => {
   it('cancelled before the start: nothing paid, the ferry removed; in work it cannot be cancelled', () => {
     const g = newGame(6);
     const ac = owned(g);
-    const r = bookRefit(g, ac.id, '12J/156Y', 'MAD', g.now + 10 * DAY);
+    ac.at = 'MAD';
+    const r = bookRefit(g, ac.id, '12J/156Y', 'LIS', g.now + 10 * DAY);
     if (!r.ok) throw new Error(r.error);
     const m = g.maintenance[r.data!.maintId];
     const ferries = [...m.ferryIds!];
@@ -114,11 +115,12 @@ describe('refits', () => {
     expect(m.status).toBe('cancelled');
     for (const id of ferries) expect(g.flights[id]).toBeUndefined();
     expect(line(g, 'refit')).toBe(0);
+    ac.at = 'LIS';
     const r2 = bookRefit(g, ac.id, '12J/156Y', 'LIS', g.now + 8 * DAY);
     if (!r2.ok) throw new Error(r2.error);
     run(g, g.now + 8 * DAY + 60);
     expect(cancelCheck(g, r2.data!.maintId)).toEqual({ ok: false, error: 'The check is already in work' });
-    expect(BAL.refit.leadDays).toBe(7);
+    expect(BAL.refit.leadDays).toBe(0);
   });
 });
 
@@ -151,5 +153,52 @@ describe('the cabin rules in feasibility', () => {
     expect(feasibility(g, o.id, ac.id).checks.find((x) => x.id === 'layout')!.level).toBe('ok');
     const troop = legsOffer(g, [['LIS', 'BKO', t]], 174);
     expect(feasibility(g, troop.id, ac.id).checks.find((x) => x.id === 'seats')).toMatchObject({ level: 'no', label: '168 seats: the client needs at least 174' });
+  });
+});
+
+describe('v0.7.2 refits start straight away, at home base', () => {
+  it('the first slot starts today when the aircraft is free; a signed job pushes it back and busyWhy names it', () => {
+    const g = newGame(3);
+    const ac = owned(g);
+    const r = refitSlots(g, ac.id, '12J/156Y');
+    expect(r.slots.length).toBe(6);
+    expect(r.slots[0].start).toBeLessThanOrEqual(g.now + 90);
+    expect(r.slots[0].end - r.slots[0].start).toBe(7 * DAY);
+    expect(r.busyUntil).toBeNull();
+    for (let i = 1; i < r.slots.length; i++) expect(r.slots[i].start).toBeGreaterThan(r.slots[i - 1].start);
+    const t = g.now + DAY;
+    const o = legsOffer(g, [['LIS', 'FAO', t], ['FAO', 'LIS', t + 3 * DAY]], 150);
+    o.title = 'TUI summer programme Lisbon–Faro';
+    const s = acceptOffer(g, o.id, [ac.id]);
+    if (!s.ok) throw new Error(s.error);
+    const r2 = refitSlots(g, ac.id, '12J/156Y');
+    expect(r2.slots[0].start).toBeGreaterThan(t + 3 * DAY);
+    expect(r2.busyUntil).toBe(r2.slots[0].start);
+    expect(r2.busyWhy).toMatch(/^Busy until .+: flies TUI summer programme Lisbon–Faro$/);
+    expect(refitQuote(g, ac.id, '12J/156Y', 'LIS', r2.slots[0].start).ok).toBe(true);
+  });
+
+  it('crew rest seats: 2 days and $30K at home base; the last row is fitted at the end; never on narrowbodies or with bunks', () => {
+    const g = newGame(4);
+    const nb = owned(g);
+    expect(restSeatsQuote(g, nb.id, true, g.now + DAY).why).toBe('Narrowbodies never need crew rest seats');
+    const wb = addAircraft(g, 'a332');
+    expect(wb.crewRest).toEqual({ bunks: true, seats: 0 });
+    expect(restSeatsQuote(g, wb.id, true, g.now + DAY).why).toMatch(/has bunks/);
+    wb.crewRest = { bunks: false, seats: 0 };
+    const slots = refitSlots(g, wb.id, REST_SEATS);
+    expect(slots.slots[0].end - slots.slots[0].start).toBe(2 * DAY);
+    const q = restSeatsQuote(g, wb.id, true, slots.slots[0].start);
+    expect(q).toMatchObject({ ok: true, days: 2, cost: 30_000, station: 'LIS', seatsFrom: q.seatsTo });
+    const r = bookRestSeats(g, wb.id, true, slots.slots[0].start);
+    if (!r.ok) throw new Error(r.error);
+    const m = g.maintenance[r.data!.maintId];
+    expect(m.refit).toMatchObject({ restSeats: 8 });
+    run(g, m.end + 60);
+    expect(wb.crewRest).toEqual({ bunks: false, seats: 8 });
+    expect(wb.cabin.total).toBe(q.seatsTo);
+    expect(line(g, 'refit')).toBe(-30_000);
+    expect(restSeatsQuote(g, wb.id, true, g.now + DAY).why).toBe('Crew rest seats are already fitted');
+    expect(restSeatsQuote(g, wb.id, false, g.now + DAY).ok).toBe(true);
   });
 });

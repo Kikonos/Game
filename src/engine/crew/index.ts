@@ -11,7 +11,7 @@ import { dailyCrewCosts, monthlySalaries } from './costs';
 import { deletePairing, planAircraft } from './duties';
 export { aboveMinimum, legalMinimum } from './duties';
 import { dailySickness, onCrewJoin, onTrainingDone } from './hr';
-import { dailyMorale, monthlyMorale, noteService, onDutyMorale, settleService, setResignHooks } from './morale';
+import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, settleService, setResignHooks } from './morale';
 import { autoRoster, guardDuty, onFlightsChanged, recheckAfterRelease, recheckNext, recheckSoon, removeCrew, sendStrandedHome, stayOn } from './roster';
 import { minRest, nightsIn, LIMITS } from './rules';
 import { aboard, crewCount, crewIx, dutyBlock, dutyFlights, dutySegs, onBlocks, passengers, touchCrew, touchCrewState } from './timeline';
@@ -21,7 +21,7 @@ export {
   acclimState, referenceTime, type Acclim, type CrewWindows, type FdpInput, type IssueCode, type LegalityIssue, type LegalityReport, type RestInput,
 } from './ftl';
 export { crewName, makeCrewMember, salaryFor } from './generate';
-export { crewAvailability, hireCrew, hireQuote, ratedMarket, staffing, trainCrew, type Availability, type HireRequest, type RatedMarket, type RoleCapacity, type StaffingLine } from './hr';
+export { crewAvailability, hireCrew, hireFamilies, hireQuote, ratedMarket, staffing, trainCrew, type Availability, type HireRequest, type RatedMarket, type RoleCapacity, type StaffingLine } from './hr';
 export {
   applyDiscretion, autoRoster, boardCrew, dropStraySpares, promoteSpares, buildDuties, flightCrewStatus, guardDuty, onFlightsChanged, removeCrew, replaceCrew, rerosterFrom, rosterOf, setRestDelayHook,
   type FlightCrewStatus, type RosterResult,
@@ -58,6 +58,16 @@ export { crewAway, type CrewAway } from './away';
 export { restClassAt, restSeatsBlocked, sellableSeats } from './crewRest';
 
 const CHECKIN = () => BAL.deadheadCheckIn;
+
+/** v0.7.2 a captain flew in a first officer's seat: pay stays; from the third time in 30 days, morale −3 each time. */
+export function captainAsFo(g: GameState, c: CrewMember, report: Minute): void {
+  const A = BAL.v072.asFo;
+  const recent = (c.asFoAt ?? []).filter((t) => t > g.now - 30 * DAY);
+  recent.push(report);
+  c.asFoAt = recent;
+  g.stats.asFo = (g.stats.asFo ?? 0) + 1;
+  if (recent.length > A.freePerMonth) moraleShock(g, c, 'career', A.morale);
+}
 
 /**
  * ERRP bookkeeping before work starting at t (a duty report or a logged ticket): the time off since the last
@@ -150,6 +160,7 @@ function onDutyRelease(g: GameState, ev: SimEvent): void {
     c.loc = d.restAt;
     c.fatigue = Math.min(100, c.fatigue + Math.round(d.fdp / 60));
     if (d.restAt === c.base) c.awaySince = null;
+    if (c.role === 'CPT' && (s.role === 'FO' || s.role === 'CRP')) captainAsFo(g, c, d.report);
   }
   d.done = true;
   const last = p.dutyIds.every((id) => !g.duties[id] || g.duties[id].done);

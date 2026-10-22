@@ -15,7 +15,7 @@ import { DAY, fmtDuration, fmtTime } from '../core/time';
 import type { ActionResult, Aircraft, Flight, GameState, MaintenanceEvent, Message, MessageCat, Minute, SimEvent } from '../core/types';
 import { noteLostLegs } from '../contracts/billing';
 import { isSoft } from '../contracts/plan';
-import { applyDiscretion, boardCrew, crewIssuesFor, dropStraySpares, flightCrewStatus, guardDuty, rerosterFrom, setRestDelayHook } from '../crew';
+import { applyDiscretion, boardCrew, crewIssuesFor, dropStraySpares, flightCrewStatus, guardDuty, rerosterFrom, restSeatsBlocked, setRestDelayHook } from '../crew';
 import { noteIncident } from './company';
 import { deliveryWaitDay } from './delivery';
 import { crewReadyAt, crewShortDecision, hasOpenDecision } from './events';
@@ -438,15 +438,88 @@ export function pickRival(g: GameState, typeId: string): string {
 }
 
 /** Hands revenue legs to a rival (still billed to our client), drops the empty legs; posts the cost. */
-export function subcharterLegs(g: GameState, legs: Flight[], rivalId: string, cost: number): number {
+export function subcharterLegs(g: GameState, legs: Flight[], rivalId: string, cost: number, out?: { hit?: SubHit }): number {
   const live = legs.filter((f) => f.status === 'scheduled' && f.purpose !== 'delivery');
   const rev = live.filter(isRevenue);
   const empty = live.filter((f) => !isRevenue(f));
+  // v0.7.2 the client notices (F3): reliability and relation, worse when hand-overs become a habit.
+  const hit = subHit(g, rev);
   if (empty.length) removeFlights(g, empty.map((f) => f.id));
   if (rev.length) subcharterFlights(g, rev.map((f) => f.id), rivalId || 'rival');
   if (cost) post(g, 'subcharter', -cost);
   stats(g).subchartered += rev.length;
+  if (rev.length) {
+    bumpReliable(g, hit.reliability);
+    for (const [clientId, d] of hit.byClient) bumpRelation(g, clientId, d);
+    const log = (stats(g).subLog ??= []);
+    for (const f of rev) {
+      log.push(f.std);
+      const c = contractOf(g, f);
+      if (c) (c.subLegs ??= []).push(f.std);
+    }
+    pruneSubLog(g);
+  }
+  if (out) out.hit = hit;
   return rev.length;
+}
+
+/** v0.7.2 ' TUI notices: reliability −2.1.' for hand-over messages. */
+export function noticeText(g: GameState, f: Flight | undefined, hit: SubHit | undefined): string {
+  if (!hit || !hit.reliability) return '';
+  const c = f ? contractOf(g, f) : undefined;
+  const who = (c && g.clients[c.clientId]?.name) || 'The client';
+  return ` ${who} notices: reliability ${fmtHit(hit.reliability)}.`;
+}
+
+/** v0.7.2 a hand-over's cost: reliability (≤ 0) and relation (≤ 0, per client), with the plain words. */
+export interface SubHit { reliability: number; relation: number; text: string; byClient: [string, number][] }
+
+const inWindow = (g: GameState, ts: Minute[] | undefined) => {
+  const from = g.now - BAL.v072.sub.windowDays * DAY;
+  let n = 0;
+  for (const t of ts ?? []) if (t >= from) n++;
+  return n;
+};
+
+/**
+ * v0.7.2 F3: per revenue leg, in order, −base … −max reliability by the contract's share of legs handed over and the
+ * company's hand-overs in the last 90 days (each leg counts for the next); at most capPerAction per hand-over;
+ * relation −relationPerLeg a leg (at most relationCap per client). Pure.
+ */
+export function subHit(g: GameState, rev: Flight[]): SubHit {
+  const S = BAL.v072.sub;
+  let n90 = inWindow(g, g.stats.subLog);
+  const sub = new Map<string, number>();
+  let rel = 0;
+  const byClient = new Map<string, number>();
+  for (const f of rev) {
+    const c = contractOf(g, f);
+    let share = 0;
+    if (c) {
+      const s90 = sub.get(c.id) ?? inWindow(g, c.subLegs);
+      const flown90 = (c.legsFlown ?? 0) * Math.min(1, (S.windowDays * DAY) / Math.max(DAY, g.now - c.start));
+      share = s90 / Math.max(1, s90 + flown90);
+      sub.set(c.id, s90 + 1);
+      byClient.set(c.clientId, Math.max(-S.relationCap, (byClient.get(c.clientId) ?? 0) - S.relationPerLeg));
+    }
+    const k = Math.min(1, Math.max(0, (share - S.shareFrom) / S.shareSpan, (n90 - S.nFrom) / S.nSpan));
+    rel += S.base + (S.max - S.base) * k;
+    n90++;
+  }
+  const reliability = -Math.min(S.capPerAction, Math.round(rel * 10) / 10);
+  const relation = [...byClient.values()].reduce((a, b) => a + b, 0);
+  const text = rev.length ? `reliability ${fmtHit(reliability)} · the client notices` : '';
+  return { reliability, relation, text, byClient: [...byClient] };
+}
+
+/** '−2', '−0.6'. */
+const fmtHit = (v: number) => `−${Math.abs(v) % 1 ? Math.abs(v).toFixed(1) : Math.abs(v)}`;
+
+/** Drops sub-charter log entries older than the window (company and contracts). */
+function pruneSubLog(g: GameState): void {
+  const from = g.now - BAL.v072.sub.windowDays * DAY;
+  if (g.stats.subLog) g.stats.subLog = g.stats.subLog.filter((t) => t >= from);
+  for (const c of Object.values(g.contracts)) if (c.subLegs?.length) c.subLegs = c.subLegs.filter((t) => t >= from);
 }
 
 // ---------- departure ----------
@@ -557,7 +630,27 @@ function fdpOver(g: GameState, f: Flight): boolean {
   return true;
 }
 
+/**
+ * v0.7.2 crew rest seats taken out of sale on a flight whose duty needs in-flight rest: passengers booked beyond
+ * the sellable seats are offloaded once, at departure (compensation to penalties, one message with the card).
+ */
+export function offloadRestSeats(g: GameState, f: Flight, ac: Aircraft): void {
+  const blocked = restSeatsBlocked(g, f.id);
+  if (!blocked || !isRevenue(f) || f.pax === undefined) return;
+  const n = f.pax - (ac.cabin.total - blocked);
+  if (n <= 0) return;
+  f.pax -= n;
+  const cost = n * BAL.v072.restSeats.offloadPerPax;
+  post(g, 'penalties', -cost);
+  pushMessage(g, {
+    tone: 'bad', cat: 'ops', title: `${f.no}: ${n} passenger${n > 1 ? 's' : ''} offloaded for crew rest`,
+    body: `The duty needs in-flight rest and ${ac.reg} has no bunks: its last row (${blocked} seats) is curtained off for the crew. Compensation ${usd(cost)}.`,
+    ref: { kind: 'flight', id: f.id }, problem: { kind: 'restSeats', ref: { kind: 'flight', id: f.id } }, hurt: { money: cost, pax: n, delayMin: 0, level: cost >= BAL.crewControl.hurtLowUsd ? 'high' : 'low' },
+  });
+}
+
 function depart(g: GameState, f: Flight, ac: Aircraft): void {
+  offloadRestSeats(g, f, ac);
   boardCrew(g, f);
   f.status = 'enroute';
   f.atd = g.now;
@@ -673,10 +766,11 @@ export function subcharterInstead(g: GameState, ac: Aircraft, legs: Flight[], wh
   const cost = subcharterCost(g, live, range(g, BAL.subcharterFactor[0], BAL.subcharterFactor[1]) * rivalFactor(g, rivalId));
   if (cost >= cancelCost(g, live) + subcharterCost(g, live, 1)) return false;
   const name = g.rivals.find((r) => r.id === rivalId)?.name ?? 'A rival operator';
-  subcharterLegs(g, live, rivalId, cost);
+  const out: { hit?: SubHit } = {};
+  subcharterLegs(g, live, rivalId, cost, out);
   pushMessage(g, {
     tone: 'warn', cat: 'crew', title: `${rev[0].no} sub-chartered${rev.length > 1 ? ` with ${rev.length - 1} more` : ''}`,
-    body: `${why} ${name} flies ${rev.map((x) => `${x.no} ${x.from}–${x.to}`).join(', ')} for us (${usd(cost)}); the client is billed as usual.`,
+    body: `${why} ${name} flies ${rev.map((x) => `${x.no} ${x.from}–${x.to}`).join(', ')} for us (${usd(cost)}); the client is billed as usual.${noticeText(g, rev[0], out.hit)}`,
     ref: { kind: 'flight', id: rev[0].id }, ...penaltyMeta(g, rev, cost),
   });
   if (reroster) rerosterFrom(g, ac.id, g.now);
@@ -826,6 +920,12 @@ export function onFlightArr(g: GameState, ev: SimEvent): void {
   const fh = Math.max(0, block - 20) / 60;
   ac.hours += fh;
   ac.cycles += 1;
+  // v0.7.2 daily block minutes, the last 90 days ("Which one?": the least used aircraft).
+  const day = Math.floor(g.now / DAY);
+  const bd = (ac.bhDays ??= []);
+  if (bd.length && bd[bd.length - 1][0] === day) bd[bd.length - 1][1] += Math.round(block);
+  else bd.push([day, Math.round(block)]);
+  while (bd.length && bd[0][0] <= day - 90) bd.shift();
   ac.maint.fhSinceA += fh;
   ac.maint.fhSinceC += fh;
   ac.maint.deferred = Math.min(1, ac.maint.deferred + 0.0005 * ageF(g, ac));

@@ -277,7 +277,7 @@ function seasonBase(ctx: Ctx): Draft | null {
   const fam = families ? `${families[0] === 'B737' ? '737' : 'A320'}-family aircraft` : wide ? 'a widebody' : 'an A320-size aircraft';
   return {
     archetype: 'seasonBase', client,
-    title: wide ? `Long-haul base at ${city(base)}` : days >= 120 ? `Long-term base at ${city(base)}` : `${season} base at ${city(base)}`,
+    title: titleFor(ctx, 'seasonBase', client, { from: base, to: base, n: days, wide, start: from }, wide ? `Long-haul base at ${city(base)}` : days >= 120 ? `Long-term base at ${city(base)}` : `${season} base at ${city(base)}`),
     blurb:
       `${client.name} wants ${fam} (${seatsText(minSeats, layout)}) based at ${base} from ${fmtDay(toLocal(base, from))} to ${fmtDay(toLocal(base, to - 1))}, ` +
       `flying to ${listCities(dests)}: ${waves.length} wave${waves.length > 1 ? 's' : ''} a day from 06:00 local and a maintenance night every 7 days. ` +
@@ -325,7 +325,7 @@ function aogCover(ctx: Ctx): Draft | null {
   const lead = start - g.now;
   return {
     archetype: 'aogCover', client,
-    title: `AOG cover at ${city(base)}`,
+    title: titleFor(ctx, 'aogCover', client, { from: base, to: base, n: days, wide, start, type: typeOf(ref).short }, `AOG cover at ${city(base)}`),
     blurb:
       `${client.name} has an aircraft grounded at ${base} after ${pick(g, F.AOG_CAUSES)}. They need cover from ${fmtTime(start, base)} local ` +
       `${whenDay(base, g.now, start)} for ${days} days, flying their schedule to ${listCities(dests)}. Premium rate, MGH ${perDay} BH a day; ` +
@@ -589,7 +589,7 @@ function repatriation(ctx: Ctx): Draft | null {
   const start = legs[0].dep;
   return {
     archetype: 'repatriation', client,
-    title: n > 1 ? `Repatriation airlift from ${city(crisis)}` : `Repatriation from ${city(crisis)}`,
+    title: titleFor(ctx, 'repatriation', client, { from: crisis, to: home, n, start: legs[0].dep }, n > 1 ? `Repatriation airlift from ${city(crisis)}` : `Repatriation from ${city(crisis)}`),
     blurb:
       `${city(crisis)}: ${pick(g, F.crisisLines(crisis))}. The ${client.name} needs ${n === 1 ? 'a flight' : `${n} flights`} ${crisis}–${home} for about ${pax} citizens, ` +
       `first departure ${fmtDay(start)} ${fmtTime(start, crisis)} local. Permits are filed but may slip; payment after the job, governments pay late.`,
@@ -605,6 +605,16 @@ function repatriation(ctx: Ctx): Draft | null {
   };
 }
 
+/** v0.7.2 F4: a flavoured title for the draft's archetype (side RNG: the offer stream is unchanged), never the client's last. */
+function titleFor(ctx: Ctx, arch: string, client: Client, x: Omit<F.TitleCtx, 'client' | 'brand' | 'fromCity' | 'toCity' | 'season' | 'month'> & { start: Minute }, fallback: string): string {
+  const { g } = ctx;
+  const tc: F.TitleCtx = {
+    ...x, client: client.name, brand: F.brandOf(client.name), fromCity: city(x.from), toCity: city(x.to), season: F.seasonOf(x.start, x.to), month: F.monthOf(x.start),
+    nation: x.nation ?? F.NATIONS[client.country],
+  };
+  return F.pickTitle(sideRng(g, `title:${g.seq}:${g.now}:${arch}`), F.TITLES[arch], tc, g.clients[client.id]?.lastTitle, fallback);
+}
+
 function tourSeries(ctx: Ctx): Draft | null {
   const { g, wide, o } = ctx;
   const client = nearClient(ctx, clientsOf(g, ['tourOperator'], (c) => !!AIRPORT_BY_CODE[c.base]));
@@ -615,13 +625,20 @@ function tourSeries(ctx: Ctx): Draft | null {
     const d = km(base, c);
     return wide ? d > 5000 : d > 700 && d < 4300;
   });
-  const resort = o.airport ?? pick(g, resorts);
+  let resort = o.airport ?? pick(g, resorts);
   if (!resort) return null;
   let n = o.rotations ?? int(g, 4, 12);
   if (!o.rotations && ctx.window) n = Math.min(n, Math.floor(roomDays(ctx, Math.max(ctx.window.from, g.now + 30 * DAY)) / 7));
   if (n < 3) return null;
   const s = o.start ?? pickStart(ctx, 30 * DAY, 120 * DAY, n * 7 * DAY);
   if (s === null) return null;
+  // v0.7.2 winter programmes sometimes go to the snow (side RNG: the offer stream is unchanged).
+  const mo = toDate(s).getUTCMonth();
+  if (!o.airport && !wide && (mo === 11 || mo <= 2)) {
+    const r = sideRng(g, `ski:${g.seq}:${g.now}`);
+    const ski = F.RESORTS_SKI.filter((c) => AIRPORT_BY_CODE[c] && c !== base && km(base, c) > 500 && km(base, c) < 2500);
+    if (ski.length && chance(r, 0.35)) resort = pick(r, ski);
+  }
   const est = planSector(wide ? 'b763' : 'a320ceo', base, resort);
   const block = est.ok ? est.legs.reduce((x, l) => x + l.block, 0) : 4 * 60;
   const pax = wide ? int(g, 260, 300) : int(g, 165, 180);
@@ -636,7 +653,7 @@ function tourSeries(ctx: Ctx): Draft | null {
   const last = legs[legs.length - 1];
   return {
     archetype: 'tourSeries', client,
-    title: `${wd} series ${base}–${resort}`,
+    title: titleFor(ctx, 'tourSeries', client, { from: base, to: resort, n, wide, start: legs[0].dep }, `${client.name} series ${base}–${resort}`),
     blurb: pick(g, F.TOUR_SERIES_BLURBS)({ client: client.name, n, wd, first: fmtDay(legs[0].dep), last: fmtDay(last.dep), out: fmtTime(legs[0].dep, base) }),
     pattern: { kind: 'legs', legs },
     req: { minSeats: wide ? 250 : Math.min(180, Math.ceil(pax / 10) * 10), extraCabin: 0, approvals: [], noTechStops: true },
@@ -674,7 +691,7 @@ function troopRotation(ctx: Ctx): Draft | null {
   const last = legs[legs.length - 1];
   return {
     archetype: 'troopRotation', client,
-    title: un ? `UN rotation to ${city(mission)}` : `Troop rotation to ${city(mission)}`,
+    title: titleFor(ctx, un ? 'unRotation' : 'troopRotation', client, { from: home, to: mission, n, start: legs[0].dep, event: F.MISSION_NAMES[mission] }, un ? `UN rotation to ${city(mission)}` : `Troop rotation to ${city(mission)}`),
     blurb: `${client.name}: ${n} rotations ${home}–${mission} ${pick(g, F.MISSIONS)}, every ${step || 1} days or so from ${fmtDay(legs[0].dep)}. Night-stop at ${mission}, security-vetted crew, payment in arrears.`,
     pattern: { kind: 'legs', legs },
     // v0.7: max seats (NB 174+ / WB 300+); the UN wants all-economy.
@@ -873,6 +890,12 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
     const n = wide ? 2 : 1;
     requirements.extraCabinPaid = { n, pct: Math.round(((X.paidPerBH * n) / basis) * 10_000) / 10_000, perBH: X.paidPerBH };
     o.blurb = `${o.blurb} The client pays $${X.paidPerBH} a block hour for each extra cabin crew member (${n} wanted).`;
+  }
+  // v0.7.2 F4: never the same title twice in a row for a client (builders without a pool: the month appended).
+  const cl = g.clients[o.clientId];
+  if (cl) {
+    if (cl.lastTitle === o.title) o.title = `${o.title} (${F.monthOf(o.start)})`;
+    cl.lastTitle = o.title;
   }
   g.offers[o.id] = o;
   schedule(g, o.expires, 'offer.expire', o.id);

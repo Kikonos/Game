@@ -234,7 +234,8 @@ export const BAL = {
   },
   /** Cabin refits: hangar slot lead (days); [days, cost] by target layout (narrow / wide). */
   refit: {
-    leadDays: 7,
+    /** v0.7.2: 0, a refit starts as soon as the aircraft is free (at home base). */
+    leadDays: 0,
     nb: { 'all-economy': [5, 120_000], 'two-class': [7, 250_000], vip: [21, 1_200_000] } as Record<string, [number, number]>,
     wb: { 'all-economy': [14, 600_000], 'two-class': [21, 1_600_000], 'three-class': [28, 2_200_000], vip: [35, 3_000_000] } as Record<string, [number, number]>,
   },

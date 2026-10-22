@@ -63,10 +63,21 @@ export function hireQuote(g: GameState, r: HireRequest): { cost: number; readyAt
   const m = ratedMarket(g, r.family, r.role);
   const beyondPool = m ? Math.max(0, n - m.left) : 0;
   const fee = m ? m.fee * beyondPool : 0;
-  const cost = (isPilot(r.role) ? BAL.hireCost.pilot : BAL.hireCost.cabin) * n + fee;
-  const base = ((wideFamily(r.family) ? BAL.hireDaysWide : BAL.hireDays)[r.role] ?? 45) * (beyondPool ? BAL.ratedPool.daysMult : 1);
+  // v0.7.2 cabin crew join in about a week; each extra type adds days and half the hiring cost.
+  const H = BAL.v072.cabinHire;
+  const k = isPilot(r.role) ? 1 : hireFamilies(r).length;
+  const cost = (isPilot(r.role) ? BAL.hireCost.pilot : BAL.hireCost.cabin * (1 + H.extraTypeCost * (k - 1))) * n + fee;
+  const base = isPilot(r.role)
+    ? ((wideFamily(r.family) ? BAL.hireDaysWide : BAL.hireDays)[r.role] ?? 45) * (beyondPool ? BAL.ratedPool.daysMult : 1)
+    : H.days + H.extraTypeDays * (k - 1);
   const days = Math.round(base * (0.8 + 0.4 * hashUnit(`${r.role}${r.base}${g.now}`)));
   return { cost, readyAt: dayStart(g.now) + days * DAY, beyondPool, fee };
+}
+
+/** v0.7.2 the types a hire holds: pilots one; cabin crew the family plus `families` (distinct, family first). */
+export function hireFamilies(r: HireRequest): RatingFamily[] {
+  if (isPilot(r.role)) return [r.family];
+  return [...new Set([r.family, ...(r.families ?? [])])];
 }
 
 /** Creates 'joining' crew members, charges hiring cost, queues 'crew.join' at readyAt. */
@@ -75,12 +86,15 @@ export function hireCrew(g: GameState, r: HireRequest): ActionResult<{ crewIds: 
   if (!ROLES.includes(r.role)) return { ok: false, error: 'Unknown role' };
   if (n < 1 || n > 30) return { ok: false, error: 'Hire between 1 and 30 at a time' };
   if (!AIRPORT_BY_CODE[r.base]) return { ok: false, error: 'Unknown base' };
-  if (!Object.values(ACMI_TYPES).some((t) => t.family === r.family)) return { ok: false, error: 'Unknown type family' };
+  const fams = hireFamilies(r);
+  if (fams.some((f) => !Object.values(ACMI_TYPES).some((t) => t.family === f))) return { ok: false, error: 'Unknown type family' };
+  if (fams.length > 3) return { ok: false, error: 'Cabin crew hold up to 3 types' };
   const q = hireQuote(g, r);
   if (g.company.cash < q.cost) return { ok: false, error: 'Not enough cash' };
   const crewIds: string[] = [];
   for (let i = 0; i < n; i++) {
     const c = makeCrewMember(g, r.role, r.family, r.base, 'joining');
+    if (fams.length > 1) c.ratings = [...fams];
     // `hired` is the first working day; the joining block keeps them off the roster until then (v0.5.2: no fake
     // "rest until" the join date: the UI shows "Joins …" via crewStatusView).
     c.hired = q.readyAt;
@@ -88,7 +102,7 @@ export function hireCrew(g: GameState, r: HireRequest): ActionResult<{ crewIds: 
     c.blockYearOf = yearOf(q.readyAt);
     c.blocks = [{ from: g.now, to: q.readyAt, why: 'joining' }];
     g.crew[c.id] = c;
-    g.hires.push({ id: nextId(g, 'h'), role: r.role, family: r.family, base: r.base, crewId: c.id, ordered: g.now, ready: q.readyAt, cost: q.cost / n });
+    g.hires.push({ id: nextId(g, 'h'), role: r.role, family: r.family, base: r.base, crewId: c.id, ordered: g.now, ready: q.readyAt, cost: q.cost / n, ...(fams.length > 1 ? { families: [...fams] } : {}) });
     schedule(g, q.readyAt, 'crew.join', c.id);
     crewIds.push(c.id);
   }
@@ -333,23 +347,27 @@ export function staffing(g: GameState): StaffingLine[] {
       if (lost.length) losing.set(id, [...(losing.get(id) ?? []), ...lost]);
     }
   }
-  const count = new Map<string, { have: number; leaving: number; converting: number }>();
+  const count = new Map<string, { have: number; leaving: number; converting: number; shared: number }>();
   for (const c of Object.values(g.crew)) {
     for (const f of c.ratings) {
       const key = `${f}:${c.role}`;
       let x = count.get(key);
-      if (!x) count.set(key, (x = { have: 0, leaving: 0, converting: 0 }));
+      if (!x) count.set(key, (x = { have: 0, leaving: 0, converting: 0, shared: 0 }));
       if (c.notice) x.leaving++;
       else if (losing.get(c.id)?.includes(f)) x.converting++;
-      else x.have++;
+      else {
+        x.have++;
+        // v0.7.2 cabin crew on several types also count towards another fleet family.
+        if (!isPilot(c.role) && c.ratings.some((o) => o !== f && fams.has(o))) x.shared++;
+      }
     }
   }
   const out: StaffingLine[] = [];
   for (const [family, need] of fams) {
     for (const r of ROLES) {
       if (!need[r]) continue;
-      const x = count.get(`${family}:${r}`) ?? { have: 0, leaving: 0, converting: 0 };
-      out.push({ family, role: r, need: need[r]!, ...x });
+      const { shared, ...x } = count.get(`${family}:${r}`) ?? { have: 0, leaving: 0, converting: 0, shared: 0 };
+      out.push({ family, role: r, need: need[r]!, ...x, ...(shared ? { shared } : {}) });
     }
   }
   return out;

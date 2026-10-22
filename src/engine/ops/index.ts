@@ -13,6 +13,7 @@ import { dailyDelivery, onDeliveryArr, onDeliveryDep } from './delivery';
 import { dailyLeases, onReturnEnd, onReturnStart } from './leaseReturn';
 import { dailyMarket, loadMarket, onDelivery, onLeaseEnd, refreshMarket } from './market';
 import { dailyPaint, normaliseLivery } from './paint';
+import { defaultCrewRest } from '../crew/crewRest';
 
 export {
   APPROVALS, aircraftGate, applyApproval, approvalBlocker, approvalReqs, cleanRecord, gateApprovals, ladder, ratedPilots, RUNG0_TYPES, setPolicies,
@@ -72,6 +73,7 @@ export const opsModule: SimModule = {
     loadApprovals(g);
     loadMarket(g);
     refreshMarket(g);
+    for (const ac of Object.values(g.fleet)) ac.crewRest ??= defaultCrewRest(ac.typeId);
   },
   // Decisions other modules post (crew's sickCrew) join the pacing budget as they appear.
   settle: paceDecisions,
@@ -82,6 +84,8 @@ export const opsModule: SimModule = {
     g.finance.negSince ??= null;
     // v0.5.1 liveries: client paint of a contract no longer in the save is gone; the company livery normalised (idempotent).
     for (const ac of Object.values(g.fleet)) if (ac.paintedFor && !g.contracts[ac.paintedFor]) delete ac.paintedFor;
+    // v0.7.2 crew rest per airframe (old widebodies keep bunks).
+    for (const ac of Object.values(g.fleet)) ac.crewRest ??= defaultCrewRest(ac.typeId);
     g.company.livery = normaliseLivery(g.company.livery);
   },
   handlers: {

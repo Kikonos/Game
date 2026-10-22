@@ -146,15 +146,17 @@ export function dutyCandidates(g: GameState, dutyOrFlightId: string, role: Role)
     // A ride on our own empty leg (planned, or already booked: a Flight that is not a commercial ticket).
     const ride = !!o && (!!o.rideId || ((o as Partial<Flight>).kind ?? 'deadhead') !== 'deadhead');
     const travel = o && !lost ? `${ride ? 'Rides our flight' : 'Deadhead'} ${o.from} ${fmtTime(o.std)} → ${o.to} ${fmtTime(o.sta)} UTC${ride ? '' : viaText(o.from, o.to, o.std, o.sta)}` : undefined;
-    if (c.role !== role) reasons.push(`${c.role} in a ${role} seat`);
+    // v0.7.2 a captain for a first officer's seat: their own group 'Captain flying as FO', after the first officers.
+    const asFo = c.role === 'CPT' && (role === 'FO' || role === 'CRP');
+    if (c.role !== role) reasons.push(asFo ? 'Captain flying as FO' : `${c.role} in a ${role} seat`);
     out.push({
-      crewId: c.id, name: crewName(c), role: c.role, legal: level !== 'illegal', level, reasons, codes: [...new Set(issues.map((i) => i.code))],
+      crewId: c.id, name: crewName(c), role: c.role, ...(asFo ? { asFo: true as const } : {}), legal: level !== 'illegal', level, reasons, codes: [...new Set(issues.map((i) => i.code))],
       loc, onPairing: on.has(c.id), ticket, block28dH: Math.round(b28 * 10) / 10, travel, arrives: o && !lost ? o.sta : undefined,
       reason: level !== 'legal' ? rootReason(g, issues, c, p) ?? undefined : undefined,
       score: -ticket - 2 * b28 - (c.role !== role ? 50 : 0),
     });
   }
-  out.sort((a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level] || Number(a.onPairing) - Number(b.onPairing) || b.score - a.score || (a.crewId < b.crewId ? -1 : 1));
+  out.sort((a, b) => Number(!!a.asFo) - Number(!!b.asFo) || LEVEL_RANK[a.level] - LEVEL_RANK[b.level] || Number(a.onPairing) - Number(b.onPairing) || b.score - a.score || (a.crewId < b.crewId ? -1 : 1));
   return out.map(({ score: _s, ...c }) => c);
 }
 

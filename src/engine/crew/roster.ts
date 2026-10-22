@@ -13,7 +13,7 @@ import { deletePairing, dutyLegality, planAircraft, queueDuty, refreshPairing, s
 import { crewName } from './generate';
 import { lateChange, moraleShock, nextReport } from './morale';
 import { DISCRETION, evalSegs, levelOf, minRest, tzDeltaH, worst, type Seg } from './rules';
-import { aboard, aboveEmpty, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, locAt, noteRiders, passengers, planHome, planOut, segsOf, ticketPrice, touchCrew, typeIdOf, withoutTickets } from './timeline';
+import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, locAt, noteRiders, passengers, planHome, planOut, segsOf, ticketPrice, touchCrew, typeIdOf, withoutTickets } from './timeline';
 
 export { buildDuties } from './duties';
 
@@ -183,7 +183,7 @@ function retimeTickets(g: GameState, p: Pairing, d: Duty, moved: Set<string>): v
       else if (f.from === d.restAt && f.std - d.release >= 600) {
         // v0.5.2: a ticket home after rest (planHome) leaves once the rest is over again: a later release
         // would otherwise put its check-in inside the rest and the whole crew off the duty at the gate.
-        const rest = minRest({ dutyMin: d.release - d.report, atHome: false, augmented: d.augment > 0, tzShift: tzDeltaH(f.to, f.from, d.release) });
+        const rest = minRest({ dutyMin: d.release - d.report + cabinEarly(g, p), atHome: false, augmented: d.augment > 0, tzShift: tzDeltaH(f.to, f.from, d.release) });
         const need = Math.ceil((d.release + rest + BAL.deadheadCheckIn) / 60) * 60;
         if (f.std < need) std = need;
       }
@@ -1046,7 +1046,7 @@ setCrewTrailOkHook((g, p, c) => {
     const f = g.flights[fid];
     if (f && f.status !== 'cancelled' && aboard(f, c.id) && f.sta <= duties[0].report) out = f;
   }
-  const home = last.restAt !== c.base ? planHome(last, c.base) : null;
+  const home = last.restAt !== c.base ? planHome(last, c.base, cabinEarly(g, p)) : null;
   const own: Seg[] = [];
   for (const d of duties) own.push(...dutySegs(g, c, p, d, d === duties[0] ? out : null, d === last ? home : null, true));
   return !evalSegs({ ...ctxOf(g, c), slack: BAL.rosterSlack }, mergeSegs(segsOf(g, c, p.id), own)).some((i) => i.level === 'illegal' && i.code !== 'fdp');
@@ -1068,7 +1068,7 @@ function rehome(g: GameState, p: Pairing): void {
         if (unboard(g, f, c.id)) d.deadheadIds = d.deadheadIds.filter((x) => x !== fid);
       }
     }
-    if (last.restAt !== c.base) plans.set(c.id, { level: 'legal', issues: [], out: null, home: planHome(last, c.base), segs: [] });
+    if (last.restAt !== c.base) plans.set(c.id, { level: 'legal', issues: [], out: null, home: planHome(last, c.base, cabinEarly(g, p)), segs: [] });
   }
   buyTickets(g, p, plans, emptyResult());
   touchCrew(g);

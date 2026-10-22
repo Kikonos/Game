@@ -1,6 +1,7 @@
 // Offer flavour text (B1): causes, crises and phrasing so offers read like the job they are.
 
 import type { Airport } from '../../data/airports';
+import { next, type RngHolder } from '../core/rng';
 
 export const AOG_CAUSES = [
   'an engine borescope finding', 'a bird strike on the climb-out', 'a cracked windshield', 'a hard-landing inspection',
@@ -217,3 +218,148 @@ export const DIASPORA = ['OXB', 'TMS', 'LAD', 'SID', 'RAI', 'BVC'];
 
 /** Pre-season tour cities for clubs (widebody). */
 export const TOUR_CITIES = ['JFK', 'MIA', 'YYZ', 'ORD', 'IAD', 'PEK', 'HKG', 'SIN', 'NRT', 'BKK', 'DXB', 'GRU', 'LAX'];
+
+// ---------- v0.7.2 contract titles with flavour (UPDATE-0.7.2.md F4) ----------
+// Titles say what the work is, never the weekday (that lives in the blurb). Each builder returns '' when it does not
+// fit the job (season, airport, body); pickTitle draws one that differs from the client's last title.
+
+export type Season = 'winter' | 'ski' | 'easter' | 'summer' | 'autumn' | 'christmas';
+export interface TitleCtx {
+  /** The client's full name and short trade name ('TUI Deutschland' → 'TUI'). */
+  client: string;
+  brand: string;
+  from: string;
+  to: string;
+  fromCity: string;
+  toCity: string;
+  season: Season;
+  /** 'June'. */
+  month: string;
+  /** Rotations, or days for bases. */
+  n: number;
+  wide?: boolean;
+  /** Mission name (troop rotations), event or type short name. */
+  event?: string;
+  /** Country adjective of the client ('Portuguese'). */
+  nation?: string;
+  type?: string;
+}
+
+/** Short trade names of clients (the rest keep their name). */
+export const BRANDS: Record<string, string> = {
+  'TUI Deutschland': 'TUI', 'TUI fly Belgium': 'TUI', Jet2holidays: 'Jet2', 'Jet2.com': 'Jet2', 'Corendon Airlines': 'Corendon',
+  'Schauinsland-Reisen': 'Schauinsland', 'Sunwing Vacations': 'Sunwing', 'Abercrombie & Kent': 'A&K', 'Viagens Abreu': 'Abreu',
+  'UN Department of Peace Operations (DPO)': 'the UN', 'Novatours': 'Novatours', 'Čedok': 'Čedok',
+};
+export const brandOf = (name: string) => BRANDS[name] ?? name.replace(/^The /, '');
+
+/** Ski airports (winter charters Dec–Mar). */
+export const RESORTS_SKI = ['SZG', 'INN', 'GVA', 'TRN', 'CMF', 'GNB'];
+const CANARIES = ['TFS', 'LPA', 'FUE', 'ACE'];
+const MARKETS = ['SZG', 'INN', 'PRG', 'VIE', 'BUD', 'NUE', 'STR', 'KRK', 'ZRH', 'BSL'];
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+/** The season of a programme by its first month (ski when Dec–Mar to a ski airport). */
+export function seasonOf(startUtc: number, to: string): Season {
+  const m = new Date(startUtc * 60_000).getUTCMonth();
+  if ((m === 11 || m <= 2) && RESORTS_SKI.includes(to)) return 'ski';
+  if (m === 11) return 'christmas';
+  if (m === 2 || m === 3) return 'easter';
+  if (m >= 4 && m <= 8) return 'summer';
+  if (m === 9 || m === 10) return 'autumn';
+  return 'winter';
+}
+export const monthOf = (startUtc: number) => MONTHS[new Date(startUtc * 60_000).getUTCMonth()];
+
+const SEASON_WORD: Record<Season, string> = { winter: 'Winter', ski: 'Ski', easter: 'Easter', summer: 'Summer', autumn: 'Autumn', christmas: 'Christmas' };
+
+/** Peacekeeping and training missions by airport (real mission names). */
+export const MISSION_NAMES: Record<string, string> = {
+  BGF: 'MINUSCA', JUB: 'UNMISS', GOM: 'MONUSCO', FIH: 'MONUSCO', BEY: 'UNIFIL', LCA: 'UNFICYP', SJJ: 'EUFOR Althea', PRN: 'KFOR',
+  BKO: 'EUTM Mali', MGQ: 'AUSSOM', DJI: 'EU Atalanta',
+};
+export const NATIONS: Record<string, string> = {
+  PT: 'Portuguese', ES: 'Spanish', LT: 'Lithuanian', MT: 'Maltese', LV: 'Latvian', CZ: 'Czech', BG: 'Bulgarian', EE: 'Estonian', GB: 'British',
+  DE: 'German', FR: 'French', IT: 'Italian', PL: 'Polish', NL: 'Dutch', IE: 'Irish', BE: 'Belgian', AT: 'Austrian', SE: 'Swedish', FI: 'Finnish',
+};
+
+type TitleFn = (x: TitleCtx) => string;
+const when = (ok: (x: TitleCtx) => boolean, t: TitleFn): TitleFn => (x) => (ok(x) ? t(x) : '');
+
+export const TITLES: Partial<Record<string, TitleFn[]>> = {
+  tourSeries: [
+    when((x) => x.season === 'summer', (x) => `${x.brand} summer programme ${x.fromCity}–${x.toCity}`),
+    (x) => `${x.brand} weekend rotation to ${x.toCity}`,
+    (x) => `${x.brand} ${x.toCity} flights`,
+    when((x) => x.season === 'winter' || x.season === 'autumn' || x.season === 'easter', (x) => `${SEASON_WORD[x.season]} sun to ${x.toCity} for ${x.brand}`),
+    when((x) => x.season !== 'christmas' && x.season !== 'ski', (x) => `Half-term charters ${x.fromCity}–${x.toCity}`),
+    when((x) => x.season === 'easter', (x) => `Easter programme to ${x.toCity}`),
+    when((x) => x.season === 'autumn', (x) => `Autumn sun: ${x.toCity}`),
+    when((x) => x.season === 'ski', (x) => `${x.brand} ski charters ${x.fromCity}–${x.toCity}`),
+    when((x) => x.season === 'ski', (x) => `Snow programme to ${x.toCity} for ${x.brand}`),
+    when((x) => x.to === 'FAO', (x) => `Golf season to Faro for ${x.brand}`),
+    when((x) => CANARIES.includes(x.to) && (x.season === 'winter' || x.season === 'christmas' || x.season === 'autumn'), (x) => `${x.brand} winter sun to the Canaries`),
+    when((x) => x.season === 'christmas' && MARKETS.includes(x.to), (x) => `Christmas markets programme ${x.toCity}`),
+    when((x) => !!x.wide, (x) => `${x.brand} long-haul sun to ${x.toCity}`),
+    (x) => `${x.brand} holiday flights ${x.fromCity}–${x.toCity}`,
+    (x) => `${x.brand} ${x.month} departures to ${x.toCity}`,
+    when((x) => x.season !== 'ski', (x) => `${x.toCity} beach programme for ${x.brand}`),
+    (x) => `${x.brand} brochure flights to ${x.toCity}`,
+  ],
+  seasonBase: [
+    when((x) => x.season === 'summer', (x) => `${x.brand} summer peak at ${x.fromCity}`),
+    (x) => `Extra capacity for ${x.brand} at ${x.fromCity}`,
+    (x) => `${x.brand}'s ${SEASON_WORD[x.season].toLowerCase()} wet lease, ${x.fromCity}`,
+    when((x) => x.season === 'summer' || x.season === 'christmas' || x.season === 'easter', (x) => `${x.brand} holiday peak cover`),
+    (x) => `Base deployment ${x.fromCity} for ${x.brand}`,
+    when((x) => x.n >= 120, (x) => `${x.brand} year-round capacity at ${x.fromCity}`),
+    (x) => `${x.fromCity} wet lease for ${x.brand}`,
+    (x) => `${x.brand} ${x.month} capacity at ${x.fromCity}`,
+    when((x) => !!x.wide, (x) => `${x.brand} long-haul capacity from ${x.fromCity}`),
+  ],
+  aogCover: [
+    (x) => `${x.brand} AOG cover at ${x.fromCity}`,
+    (x) => `Rescue capacity for ${x.brand}`,
+    (x) => `Stand-in aircraft for ${x.brand}`,
+    when((x) => !!x.type, (x) => `${x.brand} needs a${/^[AEIOU8]/.test(x.type!) ? 'n' : ''} ${x.type} at ${x.fromCity}`),
+    (x) => `${x.fromCity} AOG cover for ${x.brand}`,
+    (x) => `Grounded-jet cover for ${x.brand}`,
+    (x) => `${x.brand} schedule cover, ${x.fromCity}`,
+    (x) => `Short-notice wet lease for ${x.brand}`,
+  ],
+  troopRotation: [
+    when((x) => !!x.event, (x) => `${x.event} troop rotation`),
+    when((x) => !!x.nation, (x) => `${x.nation} contingent rotation to ${x.toCity}`),
+    when((x) => !!x.event, (x) => `Peacekeeper rotation for ${x.event}`),
+    when((x) => !!x.event, (x) => `${x.event} contingent swap, ${x.toCity}`),
+    (x) => `Troop rotation to ${x.toCity}`,
+    (x) => `Roulement flights to ${x.toCity}`,
+    when((x) => !!x.nation, (x) => `${x.nation} forces to ${x.toCity}`),
+  ],
+  unRotation: [
+    when((x) => !!x.event, (x) => `Peacekeeper rotation for ${x.event}`),
+    when((x) => !!x.event, (x) => `${x.event} troop rotation`),
+    (x) => `UN rotation to ${x.toCity}`,
+    when((x) => !!x.event, (x) => `${x.event} contingent swap, ${x.toCity}`),
+    (x) => `Blue helmets to ${x.toCity}`,
+  ],
+  repatriation: [
+    (x) => (x.n > 1 ? `Repatriation airlift from ${x.fromCity}` : `Repatriation from ${x.fromCity}`),
+    (x) => `Evacuation flight${x.n > 1 ? 's' : ''} from ${x.fromCity}`,
+    when((x) => !!x.nation, (x) => `Bringing ${x.nation} citizens home from ${x.fromCity}`),
+    (x) => `${x.fromCity} assisted departure${x.n > 1 ? 's' : ''}`,
+    (x) => `Consular flight${x.n > 1 ? 's' : ''} from ${x.fromCity}`,
+  ],
+};
+
+/** Up to `tries` draws avoiding the client's last title, then the month appended ("… (June)"). ≤ 60 chars. */
+export function pickTitle(r: RngHolder, fns: TitleFn[] | undefined, x: TitleCtx, last: string | undefined, fallback: string, tries = 4): string {
+  const pool = (fns ?? []).map((f) => f(x)).filter((t) => t && t.length <= 60);
+  if (!pool.length) pool.push(fallback);
+  for (let i = 0; i < tries; i++) {
+    const t = pool[Math.floor(next(r) * pool.length)];
+    if (t !== last) return t;
+  }
+  const other = pool.find((t) => t !== last);
+  return other ?? `${pool[0]} (${x.month})`;
+}

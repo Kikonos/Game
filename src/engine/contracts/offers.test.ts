@@ -13,6 +13,7 @@ import { acceptOffer, counterOffer, declineOffer, feasibilityAll, generateOffer,
 import { onOfferExpire, onOfferReply, PACING, quietWeekOffer } from './offers';
 import { computeWaves, programmeOf } from './plan';
 import { referenceType } from './pricing';
+import * as F from './flavor';
 import { newGame, offer, run } from './testkit';
 
 const ARCHETYPES: Archetype[] = ['seasonBase', 'aogCover', 'adhoc', 'sports', 'repatriation', 'tourSeries', 'troopRotation', 'vip'];
@@ -416,4 +417,57 @@ describe('quiet-week floor', () => {
     }
     expect(Math.abs(a - b) / b).toBeLessThan(0.1);
   }, 60_000);
+});
+
+describe('v0.7.2 contract titles (F4)', () => {
+  const WEEKDAYS = /\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\b/;
+  it('tour series: no weekday in the title (it is in the blurb), ≤ 60 chars, no client gets the same title twice in a row', () => {
+    const g = newGame(1);
+    const titles = new Set<string>();
+    let made = 0;
+    for (let seed = 0; seed < 200; seed++) {
+      g.rng = (seed * 7919 + 13) >>> 0;
+      g.offers = {};
+      const before = Object.fromEntries(Object.values(g.clients).map((c) => [c.id, c.lastTitle]));
+      const o = generateOffer(g, 'tourSeries', { window: false });
+      if (!o) continue;
+      made++;
+      expect(o.title).not.toMatch(WEEKDAYS);
+      expect(o.title).not.toMatch(/ series /);
+      expect(o.blurb).toMatch(WEEKDAYS);
+      expect(o.title.length).toBeLessThanOrEqual(60);
+      expect(o.title).not.toBe(before[o.clientId]);
+      expect(g.clients[o.clientId].lastTitle).toBe(o.title);
+      titles.add(o.title);
+    }
+    expect(made).toBeGreaterThan(150);
+    expect(titles.size).toBeGreaterThan(30);
+  });
+
+  it('ski titles only for ski airports in winter; mission names on troop rotations', () => {
+    const g = newGame(1);
+    for (let seed = 0; seed < 200; seed++) {
+      g.rng = (seed * 7919 + 13) >>> 0;
+      g.offers = {};
+      for (const a of ['tourSeries', 'troopRotation', 'seasonBase', 'aogCover', 'repatriation'] as const) {
+        const o = generateOffer(g, a, { window: false });
+        if (!o) continue;
+        expect(o.title.length).toBeLessThanOrEqual(60);
+        if (/ski charters|Snow programme/.test(o.title)) {
+          const to = o.pattern.kind === 'legs' ? o.pattern.legs[0].to : '';
+          expect(['SZG', 'INN', 'GVA', 'TRN', 'CMF', 'GNB']).toContain(to);
+          expect([11, 0, 1, 2]).toContain(new Date(o.start * 60_000).getUTCMonth());
+        }
+      }
+    }
+  });
+
+  it('pickTitle avoids the last title, then appends the month', () => {
+    const r = { rng: 1 };
+    const x = { client: 'TUI Deutschland', brand: 'TUI', from: 'FRA', to: 'PMI', fromCity: 'Frankfurt', toCity: 'Palma', season: 'summer' as const, month: 'June', n: 6 };
+    expect(F.pickTitle(r, [() => 'A', () => 'B'], x, 'A', 'F')).toBe('B');
+    expect(F.pickTitle(r, [() => 'A'], x, 'A', 'F')).toBe('A (June)');
+    expect(F.seasonOf(Date.UTC(2027, 0, 10) / 60_000, 'SZG')).toBe('ski');
+    expect(F.seasonOf(Date.UTC(2027, 6, 10) / 60_000, 'PMI')).toBe('summer');
+  });
 });

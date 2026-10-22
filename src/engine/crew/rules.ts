@@ -43,6 +43,8 @@ export interface FdpInput {
   restClass: 1 | 2 | 3 | null;
   /** Longest sector block time (for the +1:00 augmented bonus). */
   longestBlock: number;
+  /** v0.7.2 cabin crew report this much earlier (ORO.FTL.205(c)); caps augmented FDPs by the cabin rest table. */
+  cabinEarly?: number;
 }
 
 /**
@@ -102,6 +104,13 @@ export function cabinInflightRest(fdp: number, cls: 1 | 2 | 3): number | null {
   return cls === 1 ? row.c1 : cls === 2 ? row.c2 : row.c3;
 }
 
+/** v0.7.2 the longest cabin crew extended FDP a rest class allows (the last CABIN_REST row it is not refused). */
+export function cabinFdpCap(cls: 1 | 2 | 3): number {
+  let cap = 0;
+  for (const r of CABIN_REST) if ((cls === 1 ? r.c1 : cls === 2 ? r.c2 : r.c3) !== null) cap = r.upTo;
+  return cap;
+}
+
 /** Table 1 max FDP (1–2 sectors) by local reference report time. */
 export function baseFdp(reportLocal: number): number {
   const m = ((Math.floor(reportLocal) % DAY) + DAY) % DAY;
@@ -114,7 +123,8 @@ export function maxFdp(i: FdpInput): number {
   if (i.augment > 0 && i.restClass && i.sectors <= AUG_MAX_SECTORS) {
     let fdp = AUG_FDP[i.augment as 1 | 2][i.restClass];
     if (i.sectors <= 2 && i.longestBlock - TAXI_ALLOWANCE > AUG_BONUS_FT) fdp += AUG_BONUS;
-    return Math.min(FDP_CAP, fdp);
+    // v0.7.2 the cabin crew (reporting `cabinEarly` before) must still get their in-flight rest (CABIN_REST).
+    return Math.min(FDP_CAP, fdp, cabinFdpCap(i.restClass) - (i.cabinEarly ?? 0));
   }
   const base = i.acclimatised ? baseFdp(i.reportLocal) : FDP_UNKNOWN;
   return Math.max(FDP_FLOOR, base - SECTOR_STEP * Math.max(0, i.sectors - 2));

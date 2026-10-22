@@ -12,13 +12,13 @@ export interface CrewAway {
   atHotels: number;
 }
 
-const memo = new WeakMap<GameState, { rev: number; v: CrewAway }>();
+const memo = new WeakMap<GameState, { rev: number; now: number; v: CrewAway }>();
 
-/** Crew away from their base by airport (joining crew excluded). Cached per crewRev. Pure. */
+/** Crew away from their base by airport (joining crew excluded). Cached per crewRev and game minute. Pure. */
 export function crewAway(g: GameState): CrewAway {
   const rev = crewRev(g);
   const hit = memo.get(g);
-  if (hit && hit.rev === rev) return hit.v;
+  if (hit && hit.rev === rev && hit.now === g.now) return hit.v;
   const at = new Map<string, string[]>();
   let onDuty = 0;
   let atHotels = 0;
@@ -31,6 +31,6 @@ export function crewAway(g: GameState): CrewAway {
     if (c.status !== 'onDuty') atHotels++;
   }
   const v = { at, onDuty, atHotels };
-  memo.set(g, { rev, v });
+  memo.set(g, { rev, now: g.now, v });
   return v;
 }
