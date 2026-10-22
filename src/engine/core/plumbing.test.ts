@@ -281,3 +281,53 @@ describe('saves', () => {
     expect(loaded.queue.filter((e) => e.id === f.id)).toHaveLength(1);
   });
 });
+
+describe('v0.8 read APIs are pure (UPDATE-0.8.md §14)', () => {
+  it('clients, standing, rivals, competition, quotes, outlook, world, dry lease, client crew, Hajj dates', async () => {
+    const { clientView, clientList, offerClientLine, standing, rivalList, rivalView, offerCompetition } = await import('../contracts');
+    const { devDryLease, devMixedCrew, devHajj } = await import('../contracts/missions');
+    const { devRivalBid } = await import('../dev');
+    const { subcharterQuotes, marketOutlook, segIndex, worldEvents, worldEvent, worldZones, worldEventPins, flightZone, dryLeaseView, dryLeaseOf } = await import('../ops');
+    const { startEvent } = await import('../ops/world');
+    const { TPL_BY_ID } = await import('../../data/worldEvents');
+    const { clientCrewOf, clientCrewRows, mixedCrewText } = await import('../crew');
+    const { hajjDates } = await import('../../data/worldCalendar');
+    const g = createGame({ name: 'Atlântica Wings', code: 'AW', livery: { primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' }, base: 'LIS', seed: 5 });
+    g.company.standing = 2;
+    const duty = devMixedCrew(g);
+    const dry = devDryLease(g);
+    devHajj(g);
+    devRivalBid(g);
+    startEvent(g, TPL_BY_ID.airspaceIraq);
+    advanceTo(g, g.now + 6 * 60);
+    const flights = Object.values(g.flights).filter((f) => f.status === 'scheduled').slice(0, 12);
+    const before = JSON.stringify(g);
+    for (let i = 0; i < 3; i++) {
+      clientList(g, 'all');
+      clientList(g, 'working');
+      for (const c of Object.values(g.clients).slice(0, 30)) clientView(g, c.id);
+      for (const o of Object.values(g.offers)) {
+        offerClientLine(g, o.id);
+        offerCompetition(g, o.id);
+        mixedCrewText(g, o.id);
+      }
+      standing(g);
+      rivalList(g);
+      for (const r of g.rivals) rivalView(g, r.id);
+      subcharterQuotes(g, flights.slice(0, 2).map((f) => f.id));
+      marketOutlook(g);
+      segIndex(g, 'narrow');
+      segIndex(g, 'wide');
+      for (const e of worldEvents(g)) worldEvent(g, e.id);
+      worldZones(g);
+      worldEventPins(g);
+      for (const f of flights) flightZone(g, f.id);
+      if (dry) dryLeaseView(g, dry);
+      for (const ac of Object.keys(g.fleet)) dryLeaseOf(g, ac);
+      if (duty) clientCrewOf(g, duty);
+      clientCrewRows(g, g.now, g.now + 30 * DAY);
+      hajjDates(2028);
+    }
+    expect(JSON.stringify(g)).toBe(before);
+  }, 60_000);
+});

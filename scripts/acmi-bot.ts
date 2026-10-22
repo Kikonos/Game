@@ -146,15 +146,13 @@ interface Tally {
   earlyReturnDay: number | null;
   /** v0.8: signings by archetype code, the last deportation, flights asked about war-risk cover once, dry leases (months, income). */
   types: Map<string, number>;
-  lastDeport: number | null;
-  insWaited: Set<string>;
   dryLeases: number;
 }
 const newTally = (): Tally => ({
   actions: new Map(), decisions: new Map(), decMonth: new Map(), decKinds: new Map(), accepted: 0, countered: 0, firstAccept: null, wideAffordableAt: null, wideReadyAt: null, wideSigned: null, longLead: 0, paintOffers: [],
   rehired: 0, policyChanges: [], classesBooked: 0, paidExtra: 0, filed: [], signed: [], narrowSigned: 0, refits: [], leaseChoices: [], waitHires: 0, crewFixes: new Map(),
   cHubs: [], hubTravel: 0, restSeats: 0, multiHires: 0, earlyReturnDay: null, restRefits: [], aug4: 0,
-  types: new Map(), lastDeport: null, insWaited: new Set(), dryLeases: 0,
+  types: new Map(), dryLeases: 0,
 });
 
 const weekOf = (g: GameState) => Math.floor((g.now - g.started) / (7 * DAY));
@@ -218,9 +216,8 @@ function decide(g: GameState, t: Tally): void {
     } else if (d.kind === 'clientFee') opt = Number(d.data?.fee ?? 0) < 10_000 ? 'waive' : 'bill';
     else if (d.kind === 'airspace') opt = 'wait';
     else if (d.kind === 'uninsurable') {
-      const fid = String(d.data?.flightId ?? '');
-      opt = t.insWaited.has(fid) ? 'cancel' : 'wait';
-      t.insWaited.add(fid);
+      // Wait once (the leg then carries uninsured 'wait'), then cancel: read from the game, so a reload decides alike.
+      opt = g.flights[String(d.data?.flightId ?? '')]?.uninsured === 'wait' ? 'cancel' : 'wait';
     }
     else if (d.kind === 'rescue') opt = 'accept';
     else if (d.kind === 'leaseEnd') opt = keepLease(g, String(d.data?.aircraftId ?? '')) ? 'extend12' : 'return';
@@ -319,7 +316,7 @@ function offers(g: GameState, t: Tally): void {
     // v0.8 dry leases have their own policy; deportation at most once a year and only with a clean record (70+);
     // no evacuation into level-3 war risk.
     if (o.archetype === 'dryLeaseOut') continue;
-    if (o.archetype === 'deportation' && (g.company.reputation.clean < 70 || (t.lastDeport !== null && g.now - t.lastDeport < 365 * DAY))) continue;
+    if (o.archetype === 'deportation' && (g.company.reputation.clean < 70 || Object.values(g.contracts).some((c) => c.archetype === 'deportation' && g.now - c.signed < 365 * DAY))) continue;
     if (o.archetype === 'evacuation' && warRiskAt(g, o.pin) > 2) continue;
     if (span > 10 && o.estBH / span < 3 && o.archetype !== 'unRotation') continue;
     // Ad hoc work inside 30 days (v0.6: was three weeks); tour series and troop rotations up to 90 days out (v0.8:
@@ -348,7 +345,6 @@ function offers(g: GameState, t: Tally): void {
       t.accepted++;
       const code = CODE[o.archetype] ?? o.archetype;
       t.types.set(code, (t.types.get(code) ?? 0) + 1);
-      if (o.archetype === 'deportation') t.lastDeport = g.now;
       if (xc) t.paidExtra++;
       if (o.paint) t.paintOffers.push(`${o.paint.kind}${o.paint.required ? '/req' : ''}/${Math.round(o.paint.clientShare * 100)}%${paintOn(o) ? '' : ' declined'}`);
       if (longLead) t.longLead++;
@@ -786,10 +782,8 @@ function fleet(g: GameState, t: Tally): void {
     const timed = due !== undefined;
     // Without a job to fly, only a lease the airline can carry while it waits for work ($300K/month at most; v0.7.3 the
     // last quarter earned three months of its fixed costs: seed 6 signed an A340 off a thin autumn and lost $1.2M).
-    // v0.8 1.5× (2× signed none of seeds 1–6: a $110K A330-200 against an $868K quarter).
-    // ... and, with no job to pay for it, the v0.7.3 cushion (seed 3 signed a 767 that way and spent 13 days below zero).
-    const wm = wideMonth(o.rentPerMonth, o.typeId, o.cabin.total);
-    const carry = timed && o.rentPerMonth <= 300_000 && qProfit >= 1.5 * wm && g.company.cash >= o.deposit + 3 * wm + 500_000;
+    // v0.8 1.75× (2× signed none of seeds 1–6: a $110K A330-200 against an $868K quarter; 1.5× five of six).
+    const carry = timed && o.rentPerMonth <= 300_000 && qProfit >= 1.75 * wideMonth(o.rentPerMonth, o.typeId, o.cabin.total);
     if (!WIDE && (!earning || !(job || carry))) continue;
     if (acquireAircraft(g, o.id).ok) {
       t.wideSigned = g.now;
@@ -996,7 +990,7 @@ function refits(g: GameState, t: Tally): void {
  * (availability read without previews; only the swap guard needs one). A pure function of the state.
  */
 /** When crewControlPolicy last weighed the expensive fixes per flight (game time). */
-const restSeen = new Map<string, number>();
+
 
 function crewControlPolicy(g: GameState, t: Tally): void {
   for (const x of shortFlights(g)) {
@@ -1019,17 +1013,19 @@ function crewControlPolicy(g: GameState, t: Tally): void {
       t.crewFixes.set(s.id, (t.crewFixes.get(s.id) ?? 0) + 1);
       return r.data!.after === null;
     };
-    if (apply(sol(v, 'autoFix')) || apply(sol(v, 'deadhead')) || apply(sol(v, 'callIn'))) continue;
+    // v0.8 speed: the roster's own re-run (a full re-roster on the live game, usually finding nobody: seed 3 tried
+    // 140 times) on the first look and in the last 12 h only; the policy stays a pure function of the game.
+    const autoOk = x.hoursLeft > 30 || x.hoursLeft <= 12;
+    if ((autoOk && apply(sol(v, 'autoFix'))) || apply(sol(v, 'deadhead')) || apply(sol(v, 'callIn'))) continue;
     if (g.flights[x.flightId]?.status !== 'scheduled') continue;
     const sw = view(['swap'], true);
     const full = sw && sol(sw, 'swap');
     if (full && (full.preview.after.level === 'ok' || full.preview.after.level === 'tight') && !full.preview.ripple.some((r) => r.tone === 'bad') && apply(full)) continue;
-    // v0.8 speed: the delay and jet searches (copies of the state) only in the last 14 h, once a step (the roster's
-    // own fixes often land before; 73 searches a year cost seed 5 five seconds).
-    if (x.hoursLeft > 14 || restSeen.get(x.flightId) === g.now) continue;
+    // v0.8 speed: the delay and jet searches (copies of the state) only in the last 14 h (the roster's own fixes
+    // often land before; 73 searches a year cost seed 5 five seconds).
+    if (x.hoursLeft > 14) continue;
     // ... and never for an empty ferry: the schedule retimes it itself (seed 5 searched one MAD–LIS ferry 28 times).
     if (f.kind === 'ferry') continue;
-    restSeen.set(x.flightId, g.now);
     const rest = view(['jet', 'delay', 'discretion', 'subcharter', 'cancel']);
     if (!rest || rest.stage === 'ok') continue;
     // A jet when it gets a crew there at least 3 h sooner than waiting for a ticket, with passengers at stake.
@@ -1037,7 +1033,8 @@ function crewControlPolicy(g: GameState, t: Tally): void {
     const delay = sol(rest, 'delay');
     const jetDep = jet ? (jet.newDeparture ?? f.std) : Infinity;
     const waitDep = delay ? (delay.newDeparture ?? f.std) : Infinity;
-    if (jet && x.hoursLeft <= 18 && v.unit.pax >= 100 && jetDep + 180 <= waitDep && (g.stats.jets ?? 0) < 8 && apply(jet)) continue;
+    // v0.8 at most $60K a jet (a widebody crew flown to Asia cost seed 3 $100K a time).
+    if (jet && jet.cost <= 60_000 && x.hoursLeft <= 18 && v.unit.pax >= 100 && jetDep + 180 <= waitDep && (g.stats.jets ?? 0) < 8 && apply(jet)) continue;
     if (apply(sol(rest, 'discretion'))) continue;
     // v0.8 the cap counts from the original time (seed 5 delayed one leg 11 times, half a day each).
     if (delay && (delay.newDeparture ?? f.std) - (f.schedStd ?? f.std) <= lateCapMin && apply(delay)) continue;

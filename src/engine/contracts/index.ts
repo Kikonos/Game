@@ -26,6 +26,8 @@ export {
   type ClientLevel, type ClientView, type LevelPerks, type Standing,
 } from './relations';
 export { markOfferSeen, offerCompetition, rivalList, rivalSummary, rivalView, STYLE_NAME, type RivalStyle, type RivalView } from './rivals';
+export { deportationCleanHit, hajjTender } from './missions';
+export { warRiskCost } from './missionChecks';
 
 function daily(g: GameState) {
   dailyOffers(g);
