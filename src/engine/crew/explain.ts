@@ -126,10 +126,22 @@ export function setDutyAugment(g: GameState, dutyId: string, aug: 2 | null): Act
   if (aug === 2) {
     const plan = restPlan(g, d.id, { augment: 2 });
     if (!plan) return { ok: false, error: 'No in-flight rest on this aircraft' };
-    if (!plan.ok && !d.legacyRest) return { ok: false, error: `Even with 4 pilots: ${plan.why ?? 'no rest plan'}` };
+    // v0.7.3 a duty planned before the rest rules (legacyRest) is re-planned under them: the plan must fit too.
+    if (!plan.ok) return { ok: false, error: `${d.legacyRest ? 'Planned before the new rules, and even' : 'Even'} with 4 pilots: ${plan.why ?? 'no rest plan'}` };
     d.forceAug = 2;
   } else delete d.forceAug;
+  const legacy = d.legacyRest;
+  if (aug === 2) delete d.legacyRest;
   for (const id of refreshPairing(g, p)) releaseCrew(g, p, id);
+  if (aug === 2 && d.augment !== 2) {
+    // The day is over the 4-pilot limit for these facilities: back as it was.
+    delete d.forceAug;
+    if (legacy) d.legacyRest = legacy;
+    for (const id of refreshPairing(g, p)) releaseCrew(g, p, id);
+    setFlightsCrew(g, p);
+    touchCrew(g);
+    return { ok: false, error: `A ${hm(d.fdp)} day is over the 4-pilot limit on this aircraft` };
+  }
   setFlightsCrew(g, p);
   touchCrew(g);
   if (p.aircraftId) autoRoster(g, { aircraftIds: [p.aircraftId] });

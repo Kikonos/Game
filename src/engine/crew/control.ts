@@ -391,7 +391,8 @@ export function crewShortCard(g: GameState, flightId: string): ProblemCard | nul
     for (const code of CAUSE_ORDER) if (refused.some((c) => c.reason!.code === code)) { cause = code; break; }
     let pick = cause ? refused.find((c) => c.reason!.code === cause)! : null;
     const plur = word[1];
-    const free = cands.find((c) => c.level !== 'illegal');
+    // v0.7.3 crew on home standby are the first call (no overtime), as the call-in fix picks them.
+    const free = cands.find((c) => c.level !== 'illegal' && c.standby && !c.travel) ?? cands.find((c) => c.level !== 'illegal');
     // The place story is told by the one person who could land first (what the delay fix waits for).
     const same = cause === 'place' ? refused.filter((c) => c.reason!.code === 'place') : [];
     const reaches = new Map<string, ReachSpec>();
@@ -402,7 +403,10 @@ export function crewShortCard(g: GameState, flightId: string): ProblemCard | nul
     }
     const cm = pick ? g.crew[pick.crewId] : undefined;
     const r = pick?.reason;
-    if (free) {
+    if (free?.standby && !free.travel) {
+      why = `${free.name} is on home standby at ${city(x.dep)} and can take the ${word[0]} seat: call them in (no overtime).`;
+      terms.push('standby');
+    } else if (free) {
       why = `${free.name} is free${free.loc !== x.dep ? ` in ${city(free.loc)}` : ` at ${city(x.dep)}`} and could take the ${word[0]} seat: the roster has not placed them yet.`;
       terms.push('standby');
     } else if (!cands.length || !cm || !r) {
@@ -422,8 +426,13 @@ export function crewShortCard(g: GameState, flightId: string): ProblemCard | nul
       };
       terms.push('deadhead');
     } else if (r.code === 'rest' && d) {
-      why = `${crewName(cm)} is the nearest free ${word[0]}, but their rest at ${city(pick!.loc)} ends at ${r.until !== undefined ? at(r.until, g.now) : 'too late'}, after the ${at(d.report, g.now)} report.`;
       visuals.gauges = crewGauges(g, cm.id, d.id);
+      // The end of the rest from the reason, else from the rest gauge; the v0.7.3 rest rules say why in words.
+      const gauge = visuals.gauges.find((x) => x.id === 'rest' && x.tone !== 'good');
+      const until = r.until ?? gauge?.by;
+      why = until !== undefined && until > d.report
+        ? `${crewName(cm)} is the nearest free ${word[0]}, but their rest at ${city(pick!.loc)} ends at ${at(until, g.now)}, after the ${at(d.report, g.now)} report.`
+        : `${crewName(cm)} is the nearest free ${word[0]}, but ${/^(finished|back|due)\b/.test(r.text) ? `they ${r.text.replace(/^finished/, 'finished')}` : `is ${r.text}`}.`;
       terms.push('rest');
     } else if (r.code === 'fdp' && d) {
       why = `${crewName(cm)} could take it, but their day would run ${r.text.replace(/^over the day limit \(?/, '').replace(/\)$/, '')}.`;
@@ -1168,7 +1177,7 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean): CrewSolution[] {
         const sby = id === 'callIn' && c.standby;
         const ot = id === 'callIn' && !sby ? overtimeOf(cm) : 0;
         options.push({
-          id: c.crewId, label: `${c.name} · ${c.loc}${sby ? ` · On home standby since ${fmtTime(c.standby!.from, g.company.homeBase)}` : id === 'callIn' ? ' · Day off: called in' : ''}`,
+          id: c.crewId, label: `${c.name} · ${c.loc}${sby ? ` · On home standby since ${fmtTime(c.standby!.from, g.company.homeBase)} ${g.company.homeBase}` : id === 'callIn' ? ' · Day off: called in' : ''}`,
           sub: sby ? 'No overtime · standby beyond 6 h shortens the day' : id === 'callIn' ? `${usd(ot)} overtime · morale ${CC().callInMorale}` : `${c.travel ?? ''} · ${c.level === 'tight' ? 'tight after' : 'legal after'}`,
           cost: id === 'callIn' ? ot : c.ticket, arrives: c.arrives, level: c.level, reason: c.reason,
         });
@@ -1181,6 +1190,7 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean): CrewSolution[] {
     s.options = options;
     const first = options[0];
     s.cost = first.cost;
+    if (id === 'callIn' && !first.cost) s.desc = 'Crew on home standby come in: no overtime; standby beyond 6 h shortens their day.';
     s.chips = id === 'callIn' ? (first.cost ? [usd(first.cost), `Morale ${CC().callInMorale}`] : ['No overtime', 'Home standby']) : [usd(first.cost), first.arrives !== undefined ? hrs(first.arrives) : ''].filter(Boolean);
     out.push(run(s));
   }

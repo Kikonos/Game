@@ -6,10 +6,12 @@ import { ACMI_TYPES } from '../../data/acmiTypes';
 import { BAL } from '../core/balance';
 import { cabinMinimum, typeOf } from '../core/perf';
 import { fmtDuration } from '../core/time';
-import type { AcRest, Aircraft, AircraftOffer, Duty, Flight, GameState, Minute, RestFacility, RestKind } from '../core/types';
+import { markFlightsChanged } from '../core/entities';
+import type { AcRest, Aircraft, AircraftOffer, Duty, Flight, GameState, Minute, Pairing, RestFacility, RestKind } from '../core/types';
 import { hash } from '../core/util';
 import { range, type RngHolder } from '../core/rng';
 import { augLimitOf, cabinFdpCap, cabinInflightRest } from './rules';
+import { dutyNeed } from './duties';
 import { crewIx } from './timeline';
 
 const H = 60;
@@ -73,22 +75,35 @@ export function rollRestFor(id: string, typeId: string, j: number): AcRest {
 
 /**
  * v0.7.3 load: facilities for every airframe and open offer (`??= migrateRest`). When an airframe had none (a
- * pre-v0.7.3 save), duties already crewed and reporting within 72 h keep their augmentation without the rest-plan
- * check (`legacyRest`), so nothing an old save relies on turns illegal on load.
+ * pre-v0.7.3 save), a crewed trip that has started or reports within 72 h keeps its augmentation on every duty
+ * still to fly without the rest-plan check (`legacyRest`, per pairing so a return leg is never stranded); every
+ * other duty on a migrated airframe is re-measured at the first settle (onFlightsChanged) under the new rules.
  */
 export function loadRest(g: GameState): void {
-  let migrated = false;
+  const migrated = new Set<string>();
   for (const ac of Object.values(g.fleet)) {
     if (ac.rest) continue;
     ac.rest = migrateRest(ac);
-    migrated = true;
+    migrated.add(ac.id);
   }
   for (const o of g.market?.aircraft ?? []) o.rest ??= migrateRest(o);
-  if (!migrated) return;
-  for (const d of Object.values(g.duties)) {
-    if (d.done || d.report > g.now + 72 * H) continue;
-    const p = g.pairings[d.pairingId];
-    if (p && p.slots.some((s) => s.crewId)) d.legacyRest = true;
+  if (!migrated.size) return;
+  for (const p of Object.values(g.pairings)) {
+    const open = p.dutyIds.map((id) => g.duties[id]).filter((d): d is Duty => !!d && !d.done);
+    if (!open.length) continue;
+    const crewed = p.slots.some((s) => s.crewId);
+    const soon = p.status === 'active' || open.some((d) => d.report <= g.now + 72 * H);
+    if (crewed && soon) {
+      for (const d of open) d.legacyRest = true;
+      continue;
+    }
+    if (!p.aircraftId || !migrated.has(p.aircraftId)) continue;
+    // Stale v0.7.2 measures: forced out of date so the crew settle re-plans them (pickPlan with the facilities).
+    for (const d of open) {
+      if (d.report <= g.now) continue;
+      d.flightsEv = -1;
+      markFlightsChanged(g, p.aircraftId, Math.min(d.report, g.flights[d.flightIds[0]]?.std ?? d.report));
+    }
   }
 }
 
@@ -188,6 +203,8 @@ export interface RestPlan {
   /** Smallest slack of any turn (verdict: ≥ 30 OK, < 30 tight). */
   spareMin: number;
   cruise: { flightId: string; from: Minute; to: Minute; cabinFrom: Minute; cabinTo: Minute }[];
+  /** Planned before the in-flight rest rules (an older save): kept as rostered, not checked. */
+  legacy?: true;
 }
 
 const hm = (m: number) => `${Math.floor(Math.max(0, m) / 60)}:${String(Math.round(Math.max(0, m) % 60)).padStart(2, '0')}`;
@@ -297,8 +314,12 @@ export function planRest(legs: RestLeg[], rest: AcRest, augment: 1 | 2, cabinFdp
     ok: false, code: 'ok', why: null, augment, pilots: [], cabin: [], cabinFdp, cabinNeed: null, band: cabinBand(cabinFdp), extraCabin: 0, blocked: {}, spareMin: 0, cruise,
   };
   const fail = (code: RestPlan['code'], why: string): RestPlan => ({ ...base, code, why });
+  if (!legs.length) return fail('tooShort', 'Every leg of this day is cancelled');
+  // No cabin crew aboard (a pilots-only ferry): only the pilots rest, no cabin crew cap, no seats out of sale.
+  const pilotsOnly = cabinN <= 0;
+  if (pilotsOnly) base.band = null;
   if (!rest.fc) return fail('noFacility', 'There is no in-flight rest for the pilots');
-  if (!rest.cc) return fail('noFacility', 'There is no in-flight rest for the cabin crew');
+  if (!rest.cc && !pilotsOnly) return fail('noFacility', 'There is no in-flight rest for the cabin crew');
   if (legs.length > 3) return fail('sectors', `In-flight rest allows at most 3 sectors; this day has ${legs.length}`);
   // Pilots.
   const pw = legs.map((l) => ({ a: l.std + B.tocMin, b: l.sta - B.todMin - B.wakeMin }));
@@ -318,6 +339,7 @@ export function planRest(legs: RestLeg[], rest: AcRest, augment: 1 | 2, cabinFdp
   }
   const pilots: RestTurn[] = [];
   let spare = layOut(pg, pat, pw, legs, pilots);
+  if (pilotsOnly || !rest.cc) return { ...base, ok: true, code: 'ok', pilots, spareMin: spare === Infinity ? 0 : spare };
   // Cabin crew.
   const need = cabinInflightRest(cabinFdp, rest.cc.cls);
   if (need === null) {
@@ -366,9 +388,24 @@ export function restLegs(g: GameState, d: Duty): RestLeg[] {
   return out;
 }
 
-/** Cabin crew a duty's rest plan is made for: the legal minimum plus the client's required extra (optional extras ride along). */
+/** v0.7.3 a trip of empty legs only (positioning / ferry): it flies with its pilots, no cabin crew aboard. Pure. */
+export function pilotsOnlyTrip(g: GameState, p: Pairing): boolean {
+  for (const id of p.dutyIds) {
+    for (const fid of g.duties[id]?.flightIds ?? []) {
+      const k = g.flights[fid]?.kind;
+      if (k && k !== 'positioning' && k !== 'ferry') return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Cabin crew a duty's rest plan is made for: the legal minimum plus the client's required extra (optional extras
+ * ride along); 0 on a pilots-only trip.
+ */
 export function restCabinN(g: GameState, d: Duty): number {
   const p = g.pairings[d.pairingId];
+  if (p && pilotsOnlyTrip(g, p)) return 0;
   const ac = p?.aircraftId ? g.fleet[p.aircraftId] : undefined;
   const c = p?.contractId ? g.contracts[p.contractId] : undefined;
   return Math.max(cabinMinimum(ac?.cabin.total ?? 180), 1) + (c?.requirements.extraCabin ?? 0);
@@ -396,10 +433,12 @@ export function restPlan(g: GameState, dutyId: string, opts: { augment?: 1 | 2 }
   const early = d.cabinEarly ?? typeEarly(ac?.typeId ?? 'a320ceo');
   const legs = restLegs(g, d);
   const n = restCabinN(g, d);
-  const key = `${augment}:${d.fdp}:${early}:${n}:${JSON.stringify(rest)}:${legs.map((l) => `${l.id}@${l.std}-${l.sta}`).join()}:${p ? p.slots.map((s) => s.crewId ?? '-').join() : ''}`;
+  const key = `${augment}:${d.legacyRest ? 'L' : ''}${d.fdp}:${early}:${n}:${JSON.stringify(rest)}:${legs.map((l) => `${l.id}@${l.std}-${l.sta}`).join()}:${p ? p.slots.map((s) => s.crewId ?? '-').join() : ''}`;
   const hit = memo.get(d);
   if (hit && hit.key === key) return hit.plan;
-  const plan = legs.length ? planRest(legs, rest, augment, d.fdp + early, n) : { ...planRest([], rest, augment, d.fdp + early, n) };
+  if (!legs.length) return null;
+  const plan = planRest(legs, rest, augment, d.fdp + early, n);
+  if (d.legacyRest) plan.legacy = true;
   if (p) nameTurns(g, plan, p.slots);
   memo.set(d, { key, plan });
   return plan;
@@ -432,10 +471,12 @@ function nameTurns(g: GameState, plan: RestPlan, slots: { role: string; crewId: 
 
 /**
  * v0.7.3 a duty the roster had to split with a fresh crew because the cruise was too short for in-flight rest: the
- * next duty on the aircraft starts where this one ends within 3 h, the two together would fit the augmented limit
- * with the aircraft's facilities, but the rest plan is 'tooShort'. The failed plan and the next duty, else null. Pure.
+ * next duty on the aircraft starts where this one ends within 3 h, the two together are over the no-rest limit
+ * (Table 2 at the joint report and sectors, and a planned extension), would fit the augmented limit with the
+ * aircraft's facilities, but the rest plan is 'tooShort'. The failed plan, the next duty and the joint day's no-rest
+ * limit (`basic`), else null. Pure.
  */
-export function slipShort(g: GameState, dutyId: string): { plan: RestPlan; next: Duty; fdp: number; max: number } | null {
+export function slipShort(g: GameState, dutyId: string): { plan: RestPlan; next: Duty; fdp: number; max: number; basic: number } | null {
   const d = g.duties[dutyId];
   if (!d || d.augment > 0 || d.done) return null;
   const p = g.pairings[d.pairingId];
@@ -459,6 +500,10 @@ export function slipShort(g: GameState, dutyId: string): { plan: RestPlan; next:
   const legs = [...restLegs(g, d), ...restLegs(g, next)];
   if (legs.length > 3) return null;
   const fdp = legs[legs.length - 1].sta - d.report;
+  // Split only when the rest rule forced it: one crew without rest (basic or a planned extension) could not fly both.
+  const both = [...d.flightIds, ...next.flightIds].map((id) => g.flights[id]).filter((f): f is Flight => !!f && f.status !== 'cancelled');
+  const solo = dutyNeed(g, ac.typeId, NONE, { from: both[0].from, std: both[0].std, legs: both.map((f) => ({ std: f.std, sta: f.sta, from: f.from, to: f.to })) });
+  if (solo.mode === 'basic' || solo.mode === 'ext') return null;
   const early = typeEarly(ac.typeId);
   let longest = 0;
   for (const l of legs) longest = Math.max(longest, l.sta - l.std);
@@ -468,7 +513,7 @@ export function slipShort(g: GameState, dutyId: string): { plan: RestPlan; next:
     const plan = planRest(legs, rest, a, fdp + lim.early, restCabinN(g, d));
     if (plan.code === 'tooShort') {
       nameTurns(g, plan, p.slots);
-      return { plan, next, fdp, max: lim.max };
+      return { plan, next, fdp, max: lim.max, basic: solo.max };
     }
     return null;
   }
@@ -504,7 +549,7 @@ export function restNow(g: GameState, aircraftId: string, t: Minute): { names: s
 /** v0.7.3 the verdict chip: 'Rest plan OK' / 'Tight: 10 min spare' / 'Not possible'. Pure. */
 export function restVerdict(p: RestPlan | null): { tone: 'good' | 'warn' | 'bad'; text: string } | null {
   if (!p) return null;
-  if (!p.ok) return { tone: 'bad', text: 'Not possible' };
+  if (!p.ok) return p.legacy ? { tone: 'warn', text: 'Planned before the new rules' } : { tone: 'bad', text: 'Not possible' };
   if (p.spareMin < BAL.v073.rest.tightSpare) return { tone: 'warn', text: `Tight: ${p.spareMin} min spare` };
   return { tone: 'good', text: 'Rest plan OK' };
 }

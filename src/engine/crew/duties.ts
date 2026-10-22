@@ -14,7 +14,7 @@ import {
 } from './rules';
 import { crewExtraFor, seatsFor, type Seat } from './extraSeats';
 import { cabinEarly, cabinEarlyOf, crewCount, crewIx, dutyBlock, dutyFlights, onBlocks, touchCrew } from './timeline';
-import { planRest, restOf, type RestLeg, type RestPlan } from './restPlan';
+import { pilotsOnlyTrip, planRest, restOf, type RestLeg, type RestPlan } from './restPlan';
 
 // ---------- duty measures ----------
 
@@ -109,7 +109,8 @@ function pickPlan(sh: Shape, ref: RefAt, ctx: PlanCtx): PlanPick {
   const aug = (a: 1 | 2): PlanPick | null => {
     const { fc, cc } = ctx.rest;
     if (!ctx.canAug || !fc || !cc || sh.sectors > AUG_MAX_SECTORS) return null;
-    const lim = augLimitOf(fc.cls, cc.cls, a, longSector(sh.sectors, sh.longest), sh.early);
+    // No cabin crew aboard (a pilots-only trip): the pilots' limit alone.
+    const lim = ctx.cabinN > 0 ? augLimitOf(fc.cls, cc.cls, a, longSector(sh.sectors, sh.longest), sh.early) : augLimitOf(fc.cls, 1, a, longSector(sh.sectors, sh.longest), 0);
     if (sh.fdp > lim.max) return null;
     let extra = 0;
     if (!ctx.legacy) {
@@ -142,8 +143,9 @@ function pickPlan(sh: Shape, ref: RefAt, ctx: PlanCtx): PlanPick {
 
 export const canAugment = (g: GameState, rest: AcRest | 1 | 2 | 3 | null) => (typeof rest === 'object' && rest !== null ? !!rest.fc && !!rest.cc : !!rest) && g.company.approvals.includes('augmented');
 
-/** v0.7.3 cabin crew a plan is made for: the legal minimum plus the client's required extra cabin crew. */
-function planCabinN(g: GameState, acId: string | null, fl: Flight[]): number {
+/** v0.7.3 cabin crew a plan is made for: the legal minimum plus the client's required extra cabin crew; 0 on a pilots-only trip. */
+function planCabinN(g: GameState, acId: string | null, fl: Flight[], p?: Pairing): number {
+  if (p && pilotsOnlyTrip(g, p)) return 0;
   const ac = acId ? g.fleet[acId] : undefined;
   let req = 0;
   for (const f of fl) {
@@ -219,7 +221,16 @@ function keepMode(d: Duty, sh: Shape, ref: RefAt, rest: AcRest): PlanPick {
  */
 export function syncDuty(g: GameState, d: Duty, p: Pairing): void {
   const fl = dutyFlights(g, d).filter((f) => f.status !== 'cancelled');
-  if (!fl.length) return;
+  if (!fl.length) {
+    // Every leg cancelled: nothing to rest on, no stale augmentation (the complement shrinks back).
+    if (d.augment > 0 || d.restExtra) {
+      d.augment = 0;
+      d.maxFdp = d.basicFdp ?? d.maxFdp;
+      delete d.restExtra;
+      delete d.forceAug;
+    }
+    return;
+  }
   const typeId = (p.aircraftId && g.fleet[p.aircraftId]?.typeId) || 'a320ceo';
   const crewed = crewCount(p) > 0;
   const reported = p.status === 'active' && d.report <= g.now && crewed;
@@ -236,7 +247,7 @@ export function syncDuty(g: GameState, d: Duty, p: Pairing): void {
     // v0.7.3 crewed before the in-flight rest rules (an older save, within 72 h of loading): kept as rostered.
     pa = { ...keepMode(d, sh, ref, rest), mode: d.augment === 1 ? 'aug1' : 'aug2', augment: d.augment, max: d.maxFdp, ok: sh.fdp <= d.maxFdp };
   } else {
-    const ctx: PlanCtx = { rest, canAug: canAugment(g, rest), split: !!d.split, ext: !!d.ext, forceAug: d.forceAug === 2, legacy: d.legacyRest, cabinN: planCabinN(g, p.aircraftId, fl) };
+    const ctx: PlanCtx = { rest, canAug: canAugment(g, rest), split: !!d.split, ext: !!d.ext, forceAug: d.forceAug === 2, legacy: d.legacyRest, cabinN: planCabinN(g, p.aircraftId, fl, p) };
     pa = pickPlan(sh, ref, ctx);
     // Delayed reporting: only once crew were told a report time.
     if (!crewed) delete d.notified;

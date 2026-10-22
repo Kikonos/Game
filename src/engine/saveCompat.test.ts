@@ -8,6 +8,7 @@ import { acceptOffer, feasibilityAll } from './contracts';
 import { DAY } from './core/time';
 import type { GameState } from './core/types';
 import { migrateRanks, moraleSummary, rosterBoard } from './crew';
+import { restPlan } from './crew/restPlan';
 import { evalSegs } from './crew/rules';
 import { ctxOf, segsOf } from './crew/timeline';
 import { typeOf } from './core/perf';
@@ -221,4 +222,28 @@ describe('v0.7.3 load: pilot and cabin crew rest facilities', () => {
     const again = deserialize(serialize(g));
     expect(JSON.parse(serialize(again)).state).toEqual(JSON.parse(serialize(g)).state);
   }, 240_000);
+
+  it('v0.7.2: a crewed trip is grandfathered per pairing; every other augmented duty is re-planned and flies with a working rest plan', () => {
+    const g = deserialize(v072());
+    for (const p of Object.values(g.pairings)) {
+      const open = p.dutyIds.map((id) => g.duties[id]).filter((d) => d && !d.done);
+      // a trip's legs are grandfathered together (a return leg is never stranded at the outstation)
+      if (open.some((d) => d.legacyRest)) expect(open.every((d) => d.legacyRest), p.id).toBe(true);
+    }
+    advanceTo(g, g.now + 60, new Set());
+    for (const d of Object.values(g.duties)) {
+      if (d.done || d.augment === 0 || d.legacyRest) continue;
+      expect(restPlan(g, d.id)?.ok, `${d.id} ${restPlan(g, d.id)?.code}`).toBe(true);
+    }
+    const flown = new Set<string>();
+    const end = g.now + 5 * DAY;
+    while (g.now < end) {
+      advanceTo(g, Math.min(end, g.now + 60), new Set());
+      for (const d of Object.values(g.duties)) {
+        if (flown.has(d.id) || !d.done || d.augment === 0 || d.legacyRest) continue;
+        flown.add(d.id);
+        expect(restPlan(g, d.id)?.ok, `${d.id} ${restPlan(g, d.id)?.code}`).toBe(true);
+      }
+    }
+  }, 120_000);
 });

@@ -1,7 +1,7 @@
 // The save list reads small meta keys instead of decompressing every slot; a slot rewritten elsewhere
-// (the UI's async autosave) is detected by its size and read in full once.
+// (the UI's async autosave) is detected by its fingerprint (length and a content hash) and read in full once.
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createGame } from './newGame';
 import { listSaves, saveToSlot } from './save';
 
@@ -25,15 +25,17 @@ const g = () => createGame({ name: 'Meta Air', code: 'MA', livery: { primary: '#
 describe('save list', () => {
   afterEach(() => {
     delete (globalThis as { localStorage?: unknown }).localStorage;
+    vi.restoreAllMocks();
   });
   it('lists slots from their meta keys and notices a slot written without one', () => {
     const st = new MemStorage();
     (globalThis as { localStorage?: unknown }).localStorage = st;
+    vi.spyOn(Date, 'now').mockReturnValue(1_790_000_000_000);
     const a = g();
     expect(saveToSlot(a, '1')).toBe(true);
     const list = listSaves();
     expect(list.map((m) => [m.slot, m.company])).toEqual([['1', 'Meta Air']]);
-    // Rewritten elsewhere (different size): the full save is read again and the meta refreshed.
+    // Rewritten elsewhere (same or different size): the full save is read again and the meta refreshed.
     a.company.name = 'Meta Air Two';
     const raw = st.m.get('contrail-acmi:save:1')!;
     saveToSlot(a, '2');

@@ -17,7 +17,7 @@ import { restSeatWord } from '../components/RestLines';
 import { RestTimeline } from '../components/RestTimeline';
 import { Term } from '../components/Term';
 import { Modal, Stepper } from '../components/ui';
-import { money } from '../format';
+import { money, plural } from '../format';
 import { Dot, KV } from '../screens/common';
 import { contractColor } from '../screens/palette';
 import { durLabel, maintLabel, paintLabel } from '../screens/scheduleLogic';
@@ -249,7 +249,8 @@ export function BlockSheet({ refs, idle }: { refs: Ref[]; idle?: { aircraftId: s
       </Modal>
     );
   }
-  const cur = open && live.find((r) => r.id === open.id);
+  // One live item left (the others landed or were removed): its sheet, not a list of one.
+  const cur = (open && live.find((r) => r.id === open.id)) || (live.length === 1 ? live[0] : undefined);
   if (cur) {
     const f = cur.kind === 'flight' ? g.flights[cur.id] : undefined;
     const m = cur.kind === 'maint' ? g.maintenance[cur.id] : undefined;
@@ -261,7 +262,7 @@ export function BlockSheet({ refs, idle }: { refs: Ref[]; idle?: { aircraftId: s
     );
   }
   return (
-    <Modal title={`${live.length} items`} onClose={close}>
+    <Modal title={plural(live.length, 'item')} onClose={close}>
       <div className="col gap-8">
         {live.map((r) => {
           const f = r.kind === 'flight' ? g.flights[r.id] : undefined;

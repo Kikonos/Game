@@ -498,7 +498,9 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   // v0.7.3 C7 the real limit for each long chain's report time and sectors, then extension / split / 3 or 4 pilots
   // with this airframe's rest facilities and the rest plan (the worst chain wins).
   const rest = restOf(g, ac.id);
-  const rn = restNeed(g, o, t.id, rest, prog.chains);
+  // As the roster builds the duties: positioning in and out joined to the trip's own legs (one crew flies both).
+  const chains = [...prog.chains, ...fits.flatMap((f) => chainsOf([...f.posIn, ...f.trip.legs, ...f.posOut].map((l) => ({ std: l.std, sta: l.sta, from: l.from, to: l.to }))))];
+  const rn = restNeed(g, o, t.id, rest, chains);
   const augmented = rn.need?.mode === 'aug1' || rn.need?.mode === 'aug2';
   if (reach) add('crew', 'no', reach, 'Too soon for this aircraft: a later start, or an aircraft already nearby.');
   else if (shorts.length) {
@@ -507,7 +509,7 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   } else if (!rep.crew.setsNeeded && !Object.keys(rep.crew.byRole).length) add('crew', 'warn', 'Crew capacity not checked yet');
   else add('crew', 'ok', `Needs ${rep.crew.setsNeeded} crew set${rep.crew.setsNeeded === 1 ? '' : 's'}, ${rep.crew.setsAvailable} free`);
   if (rn.line) {
-    const fix = rn.level === 'no' && rn.need?.why === 'noRest' ? restRefitFix(g, ac.id, o, t.id, prog.chains) : null;
+    const fix = rn.level === 'no' && rn.need?.why === 'noRest' ? restRefitFix(g, ac.id, o, t.id, chains) : null;
     rep.checks.push({ id: 'rest', level: rn.level, label: rn.line, ...(rn.detail ? { detail: rn.detail } : {}), ...(fix ? { action: { kind: 'restRefit', option: fix } } : {}) });
     if (RANK[rn.level] > RANK[rep.level]) rep.level = rn.level;
   }
@@ -647,34 +649,44 @@ export function restRefitFix(g: GameState, aircraftId: string, o: ContractOffer,
 }
 
 /**
- * v0.7.3 for long-haul offers (the longest chain + report over 13 h on the smallest fitting widebody type): 'Longest
- * day 15:40 · needs 3 pilots + bunks, or 4 pilots + business seats'; null otherwise. Pure.
+ * v0.7.3 for long-haul offers (the longest chain over the no-rest limit at its report time and sectors, CS
+ * FTL Table 2, on the smallest fitting widebody type): 'Longest day 15:40 · needs 3 pilots (bunks or business
+ * seats)', 'Longest day 16:05 · needs 3 pilots with bunks, 4 with business seats'; null when 2 pilots without
+ * rest can fly it. Pure.
  */
 export function offerRestLine(g: GameState, offerId: string): string | null {
   const o = g.offers[offerId];
   if (!o) return null;
   const types = Object.values(ACMI_TYPES).filter((t) => t.body === 'wide' && t.available).sort((a, b) => a.maxSeats - b.maxSeats);
+  const NO_REST: AcRest = { fc: null, cc: null };
+  const fc1: AcRest = { fc: { cls: 1, kind: 'fcrc', places: 2 }, cc: { cls: 1, kind: 'ccrc', places: 8 } };
+  const j2: AcRest = { fc: { cls: 2, kind: 'jSeats', places: 2 }, cc: { cls: 2, kind: 'jSeats', places: 5 } };
   for (const t of types) {
     const cabin = t.cabins[0];
     if (cabin.j + cabin.w + cabin.y < o.requirements.minSeats) continue;
     const prog = programmeOf(o, t.id);
     if (!prog.ok) continue;
     const chains = crewChains(g, prog.chains);
-    if (!chains.length) return null;
-    const c = chains[0];
-    const day = c.legs[c.legs.length - 1].sta - c.std + reportMinutes(t.id).report;
-    if (day <= 13 * 60) return null;
-    const hmm = `${Math.floor(day / 60)}:${String(day % 60).padStart(2, '0')}`;
-    const fc1: AcRest = { fc: { cls: 1, kind: 'fcrc', places: 2 }, cc: { cls: 1, kind: 'ccrc', places: 8 } };
-    const j2: AcRest = { fc: { cls: 2, kind: 'jSeats', places: 2 }, cc: { cls: 2, kind: 'jSeats', places: 5 } };
-    const need = (r: AcRest) => dutyNeed(g, t.id, r, c);
-    const a = need(fc1);
-    const b = need(j2);
-    const say = (n: DutyNeed, what: string) => (n.mode === 'aug1' ? `3 pilots + ${what}` : n.mode === 'aug2' ? `4 pilots + ${what}` : n.mode === 'none' ? null : 'no in-flight rest');
-    const parts = [say(a, 'bunks'), say(b, 'business seats')].filter((x): x is string => !!x);
-    if (parts.includes('no in-flight rest')) return `Longest day ${hmm} · fits a planned extension or a split duty`;
-    if (!parts.length) return `Longest day ${hmm} · too long for in-flight rest`;
-    return `Longest day ${hmm} · needs ${[...new Set(parts)].join(', or ')}`;
+    if (!chains.length) continue;
+    // The worst chain without in-flight rest (Table 2 at its own report time and sectors).
+    let c = chains[0];
+    let solo = dutyNeed(g, t.id, NO_REST, c);
+    for (const x of chains.slice(1)) {
+      const n = dutyNeed(g, t.id, NO_REST, x);
+      if (NEED_RANK[n.mode] > NEED_RANK[solo.mode] || (n.mode === solo.mode && n.fdp > solo.fdp)) [c, solo] = [x, n];
+    }
+    if (solo.mode === 'basic') return null;
+    const hmm = `${Math.floor(solo.fdp / 60)}:${String(solo.fdp % 60).padStart(2, '0')}`;
+    if (solo.mode === 'ext') return `Longest day ${hmm} · fits a planned extension (2 pilots, twice a week per crew)`;
+    if (solo.mode === 'split') return `Longest day ${hmm} · fits a split duty (a rest on the ground)`;
+    const pilots = (n: DutyNeed) => (n.mode === 'aug1' ? 3 : n.mode === 'aug2' ? 4 : 0);
+    const a = pilots(dutyNeed(g, t.id, fc1, c));
+    const b = pilots(dutyNeed(g, t.id, j2, c));
+    if (!a && !b) return `Longest day ${hmm} · too long for in-flight rest`;
+    if (a && a === b) return `Longest day ${hmm} · needs ${a} pilots (bunks or business seats)`;
+    if (!b) return `Longest day ${hmm} · needs ${a} pilots and bunks`;
+    if (!a) return `Longest day ${hmm} · needs ${b} pilots (business seats)`;
+    return `Longest day ${hmm} · needs ${a} pilots with bunks, ${b} with business seats`;
   }
   return null;
 }

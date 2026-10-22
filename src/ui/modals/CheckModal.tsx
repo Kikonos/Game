@@ -7,6 +7,7 @@
 import { Check, Plane, Ticket, Wrench } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { AIRPORT_BY_CODE } from '../../data/airports';
+import { BAL } from '../../engine/core/balance';
 import { flightsRev } from '../../engine/core/entities';
 import { typeOf } from '../../engine/core/perf';
 import { DAY, HOUR, dayStart, fmtDate, fmtDateTime, fmtDay, fmtDuration, fmtTime } from '../../engine/core/time';
@@ -108,6 +109,9 @@ function CCheckModal({ aircraftId, replace, setKind, restFit, backToRefit }: { a
   const fitShown = !!restOpt || !!fit;
   const fo = opt?.ferryOut ?? [];
   const fh = opt?.ferryHome ?? [];
+  // The rest fit's own days and cost, shown apart from the check's (cCheckOptions folds them into checkCost).
+  const fitAdd = fit ? BAL.v073.restRefit[fit] : null;
+  const fitWord = fit === 'overhead' ? 'overhead crew rest' : 'crew rest compartment';
   return (
     <Modal title={`Plan a check: ${ac.reg}`} icon={<Wrench className="accent" />} onClose={done} footer={
       <>
@@ -119,7 +123,7 @@ function CCheckModal({ aircraftId, replace, setKind, restFit, backToRefit }: { a
       <div className="col gap-12">
         <div className="row between wrap gap-12">
           <Seg<Kind> value="C" onChange={setKind} options={[{ value: 'A', label: 'A-check' }, { value: 'C', label: 'C-check' }]} />
-          <span className="small muted">{t.cCheckDays} days at an <Term id="mro">MRO</Term> hub · due {fmtDate(st.cDue)} ({Math.round(st.cUsed * 100)}% used)</span>
+          <span className="small muted">{t.cCheckDays}{fitAdd ? ` + ${fitAdd.addDays}` : ''} days at an <Term id="mro">MRO</Term> hub · due {fmtDate(st.cDue)} ({Math.round(st.cUsed * 100)}% used)</span>
         </div>
         {old && (
           <div className="ck-booked small">
@@ -173,8 +177,9 @@ function CCheckModal({ aircraftId, replace, setKind, restFit, backToRefit }: { a
         {opt && start !== undefined && (
           <div className="cv-cost small ck-plan">
             <span>{fo.length ? <>Ferry out <b>{fmtDay(fo[0].std)} {fmtTime(fo[0].std)}</b> {fo[0].from}→{fo[fo.length - 1].to} ({fmtDuration(legsBlock(fo))}) · </> : null}check <b>{fmtDay(opt.start)}–{fmtDay(opt.end)}</b>{fh.length ? <> · ferry home <b>{fmtDay(fh[0].std)} {fmtTime(fh[0].std)}</b></> : null}</span>
-            <span className="muted">Check {money(opt.checkCost)} · ferries {money(opt.ferryCost)} · 2 pilots fly home and back out on airline tickets, hotels ≈ {money(opt.crewCost)}</span>
+            <span className="muted">Check {money(opt.checkCost - (fitAdd?.cost ?? 0))}{fitAdd ? ` + ${fitWord} ${money(fitAdd.cost)}` : ''} · ferries {money(opt.ferryCost)} · 2 pilots fly home and back out on airline tickets, hotels ≈ {money(opt.crewCost)}</span>
             {proj && <span className={proj.used > 1 ? 'bad' : proj.used > 0.9 ? 'warn' : 'good'}>By then: {Math.round(proj.used * 100)}% used ({proj.fh} / {proj.limitFH} FH)</span>}
+            {proj && proj.used < 0.5 && <span className="muted">Early: the check restarts the count, so you lose most of the current check's life.</span>}
             {!opt.ok && opt.why && <span className="warn">{opt.why}</span>}
           </div>
         )}

@@ -258,7 +258,7 @@ export function restTooShortCard(g: GameState, flightId: string): ProblemCard | 
   const plan = slip?.plan ?? (own && !own.ok && own.code === 'tooShort' ? own : null);
   if (!plan) return null;
   const fdp = slip?.fdp ?? d.fdp;
-  const basic = d.basicFdp ?? 13 * 60;
+  const basic = slip?.basic ?? d.basicFdp ?? 13 * 60;
   const station = slip ? g.flights[slip.next.flightIds[0]]?.from ?? d.restAt : d.restAt;
   const city = AIRPORT_BY_CODE[station]?.city ?? station;
   const crewN = g.pairings[d.pairingId]?.slots.length ?? 4;

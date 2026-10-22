@@ -9,14 +9,14 @@ import { distance, distanceNm } from '../core/geo';
 import { pushMessage } from '../core/messages';
 import { cardMeta, offerFitCard } from '../problems';
 import { requestPause } from '../core/pause';
-import { blockMinutes, complement, etopsNeeded, planSector, reportMinutes, typeOf } from '../core/perf';
-import { augLimitOf, longSector } from '../crew/rules';
+import { blockMinutes, complement, etopsNeeded, planSector, typeOf } from '../core/perf';
+import { dutyNeed } from '../crew/duties';
 import { schedule } from '../core/queue';
 import { chance, int, next, pick, range, weightedPick } from '../core/rng';
 import { DAY, dayIndex, fmtDay, fmtTime, fromUTC, localMinuteOfDay, toDate, toLocal } from '../core/time';
 import { clamp } from '../core/util';
 import type {
-  ApprovalId, Archetype, Client, ContractOffer, GameState, LegTemplate, Minute, OfferEffects, PaintKind, Product, Requirements, SchedulePattern, SimEvent,
+  AcRest, ApprovalId, Archetype, Client, ContractOffer, GameState, LegTemplate, Minute, OfferEffects, PaintKind, Product, Requirements, SchedulePattern, SimEvent,
 } from '../core/types';
 import { acceptOffer, closeOffer, setPrice } from './accept';
 import { answerBy, counterBase, counterOdds, halfwayPrice, leftOf } from './counter';
@@ -827,8 +827,8 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   let emptyMin = prog.emptyMin;
   let deps = prog.trips.reduce((s, t) => s + t.legs.length, 0) || (prog.base?.rotations ?? 0) * 2;
   const revDeps = prog.trips.reduce((s, t) => s + t.legs.filter((l) => l.kind !== 'positioning').length, 0);
-  const aug = chainAugment(ref, prog.chains);
-  const crewN = complement(ref, defaultSeats(ref), { extraCabin: d.req.extraCabin, augment: aug }).length;
+  const { aug, extraCabin: restCabin } = chainAugment(g, ref, prog.chains);
+  const crewN = complement(ref, defaultSeats(ref), { extraCabin: d.req.extraCabin, augment: aug, restCabin }).length;
   let roomNights = 0;
   let crewDays = 0;
   let tickets = 0;
@@ -858,6 +858,8 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   // v0.7.3 heavy crews cost more: a wet rate +3 % when the longest chain needs 3 pilots on the type it was sized
   // for, +6 % for 4 (that type's usual rest facilities).
   if (product.kind === 'wet' && aug) product.ratePerBH = Math.round(product.ratePerBH * (1 + (BAL.v073.augRate[aug] ?? 0)));
+  // ... and the extra cabin crew its rest plan adds are billed like client-requested ones (RESEARCH §4.3).
+  if (product.kind === 'wet' && restCabin) product.ratePerBH += BAL.crewExtra.paidPerBH * restCabin;
   const lead = d.start - g.now;
   const urgency = lead < 72 * 60 ? 'urgent' : lead < 7 * DAY ? 'short' : 'normal';
   const maxExp = urgency === 'urgent' ? lead - 60 : lead - 12 * 60;
@@ -1112,19 +1114,28 @@ export function quietWeekOffer(g: GameState): ContractOffer | null {
 }
 
 /**
- * v0.7.3 extra pilots the longest chain of a programme needs on a type with its usual facilities (bunks where most
- * airframes have them, else curtained business seats): 0 within 14 h (Table 2 or a planned extension). Pure.
+ * v0.7.3 what the worst chain of a programme needs on a type with its usual facilities (bunks where most airframes
+ * have them, else curtained business seats), read like the roster does (C7: Table 2 at each chain's report time
+ * and sectors, then split / planned extension, then 3 or 4 pilots with the rest plan): the extra pilots (0 when
+ * no in-flight rest is needed) and the extra cabin crew the rest plan adds. Pure.
  */
-export function chainAugment(typeId: string, chains: ChainShape[]): 0 | 1 | 2 {
+export function chainAugment(g: GameState, typeId: string, chains: ChainShape[]): { aug: 0 | 1 | 2; extraCabin: number } {
   const t = typeOf(typeId);
-  const c = chains[0];
-  if (!c || t.body !== 'wide') return 0;
-  const fdp = c.legs[c.legs.length - 1].sta - c.std + reportMinutes(typeId).report;
-  if (fdp <= 14 * 60) return 0;
+  if (!chains.length || t.body !== 'wide') return { aug: 0, extraCabin: 0 };
   const R = t.rest;
-  const fc = R.fcrcShare >= 0.5 ? 1 : t.rest.jClass;
-  const cc = R.ccrcShare >= 0.5 ? 1 : t.rest.jClass;
-  const longest = Math.max(...c.legs.map((l) => l.sta - l.std));
-  const long = longSector(c.legs.length, longest);
-  return fdp <= augLimitOf(fc, cc, 1, long, 0).max ? 1 : 2;
+  const rest: AcRest = {
+    fc: R.fcrcShare >= 0.5 ? { cls: 1, kind: 'fcrc', places: 2 } : { cls: R.jClass, kind: 'jSeats', places: 2 },
+    cc: R.ccrcShare >= 0.5 && R.ccrcPlaces ? { cls: 1, kind: R.ccrcKind, places: R.ccrcPlaces } : { cls: R.jClass, kind: 'jSeats', places: Math.max(2, Math.ceil(t.cabinTypical / 2)) },
+  };
+  // Priced as if the company held the augmented crew approval (the client pays for the crew the job needs).
+  const gx: GameState = g.company.approvals.includes('augmented') ? g : { ...g, company: { ...g.company, approvals: [...g.company.approvals, 'augmented'] } };
+  let aug: 0 | 1 | 2 = 0;
+  let extraCabin = 0;
+  for (const c of chains.slice(0, 5)) {
+    const n = dutyNeed(gx, typeId, rest, c);
+    const a: 0 | 1 | 2 = n.mode === 'aug1' ? 1 : n.mode === 'aug2' || n.mode === 'none' ? 2 : 0;
+    if (a > aug) aug = a;
+    if (a && n.plan?.ok) extraCabin = Math.max(extraCabin, n.plan.extraCabin);
+  }
+  return { aug, extraCabin };
 }

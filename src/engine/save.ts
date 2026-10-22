@@ -97,14 +97,32 @@ export function saveToSlot(g: GameState, slot: string): boolean {
   } catch {
     return false;
   }
-  writeMeta(s, slot, meta, value.length);
+  writeMeta(s, slot, meta, value);
   return true;
 }
 
-/** The meta key remembers the size of the save it describes: a slot written elsewhere (async autosave) is re-read. */
-function writeMeta(s: Storage, slot: string, meta: SaveMeta, size: number): void {
+/**
+ * A cheap fingerprint of a stored save: its length and a hash of its head, tail and a strided sample (a slot
+ * rewritten elsewhere with the same compressed length still differs).
+ */
+function fingerprint(raw: string): string {
+  let h = 0x811c9dc5;
+  const mix = (i: number) => {
+    h ^= raw.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  };
+  const n = raw.length;
+  for (let i = 0; i < Math.min(n, 256); i++) mix(i);
+  for (let i = Math.max(0, n - 256); i < n; i++) mix(i);
+  const step = Math.max(1, Math.floor(n / 512));
+  for (let i = 0; i < n; i += step) mix(i);
+  return `${n}:${(h >>> 0).toString(36)}`;
+}
+
+/** The meta key remembers the fingerprint of the save it describes: a slot written elsewhere (async autosave) is re-read. */
+function writeMeta(s: Storage, slot: string, meta: SaveMeta, raw: string): void {
   try {
-    s.setItem(META + slot, JSON.stringify({ meta, size }));
+    s.setItem(META + slot, JSON.stringify({ meta, fp: fingerprint(raw) }));
   } catch {
     s.removeItem(META + slot);
   }
@@ -135,8 +153,8 @@ export function listSaves(): SaveMeta[] {
     const raw = s.getItem(PREFIX + slot);
     if (!raw) continue;
     try {
-      const m = JSON.parse(s.getItem(META + slot) ?? 'null') as { meta: SaveMeta; size: number } | null;
-      if (m && m.size === raw.length) {
+      const m = JSON.parse(s.getItem(META + slot) ?? 'null') as { meta: SaveMeta; fp?: string } | null;
+      if (m && m.fp === fingerprint(raw)) {
         out.push({ ...m.meta, slot });
         continue;
       }
@@ -148,7 +166,7 @@ export function listSaves(): SaveMeta[] {
     try {
       const meta = { ...(JSON.parse(text) as SaveFile).meta, slot };
       out.push(meta);
-      writeMeta(s, slot, meta, raw.length);
+      writeMeta(s, slot, meta, raw);
     } catch {
       // unreadable save
     }

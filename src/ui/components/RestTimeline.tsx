@@ -1,7 +1,8 @@
 // v0.7.3 in-flight rest timeline (UPDATE-0.7.3.md §2.6 item 4): the duty's legs from take-off to landing with the
-// cruise shaded, then one row per pilot turn ('Capt. Silva 3:20 · bunk · lands') and per cabin crew group
-// ('Group A (4) 2:40 · lower deck'), times under the bar in UTC and local. A static drawing: no motion, no hover,
-// re-rendered only when the plan changes (the engine memoises it per duty).
+// cruise shaded, then one row per pilot turn ('Capt. Silva · lands · 3:20 · bunk   00:49–03:09 UTC') and per cabin
+// crew group ('Group A (4) · 2:40 · lower deck', names under it), each a full-width line of words over its bar so
+// nothing is cut off and the times read on touch. A static drawing: no motion, no hover, re-rendered only when the
+// plan changes (the engine memoises it per duty).
 
 import { memo } from 'react';
 import { fmtTime } from '../../engine/core/time';
@@ -12,7 +13,13 @@ const hm = (m: number) => `${Math.floor(Math.max(0, m) / 60)}:${String(Math.roun
 const SEAT_WORD: Record<string, string> = { CPT: 'CPT', FO: 'FO', CRP: 'CRP', CPT2: 'CPT 2', FO2: 'FO 2' };
 
 export interface RestLegBar { id: string; no: string; from: string; to: string; std: number; sta: number; x0: number; x1: number; c0: number; c1: number }
-export interface RestRow { key: string; side: 'pilots' | 'cabin'; text: string; x0: number; x1: number; landing: boolean; title: string }
+export interface RestRow {
+  key: string; side: 'pilots' | 'cabin';
+  /** 'Capt. Silva' / 'Group A (4)'; len '3:20'; where 'bunk'; when '00:49–03:09 UTC'; names: a cabin group's crew. */
+  who: string; len: string; where: string; when: string; names: string[];
+  /** One line for screen readers: 'FO Reis · lands · 3:00 · bunk'. */
+  text: string; x0: number; x1: number; landing: boolean; title: string;
+}
 
 /** 'Capt. Silva' / 'FO Reis' / 'CRP Costa'; the seat ('CPT', 'FO 2') while nobody is rostered. */
 function pilotName(g: GameState, t: RestTurn): string {
@@ -37,26 +44,39 @@ export function restLayout(g: GameState, plan: RestPlan): { legs: RestLegBar[]; 
   const rows: RestRow[] = [];
   for (const [i, t] of plan.pilots.entries()) {
     const who = pilotName(g, t);
-    const text = `${who} ${hm(t.end - t.start)} · ${restWhere(t.where)}${t.landing ? ' · lands' : ''}`;
-    rows.push({ key: `p${i}`, side: 'pilots', text, x0: x(t.start), x1: x(t.end), landing: !!t.landing, title: `${text} · ${fmtTime(t.start)}–${fmtTime(t.end)} UTC (at least ${hm(t.need)})` });
+    const len = hm(t.end - t.start);
+    const where = restWhere(t.where);
+    const when = `${fmtTime(t.start)}–${fmtTime(t.end)} UTC`;
+    const text = `${who}${t.landing ? ' · lands' : ''} · ${len} · ${where}`;
+    rows.push({ key: `p${i}`, side: 'pilots', who, len, where, when, names: [], text, x0: x(t.start), x1: x(t.end), landing: !!t.landing, title: `${text} · ${when} (at least ${hm(t.need)})` });
   }
   for (const [i, t] of plan.cabin.entries()) {
     const label = `Group ${String.fromCharCode(65 + (t.group ?? 0))} (${t.n})`;
     const names = t.crewIds.map((id) => g.crew[id]).filter((c) => !!c).map((c) => `${c!.first} ${c!.last}`);
-    const text = `${label} ${hm(t.end - t.start)} · ${restWhere(t.where)}`;
-    rows.push({ key: `c${i}`, side: 'cabin', text, x0: x(t.start), x1: x(t.end), landing: false, title: `${text} · ${fmtTime(t.start)}–${fmtTime(t.end)} UTC${names.length ? ` · ${names.join(', ')}` : ''}` });
+    const len = hm(t.end - t.start);
+    const where = restWhere(t.where);
+    const when = `${fmtTime(t.start)}–${fmtTime(t.end)} UTC`;
+    const text = `${label} · ${len} · ${where}`;
+    rows.push({ key: `c${i}`, side: 'cabin', who: label, len, where, when, names, text, x0: x(t.start), x1: x(t.end), landing: false, title: `${text} · ${when}${names.length ? ` · ${names.join(', ')}` : ''}` });
   }
   return { legs, rows, t0, t1 };
 }
 
 function Row({ r }: { r: RestRow }) {
-  // The label sits on the side with more room, against the block.
-  const right = 100 - r.x1 >= r.x0;
-  const lbl = right ? { left: `calc(${r.x1}% + 6px)`, maxWidth: `calc(${100 - r.x1}% - 6px)` } : { right: `calc(${100 - r.x0}% + 6px)`, maxWidth: `calc(${r.x0}% - 6px)` };
+  // Words on their own line (wrapping, never cut), the bar under them on the shared take-off → landing scale.
   return (
     <div className={`rt-row ${r.side}`} title={r.title}>
-      <span className={`rt-blk ${r.side} ${r.landing ? 'landing' : ''}`} style={{ left: `${r.x0}%`, width: `${Math.max(1, r.x1 - r.x0)}%` }} />
-      <span className={`rt-lbl ${right ? '' : 'left'}`} style={lbl}>{r.text}</span>
+      <div className="rt-line">
+        <b className="rt-who">{r.who}</b>
+        {r.landing && <span className="rt-tag">lands</span>}
+        <span className="num">{r.len}</span>
+        <span className="rt-where">· {r.where}</span>
+        <span className="rt-when num">{r.when}</span>
+      </div>
+      {r.names.length > 0 && <div className="rt-names">{r.names.join(', ')}</div>}
+      <div className="rt-lane">
+        <span className={`rt-blk ${r.side} ${r.landing ? 'landing' : ''}`} style={{ left: `${r.x0}%`, width: `${Math.max(1, r.x1 - r.x0)}%` }} />
+      </div>
     </div>
   );
 }

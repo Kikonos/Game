@@ -28,11 +28,14 @@ describe('v0.7.3 rest timeline layout', () => {
     expect(lay.legs[0].x1).toBe(100);
     expect(lay.legs[0].c0).toBeCloseTo((40 / 600) * 100);
     expect(lay.rows.map((r) => r.text)).toEqual([
-      'CRP Costa 2:20 · bunk',
-      'FO 3:00 · bunk · lands',
-      'Capt. Silva 2:50 · bunk · lands',
-      'Group A (4) 3:20 · lower deck',
+      'CRP Costa · 2:20 · bunk',
+      'FO · lands · 3:00 · bunk',
+      'Capt. Silva · lands · 2:50 · bunk',
+      'Group A (4) · 3:20 · lower deck',
     ]);
+    // 'lands' and the times are words on the row, never cut off (v0.7.3 fix: the FO's 'lands' hid behind an ellipsis).
+    expect(lay.rows[1].when).toMatch(/^\d\d:\d\d–\d\d:\d\d UTC$/);
+    expect(lay.rows[3].names).toEqual(['Rui Reis']);
     expect(lay.rows[2].landing).toBe(true);
     expect(lay.rows[3].title).toContain('Rui Reis');
   });

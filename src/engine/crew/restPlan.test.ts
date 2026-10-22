@@ -8,7 +8,12 @@ import { DAY } from '../core/time';
 import type { AcRest, RestFacility } from '../core/types';
 import { addCrew, fixtureContract, fixtureGame } from './fixtures';
 import { autoRoster, buildDuties } from '.';
-import { longestDay, planRest, restNow, restPlan, restText, restVerdict, type RestLeg } from './restPlan';
+import { restSeatsBlocked } from './crewRest';
+import { syncDuty } from './duties';
+import { setDutyAugment } from './explain';
+import { longestDay, planRest, restNow, restPlan, restPlanForFlight, restText, restVerdict, slipShort, type RestLeg } from './restPlan';
+import { touchCrew } from './timeline';
+import { restTooShortCard } from '../problems/crew';
 
 const H = 60;
 const T = 1_000_000;
@@ -218,5 +223,84 @@ describe('market roll (UPDATE-0.7.3.md §2.1)', () => {
     }
     // narrowbodies never roll rest
     expect(rollRestFor('a1', 'a321neo', 16)).toEqual({ fc: null, cc: null });
+  });
+});
+
+describe('v0.7.3 fixes', () => {
+  const setup = () => {
+    const g = fixtureGame();
+    g.company.approvals.push('augmented');
+    const ac = Object.values(g.fleet)[0];
+    ac.typeId = 'a333';
+    ac.cabin = { ...ac.cabin, total: 300, y: 270, j: 30, w: 0 };
+    ac.rest = bunks;
+    addCrew(g, { CPT: 3, FO: 4, PUR: 4, CC: 14 }, 'A330/340');
+    const std = Math.floor(g.now / DAY) * DAY + 2 * DAY + 20 * 60;
+    return { g, ac, std };
+  };
+
+  it('every leg of an augmented duty cancelled: no rest plan, no crash, the augmentation dropped', () => {
+    const { g, ac, std } = setup();
+    const f = addFlight(g, { no: 'AW1', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'LIS', to: 'GRU', std, sta: std + 12 * H + 30 });
+    const [d] = buildDuties(g, ac.id, g.now, g.now + 5 * DAY);
+    expect(d.augment).toBe(1);
+    f.status = 'cancelled';
+    expect(planRest([], bunks, 1, 15 * H, 8).ok).toBe(false);
+    expect(restPlan(g, d.id)).toBeNull();
+    expect(restPlanForFlight(g, f.id)).toBeNull();
+    expect(restSeatsBlocked(g, f.id)).toBe(0);
+    expect(() => restNow(g, ac.id, std + 3 * H)).not.toThrow();
+    syncDuty(g, d, g.pairings[d.pairingId]);
+    expect(d.augment).toBe(0);
+  });
+
+  it('a pilots-only ferry: only the pilots rest, no cabin crew cap, no seats out of sale', () => {
+    const J2: AcRest = { fc: J(2), cc: J(8) };
+    const p = planRest(legs(1, 12 * H), J2, 1, 17 * H, 0);
+    expect(p.ok).toBe(true);
+    expect(p.cabin).toEqual([]);
+    expect(p.blocked).toEqual({});
+    const { g, ac, std } = setup();
+    ac.rest = J2;
+    const f = addFlight(g, { no: 'AW2', aircraftId: ac.id, contractId: null, kind: 'ferry', from: 'LIS', to: 'GRU', std, sta: std + 12 * H + 30 });
+    const [d] = buildDuties(g, ac.id, g.now, g.now + 5 * DAY);
+    expect(d.augment).toBe(1);
+    const plan = restPlan(g, d.id)!;
+    expect(plan.ok).toBe(true);
+    expect(plan.cabin).toEqual([]);
+    expect(restSeatsBlocked(g, f.id)).toBe(0);
+  });
+
+  it('two short duties on one aircraft with a crew change: no "rest too short" card when one crew could fly both without rest', () => {
+    const { g, ac, std } = setup();
+    const a = addFlight(g, { no: 'AW3', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'LIS', to: 'FCO', std, sta: std + 3 * H + 30 });
+    addFlight(g, { no: 'AW4', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'FCO', to: 'LIS', std: std + 4 * H + 30, sta: std + 8 * H });
+    const [d] = buildDuties(g, ac.id, g.now, g.now + 5 * DAY);
+    // Force a crew change at Rome: the second leg in a duty (and trip) of its own.
+    const p = g.pairings[d.pairingId];
+    const b = g.flights[d.flightIds[1]];
+    const d2 = { ...d, id: 'dx', pairingId: 'px', flightIds: [b.id], report: b.std - 60 };
+    d.flightIds = [a.id];
+    g.duties.dx = d2;
+    b.dutyId = 'dx';
+    g.pairings.px = { ...p, id: 'px', dutyIds: ['dx'], slots: p.slots.map((s) => ({ ...s, crewId: null })), start: d2.report };
+    touchCrew(g);
+    expect(slipShort(g, d.id)).toBeNull();
+    expect(restTooShortCard(g, a.id)).toBeNull();
+  });
+
+  it('4 pilots on a duty planned before the rules: re-planned under them, refused when the rest plan fails', () => {
+    const { g, ac, std } = setup();
+    addFlight(g, { no: 'AW5', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'LIS', to: 'GRU', std, sta: std + 12 * H + 30 });
+    const [d] = buildDuties(g, ac.id, g.now, g.now + 5 * DAY);
+    d.legacyRest = true;
+    expect(setDutyAugment(g, d.id, 2).ok).toBe(true);
+    expect(d.augment).toBe(2);
+    expect(d.legacyRest).toBeUndefined();
+    setDutyAugment(g, d.id, null);
+    d.legacyRest = true;
+    ac.rest = { fc: null, cc: null };
+    expect(setDutyAugment(g, d.id, 2).ok).toBe(false);
+    expect(restVerdict(restPlan(g, d.id))?.text).toBe('Planned before the new rules');
   });
 });

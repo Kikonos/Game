@@ -446,11 +446,12 @@ export function opensText(g: GameState, typeId: string, before: AcRest, after: A
   if (a1 > b1) parts.push(`${hrs(a1)} days with 3 pilots (was ${hrs(b1)})`);
   else if ((a.aug2Long ?? 0) > (b.aug2Long ?? b.basic)) parts.push(`${hrs(a.aug2Long!)} days with 4 pilots (was ${hrs(b.aug2Long ?? b.basic)})`);
   if (after.cc && (!before.cc || after.cc.cls < before.cc.cls)) {
-    const day = 15 * 60;
+    // Quoted at the longest 3-pilot day the refit opens (15 h while the pilots still have no rest).
+    const day = a.aug1 ?? 15 * 60;
     const was = before.cc ? cabinInflightRest(day, before.cc.cls) : null;
     const now = cabinInflightRest(day, after.cc.cls);
     const where = after.cc.kind === 'jSeats' ? 'business seats' : after.cc.kind === 'recliners' ? 'recliners' : 'bunks';
-    if (now !== null) parts.push(`cabin crew rest in ${where} (${hmm(now)}${was !== null ? ` instead of ${hmm(was)}` : ''} on a 15 h day)`);
+    if (now !== null) parts.push(`cabin crew rest in ${where} (${hmm(now)}${was !== null && was !== now ? ` instead of ${hmm(was)}` : ''} on a ${hrs(day)} day)${after.fc ? '' : ' (the pilots still need a rest facility)'}`);
   }
   if (!parts.length && after.fc && (!before.fc || after.fc.cls < before.fc.cls)) parts.push(`pilots' ${after.fc.kind === 'fcrc' ? 'bunks' : 'rest'}${after.cc ? '' : ' (the cabin crew still need a rest facility)'}`);
   const freed = [before.fc, before.cc].filter((f) => f?.kind === 'jSeats' && ![after.fc, after.cc].includes(f)).reduce((n, f) => n + (f?.places ?? 0), 0);

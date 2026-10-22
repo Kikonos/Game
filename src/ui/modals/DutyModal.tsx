@@ -11,7 +11,7 @@ import { BAL } from '../../engine/core/balance';
 import { DAY, fmtDateTime, fmtTime } from '../../engine/core/time';
 import type { GameState, Role } from '../../engine/core/types';
 import {
-  assignCrew, crewGauges, crewRev, dutyCandidates, dutyCrew, dutyLegality, dutyOf, fdpWhy, restPlanForFlight, restVerdict, rosterOf, setDutyAugment, swapCrew, unassignCrew, unlockCrew,
+  assignCrew, crewGauges, crewRev, dutyCandidates, dutyCrew, dutyLegality, dutyOf, fdpWhy, restPlan, restPlanForFlight, restVerdict, rosterOf, setDutyAugment, swapCrew, unassignCrew, unlockCrew,
   type DutyCandidate, type DutyCrewView, type RosterSlotView,
 } from '../../engine/crew';
 import { problemAt } from '../../engine/problems';
@@ -177,6 +177,29 @@ function Picker({ g, v, pick, setPick, back }: { g: GameState; v: DutyCrewView; 
 
 const hm = (m: number) => `${Math.floor(Math.max(0, m) / 60)}:${String(Math.round(Math.max(0, m) % 60)).padStart(2, '0')}`;
 
+const hmm = (m: number) => `${Math.floor(Math.max(0, m) / 60)}:${String(Math.round(Math.max(0, m) % 60)).padStart(2, '0')}`;
+
+/**
+ * v0.7.3 whether 'Fly it with 4 pilots' can work (what setDutyAugment checks: the duty's own 4-pilot rest plan; a
+ * duty planned before the rest rules always can), else why not in lower-case words. Pure.
+ */
+export function canFour(g: GameState, dutyId: string): { ok: boolean; why: string | null } {
+  const d = g.duties[dutyId];
+  if (!d || d.done) return { ok: false, why: null };
+  const p = restPlan(g, d.id, { augment: 2 });
+  if (!p) return { ok: false, why: 'there is no in-flight rest on this aircraft' };
+  if (p.ok || d.legacyRest) return { ok: true, why: null };
+  if (p.code === 'tooShort') {
+    // Pilots are awake again wakeMin before the top of descent: the window to sleep, not the cruise.
+    const wake = BAL.v073.rest.wakeMin;
+    const longest = p.cruise.reduce((m, c) => Math.max(m, c.to - c.from), 0);
+    const landing = (p.why ?? '').includes('landing pilots');
+    return { ok: false, why: `the longest cruise on this duty is ${hmm(longest)}, so ${hmm(longest - wake)} to sleep (pilots wake ${wake} min before descent); the ${landing ? 'landing pilots need 2 h' : 'pilots need 90 min'} in a row` };
+  }
+  const w = p.why ?? 'no rest plan fits';
+  return { ok: false, why: w.charAt(0).toLowerCase() + w.slice(1) };
+}
+
 /**
  * v0.7.3 §2.6 item 5: 'Day length 15:20 of 16:00 · Why 16:00?' expanding the engine's reasons (fdpWhy), the rest
  * plan behind one tap (the static timeline) and 'Fly it with 4 pilots' where 3 are planned or the cruise is too short.
@@ -188,13 +211,17 @@ function DayLength({ g, dutyId, ac }: { g: GameState; dutyId: string; ac?: strin
   const crev = crewRev(g);
   const rev = flightsRev(g);
   const why = useMemo(() => fdpWhy(g, dutyId), [g, dutyId, rev, crev, g.now]); // eslint-disable-line react-hooks/exhaustive-deps
+  const c4 = useMemo(() => canFour(g, dutyId), [g, dutyId, rev, crev]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!d) return null;
   const plan = d.flightIds[0] ? restPlanForFlight(g, d.flightIds[0]) : null;
   const verdict = restVerdict(plan);
   const limit = d.maxFdp + (d.discretion ?? 0);
   const four = d.forceAug === 2;
-  const offer4 = !d.done && (d.augment === 1 || four || plan?.code === 'tooShort');
   const reported = d.report <= g.now;
+  // Offered only where it can work (canFour); otherwise one muted line says why not.
+  const want4 = !d.done && (d.augment === 1 || four || plan?.code === 'tooShort');
+  const offer4 = want4 && (four || c4.ok);
+  const no4 = want4 && !offer4 && !reported && c4.why ? `Even 4 pilots can’t rest: ${c4.why}.` : null;
   const mode = why?.mode;
   const modeLabel = mode === 'aug1' ? '3 pilots' : mode === 'aug2' ? '4 pilots' : mode === 'ext' ? 'Extension' : mode === 'basic' ? 'No rest' : null;
   return (
@@ -239,6 +266,7 @@ function DayLength({ g, dutyId, ac }: { g: GameState; dutyId: string; ac?: strin
           {!reported && <Toggle on={four} onChange={(v) => store.act((gg) => setDutyAugment(gg, d.id, v ? 2 : null))} label="Fly it with 4 pilots" />}
         </div>
       )}
+      {no4 && <span className="small muted">{no4}</span>}
     </div>
   );
 }

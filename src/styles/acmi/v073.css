@@ -13,13 +13,17 @@
 .rt-note, .rt-times { font-size: 12px; color: var(--text-3); }
 .rt-times { display: flex; justify-content: space-between; gap: 12px; margin-top: 4px; font-variant-numeric: tabular-nums; flex-wrap: wrap; }
 .rt-head { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-3); margin-top: 6px; }
-.rt-row { position: relative; height: 22px; }
-.rt-blk { position: absolute; top: 4px; bottom: 4px; border-radius: 4px; }
+.rt-row { display: flex; flex-direction: column; gap: 2px; padding-top: 4px; }
+.rt-line { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 6px; row-gap: 0; font-size: 12px; line-height: 16px; color: var(--text-2); }
+.rt-who { color: var(--text); font-weight: 600; }
+.rt-tag { padding: 0 6px; border-radius: 6px; font-size: 12px; font-weight: 600; line-height: 16px; color: var(--accent); background: rgba(62, 230, 255, 0.12); }
+.rt-when { margin-left: auto; color: var(--text-3); white-space: nowrap; }
+.rt-names { font-size: 12px; line-height: 16px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rt-lane { position: relative; height: 10px; }
+.rt-blk { position: absolute; top: 0; bottom: 0; border-radius: 3px; }
 .rt-blk.pilots { background: rgba(62, 230, 255, 0.42); border: 1px solid rgba(62, 230, 255, 0.75); }
 .rt-blk.pilots.landing { background: rgba(62, 230, 255, 0.62); border-color: var(--accent); }
 .rt-blk.cabin { background: rgba(167, 139, 250, 0.4); border: 1px solid rgba(167, 139, 250, 0.75); }
-.rt-lbl { position: absolute; top: 0; bottom: 0; display: block; line-height: 22px; font-size: 12px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rt-lbl.left { text-align: right; }
 
 /* ---- flight sheet / duty modal sections ---- */
 .rt-sec { display: flex; flex-direction: column; gap: 8px; }
