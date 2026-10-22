@@ -30,7 +30,7 @@ Return (≤ 300 words): summary + ownership table.`
 
 const ENGINE = (d) => `${COMMON}${FEATURES}
 TASK (BUILD — ENGINE LANE): implement the ENGINE lane of ${DOC} exactly (read it first). Write ${SCRATCH}/api-engine.md early with the exported signatures and keep it current. Tests for every rule. Bot (scripts/acmi-bot.ts) plays the new systems; run seeds 1–6 one at a time: solvent, margin −5…+12% (mean ~+2–5%), uncovered < 2%, 0 illegal duties/crew flown, ≥ 1 meaningful action per week, < 10 s each; same-seed determinism (incl. save/load mid-game). Old saves (create one from the previous release behaviour or a hand-made JSON) load with defaults. Port ${PORT0 + 1}.
-Design summary: ${d}`
+Design summary: ${d}${args.engineResume ? `\nRESUME NOTE: ${args.engineResume}` : ''}`
 const UI = (d, e) => `${COMMON}${FEATURES}
 TASK (BUILD — UI LANE): implement the UI lane of ${DOC} on top of the engine APIs (${SCRATCH}/api-engine.md; engine report below). iPad landscape touch first: targets ≥ 44 px, text ≥ 12 px, modals fit 750 px, no overflow at 1180×750/1180×820, calm (no flicker). Before/after screenshots at 1180×820 in ${SCRATCH}/ui/ — LOOK at them. Port ${PORT0 + 2}.
 Design summary: ${d}
