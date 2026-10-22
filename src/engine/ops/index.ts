@@ -39,7 +39,11 @@ export { acquireAircraft, eligibleTypes, marketView, returnSiteOf, type MarketOf
 export {
   clientCode, clientLivery, clientTitles, liveryOf, normaliseLivery, paintStatus, setAircraftLivery, setCompanyLivery, setFleetLivery, type PaintStatus, type ResolvedLivery,
 } from './paint';
-export { rotationOf, SUB_LEAD, subcharter, subcharterable, subcharterHit, subcharterQuote, type SubcharterHit, type SubcharterQuote } from './subcharter';
+export { rotationOf, SUB_LEAD, subcharter, subcharterable, subcharterHit, subcharterQuote, subcharterQuotes, type SubcharterHit, type SubcharterQuote } from './subcharter';
+// v0.8 (UPDATE-0.8.md §12).
+export { demandFactor, marketOutlook, segIndex, type MarketOutlook } from './market';
+export { flightZone, warRiskAt, worldEvent, worldEventPins, worldEvents, worldZones, EVENT_ICON, type WorldEventView, type ZoneView } from './world';
+export { dryLeaseOf, dryLeaseView, leasedText, type DryLeaseView } from './dryLease';
 export { usd } from './util';
 // v0.7.1 every problem as one card (engine/problems).
 export { hurtBadges, messageBadges, postProblem, problemAt, problemFor, problems, type GaugeSpec, type Hurt, type MiniMapSpec, type ProblemAction, type ProblemCard, type ReachSpec, type TimelineSpec } from '../problems';
@@ -75,6 +79,7 @@ function daily(g: GameState) {
 export const opsModule: SimModule = {
   name: 'ops',
   init(g) {
+    g.world ??= { events: [] };
     // v0.7 defaults exactly as load sets them (a fresh game and a reloaded one serialise alike).
     loadApprovals(g);
     loadMarket(g);
@@ -86,6 +91,8 @@ export const opsModule: SimModule = {
   // Decisions other modules post (crew's sickCrew) join the pacing budget as they appear.
   settle: paceDecisions,
   load(g) {
+    // v0.8 world events (none in older saves).
+    g.world ??= { events: [] };
     loadApprovals(g);
     loadMarket(g);
     syncGoals(g);

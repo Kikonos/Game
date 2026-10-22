@@ -83,7 +83,10 @@ describe('sub-charter reliability (F3)', () => {
     const { c, fl } = job(g);
     const ids = [fl[0].id, fl[1].id];
     const q = subcharterQuote(g, ids)!;
-    expect(q.hit).toEqual(subcharterHit(g, ids));
+    // v0.8: the relation part scales with the chosen rival's quality (1.5 − quality); reliability as v0.7.2.
+    const base = subcharterHit(g, ids);
+    const rival = g.rivals.find((x) => x.id === q.rivalId)!;
+    expect(q.hit).toEqual({ ...base, relation: Math.round(base.relation * (1.5 - rival.quality) * 10) / 10 });
     const before = g.company.reputation.reliable;
     const rel = g.clients[c.clientId].relation;
     const r = subcharter(g, ids, q.cost);

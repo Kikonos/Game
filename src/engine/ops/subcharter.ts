@@ -2,10 +2,12 @@
 // price; the client is still billed, the cost goes to 'subcharter'. v0.7.2: the client notices (reliability, F3).
 
 import { BAL } from '../core/balance';
-import { dayStart } from '../core/time';
+import { dayStart, fmtDay } from '../core/time';
 import { typeOf } from '../core/perf';
 import { hashUnit } from '../core/util';
-import type { ActionResult, Flight, GameState } from '../core/types';
+import type { ActionResult, Flight, GameState, Rival } from '../core/types';
+import { levelOf } from '../contracts/relations';
+import { isActive, type RivalStyle } from '../contracts/rivals';
 import { cancelCost, noticeText, subcharterCost, subcharterLegs, subHit, unitOf, type SubHit } from './flights';
 import { contractOf, isRevenue } from './util';
 
@@ -29,6 +31,11 @@ export interface SubcharterQuote {
   validUntil: number;
   /** v0.7.2 what the hand-over costs in reliability and client relation. */
   hit: SubcharterHit;
+  /** v0.8 the rival's quality 0–1 (three dots), whether it has an aircraft free (else why), its style. */
+  quality: number;
+  available: boolean;
+  why?: string;
+  style: RivalStyle;
 }
 
 /** v0.7.2 a hand-over's reliability cost: 'reliability −2 · the client notices'. */
@@ -69,37 +76,66 @@ function legRevenue(g: GameState, legs: Flight[]): number {
   return Math.round(s);
 }
 
-/**
- * A rival's price for flying these legs (all of one contract). The rival flies the same family when one does;
- * rival and price are fixed per contract and day (hashUnit), so the quote the player saw is what they pay. Pure.
- */
-export function subcharterQuote(g: GameState, flightIds: string[]): SubcharterQuote | null {
-  const legs = flightIds.map((id) => g.flights[id]).filter((f) => live(g, f));
-  if (!legs.length || !legs.some(isRevenue)) return null;
-  const cid = legs[0].contractId;
-  if (!cid || legs.some((f) => f.contractId !== cid)) return null;
-  const ac = legs[0].aircraftId ? g.fleet[legs[0].aircraftId] : undefined;
-  const fam = ac ? typeOf(ac.typeId).family : null;
-  const fit = g.rivals.filter((r) => !fam || r.fleet.some((x) => typeOf(x.typeId).family === fam));
-  const pool = fit.length ? fit : g.rivals;
-  if (!pool.length) return null;
-  const day = dayStart(g.now);
-  const rival = pool[Math.floor(hashUnit(`sub:${cid}:${day}`) * pool.length)];
-  const [lo, hi] = BAL.subcharterFactor;
-  // Planned hand-overs (not an AOG scramble) price in the lower part of the band.
-  const factor = (lo + hashUnit(`subf:${cid}:${day}`) * (hi - lo) * 0.6) * rival.priceFactor;
-  const rev = legs.filter(isRevenue);
-  return {
-    flightIds: legs.map((f) => f.id), revenueLegs: rev.length, bh: Math.round(rev.reduce((s, f) => s + f.block, 0) / 6) / 10,
-    rivalId: rival.id, rivalName: rival.name, cost: subcharterCost(g, legs, factor), revenue: legRevenue(g, legs), cancel: cancelCost(g, legs),
-    validUntil: day + 1440, hit: subcharterHit(g, legs.map((f) => f.id)),
-  };
+/** v0.8 a rival as a client of ours: Trusted −5 %, Partner −10 % on what they charge us. */
+function levelDiscount(g: GameState, r: Rival): number {
+  const cl = r.clientId ? g.clients[r.clientId] : undefined;
+  const lv = cl ? levelOf(g, cl) : 'new';
+  return lv === 'partner' ? 0.9 : lv === 'trusted' ? 0.95 : 1;
 }
 
-/** Hands the legs to the quoted rival at the quoted price (re-quoted now; refused when it changed or legs left). */
-export function subcharter(g: GameState, flightIds: string[], expectCost?: number): ActionResult<{ legs: number; cost: number; rivalName: string }> {
-  const q = subcharterQuote(g, flightIds);
-  if (!q) return { ok: false, error: 'Those legs can no longer be handed over' };
+/**
+ * v0.8 (UPDATE-0.8.md §3.4) up to three rivals' prices for flying these legs (all of one contract), cheapest
+ * available first: active rivals flying the same family (else any), today's factor (fixed per contract, rival and
+ * day) × their price level × our level as their client. A rival booked over 90 % shows when it has an aircraft
+ * again. Pure.
+ */
+export function subcharterQuotes(g: GameState, flightIds: string[]): SubcharterQuote[] {
+  const legs = flightIds.map((id) => g.flights[id]).filter((f) => live(g, f));
+  if (!legs.length || !legs.some(isRevenue)) return [];
+  const cid = legs[0].contractId;
+  if (!cid || legs.some((f) => f.contractId !== cid)) return [];
+  const ac = legs[0].aircraftId ? g.fleet[legs[0].aircraftId] : undefined;
+  const fam = ac ? typeOf(ac.typeId).family : null;
+  const active = g.rivals.filter(isActive);
+  const fit = active.filter((r) => !fam || r.fleet.some((x) => x.count > 0 && typeOf(x.typeId).family === fam));
+  const pool = fit.length ? fit : active;
+  if (!pool.length) return [];
+  const day = dayStart(g.now);
+  const [lo, hi] = BAL.subcharterFactor;
+  const rev = legs.filter(isRevenue);
+  const revenue = legRevenue(g, legs);
+  const cancel = cancelCost(g, legs);
+  const base = subcharterHit(g, legs.map((f) => f.id));
+  const bh = Math.round(rev.reduce((s, f) => s + f.block, 0) / 6) / 10;
+  const out = pool.map((rival): SubcharterQuote => {
+    // Planned hand-overs (not an AOG scramble) price in the lower part of the band.
+    const factor = (lo + hashUnit(`subf:${cid}:${day}:${rival.id}`) * (hi - lo) * 0.6) * rival.priceFactor * levelDiscount(g, rival);
+    const load = rival.load ?? 0.7;
+    const available = load < BAL.v08.rivals.quoteLoadMax;
+    const hit: SubcharterHit = { ...base, relation: Math.round(base.relation * (1.5 - rival.quality) * 10) / 10 };
+    return {
+      flightIds: legs.map((f) => f.id), revenueLegs: rev.length, bh, rivalId: rival.id, rivalName: rival.name,
+      cost: subcharterCost(g, legs, factor), revenue, cancel, validUntil: day + 1440, hit,
+      quality: rival.quality, available, style: rival.personality,
+      ...(available ? {} : { why: `No aircraft free until ${fmtDay(day + (3 + Math.floor(hashUnit(`subfree:${rival.id}:${day}`) * 18)) * 1440)}` }),
+    };
+  });
+  out.sort((a, b) => Number(b.available) - Number(a.available) || a.cost - b.cost);
+  return out.slice(0, BAL.v08.rivals.quotes);
+}
+
+/** The cheapest available quote (v0.7.2 single-quote API; Crew Control, the AOG decision and the bot use it). Pure. */
+export function subcharterQuote(g: GameState, flightIds: string[]): SubcharterQuote | null {
+  const q = subcharterQuotes(g, flightIds);
+  return q.find((x) => x.available) ?? null;
+}
+
+/** Hands the legs to the chosen rival (default the cheapest) at the quoted price (re-quoted now; refused when it rose or legs left). */
+export function subcharter(g: GameState, flightIds: string[], expectCost?: number, rivalId?: string): ActionResult<{ legs: number; cost: number; rivalName: string }> {
+  const qs = subcharterQuotes(g, flightIds);
+  const q = rivalId ? qs.find((x) => x.rivalId === rivalId) : qs.find((x) => x.available);
+  if (!q) return { ok: false, error: rivalId && qs.length ? 'That operator can no longer quote; pick another' : 'Those legs can no longer be handed over' };
+  if (!q.available) return { ok: false, error: `${q.rivalName}: ${q.why ?? 'no aircraft free'}` };
   if (expectCost !== undefined && q.cost > expectCost) return { ok: false, error: `${q.rivalName} now asks $${Math.round(q.cost / 1000)}K; review the quote again` };
   const legs = q.flightIds.map((id) => g.flights[id]);
   const out: { hit?: SubHit } = {};

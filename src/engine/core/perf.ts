@@ -102,7 +102,8 @@ function viaStops(typeId: string, from: string, to: string): SectorPlan {
 
 function viaStopsAt(typeId: string, from: string, to: string, minSize: number): SectorPlan | null {
   const fits = (a: string, b: string) => runwayFit(typeId, b) !== 'no' && distanceNm(a, b) <= maxSectorNm(typeId, a, b);
-  const cands = AIRPORTS.filter((x) => x.code !== from && x.code !== to && x.size >= minSize && runwayFit(typeId, x.code) === 'ok');
+  // v0.8 never a fuel stop on the ice (no fuel in Antarctica).
+  const cands = AIRPORTS.filter((x) => x.code !== from && x.code !== to && x.size >= minSize && !x.ice && runwayFit(typeId, x.code) === 'ok');
   let best: { stops: string[]; d: number } | null = null;
   for (const x of cands) {
     if (!fits(from, x.code)) continue;
@@ -142,7 +143,7 @@ export function etopsNeeded(typeId: string, from: string, to: string): number {
   if (hit !== undefined) return hit;
   const A = AIRPORT_BY_CODE[from];
   const B = AIRPORT_BY_CODE[to];
-  const adequate = AIRPORTS.filter((x) => x.runwayM >= ADEQUATE_RUNWAY_M);
+  const adequate = AIRPORTS.filter((x) => x.runwayM >= ADEQUATE_RUNWAY_M && !x.ice);
   const n = Math.max(2, Math.ceil(distanceNm(from, to) / 150));
   let worstNm = 0;
   for (let i = 1; i < n; i++) {

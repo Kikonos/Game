@@ -53,6 +53,8 @@ export const REGIONS: Region[] = [
   { id: 'JKR', name: 'Japan & Korea', continent: 'AS', blurb: 'Tokyo–Sapporo and Seoul–Jeju are among the busiest routes in the world.' },
   { id: 'AUS', name: 'Australia', continent: 'OC', blurb: 'A rich, isolated market where the Sydney–Melbourne “kangaroo shuttle” rules.' },
   { id: 'PAC', name: 'New Zealand & Pacific', continent: 'OC', blurb: 'Island hopping across the world’s biggest ocean. Thin routes, epic scenery.' },
+  /** v0.8 blue-ice runways (Antarctic flights from Cape Town and Punta Arenas). */
+  { id: 'ANT', name: 'Antarctica', continent: 'AF', blurb: 'Blue-ice runways for expedition and research flights in the southern summer.' },
 ];
 
 export const REGION_BY_ID: Record<string, Region> = Object.fromEntries(REGIONS.map((r) => [r.id, r]));

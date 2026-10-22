@@ -8,6 +8,7 @@ import { planSector } from '../core/perf';
 import { daysInMonth, monthKey, monthStart, toDate } from '../core/time';
 import { hashUnit } from '../core/util';
 import type { Archetype, GameState, Minute, MonthKey, Product, Requirements } from '../core/types';
+import { segIndex } from '../ops/market';
 
 export interface PriceInput {
   archetype: Archetype;
@@ -34,6 +35,8 @@ export interface PriceInput {
   government?: boolean;
   /** Wet MGH per aircraft-month override (AOG cover: 8 BH/day). */
   mghPerMonth?: number;
+  /** v0.8 a wet product on a legs pattern (Hajj, sub-charter in). */
+  wet?: boolean;
 }
 
 /** Archetype multipliers on the reference type's ACMI rate (DESIGN §5.1.2, RESEARCH §3). */
@@ -41,6 +44,10 @@ export const ARCH_MULT: Partial<Record<Archetype, number>> = {
   seasonBase: 1.0, aogCover: 1.5, adhoc: 1.0, sports: 1.3, repatriation: 1.5, tourSeries: 1.0, troopRotation: 1.2,
   // v0.7: VIP work at +35% (BAL.premium.vip).
   vip: 1 + BAL.premium.vip,
+  // v0.8 (UPDATE-0.8.md §2; RESEARCH §3): the builders may override (Hajj in June, presidential, sub-charter in).
+  hajj: BAL.v08.arch.hajj[0], unRotation: BAL.v08.arch.un * (1 + BAL.v08.arch.unLong), deportation: BAL.v08.arch.deportation, evacuation: BAL.v08.arch.evacuation,
+  medical: BAL.v08.arch.medical, musicTour: BAL.v08.arch.music, antarctic: BAL.v08.arch.antarctic, humanitarian: BAL.v08.arch.humanitarian,
+  capacityLease: BAL.v08.arch.capacity, subcharterIn: BAL.v08.arch.subIn[0],
 };
 
 const roundTo = (v: number, step: number) => Math.round(v / step) * step;
@@ -67,7 +74,8 @@ export function rateMultiplier(g: GameState, typeId: string, start: Minute, lead
   // Market rates come from a mainstream reference type (referenceType skips unloved ones), so no old-type
   // discount here; an unloved type earns the same rate but costs less to lease.
   const type = 0;
-  const market = (t?.body === 'wide' ? g.market.wideIndex : g.market.narrowIndex) - 1;
+  // v0.8 the segment index with today's demand shocks (ops/market.ts segIndex).
+  const market = segIndex(g, t?.body === 'wide' ? 'wide' : 'narrow') - 1;
   return { season, lead: leadP, type, market, m: 1 + season + leadP + type + market };
 }
 
@@ -78,10 +86,11 @@ export function priceProduct(g: GameState, p: PriceInput): Product {
   const t = ACMI_TYPES[p.typeId];
   const R = t.rateBH;
   // Wet deals price the season at the middle of the term; charters at departure.
-  const { m } = rateMultiplier(g, p.typeId, isWetArchetype(p.archetype) ? Math.round((p.start + p.end) / 2) : p.start, p.lead);
+  const wetP = isWetArchetype(p.archetype) || !!p.wet;
+  const { m } = rateMultiplier(g, p.typeId, wetP ? Math.round((p.start + p.end) / 2) : p.start, p.lead);
   const mult = (p.mult ?? ARCH_MULT[p.archetype] ?? 1) * (1 + (p.loyalty ?? 0));
   const wide = t.body === 'wide';
-  if (isWetArchetype(p.archetype)) {
+  if (wetP) {
     return {
       kind: 'wet',
       ratePerBH: roundTo(R * m * mult, 10),
@@ -141,12 +150,12 @@ export function mghTotal(mghPerMonth: number, start: Minute, end: Minute): numbe
   return s;
 }
 
-/** Contract value at a price for one aircraft (wet: MGH × rate + excess over it; charter: price; dry: rent). */
-export function productValue(product: Product, estBH: number, start: Minute, end: Minute): number {
+/** Contract value at a price for one aircraft (wet: MGH × rate + excess over it; charter: price; dry: rent). v0.8: MGH over `terms` only when given (Hajj phases). */
+export function productValue(product: Product, estBH: number, start: Minute, end: Minute, terms?: [Minute, Minute][]): number {
   if (product.kind === 'charter') return product.price;
   const months = Math.max(0, end - start) / (30.44 * DAY);
   if (product.kind === 'dry') return Math.round(product.rentPerMonth * months);
-  const mgh = mghTotal(product.mghPerMonth, start, end);
+  const mgh = terms?.length ? terms.reduce((s, [a, b]) => s + mghTotal(product.mghPerMonth, a, b), 0) : mghTotal(product.mghPerMonth, start, end);
   if (mgh <= 0) return Math.round(product.ratePerBH * estBH);
   const excess = Math.max(0, estBH - mgh);
   return Math.round(product.ratePerBH * mgh + product.excessRate * product.ratePerBH * excess);

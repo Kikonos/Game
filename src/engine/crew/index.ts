@@ -463,3 +463,6 @@ export const crewModule: SimModule = {
     'crew.alert': onCrewAlert,
   },
 };
+
+// v0.8 mixed-crew contracts (UPDATE-0.8.md §7).
+export { clientCrewOf, clientCrewRows, mixedCrewFlavour, mixedCrewText } from './clientCrew';

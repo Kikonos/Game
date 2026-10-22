@@ -1,6 +1,7 @@
 // v0.6 morale & attrition (UPDATE-0.6.md §F3): target and drift, every driver, sickness slope, resignation odds,
 // bond, notice and deletion, late salaries, weekly history, service quality.
 
+import { monthlyRelationDrift } from '../contracts/relations';
 import { describe, expect, it } from 'vitest';
 import { BAL } from '../core/balance';
 import { DAY } from '../core/time';
@@ -259,13 +260,15 @@ describe('service quality', () => {
     expect(rel).toBeDefined();
   });
 
-  it('client satisfaction fades 2 a month toward neutral and moves the asking price up to ±5%', () => {
+  it('v0.8: idle client satisfaction drifts 1 a month toward neutral (not in monthlyMorale); the loyalty input still scales the price', () => {
     const g = fixtureGame();
     const [a, b] = Object.keys(g.clients).sort();
     g.clients[a].relation = 5;
     g.clients[b].relation = -1;
     monthlyMorale(g);
-    expect(g.clients[a].relation).toBe(3);
+    expect(g.clients[a].relation).toBe(5);
+    monthlyRelationDrift(g);
+    expect(g.clients[a].relation).toBe(4);
     expect(g.clients[b].relation).toBe(0);
     const base = { archetype: 'seasonBase' as const, typeId: 'a320ceo', estBH: 300, start: fromUTC(2027, 6, 1), end: fromUTC(2027, 9, 1), lead: 30 * DAY };
     const p0 = priceProduct(g, base);

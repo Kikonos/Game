@@ -19,6 +19,8 @@ export interface Airport {
   continent: ContinentId;
   /** Longest usable runway in metres (published value where known, else estimated from size). */
   runwayM: number;
+  /** v0.8 blue-ice runway (Antarctica): no fuel, polar approval, round-trip fuel. */
+  ice?: true;
 }
 
 // code, airport name, city, country, lat, lon, pop, size, biz, tour
@@ -579,9 +581,36 @@ const EXTRA_B3: Record<string, Row[]> = {
 };
 // v0.7: Charleston (Boeing's 787 delivery centre) 3,048 m.
 const RUNWAY_B3: Record<string, number> = { LTN: 2160, CHS: 3048 };
+// v0.8 world events and missions: conflict and evacuation airports, Hajj origins, Antarctic blue-ice runways
+// (WFR / TRL / UGL are display codes: none has an IATA code).
+const EXTRA_V08: Record<string, Row[]> = {
+  NAF: [['MJI', 'Mitiga', 'Tripoli', 'LY', 32.894, 13.276, 1.2, 2, 0.2, 0.02]],
+  LEV: [
+    ['DAM', 'Damascus Intl', 'Damascus', 'SY', 33.411, 36.516, 2.5, 2, 0.2, 0.05],
+    ['BGW', 'Baghdad Intl', 'Baghdad', 'IQ', 33.263, 44.235, 7, 3, 0.3, 0.05],
+    ['EBL', 'Erbil Intl', 'Erbil', 'IQ', 36.238, 43.963, 1.5, 2, 0.3, 0.05],
+    ['NJF', 'Al Najaf Intl', 'Najaf', 'IQ', 31.990, 44.404, 1.0, 2, 0.1, 0.3],
+  ],
+  GULF: [
+    ['SAH', "Sana'a Intl", "Sana'a", 'YE', 15.476, 44.220, 3, 2, 0.1, 0.02],
+    ['ADE', 'Aden Intl', 'Aden', 'YE', 12.830, 45.029, 1, 2, 0.1, 0.02],
+  ],
+  MXC: [['PAP', 'Toussaint Louverture', 'Port-au-Prince', 'HT', 18.580, -72.293, 2.8, 2, 0.15, 0.05]],
+  EEU: [['KIV', 'Chișinău', 'Chișinău', 'MD', 46.928, 28.931, 0.7, 2, 0.3, 0.1]],
+  SEA: [['UPG', 'Sultan Hasanuddin', 'Makassar', 'ID', -5.062, 119.554, 1.8, 3, 0.3, 0.2]],
+  ANT: [
+    ['WFR', "Wolf's Fang", "Wolf's Fang", 'AQ', -71.530, 8.820, 0.001, 1, 0.5, 0.3],
+    ['TRL', 'Troll', 'Troll', 'AQ', -72.010, 2.530, 0.001, 1, 0.1, 0.05],
+    ['UGL', 'Union Glacier', 'Union Glacier', 'AQ', -79.780, -83.320, 0.001, 1, 0.5, 0.3],
+  ],
+};
+const RUNWAY_V08: Record<string, number> = { MJI: 3350, DAM: 3600, BGW: 4000, EBL: 4800, NJF: 3000, SAH: 3250, ADE: 3100, PAP: 3040, KIV: 3590, UPG: 3100, WFR: 3000, TRL: 3000, UGL: 3000 };
+/** v0.8 blue-ice runways; airports whose continent differs from their region's (Union Glacier lies south of South America). */
+const ICE = new Set(['WFR', 'TRL', 'UGL']);
+const CONTINENT_OF: Record<string, ContinentId> = { UGL: 'SA' };
 
-for (const extra of [EXTRA, EXTRA_B1, EXTRA_B3]) for (const [region, rows] of Object.entries(extra)) (DATA[region] ??= []).push(...rows);
-Object.assign(RUNWAY, RUNWAY_B1, RUNWAY_B3);
+for (const extra of [EXTRA, EXTRA_B1, EXTRA_B3, EXTRA_V08]) for (const [region, rows] of Object.entries(extra)) (DATA[region] ??= []).push(...rows);
+Object.assign(RUNWAY, RUNWAY_B1, RUNWAY_B3, RUNWAY_V08);
 
 export const AIRPORTS: Airport[] = Object.entries(DATA).flatMap(([region, rows]) =>
   rows.map(([code, name, city, country, lat, lon, pop, size, biz, tour]) => ({
@@ -596,8 +625,9 @@ export const AIRPORTS: Airport[] = Object.entries(DATA).flatMap(([region, rows])
     biz,
     tour,
     region,
-    continent: REGION_BY_ID[region].continent,
+    continent: CONTINENT_OF[code] ?? REGION_BY_ID[region].continent,
     runwayM: RUNWAY[code] ?? RUNWAY_BY_SIZE[size],
+    ...(ICE.has(code) ? { ice: true as const } : {}),
   })),
 );
 

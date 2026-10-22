@@ -4,6 +4,7 @@
 // service and resignations with notice. Daily from the crew module; read APIs are pure.
 
 import { BAL } from '../core/balance';
+import { bumpClient } from '../contracts/relations';
 import { pushMessage } from '../core/messages';
 import { complement, isPilot } from '../core/perf';
 import { DAY, fmtDate } from '../core/time';
@@ -164,7 +165,8 @@ export function settleService(g: GameState, k: Contract): number | null {
   const mean = acc.sum / acc.n;
   const S = M().service;
   const cl = g.clients[k.clientId];
-  if (cl) cl.relation = clamp(cl.relation + Math.round(mean * S.relation * (vipLike(g, k) ? 2 : 1)), -100, 100);
+  const d = Math.round(mean * S.relation * (vipLike(g, k) ? 2 : 1));
+  if (cl && d) bumpClient(g, cl.id, d, d > 0 ? 'Liked the service on board' : 'Did not like the service on board');
   const rep = g.company.reputation;
   rep.reliable = clamp(Math.round((rep.reliable + clamp(mean * S.reliable, -1, 1)) * 100) / 100, 0, 100);
   k.service = { sum: 0, n: 0 };
@@ -349,14 +351,9 @@ export function dailyMorale(g: GameState): void {
   } else if (a.avg > 55 && g.stats.moraleLowWarned) g.stats.moraleLowWarned = false;
 }
 
-/** Month end (with the statement): client relations decay; a line when the company average moved 3 or more, or is below 50, or spares covered seats. */
+/** Month end (with the statement): a line when the company average moved 3 or more, or is below 50, or spares covered seats.
+ *  v0.8: client relations drift only for idle clients (contracts/relations.ts monthlyRelationDrift). */
 export function monthlyMorale(g: GameState): void {
-  // Client satisfaction fades toward neutral without new work (2 points a month).
-  const dec = M().service.relationDecay;
-  for (const id of Object.keys(g.clients).sort()) {
-    const cl = g.clients[id];
-    if (cl.relation) cl.relation = cl.relation > 0 ? Math.max(0, cl.relation - dec) : Math.min(0, cl.relation + dec);
-  }
   const a = averages(g);
   const spares = g.stats.sparesCovered ?? 0;
   delete g.stats.sparesCovered;

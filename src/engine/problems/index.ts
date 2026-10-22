@@ -12,10 +12,12 @@ import { deliveryWaitCard, ferryUncrewedCard, fleetProblems, leaseReturnCard, re
 import { cashLowCard, invoiceOverdueCard, leaseDueCard, lossMonthCard, moneyProblems } from './money';
 import { aogCard, checkCard, checkClashCard, noSlotCard, techProblems } from './tech';
 import { hurtBadges, type ProblemCard } from './types';
+import { airspaceClosedCard, clientUnhappyCard, dryLeaseInfoCard, leaseDamageCard, leaseLateCard, lostToRivalCard, uninsurableCard, worldProblems } from './world';
 
 export { hurtBadges, lateText, limitTone, mkHurt, usdShort } from './types';
 export type { GaugeSpec, Hurt, MiniMapSpec, ProblemAction, ProblemCard, ReachSpec, TimelineSpec } from './types';
 export type { ProblemKind, ProblemRef };
+export { clientUnhappyCard, lostToRivalCard, airspaceClosedCard, uninsurableCard, leaseLateCard, leaseDamageCard, dryLeaseInfoCard };
 export { crewFlightCard, crewSickCard, crewResignedCard, aogCard, checkCard, checkClashCard, noSlotCard, offerFitCard, counterExpiryCard, changeRequestCard, contractCancelledCard, cashLowCard, invoiceOverdueCard, lossMonthCard, leaseDueCard, deliveryWaitCard, ferryUncrewedCard, refitMissedCard, leaseReturnCard, captainAsFoCard, restSeatsCard, saleCard, restFacilityCard, restTooShortCard, cabinRestCard };
 
 /** The card for one problem (null = no problem, or not any more). Pure. */
@@ -55,6 +57,14 @@ export function problemFor(g: GameState, subject: ProblemRef): ProblemCard | nul
     case 'restFacility': return restFacilityCard(g, id);
     case 'restTooShort': return restTooShortCard(g, id);
     case 'cabinRest': return cabinRestCard(g, id);
+    // v0.8
+    case 'clientUnhappy': return clientUnhappyCard(g, id);
+    case 'lostToRival': return lostToRivalCard(g, id);
+    case 'airspaceClosed': return airspaceClosedCard(g, id);
+    case 'uninsurable': return uninsurableCard(g, id);
+    case 'leaseLate': return leaseLateCard(g, id);
+    case 'leaseDamage': return leaseDamageCard(g, id);
+    case 'dryLeaseInfo': return dryLeaseInfoCard(g, id);
   }
 }
 
@@ -66,6 +76,8 @@ const KIND_RANK: ProblemKind[] = [
   'restSeats', 'captainAsFo', 'sale',
   // v0.7.3
   'restTooShort', 'restFacility', 'cabinRest',
+  // v0.8
+  'airspaceClosed', 'uninsurable', 'leaseLate', 'clientUnhappy', 'leaseDamage', 'lostToRival', 'dryLeaseInfo',
 ];
 const rankOf = (c: ProblemCard) => SEV[c.severity] * 100 + KIND_RANK.indexOf(c.subject.kind);
 
@@ -73,7 +85,7 @@ const cache = new WeakMap<GameState, { key: string; list: ProblemCard[] }>();
 const keyOf = (g: GameState) => {
   let fh = 0;
   for (const ac of Object.values(g.fleet)) fh += ac.maint.fhSinceA + ac.maint.fhSinceC + (ac.status === 'aog' ? 1 : 0);
-  return `${crewRev(g)}:${flightsRev(g)}:${Math.floor(g.now / 60)}:${g.messages.length}:${g.decisions.length}:${Math.round(g.company.cash)}:${Object.keys(g.maintenance).length}:${Object.keys(g.offers).length}:${g.finance.receivables.length}:${g.finance.history.length}:${Math.round(fh)}`;
+  return `${crewRev(g)}:${flightsRev(g)}:${Math.floor(g.now / 60)}:${g.messages.length}:${g.decisions.length}:${Math.round(g.company.cash)}:${Object.keys(g.maintenance).length}:${Object.keys(g.offers).length}:${g.finance.receivables.length}:${g.finance.history.length}:${Math.round(fh)}:${g.world?.events.length ?? 0}`;
 };
 
 /** Every current problem, worst first (Inbox filter, dots, hints, bot). Cached per crew/flight revision and hour. Pure. */
@@ -81,7 +93,7 @@ export function problems(g: GameState): ProblemCard[] {
   const key = keyOf(g);
   const hit = cache.get(g);
   if (hit && hit.key === key) return hit.list;
-  const list = [...crewProblems(g), ...techProblems(g), ...commercialProblems(g), ...moneyProblems(g), ...fleetProblems(g)];
+  const list = [...crewProblems(g), ...techProblems(g), ...commercialProblems(g), ...moneyProblems(g), ...fleetProblems(g), ...worldProblems(g)];
   list.sort((a, b) => rankOf(a) - rankOf(b) || (a.by ?? Infinity) - (b.by ?? Infinity) || (a.subject.ref.id < b.subject.ref.id ? -1 : 1));
   cache.set(g, { key, list });
   return list;
@@ -99,8 +111,10 @@ export function problemAt(g: GameState, ref: Ref): ProblemCard | null {
     case 'aircraft': return aogCard(g, ref.id) ?? checkCard(g, ref.id) ?? noSlotCard(g, ref.id) ?? deliveryWaitCard(g, ref.id) ?? leaseReturnCard(g, ref.id);
     case 'crew': return crewSickCard(g, ref.id) ?? crewResignedCard(g, ref.id);
     case 'maint': return checkClashCard(g, ref.id) ?? refitMissedCard(g, ref.id);
-    case 'offer': return counterExpiryCard(g, ref.id) ?? offerFitCard(g, ref.id);
-    case 'contract': return contractCancelledCard(g, ref.id) ?? g.finance.receivables.filter((r) => r.contractId === ref.id).map((r) => invoiceOverdueCard(g, r.id)).find((c) => !!c) ?? null;
+    case 'offer': return counterExpiryCard(g, ref.id) ?? offerFitCard(g, ref.id) ?? lostToRivalCard(g, ref.id);
+    case 'client': return clientUnhappyCard(g, ref.id);
+    case 'event': return airspaceClosedCard(g, ref.id);
+    case 'contract': return contractCancelledCard(g, ref.id) ?? leaseLateCard(g, ref.id) ?? leaseDamageCard(g, ref.id) ?? g.finance.receivables.filter((r) => r.contractId === ref.id).map((r) => invoiceOverdueCard(g, r.id)).find((c) => !!c) ?? null;
     case 'decision': return changeRequestCard(g, ref.id);
     case 'cash': return cashLowCard(g);
     case 'statement': return lossMonthCard(g);

@@ -15,7 +15,8 @@ import { runwayFit, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { chance, gaussian, int, pick, range, weightedPick, type RngHolder } from '../core/rng';
 import { DAY, fmtDate, fmtDay, monthKey, yearOf } from '../core/time';
-import type { ActionResult, Aircraft, AircraftOffer, ApprovalId, Cabin, GameState, SimEvent } from '../core/types';
+import type { ActionResult, Aircraft, AircraftOffer, ApprovalId, Cabin, GameState, MarketPhase, MarketShock, SimEvent } from '../core/types';
+import { antarcticSeason, nextHajj } from '../../data/worldCalendar';
 import { clamp, hash } from '../core/util';
 import { familyLabel } from '../crew/conversion';
 import { migrateRest, rollRest } from '../crew/restPlan';
@@ -188,9 +189,17 @@ function postOffer(g: GameState, o: AircraftOffer): void {
 export function refreshMarket(g: GameState): void {
   const m = g.market;
   m.aircraft = m.aircraft.filter((o) => o.expires > g.now);
-  m.fuelPrice = Math.round(clamp(m.fuelPrice * (1 + gaussian(g) * 0.04) + (BAL.fuelPrice - m.fuelPrice) * 0.15, 550, 1050));
-  m.narrowIndex = Math.round(clamp(m.narrowIndex + gaussian(g) * 0.03 + (1 - m.narrowIndex) * 0.2, 0.8, 1.25) * 1000) / 1000;
-  m.wideIndex = Math.round(clamp(m.wideIndex + gaussian(g) * 0.03 + (1 - m.wideIndex) * 0.2, 0.8, 1.25) * 1000) / 1000;
+  // v0.8 the outlook's trend arrows compare against last month.
+  m.prev = { narrow: m.narrowIndex, wide: m.wideIndex, fuel: m.fuelPrice };
+  m.fuelPrice = Math.round(clamp(m.fuelPrice * (1 + gaussian(g) * 0.04) + (BAL.fuelPrice - m.fuelPrice) * 0.15, 550, 1250));
+  // v0.8 (UPDATE-0.8.md §4.2): each index is pulled toward its phase target (+ the segment offset) with a little noise.
+  stepCycle(g);
+  const C = BAL.v08.market;
+  const cy = m.cycle!;
+  const tgt = C.target[cy.phase];
+  m.narrowIndex = Math.round(clamp(m.narrowIndex + (tgt + cy.narrowOff - m.narrowIndex) * C.pull + gaussian(g) * C.noise, C.clamp[0], C.clamp[1]) * 1000) / 1000;
+  m.wideIndex = Math.round(clamp(m.wideIndex + (tgt + cy.wideOff - m.wideIndex) * C.pull + gaussian(g) * C.noise, C.clamp[0], C.clamp[1]) * 1000) / 1000;
+  m.shocks = (m.shocks ?? []).filter((x) => x.until > g.now);
   const month = monthKey(g.now) - monthKey(g.started);
   const r = side(g, `m${month}`);
   if (!m.gotNarrow && (month >= 1 || chance(r, 0.5))) {
@@ -384,8 +393,136 @@ export function devMarketOffer(g: GameState, typeId?: string, opts: { kind?: 'dr
   return o.id;
 }
 
-/** v0.7 load: v0.6 offers hand over at base; leases return at base with today's cabin. */
+// ---------- v0.8 market cycle and outlook (UPDATE-0.8.md §4) ----------
+
+const PHASE_NEXT: Record<MarketPhase, [MarketPhase, number][]> = {
+  steady: [['boom', 0.35], ['soft', 0.45], ['steady', 0.2]],
+  boom: [['steady', 0.6], ['soft', 0.4]],
+  soft: [['slump', 0.35], ['steady', 0.65]],
+  slump: [['soft', 0.5], ['steady', 0.5]],
+};
+const PHASE_TITLE: Record<MarketPhase, string> = {
+  boom: 'The ACMI market is booming', steady: 'The ACMI market has steadied', soft: 'The ACMI market is softening', slump: 'The ACMI market is in a slump',
+};
+const PHASE_BODY: Record<MarketPhase, string> = {
+  boom: 'Airlines want every spare aircraft: more offers and rates about 15 % higher for the next 6–12 months. Long contracts signed now keep their rates.',
+  steady: 'Demand is back to normal: the usual number of offers at the usual rates.',
+  soft: 'Airlines are taking fewer extra aircraft: fewer offers and rates about 8 % lower for the next 6–12 months. Long contracts signed now keep their rates.',
+  slump: 'Airlines are parking aircraft, not leasing them: far fewer offers and rates about 18 % lower for the next 6–12 months. Long contracts signed now keep their rates.',
+};
+const MONTH_MIN = 30.44 * DAY;
+
+/** A cycle for a game or save that has none: steady for 9 months. */
+export function defaultCycle(t: number): NonNullable<GameState['market']['cycle']> {
+  return { phase: 'steady', since: t, until: t + Math.round(9 * MONTH_MIN), narrowOff: 0, wideOff: 0 };
+}
+
+/** Monthly: the phase ends → the next one (side stream per month), new offsets, one message. */
+function stepCycle(g: GameState): void {
+  const m = g.market;
+  m.cycle ??= defaultCycle(g.now);
+  const cy = m.cycle;
+  if (g.now < cy.until) return;
+  const r = side(g, `cycle:${monthKey(g.now)}`);
+  const C = BAL.v08.market;
+  const phase = weightedPick(r, PHASE_NEXT[cy.phase], ([, w]) => w)![0];
+  setPhase(g, phase, int(r, C.months[phase][0], C.months[phase][1]), r);
+}
+
+/** Sets the market phase for `months` (a recession forces a slump). One message when the phase changes. */
+export function setPhase(g: GameState, phase: MarketPhase, months: number, r: RngHolder = side(g, `phase:${g.now}`)): void {
+  const C = BAL.v08.market;
+  const was = g.market.cycle?.phase;
+  const off = () => Math.round(range(r, -C.offset, C.offset) * 1000) / 1000;
+  g.market.cycle = { phase, since: g.now, until: g.now + Math.round(months * MONTH_MIN), narrowOff: off(), wideOff: off() };
+  if (was && was !== phase) pushMessage(g, { tone: phase === 'boom' ? 'good' : phase === 'steady' ? 'info' : 'warn', cat: 'commercial', title: PHASE_TITLE[phase], body: PHASE_BODY[phase] });
+}
+
+/** Demand index of a segment with today's shocks (pricing and offer volume read this). Pure. */
+export function segIndex(g: GameState, seg: 'narrow' | 'wide'): number {
+  let idx = seg === 'wide' ? g.market.wideIndex : g.market.narrowIndex;
+  for (const s of g.market.shocks ?? []) if (s.until > g.now && (s.seg === 'all' || s.seg === seg)) idx += s.delta;
+  return Math.round(idx * 1000) / 1000;
+}
+
+/** Adds a demand shock (world events, Hajj weeks). */
+export function addShock(g: GameState, x: Omit<MarketShock, 'id'>): void {
+  const list = (g.market.shocks ??= []);
+  list.push({ id: nextId(g, 'sh'), ...x });
+}
+
+/** Fleet-weighted demand: offer volume × (index)² (slump ≈ 0.67, boom ≈ 1.32). Pure. */
+export function demandFactor(g: GameState): number {
+  let w = 0;
+  let n = 0;
+  for (const ac of Object.values(g.fleet)) {
+    if (ac.status === 'stored') continue;
+    w += segIndex(g, typeOf(ac.typeId).body === 'wide' ? 'wide' : 'narrow');
+    n++;
+  }
+  const idx = n ? w / n : segIndex(g, 'narrow');
+  return Math.round(idx * idx * 1000) / 1000;
+}
+
+export interface MarketOutlook {
+  phase: MarketPhase;
+  phaseText: string;
+  narrow: { index: number; trend: -1 | 0 | 1; text: string };
+  wide: { index: number; trend: -1 | 0 | 1; text: string };
+  fuel: { price: number; trend: -1 | 0 | 1; text: string };
+  season: { name: string; text: string };
+  hajj: { arafah: number; pre: [number, number]; post: [number, number]; ah: number }[];
+  antarctic: [number, number];
+  shocks: { text: string; until: number }[];
+  offersText: string;
+}
+
+const trendOf = (now: number, prev: number | undefined, band: number): -1 | 0 | 1 => (prev === undefined || Math.abs(now - prev) <= band ? 0 : now > prev ? 1 : -1);
+const levelWord = (i: number) => (i >= 1.12 ? 'high' : i >= 1.04 ? 'firm' : i >= 0.96 ? 'steady' : i >= 0.88 ? 'soft' : 'weak');
+const arrow = (t: -1 | 0 | 1) => (t > 0 ? '↑' : t < 0 ? '↓' : '');
+const PHASE_LINE: Record<MarketPhase, string> = {
+  boom: 'Boom: airlines want every spare aircraft; more offers and rates about 15 % higher.',
+  steady: 'Steady: the usual number of offers at the usual rates.',
+  soft: 'Soft: airlines take fewer extra aircraft; fewer offers and rates about 8 % lower.',
+  slump: 'Slump: airlines are parking aircraft; far fewer offers and rates about 18 % lower.',
+};
+
+/** The market outlook (§4.4): phase, segment demand, fuel, season, the next Hajj windows, shocks. Pure. */
+export function marketOutlook(g: GameState): MarketOutlook {
+  const m = g.market;
+  const cy = m.cycle ?? defaultCycle(g.now);
+  const n = segIndex(g, 'narrow');
+  const w = segIndex(g, 'wide');
+  const nt = trendOf(m.narrowIndex, m.prev?.narrow, 0.01);
+  const wt = trendOf(m.wideIndex, m.prev?.wide, 0.01);
+  const ft = trendOf(m.fuelPrice, m.prev?.fuel, 10);
+  const mo = new Date(Date.UTC(2000, 0, 1) + g.now * 60_000).getUTCMonth();
+  const season = mo >= 5 && mo <= 8 ? { name: 'Summer peak', text: 'Rates about 15 % up for summer starts; everyone is busy.' }
+    : mo >= 10 || mo <= 2 ? { name: 'Winter trough', text: 'Rates about 15 % down for winter starts; aircraft sit idle.' }
+    : mo <= 4 ? { name: 'Spring', text: 'Airlines are planning their summer: season bases are signed now.' }
+    : { name: 'Autumn', text: 'The summer is ending: shorter programmes and winter sun.' };
+  const hj = nextHajj(g.now, 3);
+  const nextH = hj.find((h) => h.pre[0] > g.now);
+  const hajjIn = nextH ? Math.ceil((nextH.pre[0] - g.now) / DAY) : 0;
+  if (nextH && hajjIn <= 120) season.name = `${season.name} · Hajj in ${hajjIn} d`;
+  const perWeek = BAL.offersPerWeek * demandFactor(g);
+  return {
+    phase: cy.phase, phaseText: PHASE_LINE[cy.phase],
+    narrow: { index: n, trend: nt, text: `Narrowbody demand ${arrow(nt)} ${levelWord(n)}`.replace('  ', ' ') },
+    wide: { index: w, trend: wt, text: `Widebody demand ${arrow(wt)} ${levelWord(w)}`.replace('  ', ' ') },
+    fuel: { price: m.fuelPrice, trend: ft, text: `Fuel $${m.fuelPrice}/t ${arrow(ft)}`.trim() },
+    season,
+    hajj: hj.map((h) => ({ arafah: h.arafah, pre: h.pre, post: h.post, ah: h.ah })),
+    antarctic: antarcticSeason(g.now),
+    shocks: (m.shocks ?? []).filter((x) => x.until > g.now).map((x) => ({ text: `${x.text}: ${x.delta > 0 ? '+' : '−'}${Math.round(Math.abs(x.delta) * 100)} % ${x.seg === 'all' ? '' : `${x.seg}body `}demand until ${fmtDay(x.until)}`.replace('  ', ' '), until: x.until })),
+    offersText: `About ${Math.round(perWeek * 10) / 10} new offers a week at this size`,
+  };
+}
+
+/** v0.7 load: v0.6 offers hand over at base; leases return at base with today's cabin. v0.8: the market cycle. */
 export function loadMarket(g: GameState): void {
+  g.market.cycle ??= defaultCycle(g.now);
+  g.market.shocks ??= [];
   for (const o of g.market.aircraft) o.site ??= g.company.homeBase;
   for (const ac of Object.values(g.fleet)) {
     if (ac.ownership.kind !== 'dryLeaseIn') continue;

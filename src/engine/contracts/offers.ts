@@ -26,6 +26,9 @@ import * as F from './flavor';
 import { paintTermsText, rollPaint, sideRng } from './paintTerms';
 import { anchorsOf, computeWaves, localToUTC, programmeOf, route, routeMinutes, type ChainShape } from './plan';
 import { ARCH_MULT, defaultSeats, isWetArchetype, priceProduct, productValue, referenceType, tripTickets } from './pricing';
+import { LEVEL_PERKS, levelOf, standingRate } from './relations';
+import { rivalTakes, rollRivalBid } from './rivals';
+import { MISSION_BUILDERS, missionWeights, rollClientCabin, WINDOW_FIT_V08 } from './missions';
 
 // ---------- process ----------
 
@@ -117,7 +120,7 @@ export interface OfferOpts {
   paint?: boolean | { kind: PaintKind; required?: boolean };
 }
 
-interface Ctx {
+export interface Ctx {
   g: GameState;
   wide: boolean;
   /** Aspirational job: may need approvals or types we don't have yet. */
@@ -126,14 +129,16 @@ interface Ctx {
   o: OfferOpts;
 }
 
-interface Draft {
+export interface Draft {
   archetype: Archetype;
   client: Client;
   broker?: string;
   title: string;
   blurb: string;
   pattern: SchedulePattern;
-  req: { minSeats: number; maxSeats?: number; layout?: CabinLayout; families?: RatingFamily[]; extraCabin: number; noTechStops?: boolean; approvals: ApprovalId[]; /** v0.7 */ layouts?: CabinLayout[]; minPremium?: number };
+  req: {
+    minSeats: number; maxSeats?: number; layout?: CabinLayout; families?: RatingFamily[]; extraCabin: number; noTechStops?: boolean; approvals: ApprovalId[]; /** v0.7 */ layouts?: CabinLayout[]; minPremium?: number;
+  } & Partial<Pick<Requirements, 'clientCabin' | 'roundTrip' | 'stretchers' | 'extraPilot' | 'standards' | 'body'>>;
   start: Minute;
   end: Minute;
   /** Minutes from now until the offer lapses (clamped before the start). */
@@ -147,32 +152,43 @@ interface Draft {
   dueDays?: number;
   pin?: string;
   hook?: string;
+  /** v0.8: wet product on a legs pattern (Hajj, sub-charter in); a ready product (dry lease); MGH terms; repeat; event. */
+  wet?: boolean;
+  product?: Product;
+  terms?: [Minute, Minute][];
+  repeatOf?: string;
+  eventId?: string;
+  dryFor?: string;
+  /** v0.8 pass-through cost added to a charter price (war-risk cover per landing). */
+  passThrough?: number;
+  /** v0.8 extra BH-equivalents priced in (music tours: days held away). */
+  extraBH?: number;
 }
 
-const city = (c: string) => AIRPORT_BY_CODE[c]?.city ?? c;
-const km = (a: string, b: string) => distance(a, b);
-const r2 = (v: number) => Math.round(v * 100) / 100;
-const listCities = (codes: string[]) => {
+export const city = (c: string) => AIRPORT_BY_CODE[c]?.city ?? c;
+export const km = (a: string, b: string) => distance(a, b);
+export const r2 = (v: number) => Math.round(v * 100) / 100;
+export const listCities = (codes: string[]) => {
   const names = codes.map(city);
   return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0];
 };
 
 /** UTC minute of a local time on the local date containing t. */
-function atLocal(code: string, t: Minute, localMin: number): Minute {
+export function atLocal(code: string, t: Minute, localMin: number): Minute {
   return localToUTC(code, dayIndex(toLocal(code, t)) * DAY + localMin);
 }
 
 /** 'today', 'tomorrow' or the date, in the airport's local calendar. */
-function whenDay(code: string, now: Minute, t: Minute): string {
+export function whenDay(code: string, now: Minute, t: Minute): string {
   const d = dayIndex(toLocal(code, t)) - dayIndex(toLocal(code, now));
   return d === 0 ? 'today' : d === 1 ? 'tomorrow' : `on ${fmtDay(toLocal(code, t))}`;
 }
 
 /** Whole days of the idle window left after `from` (Infinity without a window). */
-const roomDays = (ctx: Ctx, from: Minute) => (ctx.window ? Math.floor((ctx.window.to - from) / DAY) : Infinity);
+export const roomDays = (ctx: Ctx, from: Minute) => (ctx.window ? Math.floor((ctx.window.to - from) / DAY) : Infinity);
 
 /** A start time in [now + leadMin, now + leadMax] that leaves `dur` inside the idle window; null if none. */
-function pickStart(ctx: Ctx, leadMin: number, leadMax: number, dur: number): Minute | null {
+export function pickStart(ctx: Ctx, leadMin: number, leadMax: number, dur: number): Minute | null {
   const { g, window: w } = ctx;
   let lo = g.now + leadMin;
   let hi = g.now + leadMax;
@@ -184,7 +200,7 @@ function pickStart(ctx: Ctx, leadMin: number, leadMax: number, dur: number): Min
   return Math.round(lo + next(g) * (hi - lo));
 }
 
-function pickN<T>(g: GameState, xs: T[], n: number, weight: (x: T) => number): T[] {
+export function pickN<T>(g: GameState, xs: T[], n: number, weight: (x: T) => number): T[] {
   const pool = [...xs];
   const out: T[] = [];
   while (out.length < n && pool.length) {
@@ -196,7 +212,7 @@ function pickN<T>(g: GameState, xs: T[], n: number, weight: (x: T) => number): T
   return out;
 }
 
-function airportsWithin(from: string, minKm: number, maxKm: number, pred: (a: Airport) => boolean): Airport[] {
+export function airportsWithin(from: string, minKm: number, maxKm: number, pred: (a: Airport) => boolean): Airport[] {
   return AIRPORTS.filter((a) => a.code !== from && a.runwayM >= 2000 && pred(a) && km(from, a.code) >= minKm && km(from, a.code) <= maxKm);
 }
 
@@ -204,14 +220,31 @@ function airportsWithin(from: string, minKm: number, maxKm: number, pred: (a: Ai
  * Clients weighted towards the idle window's location (follow-on work) or our home base, and (v0.6) by how
  * satisfied they are with us: × (1 + relation/100), a soured client still calls now and then.
  */
-function nearClient(ctx: Ctx, list: Client[]): Client | undefined {
+export function nearClient(ctx: Ctx, list: Client[]): Client | undefined {
   const at = ctx.window?.at ?? ctx.g.company.homeBase;
   if (ctx.o.client) return list.find((c) => c.id === ctx.o.client) ?? ctx.g.clients[ctx.o.client];
-  const rel = (c: Client) => Math.max(0.2, 1 + (ctx.g.clients[c.id]?.relation ?? c.relation ?? 0) / 100);
-  return weightedPick(ctx.g, list, (c) => (km(c.base, at) < 1500 ? 4 : km(c.base, at) < 3500 ? 2 : 1) * rel(c));
+  return weightedPick(ctx.g, list, (c) => (km(c.base, at) < 1500 ? 4 : km(c.base, at) < 3500 ? 2 : 1) * clientWeight(ctx.g, c));
 }
 
-function hookFor(ctx: Ctx): string | undefined {
+/**
+ * v0.8 how often a client calls (§1.3, §1.4, §1.6): its level (Unhappy ×0.3 … Partner ×2.2), our clean record
+ * (× 1 − cleanSensitivity × (60 − clean)/60 below 60) and, for a Newcomer, demanding clients (slow payers ×1.5).
+ */
+export function clientWeight(g: GameState, c: Client): number {
+  const cur = g.clients[c.id] ?? c;
+  const lv = LEVEL_PERKS[levelOf(g, cur)].offers;
+  const clean = g.company.reputation.clean;
+  const cf = Math.max(0.05, 1 - (cur.cleanSensitivity * Math.max(0, 60 - clean)) / 60);
+  const dem = (g.company.standing ?? 0) === 0 && cur.payReliability < 0.8 ? BAL.v08.standing.demandingPay : 1;
+  return lv * cf * dem;
+}
+
+/** v0.8 company standing: 0 Newcomer, 1 Established, 2 Respected. */
+export const standingOf = (g: GameState) => g.company.standing ?? 0;
+/** v0.8 the client's level perks. */
+export const perks = (g: GameState, c: Client) => LEVEL_PERKS[levelOf(g, g.clients[c.id] ?? c)];
+
+export function hookFor(ctx: Ctx): string | undefined {
   const w = ctx.window;
   if (!w) return undefined;
   const ac = ctx.g.fleet[w.aircraftId];
@@ -232,8 +265,14 @@ function seasonBase(ctx: Ctx): Draft | null {
   const base = client.base;
   // v0.5.1: a few season deals are long (4–8 months, planned a month or more ahead); most clients want them in their colours.
   // Rolled on a side stream (seed + time + id counter) so the main RNG sequence is unchanged by v0.5.1.
-  const long = !o.days && (o.start === undefined || o.start - g.now >= 30 * DAY) && chance(sideRng(g, `long:${g.seq}:${g.now}`), BAL.paint.longBaseShare);
+  // v0.8 a Newcomer gets 30–45-day bases (never the long variant); a Respected company twice as many long ones;
+  // Trusted and Partner clients book longer (× 1.25 / 1.5, capped by the window).
+  const st = standingOf(g);
+  const longShare = st === 0 ? 0 : st === 2 ? BAL.paint.longBaseShare * 2 : BAL.paint.longBaseShare;
+  const long = !o.days && (o.start === undefined || o.start - g.now >= 30 * DAY) && chance(sideRng(g, `long:${g.seq}:${g.now}`), longShare);
   let days = o.days ?? (long ? int(g, 120, 240) : int(g, 30, 92));
+  if (!o.days && st === 0) days = int(sideRng(g, `nb:${g.seq}:${g.now}`), BAL.v08.standing.newcomerBaseDays[0], BAL.v08.standing.newcomerBaseDays[1]);
+  else if (!o.days && !long) days = Math.round(days * perks(g, client).length);
   // Gap-fit: shorten the season to the idle window (but never under a month).
   if (!o.days && ctx.window) days = Math.min(days, roomDays(ctx, Math.max(ctx.window.from, g.now + 14 * DAY)) - 2);
   if (days < 30) return null;
@@ -270,9 +309,14 @@ function seasonBase(ctx: Ctx): Draft | null {
   const req = { minSeats, layout, layouts, families, extraCabin: 0, approvals: [] as ApprovalId[] };
   const ref = referenceType(req, dests.flatMap((d) => [[base, d], [d, base]] as [string, string][]), true);
   if (!ref) return null;
-  const waves = computeWaves(base, dests, ref, o.waves ?? (wide ? int(g, 1, 2) : int(g, 2, 3)));
-  const mgh = wide ? BAL.mgh.wide : BAL.mgh.narrow;
+  let waves = computeWaves(base, dests, ref, o.waves ?? (wide ? int(g, 1, 2) : int(g, 2, 3)));
+  // v0.8 a Newcomer's MGH is lower (160 NB / 200 WB); Trusted / Partner clients guarantee 10 / 15 % more.
+  const S8 = BAL.v08.standing;
+  const mgh = st === 0 ? S8.newcomerMgh[wide ? 1 : 0] : Math.round((wide ? BAL.mgh.wide : BAL.mgh.narrow) * (1 + perks(g, client).mgh));
   const targetBH = Math.round(mgh * range(g, ...BAL.targetOverMgh));
+  // v0.8 odd hours for a Newcomer (40 %): a first wave at 05:00–05:30 and a last one at 23:00–23:45 local.
+  const odd = st === 0 && !o.waves && chance(sideRng(g, `odd:${g.seq}:${g.now}`), S8.oddHours);
+  if (odd) waves = oddWaves(g, base, dests, ref, waves);
   const mo = toDate(from).getUTCMonth();
   const season = mo >= 2 && mo <= 8 ? 'Summer' : 'Winter';
   const fam = families ? `${families[0] === 'B737' ? '737' : 'A320'}-family aircraft` : wide ? 'a widebody' : 'an A320-size aircraft';
@@ -281,13 +325,14 @@ function seasonBase(ctx: Ctx): Draft | null {
     title: titleFor(ctx, 'seasonBase', client, { from: base, to: base, n: days, wide, start: from }, wide ? `Long-haul base at ${city(base)}` : days >= 120 ? `Long-term base at ${city(base)}` : `${season} base at ${city(base)}`),
     blurb:
       `${client.name} wants ${fam} (${seatsText(minSeats, layout)}) based at ${base} from ${fmtDay(toLocal(base, from))} to ${fmtDay(toLocal(base, to - 1))}, ` +
-      `flying to ${listCities(dests)}: ${waves.length} wave${waves.length > 1 ? 's' : ''} a day from 06:00 local and a maintenance night every 7 days. ` +
+      `flying to ${listCities(dests)}: ${waves.length} wave${waves.length > 1 ? 's' : ''} a day from ${hhmm(waves[0])} local${odd ? ` (the last at ${hhmm(waves[waves.length - 1])}: the slots nobody else wants)` : ''} and a maintenance night every 7 days. ` +
       `MGH ${mgh} BH a month; they plan about ${targetBH}. ${base === g.company.homeBase ? 'Crews fly from home; no hotels needed.' : `Crews live in ${city(base)} hotels at the client's cost.`}`,
     pattern: { kind: 'base', base, dests, from, to, targetBH, waves, prefix: clientPrefix(client.name), maintEvery: 7 },
     req, start: from, end: to,
     expiresIn: range(g, 4, 8) * DAY,
     // Four months and more: half the long-term discount (RESEARCH §4.2; multi-year deals get all of it).
     mult: days >= 120 ? 1 + BAL.premium.longTerm / 2 : undefined,
+    mghPerMonth: mgh,
     effects: { reliable: 2 },
     risk: { disruption: 0.2, politics: 0, permit: client.payReliability < 0.8 ? 0.15 : 0 },
     hook: hookFor(ctx),
@@ -342,8 +387,23 @@ function aogCover(ctx: Ctx): Draft | null {
   };
 }
 
+const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+
+/** v0.8 odd-hour waves (§1.6): the first at 05:00–05:30, the rest spaced as usual, a last one at 23:00–23:45 when it fits. */
+function oddWaves(g: GameState, base: string, dests: string[], ref: string, waves: number[]): number[] {
+  const r = sideRng(g, `oddw:${g.seq}:${g.now}`);
+  const shift = 360 - (300 + 5 * int(r, 0, 6));
+  const out = waves.map((w) => w - shift);
+  const turn = typeOf(ref).turnMin;
+  const rot = Math.max(...dests.map((d) => blockMinutes(ref, base, d) + turn + blockMinutes(ref, d, base)));
+  const late = 1380 + 5 * int(r, 0, 9);
+  // The late rotation must be back and turned before the next morning's first wave.
+  if (out[out.length - 1] + rot + turn <= late && late + rot + turn <= out[0] + 1440) out.push(late);
+  return out;
+}
+
 /** Round trip or one-way legs: out at a local slot, back `backDays` later at a local slot. */
-function roundTrip(g: GameState, a: string, b: string, start: Minute, backDays: number | null, pax: number): LegTemplate[] {
+export function roundTrip(g: GameState, a: string, b: string, start: Minute, backDays: number | null, pax: number): LegTemplate[] {
   const out = atLocal(a, start, pick(g, F.DEP_SLOTS));
   const legs: LegTemplate[] = [{ from: a, to: b, dep: out, flightNo: '', pax }];
   if (backDays !== null) legs.push({ from: b, to: a, dep: atLocal(b, out + backDays * DAY, pick(g, F.DEP_SLOTS)), flightNo: '', pax });
@@ -621,7 +681,7 @@ function repatriation(ctx: Ctx): Draft | null {
 }
 
 /** v0.7.2 F4: a flavoured title for the draft's archetype (side RNG: the offer stream is unchanged), never the client's last. */
-function titleFor(ctx: Ctx, arch: string, client: Client, x: Omit<F.TitleCtx, 'client' | 'brand' | 'fromCity' | 'toCity' | 'season' | 'month'> & { start: Minute }, fallback: string): string {
+export function titleFor(ctx: Ctx, arch: string, client: Client, x: Omit<F.TitleCtx, 'client' | 'brand' | 'fromCity' | 'toCity' | 'season' | 'month'> & { start: Minute }, fallback: string): string {
   const { g } = ctx;
   const tc: F.TitleCtx = {
     ...x, client: client.name, brand: F.brandOf(client.name), fromCity: city(x.from), toCity: city(x.to), season: F.seasonOf(x.start, x.to), month: F.monthOf(x.start),
@@ -778,7 +838,7 @@ function vip(ctx: Ctx): Draft | null {
   return d;
 }
 
-const BUILDERS: Partial<Record<Archetype, (ctx: Ctx) => Draft | null>> = { seasonBase, aogCover, adhoc, sports, repatriation, tourSeries, troopRotation, vip };
+const BUILDERS: Partial<Record<Archetype, (ctx: Ctx) => Draft | null>> = { seasonBase, aogCover, adhoc, sports, repatriation, tourSeries, troopRotation, vip, ...MISSION_BUILDERS };
 
 /** Archetype weights for the current month (season bases before summer, sports outside June–July…). */
 function weights(g: GameState): [Archetype, number][] {
@@ -791,8 +851,10 @@ function weights(g: GameState): [Archetype, number][] {
     ['repatriation', 0.06],
     ['tourSeries', (mo >= 1 && mo <= 5) || mo === 8 || mo === 9 ? 0.13 : 0.08],
     ['troopRotation', 0.06],
-    // v0.7: VIP work, twice as often once we fly a VIP cabin.
-    ['vip', Object.values(g.fleet).some((a) => a.cabin.layout === 'vip') ? 0.08 : 0.04],
+    // v0.7: VIP work, twice as often once we fly a VIP cabin. v0.8: not for a Newcomer.
+    ['vip', standingOf(g) === 0 ? 0 : Object.values(g.fleet).some((a) => a.cabin.layout === 'vip') ? 0.08 : 0.04],
+    // v0.8 more contract types (missions.ts).
+    ...missionWeights(g),
   ];
 }
 
@@ -800,6 +862,7 @@ function weights(g: GameState): [Archetype, number][] {
 const WINDOW_FIT: Partial<Record<Archetype, [number, number, number]>> = {
   seasonBase: [14, 60, 32], aogCover: [0.08, 1, 2], repatriation: [1, 3, 2], adhoc: [3, 30, 2], sports: [7, 60, 2.5], troopRotation: [30, 90, 16], tourSeries: [30, 120, 21],
   vip: [5, 45, 3],
+  ...WINDOW_FIT_V08,
 };
 
 /** Archetypes that can live inside an idle window (its start reachable within the lead, enough room after it). */
@@ -827,7 +890,12 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
     longestSectorNm: Math.round(Math.max(...sectors.map(([a, b]) => distanceNm(a, b)))),
     minRunwayM: Math.min(...airports.map((c) => AIRPORT_BY_CODE[c]?.runwayM ?? 0)),
     etops: 0, approvals: d.req.approvals, extraCabin: d.req.extraCabin, noTechStops: d.req.noTechStops,
+    // v0.8 mission requirements.
+    ...(d.req.roundTrip ? { roundTrip: true } : {}), ...(d.req.stretchers ? { stretchers: d.req.stretchers } : {}),
+    ...(d.req.extraPilot ? { extraPilot: 1 as const } : {}), ...(d.req.standards ? { standards: d.req.standards } : {}),
+    ...(d.req.clientCabin ? { clientCabin: d.req.clientCabin } : {}),
   };
+  if (d.req.body) requirements.body = d.req.body;
   const prog = programmeOf({ pattern: p, requirements }, ref);
   if (!prog.ok) return null;
   for (const [a, b] of sectors) for (const l of planSector(ref, a, b).legs) requirements.etops = Math.max(requirements.etops, etopsNeeded(ref, l.from, l.to));
@@ -862,30 +930,45 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
     tickets += tripTickets(home, far, crewN, span + 90, span);
   }
   const revBH = prog.revenueMin / 60;
-  const wet = isWetArchetype(d.archetype);
+  const wet = isWetArchetype(d.archetype) || !!d.wet;
   const gov = isGovernment(d.client);
-  const product: Product = priceProduct(g, {
-    archetype: d.archetype, typeId: ref, estBH: wet ? revBH : revBH + emptyMin / 60, start: d.start, end: d.end, lead: d.start - g.now,
-    mult: d.mult, departures: deps, revDepartures: revDeps, roomNights, crewDays, tickets, government: gov, mghPerMonth: d.mghPerMonth,
-    loyalty: clamp(g.clients[d.client.id]?.relation ?? d.client.relation ?? 0, -100, 100) * BAL.morale.service.relationPremium,
+  // v0.8 the client's level (Unhappy −5 % … Partner +15 %) and our standing (Newcomer −8 %, Respected +4 %).
+  const levelPct = d.product ? 0 : perks(g, d.client).rate;
+  const standingPct = d.product ? 0 : standingRate(g);
+  const product: Product = d.product ?? priceProduct(g, {
+    archetype: d.archetype, typeId: ref, estBH: wet ? revBH : revBH + emptyMin / 60 + (d.extraBH ?? 0), start: d.start, end: d.end, lead: d.start - g.now,
+    mult: d.mult, departures: deps, revDepartures: revDeps, roomNights, crewDays, tickets: tickets + (d.passThrough ?? 0), government: gov, mghPerMonth: d.mghPerMonth,
+    loyalty: (1 + levelPct) * (1 + standingPct) - 1, wet: d.wet,
   });
   // v0.7.3 heavy crews cost more: a wet rate +3 % when the longest chain needs 3 pilots on the type it was sized
   // for, +6 % for 4 (that type's usual rest facilities).
   if (product.kind === 'wet' && aug) product.ratePerBH = Math.round(product.ratePerBH * (1 + (BAL.v073.augRate[aug] ?? 0)));
   // ... and the extra cabin crew its rest plan adds are billed like client-requested ones (RESEARCH §4.3).
   if (product.kind === 'wet' && restCabin) product.ratePerBH += BAL.crewExtra.paidPerBH * restCabin;
+  // v0.8 mixed crew (§7): the client provides some cabin crew; −$75 per client crew member per block hour.
+  const clientCabin = requirements.clientCabin ?? (product.kind === 'wet' ? rollClientCabin(g, d, ref, requirements) : undefined);
+  if (clientCabin && product.kind === 'wet') {
+    requirements.clientCabin = clientCabin;
+    product.ratePerBH = Math.max(1000, product.ratePerBH - BAL.v08.mixedCrew.perCabinBH * clientCabin.n);
+  }
   const lead = d.start - g.now;
   const urgency = lead < 72 * 60 ? 'urgent' : lead < 7 * DAY ? 'short' : 'normal';
   const maxExp = urgency === 'urgent' ? lead - 60 : lead - 12 * 60;
-  const expiresIn = Math.max(urgency === 'urgent' ? 60 : Math.min(2 * DAY, maxExp), Math.min(d.expiresIn, maxExp));
+  // v0.8 first refusal (Trusted / Partner clients): the offer lasts 48 h longer (never past the job).
+  const firstRefusal = perks(g, d.client).first && d.archetype !== 'subcharterIn' && d.archetype !== 'dryLeaseOut';
+  const ask = d.expiresIn + (firstRefusal ? BAL.v08.firstRefusalH * 60 : 0);
+  const expiresIn = Math.max(urgency === 'urgent' ? 60 : Math.min(2 * DAY, maxExp), Math.min(ask, maxExp));
   const wide = typeOf(ref).body === 'wide';
   const firstAway = p.kind === 'base' ? p.base : p.legs.flatMap((l) => [l.from, l.to]).find((c) => c !== home) ?? p.legs[0].to;
   const o: ContractOffer = {
     id: nextId(g, 'o'),
     archetype: d.archetype, clientId: d.client.id, broker: d.broker, title: d.title, blurb: d.blurb,
     product, requirements, pattern: p, start: d.start, end: d.end, created: g.now, expires: g.now + Math.round(expiresIn), urgency,
-    penalties: { cancelScale: BAL.cancelScale.map(([a, b]) => [a, b] as [number, number]), perDelay: BAL.perDelay[wide ? 1 : 0], perCancelledLeg: BAL.perCancelledLeg[wide ? 1 : 0] },
-    payment: wet
+    // v0.8 a Newcomer's clients are demanding (delay compensation × 1.5).
+    penalties: { cancelScale: BAL.cancelScale.map(([a, b]) => [a, b] as [number, number]), perDelay: Math.round(BAL.perDelay[wide ? 1 : 0] * (standingOf(g) === 0 ? BAL.v08.standing.demandingDelay : 1)), perCancelledLeg: BAL.perCancelledLeg[wide ? 1 : 0] },
+    payment: product.kind === 'dry'
+      ? { basis: 'advance', dueDays: 5, depositPct: 0 }
+      : wet
       ? { basis: 'arrears', dueDays: gov ? 30 : 7, depositPct: 0 }
       : gov ? { basis: 'arrears', dueDays: d.dueDays ?? 30, depositPct: 0 } : { basis: 'onCompletion', dueDays: 7, depositPct: product.kind === 'charter' ? product.depositPct : 0 },
     effects: d.effects,
@@ -896,8 +979,13 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
     status: 'open',
     pin: d.pin ?? firstAway,
     hook: d.hook,
+    ...(levelPct ? { levelPct } : {}), ...(standingPct ? { standingPct } : {}), ...(firstRefusal ? { firstRefusal: true } : {}),
+    ...(d.repeatOf ? { repeatOf: d.repeatOf } : {}), ...(d.eventId ? { eventId: d.eventId } : {}), ...(d.dryFor ? { dryFor: d.dryFor } : {}),
   };
-  o.estValue = productValue(product, revBH, d.start, d.end);
+  if (d.terms) o.terms = d.terms;
+  // v0.8 Trusted / Partner clients pay sooner.
+  o.payment.dueDays = Math.max(0, o.payment.dueDays - perks(g, d.client).payDays);
+  o.estValue = productValue(product, revBH, d.start, d.end, d.terms);
   // v0.5.1: the client may want the aircraft in its colours for the term.
   const paint = d.paint === false ? undefined : rollPaint(g, o, d.paint === true ? undefined : d.paint);
   if (paint) {
@@ -928,6 +1016,9 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   }
   g.offers[o.id] = o;
   schedule(g, o.expires, 'offer.expire', o.id);
+  // v0.8 a rival may be quoting for the same job (a hidden, timed bid).
+  rollRivalBid(g, o);
+
   // Urgent work we could actually fly stops the clock (setting) and gets an inbox line; the rest just pins the map.
   if (urgency === 'urgent' && Object.keys(g.fleet).some((id) => feasibility(g, o.id, id, { quick: true }).level !== 'no')) {
     requestPause('urgentOffer');
@@ -998,7 +1089,11 @@ function rivalName(g: GameState, o: ContractOffer): string {
 export function onOfferExpire(g: GameState, ev: SimEvent): void {
   const o = g.offers[ev.id];
   if (!o || o.status !== 'open' || g.now < o.expires) return;
-  const lost = chance(g, 0.7);
+  // v0.8 a rival bid due at or after expiry takes it now; first refusal: only 30 % go to a rival.
+  const b = o.rivalBid;
+  const bidder = b && !o.firstRefusal ? g.rivals.find((r) => r.id === b.rivalId && (r.status ?? 'active') === 'active') : undefined;
+  if (bidder && b) return rivalTakes(g, o, bidder, b.why);
+  const lost = chance(g, o.firstRefusal ? BAL.v08.firstRefusalLost : 0.7);
   closeOffer(g, o, lost ? 'lost' : 'expired', lost ? rivalName(g, o) : undefined);
 }
 

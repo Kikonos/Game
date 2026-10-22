@@ -20,7 +20,9 @@ import { noteIncident } from './company';
 import { deliveryWaitDay } from './delivery';
 import { crewReadyAt, crewShortDecision, hasOpenDecision } from './events';
 import { aogChance, isGrounded, missCheck, startAog } from './maintenance';
-import { ageF, ageOf, bumpReliable, bumpRelation, contractOf, isBaseLeg, isRevenue, stats, turnOf, usd } from './util';
+import { ageF, ageOf, bumpReliable, contractOf, isBaseLeg, isRevenue, stats, turnOf, usd } from './util';
+import { bumpClient } from '../contracts/relations';
+import { noteHiredThem } from '../contracts/rivals';
 
 /** v0.7.1: the problem ref and hurt snapshot of a message about legs lost or handed over (after the fact). */
 function penaltyMeta(g: GameState, rev: Flight[], money: number): Pick<Message, 'problem' | 'hurt'> {
@@ -401,7 +403,7 @@ export function cancelLegs(g: GameState, legs: Flight[], reason: string, repPerL
     if (isRevenue(f)) {
       rev++;
       if (agreed) continue;
-      bumpRelation(g, contractOf(g, f)?.clientId, -2);
+      bumpClient(g, contractOf(g, f)?.clientId, BAL.v08.rel.cancelLeg, `Cancelled ${f.no}`);
       legOutcome(g, 0);
     }
   }
@@ -444,6 +446,13 @@ export function subcharterLegs(g: GameState, legs: Flight[], rivalId: string, co
   const empty = live.filter((f) => !isRevenue(f));
   // v0.7.2 the client notices (F3): reliability and relation, worse when hand-overs become a habit.
   const hit = subHit(g, rev);
+  // v0.8 a prestige operator embarrasses us less with the client: relation × (1.5 − quality).
+  const rival = g.rivals.find((r) => r.id === rivalId);
+  if (rival) {
+    const k = 1.5 - rival.quality;
+    hit.relation = Math.round(hit.relation * k * 10) / 10;
+    hit.byClient = hit.byClient.map(([id, d]) => [id, Math.round(d * k * 100) / 100]);
+  }
   if (empty.length) removeFlights(g, empty.map((f) => f.id));
   if (rev.length) subcharterFlights(g, rev.map((f) => f.id), rivalId || 'rival');
   if (cost) post(g, 'subcharter', -cost);
@@ -451,7 +460,9 @@ export function subcharterLegs(g: GameState, legs: Flight[], rivalId: string, co
   if (rev.length) {
     bumpReliable(g, hit.reliability);
     stats(g).subHit = Math.round(((stats(g).subHit ?? 0) + hit.reliability) * 10) / 10;
-    for (const [clientId, d] of hit.byClient) bumpRelation(g, clientId, d);
+    const name = rival?.name ?? 'a rival';
+    for (const [clientId, d] of hit.byClient) bumpClient(g, clientId, d, `Handed flights to ${name}`);
+    if (rival) noteHiredThem(g, rival.id, rev.length, g.clients[contractOf(g, rev[0])?.clientId ?? '']?.name ?? 'a client');
     const cap = (stats(g).subCap ??= []);
     for (const [clientId, v] of hit.capped) if (v) cap.push([g.now, clientId, v]);
     const log = (stats(g).subLog ??= []);

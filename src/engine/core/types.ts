@@ -480,6 +480,8 @@ export interface ContractOffer {
   eventId?: string;
   /** v0.8 dry lease out: the aircraft it was offered for (gap-fit). */
   dryFor?: string;
+  /** v0.8 billing terms inside [start, end) (Hajj phases): MGH only over these. */
+  terms?: [Minute, Minute][];
 }
 
 /** v0.5.1 client paint. decals = plain white body + client titles + fin logo. */

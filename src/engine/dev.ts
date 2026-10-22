@@ -11,7 +11,10 @@ import { touchCrew, touchCrewState } from './crew/timeline';
 import { blockMinutes } from './core/perf';
 import { flightsOf } from './core/entities';
 import { nextId } from './core/entities';
-import type { AcRest, Aircraft, GameState, Role } from './core/types';
+import type { AcRest, Aircraft, ClientLevel, GameState, Role } from './core/types';
+import { generateOffer } from './contracts/offers';
+import { rivalFits } from './contracts/rivals';
+import { schedule } from './core/queue';
 import { typeOf } from './core/perf';
 import { offsetAt } from './crew/rules';
 import { escalateShortages } from './crew/control';
@@ -236,4 +239,37 @@ export function devStandby(g: GameState): string {
     touchCrewState(g);
   }
   return fid;
+}
+
+// ---------- v0.8 (UPDATE-0.8.md §12): each returns the id to open ----------
+
+export { devDeportation, devDryLease, devEvacuation, devHajj, devMixedCrew } from './contracts/missions';
+export { devWorldEvent } from './ops/world';
+
+/** A client at a level (relation and jobs set to reach it; level stored now); the client id. Dev/test helper. */
+export function devLevel(g: GameState, clientId?: string, level: ClientLevel = 'trusted'): string {
+  const c = (clientId && g.clients[clientId]) || Object.values(g.clients).find((x) => x.kind === 'airline' && !x.rivalId);
+  if (!c) return '';
+  const want = { unhappy: [-40, c.jobs ?? 0], new: [0, 0], known: [10, 1], trusted: [40, 2], partner: [70, 4] } as const;
+  const [rel, jobs] = want[level];
+  c.relation = rel;
+  c.jobs = Math.max(jobs, level === 'new' ? 0 : c.jobs ?? 0);
+  if (level === 'new') c.jobs = 0;
+  c.level = level;
+  return c.id;
+}
+
+/** An open offer with a strong rival bid (lands in the first half of its window); the offer id. Dev/test helper. */
+export function devRivalBid(g: GameState): string {
+  for (let i = 0; i < 12; i++) {
+    const o = generateOffer(g, i % 2 ? 'adhoc' : 'aogCover');
+    if (!o) continue;
+    const r = g.rivals.find((x) => (x.status ?? 'active') === 'active' && rivalFits(x, o)) ?? g.rivals[0];
+    if (!r) return o.id;
+    o.firstRefusal = false;
+    o.rivalBid = { rivalId: r.id, at: o.created + Math.round((o.expires - o.created) * 0.4), factor: r.priceFactor, why: r.priceFactor < 0.97 ? `quoted about ${Math.round((1 - r.priceFactor) * 100)} % under the asking rate` : 'answered first' };
+    schedule(g, o.rivalBid.at, 'rival.bid', o.id);
+    return o.id;
+  }
+  return '';
 }

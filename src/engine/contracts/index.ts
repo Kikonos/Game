@@ -2,12 +2,14 @@
 
 import { flightsRev, takeRelink } from '../core/entities';
 import type { SimModule } from '../core/module';
-import type { GameState } from '../core/types';
+import type { GameState, SimEvent } from '../core/types';
 import { dailyContracts, onContractEnd, onContractStart } from './accept';
 import { onFlightArrivedContracts, onMonthContracts } from './billing';
 import { seedClients, seedRivals } from './clients';
 import { dailyOffers, loadCounters, onOfferExpire, onOfferReply, onOfferSpawn, openingOffers, scheduleNextOffer } from './offers';
 import { extendBaseSchedules, relinkPositioning } from './schedule';
+import { dailyRelations, loadRelations, monthlyRelationDrift } from './relations';
+import { loadRivals, onRivalBid, refreshRivals } from './rivals';
 
 export { acceptOffer, askingPrice, cancelContract, cancelCost, cancelPenalty, contractProgress, counterOffer, declineOffer, leadDays, type ContractProgress, type SignOpts } from './accept';
 export { paintQuote, paintTermsText, paintWindow, type PaintSlot } from './paintTerms';
@@ -17,11 +19,26 @@ export { fmtPrice, generateOffer, idleWindows, type IdleWindow, type OfferOpts }
 export { counterOdds, counterView, type CounterOdds, type CounterView } from './counter';
 export { priceProduct, productValue, rateMultiplier } from './pricing';
 export { generateFlights, planPositioning, relinkPositioning } from './schedule';
+// v0.8 (UPDATE-0.8.md §12).
+export {
+  bumpClient, clientList, clientView, LEVEL_NAME, LEVEL_ORDER, LEVEL_PERKS, levelChip, levelFor, levelOf, offerClientLine, perkLines, standing, standingFor, STANDING_NAME,
+  type ClientLevel, type ClientView, type LevelPerks, type Standing,
+} from './relations';
+export { markOfferSeen, offerCompetition, rivalList, rivalSummary, rivalView, STYLE_NAME, type RivalStyle, type RivalView } from './rivals';
 
 function daily(g: GameState) {
   dailyOffers(g);
   dailyContracts(g);
   extendBaseSchedules(g);
+  // v0.8 client levels (hysteresis) and company standing.
+  dailyRelations(g);
+}
+
+function monthly(g: GameState, ev: SimEvent) {
+  onMonthContracts(g, ev);
+  // v0.8 rivals' fleets and load; idle clients drift toward 0.
+  refreshRivals(g);
+  monthlyRelationDrift(g);
 }
 
 /** flightsRev at the last positioning relink (runtime only). */
@@ -32,12 +49,17 @@ export const contractsModule: SimModule = {
   init(g) {
     seedClients(g);
     seedRivals(g);
+    // v0.8 rival styles and client records, levels and standing exactly as load sets them.
+    loadRivals(g);
+    loadRelations(g);
     openingOffers(g);
     scheduleNextOffer(g);
   },
   load(g) {
     g.rivals ??= [];
     if (!g.rivals.length) seedRivals(g);
+    loadRivals(g);
+    loadRelations(g);
     loadCounters(g);
   },
   /** Keeps empty legs linking commitments after any flight change (delays, swaps, cancellations by other modules). */
@@ -60,7 +82,8 @@ export const contractsModule: SimModule = {
   },
   handlers: {
     day: daily,
-    month: onMonthContracts,
+    month: monthly,
+    'rival.bid': onRivalBid,
     'offer.spawn': onOfferSpawn,
     'offer.expire': onOfferExpire,
     'offer.reply': onOfferReply,

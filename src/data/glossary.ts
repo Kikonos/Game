@@ -10,7 +10,10 @@ export type TermId =
   | 'pur' | 'cabinCrew' | 'crewRest' | 'restClass1' | 'restClass3' | 'restSeats' | 'mro' | 'dryLease' | 'asFo' | 'marketValue' | 'earlyReturn'
   /** v0.7.3 */
   | 'restClass2' | 'fcrc' | 'ccrc' | 'ldmcr' | 'recliners' | 'inflightRest' | 'landingPilots' | 'extension' | 'splitDuty' | 'delayedReport'
-  | 'homeStandby' | 'wocl' | 'disruptive' | 'tzRest' | 'twoDays';
+  | 'homeStandby' | 'wocl' | 'disruptive' | 'tzRest' | 'twoDays'
+  /** v0.8 */
+  | 'relationLevel' | 'standing' | 'firstRefusal' | 'hajj' | 'arafah' | 'reserves' | 'dampLease' | 'sccm' | 'warRisk' | 'forceMajeure' | 'subcharterIn'
+  | 'marketPhase' | 'blueIce' | 'pnr' | 'injunction';
 
 export interface GlossaryEntry {
   term: string;
@@ -72,6 +75,22 @@ export const GLOSSARY: Record<TermId, GlossaryEntry> = {
   disruptive: { term: 'Disruptive duty', short: 'Early starts (05:00–05:59), late finishes (23:00–01:59) and nights (any time 02:00–04:59).', where: { tab: 'crew', view: 'board' } },
   tzRest: { term: 'Time-zone rest', short: 'After a trip 4 or more time zones away: 2–5 local nights at home before the next duty.', where: { tab: 'crew', view: 'board' } },
   twoDays: { term: 'Two-day weekend', short: 'Twice a month the weekly rest is 2 whole local days.', where: { tab: 'crew', view: 'board' } },
+  // v0.8
+  relationLevel: { term: 'Relationship level', short: 'How well a client knows us: New, Known, Trusted, Partner (or Unhappy). Higher levels pay better, ask us first and forgive a small delay.', where: { tab: 'company', view: 'clients' } },
+  standing: { term: 'Standing', short: 'How the market sees our company: a Newcomer gets the short, cheap work; Established and Respected operators get the rest.', where: { tab: 'company' } },
+  firstRefusal: { term: 'First refusal', short: 'The client asks us before any rival: the offer stays ours until it expires.', where: { tab: 'contracts' } },
+  hajj: { term: 'Hajj', short: 'The yearly pilgrimage to Mecca: weeks of full flights to Jeddah and Medina, then home again; every other leg flies empty.', where: { tab: 'contracts' } },
+  arafah: { term: 'Day of Arafah', short: 'The high point of the Hajj; it comes about 11 days earlier every year with the Islamic calendar.', where: { tab: 'contracts' } },
+  reserves: { term: 'Maintenance reserves', short: 'Money a lessee pays per flight hour towards the heavy checks its flying uses up.', where: { tab: 'fleet' } },
+  dampLease: { term: 'Damp lease', short: 'A wet lease where the client brings some or most of the cabin crew; we always bring the pilots.', where: { tab: 'contracts' } },
+  sccm: { term: 'SCCM', short: 'Senior cabin crew member: the purser, in charge of the cabin.', where: { tab: 'crew', view: 'people' } },
+  warRisk: { term: 'War-risk cover', short: 'Extra insurance for landing where there is fighting; charged per landing, and insurers can withdraw it at short notice.', where: { tab: 'finance' } },
+  forceMajeure: { term: 'Force majeure', short: 'Events nobody controls (war, ash, closed airspace): flights cancelled for them cost no penalty and no reputation.', where: { tab: 'map' } },
+  subcharterIn: { term: 'Sub-charter in', short: 'A rival operator hires us to fly its client\'s flights: they pay us, the passengers never learn our name.', where: { tab: 'contracts' } },
+  marketPhase: { term: 'Market phase', short: 'Boom, steady, soft or slump: how many airlines want extra aircraft, and at what rates.', where: { tab: 'contracts' } },
+  blueIce: { term: 'Blue-ice runway', short: 'A runway of hard glacier ice in Antarctica: no fuel there, so the aircraft carries enough for the way back.', where: { tab: 'contracts' } },
+  pnr: { term: 'Point of no return', short: 'The last point where an aircraft can still turn back with the fuel it has.', where: { tab: 'map' } },
+  injunction: { term: 'Injunction', short: 'A court order that stops a flight; the client still pays for it.', where: { tab: 'contracts' } },
 };
 
 /** Words that the UI wraps in <Term> when they appear in a card's text (lower-case match). */
@@ -86,6 +105,10 @@ export const TERM_WORDS: [string, TermId][] = [
   ['class 2 rest', 'restClass2'], ['lower-deck crew rest module', 'ldmcr'], ['crew rest recliners', 'recliners'], ['in-flight rest', 'inflightRest'],
   ['landing pilots', 'landingPilots'], ['planned extension', 'extension'], ['split duty', 'splitDuty'], ['delayed report', 'delayedReport'],
   ['home standby', 'homeStandby'], ['WOCL', 'wocl'], ['disruptive', 'disruptive'], ['two-day weekend', 'twoDays'], ["pilots' bunks", 'fcrc'],
+  // v0.8
+  ['relationship level', 'relationLevel'], ['first refusal', 'firstRefusal'], ['Day of Arafah', 'arafah'], ['Hajj', 'hajj'], ['maintenance reserves', 'reserves'],
+  ['damp lease', 'dampLease'], ['SCCM', 'sccm'], ['war-risk cover', 'warRisk'], ['force majeure', 'forceMajeure'], ['sub-charter in', 'subcharterIn'],
+  ['market phase', 'marketPhase'], ['blue-ice runway', 'blueIce'], ['point of no return', 'pnr'], ['injunction', 'injunction'], ['standing', 'standing'],
 ];
 
 /** First-time hints: one plain paragraph the first time each kind of problem appears (Settings.hintsSeen). */
@@ -169,5 +192,34 @@ export const HINTS: Partial<Record<ProblemKind, { title: string; text: string }>
   sale: {
     title: 'Selling an aircraft',
     text: 'A buyer pays the market value less the coming heavy check and a broker fee. Every flight booked on the aircraft after the handover must move to another aircraft or a rival first.',
+  },
+  // v0.8
+  clientUnhappy: {
+    title: 'An unhappy client',
+    text: 'Clients remember cancellations, hand-overs to rivals and late recoveries. An unhappy client calls a third as often and wants 5 % off. Fly their next job on time and say yes to their next request: good months bring it back.',
+  },
+  lostToRival: {
+    title: 'A rival took the job',
+    text: 'Other operators quote for the same work. A cheaper or closer rival can sign before you decide; the card says why. "Rivals bidding" on an offer means decide soon. Trusted clients ask us first.',
+  },
+  airspaceClosed: {
+    title: 'Closed airspace',
+    text: 'A war, a coup or an ash cloud can close airspace in hours. Flights into it wait; flights over it fly around. Cancelling for it is force majeure: no penalty, no reputation lost.',
+  },
+  uninsurable: {
+    title: 'No war-risk cover',
+    text: 'Insurers can withdraw war-risk cover 48 hours before a flight into a war zone. Without it the flight cannot legally operate: wait a day for the insurer, cancel without penalty, or hand it to a rival who has cover.',
+  },
+  leaseLate: {
+    title: 'A lessee returns an aircraft late',
+    text: 'Dry-lease clients sometimes keep the aircraft longer. They pay 150 % rent for each extra day, but our own flights planned on it need another aircraft or a rival.',
+  },
+  leaseDamage: {
+    title: 'Damage found at the return inspection',
+    text: 'After a dry lease the aircraft is inspected. A hard landing or a tail strike means days in the hangar; the lessee pays most of the repair.',
+  },
+  dryLeaseInfo: {
+    title: 'What a dry lease is',
+    text: 'The client rents the aircraft without crew: our pilots deliver it and fetch it back, they fly it with their crews in their colours. We earn rent and reserves; our crews of that type have less work meanwhile.',
   },
 };
