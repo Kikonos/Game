@@ -13,6 +13,17 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.7.2.2',
+    name: 'Check planning',
+    features: [
+      "Drag A/C checks and cabin refits along the timeline: on the Schedule, hold a booked A-check, C-check or cabin refit for a moment, then slide it left or right along its aircraft's row. While you drag you see the new date and, for checks, how much of the interval is used by then (green, amber, red; over 100% is not allowed) and whether the slot is free. Let go to confirm.",
+      "Book from an idle gap: tap an 'idle …' gap and choose Book C-check, Book A-check or Cabin refit. Each opens with a slot inside that gap, and the check buttons show how much of the interval would be used by then and when it is due, so you can book at the right time.",
+    ],
+    improvements: [
+      "Moving a trip to another aircraft now also removes the first aircraft's ferry flights for it (out to the trip and back), and re-plans its next ferry only if it is really needed.",
+    ],
+  },
+  {
     version: 'v0.7.2.1',
     name: 'Trip swap',
     features: [

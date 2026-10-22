@@ -178,7 +178,7 @@ const stationName = (g: GameState, code: string) => {
  * aircraft is free, else after each commitment ends. `label` is a cabin preset, or REST_SEATS for crew rest seats
  * (fit when none are fitted, else remove). busyWhy names the commitment that pushes the first slot past today. Pure.
  */
-export function refitSlots(g: GameState, aircraftId: string, label: string, n = 6): { slots: RefitSlot[]; busyUntil: Minute | null; busyWhy: string | null } {
+export function refitSlots(g: GameState, aircraftId: string, label: string, n = 6, after = 0): { slots: RefitSlot[]; busyUntil: Minute | null; busyWhy: string | null } {
   const ac = g.fleet[aircraftId];
   const none = { slots: [], busyUntil: null, busyWhy: null };
   if (!ac) return none;
@@ -186,8 +186,9 @@ export function refitSlots(g: GameState, aircraftId: string, label: string, n = 
   const quote = (t: Minute) => (label === REST_SEATS ? restSeatsQuote(g, aircraftId, !(ac.crewRest?.seats ?? 0), t) : refitQuote(g, aircraftId, label, home, t));
   const turn = typeOf(ac.typeId).turnMin;
   const up = (t: Minute) => Math.ceil(t / 30) * 30;
-  const first = up(g.now + 60);
-  const horizon = g.now + 26 * 7 * DAY;
+  // v0.7.2.2 `after`: the earliest window from an idle gap's start (Schedule gap panel).
+  const first = up(Math.max(g.now + 60, after));
+  const horizon = Math.max(g.now, after) + 26 * 7 * DAY;
   // Candidates: now, after every leg or check ends (plus a ferry home), and each day at the same hour.
   const cand = new Set<Minute>([first]);
   for (const f of flightsOf(g, ac.id)) {

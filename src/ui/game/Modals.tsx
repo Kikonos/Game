@@ -27,6 +27,7 @@ import { CrewControlModal } from '../modals/CrewControlModal';
 import { ProblemModal } from '../modals/ProblemModal';
 import { GlossaryModal } from '../modals/GlossaryModal';
 import { TripMoveModal } from '../modals/TripMoveModal';
+import { MaintMoveModal } from '../modals/MaintMoveModal';
 import { CURRENT } from '../../data/whatsNew';
 import { int, money } from '../format';
 import { offline, promptInstall } from '../offline';
@@ -248,7 +249,7 @@ export function GlobalModals() {
     case 'decision': return s.game ? <DecisionModal decisionId={m.decisionId} /> : null;
     case 'hire': return s.game ? <HireModal {...m} /> : null;
     case 'train': return s.game ? <TrainModal crewId={m.crewId} /> : null;
-    case 'check': return s.game ? <CheckModal aircraftId={m.aircraftId} checkKind={m.checkKind} replace={m.replace} /> : null;
+    case 'check': return s.game ? <CheckModal aircraftId={m.aircraftId} checkKind={m.checkKind} replace={m.replace} suggest={m.suggest} after={m.after} /> : null;
     case 'sheet': return s.game ? <BlockSheet refs={m.refs} idle={m.idle} /> : null;
     case 'duty': return s.game ? <DutyModal id={m.id} /> : null;
     case 'subcharter': return s.game ? <SubcharterModal contractId={m.contractId} flightId={m.flightId} /> : null;
@@ -256,7 +257,7 @@ export function GlobalModals() {
     case 'convert': return s.game ? <ConvertModal key={m.crewIds.join()} crewIds={m.crewIds} family={m.family} onBooked={m.onBooked} /> : null;
     case 'classes': return s.game ? <ClassesModal /> : null;
     case 'acquire': return s.game ? <AcquireModal offerId={m.offerId} /> : null;
-    case 'refit': return s.game ? <RefitModal aircraftId={m.aircraftId} layout={m.layout} offerId={m.offerId} rest={m.rest} /> : null;
+    case 'refit': return s.game ? <RefitModal aircraftId={m.aircraftId} layout={m.layout} offerId={m.offerId} rest={m.rest} after={m.after} /> : null;
     case 'lease': return s.game ? <LeaseModal aircraftId={m.aircraftId} tab={m.tab} /> : null;
     case 'sell': return s.game ? <SellModal aircraftId={m.aircraftId} /> : null;
     case 'approval': return s.game ? <ApprovalModal id={m.id} /> : null;
@@ -266,5 +267,6 @@ export function GlobalModals() {
     case 'problem': return s.game ? <ProblemModal subject={m.subject} hint={m.hint} /> : null;
     case 'glossary': return <GlossaryModal term={m.term} />;
     case 'tripMove': return s.game ? <TripMoveModal key={`${m.flightId}>${m.targetId}`} flightId={m.flightId} targetId={m.targetId} /> : null;
+    case 'maintMove': return s.game ? <MaintMoveModal key={`${m.maintId}@${m.start}`} maintId={m.maintId} start={m.start} /> : null;
   }
 }

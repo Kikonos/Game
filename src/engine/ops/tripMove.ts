@@ -16,13 +16,13 @@ import { DAY, fmtDateTime, fmtDay, fmtDuration, fmtTime } from '../core/time';
 import type { ActionResult, Aircraft, Contract, Flight, GameState, Minute, Pairing, Role } from '../core/types';
 import { brokerCut } from '../contracts/accept';
 import { SHORT_CYCLE_MIN } from '../contracts/billing';
-import { anchorsOf, chainBackward, chainForward, isSoft, type Anchor } from '../contracts/plan';
+import { anchorsOf, chainBackward, chainForward, isSoft, SOFT_AFTER, type Anchor } from '../contracts/plan';
 import { crewName, crewRev, flightCrewStatus, rerosterFrom } from '../crew';
 import { settle } from '../sim';
 import { cabinAt, layoutName, layoutsOf } from './cabin';
 import { aircraftGate } from './company';
 import { paysFuel } from './flights';
-import { isGrounded } from './maintenance';
+import { isGrounded, relinkCheckFerries } from './maintenance';
 import { ageOf, isRevenue } from './util';
 
 /** Legs of a trip are on the ground at most this long between them (an overnight stop at most). */
@@ -108,6 +108,14 @@ export function tripOf(g: GameState, flightId: string): TripView {
   if (!rev.length) return { ...view, ok: false, reason: 'Empty positioning legs follow the aircraft’s work by themselves: move the trip they lead to' };
   const lead = Math.min(...moved.map((x) => x.std + x.delay)) - g.now;
   if (lead < MOVE_LEAD) return { ...view, ok: false, reason: `${first.from}–${first.to} leaves in ${fmtDuration(Math.max(0, lead))}: too late to change aircraft` };
+  // v0.7.2.2: the empty legs flying the aircraft out to the trip go with it (re-planned); one already leaving can't.
+  const k = legs.indexOf(moved[0] ?? first);
+  for (let j = k - 1; j >= 0 && k >= 0; j--) {
+    const x = legs[j];
+    const nx = legs[j + 1];
+    if (x.status === 'done' || x.to !== nx.from || nx.std - x.sta > TRIP_LINK_MAX || x.kind !== 'positioning') break;
+    if (x.status !== 'scheduled' || x.std <= g.now + SOFT_AFTER) return { ...view, ok: false, reason: `The empty ${x.from}–${x.to} flight to this trip ${x.status === 'scheduled' ? `leaves in ${fmtDuration(Math.max(0, x.std - g.now))}` : 'has left'}: too late to change aircraft` };
+  }
   return view;
 }
 
@@ -470,6 +478,9 @@ function applyPlan(h: GameState, plan: Plan): boolean {
     if (plan.shift) f.delayReason = `Moved to ${plan.tgt.reg}`;
   }
   reassignFlights(h, legs.map((f) => f.id), plan.tgt.id);
+  // v0.7.2.2: a check's ferry that left from the end of the trip now leaves from where each aircraft really is.
+  relinkCheckFerries(h, plan.src.id);
+  relinkCheckFerries(h, plan.tgt.id);
   // Empty legs relinked for both aircraft (the target flies in as late as it can, a long wait spent at home), crew
   // re-synced and new legs rostered: the same settle every action gets…
   settle(h);
@@ -567,8 +578,11 @@ function fullQuote(g: GameState, plan: Plan, q: TripMoveQuote): void {
   const turn = typeOf(tgt.typeId).turnMin;
 
   // Refusals only the copy shows: legs that would have to move, a ferry that can't make it.
+  const checkFerry = new Set(Object.values(g.maintenance).filter((m) => m.status === 'planned' && (m.aircraftId === src.id || m.aircraftId === tgt.id)).flatMap((m) => m.ferryIds ?? []));
   for (const f of Object.values(g.flights)) {
     if (ids.has(f.id) || f.status !== 'scheduled' || !f.aircraftId || f.kind === 'positioning' || f.kind === 'deadhead') continue;
+    // A check's ferry out of the two aircraft is re-planned from where they now are (shown with the empty legs).
+    if (f.kind === 'ferry' && (f.aircraftId === src.id || f.aircraftId === tgt.id) && checkFerry.has(f.id)) continue;
     const x = h.flights[f.id];
     if (!x || x.status === 'cancelled' || x.aircraftId !== f.aircraftId || x.std !== f.std) {
       const ac = g.fleet[f.aircraftId];

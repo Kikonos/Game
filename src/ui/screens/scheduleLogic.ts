@@ -286,3 +286,19 @@ export function pressFlight(g: GameState, blocks: GanttBlock[], t: Minute, ppm: 
   ids.sort((a, b) => Math.abs(mid(g.flights[a]) - t) - Math.abs(mid(g.flights[b]) - t) || (a < b ? -1 : 1));
   return ids[0] ?? null;
 }
+
+/**
+ * v0.7.2.2 check planning: the booked A-check, C-check or cabin refit a long press at minute `t` picks up to drag
+ * along its row: the maintenance block nearest the finger (within the tap slop), when nothing else is nearer. Null
+ * otherwise (paint, AOG, a lease return, or a flight closer to the finger).
+ */
+export function pressMaint(g: GameState, blocks: GanttBlock[], t: Minute, ppm: number): string | null {
+  const hit = pickBlocks(blocks, t, ppm)[0];
+  if (!hit || hit.block.kind !== 'maint') return null;
+  const ref = hit.block.refs.find((r) => r.kind === 'maint');
+  const m = ref ? g.maintenance[ref.id] : undefined;
+  return m && (m.kind === 'A' || m.kind === 'C' || m.kind === 'refit') ? m.id : null;
+}
+
+/** v0.7.2.2: where a dragged booking would start: the finger's minute less where it was grabbed, snapped (30 min). */
+export const dragStart = (t: Minute, grab: number, snap = 30): Minute => Math.round((t - grab) / snap) * snap;

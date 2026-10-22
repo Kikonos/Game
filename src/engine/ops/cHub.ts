@@ -63,12 +63,13 @@ function windowAt(g: GameState, ac: Aircraft, hub: string, at: string, start: Mi
 }
 
 /** Earliest check starts at a hub whose window holds ferry out + check + ferry home (one a week in a long gap). Pure. */
-export function cCheckSlots(g: GameState, aircraftId: string, hub: string, n = 6): Minute[] {
+export function cCheckSlots(g: GameState, aircraftId: string, hub: string, n = 6, after = 0): Minute[] {
   const ac = g.fleet[aircraftId];
   if (!ac || !cHubAt(typeOf(ac.typeId).family, hub)) return [];
   const out: Minute[] = [];
   const turn = typeOf(ac.typeId).turnMin;
-  for (const gp of groundGaps(g, ac, g.now + BAL.ferryLeadMin, g.now + 365 * DAY)) {
+  // v0.7.2.2 `after`: windows from an idle gap's start (Schedule gap panel).
+  for (const gp of groundGaps(g, ac, Math.max(g.now + BAL.ferryLeadMin, after), Math.max(g.now, after) + 365 * DAY)) {
     const o = ferryLegs(ac, gp.at, hub, 0);
     if (!o) continue;
     let start = up(Math.max(gp.from, g.now + BAL.ferryLeadMin) + turn + span(o) + turn + 30);
@@ -130,7 +131,7 @@ export function cCheckOptions(g: GameState, aircraftId: string, start?: Minute):
  * Books the C-check at a hub: ferry out, check, ferry home (crewed by the auto-roster, pilots on airline tickets).
  * `forced`: the overdue path (grounded), allowed on a sold or returning aircraft.
  */
-export function bookCCheck(g: GameState, aircraftId: string, hub: string, start: Minute, forced = false): ActionResult<{ maintId: string }> {
+export function bookCCheck(g: GameState, aircraftId: string, hub: string, start: Minute, forced = false, quiet = false): ActionResult<{ maintId: string }> {
   const ac = g.fleet[aircraftId];
   if (!ac) return { ok: false, error: 'Aircraft not found' };
   const leaving = forced ? null : disposalWhy(g, ac);
@@ -160,7 +161,8 @@ export function bookCCheck(g: GameState, aircraftId: string, hub: string, start:
   const out = (m.ferryIds ?? []).map((id) => g.flights[id]).filter((f): f is Flight => !!f);
   const opt = cCheckOptions(g, ac.id, m.start).find((o) => o.hub.code === hub);
   const all = m.cost + (opt ? opt.ferryCost + opt.crewCost : 0);
-  pushMessage(g, {
+  // v0.7.2.2 a check moved along the timeline: the caller posts one 'moved' message.
+  if (!quiet) pushMessage(g, {
     tone: 'info', cat: 'tech', title: `C-check booked: ${ac.reg} at ${h.name}`,
     body: `${h.name}, ${h.city}: ${fmtDay(m.start)}–${fmtDay(m.end)}.${out.length ? ` Ferry out ${fmtDay(out[0].std)} ${out[0].from}–${out[out.length - 1].to},` : ''} home ${legs.length ? fmtDay(legs[0].std) : fmtDay(m.end)}; the pilots fly home and back on airline flights. About ${usd(all)} all in.`,
     ref: { kind: 'maint', id: m.id },

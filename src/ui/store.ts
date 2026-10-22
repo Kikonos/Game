@@ -78,7 +78,7 @@ export type ModalSpec =
   | { kind: 'decision'; decisionId: string }
   | { kind: 'hire'; role?: Role; family?: RatingFamily; base?: string }
   | { kind: 'train'; crewId: string }
-  | { kind: 'check'; aircraftId: string; checkKind?: 'A' | 'C'; replace?: string }
+  | { kind: 'check'; aircraftId: string; checkKind?: 'A' | 'C'; replace?: string; /** v0.7.2.2 from an idle gap: the slot to offer first (A: start and airport; C: windows from `after` at this hub). */ suggest?: { start: number; at: string }; after?: number }
   /** B5: Schedule detail sheet for the blocks near a tap (flights, maintenance) or an idle gap. */
   | { kind: 'sheet'; refs: Ref[]; idle?: { aircraftId: string; from: number; to: number; at: string } }
   /** Manual roster adjustment for a duty's trip (duty id or flight id). */
@@ -92,7 +92,7 @@ export type ModalSpec =
   | { kind: 'classes' }
   /** v0.7: sign a market offer; cabin refit; lease extend/return; an approval on the ladder; the ladder-step celebration. */
   | { kind: 'acquire'; offerId: string }
-  | { kind: 'refit'; aircraftId: string; layout?: CabinLayout; /** back to this offer when done */ offerId?: string; /** v0.7.2 open on crew rest seats */ rest?: boolean }
+  | { kind: 'refit'; aircraftId: string; layout?: CabinLayout; /** back to this offer when done */ offerId?: string; /** v0.7.2 open on crew rest seats */ rest?: boolean; /** v0.7.2.2 from an idle gap: windows from this time */ after?: number }
   | { kind: 'lease'; aircraftId: string; /** v0.7.2 'early': the early-return tab */ tab?: 'renew' | 'early' }
   /** v0.7.2: sell an owned aircraft (quote, blockers, confirm; cancel an agreed sale). */
   | { kind: 'sell'; aircraftId: string }
@@ -104,7 +104,9 @@ export type ModalSpec =
   | { kind: 'problem'; subject: ProblemRef; hint?: boolean }
   | { kind: 'glossary'; term?: TermId }
   /** v0.7.2.1 trip swap: confirm moving the trip of a flight to another aircraft (money before / after). */
-  | { kind: 'tripMove'; flightId: string; targetId: string };
+  | { kind: 'tripMove'; flightId: string; targetId: string }
+  /** v0.7.2.2 check planning: confirm moving a booked A/C-check or refit along its aircraft's timeline. */
+  | { kind: 'maintMove'; maintId: string; start: number };
 
 export interface Toast {
   id: number;
@@ -222,6 +224,9 @@ class GameStore {
   }
 
   private afterLoad() {
+    // v0.7.2.2: the normal re-plan (the same settle the first clock tick runs) before the first look, so empty legs
+    // left behind by an older version (a moved trip's ferries) are already cleaned up when the Schedule opens.
+    if (this.game && !this.game.gameOver) settle(this.game);
     prepareAsyncSave();
     this.savedNow = -1;
     this.savedMark = '';

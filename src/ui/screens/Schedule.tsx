@@ -7,7 +7,7 @@ import { CalendarRange, Crosshair } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flightsRev } from '../../engine/core/entities';
 import { typeOf } from '../../engine/core/perf';
-import { DAY, localOffset } from '../../engine/core/time';
+import { DAY, fmtDay, fmtTime, localOffset } from '../../engine/core/time';
 import type { Aircraft, GameState } from '../../engine/core/types';
 import { TailBadge } from '../components/Logo';
 import { ColourLegend } from '../components/ColourLegend';
@@ -17,9 +17,10 @@ import { liveMinute, store, useGame } from '../store';
 import { Dot, ScreenHead, useRenderCount } from './common';
 import { contractColor } from './palette';
 import {
-  axisTicks, chooseHits, idleAt, pickBlocks, ppmOf, pressFlight, rowBlocks, timelineSpan, visibleWindow, type GanttBlock, type ZoomDays,
+  axisTicks, chooseHits, dragStart, idleAt, pickBlocks, ppmOf, pressFlight, pressMaint, rowBlocks, timelineSpan, visibleWindow, type GanttBlock, type ZoomDays,
 } from './scheduleLogic';
 import { quoteTripMove, tripOf, type TripMoveQuote, type TripView } from '../../engine/ops/tripMove';
+import { checkMaintMove, maintWord, movableMaint, type MaintMoveCheck } from '../../engine/ops/maintMove';
 
 const ZOOMS: ZoomDays[] = [3, 7, 28];
 const STATUS_TONE: Record<Aircraft['status'], 'good' | 'warn' | 'bad' | 'info' | 'off'> = {
@@ -51,6 +52,8 @@ let dragEndedAt = 0;
 
 interface TripDrag {
   phase: 'press' | 'drag';
+  /** v0.7.2.2 'maint': a booked check or refit dragged along its own row (sideways only). */
+  mode: 'trip' | 'maint';
   touch: boolean;
   x0: number;
   y0: number;
@@ -64,6 +67,16 @@ interface TripDrag {
   bubble?: HTMLDivElement;
   hover: string | null;
   quotes: Map<string, TripMoveQuote>;
+  /** Maint drag: the booking, the minutes between where it was grabbed and its start, the candidate start and its check. */
+  maintId?: string;
+  grab?: number;
+  start?: number;
+  check?: MaintMoveCheck;
+  checks?: Map<number, MaintMoveCheck>;
+  row?: HTMLElement;
+  /** Edge auto-scroll while dragging a booking: −1 / 0 / +1 and its timer. */
+  edge?: number;
+  edgeTimer?: number;
 }
 
 function Block({ b, from, ppm, win0 }: { b: GanttBlock; from: number; ppm: number; win0: number }) {
@@ -325,7 +338,56 @@ export function ScheduleScreen() {
       if (!q) d.quotes.set(id, (q = quoteTripMove(gg, d.flightId, id, { quick: true })));
       for (const r of rows(id)) r.classList.add('tm-hover', q.ok ? 'tm-ok' : 'tm-no');
     };
+    const placeMaint = (d: TripDrag) => {
+      const gh = d.ghost;
+      const row = d.row;
+      const { g: gg, from: f0, ppm: p } = liveRef.current;
+      const m = d.maintId ? gg.maintenance[d.maintId] : undefined;
+      if (!gh || !row || !m) return;
+      const rr = row.getBoundingClientRect();
+      const t = f0 + (d.x - rr.left) / p;
+      const start = dragStart(t, d.grab ?? 0);
+      const dur = m.end - m.start;
+      // Fixed on the page (never inside React's tree), clipped to the Gantt's visible width.
+      const sr0 = sc.getBoundingClientRect();
+      const x0 = rr.left + (start - f0) * p;
+      const x1 = Math.max(x0 + 3, x0 + dur * p);
+      const l = Math.max(sr0.left, x0);
+      const r = Math.min(sr0.right, x1);
+      gh.style.display = r - l > 1 ? '' : 'none';
+      gh.style.transform = `translate(${l.toFixed(1)}px, ${(rr.top + 8).toFixed(1)}px)`;
+      gh.style.width = `${Math.max(0, r - l).toFixed(1)}px`;
+      if (start !== d.start) {
+        d.start = start;
+        let c = d.checks!.get(start);
+        if (!c) d.checks!.set(start, (c = checkMaintMove(gg, m.id, start)));
+        d.check = c;
+        const same = start === m.start;
+        const tone = same ? '' : !c.ok ? 'no' : c.level === 'warn' ? 'amber' : 'ok';
+        gh.className = `mm-ghost ${tone}`;
+        const b = d.bubble;
+        if (b) {
+          const head = `${maintWord(m)[0].toUpperCase()}${maintWord(m).slice(1)} · ${fmtDay(start)} ${fmtTime(start)}${m.kind === 'refit' ? ` – ${fmtDay(start + dur)}` : ''}`;
+          const tail = same ? 'Slide it left or right along the row' : `${c.usageText}${c.usageText ? ' · ' : ''}${c.ok ? 'slot free' : c.reason}`;
+          b.replaceChildren(Object.assign(document.createElement('b'), { textContent: head }), Object.assign(document.createElement('span'), { textContent: tail }));
+          b.className = `tm-bubble mm-bubble ${tone}`;
+        }
+      }
+      const b = d.bubble;
+      if (b) {
+        const bw = b.offsetWidth || 260;
+        const r = row.getBoundingClientRect();
+        b.style.left = `${Math.round(Math.min(Math.max(d.x, bw / 2 + 8), window.innerWidth - bw / 2 - 8))}px`;
+        // Above the row when there is room, so the finger never covers it.
+        const above = r.top - (b.offsetHeight || 48) - 10;
+        b.style.top = `${Math.round(above > 70 ? above : Math.min(r.bottom + 10, window.innerHeight - (b.offsetHeight || 48) - 6))}px`;
+      }
+      // Near the edge of the Gantt: scroll it along (the drag keeps its place under the finger).
+      const sr = sc.getBoundingClientRect();
+      d.edge = d.x < sr.left + 44 ? -1 : d.x > sr.right - 44 ? 1 : 0;
+    };
     const place = (d: TripDrag) => {
+      if (d.mode === 'maint') return placeMaint(d);
       const gh = d.ghost;
       if (gh) gh.style.transform = `translate(${Math.round(d.x - gh.offsetWidth / 2)}px, ${Math.round(d.y - 58)}px)`;
       const hit = document.elementFromPoint(d.x, d.y)?.closest<HTMLElement>('[data-ac]');
@@ -340,7 +402,40 @@ export function ScheduleScreen() {
       b.style.left = `${Math.round(Math.min(Math.max(d.x, bw / 2 + 8), window.innerWidth - bw / 2 - 8))}px`;
       b.style.top = `${Math.round(Math.min(d.y + 30, window.innerHeight - (b.offsetHeight || 34) - 6))}px`;
     };
+    const pickupMaint = (d: TripDrag) => {
+      const gg = liveRef.current.g;
+      const m = d.maintId ? gg.maintenance[d.maintId] : undefined;
+      const mv = d.maintId ? movableMaint(gg, d.maintId) : { ok: false, reason: 'Not found' };
+      const row = rows(d.sourceId).find((r) => r.classList.contains('gantt-row'));
+      if (!m || !mv.ok || !row) {
+        dragRef.current = null;
+        dragEndedAt = performance.now();
+        store.toast('warn', `This ${m ? maintWord(m) : 'booking'} can't move`, mv.reason ?? undefined);
+        return;
+      }
+      d.phase = 'drag';
+      d.row = row;
+      d.checks = new Map();
+      store.holdTime = true;
+      el.classList.add('tm-drag', 'mm-drag');
+      for (const b of el.querySelectorAll<HTMLElement>(`.gb[data-k="${CSS.escape(m.id)}"]`)) b.classList.add('gb-picked', 'mm-from');
+      for (const r of rows(d.sourceId)) r.classList.add('tm-src');
+      const ghost = document.createElement('div');
+      ghost.className = 'mm-ghost';
+      const bubble = document.createElement('div');
+      bubble.className = 'tm-bubble mm-bubble';
+      document.body.append(ghost, bubble);
+      d.ghost = ghost;
+      d.bubble = bubble;
+      d.edgeTimer = window.setInterval(() => {
+        if (!d.edge || dragRef.current !== d) return;
+        sc.scrollLeft += d.edge * 10;
+        placeMaint(d);
+      }, 30);
+      placeMaint(d);
+    };
     const pickup = (d: TripDrag) => {
+      if (d.mode === 'maint') return pickupMaint(d);
       const gg = liveRef.current.g;
       const trip = tripOf(gg, d.flightId);
       if (!trip.ok) {
@@ -372,13 +467,22 @@ export function ScheduleScreen() {
       dragRef.current = null;
       if (!d) return;
       window.clearTimeout(d.timer);
+      if (d.edgeTimer) window.clearInterval(d.edgeTimer);
       if (d.phase !== 'drag') return;
       store.holdTime = false;
       dragEndedAt = performance.now();
       d.ghost?.remove();
       d.bubble?.remove();
-      el.classList.remove('tm-drag');
-      for (const x of el.querySelectorAll('.gb-picked')) x.classList.remove('gb-picked');
+      el.classList.remove('tm-drag', 'mm-drag');
+      for (const x of el.querySelectorAll('.gb-picked')) x.classList.remove('gb-picked', 'mm-from');
+      if (d.mode === 'maint') {
+        for (const x of el.querySelectorAll('.tm-src')) x.classList.remove('tm-src');
+        const m = d.maintId ? liveRef.current.g.maintenance[d.maintId] : undefined;
+        if (!drop || !m || d.start === undefined || d.start === m.start) return;
+        if (d.check?.ok) store.openModal({ kind: 'maintMove', maintId: m.id, start: d.start });
+        else store.toast('warn', `Can't move the ${maintWord(m)} there`, d.check?.reason ?? undefined);
+        return;
+      }
       for (const x of el.querySelectorAll('.tm-src, .tm-hover')) x.classList.remove('tm-src', 'tm-hover', 'tm-ok', 'tm-no');
       if (drop && d.hover && d.hover !== d.sourceId) store.openModal({ kind: 'tripMove', flightId: d.flightId, targetId: d.hover });
     };
@@ -388,9 +492,13 @@ export function ScheduleScreen() {
       if (!row || !acId) return null;
       const { g: gg, from: f0, to: t1, ppm: p, win: w, zoom: z } = liveRef.current;
       const t = f0 + (x - row.getBoundingClientRect().left) / p;
-      const id = pressFlight(gg, rowBlocks(gg, acId, w[0], w[1], { pills: z === 28, until: t1 }), t, p);
+      const blocks = rowBlocks(gg, acId, w[0], w[1], { pills: z === 28, until: t1 });
+      // v0.7.2.2: a booked check or refit slides along its own row.
+      const mid = pressMaint(gg, blocks, t, p);
+      if (mid) return { phase: 'press', mode: 'maint', touch, x0: x, y0: y, x, y, flightId: '', sourceId: acId, timer: 0, hover: null, quotes: new Map(), maintId: mid, grab: t - gg.maintenance[mid].start };
+      const id = pressFlight(gg, blocks, t, p);
       if (!id) return null;
-      return { phase: 'press', touch, x0: x, y0: y, x, y, flightId: id, sourceId: acId, timer: 0, hover: null, quotes: new Map() };
+      return { phase: 'press', mode: 'trip', touch, x0: x, y0: y, x, y, flightId: id, sourceId: acId, timer: 0, hover: null, quotes: new Map() };
     };
     const arm = (d: TripDrag) => {
       d.timer = window.setTimeout(() => {
@@ -500,7 +608,7 @@ export function ScheduleScreen() {
   const ticks = axisTicks(win[0], win[1], zoom);
   return (
     <div className="screen sc-schedule">
-      <ScreenHead title="Schedule" sub={<>Times in UTC · {base} local is {offLabel} · tap a flight for details · hold and drag it to move the trip · pinch to zoom</>}>
+      <ScreenHead title="Schedule" sub={<>Times in UTC · {base} local is {offLabel} · tap a flight for details · hold and drag it to move the trip, or a check or refit to move it along its row · pinch to zoom</>}>
         <button className="btn" onClick={() => scrollTo(g.now)}><Crosshair /> Today</button>
         <Seg<ZoomDays> value={zoom} onChange={setZoom} options={ZOOMS.map((z) => ({ value: z, label: `${z} days` }))} />
         <ColourLegend title="Schedule colours" items={[

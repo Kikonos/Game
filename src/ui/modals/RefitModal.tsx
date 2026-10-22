@@ -66,7 +66,7 @@ export function whenLabel(now: Minute, t: Minute): string {
 
 type Mode = 'cabin' | 'rest';
 
-export function RefitModal({ aircraftId, layout, offerId, rest }: { aircraftId: string; layout?: CabinLayout; offerId?: string; rest?: boolean }) {
+export function RefitModal({ aircraftId, layout, offerId, rest, after }: { aircraftId: string; layout?: CabinLayout; offerId?: string; rest?: boolean; /** v0.7.2.2 from an idle gap: windows from here */ after?: number }) {
   const g = useGame();
   const ac = g.fleet[aircraftId];
   const t = ac ? typeOf(ac.typeId) : null;
@@ -82,7 +82,7 @@ export function RefitModal({ aircraftId, layout, offerId, rest }: { aircraftId: 
   const fit = !(cr.seats > 0);
   const key = mode === 'rest' ? REST_SEATS : label;
   const nMaint = Object.keys(g.maintenance).length;
-  const plan = useMemo(() => refitSlots(g, aircraftId, key, SLOTS), [g, aircraftId, key, rev, g.now, nMaint]); // eslint-disable-line react-hooks/exhaustive-deps
+  const plan = useMemo(() => refitSlots(g, aircraftId, key, SLOTS, after ?? 0), [g, aircraftId, key, rev, g.now, nMaint, after]); // eslint-disable-line react-hooks/exhaustive-deps
   const quoteAt = (s: Minute): RefitQuote => (mode === 'rest' ? restSeatsQuote(g, aircraftId, fit, s) : refitQuote(g, aircraftId, label, station, s));
   // Custom days (the grid behind 'Another day…'), quoted on demand.
   const days = useMemo(() => {
