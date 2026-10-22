@@ -313,7 +313,8 @@ function queueAlert(g: GameState): void {
 }
 
 function onCrewAlert(g: GameState): void {
-  escalateShortages(g);
+  // The hourly check re-rosters a freshly short aircraft before warning (a roster not yet run is not a shortage).
+  escalateShortages(g, { reroster: true });
   schedule(g, Math.floor(g.now / 60) * 60 + 60, 'crew.alert', '');
 }
 

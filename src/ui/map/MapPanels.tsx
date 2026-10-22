@@ -18,7 +18,7 @@ import { flightsOf } from '../../engine/core/entities';
 import { currentFlight, flightTimes } from '../../engine/core/query';
 import { DAY, fmtDay, fmtDuration, fmtTime, localOffset } from '../../engine/core/time';
 import type { Aircraft, CrewMember, Flight, GameState, MaintenanceEvent, ProblemRef, Ref } from '../../engine/core/types';
-import { crewName, crewShortCard, dutyCrew, flightCrewStatus } from '../../engine/crew';
+import { crewName, crewShortCard, dutyCrew, flightCrewStatus, seatsText } from '../../engine/crew';
 import { checkStatus, CONNECT_MIN, commercialItinerary, deliveryStatus, FLIGHT_TYPE_HINT, FLIGHT_TYPE_LABEL, flightCrewAboard, type FlightType, flightType, liveryOf, problemAt, ticketPurpose } from '../../engine/ops';
 import { ferryCost } from '../../engine/ops/delivery';
 import { AircraftArt } from '../components/AircraftArt';
@@ -46,6 +46,13 @@ export function openProblem(g: GameState, ref: Ref): boolean {
   store.openModal({ kind: 'problem', subject: card.subject as ProblemRef } as unknown as ModalSpec);
   return true;
 }
+
+/** Missing seats in player words ('1 captain and 2 cabin crew'): roles counted in seat order. */
+const SEAT_ORDER = ['CPT', 'FO', 'CRP', 'CSD', 'SCC', 'CC'] as const;
+const groupSeats = (roles: CrewMember['role'][]) => SEAT_ORDER.flatMap((role) => {
+  const n = roles.filter((r) => r === role).length;
+  return n ? [{ role, n }] : [];
+});
 
 /** The CREW SHORTAGE banner (static, upper-case mono) for a ladder stage. */
 export const ShortBanner = ({ stage, small }: { stage: 'amber' | 'red'; small?: boolean }) => (
@@ -419,7 +426,7 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
         ) : (
           <div className="small muted">{crewFlight ? 'No crew rostered yet.' : 'No flights planned.'}</div>
         )}
-        {cstat && !later && cstat.missing.length > 0 && <div className="small tone-bad op-gap">Missing: {cstat.missing.join(', ')}</div>}
+        {cstat && !later && cstat.missing.length > 0 && <div className="small tone-bad op-gap">Missing: {seatsText(groupSeats(cstat.missing))}</div>}
         {riders.length > 0 && (
           <>
             <div className="small muted op-gap">Riding as passengers</div>

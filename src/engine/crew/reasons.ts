@@ -40,7 +40,7 @@ function statusCode(c: CrewMember, from: Minute, to: Minute): { code: ReasonCode
  * The one reason a crew member can't (or barely can) take pairing p, from their legality issues (FDP issues are the
  * duty's own and ignored). Null when nothing is wrong. Pure.
  */
-export function rootReason(g: GameState, issues: LegalityIssue[], c: CrewMember, p?: Pairing): Reason | null {
+export function rootReason(g: GameState, issues: LegalityIssue[], c: CrewMember, p?: Pairing, subjectNo?: string): Reason | null {
   const bad = issues.filter((i) => i.code !== 'fdp' && i.level !== 'legal');
   const fdp = issues.find((i) => i.code === 'fdp' && i.level !== 'legal');
   if (!bad.length && !fdp) return null;
@@ -56,7 +56,13 @@ export function rootReason(g: GameState, issues: LegalityIssue[], c: CrewMember,
     const qd = q ? openDuties(g, q) : [];
     const f = qd.length ? g.flights[qd[0].flightIds[0]] : undefined;
     const end = qd.length ? qd[qd.length - 1].release : undefined;
-    set('busy', f ? `busy on ${f.no} to ${city(f.to)} until ${end !== undefined ? at(end, g.now) : fmtDay(q!.end)}` : `busy on another ${q?.tour ? 'tour' : 'trip'}${end !== undefined ? ` until ${at(end, g.now)}` : ''}`, end);
+    // Flight numbers repeat day by day: another day's leg is dated, and a leg with the subject's own number is
+    // called "another day's", so nobody reads "busy on the flight he is missing from".
+    const subject = p ? g.flights[openDuties(g, p)[0]?.flightIds[0] ?? '']?.no : undefined;
+    const sameNo = !!f && f.no === (subjectNo ?? subject);
+    const today = !!f && Math.floor(f.std / DAY) === Math.floor(g.now / DAY);
+    const which = f ? `${sameNo ? "another day's " : ''}${f.no} to ${city(f.to)}${!today && !sameNo ? ` on ${fmtDay(f.std)}` : ''}` : '';
+    set('busy', f ? `busy on ${which} until ${end !== undefined ? at(end, g.now) : fmtDay(q!.end)}` : `busy on another ${q?.tour ? 'tour' : 'trip'}${end !== undefined ? ` until ${at(end, g.now)}` : ''}`, end);
   }
   if (has('status')) {
     const s = statusCode(c, from, to);

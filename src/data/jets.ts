@@ -13,11 +13,12 @@ export interface JetOperator {
 
 export const JETS: Record<JetClass, { types: string[]; operators: JetOperator[] }> = {
   light: {
-    types: ['Citation CJ3+', 'Phenom 300E', 'Citation M2'],
+    // Jetfly flies Pilatus; a very light Citation M2 would not seat a crew of six with bags.
+    types: ['Citation CJ3+', 'Phenom 300E', 'Pilatus PC-24'],
     operators: [
       { name: 'GlobeAir', country: 'AT', prefix: 'OE-' },
       { name: 'Jetfly', country: 'LU', prefix: 'LX-' },
-      { name: 'Luxaviation', country: 'LU', prefix: 'LX-' },
+      { name: 'ASL Group', country: 'BE', prefix: 'OO-' },
     ],
   },
   midsize: {

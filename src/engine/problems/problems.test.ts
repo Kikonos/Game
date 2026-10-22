@@ -4,12 +4,15 @@
 
 import { describe, expect, it } from 'vitest';
 import { generateOffer } from '../contracts';
+import { BAL } from '../core/balance';
 import { addFlight } from '../core/entities';
+import { blockMinutes } from '../core/perf';
 import { DAY } from '../core/time';
 import type { GameState, Receivable } from '../core/types';
-import { fixtureGame } from '../crew/fixtures';
+import { addCrew, fixtureContract, fixtureGame } from '../crew/fixtures';
 import { devCrewShortage, demoFlights } from '../dev';
-import { autoRoster } from '../crew';
+import { autoRoster, crewControl, crewShortCard } from '../crew';
+import { releaseCrew, setFlightsCrew } from '../crew/roster';
 import { startAog } from '../ops/maintenance';
 import { advanceTo } from '../sim';
 import { hurtBadges, mkHurt, postProblem, problemAt, problemFor, problems } from '.';
@@ -35,6 +38,52 @@ describe('hurt', () => {
     expect(mkHurt({ empty: true, delayMin: 180, what: 'penalty' })).toMatchObject({ level: 'none', text: 'Not much: empty flight, ~3 h late, no penalty' });
     expect(mkHurt({ money: 9_000, pax: 50, what: 'penalty' }).level).toBe('low');
     expect(mkHurt({ money: 42_000, pax: 180, what: 'penalty' })).toMatchObject({ level: 'high', text: 'Yes: 180 passengers, $42K penalty' });
+  });
+});
+
+describe('crew WHY (v0.7.1 fixes 4 and 16)', () => {
+  it('a flight without a duty says so and points at Auto-fix; the place sentence names only people away from the airport', () => {
+    const g = fixtureGame(11);
+    const acId = Object.keys(g.fleet)[0];
+    const ac = g.fleet[acId];
+    ac.at = 'DUS';
+    const std = Math.floor(g.now / DAY) * DAY + 2 * DAY + 17 * 60;
+    const b = blockMinutes(ac.typeId, 'DUS', 'FNC');
+    const k = fixtureContract(g, { pattern: { kind: 'legs', legs: [] }, aircraftIds: [acId], start: std - DAY, end: std + 2 * DAY, product: { kind: 'charter', price: 120_000, depositPct: 0.3, balanceDaysBefore: 7, fuelEscalation: false }, penalties: { cancelScale: [], perDelay: 2_500, perCancelledLeg: 15_000 } });
+    const f1 = addFlight(g, { no: 'AW816', aircraftId: acId, contractId: k.id, kind: 'revenue', from: 'DUS', to: 'FNC', std, sta: std + b, pax: 170 });
+    addFlight(g, { no: 'AW817', aircraftId: acId, contractId: k.id, kind: 'revenue', from: 'FNC', to: 'DUS', std: std + b + 50, sta: std + 2 * b + 50, pax: 160 });
+    addCrew(g, { CPT: 2, FO: 2, SCC: 1, CC: 3 });
+    // No duty yet: the card says so instead of 'nobody is free'.
+    const none = crewShortCard(g, f1.id)!;
+    expect(none).not.toBeNull();
+    expect(none.why).toBe(`AW816 has no crew plan yet: the roster plans ${BAL.rosterHorizonDays} days ahead; Auto-fix plans it now.`);
+    const v = crewControl(g, f1.id)!;
+    const auto = v.solutions.find((x) => x.id === 'autoFix')!;
+    expect(auto.available).toBe(true);
+    expect(auto.rank).toBe(1);
+    expect(auto.preview.after.level).toBe('ok');
+    // Rostered, short of a captain 2 h before report; a second captain sits at DUS resting: the sentence names
+    // Lisbon alone, the mini-map lists nobody at the airport and the bar carries the ticket.
+    autoRoster(g);
+    const d = g.duties[g.flights[f1.id].dutyId!];
+    const p = g.pairings[d.pairingId];
+    const was = p.slots.find((x) => x.role === 'CPT' && x.crewId)!.crewId!;
+    releaseCrew(g, p, was);
+    setFlightsCrew(g, p);
+    g.now = d.report - 2 * 60;
+    const other = Object.values(g.crew).find((c) => c.role === 'CPT' && c.id !== was)!;
+    other.loc = 'DUS';
+    other.status = 'resting';
+    other.restUntil = d.report + 3 * 60;
+    other.log.push({ start: d.report - 14 * 60, end: d.report - 8 * 60, fdp: 6 * 60, block: 300, sectors: 2, augmented: false, disruptive: false });
+    for (const c of Object.values(g.crew)) if (c.role === 'CPT' && c.id !== was && c.id !== other.id) { c.blocks = [{ from: g.now - DAY, to: g.now + 10 * DAY, why: 'leave' }]; c.status = 'leave'; }
+    const card = crewShortCard(g, f1.id)!;
+    expect(card.why).toMatch(/^Your free captains are in Lisbon and the earliest they can land in Düsseldorf is/);
+    expect(card.why).not.toMatch(/Düsseldorf and|and Düsseldorf/);
+    expect(card.visuals.minimap!.crew.every((c) => c.at !== 'DUS')).toBe(true);
+    expect(card.visuals.reach!.legs.length).toBeGreaterThan(0);
+    expect(card.details.some((l) => /legal, free|legal, close to a limit|resting until|landing .* at the earliest/.test(l))).toBe(true);
+    expect(card.details.some((l) => /: $/.test(l))).toBe(false);
   });
 });
 
@@ -71,6 +120,10 @@ describe('cards', () => {
     ac.at = f.from;
     startAog(g, ac, f);
     const a = problemFor(g, { kind: 'aog', ref: { kind: 'aircraft', id: ac.id } })!;
+    // The WHY names how it is being fixed (the decision, else what the fault needs), never 'part by courier' for a tyre.
+    expect(a.why).toMatch(/^Repair about .+ \((waiting for your decision|local repair|part by courier|an AOG team flies in|local fix with the fly-away kit)\); back /);
+    const m = g.maintenance[ac.maintId!];
+    if (/tyre|brake|bird|tug/i.test(m.cause ?? '') && !g.decisions.some((d) => d.kind === 'aog')) expect(a.why).toContain('(local repair)');
     expect(a).not.toBeNull();
     expect(a.what).toMatch(new RegExp(`^${ac.reg} can't fly: `));
     expect(a.why).toMatch(/^Repair about /);

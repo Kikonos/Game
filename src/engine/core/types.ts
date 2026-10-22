@@ -809,6 +809,8 @@ export interface MaintenanceEvent {
   refit?: { cabin: Cabin };
   /** v0.7 lease return check: the aircraft leaves the fleet at the end. */
   leaseReturn?: boolean;
+  /** v0.7.1 AOG: how it is being fixed once decided (the card's WHY); undefined while the decision is open or in old saves. */
+  fix?: 'local' | 'courier' | 'team';
 }
 
 // ======================================================================

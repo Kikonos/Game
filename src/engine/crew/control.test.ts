@@ -238,7 +238,7 @@ describe('previews and apply', () => {
     expect(delay.confirm).toBe(true);
     // The delay is the roster's own answer: the preview ends crewed, with the ticket that lands the captain.
     expect(delay.preview.after.level).toBe('ok');
-    expect(delay.preview.changes[0]).toMatch(/^AW816 leaves .+ \(\+\dh \d\dm\)$/);
+    expect(delay.preview.changes[0]).toMatch(/^AW816 leaves .+ \(\+\d+h \d\dm\)$/);
     expect(delay.preview.changes.some((c) => /takes the captain seat \(deadhead/.test(c))).toBe(true);
     expect(delay.rank).toBe(1);
     // Only the return leg is still far enough out for a rival to position: handing that one over would not crew
@@ -281,7 +281,7 @@ describe('previews and apply', () => {
     expect(r.ok).toBe(true);
     expect(g.flights[flightId].std).toBe(delay.newDeparture);
     expect(flightCrewStatus(g, flightId).level).not.toBe('missing');
-    expect(r.data!.changes).toEqual(delay.preview.changes);
+    if (r.ok) expect(r.data!.changes).toEqual(delay.preview.changes);
     // Nobody at all within two days: the row says so instead of 'use Auto-fix'.
     const t = shortOfCaptain('DUS', 'FNC', 1);
     for (const c of Object.values(t.g.crew)) if (c.role === 'CPT') { c.blocks = [{ from: t.g.now - DAY, to: t.g.now + 10 * DAY, why: 'leave' }]; c.status = 'leave'; }
@@ -352,14 +352,19 @@ describe('private jets', () => {
     // The jet lands before the report: no delay; it ranks below the airline ticket (dearer).
     expect(jet.newDeparture).toBeNull();
     expect(jet.rank).toBeGreaterThan(v.solutions.find((x) => x.id === 'deadhead')!.rank);
-    // A long duty: the ride would make the day too long, so the row offers the jet with a night's rest on arrival.
+    // A long duty: the ride would make the day too long. Jet + a night's rest would leave no sooner than an airline
+    // ticket with the same rest, so the row points at Delay (which ends crewed the next morning).
     const long = shortOfCaptain('DUS', 'FNC', 6);
     for (const c of Object.values(long.g.crew)) if (c.role === 'CPT' && c.id !== long.was) { c.blocks = [{ from: long.g.now - DAY, to: long.g.now + 10 * DAY, why: 'leave' }]; c.status = 'leave'; }
-    const lj = crewControl(long.g, long.flightId)!.solutions.find((x) => x.id === 'jet')!;
-    expect(lj.available, lj.why).toBe(true);
-    expect(lj.consequences[0]).toMatch(/^The crew rest a night after landing: the flight leaves /);
-    expect(lj.newDeparture).toBeGreaterThan(long.g.flights[long.flightId].std + 9 * 60);
-    expect(lj.preview.after.level).toBe('ok');
+    const lv = crewControl(long.g, long.flightId)!;
+    const lj = lv.solutions.find((x) => x.id === 'jet')!;
+    expect(lj.available).toBe(false);
+    expect(lj.why).toMatch(/use Delay until crew arrives/);
+    expect(lj.chips).toEqual([]);
+    const ld = lv.solutions.find((x) => x.id === 'delay')!;
+    expect(ld.available, ld.why).toBe(true);
+    expect(ld.preview.after.level).toBe('ok');
+    expect(ld.newDeparture! - long.g.flights[long.flightId].std).toBeGreaterThan(3 * 60);
     expect(jet.options!.map((o) => o.id)).toContain('light');
     expect(jet.chips.some((c) => /^lands /.test(c))).toBe(true);
     const r = charterJet(g, flightId, [was], 'midsize');
@@ -399,17 +404,22 @@ describe('private jets', () => {
     expect(flightCrewStatus(g, flightId).level).not.toBe('missing');
   });
 
-  it('applyCrewFix jet: refused when an airline ticket lands the crew as soon (that is Delay); applied, a jet is chartered', () => {
-    // DUS: a ticket from Lisbon lands the captain as early as any jet, so the jet row points at Delay.
+  it('applyCrewFix jet: a jet is chartered whenever the fix is applied (never an airline ticket under the jet label)', () => {
+    // DUS: a ticket from Lisbon lands the captain as early as any jet, so the jet ranks below Delay; applied all the
+    // same, it delays the flight for the jet and charters it (the preview's price is what is paid).
     const a = shortOfCaptain('DUS', 'LHR', 1);
     for (const c of Object.values(a.g.crew)) if (c.role === 'CPT' && c.id !== a.was) { c.blocks = [{ from: a.g.now - DAY, to: a.g.now + 10 * DAY, why: 'leave' }]; c.status = 'leave'; }
     const av = crewControl(a.g, a.flightId)!;
     const aj = av.solutions.find((x) => x.id === 'jet')!;
-    expect(aj.available).toBe(false);
-    expect(aj.why).toMatch(/use Delay until crew arrives/);
-    expect(aj.chips).toEqual([]);
-    expect(aj.cost).toBe(0);
-    expect(av.solutions.find((x) => x.id === 'delay')!.preview.after.level).toBe('ok');
+    expect(aj.available, aj.why).toBe(true);
+    expect(aj.rank).toBeGreaterThan(av.solutions.find((x) => x.id === 'delay')!.rank);
+    expect(aj.preview.after.level).toBe('ok');
+    expect(aj.preview.changes.some((c) => /private jet/.test(c))).toBe(true);
+    const ar = applyCrewFix(a.g, a.flightId, 'jet', { confirmed: true });
+    expect(ar.ok).toBe(true);
+    expect(Object.values(a.g.flights).some((f) => f.kind === 'deadhead' && f.charter && f.crewIds.includes(a.was))).toBe(true);
+    expect(a.g.finance.current.lines.crewJet).toBe(-aj.cost);
+    expect(a.g.stats.jets).toBe(1);
     // FNC: the airline day would run too long (a night's rest first); the jet's short ride gets the captain there today.
     const { g, flightId, was, d } = shortOfCaptain('FNC', 'LHR', 2);
     for (const c of Object.values(g.crew)) if (c.role === 'CPT' && c.id !== was) { c.blocks = [{ from: g.now - DAY, to: g.now + 10 * DAY, why: 'leave' }]; c.status = 'leave'; }
@@ -467,7 +477,9 @@ describe('the warning ladder', () => {
     expect(amber[0].tone).toBe('warn');
     expect(amber[0].problem).toEqual({ kind: 'crewShort', ref: { kind: 'flight', id: flightId } });
     expect(amber[0].hurt?.pax).toBe(330);
-    expect(g.stats.crewAmber).toBe(2);
+    // Both legs of the duty are marked at once (one event), counted once.
+    expect(g.flights[g.duties[d.id].flightIds[1]].crewAlert).toBe('amber');
+    expect(g.stats.crewAmber).toBe(1);
     // Still short at 11 h: red, one bad message with the sound topic, the pause.
     g.now = d.report - 10 * 60;
     escalateShortages(g);

@@ -2,8 +2,8 @@
 
 import { afterEach, describe, expect, it } from 'vitest';
 import { BAL } from '../core/balance';
-import { flightsOf, removeFlights } from '../core/entities';
-import { typeOf } from '../core/perf';
+import { addFlight, flightsOf, removeFlights } from '../core/entities';
+import { blockMinutes, typeOf } from '../core/perf';
 import { DAY, monthKey } from '../core/time';
 import type { Aircraft, Contract, Flight, GameState, LedgerCat, Minute } from '../core/types';
 import { acceptOffer } from '../contracts';
@@ -311,6 +311,31 @@ describe('AOG', () => {
     skip(g, out.std + 6 * 60);
     expect(out.status).not.toBe('scheduled');
     expect(g.stats.aogs ?? 0).toBe(0);
+  });
+
+  it('an AOG hold ripples a wave\'s return past a stale positioning leg the planner left between its legs (v0.7.1 fix 2)', () => {
+    calm();
+    const g = newGame(34);
+    const ac = owned(g);
+    removeFlights(g, live(g, ac).map((f) => f.id));
+    ac.at = 'FLR';
+    const turn = typeOf(ac.typeId).turnMin;
+    const t0 = g.now + 3 * 60;
+    const b = (a: string, c: string) => blockMinutes(ac.typeId, a, c);
+    const inbound = addFlight(g, { no: 'AT842', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'FLR', to: 'CMN', std: t0, sta: t0 + b('FLR', 'CMN'), pax: 150 });
+    const out = addFlight(g, { no: 'AT1102', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'CMN', to: 'VCE', std: t0 + 14 * 60, sta: t0 + 14 * 60 + b('CMN', 'VCE'), pax: 150 });
+    // The planner's soft leg against the AOG's maintenance node: FLR→CMN, departing between the wave's two legs.
+    const stale = addFlight(g, { no: 'AWL129', aircraftId: ac.id, contractId: null, kind: 'positioning', from: 'FLR', to: 'CMN', std: t0 + 14 * 60 + 20, sta: t0 + 14 * 60 + 20 + b('FLR', 'CMN') });
+    const back = addFlight(g, { no: 'AT1103', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'VCE', to: 'CMN', std: t0 + 18 * 60, sta: t0 + 18 * 60 + b('VCE', 'CMN'), pax: 150 });
+    const plan = planHold(g, ac, 'FLR', t0 + 14 * 60);
+    const moved = new Map(plan.moves.map((m) => [m.f.id, m.std]));
+    expect(moved.get(inbound.id)).toBe(t0 + 14 * 60);
+    const outStd = moved.get(out.id)!;
+    expect(outStd).toBeGreaterThanOrEqual(t0 + 14 * 60 + b('FLR', 'CMN') + turn);
+    // The return leg follows its outbound (it used to stay at its old time, reversing the chain).
+    expect(moved.get(back.id)).toBeGreaterThanOrEqual(outStd + b('CMN', 'VCE') + turn);
+    expect(plan.moves.some((m) => m.f.id === stale.id)).toBe(false);
+    expect(plan.cancels).toEqual([]);
   });
 
   it('waiting for the part keeps the legs within the fix window and drops base waves over the cap', () => {

@@ -14,6 +14,7 @@ import { chance, next, pick, range } from '../core/rng';
 import { DAY, fmtDuration, fmtTime } from '../core/time';
 import type { ActionResult, Aircraft, Flight, GameState, MaintenanceEvent, Message, MessageCat, Minute, SimEvent } from '../core/types';
 import { noteLostLegs } from '../contracts/billing';
+import { isSoft } from '../contracts/plan';
 import { applyDiscretion, boardCrew, crewIssuesFor, dropStraySpares, flightCrewStatus, guardDuty, rerosterFrom, setRestDelayHook } from '../crew';
 import { noteIncident } from './company';
 import { deliveryWaitDay } from './delivery';
@@ -169,6 +170,19 @@ const CHECK_SLIP = 2 * DAY;
 function recover(g: GameState, ac: Aircraft, legs: Flight[], at: string, ready: Minute, inbound: Flight | undefined, capped = true): HoldPlan {
   const turn = turnOf(ac);
   const plan: HoldPlan = { moves: [], cancels: [], checks: [], dropChecks: [] };
+  // v0.7.1: a soft positioning leg the planner booked against stale anchors (a held leg hides behind an AOG's
+  // maintenance node) can sit between a wave's out and back in departure order. Off the chain it is left to
+  // relinkPositioning, never allowed to break the ripple between the legs around it.
+  {
+    const kept: Flight[] = [];
+    let loc = at;
+    for (const x of legs) {
+      if (x.from !== loc && x.kind === 'positioning' && isSoft(g, x)) continue;
+      kept.push(x);
+      if (x.from === loc) loc = x.to;
+    }
+    legs = kept;
+  }
   const checks = legs.length ? plannedChecks(g, ac.id, legs[0].std) : [];
   let ci = 0;
   let loc = at;

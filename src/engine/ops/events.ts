@@ -181,9 +181,11 @@ function resolveAog(g: GameState, d: Decision, opt: string): ActionResult {
   const fix = () => m.end + 30;
   switch (opt) {
     case 'courier':
+      m.fix = 'courier';
       applyHold(g, planHold(g, ac, m.at, fix()), 'AOG: waiting for parts');
       return { ok: true, msg: `${ac.reg}: part on its way, back about ${fmtDateTime(m.end)}` };
     case 'team':
+      m.fix = 'team';
       setAogEnd(g, m, num(d.data, 'teamEnd'));
       m.cost += num(d.data, 'teamCost');
       applyHold(g, planHold(g, ac, m.at, fix()), 'AOG: engineering team');

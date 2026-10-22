@@ -43,10 +43,15 @@ export function aogCard(g: GameState, aircraftId: string): ProblemCard | null {
     spans: [{ from: m.start, to: m.end, label: 'Repair', tone: 'bad' }, ...rev.slice(0, 4).map((f) => ({ from: f.std, to: f.sta, label: f.no, tone: 'warn' as const }))],
   };
   const fault = (m.cause ?? 'a fault').toLowerCase().replace(/^technical: /, '');
+  // How it is being fixed: the decision taken, else the open decision, else what the fault itself needs (a tyre,
+  // brakes, a bird strike or tug damage are fixed on the spot; the rest wait for a part).
+  const local = /tyre|brake|bird|tug/i.test(m.cause ?? '');
+  const how = m.fix === 'team' ? 'an AOG team flies in' : m.fix === 'courier' ? 'part by courier' : m.fix === 'local' ? 'local fix with the fly-away kit'
+    : decision ? 'waiting for your decision' : local ? 'local repair' : 'part by courier';
   return {
     subject: { kind: 'aog', ref: { kind: 'aircraft', id: ac.id } }, severity: 'red',
     title: `${ac.reg} can't fly: ${fault} in ${city(m.at)}`, what: `${ac.reg} can't fly: ${fault} in ${city(m.at)}`,
-    why: `Repair about ${fmtDuration(Math.max(0, m.end - g.now))} (part by courier); back ${fmtDateTime(m.end)} UTC.`,
+    why: `Repair about ${fmtDuration(Math.max(0, m.end - g.now))} (${how}); back ${fmtDateTime(m.end)} UTC.`,
     hurt: mkHurt({ money, pax, legs: rev.length, what: 'at stake', empty: !rev.length }),
     actions: [
       ...(decision ? [{ id: 'decide', label: 'Decide', open: { modal: 'decision' as const, id: decision.id }, primary: true }] : []),

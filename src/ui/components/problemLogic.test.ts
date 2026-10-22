@@ -84,11 +84,12 @@ describe('v0.7.1 fix round 1: plain-language helpers', () => {
   it('measures the rest gauge now on the crew card, dropping the by once complete', () => {
     const spec = { id: 'rest' as const, label: 'Rest', value: 600, limit: 600, unit: 'hm' as const, text: '10:00 of 10:00', tone: 'good' as const, by: 150 };
     const resting = restNow(spec, 0);
-    expect(resting.text).toBe('7:30 of 10:00 by 02:30');
+    expect(resting.text).toBe('7:30 of 10:00');
+    expect(resting.by).toBe(150);
     expect(resting.tone).toBe('warn');
     expect(resting.value).toBe(450);
     expect(restNow(spec, 200)).toMatchObject({ text: '10:00 of 10:00', tone: 'good', by: undefined });
-    expect(restNow({ ...spec, value: 120, text: '2:00 of 10:00', tone: 'bad' }, 0)).toMatchObject({ text: '7:30 of 10:00 by 02:30', tone: 'warn' });
+    expect(restNow({ ...spec, value: 120, text: '2:00 of 10:00', tone: 'bad' }, 0)).toMatchObject({ text: '7:30 of 10:00', tone: 'warn', by: 150 });
     // a rest between two later duties has not started: left as planned
     expect(restNow({ ...spec, by: 2000 }, 0)).toMatchObject({ by: 2000, text: '10:00 of 10:00' });
     expect(restNow({ ...spec, id: 'fdp' }, 0).text).toBe('10:00 of 10:00');

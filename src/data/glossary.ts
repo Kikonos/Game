@@ -11,22 +11,25 @@ export interface GlossaryEntry {
   term: string;
   /** One line, player words. */
   short: string;
-  /** Where the term shows up (the Glossary screen's "Show me"): a UI tab and an optional view inside it. */
+  /** Where the term shows up (the Glossary screen's "Show me"): a UI tab and an optional view inside it (crew: 'board' | 'people'; VIEW_LABEL names it). */
   where?: { tab: 'map' | 'contracts' | 'schedule' | 'crew' | 'fleet' | 'finance' | 'company' | 'inbox'; view?: string };
 }
 
+/** Player words for a view id (the "Show me" button). */
+export const VIEW_LABEL: Record<string, string> = { board: 'Roster board', people: 'People' };
+
 export const GLOSSARY: Record<TermId, GlossaryEntry> = {
-  fdp: { term: 'FDP', short: "Flight duty period: the crew's working day, from report to the last on-blocks. There is a legal maximum.", where: { tab: 'crew', view: 'roster' } },
+  fdp: { term: 'FDP', short: "Flight duty period: the crew's working day, from report to the last on-blocks. There is a legal maximum.", where: { tab: 'crew', view: 'board' } },
   deadhead: { term: 'Deadhead', short: 'Crew travelling as passengers on another airline to get to their flight.', where: { tab: 'map' } },
   positioning: { term: 'Positioning', short: 'Flying our own aircraft empty to where the work is.', where: { tab: 'schedule' } },
-  tight: { term: 'Tight', short: 'Legal, but within 30 minutes or 5% of a limit; one delay breaks it.', where: { tab: 'crew', view: 'roster' } },
-  discretion: { term: 'Discretion', short: "The captain may extend the crew's day by up to 2 hours once; the crew get tired and grumpy.", where: { tab: 'crew', view: 'roster' } },
+  tight: { term: 'Tight', short: 'Legal, but within 30 minutes or 5% of a limit; one delay breaks it.', where: { tab: 'crew', view: 'board' } },
+  discretion: { term: 'Discretion', short: "The captain may extend the crew's day by up to 2 hours once; the crew get tired and grumpy.", where: { tab: 'crew', view: 'board' } },
   acmi: { term: 'ACMI', short: 'We provide Aircraft, Crew, Maintenance and Insurance; the client pays per block hour, fuel and airport fees.', where: { tab: 'contracts' } },
   wetLease: { term: 'Wet lease', short: 'Same as ACMI: our aircraft and crew fly for the client, who pays per block hour.', where: { tab: 'contracts' } },
   subcharter: { term: 'Sub-charter', short: "Paying a rival airline to fly our client's flight; we still bill the client.", where: { tab: 'contracts' } },
   aog: { term: 'AOG', short: "Aircraft on ground: broken and can't fly until repaired.", where: { tab: 'fleet' } },
   standby: { term: 'Standby', short: 'Crew kept free at a base to cover sickness and surprises.', where: { tab: 'crew' } },
-  rest: { term: 'Rest', short: 'The time off a crew member needs before the next duty: 12 h at home, 10 h away.', where: { tab: 'crew', view: 'roster' } },
+  rest: { term: 'Rest', short: 'The time off a crew member needs before the next duty: 12 h at home, 10 h away.', where: { tab: 'crew', view: 'board' } },
   blockHours: { term: 'Block hours', short: 'Time from pushing back to parking; what clients pay for.', where: { tab: 'finance' } },
   mgh: { term: 'MGH', short: 'Minimum guaranteed hours: the block hours a wet-lease client pays for every month, flown or not.', where: { tab: 'contracts' } },
   ferry: { term: 'Ferry', short: 'An empty flight with no client: to a check, a delivery or a return.', where: { tab: 'schedule' } },
@@ -34,8 +37,8 @@ export const GLOSSARY: Record<TermId, GlossaryEntry> = {
   etops: { term: 'ETOPS', short: 'Permission to fly far from the nearest airport over water (120, 180 or 240 minutes).', where: { tab: 'company' } },
   aCheck: { term: 'A-check', short: 'A light overnight inspection every few hundred flight hours.', where: { tab: 'fleet' } },
   cCheck: { term: 'C-check', short: 'A heavy check in a hangar every couple of years; the aircraft is out for days.', where: { tab: 'fleet' } },
-  perDiem: { term: 'Per diem', short: 'Daily allowance paid to crew while away from base.', where: { tab: 'crew', view: 'policies' } },
-  recovery: { term: 'Weekly rest', short: 'At least 36 hours off, with two local nights, every week.', where: { tab: 'crew', view: 'roster' } },
+  perDiem: { term: 'Per diem', short: 'Daily allowance paid to crew while away from base.', where: { tab: 'company' } },
+  recovery: { term: 'Weekly rest', short: 'At least 36 hours off, with two local nights, every week.', where: { tab: 'crew', view: 'board' } },
   privateJet: { term: 'Private jet', short: 'A business jet chartered to fly our crew to their aircraft in hours; dear, but fast.', where: { tab: 'map' } },
 };
 

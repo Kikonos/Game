@@ -14,6 +14,7 @@ import { canFill, isPilot, typeOf } from '../core/perf';
 import { DAY, fmtDateTime, fmtDuration, fmtTime } from '../core/time';
 import type { ActionResult, Aircraft, CrewFix, CrewMember, Duty, Flight, GameState, JetClass, Legality, Minute, Pairing, Role } from '../core/types';
 import { hashUnit } from '../core/util';
+import { relinkPositioning } from '../contracts/schedule';
 import { commercialItinerary, itinerary, itineraryText } from '../ops/commercial';
 import { crewReadyAt } from '../ops/events';
 import { cancelCost, cancelLegs, delayChain, unitOf } from '../ops/flights';
@@ -25,7 +26,7 @@ import { crewWindows } from './ftl';
 import { crewName } from './generate';
 import { moraleShock } from './morale';
 import { city, rootReason, type Reason, type ReasonCode } from './reasons';
-import { applyDiscretion, flightCrewStatus, onFlightsChanged, placeCrew, recheckPairing, releaseCrew, rerosterFrom, setShortHook, type FlightCrewStatus } from './roster';
+import { applyDiscretion, autoRoster, flightCrewStatus, onFlightsChanged, placeCrew, recheckPairing, releaseCrew, rerosterFrom, setShortHook, type FlightCrewStatus } from './roster';
 import { assignCrew, dutyCandidates, type DutyCandidate } from './rosterActions';
 import { levelOf, LIMITS, minRest } from './rules';
 import { crewCount, crewRev, dhBlock, locAt, OUT_CONNECT, segsOf, touchCrew, typeIdOf, type TicketPlan } from './timeline';
@@ -214,10 +215,17 @@ export function escalateShortages(g: GameState, opts: { reroster?: boolean } = {
   if (previewing || escalating) return;
   escalating = true;
   try {
-    escalate(g, opts.reroster !== false);
+    escalate(g, opts.reroster === true);
   } finally {
     escalating = false;
   }
+}
+
+/** The roster for the flight's aircraft now: duties built for a leg that has none yet (a fresh empty leg), else the rolling re-plan. */
+function planNow(g: GameState, f: Flight): void {
+  if (!f.aircraftId) return;
+  if (!f.dutyId) autoRoster(g, { aircraftIds: [f.aircraftId] });
+  else rerosterFrom(g, f.aircraftId, g.now);
 }
 
 /** Marks every open leg of the duty (and its pairing's other short duties) at once: later legs never re-warn. */
@@ -244,7 +252,7 @@ function escalate(g: GameState, reroster: boolean): void {
     const f = g.flights[x.flightId];
     if (!f.crewAlert && f.aircraftId && !fresh.has(f.aircraftId)) {
       fresh.add(f.aircraftId);
-      rerosterFrom(g, f.aircraftId, g.now);
+      planNow(g, f);
     }
   }
   for (const x of shortFlights(g)) {
@@ -310,7 +318,7 @@ function escalate(g: GameState, reroster: boolean): void {
   }
 }
 
-setShortHook((g) => escalateShortages(g, { reroster: false }));
+setShortHook((g) => escalateShortages(g));
 
 // ---------- the card (§3.6–§3.8, §9) ----------
 
@@ -503,10 +511,13 @@ export interface JetQuote {
 
 const NM = 1.852;
 
-/** The smallest class that seats the crew and covers the distance (with one fuel stop at most). */
+/** The smallest class that seats the crew and covers the distance (with one fuel stop at most); a light jet only up to ~3 h. */
 function jetClassFor(crewN: number, nm: number): JetClass {
   const J = CC().jet;
-  for (const cls of JET_CLASSES) if (crewN <= J.seats[cls] && nm <= J.rangeNm[cls] * 2) return cls;
+  for (const cls of JET_CLASSES) {
+    if (cls === 'light' && (nm / J.cruiseKt.light) * 60 + J.taxiMin > 180) continue;
+    if (crewN <= J.seats[cls] && nm <= J.rangeNm[cls] * 2) return cls;
+  }
   return 'heavy';
 }
 
@@ -764,6 +775,9 @@ function tryDelay(h: GameState, flightId: string, at: Minute): boolean {
   if (!f || !ac || f.status !== 'scheduled') return false;
   delayTo(h, f, at);
   rerosterFrom(h, ac.id, h.now);
+  // An empty leg delayed past the commitment it leads to is re-planned by the schedule (a fresh, uncrewed leg at
+  // the old time): that delay is no fix. The re-plan runs now so the answer is known before the player taps.
+  if (f.kind === 'positioning') relinkPositioning(h, ac.id);
   const hf = h.flights[flightId];
   if (!hf || hf.status !== 'scheduled') return false;
   return !BAD(flightCrewStatus(h, flightId).level);
@@ -849,7 +863,7 @@ function runFix(h: GameState, flightId: string, fix: CrewFix, opts: ApplyOpts): 
   const before = heldBy(p);
   switch (fix) {
     case 'autoFix': {
-      rerosterFrom(h, ac.id, h.now);
+      planNow(h, f);
       const changes = seatChanges(h, f, before).filter((c) => !/still missing$/.test(c));
       if (!changes.length) return { ok: false, error: 'Nobody legal is free: see the other fixes' };
       return { ok: true, changes: [...changes, ...seatChanges(h, f, before).filter((c) => /still missing$/.test(c))], cost: 0 };
@@ -894,7 +908,7 @@ function runFix(h: GameState, flightId: string, fix: CrewFix, opts: ApplyOpts): 
       const was = f.std;
       if (!tryDelay(h, f.id, at0)) {
         const hf = h.flights[f.id];
-        if (!hf || hf.status !== 'scheduled') return { ok: false, error: 'The flight would be dropped by the delay' };
+        if (!hf || hf.status !== 'scheduled') return { ok: false, error: f.kind === 'positioning' ? 'The schedule re-plans empty legs itself: this one waits for a crew at the gate' : 'The flight would be dropped by the delay' };
         return { ok: false, error: 'Nobody can take it even later: see the other fixes' };
       }
       const changes = [`${f.no} leaves ${at(f.std, h.now)} UTC (+${fmtDuration(f.std - was)})`, ...seatChanges(h, f, before)];
@@ -930,18 +944,23 @@ function runFix(h: GameState, flightId: string, fix: CrewFix, opts: ApplyOpts): 
       const changes: string[] = [];
       const gap = Math.max(latest + OUT_CONNECT - d.report, opts.at !== undefined ? opts.at - f.std : 0);
       if (gap > 0) {
-        // An airline ticket that lands the crew by then makes the jet pointless: that is the delay fix.
-        const lead = Math.max(0, f.std - d.report);
-        if (crewReadyAt(h, f, ac) <= ceil5(latest + OUT_CONNECT + lead)) return { ok: false, error: 'An airline flight lands the crew just as soon: use Delay until crew arrives' };
+        // The flight waits for the jet with the roster held off: the jet's crew take the seats, not an airline
+        // ticket the re-sync would buy meanwhile (a jet fix charters a jet, or is refused).
         const was = f.std;
-        delayTo(h, f, ceil5(f.std + gap));
+        const auto = h.company.policies.autoRoster;
+        h.company.policies.autoRoster = false;
+        try {
+          delayTo(h, f, ceil5(f.std + gap));
+        } finally {
+          h.company.policies.autoRoster = auto;
+        }
         changes.push(`${f.no} leaves ${at(f.std, h.now)} UTC (+${fmtDuration(f.std - was)}) so the jet can land first`);
-        // The re-sync may have crewed the seat from the station already (then no jet is needed: that is a delay).
-        const x2 = ctxOf(h, flightId);
-        if (!x2 || !x2.missing.length) return { ok: false, error: 'Waiting is enough, nobody needs a jet: use Delay until crew arrives' };
+        if (h.flights[f.id]?.status !== 'scheduled') return { ok: false, error: 'The flight would be dropped by the delay' };
       }
       const r = charterJet(h, f.id, picks.map((y) => y.c.id).filter((id) => !heldBy(ctxOf(h, flightId)?.p).has(id)), cls ?? jetClassFor(picks.length, distance(picks[0].loc, x.dep) / NM));
       if (!r.ok) return { ok: false, error: r.error === 'Nobody could be seated on the trip' ? 'Even flown in by jet, nobody is legal for the trip' : r.error };
+      // Seats the jet did not cover go to the roster as usual.
+      if (gap > 0 && ctxOf(h, flightId)?.missing.length) rerosterFrom(h, ac.id, h.now);
       changes.push(...seatChanges(h, f, before));
       return { ok: true, changes, cost: r.data!.cost };
     }
@@ -1086,7 +1105,7 @@ function previewOf(g: GameState, x: Ctx, fix: CrewFix, opts: ApplyOpts, before: 
   const hf = h.flights[x.f.id];
   const cs: { level: FixPreview['after']['level']; missing: Role[] } = hf && hf.aircraftId && hf.status === 'scheduled'
     ? flightCrewStatus(h, x.f.id)
-    : { level: !hf || hf.status === 'cancelled' ? 'cancelled' : hf.operatedBy ? 'subchartered' : 'ok', missing: [] };
+    : { level: fix === 'subcharter' || hf?.operatedBy ? 'subchartered' : !hf || hf.status === 'cancelled' ? 'cancelled' : 'ok', missing: [] };
   // The fix's own cost; what the re-roster spent on other trips meanwhile is shown apart.
   const extra = Math.max(0, ledgerDiff(g, h) - r.cost);
   return {
@@ -1154,7 +1173,7 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean): CrewSolution[] {
   {
     const s = base('delay');
     const plan = delayPlan(g, x);
-    if (!plan) out.push(no(s, !delayTimes(g, x).length && crewReadyAt(g, f, ac) <= f.std + f.delay ? 'A crew can take it on time: use Auto-fix' : 'Nobody can take it even two days later'));
+    if (!plan) out.push(no(s, !delayTimes(g, x).length && crewReadyAt(g, f, ac) <= f.std + f.delay ? 'A crew can take it on time: use Auto-fix' : f.kind === 'positioning' ? 'The schedule re-plans empty legs itself: this one waits for a crew at the gate' : 'Nobody can take it even two days later'));
     else {
       const ready = plan.at;
       const k = contractOf(g, f);
@@ -1195,10 +1214,7 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean): CrewSolution[] {
         used.add(pick.c.id);
         picks.push(pick);
       }
-      if (!roles.length) {
-        const names = localPicks.map((y) => crewName(g.crew[y.crewId])).join(' and ');
-        out.push(no(s, `${names} ${localPicks.length === 1 ? 'is' : 'are'} already at ${city(x.dep)}: use Auto-fix or Call in`));
-      } else if (!picks.length && fdpOnly.v) {
+      if (!picks.length && roles.length && fdpOnly.v) {
         // Jet + rest: the nearest rested-on-arrival crew; the flight leaves after their night's rest.
         for (const role of roles) {
           const pick = jetRestCandidates(g, p, d, role, used)[0];
@@ -1208,7 +1224,10 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean): CrewSolution[] {
         }
         rest = picks.length > 0;
       }
-      if (!picks.length) {
+      if (!roles.length) {
+        const names = localPicks.map((y) => crewName(g.crew[y.crewId])).join(' and ');
+        out.push(no(s, `${names} ${localPicks.length === 1 ? 'is' : 'are'} already at ${city(x.dep)}: use Auto-fix or Call in`));
+      } else if (!picks.length) {
         const fam = typeOf(ac.typeId).family;
         const freeRated = Object.values(g.crew).filter((c) => c.ratings.includes(fam) && roles.some((r) => canFill(r, c.role)) && c.status !== 'sick' && c.status !== 'leave' && c.status !== 'training' && c.status !== 'joining' && !p.slots.some((y) => y.crewId === c.id));
         const why = fdpOnly.v ? "Even by jet the crew's day would be too long: delay the flight instead"
@@ -1255,7 +1274,10 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean): CrewSolution[] {
           s.consequences.unshift(rest ? `The crew rest a night after landing: the flight leaves ${at(s.newDeparture, g.now)}` : `Even a jet lands ${fmtDuration(gap)} late: the flight is delayed first`);
         }
         s.confirm = true;
-        out.push(run(s, rest ? { at: s.newDeparture! } : {}));
+        // Jet + rest only when the airline ticket with the same night's rest would leave later (else that is Delay).
+        const dp = rest ? delayPlan(g, x) : null;
+        if (rest && dp && dp.at <= s.newDeparture!) out.push(no({ ...s, cost: 0, chips: [], newDeparture: null, consequences: [] }, 'An airline ticket and a night\'s rest get a crew there just as soon: use Delay until crew arrives'));
+        else out.push(run(s, rest ? { at: s.newDeparture! } : {}));
       }
     }
   }

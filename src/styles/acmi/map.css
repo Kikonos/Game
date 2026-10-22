@@ -264,7 +264,7 @@ div.worldmap { overflow: clip; }
 }
 .op-banner.amber { color: #fde68a; border-color: rgba(251, 191, 36, 0.55); background: rgba(251, 191, 36, 0.1); }
 .op-banner.red { color: #fecaca; border-color: rgba(248, 113, 113, 0.6); background: rgba(248, 113, 113, 0.12); }
-.op-banner.small { font-size: 10px; line-height: 16px; padding: 0 5px; letter-spacing: 0.06em; }
+.op-banner.small { font-size: 11px; line-height: 16px; padding: 0 5px; letter-spacing: 0.06em; }
 /* The shortage block: what, the one-sentence why, does it hurt, the mini-map, Crew Control. */
 .op-short { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(251, 191, 36, 0.4); background: rgba(251, 191, 36, 0.06); }
 .op-short.red { border-color: rgba(248, 113, 113, 0.45); background: rgba(248, 113, 113, 0.07); }
@@ -288,7 +288,7 @@ div.worldmap { overflow: clip; }
 .ops-next-row.jet { grid-template-columns: 62px 104px 74px 1fr; }
 .ops-next.dated .ops-next-row.jet { grid-template-columns: 88px 104px 74px 1fr; }
 .ops-next-row.jet > b { font-size: 12px; }
-.ops-short { font: 700 10.5px/16px var(--font-mono); letter-spacing: 0.06em; padding: 0 5px; border-radius: 4px; border: 1px solid; }
+.ops-short { font: 700 11px/16px var(--font-mono); letter-spacing: 0.06em; padding: 0 5px; border-radius: 4px; border: 1px solid; }
 .ops-short.amber { color: #fde68a; border-color: rgba(251, 191, 36, 0.55); }
 .ops-short.red { color: #fecaca; border-color: rgba(248, 113, 113, 0.6); }
 .ops-next-row .ops-type:has(.ops-short) .ops-tkey { display: none; }
@@ -312,6 +312,9 @@ div.worldmap { overflow: clip; }
 .minimap .mm-land { fill: #19243b; stroke: rgba(120, 160, 230, 0.28); stroke-width: 0.6; }
 .minimap .mm-leg { fill: none; stroke: #9aa5bb; stroke-width: 1.3; stroke-dasharray: 2 4; stroke-linecap: round; }
 .minimap .mm-leg.jet { stroke: #b9c2d4; }
+/* No flight lands in time: the straight gap, red dashed, with its note at the middle. */
+.minimap .mm-leg.none { stroke: rgba(248, 113, 113, 0.75); stroke-dasharray: 3 4; }
+.minimap .mm-none { text-anchor: middle; fill: #fecaca; font-size: 10px; font-weight: 600; }
 .minimap .mm-dot { fill: #b9c2d4; stroke: rgba(5, 9, 18, 0.9); stroke-width: 1.2; }
 .minimap .mm-ap.dep .mm-dot { fill: #fbbf24; }
 .minimap .mm-ring { fill: rgba(251, 191, 36, 0.12); stroke: #fbbf24; stroke-width: 1.5; }

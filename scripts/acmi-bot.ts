@@ -29,8 +29,8 @@
 // - v0.7 refits (at most one per 180 days): an open premium sports or VIP job worth $1.2M+ whose only failing check is
 //   the cabin, when the cheapest refit ends before it and costs < 40% of it: booked, then the job taken.
 // - v0.7.1 Crew Control (UPDATE-0.7.1.md §16): for each crew-short flight inside 36 h, the first available fix in the
-//   order auto-fix → fly someone in → call in → swap (when the other flight stays crewed) → private jet (≤ 18 h out, when
-//   what is at stake is 1.5× the jet, at most 8 a year) → discretion → delay (≤ 6 h) → sub-charter (cheaper than cancelling);
+//   order auto-fix → fly someone in → call in → swap (when the other flight stays crewed) → private jet (≤ 18 h out, ≥ 100
+//   passengers, leaving 3 h+ sooner than waiting for a ticket, at most 8 a year) → discretion → delay (≤ 6 h) → sub-charter (cheaper than cancelling);
 //   else the gate decision keeps today's defaults.
 
 import { writeFileSync } from 'node:fs';
@@ -687,10 +687,13 @@ function crewControlPolicy(g: GameState, t: Tally): void {
       const full = crewControl(g, x.flightId)!.solutions.find((s) => s.id === 'swap');
       if (full?.available && (full.preview.after.level === 'ok' || full.preview.after.level === 'tight') && !full.preview.ripple.some((r) => r.tone === 'bad') && apply(full)) continue;
     }
+    // A jet when it gets a crew there at least 3 h sooner than waiting for a ticket, with passengers at stake.
     const jet = sol('jet');
-    if (jet && x.hoursLeft <= 18 && v.card.hurt.money >= jet.cost * 1.5 && (g.stats.jets ?? 0) < 8 && apply(jet)) continue;
-    if (apply(sol('discretion'))) continue;
     const delay = sol('delay');
+    const jetDep = jet ? (jet.newDeparture ?? f.std) : Infinity;
+    const waitDep = delay ? (delay.newDeparture ?? f.std) : Infinity;
+    if (jet && x.hoursLeft <= 18 && v.unit.pax >= 100 && jetDep + 180 <= waitDep && (g.stats.jets ?? 0) < 8 && apply(jet)) continue;
+    if (apply(sol('discretion'))) continue;
     if (delay && (delay.newDeparture ?? f.std) - f.std <= lateCapMin && apply(delay)) continue;
     const sub = sol('subcharter');
     if (sub && sub.cost < (sol('cancel')?.cost ?? Infinity)) apply(sub);

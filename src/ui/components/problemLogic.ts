@@ -172,7 +172,7 @@ export function restNow(spec: GaugeSpec, now: Minute): GaugeSpec {
   const taken = Math.max(0, Math.min(spec.limit, spec.limit - left));
   const ok = taken >= spec.limit;
   return {
-    ...spec, value: taken, text: `${hm(taken)} of ${hm(spec.limit)}${ok ? '' : ` by ${fmtTime(spec.by)}`}`,
+    ...spec, value: taken, text: `${hm(taken)} of ${hm(spec.limit)}`,
     tone: ok ? 'good' : taken >= spec.limit * 0.75 ? 'warn' : 'bad', by: ok ? undefined : spec.by,
   };
 }
