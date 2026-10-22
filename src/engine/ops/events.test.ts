@@ -113,7 +113,7 @@ describe('AOG decision', () => {
     }
     expect(line(g, 'subcharter')).toBeLessThan(sub);
     expect(g.company.reputation.reliable).toBeLessThan(rel);
-    expect(rel - g.company.reputation.reliable).toBeLessThanOrEqual(BAL.v072.sub.capPerAction);
+    expect(rel - g.company.reputation.reliable).toBeLessThanOrEqual(BAL.v072.sub.capPerClient);
     expect(stats(g).subchartered - n0).toBe(win.length);
   });
 

@@ -38,8 +38,8 @@ describe('sub-charter reliability (F3)', () => {
     const { c, fl } = job(g);
     c.legsFlown = 10;
     c.start = g.now - 30 * DAY;
-    c.subLegs = [g.now - DAY, g.now - DAY, g.now - DAY, g.now - DAY, g.now - DAY];
-    // share 5 / 15 = 0.33 → −1.0
+    c.subLegs = Array.from({ length: 11 }, () => g.now - DAY);
+    // share 11 / (11 + 10 flown + 12 planned) = 0.33 → −1.0
     expect(subHit(g, [fl[0]]).reliability).toBe(-1);
   });
 
@@ -52,15 +52,30 @@ describe('sub-charter reliability (F3)', () => {
     expect(subHit(g, [fl[0]]).reliability).toBe(-0.3);
   });
 
-  it('each leg of one hand-over costs more than the last; at most −8 a hand-over; relation at most −4 a client', () => {
+  it('a fresh contract: the first few legs cost −0.3 each; later legs of the same hand-over cost more', () => {
     const g = newGame(3);
     const { fl } = job(g, 12);
-    const one = subHit(g, fl.slice(0, 1)).reliability;
-    const two = subHit(g, fl.slice(0, 2)).reliability;
-    expect(two).toBeLessThan(2 * one);
+    expect(subHit(g, fl.slice(0, 2)).reliability).toBe(-0.6);
+    expect(subHit(g, fl.slice(0, 3)).reliability).toBe(-0.9);
+    const ten = subHit(g, fl.slice(0, 10)).reliability;
+    expect(ten).toBeLessThan(-3);
     const all = subHit(g, fl);
     expect(all.reliability).toBe(-8);
     expect(all.relation).toBe(-4);
+  });
+
+  it('at most −8 per client in 7 days: bundling or splitting a hand-over costs the same', () => {
+    const g = newGame(3);
+    const { fl } = job(g, 12);
+    const all = subHit(g, fl).reliability;
+    const ids = fl.slice(0, 12).map((f) => f.id);
+    const r1 = subcharter(g, ids, subcharterQuote(g, ids)!.cost);
+    if (!r1.ok) throw new Error(r1.error);
+    const first = g.stats.subHit!;
+    const rest = subHit(g, fl.slice(12));
+    expect(Math.round((first + rest.reliability) * 10) / 10).toBe(all);
+    g.now += 8 * DAY;
+    expect(subHit(g, fl.slice(20)).reliability).toBeLessThan(0);
   });
 
   it('the quote shows exactly what the hand-over applies, and the logs fill', () => {
@@ -75,8 +90,8 @@ describe('sub-charter reliability (F3)', () => {
     if (!r.ok) throw new Error(r.error);
     expect(Math.round((g.company.reputation.reliable - before) * 10) / 10).toBe(q.hit.reliability);
     expect(g.clients[c.clientId].relation - rel).toBeCloseTo(q.hit.relation);
-    expect(r.msg).toMatch(/ notices: reliability −1\.3\.$/);
-    expect(q.hit.reliability).toBe(-1.3); // the second leg: half the contract's legs so far handed over
+    expect(r.msg).toMatch(/ notices: reliability −0\.6\.$/);
+    expect(q.hit.reliability).toBe(-0.6); // two of the contract's 12 planned legs: still −0.3 each
     expect(g.stats.subLog!.length).toBe(2);
     expect(c.subLegs!.length).toBe(2);
   });

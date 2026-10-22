@@ -51,9 +51,10 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
     ['Arrives', both(f.ata ?? f.eta ?? f.sta + f.delay, f.to)],
     ['Block', fmtDuration(f.block)],
   ];
-  if (f.pax) rows.push(['Passengers', String(f.pax)]);
-  // v0.7.2 §3.4: crew rest seats blocked on this flight (its duty needs in-flight rest).
+  // v0.7.2 §3.4: crew rest seats blocked on this flight (its duty needs in-flight rest); the offload happens at departure.
   const blocked = f.kind !== 'deadhead' && ac ? restSeatsBlocked(g, f.id) : 0;
+  const offload = blocked && ac && f.status === 'scheduled' ? Math.max(0, (f.pax ?? 0) - (ac.cabin.total - blocked)) : 0;
+  if (f.pax) rows.push(['Passengers', offload ? <span className="warn">{f.pax} booked · {(f.pax ?? 0) - offload} fly ({offload} offloaded at departure)</span> : String(f.pax)]);
   if (blocked && ac) rows.push(['Seats', <span className="warn">{ac.cabin.total} · {ac.cabin.total - blocked} sellable on this flight ({blocked} blocked for crew rest)</span>]);
   if (type === 'ferry') rows.push(['Crew aboard', 'Pilots only · cabin crew travel separately']);
   else if (type === 'positioning') rows.push(['Crew aboard', 'Full crew · cabin crew needed at the destination']);

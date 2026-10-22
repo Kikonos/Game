@@ -58,7 +58,7 @@ export function SellModal({ aircraftId }: { aircraftId: string }) {
         <div className="sl-price"><span className="muted small">{q.buyer || 'A buyer'} offers</span><b className="num">{money(q.price)}</b></div>
         <div className="ls-lines">
           <div className="upper dim"><Term id="marketValue">Market value</Term></div>
-          {q.lines.map((l) => <div key={l.label} className="row between small"><span className="muted">{l.label}</span><span className="num">{l.amount < 0 ? '−' : ''}{money(Math.abs(l.amount))}</span></div>)}
+          {q.lines.map((l, i) => <div key={l.label} className="row between small"><span className="muted">{l.label.replace(/^[−-]\s*/, '')}</span><span className="num">{l.amount < 0 ? '−' : i && l.amount > 0 ? '+' : ''}{money(Math.abs(l.amount))}</span></div>)}
           <div className="row between small"><b>Price</b><b className="num">{money(q.price)}</b></div>
           <div className="row between small"><span className="muted">Book value</span><span className="num">{money(q.bookValue)}</span></div>
           <div className={`row between small ${q.gain >= 0 ? 'good' : 'bad'}`}><span>{q.gain >= 0 ? 'Gain over book value' : 'Loss against book value'}</span><span className="num">{q.gain >= 0 ? '+' : '−'}{money(Math.abs(q.gain))}</span></div>

@@ -452,6 +452,8 @@ export function subcharterLegs(g: GameState, legs: Flight[], rivalId: string, co
     bumpReliable(g, hit.reliability);
     stats(g).subHit = Math.round(((stats(g).subHit ?? 0) + hit.reliability) * 10) / 10;
     for (const [clientId, d] of hit.byClient) bumpRelation(g, clientId, d);
+    const cap = (stats(g).subCap ??= []);
+    for (const [clientId, v] of hit.capped) if (v) cap.push([g.now, clientId, v]);
     const log = (stats(g).subLog ??= []);
     for (const f of rev) {
       log.push(f.std);
@@ -473,7 +475,7 @@ export function noticeText(g: GameState, f: Flight | undefined, hit: SubHit | un
 }
 
 /** v0.7.2 a hand-over's cost: reliability (≤ 0) and relation (≤ 0, per client), with the plain words. */
-export interface SubHit { reliability: number; relation: number; text: string; byClient: [string, number][] }
+export interface SubHit { reliability: number; relation: number; text: string; byClient: [string, number][]; capped: [string, number][] }
 
 const inWindow = (g: GameState, ts: Minute[] | undefined) => {
   const from = g.now - BAL.v072.sub.windowDays * DAY;
@@ -483,34 +485,57 @@ const inWindow = (g: GameState, ts: Minute[] | undefined) => {
 };
 
 /**
- * v0.7.2 F3: per revenue leg, in order, −base … −max reliability by the contract's share of legs handed over and the
- * company's hand-overs in the last 90 days (each leg counts for the next); at most capPerAction per hand-over;
- * relation −relationPerLeg a leg (at most relationCap per client). Pure.
+ * v0.7.2 F3: per revenue leg, in order, −base … −max reliability by the contract's share of its legs in the 90-day
+ * window handed over (flown + still planned, so a fresh contract starts cheap) and the company's hand-overs in the last
+ * 90 days (each leg counts for the next); at most capPerClient per client in capDays (splitting or bundling a hand-over
+ * costs the same); relation −relationPerLeg a leg (at most relationCap per client). Pure.
  */
 export function subHit(g: GameState, rev: Flight[]): SubHit {
   const S = BAL.v072.sub;
   let n90 = inWindow(g, g.stats.subLog);
   const sub = new Map<string, number>();
-  let rel = 0;
+  const planned = new Map<string, number>();
+  const relBy = new Map<string, number>();
   const byClient = new Map<string, number>();
   for (const f of rev) {
     const c = contractOf(g, f);
     let share = 0;
     if (c) {
       const s90 = sub.get(c.id) ?? inWindow(g, c.subLegs);
+      if (!planned.has(c.id)) planned.set(c.id, plannedLegs(g, c.id));
       const flown90 = (c.legsFlown ?? 0) * Math.min(1, (S.windowDays * DAY) / Math.max(DAY, g.now - c.start));
-      share = s90 / Math.max(1, s90 + flown90);
+      share = s90 / Math.max(1, s90 + flown90 + planned.get(c.id)!);
       sub.set(c.id, s90 + 1);
       byClient.set(c.clientId, Math.max(-S.relationCap, (byClient.get(c.clientId) ?? 0) - S.relationPerLeg));
     }
     const k = Math.min(1, Math.max(0, (share - S.shareFrom) / S.shareSpan, (n90 - S.nFrom) / S.nSpan));
-    rel += S.base + (S.max - S.base) * k;
+    const key = c?.clientId ?? '';
+    relBy.set(key, (relBy.get(key) ?? 0) + S.base + (S.max - S.base) * k);
     n90++;
   }
-  const reliability = -Math.min(S.capPerAction, Math.round(rel * 10) / 10);
+  // per client: what is left of the cap after this client's hits in the last capDays
+  const from = g.now - S.capDays * DAY;
+  const capped: [string, number][] = [];
+  let rel = 0;
+  for (const [k, v] of relBy) {
+    let used = 0;
+    for (const [t, id, x] of g.stats.subCap ?? []) if (t >= from && id === k) used -= x;
+    const take = Math.round(Math.min(v, Math.max(0, S.capPerClient - used)) * 10) / 10;
+    capped.push([k, -take]);
+    rel += take;
+  }
+  const reliability = -Math.round(rel * 10) / 10;
   const relation = [...byClient.values()].reduce((a, b) => a + b, 0);
-  const text = rev.length ? `reliability ${fmtHit(reliability)} · the client notices` : '';
-  return { reliability, relation, text, byClient: [...byClient] };
+  const text = !rev.length ? '' : reliability ? `reliability ${fmtHit(reliability)} · the client notices` : 'the client notices (reliability already hit this week)';
+  return { reliability, relation, text, byClient: [...byClient], capped };
+}
+
+/** A contract's own revenue legs still scheduled in the next window (the share's denominator). */
+function plannedLegs(g: GameState, contractId: string): number {
+  const to = g.now + BAL.v072.sub.windowDays * DAY;
+  let n = 0;
+  for (const f of Object.values(g.flights)) if (f.contractId === contractId && f.status === 'scheduled' && f.aircraftId && f.std >= g.now && f.std <= to && isRevenue(f)) n++;
+  return n;
 }
 
 /** '−2', '−0.6'. */
@@ -520,6 +545,8 @@ const fmtHit = (v: number) => `−${Math.abs(v) % 1 ? Math.abs(v).toFixed(1) : M
 function pruneSubLog(g: GameState): void {
   const from = g.now - BAL.v072.sub.windowDays * DAY;
   if (g.stats.subLog) g.stats.subLog = g.stats.subLog.filter((t) => t >= from);
+  const capFrom = g.now - BAL.v072.sub.capDays * DAY;
+  if (g.stats.subCap) g.stats.subCap = g.stats.subCap.filter(([t]) => t >= capFrom);
   for (const c of Object.values(g.contracts)) if (c.subLegs?.length) c.subLegs = c.subLegs.filter((t) => t >= from);
 }
 

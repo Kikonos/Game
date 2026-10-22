@@ -861,8 +861,13 @@ Object.assign(ACTIONS, {
     await settle(page, 300);
   },
   'refit-earliest': async (page) => {
-    const id = await pick(page, () => Object.values(window.__contrail.game.fleet).find((a) => a.status !== 'delivering')?.id);
-    if (!id) throw new Error('SKIP no aircraft');
+    // An aircraft with no planned or running refit (fleet-refit books one on the first), so the earliest slots show.
+    const id = await pick(page, () => {
+      const g = window.__contrail.game;
+      const booked = new Set(Object.values(g.maintenance).filter((m) => m.kind === 'refit' && (m.status === 'planned' || m.status === 'inWork')).map((m) => m.aircraftId));
+      return Object.values(g.fleet).find((a) => a.status !== 'delivering' && !a.returning && !a.sale && !booked.has(a.id))?.id;
+    });
+    if (!id) throw new Error('SKIP no aircraft without a refit');
     await nav(page, 'fleet', { sel: { kind: 'aircraft', id } });
     await modal(page, { kind: 'refit', aircraftId: id });
   },

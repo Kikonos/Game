@@ -11,7 +11,7 @@ import { DAY, fmtDay } from '../core/time';
 import type { ActionResult, Aircraft, Flight, GameState, Minute } from '../core/types';
 import { rerosterFrom } from '../crew';
 import { ferryCost, ferryCrewCost, ferryDays, ferryRoute, type DeliveryLeg } from './delivery';
-import { checkCostOf, durationOf, groundGaps, scheduleCheck } from './maintenance';
+import { checkCostOf, disposalWhy, durationOf, groundGaps, scheduleCheck } from './maintenance';
 import { usd } from './util';
 
 export interface CCheckOption {
@@ -89,7 +89,14 @@ export function cCheckOptions(g: GameState, aircraftId: string, start?: Minute):
   const home = g.company.homeBase;
   const base = checkCostOf(ac, 'C');
   const out: CCheckOption[] = [];
+  const leaving = disposalWhy(g, ac);
   for (const hub of C_HUBS[typeOf(ac.typeId).family]) {
+    if (leaving) {
+      const t = start ?? g.now;
+      const checkCost = Math.round(base * hub.price);
+      out.push({ hub, ok: false, why: leaving, start: t, end: t + durationOf(ac, 'C'), ferryOut: [], ferryHome: [], checkCost, ferryCost: 0, crewCost: 0, total: checkCost, awayDays: 0 });
+      continue;
+    }
     const s = start ?? cCheckSlots(g, ac.id, hub.code, 1)[0];
     const checkCost = Math.round(base * hub.price);
     const none: CCheckOption = { hub, ok: false, why: null, start: s ?? g.now, end: (s ?? g.now) + durationOf(ac, 'C'), ferryOut: [], ferryHome: [], checkCost, ferryCost: 0, crewCost: 0, total: checkCost, awayDays: 0 };
@@ -119,10 +126,15 @@ export function cCheckOptions(g: GameState, aircraftId: string, start?: Minute):
   return out.sort((a, b) => Number(b.ok) - Number(a.ok) || a.total - b.total || (a.hub.code < b.hub.code ? -1 : 1));
 }
 
-/** Books the C-check at a hub: ferry out, check, ferry home (crewed by the auto-roster, pilots on airline tickets). */
-export function bookCCheck(g: GameState, aircraftId: string, hub: string, start: Minute): ActionResult<{ maintId: string }> {
+/**
+ * Books the C-check at a hub: ferry out, check, ferry home (crewed by the auto-roster, pilots on airline tickets).
+ * `forced`: the overdue path (grounded), allowed on a sold or returning aircraft.
+ */
+export function bookCCheck(g: GameState, aircraftId: string, hub: string, start: Minute, forced = false): ActionResult<{ maintId: string }> {
   const ac = g.fleet[aircraftId];
   if (!ac) return { ok: false, error: 'Aircraft not found' };
+  const leaving = forced ? null : disposalWhy(g, ac);
+  if (leaving) return { ok: false, error: leaving };
   const h = cHubAt(typeOf(ac.typeId).family, hub);
   if (!h) return { ok: false, error: `${city(hub)} does not do ${typeOf(ac.typeId).short} C-checks` };
   const home = g.company.homeBase;
@@ -134,7 +146,7 @@ export function bookCCheck(g: GameState, aircraftId: string, hub: string, start:
   const homeBy = homeLegs.length ? homeLegs[homeLegs.length - 1].sta : end;
   const clash = flightsOf(g, ac.id).find((f) => (f.status === 'scheduled' || f.status === 'enroute') && f.kind !== 'positioning' && f.std < homeBy + 30 && f.sta > end);
   if (clash) return { ok: false, error: `The ferry home clashes with ${clash.no} ${fmtDay(clash.std)}` };
-  const r = scheduleCheck(g, ac.id, 'C', start, hub, { hub: h });
+  const r = scheduleCheck(g, ac.id, 'C', start, hub, { hub: h, forced });
   if (!r.ok) return r;
   const m = g.maintenance[r.data!.maintId];
   const legs = ferryDays(homeR, m.end + BAL.v072.cHub.homeAfterMin, ac.typeId).map((l) => {

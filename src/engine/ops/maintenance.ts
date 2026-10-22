@@ -187,6 +187,16 @@ function locationAt(g: GameState, ac: Aircraft, t: Minute): { at: string; free: 
  * with `dropLegs` (auto-planner): wet base-programme legs with ≥ 12 h notice are cancelled (no penalty, relation −2).
  * A ferry is booked when the aircraft would be elsewhere (B1 planPositioning).
  */
+/** v0.7.2 why an aircraft takes no new checks or refits: sold (until the handover) or going back to its lessor. */
+export function disposalWhy(g: GameState, ac: Aircraft): string | null {
+  if (ac.sale) return `Sold to ${ac.sale.buyer}: hands over ${fmtDay(ac.sale.closes)}`;
+  if (ac.returning) {
+    const m = g.maintenance[ac.returning.maintId];
+    return `Going back to the lessor${m ? `: return check from ${fmtDay(m.start)}` : ''}`;
+  }
+  return null;
+}
+
 export function scheduleCheck(
   g: GameState, aircraftId: string, kind: MaintKind, start: Minute, at: string,
   opts: {
@@ -194,6 +204,7 @@ export function scheduleCheck(
     /** v0.7 cabin refit at an MRO station (cabin.ts books it and posts the message); v0.7.2 restSeats: crew rest seats at the end. */ refit?: { cabin: Cabin; days: number; cost: number; restSeats?: number };
     /** v0.7 lease return check at the return site (leaseReturn.ts books it); `end` fixes the end (the lease end). */ leaseReturn?: { days: number; cost: number };
     /** v0.7.2 a C-check at an MRO hub (cHub.ts books it, the ferry home and the message). */ hub?: CHub;
+    /** v0.7.2 an overdue check forced while grounded (allowed on a sold or returning aircraft). */ forced?: boolean;
   } = {},
 ): ActionResult<{ maintId: string }> {
   const ac = g.fleet[aircraftId];
@@ -202,6 +213,9 @@ export function scheduleCheck(
   const pt = sp;
   if (kind !== 'A' && kind !== 'C' && !pt) return { ok: false, error: 'Only A- and C-checks can be booked' };
   if (ac.status === 'delivering' || ac.status === 'stored' || ac.status === 'leasedOut') return { ok: false, error: `${ac.reg} is not on the AOC` };
+  // v0.7.2 no C-check or refit on an aircraft that is leaving (the sale price already allows for the check).
+  const leaving = (kind === 'C' || kind === 'refit') && !opts.auto && !opts.forced ? disposalWhy(g, ac) : null;
+  if (leaving) return { ok: false, error: leaving };
   if (!AIRPORT_BY_CODE[at]) return { ok: false, error: 'Unknown airport' };
   if (!pt && !checkAirportOk(g, kind as 'A' | 'C', at, ac.id)) return { ok: false, error: kind === 'C' ? `C-checks are done at an MRO hub for the ${typeOf(ac.typeId).short}` : 'A-checks need the home base, a deployment base or a major airport' };
   if (!pt && nextPlanned(g, ac.id, kind)) return { ok: false, error: `${ac.reg} already has a ${kind}-check booked` };
@@ -444,7 +458,7 @@ function forceCheck(g: GameState, ac: Aircraft, st: CheckStatus): void {
   const start = g.now + (at === ac.at ? 60 : BAL.ferryLeadMin + typeOf(ac.typeId).turnMin + blockMinutes(ac.typeId, ac.at, at));
   const legs = flightsOf(g, ac.id).filter((f) => f.status === 'scheduled' && f.std < start + dur + 60);
   if (legs.length) cancelLegs(g, legs, `${ac.reg} grounded`, 0);
-  const r = kind === 'C' && cHubAt(typeOf(ac.typeId).family, at) ? bookCCheck(g, ac.id, at, start) : scheduleCheck(g, ac.id, kind, start, at);
+  const r = kind === 'C' && cHubAt(typeOf(ac.typeId).family, at) ? bookCCheck(g, ac.id, at, start, true) : scheduleCheck(g, ac.id, kind, start, at, { forced: true });
   if (r.ok) pushMessage(g, { tone: 'bad', cat: 'tech', title: `${ac.reg} grounded for its ${kind}-check`, body: `The check was overdue. ${legs.length} legs cancelled.`, ref: { kind: 'aircraft', id: ac.id }, problem: { kind: 'grounded', ref: { kind: 'aircraft', id: ac.id } }, hurt: { money: 0, pax: 0, delayMin: 0, level: legs.length ? 'high' : 'low' } });
 }
 

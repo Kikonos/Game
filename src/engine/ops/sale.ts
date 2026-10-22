@@ -14,14 +14,15 @@ import type { ActionResult, Aircraft, GameState, Minute, SimEvent } from '../cor
 import { clamp, hashUnit } from '../core/util';
 import { planPositioning } from '../contracts';
 import { settleDeparture } from './finance';
+import { cancelLegs, subcharterInstead } from './flights';
 import { checkStatus } from './maintenance';
-import { usd } from './util';
+import { isRevenue, usd } from './util';
 
 export interface SaleQuote {
   ok: boolean;
   why: string | null;
   price: number;
-  /** 'Market value 2009 A320' … '−C-check life used' … 'Broker 2%'. */
+  /** 'Market value 2009 A320' … 'C-check life used' … 'Broker 2%'. */
   lines: { label: string; amount: number }[];
   buyer: string;
   closes: Minute;
@@ -71,7 +72,7 @@ export function saleQuote(g: GameState, aircraftId: string): SaleQuote {
   const lines = [
     { label: `Market value ${ac.builtYear} ${t.short}`, amount: r1k(market) },
     { label: hoursAdj * cyclesAdj >= 1 ? 'Low hours and cycles' : 'High hours and cycles', amount: r1k(use) },
-    { label: '−C-check life used', amount: -r1k(cLife) },
+    { label: 'C-check life used', amount: -r1k(cLife) },
     ...(vip ? [{ label: 'VIP cabin (few buyers)', amount: r1k(vip) }] : []),
     { label: `Broker ${Math.round(S.broker * 100)}%`, amount: -r1k(broker) },
   ];
@@ -125,7 +126,7 @@ export function sellAircraft(g: GameState, aircraftId: string, expectPrice?: num
   schedule(g, q.closes, 'aircraft.sale', ac.id);
   touchFlights(g);
   pushMessage(g, {
-    tone: 'info', cat: 'company', title: `${ac.reg} sold to ${q.buyer}`,
+    tone: 'info', cat: 'company', title: `Sale agreed: ${ac.reg} to ${q.buyer} (handover ${fmtDay(q.closes)})`,
     body: `${usd(q.price)} (book value ${usd(q.bookValue)}). Handover at ${g.company.homeBase} on ${fmtDay(q.closes)}${ac.sale.ferryIds?.length ? '; a ferry brings it home first' : ''}. It takes no new work.`,
     ref: { kind: 'aircraft', id: ac.id },
   });
@@ -156,8 +157,21 @@ export function onSaleClose(g: GameState, ev: SimEvent): void {
     schedule(g, s.closes, 'aircraft.sale', ac.id);
     return;
   }
+  // Work still on it (retimed past the handover): operations hand revenue legs to a rival (we still bill the
+  // client) or cancel them when that costs less; empty legs go.
   const left = flightsOf(g, ac.id).filter((f) => f.status === 'scheduled');
-  if (left.length) removeFlights(g, left.map((f) => f.id));
+  const rev = left.filter(isRevenue);
+  let kept = '';
+  if (rev.length) {
+    const n = rev.length === 1 ? 'The 1 leg still on it was' : `The ${rev.length} legs still on it were`;
+    if (subcharterInstead(g, ac, rev, `${ac.reg} was handed over to ${s.buyer}`, false)) kept = ` ${n} handed to a rival operator.`;
+    else {
+      cancelLegs(g, rev, `${ac.reg} sold`, 1);
+      kept = ` ${n} cancelled.`;
+    }
+  }
+  const rest = flightsOf(g, ac.id).filter((f) => f.status === 'scheduled');
+  if (rest.length) removeFlights(g, rest.map((f) => f.id));
   const book = ac.ownership.kind === 'owned' ? ac.ownership.bookValue : 0;
   // Cash moves by exactly the price; the statement shows the gain or loss over book value.
   cashOnly(g, book);
@@ -169,7 +183,7 @@ export function onSaleClose(g: GameState, ev: SimEvent): void {
   const gain = s.price - book;
   pushMessage(g, {
     tone: 'good', cat: 'company', title: `${ac.reg} sold to ${s.buyer}`,
-    body: `${ac.reg} sold to ${s.buyer} for ${usd(s.price)}. Handed over at ${ac.at}; a ${usd(Math.abs(gain))} ${gain >= 0 ? 'gain' : 'loss'} over book value.`,
+    body: `${ac.reg} sold to ${s.buyer} for ${usd(s.price)}. Handed over at ${ac.at}; a ${usd(Math.abs(gain))} ${gain >= 0 ? 'gain' : 'loss'} over book value.${kept}`,
   });
 }
 

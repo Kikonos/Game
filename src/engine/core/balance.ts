@@ -266,8 +266,8 @@ export const BAL = {
   v072: {
     /** Cabin crew report this much earlier than the pilots (ORO.FTL.205(c)); their FDP and max FDP both grow by it. */
     ftl: { cabinEarlyMin: { narrow: 0, wide: 15 } },
-    /** Sub-charter reliability: base … max per leg, by contract share and company count in windowDays; caps per hand-over. */
-    sub: { base: 0.3, max: 1.0, shareFrom: 0.1, shareSpan: 0.233, nFrom: 4, nSpan: 16, capPerAction: 8, relationPerLeg: 0.5, relationCap: 4, windowDays: 90 },
+    /** Sub-charter reliability: base … max per leg, by contract share and company count in windowDays; at most capPerClient per client in capDays. */
+    sub: { base: 0.3, max: 1.0, shareFrom: 0.1, shareSpan: 0.233, nFrom: 4, nSpan: 16, capPerClient: 8, capDays: 7, relationPerLeg: 0.5, relationCap: 4, windowDays: 90 },
     /** Cabin crew hires: days to join, days and cost share per extra type. */
     cabinHire: { days: 7, extraTypeDays: 3, extraTypeCost: 0.5 },
     /** Captains in an FO seat: free uses per 30 days, then morale each time. */

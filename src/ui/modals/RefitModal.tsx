@@ -13,7 +13,7 @@ import { flightsOf, flightsRev } from '../../engine/core/entities';
 import { route } from '../../engine/contracts/plan';
 import { typeOf } from '../../engine/core/perf';
 import { DAY, HOUR, dayStart, fmtDay, fmtDuration, fmtTime, toDate } from '../../engine/core/time';
-import { bookRefit, bookRestSeats, cabinOptions, refitQuote, refitSlots, refitStations, restSeatsQuote, type RefitQuote } from '../../engine/ops';
+import { bookRefit, bookRestSeats, cabinOptions, cancelCheck, refitQuote, refitSlots, refitStations, restSeatsQuote, type RefitQuote } from '../../engine/ops';
 import { REST_SEATS } from '../../engine/ops/cabin';
 import { Term } from '../components/Term';
 import { Modal, Seg } from '../components/ui';
@@ -26,6 +26,17 @@ const SCAN_WEEKS = 26;
 const PAGE = 14;
 /** Earliest windows listed (the dialog fits 750 px). */
 const SLOTS = 4;
+
+/** 'Busy until 22 Apr: flies Drama production unit' → "CS-TQA is busy until 22 Apr: booked on ‘Drama production unit’". */
+export function busySentence(reg: string, why: string): string {
+  const m = /^Busy until ([^:]+): (.*)$/.exec(why);
+  if (!m) return why;
+  let what = m[2];
+  const fl = /^flies ([A-Z0-9]{2,3}\d+ [A-Z]{3}[–-][A-Z]{3})$/.exec(what);
+  if (fl) what = `flying ${fl[1]}`;
+  else if (what.startsWith('flies ')) what = `booked on ‘${what.slice(6)}’`;
+  return `${reg} is busy until ${m[1]}: ${what}`;
+}
 
 /** Where the aircraft will be at t (its last planned arrival before t), as refitQuote's ferry in measures it. Pure. */
 function plannedAt(g: GameState, aircraftId: string, t: Minute): string {
@@ -109,6 +120,14 @@ export function RefitModal({ aircraftId, layout, offerId, rest }: { aircraftId: 
       : store.act((gg) => bookRefit(gg, aircraftId, label, station, start)).ok;
     if (ok) close();
   };
+  // A refit already booked: show it (and the way to call it off) instead of an empty picker.
+  const booked = Object.values(g.maintenance).find((x) => x.aircraftId === aircraftId && x.kind === 'refit' && (x.status === 'planned' || x.status === 'inWork'));
+  const bookedWhat = booked?.refit ? (booked.refit.restSeats !== undefined ? (booked.refit.restSeats ? 'crew rest seats fitted' : 'crew rest seats removed') : `a refit to ${booked.refit.cabin.label}`) : 'a refit';
+  const cancelBooked = () => booked && store.openModal({
+    kind: 'confirm', title: 'Cancel this refit?', confirm: 'Cancel the refit', danger: true,
+    body: `${ac.reg} stays ${ac.cabin.label}. Free before the work starts; its ferry to ${booked.at} is removed.`,
+    onConfirm: () => { if (store.act((gg) => cancelCheck(gg, booked.id)).ok) store.openModal({ kind: 'refit', aircraftId, rest: mode === 'rest' }); },
+  });
   const bookLabel = mode === 'rest' ? `${fit ? 'Fit crew rest seats' : 'Remove crew rest seats'} · ${money(q.cost)}` : `Book refit · ${money(q.cost)}`;
   return (
     <Modal size="wide" className="rf-modal" title={`${mode === 'rest' ? 'Crew rest seats' : 'Cabin refit'} · ${ac.reg}`} icon={mode === 'rest' ? <BedDouble className="accent" /> : <Sofa className="accent" />} onClose={close} footer={
@@ -145,8 +164,15 @@ export function RefitModal({ aircraftId, layout, offerId, rest }: { aircraftId: 
             </div>
           )}
           <div className="small muted rf-where">At {stations[0]?.name ?? `our hangar, ${station}`}{ferry === null ? ' · no ferry route' : ferry ? ` · ferry ${fmtDuration(ferry)} from ${from}` : ''}</div>
-          <div className="upper dim">Earliest start</div>
-          {plan.busyUntil !== null && plan.busyWhy && <div className="small rf-why"><b>Why not sooner?</b> {plan.busyWhy.replace(/^Busy until ([^:]+): /, `${ac.reg} is busy until $1: it `)}.</div>}
+          <div className="upper dim">{booked ? 'Booked' : 'Earliest start'}</div>
+          {booked ? (
+            <div className="rf-booked">
+              <span className="small">{ac.reg} already has {bookedWhat} booked: <b>{fmtDay(booked.start)} – {fmtDay(booked.end)}</b> at {stations.find((x) => x.code === booked.at)?.name ?? booked.at}{booked.status === 'inWork' ? ' · in work now' : ''}.</span>
+              <span className="small muted">{booked.status === 'planned' ? 'One refit at a time: cancel it (free before the work starts) to book a different one.' : 'The work has started; book the next one when it is done.'}</span>
+              {booked.status === 'planned' && <button className="btn btn-sm" onClick={cancelBooked}>Cancel that refit</button>}
+            </div>
+          ) : (<>
+          {plan.busyUntil !== null && plan.busyWhy && <div className="small rf-why"><b>Why not sooner?</b> {busySentence(ac.reg, plan.busyWhy)}.</div>}
           {plan.slots.length ? (
             <div className="rf-slots" role="group" aria-label="Earliest windows">
               {plan.slots.map((s, i) => {
@@ -161,7 +187,7 @@ export function RefitModal({ aircraftId, layout, offerId, rest }: { aircraftId: 
               })}
             </div>
           ) : (
-            <div className="small warn">{plan.busyWhy ?? `No free window in the next ${SCAN_WEEKS} weeks: move flights first.`}</div>
+            <div className="small warn">{plan.busyWhy ? busySentence(ac.reg, plan.busyWhy) : `No free window in the next ${SCAN_WEEKS} weeks: move flights first.`}</div>
           )}
           <button className="btn btn-sm rf-more" onClick={() => setGrid(!grid)} aria-expanded={grid}><CalendarDays /> {grid ? 'Hide days' : 'Another day…'}</button>
           {grid && (
@@ -192,6 +218,7 @@ export function RefitModal({ aircraftId, layout, offerId, rest }: { aircraftId: 
               <div className="small dim">Greyed days clash with flights or checks.</div>
             </>
           )}
+          </>)}
         </div>
         <div className="col gap-12 cv-right" style={{ minWidth: 0 }}>
           <div className="upper dim">Summary</div>

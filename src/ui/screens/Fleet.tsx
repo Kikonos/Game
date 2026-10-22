@@ -118,12 +118,12 @@ function CrewExtraRow({ g, ac }: { g: GameState; ac: Aircraft }) {
 }
 
 /** v0.7.2 §6.3 'Which one?': the one-line answer on the least used aircraft, with what to do about it. */
-function LeastUsedLine({ ac, least, onClose }: { ac: Aircraft; least: LeastUsedRow; onClose: () => void }) {
+function LeastUsedLine({ g, ac, least, onClose }: { g: GameState; ac: Aircraft; least: LeastUsedRow; onClose: () => void }) {
   const lease = ac.ownership.kind === 'dryLeaseIn';
   return (
     <div className="fl-which">
       <div className="col grow" style={{ minWidth: 0 }}>
-        <b className="small">The least used: {Math.round(least.bh90)} BH in {least.days} days ({least.perDay.toFixed(1)} BH a day){least.days < 90 ? `, counted for ${least.days} days` : ''}</b>
+        <b className="small">The least used: {Math.round(least.bh90)} BH since {fmtDay((Math.floor(g.now / DAY) - least.days + 1) * DAY)} ({least.perDay.toFixed(1)} a day)</b>
         <span className="small muted">{lease ? 'Leased: handing it back early saves rent, for a fee.' : 'Owned: selling it brings cash in; signed work must be moved first.'}</span>
       </div>
       {lease
@@ -170,7 +170,7 @@ function AircraftCard({ g, ac, sel, least, onLeastClose }: { g: GameState; ac: A
           <div className="small muted ellipsis">{t.name} · {ac.cabin.label} · {yearOf(g.now) - ac.builtYear} years</div>
         </div>
       </div>
-      {least && <LeastUsedLine ac={ac} least={least} onClose={onLeastClose} />}
+      {least && <LeastUsedLine g={g} ac={ac} least={least} onClose={onLeastClose} />}
       {ds && ds.phase !== 'home' && <div className={`fl-row small ${ds.phase === 'waiting' ? 'warn' : ''}`}><span className="upper dim">Delivery</span><span>{ds.text}</span></div>}
       {sf && short && (
         <div className="fl-row small cs-fleet">

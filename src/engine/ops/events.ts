@@ -114,6 +114,8 @@ function findSwap(g: GameState, ac: Aircraft, legs: Flight[], at: string): Swap 
   for (const b of Object.values(g.fleet)) {
     if (b.id === ac.id || typeOf(b.typeId).family !== fam || b.cabin.total < ac.cabin.total * 0.9) continue;
     if (b.status !== 'available' && b.status !== 'flying') continue;
+    // v0.7.2 a sold or returning aircraft takes no new work.
+    if (b.sale || b.returning) continue;
     const cur = b.flightId ? g.flights[b.flightId] : undefined;
     const from = cur ? cur.to : b.at;
     const ready = cur ? (cur.eta ?? cur.sta) + turnOf(b) : g.now;

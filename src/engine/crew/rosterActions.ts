@@ -130,9 +130,13 @@ export function dutyCandidates(g: GameState, dutyOrFlightId: string, role: Role)
   const family = typeOf(typeIdOf(g, p)).family;
   const wet = p.contractId ? g.contracts[p.contractId]?.product.kind === 'wet' : false;
   const on = new Set(p.slots.filter((s) => s.crewId).map((s) => s.crewId!));
+  // v0.7.2 crew already on the trip are listed only for their own seat's role (a seated captain is never offered
+  // for the FO seat: moving them would empty the left seat, and assignCrew refuses it anyway).
+  const seatOf = new Map(p.slots.filter((s) => s.crewId).map((s) => [s.crewId!, s.role] as const));
   const out: (DutyCandidate & { score: number })[] = [];
   for (const c of Object.values(g.crew)) {
     if (!canFill(role, c.role) || !c.ratings.includes(family)) continue;
+    if (on.has(c.id) && seatOf.get(c.id) !== role) continue;
     const segs = segsOf(g, c, p.id);
     const plan = planCrew(g, c, p, segs, on.has(c.id));
     const issues = plan.issues.filter((i) => i.code !== 'fdp');

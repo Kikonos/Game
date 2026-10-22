@@ -1097,6 +1097,8 @@ export interface Stats {
   subLog?: Minute[];
   /** v0.7.2: reliability lost to sub-charters, all time (≤ 0). */
   subHit?: number;
+  /** v0.7.2: [time, clientId, reliability ≤ 0] of recent hand-overs (the 7-day cap per client). */
+  subCap?: [Minute, string, number][];
   sales?: number;
   earlyReturns?: number;
   asFo?: number;
