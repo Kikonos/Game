@@ -1,17 +1,17 @@
 // Crew (B5): staffing strip, filterable list with 28-day duty / block bars, and a detail panel with every
 // limit, morale and fatigue, days off and a 14-day roster; Train / Hire similar. DESIGN.md §6.3.
 
-import { ArrowDownRight, ArrowRight, ArrowUpRight, Check, CheckSquare, GraduationCap, LayoutGrid, List, Lock, Search, UserPlus, Users, X } from 'lucide-react';
+import { ArrowDownRight, ArrowRight, ArrowUpRight, Check, CheckSquare, GraduationCap, Layers, LayoutGrid, List, Lock, Search, UserPlus, Users, X } from 'lucide-react';
+import { CrewPlanView, PlanStrip } from './CrewPlan';
 import { FlightTypeChip } from '../components/FlightType';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { RatingFamily } from '../../data/acmiTypes';
 import { flag } from '../../data/countries';
 import { flightsRev } from '../../engine/core/entities';
 import { DAY, HOUR, dayStart, fmtDate, fmtDay, fmtTime, monthKey, monthStart, nextMonthStart, toDate } from '../../engine/core/time';
 import type { CrewMember, CrewStatus, GameState } from '../../engine/core/types';
 import {
   type CalBlock, classOf, conversionClasses, crewCalendar, crewName, crewRev, crewStatusView, crewTravelNow, type CrewTravelNow, crewWindows, daysOffInMonth, familyLabel, LIMITS,
-  moraleOf, moraleSummary, staffing, type CrewWindows,
+  moraleOf, moraleSummary, type CrewWindows,
 } from '../../engine/crew';
 import { crewGauges } from '../../engine/crew';
 import { problemAt } from '../../engine/problems';
@@ -33,46 +33,6 @@ const STATUS_TONE: Record<CrewStatus, 'good' | 'warn' | 'bad' | 'info' | 'off'> 
 };
 const PAGE = 60;
 const h = (min: number) => min / HOUR;
-
-function Staffing({ g }: { g: GameState }) {
-  const lines = staffing(g);
-  // v0.6: a type crew hold with no aircraft of it (converted ahead of a delivery, or left over): idle but paid.
-  const flown = new Set(lines.map((l) => l.family));
-  const idle = new Map<string, { p: number; c: number }>();
-  for (const c of Object.values(g.crew)) {
-    for (const f of c.ratings) {
-      if (flown.has(f)) continue;
-      const x = idle.get(f) ?? { p: 0, c: 0 };
-      if (isPilotRole(c.role)) x.p++;
-      else x.c++;
-      idle.set(f, x);
-    }
-  }
-  if (!lines.length && !idle.size) return null;
-  return (
-    <div className="sc-staff">
-      {lines.map((l) => {
-        const short = l.have < l.need;
-        return (
-          <button key={`${l.family}-${l.role}`} className={`sc-staff-chip ${short ? 'short' : ''}`} onClick={() => store.openModal({ kind: 'hire', role: l.role, family: l.family })} data-tip={`${ROLE_LABEL[l.role]}: ${l.have} on the books, ${l.need} needed for the fleet${l.shared ? `; ${l.shared} also fly another type` : ''}`} aria-label={`${familyLabel(l.family)} ${l.role}: ${l.have} of ${l.need}${l.shared ? `, ${l.shared} also on another type` : ''}. Hire`}>
-            <span className="tiny dim">{familyLabel(l.family)}</span>
-            <b>{l.role}</b>
-            <span className={`num ${short ? 'warn' : ''}`}>{l.have}/{l.need}</span>
-            {/* v0.7.2: multi-type cabin crew counted here who also hold another fleet type. */}
-            {!!l.shared && <span className="tiny muted sc-staff-shared">{l.shared} shared</span>}
-          </button>
-        );
-      })}
-      {[...idle].map(([f, x]) => (
-        <span key={f} className="sc-staff-chip idle" data-tip={`${x.p} pilots and ${x.c} cabin crew hold the ${familyLabel(f as RatingFamily)}; no aircraft of it in the fleet or on order`}>
-          <span className="tiny dim">{familyLabel(f as RatingFamily)}</span>
-          <b>No aircraft</b>
-          <span className="num tiny muted">{x.p ? `${x.p} pilot${x.p === 1 ? '' : 's'}` : ''}{x.p && x.c ? ' · ' : ''}{x.c ? `${x.c} cabin` : ''}</span>
-        </span>
-      ))}
-    </div>
-  );
-}
 
 function CrewRow({ g, c, w, on, t, selecting, checked, onTap }: { g: GameState; c: CrewMember; w: CrewWindows; on: boolean; t: CrewTravelNow | null; selecting: boolean; checked: boolean; onTap: () => void }) {
   // v0.5.2: travelling as a passenger beats the stored status ('Deadheading · DUB→LIS').
@@ -380,10 +340,11 @@ function Detail({ g, c }: { g: GameState; c: CrewMember }) {
 }
 
 const VIEW_KEY = 'bh.crewView';
-type CrewView = 'people' | 'board';
+type CrewView = 'people' | 'board' | 'plan';
 function storedView(): CrewView {
   try {
-    return localStorage.getItem(VIEW_KEY) === 'board' ? 'board' : 'people';
+    const v = localStorage.getItem(VIEW_KEY);
+    return v === 'board' || v === 'plan' ? v : 'people';
   } catch {
     return 'people';
   }
@@ -414,7 +375,7 @@ export function CrewScreen() {
   const rev = flightsRev(g);
   const hour = Math.floor(g.now / HOUR);
   const all = Object.values(g.crew);
-  const view: CrewView = store.nav.view === 'board' || store.nav.view === 'people' ? store.nav.view : storedView();
+  const view: CrewView = store.nav.view === 'board' || store.nav.view === 'people' || store.nav.view === 'plan' ? store.nav.view : storedView();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const list = useMemo(() => filterCrew(all, f), [g, f, hour, all.length]);
   const shown = more ? list : list.slice(0, PAGE);
@@ -455,7 +416,7 @@ export function CrewScreen() {
   return (
     <div className={`screen sc-crew ${view === 'board' ? 'sc-crew-board' : ''}`}>
       <ScreenHead title="Crew" sub={`${all.length} people · ${all.filter((c) => c.status === 'onDuty').length} on duty now`}>
-        <Seg<CrewView> value={view} onChange={setView} options={[{ value: 'people', label: <><List className="sc-ico-s" /> People</> }, { value: 'board', label: <><LayoutGrid className="sc-ico-s" /> Roster board</> }]} />
+        <Seg<CrewView> value={view} onChange={setView} options={[{ value: 'people', label: <><List className="sc-ico-s" /> People</> }, { value: 'board', label: <><LayoutGrid className="sc-ico-s" /> Roster board</> }, { value: 'plan', label: <><Layers className="sc-ico-s" /> Planning</> }]} />
         <MoraleChip g={g} />
         {classes.length > 0 && (
           <button className="btn" onClick={() => store.openModal({ kind: 'classes' })}>
@@ -467,8 +428,11 @@ export function CrewScreen() {
         )}
         <button className="btn btn-primary" onClick={() => store.openModal({ kind: 'hire' })}><UserPlus /> Hire</button>
       </ScreenHead>
-      {view === 'people' && <Staffing g={g} />}
-      {!all.length ? (
+      {/* v0.7.4 one calm line per type family (sets complete of needed); the detail lives in Planning. */}
+      {view === 'people' && <PlanStrip g={g} onOpen={() => setView('plan')} />}
+      {view === 'plan' ? (
+        <CrewPlanView g={g} />
+      ) : !all.length ? (
         <Empty icon={<Users />} title="No crew yet">Hire pilots and cabin crew to fly your aircraft.</Empty>
       ) : view === 'board' ? (
         <RosterBoard g={g} selecting={selecting} selected={picked} onSelect={onSelect} />

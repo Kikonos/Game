@@ -232,12 +232,25 @@ export const BAL = {
     noticeDays: 120, decisionDays: 14, checkDays: [7, 14] as [number, number], checkCost: [180_000, 450_000] as [number, number],
     halfLifeShare: 0.5, repaintFactor: 0.9, extend: { 12: 0.97, 36: 0.92 } as Record<number, number>,
   },
-  /** Cabin refits: hangar slot lead (days); [days, cost] by target layout (narrow / wide). */
+  /**
+   * Cabin refits: hangar slot lead (days); [days, cost] by target layout (narrow / wide). v0.7.4 (RESEARCH.md §13): the
+   * type's standard layouts are a QUICK reconfiguration with seats we hold (move rows and the class divider, convertible
+   * seats, curtains, re-pitch; the LOPA and weight & balance paperwork): about 48 h and 150–250 man-hours (narrow) /
+   * 400–700 (wide) plus the paperwork. VIP is a full retrofit with new premium seats ($60–100k a business seat,
+   * monuments, wiring, certification): weeks and millions. Was 5–35 days and $120k–3M for everything.
+   */
   refit: {
     /** v0.7.2: 0, a refit starts as soon as the aircraft is free (at home base). */
     leadDays: 0,
-    nb: { 'all-economy': [5, 120_000], 'two-class': [7, 250_000], vip: [21, 1_200_000] } as Record<string, [number, number]>,
-    wb: { 'all-economy': [14, 600_000], 'two-class': [21, 1_600_000], 'three-class': [28, 2_200_000], vip: [35, 3_000_000] } as Record<string, [number, number]>,
+    nb: { 'all-economy': [2, 30_000], 'two-class': [2, 40_000], vip: [21, 1_600_000] } as Record<string, [number, number]>,
+    wb: { 'all-economy': [2, 80_000], 'two-class': [2, 95_000], 'three-class': [3, 140_000], vip: [28, 4_000_000] } as Record<string, [number, number]>,
+  },
+  /** v0.7.4 client cabin requests (CabinTerms): chances by archetype and term, required share, client share weights, decline cut, change back. */
+  clientCabin: {
+    baseLong: 0.3, baseMid: 0.15, lease: 0.2, tourSeries: 0.06, twoClass: 0.65, required: 0.5,
+    share: [[1, 0.7], [0.5, 0.3]] as [number, number][], declinePct: [0.02, 0.04] as [number, number], revert: 0.7,
+    /** The reconfiguration ends this long before the first departure (minutes); the change back is booked within this many days. */
+    readyBefore: 24 * 60, revertWithinDays: 30,
   },
   /** Ladder: days an authority finding adds, max findings, AOGs allowed per aircraft on a clean record, incident memory. */
   ladder: { findingDays: 30, maxFindings: 2, aogPerAircraft: 0.5, incidentKeepDays: 365 },
@@ -286,10 +299,15 @@ export const BAL = {
   v073: {
     /** Rest plan: cruise from take-off + tocMin to landing − todMin; pilots awake wakeMin before top of descent; cabin crew rest from take-off + cabinAfterTakeoff to landing − cabinBeforeLanding. */
     rest: { tocMin: 40, todMin: 40, wakeMin: 30, cabinAfterTakeoff: 105, cabinBeforeLanding: 70, maxExtraCabin: 2, tightSpare: 30, roundMin: 5 },
-    /** Crew rest refits (est.): home-base days and cost; C-check add-ons: extra days and cost. */
+    /**
+     * Crew rest refits (est.; re-checked v0.7.4, RESEARCH.md §13): home-base days and cost; C-check add-ons: extra days
+     * and cost. v0.7.4: curtained business / economy seats need no refit (curtainJ kept for old bookings); bunks come
+     * as a pair: fcrc = the pilots' room + a lower-deck module for the cabin crew (A330/A340), overhead = both overhead
+     * compartments (777/787/A350/747).
+     */
     restRefit: {
       curtainJ: { days: 1, cost: 15_000 }, reclinersNarrow: { days: 3, cost: 100_000 }, reclinersWide: { days: 4, cost: 220_000 },
-      removeRecliners: { days: 2, cost: 30_000 }, ldmcr: { days: 6, cost: 950_000 }, fcrc: { addDays: 10, cost: 1_900_000 }, overhead: { addDays: 14, cost: 2_600_000 },
+      removeRecliners: { days: 2, cost: 30_000 }, ldmcr: { days: 6, cost: 950_000 }, fcrc: { addDays: 12, cost: 2_800_000 }, overhead: { addDays: 14, cost: 2_600_000 },
     },
     /** Planned extension (CS FTL.1.205(b)): per crew member in any 7 days; extra rest after (post-flight option). */
     ext: { perWeek: 2, restAfterMin: 240 },

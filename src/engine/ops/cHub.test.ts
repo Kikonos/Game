@@ -116,14 +116,15 @@ describe('v0.7.3 crew rest compartment with the C-check', () => {
     const { BAL } = await import('../core/balance');
     const g = newGame(3);
     const ac = addAircraft(g, 'a332');
-    ac.rest = { fc: { cls: 2, kind: 'jSeats', places: 2 }, cc: { cls: 2, kind: 'jSeats', places: 5 } };
+    // v0.7.4 nothing fitted: the crew rest in its business seats (class 2); bunks come for both crews together
+    ac.rest = { fc: null, cc: null };
     const opt = restRefitOptions(g, ac.id).find((o) => o.id === 'fcrc')!;
-    expect(opt).toMatchObject({ where: 'cCheck', days: 10, cost: 1_900_000, ok: true });
-    expect(opt.opens).toBe('Opens: 16 h days with 3 pilots (was 15 h); 2 business seats back on sale');
+    expect(opt).toMatchObject({ where: 'cCheck', side: 'both', days: 12, cost: 2_800_000, ok: true });
+    expect(opt.opens).toMatch(/^Opens: 16 h days with 3 pilots \(was 15 h\); cabin crew rest in bunks .*; 7 business seats back on sale$/);
     const hub = C_HUBS['A330/340'][0].code;
     const plain = cCheckOptions(g, ac.id).find((o) => o.hub.code === hub)!;
     const fit = cCheckOptions(g, ac.id, undefined, 'fcrc').find((o) => o.hub.code === hub)!;
-    expect(fit.checkCost - plain.checkCost).toBe(1_900_000);
+    expect(fit.checkCost - plain.checkCost).toBe(2_800_000);
     const start = cCheckSlots(g, ac.id, hub, 1, 'fcrc')[0];
     const r = bookCCheck(g, ac.id, hub, start, { restFit: 'fcrc' });
     if (!r.ok) throw new Error(r.error);
@@ -131,9 +132,9 @@ describe('v0.7.3 crew rest compartment with the C-check', () => {
     const days = Math.round((m.end - m.start) / DAY);
     expect(m.restFit).toBe('fcrc');
     expect(g.flights[m.homeIds![0]].std).toBe(m.end + BAL.v072.cHub.homeAfterMin);
-    // taken off and put back on: the check shrinks and grows by 10 days
+    // taken off and put back on: the check shrinks and grows by 12 days
     expect(addRestToCCheck(g, m.id, null).ok).toBe(true);
-    expect(Math.round((m.end - m.start) / DAY)).toBe(days - 10);
+    expect(Math.round((m.end - m.start) / DAY)).toBe(days - 12);
     expect(addRestToCCheck(g, m.id, 'fcrc').ok).toBe(true);
     expect(g.flights[m.homeIds![0]].std).toBe(m.end + BAL.v072.cHub.homeAfterMin);
     // (no A330 crew in this game to fly the ferry out: end the check where it stands)
@@ -142,6 +143,7 @@ describe('v0.7.3 crew rest compartment with the C-check', () => {
     onMaintEnd(g, { t: m.end, seq: 0, type: 'maint.end', id: m.id, v: m.ev } as never);
     expect(m.status).toBe('done');
     expect(ac.rest!.fc).toEqual({ cls: 1, kind: 'fcrc', places: 2 });
-    expect(ac.rest!.cc).toEqual({ cls: 2, kind: 'jSeats', places: 5 });
+    // v0.7.4 bunks as a pair: the cabin crew's lower-deck module comes with the pilots' room
+    expect(ac.rest!.cc).toEqual({ cls: 1, kind: 'ldmcr', places: 7 });
   });
 });

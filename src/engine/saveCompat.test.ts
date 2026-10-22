@@ -6,6 +6,7 @@ import LZString from 'lz-string';
 import { describe, expect, it } from 'vitest';
 import { acceptOffer, feasibilityAll } from './contracts';
 import { DAY } from './core/time';
+import { BAL } from './core/balance';
 import type { GameState } from './core/types';
 import { migrateRanks, moraleSummary, rosterBoard } from './crew';
 import { restPlan } from './crew/restPlan';
@@ -168,8 +169,13 @@ describe('v0.7.2 load: ranks merged into PUR, crew rest defaults', () => {
         if (p.status !== 'planned' || !p.slots.some((s) => s.role === 'PUR' || s.role === 'CC')) continue;
         expect(p.slots.filter((s) => s.role === 'PUR').length).toBe(1);
       }
-      // v0.7.3 old widebodies keep bunks for pilots and cabin crew; narrowbodies have no in-flight rest.
-      for (const ac of Object.values(g.fleet)) expect(!!ac.rest?.fc && ac.rest.fc.cls === 1 && ac.rest.cc?.cls === 1).toBe(typeOf(ac.typeId).body === 'wide');
+      // v0.7.3 old widebodies keep bunks for pilots and cabin crew (v0.7.4: never the 767, bunks always as a pair);
+      // narrowbodies have nothing fitted (their curtained economy seats follow the cabin).
+      for (const ac of Object.values(g.fleet)) {
+        const t = typeOf(ac.typeId);
+        expect(!!ac.rest?.fc && ac.rest.fc.cls === 1 && ac.rest.cc?.cls === 1, ac.typeId).toBe(t.body === 'wide' && t.rest.bunkShare > 0);
+        expect(ac.rest?.fc?.cls === 1).toBe(ac.rest?.cc?.cls === 1);
+      }
       expect(migrateRanks(g)).toBe(0);
       const end = g.now + 30 * DAY;
       while (g.now < end && !g.gameOver) {
@@ -196,7 +202,8 @@ describe('v0.7.3 load: pilot and cabin crew rest facilities', () => {
     const before = new Map(Object.values(file.state.duties).map((d) => [d.id, d.legality]));
     const g = deserialize(JSON.stringify(file));
     const reg = (r: string) => Object.values(g.fleet).find((a) => a.reg.endsWith(r))!;
-    expect(reg('DVR').rest).toEqual({ fc: { cls: 3, kind: 'recliners', places: 2 }, cc: { cls: 3, kind: 'recliners', places: 6 } });
+    // (v0.7.4: crew rest recliners are class 2)
+    expect(reg('DVR').rest).toEqual({ fc: { cls: 2, kind: 'recliners', places: 2 }, cc: { cls: 2, kind: 'recliners', places: 6 } });
     expect(reg('DVS').rest).toEqual({ fc: null, cc: null });
     expect(reg('DVT').rest).toEqual({ fc: { cls: 1, kind: 'fcrc', places: 2 }, cc: { cls: 1, kind: 'ldmcr', places: 7 } });
     for (const ac of Object.values(g.fleet)) if (typeOf(ac.typeId).body === 'narrow') expect(ac.rest).toEqual({ fc: null, cc: null });
@@ -218,7 +225,11 @@ describe('v0.7.3 load: pilot and cabin crew rest facilities', () => {
     }
     expect(g.gameOver).toBeNull();
     expect(bad(g)).toEqual([]);
-    for (const c of Object.values(g.crew)) expect(evalSegs(ctxOf(g, c), segsOf(g, c)).filter((i) => i.level === 'illegal' && i.code !== 'location').map((i) => `${c.id}:${i.code}`)).toEqual([]);
+    // Inside the published roster (v0.7.4: a far-off duty may carry a stale ticket home until the roster reaches it;
+    // the roster re-plans it when it comes within the horizon).
+    const horizon = g.now + BAL.rosterHorizonDays * DAY;
+    const near = (i: { dutyId?: string }) => !i.dutyId || (g.duties[i.dutyId]?.report ?? 0) <= horizon;
+    for (const c of Object.values(g.crew)) expect(evalSegs(ctxOf(g, c), segsOf(g, c)).filter((i) => i.level === 'illegal' && i.code !== 'location' && near(i)).map((i) => `${c.id}:${i.code}`)).toEqual([]);
     const again = deserialize(serialize(g));
     expect(JSON.parse(serialize(again)).state).toEqual(JSON.parse(serialize(g)).state);
   }, 240_000);

@@ -194,7 +194,7 @@ export function restNow(spec: GaugeSpec, now: Minute): GaugeSpec {
 export const KNOWN_VIEWS: Record<Tab, string[]> = {
   map: [], contracts: ['market', 'active', 'missed'], schedule: [], crew: ['people', 'board'], fleet: ['market'], finance: [], company: [], inbox: [],
 };
-const VIEW_LABEL: Record<string, string> = { market: 'Market', active: 'Active', missed: 'Missed', people: 'People', board: 'Roster board' };
+const VIEW_LABEL: Record<string, string> = { market: 'Market', active: 'Active', missed: 'Missed', people: 'People', board: 'Roster board', plan: 'Planning' };
 const TAB_LABEL: Record<Tab, string> = { map: 'Ops Map', contracts: 'Contracts', schedule: 'Schedule', crew: 'Crew', fleet: 'Fleet', finance: 'Finance', company: 'Company', inbox: 'Inbox' };
 /** Older glossary targets, in the screens' own names. */
 const VIEW_ALIAS: Record<string, { tab: Tab; view?: string; label?: string }> = {

@@ -43,11 +43,13 @@ describe('v0.7.3 rest timeline layout', () => {
     expect(restLayout(g, { ...plan, cruise: [] })).toBeNull();
   });
   it('facility words and terms', () => {
-    expect(restTerm({ cls: 2, kind: 'jSeats', places: 4 })).toBe('restClass2');
+    expect(restTerm({ cls: 2, kind: 'jSeats', places: 4 })).toBe('jSeats');
+    expect(restTerm({ cls: 3, kind: 'ySeats', places: 2 })).toBe('ySeats');
     expect(restTerm({ cls: 1, kind: 'ldmcr', places: 7 })).toBe('ldmcr');
     expect(restTerm(null)).toBe('crewRest');
     expect(restSeatWord({ fc: { cls: 1, kind: 'fcrc', places: 2 }, cc: { cls: 2, kind: 'jSeats', places: 4 } })).toBe('business seats');
-    expect(restSeatWord({ fc: { cls: 3, kind: 'recliners', places: 2 }, cc: null })).toBe('recliner seats');
+    expect(restSeatWord({ fc: { cls: 2, kind: 'recliners', places: 2 }, cc: null })).toBe('recliner seats');
+    expect(restSeatWord({ fc: { cls: 3, kind: 'ySeats', places: 2 }, cc: { cls: 3, kind: 'ySeats', places: 2 } })).toBe('economy seats');
     expect(restSeatWord({ fc: { cls: 1, kind: 'fcrc', places: 2 }, cc: null })).toBeNull();
   });
 });

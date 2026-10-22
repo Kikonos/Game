@@ -10,7 +10,9 @@ export type TermId =
   | 'pur' | 'cabinCrew' | 'crewRest' | 'restClass1' | 'restClass3' | 'restSeats' | 'mro' | 'dryLease' | 'asFo' | 'marketValue' | 'earlyReturn'
   /** v0.7.3 */
   | 'restClass2' | 'fcrc' | 'ccrc' | 'ldmcr' | 'recliners' | 'inflightRest' | 'landingPilots' | 'extension' | 'splitDuty' | 'delayedReport'
-  | 'homeStandby' | 'wocl' | 'disruptive' | 'tzRest' | 'twoDays';
+  | 'homeStandby' | 'wocl' | 'disruptive' | 'tzRest' | 'twoDays'
+  /** v0.7.4 */
+  | 'ySeats' | 'jSeats' | 'crewSet' | 'quickRefit' | 'clientCabin' | 'longestDay';
 
 export interface GlossaryEntry {
   term: string;
@@ -21,7 +23,7 @@ export interface GlossaryEntry {
 }
 
 /** Player words for a view id (the "Show me" button). */
-export const VIEW_LABEL: Record<string, string> = { board: 'Roster board', people: 'People' };
+export const VIEW_LABEL: Record<string, string> = { board: 'Roster board', people: 'People', plan: 'Planning' };
 
 export const GLOSSARY: Record<TermId, GlossaryEntry> = {
   fdp: { term: 'FDP', short: "Flight duty period: the crew's working day, from report to the last on-blocks. There is a legal maximum.", where: { tab: 'crew', view: 'board' } },
@@ -47,21 +49,21 @@ export const GLOSSARY: Record<TermId, GlossaryEntry> = {
   privateJet: { term: 'Private jet', short: 'A business jet chartered to fly our crew to their aircraft in hours; dear, but fast.', where: { tab: 'map' } },
   pur: { term: 'PUR', short: 'Purser: the senior cabin crew member in charge of the cabin (SCCM). One on every flight.', where: { tab: 'crew', view: 'people' } },
   cabinCrew: { term: 'CC', short: 'Cabin crew: the flight attendants, one for every 50 seats at least. They can hold up to three aircraft types.', where: { tab: 'crew', view: 'people' } },
-  crewRest: { term: 'Crew rest', short: 'Where crew sleep on long flights: bunks (class 1), business seats (class 2) or recliners (class 3). Pilots and cabin crew have their own.', where: { tab: 'fleet' } },
+  crewRest: { term: 'Crew rest', short: 'Where crew sleep on long flights: bunks (class 1, pilots and cabin crew always together), curtained business seats or recliners (class 2), curtained economy seats (class 3). Every aircraft has at least the economy seats.', where: { tab: 'fleet' } },
   restClass1: { term: 'Class 1 rest', short: 'Class 1 rest: a bunk or flat bed away from passengers. Allows the longest duty days.', where: { tab: 'fleet' } },
-  restClass3: { term: 'Class 3 rest', short: "Class 3 rest: a crew rest recliner (at least 40°, with a leg rest) behind a curtain, not next to passengers. A normal economy seat doesn't count.", where: { tab: 'fleet' } },
-  restSeats: { term: 'Crew rest seats', short: 'Seats curtained off for resting crew on long days; sold to passengers on other flights.', where: { tab: 'fleet' } },
+  restClass3: { term: 'Class 3 rest', short: 'Class 3 rest: a seat behind a curtain, not next to passengers. The game counts curtained economy seats (the rule book asks for 40° recline and a leg rest). The shortest rest days.', where: { tab: 'fleet' } },
+  restSeats: { term: 'Crew rest seats', short: 'Seats curtained off for resting crew on long days; sold to passengers on every other flight, so they always count in the seat total.', where: { tab: 'fleet' } },
   mro: { term: 'MRO', short: 'Maintenance, repair and overhaul: the hangar company that does heavy checks.', where: { tab: 'fleet' } },
   dryLease: { term: 'Dry lease', short: 'Renting an aircraft without crew; we fly it on our licence and hand it back at the end.', where: { tab: 'fleet' } },
   asFo: { term: 'Captain as FO', short: "A captain sitting in the first officer's seat because no first officer was free. Same pay.", where: { tab: 'crew', view: 'board' } },
   marketValue: { term: 'Market value', short: 'What a buyer pays for an aircraft today: its type, age, hours, cycles and the next heavy check.', where: { tab: 'fleet' } },
   earlyReturn: { term: 'Early return', short: 'Handing a leased aircraft back before the lease ends: the lessor charges a fee to find the next airline.', where: { tab: 'fleet' } },
   // v0.7.3
-  restClass2: { term: 'Class 2 rest', short: 'Class 2 rest: a business seat that reclines at least 45°, curtained off from passengers.', where: { tab: 'fleet' } },
-  fcrc: { term: 'Pilots’ bunks', short: "The pilots' bunk room by the cockpit (flight crew rest compartment): class 1 rest.", where: { tab: 'fleet' } },
-  ccrc: { term: 'Cabin crew bunks', short: "The cabin crew's bunks, hidden above the cabin or below it: class 1 rest.", where: { tab: 'fleet' } },
+  restClass2: { term: 'Class 2 rest', short: 'Class 2 rest: a business seat or crew rest recliner that reclines at least 45°, curtained off from passengers.', where: { tab: 'fleet' } },
+  fcrc: { term: 'Pilots’ bunks', short: "The pilots' bunk room by the cockpit (flight crew rest compartment): class 1 rest. Always comes with cabin crew bunks. The 767-300ER never has them.", where: { tab: 'fleet' } },
+  ccrc: { term: 'Cabin crew bunks', short: "The cabin crew's bunks, hidden above the cabin or below it: class 1 rest. Always comes with the pilots' bunks.", where: { tab: 'fleet' } },
   ldmcr: { term: 'Lower-deck crew rest module', short: 'A bunk module loaded into the aft cargo hold for the cabin crew (A330, A340): class 1 rest.', where: { tab: 'fleet' } },
-  recliners: { term: 'Crew rest recliners', short: 'Crew rest recliners with leg rests in place of the last economy rows: class 3 rest. They sell as economy seats when nobody rests.', where: { tab: 'fleet' } },
+  recliners: { term: 'Crew rest recliners', short: 'Deep-reclining crew seats with leg rests in place of the last economy rows: class 2 rest without giving up business seats. They sell as seats when nobody rests.', where: { tab: 'fleet' } },
   inflightRest: { term: 'In-flight rest', short: 'Sleep on board: on long days part of the crew rests in turns while the others work.', where: { tab: 'schedule' } },
   landingPilots: { term: 'Landing pilots', short: 'The two pilots who land the last flight: they need 2 hours’ rest in a row, the others 90 minutes.', where: { tab: 'schedule' } },
   extension: { term: 'Planned extension', short: 'A planned extra hour (up to 14 h), at most twice a week per person, with 4 h more rest after.', where: { tab: 'crew', view: 'board' } },
@@ -72,6 +74,13 @@ export const GLOSSARY: Record<TermId, GlossaryEntry> = {
   disruptive: { term: 'Disruptive duty', short: 'Early starts (05:00–05:59), late finishes (23:00–01:59) and nights (any time 02:00–04:59).', where: { tab: 'crew', view: 'board' } },
   tzRest: { term: 'Time-zone rest', short: 'After a trip 4 or more time zones away: 2–5 local nights at home before the next duty.', where: { tab: 'crew', view: 'board' } },
   twoDays: { term: 'Two-day weekend', short: 'Twice a month the weekly rest is 2 whole local days.', where: { tab: 'crew', view: 'board' } },
+  // v0.7.4
+  ySeats: { term: 'Curtained economy seats', short: "Curtained economy seats: the player's operators used these; the game treats them as class 3 rest. Every aircraft has them. They are blocked only on flights where someone rests, and sold on all others.", where: { tab: 'fleet' } },
+  jSeats: { term: 'Curtained business seats', short: 'Business seats curtained off for resting crew: class 2 rest, on any aircraft whose cabin has business seats. Blocked only on flights where someone rests.', where: { tab: 'fleet' } },
+  crewSet: { term: 'Crew set', short: 'One full crew for one aircraft: captain, first officer, purser and the cabin crew its seats need (plus a relief pilot on long days). Each aircraft needs about 5 sets to fly every day of the year.', where: { tab: 'crew', view: 'plan' } },
+  quickRefit: { term: 'Quick reconfiguration', short: 'Changing the cabin with seats we already hold: move rows, the class divider and curtains, change the pitch. About 48 hours in our hangar.', where: { tab: 'fleet' } },
+  longestDay: { term: 'Longest day', short: 'The longest working day on this aircraft: first with 2 pilots, then the most with 3 or 4 pilots who take turns to rest on board (in its bunks or curtained seats). With 2 pilots a planned extension adds up to an hour, twice a week per crew; days with more pilots need the Augmented crew approval.', where: { tab: 'fleet' } },
+  clientCabin: { term: 'Client cabin', short: 'The client wants a different cabin for their contract. We reconfigure it before the start (about 48 hours) and they pay all or half, and often for putting it back after.', where: { tab: 'contracts' } },
 };
 
 /** Words that the UI wraps in <Term> when they appear in a card's text (lower-case match). */
@@ -86,6 +95,8 @@ export const TERM_WORDS: [string, TermId][] = [
   ['class 2 rest', 'restClass2'], ['lower-deck crew rest module', 'ldmcr'], ['crew rest recliners', 'recliners'], ['in-flight rest', 'inflightRest'],
   ['landing pilots', 'landingPilots'], ['planned extension', 'extension'], ['split duty', 'splitDuty'], ['delayed report', 'delayedReport'],
   ['home standby', 'homeStandby'], ['WOCL', 'wocl'], ['disruptive', 'disruptive'], ['two-day weekend', 'twoDays'], ["pilots' bunks", 'fcrc'],
+  // v0.7.4
+  ['curtained economy seats', 'ySeats'], ['curtained business seats', 'jSeats'], ['crew set', 'crewSet'], ['quick reconfiguration', 'quickRefit'],
 ];
 
 /** First-time hints: one plain paragraph the first time each kind of problem appears (Settings.hintsSeen). */
@@ -148,11 +159,11 @@ export const HINTS: Partial<Record<ProblemKind, { title: string; text: string }>
   },
   restSeats: {
     title: 'Seats blocked for crew rest',
-    text: 'On a long duty the crew must rest in turns during the flight. An aircraft without bunks curtains off business seats (or crew rest recliners) for them, so those seats cannot be sold on the legs where someone rests. On shorter duties they sell as normal.',
+    text: 'On a long duty the crew must rest in turns during the flight. An aircraft without bunks curtains off seats for them: business seats when the cabin has them, else economy seats (or crew rest recliners). Those seats cannot be sold on the legs where someone rests; on every other flight they sell as normal.',
   },
   restFacility: {
     title: 'A long day that needs a 4th pilot',
-    text: 'How long a crew may work depends on where they can sleep on board: bunks (class 1) allow the longest days, curtained business seats (class 2) an hour less, recliners (class 3) two hours less. When the aircraft only has seats, a 4th pilot or another aircraft makes the day legal.',
+    text: 'How long a crew may work depends on where they can sleep on board: bunks (class 1) allow the longest days, curtained business seats or recliners (class 2) an hour less, curtained economy seats (class 3) two hours less. When the aircraft only has seats, a 4th pilot or another aircraft makes the day legal.',
   },
   restTooShort: {
     title: 'No time to sleep on board',

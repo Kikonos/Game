@@ -1037,7 +1037,7 @@ export interface DutyNeed {
 const kindWords = (r: AcRest): string => {
   const f = r.fc;
   if (!f) return 'No crew rest';
-  return f.kind === 'fcrc' || f.kind === 'ccrc' ? 'Bunks' : f.kind === 'ldmcr' ? 'Lower-deck bunks' : f.kind === 'jSeats' ? `Business seats (class ${f.cls})` : `Recliners (class ${f.cls})`;
+  return f.kind === 'fcrc' || f.kind === 'ccrc' ? 'Bunks' : f.kind === 'ldmcr' ? 'Lower-deck bunks' : f.kind === 'jSeats' ? `Business seats (class ${f.cls})` : f.kind === 'ySeats' ? `Economy seats (class ${f.cls})` : `Recliners (class ${f.cls})`;
 };
 
 /**
@@ -1065,7 +1065,8 @@ export function dutyNeed(g: GameState, typeId: string, rest: AcRest, chain: Chai
     const plan = planRest(legsOf(fl), rest, pa.augment as 1 | 2, sh.fdp + pa.early, ctx.cabinN);
     const blocked = Math.max(0, ...Object.values(plan.blocked));
     const pilots = pa.augment === 1 ? '3 pilots' : 'needs a 4th pilot';
-    const seatsLine = blocked ? ` · ${blocked} ${rest.fc?.kind === 'recliners' ? 'recliners' : 'business seats'} blocked on the long legs` : '';
+    const seatK = [rest.fc, rest.cc].find((x) => x && (x.kind === 'jSeats' || x.kind === 'ySeats' || x.kind === 'recliners'))?.kind;
+    const seatsLine = blocked ? ` · ${blocked} ${seatK === 'recliners' ? 'recliners' : seatK === 'ySeats' ? 'economy seats' : 'business seats'} blocked on the long legs` : '';
     const extra = plan.extraCabin ? ` · ${plan.extraCabin} more cabin crew for in-flight rest` : '';
     return { mode: pa.mode, fdp: sh.fdp, max: pa.max, plan, text: `${kindWords(rest)} → ${pilots}, ${hrs(pa.max)} limit${pa.augment === 1 ? ' ✓' : ''}${seatsLine}${extra}` };
   }

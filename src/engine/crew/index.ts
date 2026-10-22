@@ -26,7 +26,7 @@ export {
   acclimState, referenceTime, type Acclim, type CrewWindows, type FdpInput, type IssueCode, type LegalityIssue, type LegalityReport, type RestInput,
 } from './ftl';
 export { crewName, makeCrewMember, salaryFor } from './generate';
-export { crewAvailability, hireCrew, hireFamilies, hireQuote, ratedMarket, staffing, trainCrew, type Availability, type HireRequest, type RatedMarket, type RoleCapacity, type StaffingLine } from './hr';
+export { crewAvailability, hireBatch, hireCrew, hireFamilies, hireQuote, ratedMarket, staffing, trainCrew, type Availability, type HireRequest, type RatedMarket, type RoleCapacity, type StaffingLine } from './hr';
 export {
   applyDiscretion, autoRoster, discretionMax, boardCrew, dropStraySpares, promoteSpares, buildDuties, flightCrewStatus, guardDuty, onFlightsChanged, removeCrew, replaceCrew, rerosterFrom, rosterOf, setRestDelayHook,
   type FlightCrewStatus, type RosterResult,
@@ -63,7 +63,7 @@ export { crewAway, type CrewAway } from './away';
 export { restClassAt, restSeatsBlocked, sellableSeats } from './crewRest';
 // v0.7.3 (UPDATE-0.7.3.md §7).
 export {
-  augLimit, cabinBand, hasBunks, isSeatRest, longestDay, migrateRest, planRest, restNow, restOf, restPlan, restPlanForFlight, restShort, restText, restVerdict, restWhere,
+  augLimit, bunksFor, cabinBand, effectiveRest, fittedRest, hasBunks, isSeatRest, longestDay, migrateRest, restOfAc, restWords, seatRest, ySeatsFor, planRest, restNow, restOf, restPlan, restPlanForFlight, restShort, restText, restVerdict, restWhere,
   type LongestDay, type RestLeg, type RestPlan, type RestSeat, type RestTurn,
 } from './restPlan';
 export { fdpWhy, setDutyAugment, type FdpWhy } from './explain';
@@ -463,3 +463,6 @@ export const crewModule: SimModule = {
     'crew.alert': onCrewAlert,
   },
 };
+
+// v0.7.4 crew planning by type family (crew sets) and the round-up hire.
+export { completeSets, crewPlan, familyName, missingFor, roundTargets, roundUpQuote, roundUpRoles, SET_ROLES, setWords, type FamilyPlan, type RoundUpLine, type SetRole, type TypeSet } from './sets';

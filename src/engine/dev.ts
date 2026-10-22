@@ -16,7 +16,7 @@ import { typeOf } from './core/perf';
 import { offsetAt } from './crew/rules';
 import { escalateShortages } from './crew/control';
 import { recheckPairing, releaseCrew, setFlightsCrew } from './crew/roster';
-import { migrateRest } from './crew/restPlan';
+import { bunksFor, fittedRest, migrateRest } from './crew/restPlan';
 
 /** Out-and-back legs from each aircraft's position, starting in 30 min, for `days` days (ferries by default: no client). */
 export function demoFlights(g: GameState, dests = ['FAO', 'FNC', 'PMI', 'TFS', 'OPO', 'AGP'], days = 3, kind: 'ferry' | 'revenue' = 'ferry'): number {
@@ -126,6 +126,14 @@ export function devSaleReady(g: GameState): string {
 
 // ---------- v0.7.3 (UPDATE-0.7.3.md §7): each returns the id to open ----------
 
+/** v0.7.4: an aircraft of `typeId` at home base (nothing fitted unless the type always has bunks) with a crew for it; returns its id. Dev/test helper. */
+export function devAddType(g: GameState, typeId: string, cabinIx = 0): string {
+  const t = ACMI_TYPES[typeId];
+  if (!t) return '';
+  const ac = devWide(g, typeId, t.rest.bunkShare >= 1 ? bunksFor(typeId) : { fc: null, cc: null }, `D${typeId.slice(-2).toUpperCase()}`, cabinIx);
+  return ac?.id ?? '';
+}
+
 /** A widebody clone of the first aircraft at home base with these facilities and its crew hired (dev). */
 function devWide(g: GameState, typeId: string, rest: AcRest, suffix: string, cabinIx = 0): Aircraft | null {
   const base = Object.values(g.fleet)[0];
@@ -134,7 +142,8 @@ function devWide(g: GameState, typeId: string, rest: AcRest, suffix: string, cab
   for (const a of ['widebody', 'augmented'] as const) if (!g.company.approvals.includes(a)) g.company.approvals.push(a);
   const t = ACMI_TYPES[typeId];
   const id = nextId(g, 'a');
-  const ac: Aircraft = { ...structuredClone(base), id, reg: `${g.company.regPrefix}${suffix}`, typeId, cabin: cabinFrom(t.cabins[cabinIx]), at: home, flightId: null, status: 'available', maintId: null, rest: structuredClone(rest), bhDays: [] };
+  // v0.7.4 fitted facilities only (the cabin's curtained seats are always there), bunks paired.
+  const ac: Aircraft = { ...structuredClone(base), id, reg: `${g.company.regPrefix}${suffix}`, typeId, cabin: cabinFrom(t.cabins[cabinIx]), at: home, flightId: null, status: 'available', maintId: null, rest: fittedRest(typeId, structuredClone(rest)), restV: 2, bhDays: [] };
   delete ac.crewRest;
   ac.maint = { ...ac.maint, fhSinceA: 0, lastA: g.now, fhSinceC: 0, lastC: g.now };
   g.fleet[id] = ac;

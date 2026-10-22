@@ -32,7 +32,7 @@ export interface FdpWhy {
 
 const hm = (m: number) => `${Math.floor(Math.max(0, m) / 60)}:${String(Math.round(Math.max(0, m) % 60)).padStart(2, '0')}`;
 const hrs = (m: number) => (m % 60 ? hm(m) : `${m / 60} h`);
-const kindWord = (r: AcRest['fc']) => (!r ? 'no rest' : r.kind === 'jSeats' ? 'business seats' : r.kind === 'recliners' ? 'recliners' : 'bunks');
+const kindWord = (r: AcRest['fc']) => (!r ? 'no rest' : r.kind === 'jSeats' ? 'business seats' : r.kind === 'ySeats' ? 'economy seats' : r.kind === 'recliners' ? 'recliners' : 'bunks');
 
 /** v0.7.3 why a duty's limit is what it is (pilots, cabin crew, the options it had). Pure. */
 export function fdpWhy(g: GameState, dutyId: string): FdpWhy | null {

@@ -115,6 +115,28 @@ export function hireCrew(g: GameState, r: HireRequest): ActionResult<{ crewIds: 
   return { ok: true, msg: `${n} ${ROLE_NAME[r.role]}${n > 1 && !ROLE_NAME[r.role].endsWith('crew') ? 's' : ''} joining ${fmtDate(q.readyAt)}`, data: { crewIds } };
 }
 
+/**
+ * v0.7.4 one confirm for several hire orders (the Crew planning round-up): all or nothing on cash, then each order
+ * as hireCrew. Returns the crew ids and one line per order.
+ */
+export function hireBatch(g: GameState, reqs: HireRequest[]): ActionResult<{ crewIds: string[]; lines: string[] }> {
+  const list = reqs.filter((r) => Math.floor(r.count) >= 1);
+  if (!list.length) return { ok: false, error: 'Nobody to hire' };
+  const cost = list.reduce((s, r) => s + hireQuote(g, r).cost, 0);
+  if (g.company.cash < cost) return { ok: false, error: 'Not enough cash' };
+  const crewIds: string[] = [];
+  const lines: string[] = [];
+  for (const r of list) {
+    const res = hireCrew(g, r);
+    if (!res.ok) return { ok: false, error: res.error };
+    crewIds.push(...res.data!.crewIds);
+    lines.push(res.msg ?? '');
+  }
+  const first = Math.min(...crewIds.map((id) => g.crew[id]?.hired ?? Infinity));
+  const last = Math.max(...crewIds.map((id) => g.crew[id]?.hired ?? 0));
+  return { ok: true, msg: `${crewIds.length} crew hired · joining ${first === last ? fmtDate(first) : `${fmtDate(first)} – ${fmtDate(last)}`}`, data: { crewIds, lines } };
+}
+
 const TRAINING: Record<'command' | 'sccm', () => { days: number; cost: number }> = {
   command: () => ({ days: BAL.commandUpgrade.days, cost: BAL.commandUpgrade.cost }),
   sccm: () => ({ days: BAL.sccmCourse.days, cost: BAL.sccmCourse.cost }),

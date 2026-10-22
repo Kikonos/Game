@@ -10,7 +10,7 @@ import { termSegments } from './problemLogic';
 
 let closeOpen: (() => void) | null = null;
 
-function Popover({ id, anchor, onClose }: { id: TermId; anchor: HTMLElement; onClose: () => void }) {
+function Popover({ id, anchor, onClose, extra }: { id: TermId; anchor: HTMLElement; onClose: () => void; extra?: string }) {
   const box = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
   useLayoutEffect(() => {
@@ -46,13 +46,15 @@ function Popover({ id, anchor, onClose }: { id: TermId; anchor: HTMLElement; onC
     <div ref={box} className="term-pop" role="dialog" aria-label={e.term} style={pos ? { left: pos.left, top: pos.top } : { left: 0, top: 0, visibility: 'hidden' }}>
       <b>{e.term}</b>
       <span className="small">{e.short}</span>
+      {extra && <span className="small muted">{extra}</span>}
       <button className="btn btn-sm btn-ghost term-more" onClick={() => { onClose(); store.openModal({ kind: 'glossary', term: id }); }}>Glossary ›</button>
     </div>,
     document.body,
   );
 }
 
-export function Term({ id, children }: { id: TermId; children?: ReactNode }) {
+/** v0.7.4 `extra`: a line about this very thing under the glossary meaning (e.g. this aircraft's longest day). */
+export function Term({ id, children, extra }: { id: TermId; children?: ReactNode; extra?: string }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
   const close = () => {
@@ -75,7 +77,7 @@ export function Term({ id, children }: { id: TermId; children?: ReactNode }) {
       <span ref={ref} className={`term ${open ? 'on' : ''}`} tabIndex={0} aria-label={`${e.term}: tap for its meaning`} onClick={toggle} onKeyDown={(k) => (k.key === 'Enter' || k.key === ' ') && toggle(k)}>
         {children ?? e.term}
       </span>
-      {open && ref.current && <Popover id={id} anchor={ref.current} onClose={close} />}
+      {open && ref.current && <Popover id={id} anchor={ref.current} onClose={close} extra={extra} />}
     </>
   );
 }

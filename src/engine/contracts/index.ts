@@ -11,6 +11,7 @@ import { extendBaseSchedules, relinkPositioning } from './schedule';
 
 export { acceptOffer, askingPrice, cancelContract, cancelCost, cancelPenalty, contractProgress, counterOffer, declineOffer, leadDays, type ContractProgress, type SignOpts } from './accept';
 export { paintQuote, paintTermsText, paintWindow, type PaintSlot } from './paintTerms';
+export { cabinQuote, cabinTarget, cabinTermsText, rollCabin, termsProduct } from './cabinTerms';
 export { billContractMonth, type BillingLine } from './billing';
 export { feasibility, feasibilityAll, marketFit, offerRestLine, type MarketFit, type CheckId, type CheckLevel, type FeasibilityCheck, type FeasibilityReport, type PositioningLeg } from './feasibility';
 export { fmtPrice, generateOffer, idleWindows, type IdleWindow, type OfferOpts } from './offers';

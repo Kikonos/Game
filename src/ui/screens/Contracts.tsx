@@ -30,7 +30,9 @@ function OfferCard({ g, o, windows }: { g: GameState; o: ContractOffer; windows:
   const cv = counterView(g, o.id);
   const pending = cv?.state === 'pending';
   const paint = o.paint ? [{ label: `Their livery${o.paint.required ? ' · required' : ''}`, tone: o.paint.required ? ('warn' as const) : undefined, tip: o.paint.kind === 'full' ? 'Full repaint in the client colours for the contract' : 'Client titles and logo on a white aircraft' }] : [];
-  const chips = [...paint, ...reqChips(o.requirements), ...riskChips(o.risk)];
+  // v0.7.4 the client's cabin request (a quick reconfiguration at their expense).
+  const cabin = o.cabin ? [{ label: `Their cabin: ${o.cabin.layout === 'two-class' ? 'two-class' : 'all economy'}${o.cabin.required ? ' · required' : ''}`, tone: o.cabin.required ? ('warn' as const) : undefined, tip: `A 48 h reconfiguration before the start; they pay ${o.cabin.clientShare >= 1 ? 'all of it' : 'half'}${o.cabin.revert ? ', and for putting it back' : ''}` }] : [];
+  const chips = [...paint, ...cabin, ...reqChips(o.requirements), ...riskChips(o.risk)];
   // v0.7.1 §13: a WHY? dot when the offer can't be flown as it stands or a counter is about to expire.
   const prob = problemAt(g, { kind: 'offer', id: o.id });
   return (
@@ -150,6 +152,7 @@ function ContractRow({ g, c, sel }: { g: GameState; c: Contract; sel: boolean })
         </div>
         <div className="small muted ellipsis">{cl?.name ?? 'Client'} · <span className="mono">{regs}</span> · {fmtDay(c.start)} – {fmtDay(c.end)} · {productLine(c.product)}</div>
         {c.paint?.accepted && open && <div className="small muted ellipsis row gap-4"><Palette className="sc-ico-s" />{paintLine(g, c)}</div>}
+        {c.cabin?.accepted && open && <div className="small muted ellipsis">Their cabin: {c.cabin.layout === 'two-class' ? 'two-class' : 'all economy'} · {c.cabin.clientShare >= 1 ? 'they pay' : 'they pay half'}{c.cabin.revert ? ' · put back after' : ''}</div>}
         {open && (
           <div className="row gap-16 small sc-contract-facts">
             <span>{p.legsDone}/{p.legsTotal} legs</span>

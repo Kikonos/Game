@@ -520,9 +520,13 @@ export function segsOf(g: GameState, c: CrewMember, excludePairing?: string): Se
       for (const s of dutySegs(g, c, p, d, t.out, t.home)) segs.push(s);
     }
   }
+  const logged = logSegs(c);
   for (const f of ix.tickets.get(c.id) ?? []) {
     if (!live(f) || own.has(f.id)) continue;
-    segs.push(posSeg(f, c));
+    const ps = posSeg(f, c);
+    // v0.7.4 a released duty's ticket home already inside its log entry (logged up to the landing) is not counted twice.
+    if (logged.some((l) => l.start <= ps.start && l.end >= ps.end)) continue;
+    segs.push(ps);
   }
   segs.sort(bySeg);
   if (c.standby?.length) addStandby(g, c, segs);

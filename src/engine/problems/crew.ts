@@ -159,7 +159,7 @@ export function restSeatsCard(g: GameState, flightId: string): ProblemCard | nul
   const d = f.dutyId ? g.duties[f.dutyId] : undefined;
   const rest = restOf(g, ac.id);
   const seat = [rest.fc, rest.cc].find((x) => x && isSeatRest(x)) ?? null;
-  const what = seat?.kind === 'recliners' ? 'crew rest recliners' : 'business seats';
+  const what = seat?.kind === 'recliners' ? 'crew rest recliners' : seat?.kind === 'ySeats' ? 'economy seats' : 'business seats';
   const total = ac.cabin.total;
   const sellable = total - blocked;
   const pax = f.pax ?? 0;
@@ -177,7 +177,7 @@ export function restSeatsCard(g: GameState, flightId: string): ProblemCard | nul
       { id: 'schedule', label: 'Swap aircraft', open: { tab: 'schedule', sel: { kind: 'flight', id: f.id } }, primary: true },
       { id: 'refit', label: 'Plan crew rest', open: { modal: 'refit', id: ac.id } },
     ],
-    details: [`${blocked} ${what} blocked (class ${seat?.cls ?? 2} crew rest) on ${ac.reg}`, `Booked ${pax} passengers`], visuals: {}, terms: ['restSeats', seat?.kind === 'recliners' ? 'restClass3' : 'restClass2', 'crewRest'], by: f.std,
+    details: [`${blocked} ${what} blocked (class ${seat?.cls ?? 2} crew rest) on ${ac.reg}`, `Booked ${pax} passengers`], visuals: {}, terms: ['restSeats', seat?.kind === 'ySeats' ? 'ySeats' : seat?.kind === 'recliners' ? 'recliners' : 'jSeats', 'crewRest'], by: f.std,
   };
 }
 
@@ -185,8 +185,8 @@ export function restSeatsCard(g: GameState, flightId: string): ProblemCard | nul
 
 const hmm = (m: number) => `${Math.floor(Math.max(0, m) / 60)}:${String(Math.round(Math.max(0, m) % 60)).padStart(2, '0')}`;
 const hrs = (m: number) => (m % 60 ? hmm(m) : `${m / 60} h`);
-const kindName = (f: RestFacility): string => (f.kind === 'jSeats' ? 'business seats' : f.kind === 'recliners' ? 'crew rest recliners' : f.kind === 'ldmcr' ? 'lower-deck bunks' : 'bunks');
-const restTerms = (f: RestFacility | null): TermId[] => (!f ? [] : f.kind === 'jSeats' ? ['restClass2'] : f.kind === 'recliners' ? ['recliners', 'restClass3'] : f.kind === 'ldmcr' ? ['ldmcr', 'restClass1'] : f.kind === 'fcrc' ? ['fcrc', 'restClass1'] : ['ccrc', 'restClass1']);
+const kindName = (f: RestFacility): string => (f.kind === 'jSeats' ? 'business seats' : f.kind === 'ySeats' ? 'economy seats' : f.kind === 'recliners' ? 'crew rest recliners' : f.kind === 'ldmcr' ? 'lower-deck bunks' : 'bunks');
+const restTerms = (f: RestFacility | null): TermId[] => (!f ? [] : f.kind === 'jSeats' ? ['jSeats', 'restClass2'] : f.kind === 'ySeats' ? ['ySeats', 'restClass3'] : f.kind === 'recliners' ? ['recliners', 'restClass2'] : f.kind === 'ldmcr' ? ['ldmcr', 'restClass1'] : f.kind === 'fcrc' ? ['fcrc', 'restClass1'] : ['ccrc', 'restClass1']);
 
 /** The duty of a flight id (the card's ref is the duty's first leg), with its aircraft and facilities. */
 function dutyOfFlight(g: GameState, flightId: string) {
@@ -299,7 +299,7 @@ export function cabinRestCard(g: GameState, flightId: string): ProblemCard | nul
   const days = Math.max(1, Math.ceil((d.release - d.report) / 1440) + 1);
   const cost = n * extraCrewCost(g, 'CC', days);
   const what = `${f.no} needs ${n} more cabin crew.`;
-  const ldm = typeOf(ac.typeId).rest.ldmcr && cc.cls !== 1;
+  const ldm = !!typeOf(ac.typeId).rest.mro && cc.cls !== 1;
   const other = bunkAircraft(g, ac.id);
   return {
     subject: { kind: 'cabinRest', ref: { kind: 'flight', id: f.id } }, severity: 'amber',
@@ -308,7 +308,7 @@ export function cabinRestCard(g: GameState, flightId: string): ProblemCard | nul
     hurt: { ...mkHurt({ money: cost, what: 'crew cost' }), text: `${n} × per diem and hotel (about ${usdShort(cost)} a trip)` },
     actions: [
       ...(other ? [{ id: 'swap', label: 'Swap to an aircraft with bunks', open: { tab: 'schedule' as const, sel: { kind: 'flight' as const, id: f.id } }, primary: true }] : []),
-      ...(ldm ? [{ id: 'refit', label: 'Plan a lower-deck module', open: { modal: 'refit' as const, id: ac.id }, primary: !other }] : []),
+      ...(ldm ? [{ id: 'refit', label: 'Plan crew bunks', open: { modal: 'refit' as const, id: ac.id }, primary: !other }] : []),
       { id: 'ok', label: 'OK', open: { modal: 'duty', id: d.id }, primary: !other && !ldm },
     ],
     details: [`Band ${plan.band}, class ${cc.cls}: ${hmm(plan.cabinNeed)} each`, `Cabin crew rest: ${restText(cc, 'cc', ac.typeId)}`],

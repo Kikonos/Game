@@ -14,8 +14,8 @@ import { flightsOf, flightsRev } from '../../engine/core/entities';
 import { route } from '../../engine/contracts/plan';
 import { typeOf } from '../../engine/core/perf';
 import { DAY, HOUR, dayStart, fmtDay, fmtDuration, fmtTime, toDate } from '../../engine/core/time';
-import { bookRefit, bookRestRefit, cabinOptions, cancelCheck, refitQuote, refitSlots, refitStations, restRefitOptions, restRefitQuote, type RefitQuote, type RestRefitOption } from '../../engine/ops';
-import { longestDay, restOf, restText } from '../../engine/crew';
+import { bookRefit, bookRestRefit, cabinOptions, cancelCheck, refitKindText, refitQuote, refitSlots, refitStations, refitTerms, restRefitOptions, restRefitQuote, type RefitQuote, type RestRefitOption } from '../../engine/ops';
+import { longestDay, restOf, restShort, restText } from '../../engine/crew';
 import { restTerm } from '../components/RestLines';
 import { REST_FIT_LABEL } from '../screens/Fleet';
 import { Term } from '../components/Term';
@@ -95,8 +95,9 @@ export function RefitModal({ aircraftId, layout, offerId, rest, restOption, afte
   const nMaint0 = Object.keys(g.maintenance).length;
   // v0.7.3 crew rest refits for this airframe (any type: the A321LR and 757 take recliners too).
   const restOpts = useMemo(() => (ac ? restRefitOptions(g, aircraftId) : []), [g, aircraftId, rev0, nMaint0, ac?.rest]); // eslint-disable-line react-hooks/exhaustive-deps
+  // v0.7.4 the Crew rest section is always there: every aircraft has seat rest (with or without upgrades to fit).
   const restOffer = restOpts.length > 0;
-  const [mode, setMode] = useState<Mode>(rest && restOffer ? 'rest' : 'cabin');
+  const [mode, setMode] = useState<Mode>(rest ? 'rest' : 'cabin');
   const [optId, setOptId] = useState<RestRefitId | null>(restOption ?? null);
   const ropt = restOpts.find((o) => o.id === optId && o.ok) ?? restOpts.find((o) => o.ok && o.where === 'home') ?? restOpts.find((o) => o.ok) ?? restOpts[0];
   const viaCheck = mode === 'rest' && ropt?.where === 'cCheck';
@@ -105,6 +106,7 @@ export function RefitModal({ aircraftId, layout, offerId, rest, restOption, afte
   const station = stations[0]?.code ?? g.company.homeBase;
   const rev = flightsRev(g);
   const key = mode === 'rest' ? (ropt && !viaCheck ? `rest:${ropt.id}` : '') : label;
+  const noRest = mode === 'rest' && !ropt;
   const nMaint = Object.keys(g.maintenance).length;
   const plan = useMemo(() => (key ? refitSlots(g, aircraftId, key, SLOTS, after ?? 0) : { slots: [], busyUntil: null, busyWhy: null }), [g, aircraftId, key, rev, g.now, nMaint, after]); // eslint-disable-line react-hooks/exhaustive-deps
   const quoteAt = (s: Minute): RefitQuote => (mode === 'rest' ? restRefitQuote(g, aircraftId, ropt?.id ?? 'curtainJ', s) : refitQuote(g, aircraftId, label, station, s));
@@ -158,7 +160,7 @@ export function RefitModal({ aircraftId, layout, offerId, rest, restOption, afte
   });
   const bookLabel = mode === 'rest' ? (viaCheck ? 'Add to the C-check…' : `Book · ${money(q.cost)}`) : `Book refit · ${money(q.cost)}`;
   // A C-check add-on with a check already booked: it can still be ticked there (the dialog applies it at once).
-  const canBook = viaCheck ? !!ropt?.ok : q.ok;
+  const canBook = noRest ? false : viaCheck ? !!ropt?.ok : q.ok;
   const now = restOf(g, aircraftId);
   return (
     <Modal size="wide" className="rf-modal" title={`${mode === 'rest' ? 'Crew rest' : 'Cabin refit'} · ${ac.reg}`} icon={mode === 'rest' ? <BedDouble className="accent" /> : <Sofa className="accent" />} onClose={close} footer={
@@ -170,37 +172,41 @@ export function RefitModal({ aircraftId, layout, offerId, rest, restOption, afte
     }>
       <div className="cv-cols">
         <div className="col gap-12" style={{ minWidth: 0 }}>
-          {restOffer && (
-            <Seg<Mode> value={mode} onChange={(m) => { setMode(m); reset(); setGrid(false); }} options={[{ value: 'cabin', label: 'Cabin layout' }, { value: 'rest', label: 'Crew rest' }]} />
-          )}
+          <Seg<Mode> value={mode} onChange={(m) => { setMode(m); reset(); setGrid(false); }} options={[{ value: 'cabin', label: 'Cabin layout' }, { value: 'rest', label: 'Crew rest' }]} />
           {mode === 'cabin' ? (
             <>
               <div className="small muted">{t.name} · now <b>{ac.cabin.label}</b> {layoutLabel(ac.cabin.layout)}</div>
               <div className="cv-chips">
                 {presets.map((p) => {
                   const cur = p.label === ac.cabin.label;
+                  const tm = refitTerms(ac.typeId, p.layout);
                   return (
                     <button key={p.label} className={`cv-chip rf-chip ${p.label === label ? 'on' : ''} ${cur ? 'off' : ''}`} onClick={() => { setLabel(p.label); reset(); }} aria-pressed={p.label === label}>
                       <b>{p.label}</b>
                       <span className="tiny dim">{cur ? 'current' : `${layoutLabel(p.layout)} · ${p.j + p.w + p.y} seats`}</span>
+                      {!cur && tm && <span className={`tiny ${tm.kind === 'quick' ? 'good' : 'warn'}`}>{tm.kind === 'quick' ? `${tm.days * 24} h` : `${tm.days} days`} · {money(tm.cost)}</span>}
                     </button>
                   );
                 })}
               </div>
+              <div className="small muted"><Term id="quickRefit">Quick reconfiguration</Term> (about 48 h): the seats we hold, moved rows and class divider, curtains. VIP is a full retrofit with new premium seats.</div>
             </>
           ) : (
             <>
               <div className="small rf-now">
                 <span><Term id={restTerm(now.fc)}>Pilots rest</Term>: <b>{restText(now.fc, 'fc', ac.typeId)}</b></span>
                 <span><Term id={restTerm(now.cc)}>Cabin crew rest</Term>: <b>{restText(now.cc, 'cc', ac.typeId)}</b></span>
-                <span className="muted">{longestDay(g, now, ac.typeId).text}</span>
+                <span className="muted"><Term id="longestDay" extra={longestDay(g, now, ac.typeId).detail}>Longest day</Term>: {longestDay(g, now, ac.typeId).text.replace(/^Longest day: /, '')}</span>
               </div>
-              <div className="rf-opts" role="group" aria-label="Crew rest refits">
-                {restOpts.map((o) => <RestOptionRow key={o.id} o={o} on={o.id === ropt?.id} onPick={() => { setOptId(o.id); reset(); setGrid(false); }} />)}
-              </div>
+              <div className="small muted">Curtained {ac.cabin.j >= 4 ? 'business' : 'economy'} seats come with the cabin: nothing to fit, and they are only blocked on flights where someone rests.{ac.cabin.j >= 4 ? '' : ' A cabin with business seats gives class 2 rest.'}</div>
+              {restOffer ? (
+                <div className="rf-opts" role="group" aria-label="Crew rest refits">
+                  {restOpts.map((o) => <RestOptionRow key={o.id} o={o} on={o.id === ropt?.id} onPick={() => { setOptId(o.id); reset(); setGrid(false); }} />)}
+                </div>
+              ) : <div className="small rf-why">No crew rest upgrade for the {t.short}{t.id === 'b763' ? ' (767-300ERs never have crew bunks)' : ''}.</div>}
             </>
           )}
-          {viaCheck ? (
+          {noRest ? null : viaCheck ? (
             <div className="small rf-why"><b>With a C-check.</b> {ropt?.label} takes a hangar at an MRO hub: it is added to the next C-check (+{ropt?.days} days), best booked with it. {ropt?.ok ? '' : ropt?.why}</div>
           ) : (<>
           <div className="small muted rf-where">At {stations[0]?.name ?? `our hangar, ${station}`}{ferry === null ? ' · no ferry route' : ferry ? ` · ferry ${fmtDuration(ferry)} from ${from}` : ''}</div>
@@ -264,17 +270,19 @@ export function RefitModal({ aircraftId, layout, offerId, rest, restOption, afte
         <div className="col gap-12 cv-right" style={{ minWidth: 0 }}>
           <div className="upper dim">Summary</div>
           <div className="cv-cost">
-            <div className="row between small"><span className="muted">{viaCheck ? 'Extra days on the C-check' : 'Out of service'}</span><b className="num">{viaCheck ? ropt?.days ?? 0 : q.days} days</b></div>
+            {mode === 'cabin' && q.kind && <div className={`small ${q.kind === 'quick' ? 'good' : 'warn'}`}><b>{refitKindText(q.kind, q.days)}</b></div>}
+            <div className="row between small"><span className="muted">{viaCheck ? 'Extra days on the C-check' : 'Out of service'}</span><b className="num">{noRest ? '–' : `${viaCheck ? ropt?.days ?? 0 : q.days} days`}</b></div>
             {mode === 'rest' ? (
               <div className="row between small"><span className="muted">Seats</span><b className="num">{viaCheck ? `${ac.cabin.total} (no change)` : `${q.seatsFrom} → ${q.seatsTo}`}</b></div>
             ) : (
               <>
                 <div className="row between small"><span className="muted">Seats</span><b className="num">{q.seatsFrom} → {q.seatsTo}</b></div>
                 <div className="row between small"><span className="muted">Cabin crew minimum</span><b className="num">{q.cabinMinFrom} → {q.cabinMinTo}</b></div>
+                {q.restFrom && q.restTo && <div className="row between small"><span className="muted"><Term id="crewRest">Crew rest</Term></span><b className="num">{restShort(q.restFrom.cc)}{q.restTo.cc?.kind !== q.restFrom.cc?.kind ? ` → ${restShort(q.restTo.cc)}` : ''}</b></div>}
               </>
             )}
             {q.ferryIn.length > 0 && <div className="row between small"><span className="muted">Ferry in</span><span className="num">{q.ferryIn.map((l) => `${l.from}–${l.to}`).join(', ')} {fmtDay(q.ferryIn[0].std)}</span></div>}
-            <div className="row between"><b>Cost</b><b className="num">{money(viaCheck ? ropt?.cost ?? 0 : q.cost)}</b></div>
+            <div className="row between"><b>Cost</b><b className="num">{noRest ? '–' : money(viaCheck ? ropt?.cost ?? 0 : q.cost)}</b></div>
             <div className="small dim">{viaCheck ? 'Paid with the check.' : 'Paid when the work starts. Free to cancel until then.'}</div>
           </div>
           {mode === 'rest' && <div className="small muted">Seats used for crew rest are blocked only on flights where someone rests in them; every other flight sells them.</div>}
@@ -286,7 +294,7 @@ export function RefitModal({ aircraftId, layout, offerId, rest, restOption, afte
             </div>
           )}
           {mode === 'cabin' && leased && <div className="small muted">{q.reinstateAtReturn ? `Leased: the lessor consents; reinstated at the lease return ≈ ${money(q.reinstateAtReturn)}.` : 'Leased: back to the delivered cabin, nothing to reinstate.'}</div>}
-          {!viaCheck && !q.ok && q.why && !booked && <div className="small row gap-8 cv-warn bad"><AlertTriangle className="sc-ico-s" /><span>{q.why}</span></div>}
+          {!noRest && !viaCheck && !q.ok && q.why && !booked && <div className="small row gap-8 cv-warn bad"><AlertTriangle className="sc-ico-s" /><span>{q.why}</span></div>}
         </div>
       </div>
     </Modal>
