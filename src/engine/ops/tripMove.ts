@@ -734,7 +734,7 @@ function fullQuote(g: GameState, plan: Plan, q: TripMoveQuote): void {
   const addS = q.positioning.filter((x) => x.added && x.aircraftId === src.id);
   if (addS.length) notes.push(`${src.reg} flies empty ${addS.map((x) => `${x.from}–${x.to} (${fmtDateTime(x.std)})`).join(' and ')} instead.`);
   if (q.crewOff.length || q.crewOn.length) notes.push(`Crew: ${q.crewOff.length} come off, ${q.crewOn.length} go on.`);
-  else if (!was.size && !now.size) notes.push(`Crew: not picked yet; the roster names a ${typeWord(tgt.typeId)} crew nearer the day.`);
+  else if (!was.size && !now.size) notes.push(`Crew: not picked yet; the roster names ${/^[AEIOU8]/i.test(typeWord(tgt.typeId)) ? 'an' : 'a'} ${typeWord(tgt.typeId)} crew nearer the day.`);
   else if (unrostered === moved.length) notes.push(`Crew: not rostered yet (the roster plans ${BAL.rosterHorizonDays} days ahead); ${typeWord(tgt.typeId)}-rated crew will be picked.`);
   else notes.push('Crew: the same crew fly it.');
   q.sourceFree = freeText(h, src, plan.trip.start, plan.trip.end);
