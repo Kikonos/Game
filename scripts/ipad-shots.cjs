@@ -968,7 +968,7 @@ Object.assign(ACTIONS, {
     if (await rest.count()) await press(page, rest, d);
     await settle(page, 400);
   },
-  'offer-rest-lines': async (page) => {
+  'offer-rest-lines': async (page, _s, d) => {
     await ensureRestPlan(page);
     let found = false;
     for (let i = 0; i < 40 && !found; i++) {
@@ -976,7 +976,15 @@ Object.assign(ACTIONS, {
       await settle(page, 300);
       found = (await page.locator('.sc-offer-modal .of-rest').count()) > 0;
     }
-    if (!found) throw new Error('SKIP no long-haul offer generated');
+    // No long-haul job came up: show any offer with the A330's rest check line expanded.
+    if (!found) {
+      const ac = (await ensureRestPlan(page)).aircraftId;
+      await page.evaluate(() => { const s = window.__contrail; s.dev.offer('troopRotation'); });
+      await settle(page, 500);
+      const reg = await page.evaluate((id) => window.__contrail.game.fleet[id]?.reg, ac);
+      const row = page.locator('.sc-feas-head', { hasText: reg }).first();
+      if (await row.count()) { await press(page, row, d); await settle(page, 400); }
+    }
   },
   'refit-crew-rest': async (page) => {
     const r = await ensureRestPlan(page);

@@ -13,6 +13,7 @@ import type { GameState } from '../../engine/core/types';
 import { hasBunks, migrateRest } from '../../engine/crew';
 import { marketView, type MarketOfferView } from '../../engine/ops';
 import { AircraftArt } from '../components/AircraftArt';
+import { artRest } from '../components/aircraft/restGlyph';
 import { RestTwoLiner } from '../components/RestLines';
 import { Flag, Toggle } from '../components/ui';
 import { money } from '../format';
@@ -56,7 +57,7 @@ function OfferCard({ g, now, v, sel }: { g: GameState; now: number; v: MarketOff
   return (
     <div className={`card mk-card ${sel ? 'selected' : ''} ${v.gate.ok ? '' : 'locked'}`} data-offer={o.id}>
       <div className="mk-top">
-        <div className="mk-art"><AircraftArt typeId={artFor(o.typeId)} livery={MARKET_LIVERY} detail="simple" /></div>
+        <div className="mk-art"><AircraftArt typeId={artFor(o.typeId)} livery={MARKET_LIVERY} detail="simple" rest={artRest(offerRest(v))} /></div>
         <div className="grow" style={{ minWidth: 0 }}>
           <div className="row gap-8 between">
             <b className="ellipsis">{typeName(o.typeId)} · {o.builtYear} · {o.cabin.label}</b>

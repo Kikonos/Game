@@ -14,6 +14,7 @@ import { crewExtraQuote, restOf, setCrewExtra, shortFlights } from '../../engine
 import { cancelCheck, checkStatus, deliveryStatus, leastUsed, type LeastUsedRow, leaseView, liveryOf, paintStatus, restRefitOptions, setAircraftLivery } from '../../engine/ops';
 import { problemAt } from '../../engine/problems';
 import { AircraftArt } from '../components/AircraftArt';
+import { artRest } from '../components/aircraft/restGlyph';
 import { Why } from '../components/Why';
 import { restRows } from '../components/RestLines';
 import { Empty, Seg, Stepper, Toggle } from '../components/ui';
@@ -158,7 +159,7 @@ function AircraftCard({ g, ac, sel, least, onLeastClose }: { g: GameState; ac: A
   return (
     <div className={`card sc-ac ${sel ? 'selected' : ''}`} data-ac={ac.id}>
       <div className="sc-ac-top">
-        <div className="sc-ac-art"><AircraftArt typeId={artFor(ac.typeId)} livery={lv.livery} code={lv.code} name={lv.name} /></div>
+        <div className="sc-ac-art"><AircraftArt typeId={artFor(ac.typeId)} livery={lv.livery} code={lv.code} name={lv.name} rest={artRest(restOf(g, ac.id))} /></div>
         <div className="grow" style={{ minWidth: 0 }}>
           <div className="row gap-8">
             <b className="mono sc-ac-reg">{ac.reg}</b>
