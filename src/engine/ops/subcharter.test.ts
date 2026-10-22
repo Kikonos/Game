@@ -6,8 +6,8 @@ import { DAY } from '../core/time';
 import type { GameState } from '../core/types';
 import { acceptOffer } from '../contracts';
 import { legsOffer, newGame, owned } from '../contracts/testkit';
-import { subHit } from './flights';
-import { subcharter, subcharterHit, subcharterQuote } from './subcharter';
+import { positioningCost, subHit } from './flights';
+import { subcharter, subcharterHit, subcharterQuote, subcharterQuotes } from './subcharter';
 
 /** A signed job of `n` round trips (2n revenue legs) on the owned A320, flights generated. */
 function job(g: GameState, n = 6) {
@@ -97,5 +97,27 @@ describe('sub-charter reliability (F3)', () => {
     expect(q.hit.reliability).toBe(-0.6); // two of the contract's 12 planned legs: still −0.3 each
     expect(g.stats.subLog!.length).toBe(2);
     expect(c.subLegs!.length).toBe(2);
+  });
+});
+
+describe('v0.8 fix round 1: quotes', () => {
+  it("never quotes the rival that is the contract's own client; positioning from far bases costs more; the best operator is always shown", () => {
+    const g = newGame(3);
+    const { c, fl } = job(g);
+    const ids = [fl[0].id, fl[1].id];
+    const all = subcharterQuotes(g, ids);
+    expect(all.length).toBeGreaterThan(0);
+    // Make the cheapest one our client (we fly for them): it drops out.
+    const r = g.rivals.find((x) => x.id === all[0].rivalId)!;
+    r.clientId = c.clientId;
+    const qs = subcharterQuotes(g, ids);
+    expect(qs.some((q) => q.rivalId === r.id)).toBe(false);
+    // A Miami operator pays to cross the Atlantic: dearer than the same price level next door.
+    const gc = g.rivals.find((x) => x.base === 'MIA');
+    if (gc) expect(positioningCost(gc, [fl[0], fl[1]], owned(g).typeId)).toBeGreaterThan(positioningCost({ ...gc, base: 'LIS' }, [fl[0], fl[1]], owned(g).typeId));
+    const free = qs.filter((q) => q.available);
+    if (free.length > 1) expect(Math.max(...free.map((q) => q.quality))).toBe(Math.max(...subcharterQuotes(g, ids).filter((q) => q.available).map((q) => q.quality)));
+    // Three quotes are not all the same price any more.
+    if (qs.length === 3) expect(new Set(qs.map((q) => q.cost)).size).toBeGreaterThan(1);
   });
 });

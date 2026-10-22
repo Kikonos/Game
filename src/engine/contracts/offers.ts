@@ -2,7 +2,7 @@
 
 import type { CabinLayout, RatingFamily } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE, AIRPORTS, type Airport } from '../../data/airports';
-import { BROKERS } from '../../data/naming';
+import { AIRLINE_FAMILIES, AIRLINE_MARKETS, BROKERS } from '../../data/naming';
 import { BAL } from '../core/balance';
 import { nextId } from '../core/entities';
 import { distance, distanceNm } from '../core/geo';
@@ -27,7 +27,7 @@ import { anchorsOf, computeWaves, localToUTC, programmeOf, route, routeMinutes, 
 import { ARCH_MULT, defaultSeats, isWetArchetype, priceProduct, productValue, referenceType, tripTickets } from './pricing';
 import { LEVEL_PERKS, levelOf, standingRate } from './relations';
 import { rivalTakes, rollRivalBid } from './rivals';
-import { warRiskLandings } from '../ops/world';
+import { inWarZone, warRiskLandings } from '../ops/world';
 import { demandFactor } from '../ops/market';
 import { fuelFactor, MISSION_BUILDERS, missionWeights, presidential, rollClientCabin, WINDOW_FIT_V08 } from './missions';
 
@@ -224,6 +224,13 @@ export function airportsWithin(from: string, minKm: number, maxKm: number, pred:
   return AIRPORTS.filter((a) => a.code !== from && a.runwayM >= 2000 && pred(a) && km(from, a.code) >= minKm && km(from, a.code) <= maxKm);
 }
 
+/** v0.8 a destination an airline client would really send our aircraft to: never a war zone, inside its market when listed. Pure. */
+export function inMarket(client: Client, a: Airport): boolean {
+  if (inWarZone(a.code)) return false;
+  const m = AIRLINE_MARKETS[client.name];
+  return !m || m.includes(a.country);
+}
+
 /**
  * Clients weighted towards the idle window's location (follow-on work) or our home base, and (v0.6) by how
  * satisfied they are with us: × (1 + relation/100), a soured client still calls now and then.
@@ -299,10 +306,13 @@ function seasonBase(ctx: Ctx): Draft | null {
   let dests: string[] = o.dests ?? [];
   if (!dests.length) {
     const n = wide ? int(g, 2, 4) : int(g, 4, 8);
+    // v0.8 network airlines with a listed market fly their own cities (size, not sun); never a war zone.
+    const net = !!AIRLINE_MARKETS[client.name];
+    const ok = (a: Airport) => inMarket(client, a);
     let pool = wide
-      ? airportsWithin(base, 2500, 6500, (a) => a.size >= 3)
-      : airportsWithin(base, 400, 2200, (a) => a.tour >= 0.75);
-    if (!wide && pool.length < 6) pool = airportsWithin(base, 400, 3200, (a) => a.tour >= 0.7);
+      ? airportsWithin(base, 2500, 6500, (a) => a.size >= 3 && ok(a))
+      : net ? airportsWithin(base, 400, 3200, (a) => a.size >= 3 && ok(a)) : airportsWithin(base, 400, 2200, (a) => a.tour >= 0.75 && ok(a));
+    if (!wide && pool.length < 6) pool = airportsWithin(base, 400, 3200, (a) => (net ? a.size >= 2 : a.tour >= 0.7) && ok(a));
     // One airport per city (no "Paris and Paris").
     const byCity = new Map<string, Airport>();
     for (const a of pool) if (!byCity.has(a.city) || byCity.get(a.city)!.size < a.size) byCity.set(a.city, a);
@@ -311,7 +321,10 @@ function seasonBase(ctx: Ctx): Draft | null {
   if (dests.length < (wide || o.dests ? 1 : 3)) return null;
   const minSeats = wide ? pick(g, [250, 260, 280]) : pick(g, [168, 174, 180]);
   const layout: CabinLayout | undefined = wide ? 'two-class' : chance(g, ctx.aspire ? 0.3 : 0.05) ? 'two-class' : chance(g, 0.85) ? 'all-economy' : undefined;
-  const families: RatingFamily[] | undefined = !wide && chance(g, 0.25) ? [chance(g, ctx.aspire ? 0.5 : 0.88) ? 'A320' : 'B737'] : undefined;
+  let families: RatingFamily[] | undefined = !wide && chance(g, 0.25) ? [chance(g, ctx.aspire ? 0.5 : 0.88) ? 'A320' : 'B737'] : undefined;
+  // v0.8 crew commonality means the client's own family (Croatia Airlines never asks for a 737).
+  const own: RatingFamily[] | undefined = AIRLINE_FAMILIES[client.name]?.filter((f) => f === 'A320' || f === 'B737');
+  if (families && own) families = own.includes(families[0]) ? families : own.length ? [own[0]] : undefined;
   // v0.7: season bases take the everyday cabins (no VIP); widebodies two- or three-class.
   const layouts: CabinLayout[] = wide ? ['two-class', 'three-class'] : layout ? [layout] : ['all-economy', 'two-class'];
   const req = { minSeats, layout, layouts, families, extraCabin: 0, approvals: [] as ApprovalId[] };
@@ -365,7 +378,10 @@ function aogCover(ctx: Ctx): Draft | null {
   let days = o.days ?? int(g, 2, 10);
   if (ctx.window) days = Math.min(days, Math.floor((ctx.window.to - start) / DAY));
   if (days < 2) return null;
-  const pool = wide ? airportsWithin(base, 2500, 7000, (a) => a.size >= 3) : airportsWithin(base, 400, 2500, (a) => a.size >= 2 && (a.tour >= 0.6 || a.size >= 3));
+  const net = !!AIRLINE_MARKETS[client.name];
+  const pool = wide
+    ? airportsWithin(base, 2500, 7000, (a) => a.size >= 3 && inMarket(client, a))
+    : airportsWithin(base, 400, net ? 3200 : 2500, (a) => a.size >= 2 && (net ? a.size >= 3 : a.tour >= 0.6 || a.size >= 3) && inMarket(client, a));
   // v0.8 a Newcomer flies the unloved routes (small airports first).
   const unloved = standingOf(g) === 0;
   const dests = o.dests ?? pickN(g, pool, wide ? int(g, 1, 2) : int(g, 2, 5), (a) => (unloved ? 6 - a.size : a.size) + a.tour * 2).map((a) => a.code);

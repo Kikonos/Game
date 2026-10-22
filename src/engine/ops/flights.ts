@@ -23,7 +23,7 @@ import { deliveryWaitDay } from './delivery';
 import { crewReadyAt, crewShortDecision, hasOpenDecision } from './events';
 import { aogChance, isGrounded, missCheck, startAog } from './maintenance';
 import { ageF, ageOf, bumpReliable, contractOf, isBaseLeg, isRevenue, stats, turnOf, usd } from './util';
-import { bumpClient, forgiveDelay, LEVEL_NAME, levelOf } from '../contracts/relations';
+import { bumpClient, forgiveDelay, LEVEL_NAME, levelOf, statsV08 } from '../contracts/relations';
 import { closedAtDeparture, payWarRisk, strikeDelay, whiteout } from './world';
 import { isActive, noteHiredThem } from '../contracts/rivals';
 
@@ -648,6 +648,10 @@ export function onFlightDep(g: GameState, ev: SimEvent): void {
     const st = strikeDelay(g, f);
     if (st) {
       delayChain(g, f, g.now + st.min, st.reason);
+      const e = g.world?.events.find((x) => x.id === st.eventId);
+      if (e) e.flightsHit = (e.flightsHit ?? 0) + 1;
+      const v8 = statsV08(g);
+      v8.strikeDelays = (v8.strikeDelays ?? 0) + 1;
       return;
     }
     const d = rollDelay(g, ac);

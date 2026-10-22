@@ -22,6 +22,12 @@ export interface WorldEventTpl {
   /** Flights touching these countries' airports run late by this many minutes (ATC strikes). */
   delayCountries?: string[];
   delayMin?: number;
+  /** What delays them ('ATC strike' when unset). */
+  delayWhat?: string;
+  /** Length in days [min, max] (else the kind's). */
+  days?: [number, number];
+  /** Months it can happen in (0 = Jan; else any). */
+  months?: number[];
   /** The airline or body involved; an airline client in trouble (strikes), or a fragile carrier (failures). */
   entity?: string;
   /** Clients that need cover because of it (by name, first that exists). */
@@ -84,6 +90,37 @@ export const WORLD_EVENT_TPLS: WorldEventTpl[] = [
     id: 'strikeEnav', kind: 'strike', at: 'FCO', country: 'IT', delayCountries: ['IT'], delayMin: 40, work: ['aogCover'], coverFor: ['Aegean Airlines', 'Eurowings'],
     title: 'Italian air traffic controllers strike (ENAV)',
     body: "Italian controllers strike until {until}: flights to and from Italy run late or are cut. Airlines want spare capacity for the days after.",
+  },
+  // ---------- European operations (short, close to home: they touch our own flying) ----------
+  {
+    id: 'strikeEnaire', kind: 'strike', at: 'MAD', country: 'ES', delayCountries: ['ES'], delayMin: 30, days: [1, 2], work: [],
+    title: 'Spanish air traffic controllers stop work in rolling shifts',
+    body: "Controllers at several Spanish centres stop work in rolling shifts until {until}. Flights to and from Spain run about half an hour late; nothing is cancelled.",
+  },
+  {
+    id: 'strikeGreekAtc', kind: 'strike', at: 'ATH', country: 'GR', delayCountries: ['GR'], delayMin: 40, days: [1, 3], work: [],
+    title: 'Greek controllers work to rule',
+    body: "Greek air traffic controllers are working to rule over staffing until {until}: flow restrictions add about 40 minutes to flights to and from Greece and the islands.",
+  },
+  {
+    id: 'strikePtHandling', kind: 'strike', at: 'LIS', country: 'PT', delayCountries: ['PT'], delayMin: 60, delayWhat: 'Ground handling strike', days: [1, 3], work: [],
+    title: 'Ground handling strike at Lisbon, Porto and Faro',
+    body: "Ground staff at Portugal's main airports strike until {until}. Minimum services keep flights moving, but turnarounds take about an hour longer.",
+  },
+  {
+    id: 'windMadeira', kind: 'disaster', at: 'FNC', country: 'PT', airportDays: [1, 2], days: [1, 2], work: [],
+    title: 'Strong winds close Madeira airport',
+    body: "Gusts over the limits at Funchal: flights to Madeira wait or divert to Porto Santo until {until}.",
+  },
+  {
+    id: 'calimaCanaries', kind: 'disaster', at: 'LPA', country: 'ES', airportDays: [1, 1], days: [1, 1], work: [],
+    title: 'Calima: Saharan dust closes Gran Canaria',
+    body: "A thick calima from the Sahara has cut visibility at Gran Canaria below the minimums until {until}. Flights there wait for it to clear.",
+  },
+  {
+    id: 'wildfireRhodes', kind: 'disaster', at: 'RHO', country: 'GR', days: [3, 6], months: [6, 7], work: ['repatriation'], coverFor: ['TUI Deutschland', 'Jet2holidays'],
+    title: 'Wildfires on Rhodes: holidaymakers evacuated',
+    body: "Wildfires have forced hotels in the south of Rhodes to evacuate until at least {until}. The airport stays open; tour operators want extra flights to bring their guests home.",
   },
   // ---------- ash ----------
   {

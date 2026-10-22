@@ -136,7 +136,8 @@ export function rivalSummary(g: GameState): string {
 function styleFit(style: RivalStyle, a: Archetype): number {
   switch (style) {
     case 'cheap': return a === 'adhoc' || a === 'aogCover' || a === 'seasonBase' || a === 'tourSeries' ? 1.3 : 1;
-    case 'premium': return a === 'vip' || a === 'sports' || a === 'musicTour' ? 1.5 : 1;
+    // A prestige operator doesn't chase high-density or scramble work.
+    case 'premium': return a === 'vip' || a === 'sports' || a === 'musicTour' ? 1.5 : a === 'hajj' || a === 'aogCover' || a === 'seasonBase' || a === 'deportation' ? 0.3 : 1;
     case 'military': return a === 'troopRotation' || a === 'unRotation' || a === 'deportation' || a === 'evacuation' ? 1.5 : 1;
     case 'rescue': return a === 'aogCover' || a === 'evacuation' || a === 'repatriation' ? 1.5 : 1;
     case 'big': return a === 'seasonBase' || a === 'capacityLease' || a === 'hajj' ? 1.3 : 1;
@@ -204,7 +205,8 @@ export function rollRivalBid(g: GameState, o: ContractOffer): void {
     const what = fam ? `${aOrAn(shortType(fam.typeId))} ${shortType(fam.typeId)}` : 'an aircraft';
     why.push(`had ${what} at ${AIRPORT_BY_CODE[rival.base]?.city ?? rival.base}, ours were ${(Math.round(ours / 100) * 100).toLocaleString('en-US')} km away`);
   }
-  if (o.urgency === 'urgent' && why.length < 2) why.push('could fly tonight');
+  // 'Sooner' only when they really were nearer (or none of ours was near); else they simply answered first.
+  if (o.urgency === 'urgent' && why.length < 2 && theirs < ours) why.push('could fly tonight');
   if (!why.length) why.push(styleOf(rival) === 'premium' ? 'offered a better cabin' : 'answered first');
   o.rivalBid = { rivalId: rival.id, at: Math.max(o.created + 15, t), factor: rival.priceFactor, why: why.slice(0, 2).join(' and ') };
   if (o.rivalBid.at < o.expires) schedule(g, o.rivalBid.at, 'rival.bid', o.id);

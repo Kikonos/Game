@@ -83,6 +83,25 @@ export const AIRLINE_FAMILIES: Record<string, RatingFamily[]> = {
 /** Whether an airline client flies this family (unknown airlines: yes). Pure. */
 export const fliesFamily = (name: string, family: RatingFamily): boolean => !AIRLINE_FAMILIES[name] || AIRLINE_FAMILIES[name].includes(family);
 
+/**
+ * v0.8 where non-European network airlines send a wet-leased aircraft (destination countries; their home region
+ * and diaspora routes). Missing: any (European leisure carriers fly the usual sun routes).
+ */
+export const AIRLINE_MARKETS: Record<string, string[]> = {
+  'Royal Air Maroc': ['MA', 'FR', 'ES', 'BE', 'NL', 'IT', 'DE', 'PT', 'GB', 'SN', 'CI', 'ML', 'GN', 'MR', 'TN', 'EG', 'TR'],
+  'Air Sénégal': ['SN', 'FR', 'ES', 'IT', 'BE', 'CI', 'ML', 'GN', 'CM', 'GA', 'MR', 'MA', 'CV', 'GM', 'BJ', 'BF', 'GH', 'NG', 'US'],
+  'Royal Jordanian': ['JO', 'AE', 'SA', 'EG', 'LB', 'TR', 'GB', 'FR', 'DE', 'IT', 'GR', 'CY', 'QA', 'KW', 'IQ'],
+  Saudia: ['SA', 'AE', 'EG', 'JO', 'TR', 'GB', 'FR', 'DE', 'IT', 'ES', 'PK', 'IN', 'BD', 'ID', 'MY', 'MA', 'DZ', 'TN', 'KW', 'QA', 'BH', 'OM'],
+  flynas: ['SA', 'AE', 'EG', 'JO', 'TR', 'PK', 'IN', 'BD', 'GE', 'AZ', 'IQ', 'KW', 'QA', 'BH', 'OM'],
+  'TAAG Angola Airlines': ['AO', 'PT', 'BR', 'ZA', 'NA', 'CD', 'CG', 'ST', 'MZ', 'CU'],
+  Airlink: ['ZA', 'NA', 'BW', 'ZW', 'ZM', 'MZ', 'MG', 'MU', 'SZ', 'LS'],
+  'LATAM Brasil': ['BR', 'AR', 'CL', 'UY', 'PY', 'PE', 'CO', 'PT', 'US'], 'GOL Linhas Aéreas': ['BR', 'AR', 'UY', 'PY', 'US'], 'Azul Brazilian Airlines': ['BR', 'AR', 'UY', 'PT', 'US'],
+  'LATAM Perú': ['PE', 'CL', 'AR', 'BR', 'CO', 'EC', 'BO', 'US', 'MX'], 'Air Canada': ['CA', 'US', 'MX', 'CU', 'DO', 'JM', 'BS'],
+  'Vietnam Airlines': ['VN', 'TH', 'KH', 'LA', 'SG', 'MY', 'JP', 'KR', 'TW', 'ID', 'PH', 'AU', 'IN'], 'Fiji Airways': ['FJ', 'AU', 'NZ', 'TO', 'WS', 'VU', 'US'],
+  'Garuda Indonesia': ['ID', 'SG', 'MY', 'SA', 'AU', 'JP', 'TH'], 'Biman Bangladesh Airlines': ['BD', 'IN', 'SA', 'AE', 'QA', 'OM', 'KW', 'MY', 'SG', 'TH', 'NP', 'GB'],
+  'Air Algérie': ['DZ', 'FR', 'ES', 'IT', 'BE', 'DE', 'GB', 'TN', 'MA', 'TR', 'SN', 'ML', 'CI'],
+};
+
 /** Airliner group-charter brokers (RESEARCH §2.5). */
 export const BROKERS = ['Chapman Freeborn', 'Air Charter Service', 'Air Partner', 'ACC Aviation', 'Hunt & Palmer'];
 

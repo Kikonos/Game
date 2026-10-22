@@ -216,8 +216,8 @@ describe('feasibility', () => {
 
 describe('crew reach (v0.7 fix round 2)', () => {
   it('a short-notice job flown in from far: no crew can be there legally, so crew is no (the roster would hold it)', () => {
-    // Seed 201 (v0.8; was 207): AOG cover at Dakar from 06:00 the same day, the aircraft at Lisbon.
-    const g = newGame(201);
+    // Seed 246 (v0.8 fix round 1; was 201): AOG cover at Sofia from early the same day, the aircraft at Lisbon.
+    const g = newGame(246);
     const o = offer(g, 'aogCover');
     const ac = Object.keys(g.fleet)[0];
     const c = check(feasibility(g, o.id, ac), 'crew');

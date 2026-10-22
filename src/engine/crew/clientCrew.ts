@@ -70,6 +70,8 @@ export function clientCrewRows(g: GameState, from: Minute, to: Minute): { key: s
       for (const did of p.dutyIds) {
         const d = g.duties[did];
         if (!d || d.release < from || d.report > to || !d.flightIds.length) continue;
+        // Their crew fly the passenger legs only: no grey seat on our ferries and positioning.
+        if (d.flightIds.every((id) => { const f = g.flights[id]; return !f || f.kind === 'ferry' || f.kind === 'positioning' || f.kind === 'deadhead' || !!f.purpose; })) continue;
         const f0 = g.flights[d.flightIds[0]];
         const fl = g.flights[d.flightIds[d.flightIds.length - 1]];
         blocks.push({
@@ -99,7 +101,7 @@ export function mixedCrewText(g: GameState, offerOrContractId: string): string |
   return `${name} provides ${cc.n} of ${cc.of} cabin crew; ${we}. −$${cut.toLocaleString('en-US')} a block hour.`;
 }
 
-/** Flavour lines (language by client country, SEP cards). Pure. */
+/** Flavour lines (briefing language, who leads, attestations), by who leads and how many of ours fly. Pure. */
 export function mixedCrewFlavour(g: GameState, offerOrContractId: string): string[] {
   const x = g.offers[offerOrContractId] ?? g.contracts[offerOrContractId];
   const cc = x?.requirements.clientCabin;
@@ -107,10 +109,17 @@ export function mixedCrewFlavour(g: GameState, offerOrContractId: string): strin
   const c = g.clients[x.clientId];
   const lang = LANG[c?.country ?? ''] ?? null;
   const name = c?.name ?? 'The client';
-  return [
-    lang ? `${name}'s crew brief in ${lang}; our purser runs the cabin in ${lang} and English.` : `${name}'s crew brief in English with ours.`,
-    'Their uniform, our safety procedures: our purser checks their SEP cards at the first briefing.',
-  ];
+  const ours = Math.max(0, cc.of - cc.n);
+  const brief = lang ? `Joint briefing in English; ${name}'s crew make the announcements in ${lang}.` : `Joint briefing in English with ${name}'s crew.`;
+  if (cc.leads || ours === 0) {
+    return [
+      brief,
+      ours === 0
+        ? `${name}'s crew run the whole cabin; our captain checks their cabin crew attestations and our safety procedures at the briefing.`
+        : `Their senior cabin crew member leads; our ${word(ours)} cabin crew work under them, everyone on our safety procedures (their crew did our familiarisation course).`,
+    ];
+  }
+  return [brief, `Our purser leads: their uniform, our safety procedures. The purser checks their cabin crew attestations at the first briefing.`];
 }
 
 const LANG: Record<string, string> = {

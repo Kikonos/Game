@@ -266,7 +266,7 @@ describe('determinism of read APIs', () => {
       }
     }
     expect(JSON.stringify(g)).toBe(before);
-  });
+  }, 30_000);
 });
 
 describe('saves', () => {

@@ -95,6 +95,9 @@ export function planSector(typeId: string, from: string, to: string): SectorPlan
   return plan;
 }
 
+/** Countries no operator picks for a fuel stop (war zones). */
+const NO_STOP_COUNTRY = new Set(['YE', 'SY', 'LY', 'SD', 'SS', 'SO', 'AF']);
+
 function viaStops(typeId: string, from: string, to: string): SectorPlan {
   // Fuel stops at proper airports first; small strips (size 1: diversion-only desert fields) only as a last resort.
   return viaStopsAt(typeId, from, to, 2) ?? viaStopsAt(typeId, from, to, 1) ?? { ok: false, legs: [], techStops: [], reason: 'range' };
@@ -102,8 +105,8 @@ function viaStops(typeId: string, from: string, to: string): SectorPlan {
 
 function viaStopsAt(typeId: string, from: string, to: string, minSize: number): SectorPlan | null {
   const fits = (a: string, b: string) => runwayFit(typeId, b) !== 'no' && distanceNm(a, b) <= maxSectorNm(typeId, a, b);
-  // v0.8 never a fuel stop on the ice (no fuel in Antarctica).
-  const cands = AIRPORTS.filter((x) => x.code !== from && x.code !== to && x.size >= minSize && !x.ice && runwayFit(typeId, x.code) === 'ok');
+  // v0.8 never a fuel stop on the ice (no fuel in Antarctica) or in a war zone insurers won't cover.
+  const cands = AIRPORTS.filter((x) => x.code !== from && x.code !== to && x.size >= minSize && !x.ice && !NO_STOP_COUNTRY.has(x.country) && runwayFit(typeId, x.code) === 'ok');
   let best: { stops: string[]; d: number } | null = null;
   for (const x of cands) {
     if (!fits(from, x.code)) continue;

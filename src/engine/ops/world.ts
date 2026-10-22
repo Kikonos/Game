@@ -77,6 +77,17 @@ export function inZone(zone: WorldZone, code: string): boolean {
   return !!a && (zone.countries.includes(a.country) || inRing(zone.ring, a.lon, a.lat));
 }
 
+const warZoneMemo = new Map<string, boolean>();
+/** Inside a zone insurers always list at level 3 (Yemen, Syria): no airline sends a leased jet there. Pure. */
+export function inWarZone(code: string): boolean {
+  let v = warZoneMemo.get(code);
+  if (v === undefined) {
+    v = WORLD_ZONES.some((z) => z.baseWarRisk === 3 && inZone(z, code));
+    warZoneMemo.set(code, v);
+  }
+  return v;
+}
+
 /** War-risk level at an airport now: the live events' levels, else the zone's standing listing. Pure. */
 export function warRiskAt(g: GameState, code: string): 0 | 1 | 2 | 3 {
   let lv = 0;
@@ -201,6 +212,7 @@ function allowed(g: GameState, t: WorldEventTpl): boolean {
   if (t.closeP && z && (z.countries.includes(homeCountry(g)) || inZone(z, g.company.homeBase))) return false;
   if (t.airportDays && t.at === g.company.homeBase) return false;
   if (!AIRPORT_BY_CODE[t.at]) return false;
+  if (t.months && !t.months.includes(toDate(g.now).getUTCMonth())) return false;
   if (eventsOf(g).some((e) => isLive(g, e) && e.tpl === t.id)) return false;
   if (t.kind === 'airlineFailure') {
     if (t.entity === '{rival}') return g.rivals.filter(isActive).length > 8;
@@ -208,6 +220,45 @@ function allowed(g: GameState, t: WorldEventTpl): boolean {
     if (cl && Object.values(g.contracts).some((k) => k.clientId === cl.id && (k.status === 'active' || k.status === 'signed'))) return false;
   }
   return true;
+}
+
+/**
+ * How close a template is to our flying: 1 when its zone, focus airport or strike countries touch (or its zone is
+ * overflown by) our scheduled legs in the next 30 days, 0.5 when its focus is within 2,500 km of home, else 0. Pure.
+ */
+function relevance(g: GameState): (t: WorldEventTpl) => number {
+  const airports = new Set<string>();
+  const countries = new Set<string>();
+  const sectors = new Map<string, [string, string]>();
+  for (const f of Object.values(g.flights)) {
+    if (f.status !== 'scheduled' || !f.aircraftId || f.std > g.now + 30 * DAY) continue;
+    for (const c of [f.from, f.to]) {
+      airports.add(c);
+      const k = AIRPORT_BY_CODE[c]?.country;
+      if (k) countries.add(k);
+    }
+    sectors.set(`${f.from}-${f.to}`, [f.from, f.to]);
+  }
+  const home = g.company.homeBase;
+  const memo = new Map<string, number>();
+  const zoneHit = new Map<string, boolean>();
+  const touches = (z: WorldZone) => {
+    let v = zoneHit.get(z.id);
+    if (v === undefined) {
+      v = [...airports].some((c) => inZone(z, c)) || [...sectors.values()].some(([a, b]) => crosses(z, a, b));
+      zoneHit.set(z.id, v);
+    }
+    return v;
+  };
+  return (t) => {
+    let v = memo.get(t.id);
+    if (v !== undefined) return v;
+    const z = t.zoneId ? ZONE_BY_ID[t.zoneId] : undefined;
+    v = airports.has(t.at) || t.delayCountries?.some((c) => countries.has(c)) || (z && touches(z)) ? 1
+      : AIRPORT_BY_CODE[t.at] && AIRPORT_BY_CODE[home] && distance(t.at, home) <= 2500 ? 0.5 : 0;
+    memo.set(t.id, v);
+    return v;
+  };
 }
 
 /** Daily (§5.2): about two events a month, at most three live, the same kind 20 days apart, crises and recessions rare. */
@@ -232,16 +283,19 @@ export function dailyWorld(g: GameState): void {
     if (k === 'recession' && g.now - g.started < 270 * DAY) return false;
     return WORLD_EVENT_TPLS.some((t) => t.kind === k && allowed(g, t));
   });
-  const kind = weightedPick(r, kinds, ([, x]) => x)?.[0] as WorldEventKind | undefined;
+  // v0.8 events near our own flying are likelier (§5.2: about one a quarter should touch our legs).
+  const rel = relevance(g);
+  const relOf = (k: string) => Math.max(0, ...WORLD_EVENT_TPLS.filter((t) => t.kind === k && allowed(g, t)).map(rel));
+  const kind = weightedPick(r, kinds, ([k, x]) => x * (1 + 3 * relOf(k)))?.[0] as WorldEventKind | undefined;
   if (!kind) return;
-  const tpl = pick(r, WORLD_EVENT_TPLS.filter((t) => t.kind === kind && allowed(g, t)));
-  startEvent(g, tpl, r);
+  const tpl = weightedPick(r, WORLD_EVENT_TPLS.filter((t) => t.kind === kind && allowed(g, t)), (t) => 1 + 5 * rel(t));
+  if (tpl) startEvent(g, tpl, r);
 }
 
 /** Starts an event from a template now: closure, war risk, market shock, fuel jump, rival ceasing, work, one message. */
 export function startEvent(g: GameState, t: WorldEventTpl, r: RngHolder = side(g, `s${g.now}:${t.id}`)): WorldEvent {
   const w = (g.world ??= { events: [] });
-  const D = W().days[t.kind] ?? [3, 10];
+  const D = t.days ?? W().days[t.kind] ?? [3, 10];
   const days = t.kind === 'recession' ? int(r, 6, 12) * 30 : int(r, D[0], D[1]);
   const rival = t.entity === '{rival}' ? weightedPick(r, g.rivals.filter((x) => isActive(x) && x.personality !== 'big'), (x) => (x.personality === 'cheap' ? 3 : 1)) : undefined;
   const fill = (s: string) => s.replace(/\{rival\}/g, rival?.name ?? 'A rival').replace(/\{until\}/g, fmtDay(g.now + days * DAY));
@@ -471,13 +525,13 @@ export function cancelForceMajeure(g: GameState, legs: Flight[], reason: string)
 }
 
 /** An air traffic controllers' strike on this leg's countries: minutes late and the reason, else null. Pure. */
-export function strikeDelay(g: GameState, f: Flight): { min: number; reason: string } | null {
+export function strikeDelay(g: GameState, f: Flight): { min: number; reason: string; eventId: string } | null {
   const cs = [AIRPORT_BY_CODE[f.from]?.country, AIRPORT_BY_CODE[f.to]?.country];
   for (const e of eventsOf(g)) {
     const t = TPL_BY_ID[e.tpl];
     if (!isLive(g, e) || !t?.delayCountries || !t.delayMin || !cs.some((c) => c && t.delayCountries!.includes(c))) continue;
     const k = 0.5 + hashUnit(`${g.seed}:atc:${f.id}`);
-    return { min: Math.round((t.delayMin * k) / 5) * 5, reason: `ATC strike: ${e.title.replace(/ \(.*\)$/, '')}` };
+    return { min: Math.round((t.delayMin * k) / 5) * 5, reason: `${t.delayWhat ?? 'ATC strike'}: ${e.title.replace(/ \(.*\)$/, '')}`, eventId: e.id };
   }
   return null;
 }

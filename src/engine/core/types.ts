@@ -1297,6 +1297,8 @@ export interface Stats {
 export interface StatsV08 {
   lostToRival: number; subIn: number; dryLeases: number; dryMonths: number; worldEvents: number; closuresHit: number; legsRerouted: number;
   legsFm: number; warRiskPaid: number; injunctions: number; whiteouts: number; levelUps: number; feesWaived: number;
+  /** v0.8 our legs delayed by a strike event (ATC, handling). */
+  strikeDelays?: number;
   /** Lost-to-rival reasons. */
   lostWhy?: { cheaper: number; closer: number; sooner: number };
   /** Hand-overs by rival id. */

@@ -24,9 +24,10 @@ import { acceptOffer } from './accept';
 import { clientPrefix, clientsOf, ministry, roleOf } from './clients';
 import * as F from './flavor';
 import {
-  airportsWithin, atLocal, city, generateOffer, hookFor, idleWindows, km, listCities, nearClient, perks, pickN, pickStart, seasonBaseDraft, standingOf,
+  airportsWithin, atLocal, city, generateOffer, hookFor, idleWindows, inMarket, km, listCities, nearClient, perks, pickN, pickStart, seasonBaseDraft, standingOf,
   type Ctx, type Draft, type IdleWindow,
 } from './offers';
+import { feasibility } from './feasibility';
 import { sideRng } from './paintTerms';
 import { computeWaves, route } from './plan';
 import { defaultSeats } from './pricing';
@@ -230,7 +231,9 @@ export function deportationCleanHit(o: Pick<ContractOffer, 'archetype' | 'patter
 // ---------- evacuation (§2.5) ----------
 
 function evacuation(ctx: Ctx): Draft | null {
-  const { g, wide, o } = ctx;
+  const { g, o } = ctx;
+  // A ministry charters what the operator has: a widebody only when we fly one.
+  const wide = ctx.wide && (!Object.keys(g.fleet).length || Object.values(g.fleet).some((a) => a.cabin.total >= 250));
   const pairs = WORLD_ZONES.flatMap((z) => z.staging ?? []).filter(([a, b]) => exists(a) && exists(b));
   const pair: [string, string] | undefined = o.airport && o.staging ? [o.airport, o.staging] : o.airport ? pairs.find(([a]) => a === o.airport) : pick(g, pairs);
   if (!pair) return null;
@@ -500,7 +503,8 @@ function subcharterIn(ctx: Ctx): Draft | null {
   start = Math.ceil(start / 60) * 60;
   if (w && start + days * DAY > w.to) return null;
   const wide = ctx.wide;
-  const pool = wide ? airportsWithin(base, 2500, 7000, (a) => a.size >= 3) : airportsWithin(base, 400, 2500, (a) => a.size >= 2);
+  // The end client's own market, never a war zone.
+  const pool = wide ? airportsWithin(base, 2500, 7000, (a) => a.size >= 3 && inMarket(end, a)) : airportsWithin(base, 400, 2500, (a) => a.size >= 2 && inMarket(end, a));
   const dests = pickN(g, pool, wide ? 1 : int(g, 2, 3), (a) => a.size + a.tour).map((a) => a.code);
   if (!dests.length) return null;
   const waves = computeWaves(base, dests, wide ? 'a333' : 'a320ceo', wide ? 1 : 2);
@@ -652,14 +656,14 @@ function lessees(g: GameState, typeId: string): Client[] {
 }
 
 /**
- * A dry-lease offer for an aircraft with a free window of 75+ days starting 14–60 days out (§6.1): 3–9 months
- * (Newcomer 3–4), market rent × index, reserves per flight hour, a month's deposit; a sub-lease consent fee on a
+ * A dry-lease offer for an aircraft with a free window of 60+ days starting 14–60 days out (§6.1): 2–9 months
+ * (Newcomer 2–4), market rent × index, reserves per flight hour, a month's deposit; a sub-lease consent fee on a
  * leased-in airframe; half the lessees want their colours (they paint at their own MRO). `w`: a specific window.
  */
 export function makeDryLeaseOffer(g: GameState, w?: IdleWindow, clientId?: string): ContractOffer | null {
   const D = V.dry;
   const r = sideRng(g, `dry:${g.seq}:${g.now}`);
-  const ws = w ? [w] : idleWindows(g, 75, 330).filter((x) => {
+  const ws = w ? [w] : idleWindows(g, 60, 330).filter((x) => {
     const ac = g.fleet[x.aircraftId];
     return !!ac && !ac.sale && !ac.returning && ac.status !== 'delivering' && Math.max(x.from, g.now + 14 * DAY) <= g.now + 60 * DAY;
   });
@@ -678,7 +682,7 @@ export function makeDryLeaseOffer(g: GameState, w?: IdleWindow, clientId?: strin
   if (!out || !back) return null;
   const start = Math.ceil(Math.max(win.from + out.reduce((s, l) => s + l.block, 0) + 2 * DAY, g.now + 14 * DAY) / DAY) * DAY;
   const maxMonths = Math.floor((win.to - start - back.reduce((s, l) => s + l.block, 0) - 3 * DAY) / (30.44 * DAY));
-  const [lo, hi] = standingOf(g) === 0 ? [3, 4] : [3, 9];
+  const [lo, hi] = standingOf(g) === 0 ? [2, 4] : [2, 9];
   if (maxMonths < lo) return null;
   const months = int(r, lo, Math.min(hi, maxMonths));
   const end = start + Math.round(months * 30.44) * DAY;
@@ -763,20 +767,28 @@ export function devDryLease(g: GameState): string {
   return makeDryLeaseOffer(g, w, taag?.id)?.id ?? '';
 }
 
-/** An Air Sénégal season base 'all but the purser' signed and rostered; one of its duties' id ('' when none). Dev/test helper. */
+/** An Air Sénégal season base 'all but the purser' signed and rostered (the first aircraft and start that fit); one of its duties' id ('' when none). Dev/test helper. */
 export function devMixedCrew(g: GameState): string {
-  const ac = Object.values(g.fleet).find((a) => typeOf(a.typeId).body === 'wide') ?? Object.values(g.fleet)[0];
   const sn = Object.values(g.clients).find((c) => c.name === 'Air Sénégal');
-  if (!ac || !sn) return '';
-  const wide = typeOf(ac.typeId).body === 'wide';
-  const o = generateOffer(g, 'seasonBase', { client: sn.id, wide, window: false, start: g.now + 3 * DAY, days: 30, dests: wide ? ['CDG'] : ['LIS', 'BCN'] });
-  if (!o) return '';
-  const M = complement(ac.typeId, ac.cabin.total).filter((x) => x === 'PUR' || x === 'CC').length;
-  o.requirements.clientCabin = { n: M - 1, of: M, leads: false };
-  const res = acceptOffer(g, o.id, [ac.id]);
-  if (!res.ok) return '';
-  const p = Object.values(g.pairings).find((x) => x.contractId === res.data!.contractId && x.dutyIds.length);
-  return p?.dutyIds[0] ?? '';
+  if (!sn) return '';
+  const fleet = Object.values(g.fleet).filter((a) => a.status !== 'leasedOut' && !a.sale && !a.returning).sort((a, b) => Number(typeOf(b.typeId).body === 'wide') - Number(typeOf(a.typeId).body === 'wide'));
+  for (const days of [3, 10, 21, 45]) {
+    for (const ac of fleet) {
+      const wide = typeOf(ac.typeId).body === 'wide';
+      const o = generateOffer(g, 'seasonBase', { client: sn.id, wide, window: false, start: g.now + days * DAY, days: 30, dests: wide ? ['CDG'] : ['LIS', 'BCN'] });
+      if (!o) continue;
+      const M = complement(ac.typeId, ac.cabin.total).filter((x) => x === 'PUR' || x === 'CC').length;
+      o.requirements.clientCabin = { n: M - 1, of: M, leads: false };
+      const res = feasibility(g, o.id, ac.id).level !== 'no' ? acceptOffer(g, o.id, [ac.id]) : null;
+      if (!res?.ok) {
+        delete g.offers[o.id];
+        continue;
+      }
+      const p = Object.values(g.pairings).find((x) => x.contractId === res.data!.contractId && x.dutyIds.length);
+      return p?.dutyIds[0] ?? '';
+    }
+  }
+  return '';
 }
 
 /** The first of up to 12 tries that builds an offer of this archetype (dev helpers). */

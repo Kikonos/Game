@@ -36,6 +36,8 @@ describe('paint requests on offers', () => {
     // 30 seeds: the tour56 band rests on a few dozen offers (10, then 20 seeds sat on its edge).
     for (let seed = 1; seed <= 30; seed++) {
       const g = newGame(seed);
+      // v0.8 UN rotations go to IOSA-registered operators only.
+      g.company.approvals.push('iosa');
       for (let i = 0; i < 140; i++) {
         const o = generateOffer(g, mix[i % mix.length]);
         if (!o) continue;

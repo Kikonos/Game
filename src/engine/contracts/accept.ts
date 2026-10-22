@@ -265,6 +265,9 @@ export function cancelPenalty(g: GameState, contractId: string): number {
   if (!c || (c.status !== 'signed' && c.status !== 'active')) return 0;
   const n = c.aircraftIds.length;
   const p = c.product;
+  // v0.8 a delivered dry lease is recalled (even a day before its start): one month's rent to the lessee.
+  const recall = c.dry ? recallTerms(g, c) : null;
+  if (recall) return recall.penalty;
   if (g.now < c.start) {
     const value = p.kind === 'wet' ? productValue(p, 0, c.start, c.end) * n : p.kind === 'charter' ? p.price : productValue(p, 0, c.start, c.end);
     return Math.round(value * cancelScale(c, (c.start - g.now) / DAY));
@@ -275,8 +278,7 @@ export function cancelPenalty(g: GameState, contractId: string): number {
     return Math.round(p.ratePerBH * mgh * n);
   }
   if (p.kind === 'charter') return Math.round(Math.max(0, p.price * (1 - brokerCut(c)) - (c.accrued ?? 0)));
-  // v0.8 a delivered dry lease is recalled: one month's rent to the lessee.
-  return recallTerms(g, c)?.penalty ?? 0;
+  return 0;
 }
 
 /** Charter money invoiced and already paid by the client (unpaid = still open receivables). */

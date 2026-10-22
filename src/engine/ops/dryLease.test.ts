@@ -7,11 +7,11 @@ import { BAL } from '../core/balance';
 import { typeOf } from '../core/perf';
 import { DAY, monthKey, monthStart } from '../core/time';
 import type { Contract, GameState, SimEvent } from '../core/types';
-import { acceptOffer } from '../contracts';
+import { acceptOffer, cancelContract, cancelCost } from '../contracts';
 import { feasibility } from '../contracts/feasibility';
 import { devDryLease } from '../contracts/missions';
 import { newGame, owned, run } from '../contracts/testkit';
-import { dailyDryLeases, dryLeaseOf, dryLeaseView, leasedText, onLeaseBack, onLeaseFerryHome, onLeaseOut } from './dryLease';
+import { consentFor, dailyDryLeases, dryLeaseOf, dryLeaseView, leasedText, onLeaseBack, onLeaseFerryHome, onLeaseOut } from './dryLease';
 import { fixedCosts } from './finance';
 
 /** BAL.v08.dry with the two risks writable (tests force them). */
@@ -194,4 +194,70 @@ it('rent months are whole-day pro-rata in advance', () => {
   const p = c.product.kind === 'dry' ? c.product : null;
   const days = (monthStart(monthKey(g.now) + 1) - g.now) / DAY;
   expect(first.amount).toBe(Math.round((p!.rentPerMonth * days * DAY) / (30.44 * DAY)));
+});
+
+describe('v0.8 fix round 1: recall, holdover, consent', () => {
+  it('cancelling after delivery recalls her: ferried home, available, deposit back, a month\'s rent to the lessee', () => {
+    const { g, c } = signed();
+    deliver(g, c);
+    const ac = g.fleet[c.aircraftIds[0]];
+    const cost = cancelCost(g, c.id);
+    const p = c.product.kind === 'dry' ? c.product : null;
+    expect(cost.penalty).toBe(Math.round(p!.rentPerMonth));
+    const cash0 = g.company.cash;
+    const r = cancelContract(g, c.id);
+    expect(r.ok).toBe(true);
+    // Penalty and unused rent out (plus the ferry crew's tickets, if any).
+    expect(g.company.cash).toBeLessThanOrEqual(cash0 - cost.penalty - cost.refund);
+    expect(g.company.cash).toBeGreaterThan(cash0 - cost.penalty - cost.refund - 20_000);
+    expect(c.dry!.recalled).toBe(g.now);
+    // The return ferries are still there, two days out plus the inspection day.
+    const back = c.dry!.backIds.map((id) => g.flights[id]);
+    expect(back.every((f) => f && f.status === 'scheduled')).toBe(true);
+    expect(back[0].std).toBeLessThanOrEqual(g.now + 3 * DAY + 8 * 60 + 15);
+    const deposit0 = g.company.cash;
+    run(g, back[back.length - 1].sta + 3 * DAY);
+    expect(ac.status).not.toBe('leasedOut');
+    expect(ac.at).toBe(g.company.homeBase);
+    expect(c.status).toBe('cancelled');
+    expect(dryLeaseOf(g, ac.id)).toBeNull();
+    expect(g.company.cash).toBeLessThan(deposit0 + 1); // deposit paid back to them (cash out)
+  });
+
+  it('a late return across a month end bills the late days once (holdover only)', () => {
+    const { g, c } = signed();
+    deliver(g, c);
+    const d = c.dry!;
+    const was = D.late;
+    const days = D.lateDays;
+    D.late = 1;
+    // 32 days late: always across a month start.
+    (D as { lateDays: readonly [number, number] }).lateDays = [32, 32];
+    try {
+      const end = d.leaseEnd ?? c.end;
+      g.now = end;
+      onLeaseBack(g, ev(g, 'lease.back', c.id));
+      expect(d.late).toBe(32);
+      const back = end + d.late! * DAY;
+      // Daily passes through the late days, across the next month start.
+      for (let t = end; t < back; t += DAY) {
+        g.now = t;
+        dailyDryLeases(g);
+      }
+      const rents = g.finance.receivables.filter((r) => r.contractId === c.id && /^Rent/.test(r.desc));
+      const after = rents.filter((r) => r.issued > end);
+      expect(after.length).toBe(0);
+    } finally {
+      D.late = was;
+      (D as { lateDays: readonly [number, number] }).lateDays = days;
+    }
+  });
+
+  it('the consent fee follows the airframe picked: none on an owned one, the fee on a leased-in one', () => {
+    const g = newGame(3);
+    const ac = owned(g);
+    expect(consentFor(ac)).toBe(0);
+    const ln = Object.values(g.fleet).find((a) => a.ownership.kind === 'dryLeaseIn');
+    if (ln) expect(consentFor(ln)).toBe(typeOf(ln.typeId).body === 'wide' ? BAL.v08.dry.consent.wide : BAL.v08.dry.consent.narrow);
+  });
 });

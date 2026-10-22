@@ -369,26 +369,35 @@ function acCommitted(g: GameState, acId: string, days: number): number {
 }
 
 /**
- * v0.8 dry lease out (§13): October–March, an owned narrowbody under 30 % committed over the next 60 days takes a
- * fitting dry-lease request; never the last narrowbody of a family with base work running.
+ * v0.8 dry lease out (§13): an aircraft free over the whole lease takes a fitting dry-lease request: a narrowbody October–March and back before the summer peak (never the last of a family with base work
+ * running); a widebody any time it has no job in the window; a leased-in airframe when the lessor's consent fee is
+ * under 15 % of the rent it brings.
  */
 function dryLeases(g: GameState, t: Tally): void {
-  const mo = toDate(g.now).getUTCMonth();
-  if (!(mo >= 9 || mo <= 2)) return;
   for (const o of Object.values(g.offers)) {
     if (o.archetype !== 'dryLeaseOut' || o.status !== 'open' || !o.dryFor || o.expires <= g.now) continue;
+    const ac = g.fleet[o.dryFor];
+    if (process.env.DRYDBG) console.error('DRY', fmtDateTime(g.now), o.title, ac?.reg, ac?.ownership.kind, fmtDateTime(o.start), fmtDateTime(o.end), acCommitted(g, o.dryFor, 60).toFixed(2), feasibility(g, o.id, o.dryFor).checks.filter((c) => c.level === 'no').map((c) => c.label).join('|'));
+    if (!ac || ac.status === 'leasedOut' || o.product.kind !== 'dry') continue;
+    const wide = typeOf(ac.typeId).body === 'wide';
+    if (ac.ownership.kind !== 'owned') {
+      const consent = wide ? BAL.v08.dry.consent.wide : BAL.v08.dry.consent.narrow;
+      if (ac.ownership.kind !== 'dryLeaseIn' || consent >= 0.15 * o.product.rentPerMonth * ((o.end - o.start) / (30.44 * DAY))) continue;
+    }
     // Back before the summer peak (seed 4 leased one of its two A320s out from March to July and lost the summer).
     const back = toDate(o.end).getUTCMonth();
-    if (o.end - g.now > 240 * DAY || (back >= 6 && back <= 8)) continue;
-    const ac = g.fleet[o.dryFor];
-    if (!ac || ac.ownership.kind !== 'owned' || typeOf(ac.typeId).body !== 'narrow' || ac.status === 'leasedOut') continue;
+    // A narrowbody never misses the summer peak (June–August) and is back within 8 months.
+    const peak = (y: number) => fromUTC(y, 6, 1);
+    const y0 = toDate(o.start).getUTCFullYear();
+    const overlapsSummer = [y0, y0 + 1].some((y) => o.start < peak(y) + 92 * DAY && o.end > peak(y));
+    if (!wide && (overlapsSummer || o.end - g.now > 240 * DAY)) continue;
     const fam = typeOf(ac.typeId).family;
     const others = Object.values(g.fleet).filter((a) => a.id !== ac.id && typeOf(a.typeId).family === fam && a.status !== 'leasedOut' && a.status !== 'delivering');
     const baseLive = Object.values(g.contracts).some((c) => (c.status === 'active' || c.status === 'signed') && c.pattern.kind === 'base' && c.aircraftIds.some((id) => g.fleet[id] && typeOf(g.fleet[id].typeId).family === fam));
-    if (!others.length && baseLive) continue;
+    if (!wide && !others.length && baseLive) continue;
     // ... and two more of the family keep flying when it is back only in June.
-    if (back === 5 && others.length < 2) continue;
-    if (acCommitted(g, ac.id, 60) >= 0.3) continue;
+    if (!wide && back === 5 && others.length < 2) continue;
+    // Free over the whole lease (feasibility: from the ferry out to two days after the return).
     if (feasibility(g, o.id, ac.id).level === 'no') continue;
     if (acceptOffer(g, o.id, [ac.id]).ok) {
       t.dryLeases++;
@@ -1582,14 +1591,14 @@ console.log(
   console.log(
     `v0.8: levels U/N/K/T/P ${lv.unhappy}/${lv.new}/${lv.known}/${lv.trusted}/${lv.partner} · standing Est. ${dayOf(v8.establishedAt ?? null)}, Resp. ${dayOf(v8.respectedAt ?? null)} · types ${types || '-'} · ` +
       `lost to rivals ${v8.lostToRival} (cheaper ${lw.cheaper}/closer ${lw.closer}/sooner ${lw.sooner}) · sub-charter out ${s.subchartered ?? 0} (${byRival || '-'}) in ${v8.subIn} · ` +
-      `events ${v8.worldEvents} (closures hit ${v8.closuresHit}, legs rerouted ${v8.legsRerouted}, FM cancels ${v8.legsFm}, war-risk ${k$(v8.warRiskPaid)}, injunctions ${v8.injunctions}, whiteouts ${v8.whiteouts}) · ` +
+      `events ${v8.worldEvents} (closures hit ${v8.closuresHit}, legs rerouted ${v8.legsRerouted}, strike delays ${v8.strikeDelays ?? 0}, FM cancels ${v8.legsFm}, war-risk ${k$(v8.warRiskPaid)}, injunctions ${v8.injunctions}, whiteouts ${v8.whiteouts}) · ` +
       `phases by quarter ${phases.join('/')} · fuel ${fuelMin}–${fuelMax} · dry leases ${v8.dryLeases} (${v8.dryMonths} months, ${k$(dryIncome)}) · mixed-crew contracts ${mixedSeen.size} · fees waived ${v8.feesWaived} · runtime ${runSecs.toFixed(1)} s`,
   );
   softTargets.push(['Established by day 240 (≥ 5 of seeds 1–6, v0.8)', v8.establishedAt !== undefined && v8.establishedAt - g.started <= 240 * DAY, dayOf(v8.establishedAt ?? null)]);
   softTargets.push(['a Trusted client by day 365 (≥ 4 of seeds 1–6, v0.8)', trustedAt !== null, dayOf(trustedAt)]);
   softTargets.push(['a widebody signed (2–4 of seeds 1–6, v0.8)', tally.wideSigned !== null, dayOf(tally.wideSigned)]);
   softTargets.push(['≥ 1 offer lost to a rival with a reason (v0.8)', v8.lostToRival >= 1, `${v8.lostToRival}`]);
-  softTargets.push(['a world event touching our flights (≥ 3 of seeds 1–6, v0.8)', v8.closuresHit + v8.legsRerouted + (v8.warRiskPaid > 0 ? 1 : 0) > 0, `closures ${v8.closuresHit}, rerouted ${v8.legsRerouted}, war-risk ${k$(v8.warRiskPaid)}`]);
+  softTargets.push(['a world event touching our flights (≥ 3 of seeds 1–6, v0.8)', v8.closuresHit + v8.legsRerouted + (v8.strikeDelays ?? 0) + (v8.warRiskPaid > 0 ? 1 : 0) > 0, `closures ${v8.closuresHit}, rerouted ${v8.legsRerouted}, strike delays ${v8.strikeDelays ?? 0}, war-risk ${k$(v8.warRiskPaid)}`]);
   softTargets.push(['a dry lease (≥ 2 of seeds 1–6, v0.8)', v8.dryLeases >= 1, `${v8.dryLeases}`]);
 }
 console.log('\ntargets');

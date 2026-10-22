@@ -3,12 +3,13 @@
 
 import { describe, expect, it } from 'vitest';
 import { AIRPORT_BY_CODE } from '../../data/airports';
-import { TPL_BY_ID } from '../../data/worldEvents';
+import { TPL_BY_ID, WORLD_EVENT_TPLS } from '../../data/worldEvents';
 import { ZONE_BY_ID } from '../../data/worldZones';
 import { BAL } from '../core/balance';
 import { DAY } from '../core/time';
 import type { GameState } from '../core/types';
 import { acceptOffer } from '../contracts';
+import { feasibility } from '../contracts/feasibility';
 import { warRiskCost } from '../contracts/missionChecks';
 import { hamBase, leased, legsOffer, newGame, owned } from '../contracts/testkit';
 import { resolveDecision } from './events';
@@ -209,5 +210,58 @@ describe('generation (§5.2)', () => {
       expect(perMonth).toBeGreaterThanOrEqual(1.5);
       expect(perMonth).toBeLessThanOrEqual(3);
     }
+  });
+});
+
+describe('v0.8 fix round 1: event text and work', () => {
+  it('a title or body that announces a closure belongs to a template that always closes, or has an open variant that does not', () => {
+    const closes = /\b(closes?|closed|close Mitiga)\b/i;
+    for (const t of WORLD_EVENT_TPLS) {
+      if (!t.zoneId || !t.closeP || t.closeP >= 1) continue;
+      if (closes.test(t.title) || (closes.test(t.body) && !/may close/.test(t.body))) {
+        expect(t.open, t.id).toBeDefined();
+        expect(/\b(closes|is closed|are closed)\b/.test(`${t.open!.title} ${t.open!.body}`), t.id).toBe(false);
+      }
+    }
+  });
+
+  it('the text follows the closure roll (Sudan: open → insurers, closed → closes its airspace)', () => {
+    let open = 0;
+    let shut = 0;
+    for (let s = 1; s <= 12; s++) {
+      const g = newGame(s);
+      const e = startEvent(g, TPL_BY_ID.warSudan);
+      if (e.closed) {
+        shut++;
+        expect(e.title).toMatch(/closes its airspace/);
+      } else {
+        open++;
+        expect(e.title).not.toMatch(/clos/);
+      }
+    }
+    expect(open + shut).toBe(12);
+  });
+
+  it("an evacuation the event created flies through the event's own closure", () => {
+    for (let s = 1; s <= 8; s++) {
+      const g = newGame(s);
+      const e = startEvent(g, TPL_BY_ID.warLibya);
+      if (!e.closed) continue;
+      for (const id of e.offerIds) {
+        const o = g.offers[id];
+        for (const ac of Object.values(g.fleet)) {
+          const rep = feasibility(g, id, ac.id);
+          expect(rep.checks.some((c) => c.id === 'airspace' && c.level === 'no'), `${o.title}`).toBe(false);
+        }
+      }
+    }
+  });
+
+  it('a failed rival reads at its own base and country', () => {
+    const g = newGame(2);
+    const e = startEvent(g, TPL_BY_ID.failRival);
+    const r = g.rivals.find((x) => x.id === e.rivalId)!;
+    expect(e.at).toBe(r.base);
+    expect(e.country).toBe(AIRPORT_BY_CODE[r.base].country);
   });
 });
