@@ -9,12 +9,13 @@ import { planSector, TECH_STOP_MIN, typeOf } from '../core/perf';
 import { DAY, START, fromUTC, localMinuteOfDay, toDate } from '../core/time';
 import { advanceTo } from '../sim';
 import type { Archetype, ContractOffer, GameState } from '../core/types';
-import { acceptOffer, counterOffer, declineOffer, feasibilityAll, generateOffer, priceProduct, productValue, rateMultiplier } from '.';
+import { acceptOffer, counterOffer, declineOffer, feasibility, feasibilityAll, generateOffer, offerRestLine, priceProduct, productValue, rateMultiplier } from '.';
+import { ulrNeed } from './feasibility';
 import { onOfferExpire, onOfferReply, PACING, quietWeekOffer } from './offers';
 import { computeWaves, programmeOf } from './plan';
 import { referenceType } from './pricing';
 import * as F from './flavor';
-import { newGame, offer, run } from './testkit';
+import { addAircraft, newGame, offer, run } from './testkit';
 
 const ARCHETYPES: Archetype[] = ['seasonBase', 'aogCover', 'adhoc', 'sports', 'repatriation', 'tourSeries', 'troopRotation', 'vip'];
 
@@ -134,13 +135,47 @@ describe('v0.7 cabin rules on offers (§F7.3–F7.4)', () => {
     expect(ulr(many('vip', 120, { wide: true }))).toHaveLength(0);
     const pending = (g: GameState) => g.company.pendingApprovals.push({ id: 'etops240', started: g.now, done: g.now + 180 * DAY, cost: 0 });
     const got = [...ulr(many('sports', 120, { wide: true }, pending)), ...ulr(many('vip', 120, { wide: true }, pending))];
-    expect(got.length).toBeGreaterThan(10);
+    // v0.7.3 fewer than before: only destinations a crew may legally fly (≤ 18:00 with 4 pilots in bunks).
+    expect(got.length).toBeGreaterThan(5);
     for (const o of got) {
       expect(o.requirements.noTechStops).toBe(true);
       expect(o.requirements.longestSectorNm).toBeGreaterThanOrEqual(7000);
       expect(o.pattern.kind === 'legs' && o.pattern.legs).toHaveLength(2);
     }
   }, 30_000);
+
+  it('v0.7.3 every ULR offer is legal to fly (EASA: 18:00 at most, bunks for both crews) and feasible on a qualifying aircraft', () => {
+    const NEED = /^ULR: [34] pilots, bunks for pilots and cabin crew \(class 1\) · longest day (\d+):(\d\d) of (1[67]|18):00$/;
+    let checked = 0;
+    for (const base of ['LIS', 'MAD', 'RIX', 'PRG', 'MLA', 'SOF']) {
+      const g = newGame(1, base);
+      g.company.approvals.push('etops120', 'etops180', 'etops240', 'augmented', 'ulr', 'widebody', 'areaAfrica', 'areaAsia', 'areaAmericas', 'vip');
+      for (let seed = 0; seed < 160; seed++) {
+        g.rng = (seed * 7919 + 13) >>> 0;
+        g.seq += 1;
+        g.offers = {};
+        const o = generateOffer(g, seed % 2 ? 'vip' : 'sports', { window: false, wide: true });
+        if (!o || !o.requirements.approvals.includes('ulr') || o.pattern.kind !== 'legs') continue;
+        const [out, back] = o.pattern.legs;
+        const u = ulrNeed(g, out.from, out.to, out.dep, back.dep);
+        expect(u, `${out.from}–${out.to}`).not.toBeNull();
+        expect(u!.need.mode === 'aug1' || u!.need.mode === 'aug2').toBe(true);
+        expect(u!.need.fdp).toBeLessThanOrEqual(18 * 60);
+        const line = offerRestLine(g, o.id)!;
+        expect(line).toMatch(NEED);
+        // On the type that flies it, with bunks for both crews: the contract check finds a legal crew plan.
+        const ac = addAircraft(g, u!.typeId);
+        ac.rest = { fc: { cls: 1, kind: 'fcrc', places: 2 }, cc: { cls: 1, kind: 'ccrc', places: 8 } };
+        const cabin = typeOf(u!.typeId).cabins.find((c) => c.j + c.w + c.y >= o.requirements.minSeats) ?? typeOf(u!.typeId).cabins[0];
+        ac.cabin = { ...ac.cabin, j: cabin.j, w: cabin.w, y: cabin.y, total: cabin.j + cabin.w + cabin.y, layout: o.requirements.layouts?.[0] ?? cabin.layout };
+        const rest = feasibility(g, o.id, ac.id).checks.find((c) => c.id === 'rest');
+        expect(rest?.level ?? 'ok', `${out.from}–${out.to} on ${u!.typeId}: ${rest?.label}`).not.toBe('no');
+        delete g.fleet[ac.id];
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThan(5);
+  }, 120_000);
 });
 
 describe('offer generation', () => {

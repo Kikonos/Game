@@ -27,6 +27,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
       'The EASA rules were checked line by line against the current regulation: the cabin crew rest table ends at 18 h, rest after any augmented day is at least 14 h, and the captain’s discretion is only for surprises on the day.',
       'Contract checks use the real limit for the report time and each aircraft’s rest, and say exactly what a long job needs.',
       'Delays announced before the crew leave the hotel keep the original day limit, as the rules say.',
+      'Ultra-long-range offers only go where a crew may legally fly (18 h at most, with 4 pilots and bunks for pilots and cabin crew), and say plainly what they need.',
       'Small fixes: the WHY? dot is easier to read, lists clear the iPad’s home bar.',
     ],
   },

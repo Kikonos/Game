@@ -1,6 +1,6 @@
 // Feasibility and aircraft selection (B1). DESIGN.md §5.1.5. Pure: no RNG, no ids, no writes.
 
-import { ACMI_TYPES, type CabinLayout } from '../../data/acmiTypes';
+import { ACMI_TYPES, ACMI_TYPES_LIST, type CabinLayout } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { BAL } from '../core/balance';
 import { flightsOf } from '../core/entities';
@@ -615,6 +615,45 @@ export function marketFit(g: GameState, offerId: string): MarketFit | null {
 
 const NEED_RANK: Record<DutyNeed['mode'], number> = { basic: 0, split: 1, ext: 2, aug1: 3, aug2: 4, none: 9 };
 
+/** v0.7.3 class 1 rest for pilots and cabin crew (bunks): what an ultra-long-range day is planned against. */
+export const ULR_REST: AcRest = { fc: { cls: 1, kind: 'fcrc', places: 2 }, cc: { cls: 1, kind: 'ccrc', places: 8 } };
+
+/** v0.7.3 a ULR round trip on the best type: its worst day (the more demanding sector). */
+export interface UlrNeed { typeId: string; need: DutyNeed }
+
+/**
+ * v0.7.3 (EASA guide 2026-10 §6.2; CS FTL.1.205(c)): can a crew legally fly home–far nonstop both ways? For every
+ * type that flies the sector without a fuel stop and can carry bunks for both crews (class 1), each sector is planned
+ * as the roster plans a duty (dutyNeed: report, block and the in-flight rest plan; the maximum is 18:00 with 4 pilots,
+ * class 1 for both crews and one sector over 9 h). The type with the shortest worst day, or null when no type and
+ * crew can fly it within the limits. Pure.
+ */
+export function ulrNeed(g: GameState, home: string, far: string, out: Minute, back: Minute): UlrNeed | null {
+  // Planned as if we held the augmented crew approval (a ULR offer is the top of the ladder).
+  const gx: GameState = g.company.approvals.includes('augmented') ? g : { ...g, company: { ...g.company, approvals: [...g.company.approvals, 'augmented'] } };
+  let best: UlrNeed | null = null;
+  for (const t of ACMI_TYPES_LIST) {
+    const R = t.rest;
+    if (!t.available || t.body !== 'wide' || !(R.fcrcShare > 0 || R.mro) || !((R.ccrcShare > 0 && R.ccrcPlaces > 0) || R.ldmcr || R.mro === 'overhead')) continue;
+    let worst: DutyNeed | null = null;
+    for (const [a, b, std] of [[home, far, out], [far, home, back]] as [string, string, Minute][]) {
+      const sp = planSector(t.id, a, b);
+      if (!sp.ok || sp.techStops.length) {
+        worst = null;
+        break;
+      }
+      const n = dutyNeed(gx, t.id, ULR_REST, { from: a, std, legs: [{ std, sta: std + blockMinutes(t.id, a, b), from: a, to: b }] });
+      if (n.mode === 'none') {
+        worst = null;
+        break;
+      }
+      if (!worst || NEED_RANK[n.mode] > NEED_RANK[worst.mode] || (n.mode === worst.mode && n.fdp > worst.fdp)) worst = n;
+    }
+    if (worst && (!best || worst.fdp < best.need.fdp)) best = { typeId: t.id, need: worst };
+  }
+  return best;
+}
+
 /** The programme's chains cut at the home base (a crew change) as well as at night stops: the 5 longest. */
 function crewChains(g: GameState, chains: ChainShape[]): ChainShape[] {
   const home = g.company.homeBase;
@@ -659,6 +698,14 @@ export function restRefitFix(g: GameState, aircraftId: string, o: ContractOffer,
 export function offerRestLine(g: GameState, offerId: string): string | null {
   const o = g.offers[offerId];
   if (!o) return null;
+  // v0.7.3 ULR: the need in plain words, on the type that flies it with the shortest day (bunks for both crews).
+  if (o.requirements.approvals.includes('ulr') && o.pattern.kind === 'legs' && o.pattern.legs.length >= 2) {
+    const [a, b] = o.pattern.legs;
+    const u = ulrNeed(g, a.from, a.to, a.dep, b.dep);
+    const hm = (m: number) => `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
+    if (!u) return 'ULR: longer than any crew may fly (18:00 even with 4 pilots in bunks)';
+    return `ULR: ${u.need.mode === 'aug1' ? 3 : 4} pilots, bunks for pilots and cabin crew (class 1) · longest day ${hm(u.need.fdp)} of ${hm(u.need.max)}`;
+  }
   const types = Object.values(ACMI_TYPES).filter((t) => t.body === 'wide' && t.available).sort((a, b) => a.maxSeats - b.maxSeats);
   const NO_REST: AcRest = { fc: null, cc: null };
   const fc1: AcRest = { fc: { cls: 1, kind: 'fcrc', places: 2 }, cc: { cls: 1, kind: 'ccrc', places: 8 } };

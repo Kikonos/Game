@@ -20,7 +20,7 @@ import type {
 } from '../core/types';
 import { acceptOffer, closeOffer, setPrice } from './accept';
 import { answerBy, counterBase, counterOdds, halfwayPrice, leftOf } from './counter';
-import { feasibility } from './feasibility';
+import { feasibility, ulrNeed, type UlrNeed } from './feasibility';
 import { adhocGroupClients, clientPrefix, clientsOf, isBigClub, isCruiseLine, isDiaspora, isGovernment, isMarineCrewing, isPilgrim, ministry, rivalFor } from './clients';
 import * as F from './flavor';
 import { paintTermsText, rollPaint, sideRng } from './paintTerms';
@@ -482,10 +482,21 @@ function sports(ctx: Ctx): Draft | null {
   return d;
 }
 
-/** A nonstop ultra-long-range destination 7,000–8,500 nm from `home` (big cities only), or null. */
-function ulrDest(g: GameState, home: string): string | null {
-  const pool = AIRPORTS.filter((a) => a.size >= 4 && AIRPORT_BY_CODE[a.code].runwayM >= 3000 && distanceNm(home, a.code) >= 7000 && distanceNm(home, a.code) <= 8500);
-  return pool.length ? pick(sideRng(g, `ulr:${g.seq}:${home}`), pool).code : null;
+/**
+ * A nonstop ultra-long-range destination 7,000–8,500 nm from `home` (big cities only) that a crew can legally fly out
+ * at `out` and back `backDays` later at 22:00 local (ulrNeed), or null when none qualifies from there.
+ */
+function ulrDest(g: GameState, home: string, out: Minute, backDays: number): { code: string; back: Minute; need: UlrNeed } | null {
+  const pool: { code: string; back: Minute; need: UlrNeed }[] = [];
+  for (const a of AIRPORTS) {
+    if (a.size < 4 || AIRPORT_BY_CODE[a.code].runwayM < 3000) continue;
+    const nm = distanceNm(home, a.code);
+    if (nm < 7000 || nm > 8500) continue;
+    const back = atLocal(a.code, out + backDays * DAY, 22 * 60);
+    const need = ulrNeed(g, home, a.code, out, back);
+    if (need) pool.push({ code: a.code, back, need });
+  }
+  return pool.length ? pick(sideRng(g, `ulr:${g.seq}:${home}`), pool) : null;
 }
 
 /** ULR prestige (§F7.4): with ETOPS 240 held or pending, 30% of widebody VIP and sports trips fly nonstop beyond 7,000 nm. */
@@ -495,16 +506,19 @@ function prestige(ctx: Ctx, d: Draft, r: { rng: number }): void {
   if (!etops240 || d.pattern.kind !== 'legs' || !chance(r, 0.3)) return;
   const legs = d.pattern.legs;
   const home = legs[0].from;
-  const far = ulrDest(g, home);
-  if (!far) return;
-  const back = Math.max(3, Math.round((legs[legs.length - 1].dep - legs[0].dep) / DAY));
+  const backDays = Math.max(3, Math.round((legs[legs.length - 1].dep - legs[0].dep) / DAY));
   const out = legs[0].dep;
-  d.pattern = { kind: 'legs', legs: [{ from: home, to: far, dep: out, flightNo: '', pax: legs[0].pax }, { from: far, to: home, dep: atLocal(far, out + back * DAY, 22 * 60), flightNo: '', pax: legs[0].pax }] };
+  // v0.7.3 only destinations a crew can legally fly (EASA: 18:00 at most, 4 pilots, bunks for both crews).
+  const pickd = ulrDest(g, home, out, backDays);
+  if (!pickd) return;
+  const far = pickd.code;
+  d.pattern = { kind: 'legs', legs: [{ from: home, to: far, dep: out, flightNo: '', pax: legs[0].pax }, { from: far, to: home, dep: pickd.back, flightNo: '', pax: legs[0].pax }] };
   d.req.noTechStops = true;
   d.req.approvals = [...new Set([...d.req.approvals, 'ulr' as ApprovalId])];
   d.mult = (d.mult ?? ARCH_MULT[d.archetype] ?? 1) * 1.25;
   d.title = `Nonstop to ${city(far)}`;
-  d.blurb = `${d.blurb} Prestige long haul: nonstop ${home}–${far} and back (${Math.round(distanceNm(home, far)).toLocaleString('en-US')} nm), four pilots, ultra-long-range approval required.`;
+  const pilots = pickd.need.need.mode === 'aug1' ? 'three pilots' : 'four pilots';
+  d.blurb = `${d.blurb} Prestige long haul: nonstop ${home}–${far} and back (${Math.round(distanceNm(home, far)).toLocaleString('en-US')} nm), ${pilots} with bunks for pilots and cabin crew, ultra-long-range approval required.`;
   d.end = d.pattern.legs[1].dep + 18 * 60;
   d.pin = far;
 }
