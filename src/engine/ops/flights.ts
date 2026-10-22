@@ -710,7 +710,7 @@ function depart(g: GameState, f: Flight, ac: Aircraft): void {
  * over a limit for it (a later duty's problem is re-rostered from there).
  */
 export function crewBlocked(g: GameState, f: Flight): boolean {
-  const cs = flightCrewStatus(g, f.id);
+  const cs = flightCrewStatus(g, f.id, { live: false });
   if (cs.level === 'missing') return true;
   // The duty's crew must be at its first departure airport (tickets in have landed by now).
   const dd = f.dutyId ? g.duties[f.dutyId] : undefined;

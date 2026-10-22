@@ -1246,7 +1246,7 @@ export interface FlightCrewStatus {
 }
 
 /** Crew coverage of a flight (Schedule and map panels colour by this). */
-export function flightCrewStatus(g: GameState, flightId: string): FlightCrewStatus {
+export function flightCrewStatus(g: GameState, flightId: string, opts?: { live?: boolean }): FlightCrewStatus {
   const f = g.flights[flightId];
   if (!f || !f.aircraftId || f.kind === 'deadhead' || f.status === 'cancelled') return { level: 'ok', missing: [] };
   const d = f.dutyId ? g.duties[f.dutyId] : undefined;
@@ -1272,7 +1272,8 @@ export function flightCrewStatus(g: GameState, flightId: string): FlightCrewStat
   if (d.legality === 'tight' || (!d.done && aboveEmpty(p))) return { level: 'tight', missing };
   // v0.6.4: a stored 'tight' can outlive the crew it was about too (fillPairing keeps the worse of old and new);
   // confirm it live (cached per crew change) so the amber dot agrees with the Adjust crew panel.
-  return { level: p.legality === 'tight' && liveCrewLevel(g, p) !== 'legal' ? 'tight' : 'ok', missing };
+  // v0.7.3 callers that only ask 'missing or illegal?' (the hourly shortage ladder, the departure gate) skip it.
+  return { level: p.legality === 'tight' && (opts?.live === false || liveCrewLevel(g, p) !== 'legal') ? 'tight' : 'ok', missing };
 }
 
 const liveLevels = new WeakMap<GameState, { rev: number; now: Minute; m: Map<string, Legality> }>();

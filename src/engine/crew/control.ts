@@ -192,7 +192,7 @@ export function shortFlights(g: GameState): { flightId: string; stage: 'amber' |
     for (const f of legs) {
       if (f.status !== 'scheduled' || f.aircraftId !== id || f.std > until || f.std + f.delay < g.now - 6 * 60) continue;
       if (phantomLeg(f, legs)) continue;
-      const cs = flightCrewStatus(g, f.id);
+      const cs = flightCrewStatus(g, f.id, { live: false });
       if (cs.level !== 'missing' && cs.level !== 'illegal') continue;
       const hoursLeft = Math.max(0, Math.round(((f.std - g.now) / 60) * 10) / 10);
       out.push({ flightId: f.id, stage: hoursLeft <= CC().redH ? 'red' : 'amber', hoursLeft, std: f.std });
@@ -1143,8 +1143,10 @@ function previewOf(g: GameState, x: Ctx, fix: CrewFix, opts: ApplyOpts, before: 
 const empty = (x: Ctx): FixPreview => ({ changes: [], after: { level: x.cs.level, missing: x.need }, ripple: [] });
 
 /** The nine solutions (available first, ranked) for the flight; `previews` false skips the copies (availability only). */
-function solutionsFor(g: GameState, x: Ctx, previews: boolean): CrewSolution[] {
+function solutionsFor(g: GameState, x: Ctx, previews: boolean, only?: readonly CrewFix[]): CrewSolution[] {
   const { f, ac, d, p } = x;
+  // v0.7.3 only the fixes asked for (applyCrewFix, the bot's ladder): the delay and jet searches run copies of the state.
+  const want = (id: CrewFix) => !only || only.includes(id);
   const before = previews ? snapshot(g) : new Map();
   const out: CrewSolution[] = [];
   const base = (id: CrewFix): CrewSolution => ({ id, label: FIX_LABEL[id], desc: FIX_DESC[id], available: true, cost: 0, newDeparture: null, chips: [], consequences: [], rank: 0, confirm: false, preview: empty(x) });
@@ -1163,9 +1165,10 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean): CrewSolution[] {
   };
   const hrs = (t: Minute) => `lands ${at(t, g.now)}`;
   // a. auto-fix (a run that changes nothing is refused by runFix, so the preview marks it unavailable).
-  out.push(run(base('autoFix')));
+  if (want('autoFix')) out.push(run(base('autoFix')));
   // b. deadhead and e. call-in
   for (const id of ['deadhead', 'callIn'] as const) {
+    if (!want(id)) continue;
     const s = base(id);
     if (!d || !x.missing.length) {
       out.push(no(s, x.missing.length ? 'No crew plan for this flight yet' : 'Every seat is taken'));
@@ -1196,7 +1199,7 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean): CrewSolution[] {
     out.push(run(s));
   }
   // c. delay: the departure the roster itself accepts (tried on copies), never a guess.
-  {
+  if (want('delay')) {
     const s = base('delay');
     const plan = delayPlan(g, x);
     if (!plan) out.push(no(s, !delayTimes(g, x).length && crewReadyAt(g, f, ac) <= f.std + f.delay ? 'A crew can take it on time: use Auto-fix' : f.kind === 'positioning' ? 'The schedule re-plans empty legs itself: this one waits for a crew at the gate' : 'Nobody can take it even two days later'));
@@ -1213,7 +1216,7 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean): CrewSolution[] {
   }
   // d. jet: only for seats nobody at the departure airport can fill; with a night's rest on arrival when the
   // day would otherwise run too long (jet + rest).
-  {
+  if (want('jet')) {
     const s = base('jet');
     if (!d || !p || !x.missing.length) out.push(no(s, x.missing.length ? 'No crew plan for this flight yet' : 'Every seat is taken'));
     else {
@@ -1308,7 +1311,7 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean): CrewSolution[] {
     }
   }
   // f. discretion
-  {
+  if (want('discretion')) {
     const s = base('discretion');
     const over = d ? d.fdp - d.maxFdp - (d.discretion ?? 0) : 0;
     if (!d) out.push(no(s, 'No duty'));
@@ -1323,7 +1326,7 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean): CrewSolution[] {
     }
   }
   // g. swap
-  {
+  if (want('swap')) {
     const s = base('swap');
     const sources = d && p ? swapSources(g, x) : [];
     if (!sources.length) out.push(no(s, 'No other crew within two days can take it'));
@@ -1339,7 +1342,7 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean): CrewSolution[] {
     }
   }
   // h. sub-charter
-  {
+  if (want('subcharter')) {
     const s = base('subcharter');
     const rot = rotationOf(g, f.id).map((l) => l.id);
     const q = rot.includes(f.id) ? subcharterQuote(g, rot) : null;
@@ -1352,7 +1355,7 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean): CrewSolution[] {
     }
   }
   // i. cancel
-  {
+  if (want('cancel')) {
     const s = base('cancel');
     const live = x.unit.filter((l) => l.status === 'scheduled' && l.purpose !== 'delivery');
     if (!live.length) out.push(no(s, 'Nothing to cancel'));
@@ -1377,8 +1380,8 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean): CrewSolution[] {
   return ranked;
 }
 
-/** Crew Control for a flight: missing seats, the card and the nine ranked solutions with previews. Pure in g. */
-export function crewControl(g: GameState, flightId: string, opts: { previews?: boolean } = {}): CrewControlView | null {
+/** Crew Control for a flight: missing seats, the card and the nine ranked solutions with previews (v0.7.3 `only`: just those fixes). Pure in g. */
+export function crewControl(g: GameState, flightId: string, opts: { previews?: boolean; only?: readonly CrewFix[] } = {}): CrewControlView | null {
   const x = ctxOf(g, flightId);
   if (!x) return null;
   const card = crewShortCard(g, flightId);
@@ -1400,14 +1403,14 @@ export function crewControl(g: GameState, flightId: string, opts: { previews?: b
   };
   return {
     flightId: f.id, no: f.no, from: f.from, to: f.to, std: f.std, aircraftId: ac.id, reg: ac.reg, stage, hoursLeft,
-    missing: x.need, illegal, card: fallback, solutions: solutionsFor(g, x, opts.previews !== false),
+    missing: x.need, illegal, card: fallback, solutions: solutionsFor(g, x, opts.previews !== false, opts.only),
     unit: { flightIds: x.unit.map((l) => l.id), pax: x.pax, revenueLegs: x.revLegs },
   };
 }
 
 /** Applies a Crew Control fix on the live state (availability re-checked; confirms honoured); one info message. */
 export function applyCrewFix(g: GameState, flightId: string, fix: CrewFix, opts: ApplyOpts = {}): ActionResult<{ changes: string[]; after: CrewControlView | null }> {
-  const view = crewControl(g, flightId, { previews: false });
+  const view = crewControl(g, flightId, { previews: false, only: [fix] });
   if (!view) return { ok: false, error: 'Flight not found or already left' };
   const s = view.solutions.find((y) => y.id === fix);
   if (!s) return { ok: false, error: 'Unknown fix' };

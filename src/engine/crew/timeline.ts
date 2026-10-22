@@ -394,31 +394,42 @@ const restAfterAt = (start: Minute, base: string, augmented: boolean, e: Minute,
  * separate positioning segs.
  */
 /** v0.7.3 dutySegs memo per duty (the hot path of the roster): segs are read-only, so cached ones are shared. */
-interface SegMemo { k: string; n: number[]; segs: Seg[] }
+interface SegMemo { v: (string | number)[]; segs: Seg[] }
 const dutySegMemo = new WeakMap<Duty, SegMemo[]>();
-const tkS = (t: TicketPlan | null) => (t ? `${(t as Partial<Flight>).id ?? ''}${t.from}${t.to}${(t as Partial<Flight>).status ?? ''}` : '-');
-
-export function dutySegs(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: TicketPlan | null, home: TicketPlan | null, fresh = false): Seg[] {
+/** The inputs of one call, filled in place (no allocation on a hit; copied into the memo on a miss). */
+const KEY: (string | number)[] = [];
+function fillKey(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: TicketPlan | null, home: TicketPlan | null, fresh: boolean): number {
   const rest = p.aircraftId ? g.fleet[p.aircraftId]?.rest : undefined;
   const f0 = g.flights[d.flightIds[0]];
-  // Every input of dutySegsRaw: strings (ids, places, flags) and numbers (times, limits), compared without building a key.
-  const k = `${isCabin(c) ? 1 : 0}${fresh ? 1 : 0}${d.ext ? 1 : 0}${d.split ? 1 : 0}${c.base}${p.base}${d.restAt}${f0?.from ?? ''}${f0?.status ?? ''}${p.aircraftId ?? ''}|${tkS(out)}|${tkS(home)}`;
-  const n = [d.ev, d.flightsEv, d.report, d.release, d.fdp, d.maxFdp, d.discretion ?? 0, d.cabinEarly ?? -1, d.augment, d.sectors, d.flightIds.length, p.start, rest?.fc?.cls ?? 0, rest?.cc?.cls ?? 0,
-    out?.std ?? -1, out?.sta ?? -1, home?.std ?? -1, home?.sta ?? -1];
+  const o = out as Partial<Flight> | null;
+  const h = home as Partial<Flight> | null;
+  let i = 0;
+  KEY[i++] = (isCabin(c) ? 1 : 0) + (fresh ? 2 : 0) + (d.ext ? 4 : 0) + (d.split ? 8 : 0);
+  KEY[i++] = c.base; KEY[i++] = p.base; KEY[i++] = d.restAt; KEY[i++] = f0?.from ?? ''; KEY[i++] = f0?.status ?? ''; KEY[i++] = p.aircraftId ?? '';
+  KEY[i++] = d.ev; KEY[i++] = d.flightsEv; KEY[i++] = d.report; KEY[i++] = d.release; KEY[i++] = d.fdp; KEY[i++] = d.maxFdp; KEY[i++] = d.discretion ?? 0; KEY[i++] = d.cabinEarly ?? -1;
+  KEY[i++] = d.augment; KEY[i++] = d.sectors; KEY[i++] = d.flightIds.length; KEY[i++] = p.start; KEY[i++] = rest?.fc?.cls ?? 0; KEY[i++] = rest?.cc?.cls ?? 0;
+  KEY[i++] = o ? o.id ?? '' : '-'; KEY[i++] = o?.from ?? ''; KEY[i++] = o?.to ?? ''; KEY[i++] = o?.status ?? ''; KEY[i++] = o?.std ?? -1; KEY[i++] = o?.sta ?? -1;
+  KEY[i++] = h ? h.id ?? '' : '-'; KEY[i++] = h?.from ?? ''; KEY[i++] = h?.to ?? ''; KEY[i++] = h?.status ?? ''; KEY[i++] = h?.std ?? -1; KEY[i++] = h?.sta ?? -1;
+  return i;
+}
+
+export function dutySegs(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: TicketPlan | null, home: TicketPlan | null, fresh = false): Seg[] {
+  // Every input of dutySegsRaw (ids, places, flags, times, limits), compared in place.
+  const n = fillKey(g, c, p, d, out, home, fresh);
   let list = dutySegMemo.get(d);
   if (list) {
     outer: for (const m of list) {
-      if (m.k !== k) continue;
-      for (let i = 0; i < n.length; i++) if (m.n[i] !== n[i]) continue outer;
+      for (let i = 0; i < n; i++) if (m.v[i] !== KEY[i]) continue outer;
       // The duty's block changes as its legs land (actual block times): read fresh.
       const block = dutyBlock(g, d);
       return m.segs.map((x) => (x.kind === 'duty' && x.block !== block ? { ...x, block } : x));
     }
   }
+  const v = KEY.slice(0, n);
   const segs = dutySegsRaw(g, c, p, d, out, home, fresh);
   if (!list) dutySegMemo.set(d, (list = []));
   if (list.length >= 8) list.shift();
-  list.push({ k, n, segs });
+  list.push({ v, segs });
   return segs.slice();
 }
 

@@ -54,13 +54,13 @@ import { statementTotals } from '../src/engine/core/ledger';
 import { complement, typeOf } from '../src/engine/core/perf';
 import { DAY, dayIndex, fmtDateTime, fmtMonth, fromUTC, monthKey, toDate } from '../src/engine/core/time';
 import type { RatingFamily } from '../src/data/acmiTypes';
-import type { Archetype, ContractOffer, GameState, LedgerCat, MonthKey, Role } from '../src/engine/core/types';
+import type { Archetype, ContractOffer, CrewFix, GameState, LedgerCat, MonthKey, Role } from '../src/engine/core/types';
 import { acceptOffer, counterOffer, feasibility, type FeasibilityReport } from '../src/engine/contracts';
 import { aboveMinimum, applyCrewFix, hireQuote, restOf, restPlan, setDutyAugment, classOf, conversionClasses, conversionEarliest, conversionPlan, crewControl, hireCrew, ratedMarket, setCrewExtra, shortFlights, staffing, startConversion, type CrewSolution, type StaffingLine } from '../src/engine/crew';
 import { devFleet, devGrantApproval } from '../src/engine/dev';
 import { createGame } from '../src/engine/newGame';
 import {
-  acquireAircraft, aircraftGate, applyApproval, approvalBlocker, approvalReqs, APPROVALS, bookCCheck, bookRefit, bookRestRefit, cancelCheck, cCheckOptions, cCheckSlots, checkStatus, deliveryStatus,
+  acquireAircraft, addRestToCCheck, aircraftGate, applyApproval, approvalBlocker, approvalReqs, APPROVALS, bookCCheck, bookRefit, bookRestRefit, cabinOptions, cancelCheck, cCheckOptions, cCheckSlots, checkStatus, deliveryStatus,
   earlyReturnQuote, fixedCosts, groundGaps, leastUsed, ratedPilots, refitQuote, refitSlots, refitStations, resolveDecision, restRefitOptions, returnEarly, saleQuote, sellAircraft, ticketPurpose,
 } from '../src/engine/ops';
 import { cabinAt, cabinFits, refitTip } from '../src/engine/ops/cabin';
@@ -575,6 +575,15 @@ function restRefits(g: GameState, t: Tally, cards: ProblemCard[]): void {
       const ld = opts.find((o) => o.id === 'ldmcr');
       if (ld && g.company.cash - ld.cost >= 3_000_000) pick = ld;
     }
+    // v0.7.3 pilots' bunks added to a C-check already booked, for an aircraft flying ≥ 8 augmented duties on class 2.
+    if (!pick && rest.fc?.cls === 2 && augDuties(g, ac.id) >= 8 && restRefitOptions(g, ac.id).some((o) => o.id === 'fcrc' && o.ok)) {
+      const m = Object.values(g.maintenance).find((x) => x.aircraftId === ac.id && x.kind === 'C' && x.status === 'planned' && !x.restFit);
+      if (m && addRestToCCheck(g, m.id, 'fcrc').ok) {
+        t.restRefits.push(`${ac.reg} fcrc (added to C-check)`);
+        act(g, t);
+        continue;
+      }
+    }
     if (!pick) continue;
     const slot = refitSlots(g, ac.id, `rest:${pick.id}`, 1).slots[0];
     if (slot && bookRestRefit(g, ac.id, pick.id, slot.start).ok) {
@@ -588,6 +597,8 @@ function restRefits(g: GameState, t: Tally, cards: ProblemCard[]): void {
 function openRestJob(g: GameState, acId: string): boolean {
   for (const o of Object.values(g.offers)) {
     if (o.status !== 'open' || o.estValue < 500_000 || o.start < g.now + 21 * DAY || !seatsFit(g, o).includes(acId)) continue;
+    // Like the board: new offers on arrival, older ones every third day.
+    if (o.created < g.now - DAY && (dayIndex(g.now) + hash(o.id)) % 3 !== 0) continue;
     const rep = feasibility(g, o.id, acId, { quick: true });
     const no = rep.checks.filter((c) => c.level === 'no');
     if (no.length === 1 && no[0].id === 'rest' && no[0].action?.kind === 'restRefit') return true;
@@ -850,6 +861,8 @@ function refits(g: GameState, t: Tally): void {
       const tip = refitTip(g, ac, o.requirements);
       const st = refitStations(g, ac.id)[0];
       if (!tip || !st) continue;
+      // v0.7.3 with augmented crews held, a widebody keeps 4+ business seats (its crew rest) unless it has bunks.
+      if (g.company.approvals.includes('augmented') && typeOf(ac.typeId).body === 'wide' && restOf(g, ac.id).fc?.cls !== 1 && (cabinOptions(ac.typeId).find((c) => c.label === tip.label)?.j ?? 0) < 4) continue;
       for (let d = 7; d < 60; d++) {
         const start = Math.ceil((g.now + d * DAY) / DAY) * DAY + 8 * 60;
         const q = refitQuote(g, ac.id, tip.label, st.code, start);
@@ -899,9 +912,11 @@ function crewControlPolicy(g: GameState, t: Tally): void {
     if (x.hoursLeft > 36) continue;
     const f = g.flights[x.flightId];
     if (!f || f.status !== 'scheduled') continue;
-    const v = crewControl(g, x.flightId, { previews: false });
+    // v0.7.3 each stage reads only the fixes it weighs (the delay and jet searches try copies of the state).
+    const view = (only: CrewFix[], previews = false) => crewControl(g, x.flightId, { previews, only });
+    const v = view(['autoFix', 'deadhead', 'callIn']);
     if (!v || v.stage === 'ok') continue;
-    const sol = (id: CrewSolution['id']) => v.solutions.find((s) => s.id === id && s.available);
+    const sol = (w: NonNullable<typeof v>, id: CrewFix) => w.solutions.find((s) => s.id === id && s.available);
     const unit = v.unit.flightIds.map((id) => g.flights[id]).filter((y) => y && y.status === 'scheduled');
     const lateCapMin = unit.some((y) => y.contractId && g.contracts[y.contractId]?.pattern.kind === 'base') ? BAL.holdMax : 6 * 60;
     const apply = (s: CrewSolution | undefined): boolean => {
@@ -913,21 +928,23 @@ function crewControlPolicy(g: GameState, t: Tally): void {
       t.crewFixes.set(s.id, (t.crewFixes.get(s.id) ?? 0) + 1);
       return r.data!.after === null;
     };
-    if (apply(sol('autoFix')) || apply(sol('deadhead')) || apply(sol('callIn'))) continue;
-    if (sol('swap')) {
-      const full = crewControl(g, x.flightId)!.solutions.find((s) => s.id === 'swap');
-      if (full?.available && (full.preview.after.level === 'ok' || full.preview.after.level === 'tight') && !full.preview.ripple.some((r) => r.tone === 'bad') && apply(full)) continue;
-    }
+    if (apply(sol(v, 'autoFix')) || apply(sol(v, 'deadhead')) || apply(sol(v, 'callIn'))) continue;
+    if (g.flights[x.flightId]?.status !== 'scheduled') continue;
+    const sw = view(['swap'], true);
+    const full = sw && sol(sw, 'swap');
+    if (full && (full.preview.after.level === 'ok' || full.preview.after.level === 'tight') && !full.preview.ripple.some((r) => r.tone === 'bad') && apply(full)) continue;
+    const rest = view(['jet', 'delay', 'discretion', 'subcharter', 'cancel']);
+    if (!rest || rest.stage === 'ok') continue;
     // A jet when it gets a crew there at least 3 h sooner than waiting for a ticket, with passengers at stake.
-    const jet = sol('jet');
-    const delay = sol('delay');
+    const jet = sol(rest, 'jet');
+    const delay = sol(rest, 'delay');
     const jetDep = jet ? (jet.newDeparture ?? f.std) : Infinity;
     const waitDep = delay ? (delay.newDeparture ?? f.std) : Infinity;
     if (jet && x.hoursLeft <= 18 && v.unit.pax >= 100 && jetDep + 180 <= waitDep && (g.stats.jets ?? 0) < 8 && apply(jet)) continue;
-    if (apply(sol('discretion'))) continue;
+    if (apply(sol(rest, 'discretion'))) continue;
     if (delay && (delay.newDeparture ?? f.std) - f.std <= lateCapMin && apply(delay)) continue;
-    const sub = sol('subcharter');
-    if (sub && sub.cost < (sol('cancel')?.cost ?? Infinity)) apply(sub);
+    const sub = sol(rest, 'subcharter');
+    if (sub && sub.cost < (sol(rest, 'cancel')?.cost ?? Infinity)) apply(sub);
   }
 }
 
