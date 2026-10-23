@@ -355,7 +355,7 @@ export function handoverMessage(g: GameState, ac: Aircraft): void {
     body: fs.length
       ? `Ferry home ${when} ${fmtTime(fs[0].std, dl.site)} local: ${pathText(fs)}, ${fs.length} leg${fs.length > 1 ? 's' : ''}, ${fmtDuration(block)} block (${fs.some((f) => etopsNeeded(ac.typeId, f.from, f.to) > 0) ? 'ferry permit: non-revenue, one-off ETOPS authorisation' : 'ferry permit: 60-min routing'}).${crew}`
       : `The ${typeOf(ac.typeId).name} is on the AOC.`,
-    ref: { kind: 'aircraft', id: ac.id },
+    ref: { kind: 'aircraft', id: ac.id }, cue: 'crewJoined',
   });
 }
 

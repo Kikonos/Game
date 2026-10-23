@@ -162,7 +162,7 @@ export function acceptOffer(g: GameState, offerId: string, aircraftIds: string[]
   }
   autoRoster(g, { aircraftIds: ids });
   const regs = ids.map((id) => g.fleet[id].reg).join(' + ');
-  pushMessage(g, { tone: 'good', cat: 'commercial', title: `Signed: ${c.title}`, body: `${g.clients[c.clientId]?.name ?? 'Client'} · ${regs} · ${fmtDay(c.start)}–${fmtDay(c.end)}.`, ref: { kind: 'contract', id: c.id } });
+  pushMessage(g, { tone: 'good', cat: 'commercial', title: `Signed: ${c.title}`, body: `${g.clients[c.clientId]?.name ?? 'Client'} · ${regs} · ${fmtDay(c.start)}–${fmtDay(c.end)}.`, ref: { kind: 'contract', id: c.id }, cue: 'contractSigned' });
   return { ok: true, msg: `Signed: ${c.title}`, data: { contractId: c.id } };
 }
 
@@ -189,7 +189,7 @@ function acceptDry(g: GameState, o: ContractOffer, aircraftId: string): ActionRe
   closeOffer(g, o, 'accepted');
   schedule(g, Math.max(g.now, c.start), 'contract.start', c.id);
   const ac = g.fleet[aircraftId];
-  pushMessage(g, { tone: 'good', cat: 'commercial', title: `Signed: ${c.title}`, body: `${g.clients[c.clientId]?.name ?? 'Lessee'} · ${ac.reg} · ${fmtDay(c.start)}–${fmtDay(c.end)}. Our pilots ferry her out; the deposit is in.`, ref: { kind: 'contract', id: c.id } });
+  pushMessage(g, { tone: 'good', cat: 'commercial', title: `Signed: ${c.title}`, body: `${g.clients[c.clientId]?.name ?? 'Lessee'} · ${ac.reg} · ${fmtDay(c.start)}–${fmtDay(c.end)}. Our pilots ferry her out; the deposit is in.`, ref: { kind: 'contract', id: c.id }, cue: 'contractSigned' });
   return { ok: true, msg: `Signed: ${c.title}`, data: { contractId: c.id } };
 }
 

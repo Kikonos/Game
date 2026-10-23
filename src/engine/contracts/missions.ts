@@ -11,6 +11,7 @@ import { WORLD_ZONES } from '../../data/worldZones';
 import { BAL } from '../core/balance';
 import { nextId } from '../core/entities';
 import { distanceNm } from '../core/geo';
+import { cue } from '../core/cues';
 import { pushMessage } from '../core/messages';
 import { blockMinutes, complement, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
@@ -654,7 +655,7 @@ export function rollRepeat(g: GameState, contractId: string): ContractOffer | nu
   const o = generateOffer(g, c.archetype, { client: c.clientId, wide, start, window: false, repeatOf: c.id });
   if (o) {
     o.hook = `Repeat business from ${cl.name}`;
-    pushMessage(g, { tone: 'good', cat: 'commercial', title: `Repeat business from ${cl.name}`, body: `${cl.name} liked ${c.title} and asks again: ${o.title}, from ${fmtDay(o.start)}.`, ref: { kind: 'offer', id: o.id } });
+    pushMessage(g, { tone: 'good', cat: 'commercial', title: `Repeat business from ${cl.name}`, body: `${cl.name} liked ${c.title} and asks again: ${o.title}, from ${fmtDay(o.start)}.`, ref: { kind: 'offer', id: o.id }, cue: null });
   }
   return o;
 }
@@ -730,6 +731,7 @@ export function makeDryLeaseOffer(g: GameState, w?: IdleWindow, clientId?: strin
   };
   g.offers[o.id] = o;
   schedule(g, o.expires, 'offer.expire', o.id);
+  cue('offerNew');
   return o;
 }
 

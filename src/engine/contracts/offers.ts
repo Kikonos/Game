@@ -6,6 +6,7 @@ import { AIRLINE_FAMILIES, AIRLINE_MARKETS, BROKERS } from '../../data/naming';
 import { BAL } from '../core/balance';
 import { nextId } from '../core/entities';
 import { distance, distanceNm } from '../core/geo';
+import { cue } from '../core/cues';
 import { pushMessage } from '../core/messages';
 import { cardMeta, offerFitCard } from '../problems';
 import { requestPause } from '../core/pause';
@@ -1180,10 +1181,13 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   // Urgent work we could actually fly stops the clock (setting) and gets an inbox line; the rest just pins the map.
   if (urgency === 'urgent' && Object.keys(g.fleet).some((id) => feasibility(g, o.id, id, { quick: true }).level !== 'no')) {
     requestPause('urgentOffer');
-    pushMessage(g, { tone: 'warn', cat: 'commercial', title: `Urgent: ${o.title}`, body: `${d.client.name} needs an answer by ${fmtDay(o.expires)} ${fmtTime(o.expires)} UTC.`, ref: { kind: 'offer', id: o.id }, ...cardMeta(offerFitCard(g, o.id)), hurt: { money: o.estValue, pax: 0, delayMin: 0, level: 'high' } });
-  }
+    pushMessage(g, { tone: 'warn', cat: 'commercial', title: `Urgent: ${o.title}`, body: `${d.client.name} needs an answer by ${fmtDay(o.expires)} ${fmtTime(o.expires)} UTC.`, ref: { kind: 'offer', id: o.id }, ...cardMeta(offerFitCard(g, o.id)), hurt: { money: o.estValue, pax: 0, delayMin: 0, level: 'high' }, cue: offerCue(o) });
+  } else cue(offerCue(o));
   return o;
 }
+
+/** §S.3: an urgent evacuation or repatriation request is its own (triple) cue; any other new offer the two-tone. */
+const offerCue = (o: ContractOffer) => (o.urgency === 'urgent' && (o.archetype === 'evacuation' || o.archetype === 'repatriation') ? 'evacuation' as const : 'offerNew' as const);
 
 /**
  * Builds one offer of the given (or a weighted random) archetype with a fictional client, pattern, requirements,
@@ -1252,6 +1256,25 @@ function rivalName(g: GameState, o: ContractOffer): string {
   return rivalFor(g, o)?.name ?? 'a rival operator';
 }
 
+/** Runtime only: the hour last checked and the offers already chimed per game (a reload chimes none it found lapsing). */
+const lapseHour = new WeakMap<GameState, number>();
+const lapsed = new WeakMap<GameState, Set<string>>();
+
+/** §S.3 `offerLapsing`: once per offer the player opened, when it has under 6 h left. Checked hourly from settle. */
+export function lapseCues(g: GameState): void {
+  const h = Math.floor(g.now / 60);
+  if (lapseHour.get(g) === h) return;
+  lapseHour.set(g, h);
+  const first = !lapsed.has(g);
+  const s = lapsed.get(g) ?? new Set<string>();
+  lapsed.set(g, s);
+  for (const o of Object.values(g.offers)) {
+    if (!o.seen || (o.status !== 'open' && o.status !== 'countered') || o.expires <= g.now || o.expires - g.now >= 6 * 60 || s.has(o.id)) continue;
+    s.add(o.id);
+    if (!first) cue('offerLapsing');
+  }
+}
+
 /** 'offer.expire': open offers lapse; most go to a rival (named in the missed list). Countered offers wait for the reply. */
 export function onOfferExpire(g: GameState, ev: SimEvent): void {
   const o = g.offers[ev.id];
@@ -1307,7 +1330,7 @@ export function onOfferReply(g: GameState, ev: SimEvent): void {
     o.expires = Math.max(o.expires, g.now + 1);
     const res = acceptOffer(g, o.id, k.aircraftIds ?? [], { paint: !noPaint, priced: true });
     if (res.ok) {
-      pushMessage(g, { tone: 'good', cat: 'commercial', title: `Counter accepted: ${o.title}`, body: `${client} agreed to ${fmtPrice(o.product)}${noPaint ? ', without their colours on the aircraft' : ''}. The contract is signed.`, ref: { kind: 'contract', id: res.data!.contractId } });
+      pushMessage(g, { tone: 'good', cat: 'commercial', title: `Counter accepted: ${o.title}`, body: `${client} agreed to ${fmtPrice(o.product)}${noPaint ? ', without their colours on the aircraft' : ''}. The contract is signed.`, ref: { kind: 'contract', id: res.data!.contractId }, cue: null });
     } else {
       closeOffer(g, o, 'lost', rivalName(g, o));
       pushMessage(g, { tone: 'warn', cat: 'commercial', title: `Deal fell through: ${o.title}`, body: `${client} accepted, but we can no longer fly it (${res.error}). ${o.lostTo} stepped in.`, ref: { kind: 'offer', id: o.id } });

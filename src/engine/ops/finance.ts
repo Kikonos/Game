@@ -76,7 +76,7 @@ export function onMonthEnd(g: GameState, ev: SimEvent): void {
   const s = stats(g);
   s.bestMonthProfit = Math.max(s.bestMonthProfit, profit);
   pushMessage(g, {
-    tone: profit >= 0 ? 'good' : 'warn', cat: 'finance', title: `${fmtMonth(cur.month, false)} statement`,
+    tone: profit >= 0 ? 'good' : 'warn', cat: 'finance', title: `${fmtMonth(cur.month, false)} statement`, cue: 'monthEnd',
     body: `Revenue ${usd(revenue)}, costs ${usd(-costs)}: ${profit >= 0 ? 'profit' : 'loss'} ${usd(Math.abs(profit))}. ${Math.round(cur.bh)} block hours. Cash ${usd(g.company.cash)}.`,
   });
   requestPause('monthEnd');
@@ -91,7 +91,7 @@ export function onPayment(g: GameState, ev: SimEvent): void {
   const late = Math.floor((g.now - r.due) / DAY);
   if (late > BAL.graceDays) {
     const name = g.clients[r.clientId]?.name ?? 'A client';
-    pushMessage(g, { tone: 'info', cat: 'finance', title: `${name} paid ${late} days late`, body: `${usd(r.amount)} for ${r.desc}.` });
+    pushMessage(g, { tone: 'info', cat: 'finance', title: `${name} paid ${late} days late`, body: `${usd(r.amount)} for ${r.desc}.`, cue: 'paymentIn' });
   }
 }
 

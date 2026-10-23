@@ -18,6 +18,7 @@ import { distance } from '../core/geo';
 import { noteLostLegs } from '../contracts/billing';
 import { isSoft } from '../contracts/plan';
 import { applyDiscretion, boardCrew, crewIssuesFor, dropStraySpares, flightCrewStatus, guardDuty, rerosterFrom, restPlan, restSeatsBlocked, setRestDelayHook } from '../crew';
+import { cue } from '../core/cues';
 import { requestPause } from '../core/pause';
 import { problemFor } from '../problems';
 import { noteIncident } from './company';
@@ -294,6 +295,27 @@ export function applyHold(g: GameState, plan: HoldPlan, reason: string, moveReas
  * moved (f may be cancelled: check its status).
  */
 export function delayChain(g: GameState, f: Flight, std: Minute, reason: string, own = true, crewWait = false): number {
+  const was = delayOf(f);
+  const n = delayChain0(g, f, std, reason, own, crewWait);
+  delayCues(g, f, was);
+  return n;
+}
+
+/**
+ * §S.3: a revenue leg passing 60 min late with a penalty risk (charter compensation, presidential standards) and a
+ * leg held past 6 h (it may have to be cancelled) each chime once, as the delay crosses the line.
+ */
+function delayCues(g: GameState, f: Flight, was: number): void {
+  if (f.status !== 'scheduled') return;
+  const now = delayOf(f);
+  if (was < 6 * 60 && now >= 6 * 60) cue('cancelRisk');
+  else if (was < 60 && now >= 60 && isRevenue(f)) {
+    const c = contractOf(g, f);
+    if (c && ((c.product.kind === 'charter' && c.penalties.perDelay > 0) || c.requirements.standards === 'vip')) cue('delayPenalty');
+  }
+}
+
+function delayChain0(g: GameState, f: Flight, std: Minute, reason: string, own: boolean, crewWait: boolean): number {
   const ac = f.aircraftId ? g.fleet[f.aircraftId] : undefined;
   if (f.status !== 'scheduled') return 0;
   std = Math.max(std, g.now);
@@ -742,6 +764,7 @@ function depart(g: GameState, f: Flight, ac: Aircraft): void {
   ac.status = 'flying';
   f.eta = g.now + Math.max(15, Math.round(f.block * (1 + range(g, -BAL.windNoise, BAL.windNoise))));
   schedule(g, f.eta, 'flight.arr', f.id, f.ev);
+  cue('flightDep');
   const s = stats(g);
   s.departures++;
   const duty = f.dutyId ? g.duties[f.dutyId] : undefined;
@@ -1064,6 +1087,7 @@ export function onFlightArr(g: GameState, ev: SimEvent): void {
   const ac = g.fleet[f.aircraftId];
   f.status = 'done';
   f.ata = g.now;
+  cue('flightArr');
   touchStatus(g, f.aircraftId);
   if (!ac) return;
   ac.flightId = null;

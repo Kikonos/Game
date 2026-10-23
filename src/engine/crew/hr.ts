@@ -405,7 +405,7 @@ export function onCrewJoin(g: GameState, ev: SimEvent): void {
   // One message per hire batch, when its last member joins.
   if (h && !g.hires.some((x) => x.ordered === h.ordered && x.role === h.role && x.base === h.base)) {
     const n = Object.values(g.crew).filter((x) => x.hired === c.hired && x.role === c.role && x.base === c.base).length;
-    pushMessage(g, { tone: 'good', cat: 'crew', title: `${n} new ${ROLE_NAME[c.role]}${n > 1 ? 's' : ''} joined`, body: `${n > 1 ? 'They are' : `${crewName(c)} is`} available at ${c.base} from today.`, ref: { kind: 'crew', id: c.id } });
+    pushMessage(g, { tone: 'good', cat: 'crew', title: `${n} new ${ROLE_NAME[c.role]}${n > 1 ? 's' : ''} joined`, body: `${n > 1 ? 'They are' : `${crewName(c)} is`} available at ${c.base} from today.`, ref: { kind: 'crew', id: c.id }, cue: 'crewJoined' });
   }
   touchCrew(g);
 }
@@ -427,7 +427,7 @@ export function onTrainingDone(g: GameState, ev: SimEvent): void {
   clearBlock(c, 'training');
   if (c.status === 'training') c.status = 'available';
   const what = item.kind === 'command' ? 'command upgrade' : item.kind === 'sccm' ? 'Purser course' : `${item.family} ${item.kind === 'conversion' ? 'conversion' : 'type rating'}`;
-  pushMessage(g, { tone: 'good', cat: 'crew', title: `${crewName(c)} finished training`, body: `Completed the ${what}.`, ref: { kind: 'crew', id: c.id } });
+  pushMessage(g, { tone: 'good', cat: 'crew', title: `${crewName(c)} finished training`, body: `Completed the ${what}.`, ref: { kind: 'crew', id: c.id }, cue: 'crewJoined' });
   touchCrew(g);
 }
 
