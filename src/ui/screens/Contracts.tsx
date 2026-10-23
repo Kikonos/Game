@@ -35,7 +35,7 @@ function OfferCard({ g, o, windows }: { g: GameState; o: ContractOffer; windows:
   const paint = o.paint ? [{ label: `Their livery${o.paint.required ? ' · required' : ''}`, tone: o.paint.required ? ('warn' as const) : undefined, tip: o.paint.kind === 'full' ? 'Full repaint in the client colours for the contract' : 'Client titles and logo on a white aircraft' }] : [];
   // v0.7.4 the client's cabin request (a quick reconfiguration at their expense).
   const cabin = o.cabin ? [{ label: `Their cabin: ${o.cabin.layout === 'two-class' ? 'two-class' : 'all economy'}${o.cabin.required ? ' · required' : ''}`, tone: o.cabin.required ? ('warn' as const) : undefined, tip: `A 48 h reconfiguration before the start; they pay ${o.cabin.clientShare >= 1 ? 'all of it' : 'half'}${o.cabin.revert ? ', and for putting it back' : ''}` }] : [];
-  const chips = [...paint, ...cabin, ...reqChips(o.requirements), ...riskChips(o.risk)];
+  const chips = [...paint, ...cabin, ...reqChips(o.requirements, o.pattern), ...riskChips(o.risk)];
   // v0.7.1 §13: a WHY? dot when the offer can't be flown as it stands or a counter is about to expire.
   const prob = problemAt(g, { kind: 'offer', id: o.id });
   return (

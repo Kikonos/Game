@@ -9,7 +9,7 @@ import { liveFlightsOf } from '../core/entities';
 import { blockMinutes, planSector, TECH_STOP_MIN, typeOf } from '../core/perf';
 import { DAY, dayIndex, localOffset, monthKey, monthStart, toLocal } from '../core/time';
 import { hash } from '../core/util';
-import type { Contract, ContractOffer, Flight, GameState, LegTemplate, Minute, SchedulePattern } from '../core/types';
+import type { Contract, ContractOffer, Flight, GameState, LegTemplate, Minute, Requirements, SchedulePattern } from '../core/types';
 
 export type BasePattern = Extract<SchedulePattern, { kind: 'base' }>;
 export type LegsPattern = Extract<SchedulePattern, { kind: 'legs' }>;
@@ -488,4 +488,26 @@ export function programmeOf(src: Pick<ContractOffer | Contract, 'pattern' | 'req
 /** Client legs sorted by departure (templates are stored in that order already). */
 export function sortedLegs(legs: LegTemplate[]): LegTemplate[] {
   return [...legs].sort((a, b) => a.dep - b.dep);
+}
+
+// ---------- v0.8 fix pack: seats = passengers ----------
+
+/** The most passengers on any leg of a legs pattern (0 for a base pattern: no passengers booked). Pure. */
+export const maxPax = (p: SchedulePattern): number => (p.kind === 'legs' ? Math.max(0, ...p.legs.map((l) => l.pax ?? 0)) : 0);
+
+/**
+ * The seats a legs job needs: its most passengers on any leg, plus the only documented extra, six seats per stretcher
+ * (medical). Base programmes (no passengers booked) keep their seat ask (`fallback`). Pure.
+ */
+export function seatNeed(p: SchedulePattern, stretchers = 0, fallback = 0): number {
+  const pax = maxPax(p);
+  return pax > 0 ? pax + 6 * stretchers : fallback;
+}
+
+/** '166 seats (166 passengers)', '110 seats (62 passengers, 8 stretchers)'; a base programme '180+ seats'. Pure. */
+export function seatNeedText(o: { pattern: SchedulePattern; requirements: Pick<Requirements, 'minSeats' | 'stretchers'> }): string {
+  const pax = maxPax(o.pattern);
+  const r = o.requirements;
+  if (!pax) return `${r.minSeats}+ seats`;
+  return `${r.minSeats} seats (${pax} passenger${pax === 1 ? '' : 's'}${r.stretchers ? `, ${r.stretchers} stretcher${r.stretchers === 1 ? '' : 's'}` : ''})`;
 }

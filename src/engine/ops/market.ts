@@ -33,7 +33,7 @@ const side = (g: GameState, key: string): RngHolder => ({ rng: hash(`${g.seed}:m
 
 const LESSORS = ['AerCap', 'Avolon', 'SMBC Aviation Capital', 'BOC Aviation', 'Carlyle Aviation Partners', 'Air Lease Corporation', 'Aviation Capital Group'];
 const MONTH = 30.44 * DAY;
-const OLD = ['b763', 'a332', 'a343', 'b752'];
+const OLD = ['b763', 'a332', 'a343', 'b752', 'b744'];
 
 const cabinOf = (t: AcmiType): Cabin => {
   const p = t.cabins[0];

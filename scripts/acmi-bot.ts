@@ -4,6 +4,7 @@
 //   npx tsx scripts/acmi-bot.ts [seed] --det         determinism: same seed twice to day 180, and save/load at day 90
 //   npx tsx scripts/acmi-bot.ts [seed] [days] --wide  v0.6: lease the first affordable widebody (conversion classes)
 //   … --wide --aug  v0.7.3: with Widebody operations and augmented crews granted at the start (in-flight rest in play)
+//   … --b744  v0.8 fix pack: the widebody is a Boeing 747-400 (e.g. `1 --wide --aug --b744`)
 //   … --msgs (inbox lines to stderr) · --why (v0.7.3: why each new offer found no aircraft, to stderr) · --dump=day,file
 //
 // Policy (a pure function of the game state, so a loaded save plays on identically):
@@ -66,11 +67,13 @@ import {
 } from '../src/engine/ops';
 import { cabinAt, cabinFits, refitTip } from '../src/engine/ops/cabin';
 import { deliveryQuote } from '../src/engine/ops/delivery';
+import { devMarketOffer } from '../src/engine/ops/market';
 import { restCards } from '../src/engine/problems/crew';
 import type { ProblemCard } from '../src/engine/problems/types';
 import type { ApprovalId } from '../src/engine/core/types';
 import { chainAugment } from '../src/engine/contracts/offers';
 import { programmeOf } from '../src/engine/contracts/plan';
+import { isWideJob } from '../src/engine/contracts/pricing';
 import { deserialize, serialize } from '../src/engine/save';
 import { advanceTo, settle } from '../src/engine/sim';
 import { LEVEL_ORDER, levelOf } from '../src/engine/contracts/relations';
@@ -87,6 +90,8 @@ const MSGS = process.argv.includes('--msgs');
 const WIDE = process.argv.includes('--wide');
 /** v0.7.3 long-haul test mode: Widebody operations and augmented crews granted at the start (exercises in-flight rest). */
 const AUG = process.argv.includes('--aug');
+/** v0.8 fix pack: the widebody rule takes a Boeing 747-400 (one is posted on the market while none is on offer), its pilots rated B747. */
+const B744 = process.argv.includes('--b744');
 /** Fixed crew policies for the whole run (hotel★,perDiem%,tourWeeks), e.g. --policy=3,80,6 for stingy play. */
 const POLICY = process.argv.find((a) => a.startsWith('--policy='))?.slice(9).split(',').map(Number);
 /** Extra cabin crew on every aircraft (--extra=2). */
@@ -754,6 +759,8 @@ function wideMonth(rent: number, typeId: string, seats: number): number {
  */
 function fleet(g: GameState, t: Tally): void {
   if (Object.values(g.fleet).some((a) => typeOf(a.typeId).body === 'wide')) return;
+  // v0.8 fix pack (--b744): a 747-400 on the market once Widebody operations is held or filed.
+  if (B744 && held(g, 'widebody') && !g.market.aircraft.some((o) => o.typeId === 'b744' && o.kind === 'dryLeaseIn' && o.expires > g.now)) devMarketOffer(g, 'b744', { kind: 'dryLeaseIn' });
   const recent = g.finance.history.slice(-3);
   // v0.7: the Ladder's approval fees are an investment, not a sign of a losing quarter.
   const qProfit = recent.reduce((s, st) => s + statementTotals(st.lines).profit - (st.lines.approvals ?? 0), 0);
@@ -762,6 +769,7 @@ function fleet(g: GameState, t: Tally): void {
   for (const o of [...g.market.aircraft].sort((a, b) => a.rentPerMonth - b.rentPerMonth || (a.id < b.id ? -1 : 1))) {
     // v0.7: only what the Ladder lets us sign (pending counts), never a new-build slot.
     if (typeOf(o.typeId).body !== 'wide' || o.kind !== 'dryLeaseIn' || o.newBuild || o.expires <= g.now || !aircraftGate(g, o.typeId).ok) continue;
+    if (B744 && o.typeId !== 'b744') continue;
     // The family our widebody pilots fly (another only 60 days after filing with nothing of ours on offer).
     const filed = g.company.pendingApprovals.find((p) => p.id === 'widebody')?.started ?? g.company.approvalsAt?.widebody ?? g.now;
     // v0.8 as the comment says: only while one of our family is on offer (the post-filing A330 lapsed unseen).
@@ -866,6 +874,7 @@ function ladderSteps(g: GameState, t: Tally): void {
  * family of the cheaper open A330 / 767 lease (teasers included), else the 767.
  */
 function wideFamily(g: GameState): RatingFamily {
+  if (B744) return 'B747';
   const fams: RatingFamily[] = ['A330/340', 'B757/767'];
   const have = fams.map((f) => ({ f, n: ratedPilots(g, [f], { booked: true }) })).filter((x) => x.n.CPT + x.n.FO > 0).sort((a, b) => b.n.CPT + b.n.FO - (a.n.CPT + a.n.FO));
   if (have.length) return have[0].f;
@@ -912,7 +921,7 @@ function narrowGrowth(g: GameState, t: Tally): void {
   if (dayN(g) > 200 && !nextSummer) return;
   // The summer season is June–September (handed over in September it already counts as a summer aircraft).
   const summer = homeBy <= june(y) || g.now + o.leadDays * DAY >= fromUTC(y, 10, 1);
-  const series = Object.values(g.offers).some((x) => x.status === 'open' && x.end - x.start >= 60 * DAY && x.start >= homeBy && x.start <= homeBy + 21 * DAY && (x.pattern.kind === 'base' || x.archetype === 'tourSeries') && x.requirements.body !== 'wide');
+  const series = Object.values(g.offers).some((x) => x.status === 'open' && x.end - x.start >= 60 * DAY && x.start >= homeBy && x.start <= homeBy + 21 * DAY && (x.pattern.kind === 'base' || x.archetype === 'tourSeries') && !isWideJob(x.requirements));
   if (!summer && !series) return;
   if (acquireAircraft(g, o.id).ok) {
     t.narrowSigned++;

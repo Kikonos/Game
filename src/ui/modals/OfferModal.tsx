@@ -30,7 +30,7 @@ import { ProblemCardView, runAction } from '../components/ProblemCard';
 import { Modal, Stepper, Toggle } from '../components/ui';
 import { money } from '../format';
 import { ArchIcon, Chips, Dot, KV } from '../screens/common';
-import { archLabel, counterSteps, expiryLabel, pctLabel, reqChips, riskChips, ROLE_LABEL, routeSummary, offerDays, type Chip } from '../screens/screenLogic';
+import { archLabel, counterSteps, expiryLabel, offerCrewLine, pctLabel, reqChips, riskChips, ROLE_LABEL, routeSummary, offerDays, type Chip } from '../screens/screenLogic';
 import { store, useGame } from '../store';
 
 const LEVEL_TONE = { ok: 'good', warn: 'warn', no: 'bad' } as const;
@@ -221,21 +221,13 @@ function posLine(r: FeasibilityReport): string {
   return `+${fmtDuration(min, true)} positioning from ${legs[0].from}${legs.length > 1 ? ` (${legs.length - 1} stop)` : ''}`;
 }
 
-function crewLine(r: FeasibilityReport): { text: string; tone: 'good' | 'warn' | 'bad' } {
-  if (!r.crew.setsNeeded) return { text: 'No crew from us: aircraft only', tone: 'good' };
-  const short = Object.entries(r.crew.byRole).filter(([, v]) => v && v.short > 0);
-  if (!short.length) return { text: `Crew OK (${r.crew.setsAvailable}/${r.crew.setsNeeded} sets)`, tone: 'good' };
-  const list = short.map(([role, v]) => `${v!.short} ${role}`).join(', ');
-  return { text: `Short ${list}${r.crew.firstShort ? ` from ${fmtDay(r.crew.firstShort)}` : ''}`, tone: 'warn' };
-}
-
 function AircraftRow({ g, r, on, onPick, billBH, lift = 1, offerId, long }: { g: GameState; r: FeasibilityReport; on: boolean; onPick: () => void; billBH: number; lift?: number; offerId: string; long: boolean }) {
   const ac = g.fleet[r.aircraftId];
   if (!ac) return null;
   // v0.6: the client-paid extra crew lifts the price (as on the Accept button); the extra crew's cost is already in estCost.
   const revenue = r.estRevenue * lift;
   const margin = r.estMargin + revenue - r.estRevenue;
-  const crew = crewLine(r);
+  const crew = offerCrewLine(r, g.offers[offerId]?.product.kind === 'dry');
   // An aircraft that can't take the job leads with why (e.g. busy on another contract), not a positioning plan.
   const block = r.level === 'no' ? r.checks.find((c) => c.level === 'no') : undefined;
   // v0.7.3 §2.6 item 6: the rest line on every aircraft of a long job (✓ / needs a 4th pilot / needs a refit), and on
@@ -530,7 +522,7 @@ export function OfferModal({ offerId }: { offerId: string }) {
             <div className="small muted mono">{routeSummary(o.pattern)}</div>
           </div>
           <p className="muted sc-blurb">{blurbOf(o)}</p>
-          <Chips chips={[...reqChips(o.requirements), ...riskChips(o.risk), ...effectChips(o)]} />
+          <Chips chips={[...reqChips(o.requirements, o.pattern), ...riskChips(o.risk), ...effectChips(o)]} />
           {live && <CompetitionLine g={g} o={o} />}
           <ArchPanel g={g} o={o} />
           {sel && !hasPanel(o) && (() => {

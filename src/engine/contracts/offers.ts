@@ -1,6 +1,6 @@
 // Offer generation per archetype and the offer lifecycle (B1). DESIGN.md §5.1.1–5.1.2.
 
-import type { CabinLayout, RatingFamily } from '../../data/acmiTypes';
+import { ACMI_TYPES_LIST, type CabinLayout, type RatingFamily } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE, AIRPORTS, type Airport } from '../../data/airports';
 import { AIRLINE_FAMILIES, AIRLINE_MARKETS, BROKERS } from '../../data/naming';
 import { BAL } from '../core/balance';
@@ -12,6 +12,7 @@ import { requestPause } from '../core/pause';
 import { blockMinutes, complement, etopsNeeded, planSector, typeOf } from '../core/perf';
 import { dutyNeed } from '../crew/duties';
 import { bunksFor, seatRest } from '../crew/restPlan';
+import { cabinPresets } from '../../data/cabins';
 import { schedule } from '../core/queue';
 import { chance, int, next, pick, range, weightedPick } from '../core/rng';
 import { DAY, dayIndex, fmtDay, fmtTime, fromUTC, localMinuteOfDay, toDate, toLocal } from '../core/time';
@@ -20,13 +21,14 @@ import type {
 } from '../core/types';
 import { acceptOffer, closeOffer, setPrice } from './accept';
 import { answerBy, counterBase, counterOdds, halfwayPrice, leftOf } from './counter';
-import { feasibility, ulrNeed, type UlrNeed } from './feasibility';
+import { crewChains, feasibility, ulrNeed, type UlrNeed } from './feasibility';
 import { adhocGroupClients, clientPrefix, clientsOf, isBigClub, isCruiseLine, isDiaspora, isGovernment, isMarineCrewing, isPilgrim, ministry, rivalFor } from './clients';
 import * as F from './flavor';
 import { paintTermsText, rollPaint, sideRng } from './paintTerms';
 import { cabinTarget, cabinTermsText, rollCabin } from './cabinTerms';
-import { anchorsOf, computeWaves, localToUTC, programmeOf, route, routeMinutes, type ChainShape } from './plan';
-import { ARCH_MULT, defaultSeats, isWetArchetype, priceProduct, productValue, referenceType, tripTickets } from './pricing';
+import { anchorsOf, computeWaves, localToUTC, maxPax, programmeOf, route, routeMinutes, seatNeed, type ChainShape } from './plan';
+export { maxPax, seatNeed };
+import { ARCH_MULT, defaultSeats, isWetArchetype, isWideJob, priceProduct, productValue, referenceType, tripTickets } from './pricing';
 import { LEVEL_PERKS, levelOf, standingRate } from './relations';
 import { rivalTakes, rollRivalBid } from './rivals';
 import { inWarZone, warRiskLandings } from '../ops/world';
@@ -262,6 +264,17 @@ export function clientWeight(g: GameState, c: Client): number {
 
 /** v0.8 company standing: 0 Newcomer, 1 Established, 2 Respected. */
 export const standingOf = (g: GameState) => g.company.standing ?? 0;
+
+/**
+ * v0.8 fix pack (newcomer noise): a Newcomer with no widebody in the fleet and no Widebody operations (held or
+ * pending) sees few jobs it can never fly: a widebody job, or one needing an approval it neither holds nor has filed,
+ * comes at BAL.v08.standing.newcomerReach of its odds (finalize); its Hajj airlifts leave from origins a narrowbody
+ * reaches. Pure.
+ */
+export function newcomerNarrow(g: GameState): boolean {
+  const co = g.company;
+  return standingOf(g) === 0 && !Object.values(g.fleet).some((a) => typeOf(a.typeId).body === 'wide') && !co.approvals.includes('widebody') && !co.pendingApprovals.some((p) => p.id === 'widebody');
+}
 /** v0.8 the client's level perks. */
 export const perks = (g: GameState, c: Client) => LEVEL_PERKS[levelOf(g, g.clients[c.id] ?? c)];
 
@@ -274,6 +287,31 @@ export function hookFor(ctx: Ctx): string | undefined {
 }
 
 const seatsText = (min: number, layout?: CabinLayout) => `${min}+ seats${layout === 'two-class' ? ', two-class cabin' : ''}`;
+
+/** v0.8 fix pack: legs with a sector no narrowbody flies nonstop: long haul, so the client wants a widebody. Pure. */
+export function needsWide(legs: { from: string; to: string }[]): boolean {
+  const nb = ACMI_TYPES_LIST.filter((t) => t.available && t.body === 'narrow');
+  return legs.some((l) => !nb.some((t) => {
+    const sp = planSector(t.id, l.from, l.to);
+    return sp.ok && !sp.techStops.length;
+  }));
+}
+
+/**
+ * v0.8 fix pack: can a crew legally fly every chain of the programme on this type (incl. fuel stops; a crew change at
+ * the home base, as feasibility reads the chains), with the best
+ * rest the type can carry (bunks for both crews on a widebody that has or can get them, else its curtained seats)
+ * and an augmented crew? False when a day runs past what any crew may fly (FDP_CAP, 18 h even with 4 pilots in bunks)
+ * or past the type's rest. Pure.
+ */
+export function crewCanFly(g: GameState, typeId: string, chains: ChainShape[]): boolean {
+  const t = typeOf(typeId);
+  const j = Math.max(...cabinPresets(typeId).map((c) => c.j));
+  const rest: AcRest = t.body === 'wide' && (t.rest.bunkShare > 0 || t.rest.mro) ? bunksFor(typeId) : seatRest(typeId, { j });
+  const gx: GameState = g.company.approvals.includes('augmented') ? g : { ...g, company: { ...g.company, approvals: [...g.company.approvals, 'augmented'] } };
+  // As feasibility reads them: cut at the home base (a crew change there) and at night stops.
+  return crewChains(g, chains).every((c) => dutyNeed(gx, typeId, rest, c).mode !== 'none');
+}
 
 // ---------- archetypes ----------
 
@@ -333,7 +371,8 @@ function seasonBase(ctx: Ctx): Draft | null {
   if (families && own) families = own.includes(families[0]) ? families : own.length ? [own[0]] : undefined;
   // v0.7: season bases take the everyday cabins (no VIP); widebodies two- or three-class.
   const layouts: CabinLayout[] = wide ? ['two-class', 'three-class'] : layout ? [layout] : ['all-economy', 'two-class'];
-  const req = { minSeats, layout, layouts, families, extraCabin: 0, approvals: [] as ApprovalId[] };
+  // v0.8 fix pack: a widebody base asks for a widebody (the blurb says so; feasibility checks it).
+  const req = { minSeats, layout, layouts, families, extraCabin: 0, approvals: [] as ApprovalId[], ...(wide ? { body: 'wide' as const } : {}) };
   const ref = referenceType(req, dests.flatMap((d) => [[base, d], [d, base]] as [string, string][]), true);
   if (!ref) return null;
   let waves = computeWaves(base, dests, ref, o.waves ?? (wide ? int(g, 1, 2) : int(g, 2, 3)));
@@ -393,7 +432,7 @@ function aogCover(ctx: Ctx): Draft | null {
   const dests = o.dests ?? pickN(g, pool, wide ? int(g, 1, 2) : int(g, 2, 5), (a) => (unloved ? 6 - a.size : a.size) + a.tour * 2).map((a) => a.code);
   if (!dests.length) return null;
   const minSeats = wide ? 250 : pick(g, [150, 165, 174]);
-  const req = { minSeats, extraCabin: 0, approvals: [] as ApprovalId[] };
+  const req = { minSeats, extraCabin: 0, approvals: [] as ApprovalId[], ...(wide ? { body: 'wide' as const } : {}) };
   const ref = referenceType(req, dests.flatMap((d) => [[base, d], [d, base]] as [string, string][]), true);
   if (!ref) return null;
   const waves = computeWaves(base, dests, ref, o.waves ?? (wide ? 1 : int(g, 2, 3)));
@@ -469,6 +508,8 @@ function adhoc(ctx: Ctx): Draft | null {
   } else if (variant === 'pilgrimage') {
     client = nearClient(ctx, clientsOf(g, ['agency'], (c) => isPilgrim(c) && !!AIRPORT_BY_CODE[c.base]));
     if (!client) return null;
+    // v0.7: pilgrimages fill every seat of an all-economy cabin (v0.8 fix pack: the passengers are those seats).
+    pax = wide ? 300 : 180;
     // The operator flies its own pilgrims from home to a shrine (Fátima via Lisbon, Lourdes, Medjugorje via Split).
     const from = o.airport ?? client.base;
     const shrine = pick(g, F.SHRINES.filter((x) => AIRPORT_BY_CODE[x.code] && x.code !== from && km(from, x.code) > 400));
@@ -540,14 +581,12 @@ function adhoc(ctx: Ctx): Draft | null {
   }
   const broker = chance(g, 0.45) ? pick(g, BROKERS) : undefined;
   const last = legs[legs.length - 1];
-  // v0.7: pilgrimages fill every seat (all-economy, NB 180+ / WB 300+).
+  // v0.7: pilgrimages fill every seat (all-economy, NB 180 / WB 300). v0.8 fix pack: seats = passengers.
   const pilgrim = variant === 'pilgrimage';
   return {
     archetype: 'adhoc', client, broker, title, blurb,
     pattern: { kind: 'legs', legs },
-    req: pilgrim
-      ? { minSeats: wide ? 300 : 180, layouts: ['all-economy'], extraCabin: 0, approvals: [] }
-      : { minSeats: Math.ceil(pax / 10) * 10 - (wide ? 0 : 5), extraCabin: 0, approvals: [] },
+    req: pilgrim ? { minSeats: pax, layouts: ['all-economy'], extraCabin: 0, approvals: [] } : { minSeats: pax, extraCabin: 0, approvals: [] },
     start: legs[0].dep, end: last.dep + 6 * 60,
     expiresIn: range(g, 2.5, 5) * DAY,
     effects: {},
@@ -638,7 +677,7 @@ function sportsBase(ctx: Ctx): Draft | null {
     return {
       archetype: 'sports', client, title: `Pre-season tour to ${city(far)}`,
       blurb: `${client.name} take the squad, sponsors and a fan club to ${city(far)} for a ${back}-day pre-season tour. Branded headrests and a nutritionist menu; two extra cabin crew.`,
-      pattern: { kind: 'legs', legs }, req: { minSeats: 250, extraCabin: 2, approvals: [] },
+      pattern: { kind: 'legs', legs }, req: { minSeats: pax, extraCabin: 2, approvals: [] },
       start: legs[0].dep, end: legs[1].dep + 12 * 60, expiresIn: range(g, 3, 6) * DAY, effects: { morale: 2 },
       risk: { disruption: 0.2, politics: 0, permit: 0 }, hook: hookFor(ctx),
     };
@@ -664,7 +703,7 @@ function sportsBase(ctx: Ctx): Draft | null {
       ? `${client.name} want one operator for their next ${trips} away games (${listCities(aways)}), roughly every ${every} days. Out the day before, back after the match at 23:00 local. Two extra cabin crew.`
       : `${client.name} play in ${city(aways[0])} on ${fmtDay(legs[1].dep)}. Out the day before, back straight after the match at 23:00 local; extra time can push it. Two extra cabin crew for the team service.`,
     pattern: { kind: 'legs', legs },
-    req: { minSeats: Math.max(120, Math.ceil(pax / 10) * 10), extraCabin: 2, approvals: [] },
+    req: { minSeats: pax, extraCabin: 2, approvals: [] },
     start: legs[0].dep, end: last.dep + 6 * 60,
     expiresIn: range(g, 3, 6) * DAY,
     effects: { morale: 2 },
@@ -681,16 +720,21 @@ function repatriation(ctx: Ctx): Draft | null {
   const home = g.company.homeBase;
   const crisis = o.airport ?? pick(g, F.CRISIS_AIRPORTS.filter((c) => AIRPORT_BY_CODE[c] && c !== home));
   const n = o.rotations ?? (wide ? int(g, 1, 2) : int(g, 1, 3));
-  const est = route(wide ? 'b763' : 'a320ceo', crisis, home) ?? route('a333', crisis, home);
-  const chain = est ? routeMinutes(est) : 10 * 60;
   const lead = o.start !== undefined ? o.start - g.now : int(g, 24, 72) * 60;
   const pax = wide ? int(g, 250, 290) : int(g, 140, 175);
+  // v0.8 fix pack: the real chain on the type the job is priced on (fuel stops included); no type reaches: no offer.
+  const ref = referenceType({ minSeats: pax }, [[crisis, home]]);
+  const est = ref ? route(ref, crisis, home) : null;
+  if (!ref || !est || !est.length) return null;
+  const chain = routeMinutes(est);
   const legs: LegTemplate[] = [];
   let dep = atLocal(crisis, g.now + lead, int(g, 16, 28) * 30);
   if (dep < g.now + 20 * 60) dep += DAY;
+  // One aircraft flies them all: home with the evacuees, back empty, two turns and an hour or two of slack.
+  const turn = typeOf(ref).turnMin;
   for (let i = 0; i < n; i++) {
     legs.push({ from: crisis, to: home, dep, flightNo: '', pax });
-    dep += Math.ceil((2 * chain + 2 * 60 + 180) / 15) * 15;
+    dep += Math.ceil((2 * chain + 2 * turn + 120) / 15) * 15;
   }
   const last = legs[legs.length - 1];
   const start = legs[0].dep;
@@ -701,7 +745,7 @@ function repatriation(ctx: Ctx): Draft | null {
       `${city(crisis)}: ${pick(g, F.crisisLines(crisis))}. The ${client.name} needs ${n === 1 ? 'a flight' : `${n} flights`} ${crisis}–${home} for about ${pax} citizens, ` +
       `first departure ${fmtDay(start)} ${fmtTime(start, crisis)} local. Permits are filed but may slip; payment after the job, governments pay late.`,
     pattern: { kind: 'legs', legs },
-    req: { minSeats: wide ? 250 : 150, extraCabin: 0, approvals: [] },
+    req: { minSeats: pax, extraCabin: 0, approvals: [] },
     start, end: last.dep + chain,
     expiresIn: Math.min(int(g, 4, 12) * 60, Math.max(90, start - g.now - 6 * 60)),
     effects: { clean: 2, reliable: 1, morale: 6 },
@@ -769,7 +813,7 @@ function tourSeries(ctx: Ctx): Draft | null {
     title: titleFor(ctx, 'tourSeries', client, { from: base, to: resort, n, wide, start: legs[0].dep }, `${client.name} series ${base}–${resort}`),
     blurb: pick(g, F.TOUR_SERIES_BLURBS)({ client: client.name, n, wd, first: fmtDay(legs[0].dep), last: fmtDay(last.dep), out: fmtTime(legs[0].dep, base) }),
     pattern: { kind: 'legs', legs },
-    req: { minSeats: wide ? 250 : Math.min(180, Math.ceil(pax / 10) * 10), extraCabin: 0, approvals: [], noTechStops: true },
+    req: { minSeats: pax, extraCabin: 0, approvals: [], noTechStops: true },
     start: legs[0].dep, end: last.dep + block,
     expiresIn: range(g, 4, 8) * DAY,
     effects: {},
@@ -811,8 +855,8 @@ function troopRotation(ctx: Ctx): Draft | null {
     title: titleFor(ctx, un ? 'unRotation' : 'troopRotation', client, { from: home, to: mission, n, start: legs[0].dep, event: ms?.name, pk: ms?.pk }, un ? `UN rotation to ${city(mission)}` : `Troop rotation to ${city(mission)}`),
     blurb: `${client.name}: ${n} rotations ${home}–${mission} ${pick(g, F.MISSIONS)}, every ${step || 1} days or so from ${fmtDay(legs[0].dep)}. Night-stop at ${mission}, security-vetted crew, payment in arrears.`,
     pattern: { kind: 'legs', legs },
-    // v0.7: max seats (NB 174+ / WB 300+); the UN wants all-economy.
-    req: { minSeats: wide ? 300 : 174, ...(un ? { layouts: ['all-economy'] as CabinLayout[] } : {}), extraCabin: 0, approvals: [] },
+    // v0.8 fix pack: seats = passengers (the contingent); the UN wants all-economy.
+    req: { minSeats: pax, ...(un ? { layouts: ['all-economy'] as CabinLayout[] } : {}), extraCabin: 0, approvals: [] },
     start: legs[0].dep, end: last.dep + 8 * 60,
     expiresIn: range(g, 5, 10) * DAY,
     effects: { morale: 2, clean: -1 },
@@ -863,9 +907,11 @@ function vip(ctx: Ctx): Draft | null {
     title: gov ? `State visit${n > 1 ? 's' : ''}: ${listCities(dests)}` : corporate ? `Roadshow: ${listCities(dests)}` : `VIP tour flights: ${listCities(dests)}`,
     blurb: `${client.name}: ${what} of ${pax}, ${n === 1 ? `a round trip to ${city(dests[0])}` : `${n} round trips (${listCities(dests)})`} from ${fmtDay(legs[0].dep)}. ${gov || !corporate ? 'A VIP cabin' : 'A VIP or business-heavy cabin (24+ premium seats)'}, ${pick(g, ['silver service', 'a chef on board', 'discreet handling'])}, extra cabin crew.`,
     pattern: { kind: 'legs', legs },
-    req: corporate
-      ? { minSeats: Math.ceil(pax / 10) * 10 - 10, layouts: ['vip', 'two-class', 'three-class'], minPremium: 24, extraCabin: int(g, 2, 4), approvals: [] }
-      : { minSeats: Math.ceil(pax / 10) * 10 - 10, layouts: ['vip'], extraCabin: int(g, 2, 4), approvals: [] },
+    // v0.8 fix pack: long-haul VIP work wants a widebody (never an A320 with two fuel stops).
+    req: {
+      ...(corporate ? { minSeats: pax, layouts: ['vip', 'two-class', 'three-class'] as CabinLayout[], minPremium: 24 } : { minSeats: pax, layouts: ['vip'] as CabinLayout[] }),
+      extraCabin: int(g, 2, 4), approvals: [], ...(wide && needsWide(legs) ? { body: 'wide' as const } : {}),
+    },
     start: legs[0].dep, end: last.dep + 8 * 60,
     expiresIn: range(g, 3, 7) * DAY,
     effects: { clean: 1, reliable: 1 },
@@ -917,17 +963,23 @@ function fitsWindow(a: Archetype, w: IdleWindow, now: Minute): boolean {
 
 // ---------- finalise ----------
 
+/** v0.8 fix pack: finalize dropped a draft no crew may fly, or one a Newcomer can never fly (generateOffer picks again). */
+let fixDropped = false;
+
 function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null {
   const home = g.company.homeBase;
   // One live request per client and kind of job.
   if (Object.values(g.offers).some((x) => x.clientId === d.client.id && x.archetype === d.archetype && (x.status === 'open' || x.status === 'countered'))) return null;
   const p = d.pattern;
+  // v0.8 fix pack: seats = passengers on every legs job (whatever the builder rounded), stretchers the only extra.
+  d.req.minSeats = seatNeed(p, d.req.stretchers, d.req.minSeats);
   const sectors: [string, string][] = p.kind === 'base' ? p.dests.flatMap((x) => [[p.base, x], [x, p.base]] as [string, string][]) : p.legs.map((l) => [l.from, l.to]);
   const ref = referenceType(d.req, sectors, p.kind === 'base', d.req.approvals.includes('ulr'));
   if (!ref) return null;
   const airports = [...new Set(sectors.flat())];
   const requirements: Requirements = {
-    minSeats: d.req.minSeats, maxSeats: d.req.maxSeats, layout: d.req.layout, body: typeOf(ref).body, families: d.req.families,
+    // v0.8 fix pack: `body` only when the client asks for one (a widebody base, Hajj, Antarctica); seats decide the rest.
+    minSeats: d.req.minSeats, maxSeats: d.req.maxSeats, layout: d.req.layout, families: d.req.families,
     ...(d.req.layouts ? { layouts: d.req.layouts } : {}), ...(d.req.minPremium ? { minPremium: d.req.minPremium } : {}),
     longestSectorNm: Math.round(Math.max(...sectors.map(([a, b]) => distanceNm(a, b)))),
     minRunwayM: Math.min(...airports.map((c) => AIRPORT_BY_CODE[c]?.runwayM ?? 0)),
@@ -938,8 +990,19 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
     ...(d.req.clientCabin ? { clientCabin: d.req.clientCabin } : {}),
   };
   if (d.req.body) requirements.body = d.req.body;
+  // v0.8 fix pack (newcomer noise): a Newcomer without a widebody sees only a few jobs it can never fly.
+  if (newcomerNarrow(g) && !d.repeatOf && !d.eventId && (isWideJob(requirements) || requirements.approvals.some((a) => !g.company.approvals.includes(a) && !g.company.pendingApprovals.some((p) => p.id === a)))
+    && !chance(sideRng(g, `reach:${g.seq}:${g.now}:${d.archetype}`), BAL.v08.standing.newcomerReach)) {
+    fixDropped = true;
+    return null;
+  }
   const prog = programmeOf({ pattern: p, requirements }, ref);
   if (!prog.ok) return null;
+  // v0.8 fix pack (v0.7.3 ulrDest for every kind of work): never a programme whose day no crew may fly on its own type.
+  if (!crewCanFly(g, ref, prog.chains)) {
+    fixDropped = true;
+    return null;
+  }
   for (const [a, b] of sectors) for (const l of planSector(ref, a, b).legs) requirements.etops = Math.max(requirements.etops, etopsNeeded(ref, l.from, l.to));
   // Everyday work stays within the ETOPS approval we hold; aspirational jobs show the ladder.
   const etopsHeld = g.company.approvals.includes('etops240') ? 240 : g.company.approvals.includes('etops180') ? 180 : g.company.approvals.includes('etops120') ? 120 : 0;
@@ -1099,7 +1162,7 @@ export function generateOffer(g: GameState, archetype?: Archetype, opts: OfferOp
   const fleet = Object.values(g.fleet);
   const wideShare = fleet.length ? fleet.filter((a) => typeOf(a.typeId).body === 'wide').length / fleet.length : 0;
   // At most two ladder jobs on the market at once, so the board stays mostly workable.
-  if (mode === 'aspire' && wideShare < 1 && Object.values(g.offers).filter((x) => x.status === 'open' && x.requirements.body === 'wide').length >= 2) mode = 'fleet';
+  if (mode === 'aspire' && wideShare < 1 && Object.values(g.offers).filter((x) => x.status === 'open' && isWideJob(x.requirements)).length >= 2) mode = 'fleet';
   const wide = opts.wide ?? (mode === 'aspire' ? wideShare < 1 : chance(g, wideShare));
   let window: IdleWindow | undefined;
   if (opts.window) window = opts.window;
@@ -1116,6 +1179,7 @@ export function generateOffer(g: GameState, archetype?: Archetype, opts: OfferOp
       tries.push(a);
     }
   }
+  fixDropped = false;
   for (let i = 0; i < tries.length; i++) {
     const build = builderOf(tries[i]);
     if (!build) continue;
@@ -1131,6 +1195,11 @@ export function generateOffer(g: GameState, archetype?: Archetype, opts: OfferOp
       // v0.6: the last gap-fit offer (the quiet-week floor looks at it).
       if (ctx.window) g.stats.lastGapOfferAt = g.now;
       return o;
+    }
+    // v0.8 fix pack: drafts dropped as impossible (or never flyable by a Newcomer) don't thin the market: two more picks.
+    if (i === tries.length - 1 && tries.length === 3 && !archetype && fixDropped) {
+      const ws = weights(g);
+      for (let k = 0; k < 2 && ws.length; k++) tries.push(weightedPick(g, ws, ([, w]) => w)![0]);
     }
   }
   return null;

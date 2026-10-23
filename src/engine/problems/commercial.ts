@@ -7,10 +7,12 @@ import { DAY, fmtDateTime, fmtDay, fmtDuration } from '../core/time';
 import type { ContractOffer, GameState, Message } from '../core/types';
 import { counterView } from '../contracts/counter';
 import { feasibility, type FeasibilityCheck, type FeasibilityReport } from '../contracts/feasibility';
+import { jobName } from '../contracts/flavor';
 import { mkHurt, type ProblemAction, type ProblemCard } from './types';
 
 const city = (code: string) => AIRPORT_BY_CODE[code]?.city ?? code;
 const clientName = (g: GameState, o: { clientId: string }) => g.clients[o.clientId]?.name ?? 'The client';
+
 
 /** The worst check of the best report, in plain words, with the fix that goes with it. */
 function plainCheck(g: GameState, o: ContractOffer, r: FeasibilityReport, c: FeasibilityCheck): { why: string; action: ProblemAction } {
@@ -25,6 +27,8 @@ function plainCheck(g: GameState, o: ContractOffer, r: FeasibilityReport, c: Fea
       return { why: `${ac.reg} is busy: ${c.label.replace(/^Busy: /, '').replace(/^Can't be back for /, "it can't be back for ")}.`, action: { id: 'schedule', label: 'Schedule', open: { tab: 'schedule', sel: { kind: 'aircraft', id: ac.id } }, primary: true } };
     case 'range':
       return { why: `The ${t.short} can't fly it nonstop: ${c.label.toLowerCase()}${o.requirements.noTechStops ? '; the client wants no fuel stops' : ''}.`, action: { id: 'review', label: 'Review offer', open: { modal: 'offer', id: o.id }, primary: true } };
+    case 'body':
+      return { why: `${c.label}: no refit changes that.`, action: { id: 'market', label: 'Market', open: { tab: 'fleet', view: 'market' }, primary: true } };
     case 'layout':
       return { why: `The client needs a ${o.requirements.layouts?.join(' or ') ?? o.requirements.layout ?? 'different'} cabin; ${ac.reg} is ${ac.cabin.label}.`, action: c.action ? { id: 'refit', label: 'Plan refit', open: { modal: 'refit', id: ac.id }, primary: true } : { id: 'review', label: 'Review offer', open: { modal: 'offer', id: o.id }, primary: true } };
     case 'paint':
@@ -61,12 +65,12 @@ export function offerFitCard(g: GameState, offerId: string): ProblemCard | null 
   const worst = [...r.checks].sort((a, b) => RANK[b.level] - RANK[a.level])[0];
   if (!worst || worst.level === 'ok') return null;
   const { why, action } = plainCheck(g, o, r, worst);
-  const name = clientName(g, o);
+  const job = jobName(clientName(g, o), o.title);
   const hard = r.level === 'no';
   return {
     subject: { kind: 'offerFit', ref: { kind: 'offer', id: o.id } }, severity: hard ? 'red' : 'amber',
-    title: hard ? `You can't fly ${name}'s ${o.title} as it stands` : `${name}'s ${o.title} needs care`,
-    what: hard ? `You can't fly ${name}'s ${o.title} as it stands` : `${name}'s ${o.title} needs care`,
+    title: hard ? `You can't fly ${job} as it stands` : `${job} needs care`,
+    what: hard ? `You can't fly ${job} as it stands` : `${job} needs care`,
     why,
     hurt: mkHurt({ money: o.estValue, what: 'of work' }),
     actions: [action, ...(action.id !== 'review' ? [{ id: 'review', label: 'Review offer', open: { modal: 'offer' as const, id: o.id } }] : [])],

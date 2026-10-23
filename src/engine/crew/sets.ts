@@ -139,8 +139,11 @@ function clientSeatsOf(g: GameState, aircraftId: string, roles: Role[]): Partial
   return out;
 }
 
-/** Needs per family: aircraft, sets and the crew per role (each aircraft's complement × its sets, plus relief pilots). */
-function needs(g: GameState) {
+/**
+ * Needs per family: aircraft, sets and the crew per role (each aircraft's complement × its sets, plus relief pilots).
+ * v0.8 fix pack: the one source of truth for crew numbers (the Planning view here, staffing() for Hire and the bot).
+ */
+export function familyNeeds(g: GameState) {
   const onStation = new Map<string, number>();
   for (const dp of Object.values(g.deployments)) {
     if (dp.end < g.now || dp.start > g.now + WINDOW) continue;
@@ -291,7 +294,7 @@ const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
 
 /** v0.7.4 the Crew planning view, one entry per fleet family (largest fleet first). Pure. */
 export function crewPlan(g: GameState): FamilyPlan[] {
-  const fams = needs(g);
+  const fams = familyNeeds(g);
   const sup = supply(g, fams);
   const out: FamilyPlan[] = [];
   for (const [family, f] of fams) {

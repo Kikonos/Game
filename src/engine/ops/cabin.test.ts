@@ -51,7 +51,7 @@ describe('refits', () => {
     expect(q.opens).toContain('VIP and state work');
     // the business seats bring class 2 crew rest with them (economy seats were class 3)
     expect(q.opens).toContain('crew rest in business seats (class 2)');
-    expect(q.closes).toEqual(['troop rotations (174+)', 'pilgrimage (180+)']);
+    expect(q.closes).toEqual(['troop rotations (150+)', 'pilgrimage (180+)']);
     expect(q.end - q.start).toBe(21 * DAY);
     expect(refitQuote(g, ac.id, '12J/156Y', 'LIS', g.now + 10 * DAY)).toMatchObject({ kind: 'quick', days: 2, cost: 40_000 });
     expect(refitQuote(g, addAircraft(g, 'b772').id, '40J/180Y', 'LIS', g.now + 10 * DAY)).toMatchObject({ kind: 'full', days: 28, cost: 4_000_000 });
@@ -156,7 +156,7 @@ describe('the cabin rules in feasibility', () => {
     ac.cabin = { j: 12, w: 0, y: 156, total: 168, label: '12J/156Y', layout: 'two-class' };
     expect(feasibility(g, o.id, ac.id).checks.find((x) => x.id === 'layout')!.level).toBe('ok');
     const troop = legsOffer(g, [['LIS', 'BKO', t]], 174);
-    expect(feasibility(g, troop.id, ac.id).checks.find((x) => x.id === 'seats')).toMatchObject({ level: 'no', label: '168 seats: the client needs at least 174' });
+    expect(feasibility(g, troop.id, ac.id).checks.find((x) => x.id === 'seats')).toMatchObject({ level: 'no', label: '168 seats: the client needs 174 (174 passengers)' });
   });
 });
 

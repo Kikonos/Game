@@ -1251,6 +1251,8 @@ export interface SimEvent {
 // ======================================================================
 
 export interface Stats {
+  /** v0.8 fix pack: offers' and contracts' `requirements.body` means the client asks for one (older saves: stripped once on load). */
+  bodyAsked?: boolean;
   /** Lifetime billable block minutes and revenue legs. */
   blockMin: number;
   legs: number;

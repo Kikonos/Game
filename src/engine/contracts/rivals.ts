@@ -16,6 +16,8 @@ import { clamp, hash } from '../core/util';
 import type { Archetype, ClientLevel, ContractOffer, GameState, Minute, Rival, SimEvent } from '../core/types';
 import { closeOffer } from './accept';
 import { LEVEL_NAME, levelOf, statsV08 } from './relations';
+import { isWideJob } from './pricing';
+import { jobName } from './flavor';
 
 export type RivalStyle = 'cheap' | 'premium' | 'steady' | 'big' | 'rescue' | 'military';
 
@@ -151,13 +153,13 @@ const WINDOW: Record<RivalStyle, [number, number]> = { cheap: [0.3, 0.7], rescue
 /** Rival fleet fits the job: the same family when the job names one, else the same body. */
 export function rivalFits(r: Rival, o: Pick<ContractOffer, 'requirements'>): boolean {
   const req = o.requirements;
-  const wide = req.body ? req.body === 'wide' : req.minSeats >= 230;
+  const wide = isWideJob(req);
   return r.fleet.some((f) => f.count > 0 && (req.families?.length ? req.families.includes(typeOf(f.typeId).family) : (typeOf(f.typeId).body === 'wide') === wide));
 }
 
 /** Demand-adjusted segment index at the offer's body (shocks included; ops/market.ts segIndex would be circular). */
 function segOf(g: GameState, o: ContractOffer): number {
-  const wide = o.requirements.body === 'wide';
+  const wide = isWideJob(o.requirements);
   let idx = wide ? g.market.wideIndex : g.market.narrowIndex;
   for (const s of g.market.shocks ?? []) if (s.until > g.now && (s.seg === 'all' || s.seg === (wide ? 'wide' : 'narrow'))) idx += s.delta;
   return idx;
@@ -223,7 +225,7 @@ export function rivalTakes(g: GameState, o: ContractOffer, rival: Rival, why: st
   o.lostWhy = why;
   rival.won = (rival.won ?? 0) + 1;
   const cl = g.clients[o.clientId]?.name ?? 'the client';
-  logRival(g, rival, `Took ${cl}'s ${o.title}`);
+  logRival(g, rival, `Took ${jobName(cl, o.title)}`);
   const v8 = statsV08(g);
   v8.lostToRival++;
   const lw = (v8.lostWhy ??= { cheaper: 0, closer: 0, sooner: 0 });

@@ -8,6 +8,7 @@ import { typeOf } from '../core/perf';
 import { weightedPick } from '../core/rng';
 import type { Client, ClientKind, ContractOffer, GameState, Rival } from '../core/types';
 import type { AdhocGroup } from './flavor';
+import { isWideJob } from './pricing';
 
 const EUROPE = new Set(['PT', 'ES', 'LT', 'LV', 'MT', 'DE', 'IE', 'SE', 'HR', 'FR', 'GB', 'CH', 'NO', 'IT', 'NL', 'BE', 'AT', 'DK', 'FI', 'PL', 'CZ', 'BG', 'EE', 'SK', 'RO']);
 
@@ -141,7 +142,7 @@ export function rivalFleetText(r: Rival): string {
 export function rivalFor(g: GameState, o: Pick<ContractOffer, 'requirements' | 'pin'>): Rival | undefined {
   if (!g.rivals.length) return undefined;
   const req = o.requirements;
-  const wide = req.body ? req.body === 'wide' : req.minSeats >= 230;
+  const wide = isWideJob(req);
   const fits = (r: Rival) =>
     r.fleet.some((f) => {
       const t = typeOf(f.typeId);

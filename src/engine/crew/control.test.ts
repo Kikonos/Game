@@ -354,11 +354,18 @@ describe('private jets', () => {
     for (const c of Object.values(g.crew)) if (c.role === 'CPT' && c.id !== was) { c.blocks = [{ from: g.now - DAY, to: g.now + 10 * DAY, why: 'leave' }]; c.status = 'leave'; }
     const v = crewControl(g, flightId)!;
     const jet = v.solutions.find((x) => x.id === 'jet')!;
-    expect(jet.available).toBe(true);
-    expect(jet.cost).toBeGreaterThan(10_000);
-    // The jet lands before the report: no delay; it ranks below the airline ticket (dearer).
+    // v0.8 fix pack: the airline ticket gets the captain there in time too, and cheaper: no jet row, one muted line.
+    expect(v.solutions.find((x) => x.id === 'deadhead')!.available).toBe(true);
+    expect(jet.available).toBe(false);
+    expect(jet.dominated).toBe(true);
+    expect(jet.why).toMatch(/^A jet would (land after .+|leave no sooner than .+) \(\S+ vs \S+\): not offered$/);
     expect(jet.newDeparture).toBeNull();
-    expect(jet.rank).toBeGreaterThan(v.solutions.find((x) => x.id === 'deadhead')!.rank);
+    expect(jet.rank).toBe(v.solutions.length);
+    // Asked for on its own (the bot's ladder, applyCrewFix), it is still quoted: it lands before the report, no delay.
+    const only = crewControl(g, flightId, { only: ['jet'] })!.solutions[0];
+    expect(only.available, only.why).toBe(true);
+    expect(only.cost).toBeGreaterThan(10_000);
+    expect(only.newDeparture).toBeNull();
     // A long duty: the ride would make the day too long. Jet + a night's rest would leave no sooner than an airline
     // ticket with the same rest, so the row points at Delay (which ends crewed the next morning).
     const long = shortOfCaptain('DUS', 'FNC', 6);
@@ -372,8 +379,8 @@ describe('private jets', () => {
     expect(ld.available, ld.why).toBe(true);
     expect(ld.preview.after.level).toBe('ok');
     expect(ld.newDeparture! - long.g.flights[long.flightId].std).toBeGreaterThan(3 * 60);
-    expect(jet.options!.map((o) => o.id)).toContain('light');
-    expect(jet.chips.some((c) => /^lands /.test(c))).toBe(true);
+    expect(only.options!.map((o) => o.id)).toContain('light');
+    expect(only.chips.some((c) => /^lands /.test(c))).toBe(true);
     const r = charterJet(g, flightId, [was], 'midsize');
     expect(r.ok).toBe(true);
     if (!r.ok) return;
@@ -412,14 +419,18 @@ describe('private jets', () => {
   });
 
   it('applyCrewFix jet: a jet is chartered whenever the fix is applied (never an airline ticket under the jet label)', () => {
-    // DUS: a ticket from Lisbon lands the captain as early as any jet, so the jet ranks below Delay; applied all the
-    // same, it delays the flight for the jet and charters it (the preview's price is what is paid).
+    // DUS: a ticket from Lisbon lands the captain before any jet (v0.8 fix pack: so Crew Control offers no jet, one
+    // muted line naming the airline flight); applied all the same (the bot's ladder), it delays the flight for the jet
+    // and charters it (the preview's price is what is paid).
     const a = shortOfCaptain('DUS', 'LHR', 1);
     for (const c of Object.values(a.g.crew)) if (c.role === 'CPT' && c.id !== a.was) { c.blocks = [{ from: a.g.now - DAY, to: a.g.now + 10 * DAY, why: 'leave' }]; c.status = 'leave'; }
     const av = crewControl(a.g, a.flightId)!;
-    const aj = av.solutions.find((x) => x.id === 'jet')!;
+    const hidden = av.solutions.find((x) => x.id === 'jet')!;
+    expect(hidden.dominated).toBe(true);
+    expect(hidden.why).toMatch(/^A jet would land after [A-Z0-9]{2} ?\d+ \(\d\d:\d\d vs \d\d:\d\d\): not offered$/);
+    expect(av.solutions.find((x) => x.id === 'delay')!.available).toBe(true);
+    const aj = crewControl(a.g, a.flightId, { only: ['jet'] })!.solutions[0];
     expect(aj.available, aj.why).toBe(true);
-    expect(aj.rank).toBeGreaterThan(av.solutions.find((x) => x.id === 'delay')!.rank);
     expect(aj.preview.after.level).toBe('ok');
     expect(aj.preview.changes.some((c) => /private jet/.test(c))).toBe(true);
     const ar = applyCrewFix(a.g, a.flightId, 'jet', { confirmed: true });

@@ -2,8 +2,24 @@
 
 import { typeOf } from '../core/perf';
 import { yearOf } from '../core/time';
-import type { Aircraft, Contract, Flight, GameState, Stats } from '../core/types';
+import type { Aircraft, Contract, Flight, GameState, MaintenanceEvent, Stats } from '../core/types';
 import { clamp } from '../core/util';
+
+/** 'A320', '767', '747', 'A330': the type as people say it (else its short code). */
+export const typeWord = (typeId: string) => { const t = typeOf(typeId); return t.name.match(/\b(A\d{3}|[1-9]\d7)\b/)?.[1] ?? t.short; };
+/** 'An' before 'A320' / '8…' / '11…', else 'A'. */
+export const an = (w: string) => (/^(A|E|F|H|I|L|M|N|O|R|S|X|8|11|18)/i.test(w) ? 'An' : 'A');
+
+/** v0.8 fix pack: 'The client wants a widebody; CS-TWJ is an A320'. */
+export const bodyText = (body: 'narrow' | 'wide', reg: string, typeId: string) => `The client wants a ${body === 'wide' ? 'widebody' : 'narrowbody'}; ${reg} is ${an(typeWord(typeId)).toLowerCase()} ${typeWord(typeId)}`;
+
+/**
+ * 'A-check', 'C-check', 'cabin refit', 'crew rest refit' (v0.7.3), 'crew rest seats' (an older v0.7.2 booking);
+ * v0.8 fix pack: never a refit, a lease return, the paint shop or an AOG repair called a check.
+ */
+export const maintWord = (m: Pick<MaintenanceEvent, 'kind' | 'restFit' | 'refit'>): string =>
+  m.kind === 'refit' ? (m.restFit ? 'crew rest refit' : m.refit?.restSeats !== undefined ? 'crew rest seats' : 'cabin refit')
+  : m.kind === 'return' ? 'lease return check' : m.kind === 'paint' ? 'paint shop' : m.kind === 'AOG' ? 'AOG repair' : m.kind === 'line' ? 'line check' : `${m.kind}-check`;
 
 /** Lifetime counters with B3's optional fields defaulted. */
 export function stats(g: GameState): Required<Stats> {

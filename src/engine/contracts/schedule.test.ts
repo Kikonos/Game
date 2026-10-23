@@ -195,4 +195,26 @@ describe('relinkPositioning', () => {
     relinkPositioning(g, ac.id);
     expect(liveFlights(g, ac.id).map((f) => f.id).join()).toBe(ids);
   });
+
+  it('v0.8 fix pack: a late chain with a fuel stop (LGW–KAN–LAD after an AOG) is a fixed point too, not re-planned on every pass', async () => {
+    const { relinkPositioning } = await import('.');
+    const g = newGame(31);
+    const ac = leased(g);
+    const dep = g.now + 6 * DAY;
+    const o = offer(g, 'adhoc', { start: dep });
+    if (o.pattern.kind === 'legs') o.pattern.legs = [{ from: 'LAD', to: 'LIS', dep, flightNo: '', pax: 150 }];
+    o.end = dep + DAY;
+    const r = acceptOffer(g, o.id, [ac.id]);
+    expect(r.ok, r.ok ? '' : r.error).toBe(true);
+    // An AOG at Gatwick ending 6 h before the departure from Luanda: the only way there lands after it.
+    ac.at = 'LGW';
+    g.maintenance.mxfp = { id: 'mxfp', aircraftId: ac.id, kind: 'AOG', at: 'LGW', start: g.now, end: dep - 6 * 60, cost: 0, status: 'inWork', planned: false, ev: 0 };
+    relinkPositioning(g, ac.id);
+    const pos = liveFlights(g, ac.id).filter((f) => f.kind === 'positioning' && f.std >= dep - 6 * 60 && f.std < dep + DAY);
+    expect(pos.map((f) => `${f.from}-${f.to}`).join(' ')).toMatch(/^LGW-\w{3} \w{3}-LAD$/);
+    expect(pos[pos.length - 1].sta).toBeGreaterThan(dep);
+    const ids = liveFlights(g, ac.id).map((f) => f.id).join();
+    for (let i = 0; i < 3; i++) expect(relinkPositioning(g, ac.id)).toEqual([]);
+    expect(liveFlights(g, ac.id).map((f) => f.id).join()).toBe(ids);
+  });
 });

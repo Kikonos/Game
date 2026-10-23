@@ -8,7 +8,7 @@ import { addAircraft, newGame, run } from '../contracts/testkit';
 import { DAY } from '../core/time';
 import type { GameState } from '../core/types';
 import { addCrew } from './fixtures';
-import { hireBatch, hireQuote } from './hr';
+import { hireBatch, hireQuote, staffing } from './hr';
 import { awayOnDryLease, completeSets, crewPlan, missingFor, roundTargets, roundUpQuote, roundUpRoles, setWords } from './sets';
 
 /** Two A320s (180Y: 1 CPT + 1 FO + 1 PUR + 3 CC), no crew. */
@@ -156,5 +156,48 @@ describe('crew sets with v0.8 work', () => {
     expect(g.fleet[acId].status).toBe('leasedOut');
     expect(a320(g)).toMatchObject({ aircraft: 1, setsNeeded: 5, dryLeased: 1 });
     expect(a320(g).roles.find((r) => r.role === 'CC')!.need).toBe(15);
+  }, 120_000);
+});
+
+describe('Hire and Planning agree (v0.8 fix pack: one source of truth)', () => {
+  /** Per family and role, the hire screen's need is the Planning view's (relief pilots counted as first officers). */
+  const agree = (g: GameState) => {
+    const lines = staffing(g);
+    for (const p of crewPlan(g)) {
+      const need = (r: string) => p.roles.find((x) => x.role === r)?.need ?? 0;
+      for (const r of ['CPT', 'PUR', 'CC'] as const) expect(lines.find((l) => l.family === p.family && l.role === r)?.need ?? 0, `${p.family} ${r}`).toBe(need(r));
+      expect(lines.find((l) => l.family === p.family && l.role === 'FO')?.need ?? 0, `${p.family} FO`).toBe(need('FO') + need('CRP'));
+    }
+  };
+
+  it("a mixed-crew contract: the client's cabin crew seats are out of the hire need too", () => {
+    const g = twoA320();
+    addCrew(g, { CPT: 10, FO: 10, PUR: 10, CC: 30 });
+    agree(g);
+    expect(devMixedCrew(g)).not.toBe('');
+    const cc = staffing(g).find((l) => l.family === 'A320' && l.role === 'CC')!;
+    expect(cc.need).toBeLessThan(30);
+    agree(g);
+  }, 120_000);
+
+  it('an aircraft away on a dry lease: out of the hire need from its delivery ferry on, as in Planning', () => {
+    const g = twoA320();
+    addCrew(g, { CPT: 10, FO: 10, PUR: 10, CC: 30 });
+    const id = devDryLease(g);
+    const o = g.offers[id];
+    const acId = o.dryFor ?? Object.keys(g.fleet)[0];
+    const r = acceptOffer(g, id, [acId]);
+    if (!r.ok) throw new Error(r.error);
+    const k = g.contracts[r.data!.contractId];
+    agree(g);
+    expect(staffing(g).find((l) => l.family === 'A320' && l.role === 'CC')!.need).toBe(30);
+    // The delivery ferry has left (not yet 'leasedOut'): the lessee's from here on.
+    const out = k.dry!.outIds.map((x) => g.flights[x]).filter(Boolean).sort((a, b) => a.std - b.std)[0];
+    run(g, out.std + 10);
+    expect(awayOnDryLease(g, g.fleet[acId])).toBe(true);
+    expect(staffing(g).find((l) => l.family === 'A320' && l.role === 'CC')!.need).toBe(15);
+    agree(g);
+    run(g, k.start + DAY);
+    agree(g);
   }, 120_000);
 });

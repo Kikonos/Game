@@ -6,9 +6,11 @@ import { statementTotals } from '../../engine/core/ledger';
 import { problemFor } from '../../engine/problems';
 import { DAY, HOUR, fmtDay, monthKey, toLocal } from '../../engine/core/time';
 import { mghInMonth, mghLabel } from '../../engine/contracts/pricing';
+import { maxPax, seatNeedText } from '../../engine/contracts/plan';
 import type { IdleWindow } from '../../engine/contracts/offers';
+import type { FeasibilityReport } from '../../engine/contracts/feasibility';
 import type {
-  AircraftOffer, Archetype, Minute, ContractOffer, CrewMember, CrewStatus, GameState, LedgerCat, Message, MessageCat, MonthStatement, Product, Ref, Requirements, Role, SchedulePattern,
+  Aircraft, AircraftOffer, Archetype, Minute, ContractOffer, CrewMember, CrewStatus, GameState, LedgerCat, Message, MessageCat, MonthStatement, Product, Ref, Requirements, Role, SchedulePattern,
 } from '../../engine/core/types';
 import { money } from '../format';
 import type { Tab } from '../store';
@@ -113,17 +115,25 @@ export interface Chip {
   tip?: string;
 }
 
-/** Requirement chips: seats, body/families, ETOPS, runway, approvals. */
-export function reqChips(r: Requirements): Chip[] {
+/**
+ * Requirement chips: seats, body/families, ETOPS, runway, approvals. v0.8 fix pack: with the pattern, a passenger job
+ * reads '166 seats (166 passengers)' (seats = passengers; stretchers the only extra).
+ */
+export function reqChips(r: Requirements, pattern?: SchedulePattern): Chip[] {
   // v0.8: a dry lease needs no seats (aircraft only).
   const layouts = r.layouts ?? (r.layout ? [r.layout] : null);
-  const maxSeats = layouts?.length === 1 && layouts[0] === 'all-economy' && r.minSeats >= 174;
+  const pax = pattern ? maxPax(pattern) : 0;
+  const allY = layouts?.length === 1 && layouts[0] === 'all-economy';
+  const maxSeats = !pax && allY && r.minSeats >= 174;
   // 'Max seats N+' already says the seats; no plain chip beside it.
-  const out: Chip[] = r.minSeats > 0 && !maxSeats ? [{ label: r.maxSeats ? `${r.minSeats}–${r.maxSeats} seats` : `${r.minSeats}+ seats`, tip: 'Seats the client needs' }] : [];
-  if (r.body === 'wide') out.push({ label: 'Widebody' });
+  const out: Chip[] = r.minSeats > 0 && !maxSeats
+    ? [pax && pattern ? { label: seatNeedText({ pattern, requirements: r }), tip: 'Seats the client needs: one for each passenger' } : { label: r.maxSeats ? `${r.minSeats}–${r.maxSeats} seats` : `${r.minSeats}+ seats`, tip: 'Seats the client needs' }]
+    : [];
+  if (r.body) out.push({ label: r.body === 'wide' ? 'Widebody' : 'Narrowbody', tip: `The client wants a ${r.body === 'wide' ? 'widebody' : 'narrowbody'}` });
   if (r.families?.length && r.families.length <= 2) out.push({ label: r.families.join(' / ') });
   // v0.7: accepted layouts (supersede `layout`) and premium seats.
   if (maxSeats) out.push({ label: `Max seats ${r.minSeats}+`, tone: 'warn', tip: 'All-economy, high-density cabin' });
+  else if (pax && allY) out.push({ label: 'All economy', tone: 'warn', tip: 'Every seat in economy (high density)' });
   else if (layouts?.length === 1 && layouts[0] === 'vip') out.push({ label: 'VIP cabin', tone: 'warn', tip: 'Needs a VIP layout (refit on the Fleet card)' });
   else if (layouts && !layouts.includes('all-economy')) out.push({ label: layouts.length === 1 ? layouts[0].replace('-', ' ') : 'Premium cabin', tip: `Cabins: ${layouts.map((l) => (l === 'vip' ? 'VIP' : l)).join(', ')}` });
   if (r.minPremium) out.push({ label: `Premium ${r.minPremium}+`, tip: 'Business and premium-economy seats' });
@@ -395,3 +405,33 @@ export function markMarketSeen(ids: string[]): void {
 
 /** 'all-economy' / 'two-class' / 'VIP' (cabin layout names as the Fleet card and refit dialog say them). */
 export const layoutLabel = (l: string) => (l === 'vip' ? 'VIP' : l);
+
+/**
+ * v0.8 fix pack: what an aircraft in the hangar is in, as the status rows say it: 'in refit' for a cabin refit (not
+ * 'in check'), 'in the paint shop', 'lease return', 'in repair' (AOG), else 'in check'. Pure.
+ */
+export function hangarWord(g: Pick<GameState, 'maintenance'>, ac: Pick<Aircraft, 'maintId' | 'id'>): string {
+  const m = ac.maintId ? g.maintenance[ac.maintId] : undefined;
+  return m?.kind === 'refit' ? 'in refit' : m?.kind === 'paint' ? 'in the paint shop' : m?.kind === 'return' ? 'lease return' : m?.kind === 'AOG' ? 'in repair' : 'in check';
+}
+
+/** 'In refit' from 'in refit'. */
+export const capFirst = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** Checks that say the aircraft itself can't fly the job (seats, body, cabin, type, range, runways, ETOPS). */
+const UNFIT = new Set(['seats', 'body', 'layout', 'family', 'range', 'runway', 'etops']);
+
+/**
+ * The crew line on an offer's aircraft row: 'Crew OK (5/2 sets)', 'Short 2 CC from 3 Jun'. v0.8 fix pack: an aircraft
+ * that can't fly the job (wrong body, too few seats, out of range…) gets no crew count ('Crew OK (0/0 sets)' read like
+ * a pass): 'Crew not checked'. Pure.
+ */
+export function offerCrewLine(r: Pick<FeasibilityReport, 'crew' | 'checks'>, dry: boolean): { text: string; tone: 'good' | 'warn' | 'bad' } {
+  if (dry) return { text: 'No crew from us: aircraft only', tone: 'good' };
+  const cant = r.checks.some((c) => c.level === 'no' && UNFIT.has(c.id));
+  if (cant || (!r.crew.setsNeeded && !Object.keys(r.crew.byRole).length)) return { text: 'Crew not checked', tone: 'warn' };
+  const short = Object.entries(r.crew.byRole).filter(([, v]) => v && v.short > 0);
+  if (!short.length) return { text: `Crew OK (${r.crew.setsAvailable}/${r.crew.setsNeeded} sets)`, tone: 'good' };
+  const list = short.map(([role, v]) => `${v!.short} ${role}`).join(', ');
+  return { text: `Short ${list}${r.crew.firstShort ? ` from ${fmtDay(r.crew.firstShort)}` : ''}`, tone: 'warn' };
+}

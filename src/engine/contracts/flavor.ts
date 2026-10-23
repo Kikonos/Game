@@ -288,6 +288,14 @@ export const LONGHAUL_BRANDS = ['TUI', 'Corendon', 'Schauinsland', 'Sunwing', 'A
 export const longHaulBrand = (name: string) => LONGHAUL_BRANDS.some((b) => brandOf(name).startsWith(b) || name.startsWith(b));
 /** "Eurowings'" / "TUI's". */
 export const possessive = (name: string) => (/s$/i.test(name) ? `${name}'` : `${name}'s`);
+
+/**
+ * v0.8 fix pack: a job named with its client once: 'Winter sun to Corfu for Corendon' when the title already says
+ * who, else "Azul Brazilian Airlines' São Paulo base". Pure.
+ */
+export function jobName(client: string, title: string): string {
+  return title.includes(client) || title.includes(brandOf(client)) ? title : `${possessive(client)} ${title}`;
+}
 /** 'summer', 'Easter', 'Christmas' (mid-sentence). */
 const seasonMid = (s: Season) => (s === 'easter' || s === 'christmas' ? SEASON_WORD[s] : SEASON_WORD[s].toLowerCase());
 export const NATIONS: Record<string, string> = {

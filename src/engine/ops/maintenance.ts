@@ -136,10 +136,10 @@ function engineersAt(g: GameState, acId: string, airport: string): boolean {
   return false;
 }
 
-/** AOG probability for the next departure: base × (1 + age/10) × (1 + 4 × deferred) × outstation 1.5. Pure. */
+/** AOG probability for the next departure: base × (1 + age/10) × (1 + 4 × deferred) × outstation 1.5 × the type's AOG factor. Pure. */
 export function aogChance(g: GameState, ac: Aircraft, airport: string): number {
   const out = engineersAt(g, ac.id, airport) ? 1 : BAL.aogOutstation;
-  return BAL.aogBase * (1 + ageOf(g, ac) / 10) * (1 + 4 * ac.maint.deferred) * out;
+  return BAL.aogBase * (1 + ageOf(g, ac) / 10) * (1 + 4 * ac.maint.deferred) * out * (typeOf(ac.typeId).aogMult ?? 1);
 }
 
 /**

@@ -103,7 +103,7 @@ export type ModalSpec =
   | { kind: 'sell'; aircraftId: string }
   | { kind: 'approval'; id: ApprovalId }
   | { kind: 'ladderStep'; messageId: string }
-  | { kind: 'whatsNew' }
+  | { kind: 'whatsNew'; /** v0.8 fix pack: every version (Settings), not just the unseen ones. */ all?: boolean }
   /** v0.7.1: Crew Control for a flight (a fix pre-expanded); the four-line card of a problem (hint: first-time story); the glossary. */
   | { kind: 'crewControl'; flightId: string; fix?: CrewFix }
   | { kind: 'problem'; subject: ProblemRef; hint?: boolean }

@@ -14,6 +14,7 @@ import type { ActionResult, CrewExtra, CrewMember, GameState, Minute, Role, SimE
 import { hashUnit } from '../core/util';
 import { classOf, conversionClasses, conversionEarliest, onClassItemDone, startConversion } from './conversion';
 import { crewExtraFor, rolesWithExtra } from './extraSeats';
+import { familyNeeds } from './sets';
 import { sickMult } from './morale';
 import { crewName, makeCrewMember, salaryFor } from './generate';
 import { removeCrew, rosterOf } from './roster';
@@ -330,33 +331,24 @@ export interface StaffingLine {
 }
 
 /**
- * Staffing vs need for the Crew screen: BAL.crewSetsPerAircraft complements per aircraft of the family, more for an
- * aircraft on a deployment now or within 60 days (its sets on station, one set rotating home, one spare).
+ * Staffing vs need for the Crew screen, the hire screen and the bot. v0.8 fix pack: the need is the Planning view's
+ * (sets.ts familyNeeds, one source of truth): BAL.crewSetsPerAircraft complements per aircraft of the family (more for
+ * an aircraft on a deployment), the extra crew its long work asks for and relief pilots for augmented days; without
+ * the seats a client's own cabin crew fly (mixed crew) and without aircraft away on a dry lease. Relief pilots count
+ * as first officers here (a first officer fills a relief seat).
  */
 export function staffing(g: GameState): StaffingLine[] {
-  const onStation = new Map<string, number>();
-  for (const dp of Object.values(g.deployments)) {
-    if (dp.end < g.now || dp.start > g.now + 60 * DAY) continue;
-    onStation.set(dp.aircraftId, Math.max(onStation.get(dp.aircraftId) ?? 0, dp.setsOnStation));
-  }
-  // v0.6: each aircraft's complement with its extra crew (a spare pilot is sized as a first officer).
   const fams = new Map<RatingFamily, Partial<Record<Role, number>>>();
-  for (const ac of Object.values(g.fleet)) {
-    if (ac.status === 'leasedOut') continue;
-    const f = typeOf(ac.typeId).family;
-    const sets = Math.max(BAL.crewSetsPerAircraft, (onStation.get(ac.id) ?? 0) + 2);
-    // The most extra crew its long work (30+ days) over the next 60 days asks for (a contract's own setting or paid
-    // option); a short charter's extras come out of the reserve.
-    let x = crewExtraFor(g, ac.id, null);
-    for (const k of Object.values(g.contracts)) {
-      if ((k.status !== 'signed' && k.status !== 'active') || k.end <= g.now || k.start > g.now + 60 * DAY || k.end - k.start < 30 * DAY || !k.aircraftIds.includes(ac.id)) continue;
-      const kx = crewExtraFor(g, ac.id, k.id);
-      if (kx.cabin + kx.pilot > x.cabin + x.pilot) x = kx;
+  for (const [family, f] of familyNeeds(g)) {
+    // Rounded per role as the Planning view shows them, relief pilots added to the first officers.
+    const need: Partial<Record<Role, number>> = {};
+    for (const r of ROLES) {
+      const v = Math.ceil((f.need[r] ?? 0) - 1e-9);
+      if (!v) continue;
+      const role: Role = r === 'CRP' ? 'FO' : r;
+      need[role] = (need[role] ?? 0) + v;
     }
-    const per = countRoles(rolesWithExtra(ac.typeId, ac.cabin.total, x).map((r) => (r === 'CRP' ? 'FO' : r)));
-    const need = fams.get(f) ?? {};
-    for (const r of ROLES) if (per[r]) need[r] = (need[r] ?? 0) + per[r]! * sets;
-    fams.set(f, need);
+    fams.set(family, need);
   }
   // One pass over the crew: who keeps each rating (pilots on a full course to another type lose the old one; cabin
   // crew at 3 types drop the one named in the class).

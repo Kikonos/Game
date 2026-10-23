@@ -23,11 +23,14 @@ import { spanLabel } from './screenLogic';
 import { store, useGame } from '../store';
 import { KV, ScreenHead, useRenderCount } from './common';
 import { MarketView } from './Market';
-import { layoutLabel, limitTone, unseenOffers } from './screenLogic';
+import { capFirst, hangarWord, layoutLabel, limitTone, unseenOffers } from './screenLogic';
 
 /** The type's ETOPS capability (what the engine checks) and whether the company holds an approval for it. */
 function etopsLabel(g: GameState, ac: Aircraft): string {
-  const max = typeOf(ac.typeId).etopsMax;
+  const t = typeOf(ac.typeId);
+  const max = t.etopsMax;
+  // v0.8 fix pack: four engines fly any ocean without ETOPS (the 747-400, A340, A380).
+  if (t.engines === 4) return 'not needed (four engines)';
   if (!max) return 'not capable';
   const held = Math.max(0, ...g.company.approvals.map((a) => /^etops(\d+)$/.exec(a)).map((m) => (m ? Number(m[1]) : 0)));
   const usable = Math.min(max, held);
@@ -159,7 +162,9 @@ function DryLeaseRow({ g, acId }: { g: GameState; acId: string }) {
 function AircraftCard({ g, ac, sel, least, onLeastClose }: { g: GameState; ac: Aircraft; sel: boolean; least?: LeastUsedRow; onLeastClose: () => void }) {
   const t = typeOf(ac.typeId);
   const cs = safeCheck(g, ac);
-  const [label, tone] = STATUS[ac.status];
+  const [label0, tone] = STATUS[ac.status];
+  // v0.8 fix pack: a cabin refit reads 'In refit', not 'In check'.
+  const label = ac.status === 'maintenance' ? capFirst(hangarWord(g, ac)) : label0;
   const o = ac.ownership;
   const own: [string, string][] = o.kind === 'owned'
     ? [['Owned', `book value ${money(o.bookValue)}`]]

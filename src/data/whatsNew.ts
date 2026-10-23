@@ -1,5 +1,6 @@
-// "What's new": one entry per released version, newest first. The Title screen shows the newest entry once per
-// version (settings.seenWhatsNew); Settings → What's new reopens it. Plain words for the player, not for us.
+// "What's new": one entry per released version, newest first. The Title screen shows, once, every entry newer than
+// the last one seen (settings.seenWhatsNew; a player skipping a version sees both); Settings → What's new shows them
+// all. Plain words for the player, not for us.
 
 export interface WhatsNewEntry {
   /** As shown: 'v0.7.0'. */
@@ -9,6 +10,8 @@ export interface WhatsNewEntry {
   features: string[];
   /** Fixes and smaller improvements since the previous entry (hotfixes included). */
   improvements: string[];
+  /** v0.8 fix pack: fixes from the players' reports, in a part of their own. */
+  fixes?: string[];
 }
 
 export const WHATS_NEW: WhatsNewEntry[] = [
@@ -28,6 +31,14 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     improvements: [
       'Favours and change requests now say what they do for the relationship.',
       'The timeline says when a base programme simply continues instead of ‘nothing booked’.',
+    ],
+    fixes: [
+      'Seats match passengers: a job for 166 people needs 166 seats, not 170.',
+      'A job that wants a widebody says so, and a narrowbody is no longer shown as fit for it.',
+      'No more offers with a day longer than any crew may fly.',
+      'The private jet is only offered when it gets the crew there sooner than a cheaper option.',
+      'An aircraft in a cabin refit shows ‘in refit’, not ‘in check’.',
+      'The Boeing 747-400 is back on the market: cheap to lease, thirsty, four engines, no ETOPS limits, 500 seats for Hajj.',
     ],
   },
   {
@@ -153,3 +164,21 @@ export const WHATS_NEW: WhatsNewEntry[] = [
 ];
 
 export const CURRENT = WHATS_NEW[0];
+
+/** 'v0.7.2.1' → [0, 7, 2, 1]; null when it isn't a version. */
+const parts = (v: string): number[] | null => (/^v?\d+(\.\d+)*$/.test(v) ? v.replace(/^v/, '').split('.').map(Number) : null);
+/** a newer than b (missing parts count as 0). */
+const newer = (a: number[], b: number[]) => {
+  for (let i = 0; i < Math.max(a.length, b.length); i++) if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0);
+  return false;
+};
+
+/**
+ * v0.8 fix pack: the entries the update popup shows, newest first: every one newer than the last seen version (a
+ * player jumping from v0.7.3 sees v0.8 and v0.7.4); the newest alone when nothing was seen yet; none when up to date. Pure.
+ */
+export function unseenEntries(seen: string): WhatsNewEntry[] {
+  const s = parts(seen);
+  if (!s) return [CURRENT];
+  return WHATS_NEW.filter((e) => newer(parts(e.version) ?? [0], s));
+}

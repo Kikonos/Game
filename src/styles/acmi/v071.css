@@ -183,6 +183,7 @@ button.pc-now { width: 100%; min-height: 48px; text-align: left; font: inherit; 
 .cc-preview { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border-radius: 10px; background: rgba(0, 0, 0, 0.16); border: 1px solid var(--border); }
 .cc-apply { padding-top: 2px; }
 .cc-foot-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-dominated { padding: 6px 12px; border: 1px dashed var(--border); border-radius: 10px; }
 .cc-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; padding-top: 4px; }
 .cc-legend .reason-ico { width: 18px; height: 18px; }
 @media (max-width: 1099.98px), (max-height: 499.98px) {

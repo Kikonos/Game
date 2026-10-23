@@ -44,6 +44,7 @@ export const EX_OPERATORS: Record<string, ExOperator[]> = {
   a359: [{ airline: 'Thai Airways', hub: 'BKK' }, { airline: 'Cathay Pacific', hub: 'HKG' }],
   a35u: [{ airline: 'Singapore Airlines', hub: 'SIN' }],
   b77l: [{ airline: 'Air India', hub: 'BOM' }],
+  b744: [{ airline: 'Lufthansa', hub: 'FRA' }, { airline: 'British Airways', hub: 'LHR' }, { airline: 'KLM', hub: 'AMS' }, { airline: 'Virgin Atlantic', hub: 'LGW' }],
   a388: [{ airline: 'Emirates', hub: 'DXB' }, { airline: 'Singapore Airlines', hub: 'SIN' }, { airline: 'Malaysia Airlines', hub: 'KUL' }],
 };
 

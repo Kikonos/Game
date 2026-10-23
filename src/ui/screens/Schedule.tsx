@@ -17,6 +17,7 @@ import { mapLivery } from '../map/mapLogic';
 import { liveMinute, store, useGame } from '../store';
 import { Dot, ScreenHead, useRenderCount } from './common';
 import { contractColor } from './palette';
+import { hangarWord } from './screenLogic';
 import {
   axisTicks, chooseHits, dragStart, idleAt, pickBlocks, ppmOf, pressFlight, pressMaint, rowBlocks, timelineSpan, visibleWindow, type GanttBlock, type ZoomDays,
 } from './scheduleLogic';
@@ -631,7 +632,7 @@ export function ScheduleScreen() {
             <button key={ac.id} data-ac={ac.id} className={`gantt-ac ${sel === ac.id ? 'sel' : ''}`} onClick={() => performance.now() - dragEndedAt > 450 && store.navigate('fleet', { sel: { kind: 'aircraft', id: ac.id } })}>
               <span className="row gap-8 gantt-ac-reg"><AcBadge g={g} ac={ac} /><b className="mono">{ac.reg}</b></span>
               <span className="tiny muted ellipsis">{typeOf(ac.typeId).short} · {ac.cabin.label}</span>
-              <span className="tiny ellipsis row gap-4"><Dot tone={STATUS_TONE[ac.status]} />{ac.at} · {STATUS_LABEL[ac.status]}</span>
+              <span className="tiny ellipsis row gap-4"><Dot tone={STATUS_TONE[ac.status]} />{ac.at} · {ac.status === 'maintenance' ? hangarWord(g, ac) : STATUS_LABEL[ac.status]}</span>
             </button>
           ))}
         </div>

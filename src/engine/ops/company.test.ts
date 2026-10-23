@@ -164,7 +164,7 @@ describe('approvals (v0.7 ladder)', () => {
     expect(n.etops120.state).toBe('ready');
     expect(n.widebody.state).toBe('locked');
     expect(n.widebody.blocker).toBe('Needs 90 days of operations (0 so far)');
-    expect(n.widebody.unlocksTypes).toEqual(['b763', 'a332', 'a333', 'a343']);
+    expect(n.widebody.unlocksTypes).toEqual(['b763', 'a332', 'a333', 'a343', 'b744']);
     expect(n.augmented.unlocksTypes).toEqual(['b772', 'b77w', 'a388']);
     expect(n.etops240.unlocksTypes).toEqual(['b789', 'a359', 'a35u', 'b77l']);
     expect(applyApproval(g, 'etops120').ok).toBe(true);

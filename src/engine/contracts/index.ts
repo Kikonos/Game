@@ -2,7 +2,7 @@
 
 import { flightsRev, takeRelink } from '../core/entities';
 import type { SimModule } from '../core/module';
-import type { GameState, SimEvent } from '../core/types';
+import type { Archetype, GameState, SimEvent } from '../core/types';
 import { dailyContracts, onContractEnd, onContractStart } from './accept';
 import { onFlightArrivedContracts, onMonthContracts } from './billing';
 import { loadClients, seedClients, seedRivals } from './clients';
@@ -18,6 +18,7 @@ export { cabinQuote, cabinTarget, cabinTermsText, rollCabin, termsProduct } from
 export { billContractMonth, type BillingLine } from './billing';
 export { feasibility, feasibilityAll, marketFit, offerRestLine, type MarketFit, type CheckId, type CheckLevel, type FeasibilityCheck, type FeasibilityReport, type PositioningLeg } from './feasibility';
 export { fmtPrice, generateOffer, idleWindows, type IdleWindow, type OfferOpts } from './offers';
+export { maxPax, seatNeedText } from './plan';
 export { counterOdds, counterView, type CounterOdds, type CounterView } from './counter';
 export { mghLabel, priceProduct, productValue, rateMultiplier } from './pricing';
 export { generateFlights, planPositioning, relinkPositioning } from './schedule';
@@ -53,6 +54,24 @@ function monthly(g: GameState, ev: SimEvent) {
 /** flightsRev at the last positioning relink (runtime only). */
 const relinked = new WeakMap<GameState, number>();
 
+/** v0.8 fix pack: the body jobs ask for (a widebody base or AOG cover, capacity lease, sub-charter in, Hajj, Antarctica). */
+const ASKS_BODY = new Set<Archetype>(['seasonBase', 'aogCover', 'capacityLease', 'subcharterIn', 'hajj', 'antarctic']);
+
+/**
+ * v0.8 fix pack, older saves (once): `requirements.body` used to describe the reference type of every job; it now means
+ * the client asks for one (feasibility checks it). Offers and contracts that never asked lose it (seats decide).
+ */
+function loadBodies(g: GameState): void {
+  if (g.stats.bodyAsked) return;
+  g.stats.bodyAsked = true;
+  for (const x of [...Object.values(g.offers), ...Object.values(g.contracts)]) {
+    const r = x.requirements;
+    if (!r?.body || x.product?.kind === 'dry') continue;
+    if (x.archetype === 'hajj' || (r.body === 'wide' && ASKS_BODY.has(x.archetype))) continue;
+    delete r.body;
+  }
+}
+
 export const contractsModule: SimModule = {
   name: 'contracts',
   init(g) {
@@ -61,6 +80,7 @@ export const contractsModule: SimModule = {
     // v0.8 rival styles and client records, levels and standing exactly as load sets them.
     loadRivals(g);
     loadRelations(g);
+    g.stats.bodyAsked = true;
     openingOffers(g);
     scheduleNextOffer(g);
   },
@@ -71,6 +91,7 @@ export const contractsModule: SimModule = {
     loadRivals(g);
     loadRelations(g);
     loadCounters(g);
+    loadBodies(g);
   },
   /** Keeps empty legs linking commitments after any flight change (delays, swaps, cancellations by other modules). */
   settle(g, full) {

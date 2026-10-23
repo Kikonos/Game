@@ -23,7 +23,7 @@ import { cabinAt, layoutName, layoutsOf } from './cabin';
 import { aircraftGate } from './company';
 import { paysFuel } from './flights';
 import { isGrounded, relinkCheckFerries } from './maintenance';
-import { ageOf, isRevenue } from './util';
+import { ageOf, an, bodyText, isRevenue, typeWord } from './util';
 
 /** Legs of a trip are on the ground at most this long between them (an overnight stop at most). */
 export const TRIP_LINK_MAX = 18 * 60;
@@ -151,8 +151,6 @@ function tripNeed(g: GameState, typeId: string, rest: ReturnType<typeof restOf>,
 }
 
 /** 'A330', '737', 'A321' (the plain type name a player says), from 'Airbus A330-200'. */
-const typeWord = (typeId: string) => { const t = typeOf(typeId); return t.name.match(/\b(A\d{3}|[1-9]\d7)\b/)?.[1] ?? t.short; };
-const an = (w: string) => (/^(A|E|F|H|I|L|M|N|O|R|S|X|8|11|18)/i.test(w) ? 'An' : 'A');
 const km = (a: string, b: string) => `${Math.round(distance(a, b) / 100) * 100 >= 1000 ? (Math.round(distance(a, b) / 100) * 100).toLocaleString('en-US') : Math.round(distance(a, b))} km`;
 /** '20h 00m' up to two days, then '20 days' / '3 days 4h'. */
 const span = (min: number) => (min < 2 * DAY ? fmtDuration(min) : `${Math.floor(min / DAY)} days${Math.floor((min % DAY) / 60) ? ` ${Math.floor((min % DAY) / 60)}h` : ''}`);
@@ -186,7 +184,7 @@ function requirementGaps(g: GameState, c: Contract, src: Aircraft, tgt: Aircraft
   if (want && !want.includes(cab.layout)) out.push(`The client asked for ${want.map(layoutName).join(' or ')} seats; ${tgt.reg} is ${layoutName(cab.layout)}`);
   else if (req.minPremium && cab.j + cab.w < req.minPremium) out.push(`The client asked for ${req.minPremium}+ business seats; ${tgt.reg} has ${cab.j + cab.w || 'none'}`);
   if (req.families?.length && !req.families.includes(t.family)) out.push(`The client only takes ${req.families.join(' or ')} aircraft; ${tgt.reg} is ${an(typeWord(tgt.typeId)).toLowerCase()} ${typeWord(tgt.typeId)}`);
-  if (req.body && req.body !== t.body) out.push(`The client asked for a ${req.body === 'wide' ? 'widebody' : 'narrowbody'}; ${tgt.reg} is ${t.body === 'wide' ? 'a widebody' : 'a narrowbody'}`);
+  if (req.body && req.body !== t.body) out.push(bodyText(req.body, tgt.reg, tgt.typeId));
   if (c.paint?.accepted && src.paintedFor === c.id && tgt.paintedFor !== c.id) out.push(`The client's livery is on ${src.reg}; ${tgt.reg} is in ${tgt.paintedFor ? 'another client’s' : 'our'} colours`);
   const gate = aircraftGate(g, tgt.typeId);
   if (!gate.ok || gate.pending.length) out.push(`The ${typeWord(tgt.typeId)} can't fly passengers for us yet: ${gate.text.split(':')[0].toLowerCase()}`);

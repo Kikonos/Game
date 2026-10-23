@@ -20,7 +20,7 @@ const AMBIENT: [string, string][] = [
   ['PEK', 'CDG'], ['BOM', 'DXB'], ['CAI', 'FRA'], ['GRU', 'EZE'], ['SEA', 'ANC'], ['DEN', 'ORD'], ['MNL', 'NRT'],
 ];
 
-const SHOWCASE = ['a320ceo', 'b738', 'b752', 'b763', 'a333', 'b772', 'b77w', 'a359', 'a388'];
+const SHOWCASE = ['a320ceo', 'b738', 'b752', 'b763', 'a333', 'b772', 'b77w', 'b744', 'a359', 'a388'];
 
 function useOffline() {
   return useSyncExternalStore(

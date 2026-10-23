@@ -87,6 +87,8 @@ export interface CrewSolution {
   confirm: boolean;
   preview: FixPreview;
   options?: FixOption[];
+  /** v0.8 fix pack: a private jet that can't leave sooner than a cheaper fix: not offered (one muted line, `why`). */
+  dominated?: boolean;
 }
 
 export interface CrewControlView {
@@ -1162,6 +1164,22 @@ function previewOf(g: GameState, x: Ctx, fix: CrewFix, opts: ApplyOpts, before: 
 
 const empty = (x: Ctx): FixPreview => ({ changes: [], after: { level: x.cs.level, missing: x.need }, ripple: [] });
 
+const possessiveName = (n: string) => (/s$/i.test(n) ? `${n}'` : `${n}'s`);
+
+/**
+ * v0.8 fix pack: why a private jet is not offered: 'A jet would land after TP 1541 (16:12 vs 14:45): not offered' when
+ * the cheaper fix waits for that airline flight, else 'A jet would leave no sooner than the delay (18:15 vs 16:45)'. Pure.
+ */
+function jetBeaten(g: GameState, x: Ctx, beat: CrewSolution, jetLands: Minute, jetLeaves: Minute): string {
+  const reach = beat.id === 'delay' ? crewShortCard(g, x.f.id)?.visuals.reach : undefined;
+  const leg = reach?.legs[reach.legs.length - 1];
+  if (leg && jetLands >= leg.arr) return `A jet would land after ${leg.no} (${at(jetLands, g.now)} vs ${at(leg.arr, g.now)}): not offered`;
+  const tk = beat.id === 'deadhead' ? beat.options?.[0] : undefined;
+  if (tk?.arrives !== undefined && jetLands >= tk.arrives) return `A jet would land after ${possessiveName(tk.label.split(' · ')[0])} airline ticket (${at(jetLands, g.now)} vs ${at(tk.arrives, g.now)}): not offered`;
+  const what = beat.id === 'delay' ? 'the delay' : beat.id === 'deadhead' ? 'a crew on a ticket' : beat.id === 'callIn' ? 'calling someone in' : 'the auto-fix';
+  return `A jet would leave no sooner than ${what} (${at(jetLeaves, g.now)} vs ${at(beat.newDeparture ?? x.f.std, g.now)}): not offered`;
+}
+
 /** The nine solutions (available first, ranked) for the flight; `previews` false skips the copies (availability only). */
 function solutionsFor(g: GameState, x: Ctx, previews: boolean, only?: readonly CrewFix[]): CrewSolution[] {
   const { f, ac, d, p } = x;
@@ -1325,7 +1343,16 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean, only?: readonly C
         s.confirm = true;
         // Jet + rest only when the airline ticket with the same night's rest would leave later (else that is Delay).
         const dp = rest ? delayPlan(g, x) : null;
+        // v0.8 fix pack: no jet when a cheaper fix (auto-fix, a ticket, a call-in, the delay) leaves as soon, with
+        // the fastest jet class at the cheapest price: one muted line says why instead.
+        const leavesAt = (arr: Minute) => (rest ? s.newDeparture! : arr + OUT_CONNECT - d.report > 0 ? ceil5(f.std + arr + OUT_CONNECT - d.report) : f.std);
+        const fastest = Math.min(...s.options.map((o) => o.arrives ?? Infinity), auto.arrives);
+        const cheapest = Math.min(...s.options.map((o) => o.cost), auto.cost);
+        const jetLeaves = leavesAt(fastest);
+        // The airline story first (the delay waits for a named flight, a ticket lands sooner), then auto-fix and call-in.
+        const beat = (['delay', 'deadhead', 'autoFix', 'callIn'] as const).map((id) => out.find((o) => o.id === id)).find((o) => !!o && o.available && !BAD(o.preview.after.level) && o.cost < cheapest && (o.newDeparture ?? f.std) <= jetLeaves);
         if (rest && dp && dp.at <= s.newDeparture!) out.push(no({ ...s, cost: 0, chips: [], newDeparture: null, consequences: [] }, 'An airline ticket and a night\'s rest get a crew there just as soon: use Delay until crew arrives'));
+        else if (beat) out.push({ ...no({ ...s, cost: 0, chips: [], newDeparture: null, consequences: [], options: undefined }, jetBeaten(g, x, beat, fastest, jetLeaves)), dominated: true });
         else out.push(run(s, rest ? { at: s.newDeparture! } : {}));
       }
     }
@@ -1395,7 +1422,8 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean, only?: readonly C
     const rip = s.preview.ripple.reduce((n, l) => n + (l.tone === 'bad' ? 20_000 : 2_000), 0);
     return bad + s.cost + (s.preview.extraCost ?? 0) + late + rip + (s.id === 'cancel' ? x.pax * 500 : 0);
   };
-  const ranked = [...out].sort((a, b) => Number(b.available) - Number(a.available) || score(a) - score(b) || FIX_ORDER.indexOf(a.id) - FIX_ORDER.indexOf(b.id));
+  // A jet not offered (v0.8 fix pack) goes last: the panel shows it as one muted line under the rows.
+  const ranked = [...out].sort((a, b) => Number(!!a.dominated) - Number(!!b.dominated) || Number(b.available) - Number(a.available) || score(a) - score(b) || FIX_ORDER.indexOf(a.id) - FIX_ORDER.indexOf(b.id));
   ranked.forEach((s, i) => (s.rank = i + 1));
   return ranked;
 }

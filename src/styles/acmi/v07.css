@@ -131,6 +131,8 @@ button.ld-node { cursor: pointer; font: inherit; }
 
 /* What's new (Title pop-up + Settings → What's new) */
 .wn-modal.modal { width: min(620px, 100%); }
+.wn-version { font-size: 17px; padding-top: 4px; border-top: 1px solid var(--border); }
+.wn-entry:first-child .wn-version { border-top: 0; padding-top: 0; }
 .wn-head { display: flex; align-items: center; gap: 8px; font-weight: 600; }
 .wn-head svg { width: 18px; height: 18px; }
 .wn-list { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; line-height: 1.4; }

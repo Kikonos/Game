@@ -21,6 +21,7 @@ import { anchorsOf, route, routeMinutes, type Anchor } from '../contracts/plan';
 import { settle } from '../sim';
 import { refitQuote, restRefitQuote, restSeatsQuote } from './cabin';
 import { bookCCheck, cCheckOptions, cCheckSlots } from './cHub';
+import { maintWord } from './util';
 import { cancelCheck, checkAirportOk, checkStatus, checkUsedAt, durationOf, groundGaps, relinkCheckFerries, scheduleCheck } from './maintenance';
 
 /** Drag positions snap to this (minutes). */
@@ -31,9 +32,8 @@ export const WARN_AT = 0.9;
 export type UsageLevel = 'good' | 'warn' | 'bad';
 export const usageLevel = (used: number): UsageLevel => (used > 1 ? 'bad' : used > WARN_AT ? 'warn' : 'good');
 
+export { maintWord };
 const city = (code: string) => AIRPORT_BY_CODE[code]?.city ?? code;
-/** 'A-check', 'C-check', 'cabin refit', 'crew rest refit' (v0.7.3), 'crew rest seats' (an older v0.7.2 booking). */
-export const maintWord = (m: MaintenanceEvent) => (m.kind === 'refit' ? (m.restFit ? 'crew rest refit' : m.refit?.restSeats !== undefined ? 'crew rest seats' : 'cabin refit') : `${m.kind}-check`);
 const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
 const when = (t: Minute) => `${fmtDay(t)} ${fmtTime(t)}`;
 
@@ -136,7 +136,7 @@ export function checkMaintMove(g: GameState, maintId: string, start: Minute): Ma
   }
   for (const o of Object.values(g.maintenance)) {
     if (o.id === m.id || o.aircraftId !== ac.id || (o.status !== 'planned' && o.status !== 'inWork')) continue;
-    if (o.start < busyTo && o.end > busyFrom) return no(`It would overlap the ${o.kind === 'A' || o.kind === 'C' ? `${o.kind}-check` : o.kind === 'refit' ? 'cabin refit' : o.kind} ${fmtDay(o.start)}–${fmtDay(o.end)}`);
+    if (o.start < busyTo && o.end > busyFrom) return no(`It would overlap the ${maintWord(o)} ${fmtDay(o.start)}–${fmtDay(o.end)}`);
   }
   for (const c of Object.values(g.contracts)) {
     if ((c.status !== 'signed' && c.status !== 'active') || c.pattern.kind !== 'base' || !c.aircraftIds.includes(ac.id) || c.generatedUntil >= c.pattern.to) continue;

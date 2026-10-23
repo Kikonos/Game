@@ -198,7 +198,7 @@ export function CrewControlModal({ flightId, fix }: { flightId: string; fix?: Cr
         <div className="cc-right">
           <div className="upper dim cc-sol-head">Solutions · best first</div>
           <div className="cc-rows">
-            {view.solutions.map((x) => {
+            {view.solutions.filter((x) => !x.dominated).map((x) => {
               const isOpen = open === x.id;
               const ids = sel(x);
               const multi = MULTI.includes(x.id);
@@ -260,6 +260,8 @@ export function CrewControlModal({ flightId, fix }: { flightId: string; fix?: Cr
               );
             })}
           </div>
+          {/* v0.8 fix pack: a private jet that can't beat a cheaper fix is one muted line, not a row. */}
+          {view.solutions.filter((x) => x.dominated).map((x) => <div key={x.id} className="small dim cc-dominated" data-fix={x.id}>{x.why}</div>)}
           <div className="tiny dim cc-legend"><ReasonIcon code="place" /> wrong place · <ReasonIcon code="rest" /> needs rest · <ReasonIcon code="fdp" /> day too long · <ReasonIcon code="busy" /> busy · <ReasonIcon code="sick" /> sick · <ReasonIcon code="rating" /> not rated · <ReasonIcon code="leave" /> on leave · <ReasonIcon code="hours" /> out of hours</div>
         </div>
       </div>

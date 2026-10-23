@@ -181,10 +181,16 @@ const UNLOVED = new Set(['a343', 'b752']);
 
 /**
  * Reference type (DESIGN §5.1.3): the cheapest available shortlist type with a cabin preset that meets the seat
- * range (and layout, family) and that can fly every sector (with fuel stops unless noTechStops / noStops).
+ * range (and layout, family, body) and that can fly every sector (with fuel stops unless noTechStops / noStops).
  * Unloved old types (A340-300, 757-200) only when no mainstream type fits.
  */
-type RefReq = Pick<Requirements, 'minSeats' | 'maxSeats' | 'layout' | 'families' | 'noTechStops' | 'layouts' | 'minPremium'>;
+type RefReq = Pick<Requirements, 'minSeats'> & Partial<Pick<Requirements, 'maxSeats' | 'layout' | 'families' | 'noTechStops' | 'layouts' | 'minPremium' | 'body'>>;
+
+/** The most seats a narrowbody cabin preset has (the 757-200's 235Y). */
+const NB_MAX_SEATS = Math.max(...ACMI_TYPES_LIST.filter((t) => t.body === 'narrow' && t.available).flatMap((t) => t.cabins.map((c) => c.j + c.w + c.y)));
+
+/** v0.8 fix pack: a widebody job: the client asks for one, or no narrowbody cabin seats it. Pure. */
+export const isWideJob = (req: Pick<Requirements, 'minSeats' | 'body'>): boolean => (req.body ? req.body === 'wide' : req.minSeats > NB_MAX_SEATS);
 
 export function referenceType(req: RefReq, sectors: [string, string][], noStops = false, ulr = false): string | null {
   return refPass(req, sectors, noStops, false, ulr) ?? refPass(req, sectors, noStops, true, ulr);
@@ -197,6 +203,8 @@ function refPass(req: RefReq, sectors: [string, string][], noStops: boolean, unl
   for (const t of ACMI_TYPES_LIST) {
     if (!t.available || (t.ulr && !ulr) || UNLOVED.has(t.id) !== unloved) continue;
     if (req.families?.length && !req.families.includes(t.family)) continue;
+    // v0.8 fix pack: the body the client asks for (a widebody base, Hajj, Antarctica).
+    if (req.body && req.body !== t.body) continue;
     const fits = (layouts?.includes('vip') ? cabinPresets(t.id) : t.cabins).some((c) => {
       const seats = c.j + c.w + c.y;
       return seats >= req.minSeats && (!req.maxSeats || seats <= req.maxSeats) && (!layouts || layouts.includes(c.layout)) && (!req.minPremium || c.j + c.w >= req.minPremium);

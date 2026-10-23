@@ -13,20 +13,20 @@ import { dutyNeed, type ChainShape, type DutyNeed } from '../crew/duties';
 import { restOf } from '../crew/restPlan';
 import { minRest } from '../crew/rules';
 import { dhBlock } from '../crew/timeline';
-import { A_CHECK_DAYS, anchorsOf, chainForward, chainsOf, CHARTER_SLACK, DEPLOY_LEAD, gapMoves, longestChains, programmeOf, type Anchor, type ChainLeg, type Programme, type Trip } from './plan';
+import { A_CHECK_DAYS, anchorsOf, chainForward, chainsOf, CHARTER_SLACK, DEPLOY_LEAD, gapMoves, longestChains, maxPax, programmeOf, type Anchor, type ChainLeg, type Programme, type Trip } from './plan';
 import { afterRefit, cabinAt, cabinFits, cabinOf, layoutsOf, refitTip, restAfterRefit, restRefitOptions } from '../ops/cabin';
 import { aircraftGate, APPROVALS, gateApprovals, ratedPilots } from '../ops/company';
 import { deliveryQuote } from '../ops/delivery';
 import { paintQuote, paintWindow, type PaintSlot } from './paintTerms';
 import { cabinQuote, cabinTarget, termsProduct } from './cabinTerms';
 import { clientCabinSlot } from '../ops/clientCabin';
-import { usd } from '../ops/util';
+import { bodyText, maintWord, usd } from '../ops/util';
 import { possessive } from './flavor';
 import { productValue, tripTickets } from './pricing';
 import { v08Lines } from './missionChecks';
 import { dryFeasibility } from '../ops/dryLease';
 
-export type CheckId = 'seats' | 'layout' | 'family' | 'range' | 'runway' | 'etops' | 'approvals' | 'availability' | 'maintenance' | 'crew' | 'positioning' | 'lease' | 'paint' | 'restSeats' | /** v0.7.3 */ 'rest'
+export type CheckId = 'seats' | 'layout' | 'family' | /** v0.8 fix pack */ 'body' | 'range' | 'runway' | 'etops' | 'approvals' | 'availability' | 'maintenance' | 'crew' | 'positioning' | 'lease' | 'paint' | 'restSeats' | /** v0.7.3 */ 'rest'
   /** v0.7.4 client cabin request */ | 'cabinReq'
   /** v0.8 */ | 'mission' | 'warRisk' | 'airspace' | 'clientCrew' | 'dryLease';
 export type CheckLevel = 'ok' | 'warn' | 'no';
@@ -102,7 +102,7 @@ function returnFrom(g: GameState, ac: Aircraft): Minute | null {
 function describe(g: GameState, a: Anchor): string {
   if (a.kind === 'maint') {
     const m = g.maintenance[a.id];
-    return m ? `${m.kind === 'AOG' ? 'AOG repair' : m.kind === 'paint' ? 'paint shop' : `${m.kind}-check`} at ${m.at} ${fmtDay(m.start)}–${fmtDay(m.end)}` : 'maintenance';
+    return m ? `${maintWord(m)} at ${m.at} ${fmtDay(m.start)}–${fmtDay(m.end)}` : 'maintenance';
   }
   const c = a.contractId ? g.contracts[a.contractId] : undefined;
   if (c) return `${c.title} (${fmtDay(a.std)}–${fmtDay(a.sta)})`;
@@ -256,14 +256,19 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   const cab = changing ? cabinOf(target!) : cab0;
   const after = changing ? ' after the client’s reconfiguration' : refitEnd !== null ? ` ${afterRefit(refitEnd)}` : '';
   const seats = cab.total;
-  if (seats < req.minSeats) add('seats', 'no', `${seats} seats${after}: the client needs at least ${req.minSeats}`);
+  // v0.8 fix pack: seats = passengers ('168 seats: the client needs 170 (170 passengers)', '180 seats for 166 passengers').
+  const pax = maxPax(o.pattern);
+  const st = req.stretchers ? ` and ${req.stretchers} stretcher${req.stretchers === 1 ? '' : 's'}` : '';
+  if (seats < req.minSeats) add('seats', 'no', `${seats} seats${after}: the client needs ${pax ? `${req.minSeats} (${pax} passengers${st})` : `${req.minSeats}+`}`);
   else if (req.maxSeats && seats > req.maxSeats) add('seats', 'no', `${seats} seats${after}: the client wants at most ${req.maxSeats}`);
-  else add('seats', 'ok', `${seats} seats${after} (client needs ${req.minSeats}+)`);
+  else add('seats', 'ok', pax ? `${seats} seats${after} for ${pax} passengers${st}` : `${seats} seats${after} (client needs ${req.minSeats}+)`);
+  // v0.8 fix pack: the body the client asks for (a widebody base, Hajj, Antarctica); no refit changes it.
+  const bodyNo = !!req.body && req.body !== t.body;
   const wantL = layoutsOf(req);
   const layoutNo = !!wantL && !wantL.includes(cab.layout);
   const premiumNo = !!req.minPremium && cab.j + cab.w < req.minPremium;
   if (layoutNo || premiumNo) {
-    const tip = refitTip(g, ac, req);
+    const tip = bodyNo ? null : refitTip(g, ac, req);
     const names = (wantL ?? []).map((l) => LAYOUT_NAME[l]);
     const list = names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}` : names[0] ?? '';
     const label = layoutNo
@@ -272,8 +277,9 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
     rep.checks.push({ id: 'layout', level: 'no', label, detail: tip?.text ?? 'No cabin layout of this type meets it.', ...(tip ? { action: { kind: 'refit' as const, layout: tip.layout } } : {}) });
     rep.level = 'no';
   } else add('layout', 'ok', `Cabin ${cab.label}${after}`);
+  if (bodyNo) add('body', 'no', bodyText(req.body!, ac.reg, ac.typeId));
   if (req.families?.length && !req.families.includes(t.family)) add('family', 'no', `The client only takes ${req.families.join(' or ')}-family aircraft (crew commonality)`);
-  else add('family', 'ok', `${t.name}`);
+  else if (!bodyNo) add('family', 'ok', `${t.name}`);
 
   // 4–5. Range and runways, sector by sector.
   const prog = programmeOf(o, ac.typeId);
@@ -650,7 +656,7 @@ export function marketFit(g: GameState, offerId: string): MarketFit | null {
     const deliversBy = deliveryQuote(g, m.typeId, m.site ?? g.company.homeBase, g.now + m.leadDays * DAY).homeBy;
     if (deliversBy > o.start - 7 * DAY || (best && deliversBy >= best.deliversBy)) continue;
     if (m.cabin.total < req.minSeats || (req.maxSeats && m.cabin.total > req.maxSeats)) continue;
-    if (!cabinFits(m.cabin, req) || (req.families?.length && !req.families.includes(t.family))) continue;
+    if (!cabinFits(m.cabin, req) || (req.families?.length && !req.families.includes(t.family)) || (req.body && req.body !== t.body)) continue;
     if (!sectors.every(([a, b]) => {
       const sp = planSector(t.id, a, b);
       return sp.ok && (!noStops || !sp.techStops.length);
@@ -704,7 +710,7 @@ export function ulrNeed(g: GameState, home: string, far: string, out: Minute, ba
 }
 
 /** The programme's chains cut at the home base (a crew change) as well as at night stops: the 5 longest. */
-function crewChains(g: GameState, chains: ChainShape[]): ChainShape[] {
+export function crewChains(g: GameState, chains: ChainShape[]): ChainShape[] {
   const home = g.company.homeBase;
   return longestChains(chains.flatMap((c) => chainsOf(c.legs.map((l, i) => ({ std: l.std, sta: l.sta, from: l.from ?? (i ? '?' : c.from), to: l.to ?? '?' })), home)));
 }

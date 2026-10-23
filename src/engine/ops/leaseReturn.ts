@@ -19,7 +19,7 @@ import { layoutName, reinstateCost } from './cabin';
 import type { DeliveryLeg } from './delivery';
 import { settleDeparture } from './finance';
 import { scheduleCheck } from './maintenance';
-import { usd } from './util';
+import { maintWord, usd } from './util';
 
 export interface ReturnQuote { site: string; lines: { label: string; amount: number }[]; total: number; deposit: number; checkDays: number; ferry: DeliveryLeg[] }
 export type LeaseChoice = 'extend12' | 'extend36' | 'return';
@@ -61,7 +61,7 @@ export function earlyReturnQuote(g: GameState, aircraftId: string, end?: Minute)
   // Signed work that keeps it busy: legs (not soft positioning), checks, base programmes.
   const work: { end: Minute; what: string; contractId: string | null }[] = [];
   for (const f of flightsOf(g, ac.id)) if ((f.status === 'scheduled' || f.status === 'enroute') && f.kind !== 'positioning') work.push({ end: f.eta ?? f.sta, what: `${f.no} ${f.from}–${f.to}`, contractId: f.contractId });
-  for (const m of Object.values(g.maintenance)) if (m.aircraftId === ac.id && (m.status === 'planned' || m.status === 'inWork')) work.push({ end: m.end, what: `${m.kind === 'A' || m.kind === 'C' ? `${m.kind}-check` : m.kind} ${fmtDay(m.start)}`, contractId: null });
+  for (const m of Object.values(g.maintenance)) if (m.aircraftId === ac.id && (m.status === 'planned' || m.status === 'inWork')) work.push({ end: m.end, what: `${maintWord(m)} ${fmtDay(m.start)}`, contractId: null });
   for (const c of Object.values(g.contracts)) if ((c.status === 'signed' || c.status === 'active') && c.aircraftIds.includes(ac.id)) work.push({ end: c.pattern.kind === 'base' ? c.pattern.to : c.end, what: c.title, contractId: c.id });
   const busyEnd = Math.max(0, ...work.map((x) => x.end));
   const e = end ?? Math.max(earliest, Math.ceil((busyEnd + ferryMin + checkDays * DAY) / DAY) * DAY + 12 * 60);

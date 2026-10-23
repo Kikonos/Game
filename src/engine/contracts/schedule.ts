@@ -199,7 +199,8 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
   if (!nodes.length) return [];
   const soft = liveFlightsOf(g, aircraftId).filter((f) => isSoft(g, f));
   // Gaps between non-overlapping nodes.
-  const gaps: { a: Anchor; b: Anchor | null; legs: Flight[] }[] = [];
+  type Gap = { a: Anchor; b: Anchor | null; legs: Flight[] };
+  const gaps: Gap[] = [];
   let cur = nodes[0];
   for (let i = 1; i < nodes.length; i++) {
     const b = nodes[i];
@@ -213,7 +214,17 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
   gaps.push({ a: cur, b: null, legs: [] });
   // A leg belongs to the gap it starts in; a late leg out of a gap's start airport (planned forward, after the
   // next commitment's first departure) still belongs to that gap, so a second pass keeps it (fixed point).
-  for (const f of soft) (gaps.find((x) => x.b && (f.std < x.b.std || (f.from === x.a.to && f.std < x.b.sta))) ?? gaps[gaps.length - 1]).legs.push(f);
+  // v0.8 fix pack: so do the later legs of a late chain with a fuel stop (LGW–KAN–LAD landing after the next
+  // departure): read alone, KAN–LAD fell in another gap, the chain looked broken and was re-planned on every
+  // settle, thousands of times (a player's aircraft back from an AOG; its crews ticketed each time).
+  let prev = null as { f: Flight; gap: Gap } | null;
+  for (const f of [...soft].sort((x, y) => x.std - y.std)) {
+    let gap: Gap = gaps.find((x) => x.b && (f.std < x.b.std || (f.from === x.a.to && f.std < x.b.sta))) ?? gaps[gaps.length - 1];
+    const pg: Gap | undefined = prev?.gap;
+    if (prev && pg && pg !== gap && pg.b && prev.f.to === f.from && prev.f.to !== pg.b.from && f.std >= prev.f.sta && f.std < pg.b.sta + DAY) gap = pg;
+    gap.legs.push(f);
+    prev = { f, gap };
+  }
   const created: Flight[] = [];
   const remove: string[] = [];
   const add = (chain: ChainLeg[], contractId: string | null) => {

@@ -82,6 +82,8 @@ export interface AcmiType {
   yAbreast: number;
   /** v0.7.2 pursers per crew (2 on two-deck types: the deputy works the upper deck); default 1. */
   pursers?: 1 | 2;
+  /** v0.8 fix pack: AOG risk on top of the airframe's age (old four-engine systems: the 747-400 × 1.3); default 1. */
+  aogMult?: number;
 }
 
 /** v0.7.3 per-type crew rest (shares are estimates for the ACMI/charter used market; audit §B2). v0.7.4: bunks come as a pair. */
@@ -228,11 +230,14 @@ export const ACMI_TYPES_LIST: AcmiType[] = [
     aCheckFH: 1000, aCheckHours: 24, cCheckMonths: 24, cCheckDays: 28, pilotsPerAircraft: 20, scarcity: 0.9, available: true, rest: TR(1, 'ccrc', 14, null, false, null), yAbreast: 10, pursers: 2,
   },
   {
-    id: 'b744', name: 'Boeing 747-400', short: 'B744', family: 'B747', body: 'wide', engines: 4, catalog: 'b744', art: 'b744', tier: 3,
+    // v0.8 fix pack: on the market again (the player asked for it). The cheap, thirsty, old four-engine widebody that
+    // goes anywhere: no ETOPS limits, the Hajj / UN / troop charter favourite (500Y), built until 2009, about 7,000 nm
+    // with a full load, AOG-prone with age. Tier 2: Widebody operations is the only rung (four engines need no ETOPS).
+    id: 'b744', name: 'Boeing 747-400', short: 'B744', family: 'B747', body: 'wide', engines: 4, catalog: 'b744', art: 'b744', tier: 2,
     cabins: [c('24J/426Y', 'two-class', 24, 0, 426), c('500Y', 'all-economy', 0, 0, 500)], maxSeats: 660,
-    rangeNm: 6500, cruiseKt: 490, turnMin: 120, cockpitMin: 2, cabinTypical: 13, restClass: 1, etopsMax: 0, minRunwayM: 3200,
-    rateBH: 11_000, fuelTBH: 10.5, maintBH: 3000, rentMonth: 150_000, lastYear: 2009, valueUsed: 8_000_000, insuranceMonth: 90_000,
-    aCheckFH: 600, aCheckHours: 24, cCheckMonths: 18, cCheckDays: 28, pilotsPerAircraft: 18, scarcity: 1, available: false, rest: TR(0.9, 'ccrc', 10, { rowsLost: 2, places: 9, fc: 2 }, false, 'overhead'), yAbreast: 10, pursers: 2,
+    rangeNm: 7000, cruiseKt: 490, turnMin: 120, cockpitMin: 2, cabinTypical: 13, restClass: 1, etopsMax: 0, minRunwayM: 3200,
+    rateBH: 11_000, fuelTBH: 10.5, maintBH: 3000, rentMonth: 150_000, firstYear: 1989, lastYear: 2009, valueUsed: 8_000_000, insuranceMonth: 90_000,
+    aCheckFH: 600, aCheckHours: 24, cCheckMonths: 18, cCheckDays: 28, pilotsPerAircraft: 18, scarcity: 0.55, available: true, aogMult: 1.3, rest: TR(0.9, 'ccrc', 10, { rowsLost: 2, places: 9, fc: 2 }, false, 'overhead'), yAbreast: 10, pursers: 2,
   },
 ];
 

@@ -13,7 +13,7 @@ import { setPrice } from './accept';
 import { isBigClub, isGovernment } from './clients';
 import type { PositioningLeg } from './feasibility';
 import { anchorsOf, DEPLOY_LEAD, route, routeMinutes, timeChain } from './plan';
-import { productValue } from './pricing';
+import { isWideJob, productValue } from './pricing';
 
 export interface PaintSlot {
   shop: string;
@@ -71,7 +71,7 @@ export function rollPaint(game: GameState, o: ContractOffer, force?: { kind: Pai
   const req = force ? { kind: force.kind, required: force.required ?? chance(g, 0.5) } : requestFor(g, o, client);
   if (!req) return undefined;
   const P = BAL.paint;
-  const w = o.requirements.body === 'wide' ? 1 : 0;
+  const w = isWideJob(o.requirements) ? 1 : 0;
   const leadDays = (o.start - game.now) / DAY;
   let kind = req.kind;
   let days = kind === 'full' ? int(g, P.full.days[w][0], P.full.days[w][1]) : int(g, P.decals.days[0], P.decals.days[1]);

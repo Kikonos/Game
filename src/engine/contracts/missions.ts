@@ -24,7 +24,7 @@ import { acceptOffer } from './accept';
 import { clientPrefix, clientsOf, ministry, roleOf } from './clients';
 import * as F from './flavor';
 import {
-  airportsWithin, atLocal, city, generateOffer, hookFor, idleWindows, inMarket, km, listCities, nearClient, perks, pickN, pickStart, seasonBaseDraft, standingOf,
+  airportsWithin, atLocal, city, generateOffer, hookFor, idleWindows, inMarket, km, listCities, nearClient, needsWide, newcomerNarrow, perks, pickN, pickStart, seasonBaseDraft, standingOf,
   type Ctx, type Draft, type IdleWindow,
 } from './offers';
 import { feasibility } from './feasibility';
@@ -61,11 +61,15 @@ function hajj(ctx: Ctx): Draft | null {
   if (!h) return null;
   const client = nearClient({ ...ctx, window: undefined }, clientsOf(g, ['airline', 'government'], (c) => roleOf(c) === 'hajj' || HAJJ_CLIENTS.has(c.name)));
   if (!client) return null;
-  const pool = (client.country === 'SA' ? Object.values(HAJJ_ORIGINS).flat() : HAJJ_ORIGINS[client.country] ?? [client.base]).filter(exists);
+  // v0.8 fix pack: a Newcomer without a widebody flies its Hajj from origins a narrowbody reaches (North and West Africa).
+  const narrowOnly = !ctx.wide && newcomerNarrow(g);
+  const pool = (client.country === 'SA' ? Object.values(HAJJ_ORIGINS).flat() : HAJJ_ORIGINS[client.country] ?? [client.base]).filter((c) => exists(c) && (!narrowOnly || km(c, 'JED') <= 4500));
   const origin = o.airport ?? (pool.length ? pick(g, pool) : null);
   if (!origin) return null;
   const wide = ctx.wide || km(origin, 'JED') > 4500;
-  const pax = wide ? int(g, 300, 330) : int(g, 180, 186);
+  // v0.8 fix pack: a max-seat all-economy cabin, every seat filled (the passengers are the seats): 180 on an A320,
+  // 300–500 on a widebody (440 an A330-300's, 500 a 747-400's Hajj cabin).
+  const pax = wide ? weightedPick(g, [[300, 0.4], [330, 0.3], [440, 0.2], [500, 0.1]] as const, ([, w]) => w)![0] : 180;
   const legs: LegTemplate[] = [];
   const prefix = clientPrefix(client.name);
   let no = 3000 + int(g, 0, 50) * 10;
@@ -103,7 +107,7 @@ function hajj(ctx: Ctx): Draft | null {
     blurb: `${client.name}: Hajj ${h.ah} airlift ${origin}–JED/MED for about ${pax} pilgrims a flight. In: ${tn(...terms[0])}; home: ${tn(...terms[1])}. ` +
       `${daily ? 'One rotation a day, turning at the holy city' : 'A rotation every other day, night-stopping at the holy city'}; every other leg flies empty, and the client pays those hours too. Max-seat cabin, no alcohol on board, Zamzam water in the hold on the way home.`,
     pattern: { kind: 'legs', legs },
-    req: { minSeats: wide ? 300 : 180, layouts: ['all-economy'], extraCabin: 0, approvals: [], body: wide ? 'wide' : 'narrow' },
+    req: { minSeats: pax, layouts: ['all-economy'], extraCabin: 0, approvals: [], body: wide ? 'wide' : 'narrow' },
     start: first, end: last.dep + DAY, expiresIn: range(g, 5, 10) * DAY,
     wet: true, mult: V.arch.hajj[june ? 1 : 0], mghPerMonth: mgh, terms,
     effects: { morale: 2 }, risk: { disruption: 0.2, politics: 0.1, permit: 0.15 }, dueDays: client.kind === 'government' ? 30 : undefined,
@@ -146,7 +150,7 @@ function unRotation(ctx: Ctx): Draft | null {
     blurb: `${client.name}: ${n} troop rotations ${city(tcc)}–${city(mission)} for ${ms}, one every ${every} days or so for ${months} months from ${fmtDay(legs[0].dep)}. ` +
       `Contingents of about ${pax} with 100 kg of baggage each; the UN registers only audited operators (IOSA) and pays 30 days after each invoice.`,
     pattern: { kind: 'legs', legs },
-    req: { minSeats: wide ? 300 : 174, layouts: ['all-economy'], extraCabin: 0, approvals: ['iosa'] },
+    req: { minSeats: pax, layouts: ['all-economy'], extraCabin: 0, approvals: ['iosa'] },
     start: legs[0].dep, end: last.dep + 8 * 60, expiresIn: range(g, 7, 14) * DAY,
     effects: { morale: 2, clean: 1 }, risk: { disruption: 0.3, politics: 0.3, permit: 0.3 }, dueDays: 30,
     pin: mission, hook: hookFor(ctx),
@@ -180,7 +184,7 @@ export function presidential(ctx: Ctx): Draft | null {
     title: `State visit: ${listCities(dests)}`,
     blurb: `${client.name}: a state visit ${pts.join('–')} for the President's delegation of ${pax}. VIP cabin, no fuel stops, a spare pilot, vetted crew; programme changes are likely.`,
     pattern: { kind: 'legs', legs },
-    req: { minSeats: Math.max(40, Math.ceil(pax / 10) * 10), layouts: ['vip'] as CabinLayout[], extraCabin: int(g, 3, 4), noTechStops: true, approvals: [], extraPilot: 1, standards: 'vip' },
+    req: { minSeats: pax, layouts: ['vip'] as CabinLayout[], extraCabin: int(g, 3, 4), noTechStops: true, approvals: [], extraPilot: 1, standards: 'vip', ...(wide && needsWide(legs) ? { body: 'wide' as const } : {}) },
     start: legs[0].dep, end: last.dep + 8 * 60, expiresIn: range(g, 3, 7) * DAY,
     mult: V.arch.presidential, effects: { clean: 1, reliable: 1 }, risk: { disruption: 0.3, politics: 0.3, permit: 0.2 }, dueDays: 30,
     hook: hookFor(ctx),
@@ -206,7 +210,9 @@ function deportation(ctx: Ctx): Draft | null {
   const pax = wide ? int(g, 80, 160) : int(g, 40, 120);
   const legs: LegTemplate[] = [];
   const step = n > 1 ? Math.floor(span / (n - 1)) : 0;
-  for (let i = 0; i < n; i++) legs.push({ from, to: dest, dep: atLocal(from, s + i * step * DAY, int(g, 12, 18) * 30), flightNo: '', pax });
+  // On board: the returnees and about 40 escorts and officials (v0.8 fix pack: they all have a seat).
+  const onBoard = pax + 40;
+  for (let i = 0; i < n; i++) legs.push({ from, to: dest, dep: atLocal(from, s + i * step * DAY, int(g, 12, 18) * 30), flightNo: '', pax: onBoard });
   const last = legs[legs.length - 1];
   return {
     archetype: 'deportation', client,
@@ -214,7 +220,7 @@ function deportation(ctx: Ctx): Draft | null {
     blurb: `${client.name}: a framework of ${n} charter flights ${from}–${dest} over the next ${span} days for about ${pax} people being returned, with around 40 escorts and officials on board. ` +
       `One way each time; we come back empty. Well paid; some crews will refuse to fly it, and the press may notice.`,
     pattern: { kind: 'legs', legs },
-    req: { minSeats: Math.ceil((pax + 40) / 10) * 10, extraCabin: 0, approvals: [] },
+    req: { minSeats: onBoard, extraCabin: 0, approvals: [] },
     start: legs[0].dep, end: last.dep + 8 * 60, expiresIn: range(g, 4, 8) * DAY,
     mult: V.arch.deportation, effects: { morale: V.deport.morale }, risk: { disruption: 0.4, politics: 0.6, permit: 0.2 }, dueDays: 30,
     pin: dest, hook: hookFor(ctx),
@@ -250,7 +256,9 @@ function evacuation(ctx: Ctx): Draft | null {
   if (t < g.now + 10 * 60) t += DAY;
   // Never an evacuation no aircraft of ours could reach in time: ferry at cruise (+15 %, a fuel stop per range
   // hop) plus 6 h to find a crew and get going; the client waits up to 3 days for the nearest one.
-  const minSeats = wide ? 250 : 150;
+  // v0.8 fix pack: seats = passengers (each shuttle full).
+  const pax = wide ? int(g, 260, 300) : int(g, 150, 178);
+  const minSeats = pax;
   const fleet = Object.values(g.fleet).filter((a) => a.cabin.total >= minSeats && a.status !== 'leasedOut' && AIRPORT_BY_CODE[a.at]);
   if (Object.keys(g.fleet).length && o.start === undefined) {
     const atlantic = (a: string, b: string) => (AIRPORT_BY_CODE[a].lon < -30) !== (AIRPORT_BY_CODE[b].lon < -30);
@@ -265,7 +273,6 @@ function evacuation(ctx: Ctx): Draft | null {
     if (soonest > 72 * 60) return null;
     if (t < g.now + soonest) t = Math.ceil((g.now + soonest) / 30) * 30;
   }
-  const pax = wide ? int(g, 260, 300) : int(g, 150, 178);
   const legs: LegTemplate[] = [];
   for (let i = 0; i < n; i++) {
     legs.push({ from: hub, to: x, dep: t, flightNo: '', pax: 0 });
@@ -361,7 +368,7 @@ function humanitarian(ctx: Ctx): Draft | null {
     title: `Relief flights to ${city(dest)}`,
     blurb: `${client.name}: ${n} relief flight${n > 1 ? 's' : ''} ${hub}–${dest} with ${sar ? 'search-and-rescue teams, dogs and their gear' : 'aid workers, tents and medical supplies'}. We come back empty; the client pays after the job.`,
     pattern: { kind: 'legs', legs },
-    req: { minSeats: 100, extraCabin: 0, approvals: sar ? ['dg'] : [] },
+    req: { minSeats: Math.max(...legs.map((l) => l.pax ?? 0)), extraCabin: 0, approvals: sar ? ['dg'] : [] },
     start: legs[0].dep, end: last.dep + 8 * 60, expiresIn: Math.min(int(g, 6, 18) * 60, Math.max(90, legs[0].dep - g.now - 6 * 60)),
     mult: V.arch.humanitarian, effects: { morale: 5, clean: 3 }, risk: { disruption: 0.4, politics: 0.2, permit: 0.3 }, dueDays: 45,
     pin: dest, hook: hookFor(ctx), eventId: o.eventId,
@@ -412,7 +419,7 @@ function musicTour(ctx: Ctx): Draft | null {
     blurb: `${client.name}: the ${wide ? 'world' : 'European'} leg of a stadium tour, ${stops} shows in ${days} days (${pts.slice(1).join(', ')}). Band, crew and guests, ${pax} passengers; ` +
       `the aircraft stays with the tour between shows${paint ? '; their logo on the aircraft if you agree' : ''}.`,
     pattern: { kind: 'legs', legs },
-    req: { minSeats: Math.ceil(pax / 10) * 10, layouts: ['two-class', 'three-class', 'vip'], minPremium: wide ? 24 : 12, extraCabin: int(g, 1, 2), approvals: [] },
+    req: { minSeats: pax, layouts: ['two-class', 'three-class', 'vip'], minPremium: wide ? 24 : 12, extraCabin: int(g, 1, 2), approvals: [], ...(wide && needsWide(legs) ? { body: 'wide' as const } : {}) },
     start: legs[0].dep, end: last.dep + 8 * 60, expiresIn: range(g, 4, 8) * DAY,
     mult: V.arch.music, extraBH: V.arch.musicIdleBH * Math.max(0, days - legs.length), effects: { morale: 3 }, risk: { disruption: 0.3, politics: 0, permit: 0.1 },
     ...(paint ? { paint: { kind: 'decals' as const, required: false } } : {}),
@@ -456,7 +463,7 @@ function antarctic(ctx: Ctx): Draft | null {
     blurb: `${client.name}: ${n} same-day out-and-backs ${city(base)}–${city(ice)} on blue ice from ${fmtDay(legs[0].dep)}, guests and scientists, about ${pax} a flight. ` +
       `No fuel on the ice: ${base}–${ice}–${base} is ${rt} nm without refuelling. A widebody, polar training and kit; whiteouts send flights back to try the next day.`,
     pattern: { kind: 'legs', legs },
-    req: { minSeats: Math.max(100, Math.ceil(pax / 10) * 10), families: ['A330/340', 'B757/767', 'B777'], extraCabin: 0, approvals: ['polar'], roundTrip: true, noTechStops: true, body: 'wide' },
+    req: { minSeats: pax, families: ['A330/340', 'B757/767', 'B777'], extraCabin: 0, approvals: ['polar'], roundTrip: true, noTechStops: true, body: 'wide' },
     start: legs[0].dep, end: last.dep + 8 * 60, expiresIn: range(g, 7, 14) * DAY,
     mult: V.arch.antarctic, effects: { morale: 4, clean: 1 }, risk: { disruption: 0.4, politics: 0, permit: 0.1 },
     pin: ice, hook: hookFor(ctx),
@@ -516,7 +523,7 @@ function subcharterIn(ctx: Ctx): Draft | null {
       ? `${rival.name} has ${wide ? 'a widebody' : 'an aircraft'} AOG and needs cover for ${end.name}: ${[base, ...dests].join('–')} for ${days} days from ${fmtDay(start)}, ${end.name} flight numbers, 'operated by' notices. ${rival.name} pays us; the passengers never learn our name.`
       : `${rival.name} is full and passes on ${days} days of ${end.name} flying from ${city(base)} (${listCities(dests)}) from ${fmtDay(start)}. ${rival.name} pays us at a fair rate; ${end.name}'s flight numbers.`,
     pattern: { kind: 'base', base, dests, from: start, to: start + days * DAY, targetBH: Math.round(mghPerMonth * 1.08), waves, prefix: clientPrefix(end.name), maintEvery: 7 },
-    req: { minSeats: wide ? 250 : 150, extraCabin: 0, approvals: [] },
+    req: { minSeats: wide ? 250 : 150, extraCabin: 0, approvals: [], ...(wide ? { body: 'wide' as const } : {}) },
     start, end: start + days * DAY, expiresIn: aog ? Math.min(int(g, 3, 8) * 60, Math.max(60, start - g.now - 90)) : range(g, 2, 4) * DAY,
     wet: true, mult: aog ? range(g, 1.3, 1.6) : range(g, 1.1, 1.2), mghPerMonth,
     effects: { reliable: 1 }, risk: { disruption: 0.3, politics: 0, permit: 0 }, hook: hookFor(ctx), pin: base,

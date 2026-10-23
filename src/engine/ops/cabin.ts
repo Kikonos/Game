@@ -21,7 +21,7 @@ import { route, routeMinutes, timeChain } from '../contracts/plan';
 import { rerosterFrom } from '../crew';
 import type { DeliveryLeg } from './delivery';
 import { scheduleCheck } from './maintenance';
-import { usd } from './util';
+import { maintWord, usd } from './util';
 import { onClientCabinEnd } from './clientCabin';
 
 export interface RefitQuote {
@@ -108,7 +108,8 @@ function workOf(typeId: string, c: Pick<Cabin, 'j' | 'w' | 'total' | 'layout'>):
   const out: string[] = [];
   if (c.layout === 'vip') out.push('VIP and state work');
   if (c.layout !== 'all-economy' && c.j + c.w >= (wide ? 20 : 12)) out.push('premium sports');
-  if (c.total >= (wide ? 300 : 174)) out.push(`troop rotations (${wide ? 300 : 174}+)`);
+  // v0.8 fix pack: troop rotations need a seat for each soldier (narrowbody contingents from 150, widebody from 250).
+  if (c.total >= (wide ? 250 : 150)) out.push(`troop rotations (${wide ? 250 : 150}+)`);
   if (c.layout === 'all-economy' && c.total >= (wide ? 300 : 180)) out.push(`pilgrimage (${wide ? 300 : 180}+)`);
   return out;
 }
@@ -176,7 +177,7 @@ function refitWindow(g: GameState, ac: Aircraft, q: RefitQuote, station: string)
     if ((f.status === 'scheduled' || f.status === 'enroute') && f.kind !== 'positioning' && f.std < end + 30 && (f.eta ?? f.sta) > busyFrom - 30) q.clashes.push(`${f.no} ${f.from}–${f.to} ${fmtDay(f.std)}`);
   }
   for (const m of Object.values(g.maintenance)) {
-    if (m.aircraftId === ac.id && (m.status === 'planned' || m.status === 'inWork') && m.start < end && m.end > busyFrom) q.clashes.push(`${m.kind === 'A' || m.kind === 'C' ? `${m.kind}-check` : m.kind} ${fmtDay(m.start)}`);
+    if (m.aircraftId === ac.id && (m.status === 'planned' || m.status === 'inWork') && m.start < end && m.end > busyFrom) q.clashes.push(`${maintWord(m)} ${fmtDay(m.start)}`);
   }
   // v0.7.4 (quick 2-day refits fit between legs): the aircraft leaves the hangar at home base, so the next leg after
   // the work must start there (an away trip's return leg can't be flown from the hangar).
@@ -383,10 +384,12 @@ export function cabinAt(g: GameState, ac: Aircraft, t: Minute): { cabin: Cabin; 
 }
 
 /** The cheapest refit that meets the work's cabin rules, at the nearest shop to home: "Refit to 24J/90Y at Lisbon: 21 days, $1.2M". Pure. */
-export function refitTip(g: GameState, ac: Aircraft, req: Pick<Requirements, 'layout' | 'layouts' | 'minPremium'>): { layout: CabinLayout; label: string; text: string } | null {
+export function refitTip(g: GameState, ac: Aircraft, req: Pick<Requirements, 'layout' | 'layouts' | 'minPremium'> & Partial<Pick<Requirements, 'minSeats' | 'maxSeats'>>): { layout: CabinLayout; label: string; text: string } | null {
   let best: { p: CabinPreset; days: number; cost: number } | null = null;
   for (const p of cabinOptions(ac.typeId)) {
-    if (p.label === ac.cabin.label || !cabinFits(p, req)) continue;
+    // v0.8 fix pack: only a cabin that also seats the passengers (never a refit that still can't fly the job).
+    const n = p.j + p.w + p.y;
+    if (p.label === ac.cabin.label || !cabinFits(p, req) || n < (req.minSeats ?? 0) || (req.maxSeats && n > req.maxSeats)) continue;
     const t = refitTerms(ac.typeId, p.layout);
     if (t && (!best || t.cost < best.cost)) best = { p, ...t };
   }

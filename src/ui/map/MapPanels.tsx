@@ -34,7 +34,7 @@ import { money } from '../format';
 import { contractColor } from '../screens/palette';
 import { type ModalSpec, store } from '../store';
 import { paintLabel } from '../screens/scheduleLogic';
-import { archLabel, expiryLabel, offerDays } from '../screens/screenLogic';
+import { archLabel, capFirst, expiryLabel, hangarWord, offerDays } from '../screens/screenLogic';
 import { awaitingDelivery, chipInfo, commercialById, deliveryTag, EVENT_KIND_LABEL, EVENT_TONE, leasedOut, mapLivery, parseCommercialId, PURPOSE_LABEL, purposeChain, restChip, restingLine, restSeatNoun, shortIndex, type ShortRow, upcomingLegs } from './mapLogic';
 import { MiniMap } from './MiniMap';
 import { eventIcon } from './WorldLayer';
@@ -446,7 +446,7 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
       <div className="op-art"><AircraftArt typeId={artFor(ac.typeId)} livery={lv.livery} code={lv.code} name={lv.name} /></div>
       {lv.source === 'client' && <div className="small muted op-livery">In {lv.clientName} colours{lv.contractId && g.contracts[lv.contractId] ? ` for ${g.contracts[lv.contractId].title}` : ''}</div>}
       <div className="row wrap op-chips">
-        <span className={`chip tone-${chip.tone}`}><Dot tone={chip.tone} />{cur ? 'Airborne' : ac.status === 'available' ? 'Available' : ac.status === 'aog' ? 'AOG' : ac.status === 'maintenance' ? 'Maintenance' : ac.status === 'delivering' ? 'Delivering' : ac.status === 'leasedOut' ? 'Leased out' : ac.status}</span>
+        <span className={`chip tone-${chip.tone}`}><Dot tone={chip.tone} />{cur ? 'Airborne' : ac.status === 'available' ? 'Available' : ac.status === 'aog' ? 'AOG' : ac.status === 'maintenance' ? capFirst(hangarWord(g, ac)) : ac.status === 'delivering' ? 'Delivering' : ac.status === 'leasedOut' ? 'Leased out' : ac.status}</span>
         {curType === 'ferry' && !deliveryTag(ac) && <span className="chip op-ferry-tag">FERRY</span>}
         {deliveryTag(ac) && <span className="chip op-dlv-tag">DELIVERY</span>}
         {leasedOut(ac) && <span className="chip op-leased-tag">LEASED</span>}

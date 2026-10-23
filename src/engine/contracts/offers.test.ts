@@ -117,16 +117,25 @@ describe('v0.7 cabin rules on offers (§F7.3–F7.4)', () => {
     for (const o of wb) expect(o.requirements.minPremium).toBe(20);
   });
 
-  it('troop rotations want max seats (NB 174+ / WB 300+; the UN all-economy); pilgrimages all-economy 180+ / 300+', () => {
+  it('troop rotations want a seat per soldier (v0.8 fix pack: NB 150–170 / WB 250–280; the UN all-economy); pilgrimages fill every seat, all-economy 180 / 300', () => {
     const g0 = newGame(1);
+    const pax = (o: ContractOffer) => (o.pattern.kind === 'legs' ? Math.max(...o.pattern.legs.map((l) => l.pax ?? 0)) : 0);
     for (const o of many('troopRotation', 80, { wide: false })) {
-      expect(o.requirements.minSeats).toBe(174);
+      expect(o.requirements.minSeats).toBe(pax(o));
+      expect(o.requirements.minSeats).toBeGreaterThanOrEqual(150);
+      expect(o.requirements.minSeats).toBeLessThanOrEqual(170);
       if (/^UN /.test(g0.clients[o.clientId]?.name ?? '')) expect(o.requirements.layouts).toEqual(['all-economy']);
     }
-    for (const o of many('troopRotation', 30, { wide: true })) expect(o.requirements.minSeats).toBe(300);
+    for (const o of many('troopRotation', 30, { wide: true })) {
+      expect(o.requirements.minSeats).toBe(pax(o));
+      expect(o.requirements.minSeats).toBeGreaterThanOrEqual(250);
+    }
     const pil = many('adhoc', 60, { wide: false, variant: 'pilgrimage' });
     expect(pil.length).toBeGreaterThan(20);
-    for (const o of pil) expect(o.requirements).toMatchObject({ minSeats: 180, layouts: ['all-economy'] });
+    for (const o of pil) {
+      expect(o.requirements).toMatchObject({ minSeats: 180, layouts: ['all-economy'] });
+      expect(pax(o)).toBe(180);
+    }
   });
 
   it('ULR prestige trips only with ETOPS 240 held or pending: nonstop beyond 7,000 nm, ULR approval, no tech stops', () => {

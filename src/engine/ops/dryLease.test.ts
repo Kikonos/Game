@@ -10,7 +10,7 @@ import type { Contract, GameState, SimEvent } from '../core/types';
 import { acceptOffer, cancelContract, cancelCost } from '../contracts';
 import { feasibility } from '../contracts/feasibility';
 import { devDryLease } from '../contracts/missions';
-import { newGame, owned, run } from '../contracts/testkit';
+import { hamBase, newGame, owned, run } from '../contracts/testkit';
 import { consentFor, dailyDryLeases, dryLeaseOf, dryLeaseView, leasedText, onLeaseBack, onLeaseFerryHome, onLeaseOut } from './dryLease';
 import { fixedCosts } from './finance';
 
@@ -259,5 +259,29 @@ describe('v0.8 fix round 1: recall, holdover, consent', () => {
     expect(consentFor(ac)).toBe(0);
     const ln = Object.values(g.fleet).find((a) => a.ownership.kind === 'dryLeaseIn');
     if (ln) expect(consentFor(ln)).toBe(typeOf(ln.typeId).body === 'wide' ? BAL.v08.dry.consent.wide : BAL.v08.dry.consent.narrow);
+  });
+});
+
+describe('v0.8 fix pack: a dry lease never over a signed base programme', () => {
+  it("the base's later weeks (not rolled out as flights yet) make the aircraft busy for a dry lease", () => {
+    let checked = 0;
+    for (let s = 3; s < 30 && checked < 3; s++) {
+      const g = newGame(s);
+      const ac = owned(g);
+      const id = devDryLease(g);
+      if (!id || g.offers[id].dryFor !== ac.id || feasibility(g, id, ac.id).level === 'no') continue;
+      const o = g.offers[id];
+      // A season base on the same A320 from the middle of the lease, signed after the dry lease was offered.
+      const b = hamBase(g, Math.round((o.start + o.end) / 2), 40);
+      const r = acceptOffer(g, b.id, [ac.id]);
+      if (!r.ok) continue;
+      const k = g.contracts[r.data!.contractId];
+      expect(k.generatedUntil).toBeLessThan(k.pattern.kind === 'base' ? k.pattern.to : 0);
+      const rep = feasibility(g, id, ac.id);
+      expect(rep.level).toBe('no');
+      expect(rep.checks.find((c) => c.id === 'availability')?.label).toMatch(/^Busy: .+ \(.+–.+\)$/);
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(0);
   });
 });
