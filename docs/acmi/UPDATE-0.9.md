@@ -190,11 +190,11 @@ One gentle card per screen the first time it opens, placed under the screen head
 
 ### S.1 How events reach sound
 - ENGINE emits **cues**: runtime-only, never saved, collected like pause requests (`core/cues.ts`: `cue(c)`, `takeCues()`, isolated in previews by `isolatePauses`). `pushMessage` and `pushDecision` emit a cue derived from the message (`cueOfMessage`, one table in `core/cues.ts`). Non-message events call `cue()` directly (departure, arrival, a new offer, offer lapsing). The bot and tests ignore cues.
-- The UI store calls `takeCues()` after every `advanceTo` and after every action, then `sound.event(cue)`. UI-only events (tap, toggle, error, pause, resume, speed) call `sound.event()` directly.
+- The UI store calls `takeCues()` after every `advanceTo` and after every action, then `sound.event(cue)`. UI-only events (`UiEvent`: tap, toggle, toggleOff, error, pause, resume; the speed buttons send toggle) call `sound.event()` directly.
 - **One table** maps each event to exactly one sound: `SOUND_OF: Record<SoundEvent, SoundId>` in `src/ui/sound.ts`. The table below is that table and is its documentation; keep them identical.
 
 ### S.2 The sounds
-All are synthesised with WebAudio. Bells are sine partials 1× (1.0), 2× (0.18, decaying twice as fast) and 3× (0.06, three times as fast), plus a 1× triangle (0.08) and a second voice detuned by +2 cents. The attack is 4 ms, followed by an exponential decay (τ 0.45 s high / 0.6 s low, −60 dB by about 1.8 s). A shared room reverb (a `ConvolverNode` with a generated 1.2 s stereo noise impulse, wet 0.12) is built once. The chain is: per-category `GainNode` → master gain → `DynamicsCompressor` (−18 dB, ratio 3) → destination. There are no square or saw waves and nothing harsh.
+All are synthesised with WebAudio. Bells are sine partials 1× (1.0), 2× (0.18, decaying twice as fast) and 3× (0.06, three times as fast), plus a 1× triangle (0.08) and a second voice detuned by +2 cents. The attack is 4 ms, followed by an exponential decay to −60 dB in 1.8 s (high) / 2.3 s (low). A shared room reverb (a `ConvolverNode` with a generated 1.2 s stereo noise impulse, wet 0.12) is built once. The chain is: per-category `GainNode` → master gain → `DynamicsCompressor` (−18 dB, ratio 3) → destination. There are no square or saw waves and nothing harsh.
 
 | SoundId | Category | What it is |
 |---|---|---|
@@ -203,12 +203,12 @@ All are synthesised with WebAudio. Bells are sine partials 1× (1.0), 2× (0.18,
 | `error` | ui | low soft "dunk": 196 Hz triangle, 120 ms |
 | `high` | chimes | single soft bell, A5 880 Hz |
 | `low` | chimes | single soft bell like the seat-belt ding, D5 587 Hz, slower decay |
-| `ding` | chimes | cockpit-style single ding, D6 1175 Hz, short decay (0.35 s) |
+| `ding` | chimes | cockpit-style single ding, D6 1175 Hz, softer (0.16) with a 1.0 s decay |
 | `highLow` | chimes | the classic bing-bong: 880 Hz then F5 698 Hz, 0.55 s apart |
 | `highLowSoft` | chimes | the same at −6 dB, 0.7 s apart, longer decay |
-| `double` | alerts | `highLow` twice, 0.25 s between pairs (≈ 2.2 s) |
+| `double` | alerts | `highLow` twice, the pairs 1 s apart (≈ 2.2 s) |
 | `triple` | alerts | `highLow` three times (≈ 3.3 s) |
-| `alarm` | alerts | the urgent alarm, master-caution style: 3 bursts, each 3 pulses of a C6 + G6 dyad (1047 + 1568 Hz, sine + triangle, low-pass 3.2 kHz), 110 ms on / 70 ms off, 0.6 s between bursts; ≈ 2.3 s total, never looped |
+| `alarm` | alerts | the urgent alarm, master-caution style: 3 bursts, each 3 pulses of a C6 + G6 dyad (1047 + 1568 Hz, sine + triangle, low-pass 3.2 kHz), 110 ms on / 70 ms off, about 0.5 s between bursts; ≈ 2.6 s total, never looped |
 | `achievement` | chimes | warm ascending three-note chime C5–E5–G5, 0.16 s apart, the last held with a soft octave |
 | `flourish` | chimes | pleasant flourish: G4–C5–E5–G5–C6 arpeggio, 0.09 s apart, softer, with a light triangle shimmer |
 | `ambCabin` | ambience | cabin hum: brown noise low-passed at 180 Hz plus two sines at 98/101 Hz (slow beat), gain 0.05 |
@@ -260,7 +260,7 @@ The urgent alarm is used **only** for `crewShortage` and `crewOutOfHours`.
 ### S.5 Settings, unlock, platform
 - `Settings` (UI store, `load` merges defaults): `sound` (master, default **true**), `volume` (default 0.6 for new installs; kept for old ones), `soundCats: { alerts: true; chimes: true; flights: false; ui: true }`, `ambience: 'off' | 'cabin' | 'terminal'` (default `'off'`). Category gains: alerts 1.0, chimes 0.8, ui 0.5, ambience 0.25.
 - **Settings › Sound** section (replaces the two rows): Master on/off, Volume slider, toggles **Alerts** (emergencies and the urgent alarm), **Chimes** (messages, offers, achievements), **Flight chimes** (every departure and landing), **UI clicks**, and a **Ambience** Seg (Off · Cabin · Terminal). **Test sounds** opens a list (inside the settings modal, scrolling): one 56 px row per SoundId with its meaning ("Triple high-low: serious, e.g. airspace closed on an active flight") and a ▶ button.
-- **iOS/Safari**: the first `pointerdown` anywhere (capture, once) creates or resumes the `AudioContext` and plays a one-sample silent buffer. Set `navigator.audioSession.type = 'ambient'` when available (Safari 16.4+), so the ringer switch mutes the game and the player's music keeps playing. Suspend the context when the page is hidden and resume it when visible. Nothing plays before that first tap. While the context is asleep (a call, Siri, another app's audio: WebKit's `interrupted`) nothing is rendered on its frozen clock; at most the highest-priority request is kept and plays once at the next tap, so a minute-long interruption never ends in a burst of stacked chimes (round 4).
+- **iOS/Safari**: a `pointerdown` or `keydown` anywhere (capture; the listener stays, so a later tap wakes a context iOS suspended or interrupted) creates or resumes the `AudioContext` and plays a one-sample silent buffer. Set `navigator.audioSession.type = 'ambient'` when available (Safari 16.4+), so the ringer switch mutes the game and the player's music keeps playing. Suspend the context when the page is hidden and resume it when visible. Nothing plays before that first tap. While the context is asleep (a call, Siri, another app's audio: WebKit's `interrupted`) nothing is rendered on its frozen clock; at most the highest-priority request is kept and plays once at the next tap, so a minute-long interruption never ends in a burst of stacked chimes (round 4).
 - Previews and dry runs on copies of the state (Crew Control's nine previews, the delay search, a head's trial, roster-board verdicts) run inside `isolatePauses`, which mutes `cue()` and keeps pending pauses: a delay the player only looked at never chimes or stops the clock (round 4).
 - Ambience fades in over 2 s on the game screen and out on the title screen or when switched off.
 
@@ -373,7 +373,7 @@ Scope:
 - MAP: panel copy.
 
 ### V.2 Root fixes
-- **Offer titles never contain the client name** (`contracts/flavor.ts` title templates). The client is shown separately and `jobName` adds it once. This fixes "Corendon's Winter sun to Corfu for Corendon".
+- **Offer titles never contain the client name** (`contracts/flavor.ts` title templates). The client is shown separately and `jobName` adds it once. This fixes "Corendon's Winter sun to Corfu for Corendon". Round 4: the templates themselves are clientless ("Extra capacity at Hamburg", "AOG cover: an A320 at Hamburg", "Winter sun to Corfu"; no title starts with a bare verb); `clientless()` stays for titles saved by older versions.
 - **Crew Planning verdict** keeps only what the tiles above don't show.
 
 ### V.3 Before / after (lanes append rows here: append-only, re-read before editing)
@@ -385,10 +385,10 @@ Scope:
 | Crew Planning verdict (complete) | "A320 family: 4 aircraft · 5 sets each = 20 sets needed · you have 22 complete (2 spare)" | "Complete · 2 spare" |
 | red crew message | "CREW SHORTAGE: TP1234 in 6 h" + "… Hurts: … Open Crew Control to fix it." | title kept; body "{why} {hurt}." (the button opens Crew Control) |
 | glossary hint `offerFit` | "An offer you cannot fly as it stands" | "An offer you can't fly yet" |
-| roster legend (§R) | "Dashed: home standby 06:00–18:00, on call without overtime" | "SBY home standby (E 05–17, L 12–24)" (the swatch shows the rest) |
+| roster legend (§R) | "Dashed: home standby 06:00–18:00, on call without overtime" | foot legend "SBY home" · "SBY + station: hotel" · "ASBY airport" · "RES reserve" (`BOARD_LEGEND`; the popover below explains each) |
 | Crew Control `callIn` blurb (§R) | "Someone off duty at the airport comes in: overtime pay, a morale hit." | "Standby first, no overtime. A day off costs overtime and morale." |
 | Crew Control standby row (§R) | "Rita Costa · LIS · On home standby since 06:00 LIS" + "No overtime · standby beyond 6 h shortens the day" | "Rita Costa · Home standby (early) · ready in 1:30" + chip "No overtime" |
-| Longest-day popover | (§U.2) | (§U.2) |
+| Longest-day popover | "13 h with 2 pilots … Up to 17 h with 4 pilots …" with no word on discretion | the same plus "Captain's discretion is never part of this: it is only for surprises on the day, after the crew has reported." (§U.2; glossary `longestDay` ends "Captain's discretion is never planned.") |
 | offer titles (ENGINE `flavor.clientless`) | "Winter sun to Corfu for Corendon" · "TUI's summer wet lease, Lisbon" | "Winter sun to Corfu" · "Summer wet lease, Lisbon" (the client is shown on its own) |
 | job name (ENGINE `jobName`) | "Azul Brazilian Airlines' São Paulo base" | "Azul Brazilian Airlines · São Paulo base" |
 | dry lease offer title (ENGINE) | "Dry lease: A321neo to Wizz Air" | "Dry lease: A321neo" |
@@ -406,7 +406,7 @@ Scope:
 | crew strip, empty (UI) | "Nothing rostered in the next 14 days: only rest and days off." | "Nothing rostered in the next 14 days." (the strip shows the rest) |
 | roster legend popover (UI §R) | "Dashed: home standby 06:00–18:00, on call without overtime" · "Day off" | one row per code: "SBY E / SBY L: home standby, early 05–17 or late 12–24" · "SBY DUB: hotel standby at that station" · "ASBY: airport standby, ready at once" · "RES: reserve, at least 10 h notice" · "OFF … a lock means a change costs morale" |
 | day-off confirm (UI §R.5) | (new; engine text "Takes Ana's day off Tue 4 Nov; it moves to Thu 13 Nov (morale −6)" under "Take Ana Silva's day off?") | title "Take Ana Silva's day off on Tue 4 Nov?", body "It moves to Thu 13 Nov. Morale −6." |
-| Crew Planning intro (UI) | "Each aircraft needs about 5 full crews (crew sets) to fly every day with days off, leave and sickness. …" | `SETS_WHY` ("5 sets per aircraft: each person has 8–10 days off a month and 4 weeks' leave; every other day is flying or standby.") + the limiting-role line |
+| Crew Planning intro (UI) | "Each aircraft needs about 5 full crews (crew sets) to fly every day with days off, leave and sickness. …" | `SETS_WHY` ("5 sets per aircraft: each person has 8–10 days off a month in 2–3-day blocks and 4 weeks' leave; every other day is flying or standby.") + the limiting-role line |
 | Crew Control, a fix not available (UI) | the reason in the row head and again in the open row ("Seats are empty: … flight..") | once, in the row head |
 | Crew Control standby candidate (UI §R.4) | "Rita Costa" + chip "Standby since 06:00" | "Rita Costa" + chips "Home standby (early)" · "No overtime", then "ready in 1:30" |
 | Settings (UI §S.5, §T.4) | "Sound effects · Synthesised UI sounds" · "Pause for crew shortages · A flight in the next 48 h has no legal crew" | a Sound section (master, volume, Alerts, Chimes, Flight chimes, UI clicks, Ambience, Test sounds) · "Pause for crew shortages · A seat in the next 12 h has nobody to fill it" + "Pause for crew out of hours · A pilot or cabin crew member has reached a legal limit" |
@@ -415,6 +415,19 @@ Scope:
 | watch desk unlock card (`data/heads.ts` never[0]) | "Never: act on anything: it only alerts and pauses." | "Never: take any action (it only alerts and pauses)." |
 | Team rules pane, analyst (UI) | "No settings: it works to the fleet's own plan." | "No settings: it scores every open offer and suggests a counter." |
 | Team rules, Standby first (UI) | "Call standby crew before delaying" | "Sick calls: calls in standby or free crew, never from a day off. Off: sick calls come to you" |
+| Crew Control sub-charter message (ENGINE `control.ts`) | "TP1234 crewed: Sub-charter" | "TP1234 sub-chartered: Sub-charter" |
+| OfferModal aircraft row, a type that can't fly the route (UI) | "Runways fine (shortest 9,999 m)" · "No ETOPS needed" under the range / runway no | hidden (the no says it) |
+| jumbo load (glossary, chip tip, What's new) | "only a 777-300ER or a 747-400 takes it in one go" · "All economy, 420 seats or more: a 777-300ER or 747-400 job" · "747-400s get jumbo loads (420+ seats) with fuel at cost, so a well-chosen Hajj or troop job pays" | "only a 777-300ER, a 747-400 or an A380 takes it in one go" · "420 seats or more in any cabin: a 777-300ER, 747-400 or A380 job" · "Jumbo loads (420+ seats) for the 747-400 and other 450-seat jets, and charters with fuel billed at cost, so a well-chosen Hajj, troop or UN job pays" |
+| glossary `fuelAtCost` | "Common on government and Hajj charters." (a Hajj airlift is wet: the fuel is the client's anyway) | "Common on government and military charters." |
+| offer dialog, crew change (UI + `offerRestLine`) | said up to five times: chip, "15:30 is too long for one crew · crew change at IST", the row head, the open check and "Fuel stops: IST (crew change)" | chip + "Longest day 15:30 · crew change at IST" + the check row (the row head hides it while the row is open); "Fuel stops: IST" |
+| feasibility rest line, two slips / a slip beside a 4-pilot day (ENGINE `restNeed`) | "Crew change at PNH (fresh crew flies in)" (the second stop and the other day's warning lost) | "Crew change at PNH and OTP (fresh crews fly in)"; detail ends "Another day: Business seats (class 2) → needs a 4th pilot …" |
+| slip detail and chip on a wet lease (ENGINE `slipDetail`, UI `v09Chips`) | "Tickets and hotel about $21K, priced in." | "The client pays the tickets and hotel (about $21K)." |
+| feasibility crew line on a slip job (ENGINE `crewAvailability` `extraSets`) | "Needs 2 crew sets, 6 free" (the second crew in the air not counted) | "Needs 3 crew sets, 6 free" |
+| repeat business (ENGINE `missions.ts`) | "Repeat business from TUI" + "TUI liked Summer programme Hamburg–Palma and asks again: Summer programme Hamburg–Palma (May), from 3 May." | title kept; body "They liked Summer programme Hamburg–Palma and ask for it again from 3 May." (" as {new title}" only when the title differs) |
+| Hajj blurb (ENGINE `missions.ts`) | "Saudia: Hajj 1448 airlift LIS–JED/MED for about 450 pilgrims a flight. In: …" (the title and the client again) | "About 450 pilgrims a flight. In: …; home: …" |
+| glossary `airportStandby` / `homeStandby` | "after 4 h the next day gets shorter" · "called after 6 h, the day gets shorter" | "called after 4 h, the day that follows is cut by the standby beyond 4 h" · "called after 6 h, the day is cut by the standby beyond 6 h" |
+| days-off rule, one phrase (glossary `daysOff`, What's new, `SETS_WHY`) | "We plan 8–10, in blocks of 2–3 days that are also the weekly 36 h recovery rest" · "8–10 a month in 2–3-day blocks, 4 weeks' leave a year" · "8–10 days off a month and 4 weeks' leave" | "8–10 days off a month in 2–3-day blocks (one block a week is the 36 h rest) and 4 weeks' leave" (`SETS_WHY` without the bracket) |
+| What's new v0.9 | no word on the catch-up | "What's new catches up: the first start after an update also shows the notes of the versions you skipped, once." |
 
 ---
 
@@ -432,12 +445,12 @@ Examples: Madrid→Singapore on an A330 via IST (MAD–IST 4:10 / IST–SIN 10:4
 export interface SlipPlan { at: string; cutIndex: number; first: DutyNeed; second: DutyNeed; crewN: number; tickets: number /* $ */; hotelNights: number; text: string }
 export function bestSlip(g: GameState, typeId: string, rest: AcRest, chain: ChainShape): SlipPlan | null;
 ```
-- `bestSlip` tries each tech stop as the cut and keeps the cut where both halves are flyable. It ranks cuts by the fewest pilots needed (basic > ext > aug1 > aug2), then the most FDP margin, then the cheapest tickets (`ticketPrice` from the nearest deadhead origin: home base, or the deployment base). At most **one slip per sector**: if no single cut works → `null` (the chain stays impossible).
+- `bestSlip` tries each tech stop as the cut and keeps the cut where both halves are flyable. Round 4: the second half is judged on the stricter of the stop's and the home clock (`dutyNeed(…, { stricter: true })` → `planAugment`), as the roster judges a crew less than 48 h away (FTL state B); `crewN` is `complement()` of the second half (its pilots, the purser, cabin crew, the policy extra cabin crew and the rest plan's), the hotel at the policy tier (`SlipPlan.hotelNight`), so the chip's cost and the booked costs agree. It ranks cuts by the fewest pilots needed (basic > ext > aug1 > aug2), then the most FDP margin, then the cheapest tickets (`ticketPrice` from the nearest deadhead origin: home base, or the deployment base). At most **one slip per sector**: if no single cut works → `null` (the chain stays impossible).
 - **Roster**: `duties.ts slipUnits` uses `bestSlip`'s cut instead of cutting at every sector boundary, so planning and pricing agree. The deadheads and hotel come from the existing deadhead/rest code. The new duty records the stop (`Duty.slipAt?: string`).
-- **Feasibility** (`restNeed`): a chain with mode `none` and a `SlipPlan` gives a line at level `warn`: "**Crew change at IST (fresh crew flies in)**", detail "A second crew flies to Istanbul by airline the day before and rests; it takes over IST–SIN. The first crew rests in Istanbul and flies home. Tickets and hotel about $21K, priced in."
+- **Feasibility** (`restNeed`): a chain with mode `none` and a `SlipPlan` gives a line at level `warn`: "**Crew change at IST (fresh crew flies in)**", detail "A second crew flies to Istanbul by airline the day before and rests; it takes over IST–SIN. The first crew rests in Istanbul and flies home. Tickets and hotel about $21K, priced in." Round 4: every slipping stop is named ("Crew change at PNH and OTP (fresh crews fly in)"), the worst non-slipping chain keeps its own 4-pilot / extra-cabin warning in the detail ("Another day: …"), and on a wet lease the detail and the chip end "The client pays the tickets and hotel (about $21K)."
 - **Pricing** (`offers.ts` draft costs): each slip adds `2 × crewN` one-way tickets (`tickets`), `crewN × 1` room nights (2 when the slip crew must wait for a second rest), and per diem for the extra crew-days. Charter prices include it; on wet contracts the client pays the tickets and hotels, as today.
 - **Offer generation**: `crewCanFly` accepts a chain with a `SlipPlan`, so the v0.8 "no impossible offers" rule counts a slip as a valid plan. `ContractOffer.slip?: { at: string[]; cost: number }` drives the card chip "Crew change at IST".
-- **Crew planning**: sets needed for the contract +1 per slipping sector in flight at the same time (`crewAvailability` gets `extraSets`).
+- **Crew planning**: sets needed for the contract +1 per slipping sector in flight at the same time (`crewAvailability` gets `extraSets`; round 4: `restNeed` counts the most slipping chains overlapping in time and `feasibility` passes it, so the crew line reads "Needs 3 crew sets" on a one-way slip job that sized at 2). The 60-day Planning view (`sets.ts`) is unchanged: it counts contracts of 30 days or more, and one slip would not justify a sixth set.
 - `Stats.v09.slips` counts slip duties flown. The achievement `slipCrew` goes to the first one.
 
 ### W.2 Glossary (`slipCrew`)
@@ -479,8 +492,8 @@ export function whatsNewToShow(seen: string, catchUpDone: boolean): WhatsNewEntr
 
 ### Y.2 747-400 economics (ENGINE `missions.ts`, `offers.ts`, `pricing.ts`)
 - Today the bot loses about 20 % on general work with a 747. The cause: offers are priced on the cheapest reference type that fits (a 767/A330 rate of $6.4–7.2K a block hour) while the 747 costs $3K maintenance a block hour, $90K insurance a month and 13 cabin crew.
-- **Jumbo loads.** Hajj, troop and UN rotations, evacuation, repatriation and full charters (sports fans, pilgrimages) generate 420–480 passengers (`minSeats`, all-economy) in 20 % of their widebody offers. That rises to 35 % when our fleet has a 747 idle in the window (gap-fit), and to 0 % when neither we nor a rival operates a 400-seat type. With `minSeats ≥ 420`, `referenceType` resolves to a 400-seat type (777-300ER or 747-400), so the rate is about $10–11K a block hour.
-- **Fuel at cost** on jumbo charters: `Product.fuelAtCost?: true` bills fuel after flying at the actual burn of the aircraft that flew (many government and Hajj charters work this way). The price shows "plus fuel at cost". Ledger: `otherRevenue` "Fuel re-billed".
+- **Jumbo loads.** Hajj, troop and UN rotations, evacuation, repatriation and full charters (sports fans, pilgrimages) generate 420–480 passengers (`minSeats`, any cabin with the seats) in 20 % of their widebody offers. That rises to 35 % when our fleet has a 747 idle in the window (gap-fit), and to 0 % when neither we nor a rival operates a 400-seat type. With `minSeats ≥ 420`, `referenceType` resolves to a 400-seat type (777-300ER or 747-400; an A380 counts as a jumbo type too), so the rate is about $10–11K a block hour.
+- **Fuel at cost** on jumbo charters: `Product.fuelAtCost?: true` bills fuel after flying at the actual burn of the aircraft that flew (government and military charters work this way; a Hajj airlift is a wet lease, so its fuel is the client's anyway and the offer never carries the term). The price shows "plus fuel at cost". Ledger: `otherRevenue` "Fuel re-billed".
 - No change to the 747's costs or to general offers: on 300-seat work it stays a poor choice.
 - Targets (tests and bot):
   - a 747-400 on a 450-pax Hajj offer estimates ≥ +15 % margin;
@@ -619,7 +632,7 @@ Chips: "No overtime" + the kind.
 - **5 sets per aircraft stays** (RESEARCH §5.3: 5–6 sets for a year-round narrowbody; the 1.20 factor covers leave ≈ 8 %, sickness and standby).
 - **The arithmetic:** a crew member has ≈ 30.4 − 9 off − 2.3 leave − ≈ 1 sick/training ≈ 18 work days a month. Five sets give ≈ 90 crew-days per seat per aircraft against 30–45 flying days, so the rest is standby. That is the "mostly standby" pattern the player asked for.
 - **`staffing()` / `familyNeeds`** already count crew on leave as `away` (still on the books), so no formula changes.
-- **Planning view one-liner** (new export `SETS_WHY`): "5 sets per aircraft: each person has 8–10 days off a month and 4 weeks' leave; every other day is flying or standby."
+- **Planning view one-liner** (new export `SETS_WHY`): "5 sets per aircraft: each person has 8–10 days off a month in 2–3-day blocks and 4 weeks' leave; every other day is flying or standby."
 
 ### R.8 UI (roster board, Crew screen, Crew Planning, Crew Control)
 **Board codes and colours** (`rosterBoardLogic.ts`, `RosterBoard.tsx`, styles). Calm, static, colour plus text (never colour alone):
@@ -635,7 +648,7 @@ Chips: "No overtime" + the kind.
 | (empty, faint) | not rostered yet (beyond the published roster) | none |
 
 A called-out window keeps its code up to the call, then the duty. The **published line**: a 1 px vertical rule at `publishedTo`, with "Published to 6 Nov" in the date header. Protected OFF cells carry a small lock glyph (decorative, static).
-- **Legend** (replaces the "Dashed: home standby 06:00–18:00" row): six swatches with "OFF day off · SBY home standby (E 05–17, L 12–24) · SBY DUB hotel standby · ASBY airport · RES reserve · LEAVE".
+- **Legend** (replaces the "Dashed: home standby 06:00–18:00" row): six swatches with "OFF day off · SBY home · SBY + station: hotel · ASBY airport · RES reserve · LEAVE" (`BOARD_LEGEND`; the popover explains the early/late windows).
 - **Month zoom:** each row gets an 88 px summary column at the right, "9 · S11 · F8" (days off · standby · flying), red when days off < 7. Tap → a popover with `crewMonth().line`.
 - **Drop confirm:** a drop on an `offBreak` target opens the existing confirm: "Take Ana Silva's day off on Tue 4 Nov? It moves to Thu 13 Nov. Morale −6." → **Take the day** / **Cancel**.
 - **Crew screen** (`Crew.tsx`, `crewLogic.ts`):
@@ -652,9 +665,9 @@ The station panel's "Crew in hotel" list (`MapPanels.tsx`) tags people on hotel 
 ### R.10 Glossary, inbox, What's new (ENGINE data)
 **Glossary.**
 - `standby` (rewritten): "On call for the day: at home, at the hotel away from base, or at the airport. Called out, the crew report within the response time. Home and hotel standby count 25 % towards the duty limits, airport standby in full."
-- `airportStandby`: "Standby at the airport, ready at once. It counts in full as duty; after 4 h the next day gets shorter, and standby plus flying stays within 16 h."
+- `airportStandby`: "Standby at the airport, ready at once. It counts in full as duty; called after 4 h, the day that follows is cut by the standby beyond 4 h; standby plus flying stays within 16 h." (round 4 wording; `homeStandby` likewise "called after 6 h, the day is cut by the standby beyond 6 h")
 - `reserve`: "Rostered availability with at least 10 h notice. It is not duty and not rest, so it never counts as a day off."
-- `daysOff`: "At least 7 days a month and 96 a year free of all duty and standby, published in advance (EU Directive 2000/79/EC). We plan 8–10, in blocks of 2–3 days that are also the weekly 36 h recovery rest."
+- `daysOff`: "At least 7 days a month and 96 a year free of all duty and standby, published in advance (EU Directive 2000/79/EC). We plan 8–10 days off a month in 2–3-day blocks (one block a week is the 36 h rest) and 4 weeks' leave." (round 4: the one phrase What's new and `SETS_WHY` share)
 - `publishedRoster`: "The next 14 days of the roster, as the crew see it. Days off in it are protected."
 
 **Inbox.**
@@ -1001,13 +1014,14 @@ Features:
 4. Crew out of hours: its own alert when a pilot or flight attendant reaches a legal limit, naming who, which limit and by how much, with the fixes.
 5. Crew change at a fuel stop: a long one-way flight can now split with a fresh crew flown in to the tech stop, priced into the offer and planned by the roster.
 6. First-time hints on each screen, written for people who know the job.
-7. Roster planning like a real EASA operator: crews get their legal days off (8–10 a month in 2–3-day blocks, 4 weeks' leave a year), published 14 days ahead and protected. Every other free day is standby: at home, at the hotel on a detachment or night-stop, at the airport at busy bases, or reserve. Crew Control calls standby first.
+7. Roster planning like a real EASA operator: crews get 8–10 days off a month in 2–3-day blocks (one block a week is the 36 h rest) and 4 weeks' leave, published 14 days ahead and protected. Every other free day is standby: at home, at the hotel on a detachment or night-stop, at the airport at busy bases, or reserve. Crew Control calls standby first.
 
 Improvements:
 - Captain's discretion is never planned: it only appears after the crew has reported, for something unforeseen, and the longest day says so.
 - Shorter, plainer texts across the game.
 - A delay after the crew has reported now re-checks the in-flight rest at departure.
-- 747-400s get jumbo loads (420+ seats) with fuel at cost, so a well-chosen Hajj or troop job pays.
+- Jumbo loads (420+ seats) for the 747-400 and other 450-seat jets, and charters with fuel billed at cost, so a well-chosen Hajj, troop or UN job pays.
+- What's new catches up: the first start after an update also shows the notes of the versions you skipped, once.
 
 ---
 

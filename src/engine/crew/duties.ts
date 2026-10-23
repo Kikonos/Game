@@ -1107,9 +1107,10 @@ const kindWords = (r: AcRest): string => {
 /**
  * v0.7.3 what crewing one chain on this type and these facilities needs (UPDATE-0.7.3.md §2.9 C7): Table 2 at the
  * chain's report time and sectors (acclimatised at the departure), then split duty, a planned extension, 3 and 4
- * pilots with the rest plan. Pure.
+ * pilots with the rest plan. Round 4 `opts.stricter`: judged on the stricter of the departure and home clocks, as
+ * `planAugment` and the roster do for a crew less than 48 h away (the second half of a slip). Pure.
  */
-export function dutyNeed(g: GameState, typeId: string, rest: AcRest, chain: ChainShape): DutyNeed {
+export function dutyNeed(g: GameState, typeId: string, rest: AcRest, chain: ChainShape, opts?: { stricter?: boolean }): DutyNeed {
   const fl: Flight[] = chain.legs.map((l, i) => ({
     id: `chain${i}`, from: l.from ?? (i ? `X${i}` : chain.from), to: l.to ?? `X${i + 1}`, std: l.std, sta: l.sta, block: l.sta - l.std, status: 'scheduled',
   } as Flight));
@@ -1119,7 +1120,7 @@ export function dutyNeed(g: GameState, typeId: string, rest: AcRest, chain: Chai
   const t = typeOf(typeId);
   const seats = t.cabins[0] ? t.cabins[0].j + t.cabins[0].w + t.cabins[0].y : 180;
   const ctx: PlanCtx = { rest, canAug: approved && !!rest.fc && !!rest.cc, split: true, ext: true, cabinN: Math.max(cabinMinimum(seats), 1) };
-  const pa = pickPlan(sh, { reportLocal: localMin(sh.dep, sh.report), acclimatised: true, tz: sh.dep }, ctx);
+  const pa = opts?.stricter ? planAugment(g, sh, ctx) : pickPlan(sh, { reportLocal: localMin(sh.dep, sh.report), acclimatised: true, tz: sh.dep }, ctx);
   const hmm = (m: number) => `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
   const hrs = (m: number) => (m % 60 ? hmm(m) : `${m / 60} h`);
   if (pa.ok) {

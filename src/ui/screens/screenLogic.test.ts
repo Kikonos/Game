@@ -4,7 +4,7 @@ import { DAY, HOUR } from '../../engine/core/time';
 import type { ContractOffer, CrewMember, MonthStatement } from '../../engine/core/types';
 import {
   counterSteps, expiryLabel, filterCrew, filterMessages, limitTone, marketOffers, NO_FILTER, productLine, refTarget, reqChips, riskChips, routeSummary, spanLabel,
-  statementView,
+  statementView, v09Chips,
 } from './screenLogic';
 
 const offer = (id: string, urgency: ContractOffer['urgency'], estValue: number, status: ContractOffer['status'] = 'open') =>
@@ -33,6 +33,13 @@ describe('contracts helpers', () => {
     expect(riskChips({ payment: 0.7, disruption: 0.2, politics: 0.4, permit: 0 }).map((c) => [c.label, c.tone])).toEqual([['Late payer', 'bad'], ['Politics', 'warn']]);
     const req = reqChips({ minSeats: 150, longestSectorNm: 900, approvals: [], etops: 120 } as never);
     expect(req.map((c) => c.label)).toEqual(['150+ seats', 'ETOPS 120']);
+  });
+  it('round 4 (§V, §Y.2): the slip chip says who pays, the jumbo chip names every 450-seat type and any cabin', () => {
+    const base = { slip: { at: ['IST'], cost: 20_000 }, jumbo: true, requirements: { minSeats: 450 } };
+    const charter = v09Chips({ ...base, product: { kind: 'charter' } } as never);
+    expect(charter[0].tip).toMatch(/Tickets and hotel are priced in\.$/);
+    expect(charter[1].tip).toBe('420 seats or more in any cabin: a 777-300ER, 747-400 or A380 job');
+    expect(v09Chips({ ...base, product: { kind: 'wet' } } as never)[0].tip).toMatch(/The client pays the tickets and hotel\.$/);
   });
   it('steps counters by 2.5% up to +20%, rounded', () => {
     const s = counterSteps(3950, true);

@@ -236,7 +236,8 @@ function AircraftRow({ g, r, on, onPick, billBH, lift = 1, offerId, long }: { g:
   // v0.7.3 §2.6 item 6: the rest line on every aircraft of a long job (✓ / needs a 4th pilot / needs a refit), and on
   // any job where it is not simply OK.
   const rest = r.checks.find((c) => c.id === 'rest');
-  const restShown = rest && rest !== block && (long || rest.level !== 'ok') ? rest : undefined;
+  // Round 4 (§V): not repeated in the row head while the open row shows the same check.
+  const restShown = rest && rest !== block && !on && (long || rest.level !== 'ok') ? rest : undefined;
   // v0.9 §V a route this type can't fly has no runway or ETOPS verdict ('Runways fine (shortest 9,999 m)', 'No ETOPS needed'): hide them.
   const unflyable = r.checks.some((c) => (c.level === 'no' && (c.id === 'range' || c.id === 'runway')) || (c.id === 'runway' && /\b9,999 m\b/.test(c.label)));
   const openRest = (c: FeasibilityReport['checks'][number]) => store.openModal({ kind: 'refit', aircraftId: r.aircraftId, offerId, section: 'rest', restOption: c.action?.kind === 'restRefit' ? c.action.option : undefined });
@@ -267,7 +268,7 @@ function AircraftRow({ g, r, on, onPick, billBH, lift = 1, offerId, long }: { g:
               {!c.action && c.level !== 'ok' && (c.id === 'restSeats' || c.id === 'rest') && restRefitOptions(g, r.aircraftId).some((x) => x.ok) && <button className="btn btn-sm" onClick={() => openRest(c)}>Crew rest refits…</button>}
             </div>
           ))}
-          {r.techStops.length > 0 && <div className="small muted">Fuel stops: {r.techStops.map((x) => (g.offers[offerId]?.slip?.at.includes(x) ? `${x} (crew change)` : x)).join(', ')}</div>}
+          {r.techStops.length > 0 && <div className="small muted">Fuel stops: {r.techStops.join(', ')}</div>}
           <div className="small muted">Revenue {money(revenue)}{lift > 1 ? ` (incl. client-paid extra crew +${money(revenue - r.estRevenue)})` : ''} · costs {money(r.estCost)} · {Math.round(r.estBH)} BH flown{r.estBH - billBH > 0.5 ? ` (incl. ${Math.round(r.estBH - billBH)} BH positioning and empty legs)` : ''}</div>
           {Object.entries(r.crew.byRole).some(([, v]) => v && v.short > 0) && (
             <div className="small warn">Hire or move crew: {Object.entries(r.crew.byRole).filter(([, v]) => v && v.short > 0).map(([role, v]) => `${v!.short} × ${ROLE_LABEL[role as keyof typeof ROLE_LABEL].toLowerCase()}`).join(', ')}.</div>

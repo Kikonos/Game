@@ -224,7 +224,7 @@ function memoOf(g: GameState) {
   return m;
 }
 
-export function crewAvailability(g: GameState, family: RatingFamily, typeId: string, from: Minute, to: Minute, programmeBH: number, extra?: CrewExtra): Availability {
+export function crewAvailability(g: GameState, family: RatingFamily, typeId: string, from: Minute, to: Minute, programmeBH: number, extra?: CrewExtra, extraSets = 0): Availability {
   const days = Math.max(1, Math.ceil((to - from) / DAY));
   const t = typeOf(typeId);
   const seats = t.cabins[0] ? t.cabins[0].j + t.cabins[0].w + t.cabins[0].y : 180;
@@ -232,6 +232,8 @@ export function crewAvailability(g: GameState, family: RatingFamily, typeId: str
   const x = extra ?? { cabin: g.company.policies.extraCabin, pilot: 0 };
   const per = countRoles(rolesWithExtra(typeId, seats, x).map((r) => (r === 'CRP' ? 'FO' : r)));
   const need = sizing(per, programmeBH / Math.max(1, days / 30.44));
+  // v0.9 round 4 §W: a crew change at a fuel stop puts a second crew in the air at once: one whole set more per slip.
+  if (extraSets > 0) for (const r of ROLES) if (per[r]) need[r] = (need[r] ?? 0) + per[r]! * extraSets;
   // Supply per role and day (exact role; seniors spill down below).
   const supply: Record<Role, Int32Array> = Object.fromEntries(ROLES.map((r) => [r, new Int32Array(days)])) as Record<Role, Int32Array>;
   const ix = crewIx(g);

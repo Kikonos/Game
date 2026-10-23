@@ -116,10 +116,11 @@ export interface Chip {
 }
 
 /** v0.9 the crew change at a fuel stop (§W.3) and a jumbo load (§Y.2) as offer chips; `analyst`: the hired analyst's score. */
-export function v09Chips(o: Pick<ContractOffer, 'slip' | 'jumbo' | 'requirements'>, analyst?: { score: number; verdict: 'take' | 'counter' | 'pass' | 'busy' } | null): Chip[] {
+export function v09Chips(o: Pick<ContractOffer, 'slip' | 'jumbo' | 'requirements'> & { product?: ContractOffer['product'] }, analyst?: { score: number; verdict: 'take' | 'counter' | 'pass' | 'busy' } | null): Chip[] {
   const out: Chip[] = [];
-  if (o.slip?.at.length) out.push({ label: `Crew change at ${o.slip.at.join(', ')}`, tone: 'warn', tip: 'Too long for one crew: a fresh crew flies in to the fuel stop and takes over. Tickets and hotel are priced in.' });
-  if (o.jumbo) out.push({ label: `Jumbo load · ${o.requirements.minSeats} seats`, tip: 'All economy, 420 seats or more: a 777-300ER or 747-400 job' });
+  // Round 4: on a wet lease the client pays the slip crew's travel (§W.1), so the chip says so instead of 'priced in'.
+  if (o.slip?.at.length) out.push({ label: `Crew change at ${o.slip.at.join(', ')}`, tone: 'warn', tip: `Too long for one crew: a fresh crew flies in to the fuel stop and takes over. ${o.product?.kind === 'wet' ? 'The client pays the tickets and hotel.' : 'Tickets and hotel are priced in.'}` });
+  if (o.jumbo) out.push({ label: `Jumbo load · ${o.requirements.minSeats} seats`, tip: '420 seats or more in any cabin: a 777-300ER, 747-400 or A380 job' });
   // v0.9 fix: 'busy' (no aircraft free on the dates) has no score: a grey '—'.
   if (analyst) out.push({ label: `Analyst ${analyst.verdict === 'busy' ? '—' : analyst.score}`, tone: analyst.verdict === 'pass' ? 'bad' : analyst.verdict === 'take' ? 'good' : undefined, tip: 'Your commercial analyst’s score for this offer against the fleet' });
   return out;

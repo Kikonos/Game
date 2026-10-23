@@ -10,7 +10,7 @@ import { latePaymentDecision } from '../ops/events';
 import { cancelLegs } from '../ops/flights';
 import { acceptOffer, cancelContract } from './accept';
 import { monthRelation } from './billing';
-import { repeatHit } from './missions';
+import { repeatHit, rollRepeat } from './missions';
 import { generateOffer } from './offers';
 import {
   bumpClient, clientList, clientView, dailyRelations, forgiveDelay, levelFor, LEVEL_PERKS, monthlyRelationDrift, offerClientLine, standing, standingFor, standingNow,
@@ -247,6 +247,30 @@ describe('what each level brings (§1.4)', () => {
       }
       expect(Math.abs(hits / 500 - p)).toBeLessThan(0.05);
     }
+  });
+
+  it('round 4 (§V): the repeat-business message names the client once (the title) and the job once', () => {
+    const g = newGame(3);
+    const c = airline(g);
+    c.level = 'partner';
+    g.company.standing = 1;
+    let seen = 0;
+    for (let i = 0; i < 40 && seen < 3; i++) {
+      const k = fixtureContract(g, { clientId: c.id, aircraftIds: [], start: g.now, end: g.now + 1440, pattern: { kind: 'legs', legs: [] } });
+      k.id = `rep${i}`;
+      k.archetype = 'tourSeries';
+      k.title = 'Summer programme Hamburg–Palma';
+      g.contracts[k.id] = k;
+      const o = rollRepeat(g, k.id);
+      if (!o) continue;
+      seen++;
+      const m = g.messages.filter((x) => x.title === `Repeat business from ${c.name}`).pop()!;
+      expect(m.body).not.toContain(c.name);
+      expect(m.body).toMatch(/^They liked Summer programme Hamburg–Palma and ask for it again( as .+)? from \d+ \w+\.$/);
+      if (o.title === k.title || o.title.startsWith(`${k.title} (`)) expect(m.body).not.toContain(' as ');
+      else expect(m.body).toContain(` as ${o.title} from`);
+    }
+    expect(seen).toBeGreaterThan(0);
   });
 
   it('views: clientView, clientList, offerClientLine', () => {

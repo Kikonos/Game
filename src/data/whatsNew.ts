@@ -25,13 +25,14 @@ export const WHATS_NEW: WhatsNewEntry[] = [
       'Crew out of hours: its own alert when a pilot or flight attendant reaches a legal limit, naming who, which limit and by how much, with the fixes.',
       'Crew change at a fuel stop: a long one-way flight can now split with a fresh crew flown in to the tech stop, priced into the offer and planned by the roster.',
       'First-time hints on each screen, written for people who know the job.',
-      'Roster planning like a real EASA operator: crews get their legal days off (8–10 a month in 2–3-day blocks, 4 weeks’ leave a year), published 14 days ahead and protected. Every other free day is standby: at home, at the hotel on a detachment or night-stop, at the airport at busy bases, or reserve. Crew Control calls standby first.',
+      'Roster planning like a real EASA operator: crews get 8–10 days off a month in 2–3-day blocks (one block a week is the 36 h rest) and 4 weeks’ leave, published 14 days ahead and protected. Every other free day is standby: at home, at the hotel on a detachment or night-stop, at the airport at busy bases, or reserve. Crew Control calls standby first.',
     ],
     improvements: [
       'Captain’s discretion is never planned: it only appears after the crew has reported, for something unforeseen, and the longest day says so.',
       'Shorter, plainer texts across the game.',
       'A delay after the crew has reported now re-checks the in-flight rest at departure.',
-      '747-400s get jumbo loads (420+ seats) with fuel at cost, so a well-chosen Hajj or troop job pays.',
+      'Jumbo loads (420+ seats) for the 747-400 and other 450-seat jets, and charters with fuel billed at cost, so a well-chosen Hajj, troop or UN job pays.',
+      'What’s new catches up: the first start after an update also shows the notes of the versions you skipped, once.',
     ],
   },
   {

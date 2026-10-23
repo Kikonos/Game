@@ -21,7 +21,7 @@ export const SET_ROLES: Role[] = ['CPT', 'FO', 'CRP', 'PUR', 'CC'];
  * ≈ 30.4 − 9 off − 2.3 leave − ≈ 1 sick/training ≈ 18 work days a person a month; 5 sets give ≈ 90 crew-days per seat
  * against 30–45 flying days, the rest is standby.
  */
-export const SETS_WHY = '5 sets per aircraft: each person has 8–10 days off a month and 4 weeks’ leave; every other day is flying or standby.';
+export const SETS_WHY = '5 sets per aircraft: each person has 8–10 days off a month in 2–3-day blocks and 4 weeks’ leave; every other day is flying or standby.';
 
 /** v0.9 fix: the Planning view's line for a fleet with a detached aircraft (replaces 'its sets on station plus 2 at base'). */
 export const SETS_DETACHED = 'A detached aircraft needs its sets on station plus one in five for leave and change-overs.';

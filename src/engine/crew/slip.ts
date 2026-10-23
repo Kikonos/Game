@@ -4,7 +4,7 @@
 
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { BAL } from '../core/balance';
-import { cabinMinimum, typeOf } from '../core/perf';
+import { complement, typeOf } from '../core/perf';
 import { fmtTime } from '../core/time';
 import type { AcRest, Duty, GameState, Minute } from '../core/types';
 import { dutyNeed, type ChainShape, type DutyNeed } from './duties';
@@ -17,17 +17,18 @@ export interface SlipPlan {
   cutIndex: number;
   first: DutyNeed;
   second: DutyNeed;
-  /** Crew in the slip complement, one-way tickets in and out ($, both crews) and hotel room nights. */
+  /** Crew in the slip complement, one-way tickets in and out ($, both crews), hotel room nights and the room rate ($). */
   crewN: number;
   tickets: number;
   hotelNights: number;
+  hotelNight: number;
   text: string;
 }
 
 const RANK: Record<DutyNeed['mode'], number> = { basic: 0, split: 1, ext: 2, aug1: 3, aug2: 4, none: 9 };
-const PILOTS: Record<DutyNeed['mode'], number> = { basic: 2, split: 2, ext: 2, aug1: 3, aug2: 4, none: 2 };
-/** A 4-star crew hotel and a cabin crew member's per diem (the slip's extra crew-day). */
-const HOTEL = () => BAL.hotelPerNight[4] ?? 140;
+const AUG: Record<DutyNeed['mode'], 0 | 1 | 2> = { basic: 0, split: 0, ext: 0, aug1: 1, aug2: 2, none: 0 };
+/** The crew hotel at the policy tier (as feasibility and pricing book it) and a cabin crew member's per diem (the slip's extra crew-day). */
+const HOTEL = (g: GameState) => BAL.hotelPerNight[g.company.policies.hotelTier] ?? 140;
 const PER_DIEM = () => BAL.perDiem.CC ?? 54;
 
 /** City name of an airport ('Istanbul'), else its code. */
@@ -52,13 +53,15 @@ export function bestSlip(g: GameState, typeId: string, rest: AcRest, chain: Chai
     const a: ChainShape = { from: chain.from, std: legs[0].std, legs: legs.slice(0, i) };
     const b: ChainShape = { from: at, std: legs[i].std, legs: legs.slice(i) };
     const first = dutyNeed(g, typeId, rest, a);
-    const second = dutyNeed(g, typeId, rest, b);
+    // Round 4: the fresh crew flew in the day before, so the roster judges it on the home clock too (FTL state B).
+    const second = dutyNeed(g, typeId, rest, b, { stricter: true });
     if (first.mode === 'none' || second.mode === 'none') continue;
-    const crewN = PILOTS[second.mode] + 1 + Math.max(1, cabinMinimum(seats));
+    // The crew the roster positions: the second half's pilots, the policy extra cabin crew and the rest plan's.
+    const crewN = complement(typeId, seats, { augment: AUG[second.mode], extraCabin: g.company.policies.extraCabin, restCabin: second.plan?.extraCabin ?? 0 }).length;
     // The slip crew flies in, the first crew flies home: one ticket each way per person.
     const tickets = 2 * crewN * ticketPrice(home, at);
     const plan: SlipPlan = {
-      at, cutIndex: i, first, second, crewN, tickets, hotelNights: crewN * BAL.v09.slip.roomNights,
+      at, cutIndex: i, first, second, crewN, tickets, hotelNights: crewN * BAL.v09.slip.roomNights, hotelNight: HOTEL(g),
       text: `Crew change at ${at} (fresh crew flies in)`,
     };
     const rank = Math.max(RANK[first.mode], RANK[second.mode]);
@@ -70,13 +73,14 @@ export function bestSlip(g: GameState, typeId: string, rest: AcRest, chain: Chai
 
 /** What a slip costs us (tickets, the hotel and per diem for the extra crew-day). Pure. */
 export function slipCost(p: SlipPlan): number {
-  return Math.round(p.tickets + p.hotelNights * HOTEL() + p.crewN * PER_DIEM());
+  return Math.round(p.tickets + p.hotelNights * p.hotelNight + p.crewN * PER_DIEM());
 }
 
-/** The plain detail under the feasibility line (§W.1). Pure. */
-export function slipDetail(p: SlipPlan, to: string): string {
+/** The plain detail under the feasibility line (§W.1); on a wet lease the client pays the travel. Pure. */
+export function slipDetail(p: SlipPlan, to: string, wet = false): string {
   const c = cityOf(p.at);
-  return `A second crew flies to ${c} by airline the day before and rests; it takes over ${p.at}–${to}. The first crew rests in ${c} and flies home. Tickets and hotel about $${Math.max(1, Math.round(slipCost(p) / 1000))}K, priced in.`;
+  const k = `$${Math.max(1, Math.round(slipCost(p) / 1000))}K`;
+  return `A second crew flies to ${c} by airline the day before and rests; it takes over ${p.at}–${to}. The first crew rests in ${c} and flies home. ${wet ? `The client pays the tickets and hotel (about ${k}).` : `Tickets and hotel about ${k}, priced in.`}`;
 }
 
 export interface SlipView {

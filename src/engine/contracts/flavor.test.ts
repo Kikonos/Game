@@ -69,9 +69,27 @@ describe('generated copy', () => {
         if (/cruise ship/.test(o.blurb)) expect(name).toMatch(/crew travel/);
         expect(o.title).not.toMatch(/Derby/);
         if (o.archetype === 'repatriation') expect(F.crisisLines(o.pin).some((l) => o.blurb.includes(l)), o.blurb).toBe(true);
+        // Round 4 (§V.2): no title starts with a bare verb ('Needs an A320 at Hamburg') or names the client.
+        expect(o.title, name).not.toMatch(/^(Needs?|Wants?|Asks?|Takes?|Flies|Fly|Seeks?)\b/);
+        if (name) expect(o.title, name).not.toContain(name);
       }
     }
   }, 20_000);
+
+  it('round 4 (§V.2): no title template carries the client; clientless() stays for old saves', () => {
+    const x = { client: 'ZZCLIENT', brand: 'ZZBRAND', from: 'HAM', to: 'PMI', fromCity: 'Hamburg', toCity: 'Palma', month: 'June', n: 6, event: 'EUFOR', pk: true, nation: 'German', type: 'A320', wide: true };
+    for (const season of ['summer', 'winter', 'autumn', 'easter', 'christmas', 'ski'] as const) {
+      for (const [arch, fns] of Object.entries(F.TITLES)) {
+        for (const f of fns ?? []) {
+          const t = f({ ...x, season });
+          expect(t, `${arch}: ${t}`).not.toMatch(/ZZ/);
+          expect(t, `${arch}: ${t}`).not.toMatch(/^(Needs?|Wants?|Asks?)\b/);
+        }
+      }
+    }
+    expect(F.clientless('TUI needs an A320 at Hamburg', 'TUI Deutschland')).toBe('Needs an A320 at Hamburg');
+    expect(F.clientless('AOG cover: an A320 at Hamburg', 'TUI Deutschland')).toBe('AOG cover: an A320 at Hamburg');
+  });
 
   it('a lost widebody job goes to a widebody rival', () => {
     const g = newGame(4);

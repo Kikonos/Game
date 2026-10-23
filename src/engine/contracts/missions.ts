@@ -106,7 +106,7 @@ function hajj(ctx: Ctx): Draft | null {
   return {
     archetype: 'hajj', client,
     title: `Hajj ${h.ah} airlift ${origin}–JED/MED`,
-    blurb: `${client.name}: Hajj ${h.ah} airlift ${origin}–JED/MED for about ${pax} pilgrims a flight. In: ${tn(...terms[0])}; home: ${tn(...terms[1])}. ` +
+    blurb: `About ${pax} pilgrims a flight. In: ${tn(...terms[0])}; home: ${tn(...terms[1])}. ` +
       `${daily ? 'One rotation a day, turning at the holy city' : 'A rotation every other day, night-stopping at the holy city'}; every other leg flies empty, and the client pays those hours too. Max-seat cabin, no alcohol on board, Zamzam water in the hold on the way home.`,
     pattern: { kind: 'legs', legs },
     req: { minSeats: pax, layouts: ['all-economy'], extraCabin: 0, approvals: [], body: wide ? 'wide' : 'narrow' },
@@ -655,7 +655,9 @@ export function rollRepeat(g: GameState, contractId: string): ContractOffer | nu
   const o = generateOffer(g, c.archetype, { client: c.clientId, wide, start, window: false, repeatOf: c.id });
   if (o) {
     o.hook = `Repeat business from ${cl.name}`;
-    pushMessage(g, { tone: 'good', cat: 'commercial', title: `Repeat business from ${cl.name}`, body: `${cl.name} liked ${c.title} and asks again: ${o.title}, from ${fmtDay(o.start)}.`, ref: { kind: 'offer', id: o.id }, cue: null });
+    // Round 4 (§V): the client once (the title); the new title only when it is not the old one (or it plus a month).
+    const as = o.title === c.title || o.title.startsWith(`${c.title} (`) ? '' : ` as ${o.title}`;
+    pushMessage(g, { tone: 'good', cat: 'commercial', title: `Repeat business from ${cl.name}`, body: `They liked ${c.title} and ask for it again${as} from ${fmtDay(o.start)}.`, ref: { kind: 'offer', id: o.id }, cue: null });
   }
   return o;
 }

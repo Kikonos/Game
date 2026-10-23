@@ -375,12 +375,13 @@ export function devRoster(g: GameState): string {
  * Singapore on a widebody (one is added when the fleet has none), or Dili–Lisbon on a narrowbody; longer routes are
  * tried when the type's rest covers the first. The offer id ('' when none fits). Dev/test helper.
  */
-export function devSlipOffer(g: GameState, routeKey: 'MAD-SIN' | 'DIL-LIS' = 'MAD-SIN'): string {
-  const wide = routeKey === 'MAD-SIN';
+export function devSlipOffer(g: GameState, routeKey: 'MAD-SIN' | 'DIL-LIS' | 'LIS-SYD' = 'MAD-SIN'): string {
+  const wide = routeKey !== 'DIL-LIS';
   if (wide && !Object.values(g.fleet).some((a) => typeOf(a.typeId).body === 'wide')) devAddType(g, 'a332');
   // A narrowbody fleet can't reach Dili–Lisbon even with fuel stops: a long-range widebody is added for the scene.
   if (!wide && !Object.values(g.fleet).some((a) => typeOf(a.typeId).body === 'wide')) devAddType(g, 'a332');
-  const routes: [string, string][] = wide ? [['MAD', 'SIN'], ['LIS', 'SYD'], ['MAD', 'AKL'], ['LIS', 'NOU']] : [['DIL', 'LIS'], ['LIS', 'KUL'], ['LIS', 'BKK']];
+  // Round 4: 'LIS-SYD' is the slip test's stop far from home (the second crew's clocks differ by hours).
+  const routes: [string, string][] = routeKey === 'LIS-SYD' ? [['LIS', 'SYD']] : wide ? [['MAD', 'SIN'], ['LIS', 'SYD'], ['MAD', 'AKL'], ['LIS', 'NOU']] : [['DIL', 'LIS'], ['LIS', 'KUL'], ['LIS', 'BKK']];
   const client = Object.values(g.clients).find((c) => c.kind === 'airline' && !c.rivalId) ?? Object.values(g.clients)[0];
   if (!client) return '';
   const start = Math.ceil((g.now + 12 * DAY) / 60) * 60;
