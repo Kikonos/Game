@@ -1910,6 +1910,9 @@ console.log(
         lows.push(`${c.last} ${c.role} hired ${fmtDay(c.hired)} ${v.year}/${v.yearMin} (off ${off} leave+sick ${free} months ${Object.keys(c.offMonths ?? {}).filter((k) => Math.floor(+k / 12) === y).length})`);
       }
       console.log(`crew-years below 96 pro rata (${y}): ${lows.join(' · ') || 'none'}`);
+      const lowM: string[] = [];
+      for (const c of Object.values(g.crew)) for (const [k, n] of Object.entries(c.offMonths ?? {})) if (n < 7) lowM.push(`${c.last} ${c.role} ${fmtMonth(+k)} ${n} (hired ${fmtDay(c.hired)}, leave+sick ${c.freeMonths?.[+k] ?? 0})`);
+      console.log(`crew-months below 7: ${lowM.join(' · ') || 'none'}`);
     }
     if (WHYHELD) for (const [k, xs] of offShare) {
       const q = (p: number) => [...xs].sort((a, b) => a - b)[Math.floor(p * (xs.length - 1))];

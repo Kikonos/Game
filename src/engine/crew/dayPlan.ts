@@ -719,17 +719,22 @@ function offNeed(g: GameState, c: CrewMember, D: number, busy: Busy): OffNeed | 
   const missing = minM - offs;
   const blocks = blocksIn(c, mk);
   // v0.9 round 4: a block already planned within the next days (a must that found D taken and went on the first
-  // free days after it) answers the run and the pace: no second block stacks behind it.
+  // free days after it) answers the run, and one inside this month its pace too: no second block stacks behind
+  // it. The month's minimum still asks for its own (a block ahead may sit in the next month).
   let ahead = false;
-  for (let k = D + 1; k <= D + 10 && !ahead; k++) if (offOn(c, k)) ahead = true;
+  let aheadInMonth = false;
+  for (let k = D + 1; k <= D + 10 && !ahead; k++) if (offOn(c, k)) {
+    ahead = true;
+    aheadInMonth = k < m1;
+  }
   // Must: the 7th work day, the month's minimum no longer reachable otherwise, or falling behind the minimum's
   // pace (work rostered later can fill the month's last days: the minimum is kept on pace, not left to the end).
   const must = (!ahead && run >= O.mustAfter) || (missing > 0 && freeLeft <= missing + 1) || (blocks < 2 && (2 - blocks) * 2 + 1 >= freeLeft)
-    || (!ahead && before < Math.floor((minM * dom) / mDays) - 1);
+    || (!aheadInMonth && before < Math.floor((minM * dom) / mDays) - 1);
   // Behind the target's pace counts from the second week (on day 1 every crew member would be "behind" on the
   // same day and the whole company would go off together).
   const behind = dom >= 8 && before < pace - 1.5;
-  const due = !ahead && (run >= O.dueAfter || behind);
+  const due = (!ahead && run >= O.dueAfter) || (!aheadInMonth && behind);
   const early = !must && !due && !ahead && run >= O.dueAfter - 1;
   if (!must && !due && !early) return null;
   if (!must && offs >= O.maxMonth) return null;
@@ -1381,6 +1386,8 @@ export function crewMonth(g: GameState, crewId: string, t: Minute): CrewMonthVie
   const yv = yearView(g, c, Math.floor(mk / 12));
   v.year = yearOffs(g, c, yv);
   v.yearMin = yv.need;
+  // Counted from the first whole month after the hire (or the first planned one): said when that is not January.
+  const yearFrom = yv.from > yv.y0 && yv.from < yv.y1 ? ` from ${MONTH[monthOfDay(yv.from) % 12]}` : '';
   const a = firstDayOf(mk);
   const b = firstDayOf(mk + 1);
   const segs = segsOf(g, c);
@@ -1401,7 +1408,7 @@ export function crewMonth(g: GameState, crewId: string, t: Minute): CrewMonthVie
     }
   }
   const sby = v.standby.home + v.standby.hotel + v.standby.airport + v.standby.reserve;
-  v.line = `${v.label}: days off ${v.off} of ${v.offMin} minimum · ${v.year} of ${v.yearMin} this year · standby ${sby} · flying ${v.flying} · leave ${v.leave}`;
+  v.line = `${v.label}: days off ${v.off} of ${v.offMin} minimum · ${v.year} of ${v.yearMin} this year${yearFrom} · standby ${sby} · flying ${v.flying} · leave ${v.leave}`;
   return v;
 }
 

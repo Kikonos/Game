@@ -875,6 +875,40 @@ prints `years <96: a of b` and targets 0.
 
 Not applied: pro-rating the 7-day floor by training days (the player's call: days off are not pro-rated by training).
 
+**R.16.5 Results (bot, 365 days, `--whyheld`; before = the round 3 table, after = this round).** Every run: 0 illegal
+duties, 0 planned discretion, recovery gap ≤ 168 h, no standby window before 06:00 after a day off (test).
+
+| Seed | uncovered | red | days off/crew-month | crew-months < 7 | crew-years < 96 pro rata | runtime |
+|---|---|---|---|---|---|---|
+| 1 | 0.20 → 0.36 % | 7 → 23 | 8.4 → 8.1 | 0 → 14 of 822 | 4 of 98 | 19 → 37 s |
+| 2 | 0.31 → 0.37 % | 19 → 18 | 8.4 → 8.2 | 0 → 6 of 850 | 0 of 95 | 26 → 38 s |
+| 3 | 0.20 → 0.30 % | 11 → 16 | 8.3 → 8.1 | 0 → 6 of 892 | 1 of 92 | 22 → 29 s |
+| 4 | 0.06 → 0.40 % | 8 → 25 | 8.3 → 8.1 | 0 → 5 of 659 | 0 of 60 | 29 → 32 s |
+| 5 | 0.36 → 0.46 % | 12 → 15 | 8.4 → 8.2 | 0 → 0 of 748 | 0 of 72 | 29 → 24 s |
+| 6 | 0.00 → 0.17 % | 8 → 18 | 8.4 → 8.2 | 0 → 4 of 801 | 0 of 92 | 27 → 29 s |
+| 1 --wide --aug --b744 | 0.52 → 3.82 % | 21 → 66 | 8.3 → 8.2 | 0 → 2 of 904 | 2 of 148 | 52 → 172 s |
+
+The two tables are not the same games: any roster change moves the RNG draws, so each seed signs other contracts
+(seed 6 flies 1,710 legs against 1,797; the B744 run signs its 747 on day 160 for a GRU base instead of day 103 for
+MLA, runs out of cash and cancels 145 legs). On a fixed schedule the roster is as good as before: a deterministic
+probe (`devRoster` seeds 11–13 played 30 days with the engine's own crew control) gives the same held departures and
+red alerts before and after (1/2/2, 0/0/0, 0/2/2), fewer days off moved by tours (50/46/71 against 43/52/81) and the
+same swaps. The seed-to-seed spread (round 3 saw 9–38 reds on seeds 7–12) is wider than the round 3 table suggested.
+
+Open after round 4 (all from the rule itself, not its code):
+- **Crew-months under 7 (0.5–1.7 %).** Every case is a crew member on a deployment with a wave reporting before
+  06:00 local every day (RIX 05:00, the GRU 747 base): with a day off running to 06:00, the eve of every such duty
+  is no longer a free day, so once a tour has taken a block (`fillPairing`'s fallback when nobody else can crew the
+  set) the month has no two free days left and the planner's singles fall one short. The tour's later duties are not
+  known when the month's free days are counted (`monthFloorIssue`, `topUpOffs` count days beyond the planned horizon
+  as free). The proper fix is the design's own: the eve duty of a month that cannot reach 7 gets the `daysOff`
+  out-of-hours mark and is re-crewed through Crew Control (`guardDuty`), as any other limit; not built in this round.
+- **Small groups off together.** All crew of a small family-and-role group (a single 747's 10–15 pilots) run their
+  standby and flying in lockstep, so their 7th-day musts (uncapped by the stagger) land on the same day; with fewer
+  days fitting a block the B744 run shows days with the whole group off (`--whyheld` "off share" max 1.00). The
+  stagger's early blocks need to start at run 3–4 for groups under ten.
+- **Coverage and runtime** as round 3 left them (capacity and reach at outstations; 25–38 s), plus the 747 run above.
+
 ---
 
 ## 9. What's new v0.9 "Experience" (ENGINE `data/whatsNew.ts`, player words)
