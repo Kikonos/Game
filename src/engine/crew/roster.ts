@@ -12,7 +12,7 @@ import { acceptable, crewIssuesFor, mergeSegs, openDuties, otherTrip, planCrew, 
 import { deletePairing, dutyLegality, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setCrewTrailOkHook, setReleaseHook, setRetickHook, splitPairing, splitUnderWay, syncDuty } from './duties';
 import { crewName } from './generate';
 import { callIfOnStandby, dropStandby, standbyFor } from './standby';
-import { offDaysHit, takeOffDays, v09Stats as v09StatsOf } from './dayPlan';
+import { fitStandby, offDaysHit, takeOffDays, v09Stats as v09StatsOf } from './dayPlan';
 import { lateChange, moraleShock, nextReport } from './morale';
 import { cabinFdpCap, DISCRETION, evalSegs, levelOf, minRest, tzDeltaH, worst, type Seg } from './rules';
 import { planRest, restCabinN, restLegs, restOf, restPlan } from './restPlan';
@@ -578,9 +578,13 @@ function busyAt(segs: Seg[], from: Minute, to: Minute): boolean {
   return false;
 }
 
+/** v0.9 crew placed on new work in the current roster run (their future standby is re-fitted at its end). */
+const placed = new Set<string>();
+
 /** v0.9 the standby a crew plan's work (and its rest) clashes with gives way (crew/standby.ts dropStandby). */
 function dropSbyFor(g: GameState, c: CrewMember, plan: CrewPlan): void {
   if (!plan.segs.length || !c.standby) return;
+  placed.add(c.id);
   let from = Infinity;
   let until = -Infinity;
   for (const x of plan.segs) {
@@ -718,6 +722,8 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
       slot.crewId = c.id;
       callIfOnStandby(g, c.id, openDuties(g, p)[0]?.report);
       dropSbyFor(g, c, plan);
+      // v0.9 a tour's duties on planned days off: the planner moves them to the tour's free days (no morale).
+      if (plan.issues.some((i) => i.code === 'daysOff')) takeOffDays(g, c, plan.segs, true);
       inP.add(c.id);
       plans.set(c.id, plan);
       lateChange(g, c.id, nextReport(g, p));
@@ -842,6 +848,7 @@ export function fillAll(g: GameState, ps: Pairing[], res: RosterResult, exclude?
   if (!ps.length) return;
   crewIx(g);
   const ctx = new Ctx(g);
+  placed.clear();
   for (const p of ps) {
     if (!g.pairings[p.id]) continue;
     fillPairing(g, ctx, p, res, exclude);
@@ -854,6 +861,10 @@ export function fillAll(g: GameState, ps: Pairing[], res: RosterResult, exclude?
     }
   }
   touchCrew(g);
+  if (placed.size) {
+    fitStandby(g, [...placed]);
+    placed.clear();
+  }
 }
 
 /**
@@ -1038,18 +1049,26 @@ setReleaseHook(releaseCrew);
 
 // Crewed tours accept a new duty only if every crew member stays legal.
 setCrewOkHook((g, p, d) => {
+  const moves: CrewMember[] = [];
   for (const s of p.slots) {
     if (!s.crewId) continue;
     const c = g.crew[s.crewId];
     if (!c) continue;
     if (otherTrip(g, c, p, d.report, d.release, false)) return false;
-    // v0.9 never onto a planned day off.
-    if (offDaysHit(c, d.report, d.release).length) return false;
+    // v0.9 never onto a planned day off; a tour moves them to its free days (the planner's own re-plan, no morale).
+    if (offDaysHit(c, d.report, d.release).length) {
+      if (!p.tour) return false;
+      moves.push(c);
+    }
     // The tour's own tickets are re-planned around its new ends (retick), so they are left out here.
     const own: Seg[] = [];
     for (const x of openDuties(g, p)) own.push(...dutySegs(g, c, p, x, null, null));
     const segs = mergeSegs(mergeSegs(segsOf(g, c, p.id), own), dutySegs(g, c, p, d, null, null, true));
     if (evalSegs({ ...ctxOf(g, c), slack: BAL.rosterSlack }, segs).some((i) => i.level === 'illegal' && i.code !== 'fdp')) return false;
+  }
+  for (const c of moves) {
+    const seg = dutySegs(g, c, p, d, null, null, true).filter((x) => x.kind === 'duty');
+    takeOffDays(g, c, seg, true);
   }
   return true;
 });
@@ -1274,6 +1293,7 @@ export function placeCrew(g: GameState, p: Pairing, slot: number, c: CrewMember)
   setFlightsCrew(g, p);
   if (!hadCrew) for (const d of openDuties(g, p)) queueDuty(g, d);
   touchCrew(g);
+  fitStandby(g, [c.id]);
   recheckPairing(g, p);
   return plan;
 }

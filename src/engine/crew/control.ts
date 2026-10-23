@@ -348,7 +348,8 @@ function escalate(g: GameState, reroster: boolean): void {
 setShortHook((g) => escalateShortages(g));
 
 /** v0.9 the out-of-hours card (problems/crew.ts crewHoursCard registers itself: problems import crew, not the reverse). */
-let crewHoursCardHook: ((g: GameState, flightId: string) => ProblemCard | null) | null = null;
+// eslint-disable-next-line no-var -- set while modules load in a cycle (var: no temporal dead zone)
+var crewHoursCardHook: ((g: GameState, flightId: string) => ProblemCard | null) | null | undefined;
 export function setCrewHoursCard(f: (g: GameState, flightId: string) => ProblemCard | null): void {
   crewHoursCardHook = f;
 }
@@ -819,7 +820,8 @@ const SBY_WORD: Record<StandbyKind, string> = { home: 'home standby', hotel: 'ho
  */
 function seatCandidates(g: GameState, d: Duty, role: Role, here: boolean): DutyCandidate[] {
   const list = candidatesOf(g, d, role).filter((c) => !c.onPairing && c.level !== 'illegal' && (here ? !c.travel : !!c.travel));
-  const rank = (c: DutyCandidate) => (c.dayOff ? 5 : !c.standby ? 4 : c.standby.kind === 'airport' ? 1 : c.standby.kind === 'reserve' ? 3 : 2);
+  // On a window now before one starting later (short notice).
+  const rank = (c: DutyCandidate) => (c.dayOff ? 5 : !c.standby ? 4 : c.standby.kind === 'airport' ? 1 : c.standby.kind === 'reserve' ? 3 : c.standby.from <= g.now ? 2 : 2.5);
   return list.map((c, i) => ({ c, i })).sort((a, b) => rank(a.c) - rank(b.c) || a.i - b.i).map((x) => x.c);
 }
 
@@ -975,11 +977,13 @@ function runFix(h: GameState, flightId: string, fix: CrewFix, opts: ApplyOpts): 
       let cost = 0;
       const had = new Set(Object.values(h.flights).filter((t) => t.kind === 'deadhead').map((t) => t.id));
       for (const { role, crewId } of picks) {
+        // v0.9 a standby window for this report (running, or starting soon: short notice) is a call-out, no overtime.
+        const onSby = !!(lists.get(role) ?? []).find((x) => x.crewId === crewId)?.standby;
         const r = assignCrew(h, f.id, crewId, role);
         if (!r.ok) continue;
         const c = h.crew[crewId];
         // (placing them may already have called them out: the roster counts a placement inside a running window)
-        if (fix === 'callIn' && (callFromStandby(h, crewId) || calledNow(h, crewId))) {
+        if (fix === 'callIn' && (callFromStandby(h, crewId) || calledNow(h, crewId) || onSby)) {
           const nd = h.duties[d.id] ?? d;
           const seg = segsOf(h, c).find((x) => x.dutyId === nd.id && x.kind === 'duty');
           const until = seg ? seg.start + seg.maxFdp : nd.report + nd.maxFdp;

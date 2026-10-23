@@ -158,6 +158,9 @@ describe('delayed reporting (CS FTL.1.205(d))', () => {
 describe('home standby (CS FTL.1.225(b))', () => {
   it('the daily roster puts 1 CPT, FO, PUR and CC per family on standby 06:00–18:00 at base for 2 days', () => {
     const g = newDev();
+    // v0.9: this pool only serves the days an old save published before the v0.9 planner (dayPlan.from).
+    for (const c of Object.values(g.crew)) delete c.standby;
+    g.dayPlan = { from: g.now + 30 * DAY, publishedTo: g.now + 30 * DAY };
     dailyStandby(g);
     const on = Object.values(g.crew).filter((c) => c.standby?.length);
     const byRole = (r: string) => on.filter((c) => c.role === r).reduce((n, c) => n + c.standby!.length, 0);
@@ -179,7 +182,6 @@ describe('home standby (CS FTL.1.225(b))', () => {
   });
   it('planned work replaces standby not yet started: the check ignores it, the assignment drops it', () => {
     const g = newDev();
-    dailyStandby(g);
     const c = Object.values(g.crew).find((x) => x.role === 'CPT' && x.standby?.some((w) => w.from > g.now))!;
     const w = c.standby!.find((x) => x.from > g.now)!;
     const ctx = ctxOf(g, c);
@@ -219,14 +221,16 @@ describe('home standby (CS FTL.1.225(b))', () => {
     expect(fid).not.toBe('');
     const v = crewControl(g, fid)!;
     const s = v.solutions.find((x) => x.id === 'callIn')!;
-    expect(s.options![0].label).toMatch(/On home standby since/);
+    expect(s.options![0].label).toMatch(/Home standby \((early|late)\) · ready in 1:30/);
     expect(s.chips).toEqual(['No overtime', 'Home standby']);
     const sal = g.finance.current.lines.salaries ?? 0;
+    // v0.9: the roster's own placements from the standby pool are call-outs too; this fix adds one.
+    const calls = g.stats.standbyCalls ?? 0;
     const r = applyCrewFix(g, fid, 'callIn');
     expect(r.ok).toBe(true);
     expect(g.finance.current.lines.salaries ?? 0).toBe(sal);
-    expect(g.stats.standbyCalls).toBe(1);
-    const called = Object.values(g.crew).find((c) => c.standby?.some((w) => w.calledAt !== undefined))!;
-    expect(onStandby(g, called.id, g.now)).toBeNull();
+    expect(g.stats.standbyCalls).toBe(calls + 1);
+    // The one called is off standby (a running window closes at the call; one starting later gives way to the duty).
+    expect(onStandby(g, s.options![0].id, g.now)).toBeNull();
   });
 });

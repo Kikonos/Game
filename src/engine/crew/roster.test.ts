@@ -26,21 +26,25 @@ function allCrewLegal(g: GameState): string[] {
   return bad;
 }
 
-/** Each crew member gets ≥ 36 h off (two local nights not checked here) in every 7 days of their planned roster. */
+/**
+ * ORO.FTL.235(d) recurrent extended recovery: a rest of ≥ 36 h (two local nights not checked here) at most 168 h after
+ * the end of the previous one, over the planned roster (v0.9: standby is work, not rest). The roster's start counts as
+ * the end of a rest.
+ */
 function weeklyRecovery(g: GameState, from: number, to: number): string[] {
   const bad: string[] = [];
   for (const c of Object.values(g.crew)) {
     const segs = segsOf(g, c).filter((s) => s.kind !== 'log' && s.end > from && s.start < to);
     if (segs.length < 2) continue;
-    for (let w = from; w + 7 * DAY <= to; w += DAY) {
-      const inW = segs.filter((s) => s.end > w && s.start < w + 7 * DAY);
-      if (!inW.length) continue;
-      let best = Math.max(inW[0].start - w, w + 7 * DAY - inW[inW.length - 1].end);
-      for (let i = 1; i < inW.length; i++) best = Math.max(best, inW[i].start - inW[i - 1].end);
-      if (best < LIMITS.recovery) {
+    let lastEnd = Math.max(from, c.lastRecovery);
+    let prev = from;
+    for (const s of segs) {
+      if (s.start - prev >= LIMITS.recovery) lastEnd = s.start;
+      else if (s.start - lastEnd > LIMITS.recoveryEvery) {
         bad.push(c.id);
         break;
       }
+      prev = Math.max(prev, s.end);
     }
   }
   return bad;
@@ -147,6 +151,12 @@ describe('changes through core helpers', () => {
     const keep = new Set<string>();
     for (const role of ['CPT', 'FO', 'PUR', 'CC', 'CC', 'CC'] as const) keep.add(Object.values(g.crew).find((c) => c.role === role && !keep.has(c.id))!.id);
     for (const id of Object.keys(g.crew)) if (!keep.has(id)) delete g.crew[id];
+    // v0.9: no planned days off or standby in the way (roster planning: dayPlan.test.ts).
+    for (const c of Object.values(g.crew)) {
+      c.off = [];
+      delete c.standby;
+      delete c.blocks;
+    }
     const ac = Object.values(g.fleet)[0];
     const day = Math.floor(g.now / DAY) * DAY;
     const legs: [number, string, string][] = [[2 * DAY + 14 * 60, 'LIS', 'FAO'], [2 * DAY + 15 * 60 + 35, 'FAO', 'LIS'], [3 * DAY + 6 * 60, 'LIS', 'FAO'], [3 * DAY + 7 * 60 + 35, 'FAO', 'LIS']];
@@ -165,7 +175,7 @@ describe('changes through core helpers', () => {
   it('a 4 h delay rerosters: the next duty stays legal by swapping to standby crew', () => {
     const { g, d2, delay } = tightPair();
     const first = g.pairings[d2.pairingId].slots.map((s) => s.crewId);
-    addCrew(g, { CPT: 1, FO: 1, PUR: 1, CC: 3 });
+    for (const id of addCrew(g, { CPT: 1, FO: 1, PUR: 1, CC: 3 })) g.crew[id].off = [];
     delay();
     expect(g.duties[d2.id].report).toBe(d2.report);
     const [a, b] = Object.values(g.duties).sort((x, y) => x.report - y.report);
@@ -195,7 +205,7 @@ describe('augmentation', () => {
     ac.typeId = 'a333';
     ac.cabin = { ...ac.cabin, total: 300, y: 300, j: 0, w: 0 };
     ac.rest = { fc: { cls: 1, kind: 'fcrc', places: 2 }, cc: { cls: 1, kind: 'ldmcr', places: 7 } };
-    addCrew(g, { CPT: 3, FO: 4, PUR: 4, CC: 14 }, 'A330/340');
+    for (const id of addCrew(g, { CPT: 3, FO: 4, PUR: 4, CC: 14 }, 'A330/340')) g.crew[id].off = [];
     const std = Math.floor(g.now / DAY) * DAY + 2 * DAY + 20 * 60;
     fixtureContract(g, { aircraftIds: [ac.id], start: std, end: std + DAY, pattern: { kind: 'legs', legs: [] }, product: { kind: 'charter', price: 1, depositPct: 0, balanceDaysBefore: 0, fuelEscalation: false } });
     const f = { no: 'AW1', aircraftId: ac.id, contractId: null, kind: 'revenue' as const, from: 'LIS', to: 'GRU', std, sta: std + 12 * 60 + 30 };

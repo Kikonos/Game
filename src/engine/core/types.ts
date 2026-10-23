@@ -1389,6 +1389,8 @@ export interface StatsV09 {
 export interface StatsRoster09 {
   offDays: number; sbyHome: number; sbyHotel: number; asby: number; res: number; leaveDays: number; flying: number; otherDays: number;
   callOuts: number; offBroken: number; offBreaches: number; maxRecGapH: number;
+  /** Days off the planner moved for a tour crewed over them (no morale). */
+  offMoved?: number;
   /** Crew-months closed and those below 7 days off. */
   months: number; monthsLow: number;
 }

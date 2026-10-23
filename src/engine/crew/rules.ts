@@ -761,11 +761,20 @@ export function signedTz(a: string, b: string, t: Minute): number {
  * not counted) with the 18 h awake cap, airport standby beyond 4 h with standby + FDP ≤ 16 h, reserve not at all (the
  * FDP counts from report). Unchanged without standby segs.
  */
-function standbyView(ctx: TimelineCtx, segs: Seg[]): Seg[] {
+function standbyView(ctx: TimelineCtx, segsIn: Seg[]): Seg[] {
   let any = false;
-  for (const x of segs) if (x.kind === 'sby') { any = true; break; }
-  if (!any) return segs;
+  for (const x of segsIn) if (x.kind === 'sby') { any = true; break; }
+  if (!any) return segsIn;
   const now = ctx.now ?? -Infinity;
+  // v0.9 nobody is on standby while still resting: a window not over yet starts when the rest ends.
+  let segs = segsIn;
+  if (segsIn.some((x) => x.kind === 'sby' && !x.fresh && x.end > now && x.start < ctx.restUntil)) {
+    segs = [];
+    for (const x of segsIn) {
+      if (x.kind !== 'sby' || x.fresh || x.end <= now || x.start >= ctx.restUntil) segs.push(x);
+      else if (x.end > ctx.restUntil) segs.push({ ...x, start: ctx.restUntil });
+    }
+  }
   let freshWork = false;
   for (const x of segs) if (x.fresh && x.kind !== 'sby') { freshWork = true; break; }
   const drop = new Set<number>();
@@ -775,6 +784,7 @@ function standbyView(ctx: TimelineCtx, segs: Seg[]): Seg[] {
   for (let i = 0; i < segs.length; i++) {
     const x = segs[i];
     if (x.kind !== 'sby' || x.fresh) continue;
+    // Windows not started yet give way to fresh work (the roster then re-fits them: crew/dayPlan.ts fitStandby).
     if (freshWork && ctx.now !== undefined && x.start > now) {
       drop.add(i);
       continue;
@@ -784,10 +794,12 @@ function standbyView(ctx: TimelineCtx, segs: Seg[]): Seg[] {
     for (let k = i - 1; k >= 0 && k >= i - 4; k--) if (isWork(segs[k]) && segs[k].end > x.start) { w = k; break; }
     if (w < 0) for (let k = i + 1; k < segs.length && segs[k].start < x.end; k++) if (isWork(segs[k])) { w = k; break; }
     if (w < 0) {
-      // A running window ends early for fresh work whose start its rest would cut.
-      if (freshWork && x.end > now) {
-        for (let k = i + 1; k < segs.length && segs[k].start < x.end + x.rest; k++) {
-          if (!segs[k].fresh || !isWork(segs[k])) continue;
+      if (x.end > now) {
+        // v0.9 a window not started yet inside the rest after earlier work gives way to it (crew/dayPlan.ts clips it).
+        if (x.start > now) for (let k = i - 1; k >= 0 && k >= i - 4; k--) if (isWork(segs[k]) && segs[k].end + segs[k].rest > x.start) { drop.add(i); break; }
+        // A window ends early for work whose start its rest would cut.
+        if (!drop.has(i)) for (let k = i + 1; k < segs.length && segs[k].start < x.end + x.rest; k++) {
+          if (!isWork(segs[k])) continue;
           const end = Math.max(now, segs[k].start - x.rest);
           if (end <= x.start) drop.add(i);
           else cut.set(i, end);

@@ -245,14 +245,14 @@ export function crewCalendar(g: GameState, crewId: string, from: Minute, to: Min
     let start = Math.max(d, from);
     for (const r of rest) if (r.start <= start && r.end > start) start = r.end;
     const end = Math.min(d + DAY, to);
-    if (end - start < 6 * 60 && !plannedOff) continue;
+    if ((end - start < 6 * 60 && !plannedOff) || start >= end) continue;
     const at = start < g.now ? pastAt(start) : locAtTime(c, segs, start);
     const away = at !== c.base;
     if (d >= v09 - 60) {
       if (plannedOff) {
         const prot = d < pub;
         off.push({
-          kind: 'off', start: Math.max(d, from), end, label: 'Day off', at: away ? at : undefined, planned: true, ...(prot ? { protected: true as const } : {}),
+          kind: 'off', start, end, label: 'Day off', at: away ? at : undefined, planned: true, ...(prot ? { protected: true as const } : {}),
           detail: `Day off${away ? ` at ${at} (hotel)` : ' at home'}${prot ? ' (published): protected. Changing it costs morale.' : ' (not published yet)'}`,
         });
       } else if (d < pub) {

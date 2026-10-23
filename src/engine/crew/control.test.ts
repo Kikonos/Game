@@ -162,6 +162,7 @@ describe('previews and apply', () => {
     const c = g.crew[crew[0]];
     c.loc = 'DUS';
     c.status = 'off';
+    c.off = []; // v0.9: a rest day, not a planned day off (that one costs −6: dayPlan.test.ts)
     const v = crewControl(g, flightId)!;
     const s = v.solutions.find((x) => x.id === 'callIn')!;
     expect(s.available).toBe(true);
@@ -194,7 +195,7 @@ describe('previews and apply', () => {
     // v0.7.3 ORO.FTL.205(f): only for the unforeseen, at or after report: never for a planned day.
     const before = v.solutions.find((x) => x.id === 'discretion')!;
     expect(before.available).toBe(false);
-    expect(before.why).toMatch(/^Only after the crew have reported/);
+    expect(before.why).toMatch(/^Only after the crew has reported/);
     expect(applyCrewFix(g, flightId, 'discretion').ok).toBe(false);
     g.now = d.report + 10;
     v = crewControl(g, flightId)!;

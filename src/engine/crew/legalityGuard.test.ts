@@ -8,6 +8,7 @@ import { DAY } from '../core/time';
 import type { Duty, GameState, Pairing } from '../core/types';
 import { advanceTo } from '../sim';
 import { openDuties } from './check';
+import { dayIndex } from './dayPlan';
 import { addCrew, fixtureGame, seasonBase } from './fixtures';
 import { evalSegs, type Seg } from './rules';
 import { recheckPairing, recheckSoon } from './roster';
@@ -132,13 +133,18 @@ describe('crew legality: the 2 h check and the gate', () => {
   it('takes a crew member over a limit off the duty 2 h before report and refills the seat', () => {
     const { g, d } = midday();
     // A spare captain based at the station.
-    addCrew(g, { CPT: 1 }, 'A320', 'HAM');
+    const [spare] = addCrew(g, { CPT: 1 }, 'A320', 'HAM');
+    // v0.9: free that day (the guard never takes a planned day off).
+    const k = dayIndex('HAM', d.report);
+    g.crew[spare].off = g.crew[spare].off!.filter((x) => Math.abs(x - k) > 1);
     advanceTo(g, d.report - 180);
     const p = g.pairings[d.pairingId];
     const c = g.crew[p.slots[0].crewId!];
     // Sick from just before report (as if reported late: the roster has not seen it yet).
     c.blocks = [...(c.blocks ?? []), { from: d.report - 30, to: d.report + 2 * DAY, why: 'sick' }];
     expect(crewIssuesFor(g, d).map((x) => x.crewId)).toEqual([c.id]);
+    // v0.9: the spare's standby days since joining are work; give them a fresh weekly rest for the tour ahead.
+    g.crew[spare].lastRecovery = d.report - 180;
     advanceTo(g, d.report - 119);
     const now = g.pairings[g.duties[d.id].pairingId];
     expect(now.slots.some((s) => s.crewId === c.id)).toBe(false);

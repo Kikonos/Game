@@ -11,13 +11,24 @@ import { pushMessage } from '../core/messages';
 import { typeOf } from '../core/perf';
 import { DAY, daysInMonth, fmtDay, fromUTC, monthKey, monthStart, yearOf } from '../core/time';
 import type { CrewMember, GameState, Minute, MonthKey, StandbyKind, StatsRoster09, StatsV09 } from '../core/types';
-import { hashUnit } from '../core/util';
+import { hash } from '../core/util';
 import { moraleShock } from './morale';
 import { evalSegs, offsetAt, type LegalityIssue, type Seg } from './rules';
 import { noteRecovery, onStandby, pruneStandby } from './standby';
 import { crewIx, ctxOf, locAt, segsOf, standbySeg, touchCrewState, typeIdOf } from './timeline';
 
 const R = () => BAL.v09.roster;
+
+/** hashUnit with a murmur finaliser: FNV-1a alone clusters on short similar keys ('off:c3', 'off:c4'). */
+function hashUnit(key: string): number {
+  let h = hash(key);
+  h ^= h >>> 16;
+  h = Math.imul(h, 0x85ebca6b);
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
 type Window = NonNullable<CrewMember['standby']>[number];
 
 // ---------- days ----------
@@ -189,7 +200,7 @@ export function offBreak(g: GameState, crewId: string, from: Minute, to: Minute)
  * go, each published one costs morale −6 (Stats offBroken), and each is re-planned on the first free unpublished day of
  * its month (the next month when none is left). Returns the moves as [from, to | null] day indices.
  */
-export function takeOffDays(g: GameState, c: CrewMember, segs: Seg[]): [number, number | null][] {
+export function takeOffDays(g: GameState, c: CrewMember, segs: Seg[], planner = false): [number, number | null][] {
   const hits = hitsOf(c, segs);
   if (!hits.length) return [];
   const pub = dayIndex(c.base, publishedTo(g));
@@ -197,7 +208,10 @@ export function takeOffDays(g: GameState, c: CrewMember, segs: Seg[]): [number, 
   const moves: [number, number | null][] = [];
   const all = segsOf(g, c);
   for (const k of hits) {
-    if (k < pub) {
+    // The planner's own move (a tour crewed over its days off: the day moves to a free one, no morale); a player's or
+    // a call-in's break of a published day costs morale.
+    if (planner) rosterStats(g).offMoved = (rosterStats(g).offMoved ?? 0) + 1;
+    else if (k < pub) {
       moraleShock(g, c, 'daysOff', R().morale.broken);
       rosterStats(g).offBroken++;
     }
@@ -327,7 +341,8 @@ const groupsOf = (c: CrewMember): string[] => c.ratings.map((f) => `${f}|${c.rol
 export function planLeave(g: GameState, year: number, crewIds?: string[]): number {
   const L = R().leave;
   const home = g.company.homeBase;
-  const pub = dayIndex(home, publishedTo(g));
+  // Never inside the published roster (at a new game: the first 14 days it is about to publish).
+  const pub = Math.max(dayIndex(home, publishedTo(g)), dayIndex(home, g.now) + R().publishDays);
   const y0 = fromUTC(year, 1, 1) / DAY;
   const y1 = fromUTC(year + 1, 1, 1) / DAY;
   if (pub >= y1) return 0;
@@ -471,20 +486,26 @@ export function planOffDays(g: GameState): void {
   if (!dp) return;
   const home = g.company.homeBase;
   const last = dayIndex(home, g.now + BAL.rosterHorizonDays * DAY);
-  let D = Math.max(dayIndex(home, dp.planned ?? dp.from), dayIndex(home, dp.from), dayIndex(home, g.now));
-  if (D > last) return;
+  const today = Math.max(dayIndex(home, dp.from), dayIndex(home, g.now));
+  let D = Math.max(dayIndex(home, dp.planned ?? dp.from), today);
   const crew = Object.values(g.crew).sort((a, b) => (a.id < b.id ? -1 : 1));
+  // Crew never planned (added since the last run: a joiner, a transfer) catch up from today.
+  const fresh = new Set(crew.filter((c) => c.off === undefined).map((c) => c.id));
+  const from = fresh.size ? today : D;
+  if (from > last) return;
   const facts = new Map<string, { segs: Seg[]; busy: Busy }>();
   for (const c of crew) {
     const segs = segsOf(g, c);
-    facts.set(c.id, { segs, busy: busyDays(c, segs, D - 45, last + 40) });
+    facts.set(c.id, { segs, busy: busyDays(c, segs, from - 45, last + 40) });
   }
+  for (let X = from; X < D && X <= last; X++) planDay(g, X, crew, facts, fresh);
   for (; D <= last; D++) planDay(g, D, crew, facts);
+  for (const c of crew) c.off ??= [];
   dp.planned = midnight(home, last + 1);
   touchCrewState(g);
 }
 
-function planDay(g: GameState, D: number, crew: CrewMember[], facts: Map<string, { segs: Seg[]; busy: Busy }>): void {
+function planDay(g: GameState, D: number, crew: CrewMember[], facts: Map<string, { segs: Seg[]; busy: Busy }>, only?: Set<string>): void {
   const O = R().off;
   // Reports and crew available per family|role|station on D (built on first use).
   const cov: { need: Map<string, number> | null; avail: Map<string, number> | null } = { need: null, avail: null };
@@ -516,7 +537,7 @@ function planDay(g: GameState, D: number, crew: CrewMember[], facts: Map<string,
     }
   }
   for (const c of crew) {
-    if (offOn(c, D) || blockedOn(c, D) || (c.notice && midnight(c.base, D) >= c.notice.leaves)) continue;
+    if ((only && !only.has(c.id)) || offOn(c, D) || blockedOn(c, D) || (c.notice && midnight(c.base, D) >= c.notice.leaves)) continue;
     const { busy } = facts.get(c.id)!;
     const run = runBefore(g, c, busy, D);
     const mk = monthOfDay(D);
@@ -716,6 +737,38 @@ export function planStandby(g: GameState): void {
     let segs = segsOf(g, c);
     let baseIssues: Set<string> | null = null;
     const base = () => (baseIssues ??= new Set(evalSegs(ctxOf(g, c), segs).filter((i) => i.dutyId).map((i) => `${i.dutyId}:${i.code}:${i.level}`)));
+    // Windows not started yet make way for work planned or moved since (a delay, a new trip): clipped to start after
+    // its rest and end early enough for their own, dropped under 4 h.
+    if (c.standby?.some((w) => w.calledAt === undefined && w.from > g.now)) {
+      const work = segs.filter((x) => x.kind !== 'sby' && x.kind !== 'log');
+      let clipped = false;
+      const keep: Window[] = [];
+      for (const w of c.standby) {
+        if (w.calledAt !== undefined || w.from <= g.now) {
+          keep.push(w);
+          continue;
+        }
+        let a = Math.max(w.from, c.restUntil);
+        let b = w.to;
+        const r = restOf(c, w);
+        for (const y of work) {
+          if (y.start >= b + r || y.end + y.rest <= a) continue;
+          if (y.start >= a) b = Math.min(b, y.start - r);
+          else a = Math.max(a, y.end + y.rest);
+        }
+        if (a === w.from && b === w.to) keep.push(w);
+        else {
+          clipped = true;
+          if (b - a >= S.home.minH * 60) keep.push({ ...w, from: a, to: b });
+        }
+      }
+      if (clipped) {
+        if (keep.length) c.standby = keep;
+        else delete c.standby;
+        segs = segsOf(g, c);
+        changed = true;
+      }
+    }
     // Windows starting within 36 h: still legal with everything planned since?
     for (const w of [...(c.standby ?? [])]) {
       if (w.calledAt !== undefined || w.from <= g.now || w.from > g.now + 36 * 60) continue;
@@ -789,6 +842,46 @@ export function planStandby(g: GameState): void {
       }
     }
     if (c.standby) c.standby.sort((x, y) => x.from - y.from);
+  }
+  if (changed) touchCrewState(g);
+}
+
+/**
+ * v0.9 after the roster placed crew on new work (which ignored their windows not started yet: rules.ts standbyView),
+ * their future windows are fitted again in time order: one that now breaks a limit (rest, the weekly recovery, a
+ * tight 7/14/28-day duty) becomes reserve, or goes when reserve breaks it too. The daily planner refills the day.
+ */
+export function fitStandby(g: GameState, ids: Iterable<string>): void {
+  let changed = false;
+  for (const id of ids) {
+    const c = g.crew[id];
+    if (!c?.standby) continue;
+    const future = c.standby.filter((w) => w.calledAt === undefined && w.from > g.now).sort((a, b) => a.from - b.from);
+    if (!future.length) continue;
+    const starts = new Set(future.map((w) => w.from));
+    let segs = segsOf(g, c).filter((x) => !(x.kind === 'sby' && starts.has(x.start)));
+    let baseIssues: Set<string> | null = null;
+    const base = () => (baseIssues ??= new Set(evalSegs(ctxOf(g, c), segs).filter((i) => i.dutyId).map((i) => `${i.dutyId}:${i.code}:${i.level}`)));
+    const keep: Window[] = [];
+    let moved = false;
+    for (const w of future) {
+      const v = windowIssues(g, c, segs, w, base);
+      let x: Window | null = w;
+      if (v.illegal || (v.tight && w.kind !== 'reserve')) {
+        moved = true;
+        const r: Window = { from: w.from, to: w.to, kind: 'reserve', ...(w.at ? { at: w.at } : {}) };
+        x = w.kind !== 'reserve' && !windowIssues(g, c, segs, r, base).illegal ? r : null;
+      }
+      if (!x) continue;
+      keep.push(x);
+      segs = insert(segs, standbySeg(c, x));
+      baseIssues = null;
+    }
+    if (!moved) continue;
+    const rest = c.standby.filter((w) => !(w.calledAt === undefined && w.from > g.now));
+    c.standby = [...rest, ...keep].sort((a, b) => a.from - b.from);
+    if (!c.standby.length) delete c.standby;
+    changed = true;
   }
   if (changed) touchCrewState(g);
 }

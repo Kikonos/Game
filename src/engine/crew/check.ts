@@ -152,9 +152,11 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
   if (other) issues.push({ code: 'overlap', level: 'illegal', text: `On another ${other.tour ? 'tour' : 'trip'} until ${fmtDay(other.end)}`, dutyId: first.id });
   issues.push(...statusIssues(c, segs[0].start, segs[segs.length - 1].end, typeOf(typeIdOf(g, p)).family, duties));
   // v0.9 new work on a planned day off (UPDATE-0.9.md §R.3): the roster never takes one; a player change confirms it.
+  // A tour (deployment) moves the days off its duties land on to its free days at the station (the planner's own
+  // re-plan, crew/dayPlan.ts moveOffDays): legal when the month keeps its count.
   if (!existing) {
     const off = offIssue(g, c, segs);
-    if (off) issues.push(off);
+    if (off) issues.push(p.tour && off.level !== 'illegal' ? { ...off, level: 'legal' } : off);
   }
   if (existing) {
     // Unforeseen delays on the day (ORO.FTL.205(f)): a held seat whose extended recovery slipped stays on the
@@ -268,7 +270,7 @@ export function otherTrip(g: GameState, c: CrewMember, p: Pairing, from: Minute,
 export function acceptable(g: GameState, plan: CrewPlan): boolean {
   for (const i of plan.issues) {
     // v0.9 never a day off (published or not): the auto-roster, re-plans, the auto-fix and heads leave them alone.
-    if (i.level === 'illegal' || i.code === 'daysOff') return false;
+    if (i.level === 'illegal' || (i.code === 'daysOff' && i.level !== 'legal')) return false;
     if (i.level === 'tight' && i.code !== 'fdp' && !g.company.policies.allowTight) return false;
   }
   return true;

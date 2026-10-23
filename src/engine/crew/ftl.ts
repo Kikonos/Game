@@ -34,7 +34,8 @@ export interface CrewWindows {
 /** Rolling totals at time t from the log plus planned duties up to t (clipped to each window). */
 export function crewWindows(g: GameState, c: CrewMember, t: Minute): CrewWindows {
   const segs = segsOf(g, c).filter((s) => s.start < t);
-  const dutyIn = (a: Minute) => segs.reduce((n, s) => n + Math.max(0, Math.min(t, s.end) - Math.max(a, s.start)), 0);
+  // Standby counts by its share (home and hotel 25 %, airport in full, reserve not at all: CS FTL.1.225, ORO.FTL.230).
+  const dutyIn = (a: Minute) => segs.reduce((n, s) => n + (s.share ?? 1) * Math.max(0, Math.min(t, s.end) - Math.max(a, s.start)), 0);
   let block28d = 0;
   let planned = 0;
   let planned12m = 0;

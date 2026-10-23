@@ -20,6 +20,8 @@ describe('roster robustness', () => {
     g.company.policies.rotationWeeks = 5;
     const acId = Object.keys(g.fleet)[0];
     const k = seasonBase(g, acId, 'HAM', 'PMI', [6 * 60, 12 * 60 + 30], 12);
+    // v0.9: no annual leave in the weeks the programme grows into (leave vs tours: dayPlan.test.ts).
+    for (const c of Object.values(g.crew)) c.blocks = c.blocks?.filter((b) => !b.annual || b.from > g.now + 40 * DAY);
     autoRoster(g, { to: g.now + 30 * DAY });
     // The client extends the programme by a week (as the daily schedule extension does).
     const ac = g.fleet[acId];
