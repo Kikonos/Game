@@ -412,7 +412,14 @@ function queueAlert(g: GameState): void {
 function onCrewAlert(g: GameState): void {
   // The hourly check re-rosters a freshly short aircraft before warning (a roster not yet run is not a shortage).
   escalateShortages(g, { reroster: true });
+  hourlyHook?.(g);
   schedule(g, Math.floor(g.now / 60) * 60 + 60, 'crew.alert', '');
+}
+
+/** v0.9 ops/heads.ts: the crew desk and the watch desk run on the hourly crew check. */
+let hourlyHook: ((g: GameState) => void) | null = null;
+export function setHourlyHook(f: typeof hourlyHook): void {
+  hourlyHook = f;
 }
 
 export const crewModule: SimModule = {

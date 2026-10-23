@@ -1529,6 +1529,12 @@ export function crewControl(g: GameState, flightId: string, opts: { previews?: b
   };
 }
 
+/** v0.9 ops/heads.ts: a fix applied to a flight (a player's fix soon after a head's counts as an override). */
+let fixHook: ((g: GameState, flightId: string) => void) | null = null;
+export function setFixHook(f: typeof fixHook): void {
+  fixHook = f;
+}
+
 /** Applies a Crew Control fix on the live state (availability re-checked; confirms honoured); one info message. */
 export function applyCrewFix(g: GameState, flightId: string, fix: CrewFix, opts: ApplyOpts = {}): ActionResult<{ changes: string[]; after: CrewControlView | null }> {
   const view = crewControl(g, flightId, { previews: false, only: [fix] });
@@ -1542,6 +1548,7 @@ export function applyCrewFix(g: GameState, flightId: string, fix: CrewFix, opts:
   if (!r.ok) return r;
   const st = stats(g);
   st.crewFixes = { ...(st.crewFixes ?? {}), [fix]: ((st.crewFixes ?? {})[fix] ?? 0) + 1 };
+  fixHook?.(g, flightId);
   const f = g.flights[flightId];
   const cs = f && f.aircraftId && f.status === 'scheduled' ? flightCrewStatus(g, flightId) : null;
   const fixed = !cs || !BAD(cs.level);

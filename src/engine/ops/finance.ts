@@ -1,6 +1,7 @@
 // Statements, receivables, fixed costs and solvency (B3). DESIGN.md §5.7.
 // Money moves only through core/ledger.ts (post, accrue, cashOnly, invoice).
 
+import { v09Stats } from '../crew/dayPlan';
 import { BAL } from '../core/balance';
 import { cashOnly, post, statementTotals } from '../core/ledger';
 import { pushMessage } from '../core/messages';
@@ -92,6 +93,7 @@ export function onPayment(g: GameState, ev: SimEvent): void {
   if (late > BAL.graceDays) {
     const name = g.clients[r.clientId]?.name ?? 'A client';
     pushMessage(g, { tone: 'info', cat: 'finance', title: `${name} paid ${late} days late`, body: `${usd(r.amount)} for ${r.desc}.`, cue: 'paymentIn' });
+    if (g.clients[r.clientId]?.kind === 'government') v09Stats(g).lateGovPaid++;
   }
 }
 

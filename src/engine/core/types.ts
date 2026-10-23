@@ -1144,6 +1144,8 @@ export interface Receivable {
   /** B3: overdue reminders sent (days overdue: 7, 30); sold to a factor. */
   nudged?: number;
   factored?: boolean;
+  /** v0.9 credit controller: reminders sent (days overdue: 3, 10). */
+  chased?: number;
 }
 
 export interface Finance {
@@ -1381,6 +1383,8 @@ export interface StatsV09 {
   firstCall?: number; homeSafe?: number; hajjDone?: number;
   /** Month results by year (calendar-year net). */
   yearNet?: Record<number, number>;
+  /** MonthKey → [revenue departures, on time (≤ 15 min)] (the clockwork achievement; last 14 kept). */
+  onTimeM?: Record<number, [number, number]>;
   /** §R roster planning counters (crew/dayPlan.ts rosterStats). */
   roster?: StatsRoster09;
 }
@@ -1433,8 +1437,10 @@ export interface Head {
   firedAt?: Minute;
   /** Watch desk: subjects whose rule already fired (cleared when the condition clears). */
   fired?: string[];
-  /** Override watch: [ref id, until, log index text] of the last items handled (2 h). */
+  /** Override watch: [ref id, until] of the items handled in the last 2 h; watch desk: [rule:subject, fire at] held back. */
   recent?: [string, Minute][];
+  /** Watch desk: client levels last seen (the "drops a level" rule). */
+  seen?: Record<string, number>;
 }
 
 export interface StatsV08 {

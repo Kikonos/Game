@@ -1,6 +1,8 @@
 // Developer helpers (console: __contrail.dev). Lets the map and screens be built before the
 // contract generator exists: demo flights on the fleet. Not used by the game itself.
 
+import { grantAchievement } from './ops/achievements';
+import { unlockHead } from './ops/heads';
 import { ACMI_TYPES } from '../data/acmiTypes';
 import { addFlight, ownFlightNo, removeFlights, touchFlights } from './core/entities';
 import { DAY } from './core/time';
@@ -309,22 +311,15 @@ export function devRivalBid(g: GameState): string {
 
 // ---------- v0.9 (UPDATE-0.9.md §12): each returns the id to open ----------
 
-/** A department head unlocked now (candidates rolled); the head id. */
+/** A department head unlocked now (candidates rolled, message and card); the head id. */
 export function devUnlockHead(g: GameState, id: HeadId): HeadId {
-  return devUnlockHeadHook?.(g, id) ?? id;
-}
-let devUnlockHeadHook: ((g: GameState, id: HeadId) => HeadId) | null = null;
-export function setDevUnlockHead(f: (g: GameState, id: HeadId) => HeadId): void {
-  devUnlockHeadHook = f;
+  unlockHead(g, id, false);
+  return id;
 }
 
-/** An achievement earned now (message and cue); its id. */
+/** An achievement earned now (message, cue and any head it unlocks); its id ('' when unknown or already held). */
 export function devAchievement(g: GameState, id: string): string {
-  return devAchievementHook?.(g, id) ?? id;
-}
-let devAchievementHook: ((g: GameState, id: string) => string) | null = null;
-export function setDevAchievement(f: (g: GameState, id: string) => string): void {
-  devAchievementHook = f;
+  return grantAchievement(g, id);
 }
 
 /**

@@ -19,6 +19,7 @@ import { noteLostLegs } from '../contracts/billing';
 import { isSoft } from '../contracts/plan';
 import { applyDiscretion, boardCrew, crewIssuesFor, dropStraySpares, flightCrewStatus, guardDuty, rerosterFrom, restPlan, restSeatsBlocked, setRestDelayHook } from '../crew';
 import { cue } from '../core/cues';
+import { v09Stats } from '../crew/dayPlan';
 import { requestPause } from '../core/pause';
 import { problemFor } from '../problems';
 import { noteIncident } from './company';
@@ -437,6 +438,7 @@ export function cancelLegs(g: GameState, legs: Flight[], reason: string, repPerL
   if (empty.length) removeFlights(g, empty);
   if (pen) post(g, 'penalties', -pen);
   if (!agreed) stats(g).cancelled += rev;
+  if (!agreed && rev > 0) v09Stats(g).lastCancel = g.now;
   if (rev && repPerLeg) bumpReliable(g, -Math.min(3, rev * repPerLeg));
   return pen;
 }
@@ -773,10 +775,12 @@ function depart(g: GameState, f: Flight, ac: Aircraft): void {
     noteIncident(g, 'illegalCrew', `${f.no} flew on a duty over its FDP`);
   }
   // Every crew member legal for the duty this leg opens (rest, recovery, location, status…).
-  if (duty && duty.flightIds[0] === f.id && crewIssuesFor(g, duty).length) {
+  const crewIll = !!duty && duty.flightIds[0] === f.id && crewIssuesFor(g, duty).length > 0;
+  if (crewIll) {
     s.illegalCrewFlown = (s.illegalCrewFlown ?? 0) + 1;
-    if (duty.legality !== 'illegal') noteIncident(g, 'illegalCrew', `${f.no} left with a crew member over a limit`);
+    if (duty!.legality !== 'illegal') noteIncident(g, 'illegalCrew', `${f.no} left with a crew member over a limit`);
   }
+  departStats(g, f, ac, duty, !crewIll && duty?.legality !== 'illegal');
   // Charter clients are compensated for long delays (> 3 h). v0.8: a Trusted client forgives a few a month; presidential
   // standards notice anything over 30 min (× 3); our own late legs cost relation (−1, at most −4 a contract-month).
   const c = contractOf(g, f);
@@ -784,6 +788,33 @@ function depart(g: GameState, f: Flight, ac: Aircraft): void {
   // v0.8 war-risk cover for the landing (re-billed to a wet client).
   payWarRisk(g, f);
   touchStatus(g, ac.id);
+}
+
+/** Keeps the last 14 month keys of a month record. */
+function monthRec(rec: Record<number, [number, number]>, k: number): [number, number] {
+  const r = (rec[k] ??= [0, 0]);
+  const keys = Object.keys(rec).map(Number);
+  if (keys.length > 14) for (const x of keys.sort((a, b) => a - b).slice(0, keys.length - 14)) delete rec[x];
+  return r;
+}
+
+/**
+ * v0.9 achievement counters at a departure (§14.1): revenue sectors in a row with a legal crew, crew coverage and
+ * on-time departures by month, 747-400 revenue sectors, augmented duties leaving with a legal rest plan; the
+ * "nothing cancelled" clock starts with the first revenue departure.
+ */
+function departStats(g: GameState, f: Flight, ac: Aircraft, duty: Duty | undefined, legal: boolean): void {
+  const v = v09Stats(g);
+  if (duty && duty.augment > 0 && duty.flightIds[0] === f.id && restPlan(g, duty.id)?.ok === true) v.restPlans = (v.restPlans ?? 0) + 1;
+  if (!isRevenue(f)) return;
+  v.legalStreak = legal ? v.legalStreak + 1 : 0;
+  v.lastCancel ??= g.now;
+  const k = monthKey(g.now);
+  monthRec(v.cover, k)[0]++;
+  const ot = monthRec((v.onTimeM ??= {}), k);
+  ot[0]++;
+  if (delayOf(f) <= 15) ot[1]++;
+  if (ac.typeId === 'b744') v.queenSectors = (v.queenSectors ?? 0) + 1;
 }
 
 /** Delays nobody at our end controls (ATC, weather, the client, the world). */
@@ -978,7 +1009,10 @@ function crewProblem(g: GameState, f: Flight, ac: Aircraft): void {
   if (!f.crewHeld) {
     f.crewHeld = true;
     f.heldAt ??= g.now;
-    if (isRevenue(f)) stats(g).uncovered++;
+    if (isRevenue(f)) {
+      stats(g).uncovered++;
+      monthRec(v09Stats(g).cover, monthKey(g.now))[1]++;
+    }
     const rd = restFailed(g, f);
     if (rd) restOutOfHours(g, f, rd);
     // Crew over a limit come off the duty first (refilled when someone legal can take the seat).
@@ -1088,6 +1122,7 @@ export function onFlightArr(g: GameState, ev: SimEvent): void {
   f.status = 'done';
   f.ata = g.now;
   cue('flightArr');
+  if (AIRPORT_BY_CODE[f.to]?.ice) v09Stats(g).antarctic = (v09Stats(g).antarctic ?? 0) + 1;
   touchStatus(g, f.aircraftId);
   if (!ac) return;
   ac.flightId = null;

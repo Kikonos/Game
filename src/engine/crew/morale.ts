@@ -309,6 +309,12 @@ function averages(g: GameState): { avg: number; pilots: number; cabin: number; t
   return { avg: n ? s / n : 0, pilots: np ? sp / np : 0, cabin: n - np ? (s - sp) / (n - np) : 0, then: n ? then / n : 0, n };
 }
 
+/** v0.9 the company's average crew morale now (null without crew). Pure. */
+export function companyMorale(g: GameState): number | null {
+  const a = averages(g);
+  return a.n ? a.avg : null;
+}
+
 /**
  * Daily (crew module): drift toward the target plus the day's drivers (≤ ~2 points a day), the decayed "why",
  * history for the trend, resignation rolls and leave dates, the company weekly average and low-morale message.

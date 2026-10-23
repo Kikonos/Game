@@ -101,8 +101,8 @@ describe('v0.7.2.2 the player’s save (Astor Airlines, 23 Sep 2027)', () => {
     expect(calls(g, thf.id, g.flights.fn02.sta, g.maintenance.mxitg.end)).toEqual([]);
     expect(man(twj.id).map((f) => `${f.from}-${f.to}`)).toEqual(['AMS-MAN', 'MAN-FUE', 'FUE-MAN', 'MAN-AMS']);
     settled(g, thf.id);
-    // It plays on cleanly past the trip.
-    run(g, g.flights.f7so.sta + DAY);
+    // It plays on cleanly past the trip (a client may still move it by a day).
+    for (let i = 0; i < 3 && g.flights.f7so.status !== 'done'; i++) run(g, g.flights.f7so.sta + DAY);
     expect(g.flights.f7so.status).toBe('done');
     expect(g.flights.f7so.aircraftId).toBe(twj.id);
   }, 120_000);

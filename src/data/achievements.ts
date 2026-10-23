@@ -27,7 +27,7 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   { id: 'fullCover', group: 'crew', icon: 'Users', title: 'Every seat filled', text: '2 months in a row with 98 % crew coverage', head: 'crewDesk' },
   { id: 'bunkTime', group: 'crew', icon: 'BedDouble', title: 'Bunk time', text: 'An augmented duty flown with a legal rest plan' },
   { id: 'slipCrew', group: 'crew', icon: 'Repeat', title: 'Fresh crew at the fuel stop', text: 'The first crew change at a tech stop' },
-  { id: 'standby', group: 'crew', icon: 'PhoneCall', title: 'Saved by standby', text: '5 standby call-ins' },
+  { id: 'standby', group: 'crew', icon: 'PhoneCall', title: 'Saved by standby', text: '25 standby call-outs' },
   { id: 'goodPlace', group: 'crew', icon: 'Smile', title: 'A good place to work', text: 'Company morale 75 at a month end' },
   { id: 'cOnTime', group: 'tech', icon: 'Hammer', title: 'Heavy check, on time', text: 'A C-check completed before it was due', head: 'maintPlanner' },
   { id: 'noOverdue', group: 'tech', icon: 'ClipboardCheck', title: 'A year without an overdue check', text: '365 days with no check overdue' },

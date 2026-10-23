@@ -916,6 +916,15 @@ const RESOLVERS: Record<string, Resolver> = {
   clientFee: (g, d, opt) => resolveClientFee(g, d, opt),
 };
 
+/** v0.9 department heads: applies an option of a decision that was never queued (heads.ts took it). */
+export function applyDecisionOption(g: GameState, d: Decision, optionId: string): ActionResult {
+  const fn = RESOLVERS[d.kind];
+  return fn ? fn(g, d, optionId) : { ok: true };
+}
+
+/** The inbox category of a decision kind. */
+export const decisionCat = (kind: string): MessageCat => CAT[kind] ?? 'ops';
+
 /** Applies a decision option (dispatch on decision.kind) and removes the decision. Failed options keep it open. */
 export function resolveDecision(g: GameState, decisionId: string, optionId: string): ActionResult {
   const i = g.decisions.findIndex((d) => d.id === decisionId);

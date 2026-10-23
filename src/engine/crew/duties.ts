@@ -4,7 +4,7 @@
 
 import { dropClientSeats } from './clientCrew';
 import { BAL } from '../core/balance';
-import { flightsOf, nextId } from '../core/entities';
+import { flightsOf, nextId, removeFlights } from '../core/entities';
 import { cabinMinimum, reportMinutes, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { DAY, dayStart, yearOf } from '../core/time';
@@ -235,7 +235,10 @@ export function syncDuty(g: GameState, d: Duty, p: Pairing): void {
   }
   const typeId = (p.aircraftId && g.fleet[p.aircraftId]?.typeId) || 'a320ceo';
   const crewed = crewCount(p) > 0;
-  const reported = p.status === 'active' && d.report <= g.now && crewed;
+  // v0.9: a crew that reported for a first leg since held 6 h or more (nothing flown yet) were stood down to rest: the
+  // duty reports afresh, never one FDP stretched over the hold.
+  const held = fl.every((f) => f.status === 'scheduled') && shape(typeId, fl).report - d.report >= 6 * 60;
+  const reported = p.status === 'active' && d.report <= g.now && crewed && !held;
   const sh = shape(typeId, fl, reported ? d.report : undefined);
   const refOf = (report: Minute): RefAt => {
     const r = referenceTime(p.base, sh.dep, Math.min(p.start, report), report);
@@ -265,6 +268,16 @@ export function syncDuty(g: GameState, d: Duty, p: Pairing): void {
     }
   }
   d.flightIds = fl.map((f) => f.id);
+  // v0.9: a ticket home that a retime (a long hold, a day's slip) now puts before the report is stale: dropped, never
+  // read as a ticket out (an FDP from its departure). The roster books the way home again from the new release.
+  const was = d.release;
+  if (was > 0 && sh.report > was && d.deadheadIds.length) {
+    const stale = d.deadheadIds.filter((id) => { const t = g.flights[id]; return !!t && t.status === 'scheduled' && t.std >= was && t.sta <= sh.report; });
+    if (stale.length) {
+      d.deadheadIds = d.deadheadIds.filter((id) => !stale.includes(id));
+      removeFlights(g, stale);
+    }
+  }
   d.report = sh.report;
   d.release = sh.release;
   d.fdp = sh.fdp;
