@@ -899,9 +899,6 @@ function chainer(g: GameState, dep: Deployment, crewOk: (p: Pairing, d: Duty) =>
   const R = rotation(g);
   const home = g.company.homeBase;
   const dayOf = (t: Minute) => Math.floor((t + offsetAt(dep.base, t)) / DAY);
-  // v0.9 round 4: a report before 06:00 takes the day before as well (a day off runs to 06:00: dayPlan.ts
-  // offDaysHit), so the 6-on/2-off model counts that day as worked.
-  const daysOf = (d: Duty): number[] => [...new Set([dayOf(d.report - BAL.v09.roster.off.morningFree), dayOf(d.report)])];
   const tours = new Map<string, TourState>();
   for (const pid of dep.pairingIds) {
     const p = g.pairings[pid];
@@ -909,7 +906,7 @@ function chainer(g: GameState, dep: Deployment, crewOk: (p: Pairing, d: Duty) =>
     const duties = p.dutyIds.map((id) => g.duties[id]).filter((d): d is Duty => !!d);
     tours.set(`${p.tour.set}:${p.tour.from}`, {
       set: p.tour.set, from: p.tour.from, to: p.tour.to, pairing: p, duties,
-      segs: duties.map((d) => virtualSeg(g, d, p.start, home)), days: [...new Set(duties.flatMap(daysOf))].sort((a, b) => a - b),
+      segs: duties.map((d) => virtualSeg(g, d, p.start, home)), days: [...new Set(duties.map((d) => dayOf(d.report)))].sort((a, b) => a - b),
     });
   }
   const take = (d: Duty): boolean => {
@@ -918,8 +915,9 @@ function chainer(g: GameState, dep: Deployment, crewOk: (p: Pairing, d: Duty) =>
     let pickRank = 0;
     let pickEve = false;
     const sets = dep.anchors?.length ?? 0;
-    // Round 4: an early report (before 06:00) goes first to a set already working its eve (a set inside its block
-    // keeps the early wave); the set coming off its days off starts on the later wave.
+    // Round 4: an early report (before 06:00) goes first to a crewed set that worked the day before (a set inside its
+    // block keeps the early wave; a day off runs to 06:00, dayPlan.ts offDaysHit), so the set coming off its days
+    // off starts on the later wave. Crewed sets only: the sizing (virtual sets) and the 6-on/2-off model are as before.
     const eve = dayOf(d.report - BAL.v09.roster.off.morningFree);
     const early = eve !== dayOf(d.report);
     for (let s = 0; s < sets; s++) {
@@ -927,7 +925,8 @@ function chainer(g: GameState, dep: Deployment, crewOk: (p: Pairing, d: Duty) =>
       if (!per) continue;
       const key = `${s}:${per.from}`;
       const st = tours.get(key) ?? { set: s, from: per.from, to: per.to, pairing: null, duties: [], segs: [], days: [] };
-      const days = [...new Set([...st.days, ...daysOf(d)])].sort((a, b) => a - b);
+      const day = dayOf(d.report);
+      const days = st.days.includes(day) ? st.days : [...st.days, day].sort((a, b) => a - b);
       if (longestWorkBlock(days) > LIMITS.blockDays) continue;
       const tripStart = Math.min(st.duties[0]?.report ?? d.report, d.report);
       const i = st.segs.findIndex((x) => x.start > d.report);
@@ -940,7 +939,7 @@ function chainer(g: GameState, dep: Deployment, crewOk: (p: Pairing, d: Duty) =>
       const rank = st.pairing && crewCount(st.pairing) > 0 ? crewOk(st.pairing, d) : 2;
       if (!rank) continue;
       const restEnd = last ? last.end + last.rest : -Infinity;
-      const onEve = early && st.days.includes(eve);
+      const onEve = early && !!st.pairing && crewCount(st.pairing) > 0 && st.days.includes(eve);
       if (rank > pickRank || (rank === pickRank && (Number(onEve) > Number(pickEve) || (onEve === pickEve && restEnd < pickRest)))) {
         pick = st;
         pickRest = restEnd;
@@ -956,7 +955,8 @@ function chainer(g: GameState, dep: Deployment, crewOk: (p: Pairing, d: Duty) =>
     pick.duties.sort((x, y) => x.report - y.report);
     pick.segs.push(virtualSeg(g, d, pick.duties[0].report, home));
     pick.segs.sort((x, y) => x.start - y.start);
-    pick.days = [...new Set([...pick.days, ...daysOf(d)])].sort((a, b) => a - b);
+    const day = dayOf(d.report);
+    if (!pick.days.includes(day)) pick.days = [...pick.days, day].sort((a, b) => a - b);
     return true;
   };
   return { take, tours };

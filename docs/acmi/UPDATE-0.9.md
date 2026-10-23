@@ -846,9 +846,10 @@ the early window after a day off opens at 06:00, a 05:00 report takes the day of
 window of the morning after like `planDay` (it only dropped the day's own). Two knock-on fixes the rule exposed:
 - **Deployment tours (`duties.ts chainer`).** The crewed-tour check (`setCrewOkHook`) moved days off as a side
   effect for every set it was asked about, not only the set picked; it is pure now (0 no, 1 with a day off moved, 2
-  as rostered) and the move is made by `setCrewTakeHook` once the set is picked, a set needing no change first. The
-  6-on/2-off model counts the eve of a report before 06:00 as a work day, and an early report goes first to a set
-  already inside its block (the set coming off its days off starts on the later wave). Without this, a 06:00 wave
+  as rostered) and the move is made by `setCrewTakeHook` once the set is picked, a set needing no change first. An
+  early report (before 06:00) goes first to a crewed set that worked the day before, so the set coming off its days
+  off starts on the later wave (the sizing of a deployment and its 6-on/2-off model are unchanged: counting the eve
+  as a work day there made the sets refuse duties, which then flew as trips from base). Without this, a 06:00 wave
   every day pushed a set's days off along the month and the planner stacked 10 catch-up days at the end of it.
 - **No block stacks behind a planned one (`offNeed`).** A must that found D taken went on the first free days after
   it, and each following day (its run still ≥ 6) added another block right behind: a planned block within the next

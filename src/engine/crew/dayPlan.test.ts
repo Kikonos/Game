@@ -333,12 +333,14 @@ describe('v0.9 round 3: stagger, the day-off swap, airport standby', () => {
     const g = fixtureGame(18);
     devRoster(g);
     const S = BAL.v09.roster.swap;
-    // A crew member with a published day off 2–3 days out and the month able to take it back.
+    // A crew member with a published day off the day after tomorrow (work at 08:00 then reports within the 72 h),
+    // the month able to take it back, not asked in the last 14 days (round 4: the tour's early reports ask more
+    // crew, so the first candidate may have swapped already).
     const pub = dayIndex(g.company.homeBase, publishedTo(g));
     const today = dayIndex(g.company.homeBase, g.now);
-    const c = Object.values(g.crew).find((x) => x.status !== 'joining' && (x.off ?? []).some((k) => k >= today + 2 && k <= today + 3 && k < pub && monthKey(k * DAY) === monthKey((k + 5) * DAY)))!;
+    const k = today + 2;
+    const c = Object.values(g.crew).find((x) => x.status !== 'joining' && x.offSwapAt === undefined && offOn(x, k) && k < pub && monthKey(k * DAY) === monthKey((k + 5) * DAY))!;
     expect(c).toBeDefined();
-    const k = c.off!.find((x) => x >= today + 2 && x <= today + 3)!;
     const day = midnight(c.base, k);
     const work: Seg = { kind: 'duty', start: day + 8 * H, end: day + 14 * H, fdp: 6 * H, maxFdp: 13 * H, block: 4 * H, sectors: 2, aug: false, disruptive: false, rest: 12 * H, at: c.base, from: c.base, fresh: true };
     const segs = [...segsOf(g, c), work].sort((a, b) => a.start - b.start);
