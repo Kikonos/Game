@@ -331,3 +331,48 @@ describe('v0.8 read APIs are pure (UPDATE-0.8.md §14)', () => {
     expect(JSON.stringify(g)).toBe(before);
   }, 60_000);
 });
+
+describe('v0.9 read APIs are pure (UPDATE-0.9.md §14)', () => {
+  it('roster month, days off, standby, heads, analyst, achievements, crew alerts, out of hours, discretion, slips, what is new, longest day', async () => {
+    const { crewMonth, isOff, offBreak, standbyNow, publishedTo } = await import('../crew/dayPlan');
+    const { crewAlertKind, outOfHours, discretionCheck, bestSlip, slipOfFlight, slipsOfAircraft, longestDay, restOf } = await import('../crew');
+    const { headsView, headView, analystView, achievementsView } = await import('../ops');
+    const { whatsNewToShow } = await import('../../data/whatsNew');
+    const { devRoster, devSlipOffer } = await import('../dev');
+    const { unlockHead, hireHead } = await import('../ops/heads');
+    const g = createGame({ name: 'Atlântica Wings', code: 'AW', livery: { primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' }, base: 'LIS', seed: 5 });
+    const crewId = devRoster(g);
+    devSlipOffer(g, 'DIL-LIS');
+    unlockHead(g, 'analyst');
+    hireHead(g, 'analyst', 1);
+    const flights = Object.values(g.flights).filter((f) => f.status === 'scheduled').slice(0, 10);
+    const crew = Object.keys(g.crew).slice(0, 12);
+    const before = JSON.stringify(g);
+    for (let i = 0; i < 3; i++) {
+      publishedTo(g);
+      for (const id of [crewId, ...crew].filter(Boolean)) {
+        crewMonth(g, id, g.now);
+        isOff(g, id, g.now + 3 * DAY);
+        offBreak(g, id, g.now + 2 * DAY, g.now + 3 * DAY);
+        standbyNow(g, id);
+      }
+      headsView(g);
+      headView(g, 'opsControl');
+      for (const o of Object.values(g.offers).slice(0, 4)) analystView(g, o.id);
+      achievementsView(g);
+      for (const f of flights) {
+        crewAlertKind(g, f.id);
+        outOfHours(g, f.id);
+        if (f.dutyId) discretionCheck(g, f.dutyId);
+        slipOfFlight(g, f.id);
+      }
+      for (const ac of Object.values(g.fleet)) {
+        slipsOfAircraft(g, ac.id, g.now, g.now + 30 * DAY);
+        longestDay(g, restOf(g, ac.id), ac.typeId);
+        bestSlip(g, ac.typeId, restOf(g, ac.id), { from: 'LIS', std: g.now + DAY, legs: [{ std: g.now + DAY, sta: g.now + DAY + 120, from: 'LIS', to: 'FAO' }] });
+      }
+      whatsNewToShow('v0.8', false);
+    }
+    expect(JSON.stringify(g)).toBe(before);
+  }, 120_000);
+});
