@@ -548,11 +548,11 @@ Order each day: `planLeave` (1 Dec for next year, on load, and for each hire aft
 |---|---|---|---|---|
 | **Home standby** `home` (SBY) | at home base | early **05:00–17:00** (`E`) or late **12:00–24:00** (`L`), 12 h (≤ 16 h rule) | 25 % | report 90 min after the call; FDP cut beyond 6 h (8 h augmented/split); 18 h awake (woken 1 h before the window) |
 | **Hotel standby** `hotel` (SBY DUB) | at a deployment station or a night-stop/waiting station away from base | 06:00–18:00 station local, after the rest from the last duty | 25 % | report 45 min after the call; same cuts |
-| **Airport standby** `airport` (ASBY) | at home base or a deployment station whose family has ≥ 6 of our departures 05:00–10:00 local that day | first departure − 90 min, 4 h | 100 % | at once (20 min); FDP cut beyond 4 h; standby + FDP ≤ 16 h |
+| **Airport standby** `airport` (ASBY) | at home base or a deployment station whose family has ≥ 3 of our departures 05:00–10:00 local that day (round 3: was 6) | first departure − 90 min, 4 h | 100 % | at once (20 min); FDP cut beyond 4 h; standby + FDP ≤ 16 h |
 | **Reserve** `reserve` (RES) | home base, when a standby would make the 7/14/28-day duty tight (≥ 95 %) or break a rest | 24 h, no contact 22:00–06:00 | 0 % | only for a report ≥ 10 h after the call; FDP from report |
 
 - **Early or late:** split by D's reports of that family at that station (05:00–11:59 vs 12:00–23:59), filling the shift with the lower share of crew per report. A crew member keeps the same shift through a work block (GM CS FTL.1.205(a)(2): blocks of identical duties) unless the late→early rule would bite.
-- **Airport standby:** 1 CPT, 1 FO and 1 CC per qualifying family, taken from the early shift.
+- **Airport standby:** 1 CPT, 1 FO and 1 cabin crew per qualifying family (a purser counts as the cabin seat, round 3), taken from the early shift.
 - **Window clipping:** the window starts after the rest from the previous duty, and it ends early enough for the full ORO.FTL.235 rest before the next planned report (`minRest` of the standby length: 12 h at home, ≥ 10 h away). A window clipped below 4 h is not rostered; that day is rest.
 - **Legality:** each window is checked with `evalSegs`, with its share (home/hotel 0.25, airport 1, reserve 0). An illegal standby becomes reserve; an illegal reserve is not rostered, and the day shows "Rest (limits)".
 - **Out-of-base standby costs nothing new:** hotel and per diem accrue as already modelled for detachments and night-stops.
@@ -588,6 +588,7 @@ Chips: "No overtime" + the kind.
   - a toast: "Ana Silva works Tue 4 Nov; her day off moves to Thu 13 Nov."
 - **Illegal break.** A break that leaves the month below 7 is illegal (red), as other red moves.
 - **Unpublished OFF days** (beyond `publishedTo`) move freely, with no morale cost.
+- **Swap by agreement (round 3, R.15.2).** The roster itself never breaks a published day off, but for short-notice work nobody else can take it may ask a crew member to swap one: the day moves inside its month (the count is kept), morale −3, `Stats.v09.roster.offSwaps` +1. Not a break: no −6, not counted in `offBroken`.
 
 ### R.6 Morale and pay (`crew/morale.ts`, `BAL.v09.roster.morale`)
 - **Pay.** Salaries are monthly and the game has no duty pay, so standby is paid by the salary. Overtime only for call-ins on a day off. Per diem and hotels as already modelled.
@@ -652,22 +653,24 @@ That is all: no new problem cards. A seat a protected day off leaves empty is a 
 ```ts
 roster: {
   publishDays: 14,
-  off: { legalMonth: 7, minMonth: 8, targetMonth: 9, maxMonth: 10, yearMin: 96, block: [2, 3] as [number, number], dueAfter: 5, mustAfter: 6, morningFree: 360 },
+  off: { legalMonth: 7, minMonth: 8, targetMonth: 9, maxMonth: 10, yearMin: 96, block: [2, 3] as [number, number], dueAfter: 5, mustAfter: 6, morningFree: 0 },
   leave: { days: 28, quarters: [10, 4, 4, 10] as number[], maxShare: 0.1, afterServiceDays: 90 },
   home: { early: [300, 1020] as [number, number], late: [720, 1440] as [number, number], maxH: 16, minH: 4, readyMin: 90 },
   hotel: { from: 360, to: 1080, readyMin: 45 },
-  airport: { minWave: 6, waveEnd: 600, leadMin: 90, hours: 4, readyMin: 20, per: { CPT: 1, FO: 1, CC: 1 } as Record<string, number> },
+  airport: { minWave: 3, waveEnd: 600, leadMin: 90, hours: 4, readyMin: 20, per: { CPT: 1, FO: 1, CC: 1 } as Record<string, number> },   // round 3: minWave 6 → 3; PUR counts as CC
   reserve: { noticeMin: 600, quiet: [1320, 360] as [number, number], tightShare: 0.95 },
   share: { home: 0.25, hotel: 0.25, airport: 1, reserve: 0 },
   morale: { runFrom: 4, runDay: -0.2, above: 9, aboveEach: 0.5, aboveMax: 1.5, below: 8, belowEach: -1.5, broken: -6 },
+  swap: { morale: -3, minMorale: 50, everyDays: 14, noticeH: 12, horizonH: 72 },   // round 3 (R.15.2)
 },
 ```
+Round 3 also has one constant outside `BAL`: `OFF_SHARE = 0.3` in `crew/dayPlan.ts` (the day-off stagger, R.15.1).
 `BAL.v073.standby` stays for days before `dayPlan.from`.
 
 ### R.12 Bot
 - No new decisions: the planner runs inside the engine, and `crewControlPolicy` already picks the cheapest fix (standby, no overtime).
 - The bot never breaks a published day off.
-- **Printed line:** `roster: days off/crew-month 9.1 (min 7, <7: 0) · leave 2.3 · standby 46% of days (home 34 · hotel 8 · airport 2 · reserve 2) · call-outs 212 (64% of crew fixes) · max recovery gap 150 h · offBroken 0`.
+- **Printed line:** `roster: days off/crew-month 9.1 (min 7, <7: 0) · leave 2.3 · standby 46% of days (home 34 · hotel 8 · airport 2 · reserve 2) · call-outs 212 (64% of crew fixes) · max recovery gap 150 h · offBroken 0`. Round 3 adds `· moved N · swapped N · crew-days home/hotel/airport/reserve a/b/c/d` (R.15.8).
 - **Targets** (seeds 1–6):
   - 0 crew-months below 7 days off, and ≥ 96 a year pro rata;
   - recovery gap ≤ 168 h for everyone;
@@ -729,6 +732,108 @@ export function planOffDays(g: GameState): void; export function planStandby(g: 
 // crew/sets.ts: export const SETS_WHY: string
 // dev: devRoster(g): string   // 4 A320s + a DUB wet deployment, 20 days run; returns a crew id on the DUB tour
 ```
+
+### R.15 Readiness round 3: coverage, runtime, determinism
+Found with the bot's new `--whyheld` census (for every crew alert, every rated crew member for the missing seat by
+cause: legal, standby kind, day off, busy, rest, place, FDP, joining; plus the share of each family-and-role group
+off per day and the morning-bank histogram) and `--from=<save.json>` (play on from a `--dump`).
+
+**R.15.1 Days off staggered (`crew/dayPlan.ts planDay`).** Root cause: due blocks were capped per group, but a
+deferred one became a must a day or two later, and musts are uncapped, so a group went off together a few days on
+(40–60 % of a group off on its worst days; the flights held for crew sat on those days). Now the needs are sorted
+musts first, then by the longest work run and the furthest behind the month's pace; a due block goes only while
+its group has fewer than `OFF_SHARE` = 30 % (the 9-in-30 average) off on every day of the block (D, D+1, D+2); a
+3-day block shortens to 2 when only that fits; an early block (a day before due) only when the crew due over the next
+two days would not fit. Musts always go (the 7th work day, the month's minimum). Test: the group share off on any
+day stays below 50 %, its 90th percentile at most 31 %.
+
+**R.15.2 Day-off swap by agreement (`offSwappable`, `roster.ts offFallback`, `BAL.v09.roster.swap`).** Root cause:
+once the 14-day window was published, short-notice work (a sick call, a tour that grew, a late re-plan) found every
+free crew member of the group on a protected day, and nobody could take it. A real crew-control desk phones and
+asks. The roster now picks, in order: crew who need no change; then a day off not published yet that its month can
+spare (moved, no cost); last, a published day off when the crew member agrees to swap it: work reporting within
+72 h, morale ≥ 50, not asked in the last 14 days, the day off not starting within 12 h, every month touched keeping
+its days off on free days of its own. The swap moves the day inside its month (the count is kept), morale −3,
+`Stats.v09.roster.offSwaps` +1. It is not a break (R.5: −6, the player's confirm), and the player never sees a
+prompt. Bot seeds 1–6 and the widebody runs: 220–390 swaps a year for 80–180 crew (one per crew member every few
+months), company morale 62–66 at the end of the year.
+
+**R.15.3 Ticket home after a late release (`roster.ts rebookHomeForRecovery`, first in `recheckAfterRelease`).**
+Root cause: a duty released late shortens the free time before the loose ticket home behind it; after 4 disruptive
+duties the recovery needs 60 h, and a 70 min delay left 59 h 40 m, so the next rest no longer counted and the gap
+between recovery rests reached 217–221 h (seeds 7 and 9; HEAD has it on seed 9). A loose ticket belongs to no duty,
+so no re-check re-planned it. Now, for a duty released within the last 12 h, each ticket after it that would end past
+the 168 h is rebooked after the recovery (the crew wait at the hotel, as `sendHome` plans one). Test in
+`roster.test.ts`.
+
+**R.15.4 Empty legs.**
+- `relinkPositioning` is a no-op when the legs it would plan equal the scheduled ones (from, to, times and contract,
+  as a multiset; GRU–LIS / LIS–GRU pairs included). It used to delete and recreate them, which dropped their crews,
+  re-ran the roster and, each step, tripped its own safety net. Tests in `schedule.test.ts`.
+- Crew Control never offers (or applies) a jet for an empty positioning leg whose crew would land after its
+  departure: the schedule re-plans empty legs itself. Seed 5 ping-ponged a jet delay against the re-plan (109 red
+  alarms).
+
+**R.15.5 Client lateness (`ops/events.ts`).** A client's own retime, or its move of a trip by a day, now sets the
+leg's `lateOk` to what the client asked. Before, the lateness cap read the client's own change as our delay and
+dropped the legs (test in `events.test.ts`).
+
+**R.15.6 Airport standby and reserve: thresholds.**
+- Airport standby: `airport.minWave` 6 → 3 departures of a family 05:00–10:00 at the station; one captain, one first
+  officer and one cabin crew (a purser counts as the cabin seat; purser and cabin crew were counted apart, which
+  posted two). On bot seeds 1–6 the LIS morning bank never holds 3 departures of a family (the histogram tops out at
+  2), so none is posted, which is what a real operator with two or three narrowbodies would do. The rule is
+  covered by a unit test (3 departures → captain, first officer and cabin crew windows from the first departure −
+  90 min, 4 h).
+- Reserve stays where a standby would make the 7/14/28-day duty tight (≥ 95 %, `reserve.tightShare`). With the
+  planned days off few crew get that close: 0–1 crew-days a year on seeds 1–6. Lowering either threshold just to
+  make the counters move would post standby nobody needs.
+
+**R.15.7 Determinism.** The bot's crew-control memo now lives only within one step (same revision and minute), and
+its delay search runs by the clock (every other step until the last 4 h), so the policy is a pure function of the
+game and a reloaded save decides alike. An acquired aircraft gets its fitted rest and `restV: 2` like a new one
+(the day-200 save → reload differed). `--det` is identical at day 90 and day 200 + 2h17.
+
+**R.15.8 Runtime and the bot.**
+- Engine, each checked to give the same bot output, seed by seed: `segsOf` cached per crew member (revision, time,
+  standby and log); `dutySegs` returns its cached list when nothing changed; uncalled standby segs cached per
+  standby list; the roster no longer plans crew that `planCrew` would refuse at once (still resting at report, on
+  leave, sick, in training or joining during the trip); `planCrew` merges two sorted timelines linearly instead of
+  sorting them; no closures in the hottest paths.
+- Bot: `--whyheld`, `--from`; the `roster:` line adds `moved N · swapped N · crew-days home/hotel/airport/reserve`.
+
+**R.15.9 Result (bot, 365 days, one run at a time; before = 874de67, after = round 3).**
+
+| Run | Margin | Uncovered | Red | Summer BH/ac | Days off | Standby crew-days home/hotel/airport/reserve | Swaps | Runtime |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 4.0 → 0.6 % | 0.55 → 0.07 % | 19 → 7 | 166 → 166 | 8.5 → 8.4 | 8711/1514/0/1 | 233 | 36.3 → 19.1 s |
+| 2 | 1.0 → 4.0 % | 0.15 → 0.31 % | 14 → 19 | 173 → 155 | 8.2 → 8.4 | 7983/2129/0/1 | 260 | 33.9 → 25.6 s |
+| 3 | 1.4 → 4.1 % | 0.53 → 0.20 % | 24 → 11 | 166 → 166 | 8.3 → 8.3 | 8735/1487/0/0 | 242 | 45.0 → 21.7 s |
+| 4 | 0.4 → −2.2 % | 0.64 → 0.06 % | 28 → 8 | 155 → 159 | 8.2 → 8.3 | 9803/1467/0/1 | 277 | 35.6 → 29.2 s |
+| 5 | −10.1 → −5.1 % | 0.37 → 0.36 % | 28 → 12 | 171 → 165 | 8.3 → 8.4 | 11252/1729/0/0 | 280 | 36.9 → 29.0 s |
+| 6 | −4.7 → 3.0 % | 0.14 → 0.00 % | 10 → 8 | 150 → 128 | 8.4 → 8.4 | 9775/1235/0/1 | 224 | 28.8 → 26.6 s |
+| 1 --wide --aug | −6.4 → 0.4 % | 0.25 → 0.07 % | 122 → 11 | 162 → 156 | 8.2 → 8.4 | 9022/1355/0/8 | 222 | 73.6 → 20.7 s |
+| 1 --wide --aug --b744 | −27.7 → −17.4 % | 0.89 → 0.52 % | 161 → 21 | 145 → 157 | 8.3 → 8.3 | 14128/2751/0/0 | 386 | 74.1 → 52.3 s |
+
+Every run: 0 illegal duties, 0 discretion planned, 0 crew-months under 7 days off, recovery gap ≤ 168 h. Before, the
+B744 run tripped the relink safety net and went insolvent; after, it does neither. `--det` (seed 1): two runs and
+both save → reload points identical.
+
+Still open after round 3:
+- **Coverage per seed.** Seed 2 (19 red, 0.31 %), seed 5 (0.36 %) and the B744 run (21 red, 0.52 %) miss
+  "≤ 0.3 % and ≤ 12 red"; on seeds 7–12 the reds are 9–38. What is left is capacity and reach (crew busy on other
+  trips, joining hires, rest, at another station), and a seed's
+  outcome swings with any change to the roster.
+- **Runtime.** 19–29 s on seeds 1–6, 21 s and 52 s on the widebody runs: about 40 % faster, still over 20 s on
+  seeds 2, 4, 5, 6 and the B744 run. The profile is flat (the daily crew plan about a third, Crew Control's delay
+  and jet searches on state copies about a sixth, the rest spread thin); the next step is a per-crew timeline
+  revision so a change to one crew member no longer invalidates every cached timeline.
+- **Summer BH per aircraft (128–166, target 180).** Not the roster: offers in summer are lost to "aircraft busy"
+  and positioning, crew shortages refuse 3–9 offers a year, and a first-year Newcomer fills its aircraft with 30–45
+  day bases (MGH 160) and gaps between them. v0.8 had 164–182. The target looks unreachable for a first year with
+  this offer flow; it is a commercial question for the next update.
+- **Average days off 8.3–8.4** (target 8.5–10): the stagger and the swaps keep crew working; every month stays
+  ≥ 7 and the year above 96.
 
 ---
 

@@ -415,7 +415,10 @@ designed and are updated by ENGINE when it is built.
 **Publication (ORO.FTL.110(a), AMC1).** Rosters are published sufficiently in advance: **14 days**. The operator
 must also plan and notify the recurrent extended recovery rest (ORO.FTL.110) and plan FDPs to be achievable.
 **Game:** the roster is published to the end of today + 13 (`dayPlan.publishedTo`). Days off inside it are
-protected: a change needs the player's confirm and costs morale.
+protected: a change needs the player's confirm and costs morale (−6). The roster itself never breaks one; for
+short-notice work nobody else can take (reporting within 72 h) it may **swap** one by agreement, as crew control
+asks a crew member on the phone: the day moves inside its month and the count is kept, morale −3, only with morale
+≥ 50, at most once in 14 days a person and never for a day off starting within 12 h (`BAL.v09.roster.swap`).
 
 **Days free of duty (Directive 2000/79/EC, Annex, clauses 3 and 9).**
 - At least **7 days in each calendar month** and **96 days in each calendar year** free of all duty **and standby**,
@@ -429,6 +432,8 @@ give more (Reg. 83/2014 recital (4)).
 - A day off is a local day free of all duty, standby and reserve from 00:00 to 06:00 the next morning.
 - Days off are planned in blocks of 2–3 days: about 9 a month, never below 7 (illegal: `'daysOff'`), and the
   planner floor of 8 keeps the year above 96.
+- Days off are staggered: at most 30 % of a family-and-role group is off on any day of a due block (`OFF_SHARE`;
+  a must block, the 7th work day or the month's minimum, always goes), so a group keeps crew on every day.
 - 28 days of annual leave a year, weighted to the winter quarters (10/4/4/10).
 
 **Recurrent extended recovery rest (ORO.FTL.235(d)).**
@@ -464,8 +469,11 @@ and a month always holds at least two 2-day blocks. The existing `recovery` and 
 - Every free day that is not a day off is standby:
   - **home standby** at base: early 05:00–17:00 or late 12:00–24:00, 25 %, ready in 90 min;
   - **hotel standby** at a deployment or night-stop station: 06:00–18:00, 25 %, ready in 45 min;
-  - **airport standby** at a base whose family has ≥ 6 of our departures 05:00–10:00: 4 h from 90 min before the
-    first departure, 100 %, ready in 20 min.
+  - **airport standby** at a base whose family has ≥ 3 of our departures 05:00–10:00 (`airport.minWave`): one
+    captain, one first officer and one cabin crew (a purser counts as the cabin seat), 4 h from 90 min before the
+    first departure, 100 %, ready in 20 min. A fleet of two or three narrowbodies whose morning bank holds one or
+    two departures per family never qualifies (bot seeds 1–6: none), as a real operator would not post airport
+    standby for it either.
 - The reductions and caps are `standbyCut` and `standbyAwakeOk`. Each window is followed by rest when not called.
 - Crew Control calls standby first.
 
@@ -477,7 +485,8 @@ and a month always holds at least two 2-day blocks. The existing `recovery` and 
 - An FDP counts from report.
 
 **Game:**
-- Reserve is used where a standby would make the 7/14/28-day duty tight (≥ 95 %): 24 h, no contact 22:00–06:00, 0 %.
+- Reserve is used where a standby would make the 7/14/28-day duty tight (≥ 95 %, `reserve.tightShare`): 24 h, no
+  contact 22:00–06:00, 0 %. Few crew get that close to the limits (bot seeds 1–6: 0–1 crew-days a year).
 - Called only for a report ≥ 10 h ahead. It is never rest and never a day off.
 
 **Cumulative limits (ORO.FTL.210)** with standby. Duty: 60 h / 7 d, 110 h / 14 d, 190 h / 28 d (spread as evenly as
