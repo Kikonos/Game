@@ -30,7 +30,7 @@ import { applyDiscretion, autoRoster, discretionCheck, flightCrewStatus, onFligh
 import { assignCrew, dutyCandidates, type DutyCandidate } from './rosterActions';
 import { levelOf, LIMITS, minRest, offsetAt } from './rules';
 import { cabinEarly, crewCount, crewRev, dhBlock, locAt, OUT_CONNECT, segsOf, touchCrew, typeIdOf, type TicketPlan } from './timeline';
-import { callFromStandby, calledNow } from './standby';
+import { callFromStandby, calledNow, reserveContact } from './standby';
 import { SBY_LABEL } from './calendar';
 import { offDaysHit, takesPublishedOff, v09Stats } from './dayPlan';
 import { crewAlertKind, LIMIT_NAME, type CrewAlertKind } from './outOfHours';
@@ -881,7 +881,8 @@ function sbyText(g: GameState, c: CrewMember, s: NonNullable<DutyCandidate['stan
   const ready = s.readyMin < 60 ? `${s.readyMin} min` : `${Math.floor(s.readyMin / 60)}:${String(s.readyMin % 60).padStart(2, '0')}`;
   if (s.kind === 'airport') return `Airport standby until ${fmtTime(s.to, s.at)} · ready in ${ready}`;
   if (s.kind === 'hotel') return `Hotel standby at ${s.at} · ready in ${ready}`;
-  if (s.kind === 'reserve') return `Reserve · from ${fmtTime(Math.max(g.now, s.from) + s.readyMin, s.at)} (10 h notice)`;
+  // Round 4: the 10 h run from the call, and a reserve is not called 22:00–06:00 (standby.ts reserveContact).
+  if (s.kind === 'reserve') return `Reserve · from ${fmtTime(Math.max(reserveContact(g, s.at), s.from) + s.readyMin, s.at)} (10 h notice)`;
   const early = (s.from + offsetAt(c.base, s.from)) % DAY < 12 * 60;
   return `Home standby (${early ? 'early' : 'late'}) · ready in ${ready}`;
 }

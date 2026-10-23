@@ -847,6 +847,8 @@ export interface CrewMember {
   off?: number[];
   /** v0.9 days off counted at each month end (the last 13: the 96-a-year check). */
   offMonths?: Record<MonthKey, number>;
+  /** v0.9 round 4: leave and sick days of each closed month (days free of duty too: the 96 a year), the last 13 kept. */
+  freeMonths?: Record<MonthKey, number>;
   /** v0.9 last calendar year whose annual leave is planned. */
   leaveYear?: number;
   /** v0.9 round 3: when crew control last asked them to swap a published day off (one ask in 14 days). */
@@ -1409,6 +1411,8 @@ export interface StatsRoster09 {
   offSwaps?: number;
   /** Crew-months closed and those below 7 days off. */
   months: number; monthsLow: number;
+  /** v0.9 round 4: crew-years closed (at the December close) and those below 96 free days pro rata. */
+  years?: number; yearsLow?: number;
 }
 
 // ======================================================================

@@ -891,12 +891,17 @@ interface Chainer {
 /**
  * Round-robin chaining: each duty (report order) goes to the on-station set free longest (earliest rest end)
  * that stays legal (rest, FDP, cumulative, recovery, 6-on/2-off); ties by set index. Crewed tours also check
- * their real crew (via `crewOk`).
+ * their real crew (via `crewOk`: 0 no, 1 only with a day off moved, 2 as rostered). v0.9 round 4: a set whose crew
+ * need no change comes before one whose days off would move, and the move is made only for the set picked
+ * (`crewTake`), not for every set asked.
  */
-function chainer(g: GameState, dep: Deployment, crewOk: (p: Pairing, d: Duty) => boolean): Chainer {
+function chainer(g: GameState, dep: Deployment, crewOk: (p: Pairing, d: Duty) => number, crewTake: (p: Pairing, d: Duty) => void = () => {}): Chainer {
   const R = rotation(g);
   const home = g.company.homeBase;
   const dayOf = (t: Minute) => Math.floor((t + offsetAt(dep.base, t)) / DAY);
+  // v0.9 round 4: a report before 06:00 takes the day before as well (a day off runs to 06:00: dayPlan.ts
+  // offDaysHit), so the 6-on/2-off model counts that day as worked.
+  const daysOf = (d: Duty): number[] => [...new Set([dayOf(d.report - BAL.v09.roster.off.morningFree), dayOf(d.report)])];
   const tours = new Map<string, TourState>();
   for (const pid of dep.pairingIds) {
     const p = g.pairings[pid];
@@ -904,20 +909,25 @@ function chainer(g: GameState, dep: Deployment, crewOk: (p: Pairing, d: Duty) =>
     const duties = p.dutyIds.map((id) => g.duties[id]).filter((d): d is Duty => !!d);
     tours.set(`${p.tour.set}:${p.tour.from}`, {
       set: p.tour.set, from: p.tour.from, to: p.tour.to, pairing: p, duties,
-      segs: duties.map((d) => virtualSeg(g, d, p.start, home)), days: [...new Set(duties.map((d) => dayOf(d.report)))].sort((a, b) => a - b),
+      segs: duties.map((d) => virtualSeg(g, d, p.start, home)), days: [...new Set(duties.flatMap(daysOf))].sort((a, b) => a - b),
     });
   }
   const take = (d: Duty): boolean => {
     let pick: TourState | null = null;
     let pickRest = Infinity;
+    let pickRank = 0;
+    let pickEve = false;
     const sets = dep.anchors?.length ?? 0;
+    // Round 4: an early report (before 06:00) goes first to a set already working its eve (a set inside its block
+    // keeps the early wave); the set coming off its days off starts on the later wave.
+    const eve = dayOf(d.report - BAL.v09.roster.off.morningFree);
+    const early = eve !== dayOf(d.report);
     for (let s = 0; s < sets; s++) {
       const per = periodOf(dep, s, d.report, R);
       if (!per) continue;
       const key = `${s}:${per.from}`;
       const st = tours.get(key) ?? { set: s, from: per.from, to: per.to, pairing: null, duties: [], segs: [], days: [] };
-      const day = dayOf(d.report);
-      const days = st.days.includes(day) ? st.days : [...st.days, day].sort((a, b) => a - b);
+      const days = [...new Set([...st.days, ...daysOf(d)])].sort((a, b) => a - b);
       if (longestWorkBlock(days) > LIMITS.blockDays) continue;
       const tripStart = Math.min(st.duties[0]?.report ?? d.report, d.report);
       const i = st.segs.findIndex((x) => x.start > d.report);
@@ -927,31 +937,42 @@ function chainer(g: GameState, dep: Deployment, crewOk: (p: Pairing, d: Duty) =>
       // A fresh set arrives rested the day before its period (positioning counts as duty).
       const ctx: TimelineCtx = { base: home, restUntil: -Infinity, lastRecovery: per.from - DAY, blockYear: 0, blockYearOf: yearOf(d.report), slack: BAL.rosterSlack };
       if (evalSegs(ctx, segs).some((i) => i.level === 'illegal' && i.code !== 'fdp')) continue;
-      if (st.pairing && crewCount(st.pairing) > 0 && !crewOk(st.pairing, d)) continue;
+      const rank = st.pairing && crewCount(st.pairing) > 0 ? crewOk(st.pairing, d) : 2;
+      if (!rank) continue;
       const restEnd = last ? last.end + last.rest : -Infinity;
-      if (restEnd < pickRest) {
+      const onEve = early && st.days.includes(eve);
+      if (rank > pickRank || (rank === pickRank && (Number(onEve) > Number(pickEve) || (onEve === pickEve && restEnd < pickRest)))) {
         pick = st;
         pickRest = restEnd;
+        pickRank = rank;
+        pickEve = onEve;
       }
     }
     if (!pick) return false;
+    if (pickRank === 1 && pick.pairing) crewTake(pick.pairing, d);
     const key = `${pick.set}:${pick.from}`;
     tours.set(key, pick);
     pick.duties.push(d);
     pick.duties.sort((x, y) => x.report - y.report);
     pick.segs.push(virtualSeg(g, d, pick.duties[0].report, home));
     pick.segs.sort((x, y) => x.start - y.start);
-    const day = dayOf(d.report);
-    if (!pick.days.includes(day)) pick.days = [...pick.days, day].sort((a, b) => a - b);
+    pick.days = [...new Set([...pick.days, ...daysOf(d)])].sort((a, b) => a - b);
     return true;
   };
   return { take, tours };
 }
 
-/** Hook for crewed tours (set by roster.ts to avoid an import cycle): can every crew member of p also fly d? */
-let crewOkHook: (g: GameState, p: Pairing, d: Duty) => boolean = () => true;
-export function setCrewOkHook(f: (g: GameState, p: Pairing, d: Duty) => boolean): void {
+/**
+ * Hook for crewed tours (set by roster.ts to avoid an import cycle): can every crew member of p also fly d? 0 no,
+ * 1 only with a planned day off moved (crewTakeHook does that once the set is picked), 2 as rostered. Pure.
+ */
+let crewOkHook: (g: GameState, p: Pairing, d: Duty) => number = () => 2;
+export function setCrewOkHook(f: (g: GameState, p: Pairing, d: Duty) => number): void {
   crewOkHook = f;
+}
+let crewTakeHook: (g: GameState, p: Pairing, d: Duty) => void = () => {};
+export function setCrewTakeHook(f: (g: GameState, p: Pairing, d: Duty) => void): void {
+  crewTakeHook = f;
 }
 
 /** Hook (roster.ts): re-plans the crew's tickets after a crewed tour grew past its ends (the ticket home moves). */
@@ -989,7 +1010,7 @@ function chainDeployment(g: GameState, c: Contract, acId: string, duties: Duty[]
     let best = { sets, taken: -1 };
     for (let n = sets; n <= BAL.maxSetsOnStation; n++) {
       const trial: Deployment = { ...dep, anchors: anchorsFor(start, n, R), pairingIds: [] };
-      const ch = chainer(g, trial, () => true);
+      const ch = chainer(g, trial, () => 2);
       let taken = 0;
       for (const d of duties) if (ch.take(d)) taken++;
       if (taken > best.taken) best = { sets: n, taken };
@@ -1005,7 +1026,7 @@ function chainDeployment(g: GameState, c: Contract, acId: string, duties: Duty[]
   dep.sized ??= dep.setsOnStation;
   dep.anchors ??= anchorsFor(dep.start, dep.setsOnStation, R);
   dep.end = Math.max(dep.end, duties[duties.length - 1].release);
-  const ch = chainer(g, dep, (p, d) => crewOkHook(g, p, d));
+  const ch = chainer(g, dep, (p, d) => crewOkHook(g, p, d), (p, d) => crewTakeHook(g, p, d));
   const left: Duty[] = [];
   for (const d of duties) {
     if (ch.take(d)) continue;

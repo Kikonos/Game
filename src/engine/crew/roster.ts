@@ -9,7 +9,7 @@ import { canFill, complement, typeOf } from '../core/perf';
 import { DAY, fmtDateTime, monthKey } from '../core/time';
 import type { ActionResult, CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing, Role } from '../core/types';
 import { acceptable, crewIssuesFor, mergeSegs, openDuties, otherTrip, planCrew, type CrewPlan } from './check';
-import { deletePairing, dutyLegality, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setCrewTrailOkHook, setReleaseHook, setRetickHook, splitPairing, splitUnderWay, syncDuty } from './duties';
+import { deletePairing, dutyLegality, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setCrewTakeHook, setCrewTrailOkHook, setReleaseHook, setRetickHook, splitPairing, splitUnderWay, syncDuty } from './duties';
 import { crewName } from './generate';
 import { callIfOnStandby, dropStandby, standbyFor } from './standby';
 import { fitStandby, monthFloorIssue, offDaysHit, offMovable, offSwappable, takeOffDays, takesPublishedOff, v09Stats as v09StatsOf } from './dayPlan';
@@ -1169,17 +1169,18 @@ export function rerosterFrom(g: GameState, aircraftId: string, t: Minute): Roste
 // Crew a split part no longer seats leave its flights and tickets as well.
 setReleaseHook(releaseCrew);
 
-// Crewed tours accept a new duty only if every crew member stays legal.
+// Crewed tours accept a new duty only if every crew member stays legal (0 no, 2 yes, 1 with a day off moved).
 setCrewOkHook((g, p, d) => {
   const moves: CrewMember[] = [];
   for (const s of p.slots) {
     if (!s.crewId) continue;
     const c = g.crew[s.crewId];
     if (!c) continue;
-    if (otherTrip(g, c, p, d.report, d.release, false)) return false;
+    if (otherTrip(g, c, p, d.report, d.release, false)) return 0;
     // v0.9 never onto a planned day off; a tour moves them to its free days (the planner's own re-plan, no morale).
+    // Round 4: the move is made by the take hook, only for the set the chainer picks (a set with no change first).
     if (offDaysHit(c, d.report, d.release).length) {
-      if (!p.tour) return false;
+      if (!p.tour) return 0;
       moves.push(c);
     }
     // The tour's own tickets are re-planned around its new ends (retick), so they are left out here.
@@ -1188,15 +1189,18 @@ setCrewOkHook((g, p, d) => {
     const base = mergeSegs(segsOf(g, c, p.id), own);
     const fresh = dutySegs(g, c, p, d, null, null, true);
     const segs = mergeSegs(base, fresh);
-    if (evalSegs({ ...ctxOf(g, c), slack: BAL.rosterSlack }, segs).some((i) => i.level === 'illegal' && i.code !== 'fdp')) return false;
+    if (evalSegs({ ...ctxOf(g, c), slack: BAL.rosterSlack }, segs).some((i) => i.level === 'illegal' && i.code !== 'fdp')) return 0;
     // v0.9 fix: never below a month's 7 days off, and a day off it lands on only moves when its month has room.
-    if (monthFloorIssue(g, c, base, fresh) || (moves.includes(c) && !offMovable(g, c, segs, true))) return false;
+    if (monthFloorIssue(g, c, base, fresh) || (moves.includes(c) && !offMovable(g, c, segs, true))) return 0;
   }
-  for (const c of moves) {
-    const seg = dutySegs(g, c, p, d, null, null, true).filter((x) => x.kind === 'duty');
-    takeOffDays(g, c, seg, true);
+  return moves.length ? 1 : 2;
+});
+setCrewTakeHook((g, p, d) => {
+  for (const s of p.slots) {
+    const c = s.crewId ? g.crew[s.crewId] : undefined;
+    if (!c || !offDaysHit(c, d.report, d.release).length) continue;
+    takeOffDays(g, c, dutySegs(g, c, p, d, null, null, true).filter((x) => x.kind === 'duty'), true);
   }
-  return true;
 });
 
 // A tour that grew keeps its crew: their tickets are re-planned around the new first/last duty (under way, only

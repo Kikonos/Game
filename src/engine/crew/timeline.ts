@@ -8,7 +8,7 @@ import { deadheadFlights, flightsOf, flightsRev } from '../core/entities';
 import { itinerary, ticketBlock } from '../ops/commercial';
 import { DAY, fmtDateTime, fmtTime, monthKey, yearOf } from '../core/time';
 import type { CrewMember, Duty, Flight, GameState, Minute, Pairing, StandbyKind } from '../core/types';
-import { disruptiveKinds, isDisruptive, maxFdp, minRest, referenceTime, standbyCut, tzDeltaH, type RefTime, type Seg, type TimelineCtx } from './rules';
+import { asbyRest, disruptiveKinds, isDisruptive, maxFdp, minRest, referenceTime, standbyCut, tzDeltaH, type RefTime, type Seg, type TimelineCtx } from './rules';
 import { restOf } from './restPlan';
 
 // ---------- index ----------
@@ -641,7 +641,10 @@ function addStandby(g: GameState, c: CrewMember, segs: Seg[]): void {
     const kind = w.kind ?? 'home';
     if (k >= 0 && kind !== 'reserve') {
       const y = segs[k];
-      segs[k] = { ...y, maxFdp: y.maxFdp - standbyCut(kind === 'airport' ? 'airport' : 'home', w.from, y.start, c.base, y.aug || !!y.split, w.calledAt), sbyFrom: w.from, sby: kind };
+      // Round 4: the 23:00–07:00 exclusion on the standby station's clock; airport standby is part of the duty period
+      // the rest after it must cover (rules.ts asbyRest).
+      const by = standbyCut(kind === 'airport' ? 'airport' : 'home', w.from, y.start, kind === 'hotel' ? w.at ?? c.base : c.base, y.aug || !!y.split, w.calledAt);
+      segs[k] = { ...y, maxFdp: y.maxFdp - by, sbyFrom: w.from, sby: kind, ...(kind === 'airport' ? { rest: asbyRest(c.base, w.from, y) } : {}) };
     }
     if (end > w.from) add.push(standbySeg(c, w, end));
   }

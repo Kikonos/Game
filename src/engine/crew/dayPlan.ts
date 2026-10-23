@@ -14,7 +14,7 @@ import type { CrewMember, GameState, Minute, MonthKey, StandbyKind, StatsRoster0
 import { hash } from '../core/util';
 import { moraleShock } from './morale';
 import { evalSegs, offsetAt, type LegalityIssue, type Seg } from './rules';
-import { dropStandby, noteRecovery, onStandby, pruneStandby } from './standby';
+import { noteRecovery, onStandby, pruneStandby } from './standby';
 import { crewIx, ctxOf, locAt, segsOf, standbySeg, touchCrewState, typeIdOf } from './timeline';
 
 const R = () => BAL.v09.roster;
@@ -176,6 +176,21 @@ export function monthFloorIssue(g: GameState, c: CrewMember, base: Seg[], fresh:
     for (let k = Math.max(a, today + 1, open); k < b && n < legal; k++) if (!offOn(c, k) && !busy.hit.has(k) && !blockedOn(c, k)) n++;
     if (n < legal) return { code: 'daysOff', level: 'illegal', text: `Days off in ${MONTH[mk % 12]} would fall to ${n} (minimum ${R().off.legalMonth})`, dutyId: work[0].dutyId };
   }
+  // Round 4: the year must still reach its 96 (pro rata): what c holds plus the free days the planner has not reached
+  // yet. Cheap first (every day left counted free); the day-by-day count only when that is not enough (year end).
+  const open = g.dayPlan.planned !== undefined ? dayIndex(c.base, g.dayPlan.planned) : today + 1;
+  for (const y of new Set([...months].map((mk) => Math.floor(mk / 12)))) {
+    const v = yearView(g, c, y);
+    if (v.from >= v.y1 || v.y1 <= today + 1) continue;
+    const lo = Math.max(open, today + 1, v.from);
+    if (v.y1 - lo >= v.need) continue;
+    const held = yearOffs(g, c, v, hit);
+    if (held + Math.max(0, v.y1 - lo) >= v.need) continue;
+    const yb = busyDays(c, [...base, ...work].sort((x, y) => x.start - y.start), lo, v.y1 + 1);
+    let n = held;
+    for (let k = lo; k < v.y1 && n < v.need; k++) if (!offOn(c, k) && !yb.hit.has(k) && !blockedOn(c, k)) n++;
+    if (n < v.need) return { code: 'daysOff', level: 'illegal', text: `Days off in ${y} would fall to ${n} (minimum ${v.need})`, dutyId: work[0].dutyId };
+  }
   return null;
 }
 
@@ -239,6 +254,49 @@ export function legalFor(c: CrewMember, mk: MonthKey): number {
   let away = 0;
   for (let k = a; k < b; k++) if (blockOn(c, k)) away++;
   return Math.ceil((R().off.legalMonth * (b - a - away)) / (b - a));
+}
+
+/**
+ * v0.9 round 4 the 96 free days a year (Directive 2000/79/EC; BAL yearMin), pro rata: counted from the first month
+ * dayPlanMonth records for c (wholly after the hire and the first planned day), so `from` ≥ 1 January.
+ */
+interface YearView { y0: number; y1: number; from: number; need: number }
+function yearView(g: GameState, c: CrewMember, year: number): YearView {
+  const y0 = fromUTC(year, 1, 1) / DAY;
+  const y1 = fromUTC(year + 1, 1, 1) / DAY;
+  // The first whole day after the hire (dayPlanMonth skips a month whose first midnight is before it).
+  const first = Math.max(firstPlanDay(g, c.base), dayIndex(c.base, c.hired - 1) + 1);
+  const m = monthOfDay(first);
+  const from = Math.max(y0, firstDayOf(first > firstDayOf(m) ? m + 1 : m));
+  // To the nearest day: a crew member counted for one month needs 8 (96 × 31 / 365 = 8.2), the planner's floor.
+  return { y0, y1, from, need: Math.round((R().off.yearMin * Math.max(0, y1 - from)) / (y1 - y0)) };
+}
+
+/**
+ * Free days of the year c holds: the closed months' counts (offMonths and freeMonths: leave and sickness are days
+ * free of all duty too), and for the months not closed the planned days off (less `hit`) and the leave and sick
+ * blocks (old blocks are pruned: crew/index.ts, hence freeMonths). The free unplanned days left are not in it.
+ */
+function yearOffs(g: GameState, c: CrewMember, v: YearView, hit?: Set<number>): number {
+  if (v.from >= v.y1) return 0;
+  const cur = monthOfDay(dayIndex(c.base, g.now));
+  let n = 0;
+  for (let m = monthOfDay(v.from); m < monthOfDay(v.y1); m++) {
+    if (m < cur) {
+      n += (c.offMonths?.[m] ?? 0) + (c.freeMonths?.[m] ?? 0);
+      continue;
+    }
+    const a = firstDayOf(m);
+    const b = firstDayOf(m + 1);
+    for (const k of c.off ?? []) if (k >= a && k < b && !hit?.has(k)) n++;
+  }
+  const open = Math.max(v.from, firstDayOf(Math.max(cur, monthOfDay(v.from))));
+  for (const x of c.blocks ?? []) {
+    if (x.why !== 'leave' && x.why !== 'sick') continue;
+    // The days blockOn gives the block (its 6 h tolerance at both ends).
+    n += Math.max(0, Math.min(v.y1 - 1, dayIndex(c.base, x.to - 6 * 60 - 1)) - Math.max(open, dayIndex(c.base, x.from + 6 * 60)) + 1);
+  }
+  return n;
 }
 
 interface BreakView { legal: boolean; published: boolean; issue: string; first: number; movesTo: number | null }
@@ -660,15 +718,19 @@ function offNeed(g: GameState, c: CrewMember, D: number, busy: Busy): OffNeed | 
   const minM = minFor(c, mk);
   const missing = minM - offs;
   const blocks = blocksIn(c, mk);
+  // v0.9 round 4: a block already planned within the next days (a must that found D taken and went on the first
+  // free days after it) answers the run and the pace: no second block stacks behind it.
+  let ahead = false;
+  for (let k = D + 1; k <= D + 10 && !ahead; k++) if (offOn(c, k)) ahead = true;
   // Must: the 7th work day, the month's minimum no longer reachable otherwise, or falling behind the minimum's
   // pace (work rostered later can fill the month's last days: the minimum is kept on pace, not left to the end).
-  const must = run >= O.mustAfter || (missing > 0 && freeLeft <= missing + 1) || (blocks < 2 && (2 - blocks) * 2 + 1 >= freeLeft)
-    || before < Math.floor((minM * dom) / mDays) - 1;
+  const must = (!ahead && run >= O.mustAfter) || (missing > 0 && freeLeft <= missing + 1) || (blocks < 2 && (2 - blocks) * 2 + 1 >= freeLeft)
+    || (!ahead && before < Math.floor((minM * dom) / mDays) - 1);
   // Behind the target's pace counts from the second week (on day 1 every crew member would be "behind" on the
   // same day and the whole company would go off together).
   const behind = dom >= 8 && before < pace - 1.5;
-  const due = run >= O.dueAfter || behind;
-  const early = !must && !due && run >= O.dueAfter - 1;
+  const due = !ahead && (run >= O.dueAfter || behind);
+  const early = !must && !due && !ahead && run >= O.dueAfter - 1;
   if (!must && !due && !early) return null;
   if (!must && offs >= O.maxMonth) return null;
   let len = before + 2 < (O.targetMonth * (dom + 2)) / mDays - 1 ? O.block[1] : O.block[0];
@@ -1206,7 +1268,8 @@ function topUpOffs(g: GameState): void {
       for (let k = lo; k < Math.min(end, open) && deficit > 0; k++) {
         if (!free(k)) continue;
         c.off = [...c.off, k].sort((a, b) => a - b);
-        dropStandby(g, c, midnight(c.base, k), midnight(c.base, k + 1));
+        // Round 4: the window of the morning after goes too (a day off runs to 06:00: clearDays, as planDay).
+        clearDays(g, c, k, k + 1);
         deficit--;
         changed = true;
       }
@@ -1223,12 +1286,29 @@ export function dayPlanMonth(g: GameState): void {
   for (const c of Object.values(g.crew)) {
     const mk = monthOfDay(dayIndex(c.base, g.now) - 1);
     const a = firstDayOf(mk);
-    if (a < firstPlanDay(g, c.base) || midnight(c.base, a) < c.hired || c.status === 'joining' || blockedMonth(c, mk)) continue;
+    if (a < firstPlanDay(g, c.base) || midnight(c.base, a) < c.hired || c.status === 'joining') continue;
+    // Round 4: the month's leave and sick days (the 96 a year counts them; blocks are pruned 40 days on).
+    let free = 0;
+    for (let k = a; k < firstDayOf(mk + 1); k++) {
+      const why = blockOn(c, k);
+      if (why === 'leave' || why === 'sick') free++;
+    }
+    (c.freeMonths ??= {})[mk] = free;
+    for (const k in c.freeMonths) if (+k < mk - 12) delete c.freeMonths[k];
+    if (blockedMonth(c, mk)) continue;
     const n = offsIn(g, c, mk);
     (c.offMonths ??= {})[mk] = n;
     for (const k in c.offMonths) if (+k < mk - 12) delete c.offMonths[k];
     r.months++;
     if (n < legalFor(c, mk)) r.monthsLow++;
+    // Round 4: the year's 96 (pro rata) at its December close.
+    if (mk % 12 === 11) {
+      const v = yearView(g, c, Math.floor(mk / 12));
+      if (v.from < v.y1) {
+        r.years = (r.years ?? 0) + 1;
+        if (yearOffs(g, c, v) < v.need) r.yearsLow = (r.yearsLow ?? 0) + 1;
+      }
+    }
     const below = Math.min(M.below, minFor(c, mk));
     const delta = n > M.above ? Math.min(M.aboveMax, (n - M.above) * M.aboveEach) : n < below ? (below - n) * M.belowEach : 0;
     if (delta) moraleShock(g, c, 'daysOff', delta);
@@ -1286,6 +1366,9 @@ export interface CrewMonthView {
   flying: number;
   leave: number;
   other: number;
+  /** v0.9 round 4: free days held in the month's calendar year (closed months, planned days off, leave, sick) and its 96 pro rata. */
+  year: number;
+  yearMin: number;
   line: string;
 }
 
@@ -1293,8 +1376,11 @@ export interface CrewMonthView {
 export function crewMonth(g: GameState, crewId: string, t: Minute): CrewMonthView {
   const c = g.crew[crewId];
   const mk = c ? monthKey(t + offsetAt(c.base, t)) : monthKey(t);
-  const v: CrewMonthView = { key: mk, label: MONTH[mk % 12], off: 0, offMin: 7, offTarget: [8, 10], standby: { home: 0, hotel: 0, airport: 0, reserve: 0 }, flying: 0, leave: 0, other: 0, line: '' };
+  const v: CrewMonthView = { key: mk, label: MONTH[mk % 12], off: 0, offMin: 7, offTarget: [8, 10], standby: { home: 0, hotel: 0, airport: 0, reserve: 0 }, flying: 0, leave: 0, other: 0, year: 0, yearMin: R().off.yearMin, line: '' };
   if (!c) return v;
+  const yv = yearView(g, c, Math.floor(mk / 12));
+  v.year = yearOffs(g, c, yv);
+  v.yearMin = yv.need;
   const a = firstDayOf(mk);
   const b = firstDayOf(mk + 1);
   const segs = segsOf(g, c);
@@ -1315,7 +1401,7 @@ export function crewMonth(g: GameState, crewId: string, t: Minute): CrewMonthVie
     }
   }
   const sby = v.standby.home + v.standby.hotel + v.standby.airport + v.standby.reserve;
-  v.line = `${v.label}: days off ${v.off} of ${v.offMin} minimum · standby ${sby} · flying ${v.flying} · leave ${v.leave}`;
+  v.line = `${v.label}: days off ${v.off} of ${v.offMin} minimum · ${v.year} of ${v.yearMin} this year · standby ${sby} · flying ${v.flying} · leave ${v.leave}`;
   return v;
 }
 

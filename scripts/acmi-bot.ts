@@ -54,7 +54,7 @@ import LZString from 'lz-string';
 import { BAL } from '../src/engine/core/balance';
 import { statementTotals } from '../src/engine/core/ledger';
 import { complement, typeOf } from '../src/engine/core/perf';
-import { DAY, dayIndex, fmtDateTime, fmtMonth, fromUTC, monthKey, toDate } from '../src/engine/core/time';
+import { DAY, dayIndex, fmtDateTime, fmtDay, fmtMonth, fromUTC, monthKey, toDate, yearOf } from '../src/engine/core/time';
 import type { RatingFamily } from '../src/data/acmiTypes';
 import type { Archetype, ContractOffer, CrewFix, GameState, LedgerCat, MonthKey, Role } from '../src/engine/core/types';
 import { acceptOffer, counterOffer, feasibility, offerCompetition, type FeasibilityReport } from '../src/engine/contracts';
@@ -1876,7 +1876,7 @@ console.log(
     const pct = (a: number, b: number) => (b ? Math.round((100 * a) / b) : 0);
     console.log(
       `roster: days off/crew-month ${avg.toFixed(1)} (min 7, <7: ${r.monthsLow} of ${r.months}) · leave ${(r.leaveDays / Math.max(1, months.length)).toFixed(1)} · standby ${pct(sby, all)}% of days (home ${pct(r.sbyHome, all)} · hotel ${pct(r.sbyHotel, all)} · airport ${pct(r.asby, all)} · reserve ${pct(r.res, all)}) · ` +
-        `standby share of free days ${pct(sby, free)}% · call-outs ${r.callOuts} (crew fixes ${fixes}) · max recovery gap ${r.maxRecGapH} h · offBroken ${r.offBroken} · moved ${r.offMoved ?? 0} · swapped ${r.offSwaps ?? 0} · crew-days home/hotel/airport/reserve ${r.sbyHome}/${r.sbyHotel}/${r.asby}/${r.res}`,
+        `standby share of free days ${pct(sby, free)}% · call-outs ${r.callOuts} (crew fixes ${fixes}) · max recovery gap ${r.maxRecGapH} h · offBroken ${r.offBroken} · moved ${r.offMoved ?? 0} · swapped ${r.offSwaps ?? 0} · crew-days home/hotel/airport/reserve ${r.sbyHome}/${r.sbyHotel}/${r.asby}/${r.res} · years <96: ${r.yearsLow ?? 0} of ${r.years ?? 0}`,
     );
     // v0.9 fix: how evenly flying is shared (last closed month, per family and role, crew on the books all month).
     const lastMk = monthKey(g.now) - 1;
@@ -1898,12 +1898,26 @@ console.log(
     }
     console.log(`roster spread (flying days, ${fmtMonth(lastMk)}): ${spreadTxt.join(' · ') || '-'}`);
     if (WHYHELD) console.log(`morning bank at base (days by departures 05–10 local, per family): ${[...bankHist].sort((a, b) => a[0] - b[0]).map(([n, d]) => `${n}:${d}`).join(' ')}`);
+    // v0.9 round 4 (--whyheld): crew whose last closed year fell short of the 96 pro rata, with the count's parts.
+    if (WHYHELD && r.years) {
+      const y = yearOf(g.now) - 1; // the last December close (its early months may be pruned by now: offMonths keeps 13)
+      const lows: string[] = [];
+      for (const c of Object.values(g.crew)) {
+        const v = crewMonth(g, c.id, fromUTC(y, 12, 15));
+        if (v.year >= v.yearMin) continue;
+        const off = Object.entries(c.offMonths ?? {}).filter(([k]) => Math.floor(+k / 12) === y).reduce((n, [, x]) => n + x, 0);
+        const free = Object.entries(c.freeMonths ?? {}).filter(([k]) => Math.floor(+k / 12) === y).reduce((n, [, x]) => n + x, 0);
+        lows.push(`${c.last} ${c.role} hired ${fmtDay(c.hired)} ${v.year}/${v.yearMin} (off ${off} leave+sick ${free} months ${Object.keys(c.offMonths ?? {}).filter((k) => Math.floor(+k / 12) === y).length})`);
+      }
+      console.log(`crew-years below 96 pro rata (${y}): ${lows.join(' · ') || 'none'}`);
+    }
     if (WHYHELD) for (const [k, xs] of offShare) {
       const q = (p: number) => [...xs].sort((a, b) => a - b)[Math.floor(p * (xs.length - 1))];
       console.log(`off share ${k}: mean ${(xs.reduce((a, b) => a + b, 0) / xs.length).toFixed(2)} p90 ${q(0.9).toFixed(2)} max ${Math.max(...xs).toFixed(2)} days>40% ${xs.filter((x) => x > 0.4).length}`);
     }
     softTargets.push(['roster: flying days spread ≤ 10 within a family and role (v0.9 fix)', worst <= 10, `${worst} (${worstK})`]);
     targets.push(['roster: no crew-month below 7 days off (v0.9)', r.monthsLow === 0, `${r.monthsLow} of ${r.months}`]);
+    if (r.years) targets.push(['roster: no crew-year below 96 free days pro rata (v0.9 round 4)', !r.yearsLow, `${r.yearsLow ?? 0} of ${r.years}`]);
     targets.push(['roster: recovery gap ≤ 168 h (v0.9)', r.maxRecGapH <= 168, `${r.maxRecGapH} h`]);
     softTargets.push(['roster: average days off 8.5–10 (v0.9)', avg >= 8.5 && avg <= 10, avg.toFixed(1)]);
     softTargets.push(['roster: standby + reserve ≥ 85% of the free days (v0.9)', pct(sby, free) >= 85, `${pct(sby, free)}%`]);

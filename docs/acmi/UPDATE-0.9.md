@@ -655,7 +655,7 @@ That is all: no new problem cards. A seat a protected day off leaves empty is a 
 ```ts
 roster: {
   publishDays: 14,
-  off: { legalMonth: 7, minMonth: 8, targetMonth: 9, maxMonth: 10, yearMin: 96, block: [2, 3] as [number, number], dueAfter: 5, mustAfter: 6, morningFree: 0 },
+  off: { legalMonth: 7, minMonth: 8, targetMonth: 9, maxMonth: 10, yearMin: 96, block: [2, 3] as [number, number], dueAfter: 5, mustAfter: 6, morningFree: 360 },   // round 4: 360 (was 0: a 05:00 standby the morning after a day off)
   leave: { days: 28, quarters: [10, 4, 4, 10] as number[], maxShare: 0.1, afterServiceDays: 90 },
   home: { early: [300, 1020] as [number, number], late: [720, 1440] as [number, number], maxH: 16, minH: 4, readyMin: 90 },
   hotel: { from: 360, to: 1080, readyMin: 45 },
@@ -836,6 +836,43 @@ Still open after round 3:
   this offer flow; it is a commercial question for the next update.
 - **Average days off 8.3–8.4** (target 8.5–10): the stagger and the swaps keep crew working; every month stays
   ≥ 7 and the year above 96.
+
+### R.16 Round 4 (audit): the roster rules as written
+
+**R.16.1 A day off runs to 06:00 (`morningFree` 0 → 360).** The planner was putting a 05:00 home standby the morning
+after every block of days off, and a report before 06:00 did not take the day off before it (the second local night
+was 22:00–05:00, 7 h: not a night). Now `offDaysHit`, `busyDays`, `clearDays` and `planStandby` all keep the morning:
+the early window after a day off opens at 06:00, a 05:00 report takes the day off before, and `topUpOffs` clears the
+window of the morning after like `planDay` (it only dropped the day's own). Two knock-on fixes the rule exposed:
+- **Deployment tours (`duties.ts chainer`).** The crewed-tour check (`setCrewOkHook`) moved days off as a side
+  effect for every set it was asked about, not only the set picked; it is pure now (0 no, 1 with a day off moved, 2
+  as rostered) and the move is made by `setCrewTakeHook` once the set is picked, a set needing no change first. The
+  6-on/2-off model counts the eve of a report before 06:00 as a work day, and an early report goes first to a set
+  already inside its block (the set coming off its days off starts on the later wave). Without this, a 06:00 wave
+  every day pushed a set's days off along the month and the planner stacked 10 catch-up days at the end of it.
+- **No block stacks behind a planned one (`offNeed`).** A must that found D taken went on the first free days after
+  it, and each following day (its run still ≥ 6) added another block right behind: a planned block within the next
+  10 days now answers the run and the pace.
+
+**R.16.2 Reserve's no-contact period (`standby.ts reserveContact`).** `BAL.v09.roster.reserve.quiet` (22:00–06:00
+station-local) is applied: a reserve crew member is not called in it, the call waits for 06:00 and the 10 h run from
+there (`standbyFor`; Crew Control's line "Reserve · from 16:00 (10 h notice)" says so). Calendar text unchanged.
+
+**R.16.3 Call-out cuts (`rules.ts standbyView`, `timeline.ts addStandby`).** The placement check now passes the call
+time (`ctx.now`) to `standbyCut`, so the check and the placed duty agree (an early window from 05:00, called 06:00
+for 13:30: 1:30 off the FDP in both; before, the check gave 0:30 and the placed duty 1:30, an out-of-hours alert the
+planner caused). A hotel standby's 23:00–07:00 exclusion runs on the station's clock (`w.at`), not the base's. A duty
+called from airport standby carries rest for the standby and the duty together (`asbyRest`: 4 h + 10 h → 14 h).
+
+**R.16.4 The 96 a year (`dayPlan.ts yearView`, `yearOffs`).** `yearMin` is read: `monthFloorIssue` refuses work that
+would leave the calendar year unable to reach 96 free days pro rata (closed months from `offMonths`, planned days off,
+leave and sickness, and the free days the planner has not reached yet; cheap bound first, the day-by-day count only
+near the year's end) with "Days off in 2027 would fall to 93 (minimum 96)". Pro rata runs from the first month
+`dayPlanMonth` records (wholly after the hire and the first planned day). The December close counts
+`Stats.v09.roster.years` / `yearsLow`; `crewMonth().line` reads "… · 84 of 96 this year · …" (`year`, `yearMin`). The bot
+prints `years <96: a of b` and targets 0.
+
+Not applied: pro-rating the 7-day floor by training days (the player's call: days off are not pro-rated by training).
 
 ---
 

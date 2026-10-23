@@ -3,7 +3,7 @@
 // protected days off and old saves.
 
 import { describe, expect, it } from 'vitest';
-import { DAY, monthKey, monthStart } from '../core/time';
+import { DAY, fmtTime, fromUTC, monthKey, monthStart, yearOf } from '../core/time';
 import type { CrewMember, GameState } from '../core/types';
 import { demoFlights, devFleet, devRoster } from '../dev';
 import { addFlight, ownFlightNo } from '../core/entities';
@@ -14,9 +14,10 @@ import { advanceTo } from '../sim';
 import { fixture } from '../fixtures/compatKit';
 import { addCrew, fixtureGame } from './fixtures';
 import { autoRoster, crewControl, crewWindows, dayIndex, dropTargets, moveDuty, offBreak, planLeave, publishedTo } from '.';
-import { midnight, offOn, offSwappable, takeOffDays } from './dayPlan';
-import { evalSegs, minRest, standbyCut, STANDBY, type Seg } from './rules';
-import { standbyFor } from './standby';
+import { crewMonth, dayPlanMonth, midnight, monthFloorIssue, offDaysHit, offOn, offSwappable, takeOffDays } from './dayPlan';
+import { crewCalendar } from './calendar';
+import { evalSegs, localMin, minRest, nightsIn, offsetAt, standbyCut, standbyView, STANDBY, type Seg } from './rules';
+import { reserveContact, standbyFor } from './standby';
 import { ctxOf, segsOf, standbySeg } from './timeline';
 
 const H = 60;
@@ -158,6 +159,8 @@ describe('§R.13 4–6: standby in the limits, call-outs, rest after standby', (
 
   it('reserve answers only a report at least 10 h after the call; home standby needs its 90 min', () => {
     const { g, c } = crew();
+    // Round 4: a call in the day (09:00 local); 22:00–06:00 is the reserve's no-contact period (tested below).
+    g.now = g.now - localMin(c.base, g.now) + 9 * H;
     c.standby = [{ from: g.now - H, to: g.now + 23 * H, kind: 'reserve' }];
     expect(standbyFor(g, c, g.now + 8 * H)).toBeNull();
     expect(standbyFor(g, c, g.now + 11 * H)?.kind).toBe('reserve');
@@ -385,4 +388,173 @@ describe('v0.9 round 3: stagger, the day-off swap, airport standby', () => {
       expect(w.to - w.from).toBe(BAL.v09.roster.airport.hours * 60);
     }
   }, 120_000);
+});
+
+describe('v0.9 round 4: days off keep the morning free, reserve no-contact, standby call-out cuts, the 96 a year', () => {
+  const crew = () => {
+    const g = fixtureGame(7);
+    const [id] = addCrew(g, { CPT: 1 });
+    const c = g.crew[id];
+    c.off = [];
+    delete c.standby;
+    return { g, c };
+  };
+  /** UTC minute of `local` minutes after local midnight at `code` on the local day of t. */
+  const localAt = (code: string, t: number, local: number) => t - localMin(code, t) + local;
+
+  it('every planned off block holds 2 local nights, and no home standby opens before 06:00 the morning after a day off', () => {
+    const { g } = dubRun();
+    const home = g.company.homeBase;
+    const today = dayIndex(home, g.now);
+    const pub = dayIndex(home, publishedTo(g));
+    let blocks = 0;
+    let singles = 0;
+    for (const c of Object.values(g.crew)) {
+      if (c.status === 'joining' || c.notice) continue;
+      const work = segsOf(g, c).filter((x) => x.kind !== 'log');
+      const off = (c.off ?? []).filter((k) => k > today && k < pub);
+      for (let i = 0; i < off.length; i++) {
+        if (i > 0 && off[i - 1] === off[i] - 1) continue;
+        let j = i;
+        while (j + 1 < off.length && off[j + 1] === off[j] + 1) j++;
+        const a = midnight(c.base, off[i]);
+        const b = midnight(c.base, off[j] + 1);
+        const before = work.filter((x) => x.end <= a + 6 * H).reduce((m, x) => Math.max(m, x.end), -Infinity);
+        const after = work.filter((x) => x.start >= b - 6 * H).reduce((m, x) => Math.min(m, x.start), Infinity);
+        // nightsIn reads one offset for the whole span: a block across the clock change is counted by hand elsewhere.
+        if (before === -Infinity || after === Infinity || offsetAt(c.base, before) !== offsetAt(c.base, after)) continue;
+        blocks++;
+        if (j === i) singles++;
+        expect(nightsIn(c.base, before, after), `${c.id} off ${off[i]}–${off[j]}`).toBeGreaterThanOrEqual(2);
+      }
+      for (const w of c.standby ?? []) {
+        if ((w.kind ?? 'home') !== 'home' || !offOn(c, dayIndex(c.base, w.from) - 1)) continue;
+        expect(localMin(c.base, w.from), `${c.id} window after a day off`).toBeGreaterThanOrEqual(BAL.v09.roster.off.morningFree);
+      }
+    }
+    expect(blocks).toBeGreaterThan(20);
+    void singles;
+    // A single day off is 1 day and 2 nights: a report before 06:00 the next morning takes the day off before it.
+    const c = Object.values(g.crew).find((x) => x.off?.length)!;
+    const k = c.off![0];
+    expect(offDaysHit(c, midnight(c.base, k + 1) + 5 * H, midnight(c.base, k + 1) + 12 * H)).toContain(k);
+    expect(offDaysHit(c, midnight(c.base, k + 1) + 6 * H, midnight(c.base, k + 1) + 12 * H)).not.toContain(k);
+  }, 120_000);
+
+  it('a reserve is not called 22:00–06:00: at 02:00 a 12:00 report is refused, the 10 h run from 06:00 (16:00), as the calendar says', () => {
+    const { g, c } = crew();
+    const m = localAt(c.base, g.now + DAY, 0);
+    g.now = m + 2 * H;
+    c.standby = [{ from: m, to: m + DAY, kind: 'reserve' }];
+    expect(standbyFor(g, c, m + 12 * H)).toBeNull();
+    expect(standbyFor(g, c, m + 15 * H + 59)).toBeNull();
+    expect(standbyFor(g, c, m + 16 * H)?.kind).toBe('reserve');
+    expect(reserveContact(g, c.base)).toBe(m + 6 * H);
+    expect(fmtTime(reserveContact(g, c.base) + BAL.v09.roster.reserve.noticeMin, c.base)).toBe('16:00');
+    // Called in the evening (23:00) the contact is 06:00 the next morning; in the day it is now.
+    g.now = m + 23 * H;
+    expect(reserveContact(g, c.base)).toBe(m + DAY + 6 * H);
+    g.now = m + 9 * H;
+    expect(reserveContact(g, c.base)).toBe(g.now);
+    expect(standbyFor(g, c, m + 19 * H)?.kind).toBe('reserve');
+    const cal = crewCalendar(g, c.id, m, m + DAY).find((b) => b.sby === 'reserve');
+    expect(cal?.detail).toContain('no contact 22:00–06:00');
+  });
+
+  it('the placement check cuts a called home standby from the call, as the placed duty is cut (05:00 window, call 06:00, report 13:30: 1:30)', () => {
+    const { g, c } = crew();
+    const d0 = localAt(c.base, g.now + DAY, 0);
+    g.now = d0 + 6 * H;
+    const sby = standbySeg(c, { from: d0 + 5 * H, to: d0 + 17 * H, shift: 'E' });
+    const duty: Seg = { kind: 'duty', start: d0 + 13 * H + 30, end: d0 + 21 * H, fdp: 7 * H, maxFdp: 13 * H, block: 5 * H, sectors: 2, aug: false, disruptive: false, rest: 12 * H, at: c.base, from: c.base, dutyId: 'x', fresh: true };
+    const ctx = { ...ctxOf(g, c), now: g.now };
+    const v = standbyView(ctx, [sby, duty]).find((x) => x.kind === 'duty')!;
+    expect(13 * H - v.maxFdp).toBe(90);
+    expect(13 * H - v.maxFdp).toBe(standbyCut('home', d0 + 5 * H, duty.start, c.base, false, g.now));
+  });
+
+  it('rest after a called airport standby covers the standby too: 4 h airport standby + 10 h duty → 14 h at home', () => {
+    const { g, c } = crew();
+    const d0 = localAt(c.base, g.now + DAY, 0);
+    g.now = d0 + 6 * H;
+    const sby = standbySeg(c, { from: d0 + 5 * H, to: d0 + 9 * H, kind: 'airport' });
+    const duty: Seg = { kind: 'duty', start: d0 + 8 * H + 40, end: d0 + 19 * H, fdp: 9 * H, maxFdp: 13 * H, block: 7 * H, sectors: 2, aug: false, disruptive: false, rest: 12 * H, at: c.base, from: c.base, dutyId: 'x', fresh: true };
+    const v = standbyView({ ...ctxOf(g, c), now: g.now }, [sby, duty]).find((x) => x.kind === 'duty')!;
+    expect(v.rest).toBe(14 * H);
+    expect(v.rest).toBe(minRest({ dutyMin: 14 * H, atHome: true, augmented: false, tzShift: 0 }));
+  });
+
+  it('a hotel standby at DXB (LIS base) excludes 23:00–07:00 on the station clock: window from 02:00, call 05:00, report 13:00 → cut 2 h', () => {
+    const { g, c } = crew();
+    expect(c.base).toBe('LIS');
+    const s0 = localAt('DXB', g.now + DAY, 2 * H);
+    g.now = s0 + 3 * H;
+    const sby = standbySeg(c, { from: s0, to: s0 + 16 * H, kind: 'hotel', at: 'DXB' });
+    const duty: Seg = { kind: 'duty', start: s0 + 11 * H, end: s0 + 19 * H, fdp: 7 * H, maxFdp: 13 * H, block: 5 * H, sectors: 2, aug: false, disruptive: false, rest: 10 * H, at: 'DXB', from: 'DXB', dutyId: 'x', fresh: true };
+    const v = standbyView({ ...ctxOf(g, c), now: g.now }, [sby, duty]).find((x) => x.kind === 'duty')!;
+    expect(13 * H - v.maxFdp).toBe(2 * H);
+    expect(standbyCut('home', s0, duty.start, 'DXB', false, g.now)).toBe(2 * H);
+    expect(standbyCut('home', s0, duty.start, 'LIS', false, g.now)).not.toBe(2 * H);
+  });
+
+  it('the 96 a year: a plan that would leave the year short is refused; leave and pro-rated sick months count; the month line says it', () => {
+    const { g, c } = crew();
+    const y = yearOf(g.now) + 1;
+    const y0 = fromUTC(y, 1, 1);
+    for (const id of Object.keys(g.crew)) if (id !== c.id) delete g.crew[id];
+    // Planned and hired from 1 January; it is 20 December, 11 months closed with 7 days off each, 7 planned in December.
+    g.dayPlan!.from = y0;
+    c.hired = y0 - DAY;
+    g.now = fromUTC(y, 12, 20, 8);
+    g.dayPlan!.planned = fromUTC(y, 12, 31);
+    g.dayPlan!.publishedTo = g.dayPlan!.planned;
+    c.offMonths = {};
+    for (let m = 0; m < 11; m++) c.offMonths[y * 12 + m] = 7;
+    const dec = fromUTC(y, 12, 1) / DAY;
+    c.off = [dec + 1, dec + 2, dec + 8, dec + 9, dec + 15, dec + 16, dec + 22];
+    c.blocks = [];
+    const segs = segsOf(g, c);
+    const day = (k: number): Seg => ({ kind: 'duty', start: midnight(c.base, k) + 8 * H, end: midnight(c.base, k) + 16 * H, fdp: 7 * H, maxFdp: 13 * H, block: 5 * H, sectors: 2, aug: false, disruptive: false, rest: 12 * H, at: c.base, from: c.base, dutyId: 'x', fresh: true });
+    // 77 + 7 = 84 held, 11 free days left: 95 at best. Work on one of them makes 96 unreachable.
+    const bad = monthFloorIssue(g, c, segs, [day(dec + 27)]);
+    expect(bad?.level).toBe('illegal');
+    expect(bad?.text).toMatch(new RegExp(`Days off in ${y} would fall to \\d+ \\(minimum 96\\)`));
+    expect(crewMonth(g, c.id, g.now).line).toContain('of 96 this year');
+    // With 20 days of leave in March (a closed month: freeMonths, as dayPlanMonth records it) the plan is fine (104).
+    c.freeMonths = { [y * 12 + 2]: 20 };
+    expect(monthFloorIssue(g, c, segs, [day(dec + 27)])).toBeNull();
+    expect(crewMonth(g, c.id, g.now).year).toBe(104);
+    // Leave in the open month comes from the block itself: 8 days, 24–31 December.
+    c.blocks = [{ from: fromUTC(y, 12, 24), to: fromUTC(y + 1, 1, 1), why: 'leave', annual: true }];
+    expect(crewMonth(g, c.id, g.now).year).toBe(112);
+    // The December close counts the year (and records December's leave): 84 alone is a year low; 28 days' leave and
+    // a pro-rated sick month are not.
+    g.now = fromUTC(y + 1, 1, 1, 0, 1);
+    const r = g.stats.v09!.roster!;
+    const before = { years: r.years ?? 0, low: r.yearsLow ?? 0 };
+    dayPlanMonth(g);
+    expect(c.freeMonths[y * 12 + 11]).toBe(8);
+    expect((r.years ?? 0) - before.years).toBe(1);
+    expect((r.yearsLow ?? 0) - before.low).toBe(0);
+    c.blocks = [];
+    c.freeMonths = {};
+    dayPlanMonth(g);
+    expect((r.yearsLow ?? 0) - before.low).toBe(1);
+    c.freeMonths = { [y * 12 + 2]: 28, [y * 12 + 6]: 20 };
+    delete c.offMonths[y * 12 + 6];
+    dayPlanMonth(g);
+    expect((r.yearsLow ?? 0) - before.low).toBe(1);
+    // A crew member hired in March is measured pro rata (from April: 275 days → 72): 8 months × 7 + 7 = 63 is low,
+    // with the 28 days' leave (91) it is not.
+    c.hired = fromUTC(y, 3, 10);
+    c.freeMonths = {};
+    c.offMonths[y * 12 + 6] = 7;
+    dayPlanMonth(g);
+    expect((r.yearsLow ?? 0) - before.low).toBe(2);
+    expect(crewMonth(g, c.id, fromUTC(y, 12, 20)).yearMin).toBe(72);
+    c.freeMonths = { [y * 12 + 4]: 28 };
+    dayPlanMonth(g);
+    expect((r.yearsLow ?? 0) - before.low).toBe(2);
+    expect(crewMonth(g, c.id, fromUTC(y, 12, 20)).year).toBe(91);
+  });
 });

@@ -180,10 +180,22 @@ export function readyMinOf(kind: StandbyKind): number {
 }
 
 /**
+ * v0.9 round 4 when a reserve crew member at `at` can be contacted: now, or 06:00 station-local when now falls in the
+ * reserve's 8 h no-contact period (BAL.v09.roster.reserve.quiet, 22:00–06:00: CS FTL.1.230). Pure.
+ */
+export function reserveContact(g: GameState, at: string): Minute {
+  const [q0, q1] = BAL.v09.roster.reserve.quiet;
+  const local = localMin(at, g.now);
+  if (local >= q0) return g.now + DAY - local + q1;
+  if (local < q1) return g.now + q1 - local;
+  return g.now;
+}
+
+/**
  * v0.7.3 the standby window a duty reporting at `report` calls c out of: running now, or starting within
  * BAL.v073.standby.noticeMin (short notice), not called yet, the report inside it (or in the wake-up hour before).
  * v0.9: a running window needs the kind's response time before the report; reserve only answers a report at least
- * 10 h after the call, inside or after the window. Pure.
+ * 10 h after the call (round 4: the call waits for 06:00 in the no-contact period), inside or after the window. Pure.
  */
 export function standbyFor(g: GameState, c: CrewMember, report: Minute): { from: Minute; to: Minute; kind: StandbyKind; at: string } | null {
   const S = BAL.v073.standby;
@@ -192,7 +204,7 @@ export function standbyFor(g: GameState, c: CrewMember, report: Minute): { from:
     if (s.calledAt !== undefined || g.now >= s.to) continue;
     const kind = s.kind ?? 'home';
     if (kind === 'reserve') {
-      if (s.from <= g.now && report - g.now >= BAL.v09.roster.reserve.noticeMin) return { from: s.from, to: s.to, kind, at: s.at ?? c.base };
+      if (s.from <= g.now && report - reserveContact(g, s.at ?? c.base) >= BAL.v09.roster.reserve.noticeMin) return { from: s.from, to: s.to, kind, at: s.at ?? c.base };
       continue;
     }
     if (s.from - g.now > S.noticeMin || report >= s.to || report < Math.min(g.now, s.from - S.wakeMin)) continue;

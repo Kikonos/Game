@@ -243,6 +243,14 @@ export function standbyCut(kind: 'home' | 'airport', sbyFrom: Minute, report: Mi
   return Math.max(0, len - quiet - (augOrSplit ? STANDBY.homeFreeAug : STANDBY.homeFree));
 }
 
+/**
+ * v0.9 round 4 rest after a duty called from airport standby (ORO.FTL.235: at least the preceding duty period, which
+ * the airport standby is part of): the duty seg's rest, raised to the minimum for the standby and the duty together.
+ */
+export function asbyRest(base: string, sbyFrom: Minute, y: Seg): number {
+  return Math.max(y.rest, minRest({ dutyMin: y.end - sbyFrom, atHome: y.at === base, augmented: y.aug, tzShift: tzDeltaH(base, y.at, y.end) }));
+}
+
 /** CS FTL.1.225(b) awake cap: from waking (wakeMin before standby starts) to the end of the FDP ≤ 18 h. */
 export const standbyAwakeOk = (sbyFrom: Minute, fdpEnd: Minute): boolean => fdpEnd - (sbyFrom - STANDBY.wakeMin) <= STANDBY.awakeMax;
 
@@ -769,7 +777,7 @@ const isWork = (y: Seg) => y.kind !== 'sby' && y.kind !== 'log';
  * not counted) with the 18 h awake cap, airport standby beyond 4 h with standby + FDP ≤ 16 h, reserve not at all (the
  * FDP counts from report). Unchanged without standby segs.
  */
-function standbyView(ctx: TimelineCtx, segsIn: Seg[]): Seg[] {
+export function standbyView(ctx: TimelineCtx, segsIn: Seg[]): Seg[] {
   let any = false;
   for (const x of segsIn) if (x.kind === 'sby') { any = true; break; }
   if (!any) return segsIn;
@@ -826,8 +834,10 @@ function standbyView(ctx: TimelineCtx, segsIn: Seg[]): Seg[] {
     const y = segs[w];
     const kind = x.sby ?? 'home';
     if (kind === 'reserve') continue;
-    const by = standbyCut(kind === 'airport' ? 'airport' : 'home', x.start, y.start, ctx.base, y.aug || !!y.split);
-    cutOf.set(w, { ...y, maxFdp: y.maxFdp - by, sbyFrom: x.start, sby: kind });
+    // Round 4: the call for fresh work is now (timeline.ts addStandby cuts the placed duty from w.calledAt: the same
+    // cut); the 23:00–07:00 exclusion runs on the clock where the crew member waits (a hotel standby's station).
+    const by = standbyCut(kind === 'airport' ? 'airport' : 'home', x.start, y.start, kind === 'hotel' ? x.from ?? ctx.base : ctx.base, y.aug || !!y.split, ctx.now);
+    cutOf.set(w, { ...y, maxFdp: y.maxFdp - by, sbyFrom: x.start, sby: kind, ...(kind === 'airport' ? { rest: asbyRest(ctx.base, x.start, y) } : {}) });
   }
   for (let i = 0; i < segs.length; i++) {
     if (drop.has(i)) continue;

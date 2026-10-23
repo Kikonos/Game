@@ -429,9 +429,11 @@ asks a crew member on the phone: the day moves inside its month and the count is
 These are social law, not ORO.FTL. ORO.FTL.125 requires a scheme to comply with them. Collective agreements may
 give more (Reg. 83/2014 recital (4)).
 **Game:**
-- A day off is a local day free of all duty, standby and reserve from 00:00 to 06:00 the next morning.
+- A day off is a local day free of all duty, standby and reserve from 00:00 to 06:00 the next morning
+  (`BAL.v09.roster.off.morningFree` 360: a report before 06:00 takes the day before, no standby opens before 06:00).
 - Days off are planned in blocks of 2–3 days: about 9 a month, never below 7 (illegal: `'daysOff'`), and the
-  planner floor of 8 keeps the year above 96.
+  planner floor of 8 keeps the year above 96; the year is checked too (round 4): work that would leave the calendar
+  year unable to reach 96 pro rata is illegal, and the Crew month line shows "x of 96 this year".
 - Days off are staggered: at most 30 % of a family-and-role group is off on any day of a due block (`OFF_SHARE`;
   a must block, the 7th work day or the month's minimum, always goes), so a group keeps crew on every day.
 - 28 days of annual leave a year, weighted to the winter quarters (10/4/4/10).
@@ -487,7 +489,8 @@ and a month always holds at least two 2-day blocks. The existing `recovery` and 
 **Game:**
 - Reserve is used where a standby would make the 7/14/28-day duty tight (≥ 95 %, `reserve.tightShare`): 24 h, no
   contact 22:00–06:00, 0 %. Few crew get that close to the limits (bot seeds 1–6: 0–1 crew-days a year).
-- Called only for a report ≥ 10 h ahead. It is never rest and never a day off.
+- Called only for a report ≥ 10 h ahead; a call that would fall in the no-contact period waits for 06:00 and the 10 h
+  run from there (round 4, `standby.ts reserveContact`). It is never rest and never a day off.
 
 **Cumulative limits (ORO.FTL.210)** with standby. Duty: 60 h / 7 d, 110 h / 14 d, 190 h / 28 d (spread as evenly as
 practicable). Flight time: 100 h / 28 d, 900 h / calendar year, 1,000 h / 12 calendar months. Airport standby
