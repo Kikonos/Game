@@ -1007,14 +1007,33 @@ function delayTimes(g: GameState, x: Ctx): Minute[] {
  */
 function previewCopy(g: GameState): GameState {
   const { crew, messages, ...rest } = g;
-  const h = structuredClone(rest) as GameState;
+  const h = copyData(rest) as GameState;
   h.crew = {};
   for (const id in crew) {
     const { log, ...c } = crew[id];
-    h.crew[id] = { ...structuredClone(c), log: log?.slice() ?? log };
+    h.crew[id] = { ...copyData(c), log: log?.slice() ?? log };
   }
   h.messages = messages.slice();
   return h;
+}
+
+/**
+ * v0.9 round 4 speed: a deep copy of save data (plain objects, arrays and primitives: what serialize writes), key
+ * order and undefined values kept as structuredClone keeps them, at a third of its cost for this shape. Anything
+ * else (nothing in a GameState) still goes through structuredClone.
+ */
+function copyData<T>(v: T): T {
+  if (typeof v !== 'object' || v === null) return v;
+  if (Array.isArray(v)) {
+    const out = new Array<unknown>(v.length);
+    for (let i = 0; i < v.length; i++) out[i] = copyData(v[i]);
+    return out as T;
+  }
+  const proto = Object.getPrototypeOf(v);
+  if (proto !== Object.prototype && proto !== null) return structuredClone(v);
+  const out: Record<string, unknown> = {};
+  for (const k in v) out[k] = copyData((v as Record<string, unknown>)[k]);
+  return out as T;
 }
 
 /** The soonest of delayTimes at which the roster crews the flight, tried on copies; null when none works. Memoized per step. */

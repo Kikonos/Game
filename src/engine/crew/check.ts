@@ -3,11 +3,12 @@
 
 import { BAL } from '../core/balance';
 import { typeOf } from '../core/perf';
-import { fmtDay } from '../core/time';
+import { DAY, fmtDay } from '../core/time';
 import type { CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing } from '../core/types';
 import { monthFloorIssue, offIssue, offMovable } from './dayPlan';
 import { evalSegs, levelOf, LIMITS, type LegalityIssue, type Seg } from './rules';
-import { aboard, cabinEarly, crewIx, ctxOf, droppableHome, droppableOut, dutySegs, locAt, outTicket, planHome, planHomeAfter, planOut, segsOf, typeIdOf, withoutTickets, type TicketPlan } from './timeline';
+import { flightsRev } from '../core/entities';
+import { aboard, block12m, cabinEarly, crewIx, crewRev, ctxOf, droppableHome, droppableOut, dutyBlock, dutySegs, locAt, outTicket, planHome, planHomeAfter, planOut, segsOf, segsTagOf, typeIdOf, withoutTickets, type TicketPlan } from './timeline';
 
 export interface CrewPlan {
   level: Legality;
@@ -85,7 +86,39 @@ function statusIssues(c: CrewMember, from: number, to: number, family: string, d
  * already bought for c (re-check of an assignment); otherwise plans new ones. `slack`: the auto-roster's planning
  * margin (TimelineCtx.slack). `leaving`: a pairing c leaves in the same change (swap).
  */
+/**
+ * v0.9 round 4 speed (§R.17): planCrew is a pure function of the state, the crew member, the pairing, the base
+ * timeline and its arguments, and the read APIs ask the same question many times in one step (the ladder's re-checks,
+ * Crew Control's candidates, a re-roster after a fix). Memo per state, crew and flight revision and minute, keyed by
+ * pairing (identity: splitTourGap's probes share an id), crew member, mode and the base's timeline entry (a derived
+ * base, or a jet ride, is planned afresh). The plan is shared read-only, as its segs already are.
+ */
+const planMemo = new WeakMap<GameState, { key: string; by: WeakMap<Pairing, Map<string, CrewPlan>> }>();
+
+/**
+ * The crew member's own inputs of a plan (ctxOf, the status and day-off checks) and the day plan's bounds: the engine
+ * changes them with a revision bump, a test or a tool may not, so the key carries them.
+ */
+function crewKey(g: GameState, c: CrewMember): string {
+  const dp = g.dayPlan;
+  return `${c.base}|${c.loc}|${c.status}|${c.restUntil}|${c.lastRecovery}|${c.blockYear}|${c.blockYearOf}|${block12m(c, g.now)}|${c.hired}|${c.morale}|${c.notice?.leaves ?? ''}|${c.offSwapAt ?? ''}|${c.ratings.join()}|${JSON.stringify(c.blocks ?? null)}|${c.off ? c.off.join() : ''}|${JSON.stringify(c.offMonths ?? null)}|${JSON.stringify(c.freeMonths ?? null)}|${JSON.stringify(c.twoDays ?? null)}|${JSON.stringify(c.rot ?? null)}|${JSON.stringify(c.tzBack ?? null)}|${dp ? `${dp.from}:${dp.publishedTo ?? ''}:${dp.planned ?? ''}` : ''}`;
+}
+
 export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], existing = false, slack = 0, leaving?: string, ride?: TicketPlan): CrewPlan {
+  const tag = ride ? undefined : segsTagOf(base);
+  if (tag === undefined) return planCrewRaw(g, c, p, base, existing, slack, leaving, ride);
+  const rev = `${crewRev(g)}:${flightsRev(g)}:${g.now}`;
+  let memo = planMemo.get(g);
+  if (!memo || memo.key !== rev) planMemo.set(g, (memo = { key: rev, by: new WeakMap() }));
+  let m = memo.by.get(p);
+  if (!m) memo.by.set(p, (m = new Map()));
+  const k = `${c.id}:${existing ? 1 : 0}:${slack}:${leaving ?? ''}:${tag}:${crewKey(g, c)}`;
+  let plan = m.get(k);
+  if (!plan) m.set(k, (plan = planCrewRaw(g, c, p, base, existing, slack, leaving)));
+  return plan;
+}
+
+function planCrewRaw(g: GameState, c: CrewMember, p: Pairing, base: Seg[], existing: boolean, slack: number, leaving?: string, ride?: TicketPlan): CrewPlan {
   const duties = openDuties(g, p);
   if (!duties.length) return { level: 'legal', issues: [], out: null, home: null, segs: [] };
   const first = duties[0];
@@ -148,7 +181,9 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
     }
   }
   let segs = buildSegs(g, c, p, duties, out, home);
-  let ftl = evalSegs({ ...ctxOf(g, c), slack }, merge(base, segs));
+  // v0.9 round 4 speed: one context for the evaluations below (evalSegs reads it).
+  const ctx = { ...ctxOf(g, c), slack };
+  let ftl = evalSegs(ctx, merge(base, segs));
   // v0.5.2: a same-day ticket out (counted as FDP) whose longer first duty eats the rest or FDP of this trip:
   // the crew fly out the day before and rest at the hotel first.
   const own = new Set(p.dutyIds);
@@ -158,7 +193,7 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
       const plain = out;
       out = early;
       const s2 = buildSegs(g, c, p, duties, out, home);
-      const f2 = evalSegs({ ...ctxOf(g, c), slack }, merge(base, s2));
+      const f2 = evalSegs(ctx, merge(base, s2));
       if (badRestFdp(f2, own) < badRestFdp(ftl, own)) {
         segs = s2;
         ftl = f2;
@@ -171,7 +206,7 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
     for (const wait of [LIMITS.recovery, LIMITS.recovery + 12 * 60, LIMITS.recoveryLong]) {
       home = planHomeAfter(last, c.base, wait);
       const s2 = buildSegs(g, c, p, duties, out, home);
-      const f2 = evalSegs({ ...ctxOf(g, c), slack }, merge(base, s2));
+      const f2 = evalSegs(ctx, merge(base, s2));
       if (!f2.some((i) => i.code === 'recovery' && i.level === 'illegal')) {
         segs = s2;
         ftl = f2;
@@ -303,6 +338,38 @@ export function otherTrip(g: GameState, c: CrewMember, p: Pairing, from: Minute,
     if (qs < to && qe > from) return q;
   }
   return null;
+}
+
+/**
+ * v0.9 round 4 speed (§R.17): the trip's duties alone break a cumulative window for anyone. A new crew member's fresh
+ * seg of a duty covers at least [report, release) with the duty's block and, except the last duty's (a ticket home
+ * may extend it), ends at the release; a timeline only adds segs around them (standbyView drops standby, never
+ * work). So at every duty but the last, the four rolling windows of any merged timeline are at least these sums:
+ * above the refusing threshold (the limit, or 95 % of it without policies.allowTight), planCrew would refuse every
+ * candidate with that issue, and the auto-roster can skip its candidate loop (a long tour part). Pure.
+ */
+export function overForAnyone(g: GameState, duties: Duty[]): boolean {
+  const share = g.company.policies.allowTight ? 1 : LIMITS.tightShare;
+  for (let j = 0; j + 1 < duties.length; j++) {
+    const b = duties[j].release;
+    const a7 = b - 7 * DAY;
+    const a14 = b - 14 * DAY;
+    const a28 = b - 28 * DAY;
+    let d7 = 0;
+    let d14 = 0;
+    let d28 = 0;
+    let blk = 0;
+    for (let i = 0; i <= j; i++) {
+      const d = duties[i];
+      const hi = Math.min(b, d.release);
+      d7 += Math.max(0, hi - Math.max(a7, d.report));
+      d14 += Math.max(0, hi - Math.max(a14, d.report));
+      d28 += Math.max(0, hi - Math.max(a28, d.report));
+      if (d.release > a28 && d.release <= b) blk += dutyBlock(g, d);
+    }
+    if (d7 > LIMITS.duty7d * share || d14 > LIMITS.duty14d * share || d28 > LIMITS.duty28d * share || blk > LIMITS.block28d * share) return true;
+  }
+  return false;
 }
 
 /** Acceptable for the auto-roster: nothing illegal; tight cumulative totals only with policies.allowTight. */

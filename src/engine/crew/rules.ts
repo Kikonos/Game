@@ -433,6 +433,19 @@ export interface Seg {
   sby?: StandbyKind;
 }
 
+/**
+ * v0.9 round 4 speed: every timeline seg gets the same hidden class (all fields, this order), so the loops that read
+ * them (evalSegs, windowsAt, standbyView, the timeline walk and merges) stay monomorphic. An absent optional field is
+ * `undefined`, read exactly as before; nothing lists a seg's keys.
+ */
+export function mkSeg(o: Seg): Seg {
+  return {
+    kind: o.kind, start: o.start, end: o.end, fdp: o.fdp, maxFdp: o.maxFdp, block: o.block, sectors: o.sectors, aug: o.aug, disruptive: o.disruptive,
+    rest: o.rest, at: o.at, from: o.from, dutyId: o.dutyId, ticketId: o.ticketId, home: o.home, out: o.out, fresh: o.fresh, share: o.share,
+    ext: o.ext, early: o.early, late: o.late, night: o.night, split: o.split, sbyFrom: o.sbyFrom, sby: o.sby,
+  };
+}
+
 export interface TimelineCtx {
   /** Crew base: local nights for recovery. */
   base: string;
@@ -793,15 +806,16 @@ export function standbyView(ctx: TimelineCtx, segsIn: Seg[]): Seg[] {
   }
   let freshWork = false;
   for (const x of segs) if (x.fresh && x.kind !== 'sby') { freshWork = true; break; }
-  const drop = new Set<number>();
-  const called = new Map<number, number>();
-  const cut = new Map<number, Minute>();
+  // v0.9 round 4 speed: the three tables only once a window changes (most timelines need none).
+  let drop: Set<number> | null = null;
+  let called: Map<number, number> | null = null;
+  let cut: Map<number, Minute> | null = null;
   for (let i = 0; i < segs.length; i++) {
     const x = segs[i];
     if (x.kind !== 'sby' || x.fresh) continue;
     // Windows not started yet give way to fresh work (the roster then re-fits them: crew/dayPlan.ts fitStandby).
     if (freshWork && ctx.now !== undefined && x.start > now) {
-      drop.add(i);
+      (drop ??= new Set()).add(i);
       continue;
     }
     // Work overlapping the window (segs sorted by start: a few back, then forward while they start inside it).
@@ -811,25 +825,28 @@ export function standbyView(ctx: TimelineCtx, segsIn: Seg[]): Seg[] {
     if (w < 0) {
       if (x.end > now) {
         // v0.9 a window not started yet inside the rest after earlier work gives way to it (crew/dayPlan.ts clips it).
-        if (x.start > now) for (let k = i - 1; k >= 0 && k >= i - 4; k--) if (isWork(segs[k]) && segs[k].end + segs[k].rest > x.start) { drop.add(i); break; }
+        let dropped = false;
+        if (x.start > now) for (let k = i - 1; k >= 0 && k >= i - 4; k--) if (isWork(segs[k]) && segs[k].end + segs[k].rest > x.start) { (drop ??= new Set()).add(i); dropped = true; break; }
         // A window ends early for work whose start its rest would cut.
-        if (!drop.has(i)) for (let k = i + 1; k < segs.length && segs[k].start < x.end + x.rest; k++) {
+        if (!dropped) for (let k = i + 1; k < segs.length && segs[k].start < x.end + x.rest; k++) {
           if (!isWork(segs[k])) continue;
           const end = Math.max(now, segs[k].start - x.rest);
-          if (end <= x.start) drop.add(i);
-          else cut.set(i, end);
+          if (end <= x.start) (drop ??= new Set()).add(i);
+          else (cut ??= new Map()).set(i, end);
           break;
         }
       }
       continue;
     }
     const y = segs[w];
-    if (x.start > now || y.kind !== 'duty' || y.start < x.start) drop.add(i);
-    else called.set(i, w);
+    if (x.start > now || y.kind !== 'duty' || y.start < x.start) (drop ??= new Set()).add(i);
+    else (called ??= new Map()).set(i, w);
   }
+  // Nothing to change (the common case): the timeline itself (read-only, as its segs are).
+  if (!drop && !called && !cut) return segs;
   const out: Seg[] = [];
   const cutOf = new Map<number, Seg>();
-  for (const [i, w] of called) {
+  for (const [i, w] of called ?? []) {
     const x = segs[i];
     const y = segs[w];
     const kind = x.sby ?? 'home';
@@ -840,9 +857,9 @@ export function standbyView(ctx: TimelineCtx, segsIn: Seg[]): Seg[] {
     cutOf.set(w, { ...y, maxFdp: y.maxFdp - by, sbyFrom: x.start, sby: kind, ...(kind === 'airport' ? { rest: asbyRest(ctx.base, x.start, y) } : {}) });
   }
   for (let i = 0; i < segs.length; i++) {
-    if (drop.has(i)) continue;
-    const w = called.get(i);
-    const c = cut.get(i);
+    if (drop?.has(i)) continue;
+    const w = called?.get(i);
+    const c = cut?.get(i);
     if (w !== undefined) out.push({ ...segs[i], end: segs[w].start, rest: 0 });
     else if (c !== undefined) out.push({ ...segs[i], end: c });
     else out.push(cutOf.get(i) ?? segs[i]);

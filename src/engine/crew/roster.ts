@@ -8,14 +8,14 @@ import { requestPause } from '../core/pause';
 import { canFill, complement, typeOf } from '../core/perf';
 import { DAY, fmtDateTime, monthKey } from '../core/time';
 import type { ActionResult, CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing, Role } from '../core/types';
-import { acceptable, crewIssuesFor, mergeSegs, openDuties, otherTrip, planCrew, type CrewPlan } from './check';
+import { acceptable, crewIssuesFor, mergeSegs, openDuties, otherTrip, overForAnyone, planCrew, type CrewPlan } from './check';
 import { deletePairing, dutyLegality, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setCrewTakeHook, setCrewTrailOkHook, setReleaseHook, setRetickHook, splitPairing, splitUnderWay, syncDuty } from './duties';
 import { crewName } from './generate';
 import { callIfOnStandby, dropStandby, standbyFor } from './standby';
 import { fitStandby, monthFloorIssue, offDaysHit, offMovable, offSwappable, takeOffDays, takesPublishedOff, v09Stats as v09StatsOf } from './dayPlan';
 import { infoOf } from './outOfHours';
 import { lateChange, moraleShock, nextReport } from './morale';
-import { cabinFdpCap, DISCRETION, evalSegs, levelOf, LIMITS, minRest, recoveryAnchor, tzDeltaH, worst, type Seg } from './rules';
+import { cabinFdpCap, DISCRETION, evalSegs, levelOf, LIMITS, minRest, mkSeg, recoveryAnchor, tzDeltaH, worst, type Seg } from './rules';
 import { cabinOwnReport, planRest, restCabinN, restLegs, restOf, restPlan } from './restPlan';
 import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, locAt, noteRiders, passengers, planHome, planOut, segsOf, ticketPrice, touchCrew, typeIdOf, withoutTickets } from './timeline';
 
@@ -625,7 +625,7 @@ export function guardDuty(g: GameState, dutyId: string): boolean {
 
 // ---------- auto-roster ----------
 
-const copySeg = (x: Seg): Seg => ({
+const copySeg = (x: Seg): Seg => mkSeg({
   kind: x.kind, start: x.start, end: x.end, fdp: x.fdp, maxFdp: x.maxFdp, block: x.block, sectors: x.sectors, aug: x.aug,
   disruptive: x.disruptive, rest: x.rest, at: x.at, from: x.from, dutyId: x.dutyId, fresh: false, home: x.home && { ...x.home }, out: x.out && { ...x.out },
 });
@@ -748,6 +748,8 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
   const prev = previousCrew(g, p);
   const hadCrew = crewCount(p) > 0;
   promoteSpares(g, p);
+  // v0.9 round 4 speed: a trip whose own duties break a cumulative window refuses everyone (no candidate planned).
+  if (overForAnyone(g, duties)) return;
   const inP = new Set(p.slots.filter((s) => s.crewId).map((s) => s.crewId!));
   // Seats above the legal minimum after every required one, and only before the trip starts (no one is
   // positioned out to an optional seat on a trip under way).
@@ -969,6 +971,7 @@ export function fillAll(g: GameState, ps: Pairing[], res: RosterResult, exclude?
   crewIx(g);
   const ctx = new Ctx(g);
   placed.clear();
+  const before = res.assigned;
   for (const p of ps) {
     if (!g.pairings[p.id]) continue;
     fillPairing(g, ctx, p, res, exclude);
@@ -980,7 +983,8 @@ export function fillAll(g: GameState, ps: Pairing[], res: RosterResult, exclude?
       if (q) fillPairing(g, ctx, q, res, exclude);
     }
   }
-  touchCrew(g);
+  // v0.9 round 4 speed: the seats filled are the run's own change to the index (splits and spares bump it themselves).
+  if (res.assigned !== before) touchCrew(g);
   if (placed.size) {
     fitStandby(g, [...placed]);
     placed.clear();
@@ -1004,6 +1008,8 @@ function splitTourGap(g: GameState, ctx: Ctx, p: Pairing, exclude?: Set<string>)
   for (let k = 1; k < open.length; k++) {
     const d = open[k];
     if (d.report > horizon) return null;
+    // v0.9 round 4 speed: a later part that breaks a cumulative window on its own refuses everyone.
+    if (overForAnyone(g, open.slice(k))) continue;
     const probe: Pairing = { ...p, dutyIds: open.slice(k).map((x) => x.id), start: d.report };
     for (const c of pool) {
       // v0.9 round 3 speed: as in fillPairing, crew planCrew refuses at once are not planned.
@@ -1160,7 +1166,8 @@ export function rerosterFrom(g: GameState, aircraftId: string, t: Minute): Roste
     setFlightsCrew(g, p);
     if (q) setFlightsCrew(g, q);
   }
-  touchCrew(g);
+  // v0.9 round 4 speed: no revision bump of its own (every change above makes one): a re-roster that changes nothing
+  // leaves the step's cached plans standing for the re-checks below.
   const res = autoRoster(g, { from: t, aircraftIds: [aircraftId] });
   for (const p of crewIx(g).byAircraft.get(aircraftId) ?? []) if (p.status !== 'done' && p.end >= t && crewCount(p) > 0) recheckPairing(g, p);
   return res;

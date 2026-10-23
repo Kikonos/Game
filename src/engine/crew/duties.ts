@@ -10,7 +10,7 @@ import { schedule } from '../core/queue';
 import { DAY, dayStart, yearOf } from '../core/time';
 import type { AcRest, Contract, CrewMember, CrewSlot, Deployment, Duty, Flight, GameState, Legality, Minute, Pairing, Role } from '../core/types';
 import {
-  AUG_MAX_SECTORS, augLimitOf, disruptiveKinds, FDP_CAP, evalSegs, extFdp, LIMITS, localMin, longestWorkBlock, longSector, MAX_SECTORS, maxFdp, minRest, NIGHT_MAX_SECTORS, offsetAt, referenceTime,
+  AUG_MAX_SECTORS, augLimitOf, disruptiveKinds, FDP_CAP, evalSegs, extFdp, LIMITS, localMin, longestWorkBlock, longSector, MAX_SECTORS, maxFdp, minRest, mkSeg, NIGHT_MAX_SECTORS, offsetAt, referenceTime,
   splitFdp, tzDeltaH, woclMinutes, worst, type Seg, type TimelineCtx,
 } from './rules';
 import { crewExtraFor, seatsFor, type Seat } from './extraSeats';
@@ -875,12 +875,12 @@ function virtualSeg(g: GameState, d: Duty, tripStart: Minute, base: string, fres
   const early = p ? cabinEarly(g, p, d) : 0;
   const start = d.report - early;
   const k = disruptiveKinds(tz, start, d.release);
-  return {
+  return mkSeg({
     kind: 'duty', start, end: d.release, fdp: d.fdp + early, maxFdp: d.maxFdp + (d.discretion ?? 0) + early, block: dutyBlock(g, d), sectors: d.sectors,
     aug: d.augment > 0, disruptive: k.early || k.late || k.night, early: k.early, late: k.late, night: k.night, ...(d.ext ? { ext: true } : {}),
     rest: minRest({ dutyMin: d.release - start, atHome: d.restAt === base, augmented: d.augment > 0, tzShift: tzDeltaH(base, d.restAt, d.release), extended: !!d.ext }),
     at: d.restAt, from: dep, dutyId: d.id, fresh,
-  };
+  });
 }
 
 interface Chainer {

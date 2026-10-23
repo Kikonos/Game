@@ -8,7 +8,7 @@ import { deadheadFlights, flightsOf, flightsRev } from '../core/entities';
 import { itinerary, ticketBlock } from '../ops/commercial';
 import { DAY, fmtDateTime, fmtTime, monthKey, yearOf } from '../core/time';
 import type { CrewMember, Duty, Flight, GameState, Minute, Pairing, StandbyKind } from '../core/types';
-import { asbyRest, disruptiveKinds, isDisruptive, maxFdp, minRest, referenceTime, standbyCut, tzDeltaH, type RefTime, type Seg, type TimelineCtx } from './rules';
+import { asbyRest, disruptiveKinds, isDisruptive, maxFdp, minRest, mkSeg, referenceTime, standbyCut, tzDeltaH, type RefTime, type Seg, type TimelineCtx } from './rules';
 import { restOf } from './restPlan';
 
 // ---------- index ----------
@@ -148,13 +148,18 @@ export function block12m(c: CrewMember, t: Minute): number {
   if (!bm) return 0;
   const k = monthKey(t);
   let s = 0;
-  for (const key in bm) if (+key > k - 12 && +key <= k) s += bm[key];
+  // v0.9 round 4 speed: the 12 keys read directly (no key parse; the same sum).
+  for (let m = k - 11; m <= k; m++) s += bm[m] ?? 0;
   return s;
 }
 
 export function dutyBlock(g: GameState, d: Duty): number {
   let b = 0;
-  for (const f of dutyFlights(g, d)) b += f.status === 'done' && f.ata !== undefined && f.atd !== undefined ? f.ata - f.atd : f.block;
+  // v0.9 round 4 speed: read on every cached dutySegs hit, so no list is built.
+  for (const id of d.flightIds) {
+    const f = g.flights[id];
+    if (f) b += f.status === 'done' && f.ata !== undefined && f.atd !== undefined ? f.ata - f.atd : f.block;
+  }
   return b;
 }
 
@@ -379,7 +384,7 @@ export function ctxOf(g: GameState, c: CrewMember): TimelineCtx {
 export const checkInOf = (t: TicketPlan): number => ((t as Partial<Flight>).charter ? BAL.crewControl.jet.checkInMin : CHECKIN());
 
 export function posSeg(t: TicketPlan, c: CrewMember, fresh = false): Seg {
-  return { kind: 'pos', start: t.std - checkInOf(t), end: t.sta, fdp: 0, maxFdp: 0, block: 0, sectors: 0, aug: false, disruptive: false, rest: posRest(t, t.to === c.base), at: t.to, from: t.from, dutyId: undefined, ticketId: (t as Partial<Flight>).id, fresh };
+  return mkSeg({ kind: 'pos', start: t.std - checkInOf(t), end: t.sta, fdp: 0, maxFdp: 0, block: 0, sectors: 0, aug: false, disruptive: false, rest: posRest(t, t.to === c.base), at: t.to, from: t.from, dutyId: undefined, ticketId: (t as Partial<Flight>).id, fresh });
 }
 
 /** A ticket already flown on its own is in the crew log (onFlightArrCrew); only merged ones still shape the duty. */
@@ -426,7 +431,9 @@ export function dutySegs(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: 
       const block = dutyBlock(g, d);
       let same = true;
       for (const x of m.segs) if (x.kind === 'duty' && x.block !== block) same = false;
-      return same ? m.segs : m.segs.map((x) => (x.kind === 'duty' && x.block !== block ? { ...x, block } : x));
+      // v0.9 round 4 speed: the updated list is kept (segsOf's dependency check reads the list by identity).
+      if (!same) m.segs = m.segs.map((x) => (x.kind === 'duty' && x.block !== block ? { ...x, block } : x));
+      return m.segs;
     }
   }
   const v = KEY.slice(0, n);
@@ -434,13 +441,17 @@ export function dutySegs(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: 
   if (!list) dutySegMemo.set(d, (list = []));
   if (list.length >= 8) list.shift();
   list.push({ v, segs });
-  return segs.slice();
+  return segs;
 }
 
 /** v0.9 round 4 (§Y.1): the report of crew member `crewId` on duty d: the slot's own `from` when they joined after the duty reported. */
 function joinedAt(p: Pairing, crewId: string, d: Duty): Minute {
-  const f = p.slots.find((s) => s.crewId === crewId)?.from;
-  return f !== undefined && f > d.report ? f : d.report;
+  for (const s of p.slots) {
+    if (s.crewId !== crewId) continue;
+    const f = s.from;
+    return f !== undefined && f > d.report ? f : d.report;
+  }
+  return d.report;
 }
 
 function dutySegsRaw(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: TicketPlan | null, home: TicketPlan | null, fresh: boolean): Seg[] {
@@ -479,21 +490,26 @@ function dutySegsRaw(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: Tick
     } else if (!flown(home)) tail = { ...posSeg(home, c, fresh), dutyId: d.id };
   }
   const k = disruptiveKinds(tz, start, end);
-  segs.push({
+  segs.push(mkSeg({
     kind: 'duty', start, end, fdp, maxFdp: max, block: dutyBlock(g, d), sectors: d.sectors, aug: d.augment > 0,
     disruptive: k.early || k.late || k.night, early: k.early, late: k.late, night: k.night, ...(d.ext ? { ext: true } : {}), ...(d.split ? { split: true } : {}),
     rest: restAfterAt(start, c.base, d.augment > 0, end, at, !!d.ext), at, from, dutyId: d.id, fresh, home: merged, out: mergedOut,
-  });
+  }));
   if (tail) segs.push(tail);
   return segs;
 }
 
-function ticketsFor(g: GameState, d: Duty, crewId: string): { out: TicketPlan | null; home: TicketPlan | null } {
+function ticketsFor(g: GameState, d: Duty, crewId: string, deps: unknown[]): { out: TicketPlan | null; home: TicketPlan | null } {
   let out: TicketPlan | null = null;
   let home: TicketPlan | null = null;
+  deps.push(d.report, d.release);
   for (const fid of d.deadheadIds) {
     const f = g.flights[fid];
-    if (!f || f.status === 'cancelled' || !aboard(f, crewId)) continue;
+    deps.push(f ?? null);
+    if (!f) continue;
+    const on = aboard(f, crewId);
+    deps.push(f.status, on, f.sta, f.std);
+    if (f.status === 'cancelled' || !on) continue;
     if (f.sta <= d.report) out = f;
     else if (f.std >= d.release) home = f;
   }
@@ -508,8 +524,8 @@ const logSegCache = new WeakMap<CrewMember['log'], { n: number; segs: Seg[] }>()
 function logSegs(c: CrewMember): Seg[] {
   const hit = logSegCache.get(c.log);
   if (hit && hit.n === c.log.length) return hit.segs;
-  const segs = c.log.map((e) => ({
-    kind: 'log' as const, start: e.start, end: e.end, fdp: e.fdp, maxFdp: Infinity, block: e.block, sectors: e.sectors, aug: e.augmented,
+  const segs = c.log.map((e) => mkSeg({
+    kind: 'log', start: e.start, end: e.end, fdp: e.fdp, maxFdp: Infinity, block: e.block, sectors: e.sectors, aug: e.augmented,
     disruptive: e.disruptive, rest: 0, at: '', dutyId: undefined, fresh: false, ext: e.ext, early: e.early, late: e.late, night: e.night,
   }));
   logSegCache.set(c.log, { n: c.log.length, segs });
@@ -519,49 +535,106 @@ function logSegs(c: CrewMember): Seg[] {
 /**
  * v0.9 round 3 speed: segsOf per crew member, per crew/flight revision and game minute (the key the crew read APIs
  * already use: control.ts memoOf, hr.ts availMemo), plus the standby list and the log (changed in place by the day
- * planner before it touches the revision). A copy is returned: callers may sort or splice their array.
+ * planner before it touches the revision). v0.9 round 4: the cached list itself is returned, shared read-only like
+ * its segs (callers filter, merge or copy; none changes it in place).
  */
-interface SegsMemo { rev: number; frev: number; now: Minute; ex: string; sby: unknown; sbyN: number; log: unknown; logN: number; segs: Seg[] }
+/**
+ * v0.9 round 4 speed (§R.17): per crew member. A revision bump by another crew member's change no longer costs a
+ * rebuild: an entry records everything its build read (`deps`: the pairings, duties, duty segs, tickets, standby
+ * calls and scalars, in reading order) and, when the crew or flight revision moved, the same walk reads them again
+ * and compares (a few objects, no segs built). The game minute only matters to the 28-day standby cut: `nowLo` /
+ * `nowHi` bound the minutes for which the same windows are in. Entries that fail are dropped.
+ */
+interface SegsMemo { id: number; rev: number; frev: number; nowLo: Minute; nowHi: Minute; ex: string; sby: unknown; sbyN: number; log: unknown; logN: number; deps: unknown[]; segs: Seg[] }
 const segsMemo = new WeakMap<CrewMember, SegsMemo[]>();
+/** A cached list → its entry (check.ts planCrew's memo keys on it: the base is the same while the entry stands). */
+const segsTag = new WeakMap<Seg[], SegsMemo>();
+let segsIds = 0;
+export const segsTagOf = (segs: Seg[]): number | undefined => segsTag.get(segs)?.id;
 
 export function segsOf(g: GameState, c: CrewMember, excludePairing?: string): Seg[] {
   const rev = crewRev(g);
   const frev = flightsRev(g);
   const ex = excludePairing ?? '';
+  const now = g.now;
   let list = segsMemo.get(c);
-  if (list && (list[0].rev !== rev || list[0].frev !== frev || list[0].now !== g.now)) list = undefined;
   if (list) {
-    for (const m of list) if (m.ex === ex && m.sby === c.standby && m.sbyN === (c.standby?.length ?? 0) && m.log === c.log && m.logN === c.log.length) return m.segs.slice();
+    for (let i = 0; i < list.length; i++) {
+      const m = list[i];
+      if (m.ex !== ex || m.sby !== c.standby || m.sbyN !== (c.standby?.length ?? 0) || m.log !== c.log || m.logN !== c.log.length || now <= m.nowLo || now > m.nowHi) continue;
+      if (m.rev !== rev || m.frev !== frev) {
+        if (!sameDeps(g, c, m)) {
+          list.splice(i--, 1);
+          continue;
+        }
+        m.rev = rev;
+        m.frev = frev;
+      }
+      return m.segs;
+    }
   }
-  const segs = segsOfRaw(g, c, excludePairing);
-  const m: SegsMemo = { rev, frev, now: g.now, ex, sby: c.standby, sbyN: c.standby?.length ?? 0, log: c.log, logN: c.log.length, segs };
+  const deps: unknown[] = [];
+  const segs = logSegs(c).slice();
+  const b = walk(g, c, ex, deps, segs);
+  const m: SegsMemo = { id: ++segsIds, rev, frev, nowLo: b.lo, nowHi: b.hi, ex, sby: c.standby, sbyN: c.standby?.length ?? 0, log: c.log, logN: c.log.length, deps, segs };
   if (!list) segsMemo.set(c, [m]);
   else {
     if (list.length >= 4) list.shift();
     list.push(m);
   }
-  return segs.slice();
+  segsTag.set(segs, m);
+  return segs;
 }
 
-function segsOfRaw(g: GameState, c: CrewMember, excludePairing?: string): Seg[] {
+const DEPS: unknown[] = [];
+function sameDeps(g: GameState, c: CrewMember, m: SegsMemo): boolean {
+  DEPS.length = 0;
+  walk(g, c, m.ex, DEPS, null);
+  const d = m.deps;
+  if (DEPS.length !== d.length) return false;
+  for (let i = 0; i < d.length; i++) if (DEPS[i] !== d[i]) return false;
+  return true;
+}
+
+/**
+ * The timeline build (into `segs`: the log's segs, sorted and with standby at the end) or, with null, only its inputs
+ * (`deps`): one walk, so the dependency list always matches what the build read. Returns the minutes for which the
+ * standby cut keeps the same windows (`now` in (lo, hi]).
+ */
+function walk(g: GameState, c: CrewMember, ex: string, deps: unknown[], segs: Seg[] | null): { lo: Minute; hi: Minute } {
   const ix = crewIx(g);
-  const segs: Seg[] = logSegs(c).slice();
   const own = new Set<string>();
-  for (const p of ix.pairingsOf.get(c.id) ?? []) {
+  const ps = ix.pairingsOf.get(c.id);
+  deps.push(c.base, ps ? ps.length : 0);
+  for (const p of ps ?? []) {
+    deps.push(p, p.id, p.dutyIds.length);
     for (const did of p.dutyIds) {
       const d = g.duties[did];
+      deps.push(d ?? null);
       if (!d) continue;
       // A released duty's tickets still to fly are loose positioning (listed below), even for the excluded
       // pairing: re-planning only touches the tickets of duties still to fly.
+      deps.push(d.done);
       if (d.done) continue;
-      for (const fid of d.deadheadIds) own.add(fid);
-      if (p.id === excludePairing) continue;
-      const t = ticketsFor(g, d, c.id);
-      for (const s of dutySegs(g, c, p, d, t.out, t.home)) segs.push(s);
+      deps.push(d.deadheadIds.length);
+      for (const fid of d.deadheadIds) {
+        own.add(fid);
+        deps.push(fid);
+      }
+      if (p.id === ex) continue;
+      const t = ticketsFor(g, d, c.id, deps);
+      const ds = dutySegs(g, c, p, d, t.out, t.home);
+      deps.push(ds);
+      if (segs) for (const s of ds) segs.push(s);
     }
   }
-  for (const f of ix.tickets.get(c.id) ?? []) {
+  const ts = ix.tickets.get(c.id);
+  deps.push(ts ? ts.length : 0);
+  for (const f of ts ?? []) {
+    deps.push(f, f.status, f.kind, f.id);
     if (!live(f) || own.has(f.id)) continue;
+    deps.push(f.std, f.sta, f.from, f.to, f.charter);
+    if (!segs) continue;
     const ps = posSeg(f, c);
     // v0.7.4 a released duty's ticket home already inside its log entry (logged up to the landing) is not counted twice.
     // Its landing is still where the crew will be: the log entry carries it (a copy; the cached seg stays as logged), so
@@ -573,9 +646,20 @@ function segsOfRaw(g: GameState, c: CrewMember, excludePairing?: string): Seg[] 
     }
     segs.push(ps);
   }
-  segs.sort(bySeg);
-  if (c.standby?.length) addStandby(g, c, segs);
-  return segs;
+  if (segs) segs.sort(bySeg);
+  let lo = -Infinity;
+  let hi = Infinity;
+  const sby = c.standby;
+  if (sby?.length) {
+    const old = g.now - 28 * 1440;
+    for (const w of sby) {
+      deps.push(w.calledAt);
+      if (w.to < old) lo = Math.max(lo, w.to);
+      else hi = Math.min(hi, w.to);
+    }
+    if (segs) addStandby(g, c, segs);
+  }
+  return { lo: lo + 28 * 1440, hi: hi + 28 * 1440 };
 }
 
 /** v0.9 share of a standby window counted towards the ORO.FTL.210 duty windows, by kind (§R.3). */
@@ -602,7 +686,7 @@ function makeSbySeg(c: CrewMember, w: NonNullable<CrewMember['standby']>[number]
   // Rest after an uncalled window (ORO.FTL.235): 12 h at home, 10 h away; airport standby is duty (its length);
   // reserve is neither duty nor rest.
   const rest = end !== undefined || kind === 'reserve' ? 0 : minRest({ dutyMin: kind === 'airport' ? w.to - w.from : 0, atHome: at === c.base, augmented: false, tzShift: 0 });
-  return { kind: 'sby', start: w.from, end: to, fdp: 0, maxFdp: 0, block: 0, sectors: 0, aug: false, disruptive: false, share: sbyShare(kind), rest, at: '', from: at, ...(kind !== 'home' ? { sby: kind } : {}), ...(fresh ? { fresh: true } : {}) };
+  return mkSeg({ kind: 'sby', start: w.from, end: to, fdp: 0, maxFdp: 0, block: 0, sectors: 0, aug: false, disruptive: false, share: sbyShare(kind), rest, at: '', from: at, ...(kind !== 'home' ? { sby: kind } : {}), ...(fresh ? { fresh: true } : {}) });
 }
 
 /**
