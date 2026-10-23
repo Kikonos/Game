@@ -205,6 +205,24 @@ export function offMovable(g: GameState, c: CrewMember, segs: Seg[], tour = fals
   return true;
 }
 
+/**
+ * v0.9 round 3 crew control's day-off swap: short-notice work that nobody without a change can take may land on a
+ * published day off when the crew member agrees to swap it (BAL.v09.roster.swap): work reporting within 72 h, morale
+ * ≥ 50, not asked in the last 14 days, the day off not starting within 12 h, and every month touched keeps its days off on free days of its own
+ * (offMovable, as a tour's). The swap itself is takeOffDays (planner): morale −3, the day moved inside its month. Pure.
+ */
+export function offSwappable(g: GameState, c: CrewMember, segs: Seg[]): boolean {
+  const S = R().swap;
+  if (c.morale < S.minMorale || c.status === 'joining' || c.notice) return false;
+  if (c.offSwapAt !== undefined && g.now - c.offSwapAt < S.everyDays * DAY) return false;
+  const fresh = segs.filter((x) => x.fresh && isWorkSeg(x));
+  if (fresh.length && fresh[0].start > g.now + S.horizonH * 60) return false;
+  const hits = hitsOf(c, fresh);
+  if (!hits.length) return true;
+  if (midnight(c.base, hits[0]) < g.now + S.noticeH * 60) return false;
+  return offMovable(g, c, segs, true);
+}
+
 /** The month's minimum days off for c: 8 (the planner's floor), pro rata in a month partly on leave or sick. */
 function minFor(c: CrewMember, mk: MonthKey): number {
   const a = firstDayOf(mk);
@@ -307,7 +325,9 @@ export function takeOffDays(g: GameState, c: CrewMember, segs: Seg[], planner = 
       rosterStats(g).offMoved = (rosterStats(g).offMoved ?? 0) + 1;
       if (k < pub && !broke) {
         broke = true;
-        moraleShock(g, c, 'daysOff', ASKED_SWAP);
+        moraleShock(g, c, 'daysOff', R().swap.morale);
+        c.offSwapAt = g.now;
+        rosterStats(g).offSwaps = (rosterStats(g).offSwaps ?? 0) + 1;
       }
     } else if (k < pub && !broke) {
       broke = true;
@@ -324,9 +344,6 @@ export function takeOffDays(g: GameState, c: CrewMember, segs: Seg[], planner = 
   touchCrewState(g);
   return moves;
 }
-
-/** A published day off the planner moves for a detachment: the crew member was asked to swap it. */
-const ASKED_SWAP = -3;
 
 /** Two seg lists as one, by start (the work just placed may not be in the timeline index yet). */
 const mergeSorted = (a: Seg[], b: Seg[]): Seg[] => [...a, ...b].sort((x, y) => x.start - y.start);
@@ -555,8 +572,11 @@ export function planLeave(g: GameState, year: number, crewIds?: string[]): numbe
 
 // ---------- days off ----------
 
-/** At most this share of a family-and-role group starts a due (not a must) block on any day. */
-const OFF_SHARE = 0.25;
+/**
+ * v0.9 round 3 the stagger: at most this share of a family-and-role group is off on any day of a due block (a must
+ * block, the 7th work day or the month's minimum, always goes). 30 % is the 9-in-30 average: a group of 10 has 3 off.
+ */
+const OFF_SHARE = 0.3;
 
 /** Reports per family, role and station on day D (seats of the duties reporting then). */
 function needOn(g: GameState, D: number): Map<string, number> {
@@ -610,6 +630,56 @@ export function planOffDays(g: GameState): void {
   touchCrewState(g);
 }
 
+/** One crew member's days-off need on day D (null: no block wanted). */
+interface OffNeed {
+  c: CrewMember;
+  must: boolean;
+  /** Due (5 in a row, behind the pace) or, one day before that, early (only to level the group: see planDay). */
+  early: boolean;
+  run: number;
+  /** Days off still short of the pace for the target (higher: more urgent). */
+  behindBy: number;
+  len: number;
+}
+
+function offNeed(g: GameState, c: CrewMember, D: number, busy: Busy): OffNeed | null {
+  const O = R().off;
+  const run = runBefore(g, c, busy, D);
+  const mk = monthOfDay(D);
+  const m0 = firstDayOf(mk);
+  const m1 = firstDayOf(mk + 1);
+  const mDays = daysInMonth(mk);
+  const offs = offsIn(g, c, mk, busy);
+  let before = 0;
+  for (const k of c.off ?? []) if (k >= m0 && k < D) before++;
+  before += offs - (c.off ?? []).filter((k) => k >= m0 && k < m1).length;
+  let freeLeft = 0;
+  for (let k = D; k < m1; k++) if (!offOn(c, k) && !busy.hit.has(k) && !blockedOn(c, k)) freeLeft++;
+  const dom = D - m0 + 1;
+  const pace = (O.targetMonth * dom) / mDays;
+  const minM = minFor(c, mk);
+  const missing = minM - offs;
+  const blocks = blocksIn(c, mk);
+  // Must: the 7th work day, the month's minimum no longer reachable otherwise, or falling behind the minimum's
+  // pace (work rostered later can fill the month's last days: the minimum is kept on pace, not left to the end).
+  const must = run >= O.mustAfter || (missing > 0 && freeLeft <= missing + 1) || (blocks < 2 && (2 - blocks) * 2 + 1 >= freeLeft)
+    || before < Math.floor((minM * dom) / mDays) - 1;
+  // Behind the target's pace counts from the second week (on day 1 every crew member would be "behind" on the
+  // same day and the whole company would go off together).
+  const behind = dom >= 8 && before < pace - 1.5;
+  const due = run >= O.dueAfter || behind;
+  const early = !must && !due && run >= O.dueAfter - 1;
+  if (!must && !due && !early) return null;
+  if (!must && offs >= O.maxMonth) return null;
+  let len = before + 2 < (O.targetMonth * (dom + 2)) / mDays - 1 ? O.block[1] : O.block[0];
+  if (!must) len = Math.min(len, O.maxMonth - offs);
+  if (len < O.block[0]) {
+    if (!must) return null;
+    len = O.block[0];
+  }
+  return { c, must, early, run, behindBy: pace - before, len };
+}
+
 function planDay(g: GameState, D: number, crew: CrewMember[], facts: Map<string, { segs: Seg[]; busy: Busy }>, only?: Set<string>): void {
   const O = R().off;
   // Reports and crew available per family|role|station on D (built on first use).
@@ -631,56 +701,49 @@ function planDay(g: GameState, D: number, crew: CrewMember[], facts: Map<string,
       return n > 0 && (cov.avail!.get(`${f}|${c.role}|${st}`) ?? 0) - 1 < n + 1;
     });
   };
-  // Group sizes and who is off on D (the stagger).
+  // Group sizes and who is off on D, D+1 and D+2 (the stagger looks at every day of a block).
+  const SPAN = O.block[1];
   const size = new Map<string, number>();
-  const offNow = new Map<string, number>();
+  const offAt: Map<string, number>[] = Array.from({ length: SPAN }, () => new Map());
   for (const x of crew) {
     if (x.status === 'joining' && blockedOn(x, D)) continue;
     for (const k of groupsOf(x)) {
       size.set(k, (size.get(k) ?? 0) + 1);
-      if (offOn(x, D)) offNow.set(k, (offNow.get(k) ?? 0) + 1);
+      for (let j = 0; j < SPAN; j++) if (offOn(x, D + j)) offAt[j].set(k, (offAt[j].get(k) ?? 0) + 1);
     }
   }
+  const cap = (k: string) => Math.max(1, Math.ceil(OFF_SHARE * (size.get(k) ?? 1) - 1e-9));
+  const room = (c: CrewMember, len: number) => groupsOf(c).every((k) => {
+    for (let j = 0; j < Math.min(len, SPAN); j++) if ((offAt[j].get(k) ?? 0) >= cap(k)) return false;
+    return true;
+  });
+  // Who wants a block from D: musts first (they always go), then the most urgent (longest run, furthest behind).
+  const needs: OffNeed[] = [];
   for (const c of crew) {
     if ((only && !only.has(c.id)) || offOn(c, D) || blockedOn(c, D) || (c.notice && midnight(c.base, D) >= c.notice.leaves)) continue;
+    const n = offNeed(g, c, D, facts.get(c.id)!.busy);
+    if (n) needs.push(n);
+  }
+  needs.sort((a, b) => Number(b.must) - Number(a.must) || Number(a.early) - Number(b.early) || b.run - a.run || b.behindBy - a.behindBy
+    || hashUnit(`${a.c.id}:${D}`) - hashUnit(`${b.c.id}:${D}`));
+  // Crew who will be due within a day per group, not placed yet (an early block levels the days they would crowd).
+  const pending = new Map<string, number>();
+  for (const n of needs) if (!n.must) for (const k of groupsOf(n.c)) pending.set(k, (pending.get(k) ?? 0) + 1);
+  for (const n of needs) {
+    const { c, must } = n;
+    let len = n.len;
     const { busy } = facts.get(c.id)!;
-    const run = runBefore(g, c, busy, D);
-    const mk = monthOfDay(D);
-    const m0 = firstDayOf(mk);
-    const m1 = firstDayOf(mk + 1);
-    const mDays = daysInMonth(mk);
-    const offs = offsIn(g, c, mk, busy);
-    let before = 0;
-    for (const k of c.off ?? []) if (k >= m0 && k < D) before++;
-    before += offs - (c.off ?? []).filter((k) => k >= m0 && k < m1).length;
-    let freeLeft = 0;
-    for (let k = D; k < m1; k++) if (!offOn(c, k) && !busy.hit.has(k) && !blockedOn(c, k)) freeLeft++;
-    const dom = D - m0 + 1;
-    const pace = (O.targetMonth * dom) / mDays;
-    const minM = minFor(c, mk);
-    const missing = minM - offs;
-    const blocks = blocksIn(c, mk);
-    // Must: the 7th work day, the month's minimum no longer reachable otherwise, or falling behind the minimum's
-    // pace (work rostered later can fill the month's last days: the minimum is kept on pace, not left to the end).
-    const must = run >= O.mustAfter || (missing > 0 && freeLeft <= missing + 1) || (blocks < 2 && (2 - blocks) * 2 + 1 >= freeLeft)
-      || before < Math.floor((minM * dom) / mDays) - 1;
-    // Behind the target's pace counts from the second week (on day 1 every crew member would be "behind" on the
-    // same day and the whole company would go off together).
-    const behind = dom >= 8 && before < pace - 1.5;
-    const due = run >= O.dueAfter || behind;
-    if (!must && !due) continue;
-    if (!must && offs >= O.maxMonth) continue;
-    if (!must && run === O.dueAfter && short(c)) continue;
-    // Staggered: a due block waits while its family-and-role group already has its share off that day.
-    if (!must && groupsOf(c).some((k) => (offNow.get(k) ?? 0) >= Math.max(1, Math.ceil(OFF_SHARE * (size.get(k) ?? 1))))) continue;
-    let len = before + 2 < (O.targetMonth * (dom + 2)) / mDays - 1 ? O.block[1] : O.block[0];
-    if (!must) len = Math.min(len, O.maxMonth - offs);
-    if (len < O.block[0]) {
-      if (!must) continue;
-      len = O.block[0];
+    if (!must) for (const k of groupsOf(c)) pending.set(k, (pending.get(k) ?? 1) - 1);
+    if (!must && n.run === O.dueAfter && short(c)) continue;
+    // Staggered: a due block waits while its group already has its share off on a day of the block.
+    if (!must && !room(c, len)) {
+      if (len > O.block[0] && room(c, O.block[0])) len = O.block[0];
+      else continue;
     }
-    const fits = (k: number, n: number) => {
-      for (let i = k; i < k + n; i++) if (offOn(c, i) || busy.hit.has(i) || blockedOn(c, i)) return false;
+    // Early (one day before due): only while the group's next days cannot hold everyone due by then.
+    if (n.early && !groupsOf(c).some((k) => (pending.get(k) ?? 0) + 1 > (cap(k) - (offAt[1].get(k) ?? 0)) + (cap(k) - (offAt[2 % SPAN].get(k) ?? 0)))) continue;
+    const fits = (k: number, m: number) => {
+      for (let i = k; i < k + m; i++) if (offOn(c, i) || busy.hit.has(i) || blockedOn(c, i)) return false;
       return true;
     };
     let at: number | null = null;
@@ -700,7 +763,7 @@ function planDay(g: GameState, D: number, crew: CrewMember[], facts: Map<string,
     if (at === null) continue;
     const days = Array.from({ length: len }, (_, i) => at! + i);
     addOff(c, days);
-    if (at === D) for (const k of groupsOf(c)) offNow.set(k, (offNow.get(k) ?? 0) + 1);
+    for (const k of groupsOf(c)) for (const d of days) if (d - D >= 0 && d - D < SPAN) offAt[d - D].set(k, (offAt[d - D].get(k) ?? 0) + 1);
     clearDays(g, c, at, at + len);
     const av = cov.avail as Map<string, number> | null;
     if (av) for (const f of c.ratings) {
@@ -768,12 +831,15 @@ function dayFactsAll(g: GameState, X0: number, X1: number): Map<number, DayFacts
       if (X < X0 || X > X1) continue;
       const f = of(X);
       const st = w.at ?? c.base;
-      if (w.kind === 'airport') for (const fam of c.ratings) inc(f.airport, `${st}|${fam}|${c.role}`);
+      if (w.kind === 'airport') for (const fam of c.ratings) inc(f.airport, `${st}|${fam}|${asbyRole(c.role)}`);
       else if ((w.kind ?? 'home') === 'home') inc(f.shifts, `${st}|${c.role}|${w.shift ?? shiftOf(c, w)}`);
     }
   }
   return out;
 }
+
+/** v0.9 round 3: airport standby is 1 CPT, 1 FO and 1 cabin crew: a purser counts as the cabin seat (was one each). */
+const asbyRole = (r: CrewMember['role']): string => (r === 'PUR' ? 'CC' : r);
 
 const shiftOf = (c: CrewMember, w: Window): 'E' | 'L' => ((w.from + offsetAt(c.base, w.from)) % DAY < 12 * 60 ? 'E' : 'L');
 
@@ -798,7 +864,7 @@ function rawWindow(c: CrewMember, X: number, at: string, f: DayFacts, prevShift:
     for (const fam of c.ratings) {
       const wave = f.wave.get(`${at}|${fam}`);
       const per = S.airport.per[c.role === 'PUR' ? 'CC' : c.role] ?? 0;
-      if (!wave || wave.n < S.airport.minWave || (f.airport.get(`${at}|${fam}|${c.role}`) ?? 0) >= per) continue;
+      if (!wave || wave.n < S.airport.minWave || (f.airport.get(`${at}|${fam}|${asbyRole(c.role)}`) ?? 0) >= per) continue;
       const from = wave.first - S.airport.leadMin;
       return { w: { from, to: from + S.airport.hours * 60, kind: 'airport' }, kind: 'airport' };
     }
@@ -989,7 +1055,7 @@ export function planStandby(g: GameState): void {
         f.shifts.set(`${c.base}|${c.role}|${sh}`, (f.shifts.get(`${c.base}|${c.role}|${sh}`) ?? 0) + 1);
         prevShift = sh;
       } else {
-        if (kind === 'airport') for (const fam of c.ratings) f.airport.set(`${at}|${fam}|${c.role}`, (f.airport.get(`${at}|${fam}|${c.role}`) ?? 0) + 1);
+        if (kind === 'airport') for (const fam of c.ratings) f.airport.set(`${at}|${fam}|${asbyRole(c.role)}`, (f.airport.get(`${at}|${fam}|${asbyRole(c.role)}`) ?? 0) + 1);
         prevShift = kind === 'airport' ? 'E' : null;
       }
     }

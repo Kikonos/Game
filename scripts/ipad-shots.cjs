@@ -682,6 +682,8 @@ Object.assign(ACTIONS, {
     await modal(page, { kind: 'convert', crewIds: ids, family: 'A330/340' });
     const b = page.locator('.modal-foot .btn-primary');
     if (!/Review/.test(await b.textContent())) throw new Error('SKIP no red warning for this selection');
+    // v0.9 round 3: Review is disabled when the course costs more than the cash: pressing it only timed out.
+    if (await b.isDisabled()) throw new Error('SKIP Review disabled (not enough cash for the course)');
     await press(page, b, d);
     await settle(page, 400);
   },

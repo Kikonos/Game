@@ -728,6 +728,8 @@ function resolveChange(g: GameState, d: Decision, opt: string): ActionResult {
   if (str(d.data, 'kind') === 'retime') {
     const f = g.flights[str(d.data, 'flightId')];
     if (!f || f.status !== 'scheduled') return { ok: true, msg: 'The flight has already left' };
+    // v0.9 round 3: lateness the client asked for never counts against the recovery's cap (it dropped their own legs).
+    f.lateOk = Math.max(f.lateOk ?? 0, f.std + num(d.data, 'minutes') - (f.schedStd ?? f.std));
     delayChain(g, f, f.std + num(d.data, 'minutes'), 'Client request');
     post(g, 'otherRevenue', num(d.data, 'fee'));
     bumpClient(g, c.clientId, BAL.v08.rel.retime, `Moved ${f.no} as they asked`);
@@ -849,7 +851,11 @@ export function clientFeeFor(g: GameState, c: Contract): boolean {
     if (!f) return false;
     legs = mine.filter((x) => x.std >= f.std);
     what = `moves ${f.no} ${f.from}–${f.to} by a day`;
-    for (const x of [...legs].reverse()) moveFlight(g, x, x.std + DAY, 'Client request');
+    for (const x of [...legs].reverse()) {
+      // v0.9 round 3: the day the client moved it is not lateness of ours (recovery's cap counts on top of it).
+      x.lateOk = Math.max(x.lateOk ?? 0, x.std + DAY - (x.schedStd ?? x.std));
+      moveFlight(g, x, x.std + DAY, 'Client request');
+    }
   }
   const why = pick(r, ['their crew shortage', 'a slot problem at their end', 'their passengers were rebooked', 'a change in their programme']);
   const trusted = lv === 'trusted' || lv === 'partner';

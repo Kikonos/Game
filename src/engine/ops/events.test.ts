@@ -7,9 +7,9 @@ import { pushDecision } from '../core/messages';
 import { DAY, fromUTC } from '../core/time';
 import type { Aircraft, Contract, Flight, GameState, Minute, Receivable, SimEvent } from '../core/types';
 import { acceptOffer } from '../contracts';
-import { addAircraft, hamBase, leased, legsOffer, newGame, owned } from '../contracts/testkit';
+import { addAircraft, hamBase, leased, legsOffer, newGame, owned, run } from '../contracts/testkit';
 import { advanceTo } from '../sim';
-import { aogDecision, canAsk, changeRequestFor, crewShortDecision, latePaymentDecision, onDecisionExpire, paceDecisions, permitDelayFor, rescueDecision, resolveDecision, seasonNudge } from './events';
+import { aogDecision, canAsk, changeRequestFor, clientFeeFor, crewShortDecision, latePaymentDecision, onDecisionExpire, paceDecisions, permitDelayFor, rescueDecision, resolveDecision, seasonNudge } from './events';
 import { cancelCost, planHold, windowLegs } from './flights';
 import { startAog } from './maintenance';
 import { isRevenue, stats, turnOf } from './util';
@@ -404,6 +404,33 @@ describe('client change requests', () => {
     resolveDecision(g, d.id, 'accept');
     expect(f.std).toBe(std + Number(d.data!.minutes));
     expect(line(g, 'otherRevenue')).toBe(rev + fee);
+  });
+
+  // v0.9 round 3 (tripMoveFerries' player save on another bot path): Jet2 moved a trip by a day, then asked for a later
+  // departure; agreed, the recovery dropped both legs as "more than 24 h late" and paid the client compensation for its
+  // own request. Lateness the client asked for is accepted lateness (lateOk), as a player's own delay is.
+  it("a trip the client moved by a day and then later still is not dropped as late (the client's own lateness)", () => {
+    const g = newGame(8);
+    const ac = leased(g);
+    const t0 = g.now + 4 * DAY;
+    const o = legsOffer(g, [['LIS', 'FNC', t0 + 10 * 60], ['FNC', 'LIS', t0 + 15 * 60]]);
+    const r = acceptOffer(g, o.id, [ac.id]);
+    if (!r.ok) throw new Error(r.error);
+    const c = g.contracts[r.data!.contractId];
+    g.clients[c.clientId].level = 'known';
+    stats(g).askedAt = [];
+    expect(clientFeeFor(g, c)).toBe(true);
+    const legs = Object.values(g.flights).filter((f) => f.contractId === c.id && isRevenue(f)).sort((a, b) => a.std - b.std);
+    expect(legs[0].std - legs[0].schedStd!).toBe(DAY);
+    stats(g).askedAt = [];
+    expect(changeRequestFor(g, c)).toBe(true);
+    const d = only(g, 'changeRequest');
+    const minutes = Number(d.data!.minutes);
+    resolveDecision(g, d.id, 'accept');
+    expect(legs[0].std - legs[0].schedStd!).toBe(DAY + minutes);
+    expect(legs[0].lateOk).toBeGreaterThanOrEqual(DAY + minutes);
+    run(g, legs[1].sta + 6 * 60);
+    expect(legs.map((f) => f.status)).toEqual(['done', 'done']);
   });
 });
 

@@ -503,7 +503,34 @@ function logSegs(c: CrewMember): Seg[] {
   return segs;
 }
 
+/**
+ * v0.9 round 3 speed: segsOf per crew member, per crew/flight revision and game minute (the key the crew read APIs
+ * already use: control.ts memoOf, hr.ts availMemo), plus the standby list and the log (changed in place by the day
+ * planner before it touches the revision). A copy is returned: callers may sort or splice their array.
+ */
+interface SegsMemo { rev: number; frev: number; now: Minute; ex: string; sby: unknown; sbyN: number; log: unknown; logN: number; segs: Seg[] }
+const segsMemo = new WeakMap<CrewMember, SegsMemo[]>();
+
 export function segsOf(g: GameState, c: CrewMember, excludePairing?: string): Seg[] {
+  const rev = crewRev(g);
+  const frev = flightsRev(g);
+  const ex = excludePairing ?? '';
+  let list = segsMemo.get(c);
+  if (list && (list[0].rev !== rev || list[0].frev !== frev || list[0].now !== g.now)) list = undefined;
+  if (list) {
+    for (const m of list) if (m.ex === ex && m.sby === c.standby && m.sbyN === (c.standby?.length ?? 0) && m.log === c.log && m.logN === c.log.length) return m.segs.slice();
+  }
+  const segs = segsOfRaw(g, c, excludePairing);
+  const m: SegsMemo = { rev, frev, now: g.now, ex, sby: c.standby, sbyN: c.standby?.length ?? 0, log: c.log, logN: c.log.length, segs };
+  if (!list) segsMemo.set(c, [m]);
+  else {
+    if (list.length >= 4) list.shift();
+    list.push(m);
+  }
+  return segs.slice();
+}
+
+function segsOfRaw(g: GameState, c: CrewMember, excludePairing?: string): Seg[] {
   const ix = crewIx(g);
   const segs: Seg[] = logSegs(c).slice();
   const own = new Set<string>();

@@ -228,6 +228,8 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
   }
   const created: Flight[] = [];
   const remove: string[] = [];
+  // v0.9 round 3: the legs to create are collected first and matched against the legs the pass removes (below).
+  const planned: { l: ChainLeg; contractId: string | null }[] = [];
   // v0.9 fix: a gap's new plan is set against the legs it replaces. Legs of the same route are kept and only retimed
   // (their crews and tickets stay: an inbound 13 min late re-made VCE–LIS 2 h before departure, crewless, a red
   // alarm); a plan identical to them is no change at all (a busy game re-planned LOS–TLS–STN on every settle).
@@ -242,7 +244,7 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
       return;
     }
     remove.push(...old.map((f) => f.id));
-    for (const l of chain) created.push(addFlight(g, { no: ownFlightNo(g), aircraftId, contractId, kind: 'positioning', from: l.from, to: l.to, std: l.std, sta: l.sta }));
+    for (const l of chain) planned.push({ l, contractId });
   };
   const replacing = (legs: Flight[]) => {
     remove.push(...pending.map((f) => f.id));
@@ -299,6 +301,16 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     if (ch) add(ch, inId);
   }
   replacing([]);
+  // v0.9 round 3: a pass whose plan is exactly the legs it removes (route, times and contract, as a multiset) changes
+  // nothing: it is a no-op, not a loop. Overlapping empty legs (GRU–LIS beside LIS–GRU on one aircraft, a late leg
+  // that falls in the next gap) are matched position by position above and missed; every settle then made copies and
+  // the safety net threw them away and reported a loop ("CS-DVJ re-planned 2 empty leg(s) unchanged", 98 times).
+  if (planned.length && planned.length === remove.length) {
+    const key = (from: string, to: string, std: Minute, sta: Minute, k: string | null) => `${from}-${to}@${std}-${sta}:${k ?? ''}`;
+    const was = remove.map((id) => g.flights[id]).filter((f) => f?.status === 'scheduled').map((f) => key(f.from, f.to, f.std, f.sta, f.contractId)).sort().join(' ');
+    if (was === planned.map(({ l, contractId }) => key(l.from, l.to, l.std, l.sta, contractId)).sort().join(' ')) return [];
+  }
+  for (const { l, contractId } of planned) created.push(addFlight(g, { no: ownFlightNo(g), aircraftId, contractId, kind: 'positioning', from: l.from, to: l.to, std: l.std, sta: l.sta }));
   // v0.8 pre-release safety net: a pass that only swaps legs for the very same legs (route, times, contract) would
   // do it again on the next settle, and the next: the fix pack's fuel-stop chain was re-planned that way on every
   // settle until the game froze. Keep the legs (and their crews), drop the copies and report the loop.

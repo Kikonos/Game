@@ -1006,6 +1006,15 @@ function clearRestMarks(g: GameState, f: Flight): void {
   if (p) for (const s of p.slots) if (s.ooh?.limit === 'inflightRest') delete s.ooh;
 }
 
+/**
+ * v0.9 round 3 diagnostics (bot `--whyheld`): called when a leg is first held for crew at departure ('held', before the
+ * re-roster) and after that re-roster ('fixed' / 'still'). Never saved, never read by the engine.
+ */
+let heldHook: ((g: GameState, f: Flight, phase: 'held' | 'fixed' | 'still') => void) | null = null;
+export function setHeldHook(fn: typeof heldHook): void {
+  heldHook = fn;
+}
+
 function crewProblem(g: GameState, f: Flight, ac: Aircraft): void {
   if (!f.crewHeld) {
     f.crewHeld = true;
@@ -1013,13 +1022,16 @@ function crewProblem(g: GameState, f: Flight, ac: Aircraft): void {
     if (isRevenue(f)) {
       stats(g).uncovered++;
       monthRec(v09Stats(g).cover, monthKey(g.now))[1]++;
+      heldHook?.(g, f, 'held');
     }
     const rd = restFailed(g, f);
     if (rd) restOutOfHours(g, f, rd);
     // Crew over a limit come off the duty first (refilled when someone legal can take the seat).
     if (f.dutyId) guardDuty(g, f.dutyId);
     rerosterFrom(g, ac.id, g.now);
-    if (!crewBlocked(g, f)) return holdFlight(g, f, 5);
+    const blocked = crewBlocked(g, f);
+    if (isRevenue(f)) heldHook?.(g, f, blocked ? 'still' : 'fixed');
+    if (!blocked) return holdFlight(g, f, 5);
   }
   if (!isRevenue(f)) return f.purpose === 'delivery' ? deliveryWait(g, f, ac) : emptyLegCrew(g, f, ac);
   if (hasOpenDecision(g, 'crewShort', f.id) || heldFor(g, f) < BAL.crewWaitMin) return holdFlight(g, f, 30);

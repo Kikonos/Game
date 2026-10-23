@@ -5,13 +5,16 @@
 import { describe, expect, it } from 'vitest';
 import { DAY, monthKey, monthStart } from '../core/time';
 import type { CrewMember, GameState } from '../core/types';
-import { demoFlights, devRoster } from '../dev';
+import { demoFlights, devFleet, devRoster } from '../dev';
+import { addFlight, ownFlightNo } from '../core/entities';
+import { blockMinutes } from '../core/perf';
+import { BAL } from '../core/balance';
 import { deserialize, serialize } from '../save';
 import { advanceTo } from '../sim';
 import { fixture } from '../fixtures/compatKit';
 import { addCrew, fixtureGame } from './fixtures';
 import { autoRoster, crewControl, crewWindows, dayIndex, dropTargets, moveDuty, offBreak, planLeave, publishedTo } from '.';
-import { offOn } from './dayPlan';
+import { midnight, offOn, offSwappable, takeOffDays } from './dayPlan';
 import { evalSegs, minRest, standbyCut, STANDBY, type Seg } from './rules';
 import { standbyFor } from './standby';
 import { ctxOf, segsOf, standbySeg } from './timeline';
@@ -304,5 +307,82 @@ describe('§R.13 9: old saves', () => {
     expect(Object.values(g.crew).some((c) => c.standby?.some((w) => w.from >= from))).toBe(true);
     const again = deserialize(serialize(g));
     expect(JSON.parse(serialize(again)).state).toEqual(JSON.parse(serialize(g)).state);
+  }, 120_000);
+});
+
+describe('v0.9 round 3: stagger, the day-off swap, airport standby', () => {
+  it('days off are staggered: in each role never half the group off on a day, and 9 days in 10 at the 30 % average or below', () => {
+    const g = fixtureGame(11);
+    devRoster(g);
+    advanceTo(g, g.now + 30 * DAY, new Set());
+    const t0 = dayIndex(g.company.homeBase, g.now);
+    for (const role of ['CPT', 'FO', 'PUR', 'CC'] as const) {
+      const cs = Object.values(g.crew).filter((c) => c.role === role && c.status !== 'joining');
+      const share: number[] = [];
+      for (let k = t0 - 30; k < t0 + 14; k++) share.push(cs.filter((c) => offOn(c, k)).length / cs.length);
+      share.sort((a, b) => a - b);
+      expect(share[share.length - 1], role).toBeLessThan(0.5);
+      expect(share[Math.floor(0.9 * (share.length - 1))], role).toBeLessThanOrEqual(0.31);
+    }
+  }, 120_000);
+
+  it('a published day off is swapped only by agreement: short notice, morale ≥ 50, once in 14 days; the day moves inside its month (morale −3)', () => {
+    const g = fixtureGame(18);
+    devRoster(g);
+    const S = BAL.v09.roster.swap;
+    // A crew member with a published day off 2–3 days out and the month able to take it back.
+    const pub = dayIndex(g.company.homeBase, publishedTo(g));
+    const today = dayIndex(g.company.homeBase, g.now);
+    const c = Object.values(g.crew).find((x) => x.status !== 'joining' && (x.off ?? []).some((k) => k >= today + 2 && k <= today + 3 && k < pub && monthKey(k * DAY) === monthKey((k + 5) * DAY)))!;
+    expect(c).toBeDefined();
+    const k = c.off!.find((x) => x >= today + 2 && x <= today + 3)!;
+    const day = midnight(c.base, k);
+    const work: Seg = { kind: 'duty', start: day + 8 * H, end: day + 14 * H, fdp: 6 * H, maxFdp: 13 * H, block: 4 * H, sectors: 2, aug: false, disruptive: false, rest: 12 * H, at: c.base, from: c.base, fresh: true };
+    const segs = [...segsOf(g, c), work].sort((a, b) => a.start - b.start);
+    c.morale = 60;
+    expect(offSwappable(g, c, segs)).toBe(true);
+    // Not with low morale, nor for work more than 72 h out, nor twice in 14 days.
+    c.morale = S.minMorale - 1;
+    expect(offSwappable(g, c, segs)).toBe(false);
+    c.morale = 60;
+    const far = { ...work, start: g.now + (S.horizonH + 1) * H, end: g.now + (S.horizonH + 7) * H };
+    expect(offSwappable(g, c, [...segsOf(g, c), far].sort((a, b) => a.start - b.start))).toBe(false);
+    const mk = monthKey(k * DAY);
+    const inMonth = () => (c.off ?? []).filter((x) => monthKey(x * DAY) === mk).length;
+    const n0 = inMonth();
+    const m0 = c.morale;
+    const swaps0 = g.stats.v09!.roster!.offSwaps ?? 0;
+    const moves = takeOffDays(g, c, [work], true);
+    expect(moves.length).toBeGreaterThan(0);
+    expect(offOn(c, k)).toBe(false);
+    expect(inMonth()).toBe(n0);
+    expect(c.morale).toBeCloseTo(m0 + S.morale, 5);
+    expect(c.offSwapAt).toBe(g.now);
+    expect(g.stats.v09!.roster!.offSwaps).toBe(swaps0 + 1);
+    expect(offSwappable(g, c, segs)).toBe(false);
+  }, 120_000);
+
+  it('airport standby: 3 A320 departures 05:00–10:00 local at base put 1 CPT, 1 FO and 1 CC at the airport, 90 min before the first, 4 h', () => {
+    const g = fixtureGame(19);
+    devFleet(g, 4);
+    addCrew(g, { CPT: 12, FO: 12, PUR: 12, CC: 36 });
+    advanceTo(g, g.now + 2 * DAY, new Set());
+    const home = g.company.homeBase;
+    // Day D enters the published roster at tomorrow's midnight run.
+    const D = dayIndex(home, publishedTo(g));
+    const acs = Object.values(g.fleet).slice(0, 3);
+    const stds = acs.map((_, i) => midnight(home, D) + (6 + i) * 60 + 30);
+    acs.forEach((ac, i) => {
+      const blk = blockMinutes(ac.typeId, home, 'FAO');
+      addFlight(g, { no: ownFlightNo(g), aircraftId: ac.id, contractId: null, kind: 'revenue', from: home, to: 'FAO', std: stds[i], sta: stds[i] + blk, pax: 150 });
+      addFlight(g, { no: ownFlightNo(g), aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'FAO', to: home, std: stds[i] + blk + 50, sta: stds[i] + 2 * blk + 50, pax: 150 });
+    });
+    advanceTo(g, midnight(home, D - 13) + 60, new Set());
+    const asby = Object.values(g.crew).flatMap((c) => (c.standby ?? []).filter((w) => w.kind === 'airport' && dayIndex(home, w.from) === D).map((w) => ({ c, w })));
+    expect(asby.map(({ c }) => (c.role === 'PUR' ? 'CC' : c.role)).sort()).toEqual(['CC', 'CPT', 'FO']);
+    for (const { w } of asby) {
+      expect(w.from).toBe(Math.min(...stds) - BAL.v09.roster.airport.leadMin);
+      expect(w.to - w.from).toBe(BAL.v09.roster.airport.hours * 60);
+    }
   }, 120_000);
 });

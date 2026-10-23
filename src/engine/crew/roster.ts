@@ -12,7 +12,7 @@ import { acceptable, crewIssuesFor, mergeSegs, openDuties, otherTrip, planCrew, 
 import { deletePairing, dutyLegality, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setCrewTrailOkHook, setReleaseHook, setRetickHook, splitPairing, splitUnderWay, syncDuty } from './duties';
 import { crewName } from './generate';
 import { callIfOnStandby, dropStandby, standbyFor } from './standby';
-import { fitStandby, monthFloorIssue, offDaysHit, offMovable, takeOffDays, takesPublishedOff, v09Stats as v09StatsOf } from './dayPlan';
+import { fitStandby, monthFloorIssue, offDaysHit, offMovable, offSwappable, takeOffDays, takesPublishedOff, v09Stats as v09StatsOf } from './dayPlan';
 import { infoOf } from './outOfHours';
 import { lateChange, moraleShock, nextReport } from './morale';
 import { cabinFdpCap, DISCRETION, evalSegs, levelOf, LIMITS, minRest, recoveryAnchor, tzDeltaH, worst, type Seg } from './rules';
@@ -318,11 +318,52 @@ export function recheckSoon(g: GameState): void {
  * re-checked at once, and an aircraft whose crew can no longer fly a later duty is re-rostered.
  */
 export function recheckAfterRelease(g: GameState, p: Pairing): void {
+  rebookHomeForRecovery(g, p);
   const acs = new Set<string>();
   const ids = p.slots.filter((s) => s.crewId).map((s) => s.crewId!);
   if (openDuties(g, p).length && p.aircraftId && recheckPairing(g, p).level === 'illegal' && p.illegalFrom !== undefined) acs.add(p.aircraftId);
   for (const ac of laterBroken(g, ids, p)) acs.add(ac);
   if (g.company.policies.autoRoster) for (const ac of acs) rerosterFrom(g, ac, g.now);
+}
+
+/**
+ * v0.9 round 3: a duty released late can leave the ticket after it past the 168 h: the free time before the ticket is
+ * no longer a recovery rest (60 h after 4 disruptive duties: 59 h 40 m after a 70 min delay, ORO.FTL.235(d)), and a
+ * loose ticket is no duty's to re-plan, so it was flown (bot seeds 7 and 9: 217–218 h between recovery rests). The
+ * crew aboard wait for that recovery at the hotel and the ticket is rebooked after it, as sendHome plans one.
+ */
+function rebookHomeForRecovery(g: GameState, p: Pairing): void {
+  const ci = BAL.deadheadCheckIn;
+  for (const id of p.dutyIds) {
+    const d = g.duties[id];
+    if (!d?.done || d.release < g.now - 12 * 60) continue;
+    for (const fid of [...d.deadheadIds]) {
+      const f = g.flights[fid];
+      if (!f || f.kind !== 'deadhead' || f.status !== 'scheduled' || f.std < d.release || f.std - ci <= g.now) continue;
+      const late: string[] = [];
+      let std = f.std;
+      for (const cid of f.crewIds) {
+        const c = g.crew[cid];
+        if (!c) continue;
+        // Standby not started yet gives way (it is re-fitted after the rebooking).
+        const segs = segsOf(g, c).filter((x) => x.ticketId !== f.id && !(x.kind === 'sby' && x.start > g.now));
+        const ctx = ctxOf(g, c);
+        if (f.sta <= recoveryAnchor(ctx, segs, f.std - ci) + LIMITS.recoveryEvery) continue;
+        for (let t = f.std; t < f.std + 4 * DAY; t += 60) {
+          if (recoveryAnchor(ctx, segs, t - ci) < t - ci) continue;
+          std = Math.max(std, t);
+          late.push(cid);
+          break;
+        }
+      }
+      if (!late.length || std === f.std) continue;
+      for (const cid of late) unboard(g, f, cid);
+      if (!g.flights[fid]) d.deadheadIds = d.deadheadIds.filter((x) => x !== fid);
+      buyTicket(g, p, d, late, { from: f.from, to: f.to, std, sta: std + (f.sta - f.std) }, emptyResult());
+      touchCrew(g);
+      fitStandby(g, late);
+    }
+  }
 }
 
 /** Longest stay at an outstation between two trips that beats flying home and straight back out. */
@@ -673,13 +714,17 @@ const asFo = (slot: Role, role: Role) => role === 'CPT' && (slot === 'FO' || slo
 /**
  * v0.9 fix: a plan refused only for days off not published yet that its month can spare (offMovable): the planner may
  * move them (the second choice, after crew who need no change). Every other issue must be acceptable as usual.
+ * v0.9 round 3: a published day off too, for short-notice work, when the crew member agrees to swap it (offSwappable):
+ * the last choice.
  */
 function offFallback(g: GameState, c: CrewMember, plan: CrewPlan, base: Seg[]): boolean {
   if (!plan.issues.some((i) => i.code === 'daysOff')) return false;
   if (!acceptable(g, { ...plan, issues: plan.issues.filter((i) => i.code !== 'daysOff') })) return false;
   if (plan.issues.some((i) => i.code === 'daysOff' && i.level === 'illegal')) return false;
   const work = plan.segs.filter((x) => x.kind !== 'log');
-  if (!work.length || takesPublishedOff(g, c, work[0].start, work[work.length - 1].end)) return false;
+  if (!work.length) return false;
+  // v0.9 round 3: a published day off only by agreement (crew control's swap, crew/dayPlan.ts offSwappable).
+  if (takesPublishedOff(g, c, work[0].start, work[work.length - 1].end)) return offSwappable(g, c, mergeSegs(base, plan.segs));
   return offMovable(g, c, mergeSegs(base, plan.segs));
 }
 
@@ -735,7 +780,7 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
   const skip = (x: (typeof pool)[number]) => inP.has(x.c.id) || refused.has(x.c.id);
   // v0.9 fix: crew refused only for a day off not published yet (a day trip on it), kept in score order: when nobody
   // else can take the seat, the planner moves that day off within its month instead (no morale: crew never saw it).
-  const offOnly: { c: CrewMember; plan: CrewPlan }[] = [];
+  const offOnly: { c: CrewMember; plan: CrewPlan; swap: boolean }[] = [];
   const take = (c: CrewMember, plan: CrewPlan) => {
     inP.add(c.id);
     plans.set(c.id, plan);
@@ -780,7 +825,10 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
       const plan = planCrew(g, c, p, ctx.of(c), false, BAL.rosterSlack);
       if (!acceptable(g, plan)) {
         refused.add(c.id);
-        if (offFallback(g, c, plan, ctx.of(c))) offOnly.push({ c, plan });
+        if (offFallback(g, c, plan, ctx.of(c))) {
+          const work = plan.segs.filter((y) => y.kind !== 'log');
+          offOnly.push({ c, plan, swap: takesPublishedOff(g, c, work[0].start, work[work.length - 1].end) });
+        }
         continue;
       }
       slot.crewId = c.id;
@@ -789,7 +837,9 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
       break;
     }
     if (slot.crewId) continue;
-    const alt = offOnly.find((y) => !inP.has(y.c.id) && (y.c.role === role || (canFill(role, y.c.role) && !asFo(role, y.c.role))));
+    // An unpublished day off moved (the crew never saw it) before a published one swapped by agreement (morale −3).
+    const fits = (y: (typeof offOnly)[number]) => !inP.has(y.c.id) && (y.c.role === role || (canFill(role, y.c.role) && !asFo(role, y.c.role)));
+    const alt = offOnly.find((y) => !y.swap && fits(y)) ?? offOnly.find(fits);
     if (!alt) continue;
     slot.crewId = alt.c.id;
     delete slot.ooh;

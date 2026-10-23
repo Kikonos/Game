@@ -1156,6 +1156,7 @@ function runFix(h: GameState, flightId: string, fix: CrewFix, opts: ApplyOpts): 
       for (const [loc, v] of byLoc) latest = Math.max(latest, jetQuote(h, loc, x.dep, v.n, v.ready, cls).arrives);
       const changes: string[] = [];
       const gap = Math.max(latest + OUT_CONNECT - d.report, opts.at !== undefined ? opts.at - f.std : 0);
+      if (gap > 0 && f.kind === 'positioning') return { ok: false, error: 'The schedule re-plans empty legs itself: a jet landing after the departure is no fix' };
       if (gap > 0) {
         // The flight waits for the jet with the roster held off: the jet's crew take the seats, not an airline
         // ticket the re-sync would buy meanwhile (a jet fix charters a jet, or is refused).
@@ -1521,28 +1522,34 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean, only?: readonly C
         const lead = Math.max(0, f.std - d.report);
         let gap = auto.arrives + OUT_CONNECT - d.report;
         if (rest) gap = Math.max(gap, auto.arrives + minRest({ dutyMin: 0, atHome: false, augmented: false, tzShift: 0 }) + lead - f.std);
-        s.chips = [usd(auto.cost), hrs(auto.arrives)];
-        if (auto.jets > 1) s.chips.push(`${auto.jets} jets`);
-        s.consequences.push(`${picks.map((y) => crewName(y.c)).join(', ')} from ${[...byLoc.keys()].map(city).join(' and ')}`, 'Not billed to the client');
-        if (gap > 0) {
-          s.newDeparture = ceil5(f.std + gap);
-          s.chips.push(`leaves ${at(s.newDeparture, g.now)} (+${fmtDuration(gap)})`);
-          s.consequences.unshift(rest ? `The crew rest a night after landing: the flight leaves ${at(s.newDeparture, g.now)}` : `Even a jet lands ${fmtDuration(gap)} late: the flight is delayed first`);
+        // v0.9 round 3: as for Delay, an empty leg is never held back for a jet: past the commitment it leads to, the
+        // schedule re-plans it as a fresh, uncrewed leg at the earliest time, and the two fixes chased each other
+        // (bot seed 5: dozens of copies of one OXB–LIS leg after an AOG, each a red alarm).
+        if (f.kind === 'positioning' && gap > 0) out.push(no({ ...s, cost: 0, chips: [], newDeparture: null, consequences: [], options: undefined }, 'The schedule re-plans empty legs itself: a jet landing after the departure is no fix'));
+        else {
+          s.chips = [usd(auto.cost), hrs(auto.arrives)];
+          if (auto.jets > 1) s.chips.push(`${auto.jets} jets`);
+          s.consequences.push(`${picks.map((y) => crewName(y.c)).join(', ')} from ${[...byLoc.keys()].map(city).join(' and ')}`, 'Not billed to the client');
+          if (gap > 0) {
+            s.newDeparture = ceil5(f.std + gap);
+            s.chips.push(`leaves ${at(s.newDeparture, g.now)} (+${fmtDuration(gap)})`);
+            s.consequences.unshift(rest ? `The crew rest a night after landing: the flight leaves ${at(s.newDeparture, g.now)}` : `Even a jet lands ${fmtDuration(gap)} late: the flight is delayed first`);
+          }
+          s.confirm = true;
+          // Jet + rest only when the airline ticket with the same night's rest would leave later (else that is Delay).
+          const dp = rest ? delayPlan(g, x) : null;
+          // v0.8 fix pack: no jet when a cheaper fix (auto-fix, a ticket, a call-in, the delay) leaves as soon, with
+          // the fastest jet class at the cheapest price: one muted line says why instead.
+          const leavesAt = (arr: Minute) => (rest ? s.newDeparture! : arr + OUT_CONNECT - d.report > 0 ? ceil5(f.std + arr + OUT_CONNECT - d.report) : f.std);
+          const fastest = Math.min(...s.options.map((o) => o.arrives ?? Infinity), auto.arrives);
+          const cheapest = Math.min(...s.options.map((o) => o.cost), auto.cost);
+          const jetLeaves = leavesAt(fastest);
+          // The airline story first (the delay waits for a named flight, a ticket lands sooner), then auto-fix and call-in.
+          const beat = (['delay', 'deadhead', 'autoFix', 'callIn'] as const).map((id) => out.find((o) => o.id === id)).find((o) => !!o && o.available && !BAD(o.preview.after.level) && o.cost < cheapest && (o.newDeparture ?? f.std) <= jetLeaves);
+          if (rest && dp && dp.at <= s.newDeparture!) out.push(no({ ...s, cost: 0, chips: [], newDeparture: null, consequences: [] }, 'An airline ticket and a night\'s rest get a crew there just as soon: use Delay until crew arrives'));
+          else if (beat) out.push({ ...no({ ...s, cost: 0, chips: [], newDeparture: null, consequences: [], options: undefined }, jetBeaten(g, x, beat, fastest, jetLeaves)), dominated: true });
+          else out.push(run(s, rest ? { at: s.newDeparture! } : {}));
         }
-        s.confirm = true;
-        // Jet + rest only when the airline ticket with the same night's rest would leave later (else that is Delay).
-        const dp = rest ? delayPlan(g, x) : null;
-        // v0.8 fix pack: no jet when a cheaper fix (auto-fix, a ticket, a call-in, the delay) leaves as soon, with
-        // the fastest jet class at the cheapest price: one muted line says why instead.
-        const leavesAt = (arr: Minute) => (rest ? s.newDeparture! : arr + OUT_CONNECT - d.report > 0 ? ceil5(f.std + arr + OUT_CONNECT - d.report) : f.std);
-        const fastest = Math.min(...s.options.map((o) => o.arrives ?? Infinity), auto.arrives);
-        const cheapest = Math.min(...s.options.map((o) => o.cost), auto.cost);
-        const jetLeaves = leavesAt(fastest);
-        // The airline story first (the delay waits for a named flight, a ticket lands sooner), then auto-fix and call-in.
-        const beat = (['delay', 'deadhead', 'autoFix', 'callIn'] as const).map((id) => out.find((o) => o.id === id)).find((o) => !!o && o.available && !BAD(o.preview.after.level) && o.cost < cheapest && (o.newDeparture ?? f.std) <= jetLeaves);
-        if (rest && dp && dp.at <= s.newDeparture!) out.push(no({ ...s, cost: 0, chips: [], newDeparture: null, consequences: [] }, 'An airline ticket and a night\'s rest get a crew there just as soon: use Delay until crew arrives'));
-        else if (beat) out.push({ ...no({ ...s, cost: 0, chips: [], newDeparture: null, consequences: [], options: undefined }, jetBeaten(g, x, beat, fastest, jetLeaves)), dominated: true });
-        else out.push(run(s, rest ? { at: s.newDeparture! } : {}));
       }
     }
   }

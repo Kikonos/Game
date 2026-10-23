@@ -219,6 +219,34 @@ describe('relinkPositioning', () => {
     turnsOk(g, ac.id);
   });
 
+  // v0.9 round 3: a widebody (80 min turn) whose next job leaves a short hop after it lands somewhere else: the empty
+  // leg can only leave after that hop has landed, so it falls in the next gap, and each pass made an identical copy of
+  // it in the gap it serves (the safety net tripped on every settle: "CS-DVJ re-planned 2 empty leg(s) unchanged").
+  for (const [a, b, late] of [[['LIS', 'GRU'], ['LIS', 'OPO'], 'GRU-LIS'], [['GRU', 'LIS'], ['GRU', 'GIG'], 'LIS-GRU']] as const) {
+    it(`v0.9 round 3: a late ${late} empty leg after ${a.join('–')} then ${b.join('–')} is planned once and kept (no copy, no safety trip)`, async () => {
+      const { relinkPositioning } = await import('.');
+      const { addFlight, ownFlightNo } = await import('../core/entities');
+      const { blockMinutes } = await import('../core/perf');
+      const { addAircraft } = await import('./testkit');
+      const { safetyTrips } = await import('../core/safety');
+      const g = newGame(31);
+      const ac = addAircraft(g, 'a332');
+      expect(typeOf(ac.typeId).turnMin).toBeGreaterThan(blockMinutes(ac.typeId, b[0], b[1]) + 5);
+      const t = Math.ceil((g.now + 5 * DAY) / 60) * 60;
+      const first = addFlight(g, { no: ownFlightNo(g), aircraftId: ac.id, contractId: null, kind: 'revenue', from: a[0], to: a[1], std: t, sta: t + blockMinutes(ac.typeId, a[0], a[1]), pax: 100 });
+      const hop = first.sta + 5;
+      addFlight(g, { no: ownFlightNo(g), aircraftId: ac.id, contractId: null, kind: 'revenue', from: b[0], to: b[1], std: hop, sta: hop + blockMinutes(ac.typeId, b[0], b[1]), pax: 100 });
+      const trips = safetyTrips.length;
+      relinkPositioning(g, ac.id);
+      const empty = liveFlights(g, ac.id).filter((f) => f.kind === 'positioning' && f.std > first.sta);
+      expect(empty.map((f) => `${f.from}-${f.to}`)).toEqual([late]);
+      const ids = liveFlights(g, ac.id).map((f) => f.id).join();
+      for (let i = 0; i < 3; i++) expect(relinkPositioning(g, ac.id)).toEqual([]);
+      expect(liveFlights(g, ac.id).map((f) => f.id).join()).toBe(ids);
+      expect(safetyTrips.length).toBe(trips);
+    });
+  }
+
   it('v0.8 fix pack: a late chain with a fuel stop (LGW–KAN–LAD after an AOG) is a fixed point too, not re-planned on every pass', async () => {
     const { relinkPositioning } = await import('.');
     const g = newGame(31);

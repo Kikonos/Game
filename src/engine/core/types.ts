@@ -847,6 +847,8 @@ export interface CrewMember {
   offMonths?: Record<MonthKey, number>;
   /** v0.9 last calendar year whose annual leave is planned. */
   leaveYear?: number;
+  /** v0.9 round 3: when crew control last asked them to swap a published day off (one ask in 14 days). */
+  offSwapAt?: Minute;
 }
 
 export interface CrewSlot {
@@ -1399,6 +1401,8 @@ export interface StatsRoster09 {
   callOuts: number; offBroken: number; offBreaches: number; maxRecGapH: number;
   /** Days off the planner moved for a tour crewed over them (no morale). */
   offMoved?: number;
+  /** v0.9 round 3: published days off swapped by agreement for short-notice work (crew control's ask, morale −3). */
+  offSwaps?: number;
   /** Crew-months closed and those below 7 days off. */
   months: number; monthsLow: number;
 }
