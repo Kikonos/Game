@@ -93,16 +93,25 @@ function statusIssues(c: CrewMember, from: number, to: number, family: string, d
  * pairing (identity: splitTourGap's probes share an id), crew member, mode and the base's timeline entry (a derived
  * base, or a jet ride, is planned afresh). The plan is shared read-only, as its segs already are.
  */
-const planMemo = new WeakMap<GameState, { key: string; by: WeakMap<Pairing, Map<string, CrewPlan>> }>();
+const planMemo = new WeakMap<GameState, { key: string; by: WeakMap<Pairing, Map<string, PlanMemo>> }>();
+interface PlanMemo { plan: CrewPlan; ids: unknown[] }
 
 /**
  * The crew member's own inputs of a plan (ctxOf, the status and day-off checks) and the day plan's bounds: the engine
- * changes them with a revision bump, a test or a tool may not, so the key carries them.
+ * changes them with a revision bump, a test or a tool may not, so the key carries the scalars and `crewIds` the
+ * objects (by identity, arrays with their length; the engine replaces or bumps, never edits one in place unseen).
  */
 function crewKey(g: GameState, c: CrewMember): string {
-  const dp = g.dayPlan;
-  return `${c.base}|${c.loc}|${c.status}|${c.restUntil}|${c.lastRecovery}|${c.blockYear}|${c.blockYearOf}|${block12m(c, g.now)}|${c.hired}|${c.morale}|${c.notice?.leaves ?? ''}|${c.offSwapAt ?? ''}|${c.ratings.join()}|${JSON.stringify(c.blocks ?? null)}|${c.off ? c.off.join() : ''}|${JSON.stringify(c.offMonths ?? null)}|${JSON.stringify(c.freeMonths ?? null)}|${JSON.stringify(c.twoDays ?? null)}|${JSON.stringify(c.rot ?? null)}|${JSON.stringify(c.tzBack ?? null)}|${dp ? `${dp.from}:${dp.publishedTo ?? ''}:${dp.planned ?? ''}` : ''}`;
+  return `${c.base}|${c.loc}|${c.status}|${c.restUntil}|${c.lastRecovery}|${c.blockYear}|${c.blockYearOf}|${block12m(c, g.now)}|${c.hired}|${c.morale}|${c.notice?.leaves ?? ''}|${c.offSwapAt ?? ''}`;
 }
+function crewIds(g: GameState, c: CrewMember): unknown[] {
+  const dp = g.dayPlan;
+  return [c.ratings, c.ratings.length, c.blocks, c.blocks?.length, c.off, c.off?.length, c.offMonths, c.freeMonths, c.twoDays, c.rot, c.tzBack, dp, dp?.from, dp?.publishedTo, dp?.planned];
+}
+const sameIds = (a: unknown[], b: unknown[]): boolean => {
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+};
 
 export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], existing = false, slack = 0, leaving?: string, ride?: TicketPlan): CrewPlan {
   const tag = ride ? undefined : segsTagOf(base);
@@ -113,8 +122,11 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
   let m = memo.by.get(p);
   if (!m) memo.by.set(p, (m = new Map()));
   const k = `${c.id}:${existing ? 1 : 0}:${slack}:${leaving ?? ''}:${tag}:${crewKey(g, c)}`;
-  let plan = m.get(k);
-  if (!plan) m.set(k, (plan = planCrewRaw(g, c, p, base, existing, slack, leaving)));
+  const ids = crewIds(g, c);
+  const hit = m.get(k);
+  if (hit && sameIds(hit.ids, ids)) return hit.plan;
+  const plan = planCrewRaw(g, c, p, base, existing, slack, leaving);
+  m.set(k, { plan, ids });
   return plan;
 }
 
