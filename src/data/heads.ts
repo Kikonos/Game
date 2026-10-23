@@ -37,7 +37,7 @@ export const HEAD_DEFS: Record<HeadId, HeadDef> = {
   crewDesk: {
     id: 'crewDesk', title: 'Crew scheduling desk', icon: 'CalendarCheck',
     unlockText: '2 months in a row with at least 98 % crew coverage', earnedText: 'Two months with every seat filled',
-    does: ['Repairs the roster after disruptions (auto-fix, deadhead, call-in) within a cost limit', 'Keeps home standby filled', 'Proposes round-up hires'],
+    does: ['Repairs the roster after disruptions (auto-fix, deadhead, call-in) within a cost limit', 'Re-plans standby and days off after disruptions', 'Proposes round-up hires'],
     never: ['Charter a private jet above your limit', 'Sub-charter or cancel', 'Swap crews between contracts'],
     blurbs: ['Two schedulers from a big ACMI operator', 'A crewing pair who rostered a Hajj season', 'Crew control veterans from a leisure airline'],
   },

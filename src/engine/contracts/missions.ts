@@ -714,7 +714,7 @@ export function makeDryLeaseOffer(g: GameState, w?: IdleWindow, clientId?: strin
   const paint: 'full' | 'decals' | undefined = chance(r, 0.5) ? (chance(r, 0.4) ? 'full' : 'decals') : undefined;
   const o: ContractOffer = {
     id: nextId(g, 'o'), archetype: 'dryLeaseOut', clientId: client.id,
-    title: `Dry lease: ${t.short} to ${client.name}`,
+    title: `Dry lease: ${t.short}`,
     blurb: `${client.name} wants ${/^[AEIOU8]/.test(t.short) ? 'an' : 'a'} ${t.short} dry, without crew, for ${months} months from ${fmtDay(start)} at ${city(site)}: ` +
       `$${Math.round(rent / 1000)}K a month plus $${reserves} per flight hour in reserves. Our pilots deliver it and fetch it back; their crews and engineers fly and maintain it` +
       `${paint ? ` in ${client.name} colours` : ''}. Line and A-checks are theirs, the C-check stays ours.${consent ? ` The lessor wants $${consent / 1000}K to consent to the sub-lease.` : ''}`,

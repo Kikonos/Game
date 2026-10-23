@@ -290,12 +290,32 @@ export const longHaulBrand = (name: string) => LONGHAUL_BRANDS.some((b) => brand
 export const possessive = (name: string) => (/s$/i.test(name) ? `${name}'` : `${name}'s`);
 
 /**
- * v0.8 fix pack: a job named with its client once: 'Winter sun to Corfu for Corendon' when the title already says
- * who, else "Azul Brazilian Airlines' São Paulo base". Pure.
+ * v0.9 (§V.2): a job named with its client once, the client first: 'Corendon · Winter sun to Corfu'. Titles never
+ * carry the client (clientless). Pure.
  */
 export function jobName(client: string, title: string): string {
-  return title.includes(client) || title.includes(brandOf(client)) ? title : `${possessive(client)} ${title}`;
+  return title.includes(client) || title.includes(brandOf(client)) ? title : `${client} · ${title}`;
 }
+
+const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * v0.9 (§V.2): the client's name taken out of an offer title (the client is shown on its own): 'Winter sun to Corfu
+ * for Corendon' → 'Winter sun to Corfu', "TUI's summer wet lease, Lisbon" → 'Summer wet lease, Lisbon'. Pure.
+ */
+export function clientless(title: string, client: string): string {
+  let t = title;
+  for (const n of [...new Set([client, brandOf(client)])].sort((a, b) => b.length - a.length)) {
+    if (!n) continue;
+    const e = esc(n);
+    t = t.replace(new RegExp(`\\s(?:for|to|with) ${e}(?=$|[ ,:(])`), '');
+    t = t.replace(new RegExp(`^(?:${esc(possessive(n))}|${e})\\s+`), '');
+  }
+  t = t.trim();
+  if (t.length < 6 || t === title) return title;
+  return t[0].toUpperCase() + t.slice(1);
+}
+
 /** 'summer', 'Easter', 'Christmas' (mid-sentence). */
 const seasonMid = (s: Season) => (s === 'easter' || s === 'christmas' ? SEASON_WORD[s] : SEASON_WORD[s].toLowerCase());
 export const NATIONS: Record<string, string> = {

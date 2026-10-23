@@ -1219,6 +1219,8 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
     requirements.extraCabinPaid = { n, pct: Math.round(((X.paidPerBH * n) / basis) * 10_000) / 10_000, perBH: X.paidPerBH };
     o.blurb = `${o.blurb} The client pays $${X.paidPerBH} a block hour for each extra cabin crew member (${n} wanted).`;
   }
+  // v0.9 (§V.2) titles never carry the client's name (it is shown on its own).
+  o.title = F.clientless(o.title, d.client.name);
   // v0.7.2 F4: never the same title twice in a row for a client (builders without a pool: the month appended).
   const cl = g.clients[o.clientId];
   if (cl) {

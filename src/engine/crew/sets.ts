@@ -69,7 +69,7 @@ export interface FamilyPlan {
   /** v0.8 aircraft away on a dry lease (the lessee's crews fly them): no sets. */
   dryLeased: number;
   roles: SetRole[];
-  /** 'A320 family: 4 aircraft · 5 sets each = 20 sets needed · you have 18 complete · short 2 CPT, 1 PUR, 2 CC'. */
+  /** v0.9: 'Short: 2 CPT, 1 PUR, 2 CC' / 'Complete · 2 spare' (the tiles above show the rest). */
   verdict: string;
 }
 
@@ -297,7 +297,6 @@ export function completeSets(perSet: Partial<Record<Role, number>>, have: Partia
   return lo;
 }
 
-const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
 
 /** v0.7.4 the Crew planning view, one entry per fleet family (largest fleet first). Pure. */
 export function crewPlan(g: GameState): FamilyPlan[] {
@@ -339,10 +338,10 @@ export function crewPlan(g: GameState): FamilyPlan[] {
     }
     const each = Math.round(f.sets / f.aircraft);
     const shortTxt = miss.filter((m) => m.count > 0).map((m) => `${m.count} ${m.role}`).join(', ');
-    const head = `${LABEL[family]}: ${plural(f.aircraft, 'aircraft').replace(/aircrafts$/, 'aircraft')} · ${each} sets each = ${f.sets} sets needed`;
+    // v0.9 (§V.2) only what the tiles above don't show: the shortfall, or complete and any spare sets.
     const verdict = setsComplete >= f.sets
-      ? `${head} · you have ${setsComplete} complete${setsComplete > f.sets ? ` (${setsComplete - f.sets} spare)` : ''}`
-      : `${head} · you have ${setsComplete} complete · short ${shortTxt}`;
+      ? `Complete${setsComplete > f.sets ? ` · ${setsComplete - f.sets} spare` : ''}`
+      : `Short: ${shortTxt}`;
     out.push({
       family, label: LABEL[family], aircraft: f.aircraft, types: [...f.types.values()], setsPerAircraft: each, setsNeeded: f.sets, setsNow, setsComplete,
       limiting: setsComplete >= f.sets ? null : limiting, augmented: f.aug, clientCabin: Math.round(f.client), dryLeased: f.dry, roles, verdict,

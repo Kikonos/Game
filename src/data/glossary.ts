@@ -169,7 +169,7 @@ export const HINTS: Partial<Record<ProblemKind, { title: string; text: string }>
     text: 'The check interval ran out, so the aircraft may not carry passengers until the check is done. Book it now; the flights until then are lost.',
   },
   offerFit: {
-    title: 'An offer you cannot fly as it stands',
+    title: "An offer you can't fly yet",
     text: 'Every offer is checked against your aircraft and crew: seats, range, cabin, paint, who is free. The card names the one thing in the way and the button that fixes it.',
   },
   counterExpiry: {

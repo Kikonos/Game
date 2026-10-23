@@ -1,4 +1,4 @@
-// v0.7.1 contract problems as ProblemCards (UPDATE-0.7.1.md §9.2): an offer we can't fly as it stands, a counter
+// v0.7.1 contract problems as ProblemCards (UPDATE-0.7.1.md §9.2): an offer we can't fly yet, a counter
 // about to expire, a client change request, a penalty just paid, a contract cancelled. Pure.
 
 import { AIRPORT_BY_CODE } from '../../data/airports';
@@ -69,8 +69,8 @@ export function offerFitCard(g: GameState, offerId: string): ProblemCard | null 
   const hard = r.level === 'no';
   return {
     subject: { kind: 'offerFit', ref: { kind: 'offer', id: o.id } }, severity: hard ? 'red' : 'amber',
-    title: hard ? `You can't fly ${job} as it stands` : `${job} needs care`,
-    what: hard ? `You can't fly ${job} as it stands` : `${job} needs care`,
+    title: hard ? `${job}: not flyable yet` : `${job}: check before signing`,
+    what: hard ? `${job}: not flyable yet` : `${job}: check before signing`,
     why,
     hurt: mkHurt({ money: o.estValue, what: 'of work' }),
     actions: [action, ...(action.id !== 'review' ? [{ id: 'review', label: 'Review offer', open: { modal: 'offer' as const, id: o.id } }] : [])],

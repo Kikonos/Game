@@ -123,7 +123,7 @@ const FIX_DESC: Record<CrewFix, string> = {
   deadhead: 'A free crew member flies in as a passenger on an airline ticket.',
   delay: 'The flight waits until a legal crew can take it; later legs move.',
   jet: 'A business jet brings the crew in within hours. Dear, but fast.',
-  callIn: 'Someone off duty at the airport comes in: overtime pay, a morale hit.',
+  callIn: 'Standby first, no overtime. A day off costs overtime and morale.',
   discretion: "After reporting, if something unforeseen happens, the captain may extend the crew's day: up to 2 h (3 h with an augmented crew).",
   swap: "Take the crew of another flight; that flight then needs a crew.",
   subcharter: 'A rival airline flies it; we still bill the client.',
@@ -1292,8 +1292,8 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean, only?: readonly C
         const ot = id === 'callIn' && !sby ? overtimeOf(cm) : 0;
         const morale = c.dayOff ? BAL.v09.roster.morale.broken : CC().callInMorale;
         options.push({
-          id: c.crewId, label: `${c.name} · ${c.loc}${sby ? ` · ${sbyText(g, cm, sby)}` : id === 'callIn' ? (c.dayOff ? ' · Day off: called in' : ' · Off duty: called in') : c.standby ? ` · ${SBY_LABEL[c.standby.kind]}` : ''}`,
-          sub: sby ? `No overtime · ${SBY_LABEL[sby.kind]}` : id === 'callIn' ? `${usd(ot)} overtime · morale ${morale}` : `${c.travel ?? ''} · ${c.level === 'tight' ? 'tight after' : 'legal after'}`,
+          id: c.crewId, label: `${c.name}${sby ? '' : ` · ${c.loc}`}${sby ? ` · ${sbyText(g, cm, sby)}` : id === 'callIn' ? (c.dayOff ? ' · Day off: called in' : ' · Off duty: called in') : c.standby ? ` · ${SBY_LABEL[c.standby.kind]}` : ''}`,
+          sub: sby ? 'No overtime' : id === 'callIn' ? `${usd(ot)} overtime · morale ${morale}` : `${c.travel ?? ''} · ${c.level === 'tight' ? 'tight after' : 'legal after'}`,
           cost: id === 'callIn' ? ot : c.ticket, arrives: c.arrives, level: c.level, reason: c.reason,
         });
       }

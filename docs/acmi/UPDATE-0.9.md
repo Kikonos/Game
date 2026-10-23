@@ -377,6 +377,13 @@ Scope:
 | Crew Control `callIn` blurb (§R) | "Someone off duty at the airport comes in: overtime pay, a morale hit." | "Standby first, no overtime. A day off costs overtime and morale." |
 | Crew Control standby row (§R) | "Rita Costa · LIS · On home standby since 06:00 LIS" + "No overtime · standby beyond 6 h shortens the day" | "Rita Costa · Home standby (early) · ready in 1:30" + chip "No overtime" |
 | Longest-day popover | (§U.2) | (§U.2) |
+| offer titles (ENGINE `flavor.clientless`) | "Winter sun to Corfu for Corendon" · "TUI's summer wet lease, Lisbon" | "Winter sun to Corfu" · "Summer wet lease, Lisbon" (the client is shown on its own) |
+| job name (ENGINE `jobName`) | "Azul Brazilian Airlines' São Paulo base" | "Azul Brazilian Airlines · São Paulo base" |
+| dry lease offer title (ENGINE) | "Dry lease: A321neo to Wizz Air" | "Dry lease: A321neo" |
+| jumbo charter price (ENGINE `fmtPrice`) | "$1,240,000" | "$1,240,000 plus fuel at cost" |
+| crew desk "Does" (ENGINE `data/heads.ts`) | "Keeps home standby filled" | "Re-plans standby and days off after disruptions" |
+| amber crew message, out of hours (ENGINE §T) | "Crew short: TP1234 …" | "TP1234: crew out of hours" (a missing seat keeps "crew short") |
+| achievement `standby` (ENGINE) | "5 standby call-ins" | "25 standby call-outs" |
 
 ---
 
