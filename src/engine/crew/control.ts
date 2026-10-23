@@ -9,7 +9,7 @@ import { addDeadhead, flightsRev, liveFlightsOf, removeFlights, takeFlightChange
 import { distance } from '../core/geo';
 import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
-import { requestPause } from '../core/pause';
+import { isolatePauses, requestPause } from '../core/pause';
 import { canFill, isPilot, typeOf } from '../core/perf';
 import { DAY, fmtDateTime, fmtDuration, fmtTime } from '../core/time';
 import type { ActionResult, Aircraft, CrewFix, CrewMember, Duty, Flight, GameState, JetClass, Legality, Minute, Pairing, Role, StandbyKind } from '../core/types';
@@ -17,10 +17,10 @@ import { hashUnit } from '../core/util';
 import { relinkPositioning } from '../contracts/schedule';
 import { commercialItinerary, itinerary, itineraryText } from '../ops/commercial';
 import { crewReadyAt } from '../ops/events';
-import { cancelCost, cancelLegs, delayChain, unitOf } from '../ops/flights';
+import { cancelCost, cancelLegs, clearRestMarks, delayChain, unitOf } from '../ops/flights';
 import { rotationOf, subcharter, subcharterQuote } from '../ops/subcharter';
 import { contractOf, isRevenue, stats, usd } from '../ops/util';
-import { mkHurt, type GaugeSpec, type ProblemCard, type ReachSpec, hm, limitTone } from '../problems/types';
+import { hurtProse, mkHurt, type GaugeSpec, type ProblemCard, type ReachSpec, hm, limitTone } from '../problems/types';
 import { crewIssuesFor, openDuties, planCrew, readyAt } from './check';
 import { crewWindows } from './ftl';
 import { crewName } from './generate';
@@ -33,7 +33,7 @@ import { cabinEarly, crewCount, crewRev, dhBlock, locAt, OUT_CONNECT, segsOf, to
 import { callFromStandby, calledNow } from './standby';
 import { SBY_LABEL } from './calendar';
 import { offDaysHit, takesPublishedOff, v09Stats } from './dayPlan';
-import { crewAlertKind, type CrewAlertKind } from './outOfHours';
+import { crewAlertKind, LIMIT_NAME, type CrewAlertKind } from './outOfHours';
 import { restPlan } from './restPlan';
 
 export type { Reason, ReasonCode };
@@ -361,7 +361,7 @@ function escalate(g: GameState, reroster: boolean, freeFix: boolean): void {
       pushMessage(g, {
         tone: 'warn', cat: 'crew', cue: 'crewAmber',
         title: fl.length === 1 ? (hours ? `${fl[0].no}: crew out of hours` : card.what) : `${fl.length} flights need crew`,
-        body: `${card.why} ${card.hurt.text.replace(/^(Yes|Not much): /, '')}. Departs in ${h} h.${fl.length > 1 ? ` Also ${fl.slice(1, 4).map((f) => f.no).join(', ')}.` : ''}`,
+        body: `${hours ? `${card.what}. ` : ''}${card.why} ${hurtProse(card)}. Departs in ${h} h.${fl.length > 1 ? ` Also ${fl.slice(1, 4).map((f) => f.no).join(', ')}.` : ''}`,
         ref: card.subject.ref, problem: card.subject, hurt: { money: card.hurt.money, pax: card.hurt.pax, delayMin: card.hurt.delayMin, level: card.hurt.level },
       });
     }
@@ -369,8 +369,6 @@ function escalate(g: GameState, reroster: boolean, freeFix: boolean): void {
   if (red.length) {
     const duties = perDuty(red);
     s.crewRed = (s.crewRed ?? 0) + duties.length;
-    // v0.9 fix (§5.7): crew trouble ends the clean-sheet streak (the Ops Control unlock).
-    v9.legalStreak = 0;
     let short = false;
     let hrs = false;
     for (const f of perAircraft(duties)) {
@@ -387,7 +385,7 @@ function escalate(g: GameState, reroster: boolean, freeFix: boolean): void {
 
       pushMessage(g, {
         tone: 'bad', cat: 'crew', topic: hours ? 'crewHours' : 'crewRed', title: `${hours ? 'CREW OUT OF HOURS' : 'CREW SHORTAGE'}: ${f.no} in ${h} h`,
-        body: `${card.why} ${card.hurt.text.replace(/^(Yes|Not much): /, '')}.${also.length ? ` Also ${also.slice(0, 3).join(', ')} on the same aircraft.` : ''}`,
+        body: `${hours ? `${card.what}. ` : ''}${card.why} ${hurtProse(card)}.${also.length ? ` Also ${also.slice(0, 3).join(', ')} on the same aircraft.` : ''}`,
         ref: card.subject.ref, problem: card.subject, hurt: { money: card.hurt.money, pax: card.hurt.pax, delayMin: card.hurt.delayMin, level: card.hurt.level },
       });
     }
@@ -548,7 +546,7 @@ export function crewShortCard(g: GameState, flightId: string): ProblemCard | nul
         : `${crewName(cm)} is the nearest free ${word[0]}, but they ${/^finished\b/.test(r.text) ? '' : 'are '}${r.text}.`;
       terms.push('rest');
     } else if (r.code === 'fdp' && d) {
-      why = `${crewName(cm)} could take it, but their day would run ${r.text.replace(/^over the day limit \(?/, '').replace(/\)$/, '')}.`;
+      why = `${crewName(cm)} could take it, but their day would run ${r.text.replace(/^over the day-length limit \(?/, '').replace(/\)$/, '')}.`;
       visuals.gauges = crewGauges(g, cm.id, d.id);
       terms.push('fdp');
     } else if (r.code === 'hours') {
@@ -624,9 +622,10 @@ export function crewGauges(g: GameState, crewId: string, dutyId?: string): Gauge
   }
   const w = crewWindows(g, c, t);
   const cum = (id: GaugeSpec['id'], label: string, v: number, lim: number) => out.push({ id, label, value: v, limit: lim, unit: 'hm', text: `${hm(v)} of ${hm(lim)}`, tone: limitTone(v, lim), crewId });
-  cum('duty7d', '7-day duty', w.duty7d, LIMITS.duty7d);
-  cum('block28d', '28-day flying', w.block28d, LIMITS.block28d);
-  cum('blockYear', 'Year flying', w.blockYear, LIMITS.blockYear);
+  const cap = (t: string) => t[0].toUpperCase() + t.slice(1);
+  cum('duty7d', cap(LIMIT_NAME.duty7d), w.duty7d, LIMITS.duty7d);
+  cum('block28d', cap(LIMIT_NAME.block28d), w.block28d, LIMITS.block28d);
+  cum('blockYear', cap(LIMIT_NAME.blockYear), w.blockYear, LIMITS.blockYear);
   return out;
 }
 
@@ -905,11 +904,24 @@ function seatCandidates(g: GameState, d: Duty, role: Role, here: boolean): DutyC
 /** v0.9 §T the seats a new crew member can take: empty ones, then those held by crew out of hours. */
 const jetSeats = (x: Ctx): { role: Role; replaces?: string }[] => [...x.missing.map((role) => ({ role })), ...x.replace.map((r) => ({ role: r.role, replaces: r.crewId }))];
 
-/** v0.9 §Y.1 an augmented duty whose in-flight rest plan still fails after the change: why, in words (null: fine). */
+/**
+ * v0.9 §Y.1 an augmented duty whose in-flight rest plan still fails after the change: why, in words (null: fine).
+ * v0.9 round 4: judged at the gate (the actual off-block time; a replacement's own report), and a plan that works
+ * again clears the seats' rest marks at once.
+ */
 function restStillFails(h: GameState, dutyId: string): string | null {
   const d = h.duties[dutyId];
   if (!d || d.augment === 0 || d.legacyRest) return null;
-  return restPlan(h, d.id)?.ok === false ? 'Even with fresh crew the in-flight rest plan does not work after this delay: delay for rest or swap' : null;
+  const f = h.flights[d.flightIds[0]];
+  const at = f && d.report <= h.now ? Math.max(f.std + f.delay, h.now) : undefined;
+  const plan = restPlan(h, d.id, at !== undefined ? { at } : {});
+  if (plan?.ok === false) {
+    const p = h.pairings[d.pairingId];
+    const old = p ? p.slots.filter((s) => s.crewId && s.ooh?.limit === 'inflightRest' && s.from === undefined).length : 0;
+    return old ? `${old} of the cabin crew keep the old day: the rest plan only works with a whole fresh cabin crew` : 'Even with fresh crew the in-flight rest plan does not work after this delay: delay for rest or swap';
+  }
+  if (f) clearRestMarks(h, f);
+  return null;
 }
 
 /** The default (or chosen) crew per missing seat, one person each, from a candidate list per role. */
@@ -1011,7 +1023,8 @@ function delayPlan(g: GameState, x: Ctx): { at: Minute } | null {
       const h = previewCopy(g);
       previewing++;
       try {
-        return tryDelay(h, x.f.id, at);
+        // A dry run on a copy: no cue, no pause reaches the live game (core/pause.ts).
+        return isolatePauses(() => tryDelay(h, x.f.id, at));
       } catch {
         return false;
       } finally {
@@ -1179,6 +1192,8 @@ function runFix(h: GameState, flightId: string, fix: CrewFix, opts: ApplyOpts): 
       }
       const r = charterJet(h, f.id, picks.map((y) => y.c.id).filter((id) => !heldBy(ctxOf(h, flightId)?.p).has(id)), cls ?? jetClassFor(picks.length, distance(picks[0].loc, x.dep) / NM));
       if (!r.ok) return { ok: false, error: r.error === 'Nobody could be seated on the trip' ? 'Even flown in by jet, nobody is legal for the trip' : r.error };
+      // v0.9 round 4 (§Y.1): after the report, the jet's crew start a fresh day in the seats they took over.
+      if (d.report <= h.now && hp) for (const y of picks) if (y.replaces) for (const sl of hp.slots) if (sl.crewId === y.c.id) sl.from = h.now;
       const restBad = restStillFails(h, d.id);
       if (restBad) return { ok: false, error: restBad };
       // Seats the jet did not cover go to the roster as usual.
@@ -1316,7 +1331,7 @@ function previewOf(g: GameState, x: Ctx, fix: CrewFix, opts: ApplyOpts, before: 
   previewing++;
   let r: Run;
   try {
-    r = runFix(h, x.f.id, fix, opts);
+    r = isolatePauses(() => runFix(h, x.f.id, fix, opts));
   } catch (e) {
     r = { ok: false, error: `Not possible: ${e instanceof Error ? e.message : String(e)}` };
   } finally {
@@ -1558,7 +1573,7 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean, only?: readonly C
     const s = base('discretion');
     const over = d ? d.fdp - d.maxFdp - (d.discretion ?? 0) : 0;
     if (!d) out.push(no(s, 'No duty'));
-    else if (x.missing.length) out.push(no(s, "Seats are empty: discretion doesn't crew a flight."));
+    else if (x.missing.length) out.push(no(s, "Seats are empty: discretion doesn't crew a flight"));
     else if (!discretionCheck(g, d.id).ok) out.push(no(s, discretionCheck(g, d.id).why));
     else {
       s.chips = ['Free', `FDP +${fmtDuration(over)}`, 'Morale −3 each', 'Fatigue +10'];
@@ -1669,6 +1684,7 @@ export function applyCrewFix(g: GameState, flightId: string, fix: CrewFix, opts:
   if (!s) return { ok: false, error: 'Unknown fix' };
   if (!s.available) return { ok: false, error: s.why ?? 'Not available' };
   if (s.confirm && !opts.confirmed) return { ok: false, error: 'Needs confirmation' };
+  const kind = crewAlertKind(g, flightId);
   // The departure the row previewed (delay, jet + rest) is the one applied.
   const r = runFix(g, flightId, fix, (fix === 'delay' || fix === 'jet') && opts.at === undefined && s.newDeparture ? { ...opts, at: s.newDeparture } : opts);
   if (!r.ok) return r;
@@ -1682,9 +1698,10 @@ export function applyCrewFix(g: GameState, flightId: string, fix: CrewFix, opts:
   // One message per event: a cancellation posts its own (with the hurt) from here.
   if (fix === 'cancel') {
     const unit = view.unit.flightIds.map((id) => g.flights[id]).filter((l): l is Flight => !!l && l.status === 'cancelled');
+    // v0.9 round 4 (§V): 'cancelled' once (the title), the leg count once; the legs, the reason and what it costs.
     pushMessage(g, {
-      tone: view.unit.revenueLegs ? 'bad' : 'info', cat: 'crew', title: `${view.no} cancelled${unit.length > 1 ? ` with ${unit.length - 1} more` : ''}: crew shortage`,
-      body: `${unit.map((l) => `${l.no} ${l.from}–${l.to}`).join(', ')} cancelled for want of a legal crew. ${r.changes.join('. ')}.`,
+      tone: view.unit.revenueLegs ? 'bad' : 'info', cat: 'crew', title: `${view.no} cancelled${unit.length > 1 ? ` with ${unit.length - 1} more` : ''}: ${kind === 'hours' ? 'crew out of hours' : 'crew shortage'}`,
+      body: `${unit.map((l) => `${l.no} ${l.from}–${l.to}`).join(', ')}: no legal crew. ${r.cost ? `${usd(r.cost)} compensation` : 'No compensation'}${view.unit.revenueLegs ? ', reliability −3' : ''}.`,
       ref: { kind: 'flight', id: flightId }, hurt: { money: r.cost, pax: view.unit.pax, delayMin: 0, level: r.cost || view.unit.pax ? 'high' : 'none' },
     });
   } else pushMessage(g, {

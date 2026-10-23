@@ -16,7 +16,7 @@ import { fitStandby, monthFloorIssue, offDaysHit, offMovable, offSwappable, take
 import { infoOf } from './outOfHours';
 import { lateChange, moraleShock, nextReport } from './morale';
 import { cabinFdpCap, DISCRETION, evalSegs, levelOf, LIMITS, minRest, recoveryAnchor, tzDeltaH, worst, type Seg } from './rules';
-import { planRest, restCabinN, restLegs, restOf, restPlan } from './restPlan';
+import { cabinOwnReport, planRest, restCabinN, restLegs, restOf, restPlan } from './restPlan';
 import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, locAt, noteRiders, passengers, planHome, planOut, segsOf, ticketPrice, touchCrew, typeIdOf, withoutTickets } from './timeline';
 
 export { buildDuties } from './duties';
@@ -154,6 +154,7 @@ export function releaseCrew(g: GameState, p: Pairing, crewId: string): void {
     if (s.crewId !== crewId) continue;
     s.crewId = null;
     delete s.locked;
+    delete s.from;
   }
   // An extra seat exists only while someone holds it.
   if (p.slots.some((s) => s.extra && !s.crewId)) p.slots = p.slots.filter((s) => !(s.extra && !s.crewId));
@@ -600,19 +601,24 @@ export function guardDuty(g: GameState, dutyId: string): boolean {
     }
   }
   const off = found.filter((b) => !(d && g.pairings[d.pairingId]?.slots.some((s) => s.crewId === b.crewId)));
+  // v0.9 round 4 (§T): taken off for a legal limit is crew out of hours (its own kind, icon and pause), not a shortage.
+  const hours = off.some((b) => infoOf(g, b.crewId, b.issue) !== null);
   if (off.length) {
     const fid = (d ?? g.duties[dutyId])?.flightIds[0];
     const f = fid ? g.flights[fid] : undefined;
     const what = f ? `${f.no} ${f.from}–${f.to} ${fmtDateTime(f.std)}` : 'the duty';
+    const red = !!f && short > 0 && hours && f.std - g.now <= BAL.crewControl.redH * 60;
     pushMessage(g, {
-      tone: short ? 'warn' : 'info', cat: 'crew',
+      tone: short ? 'warn' : 'info', cat: 'crew', ...(red ? { topic: 'crewHours' as const } : {}),
+      // The ladder's own red message carries the alarm; this one chimes as routine news.
+      cue: 'message',
       title: `${off.length === 1 ? 'Crew member' : `${off.length} crew`} taken off ${f?.no ?? 'a duty'}`,
       body: `${off.map((b) => crewName(g.crew[b.crewId])).join(', ')}: ${off[0].issue.text}. ${short ? `No legal replacement for ${short} seat${short > 1 ? 's' : ''} on ${what} yet.` : `Replaced on ${what}.`}`,
       ref: f ? { kind: 'flight', id: f.id } : undefined,
-      ...(short && f ? { problem: { kind: 'crewShort' as const, ref: { kind: 'flight' as const, id: f.id } }, hurt: { money: 0, pax: f.pax ?? 0, delayMin: 0, level: (f.pax ?? 0) >= BAL.crewControl.hurtLowPax ? 'high' as const : 'low' as const } } : {}),
+      ...(short && f ? { problem: { kind: hours ? 'crewHours' as const : 'crewShort' as const, ref: { kind: 'flight' as const, id: f.id } }, hurt: { money: 0, pax: f.pax ?? 0, delayMin: 0, level: (f.pax ?? 0) >= BAL.crewControl.hurtLowPax ? 'high' as const : 'low' as const } } : {}),
     });
   }
-  if (short) requestPause('crewShortage');
+  if (short) requestPause(hours ? 'crewHours' : 'crewShortage');
   touchCrew(g);
   return !d || (!short && !crewIssuesFor(g, d).length);
 }
@@ -1250,7 +1256,7 @@ function rehome(g: GameState, p: Pairing): void {
 // ---------- disruption APIs ----------
 
 /** v0.7.3 why commander's discretion is not available before report (ORO.FTL.205(f): unforeseen, at or after report). */
-export const DISCRETION_BEFORE_REPORT = 'Only after the crew has reported. For a planned day: a fresh crew, a delay or more pilots.';
+export const DISCRETION_BEFORE_REPORT = 'Only after the crew has reported. For a planned day: a fresh crew, a delay or more pilots';
 
 /** v0.9 the FDP the duty was planned at when the crew reported (old saves: report to the last scheduled arrival). */
 export function plannedFdpOf(g: GameState, d: Duty): number {
@@ -1264,22 +1270,35 @@ export function plannedFdpOf(g: GameState, d: Duty): number {
  * reported, every seat filled, not used yet, the day legal when they reported (the overrun is unforeseen) and the
  * overrun within what discretion adds. `fdp`: the projected FDP (default the duty's). `addMin`: what it would add. Pure.
  */
-export function discretionCheck(g: GameState, dutyId: string, fdp?: number): { ok: boolean; why: string; addMin: number } {
+export function discretionCheck(g: GameState, dutyId: string, fdp?: number, opts: { cabinOver?: number } = {}): { ok: boolean; why: string; addMin: number } {
   const d = g.duties[dutyId];
   const p = d && g.pairings[d.pairingId];
-  if (!d || !p || d.done) return { ok: false, why: 'No duty to extend.', addMin: 0 };
+  if (!d || !p || d.done) return { ok: false, why: 'No duty to extend', addMin: 0 };
   const no = (why: string) => ({ ok: false, why, addMin: 0 });
   if (d.report > g.now) return no(DISCRETION_BEFORE_REPORT);
-  if (requiredEmpty(p)) return no("Seats are empty: discretion doesn't crew a flight.");
-  if (d.discretion) return no('Already used on this duty.');
-  if (plannedFdpOf(g, d) > d.maxFdp) return no("The day was already too long when they reported: that's planning, not an emergency.");
+  if (requiredEmpty(p)) return no("Seats are empty: discretion doesn't crew a flight");
+  if (d.discretion) return no('Already used on this duty');
+  if (plannedFdpOf(g, d) > d.maxFdp) return no("The day was already too long when they reported: that's planning, not an emergency");
+  const hm = (m: number) => `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
+  // v0.9 round 4 (§Y.1 step 2): a hold at the gate that only breaks the cabin crew's rest plan (the pilots are within
+  // their limit): the commander extends the cabin crew's day by the hold, within the 2 h / 3 h allowance and never past
+  // the CS FTL.1.205(c)(3) cap of their rest class.
+  if (opts.cabinOver !== undefined) {
+    const over = opts.cabinOver;
+    if (over <= 0) return no('The day is within its limit');
+    const rest = restOf(g, p.aircraftId ?? null);
+    const room = rest.cc ? cabinFdpCap(rest.cc.cls) - (d.cabinEarly ?? 0) - d.fdp : Infinity;
+    const add = Math.max(0, Math.min(d.augment > 0 ? DISCRETION.augmented : DISCRETION.basic, room));
+    if (over > add) return no(add ? `Over by ${hm(over)}: more than discretion allows` : `Over by ${hm(over)}: the cabin crew's rest class allows no longer day`);
+    return { ok: true, why: '', addMin: over };
+  }
   const up = discretionMax(g, d);
   const add = d.ext && d.basicFdp ? Math.max(0, Math.min(up, d.basicFdp + up - d.maxFdp)) : up;
   const over = (fdp ?? d.fdp) - d.maxFdp;
-  if (over <= 0) return no('The day is within its limit.');
+  if (over <= 0) return no('The day is within its limit');
   if (over > add) {
-    const h = `${Math.floor(over / 60)}:${String(over % 60).padStart(2, '0')}`;
-    return no(add ? `Over by ${h}: more than discretion allows.` : d.augment > 0 ? "Over by " + h + ": the cabin crew's rest allows no longer day." : `Over by ${h}: discretion adds nothing on a planned extension.`);
+    const h = hm(over);
+    return no(add ? `Over by ${h}: more than discretion allows` : d.augment > 0 ? `Over by ${h}: the cabin crew's rest does not allow a longer day` : `Over by ${h}: discretion adds nothing on a planned extension`);
   }
   return { ok: true, why: '', addMin: add };
 }
@@ -1297,28 +1316,31 @@ export function discretionCheck(g: GameState, dutyId: string, fdp?: number): { o
 export function discretionMax(g: GameState, d: Duty): number {
   const up = d.augment > 0 ? DISCRETION.augmented : DISCRETION.basic;
   if (d.augment === 0) return up;
-  const rest = restOf(g, g.pairings[d.pairingId]?.aircraftId ?? null);
+  const p = g.pairings[d.pairingId];
+  const rest = restOf(g, p?.aircraftId ?? null);
   const n = restCabinN(g, d);
   if (!rest.cc || n === 0) return up;
   const early = d.cabinEarly ?? 0;
-  let x = Math.max(0, Math.min(up, cabinFdpCap(rest.cc.cls) - early - d.maxFdp));
+  // v0.9 round 4 (§Y.1): a cabin crew that joined at the gate has a shorter day than the pilots (their own report).
+  const own = p ? cabinOwnReport(p, d) : 0;
+  let x = Math.max(0, Math.min(up, cabinFdpCap(rest.cc.cls) - early - (d.maxFdp - own)));
   // ... nor past what the cabin crew aboard can rest for in this cruise (a longer day needs more rest each).
   const legs = restLegs(g, d);
   const fits = (m: number) => {
-    const plan = planRest(legs, rest, d.augment as 1 | 2, d.maxFdp + m + early, n);
+    const plan = planRest(legs, rest, d.augment as 1 | 2, d.maxFdp + m + early - own, n);
     return plan.ok && plan.extraCabin <= (d.restExtra ?? 0);
   };
   while (x > 0 && legs.length && !fits(x)) x = Math.max(0, x - 15);
   return x;
 }
 
-export function applyDiscretion(g: GameState, dutyId: string, fdp?: number): ActionResult {
+export function applyDiscretion(g: GameState, dutyId: string, fdp?: number, opts: { cabinOver?: number } = {}): ActionResult {
   const d = g.duties[dutyId];
   const p = d && g.pairings[d.pairingId];
   if (!d || !p) return { ok: false, error: 'Duty not found' };
   if (d.done) return { ok: false, error: 'Duty already flown' };
   // v0.9 only for the unforeseen, after report (§U.3).
-  const chk = discretionCheck(g, dutyId, fdp);
+  const chk = discretionCheck(g, dutyId, fdp, opts);
   const st = v09StatsOf(g);
   if (!chk.ok) {
     st.discretionRefused++;
@@ -1409,6 +1431,7 @@ export function placeCrew(g: GameState, p: Pairing, slot: number, c: CrewMember)
   const plan = planCrew(g, c, p, segsOf(g, c, p.id));
   p.slots[slot].crewId = c.id;
   delete p.slots[slot].ooh;
+  delete p.slots[slot].from;
   const od = openDuties(g, p);
   callIfOnStandby(g, c.id, od[0]?.report);
   if (od.length) dropSbyFor(g, c, plan);
@@ -1461,6 +1484,9 @@ export function flightCrewStatus(g: GameState, flightId: string, opts?: { live?:
   const missing = p.slots.filter((s) => !s.crewId && !s.above).map((s) => s.role);
   if (d.legality === 'illegal') return { level: 'illegal', missing };
   if (missing.length) return { level: 'missing', missing };
+  // v0.9 round 4 (§Y.1): a rest plan that failed at the gate (cabin seats marked, crew still aboard) blocks the departure
+  // like an illegal duty, so the ladder, the problems list, the strip, the pause badge and the map all see it.
+  if (!d.done && d.report <= g.now && p.slots.some((s) => s.crewId && s.ooh?.limit === 'inflightRest')) return { level: 'illegal', missing };
   if (p.legality === 'illegal') {
     // A crew member who can't fly a later duty of the trip only warns on the earlier ones (the roster takes them
     // off from that duty); another duty's FDP is that duty's problem. Old saves without the mark: whole trip.

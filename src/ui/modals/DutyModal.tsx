@@ -229,7 +229,7 @@ function DayLength({ g, dutyId, ac }: { g: GameState; dutyId: string; ac?: strin
   return (
     <div className="col gap-8">
       <span className="small muted row gap-8 wrap">
-        <span><Term id="fdp">Day length</Term> <b className="num">{hm(d.fdp)}</b> of <b className="num">{hm(limit)}</b></span>
+        <span><Term id="fdp">Day length</Term> <b className="num">{hm(d.fdp)}</b> of <b className="num">{hm(d.discretion ? d.maxFdp : limit)}</b>{d.discretion ? <> + {hm(d.discretion)} <Term id="discretion">discretion</Term></> : null}</span>
         {why && <button className="dm-why-btn" onClick={() => setOpen(!open)} aria-expanded={open}>{open ? 'Hide why' : `Why ${hm(limit)}?`}</button>}
         <span>· {d.sectors} sector{d.sectors === 1 ? '' : 's'} · {2 + d.augment} pilots{d.ext ? ' · planned extension' : ''}{d.split ? ' · split duty' : ''}{ac ? ` · ${ac}` : ''}</span>
       </span>

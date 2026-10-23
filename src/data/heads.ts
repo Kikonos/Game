@@ -22,7 +22,7 @@ export const HEAD_IDS: HeadId[] = ['opsControl', 'crewDesk', 'analyst', 'credit'
 export const HEAD_DEFS: Record<HeadId, HeadDef> = {
   opsControl: {
     id: 'opsControl', title: 'Ops Control duty manager', icon: 'Radio',
-    unlockText: '25 revenue sectors in a row with a legal crew and no crew trouble', earnedText: '25 sectors in a row, all with legal crews',
+    unlockText: '25 revenue sectors in a row with a legal crew', earnedText: '25 sectors in a row, all with legal crews',
     does: ['Calls in a replacement for a sick call', 'Takes a short delay at the gate when a legal crew is ready within your limit'],
     never: ['Sub-charter or cancel', "Use captain's discretion", 'Decide AOGs or closed airspace', 'Delay beyond your limit'],
     blurbs: ['IOCC duty officer; calm on the phone at 3 a.m.', 'Ex-dispatcher, knows every handling agent by name', 'Ran the night desk for a charter airline'],

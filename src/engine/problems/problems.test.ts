@@ -16,6 +16,7 @@ import { releaseCrew, setFlightsCrew } from '../crew/roster';
 import { startAog } from '../ops/maintenance';
 import { advanceTo } from '../sim';
 import { hurtBadges, mkHurt, postProblem, problemAt, problemFor, problems } from '.';
+import { hurtProse } from './types';
 
 function game(): GameState {
   const g = fixtureGame(9);
@@ -153,7 +154,15 @@ describe('cards', () => {
     expect(c.hurt.level).toBe('high');
     expect(c.visuals.timeline).toBeDefined();
     expect(problems(g).some((x) => x.subject.kind === 'cashLow')).toBe(true);
+    // v0.9 round 4 (§S): below zero the cash dot leads with the cash-negative card (red, the rescue clock); at or above it, the forecast card.
+    const neg = problemAt(g, { kind: 'cash', id: 'cash' })!;
+    expect(neg.subject.kind).toBe('cashNegative');
+    expect(neg.what).toMatch(/^Cash is below zero \(/);
+    expect(neg.severity).toBe('red');
+    expect(neg.hurt.text).toMatch(/investor offers a rescue/);
+    g.company.cash = 10_000;
     expect(problemAt(g, { kind: 'cash', id: 'cash' })?.subject.kind).toBe('cashLow');
+    g.company.cash = -200_000;
     const cl = Object.values(g.clients)[0];
     const r: Receivable = { id: 'r-late', clientId: cl.id, contractId: null, desc: 'Test invoice', amount: 610_000, issued: g.now - 60 * DAY, due: g.now - 30 * DAY, payAt: g.now + 10 * DAY, paid: null, cat: 'charterRevenue' };
     g.finance.receivables.push(r);
@@ -205,7 +214,9 @@ describe('cards', () => {
     const m = postProblem(g, card, { cat: 'crew' });
     expect(m.title).toBe(card.what);
     expect(m.body.startsWith(card.why)).toBe(true);
-    expect(m.body).toContain(card.hurt.text);
+    // v0.9 round 4 (§V): the hurt as prose, never the card's 'Yes: ' / 'Not much: ' answer mid-paragraph.
+    expect(m.body).toContain(hurtProse(card));
+    expect(m.body).not.toMatch(/Yes:|Not much:/);
     expect(m.problem).toEqual(card.subject);
     expect(m.hurt).toEqual({ money: card.hurt.money, pax: card.hurt.pax, delayMin: card.hurt.delayMin, level: card.hurt.level });
     expect(m.tone).toBe(card.severity === 'red' ? 'bad' : 'warn');

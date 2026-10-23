@@ -16,7 +16,8 @@ import { chance, int, pick, range } from '../core/rng';
 import { DAY, fmtDateTime, fmtDay, fmtDuration, fmtTime, localMinuteOfDay, monthKey, toDate } from '../core/time';
 import type { ActionResult, Aircraft, Contract, CrewFix, CrewMember, CrewStatus, Decision, DecisionOption, Flight, GameState, MaintenanceEvent, MessageCat, Minute, Pairing, Receivable, Role, SimEvent } from '../core/types';
 import { generateOffer, planPositioning } from '../contracts';
-import { applyCrewFix, applyDiscretion, crewControl, discretionCheck, flightCrewStatus, minRest, moraleShock, replaceCrew, rerosterFrom, rosterOf } from '../crew';
+import { applyCrewFix, applyDiscretion, crewAlertKind, crewControl, discretionCheck, flightCrewStatus, minRest, moraleShock, replaceCrew, rerosterFrom, rosterOf } from '../crew';
+import { hurtProse } from '../problems/types';
 import { planCrew } from '../crew/check';
 import { calledNow } from '../crew/standby';
 import { type IssueCode } from '../crew/rules';
@@ -413,9 +414,11 @@ export function crewShortDecision(g: GameState, f: Flight, ac: Aircraft): void {
   const what = cs.missing.length
     ? `no legal ${[...new Set(cs.missing)].join('/')} can take it`
     : over > 0 ? `the crew would run ${fmtDuration(over)} over their duty limit` : 'the rostered crew is out of hours';
+  // v0.9 round 4 (§T, §V): titled by the alert kind; the flight number once; the hurt as prose.
+  const hours = crewAlertKind(g, f.id) === 'hours';
   ask(g, {
-    kind: 'crewShort', title: `Crew short: ${f.no} ${f.from}–${f.to}`,
-    body: card ? `${card.what}. ${card.why} ${card.hurt.text}. It has been waiting ${fmtDuration(f.delay)} at ${city(f.from)}.` : `${f.no} has been waiting ${fmtDuration(f.delay)} at ${city(f.from)}: ${what}.`,
+    kind: 'crewShort', title: `${hours ? 'Crew out of hours' : 'Crew short'}: ${f.no} ${f.from}–${f.to}`,
+    body: card ? `${card.what.replace(` for ${f.no}`, '')}. ${card.why} ${hurtProse(card)}. It has been waiting ${fmtDuration(f.delay)} at ${city(f.from)}.` : `${f.no} has been waiting ${fmtDuration(f.delay)} at ${city(f.from)}: ${what}.`,
     options, defaultOption: def, expires: g.now + 60, ref: { kind: 'flight', id: f.id },
     data: { flightId: f.id, aircraftId: ac.id, dutyId: d?.id ?? '', factor, rivalId },
   });

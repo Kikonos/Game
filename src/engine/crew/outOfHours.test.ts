@@ -8,7 +8,8 @@ import { blockMinutes } from '../core/perf';
 import { clearPause, takePause } from '../core/pause';
 import { DAY } from '../core/time';
 import type { GameState } from '../core/types';
-import { problemFor } from '../problems';
+import { problemAt, problemFor, problems } from '../problems';
+import { v09Stats } from './dayPlan';
 import { crewAlertKind, escalateShortages, guardDuty, outOfHours, shortFlights } from '.';
 import { buildDuties } from './duties';
 import { addCrew, fixtureContract, fixtureGame } from './fixtures';
@@ -57,7 +58,12 @@ describe('§T crewAlertKind', () => {
     expect(card.subject.kind).toBe('crewHours');
     expect(card.what).toMatch(/\(captain\).* out of hours for AW910/);
     expect(card.why).toMatch(/28-day flying would reach \d+:\d\d \(limit 100:00\)/);
-    expect(card.details[0]).toMatch(/^What you can do: .*Sub-charter · Cancel$/);
+    // v0.9 round 4 (§T): the fixes are the fourth line itself, cheapest first, each opening Crew Control on its row.
+    const labels = card.actions.map((a) => a.label);
+    expect(labels[0]).toMatch(/^Replace \S+: .+ \((home|hotel|airport) standby at \w{3}|free at \w{3}|flies in .+\)$/);
+    expect(labels.slice(-2)).toEqual(['Sub-charter', 'Cancel']);
+    expect(card.actions.every((a) => 'modal' in a.open && a.open.modal === 'crewControl' && !!a.open.fix)).toBe(true);
+    expect(card.details.some((x) => x.startsWith('What you can do'))).toBe(false);
     expect(card.terms).toContain('outOfHours');
   });
 
@@ -88,9 +94,17 @@ describe('§T crewAlertKind', () => {
     g.now = f.std - 6 * 60;
     clearPause();
     takeCues();
+    // v0.9 round 4 (§5.7): a red warning is not an illegal duty: the clean-sheet streak stands.
+    v09Stats(g).legalStreak = 10;
     escalateShortages(g);
+    expect(v09Stats(g).legalStreak).toBe(10);
     const row = shortFlights(g).find((x) => x.flightId === f.id)!;
     expect(row.kind).toBe('hours');
+    // v0.9 round 4 (§T): the global problems list carries the out-of-hours card, not a shortage card.
+    const pc = problems(g).find((c) => c.subject.ref.id === f.id)!;
+    expect(pc.subject.kind).toBe('crewHours');
+    expect(problemAt(g, { kind: 'flight', id: f.id })?.subject.kind).toBe('crewHours');
+    expect(pc.what).toMatch(/\(captain\) is out of hours for AW910$/);
     const m = g.messages.find((x) => x.topic === 'crewHours')!;
     expect(m.title).toMatch(/^CREW OUT OF HOURS: AW910 in \d+ h$/);
     expect(takePause()).toBe('crewHours');
@@ -116,13 +130,25 @@ describe('§T crewAlertKind', () => {
     over28(g, cpt, d.report);
     const others = Object.values(g.crew).filter((c) => c.role === 'CPT' && c.id !== cpt);
     for (const c of others) c.blocks = [{ from: g.now - DAY, to: g.now + 9 * DAY, why: 'leave' }];
+    clearPause();
+    takeCues();
     guardDuty(g, d.id);
     const q = g.pairings[g.duties[d.id].pairingId];
     const seat = q.slots.find((s) => s.role === 'CPT')!;
     expect(seat.crewId).toBeNull();
     expect(seat.ooh).toMatchObject({ crewId: cpt, limit: 'block28d' });
     expect(crewAlertKind(g, f.id)).toBe('hours');
-    expect(outOfHours(g, f.id)[0].crewId).toBe(cpt);
+    const x = outOfHours(g, f.id)[0];
+    expect(x.crewId).toBe(cpt);
+    // v0.9 round 4 (§T): taken off for a limit is out of hours: its own problem kind and pause; the WHY keeps 'by how much'.
+    const off = g.messages.find((m) => /taken off AW910$/.test(m.title))!;
+    expect(off.problem?.kind).toBe('crewHours');
+    expect(takePause()).toBe('crewHours');
+    expect(takeCues()).not.toContain('crewOutOfHours');
+    expect(x.value).toBe(0);
+    expect(x.overMin).toBeGreaterThan(0);
+    expect(problemFor(g, { kind: 'crewHours', ref: { kind: 'flight', id: f.id } })!.why).toMatch(/28-day flying is \d+:\d\d over the 100 h limit\./);
+    expect(x.limitText).toBe('has reached the 28-day flying limit (100 h)');
     // Back from leave: the roster refills the seat legally and the mark goes.
     for (const c of others) c.blocks = [];
     autoRoster(g);

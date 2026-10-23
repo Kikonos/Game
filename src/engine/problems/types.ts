@@ -3,7 +3,7 @@
 
 import type { TermId } from '../../data/glossary';
 import { BAL } from '../core/balance';
-import type { Minute, ProblemKind, ProblemRef, Ref } from '../core/types';
+import type { CrewFix, Minute, ProblemKind, ProblemRef, Ref } from '../core/types';
 
 export type { ProblemKind, ProblemRef };
 
@@ -33,7 +33,7 @@ export interface ProblemAction {
   id: string;
   label: string;
   /** Where the button goes: a modal spec the UI understands, or a tab. */
-  open: { modal: ModalKind; id: string } | { tab: TabId; view?: string; sel?: Ref };
+  open: { modal: ModalKind; id: string; /** v0.9 round 4: the Crew Control row to open on ('callIn', 'delay', …). */ fix?: CrewFix } | { tab: TabId; view?: string; sel?: Ref };
   primary?: boolean;
 }
 
@@ -150,6 +150,9 @@ export function mkHurt(x: { money?: number; pax?: number; delayMin?: number; leg
   const text = level === 'none' ? `Not much: ${parts.length ? parts.join(', ') : 'nothing lost yet'}` : `Yes: ${parts.join(', ')}`;
   return { money, pax, delayMin, legs, level, text, badges: hurtBadges({ money, pax, delayMin, level }) };
 }
+
+/** v0.9 round 4 (§V): the DOES-IT-HURT line as prose for an inbox body: 'Yes: ' / 'Not much: ' dropped. */
+export const hurtProse = (card: Pick<ProblemCard, 'hurt'>): string => card.hurt.text.replace(/^(Yes|Not much|Not now): /, '');
 
 /** Tone of a value against its limit (0.75 / 0.95 of it). */
 export const limitTone = (value: number, limit: number): GaugeSpec['tone'] => (limit <= 0 ? 'good' : value >= limit * 0.95 ? 'bad' : value >= limit * 0.75 ? 'warn' : 'good');

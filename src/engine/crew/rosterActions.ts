@@ -263,12 +263,15 @@ function issuesText(g: GameState, c: CrewMember, p: Pairing): { level: Legality;
   return { level: levelOf(plan.issues.filter((i) => i.code !== 'fdp')), text: bad[0]?.text ?? '' };
 }
 
-function basicChecks(g: GameState, p: Pairing, c: CrewMember, role: Role): string | null {
+function basicChecks(g: GameState, p: Pairing, c: CrewMember, role: Role, replace = false): string | null {
   const t = typeOf(typeIdOf(g, p));
   if (!canFill(role, c.role)) return `A ${c.role} can't fill a ${role} seat`;
   if (!c.ratings.includes(t.family)) return `${crewName(c)} is not rated on ${t.short}`;
   if (!openDuties(g, p).length) return 'This trip has already flown';
-  if (inProgress(g, p)) return 'A duty of this trip is under way; change the crew after it releases';
+  const under = inProgress(g, p);
+  // v0.9 round 4 (§Y.1): a replacement at the gate (the duty reported, its first leg still on the ground) is allowed:
+  // the crew out of hours come off and the fresh crew start their own day there.
+  if (under && !(replace && g.flights[under.flightIds[0]]?.status === 'scheduled')) return 'A duty of this trip is under way; change the crew after it releases';
   return null;
 }
 
@@ -283,7 +286,7 @@ export function assignCrew(g: GameState, dutyOrFlightId: string, crewId: string,
   const { p } = x;
   const c = g.crew[crewId];
   if (!c) return { ok: false, error: 'Crew member not found' };
-  const bad = basicChecks(g, p, c, role);
+  const bad = basicChecks(g, p, c, role, !!opts.replace);
   if (bad) return { ok: false, error: bad };
   if (p.slots.some((s) => s.crewId === crewId)) return { ok: false, error: `${crewName(c)} is already on this trip` };
   let slot = -1;
@@ -303,6 +306,9 @@ export function assignCrew(g: GameState, dutyOrFlightId: string, crewId: string,
   }
   placeCrew(g, p, slot, c);
   p.slots[slot].locked = true;
+  // v0.9 round 4 (§Y.1): a replacement at the gate starts a fresh day: their own report is now, not the duty's.
+  const d0 = openDuties(g, p)[0];
+  if (opts.replace && d0 && d0.report <= g.now) p.slots[slot].from = g.now;
   touchCrew(g);
   const name = crewName(c);
   const msg = check.level === 'illegal' ? `${name} assigned, flagged illegal: ${check.text}` : check.level === 'tight' ? `${name} assigned (tight)` : `${name} assigned`;

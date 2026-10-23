@@ -230,7 +230,7 @@ All are synthesised with WebAudio. Bells are sine partials 1× (1.0), 2× (0.18,
 | `ruleAlert` | a watch-desk rule fired | `double` |
 | `cancelRisk` | a flight about to be cancelled (gate crew decision, uninsurable, a hold over 6 h) | `triple` |
 | `airspaceActive` | airspace closed on a flight that is scheduled or airborne | `triple` |
-| `cashNegative` | cash below zero, the rescue decision | `triple` |
+| `cashNegative` | the day cash crosses below zero (with its four-line card), and the rescue decision | `triple` |
 | `evacuation` | an urgent evacuation or repatriation request | `triple` |
 | `clientCollapse` | a client drops to Unhappy | `triple` |
 | `crewShortage` | CREW SHORTAGE (red stage, 12 h) | `alarm` |
@@ -242,14 +242,16 @@ The urgent alarm is used **only** for `crewShortage` and `crewOutOfHours`.
 
 ### S.4 Rate limit and merge
 - Chimes and alerts go through a 900 ms merge window that starts at the first request. When it closes, the highest-priority sound plays **once**. Priority: `alarm` 100 > `triple` 90 > `double` 80 > `achievement` 70 > `flourish` 65 > `highLow` 60 > `highLowSoft` 55 > `ding` 45 > `high` 40 > `low` 30.
-- Cooldown per sound after it plays: `alarm` 20 s (a second flight's red inside 20 s is merged), `triple` 10 s, `double` 6 s, `highLow` 3 s, `ding`/`high` 2.5 s, `low` 2 s. A request in cooldown is dropped, unless it outranks the sound that played.
+- Cross-sound window (v0.9 round 4, the player's call): for **4 s** after any sound plays, only a request that outranks it plays; the rest are dropped (one meaning at a time, never a burst). After the window a lower-priority alert plays as usual (an AOG `double` 5 s after a crew `alarm` is heard).
+- Cooldown per sound for a **repeat of the same sound**: `alarm` 20 s (a second flight's red inside 20 s is merged: the urgent alarm never sounds twice inside 20 s), `triple` 10 s, `double` 6 s, `highLow` 3 s, `ding`/`high` 2.5 s, `low` 2 s.
 - UI sounds play at once (not merged), at most one per 50 ms, and are muted while an alert sound plays.
 - At 4×, with five arrivals and an offer in one second, only one `highLow` plays.
 
 ### S.5 Settings, unlock, platform
 - `Settings` (UI store, `load` merges defaults): `sound` (master, default **true**), `volume` (default 0.6 for new installs; kept for old ones), `soundCats: { alerts: true; chimes: true; flights: false; ui: true }`, `ambience: 'off' | 'cabin' | 'terminal'` (default `'off'`). Category gains: alerts 1.0, chimes 0.8, ui 0.5, ambience 0.25.
 - **Settings › Sound** section (replaces the two rows): Master on/off, Volume slider, toggles **Alerts** (emergencies and the urgent alarm), **Chimes** (messages, offers, achievements), **Flight chimes** (every departure and landing), **UI clicks**, and a **Ambience** Seg (Off · Cabin · Terminal). **Test sounds** opens a list (inside the settings modal, scrolling): one 56 px row per SoundId with its meaning ("Triple high-low: serious, e.g. airspace closed on an active flight") and a ▶ button.
-- **iOS/Safari**: the first `pointerdown` anywhere (capture, once) creates or resumes the `AudioContext` and plays a one-sample silent buffer. Set `navigator.audioSession.type = 'ambient'` when available (Safari 16.4+), so the ringer switch mutes the game and the player's music keeps playing. Suspend the context when the page is hidden and resume it when visible. Nothing plays before that first tap.
+- **iOS/Safari**: the first `pointerdown` anywhere (capture, once) creates or resumes the `AudioContext` and plays a one-sample silent buffer. Set `navigator.audioSession.type = 'ambient'` when available (Safari 16.4+), so the ringer switch mutes the game and the player's music keeps playing. Suspend the context when the page is hidden and resume it when visible. Nothing plays before that first tap. While the context is asleep (a call, Siri, another app's audio: WebKit's `interrupted`) nothing is rendered on its frozen clock; at most the highest-priority request is kept and plays once at the next tap, so a minute-long interruption never ends in a burst of stacked chimes (round 4).
+- Previews and dry runs on copies of the state (Crew Control's nine previews, the delay search, a head's trial, roster-board verdicts) run inside `isolatePauses`, which mutes `cue()` and keeps pending pauses: a delay the player only looked at never chimes or stops the clock (round 4).
 - Ambience fades in over 2 s on the game screen and out on the title screen or when switched off.
 
 ---

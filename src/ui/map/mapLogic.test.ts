@@ -5,7 +5,7 @@ import { aircraftLive } from '../../engine/core/query';
 import { fmtTime, fromUTC } from '../../engine/core/time';
 import type { ContractOffer, GameState } from '../../engine/core/types';
 import { demoFlights, devRestPlan } from '../../engine/dev';
-import { restNow, restPlanForFlight } from '../../engine/crew';
+import { LIMIT_NAME, restNow, restPlanForFlight } from '../../engine/crew';
 import { createGame } from '../../engine/newGame';
 import { advanceTo } from '../../engine/sim';
 import {
@@ -630,8 +630,10 @@ describe('v0.9 crew out of hours, hotel standby and crew changes on the map', ()
   });
 
   it('names the limit in a few words and counts more than one person', () => {
-    expect(oohLine([{ name: 'Ana Silva', limit: 'block28d' }])).toBe('Crew out of hours · Ana Silva (28-day hours)');
-    expect(oohLine([{ name: 'Ana Silva', limit: 'fdp' }, { name: 'Rui Costa', limit: 'fdp' }])).toBe('Crew out of hours · Ana Silva (day too long) and 1 other');
+    // v0.9 round 4 (§V): the one name per limit everywhere (LIMIT_NAME), the map tag included.
+    expect(oohLine([{ name: 'Ana Silva', limit: 'block28d' }])).toBe('Crew out of hours · Ana Silva (28-day flying)');
+    expect(oohLine([{ name: 'Ana Silva', limit: 'fdp' }, { name: 'Rui Costa', limit: 'fdp' }])).toBe('Crew out of hours · Ana Silva (day length (FDP)) and 1 other');
+    expect(OOH_SHORT).toBe(LIMIT_NAME);
     expect(oohLine([])).toBe('Crew out of hours');
     for (const w of Object.values(OOH_SHORT)) expect(w.length).toBeLessThanOrEqual(16);
   });

@@ -371,9 +371,12 @@ class GameStore {
   }
 
   setSpeed(s: GameSpeed) {
+    const wasPaused = this.paused;
     this.speed = s;
     this.paused = false;
     this.pauseReason = null;
+    // v0.9 round 4 (§S): a speed button or key that leaves the paused state is a resume (the LOW chime), like the pause button.
+    if (wasPaused) sound.event('resume');
     this.emit();
   }
 

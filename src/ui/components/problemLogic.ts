@@ -224,7 +224,7 @@ export function actionTarget(g: GameState, a: ProblemAction): ActionTarget {
   if ('tab' in o) return { nav: { tab: o.tab, view: o.view, sel: o.sel } };
   const id = o.id;
   switch (o.modal) {
-    case 'crewControl': return { modal: { kind: 'crewControl', flightId: id } };
+    case 'crewControl': return { modal: { kind: 'crewControl', flightId: id, ...(o.fix ? { fix: o.fix } : {}) } };
     case 'duty': return { modal: { kind: 'duty', id } };
     // v0.7.2: 'Plan at Sofia' (a C-check card) opens the hub list.
     case 'check': return { modal: /^Plan at /.test(a.label) ? { kind: 'check', aircraftId: id, checkKind: 'C' } : { kind: 'check', aircraftId: id } };

@@ -1,8 +1,9 @@
 // v0.9 aviation sound set (UPDATE-0.9.md §S): cabin and cockpit chimes synthesised with WebAudio (no audio files, so
 // it works offline). Sine/triangle bell partials with a natural decay and a little room reverb; nothing harsh. Each
 // event maps to exactly one sound in SOUND_OF (the doc's §S.3 table is its documentation). Chimes and alerts merge in a
-// 900 ms window and play the highest-priority one once, with per-sound cooldowns, so 4× never machine-guns. The urgent
-// alarm is only for CREW SHORTAGE and CREW OUT OF HOURS. Nothing plays before the first tap (iOS audio unlock).
+// 900 ms window and play the highest-priority one once; for 4 s after a sound only one that outranks it plays, and the
+// same sound never repeats inside its own cooldown (the alarm: 20 s), so 4× never machine-guns. The urgent alarm is
+// only for CREW SHORTAGE and CREW OUT OF HOURS. Nothing plays before the first tap (iOS audio unlock).
 
 import type { Cue } from '../engine/core/cues';
 
@@ -40,10 +41,12 @@ export const CAT_OF: Record<SoundId, SoundCat> = {
 export const PRIORITY: Partial<Record<SoundId, number>> = {
   alarm: 100, triple: 90, double: 80, achievement: 70, flourish: 65, highLow: 60, highLowSoft: 55, ding: 45, high: 40, low: 30,
 };
-/** Quiet time after a sound plays (ms): a request that doesn't outrank it is dropped meanwhile. */
+/** Quiet time after a sound plays (ms) for a repeat of the SAME sound (§S.4): the alarm never twice inside 20 s. */
 export const COOLDOWN: Partial<Record<SoundId, number>> = {
   alarm: 20_000, triple: 10_000, double: 6_000, highLow: 3_000, highLowSoft: 3_000, achievement: 3_000, flourish: 3_000, ding: 2_500, high: 2_500, low: 2_000,
 };
+/** v0.9 round 4 (§S.4): for this long after any sound, only a request that outranks it plays (one meaning at a time). */
+export const CROSS_MS = 4_000;
 /** Rough length (s), so UI clicks stay quiet while an alert sounds. */
 const LENGTH: Partial<Record<SoundId, number>> = { double: 2.2, triple: 3.3, alarm: 2.6 };
 
@@ -80,14 +83,23 @@ const CAT_GAIN: Record<SoundCat, number> = { alerts: 1, chimes: 0.8, ui: 0.5, am
 
 /**
  * Merge rule (pure, for tests): given the requests of one window and the last sound that played, the sound to play now
- * (or null). A request inside the last sound's cooldown is dropped unless it outranks it.
+ * (or null). Inside the 4 s cross-sound window only a request that outranks the last sound plays; the same sound never
+ * repeats inside its own cooldown (the alarm: 20 s).
  */
 export function pickMerged(reqs: SoundId[], last: { id: SoundId; at: number } | null, now: number): SoundId | null {
   let best: SoundId | null = null;
   for (const r of reqs) if (best === null || (PRIORITY[r] ?? 0) > (PRIORITY[best] ?? 0)) best = r;
   if (!best) return null;
-  if (last && now - last.at < (COOLDOWN[last.id] ?? 0) && (PRIORITY[best] ?? 0) <= (PRIORITY[last.id] ?? 0)) return null;
+  if (last && now - last.at < CROSS_MS && (PRIORITY[best] ?? 0) <= (PRIORITY[last.id] ?? 0)) return null;
+  if (last && best === last.id && now - last.at < (COOLDOWN[best] ?? 0)) return null;
   return best;
+}
+
+/** v0.9 round 4 (§S.5): requests raised while the context is asleep (a call, Siri): at most the highest-priority one is kept for the resume. */
+export function holdAsleep(reqs: SoundId[]): SoundId[] {
+  let best: SoundId | null = null;
+  for (const r of reqs) if (best === null || (PRIORITY[r] ?? 0) > (PRIORITY[best] ?? 0)) best = r;
+  return best ? [best] : [];
 }
 
 type Win = Window & { webkitAudioContext?: typeof AudioContext };
@@ -167,6 +179,8 @@ class Sound {
     }
     this.unlocked = true;
     this.syncAmbience();
+    // A request held while the context slept plays once it runs again.
+    if (this.pending.length) this.timer ??= setTimeout(() => this.flush(), MERGE_MS);
   }
 
   private context(): AudioContext | null {
@@ -234,6 +248,12 @@ class Sound {
     this.timer = null;
     const reqs = this.pending;
     this.pending = [];
+    // Asleep (interrupted by a call or another app): nothing is scheduled on a frozen clock, so nothing stacks up and
+    // fires together on the resume; the highest-priority request waits for the next tap (installUnlock → unlock).
+    if (this.asleep) {
+      this.pending = holdAsleep(reqs);
+      return;
+    }
     const now = performance.now();
     const id = pickMerged(reqs, this.last, now);
     if (!id) return;

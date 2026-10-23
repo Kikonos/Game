@@ -5,6 +5,7 @@
 
 import type { RatingFamily } from '../../data/acmiTypes';
 import { canFill, typeOf } from '../core/perf';
+import { isolatePauses } from '../core/pause';
 import { DAY } from '../core/time';
 import type { ActionResult, CrewMember, CrewStatus, Duty, GameState, Legality, Minute, Pairing, Role } from '../core/types';
 import { crewCalendar, type CalBlock } from './calendar';
@@ -333,6 +334,11 @@ const alone = (g: GameState, d: Duty) => openDuties(g, g.pairings[d.pairingId]).
  * each swap partner's duty) is split off first, exactly as the move does it.
  */
 export function dropTargets(g: GameState, dutyId: string, fromCrewId: string, scope: MoveScope): Record<string, DropTarget> {
+  // Verdicts on copies raise no cue or pause in the live game (core/pause.ts).
+  return isolatePauses(() => dropTargets0(g, dutyId, fromCrewId, scope));
+}
+
+function dropTargets0(g: GameState, dutyId: string, fromCrewId: string, scope: MoveScope): Record<string, DropTarget> {
   const out: Record<string, DropTarget> = {};
   let h = g;
   let x = ctxOf(g, dutyId, fromCrewId, scope);
@@ -478,7 +484,7 @@ export function moveDuty(g: GameState, dutyId: string, fromCrewId: string, toCre
   const takeOff = !!opts.takeOff;
   let dry: MoveResult;
   try {
-    dry = applyMove(copyOf(g), dutyId, fromCrewId, toCrewId, scope, force, takeOff);
+    dry = isolatePauses(() => applyMove(copyOf(g), dutyId, fromCrewId, toCrewId, scope, force, takeOff));
   } catch (e) {
     return { ok: false, error: `Not possible: ${e instanceof Error ? e.message : String(e)}` };
   }

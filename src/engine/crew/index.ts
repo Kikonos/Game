@@ -70,7 +70,7 @@ export {
 export { fdpWhy, setDutyAugment, type FdpWhy } from './explain';
 export { onStandby } from './standby';
 // v0.9 crew out of hours, crew slips (UPDATE-0.9.md §T, §W).
-export { crewAlertKind, outOfHours, OOH_TEXT, type CrewAlertKind, type OohInfo } from './outOfHours';
+export { crewAlertKind, LIMIT_NAME, outOfHours, OOH_TEXT, type CrewAlertKind, type OohInfo } from './outOfHours';
 export { bestSlip, slipOfFlight, slipsOfAircraft, type SlipPlan, type SlipView } from './slip';
 // v0.9 roster planning (UPDATE-0.9.md §R.14).
 export {

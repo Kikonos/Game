@@ -5,7 +5,7 @@ import { v09Stats } from '../crew/dayPlan';
 import { BAL } from '../core/balance';
 import { cashOnly, post, statementTotals } from '../core/ledger';
 import { pushMessage } from '../core/messages';
-import { cardMeta, cashLowCard, invoiceOverdueCard, postProblem } from '../problems';
+import { cardMeta, cashLowCard, cashNegativeCard, invoiceOverdueCard, postProblem } from '../problems';
 import { requestPause } from '../core/pause';
 import { typeOf } from '../core/perf';
 import { DAY, fmtMonth, monthKey, monthStart } from '../core/time';
@@ -127,7 +127,12 @@ export function dailyFinance(g: GameState): void {
   // Solvency (fail forward).
   const cash = g.company.cash;
   if (cash < 0) {
-    f.negSince ??= g.now;
+    if (f.negSince === null || f.negSince === undefined) {
+      // v0.9 round 4 (§S): the day cash crosses zero: the triple and the four-line card (the rescue decision follows).
+      f.negSince = g.now;
+      const card = cashNegativeCard(g);
+      if (card) postProblem(g, card, { cat: 'finance', tone: 'bad', cue: 'cashNegative', tail: 'Find work, chase receivables or cut costs.' });
+    }
     if (f.refusedRescue && cash < BAL.bankruptFloor) return gameOver(g, `Cash fell below ${usd(BAL.bankruptFloor)} after the rescue was refused.`);
     if (g.now - f.negSince >= BAL.rescueDays * DAY) {
       if ((f.rescues ?? 0) >= 1) return gameOver(g, `Insolvent again for ${BAL.rescueDays} days after the rescue.`);

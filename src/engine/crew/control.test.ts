@@ -191,8 +191,9 @@ describe('previews and apply', () => {
     d.legality = 'illegal';
     v = crewControl(g, flightId)!;
     // v0.9 §T a day over its limit is crew out of hours (everyone aboard), with its own card.
-    expect(v.card.what).toMatch(/\(captain\) and \d+ others out of hours for AW816$/);
-    expect(v.card.why).toMatch(/^The day would run \d+:\d\d.*the limit is \d+:\d\d\.$/);
+    expect(v.card.what).toMatch(/\(captain\) and \d+ others are out of hours for AW816$/);
+    // v0.9 round 4 (§V): the WHY names who, then the day and its limit.
+    expect(v.card.why).toMatch(/^\S+'s day would run \d+:\d\d.*the limit is \d+:\d\d\.$/);
     // v0.7.3 ORO.FTL.205(f): only for the unforeseen, at or after report: never for a planned day.
     const before = v.solutions.find((x) => x.id === 'discretion')!;
     expect(before.available).toBe(false);
@@ -275,6 +276,9 @@ describe('previews and apply', () => {
     // One message for the event.
     expect(g.messages.length - n).toBe(1);
     expect(g.messages[0].title).toBe('AW816 cancelled with 1 more: crew shortage');
+    // v0.9 round 4 (§V): 'cancelled' once (the title); the legs, the reason and the cost.
+    expect(g.messages[0].body).toMatch(/^AW816 \w{3}–\w{3}, AW817 \w{3}–\w{3}: no legal crew\. \$30K compensation, reliability −3\.$/);
+    expect(g.messages[0].body).not.toMatch(/cancelled/);
     expect(g.messages[0].tone).toBe('bad');
   });
 

@@ -1,6 +1,7 @@
 // v0.9 sound cues (UPDATE-0.9.md §S.1): runtime only, never saved. The engine emits an event name; the UI drains them
 // after every advance and action (takeCues) and maps each to exactly one sound (src/ui/sound.ts SOUND_OF). Previews on
-// copies are muted by isolatePauses (core/pause.ts), which saves and restores this buffer.
+// copies are muted by isolatePauses (core/pause.ts): cue() is a no-op while a preview runs (muteCues), and the buffer
+// is saved and restored around it, so a dry run never chimes or pauses the live game (v0.9 round 4).
 
 import type { Decision, Message } from './types';
 
@@ -20,10 +21,21 @@ export const CUES: Cue[] = [
 
 const MAX = 64;
 let buf: Cue[] = [];
+/** Preview depth: while > 0 (a dry run on a copy of the state) cues are dropped. */
+let muted = 0;
 
 export function cue(c: Cue): void {
-  if (buf.length < MAX) buf.push(c);
+  if (!muted && buf.length < MAX) buf.push(c);
 }
+
+/** Dry runs on copies: cue() is a no-op until the matching unmuteCues (nested previews stack). */
+export function muteCues(): void {
+  muted++;
+}
+export function unmuteCues(): void {
+  muted = Math.max(0, muted - 1);
+}
+export const cuesMuted = (): boolean => muted > 0;
 
 /** Takes and clears the pending cues (oldest first). */
 export function takeCues(): Cue[] {

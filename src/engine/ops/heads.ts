@@ -9,7 +9,7 @@ import { BAL } from '../core/balance';
 import { flightsOf } from '../core/entities';
 import { post } from '../core/ledger';
 import { pushMessage, setDecisionHook } from '../core/messages';
-import { requestPause } from '../core/pause';
+import { isolatePauses, requestPause } from '../core/pause';
 import { blockMinutes, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { chance, int, next, range, weightedPick, type RngHolder } from '../core/rng';
@@ -370,7 +370,8 @@ function opsSick(g: GameState, d: Decision): boolean {
     const ac = xf.aircraftId ? x.fleet[xf.aircraftId] : undefined;
     return !ac || crewReadyAt(x, xf, ac) <= xf.std + maxDelay;
   };
-  if (!works(structuredClone(g))) return false;
+  // The trial on the copy raises no cue or pause in the live game (core/pause.ts).
+  if (!isolatePauses(() => works(structuredClone(g)))) return false;
   const before = crewOn(g, f.id);
   if (!works(g)) return false;
   const added = [...crewOn(g, f.id)].filter((id) => !before.has(id)).map((id) => g.crew[id]).filter((c) => !!c);

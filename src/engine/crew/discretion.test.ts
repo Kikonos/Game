@@ -8,6 +8,7 @@ import { DAY } from '../core/time';
 import type { ChainShape } from './duties';
 import { crewCanFly } from '../contracts/offers';
 import { ulrNeed } from '../contracts/feasibility';
+import { GLOSSARY } from '../../data/glossary';
 import { devRestPlan } from '../dev';
 import { quoteTripMove } from '../ops/tripMove';
 import { applyDiscretion, crewControl, discretionCheck, dutyNeed, longestDay, restOf } from '.';
@@ -40,7 +41,7 @@ describe('§U.3 discretionCheck', () => {
     d.fdp = d.maxFdp + 30;
     let c = discretionCheck(g, d.id);
     expect(c.ok).toBe(false);
-    expect(c.why).toBe('Only after the crew has reported. For a planned day: a fresh crew, a delay or more pilots.');
+    expect(c.why).toBe('Only after the crew has reported. For a planned day: a fresh crew, a delay or more pilots');
     // Reported with a legal plan; the gate hold is unforeseen.
     g.now = d.report + 10;
     d.plannedFdp = d.maxFdp - 30;
@@ -58,19 +59,19 @@ describe('§U.3 discretionCheck', () => {
     d.fdp = d.maxFdp + 3 * 60 + 10;
     c = discretionCheck(g, d.id);
     expect(c.ok).toBe(false);
-    expect(c.why).toBe('Over by 3:10: more than discretion allows.');
-    // Crew Control shows the row greyed with the reason, never as the default.
+    expect(c.why).toBe('Over by 3:10: more than discretion allows');
+    // Crew Control shows the row greyed with the reason, never as the default (§V: row heads carry no full stop).
     const v = crewControl(g, f.id);
     const row = v?.solutions.find((s) => s.id === 'discretion');
     if (row) {
       expect(row.available).toBe(false);
-      expect(row.why).toBe('Over by 3:10: more than discretion allows.');
+      expect(row.why).toBe('Over by 3:10: more than discretion allows');
     }
     // Used once.
     d.fdp = d.maxFdp + 30;
     expect(applyDiscretion(g, d.id).ok).toBe(true);
     expect(g.stats.v09!.discretionUsed).toBe(1);
-    expect(discretionCheck(g, d.id).why).toBe('Already used on this duty.');
+    expect(discretionCheck(g, d.id).why).toBe('Already used on this duty');
     expect(g.stats.v09!.discretionPlanned ?? 0).toBe(0);
   });
 });
@@ -115,5 +116,7 @@ describe('§U.1 planning never counts discretion', () => {
     const ld = longestDay(g, restOf(g, acId), g.fleet[acId].typeId);
     expect(ld.detail).toMatch(/pilots who take turns to rest on board/);
     expect(ld.detail).toMatch(/Captain's discretion is never part of this/);
+    // v0.9 round 4 (§U.2): the glossary short says it too (the Glossary list shows the short on its own).
+    expect(GLOSSARY.longestDay.short).toMatch(/Captain's discretion is never planned\.$/);
   });
 });

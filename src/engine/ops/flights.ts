@@ -18,10 +18,12 @@ import { distance } from '../core/geo';
 import { noteLostLegs } from '../contracts/billing';
 import { isSoft } from '../contracts/plan';
 import { applyDiscretion, boardCrew, crewIssuesFor, dropStraySpares, flightCrewStatus, guardDuty, rerosterFrom, restPlan, restSeatsBlocked, setRestDelayHook } from '../crew';
+import { dutyLegality } from '../crew/duties';
 import { cue } from '../core/cues';
 import { v09Stats } from '../crew/dayPlan';
 import { requestPause } from '../core/pause';
 import { problemFor } from '../problems';
+import { hurtProse } from '../problems/types';
 import { noteIncident } from './company';
 import { deliveryWaitDay } from './delivery';
 import { crewReadyAt, crewShortDecision, hasOpenDecision } from './events';
@@ -724,13 +726,19 @@ function fdpOver(g: GameState, f: Flight): boolean {
     // v0.9 only for the unforeseen (UPDATE-0.9.md §U.3): a day already too long at report becomes crew out of hours.
     const r = applyDiscretion(g, d.id, fdp);
     if (r.ok) {
+      const over = fdp - d.maxFdp;
       pushMessage(g, {
         tone: 'info', cat: 'crew', title: `Commander's discretion on ${f.no}`,
-        body: `Gate holds stretched the duty; the commander extends it to finish ${f.from}–${last.to}. The crew will want their rest.`,
+        body: `Gate holds stretched the duty by ${fmtDuration(over)}; the commander extends it to finish ${f.from}–${last.to}. The crew will want their rest.`,
         ref: { kind: 'flight', id: f.id },
       });
     }
-    if (fdp <= d.maxFdp + (d.discretion ?? 0)) return false;
+    if (fdp <= d.maxFdp + (d.discretion ?? 0)) {
+      // v0.9 round 4 (§U): the day as flown, so the log, the gauges and the (f)(5) report at release carry the hold.
+      d.fdp = fdp;
+      d.legality = dutyLegality(d);
+      return false;
+    }
   }
   d.fdp = fdp;
   d.legality = 'illegal';
@@ -807,8 +815,8 @@ function departStats(g: GameState, f: Flight, ac: Aircraft, duty: Duty | undefin
   const v = v09Stats(g);
   if (duty && duty.augment > 0 && duty.flightIds[0] === f.id && restPlan(g, duty.id)?.ok === true) v.restPlans = (v.restPlans ?? 0) + 1;
   if (!isRevenue(f)) return;
-  // v0.9 fix (§5.7): a leg held 15 min or more for crew breaks the streak too, not only an illegal crew.
-  v.legalStreak = legal && !(f.crewHeld && delayOf(f) >= 15) ? v.legalStreak + 1 : 0;
+  // v0.9 round 4 (§5.7): only an illegal duty breaks the streak (a cancellation or sub-charter for crew resets it where it happens).
+  v.legalStreak = legal ? v.legalStreak + 1 : 0;
   v.lastCancel ??= g.now;
   const k = monthKey(g.now);
   monthRec(v.cover, k)[0]++;
@@ -970,11 +978,31 @@ function dropUnit(g: GameState, ac: Aircraft, f: Flight, reason: string, why: st
  * re-rostered. Away from the station the leg brings the aircraft home: it keeps waiting for a rested or
  * positioned crew (cancelling it would strand the aircraft) and is only given up after two days.
  */
-/** v0.9 §Y.1 the reported augmented duty this leg opens, when its in-flight rest plan no longer works (null: fine). */
+/**
+ * v0.9 §Y.1 the reported augmented duty this leg opens, when its in-flight rest plan no longer works (null: fine).
+ * v0.9 round 4: measured at the gate (a hold keeps the schedule and only grows `delay`: `restPlan` with `at`), and
+ * step 2 first: a hold that only breaks the cabin crew's plan (it worked as planned) is covered by the commander's
+ * discretion within its allowance (unforeseen, after report), with the usual note; beyond it the crew are out of hours.
+ */
 function restFailed(g: GameState, f: Flight): Duty | null {
   const d = f.dutyId ? g.duties[f.dutyId] : undefined;
   if (!d || d.augment === 0 || d.legacyRest || d.flightIds[0] !== f.id || d.report > g.now || d.done) return null;
-  return restPlan(g, d.id)?.ok === false ? d : null;
+  const at = Math.max(f.std + f.delay, g.now);
+  const plan = restPlan(g, d.id, { at });
+  if (!plan || plan.ok) return null;
+  const shift = at - f.std;
+  const cabinOnly = (plan.code === 'cabinFit' || plan.code === 'cabinClass') && restPlan(g, d.id, { at: f.std })?.ok === true;
+  if (!cabinOnly) return d;
+  if (d.discretion) return shift <= d.discretion ? null : d;
+  const r = applyDiscretion(g, d.id, undefined, { cabinOver: shift });
+  if (!r.ok) return d;
+  const last = g.flights[d.flightIds[d.flightIds.length - 1]] ?? f;
+  pushMessage(g, {
+    tone: 'info', cat: 'crew', title: `Commander's discretion on ${f.no}`,
+    body: `The ${fmtDuration(shift)} hold outran the cabin crew's rest plan; the commander extends their day to finish ${f.from}–${last.to}. The crew will want their rest.`,
+    ref: { kind: 'flight', id: f.id },
+  });
+  return null;
 }
 
 /**
@@ -992,7 +1020,7 @@ function restOutOfHours(g: GameState, f: Flight, d: Duty): void {
   const card = problemFor(g, { kind: 'crewHours', ref: { kind: 'flight', id: f.id } });
   pushMessage(g, {
     tone: 'bad', cat: 'crew', topic: 'crewHours', title: `CREW OUT OF HOURS: ${f.no} at the gate`,
-    body: card ? `${card.why} ${card.hurt.text.replace(/^(Yes|Not much): /, '')}.` : 'After the delay the in-flight rest plan no longer works: the cabin crew cannot all rest in this cruise.',
+    body: card ? `${card.what}. ${card.why} ${hurtProse(card)}.` : 'After the delay the in-flight rest plan no longer works: the cabin crew cannot all rest in this cruise.',
     ref: { kind: 'flight', id: f.id }, problem: { kind: 'crewHours', ref: { kind: 'flight', id: f.id } },
     ...(card ? { hurt: { money: card.hurt.money, pax: card.hurt.pax, delayMin: card.hurt.delayMin, level: card.hurt.level } } : {}),
   });
@@ -1000,7 +1028,7 @@ function restOutOfHours(g: GameState, f: Flight, d: Duty): void {
 }
 
 /** Clears the rest-plan marks of a duty whose plan works again (re-planned turns, a fresh crew). */
-function clearRestMarks(g: GameState, f: Flight): void {
+export function clearRestMarks(g: GameState, f: Flight): void {
   const d = f.dutyId ? g.duties[f.dutyId] : undefined;
   const p = d ? g.pairings[d.pairingId] : undefined;
   if (p) for (const s of p.slots) if (s.ooh?.limit === 'inflightRest') delete s.ooh;
@@ -1016,6 +1044,10 @@ export function setHeldHook(fn: typeof heldHook): void {
 }
 
 function crewProblem(g: GameState, f: Flight, ac: Aircraft): void {
+  // v0.9 round 4 (§Y.1): the rest-plan marks follow the plan at every attempt (a fresh crew or discretion clears them).
+  const rd = restFailed(g, f);
+  if (rd) restOutOfHours(g, f, rd);
+  else clearRestMarks(g, f);
   if (!f.crewHeld) {
     f.crewHeld = true;
     f.heldAt ??= g.now;
@@ -1024,8 +1056,6 @@ function crewProblem(g: GameState, f: Flight, ac: Aircraft): void {
       monthRec(v09Stats(g).cover, monthKey(g.now))[1]++;
       heldHook?.(g, f, 'held');
     }
-    const rd = restFailed(g, f);
-    if (rd) restOutOfHours(g, f, rd);
     // Crew over a limit come off the duty first (refilled when someone legal can take the seat).
     if (f.dutyId) guardDuty(g, f.dutyId);
     rerosterFrom(g, ac.id, g.now);

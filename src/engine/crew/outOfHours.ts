@@ -17,12 +17,14 @@ export interface OohInfo {
   name: string;
   role: Role;
   limit: OohLimit;
-  /** 'the 28-day flying limit' (after "reached"). */
+  /** The predicate after the name: 'has reached the 28-day flying limit (100 h)', 'is short of minimum rest' (OOH_TEXT). */
   limitText: string;
   /** Value and limit in minutes (0 when the rule has no number, e.g. the weekly recovery). */
   value: number;
   max: number;
   overMin: number;
+  /** v0.9 round 4: the rule's own words when the limit name is only a category (standby + FDP, extensions, local nights). */
+  text?: string;
 }
 
 const LIMIT_OF: Partial<Record<IssueCode, OohLimit>> = {
@@ -31,13 +33,22 @@ const LIMIT_OF: Partial<Record<IssueCode, OohLimit>> = {
   recovery: 'recovery', twoDays: 'recovery', daysOff: 'daysOff',
 };
 
-/** How each limit reads in a sentence. */
-export const OOH_TEXT: Record<OohLimit, string> = {
-  fdp: 'the day-length limit (FDP)', duty7d: 'the 7-day duty limit (60 h)', duty14d: 'the 14-day duty limit (110 h)',
-  duty28d: 'the 28-day duty limit (190 h)', block28d: 'the 28-day flying limit (100 h)', blockYear: 'the yearly flying limit (900 h)',
-  block12m: 'the 12-month flying limit (1,000 h)', rest: 'minimum rest', recovery: 'the weekly 36 h rest',
-  inflightRest: 'the in-flight rest plan', daysOff: 'the 7 days off a month',
+/** v0.9 round 4 (§V): the one name of each legal limit, used everywhere (map tag, gauges, cards, reasons). */
+export const LIMIT_NAME: Record<OohLimit, string> = {
+  fdp: 'day length (FDP)', duty7d: '7-day duty', duty14d: '14-day duty', duty28d: '28-day duty', block28d: '28-day flying',
+  blockYear: 'year flying', block12m: '12-month flying', rest: 'rest', recovery: 'weekly rest', inflightRest: 'in-flight rest', daysOff: 'days off',
 };
+
+/** How each limit reads after the name: a full predicate ('Ana Silva is short of minimum rest'). */
+export const OOH_TEXT: Record<OohLimit, string> = {
+  fdp: `is over the ${LIMIT_NAME.fdp} limit`, duty7d: `has reached the ${LIMIT_NAME.duty7d} limit (60 h)`, duty14d: `has reached the ${LIMIT_NAME.duty14d} limit (110 h)`,
+  duty28d: `has reached the ${LIMIT_NAME.duty28d} limit (190 h)`, block28d: `has reached the ${LIMIT_NAME.block28d} limit (100 h)`, blockYear: `has reached the ${LIMIT_NAME.blockYear} limit (900 h)`,
+  block12m: `has reached the ${LIMIT_NAME.block12m} limit (1,000 h)`, rest: 'is short of minimum rest', recovery: 'is due the weekly 36 h rest',
+  inflightRest: 'cannot rest in this cruise', daysOff: 'would fall below 7 days off this month',
+};
+
+/** Rules whose limit name is only a category: the card says the rule in its own words. */
+const OWN_WORDS = new Set<IssueCode>(['standby', 'ext7d', 'lateEarly', 'tzRest']);
 
 const ROLE_WORD: Record<Role, string> = { CPT: 'captain', FO: 'first officer', CRP: 'relief pilot', PUR: 'purser', CC: 'cabin crew' };
 export const roleWord = (r: Role): string => ROLE_WORD[r];
@@ -58,7 +69,7 @@ export function infoOf(g: GameState, crewId: string, i: LegalityIssue): OohInfo 
   // Rest: 'Rest 9:10 < 12:00' reads value < max (short by the difference).
   const overMin = i.code === 'rest' ? Math.max(0, max - value) : Math.max(0, value - max);
   if (limit === 'recovery' || limit === 'daysOff') value = max = 0;
-  return { crewId, name: crewName(c), role: c.role, limit, limitText: OOH_TEXT[limit], value, max, overMin };
+  return { crewId, name: crewName(c), role: c.role, limit, limitText: OOH_TEXT[limit], value, max, overMin, ...(OWN_WORDS.has(i.code) ? { text: i.text } : {}) };
 }
 
 const memo = new WeakMap<GameState, { key: string; m: Map<string, OohInfo[]> }>();

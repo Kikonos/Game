@@ -1,5 +1,5 @@
 // Auto-pause requests raised by handlers and actions (runtime only, not saved).
-import { restoreCues, saveCues } from './cues';
+import { muteCues, restoreCues, saveCues, unmuteCues } from './cues';
 // Every reason raised is kept; the caller decides which ones actually stop the clock (DESIGN.md §3.3, §6.5).
 
 /** v0.7 'marketOffer': a new aircraft market offer (UI honours it only with market alerts on). */
@@ -44,9 +44,11 @@ export function takePause(honour?: ReadonlySet<PauseReason>): PauseReason | null
 export function isolatePauses<T>(fn: () => T): T {
   const saved = [...pending];
   const cues = saveCues();
+  muteCues();
   try {
     return fn();
   } finally {
+    unmuteCues();
     pending.clear();
     for (const r of saved) pending.add(r);
     restoreCues(cues);

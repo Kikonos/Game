@@ -10,6 +10,7 @@ import { BAL } from '../core/balance';
 import { cancelFlight, nextId, removeFlights, retimeFlight } from '../core/entities';
 import { distance, interpolateGC } from '../core/geo';
 import { invoice, post } from '../core/ledger';
+import { cue } from '../core/cues';
 import { pushMessage } from '../core/messages';
 import { typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
@@ -422,7 +423,8 @@ function applyClosure(g: GameState, e: WorldEvent, first: boolean, again = false
       continue;
     }
     if (again) {
-      waitLegs(g, k, e);
+      // v0.9 round 4 (§S): our waiting legs move again on the extension: a world event touching our flights.
+      if (waitLegs(g, k, e)) cue('worldEventOurs');
       continue;
     }
     // Legs of a programme the player was already asked about for this closure join that question or follow its

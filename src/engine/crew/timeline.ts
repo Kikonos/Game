@@ -408,6 +408,7 @@ function fillKey(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: TicketPl
   KEY[i++] = c.base; KEY[i++] = p.base; KEY[i++] = d.restAt; KEY[i++] = f0?.from ?? ''; KEY[i++] = f0?.status ?? ''; KEY[i++] = p.aircraftId ?? '';
   KEY[i++] = d.ev; KEY[i++] = d.flightsEv; KEY[i++] = d.report; KEY[i++] = d.release; KEY[i++] = d.fdp; KEY[i++] = d.maxFdp; KEY[i++] = d.discretion ?? 0; KEY[i++] = d.cabinEarly ?? -1;
   KEY[i++] = d.augment; KEY[i++] = d.sectors; KEY[i++] = d.flightIds.length; KEY[i++] = p.start; KEY[i++] = rest?.fc?.cls ?? 0; KEY[i++] = rest?.cc?.cls ?? 0;
+  KEY[i++] = joinedAt(p, c.id, d);
   KEY[i++] = o ? o.id ?? '' : '-'; KEY[i++] = o?.from ?? ''; KEY[i++] = o?.to ?? ''; KEY[i++] = o?.status ?? ''; KEY[i++] = o?.std ?? -1; KEY[i++] = o?.sta ?? -1;
   KEY[i++] = h ? h.id ?? '' : '-'; KEY[i++] = h?.from ?? ''; KEY[i++] = h?.to ?? ''; KEY[i++] = h?.status ?? ''; KEY[i++] = h?.std ?? -1; KEY[i++] = h?.sta ?? -1;
   return i;
@@ -436,22 +437,31 @@ export function dutySegs(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: 
   return segs.slice();
 }
 
+/** v0.9 round 4 (§Y.1): the report of crew member `crewId` on duty d: the slot's own `from` when they joined after the duty reported. */
+function joinedAt(p: Pairing, crewId: string, d: Duty): Minute {
+  const f = p.slots.find((s) => s.crewId === crewId)?.from;
+  return f !== undefined && f > d.report ? f : d.report;
+}
+
 function dutySegsRaw(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: TicketPlan | null, home: TicketPlan | null, fresh: boolean): Seg[] {
   const segs: Seg[] = [];
   const dep = g.flights[d.flightIds[0]]?.from ?? d.restAt;
   const early = isCabin(c) ? cabinEarly(g, p, d) : 0;
-  let start = d.report - early;
-  let fdp = d.fdp + early;
-  let max = d.maxFdp + (d.discretion ?? 0) + early;
-  let tz = referenceTime(p.base, dep, Math.min(p.start, d.report), d.report).tz;
+  // A replacement who joined after the report has a shorter day from their own report (its own Table 2 limit).
+  const rep = joinedAt(p, c.id, d);
+  const own = rep - d.report;
+  let start = rep - early;
+  let fdp = d.fdp - own + early;
+  let max = (own ? fdpLimitAt(g, p, d, dep, rep).max : d.maxFdp) + (d.discretion ?? 0) + early;
+  let tz = referenceTime(p.base, dep, Math.min(p.start, rep), rep).tz;
   let from = dep;
   let mergedOut: Seg['out'];
   if (out) {
-    if (d.report - out.sta < posRest(out, false)) {
+    if (rep - out.sta < posRest(out, false)) {
       mergedOut = { id: (out as Partial<Flight>).id, to: dep, start, fdp, maxFdp: max, disruptive: isDisruptive(tz, start, d.release) };
       start = out.std - checkInOf(out);
       from = out.from;
-      fdp = d.fdp + (d.report - start);
+      fdp = d.fdp - own + (rep - start);
       const lim = fdpLimitAt(g, p, d, out.from, start);
       max = lim.max + (d.discretion ?? 0) + early;
       tz = lim.ref.tz;

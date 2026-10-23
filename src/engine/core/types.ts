@@ -729,6 +729,8 @@ export type ProblemKind =
   | 'aog' | 'checkDue' | 'checkOverdue' | 'checkClash' | 'checkNoSlot' | 'grounded'
   | 'offerFit' | 'counterExpiry' | 'changeRequest' | 'penalty' | 'contractCancelled'
   | 'cashLow' | 'invoiceOverdue' | 'lossMonth' | 'leaseDue' | 'goalMiss'
+  /** v0.9 round 4 (§S): cash below zero, the day it happens. */
+  | 'cashNegative'
   | 'deliveryWait' | 'ferryUncrewed' | 'refit' | 'leaseReturn'
   /** v0.7.2 */
   | 'restSeats' | 'captainAsFo' | 'sale'
@@ -862,6 +864,8 @@ export interface CrewSlot {
   above?: boolean;
   /** v0.9 crew out of hours: who was taken off this seat for a legal limit, which, by how much (min) and when; cleared on a legal refill. */
   ooh?: { crewId: string; limit: OohLimit; over: number; at: Minute };
+  /** v0.9 round 4 (§Y.1): a replacement who joined after the duty reported: their own report (a fresh day). Cleared with the seat. */
+  from?: Minute;
 }
 
 /** v0.9 the legal limit a crew member reached (UPDATE-0.9.md §T.1). */

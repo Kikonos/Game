@@ -8,7 +8,7 @@ import { isPilot } from '../../engine/core/perf';
 import { flightTimes } from '../../engine/core/query';
 import { DAY, fmtDay, fmtTime } from '../../engine/core/time';
 import type { AcRest, Aircraft, Archetype, ContractOffer, CrewMember, Flight, GameState, Minute, OohLimit, Ref, RestFacility, RestKind, WorldEventKind } from '../../engine/core/types';
-import { type CrewAlertKind, crewAway, shortFlights, type SlipView } from '../../engine/crew';
+import { type CrewAlertKind, crewAway, LIMIT_NAME, shortFlights, type SlipView } from '../../engine/crew';
 import { clientCode, clientLivery, clientTitles, commercialFlightsBetween, type CommercialFlight, commercialItinerary, dryLeaseOf, type FlightType, flightType, liveryOf, type ResolvedLivery } from '../../engine/ops';
 import { contractColor } from '../screens/palette';
 
@@ -256,12 +256,8 @@ export interface ShortRow { flightId: string; aircraftId: string; stage: 'amber'
 export const ALERT_BANNER: Record<CrewAlertKind, string> = { short: 'CREW SHORTAGE', hours: 'CREW OUT OF HOURS' };
 export const ALERT_CHIP: Record<CrewAlertKind, string> = { short: 'CREW SHORT', hours: 'OUT OF HOURS' };
 
-/** v0.9 §T the limit in two or three words, for the aircraft panel line ('28-day hours'). */
-export const OOH_SHORT: Record<OohLimit, string> = {
-  fdp: 'day too long', duty7d: '7-day duty', duty14d: '14-day duty', duty28d: '28-day duty', block28d: '28-day hours',
-  blockYear: 'yearly hours', block12m: '12-month hours', rest: 'rest not met', recovery: 'weekly rest',
-  inflightRest: 'in-flight rest', daysOff: 'days off',
-};
+/** v0.9 §T the limit in two or three words, for the aircraft panel line: the one name per limit (§V, round 4). */
+export const OOH_SHORT: Record<OohLimit, string> = LIMIT_NAME;
 
 /** 'Crew out of hours · Ana Silva (28-day hours)' (+ ' and 1 other'); the bare title when the engine names nobody. Pure. */
 export function oohLine(list: { name: string; limit: OohLimit }[]): string {

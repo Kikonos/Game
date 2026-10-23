@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { CUES } from '../engine/core/cues';
-import { CAT_OF, COOLDOWN, pickMerged, PRIORITY, SOUND_MEANING, SOUND_OF, type SoundEvent, type SoundId } from './sound';
+import { CAT_OF, COOLDOWN, CROSS_MS, holdAsleep, pickMerged, PRIORITY, SOUND_MEANING, SOUND_OF, type SoundEvent, type SoundId } from './sound';
 
 describe('v0.9 sound table (§S.3)', () => {
   it('maps every engine cue to exactly one sound', () => {
@@ -44,10 +44,26 @@ describe('v0.9 merge and cooldown (§S.4)', () => {
     expect(pickMerged(['low', 'low', 'highLow', 'low', 'low', 'low'], null, 0)).toBe('highLow');
     expect(pickMerged(['high', 'alarm', 'double'], null, 0)).toBe('alarm');
   });
-  it('drops a request inside the cooldown unless it outranks the sound that played', () => {
-    expect(pickMerged(['alarm'], { id: 'alarm', at: 0 }, 19_000)).toBeNull();
-    expect(pickMerged(['alarm'], { id: 'alarm', at: 0 }, 21_000)).toBe('alarm');
+  it('v0.9 round 4: inside the 4 s cross-sound window only a request that outranks the last sound plays; after it a lower one plays', () => {
+    expect(CROSS_MS).toBe(4_000);
     expect(pickMerged(['high'], { id: 'highLow', at: 0 }, 1_000)).toBeNull();
     expect(pickMerged(['triple'], { id: 'double', at: 0 }, 1_000)).toBe('triple');
+    // An AOG double 5 s after a crew alarm is heard; 2 s after it is not (one meaning at a time).
+    expect(pickMerged(['double'], { id: 'alarm', at: 0 }, 2_000)).toBeNull();
+    expect(pickMerged(['double'], { id: 'alarm', at: 0 }, 5_000)).toBe('double');
+    expect(pickMerged(['high'], { id: 'triple', at: 0 }, 4_500)).toBe('high');
+  });
+  it('the same sound never repeats inside its own cooldown: the urgent alarm not twice in 20 s', () => {
+    expect(COOLDOWN.alarm).toBe(20_000);
+    expect(pickMerged(['alarm'], { id: 'alarm', at: 0 }, 19_000)).toBeNull();
+    expect(pickMerged(['alarm'], { id: 'alarm', at: 0 }, 21_000)).toBe('alarm');
+    expect(pickMerged(['triple'], { id: 'triple', at: 0 }, 9_000)).toBeNull();
+    expect(pickMerged(['triple'], { id: 'triple', at: 0 }, 11_000)).toBe('triple');
+  });
+  it('asleep (interrupted context): nothing renders and at most the highest-priority request is held for the resume', () => {
+    expect(holdAsleep(['low', 'high', 'double', 'high'])).toEqual(['double']);
+    expect(holdAsleep(['low', 'alarm', 'triple'])).toEqual(['alarm']);
+    expect(holdAsleep([])).toEqual([]);
+    expect(holdAsleep(['low', 'low', 'low']).length).toBeLessThanOrEqual(1);
   });
 });

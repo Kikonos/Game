@@ -123,7 +123,7 @@ function dutyBlock(g: GameState, d: Duty): CalBlock {
   const label = types.size === 1 && types.has('ferry') ? 'Ferry duty' : types.size === 1 && types.has('positioning') ? 'Positioning duty' : 'Duty';
   const route = fl.length ? [fl[0].from, ...fl.map((f) => f.to)].join('–') : d.restAt;
   const legs = flights.map((f) => `${f.no} ${f.from}–${f.to} ${hhmm(f.std)}–${hhmm(f.sta)} ${FLIGHT_TYPE_LABEL[f.type]}`).join(' · ');
-  const fdp = `FDP ${fmtDuration(d.fdp, true)} of ${fmtDuration(d.maxFdp + (d.discretion ?? 0), true)}`;
+  const fdp = `FDP ${fmtDuration(d.fdp, true)} of ${fmtDuration(d.maxFdp + (d.discretion ?? 0), true)}${d.discretion ? ` (commander's discretion +${fmtDuration(d.discretion, true)})` : ''}`;
   return {
     kind: 'duty', start: d.report, end: d.release, label, flightIds: fl.map((f) => f.id), flights, dutyId: d.id, legality: d.legality,
     detail: `${route} · report ${hhmm(d.report)}, release ${hhmm(d.release)} · ${fdp}${d.augment ? ` · augmented +${d.augment}` : ''}${d.legality !== 'legal' ? ` · ${d.legality}` : ''}\n${legs}`,

@@ -203,6 +203,10 @@ describe('crew short', () => {
 
   it('discretion is offered and the default when the overrun is 2 h or less', () => {
     const { g, f, duty, d } = overrun(60);
+    // v0.9 round 4 (§T, §V): an over-FDP crew is out of hours: the decision says so, names the flight once and keeps the hurt as prose.
+    expect(d.title).toBe(`Crew out of hours: ${f.no} ${f.from}–${f.to}`);
+    expect(d.body).not.toContain(` for ${f.no}.`);
+    expect(d.body).not.toMatch(/Yes:|Not much:/);
     // v0.7.1: the options are Crew Control's fixes (discretion first; delay and cancel always offered).
     expect(d.options.map((o) => o.id)).toContain('discretion');
     expect(d.options.map((o) => o.id)).toContain('delay');

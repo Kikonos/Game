@@ -7,7 +7,7 @@
 import { ArrowLeftRight, CalendarRange, Check, CircleSlash, Clock, Handshake, Hourglass, PhoneCall, PlaneTakeoff, Ticket, TimerOff, Users, Wand2 } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { flightsRev } from '../../engine/core/entities';
-import { fmtDuration, fmtTime } from '../../engine/core/time';
+import { fmtTime } from '../../engine/core/time';
 import type { CrewFix, Role } from '../../engine/core/types';
 import { applyCrewFix, crewAlertKind, crewControl, crewRev, outOfHours, ROLE_WORD, type CrewSolution, type FixOption, type OohInfo } from '../../engine/crew';
 import { Modal } from '../components/ui';
@@ -46,19 +46,16 @@ function Option({ o, on, onTap, multi, role, seat, disabled }: { o: FixOption; o
   );
 }
 
-/** v0.9 §T.4 one line under the title: who, which limit, by how much, and the limit's gauge. */
+/** v0.9 §T.4 one line under the title: who and which limit (the card's WHY and gauge carry the numbers, said once: §V). */
 function OohStrip({ list }: { list: OohInfo[] }) {
   const x = list[0];
   if (!x) return null;
   const pct = x.max > 0 ? Math.min(100, (x.value / x.max) * 100) : 100;
-  const nums = x.max > 0 ? `${fmtDuration(x.value, true)} of ${fmtDuration(x.max, true)}` : '';
-  const over = x.overMin > 0 ? `${x.limit === 'rest' ? 'short' : 'over'} by ${fmtDuration(x.overMin, true)}` : '';
   return (
     <div className="cc-ooh" role="note">
       <TimerOff className="cc-ooh-ico" aria-hidden />
       <span className="grow col cc-ooh-main">
-        <span className="small"><span className={`sc-role r-${x.role}`}>{x.role}</span> <b>{x.name}</b> has reached {x.limitText}{list.length > 1 ? ` · and ${list.length - 1} other${list.length > 2 ? 's' : ''}` : ''}</span>
-        {(nums || over) && <span className="small muted">{[nums, over].filter(Boolean).join(' · ')}</span>}
+        <span className="small"><span className={`sc-role r-${x.role}`}>{x.role}</span> <b>{x.name}</b> {x.limitText}{list.length > 1 ? ` · and ${list.length - 1} other${list.length > 2 ? 's' : ''}` : ''}</span>
       </span>
       {x.max > 0 && <span className="bar thin bad cc-ooh-bar" aria-hidden><span style={{ width: `${pct}%` }} /></span>}
     </div>
@@ -134,7 +131,8 @@ export function CrewControlModal({ flightId, fix }: { flightId: string; fix?: Cr
   const hours = crewAlertKind(g, flightId) === 'hours';
   const ooh = hours ? outOfHours(g, flightId) : [];
   const title = hours ? `Crew out of hours · ${view.no} ${view.from} → ${view.to}` : `Crew Control · ${view.no} ${view.from} → ${view.to}`;
-  const icon = hours ? <TimerOff className="bad" /> : <Users className="accent" />;
+  // The title says 'Crew out of hours': the stage colour sits on its icon, and no banner repeats it (§V).
+  const icon = hours ? <TimerOff className={view.stage === 'amber' ? 'warn' : 'bad'} /> : <Users className="accent" />;
   const left = view.std - g.now;
   const when = `Departs ${fmtTime(view.std)} UTC (${fmtTime(view.std, view.from)} ${view.from}) · ${left > 0 ? `in ${spanLabel(Math.floor(left / 60) * 60 || left)}` : 'now'}`;
   if (view.stage === 'ok') {
@@ -191,7 +189,7 @@ export function CrewControlModal({ flightId, fix }: { flightId: string; fix?: Cr
     }>
       <div className="cc-head">
         <span className="small muted">{when} · {view.reg}</span>
-        <span className={`cs-banner ${stage === 'red' || stage === 'gate' ? 'red' : 'amber'}`}>{stage === 'gate' ? 'HELD AT THE GATE' : hours ? 'CREW OUT OF HOURS' : 'CREW SHORTAGE'}</span>
+        {(!hours || stage === 'gate') && <span className={`cs-banner ${stage === 'red' || stage === 'gate' ? 'red' : 'amber'}`}>{stage === 'gate' ? 'HELD AT THE GATE' : 'CREW SHORTAGE'}</span>}
       </div>
       {hours && <OohStrip list={ooh} />}
       <ScreenHint id="crewControl" />

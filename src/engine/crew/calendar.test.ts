@@ -51,6 +51,17 @@ describe('crew travelling', () => {
     expect(crewStatusView(g, ids[0]).label).not.toBe('Deadheading');
   });
 
+  it("v0.9 round 4 (§U): a duty extended by the commander names the discretion in its FDP line", () => {
+    const g = fixtureGame(7);
+    trip(g);
+    const d = Object.values(g.duties).find((x) => !x.done && x.flightIds.length > 0)!;
+    const c = g.crew[g.pairings[d.pairingId].slots.find((s) => s.crewId)!.crewId!];
+    const line = () => crewCalendar(g, c.id, g.now, g.now + 10 * DAY).find((b) => b.kind === 'duty' && b.dutyId === d.id)!.detail;
+    expect(line()).not.toMatch(/discretion/);
+    d.discretion = 60;
+    expect(line()).toMatch(/FDP \d+:\d\d of \d+:\d\d \(commander's discretion \+1:00\)/);
+  });
+
   it('calendar blocks have unique kind/start keys (no doubled rest block)', () => {
     const g = fixtureGame(54);
     trip(g);

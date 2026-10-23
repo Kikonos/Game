@@ -6,6 +6,7 @@ import { ZONE_BY_ID } from '../../data/worldZones';
 import { BAL } from '../core/balance';
 import { DAY, fmtDay } from '../core/time';
 import type { GameState } from '../core/types';
+import { jobName } from '../contracts/flavor';
 import { levelOf, unhappyReasons } from '../contracts/relations';
 import { mkHurt, usdShort, type ProblemCard } from './types';
 
@@ -30,7 +31,7 @@ export function lostToRivalCard(g: GameState, offerId: string): ProblemCard | nu
   const o = g.offers[offerId];
   if (!o || o.status !== 'lost' || !o.lostWhy || !o.lostTo) return null;
   const cl = g.clients[o.clientId]?.name ?? 'The client';
-  const what = `${o.lostTo} took the ${cl} ${o.title}`.replace(`the ${cl} ${cl}`, `the ${cl}`);
+  const what = `${o.lostTo} took ${jobName(cl, o.title)}`;
   const rival = g.rivals.find((r) => r.name === o.lostTo);
   return {
     subject: { kind: 'lostToRival', ref: { kind: 'offer', id: o.id } }, severity: 'amber', title: what, what,
