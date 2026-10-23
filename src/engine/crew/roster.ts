@@ -1085,6 +1085,8 @@ setRetickHook((g, p) => {
     }
   }
   setFlightsCrew(g, p);
+  // v0.9 the tour's new duties ignored its crew's future standby (rules.ts standbyView): fit it again.
+  fitStandby(g, p.slots.filter((s) => s.crewId).map((s) => s.crewId!));
 });
 
 // A crewed duty may take on the empty legs that follow it when every crew member stays legal with a new ticket home.

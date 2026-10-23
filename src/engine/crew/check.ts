@@ -5,7 +5,7 @@ import { BAL } from '../core/balance';
 import { typeOf } from '../core/perf';
 import { fmtDay } from '../core/time';
 import type { CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing } from '../core/types';
-import { offIssue } from './dayPlan';
+import { offIssue, offMovable } from './dayPlan';
 import { evalSegs, levelOf, LIMITS, type LegalityIssue, type Seg } from './rules';
 import { aboard, cabinEarly, crewIx, ctxOf, droppableHome, droppableOut, dutySegs, locAt, outTicket, planHome, planHomeAfter, planOut, segsOf, typeIdOf, withoutTickets, type TicketPlan } from './timeline';
 
@@ -152,11 +152,13 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
   if (other) issues.push({ code: 'overlap', level: 'illegal', text: `On another ${other.tour ? 'tour' : 'trip'} until ${fmtDay(other.end)}`, dutyId: first.id });
   issues.push(...statusIssues(c, segs[0].start, segs[segs.length - 1].end, typeOf(typeIdOf(g, p)).family, duties));
   // v0.9 new work on a planned day off (UPDATE-0.9.md §R.3): the roster never takes one; a player change confirms it.
-  // A tour (deployment) moves the days off its duties land on to its free days at the station (the planner's own
-  // re-plan, crew/dayPlan.ts moveOffDays): legal when the month keeps its count.
+  // A tour (deployment) or a trip of several days moves the days off it lands on to free days later in the month (the
+  // planner's own re-plan, crew/dayPlan.ts takeOffDays: no morale): legal when the month keeps its count. A day trip
+  // never takes one (another crew member can fly it).
   if (!existing) {
     const off = offIssue(g, c, segs);
-    if (off) issues.push(p.tour && off.level !== 'illegal' ? { ...off, level: 'legal' } : off);
+    const long = !!p.tour || (segs.length > 0 && segs[segs.length - 1].end - segs[0].start > 30 * 60);
+    if (off) issues.push(long && off.level !== 'illegal' && offMovable(g, c, segs) ? { ...off, level: 'legal' } : off);
   }
   if (existing) {
     // Unforeseen delays on the day (ORO.FTL.205(f)): a held seat whose extended recovery slipped stays on the
@@ -232,8 +234,9 @@ export function readyAt(c: CrewMember, segs: Seg[], t: Minute, now = -Infinity):
   let ready = c.restUntil;
   for (const s of segs) {
     if (s.end > t) break;
-    // v0.9 standby not started yet gives way to the work being planned (rules.ts standbyView).
-    if (s.kind === 'sby' && s.start > now) continue;
+    // v0.9 standby not over yet gives way to the work being planned (rules.ts standbyView): a window running now
+    // is a call-out (no rest before the duty), one not started is replaced.
+    if (s.kind === 'sby' && s.end > now) continue;
     if (s.kind !== 'log') ready = Math.max(ready, s.end + s.rest);
   }
   return ready;

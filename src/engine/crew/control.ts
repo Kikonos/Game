@@ -32,7 +32,7 @@ import { levelOf, LIMITS, minRest, offsetAt } from './rules';
 import { cabinEarly, crewCount, crewRev, dhBlock, locAt, OUT_CONNECT, segsOf, touchCrew, typeIdOf, type TicketPlan } from './timeline';
 import { callFromStandby, calledNow } from './standby';
 import { SBY_LABEL } from './calendar';
-import { v09Stats } from './dayPlan';
+import { offDaysHit, takesPublishedOff, v09Stats } from './dayPlan';
 import { crewAlertKind, type CrewAlertKind } from './outOfHours';
 
 export type { Reason, ReasonCode };
@@ -334,6 +334,8 @@ function escalate(g: GameState, reroster: boolean): void {
         hrs = true;
         v9.oohRed++;
       } else short = true;
+
+
       pushMessage(g, {
         tone: 'bad', cat: 'crew', topic: hours ? 'crewHours' : 'crewRed', title: `${hours ? 'CREW OUT OF HOURS' : 'CREW SHORTAGE'}: ${f.no} in ${h} h`,
         body: `${card.why} ${card.hurt.text.replace(/^(Yes|Not much): /, '')}.${also.length ? ` Also ${also.slice(0, 3).join(', ')} on the same aircraft.` : ''}`,
@@ -637,6 +639,8 @@ function jetCandidatesAll(g: GameState, p: Pairing, d: Duty, role: Role, cls?: J
   for (const c of Object.values(g.crew)) {
     if (!canFill(role, c.role) || !c.ratings.includes(fam) || on.has(c.id)) continue;
     if (c.status === 'sick' || c.status === 'leave' || c.status === 'training' || c.status === 'joining') continue;
+    // v0.9 never someone on a planned day off (R.5: only the player takes one, through Crew Control's call-in).
+    if (offDaysHit(c, d.report - 6 * 60, d.release).length) continue;
     const segs = segsOf(g, c, p.id);
     const loc = locAt(c, segs, d.report);
     if (loc === dep) continue;
@@ -826,12 +830,13 @@ function seatCandidates(g: GameState, d: Duty, role: Role, here: boolean): DutyC
 }
 
 /** The default (or chosen) crew per missing seat, one person each, from a candidate list per role. */
-function pickCrew(x: Ctx, lists: Map<Role, DutyCandidate[]>, chosen?: string[]): { role: Role; crewId: string }[] {
+function pickCrew(x: Ctx, lists: Map<Role, DutyCandidate[]>, chosen?: string[], ok: (crewId: string) => boolean = () => true): { role: Role; crewId: string }[] {
   const out: { role: Role; crewId: string }[] = [];
   const used = new Set<string>();
   for (const role of x.missing) {
     const list = lists.get(role) ?? [];
-    const pick = chosen ? list.find((c) => chosen.includes(c.crewId) && !used.has(c.crewId)) : list.find((c) => !used.has(c.crewId));
+    // v0.9 a published day off is only ever taken when the player picks that person (R.5).
+    const pick = chosen ? list.find((c) => chosen.includes(c.crewId) && !used.has(c.crewId)) : list.find((c) => !used.has(c.crewId) && !c.dayOff && ok(c.crewId));
     if (!pick) continue;
     used.add(pick.crewId);
     out.push({ role, crewId: pick.crewId });
@@ -971,7 +976,9 @@ function runFix(h: GameState, flightId: string, fix: CrewFix, opts: ApplyOpts): 
       if (!d) return { ok: false, error: 'No crew plan for this flight yet' };
       const lists = new Map<Role, DutyCandidate[]>();
       for (const role of new Set(x.missing)) lists.set(role, seatCandidates(h, d, role, fix === 'callIn'));
-      const picks = pickCrew(x, lists, opts.crewIds);
+      // The trip's span, a day of travel before it included (a ticket out on a day off takes it too).
+      const span: [Minute, Minute] = [d.report - DAY, (p ? openDuties(h, p).at(-1)?.release : undefined) ?? d.release];
+      const picks = pickCrew(x, lists, opts.crewIds, (id) => !takesPublishedOff(h, h.crew[id], span[0], span[1]));
       if (!picks.length) return { ok: false, error: fix === 'callIn' ? `Nobody is free at ${city(x.dep)} today` : 'Nobody legal can be flown in' };
       const changes: string[] = [];
       let cost = 0;

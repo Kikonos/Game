@@ -22,6 +22,8 @@ import { recheckPairing, releaseCrew, setFlightsCrew } from './crew/roster';
 import { fittedRest, migrateRest, rollRestFor } from './crew/restPlan';
 import { usedHoursCycles, usedMarketValue } from './ops/sale';
 import { yearOf } from './core/time';
+import { seasonBase } from './crew/fixtures';
+import { advanceTo } from './sim';
 
 /** Out-and-back legs from each aircraft's position, starting in 30 min, for `days` days (ferries by default: no client). */
 export function demoFlights(g: GameState, dests = ['FAO', 'FNC', 'PMI', 'TFS', 'OPO', 'AGP'], days = 3, kind: 'ferry' | 'revenue' = 'ferry'): number {
@@ -323,4 +325,40 @@ export function devAchievement(g: GameState, id: string): string {
 let devAchievementHook: ((g: GameState, id: string) => string) | null = null;
 export function setDevAchievement(f: (g: GameState, id: string) => string): void {
   devAchievementHook = f;
+}
+
+/**
+ * v0.9 §R: 4 A320s (crew topped up to 5 sets each), one on a Dublin wet season base, the others on daily
+ * out-and-backs from base, run 20 days; returns the id of a crew member on the DUB tour ('' if none). Dev/test helper.
+ */
+export function devRoster(g: GameState): string {
+  devFleet(g, 4);
+  const want: Partial<Record<Role, number>> = { CPT: 20, FO: 20, PUR: 20, CC: 60 };
+  for (const [role, n] of Object.entries(want) as [Role, number][]) {
+    const have = Object.values(g.crew).filter((c) => c.role === role && c.ratings.includes('A320')).length;
+    for (let i = have; i < n; i++) {
+      const c = makeCrewMember(g, role, 'A320', g.company.homeBase);
+      g.crew[c.id] = c;
+    }
+  }
+  const ids = Object.keys(g.fleet).slice(0, 4);
+  const k = seasonBase(g, ids[0], 'DUB', 'FAO', [6 * 60, 13 * 60], 40);
+  const client = Object.values(g.clients).find((c) => c.kind === 'airline');
+  if (client) k.clientId = client.id;
+  const home = g.company.homeBase;
+  ids.slice(1).forEach((id, i) => {
+    const ac = g.fleet[id];
+    ac.at = home;
+    const dest = ['FAO', 'FNC', 'OPO'][i % 3];
+    const blk = blockMinutes(ac.typeId, home, dest);
+    for (let d = 1; d < 40; d++) {
+      const std = Math.floor(g.now / DAY) * DAY + d * DAY + (6 + 3 * i) * 60;
+      addFlight(g, { no: ownFlightNo(g), aircraftId: id, contractId: null, kind: 'revenue', from: home, to: dest, std, sta: std + blk, pax: 150 });
+      addFlight(g, { no: ownFlightNo(g), aircraftId: id, contractId: null, kind: 'revenue', from: dest, to: home, std: std + blk + 50, sta: std + 2 * blk + 50, pax: 150 });
+    }
+  });
+  touchCrew(g);
+  advanceTo(g, g.now + 20 * DAY, new Set());
+  const tour = Object.values(g.pairings).find((p) => p.tour && p.contractId === k.id && p.status === 'active' && p.slots.some((s) => s.crewId));
+  return tour?.slots.find((s) => s.crewId)?.crewId ?? '';
 }

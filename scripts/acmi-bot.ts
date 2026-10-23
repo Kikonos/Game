@@ -1620,6 +1620,28 @@ console.log(
   softTargets.push(['a world event touching our flights (≥ 3 of seeds 1–6, v0.8)', v8.closuresHit + v8.legsRerouted + (v8.strikeDelays ?? 0) + (v8.warRiskPaid > 0 ? 1 : 0) > 0, `closures ${v8.closuresHit}, rerouted ${v8.legsRerouted}, strike delays ${v8.strikeDelays ?? 0}, war-risk ${k$(v8.warRiskPaid)}`]);
   softTargets.push(['a dry lease (≥ 2 of seeds 1–6, v0.8)', v8.dryLeases >= 1, `${v8.dryLeases}`]);
 }
+{
+  // v0.9 §R roster planning (UPDATE-0.9.md §R.12).
+  const r = g.stats.v09?.roster;
+  if (r) {
+    const months: number[] = [];
+    for (const c of Object.values(g.crew)) for (const n of Object.values(c.offMonths ?? {})) months.push(n);
+    const avg = months.length ? months.reduce((a, b) => a + b, 0) / months.length : 0;
+    const sby = r.sbyHome + r.sbyHotel + r.asby + r.res;
+    const free = sby + r.otherDays;
+    const all = r.offDays + r.leaveDays + r.flying + free;
+    const fixes = [...tally.crewFixes.values()].reduce((a, b) => a + b, 0);
+    const pct = (a: number, b: number) => (b ? Math.round((100 * a) / b) : 0);
+    console.log(
+      `roster: days off/crew-month ${avg.toFixed(1)} (min 7, <7: ${r.monthsLow} of ${r.months}) · leave ${(r.leaveDays / Math.max(1, months.length)).toFixed(1)} · standby ${pct(sby, all)}% of days (home ${pct(r.sbyHome, all)} · hotel ${pct(r.sbyHotel, all)} · airport ${pct(r.asby, all)} · reserve ${pct(r.res, all)}) · ` +
+        `standby share of free days ${pct(sby, free)}% · call-outs ${r.callOuts} (crew fixes ${fixes}) · max recovery gap ${r.maxRecGapH} h · offBroken ${r.offBroken} · moved ${r.offMoved ?? 0}`,
+    );
+    targets.push(['roster: no crew-month below 7 days off (v0.9)', r.monthsLow === 0, `${r.monthsLow} of ${r.months}`]);
+    targets.push(['roster: recovery gap ≤ 168 h (v0.9)', r.maxRecGapH <= 168, `${r.maxRecGapH} h`]);
+    softTargets.push(['roster: average days off 8.5–10 (v0.9)', avg >= 8.5 && avg <= 10, avg.toFixed(1)]);
+    softTargets.push(['roster: standby + reserve ≥ 85% of the free days (v0.9)', pct(sby, free) >= 85, `${pct(sby, free)}%`]);
+  }
+}
 console.log('\ntargets');
 for (const [name, ok, val] of targets) console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${name.padEnd(38)} ${val}`);
 for (const [name, ok, val] of softTargets) console.log(`  ${ok ? 'ok  ' : 'no  '}  ${name} — ${val}`);

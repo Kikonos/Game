@@ -187,6 +187,8 @@ function onDutyRelease(g: GameState, ev: SimEvent): void {
       else if (f.std >= d.release) home = f;
     }
     const seg = dutySegs(g, c, p, d, out, home).find((x) => x.kind === 'duty')!;
+    // v0.9 crew who joined the duty after its report (a call-in at the gate) get their recovery noted too.
+    noteRecovery(c, seg.start, g);
     c.log.push({
       start: seg.start, end: seg.end, fdp: seg.fdp, block, sectors: d.sectors, augmented: d.augment > 0, disruptive: seg.disruptive,
       ...(d.ext ? { ext: true as const } : {}), ...(seg.early ? { early: true } : {}), ...(seg.late ? { late: true } : {}), ...(seg.night ? { night: true } : {}),

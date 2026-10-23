@@ -136,7 +136,8 @@ describe('a delivery from signing to home', () => {
     const fees = [g.finance.current, ...g.finance.history].reduce((s, st) => s + (st.lines.airportFees ?? 0), 0);
     expect(fees).toBeLessThanOrEqual(-3 * BAL.delivery.parkPerDay[1]);
     // Rated pilots: the ferry flies (at the next daily try) and the wait is counted.
-    addCrew(g, { CPT: 2, FO: 2 }, 'B757/767');
+    // (v0.9: hired in for it, nothing planned yet: no day off in the way.)
+    for (const id of addCrew(g, { CPT: 2, FO: 2 }, 'B757/767')) g.crew[id].off = [];
     run(g, f.std + 2 * DAY);
     expect(f.status).toBe('done');
     expect(ac.delivery!.waitingSince).toBeUndefined();
