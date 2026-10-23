@@ -36,11 +36,11 @@ Calm rules hold: nothing flickers and only aircraft move. Toasts stay rare. Soun
 |---|---|---|---|---|---|
 | `opsControl` | Ops Control duty manager | 25 revenue sectors in a row flown with a legal crew (counted from the first contract) | $9K | Answers routine `sickCrew` (call in) and gate `crewShort` decisions where a short delay is the fix, using the player's rules | Sub-charter, cancel, discretion, AOG, airspace, anything over the delay limit |
 | `maintPlanner` | Maintenance planner | First C-check completed before it was due | $8K | Books A-checks 3–14 days ahead into maintenance nights and gaps, including line stations on deployment bases; moves a booked A-check when a clash appears; proposes the best C-check slot | Book a C-check, a refit or a check that cancels revenue legs |
-| `crewDesk` | Crew scheduling desk | 2 calendar months in a row with ≥ 98 % crew coverage | $14K (two schedulers) | Repairs the roster after disruptions: runs Crew Control fixes on amber flights (auto-fix, deadhead, call-in) within a cost limit; keeps home standby filled; proposes round-up hires | Private jets above the limit, sub-charter, cancel, swaps between contracts |
-| `analyst` | Commercial analyst | 5 contracts completed | $9K | Scores every open offer against the fleet and suggests a counter-price | Accept, decline or counter |
+| `crewDesk` | Crew scheduling desk | 2 closed calendar months in a row with ≥ 98 % crew coverage and at least one revenue sector (round 4: the agreed plain count, no 100-sector bar) | $14K (two schedulers) | Repairs the roster after disruptions: runs Crew Control fixes on amber flights (auto-fix, deadhead, call-in) within a cost limit; keeps home standby filled; proposes round-up hires | Private jets above the limit, sub-charter, cancel, swaps between contracts |
+| `analyst` | Commercial analyst | 5 contracts completed (round 4: every completed contract counts, `g.stats.contractsDone`) | $9K | Scores every open offer against the fleet and suggests a counter-price | Accept, decline or counter |
 | `credit` | Credit controller | The first late government payment collected | $6K | Chases late payers with reminders, answers `latePayment` with Wait or Waive (rule), and asks slow payers for deposits on new charters | Threaten, sell invoices, sue |
 | `fleetPlanner` | Fleet & positioning planner | The first widebody joins the fleet | $10K | Proposes ferries home for idle aircraft, pre-positioning before a contract and the fuel-stop and crew-slip plan for long positioning | Sign, buy, lease, sell or ferry above the player's limit |
-| `watch` | Watch desk | Reliable reputation reaches 85 | $5K | Runs the player's custom alert and auto-pause rules (§5.6) | Act on anything: it only alerts and pauses |
+| `watch` | Watch desk | Reliable reputation 90 or more held 30 days (§5.7 pacing; `BAL.v09.heads.unlock.reliable` / `reliableDays`) | $5K | Runs the player's custom alert and auto-pause rules (§5.6) | Take any action: it only alerts and pauses |
 
 Big decisions always stay with the player: which contracts, which aircraft, crises (AOG, airspace, uninsurable, rescue, cancellations, sub-charters).
 
@@ -114,6 +114,16 @@ Up to 8 rules, each a row: kind (Seg), value (Stepper), action (**Pause** / **Al
 
 The engine checks them hourly (`ops/heads.ts`). The first time a rule triggers for a given subject, it posts one message ("**Your rule: cash below $500K**" — "Cash is $468K after the Condor lease payment.") and either requests `requestPause('rule')` or only alerts (cue `ruleAlert`). It never fires again for the same subject until the condition clears. Mistake: the alert comes up to 1 h late (never missed).
 
+### 5.8 Round 4 (audit): the heads as built
+Every unlock threshold is read from `BAL.v09.heads.unlock` (25 legal sectors; 2 closed months at ≥ 98 % with ≥ 1 revenue sector; 5 contracts; Reliable 90 held 30 days). `loadAchievements` creates `stats.v09` before the backfill (the Reliable clock starts at load) and seeds the overdue-check clock. `defaultRules` reads `BAL.v09.heads.ops/desk`.
+- **Ops Control.** *Standby first* (on by default): a sick call is answered only with a replacement from a standby window or a free crew member whose published days off are untouched (no day-off swap, §R.5: that ask is the player's); otherwise the decision stays with the player. Off: every sick call comes to the player; the head still holds at the gate. The ticket mistake is rolled only when it is real: the replacement was not on standby although someone of that role was; it costs the smaller of $1,200 and the crew desk's fix limit. A gate hold is taken only while no penalty or relation hit is due: never ≥ 3 h late (VIP ≥ 30 min) on any contract kind.
+- **Credit control.** Its note carries `ref: {kind: 'receivable'}` (`latePaymentDecision` sets it); the Inbox **Change** action asks the decision again (`reopenLatePayment`, `data.player: true`, never taken by a head) and the player's choice within 2 h counts as overridden (`setReceivableHook`). Head notes on a flight get the same Change action into Crew Control.
+- **Maintenance planner.** A clashing A-check is cancelled only after a replacement slot was found on a copy; with none it stays booked (the check waits for the inbound leg) and one warning per booking carries the clash card. A line A-check away from home costs +20 % (`maint.outstation`, charged by `planA`). The C-check slot proposal survives Accept (the UI opens the check planner on that slot, `suggest`/`after`) until a C-check is booked; the daily pass drops it then.
+- **Fleet planner.** `position` proposals: a contract's first revenue leg within three days whose same-day positioning (landing within 12 h before it) leaves the crew under `fleet.marginMin` (60 min) of FDP, or that no one crew can fly with the first duty (`dutyNeed`), is proposed as positioning the day before, arriving `arriveBeforeMin` (12 h) ahead of the leg: `ferryAircraft(g, ac, from, arriveBy, contractId)` replaces the contract's later same-day legs with billable positioning through `planPositioning` (tried on a copy first). Fuel stops are legs ("via IST"); a positioning too long for one crew carries the crew-change text from `bestSlip` (§W). Auto-run under `autoFerryMax`, else a proposal that expires before the ferry's day. Dismissals (any head) are remembered per subject for `dismissDays` (14) or until the situation changes (a ferry-home subject includes the station): "Dismissed until 12 Nov: …" on the log.
+- **Analyst.** At signing the contract records `analyst: {name, pct, est}` (the shown margin and the planner's own for that aircraft); when it ends the log says "Winter sun: margin 18.2 % (Ana said 20.1 %)" and, from ±5 % relative error, the mistake "Ana overestimated the Condor margin: said 20.1 %, it was 18.2 %" (counted, no inbox message).
+- **Watch desk.** A subject held back an hour (the mistake roll) that clears before the next pass needs no alert, but the miss is counted and logged. Alert rule ids come from `nextId(g, 'ar')` (the UI passes `id: ''`).
+- **Heavy check, on time** is judged at induction (`MaintenanceEvent.onTime`, set in `onMaintStart`; `onMaintEnd` counts from it), not at release.
+
 ### 5.7 Balance intent
 The early game has no heads, so the player struggles first. Expected unlocks (bot seeds 1–6): Ops Control by day 30, crew desk by day 120, analyst by day 150, credit by day 240, fleet planner with the first widebody (day 150–300), maintenance planner with the first C-check (often year 2), watch desk late in year 1 or in year 2. All seven together cost about $61K a month: below 4 % of a year-2 monthly revenue. They take away roughly half of the routine decisions, never the interesting ones.
 
@@ -140,7 +150,7 @@ export interface AchievementDef { id: string; title: string; text: string; group
 | crew | `standby` · Saved by standby | 5 standby call-ins |
 | crew | `goodPlace` · A good place to work | company morale ≥ 75 at a month end |
 | tech | `cOnTime` · Heavy check, on time | the first C-check completed before due → **maintenance planner** |
-| tech | `noOverdue` · A year without an overdue check | 365 days, no check overdue |
+| tech | `noOverdue` · A year without an overdue check | 365 days, no check overdue (round 4: the clock starts at the first revenue departure, or at load for an older save, like `lastCancel`; a grounding resets it) |
 | commercial | `fiveFlown` · Five flown | 5 contracts completed → **analyst** |
 | commercial | `paidInTheEnd` · They paid in the end | the first late government payment collected → **credit control** |
 | commercial | `partner` · Partners | a client reaches Partner |
@@ -150,7 +160,7 @@ export interface AchievementDef { id: string; title: string; text: string; group
 | commercial | `blueIce` · Blue ice | a landing on an Antarctic ice runway |
 | fleet | `widebody` · Widebody | the first widebody joins → **fleet planner** |
 | fleet | `queen` · Queen of the Skies | a 747-400 revenue sector flown |
-| company | `reliable` · Reliable | Reliable reputation reaches 85 → **watch desk** |
+| company | `reliable` · Reliable | Reliable reputation 90 or more held 30 days (`BAL.v09.heads.unlock`) → **watch desk** |
 | company | `cleanRecord` · Clean record | Clean reputation ≥ 80 |
 | company | `inTheBlack` · In the black | a calendar year with a positive net result |
 | company | `rainyDay` · Rainy-day fund | $5M cash at a month end |
@@ -401,6 +411,10 @@ Scope:
 | Crew Control standby candidate (UI §R.4) | "Rita Costa" + chip "Standby since 06:00" | "Rita Costa" + chips "Home standby (early)" · "No overtime", then "ready in 1:30" |
 | Settings (UI §S.5, §T.4) | "Sound effects · Synthesised UI sounds" · "Pause for crew shortages · A flight in the next 48 h has no legal crew" | a Sound section (master, volume, Alerts, Chimes, Flight chimes, UI clicks, Ambience, Test sounds) · "Pause for crew shortages · A seat in the next 12 h has nobody to fill it" + "Pause for crew out of hours · A pilot or cabin crew member has reached a legal limit" |
 | analyst block (UI §5.5) | (new) | "Analyst · Inès Dubois 78" + the verdict line; "Use $1.24M" only with a counter verdict |
+| heads backfill message (ENGINE `heads.ts`) | "A department head is available: Watch desk" + "You earned it before v0.9: Watch desk. Choose a candidate on Company › Team." | body "Earned before v0.9. Choose a candidate on Company › Team." (several: the list in the body only) |
+| watch desk unlock card (`data/heads.ts` never[0]) | "Never: act on anything: it only alerts and pauses." | "Never: take any action (it only alerts and pauses)." |
+| Team rules pane, analyst (UI) | "No settings: it works to the fleet's own plan." | "No settings: it scores every open offer and suggests a counter." |
+| Team rules, Standby first (UI) | "Call standby crew before delaying" | "Sick calls: calls in standby or free crew, never from a day off. Off: sick calls come to you" |
 
 ---
 

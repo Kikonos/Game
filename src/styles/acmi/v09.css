@@ -133,3 +133,5 @@
 .cp-table th { font-size: 12px; }
 .rb-sum-h { flex-direction: column; line-height: 1.2; gap: 1px; }
 .rb-sum-h b { color: var(--text-2); font-weight: 650; }
+/* v0.9 round 4: the receivable credit control's note points at. */
+.sc-recv.on { background: rgba(148, 170, 220, 0.08); box-shadow: inset 3px 0 0 var(--accent); }

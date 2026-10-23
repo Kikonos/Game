@@ -3,8 +3,10 @@
 // skill, On/Off, the rules (44 px rows), does / never does, proposals (Accept / Dismiss), the last 12 log lines and the
 // counters; Fire is a small text button with a confirm. Heads never take the big decisions. Static, no animation.
 
-import { Check, Lock, Plus, Trash2, UserPlus, X } from 'lucide-react';
-import type { AlertRule, AlertRuleKind, GameState, HeadId, HeadRules } from '../../engine/core/types';
+import { CalendarClock, Check, Lock, Plus, Trash2, UserPlus, X } from 'lucide-react';
+import { C_HUBS } from '../../data/mro';
+import type { AlertRule, AlertRuleKind, GameState, HeadId, HeadProposal, HeadRules } from '../../engine/core/types';
+import { typeOf } from '../../engine/core/perf';
 import { fmtDay, fmtDateTime } from '../../engine/core/time';
 import { acceptProposal, dismissProposal, fireHead, headsView, hireHead, setHeadOn, setHeadRules, type HeadView } from '../../engine/ops';
 import { NamedIcon } from '../components/NamedIcon';
@@ -69,7 +71,8 @@ function AlertRules({ v }: { v: HeadView }) {
   const edit = (i: number, p: Partial<AlertRule>) => save(list.map((a, j) => (j === i ? { ...a, ...p } : a)));
   const add = () => {
     const kind = (Object.keys(ALERT_LABEL) as AlertRuleKind[]).find((k) => !list.some((a) => a.kind === k)) ?? 'cashBelow';
-    save([...list, { id: `r${Date.now().toString(36)}`, kind, value: ALERT_DEFAULT[kind], action: 'alert', on: true }]);
+    // The engine gives the rule its id (nextId): nothing from the wall clock in the save.
+    save([...list, { id: '', kind, value: ALERT_DEFAULT[kind], action: 'alert', on: true }]);
   };
   return (
     <div className="col gap-8">
@@ -103,7 +106,7 @@ function Rules({ v }: { v: HeadView }) {
       return (
         <>
           <RuleRow label="Longest delay it may take" desc="Longer ones come to you"><Seg<number> value={r.maxDelayMin ?? 120} onChange={(x) => setRules(v.id, { maxDelayMin: x as 60 | 120 | 180 })} options={[60, 120, 180].map((x) => ({ value: x, label: `${x / 60} h` }))} /></RuleRow>
-          <RuleRow label="Standby first" desc="Call standby crew before delaying"><Toggle on={r.standbyFirst ?? true} onChange={(x) => setRules(v.id, { standbyFirst: x })} label="Standby first" /></RuleRow>
+          <RuleRow label="Standby first" desc="Sick calls: calls in standby or free crew, never from a day off. Off: sick calls come to you"><Toggle on={r.standbyFirst ?? true} onChange={(x) => setRules(v.id, { standbyFirst: x })} label="Standby first" /></RuleRow>
         </>
       );
     case 'crewDesk':
@@ -125,9 +128,24 @@ function Rules({ v }: { v: HeadView }) {
       return <RuleRow label="Ferry by itself up to" desc="$0: proposals only"><Stepper value={r.autoFerryMax ?? 0} min={0} max={250_000} step={10_000} onChange={(x) => setRules(v.id, { autoFerryMax: x })} format={money} /></RuleRow>;
     case 'watch':
       return <AlertRules v={v} />;
+    case 'analyst':
+      return <div className="small dim">No settings: it scores every open offer and suggests a counter.</div>;
     default:
       return <div className="small dim">No settings: it works to the fleet's own plan.</div>;
   }
+}
+
+/** Accept: a C-check slot opens the check planner on that slot (the proposal stays until the check is booked); the rest run. */
+function accept(g: GameState, v: HeadView, p: HeadProposal) {
+  if (p.kind === 'cSlot') {
+    const acId = String(p.data.aircraftId);
+    const ac = g.fleet[acId];
+    store.act((gg) => acceptProposal(gg, v.id, p.id), { toastOk: false });
+    const hub = ac ? C_HUBS[typeOf(ac.typeId).family]?.[0]?.code : undefined;
+    store.openModal({ kind: 'check', aircraftId: acId, checkKind: 'C', after: Number(p.data.from), ...(hub ? { suggest: { start: Number(p.data.from), at: hub } } : {}) });
+    return;
+  }
+  store.act((gg) => acceptProposal(gg, v.id, p.id));
 }
 
 function Candidates({ v }: { v: HeadView }) {
@@ -159,7 +177,7 @@ function fire(v: HeadView) {
   });
 }
 
-function Detail({ v }: { v: HeadView }) {
+function Detail({ v, g }: { v: HeadView; g: GameState }) {
   return (
     <div className="col gap-16 v8-detail">
       <div className="row gap-12">
@@ -199,7 +217,7 @@ function Detail({ v }: { v: HeadView }) {
                 {p.cost > 0 && <span className="small num">{money(p.cost)}</span>}
                 <span className="tiny dim grow">until {fmtDateTime(p.expires)}</span>
                 <button className="btn" onClick={() => store.act((gg) => dismissProposal(gg, v.id, p.id))}><X /> Dismiss</button>
-                <button className="btn btn-primary" onClick={() => store.act((gg) => acceptProposal(gg, v.id, p.id))}><Check /> Accept</button>
+                <button className="btn btn-primary" onClick={() => accept(g, v, p)}>{p.kind === 'cSlot' ? <CalendarClock /> : <Check />} Accept</button>
               </span>
             </div>
           ))}
@@ -237,7 +255,7 @@ export function TeamView({ g }: { g: GameState }) {
         <div className="v8-list-head small muted">{earned} of {list.length} earned · {list.filter((h) => h.person).length} hired</div>
         {list.map((h) => <HeadRow key={h.id} v={h} on={h.id === v?.id} onPick={() => store.select({ kind: 'head', id: h.id })} />)}
       </div>
-      <div className="card v8-pane v8-pane-r">{v && <Detail v={v} />}</div>
+      <div className="card v8-pane v8-pane-r">{v && <Detail v={v} g={g} />}</div>
     </div>
   );
 }

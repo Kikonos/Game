@@ -53,6 +53,8 @@ function Statement({ g, earned }: { g: GameState; earned: number }) {
 
 function Receivables({ g }: { g: GameState }) {
   const open = g.finance.receivables.filter((r) => r.paid === null).sort((a, b) => a.due - b.due);
+  // v0.9 round 4: credit control's note points at its receivable.
+  const sel = store.nav.sel?.kind === 'receivable' ? store.nav.sel.id : null;
   if (!open.length) return <div className="small muted sc-pad">No unpaid invoices.</div>;
   return (
     <div className="sc-list">
@@ -62,7 +64,7 @@ function Receivables({ g }: { g: GameState }) {
         // v0.7.1 §14: a WHY? on an invoice the engine calls a problem (30 days late).
         const prob = late > 0 && r.contractId ? problemAt(g, { kind: 'contract', id: r.contractId }) : null;
         return (
-          <div key={r.id} className={`sc-list-row sc-recv ${late > 0 ? 'late' : ''}`} onClick={() => r.contractId && store.navigate('contracts', { view: 'active', sel: { kind: 'contract', id: r.contractId } })}>
+          <div key={r.id} className={`sc-list-row sc-recv ${late > 0 ? 'late' : ''} ${r.id === sel ? 'on' : ''}`} onClick={() => r.contractId && store.navigate('contracts', { view: 'active', sel: { kind: 'contract', id: r.contractId } })}>
             <div className="grow" style={{ minWidth: 0 }}>
               <div className="row gap-8">{prob && <Why refs={{ kind: 'contract', id: r.contractId! }} tone={prob.severity === 'red' ? 'bad' : 'warn'} />}<b className="ellipsis">{cl?.name ?? 'Client'}</b>{cl?.kind === 'government' && <span className="chip sc-chip">Government</span>}{r.factored && <span className="chip sc-chip">Factored</span>}</div>
               <div className="small muted ellipsis">{r.desc} · issued {fmtDay(r.issued)}</div>

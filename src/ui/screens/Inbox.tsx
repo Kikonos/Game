@@ -2,7 +2,7 @@
 // read and follows its ref. DESIGN.md §6.3. v0.7.1: a 'Problems only' filter, a severity badge on every warning
 // (money / passengers / lateness) and an Explain button that unfolds the four-line card in place.
 
-import { CheckCheck, ChevronRight, HelpCircle, Hourglass, Inbox as InboxIcon, ShieldAlert, TimerOff, Trophy, Users, X } from 'lucide-react';
+import { CheckCheck, ChevronRight, HelpCircle, Hourglass, Inbox as InboxIcon, PencilLine, ShieldAlert, TimerOff, Trophy, Users, X } from 'lucide-react';
 import { HEAD_DEFS } from '../../data/heads';
 import type { HeadId } from '../../engine/core/types';
 import { NamedIcon } from '../components/NamedIcon';
@@ -10,6 +10,7 @@ import { useMemo, useState } from 'react';
 import { fmtDateTime } from '../../engine/core/time';
 import type { GameState, Message } from '../../engine/core/types';
 import { hurtBadges, messageBadges, problemAt, problemFor, problems, usdShort } from '../../engine/problems';
+import { reopenLatePayment } from '../../engine/ops';
 import { HurtBadges, ProblemCardView } from '../components/ProblemCard';
 import { Empty, Tabs } from '../components/ui';
 import { store, useGame } from '../store';
@@ -46,6 +47,23 @@ function open(g: GameState, m: Message) {
   } else store.navigate(link.tab, { sel: link.sel, view: link.view });
   // Crew problems on a flight still to fly: its sheet carries 'Adjust crew'.
   if (m.cat === 'crew' && m.ref?.kind === 'flight' && g.flights[m.ref.id]?.status === 'scheduled') store.openModal({ kind: 'sheet', refs: [m.ref] });
+}
+
+/**
+ * v0.9 round 4 (§5.3 override): a head's note carries a Change action: a flight still to fly opens Crew Control, a
+ * receivable still unpaid asks the late-payment decision again (the head never takes it twice). What the player then
+ * does within 2 h counts as overridden on the Team view.
+ */
+function changeOf(g: GameState, m: Message): (() => void) | null {
+  if (m.topic !== 'head' || !m.ref) return null;
+  if (m.ref.kind === 'flight' && g.flights[m.ref.id]?.status === 'scheduled') return () => store.openModal({ kind: 'crewControl', flightId: m.ref!.id });
+  if (m.ref.kind === 'receivable' && g.finance.receivables.some((r) => r.id === m.ref!.id && r.paid === null)) {
+    return () => {
+      const r = store.act((gg) => reopenLatePayment(gg, m.ref!.id), { toastOk: false });
+      if (r.ok && r.data) store.openModal({ kind: 'decision', decisionId: r.data.decisionId });
+    };
+  }
+  return null;
 }
 
 function Decisions({ g }: { g: GameState }) {
@@ -174,6 +192,7 @@ export function InboxScreen() {
           {shown.map((m) => {
             const prob = !!m.problem || m.tone === 'bad' || m.tone === 'warn';
             const on = explain === m.id;
+            const change = changeOf(g, m);
             return (
               <div key={m.id} className={`sc-msg-wrap ${on ? 'on' : ''}`}>
                 <div className="sc-msg-line">
@@ -188,6 +207,11 @@ export function InboxScreen() {
                   {prob && (
                     <button className={`btn btn-ghost sc-explain ${on ? 'btn-on' : ''}`} onClick={() => setExplain(on ? null : m.id)} aria-expanded={on} aria-label={on ? 'Hide the story' : 'Explain'}>
                       {on ? <X /> : <HelpCircle />}<span className="sc-explain-t">{on ? 'Hide' : 'Explain'}</span>
+                    </button>
+                  )}
+                  {change && (
+                    <button className="btn btn-ghost sc-explain" onClick={change} aria-label="Change what the head did">
+                      <PencilLine /><span className="sc-explain-t">Change</span>
                     </button>
                   )}
                 </div>
