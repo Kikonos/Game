@@ -5,7 +5,7 @@ for d in art mobile balance acmi brand; do
   cd /home/user/wt/$d 2>/dev/null || continue
   rm -f scripts/*-tmp.ts
   if [ -n "$(git status --porcelain)" ]; then
-    git add -A && git commit -q -m "WIP checkpoint ($d) $(date -u +%FT%H:%MZ) [skip ci]" -m "$(printf 'Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01RF9bn7dpReK5tAwKUQRQ8G')" && echo "$d: committed"
+    git add -A && git commit -q -m "WIP checkpoint ($d) $(date -u +%FT%H:%MZ) [skip ci]" -m "$(printf 'Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01RF9bn7dpReK5tAwKUQRQ8G')" && echo "$d: committed"
   else
     echo "$d: clean"
   fi
