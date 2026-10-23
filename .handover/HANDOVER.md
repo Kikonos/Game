@@ -363,3 +363,4 @@ Player notes (22 Oct, with top-bar screenshot .handover/updates/topbar-space.jpg
 - 03:30Z: v0.9 RESUMED as wf_e5a18ad0-7b2 (task wn4f8bdm7) with args-v0.9.json, which now includes item R and engineResume. Resume with the same args. The acmi tree has uncommitted step-0 edits from the aborted run (engineResume covers them). A reset or force-push was denied by permissions, so nothing was rolled back.
 - (after container restart): Resuming v0.9 wf_e5a18ad0-7b2. The design is cached; engineResume is now generic (interrupted twice; commit at milestones).
 - Resumed v0.9 after the container restart: task wxsoih08g, same run wf_e5a18ad0-7b2, args-v0.9.json.
+- 04:40Z: The player added .claude/settings.json (allowing checkpoint.sh) on the release branch, 3fd1b60. Local release branch fast-forwarded. KEEP this file at release; it's the only expected tree difference from acmi besides play/.
