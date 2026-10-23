@@ -5,6 +5,7 @@ import { contractsModule } from './contracts';
 import type { SimModule } from './core/module';
 import { clearPause, takePause, type PauseReason } from './core/pause';
 import { peek, pop, schedule } from './core/queue';
+import { safetyTrip } from './core/safety';
 import { DAY, monthKey, nextDayStart } from './core/time';
 import type { GameState, Minute, SimEvent, SimEventType } from './core/types';
 import { crewModule } from './crew';
@@ -78,6 +79,8 @@ export function advanceTo(g: GameState, target: Minute, honour?: ReadonlySet<Pau
     events++;
     // Safety net: modules re-queueing each other at one instant (a re-planning loop) must not hang the clock.
     if (same > 500 && top.type !== 'day') {
+      // v0.8 pre-release: reported (a test fails; the game logs and plays on).
+      if (same === 501) safetyTrip('advanceTo', `over 500 events at minute ${g.now} (${top.type} ${top.id})`);
       schedule(g, g.now + 60, top.type, top.id, top.v);
       continue;
     }

@@ -667,7 +667,9 @@ function sportsBase(ctx: Ctx): Draft | null {
   const s = o.start ?? pickStart(ctx, 7 * DAY, 60 * DAY, span);
   if (s === null) return null;
   const legs: LegTemplate[] = [];
-  const pax = wide ? int(g, 250, 290) : int(g, 105, 150);
+  // v0.8 pre-release: seats = passengers, so a widebody load is drawn where the seat ask was before the fix pack (250):
+  // 240–265, within a two-class 767-300 (267) and every A330/A340, not 260–300 (most no longer fit the first widebody).
+  const pax = wide ? int(g, 240, 265) : int(g, 105, 150);
   if (wide) {
     const pool = F.TOUR_CITIES.filter((c) => AIRPORT_BY_CODE[c] && km(home, c) > 4500);
     const far = o.airport ?? (pool.length ? pick(g, pool) : undefined);
@@ -721,7 +723,9 @@ function repatriation(ctx: Ctx): Draft | null {
   const crisis = o.airport ?? pick(g, F.CRISIS_AIRPORTS.filter((c) => AIRPORT_BY_CODE[c] && c !== home));
   const n = o.rotations ?? (wide ? int(g, 1, 2) : int(g, 1, 3));
   const lead = o.start !== undefined ? o.start - g.now : int(g, 24, 72) * 60;
-  const pax = wide ? int(g, 250, 290) : int(g, 140, 175);
+  // v0.8 pre-release: seats = passengers, so a widebody load is drawn where the seat ask was before the fix pack (250):
+  // 240–265, within a two-class 767-300 (267) and every A330/A340, not 260–300 (most no longer fit the first widebody).
+  const pax = wide ? int(g, 240, 265) : int(g, 140, 175);
   // v0.8 fix pack: the real chain on the type the job is priced on (fuel stops included); no type reaches: no offer.
   const ref = referenceType({ minSeats: pax }, [[crisis, home]]);
   const est = ref ? route(ref, crisis, home) : null;
@@ -798,7 +802,9 @@ function tourSeries(ctx: Ctx): Draft | null {
   }
   const est = planSector(wide ? 'b763' : 'a320ceo', base, resort);
   const block = est.ok ? est.legs.reduce((x, l) => x + l.block, 0) : 4 * 60;
-  const pax = wide ? int(g, 260, 300) : int(g, 165, 180);
+  // v0.8 pre-release: seats = passengers, so a widebody load is drawn where the seat ask was before the fix pack (250):
+  // 240–265, within a two-class 767-300 (267) and every A330/A340, not 260–300 (most no longer fit the first widebody).
+  const pax = wide ? int(g, 240, 265) : int(g, 165, 180);
   const outLocal = int(g, 12, 20) * 30;
   const legs: LegTemplate[] = [];
   for (let i = 0; i < n; i++) {

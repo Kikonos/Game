@@ -84,6 +84,12 @@ export interface AcmiType {
   pursers?: 1 | 2;
   /** v0.8 fix pack: AOG risk on top of the airframe's age (old four-engine systems: the 747-400 × 1.3); default 1. */
   aogMult?: number;
+  /**
+   * v0.8 pre-release: flight hours per cycle in an airframe's earlier airline life (used hours and cycles at handover, the
+   * sale model's cycle norm): long-haul types fly few long sectors (a 747-400 about 1 cycle per 8–9 h). Default: the
+   * body's norm (BAL.v072.sale fhYear / cyclesYear: narrowbody 2.0 h, widebody 6.4 h).
+   */
+  hPerCycle?: number;
 }
 
 /** v0.7.3 per-type crew rest (shares are estimates for the ACMI/charter used market; audit §B2). v0.7.4: bunks come as a pair. */
@@ -156,77 +162,77 @@ export const ACMI_TYPES_LIST: AcmiType[] = [
     id: 'b763', name: 'Boeing 767-300ER', short: 'B763', family: 'B757/767', body: 'wide', engines: 2, catalog: 'b763', art: 'b763', tier: 2,
     cabins: [c('16J/251Y', 'two-class', 16, 0, 251), c('309Y', 'all-economy', 0, 0, 309)], maxSeats: 351,
     rangeNm: 5000, cruiseKt: 460, turnMin: 70, cockpitMin: 2, cabinTypical: 8, restClass: 2, etopsMax: 180, minRunwayM: 2600,
-    rateBH: 6400, fuelTBH: 5.3, maintBH: 1700, rentMonth: 170_000, valueUsed: 10_000_000, insuranceMonth: 60_000,
+    rateBH: 6400, fuelTBH: 5.3, maintBH: 1700, rentMonth: 170_000, valueUsed: 10_000_000, hPerCycle: 5.0, insuranceMonth: 60_000,
     aCheckFH: 550, aCheckHours: 16, cCheckMonths: 18, cCheckDays: 18, pilotsPerAircraft: 14, scarcity: 0.4, available: true, rest: TR(0, 'ldmcr', 0, { rowsLost: 2, places: 6, fc: 2 }, false, null), yAbreast: 7,
   },
   {
     id: 'a332', name: 'Airbus A330-200', short: 'A332', family: 'A330/340', body: 'wide', engines: 2, art: 'a332', tier: 2,
     cabins: [c('18J/282Y', 'two-class', 18, 0, 282), c('330Y', 'all-economy', 0, 0, 330)], maxSeats: 406,
     rangeNm: 6000, cruiseKt: 470, turnMin: 80, cockpitMin: 2, cabinTypical: 9, restClass: 1, etopsMax: 240, minRunwayM: 2700,
-    rateBH: 7200, fuelTBH: 5.8, maintBH: 1550, rentMonth: 200_000, firstYear: 1998, valueUsed: 12_000_000, insuranceMonth: 65_000,
+    rateBH: 7200, fuelTBH: 5.8, maintBH: 1550, rentMonth: 200_000, firstYear: 1998, valueUsed: 12_000_000, hPerCycle: 6.5, insuranceMonth: 65_000,
     aCheckFH: 800, aCheckHours: 16, cCheckMonths: 24, cCheckDays: 18, pilotsPerAircraft: 16, scarcity: 0.35, available: true, rest: TR(0.4, 'ldmcr', 7, { rowsLost: 2, places: 7, fc: 2 }, true, 'fcrc'), yAbreast: 8,
   },
   {
     id: 'a333', name: 'Airbus A330-300', short: 'A333', family: 'A330/340', body: 'wide', engines: 2, catalog: 'a333', art: 'a333', tier: 2,
     cabins: [c('24J/326Y', 'two-class', 24, 0, 326), c('440Y', 'all-economy', 0, 0, 440)], maxSeats: 440,
     rangeNm: 5300, cruiseKt: 470, turnMin: 80, cockpitMin: 2, cabinTypical: 10, restClass: 1, etopsMax: 180, minRunwayM: 2800,
-    rateBH: 7800, fuelTBH: 6.0, maintBH: 1550, rentMonth: 330_000, valueUsed: 30_000_000, insuranceMonth: 75_000,
+    rateBH: 7800, fuelTBH: 6.0, maintBH: 1550, rentMonth: 330_000, valueUsed: 30_000_000, hPerCycle: 5.5, insuranceMonth: 75_000,
     aCheckFH: 800, aCheckHours: 16, cCheckMonths: 24, cCheckDays: 18, pilotsPerAircraft: 16, scarcity: 0.4, available: true, rest: TR(0.3, 'ldmcr', 7, { rowsLost: 2, places: 7, fc: 2 }, true, 'fcrc'), yAbreast: 8,
   },
   {
     id: 'a343', name: 'Airbus A340-300', short: 'A343', family: 'A330/340', body: 'wide', engines: 4, art: 'a343', tier: 2,
     cabins: [c('30J/270Y', 'two-class', 30, 0, 270), c('335Y', 'all-economy', 0, 0, 335)], maxSeats: 375,
     rangeNm: 6500, cruiseKt: 470, turnMin: 90, cockpitMin: 2, cabinTypical: 10, restClass: 1, etopsMax: 0, minRunwayM: 3000,
-    rateBH: 6000, fuelTBH: 7.0, maintBH: 2200, rentMonth: 100_000, valueUsed: 8_000_000, insuranceMonth: 60_000,
+    rateBH: 6000, fuelTBH: 7.0, maintBH: 2200, rentMonth: 100_000, valueUsed: 8_000_000, hPerCycle: 7.5, insuranceMonth: 60_000,
     aCheckFH: 800, aCheckHours: 18, cCheckMonths: 24, cCheckDays: 21, pilotsPerAircraft: 16, scarcity: 0.5, available: true, rest: TR(0.75, 'ldmcr', 8, { rowsLost: 2, places: 7, fc: 2 }, true, 'fcrc'), yAbreast: 8,
   },
   {
     id: 'b772', name: 'Boeing 777-200ER', short: 'B772', family: 'B777', body: 'wide', engines: 2, catalog: 'b772', art: 'b772', tier: 3,
     cabins: [c('30J/24W/239Y', 'three-class', 30, 24, 239), c('400Y', 'all-economy', 0, 0, 400)], maxSeats: 440,
     rangeNm: 6200, cruiseKt: 485, turnMin: 90, cockpitMin: 2, cabinTypical: 10, restClass: 1, etopsMax: 330, minRunwayM: 3000,
-    rateBH: 9000, fuelTBH: 7.2, maintBH: 2300, rentMonth: 250_000, valueUsed: 15_000_000, insuranceMonth: 85_000,
+    rateBH: 9000, fuelTBH: 7.2, maintBH: 2300, rentMonth: 250_000, valueUsed: 15_000_000, hPerCycle: 6.5, insuranceMonth: 85_000,
     aCheckFH: 1000, aCheckHours: 18, cCheckMonths: 24, cCheckDays: 21, pilotsPerAircraft: 20, scarcity: 0.7, available: true, rest: TR(0.85, 'ccrc', 8, { rowsLost: 2, places: 9, fc: 2 }, false, 'overhead'), yAbreast: 10,
   },
   {
     id: 'b77w', name: 'Boeing 777-300ER', short: 'B77W', family: 'B777', body: 'wide', engines: 2, catalog: 'b77w', art: 'b77w', tier: 3,
     cabins: [c('42J/358Y', 'two-class', 42, 0, 358), c('450Y', 'all-economy', 0, 0, 450)], maxSeats: 550,
     rangeNm: 6500, cruiseKt: 485, turnMin: 100, cockpitMin: 2, cabinTypical: 12, restClass: 1, etopsMax: 330, minRunwayM: 3100,
-    rateBH: 10_500, fuelTBH: 8.0, maintBH: 2200, rentMonth: 450_000, firstYear: 2004, valueUsed: 40_000_000, insuranceMonth: 100_000,
+    rateBH: 10_500, fuelTBH: 8.0, maintBH: 2200, rentMonth: 450_000, firstYear: 2004, valueUsed: 40_000_000, hPerCycle: 7.5, insuranceMonth: 100_000,
     aCheckFH: 1000, aCheckHours: 18, cCheckMonths: 24, cCheckDays: 21, pilotsPerAircraft: 22, scarcity: 0.6, available: true, rest: TR(0.95, 'ccrc', 10, { rowsLost: 2, places: 9, fc: 2 }, false, 'overhead'), yAbreast: 10,
   },
   {
     id: 'b789', name: 'Boeing 787-9', short: 'B789', family: 'B787', body: 'wide', engines: 2, catalog: 'b789', art: 'b789', tier: 4,
     cabins: [c('28J/262Y', 'two-class', 28, 0, 262), c('330Y', 'all-economy', 0, 0, 330)], maxSeats: 420,
     rangeNm: 6800, cruiseKt: 490, turnMin: 80, cockpitMin: 2, cabinTypical: 9, restClass: 1, etopsMax: 330, minRunwayM: 2900,
-    rateBH: 11_500, fuelTBH: 5.6, maintBH: 1400, rentMonth: 750_000, rentNew: 1_050_000, firstYear: 2014, valueUsed: 90_000_000, insuranceMonth: 110_000,
+    rateBH: 11_500, fuelTBH: 5.6, maintBH: 1400, rentMonth: 750_000, rentNew: 1_050_000, firstYear: 2014, valueUsed: 90_000_000, hPerCycle: 7.0, insuranceMonth: 110_000,
     aCheckFH: 1100, aCheckHours: 14, cCheckMonths: 36, cCheckDays: 14, pilotsPerAircraft: 20, scarcity: 0.9, available: true, rest: TR(0.9, 'ccrc', 6, { rowsLost: 2, places: 8, fc: 2 }, false, 'overhead'), yAbreast: 9,
   },
   {
     id: 'a359', name: 'Airbus A350-900', short: 'A359', family: 'A350', body: 'wide', engines: 2, catalog: 'a359', art: 'a359', tier: 4,
     cabins: [c('32J/288Y', 'two-class', 32, 0, 288), c('369Y', 'all-economy', 0, 0, 369)], maxSeats: 440,
     rangeNm: 7300, cruiseKt: 490, turnMin: 85, cockpitMin: 2, cabinTypical: 10, restClass: 1, etopsMax: 370, minRunwayM: 2800,
-    rateBH: 12_500, fuelTBH: 6.0, maintBH: 1500, rentMonth: 850_000, rentNew: 1_140_000, firstYear: 2015, valueUsed: 110_000_000, insuranceMonth: 120_000,
+    rateBH: 12_500, fuelTBH: 6.0, maintBH: 1500, rentMonth: 850_000, rentNew: 1_140_000, firstYear: 2015, valueUsed: 110_000_000, hPerCycle: 7.5, insuranceMonth: 120_000,
     aCheckFH: 1200, aCheckHours: 14, cCheckMonths: 36, cCheckDays: 14, pilotsPerAircraft: 20, scarcity: 0.95, available: true, rest: TR(0.9, 'ccrc', 8, { rowsLost: 2, places: 8, fc: 2 }, false, 'overhead'), yAbreast: 9,
   },
   {
     id: 'a35u', name: 'Airbus A350-900ULR', short: 'A35U', family: 'A350', body: 'wide', engines: 2, art: 'a35u', tier: 4,
     cabins: [c('67J/94W', 'two-class', 67, 94, 0), c('42J/24W/187Y', 'three-class', 42, 24, 187)], maxSeats: 440,
     rangeNm: 9000, cruiseKt: 490, turnMin: 85, cockpitMin: 4, cabinTypical: 8, restClass: 1, etopsMax: 370, minRunwayM: 3000,
-    rateBH: 14_000, fuelTBH: 6.5, maintBH: 1600, rentMonth: 1_100_000, rentNew: 1_200_000, firstYear: 2018, valueUsed: 120_000_000, insuranceMonth: 125_000,
+    rateBH: 14_000, fuelTBH: 6.5, maintBH: 1600, rentMonth: 1_100_000, rentNew: 1_200_000, firstYear: 2018, valueUsed: 120_000_000, hPerCycle: 9.0, insuranceMonth: 125_000,
     aCheckFH: 1200, aCheckHours: 14, cCheckMonths: 36, cCheckDays: 14, pilotsPerAircraft: 28, scarcity: 0.98, available: true, ulr: true, rest: TR(1, 'ccrc', 8, null, false, null), yAbreast: 9,
   },
   {
     id: 'b77l', name: 'Boeing 777-200LR', short: 'B77L', family: 'B777', body: 'wide', engines: 2, art: 'b77l', tier: 4,
     cabins: [c('38J/262Y', 'two-class', 38, 0, 262), c('35J/24W/221Y', 'three-class', 35, 24, 221)], maxSeats: 440,
     rangeNm: 7500, cruiseKt: 485, turnMin: 90, cockpitMin: 4, cabinTypical: 10, restClass: 1, etopsMax: 330, minRunwayM: 3200,
-    rateBH: 14_000, fuelTBH: 7.4, maintBH: 2200, rentMonth: 600_000, firstYear: 2006, valueUsed: 35_000_000, insuranceMonth: 100_000,
+    rateBH: 14_000, fuelTBH: 7.4, maintBH: 2200, rentMonth: 600_000, firstYear: 2006, valueUsed: 35_000_000, hPerCycle: 9.0, insuranceMonth: 100_000,
     aCheckFH: 1000, aCheckHours: 18, cCheckMonths: 24, cCheckDays: 21, pilotsPerAircraft: 26, scarcity: 0.95, available: true, ulr: true, rest: TR(1, 'ccrc', 8, null, false, null), yAbreast: 10,
   },
   {
     id: 'a388', name: 'Airbus A380-800', short: 'A388', family: 'A380', body: 'wide', engines: 4, catalog: 'a388', art: 'a388', tier: 3,
     cabins: [c('12J/459Y', 'two-class', 12, 0, 459), c('60J/411Y', 'two-class', 60, 0, 411)], maxSeats: 853,
     rangeNm: 7000, cruiseKt: 490, turnMin: 120, cockpitMin: 2, cabinTypical: 17, restClass: 1, etopsMax: 0, minRunwayM: 3300,
-    rateBH: 21_000, fuelTBH: 12, maintBH: 4000, rentMonth: 450_000, firstYear: 2007, valueUsed: 30_000_000, insuranceMonth: 140_000,
+    rateBH: 21_000, fuelTBH: 12, maintBH: 4000, rentMonth: 450_000, firstYear: 2007, valueUsed: 30_000_000, hPerCycle: 8.5, insuranceMonth: 140_000,
     aCheckFH: 1000, aCheckHours: 24, cCheckMonths: 24, cCheckDays: 28, pilotsPerAircraft: 20, scarcity: 0.9, available: true, rest: TR(1, 'ccrc', 14, null, false, null), yAbreast: 10, pursers: 2,
   },
   {
@@ -236,7 +242,7 @@ export const ACMI_TYPES_LIST: AcmiType[] = [
     id: 'b744', name: 'Boeing 747-400', short: 'B744', family: 'B747', body: 'wide', engines: 4, catalog: 'b744', art: 'b744', tier: 2,
     cabins: [c('24J/426Y', 'two-class', 24, 0, 426), c('500Y', 'all-economy', 0, 0, 500)], maxSeats: 660,
     rangeNm: 7000, cruiseKt: 490, turnMin: 120, cockpitMin: 2, cabinTypical: 13, restClass: 1, etopsMax: 0, minRunwayM: 3200,
-    rateBH: 11_000, fuelTBH: 10.5, maintBH: 3000, rentMonth: 150_000, firstYear: 1989, lastYear: 2009, valueUsed: 8_000_000, insuranceMonth: 90_000,
+    rateBH: 11_000, fuelTBH: 10.5, maintBH: 3000, rentMonth: 150_000, firstYear: 1989, lastYear: 2009, valueUsed: 8_000_000, hPerCycle: 8.5, insuranceMonth: 90_000,
     aCheckFH: 600, aCheckHours: 24, cCheckMonths: 18, cCheckDays: 28, pilotsPerAircraft: 18, scarcity: 0.55, available: true, aogMult: 1.3, rest: TR(0.9, 'ccrc', 10, { rowsLost: 2, places: 9, fc: 2 }, false, 'overhead'), yAbreast: 10, pursers: 2,
   },
 ];

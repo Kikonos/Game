@@ -39,6 +39,8 @@ export const WHATS_NEW: WhatsNewEntry[] = [
       'The private jet is only offered when it gets the crew there sooner than a cheaper option.',
       'An aircraft in a cabin refit shows ‘in refit’, not ‘in check’.',
       'The Boeing 747-400 is back on the market: cheap to lease, thirsty, four engines, no ETOPS limits, 500 seats for Hajj.',
+      'No more freeze when an aircraft back from an AOG needs a long empty flight with a fuel stop.',
+      'Used aircraft come with their own type’s hours and cycles: a 747-400 logs about one cycle per 8–9 hours.',
     ],
   },
   {

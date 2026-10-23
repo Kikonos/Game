@@ -34,6 +34,32 @@ export interface SaleQuote {
   booking?: SaleBooking;
 }
 
+/**
+ * v0.8 pre-release: flight hours per cycle in a type's earlier airline life: the type's own (long-haul widebodies fly
+ * few long sectors), else the body's norm (fhYear / cyclesYear). Pure.
+ */
+export function hoursPerCycle(typeId: string): number {
+  const S = BAL.v072.sale;
+  const t = typeOf(typeId);
+  const w = t?.body === 'wide' ? 1 : 0;
+  return t?.hPerCycle ?? S.fhYear[w] / S.cyclesYear[w];
+}
+
+/** v0.8 pre-release: a used airframe's hours and cycles at `age` years on the sale model's norms (`spread` scales the hours). Pure. */
+export function usedHoursCycles(typeId: string, age: number, spread = 1): { hours: number; cycles: number } {
+  const w = typeOf(typeId)?.body === 'wide' ? 1 : 0;
+  const hours = Math.round(Math.max(0, age) * BAL.v072.sale.fhYear[w] * spread);
+  return { hours, cycles: Math.round(hours / hoursPerCycle(typeId)) };
+}
+
+/** v0.7 market model: the type's used value × age (−2%/year past 12, −4%/year past 18; 0.55–1.15) × the segment's index. Pure. */
+export function usedMarketValue(g: GameState, typeId: string, builtYear: number): number {
+  const t = typeOf(typeId);
+  const age = Math.max(0, yearOf(g.now) - builtYear);
+  const ageAdj = clamp(1 - (age - 12) * 0.02 - Math.max(0, age - 18) * 0.04, 0.55, 1.15);
+  return t.valueUsed * ageAdj * (t.body === 'wide' ? g.market.wideIndex : g.market.narrowIndex);
+}
+
 /** A booking that blocks a sale: cancel it, or sell after `until` (its ferry home landed). */
 export interface SaleBooking { maintId: string; kind: string; until: Minute; text: string }
 
@@ -62,12 +88,12 @@ export function saleQuote(g: GameState, aircraftId: string): SaleQuote {
   const w = t.body === 'wide' ? 1 : 0;
   const age = Math.max(0, yearOf(g.now) - ac.builtYear);
   // The v0.7 market model: −2%/year past 12, −4%/year past 18 (0.55–1.15), times the market index.
-  const ageAdj = clamp(1 - (age - 12) * 0.02 - Math.max(0, age - 18) * 0.04, 0.55, 1.15);
   const index = w ? g.market.wideIndex : g.market.narrowIndex;
-  const market = t.valueUsed * ageAdj * index;
+  const market = usedMarketValue(g, ac.typeId, ac.builtYear);
   const yrs = Math.max(1, age);
   const hoursAdj = clamp(1 - 0.15 * (ac.hours / (yrs * S.fhYear[w]) - 1), 0.85, 1.1);
-  const cyclesAdj = clamp(1 - 0.1 * (ac.cycles / (yrs * S.cyclesYear[w]) - 1), 0.85, 1.1);
+  // v0.8 pre-release: cycles against the type's own norm (a 747-400 flies about one cycle per 8.5 h).
+  const cyclesAdj = clamp(1 - 0.1 * (ac.cycles / ((yrs * S.fhYear[w]) / hoursPerCycle(ac.typeId)) - 1), 0.85, 1.1);
   const use = market * (hoursAdj * cyclesAdj - 1);
   const cUsed = Math.min(1, Math.max(0, checkStatus(g, ac).cUsed));
   const cLife = cUsed * BAL.checkCost.C[w] * S.cLifeShare;

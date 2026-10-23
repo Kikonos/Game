@@ -74,6 +74,7 @@ import type { ApprovalId } from '../src/engine/core/types';
 import { chainAugment } from '../src/engine/contracts/offers';
 import { programmeOf } from '../src/engine/contracts/plan';
 import { isWideJob } from '../src/engine/contracts/pricing';
+import { safetyTrips } from '../src/engine/core/safety';
 import { deserialize, serialize } from '../src/engine/save';
 import { advanceTo, settle } from '../src/engine/sim';
 import { LEVEL_ORDER, levelOf } from '../src/engine/contracts/relations';
@@ -778,15 +779,20 @@ function fleet(g: GameState, t: Tally): void {
     // Acquirable (the target): deposit plus three months of rent and insurance, with $1M left to run the airline.
     if (g.company.cash >= o.deposit + 3 * (o.rentPerMonth + typeOf(o.typeId).insuranceMonth) + 1_000_000) t.wideAffordableAt ??= g.now;
     // v0.8 two months of its fixed costs after the deposit (v0.7.3: three) and $300K (was $500K) to run the airline.
-    if (g.company.cash < o.deposit + (WIDE ? 1_000_000 : 2 * wideMonth(o.rentPerMonth, o.typeId, o.cabin.total) + 300_000)) continue;
+    // v0.8 pre-release: --wide too (its $1M left after the deposit signed a 747 on day 13 of a Startup: insolvent).
+    if (g.company.cash < o.deposit + 2 * wideMonth(o.rentPerMonth, o.typeId, o.cabin.total) + 300_000) continue;
     t.wideReadyAt ??= g.now;
     // v0.7: home after the delivery ferry; a widebody job worth $1M+ starting 1–4 months after that (or, from day 150
     // on the ladder, the widebody itself: wide work follows a widebody fleet).
+    // v0.8 pre-release: with no pilots rated on the family yet, a 6-week conversion (or a 45-day rated hire) comes first,
+    // so the job it is signed for starts after that (a 747's delivery ferry waited at Amsterdam for converting pilots).
+    const rated = ratedPilots(g, [typeOf(o.typeId).family]);
+    const crewLead = Math.max(o.leadDays + 7, rated.CPT >= 2 && rated.FO >= 2 ? 0 : 50);
     const lead = o.leadDays + 7;
     // On the ladder: signed so it is home about when Widebody operations is granted (it flies revenue only then).
     const due = g.company.approvals.includes('widebody') ? g.now : g.company.pendingApprovals.find((p) => p.id === 'widebody')?.done;
     const job = Object.values(g.offers).find(
-      (x) => x.status === 'open' && x.estValue >= 1_000_000 && x.start > g.now + (lead + 14) * DAY && x.start < g.now + (lead + 120) * DAY && (x.requirements.body === 'wide' || x.requirements.minSeats > 220) &&
+      (x) => x.status === 'open' && x.estValue >= 1_000_000 && x.start > g.now + (crewLead + 14) * DAY && x.start < g.now + (lead + 120) * DAY && (x.requirements.body === 'wide' || x.requirements.minSeats > 220) &&
         o.cabin.total >= x.requirements.minSeats && (!x.requirements.families?.length || x.requirements.families.includes(typeOf(o.typeId).family)) &&
         // v0.7: work the widebody can fly (after the grant).
         (due === undefined || x.start >= due + 7 * DAY),
@@ -798,7 +804,10 @@ function fleet(g: GameState, t: Tally): void {
     // last quarter earned three months of its fixed costs: seed 6 signed an A340 off a thin autumn and lost $1.2M).
     // v0.8 1.75× (2× signed none of seeds 1–6: a $110K A330-200 against an $868K quarter; 1.5× five of six).
     const carry = timed && o.rentPerMonth <= 300_000 && qProfit >= 1.75 * wideMonth(o.rentPerMonth, o.typeId, o.cabin.total);
-    if (!WIDE && (!earning || !(job || carry))) continue;
+    // v0.8 pre-release: --wide no longer signs with nothing to fly (seed 1 --wide --aug leased an A330-300 at Madrid on
+    // day 76 with no work): a widebody job in hand, or a last quarter that carries the lease while it waits; and not
+    // before a first quarter is in (the Startup's cash: --b744 signed a 747 on day 13 for a June job, went insolvent).
+    if (WIDE ? recent.length < 3 || !(job || carry) : !earning || !(job || carry)) continue;
     if (acquireAircraft(g, o.id).ok) {
       t.wideSigned = g.now;
       t.signed.push(`${typeOf(o.typeId).short} day ${Math.floor((g.now - g.started) / DAY)} at ${o.site}${job ? '' : ' (no job yet)'}`);
@@ -1453,6 +1462,8 @@ if (BIG) {
   bigKB = (LZString.compressToUTF16(serialize(big)).length * 2) / 1024;
 }
 errors.push(...badNumbers(g).map((p) => `final: non-finite ${p}`));
+// v0.8 pre-release: an engine safety net that tripped (a re-planning loop broken) is a bug like an exception.
+errors.push(...safetyTrips.map((x) => `safety net tripped: ${x}`));
 
 const s = g.stats;
 const weeks = Math.max(1, Math.floor(days / 7));

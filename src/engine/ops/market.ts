@@ -22,6 +22,7 @@ import { familyLabel } from '../crew/conversion';
 import { migrateRest, rollRest } from '../crew/restPlan';
 import { aircraftGate, APPROVALS, ratedPilots, type AircraftGate } from './company';
 import { deliveryQuote, handoverMessage, planDeliveryFerry, type DeliveryQuote } from './delivery';
+import { usedHoursCycles } from './sale';
 import { usd } from './util';
 
 /** Real operating lessors (names only; they also trade used aircraft). */
@@ -274,9 +275,9 @@ export function acquireAircraft(g: GameState, offerId: string): ActionResult<{ a
   const site = o.site ?? g.company.homeBase;
   const age = Math.max(0, yearOf(g.now) - o.builtYear);
   // v0.7.2 hours and cycles on the sale model's norms (its adjustments average 1.0 on a fresh purchase).
-  const S = BAL.v072.sale;
   const w = t.body === 'wide' ? 1 : 0;
-  const hours = o.newBuild ? 0 : Math.round(age * S.fhYear[w] * range(g, 0.85, 1.15));
+  // v0.8 pre-release: cycles on the type's own hours per cycle (a 747-400 about 1 per 8.5 h, not a narrowbody's 2 h).
+  const { hours, cycles } = o.newBuild ? { hours: 0, cycles: 0 } : usedHoursCycles(o.typeId, age, range(g, 0.85, 1.15));
   const ac: Aircraft = {
     id: nextId(g, 'a'), reg: registration(g), typeId: o.typeId,
     ownership: o.kind === 'buy'
@@ -285,7 +286,7 @@ export function acquireAircraft(g: GameState, offerId: string): ActionResult<{ a
           kind: 'dryLeaseIn', lessor: o.lessor, rentPerMonth: o.rentPerMonth, reservesPerFH: o.reservesPerFH, leaseStart: handover, leaseEnd: handover + Math.round(o.leaseMonths * MONTH), deposit: o.deposit,
           returnSite: returnSiteOf(o), deliveredLayout: o.cabin.layout, index: o.index ?? (t.body === 'wide' ? g.market.wideIndex : g.market.narrowIndex), ...(o.newBuild ? { newBuild: true } : {}),
         },
-    builtYear: o.builtYear, hours, cycles: Math.round((hours * S.cyclesYear[w]) / S.fhYear[w]),
+    builtYear: o.builtYear, hours, cycles,
     // Delivered fresh from a redelivery check (new-build: zero time).
     maint: o.newBuild
       ? { fhSinceA: 0, lastA: handover, fhSinceC: 0, lastC: handover, deferred: 0 }

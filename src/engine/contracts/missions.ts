@@ -68,8 +68,9 @@ function hajj(ctx: Ctx): Draft | null {
   if (!origin) return null;
   const wide = ctx.wide || km(origin, 'JED') > 4500;
   // v0.8 fix pack: a max-seat all-economy cabin, every seat filled (the passengers are the seats): 180 on an A320,
-  // 300–500 on a widebody (440 an A330-300's, 500 a 747-400's Hajj cabin).
-  const pax = wide ? weightedPick(g, [[300, 0.4], [330, 0.3], [440, 0.2], [500, 0.1]] as const, ([, w]) => w)![0] : 180;
+  // 300–500 on a widebody (440 an A330-300's, 500 a 747-400's Hajj cabin). v0.8 pre-release: 300 most often (a 767's
+  // 309Y and every A330/A340 take it, as the 300-seat ask before), the big cabins the rarer prize.
+  const pax = wide ? weightedPick(g, [[300, 0.55], [330, 0.25], [440, 0.12], [500, 0.08]] as const, ([, w]) => w)![0] : 180;
   const legs: LegTemplate[] = [];
   const prefix = clientPrefix(client.name);
   let no = 3000 + int(g, 0, 50) * 10;
@@ -256,8 +257,9 @@ function evacuation(ctx: Ctx): Draft | null {
   if (t < g.now + 10 * 60) t += DAY;
   // Never an evacuation no aircraft of ours could reach in time: ferry at cruise (+15 %, a fuel stop per range
   // hop) plus 6 h to find a crew and get going; the client waits up to 3 days for the nearest one.
-  // v0.8 fix pack: seats = passengers (each shuttle full).
-  const pax = wide ? int(g, 260, 300) : int(g, 150, 178);
+  // v0.8 fix pack: seats = passengers (each shuttle full). v0.8 pre-release: a widebody shuttle 240–265 (the old 250-seat
+  // ask, which a two-class 767-300 takes), not 260–300.
+  const pax = wide ? int(g, 240, 265) : int(g, 150, 178);
   const minSeats = pax;
   const fleet = Object.values(g.fleet).filter((a) => a.cabin.total >= minSeats && a.status !== 'leasedOut' && AIRPORT_BY_CODE[a.at]);
   if (Object.keys(g.fleet).length && o.start === undefined) {

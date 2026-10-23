@@ -4,6 +4,7 @@ import { BAL } from '../core/balance';
 import { addFlight, flightsOf, liveFlightsOf, ownFlightNo, removeFlights } from '../core/entities';
 import { typeOf } from '../core/perf';
 import { ticketBlock } from '../ops/commercial';
+import { safetyTrip } from '../core/safety';
 import { DAY, dayStart } from '../core/time';
 import type { Contract, Flight, GameState, Minute } from '../core/types';
 import {
@@ -279,6 +280,19 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
       chainBackward(typeId, X, Y, earliest, latest) ??
       chainForward(typeId, X, Y, earliest);
     if (ch) add(ch, inId);
+  }
+  // v0.8 pre-release safety net: a pass that only swaps legs for the very same legs (route, times, contract) would
+  // do it again on the next settle, and the next: the fix pack's fuel-stop chain was re-planned that way on every
+  // settle until the game froze. Keep the legs (and their crews), drop the copies and report the loop.
+  if (remove.length && created.length === remove.length) {
+    const sig = (f: Flight) => `${f.from}-${f.to}@${f.std}-${f.sta}:${f.contractId ?? ''}`;
+    const was = remove.map((id) => sig(g.flights[id])).sort().join(' ');
+    if (was === created.map(sig).sort().join(' ')) {
+      // The copies never reached a roster: gone without a re-sync (their queued departures find no flight).
+      for (const f of created) delete g.flights[f.id];
+      safetyTrip('relinkPositioning', `${ac.reg} re-planned ${created.length} empty leg(s) unchanged at ${g.now} (${was})`);
+      return [];
+    }
   }
   if (remove.length) removeFlights(g, remove);
   return created;

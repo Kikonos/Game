@@ -19,7 +19,9 @@ import { typeOf } from './core/perf';
 import { offsetAt } from './crew/rules';
 import { escalateShortages } from './crew/control';
 import { recheckPairing, releaseCrew, setFlightsCrew } from './crew/roster';
-import { bunksFor, fittedRest, migrateRest } from './crew/restPlan';
+import { fittedRest, migrateRest, rollRestFor } from './crew/restPlan';
+import { usedHoursCycles, usedMarketValue } from './ops/sale';
+import { yearOf } from './core/time';
 
 /** Out-and-back legs from each aircraft's position, starting in 30 min, for `days` days (ferries by default: no client). */
 export function demoFlights(g: GameState, dests = ['FAO', 'FNC', 'PMI', 'TFS', 'OPO', 'AGP'], days = 3, kind: 'ferry' | 'revenue' = 'ferry'): number {
@@ -129,24 +131,44 @@ export function devSaleReady(g: GameState): string {
 
 // ---------- v0.7.3 (UPDATE-0.7.3.md §7): each returns the id to open ----------
 
-/** v0.7.4: an aircraft of `typeId` at home base (nothing fitted unless the type always has bunks) with a crew for it; returns its id. Dev/test helper. */
+/** v0.7.4: an aircraft of `typeId` at home base (its own airframe and rest roll, v0.8 pre-release) with a crew for it; returns its id. Dev/test helper. */
 export function devAddType(g: GameState, typeId: string, cabinIx = 0): string {
   const t = ACMI_TYPES[typeId];
   if (!t) return '';
-  const ac = devWide(g, typeId, t.rest.bunkShare >= 1 ? bunksFor(typeId) : { fc: null, cc: null }, `D${typeId.slice(-2).toUpperCase()}`, cabinIx);
+  // v0.8 pre-release: the type's own rest roll (as the market's, per airframe), not bunks only on bunkShare 1 types.
+  const ac = devWide(g, typeId, null, `D${typeId.slice(-2).toUpperCase()}`, cabinIx);
   return ac?.id ?? '';
 }
 
-/** A widebody clone of the first aircraft at home base with these facilities and its crew hired (dev). */
-function devWide(g: GameState, typeId: string, rest: AcRest, suffix: string, cabinIx = 0): Aircraft | null {
+/**
+ * v0.8 pre-release: a dev airframe of the type (not the cloned A320's 2006 frame, 52,000 h / 30,800 cycles and $9.5M
+ * book): a mid-life frame (12 years old, within the type's production years), the sale model's hours and the type's own
+ * cycles (a 747-400 about one per 8.5 h), owned at its market value; widebodies ETOPS as delivered from the market.
+ */
+export function devAirframe(g: GameState, typeId: string): Pick<Aircraft, 'builtYear' | 'hours' | 'cycles' | 'ownership' | 'etops'> {
+  const t = ACMI_TYPES[typeId];
+  const now = yearOf(g.now);
+  const builtYear = Math.min(t.lastYear ?? now - 1, now - 1, Math.max(t.firstYear ?? 0, now - 12));
+  const { hours, cycles } = usedHoursCycles(typeId, now - builtYear);
+  const bookValue = Math.round(usedMarketValue(g, typeId, builtYear) / 10_000) * 10_000;
+  return { builtYear, hours, cycles, ownership: { kind: 'owned', bookValue }, etops: t.body === 'wide' ? Math.min(180, t.etopsMax) : 0 };
+}
+
+/**
+ * A widebody of the first aircraft's state at home base with these facilities (null: the type's market roll) and its
+ * crew hired (dev); v0.8 pre-release: its own airframe (devAirframe), not the A320's hours, cycles and value.
+ */
+function devWide(g: GameState, typeId: string, rest: AcRest | null, suffix: string, cabinIx = 0): Aircraft | null {
   const base = Object.values(g.fleet)[0];
   if (!base) return null;
   const home = g.company.homeBase;
   for (const a of ['widebody', 'augmented'] as const) if (!g.company.approvals.includes(a)) g.company.approvals.push(a);
   const t = ACMI_TYPES[typeId];
   const id = nextId(g, 'a');
+  const cabin = cabinFrom(t.cabins[cabinIx]);
+  const facilities = rest ?? rollRestFor(id, typeId, cabin.j);
   // v0.7.4 fitted facilities only (the cabin's curtained seats are always there), bunks paired.
-  const ac: Aircraft = { ...structuredClone(base), id, reg: `${g.company.regPrefix}${suffix}`, typeId, cabin: cabinFrom(t.cabins[cabinIx]), at: home, flightId: null, status: 'available', maintId: null, rest: fittedRest(typeId, structuredClone(rest)), restV: 2, bhDays: [] };
+  const ac: Aircraft = { ...structuredClone(base), ...devAirframe(g, typeId), id, reg: `${g.company.regPrefix}${suffix}`, typeId, cabin, at: home, flightId: null, status: 'available', maintId: null, rest: fittedRest(typeId, structuredClone(facilities)), restV: 2, bhDays: [] };
   delete ac.crewRest;
   ac.maint = { ...ac.maint, fhSinceA: 0, lastA: g.now, fhSinceC: 0, lastC: g.now };
   g.fleet[id] = ac;
