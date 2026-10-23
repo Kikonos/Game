@@ -137,7 +137,8 @@ describe('v0.8 pre-release: seats = passengers keeps the widebody work a first w
       for (let i = 0; i < 40; i++) {
         g.now += 3 * 60;
         const o = generateOffer(g, a, { wide: true, window: false, paint: false, cabin: false });
-        if (o && o.requirements.minSeats > 235) (asks[a] ??= []).push(o.requirements.minSeats);
+        // (v0.9 §Y.2 jumbo loads of 420+ are a separate kind of offer.)
+        if (o && !o.jumbo && o.requirements.minSeats > 235) (asks[a] ??= []).push(o.requirements.minSeats);
         if (o) delete g.offers[o.id];
       }
     }

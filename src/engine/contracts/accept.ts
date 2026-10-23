@@ -169,6 +169,7 @@ export function acceptOffer(g: GameState, offerId: string, aircraftIds: string[]
   if (o.urgency === 'urgent') bumpClient(g, c.clientId, BAL.v08.rel.urgentSign, `Took ${c.title} at short notice`);
   // v0.9 achievement: signed while a rival was quoting for it.
   if (o.rivalBid) v09Stats(g).firstCall = (v09Stats(g).firstCall ?? 0) + 1;
+  if (o.jumbo) v09Stats(g).jumboLoads++;
   if (c.archetype === 'subcharterIn') {
     statsV08(g).subIn++;
     const rv = g.clients[c.clientId]?.rivalId;

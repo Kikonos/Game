@@ -1,5 +1,6 @@
 // Offer generation per archetype and the offer lifecycle (B1). DESIGN.md §5.1.1–5.1.2.
 
+import { v09Stats } from '../crew/dayPlan';
 import { ACMI_TYPES_LIST, type CabinLayout, type RatingFamily } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE, AIRPORTS, type Airport } from '../../data/airports';
 import { AIRLINE_FAMILIES, AIRLINE_MARKETS, BROKERS } from '../../data/naming';
@@ -30,7 +31,7 @@ import { paintTermsText, rollPaint, sideRng } from './paintTerms';
 import { cabinTarget, cabinTermsText, rollCabin } from './cabinTerms';
 import { anchorsOf, computeWaves, localToUTC, maxPax, programmeOf, route, routeMinutes, seatNeed, type ChainShape } from './plan';
 export { maxPax, seatNeed };
-import { ARCH_MULT, defaultSeats, isWetArchetype, isWideJob, priceProduct, productValue, referenceType, tripTickets } from './pricing';
+import { ARCH_MULT, defaultSeats, isJumboType, isWetArchetype, isWideJob, priceProduct, productValue, referenceType, tripTickets } from './pricing';
 import { LEVEL_PERKS, levelOf, standingRate } from './relations';
 import { rivalTakes, rollRivalBid } from './rivals';
 import { inWarZone, warRiskLandings } from '../ops/world';
@@ -181,6 +182,8 @@ export interface Draft {
   passThrough?: number;
   /** v0.8 extra BH-equivalents priced in (music tours: days held away). */
   extraBH?: number;
+  /** v0.9 §Y.2 a jumbo load (420–480 passengers, all economy). */
+  jumbo?: boolean;
 }
 
 export const city = (c: string) => AIRPORT_BY_CODE[c]?.city ?? c;
@@ -993,11 +996,54 @@ function fitsWindow(a: Archetype, w: IdleWindow, now: Minute): boolean {
 /** v0.8 fix pack: finalize dropped a draft no crew may fly, or one a Newcomer can never fly (generateOffer picks again). */
 let fixDropped = false;
 
+/** Archetypes whose full widebody loads can be jumbo loads (§Y.2). */
+const JUMBO_ARCH = new Set<Archetype>(['hajj', 'troopRotation', 'unRotation', 'evacuation', 'repatriation', 'sports', 'adhoc']);
+
+/**
+ * §Y.2: 20 % of the widebody legs offers of these kinds (35 % with a 747 of ours idle over the job; none when nobody,
+ * we or a rival, flies a 400-seat type) become jumbo loads: 420–480 passengers on each loaded leg, all economy, on a
+ * side stream (the offer stream is unchanged otherwise). Ad hoc only for pilgrims (all-economy requests).
+ */
+let jumboForced = false;
+/** Dev/test (devJumbo): every eligible widebody draft becomes a jumbo load while on. */
+export function forceJumbo(on: boolean): void {
+  jumboForced = on;
+}
+
+function jumboLoad(g: GameState, d: Draft): void {
+  const p = d.pattern;
+  if (d.product || d.jumbo || p.kind !== 'legs' || !JUMBO_ARCH.has(d.archetype) || d.req.families?.length || d.req.stretchers) return;
+  if (d.archetype === 'adhoc' && !d.req.layouts?.includes('all-economy')) return;
+  if (d.req.minPremium || (d.req.layouts && !d.req.layouts.includes('all-economy')) || (d.req.layout && d.req.layout !== 'all-economy')) return;
+  const pax = Math.max(0, ...p.legs.map((l) => l.pax ?? 0));
+  if (pax < 220 && d.req.body !== 'wide') return;
+  const J = BAL.v09.jumbo;
+  const ours = Object.values(g.fleet).filter((a) => isJumboType(a.typeId));
+  if (!ours.length && !g.rivals.some((r) => r.fleet.some((x) => x.count > 0 && isJumboType(x.typeId)))) return;
+  const idle747 = ours.some((a) => a.typeId === 'b744' && idleWindows(g).some((w) => w.aircraftId === a.id && w.from <= d.start && w.to >= d.end));
+  const r = sideRng(g, `jumbo:${d.archetype}:${d.client.id}:${d.start}`);
+  if (!jumboForced) {
+    if (!chance(r, idle747 ? J.shareIdle : J.share)) return;
+    const v = v09Stats(g);
+    if ((v.offersWide ?? 0) >= 20 && (v.offersJumbo ?? 0) + 1 > J.capShare * ((v.offersWide ?? 0) + 1)) return;
+  }
+  const n = int(r, J.pax[0], J.pax[1]);
+  for (const l of p.legs) if ((l.pax ?? 0) > 0) l.pax = n;
+  d.req.minSeats = n;
+  d.req.layouts = ['all-economy'];
+  delete d.req.layout;
+  delete d.req.maxSeats;
+  d.req.body = 'wide';
+  d.jumbo = true;
+}
+
 function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null {
   const home = g.company.homeBase;
   // One live request per client and kind of job.
   if (Object.values(g.offers).some((x) => x.clientId === d.client.id && x.archetype === d.archetype && (x.status === 'open' || x.status === 'countered'))) return null;
   const p = d.pattern;
+  // v0.9 §Y.2 some full widebody loads are jumbo loads (420–480 passengers, all economy).
+  jumboLoad(g, d);
   // v0.8 fix pack: seats = passengers on every legs job (whatever the builder rounded), stretchers the only extra.
   d.req.minSeats = seatNeed(p, d.req.stretchers, d.req.minSeats);
   const sectors: [string, string][] = p.kind === 'base' ? p.dests.flatMap((x) => [[p.base, x], [x, p.base]] as [string, string][]) : p.legs.map((l) => [l.from, l.to]);
@@ -1079,7 +1125,7 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   const product: Product = d.product ?? priceProduct(g, {
     archetype: d.archetype, typeId: ref, estBH: wet ? revBH : revBH + emptyMin / 60 + (d.extraBH ?? 0), start: d.start, end: d.end, lead: d.start - g.now,
     mult: d.mult, departures: deps, revDepartures: revDeps, roomNights, crewDays, tickets: tickets + (d.passThrough ?? 0), government: gov, mghPerMonth: d.mghPerMonth,
-    loyalty: (1 + levelPct) * (1 + standingPct) - 1, wet: d.wet,
+    loyalty: (1 + levelPct) * (1 + standingPct) - 1, wet: d.wet, ...(d.jumbo && !wet ? { fuelAtCostBH: revBH } : {}),
   });
   // v0.7.3 heavy crews cost more: a wet rate +3 % when the longest chain needs 3 pilots on the type it was sized
   // for, +6 % for 4 (that type's usual rest facilities).
@@ -1124,6 +1170,12 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
     ...(d.repeatOf ? { repeatOf: d.repeatOf } : {}), ...(d.eventId ? { eventId: d.eventId } : {}), ...(d.dryFor ? { dryFor: d.dryFor } : {}),
   };
   if (d.terms) o.terms = d.terms;
+  if (d.jumbo) o.jumbo = true;
+  if (isWideJob(requirements)) {
+    const v = v09Stats(g);
+    v.offersWide = (v.offersWide ?? 0) + 1;
+    if (d.jumbo) v.offersJumbo = (v.offersJumbo ?? 0) + 1;
+  }
   if (slips.length) o.slip = { at: [...new Set(slips.map((x) => x.at))], cost: slips.reduce((n, x) => n + slipCost(x), 0) };
   // v0.8 Trusted / Partner clients pay sooner.
   o.payment.dueDays = Math.max(0, o.payment.dueDays - perks(g, d.client).payDays);
@@ -1377,7 +1429,7 @@ export function loadCounters(g: GameState): void {
 
 export function fmtPrice(p: Product): string {
   if (p.kind === 'wet') return `$${p.ratePerBH.toLocaleString('en-US')}/BH`;
-  if (p.kind === 'charter') return `$${p.price.toLocaleString('en-US')}`;
+  if (p.kind === 'charter') return `$${p.price.toLocaleString('en-US')}${p.fuelAtCost ? ' plus fuel at cost' : ''}`;
   return `$${p.rentPerMonth.toLocaleString('en-US')}/month`;
 }
 

@@ -13,8 +13,8 @@ import { touchCrew, touchCrewState } from './crew/timeline';
 import { blockMinutes } from './core/perf';
 import { flightsOf } from './core/entities';
 import { nextId } from './core/entities';
-import type { AcRest, Aircraft, ClientLevel, GameState, HeadId, Role } from './core/types';
-import { finalizeDraft, generateOffer, type Draft } from './contracts/offers';
+import type { AcRest, Aircraft, ClientLevel, GameState, HeadId, OohLimit, Role } from './core/types';
+import { finalizeDraft, forceJumbo, generateOffer, type Draft } from './contracts/offers';
 import { rivalFits } from './contracts/rivals';
 import { schedule } from './core/queue';
 import { typeOf } from './core/perf';
@@ -25,7 +25,9 @@ import { fittedRest, migrateRest, rollRestFor } from './crew/restPlan';
 import { usedHoursCycles, usedMarketValue } from './ops/sale';
 import { yearOf } from './core/time';
 import { seasonBase } from './crew/fixtures';
-import { advanceTo } from './sim';
+import { advanceTo, settle } from './sim';
+import { restPlan } from './crew';
+import { delayFlight } from './ops/flights';
 
 /** Out-and-back legs from each aircraft's position, starting in 30 min, for `days` days (ferries by default: no client). */
 export function demoFlights(g: GameState, dests = ['FAO', 'FNC', 'PMI', 'TFS', 'OPO', 'AGP'], days = 3, kind: 'ferry' | 'revenue' = 'ferry'): number {
@@ -388,4 +390,69 @@ export function devSlipOffer(g: GameState, routeKey: 'MAD-SIN' | 'DIL-LIS' = 'MA
     g.company.standing = standing;
   }
   return '';
+}
+
+/**
+ * v0.9 §T: the first crewed flight leaving within 10 h gets its captain over a limit (28-day flying by default; 'duty7d'
+ * the 7-day duty sum) with every other captain away, so the seat empties out of hours and the red stage posts. The
+ * flight id ('' when nothing is crewed that soon). Dev/test helper.
+ */
+export function devCrewHours(g: GameState, limit: OohLimit = 'block28d'): string {
+  const cands = Object.values(g.flights)
+    .filter((f) => f.status === 'scheduled' && f.aircraftId && f.kind !== 'deadhead' && f.dutyId && f.std > g.now && f.std <= g.now + 10 * 60 && f.crewIds.length > 0)
+    .sort((a, b) => a.std - b.std || (a.id < b.id ? -1 : 1));
+  for (const f of cands) {
+    const d = g.duties[f.dutyId!];
+    const p = d ? g.pairings[d.pairingId] : undefined;
+    const cpt = p?.slots.find((s) => s.role === 'CPT' && s.crewId)?.crewId;
+    if (!p || !cpt || d.flightIds[0] !== f.id || d.report <= g.now) continue;
+    const c = g.crew[cpt];
+    const week = limit === 'duty7d';
+    for (let k = 1; k <= (week ? 5 : 10); k++) {
+      const start = d.report - (week ? 6 - k : 25 - k) * DAY;
+      c.log.push({ start, end: start + 12 * 60, fdp: 12 * 60, block: week ? 3 * 60 : 10 * 60, sectors: 2, augmented: false, disruptive: false });
+    }
+    c.log.sort((a, b) => a.start - b.start);
+    for (const o of Object.values(g.crew)) if (o.role === 'CPT' && o.id !== cpt) o.blocks = [...(o.blocks ?? []), { from: g.now, to: g.now + 2 * DAY, why: 'leave' }];
+    touchCrewState(g);
+    recheckPairing(g, p);
+    escalateShortages(g);
+    return f.id;
+  }
+  return '';
+}
+
+/** v0.9 §Y.2: a jumbo-load offer (420–480 passengers, fuel at cost on a charter); adds a 747-400 when the fleet has none. */
+export function devJumbo(g: GameState): string {
+  if (!Object.values(g.fleet).some((a) => a.typeId === 'b744')) devAddType(g, 'b744');
+  forceJumbo(true);
+  try {
+    for (let i = 0; i < 40; i++) {
+      const o = generateOffer(g, (['hajj', 'troopRotation', 'repatriation', 'unRotation', 'sports'] as const)[i % 5], { wide: true });
+      if (o?.jumbo) return o.id;
+      if (o) delete g.offers[o.id];
+    }
+  } finally {
+    forceJumbo(false);
+  }
+  return '';
+}
+
+/**
+ * v0.9 §Y.1: the augmented LIS–GRU flight of devRestPlan, the crew reported, then held at the gate until the cabin
+ * crew can no longer all rest in the cruise; the flight id. Dev/test helper (advances the clock to the report).
+ */
+export function devRestAtDeparture(g: GameState): string {
+  const fid = devRestPlan(g);
+  const f = g.flights[fid];
+  const d0 = f?.dutyId ? g.duties[f.dutyId] : undefined;
+  if (!f || !d0) return fid;
+  advanceTo(g, d0.report + 5, new Set());
+  for (let h = 0; h < 8; h++) {
+    const d = g.flights[fid].dutyId ? g.duties[g.flights[fid].dutyId!] : undefined;
+    if (!d || restPlan(g, d.id)?.ok === false || g.flights[fid].status !== 'scheduled') break;
+    delayFlight(g, fid, 60, 'Technical: APU');
+    settle(g);
+  }
+  return fid;
 }

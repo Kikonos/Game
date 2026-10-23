@@ -35,6 +35,8 @@ export interface PriceInput {
   government?: boolean;
   /** Wet MGH per aircraft-month override (AOG cover: 8 BH/day). */
   mghPerMonth?: number;
+  /** v0.9 jumbo loads: block hours whose fuel the client pays at cost after flying (not in the price). */
+  fuelAtCostBH?: number;
   /** v0.8 a wet product on a legs pattern (Hajj, sub-charter in). */
   wet?: boolean;
 }
@@ -103,8 +105,9 @@ export function priceProduct(g: GameState, p: PriceInput): Product {
   // Charter: ACMI-equivalent hours (incl. empty legs) at the rate, plus pass-through, plus margin (RESEARCH §4.4).
   const hotel = BAL.hotelPerNight[g.company.policies.hotelTier] ?? 140;
   const perDiem = (BAL.perDiem.CPT + BAL.perDiem.FO + 4 * BAL.perDiem.CC) / 6;
+  const fac = Math.min(p.estBH, p.fuelAtCostBH ?? 0);
   const pass =
-    p.estBH * t.fuelTBH * g.market.fuelPrice +
+    (p.estBH - fac) * t.fuelTBH * g.market.fuelPrice +
     (p.departures ?? 2) * BAL.airportFees[wide ? 1 : 0] +
     (p.revDepartures ?? 1) * BAL.catering[wide ? 1 : 0] +
     (p.roomNights ?? 0) * hotel +
@@ -118,6 +121,7 @@ export function priceProduct(g: GameState, p: PriceInput): Product {
     depositPct: gov ? 0 : BAL.charterDeposit,
     balanceDaysBefore: gov ? 0 : BAL.charterBalanceDays + Math.floor(hashUnit(`${p.start}:${p.typeId}:${p.archetype}`) * 8),
     fuelEscalation: p.archetype === 'tourSeries',
+    ...(fac > 0 ? { fuelAtCost: true as const } : {}),
   };
 }
 
@@ -189,6 +193,10 @@ type RefReq = Pick<Requirements, 'minSeats'> & Partial<Pick<Requirements, 'maxSe
 /** The most seats a narrowbody cabin preset has (the 757-200's 235Y). */
 const NB_MAX_SEATS = Math.max(...ACMI_TYPES_LIST.filter((t) => t.body === 'narrow' && t.available).flatMap((t) => t.cabins.map((c) => c.j + c.w + c.y)));
 
+/** v0.9 §Y.2: jumbo loads start at 420 passengers; a jumbo type seats 450 or more (777-300ER, 747-400, A380). */
+export const JUMBO_SEATS = 420;
+export const isJumboType = (typeId: string): boolean => (ACMI_TYPES[typeId]?.cabins ?? []).some((c) => c.j + c.w + c.y >= 450);
+
 /** v0.8 fix pack: a widebody job: the client asks for one, or no narrowbody cabin seats it. Pure. */
 export const isWideJob = (req: Pick<Requirements, 'minSeats' | 'body'>): boolean => (req.body ? req.body === 'wide' : req.minSeats > NB_MAX_SEATS);
 
@@ -205,6 +213,8 @@ function refPass(req: RefReq, sectors: [string, string][], noStops: boolean, unl
     if (req.families?.length && !req.families.includes(t.family)) continue;
     // v0.8 fix pack: the body the client asks for (a widebody base, Hajj, Antarctica).
     if (req.body && req.body !== t.body) continue;
+    // v0.9 jumbo loads (420+ passengers) price on a 400-seat type (777-300ER, 747-400), never a 440-seat A330 squeeze.
+    if (req.minSeats >= JUMBO_SEATS && !isJumboType(t.id)) continue;
     const fits = (layouts?.includes('vip') ? cabinPresets(t.id) : t.cabins).some((c) => {
       const seats = c.j + c.w + c.y;
       return seats >= req.minSeats && (!req.maxSeats || seats <= req.maxSeats) && (!layouts || layouts.includes(c.layout)) && (!req.minPremium || c.j + c.w >= req.minPremium);

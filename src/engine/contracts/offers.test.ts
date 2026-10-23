@@ -112,7 +112,7 @@ describe('v0.7 cabin rules on offers (§F7.3–F7.4)', () => {
       expect(o.requirements.layouts).toEqual(['two-class', 'three-class', 'vip']);
       expect(o.requirements.minPremium).toBe(12);
     }
-    const wb = many('sports', 60, { wide: true }).filter((o) => o.requirements.layouts);
+    const wb = many('sports', 60, { wide: true }).filter((o) => o.requirements.layouts && !o.jumbo);
     expect(wb.length).toBeGreaterThan(0);
     for (const o of wb) expect(o.requirements.minPremium).toBe(20);
   });

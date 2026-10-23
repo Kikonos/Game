@@ -585,6 +585,8 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   rep.estBH = Math.round(bh * 10) / 10;
   const product = termsProduct(o, { paint: paintOn, cabin: cabinOn });
   rep.estRevenue = Math.round(product.kind === 'wet' ? productValue(product, revBH + (product.positioningBillable ? posBH : 0), o.start, o.end) : productValue(product, revBH, o.start, o.end) * (1 - (o.broker ? BAL.brokerCommission : 0)));
+  // v0.9 §Y.2 fuel at cost: the client pays this aircraft's own burn on the revenue legs after flying.
+  if (product.kind === 'charter' && product.fuelAtCost) rep.estRevenue += Math.round(revBH * t.fuelTBH * g.market.fuelPrice);
   const age = Math.max(0, toDate(g.now).getUTCFullYear() - ac.builtYear - 12);
   let cost = t.maintBH * bh * (1 + age * BAL.maintAgeFactor);
   const crewN = complement(t.id, seats, { extraCabin: xc.cabin, augment: rn.need?.mode === 'aug2' ? 2 : rn.need?.mode === 'aug1' ? 1 : 0, restCabin: rn.need?.plan?.extraCabin ?? 0 }).length + xc.pilot;

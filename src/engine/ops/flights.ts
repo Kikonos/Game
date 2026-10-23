@@ -6,7 +6,7 @@
 
 import { BAL } from '../core/balance';
 import { cancelFlight, flightsOf, removeFlights, retimeFlight, subcharterFlights, touchFlights, touchStatus, touchTickets } from '../core/entities';
-import { post } from '../core/ledger';
+import { invoice, post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { blockMinutes, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
@@ -1153,6 +1153,11 @@ export function onFlightArr(g: GameState, ev: SimEvent): void {
   } else post(g, 'maintenance', -Math.round(maint));
   if (paysFuel(g, f)) {
     post(g, 'fuel', -Math.round(t.fuelTBH * bh * g.market.fuelPrice));
+    // v0.9 §Y.2 fuel at cost: a jumbo charter's revenue legs re-bill the actual burn to the client.
+    const fc = contractOf(g, f);
+    if (fc && fc.product.kind === 'charter' && fc.product.fuelAtCost && isRevenue(f)) {
+      invoice(g, { clientId: fc.clientId, contractId: fc.id, desc: `Fuel re-billed: ${f.no}`, amount: Math.round(t.fuelTBH * bh * g.market.fuelPrice), cat: 'otherRevenue', dueDays: fc.payment.basis === 'arrears' ? fc.payment.dueDays : 7, deferred: true });
+    }
     post(g, 'airportFees', -(BAL.airportFees[wide] + (isRevenue(f) ? BAL.catering[wide] : 0)));
   }
   g.finance.current.bh = Math.round((g.finance.current.bh + bh) * 100) / 100;

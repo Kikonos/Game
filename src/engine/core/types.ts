@@ -1385,6 +1385,8 @@ export interface StatsV09 {
   yearNet?: Record<number, number>;
   /** MonthKey → [revenue departures, on time (≤ 15 min)] (the clockwork achievement; last 14 kept). */
   onTimeM?: Record<number, [number, number]>;
+  /** Widebody offers made and those that were jumbo loads (§Y.2: the share is capped). */
+  offersWide?: number; offersJumbo?: number;
   /** §R roster planning counters (crew/dayPlan.ts rosterStats). */
   roster?: StatsRoster09;
 }
