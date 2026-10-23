@@ -755,6 +755,9 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
   const pool: { c: CrewMember; score: number; rank: number }[] = [];
   for (const c of ctx.crew) {
     if (!fitRoles.has(c.role) || !c.ratings.includes(family) || inP.has(c.id) || exclude?.has(c.id) || c.morale < refuseBelow) continue;
+    // v0.9 round 3 speed: crew planCrew would refuse at once (on leave, sick, in training or joining during the trip;
+    // still resting at its report) are not planned at all: they were refused anyway, one full timeline check each.
+    if (c.restUntil > first.report || c.blocks?.some((b) => b.from < spanTo && b.to > first.report)) continue;
     // v0.5.2: crew still at the departure airport with a ticket home around this trip stay on instead
     // (planCrew drops that ticket): the pilots of a trip fly its trailing ferry.
     const all = ctx.of(c);
@@ -997,6 +1000,8 @@ function splitTourGap(g: GameState, ctx: Ctx, p: Pairing, exclude?: Set<string>)
     if (d.report > horizon) return null;
     const probe: Pairing = { ...p, dutyIds: open.slice(k).map((x) => x.id), start: d.report };
     for (const c of pool) {
+      // v0.9 round 3 speed: as in fillPairing, crew planCrew refuses at once are not planned.
+      if (c.restUntil > d.report || c.blocks?.some((b) => b.from < end && b.to > d.report)) continue;
       if (ctx.onTrip(c.id, d.report, end) || busyAt(ctx.of(c), d.report, d.release)) continue;
       if (acceptable(g, planCrew(g, c, probe, ctx.of(c), false, BAL.rosterSlack))) return splitPairing(g, p, d.report);
     }

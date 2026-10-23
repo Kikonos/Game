@@ -420,9 +420,12 @@ export function dutySegs(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: 
   if (list) {
     outer: for (const m of list) {
       for (let i = 0; i < n; i++) if (m.v[i] !== KEY[i]) continue outer;
-      // The duty's block changes as its legs land (actual block times): read fresh.
+      // The duty's block changes as its legs land (actual block times): read fresh. v0.9 round 3 speed: the cached list
+      // itself when nothing changed (callers only read it or copy its segs into their own arrays).
       const block = dutyBlock(g, d);
-      return m.segs.map((x) => (x.kind === 'duty' && x.block !== block ? { ...x, block } : x));
+      let same = true;
+      for (const x of m.segs) if (x.kind === 'duty' && x.block !== block) same = false;
+      return same ? m.segs : m.segs.map((x) => (x.kind === 'duty' && x.block !== block ? { ...x, block } : x));
     }
   }
   const v = KEY.slice(0, n);
@@ -598,14 +601,28 @@ function makeSbySeg(c: CrewMember, w: NonNullable<CrewMember['standby']>[number]
  * ends at the report of the duty it was called for, whose max FDP shrinks by kind (rules.ts standbyView) and which
  * carries the awake cap. v0.9: every kind with its share; past windows stay 28 days (the duty windows count them).
  */
+/**
+ * v0.9 round 3 speed: per standby list (and its length, the number called and the base), its uncalled windows as
+ * sorted segs: most timelines are read many times between two changes of the list.
+ */
+const sbyLists = new WeakMap<object, { n: number; called: number; base: string; segs: Seg[] }>();
+
 function addStandby(g: GameState, c: CrewMember, segs: Seg[]): void {
+  const list = c.standby ?? [];
+  let called = 0;
+  for (const w of list) if (w.calledAt !== undefined) called++;
+  let e = sbyLists.get(list);
+  if (!e || e.n !== list.length || e.called !== called || e.base !== c.base) {
+    const un: Seg[] = [];
+    for (const w of list) if (w.calledAt === undefined) un.push(standbySeg(c, w));
+    un.sort(bySeg);
+    sbyLists.set(list, (e = { n: list.length, called, base: c.base, segs: un }));
+  }
+  const old = g.now - 28 * 1440;
   const add: Seg[] = [];
-  for (const w of c.standby ?? []) {
-    if (w.to < g.now - 28 * 1440) continue;
-    if (w.calledAt === undefined) {
-      add.push(standbySeg(c, w));
-      continue;
-    }
+  for (const x of e.segs) if (x.end >= old) add.push(x);
+  for (const w of called ? list : []) {
+    if (w.to < old || w.calledAt === undefined) continue;
     const k = segs.findIndex((x) => x.kind === 'duty' && x.start >= w.calledAt! - 60 && x.start < w.calledAt! + 1440);
     // v0.9 fix: called for a ticket (a fly-in), the window runs to the ticket's check-in: the rest before it ended at
     // the window's start, not at the flight (a zero-length window read as rest up to the ticket: 2 nights, a recovery).
@@ -620,7 +637,7 @@ function addStandby(g: GameState, c: CrewMember, segs: Seg[]): void {
   }
   if (!add.length) return;
   // v0.9 speed: merged into the sorted timeline (as a stable sort of both: timeline segs first on a tie).
-  add.sort(bySeg);
+  if (called) add.sort(bySeg);
   const out = new Array<Seg>(segs.length + add.length);
   let i = 0;
   let j = 0;

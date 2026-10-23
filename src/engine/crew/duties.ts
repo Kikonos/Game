@@ -105,25 +105,27 @@ export function splitOf(fl: Flight[], tz: string): (NonNullable<Duty['split']> &
  * first), each tried only when allowed; augmentation needs both rest facilities, ≤ 3 sectors and a rest plan that
  * fits the cruise (CS FTL.1.205(c)(1)). Not legal: the basic limit with ok false.
  */
+/** pickPlan's augmented plan with `a` extra pilots (null: not possible). Module level: no closure per call (v0.9 round 3 speed). */
+function augPick(sh: Shape, ctx: PlanCtx, basic: number, a: 1 | 2): PlanPick | null {
+  const { fc, cc } = ctx.rest;
+  if (!ctx.canAug || !fc || !cc || sh.sectors > AUG_MAX_SECTORS) return null;
+  // No cabin crew aboard (a pilots-only trip): the pilots' limit alone.
+  const lim = ctx.cabinN > 0 ? augLimitOf(fc.cls, cc.cls, a, longSector(sh.sectors, sh.longest), sh.early) : augLimitOf(fc.cls, 1, a, longSector(sh.sectors, sh.longest), 0);
+  if (sh.fdp > lim.max) return null;
+  let extra = 0;
+  if (!ctx.legacy) {
+    const plan = planRest(legsOf(sh.fl), ctx.rest, a, sh.fdp + lim.early, ctx.cabinN);
+    if (!plan.ok) return null;
+    extra = plan.extraCabin;
+  }
+  return { mode: a === 1 ? 'aug1' : 'aug2', augment: a, max: lim.max, basic, ok: true, early: lim.early, restExtra: extra };
+}
+
 function pickPlan(sh: Shape, ref: RefAt, ctx: PlanCtx): PlanPick {
   const basic = maxFdp({ reportLocal: ref.reportLocal, sectors: sh.sectors, acclimatised: ref.acclimatised, augment: 0, restClass: null, longestBlock: sh.longest });
   const fail: PlanPick = { mode: 'basic', augment: 0, max: basic, basic, ok: false, early: sh.early, restExtra: 0 };
-  const aug = (a: 1 | 2): PlanPick | null => {
-    const { fc, cc } = ctx.rest;
-    if (!ctx.canAug || !fc || !cc || sh.sectors > AUG_MAX_SECTORS) return null;
-    // No cabin crew aboard (a pilots-only trip): the pilots' limit alone.
-    const lim = ctx.cabinN > 0 ? augLimitOf(fc.cls, cc.cls, a, longSector(sh.sectors, sh.longest), sh.early) : augLimitOf(fc.cls, 1, a, longSector(sh.sectors, sh.longest), 0);
-    if (sh.fdp > lim.max) return null;
-    let extra = 0;
-    if (!ctx.legacy) {
-      const plan = planRest(legsOf(sh.fl), ctx.rest, a, sh.fdp + lim.early, ctx.cabinN);
-      if (!plan.ok) return null;
-      extra = plan.extraCabin;
-    }
-    return { mode: a === 1 ? 'aug1' : 'aug2', augment: a, max: lim.max, basic, ok: true, early: lim.early, restExtra: extra };
-  };
   if (ctx.forceAug) {
-    const x = aug(2);
+    const x = augPick(sh, ctx, basic, 2);
     if (x) return x;
   }
   if (sh.sectors <= MAX_SECTORS && sh.fdp <= basic) return { ...fail, ok: true };
@@ -137,7 +139,7 @@ function pickPlan(sh: Shape, ref: RefAt, ctx: PlanCtx): PlanPick {
     if (m !== null && sh.fdp <= m) return { ...fail, mode: 'ext', max: m, ok: true };
   }
   for (const a of ctx.forceAug ? ([] as (1 | 2)[]) : ([1, 2] as const)) {
-    const x = aug(a);
+    const x = augPick(sh, ctx, basic, a);
     if (x) return x;
   }
   return fail;

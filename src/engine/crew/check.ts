@@ -30,7 +30,41 @@ export function openDuties(g: GameState, p: Pairing): Duty[] {
   return out.sort((a, b) => a.report - b.report);
 }
 
-const merge = (a: Seg[], b: Seg[]) => [...a, ...b].sort((x, y) => x.start - y.start || x.end - y.end);
+const bySeg = (x: Seg, y: Seg) => x.start - y.start || x.end - y.end;
+/** True when the timeline is in bySeg order. */
+function inOrder(a: Seg[]): boolean {
+  for (let i = 1; i < a.length; i++) {
+    const p = a[i - 1];
+    const q = a[i];
+    if (p.start > q.start || (p.start === q.start && p.end > q.end)) return false;
+  }
+  return true;
+}
+/**
+ * Both timelines in one, by start then end (ties: `a`'s first). v0.9 round 3 speed: a linear merge when both are already
+ * in order, as they almost always are (the same order as the stable sort of `[...a, ...b]`); else that sort.
+ */
+function merge(a: Seg[], b: Seg[]): Seg[] {
+  if (!inOrder(a) || !inOrder(b)) return [...a, ...b].sort(bySeg);
+  const out = new Array<Seg>(a.length + b.length);
+  let i = 0;
+  let j = 0;
+  let k = 0;
+  while (i < a.length && j < b.length) {
+    const x = a[i];
+    const y = b[j];
+    if (y.start < x.start || (y.start === x.start && y.end < x.end)) {
+      out[k++] = y;
+      j++;
+    } else {
+      out[k++] = x;
+      i++;
+    }
+  }
+  while (i < a.length) out[k++] = a[i++];
+  while (j < b.length) out[k++] = b[j++];
+  return out;
+}
 
 function statusIssues(c: CrewMember, from: number, to: number, family: string, duties: Duty[]): LegalityIssue[] {
   const out: LegalityIssue[] = [];
@@ -113,21 +147,19 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
       } else home = planHome(last, c.base, cabinEarly(g, p));
     }
   }
-  const build = () => buildSegs(g, c, p, duties, out, home);
-  let segs = build();
+  let segs = buildSegs(g, c, p, duties, out, home);
   let ftl = evalSegs({ ...ctxOf(g, c), slack }, merge(base, segs));
   // v0.5.2: a same-day ticket out (counted as FDP) whose longer first duty eats the rest or FDP of this trip:
   // the crew fly out the day before and rest at the hotel first.
   const own = new Set(p.dutyIds);
-  const bad = (l: LegalityIssue[]) => badRestFdp(l, own);
-  if (!existing && out && !out.rideId && !booked && bad(ftl)) {
+  if (!existing && out && !out.rideId && !booked && badRestFdp(ftl, own)) {
     const early = planOut(g, p, first, out.from, true);
     if (early.std < out.std && early.std - BAL.deadheadCheckIn >= g.now) {
       const plain = out;
       out = early;
-      const s2 = build();
+      const s2 = buildSegs(g, c, p, duties, out, home);
       const f2 = evalSegs({ ...ctxOf(g, c), slack }, merge(base, s2));
-      if (bad(f2) < bad(ftl)) {
+      if (badRestFdp(f2, own) < badRestFdp(ftl, own)) {
         segs = s2;
         ftl = f2;
       } else out = plain;
@@ -138,7 +170,7 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
     const plain = home;
     for (const wait of [LIMITS.recovery, LIMITS.recovery + 12 * 60, LIMITS.recoveryLong]) {
       home = planHomeAfter(last, c.base, wait);
-      const s2 = build();
+      const s2 = buildSegs(g, c, p, duties, out, home);
       const f2 = evalSegs({ ...ctxOf(g, c), slack }, merge(base, s2));
       if (!f2.some((i) => i.code === 'recovery' && i.level === 'illegal')) {
         segs = s2;

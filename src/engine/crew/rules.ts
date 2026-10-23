@@ -757,6 +757,9 @@ export function signedTz(a: string, b: string, t: Minute): number {
   return d;
 }
 
+/** Work in a timeline (not standby, not history). Module level: no closure per standbyView call (v0.9 round 3 speed). */
+const isWork = (y: Seg) => y.kind !== 'sby' && y.kind !== 'log';
+
 /**
  * v0.7.3 standby in a timeline (CS FTL.1.225). v0.9 (§R.3): every kind (home, hotel, airport, reserve). Work being
  * planned (fresh, not standby) treats windows not started yet as replaceable: they are left out (the roster drops or
@@ -785,7 +788,6 @@ function standbyView(ctx: TimelineCtx, segsIn: Seg[]): Seg[] {
   const drop = new Set<number>();
   const called = new Map<number, number>();
   const cut = new Map<number, Minute>();
-  const isWork = (y: Seg) => y.kind !== 'sby' && y.kind !== 'log';
   for (let i = 0; i < segs.length; i++) {
     const x = segs[i];
     if (x.kind !== 'sby' || x.fresh) continue;

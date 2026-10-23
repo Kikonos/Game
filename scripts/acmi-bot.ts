@@ -1087,7 +1087,8 @@ function crewControlPolicy(g: GameState, t: Tally): void {
       return r.data!.after === null;
     };
     // v0.8 speed: the roster's own re-run (a full re-roster on the live game, usually finding nobody: seed 3 tried
-    // 140 times) on the first look and in the last 12 h only; the policy stays a pure function of the game.
+    // 140 times) on the first look and in the last 12 h only; the policy stays a pure function of the game. (v0.9
+    // round 3 tried it at every look: seeds 2 and 5 had fewer red alarms, 1, 3 and 6 more, and runs took up to 2× as long.)
     const autoOk = x.hoursLeft > 30 || x.hoursLeft <= 12;
     if ((autoOk && apply(sol(v, 'autoFix'))) || apply(sol(v, 'deadhead')) || apply(sol(v, 'callIn'))) continue;
     if (g.flights[x.flightId]?.status !== 'scheduled') continue;
