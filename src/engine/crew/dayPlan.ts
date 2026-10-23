@@ -14,7 +14,7 @@ import type { CrewMember, GameState, Minute, MonthKey, StandbyKind, StatsRoster0
 import { hash } from '../core/util';
 import { moraleShock } from './morale';
 import { evalSegs, offsetAt, type LegalityIssue, type Seg } from './rules';
-import { noteRecovery, onStandby, pruneStandby } from './standby';
+import { dropStandby, noteRecovery, onStandby, pruneStandby } from './standby';
 import { crewIx, ctxOf, locAt, segsOf, standbySeg, touchCrewState, typeIdOf } from './timeline';
 
 const R = () => BAL.v09.roster;
@@ -1016,10 +1016,40 @@ export function dayPlanBefore(g: GameState): void {
   planOffDays(g);
 }
 
-/** After the roster run: standby for the published days. */
+/** After the roster run: the month's legal days off topped up, then standby for the published days. */
 export function dayPlanAfter(g: GameState): void {
   if (!g.dayPlan) return;
+  topUpOffs(g);
   planStandby(g);
+}
+
+/**
+ * v0.9 (§R.3): a month heading below its legal days off (work that left published days, a tour that took some) gets
+ * free published days back as days off, the earliest from tomorrow (one more day off at short notice is no hardship),
+ * when the month's unpublished days could not hold them.
+ */
+function topUpOffs(g: GameState): void {
+  let changed = false;
+  for (const c of Object.values(g.crew).sort((a, b) => (a.id < b.id ? -1 : 1))) {
+    if (c.status === 'joining' || !c.off || c.notice) continue;
+    const today = dayIndex(c.base, g.now);
+    const mk = monthOfDay(today);
+    const end = firstDayOf(mk + 1);
+    // Unpublished days still to plan in the month are the planner's own (planOffDays); only what they cannot hold comes
+    // from the published days.
+    const pub = Math.min(end, dayIndex(c.base, publishedTo(g)) + 1);
+    let deficit = legalFor(c, mk) - offsIn(g, c, mk) - Math.max(0, end - Math.max(pub, today + 1));
+    if (deficit <= 0 || today + 1 >= pub) continue;
+    const busy = busyDays(c, segsOf(g, c), today + 1, pub);
+    for (let k = today + 1; k < pub && deficit > 0; k++) {
+      if (offOn(c, k) || busy.hit.has(k) || blockedOn(c, k)) continue;
+      c.off = [...c.off, k].sort((a, b) => a - b);
+      dropStandby(g, c, midnight(c.base, k), midnight(c.base, k + 1));
+      deficit--;
+      changed = true;
+    }
+  }
+  if (changed) touchCrewState(g);
 }
 
 /** Month end (crew 'month'): each crew member's days off in the month just closed, their morale, the counters. */

@@ -283,8 +283,9 @@ function onFlightArrCrew(g: GameState, ev: SimEvent): void {
 function refreshStatuses(g: GameState): void {
   const ix = crewIx(g);
   for (const c of Object.values(g.crew)) {
-    if (c.blocks && (!c.blocks.length || c.blocks.some((b) => b.to <= g.now - DAY))) {
-      c.blocks = c.blocks.filter((b) => b.to > g.now - DAY);
+    // v0.9 kept 40 days after they end: the month-end days-off count reads a month's leave and sickness (pro rata).
+    if (c.blocks && (!c.blocks.length || c.blocks.some((b) => b.to <= g.now - 40 * DAY))) {
+      c.blocks = c.blocks.filter((b) => b.to > g.now - 40 * DAY);
       if (!c.blocks.length) delete c.blocks;
     }
     const block = c.blocks?.find((b) => b.from <= g.now && b.to > g.now);

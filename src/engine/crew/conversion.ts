@@ -365,7 +365,8 @@ function dropMember(g: GameState, k: TrainingClass, crewId: string): void {
   const c = g.crew[crewId];
   if (!c) return;
   if (c.blocks) {
-    c.blocks = c.blocks.filter((b) => !(b.why === 'training' && b.from === k.start && b.to === k.end));
+    // v0.9 the days already spent in training stay on record (the month's days-off count reads them, pro rata).
+    c.blocks = c.blocks.flatMap((b) => (b.why === 'training' && b.from === k.start && b.to === k.end ? (b.from < g.now ? [{ ...b, to: Math.min(b.to, g.now) }] : []) : [b]));
     if (!c.blocks.length) delete c.blocks;
   }
   if (c.status === 'training') c.status = c.restUntil > g.now ? 'resting' : 'available';
@@ -427,7 +428,8 @@ export function onClassItemDone(g: GameState, item: TrainingItem): boolean {
     const wide = c.ratings.find((f) => salaryFor(c.role, f) !== salaryFor(c.role, 'A320'));
     c.salary = salaryFor(c.role, wide ?? c.ratings[0] ?? 'A320');
     if (c.blocks) {
-      c.blocks = c.blocks.filter((b) => !(b.why === 'training' && b.from === k.start && b.to === k.end));
+      // v0.9 the days already spent in training stay on record (the month's days-off count reads them, pro rata).
+    c.blocks = c.blocks.flatMap((b) => (b.why === 'training' && b.from === k.start && b.to === k.end ? (b.from < g.now ? [{ ...b, to: Math.min(b.to, g.now) }] : []) : [b]));
       if (!c.blocks.length) delete c.blocks;
     }
     if (c.status === 'training') c.status = c.restUntil > g.now ? 'resting' : 'available';
