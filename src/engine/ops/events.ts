@@ -16,7 +16,7 @@ import { chance, int, pick, range } from '../core/rng';
 import { DAY, fmtDateTime, fmtDay, fmtDuration, fmtTime, localMinuteOfDay, monthKey, toDate } from '../core/time';
 import type { ActionResult, Aircraft, Contract, CrewFix, CrewMember, CrewStatus, Decision, DecisionOption, Flight, GameState, MaintenanceEvent, MessageCat, Minute, Pairing, Receivable, Role, SimEvent } from '../core/types';
 import { generateOffer, planPositioning } from '../contracts';
-import { applyCrewFix, applyDiscretion, crewControl, discretionMax, flightCrewStatus, minRest, moraleShock, replaceCrew, rerosterFrom, rosterOf } from '../crew';
+import { applyCrewFix, applyDiscretion, crewControl, discretionCheck, flightCrewStatus, minRest, moraleShock, replaceCrew, rerosterFrom, rosterOf } from '../crew';
 import { planCrew } from '../crew/check';
 import { calledNow } from '../crew/standby';
 import { type IssueCode } from '../crew/rules';
@@ -375,7 +375,8 @@ export function crewShortDecision(g: GameState, f: Flight, ac: Aircraft): void {
   const legs = tripLegs(g, ac, f);
   const over = d ? d.fdp - d.maxFdp - (d.discretion ?? 0) : 0;
   // v0.7.3 ORO.FTL.205(f): only once the crew have reported (unforeseen, at or after report).
-  const canDisc = !!d && d.report <= g.now && !cs.missing.length && over > 0 && over <= discretionMax(g, d) && !d.discretion;
+  // v0.9 only for the unforeseen (UPDATE-0.9.md §U.3).
+  const canDisc = !!d && !cs.missing.length && over > 0 && discretionCheck(g, d.id).ok;
   const roll = range(g, BAL.subcharterFactor[0], BAL.subcharterFactor[1]);
   const rivalId = pickRival(g, ac.typeId, legs);
   const factor = Math.round(roll * rivalFactor(g, rivalId) * 100) / 100;

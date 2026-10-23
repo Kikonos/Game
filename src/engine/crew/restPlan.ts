@@ -717,12 +717,14 @@ export function longestDay(g: GameState, rest: AcRest, typeId: string): LongestD
   const best = Math.max(0, ...[a1, a2, canLong ? a1L : null, canLong ? a2L : null].map((x) => x?.max ?? 0));
   const bestCap = (canLong ? a2L : a2)?.capBy ?? null;
   out.text = best > basic ? `Longest day: ${hrs(basic)} · up to ${hrs(best)}` : `Longest day: ${hrs(basic)}`;
+  // v0.9 (UPDATE-0.9.md §U.2): 'up to' is extra pilots resting on board, never captain's discretion.
   const parts = [`${hrs(basic)} with 2 pilots (${hrs(ext)} as a planned extension, twice a week per crew).`];
   if (best > basic && rest.fc && rest.cc) {
     const capWord = restWords(rest.cc.kind);
-    parts.push(`Up to ${hrs(best)} with ${a1 && best <= a1.max ? 3 : 4} pilots resting on board (pilots in ${restWords(rest.fc.kind)}, cabin crew in ${capWord})${bestCap === 'cabin' ? `; the cabin crew's ${capWord} allow ${hrs(cabinFdpCap(rest.cc.cls))}` : ''}.`);
-    if (!approved) parts.push('Longer days need the Augmented crew approval (Ladder).');
+    parts.push(`Up to ${hrs(best)} with ${a1 && best <= a1.max ? 3 : 4} pilots who take turns to rest on board (pilots in ${restWords(rest.fc.kind)}, cabin crew in ${capWord})${bestCap === 'cabin' ? `; the cabin crew's ${capWord} allow ${hrs(cabinFdpCap(rest.cc.cls))}` : ''}.`);
+    if (!approved) parts.push(`Days over ${hrs(basic)} need the Augmented crew approval.`);
   } else if (!rest.fc || !rest.cc) parts.push(`No in-flight rest for the ${!rest.fc && !rest.cc ? 'crew' : rest.fc ? 'cabin crew' : 'pilots'}.`);
+  parts.push("Captain's discretion is never part of this: it is only for surprises on the day, after the crew has reported.");
   out.detail = parts.join(' ');
   return out;
 }

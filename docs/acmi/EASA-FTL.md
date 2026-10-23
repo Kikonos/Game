@@ -400,6 +400,98 @@ Tests in `crew/ftl.test.ts` unless a file is named.
 - A second notification of a delay (CS FTL.1.205(d)).
 - Roster robustness, ORO.FTL.110(j) (33 % of duties over the maximum in a season).
 - The three night-duty subtypes and appropriate FRM (CS FTL.1.205(a)(2), (3)).
-- Reserve (CS FTL.1.230); airport standby is coded but never rostered.
+- Reserve (CS FTL.1.230); airport standby is coded but never rostered. (v0.9 plans both: §16.)
 - The 72 h recovery after a change of home base (CS FTL.1.200(b)); crew never change base.
 - Subpart Q, the 2028 air-taxi / AEMS rules, UAE GCAA, UK CAA differences, FAA Part 117.
+
+---
+
+## 16. Roster planning (v0.9)
+
+How a crew-planning department builds a roster inside these rules, from the player's guide (§§3, 10, 11.3–11.4,
+12.3 and definitions (20), (23), (25)–(27)). The design is UPDATE-0.9.md §R; the "Game" lines describe v0.9 as
+designed and are updated by ENGINE when it is built.
+
+**Publication (ORO.FTL.110(a), AMC1).** Rosters are published sufficiently in advance: **14 days**. The operator
+must also plan and notify the recurrent extended recovery rest (ORO.FTL.110) and plan FDPs to be achievable.
+**Game:** the roster is published to the end of today + 13 (`dayPlan.publishedTo`). Days off inside it are
+protected: a change needs the player's confirm and costs morale.
+
+**Days free of duty (Directive 2000/79/EC, Annex, clauses 3 and 9).**
+- At least **7 days in each calendar month** and **96 days in each calendar year** free of all duty **and standby**,
+  notified in advance.
+- A "single day free of duty" is one day and **two local nights** (guide definition (23)).
+- **4 weeks** of paid annual leave.
+
+These are social law, not ORO.FTL. ORO.FTL.125 requires a scheme to comply with them. Collective agreements may
+give more (Reg. 83/2014 recital (4)).
+**Game:**
+- A day off is a local day free of all duty, standby and reserve from 00:00 to 06:00 the next morning.
+- Days off are planned in blocks of 2–3 days: about 9 a month, never below 7 (illegal: `'daysOff'`), and the
+  planner floor of 8 keeps the year above 96.
+- 28 days of annual leave a year, weighted to the winter quarters (10/4/4/10).
+
+**Recurrent extended recovery rest (ORO.FTL.235(d)).**
+- At least **36 h including 2 local nights**.
+- No more than **168 h** between the end of one and the start of the next.
+- **Twice a month** it is increased to **2 local days**.
+- It applies to reserve crew too (GM1 CS FTL.1.230(c)). Unused reserve cannot be turned into it afterwards
+  (GM1 ORO.FTL.230(a)).
+
+**Game:** every 2–3-day block of days off is a recovery rest. A block is due after 5 work days and a must after 6,
+and a month always holds at least two 2-day blocks. The existing `recovery` and `twoDays` checks stay as the guard.
+
+**Standby (ORO.FTL.225; CS FTL.1.225).** Standby is rostered, with start and end notified in advance.
+- **Airport standby** (CS FTL.1.225(a)):
+  - counts in full as duty;
+  - the max FDP is reduced by standby beyond 4 h;
+  - standby + FDP ≤ 16 h;
+  - followed by ORO.FTL.235 rest when no FDP follows;
+  - the operator provides accommodation.
+- **Other standby** at home or in suitable accommodation (CS FTL.1.225(b)):
+  - at most 16 h;
+  - 25 % counts as duty for ORO.FTL.210;
+  - called within the first 6 h, the FDP counts from report; later, the max FDP is reduced by standby beyond 6 h
+    (8 h with in-flight rest or split duty);
+  - 23:00–07:00 does not count towards the reduction until contacted;
+  - procedures keep standby + FDP within 18 h awake;
+  - rest per ORO.FTL.235 afterwards;
+  - reasonable response time.
+- AMC1 ORO.FTL.205(f): standby or reserve crew should be available at home base and hubs, so that commander's
+  discretion is avoided there.
+
+**Game:**
+- Every free day that is not a day off is standby:
+  - **home standby** at base: early 05:00–17:00 or late 12:00–24:00, 25 %, ready in 90 min;
+  - **hotel standby** at a deployment or night-stop station: 06:00–18:00, 25 %, ready in 45 min;
+  - **airport standby** at a base whose family has ≥ 6 of our departures 05:00–10:00: 4 h from 90 min before the
+    first departure, 100 %, ready in 20 min.
+- The reductions and caps are `standbyCut` and `standbyAwakeOk`. Each window is followed by rest when not called.
+- Crew Control calls standby first.
+
+**Reserve (ORO.FTL.230; CS FTL.1.230).**
+- Rostered; the scheme sets its maximum length and consecutive days.
+- Does not count as duty for ORO.FTL.210 or 235.
+- An 8 h no-contact period each day.
+- An assignment needs ≥ 10 h notice (GM2; the notice may include the 8 h).
+- An FDP counts from report.
+
+**Game:**
+- Reserve is used where a standby would make the 7/14/28-day duty tight (≥ 95 %): 24 h, no contact 22:00–06:00, 0 %.
+- Called only for a report ≥ 10 h ahead. It is never rest and never a day off.
+
+**Cumulative limits (ORO.FTL.210)** with standby. Duty: 60 h / 7 d, 110 h / 14 d, 190 h / 28 d (spread as evenly as
+practicable). Flight time: 100 h / 28 d, 900 h / calendar year, 1,000 h / 12 calendar months. Airport standby
+counts 100 %, other standby 25 %, reserve 0 (§7).
+**Game:** `windowsAt` with `Seg.share` per kind: home and hotel 0.25, airport 1, reserve 0.
+
+**Roster quality (guide §12.4, GM1–GM5 CS FTL.1.205(a)(2)).**
+- Roster blocks of identical duties.
+- At most one transition between disruptive types between recovery rests.
+- Avoid long nights straight after a recovery rest.
+
+**Game:** a crew member keeps the same early or late standby shift through a work block. The late→early (1 local
+night) and 4-disruptive (60 h) rules stay as checks.
+
+**Not modelled:** crew bids and requests, standby or duty pay (salaries are monthly), the 2,000 h annual working
+time (Directive clause 8; far above what the duty limits allow in practice).

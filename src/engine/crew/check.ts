@@ -5,6 +5,7 @@ import { BAL } from '../core/balance';
 import { typeOf } from '../core/perf';
 import { fmtDay } from '../core/time';
 import type { CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing } from '../core/types';
+import { offIssue } from './dayPlan';
 import { evalSegs, levelOf, LIMITS, type LegalityIssue, type Seg } from './rules';
 import { aboard, cabinEarly, crewIx, ctxOf, droppableHome, droppableOut, dutySegs, locAt, outTicket, planHome, planHomeAfter, planOut, segsOf, typeIdOf, withoutTickets, type TicketPlan } from './timeline';
 
@@ -97,7 +98,7 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
     if (booked) out = booked;
     else if (loc !== dep) {
       // From where they will be, once their rest after earlier work is over (crew away from base included).
-      const o = outTicket(g, p, first, loc, readyAt(c, base, first.report));
+      const o = outTicket(g, p, first, loc, readyAt(c, base, first.report, g.now));
       out = o.plan;
       if (o.why) issues.push({ code: 'location', level: 'illegal', text: o.why, dutyId: first.id });
     }
@@ -150,6 +151,11 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
   const other = otherTrip(g, c, p, segs[0].start, segs[segs.length - 1].end, existing, leaving);
   if (other) issues.push({ code: 'overlap', level: 'illegal', text: `On another ${other.tour ? 'tour' : 'trip'} until ${fmtDay(other.end)}`, dutyId: first.id });
   issues.push(...statusIssues(c, segs[0].start, segs[segs.length - 1].end, typeOf(typeIdOf(g, p)).family, duties));
+  // v0.9 new work on a planned day off (UPDATE-0.9.md §R.3): the roster never takes one; a player change confirms it.
+  if (!existing) {
+    const off = offIssue(g, c, segs);
+    if (off) issues.push(off);
+  }
   if (existing) {
     // Unforeseen delays on the day (ORO.FTL.205(f)): a held seat whose extended recovery slipped stays on the
     // duty about to report, flagged tight; a later duty is still re-planned.
@@ -220,10 +226,12 @@ function prebooked(g: GameState, d: Duty, crewId: string): TicketPlan | null {
  * When crew c can check in for new work before t: the end of the rest after their last logged duty and after
  * their planned work ending by t (the rest evalSegs asks for after each seg).
  */
-export function readyAt(c: CrewMember, segs: Seg[], t: Minute): Minute {
+export function readyAt(c: CrewMember, segs: Seg[], t: Minute, now = -Infinity): Minute {
   let ready = c.restUntil;
   for (const s of segs) {
     if (s.end > t) break;
+    // v0.9 standby not started yet gives way to the work being planned (rules.ts standbyView).
+    if (s.kind === 'sby' && s.start > now) continue;
     if (s.kind !== 'log') ready = Math.max(ready, s.end + s.rest);
   }
   return ready;
@@ -259,7 +267,8 @@ export function otherTrip(g: GameState, c: CrewMember, p: Pairing, from: Minute,
 /** Acceptable for the auto-roster: nothing illegal; tight cumulative totals only with policies.allowTight. */
 export function acceptable(g: GameState, plan: CrewPlan): boolean {
   for (const i of plan.issues) {
-    if (i.level === 'illegal') return false;
+    // v0.9 never a day off (published or not): the auto-roster, re-plans, the auto-fix and heads leave them alone.
+    if (i.level === 'illegal' || i.code === 'daysOff') return false;
     if (i.level === 'tight' && i.code !== 'fdp' && !g.company.policies.allowTight) return false;
   }
   return true;

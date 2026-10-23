@@ -16,6 +16,13 @@ import { hireQuote, type HireRequest } from './hr';
 
 export const SET_ROLES: Role[] = ['CPT', 'FO', 'CRP', 'PUR', 'CC'];
 
+/**
+ * v0.9 the Planning view's one line on why 5 sets per aircraft still holds with v0.9 rostering (UPDATE-0.9.md §R.7):
+ * ≈ 30.4 − 9 off − 2.3 leave − ≈ 1 sick/training ≈ 18 work days a person a month; 5 sets give ≈ 90 crew-days per seat
+ * against 30–45 flying days, the rest is standby.
+ */
+export const SETS_WHY = '5 sets per aircraft: each person has 8–10 days off a month and 4 weeks’ leave; every other day is flying or standby.';
+
 export interface SetRole {
   role: Role;
   /** Crew in one set (may be fractional on a mixed family: an A320 and an A321 need different cabin crews). */

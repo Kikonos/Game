@@ -7,7 +7,7 @@ import { distance } from '../core/geo';
 import { deadheadFlights, flightsOf, flightsRev } from '../core/entities';
 import { itinerary, ticketBlock } from '../ops/commercial';
 import { DAY, fmtDateTime, fmtTime, monthKey, yearOf } from '../core/time';
-import type { CrewMember, Duty, Flight, GameState, Minute, Pairing } from '../core/types';
+import type { CrewMember, Duty, Flight, GameState, Minute, Pairing, StandbyKind } from '../core/types';
 import { disruptiveKinds, isDisruptive, maxFdp, minRest, referenceTime, standbyCut, tzDeltaH, type RefTime, type Seg, type TimelineCtx } from './rules';
 import { restOf } from './restPlan';
 
@@ -538,30 +538,41 @@ export function segsOf(g: GameState, c: CrewMember, excludePairing?: string): Se
   return segs;
 }
 
+/** v0.9 share of a standby window counted towards the ORO.FTL.210 duty windows, by kind (§R.3). */
+export const sbyShare = (kind: StandbyKind | undefined): number => BAL.v09.roster.share[kind ?? 'home'] ?? 0.25;
+
+/** v0.9 a standby window as a timeline seg (uncalled; `end` cuts it at a call-out, with no rest before the duty). */
+export function standbySeg(c: CrewMember, w: NonNullable<CrewMember['standby']>[number], end?: Minute, fresh = false): Seg {
+  const kind = w.kind ?? 'home';
+  const at = w.at ?? c.base;
+  const to = end ?? w.to;
+  // Rest after an uncalled window (ORO.FTL.235): 12 h at home, 10 h away; airport standby is duty (its length);
+  // reserve is neither duty nor rest.
+  const rest = end !== undefined || kind === 'reserve' ? 0 : minRest({ dutyMin: kind === 'airport' ? w.to - w.from : 0, atHome: at === c.base, augmented: false, tzShift: 0 });
+  return { kind: 'sby', start: w.from, end: to, fdp: 0, maxFdp: 0, block: 0, sectors: 0, aug: false, disruptive: false, share: sbyShare(kind), rest, at: '', from: at, ...(kind !== 'home' ? { sby: kind } : {}), ...(fresh ? { fresh: true } : {}) };
+}
+
 /**
- * v0.7.3 home standby windows in a timeline (CS FTL.1.225(b)): 25 % duty, not rest; they start at base and move
- * nobody (no `at`, so where the crew are stays the last movement's). A called window ends at the
- * report of the duty it was called for, whose max FDP shrinks by the standby beyond 6 h (8 h augmented or split;
- * 23:00–07:00 before the call not counted) and which carries the 18 h awake cap. Uncalled windows stay whole
- * (evalSegs drops one a planned duty takes over).
+ * v0.7.3 standby windows in a timeline (CS FTL.1.225): not rest; they move nobody (no `at`, so where the crew are
+ * stays the last movement's) and start where the crew are (base, or the station of a hotel standby). A called window
+ * ends at the report of the duty it was called for, whose max FDP shrinks by kind (rules.ts standbyView) and which
+ * carries the awake cap. v0.9: every kind with its share; past windows stay 28 days (the duty windows count them).
  */
 function addStandby(g: GameState, c: CrewMember, segs: Seg[]): void {
   for (const w of c.standby ?? []) {
-    if (w.to < g.now - 2 * 1440) continue;
+    if (w.to < g.now - 28 * 1440) continue;
     if (w.calledAt === undefined) {
-      segs.push({
-        kind: 'sby', start: w.from, end: w.to, fdp: 0, maxFdp: 0, block: 0, sectors: 0, aug: false, disruptive: false, share: 0.25,
-        rest: minRest({ dutyMin: 0, atHome: true, augmented: false, tzShift: 0 }), at: '', from: c.base,
-      });
+      segs.push(standbySeg(c, w));
       continue;
     }
     const k = segs.findIndex((x) => x.kind === 'duty' && x.start >= w.calledAt! - 60 && x.start < w.calledAt! + 1440);
     const end = k >= 0 ? segs[k].start : w.calledAt;
-    if (k >= 0) {
+    const kind = w.kind ?? 'home';
+    if (k >= 0 && kind !== 'reserve') {
       const y = segs[k];
-      segs[k] = { ...y, maxFdp: y.maxFdp - standbyCut('home', w.from, y.start, c.base, y.aug || !!y.split, w.calledAt), sbyFrom: w.from };
+      segs[k] = { ...y, maxFdp: y.maxFdp - standbyCut(kind === 'airport' ? 'airport' : 'home', w.from, y.start, c.base, y.aug || !!y.split, w.calledAt), sbyFrom: w.from, sby: kind };
     }
-    if (end > w.from) segs.push({ kind: 'sby', start: w.from, end, fdp: 0, maxFdp: 0, block: 0, sectors: 0, aug: false, disruptive: false, share: 0.25, rest: 0, at: '', from: c.base });
+    if (end > w.from) segs.push(standbySeg(c, w, end));
   }
   segs.sort(bySeg);
 }

@@ -191,12 +191,12 @@ describe('home standby (CS FTL.1.225(b))', () => {
       expect(issues.filter((i) => i.level === 'illegal').map((i) => i.code)).toEqual([]);
     }
     expect(sby.share).toBe(0.25);
-    dropStandby(g, c, w.to + 3 * DAY);
+    dropStandby(g, c, w.from, w.to + 3 * DAY);
     expect(c.standby?.some((x) => x.from === w.from) ?? false).toBe(false);
     // A window already running stays (it is a call-out if a duty reports inside it).
     const run = { from: g.now - H, to: g.now + 11 * H };
     c.standby = [run];
-    dropStandby(g, c, g.now + 3 * DAY);
+    dropStandby(g, c, g.now + 3 * DAY, g.now + 4 * DAY);
     expect(c.standby).toEqual([run]);
   });
   it('a duty given at short notice before the window, reporting inside it, counts as a call (the duty replaces the standby)', () => {

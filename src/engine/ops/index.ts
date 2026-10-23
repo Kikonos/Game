@@ -49,6 +49,12 @@ export { demandFactor, marketOutlook, segIndex, type MarketOutlook } from './mar
 export { flightZone, warRiskAt, worldEvent, worldEventPins, worldEvents, worldZones, EVENT_ICON, type WorldEventView, type ZoneView } from './world';
 export { dryLeaseOf, dryLeaseView, leasedText, type DryLeaseView } from './dryLease';
 export { usd } from './util';
+// v0.9 (UPDATE-0.9.md §12).
+export {
+  acceptProposal, analystView, dismissProposal, ferryAircraft, fireHead, headsView, headView, hireHead, setHeadOn, setHeadRules,
+  type AnalystView, type HeadView,
+} from './heads';
+export { achievementsView, type AchievementView } from './achievements';
 // v0.7.1 every problem as one card (engine/problems).
 export { hurtBadges, messageBadges, postProblem, problemAt, problemFor, problems, type GaugeSpec, type Hurt, type MiniMapSpec, type ProblemAction, type ProblemCard, type ReachSpec, type TimelineSpec } from '../problems';
 import { postRestProblems } from '../problems';

@@ -13,8 +13,9 @@ export { aboveMinimum, legalMinimum } from './duties';
 import { dailySickness, onCrewJoin, onTrainingDone } from './hr';
 import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, settleService, setResignHooks } from './morale';
 import { autoRoster, guardDuty, onFlightsChanged, recheckAfterRelease, recheckNext, recheckSoon, removeCrew, sendStrandedHome, stayOn } from './roster';
-import { localMin, minRest, nightsIn, LIMITS, signedTz, twoDayCredits, tzNights } from './rules';
-import { dailyStandby } from './standby';
+import { localMin, minRest, signedTz, tzNights } from './rules';
+import { dailyStandby, noteRecovery } from './standby';
+import { dayPlanAfter, dayPlanBefore, dayPlanInit, dayPlanLoad, dayPlanMonth } from './dayPlan';
 import { AUTHORITY } from '../../data/flavor';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { pushMessage } from '../core/messages';
@@ -28,7 +29,7 @@ export {
 export { crewName, makeCrewMember, salaryFor } from './generate';
 export { crewAvailability, hireBatch, hireCrew, hireFamilies, hireQuote, ratedMarket, staffing, trainCrew, type Availability, type HireRequest, type RatedMarket, type RoleCapacity, type StaffingLine } from './hr';
 export {
-  applyDiscretion, autoRoster, discretionMax, boardCrew, dropStraySpares, promoteSpares, buildDuties, flightCrewStatus, guardDuty, onFlightsChanged, removeCrew, replaceCrew, rerosterFrom, rosterOf, setRestDelayHook,
+  applyDiscretion, autoRoster, discretionCheck, discretionMax, plannedFdpOf, boardCrew, dropStraySpares, promoteSpares, buildDuties, flightCrewStatus, guardDuty, onFlightsChanged, removeCrew, replaceCrew, rerosterFrom, rosterOf, setRestDelayHook,
   type FlightCrewStatus, type RosterResult,
 } from './roster';
 export { crewIssuesFor } from './check';
@@ -68,6 +69,14 @@ export {
 } from './restPlan';
 export { fdpWhy, setDutyAugment, type FdpWhy } from './explain';
 export { onStandby } from './standby';
+// v0.9 crew out of hours, crew slips (UPDATE-0.9.md §T, §W).
+export { crewAlertKind, outOfHours, OOH_TEXT, type CrewAlertKind, type OohInfo } from './outOfHours';
+export { bestSlip, slipOfFlight, slipsOfAircraft, type SlipPlan, type SlipView } from './slip';
+// v0.9 roster planning (UPDATE-0.9.md §R.14).
+export {
+  crewMonth, dayIndex, isOff, offBreak, planLeave, planOffDays, planStandby, publishedTo, rosterStats, standbyNow,
+  type CrewMonthView, type OffBreak,
+} from './dayPlan';
 export { dutyNeed, type ChainShape, type DutyNeed } from './duties';
 export {
   EXT_TABLE, extFdp, disruptiveKinds, FTL_TYPE, STANDBY, standbyAwakeOk, standbyCut, TZ_NIGHTS, tzNights, WOCL, cabinFdpCap,
@@ -83,27 +92,6 @@ export function captainAsFo(g: GameState, c: CrewMember, report: Minute): void {
   c.asFoAt = recent;
   g.stats.asFo = (g.stats.asFo ?? 0) + 1;
   if (recent.length > A.freePerMonth) moraleShock(g, c, 'career', A.morale);
-}
-
-/**
- * ERRP bookkeeping before work starting at t (a duty report or a logged ticket): the time off since the last
- * logged work counts as extended recovery when long enough with two local nights (the log is pruned, so the
- * anchor must move whenever work is logged, not only at duty reports).
- */
-function noteRecovery(c: CrewMember, t: Minute): void {
-  const last = c.log[c.log.length - 1];
-  const prevEnd = last ? last.end : c.restUntil - 12 * 60;
-  const dis = c.log.filter((e) => e.start >= c.lastRecovery && e.disruptive).length;
-  const need = dis >= LIMITS.disruptiveMax ? LIMITS.recoveryLong : LIMITS.recovery;
-  if (t - prevEnd >= need && nightsIn(c.base, prevEnd, t) >= 2) c.lastRecovery = Math.max(c.lastRecovery, t);
-  // v0.7.3 ORO.FTL.235(d): recovery rests with 2 whole local days, by the month of the first one (key 0: tracking began).
-  if (t - prevEnd >= LIMITS.recovery) {
-    for (const [mk, n] of twoDayCredits(c.base, prevEnd, t)) {
-      const td = (c.twoDays ??= { 0: mk });
-      td[mk] = Math.min(2, (td[mk] ?? 0) + n);
-      for (const k in td) if (+k && +k < mk - 3) delete td[k];
-    }
-  }
 }
 
 /**
@@ -152,10 +140,12 @@ function onDutyReport(g: GameState, ev: SimEvent): void {
     });
     g.stats.delayedReports = (g.stats.delayedReports ?? 0) + 1;
   }
+  // v0.9 the day as planned when the crew reported: discretion only for what comes after (UPDATE-0.9.md §U.3).
+  d.plannedFdp ??= d.fdp;
   for (const s of p.slots) {
     const c = s.crewId ? g.crew[s.crewId] : undefined;
     if (!c) continue;
-    noteRecovery(c, d.report);
+    noteRecovery(c, d.report, g);
     c.status = 'onDuty';
     if (c.awaySince === null && (dep !== c.base || d.restAt !== c.base)) c.awaySince = g.now;
   }
@@ -274,7 +264,7 @@ function onFlightArrCrew(g: GameState, ev: SimEvent): void {
     if (!merged) {
       const off = f.atd ?? f.std;
       const on = f.ata ?? f.sta;
-      noteRecovery(c, off - CHECKIN());
+      noteRecovery(c, off - CHECKIN(), g);
       c.log.push({ start: off - CHECKIN(), end: on, fdp: 0, block: 0, sectors: 0, augmented: false, disruptive: false });
       const r = minRest({ dutyMin: on - off + CHECKIN(), atHome: f.to === c.base, augmented: false, tzShift: 0 });
       c.restUntil = Math.max(c.restUntil, on + r);
@@ -331,6 +321,8 @@ function daily(g: GameState) {
   for (const c of Object.values(g.crew)) if (c.status !== 'onDuty') c.fatigue = Math.max(0, c.fatigue - 6);
   dailySickness(g);
   dailyMorale(g);
+  // v0.9 roster planning (UPDATE-0.9.md §R): annual leave and days off up to the horizon before the roster run.
+  dayPlanBefore(g);
   // Keep the published roster horizon filled (auto-roster policy), then bring home anyone left without work away.
   if (g.company.policies.autoRoster) {
     recheckSoon(g);
@@ -340,8 +332,9 @@ function daily(g: GameState) {
     if (stayed.length) recheckNext(g, stayed);
   }
   sendStrandedHome(g);
-  // v0.7.3 home standby for the next days (crew free anyway; Crew Control calls them first).
+  // v0.7.3 home standby for the days an old save published before v0.9; v0.9 standby for every free published day.
   dailyStandby(g);
+  dayPlanAfter(g);
 }
 
 const lastHour = new WeakMap<GameState, number>();
@@ -386,6 +379,7 @@ function rosterNewFlights(g: GameState): void {
 /** Month end: salaries (late when cash goes negative), the morale line, wet leases' service score. */
 function monthly(g: GameState): void {
   monthlySalaries(g);
+  dayPlanMonth(g);
   monthlyMorale(g);
   for (const k of Object.values(g.contracts)) if (k.status === 'active' && k.product.kind === 'wet') settleService(g, k);
 }
@@ -423,6 +417,8 @@ export const crewModule: SimModule = {
     // The same defaults load sets (a fresh game and a reloaded one serialise alike).
     g.stats.crewFixes ??= {};
     for (const c of Object.values(g.crew)) c.twoDays ??= { 0: monthKey(g.now) };
+    // v0.9 roster planning from the first day (leave, days off and standby for the published 14 days).
+    dayPlanInit(g);
     queueAlert(g);
   },
   load(g) {
@@ -438,6 +434,8 @@ export const crewModule: SimModule = {
     g.stats.crewFixes ??= {};
     queueAlert(g);
     touchCrew(g);
+    // v0.9 old saves keep their published roster; the v0.9 planner takes over from the first unpublished day.
+    dayPlanLoad(g);
   },
   settle(g) {
     for (const [aircraftId, t] of takeFlightChanges(g)) onFlightsChanged(g, aircraftId, t);
@@ -467,4 +465,4 @@ export const crewModule: SimModule = {
 // v0.8 mixed-crew contracts (UPDATE-0.8.md §7).
 export { clientCrewOf, clientCrewRows, mixedCrewFlavour, mixedCrewText } from './clientCrew';
 // v0.7.4 crew planning by type family (crew sets) and the round-up hire.
-export { awayOnDryLease, completeSets, crewPlan, familyName, missingFor, roundTargets, roundUpQuote, roundUpRoles, SET_ROLES, setWords, type FamilyPlan, type RoundUpLine, type SetRole, type TypeSet } from './sets';
+export { awayOnDryLease, completeSets, crewPlan, familyName, missingFor, roundTargets, roundUpQuote, roundUpRoles, SET_ROLES, SETS_WHY, setWords, type FamilyPlan, type RoundUpLine, type SetRole, type TypeSet } from './sets';

@@ -240,7 +240,8 @@ export function crewAvailability(g: GameState, family: RatingFamily, typeId: str
     const mark = (a: Minute, b: Minute) => {
       for (let d = Math.max(0, Math.floor((a - from) / DAY)); d < days && from + d * DAY < b; d++) off[d] = 1;
     };
-    for (const b of c.blocks ?? []) mark(b.from, b.to);
+    // v0.9 planned annual leave is inside the sizing's reserve factor (UPDATE-0.9.md §R.7), so it does not count twice.
+    for (const b of c.blocks ?? []) if (!b.annual) mark(b.from, b.to);
     // v0.6: gone after the leave date; off this type from a conversion that ends the rating (as staffing()).
     if (c.notice) mark(c.notice.leaves, to);
     const k = classOf(g, c.id);

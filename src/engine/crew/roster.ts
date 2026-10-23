@@ -12,6 +12,7 @@ import { acceptable, crewIssuesFor, mergeSegs, openDuties, otherTrip, planCrew, 
 import { deletePairing, dutyLegality, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setCrewTrailOkHook, setReleaseHook, setRetickHook, splitPairing, splitUnderWay, syncDuty } from './duties';
 import { crewName } from './generate';
 import { callIfOnStandby, dropStandby, standbyFor } from './standby';
+import { offDaysHit, takeOffDays, v09Stats as v09StatsOf } from './dayPlan';
 import { lateChange, moraleShock, nextReport } from './morale';
 import { cabinFdpCap, DISCRETION, evalSegs, levelOf, minRest, tzDeltaH, worst, type Seg } from './rules';
 import { planRest, restCabinN, restLegs, restOf, restPlan } from './restPlan';
@@ -577,6 +578,18 @@ function busyAt(segs: Seg[], from: Minute, to: Minute): boolean {
   return false;
 }
 
+/** v0.9 the standby a crew plan's work (and its rest) clashes with gives way (crew/standby.ts dropStandby). */
+function dropSbyFor(g: GameState, c: CrewMember, plan: CrewPlan): void {
+  if (!plan.segs.length || !c.standby) return;
+  let from = Infinity;
+  let until = -Infinity;
+  for (const x of plan.segs) {
+    from = Math.min(from, x.start);
+    until = Math.max(until, x.end + x.rest);
+  }
+  dropStandby(g, c, from, until);
+}
+
 /** Per-run cache of crew timelines (updated as slots are filled; no index churn inside the loop). */
 class Ctx {
   segs = new Map<string, Seg[]>();
@@ -704,7 +717,7 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
       }
       slot.crewId = c.id;
       callIfOnStandby(g, c.id, openDuties(g, p)[0]?.report);
-      dropStandby(g, c, spanTo + DAY);
+      dropSbyFor(g, c, plan);
       inP.add(c.id);
       plans.set(c.id, plan);
       lateChange(g, c.id, nextReport(g, p));
@@ -1030,6 +1043,8 @@ setCrewOkHook((g, p, d) => {
     const c = g.crew[s.crewId];
     if (!c) continue;
     if (otherTrip(g, c, p, d.report, d.release, false)) return false;
+    // v0.9 never onto a planned day off.
+    if (offDaysHit(c, d.report, d.release).length) return false;
     // The tour's own tickets are re-planned around its new ends (retick), so they are left out here.
     const own: Seg[] = [];
     for (const x of openDuties(g, p)) own.push(...dutySegs(g, c, p, x, null, null));
@@ -1094,7 +1109,39 @@ function rehome(g: GameState, p: Pairing): void {
 // ---------- disruption APIs ----------
 
 /** v0.7.3 why commander's discretion is not available before report (ORO.FTL.205(f): unforeseen, at or after report). */
-export const DISCRETION_BEFORE_REPORT = 'Only after the crew have reported: for a planned day use a fresh crew, a delay or an augmented crew';
+export const DISCRETION_BEFORE_REPORT = 'Only after the crew has reported. For a planned day: a fresh crew, a delay or more pilots.';
+
+/** v0.9 the FDP the duty was planned at when the crew reported (old saves: report to the last scheduled arrival). */
+export function plannedFdpOf(g: GameState, d: Duty): number {
+  if (d.plannedFdp !== undefined) return d.plannedFdp;
+  const last = g.flights[d.flightIds[d.flightIds.length - 1]];
+  return last ? last.sta - d.report : d.fdp;
+}
+
+/**
+ * v0.9 commander's discretion is never planned (UPDATE-0.9.md §U.3; ORO.FTL.205(f)): offered only once the crew has
+ * reported, every seat filled, not used yet, the day legal when they reported (the overrun is unforeseen) and the
+ * overrun within what discretion adds. `fdp`: the projected FDP (default the duty's). `addMin`: what it would add. Pure.
+ */
+export function discretionCheck(g: GameState, dutyId: string, fdp?: number): { ok: boolean; why: string; addMin: number } {
+  const d = g.duties[dutyId];
+  const p = d && g.pairings[d.pairingId];
+  if (!d || !p || d.done) return { ok: false, why: 'No duty to extend.', addMin: 0 };
+  const no = (why: string) => ({ ok: false, why, addMin: 0 });
+  if (d.report > g.now) return no(DISCRETION_BEFORE_REPORT);
+  if (requiredEmpty(p)) return no("Seats are empty: discretion doesn't crew a flight.");
+  if (d.discretion) return no('Already used on this duty.');
+  if (plannedFdpOf(g, d) > d.maxFdp) return no("The day was already too long when they reported: that's planning, not an emergency.");
+  const up = discretionMax(g, d);
+  const add = d.ext && d.basicFdp ? Math.max(0, Math.min(up, d.basicFdp + up - d.maxFdp)) : up;
+  const over = (fdp ?? d.fdp) - d.maxFdp;
+  if (over <= 0) return no('The day is within its limit.');
+  if (over > add) {
+    const h = `${Math.floor(over / 60)}:${String(over % 60).padStart(2, '0')}`;
+    return no(add ? `Over by ${h}: more than discretion allows.` : d.augment > 0 ? "Over by " + h + ": the cabin crew's rest allows no longer day." : `Over by ${h}: discretion adds nothing on a planned extension.`);
+  }
+  return { ok: true, why: '', addMin: add };
+}
 
 /**
  * Commander's discretion (ORO.FTL.205(f)): only once the crew have reported, for something unforeseen; up to 2 h
@@ -1124,19 +1171,21 @@ export function discretionMax(g: GameState, d: Duty): number {
   return x;
 }
 
-export function applyDiscretion(g: GameState, dutyId: string): ActionResult {
+export function applyDiscretion(g: GameState, dutyId: string, fdp?: number): ActionResult {
   const d = g.duties[dutyId];
   const p = d && g.pairings[d.pairingId];
   if (!d || !p) return { ok: false, error: 'Duty not found' };
   if (d.done) return { ok: false, error: 'Duty already flown' };
-  if (d.discretion) return { ok: false, error: 'Discretion already used on this duty' };
-  if (d.report > g.now) return { ok: false, error: DISCRETION_BEFORE_REPORT };
-  const up = discretionMax(g, d);
-  d.discretion = d.ext && d.basicFdp ? Math.max(0, Math.min(up, d.basicFdp + up - d.maxFdp)) : up;
-  if (!d.discretion) {
-    delete d.discretion;
-    return { ok: false, error: d.augment > 0 ? "Discretion adds nothing: the cabin crew's day is at the most their rest allows" : 'Discretion adds nothing on a planned extension' };
+  // v0.9 only for the unforeseen, after report (§U.3).
+  const chk = discretionCheck(g, dutyId, fdp);
+  const st = v09StatsOf(g);
+  if (!chk.ok) {
+    st.discretionRefused++;
+    return { ok: false, error: chk.why };
   }
+  d.discretion = chk.addMin;
+  st.discretionUsed++;
+  if (plannedFdpOf(g, d) > d.maxFdp || d.report > g.now) st.discretionPlanned = (st.discretionPlanned ?? 0) + 1;
   d.legality = dutyLegality(d);
   for (const s of p.slots) {
     const c = s.crewId ? g.crew[s.crewId] : undefined;
@@ -1217,7 +1266,9 @@ export function placeCrew(g: GameState, p: Pairing, slot: number, c: CrewMember)
   p.slots[slot].crewId = c.id;
   const od = openDuties(g, p);
   callIfOnStandby(g, c.id, od[0]?.report);
-  if (od.length) dropStandby(g, c, od[od.length - 1].release + DAY);
+  if (od.length) dropSbyFor(g, c, plan);
+  // v0.9 a manual placement on a day off takes it (crew/dayPlan.ts: morale when published, the day re-planned).
+  if (od.length && plan.issues.some((i) => i.code === 'daysOff')) takeOffDays(g, c, plan.segs);
   lateChange(g, c.id, nextReport(g, p));
   buyTickets(g, p, new Map([[c.id, plan]]), emptyResult());
   setFlightsCrew(g, p);

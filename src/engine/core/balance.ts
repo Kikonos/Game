@@ -374,4 +374,38 @@ export const BAL = {
     /** Mixed crew (§7): the rate falls per client cabin crew member per block hour; offer shares. */
     mixedCrew: { perCabinBH: 75, share: { far: 0.35, eu: 0.1, hajj: 0.5 } },
   },
+
+  // ---------- v0.9 Experience (ENGINE; UPDATE-0.9.md §11) ----------
+  v09: {
+    heads: {
+      salary: { opsControl: 9_000, maintPlanner: 8_000, crewDesk: 14_000, analyst: 9_000, credit: 6_000, fleetPlanner: 10_000, watch: 5_000 } as Record<string, number>,
+      /** Candidate tiers: [skill min, skill max, salary ×] junior, mid, senior. */
+      tiers: [[0.55, 0.65, 0.7], [0.7, 0.8, 1], [0.85, 0.92, 1.45]] as [number, number, number][],
+      growth: 0.02, growthDays: 90, cap: 0.95, mistake: 0.35,
+      unlock: { legalSectors: 25, cover: 0.98, coverMonths: 2, contracts: 5, reliable: 85 },
+      ops: { maxDelayMin: 120 }, maint: { aAt: 0.75, aDays: 14, outstation: 0.2, cDays: 120 }, desk: { fixMax: 8_000 },
+      credit: { remind: [3, 10] as [number, number], base: 0.15, perSkill: 0.25, deposit: 0.3, govDeposit: 0.2, slow: 0.8 },
+      fleet: { idleH: 48, freeH: 72, marginMin: 60 }, proposalH: 72, severanceMonths: 1, rehireDays: 30,
+    },
+    slip: { maxPerSector: 1, roomNights: 1 },
+    jumbo: { pax: [420, 480] as [number, number], share: 0.2, shareIdle: 0.35, capShare: 0.12 },
+    offerLapseH: 6, delayPenaltyMin: 60, holdCancelRiskH: 6,
+    /**
+     * §R roster planning like an EASA operator (crew/dayPlan.ts; EASA-FTL.md §16). Days off: a month's legal floor, the
+     * planner's floor, target and cap, a year's floor, block lengths, due/must after work days in a row, the morning
+     * kept free after a day off (min). Leave: days a year by quarter, the share of a family-and-role group away at once,
+     * service before a hire's first leave. Windows are base/station-local minutes; shares count towards ORO.FTL.210.
+     */
+    roster: {
+      publishDays: 14,
+      off: { legalMonth: 7, minMonth: 8, targetMonth: 9, maxMonth: 10, yearMin: 96, block: [2, 3] as [number, number], dueAfter: 5, mustAfter: 6, morningFree: 0 },
+      leave: { days: 28, quarters: [10, 4, 4, 10] as number[], maxShare: 0.1, afterServiceDays: 90 },
+      home: { early: [300, 1020] as [number, number], late: [720, 1440] as [number, number], maxH: 16, minH: 4, readyMin: 90 },
+      hotel: { from: 360, to: 1080, readyMin: 45 },
+      airport: { minWave: 6, waveEnd: 600, leadMin: 90, hours: 4, readyMin: 20, per: { CPT: 1, FO: 1, CC: 1 } as Record<string, number> },
+      reserve: { noticeMin: 600, quiet: [1320, 360] as [number, number], tightShare: 0.95 },
+      share: { home: 0.25, hotel: 0.25, airport: 1, reserve: 0 } as Record<string, number>,
+      morale: { runFrom: 4, runDay: -0.2, above: 9, aboveEach: 0.5, aboveMax: 1.5, below: 8, belowEach: -1.5, broken: -6 },
+    },
+  },
 } as const;

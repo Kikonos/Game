@@ -53,7 +53,7 @@ const DEFAULT_SETTINGS: Settings = {
   sound: true,
   volume: 0.5,
   autosave: true,
-  autoPause: { decision: true, urgentOffer: true, aog: true, monthEnd: false, contractStart: false, crewShortage: true, marketOffer: false },
+  autoPause: { decision: true, urgentOffer: true, aog: true, monthEnd: false, contractStart: false, crewShortage: true, marketOffer: false, crewHours: true, rule: true },
   mapAnimations: true,
   topGap: 'auto',
   toasts: true,

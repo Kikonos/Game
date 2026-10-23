@@ -694,7 +694,8 @@ function fdpOver(g: GameState, f: Flight): boolean {
   const fdp = g.now + Math.max(f.block, last.sta - f.std) - d.report;
   if (fdp <= d.maxFdp + (d.discretion ?? 0)) return false;
   if (!d.discretion) {
-    const r = applyDiscretion(g, d.id);
+    // v0.9 only for the unforeseen (UPDATE-0.9.md §U.3): a day already too long at report becomes crew out of hours.
+    const r = applyDiscretion(g, d.id, fdp);
     if (r.ok) {
       pushMessage(g, {
         tone: 'info', cat: 'crew', title: `Commander's discretion on ${f.no}`,

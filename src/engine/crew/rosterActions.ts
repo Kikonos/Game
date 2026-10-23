@@ -3,10 +3,10 @@
 // or tour), so a duty or flight id resolves to its pairing and a change applies to that pairing's duties still
 // to fly. Manual assignments are locked: the rolling re-plan keeps them, flagged when illegal, never silently.
 
-import { onStandby } from './standby';
+import { onStandby, readyMinOf, standbyFor } from './standby';
 import { canFill, typeOf } from '../core/perf';
 import { fmtDay, fmtTime } from '../core/time';
-import type { ActionResult, CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing, Role } from '../core/types';
+import type { ActionResult, CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing, Role, StandbyKind } from '../core/types';
 import { issueLevelFor, openDuties, planCrew } from './check';
 import { crewName } from './generate';
 import { rootReason, type Reason } from './reasons';
@@ -113,8 +113,10 @@ export interface DutyCandidate {
   arrives?: Minute;
   /** v0.7.1: the one root reason when not clean (UPDATE-0.7.1.md §6). */
   reason?: Reason;
-  /** v0.7.3 on home standby at the report (Crew Control call-in: no overtime). */
-  standby?: { from: Minute };
+  /** v0.7.3 on standby for the report (Crew Control call-in: no overtime). v0.9: its kind, station and response time (§R.4). */
+  standby?: { from: Minute; to: Minute; kind: StandbyKind; at: string; readyMin: number };
+  /** v0.9 the duty would take a planned day off (Crew Control lists them last; a published one costs morale −6). */
+  dayOff?: boolean;
 }
 
 /**
@@ -156,14 +158,16 @@ export function dutyCandidates(g: GameState, dutyOrFlightId: string, role: Role)
     // v0.7.2 a captain for a first officer's seat: their own group 'Captain flying as FO', after the first officers
     // of the same legality (the UI groups by asFo).
     const asFo = c.role === 'CPT' && (role === 'FO' || role === 'CRP');
-    // v0.7.3 on home standby now (Crew Control calls them first: no overtime).
-    const sby = onStandby(g, c.id, g.now);
+    // v0.7.3 on standby for the report (Crew Control calls them first: no overtime); v0.9 any kind.
+    const sby = standbyFor(g, c, first.report) ?? onStandby(g, c.id, g.now);
+    const dayOff = issues.some((i) => i.code === 'daysOff');
     if (c.role !== role) reasons.push(asFo ? 'Captain flying as FO' : `${c.role} in a ${role} seat`);
     out.push({
       crewId: c.id, name: crewName(c), role: c.role, ...(asFo ? { asFo: true as const } : {}), legal: level !== 'illegal', level, reasons, codes: [...new Set(issues.map((i) => i.code))],
       loc, onPairing: on.has(c.id), ticket, block28dH: Math.round(b28 * 10) / 10, travel, arrives: o && !lost ? o.sta : undefined,
       reason: level !== 'legal' ? rootReason(g, issues, c, p) ?? undefined : undefined,
-      ...(sby ? { standby: { from: sby.from } } : {}),
+      ...(sby ? { standby: { from: sby.from, to: sby.to, kind: sby.kind, at: sby.at, readyMin: readyMinOf(sby.kind) } } : {}),
+      ...(dayOff ? { dayOff: true } : {}),
       score: -ticket - 2 * b28 - (c.role !== role ? 50 : 0),
     });
   }

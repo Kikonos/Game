@@ -209,15 +209,15 @@ describe('v0.8 fix pack: the Boeing 747-400 is back (item 6)', () => {
 
 describe("v0.8 fix pack: What's new after an update (item 9)", () => {
   it('a player jumping from v0.7.3 sees v0.8 and v0.7.4, newest first; up to date sees none; a new player the newest', () => {
-    expect(unseenEntries('v0.7.3').map((e) => e.version)).toEqual(['v0.8', 'v0.7.4']);
-    expect(unseenEntries('v0.7.4').map((e) => e.version)).toEqual(['v0.8']);
+    expect(unseenEntries('v0.7.3').map((e) => e.version)).toEqual(['v0.9', 'v0.8', 'v0.7.4']);
+    expect(unseenEntries('v0.7.4').map((e) => e.version)).toEqual(['v0.9', 'v0.8']);
     expect(unseenEntries(CURRENT.version)).toEqual([]);
     expect(unseenEntries('')).toEqual([CURRENT]);
-    expect(unseenEntries('v0.7.2.1').map((e) => e.version)).toEqual(['v0.8', 'v0.7.4', 'v0.7.3', 'v0.7.2.2']);
+    expect(unseenEntries('v0.7.2.1').map((e) => e.version)).toEqual(['v0.9', 'v0.8', 'v0.7.4', 'v0.7.3', 'v0.7.2.2']);
     expect(WHATS_NEW[0]).toBe(CURRENT);
   });
   it("the v0.8 entry has a short Fixes part in plain words, the 747-400 among them", () => {
-    const f = CURRENT.fixes ?? [];
+    const f = WHATS_NEW.find((e) => e.version === 'v0.8')!.fixes ?? [];
     expect(f.length).toBeGreaterThanOrEqual(5);
     expect(f.length).toBeLessThanOrEqual(8);
     expect(f.join(' ')).toMatch(/747-400/);

@@ -328,7 +328,7 @@ export type Product =
   /** ACMI / wet lease: rate per block hour against a monthly minimum. Client pays fuel, fees, hotels. */
   | { kind: 'wet'; ratePerBH: number; mghPerMonth: number; excessRate: number; cycleFee: number; positioningBillable: boolean }
   /** Full charter: one price for the whole programme; we pay fuel, fees, hotels. */
-  | { kind: 'charter'; price: number; depositPct: number; balanceDaysBefore: number; fuelEscalation: boolean }
+  | { kind: 'charter'; price: number; depositPct: number; balanceDaysBefore: number; fuelEscalation: boolean; /** v0.9 jumbo loads: fuel billed after flying at the actual burn (not in `price`). */ fuelAtCost?: true }
   /** Dry lease out: monthly rent plus reserves; the lessee flies it. */
   | { kind: 'dry'; rentPerMonth: number; reservesPerFH: number };
 
@@ -492,6 +492,10 @@ export interface ContractOffer {
   dry?: { site: string; fhPerMonth: number; deposit: number; consent: number; paint?: 'full' | 'decals'; months: number };
   /** v0.7.4: the client wants a cabin layout for the contract (a quick reconfiguration at their expense). */
   cabin?: CabinTerms;
+  /** v0.9 crew change at a fuel stop (UPDATE-0.9.md §W): the stops (one per slipping sector, airport codes) and the priced-in cost. */
+  slip?: { at: string[]; cost: number };
+  /** v0.9 jumbo load (§Y.2): 420+ passengers, all economy. */
+  jumbo?: boolean;
 }
 
 /**
@@ -731,7 +735,9 @@ export type ProblemKind =
   /** v0.7.3 */
   | 'restFacility' | 'restTooShort' | 'cabinRest'
   /** v0.8 */
-  | 'clientUnhappy' | 'lostToRival' | 'airspaceClosed' | 'uninsurable' | 'leaseLate' | 'leaseDamage' | 'dryLeaseInfo';
+  | 'clientUnhappy' | 'lostToRival' | 'airspaceClosed' | 'uninsurable' | 'leaseLate' | 'leaseDamage' | 'dryLeaseInfo'
+  /** v0.9 crew out of hours (a named crew member at a legal limit). */
+  | 'crewHours';
 
 /** v0.7.1 what a card is about: the entity (as a message Ref) plus the kind. */
 export interface ProblemRef { kind: ProblemKind; ref: Ref }
@@ -766,7 +772,12 @@ export interface DutyLogEntry {
 }
 
 /** v0.6: morale drivers (crew card "why"). */
-export type MoraleDriver = 'policy' | 'hotel' | 'tour' | 'offAway' | 'workload' | 'lateChange' | 'discretion' | 'mission' | 'extraCrew' | 'career' | 'pay' | 'recognition';
+export type MoraleDriver = 'policy' | 'hotel' | 'tour' | 'offAway' | 'workload' | 'lateChange' | 'discretion' | 'mission' | 'extraCrew' | 'career' | 'pay' | 'recognition'
+  /** v0.9 long standby runs; days off in the month (and a published day off taken). */
+  | 'standby' | 'daysOff';
+
+/** v0.9 standby kinds (UPDATE-0.9.md §R.3): home (SBY), hotel at a station away from base, airport (ASBY), reserve (RES). */
+export type StandbyKind = 'home' | 'hotel' | 'airport' | 'reserve';
 
 export interface CrewMember {
   id: string;
@@ -801,7 +812,7 @@ export interface CrewMember {
   /** Total flying hours (seniority; command upgrades). */
   totalHours: number;
   /** B2: unavailable windows (sick, leave, training, joining); pruned once past. */
-  blocks?: { from: Minute; to: Minute; why: 'sick' | 'leave' | 'training' | 'joining' }[];
+  blocks?: { from: Minute; to: Minute; why: 'sick' | 'leave' | 'training' | 'joining'; /** v0.9 planned annual leave. */ annual?: true }[];
   /** B2: calendar year that blockYear counts. */
   blockYearOf?: number;
   /** v0.6: resigned; keeps flying until `leaves` (then removed from g.crew). */
@@ -825,7 +836,17 @@ export interface CrewMember {
   /** v0.7.3 last return from a rotation ≥ 4 h away: local nights needed at base. */
   tzBack?: { back: Minute; nights: number; dir: -1 | 1 };
   /** v0.7.3 home standby windows (next days; CS FTL.1.225(b)). */
-  standby?: { from: Minute; to: Minute; calledAt?: Minute }[];
+  standby?: {
+    from: Minute; to: Minute; calledAt?: Minute;
+    /** v0.9 kind (absent = home), station (absent = base), early/late shift of a home window. */
+    kind?: StandbyKind; at?: string; shift?: 'E' | 'L';
+  }[];
+  /** v0.9 base-local day indices rostered OFF (crew/dayPlan.ts), ascending; pruned 40 days back. */
+  off?: number[];
+  /** v0.9 days off counted at each month end (the last 13: the 96-a-year check). */
+  offMonths?: Record<MonthKey, number>;
+  /** v0.9 last calendar year whose annual leave is planned. */
+  leaveYear?: number;
 }
 
 export interface CrewSlot {
@@ -837,7 +858,14 @@ export interface CrewSlot {
   extra?: boolean;
   /** v0.6: seat above the legal minimum (crew-extra settings): optional, never blocks departure. */
   above?: boolean;
+  /** v0.9 crew out of hours: who was taken off this seat for a legal limit, which, by how much (min) and when; cleared on a legal refill. */
+  ooh?: { crewId: string; limit: OohLimit; over: number; at: Minute };
 }
+
+/** v0.9 the legal limit a crew member reached (UPDATE-0.9.md §T.1). */
+export type OohLimit = 'fdp' | 'duty7d' | 'duty14d' | 'duty28d' | 'block28d' | 'blockYear' | 'block12m' | 'rest' | 'recovery' | 'inflightRest'
+  /** v0.9 §R: the month's days off would fall below 7. */
+  | 'daysOff';
 
 export type Legality = 'legal' | 'tight' | 'illegal';
 
@@ -882,6 +910,10 @@ export interface Duty {
   forceAug?: 2;
   /** v0.7.3 crewed at load from an older save within 72 h: augmentation kept without a rest-plan check. */
   legacyRest?: true;
+  /** v0.9 FDP planned at report (report → last scheduled arrival then): discretion only when this was legal (§U.3). Old saves: computed lazily. */
+  plannedFdp?: number;
+  /** v0.9 crew slip: this duty takes over (or hands over) at this tech stop (§W). */
+  slipAt?: string;
 }
 
 /** A crew complement's trip: duties from base back to base (or a deployment at a client base). */
@@ -1020,7 +1052,9 @@ export interface Ref {
   /** v0.7 'market': an aircraft market offer. v0.7.1 'cash' | 'statement' (Finance), 'decision' (the decision modal). */
   kind: 'flight' | 'aircraft' | 'contract' | 'offer' | 'crew' | 'maint' | 'airport' | 'market' | 'cash' | 'statement' | 'decision'
     /** v0.8 */
-    | 'client' | 'rival' | 'event';
+    | 'client' | 'rival' | 'event'
+    /** v0.9 a department head (Company › Team). */
+    | 'head';
   id: string;
 }
 
@@ -1034,7 +1068,9 @@ export interface Message {
   read: boolean;
   ref?: Ref;
   /** v0.7: market alerts (UI may hide them) and ladder steps (celebration). v0.7.1 'crewRed': the red crew-shortage stage (sound hook). */
-  topic?: 'market' | 'ladder' | 'crewRed' | /** v0.8 world events (never toast) */ 'world';
+  topic?: 'market' | 'ladder' | 'crewRed' | /** v0.8 world events (never toast) */ 'world'
+    /** v0.9 the red crew-out-of-hours stage; an achievement; a department head's note. */
+    | 'crewHours' | 'achievement' | 'head';
   /** v0.7.1 the problem this message is about, and its severity when posted (a snapshot for the badge once the problem is gone). */
   problem?: ProblemRef;
   hurt?: { money: number; pax: number; delayMin: number; level: 'none' | 'low' | 'high' };
@@ -1324,6 +1360,79 @@ export interface Stats {
   restTooShort?: number;
   /** v0.8 counters (bot print, Company). load: ??= zeros */
   v08?: StatsV08;
+  /** v0.9 counters (heads, achievements, slips, out of hours, discretion). load: ??= zeros */
+  v09?: StatsV09;
+}
+
+export interface StatsV09 {
+  /** Revenue sectors in a row flown with a legal crew (counted from the first contract). */
+  legalStreak: number;
+  /** MonthKey → [departures, held for crew] (crew coverage per month; last 14 kept). */
+  cover: Record<number, [number, number]>;
+  slips: number; oohRed: number; oohAmber: number; discretionUsed: number; discretionRefused: number;
+  headHandled: number; headMistakes: number; jumboLoads: number; lateGovPaid: number; cOnTime: number;
+  /** Discretion applied with plannedFdp > maxFdp or before report (bot target 0). */
+  discretionPlanned?: number;
+  /** First AOG away from base fixed without a sub-charter; standby call-ins; augmented duties flown with a legal rest plan; 747 revenue sectors. */
+  outstationFix?: number; restPlans?: number; queenSectors?: number; antarctic?: number;
+  /** Days since the last leg cancelled by us / last overdue check began (for the streak achievements). */
+  lastCancel?: Minute; lastOverdue?: Minute;
+  /** Signed offers a rival was bidding on; evacuation/repatriation and Hajj contracts completed. */
+  firstCall?: number; homeSafe?: number; hajjDone?: number;
+  /** Month results by year (calendar-year net). */
+  yearNet?: Record<number, number>;
+  /** §R roster planning counters (crew/dayPlan.ts rosterStats). */
+  roster?: StatsRoster09;
+}
+
+/** v0.9 §R: crew-days by kind (counted as each day closes), call-outs, broken days off, the longest recovery gap seen. */
+export interface StatsRoster09 {
+  offDays: number; sbyHome: number; sbyHotel: number; asby: number; res: number; leaveDays: number; flying: number; otherDays: number;
+  callOuts: number; offBroken: number; offBreaches: number; maxRecGapH: number;
+  /** Crew-months closed and those below 7 days off. */
+  months: number; monthsLow: number;
+}
+
+// ======================================================================
+// v0.9 Department heads (ops/heads.ts) and achievements (ops/achievements.ts)
+// ======================================================================
+
+export type HeadId = 'opsControl' | 'maintPlanner' | 'crewDesk' | 'analyst' | 'credit' | 'fleetPlanner' | 'watch';
+export interface HeadCandidate { name: string; years: number; skill: number; salary: number; blurb: string }
+export interface HeadLogLine { t: Minute; kind: 'done' | 'mistake' | 'proposal' | 'overridden'; text: string; ref?: Ref }
+export interface HeadProposal { id: string; t: Minute; kind: 'ferryHome' | 'position' | 'cSlot' | 'hire'; text: string; cost: number; expires: Minute; ref?: Ref; data: Record<string, string | number> }
+export type AlertRuleKind = 'cashBelow' | 'delayOver' | 'offerOver' | 'idleOver' | 'clientDown' | 'checkDue';
+export interface AlertRule { id: string; kind: AlertRuleKind; value: number; action: 'pause' | 'alert'; on: boolean }
+export interface HeadRules {
+  /** opsControl (defaults 120, true). */
+  maxDelayMin?: 60 | 120 | 180; standbyFirst?: boolean;
+  /** crewDesk (8_000, 0, false). */
+  fixMax?: number; jetMax?: number; autoHire?: boolean;
+  /** credit (true, true). */
+  waiveTrusted?: boolean; depositSlow?: boolean;
+  /** fleetPlanner (0 = proposals only). */
+  autoFerryMax?: number;
+  /** watch (max 8). */
+  alerts?: AlertRule[];
+}
+export interface Head {
+  id: HeadId;
+  unlockedAt: Minute | null;
+  /** Rolled at unlock (3), kept until one is hired. */
+  candidates?: HeadCandidate[];
+  hired: { name: string; skill: number; salary: number; since: Minute } | null;
+  on: boolean;
+  rules: HeadRules;
+  proposals: HeadProposal[];
+  /** Last 12, newest first. */
+  log: HeadLogLine[];
+  handled: number; mistakes: number; overridden: number;
+  /** Fired: candidates come back after this time. */
+  firedAt?: Minute;
+  /** Watch desk: subjects whose rule already fired (cleared when the condition clears). */
+  fired?: string[];
+  /** Override watch: [ref id, until, log index text] of the last items handled (2 h). */
+  recent?: [string, Minute][];
 }
 
 export interface StatsV08 {
@@ -1399,6 +1508,16 @@ export interface GameState {
   rivals: Rival[];
   /** v0.8 invented world events. load: ??= { events: [] } */
   world?: { events: WorldEvent[]; lastKind?: Partial<Record<WorldEventKind, Minute>> };
+  /** v0.9 department heads (ops/heads.ts). load: ??= all locked */
+  heads?: Record<HeadId, Head>;
+  /** v0.9 achievements earned: id → when. load: ??= {} then a silent backfill */
+  achievements?: Record<string, Minute>;
+  /**
+   * v0.9 roster planning (crew/dayPlan.ts): `from` the first base-local midnight the v0.9 rules plan, `publishedTo` the
+   * end of the last published day, `planned` the end of the last day whose days off are planned. load: old saves plan
+   * from the first midnight 14 days ahead.
+   */
+  dayPlan?: { from: Minute; publishedTo: Minute; planned?: Minute };
   goals: GoalState[];
   stats: Stats;
   /** Binary min-heap ordered by (t, seq). */

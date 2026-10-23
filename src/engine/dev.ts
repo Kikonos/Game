@@ -11,7 +11,7 @@ import { touchCrew, touchCrewState } from './crew/timeline';
 import { blockMinutes } from './core/perf';
 import { flightsOf } from './core/entities';
 import { nextId } from './core/entities';
-import type { AcRest, Aircraft, ClientLevel, GameState, Role } from './core/types';
+import type { AcRest, Aircraft, ClientLevel, GameState, HeadId, Role } from './core/types';
 import { generateOffer } from './contracts/offers';
 import { rivalFits } from './contracts/rivals';
 import { schedule } from './core/queue';
@@ -303,4 +303,24 @@ export function devRivalBid(g: GameState): string {
     return o.id;
   }
   return '';
+}
+
+// ---------- v0.9 (UPDATE-0.9.md §12): each returns the id to open ----------
+
+/** A department head unlocked now (candidates rolled); the head id. */
+export function devUnlockHead(g: GameState, id: HeadId): HeadId {
+  return devUnlockHeadHook?.(g, id) ?? id;
+}
+let devUnlockHeadHook: ((g: GameState, id: HeadId) => HeadId) | null = null;
+export function setDevUnlockHead(f: (g: GameState, id: HeadId) => HeadId): void {
+  devUnlockHeadHook = f;
+}
+
+/** An achievement earned now (message and cue); its id. */
+export function devAchievement(g: GameState, id: string): string {
+  return devAchievementHook?.(g, id) ?? id;
+}
+let devAchievementHook: ((g: GameState, id: string) => string) | null = null;
+export function setDevAchievement(f: (g: GameState, id: string) => string): void {
+  devAchievementHook = f;
 }

@@ -90,7 +90,7 @@ function SpeedControl() {
 
 const PAUSE_LABEL: Record<PauseReason, string> = {
   decision: 'Decision waiting', urgentOffer: 'Urgent offer', aog: 'Aircraft AOG', monthEnd: 'Month closed', contractStart: 'Contract starts', crewShortage: 'Crew shortage',
-  marketOffer: 'Market offer',
+  marketOffer: 'Market offer', crewHours: 'Crew out of hours', rule: 'Your rule',
 };
 
 /** Static amber badge saying why the clock stopped (no pulsing); tap goes where the reason lives. */

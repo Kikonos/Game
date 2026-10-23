@@ -5,6 +5,8 @@ Plan of record for v0.9, written for three lanes that build in parallel: ENGINE,
 - money only through `post` / `accrue` / `cashOnly` / `invoice`; flights only through the core helpers;
 - `SAVE_VERSION` stays 1; every new field is optional with a `??=` default in its module's `load`, so v0.5.2 … v0.8 saves keep working (new fixture `save-v08.lz.txt`, §13).
 
+The player's words (23 Oct, latest): *"Crew has way too many off days, should be mostly standbys including out of base. Learn EASA roster planning guidelines and plan accordingly."* (§R; ENGINE builds it first after step 0.)
+
 The player's words (23 Oct): *"I won't have time to play v0.8, so those new features show in the next version pop-up."* · *"On 'longest day' don't count up to captain's discretion: it's only discussed near the end of the duty as an emergency and can't be agreed before or when signing a contract."* · *"A new alert for this: 'crew out of hours' when a pilot or flight attendant has reached their legal limits."* · *"Lots of typical aviation sounds: high chimes, low chimes, high-low (new contract), double high-low (medium emergency), triple high-low (serious emergency)… calm sounds for calm situations and urgent sounds for urgent situations."* Answers: one urgent alarm shared by crew shortage and crew out of hours; yes to crew slips at fuel stops; yes to the What's new catch-up.
 
 Agreed list (stages 1–3 done):
@@ -20,6 +22,7 @@ Agreed list (stages 1–3 done):
 | W | Crew slip at a fuel stop | Long one-way flights with a tech stop split the duty: a fresh crew flies in by airline and takes over. Priced in, planned, drawn. |
 | X | What's new catch-up | The first v0.9 launch shows v0.9, v0.8 and v0.7.4 once, even if v0.8 was already seen. |
 | Y | v0.8 follow-ups | Re-check the in-flight rest plan at departure; 747-400 jumbo loads; bot speed. |
+| R | Roster planning like a real EASA operator | Days off are only the legal and contractual minimum (8–10 a month in 2–3-day blocks, 4 weeks' leave), published 14 days ahead and protected. Every other non-flying day is standby: at home, at the hotel on detachments and night-stops, at the airport at busy bases, or reserve. Crew Control calls standby first. |
 
 Calm rules hold: nothing flickers and only aircraft move. Toasts stay rare. Sounds are rate-limited (§S.4). Every new problem gets the four-line card (WHAT · WHY · DOES IT HURT? · WHAT YOU CAN DO). Nothing else is added (§15).
 
@@ -164,7 +167,7 @@ One gentle card per screen the first time it opens, placed under the screen head
 - **contracts**: "Offers come with an expiry and a rival may take them first. Wet offers pay per block hour against an MGH; charters are all-in and you pay the fuel. The light on each card is the planner's verdict for your best aircraft."
 - **offer**: "Pick the aircraft, read the red and amber lines, then accept, counter or let it go. A counter costs time: urgent clients answer in hours, others in a day or two."
 - **schedule**: "One row per aircraft. Hatched is positioning, striped is maintenance, faint is idle. Tap a block for its sheet; drag a trip onto another row to swap aircraft."
-- **crewPeople / crewBoard / crewPlan**: "People: limits as fuel gauges." · "Roster board: drag to swap; red is illegal, amber tight." · "Planning: crew sets per type, and Round up hires exactly what completes them."
+- **crewPeople / crewBoard / crewPlan**: "People: limits as fuel gauges." · "Roster board: OFF days are published 14 days ahead and protected; SBY, ASBY and RES are your standby pool. Drag to swap; red is illegal." · "Planning: crew sets per type, and Round up hires exactly what completes them."
 - **fleet**: "Each card shows the checks, the cabin, the crew rest and the longest legal day. The Market tab sells and leases aircraft: few at a time, long lead times."
 - **finance**: "Revenue lands as legs fly; governments pay late. The forecast line is cash, not profit."
 - **company / team**: "Reputation, approvals and policies." · "Department heads are earned, not bought: each takes routine work off your desk, makes the odd mistake, and can be switched off."
@@ -259,11 +262,12 @@ The urgent alarm is used **only** for `crewShortage` and `crewOutOfHours`.
 - `duty7d` 60 h · `duty14d` 110 h · `duty28d` 190 h · `block28d` 100 h · `blockYear` 900 h · `block12m` 1,000 h;
 - `rest`: minimum rest not met;
 - `recovery`: no 36 h weekly rest;
-- `inflightRest`: the in-flight rest plan no longer works (§Y.1).
+- `inflightRest`: the in-flight rest plan no longer works (§Y.1);
+- `daysOff` (§R): the month's days off would fall below 7.
 
 ### T.2 Data and detection
 ```ts
-export type OohLimit = 'fdp' | 'duty7d' | 'duty14d' | 'duty28d' | 'block28d' | 'blockYear' | 'block12m' | 'rest' | 'recovery' | 'inflightRest';
+export type OohLimit = 'fdp' | 'duty7d' | 'duty14d' | 'duty28d' | 'block28d' | 'blockYear' | 'block12m' | 'rest' | 'recovery' | 'inflightRest' | 'daysOff';
 // PairingSlot (v0.9): ooh?: { crewId: string; limit: OohLimit; over: number /* min */; at: Minute }   // set when guardDuty / the roster takes a crew member off for a limit; cleared when the seat is legally refilled
 // Duty (v0.9): plannedFdp?: number   // §U
 // ProblemKind += 'crewHours'; Message.topic += 'crewHours' | 'achievement' | 'head'; PauseReason += 'crewHours' | 'rule'
@@ -369,6 +373,9 @@ Scope:
 | Crew Planning verdict (complete) | "A320 family: 4 aircraft · 5 sets each = 20 sets needed · you have 22 complete (2 spare)" | "Complete · 2 spare" |
 | red crew message | "CREW SHORTAGE: TP1234 in 6 h" + "… Hurts: … Open Crew Control to fix it." | title kept; body "{why} {hurt}." (the button opens Crew Control) |
 | glossary hint `offerFit` | "An offer you cannot fly as it stands" | "An offer you can't fly yet" |
+| roster legend (§R) | "Dashed: home standby 06:00–18:00, on call without overtime" | "SBY home standby (E 05–17, L 12–24)" (the swatch shows the rest) |
+| Crew Control `callIn` blurb (§R) | "Someone off duty at the airport comes in: overtime pay, a morale hit." | "Standby first, no overtime. A day off costs overtime and morale." |
+| Crew Control standby row (§R) | "Rita Costa · LIS · On home standby since 06:00 LIS" + "No overtime · standby beyond 6 h shortens the day" | "Rita Costa · Home standby (early) · ready in 1:30" + chip "No overtime" |
 | Longest-day popover | (§U.2) | (§U.2) |
 
 ---
@@ -454,6 +461,255 @@ Report before and after per seed. The hard limit is ≤ 20 s with the v0.9 syste
 
 ---
 
+## R. Roster planning like a real EASA operator (ENGINE crew; UI roster board, Crew, Crew Planning; MAP hotel panel)
+
+### R.1 Why, and the rules it follows
+Today `dailyStandby` puts 1 CPT, 1 FO, 1 PUR and 1 CC per rating family on home standby for the next 2 days, and every day without work shows as **Day off**. Crews sit at home most of the month, and the 7-days-a-month rule is not checked at all (only standby keeps 8 free). A real crew-planning department plans the minimum days off first, publishes them 14 days ahead, and puts everyone else who is not flying on standby or reserve. Sources: the player's guide (`.handover/updates/EASA-guide-2026-10.txt` §§3, 10, 11.3–11.4, 12.3), written up with citations in **EASA-FTL.md §16 "Roster planning"** (written with this design):
+
+| Rule | Value | Source |
+|---|---|---|
+| Roster published | 14 days ahead | AMC1 ORO.FTL.110(a) |
+| Cumulative duty | 60 h / 7 d, 110 h / 14 d, 190 h / 28 d | ORO.FTL.210(a) |
+| Flight time | 100 h / 28 d, 900 h / calendar year, 1,000 h / 12 months | ORO.FTL.210(b) |
+| Airport standby | 100 % duty; FDP cut by standby beyond 4 h; standby + FDP ≤ 16 h; rest after if not called | ORO.FTL.225, CS FTL.1.225(a) |
+| Other standby (home, hotel) | ≤ 16 h; 25 % duty; FDP cut beyond 6 h (8 h augmented/split); 23:00–07:00 not counted until contacted; standby + FDP ≤ 18 h awake; rest after | CS FTL.1.225(b) |
+| Reserve | rostered; not duty for ORO.FTL.210/235; ≥ 10 h notice; 8 h no-contact period; never rest, never recovery | ORO.FTL.230, CS FTL.1.230, GM1 ORO.FTL.230(a) |
+| Recurrent extended recovery rest | ≥ 36 h incl. 2 local nights, ≤ 168 h apart; 2 local days twice a month | ORO.FTL.235(d) |
+| Days free of duty | ≥ 7 per calendar month, ≥ 96 per year, free of all duty **and standby**, notified in advance; a single day off = 1 day + 2 local nights | Directive 2000/79/EC Annex cl. 9; guide def. (23) |
+| Annual leave | 4 weeks paid | Directive 2000/79/EC Annex cl. 3 |
+| Standby at bases and hubs | standby/reserve crew should be available there, so discretion is avoided | AMC1 ORO.FTL.205(f) |
+
+**Game definition of a day off:** a local calendar day at the place the crew member is, free of all duty, standby and reserve from 00:00 to 06:00 the next morning (which keeps both local nights free). Days are counted in the home base's time zone, as `twoDayCredits` already does.
+
+### R.2 Data (ENGINE; types in `core/types.ts`, load defaults in `crew/index.ts load`)
+```ts
+export type StandbyKind = 'home' | 'hotel' | 'airport' | 'reserve';
+// CrewMember.standby[] entries (v0.9, all optional; absent = v0.7.3 home standby at base):
+//   kind?: StandbyKind; at?: string /* station, absent = base */; shift?: 'E' | 'L'
+// CrewMember (v0.9):
+//   off?: number[];                      // base-local day indices rostered OFF, ascending; pruned 40 days back
+//   offMonths?: Record<MonthKey, number>; // days off counted at each month end (last 13: the 96-a-year check)
+//   leaveYear?: number;                   // last calendar year whose annual leave is planned
+// CrewMember.blocks[] entries: annual?: true   // planned annual leave (why 'leave')
+// GameState (v0.9): dayPlan?: { from: Minute; publishedTo: Minute }
+//   from: the first base-local midnight the v0.9 rules plan; publishedTo: end of the last published day
+// MoraleDriver += 'standby' | 'daysOff';  OohLimit += 'daysOff';  IssueCode (crew/rules.ts) += 'daysOff'
+// Stats.v09.roster?: { offDays; sbyHome; sbyHotel; asby; res; leaveDays; callOuts; offBroken; offBreaches; maxRecGapH }
+```
+**Old saves (load).** `g.dayPlan ??= { from: firstBaseMidnight(now + 14 d), publishedTo: that same minute }`. Already published days (before `from`) stay as they are: their free days still show as days off and the old 2-day home standby keeps running for them only. From `from` on, the v0.9 planner plans each day as it enters the published window. Annual leave for the rest of the year is planned at load (pro rata, never inside the published window). One info message: "**Roster planning changed** — From 7 Nov, days off are planned (8–10 a month, a 2-day block every week, 4 weeks' leave a year) and other free days are standby. The roster published up to 6 Nov stays as it is." New games: `from` = the start day; the first 14 days are planned at start.
+
+### R.3 The daily plan (`crew/dayPlan.ts`, new; runs in `crew/index.ts daily`)
+Order each day: `planLeave` (1 Dec for next year, on load, and for each hire after 90 days' service) → **`planOffDays`** for the day D entering the published window (today + 13) → `autoRoster` (unchanged; now sees OFF days as blocked) → **`planStandby`** for every unpublished day up to D → `publishedTo` moves to the end of D. All picks are deterministic (crew id order, `hashUnit` for ties); no RNG.
+
+**1. Annual leave (`planLeave`).** 28 calendar days a year in 4 blocks, weighted to the ACMI low season: Q1 10 days, Q2 4, Q3 4, Q4 10 (RESEARCH §5.3 counts leave at about 8 % of crew; RESEARCH §9 notes ACMI winters are quiet). For each block, the start day is the one in the quarter (after the published window) with the fewest same family-and-role crew already on leave and the fewest signed reports of that family, ties by `hashUnit(crewId + year + q)`. Cap: at most `max(1, ceil(10 %))` of a family-and-role group on leave on any day. Leave is a `blocks` entry `{ why: 'leave', annual: true }`, so availability, status and the calendar already handle it. A partial first year gets only the quarters left. Leave never moves by itself.
+
+**2. Days off (`planOffDays`, day D, each crew member).** Days off come in **blocks of 2 or 3 whole days**, so each block is also the 36 h / 2-night recovery rest, and two blocks a month give the 2 local days twice a month. Work days are days with any duty, travel, standby, reserve or training. Leave and sickness reset the count.
+- **Must:** OFF from D when one of these holds:
+  - D is the 7th work day in a row (the company 6-on block, which also keeps the 168 h recovery);
+  - the month cannot otherwise reach 8 (`minMonth`): the days off still missing are at least the free days left in the month;
+  - fewer than 2 blocks of 2 days this month, and only enough days left for them.
+- **Due:** OFF from D after 5 work days in a row, or when the month's days off are behind the pace for 9 (`targetMonth`). A due block is deferred one day when it would leave that family-and-role at that station below D's known reports + 1 standby. It is never deferred twice.
+- **Length:** 2 days, or 3 when the month is behind the pace for 9; never more than 10 a month (`maxMonth`) unless nothing else is possible (a joiner, a long stay of sickness).
+- Only days with no duty or ticket already planned can become OFF (deployment tours are crewed up to `rotationWeeks` ahead). A must-block that finds D taken goes on the first 2 free days after it. `tours` themselves are built so a month keeps ≥ 7 free days (`duties.ts`, next to the `longestWorkBlock` check).
+- Days off at a deployment or downroute are taken at the hotel (`OFF DUB`); the v0.6 `offAway` morale applies as today.
+- **Result:** about 4 blocks and 9 days off a month (≈ 108 a year, above 96), never below 7.
+
+**3. Flying.** `autoRoster` / `fillAll` as today. `evalSegs` gets the OFF days through `TimelineCtx.off`. A fresh duty, ticket or standby on a planned OFF day is the issue `'daysOff'`:
+- **illegal** when the month would fall below 7 days off ("Days off in November would fall to 6 (minimum 7)") or the year's count can no longer reach 96;
+- **tight** otherwise ("Day off Tue 4 Nov (published)").
+
+`acceptable()` refuses any `'daysOff'` issue, so the auto-roster, re-plans, the auto-fix and department heads never take a day off. Only the player does (R.5).
+
+**4. Standby (`planStandby`).** Every crew member who is free on D (not OFF, leave, sick, training or joining) and has no duty or ticket covering the day gets one standby window. Where they are at 06:00 local decides the kind:
+
+| Kind | Where and when | Window | Counts as duty | Called out |
+|---|---|---|---|---|
+| **Home standby** `home` (SBY) | at home base | early **05:00–17:00** (`E`) or late **12:00–24:00** (`L`), 12 h (≤ 16 h rule) | 25 % | report 90 min after the call; FDP cut beyond 6 h (8 h augmented/split); 18 h awake (woken 1 h before the window) |
+| **Hotel standby** `hotel` (SBY DUB) | at a deployment station or a night-stop/waiting station away from base | 06:00–18:00 station local, after the rest from the last duty | 25 % | report 45 min after the call; same cuts |
+| **Airport standby** `airport` (ASBY) | at home base or a deployment station whose family has ≥ 6 of our departures 05:00–10:00 local that day | first departure − 90 min, 4 h | 100 % | at once (20 min); FDP cut beyond 4 h; standby + FDP ≤ 16 h |
+| **Reserve** `reserve` (RES) | home base, when a standby would make the 7/14/28-day duty tight (≥ 95 %) or break a rest | 24 h, no contact 22:00–06:00 | 0 % | only for a report ≥ 10 h after the call; FDP from report |
+
+- **Early or late:** split by D's reports of that family at that station (05:00–11:59 vs 12:00–23:59), filling the shift with the lower share of crew per report. A crew member keeps the same shift through a work block (GM CS FTL.1.205(a)(2): blocks of identical duties) unless the late→early rule would bite.
+- **Airport standby:** 1 CPT, 1 FO and 1 CC per qualifying family, taken from the early shift.
+- **Window clipping:** the window starts after the rest from the previous duty, and it ends early enough for the full ORO.FTL.235 rest before the next planned report (`minRest` of the standby length: 12 h at home, ≥ 10 h away). A window clipped below 4 h is not rostered; that day is rest.
+- **Legality:** each window is checked with `evalSegs`, with its share (home/hotel 0.25, airport 1, reserve 0). An illegal standby becomes reserve; an illegal reserve is not rostered, and the day shows "Rest (limits)".
+- **Out-of-base standby costs nothing new:** hotel and per diem accrue as already modelled for detachments and night-stops.
+- **Changes:** planned work replaces standby (`dropStandby`, unchanged). A window running or starting within 12 h counts as a call-out (`callIfOnStandby`, unchanged). A standby not called is followed by rest (`standbySeg.rest`); unused reserve is neither rest nor recovery.
+
+**5. Publication.** `publishedTo` = end of today + 13. Days off inside it are protected (R.5). Standby, reserve and airport standby windows may change at any time; that is their purpose. Days beyond it show "Not rostered yet", except the second and third day of an OFF block planned at D.
+
+### R.4 Crew Control and the auto-fix use the pool first
+`dutyCandidates` (`rosterActions.ts`) marks candidates with `standby: { from; kind; at; readyMin }`, and `seatCandidates` (`control.ts`) sorts the call-in list:
+1. airport standby at the departure (20 min);
+2. hotel or home standby at the departure (45/90 min);
+3. reserve at the departure (only for reports ≥ 10 h away);
+4. off duty on a rest day (overtime and `callInMorale`, as today);
+5. last, someone on a published day off, through R.5 (confirm, overtime, −6 morale instead of `callInMorale`).
+
+"Fly someone in" lists standby crew elsewhere first: their window closes at the ticket's check-in and counts as a call-out. The roster's own re-plans after disruptions (`rerosterFrom`, the auto-fix) already prefer free crew, who are now standby crew. Since standby costs no overtime, the cheapest-first fix order makes standby call-outs the normal fix. The heads' Ops Control and crew desk inherit this (they apply these fixes).
+
+**Candidate labels** (engine strings, Crew Control rows):
+- "Rita Costa · LIS · Airport standby until 10:30 · ready in 20 min"
+- "· Home standby (early) · ready in 1:30"
+- "· Hotel standby at DUB · ready in 45 min"
+- "· Reserve · from 19:10 (10 h notice)"
+- "· Day off: called in · $310 overtime, morale −6"
+
+Chips: "No overtime" + the kind.
+
+### R.5 Protected days off
+- **Board move.** A board move, swap or Crew Control call that puts work on a published OFF day needs a confirm. `dropTargets` gives the target `offBreak: "Takes her day off Tue 4 Nov (morale −6)"`, level amber. `moveDuty(…, { takeOff: true })` applies it; without `takeOff` it refuses with that text.
+- **On confirm:**
+  - morale −6 (`daysOff` driver);
+  - `Stats.v09.roster.offBroken` +1;
+  - the planner moves the day off to the first free unpublished day in the same month (to the next month when none is left);
+  - a toast: "Ana Silva works Tue 4 Nov; her day off moves to Thu 13 Nov."
+- **Illegal break.** A break that leaves the month below 7 is illegal (red), as other red moves.
+- **Unpublished OFF days** (beyond `publishedTo`) move freely, with no morale cost.
+
+### R.6 Morale and pay (`crew/morale.ts`, `BAL.v09.roster.morale`)
+- **Pay.** Salaries are monthly and the game has no duty pay, so standby is paid by the salary. Overtime only for call-ins on a day off. Per diem and hotels as already modelled.
+- **`standby` driver:** −0.2 a day from the 4th standby day in a row without a call-out (bored at home or in a hotel), shown as "Long standby runs".
+- **`daysOff` driver** at month end:
+  - +0.5 per day off above 9 (cap +1.5);
+  - −1.5 per day below 8;
+  - the −6 shock for a broken day off.
+- Sized against the existing drivers (`offAway` −0.5 a day, call-in −4) so that a normal month nets about zero.
+
+### R.7 Crew planning (`crew/sets.ts`)
+- **5 sets per aircraft stays** (RESEARCH §5.3: 5–6 sets for a year-round narrowbody; the 1.20 factor covers leave ≈ 8 %, sickness and standby).
+- **The arithmetic:** a crew member has ≈ 30.4 − 9 off − 2.3 leave − ≈ 1 sick/training ≈ 18 work days a month. Five sets give ≈ 90 crew-days per seat per aircraft against 30–45 flying days, so the rest is standby. That is the "mostly standby" pattern the player asked for.
+- **`staffing()` / `familyNeeds`** already count crew on leave as `away` (still on the books), so no formula changes.
+- **Planning view one-liner** (new export `SETS_WHY`): "5 sets per aircraft: each person has 8–10 days off a month and 4 weeks' leave; every other day is flying or standby."
+
+### R.8 UI (roster board, Crew screen, Crew Planning, Crew Control)
+**Board codes and colours** (`rosterBoardLogic.ts`, `RosterBoard.tsx`, styles). Calm, static, colour plus text (never colour alone):
+
+| Code | Meaning | Style |
+|---|---|---|
+| `OFF` / `OFF DUB` | planned day off (at the hotel when away) | soft sage fill, solid |
+| `SBY E` / `SBY L` | home standby, early/late | blue dashed outline |
+| `SBY DUB` | hotel standby at a station | amber dashed outline, station code |
+| `ASBY` | airport standby | light blue fill |
+| `RES` | reserve | grey dotted outline |
+| `LEAVE` | annual leave | lavender fill |
+| (empty, faint) | not rostered yet (beyond the published roster) | none |
+
+A called-out window keeps its code up to the call, then the duty. The **published line**: a 1 px vertical rule at `publishedTo`, with "Published to 6 Nov" in the date header. Protected OFF cells carry a small lock glyph (decorative, static).
+- **Legend** (replaces the "Dashed: home standby 06:00–18:00" row): six swatches with "OFF day off · SBY home standby (E 05–17, L 12–24) · SBY DUB hotel standby · ASBY airport · RES reserve · LEAVE".
+- **Month zoom:** each row gets an 88 px summary column at the right, "9 · S11 · F8" (days off · standby · flying), red when days off < 7. Tap → a popover with `crewMonth().line`.
+- **Drop confirm:** a drop on an `offBreak` target opens the existing confirm: "Take Ana Silva's day off on Tue 4 Nov? It moves to Thu 13 Nov. Morale −6." → **Take the day** / **Cancel**.
+- **Crew screen** (`Crew.tsx`, `crewLogic.ts`):
+  - the "Next 14 days" strip uses the same codes and colours (`CalKey` += `asby` | `res` | `sbyHotel`; `standby` = home);
+  - under it, one line from `crewMonth`: "**November:** days off 9 of 7 minimum · standby 11 · flying 8 · leave 0";
+  - tap an OFF block: "Day off (published): protected. Changing it costs morale.".
+- **Crew Planning** (`CrewPlan.tsx`): the `SETS_WHY` line under the page title, once.
+- **Crew Control:** rows and chips from the engine labels (R.4). No layout change.
+- **First-time hint `crewBoard`** (§14.2) becomes: "Roster board: OFF days are published 14 days ahead and protected; SBY, ASBY and RES are your standby pool. Drag to swap; red is illegal."
+
+### R.9 MAP
+The station panel's "Crew in hotel" list (`MapPanels.tsx`) tags people on hotel standby now with a small "SBY" pill (`standbyNow`). The section aside reads "6 at the hotel · 3 on standby". There is no new map glyph and nothing moves.
+
+### R.10 Glossary, inbox, What's new (ENGINE data)
+**Glossary.**
+- `standby` (rewritten): "On call for the day: at home, at the hotel away from base, or at the airport. Called out, the crew report within the response time. Home and hotel standby count 25 % towards the duty limits, airport standby in full."
+- `airportStandby`: "Standby at the airport, ready at once. It counts in full as duty; after 4 h the next day gets shorter, and standby plus flying stays within 16 h."
+- `reserve`: "Rostered availability with at least 10 h notice. It is not duty and not rest, so it never counts as a day off."
+- `daysOff`: "At least 7 days a month and 96 a year free of all duty and standby, published in advance (EU Directive 2000/79/EC). We plan 8–10, in blocks of 2–3 days that are also the weekly 36 h recovery rest."
+- `publishedRoster`: "The next 14 days of the roster, as the crew see it. Days off in it are protected."
+
+**Inbox.**
+- The old-save message (R.2).
+- 1 Dec: "**Annual leave for 2027 is planned**" — "28 days each, mostly in winter; at most 1 in 10 of a crew group away at once."
+
+That is all: no new problem cards. A seat a protected day off leaves empty is a CREW SHORTAGE. A crew member pushed below 7 days off by a disruption is CREW OUT OF HOURS with limit `daysOff`; its §T card WHY reads "Her November days off would fall to 6 (minimum 7)."
+
+**Achievement change.** `standby` "Saved by standby" goes from 5 to **25** call-outs (the pool is larger now). **Head text.** The crew desk's "Keeps home standby filled" becomes "Re-plans standby and days off after disruptions".
+
+### R.11 Balance (`BAL.v09.roster`)
+```ts
+roster: {
+  publishDays: 14,
+  off: { legalMonth: 7, minMonth: 8, targetMonth: 9, maxMonth: 10, yearMin: 96, block: [2, 3] as [number, number], dueAfter: 5, mustAfter: 6, morningFree: 360 },
+  leave: { days: 28, quarters: [10, 4, 4, 10] as number[], maxShare: 0.1, afterServiceDays: 90 },
+  home: { early: [300, 1020] as [number, number], late: [720, 1440] as [number, number], maxH: 16, minH: 4, readyMin: 90 },
+  hotel: { from: 360, to: 1080, readyMin: 45 },
+  airport: { minWave: 6, waveEnd: 600, leadMin: 90, hours: 4, readyMin: 20, per: { CPT: 1, FO: 1, CC: 1 } as Record<string, number> },
+  reserve: { noticeMin: 600, quiet: [1320, 360] as [number, number], tightShare: 0.95 },
+  share: { home: 0.25, hotel: 0.25, airport: 1, reserve: 0 },
+  morale: { runFrom: 4, runDay: -0.2, above: 9, aboveEach: 0.5, aboveMax: 1.5, below: 8, belowEach: -1.5, broken: -6 },
+},
+```
+`BAL.v073.standby` stays for days before `dayPlan.from`.
+
+### R.12 Bot
+- No new decisions: the planner runs inside the engine, and `crewControlPolicy` already picks the cheapest fix (standby, no overtime).
+- The bot never breaks a published day off.
+- **Printed line:** `roster: days off/crew-month 9.1 (min 7, <7: 0) · leave 2.3 · standby 46% of days (home 34 · hotel 8 · airport 2 · reserve 2) · call-outs 212 (64% of crew fixes) · max recovery gap 150 h · offBroken 0`.
+- **Targets** (seeds 1–6):
+  - 0 crew-months below 7 days off, and ≥ 96 a year pro rata;
+  - recovery gap ≤ 168 h for everyone;
+  - average days off 8.5–10;
+  - standby + reserve ≥ 85 % of the days that are not flying, travel, off, leave, sick or training;
+  - standby call-outs ≥ 50 % of crew fixes;
+  - ≤ 0.3 % uncovered (unchanged); morale band unchanged ±3 points;
+  - runtime within §Y.3.
+
+### R.13 Tests (`crew/dayPlan.test.ts`, plus `saveCompat09.test.ts`)
+1. **Legal minimums:** a 120-day run with 4 A320s and a DUB wet deployment (`devRoster`). No crew member ever has < 7 days off in a calendar month, < 96 a year pro rata, or a gap > 168 h between recovery rests (36 h, 2 local nights). Each month has ≥ 2 blocks of 2 local days.
+2. **Unassigned days are standby, not off:** inside the published window, every whole local day of an available crew member is duty, travel, planned OFF, standby (any kind), leave, sick, training or "Rest (limits)". Planned OFF ≤ 10 a month except joiners. No unplanned "Day off" block from `dayPlan.from` on.
+3. **Out-of-base standby at detachments:** DUB tour crew have hotel standby windows `at: 'DUB'` on their non-flying, non-OFF days. A sick call at DUB → Crew Control's first call-in candidate is one of them, "ready in 45 min", with no overtime.
+4. **Standby counts towards duty:** `windowsAt` 7/14/28 d with one window of each kind: home 12 h → 3 h, hotel 12 h → 3 h, airport 4 h → 4 h, reserve → 0.
+5. **Call-outs respect the reductions:**
+   - home called at hour 8 → max FDP −2 h (−0 with augmentation until 8 h);
+   - airport at hour 5 → −1 h, and standby + FDP ≤ 16 h;
+   - awake cap 18 h;
+   - reserve refused for a report < 10 h away;
+   - 23:00–07:00 not counted before contact.
+6. **Rest after standby:** a window not called is followed by 12 h rest at home before the next report.
+7. **Annual leave:** 28 days a year, Q1/Q4 weighted, ≤ 10 % of a family-and-role group at once, never inside the published window at planning time.
+8. **Protected days off:**
+   - `dropTargets` gives `offBreak` on a published OFF day;
+   - `moveDuty` refuses without `takeOff`;
+   - with it: morale −6 and the day off is re-planned in the month;
+   - a break to 6 in a month is illegal;
+   - `autoRoster` and the auto-fix never use an OFF day.
+9. **Migration:** a v0.8 save keeps its published days (free days still read "Day off", the old 2-day standby) and plans from `dayPlan.from`. 60 days later rules 1–2 hold. Serialise and reload are equal.
+10. **Purity** (`plumbing.test.ts`): `crewMonth`, `isOff`, `offBreak`, `standbyNow`, `publishedTo`.
+
+**UI shots:**
+- `roster-board-standby` (14-day view showing OFF, SBY E/L, SBY DUB, ASBY, RES and LEAVE, plus the published line);
+- `roster-board-month-summary`;
+- `roster-offbreak-confirm`;
+- `crew-person-month`;
+- `crew-control-standby-kinds`;
+- `crewplan-sets-why`;
+- `map-hotel-standby`.
+
+### R.14 Signatures (ENGINE → UI/MAP)
+```ts
+// crew/dayPlan.ts
+export function dayIndex(base: string, t: Minute): number;                          // base-local day
+export function publishedTo(g: GameState): Minute;
+export function isOff(g: GameState, crewId: string, t: Minute): boolean;
+export interface OffBreak { day: Minute; protected: boolean; legal: boolean; text: string; morale: number; movesTo: Minute | null }
+export function offBreak(g: GameState, crewId: string, from: Minute, to: Minute): OffBreak | null;
+export interface CrewMonthView { key: MonthKey; label: string; off: number; offMin: 7; offTarget: [number, number];
+  standby: { home: number; hotel: number; airport: number; reserve: number }; flying: number; leave: number; other: number; line: string }
+export function crewMonth(g: GameState, crewId: string, t: Minute): CrewMonthView;
+export function standbyNow(g: GameState, crewId: string): { kind: StandbyKind; at: string; to: Minute } | null;
+export function planLeave(g: GameState, year: number, crewIds?: string[]): void;    // engine-internal + dev
+export function planOffDays(g: GameState): void; export function planStandby(g: GameState): void;  // daily (crew/index.ts)
+// crew/calendar.ts: CalBlock += sby?: StandbyKind; shift?: 'E' | 'L'; protected?: true; planned?: boolean (OFF planned vs legacy free)
+//   labels: 'Day off' · 'Home standby' · 'Hotel standby' · 'Airport standby' · 'Reserve' · 'Leave' · 'Rest (limits)'; `at` = station
+// crew/board.ts: DropTarget += offBreak?: string; moveDuty(g, dutyId, from, to, scope, opts: { force?: boolean; takeOff?: boolean })
+// crew/rosterActions.ts: DutyCandidate.standby += kind: StandbyKind; at: string; readyMin: number
+// crew/sets.ts: export const SETS_WHY: string
+// dev: devRoster(g): string   // 4 A320s + a DUB wet deployment, 20 days run; returns a crew id on the DUB tour
+```
+
+---
+
 ## 9. What's new v0.9 "Experience" (ENGINE `data/whatsNew.ts`, player words)
 Features:
 1. Department heads: earn them by flying well, then hire one. An Ops Control duty manager, a maintenance planner, a crew scheduling desk, a commercial analyst, credit control, a fleet planner and a watch desk for your own alerts. Each takes routine work off your desk, makes the odd mistake, and never decides the big things.
@@ -462,6 +718,7 @@ Features:
 4. Crew out of hours: its own alert when a pilot or flight attendant reaches a legal limit, naming who, which limit and by how much, with the fixes.
 5. Crew change at a fuel stop: a long one-way flight can now split with a fresh crew flown in to the tech stop, priced into the offer and planned by the roster.
 6. First-time hints on each screen, written for people who know the job.
+7. Roster planning like a real EASA operator: crews get their legal days off (8–10 a month in 2–3-day blocks, 4 weeks' leave a year), published 14 days ahead and protected. Every other free day is standby: at home, at the hotel on a detachment or night-stop, at the airport at busy bases, or reserve. Crew Control calls standby first.
 
 Improvements:
 - Captain's discretion is never planned: it only appears after the crew has reported, for something unforeseen, and the longest day says so.
@@ -481,7 +738,8 @@ All fields optional unless the type is new; load defaults in brackets.
 - `PauseReason` += `'crewHours' | 'rule'` (`PAUSE_ORDER`: aog, decision, urgentOffer, crewHours, crewShortage, rule, contractStart, monthEnd, marketOffer).
 - `Stats.v09?: { legalStreak: number; cover: Record<number, [number, number]> /* MonthKey → [departures, held for crew] */; slips: number; oohRed: number; oohAmber: number; discretionUsed: number; discretionRefused: number; headHandled: number; headMistakes: number; jumboLoads: number; lateGovPaid: number; cOnTime: number }` [zeros; `cover` from `uncovered`/`departures` of the current month].
 - `core/cues.ts` (runtime only): `Cue` union = the engine events of §S.3.
-- `data`: `achievements.ts`, `heads.ts` (`HEAD_DEFS`: title, icon, does[], never[], unlockText, salary), `glossary.ts` (+ `outOfHours`, `slipCrew`, `departmentHead`, `jumboLoad`, `fuelAtCost`; rewrites `longestDay`, `discretion`), `whatsNew.ts`.
+- §R: `StandbyKind`; `CrewMember.standby[]` += `kind`, `at`, `shift`; `CrewMember.off`, `offMonths`, `leaveYear`; `blocks[]` += `annual`; `GameState.dayPlan` [old saves: first base midnight ≥ now + 14 d; new games: start]; `MoraleDriver` += `'standby' | 'daysOff'`; `OohLimit` += `'daysOff'`; `Stats.v09.roster` [zeros]. `IssueCode` += `'daysOff'` lives in `crew/rules.ts`.
+- `data`: `achievements.ts`, `heads.ts` (`HEAD_DEFS`: title, icon, does[], never[], unlockText, salary), `glossary.ts` (+ `outOfHours`, `slipCrew`, `departmentHead`, `jumboLoad`, `fuelAtCost`; rewrites `longestDay`, `discretion`; §R: `airportStandby`, `reserve`, `daysOff`, `publishedRoster`, rewrites `standby`), `whatsNew.ts`.
 
 ## 11. Balance (`core/balance.ts`, new block `v09`)
 ```ts
@@ -497,6 +755,7 @@ v09: {
   slip: { maxPerSector: 1, roomNights: 1 },
   jumbo: { pax: [420, 480], share: 0.2, shareIdle: 0.35, capShare: 0.12 },
   offerLapseH: 6, delayPenaltyMin: 60, holdCancelRiskH: 6,
+  roster: { /* §R.11 */ },
 }
 ```
 
@@ -547,7 +806,8 @@ export function devJumbo(g: GameState): string;                              // 
 export function devRestAtDeparture(g: GameState): string;                    // flight id (§Y.1 scenario)
 ```
 **UI store additions** (`src/ui/store.ts`, additive): `Settings` += `soundCats`, `ambience`, `screenHintsSeen: string[]`, `whatsNewCatchUp: string`; `autoPause` += `crewHours: true`, `rule: true`. `ModalSpec` += `{kind: 'headUnlocked'; id: HeadId}`. Company `nav.view` += `'team' | 'achievements'`. Inbox deep link for `head` refs → Company › Team with the head selected. Dev helpers: `dev.head(id)`, `dev.achievement(id)`, `dev.crewHours(limit?)`, `dev.slip(route?)`, `dev.jumbo()`, `dev.restAtDeparture()`, `dev.sound(id)`.
-**MAP reads** `crewAlertKind`, `outOfHours`, `slipsOfAircraft`, `slipOfFlight`. MAP exports nothing new to UI.
+**§R signatures** are in §R.14 (`crewMonth`, `offBreak`, `isOff`, `standbyNow`, `publishedTo`, `SETS_WHY`, `CalBlock.sby/shift/protected/planned`, `DropTarget.offBreak`, `moveDuty(…, { takeOff })`, `DutyCandidate.standby.kind/at/readyMin`). UI dev helper: `dev.roster()` (→ `devRoster`, opens the roster board on the DUB tour crew).
+**MAP reads** `crewAlertKind`, `outOfHours`, `slipsOfAircraft`, `slipOfFlight`, `standbyNow`. MAP exports nothing new to UI.
 
 ## 13. Bot (`scripts/acmi-bot.ts`, ENGINE)
 New rules:
@@ -556,6 +816,7 @@ New rules:
 - **Slips**: accept slip offers by margin like any offer.
 - **747**: prefer jumbo loads for an idle 747; never sign general work with it below a +5 % estimated margin.
 - **Speed**: §Y.3.
+- **Roster (§R.12)**: nothing to decide (the planner is in the engine); never breaks a published day off; prints the `roster:` line.
 - **Printed** (new line): `v0.9: heads unlocked opsControl d18 maintPlanner – crewDesk d96 … · hired N · handled N (mistakes N, overridden 0) · achievements N/24 · slips N (offers N) · out of hours red N amber N · discretion used N (planned 0) refused N · jumbo loads N (747 margin X %) · runtime s`.
 - **Targets** (seeds 1–6, one at a time, 365 days):
   - every v0.8 hard target (0 illegal duties, 0 impossible rest plans flown, ≤ 0.3 % uncovered, margin band, morale and resignations);
@@ -564,7 +825,8 @@ New rules:
   - heads take ≥ 40 % of the routine decisions;
   - achievements 6–14 per seed;
   - ≥ 1 slip offer seen on every seed with a widebody;
-  - runtime ≤ 20 s (goal 12 s).
+  - runtime ≤ 20 s (goal 12 s);
+  - §R.12: 0 crew-months below 7 days off, recovery gap ≤ 168 h, average days off 8.5–10, standby + reserve ≥ 85 % of the remaining free days, call-outs ≥ 50 % of crew fixes.
 
 ## 14. Tests and acceptance
 
@@ -608,14 +870,16 @@ New rules:
 - `data/whatsNew.test.ts`: `whatsNewToShow('v0.8', false)` → [v0.9, v0.8, v0.7.4]; `('v0.8', true)` → [v0.9] until seen, then []; `('', false)` → [v0.9]; `('v0.7.2', false)` → everything since v0.7.2.
 - `core/cues.test.ts`: messages map to the §S.3 cues; previews (`isolatePauses`) emit none; cues are not saved.
 - `saveCompat09.test.ts`: v0.5.2 … v0.7.3 fixtures **and a new `save-v08.lz.txt`** (dumped before any v0.9 engine change with `npx tsx scripts/acmi-bot.ts 3 240 --wide --dump=240,<scratch>/v08.json`, then `LZString.compressToBase64`) load with every §10 default; heads locked or backfilled with one message; 60 days run with 0 illegal duties; serialise/reload equal.
-- `core/plumbing.test.ts` purity: `headsView`, `headView`, `analystView`, `achievementsView`, `crewAlertKind`, `outOfHours`, `discretionCheck`, `bestSlip`, `slipOfFlight`, `slipsOfAircraft`, `whatsNewToShow`, `longestDay`.
+- `crew/dayPlan.test.ts` (§R.13): legal minimums, unassigned days are standby, hotel standby at detachments, standby in the 7/14/28-day sums, call-out reductions, rest after standby, annual leave, protected days off, migration.
+- `core/plumbing.test.ts` purity: `crewMonth`, `isOff`, `offBreak`, `standbyNow`, `publishedTo`, `headsView`, `headView`, `analystView`, `achievementsView`, `crewAlertKind`, `outOfHours`, `discretionCheck`, `bestSlip`, `slipOfFlight`, `slipsOfAircraft`, `whatsNewToShow`, `longestDay`.
 
 **UI acceptance** (`scripts/ipad-shots.cjs --standalone`, 1180×820 and 1180×750, touch). New shots:
 - `company-team`, `company-team-locked`, `head-unlocked-card`, `company-achievements`, `achievement-toast`;
 - `offer-analyst`, `offer-slip`, `offer-jumbo`;
 - `crew-control-out-of-hours`, `crew-control-discretion-greyed`;
 - `inbox-crew-hours`, `opsstrip-hours`, `settings-sound`, `settings-test-sounds`;
-- `screen-hint-contracts`, `whats-new-catchup`, `fleet-longest-day-popover`, `crewplan-verdict`.
+- `screen-hint-contracts`, `whats-new-catchup`, `fleet-longest-day-popover`, `crewplan-verdict`;
+- §R: `roster-board-standby`, `roster-board-month-summary`, `roster-offbreak-confirm`, `crew-person-month`, `crew-control-standby-kinds`, `crewplan-sets-why`, `map-hotel-standby`.
 
 Checks:
 - no horizontal overflow; every tappable element ≥ 44 px;
@@ -637,6 +901,7 @@ Checks:
 - No tutorial walkthroughs or arrows (hints only).
 - No changes to FTL limits beyond the discretion guard.
 - No second slip per sector; no slip on round trips (the far-end slip already exists).
+- §R: no crew bidding or requests, no player-editable leave, no standby pay or duty pay (salaries stay monthly), no change to FTL limits, no new problem card (shortage and out of hours cover it), no rotation pattern settings.
 
 ## 16. Order of work inside each lane
 1. **ENGINE step 0**:
@@ -647,7 +912,8 @@ Checks:
    - tsc/vitest/build green.
 
    UI and MAP start against the stubs.
-2. **ENGINE**:
+2. **ENGINE** (§R first: it is the player's latest request and changes every crew screen):
+   0. §R roster planning (`dayPlan.ts`, rules `'daysOff'`, standby kinds, Crew Control order, calendar/board fields, leave, morale, migration, `dayPlan.test.ts`), then a bot run on seeds 1–3 before going on;
    1. §U discretion guard + audit tests;
    2. §T out of hours + card;
    3. §Y.1 departure re-check;
@@ -660,6 +926,7 @@ Checks:
    10. dev helpers;
    11. bot (§13, §Y.3 speed) last, then seeds 1–6 and the save fixture.
 3. **UI**:
+   0. §R roster board codes/colours/legend/published line/month column/off-break confirm, Crew strip + month line, CrewPlan `SETS_WHY` (against the §R.14 stubs);
    1. store additions (settings merge, cue pump, audio unlock, catch-up);
    2. `sound.ts` (bank, table, merge, cooldowns, ambience);
    3. Settings › Sound + Test sounds + the new pause toggle;
@@ -672,15 +939,15 @@ Checks:
    10. Crew Planning verdict and §V UI strings;
    11. WhatsNew catch-up;
    12. shots.
-4. **MAP**: crew-alert banner kind → slip marks and selected deadheads → panel copy (§V).
+4. **MAP**: crew-alert banner kind → hotel standby tags (§R.9) → slip marks and selected deadheads → panel copy (§V).
 5. Merge order: ENGINE → UI → MAP. Each merge keeps `npx tsc --noEmit`, `npx vitest run` and `npx vite build` green. The bot runs seeds 1–6 one at a time.
 
 ## 17. File ownership
 
 | Lane | Owns (edit only these) | Delivers |
 |---|---|---|
-| **ENGINE** | `src/engine/**`. New: `core/cues.ts`, `ops/heads.ts`, `ops/achievements.ts`, `crew/slip.ts`, `crew/outOfHours.ts` (or inside `control.ts`), their tests, `fixtures/save-v08.lz.txt`, `saveCompat09.test.ts`. Edits: `core/{messages,pause}.ts`, `crew/{roster,control,duties,restPlan,index,hr,sets}.ts`, `contracts/{feasibility,offers,missions,pricing,flavor,plan}.ts`, `ops/{flights,events,maintenance,finance,index}.ts`, `problems/{crew,commercial,index}.ts`, `engine/dev.ts`. `src/data/**`: new `achievements.ts`, `heads.ts`; `glossary.ts`, `whatsNew.ts` (+ test), `names.ts`. `scripts/acmi-bot.ts`. Shared, minimal, additive, first: `core/types.ts` (§10), `core/balance.ts` (§11). May append rows to §V.3 of this doc. | §5 engine, §14.1, §T, §U, §W engine, §X data, §Y, cues, bot, saves |
-| **UI** | `src/ui/**` except `src/ui/map/**` and `src/ui/components/aircraft/**`. `sound.ts` (rewrite), `store.ts` (additive §12), `game/{Modals,Toasts}.tsx`, `shell/{Shell,OpsStrip,opsStripLogic}.ts(x)`, `screens/{Company,Contracts,CrewPlan,Fleet,Inbox,Title,…}.tsx`, new `screens/{Team,Achievements}.tsx`, new `screenHints.ts` + `components/ScreenHint.tsx`, `modals/{CrewControlModal,OfferModal,DutyModal,BlockSheet,WhatsNewModal}.tsx`, new `modals/HeadUnlockedModal.tsx`, `components/RestLines.tsx`. `src/styles/**` except map styles: new `styles/acmi/v09.css` imported from `styles/acmi/index.css`. `scripts/ipad-shots.cjs` (new shots). May append rows to §V.3. | §5.4–5.6 UI, §14 UI, §S, §T.4, §U UI, §W.3, §X UI, shots |
-| **MAP** | `src/ui/map/**`: `MapPanels.tsx` (crew-alert banner kind, slip panel), `LiveLayers.tsx` (selected slip deadheads, crew-change mark), `mapLogic.ts` (+ test: slip mark placement); `src/styles/acmi/map.css`. | §T.5, §W.4, map copy for §V |
+| **ENGINE** | `src/engine/**`. New: `crew/dayPlan.ts` + `dayPlan.test.ts` (§R), `core/cues.ts`, `ops/heads.ts`, `ops/achievements.ts`, `crew/slip.ts`, `crew/outOfHours.ts` (or inside `control.ts`), their tests, `fixtures/save-v08.lz.txt`, `saveCompat09.test.ts`. Edits: `core/{messages,pause}.ts`, `crew/{roster,control,duties,restPlan,index,hr,sets,standby,calendar,board,rules,timeline,check,rosterActions,morale}.ts`, `contracts/{feasibility,offers,missions,pricing,flavor,plan}.ts`, `ops/{flights,events,maintenance,finance,index}.ts`, `problems/{crew,commercial,index}.ts`, `engine/dev.ts`. `src/data/**`: new `achievements.ts`, `heads.ts`; `glossary.ts`, `whatsNew.ts` (+ test), `names.ts`. `scripts/acmi-bot.ts`. Shared, minimal, additive, first: `core/types.ts` (§10), `core/balance.ts` (§11). May append rows to §V.3 of this doc; updates the "Game:" lines of `docs/acmi/EASA-FTL.md` §§10, 12, 16 when §R is built. | §R engine, §5 engine, §14.1, §T, §U, §W engine, §X data, §Y, cues, bot, saves |
+| **UI** | `src/ui/**` except `src/ui/map/**` and `src/ui/components/aircraft/**`. `sound.ts` (rewrite), `store.ts` (additive §12), `game/{Modals,Toasts}.tsx`, `shell/{Shell,OpsStrip,opsStripLogic}.ts(x)`, `screens/{Company,Contracts,CrewPlan,Crew,crewLogic,RosterBoard,rosterBoardLogic,Fleet,Inbox,Title,…}.ts(x)`, new `screens/{Team,Achievements}.tsx`, new `screenHints.ts` + `components/ScreenHint.tsx`, `modals/{CrewControlModal,OfferModal,DutyModal,BlockSheet,WhatsNewModal}.tsx`, new `modals/HeadUnlockedModal.tsx`, `components/RestLines.tsx`. `src/styles/**` except map styles: new `styles/acmi/v09.css` imported from `styles/acmi/index.css`. `scripts/ipad-shots.cjs` (new shots). May append rows to §V.3. | §R.8 UI, §5.4–5.6 UI, §14 UI, §S, §T.4, §U UI, §W.3, §X UI, shots |
+| **MAP** | `src/ui/map/**`: `MapPanels.tsx` (crew-alert banner kind, slip panel, hotel standby tags §R.9), `LiveLayers.tsx` (selected slip deadheads, crew-change mark), `mapLogic.ts` (+ test: slip mark placement); `src/styles/acmi/map.css`. | §R.9, §T.5, §W.4, map copy for §V |
 
-Interfaces between lanes are §12 only. UI never reads `g.heads`, `g.achievements` or slot `ooh` directly (use the views). MAP never decides alert kinds itself (`crewAlertKind` only). Cues flow only ENGINE → `takeCues()` → `sound.event()`; the engine never imports UI.
+Interfaces between lanes are §12 only. UI never reads `g.heads`, `g.achievements`, slot `ooh`, `CrewMember.off` or `g.dayPlan` directly (use the views). MAP never decides alert kinds itself (`crewAlertKind` only). Cues flow only ENGINE → `takeCues()` → `sound.event()`; the engine never imports UI.
