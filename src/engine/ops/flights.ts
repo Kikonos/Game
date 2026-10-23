@@ -12,12 +12,14 @@ import { blockMinutes, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { chance, next, pick, range } from '../core/rng';
 import { DAY, fmtDuration, fmtTime, monthKey } from '../core/time';
-import type { ActionResult, Aircraft, Contract, Flight, GameState, MaintenanceEvent, Message, MessageCat, Minute, Rival, SimEvent } from '../core/types';
+import type { ActionResult, Aircraft, Contract, Duty, Flight, GameState, MaintenanceEvent, Message, MessageCat, Minute, Rival, SimEvent } from '../core/types';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { distance } from '../core/geo';
 import { noteLostLegs } from '../contracts/billing';
 import { isSoft } from '../contracts/plan';
-import { applyDiscretion, boardCrew, crewIssuesFor, dropStraySpares, flightCrewStatus, guardDuty, rerosterFrom, restSeatsBlocked, setRestDelayHook } from '../crew';
+import { applyDiscretion, boardCrew, crewIssuesFor, dropStraySpares, flightCrewStatus, guardDuty, rerosterFrom, restPlan, restSeatsBlocked, setRestDelayHook } from '../crew';
+import { requestPause } from '../core/pause';
+import { problemFor } from '../problems';
 import { noteIncident } from './company';
 import { deliveryWaitDay } from './delivery';
 import { crewReadyAt, crewShortDecision, hasOpenDecision } from './events';
@@ -679,6 +681,7 @@ export function onFlightDep(g: GameState, ev: SimEvent): void {
     crewProblem(g, f, ac);
     return;
   }
+  clearRestMarks(g, f);
   depart(g, f, ac);
 }
 
@@ -800,6 +803,8 @@ export function crewBlocked(g: GameState, f: Flight): boolean {
   const p = dd && dd.flightIds[0] === f.id ? g.pairings[dd.pairingId] : undefined;
   if (p) for (const s of p.slots) if (s.crewId && g.crew[s.crewId] && g.crew[s.crewId].loc !== f.from) return true;
   if (p && dd && crewIssuesFor(g, dd).length) return true;
+  // v0.9 §Y.1 the in-flight rest plan re-checked at departure: a delay after report can make it impossible.
+  if (p && restFailed(g, f)) return true;
   if (cs.level !== 'illegal') return false;
   const d = f.dutyId ? g.duties[f.dutyId] : undefined;
   return !d || d.legality === 'illegal';
@@ -910,11 +915,49 @@ function dropUnit(g: GameState, ac: Aircraft, f: Flight, reason: string, why: st
  * re-rostered. Away from the station the leg brings the aircraft home: it keeps waiting for a rested or
  * positioned crew (cancelling it would strand the aircraft) and is only given up after two days.
  */
+/** v0.9 §Y.1 the reported augmented duty this leg opens, when its in-flight rest plan no longer works (null: fine). */
+function restFailed(g: GameState, f: Flight): Duty | null {
+  const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+  if (!d || d.augment === 0 || d.legacyRest || d.flightIds[0] !== f.id || d.report > g.now || d.done) return null;
+  return restPlan(g, d.id)?.ok === false ? d : null;
+}
+
+/**
+ * v0.9 §Y.1 the rest plan failed at the gate: the cabin crew are out of hours (limit 'inflightRest'), red at once
+ * with the urgent alarm and the crewHours pause; the gate decision (fresh crew, delay, sub-charter, cancel) follows.
+ */
+function restOutOfHours(g: GameState, f: Flight, d: Duty): void {
+  const p = g.pairings[d.pairingId];
+  if (!p) return;
+  for (const s of p.slots) if (s.crewId && (s.role === 'PUR' || s.role === 'CC')) s.ooh = { crewId: s.crewId, limit: 'inflightRest', over: 0, at: g.now };
+  if (f.crewAlert === 'red') return;
+  f.crewAlert = 'red';
+  const v9 = (g.stats.v09 ??= { legalStreak: 0, cover: {}, slips: 0, oohRed: 0, oohAmber: 0, discretionUsed: 0, discretionRefused: 0, headHandled: 0, headMistakes: 0, jumboLoads: 0, lateGovPaid: 0, cOnTime: 0 });
+  v9.oohRed++;
+  const card = problemFor(g, { kind: 'crewHours', ref: { kind: 'flight', id: f.id } });
+  pushMessage(g, {
+    tone: 'bad', cat: 'crew', topic: 'crewHours', title: `CREW OUT OF HOURS: ${f.no} at the gate`,
+    body: card ? `${card.why} ${card.hurt.text.replace(/^(Yes|Not much): /, '')}.` : 'After the delay the in-flight rest plan no longer works: the cabin crew cannot all rest in this cruise.',
+    ref: { kind: 'flight', id: f.id }, problem: { kind: 'crewHours', ref: { kind: 'flight', id: f.id } },
+    ...(card ? { hurt: { money: card.hurt.money, pax: card.hurt.pax, delayMin: card.hurt.delayMin, level: card.hurt.level } } : {}),
+  });
+  requestPause('crewHours');
+}
+
+/** Clears the rest-plan marks of a duty whose plan works again (re-planned turns, a fresh crew). */
+function clearRestMarks(g: GameState, f: Flight): void {
+  const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+  const p = d ? g.pairings[d.pairingId] : undefined;
+  if (p) for (const s of p.slots) if (s.ooh?.limit === 'inflightRest') delete s.ooh;
+}
+
 function crewProblem(g: GameState, f: Flight, ac: Aircraft): void {
   if (!f.crewHeld) {
     f.crewHeld = true;
     f.heldAt ??= g.now;
     if (isRevenue(f)) stats(g).uncovered++;
+    const rd = restFailed(g, f);
+    if (rd) restOutOfHours(g, f, rd);
     // Crew over a limit come off the duty first (refilled when someone legal can take the seat).
     if (f.dutyId) guardDuty(g, f.dutyId);
     rerosterFrom(g, ac.id, g.now);

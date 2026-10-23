@@ -48,7 +48,8 @@ function numbers(text: string): [number, number] {
   return m.length >= 2 ? [m[0], m[1]] : [0, 0];
 }
 
-function infoOf(g: GameState, crewId: string, i: LegalityIssue): OohInfo | null {
+/** The out-of-hours reading of a crew member's legality issue (null when it is not a limit: place, rating, status). */
+export function infoOf(g: GameState, crewId: string, i: LegalityIssue): OohInfo | null {
   const c = g.crew[crewId];
   let limit = LIMIT_OF[i.code];
   if (!c || !limit) return null;
@@ -86,14 +87,16 @@ function compute(g: GameState, flightId: string): OohInfo[] {
   const out: OohInfo[] = [];
   const seen = new Set<string>();
   for (const s of p.slots) {
-    if (!s.ooh || s.crewId) continue;
+    // Taken off for a limit (empty seat), or still aboard with an in-flight rest plan that failed at the gate (§Y.1).
+    if (!s.ooh || (s.crewId && s.ooh.limit !== 'inflightRest')) continue;
     const cm = g.crew[s.ooh.crewId];
     if (!cm || seen.has(cm.id)) continue;
     seen.add(cm.id);
     out.push({ crewId: cm.id, name: crewName(cm), role: cm.role, limit: s.ooh.limit, limitText: OOH_TEXT[s.ooh.limit], value: 0, max: 0, overMin: s.ooh.over });
   }
   const cs = flightCrewStatus(g, flightId, { live: false });
-  if (cs.level !== 'illegal') return out;
+  if (cs.level !== 'illegal' && cs.level !== 'missing') return out;
+
   for (const { crewId, issue } of crewIssuesFor(g, d)) {
     if (seen.has(crewId)) continue;
     const x = infoOf(g, crewId, issue);
@@ -120,6 +123,11 @@ function compute(g: GameState, flightId: string): OohInfo[] {
  */
 export function crewAlertKind(g: GameState, flightId: string): CrewAlertKind | null {
   const cs = flightCrewStatus(g, flightId, { live: false });
-  if (cs.level !== 'missing' && cs.level !== 'illegal') return null;
+  if (cs.level !== 'missing' && cs.level !== 'illegal') {
+    // A rest plan that failed at the gate (§Y.1) holds a flight whose crew are otherwise complete.
+    const f = g.flights[flightId];
+    const d = f?.dutyId ? g.duties[f.dutyId] : undefined;
+    return d && g.pairings[d.pairingId]?.slots.some((s) => s.ooh?.limit === 'inflightRest' && s.crewId) ? 'hours' : null;
+  }
   return outOfHours(g, flightId).length ? 'hours' : 'short';
 }

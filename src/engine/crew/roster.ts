@@ -13,6 +13,7 @@ import { deletePairing, dutyLegality, planAircraft, queueDuty, refreshPairing, s
 import { crewName } from './generate';
 import { callIfOnStandby, dropStandby, standbyFor } from './standby';
 import { fitStandby, offDaysHit, takeOffDays, v09Stats as v09StatsOf } from './dayPlan';
+import { infoOf } from './outOfHours';
 import { lateChange, moraleShock, nextReport } from './morale';
 import { cabinFdpCap, DISCRETION, evalSegs, levelOf, minRest, tzDeltaH, worst, type Seg } from './rules';
 import { planRest, restCabinN, restLegs, restOf, restPlan } from './restPlan';
@@ -533,6 +534,17 @@ export function guardDuty(g: GameState, dutyId: string): boolean {
       recheckPairing(g, q);
     }
     short = g.pairings[d.pairingId]?.slots.filter((s) => !s.crewId && !s.above).length ?? 0;
+    // v0.9 crew out of hours (UPDATE-0.9.md §T.2): an empty seat remembers who reached which limit until refilled.
+    const q = g.pairings[d.pairingId];
+    if (q && short) {
+      for (const b of found) {
+        if (q.slots.some((x) => x.crewId === b.crewId)) continue;
+        const x = infoOf(g, b.crewId, b.issue);
+        const role = g.crew[b.crewId]?.role;
+        const slot = q.slots.find((z) => !z.crewId && !z.above && !z.ooh && z.role === role) ?? q.slots.find((z) => !z.crewId && !z.above && !z.ooh);
+        if (slot && x) slot.ooh = { crewId: b.crewId, limit: x.limit, over: x.overMin, at: g.now };
+      }
+    }
   }
   const off = found.filter((b) => !(d && g.pairings[d.pairingId]?.slots.some((s) => s.crewId === b.crewId)));
   if (off.length) {
@@ -720,6 +732,7 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
         continue;
       }
       slot.crewId = c.id;
+      delete slot.ooh;
       callIfOnStandby(g, c.id, openDuties(g, p)[0]?.report);
       dropSbyFor(g, c, plan);
       // v0.9 a tour's duties on planned days off: the planner moves them to the tour's free days (no morale).
@@ -1285,6 +1298,7 @@ export function placeCrew(g: GameState, p: Pairing, slot: number, c: CrewMember)
   const hadCrew = crewCount(p) > 0;
   const plan = planCrew(g, c, p, segsOf(g, c, p.id));
   p.slots[slot].crewId = c.id;
+  delete p.slots[slot].ooh;
   const od = openDuties(g, p);
   callIfOnStandby(g, c.id, od[0]?.report);
   if (od.length) dropSbyFor(g, c, plan);
