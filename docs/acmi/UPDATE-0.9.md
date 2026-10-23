@@ -907,7 +907,75 @@ Open after round 4 (all from the rule itself, not its code):
   standby and flying in lockstep, so their 7th-day musts (uncapped by the stagger) land on the same day; with fewer
   days fitting a block the B744 run shows days with the whole group off (`--whyheld` "off share" max 1.00). The
   stagger's early blocks need to start at run 3–4 for groups under ten.
-- **Coverage and runtime** as round 3 left them (capacity and reach at outstations; 25–38 s), plus the 747 run above.
+- **Coverage** as round 3 left it (capacity and reach at outstations), plus the 747 run above. Runtime: R.17.
+
+### R.17 Round 4 (runtime): per-crew timelines, cached plans, one seg shape
+The round 3 profile was flat after its pre-filters; what was left was the number of times the same timeline and the
+same plan were built again. Every change below gives identical bot output (the summaries of seeds 1–6 and the two
+widebody runs, the day-364 state of seed 2 byte for byte, and `--det`).
+
+**R.17.1 Per-crew timeline memo (`timeline.ts segsOf`, `walk`, `sameDeps`).** A crew member's cached timeline no
+longer dies with the global crew or flight revision. The build records everything it read, in reading order, as a
+flat dependency list (the pairings and their duties, each duty's cached seg list by identity, the tickets with
+their status and times, the standby calls, the base) and, when a revision moved, the same walk reads them again and
+compares: a few object and scalar comparisons instead of a rebuild. One walk function does both the build and the
+check, so the list cannot drift from the build. The game minute only matters to the 28-day standby cut: an entry
+carries the minutes for which the same windows are in (`nowLo`/`nowHi`). The cached list itself is returned
+(callers filter, merge or copy; none sorts it in place), and `dutySegs` keeps its list identity across a duty's
+block updates. Seed 2: 274k reads, 178k hits (was 67k); misses are real changes (a standby list replaced, a ticket
+bought).
+
+**R.17.2 planCrew memo (`check.ts planCrew`).** The read APIs ask the same question many times in one step (the
+ladder's re-checks, Crew Control's candidate lists, a re-roster's re-checks after a fix): per state, revision and
+minute, keyed by pairing identity (splitTourGap's probes share an id), crew member, mode, the base's cache entry and
+the crew member's own inputs (the scalars `ctxOf` and the day-off checks read, and the identities of their small
+objects), so a field changed in place without a bump is still seen (`deadheadOut.test`). A derived base or a jet
+ride is planned afresh. Plans are shared read-only, as their segs already were. Seed 2: 34k of 214k calls.
+
+**R.17.3 One hidden class for every seg (`rules.ts mkSeg`).** Segs were built by six literals with conditional
+spreads (a dozen shapes), so every field read in `evalSegs`, `windowsAt`, `standbyView`, the merges and the walk
+was megamorphic. All segs now come from one constructor with every field in one order; an absent optional field
+reads `undefined` as before, nothing lists a seg's keys. The single biggest win (evalSegs self time 3.3 → 1.3 s).
+
+**R.17.4 Smaller.** `previewCopy` deep-copies the save data itself (plain objects, arrays, primitives; key order
+and undefined kept) at a third of `structuredClone`'s cost; `standbyView` returns the timeline unchanged when no
+window changes and allocates its tables only when one does; `dutyBlock` and `joinedAt` allocate nothing; `block12m`
+reads its 12 keys directly; `planCrew` builds one context for its evaluations; `fillAll` and `rerosterFrom` bump
+the revision only when they changed something (every change inside them makes its own bump).
+
+**R.17.5 Tried and dropped.** A crew-independent lower bound on the cumulative windows of a trip's own duties (skip
+the candidate loop when the trip alone breaks 7/14/28 days for anyone): never true on seed 2 (tours carry their
+days off); the 'duty7d' refusals come from each crew member's own week. Per-crew *revisions* at the touch sites
+(bumping only the crew a change names): the global flight revision moves at every departure, so the fast path would
+still need a per-aircraft flight revision in core; the dependency check (R.17.1) does the same job at a few
+microseconds, so the touch sites stay as they are.
+
+**R.17.6 Result (bot, 365 days, one run at a time; before = e5c81f0 after the alerts and roster lanes, same
+machine).**
+
+| Run | before | after | |
+|---|---|---|---|
+| 1 | 36.3 s | 31.6 s | −13 % |
+| 2 | 37.2 s | 33.6 s (30.3 s alone) | −10 to −19 % |
+| 3 | 29.6 s | 26.0 s | −12 % |
+| 4 | 31.5 s | 27.1 s | −14 % |
+| 5 | 27.7 s | 22.0 s | −21 % |
+| 6 | 31.4 s | 26.2 s | −17 % |
+| 1 --wide --aug | 56.3 s | 50.0 s | −11 % |
+| 1 --wide --aug --b744 | 165.5 s | 130.9 s | −21 % (the insolvent game of R.16.5) |
+
+Every summary line identical to before (only the runtime figures move); `--det` seeds 1 and 2: two runs and both
+save → reload points identical. Still over the 20 s limit on every seed (timing noise on this machine is ± 3 s
+between batches).
+
+Where the time goes after this round (seed 2, 30 s, `--cpu-prof`): `planCrew` 9 s (180k evaluations: the
+auto-roster's candidate loop 36k, `splitTourGap` 38k, re-checks of assigned crew 70k, Crew Control's candidates
+15k; each one an `evalSegs` over the merged timeline), the previews on state copies 7 s (the bot's delay and swap
+searches: `delayPlan` 4.4 s, `previewOf` 4 s; cold caches in every copy), the timeline cache 4.7 s (builds and
+checks), the daily planner 3.6 s, the tour chainer's crew check 1.8 s, garbage collection 2 s, the bot's own
+bookkeeping 1 s. The 20 s limit needs the next structural step, not another cache: fewer candidate evaluations
+(`splitTourGap` probes every later duty against the whole pool every run; the re-roster re-checks every pairing of
+the aircraft twice) and preview copies that reuse the live caches.
 
 ---
 
