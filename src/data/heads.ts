@@ -36,14 +36,14 @@ export const HEAD_DEFS: Record<HeadId, HeadDef> = {
   },
   crewDesk: {
     id: 'crewDesk', title: 'Crew scheduling desk', icon: 'CalendarCheck',
-    unlockText: '2 months in a row with at least 98 % crew coverage (100+ sectors a month)', earnedText: 'Two months with every seat filled',
+    unlockText: '2 months in a row with at least 98 % crew coverage', earnedText: 'Two months with every seat filled',
     does: ['Repairs the roster after disruptions (auto-fix, deadhead, call-in) within a cost limit', 'Re-plans standby and days off after disruptions', 'Proposes round-up hires'],
     never: ['Charter a private jet above your limit', 'Sub-charter or cancel', 'Swap crews between contracts'],
     blurbs: ['Two schedulers from a big ACMI operator', 'A crewing pair who rostered a Hajj season', 'Crew control veterans from a leisure airline'],
   },
   analyst: {
     id: 'analyst', title: 'Commercial analyst', icon: 'LineChart',
-    unlockText: '5 contracts completed (10+ block hours or 4+ sectors each)', earnedText: 'Five contracts flown',
+    unlockText: '5 contracts completed', earnedText: 'Five contracts flown',
     does: ['Scores every open offer against your fleet', 'Suggests a counter-price'],
     never: ['Accept, decline or counter for you'],
     blurbs: ['Former broker; knows what clients really pay', 'Network planner with a feel for yields', 'Ex-lessor analyst, quick with a margin'],
@@ -66,7 +66,7 @@ export const HEAD_DEFS: Record<HeadId, HeadDef> = {
     id: 'watch', title: 'Watch desk', icon: 'BellRing',
     unlockText: 'Reliable reputation 90 or more for 30 days', earnedText: 'A month at Reliable 90: the market trusts you',
     does: ['Runs your own alert and auto-pause rules'],
-    never: ['Act on anything: it only alerts and pauses'],
+    never: ['Take any action (it only alerts and pauses)'],
     blurbs: ['Night-shift ops assistant with sharp eyes', 'Duty officer who never misses a call', 'Ex-OCC watch keeper'],
   },
 };

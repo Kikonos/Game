@@ -323,6 +323,9 @@ export function refTarget(g: GameState, ref: Ref): DeepLink | null {
     // v0.9 a department head: Company › Team with that head selected.
     case 'head':
       return { tab: 'company', view: 'team', sel: ref };
+    // v0.9 round 4 credit control's note: the receivable on Finance.
+    case 'receivable':
+      return { tab: 'finance', sel: ref };
   }
   return null;
 }

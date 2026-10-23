@@ -542,14 +542,15 @@ function resolveSick(g: GameState, d: Decision, opt: string): ActionResult {
 
 // ---------- payments and solvency ----------
 
-export function latePaymentDecision(g: GameState, r: Receivable): void {
+/** `player`: re-opened from credit control's note (never taken by the head again; must be asked). */
+export function latePaymentDecision(g: GameState, r: Receivable, player = false): void {
   const cl = g.clients[r.clientId];
   const name = cl?.name ?? 'A client';
   const days = Math.floor((g.now - r.due) / DAY);
   const ct = r.contractId ? g.contracts[r.contractId] : undefined;
   const live = !!ct && (ct.status === 'active' || ct.status === 'signed');
   ask(g, {
-    kind: 'latePayment', title: `${name} is ${days} days late`,
+    kind: 'latePayment', title: `${name} is ${days} days late`, ref: { kind: 'receivable', id: r.id },
     body: `${usd(r.amount)} for ${r.desc} was due ${fmtDay(r.due)}.`,
     options: [
       { id: 'wait', label: 'Wait', desc: 'They usually pay in the end; until then the cash is not ours.', chips: [`${usd(r.amount)} outstanding`, 'No cost'] },
@@ -560,13 +561,31 @@ export function latePaymentDecision(g: GameState, r: Receivable): void {
         ? { id: 'threaten', label: 'Threaten to suspend service', desc: 'A letter saying we stop flying for them unless paid; usually works within a week, but they will not forget it.', tone: 'bad', chips: ['Relation −20', '70%: paid within 7 days'] }
         : { id: 'threaten', label: 'Send a formal demand', desc: "A lawyer's letter; usually works within a week, but they will not forget it.", tone: 'bad', chips: ['Relation −20', '70%: paid within 7 days'] },
     ],
-    defaultOption: 'wait', expires: g.now + 2 * DAY, data: { receivableId: r.id, clientId: r.clientId },
-  });
+    defaultOption: 'wait', expires: g.now + 2 * DAY, data: { receivableId: r.id, clientId: r.clientId, ...(player ? { player: true } : {}) },
+  }, player);
+}
+
+/** v0.9 round 4 (§5.3 override): "Change" on credit control's note asks the late-payment decision again. Action. */
+export function reopenLatePayment(g: GameState, receivableId: string): ActionResult<{ decisionId: string }> {
+  const r = g.finance.receivables.find((x) => x.id === receivableId);
+  if (!r || r.paid !== null) return { ok: false, error: 'Already paid' };
+  const open = g.decisions.find((d) => d.kind === 'latePayment' && d.data?.receivableId === r.id);
+  if (open) return { ok: true, data: { decisionId: open.id } };
+  latePaymentDecision(g, r, true);
+  const d = g.decisions.find((x) => x.kind === 'latePayment' && x.data?.receivableId === r.id);
+  return d ? { ok: true, data: { decisionId: d.id } } : { ok: false, error: 'Could not reopen the decision' };
+}
+
+/** v0.9 round 4 ops/heads.ts: a late-payment option the player applied (soon after the head's counts as an override). */
+let receivableHook: ((g: GameState, receivableId: string) => void) | null = null;
+export function setReceivableHook(f: typeof receivableHook): void {
+  receivableHook = f;
 }
 
 function resolveLatePayment(g: GameState, d: Decision, opt: string): ActionResult {
   const r = g.finance.receivables.find((x) => x.id === str(d.data, 'receivableId'));
   if (!r || r.paid !== null) return { ok: true, msg: 'Already paid' };
+  receivableHook?.(g, r.id);
   const name = g.clients[r.clientId]?.name ?? 'The client';
   if (opt === 'wait') return { ok: true, msg: `We keep waiting for ${name}` };
   if (opt === 'waive') {

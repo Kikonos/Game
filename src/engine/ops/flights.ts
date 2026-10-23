@@ -818,6 +818,8 @@ function departStats(g: GameState, f: Flight, ac: Aircraft, duty: Duty | undefin
   // v0.9 round 4 (§5.7): only an illegal duty breaks the streak (a cancellation or sub-charter for crew resets it where it happens).
   v.legalStreak = legal ? v.legalStreak + 1 : 0;
   v.lastCancel ??= g.now;
+  // v0.9 round 4: the "no check overdue" clock starts here too (maintenance.ts resets it while grounded).
+  v.lastOverdue ??= g.now;
   const k = monthKey(g.now);
   monthRec(v.cover, k)[0]++;
   const ot = monthRec((v.onTimeM ??= {}), k);

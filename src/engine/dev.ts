@@ -2,7 +2,8 @@
 // contract generator exists: demo flights on the fleet. Not used by the game itself.
 
 import { grantAchievement } from './ops/achievements';
-import { unlockHead } from './ops/heads';
+import { dailyHeads, hireHead, unlockHead } from './ops/heads';
+import { acceptOffer } from './contracts/accept';
 import { ACMI_TYPES } from '../data/acmiTypes';
 import { addFlight, ownFlightNo, removeFlights, touchFlights } from './core/entities';
 import { DAY } from './core/time';
@@ -396,6 +397,47 @@ export function devSlipOffer(g: GameState, routeKey: 'MAD-SIN' | 'DIL-LIS' = 'MA
       const o = finalizeDraft(g, d);
       if (o?.slip) return o.id;
       if (o) delete g.offers[o.id];
+    }
+  } finally {
+    g.company.standing = standing;
+  }
+  return '';
+}
+
+/**
+ * v0.9 round 4 §5.3: a fleet planner (hired if need be) and a one-way job from a far station in two days whose same-day
+ * positioning leaves the crew no FDP margin, then the planner's daily pass: a "position the day before" proposal and
+ * its inbox message. Returns the proposal id ('' when the scene could not be built). Dev/test helper.
+ */
+export function devPosition(g: GameState): string {
+  unlockHead(g, 'fleetPlanner', true);
+  const h = g.heads!.fleetPlanner;
+  if (!h.hired) hireHead(g, 'fleetPlanner', 1);
+  const home = g.company.homeBase;
+  const ac = Object.values(g.fleet).find((a) => a.status === 'available' && !a.flightId && typeOf(a.typeId).family === 'A320' && a.at === home);
+  const client = Object.values(g.clients).find((c) => c.kind === 'airline' && !c.rivalId) ?? Object.values(g.clients)[0];
+  if (!ac || !client) return '';
+  const start = Math.floor(g.now / DAY) * DAY + 2 * DAY + 9 * 60;
+  const standing = g.company.standing;
+  g.company.standing = Math.max(1, standing ?? 0) as 1 | 2;
+  try {
+    for (const from of ['TLV', 'IST', 'ATH']) {
+      const d: Draft = {
+        archetype: 'adhoc', client, title: 'One-way charter', blurb: `A one-way charter, ${from} to ${home}.`,
+        pattern: { kind: 'legs', legs: [{ from, to: home, dep: start, flightNo: '', pax: 150 }] },
+        req: { minSeats: 150, extraCabin: 0, approvals: [] }, start, end: start + 2 * DAY, expiresIn: 5 * DAY,
+        effects: {}, risk: { disruption: 0, politics: 0, permit: 0 }, paint: false, cabin: false,
+      };
+      const o = finalizeDraft(g, d);
+      if (!o) continue;
+      const r = acceptOffer(g, o.id, [ac.id]);
+      if (!r.ok) {
+        delete g.offers[o.id];
+        continue;
+      }
+      dailyHeads(g);
+      const p = h.proposals.find((x) => x.kind === 'position' && x.data.contractId === r.data!.contractId);
+      if (p) return p.id;
     }
   } finally {
     g.company.standing = standing;

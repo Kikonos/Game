@@ -414,7 +414,12 @@ export function planA(g: GameState, ac: Aircraft, due: Minute, noDrop = false): 
     if (!checkAirportOk(g, 'A', gp.at, ac.id)) continue;
     const buf = gp.at === home ? 60 : 120;
     const start = gp.from + 30;
-    if (start + dur + buf - 30 <= gp.to && scheduleCheck(g, ac.id, 'A', start, gp.at, { auto: true }).ok) return true;
+    if (start + dur + buf - 30 > gp.to) continue;
+    const r = scheduleCheck(g, ac.id, 'A', start, gp.at, { auto: true });
+    if (!r.ok) continue;
+    // v0.9 round 4 (§5.3): a line A-check away from home costs +20 %.
+    if (gp.at !== home && r.data) g.maintenance[r.data.maintId].cost = Math.round(checkCostOf(ac, 'A') * (1 + BAL.v09.heads.maint.outstation));
+    return true;
   }
   for (const gp of gaps) {
     if (checkAirportOk(g, 'A', gp.at, ac.id)) continue;
@@ -569,6 +574,8 @@ export function onMaintStart(g: GameState, ev: SimEvent): void {
   m.status = 'inWork';
   ac.status = 'maintenance';
   ac.maintId = m.id;
+  // v0.9 round 4: "on time" is judged at induction (the calendar keeps running during the check).
+  if (m.kind === 'C') m.onTime = checkStatus(g, ac).cUsed <= 1;
   // v0.7: a refit is paid when the work starts (return costs: leaseReturn.ts).
   if (m.kind === 'refit') post(g, 'refit', -m.cost);
   if (m.kind === 'return') maintStartHook?.(g, m);
@@ -605,7 +612,7 @@ export function onMaintEnd(g: GameState, ev: SimEvent): void {
   // v0.9 achievements: a C-check finished inside its interval; the first AOG away from base fixed without
   // handing a leg to another operator meanwhile.
   const v = v09Stats(g);
-  if (m.kind === 'C' && checkStatus(g, ac).cUsed <= 1) v.cOnTime++;
+  if (m.kind === 'C' && (m.onTime ?? checkStatus(g, ac).cUsed <= 1)) v.cOnTime++;
   if (m.kind === 'AOG' && m.at !== g.company.homeBase && !(g.stats.subLog ?? []).some((t) => t >= m.start - 6 * 60 && t <= g.now + DAY)) v.outstationFix = (v.outstationFix ?? 0) + 1;
   if (m.kind === 'A' || m.kind === 'C') {
     mc.fhSinceA = 0;

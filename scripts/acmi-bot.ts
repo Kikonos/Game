@@ -1135,7 +1135,8 @@ function crewControlPolicy(g: GameState, t: Tally): void {
 
 /**
  * v0.9 (§13) department heads: the mid candidate once unlocked when cash is at least $1M (else the junior); rules at
- * their defaults; ferry-home proposals under $60K and C-check slot proposals accepted; nobody is ever fired.
+ * their defaults; ferry-home and positioning proposals under $60K accepted (a C-check slot proposal only opens the
+ * check planner: checks() books the bot's own); nobody is ever fired.
  */
 const headUnlocked = new Map<string, number>();
 function heads(g: GameState, t: Tally): void {
@@ -1147,7 +1148,7 @@ function heads(g: GameState, t: Tally): void {
     if (process.env.SKIPHEAD?.split(',').includes(id)) continue;
     if (!h.hired && h.candidates?.length && hireHead(g, id, g.company.cash >= 1_000_000 ? 1 : 0).ok) act(g, t);
     for (const p of [...h.proposals]) {
-      if ((p.kind === 'ferryHome' && p.cost < 60_000) || p.kind === 'cSlot') {
+      if ((p.kind === 'ferryHome' || p.kind === 'position') && p.cost < 60_000) {
         if (acceptProposal(g, id, p.id).ok) act(g, t);
       }
     }

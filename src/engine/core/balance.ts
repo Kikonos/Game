@@ -383,10 +383,14 @@ export const BAL = {
       /** Candidate tiers: [skill min, skill max, salary ×] junior, mid, senior. */
       tiers: [[0.55, 0.65, 0.7], [0.7, 0.8, 1], [0.85, 0.92, 1.45]] as [number, number, number][],
       growth: 0.02, growthDays: 90, cap: 0.95, mistake: 0.35,
-      unlock: { legalSectors: 25, cover: 0.98, coverMonths: 2, contracts: 5, reliable: 85 },
+      /** v0.9 round 4: the agreed plain counts (achievements.ts reads them); the watch desk at Reliable 90 held 30 days (§5.7 pacing). */
+      unlock: { legalSectors: 25, cover: 0.98, coverMonths: 2, contracts: 5, reliable: 90, reliableDays: 30 },
       ops: { maxDelayMin: 120 }, maint: { aAt: 0.75, aDays: 14, outstation: 0.2, cDays: 120 }, desk: { fixMax: 8_000 },
       credit: { remind: [3, 10] as [number, number], base: 0.15, perSkill: 0.25, deposit: 0.3, govDeposit: 0.2, slow: 0.8 },
-      fleet: { idleH: 48, freeH: 72, marginMin: 60 }, proposalH: 72, severanceMonths: 1, rehireDays: 30,
+      /** Fleet planner: a positioning the day before when the same-day crew FDP margin is under marginMin (min), arriving arriveBeforeMin before the leg. */
+      fleet: { idleH: 48, freeH: 72, marginMin: 60, arriveBeforeMin: 720 }, proposalH: 72, severanceMonths: 1, rehireDays: 30,
+      /** v0.9 round 4: a dismissed proposal stays away this long; the analyst's estimate counts as a mistake from this relative error. */
+      dismissDays: 14, analystErr: 0.05,
     },
     slip: { maxPerSector: 1, roomNights: 1 },
     jumbo: { pax: [420, 480] as [number, number], share: 0.2, shareIdle: 0.35, capShare: 0.12 },

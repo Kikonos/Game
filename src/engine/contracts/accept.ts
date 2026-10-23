@@ -69,6 +69,16 @@ export function setDepositHook(f: typeof depositHook): void {
   depositHook = f;
 }
 
+/** v0.9 round 4 ops/heads.ts: the analyst notes its estimate on the contract at signing and is judged when it ends. */
+let signHook: ((g: GameState, c: Contract, o: ContractOffer, aircraftId: string) => void) | null = null;
+let completeHook: ((g: GameState, c: Contract) => void) | null = null;
+export function setSignHook(f: typeof signHook): void {
+  signHook = f;
+}
+export function setCompleteHook(f: typeof completeHook): void {
+  completeHook = f;
+}
+
 /**
  * Signs the offer on the chosen aircraft: creates the Contract, generates flights (schedule.ts),
  * books the charter deposit, queues contract.start/end, asks crew to roster (crew.autoRoster).
@@ -122,6 +132,7 @@ export function acceptOffer(g: GameState, offerId: string, aircraftIds: string[]
     // The contract flies the client's layout (a later refit may not take it away).
     if (cabinOn) c.requirements.layouts = [o.cabin.layout];
   }
+  signHook?.(g, c, o, ids[0]);
   g.contracts[c.id] = c;
   signCrewExtra(g, c, ids[0], opts.crewExtra);
   closeOffer(g, o, 'accepted');
@@ -531,9 +542,6 @@ function completeContract(g: GameState, c: Contract): void {
   // Deportation: the press noticed (clean −2 a flight with returnees, capped −10 a contract; billed as flown).
   g.stats.contractsDone++;
   const v = v09Stats(g);
-  // v0.9 fix: real work counts towards the analyst (one-off ad hoc legs do not).
-  const bh = Object.values(c.use ?? {}).reduce((n, u) => n + (u.blockMin ?? 0), 0) / 60;
-  if (flown >= 4 || bh >= 10) v.bigDone = (v.bigDone ?? 0) + 1;
   if (c.archetype === 'hajj') v.hajjDone = (v.hajjDone ?? 0) + 1;
   if (c.archetype === 'evacuation' || c.archetype === 'repatriation') v.homeSafe = (v.homeSafe ?? 0) + 1;
   rollRepeat(g, c.id);
@@ -553,6 +561,7 @@ function completeContract(g: GameState, c: Contract): void {
     body: `${parts.join(', ')}. ${cl?.name ?? 'The client'} ${!flown ? 'has closed the contract' : onTime >= 0.85 ? 'is pleased' : 'noticed the delays'}.`,
     ref: { kind: 'contract', id: c.id },
   });
+  completeHook?.(g, c);
 }
 
 /** Days until start (UI helper). */

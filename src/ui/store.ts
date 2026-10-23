@@ -25,7 +25,7 @@ import { autoplay } from './devPlay';
 import { type Ambience, sound, type SoundEvent } from './sound';
 import { takeCues } from '../engine/core/cues';
 import type { HeadId } from '../engine/core/types';
-import { devAchievement, devCrewHours, devJumbo, devRestAtDeparture, devRoster, devSlipOffer, devUnlockHead } from '../engine/dev';
+import { devAchievement, devCrewHours, devJumbo, devPosition, devRestAtDeparture, devRoster, devSlipOffer, devUnlockHead } from '../engine/dev';
 import type { OohLimit } from '../engine/core/types';
 
 export type { GameSpeed } from '../engine/core/time';
@@ -954,6 +954,17 @@ class GameStore {
       return id;
     },
     slip: (route?: 'MAD-SIN' | 'DIL-LIS') => this.devOffer((g) => devSlipOffer(g, route)),
+    /** v0.9 round 4 §5.3: the fleet planner's "position the day before" proposal (inbox message and Team card); the proposal id. */
+    position: () => {
+      const g = this.game;
+      if (!g) return '';
+      const id = devPosition(g);
+      settle(g);
+      this.surfaceMessages();
+      this.navigate('inbox');
+      this.emit();
+      return id;
+    },
     jumbo: () => this.devOffer(devJumbo),
     restAtDeparture: () => this.devScene(devRestAtDeparture, 'crewControl'),
     roster: () => {

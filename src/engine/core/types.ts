@@ -614,6 +614,8 @@ export interface Contract {
   /** v0.8 late legs that cost relation this month [month, n] (cap), and the deportation clean hit so far. */
   lateHits?: [MonthKey, number];
   cleanHit?: number;
+  /** v0.9 round 4: the analyst's margin estimate at signing (shown %, the planner's own %); judged when the contract ends. */
+  analyst?: { name: string; pct: number; est: number };
 }
 
 /** v0.8 a dry lease out: delivery ferry, the lease at the lessee's base, the return ferry. */
@@ -1048,6 +1050,8 @@ export interface MaintenanceEvent {
   /** v0.7.2 C-check at an MRO hub; ferry home legs. */
   hub?: { code: string; name: string; price: number };
   homeIds?: string[];
+  /** v0.9 round 4: a C-check inducted inside its interval (judged at induction, not at release). */
+  onTime?: boolean;
 }
 
 // ======================================================================
@@ -1061,8 +1065,8 @@ export interface Ref {
   kind: 'flight' | 'aircraft' | 'contract' | 'offer' | 'crew' | 'maint' | 'airport' | 'market' | 'cash' | 'statement' | 'decision'
     /** v0.8 */
     | 'client' | 'rival' | 'event'
-    /** v0.9 a department head (Company › Team). */
-    | 'head';
+    /** v0.9 a department head (Company › Team); v0.9 round 4 a receivable (Finance) for credit control's notes. */
+    | 'head' | 'receivable';
   id: string;
 }
 
@@ -1397,7 +1401,7 @@ export interface StatsV09 {
   offersWide?: number; offersJumbo?: number;
   /** §R roster planning counters (crew/dayPlan.ts rosterStats). */
   roster?: StatsRoster09;
-  /** v0.9 fix: contracts completed of ≥ 10 BH or ≥ 4 sectors (the analyst); since when Reliable ≥ 90 (the watch desk). */
+  /** v0.9 fix: since when Reliable is at the bar (the watch desk). `bigDone` is no longer counted (round 4: every contract counts). */
   bigDone?: number; reliableSince?: Minute;
 }
 
@@ -1457,6 +1461,8 @@ export interface Head {
   recent?: [string, Minute][];
   /** Watch desk: client levels last seen (the "drops a level" rule). */
   seen?: Record<string, number>;
+  /** v0.9 round 4: proposals the player dismissed, subject → not again before (14 days, or until the situation changes). */
+  dismissed?: Record<string, Minute>;
 }
 
 export interface StatsV08 {

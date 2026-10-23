@@ -11,7 +11,7 @@ import { hamBase, leased, legsOffer, newGame, owned } from '../contracts/testkit
 import { demoFlights } from '../dev';
 import { advanceTo } from '../sim';
 import { resolveDecision } from '.';
-import { cancelCheck, checkStatus, groundGaps, isGrounded, planChecks, scheduleCheck } from './maintenance';
+import { cancelCheck, checkCostOf, checkStatus, groundGaps, isGrounded, onMaintEnd, onMaintStart, planA, planChecks, scheduleCheck } from './maintenance';
 
 type Knobs = 'delayChance' | 'techDelayChance' | 'aogBase';
 const bal = BAL as unknown as Record<Knobs, number>;
@@ -278,5 +278,53 @@ describe('maintenance windows of a base', () => {
     let nights = 0;
     for (let i = 1; i < legs.length; i++) if (legs[i - 1].to === 'HAM' && legs[i].std - legs[i - 1].sta >= need && localMinuteOfDay('HAM', legs[i].std) < 12 * 60) nights++;
     expect(nights).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('v0.9 round 4 (audit): heavy check on time, line-station A-checks', () => {
+  it('"Heavy check, on time" is judged at induction: a C-check inducted 10 days before the calendar limit and lasting 3 weeks counts; one inducted late does not', () => {
+    const run = (daysBefore: number) => {
+      const g = newGame(3);
+      const ac = owned(g);
+      for (const m of Object.values(g.maintenance)) if (m.aircraftId === ac.id) m.status = 'cancelled';
+      ac.maint.lastC = g.now - typeOf(ac.typeId).cCheckMonths * 30.44 * DAY + daysBefore * DAY;
+      ac.maint.fhSinceC = 0;
+      const st = checkStatus(g, ac);
+      const start = g.now + 60;
+      g.maintenance.cx = { id: 'cx', aircraftId: ac.id, kind: 'C', at: ac.at, start, end: start + 21 * DAY, cost: 1, status: 'planned', planned: true, ev: 0 };
+      g.now = start;
+      onMaintStart(g, { t: g.now, type: 'maint.start', id: 'cx', v: 0, seq: 0 });
+      expect(g.maintenance.cx.status).toBe('inWork');
+      expect(g.maintenance.cx.onTime).toBe(daysBefore > 0);
+      g.now = start + 21 * DAY;
+      expect(checkStatus(g, ac).cUsed).toBeGreaterThan(1);
+      onMaintEnd(g, { t: g.now, type: 'maint.end', id: 'cx', v: g.maintenance.cx.ev, seq: 0 });
+      expect(g.maintenance.cx.status).toBe('done');
+      return [st.cUsed <= 1, g.stats.v09?.cOnTime ?? 0] as const;
+    };
+    expect(run(10)).toEqual([true, 1]);
+    expect(run(-2)).toEqual([false, 0]);
+  });
+
+  it('planA books a line A-check away from home at +20 % (BAL.v09.heads.maint.outstation)', () => {
+    const g = newGame(3);
+    const ac = owned(g);
+    for (const f of Object.values(g.flights)) if (f.aircraftId === ac.id) f.status = 'cancelled';
+    for (const m of Object.values(g.maintenance)) if (m.aircraftId === ac.id) m.status = 'cancelled';
+    // Parked at a big airport (size ≥ 4: a line station), the next flight from there in four days.
+    ac.at = 'MAD';
+    const b = blockMinutes(ac.typeId, 'MAD', 'LIS');
+    addFlight(g, { no: 'AW1', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'MAD', to: 'LIS', std: g.now + 4 * DAY, sta: g.now + 4 * DAY + b, pax: 100 });
+    expect(planA(g, ac, g.now + 3 * DAY, true)).toBe(true);
+    const m = Object.values(g.maintenance).find((x) => x.aircraftId === ac.id && x.kind === 'A' && x.status === 'planned')!;
+    expect(m.at).toBe('MAD');
+    expect(m.cost).toBe(Math.round(checkCostOf(ac, 'A') * (1 + BAL.v09.heads.maint.outstation)));
+    const h = newGame(3);
+    const ah = owned(h);
+    for (const m2 of Object.values(h.maintenance)) if (m2.aircraftId === ah.id) m2.status = 'cancelled';
+    expect(planA(h, ah, h.now + 3 * DAY, true)).toBe(true);
+    const mh = Object.values(h.maintenance).find((x) => x.aircraftId === ah.id && x.kind === 'A' && x.status === 'planned')!;
+    expect(mh.at).toBe(h.company.homeBase);
+    expect(mh.cost).toBe(checkCostOf(ah, 'A'));
   });
 });

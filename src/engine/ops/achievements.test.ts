@@ -26,7 +26,7 @@ const SET: Record<AchievementId, (g: GameState) => void> = {
   goodPlace: (g) => { for (const c of Object.values(g.crew)) c.morale = 80; },
   cOnTime: (g) => { v09Stats(g).cOnTime = 1; },
   noOverdue: (g) => { v09Stats(g).lastOverdue = g.now - 366 * DAY; },
-  fiveFlown: (g) => { v09Stats(g).bigDone = 5; },
+  fiveFlown: (g) => { g.stats.contractsDone = 5; },
   paidInTheEnd: (g) => { v09Stats(g).lateGovPaid = 1; },
   partner: (g) => { Object.values(g.clients)[0].level = 'partner'; },
   firstCall: (g) => { v09Stats(g).firstCall = 1; },
@@ -89,6 +89,44 @@ describe('§14.1 each achievement once', () => {
     expect(checkAchievements(g)).not.toContain('goodPlace');
     expect(checkAchievements(g, { monthEnd: true })).toContain('goodPlace');
   });
+
+  it('v0.9 round 4: a clean operator earns "a year without an overdue check": the clock starts at the first revenue departure or at load', () => {
+    const g = fresh(75);
+    expect(achievementProgress(g, 'noOverdue')).toEqual({ have: 0, need: 365, label: '0 of 365 days' });
+    // An older save: the clock starts at load (stats.v09 exists from then, so the Reliable clock can start too).
+    delete g.achievements;
+    delete g.stats.v09;
+    g.company.reputation.reliable = 95;
+    loadAchievements(g);
+    expect(g.stats.v09!.lastOverdue).toBe(g.now);
+    expect(g.stats.v09!.reliableSince).toBe(g.now);
+    g.now += 200 * DAY;
+    expect(achievementProgress(g, 'noOverdue')!.label).toBe('200 of 365 days');
+    expect(checkAchievements(g)).not.toContain('noOverdue');
+    g.now += 166 * DAY;
+    expect(checkAchievements(g)).toContain('noOverdue');
+    // A grounding resets it (maintenance.ts).
+    const h = fresh(76);
+    v09Stats(h).lastOverdue = h.now - 400 * DAY;
+    v09Stats(h).lastOverdue = h.now;
+    expect(achievementProgress(h, 'noOverdue')!.have).toBe(0);
+  });
+
+  it('v0.9 round 4: the agreed plain counts: 5 contracts of any size; 2 closed months at 98 % with at least one sector (no 100-sector bar)', () => {
+    const g = fresh(77);
+    g.stats.contractsDone = 4;
+    expect(checkAchievements(g)).not.toContain('fiveFlown');
+    g.stats.contractsDone = 5;
+    expect(checkAchievements(g)).toContain('fiveFlown');
+    const k = monthKey(g.now);
+    v09Stats(g).cover = { [k - 2]: [90, 1], [k - 1]: [60, 0] };
+    expect(achievementProgress(g, 'fullCover')).toEqual({ have: 2, need: 2, label: '2 of 2 months' });
+    expect(checkAchievements(g)).toContain('fullCover');
+    expect(g.heads!.crewDesk.unlockedAt).toBe(g.now);
+    const h = fresh(78);
+    v09Stats(h).cover = { [k - 2]: [90, 2], [k - 1]: [0, 0] };
+    expect(checkAchievements(h)).not.toContain('fullCover');
+  });
 });
 
 describe('§14.1 backfill and progress', () => {
@@ -96,7 +134,7 @@ describe('§14.1 backfill and progress', () => {
     const g = fixtureGame(73);
     delete g.achievements;
     for (const h of Object.values(g.heads ?? {})) h.unlockedAt = null;
-    v09Stats(g).bigDone = 6;
+    g.stats.contractsDone = 6;
     g.company.reputation.reliable = 90;
     v09Stats(g).reliableSince = g.now - 31 * DAY;
     const m0 = g.messages.length;
@@ -119,7 +157,7 @@ describe('§14.1 backfill and progress', () => {
 
   it('progress values and the gallery view', () => {
     const g = fresh(74);
-    v09Stats(g).bigDone = 3;
+    g.stats.contractsDone = 3;
     expect(achievementProgress(g, 'fiveFlown')).toEqual({ have: 3, need: 5, label: '3 of 5 contracts' });
     rosterStats(g).callOuts = 7;
     expect(achievementProgress(g, 'standby')).toEqual({ have: 7, need: 25, label: '7 of 25 call-outs' });

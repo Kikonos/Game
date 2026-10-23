@@ -9,7 +9,7 @@ import { addFlight } from '../core/entities';
 import { takeCues } from '../core/cues';
 import { pushDecision } from '../core/messages';
 import { clearPause, takePause } from '../core/pause';
-import { blockMinutes } from '../core/perf';
+import { blockMinutes, typeOf } from '../core/perf';
 import { DAY } from '../core/time';
 import type { GameState, HeadId } from '../core/types';
 import { flightCrewStatus } from '../crew';
@@ -19,10 +19,14 @@ import { autoRoster, releaseCrew, setFlightsCrew } from '../crew/roster';
 import { serialize } from '../save';
 import { checkAchievements } from './achievements';
 import {
-  acceptProposal, analystView, dailyHeads, fireHead, headsView, headView, hireHead, mistakeRoll, monthlyHeads, rollCandidates, setHeadRules, unlockHead, watchDeskHour,
+  acceptProposal, analystView, dailyHeads, defaultRules, dismissProposal, fireHead, headsView, headView, hireHead, mistakeRoll, monthlyHeads, rollCandidates, setHeadRules, unlockHead, watchDeskHour,
 } from './heads';
-import { checkStatus, nextPlanned } from './maintenance';
-import { v09Stats } from '../crew/dayPlan';
+import { checkStatus, nextPlanned, scheduleCheck } from './maintenance';
+import { dayIndex, v09Stats } from '../crew/dayPlan';
+import { acceptOffer, feasibilityAll } from '../contracts';
+import { onContractEnd } from '../contracts/accept';
+import { applyDecisionOption, reopenLatePayment } from './events';
+import { nextId } from '../core/entities';
 
 /** Unlocked and hired (the senior candidate, or a given skill). */
 function hire(g: GameState, id: HeadId, skill?: number): void {
@@ -240,5 +244,278 @@ describe('§5.3 daily and hourly work', () => {
     expect(['take', 'counter', 'pass', 'busy']).toContain(a.verdict);
     expect(a.lines.length).toBeGreaterThan(0);
     if (a.counter) expect(counterOdds(o!, a.counter / counterBase(o!)).accept).toBeGreaterThanOrEqual(0.6 - 1e-9);
+  });
+});
+
+describe('§5.3 round 4 (audit): heads', () => {
+  /** A signed one-way job TLV–LIS two days out, the A320 at LIS: same-day positioning LIS–TLV lands 45 min before it. */
+  function job(seed: number, to = 'TLV') {
+    const g = fixtureGame(seed);
+    const acId = Object.keys(g.fleet)[0];
+    const ac = g.fleet[acId];
+    for (const f of Object.values(g.flights)) if (f.aircraftId === acId) f.status = 'cancelled';
+    ac.at = 'LIS';
+    const std = Math.floor(g.now / DAY) * DAY + 2 * DAY + 9 * 60;
+    const b = blockMinutes(ac.typeId, to, 'LIS');
+    const k = fixtureContract(g, { title: 'Winter sun', pattern: { kind: 'legs', legs: [] }, aircraftIds: [acId], start: std - DAY, end: std + 2 * DAY, product: { kind: 'charter', price: 120_000, depositPct: 0.3, balanceDaysBefore: 7, fuelEscalation: false } });
+    const turn = 45;
+    const pos = addFlight(g, { no: 'AW9001', aircraftId: acId, contractId: k.id, kind: 'positioning', from: 'LIS', to, std: std - turn - b, sta: std - turn });
+    const f0 = addFlight(g, { no: 'AW970', aircraftId: acId, contractId: k.id, kind: 'revenue', from: to, to: 'LIS', std, sta: std + b, pax: 170 });
+    buildDuties(g, acId, g.now, g.now + 5 * DAY);
+    for (const id of addCrew(g, { CPT: 2, FO: 3, PUR: 1, CC: 3 })) g.crew[id].off = [];
+    autoRoster(g);
+    return { g, ac, k, pos, f0 };
+  }
+
+  it('fleet planner: a contract two days out whose same-day positioning leaves no FDP margin → a position proposal for the day before; Accept re-plans the empty legs', () => {
+    const { g, ac, k, pos, f0 } = job(92);
+    hire(g, 'fleetPlanner', 1);
+    takeCues();
+    dailyHeads(g);
+    const p = g.heads!.fleetPlanner.proposals.find((x) => x.kind === 'position');
+    expect(p).toBeTruthy();
+    expect(p!.data).toMatchObject({ aircraftId: ac.id, to: 'TLV', contractId: k.id, arriveBy: f0.std - BAL.v09.heads.fleet.arriveBeforeMin });
+    expect(p!.text).toMatch(/^Position .* LIS–TLV the day before Winter sun: /);
+    expect(p!.cost).toBeGreaterThan(0);
+    expect(g.messages[0].title).toBe(`${g.heads!.fleetPlanner.hired!.name.split(' ')[0]} proposes: ${p!.text}`);
+    expect(takeCues()).toContain('decision');
+    // Once a day, not twice.
+    dailyHeads(g);
+    expect(g.heads!.fleetPlanner.proposals.filter((x) => x.kind === 'position').length).toBe(1);
+    const r = acceptProposal(g, 'fleetPlanner', p!.id);
+    expect(r.ok ? '' : r.error).toBe('');
+    expect(g.flights[pos.id]).toBeUndefined();
+    const moved = Object.values(g.flights).filter((f) => f.aircraftId === ac.id && f.kind === 'positioning' && f.status === 'scheduled' && f.contractId === k.id);
+    expect(moved.length).toBeGreaterThan(0);
+    expect(Math.max(...moved.map((f) => f.sta))).toBeLessThanOrEqual(f0.std - BAL.v09.heads.fleet.arriveBeforeMin);
+    expect(moved[moved.length - 1].to).toBe('TLV');
+    expect(g.heads!.fleetPlanner.proposals).toEqual([]);
+  });
+
+  it('a dismissed proposal stays away (14 days, or until the situation changes) and is on the log', () => {
+    const { g, ac } = job(93);
+    hire(g, 'fleetPlanner', 1);
+    dailyHeads(g);
+    const h = g.heads!.fleetPlanner;
+    const p = h.proposals.find((x) => x.kind === 'position')!;
+    expect(dismissProposal(g, 'fleetPlanner', p.id).ok).toBe(true);
+    expect(h.log[0].text).toMatch(/^Dismissed until .*: Position /);
+    g.now += DAY;
+    dailyHeads(g);
+    expect(h.proposals).toEqual([]);
+    // The ferry-home subject includes where the aircraft is: at MAD it is proposed, dismissed, not again the next day; after 14 days it is.
+    for (const f of Object.values(g.flights)) if (f.aircraftId === ac.id) f.status = 'cancelled';
+    ac.at = 'MAD';
+    ac.bhSince = Math.floor(g.now / DAY) - 5;
+    dailyHeads(g);
+    const q = h.proposals.find((x) => x.kind === 'ferryHome')!;
+    expect(q).toBeTruthy();
+    dismissProposal(g, 'fleetPlanner', q.id);
+    g.now += DAY;
+    dailyHeads(g);
+    expect(h.proposals.find((x) => x.kind === 'ferryHome')).toBeUndefined();
+    g.now += 14 * DAY;
+    dailyHeads(g);
+    expect(h.proposals.find((x) => x.kind === 'ferryHome')).toBeTruthy();
+  });
+
+  it('defaults read BAL; alert rules without an id get one from the game sequence, distinct in one tick', () => {
+    expect(defaultRules('opsControl').maxDelayMin).toBe(BAL.v09.heads.ops.maxDelayMin);
+    expect(defaultRules('crewDesk').fixMax).toBe(BAL.v09.heads.desk.fixMax);
+    const g = fixtureGame(94);
+    hire(g, 'watch', 1);
+    expect(setHeadRules(g, 'watch', { alerts: [{ id: '', kind: 'cashBelow', value: 500_000, action: 'alert', on: true }, { id: '', kind: 'delayOver', value: 2, action: 'alert', on: true }] }).ok).toBe(true);
+    const ids = g.heads!.watch.rules.alerts!.map((a) => a.id);
+    expect(ids[0]).toMatch(/^ar/);
+    expect(ids[1]).not.toBe(ids[0]);
+    // Kept on a re-save, and never Date.now.
+    setHeadRules(g, 'watch', { alerts: g.heads!.watch.rules.alerts!.map((a) => ({ ...a, on: false })) });
+    expect(g.heads!.watch.rules.alerts!.map((a) => a.id)).toEqual(ids);
+  });
+
+  it('watch desk: a held alert whose subject cleared is a mistake on the record (never a silent miss)', () => {
+    const g = fixtureGame(95);
+    hire(g, 'watch', 1);
+    setHeadRules(g, 'watch', { alerts: [{ id: 'r1', kind: 'cashBelow', value: 500_000, action: 'alert', on: true }] });
+    const h = g.heads!.watch;
+    h.recent = [['w:r1:cash', g.now + 60]];
+    g.company.cash = 900_000;
+    expect(watchDeskHour(g)).toBe(0);
+    expect(h.mistakes).toBe(1);
+    expect(h.log[0]).toMatchObject({ kind: 'mistake', text: 'The alert on cash below $500K was held an hour and the subject cleared before it went out' });
+    expect(h.recent).toEqual([]);
+  });
+
+  it('Ops Control: "standby first" leaves the sick call to the player when only a day-off crew member could take it; off, every sick call comes to you; a ticket mistake only where a standby was free', () => {
+    const { g, f, p } = trip(96);
+    hire(g, 'opsControl', 1);
+    const fo = p.slots.find((s) => s.role === 'FO')!.crewId!;
+    releaseCrew(g, p, fo);
+    setFlightsCrew(g, p);
+    const d = g.duties[f.dutyId!];
+    g.crew[fo].blocks = [{ from: g.now - 60, to: d.release + DAY, why: 'sick' }];
+    // Every other pilot (a captain may fly as FO) on a published day off over the duty.
+    const on = new Set(p.slots.map((s) => s.crewId));
+    const spares = Object.values(g.crew).filter((c) => (c.role === 'FO' || c.role === 'CPT') && !on.has(c.id) && c.id !== fo);
+    for (const c of spares) c.off = [dayIndex(c.base, d.report) - 1, dayIndex(c.base, d.report), dayIndex(c.base, d.release) + 1];
+    const sick = () => pushDecision(g, {
+      kind: 'sickCrew', title: 'Sick', body: '', defaultOption: 'callIn', expires: g.now + DAY, ref: { kind: 'flight', id: f.id }, data: { flightId: f.id, crewId: fo },
+      options: [{ id: 'callIn', label: 'Call in', desc: '' }, { id: 'subcharter', label: 'Sub', desc: '' }, { id: 'cancel', label: 'Cancel', desc: '' }],
+    });
+    clearPause();
+    const n0 = g.decisions.length;
+    sick();
+    expect(g.decisions.length).toBe(n0 + 1);
+    expect(flightCrewStatus(g, f.id).level).toBe('missing');
+    g.decisions.pop();
+    // A spare on home standby over the departure: taken, and never "a ticket" (the standby is the cheapest, real choice).
+    const s = spares[0];
+    s.off = [];
+    s.standby = [{ from: f.std - 10 * 60, to: f.std + 60 }];
+    clearPause();
+    sick();
+    expect(g.decisions.length).toBe(n0);
+    expect(g.messages[0].title).toMatch(/^Ops Control called in /);
+    expect(g.messages[0].body).not.toMatch(/ticket/);
+    expect(g.messages[0].body).toMatch(/is on standby at LIS, no delay/);
+    // Rule off: the sick call is the player's.
+    const { g: g2, f: f2, p: p2 } = trip(97);
+    hire(g2, 'opsControl', 1);
+    setHeadRules(g2, 'opsControl', { standbyFirst: false });
+    const fo2 = p2.slots.find((s) => s.role === 'FO')!.crewId!;
+    releaseCrew(g2, p2, fo2);
+    setFlightsCrew(g2, p2);
+    g2.crew[fo2].blocks = [{ from: g2.now - 60, to: g2.now + 5 * DAY, why: 'sick' }];
+    clearPause();
+    const m0 = g2.decisions.length;
+    pushDecision(g2, { kind: 'sickCrew', title: 'Sick', body: '', defaultOption: 'callIn', expires: g2.now + DAY, options: [{ id: 'callIn', label: 'Call in', desc: '' }], data: { flightId: f2.id, crewId: fo2 } });
+    expect(g2.decisions.length).toBe(m0 + 1);
+    clearPause();
+  });
+
+  it('Ops Control holds a flight at the gate only while no penalty is due: 3 h late on any contract kind (VIP 30 min) is the player\'s call', () => {
+    const { g, f } = trip(98);
+    hire(g, 'opsControl', 1);
+    const short = () => pushDecision(g, {
+      kind: 'crewShort', title: 'Short', body: '', defaultOption: 'delay', expires: g.now + DAY, ref: { kind: 'flight', id: f.id }, data: { flightId: f.id },
+      options: [{ id: 'delay', label: 'Wait', desc: '' }, { id: 'cancel', label: 'Cancel', desc: '' }],
+    });
+    g.now = f.std;
+    clearPause();
+    const n0 = g.decisions.length;
+    short();
+    expect(g.decisions.length).toBe(n0);
+    expect(g.messages[0].title).toBe(`Ops Control held ${f.no} for a legal crew`);
+    expect(g.messages[0].body).toMatch(/no penalty\.$/);
+    // The same flight already 3 h late (wet or charter alike): left to the player.
+    f.schedStd = f.std - 180;
+    clearPause();
+    short();
+    expect(g.decisions.length).toBe(n0 + 1);
+    g.decisions.pop();
+    f.schedStd = f.std - 40;
+    g.contracts[f.contractId!].requirements.standards = 'vip';
+    clearPause();
+    short();
+    expect(g.decisions.length).toBe(n0 + 1);
+    clearPause();
+  });
+
+  it('credit control\'s note carries the receivable; "Change" re-asks the decision (never taken by the head again) and the player\'s choice counts as overridden', () => {
+    const g = fixtureGame(99);
+    hire(g, 'credit', 1);
+    const cl = Object.values(g.clients)[0];
+    cl.level = 'known';
+    const r = { id: nextId(g, 'rc'), clientId: cl.id, contractId: null, desc: 'Test invoice', amount: 50_000, issued: g.now - 40 * DAY, due: g.now - 10 * DAY, payAt: g.now + 5 * DAY, paid: null, cat: 'charterRevenue' as const };
+    g.finance.receivables.push(r);
+    const n0 = g.decisions.length;
+    pushDecision(g, {
+      kind: 'latePayment', title: 'Late', body: '', defaultOption: 'wait', expires: g.now + DAY, ref: { kind: 'receivable', id: r.id }, data: { receivableId: r.id, clientId: cl.id },
+      options: [{ id: 'wait', label: 'Wait', desc: '' }, { id: 'waive', label: 'Waive', desc: '' }],
+    });
+    expect(g.decisions.length).toBe(n0);
+    expect(g.messages[0].ref).toEqual({ kind: 'receivable', id: r.id });
+    const h = g.heads!.credit;
+    expect(h.overridden).toBe(0);
+    const re = reopenLatePayment(g, r.id);
+    expect(re.ok).toBe(true);
+    const d = g.decisions.find((x) => re.ok && x.id === re.data!.decisionId)!;
+    expect(d).toBeTruthy();
+    expect(d.ref).toEqual({ kind: 'receivable', id: r.id });
+    expect(applyDecisionOption(g, d, 'waive').ok).toBe(true);
+    expect(h.overridden).toBe(1);
+    expect(h.log[0].kind).toBe('overridden');
+    clearPause();
+  });
+
+  it('the analyst\'s estimate is noted at signing and judged when the contract ends: a 55-skill analyst logs at least one mistake over 10 contracts', () => {
+    const g = fixtureGame(100);
+    hire(g, 'analyst', 0.55);
+    const h = g.heads!.analyst;
+    let n = 0;
+    for (let i = 0; i < 60 && n < 10; i++) {
+      const o = generateOffer(g, i % 2 ? 'adhoc' : 'aogCover');
+      if (!o || o.product.kind === 'dry') continue;
+      const fit = feasibilityAll(g, o.id).find((x) => (x.level === 'ok' || x.level === 'warn') && x.estRevenue > 0);
+      if (!fit) continue;
+      const r = acceptOffer(g, o.id, [fit.aircraftId]);
+      if (!r.ok) continue;
+      const c = g.contracts[r.data!.contractId];
+      expect(c.analyst).toBeTruthy();
+      expect(c.analyst!.name).toBe(h.hired!.name);
+      // The job ends: its legs gone, the end event lands.
+      for (const f of Object.values(g.flights)) if (f.contractId === c.id) delete g.flights[f.id];
+      onContractEnd(g, { t: g.now, type: 'contract.end', id: c.id, v: 0, seq: 0 });
+      expect(c.status).toBe('completed');
+      n++;
+    }
+    expect(n).toBe(10);
+    expect(h.handled).toBe(10);
+    expect(h.log.some((l) => l.kind === 'mistake' && /estimated the .* margin: said .* %, it was .* %$/.test(l.text))).toBe(true);
+    expect(h.mistakes).toBeGreaterThanOrEqual(1);
+    expect(h.mistakes).toBeLessThan(10);
+  });
+
+  it('maintenance planner: a clashing A-check is moved only when a replacement slot exists; else it stays booked with one warning; a C-slot proposal survives Accept until the check is booked', () => {
+    const g = fixtureGame(101);
+    const ac = Object.values(g.fleet)[0];
+    hire(g, 'maintPlanner', 1);
+    for (const f of Object.values(g.flights)) if (f.aircraftId === ac.id) f.status = 'cancelled';
+    for (const m of Object.values(g.maintenance)) if (m.aircraftId === ac.id) m.status = 'cancelled';
+    const t0 = Math.ceil(g.now / 60) * 60;
+    expect(scheduleCheck(g, ac.id, 'A', t0 + DAY + 6 * 60, g.company.homeBase).ok).toBe(true);
+    const planned = nextPlanned(g, ac.id, 'A')!;
+    // Then wall-to-wall legs for four days (LIS–FNC–LIS), one over the slot, and the check due within a day.
+    const b = blockMinutes(ac.typeId, 'LIS', 'FNC');
+    for (let t = t0 + 60; t < t0 + 4 * DAY; t += 2 * b + 90) {
+      addFlight(g, { no: 'AW1', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'LIS', to: 'FNC', std: t, sta: t + b, pax: 100 });
+      addFlight(g, { no: 'AW2', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'FNC', to: 'LIS', std: t + b + 45, sta: t + 2 * b + 45, pax: 100 });
+    }
+    const st = checkStatus(g, ac);
+    ac.maint.fhSinceA = Math.ceil(0.99 * (st.aHoursLeft + ac.maint.fhSinceA));
+    const m0 = g.messages.length;
+    dailyHeads(g);
+    expect(g.maintenance[planned.id].status).toBe('planned');
+    const warns = () => g.messages.slice(0, g.messages.length - m0).filter((m) => /can't move .* A-check/.test(m.title));
+    expect(warns().length).toBe(1);
+    expect(warns()[0].tone).toBe('warn');
+    expect(g.heads!.maintPlanner.log.some((l) => /took .* off/.test(l.text))).toBe(false);
+    g.now += DAY;
+    dailyHeads(g);
+    expect(warns().length).toBe(1);
+    // The C-check slot: proposed, Accept keeps it (the check planner opens), booking the check ends it.
+    const g2 = fixtureGame(102);
+    const ac2 = Object.values(g2.fleet)[0];
+    hire(g2, 'maintPlanner', 1);
+    for (const m of Object.values(g2.maintenance)) if (m.aircraftId === ac2.id) m.status = 'cancelled';
+    ac2.maint.lastC = g2.now - (typeOf(ac2.typeId).cCheckMonths - 3) * 30 * DAY;
+    dailyHeads(g2);
+    const p = g2.heads!.maintPlanner.proposals.find((x) => x.kind === 'cSlot');
+    expect(p).toBeTruthy();
+    expect(acceptProposal(g2, 'maintPlanner', p!.id)).toEqual({ ok: true, msg: 'Pick the slot in the check planner' });
+    expect(g2.heads!.maintPlanner.proposals.some((x) => x.id === p!.id)).toBe(true);
+    g2.maintenance.cx = { id: 'cx', aircraftId: ac2.id, kind: 'C', at: g2.company.homeBase, start: Number(p!.data.from), end: Number(p!.data.from) + 20 * DAY, cost: 1, status: 'planned', planned: true, ev: 0 };
+    dailyHeads(g2);
+    expect(g2.heads!.maintPlanner.proposals.some((x) => x.id === p!.id)).toBe(false);
   });
 });
