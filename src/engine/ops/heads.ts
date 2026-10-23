@@ -300,9 +300,9 @@ function done(g: GameState, h: Head, cat: MessageCat, title: string, body: strin
   pushMessage(g, { tone: 'info', cat, topic: 'head', title, body: mistake ? `${body} ${mistake}` : body, ...(ref ? { ref } : {}), cue: 'headDone' });
 }
 
-/** A mistake roll on the engine RNG: (1 − skill) × 0.35. */
-export const mistakeRoll = (g: GameState, skill: number) => chance(g, (1 - skill) * H().mistake);
-const slips = (g: GameState, h: Head) => mistakeRoll(g, h.hired?.skill ?? 0.7);
+/** A mistake roll, (1 − skill) × 0.35, on a side stream of the engine RNG (keyed: the main sequence is untouched). */
+export const mistakeRoll = (g: GameState, skill: number, key: string) => chance(sideRng(g, `mistake:${key}`), (1 - skill) * H().mistake);
+const slips = (g: GameState, h: Head) => mistakeRoll(g, h.hired?.skill ?? 0.7, `${h.id}:${g.now}:${h.handled}:${h.mistakes}:${h.log.length}`);
 
 /** A player's fix to a flight a head handled within 2 h counts as overridden. */
 setFixHook((g, flightId) => {
@@ -497,8 +497,9 @@ function creditChase(g: GameState): void {
     if (step === undefined) continue;
     r.chased = step;
     const cl = g.clients[r.clientId];
-    if (r.payAt > g.now + 7 * DAY && chance(g, C.base + C.perSkill * (h.hired?.skill ?? 0.7))) {
-      r.payAt = g.now + int(g, 1, 7) * DAY;
+    const rr = sideRng(g, `chase:${r.id}:${step}`);
+    if (r.payAt > g.now + 7 * DAY && chance(rr, C.base + C.perSkill * (h.hired?.skill ?? 0.7))) {
+      r.payAt = g.now + int(rr, 1, 7) * DAY;
       schedule(g, r.payAt, 'payment', r.id);
     }
     const trusted = LEVEL_ORDER.indexOf(levelOf(g, cl)) >= LEVEL_ORDER.indexOf('trusted');
@@ -551,7 +552,7 @@ function fleetPlanner(g: GameState): void {
     if (!blk) continue;
     let cost = legsCost(g, ac.typeId, [{ std: 0, sta: blk }]);
     const mistake = slips(g, h);
-    if (mistake) cost = Math.round(cost * (1 + range(g, 0.05, 0.1)));
+    if (mistake) cost = Math.round(cost * (1 + range(sideRng(g, `fp:${ac.id}:${g.now}`), 0.05, 0.1)));
     const fits = Object.values(g.offers).filter((o) => o.status === 'open' && o.pattern.kind === 'legs' && o.pattern.legs[0]?.from === ac.at).length;
     const text = `Ferry ${ac.reg} home from ${ac.at}${fits ? ` (or leave it there: ${fits} open offer${fits > 1 ? 's' : ''} start${fits > 1 ? '' : 's'} at ${ac.at})` : ''}`;
     const lim = rulesOf(h).autoFerryMax ?? 0;
@@ -591,9 +592,10 @@ function crewDeskHires(g: GameState): void {
 
 // ---------- hourly work (crew desk, watch desk) ----------
 
-const DESK_FIXES = ['autoFix', 'deadhead', 'callIn', 'jet'] as const;
+/** The roster re-runs itself every hour (auto-fix); the desk adds a ticket, a call-in and (within its limit) a jet. */
+const DESK_FIXES = ['deadhead', 'callIn', 'jet'] as const;
 
-/** Crew desk (hourly): the cheapest Crew Control fix within the limit on amber flights (at most 3 an hour). */
+/** Crew desk (every 6 h): the cheapest Crew Control fix within the limit on amber flights (at most 3 a round). */
 export function crewDeskHour(g: GameState): number {
   const h = active(g, 'crewDesk');
   if (!h) return 0;
@@ -602,7 +604,8 @@ export function crewDeskHour(g: GameState): number {
   for (const row of shortFlights(g)) {
     if (n >= 3) break;
     if (row.stage !== 'amber') continue;
-    const v = crewControl(g, row.flightId, { only: DESK_FIXES });
+    // Availability and cost only (no state copies): the desk weighs cheap fixes; a jet only when its limit allows one.
+    const v = crewControl(g, row.flightId, { previews: false, only: (R.jetMax ?? 0) > 0 ? DESK_FIXES : DESK_FIXES.slice(0, 2) });
     if (!v) continue;
     const best = v.solutions
       .filter((s) => s.available && (s.id === 'jet' ? (R.jetMax ?? 0) > 0 && s.cost <= R.jetMax! : s.cost <= (R.fixMax ?? 8_000)))
@@ -718,7 +721,8 @@ setHourlyHook((g) => {
   if (!g.heads) return;
   acting = true;
   try {
-    crewDeskHour(g);
+    // The desk works the amber list every 6 h (03, 09, 15, 21 UTC): an amber flight has 36–48 h to go.
+    if (Math.floor(g.now / 60) % 6 === 3) crewDeskHour(g);
     watchDeskHour(g);
   } finally {
     acting = false;

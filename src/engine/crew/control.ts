@@ -385,7 +385,7 @@ export function crewShortCard(g: GameState, flightId: string): ProblemCard | nul
   const x = ctxOf(g, flightId);
   if (!x || (x.cs.level !== 'missing' && x.cs.level !== 'illegal')) return null;
   const { f, ac, d, p } = x;
-  const ready = crewReadyAt(g, f, ac);
+  const ready = readyOf(g, f, ac);
   const delayMin = Math.max(0, ready - f.std);
   const k = contractOf(g, f);
   const perDelay = k?.product.kind === 'charter' && delayMin > 180 ? k.penalties.perDelay : 0;
@@ -800,6 +800,8 @@ function memoOf<T>(g: GameState, key: string, f: () => T): T {
   return v;
 }
 const candidatesOf = (g: GameState, d: Duty, role: Role) => memoOf(g, `dc:${d.id}:${role}`, () => dutyCandidates(g, d.id, role));
+/** v0.9 speed: when a crew could take the flight, once per state and minute (the card, the delay search, the rows). */
+const readyOf = (g: GameState, f: Flight, ac: Aircraft) => memoOf(g, `ra:${f.id}:${ac.id}`, () => crewReadyAt(g, f, ac));
 
 /**
  * v0.9 a call-in candidate's standby as Crew Control lists it (§R.4): 'Airport standby until 10:30 · ready in 20 min',
@@ -881,7 +883,7 @@ function delayTimes(g: GameState, x: Ctx): Minute[] {
     t = ceil5(t);
     if (t > floor && t - g.now <= 2 * DAY) times.add(t);
   };
-  add(crewReadyAt(g, f, ac));
+  add(readyOf(g, f, ac));
   if (d && p) {
     const night = (atHome: boolean) => minRest({ dutyMin: 0, atHome, augmented: false, tzShift: 0 });
     for (const role of new Set(x.missing)) {
@@ -1316,7 +1318,7 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean, only?: readonly C
   if (want('delay')) {
     const s = base('delay');
     const plan = delayPlan(g, x);
-    if (!plan) out.push(no(s, !delayTimes(g, x).length && crewReadyAt(g, f, ac) <= f.std + f.delay ? 'A crew can take it on time: use Auto-fix' : f.kind === 'positioning' ? 'The schedule re-plans empty legs itself: this one waits for a crew at the gate' : 'Nobody can take it even two days later'));
+    if (!plan) out.push(no(s, !delayTimes(g, x).length && readyOf(g, f, ac) <= f.std + f.delay ? 'A crew can take it on time: use Auto-fix' : f.kind === 'positioning' ? 'The schedule re-plans empty legs itself: this one waits for a crew at the gate' : 'Nobody can take it even two days later'));
     else {
       const ready = plan.at;
       const k = contractOf(g, f);

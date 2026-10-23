@@ -832,16 +832,21 @@ export function planStandby(g: GameState): void {
       }
     }
     // Future windows behind a limit (work planned around them since: a tour that grew, a re-plan) are fitted again.
+    // v0.9 speed: a timeline with no issue at all needs no window-by-window check below.
+    let clean = false;
     if (c.standby?.some((w) => w.calledAt === undefined && w.from > g.now)) {
       const all = evalSegs(ctxOf(g, c), segs);
       if (all.some((i) => i.level === 'illegal' && i.code !== 'location' && i.code !== 'fdp')) {
         fitStandby(g, [c.id]);
         segs = segsOf(g, c);
         changed = true;
-      } else baseIssues = new Set(all.filter((i) => i.dutyId).map((i) => `${i.dutyId}:${i.code}:${i.level}`));
+      } else {
+        baseIssues = new Set(all.filter((i) => i.dutyId).map((i) => `${i.dutyId}:${i.code}:${i.level}`));
+        clean = all.every((i) => i.level === 'legal');
+      }
     }
     // Windows starting within 36 h: still legal with everything planned since?
-    for (const w of [...(c.standby ?? [])]) {
+    for (const w of clean ? [] : [...(c.standby ?? [])]) {
       if (w.calledAt !== undefined || w.from <= g.now || w.from > g.now + 36 * 60) continue;
       const rest = segs.filter((x) => !(x.kind === 'sby' && x.start === w.from));
       const v = windowIssues(g, c, rest, w, base);

@@ -79,6 +79,8 @@ import { deserialize, serialize } from '../src/engine/save';
 import { advanceTo, settle } from '../src/engine/sim';
 import { LEVEL_ORDER, levelOf } from '../src/engine/contracts/relations';
 import { warRiskAt } from '../src/engine/ops/world';
+import { acceptProposal, hireHead } from '../src/engine/ops/heads';
+import { HEAD_IDS } from '../src/data/heads';
 
 
 const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
@@ -1067,10 +1069,32 @@ function crewControlPolicy(g: GameState, t: Tally): void {
   }
 }
 
+/**
+ * v0.9 (§13) department heads: the mid candidate once unlocked when cash is at least $1M (else the junior); rules at
+ * their defaults; ferry-home proposals under $60K and C-check slot proposals accepted; nobody is ever fired.
+ */
+const headUnlocked = new Map<string, number>();
+function heads(g: GameState, t: Tally): void {
+  if (process.env.NOHEADS) return;
+  for (const id of HEAD_IDS) {
+    const h = g.heads?.[id];
+    if (!h || h.unlockedAt === null) continue;
+    if (!headUnlocked.has(id)) headUnlocked.set(id, Math.floor((h.unlockedAt - g.started) / DAY));
+    if (process.env.SKIPHEAD?.split(',').includes(id)) continue;
+    if (!h.hired && h.candidates?.length && hireHead(g, id, g.company.cash >= 1_000_000 ? 1 : 0).ok) act(g, t);
+    for (const p of [...h.proposals]) {
+      if ((p.kind === 'ferryHome' && p.cost < 60_000) || p.kind === 'cSlot') {
+        if (acceptProposal(g, id, p.id).ok) act(g, t);
+      }
+    }
+  }
+}
+
 function policy(g: GameState, t: Tally, urgent: boolean, newDay: boolean): void {
   decide(g, t);
   crewControlPolicy(g, t);
   if (newDay) {
+    heads(g, t);
     policies(g, t);
     rehire(g, t);
     extraCrew(g, t);
@@ -1179,6 +1203,7 @@ const tally = newTally();
 const end = g.started + days * DAY;
 const seenFlight = new Set<string>();
 const seenOffer = new Set<string>();
+const slipSeen = new Set<string>();
 const cancels = new Map<string, number>();
 const errors: string[] = [];
 let msgCount = 0;
@@ -1261,7 +1286,10 @@ function onStep(): void {
     seenRecv.add(r.id);
     paintBack += r.amount;
   }
-  for (const o of Object.values(g.offers)) seenOffer.add(o.id);
+  for (const o of Object.values(g.offers)) {
+    seenOffer.add(o.id);
+    if (o.slip) slipSeen.add(o.id);
+  }
   for (const o of g.market.aircraft) if (!seenMarket.has(o.id)) seenMarket.set(o.id, { month: monthKey(g.now), teaser: !aircraftGate(g, o.typeId).ok, newBuild: !!o.newBuild });
   // Inbox is newest first: count down to the last message seen.
   let n = 0;
@@ -1619,6 +1647,29 @@ console.log(
   softTargets.push(['≥ 1 offer lost to a rival with a reason (v0.8)', v8.lostToRival >= 1, `${v8.lostToRival}`]);
   softTargets.push(['a world event touching our flights (≥ 3 of seeds 1–6, v0.8)', v8.closuresHit + v8.legsRerouted + (v8.strikeDelays ?? 0) + (v8.warRiskPaid > 0 ? 1 : 0) > 0, `closures ${v8.closuresHit}, rerouted ${v8.legsRerouted}, strike delays ${v8.strikeDelays ?? 0}, war-risk ${k$(v8.warRiskPaid)}`]);
   softTargets.push(['a dry lease (≥ 2 of seeds 1–6, v0.8)', v8.dryLeases >= 1, `${v8.dryLeases}`]);
+}
+{
+  // v0.9 (UPDATE-0.9.md §13): heads, achievements, slips, out of hours, discretion, jumbo loads.
+  const v9 = g.stats.v09;
+  const hs = g.heads ? Object.values(g.heads) : [];
+  const unl = HEAD_IDS.map((id) => `${id} ${headUnlocked.has(id) ? `d${headUnlocked.get(id)}` : '–'}`).join(' ');
+  const handled = hs.reduce((n, h) => n + h.handled, 0);
+  const ach = Object.keys(g.achievements ?? {}).length;
+  const slipOffers = slipSeen.size;
+  const b744 = Object.values(g.fleet).filter((a) => a.typeId === 'b744').map((a) => a.id);
+  let rev744 = 0;
+  for (const c of Object.values(g.contracts)) if (c.aircraftIds.some((id) => b744.includes(id))) rev744 += c.invoiced ?? 0;
+  const decided = [...tally.decisions.values()].reduce((a, b) => a + b, 0);
+  console.log(
+    `v0.9: heads unlocked ${unl} · hired ${hs.filter((h) => h.hired).length} · handled ${handled} (mistakes ${hs.reduce((n, h) => n + h.mistakes, 0)}, overridden ${hs.reduce((n, h) => n + h.overridden, 0)}) · ` +
+      `achievements ${ach}/24 · slips ${v9?.slips ?? 0} (offers ${slipOffers}) · out of hours red ${v9?.oohRed ?? 0} amber ${v9?.oohAmber ?? 0} · ` +
+      `discretion used ${v9?.discretionUsed ?? 0} (planned ${v9?.discretionPlanned ?? 0}) refused ${v9?.discretionRefused ?? 0} · jumbo loads ${v9?.jumboLoads ?? 0} (747 invoiced ${k$(rev744)}) · runtime ${runSecs.toFixed(1)} s`,
+  );
+  targets.push(['discretion never planned (v0.9)', (v9?.discretionPlanned ?? 0) === 0, `${v9?.discretionPlanned ?? 0}`]);
+  targets.push(['runs in ≤ 20 s (v0.9 hard limit)', runSecs <= 20, `${runSecs.toFixed(1)} s`]);
+  softTargets.push(['≥ 3 heads unlocked (v0.9; ≥ 5 on 3 seeds)', headUnlocked.size >= 3 * Math.min(1, days / 365), `${headUnlocked.size}`]);
+  softTargets.push(['heads take ≥ 40 % of the routine decisions (v0.9)', handled + decided === 0 || handled / (handled + decided) >= 0.4, `${handled} of ${handled + decided}`]);
+  softTargets.push(['achievements 6–14 (v0.9)', ach >= 6 && ach <= 14, `${ach}`]);
 }
 {
   // v0.9 §R roster planning (UPDATE-0.9.md §R.12).

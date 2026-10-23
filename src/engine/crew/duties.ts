@@ -237,8 +237,9 @@ export function syncDuty(g: GameState, d: Duty, p: Pairing): void {
   const crewed = crewCount(p) > 0;
   // v0.9: a crew that reported for a first leg since held 6 h or more (nothing flown yet) were stood down to rest: the
   // duty reports afresh, never one FDP stretched over the hold.
-  const held = fl.every((f) => f.status === 'scheduled') && shape(typeId, fl).report - d.report >= 6 * 60;
-  const reported = p.status === 'active' && d.report <= g.now && crewed && !held;
+  const onDuty = p.status === 'active' && d.report <= g.now && crewed;
+  const held = onDuty && fl.every((f) => f.status === 'scheduled') && fl[0].std - d.report >= 6 * 60 + 60 && shape(typeId, fl).report - d.report >= 6 * 60;
+  const reported = onDuty && !held;
   const sh = shape(typeId, fl, reported ? d.report : undefined);
   const refOf = (report: Minute): RefAt => {
     const r = referenceTime(p.base, sh.dep, Math.min(p.start, report), report);

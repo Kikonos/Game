@@ -102,7 +102,7 @@ describe('§5 unlocks and candidates', () => {
     const g = fixtureGame(84);
     for (const skill of [0.6, 0.9]) {
       let n = 0;
-      for (let i = 0; i < 2000; i++) if (mistakeRoll(g, skill)) n++;
+      for (let i = 0; i < 2000; i++) if (mistakeRoll(g, skill, `t${i}`)) n++;
       expect(Math.abs(n / 2000 - (1 - skill) * 0.35)).toBeLessThan(0.02);
     }
   });
