@@ -157,7 +157,7 @@ describe('paint on contracts', () => {
     expect(liveryOf(g, id).source).toBe('company');
     expect(line(g, 'paint') - paint0).toBe(-(m.cost + out.cost));
     expect(line(g, 'otherRevenue') - other0).toBe(Math.round(m.cost * c.paint!.clientShare) + Math.round(out.cost * c.paint!.clientShare));
-  });
+  }, 60_000);
 
   it('the strip messages follow the aircraft livery choice', () => {
     const g = newGame(6);

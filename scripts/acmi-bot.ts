@@ -466,6 +466,11 @@ function hire(g: GameState, t: Tally): void {
     const wide = typeOf(x.typeId).body === 'wide';
     if ((!trouble && pilotUtil(g, family) < (wide ? 0.65 : 0.8)) || g.company.cash < 1_500_000) continue;
     if (Object.values(g.crew).some((c) => c.status === 'joining' && c.ratings.includes(family))) continue;
+    // v0.9 a short spell of sub-charters is not a staffing gap: at most 30 % above the sets the fleet needs (seed 5
+    // hired 104 crew for two A320s).
+    const needF = staffing(g).filter((l) => l.family === family).reduce((n, l) => n + l.need, 0);
+    const haveF = Object.values(g.crew).filter((c) => c.ratings.includes(family) && !c.notice).length;
+    if (needF > 0 && haveF >= 1.3 * needF) continue;
     const per = new Map<Role, number>();
     for (const r of complement(x.typeId, x.seats, { extraCabin: g.company.policies.extraCabin })) per.set(r, (per.get(r) ?? 0) + 1);
     for (const [role, n] of per) if (hireSplit(g, { role, family, base: g.company.homeBase, count: n }).ok) act(g, t);
