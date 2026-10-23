@@ -15,7 +15,7 @@ import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, set
 import { autoRoster, guardDuty, onFlightsChanged, recheckAfterRelease, recheckNext, recheckSoon, removeCrew, sendStrandedHome, stayOn } from './roster';
 import { localMin, minRest, signedTz, tzNights } from './rules';
 import { dailyStandby, noteRecovery } from './standby';
-import { dayPlanAfter, dayPlanBefore, dayPlanInit, dayPlanLoad, dayPlanMonth } from './dayPlan';
+import { dayPlanAfter, dayPlanBefore, dayPlanInit, dayPlanLoad, dayPlanMonth, v09Stats } from './dayPlan';
 import { AUTHORITY } from '../../data/flavor';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { pushMessage } from '../core/messages';
@@ -175,6 +175,8 @@ function onDutyRelease(g: GameState, ev: SimEvent): void {
   }
   const y = yearOf(g.now);
   const block = dutyBlock(g, d);
+  // v0.9 §W a duty that took over at a fuel stop: one crew change flown.
+  if (d.slipAt && g.flights[d.flightIds[0]]?.from === d.slipAt) v09Stats(g).slips++;
   for (const s of p.slots) {
     const c = s.crewId ? g.crew[s.crewId] : undefined;
     if (!c) continue;

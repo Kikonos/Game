@@ -12,7 +12,7 @@ import { blockMinutes } from './core/perf';
 import { flightsOf } from './core/entities';
 import { nextId } from './core/entities';
 import type { AcRest, Aircraft, ClientLevel, GameState, HeadId, Role } from './core/types';
-import { generateOffer } from './contracts/offers';
+import { finalizeDraft, generateOffer, type Draft } from './contracts/offers';
 import { rivalFits } from './contracts/rivals';
 import { schedule } from './core/queue';
 import { typeOf } from './core/perf';
@@ -361,4 +361,36 @@ export function devRoster(g: GameState): string {
   advanceTo(g, g.now + 20 * DAY, new Set());
   const tour = Object.values(g.pairings).find((p) => p.tour && p.contractId === k.id && p.status === 'active' && p.slots.some((s) => s.crewId));
   return tour?.slots.find((s) => s.crewId)?.crewId ?? '';
+}
+
+/**
+ * v0.9 §W a one-way charter whose sector no single crew can fly (a crew change at a fuel stop priced in): Madrid–
+ * Singapore on a widebody (one is added when the fleet has none), or Dili–Lisbon on a narrowbody; longer routes are
+ * tried when the type's rest covers the first. The offer id ('' when none fits). Dev/test helper.
+ */
+export function devSlipOffer(g: GameState, routeKey: 'MAD-SIN' | 'DIL-LIS' = 'MAD-SIN'): string {
+  const wide = routeKey === 'MAD-SIN';
+  if (wide && !Object.values(g.fleet).some((a) => typeOf(a.typeId).body === 'wide')) devAddType(g, 'a332');
+  const routes: [string, string][] = wide ? [['MAD', 'SIN'], ['LIS', 'SYD'], ['MAD', 'AKL'], ['LIS', 'NOU']] : [['DIL', 'LIS'], ['LIS', 'KUL'], ['LIS', 'BKK']];
+  const client = Object.values(g.clients).find((c) => c.kind === 'airline' && !c.rivalId) ?? Object.values(g.clients)[0];
+  if (!client) return '';
+  const start = Math.ceil((g.now + 12 * DAY) / 60) * 60;
+  const standing = g.company.standing;
+  g.company.standing = Math.max(1, standing ?? 0) as 1 | 2;
+  try {
+    for (const [a, b] of routes) {
+      const d: Draft = {
+        archetype: 'adhoc', client, title: 'One-way charter', blurb: `A one-way charter, ${a} to ${b}.`,
+        pattern: { kind: 'legs', legs: [{ from: a, to: b, dep: start, flightNo: '', pax: wide ? 250 : 150 }] },
+        req: { minSeats: wide ? 250 : 150, extraCabin: 0, approvals: [] }, start, end: start + 2 * DAY, expiresIn: 5 * DAY,
+        effects: {}, risk: { disruption: 0, politics: 0, permit: 0 }, paint: false, cabin: false,
+      };
+      const o = finalizeDraft(g, d);
+      if (o?.slip) return o.id;
+      if (o) delete g.offers[o.id];
+    }
+  } finally {
+    g.company.standing = standing;
+  }
+  return '';
 }

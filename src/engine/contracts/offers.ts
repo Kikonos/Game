@@ -12,6 +12,7 @@ import { requestPause } from '../core/pause';
 import { blockMinutes, complement, etopsNeeded, planSector, typeOf } from '../core/perf';
 import { dutyNeed } from '../crew/duties';
 import { bunksFor, seatRest } from '../crew/restPlan';
+import { bestSlip, slipCost, type SlipPlan } from '../crew/slip';
 import { cabinPresets } from '../../data/cabins';
 import { schedule } from '../core/queue';
 import { chance, int, next, pick, range, weightedPick } from '../core/rng';
@@ -305,12 +306,31 @@ export function needsWide(legs: { from: string; to: string }[]): boolean {
  * or past the type's rest. Pure.
  */
 export function crewCanFly(g: GameState, typeId: string, chains: ChainShape[]): boolean {
+  const { gx, rest } = bestCrewing(g, typeId);
+  // As feasibility reads them: cut at the home base (a crew change there) and at night stops. v0.9 §W a crew change at
+  // a fuel stop (one per sector) counts as a valid plan.
+  return crewChains(g, chains).every((c) => dutyNeed(gx, typeId, rest, c).mode !== 'none' || !!bestSlip(gx, typeId, rest, c));
+}
+
+/** The best rest a type can carry and the augmented approval assumed (offer generation's view). */
+function bestCrewing(g: GameState, typeId: string): { gx: GameState; rest: AcRest } {
   const t = typeOf(typeId);
   const j = Math.max(...cabinPresets(typeId).map((c) => c.j));
   const rest: AcRest = t.body === 'wide' && (t.rest.bunkShare > 0 || t.rest.mro) ? bunksFor(typeId) : seatRest(typeId, { j });
   const gx: GameState = g.company.approvals.includes('augmented') ? g : { ...g, company: { ...g.company, approvals: [...g.company.approvals, 'augmented'] } };
-  // As feasibility reads them: cut at the home base (a crew change there) and at night stops.
-  return crewChains(g, chains).every((c) => dutyNeed(gx, typeId, rest, c).mode !== 'none');
+  return { gx, rest };
+}
+
+/** v0.9 §W the crew changes at fuel stops a programme needs on a type (one per slipping chain). Pure. */
+export function programmeSlips(g: GameState, typeId: string, chains: ChainShape[]): SlipPlan[] {
+  const { gx, rest } = bestCrewing(g, typeId);
+  const out: SlipPlan[] = [];
+  for (const c of chains.flatMap((x) => crewChains(g, [x]))) {
+    if (dutyNeed(gx, typeId, rest, c).mode !== 'none') continue;
+    const sp = bestSlip(gx, typeId, rest, c);
+    if (sp) out.push(sp);
+  }
+  return out;
 }
 
 // ---------- archetypes ----------
@@ -1040,6 +1060,13 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
     const far = t.legs.reduce((m, l) => (distanceNm(home, l.to) > distanceNm(home, m) ? l.to : m), t.from);
     tickets += tripTickets(home, far, crewN, span + 90, span);
   }
+  // v0.9 §W crew changes at fuel stops: tickets in and out, the hotel and the extra crew-days, priced in.
+  const slips = programmeSlips(g, ref, prog.chains);
+  for (const sp of slips) {
+    tickets += sp.tickets;
+    roomNights += sp.hotelNights;
+    crewDays += sp.crewN;
+  }
   const revBH = prog.revenueMin / 60;
   const wet = isWetArchetype(d.archetype) || !!d.wet;
   const gov = isGovernment(d.client);
@@ -1096,6 +1123,7 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
     ...(d.repeatOf ? { repeatOf: d.repeatOf } : {}), ...(d.eventId ? { eventId: d.eventId } : {}), ...(d.dryFor ? { dryFor: d.dryFor } : {}),
   };
   if (d.terms) o.terms = d.terms;
+  if (slips.length) o.slip = { at: [...new Set(slips.map((x) => x.at))], cost: slips.reduce((n, x) => n + slipCost(x), 0) };
   // v0.8 Trusted / Partner clients pay sooner.
   o.payment.dueDays = Math.max(0, o.payment.dueDays - perks(g, d.client).payDays);
   o.estValue = productValue(product, revBH, d.start, d.end, d.terms);
@@ -1388,3 +1416,7 @@ export function chainAugment(g: GameState, typeId: string, chains: ChainShape[])
   }
   return { aug, extraCabin };
 }
+
+
+/** v0.9 dev helpers: a draft finalised into an open offer (no market filters beyond the programme's own). */
+export const finalizeDraft = (g: GameState, d: Draft): ContractOffer | null => finalize(g, d, true);

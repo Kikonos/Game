@@ -14,6 +14,7 @@ import {
   splitFdp, tzDeltaH, woclMinutes, worst, type Seg, type TimelineCtx,
 } from './rules';
 import { crewExtraFor, seatsFor, type Seat } from './extraSeats';
+import { bestSlip } from './slip';
 import { cabinEarly, cabinEarlyOf, crewCount, crewIx, dutyBlock, dutyFlights, onBlocks, touchCrew } from './timeline';
 import { pilotsOnlyTrip, planRest, restOf, type RestLeg, type RestPlan } from './restPlan';
 
@@ -570,11 +571,19 @@ function partition(g: GameState, acId: string, typeId: string, rest: AcRest, uni
  * there). A revenue sector and its tech-stop legs stay one chain, unless that chain alone is too long for one crew
  * (an early report out of Kabul with a fuel stop, say): then the crew changes at the fuel stop.
  */
-function slipUnits(g: GameState, acId: string, typeId: string, rest: AcRest, u: Flight[]): Flight[][] {
+function slipUnits(g: GameState, acId: string, typeId: string, rest: AcRest, u: Flight[], cuts?: Map<string, string>): Flight[][] {
   if (u.length < 2) return [u];
   const fits = (fl: Flight[]) => planAugment(g, shape(typeId, fl), { rest, canAug: canAugment(g, rest), split: true, ext: true, cabinN: planCabinN(g, acId, fl) }).ok;
   if (fits(u)) return [u];
-  return bySector(u).flatMap((x) => (x.length > 1 && !fits(x) ? x.map((f) => [f]) : [x]));
+  return bySector(u).flatMap((x) => {
+    if (x.length < 2 || fits(x)) return [x];
+    // v0.9 §W the stop offers and pricing chose (bestSlip): one crew change per sector; else at every stop.
+    const s = bestSlip(g, typeId, rest, { from: x[0].from, std: x[0].std, legs: x.map((f) => ({ std: f.std, sta: f.sta, from: f.from, to: f.to })) });
+    if (!s) return x.map((f) => [f]);
+    cuts?.set(x[s.cutIndex - 1].id, s.at);
+    cuts?.set(x[s.cutIndex].id, s.at);
+    return [x.slice(0, s.cutIndex), x.slice(s.cutIndex)];
+  });
 }
 
 /** A unit cut at its sector boundaries (tech-stop legs stay with their sector). */
@@ -653,6 +662,8 @@ export function planAircraft(g: GameState, acId: string, from: Minute): void {
   if (run.length) runs.push(run);
 
   const specs: Spec[] = [];
+  // v0.9 §W flights either side of a crew change at a fuel stop (flight id → the stop).
+  const cuts = new Map<string, string>();
   for (const r of runs) {
     const units: Flight[][] = [];
     let u: Flight[] = [];
@@ -664,7 +675,7 @@ export function planAircraft(g: GameState, acId: string, from: Minute): void {
       }
     }
     if (u.length) units.push(u);
-    specs.push(...partition(g, acId, typeId, rest, units.flatMap((x) => slipUnits(g, acId, typeId, rest, x))));
+    specs.push(...partition(g, acId, typeId, rest, units.flatMap((x) => slipUnits(g, acId, typeId, rest, x, cuts))));
   }
 
   // Duty records (reused when the flights are the same).
@@ -690,6 +701,9 @@ export function planAircraft(g: GameState, acId: string, from: Minute): void {
     applyPick(d, pa);
     d.flightsEv = s.flights.reduce((n, f) => n + f.ev, 0);
     d.legality = dutyLegality(d);
+    const slipAt = cuts.get(s.flights[0].id) ?? cuts.get(s.flights[s.flights.length - 1].id);
+    if (slipAt) d.slipAt = slipAt;
+    else delete d.slipAt;
     const c = contractOfDuties(g, [d]);
     // v0.5.2: an empty leg into a deployment from an outstation is a pilots-only ferry: the tour's cabin crew
     // deadhead straight to the base instead of first flying out to the aircraft (from home they ride along).

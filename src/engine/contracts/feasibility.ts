@@ -13,6 +13,7 @@ import { dutyNeed, type ChainShape, type DutyNeed } from '../crew/duties';
 import { restOf } from '../crew/restPlan';
 import { minRest } from '../crew/rules';
 import { dhBlock } from '../crew/timeline';
+import { bestSlip, slipCost, slipDetail, type SlipPlan } from '../crew/slip';
 import { A_CHECK_DAYS, anchorsOf, chainForward, chainsOf, CHARTER_SLACK, DEPLOY_LEAD, gapMoves, longestChains, maxPax, programmeOf, type Anchor, type ChainLeg, type Programme, type Trip } from './plan';
 import { afterRefit, cabinAt, cabinFits, cabinOf, layoutsOf, refitTip, restAfterRefit, restRefitOptions } from '../ops/cabin';
 import { aircraftGate, APPROVALS, gateApprovals, ratedPilots } from '../ops/company';
@@ -616,6 +617,8 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
     cost += q.cost - q.reimbursed + ferryBH * (t.maintBH + t.fuelTBH * g.market.fuelPrice);
   }
   cost += cabinCost;
+  // v0.9 §W crew changes at fuel stops: tickets, hotel and per diem for the slip crews (the client pays on a wet lease).
+  if (!wet && rn.slips) cost += rn.slips.reduce((n, x) => n + slipCost(x), 0);
   rep.estCost = Math.round(cost);
   rep.estMargin = rep.estRevenue - rep.estCost;
   return rep;
@@ -669,6 +672,7 @@ export function marketFit(g: GameState, offerId: string): MarketFit | null {
 // ---------- v0.7.3 the rest line (UPDATE-0.7.3.md §2.9) ----------
 
 const NEED_RANK: Record<DutyNeed['mode'], number> = { basic: 0, split: 1, ext: 2, aug1: 3, aug2: 4, none: 9 };
+const RANK_NEED = NEED_RANK;
 
 /** v0.7.3 class 1 rest for pilots and cabin crew (bunks): what an ultra-long-range day is planned against. */
 export const ULR_REST: AcRest = { fc: { cls: 1, kind: 'fcrc', places: 2 }, cc: { cls: 1, kind: 'ccrc', places: 8 } };
@@ -716,17 +720,30 @@ export function crewChains(g: GameState, chains: ChainShape[]): ChainShape[] {
 }
 
 /** The worst chain's need on this type and facilities, the check line, its level and the seats it blocks. Pure. */
-export function restNeed(g: GameState, o: ContractOffer, typeId: string, rest: AcRest, chains: ChainShape[]): { need: DutyNeed | null; level: CheckLevel; line: string | null; detail?: string; blocked: number } {
+export function restNeed(g: GameState, o: ContractOffer, typeId: string, rest: AcRest, chains: ChainShape[]): { need: DutyNeed | null; level: CheckLevel; line: string | null; detail?: string; blocked: number; slips?: SlipPlan[] } {
   let worst: DutyNeed | null = null;
   let blocked = 0;
+  const slips: { plan: SlipPlan; to: string }[] = [];
   for (const c of crewChains(g, chains)) {
-    const n = dutyNeed(g, typeId, rest, c);
+    let n = dutyNeed(g, typeId, rest, c);
+    // v0.9 §W a chain too long for one crew splits at a fuel stop: a fresh crew flies in and takes over.
+    if (n.mode === 'none') {
+      const sp = bestSlip(g, typeId, rest, c);
+      if (sp) {
+        slips.push({ plan: sp, to: c.legs[c.legs.length - 1].to ?? '' });
+        n = RANK_NEED[sp.second.mode] >= RANK_NEED[sp.first.mode] ? sp.second : sp.first;
+      }
+    }
     if (n.plan?.ok) blocked = Math.max(blocked, ...Object.values(n.plan.blocked), 0);
     if (!worst || NEED_RANK[n.mode] > NEED_RANK[worst.mode] || (n.mode === worst.mode && n.fdp > worst.fdp)) worst = n;
   }
   const ulr = o.requirements.approvals.includes('ulr');
   if (ulr && !(rest.fc?.cls === 1 && rest.cc?.cls === 1)) return { need: worst, level: 'no', line: 'ULR needs bunks for pilots and cabin crew (class 1)', blocked };
   if (!worst) return { need: null, level: 'ok', line: null, blocked };
+  if (slips.length && worst.mode !== 'none') {
+    const s0 = slips[0];
+    return { need: worst, level: 'warn', line: s0.plan.text, detail: slipDetail(s0.plan, s0.to), blocked, slips: slips.map((x) => x.plan) };
+  }
   const level: CheckLevel = worst.mode === 'none' ? 'no' : worst.mode === 'aug2' || (worst.plan?.extraCabin ?? 0) > 0 ? 'warn' : 'ok';
   const R = typeOf(typeId).rest;
   const detail = worst.mode === 'none' && (worst.why === 'noRest' || worst.why === 'tooLong' || worst.why === 'cabin')
