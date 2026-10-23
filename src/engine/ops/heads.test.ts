@@ -1,6 +1,7 @@
 // v0.9 department heads (UPDATE-0.9.md §5): unlocks, candidates, hire/fire/rehire, salary, the decision hook (Ops
 // Control and credit control), mistakes, the maintenance planner, the crew desk, proposals, watch rules, the analyst.
 
+import { BAL } from '../core/balance';
 import { describe, expect, it } from 'vitest';
 import { generateOffer } from '../contracts';
 import { counterBase, counterOdds } from '../contracts/counter';
@@ -67,7 +68,7 @@ describe('§5 unlocks and candidates', () => {
     u.candidates.forEach((c, i) => {
       expect(c.skill).toBeGreaterThanOrEqual(bands[i][0]);
       expect(c.skill).toBeLessThanOrEqual(bands[i][1]);
-      expect(c.salary).toBe(Math.round((9_000 * bands[i][2]) / 100) * 100);
+      expect(c.salary).toBe(Math.round((BAL.v09.heads.salary.opsControl * bands[i][2]) / 100) * 100);
       expect(c.name).toMatch(/^\S+ \S/);
     });
     expect(headsView(g).length).toBe(7);
@@ -236,7 +237,7 @@ describe('§5.3 daily and hourly work', () => {
     expect(a).not.toBeNull();
     expect(analystView(g, o!.id)).toEqual(a);
     expect(state()).toBe(s0);
-    expect(['take', 'counter', 'pass']).toContain(a.verdict);
+    expect(['take', 'counter', 'pass', 'busy']).toContain(a.verdict);
     expect(a.lines.length).toBeGreaterThan(0);
     if (a.counter) expect(counterOdds(o!, a.counter / counterBase(o!)).accept).toBeGreaterThanOrEqual(0.6 - 1e-9);
   });

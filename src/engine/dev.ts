@@ -88,7 +88,8 @@ export function devCrewShortage(g: GameState, opts: { hours?: number; roles?: Ro
     for (const s of p.slots) if (s.crewId && roles.includes(s.role)) releaseCrew(g, p, s.crewId);
     setFlightsCrew(g, p);
     recheckPairing(g, p);
-    escalateShortages(g);
+    // The scene shows the red shortage itself: no routine call-out first.
+    escalateShortages(g, { freeFix: false });
     return f.id;
   }
   return '';
@@ -329,7 +330,15 @@ export function devAchievement(g: GameState, id: string): string {
  * out-and-backs from base, run 20 days; returns the id of a crew member on the DUB tour ('' if none). Dev/test helper.
  */
 export function devRoster(g: GameState): string {
-  devFleet(g, 4);
+  // Four idle A320s that can fly now (leased out, stored, delivering or already flying work is left alone: stacking
+  // the scene's legs on a busy aircraft double-books it and the roster grinds).
+  const busy = new Set(Object.values(g.flights).filter((f) => f.status === 'scheduled' && f.aircraftId).map((f) => f.aircraftId!));
+  const free = () => Object.values(g.fleet).filter((a) => (a.status === 'available' || a.status === 'flying') && typeOf(a.typeId).family === 'A320' && !busy.has(a.id)).map((a) => a.id);
+  const proto = Object.values(g.fleet).find((a) => typeOf(a.typeId).family === 'A320');
+  for (let k = free().length; proto && k < 4; k++) {
+    const id = nextId(g, 'a');
+    g.fleet[id] = { ...structuredClone(proto), id, reg: `${g.company.regPrefix}DR${String.fromCharCode(65 + k)}`, at: g.company.homeBase, flightId: null, status: 'available', maintId: null };
+  }
   const want: Partial<Record<Role, number>> = { CPT: 20, FO: 20, PUR: 20, CC: 60 };
   for (const [role, n] of Object.entries(want) as [Role, number][]) {
     const have = Object.values(g.crew).filter((c) => c.role === role && c.ratings.includes('A320')).length;
@@ -338,7 +347,7 @@ export function devRoster(g: GameState): string {
       g.crew[c.id] = c;
     }
   }
-  const ids = Object.keys(g.fleet).slice(0, 4);
+  const ids = free().slice(0, 4);
   const k = seasonBase(g, ids[0], 'DUB', 'FAO', [6 * 60, 13 * 60], 40);
   const client = Object.values(g.clients).find((c) => c.kind === 'airline');
   if (client) k.clientId = client.id;
@@ -368,6 +377,8 @@ export function devRoster(g: GameState): string {
 export function devSlipOffer(g: GameState, routeKey: 'MAD-SIN' | 'DIL-LIS' = 'MAD-SIN'): string {
   const wide = routeKey === 'MAD-SIN';
   if (wide && !Object.values(g.fleet).some((a) => typeOf(a.typeId).body === 'wide')) devAddType(g, 'a332');
+  // A narrowbody fleet can't reach Dili–Lisbon even with fuel stops: a long-range widebody is added for the scene.
+  if (!wide && !Object.values(g.fleet).some((a) => typeOf(a.typeId).body === 'wide')) devAddType(g, 'a332');
   const routes: [string, string][] = wide ? [['MAD', 'SIN'], ['LIS', 'SYD'], ['MAD', 'AKL'], ['LIS', 'NOU']] : [['DIL', 'LIS'], ['LIS', 'KUL'], ['LIS', 'BKK']];
   const client = Object.values(g.clients).find((c) => c.kind === 'airline' && !c.rivalId) ?? Object.values(g.clients)[0];
   if (!client) return '';
@@ -394,13 +405,14 @@ export function devSlipOffer(g: GameState, routeKey: 'MAD-SIN' | 'DIL-LIS' = 'MA
 
 /**
  * v0.9 §T: the first crewed flight leaving within 10 h gets its captain over a limit (28-day flying by default; 'duty7d'
- * the 7-day duty sum) with every other captain away, so the seat empties out of hours and the red stage posts. The
+ * the 7-day duty sum) with every other captain away but one on standby, and the red stage posts. The
  * flight id ('' when nothing is crewed that soon). Dev/test helper.
  */
 export function devCrewHours(g: GameState, limit: OohLimit = 'block28d'): string {
   const cands = Object.values(g.flights)
-    .filter((f) => f.status === 'scheduled' && f.aircraftId && f.kind !== 'deadhead' && f.dutyId && f.std > g.now && f.std <= g.now + 10 * 60 && f.crewIds.length > 0)
-    .sort((a, b) => a.std - b.std || (a.id < b.id ? -1 : 1));
+    .filter((f) => f.status === 'scheduled' && f.aircraftId && f.kind !== 'deadhead' && f.dutyId && f.std > g.now && f.std <= g.now + 10 * 60 && f.crewIds.length > 0 && g.fleet[f.aircraftId]?.status !== 'leasedOut')
+    // A departure from base first (where a standby captain can be), then the soonest.
+    .sort((a, b) => Number(b.from === g.company.homeBase) - Number(a.from === g.company.homeBase) || a.std - b.std || (a.id < b.id ? -1 : 1));
   for (const f of cands) {
     const d = g.duties[f.dutyId!];
     const p = d ? g.pairings[d.pairingId] : undefined;
@@ -413,10 +425,16 @@ export function devCrewHours(g: GameState, limit: OohLimit = 'block28d'): string
       c.log.push({ start, end: start + 12 * 60, fdp: 12 * 60, block: week ? 3 * 60 : 10 * 60, sectors: 2, augmented: false, disruptive: false });
     }
     c.log.sort((a, b) => a.start - b.start);
-    for (const o of Object.values(g.crew)) if (o.role === 'CPT' && o.id !== cpt) o.blocks = [...(o.blocks ?? []), { from: g.now, to: g.now + 2 * DAY, why: 'leave' }];
+    // Every other captain away but one on standby at the departure: the card's 'Replace X: Y is on standby'.
+    const fam = typeOf(g.fleet[f.aircraftId!].typeId).family;
+    const crewOn = new Set(Object.values(g.pairings).flatMap((q) => q.slots.map((s) => s.crewId)));
+    const sby = Object.values(g.crew).find((o) => o.role === 'CPT' && o.id !== cpt && o.ratings.includes(fam) && o.loc === f.from && !crewOn.has(o.id) && o.restUntil <= d.report - 2 * 60 && !o.blocks?.some((b) => b.from < d.release && b.to > g.now));
+    for (const o of Object.values(g.crew)) if (o.role === 'CPT' && o.id !== cpt && o !== sby) o.blocks = [...(o.blocks ?? []), { from: g.now, to: g.now + 2 * DAY, why: 'leave' }];
+    if (sby) sby.standby = [...(sby.standby ?? []).filter((w) => w.to <= g.now || w.from >= d.release), { from: g.now - 60, to: g.now + 11 * 60, ...(f.from === sby.base ? {} : { kind: 'hotel' as const, at: f.from }) }];
     touchCrewState(g);
     recheckPairing(g, p);
-    escalateShortages(g);
+    // The scene shows the red alert itself: no routine call-out first.
+    escalateShortages(g, { freeFix: false });
     return f.id;
   }
   return '';

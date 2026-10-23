@@ -15,13 +15,18 @@ import type { ClientLevel } from '../engine/contracts';
 import type { WorldEventKind } from '../engine/core/types';
 import { devDeportation, devDryLease, devEvacuation, devHajj, devLevel, devMixedCrew, devRivalBid, devWorldEvent } from '../engine/dev';
 import { demoFlights, devAddType, devCrewShortage, devExtension, devFleet, devGrantApproval, devMarketOffer, devRestPlan, devRestSeats, devSaleReady, devShortCruise, devSplit, devStandby } from '../engine/dev';
-import { resignNow } from '../engine/crew';
+import { dropTargets, moveDuty, publishedTo, resignNow, type DropTarget, type MoveScope } from '../engine/crew';
+import { headsView, headView } from '../engine/ops';
 import { createGame, type NewGameOptions } from '../engine/newGame';
 import { AUTOSAVE_SLOT, saveToSlot, serialize } from '../engine/save';
 import { advanceTo, settle } from '../engine/sim';
 import { prepareAsyncSave, saveTextAsync, supersedeAsyncSave } from './asyncSave';
 import { autoplay } from './devPlay';
-import { type SoundName, sound } from './sound';
+import { type Ambience, sound, type SoundEvent } from './sound';
+import { takeCues } from '../engine/core/cues';
+import type { HeadId } from '../engine/core/types';
+import { devAchievement, devCrewHours, devJumbo, devRestAtDeparture, devRoster, devSlipOffer, devUnlockHead } from '../engine/dev';
+import type { OohLimit } from '../engine/core/types';
 
 export type { GameSpeed } from '../engine/core/time';
 export type AppScreen = 'loading' | 'title' | 'newgame' | 'game';
@@ -46,12 +51,19 @@ export interface Settings {
   seenWhatsNew: string;
   /** v0.7.1: kinds of problem whose first-time hint the player dismissed with 'Don't show again'. */
   hintsSeen: string[];
+  /** v0.9 §S.5 sound categories (master = `sound`, `volume`); ambience stays off unless chosen. */
+  soundCats: { alerts: boolean; chimes: boolean; flights: boolean; ui: boolean };
+  ambience: Ambience;
+  /** v0.9 §14.2 screens whose first-time hint the player switched off ('Don't show again'). */
+  screenHintsSeen: string[];
+  /** v0.9 §X: '' until the one-time What's new catch-up (v0.9 + v0.8 + v0.7.4) has been shown, then 'v0.9'. */
+  whatsNewCatchUp: string;
 }
 
 const DEFAULT_SETTINGS: Settings = {
   units: 'km',
   sound: true,
-  volume: 0.5,
+  volume: 0.6,
   autosave: true,
   autoPause: { decision: true, urgentOffer: true, aog: true, monthEnd: false, contractStart: false, crewShortage: true, marketOffer: false, crewHours: true, rule: true },
   mapAnimations: true,
@@ -60,6 +72,10 @@ const DEFAULT_SETTINGS: Settings = {
   marketAlerts: true,
   seenWhatsNew: '',
   hintsSeen: [],
+  soundCats: { alerts: true, chimes: true, flights: false, ui: true },
+  ambience: 'off',
+  screenHintsSeen: [],
+  whatsNewCatchUp: '',
 };
 
 export interface Nav {
@@ -116,11 +132,14 @@ export type ModalSpec =
   | { kind: 'client'; clientId: string }
   | { kind: 'rival'; rivalId: string }
   | { kind: 'outlook' }
-  | { kind: 'worldEvent'; eventId: string };
+  | { kind: 'worldEvent'; eventId: string }
+  /** v0.9 §5.4 the celebration card of a department head just earned (`ids`: several earned at once, e.g. an old save). */
+  | { kind: 'headUnlocked'; id: HeadId; ids?: HeadId[] };
 
 export interface Toast {
   id: number;
-  kind: 'good' | 'bad' | 'warn' | 'info';
+  /** v0.9 'achievement': the calm trophy toast (§14.1). */
+  kind: 'good' | 'bad' | 'warn' | 'info' | 'achievement';
   title: string;
   body?: string;
   leaving?: boolean;
@@ -145,12 +164,12 @@ function loadSettings(): Settings {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (raw) {
       const s = JSON.parse(raw) as Partial<Settings>;
-      return { ...DEFAULT_SETTINGS, ...s, autoPause: { ...DEFAULT_SETTINGS.autoPause, ...s.autoPause } };
+      return { ...DEFAULT_SETTINGS, ...s, autoPause: { ...DEFAULT_SETTINGS.autoPause, ...s.autoPause }, soundCats: { ...DEFAULT_SETTINGS.soundCats, ...s.soundCats } };
     }
   } catch {
     // storage unavailable
   }
-  return { ...DEFAULT_SETTINGS, autoPause: { ...DEFAULT_SETTINGS.autoPause } };
+  return { ...DEFAULT_SETTINGS, autoPause: { ...DEFAULT_SETTINGS.autoPause }, soundCats: { ...DEFAULT_SETTINGS.soundCats } };
 }
 
 class GameStore {
@@ -188,7 +207,7 @@ class GameStore {
   private lastMsgId: string | null = null;
   private clockLabel = -1;
   /** v0.7: ladder-step celebrations and v0.7.1 first-time hints waiting for the modal slot; ids / kinds already shown (not saved). */
-  private ladderQueue: ({ ladder: string } | { hint: ProblemRef })[] = [];
+  private ladderQueue: ({ ladder: string } | { hint: ProblemRef } | { head: HeadId[] })[] = [];
   private ladderSeen = new Set<string>();
   private hintShown = new Set<string>();
 
@@ -204,6 +223,8 @@ class GameStore {
   getClockVersion = () => this.clockVersion;
 
   emit() {
+    // v0.9 §S.1: the engine's sound cues since the last look (advance, actions, dev scenes) go to the sound set.
+    for (const c of takeCues()) sound.event(c);
     this.version++;
     for (const fn of this.listeners) fn();
   }
@@ -217,6 +238,7 @@ class GameStore {
 
   setScreen(s: AppScreen) {
     this.screen = s;
+    sound.setScene(s === 'game');
     this.emit();
   }
 
@@ -242,6 +264,7 @@ class GameStore {
     this.savedMark = '';
     this.decisionDeferred = null;
     this.lastMsgId = this.game?.messages[0]?.id ?? null;
+    takeCues(); // what loading and the first settle raised is old news
     this.ladderQueue = [];
     this.ladderSeen = new Set();
     this.hintShown = new Set();
@@ -252,8 +275,19 @@ class GameStore {
     this.modal = null;
     this.modalBelow = null;
     this.screen = 'game';
+    sound.setScene(true);
+    // v0.9 §5.2 heads earned in an old save: the load posted 'N department heads are available' (now, unread), which the
+    // lastMsgId above marks as seen; queue its celebration card here, once per session.
+    const g = this.game;
+    if (g && !g.gameOver) {
+      const m = g.messages.find((x) => x.t === g.now && !x.read && x.topic === 'head' && HEADS_AVAILABLE.test(x.title));
+      if (m && !this.headCardsShown.has(m.id)) { this.headCardsShown.add(m.id); this.queueHead(m); this.flushLadder(); }
+    }
     this.startLoop();
   }
+
+  /** v0.9 §5.2 backfill messages whose card this session already opened. */
+  private headCardsShown = new Set<string>();
 
   /** Always writes the autosave (even with Autosave off), unless the game is over. */
   quitToTitle() {
@@ -262,6 +296,7 @@ class GameStore {
     this.game = null;
     this.modal = null;
     this.screen = 'title';
+    sound.setScene(false);
     this.emit();
   }
 
@@ -339,14 +374,13 @@ class GameStore {
     this.speed = s;
     this.paused = false;
     this.pauseReason = null;
-    sound.play('tick');
     this.emit();
   }
 
   togglePause() {
     this.paused = !this.paused;
     this.pauseReason = null;
-    sound.play('tick');
+    sound.event(this.paused ? 'pause' : 'resume');
     this.emit();
     // After the paused state paints; skipped when nothing moved since the last save.
     if (this.paused) setTimeout(() => this.saveAutoSoon(), 0);
@@ -369,7 +403,6 @@ class GameStore {
   /** Re-opens a decision set aside with 'Look first'. */
   reopenDecision() {
     this.decisionDeferred = null;
-    sound.play('click');
     this.emit();
   }
 
@@ -424,7 +457,7 @@ class GameStore {
     this.paused = true;
     this.pauseReason = reason;
     if (this.game) this.exact = this.game.now;
-    sound.play('alert');
+    sound.event('pause');
   }
 
   /** Quiet toasts for important new messages only. Returns whether anything new arrived. */
@@ -435,11 +468,15 @@ class GameStore {
       this.queueHint(m);
       // v0.7: ladder steps get the celebration card instead of a toast; market offers a quiet info toast (alerts on).
       if (m.topic === 'ladder') this.queueLadder(m.id);
-      else if (m.topic === 'crewRed') {
-        // v0.7.1 the red crew-shortage stage: its own sound (hook for the v0.9 set) and the banner as the toast title.
-        sound.play('crewShortage');
+      else if (this.queueHead(m)) continue;
+      else if (m.topic === 'crewRed' || m.topic === 'crewHours') {
+        // v0.7.1 the red crew stage (v0.9: shortage or out of hours; the urgent alarm comes from its cue): the banner as the toast title.
         if (this.settings.toasts && !this.modal) this.toast('bad', crewRedTitle(m), m.body.length > 140 ? m.body.slice(0, 137) + '…' : m.body);
       } else if (!this.settings.toasts || this.modal) continue; // news waits in the Inbox while a dialog is open
+      else if (m.topic === 'achievement') {
+        // v0.9 §14.1 a calm trophy toast; an achievement that earns a head is followed by the head's card instead.
+        if (!fresh.some((x) => x.topic === 'head' && HEAD_EARNED.test(x.title))) this.toast('achievement', m.title.replace(/^Achievement: /, ''), m.body);
+      } else if (m.topic === 'head') continue; // a head's quiet note waits in the Inbox
       else if (m.topic === 'market') {
         if (this.settings.marketAlerts) this.toast('info', m.title.replace(/^Market: /, ''), marketToastBody(m));
       } else if (m.tone === 'bad' || m.cat === 'goal') this.toast(m.tone === 'bad' ? 'bad' : 'good', m.title, m.body.length > 140 ? m.body.slice(0, 137) + '…' : m.body);
@@ -458,6 +495,18 @@ class GameStore {
     }
     this.lastMsgId = g.messages[0]?.id ?? this.lastMsgId;
     return fresh.reverse();
+  }
+
+  /** v0.9 §5.4 a head just earned (or several, from an old save) queues its celebration card; true when queued. */
+  private queueHead(m: Message): boolean {
+    if (m.topic !== 'head' || !(HEAD_EARNED.test(m.title) || HEADS_AVAILABLE.test(m.title))) return false;
+    const g = this.game;
+    if (!g) return false;
+    const ids = m.ref?.kind === 'head' && HEAD_EARNED.test(m.title) ? [m.ref.id as HeadId]
+      : headsView(g).filter((h) => h.unlocked && !h.person).map((h) => h.id);
+    if (!ids.length || this.ladderQueue.some((q) => 'head' in q && q.head[0] === ids[0])) return false;
+    this.ladderQueue.push({ head: ids });
+    return true;
   }
 
   private queueLadder(id: string) {
@@ -485,6 +534,13 @@ class GameStore {
   private flushLadder(): void {
     if (this.modal || !this.game || this.game.gameOver || this.decisionOpen || !this.ladderQueue.length) return;
     const q = this.ladderQueue.shift()!;
+    if ('head' in q) {
+      // Hired meanwhile (Company › Team): nothing to celebrate any more.
+      const open = q.head.filter((id) => !headView(this.game!, id).person);
+      if (!open.length) return this.flushLadder();
+      this.modal = { kind: 'headUnlocked', id: open[0], ids: open.length > 1 ? open : undefined };
+      return;
+    }
     if ('hint' in q) {
       if (this.settings.hintsSeen.includes(q.hint.kind)) { this.hintShown.add(q.hint.kind); return this.flushLadder(); }
       // Fixed by the time the slot freed: keep the hint for the next time that kind appears.
@@ -497,7 +553,6 @@ class GameStore {
     this.ladderSeen.add(id);
     if (!this.game.messages.some((m) => m.id === id)) return this.flushLadder();
     this.modal = { kind: 'ladderStep', messageId: id };
-    sound.play('success');
   }
 
   /** v0.7: whether the Inbox, badges and toasts show this message (market alerts can be turned off). */
@@ -518,7 +573,7 @@ class GameStore {
   // ---------- actions ----------
 
   /** Runs a player action against the game, toasts the result and re-renders. */
-  act<T>(fn: (g: GameState) => ActionResult<T>, opts: { toastOk?: boolean; sound?: SoundName } = {}): ActionResult<T> {
+  act<T>(fn: (g: GameState) => ActionResult<T>, opts: { toastOk?: boolean } = {}): ActionResult<T> {
     const g = this.game;
     if (!g) return { ok: false, error: 'No game loaded' };
     clearPause();
@@ -537,19 +592,33 @@ class GameStore {
     if (pause && pause !== 'decision') this.autoPause(pause);
     if (!res.ok) {
       this.toast('bad', 'Not possible', res.error);
-      sound.play('error');
-    } else {
-      if (opts.toastOk !== false && res.msg) this.toast('good', res.msg);
-      sound.play(opts.sound ?? 'success');
-    }
-    // The action's own messages are not toasted (its result is); ladder steps still get their card, problems their hint.
+      sound.event('error');
+    } else if (opts.toastOk !== false && res.msg) this.toast('good', res.msg);
+    // The action's own messages are not toasted (its result is); ladder steps and heads still get their card, problems their hint.
     for (const m of this.takeFresh()) {
       if (m.topic === 'ladder') this.queueLadder(m.id);
+      else if (m.topic === 'achievement' && this.settings.toasts) this.toast('achievement', m.title.replace(/^Achievement: /, ''), m.body);
+      else this.queueHead(m);
       this.queueHint(m);
     }
     this.flushLadder();
     this.emit();
     return res;
+  }
+
+  /**
+   * v0.9 §R.5 a move onto a published day off asks first ("Take Ana Silva's day off?"): morale −6, the day off moves.
+   * The roster board's drop and dev.offBreak use it.
+   */
+  askTakeOff(dutyId: string, fromCrewId: string, toCrewId: string, scope: MoveScope, t: DropTarget) {
+    const who = this.game?.crew[toCrewId];
+    // 'Takes Ana's day off Tue 4 Nov; it moves to Thu 13 Nov (morale −6)' → the day in the title, the rest once below.
+    const m = /^Takes .+?'s day off (.+?)(?:; it moves to (.+?))? \(morale (.+?)\)$/.exec(t.offBreak ?? '');
+    this.openModal({
+      kind: 'confirm', title: `Take ${who ? `${who.first} ${who.last}'s` : 'their'} day off${m ? ` on ${m[1]}` : ''}?`, confirm: 'Take the day',
+      body: m ? `${m[2] ? `It moves to ${m[2]}. ` : ''}Morale ${m[3]}.` : `${t.offBreak}.`,
+      onConfirm: () => this.act((gg) => moveDuty(gg, dutyId, fromCrewId, toCrewId, scope, { takeOff: true })),
+    });
   }
 
   /** Mutates game state directly (no validation needed) and re-renders. */
@@ -591,7 +660,6 @@ class GameStore {
 
   navigate(tab: Tab, extra: Omit<Nav, 'tab'> = {}) {
     this.nav = { tab, ...extra };
-    sound.play('click');
     this.emit();
     document.querySelector('.main')?.scrollTo({ top: 0 });
   }
@@ -607,7 +675,6 @@ class GameStore {
     this.modal = m;
     // A dialog takes the stage: quiet toasts (already in the Inbox) must not cover its header.
     this.toasts = [];
-    sound.play('click');
     this.emit();
   }
 
@@ -636,7 +703,7 @@ class GameStore {
 
   setSettings(p: Partial<Settings>) {
     this.settings = { ...this.settings, ...p };
-    sound.configure(this.settings.sound, this.settings.volume);
+    configureSound(this.settings);
     applyTopGap(this.settings);
     try {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(this.settings));
@@ -851,15 +918,102 @@ class GameStore {
       this.emit();
       return id;
     },
+    /** v0.9 dev scenes: a head unlocked (its card), an achievement (toast), crew out of hours (Crew Control), a slip or
+     *  jumbo offer (offer dialog), the rest plan failing at departure (Crew Control), the roster on a DUB tour (board). */
+    head: (id: HeadId = 'opsControl') => {
+      const g = this.game;
+      if (!g) return '';
+      const r = devUnlockHead(g, id);
+      settle(g);
+      this.surfaceMessages();
+      this.emit();
+      return r;
+    },
+    achievement: (id = 'cleanSheet') => {
+      const g = this.game;
+      if (!g) return '';
+      const r = devAchievement(g, id);
+      settle(g);
+      this.surfaceMessages();
+      this.emit();
+      return r;
+    },
+    crewHours: (limit?: OohLimit) => {
+      const g = this.game;
+      if (!g) return '';
+      const id = devCrewHours(g, limit);
+      settle(g);
+      const pause = takePause(this.honoured());
+      if (pause) this.autoPause(pause);
+      this.surfaceMessages();
+      if (id) this.openModal({ kind: 'crewControl', flightId: id });
+      this.emit();
+      return id;
+    },
+    slip: (route?: 'MAD-SIN' | 'DIL-LIS') => this.devOffer((g) => devSlipOffer(g, route)),
+    jumbo: () => this.devOffer(devJumbo),
+    restAtDeparture: () => this.devScene(devRestAtDeparture, 'crewControl'),
+    roster: () => {
+      const g = this.game;
+      if (!g) return '';
+      const id = devRoster(g);
+      settle(g);
+      this.lastMsgId = g.messages[0]?.id ?? this.lastMsgId;
+      this.exact = g.now;
+      this.navigate('crew', { view: 'board', sel: id ? { kind: 'crew', id } : undefined });
+      return id;
+    },
+    /** v0.9 §R.5: finds a duty whose move would take someone's published day off and opens the board's confirm; returns the duty id. */
+    offBreak: () => {
+      const g = this.game;
+      if (!g) return '';
+      const pub = publishedTo(g);
+      let tried = 0;
+      for (const d of Object.values(g.duties)) {
+        if (d.done || d.report < g.now + 12 * 60 || d.report > pub) continue;
+        const from = g.pairings[d.pairingId]?.slots.find((x) => x.crewId)?.crewId;
+        if (!from || ++tried > 40) continue;
+        const t = Object.values(dropTargets(g, d.id, from, 'duty')).find((x) => x.offBreak && x.level !== 'illegal' && x.level !== 'ineligible');
+        if (!t) continue;
+        this.navigate('crew', { view: 'board' });
+        this.askTakeOff(d.id, from, t.crewId, 'duty', t);
+        return d.id;
+      }
+      return '';
+    },
+    /** v0.9: plays a sound now (Test sounds), or a sound event through the merge (`event`); the played log. */
+    sound: (id: Parameters<typeof sound.test>[0] = 'high') => sound.test(id),
+    soundEvent: (e: SoundEvent) => sound.event(e),
+    soundLog: () => sound.log.slice(),
     /** B5: React renders per screen (dev builds only), to check the calm-UI budget (≤ ~2/s at 4×). */
     renders: {} as Record<string, number>,
   };
 }
 
-/** 'CREW SHORTAGE · AWQ816' from a red-stage message title ('CREW SHORTAGE: AWQ816 in 11 h'). */
+/** 'CREW SHORTAGE · AWQ816' from a red-stage message title ('CREW SHORTAGE: AWQ816 in 11 h'; v0.9 also CREW OUT OF HOURS). */
 function crewRedTitle(m: Message): string {
-  const no = /^CREW SHORTAGE: (\S+)/.exec(m.title)?.[1];
-  return no ? `CREW SHORTAGE · ${no}` : m.title;
+  const x = /^(CREW SHORTAGE|CREW OUT OF HOURS): (\S+)/.exec(m.title);
+  return x ? `${x[1]} · ${x[2]}` : m.title;
+}
+
+/** v0.9 head messages: one head earned ("You've earned an Ops Control duty manager"), several from an old save. */
+const HEAD_EARNED = /^You['’]ve earned /;
+const HEADS_AVAILABLE = /department heads? (?:is|are) available/i;
+
+function configureSound(s: Settings) {
+  sound.configure({ on: s.sound, volume: s.volume, cats: s.soundCats, ambience: s.ambience });
+}
+
+/** v0.9 §S.3 soft UI clicks: any button taps; toggles, segmented controls and speed buttons tick (capture, no React). */
+function installClickSounds() {
+  document.addEventListener('click', (e) => {
+    const el = (e.target as Element | null)?.closest?.('button, [role="button"], [role="tab"], a[href]');
+    if (!el || (el as HTMLButtonElement).disabled) return;
+    let ev: SoundEvent = 'tap';
+    if (el.classList.contains('toggle')) ev = el.classList.contains('on') ? 'toggleOff' : 'toggle';
+    else if (el.closest('.seg, .speed')) ev = el.classList.contains('sp-pause') ? 'tap' : 'toggle';
+    sound.event(ev);
+  }, true);
 }
 
 /** 'AerCap, Santiago': the lessor and handover city from a market message body (short, quiet toast). */
@@ -881,7 +1035,9 @@ export function takeResumeSave(): string | null {
   resumeSave = null;
   return s;
 }
-sound.configure(store.settings.sound, store.settings.volume);
+configureSound(store.settings);
+sound.installUnlock();
+if (typeof document !== 'undefined') installClickSounds();
 // Handy for debugging and automated testing from the console.
 (globalThis as unknown as { __contrail?: GameStore }).__contrail = store;
 

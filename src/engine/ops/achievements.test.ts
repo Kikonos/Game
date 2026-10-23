@@ -19,14 +19,14 @@ const SET: Record<AchievementId, (g: GameState) => void> = {
   clockwork: (g) => { v09Stats(g).onTimeM = { [monthKey(g.now) - 1]: [40, 39] }; },
   outstationFix: (g) => { v09Stats(g).outstationFix = 1; },
   ninetyClean: (g) => { v09Stats(g).lastCancel = g.now - 91 * DAY; },
-  fullCover: (g) => { const k = monthKey(g.now); v09Stats(g).cover = { [k - 2]: [50, 0], [k - 1]: [60, 1] }; },
+  fullCover: (g) => { const k = monthKey(g.now); v09Stats(g).cover = { [k - 2]: [100, 0], [k - 1]: [120, 1] }; },
   bunkTime: (g) => { v09Stats(g).restPlans = 1; },
   slipCrew: (g) => { v09Stats(g).slips = 1; },
   standby: (g) => { rosterStats(g).callOuts = 25; },
   goodPlace: (g) => { for (const c of Object.values(g.crew)) c.morale = 80; },
   cOnTime: (g) => { v09Stats(g).cOnTime = 1; },
   noOverdue: (g) => { v09Stats(g).lastOverdue = g.now - 366 * DAY; },
-  fiveFlown: (g) => { g.stats.contractsDone = 5; },
+  fiveFlown: (g) => { v09Stats(g).bigDone = 5; },
   paidInTheEnd: (g) => { v09Stats(g).lateGovPaid = 1; },
   partner: (g) => { Object.values(g.clients)[0].level = 'partner'; },
   firstCall: (g) => { v09Stats(g).firstCall = 1; },
@@ -35,7 +35,7 @@ const SET: Record<AchievementId, (g: GameState) => void> = {
   blueIce: (g) => { v09Stats(g).antarctic = 1; },
   widebody: (g) => { devAddType(g, 'a332'); },
   queen: (g) => { v09Stats(g).queenSectors = 1; },
-  reliable: (g) => { g.company.reputation.reliable = 85; },
+  reliable: (g) => { g.company.reputation.reliable = 90; v09Stats(g).reliableSince = g.now - 31 * DAY; },
   cleanRecord: (g) => { g.company.reputation.clean = 80; },
   inTheBlack: (g) => {
     const y = Math.floor(monthKey(g.now) / 12) - 1;
@@ -96,8 +96,9 @@ describe('§14.1 backfill and progress', () => {
     const g = fixtureGame(73);
     delete g.achievements;
     for (const h of Object.values(g.heads ?? {})) h.unlockedAt = null;
-    g.stats.contractsDone = 6;
+    v09Stats(g).bigDone = 6;
     g.company.reputation.reliable = 90;
+    v09Stats(g).reliableSince = g.now - 31 * DAY;
     const m0 = g.messages.length;
     takeCues();
     const got = loadAchievements(g);
@@ -118,7 +119,7 @@ describe('§14.1 backfill and progress', () => {
 
   it('progress values and the gallery view', () => {
     const g = fresh(74);
-    g.stats.contractsDone = 3;
+    v09Stats(g).bigDone = 3;
     expect(achievementProgress(g, 'fiveFlown')).toEqual({ have: 3, need: 5, label: '3 of 5 contracts' });
     rosterStats(g).callOuts = 7;
     expect(achievementProgress(g, 'standby')).toEqual({ have: 7, need: 25, label: '7 of 25 call-outs' });

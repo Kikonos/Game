@@ -477,4 +477,4 @@ export const crewModule: SimModule = {
 // v0.8 mixed-crew contracts (UPDATE-0.8.md §7).
 export { clientCrewOf, clientCrewRows, mixedCrewFlavour, mixedCrewText } from './clientCrew';
 // v0.7.4 crew planning by type family (crew sets) and the round-up hire.
-export { awayOnDryLease, completeSets, crewPlan, familyName, missingFor, roundTargets, roundUpQuote, roundUpRoles, SET_ROLES, SETS_WHY, setWords, type FamilyPlan, type RoundUpLine, type SetRole, type TypeSet } from './sets';
+export { awayOnDryLease, completeSets, crewPlan, familyName, missingFor, roundTargets, roundUpQuote, roundUpRoles, SET_ROLES, SETS_DETACHED, SETS_WHY, setsForStation, setWords, type FamilyPlan, type RoundUpLine, type SetRole, type TypeSet } from './sets';

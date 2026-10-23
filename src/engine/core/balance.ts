@@ -378,7 +378,8 @@ export const BAL = {
   // ---------- v0.9 Experience (ENGINE; UPDATE-0.9.md §11) ----------
   v09: {
     heads: {
-      salary: { opsControl: 9_000, maintPlanner: 8_000, crewDesk: 14_000, analyst: 9_000, credit: 6_000, fleetPlanner: 10_000, watch: 5_000 } as Record<string, number>,
+      // v0.9 fix: RESEARCH §5.5 levels (a crew planner €2.5k; duty managers and analysts about twice that) + 25 % on-costs.
+      salary: { opsControl: 7_000, maintPlanner: 5_500, crewDesk: 6_500, analyst: 5_500, credit: 4_000, fleetPlanner: 6_500, watch: 3_500 } as Record<string, number>,
       /** Candidate tiers: [skill min, skill max, salary ×] junior, mid, senior. */
       tiers: [[0.55, 0.65, 0.7], [0.7, 0.8, 1], [0.85, 0.92, 1.45]] as [number, number, number][],
       growth: 0.02, growthDays: 90, cap: 0.95, mistake: 0.35,

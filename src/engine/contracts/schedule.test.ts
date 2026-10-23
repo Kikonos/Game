@@ -196,6 +196,29 @@ describe('relinkPositioning', () => {
     expect(liveFlights(g, ac.id).map((f) => f.id).join()).toBe(ids);
   });
 
+  it('v0.9 fix: a late inbound retimes the empty legs after it (same flights, crews kept) instead of re-making them', async () => {
+    const { relinkPositioning } = await import('.');
+    const { retimeFlight } = await import('../core/entities');
+    const g = newGame(31);
+    const ac = leased(g);
+    const away = offer(g, 'adhoc', { start: g.now + 10 * DAY });
+    expect(acceptOffer(g, away.id, [ac.id]).ok).toBe(true);
+    const last = liveFlights(g, ac.id).filter((f) => f.contractId && f.kind !== 'positioning').at(-1)!;
+    const after = () => liveFlights(g, ac.id).filter((f) => f.kind === 'positioning' && f.std >= last.sta);
+    const before = after();
+    expect(before.length).toBeGreaterThan(0);
+    // The inbound lands 40 min later than the empty leg home can leave after it.
+    const turn = typeOf(ac.typeId).turnMin;
+    const late = before[0].std - turn + 40 - last.sta;
+    expect(late).toBeGreaterThan(0);
+    retimeFlight(g, last, last.std + late, last.sta + late);
+    expect(relinkPositioning(g, ac.id)).toEqual([]);
+    const now = after();
+    expect(now.map((f) => f.id)).toEqual(before.map((f) => f.id));
+    expect(now[0].std).toBeGreaterThanOrEqual(last.sta + turn);
+    turnsOk(g, ac.id);
+  });
+
   it('v0.8 fix pack: a late chain with a fuel stop (LGW–KAN–LAD after an AOG) is a fixed point too, not re-planned on every pass', async () => {
     const { relinkPositioning } = await import('.');
     const g = newGame(31);

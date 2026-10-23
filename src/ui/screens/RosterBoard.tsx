@@ -7,20 +7,20 @@
 import { BedDouble, CalendarDays, Check, Lock } from 'lucide-react';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flightsRev } from '../../engine/core/entities';
-import { DAY, HOUR, dayStart, fmtDay, toDate } from '../../engine/core/time';
+import { DAY, HOUR, dayStart, fmtDay, monthKey, toDate } from '../../engine/core/time';
 import type { GameState, Role } from '../../engine/core/types';
 import type { RatingFamily } from '../../data/acmiTypes';
-import { clientCrewRows, crewRev, dropTargets, familyLabel, moveDuty, rosterBoard, type BoardBlock, type BoardRow, type DropTarget, type MoveScope } from '../../engine/crew';
+import { clientCrewRows, crewMonth, crewRev, dropTargets, familyLabel, moveDuty, publishedTo, rosterBoard, type BoardBlock, type BoardRow, type DropTarget, type MoveScope } from '../../engine/crew';
 import type { CalBlock } from '../../engine/crew/calendar';
 import { ColourLegend } from '../components/ColourLegend';
 import { Seg } from '../components/ui';
 import { liveMinute, store, useThrottledNow } from '../store';
 import { useRenderCount } from './common';
 import { seatLabel } from '../../engine/core/perf';
-import { CAL_KEY_LABEL, calKey, calLayer, calLegend, type CalKey } from './crewLogic';
+import { CAL_KEY_CODE, CAL_KEY_LABEL, calKey, calLayer, calLegend, type CalKey } from './crewLogic';
 import {
   BACK_DAYS, BOARD_DAYS, blockCands, blockKeys, boardItems, clientItems, itemsSig, rowSig, boardLayout, dayCodes, dayWidth, dayWindow, edgeSpeed, fitText, HEAD_H, itemAt, LEFT_W,
-  moraleTone, NO_BOARD_FILTER, ROLE_PLURAL, splitMark, verdictText, visibleRange, weekLabels, type BoardFilter, type BoardItem, type BoardZoom, type RankFilter,
+  monthCell, moraleTone, NO_BOARD_FILTER, ROLE_PLURAL, splitMark, verdictText, visibleRange, weekLabels, type BoardFilter, type BoardItem, type BoardZoom, type RankFilter,
 } from './rosterBoardLogic';
 
 const ZOOM_KEY = 'bh.boardZoom';
@@ -61,6 +61,10 @@ function measure(s: string): number {
 }
 
 const fmtLeave = (t: number) => fmtDay(t - 1);
+/** v0.9 §R.8 footer legend: the board codes with their meaning. */
+const BOARD_LEGEND: Partial<Record<CalKey, string>> = Object.fromEntries(
+  (Object.entries(CAL_KEY_CODE) as [CalKey, string][]).map(([k, code]) => [k, k === 'leave' ? 'LEAVE' : k === 'sbyHotel' ? 'SBY + station: hotel' : `${code} ${k === 'off' ? 'day off' : k === 'standby' ? 'home' : k === 'asby' ? 'airport' : 'reserve'}`]),
+);
 const WD_SHORT = new Intl.DateTimeFormat('en-GB', { weekday: 'short', timeZone: 'UTC' });
 const WD_NARROW = new Intl.DateTimeFormat('en-GB', { weekday: 'narrow', timeZone: 'UTC' });
 const MON_SHORT = new Intl.DateTimeFormat('en-GB', { month: 'short', timeZone: 'UTC' });
@@ -75,6 +79,8 @@ interface RowProps {
   tone?: DropTarget['level'] | 'source';
   selecting: boolean;
   checked: boolean;
+  /** v0.9 Month zoom: the row's month summary cell ('9 · S11 · F8'), red below 7 days off. */
+  sum?: { text: string; low: boolean; line: string };
 }
 
 /** v0.8 a client cabin crew row: grey blocks for their duties, no names, nothing to tap or drag. */
@@ -94,7 +100,7 @@ const ClientLane = memo(function ClientLane({ label, blocks, from, dayW, d0, d1 
   );
 });
 
-const Row = memo(function Row({ row, from, dayW, d0, d1, zoom, tone, selecting, checked }: RowProps) {
+const Row = memo(function Row({ row, from, dayW, d0, d1, zoom, tone, selecting, checked, sum }: RowProps) {
   const ppm = dayW / DAY;
   const lo = from + d0 * DAY;
   const hi = from + d1 * DAY;
@@ -106,6 +112,8 @@ const Row = memo(function Row({ row, from, dayW, d0, d1, zoom, tone, selecting, 
     .filter(([b]) => b.end > lo && b.start < hi && !(month && b.kind === 'rest'))
     .sort((a, b) => calLayer(a[0]) - calLayer(b[0]));
   const codes = month ? dayCodes(row.blocks, from, BOARD_DAYS).filter((c) => c.day >= d0 && c.day < d1) : [];
+  // Month: a day with a work / standby code shows that code, not the day off's text under it.
+  const codeDays = new Set(codes.map((c) => c.day));
   // Week: flight numbers and route in the band above the bars, each with a ≥ 44 px tap / drag area.
   const labels = month ? [] : weekLabels(row.blocks, from, dayW, measure).filter((l) => l.hx < d1 * dayW && l.hx + l.hw > d0 * dayW);
   return (
@@ -125,7 +133,7 @@ const Row = memo(function Row({ row, from, dayW, d0, d1, zoom, tone, selecting, 
         {row.leaves !== null && row.leaves < hi && (
           <span className="rb-left" style={{ left: Math.max(0, (row.leaves - from) * ppm), width: Math.max(0, W - Math.max(0, (row.leaves - from) * ppm)) }} />
         )}
-        {blocks.map(([b, i]) => <Block key={keys[i]} b={b} i={i} crewId={row.crewId} from={from} ppm={ppm} W={W} month={month} />)}
+        {blocks.map(([b, i]) => <Block key={keys[i]} b={b} i={i} crewId={row.crewId} from={from} ppm={ppm} W={W} month={month} mute={month && b.kind === 'off' && hasCode(codeDays, b.start - from, b.end - from)} />)}
         {labels.map((l) => {
           const b = row.blocks[l.i];
           return (
@@ -147,9 +155,16 @@ const Row = memo(function Row({ row, from, dayW, d0, d1, zoom, tone, selecting, 
           );
         })}
       </div>
+      {sum && <span className={`rb-sum ${sum.low ? 'low' : ''}`} data-sum={row.crewId} aria-label={sum.line}>{sum.text}</span>}
     </div>
   );
 });
+
+/** Month: whether a work / standby code sits on any UTC day the block touches (its OFF text would collide). */
+function hasCode(days: Set<number>, a: number, b: number): boolean {
+  for (let d = Math.floor(Math.max(0, a) / DAY); d <= Math.floor((b - 1) / DAY); d++) if (days.has(d)) return true;
+  return false;
+}
 
 /** v0.7.3 a label with its duty mark drawn as a tag: bed icon + 3P/4P, +1h, SPLIT. Static. */
 function LabelText({ text }: { text: string }) {
@@ -158,7 +173,7 @@ function LabelText({ text }: { text: string }) {
   return <>{base}<span className="rb-mark" aria-label={mark === '+1h' ? 'planned extension' : mark === 'SPLIT' ? 'split duty' : `${mark[0]} pilots, in-flight rest`}>{mark.endsWith('P') && <BedDouble aria-hidden />}{mark}</span></>;
 }
 
-const Block = memo(function Block({ b, i, crewId, from, ppm, W, month }: { b: BoardBlock; i: number; crewId: string; from: number; ppm: number; W: number; month: boolean }) {
+const Block = memo(function Block({ b, i, crewId, from, ppm, W, month, mute }: { b: BoardBlock; i: number; crewId: string; from: number; ppm: number; W: number; month: boolean; mute?: boolean }) {
   const key = calKey(b);
   const layer = calLayer(b);
   const l = Math.max(0, (b.start - from) * ppm);
@@ -167,7 +182,7 @@ const Block = memo(function Block({ b, i, crewId, from, ppm, W, month }: { b: Bo
   if (w <= 0) return null;
   const thin = month && layer === 2;
   // Work and travel labels live in the week band (weekLabels) or the month day tile; status windows label themselves.
-  const txt = layer === 2 || key === 'rest' ? '' : fitText(blockCands(b), w - (b.locked ? 14 : 0), measure, month ? 4 : 12);
+  const txt = layer === 2 || key === 'rest' || mute ? '' : fitText(blockCands(b), w - (b.locked ? 14 : 0), measure, month ? 4 : 12);
   const free = key === 'off' && b.label === 'Free';
   // Sticky label only on status windows of two days or more (see .rb-blk.long).
   const long = layer === 1 && w >= 2 * DAY * ppm;
@@ -181,6 +196,7 @@ const Block = memo(function Block({ b, i, crewId, from, ppm, W, month }: { b: Bo
     >
       {txt && <span className="sc-cal-t"><LabelText text={txt} /></span>}
       {b.locked && w >= 16 && <Lock className="rb-lock" aria-label="set by you" />}
+      {b.protected && w >= (month ? 26 : 40) && <Lock className="rb-lock rb-prot" aria-label="published day off" />}
     </span>
   );
 });
@@ -491,11 +507,13 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
       const t = to && d.targets ? d.targets[to] : undefined;
       if (!drop || !to || to === d.crewId || !t || t.level === 'ineligible') return;
       const sc = live.current.scope;
+      // v0.9 §R.5: work on a published day off asks first (morale −6; the day off moves).
+      if (t.offBreak && t.level !== 'illegal') return store.askTakeOff(d.dutyId, d.crewId, to, sc, t);
       if (t.level === 'illegal') {
         store.openModal({
           kind: 'confirm', danger: true, title: 'Assign anyway?', confirm: 'Assign anyway',
           body: `${t.reason}. It stays flagged red until fixed.`,
-          onConfirm: () => store.act((gg) => moveDuty(gg, d.dutyId, d.crewId, to, sc, { force: true })),
+          onConfirm: () => store.act((gg) => moveDuty(gg, d.dutyId, d.crewId, to, sc, { force: true, takeOff: !!t.offBreak })),
         });
       } else store.act((gg) => moveDuty(gg, d.dutyId, d.crewId, to, sc));
     };
@@ -604,6 +622,14 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
       if (it && it.kind === 'group') onSelect(it.ids, !it.ids.every((id) => selected.has(id)));
       return;
     }
+    const sumEl = t.closest<HTMLElement>('[data-sum]');
+    if (sumEl) {
+      const id = sumEl.dataset.sum!;
+      const v = crewMonth(g, id, monthT);
+      const cm = g.crew[id];
+      setPop({ x: e.clientX - 200, y: e.clientY, key: 'off', title: cm ? `${cm.first} ${cm.last}` : 'Month', detail: v.line });
+      return;
+    }
     const name = t.closest<HTMLElement>('[data-name]');
     if (name) {
       const id = name.dataset.name!;
@@ -626,14 +652,33 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
     const d = b.dutyId ? g.duties[b.dutyId] : undefined;
     const slot = d && cm ? g.pairings[d.pairingId]?.slots.find((x) => x.crewId === cm.id) : undefined;
     const as = slot && cm && slot.role !== cm.role ? `\nSeat: ${seatLabel(slot.role, cm.role)}` : '';
-    setPop({ x: e.clientX, y: e.clientY, key: k, title: b.kind === 'training' || b.kind === 'leave' ? b.label : b.label === 'Free' ? 'Not rostered yet' : CAL_KEY_LABEL[k], detail: b.detail + as });
+    setPop({ x: e.clientX, y: e.clientY, key: k, title: b.kind === 'training' || b.kind === 'leave' || b.kind === 'rest' ? b.label : b.label === 'Free' ? 'Not rostered yet' : CAL_KEY_LABEL[k], detail: b.detail + as });
   };
 
   const families = useMemo(() => [...new Set(Object.values(g.crew).flatMap((c) => c.ratings))].sort() as RatingFamily[], [g, nCrew, crev]); // eslint-disable-line react-hooks/exhaustive-deps
   const bases = useMemo(() => [...new Set(Object.values(g.crew).map((c) => c.base))].sort(), [g, nCrew]); // eslint-disable-line react-hooks/exhaustive-deps
   const legend = calLegend([...rows.values()].flatMap((r) => r.blocks)).filter((k) => !(zoom === 'month' && k === 'rest'));
-  const W = LEFT_W + BOARD_DAYS * dayW;
+  const month = zoom === 'month';
+  const SUM_W = month ? 88 : 0;
+  const W = LEFT_W + BOARD_DAYS * dayW + SUM_W;
   const [d0, d1] = days;
+  // v0.9 §R: the published roster ends here (a static rule, its date in the corner); Month: each row's month summary
+  // for the month in the middle of the view.
+  const pub = publishedTo(g);
+  const pubX = LEFT_W + (pub - from) * ppm;
+  const monthT = from + Math.floor((d0 + d1) / 2) * DAY;
+  const sums = useMemo(() => {
+    const out = new Map<string, { text: string; low: boolean; line: string }>();
+    if (!month) return out;
+    for (const id of ids) {
+      const v = crewMonth(g, id, monthT);
+      const c = monthCell(v);
+      // Red only once the whole month is published (a month still being planned is not short yet).
+      out.set(id, { ...c, low: c.low && monthKey(pub) > v.key, line: v.line });
+    }
+    return out;
+  }, [g, month, monthT, ids.join(), crev, rev, Math.floor(now / DAY)]); // eslint-disable-line react-hooks/exhaustive-deps
+  const monthLabel = month ? MON_SHORT.format(toDate(monthT)) : '';
   const today = Math.floor((dayStart(now) - from) / DAY);
   const nRows = items.filter((x) => x.kind === 'crew').length;
   // v0.7 C2: day header and columns only change with the window (toLocaleDateString was the board's top self cost).
@@ -680,12 +725,18 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
       </div>
       <div className={`rb-scroll ${drag ? 'dragging' : ''} z-${zoom}`} ref={scroller} onScroll={() => { sync(); if (pop) setPop(null); }} onClick={onClick}>
         <div className="rb-canvas" style={{ width: W }}>
-          <div className="rb-head" style={{ width: W }}>
-            <div className="rb-corner small muted">{nRows} crew</div>
+          <div className={`rb-head ${month ? 'with-sum' : ''}`} style={{ width: W }}>
+            <div className="rb-corner small muted col">
+              <span>{nRows} crew</span>
+              <span className="rb-pub-k">Published to {fmtDay(pub - 1)}</span>
+            </div>
             {head}
+            {pub > from && pub < to && <span className="rb-pub rb-pub-h" style={{ left: pubX }} aria-hidden />}
+            {month && <><span className="rb-sum-gap" style={{ width: BOARD_DAYS * dayW }} /><span className="rb-sum rb-sum-h"><b>{monthLabel}</b><span>off · S · F</span></span></>}
           </div>
           <div className="rb-body" style={{ height: total }}>
             {cols}
+            {pub > from && pub < to && <span className="rb-pub" style={{ left: pubX }} aria-hidden />}
             <TodayLine from={from} ppm={ppm} />
             <div style={{ height: tops[a] ?? 0 }} />
             {shown.map((it) => {
@@ -707,24 +758,29 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
               const r = rows.get(it.id);
               if (!r) return <div key={it.id} className="rb-row" />;
               const tone = drag ? (it.id === drag.from ? 'source' : drag.targets[it.id]?.level) : undefined;
-              return <Row key={it.id} row={r} from={from} dayW={dayW} d0={d0} d1={d1} zoom={zoom} tone={tone} selecting={selecting} checked={selected.has(it.id)} />;
+              return <Row key={it.id} row={r} from={from} dayW={dayW} d0={d0} d1={d1} zoom={zoom} tone={tone} selecting={selecting} checked={selected.has(it.id)} sum={sums.get(it.id)} />;
             })}
           </div>
         </div>
         {!items.length && <div className="small muted sc-pad rb-empty">Nobody matches these filters.</div>}
       </div>
       <div className="rb-foot">
-        {legend.map((k) => <span key={k} className="row gap-4 tiny muted"><span className={`sc-cal-sw k-${k}`} aria-hidden />{CAL_KEY_LABEL[k]}</span>)}
+        {legend.map((k) => <span key={k} className="row gap-4 tiny muted"><span className={`sc-cal-sw k-${k}`} aria-hidden />{BOARD_LEGEND[k] ?? CAL_KEY_LABEL[k]}</span>)}
         <ColourLegend title="Roster board colours" align="left" items={[
           { swatch: <span className="sc-cal-sw k-operating" aria-hidden />, label: 'A duty: flights with passengers (in the contract colour)' },
           { swatch: <span className="sc-cal-sw k-positioning" aria-hidden />, label: 'Positioning or ferry: flying empty' },
           { swatch: <span className="sc-cal-sw k-deadhead" aria-hidden />, label: 'Deadhead: travelling as a passenger on an airline or a private jet' },
           { swatch: <span className="sc-cal-sw k-rest" aria-hidden />, label: 'Rest: the time off needed before the next duty' },
-          { swatch: <span className="sc-cal-sw k-off" aria-hidden />, label: 'Day off' },
+          { swatch: <span className="sc-cal-sw k-off" aria-hidden />, label: 'OFF: day off (OFF DUB at the hotel), published 14 days ahead; a lock means a change costs morale' },
+          { swatch: <span className="sc-cal-sw k-standby" aria-hidden />, label: 'SBY E / SBY L: home standby, early 05–17 or late 12–24' },
+          { swatch: <span className="sc-cal-sw k-sbyHotel" aria-hidden />, label: 'SBY DUB: hotel standby at that station' },
+          { swatch: <span className="sc-cal-sw k-asby" aria-hidden />, label: 'ASBY: airport standby, ready at once' },
+          { swatch: <span className="sc-cal-sw k-res" aria-hidden />, label: 'RES: reserve, at least 10 h notice' },
+          { swatch: <span className="sc-cal-sw k-leave" aria-hidden />, label: 'LEAVE: annual leave' },
+          { swatch: <span className="rb-pub-sw" aria-hidden />, label: 'Thin line: end of the published roster' },
           { swatch: 'ring-amber', label: 'Amber ring: legal but tight (one delay breaks it)' },
           { swatch: 'ring-red', label: 'Red ring: cannot legally fly as rostered' },
           { swatch: 'idle', label: 'Faint hatch: not rostered yet (beyond 14 days)' },
-          { swatch: <span className="sc-cal-sw k-standby" aria-hidden />, label: 'Dashed: home standby 06:00–18:00, on call without overtime' },
           { swatch: <span className="rb-mark"><BedDouble aria-hidden />3P</span>, label: '3P / 4P: an augmented crew, resting in turns in flight' },
           { swatch: <span className="rb-mark">+1h</span>, label: '+1h: a planned extension (at most twice a week each)' },
           { swatch: <span className="rb-mark">SPLIT</span>, label: 'SPLIT: a split duty, a long wait on the ground adds to the day' },

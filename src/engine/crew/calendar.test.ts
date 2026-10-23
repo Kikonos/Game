@@ -148,3 +148,32 @@ describe('crew calendar', () => {
     expect(crewStatusView(g, cabin).label).toBe('On duty');
   });
 });
+
+describe('v0.9 fix: base-local days across a clock change', () => {
+  it('Lisbon days run from local midnight after the October change, and only published days are protected', async () => {
+    const { fromUTC } = await import('../core/time');
+    const { dayIndex, midnight } = await import('./dayPlan');
+    const g = fixtureGame(61);
+    const c = Object.values(g.crew).find((x) => x.base === 'LIS')!;
+    const from = fromUTC(2026, 10, 20);
+    const to = fromUTC(2026, 11, 20);
+    const k0 = dayIndex('LIS', from);
+    g.now = from;
+    c.off = [];
+    for (let k = k0; k < k0 + 30; k += 3) c.off.push(k);
+    c.standby = [];
+    c.blocks = [];
+    const pubK = k0 + 25;
+    g.dayPlan = { from, publishedTo: midnight('LIS', pubK), planned: midnight('LIS', pubK) };
+    const offs = crewCalendar(g, c.id, from, to).filter((b) => b.kind === 'off' && b.planned && b.start > from);
+    expect(offs.length).toBeGreaterThan(5);
+    for (const b of offs) {
+      const k = dayIndex('LIS', b.start);
+      expect(b.start).toBe(midnight('LIS', k));
+      expect(!!b.protected).toBe(k < pubK);
+    }
+    // After 25 Oct (WET, UTC+0) a day starts at 00:00 UTC.
+    const late = offs.find((b) => b.start > fromUTC(2026, 10, 26))!;
+    expect(late.start % DAY).toBe(0);
+  });
+});

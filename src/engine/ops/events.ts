@@ -676,7 +676,7 @@ function extraRotation(g: GameState, c: Contract): boolean {
     kind: 'changeRequest', title: `${cl?.name ?? 'Client'} asks for an extra rotation`,
     body: `${p.base}–${dest}–${p.base} on ${fmtDay(std)}, off blocks ${fmtTime(std, p.base)} local. ${bh.toFixed(1)} BH, paid only above the ${Math.round(mgh)} hours guaranteed ${mgh < c.product.mghPerMonth * c.aircraftIds.length - 1 ? 'for this job that month' : 'that month'}: ${earn ? `about ${paid.toFixed(1)} BH of it would be` : 'this month is planned below it, so it earns nothing extra'}.`,
     options: [
-      { id: 'accept', label: 'Fly it', desc: `${ac.reg} flies two more legs; a crew gets an extra duty and ${ac.reg}'s A-check (${aLeft} FH left) comes ${bh.toFixed(1)} FH sooner. A favour they remember.`, tone: earn > maint ? 'good' : 'warn', chips: [earn ? `+${usd(earn)}` : 'No extra revenue', `−${usd(maint)} maintenance`, `Relation +${BAL.v08.rel.extraLeg}`, favourChip(g, c.clientId, BAL.v08.rel.extraLeg)] },
+      { id: 'accept', label: 'Fly it', desc: `An extra crew duty; the A-check (${aLeft} FH left) comes ${bh.toFixed(1)} FH sooner. A favour they remember.`, tone: earn > maint ? 'good' : 'warn', chips: [earn ? `+${usd(earn)}` : 'No extra revenue', `−${usd(maint)} maintenance`, `Relation +${BAL.v08.rel.extraLeg}`, favourChip(g, c.clientId, BAL.v08.rel.extraLeg)] },
       { id: 'decline', label: 'Decline', desc: 'The aircraft and crews keep their rest; the client notes it.', chips: [`Relation ${BAL.v08.rel.decline}`] },
     ],
     defaultOption: earn > maint ? 'accept' : 'decline', expires: g.now + DAY, ref: { kind: 'contract', id: c.id },

@@ -982,11 +982,19 @@ function chainDeployment(g: GameState, c: Contract, acId: string, duties: Duty[]
     const span = Math.min(28, Math.max(14, (duties[duties.length - 1].release - start) / DAY));
     const peak = Math.max(...perDay.values());
     let sets = Math.max(1, Math.ceil((peak * 8) / 6), Math.ceil((bh / 60) * (28 / span) / BAL.cabinBHMonth));
-    for (; sets < BAL.maxSetsOnStation; sets++) {
-      const trial: Deployment = { ...dep, anchors: anchorsFor(start, sets, R), pairingIds: [] };
+    // v0.9 fix: more sets only while they take more duties (a duty no set can take, a stray one far out, sized a
+    // HAM base at 10 sets on station and the fleet at 17 crews a seat); the strays fly as trips.
+    let best = { sets, taken: -1 };
+    for (let n = sets; n <= BAL.maxSetsOnStation; n++) {
+      const trial: Deployment = { ...dep, anchors: anchorsFor(start, n, R), pairingIds: [] };
       const ch = chainer(g, trial, () => true);
-      if (duties.every((d) => ch.take(d))) break;
+      let taken = 0;
+      for (const d of duties) if (ch.take(d)) taken++;
+      if (taken > best.taken) best = { sets: n, taken };
+      // One more set may still help (anchors stagger differently); two in a row that do not, never.
+      if (taken === duties.length || n >= best.sets + 2) break;
     }
+    sets = best.sets;
     dep.setsOnStation = sets;
     dep.sized = sets;
     dep.anchors = anchorsFor(start, sets, R);

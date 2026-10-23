@@ -16,7 +16,7 @@ import { typeOf } from '../../engine/core/perf';
 import { DAY, HOUR, dayStart, fmtDay, fmtDuration, fmtTime, toDate } from '../../engine/core/time';
 import { bookRefit, bookRestRefit, cabinOptions, cancelCheck, refitKindText, refitQuote, refitSlots, refitStations, refitTerms, restRefitOptions, restRefitQuote, type RefitQuote, type RestRefitOption } from '../../engine/ops';
 import { longestDay, restOf, restShort, restText } from '../../engine/crew';
-import { restTerm } from '../components/RestLines';
+import { longestDetail, restTerm } from '../components/RestLines';
 import { REST_FIT_LABEL } from '../screens/Fleet';
 import { Term } from '../components/Term';
 import { Modal, Seg } from '../components/ui';
@@ -196,7 +196,7 @@ export function RefitModal({ aircraftId, layout, offerId, rest, restOption, afte
               <div className="small rf-now">
                 <span><Term id={restTerm(now.fc)}>Pilots rest</Term>: <b>{restText(now.fc, 'fc', ac.typeId)}</b></span>
                 <span><Term id={restTerm(now.cc)}>Cabin crew rest</Term>: <b>{restText(now.cc, 'cc', ac.typeId)}</b></span>
-                <span className="muted"><Term id="longestDay" extra={longestDay(g, now, ac.typeId).detail}>Longest day</Term>: {longestDay(g, now, ac.typeId).text.replace(/^Longest day: /, '')}</span>
+                <span className="muted"><Term id="longestDay" extra={longestDetail(g, now, ac.typeId)} own>Longest day</Term>: {longestDay(g, now, ac.typeId).text.replace(/^Longest day: /, '')}</span>
               </div>
               <div className="small muted">Curtained {ac.cabin.j >= 4 ? 'business' : 'economy'} seats come with the cabin: nothing to fit, and they are only blocked on flights where someone rests.{ac.cabin.j >= 4 ? '' : ' A cabin with business seats gives class 2 rest.'}</div>
               {restOffer ? (

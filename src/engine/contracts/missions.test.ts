@@ -130,7 +130,9 @@ describe('Hajj (§2.1)', () => {
       // Exactly one of the two legs carries pilgrims.
       expect([(out.pax ?? 0) > 0, (back.pax ?? 0) > 0].filter(Boolean).length).toBe(1);
     }
-    expect(o.requirements.layouts).toEqual(['all-economy']);
+    // v0.9 fix: a jumbo Hajj load takes any cabin with the seats.
+    if (o.jumbo) expect(o.requirements.layouts).toBeUndefined();
+    else expect(o.requirements.layouts).toEqual(['all-economy']);
     expect(o.terms?.length).toBe(2);
     const [a, b] = o.terms!;
     expect(a[1]).toBeLessThan(b[0]);

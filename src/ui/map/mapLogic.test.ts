@@ -12,6 +12,7 @@ import {
   awaitingDelivery, chipInfo, commercialById, deliveryTag, fitCodes, onMap, purposeChain, groupCommercial, headingDeg, isCommercialId, lerpAngle, mapAirports, offerPins, parkOffset, PARK_GAP, parseCommercialId, downSide, legLabelSide, pickNearest, placeLabels, regSlot, REG_DY,
   JET_PATH, restChip, restingLine, restSeatNoun, selectedLegs, shortIndex, trackLabelAt, sunElevation, sunPoint, terminator, TYPE_STROKE, upNext, upNextRows,
   EVENT_PIN_GAP, leasedOut, mapLivery, placeEventPins, ringLabelAt, ringPath,
+  ALERT_BANNER, ALERT_CHIP, hotelCount, OOH_SHORT, oohLine, parseSlipId, placeSlipMarks, SLIP_MARK_GAP, slipArcs, slipLine, slipSelId, slipWindow,
 } from './mapLogic';
 import { projection } from './mapData';
 import { WORLD_ZONES } from '../../data/worldZones';
@@ -373,7 +374,7 @@ async function shortOfCaptain(hoursBefore: number, dest = 'FNC', othersOnLeave =
   g.now = d.report - hoursBefore * 60;
   // Only the released captain (at base) is free: the jet is the way to get a captain to DUS in time.
   if (othersOnLeave) for (const c of Object.values(g.crew)) if (c.role === 'CPT' && c.id !== was) { c.blocks = [{ from: g.now - DAY, to: g.now + 10 * DAY, why: 'leave' }]; c.status = 'leave'; }
-  escalateShortages(g);
+  escalateShortages(g, { freeFix: false });
   return { g, flightId: f1.id, backId: f2.id, acId, was };
 }
 
@@ -590,3 +591,118 @@ describe('v0.8 lessee paint', () => {
     expect(mapLivery(g, ac).source).toBe(base.source);
   });
 });
+
+describe('v0.9 crew out of hours, hotel standby and crew changes on the map', () => {
+  it('words a crew member out of hours apart from a shortage (the engine decides the kind)', async () => {
+    const { addFlight } = await import('../../engine/core/entities');
+    const { blockMinutes } = await import('../../engine/core/perf');
+    const { buildDuties } = await import('../../engine/crew/duties');
+    const { fixtureGame } = await import('../../engine/crew/fixtures');
+    const { autoRoster } = await import('../../engine/crew/roster');
+    const { outOfHours } = await import('../../engine/crew');
+    const { devCrewHours } = await import('../../engine/dev');
+    const g = fixtureGame(9);
+    const acId = Object.keys(g.fleet)[0];
+    const ac = g.fleet[acId];
+    const std = Math.floor(g.now / DAY) * DAY + 2 * DAY + 9 * 60;
+    const b = blockMinutes(ac.typeId, ac.at, 'FAO');
+    addFlight(g, { no: 'AW900', aircraftId: acId, contractId: null, kind: 'revenue', from: ac.at, to: 'FAO', std, sta: std + b, pax: 150 });
+    addFlight(g, { no: 'AW901', aircraftId: acId, contractId: null, kind: 'revenue', from: 'FAO', to: ac.at, std: std + b + 50, sta: std + 2 * b + 50, pax: 150 });
+    buildDuties(g, acId, g.now, g.now + 5 * DAY);
+    addCrew(g, { CPT: 2, FO: 2, PUR: 1, CC: 3 });
+    autoRoster(g);
+    g.now = std - 7 * 60;
+    const id = devCrewHours(g);
+    expect(id).not.toBe('');
+    const row = shortIndex(g).byFlight.get(id)!;
+    expect(row.kind).toBe('hours');
+    const ci = chipInfo(g, ac, g.now, row);
+    expect(ci.line).toBe(`OUT OF HRS ${fmtTime(g.flights[id].std)}`);
+    expect(ci.line.length).toBeLessThanOrEqual(17);
+    expect(ci.short.length).toBeLessThanOrEqual(10);
+    expect(chipInfo(g, ac, g.now, { ...row, kind: 'short' }).line).toMatch(/^CREW SHORT /);
+    expect(upNextRows(g, 6).find((r) => r.id === id)).toMatchObject({ alert: row.stage, alertKind: 'hours' });
+    const ooh = outOfHours(g, id);
+    expect(ooh.length).toBeGreaterThan(0);
+    expect(oohLine(ooh)).toBe(`Crew out of hours · ${ooh[0].name} (${OOH_SHORT[ooh[0].limit]})${ooh.length > 1 ? ` and ${ooh.length - 1} other${ooh.length > 2 ? 's' : ''}` : ''}`);
+    expect(ALERT_BANNER.hours).toBe('CREW OUT OF HOURS');
+    expect(ALERT_CHIP.short).toBe('CREW SHORT');
+  });
+
+  it('names the limit in a few words and counts more than one person', () => {
+    expect(oohLine([{ name: 'Ana Silva', limit: 'block28d' }])).toBe('Crew out of hours · Ana Silva (28-day hours)');
+    expect(oohLine([{ name: 'Ana Silva', limit: 'fdp' }, { name: 'Rui Costa', limit: 'fdp' }])).toBe('Crew out of hours · Ana Silva (day too long) and 1 other');
+    expect(oohLine([])).toBe('Crew out of hours');
+    for (const w of Object.values(OOH_SHORT)) expect(w.length).toBeLessThanOrEqual(16);
+  });
+
+  it('counts the hotel by pilots and cabin crew', () => {
+    const list = [{ role: 'CPT' }, { role: 'FO' }, { role: 'PUR' }, { role: 'CC' }, { role: 'CC' }] as const;
+    expect(hotelCount([...list])).toBe('2 pilots · 3 cabin crew');
+    expect(hotelCount([{ role: 'CRP' }])).toBe('1 pilot');
+  });
+
+  it('places crew-change marks down-left of the airport dot, clear of the code, stands, offer pin and event pins', () => {
+    const marks = placeSlipMarks([{ flightId: 'f1', at: 'IST' }, { flightId: 'f2', at: 'IST' }, { flightId: 'f3', at: 'OTP' }]);
+    expect(marks.map((m) => m.id)).toEqual(['slip:f1', 'slip:f2', 'slip:f3']);
+    expect(marks[0].off).toEqual([-20, 20]);
+    expect(marks[1].off).toEqual([-20 - SLIP_MARK_GAP, 20]);
+    expect(marks[2].off).toEqual([-20, 20]);
+    // The things already drawn around an airport (screen px from its dot): code above, stands right, the offer diamond
+    // left, event pins up-left. A mark (r 10) keeps clear of all of them, and two marks keep clear of each other.
+    const disc = (o: [number, number]) => ({ id: '', x: o[0], y: o[1], w: 20, h: 20 });
+    const taken = [
+      { id: 'dot', x: 0, y: 0, w: 10, h: 10 }, { id: 'code', x: 0, y: -15, w: 28, h: 15 },
+      ...[0, 1, 2].map((i) => disc(parkOffset(i, 3))), disc([-20, 0]), disc(placeEventPins([{ eventId: 'e', at: 'IST', kind: 'strike', title: '' }], new Set(['IST']), new Set())[0].off),
+    ];
+    for (const m of marks.slice(0, 2)) for (const b of taken) expect(boxOverlapPx(disc(m.off), b)).toBe(0);
+    expect(boxOverlapPx(disc(marks[0].off), disc(marks[1].off))).toBe(0);
+    expect(slipSelId('f7z')).toBe('slip:f7z');
+    expect(parseSlipId('slip:f7z')).toBe('f7z');
+    expect(parseSlipId('f7z:0')).toBeNull();
+    expect(isCommercialId(slipSelId('f12'))).toBe(false);
+    expect(parseCommercialId(slipSelId('f7z'))).toBeNull();
+    const [a, b] = slipWindow(1000 * DAY);
+    expect(a).toBeLessThan(1000 * DAY);
+    expect(b).toBeGreaterThan(1000 * DAY + 3 * DAY);
+  });
+
+  it('draws the slip crew legs and words the crew change of a signed, rostered slip', async () => {
+    const { acceptOffer } = await import('../../engine/contracts');
+    const { devAddType, devSlipOffer } = await import('../../engine/dev');
+    const { autoRoster, slipsOfAircraft } = await import('../../engine/crew');
+    const { fixtureGame } = await import('../../engine/crew/fixtures');
+    const g = fixtureGame(53);
+    const id = devSlipOffer(g, 'MAD-SIN');
+    expect(id).not.toBe('');
+    const acId = Object.values(g.fleet).find((a) => a.typeId === 'a332')?.id ?? devAddType(g, 'a332');
+    g.company.approvals.push('etops120', 'etops180');
+    g.company.cash = 50_000_000;
+    expect(acceptOffer(g, id, [acId]).ok).toBe(true);
+    autoRoster(g, { aircraftIds: [acId], to: g.now + 20 * DAY });
+    const views = slipsOfAircraft(g, acId, g.now, g.now + 30 * DAY);
+    expect(views.length).toBe(1);
+    const v = views[0];
+    const marks = placeSlipMarks(views);
+    expect(marks[0]).toMatchObject({ at: v.at, flightId: v.flightId });
+    const arcs = slipArcs(g, views);
+    // The fresh crew's airline legs end at the stop; the first crew's start there.
+    const ins = arcs.filter((x) => x.dir === 'in');
+    const outs = arcs.filter((x) => x.dir === 'out');
+    expect(ins.length).toBeGreaterThan(0);
+    expect(ins[ins.length - 1].to).toBe(v.at);
+    if (outs.length) expect(outs[0].from).toBe(v.at);
+    for (const x of arcs) expect(AIRPORT_BY_CODE[x.from] && AIRPORT_BY_CODE[x.to]).toBeTruthy();
+    const line = slipLine(g, v);
+    expect(line).toMatch(new RegExp(`^Crew change at ${v.atName} · fresh crew from .+ on .+ \\(lands \\d\\d:\\d\\d UTC, rests \\d+ h\\) · the first crew flies home`));
+    expect(line).not.toMatch(/ on DH\b/);
+    expect(slipLine(g, v, false)).toMatch(/^Fresh crew from /);
+  });
+});
+
+/** Overlap area (px²) of two centred boxes. */
+function boxOverlapPx(a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }): number {
+  const ox = Math.min(a.x + a.w / 2, b.x + b.w / 2) - Math.max(a.x - a.w / 2, b.x - b.w / 2);
+  const oy = Math.min(a.y + a.h / 2, b.y + b.h / 2) - Math.max(a.y - a.h / 2, b.y - b.h / 2);
+  return Math.max(0, ox) * Math.max(0, oy);
+}

@@ -504,10 +504,12 @@ export function seatNeed(p: SchedulePattern, stretchers = 0, fallback = 0): numb
   return pax > 0 ? pax + 6 * stretchers : fallback;
 }
 
-/** '166 seats (166 passengers)', '110 seats (62 passengers, 8 stretchers)'; a base programme '180+ seats'. Pure. */
+/** '166 seats', '110 seats (62 passengers, 8 stretchers)'; a base programme '180+ seats'. Pure. */
 export function seatNeedText(o: { pattern: SchedulePattern; requirements: Pick<Requirements, 'minSeats' | 'stretchers'> }): string {
   const pax = maxPax(o.pattern);
   const r = o.requirements;
   if (!pax) return `${r.minSeats}+ seats`;
+  // Seats = passengers: no parenthesis repeating the number.
+  if (r.minSeats === pax && !r.stretchers) return `${r.minSeats} seats`;
   return `${r.minSeats} seats (${pax} passenger${pax === 1 ? '' : 's'}${r.stretchers ? `, ${r.stretchers} stretcher${r.stretchers === 1 ? '' : 's'}` : ''})`;
 }

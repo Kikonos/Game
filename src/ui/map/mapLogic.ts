@@ -4,10 +4,11 @@
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { flightsOf } from '../../engine/core/entities';
 import { haversine } from '../../engine/core/geo';
+import { isPilot } from '../../engine/core/perf';
 import { flightTimes } from '../../engine/core/query';
 import { DAY, fmtDay, fmtTime } from '../../engine/core/time';
-import type { AcRest, Aircraft, Archetype, ContractOffer, Flight, GameState, Minute, Ref, RestFacility, RestKind, WorldEventKind } from '../../engine/core/types';
-import { crewAway, shortFlights } from '../../engine/crew';
+import type { AcRest, Aircraft, Archetype, ContractOffer, CrewMember, Flight, GameState, Minute, OohLimit, Ref, RestFacility, RestKind, WorldEventKind } from '../../engine/core/types';
+import { type CrewAlertKind, crewAway, shortFlights, type SlipView } from '../../engine/crew';
 import { clientCode, clientLivery, clientTitles, commercialFlightsBetween, type CommercialFlight, commercialItinerary, dryLeaseOf, type FlightType, flightType, liveryOf, type ResolvedLivery } from '../../engine/ops';
 import { contractColor } from '../screens/palette';
 
@@ -242,11 +243,33 @@ export interface NextRow {
   jet?: boolean;
   /** v0.7.1: the flight is crew-short (the warning ladder's stage). */
   alert?: 'amber' | 'red';
+  /** v0.9: which crew alert (a seat with nobody, or a named crew member out of hours). */
+  alertKind?: CrewAlertKind;
 }
 
 // ---------- v0.7.1 crew shortages ----------
 
-export interface ShortRow { flightId: string; aircraftId: string; stage: 'amber' | 'red'; hoursLeft: number; std: Minute }
+/** v0.9 `kind` comes from the engine (crewAlertKind via shortFlights): 'hours' names a crew member at a legal limit. */
+export interface ShortRow { flightId: string; aircraftId: string; stage: 'amber' | 'red'; hoursLeft: number; std: Minute; kind: CrewAlertKind }
+
+/** v0.9 §T alert words: the static banner, and the short chip (Up Next, leg rows). */
+export const ALERT_BANNER: Record<CrewAlertKind, string> = { short: 'CREW SHORTAGE', hours: 'CREW OUT OF HOURS' };
+export const ALERT_CHIP: Record<CrewAlertKind, string> = { short: 'CREW SHORT', hours: 'OUT OF HOURS' };
+
+/** v0.9 §T the limit in two or three words, for the aircraft panel line ('28-day hours'). */
+export const OOH_SHORT: Record<OohLimit, string> = {
+  fdp: 'day too long', duty7d: '7-day duty', duty14d: '14-day duty', duty28d: '28-day duty', block28d: '28-day hours',
+  blockYear: 'yearly hours', block12m: '12-month hours', rest: 'rest not met', recovery: 'weekly rest',
+  inflightRest: 'in-flight rest', daysOff: 'days off',
+};
+
+/** 'Crew out of hours · Ana Silva (28-day hours)' (+ ' and 1 other'); the bare title when the engine names nobody. Pure. */
+export function oohLine(list: { name: string; limit: OohLimit }[]): string {
+  if (!list.length) return 'Crew out of hours';
+  const x = list[0];
+  const more = list.length - 1;
+  return `Crew out of hours · ${x.name} (${OOH_SHORT[x.limit]})${more ? ` and ${more} other${more > 1 ? 's' : ''}` : ''}`;
+}
 
 /** Crew-short flights (the ladder's list) by flight id and, soonest per aircraft, by aircraft id. */
 export function shortIndex(g: GameState): { byFlight: Map<string, ShortRow>; byAircraft: Map<string, ShortRow> } {
@@ -255,7 +278,7 @@ export function shortIndex(g: GameState): { byFlight: Map<string, ShortRow>; byA
   for (const s of shortFlights(g)) {
     const f = g.flights[s.flightId];
     if (!f?.aircraftId) continue;
-    const row: ShortRow = { flightId: s.flightId, aircraftId: f.aircraftId, stage: s.stage, hoursLeft: s.hoursLeft, std: f.std };
+    const row: ShortRow = { flightId: s.flightId, aircraftId: f.aircraftId, stage: s.stage, hoursLeft: s.hoursLeft, std: f.std, kind: s.kind ?? 'short' };
     byFlight.set(s.flightId, row);
     if (!byAircraft.has(f.aircraftId)) byAircraft.set(f.aircraftId, row);
   }
@@ -268,7 +291,7 @@ export function upNextRows(g: GameState, n = 4, after = -Infinity): NextRow[] {
   const rows: NextRow[] = upNext(g, n, after).map((f) => ({
     id: f.id, t: f.std + f.delay, who: f.aircraftId ? g.fleet[f.aircraftId]?.reg ?? f.no : f.no, from: f.from, to: f.to,
     type: flightType(g, f), crew: 0, sel: f.aircraftId ? { kind: 'aircraft', id: f.aircraftId } : null,
-    ...(short.has(f.id) ? { alert: short.get(f.id)!.stage } : {}),
+    ...(short.has(f.id) ? { alert: short.get(f.id)!.stage, alertKind: short.get(f.id)!.kind } : {}),
   }));
   const t0 = Number.isFinite(after) ? after : g.now;
   for (const cf of groupCommercial(commercialFlightsBetween(g, t0, t0 + 3 * DAY))) {
@@ -471,9 +494,13 @@ export interface ChipInfo {
 }
 
 /** Fleet-strip chip text (changes at most hourly when rendered from React). v0.7.1: a crew-short flight (`short`, from
- * shortIndex) turns the chip amber/red with "CREW SHORT 08:34". */
+ * shortIndex) turns the chip amber/red with "CREW SHORT 08:34"; v0.9 crew out of hours reads "OUT OF HRS 08:34". */
 export function chipInfo(g: GameState, ac: Aircraft, t: Minute, short?: ShortRow): ChipInfo {
-  if (short) return { tone: short.stage === 'red' ? 'bad' : 'warn', line: `CREW SHORT ${fmtTime(short.std)}`, short: `CREW ${fmtTime(short.std)}` };
+  if (short) {
+    const tone = short.stage === 'red' ? 'bad' : 'warn';
+    const at = fmtTime(short.std);
+    return short.kind === 'hours' ? { tone, line: `OUT OF HRS ${at}`, short: `HRS ${at}` } : { tone, line: `CREW SHORT ${at}`, short: `CREW ${at}` };
+  }
   const cur = ac.flightId ? g.flights[ac.flightId] : undefined;
   if (cur) return { tone: 'air', line: `${cur.from}→${cur.to} ETA ${fmtTime(flightTimes(cur).on)}`, short: `${cur.from}→${cur.to}` };
   if (ac.status === 'aog') return { tone: 'bad', line: `AOG at ${ac.at}`, short: `AOG ${ac.at}` };
@@ -627,4 +654,94 @@ export function mapLivery(g: GameState, ac: Aircraft): ResolvedLivery {
   const cl = c ? g.clients[c.clientId] : undefined;
   if (!c?.dry?.paint || !cl) return lv;
   return { livery: clientLivery(cl, c.dry.paint), code: clientCode(cl), name: clientTitles(cl), source: 'client', contractId: c.id, clientName: cl.name };
+}
+
+// ---------- v0.9 hotel standby (§R.9) and crew changes at a fuel stop (§W.4) ----------
+
+/** "2 pilots · 4 cabin crew" (v0.7.2 hotel count, moved here in v0.9). Pure. */
+export function hotelCount(list: Pick<CrewMember, 'role'>[]): string {
+  const p = list.filter((m) => isPilot(m.role)).length;
+  const c = list.length - p;
+  return [p ? `${p} pilot${p === 1 ? '' : 's'}` : '', c ? `${c} cabin crew` : ''].filter(Boolean).join(' · ');
+}
+
+/** Map selection id of a crew change (a Ref of kind 'flight'): `slip:${flightId}` (never an airline-leg id). */
+export const slipSelId = (flightId: string) => `slip:${flightId}`;
+export const parseSlipId = (id: string): string | null => (id.startsWith('slip:') ? id.slice(5) : null);
+
+/** Crew changes shown for a selected aircraft: takeovers from a day ago (the first crew still going home) to 5 days out. */
+export const slipWindow = (now: Minute): [Minute, Minute] => [now - DAY, now + 5 * DAY];
+
+/** A crew-change mark as drawn: its airport and the screen-px offset from the airport dot. */
+export interface SlipMark { id: string; flightId: string; at: string; off: [number, number] }
+
+/** Gap (screen px) between crew-change marks at one airport. */
+export const SLIP_MARK_GAP = 24;
+
+/**
+ * Screen-px offsets for crew-change marks: down-left of the airport dot, the one corner nothing else uses (code above,
+ * parked aircraft right, offer diamond left, event pins up-left); several at one airport step further left. Pure.
+ */
+export function placeSlipMarks(views: { flightId: string; at: string }[]): SlipMark[] {
+  const n = new Map<string, number>();
+  return views.map((v) => {
+    const i = n.get(v.at) ?? 0;
+    n.set(v.at, i + 1);
+    return { id: slipSelId(v.flightId), flightId: v.flightId, at: v.at, off: [-20 - i * SLIP_MARK_GAP, 20] };
+  });
+}
+
+/** A slip crew's airline leg drawn while its aircraft (or the crew change) is selected: in = the fresh crew flying out. */
+export interface SlipArc { id: string; from: string; to: string; dir: 'in' | 'out' }
+
+/** The airline legs of the slip crews' tickets (our own positioning legs are already drawn as the aircraft's arcs). Pure. */
+export function slipArcs(g: GameState, views: SlipView[]): SlipArc[] {
+  const out: SlipArc[] = [];
+  const seen = new Set<string>();
+  for (const v of views) {
+    for (const [dir, ids] of [['in', v.inCrew.ticketIds], ['out', v.outCrew.ticketIds]] as const) {
+      for (const id of ids) {
+        const t = g.flights[id];
+        if (!t || t.kind !== 'deadhead' || seen.has(id)) continue;
+        seen.add(id);
+        const legs = commercialItinerary(g, t);
+        if (!legs.length) out.push({ id, from: t.from, to: t.to, dir });
+        legs.forEach((l, i) => out.push({ id: `${id}:${i}`, from: l.from, to: l.to, dir }));
+      }
+    }
+  }
+  return out.filter((a) => AIRPORT_BY_CODE[a.from] && AIRPORT_BY_CODE[a.to]);
+}
+
+/** 'EK 249 via DXB' (an airline ticket), 'our AWL102' (riding our own flight), or the ticket number. */
+function ticketWords(g: GameState, id: string | undefined): string | null {
+  const t = id ? g.flights[id] : undefined;
+  if (!t) return null;
+  if (t.kind !== 'deadhead') return `our ${t.no}`;
+  const legs = commercialItinerary(g, t);
+  if (!legs.length) return t.no;
+  return `${legs[0].no}${legs.length > 1 ? ` via ${legs[0].to}` : ''}`;
+}
+
+const cityName = (code: string) => AIRPORT_BY_CODE[code]?.city ?? code;
+
+/**
+ * The crew-change panel line (§W.4): 'Crew change at Istanbul · fresh crew from Madrid on TK 1858 (lands 18:40 UTC,
+ * rests 13 h) · the first crew flies home on TK 1859' (without the opening words under a title that says them). Rest
+ * runs from the fresh crew's landing to their report. Pure.
+ */
+export function slipLine(g: GameState, v: SlipView, head = true): string {
+  const tin = v.inCrew.ticketIds.map((id) => g.flights[id]).filter((t): t is Flight => !!t).sort((a, b) => b.sta - a.sta)[0];
+  const f = g.flights[v.flightId];
+  const d = f?.dutyId ? g.duties[f.dutyId] : undefined;
+  const parts = head ? [`Crew change at ${v.atName}`] : [];
+  if (tin) {
+    const lands = v.inCrew.arrives ?? tin.sta;
+    const rest = d ? Math.floor((d.report - lands) / 60) : 0;
+    parts.push(`fresh crew from ${cityName(tin.from)} on ${ticketWords(g, tin.id)} (lands ${fmtTime(lands)} UTC${rest > 0 ? `, rests ${rest} h` : ''})`);
+  } else parts.push('fresh crew flies in');
+  const out = ticketWords(g, v.outCrew.ticketIds[0]);
+  parts.push(out ? `the first crew flies home on ${out}` : 'the first crew flies home');
+  const line = parts.join(' · ');
+  return head ? line : line.charAt(0).toUpperCase() + line.slice(1);
 }

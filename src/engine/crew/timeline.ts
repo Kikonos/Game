@@ -543,6 +543,19 @@ export const sbyShare = (kind: StandbyKind | undefined): number => BAL.v09.roste
 
 /** v0.9 a standby window as a timeline seg (uncalled; `end` cuts it at a call-out, with no rest before the duty). */
 export function standbySeg(c: CrewMember, w: NonNullable<CrewMember['standby']>[number], end?: Minute, fresh = false): Seg {
+  // v0.9 speed: an uncalled window's seg is the same object every time (windows are replaced, never edited, except
+  // calledAt; segs are shared read-only, as logSegs' are).
+  const plain = end === undefined && !fresh && w.calledAt === undefined;
+  if (plain) {
+    const hit = SBY_SEGS.get(w);
+    if (hit && hit.base === c.base) return hit.seg;
+  }
+  const seg = makeSbySeg(c, w, end, fresh);
+  if (plain) SBY_SEGS.set(w, { base: c.base, seg });
+  return seg;
+}
+const SBY_SEGS = new WeakMap<object, { base: string; seg: Seg }>();
+function makeSbySeg(c: CrewMember, w: NonNullable<CrewMember['standby']>[number], end: Minute | undefined, fresh: boolean): Seg {
   const kind = w.kind ?? 'home';
   const at = w.at ?? c.base;
   const to = end ?? w.to;
@@ -559,22 +572,37 @@ export function standbySeg(c: CrewMember, w: NonNullable<CrewMember['standby']>[
  * carries the awake cap. v0.9: every kind with its share; past windows stay 28 days (the duty windows count them).
  */
 function addStandby(g: GameState, c: CrewMember, segs: Seg[]): void {
+  const add: Seg[] = [];
   for (const w of c.standby ?? []) {
     if (w.to < g.now - 28 * 1440) continue;
     if (w.calledAt === undefined) {
-      segs.push(standbySeg(c, w));
+      add.push(standbySeg(c, w));
       continue;
     }
     const k = segs.findIndex((x) => x.kind === 'duty' && x.start >= w.calledAt! - 60 && x.start < w.calledAt! + 1440);
-    const end = k >= 0 ? segs[k].start : w.calledAt;
+    // v0.9 fix: called for a ticket (a fly-in), the window runs to the ticket's check-in: the rest before it ended at
+    // the window's start, not at the flight (a zero-length window read as rest up to the ticket: 2 nights, a recovery).
+    const any = k >= 0 ? k : segs.findIndex((x) => (x.kind === 'pos' || x.kind === 'log') && x.start >= w.calledAt! - 60 && x.start < w.calledAt! + 1440);
+    const end = any >= 0 ? Math.max(w.calledAt, segs[any].start) : w.calledAt;
     const kind = w.kind ?? 'home';
     if (k >= 0 && kind !== 'reserve') {
       const y = segs[k];
       segs[k] = { ...y, maxFdp: y.maxFdp - standbyCut(kind === 'airport' ? 'airport' : 'home', w.from, y.start, c.base, y.aug || !!y.split, w.calledAt), sbyFrom: w.from, sby: kind };
     }
-    if (end > w.from) segs.push(standbySeg(c, w, end));
+    if (end > w.from) add.push(standbySeg(c, w, end));
   }
-  segs.sort(bySeg);
+  if (!add.length) return;
+  // v0.9 speed: merged into the sorted timeline (as a stable sort of both: timeline segs first on a tie).
+  add.sort(bySeg);
+  const out = new Array<Seg>(segs.length + add.length);
+  let i = 0;
+  let j = 0;
+  let n = 0;
+  while (i < segs.length && j < add.length) out[n++] = bySeg(segs[i], add[j]) <= 0 ? segs[i++] : add[j++];
+  while (i < segs.length) out[n++] = segs[i++];
+  while (j < add.length) out[n++] = add[j++];
+  segs.length = 0;
+  for (let k = 0; k < n; k++) segs.push(out[k]);
 }
 
 /** A seg of a deployment tour: its crews rotate through base, so their tickets are never dropped. */

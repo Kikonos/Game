@@ -14,6 +14,9 @@ const city = (code: string) => AIRPORT_BY_CODE[code]?.city ?? code;
 const clientName = (g: GameState, o: { clientId: string }) => g.clients[o.clientId]?.name ?? 'The client';
 
 
+/** A check label inside a sentence: its first letter lowered unless it starts a code (DIL–LIS, A320, MAA). */
+const lowerFirst = (t: string) => (/^[A-Z0-9]{2,}\b/.test(t) ? t : t.charAt(0).toLowerCase() + t.slice(1));
+
 /** The worst check of the best report, in plain words, with the fix that goes with it. */
 function plainCheck(g: GameState, o: ContractOffer, r: FeasibilityReport, c: FeasibilityCheck): { why: string; action: ProblemAction } {
   const ac = g.fleet[r.aircraftId];
@@ -26,7 +29,7 @@ function plainCheck(g: GameState, o: ContractOffer, r: FeasibilityReport, c: Fea
     case 'availability':
       return { why: `${ac.reg} is busy: ${c.label.replace(/^Busy: /, '').replace(/^Can't be back for /, "it can't be back for ")}.`, action: { id: 'schedule', label: 'Schedule', open: { tab: 'schedule', sel: { kind: 'aircraft', id: ac.id } }, primary: true } };
     case 'range':
-      return { why: `The ${t.short} can't fly it nonstop: ${c.label.toLowerCase()}${o.requirements.noTechStops ? '; the client wants no fuel stops' : ''}.`, action: { id: 'review', label: 'Review offer', open: { modal: 'offer', id: o.id }, primary: true } };
+      return { why: `The ${t.short} can't fly it nonstop: ${lowerFirst(c.label)}${o.requirements.noTechStops ? '; the client wants no fuel stops' : ''}.`, action: { id: 'review', label: 'Review offer', open: { modal: 'offer', id: o.id }, primary: true } };
     case 'body':
       return { why: `${c.label}: no refit changes that.`, action: { id: 'market', label: 'Market', open: { tab: 'fleet', view: 'market' }, primary: true } };
     case 'layout':
@@ -34,7 +37,7 @@ function plainCheck(g: GameState, o: ContractOffer, r: FeasibilityReport, c: Fea
     case 'paint':
       return { why: `The client wants their livery on the aircraft and no paint-shop slot fits before the start.`, action: { id: 'counterNoPaint', label: 'Counter without paint', open: { modal: 'offer', id: o.id }, primary: true } };
     case 'positioning':
-      return { why: `${ac.reg} can't get to ${city(o.pin)} in time: ${c.label.toLowerCase()}.`, action: { id: 'review', label: 'Review offer', open: { modal: 'offer', id: o.id }, primary: true } };
+      return { why: `${ac.reg} can't get to ${city(o.pin)} in time: ${lowerFirst(c.label)}.`, action: { id: 'review', label: 'Review offer', open: { modal: 'offer', id: o.id }, primary: true } };
     case 'approvals':
     case 'etops':
       return { why: `${c.label}.`, action: { id: 'ladder', label: 'Ladder', open: { tab: 'company', view: 'ladder' }, primary: true } };

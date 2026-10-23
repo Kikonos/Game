@@ -2,7 +2,7 @@
 // Fleet · Market switch (the scarce aircraft market, Market.tsx); cards add the delivery, the lease end
 // (extend or return) and the cabin with refits. DESIGN.md §6.3, UPDATE-0.7.md §F6.7, §F7.5.
 
-import { BadgeDollarSign, BedDouble, CalendarRange, HelpCircle, Lock, Palette, Plane, Sofa, Undo2, Wrench, X } from 'lucide-react';
+import { BadgeDollarSign, BedDouble, CalendarRange, HelpCircle, Lock, Palette, Plane, Sofa, TimerOff, Undo2, Wrench, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { artFor } from '../../data/acmiTypes';
 import { MRO_STATIONS } from '../../data/market';
@@ -10,7 +10,7 @@ import { cabinMinimum, typeOf } from '../../engine/core/perf';
 import { DAY, fmtDate, fmtDay, yearOf } from '../../engine/core/time';
 import type { Aircraft, CrewExtra, GameState, LiveryRef, MaintenanceEvent } from '../../engine/core/types';
 import { BAL } from '../../engine/core/balance';
-import { crewExtraQuote, restOf, setCrewExtra, shortFlights } from '../../engine/crew';
+import { crewAlertKind, crewExtraQuote, restOf, setCrewExtra, shortFlights } from '../../engine/crew';
 import { cancelCheck, checkStatus, deliveryStatus, dryLeaseOf, leastUsed, type LeastUsedRow, leaseView, paintStatus, restRefitOptions, setAircraftLivery } from '../../engine/ops';
 import { problemAt } from '../../engine/problems';
 import { mapLivery } from '../map/mapLogic';
@@ -24,6 +24,7 @@ import { store, useGame } from '../store';
 import { KV, ScreenHead, useRenderCount } from './common';
 import { MarketView } from './Market';
 import { capFirst, hangarWord, layoutLabel, limitTone, unseenOffers } from './screenLogic';
+import { ScreenHint } from '../components/ScreenHint';
 
 /** The type's ETOPS capability (what the engine checks) and whether the company holds an approval for it. */
 function etopsLabel(g: GameState, ac: Aircraft): string {
@@ -197,7 +198,9 @@ function AircraftCard({ g, ac, sel, least, onLeastClose }: { g: GameState; ac: A
       <DryLeaseRow g={g} acId={ac.id} />
       {sf && short && (
         <div className="fl-row small cs-fleet">
-          <span className={`cs-banner ${short.stage}`}>CREW SHORTAGE</span>
+          {crewAlertKind(g, sf.id) === 'hours'
+            ? <span className={`cs-banner ${short.stage} row gap-4`}><TimerOff className="sc-ico-s" aria-hidden />CREW OUT OF HOURS</span>
+            : <span className={`cs-banner ${short.stage}`}>CREW SHORTAGE</span>}
           <span className="ellipsis"><span className="mono">{sf.no}</span> {sf.from}→{sf.to} in {spanLabel(Math.max(0, sf.std - g.now))}</span>
           <button className="btn btn-sm" onClick={() => store.openModal({ kind: 'crewControl', flightId: sf.id })}>Crew Control</button>
         </div>
@@ -331,6 +334,7 @@ export function FleetScreen() {
           { value: 'market', label: <span className="row gap-4">Market ({offers.length}){fresh > 0 && <span className="fl-dot" aria-label={`${fresh} new`} />}</span> },
         ]} />
       </ScreenHead>
+      <ScreenHint id="fleet" />
       {view === 'market' ? <MarketView g={g} sel={mkSel} /> : !fleet.length ? (
         <Empty icon={<Wrench />} title="No aircraft">Lease one from the Market.</Empty>
       ) : (

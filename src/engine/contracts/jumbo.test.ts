@@ -25,7 +25,7 @@ const margin = (g: GameState, offerId: string, acId: string) => {
 };
 
 describe('§Y.2 jumbo loads', () => {
-  it('a jumbo load: 420–480 seats all economy, priced on a 400-seat type of about $10–11K a block hour', () => {
+  it('a jumbo load: 420–480 seats in any cabin, priced on a 400-seat type of about $10–11K a block hour', () => {
     const g = fixtureGame(101);
     const id = devJumbo(g);
     expect(id).not.toBe('');
@@ -33,7 +33,10 @@ describe('§Y.2 jumbo loads', () => {
     expect(o.jumbo).toBe(true);
     expect(o.requirements.minSeats).toBeGreaterThanOrEqual(420);
     expect(o.requirements.minSeats).toBeLessThanOrEqual(480);
-    expect(o.requirements.layouts).toEqual(['all-economy']);
+    // v0.9 fix: any cabin with the seats, never more passengers than our 747 seats as configured.
+    expect(o.requirements.layouts).toBeUndefined();
+    const ours = Object.values(g.fleet).filter((a) => isJumboType(a.typeId));
+    if (ours.length) expect(o.requirements.minSeats).toBeLessThanOrEqual(Math.max(...ours.map((a) => a.cabin.total)));
     const ref = referenceType(o.requirements, o.pattern.kind === 'legs' ? o.pattern.legs.map((l) => [l.from, l.to] as [string, string]) : []);
     expect(ref && isJumboType(ref)).toBe(true);
     if (o.product.kind === 'charter') {
@@ -63,6 +66,30 @@ describe('§Y.2 jumbo loads', () => {
     expect(base).not.toBe('');
     // Our contribution model leaves crew salaries out: the gap, not the level, is what the 747's economics show.
     expect(margin(g, hajj, acId) - margin(g, base, acId)).toBeGreaterThanOrEqual(0.2);
+  });
+
+  it('a 747-400 on a 450-seat Hajj still makes +10 % after the salaries of its crew sets (v0.9 fix)', async () => {
+    const { complement } = await import('../core/perf');
+    const { salaryFor } = await import('../crew/generate');
+    const g = fixtureGame(102);
+    const acId = devAddType(g, 'b744');
+    g.company.approvals.push('etops120', 'etops180');
+    forceJumbo(true);
+    let hajj = '';
+    try {
+      for (let i = 0; i < 10 && !hajj; i++) { const id = devHajj(g); if (id && g.offers[id].jumbo) hajj = id; }
+    } finally {
+      forceJumbo(false);
+    }
+    expect(hajj).not.toBe('');
+    const o = g.offers[hajj];
+    const ac = g.fleet[acId];
+    const months = (o.end - o.start) / (30 * DAY);
+    // Five sets of the 747's complement on their full monthly salaries for the length of the job.
+    const crewMonth = BAL.crewSetsPerAircraft * complement(ac.typeId, ac.cabin.total).reduce((n, r) => n + salaryFor(r, typeOf(ac.typeId).family), 0);
+    const rev = Math.max(1, feasibility(g, hajj, acId).estRevenue);
+    const net = margin(g, hajj, acId) - (crewMonth * months) / rev;
+    expect(net).toBeGreaterThanOrEqual(0.1);
   });
 
   it('fuel at cost is billed after flying at the burn of the aircraft that flew', () => {

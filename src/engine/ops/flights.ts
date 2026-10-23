@@ -807,7 +807,8 @@ function departStats(g: GameState, f: Flight, ac: Aircraft, duty: Duty | undefin
   const v = v09Stats(g);
   if (duty && duty.augment > 0 && duty.flightIds[0] === f.id && restPlan(g, duty.id)?.ok === true) v.restPlans = (v.restPlans ?? 0) + 1;
   if (!isRevenue(f)) return;
-  v.legalStreak = legal ? v.legalStreak + 1 : 0;
+  // v0.9 fix (§5.7): a leg held 15 min or more for crew breaks the streak too, not only an illegal crew.
+  v.legalStreak = legal && !(f.crewHeld && delayOf(f) >= 15) ? v.legalStreak + 1 : 0;
   v.lastCancel ??= g.now;
   const k = monthKey(g.now);
   monthRec(v.cover, k)[0]++;

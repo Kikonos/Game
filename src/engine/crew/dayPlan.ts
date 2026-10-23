@@ -144,14 +144,53 @@ export function offIssue(g: GameState, c: CrewMember, segs: Seg[]): LegalityIssu
 }
 
 /**
+ * v0.9 fix: the legal floor as a hard limit on placing work. Fresh work (a tour crewed weeks ahead, a run of day
+ * trips) must leave each month it touches enough free days to still reach 7 days off: its planned days off plus the
+ * free days the planner has not reached yet (it turns them into days off). Illegal otherwise ('daysOff'). Pure.
+ */
+export function monthFloorIssue(g: GameState, c: CrewMember, base: Seg[], fresh: Seg[]): LegalityIssue | null {
+  if (!g.dayPlan || !c.off) return null;
+  const work = fresh.filter(isWorkSeg);
+  if (!work.length) return null;
+  const today = dayIndex(c.base, g.now);
+  const from = firstPlanDay(g, c.base);
+  const hit = new Set(hitsOf(c, work));
+  const months = new Set<MonthKey>();
+  for (const x of work) for (let k = dayIndex(c.base, x.start); k <= dayIndex(c.base, x.end - 1); k++) months.add(monthOfDay(k));
+  let busy: Busy | null = null;
+  for (const mk of months) {
+    const a = firstDayOf(mk);
+    const b = firstDayOf(mk + 1);
+    // A month the crew member joined in is not counted (as the month-end count: dayPlanMonth).
+    if (b <= today + 1 || a < from || midnight(c.base, a) < c.hired) continue;
+    let n = 0;
+    for (const k of c.off) if (k >= a && k < b && !hit.has(k)) n++;
+    // Most months already hold their 7 planned (8–10): nothing to count.
+    if (n >= R().off.legalMonth) continue;
+    const legal = legalFor(c, mk);
+    if (n >= legal) continue;
+    busy ??= busyDays(c, [...base, ...work].sort((x, y) => x.start - y.start), today - 45, b + 1);
+    // Only days the planner has not reached yet count: a free planned day is standby (topUpOffs turns those into days
+    // off while the month can still use them; counting them here let a tour use the room they were counted on).
+    const open = g.dayPlan.planned !== undefined ? dayIndex(c.base, g.dayPlan.planned) : today + 1;
+    for (let k = Math.max(a, today + 1, open); k < b && n < legal; k++) if (!offOn(c, k) && !busy.hit.has(k) && !blockedOn(c, k)) n++;
+    if (n < legal) return { code: 'daysOff', level: 'illegal', text: `Days off in ${MONTH[mk % 12]} would fall to ${n} (minimum ${R().off.legalMonth})`, dutyId: work[0].dutyId };
+  }
+  return null;
+}
+
+/**
  * v0.9 can the planner move the days off fresh work lands on (a tour, a trip of several days) without the month
  * losing them: each month touched keeps at least the planner's minimum (8) counting days that can still be moved
  * to an unpublished day of the same month. Pure, cheap (no timeline).
  */
-export function offMovable(g: GameState, c: CrewMember, segs: Seg[]): boolean {
+export function offMovable(g: GameState, c: CrewMember, segs: Seg[], tour = false): boolean {
   const fresh = segs.filter((x) => x.fresh && isWorkSeg(x));
   const hits = hitsOf(c, fresh);
   if (!hits.length) return true;
+  // A published day off is the crew member's (R.5): the planner never moves one for a trip, only the player (a
+  // confirm). A detachment (tour) may: the crew are asked to swap it (morale −3, takeOffDays).
+  if (!tour && hits[0] < dayIndex(c.base, publishedTo(g))) return false;
   const soon = dayIndex(c.base, g.now) + 2;
   const byMonth = new Map<MonthKey, number[]>();
   for (const k of hits) byMonth.set(monthOfDay(k), [...(byMonth.get(monthOfDay(k)) ?? []), k]);
@@ -257,11 +296,21 @@ export function takeOffDays(g: GameState, c: CrewMember, segs: Seg[], planner = 
   removeOff(c, hits);
   const moves: [number, number | null][] = [];
   const all = mergeSorted(segsOf(g, c), segs);
+  // One break per change, however many published days it touches (a 05:00 report takes the day off before's
+  // morning too): the −6 the confirm shows.
+  let broke = false;
   for (const k of hits) {
     // The planner's own move (a tour crewed over its days off: the day moves to a free one, no morale); a player's or
-    // a call-in's break of a published day costs morale.
-    if (planner) rosterStats(g).offMoved = (rosterStats(g).offMoved ?? 0) + 1;
-    else if (k < pub) {
+    // a call-in's break of a published day costs morale. A published day the planner moves for a detachment is never
+    // silent: the crew member is asked to swap it (morale −3, once a change).
+    if (planner) {
+      rosterStats(g).offMoved = (rosterStats(g).offMoved ?? 0) + 1;
+      if (k < pub && !broke) {
+        broke = true;
+        moraleShock(g, c, 'daysOff', ASKED_SWAP);
+      }
+    } else if (k < pub && !broke) {
+      broke = true;
       moraleShock(g, c, 'daysOff', R().morale.broken);
       rosterStats(g).offBroken++;
     }
@@ -275,6 +324,9 @@ export function takeOffDays(g: GameState, c: CrewMember, segs: Seg[], planner = 
   touchCrewState(g);
   return moves;
 }
+
+/** A published day off the planner moves for a detachment: the crew member was asked to swap it. */
+const ASKED_SWAP = -3;
 
 /** Two seg lists as one, by start (the work just placed may not be in the timeline index yet). */
 const mergeSorted = (a: Seg[], b: Seg[]): Seg[] => [...a, ...b].sort((x, y) => x.start - y.start);
@@ -504,7 +556,7 @@ export function planLeave(g: GameState, year: number, crewIds?: string[]): numbe
 // ---------- days off ----------
 
 /** At most this share of a family-and-role group starts a due (not a must) block on any day. */
-const OFF_SHARE = 0.35;
+const OFF_SHARE = 0.25;
 
 /** Reports per family, role and station on day D (seats of the duties reporting then). */
 function needOn(g: GameState, D: number): Map<string, number> {
@@ -674,11 +726,14 @@ interface DayFacts {
   airport: Map<string, number>;
 }
 
-function dayFacts(g: GameState, X: number): DayFacts {
+/** Day facts for days [X0, X1] in one pass over the pairings and windows (v0.9 speed: was one pass per day). */
+function dayFactsAll(g: GameState, X0: number, X1: number): Map<number, DayFacts> {
   const home = g.company.homeBase;
-  const a = midnight(home, X);
-  const b = a + DAY;
-  const f: DayFacts = { early: new Map(), late: new Map(), wave: new Map(), shifts: new Map(), airport: new Map() };
+  const a = midnight(home, X0);
+  const b = midnight(home, X1 + 1);
+  const out = new Map<number, DayFacts>();
+  const of = (X: number) => out.get(X) ?? out.set(X, { early: new Map(), late: new Map(), wave: new Map(), shifts: new Map(), airport: new Map() }).get(X)!;
+  for (let X = X0; X <= X1; X++) of(X);
   const inc = (m: Map<string, number>, k: string) => m.set(k, (m.get(k) ?? 0) + 1);
   const A = R().airport;
   for (const list of crewIx(g).byAircraft.values()) {
@@ -690,8 +745,9 @@ function dayFacts(g: GameState, X: number): DayFacts {
         if (!d || d.done) continue;
         const fl = g.flights[d.flightIds[0]];
         const st = fl?.from ?? d.restAt;
-        const k = dayIndex(st, d.report);
-        if (k !== X) continue;
+        const X = dayIndex(st, d.report);
+        if (X < X0 || X > X1) continue;
+        const f = of(X);
         const loc = (d.report + offsetAt(st, d.report)) % DAY;
         for (const s of p.slots) if (!s.above) inc(loc < 12 * 60 ? f.early : f.late, `${st}|${s.role}`);
         if (fl) {
@@ -708,13 +764,15 @@ function dayFacts(g: GameState, X: number): DayFacts {
   }
   for (const c of Object.values(g.crew)) {
     for (const w of c.standby ?? []) {
-      if (dayIndex(c.base, w.from) !== X) continue;
+      const X = dayIndex(c.base, w.from);
+      if (X < X0 || X > X1) continue;
+      const f = of(X);
       const st = w.at ?? c.base;
       if (w.kind === 'airport') for (const fam of c.ratings) inc(f.airport, `${st}|${fam}|${c.role}`);
       else if ((w.kind ?? 'home') === 'home') inc(f.shifts, `${st}|${c.role}|${w.shift ?? shiftOf(c, w)}`);
     }
   }
-  return f;
+  return out;
 }
 
 const shiftOf = (c: CrewMember, w: Window): 'E' | 'L' => ((w.from + offsetAt(c.base, w.from)) % DAY < 12 * 60 ? 'E' : 'L');
@@ -773,6 +831,16 @@ function insert(segs: Seg[], x: Seg): Seg[] {
 /** Rest an uncalled window of this kind asks for before the next work. */
 const restOf = (c: CrewMember, w: Window) => standbySeg(c, w).rest;
 
+/** v0.9 speed: per game, crew whose timeline (this signature) was checked clean. A cache of a pure check. */
+const cleanMemo = new WeakMap<GameState, Map<string, string>>();
+function cleanSig(c: CrewMember, segs: Seg[], now: Minute): string {
+  // The timeline from `now` on: history only drops out (lower cumulative duty); what it leaves for the future is in
+  // rest and recovery. Stored for the next day's check (its now).
+  let s = `${c.lastRecovery}|${c.restUntil}|${c.loc}`;
+  for (const x of segs) if (x.end > now) s += `|${x.kind}${x.start}-${x.end}${x.fresh ? 'f' : ''}`;
+  return s;
+}
+
 /**
  * v0.9 standby for every published day from today (§R.3.4): each crew member free on the day (not off, on leave, sick,
  * in training or joining, no duty or ticket touching it) gets one window, by where they are at 06:00: home standby at
@@ -791,8 +859,8 @@ export function planStandby(g: GameState): void {
   const lastPub = today + S.publishDays - 1;
   dp.publishedTo = Math.max(dp.publishedTo, midnight(home, lastPub + 1));
   const from = Math.max(today, dayIndex(home, dp.from));
-  const facts = new Map<number, DayFacts>();
-  const factsOf = (X: number) => facts.get(X) ?? facts.set(X, dayFacts(g, X)).get(X)!;
+  let facts: Map<number, DayFacts> | null = null;
+  const factsOf = (X: number) => (facts ??= dayFactsAll(g, from, lastPub)).get(X)!;
   let changed = false;
   for (const c of Object.values(g.crew).sort((a, b) => (a.id < b.id ? -1 : 1))) {
     if (c.status === 'joining' && !c.blocks?.some((b) => b.why === 'joining')) continue;
@@ -834,7 +902,10 @@ export function planStandby(g: GameState): void {
     // Future windows behind a limit (work planned around them since: a tour that grew, a re-plan) are fitted again.
     // v0.9 speed: a timeline with no issue at all needs no window-by-window check below.
     let clean = false;
-    if (c.standby?.some((w) => w.calledAt === undefined && w.from > g.now)) {
+    // v0.9 speed: a timeline found clean on an earlier day and unchanged since stays clean (no full check again).
+    const sig = cleanSig(c, segs, g.now);
+    if (cleanMemo.get(g)?.get(c.id) === sig) clean = true;
+    else if (c.standby?.some((w) => w.calledAt === undefined && w.from > g.now)) {
       const all = evalSegs(ctxOf(g, c), segs);
       if (all.some((i) => i.level === 'illegal' && i.code !== 'location' && i.code !== 'fdp')) {
         fitStandby(g, [c.id]);
@@ -860,6 +931,10 @@ export function planStandby(g: GameState): void {
       changed = true;
     }
     let prevShift: 'E' | 'L' | null = null;
+    // v0.9 speed: only the work and windows inside the published days are looked at day by day.
+    const span0 = midnight(c.base, from);
+    const span1 = midnight(c.base, lastPub + 1);
+    const work = segs.filter((x) => x.kind !== 'sby' && x.end > span0 && x.start < span1);
     for (let X = from; X <= lastPub; X++) {
       const m = midnight(c.base, X);
       const m1 = midnight(c.base, X + 1);
@@ -872,7 +947,7 @@ export function planStandby(g: GameState): void {
         prevShift = (has.kind ?? 'home') === 'home' ? has.shift ?? shiftOf(c, has) : null;
         continue;
       }
-      if (segs.some((x) => x.kind !== 'sby' && x.start < m1 && x.end > m)) {
+      if (work.some((x) => x.start < m1 && x.end > m)) {
         prevShift = null;
         continue;
       }
@@ -904,6 +979,7 @@ export function planStandby(g: GameState): void {
         continue;
       }
       (c.standby ??= []).push(w);
+      if (w.kind === 'reserve') clean = false;
       segs = insert(segs, standbySeg(c, w));
       baseIssues = null;
       changed = true;
@@ -918,6 +994,10 @@ export function planStandby(g: GameState): void {
       }
     }
     if (c.standby) c.standby.sort((x, y) => x.from - y.from);
+    // Clean before, and every window added since passed its own check: tomorrow's same timeline needs no full check.
+    const memo = cleanMemo.get(g) ?? cleanMemo.set(g, new Map()).get(g)!;
+    if (clean) memo.set(c.id, cleanSig(c, segs, g.now + DAY));
+    else memo.delete(c.id);
   }
   if (changed) touchCrewState(g);
 }
@@ -1000,7 +1080,6 @@ function countYesterday(g: GameState): void {
 export function dayPlanBefore(g: GameState): void {
   if (!g.dayPlan) return;
   pruneStandby(g);
-  noteStarted(g);
   countYesterday(g);
   for (const c of Object.values(g.crew)) if (c.off?.length && c.off[0] < dayIndex(c.base, g.now) - 40) c.off = c.off.filter((k) => k >= dayIndex(c.base, g.now) - 40);
   const y = yearOf(g.now);
@@ -1021,32 +1100,50 @@ export function dayPlanAfter(g: GameState): void {
   if (!g.dayPlan) return;
   topUpOffs(g);
   planStandby(g);
+  // v0.9 fix: after planStandby, so a window it starts right now (a hotel standby from 06:00 local = the daily tick)
+  // is noted too; before, it was neither today's (not planned yet) nor tomorrow's (not after a day ago).
+  noteStarted(g);
 }
 
 /**
- * v0.9 (§R.3): a month heading below its legal days off (work that left published days, a tour that took some) gets
- * free published days back as days off, the earliest from tomorrow (one more day off at short notice is no hardship),
- * when the month's unpublished days could not hold them.
+ * v0.9 (§R.3): a month heading below its days off (the planner's 8, pro rata: work that left published days, a tour that took some) gets
+ * free planned days back as days off, the earliest from tomorrow (one more day off at short notice is no hardship),
+ * when the free days the planner has not reached yet could not hold them. This month and the next.
  */
 function topUpOffs(g: GameState): void {
   let changed = false;
+  const planned = g.dayPlan?.planned;
   for (const c of Object.values(g.crew).sort((a, b) => (a.id < b.id ? -1 : 1))) {
     if (c.status === 'joining' || !c.off || c.notice) continue;
     const today = dayIndex(c.base, g.now);
-    const mk = monthOfDay(today);
-    const end = firstDayOf(mk + 1);
-    // Unpublished days still to plan in the month are the planner's own (planOffDays); only what they cannot hold comes
-    // from the published days.
-    const pub = Math.min(end, dayIndex(c.base, publishedTo(g)) + 1);
-    let deficit = legalFor(c, mk) - offsIn(g, c, mk) - Math.max(0, end - Math.max(pub, today + 1));
-    if (deficit <= 0 || today + 1 >= pub) continue;
-    const busy = busyDays(c, segsOf(g, c), today + 1, pub);
-    for (let k = today + 1; k < pub && deficit > 0; k++) {
-      if (offOn(c, k) || busy.hit.has(k) || blockedOn(c, k)) continue;
-      c.off = [...c.off, k].sort((a, b) => a - b);
-      dropStandby(g, c, midnight(c.base, k), midnight(c.base, k + 1));
-      deficit--;
-      changed = true;
+    // This month and the next (a tour crewed weeks ahead fills both).
+    for (const mk of [monthOfDay(today), monthOfDay(today) + 1]) {
+      const end = firstDayOf(mk + 1);
+      const lo = Math.max(today + 1, firstDayOf(mk));
+      // Not the month they joined in (not counted at its end either: dayPlanMonth).
+      if (lo >= end || midnight(c.base, firstDayOf(mk)) < c.hired) continue;
+      // v0.9 fix: only free days the planner has not reached yet are its own to give (planOffDays); the rest of the
+      // deficit comes from free days already planned (standby), the earliest first. Busy unplanned days are no room.
+      const open = planned !== undefined ? dayIndex(c.base, planned) : end;
+      // Cheap first: a planned month whose days off, with every day the planner has not reached yet, reach the floor.
+      if (firstDayOf(mk) >= firstPlanDay(g, c.base)) {
+        let have = Math.max(0, end - Math.max(lo, open));
+        for (const k of c.off) if (k >= firstDayOf(mk) && k < end) have++;
+        if (have >= R().off.minMonth || have >= minFor(c, mk)) continue;
+      }
+      const busy = busyDays(c, segsOf(g, c), firstDayOf(mk), end);
+      const free = (k: number) => !offOn(c, k) && !busy.hit.has(k) && !blockedOn(c, k);
+      let room = 0;
+      for (let k = Math.max(lo, open); k < end; k++) if (free(k)) room++;
+      // Towards the planner's 8 (pro rata), not the legal 7: a day taken later by a change on the day still leaves 7.
+      let deficit = minFor(c, mk) - offsIn(g, c, mk, busy) - room;
+      for (let k = lo; k < Math.min(end, open) && deficit > 0; k++) {
+        if (!free(k)) continue;
+        c.off = [...c.off, k].sort((a, b) => a - b);
+        dropStandby(g, c, midnight(c.base, k), midnight(c.base, k + 1));
+        deficit--;
+        changed = true;
+      }
     }
   }
   if (changed) touchCrewState(g);

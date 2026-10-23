@@ -23,6 +23,15 @@ export const SET_ROLES: Role[] = ['CPT', 'FO', 'CRP', 'PUR', 'CC'];
  */
 export const SETS_WHY = '5 sets per aircraft: each person has 8–10 days off a month and 4 weeks’ leave; every other day is flying or standby.';
 
+/** v0.9 fix: the Planning view's line for a fleet with a detached aircraft (replaces 'its sets on station plus 2 at base'). */
+export const SETS_DETACHED = 'A detached aircraft needs its sets on station plus one in five for leave and change-overs.';
+/**
+ * v0.9 fix: crew sets an aircraft on a deployment needs: its sets on station (their days off are taken at the hotel,
+ * inside the tour) plus a fifth for leave, sickness and the change-overs (the same 1.20 as the home rule), never fewer
+ * than the home base's 5. Was on-station + 2 (7 for a 5-set detachment). Pure.
+ */
+export const setsForStation = (onStation: number): number => Math.max(BAL.crewSetsPerAircraft, Math.ceil(onStation * 1.2 - 1e-9));
+
 export interface SetRole {
   role: Role;
   /** Crew in one set (may be fractional on a mixed family: an A320 and an A321 need different cabin crews). */
@@ -170,7 +179,7 @@ export function familyNeeds(g: GameState) {
       continue;
     }
     const t = typeOf(ac.typeId);
-    const sets = Math.max(BAL.crewSetsPerAircraft, (onStation.get(ac.id) ?? 0) + 2);
+    const sets = setsForStation(onStation.get(ac.id) ?? 0);
     // The most extra crew its long work over the next 60 days asks for (as the staffing model).
     let x = crewExtraFor(g, ac.id, null);
     for (const k of Object.values(g.contracts)) {

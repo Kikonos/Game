@@ -34,6 +34,7 @@ import { callFromStandby, calledNow } from './standby';
 import { SBY_LABEL } from './calendar';
 import { offDaysHit, takesPublishedOff, v09Stats } from './dayPlan';
 import { crewAlertKind, type CrewAlertKind } from './outOfHours';
+import { restPlan } from './restPlan';
 
 export type { Reason, ReasonCode };
 export { rootReason };
@@ -152,6 +153,28 @@ function unitPax(ac: Aircraft, legs: Flight[]): number {
 interface Ctx {
   g: GameState; f: Flight; ac: Aircraft; d?: Duty; p?: Pairing; cs: FlightCrewStatus;
   missing: Role[]; need: SeatNeed[]; unit: Flight[]; pax: number; revLegs: number; dep: string;
+  /** v0.9 §T seats held by crew out of hours (illegal for this duty, or a failed rest plan): a replacement takes them. */
+  replace: { role: Role; crewId: string }[];
+  /** Seats a new crew member can take: the empty ones, then those of `replace` (call-in, fly in, jet). */
+  seats: Role[];
+}
+
+/** v0.9 §T the seats held by crew out of hours on duty d: a crew-level illegal issue, or a rest plan failed at the gate. */
+function heldOoh(g: GameState, d: Duty | undefined, p: Pairing | undefined, cs: FlightCrewStatus): { role: Role; crewId: string }[] {
+  if (!d || !p || d.done) return [];
+  const rest = p.slots.some((s) => s.crewId && s.ooh?.limit === 'inflightRest');
+  if (cs.level !== 'illegal' && !rest) return [];
+  const out: { role: Role; crewId: string }[] = [];
+  const seen = new Set<string>();
+  const add = (crewId: string) => {
+    const s = p.slots.find((y) => y.crewId === crewId);
+    if (!s || seen.has(crewId)) return;
+    seen.add(crewId);
+    out.push({ role: s.role, crewId });
+  };
+  if (cs.level === 'illegal') for (const b of crewIssuesFor(g, d)) add(b.crewId);
+  for (const s of p.slots) if (s.crewId && s.ooh?.limit === 'inflightRest') add(s.crewId);
+  return out.sort((a, b) => SLOT_ORDER.indexOf(a.role) - SLOT_ORDER.indexOf(b.role));
 }
 
 function ctxOf(g: GameState, flightId: string): Ctx | null {
@@ -163,7 +186,8 @@ function ctxOf(g: GameState, flightId: string): Ctx | null {
   const cs = flightCrewStatus(g, f.id);
   const missing = [...cs.missing].sort((a, b) => SLOT_ORDER.indexOf(a) - SLOT_ORDER.indexOf(b));
   const unit = unitOf(g, ac, f);
-  return { g, f, ac, d, p, cs, missing, need: group(missing), unit, pax: unitPax(ac, unit), revLegs: unit.filter(isRevenue).length, dep: f.from };
+  const replace = heldOoh(g, d, p, cs);
+  return { g, f, ac, d, p, cs, missing, need: group(missing), unit, pax: unitPax(ac, unit), revLegs: unit.filter(isRevenue).length, dep: f.from, replace, seats: [...missing, ...replace.map((r) => r.role)] };
 }
 
 function whatLine(x: Ctx): string {
@@ -219,11 +243,11 @@ let previewing = 0;
 
 let escalating = false;
 
-export function escalateShortages(g: GameState, opts: { reroster?: boolean } = {}): void {
+export function escalateShortages(g: GameState, opts: { reroster?: boolean; freeFix?: boolean } = {}): void {
   if (previewing || escalating) return;
   escalating = true;
   try {
-    escalate(g, opts.reroster === true);
+    escalate(g, opts.reroster === true, opts.freeFix !== false);
   } finally {
     escalating = false;
   }
@@ -255,7 +279,7 @@ function markDuty(g: GameState, f: Flight, mark: 'amber' | 'red'): void {
   }
 }
 
-function escalate(g: GameState, reroster: boolean): void {
+function escalate(g: GameState, reroster: boolean, freeFix: boolean): void {
   const amber: Flight[] = [];
   const red: Flight[] = [];
   // A shortage first seen now may only be a roster not yet run (a leg just planned or retimed): one re-roster of
@@ -268,8 +292,31 @@ function escalate(g: GameState, reroster: boolean): void {
       planNow(g, f);
     }
   }
+  // v0.9 before a red (alarm and pause), the free fixes once: the roster run again for the aircraft, then crew on
+  // standby at the departure called out (legal, no overtime, never a day off). Red only when the flight stays short.
+  let list = shortFlights(g);
+  // v0.9 fix: from the amber stage too (a first warning 48 h out): a standby call-out or a ticket for free crew is
+  // cheap then, and gone 12 h out.
+  const due = (x: (typeof list)[number]) => {
+    const a = g.flights[x.flightId].crewAlert;
+    return x.stage === 'red' ? a !== 'red' : !a;
+  };
+  if (freeFix && list.some(due)) {
+    const done = new Set<string>(fresh);
+    for (const x of list) {
+      const f = g.flights[x.flightId];
+      if (!due(x) || f.status !== 'scheduled') continue;
+      // Crew out of hours keep their alert unless a standby replaces them (a re-roster would only empty the seat).
+      if (x.kind === 'short' && f.aircraftId && !done.has(f.aircraftId)) {
+        done.add(f.aircraftId);
+        planNow(g, f);
+      }
+      if (BAD(flightCrewStatus(g, f.id, { live: false }).level)) standbyCallOut(g, f.id);
+    }
+    list = shortFlights(g);
+  }
   const kindOf = new Map<string, CrewAlertKind>();
-  for (const x of shortFlights(g)) {
+  for (const x of list) {
     const f = g.flights[x.flightId];
     kindOf.set(f.id, x.kind);
     if (x.stage === 'red') {
@@ -322,6 +369,8 @@ function escalate(g: GameState, reroster: boolean): void {
   if (red.length) {
     const duties = perDuty(red);
     s.crewRed = (s.crewRed ?? 0) + duties.length;
+    // v0.9 fix (§5.7): crew trouble ends the clean-sheet streak (the Ops Control unlock).
+    v9.legalStreak = 0;
     let short = false;
     let hrs = false;
     for (const f of perAircraft(duties)) {
@@ -348,6 +397,28 @@ function escalate(g: GameState, reroster: boolean): void {
 }
 
 setShortHook((g) => escalateShortages(g));
+
+/**
+ * v0.9 the routine call-out (§R.4): every open seat of the flight (and those of crew out of hours) taken by crew on
+ * standby at the departure, legal, no overtime, no day off; applied only when it covers them all. One info message.
+ */
+function standbyCallOut(g: GameState, flightId: string): boolean {
+  // Standby at the departure first (no overtime), then crew free elsewhere on a ticket (what the roster buys anyway).
+  for (const fix of ['callIn', 'deadhead'] as const) {
+    const x = ctxOf(g, flightId);
+    if (!x?.d || !x.p || !x.seats.length) return false;
+    const lists = new Map<Role, DutyCandidate[]>();
+    for (const role of new Set(x.seats)) lists.set(role, seatCandidates(g, x.d, role, fix === 'callIn').filter((c) => (fix === 'deadhead' || !!c.standby) && !c.dayOff && c.level !== 'illegal'));
+    const span: [Minute, Minute] = [fix === 'callIn' ? x.d.report : x.d.report - DAY, openDuties(g, x.p).at(-1)?.release ?? x.d.release];
+    const picks = pickCrew(x, lists, undefined, (id) => !takesPublishedOff(g, g.crew[id], span[0], span[1]));
+    if (picks.length < x.seats.length) continue;
+    const r = runFix(g, flightId, fix, { crewIds: picks.map((y) => y.crewId) });
+    if (!r.ok || BAD(flightCrewStatus(g, flightId, { live: false }).level)) continue;
+    pushMessage(g, { tone: 'info', cat: 'crew', title: `${x.f.no} crewed ${fix === 'callIn' ? 'from standby' : 'on a ticket'}`, body: `${r.changes.join('. ')}.`, ref: { kind: 'flight', id: flightId } });
+    return true;
+  }
+  return false;
+}
 
 /** v0.9 the out-of-hours card (problems/crew.ts crewHoursCard registers itself: problems import crew, not the reverse). */
 // eslint-disable-next-line no-var -- set while modules load in a cycle (var: no temporal dead zone)
@@ -831,17 +902,28 @@ function seatCandidates(g: GameState, d: Duty, role: Role, here: boolean): DutyC
   return list.map((c, i) => ({ c, i })).sort((a, b) => rank(a.c) - rank(b.c) || a.i - b.i).map((x) => x.c);
 }
 
+/** v0.9 §T the seats a new crew member can take: empty ones, then those held by crew out of hours. */
+const jetSeats = (x: Ctx): { role: Role; replaces?: string }[] => [...x.missing.map((role) => ({ role })), ...x.replace.map((r) => ({ role: r.role, replaces: r.crewId }))];
+
+/** v0.9 §Y.1 an augmented duty whose in-flight rest plan still fails after the change: why, in words (null: fine). */
+function restStillFails(h: GameState, dutyId: string): string | null {
+  const d = h.duties[dutyId];
+  if (!d || d.augment === 0 || d.legacyRest) return null;
+  return restPlan(h, d.id)?.ok === false ? 'Even with fresh crew the in-flight rest plan does not work after this delay: delay for rest or swap' : null;
+}
+
 /** The default (or chosen) crew per missing seat, one person each, from a candidate list per role. */
-function pickCrew(x: Ctx, lists: Map<Role, DutyCandidate[]>, chosen?: string[], ok: (crewId: string) => boolean = () => true): { role: Role; crewId: string }[] {
-  const out: { role: Role; crewId: string }[] = [];
+function pickCrew(x: Ctx, lists: Map<Role, DutyCandidate[]>, chosen?: string[], ok: (crewId: string) => boolean = () => true): { role: Role; crewId: string; replaces?: string }[] {
+  const out: { role: Role; crewId: string; replaces?: string }[] = [];
   const used = new Set<string>();
-  for (const role of x.missing) {
+  // v0.9 §T the empty seats first, then the seats of crew out of hours (each pick names whom it replaces).
+  for (const { role, replaces } of jetSeats(x)) {
     const list = lists.get(role) ?? [];
     // v0.9 a published day off is only ever taken when the player picks that person (R.5).
     const pick = chosen ? list.find((c) => chosen.includes(c.crewId) && !used.has(c.crewId)) : list.find((c) => !used.has(c.crewId) && !c.dayOff && ok(c.crewId));
     if (!pick) continue;
     used.add(pick.crewId);
-    out.push({ role, crewId: pick.crewId });
+    out.push({ role, crewId: pick.crewId, ...(replaces ? { replaces } : {}) });
   }
   return out;
 }
@@ -886,7 +968,7 @@ function delayTimes(g: GameState, x: Ctx): Minute[] {
   add(readyOf(g, f, ac));
   if (d && p) {
     const night = (atHome: boolean) => minRest({ dutyMin: 0, atHome, augmented: false, tzShift: 0 });
-    for (const role of new Set(x.missing)) {
+    for (const role of new Set(x.seats)) {
       for (const c of candidatesOf(g, d, role).slice(0, 12)) {
         if (c.onPairing) continue;
         const cm = g.crew[c.crewId];
@@ -941,8 +1023,15 @@ function delayPlan(g: GameState, x: Ctx): { at: Minute } | null {
     const times = delayTimes(g, x);
     const last = times[times.length - 1];
     if (last === undefined || !tryAt(last)) return null;
-    for (const at of times.slice(0, -1)) if (tryAt(at)) return { at };
-    return { at: last };
+    // v0.9 speed: the earliest that works by halving (same monotone reading: a later time works when an earlier does).
+    let lo = 0;
+    let hi = times.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (tryAt(times[mid])) hi = mid;
+      else lo = mid + 1;
+    }
+    return { at: times[lo] };
   });
 }
 
@@ -977,20 +1066,23 @@ function runFix(h: GameState, flightId: string, fix: CrewFix, opts: ApplyOpts): 
     case 'callIn': {
       if (!d) return { ok: false, error: 'No crew plan for this flight yet' };
       const lists = new Map<Role, DutyCandidate[]>();
-      for (const role of new Set(x.missing)) lists.set(role, seatCandidates(h, d, role, fix === 'callIn'));
-      // The trip's span, a day of travel before it included (a ticket out on a day off takes it too).
-      const span: [Minute, Minute] = [d.report - DAY, (p ? openDuties(h, p).at(-1)?.release : undefined) ?? d.release];
+      for (const role of new Set(x.seats)) lists.set(role, seatCandidates(h, d, role, fix === 'callIn'));
+      // The trip's span, a day of travel before it included for a ticket out (a ticket on a day off takes it too); a
+      // call-in at the airport only the duty itself.
+      const span: [Minute, Minute] = [fix === 'callIn' ? d.report : d.report - DAY, (p ? openDuties(h, p).at(-1)?.release : undefined) ?? d.release];
       const picks = pickCrew(x, lists, opts.crewIds, (id) => !takesPublishedOff(h, h.crew[id], span[0], span[1]));
       if (!picks.length) return { ok: false, error: fix === 'callIn' ? `Nobody is free at ${city(x.dep)} today` : 'Nobody legal can be flown in' };
       const changes: string[] = [];
       let cost = 0;
       const had = new Set(Object.values(h.flights).filter((t) => t.kind === 'deadhead').map((t) => t.id));
-      for (const { role, crewId } of picks) {
+      for (const { role, crewId, replaces } of picks) {
         // v0.9 a standby window for this report (running, or starting soon: short notice) is a call-out, no overtime.
         const onSby = !!(lists.get(role) ?? []).find((x) => x.crewId === crewId)?.standby;
-        const r = assignCrew(h, f.id, crewId, role);
+        // v0.9 §T a seat held by crew out of hours: they come off it as the new crew member takes it.
+        const r = assignCrew(h, f.id, crewId, role, replaces && h.pairings[p!.id]?.slots.some((s) => s.crewId === replaces) ? { replace: replaces } : {});
         if (!r.ok) continue;
         const c = h.crew[crewId];
+        if (replaces && h.crew[replaces]) changes.push(`${crewName(h.crew[replaces])} comes off (out of hours)`);
         // (placing them may already have called them out: the roster counts a placement inside a running window)
         if (fix === 'callIn' && (callFromStandby(h, crewId) || calledNow(h, crewId) || onSby)) {
           const nd = h.duties[d.id] ?? d;
@@ -1012,6 +1104,8 @@ function runFix(h: GameState, flightId: string, fix: CrewFix, opts: ApplyOpts): 
         }
       }
       if (!changes.length) return { ok: false, error: 'The roster refused every candidate' };
+      const restBad = restStillFails(h, d.id);
+      if (restBad) return { ok: false, error: restBad };
       const still = h.pairings[p!.id] ? group(h.pairings[p!.id].slots.filter((s) => !s.crewId && !s.above).map((s) => s.role)) : [];
       if (still.length) changes.push(`${seatsText(still)} still missing`);
       return { ok: true, changes, cost };
@@ -1036,21 +1130,22 @@ function runFix(h: GameState, flightId: string, fix: CrewFix, opts: ApplyOpts): 
       if (!d || !p) return { ok: false, error: 'No crew plan for this flight yet' };
       const cls = (opts.optionId && JET_CLASSES.includes(opts.optionId as JetClass) ? opts.optionId : undefined) as JetClass | undefined;
       const used = new Set<string>();
-      const picks: { c: CrewMember; ready: Minute; loc: string }[] = [];
-      for (const role of x.missing) {
+      const picks: { c: CrewMember; ready: Minute; loc: string; replaces?: string }[] = [];
+      const seatOf = jetSeats(x);
+      for (const { role, replaces } of seatOf) {
         const list = jetCandidates(h, p, d, role, used, cls);
         const pick = opts.crewIds ? list.find((y) => opts.crewIds!.includes(y.c.id)) : list[0];
         if (!pick) continue;
         used.add(pick.c.id);
-        picks.push({ c: pick.c, ready: pick.ready, loc: pick.loc });
+        picks.push({ c: pick.c, ready: pick.ready, loc: pick.loc, replaces });
       }
       // Jet + rest (opts.at): the crew land, rest a night and take the flight the next day.
       if (!picks.length && opts.at !== undefined) {
-        for (const role of x.missing) {
+        for (const { role, replaces } of seatOf) {
           const pick = jetRestCandidates(h, p, d, role, used)[0];
           if (!pick) continue;
           used.add(pick.c.id);
-          picks.push({ c: pick.c, ready: pick.ready, loc: pick.loc });
+          picks.push({ c: pick.c, ready: pick.ready, loc: pick.loc, replaces });
         }
       }
       if (!picks.length) return { ok: false, error: 'Nobody legal is free anywhere' };
@@ -1075,8 +1170,16 @@ function runFix(h: GameState, flightId: string, fix: CrewFix, opts: ApplyOpts): 
         changes.push(`${f.no} leaves ${at(f.std, h.now)} UTC (+${fmtDuration(f.std - was)}) so the jet can land first`);
         if (h.flights[f.id]?.status !== 'scheduled') return { ok: false, error: 'The flight would be dropped by the delay' };
       }
+      // v0.9 §T crew out of hours come off their seats for the jet's crew.
+      const hp = h.pairings[p.id];
+      for (const y of picks) if (y.replaces && hp?.slots.some((s) => s.crewId === y.replaces)) {
+        releaseCrew(h, hp, y.replaces);
+        changes.push(`${crewName(h.crew[y.replaces])} comes off (out of hours)`);
+      }
       const r = charterJet(h, f.id, picks.map((y) => y.c.id).filter((id) => !heldBy(ctxOf(h, flightId)?.p).has(id)), cls ?? jetClassFor(picks.length, distance(picks[0].loc, x.dep) / NM));
       if (!r.ok) return { ok: false, error: r.error === 'Nobody could be seated on the trip' ? 'Even flown in by jet, nobody is legal for the trip' : r.error };
+      const restBad = restStillFails(h, d.id);
+      if (restBad) return { ok: false, error: restBad };
       // Seats the jet did not cover go to the roster as usual.
       if (gap > 0 && ctxOf(h, flightId)?.missing.length) rerosterFrom(h, ac.id, h.now);
       changes.push(...seatChanges(h, f, before));
@@ -1252,6 +1355,13 @@ function jetBeaten(g: GameState, x: Ctx, beat: CrewSolution, jetLands: Minute, j
   return `A jet would leave no sooner than ${what} (${at(jetLeaves, g.now)} vs ${at(beat.newDeparture ?? x.f.std, g.now)}): not offered`;
 }
 
+/** Why no new crew member helps when every seat is held: the duty itself is too long, or nothing is wrong with a seat. */
+function fullWhy(x: Ctx): string {
+  const d = x.d;
+  if (d && d.fdp > d.maxFdp + (d.discretion ?? 0)) return 'The day itself is too long: a fresh crew would be over the limit too';
+  return 'Every seat is taken';
+}
+
 /** The nine solutions (available first, ranked) for the flight; `previews` false skips the copies (availability only). */
 function solutionsFor(g: GameState, x: Ctx, previews: boolean, only?: readonly CrewFix[]): CrewSolution[] {
   const { f, ac, d, p } = x;
@@ -1280,13 +1390,13 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean, only?: readonly C
   for (const id of ['deadhead', 'callIn'] as const) {
     if (!want(id)) continue;
     const s = base(id);
-    if (!d || !x.missing.length) {
-      out.push(no(s, x.missing.length ? 'No crew plan for this flight yet' : 'Every seat is taken'));
+    if (!d || !x.seats.length) {
+      out.push(no(s, x.seats.length ? 'No crew plan for this flight yet' : fullWhy(x)));
       continue;
     }
     const options: FixOption[] = [];
     const lists0 = new Map<string, DutyCandidate>();
-    for (const role of new Set(x.missing)) {
+    for (const role of new Set(x.seats)) {
       for (const c of seatCandidates(g, d, role, id === 'callIn').slice(0, 6)) {
         lists0.set(c.crewId, c);
         const cm = g.crew[c.crewId];
@@ -1318,7 +1428,8 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean, only?: readonly C
   if (want('delay')) {
     const s = base('delay');
     const plan = delayPlan(g, x);
-    if (!plan) out.push(no(s, !delayTimes(g, x).length && readyOf(g, f, ac) <= f.std + f.delay ? 'A crew can take it on time: use Auto-fix' : f.kind === 'positioning' ? 'The schedule re-plans empty legs itself: this one waits for a crew at the gate' : 'Nobody can take it even two days later'));
+    // An out-of-hours crew is "ready" at the gate but may not go: never point to Auto-fix for it.
+    if (!plan) out.push(no(s, !delayTimes(g, x).length && crewAlertKind(g, f.id) !== 'hours' && readyOf(g, f, ac) <= f.std + f.delay ? 'A crew can take it on time: use Auto-fix' : f.kind === 'positioning' ? 'The schedule re-plans empty legs itself: this one waits for a crew at the gate' : 'Nobody can take it even two days later'));
     else {
       const ready = plan.at;
       const k = contractOf(g, f);
@@ -1334,16 +1445,16 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean, only?: readonly C
   // day would otherwise run too long (jet + rest).
   if (want('jet')) {
     const s = base('jet');
-    if (!d || !p || !x.missing.length) out.push(no(s, x.missing.length ? 'No crew plan for this flight yet' : 'Every seat is taken'));
+    if (!d || !p || !x.seats.length) out.push(no(s, x.seats.length ? 'No crew plan for this flight yet' : fullWhy(x)));
     else {
       const local = new Map<Role, DutyCandidate[]>();
-      for (const role of new Set(x.missing)) local.set(role, seatCandidates(g, d, role, true));
+      for (const role of new Set(x.seats)) local.set(role, seatCandidates(g, d, role, true));
       const localPicks = pickCrew(x, local);
       // Seats left after everyone free at the airport is seated: those a jet is quoted for.
       const need = new Map<Role, number>();
-      for (const role of x.missing) need.set(role, (need.get(role) ?? 0) + 1);
+      for (const role of x.seats) need.set(role, (need.get(role) ?? 0) + 1);
       for (const y of localPicks) need.set(y.role, (need.get(y.role) ?? 0) - 1);
-      const roles = x.missing.filter((role) => {
+      const roles = x.seats.filter((role) => {
         const n = need.get(role) ?? 0;
         if (n <= 0) return false;
         need.set(role, n - 1);
@@ -1472,7 +1583,8 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean, only?: readonly C
     else {
       s.cost = q.cost;
       s.chips = [usd(q.cost), `Hurts: ${q.hit.text}`, `we still bill ${usd(q.revenue)}`, q.rivalName];
-      s.consequences.push(`${q.rivalName} flies ${plural(q.revenueLegs, 'leg')}; ${q.hit.text.replace(' · ', ', ')}`);
+      // v0.9 language pass: the hit is in the chips; the line says only who flies what.
+      s.consequences.push(`${q.rivalName} flies ${plural(q.revenueLegs, 'leg')}`);
       out.push(run(s));
     }
   }
@@ -1498,19 +1610,24 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean, only?: readonly C
     return bad + s.cost + (s.preview.extraCost ?? 0) + late + rip + (s.id === 'cancel' ? x.pax * 500 : 0);
   };
   // A jet not offered (v0.8 fix pack) goes last: the panel shows it as one muted line under the rows.
-  const ranked = [...out].sort((a, b) => Number(!!a.dominated) - Number(!!b.dominated) || Number(b.available) - Number(a.available) || score(a) - score(b) || FIX_ORDER.indexOf(a.id) - FIX_ORDER.indexOf(b.id));
+  // v0.9 §T crew out of hours: a call-in from standby leads at equal cost, as the card says ('Replace X: Y is on standby').
+  const order = (id: CrewFix) => (x.replace.length && id === 'callIn' ? -1 : FIX_ORDER.indexOf(id));
+  const ranked = [...out].sort((a, b) => Number(!!a.dominated) - Number(!!b.dominated) || Number(b.available) - Number(a.available) || score(a) - score(b) || order(a.id) - order(b.id));
   ranked.forEach((s, i) => (s.rank = i + 1));
   return ranked;
 }
 
 /** Crew Control for a flight: missing seats, the card and the nine ranked solutions with previews (v0.7.3 `only`: just those fixes). Pure in g. */
-export function crewControl(g: GameState, flightId: string, opts: { previews?: boolean; only?: readonly CrewFix[] } = {}): CrewControlView | null {
+export function crewControl(g: GameState, flightId: string, opts: { previews?: boolean; only?: readonly CrewFix[]; noCard?: boolean } = {}): CrewControlView | null {
   const x = ctxOf(g, flightId);
   if (!x) return null;
-  const card = crewShortCard(g, flightId);
+  // v0.9 §T crew out of hours gets its own card (who, which limit, by how much), as in the inbox. `noCard` (the bot,
+  // applyCrewFix): the stage from the crew status alone, the card left empty.
+  const bad = x.cs.level === 'missing' || x.cs.level === 'illegal';
+  const card = opts.noCard ? null : crewAlertKind(g, flightId) === 'hours' ? crewHoursCardHook?.(g, flightId) ?? crewShortCard(g, flightId) : crewShortCard(g, flightId);
   const { f, ac, d, p } = x;
   const hoursLeft = Math.round(((f.std - g.now) / 60) * 10) / 10;
-  const stage: CrewControlView['stage'] = !card ? 'ok' : f.std + f.delay <= g.now || f.crewHeld ? 'gate' : hoursLeft <= CC().redH ? 'red' : 'amber';
+  const stage: CrewControlView['stage'] = !(opts.noCard ? bad : card) ? 'ok' : f.std + f.delay <= g.now || f.crewHeld ? 'gate' : hoursLeft <= CC().redH ? 'red' : 'amber';
   const illegal: CrewControlView['illegal'] = [];
   if (d && p) {
     for (const b of crewIssuesFor(g, d)) {
@@ -1539,7 +1656,7 @@ export function setFixHook(f: typeof fixHook): void {
 
 /** Applies a Crew Control fix on the live state (availability re-checked; confirms honoured); one info message. */
 export function applyCrewFix(g: GameState, flightId: string, fix: CrewFix, opts: ApplyOpts = {}): ActionResult<{ changes: string[]; after: CrewControlView | null }> {
-  const view = crewControl(g, flightId, { previews: false, only: [fix] });
+  const view = crewControl(g, flightId, { previews: false, only: [fix], noCard: true });
   if (!view) return { ok: false, error: 'Flight not found or already left' };
   const s = view.solutions.find((y) => y.id === fix);
   if (!s) return { ok: false, error: 'Unknown fix' };
@@ -1550,6 +1667,7 @@ export function applyCrewFix(g: GameState, flightId: string, fix: CrewFix, opts:
   if (!r.ok) return r;
   const st = stats(g);
   st.crewFixes = { ...(st.crewFixes ?? {}), [fix]: ((st.crewFixes ?? {})[fix] ?? 0) + 1 };
+  if (fix === 'subcharter' || fix === 'cancel') v09Stats(g).legalStreak = 0;
   fixHook?.(g, flightId);
   const f = g.flights[flightId];
   const cs = f && f.aircraftId && f.status === 'scheduled' ? flightCrewStatus(g, flightId) : null;

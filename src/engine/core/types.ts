@@ -1389,6 +1389,8 @@ export interface StatsV09 {
   offersWide?: number; offersJumbo?: number;
   /** §R roster planning counters (crew/dayPlan.ts rosterStats). */
   roster?: StatsRoster09;
+  /** v0.9 fix: contracts completed of ≥ 10 BH or ≥ 4 sectors (the analyst); since when Reliable ≥ 90 (the watch desk). */
+  bigDone?: number; reliableSince?: Minute;
 }
 
 /** v0.9 §R: crew-days by kind (counted as each day closes), call-outs, broken days off, the longest recovery gap seen. */

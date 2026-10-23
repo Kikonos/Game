@@ -156,7 +156,7 @@ describe('the cabin rules in feasibility', () => {
     ac.cabin = { j: 12, w: 0, y: 156, total: 168, label: '12J/156Y', layout: 'two-class' };
     expect(feasibility(g, o.id, ac.id).checks.find((x) => x.id === 'layout')!.level).toBe('ok');
     const troop = legsOffer(g, [['LIS', 'BKO', t]], 174);
-    expect(feasibility(g, troop.id, ac.id).checks.find((x) => x.id === 'seats')).toMatchObject({ level: 'no', label: '168 seats: the client needs 174 (174 passengers)' });
+    expect(feasibility(g, troop.id, ac.id).checks.find((x) => x.id === 'seats')).toMatchObject({ level: 'no', label: '168 seats: the client needs 174' });
   });
 });
 

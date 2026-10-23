@@ -384,6 +384,21 @@ Scope:
 | crew desk "Does" (ENGINE `data/heads.ts`) | "Keeps home standby filled" | "Re-plans standby and days off after disruptions" |
 | amber crew message, out of hours (ENGINE §T) | "Crew short: TP1234 …" | "TP1234: crew out of hours" (a missing seat keeps "crew short") |
 | achievement `standby` (ENGINE) | "5 standby call-ins" | "25 standby call-outs" |
+| map aircraft panel, livery (MAP) | "In Corendon colours for Winter sun to Corfu for Corendon" | "In Corendon colours for Winter sun to Corfu" |
+| map offer panel title / airport offers / event "Work it created" (MAP) | "Winter sun to Corfu for Corendon" (client also on the next line) | "Winter sun to Corfu" (client once: its own row, or "Corendon · Winter sun to Corfu" in a list) |
+| map aircraft panel, no legs (MAP) | "Nothing scheduled. Idle aircraft earn nothing: check the market." | "Nothing scheduled. Check the market." |
+| map airline-leg panel (MAP) | "Travelling as passengers to Lisbon (LIS) via DXB." under "Deadhead · Emirates" | "To Lisbon (LIS), via DXB." |
+| map hotel list with standby (MAP §R.9) | (new) | aside "3 on standby", "SBY" tag per person, footer "6 pilots · 12 cabin crew in all" (the title already says hotel) |
+| map crew alert (MAP §T.5) | "CREW SHORTAGE" for every crew alert | "CREW OUT OF HOURS" banner + "Crew out of hours · Ana Silva (28-day hours)"; chips "OUT OF HRS 05:00" / "OUT OF HOURS" |
+| crew card (UI) | "Days off so far this month 18" (every unrostered day counted) and no minimum | row removed; one month line under the 14-day strip: "**May:** days off 4 of 7 minimum · standby 2 · flying 7 · leave 0" |
+| crew strip, empty (UI) | "Nothing rostered in the next 14 days: only rest and days off." | "Nothing rostered in the next 14 days." (the strip shows the rest) |
+| roster legend popover (UI §R) | "Dashed: home standby 06:00–18:00, on call without overtime" · "Day off" | one row per code: "SBY E / SBY L: home standby, early 05–17 or late 12–24" · "SBY DUB: hotel standby at that station" · "ASBY: airport standby, ready at once" · "RES: reserve, at least 10 h notice" · "OFF … a lock means a change costs morale" |
+| day-off confirm (UI §R.5) | (new; engine text "Takes Ana's day off Tue 4 Nov; it moves to Thu 13 Nov (morale −6)" under "Take Ana Silva's day off?") | title "Take Ana Silva's day off on Tue 4 Nov?", body "It moves to Thu 13 Nov. Morale −6." |
+| Crew Planning intro (UI) | "Each aircraft needs about 5 full crews (crew sets) to fly every day with days off, leave and sickness. …" | `SETS_WHY` ("5 sets per aircraft: each person has 8–10 days off a month and 4 weeks' leave; every other day is flying or standby.") + the limiting-role line |
+| Crew Control, a fix not available (UI) | the reason in the row head and again in the open row ("Seats are empty: … flight..") | once, in the row head |
+| Crew Control standby candidate (UI §R.4) | "Rita Costa" + chip "Standby since 06:00" | "Rita Costa" + chips "Home standby (early)" · "No overtime", then "ready in 1:30" |
+| Settings (UI §S.5, §T.4) | "Sound effects · Synthesised UI sounds" · "Pause for crew shortages · A flight in the next 48 h has no legal crew" | a Sound section (master, volume, Alerts, Chimes, Flight chimes, UI clicks, Ambience, Test sounds) · "Pause for crew shortages · A seat in the next 12 h has nobody to fill it" + "Pause for crew out of hours · A pilot or cabin crew member has reached a legal limit" |
+| analyst block (UI §5.5) | (new) | "Analyst · Inès Dubois 78" + the verdict line; "Use $1.24M" only with a counter verdict |
 
 ---
 

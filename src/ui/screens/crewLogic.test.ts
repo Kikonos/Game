@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CalBlock, CalFlight } from '../../engine/crew';
 import { DAY, HOUR } from '../../engine/core/time';
-import { calAt, calKey, calLabel, calLayer, calLegend, dutyType, pickCal } from './crewLogic';
+import { calAt, calKey, calLabel, calLayer, calLegend, dutyType, pickCal, stripText } from './crewLogic';
 
 const fl = (type: CalFlight['type']): CalFlight => ({ id: type, no: 'AW 1', from: 'LIS', to: 'OPO', std: 0, sta: 60, type });
 const blk = (kind: CalBlock['kind'], start: number, end: number, flights?: CalFlight[]): CalBlock => ({ kind, start, end, label: kind, detail: '', flights });
@@ -29,7 +29,21 @@ describe('crew calendar strip', () => {
 
   it('lists legend keys in a fixed order, once each', () => {
     const b = [blk('off', 0, DAY), blk('duty', DAY, DAY + 8 * HOUR, [fl('ferry')]), blk('sick', 2 * DAY, 4 * DAY), blk('duty', 5 * DAY, 5 * DAY + HOUR, [fl('operating')]), blk('off', 6 * DAY, 7 * DAY)];
-    expect(calLegend(b)).toEqual(['operating', 'ferry', 'sick', 'off']);
+    expect(calLegend(b)).toEqual(['operating', 'ferry', 'off', 'sick']);
+  });
+
+  it('v0.9 §R: keys and codes for each standby kind', () => {
+    const s = (sby?: 'home' | 'hotel' | 'airport' | 'reserve', extra: Partial<CalBlock> = {}) => ({ ...blk('standby', 0, HOUR), sby, ...extra });
+    expect(calKey(s('home'))).toBe('standby');
+    expect(calKey(s('hotel'))).toBe('sbyHotel');
+    expect(calKey(s('airport'))).toBe('asby');
+    expect(calKey(s('reserve'))).toBe('res');
+    expect(stripText(s('home', { shift: 'E' }))).toBe('SBY E');
+    expect(stripText(s('hotel', { at: 'DUB' }))).toBe('SBY DUB');
+    expect(stripText(s('airport'))).toBe('ASBY');
+    expect(stripText(s('reserve'))).toBe('RES');
+    expect(stripText({ ...blk('off', 0, DAY), at: 'DUB' })).toBe('OFF DUB');
+    expect(stripText({ ...blk('off', 0, DAY), label: 'Free' })).toBe('');
   });
 
   it('picks a narrow duty near the tap over the rest underneath, and work over a status window', () => {

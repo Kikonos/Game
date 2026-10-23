@@ -1,7 +1,7 @@
 // Offer review (B5): terms, schedule and effects on the left; per-aircraft feasibility (traffic lights,
 // positioning, crew capacity, contribution) on the right; Decline / Counter / Accept. DESIGN.md §6.3.
 
-import { BedDouble, Check, ChevronRight, Palette, Scale, Sofa, Swords, Users, X } from 'lucide-react';
+import { BedDouble, Check, ChevronRight, LineChart, Palette, Scale, Sofa, Swords, Users, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Term } from '../components/Term';
 import { AIRPORT_BY_CODE } from '../../data/airports';
@@ -30,7 +30,9 @@ import { ProblemCardView, runAction } from '../components/ProblemCard';
 import { Modal, Stepper, Toggle } from '../components/ui';
 import { money } from '../format';
 import { ArchIcon, Chips, Dot, KV } from '../screens/common';
-import { archLabel, counterSteps, expiryLabel, offerCrewLine, pctLabel, reqChips, riskChips, ROLE_LABEL, routeSummary, offerDays, type Chip } from '../screens/screenLogic';
+import { archLabel, counterSteps, expiryLabel, offerCrewLine, pctLabel, reqChips, riskChips, ROLE_LABEL, routeSummary, offerDays, v09Chips, type Chip } from '../screens/screenLogic';
+import { analystView } from '../../engine/ops';
+import { ScreenHint } from '../components/ScreenHint';
 import { store, useGame } from '../store';
 
 const LEVEL_TONE = { ok: 'good', warn: 'warn', no: 'bad' } as const;
@@ -205,7 +207,8 @@ function ExtraCrewCard({ o, x, onChange, fmtP, asking }: { o: ContractOffer; x: 
         <div className="row between gap-8 sc-extra-paid">
           <span className="col">
             <b className="small">Fly +{paid.n} cabin crew · client pays +{pctLabel(paid.pct)} (+{o.product.kind === 'wet' ? `${fmtP(Math.round(asking * paid.pct))}` : money(asking * paid.pct)})</b>
-            <span className="tiny dim">{on ? `Accept at ${fmtP(asking * (1 + paid.pct))}. The contract keeps at least ${paid.n} extra cabin crew.` : `They pay ${pctLabel(paid.pct / paid.n)} more for each extra cabin crew member, from ${paid.n}.`}</span>
+            {/* v0.9 §V: off, the bold line, the offer text and its chip already give the rate. */}
+            {on && <span className="tiny dim">{`Accept at ${fmtP(asking * (1 + paid.pct))}. The contract keeps at least ${paid.n} extra cabin crew.`}</span>}
           </span>
           <Toggle on={on} onChange={(v) => onChange({ cabin: v ? Math.max(x.cabin, paid.n) : Math.max(req, Math.min(x.cabin, paid.n - 1)), pilot: x.pilot })} label="Client-paid extra cabin crew" />
         </div>
@@ -234,6 +237,8 @@ function AircraftRow({ g, r, on, onPick, billBH, lift = 1, offerId, long }: { g:
   // any job where it is not simply OK.
   const rest = r.checks.find((c) => c.id === 'rest');
   const restShown = rest && rest !== block && (long || rest.level !== 'ok') ? rest : undefined;
+  // v0.9 §V a route this type can't fly has no runway or ETOPS verdict ('Runways fine (shortest 9,999 m)', 'No ETOPS needed'): hide them.
+  const unflyable = r.checks.some((c) => (c.level === 'no' && (c.id === 'range' || c.id === 'runway')) || (c.id === 'runway' && /\b9,999 m\b/.test(c.label)));
   const openRest = (c: FeasibilityReport['checks'][number]) => store.openModal({ kind: 'refit', aircraftId: r.aircraftId, offerId, section: 'rest', restOption: c.action?.kind === 'restRefit' ? c.action.option : undefined });
   return (
     <div className={`sc-feas ${on ? 'on' : ''} ${r.level}`}>
@@ -252,17 +257,17 @@ function AircraftRow({ g, r, on, onPick, billBH, lift = 1, offerId, long }: { g:
       </button>
       {on && (
         <div className="sc-feas-checks">
-          {r.checks.map((c, i) => (
+          {r.checks.filter((c) => !(unflyable && c.level === 'ok' && (c.id === 'runway' || (c.id === 'etops' && c.label === 'No ETOPS needed')))).map((c, i) => (
             <div key={`${c.id}-${i}`} className="sc-check">
               <Dot tone={LEVEL_TONE[c.level]} />
-              <span className="grow"><span>{c.label}</span>{c.detail && <span className="small muted"> · {c.detail}</span>}</span>
+              <span className="grow"><span>{SLIP_RE.test(c.label) ? <Term id="slipCrew">{c.label}</Term> : c.label}</span>{c.detail && <span className="small muted"> · {c.detail}</span>}</span>
               {c.action?.kind === 'refit' && <button className="btn btn-sm" onClick={() => store.openModal({ kind: 'refit', aircraftId: r.aircraftId, layout: c.action!.layout, offerId })}>Plan refit…</button>}
               {/* v0.7.3 §2.9: the cheapest crew rest refit that makes the job legal; the seats check offers the section too. */}
               {c.action?.kind === 'restRefit' && <button className="btn btn-sm" onClick={() => openRest(c)}>Plan a refit…</button>}
               {!c.action && c.level !== 'ok' && (c.id === 'restSeats' || c.id === 'rest') && restRefitOptions(g, r.aircraftId).some((x) => x.ok) && <button className="btn btn-sm" onClick={() => openRest(c)}>Crew rest refits…</button>}
             </div>
           ))}
-          {r.techStops.length > 0 && <div className="small muted">Fuel stops: {r.techStops.join(', ')}</div>}
+          {r.techStops.length > 0 && <div className="small muted">Fuel stops: {r.techStops.map((x) => (g.offers[offerId]?.slip?.at.includes(x) ? `${x} (crew change)` : x)).join(', ')}</div>}
           <div className="small muted">Revenue {money(revenue)}{lift > 1 ? ` (incl. client-paid extra crew +${money(revenue - r.estRevenue)})` : ''} · costs {money(r.estCost)} · {Math.round(r.estBH)} BH flown{r.estBH - billBH > 0.5 ? ` (incl. ${Math.round(r.estBH - billBH)} BH positioning and empty legs)` : ''}</div>
           {Object.entries(r.crew.byRole).some(([, v]) => v && v.short > 0) && (
             <div className="small warn">Hire or move crew: {Object.entries(r.crew.byRole).filter(([, v]) => v && v.short > 0).map(([role, v]) => `${v!.short} × ${ROLE_LABEL[role as keyof typeof ROLE_LABEL].toLowerCase()}`).join(', ')}.</div>
@@ -424,6 +429,35 @@ const blurbOf = (o: ContractOffer) => {
   return b.trim();
 };
 
+const SLIP_RE = /^Crew change at /;
+
+/**
+ * v0.9 §5.5 the commercial analyst's block (hired and on): score, verdict lines and 'Use $1.24M', which sets the counter
+ * to the nearest step at or above the suggestion.
+ */
+function AnalystBlock({ g, offerId, fmtP, steps, lift, onUse }: { g: GameState; offerId: string; fmtP: (v: number) => string; steps: number[]; lift: number; onUse?: (step: number) => void }) {
+  const hour = Math.floor(g.now / 60);
+  const av = useMemo(() => analystView(g, offerId), [g, offerId, hour]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!av) return null;
+  const k = av.counter !== null ? steps.findIndex((x) => x >= av.counter! - 1) : -1;
+  const step = av.counter === null || av.verdict !== 'counter' ? null : (k < 0 ? steps.length : k + 1);
+  const tone = av.verdict === 'pass' ? 'bad' : av.verdict === 'take' ? 'good' : av.verdict === 'busy' ? 'off' : 'warn';
+  // The verdict names the price the button fills (snapped to a counter step, paid cabin included).
+  const use = step !== null ? fmtP(steps[step - 1] * lift) : null;
+  const lines = use ? av.lines.map((l, i) => (i ? l : l.replace(/^Counter at [^:]+:/, `Counter at ${use}:`))) : av.lines;
+  return (
+    <div className="v8-box v9-analyst">
+      <div className="row gap-8">
+        <LineChart className="sc-ico-s accent" />
+        <b className="grow">Analyst · {av.name}</b>
+        <span className={`v9-score ${tone}`}>{av.verdict === 'busy' ? '—' : av.score}</span>
+      </div>
+      {lines.map((l, i) => <span key={i} className={`small ${i ? 'muted' : ''}`}>{l}</span>)}
+      {step !== null && onUse && <button className="btn btn-sm v9-use" onClick={() => onUse(step)}>Use {use}</button>}
+    </div>
+  );
+}
+
 export function OfferModal({ offerId }: { offerId: string }) {
   const g = useGame();
   const o = g.offers[offerId];
@@ -505,6 +539,7 @@ export function OfferModal({ offerId }: { offerId: string }) {
         <button className="btn btn-primary" onClick={accept} disabled={!canAccept} title={mustPaint ? 'The client requires their livery: counter instead' : undefined}><Check /> Accept {fmtP(asking * lift)}</button>
       </div>
     }>
+      <ScreenHint id="offer" />
       <div className="sc-offer-cols">
         <div className="sc-offer-left col gap-12">
           <div className="row gap-8 wrap">
@@ -522,7 +557,8 @@ export function OfferModal({ offerId }: { offerId: string }) {
             <div className="small muted mono">{routeSummary(o.pattern)}</div>
           </div>
           <p className="muted sc-blurb">{blurbOf(o)}</p>
-          <Chips chips={[...reqChips(o.requirements, o.pattern), ...riskChips(o.risk), ...effectChips(o)]} />
+          <Chips chips={[...v09Chips(o), ...reqChips(o.requirements, o.pattern), ...riskChips(o.risk), ...effectChips(o)]} />
+          <AnalystBlock g={g} offerId={o.id} fmtP={fmtP} steps={steps} lift={lift} onUse={live && !countered && !o.counter ? setStep : undefined} />
           {live && <CompetitionLine g={g} o={o} />}
           <ArchPanel g={g} o={o} />
           {sel && !hasPanel(o) && (() => {

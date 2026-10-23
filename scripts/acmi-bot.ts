@@ -58,8 +58,9 @@ import { DAY, dayIndex, fmtDateTime, fmtMonth, fromUTC, monthKey, toDate } from 
 import type { RatingFamily } from '../src/data/acmiTypes';
 import type { Archetype, ContractOffer, CrewFix, GameState, LedgerCat, MonthKey, Role } from '../src/engine/core/types';
 import { acceptOffer, counterOffer, feasibility, offerCompetition, type FeasibilityReport } from '../src/engine/contracts';
-import { aboveMinimum, applyCrewFix, hireQuote, restOf, restPlan, setDutyAugment, classOf, conversionClasses, conversionEarliest, conversionPlan, crewControl, hireCrew, ratedMarket, setCrewExtra, shortFlights, staffing, startConversion, type CrewSolution, type StaffingLine } from '../src/engine/crew';
-import { devFleet, devGrantApproval } from '../src/engine/dev';
+import { aboveMinimum, applyCrewFix, crewMonth, crewRev, hireQuote, restOf, restPlan, setDutyAugment, classOf, conversionClasses, conversionEarliest, conversionPlan, crewControl, hireCrew, ratedMarket, setCrewExtra, shortFlights, staffing, startConversion, type CrewSolution, type StaffingLine } from '../src/engine/crew';
+import { devAddType, devFleet, devGrantApproval } from '../src/engine/dev';
+import { salaryFor } from '../src/engine/crew/generate';
 import { createGame } from '../src/engine/newGame';
 import {
   acquireAircraft, addRestToCCheck, aircraftGate, applyApproval, approvalBlocker, approvalReqs, APPROVALS, bookCCheck, bookRefit, bookRestRefit, cabinOptions, cancelCheck, cCheckOptions, cCheckSlots, checkStatus, deliveryStatus,
@@ -93,6 +94,8 @@ const MSGS = process.argv.includes('--msgs');
 const WIDE = process.argv.includes('--wide');
 /** v0.7.3 long-haul test mode: Widebody operations and augmented crews granted at the start (exercises in-flight rest). */
 const AUG = process.argv.includes('--aug');
+/** v0.9 fix: JUMBO=1 starts with a 747-400 (its full-year contribution and slips are then targets). */
+const JUMBO = !!process.env.JUMBO;
 /** v0.8 fix pack: the widebody rule takes a Boeing 747-400 (one is posted on the market while none is on offer), its pilots rated B747. */
 const B744 = process.argv.includes('--b744');
 /** Fixed crew policies for the whole run (hotel★,perDiem%,tourWeeks), e.g. --policy=3,80,6 for stingy play. */
@@ -106,7 +109,12 @@ const STEP = 6 * 60;
 
 const newGame = () => {
   const g = createGame({ name: 'Atlântica Wings', code: 'AW', livery: { primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' }, base: 'LIS', seed });
-  if (AUG) for (const id of ['widebody', 'augmented'] as const) devGrantApproval(g, id);
+  if (AUG || JUMBO) for (const id of ['widebody', 'augmented'] as const) devGrantApproval(g, id);
+  // v0.9 fix (JUMBO=1): an old 747-400 from day one, to test its economics and the crew changes at fuel stops.
+  if (JUMBO) {
+    for (const id of ['etops120', 'etops180'] as const) devGrantApproval(g, id);
+    devAddType(g, 'b744');
+  }
   return g;
 };
 
@@ -333,12 +341,15 @@ function offers(g: GameState, t: Tally): void {
     if (span > 10 && o.estBH / span < 3 && o.archetype !== 'unRotation') continue;
     // Ad hoc work inside 30 days (v0.6: was three weeks); tour series and troop rotations up to 90 days out (v0.8:
     // and the long-lead new work: Hajj, UN rotations, tours, Antarctica, deportation frameworks).
-    const longLead = o.archetype === 'tourSeries' || o.archetype === 'troopRotation' || o.archetype === 'unRotation' || o.archetype === 'hajj' || o.archetype === 'musicTour' || o.archetype === 'antarctic' || o.archetype === 'deportation';
+    // v0.9 fix: a job with a crew change at a fuel stop is taken up to 90 days out too (the bot never flew one: the
+    // §W path was not exercised).
+    const longLead = o.archetype === 'tourSeries' || o.archetype === 'troopRotation' || o.archetype === 'unRotation' || o.archetype === 'hajj' || o.archetype === 'musicTour' || o.archetype === 'antarctic' || o.archetype === 'deportation' || !!o.slip;
     // v0.8 (§13) an offer rivals are keen on is decided now: up to 90 days out instead of waiting for it to come closer.
     const keen = offerCompetition(g, o.id).level === 'strong';
     if (!isBase(o) && o.start > g.now + (longLead ? (o.archetype === 'hajj' || o.archetype === 'antarctic' ? 200 : 90) : keen ? 90 : hungry ? 45 : 30) * DAY) continue;
     const best = bestFit(g, o);
     if (!best && process.argv.includes('--why') && o.created > g.now - DAY) {
+      if (o.slip) console.error(`${fmtDateTime(g.now)} WHY slip offer ${o.id} ${o.archetype} seats-fit ${seatsFit(g, o).length} start ${fmtDateTime(o.start)}`);
       for (const id of seatsFit(g, o)) {
         const r = feasibility(g, o.id, id, { paint: paintOn(o), quick: true });
         console.error(`${fmtDateTime(g.now)} WHY ${o.archetype} ${o.id} ${g.fleet[id].reg} ${r.level} m${Math.round(r.estMargin / 1000)}k ${r.checks.filter((c) => c.level !== 'ok').map((c) => `${c.id}:${c.level}:${c.label}`).join(' | ')}`);
@@ -466,11 +477,11 @@ function hire(g: GameState, t: Tally): void {
     const wide = typeOf(x.typeId).body === 'wide';
     if ((!trouble && pilotUtil(g, family) < (wide ? 0.65 : 0.8)) || g.company.cash < 1_500_000) continue;
     if (Object.values(g.crew).some((c) => c.status === 'joining' && c.ratings.includes(family))) continue;
-    // v0.9 a short spell of sub-charters is not a staffing gap: at most 30 % above the sets the fleet needs (seed 5
+    // v0.9 a short spell of sub-charters is not a staffing gap: at most 20 % above the sets the fleet needs (seed 5
     // hired 104 crew for two A320s).
     const needF = staffing(g).filter((l) => l.family === family).reduce((n, l) => n + l.need, 0);
     const haveF = Object.values(g.crew).filter((c) => c.ratings.includes(family) && !c.notice).length;
-    if (needF > 0 && haveF >= 1.3 * needF) continue;
+    if (needF > 0 && haveF >= 1.2 * needF) continue;
     const per = new Map<Role, number>();
     for (const r of complement(x.typeId, x.seats, { extraCabin: g.company.policies.extraCabin })) per.set(r, (per.get(r) ?? 0) + 1);
     for (const [role, n] of per) if (hireSplit(g, { role, family, base: g.company.homeBase, count: n }).ok) act(g, t);
@@ -1023,22 +1034,34 @@ function refits(g: GameState, t: Tally): void {
 /** When crewControlPolicy last weighed the expensive fixes per flight (game time). */
 
 
+/** v0.9 speed: per flight, the fixes that found nothing at a crew revision (retried once the crew change or 6 h pass). */
+const ccTried = new Map<string, { rev: number; at: number; failed: Set<CrewFix> }>();
+/** v0.9 speed: when the delay search last found nothing the bot would take, per flight. */
+const delayTried = new Map<string, number>();
+
 function crewControlPolicy(g: GameState, t: Tally): void {
   for (const x of shortFlights(g)) {
     if (x.hoursLeft > 36) continue;
     const f = g.flights[x.flightId];
     if (!f || f.status !== 'scheduled') continue;
+    const rev = crewRev(g);
+    let memo = ccTried.get(x.flightId);
+    if (!memo || memo.rev !== rev || g.now - memo.at >= 6 * 60) ccTried.set(x.flightId, (memo = { rev, at: g.now, failed: new Set() }));
+    const failed = memo.failed;
     // v0.7.3 each stage reads only the fixes it weighs (the delay and jet searches try copies of the state).
-    const view = (only: CrewFix[], previews = false) => crewControl(g, x.flightId, { previews, only });
+    const view = (only: CrewFix[], previews = false) => crewControl(g, x.flightId, { previews, only, noCard: true });
     const v = view(['autoFix', 'deadhead', 'callIn']);
     if (!v || v.stage === 'ok') continue;
     const sol = (w: NonNullable<typeof v>, id: CrewFix) => w.solutions.find((s) => s.id === id && s.available);
     const unit = v.unit.flightIds.map((id) => g.flights[id]).filter((y) => y && y.status === 'scheduled');
     const lateCapMin = unit.some((y) => y.contractId && g.contracts[y.contractId]?.pattern.kind === 'base') ? BAL.holdMax : 6 * 60;
     const apply = (s: CrewSolution | undefined): boolean => {
-      if (!s) return false;
+      if (!s || failed.has(s.id)) return false;
       const r = applyCrewFix(g, x.flightId, s.id, { confirmed: true });
-      if (!r.ok) return false;
+      if (!r.ok) {
+        failed.add(s.id);
+        return false;
+      }
       if (MSGS) console.error(`${fmtDateTime(g.now)} CREW CONTROL ${f.no} ${s.id}: ${r.data!.changes.join(' / ')}`);
       act(g, t);
       t.crewFixes.set(s.id, (t.crewFixes.get(s.id) ?? 0) + 1);
@@ -1057,18 +1080,34 @@ function crewControlPolicy(g: GameState, t: Tally): void {
     if (x.hoursLeft > 14) continue;
     // ... and never for an empty ferry: the schedule retimes it itself (seed 5 searched one MAD–LIS ferry 28 times).
     if (f.kind === 'ferry') continue;
-    const rest = view(['jet', 'delay', 'discretion', 'subcharter', 'cancel']);
-    if (!rest || rest.stage === 'ok') continue;
+    // v0.9 speed: a delay search that found nothing usable is not repeated for 12 h (the last 4 h always look).
+    const dl = delayTried.get(x.flightId);
+    const skipDelay = !!dl && g.now - dl < 12 * 60 && x.hoursLeft > 4;
+    // v0.9 fix (speed): the jet search (and the delay it is weighed against) only when a jet could be taken; else
+    // discretion, then the delay, then a sub-charter, each read only when the one before it is not taken.
+    const jetOk = x.hoursLeft <= 18 && v.unit.pax >= 100 && (g.stats.jets ?? 0) < 8;
+    const only: CrewFix[] = jetOk ? (skipDelay ? ['jet', 'discretion'] : ['jet', 'delay', 'discretion']) : ['discretion'];
+    const first = view(only);
+    if (!first || first.stage === 'ok') continue;
     // A jet when it gets a crew there at least 3 h sooner than waiting for a ticket, with passengers at stake.
-    const jet = sol(rest, 'jet');
-    const delay = sol(rest, 'delay');
+    const jet = sol(first, 'jet');
+    let delay = sol(first, 'delay');
     const jetDep = jet ? (jet.newDeparture ?? f.std) : Infinity;
     const waitDep = delay ? (delay.newDeparture ?? f.std) : Infinity;
     // v0.8 at most $60K a jet (a widebody crew flown to Asia cost seed 3 $100K a time).
-    if (jet && jet.cost <= 60_000 && x.hoursLeft <= 18 && v.unit.pax >= 100 && jetDep + 180 <= waitDep && (g.stats.jets ?? 0) < 8 && apply(jet)) continue;
-    if (apply(sol(rest, 'discretion'))) continue;
+    if (jet && jet.cost <= 60_000 && jetDep + 180 <= waitDep && apply(jet)) continue;
+    if (apply(sol(first, 'discretion'))) continue;
+    if (!jetOk && !skipDelay) {
+      const dv = view(['delay']);
+      if (!dv || dv.stage === 'ok') continue;
+      delay = sol(dv, 'delay');
+    }
     // v0.8 the cap counts from the original time (seed 5 delayed one leg 11 times, half a day each).
     if (delay && (delay.newDeparture ?? f.std) - (f.schedStd ?? f.std) <= lateCapMin && apply(delay)) continue;
+    if (!skipDelay) delayTried.set(x.flightId, g.now);
+    if (g.flights[x.flightId]?.status !== 'scheduled') continue;
+    const rest = view(['subcharter', 'cancel']);
+    if (!rest || rest.stage === 'ok') continue;
     const sub = sol(rest, 'subcharter');
     if (sub && sub.cost < (sol(rest, 'cancel')?.cost ?? Infinity)) apply(sub);
   }
@@ -1209,6 +1248,8 @@ const end = g.started + days * DAY;
 const seenFlight = new Set<string>();
 const seenOffer = new Set<string>();
 const slipSeen = new Set<string>();
+/** v0.9 fix (JUMBO): contract legs flown by us (contract, aircraft, block hours), first seen done. */
+const legsFlown = new Map<string, { contractId: string; aircraftId: string; bh: number }>();
 const cancels = new Map<string, number>();
 const errors: string[] = [];
 let msgCount = 0;
@@ -1326,6 +1367,10 @@ function onStep(): void {
       checkLegs.add(f.id);
       const d = f.dutyId ? g.duties[f.dutyId] : undefined;
       if (d?.legality === 'illegal') illegalAtCheck++;
+    }
+    // v0.9 fix (JUMBO): every contract leg flown, by aircraft (old flights are pruned: the 747's year counts what it flew).
+    if (f.contractId && f.kind !== 'deadhead' && f.status === 'done' && !f.operatedBy && f.aircraftId && !legsFlown.has(f.id)) {
+      legsFlown.set(f.id, { contractId: f.contractId, aircraftId: f.aircraftId, bh: ((f.ata ?? f.sta) - (f.atd ?? f.std)) / 60 });
     }
     if (f.purpose === 'delivery' && f.status === 'done' && !ferryLegs.has(f.id)) {
       ferryLegs.add(f.id);
@@ -1665,6 +1710,45 @@ console.log(
   let rev744 = 0;
   for (const c of Object.values(g.contracts)) if (c.aircraftIds.some((id) => b744.includes(id))) rev744 += c.invoiced ?? 0;
   const decided = [...tally.decisions.values()].reduce((a, b) => a + b, 0);
+  // v0.9 fix (JUMBO=1): the 747's own year: what its contracts invoiced (fuel re-bills included) less its fuel where we
+  // pay it, maintenance at $3K a block hour, $90K a month insurance and five crew sets on full salary.
+  if (JUMBO && b744.length) {
+    const t744 = typeOf('b744');
+    // v0.9 fix: only the legs the 747 flew. Each contract's invoices (fuel re-bills included) are shared out over its
+    // flown legs by block hours; the 747 keeps its legs' share, less its fuel where we pay it, maintenance at $3K a
+    // block hour, $90K a month insurance and five crew sets on full salary.
+    let bh = 0;
+    let fuel = 0;
+    const kBH = new Map<string, { all: number; ours: number }>();
+    for (const l of legsFlown.values()) {
+      const e = kBH.get(l.contractId) ?? { all: 0, ours: 0 };
+      e.all += l.bh;
+      if (b744.includes(l.aircraftId)) {
+        e.ours += l.bh;
+        bh += l.bh;
+        const k = g.contracts[l.contractId];
+        if (!k || k.product.kind !== 'wet') fuel += l.bh * t744.fuelTBH * g.market.fuelPrice;
+      }
+      kBH.set(l.contractId, e);
+    }
+    let inv = 0;
+    let rebill = 0;
+    const k744 = new Set<string>();
+    for (const [id, e] of kBH) {
+      if (!e.ours) continue;
+      k744.add(id);
+      const share = e.ours / Math.max(1e-9, e.all);
+      inv += (g.contracts[id]?.invoiced ?? 0) * share;
+      rebill += g.finance.receivables.filter((r) => r.contractId === id && /^Fuel re-billed/.test(r.desc)).reduce((n, r) => n + r.amount, 0) * share;
+    }
+    const ac = g.fleet[b744[0]];
+    const sets = BAL.crewSetsPerAircraft * complement('b744', ac.cabin.total).reduce((n, r) => n + salaryFor(r, 'B747'), 0);
+    const months = days / 30;
+    const contrib = inv + rebill - fuel - bh * 3_000 - months * (90_000 + sets);
+    console.log(`747 (JUMBO): ${bh.toFixed(0)} BH flown, contracts ${k744.size}, its legs invoiced ${k$(inv + rebill)}, fuel ${k$(fuel)}, maintenance ${k$(bh * 3_000)}, insurance ${k$(months * 90_000)}, crew sets ${k$(months * sets)} → contribution ${k$(contrib)}`);
+    targets.push(['747 full-year contribution ≥ 0 (JUMBO, v0.9 fix)', contrib >= 0, k$(contrib)]);
+    softTargets.push(['a crew change at a fuel stop flown (JUMBO; ≥ 2 of seeds 1–6)', (g.stats.v09?.slips ?? 0) >= 1, `${g.stats.v09?.slips ?? 0} (offers ${slipSeen.size})`]);
+  }
   console.log(
     `v0.9: heads unlocked ${unl} · hired ${hs.filter((h) => h.hired).length} · handled ${handled} (mistakes ${hs.reduce((n, h) => n + h.mistakes, 0)}, overridden ${hs.reduce((n, h) => n + h.overridden, 0)}) · ` +
       `achievements ${ach}/24 · slips ${v9?.slips ?? 0} (offers ${slipOffers}) · out of hours red ${v9?.oohRed ?? 0} amber ${v9?.oohAmber ?? 0} · ` +
@@ -1692,6 +1776,26 @@ console.log(
       `roster: days off/crew-month ${avg.toFixed(1)} (min 7, <7: ${r.monthsLow} of ${r.months}) · leave ${(r.leaveDays / Math.max(1, months.length)).toFixed(1)} · standby ${pct(sby, all)}% of days (home ${pct(r.sbyHome, all)} · hotel ${pct(r.sbyHotel, all)} · airport ${pct(r.asby, all)} · reserve ${pct(r.res, all)}) · ` +
         `standby share of free days ${pct(sby, free)}% · call-outs ${r.callOuts} (crew fixes ${fixes}) · max recovery gap ${r.maxRecGapH} h · offBroken ${r.offBroken} · moved ${r.offMoved ?? 0}`,
     );
+    // v0.9 fix: how evenly flying is shared (last closed month, per family and role, crew on the books all month).
+    const lastMk = monthKey(g.now) - 1;
+    const mid = fromUTC(Math.floor(lastMk / 12), (lastMk % 12) + 1, 15);
+    const groups = new Map<string, number[]>();
+    for (const c of Object.values(g.crew)) {
+      if (c.hired > mid - 15 * DAY || c.notice || c.blocks?.some((b) => b.to > mid - 15 * DAY && b.from < mid + 15 * DAY)) continue;
+      const k = `${c.ratings[0]} ${c.role}`;
+      groups.set(k, [...(groups.get(k) ?? []), crewMonth(g, c.id, mid).flying]);
+    }
+    let worst = 0;
+    let worstK = '-';
+    const spreadTxt: string[] = [];
+    for (const [k, xs] of groups) {
+      if (xs.length < 3 || Math.max(...xs) === 0) continue;
+      const sp = Math.max(...xs) - Math.min(...xs);
+      spreadTxt.push(`${k} ${Math.min(...xs)}–${Math.max(...xs)}`);
+      if (sp > worst) [worst, worstK] = [sp, k];
+    }
+    console.log(`roster spread (flying days, ${fmtMonth(lastMk)}): ${spreadTxt.join(' · ') || '-'}`);
+    softTargets.push(['roster: flying days spread ≤ 10 within a family and role (v0.9 fix)', worst <= 10, `${worst} (${worstK})`]);
     targets.push(['roster: no crew-month below 7 days off (v0.9)', r.monthsLow === 0, `${r.monthsLow} of ${r.months}`]);
     targets.push(['roster: recovery gap ≤ 168 h (v0.9)', r.maxRecGapH <= 168, `${r.maxRecGapH} h`]);
     softTargets.push(['roster: average days off 8.5–10 (v0.9)', avg >= 8.5 && avg <= 10, avg.toFixed(1)]);

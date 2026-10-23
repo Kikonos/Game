@@ -377,8 +377,11 @@ export function crewHoursCard(g: GameState, flightId: string): ProblemCard | nul
     else fixes.push('Delay until a legal crew is ready');
   }
   fixes.push('Sub-charter', 'Cancel');
-  const gauges = crewGauges(g, x.crewId, d?.id);
-  const gid = x.limit === 'fdp' ? 'fdp' : x.limit === 'rest' ? 'rest' : x.limit === 'duty7d' ? 'duty7d' : x.limit === 'block28d' ? 'block28d' : x.limit === 'blockYear' || x.limit === 'block12m' ? 'blockYear' : null;
+  // The 14/28-day duty limits read on the duty gauge's place, the 12-month flying on the year's.
+  const gid = x.limit === 'fdp' ? 'fdp' : x.limit === 'rest' ? 'rest' : x.limit === 'duty7d' || x.limit === 'duty14d' || x.limit === 'duty28d' ? 'duty7d' : x.limit === 'block28d' ? 'block28d' : x.limit === 'blockYear' || x.limit === 'block12m' ? 'blockYear' : null;
+  const gLabel: Partial<Record<OohInfo['limit'], string>> = { duty14d: '14-day duty', duty28d: '28-day duty', block12m: '12-month flying' };
+  // One number on the screen: the limit's gauge reads the value the WHY and the strip give (the trip included).
+  const gauges = crewGauges(g, x.crewId, d?.id).map((q) => (q.id === gid && x.max > 0 && x.limit !== 'rest' ? { ...q, label: gLabel[x.limit] ?? q.label, value: x.value, limit: x.max, text: `${hmm(x.value)} of ${hmm(x.max)}`, tone: 'bad' as const } : q));
   const term: TermId[] = x.limit === 'fdp' ? ['fdp'] : x.limit === 'rest' ? ['rest'] : x.limit === 'recovery' ? ['recovery'] : x.limit === 'daysOff' ? ['daysOff'] : x.limit === 'inflightRest' ? ['inflightRest'] : ['blockHours'];
   return {
     subject: { kind: 'crewHours', ref: { kind: 'flight', id: f.id } },

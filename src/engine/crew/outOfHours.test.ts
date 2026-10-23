@@ -105,7 +105,7 @@ describe('§T crewAlertKind', () => {
     s.g.now = s.f.std - 6 * 60;
     clearPause();
     takeCues();
-    escalateShortages(s.g);
+    escalateShortages(s.g, { freeFix: false });
     expect(s.g.messages.some((x) => x.topic === 'crewRed' && /^CREW SHORTAGE: AW910/.test(x.title))).toBe(true);
     expect(takePause()).toBe('crewShortage');
     expect(takeCues()).toContain('crewShortage');
@@ -130,5 +130,33 @@ describe('§T crewAlertKind', () => {
     const seat2 = q2.slots.find((s) => s.role === 'CPT')!;
     if (seat2.crewId) expect(seat2.ooh).toBeUndefined();
     void p;
+  });
+});
+
+describe('§T Crew Control replaces crew out of hours (fix round 1)', () => {
+  it('an out-of-hours captain and a legal home standby at base: Call in standby crew is offered first, costs $0 and seats them', async () => {
+    const { crewControl, applyCrewFix } = await import('.');
+    const { g, f, d, p, cpt } = trip();
+    over28(g, cpt, d.report);
+    recheckPairing(g, p);
+    expect(crewAlertKind(g, f.id)).toBe('hours');
+    const other = Object.values(g.crew).find((c) => c.role === 'CPT' && c.id !== cpt && !p.slots.some((s) => s.crewId === c.id))!;
+    other.loc = other.base;
+    other.standby = [{ from: d.report - 6 * 60, to: d.report + 6 * 60, kind: 'home', at: other.base }];
+    touchCrewState(g);
+    g.now = d.report - 8 * 60;
+    const v = crewControl(g, f.id)!;
+    expect(v.card.subject.kind).toBe('crewHours');
+    expect(v.card.what).toMatch(/\(captain\).* out of hours for AW910/);
+    const call = v.solutions.find((s) => s.id === 'callIn')!;
+    expect(call.available).toBe(true);
+    expect(call.cost).toBe(0);
+    expect(v.solutions.filter((s) => s.available)[0].id).toBe('callIn');
+    expect(call.preview.changes.join(' ')).toMatch(/comes off \(out of hours\)/);
+    const r = applyCrewFix(g, f.id, 'callIn');
+    expect(r.ok).toBe(true);
+    const q = g.pairings[g.duties[g.flights[f.id].dutyId!].pairingId];
+    expect(r.ok && r.data!.changes.join(' ')).toMatch(/called from standby: no overtime/);
+    expect(q.slots.some((s) => s.crewId === cpt)).toBe(false);
   });
 });

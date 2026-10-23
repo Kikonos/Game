@@ -29,11 +29,26 @@ function closedMonths(g: GameState, rec: Record<number, [number, number]> | unde
 }
 
 /** Closed months in a row (ending with the last closed one) with ≥ 98 % crew coverage. */
+/** Days Reliable has stayed at 90 or more (0 below it). */
+function reliableDays(g: GameState): number {
+  const s = g.stats.v09?.reliableSince;
+  return g.company.reputation.reliable >= 90 && s !== undefined ? Math.floor((g.now - s) / DAY) : 0;
+}
+
+/** v0.9 fix: the Reliable-90 clock, kept at each check (starts when it reaches 90, clears below). */
+function reliableHeld(g: GameState): void {
+  const v = g.stats.v09;
+  if (!v) return;
+  if (g.company.reputation.reliable >= 90) v.reliableSince ??= g.now;
+  else delete v.reliableSince;
+}
+
 function coverRun(g: GameState): number {
   const ms = closedMonths(g, v9(g).cover);
   let run = 0;
   for (let i = ms.length - 1; i >= 0; i--) {
-    if (ms[i][1] === 0 || 1 - ms[i][2] / ms[i][1] < 0.98) break;
+    // v0.9 fix (§5.7 pacing): a month counts with at least 100 revenue sectors flown.
+    if (ms[i][1] < 100 || 1 - ms[i][2] / ms[i][1] < 0.98) break;
     if (i < ms.length - 1 && ms[i + 1][0] !== ms[i][0] + 1) break;
     run++;
   }
@@ -85,7 +100,8 @@ const RULES: Record<AchievementId, Rule> = {
   },
   cOnTime: { earned: (g) => v9(g).cOnTime >= 1, progress: (g) => once(v9(g).cOnTime, 'Not yet') },
   noOverdue: { earned: (g) => v9(g).lastOverdue !== undefined && days(g, v9(g).lastOverdue) >= 365, progress: (g) => count(days(g, v9(g).lastOverdue), 365, 'days') },
-  fiveFlown: { earned: (g) => g.stats.contractsDone >= 5, progress: (g) => count(g.stats.contractsDone, 5, 'contracts') },
+  // v0.9 fix (§5.7 pacing): contracts of ≥ 10 BH or ≥ 4 sectors.
+  fiveFlown: { earned: (g) => (v9(g).bigDone ?? 0) >= 5, progress: (g) => count(v9(g).bigDone ?? 0, 5, 'contracts') },
   paidInTheEnd: { earned: (g) => v9(g).lateGovPaid >= 1, progress: (g) => once(v9(g).lateGovPaid, 'Not yet') },
   partner: {
     earned: (g) => bestLevel(g) >= LEVEL_ORDER.indexOf('partner'),
@@ -97,9 +113,13 @@ const RULES: Record<AchievementId, Rule> = {
   blueIce: { earned: (g) => (v9(g).antarctic ?? 0) >= 1, progress: (g) => once(v9(g).antarctic, 'Not yet') },
   widebody: { earned: (g) => ownsWide(g), progress: () => ({ have: 0, need: 1, label: 'Not yet' }) },
   queen: { earned: (g) => (v9(g).queenSectors ?? 0) >= 1, progress: (g) => once(v9(g).queenSectors, 'Not yet') },
+  // v0.9 fix (§5.7 pacing): Reliable 90 held for 30 days (reliableHeld keeps the clock).
   reliable: {
-    earned: (g) => g.company.reputation.reliable >= 85,
-    progress: (g) => { const r = Math.round(g.company.reputation.reliable); return { have: Math.min(85, r), need: 85, label: `Reliable ${r} of 85` }; },
+    earned: (g) => reliableDays(g) >= 30,
+    progress: (g) => {
+      const r = Math.round(g.company.reputation.reliable);
+      return r < 90 ? { have: Math.min(89, r), need: 90, label: `Reliable ${r} of 90` } : count(reliableDays(g), 30, 'days at 90+');
+    },
   },
   cleanRecord: {
     earned: (g) => g.company.reputation.clean >= 80,
@@ -154,6 +174,7 @@ function earn(g: GameState, id: AchievementId, silent: boolean): void {
 export function checkAchievements(g: GameState, opts: { ids?: readonly AchievementId[]; monthEnd?: boolean; silent?: boolean } = {}): AchievementId[] {
   const have = (g.achievements ??= {});
   const out: AchievementId[] = [];
+  reliableHeld(g);
   for (const id of opts.ids ?? (ACHIEVEMENTS.map((a) => a.id) as AchievementId[])) {
     if (have[id] !== undefined) continue;
     if (RULES[id].earned(g, !!opts.monthEnd)) {

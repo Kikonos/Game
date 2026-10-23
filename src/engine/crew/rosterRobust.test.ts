@@ -9,6 +9,7 @@ import type { Seg, TimelineCtx } from './rules';
 import { evalSegs } from './rules';
 import { fixtureGame, seasonBase } from './fixtures';
 import { autoRoster, staffing } from '.';
+import { setsForStation } from './sets';
 
 const duty = (start: number, end: number): Seg => ({
   kind: 'duty', start, end, fdp: end - start, maxFdp: 13 * 60, block: end - start - 60, sectors: 2, aug: false, disruptive: false, rest: 12 * 60, at: 'LIS', fresh: true,
@@ -72,6 +73,7 @@ describe('roster robustness', () => {
     const dep = Object.values(g.deployments)[0];
     expect(dep.setsOnStation).toBeGreaterThanOrEqual(4);
     const need = staffing(g).find((l) => l.role === 'CPT')!.need;
-    expect(need).toBe(before - 5 + dep.setsOnStation + 2);
+    // v0.9 fix: on-station sets × 1.2 (leave, sickness, change-overs), at least 5.
+    expect(need).toBe(before - 5 + setsForStation(dep.setsOnStation));
   });
 });

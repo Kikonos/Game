@@ -671,7 +671,10 @@ export function evalSegs(ctx: TimelineCtx, segsIn: Seg[]): LegalityIssue[] {
         cumIssue(issues, 'blockYear', logged + plannedYear, LIMITS.blockYear, 'Block year', tgt);
         if (ctx.block12m) cumIssue(issues, 'blockYear', ctx.block12m + planned12m, LIMITS.block12m, 'Block 12 months', tgt);
       }
-      if (segEnd(s, slack) > anchor + LIMITS.recoveryEvery) pushIssue(issues, 'recovery', 'illegal', 'No 36 h recovery in 168 h', tgt);
+      // v0.9 fix: a duty not yet reported, or a ticket not yet flown, keeps an hour in hand on the 168 h (a delay on the
+      // day, or the ticket home it moves after the rest, must not push past it).
+      const keep = (s.kind === 'duty' || s.kind === 'pos') && s.start > (ctx.now ?? Infinity) ? RECOVERY_KEEP : 0;
+      if (segEnd(s, slack) + keep > anchor + LIMITS.recoveryEvery) pushIssue(issues, 'recovery', 'illegal', 'No 36 h recovery in 168 h', tgt);
     }
     // Disruptive duties since the last recovery (as noteRecovery counts them from the log).
     if (s.disruptive && s.start >= anchor) disruptive++;
@@ -704,6 +707,8 @@ export function evalSegs(ctx: TimelineCtx, segsIn: Seg[]): LegalityIssue[] {
   return issues;
 }
 
+/** v0.9 fix: minutes a planned duty keeps in hand on the 168 h between recovery rests (delays on the day). */
+const RECOVERY_KEEP = 60;
 /** v0.7.3 extended FDPs allowed per crew member in any 7 days. */
 const EXT_PER_WEEK = 2;
 /** UTC month key of t (year × 12 + month); the bounds of the last 4 months looked up are cached (evalSegs' hot path). */

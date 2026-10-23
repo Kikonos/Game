@@ -3,7 +3,7 @@
 // Moves only on the clock step (CLOCK_STEP); no ticker, no animation. Items that don't fit drop by priority
 // (CREW, then warning chips slim to icon + value, then ON TIME → AIRBORNE → NEXT), then extra warnings fold into '+N'. Widths come from a hidden measuring row.
 
-import { AlertTriangle, Plane, Users, Wrench } from 'lucide-react';
+import { AlertTriangle, Plane, TimerOff, Users, Wrench } from 'lucide-react';
 import { type ReactNode, useLayoutEffect, useRef, useState } from 'react';
 import { CLOCK_STEP, fmtTime } from '../../engine/core/time';
 import { countdown, fitStrip, type StripId } from './opsStripLogic';
@@ -39,13 +39,18 @@ function freshOffers(g: GameState) {
 /** The strip's items in display order (warnings, then facts). `shown` = the stepped clock. */
 export function stripItems(g: GameState, shown: number): StripItem[] {
   const out: StripItem[] = [];
-  const short = shortFlights(g);
-  const s0 = short[0];
-  const sf = s0 ? g.flights[s0.flightId] : undefined;
-  if (s0 && sf) {
+  // v0.9 §T.4: a seat with nobody (crew short) and a named crew member over a limit (out of hours) are separate items.
+  const all = shortFlights(g);
+  for (const kind of ['short', 'hours'] as const) {
+    const list = all.filter((x) => (x.kind ?? 'short') === kind);
+    const s0 = list[0];
+    const sf = s0 ? g.flights[s0.flightId] : undefined;
+    if (!s0 || !sf) continue;
+    const red = list.some((x) => x.stage === 'red');
+    const word = kind === 'hours' ? 'Out of hours' : 'Crew short';
     out.push({
-      id: 'crewShort', warn: true, tone: s0.stage === 'red' ? 'bad' : 'warn', label: short.length > 1 ? `Crew short · ${short.length}` : 'Crew short',
-      value: `${sf.no} ${fmtTime(sf.std)}`, aria: `Crew shortage: ${sf.no} at ${fmtTime(sf.std)}. Open Crew Control`,
+      id: kind === 'hours' ? 'crewHours' : 'crewShort', warn: true, tone: red ? 'bad' : 'warn', label: list.length > 1 ? `${word} · ${list.length}` : word,
+      value: `${sf.no} ${fmtTime(sf.std)}`, aria: `${kind === 'hours' ? 'Crew out of hours' : 'Crew shortage'}: ${sf.no} at ${fmtTime(sf.std)}. Open Crew Control`,
       go: () => store.openModal({ kind: 'crewControl', flightId: sf.id }),
     });
   }
@@ -98,7 +103,7 @@ export function stripItems(g: GameState, shown: number): StripItem[] {
   return out;
 }
 
-const ICON: Partial<Record<StripId, ReactNode>> = { crewShort: <Users />, aog: <Wrench />, market: <Plane /> };
+const ICON: Partial<Record<StripId, ReactNode>> = { crewShort: <Users />, crewHours: <TimerOff />, aog: <Wrench />, market: <Plane /> };
 
 /** One strip button. `slim` (warnings only): icon + value on one line, the label in the tooltip. */
 function Item({ it, measure, slim }: { it: StripItem; measure?: string; slim?: boolean }) {

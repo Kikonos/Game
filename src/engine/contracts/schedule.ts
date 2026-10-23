@@ -1,7 +1,7 @@
 // Pattern → flights, positioning legs and rolling base schedules (B1). DESIGN.md §5.1.6–5.1.8.
 
 import { BAL } from '../core/balance';
-import { addFlight, flightsOf, liveFlightsOf, ownFlightNo, removeFlights } from '../core/entities';
+import { addFlight, flightsOf, liveFlightsOf, ownFlightNo, removeFlights, retimeFlight } from '../core/entities';
 import { typeOf } from '../core/perf';
 import { ticketBlock } from '../ops/commercial';
 import { safetyTrip } from '../core/safety';
@@ -228,8 +228,25 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
   }
   const created: Flight[] = [];
   const remove: string[] = [];
+  // v0.9 fix: a gap's new plan is set against the legs it replaces. Legs of the same route are kept and only retimed
+  // (their crews and tickets stay: an inbound 13 min late re-made VCE–LIS 2 h before departure, crewless, a red
+  // alarm); a plan identical to them is no change at all (a busy game re-planned LOS–TLS–STN on every settle).
+  let pending: Flight[] = [];
   const add = (chain: ChainLeg[], contractId: string | null) => {
+    const old = pending.splice(0, chain.length);
+    const same = old.length === chain.length && old.every((f, i) => f.from === chain[i].from && f.to === chain[i].to && f.status === 'scheduled' && f.contractId === contractId);
+    if (same) {
+      old.forEach((f, i) => {
+        if (f.std !== chain[i].std || f.sta !== chain[i].sta) retimeFlight(g, f, chain[i].std, chain[i].sta);
+      });
+      return;
+    }
+    remove.push(...old.map((f) => f.id));
     for (const l of chain) created.push(addFlight(g, { no: ownFlightNo(g), aircraftId, contractId, kind: 'positioning', from: l.from, to: l.to, std: l.std, sta: l.sta }));
+  };
+  const replacing = (legs: Flight[]) => {
+    remove.push(...pending.map((f) => f.id));
+    pending = [...legs];
   };
   for (const { a, b, legs } of gaps) {
     legs.sort((x, y) => x.std - y.std);
@@ -239,7 +256,7 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
       // End gap: after a live contract's last leg, go home.
       const wantHome = live(g, a.contractId) && X !== home && a.kind !== 'maint';
       if (legs.length ? chainOk(legs, X, null, earliest) && chainSane(typeId, legs, X, null, home, false) : !wantHome) continue;
-      remove.push(...legs.map((f) => f.id));
+      replacing(legs);
       if (wantHome) {
         const ch = chainForward(typeId, X, home, crewFree(g, aircraftId, X, earliest));
         if (ch) add(ch, a.contractId);
@@ -253,7 +270,7 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     const hop = X === Y ? gapMoves(typeId, X, Y, crewFree(g, aircraftId, X, earliest), latest, home, allowHop) : null;
     if (X === Y && !legs.length && !hop?.length) continue;
     if (legs.length && chainOk(legs, X, Y, earliest) && chainSane(typeId, legs, X, Y, home, allowHop)) continue;
-    remove.push(...legs.map((f) => f.id));
+    replacing(legs);
     const inId = live(g, b.contractId) ? b.contractId : live(g, a.contractId) ? a.contractId : null;
     if (X === Y) {
       if (hop?.length) {
@@ -281,6 +298,7 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
       chainForward(typeId, X, Y, earliest);
     if (ch) add(ch, inId);
   }
+  replacing([]);
   // v0.8 pre-release safety net: a pass that only swaps legs for the very same legs (route, times, contract) would
   // do it again on the next settle, and the next: the fix pack's fuel-stop chain was re-planned that way on every
   // settle until the game froze. Keep the legs (and their crews), drop the copies and report the loop.

@@ -4,12 +4,12 @@
 // trips) and Apply (two taps where the engine asks for a confirm). After a fix the view is re-read; crewed → Close.
 // Engine: crew/control.ts (crewControl, applyCrewFix). Calm: nothing animates.
 
-import { ArrowLeftRight, CalendarRange, Check, CircleSlash, Clock, Handshake, Hourglass, PhoneCall, PlaneTakeoff, Ticket, Users, Wand2 } from 'lucide-react';
+import { ArrowLeftRight, CalendarRange, Check, CircleSlash, Clock, Handshake, Hourglass, PhoneCall, PlaneTakeoff, Ticket, TimerOff, Users, Wand2 } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { flightsRev } from '../../engine/core/entities';
-import { fmtTime } from '../../engine/core/time';
+import { fmtDuration, fmtTime } from '../../engine/core/time';
 import type { CrewFix, Role } from '../../engine/core/types';
-import { applyCrewFix, crewControl, crewRev, ROLE_WORD, type CrewSolution, type FixOption } from '../../engine/crew';
+import { applyCrewFix, crewAlertKind, crewControl, crewRev, outOfHours, ROLE_WORD, type CrewSolution, type FixOption, type OohInfo } from '../../engine/crew';
 import { Modal } from '../components/ui';
 import { ProblemCardView } from '../components/ProblemCard';
 import { ReasonIcon, ReasonLine } from '../components/ReasonIcon';
@@ -18,6 +18,7 @@ import { Dot } from '../screens/common';
 import { spanLabel } from '../screens/screenLogic';
 import { store, useGame } from '../store';
 import { canTake, chooseWord, defaultPicks, goneText, hurtTone, keepHurt, seatPlan } from './crewControlLogic';
+import { ScreenHint } from '../components/ScreenHint';
 
 const FIX_ICON: Record<CrewFix, ReactNode> = {
   autoFix: <Wand2 />, deadhead: <Ticket />, delay: <Clock />, jet: <PlaneTakeoff />, callIn: <PhoneCall />, discretion: <Hourglass />,
@@ -28,18 +29,39 @@ const LEVEL_TONE = { legal: 'good', tight: 'warn', illegal: 'bad' } as const;
 
 function Option({ o, on, onTap, multi, role, seat, disabled }: { o: FixOption; on: boolean; onTap: () => void; multi: boolean; role?: Role; seat?: Role; disabled?: boolean }) {
   const tone = o.level ? LEVEL_TONE[o.level] : undefined;
-  // v0.7.3 a call-in candidate on home standby: the name in bold, the standby as a chip (no overtime).
-  const sby = /^(.*) · On home standby since (\S+)$/.exec(o.label);
+  // v0.9 §R.4 a call-in candidate on standby: the name in bold, the standby kind and 'No overtime' as chips, the
+  // response time underneath ('Rita Costa · Home standby (early) · ready in 1:30').
+  const sby = /^(.*?) · ((?:Home|Hotel|Airport) standby[^·]*?|Reserve)(?: · (.*))?$/.exec(o.label);
+  const noOt = !!sby && o.sub === 'No overtime';
   return (
     <button className={`cc-opt ${on ? 'on' : ''} ${o.level === 'illegal' ? 'illegal' : ''} ${disabled ? 'off' : ''}`} onClick={onTap} aria-pressed={on} disabled={disabled}>
       <span className={`cc-opt-check ${multi ? 'box' : 'radio'} ${on ? 'on' : ''}`} aria-hidden>{on && <Check />}</span>
       <span className="grow col cc-opt-main">
-        <span className="row gap-8">{tone && <Dot tone={tone} />}{role && <span className={`sc-role r-${role}`}>{role}</span>}<b className="ellipsis">{sby ? sby[1] : o.label}</b>{seat && <span className="chip sc-chip good nowrap">{seat} seat</span>}{sby && <span className="chip sc-chip good nowrap">Standby since {sby[2]}</span>}</span>
-        <span className="small muted">{o.sub}</span>
+        <span className="row gap-8">{tone && <Dot tone={tone} />}{role && <span className={`sc-role r-${role}`}>{role}</span>}<b className="ellipsis">{sby ? sby[1] : o.label}</b>{seat && <span className="chip sc-chip good nowrap">{seat} seat</span>}{sby && <span className="chip sc-chip nowrap cc-sby">{sby[2].trim()}</span>}{noOt && <span className="chip sc-chip good nowrap">No overtime</span>}</span>
+        {(sby ? sby[3] ?? (noOt ? '' : o.sub) : o.sub) && <span className="small muted">{sby ? sby[3] ?? o.sub : o.sub}</span>}
         {o.reason && <ReasonLine reason={o.reason} tone={o.level === 'illegal' ? 'bad' : 'warn'} />}
       </span>
       {o.cost > 0 && <span className="num small nowrap">{money(o.cost)}</span>}
     </button>
+  );
+}
+
+/** v0.9 §T.4 one line under the title: who, which limit, by how much, and the limit's gauge. */
+function OohStrip({ list }: { list: OohInfo[] }) {
+  const x = list[0];
+  if (!x) return null;
+  const pct = x.max > 0 ? Math.min(100, (x.value / x.max) * 100) : 100;
+  const nums = x.max > 0 ? `${fmtDuration(x.value, true)} of ${fmtDuration(x.max, true)}` : '';
+  const over = x.overMin > 0 ? `${x.limit === 'rest' ? 'short' : 'over'} by ${fmtDuration(x.overMin, true)}` : '';
+  return (
+    <div className="cc-ooh" role="note">
+      <TimerOff className="cc-ooh-ico" aria-hidden />
+      <span className="grow col cc-ooh-main">
+        <span className="small"><span className={`sc-role r-${x.role}`}>{x.role}</span> <b>{x.name}</b> has reached {x.limitText}{list.length > 1 ? ` · and ${list.length - 1} other${list.length > 2 ? 's' : ''}` : ''}</span>
+        {(nums || over) && <span className="small muted">{[nums, over].filter(Boolean).join(' · ')}</span>}
+      </span>
+      {x.max > 0 && <span className="bar thin bad cc-ooh-bar" aria-hidden><span style={{ width: `${pct}%` }} /></span>}
+    </div>
   );
 }
 
@@ -108,7 +130,11 @@ export function CrewControlModal({ flightId, fix }: { flightId: string; fix?: Cr
       </Modal>
     );
   }
-  const title = `Crew Control · ${view.no} ${view.from} → ${view.to}`;
+  // v0.9 §T: a named crew member over a legal limit reads 'Crew out of hours' (its own icon), a seat with nobody 'Crew shortage'.
+  const hours = crewAlertKind(g, flightId) === 'hours';
+  const ooh = hours ? outOfHours(g, flightId) : [];
+  const title = hours ? `Crew out of hours · ${view.no} ${view.from} → ${view.to}` : `Crew Control · ${view.no} ${view.from} → ${view.to}`;
+  const icon = hours ? <TimerOff className="bad" /> : <Users className="accent" />;
   const left = view.std - g.now;
   const when = `Departs ${fmtTime(view.std)} UTC (${fmtTime(view.std, view.from)} ${view.from}) · ${left > 0 ? `in ${spanLabel(Math.floor(left / 60) * 60 || left)}` : 'now'}`;
   if (view.stage === 'ok') {
@@ -156,7 +182,7 @@ export function CrewControlModal({ flightId, fix }: { flightId: string; fix?: Cr
     }
   };
   return (
-    <Modal size="xwide" className="cc-modal" title={title} icon={<Users className="accent" />} onClose={close} footer={
+    <Modal size="xwide" className="cc-modal" title={title} icon={icon} onClose={close} footer={
       <>
         <span className="small dim grow cc-foot-note">{done ? `Applied: ${done[0]}` : 'Tap a solution to see what it changes, then Apply.'}</span>
         <button className="btn" onClick={() => f.dutyId && store.openModal({ kind: 'duty', id: f.id })} disabled={!f.dutyId}><Users /> Adjust crew</button>
@@ -165,8 +191,10 @@ export function CrewControlModal({ flightId, fix }: { flightId: string; fix?: Cr
     }>
       <div className="cc-head">
         <span className="small muted">{when} · {view.reg}</span>
-        <span className={`cs-banner ${stage === 'red' || stage === 'gate' ? 'red' : 'amber'}`}>{stage === 'gate' ? 'HELD AT THE GATE' : 'CREW SHORTAGE'}</span>
+        <span className={`cs-banner ${stage === 'red' || stage === 'gate' ? 'red' : 'amber'}`}>{stage === 'gate' ? 'HELD AT THE GATE' : hours ? 'CREW OUT OF HOURS' : 'CREW SHORTAGE'}</span>
       </div>
+      {hours && <OohStrip list={ooh} />}
+      <ScreenHint id="crewControl" />
       <div className="cc-cols">
         <div className="cc-left col gap-12">
           <ProblemCardView card={view.card} g={g} hideActions />
@@ -253,7 +281,8 @@ export function CrewControlModal({ flightId, fix }: { flightId: string; fix?: Cr
                         {x.cost > 0 && <span className="small muted">{money(x.cost)}{x.newDeparture !== null && x.newDeparture > view.std ? ` · ${spanLabel(x.newDeparture - view.std)} late` : ''}</span>}
                       </>
                     ) : (
-                      <span className="small dim">{x.why ? `${x.why}.` : 'Not available for this flight.'}</span>
+                      // The reason already heads the row (§V: said once).
+                      !x.why && <span className="small dim">Not available for this flight.</span>
                     )}
                   </div>
                 </Row>

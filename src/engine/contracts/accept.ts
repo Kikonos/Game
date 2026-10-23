@@ -531,6 +531,9 @@ function completeContract(g: GameState, c: Contract): void {
   // Deportation: the press noticed (clean −2 a flight with returnees, capped −10 a contract; billed as flown).
   g.stats.contractsDone++;
   const v = v09Stats(g);
+  // v0.9 fix: real work counts towards the analyst (one-off ad hoc legs do not).
+  const bh = Object.values(c.use ?? {}).reduce((n, u) => n + (u.blockMin ?? 0), 0) / 60;
+  if (flown >= 4 || bh >= 10) v.bigDone = (v.bigDone ?? 0) + 1;
   if (c.archetype === 'hajj') v.hajjDone = (v.hajjDone ?? 0) + 1;
   if (c.archetype === 'evacuation' || c.archetype === 'repatriation') v.homeSafe = (v.homeSafe ?? 0) + 1;
   rollRepeat(g, c.id);

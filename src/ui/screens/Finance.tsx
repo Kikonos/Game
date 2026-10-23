@@ -16,6 +16,7 @@ import { money } from '../format';
 import { store, useGame } from '../store';
 import { Dot, ScreenHead, useRenderCount } from './common';
 import { earnedUnbilled, showLossMonth, statementView } from './screenLogic';
+import { ScreenHint } from '../components/ScreenHint';
 
 const tone = (v: number) => (v < 0 ? 'bad' : v > 0 ? 'good' : '');
 
@@ -105,6 +106,7 @@ export function FinanceScreen() {
   return (
     <div className="screen sc-finance">
       <ScreenHead title="Finance" sub={`${fmtMonth(g.finance.current.month, false)} so far · revenue when invoiced (wet leases at month end), costs when incurred`} />
+      <ScreenHint id="finance" />
       {cash && <div className="fin-card"><ProblemCardView card={cash} g={g} /></div>}
       {showLoss && (
         <div className="fin-loss">

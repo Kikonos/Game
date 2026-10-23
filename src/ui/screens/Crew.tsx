@@ -7,13 +7,13 @@ import { FlightTypeChip } from '../components/FlightType';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flag } from '../../data/countries';
 import { flightsRev } from '../../engine/core/entities';
-import { DAY, HOUR, dayStart, fmtDate, fmtDay, fmtTime, monthKey, monthStart, nextMonthStart, toDate } from '../../engine/core/time';
+import { DAY, HOUR, dayStart, fmtDate, fmtDay, fmtTime, monthKey, toDate } from '../../engine/core/time';
 import type { CrewMember, CrewStatus, GameState } from '../../engine/core/types';
 import {
-  type CalBlock, classOf, conversionClasses, crewCalendar, crewName, crewRev, crewStatusView, crewTravelNow, type CrewTravelNow, crewWindows, daysOffInMonth, familyLabel, LIMITS,
+  type CalBlock, classOf, conversionClasses, crewCalendar, crewName, crewRev, crewStatusView, crewTravelNow, type CrewTravelNow, crewWindows, familyLabel, LIMITS,
   moraleOf, moraleSummary, type CrewWindows,
 } from '../../engine/crew';
-import { crewGauges } from '../../engine/crew';
+import { crewGauges, crewMonth, publishedTo } from '../../engine/crew';
 import { problemAt } from '../../engine/problems';
 import { Gauge } from '../components/Gauge';
 import { restNow } from '../components/problemLogic';
@@ -25,8 +25,9 @@ import { money } from '../format';
 import { dutyRoute } from '../modals/DutyModal';
 import { store, useGame } from '../store';
 import { Dot, KV, LimitBar, ScreenHead, useRenderCount } from './common';
-import { CAL_KEY_LABEL, calAt, calId, calKey, calLabel, calLayer, calLegend, pickCal } from './crewLogic';
+import { CAL_KEY_LABEL, calAt, calId, calKey, calLabel, calLayer, calLegend, pickCal, stripText } from './crewLogic';
 import { baseDay, CREW_STATUS_LABEL, filterCrew, isPilotRole, limitTone, NO_FILTER, ROLE_LABEL, type CrewFilter } from './screenLogic';
+import { ScreenHint } from '../components/ScreenHint';
 
 const STATUS_TONE: Record<CrewStatus, 'good' | 'warn' | 'bad' | 'info' | 'off'> = {
   available: 'good', onDuty: 'info', resting: 'off', off: 'off', leave: 'off', sick: 'bad', training: 'warn', joining: 'warn',
@@ -115,6 +116,17 @@ function CalDetail({ g, c, b }: { g: GameState; c: CrewMember; b: CalBlock }) {
   );
 }
 
+/** v0.9 §R.8: this month's days off against the legal minimum, standby, flying and leave (one line). */
+function MonthLine({ g, c }: { g: GameState; c: CrewMember }) {
+  const v = crewMonth(g, c.id, g.now);
+  const i = v.line.indexOf(': ');
+  return (
+    <div className={`small muted sc-month-line ${v.off < v.offMin && monthKey(publishedTo(g)) > v.key ? 'low' : ''}`}>
+      <b>{v.line.slice(0, i)}:</b> {v.line.slice(i + 2)}
+    </div>
+  );
+}
+
 /** 14 days of everything that blocks the person: duties by flight type, travel, rest, days off, sick / joining / training / leave. */
 function Roster({ g, c }: { g: GameState; c: CrewMember }) {
   const from = dayStart(g.now);
@@ -160,7 +172,7 @@ function Roster({ g, c }: { g: GameState; c: CrewMember }) {
           const w = pct(b.end) - l;
           if (w <= 0) return null;
           const px = (w / 100) * laneW;
-          const label = b.kind === 'off' ? 'Off' : b.kind === 'rest' ? '' : b.kind === 'duty' ? (key === 'ferry' ? 'FERRY' : '') : b.label;
+          const label = b.kind === 'rest' ? '' : b.kind === 'duty' ? (key === 'ferry' ? 'FERRY' : '') : stripText(b);
           const id = calId(b);
           return (
             <span key={`${id}-${i}`} className={`sc-cal k-${key} l${calLayer(b)} ${b.legality && b.legality !== 'legal' ? b.legality : ''} ${sel && calId(sel) === id ? 'on' : ''}`} style={{ left: `${l.toFixed(3)}%`, width: `${w.toFixed(3)}%` }}>
@@ -170,6 +182,7 @@ function Roster({ g, c }: { g: GameState; c: CrewMember }) {
         })}
         <span className="sc-roster-now" style={{ left: `${pct(g.now).toFixed(3)}%` }} />
       </div>
+      <MonthLine g={g} c={c} />
       {legend.length > 0 && (
         <div className="sc-cal-legend tiny muted">
           {legend.map((k) => <span key={k} className="row gap-4"><span className={`sc-cal-sw k-${k}`} aria-hidden />{CAL_KEY_LABEL[k]}</span>)}
@@ -180,13 +193,15 @@ function Roster({ g, c }: { g: GameState; c: CrewMember }) {
         {items.slice(0, 8).map((b, i) => {
           const key = calKey(b);
           const d = b.dutyId ? g.duties[b.dutyId] : undefined;
-          const route = d ? dutyRoute(g, d.id) : b.flights?.length ? [b.flights[0].from, ...b.flights.map((f) => f.to)].join('–') : b.detail.split('\n')[0];
+          // v0.9 a standby row reads like the roster: 'SBY E · 05:00–17:00 · LIS · 12 h'.
+          const sby = b.kind === 'standby';
+          const route = d ? dutyRoute(g, d.id) : sby ? `${fmtTime(b.start)}–${fmtTime(b.end)} · ${b.sby === 'hotel' ? 'hotel' : b.at ?? c.base}` : b.flights?.length ? [b.flights[0].from, ...b.flights.map((f) => f.to)].join('–') : b.detail.split('\n')[0];
           const open = () => (d && !d.done ? store.openModal({ kind: 'duty', id: d.id }) : setSel(calId(b)));
           return (
             <button key={`${calId(b)}-${i}`} className={`sc-duty-row small ${sel && calId(sel) === calId(b) ? 'on' : ''}`} onClick={open}>
               <span className={`sc-cal-sw k-${key}`} aria-hidden />
-              <span className="dim nowrap">{rowTime(b)}</span>
-              <span className="nowrap">{calLabel(b)}</span>
+              <span className="dim nowrap">{sby ? fmtDay(b.start) : rowTime(b)}</span>
+              <span className="nowrap">{sby ? stripText(b) : calLabel(b)}</span>
               <span className={`${b.flights?.length ? 'mono' : ''} ellipsis grow dim`}>{route}</span>
               {d && locked(g, d.pairingId, c.id) && <Lock className="sc-ico-s accent" aria-label="set by you" />}
               {b.legality && b.legality !== 'legal' && <Dot tone={b.legality === 'tight' ? 'warn' : 'bad'} />}
@@ -195,7 +210,7 @@ function Roster({ g, c }: { g: GameState; c: CrewMember }) {
           );
         })}
         {items.length > 8 && <div className="small dim">… {items.length - 8} more</div>}
-        {!items.length && <div className="small muted">Nothing rostered in the next 14 days: only rest and days off.</div>}
+        {!items.length && <div className="small muted">Nothing rostered in the next 14 days.</div>}
       </div>
     </div>
   );
@@ -276,9 +291,7 @@ function Detail({ g, c }: { g: GameState; c: CrewMember }) {
   const w = crewWindows(g, c, g.now);
   // v0.5.2: header status with the right date ('Joins 26 May 2027', 'Sick · back ~12 Mar'), no fake rest.
   const sv = crewStatusView(g, c.id);
-  const k = monthKey(g.now);
-  // So far (through today): later days have no roster yet and would all count as off.
-  const off = daysOffInMonth(g, c, monthStart(k), Math.min(nextMonthStart(g.now), dayStart(g.now) + DAY));
+  // v0.9: this month's days off live in the month line under the 14-day strip (crewMonth), said once.
   // Not joined yet: no rest, no days off, limits count from the start date.
   const joining = sv.startLabel === 'Joins';
   // v0.7.1 §7: the limits as fuel gauges (next duty's day length, rest, 7-day duty, 28-day and year flying).
@@ -309,7 +322,6 @@ function Detail({ g, c }: { g: GameState; c: CrewMember }) {
           [sv.startLabel, fmtDate(sv.startDate)],
           ['Total hours', Math.round(c.totalHours).toLocaleString('en-US')],
           ['Salary', `${money(c.salary)}/month`],
-          ['Days off so far this month', joining ? '—' : String(off)],
         ]} />
         <div className="grid-2 sc-moods">
           <MoraleBar g={g} c={c} />
@@ -428,6 +440,7 @@ export function CrewScreen() {
         )}
         <button className="btn btn-primary" onClick={() => store.openModal({ kind: 'hire' })}><UserPlus /> Hire</button>
       </ScreenHead>
+      <ScreenHint id={view === 'board' ? 'crewBoard' : view === 'plan' ? 'crewPlan' : 'crewPeople'} />
       {/* v0.7.4 one calm line per type family (sets complete of needed); the detail lives in Planning. */}
       {view === 'people' && <PlanStrip g={g} onOpen={() => setView('plan')} />}
       {view === 'plan' ? (

@@ -5,7 +5,7 @@ import { BAL } from '../core/balance';
 import { typeOf } from '../core/perf';
 import { fmtDay } from '../core/time';
 import type { CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing } from '../core/types';
-import { offIssue, offMovable } from './dayPlan';
+import { monthFloorIssue, offIssue, offMovable } from './dayPlan';
 import { evalSegs, levelOf, LIMITS, type LegalityIssue, type Seg } from './rules';
 import { aboard, cabinEarly, crewIx, ctxOf, droppableHome, droppableOut, dutySegs, locAt, outTicket, planHome, planHomeAfter, planOut, segsOf, typeIdOf, withoutTickets, type TicketPlan } from './timeline';
 
@@ -158,13 +158,17 @@ export function planCrew(g: GameState, c: CrewMember, p: Pairing, base: Seg[], e
   if (!existing) {
     const off = offIssue(g, c, segs);
     const long = !!p.tour || (segs.length > 0 && segs[segs.length - 1].end - segs[0].start > 30 * 60);
-    if (off) issues.push(long && off.level !== 'illegal' && offMovable(g, c, segs) ? { ...off, level: 'legal' } : off);
+    // v0.9 fix: the room to move a day off to is read on the whole timeline (other work takes days too).
+    if (off) issues.push(long && off.level !== 'illegal' && offMovable(g, c, merge(base, segs), !!p.tour) ? { ...off, level: 'legal' } : off);
+    // v0.9 fix: never below the month's legal 7 days off, counting the free days the planner can still give.
+    const floor = off?.level === 'illegal' ? null : monthFloorIssue(g, c, base, segs);
+    if (floor) issues.push(floor);
   }
   if (existing) {
     // Unforeseen delays on the day (ORO.FTL.205(f)): a held seat whose extended recovery slipped stays on the
-    // duty about to report, flagged tight; a later duty is still re-planned.
-    const soon = g.now + BAL.opsWindow;
-    for (const i of ftl) if (i.code === 'recovery' && i.level === 'illegal' && i.dutyId && (g.duties[i.dutyId]?.report ?? Infinity) <= soon) i.level = 'tight';
+    // duty once the crew has reported (tight); before report the crew is re-planned like any other limit (v0.9 fix:
+    // the 168 h is never planned past).
+    for (const i of ftl) if (i.code === 'recovery' && i.level === 'illegal' && i.dutyId && (g.duties[i.dutyId]?.report ?? Infinity) <= g.now) i.level = 'tight';
   }
   issues.push(...ftl);
   return { level: levelOf(issues), issues, out, home, segs, drop: dropped.length ? dropped : undefined };

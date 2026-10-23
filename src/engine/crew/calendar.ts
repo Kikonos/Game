@@ -11,7 +11,7 @@ import { commercialItinerary } from '../ops/commercial';
 import { FLIGHT_TYPE_LABEL, flightType, type FlightType } from '../ops/flightType';
 import { classBlockText } from './conversion';
 import { rosterOf } from './roster';
-import { offOn } from './dayPlan';
+import { dayIndex, midnight, offOn } from './dayPlan';
 import { offsetAt } from './rules';
 import { crewIx, dutyFlights, segsOf } from './timeline';
 
@@ -218,7 +218,6 @@ export function crewCalendar(g: GameState, crewId: string, from: Minute, to: Min
   const busy = [...work, ...status];
   const off: CalBlock[] = [];
   const horizon = g.now + BAL.rosterHorizonDays * DAY;
-  const off0 = offsetAt(c.base, from);
   // Past days: where the first movement after the day left from (the timeline only knows where they are now).
   let moves: { std: Minute; from: string }[] | null = null;
   const pastAt = (t: Minute): string => {
@@ -237,25 +236,28 @@ export function crewCalendar(g: GameState, crewId: string, from: Minute, to: Min
   // rest the limits asked for; before, an old save's free days read as days off as they did.
   const v09 = g.dayPlan ? g.dayPlan.from : Infinity;
   const pub = g.dayPlan ? g.dayPlan.publishedTo : horizon;
-  for (let d = Math.floor((from + off0) / DAY) * DAY - off0; d < to; d += DAY) {
-    const day = { start: d, end: d + DAY };
-    const k = Math.round((d + offsetAt(c.base, d + 12 * 60)) / DAY);
+  // Base-local days (k), each from its own local midnight: a clock change moves the day's UTC edges with it.
+  const pubK = g.dayPlan ? dayIndex(c.base, pub) : Infinity;
+  for (let k = dayIndex(c.base, from); midnight(c.base, k) < to; k++) {
+    const d = midnight(c.base, k);
+    const dEnd = midnight(c.base, k + 1);
+    const day = { start: d, end: dEnd };
     const plannedOff = d >= v09 - 60 && !!c.off && offOn(c, k);
     if (busy.some((w) => overlaps(w, day)) && !(plannedOff && !busy.some((w) => w.kind !== 'standby' && overlaps(w, day)))) continue;
     let start = Math.max(d, from);
     for (const r of rest) if (r.start <= start && r.end > start) start = r.end;
-    const end = Math.min(d + DAY, to);
+    const end = Math.min(dEnd, to);
     if ((end - start < 6 * 60 && !plannedOff) || start >= end) continue;
     const at = start < g.now ? pastAt(start) : locAtTime(c, segs, start);
     const away = at !== c.base;
     if (d >= v09 - 60) {
       if (plannedOff) {
-        const prot = d < pub;
+        const prot = k < pubK;
         off.push({
           kind: 'off', start, end, label: 'Day off', at: away ? at : undefined, planned: true, ...(prot ? { protected: true as const } : {}),
           detail: `Day off${away ? ` at ${at} (hotel)` : ' at home'}${prot ? ' (published): protected. Changing it costs morale.' : ' (not published yet)'}`,
         });
-      } else if (d < pub) {
+      } else if (k < pubK) {
         off.push({ kind: 'rest', start, end, label: 'Rest (limits)', at: away ? at : undefined, detail: 'No standby today: rest the duty limits ask for.' });
       } else off.push({ kind: 'off', start, end, label: 'Free', at: away ? at : undefined, planned: false, detail: 'Not rostered yet (beyond the published roster)' });
       continue;

@@ -260,7 +260,7 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   // v0.8 fix pack: seats = passengers ('168 seats: the client needs 170 (170 passengers)', '180 seats for 166 passengers').
   const pax = maxPax(o.pattern);
   const st = req.stretchers ? ` and ${req.stretchers} stretcher${req.stretchers === 1 ? '' : 's'}` : '';
-  if (seats < req.minSeats) add('seats', 'no', `${seats} seats${after}: the client needs ${pax ? `${req.minSeats} (${pax} passengers${st})` : `${req.minSeats}+`}`);
+  if (seats < req.minSeats) add('seats', 'no', `${seats} seats${after}: the client needs ${pax ? (req.minSeats === pax && !st ? `${pax}` : `${req.minSeats} (${pax} passengers${st})`) : `${req.minSeats}+`}`);
   else if (req.maxSeats && seats > req.maxSeats) add('seats', 'no', `${seats} seats${after}: the client wants at most ${req.maxSeats}`);
   else add('seats', 'ok', pax ? `${seats} seats${after} for ${pax} passengers${st}` : `${seats} seats${after} (client needs ${req.minSeats}+)`);
   // v0.8 fix pack: the body the client asks for (a widebody base, Hajj, Antarctica); no refit changes it.
@@ -563,7 +563,7 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
     const what = shorts.map(([role, r]) => `${r.short} ${role}`).join(', ');
     add('crew', 'warn', `Short of crew: ${what}${rep.crew.firstShort ? ` from ${fmtDay(rep.crew.firstShort)}` : ''}`, 'Hire, or the roster will deadhead crew from other work; sets may run tight.');
   } else if (!rep.crew.setsNeeded && !Object.keys(rep.crew.byRole).length) add('crew', 'warn', 'Crew capacity not checked yet');
-  else add('crew', 'ok', `Needs ${rep.crew.setsNeeded} crew set${rep.crew.setsNeeded === 1 ? '' : 's'}, ${rep.crew.setsAvailable} free`);
+  else add('crew', 'ok', `Needs ${rep.crew.setsNeeded} crew set${rep.crew.setsNeeded === 1 ? '' : 's'}, ${rep.crew.setsAvailable >= rep.crew.setsNeeded ? `${rep.crew.setsAvailable} free` : 'enough free in each role'}`);
   if (rn.line) {
     // v0.7.4 seat rest everywhere: a refit can also lift a day that is too long for the seats (recliners, class 2).
     const fix = rn.level === 'no' && (rn.need?.why === 'noRest' || rn.need?.why === 'tooLong' || rn.need?.why === 'cabin') ? restRefitFix(g, ac.id, o, t.id, chains) : null;
@@ -808,7 +808,8 @@ export function offerRestLine(g: GameState, offerId: string): string | null {
     const pilots = (n: DutyNeed) => (n.mode === 'aug1' ? 3 : n.mode === 'aug2' ? 4 : 0);
     const a = pilots(dutyNeed(g, t.id, fc1, c));
     const b = pilots(dutyNeed(g, t.id, j2, c));
-    if (!a && !b) return `Longest day ${hmm} · too long for in-flight rest`;
+    // v0.9 §W: a slip offer splits that day at the fuel stop (the aircraft rows say who flies each half).
+    if (!a && !b) return o.slip?.at.length ? `${hmm} is too long for one crew · crew change at ${o.slip.at.join(' and ')}` : `Longest day ${hmm} · too long for in-flight rest`;
     if (a && a === b) return `Longest day ${hmm} · needs ${a} pilots (bunks or business seats)`;
     if (!b) return `Longest day ${hmm} · needs ${a} pilots and bunks`;
     if (!a) return `Longest day ${hmm} · needs ${b} pilots (business seats)`;

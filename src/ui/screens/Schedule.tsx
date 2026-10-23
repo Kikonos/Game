@@ -23,6 +23,7 @@ import {
 } from './scheduleLogic';
 import { quoteTripMove, tripOf, type TripMoveQuote, type TripView } from '../../engine/ops/tripMove';
 import { checkMaintMove, maintWord, movableMaint, type MaintMoveCheck } from '../../engine/ops/maintMove';
+import { ScreenHint } from '../components/ScreenHint';
 
 const ZOOMS: ZoomDays[] = [3, 7, 28];
 const STATUS_TONE: Record<Aircraft['status'], 'good' | 'warn' | 'bad' | 'info' | 'off'> = {
@@ -624,6 +625,7 @@ export function ScheduleScreen() {
           { swatch: 'grey', label: 'Faded: already flown' },
         ]} />
       </ScreenHead>
+      <ScreenHint id="schedule" />
       <Legend g={g} win={win} />
       <div className="gantt card" ref={card}>
         <div className="gantt-left">

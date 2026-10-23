@@ -11,7 +11,7 @@ import { money } from '../format';
 import { WorldMap, type MapRoute } from '../map/WorldMap';
 import { offline, promptInstall } from '../offline';
 import { store, useStore } from '../store';
-import { CURRENT } from '../../data/whatsNew';
+import { CURRENT, whatsNewToShow } from '../../data/whatsNew';
 
 const AMBIENT: [string, string][] = [
   ['LHR', 'JFK'], ['DXB', 'LHR'], ['SIN', 'SYD'], ['HND', 'LAX'], ['CDG', 'GRU'], ['FRA', 'PVG'], ['DOH', 'JNB'],
@@ -36,7 +36,8 @@ export function Title() {
   const [show, setShow] = useState(0);
   // "What's new" once per version, after the loading screen (never over another dialog).
   useEffect(() => {
-    if (store.settings.seenWhatsNew !== CURRENT.version && !store.modal) store.openModal({ kind: 'whatsNew' });
+    // v0.9 §X: the first v0.9 launch catches up on v0.8 and v0.7.4 too (once), then the normal rule.
+    if (whatsNewToShow(store.settings.seenWhatsNew, !!store.settings.whatsNewCatchUp).length && !store.modal) store.openModal({ kind: 'whatsNew' });
   }, []);
   // Advance every 6 s; a tap on the card skips ahead and restarts the timer.
   useEffect(() => {

@@ -337,6 +337,25 @@ export function programmeSlips(g: GameState, typeId: string, chains: ChainShape[
   return out;
 }
 
+/**
+ * v0.9 fix: the crew changes the fleet would make on this programme: the first fleet type (most seats first) that seats
+ * it, reaches it and can crew it, with that type's own fuel stops; null when no fleet type can (the reference shows).
+ */
+function fleetSlips(g: GameState, pattern: ContractOffer['pattern'], requirements: Requirements, ref: string): SlipPlan[] | null {
+  const types = [...new Set(Object.values(g.fleet).filter((a) => a.status !== 'stored').map((a) => a.typeId))];
+  const seats = (t: string) => Math.max(...cabinPresets(t).map((c) => c.j + c.w + c.y));
+  types.sort((a, b) => Number(b === ref) - Number(a === ref) || seats(b) - seats(a) || (a < b ? -1 : 1));
+  for (const t of types) {
+    if (seats(t) < requirements.minSeats) continue;
+    const pr = t === ref ? null : programmeOf({ pattern, requirements }, t);
+    if (pr && !pr.ok) continue;
+    const chains = pr ? pr.chains : programmeOf({ pattern, requirements }, ref).chains;
+    if (!crewCanFly(g, t, chains)) continue;
+    return programmeSlips(g, t, chains);
+  }
+  return null;
+}
+
 // ---------- archetypes ----------
 
 function seasonBase(ctx: Ctx): Draft | null {
@@ -1027,10 +1046,21 @@ function jumboLoad(g: GameState, d: Draft): void {
     const v = v09Stats(g);
     if ((v.offersWide ?? 0) >= 20 && (v.offersJumbo ?? 0) + 1 > J.capShare * ((v.offersWide ?? 0) + 1)) return;
   }
-  const n = int(r, J.pax[0], J.pax[1]);
+  // v0.9 fix: never more passengers than our biggest jumbo seats (a 747-400 comes 24J/426Y: 450), so a load we are
+  // offered is one we can fly as configured.
+  const cap = Math.max(0, ...ours.map((a) => a.cabin.total));
+  const n = Math.min(int(r, J.pax[0], J.pax[1]), cap >= J.pax[0] ? cap : Infinity);
+  const loaded = p.legs.filter((l) => (l.pax ?? 0) > 0).length;
   for (const l of p.legs) if ((l.pax ?? 0) > 0) l.pax = n;
+  // Seats = passengers (v0.8): the blurb's head counts follow the load: per leg ('about 243 citizens') and totals
+  // ('3 shuttles … about 750 citizens').
+  if (pax > 0) {
+    for (let m = loaded; m >= 2; m--) d.blurb = d.blurb.replace(new RegExp(`\\b${pax * m}(?= [a-z])`, 'g'), String(n * m));
+    d.blurb = d.blurb.replace(new RegExp(`\\b${pax}(?= [a-z])`, 'g'), String(n));
+  }
   d.req.minSeats = n;
-  d.req.layouts = ['all-economy'];
+  // v0.9 fix: a full load takes any cabin with the seats (business seats sold as economy), not only all-economy.
+  delete d.req.layouts;
   delete d.req.layout;
   delete d.req.maxSeats;
   d.req.body = 'wide';
@@ -1176,7 +1206,9 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
     v.offersWide = (v.offersWide ?? 0) + 1;
     if (d.jumbo) v.offersJumbo = (v.offersJumbo ?? 0) + 1;
   }
-  if (slips.length) o.slip = { at: [...new Set(slips.map((x) => x.at))], cost: slips.reduce((n, x) => n + slipCost(x), 0) };
+  // The chip names the stops of the type that will fly it: a fleet type that can (seats, range, crew), else the reference.
+  const shown = fleetSlips(g, p, requirements, ref) ?? slips;
+  if (shown.length) o.slip = { at: [...new Set(shown.map((x) => x.at))], cost: shown.reduce((n, x) => n + slipCost(x), 0) };
   // v0.8 Trusted / Partner clients pay sooner.
   o.payment.dueDays = Math.max(0, o.payment.dueDays - perks(g, d.client).payDays);
   o.estValue = productValue(product, revBH, d.start, d.end, d.terms);

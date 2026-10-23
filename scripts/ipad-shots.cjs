@@ -39,6 +39,12 @@
  *                  augmented LIS long-haul, a short-cruise A330, a captain on home standby):
  *                    fleet-rest,market-rest-filter,flight-sheet-rest,flight-sheet-rest-tooshort,duty-why,offer-rest-lines,
  *                    refit-crew-rest,check-c-restfit,roster-board-aug,crew-control-standby,whats-new-073
+ *                  v0.9 Experience (run last: they build a DUB tour roster, unlock and hire heads, grant achievements, post
+ *                  slip / jumbo offers and a crew-out-of-hours flight):
+ *                    roster-board-standby,roster-board-month-summary,roster-offbreak-confirm,crew-person-month,crew-control-standby-kinds,
+ *                    crewplan-sets-why,company-team-locked,head-unlocked-card,company-team,company-achievements,achievement-toast,offer-analyst,
+ *                    offer-slip,offer-jumbo,crew-control-out-of-hours,crew-control-discretion-greyed,inbox-crew-hours,opsstrip-hours,
+ *                    settings-sound,settings-test-sounds,screen-hint-contracts,whats-new-catchup,fleet-longest-day-popover,crewplan-verdict
  *   --save         an exported save (.blockhours.json) to load for the in-game screens; without it the harness
  *                  starts a new game from the New Game screen (--base, default LIS) and plays --days
  *                  game days (default 40) with __contrail.dev.autoplay so every screen has real data
@@ -76,6 +82,10 @@ const ALL = [
   'offer-rivals-bidding', 'offer-hajj', 'offer-deportation-moral', 'offer-mixed-crew', 'outlook-modal', 'subcharter-3-quotes',
   'inbox-world-event', 'world-event-modal', 'client-modal', 'schedule-programme-continues', 'roster-board-client-crew', 'duty-client-seats',
   'offer-dry-lease', 'schedule-dry-lease', 'fleet-dry-lease', 'whats-new-08',
+  'roster-board-standby', 'roster-board-month-summary', 'roster-offbreak-confirm', 'crew-person-month', 'crew-control-standby-kinds', 'crewplan-sets-why',
+  'company-team-locked', 'head-unlocked-card', 'company-team', 'company-achievements', 'achievement-toast', 'offer-analyst', 'offer-slip', 'offer-jumbo',
+  'crew-control-out-of-hours', 'crew-control-discretion-greyed', 'inbox-crew-hours', 'opsstrip-hours', 'settings-sound', 'settings-test-sounds',
+  'screen-hint-contracts', 'whats-new-catchup', 'fleet-longest-day-popover', 'crewplan-verdict',
 ];
 const PRE_GAME = new Set(['loading', 'title', 'newgame', 'newgame-livery']);
 const VIEWS = {
@@ -1192,6 +1202,140 @@ Object.assign(ACTIONS, {
   'whats-new-08': (page) => modal(page, { kind: 'whatsNew' }),
 });
 
+// ---------- v0.9 Experience ----------
+/** The DUB tour crew from dev.roster() (built once per run). */
+async function ensureRoster(page) {
+  return page.evaluate(() => { const s = window.__contrail; if (!s.__dub) s.__dub = s.dev.roster(); return s.__dub; });
+}
+/** A flight in crew out of hours (dev.crewHours), once per run. */
+async function ensureHours(page) {
+  const id = await page.evaluate(() => { const s = window.__contrail; const f = s.__ooh && s.game.flights[s.__ooh]; if (!f || f.status !== 'scheduled') s.__ooh = s.dev.crewHours(); return s.__ooh; });
+  if (!id) throw new Error('SKIP dev.crewHours built nothing');
+  await quiet(page);
+  return id;
+}
+async function hireHead(page, id) {
+  // Unlock (dev), then hire the middle candidate through the celebration card.
+  await page.evaluate((h) => { const s = window.__contrail; s.dev.head(h); s.modal = null; s.openModal({ kind: 'headUnlocked', id: h }); }, id);
+  await settle(page, 400);
+  const btn = page.locator('.v9-cand .btn-primary').nth(1);
+  if (await btn.count()) await btn.click();
+  await settle(page, 400);
+  await quiet(page);
+}
+
+Object.assign(ACTIONS, {
+  'roster-board-standby': async (page) => {
+    await ensureRoster(page);
+    await quiet(page);
+    await board(page);
+  },
+  'roster-board-month-summary': async (page) => { await ensureRoster(page); await quiet(page); await board(page, 'Month'); },
+  'roster-offbreak-confirm': async (page) => {
+    await ensureRoster(page);
+    await quiet(page);
+    const id = await page.evaluate(() => window.__contrail.dev.offBreak());
+    if (!id) throw new Error('SKIP no move breaks a published day off');
+    await settle(page, 600);
+  },
+  'crew-person-month': async (page) => {
+    const id = await ensureRoster(page);
+    await quiet(page);
+    await nav(page, 'crew', { view: 'people', sel: { kind: 'crew', id } });
+  },
+  'crew-control-standby-kinds': async (page, _s, d) => {
+    const id = await page.evaluate(() => window.__contrail.dev.crewShortage(10));
+    if (!id) throw new Error('SKIP no crew shortage');
+    await page.evaluate((f) => { const s = window.__contrail; s.modal = null; s.openModal({ kind: 'crewControl', flightId: f, fix: 'callIn' }); }, id);
+    await settle(page, 700);
+  },
+  'crewplan-sets-why': (page) => nav(page, 'crew', { view: 'plan' }),
+  'crewplan-verdict': async (page) => { await nav(page, 'crew', { view: 'plan' }); await page.evaluate(() => { const el = document.querySelector('.cp-verdict'); el?.scrollIntoView({ block: 'center' }); }); await settle(page, 300); },
+  'company-team-locked': (page) => nav(page, 'company', { view: 'team', sel: { kind: 'head', id: 'watch' } }),
+  'head-unlocked-card': async (page) => {
+    await page.evaluate(() => { const s = window.__contrail; s.dev.head('crewDesk'); });
+    await settle(page, 700);
+    const open = await page.evaluate(() => window.__contrail.modal?.kind);
+    if (open !== 'headUnlocked') await page.evaluate(() => window.__contrail.openModal({ kind: 'headUnlocked', id: 'crewDesk' }));
+    await settle(page, 500);
+  },
+  'company-team': async (page) => {
+    await quiet(page);
+    await hireHead(page, 'opsControl');
+    await nav(page, 'company', { view: 'team', sel: { kind: 'head', id: 'opsControl' } });
+  },
+  'company-achievements': async (page) => {
+    await page.evaluate(() => { const s = window.__contrail; for (const a of ['clockwork', 'bunkTime', 'partner']) s.dev.achievement(a); });
+    await quiet(page);
+    await nav(page, 'company', { view: 'achievements' });
+  },
+  'achievement-toast': async (page) => {
+    await nav(page, 'company', { view: 'achievements' });
+    await page.evaluate(() => { const s = window.__contrail; s.setSettings({ toasts: true }); s.dev.achievement('noOverdue'); });
+    await settle(page, 600);
+  },
+  'offer-analyst': async (page) => {
+    await quiet(page);
+    await hireHead(page, 'analyst');
+    const id = await pick(page, () => Object.values(window.__contrail.game.offers).find((o) => o.status === 'open')?.id);
+    if (!id) throw new Error('SKIP no open offer');
+    await nav(page, 'contracts', { view: 'market' });
+    await modal(page, { kind: 'offer', offerId: id });
+  },
+  'offer-slip': async (page) => {
+    const id = await page.evaluate(() => window.__contrail.dev.slip('MAD-SIN'));
+    if (!id) throw new Error('SKIP no slip offer');
+    await settle(page, 700);
+    const head = page.locator('.sc-feas-head').first();
+    if (await head.count()) { await head.click(); await settle(page, 300); }
+  },
+  'offer-jumbo': async (page) => {
+    const id = await page.evaluate(() => window.__contrail.dev.jumbo());
+    if (!id) throw new Error('SKIP no jumbo offer');
+    await settle(page, 700);
+  },
+  'crew-control-out-of-hours': async (page) => {
+    const id = await ensureHours(page);
+    await modal(page, { kind: 'crewControl', flightId: id });
+  },
+  'crew-control-discretion-greyed': async (page) => {
+    const id = await ensureHours(page);
+    await modal(page, { kind: 'crewControl', flightId: id, fix: 'discretion' });
+    await page.evaluate(() => document.querySelector('[data-fix="discretion"]')?.scrollIntoView({ block: 'center' }));
+    await settle(page, 300);
+  },
+  'inbox-crew-hours': async (page) => { await ensureHours(page); await nav(page, 'inbox'); },
+  'opsstrip-hours': async (page) => { await ensureHours(page); await nav(page, 'map'); },
+  'settings-sound': async (page) => {
+    await modal(page, { kind: 'settings' });
+    await page.evaluate(() => { const h = [...document.querySelectorAll('.set-head')].find((x) => x.textContent.trim() === 'Sound'); h?.scrollIntoView({ block: 'start' }); });
+    await settle(page, 300);
+  },
+  'settings-test-sounds': async (page, _s, d) => {
+    await modal(page, { kind: 'settings' });
+    const btn = page.locator('.set-row', { hasText: 'Test sounds' }).locator('button');
+    await press(page, btn, d);
+    await settle(page, 300);
+    await page.evaluate(() => document.querySelector('.v9-tests')?.scrollIntoView({ block: 'start' }));
+    await settle(page, 300);
+  },
+  'screen-hint-contracts': async (page) => {
+    await page.evaluate(() => window.__contrail.setSettings({ screenHintsSeen: [] }));
+    await nav(page, 'contracts', { view: 'market' });
+  },
+  'whats-new-catchup': async (page) => {
+    await page.evaluate(() => window.__contrail.setSettings({ seenWhatsNew: 'v0.8', whatsNewCatchUp: '' }));
+    await modal(page, { kind: 'whatsNew' });
+  },
+  'fleet-longest-day-popover': async (page, _s, d) => {
+    await nav(page, 'fleet');
+    const t = page.locator('.term', { hasText: 'Longest day' }).first();
+    if (!(await t.count())) throw new Error('SKIP no Longest day term');
+    await press(page, t, d);
+    await settle(page, 400);
+  },
+});
+
 async function scrollNext(page) {
   return page.evaluate(() => {
     const cands = [document.querySelector('.modal-body'), document.querySelector('.main'), document.querySelector('.ng-panel'), document.scrollingElement];
@@ -1230,7 +1374,8 @@ async function run() {
       const file = path.join(args.out, `${prefix}-${screen}.png`);
       try {
         if (!PRE_GAME.has(screen)) await withTimeout(ensureGame(page, saveJson, desktop), 60000, 'load game');
-        await withTimeout(ACTIONS[screen](page, saveJson, desktop), 45000, screen);
+        // v0.9: dev.roster() plays 20 days with a DUB tour (slow under load).
+        await withTimeout(ACTIONS[screen](page, saveJson, desktop), /^roster-|crew-person-month/.test(screen) ? 180000 : 45000, screen);
         await page.screenshot({ path: file, timeout: 15000 });
         const inset = !desktop && mode ? INSET : null;
         const res = await page.evaluate(lint, { inset, minTarget: MIN_TARGET, minText: MIN_TEXT });

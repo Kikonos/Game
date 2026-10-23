@@ -11,8 +11,10 @@
 // duty one calm 'Resting: … until …' line (restNow, on the clock step only).
 // v0.8: the world-event panel (what it does, our legs it touches, the work it created, More → the event modal); a leg
 // held, rerouted or paying war-risk cover says so; a dry-leased aircraft's panel names the lessee and the dates.
+// v0.9: CREW OUT OF HOURS (crewAlertKind via shortIndex) beside CREW SHORTAGE, naming who and which limit; hotel standby
+// tags in the station's hotel list (standbyNow); the crew-change panel of a slip at a fuel stop (slipOfFlight).
 
-import { CalendarRange, FileSearch, Info, KeyRound, LifeBuoy, PackageCheck, Plane, Undo2, Users, Wrench, X } from 'lucide-react';
+import { ArrowLeftRight, CalendarRange, FileSearch, Info, KeyRound, LifeBuoy, PackageCheck, Plane, TimerOff, Undo2, Users, Wrench, X } from 'lucide-react';
 import { type ReactNode, useMemo } from 'react';
 import { ACMI_TYPES, artFor } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE } from '../../data/airports';
@@ -20,12 +22,14 @@ import { MRO_STATIONS } from '../../data/market';
 import { BAL } from '../../engine/core/balance';
 import { isPilot, seatLabel } from '../../engine/core/perf';
 import { feasibilityAll, mghLabel } from '../../engine/contracts';
+import { clientless, jobName } from '../../engine/contracts/flavor';
 import { flightsOf } from '../../engine/core/entities';
 import { currentFlight, flightTimes } from '../../engine/core/query';
 import { DAY, fmtDay, fmtDuration, fmtTime, localOffset } from '../../engine/core/time';
 import type { Aircraft, CrewMember, Flight, GameState, MaintenanceEvent, ProblemRef, Ref, Role } from '../../engine/core/types';
 import type { DryLeaseView } from '../../engine/ops';
-import { crewName, crewShortCard, dutyCrew, flightCrewStatus, restNow, restOf, restSeatsBlocked, restText, sellableSeats, seatsText } from '../../engine/crew';
+import { type CrewAlertKind, crewName, crewShortCard, dutyCrew, flightCrewStatus, outOfHours, restNow, restOf, restSeatsBlocked, restText, sellableSeats, seatsText, slipOfFlight, slipsOfAircraft, standbyNow } from '../../engine/crew';
+import { crewHoursCard } from '../../engine/problems';
 import { checkStatus, CONNECT_MIN, commercialItinerary, deliveryStatus, dryLeaseOf, FLIGHT_TYPE_HINT, FLIGHT_TYPE_LABEL, flightCrewAboard, type FlightType, flightType, flightZone, problemAt, ticketPurpose, worldEvent, worldZones } from '../../engine/ops';
 import { ferryCost } from '../../engine/ops/delivery';
 import { AircraftArt } from '../components/AircraftArt';
@@ -35,7 +39,7 @@ import { contractColor } from '../screens/palette';
 import { type ModalSpec, store } from '../store';
 import { paintLabel } from '../screens/scheduleLogic';
 import { archLabel, capFirst, expiryLabel, hangarWord, offerDays } from '../screens/screenLogic';
-import { awaitingDelivery, chipInfo, commercialById, deliveryTag, EVENT_KIND_LABEL, EVENT_TONE, leasedOut, mapLivery, parseCommercialId, PURPOSE_LABEL, purposeChain, restChip, restingLine, restSeatNoun, shortIndex, type ShortRow, upcomingLegs } from './mapLogic';
+import { ALERT_BANNER, ALERT_CHIP, awaitingDelivery, chipInfo, commercialById, deliveryTag, EVENT_KIND_LABEL, EVENT_TONE, hotelCount, leasedOut, mapLivery, OOH_SHORT, oohLine, parseCommercialId, parseSlipId, PURPOSE_LABEL, purposeChain, restChip, restingLine, restSeatNoun, shortIndex, type ShortRow, slipLine, slipSelId, slipWindow, upcomingLegs } from './mapLogic';
 import { MiniMap } from './MiniMap';
 import { eventIcon } from './WorldLayer';
 
@@ -62,9 +66,11 @@ const groupSeats = (roles: CrewMember['role'][]) => SEAT_ORDER.flatMap((role) =>
   return n ? [{ role, n }] : [];
 });
 
-/** The CREW SHORTAGE banner (static, upper-case mono) for a ladder stage. */
-export const ShortBanner = ({ stage, small }: { stage: 'amber' | 'red'; small?: boolean }) => (
-  <span className={`op-banner ${stage}${small ? ' small' : ''}`}>CREW SHORTAGE</span>
+/** The CREW SHORTAGE / (v0.9) CREW OUT OF HOURS banner (static, upper-case mono) for a ladder stage; small in leg rows. */
+export const ShortBanner = ({ stage, kind = 'short', small }: { stage: 'amber' | 'red'; kind?: CrewAlertKind; small?: boolean }) => (
+  <span className={`op-banner ${stage}${small ? ' small' : ''} ${kind}`}>
+    {kind === 'hours' && <TimerOff aria-hidden />}{small ? ALERT_CHIP[kind] : ALERT_BANNER[kind]}
+  </span>
 );
 
 /** A red/amber dot with a 44 px WHY? hit that opens the card; a plain dot otherwise. */
@@ -172,7 +178,7 @@ function LegRow({ g, f, onTap, short }: { g: GameState; f: Flight; onTap?: () =>
           </span>
           {zone && <span className={`small ellipsis op-zone ${zone.effect}`}>{zone.text}</span>}
         </span>
-        {short ? <ShortBanner stage={short.stage} small /> : <span className={`op-type-s ${type}`}>{FLIGHT_TYPE_LABEL[type]}</span>}
+        {short ? <ShortBanner stage={short.stage} kind={short.kind} small /> : <span className={`op-type-s ${type}`}>{FLIGHT_TYPE_LABEL[type]}</span>}
       </Main>
       <Why g={g} tone={LEVEL_TONE[cs.level]} ref={{ kind: 'flight', id: f.id }} />
     </div>
@@ -390,7 +396,13 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
   // v0.7.1: the ladder's list (crewAlert set and still short) drives the banner; the card gives the one-sentence why.
   const short = safe(() => shortIndex(g).byFlight, new Map<string, ShortRow>());
   const shortRow = crewFlight && !cur ? short.get(crewFlight.id) : undefined;
-  const shortCard = shortRow ? safe(() => crewShortCard(g, shortRow.flightId), null) : null;
+  const hours = shortRow?.kind === 'hours';
+  const shortCard = shortRow ? safe(() => (hours ? crewHoursCard(g, shortRow.flightId) : null) ?? crewShortCard(g, shortRow.flightId), null) : null;
+  // v0.9 §T: who is out of hours and which limit (the engine names them; the map only words it).
+  const ooh = hours && shortRow ? safe(() => outOfHours(g, shortRow.flightId), []) : [];
+  const oohBy = new Map(ooh.map((x) => [x.crewId, x]));
+  // v0.9 §W.4: crew changes at a fuel stop on this aircraft's flights.
+  const slips = useMemo(() => safe(() => slipsOfAircraft(g, ac.id, ...slipWindow(t)), []), [ac.id, hourKey, store.version]); // eslint-disable-line react-hooks/exhaustive-deps
 
   let now: ReactNode;
   const curType = cur ? safe(() => flightType(g, cur), 'operating' as FlightType) : null;
@@ -444,7 +456,7 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
   return (
     <Panel title={<span className="mono">{ac.reg}</span>} kicker={`${type?.name ?? ac.typeId} · ${ac.cabin.label}`} onClose={() => store.select(undefined)}>
       <div className="op-art"><AircraftArt typeId={artFor(ac.typeId)} livery={lv.livery} code={lv.code} name={lv.name} /></div>
-      {lv.source === 'client' && <div className="small muted op-livery">In {lv.clientName} colours{lv.contractId && g.contracts[lv.contractId] ? ` for ${g.contracts[lv.contractId].title}` : ''}</div>}
+      {lv.source === 'client' && <div className="small muted op-livery">In {lv.clientName} colours{lv.contractId && g.contracts[lv.contractId] ? ` for ${clientless(g.contracts[lv.contractId].title, lv.clientName ?? '')}` : ''}</div>}
       <div className="row wrap op-chips">
         <span className={`chip tone-${chip.tone}`}><Dot tone={chip.tone} />{cur ? 'Airborne' : ac.status === 'available' ? 'Available' : ac.status === 'aog' ? 'AOG' : ac.status === 'maintenance' ? capFirst(hangarWord(g, ac)) : ac.status === 'delivering' ? 'Delivering' : ac.status === 'leasedOut' ? 'Leased out' : ac.status}</span>
         {curType === 'ferry' && !deliveryTag(ac) && <span className="chip op-ferry-tag">FERRY</span>}
@@ -460,14 +472,18 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
       <PlannedBlocks g={g} ac={ac} />
       <Section
         title={cur ? 'Crew on board' : crewFlight ? `Crew for ${crewFlight.no}` : 'Crew'}
-        aside={shortRow ? <ShortBanner stage={shortRow.stage} /> : later ? <span className="small muted">Rostered later</span> : cstat && <span className={`small tone-${LEVEL_TONE[cstat.level]}`}><Dot tone={LEVEL_TONE[cstat.level]} />{LEVEL_TEXT[cstat.level]}</span>}
+        aside={shortRow ? <ShortBanner stage={shortRow.stage} kind={shortRow.kind} /> : later ? <span className="small muted">Rostered later</span> : cstat && <span className={`small tone-${LEVEL_TONE[cstat.level]}`}><Dot tone={LEVEL_TONE[cstat.level]} />{LEVEL_TEXT[cstat.level]}</span>}
       >
         {shortRow && crewFlight && (
           <div className={`op-short ${shortRow.stage}`}>
-            <div className="op-short-what">{shortCard?.what ?? `${crewFlight.no} has no crew`}<span className="small muted"> · departs {fmtTime(crewFlight.std)} UTC, in {fmtDuration(Math.max(0, crewFlight.std - t))}</span></div>
+            {hours ? (
+              <div className="op-short-what op-ooh-what"><TimerOff aria-hidden /><span>{oohLine(ooh)}<span className="small muted"> · {crewFlight.no} departs {fmtTime(crewFlight.std)} UTC, in {fmtDuration(Math.max(0, crewFlight.std - t))}</span></span></div>
+            ) : (
+              <div className="op-short-what">{shortCard?.what ?? `${crewFlight.no} has no crew`}<span className="small muted"> · departs {fmtTime(crewFlight.std)} UTC, in {fmtDuration(Math.max(0, crewFlight.std - t))}</span></div>
+            )}
             {shortCard?.why && <div className="small op-short-why">{shortCard.why}</div>}
             {shortCard?.hurt.text && <div className="small muted">Does it hurt? {shortCard.hurt.text}</div>}
-            {shortCard?.visuals.minimap && <MiniMap spec={shortCard.visuals.minimap} width={322} />}
+            {!hours && shortCard?.visuals.minimap && <MiniMap spec={shortCard.visuals.minimap} width={322} />}
             <button className="btn btn-primary op-crew-btn" onClick={() => openCrewControl(crewFlight.id)}><LifeBuoy /> Crew Control</button>
           </div>
         )}
@@ -475,13 +491,15 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
           <div className="op-crew">
             {crew.map((m) => {
               const seat = seats.get(m.id) ?? m.role;
+              const oh = oohBy.get(m.id);
               return (
-              <div key={m.id} className={`op-crew-row${aboveIds.has(m.id) || m.notice ? ' tagged' : ''}`}>
+              <div key={m.id} className={`op-crew-row${aboveIds.has(m.id) || m.notice || oh ? ' tagged' : ''}`}>
                 <span className={`role${seat !== m.role ? ' as' : ''}`} title={seat !== m.role ? `${m.role === 'CPT' ? 'A captain' : m.role} flying in the ${seat} seat` : undefined}>{seatLabel(seat, m.role)}</span>
                 <span className="col op-crew-who">
                   <span className="ellipsis">{crewName(m)}</span>
-                  {(aboveIds.has(m.id) || m.notice) && (
+                  {(aboveIds.has(m.id) || m.notice || oh) && (
                     <span className="op-crew-tags">
+                      {oh && <span className="op-tag ooh" title={`Reached ${oh.limitText}`}>{OOH_SHORT[oh.limit]}</span>}
                       {aboveIds.has(m.id) && <span className="op-tag extra" title="Seat above the legal minimum">Extra</span>}
                       {m.notice && <span className="op-tag notice" title="Resigned, working the notice period">Leaves {fmtDay(m.notice.leaves - 1)}</span>}
                     </span>
@@ -518,8 +536,21 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
         )}
       </Section>
       <Section title="Next legs">
-        {legs.length ? legs.map((f) => <LegRow key={f.id} g={g} f={f} short={short.get(f.id)} />) : <div className="small muted">Nothing scheduled. Idle aircraft earn nothing: check the market.</div>}
+        {legs.length ? legs.map((f) => <LegRow key={f.id} g={g} f={f} short={short.get(f.id)} />) : <div className="small muted">Nothing scheduled. Check the market.</div>}
       </Section>
+      {slips.length > 0 && (
+        <Section title="Crew change">
+          {slips.map((v) => {
+            const f = g.flights[v.flightId];
+            return (
+              <button key={v.flightId} className="op-row op-slip-row" onClick={() => store.select({ kind: 'flight', id: slipSelId(v.flightId) })}>
+                <ArrowLeftRight />
+                <span className="op-wrap">{v.atName}{f ? ` · fresh crew takes over ${f.no}, ${fmtDay(f.std + f.delay)} ${fmtTime(f.std + f.delay)} UTC` : ''}</span>
+              </button>
+            );
+          })}
+        </Section>
+      )}
       <Section title="Maintenance">
         {csKnown && cs ? (
           <div className="op-kv">
@@ -541,13 +572,6 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
 
 // ---------- airport ----------
 
-/** "2 pilots · 4 cabin crew" (v0.7.2 hotel count). */
-function hotelCount(list: CrewMember[]): string {
-  const p = list.filter((m) => isPilot(m.role)).length;
-  const c = list.length - p;
-  return [p ? `${p} pilot${p === 1 ? '' : 's'}` : '', c ? `${c} cabin crew` : ''].filter(Boolean).join(' · ');
-}
-
 function AirportPanel({ g, code }: { g: GameState; code: string }) {
   const a = AIRPORT_BY_CODE[code];
   const t = g.now;
@@ -560,6 +584,12 @@ function AirportPanel({ g, code }: { g: GameState; code: string }) {
   for (const id of Object.keys(g.fleet)) for (const f of flightsOf(g, id)) if (f.status === 'scheduled' && f.from === code && f.std + f.delay < t + DAY) deps.push(f);
   deps.sort((x, y) => x.std + x.delay - (y.std + y.delay));
   const short = safe(() => shortIndex(g), { byFlight: new Map<string, ShortRow>(), byAircraft: new Map<string, ShortRow>() });
+  // v0.9 §R.9: who in the hotel is on standby now (hotel standby at a detachment or a night-stop), on call first.
+  const sby = new Set(hotel.filter((m) => {
+    const w = safe(() => standbyNow(g, m.id), null);
+    return !!w && (w.kind === 'hotel' || w.at === code);
+  }).map((m) => m.id));
+  const hotelList = [...hotel].sort((x, y) => Number(sby.has(y.id)) - Number(sby.has(x.id)) || byRole(x, y));
   if (!a) return null;
   return (
     <Panel title={a.name} kicker={`${code} · ${a.city}`} onClose={() => store.select(undefined)}>
@@ -590,11 +620,17 @@ function AirportPanel({ g, code }: { g: GameState; code: string }) {
           })}
         </Section>
       )}
-      <Section title="Crew in hotel" aside={hotel.length ? <span className="small muted">{hotelCount(hotel)}</span> : undefined}>
+      <Section title="Crew in hotel" aside={hotel.length ? <span className="small muted">{sby.size ? `${sby.size} on standby` : hotelCount(hotel)}</span> : undefined}>
         {hotel.length ? (
-          <div className="op-crew">
-            {[...hotel].sort(byRole).slice(0, 8).map((m) => <div key={m.id} className="op-crew-row"><span className="role">{m.role}</span><span className="ellipsis">{crewName(m)}</span></div>)}
-            {hotel.length > 8 && <div className="small muted">+{hotel.length - 8} more</div>}
+          <div className={`op-crew${sby.size ? ' one' : ''}`}>
+            {hotelList.slice(0, 8).map((m) => (
+              <div key={m.id} className="op-crew-row">
+                <span className="role">{m.role}</span><span className="ellipsis">{crewName(m)}</span>
+                {sby.has(m.id) && <span className="op-tag sby" title="Hotel standby: on call here">SBY</span>}
+              </div>
+            ))}
+            {sby.size > 0 ? <div className="small muted">{hotel.length > 8 ? `+${hotel.length - 8} more · ` : ''}{hotelCount(hotel)} in all</div>
+              : hotel.length > 8 && <div className="small muted">+{hotel.length - 8} more</div>}
           </div>
         ) : <div className="small muted">Nobody on a layover here.</div>}
       </Section>
@@ -606,7 +642,7 @@ function AirportPanel({ g, code }: { g: GameState; code: string }) {
       <Section title="Offers from here">
         {offers.length ? offers.map((o) => (
           <button key={o.id} className="op-row" onClick={() => store.select({ kind: 'offer', id: o.id })}>
-            <span className={`op-dia ${o.urgency === 'urgent' ? 'urgent' : ''}`} aria-hidden /><span className="ellipsis">{o.title}</span>
+            <span className={`op-dia ${o.urgency === 'urgent' ? 'urgent' : ''}`} aria-hidden /><span className="ellipsis">{jobName(g.clients[o.clientId]?.name ?? '', clientless(o.title, g.clients[o.clientId]?.name ?? ''))}</span>
           </button>
         )) : <div className="small muted">No open offers.</div>}
       </Section>
@@ -639,7 +675,7 @@ function OfferPanel({ g, id }: { g: GameState; id: string }) {
     ? `$${o.product.ratePerBH.toLocaleString('en-US')}/BH · ${mghLabel(o.product, o.start, o.end, o.terms)}`
     : o.product.kind === 'charter' ? `${money(o.product.price)} charter` : `${money(o.product.rentPerMonth)}/month dry`;
   return (
-    <Panel title={o.title} kicker={archLabel(o)} onClose={() => store.select(undefined)}>
+    <Panel title={clientless(o.title, client?.name ?? '')} kicker={archLabel(o)} onClose={() => store.select(undefined)}>
       <div className="row wrap op-chips">
         {o.urgency !== 'normal' && <span className={`chip tone-${o.urgency === 'urgent' ? 'bad' : 'warn'}`}>{o.urgency === 'urgent' ? 'Urgent' : 'Short notice'}</span>}
         {o.broker && <span className="chip">via {o.broker}</span>}
@@ -740,7 +776,7 @@ function CommercialPanel({ g, id }: { g: GameState; id: string }) {
       )}
       <Section title="Our crew on board" aside={<span className="small muted">{crew.length}</span>}>
         {crew.length ? <CrewRows crew={crew} /> : <div className="small muted">Nobody of ours on this ticket any more.</div>}
-        <div className="small muted op-gap">{jet ? 'Flown' : 'Travelling as passengers'} to {dest?.city ?? ticket.to} ({ticket.to}){legs.length > 1 ? ` via ${legs[0].to}` : ''}.</div>
+        <div className="small muted op-gap">To {dest?.city ?? ticket.to} ({ticket.to}){legs.length > 1 ? `, via ${legs[0].to}` : ''}.</div>
       </Section>
       {whyText && why && (
         <Section title="Purpose">
@@ -754,6 +790,40 @@ function CommercialPanel({ g, id }: { g: GameState; id: string }) {
           )}
         </Section>
       )}
+    </Panel>
+  );
+}
+
+// ---------- v0.9 crew change at a fuel stop (§W.4) ----------
+
+/** 'Vasco Ribeiro, Ana Rodrigues and 5 others'. */
+const namesLine = (names: string[]) => (names.length > 2 ? `${names.slice(0, 2).join(', ')} and ${names.length - 2} others` : names.join(' and '));
+
+function SlipPanel({ g, flightId }: { g: GameState; flightId: string }) {
+  const hourKey = Math.floor(g.now / 60);
+  const v = useMemo(() => safe(() => slipOfFlight(g, flightId), null), [flightId, hourKey, store.version]); // eslint-disable-line react-hooks/exhaustive-deps
+  const f = g.flights[flightId];
+  const ac = f?.aircraftId ? g.fleet[f.aircraftId] : undefined;
+  if (!v || !f) return null;
+  const dep = f.std + f.delay;
+  const crewSec = (title: string, names: string[], ticketIds: string[], empty: string) => (
+    <Section title={title} aside={names.length ? <span className="small muted">{names.length}</span> : undefined}>
+      <div className="small">{names.length ? namesLine(names) : empty}</div>
+      {ticketIds.length > 0 && <PilotLegs g={g} ticketIds={ticketIds.filter((id) => g.flights[id]?.kind === 'deadhead')} />}
+    </Section>
+  );
+  return (
+    <Panel title={`Crew change at ${v.atName}`} kicker={`${ac?.reg ?? f.no} · ${f.no} ${f.from}→${f.to}`} onClose={() => store.select(ac ? { kind: 'aircraft', id: ac.id } : undefined)}>
+      <div className="row wrap op-chips">
+        <span className="chip op-slip-chip"><ArrowLeftRight aria-hidden />Slip crew</span>
+        <span className="chip">{fmtDay(dep)} {fmtTime(dep)} UTC · {fmtTime(dep, f.from)} local</span>
+      </div>
+      <div className="small op-slip-line">{slipLine(g, v, false)}</div>
+      {crewSec('Fresh crew', v.inCrew.names, v.inCrew.ticketIds, 'Rostered nearer the time.')}
+      {crewSec('First crew, home', v.outCrew.names, v.outCrew.ticketIds, 'Rostered nearer the time.')}
+      <Section title="Takes over">
+        <LegRow g={g} f={f} onTap={ac ? () => store.select({ kind: 'aircraft', id: ac.id }) : undefined} />
+      </Section>
     </Panel>
   );
 }
@@ -795,7 +865,7 @@ function EventPanel({ g, id }: { g: GameState; id: string }) {
           {offers.map((o) => (
             <button key={o.id} className="op-row" onClick={() => store.select({ kind: 'offer', id: o.id })}>
               <FileSearch />
-              <span className="op-wrap">{o.title}<span className="small muted"> · {g.clients[o.clientId]?.name ?? ''}{o.urgency === 'urgent' ? ' · urgent' : ''}</span></span>
+              <span className="op-wrap">{clientless(o.title, g.clients[o.clientId]?.name ?? '')}<span className="small muted"> · {g.clients[o.clientId]?.name ?? ''}{o.urgency === 'urgent' ? ' · urgent' : ''}</span></span>
             </button>
           ))}
         </Section>
@@ -815,6 +885,7 @@ function worldZoneStyle(g: GameState, eventId: string) {
 /** The panel for the current map selection, or null. */
 export function MapPanel({ g, sel }: { g: GameState; sel?: Ref }) {
   if (!sel) return null;
+  if (sel.kind === 'flight' && parseSlipId(sel.id)) return <SlipPanel g={g} flightId={parseSlipId(sel.id)!} />;
   if (sel.kind === 'flight' && parseCommercialId(sel.id)) return <CommercialPanel g={g} id={sel.id} />;
   if (sel.kind === 'aircraft' && g.fleet[sel.id]) return <AircraftPanel g={g} ac={g.fleet[sel.id]} />;
   if (sel.kind === 'airport' && AIRPORT_BY_CODE[sel.id]) return <AirportPanel g={g} code={sel.id} />;

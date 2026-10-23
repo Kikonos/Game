@@ -59,7 +59,8 @@ describe('§R.13 1–2: legal minimums; unassigned days are standby, not off', (
       if (c.hired > g.started || c.blocks?.some((b) => monthKey(b.from) <= mk && monthKey(b.to) >= mk)) continue;
       expect(c.twoDays?.[mk] ?? 0, c.id).toBeGreaterThanOrEqual(2);
     }
-    expect(r.maxRecGapH).toBeLessThanOrEqual(168 + 12);
+    // v0.9 fix: the 168 h is a hard planning limit (a planned duty keeps an hour in hand for delays).
+    expect(r.maxRecGapH).toBeLessThanOrEqual(168);
   }, 120_000);
 
   it('inside the published roster every day is work, a planned day off, standby, leave or rest the limits ask for', () => {

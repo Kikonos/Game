@@ -4,7 +4,7 @@ import type { CrewMember, Role } from '../../engine/core/types';
 import type { BoardRow, CalBlock, DropTarget } from '../../engine/crew';
 import {
   blockCands, blockKeys, boardItems, dutyMark, MARK_SEP, splitMark, itemsSig, rowSig, boardLayout, dayCodes, dayWidth, dayWindow, edgeSpeed, fitText, GROUP_H, itemAt, LEFT_W, matchBoard, moraleTone, NO_BOARD_FILTER,
-  ROW_H, verdictText, visibleRange, weekLabels, workCode,
+  monthCell, ROW_H, verdictText, visibleRange, weekLabels, workCode,
 } from './rosterBoardLogic';
 
 const crew = (id: string, role: Role, base = 'LIS', ratings = ['A320'], last = id): CrewMember =>
@@ -192,5 +192,21 @@ describe('v0.7.3 duty marks', () => {
     expect(splitMark(c[0])).toEqual(['AW201 LIS–GRU', '3P']);
     expect(splitMark('AW201')).toEqual(['AW201', '']);
     expect(blockCands(duty)).not.toContain(`${MARK_SEP}3P`);
+  });
+});
+
+describe('v0.9 §R roster codes', () => {
+  const sb = (sby: 'home' | 'hotel' | 'airport' | 'reserve', extra: object = {}) => ({ kind: 'standby' as const, label: 'x', sby, ...extra });
+  it('writes OFF, SBY E/L, SBY DUB, ASBY, RES and LEAVE', () => {
+    expect(blockCands(sb('home', { shift: 'L' }))[0]).toBe('SBY L');
+    expect(blockCands(sb('hotel', { at: 'DUB' }))[0]).toBe('SBY DUB');
+    expect(blockCands(sb('airport'))[0]).toBe('ASBY');
+    expect(blockCands(sb('reserve'))[0]).toBe('RES');
+    expect(blockCands({ kind: 'off', label: 'Day off', at: 'DUB' })[0]).toBe('OFF DUB');
+    expect(blockCands({ kind: 'leave', label: 'Leave' })[0]).toBe('LEAVE');
+  });
+  it('sums a month: days off · standby · flying, low below 7', () => {
+    expect(monthCell({ off: 9, offMin: 7, flying: 8, standby: { home: 8, hotel: 2, airport: 1, reserve: 0 } })).toEqual({ text: '9 · S11 · F8', low: false });
+    expect(monthCell({ off: 6, offMin: 7, flying: 8, standby: { home: 0, hotel: 0, airport: 0, reserve: 0 } }).low).toBe(true);
   });
 });

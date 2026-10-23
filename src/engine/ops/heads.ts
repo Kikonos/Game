@@ -120,14 +120,25 @@ export function rollCandidates(g: GameState, id: HeadId, round: number): HeadCan
   const country = AIRPORT_BY_CODE[g.company.homeBase]?.country ?? '';
   const mix = CREW_MIX[country] ?? DEFAULT_MIX;
   const blurbs = HEAD_DEFS[id].blurbs;
+  // Never a name a crew member, a hired head or another candidate already has (re-drawn, a few tries).
+  const taken = new Set(Object.values(g.crew).map((c) => `${c.first} ${c.last}`));
+  for (const x of Object.values(g.heads ?? {})) {
+    if (x?.hired) taken.add(x.hired.name);
+    for (const k of x?.candidates ?? []) taken.add(k.name);
+  }
   return H().tiers.map(([lo, hi, mult], i) => {
-    const nat = weightedPick(r, mix, ([, w]) => w)?.[0] ?? 'GB';
-    const kit = NAMES[nat] ?? Object.values(NAMES)[0];
-    const female = next(r) < 0.5;
-    const firsts = female ? kit.f : kit.m;
-    const first = firsts[int(r, 0, firsts.length - 1)];
-    const li = int(r, 0, kit.last.length - 1);
-    const last = female && kit.lastF ? kit.lastF[li] : kit.last[li];
+    let first = '';
+    let last = '';
+    for (let tries = 0; tries < 8 && (!first || taken.has(`${first} ${last}`)); tries++) {
+      const nat = weightedPick(r, mix, ([, w]) => w)?.[0] ?? 'GB';
+      const kit = NAMES[nat] ?? Object.values(NAMES)[0];
+      const female = next(r) < 0.5;
+      const firsts = female ? kit.f : kit.m;
+      first = firsts[int(r, 0, firsts.length - 1)];
+      const li = int(r, 0, kit.last.length - 1);
+      last = female && kit.lastF ? kit.lastF[li] : kit.last[li];
+    }
+    taken.add(`${first} ${last}`);
     return {
       name: `${first} ${last}`, years: int(r, YEARS[i][0], YEARS[i][1]), skill: Math.round(range(r, lo, hi) * 100) / 100,
       salary: Math.round((H().salary[id] * mult) / 100) * 100, blurb: blurbs[i % blurbs.length],
@@ -349,12 +360,19 @@ function opsSick(g: GameState, d: Decision): boolean {
   const h = active(g, 'opsControl');
   const f = g.flights[String(d.data?.flightId ?? '')];
   if (!h || !f || f.status !== 'scheduled' || !d.options.some((o) => o.id === 'callIn')) return false;
+  // The call-in is tried on a copy first: a refused one must leave the roster as the player will find it.
+  const maxDelay = rulesOf(h).maxDelayMin ?? 120;
+  const works = (x: GameState): boolean => {
+    const r = applyDecisionOption(x, d, 'callIn');
+    const xf = x.flights[f.id];
+    const lvl = flightCrewStatus(x, f.id).level;
+    if (!r.ok || !xf || (lvl !== 'ok' && lvl !== 'tight')) return false;
+    const ac = xf.aircraftId ? x.fleet[xf.aircraftId] : undefined;
+    return !ac || crewReadyAt(x, xf, ac) <= xf.std + maxDelay;
+  };
+  if (!works(structuredClone(g))) return false;
   const before = crewOn(g, f.id);
-  const r = applyDecisionOption(g, d, 'callIn');
-  const lvl = flightCrewStatus(g, f.id).level;
-  if (!r.ok || (lvl !== 'ok' && lvl !== 'tight')) return false;
-  const ac = f.aircraftId ? g.fleet[f.aircraftId] : undefined;
-  if (ac && crewReadyAt(g, f, ac) > f.std + (rulesOf(h).maxDelayMin ?? 120)) return false;
+  if (!works(g)) return false;
   const added = [...crewOn(g, f.id)].filter((id) => !before.has(id)).map((id) => g.crew[id]).filter((c) => !!c);
   const sick = g.crew[String(d.data?.crewId ?? '')];
   const who = added.length ? added.map((c) => crewName(c)).join(' and ') : 'a replacement';
@@ -381,7 +399,11 @@ function opsGate(g: GameState, d: Decision): boolean {
   if (c && (c.requirements.standards === 'vip' || (c.product.kind === 'charter' && late >= 180))) return false;
   const r = applyDecisionOption(g, d, 'delay');
   if (!r.ok) return false;
-  done(g, h, 'ops', `Ops Control held ${f.no} for a legal crew`, `${r.msg ? `${r.msg}. ` : ''}A ${fmtDuration(Math.max(5, wait))} wait, no penalty.`, { kind: 'flight', id: f.id });
+  // §5.3 the second-best call: the slot re-filed later than the crew needed (handling overtime).
+  const slip = slips(g, h);
+  if (slip) post(g, 'airportFees', -600);
+  done(g, h, 'ops', `Ops Control held ${f.no} for a legal crew`, `${r.msg ? `${r.msg}. ` : ''}A ${fmtDuration(Math.max(5, wait))} wait, no penalty.`, { kind: 'flight', id: f.id },
+    slip ? `${firstName(h)} re-filed the slot 20 min later than the crew needed: $600 handling overtime.` : undefined);
   return true;
 }
 
@@ -395,7 +417,11 @@ function creditLate(g: GameState, d: Decision): boolean {
   const r = applyDecisionOption(g, d, opt);
   if (!r.ok) return false;
   const name = cl?.name ?? 'the client';
-  done(g, h, 'finance', `Credit control: ${opt === 'waive' ? `waived the interest for ${name}` : `we wait for ${name}`}`, `${d.title}. ${r.msg ? `${r.msg}.` : ''}`.trim(), d.ref);
+  // §5.3 the second-best call: no phone call to go with it (the client feels ignored).
+  const slip = !!cl && slips(g, h);
+  if (slip) bumpClient(g, cl.id, -2, 'A late payment handled without a call');
+  done(g, h, 'finance', `Credit control: ${opt === 'waive' ? `waived the interest for ${name}` : `we wait for ${name}`}`, `${d.title}. ${r.msg ? `${r.msg}.` : ''}`.trim(), d.ref,
+    slip ? `${firstName(h)} sent a form letter instead of calling (relation −2).` : undefined);
   return true;
 }
 
@@ -465,8 +491,12 @@ function maintPlanner(g: GameState): void {
       if (clash && cancelCheck(g, planned.id).ok) {
         const ok = planA(g, ac, Math.max(st.aDue, g.now + DAY), true);
         const m = nextPlanned(g, ac.id, 'A');
+        const early = ok && !!m && slips(g, h);
+        const lost = Math.round(checkCostOf(ac, 'A') * 0.15);
+        if (early) post(g, 'checks', -lost);
         done(g, h, 'tech', ok && m ? `${firstName(h)} moved ${ac.reg}'s A-check to ${fmtDay(m.start)} ${fmtTime(m.start)}` : `${firstName(h)} took ${ac.reg}'s A-check off: ${clash.no} flies then`,
-          ok && m ? `It clashed with ${clash.no}; the new slot is at ${m.at}.` : 'No other free slot before it is due: book one on the Fleet screen.', { kind: 'aircraft', id: ac.id });
+          ok && m ? `It clashed with ${clash.no}; the new slot is at ${m.at}.` : 'No other free slot before it is due: book one on the Fleet screen.', { kind: 'aircraft', id: ac.id },
+          early ? `The new slot is about 15 % early, so that share of the interval is lost (${usd(lost)}).` : undefined);
         continue;
       }
     }
@@ -502,8 +532,8 @@ function creditChase(g: GameState): void {
       r.payAt = g.now + int(rr, 1, 7) * DAY;
       schedule(g, r.payAt, 'payment', r.id);
     }
-    const trusted = LEVEL_ORDER.indexOf(levelOf(g, cl)) >= LEVEL_ORDER.indexOf('trusted');
-    const early = trusted && slips(g, h);
+    // §5.3 any client may be chased a little early (the mistake roll on every reminder).
+    const early = !!cl && slips(g, h);
     if (early) bumpClient(g, r.clientId, -2, 'Chased an invoice a little early');
     done(g, h, 'finance', `Credit control reminded ${cl?.name ?? 'a client'}`, `${usd(r.amount)} for ${r.desc}, ${over} days late.`, r.contractId ? { kind: 'contract', id: r.contractId } : undefined,
       early ? `${firstName(h)} chased a ${LEVEL_NAME[levelOf(g, cl)]} client too early (relation −2).` : undefined);
@@ -582,7 +612,10 @@ function crewDeskHires(g: GameState): void {
         const count = Math.min(l.req.count, 4 - n);
         if (hireCrew(g, { ...l.req, count }).ok) n += count;
       }
-      if (n) done(g, h, 'crew', `The crew desk hired ${n} for the ${p.label}`, `Towards ${target} complete sets (short ${who}).`);
+      // §5.3 the second-best call: one more than the round-up (a salary nobody needs yet).
+      const extra = n > 0 && slips(g, h) && hireCrew(g, { ...q.lines[0].req, count: 1 }).ok;
+      if (n) done(g, h, 'crew', `The crew desk hired ${n + (extra ? 1 : 0)} for the ${p.label}`, `Towards ${target} complete sets (short ${who}).`, undefined,
+        extra ? `${firstName(h)} hired one ${q.lines[0].req.role} more than the round-up needs.` : undefined);
       continue;
     }
     if (h.proposals.some((x) => x.kind === 'hire' && x.data.family === p.family)) continue;
@@ -731,7 +764,8 @@ setHourlyHook((g) => {
 
 // ---------- the analyst ----------
 
-export interface AnalystView { name: string; skill: number; score: number; verdict: 'take' | 'counter' | 'pass'; aircraftId: string | null; marginPct: number; counter: number | null; lines: string[] }
+/** verdict 'busy': the job pays, but no aircraft is free on its dates (score 0, shown as '—'). */
+export interface AnalystView { name: string; skill: number; score: number; verdict: 'take' | 'counter' | 'pass' | 'busy'; aircraftId: string | null; marginPct: number; counter: number | null; lines: string[] }
 
 /**
  * The commercial analyst's take on an offer (null unless hired and on): the best flyable aircraft and its margin
@@ -743,9 +777,16 @@ export function analystView(g: GameState, offerId: string): AnalystView | null {
   const o = g.offers[offerId];
   if (!h || !h.hired || !o || (o.status !== 'open' && o.status !== 'countered')) return null;
   let best: { id: string; margin: number; rev: number } | null = null;
+  // An aircraft refused only for being busy on the dates (its margin if it were free): 'no aircraft free', not 'pass'.
+  let busy: { id: string; margin: number; rev: number } | null = null;
   for (const id of Object.keys(g.fleet)) {
     const r = feasibility(g, offerId, id, { quick: true });
-    if (r.level === 'no' || r.estRevenue <= 0) continue;
+    if (r.estRevenue <= 0) continue;
+    if (r.level === 'no') {
+      const only = r.checks.filter((c) => c.level === 'no').every((c) => c.id === 'availability' || /busy/i.test(c.label));
+      if (only && (!busy || r.estMargin > busy.margin)) busy = { id, margin: r.estMargin, rev: r.estRevenue };
+      continue;
+    }
     if (!best || r.estMargin > best.margin) best = { id, margin: r.estMargin, rev: r.estRevenue };
   }
   const skill = h.hired.skill;
@@ -762,14 +803,16 @@ export function analystView(g: GameState, offerId: string): AnalystView | null {
   const score = best ? Math.max(1, Math.min(99, Math.round(50 + marginPct * 2))) : 0;
   const reg = best ? g.fleet[best.id].reg : '';
   const fmt = (v: number) => (o.product.kind === 'wet' ? `$${v.toLocaleString('en-US')}/BH` : usd(v));
-  const verdict: AnalystView['verdict'] = !best || marginPct < 0 ? 'pass' : marginPct >= 15 || !counter ? 'take' : 'counter';
+  const busyPct = !best && busy ? Math.round((busy.margin / busy.rev) * (1 + err) * 100) : null;
+  const verdict: AnalystView['verdict'] = !best && busyPct !== null && busyPct >= 0 ? 'busy' : !best || marginPct < 0 ? 'pass' : marginPct >= 15 || !counter ? 'take' : 'counter';
   const lines = [
-    verdict === 'pass' ? 'Pass: no aircraft makes money on it'
+    verdict === 'busy' ? `No aircraft free on these dates (best: ${g.fleet[busy!.id].reg}, margin about ${busyPct} % if freed)`
+      : verdict === 'pass' ? 'Pass: no aircraft makes money on it'
       : verdict === 'take' ? `Take it on ${reg}: margin about ${Math.round(marginPct)} %`
       : `Counter at ${fmt(counter!)}: they usually accept within ${Math.round((ratio - 1) * 100)} % of asking`,
   ];
   if (best && verdict === 'counter') lines.push(`On ${reg} at the asking price: margin about ${Math.round(marginPct)} %`);
-  return { name: h.hired.name, skill, score, verdict, aircraftId: best?.id ?? null, marginPct, counter, lines };
+  return { name: h.hired.name, skill, score, verdict, aircraftId: best?.id ?? (verdict === 'busy' ? busy!.id : null), marginPct: verdict === 'busy' ? busyPct! : marginPct, counter, lines };
 }
 
 // ---------- ferry ----------

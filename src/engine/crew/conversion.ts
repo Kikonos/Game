@@ -16,6 +16,7 @@ import { staffing } from './hr';
 import { crewName, salaryFor } from './generate';
 import { moraleShock } from './morale';
 import { removeCrew, rosterOf } from './roster';
+import { dropStandby } from './standby';
 import { offsetAt } from './rules';
 import { touchCrew } from './timeline';
 
@@ -317,6 +318,7 @@ export function startConversion(g: GameState, r: ConversionRequest): ActionResul
       g.training.push(item);
       schedule(g, k.end, 'training.done', item.id);
       c.blocks = [...(c.blocks ?? []), { from: k.start, to: k.end, why: 'training' }];
+      dropStandby(g, c, k.start, k.end);
     }
     g.classes[id] = cls;
     ids.push(id);

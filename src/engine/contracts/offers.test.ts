@@ -124,7 +124,7 @@ describe('v0.7 cabin rules on offers (§F7.3–F7.4)', () => {
       expect(o.requirements.minSeats).toBe(pax(o));
       expect(o.requirements.minSeats).toBeGreaterThanOrEqual(150);
       expect(o.requirements.minSeats).toBeLessThanOrEqual(170);
-      if (/^UN /.test(g0.clients[o.clientId]?.name ?? '')) expect(o.requirements.layouts).toEqual(['all-economy']);
+      if (/^UN /.test(g0.clients[o.clientId]?.name ?? '') && !o.jumbo) expect(o.requirements.layouts).toEqual(['all-economy']);
     }
     for (const o of many('troopRotation', 30, { wide: true })) {
       expect(o.requirements.minSeats).toBe(pax(o));

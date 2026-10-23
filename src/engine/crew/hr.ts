@@ -18,6 +18,7 @@ import { familyNeeds } from './sets';
 import { sickMult } from './morale';
 import { crewName, makeCrewMember, salaryFor } from './generate';
 import { removeCrew, rosterOf } from './roster';
+import { dropStandby } from './standby';
 import { block28, crewIx, crewRev, segsOf, touchCrew } from './timeline';
 import type { Seg } from './rules';
 
@@ -165,6 +166,7 @@ export function trainCrew(g: GameState, crewId: string, kind: TrainingKind, fami
   const start = g.now;
   const end = dayStart(g.now) + days * DAY;
   c.blocks = [...(c.blocks ?? []), { from: start, to: end, why: 'training' }];
+  dropStandby(g, c, start, end);
   if (c.status !== 'onDuty') c.status = 'training';
   const item = { id: nextId(g, 't'), crewId, kind, family, start, end, cost };
   g.training.push(item);
@@ -252,8 +254,12 @@ export function crewAvailability(g: GameState, family: RatingFamily, typeId: str
     if (block28(segs, from) > 90 * 60) mark(from, from + 7 * DAY);
     for (let d = 0; d < days; d++) if (!off[d]) supply[c.role][d]++;
   }
-  // Other programmes of the family hold their sized crews while active.
+  // Other programmes of the family hold their sized crews while active. v0.9 fix: per aircraft and day the largest
+  // hold of the programmes it flies then, not their sum (an aircraft flies one at a time: a base deal and the
+  // charters around it on the same airframe were counted twice, and the bot hired for both).
   const held: Record<Role, Int32Array> = Object.fromEntries(ROLES.map((r) => [r, new Int32Array(days)])) as Record<Role, Int32Array>;
+  const perAc = new Map<string, Record<Role, Float64Array>>();
+  const acHeld = (id: string) => perAc.get(id) ?? perAc.set(id, Object.fromEntries(ROLES.map((r) => [r, new Float64Array(days)])) as Record<Role, Float64Array>).get(id)!;
   for (const k of Object.values(g.contracts)) {
     if ((k.status !== 'signed' && k.status !== 'active') || k.end <= from || k.start >= to) continue;
     const ac = k.aircraftIds.map((id) => g.fleet[id]).filter((a) => a && typeOf(a.typeId).family === family);
@@ -272,10 +278,20 @@ export function crewAvailability(g: GameState, family: RatingFamily, typeId: str
     const kx = crewExtraFor(g, ac[0].id, k.id);
     const kPer = countRoles(rolesWithExtra(ac[0].typeId, ac[0].cabin.total, kx, k.requirements.extraCabin).map((r) => (r === 'CRP' ? 'FO' : r)));
     const kNeed = sizing(kPer, bhMonth);
+    for (const a of ac) {
+      const h = acHeld(a.id);
+      for (let d = 0; d < days; d++) {
+        const day = from + d * DAY;
+        if (day + DAY <= k.start || day >= k.end) continue;
+        for (const r of ROLES) h[r][d] = Math.max(h[r][d], (kNeed[r] ?? 0) / ac.length);
+      }
+    }
+  }
+  for (const r of ROLES) {
     for (let d = 0; d < days; d++) {
-      const day = from + d * DAY;
-      if (day + DAY <= k.start || day >= k.end) continue;
-      for (const r of ROLES) held[r][d] += kNeed[r] ?? 0;
+      let sum = 0;
+      for (const h of perAc.values()) sum += h[r][d];
+      held[r][d] = Math.ceil(sum - 1e-9);
     }
   }
   const byRole: Partial<Record<Role, RoleCapacity>> = {};
@@ -456,7 +472,7 @@ export function dailySickness(g: GameState): void {
         title: `${crewName(c)} called in sick`,
         body: `${crewName(c)} (${c.role}) is off sick from tomorrow for ${days} days and nobody legal can take ${f.no} ${f.from}–${f.to} on ${fmtDateTime(f.std)}.`,
         options: [
-          { id: 'callIn', label: 'Call in a crew member', desc: 'Someone gives up days off to cover.', tone: 'warn', chips: ['Morale −4'] },
+          { id: 'callIn', label: 'Call in standby crew', desc: 'No overtime; a day off costs morale.', tone: 'warn' },
           { id: 'subcharter', label: 'Sub-charter the flight', desc: 'A rival operates the legs; we still bill the client.', tone: 'warn' },
           { id: 'cancel', label: 'Cancel the flight', desc: 'Penalty and reputation hit.', tone: 'bad' },
         ],

@@ -190,8 +190,9 @@ describe('previews and apply', () => {
     d.fdp = d.maxFdp + 60;
     d.legality = 'illegal';
     v = crewControl(g, flightId)!;
-    expect(v.card.what).toBe("AW816's crew can't legally fly it");
-    expect(v.card.why).toMatch(/^The crew's day would run/);
+    // v0.9 §T a day over its limit is crew out of hours (everyone aboard), with its own card.
+    expect(v.card.what).toMatch(/\(captain\) and \d+ others out of hours for AW816$/);
+    expect(v.card.why).toMatch(/^The day would run \d+:\d\d.*the limit is \d+:\d\d\.$/);
     // v0.7.3 ORO.FTL.205(f): only for the unforeseen, at or after report: never for a planned day.
     const before = v.solutions.find((x) => x.id === 'discretion')!;
     expect(before.available).toBe(false);
