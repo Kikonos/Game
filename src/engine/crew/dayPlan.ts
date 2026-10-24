@@ -1491,9 +1491,13 @@ function topUpOffs(g: GameState): void {
       const open = planned !== undefined ? dayIndex(c.base, planned) : end;
       // Cheap first: a planned month whose days off, with every day the planner has not reached yet, reach the floor.
       if (firstDayOf(mk) >= firstPlanDay(g, c.base)) {
-        let have = Math.max(0, end - Math.max(lo, open));
-        for (const k of c.off) if (k >= firstDayOf(mk) && k < end) have++;
-        if (have >= R().off.minMonth || have >= minFor(g, c, mk)) continue;
+        const unplanned = Math.max(0, end - Math.max(lo, open));
+        let offs = 0;
+        for (const k of c.off) if (k >= firstDayOf(mk) && k < end) offs++;
+        const have = offs + unplanned;
+        // v0.9.1: the unplanned days count as room only while two weeks of them are left (busy ones are no room: seed 4
+        // closed a month at 6 when a tour filled its last unplanned days and a free planned day was never given back).
+        if ((have >= R().off.minMonth || have >= minFor(g, c, mk)) && (unplanned > 14 || offs >= minFor(g, c, mk))) continue;
       }
       const busy = busyDays(c, segsOf(g, c), firstDayOf(mk), end);
       const free = (k: number, capped: boolean) => !offOn(c, k) && !busy.hit.has(k) && !blockedOn(c, k) && (!capped || !offRunOver(c, k, 1));

@@ -1191,6 +1191,48 @@ dropped: 18 % hits, under half a second, and a pairing's label left to an older 
 (fewer candidate evaluations per empty seat), as R.17.6 said; the 20 s line is not met and the bot's own previews are
 a sixth of what is left.
 
+
+### R.19 v0.9.1 "Tuning"
+
+**Speed (identical output).** The crew timeline memo has two layers: the work (log, duties, tickets: the round 4
+dependency walk) and the standby overlay keyed on the work entry, the standby list, its calls and the 28-day cut, so a
+standby change no longer rebuilds the walk. `rerosterFrom` keeps a trip's check when a value signature of everything
+`recheckPairing` reads (the trip, its duties as `dutySegs` keys them, each leg's and ticket's times, status, version and
+riders, each crew member's `crewKey`/`crewIds`, their timeline entry and their other trips' spans) is unchanged since
+the check, and writes the kept result back (a prior-only check in between rewrites `p.legality`: the first version of
+this skip missed that and moved seed 3). Seeds 1 and 3 ran output-identical to v0.9 with it; `--det` identical. The bot's
+delay search stops at its 6 h cap.
+
+**Crew coverage (rules kept, planning changed).**
+- A trip runs at most 6 days from its first report to a duty's release without a recovery rest (36 h, 2 local nights)
+  inside it (`duties.ts buildTrips`, `TRIP_SPAN`); a longer ad hoc programme away from base is crewed in two parts, the
+  crew changing at the station. Seed 3's 8-day, 6-duty trip from Lisbon could not be flown by any one crew and stayed
+  empty to the day (4 red alerts).
+- A duty not yet reported keeps 2 h in hand on the 168 h between recoveries (was 1 h; a last duty 1 h 50 late ran a
+  crew to 169 h).
+- The days-off floor on rostered work: when no early duty has a free eve (`eveFloorIssue`), the duty furthest ahead whose
+  own day (to 06:00 the morning after) is free of other work carries the issue (`dayFloorIssue`). `monthFloorIssue` now
+  weighs the month's last day too when the work takes one of its days off, and a Crew Control swap never moves someone
+  the move would leave under the floor (seed 6: a swap on 31 January took a purser's last two days off). `topUpOffs`
+  trusts the month's unplanned days as room only while more than two weeks of them are left (busy ones are no room:
+  seed 4 closed a month at 6 when a tour filled its last unplanned days and a free planned day was never given back).
+- Before the crew report, a leg out of or into an airport still closed at its departure moves to 3 h after the
+  reopening (`setClosedWaitHook`): seed 5's Goma positioning crew had sat 29 h "on duty" through hourly holds, went home
+  at the reopening, and the aircraft then raised 18 red alerts in three days.
+- Positioning out of a station where the aircraft has stood idle waits for a ticket from base to reach it whenever the
+  earliest slot is inside a ticket's reach (`schedule.ts crewFree`; it only did so when that slot was already past).
+- The offer card's crew line warns in plain words when a job inside two days starts from a station nobody of the family
+  is at and the first airline seat lands too late: "No crew can reach Dubai before the … report" (`crewReachSoon`).
+
+**Bot.** No narrowbody lease-out from a fleet of two (seeds 3 and 6 leased one, then both on seed 3, for the winter with
+the crew of two aircraft on the payroll).
+
+**Music (§S).** `ui/music.ts`: pads on Imaj7–vi7–IVmaj7–Vsus and two cousins at 64 bpm, sparse electric-piano notes with
+a soft echo, key and progression drawn every few cycles (UI randomness only); scheduled 4 s ahead from a 1 s timer.
+Its own category, switch and volume (`settings.music`, `musicVolume`, on at 0.35 by default; old settings get the
+defaults), under the master switch and volume; it dips under every chime and alert and fades out (1.5 s) before the
+context sleeps when the app is hidden, back in over a few seconds. Test sounds has a Music row.
+
 ---
 
 ## 9. What's new v0.9 "Experience" (ENGINE `data/whatsNew.ts`, player words)
