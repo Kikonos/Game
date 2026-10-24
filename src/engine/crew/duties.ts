@@ -15,7 +15,7 @@ import {
 } from './rules';
 import { crewExtraFor, seatsFor, type Seat } from './extraSeats';
 import { bestSlip } from './slip';
-import { cabinEarly, cabinEarlyOf, crewCount, crewIx, dutyBlock, dutyFlights, onBlocks, touchCrew } from './timeline';
+import { cabinEarly, cabinEarlyOf, crewCount, crewIx, dhBlock, dutyBlock, dutyFlights, onBlocks, touchCrew } from './timeline';
 import { pilotsOnlyTrip, planRest, restOf, type RestLeg, type RestPlan } from './restPlan';
 
 // ---------- duty measures ----------
@@ -805,11 +805,14 @@ function emptyDuty(g: GameState, d: Duty): boolean {
 
 /**
  * v0.9.1: the longest a trip runs from its first report to a duty's release without a recovery rest inside it (36 h with
- * 2 local nights): 6 days, so the 168 h between recoveries keeps room for the days before it (a standby, the ticket
- * out), the ticket home and a delay on the day. Longer, a programme away from base is crewed in two parts, the crew
- * changing at the station (one crew could not legally fly a 6-duty, 8-day ad hoc trip: it stayed empty to the day).
+ * 2 local nights), the ticket home included: 168 h less 30 h for the days before it (a standby, the ticket out, the
+ * rest) and a delay on the day. Longer, a programme away from base is crewed in two parts, the crew changing at the
+ * station (one crew could not legally fly a 6-duty, 8-day ad hoc trip: it stayed empty to the day; at 6 days without
+ * the ticket home, three runs flew a crew home past the 168 h).
  */
-const TRIP_SPAN = 6 * DAY;
+const TRIP_SPAN = LIMITS.recoveryEvery - 30 * 60;
+/** The ticket home after a duty releasing away from base: its block plus check-in and a connection. */
+const homeLeg = (d: Duty, home: string): number => (d.restAt === home ? 0 : dhBlock(d.restAt, home) + 3 * 60);
 
 /** Trips: from a duty until one releases at home base, a > 3-day gap, 6 duty days (then 2 days off), or TRIP_SPAN. */
 function buildTrips(g: GameState, acId: string, duties: Duty[]): void {
@@ -837,7 +840,7 @@ function buildTrips(g: GameState, acId: string, duties: Duty[]): void {
       days.add(dayOf(d.report));
       const gap = d.report - last.release;
       if (gap >= LIMITS.recovery && nightsIn(home, last.release, d.report) >= 2) anchor = d.report;
-      const cont = last.restAt !== home && firstDep === last.restAt && gap <= 3 * DAY && gap >= 10 * 60 && days.size <= LIMITS.blockDays && d.release - anchor <= TRIP_SPAN;
+      const cont = last.restAt !== home && firstDep === last.restAt && gap <= 3 * DAY && gap >= 10 * 60 && days.size <= LIMITS.blockDays && d.release + homeLeg(d, home) - anchor <= TRIP_SPAN;
       if (!cont) close();
     }
     if (!cur.length) anchor = d.report;
