@@ -19,7 +19,7 @@ import { SHORT_CYCLE_MIN } from '../contracts/billing';
 import { anchorsOf, chainBackward, chainForward, chainsOf, isSoft, SOFT_AFTER, type Anchor } from '../contracts/plan';
 import { crewName, crewRev, dutyNeed, flightCrewStatus, rerosterFrom, restOf, restPlanForFlight, type DutyNeed } from '../crew';
 import { settle } from '../sim';
-import { cabinAt, layoutName, layoutsOf } from './cabin';
+import { cabinAt, fullLoadReq, layoutName, layoutsOf } from './cabin';
 import { aircraftGate } from './company';
 import { paysFuel } from './flights';
 import { isGrounded, relinkCheckFerries } from './maintenance';
@@ -180,7 +180,7 @@ function requirementGaps(g: GameState, c: Contract, src: Aircraft, tgt: Aircraft
   if (cab.total < req.minSeats) out.push(`The client needs at least ${req.minSeats} seats; ${tgt.reg} has ${cab.total}`);
   else if (pax > cab.total) out.push(`${pax} passengers are booked; ${tgt.reg} has ${cab.total} seats`);
   if (req.maxSeats && cab.total > req.maxSeats) out.push(`The client wants at most ${req.maxSeats} seats; ${tgt.reg} has ${cab.total}`);
-  const want = layoutsOf(req);
+  const want = layoutsOf(fullLoadReq(req, c.archetype, t.body));
   if (want && !want.includes(cab.layout)) out.push(`The client asked for ${want.map(layoutName).join(' or ')} seats; ${tgt.reg} is ${layoutName(cab.layout)}`);
   else if (req.minPremium && cab.j + cab.w < req.minPremium) out.push(`The client asked for ${req.minPremium}+ business seats; ${tgt.reg} has ${cab.j + cab.w || 'none'}`);
   if (req.families?.length && !req.families.includes(t.family)) out.push(`The client only takes ${req.families.join(' or ')} aircraft; ${tgt.reg} is ${an(typeWord(tgt.typeId)).toLowerCase()} ${typeWord(tgt.typeId)}`);

@@ -52,7 +52,7 @@ describe('§S.3 previews and saves', () => {
   it('previews on copies emit no cue and keep the pending ones; a save carries no cue', () => {
     const g = fixtureGame(62);
     takeCues();
-    cue('paymentIn');
+    cue('paymentIn', { title: 'Payment in' });
     isolatePauses(() => {
       pushMessage(g, { tone: 'info', cat: 'ops', title: 'Preview', body: '', cue: 'aog' });
       generateOffer(g);

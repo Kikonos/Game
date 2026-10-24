@@ -424,7 +424,7 @@ function applyClosure(g: GameState, e: WorldEvent, first: boolean, again = false
     }
     if (again) {
       // v0.9 round 4 (§S): our waiting legs move again on the extension: a world event touching our flights.
-      if (waitLegs(g, k, e)) cue('worldEventOurs');
+      if (waitLegs(g, k, e)) cue('worldEventOurs', { title: `Our legs wait longer: ${e.title}`, body: `${k.title} waits for the reopening.`, tone: 'warn', ref: { kind: 'event', id: e.id } });
       continue;
     }
     // Legs of a programme the player was already asked about for this closure join that question or follow its

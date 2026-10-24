@@ -334,10 +334,10 @@ export function delayChain(g: GameState, f: Flight, std: Minute, reason: string,
 function delayCues(g: GameState, f: Flight, was: number): void {
   if (f.status !== 'scheduled') return;
   const now = delayOf(f);
-  if (was < 6 * 60 && now >= 6 * 60) cue('cancelRisk');
+  if (was < 6 * 60 && now >= 6 * 60) cue('cancelRisk', { title: `${f.no} ${fmtDuration(now)} late: it may have to be cancelled`, body: `${f.from}–${f.to}. Open the flight to recover it.`, tone: 'bad', ref: { kind: 'flight', id: f.id } });
   else if (was < 60 && now >= 60 && isRevenue(f)) {
     const c = contractOf(g, f);
-    if (c && ((c.product.kind === 'charter' && c.penalties.perDelay > 0) || c.requirements.standards === 'vip')) cue('delayPenalty');
+    if (c && ((c.product.kind === 'charter' && c.penalties.perDelay > 0) || c.requirements.standards === 'vip')) cue('delayPenalty', { title: `${f.no} over an hour late: delay penalty`, body: `${c.title}: the client's delay terms apply.`, tone: 'warn', ref: { kind: 'flight', id: f.id } });
   }
 }
 
@@ -836,7 +836,7 @@ function depart(g: GameState, f: Flight, ac: Aircraft): void {
   ac.status = 'flying';
   f.eta = g.now + Math.max(15, Math.round(f.block * (1 + range(g, -BAL.windNoise, BAL.windNoise))));
   schedule(g, f.eta, 'flight.arr', f.id, f.ev);
-  cue('flightDep');
+  cue('flightDep', { title: `${f.no} departed ${AIRPORT_BY_CODE[f.from]?.city ?? f.from}`, body: `${g.fleet[f.aircraftId!]?.reg ?? ''} to ${AIRPORT_BY_CODE[f.to]?.city ?? f.to}`.trim(), tone: 'info', ref: { kind: 'flight', id: f.id } });
   const s = stats(g);
   s.departures++;
   const duty = f.dutyId ? g.duties[f.dutyId] : undefined;
@@ -1230,7 +1230,7 @@ export function onFlightArr(g: GameState, ev: SimEvent): void {
   const ac = g.fleet[f.aircraftId];
   f.status = 'done';
   f.ata = g.now;
-  cue('flightArr');
+  cue('flightArr', { title: `${f.no} landed in ${AIRPORT_BY_CODE[f.to]?.city ?? f.to}`, body: `${g.fleet[f.aircraftId]?.reg ?? ''} from ${AIRPORT_BY_CODE[f.from]?.city ?? f.from}`.trim(), tone: 'info', ref: { kind: 'flight', id: f.id } });
   if (AIRPORT_BY_CODE[f.to]?.ice) v09Stats(g).antarctic = (v09Stats(g).antarctic ?? 0) + 1;
   touchStatus(g, f.aircraftId);
   if (!ac) return;

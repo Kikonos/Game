@@ -15,7 +15,7 @@ import { minRest } from '../crew/rules';
 import { dhBlock } from '../crew/timeline';
 import { bestSlip, slipCost, slipDetail, type SlipPlan } from '../crew/slip';
 import { A_CHECK_DAYS, anchorsOf, chainForward, chainsOf, CHARTER_SLACK, DEPLOY_LEAD, gapMoves, longestChains, maxPax, programmeOf, type Anchor, type ChainLeg, type Programme, type Trip } from './plan';
-import { afterRefit, cabinAt, cabinFits, cabinOf, layoutsOf, refitTip, restAfterRefit, restRefitOptions } from '../ops/cabin';
+import { afterRefit, cabinAt, cabinFits, cabinOf, fullLoadReq, layoutsOf, refitTip, restAfterRefit, restRefitOptions } from '../ops/cabin';
 import { aircraftGate, APPROVALS, gateApprovals, ratedPilots } from '../ops/company';
 import { deliveryQuote } from '../ops/delivery';
 import { paintQuote, paintWindow, type PaintSlot } from './paintTerms';
@@ -295,7 +295,8 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   else add('seats', 'ok', pax ? `${seats} seats${after} for ${pax} passengers${st}` : `${seats} seats${after} (client needs ${req.minSeats}+)`);
   // v0.8 fix pack: the body the client asks for (a widebody base, Hajj, Antarctica); no refit changes it.
   const bodyNo = !!req.body && req.body !== t.body;
-  const wantL = layoutsOf(req);
+  // v0.9.1: a big full job takes any widebody cabin with the seats (business seats sold as economy).
+  const wantL = layoutsOf(fullLoadReq(req, o.archetype, t.body));
   const layoutNo = !!wantL && !wantL.includes(cab.layout);
   const premiumNo = !!req.minPremium && cab.j + cab.w < req.minPremium;
   if (layoutNo || premiumNo) {
@@ -694,7 +695,7 @@ export function marketFit(g: GameState, offerId: string): MarketFit | null {
     const deliversBy = deliveryQuote(g, m.typeId, m.site ?? g.company.homeBase, g.now + m.leadDays * DAY).homeBy;
     if (deliversBy > o.start - 7 * DAY || (best && deliversBy >= best.deliversBy)) continue;
     if (m.cabin.total < req.minSeats || (req.maxSeats && m.cabin.total > req.maxSeats)) continue;
-    if (!cabinFits(m.cabin, req) || (req.families?.length && !req.families.includes(t.family)) || (req.body && req.body !== t.body)) continue;
+    if (!cabinFits(m.cabin, fullLoadReq(req, o.archetype, t.body)) || (req.families?.length && !req.families.includes(t.family)) || (req.body && req.body !== t.body)) continue;
     if (!sectors.every(([a, b]) => {
       const sp = planSector(t.id, a, b);
       return sp.ok && (!noStops || !sp.techStops.length);

@@ -111,7 +111,7 @@ describe('§Y.2 jumbo loads', () => {
     for (const b of bills) expect(b.amount).toBeGreaterThan(0);
   });
 
-  it('jumbo loads stay at most 12 % of widebody offers', () => {
+  it('jumbo loads stay at most 12 % of widebody offers (v0.9.1: 25 % while our 747 stands idle)', () => {
     const g = fixtureGame(104);
     devAddType(g, 'b744');
     let wide = 0;
@@ -125,6 +125,7 @@ describe('§Y.2 jumbo loads', () => {
     }
     expect(wide).toBeGreaterThan(30);
     expect(jumbo).toBeGreaterThan(0);
-    expect(jumbo / wide).toBeLessThanOrEqual(0.12);
+    // The 747 is idle over every job here: the work that pays for it comes more often (BAL.v09.jumbo.capShareIdle).
+    expect(jumbo / wide).toBeLessThanOrEqual(0.25);
   });
 });

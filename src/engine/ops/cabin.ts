@@ -357,6 +357,21 @@ export function onRefitEnd(g: GameState, m: MaintenanceEvent): void {
 /** Layouts the work accepts (layouts, else layout, else any). */
 export const layoutsOf = (req: Pick<Requirements, 'layout' | 'layouts'>): CabinLayout[] | null => req.layouts ?? (req.layout ? [req.layout] : null);
 
+/**
+ * v0.9.1 big full jobs (Hajj, UN and troop rotations, a pilgrimage) on a widebody: any cabin with the seats will do,
+ * the business seats sold as economy, as real Hajj and UN work flies on two-class 747s. The all-economy ask is dropped
+ * for a widebody only (a narrowbody's two-class cabin never seats the load anyway). Pure.
+ */
+const FULL_LOAD = new Set<string>(['hajj', 'unRotation', 'troopRotation', 'adhoc']);
+export function fullLoadReq<R extends Pick<Requirements, 'layout' | 'layouts'>>(req: R, archetype: string | undefined, body: 'wide' | 'narrow'): R {
+  const ls = layoutsOf(req);
+  if (body !== 'wide' || !archetype || !FULL_LOAD.has(archetype) || !ls || ls.some((l) => l !== 'all-economy')) return req;
+  const out = { ...req };
+  delete out.layouts;
+  delete out.layout;
+  return out;
+}
+
 /** Does a cabin meet the work's layout and premium-seat rules? */
 export function cabinFits(c: Pick<Cabin, 'j' | 'w' | 'layout'>, req: Pick<Requirements, 'layout' | 'layouts' | 'minPremium'>): boolean {
   const ls = layoutsOf(req);

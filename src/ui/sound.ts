@@ -1,72 +1,92 @@
-// v0.9 aviation sound set (UPDATE-0.9.md §S): cabin and cockpit chimes synthesised with WebAudio (no audio files, so
-// it works offline). Sine/triangle bell partials with a natural decay and a little room reverb; nothing harsh. Each
-// event maps to exactly one sound in SOUND_OF (the doc's §S.3 table is its documentation). Chimes and alerts merge in a
+// v0.9 aviation sound set (UPDATE-0.9.md §S). v0.9.1 (§S.2): every chime is the player's own recording of a real
+// airliner HI-LO cabin chime, cut into its HI and LO (public/sounds/chime-hi.mp3, chime-lo.mp3, cached offline by the
+// PWA), decoded into WebAudio buffers after the first-tap unlock and sequenced like a cabin system: one HI-LO for a new
+// contract offer, HIs 0.8 s apart for attention and emergencies, LOs for calm news. UI clicks, the urgent alarm and the
+// ambience stay synthesised. Each event maps to exactly one sound in SOUND_OF (§S.3). Chimes and alerts merge in a
 // 900 ms window and play the highest-priority one once; for 4 s after a sound only one that outranks it plays, and the
-// same sound never repeats inside its own cooldown (the alarm: 20 s), so 4× never machine-guns. The urgent alarm is
-// only for CREW SHORTAGE and CREW OUT OF HOURS. Nothing plays before the first tap (iOS audio unlock).
+// same sound never repeats inside its own cooldown (the alarm: 20 s). The urgent alarm is only for CREW SHORTAGE and
+// CREW OUT OF HOURS. Nothing plays before the first tap (iOS audio unlock).
 
 import type { Cue } from '../engine/core/cues';
 import { MUSIC_FADE, musicLevel, MusicPlayer } from './music';
 
 export type SoundId =
-  | 'tap' | 'toggle' | 'error' | 'high' | 'low' | 'ding' | 'highLow' | 'highLowSoft' | 'double' | 'triple' | 'alarm'
-  | 'achievement' | 'flourish' | 'ambCabin' | 'ambTerminal' | 'music';
+  | 'tap' | 'toggle' | 'error' | 'hi' | 'lo' | 'hiLo' | 'hi2' | 'hi3' | 'lo2' | 'alarm'
+  | 'ambCabin' | 'ambTerminal' | 'music';
 export type SoundCat = 'alerts' | 'chimes' | 'ui' | 'ambience' | 'music';
-/** UI-only events (the engine's cues are the rest). */
-export type UiEvent = 'tap' | 'toggle' | 'toggleOff' | 'error' | 'pause' | 'resume';
+/** UI-only events (the engine's cues are the rest). v0.9.1: pause and resume make no sound. */
+export type UiEvent = 'tap' | 'toggle' | 'toggleOff' | 'error';
 export type SoundEvent = Cue | UiEvent;
 export type Ambience = 'off' | 'cabin' | 'terminal';
 
 /** THE table: each event → exactly one sound (§S.3). Keep identical to UPDATE-0.9.md §S.3. */
 export const SOUND_OF: Record<SoundEvent, SoundId> = {
   tap: 'tap', toggle: 'toggle', toggleOff: 'toggle', error: 'error',
-  pause: 'low', resume: 'low', flightDep: 'low', flightArr: 'low',
-  message: 'high', crewJoined: 'high', paymentIn: 'high', monthEnd: 'high', headDone: 'high',
-  decision: 'ding',
-  offerNew: 'highLow', contractSigned: 'highLowSoft',
-  aog: 'double', delayPenalty: 'double', sickCall: 'double', latePayer: 'double', offerLapsing: 'double', worldEventOurs: 'double', crewAmber: 'double', ruleAlert: 'double',
-  cancelRisk: 'triple', airspaceActive: 'triple', cashNegative: 'triple', evacuation: 'triple', clientCollapse: 'triple',
+  flightDep: 'lo', flightArr: 'lo',
+  message: 'lo', crewJoined: 'lo', paymentIn: 'lo', monthEnd: 'lo', headDone: 'lo', contractSigned: 'lo', headHired: 'lo',
+  decision: 'hi', counterReply: 'hi', notice: 'hi',
+  offerNew: 'hiLo',
+  aog: 'hi2', delayPenalty: 'hi2', sickCall: 'hi2', latePayer: 'hi2', offerLapsing: 'hi2', worldEventOurs: 'hi2', crewAmber: 'hi2', ruleAlert: 'hi2',
+  cancelRisk: 'hi3', airspaceActive: 'hi3', cashNegative: 'hi3', evacuation: 'hi3', clientCollapse: 'hi3',
   crewShortage: 'alarm', crewOutOfHours: 'alarm',
-  achievement: 'achievement', ladder: 'achievement',
-  headUnlocked: 'flourish', headHired: 'flourish',
+  achievement: 'lo2', ladder: 'lo2', headUnlocked: 'lo2', delivered: 'lo2',
 };
 
 export const CAT_OF: Record<SoundId, SoundCat> = {
   tap: 'ui', toggle: 'ui', error: 'ui',
-  high: 'chimes', low: 'chimes', ding: 'chimes', highLow: 'chimes', highLowSoft: 'chimes', achievement: 'chimes', flourish: 'chimes',
-  double: 'alerts', triple: 'alerts', alarm: 'alerts',
+  hi: 'chimes', lo: 'chimes', hiLo: 'chimes', lo2: 'chimes',
+  hi2: 'alerts', hi3: 'alerts', alarm: 'alerts',
   ambCabin: 'ambience', ambTerminal: 'ambience',
   music: 'music',
 };
 
 /** Merge priority (§S.4): the highest in a window plays once. */
 export const PRIORITY: Partial<Record<SoundId, number>> = {
-  alarm: 100, triple: 90, double: 80, achievement: 70, flourish: 65, highLow: 60, highLowSoft: 55, ding: 45, high: 40, low: 30,
+  alarm: 100, hi3: 90, hi2: 80, hiLo: 60, lo2: 55, hi: 45, lo: 30,
 };
 /** Quiet time after a sound plays (ms) for a repeat of the SAME sound (§S.4): the alarm never twice inside 20 s. */
 export const COOLDOWN: Partial<Record<SoundId, number>> = {
-  alarm: 20_000, triple: 10_000, double: 6_000, highLow: 3_000, highLowSoft: 3_000, achievement: 3_000, flourish: 3_000, ding: 2_500, high: 2_500, low: 2_000,
+  alarm: 20_000, hi3: 10_000, hi2: 6_000, hiLo: 3_000, lo2: 3_000, hi: 2_500, lo: 2_000,
 };
 /** v0.9 round 4 (§S.4): for this long after any sound, only a request that outranks it plays (one meaning at a time). */
 export const CROSS_MS = 4_000;
-/** Rough length (s), so UI clicks stay quiet while an alert sounds. */
-const LENGTH: Partial<Record<SoundId, number>> = { double: 2.2, triple: 3.3, alarm: 2.6 };
+
+/**
+ * v0.9.1 (§S.2) the cabin-system sequences: [sample, start in s]. HIs 0.8 s apart, the LO 0.85 s after its HI (as in
+ * the recording: the LO strikes 0.85 s after the HI), LOs 0.9 s apart.
+ */
+export const HI_GAP = 0.8;
+export const LO_AFTER = 0.85;
+export const LO_GAP = 0.9;
+export const SEQ: Partial<Record<SoundId, ['hi' | 'lo', number][]>> = {
+  hi: [['hi', 0]],
+  lo: [['lo', 0]],
+  hiLo: [['hi', 0], ['lo', LO_AFTER]],
+  hi2: [['hi', 0], ['hi', HI_GAP]],
+  hi3: [['hi', 0], ['hi', HI_GAP], ['hi', 2 * HI_GAP]],
+  lo2: [['lo', 0], ['lo', LO_GAP]],
+};
+/** Sample lengths (s): HI ≈ 0.91, LO ≈ 1.04. */
+const SAMPLE_LEN = { hi: 0.92, lo: 1.05 };
+/** Rough length (s) of a sound, so UI clicks stay quiet while an alert sounds and the music stays dipped. */
+export function soundLength(id: SoundId): number {
+  if (id === 'alarm') return 2.6;
+  const q = SEQ[id];
+  return q ? Math.max(...q.map(([k, t]) => t + SAMPLE_LEN[k])) : 0;
+}
 
 export const MERGE_MS = 900;
 const UI_GAP_MS = 50;
 
 /** The Test sounds list (Settings): every sound with its meaning, in the player's words. */
 export const SOUND_MEANING: { id: SoundId; name: string; meaning: string }[] = [
-  { id: 'high', name: 'High chime', meaning: 'Routine news: a new message, a crew member joined, a payment in' },
-  { id: 'low', name: 'Low chime', meaning: 'Calm moments: pause and resume; with Flight chimes on, each departure and landing' },
-  { id: 'ding', name: 'Cockpit ding', meaning: 'A calm decision waits for you' },
-  { id: 'highLow', name: 'High-low', meaning: 'A new contract offer' },
-  { id: 'highLowSoft', name: 'Soft high-low', meaning: 'A contract signed' },
-  { id: 'double', name: 'Double high-low', meaning: 'Needs you soon: AOG, a sick call, a late payer, an offer about to lapse' },
-  { id: 'triple', name: 'Triple high-low', meaning: 'Serious: a flight about to be cancelled, airspace closed on an active flight, cash below zero' },
+  { id: 'hiLo', name: 'HI-LO', meaning: 'A new contract offer (how flight attendants call each other on board)' },
+  { id: 'hi', name: '1 HI', meaning: 'A small thing needs you: a counter-offer reply, a decision waiting, a minor issue' },
+  { id: 'hi2', name: '2 HI', meaning: 'Emergency: an AOG, a sick call, a late payer, an offer about to lapse, a delay penalty' },
+  { id: 'hi3', name: '3 HI', meaning: 'Urgent emergency: a flight about to be cancelled, airspace closed on an active flight, cash below zero, an evacuation' },
+  { id: 'lo', name: '1 LO', meaning: 'Calm news: a contract signed, crew joined, a payment in; with Flight chimes on, each departure and landing' },
+  { id: 'lo2', name: '2 LO', meaning: 'Good news: an achievement, a department head unlocked, an aircraft delivered' },
   { id: 'alarm', name: 'Urgent alarm', meaning: 'Only crew shortage and crew out of hours' },
-  { id: 'achievement', name: 'Achievement', meaning: 'An achievement or a ladder step' },
-  { id: 'flourish', name: 'Flourish', meaning: 'A department head unlocked or hired' },
   { id: 'tap', name: 'Click', meaning: 'Buttons and tabs' },
   { id: 'toggle', name: 'Toggle', meaning: 'Switches and speed buttons' },
   { id: 'error', name: 'Soft dunk', meaning: 'An action that is not possible' },
@@ -86,8 +106,16 @@ export interface SoundConfig {
 }
 
 const CAT_GAIN: Record<SoundCat, number> = { alerts: 1, chimes: 0.8, ui: 0.5, ambience: 0.25, music: 1 };
-/** v0.9.1 how long the music stays dipped under a chime (s); alerts use their own length. */
-const DUCK_SEC: Partial<Record<SoundId, number>> = { high: 1.4, low: 1.6, ding: 1, highLow: 2, highLowSoft: 2.4, achievement: 2, flourish: 1.8, double: 2.2, triple: 3.3, alarm: 2.8 };
+
+/** v0.9.1 (§S.6): would this event make a sound with these settings (the toast that names it shows whenever it does)? Pure. */
+export function audible(cfg: Pick<SoundConfig, 'on' | 'cats'>, e: SoundEvent): boolean {
+  const id = SOUND_OF[e];
+  if (!id || !cfg.on) return false;
+  const cat = CAT_OF[id];
+  if (cat === 'ui') return cfg.cats.ui;
+  if ((e === 'flightDep' || e === 'flightArr') && !cfg.cats.flights) return false;
+  return cat === 'alerts' ? cfg.cats.alerts : cfg.cats.chimes;
+}
 
 /**
  * Merge rule (pure, for tests): given the requests of one window and the last sound that played, the sound to play now
@@ -110,6 +138,9 @@ export function holdAsleep(reqs: SoundId[]): SoundId[] {
   return best ? [best] : [];
 }
 
+/** v0.9.1 the two samples, next to the app (the PWA precaches them). */
+const SAMPLE_URL = { hi: 'sounds/chime-hi.mp3', lo: 'sounds/chime-lo.mp3' };
+
 type Win = Window & { webkitAudioContext?: typeof AudioContext };
 
 class Sound {
@@ -131,6 +162,9 @@ class Sound {
   private ambOk = false;
   private previewStop: (() => void) | null = null;
   private testRestore: ReturnType<typeof setTimeout> | null = null;
+  /** v0.9.1 the decoded HI and LO samples (loaded once, after the unlock). */
+  private samples: { hi?: AudioBuffer; lo?: AudioBuffer } = {};
+  private loading: Promise<void> | null = null;
   /** Played sounds (newest last, 200 max): dev checks of the rate limit. */
   readonly log: { id: SoundId; t: number }[] = [];
 
@@ -218,10 +252,35 @@ class Sound {
       // ignore
     }
     this.unlocked = true;
+    void this.loadSamples();
     this.syncAmbience();
     this.syncMusic();
     // A request held while the context slept plays once it runs again.
     if (this.pending.length) this.timer ??= setTimeout(() => this.flush(), MERGE_MS);
+  }
+
+  /** v0.9.1 fetches and decodes the two chime samples once (offline: from the PWA cache). */
+  loadSamples(): Promise<void> {
+    const c = this.context();
+    if (!c) return Promise.resolve();
+    this.loading ??= (async () => {
+      const base = (import.meta as { env?: { BASE_URL?: string } }).env?.BASE_URL ?? './';
+      await Promise.all((['hi', 'lo'] as const).map(async (k) => {
+        try {
+          const res = await fetch(`${base}${SAMPLE_URL[k]}`);
+          const data = await res.arrayBuffer();
+          this.samples[k] = await new Promise<AudioBuffer>((ok, bad) => c.decodeAudioData(data, ok, bad));
+        } catch {
+          // no sample: that chime stays silent (its toast still shows)
+        }
+      }));
+    })();
+    return this.loading;
+  }
+
+  /** v0.9.1 true once both samples are decoded (dev checks). */
+  get samplesReady(): boolean {
+    return !!this.samples.hi && !!this.samples.lo;
   }
 
   private context(): AudioContext | null {
@@ -267,21 +326,23 @@ class Sound {
     }
   }
 
+  /** v0.9.1 would this event sound with the current settings (store: a cue's toast shows whenever it does). */
+  audible(e: SoundEvent): boolean {
+    return audible(this.cfg, e);
+  }
+
   /** An event (engine cue or UI): UI sounds at once, chimes and alerts through the merge window. */
   event(e: SoundEvent) {
     const id = SOUND_OF[e];
-    if (!id || !this.cfg.on || !this.unlocked) return;
+    if (!id || !this.unlocked || !audible(this.cfg, e)) return;
     const cat = CAT_OF[id];
     if (cat === 'ui') {
-      if (!this.cfg.cats.ui) return;
       const t = performance.now();
       if (t - this.lastUi < UI_GAP_MS || t < this.alertUntil) return;
       this.lastUi = t;
       this.render(id, e === 'toggleOff' ? { down: true } : {});
       return;
     }
-    if ((e === 'flightDep' || e === 'flightArr') && !this.cfg.cats.flights) return;
-    if (cat === 'alerts' ? !this.cfg.cats.alerts : !this.cfg.cats.chimes) return;
     this.pending.push(id);
     this.timer ??= setTimeout(() => this.flush(), MERGE_MS);
   }
@@ -300,9 +361,9 @@ class Sound {
     const id = pickMerged(reqs, this.last, now);
     if (!id) return;
     this.last = { id, at: now };
-    if (LENGTH[id]) this.alertUntil = now + LENGTH[id]! * 1000;
+    if (CAT_OF[id] === 'alerts') this.alertUntil = now + soundLength(id) * 1000;
     // v0.9.1 the music dips under every chime and alert, then comes back.
-    this.music?.duck(DUCK_SEC[id] ?? 1.5);
+    this.music?.duck(soundLength(id) + 0.4);
     this.render(id);
   }
 
@@ -384,8 +445,11 @@ class Sound {
       this.hearTest(c);
     }
     const t = c.currentTime + 0.02;
-    const A5 = 880;
-    const F5 = 698.46;
+    const seq = SEQ[id];
+    if (seq) {
+      this.playSeq(c, out, seq, t);
+      return;
+    }
     switch (id) {
       case 'tap':
         tone(c, out, 1600, t, 0.025, 0.04, 'sine');
@@ -396,52 +460,29 @@ class Sound {
         tone(c, out, o.down ? 1200 : 1500, t + 0.04, 0.03, 0.035, 'sine');
         break;
       case 'error': tone(c, out, 196, t, 0.12, 0.09, 'triangle'); break;
-      case 'high': bell(c, out, A5, t, 0.22, 1.8); break;
-      case 'low': bell(c, out, 587.33, t, 0.22, 2.3); break;
-      case 'ding': bell(c, out, 1174.66, t, 0.16, 1.0); break;
-      case 'highLow': bell(c, out, A5, t, 0.22, 1.8); bell(c, out, F5, t + 0.55, 0.22, 2.0); break;
-      case 'highLowSoft': bell(c, out, A5, t, 0.11, 2.2); bell(c, out, F5, t + 0.7, 0.11, 2.5); break;
-      case 'double':
-        for (const k of [0, 1]) { bell(c, out, A5, t + k, 0.22, 1.5); bell(c, out, F5, t + k + 0.55, 0.22, 1.7); }
-        break;
-      case 'triple':
-        for (const k of [0, 1, 2]) { bell(c, out, A5, t + k, 0.22, 1.4); bell(c, out, F5, t + k + 0.55, 0.22, 1.6); }
-        break;
-      case 'alarm': alarm(c, out, t); break;
-      case 'achievement':
-        bell(c, out, 523.25, t, 0.16, 1.6);
-        bell(c, out, 659.25, t + 0.16, 0.16, 1.6);
-        bell(c, out, 783.99, t + 0.32, 0.18, 2.4);
-        bell(c, out, 1567.98, t + 0.32, 0.04, 2.0);
-        break;
-      case 'flourish':
-        [392, 523.25, 659.25, 783.99, 1046.5].forEach((f, i) => {
-          bell(c, out, f, t + i * 0.09, 0.1, 1.5);
-          tone(c, out, f * 2, t + i * 0.09, 0.5, 0.012, 'triangle');
-        });
-        break;
-      case 'ambCabin': case 'ambTerminal': case 'music': break;
+      case 'alarm': alarm(c, out, t); break
+      default: break;
     }
   }
-}
 
-/** One soft bell: sine partials 1× / 2× / 3× with faster decays, a 1× triangle and a voice detuned +2 cents. */
-function bell(c: AudioContext, out: AudioNode, f: number, t: number, gain: number, dur: number) {
-  const parts: [number, number, OscillatorType, number][] = [
-    [f, 1, 'sine', dur], [f * 2, 0.18, 'sine', dur / 2], [f * 3, 0.06, 'sine', dur / 3], [f, 0.08, 'triangle', dur], [f * Math.pow(2, 2 / 1200), 0.35, 'sine', dur],
-  ];
-  for (const [freq, amp, type, d] of parts) {
-    const o = c.createOscillator();
-    o.type = type;
-    o.frequency.value = freq;
-    const g = c.createGain();
-    const peak = Math.max(0.0002, gain * amp * 0.6);
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.linearRampToValueAtTime(peak, t + 0.004);
-    g.gain.exponentialRampToValueAtTime(peak * 0.001, t + 0.004 + d);
-    o.connect(g).connect(out);
-    o.start(t);
-    o.stop(t + d + 0.05);
+  /** v0.9.1 a cabin-system sequence of the HI and LO samples (decoded first when the unlock has only just run). */
+  private playSeq(c: AudioContext, out: AudioNode, seq: ['hi' | 'lo', number][], t: number) {
+    const go = (at: number) => {
+      for (const [k, dt] of seq) {
+        const b = this.samples[k];
+        if (!b) continue;
+        const src = c.createBufferSource();
+        src.buffer = b;
+        src.connect(out);
+        src.start(at + dt);
+      }
+    };
+    if (this.samplesReady) return go(t);
+    const asked = performance.now();
+    void this.loadSamples().then(() => {
+      // Late by more than a moment (a slow first load): skip it rather than chime out of step with its toast.
+      if (performance.now() - asked < 2500) go(c.currentTime + 0.02);
+    });
   }
 }
 

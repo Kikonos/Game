@@ -1,0 +1,14 @@
+/* v0.9.1: tap-to-dismiss toasts, the counter-offer reply and delivery pop-ups, the offer dialog's schedule portal. */
+.toast { cursor: pointer; }
+.toast.leaving { pointer-events: none; }
+
+.v91-reply b { display: block; font-size: 16px; margin-bottom: 6px; }
+.v91-reply p { margin: 0 0 8px; line-height: 1.45; }
+
+.v91-delivered .modal-body { text-align: center; }
+.v91-dl-art { margin: 4px auto 10px; max-width: 520px; }
+.v91-dl-art svg { width: 100%; height: auto; }
+.v91-dl-reg { font-size: 28px; font-weight: 700; letter-spacing: 0.06em; }
+.v91-dl-type { font-size: 16px; margin-top: 2px; }
+.v91-dl-from { margin-top: 6px; }
+.v91-dl-ferry { margin-top: 10px; color: var(--text-2); }
