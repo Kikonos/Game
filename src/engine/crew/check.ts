@@ -72,8 +72,13 @@ function statusIssues(c: CrewMember, from: number, to: number, family: string, d
   if (!c.ratings.includes(family as never)) out.push({ code: 'rating', level: 'illegal', text: `Not rated on ${family}`, dutyId: duties[0].id });
   for (const b of c.blocks ?? []) {
     if (b.from < to && b.to > from) {
-      // On the first duty the block touches (the earlier ones can still be flown).
-      const d = duties.find((x) => x.report < b.to && x.release > b.from) ?? duties[0];
+      // On the first duty the block touches (the earlier ones can still be flown). v0.9 round 5: a block between
+      // two duties of a tour (the crew stay at the station from first duty to last) falls on the first duty after
+      // it: the roster splits the trip there and re-crews that part; before, it fell on the trip's first duty and
+      // the crew member came off the whole tour days ahead. A block after the last duty (over the ticket home) is
+      // no duty's problem.
+      const d = duties.find((x) => x.report < b.to && x.release > b.from) ?? duties.find((x) => x.report >= b.to);
+      if (!d) continue;
       out.push({ code: 'status', level: 'illegal', text: b.why === 'joining' ? 'Not joined yet' : b.why === 'training' ? 'In training' : b.why === 'sick' ? 'Sick' : 'On leave', dutyId: d.id });
       break;
     }

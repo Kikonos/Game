@@ -52,6 +52,28 @@ export function delayOf(f: Flight): number {
 /** Original scheduled arrival (before ops delays). */
 export const schedSta = (f: Flight): Minute => f.sta - (f.std - (f.schedStd ?? f.std));
 
+/**
+ * v0.9 round 5: an aircraft is never scheduled in two places at once. After a delay has rippled through the legs it
+ * could follow by location (recover stops where the chain breaks: a wave of another programme the delayed trip now
+ * overlaps), any scheduled leg still departing before the one before it has landed and turned moves behind it, in
+ * departure order. The crew module reads duties from the flights, so a duty's legs stay in time order and its report
+ * before its first departure (a crew-wait of a day over the next day's base waves flew a leg with its crew elsewhere).
+ */
+export function settleOverlaps(g: GameState, ac: Aircraft): number {
+  const legs = flightsOf(g, ac.id).filter((x) => x.status === 'scheduled').sort((a, b) => a.std - b.std);
+  const turn = turnOf(ac);
+  let n = 0;
+  for (let i = 1; i < legs.length; i++) {
+    const prev = legs[i - 1];
+    const f = legs[i];
+    const ready = prev.sta + turn;
+    if (f.std >= ready) continue;
+    moveFlight(g, f, ready, 'Late inbound aircraft');
+    n++;
+  }
+  return n;
+}
+
 /** Moves a scheduled leg to `std` (block kept), remembering the original STD. */
 export function moveFlight(g: GameState, f: Flight, std: Minute, reason?: string): void {
   if (f.status !== 'scheduled') return;
@@ -336,7 +358,9 @@ function delayChain0(g: GameState, f: Flight, std: Minute, reason: string, own: 
     touchFlights(g);
     const all = flightsOf(g, ac.id).filter((x) => x.status === 'scheduled');
     const later = all.slice(all.indexOf(f) + 1);
-    return applyHold(g, recover(g, ac, later, f.to, std + f.block + turnOf(ac), f), reason, reason, `Recovery: ${reason}`, crewWait ? ac : undefined);
+    const n = applyHold(g, recover(g, ac, later, f.to, std + f.block + turnOf(ac), f), reason, reason, `Recovery: ${reason}`, crewWait ? ac : undefined);
+    settleOverlaps(g, ac);
+    return n;
   }
   if (own) {
     const all = flightsOf(g, ac.id).filter((x) => x.status === 'scheduled');
@@ -346,11 +370,14 @@ function delayChain0(g: GameState, f: Flight, std: Minute, reason: string, own: 
     // The first leg always takes the new time (a hold may sit on its std); the rest follow.
     if (mine) mine.std = std;
     const moved = applyHold(g, plan, reason, reason, `Recovery: ${reason}`, crewWait ? ac : undefined);
+    settleOverlaps(g, ac);
     return Math.max(0, moved - (mine ? 1 : 0));
   }
   const from = f.std;
   moveFlight(g, f, std, reason);
-  return applyHold(g, planRecovery(g, ac, f.to, f.sta + turnOf(ac), from, f), 'Schedule recovery', 'Late inbound aircraft');
+  const n = applyHold(g, planRecovery(g, ac, f.to, f.sta + turnOf(ac), from, f), 'Schedule recovery', 'Late inbound aircraft');
+  settleOverlaps(g, ac);
+  return n;
 }
 
 /**
@@ -374,6 +401,7 @@ function ripple(g: GameState, f: Flight, std: Minute): void {
   plan.moves = plan.moves.filter((x) => x.f !== f);
   moveFlight(g, f, std);
   applyHold(g, plan, 'Late inbound aircraft');
+  settleOverlaps(g, ac);
 }
 
 // ---------- disruption plans (shared by the AOG and crew decisions) ----------

@@ -1040,7 +1040,7 @@ function delayTimes(g: GameState, x: Ctx): Minute[] {
  * v0.8 speed: a copy of the state for a preview. Duty logs and the inbox only ever grow by new entries, so the copy
  * gets its own arrays holding the same entries (a third cheaper than cloning them).
  */
-function previewCopy(g: GameState): GameState {
+export function previewCopy(g: GameState): GameState {
   const { crew, messages, ...rest } = g;
   const h = copyData(rest) as GameState;
   h.crew = {};

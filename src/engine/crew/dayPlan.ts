@@ -167,14 +167,14 @@ export function monthFloorIssue(g: GameState, c: CrewMember, base: Seg[], fresh:
     for (const k of c.off) if (k >= a && k < b && !hit.has(k)) n++;
     // Most months already hold their 7 planned (8–10): nothing to count.
     if (n >= R().off.legalMonth) continue;
-    const legal = legalFor(c, mk);
+    const legal = legalFor(g, c, mk);
     if (n >= legal) continue;
     busy ??= busyDays(c, [...base, ...work].sort((x, y) => x.start - y.start), today - 45, b + 1);
     // Only days the planner has not reached yet count: a free planned day is standby (topUpOffs turns those into days
     // off while the month can still use them; counting them here let a tour use the room they were counted on).
     const open = g.dayPlan.planned !== undefined ? dayIndex(c.base, g.dayPlan.planned) : today + 1;
     for (let k = Math.max(a, today + 1, open); k < b && n < legal; k++) if (!offOn(c, k) && !busy.hit.has(k) && !blockedOn(c, k)) n++;
-    if (n < legal) return { code: 'daysOff', level: 'illegal', text: `Days off in ${MONTH[mk % 12]} would fall to ${n} (minimum ${R().off.legalMonth})`, dutyId: work[0].dutyId };
+    if (n < legal) return { code: 'daysOff', level: 'illegal', text: `Days off in ${MONTH[mk % 12]} would fall to ${n} (minimum ${legal})`, dutyId: work[0].dutyId };
   }
   // Round 4: the year must still reach its 96 (pro rata): what c holds plus the free days the planner has not reached
   // yet. Cheap first (every day left counted free); the day-by-day count only when that is not enough (year end).
@@ -208,6 +208,10 @@ export function eveFloorIssue(g: GameState, c: CrewMember, duties: Duty[], segs:
   const from = firstPlanDay(g, c.base);
   let busy: Busy | null = null;
   let counted: { mk: MonthKey; n: number; legal: number } | null = null;
+  // v0.9 round 5: of the duties that qualify, the one furthest ahead in its month (the seat it empties has the most
+  // time to be re-crewed; the first one was emptied a day or two out, where nobody legal could reach it).
+  let pick: LegalityIssue | null = null;
+  let pickMk: MonthKey = -1;
   for (const d of duties) {
     // Not the first duty of a longer trip: the crew would come off the whole trip (its positioning is the eve's work).
     if (d.done || d.report <= g.now || (d === duties[0] && duties.length > 1)) continue;
@@ -223,16 +227,19 @@ export function eveFloorIssue(g: GameState, c: CrewMember, duties: Duty[], segs:
       let n = 0;
       for (const o of c.off) if (o >= a && o < b) n++;
       for (let x = Math.max(a, today + 1); x < b; x++) if (!offOn(c, x) && !busy.hit.has(x) && !blockedOn(c, x)) n++;
-      counted = { mk, n, legal: legalFor(c, mk) };
+      counted = { mk, n, legal: legalFor(g, c, mk) };
     }
     if (counted.n >= counted.legal) continue;
     // Free of everything but this duty (its own positioning goes with it; a standby window gives way to a day off).
     const m0 = midnight(c.base, k);
     const m1 = m0 + DAY + mf;
     if (segs.some((x) => x.kind !== 'log' && x.kind !== 'sby' && x.dutyId !== d.id && x.start < m1 && x.end > m0)) continue;
-    return { code: 'daysOff', level: 'illegal', text: `Days off in ${MONTH[mk % 12]} would fall to ${counted.n} (minimum ${counted.legal})`, dutyId: d.id };
+    const issue: LegalityIssue = { code: 'daysOff', level: 'illegal', text: `Days off in ${MONTH[mk % 12]} would fall to ${counted.n} (minimum ${counted.legal})`, dutyId: d.id };
+    if (pick && pickMk !== mk) return pick;
+    pick = issue;
+    pickMk = mk;
   }
-  return null;
+  return pick;
 }
 
 /**
@@ -256,7 +263,7 @@ export function offMovable(g: GameState, c: CrewMember, segs: Seg[], tour = fals
     let room = 0;
     for (let k = Math.max(soon, firstDayOf(mk)); k < firstDayOf(mk + 1) && room < ks.length; k++) if (!offOn(c, k) && !busy.hit.has(k) && !blockedOn(c, k)) room++;
     const lost = Math.max(0, ks.length - room);
-    if (lost && offsIn(g, c, mk) - lost < minFor(c, mk)) return false;
+    if (lost && offsIn(g, c, mk) - lost < minFor(g, c, mk)) return false;
   }
   return true;
 }
@@ -279,22 +286,87 @@ export function offSwappable(g: GameState, c: CrewMember, segs: Seg[]): boolean 
   return offMovable(g, c, segs, true);
 }
 
-/** The month's minimum days off for c: 8 (the planner's floor), pro rata in a month partly on leave or sick. */
-function minFor(c: CrewMember, mk: MonthKey): number {
+/**
+ * The month's minimum days off for c: 8 (the planner's floor), pro rata in a month partly on leave or sick; v0.9 round 5:
+ * raised (to the cap at most) when the calendar year's 96 pro rata is behind its pace, so a hire's short month is made
+ * up in the months left rather than found at the December close (yearPaceMin).
+ */
+function minFor(g: GameState, c: CrewMember, mk: MonthKey): number {
   const a = firstDayOf(mk);
   const b = firstDayOf(mk + 1);
   let away = 0;
   for (let k = a; k < b; k++) if (blockOn(c, k)) away++;
-  return Math.ceil((R().off.minMonth * (b - a - away)) / (b - a));
+  const base = Math.ceil((R().off.minMonth * (b - a - away)) / (b - a));
+  return Math.max(base, Math.min(R().off.maxMonth, yearPaceMin(g, c, mk)));
 }
 
-/** The legal floor (7), pro rata in a month partly on leave, sick or joining. */
-export function legalFor(c: CrewMember, mk: MonthKey): number {
+/**
+ * v0.9 round 5: the days off month mk must hold for the year to reach its 96 pro rata: what is still needed after the
+ * months before it (closed counts, planned days off, leave and sickness) and the leave and sick days ahead, spread over
+ * the months left. 0 when the year asks nothing of this month. Pure.
+ */
+export function yearPaceMin(g: GameState, c: CrewMember, mk: MonthKey): number {
+  // A cache of a pure function (offNeed asks for every crew member and day): the inputs are the identities the engine
+  // replaces on a change (c.off, blocks, the month counts) and the day; a reload computes the same value.
+  const day = dayIndex(c.base, g.now);
+  const key = `${c.id}:${mk}`;
+  let memo = paceMemo.get(g);
+  if (!memo) paceMemo.set(g, (memo = new Map()));
+  const hit = memo.get(key);
+  if (hit && hit.off === c.off && hit.blocks === c.blocks && hit.om === c.offMonths && hit.fm === c.freeMonths && hit.day === day && hit.hired === c.hired) return hit.v;
+  const v = yearPaceMinRaw(g, c, mk);
+  memo.set(key, { off: c.off, blocks: c.blocks, om: c.offMonths, fm: c.freeMonths, day, hired: c.hired, v });
+  return v;
+}
+const paceMemo = new WeakMap<GameState, Map<string, { off: unknown; blocks: unknown; om: unknown; fm: unknown; day: number; hired: number; v: number }>>();
+
+function yearPaceMinRaw(g: GameState, c: CrewMember, mk: MonthKey): number {
+  const v = yearView(g, c, Math.floor(mk / 12));
+  const a = firstDayOf(mk);
+  if (v.from >= v.y1 || a < v.from) return 0;
+  const cur = monthOfDay(dayIndex(c.base, g.now));
+  let held = 0;
+  for (let m = monthOfDay(v.from); m < mk; m++) {
+    if (m < cur) {
+      held += (c.offMonths?.[m] ?? 0) + (c.freeMonths?.[m] ?? 0);
+      continue;
+    }
+    for (const k of c.off ?? []) if (k >= firstDayOf(m) && k < firstDayOf(m + 1)) held++;
+    held += freeDaysIn(c, m);
+  }
+  let ahead = 0;
+  for (let m = mk; m < monthOfDay(v.y1); m++) ahead += freeDaysIn(c, m);
+  const monthsLeft = monthOfDay(v.y1) - mk;
+  return monthsLeft > 0 ? Math.ceil((v.need - held - ahead) / monthsLeft) : 0;
+}
+
+/** Leave and sick days (free of all duty) in month m, the days blockOn gives a block (its 6 h tolerance at both ends). */
+function freeDaysIn(c: CrewMember, m: MonthKey): number {
+  if (!c.blocks?.length) return 0;
+  const a = firstDayOf(m);
+  const b = firstDayOf(m + 1);
+  let n = 0;
+  for (const x of c.blocks) {
+    if (x.why !== 'leave' && x.why !== 'sick') continue;
+    n += Math.max(0, Math.min(b - 1, dayIndex(c.base, x.to - 6 * 60 - 1)) - Math.max(a, dayIndex(c.base, x.from + 6 * 60)) + 1);
+  }
+  return n;
+}
+
+/**
+ * The legal floor (7), pro rata in a month partly on leave, sick or joining. v0.9 round 5: in the last month the calendar
+ * year counts for c, what the year's 96 pro rata still needs (yearPaceMin: the closed months, leave and sickness
+ * counted) is the month's floor too, so a short year is made whole by its last month and not found one day short at
+ * the December close (a hire counted for two months needs 16: a 7 in November leaves 9 for December).
+ */
+export function legalFor(g: GameState, c: CrewMember, mk: MonthKey): number {
   const a = firstDayOf(mk);
   const b = firstDayOf(mk + 1);
   let away = 0;
   for (let k = a; k < b; k++) if (blockOn(c, k)) away++;
-  return Math.ceil((R().off.legalMonth * (b - a - away)) / (b - a));
+  const base = Math.ceil((R().off.legalMonth * (b - a - away)) / (b - a));
+  if (mk % 12 !== 11 || !g.dayPlan) return base;
+  return Math.max(base, Math.min(b - a - away, yearPaceMin(g, c, mk)));
 }
 
 /**
@@ -372,12 +444,15 @@ function replacementDay(g: GameState, c: CrewMember, taken: number[], mk: MonthK
   const soon = dayIndex(c.base, g.now) + 2;
   const busy = busyDays(c, segs ?? segsOf(g, c), soon, pub + 62);
   const skip = new Set(taken);
-  const free = (k: number) => !skip.has(k) && !offOn(c, k) && !busy.hit.has(k) && !blockedOn(c, k);
+  const free = (k: number, capped: boolean) => !skip.has(k) && !offOn(c, k) && !busy.hit.has(k) && !blockedOn(c, k) && (!capped || !offRunOver(c, k, 1));
   // An unpublished day of the month first, then a free (standby) day of the published roster (one more day off at
-  // short notice is no hardship), then the next month.
-  for (let k = Math.max(pub, firstDayOf(mk)); k < firstDayOf(mk + 1); k++) if (free(k)) return k;
-  for (let k = Math.max(soon, firstDayOf(mk)); k < Math.min(pub, firstDayOf(mk + 1)); k++) if (free(k)) return k;
-  for (let k = Math.max(pub, firstDayOf(mk + 1)); k < firstDayOf(mk + 2); k++) if (free(k)) return k;
+  // short notice is no hardship), then the next month. Round 5: a day joining a run of days off longer than 3 only
+  // when no other day would keep the count (the floor is law, the cap a preference).
+  for (const capped of [true, false]) {
+    for (let k = Math.max(pub, firstDayOf(mk)); k < firstDayOf(mk + 1); k++) if (free(k, capped)) return k;
+    for (let k = Math.max(soon, firstDayOf(mk)); k < Math.min(pub, firstDayOf(mk + 1)); k++) if (free(k, capped)) return k;
+  }
+  for (let k = Math.max(pub, firstDayOf(mk + 1)); k < firstDayOf(mk + 2); k++) if (free(k, true)) return k;
   return null;
 }
 
@@ -488,6 +563,17 @@ function busyDays(c: CrewMember, segs: Seg[], from: number, to: number): Busy {
     for (let k = Math.max(dayIndex(c.base, x.start - mf), from); k <= Math.min(b, to); k++) hit.add(k);
   }
   return { hit, work, sby };
+}
+
+/**
+ * v0.9 round 5: a block of days off is at most 3 days (BAL off.block[1]) unless on leave: would making days [k, k+m)
+ * off join a run longer than that (the days off already planned on either side counted)?
+ */
+export function offRunOver(c: CrewMember, k: number, m: number): boolean {
+  let n = m;
+  for (let x = k - 1; offOn(c, x); x--) n++;
+  for (let x = k + m; offOn(c, x); x++) n++;
+  return n > R().off.block[1];
 }
 
 type BlockWhy = 'sick' | 'leave' | 'training' | 'joining';
@@ -608,6 +694,12 @@ export function planLeave(g: GameState, year: number, crewIds?: string[]): numbe
     }
     const segs = segsOf(g, c);
     const busy = busyDays(c, segs, first, y1);
+    // Round 5: a deployment tour keeps its crew at the station from its first duty to its last, so leave never lands
+    // between two of its duties (the daily re-check would split the tour and re-crew its later part).
+    for (const q of crewIx(g).pairingsOf.get(c.id) ?? []) {
+      if (!q.tour || q.status === 'done' || q.status === 'broken') continue;
+      for (let k = Math.max(first, dayIndex(c.base, q.start)); k <= Math.min(y1 - 1, dayIndex(c.base, q.end - 1)); k++) busy.work.add(k);
+    }
     const caps = groupsOf(c).map((key) => ({ arr: loadOf(key), cap: Math.max(1, Math.ceil(L.maxShare * (size.get(key) ?? 1))) }));
     const rep = c.ratings.map((f) => reports.get(f));
     const fits = (s: number, len: number): number => {
@@ -759,7 +851,7 @@ function offNeed(g: GameState, c: CrewMember, D: number, busy: Busy): OffNeed | 
   for (let k = D; k < m1; k++) if (!offOn(c, k) && !busy.hit.has(k) && !blockedOn(c, k)) freeLeft++;
   const dom = D - m0 + 1;
   const pace = (O.targetMonth * dom) / mDays;
-  const minM = minFor(c, mk);
+  const minM = minFor(g, c, mk);
   const missing = minM - offs;
   const blocks = blocksIn(c, mk);
   // v0.9 round 4: a block already planned within the next days (a must that found D taken and went on the first
@@ -853,9 +945,11 @@ function planDay(g: GameState, D: number, crew: CrewMember[], facts: Map<string,
     }
     // Early (one day before due): only while the group's next days cannot hold everyone due by then.
     if (n.early && !groupsOf(c).some((k) => (pending.get(k) ?? 0) + 1 > (cap(k) - (offAt[1].get(k) ?? 0)) + (cap(k) - (offAt[2 % SPAN].get(k) ?? 0)))) continue;
-    const fits = (k: number, m: number) => {
+    // Round 5: a block joins no run of days off longer than 3 (`capped`); a must that fits nowhere else may (the
+    // floor is law, the cap a preference).
+    const fits = (k: number, m: number, capped = true) => {
       for (let i = k; i < k + m; i++) if (offOn(c, i) || busy.hit.has(i) || blockedOn(c, i)) return false;
-      return true;
+      return !capped || !offRunOver(c, k, m);
     };
     let at: number | null = null;
     if (fits(D, len)) at = D;
@@ -863,12 +957,15 @@ function planDay(g: GameState, D: number, crew: CrewMember[], facts: Map<string,
       at = D;
       len = O.block[0];
     } else if (must) {
-      len = O.block[0];
-      for (let k = D + 1; k <= D + 10; k++) if (fits(k, len)) { at = k; break; }
-      // No two free days together: a single day off (1 day and 2 local nights) keeps the count.
-      if (at === null) {
-        len = 1;
-        for (let k = D; k <= D + 6; k++) if (fits(k, 1)) { at = k; break; }
+      for (const capped of [true, false]) {
+        len = O.block[0];
+        for (let k = D + 1; k <= D + 10; k++) if (fits(k, len, capped)) { at = k; break; }
+        // No two free days together: a single day off (1 day and 2 local nights) keeps the count.
+        if (at === null) {
+          len = 1;
+          for (let k = D; k <= D + 6; k++) if (fits(k, 1, capped)) { at = k; break; }
+        }
+        if (at !== null) break;
       }
     }
     if (at === null) continue;
@@ -893,6 +990,11 @@ interface DayFacts {
   /** Reports at a station on the day: early (before 12:00 local) and late, per role. */
   early: Map<string, number>;
   late: Map<string, number>;
+  /** Round 5: the day's first report at a station (any role), and per station|role the seats reporting before the default standby window can reach them (preBefore). */
+  first: Map<string, Minute>;
+  pre: Map<string, number>;
+  /** Round 5: windows already placed that start before the kind's default start, per station|role (the early cover). */
+  preShifts: Map<string, number>;
   /** Our departures 05:00–10:00 local per station|family, and the first of them. */
   wave: Map<string, { n: number; first: Minute }>;
   /** Home windows already on the day per station|role|shift; airport windows per station|family|role. */
@@ -906,10 +1008,11 @@ function dayFactsAll(g: GameState, X0: number, X1: number): Map<number, DayFacts
   const a = midnight(home, X0);
   const b = midnight(home, X1 + 1);
   const out = new Map<number, DayFacts>();
-  const of = (X: number) => out.get(X) ?? out.set(X, { early: new Map(), late: new Map(), wave: new Map(), shifts: new Map(), airport: new Map() }).get(X)!;
+  const of = (X: number) => out.get(X) ?? out.set(X, { early: new Map(), late: new Map(), first: new Map(), pre: new Map(), preShifts: new Map(), wave: new Map(), shifts: new Map(), airport: new Map() }).get(X)!;
   for (let X = X0; X <= X1; X++) of(X);
   const inc = (m: Map<string, number>, k: string) => m.set(k, (m.get(k) ?? 0) + 1);
   const A = R().airport;
+  const preBefore = preBeforeMin();
   for (const list of crewIx(g).byAircraft.values()) {
     for (const p of list) {
       if (p.status === 'done' || p.status === 'broken' || p.end < a || p.start >= b + DAY) continue;
@@ -924,9 +1027,11 @@ function dayFactsAll(g: GameState, X0: number, X1: number): Map<number, DayFacts
         const f = of(X);
         const loc = (d.report + offsetAt(st, d.report)) % DAY;
         for (const s of p.slots) if (!s.above) inc(loc < 12 * 60 ? f.early : f.late, `${st}|${s.role}`);
+        if (d.report < (f.first.get(st) ?? Infinity)) f.first.set(st, d.report);
+        if (loc < preBefore) for (const s of p.slots) if (!s.above) inc(f.pre, `${st}|${s.role}`);
         if (fl) {
           const dl = (fl.std + offsetAt(st, fl.std)) % DAY;
-          if (dl >= 5 * 60 && dl < A.waveEnd) {
+          if (dl >= A.waveFrom && dl < A.waveEnd) {
             // Round 4: the wave is the station's (every family: the cabin seat covers them all); per family its first departure.
             for (const key of [`${st}|${fam}`, `${st}|*`]) {
               const w = f.wave.get(key) ?? { n: 0, first: Infinity };
@@ -950,10 +1055,24 @@ function dayFactsAll(g: GameState, X0: number, X1: number): Map<number, DayFacts
         inc(f.airport, `${st}|*|${asbyRole(c.role)}`);
       }
       else if ((w.kind ?? 'home') === 'home') inc(f.shifts, `${st}|${c.role}|${w.shift ?? shiftOf(c, w)}`);
+      if (w.kind !== 'airport' && w.kind !== 'reserve' && isPre(c, w)) inc(f.preShifts, `${st}|${c.role}`);
     }
   }
   return out;
 }
+
+/** Round 5: a report before this station-local minute needs standby that starts before the default window does. */
+function preBeforeMin(): number {
+  const S = R();
+  return Math.max(S.hotel.from + S.hotel.readyMin, S.home.early[0] + S.home.readyMin) + S.earlyCover.slackMin;
+}
+/** A home or hotel window starting before its kind's default start (station-local): the early cover. */
+function isPre(c: CrewMember, w: Window): boolean {
+  const S = R();
+  const at = w.at ?? c.base;
+  return localMinAt(at, w.from) < ((w.kind ?? 'home') === 'hotel' ? S.hotel.from : S.home.early[0]);
+}
+const localMinAt = (code: string, t: Minute): number => (t + offsetAt(code, t)) % DAY;
 
 /** v0.9 round 3: airport standby is 1 CPT, 1 FO and 1 cabin crew: a purser counts as the cabin seat (was one each). */
 const asbyRole = (r: CrewMember['role']): string => (r === 'PUR' ? 'CC' : r);
@@ -986,12 +1105,22 @@ function asbyWindow(c: CrewMember, at: string, f: DayFacts): Window | null {
 function rawWindow(c: CrewMember, X: number, at: string, f: DayFacts, prevShift: 'E' | 'L' | null): { w: Window; kind: StandbyKind } {
   const S = R();
   const m = midnight(c.base, X);
+  // Round 5: the early cover. A station whose day's first report comes before the default window plus the response
+  // time can reach it gets, per role, one standby per seat reporting that early, starting (response time + slack)
+  // before that report; starting between 23:00 and 07:00, the night is not counted towards the call-out cut until
+  // contacted (CS FTL.1.225(b)(5)). After a day off the window still opens at 06:00 (planStandby clips it).
+  const earlyFrom = (dflt: Minute, ready: number): Minute => {
+    const first = f.first.get(at);
+    if (first === undefined || (f.pre.get(`${at}|${c.role}`) ?? 0) <= (f.preShifts.get(`${at}|${c.role}`) ?? 0)) return dflt;
+    return Math.min(dflt, first - ready - S.earlyCover.slackMin);
+  };
   if (at !== c.base) {
     // Round 4: a station with a morning wave puts a crew at the airport first; else hotel standby.
     const asby = asbyWindow(c, at, f);
     if (asby) return { w: asby, kind: 'airport' };
     const ms = midnight(at, dayIndex(at, m + 12 * 60));
-    return { w: { from: ms + S.hotel.from, to: ms + S.hotel.to, kind: 'hotel', at }, kind: 'hotel' };
+    const from = earlyFrom(ms + S.hotel.from, S.hotel.readyMin);
+    return { w: { from, to: from + (S.hotel.to - S.hotel.from), kind: 'hotel', at }, kind: 'hotel' };
   }
   // Early or late: keep the work block's shift, else the one with fewer crew per report.
   let shift: 'E' | 'L';
@@ -1007,7 +1136,8 @@ function rawWindow(c: CrewMember, X: number, at: string, f: DayFacts, prevShift:
     if (asby) return { w: asby, kind: 'airport' };
   }
   const [a, b] = shift === 'E' ? S.home.early : S.home.late;
-  return { w: { from: m + a, to: m + b, shift }, kind: 'home' };
+  const from = shift === 'E' ? earlyFrom(m + a, S.home.readyMin) : m + a;
+  return { w: { from, to: from + (b - a), shift }, kind: 'home' };
 }
 
 /** Issues a fresh window brings (new ones only, against the timeline without it). */
@@ -1187,6 +1317,7 @@ export function planStandby(g: GameState): void {
       baseIssues = null;
       changed = true;
       const kind = w.kind ?? 'home';
+      if (kind !== 'airport' && kind !== 'reserve' && isPre(c, w)) f.preShifts.set(`${at}|${c.role}`, (f.preShifts.get(`${at}|${c.role}`) ?? 0) + 1);
       if (kind === 'home') {
         const sh = w.shift ?? shiftOf(c, w);
         f.shifts.set(`${c.base}|${c.role}|${sh}`, (f.shifts.get(`${c.base}|${c.role}|${sh}`) ?? 0) + 1);
@@ -1335,21 +1466,25 @@ function topUpOffs(g: GameState): void {
       if (firstDayOf(mk) >= firstPlanDay(g, c.base)) {
         let have = Math.max(0, end - Math.max(lo, open));
         for (const k of c.off) if (k >= firstDayOf(mk) && k < end) have++;
-        if (have >= R().off.minMonth || have >= minFor(c, mk)) continue;
+        if (have >= R().off.minMonth || have >= minFor(g, c, mk)) continue;
       }
       const busy = busyDays(c, segsOf(g, c), firstDayOf(mk), end);
-      const free = (k: number) => !offOn(c, k) && !busy.hit.has(k) && !blockedOn(c, k);
+      const free = (k: number, capped: boolean) => !offOn(c, k) && !busy.hit.has(k) && !blockedOn(c, k) && (!capped || !offRunOver(c, k, 1));
       let room = 0;
-      for (let k = Math.max(lo, open); k < end; k++) if (free(k)) room++;
+      for (let k = Math.max(lo, open); k < end; k++) if (free(k, false)) room++;
       // Towards the planner's 8 (pro rata), not the legal 7: a day taken later by a change on the day still leaves 7.
-      let deficit = minFor(c, mk) - offsIn(g, c, mk, busy) - room;
-      for (let k = lo; k < Math.min(end, open) && deficit > 0; k++) {
-        if (!free(k)) continue;
-        c.off = [...c.off, k].sort((a, b) => a - b);
-        // Round 4: the window of the morning after goes too (a day off runs to 06:00: clearDays, as planDay).
-        clearDays(g, c, k, k + 1);
-        deficit--;
-        changed = true;
+      // Round 5: days that keep every run of days off within 3 first; the legal 7 may then join a longer run.
+      let deficit = minFor(g, c, mk) - offsIn(g, c, mk, busy) - room;
+      for (const capped of [true, false]) {
+        if (!capped && offsIn(g, c, mk, busy) + room >= legalFor(g, c, mk)) break;
+        for (let k = lo; k < Math.min(end, open) && deficit > 0; k++) {
+          if (!free(k, capped)) continue;
+          c.off = [...c.off, k].sort((a, b) => a - b);
+          // Round 4: the window of the morning after goes too (a day off runs to 06:00: clearDays, as planDay).
+          clearDays(g, c, k, k + 1);
+          deficit--;
+          changed = true;
+        }
       }
     }
   }
@@ -1378,7 +1513,7 @@ export function dayPlanMonth(g: GameState): void {
     (c.offMonths ??= {})[mk] = n;
     for (const k in c.offMonths) if (+k < mk - 12) delete c.offMonths[k];
     r.months++;
-    if (n < legalFor(c, mk)) r.monthsLow++;
+    if (n < legalFor(g, c, mk)) r.monthsLow++;
     // Round 4: the year's 96 (pro rata) at its December close.
     if (mk % 12 === 11) {
       const v = yearView(g, c, Math.floor(mk / 12));
@@ -1387,7 +1522,7 @@ export function dayPlanMonth(g: GameState): void {
         if (yearOffs(g, c, v) < v.need) r.yearsLow = (r.yearsLow ?? 0) + 1;
       }
     }
-    const below = Math.min(M.below, minFor(c, mk));
+    const below = Math.min(M.below, minFor(g, c, mk));
     const delta = n > M.above ? Math.min(M.aboveMax, (n - M.above) * M.aboveEach) : n < below ? (below - n) * M.belowEach : 0;
     if (delta) moraleShock(g, c, 'daysOff', delta);
   }

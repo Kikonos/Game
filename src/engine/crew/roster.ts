@@ -1228,6 +1228,11 @@ setCrewOkHook((g, p, d) => {
     const c = g.crew[s.crewId];
     if (!c) continue;
     if (otherTrip(g, c, p, d.report, d.release, false)) return 0;
+    // v0.9 round 5: never onto leave, sickness, training or a joining period (a tour that grew onto a crew member's
+    // leave was found only by the daily re-check: the seat went red at an outstation with nobody to reach it). A
+    // block between two duties of the tour is the re-check's (check.ts statusIssues): the tour splits at the first
+    // duty after it and that part is re-crewed; the duties before it fly.
+    if (c.blocks?.some((b) => b.from < d.release && b.to > d.report)) return 0;
     // v0.9 never onto a planned day off; a tour moves them to its free days (the planner's own re-plan, no morale).
     // Round 4: the move is made by the take hook, only for the set the chainer picks (a set with no change first).
     if (offDaysHit(c, d.report, d.release).length) {

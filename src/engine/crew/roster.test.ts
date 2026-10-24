@@ -11,6 +11,7 @@ import { evalSegs, LIMITS } from './rules';
 import { ctxOf, segsOf } from './timeline';
 import { addCrew, fixtureContract, fixtureGame, seasonBase } from './fixtures';
 import { autoRoster, buildDuties, captainAsFo, crewWindows, dutyCandidates, flightCrewStatus, rosterOf } from '.';
+import { recheckSoon } from './roster';
 import { canFill, seatLabel } from '../core/perf';
 
 const scheduled = (g: GameState) => Object.values(g.flights).filter((f) => f.aircraftId && f.status === 'scheduled');
@@ -475,5 +476,33 @@ describe('v0.7.2 captains flying as first officers', () => {
     captainAsFo(g, c, g.now);
     expect(c.morale).toBe(m0 - 3);
     expect(g.stats.asFo).toBe(3);
+  });
+});
+
+describe('v0.9 round 5: a crewed tour never grows onto leave', () => {
+  it('a duty on a tour crew member\'s leave goes to another set or flies as a trip; the crew member is not on it', () => {
+    const g = fixtureGame();
+    g.company.policies.rotationWeeks = 4;
+    const ac = Object.keys(g.fleet)[0];
+    seasonBase(g, ac, 'HAM', 'PMI', [6 * 60, 12 * 60 + 30], 28);
+    // The first 16 days built and crewed; a tour crew member then takes leave over days 20–23.
+    autoRoster(g, { to: g.now + 16 * DAY });
+    const p = Object.values(g.pairings).filter((x) => x.tour && x.slots.every((s) => s.crewId)).sort((a, b) => a.start - b.start)[0];
+    const c = g.crew[p.slots[0].crewId!];
+    const day0 = Math.floor(g.now / DAY) * DAY;
+    const leave = { from: day0 + 20 * DAY, to: day0 + 24 * DAY, why: 'leave' as const, annual: true as const };
+    c.blocks = [...(c.blocks ?? []), leave];
+    autoRoster(g, { to: g.now + 30 * DAY });
+    // The daily re-check: a tour that grew past the leave splits at the first duty after it (that part re-crewed).
+    recheckSoon(g);
+    const onLeave = Object.values(g.duties).filter((d) => d.report < leave.to && d.release > leave.from);
+    expect(onLeave.length).toBeGreaterThan(2);
+    for (const d of onLeave) expect(g.pairings[d.pairingId]?.slots.some((s) => s.crewId === c.id), d.id).toBe(false);
+    // Nor does any tour of theirs span the leave (the crew stay at the station from first duty to last).
+    for (const q of Object.values(g.pairings)) {
+      if (!q.slots.some((s) => s.crewId === c.id)) continue;
+      expect(q.start < leave.to && q.end > leave.from, `${q.id} ${q.start}–${q.end}`).toBe(false);
+    }
+    expect(allCrewLegal(g).filter((x) => x.includes(c.id))).toEqual([]);
   });
 });

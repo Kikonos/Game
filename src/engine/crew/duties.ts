@@ -895,10 +895,17 @@ interface Chainer {
  * need no change comes before one whose days off would move, and the move is made only for the set picked
  * (`crewTake`), not for every set asked.
  */
-function chainer(g: GameState, dep: Deployment, crewOk: (p: Pairing, d: Duty) => number, crewTake: (p: Pairing, d: Duty) => void = () => {}): Chainer {
+function chainer(g: GameState, dep: Deployment, crewOk: (p: Pairing, d: Duty) => number, crewTake: (p: Pairing, d: Duty) => void = () => {}, sizing = false): Chainer {
   const R = rotation(g);
   const home = g.company.homeBase;
   const dayOf = (t: Minute) => Math.floor((t + offsetAt(dep.base, t)) / DAY);
+  // v0.9 round 5: the sizing trial counts the eve of a report before 06:00 as a worked day of the set (a day off runs
+  // to 06:00: dayPlan.ts offDaysHit), and gives such a duty first to a set that worked the eve (as the real chaining
+  // does for crewed sets), so a programme whose early wave has no later wave to come back on is sized one set larger
+  // and a mixed programme is not. The real chaining keeps the plain day count (round 4: counting the eve there made
+  // the sets refuse duties, which then flew as trips from base).
+  const mf = BAL.v09.roster.off.morningFree;
+  const daysOf = (d: Duty): number[] => (sizing ? [...new Set([dayOf(d.report - mf), dayOf(d.report)])] : [dayOf(d.report)]);
   const tours = new Map<string, TourState>();
   for (const pid of dep.pairingIds) {
     const p = g.pairings[pid];
@@ -925,8 +932,8 @@ function chainer(g: GameState, dep: Deployment, crewOk: (p: Pairing, d: Duty) =>
       if (!per) continue;
       const key = `${s}:${per.from}`;
       const st = tours.get(key) ?? { set: s, from: per.from, to: per.to, pairing: null, duties: [], segs: [], days: [] };
-      const day = dayOf(d.report);
-      const days = st.days.includes(day) ? st.days : [...st.days, day].sort((a, b) => a - b);
+      const dd = daysOf(d);
+      const days = dd.every((x) => st.days.includes(x)) ? st.days : [...new Set([...st.days, ...dd])].sort((a, b) => a - b);
       if (longestWorkBlock(days) > LIMITS.blockDays) continue;
       const tripStart = Math.min(st.duties[0]?.report ?? d.report, d.report);
       const i = st.segs.findIndex((x) => x.start > d.report);
@@ -939,7 +946,7 @@ function chainer(g: GameState, dep: Deployment, crewOk: (p: Pairing, d: Duty) =>
       const rank = st.pairing && crewCount(st.pairing) > 0 ? crewOk(st.pairing, d) : 2;
       if (!rank) continue;
       const restEnd = last ? last.end + last.rest : -Infinity;
-      const onEve = early && !!st.pairing && crewCount(st.pairing) > 0 && st.days.includes(eve);
+      const onEve = early && (sizing || (!!st.pairing && crewCount(st.pairing) > 0)) && st.days.includes(eve);
       if (rank > pickRank || (rank === pickRank && (Number(onEve) > Number(pickEve) || (onEve === pickEve && restEnd < pickRest)))) {
         pick = st;
         pickRest = restEnd;
@@ -955,8 +962,8 @@ function chainer(g: GameState, dep: Deployment, crewOk: (p: Pairing, d: Duty) =>
     pick.duties.sort((x, y) => x.report - y.report);
     pick.segs.push(virtualSeg(g, d, pick.duties[0].report, home));
     pick.segs.sort((x, y) => x.start - y.start);
-    const day = dayOf(d.report);
-    if (!pick.days.includes(day)) pick.days = [...pick.days, day].sort((a, b) => a - b);
+    const dd = daysOf(d);
+    if (!dd.every((x) => pick.days.includes(x))) pick.days = [...new Set([...pick.days, ...dd])].sort((a, b) => a - b);
     return true;
   };
   return { take, tours };
@@ -1010,7 +1017,7 @@ function chainDeployment(g: GameState, c: Contract, acId: string, duties: Duty[]
     let best = { sets, taken: -1 };
     for (let n = sets; n <= BAL.maxSetsOnStation; n++) {
       const trial: Deployment = { ...dep, anchors: anchorsFor(start, n, R), pairingIds: [] };
-      const ch = chainer(g, trial, () => 2);
+      const ch = chainer(g, trial, () => 2, undefined, true);
       let taken = 0;
       for (const d of duties) if (ch.take(d)) taken++;
       if (taken > best.taken) best = { sets: n, taken };

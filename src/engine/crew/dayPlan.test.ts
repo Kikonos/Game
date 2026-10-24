@@ -12,9 +12,9 @@ import { BAL } from '../core/balance';
 import { deserialize, serialize } from '../save';
 import { advanceTo } from '../sim';
 import { fixture } from '../fixtures/compatKit';
-import { addCrew, fixtureGame } from './fixtures';
+import { addCrew, fixtureGame, seasonBase } from './fixtures';
 import { autoRoster, crewControl, crewWindows, dayIndex, dropTargets, moveDuty, offBreak, planLeave, publishedTo } from '.';
-import { crewMonth, dayPlanMonth, eveFloorIssue, midnight, monthFloorIssue, offDaysHit, offOn, offSwappable, takeOffDays } from './dayPlan';
+import { crewMonth, dayPlanAfter, dayPlanMonth, eveFloorIssue, midnight, monthFloorIssue, offDaysHit, offOn, offRunOver, offSwappable, takeOffDays, yearPaceMin } from './dayPlan';
 import { crewCalendar } from './calendar';
 import { evalSegs, localMin, minRest, nightsIn, offsetAt, standbyCut, standbyView, STANDBY, type Seg } from './rules';
 import { reserveContact, standbyFor } from './standby';
@@ -606,6 +606,10 @@ describe('v0.9 round 4: days off keep the morning free, reserve no-contact, stan
     const one = build(new Set([7, 23]), new Set([15]));
     const issue = eveFloorIssue(g, c, one.duties, one.segs);
     expect(issue).toEqual({ code: 'daysOff', level: 'illegal', text: 'Days off in April would fall to 6 (minimum 7)', dutyId: 'd16' });
+    // Round 5: with two early duties whose eve is free (the 15th and the 25th), the one furthest ahead in the month is
+    // marked (its seat has ten days to be re-crewed, the first one had one).
+    const two0 = build(new Set([7, 23]), new Set([15, 25]));
+    expect(eveFloorIssue(g, c, two0.duties, two0.segs)?.dutyId).toBe('d26');
     // The 16th reporting at 10:00 leaves the 15th a free day: the month reaches 7 by itself (topUpOffs).
     const two = build(new Set([7, 16, 23]), new Set([15]));
     expect(eveFloorIssue(g, c, two.duties, two.segs)).toBeNull();
@@ -618,4 +622,110 @@ describe('v0.9 round 4: days off keep the morning free, reserve no-contact, stan
     g.now = fromUTC(y, 3, 20, 8);
     expect(eveFloorIssue(g, c, one.duties.filter((d) => +d.id.slice(1) >= 16), one.segs)).toBeNull();
   });
+});
+
+describe('v0.9 round 5: the floors planned ahead, the early cover, the block cap', () => {
+  const crew = () => {
+    const g = fixtureGame(7);
+    const [id] = addCrew(g, { CPT: 1 });
+    const c = g.crew[id];
+    c.off = [];
+    delete c.standby;
+    return { g, c };
+  };
+
+  it("a month's minimum follows the year's 96 pro rata: a hire's short month is made up in the months left", () => {
+    const { g, c } = crew();
+    const y = yearOf(g.now);
+    // Hired mid-October: counted from November (16 days of 61 → 16 free days needed over November and December).
+    c.hired = fromUTC(y, 10, 15);
+    g.dayPlan!.from = fromUTC(y, 10, 1);
+    g.now = fromUTC(y, 12, 2, 8);
+    const nov = monthKey(fromUTC(y, 11, 1));
+    const dec = nov + 1;
+    c.offMonths = { [nov]: 7 };
+    c.freeMonths = { [nov]: 0 };
+    expect(yearPaceMin(g, c, dec)).toBe(9);
+    c.offMonths = { [nov]: 8 };
+    expect(yearPaceMin(g, c, dec)).toBe(8);
+    // A whole year with its leave planned asks no more than the planner's 8 of any month.
+    c.hired = fromUTC(y - 1, 3, 1);
+    g.dayPlan!.from = fromUTC(y - 1, 3, 1);
+    g.now = fromUTC(y, 1, 2, 8);
+    c.offMonths = {};
+    c.blocks = [{ from: fromUTC(y, 2, 1), to: fromUTC(y, 2, 11), why: 'leave', annual: true }, { from: fromUTC(y, 11, 1), to: fromUTC(y, 11, 19), why: 'leave', annual: true }];
+    expect(yearPaceMin(g, c, monthKey(g.now))).toBeLessThanOrEqual(8);
+    // A month the year does not count (before the hire's first whole month) asks nothing.
+    c.hired = fromUTC(y, 10, 15);
+    g.dayPlan!.from = fromUTC(y, 10, 1);
+    g.now = fromUTC(y, 10, 20, 8);
+    c.blocks = [];
+    expect(yearPaceMin(g, c, monthKey(g.now))).toBe(0);
+  });
+
+  it('a block of days off joins no run longer than 3 (leave apart); the planner keeps every run within it', () => {
+    const { c } = crew();
+    c.off = [100, 101];
+    expect(offRunOver(c, 102, 1)).toBe(false);
+    expect(offRunOver(c, 102, 2)).toBe(true);
+    expect(offRunOver(c, 98, 2)).toBe(true);
+    expect(offRunOver(c, 97, 2)).toBe(false);
+    const { g } = dubRun();
+    const today = dayIndex(g.company.homeBase, g.now);
+    let runs = 0;
+    for (const x of Object.values(g.crew)) {
+      if (x.status === 'joining' || x.notice) continue;
+      const off = (x.off ?? []).filter((k) => k > today);
+      for (let i = 0; i < off.length; i++) {
+        if (i > 0 && off[i - 1] === off[i] - 1) continue;
+        let j = i;
+        while (j + 1 < off.length && off[j + 1] === off[j] + 1) j++;
+        runs++;
+        expect(j - i + 1, `${x.id} off ${off[i]}–${off[j]}`).toBeLessThanOrEqual(BAL.v09.roster.off.block[1]);
+      }
+    }
+    expect(runs).toBeGreaterThan(50);
+  }, 120_000);
+
+  it('the early cover: a station whose first report comes before the default window can reach it gets one standby per early seat and role, starting response time + slack before it', () => {
+    const g = fixtureGame();
+    const acId = Object.keys(g.fleet)[0];
+    // HAM–PMI, one wave departing 05:30 local: a 04:30 report, before the hotel window (06:00) plus 45 min could reach it.
+    seasonBase(g, acId, 'HAM', 'PMI', [5 * H + 30], 28, 300);
+    autoRoster(g, { to: g.now + 28 * DAY });
+    dayPlanAfter(g);
+    const S = BAL.v09.roster;
+    const early = new Map<string, { n: number; cover: number }>();
+    for (const c of Object.values(g.crew)) {
+      for (const w of c.standby ?? []) {
+        if (w.kind !== 'hotel' || w.at !== 'HAM') continue;
+        const k = dayIndex('HAM', w.from);
+        const d = Object.values(g.duties).find((x) => !x.done && g.flights[x.flightIds[0]]?.from === 'HAM' && dayIndex('HAM', x.report) === k);
+        if (!d) continue;
+        const e = early.get(`${k}|${c.role}`) ?? { n: 0, cover: 0 };
+        e.n++;
+        // A window that reaches the report: starts response time + slack before it, and the window keeps its 12 h.
+        if (w.from <= d.report - S.hotel.readyMin - S.earlyCover.slackMin) {
+          e.cover++;
+          expect(w.to - w.from).toBe(S.hotel.to - S.hotel.from);
+          expect(localMin('HAM', w.from)).toBeGreaterThanOrEqual(0);
+        } else expect(localMin('HAM', w.from)).toBeGreaterThanOrEqual(S.hotel.from);
+        early.set(`${k}|${c.role}`, e);
+      }
+    }
+    // Days with hotel standby at HAM: where more than one crew member of a role waits, exactly one covers the early
+    // report (the seat count per role of the wave), the rest keep the default window.
+    const seats = new Map<string, number>();
+    const p = Object.values(g.pairings).find((x) => x.tour)!;
+    for (const s of p.slots) if (!s.above) seats.set(s.role, (seats.get(s.role) ?? 0) + 1);
+    // (A crew member coming off a day off, or still resting from the day before, keeps the default window: a day's
+    // cover can fall short of the seats; never over them.)
+    let covered = 0;
+    for (const [k, e] of early) {
+      const role = k.split('|')[1];
+      expect(e.cover, k).toBeLessThanOrEqual(seats.get(role as never) ?? 0);
+      covered += e.cover;
+    }
+    expect(covered).toBeGreaterThan(5);
+  }, 60_000);
 });

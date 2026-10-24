@@ -448,12 +448,15 @@ describe('§5.3 round 4 (audit): heads', () => {
     clearPause();
   });
 
-  it('the analyst\'s estimate is noted at signing and judged when the contract ends: a 55-skill analyst logs at least one mistake over 10 contracts', () => {
+  it('the analyst\'s estimate is noted at signing and judged when the contract ends: a 55-skill analyst logs at least one mistake over 10 contracts, exactly the estimates off by the threshold', () => {
     const g = fixtureGame(100);
     hire(g, 'analyst', 0.55);
     const h = g.heads!.analyst;
     let n = 0;
-    for (let i = 0; i < 60 && n < 10; i++) {
+    // Round 5: ten contracts, and on until one estimate is off by the threshold (the error is fixed per offer id, so the
+    // first ten can all happen to fall inside it); every judgement is then checked against its own estimate.
+    let off = 0;
+    for (let i = 0; i < 80 && (n < 10 || off === 0); i++) {
       const o = generateOffer(g, i % 2 ? 'adhoc' : 'aogCover');
       if (!o || o.product.kind === 'dry') continue;
       const fit = feasibilityAll(g, o.id).find((x) => (x.level === 'ok' || x.level === 'warn') && x.estRevenue > 0);
@@ -468,12 +471,14 @@ describe('§5.3 round 4 (audit): heads', () => {
       onContractEnd(g, { t: g.now, type: 'contract.end', id: c.id, v: 0, seq: 0 });
       expect(c.status).toBe('completed');
       n++;
+      if (Math.abs(c.analyst!.pct / c.analyst!.est - 1) >= BAL.v09.heads.analystErr) off++;
     }
-    expect(n).toBe(10);
-    expect(h.handled).toBe(10);
+    expect(n).toBeGreaterThanOrEqual(10);
+    expect(h.handled).toBe(n);
     expect(h.log.some((l) => l.kind === 'mistake' && /estimated the .* margin: said .* %, it was .* %$/.test(l.text))).toBe(true);
+    expect(h.mistakes).toBe(off);
     expect(h.mistakes).toBeGreaterThanOrEqual(1);
-    expect(h.mistakes).toBeLessThan(10);
+    expect(h.mistakes).toBeLessThan(n);
   });
 
   it('maintenance planner: a clashing A-check is moved only when a replacement slot exists; else it stays booked with one warning; a C-slot proposal survives Accept until the check is booked', () => {

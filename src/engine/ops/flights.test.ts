@@ -134,6 +134,27 @@ describe('delays and ripple', () => {
     expect(m.end - m.start).toBe(typeOf(ac.typeId).aCheckHours * 60);
   });
 
+  it('v0.9 round 5: a delay rippled over legs the chain cannot follow leaves no two legs of the aircraft overlapping, and every duty in time order', () => {
+    calm();
+    const g = newGame(4);
+    const ac = owned(g);
+    // A shuttle today and another programme's legs tomorrow from a different station (the aircraft positions between them).
+    const t = g.now + DAY;
+    sign(g, legsOffer(g, [['LIS', 'FAO', t], ['FAO', 'LIS', t + 3 * 60], ['LIS', 'FAO', t + 6 * 60], ['FAO', 'LIS', t + 9 * 60]]).id, ac);
+    sign(g, legsOffer(g, [['LIS', 'OPO', t + DAY + 2 * 60], ['OPO', 'LIS', t + DAY + 5 * 60]]).id, ac);
+    const legs = live(g, ac);
+    expect(legs.length).toBeGreaterThanOrEqual(6);
+    // The shuttle's first leg waits 26 h for crew: it now departs after tomorrow's legs would have.
+    delayChain(g, legs[0], legs[0].std + 26 * 60, 'Waiting for a legal crew', true, true);
+    const after = live(g, ac).sort((a, b) => a.std - b.std);
+    for (let i = 1; i < after.length; i++) expect(after[i].std, `${after[i - 1].no} → ${after[i].no}`).toBeGreaterThanOrEqual(after[i - 1].sta);
+    for (const d of Object.values(g.duties)) {
+      const fl = d.flightIds.map((id) => g.flights[id]).filter((f) => f && f.status === 'scheduled');
+      for (let i = 1; i < fl.length; i++) expect(fl[i].std, d.id).toBeGreaterThanOrEqual(fl[i - 1].std);
+      if (fl.length) expect(d.report, d.id).toBeLessThanOrEqual(fl[0].std);
+    }
+  });
+
   it('rejects delays on flights that left or are out of range', () => {
     calm();
     const g = newGame(4);

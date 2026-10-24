@@ -53,7 +53,7 @@ export { crewExtraFor, offerExtra, paidMinOf, seatsFor, type CrewExtraSource, ty
 export { CAL_LABEL, crewCalendar, crewStatusView, crewTravelNow, joinsAt, type CalBlock, type CalFlight, type CalKind, type CrewStatusView, type CrewTravelNow } from './calendar';
 // v0.7.1 Crew Control (UPDATE-0.7.1.md §15).
 export {
-  applyCrewFix, cancelTrip, charterJet, crewControl, crewGauges, crewShortCard, escalateShortages, FIX_LABEL, jetQuote, reachFor, ROLE_WORD, rootReason, seatsText, shortFlights,
+  applyCrewFix, cancelTrip, charterJet, crewControl, crewGauges, crewShortCard, escalateShortages, FIX_LABEL, jetQuote, previewCopy, reachFor, ROLE_WORD, rootReason, seatsText, shortFlights,
   type ApplyOpts, type CrewControlView, type CrewSolution, type FixOption, type FixPreview, type JetQuote, type Reason, type ReasonCode, type SeatNeed,
 } from './control';
 import { escalateShortages } from './control';

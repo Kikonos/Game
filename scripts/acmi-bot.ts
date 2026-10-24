@@ -58,7 +58,7 @@ import { DAY, dayIndex, fmtDateTime, fmtDay, fmtMonth, fromUTC, monthKey, toDate
 import type { RatingFamily } from '../src/data/acmiTypes';
 import type { Archetype, ContractOffer, CrewFix, GameState, LedgerCat, MonthKey, Role } from '../src/engine/core/types';
 import { acceptOffer, counterOffer, feasibility, offerCompetition, type FeasibilityReport } from '../src/engine/contracts';
-import { aboveMinimum, applyCrewFix, crewMonth, crewRev, hireQuote, restOf, restPlan, setDutyAugment, classOf, conversionClasses, conversionEarliest, conversionPlan, crewControl, hireCrew, ratedMarket, setCrewExtra, shortFlights, staffing, startConversion, type CrewSolution, type StaffingLine } from '../src/engine/crew';
+import { aboveMinimum, applyCrewFix, crewMonth, crewRev, hireQuote, previewCopy, restOf, restPlan, setDutyAugment, classOf, conversionClasses, conversionEarliest, conversionPlan, crewControl, hireCrew, ratedMarket, setCrewExtra, shortFlights, staffing, startConversion, type CrewSolution, type StaffingLine } from '../src/engine/crew';
 import { devAddType, devFleet, devGrantApproval } from '../src/engine/dev';
 import { salaryFor } from '../src/engine/crew/generate';
 import { createGame } from '../src/engine/newGame';
@@ -67,6 +67,7 @@ import {
   earlyReturnQuote, fixedCosts, groundGaps, leastUsed, ratedPilots, refitQuote, refitSlots, refitStations, resolveDecision, restRefitOptions, returnEarly, saleQuote, sellAircraft, ticketPurpose,
 } from '../src/engine/ops';
 import { cabinAt, cabinFits, refitTip } from '../src/engine/ops/cabin';
+import { requiredEmpty } from '../src/engine/crew/timeline';
 import { deliveryQuote } from '../src/engine/ops/delivery';
 import { devMarketOffer } from '../src/engine/ops/market';
 import { restCards } from '../src/engine/problems/crew';
@@ -83,7 +84,7 @@ import { warRiskAt } from '../src/engine/ops/world';
 import { acceptProposal, hireHead } from '../src/engine/ops/heads';
 import { HEAD_IDS } from '../src/data/heads';
 import { setHeldHook } from '../src/engine/ops/flights';
-import { crewShortCard, dutyCandidates, flightCrewStatus } from '../src/engine/crew';
+import { crewIssuesFor, crewShortCard, dutyCandidates, flightCrewStatus } from '../src/engine/crew';
 import { dayIndex as dayIndexAt, isOff } from '../src/engine/crew/dayPlan';
 import { offsetAt } from '../src/engine/crew/rules';
 
@@ -170,18 +171,41 @@ interface Tally {
   /** v0.8: signings by archetype code, the last deportation, flights asked about war-risk cover once, dry leases (months, income). */
   types: Map<string, number>;
   dryLeases: number;
+  /** v0.9 round 5: short-notice offers passed over because the roster could not crew their first two days (preview), widebody general work capped, leases not signed for want of a job in hand. */
+  shortSkipped: number;
+  wideCapped: number;
+  leaseNoJob: number;
 }
 const newTally = (): Tally => ({
   actions: new Map(), decisions: new Map(), decMonth: new Map(), decKinds: new Map(), accepted: 0, countered: 0, firstAccept: null, wideAffordableAt: null, wideReadyAt: null, wideSigned: null, longLead: 0, paintOffers: [],
   rehired: 0, policyChanges: [], classesBooked: 0, paidExtra: 0, filed: [], signed: [], narrowSigned: 0, refits: [], leaseChoices: [], waitHires: 0, crewFixes: new Map(),
   cHubs: [], hubTravel: 0, restSeats: 0, multiHires: 0, earlyReturnDay: null, restRefits: [], aug4: 0,
-  types: new Map(), dryLeases: 0,
+  types: new Map(), dryLeases: 0, shortSkipped: 0, wideCapped: 0, leaseNoJob: 0,
 });
 
 const weekOf = (g: GameState) => Math.floor((g.now - g.started) / (7 * DAY));
 const act = (g: GameState, t: Tally, n = 1) => t.actions.set(weekOf(g), (t.actions.get(weekOf(g)) ?? 0) + n);
 
 const isBase = (o: ContractOffer) => o.pattern.kind === 'base' || o.archetype === 'seasonBase' || o.archetype === 'aogCover';
+/** v0.9 round 5: work that wants a widebody (the body asked for, 220+ seats, or the fleet's reading of the job). */
+const wideWork = (o: { requirements: ContractOffer['requirements'] }) => o.requirements.body === 'wide' || o.requirements.minSeats > 220 || isWideJob(o.requirements);
+
+/**
+ * v0.9 round 5: would the roster crew the offer's first two days? Signed on a copy of the game (the engine rosters at
+ * signing); true when no required seat of its trips reporting within two days of the start is left empty.
+ */
+function crewableSoon(g: GameState, o: ContractOffer, aircraftId: string): boolean {
+  const h = previewCopy(g);
+  const r = acceptOffer(h, o.id, [aircraftId], { paint: paintOn(o) });
+  if (!r.ok) return true;
+  const cid = r.data!.contractId;
+  for (const p of Object.values(h.pairings)) {
+    if (p.contractId !== cid || p.start > o.start + 2 * DAY || !requiredEmpty(p)) continue;
+    return false;
+  }
+  return true;
+}
+
 const CODE: Partial<Record<Archetype, string>> = {
   seasonBase: 'SB', aogCover: 'AC', adhoc: 'AH', sports: 'SP', repatriation: 'RP', tourSeries: 'TS', troopRotation: 'TR', evacuation: 'EV', vip: 'VI',
   // v0.8
@@ -372,6 +396,22 @@ function offers(g: GameState, t: Tally): void {
       }
     }
     if (!best) continue;
+    // v0.9 round 5: a widebody flies widebody work. General (narrowbody-sized) work goes to it only with a week's notice
+    // and one such job at a time: a 747 on AOG covers, sub-charters and ad hoc legs at a day's notice lost the year.
+    if (typeOf(g.fleet[best.aircraftId].typeId).body === 'wide' && !wideWork(o)) {
+      const held = Object.values(g.contracts).filter((k) => (k.status === 'signed' || k.status === 'active') && k.aircraftIds.includes(best.aircraftId) && k.end > g.now && !wideWork(k) && k.pattern.kind !== 'base').length;
+      if (o.start < g.now + 7 * DAY || held >= 1) {
+        t.wideCapped++;
+        continue;
+      }
+    }
+    // v0.9 round 5: short notice (inside two days) only when the roster can crew the first two days: signed on a copy
+    // first, as a crew desk checks the crewing before the sales desk says yes (an AOG cover at a station a day away
+    // from every free crew member went red at once on seeds 1 and 4).
+    if (o.start < g.now + 2 * DAY && !crewableSoon(g, o, best.aircraftId)) {
+      t.shortSkipped++;
+      continue;
+    }
     // A long-lead base deal is worth one counter at +5%; a refusal reopens it at the asking price.
     if (isBase(o) && !o.counter && o.product.kind === 'wet' && o.start > g.now + 14 * DAY && o.expires > g.now + 36 * 60) {
       if (counterOffer(g, o.id, o.product.ratePerBH * 1.05, [best.aircraftId], { paint: paintOn(o) }).ok) {
@@ -850,9 +890,30 @@ function fleet(g: GameState, t: Tally): void {
     // day 76 with no work): a widebody job in hand, or a last quarter that carries the lease while it waits; and not
     // before a first quarter is in (the Startup's cash: --b744 signed a 747 on day 13 for a June job, went insolvent).
     if (WIDE ? recent.length < 3 || !(job || carry) : !earning || !(job || carry)) continue;
-    if (acquireAircraft(g, o.id).ok) {
+    // v0.9 round 5: the job in hand. The lease is signed only for a job the airline signs in the same breath: tried on a
+    // copy first (the lease and the contract back to back), then for real. A lease signed on an open offer that lapsed
+    // or went to a rival before delivery parked a 747 at $400K a month (the B744 run went insolvent).
+    if (!job) {
+      t.leaseNoJob++;
+      continue;
+    }
+    const h = previewCopy(g);
+    const rh = acquireAircraft(h, o.id);
+    if (!rh.ok || !acceptOffer(h, job.id, [rh.data!.aircraftId], { paint: paintOn(job) }).ok) {
+      t.leaseNoJob++;
+      continue;
+    }
+    const r = acquireAircraft(g, o.id);
+    if (r.ok) {
       t.wideSigned = g.now;
-      t.signed.push(`${typeOf(o.typeId).short} day ${Math.floor((g.now - g.started) / DAY)} at ${o.site}${job ? '' : ' (no job yet)'}`);
+      const signedJob = acceptOffer(g, job.id, [r.data!.aircraftId], { paint: paintOn(job) }).ok;
+      if (signedJob) {
+        t.accepted++;
+        const code = CODE[job.archetype] ?? job.archetype;
+        t.types.set(code, (t.types.get(code) ?? 0) + 1);
+        t.firstAccept ??= g.now;
+      }
+      t.signed.push(`${typeOf(o.typeId).short} day ${Math.floor((g.now - g.started) / DAY)} at ${o.site}${signedJob ? ` for ${CODE[job.archetype] ?? job.archetype}` : ' (job not signed)'}`);
       act(g, t);
       conversions(g, t);
       hire(g, t);
@@ -1361,6 +1422,64 @@ if (WHYHELD) {
     }
   });
 }
+/**
+ * v0.9 round 5 (--seatlog): the history behind a red shortage: every required seat that goes from crewed to empty (a
+ * release: who, which duty, how far ahead, the seat's mark) and every new trip or tour born with an empty required
+ * seat, to stderr; a histogram at the end of how far ahead seats emptied.
+ */
+const SEATLOG = process.argv.includes('--seatlog');
+const seatWas = new Map<string, (string | null)[]>();
+const seatHist = new Map<string, number>();
+function seatLog(g: GameState): void {
+  const open = new Set<string>();
+  for (const p of Object.values(g.pairings)) {
+    if (p.status === 'done' || p.status === 'broken' || p.end < g.now) continue;
+    open.add(p.id);
+    const now = p.slots.map((s) => (s.above ? 'x' : s.crewId));
+    const was = seatWas.get(p.id);
+    const first = p.dutyIds.map((id) => g.duties[id]).filter((d) => d && !d.done).sort((a, b) => a.report - b.report)[0];
+    const ahead = first ? ((first.report - g.now) / DAY).toFixed(1) : '-';
+    const st = first ? g.flights[first.flightIds[0]]?.from ?? first.restAt : '-';
+    const loc = first ? fmtDateTime(first.report) : '-';
+    if (!was) {
+      const empty = p.slots.filter((s) => !s.above && !s.crewId).map((s) => s.role);
+      if (empty.length && first) {
+        console.error(`${fmtDateTime(g.now)} SEAT new-empty ${p.id}${p.tour ? ` tour set ${p.tour.set}` : ''} at ${st} report ${loc} (${ahead} d) duties ${p.dutyIds.length} empty ${empty.join('+')} legality ${p.legality}`);
+        seatHist.set(`new ${Math.min(14, Math.floor(+ahead))}d`, (seatHist.get(`new ${Math.min(14, Math.floor(+ahead))}d`) ?? 0) + 1);
+      }
+    } else {
+      for (let i = 0; i < now.length; i++) {
+        if (now[i] === 'x' || now[i] || !was[i] || was[i] === 'x') continue;
+        const s = p.slots[i];
+        const c = g.crew[was[i]!];
+        console.error(`${fmtDateTime(g.now)} SEAT released ${p.id}${p.tour ? ` tour set ${p.tour.set}` : ''} at ${st} report ${loc} (${ahead} d) ${s.role} ${c ? `${c.last} ${c.status}${c.blocks?.some((b) => b.from <= g.now && b.to > g.now) ? ' blocked' : ''}` : was[i]} ooh ${s.ooh ? `${s.ooh.limit} ${s.ooh.over}` : '-'} legality ${p.legality} duties ${p.dutyIds.length}`);
+        seatHist.set(`rel ${Math.min(14, Math.floor(+ahead))}d${s.ooh ? ' ' + s.ooh.limit : ''}`, (seatHist.get(`rel ${Math.min(14, Math.floor(+ahead))}d${s.ooh ? ' ' + s.ooh.limit : ''}`) ?? 0) + 1);
+      }
+    }
+    seatWas.set(p.id, now);
+  }
+  for (const id of [...seatWas.keys()]) if (!open.has(id)) seatWas.delete(id);
+  // Contracts signed since the last step: archetype, pattern, lead to the first leg (a short-lead job is crewed from nothing).
+  for (const k of Object.values(g.contracts)) {
+    if (seatContracts.has(k.id)) continue;
+    seatContracts.add(k.id);
+    if (k.signed < g.now - STEP) continue;
+    console.error(`${fmtDateTime(g.now)} SEAT contract ${k.id} ${k.archetype} ${k.pattern.kind}${k.pattern.kind === 'base' ? ' ' + k.pattern.base : ''} start ${fmtDateTime(k.start)} (${((k.start - g.now) / DAY).toFixed(1)} d) end ${fmtDay(k.end)} aircraft ${k.aircraftIds.map((id) => g.fleet[id]?.reg ?? id).join('+')}`);
+  }
+  // Crew found illegal on a duty within 3 days (the guard takes them off 2 h before report): the issue, once.
+  for (const d of Object.values(g.duties)) {
+    if (d.done || d.report < g.now || d.report > g.now + 3 * DAY) continue;
+    for (const x of crewIssuesFor(g, d)) {
+      const key = `${x.crewId}:${d.id}:${x.issue.code}`;
+      if (seatIssues.has(key)) continue;
+      seatIssues.add(key);
+      const c = g.crew[x.crewId];
+      console.error(`${fmtDateTime(g.now)} SEAT illegal ${d.pairingId} duty ${d.id} at ${g.flights[d.flightIds[0]]?.from ?? d.restAt} report ${fmtDateTime(d.report)} (${((d.report - g.now) / DAY).toFixed(1)} d) ${c?.role} ${c?.last}: ${x.issue.code} ${x.issue.text}`);
+    }
+  }
+}
+const seatContracts = new Set<string>();
+const seatIssues = new Set<string>();
 const tally = newTally();
 const end = g.started + days * DAY;
 const seenFlight = new Set<string>();
@@ -1428,6 +1547,7 @@ const mixedSeen = new Set<string>();
 function onStep(): void {
   const m = mon(monthKey(g.now));
   if (WHYHELD) noteOffShare(g);
+  if (SEATLOG) seatLog(g);
   if (WHYHELD) for (const x of shortFlights(g)) {
     const f = g.flights[x.flightId];
     if (!f.crewAlert || alertSeen.get(f.id) === f.crewAlert) continue;
@@ -1743,9 +1863,9 @@ console.log(`ladder: widebody signed ${dayOf(tally.wideSigned)}; tour series / t
   // v0.7.1 Crew Control: ladder stages, fixes by kind, jets and their share of revenue (soft targets, §16).
   const fixes = [...tally.crewFixes].sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(', ') || 'none';
   const jetShare = revenueY ? (s.jetSpend ?? 0) / revenueY : 0;
-  console.log(`crew control: amber ${s.crewAmber ?? 0}, red ${s.crewRed ?? 0}, fixes {${fixes}}, jets ${s.jets ?? 0} ${k$(s.jetSpend ?? 0)} (${(jetShare * 100).toFixed(2)}% of revenue)`);
+  console.log(`crew control: amber ${s.crewAmber ?? 0}, red ${s.crewRed ?? 0} (out of hours ${g.stats.v09?.oohRed ?? 0}), fixes {${fixes}}, jets ${s.jets ?? 0} ${k$(s.jetSpend ?? 0)} (${(jetShare * 100).toFixed(2)}% of revenue) · short-notice offers passed over ${tally.shortSkipped}, widebody general work capped ${tally.wideCapped}, leases without a job ${tally.leaseNoJob}`);
   softTargets.push(['jets ≤ 8 a year and ≤ 1% of revenue', (s.jets ?? 0) * (365 / days) <= 8 && jetShare <= 0.01, `${s.jets ?? 0} jets, ${k$(s.jetSpend ?? 0)}`]);
-  softTargets.push(['red crew shortages ≤ 12 a year', (s.crewRed ?? 0) * (365 / days) <= 12, `${s.crewRed ?? 0} red, ${s.crewAmber ?? 0} amber`]);
+  softTargets.push(['red crew shortages ≤ 12 a year', (s.crewRed ?? 0) * (365 / days) <= 12, `${s.crewRed ?? 0} red (${g.stats.v09?.oohRed ?? 0} out of hours), ${s.crewAmber ?? 0} amber`]);
 }
 // v0.5.1 client paint: jobs in the paint shop, and what paint cost net of the clients' share (all months incl. the open one).
 {
@@ -1953,6 +2073,7 @@ console.log(
     softTargets.push(['roster: standby + reserve ≥ 85% of the free days (v0.9)', pct(sby, free) >= 85, `${pct(sby, free)}%`]);
   }
 }
+if (SEATLOG) console.log(`seats emptied (how far ahead): ${[...seatHist].sort().map(([k, n]) => `${k} ${n}`).join(' · ')}`);
 console.log('\ntargets');
 for (const [name, ok, val] of targets) console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${name.padEnd(38)} ${val}`);
 for (const [name, ok, val] of softTargets) console.log(`  ${ok ? 'ok  ' : 'no  '}  ${name} — ${val}`);
