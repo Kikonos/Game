@@ -1154,8 +1154,9 @@ export function onFlightsChanged(g: GameState, aircraftId: string, t: Minute): v
 export function rerosterFrom(g: GameState, aircraftId: string, t: Minute): RosterResult {
   // v0.9 round 5 speed (§R.19): what each crewed trip's check read, as checked below; after the fill, a trip whose
   // seats, duties and crew timelines are as they were keeps that check (the fill of one seat bumped the revision
-  // and had every crewed trip of the aircraft planned again: a sixth of all re-checks).
-  const checked = new Map<Pairing, unknown[]>();
+  // and had every crewed trip of the aircraft planned again: a sixth of all re-checks). The check's own result is kept
+  // with it and written back: a prior-only check in between (fillPairing, splitPairing) rewrites p.legality.
+  const checked = new Map<Pairing, { sig: unknown[]; level: Legality; from: Minute | undefined }>();
   for (const p of [...(crewIx(g).byAircraft.get(aircraftId) ?? [])]) {
     if (!g.pairings[p.id] || p.status === 'done' || p.status === 'broken' || p.end < t) continue;
     if (p.tour || p.dutyIds.length === 1) {
@@ -1172,8 +1173,9 @@ export function rerosterFrom(g: GameState, aircraftId: string, t: Minute): Roste
     if (crewCount(p) === 0) continue;
     const firstOpen = openDuties(g, p)[0];
     if (!firstOpen) {
-      checked.set(p, checkSig(g, p));
+      const sig = checkSig(g, p);
       recheckPairing(g, p);
+      checked.set(p, { sig, level: p.legality, from: p.illegalFrom });
       continue;
     }
     // Under way (the first open duty has reported): its crew stay on it (the gate check guards that duty).
@@ -1196,6 +1198,7 @@ export function rerosterFrom(g: GameState, aircraftId: string, t: Minute): Roste
     // the same crew or, through a loose ticket it leaves out, one the full view rightly clears.
     const sig = checkSig(g, p);
     const full = recheckPairing(g, p);
+    const fullFrom = p.illegalFrom;
     const rc = full.illegal.length ? recheckPairing(g, p, true) : full;
     const out = rc.illegal.filter((id) => !p.slots.some((s) => s.crewId === id && s.locked) && (under || !(g.crew[id] && retick(g, p, g.crew[id]))));
     const cut = Math.min(...out.map((id) => rc.from.get(id) ?? 0));
@@ -1215,7 +1218,7 @@ export function rerosterFrom(g: GameState, aircraftId: string, t: Minute): Roste
     }
     setFlightsCrew(g, p);
     if (q) setFlightsCrew(g, q);
-    if (!out.length) checked.set(p, sig);
+    if (!out.length) checked.set(p, { sig, level: full.level, from: fullFrom });
   }
   // v0.9 round 4 speed: no revision bump of its own (every change above makes one): a re-roster that changes nothing
   // leaves the step's cached plans standing for the re-checks below.
@@ -1223,7 +1226,12 @@ export function rerosterFrom(g: GameState, aircraftId: string, t: Minute): Roste
   for (const p of crewIx(g).byAircraft.get(aircraftId) ?? []) {
     if (p.status === 'done' || p.end < t || crewCount(p) === 0) continue;
     const was = checked.get(p);
-    if (was && sameSig(was, checkSig(g, p))) continue;
+    if (was && sameSig(was.sig, checkSig(g, p))) {
+      p.legality = was.level;
+      if (was.from === undefined) delete p.illegalFrom;
+      else p.illegalFrom = was.from;
+      continue;
+    }
     recheckPairing(g, p);
   }
   return res;
