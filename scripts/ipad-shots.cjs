@@ -650,6 +650,8 @@ Object.assign(ACTIONS, {
     await nav(page, 'fleet', { sel: { kind: 'aircraft', id } });
     await page.evaluate(() => document.querySelector('.sc-ac-crew')?.scrollIntoView({ block: 'center' }));
     const card = page.locator(`.sc-ac[data-ac="${id}"] .sc-ac-crew`);
+    // Both A320s dry-leased out (seen at 1180×750, day 49): no crew block anywhere, nothing to press.
+    if (!(await card.count())) throw new Error('SKIP every aircraft is leased out or delivering: no crew block');
     const x = await page.evaluate((a) => window.__contrail.game.fleet[a].crewExtra, id);
     if (!x || x.cabin < 2) {
       await press(page, card.locator('button[aria-label="Increase"]'), d);
