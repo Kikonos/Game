@@ -354,6 +354,52 @@ describe('v0.9 round 3: the ticket home after a late release', () => {
   });
 });
 
+describe('v0.9.1: a stand-alone ticket home counts on the 168 h', () => {
+  it('a ticket home no duty holds (its duty sub-chartered) landing past the 168 h is moved to the first seat after the rest', async () => {
+    const { rebookLooseTickets } = await import('./roster');
+    const { BAL } = await import('../core/balance');
+    const { touchTickets } = await import('../core/entities');
+    const { touchCrew } = await import('./timeline');
+    const g = fixtureGame();
+    const ac = Object.values(g.fleet)[0];
+    ac.at = 'FAO';
+    const std = Math.floor(g.now / DAY) * DAY + 2 * DAY + 9 * 60;
+    const a1 = addFlight(g, { no: 'AW1', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'FAO', to: 'FNC', std, sta: std + 110 });
+    addFlight(g, { no: 'AW2', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'FNC', to: 'FAO', std: std + 160, sta: std + 270 });
+    autoRoster(g);
+    const d = g.duties[a1.dutyId!];
+    const home = Object.values(g.flights).find((f) => f.kind === 'deadhead' && f.from === 'FAO' && f.to === 'LIS' && f.status === 'scheduled')!;
+    expect(home).toBeDefined();
+    const c = g.crew[home.crewIds[0]];
+    const R = d.release;
+    const H = 60;
+    // Seed 2: the last duty released 144 h after the last recovery rest; the trip's next duty went to a sub-charter
+    // and its ticket home, the next day, stayed with nobody's duty (landing at 171 h).
+    c.lastRecovery = R - 144 * H;
+    c.log = [1, 2, 3].map((k) => ({ start: R - k * DAY - 14 * H, end: R - k * DAY - 6 * H, fdp: 8 * H, block: 6 * H, sectors: 2, augmented: false, disruptive: false }));
+    c.log.push({ start: d.report, end: R, fdp: R - d.report, block: 220, sectors: 2, augmented: false, disruptive: false });
+    c.restUntil = R + 10 * H;
+    d.done = true;
+    for (const id of d.flightIds) g.flights[id].status = 'done';
+    d.deadheadIds = d.deadheadIds.filter((x) => x !== home.id);
+    const ci = BAL.deadheadCheckIn;
+    const blk = home.sta - home.std;
+    home.std = R + 23 * H + ci;
+    home.sta = home.std + blk;
+    g.now = R + 10;
+    touchTickets(g);
+    touchCrew(g);
+    expect(evalSegs(ctxOf(g, c), segsOf(g, c)).some((i) => i.code === 'recovery' && i.level === 'illegal')).toBe(true);
+    rebookLooseTickets(g);
+    const mine = Object.values(g.flights).filter((f) => f.kind === 'deadhead' && f.status === 'scheduled' && f.crewIds.includes(c.id) && f.from === 'FAO');
+    expect(mine).toHaveLength(1);
+    expect(mine[0].sta).toBeLessThanOrEqual(c.lastRecovery + LIMITS.recoveryEvery - 60);
+    expect(mine[0].std).toBeGreaterThanOrEqual(c.restUntil);
+    const work = segsOf(g, c).filter((x) => !(x.kind === 'sby' && x.start > g.now));
+    expect(evalSegs(ctxOf(g, c), work).filter((i) => i.code === 'recovery' && i.level === 'illegal')).toEqual([]);
+  });
+});
+
 describe('performance', () => {
   const month = () => {
     const g = fixtureGame();

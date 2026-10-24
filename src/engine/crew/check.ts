@@ -146,6 +146,7 @@ function planCrewRaw(g: GameState, c: CrewMember, p: Pairing, base: Seg[], exist
   const issues: LegalityIssue[] = [];
   const dropped: string[] = [];
   let booked: TicketPlan | null = null;
+  let loose: string | undefined;
   if (existing) {
     for (const fid of [...first.deadheadIds, ...last.deadheadIds]) {
       const f = g.flights[fid];
@@ -160,6 +161,17 @@ function planCrewRaw(g: GameState, c: CrewMember, p: Pairing, base: Seg[], exist
         if (!f || f.status !== 'scheduled' || f === out || f === home || !aboard(f, c.id)) continue;
         issues.push({ code: 'location', level: 'illegal', text: `Ticket ${f.from}–${f.to} clashes with the trip`, dutyId: d.id });
         break;
+      }
+    }
+    // v0.9.1: a stand-alone ticket home (its duty left the trip: a tour that shrank) is still the crew's way home
+    // after the last duty: it counts on the 168 h like one bought with the trip (seed 2: 23 h at the hotel, then a
+    // ticket landing 171 h after the last recovery, which no check saw).
+    if (!home && last.restAt !== c.base) {
+      const t = looseHome(g, c, base, last);
+      if (t) {
+        home = t;
+        loose = t.id;
+        base = withoutTickets(base, [t.id]);
       }
     }
     const at = out ? out.to : locAt(c, base, first.report);
@@ -217,11 +229,13 @@ function planCrewRaw(g: GameState, c: CrewMember, p: Pairing, base: Seg[], exist
       } else out = plain;
     }
   }
-  // A new ticket home that would break the 168 h recovery: the crew take their recovery at the hotel first.
-  if (!existing && home && ftl.some((i) => i.code === 'recovery' && i.level === 'illegal' && i.dutyId === last.id)) {
+  // A new ticket home that would break the 168 h recovery: the crew take their recovery at the hotel first (v0.9.1: or
+  // a stand-alone one is moved: the plain ticket after the duty first, else after the recovery; rebookHomeForRecovery
+  // buys it at the release).
+  if ((!existing || loose) && home && ftl.some((i) => i.code === 'recovery' && i.level === 'illegal' && i.dutyId === last.id)) {
     const plain = home;
-    for (const wait of [LIMITS.recovery, LIMITS.recovery + 12 * 60, LIMITS.recoveryLong]) {
-      home = planHomeAfter(last, c.base, wait);
+    for (const wait of loose ? [-1, LIMITS.recovery, LIMITS.recovery + 12 * 60, LIMITS.recoveryLong] : [LIMITS.recovery, LIMITS.recovery + 12 * 60, LIMITS.recoveryLong]) {
+      home = wait < 0 ? planHome(last, c.base, cabinEarly(g, p)) : planHomeAfter(last, c.base, wait);
       const s2 = buildSegs(g, c, p, duties, out, home);
       const f2 = evalSegs(ctx, merge(base, s2));
       if (!f2.some((i) => i.code === 'recovery' && i.level === 'illegal')) {
@@ -261,6 +275,21 @@ function planCrewRaw(g: GameState, c: CrewMember, p: Pairing, base: Seg[], exist
   }
   issues.push(...ftl);
   return { level: levelOf(issues), issues, out, home, segs, drop: dropped.length ? dropped : undefined };
+}
+
+/**
+ * v0.9.1: c's stand-alone ticket (no duty holds it) out of the last duty's rest airport, the first work after that
+ * duty's release and before the next report there: the trip's ticket home in all but name.
+ */
+export function looseHome(g: GameState, c: CrewMember, base: Seg[], last: Duty): Flight | null {
+  const ix = crewIx(g);
+  for (const s of base) {
+    if (s.kind === 'log' || s.end <= last.release) continue;
+    if (s.kind !== 'pos' || !s.ticketId || s.from !== last.restAt) return null;
+    const f = g.flights[s.ticketId];
+    return f && f.status === 'scheduled' && f.std >= last.release && !ix.ticketDuty.has(f.id) && aboard(f, c.id) ? f : null;
+  }
+  return null;
 }
 
 /** Fresh segs of the pairing's open duties with the planned tickets (out before the first, home after the last). */

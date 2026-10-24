@@ -295,11 +295,60 @@ function sendHome(g: GameState, c: CrewMember, p?: Pairing): void {
 }
 
 /**
+ * v0.9.1 (§R.19): a stand-alone ticket (no duty holds it: a sub-charter or cancellation took the trip's last duty, the
+ * crew keep their ticket home) counts on the 168 h like any positioning, and nothing re-checked it: seed 2's crew sat
+ * 23 h at the hotel after their last duty and the ticket home landed 171 h after their last recovery rest. One that
+ * would land past it (with RECOVERY_KEEP_POS in hand) is moved: to the first seat once the crew's rest is over when that
+ * lands in time, else after the recovery rest at the hotel (as sendHome plans one). `only`: these crew members.
+ */
+export function rebookLooseTickets(g: GameState, only?: Set<string>): void {
+  const ci = BAL.deadheadCheckIn;
+  const ix = crewIx(g);
+  for (const f of [...deadheadFlights(g)]) {
+    if (f.status !== 'scheduled' || f.std - ci <= g.now || ix.ticketDuty.has(f.id)) continue;
+    const moves = new Map<number, string[]>();
+    for (const cid of f.crewIds) {
+      const c = g.crew[cid];
+      if (!c || (only && !only.has(cid))) continue;
+      // Standby not started yet gives way (it is re-fitted after the rebooking).
+      const segs = segsOf(g, c).filter((x) => x.ticketId !== f.id && !(x.kind === 'sby' && x.start > g.now));
+      const ctx = ctxOf(g, c);
+      const blk = f.sta - f.std;
+      const fits = (std: Minute) => std + blk + RECOVERY_KEEP_POS <= recoveryAnchor(ctx, segs, std - ci) + LIMITS.recoveryEvery;
+      if (fits(f.std)) continue;
+      let std = Math.ceil((Math.max(g.now + ci, c.restUntil) + 60) / 60) * 60;
+      if (std >= f.std || !fits(std)) {
+        std = 0;
+        for (let t = f.std; t < f.std + 4 * DAY; t += 60) {
+          if (recoveryAnchor(ctx, segs, t - ci) < t - ci) continue;
+          std = t;
+          break;
+        }
+      }
+      if (std) moves.set(std, [...(moves.get(std) ?? []), cid]);
+    }
+    for (const [std, ids] of moves) {
+      const { from, to, contractId } = f;
+      const blk = f.sta - f.std;
+      const each = (f.cost ?? 0) / Math.max(1, f.crewIds.length);
+      for (const cid of ids) unboard(g, f, cid);
+      addDeadhead(g, { crewIds: ids, from, to, std, sta: std + blk, cost: Math.round(each * ids.length), contractId });
+      if (each) post(g, 'deadhead', -Math.round(each * ids.length));
+      touchCrew(g);
+      fitStandby(g, ids);
+    }
+  }
+}
+/** v0.9.1: what a moved ticket keeps in hand on the 168 h (rules.ts RECOVERY_KEEP: a delay on the day). */
+const RECOVERY_KEEP_POS = 60;
+
+/**
  * Daily: crewed trips and tours with a duty reporting in the next week are re-checked (a ticket moved, a crew
  * member stranded elsewhere, a recovery or rest a delay ate); broken ones are re-rostered while there is still
  * time to position someone (a tour under way is split before the duty its crew can't fly).
  */
 export function recheckSoon(g: GameState): void {
+  rebookLooseTickets(g);
   const acs = new Set<string>();
   for (const p of Object.values(g.pairings)) {
     if (!p.aircraftId || crewCount(p) === 0) continue;
@@ -322,6 +371,7 @@ export function recheckAfterRelease(g: GameState, p: Pairing): void {
   rebookHomeForRecovery(g, p);
   const acs = new Set<string>();
   const ids = p.slots.filter((s) => s.crewId).map((s) => s.crewId!);
+  rebookLooseTickets(g, new Set(ids));
   if (openDuties(g, p).length && p.aircraftId && recheckPairing(g, p).level === 'illegal' && p.illegalFrom !== undefined) acs.add(p.aircraftId);
   for (const ac of laterBroken(g, ids, p)) acs.add(ac);
   if (g.company.policies.autoRoster) for (const ac of acs) rerosterFrom(g, ac, g.now);
@@ -1096,6 +1146,7 @@ export function onFlightsChanged(g: GameState, aircraftId: string, t: Minute): v
   let reroster = false;
   let changed = false;
   const later: [Pairing, Set<string>][] = [];
+  const loose = new Set<string>();
   for (const p of [...(crewIx(g).byAircraft.get(aircraftId) ?? [])]) {
     if (p.status === 'done' || p.status === 'broken' || p.end < t - DAY || !g.pairings[p.id]) continue;
     let pChanged = false;
@@ -1118,6 +1169,7 @@ export function onFlightsChanged(g: GameState, aircraftId: string, t: Minute): v
       pChanged = true;
       if (!keep.length) {
         detachDuty(g, p, d);
+        if (!openDuties(g, p).length) for (const x of p.slots) if (x.crewId) loose.add(x.crewId);
         continue;
       }
       d.flightIds = keep;
@@ -1148,6 +1200,8 @@ export function onFlightsChanged(g: GameState, aircraftId: string, t: Minute): v
   }
   touchCrew(g);
   for (const [p, ids] of later) recheckLater(g, ids, p);
+  // v0.9.1: a trip's last duty gone under way leaves its crew a stand-alone ticket home to re-check.
+  if (loose.size) rebookLooseTickets(g, loose);
   // Flights new to this aircraft (or dropped from a duty) still to fly.
   const own = new Set<string>();
   for (const p of crewIx(g).byAircraft.get(aircraftId) ?? []) for (const did of p.dutyIds) for (const fid of g.duties[did]?.flightIds ?? []) own.add(fid);
