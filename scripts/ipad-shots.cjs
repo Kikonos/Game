@@ -142,7 +142,9 @@ if (badViews.length) { console.error(`Unknown views: ${badViews.join(', ')} (use
 fs.mkdirSync(args.out, { recursive: true });
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const withTimeout = (p, ms, what) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(`timeout: ${what}`)), ms))]);
+// The guard timer is cleared once the promise settles: a pending long timer (the 40-day autoplay's) kept node alive
+// for minutes after "Done." (the loop had nothing else to wait for but still waited for it).
+const withTimeout = (p, ms, what) => { let t; return Promise.race([p, new Promise((_, rej) => { t = setTimeout(() => rej(new Error(`timeout: ${what}`)), ms); })]).finally(() => clearTimeout(t)); };
 
 /** CSS + overlay simulating the home-screen app or the artifact host (never for desktop). */
 function hostCss(desktop) {
