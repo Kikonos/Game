@@ -1184,7 +1184,9 @@ function crewControlPolicy(g: GameState, t: Tally): void {
     // discretion, then the delay, then a sub-charter, each read only when the one before it is not taken.
     const jetOk = x.hoursLeft <= 18 && v.unit.pax >= 100 && (g.stats.jets ?? 0) < 8;
     const only: CrewFix[] = jetOk ? (skipDelay ? ['jet', 'discretion'] : ['jet', 'delay', 'discretion']) : ['discretion'];
-    const first = view(only, false, jetOk ? undefined : lateCapMin);
+    // v0.9.1 speed: capped with the jet weighed too (a wait past the cap is refused below either way, and a jet that saves
+    // 3 h on it is the same pick as on no wait at all).
+    const first = view(only, false, lateCapMin);
     if (!first || first.stage === 'ok') continue;
     // A jet when it gets a crew there at least 3 h sooner than waiting for a ticket, with passengers at stake.
     const jet = sol(first, 'jet');

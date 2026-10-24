@@ -54,6 +54,9 @@ export interface Settings {
   /** v0.9 §S.5 sound categories (master = `sound`, `volume`); ambience stays off unless chosen. */
   soundCats: { alerts: boolean; chimes: boolean; flights: boolean; ui: boolean };
   ambience: Ambience;
+  /** v0.9.1 calm background music: on by default at a low volume (its own switch and volume; ambience stays apart). */
+  music: boolean;
+  musicVolume: number;
   /** v0.9 §14.2 screens whose first-time hint the player switched off ('Don't show again'). */
   screenHintsSeen: string[];
   /** v0.9 §X: '' until the one-time What's new catch-up (v0.9 + v0.8 + v0.7.4) has been shown, then 'v0.9'. */
@@ -74,6 +77,8 @@ const DEFAULT_SETTINGS: Settings = {
   hintsSeen: [],
   soundCats: { alerts: true, chimes: true, flights: false, ui: true },
   ambience: 'off',
+  music: true,
+  musicVolume: 0.35,
   screenHintsSeen: [],
   whatsNewCatchUp: '',
 };
@@ -159,13 +164,19 @@ export function applyTopGap(s: Pick<Settings, 'topGap'>) {
   }
 }
 
+/** Stored settings (an older version's included) with every missing field at its default. Pure. */
+export function settingsFrom(s: Partial<Settings>): Settings {
+  const out: Settings = { ...DEFAULT_SETTINGS, ...s, autoPause: { ...DEFAULT_SETTINGS.autoPause, ...s.autoPause }, soundCats: { ...DEFAULT_SETTINGS.soundCats, ...s.soundCats } };
+  // v0.9.1 settings saved before the music: on, at its low default.
+  out.music ??= DEFAULT_SETTINGS.music;
+  out.musicVolume ??= DEFAULT_SETTINGS.musicVolume;
+  return out;
+}
+
 function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
-    if (raw) {
-      const s = JSON.parse(raw) as Partial<Settings>;
-      return { ...DEFAULT_SETTINGS, ...s, autoPause: { ...DEFAULT_SETTINGS.autoPause, ...s.autoPause }, soundCats: { ...DEFAULT_SETTINGS.soundCats, ...s.soundCats } };
-    }
+    if (raw) return settingsFrom(JSON.parse(raw) as Partial<Settings>);
   } catch {
     // storage unavailable
   }
@@ -1019,7 +1030,7 @@ const HEAD_EARNED = /^You['’]ve earned /;
 const HEADS_AVAILABLE = /department heads? (?:is|are) available/i;
 
 function configureSound(s: Settings) {
-  sound.configure({ on: s.sound, volume: s.volume, cats: s.soundCats, ambience: s.ambience });
+  sound.configure({ on: s.sound, volume: s.volume, cats: s.soundCats, ambience: s.ambience, music: s.music, musicVolume: s.musicVolume });
 }
 
 /** v0.9 §S.3 soft UI clicks: any button taps; toggles, segmented controls and speed buttons tick (capture, no React). */

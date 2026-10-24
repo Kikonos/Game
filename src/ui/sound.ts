@@ -6,11 +6,12 @@
 // only for CREW SHORTAGE and CREW OUT OF HOURS. Nothing plays before the first tap (iOS audio unlock).
 
 import type { Cue } from '../engine/core/cues';
+import { MUSIC_FADE, musicLevel, MusicPlayer } from './music';
 
 export type SoundId =
   | 'tap' | 'toggle' | 'error' | 'high' | 'low' | 'ding' | 'highLow' | 'highLowSoft' | 'double' | 'triple' | 'alarm'
-  | 'achievement' | 'flourish' | 'ambCabin' | 'ambTerminal';
-export type SoundCat = 'alerts' | 'chimes' | 'ui' | 'ambience';
+  | 'achievement' | 'flourish' | 'ambCabin' | 'ambTerminal' | 'music';
+export type SoundCat = 'alerts' | 'chimes' | 'ui' | 'ambience' | 'music';
 /** UI-only events (the engine's cues are the rest). */
 export type UiEvent = 'tap' | 'toggle' | 'toggleOff' | 'error' | 'pause' | 'resume';
 export type SoundEvent = Cue | UiEvent;
@@ -35,6 +36,7 @@ export const CAT_OF: Record<SoundId, SoundCat> = {
   high: 'chimes', low: 'chimes', ding: 'chimes', highLow: 'chimes', highLowSoft: 'chimes', achievement: 'chimes', flourish: 'chimes',
   double: 'alerts', triple: 'alerts', alarm: 'alerts',
   ambCabin: 'ambience', ambTerminal: 'ambience',
+  music: 'music',
 };
 
 /** Merge priority (§S.4): the highest in a window plays once. */
@@ -70,6 +72,7 @@ export const SOUND_MEANING: { id: SoundId; name: string; meaning: string }[] = [
   { id: 'error', name: 'Soft dunk', meaning: 'An action that is not possible' },
   { id: 'ambCabin', name: 'Cabin hum', meaning: 'Ambience: a quiet cabin in cruise' },
   { id: 'ambTerminal', name: 'Terminal air', meaning: 'Ambience: a terminal in the distance' },
+  { id: 'music', name: 'Music', meaning: 'Calm background music: soft pads and a few piano notes' },
 ];
 
 export interface SoundConfig {
@@ -77,9 +80,14 @@ export interface SoundConfig {
   volume: number;
   cats: { alerts: boolean; chimes: boolean; flights: boolean; ui: boolean };
   ambience: Ambience;
+  /** v0.9.1 background music: its own switch and volume, under the master switch and volume. */
+  music: boolean;
+  musicVolume: number;
 }
 
-const CAT_GAIN: Record<SoundCat, number> = { alerts: 1, chimes: 0.8, ui: 0.5, ambience: 0.25 };
+const CAT_GAIN: Record<SoundCat, number> = { alerts: 1, chimes: 0.8, ui: 0.5, ambience: 0.25, music: 1 };
+/** v0.9.1 how long the music stays dipped under a chime (s); alerts use their own length. */
+const DUCK_SEC: Partial<Record<SoundId, number>> = { high: 1.4, low: 1.6, ding: 1, highLow: 2, highLowSoft: 2.4, achievement: 2, flourish: 1.8, double: 2.2, triple: 3.3, alarm: 2.8 };
 
 /**
  * Merge rule (pure, for tests): given the requests of one window and the last sound that played, the sound to play now
@@ -108,7 +116,10 @@ class Sound {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private bus: Partial<Record<SoundCat, GainNode>> = {};
-  private cfg: SoundConfig = { on: true, volume: 0.6, cats: { alerts: true, chimes: true, flights: false, ui: true }, ambience: 'off' };
+  private cfg: SoundConfig = { on: true, volume: 0.6, cats: { alerts: true, chimes: true, flights: false, ui: true }, ambience: 'off', music: true, musicVolume: 0.35 };
+  private music: MusicPlayer | null = null;
+  private visible = true;
+  private hideTimer: ReturnType<typeof setTimeout> | null = null;
   private unlocked = false;
   private pending: SoundId[] = [];
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -127,6 +138,7 @@ class Sound {
     this.cfg = { ...this.cfg, ...c, cats: { ...this.cfg.cats, ...c.cats } };
     this.applyGains();
     this.syncAmbience();
+    this.syncMusic();
   }
 
   get isUnlocked(): boolean {
@@ -149,12 +161,40 @@ class Sound {
     };
     window.addEventListener('pointerdown', go, true);
     window.addEventListener('keydown', go, true);
-    document.addEventListener('visibilitychange', () => {
-      const c = this.ctx;
-      if (!c) return;
-      if (document.visibilityState === 'hidden') void c.suspend().catch(() => {});
-      else if (this.unlocked) void c.resume().catch(() => {});
-    });
+    document.addEventListener('visibilitychange', () => this.setVisible(document.visibilityState !== 'hidden'));
+  }
+
+  /**
+   * v0.9.1 the app hidden or in the background: the music fades out (a few seconds, never a cut) and the context then
+   * sleeps; back in front it wakes and the music fades back in.
+   */
+  setVisible(v: boolean) {
+    this.visible = v;
+    const c = this.ctx;
+    if (!c) return;
+    if (this.hideTimer) clearTimeout(this.hideTimer);
+    this.hideTimer = null;
+    if (!v) {
+      const playing = !!this.music?.running;
+      this.syncMusic(1.5);
+      this.hideTimer = setTimeout(() => {
+        this.hideTimer = null;
+        if (!this.visible) void c.suspend().catch(() => {});
+      }, playing ? 1600 : 0);
+      return;
+    }
+    if (this.unlocked) void c.resume().catch(() => {});
+    this.syncMusic();
+  }
+
+  /** v0.9.1 the music's level for the settings and the app's visibility; it starts only after the first-tap unlock. */
+  private syncMusic(fade = MUSIC_FADE) {
+    const lvl = this.unlocked ? musicLevel(this.cfg, this.visible) : 0;
+    if (lvl === 0 && !this.music) return;
+    const c = this.context();
+    if (!c) return;
+    this.music ??= new MusicPlayer(c, this.bus.music!);
+    this.music.setLevel(lvl, fade);
   }
 
   /** Creates / resumes the context and plays a one-sample silent buffer (must run inside a user gesture). */
@@ -179,6 +219,7 @@ class Sound {
     }
     this.unlocked = true;
     this.syncAmbience();
+    this.syncMusic();
     // A request held while the context slept plays once it runs again.
     if (this.pending.length) this.timer ??= setTimeout(() => this.flush(), MERGE_MS);
   }
@@ -201,7 +242,7 @@ class Sound {
       const wet = c.createGain();
       wet.gain.value = 0.12;
       master.connect(verb).connect(wet).connect(comp);
-      for (const k of ['alerts', 'chimes', 'ui', 'ambience'] as SoundCat[]) {
+      for (const k of ['alerts', 'chimes', 'ui', 'ambience', 'music'] as SoundCat[]) {
         const gN = c.createGain();
         gN.connect(master);
         this.bus[k] = gN;
@@ -220,7 +261,8 @@ class Sound {
     if (!c || !this.master) return;
     this.master.gain.setTargetAtTime(this.cfg.on ? this.cfg.volume : 0, c.currentTime, 0.02);
     for (const k of Object.keys(this.bus) as SoundCat[]) {
-      const on = k === 'ambience' ? true : this.cfg.cats[k as 'alerts' | 'chimes' | 'ui'];
+      // Ambience and music carry their own switches (their players fade); the master gain covers both.
+      const on = k === 'ambience' || k === 'music' ? true : this.cfg.cats[k as 'alerts' | 'chimes' | 'ui'];
       this.bus[k]!.gain.setTargetAtTime(on ? CAT_GAIN[k] : 0, c.currentTime, 0.02);
     }
   }
@@ -259,6 +301,8 @@ class Sound {
     if (!id) return;
     this.last = { id, at: now };
     if (LENGTH[id]) this.alertUntil = now + LENGTH[id]! * 1000;
+    // v0.9.1 the music dips under every chime and alert, then comes back.
+    this.music?.duck(DUCK_SEC[id] ?? 1.5);
     this.render(id);
   }
 
@@ -266,6 +310,7 @@ class Sound {
   test(id: SoundId) {
     if (!this.unlocked || this.asleep) this.unlock();
     if (id === 'ambCabin' || id === 'ambTerminal') return this.preview(id === 'ambCabin' ? 'cabin' : 'terminal');
+    if (id === 'music') return this.previewMusic();
     this.render(id, { test: true });
   }
 
@@ -299,6 +344,21 @@ class Sound {
     const stop = startAmbience(c, gN, kind, 0.4);
     const t = setTimeout(() => stop(0.8), 4000);
     this.previewStop = () => { clearTimeout(t); stop(0.2); };
+  }
+
+  /** v0.9.1 Test sounds › Music: 12 s of the music whatever its setting (when it already plays, it is what you hear). */
+  private previewMusic() {
+    const c = this.context();
+    if (!c || !this.master) return;
+    if (this.music?.running && musicLevel(this.cfg, this.visible) > 0) return;
+    this.previewStop?.();
+    const gN = c.createGain();
+    gN.connect(this.master);
+    this.hearTest(c);
+    const p = new MusicPlayer(c, gN);
+    p.setLevel(musicLevel({ on: true, music: true, musicVolume: Math.max(0.35, this.cfg.musicVolume) }, true), 1);
+    const t = setTimeout(() => p.setLevel(0, 2), 12_000);
+    this.previewStop = () => { clearTimeout(t); p.setLevel(0, 0.6); };
   }
 
   /** With the master switch off, a test still plays: the master opens for a few seconds. */
@@ -360,7 +420,7 @@ class Sound {
           tone(c, out, f * 2, t + i * 0.09, 0.5, 0.012, 'triangle');
         });
         break;
-      case 'ambCabin': case 'ambTerminal': break;
+      case 'ambCabin': case 'ambTerminal': case 'music': break;
     }
   }
 }

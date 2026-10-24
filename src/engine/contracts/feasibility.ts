@@ -223,6 +223,36 @@ function crewReach(g: GameState, o: ContractOffer, typeId: string, f: TripFit | 
   return `No crew can be at ${dep} for the first departure ${fmtDateTime(std)}: the positioning crew would be on duty ${fmtDuration(end + rm.post - onFrom)}, and a crew on an airline lands ${fmtDateTime(lands)} with no time to rest`;
 }
 
+/**
+ * v0.9.1: a short-notice job (first departure inside two days) from a station where the aircraft already is, or will be
+ * without a crew: does any crew get there for the first report? Crew of the family already at the station, or a crew on
+ * the earliest airline ticket from home flying it the same day (a short hop) or after minimum rest. The card's plain
+ * line when none can; null when one can or the job is not short notice. Pure.
+ */
+function crewReachSoon(g: GameState, typeId: string, f: TripFit | undefined): string | null {
+  if (!f || f.posIn.length || !f.trip.legs.length) return null;
+  const legs = f.trip.legs;
+  const dep = legs[0].from;
+  const std = legs[0].std;
+  const home = g.company.homeBase;
+  if (dep === home || std - g.now > 2 * DAY) return null;
+  const fam = typeOf(typeId).family;
+  for (const c of Object.values(g.crew)) if (c.loc === dep && c.ratings.includes(fam) && c.status !== 'joining' && !c.notice) return null;
+  const rm = reportMinutes(typeId);
+  const report = std - rm.report;
+  let n = 1;
+  while (n < legs.length && legs[n].kind === 'techstop') n++;
+  const end = legs[n - 1].sta + rm.post;
+  const blk = dhBlock(home, dep);
+  const leaves = Math.ceil((g.now + BAL.deadheadCheckIn) / 60) * 60;
+  const lands = leaves + blk;
+  // Flown in the same day (the ticket counts towards the day: Table 2's best cell), or rested at the station first.
+  if (lands <= report && end - (leaves - BAL.deadheadCheckIn) <= 13 * 60) return null;
+  if (lands + minRest({ dutyMin: blk + BAL.deadheadCheckIn, atHome: false, augmented: false, tzShift: 0 }) <= report) return null;
+  const city = AIRPORT_BY_CODE[dep]?.city ?? dep;
+  return `No crew can reach ${city} before the ${fmtDateTime(report)} report`;
+}
+
 export function feasibility(g: GameState, offerId: string, aircraftId: string, opts: { paint?: boolean; cabin?: boolean; crewExtra?: CrewExtra; quick?: boolean } = {}): FeasibilityReport {
   const o = g.offers[offerId];
   const ac = g.fleet[aircraftId];
@@ -559,7 +589,9 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   rep.crew = flyable && !(opts.quick && rep.level === 'no') ? crewAvailability(g, t.family, t.id, winFrom, Math.max(winFrom + DAY, winTo), progBH, xc, rn.extraSets) : empty;
   const shorts = Object.entries(rep.crew.byRole).filter(([, r]) => r && r.short > 0) as [string, { short: number }][];
   const reach = flyable ? crewReach(g, o, t.id, fits[0]) : null;
+  const soon = flyable && !reach ? crewReachSoon(g, t.id, fits[0]) : null;
   if (reach) add('crew', 'no', reach, 'Too soon for this aircraft: a later start, or an aircraft already nearby.');
+  else if (soon) add('crew', 'warn', soon, 'Nobody is there and the first airline seat lands too late to rest: the seats would start empty. Ask for a later start, or pass.');
   else if (shorts.length) {
     const what = shorts.map(([role, r]) => `${r.short} ${role}`).join(', ');
     add('crew', 'warn', `Short of crew: ${what}${rep.crew.firstShort ? ` from ${fmtDay(rep.crew.firstShort)}` : ''}`, 'Hire, or the roster will deadhead crew from other work; sets may run tight.');

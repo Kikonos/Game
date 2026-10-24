@@ -16,6 +16,21 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.9.1',
+    name: 'Tuning',
+    features: [
+      'Calm background music (Settings → Sound to change the volume or turn it off).',
+    ],
+    improvements: [
+      'Fewer crew alerts: a long trip away from base now changes crews at the station halfway, instead of waiting for one crew that could never legally fly it all.',
+      'Clearer warning when a short-notice charter can’t be crewed in time: “No crew can reach Dubai before the 05:00 report”.',
+      'Flights out of a closed airport now wait for the reopening before the crew are called in, so the crew rest at the hotel instead of sitting on duty.',
+      'An empty aircraft at a quiet station leaves when a crew can get there, not before.',
+      'Days off: a crew swap or a re-plan never takes the last days off a month needs, even on its last day.',
+      'A little faster simulation.',
+    ],
+  },
+  {
     version: 'v0.9',
     name: 'Experience',
     features: [
