@@ -10,7 +10,7 @@ import { BAL } from '../core/balance';
 import { pushMessage } from '../core/messages';
 import { typeOf } from '../core/perf';
 import { DAY, daysInMonth, fmtDay, fromUTC, monthKey, monthStart, yearOf } from '../core/time';
-import type { CrewMember, GameState, Minute, MonthKey, StandbyKind, StatsRoster09, StatsV09 } from '../core/types';
+import type { CrewMember, Duty, GameState, Minute, MonthKey, StandbyKind, StatsRoster09, StatsV09 } from '../core/types';
 import { hash } from '../core/util';
 import { moraleShock } from './morale';
 import { evalSegs, offsetAt, type LegalityIssue, type Seg } from './rules';
@@ -190,6 +190,47 @@ export function monthFloorIssue(g: GameState, c: CrewMember, base: Seg[], fresh:
     let n = held;
     for (let k = lo; k < v.y1 && n < v.need; k++) if (!offOn(c, k) && !yb.hit.has(k) && !blockedOn(c, k)) n++;
     if (n < v.need) return { code: 'daysOff', level: 'illegal', text: `Days off in ${y} would fall to ${n} (minimum ${v.need})`, dutyId: work[0].dutyId };
+  }
+  return null;
+}
+
+/**
+ * v0.9 round 4 fix r2 (§R.16.6): the floor on work already rostered. A month that can no longer reach its 7 (planned days
+ * off plus every free day left, standby days included: topUpOffs turns those into days off) gets one back through the
+ * first duty of the trip reporting before 06:00 whose eve is free of all other work: that duty carries the 'daysOff'
+ * issue, the roster takes the crew member off it (Crew Control re-crews the seat as any other limit) and the eve
+ * becomes the day off. Only an eve from tomorrow on: a month found short on its last day stays as it is. Pure.
+ */
+export function eveFloorIssue(g: GameState, c: CrewMember, duties: Duty[], segs: Seg[]): LegalityIssue | null {
+  if (!g.dayPlan || !c.off) return null;
+  const mf = R().off.morningFree;
+  const today = dayIndex(c.base, g.now);
+  const from = firstPlanDay(g, c.base);
+  let busy: Busy | null = null;
+  let counted: { mk: MonthKey; n: number; legal: number } | null = null;
+  for (const d of duties) {
+    // Not the first duty of a longer trip: the crew would come off the whole trip (its positioning is the eve's work).
+    if (d.done || d.report <= g.now || (d === duties[0] && duties.length > 1)) continue;
+    const k = dayIndex(c.base, d.report - mf);
+    if (k === dayIndex(c.base, d.report) || k <= today || offOn(c, k) || blockedOn(c, k)) continue;
+    const mk = monthOfDay(k);
+    const a = firstDayOf(mk);
+    const b = firstDayOf(mk + 1);
+    // A month not counted at its close (joined in it, before the planner) asks nothing.
+    if (a < from || midnight(c.base, a) < c.hired) continue;
+    if (!counted || counted.mk !== mk) {
+      busy ??= busyDays(c, segs, today, b + 31);
+      let n = 0;
+      for (const o of c.off) if (o >= a && o < b) n++;
+      for (let x = Math.max(a, today + 1); x < b; x++) if (!offOn(c, x) && !busy.hit.has(x) && !blockedOn(c, x)) n++;
+      counted = { mk, n, legal: legalFor(c, mk) };
+    }
+    if (counted.n >= counted.legal) continue;
+    // Free of everything but this duty (its own positioning goes with it; a standby window gives way to a day off).
+    const m0 = midnight(c.base, k);
+    const m1 = m0 + DAY + mf;
+    if (segs.some((x) => x.kind !== 'log' && x.kind !== 'sby' && x.dutyId !== d.id && x.start < m1 && x.end > m0)) continue;
+    return { code: 'daysOff', level: 'illegal', text: `Days off in ${MONTH[mk % 12]} would fall to ${counted.n} (minimum ${counted.legal})`, dutyId: d.id };
   }
   return null;
 }
@@ -701,22 +742,10 @@ interface OffNeed {
   len: number;
 }
 
-/** Round 4: whether c works a deployment tour within 10 days of day D (its segs' pairings carry `tour`). */
-function onTourAround(g: GameState, c: CrewMember, segs: Seg[], D: number): boolean {
-  const a = midnight(c.base, D - 10);
-  const b = midnight(c.base, D + 10);
-  for (const x of segs) {
-    if (x.kind !== 'duty' || !x.dutyId || x.end < a || x.start > b) continue;
-    if (g.pairings[g.duties[x.dutyId]?.pairingId ?? '']?.tour) return true;
-  }
-  return false;
-}
-
-function offNeed(g: GameState, c: CrewMember, D: number, busy: Busy, tour = false): OffNeed | null {
-  const O0 = R().off;
-  // Round 4: crew on a deployment tour this month plan towards the cap and their block comes a day sooner (their
-  // tour's eves and late evenings eat the free days a base crew keeps).
-  const O = tour ? { ...O0, targetMonth: O0.maxMonth, dueAfter: Math.max(2, O0.dueAfter - 1) } : O0;
+// Round 4 fix r2: tour crews plan like everyone else (aiming at the cap with an earlier block cost seed 1 twice the
+// shortages: the sets' crews were off when their wave needed them; UPDATE-0.9.md §R.16.6).
+function offNeed(g: GameState, c: CrewMember, D: number, busy: Busy): OffNeed | null {
+  const O = R().off;
   const run = runBefore(g, c, busy, D);
   const mk = monthOfDay(D);
   const m0 = firstDayOf(mk);
@@ -803,8 +832,7 @@ function planDay(g: GameState, D: number, crew: CrewMember[], facts: Map<string,
   const needs: OffNeed[] = [];
   for (const c of crew) {
     if ((only && !only.has(c.id)) || offOn(c, D) || blockedOn(c, D) || (c.notice && midnight(c.base, D) >= c.notice.leaves)) continue;
-    const fx = facts.get(c.id)!;
-    const n = offNeed(g, c, D, fx.busy, onTourAround(g, c, fx.segs, D));
+    const n = offNeed(g, c, D, facts.get(c.id)!.busy);
     if (n) needs.push(n);
   }
   needs.sort((a, b) => Number(b.must) - Number(a.must) || Number(a.early) - Number(b.early) || b.run - a.run || b.behindBy - a.behindBy

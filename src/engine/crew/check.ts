@@ -5,7 +5,7 @@ import { BAL } from '../core/balance';
 import { typeOf } from '../core/perf';
 import { DAY, fmtDay } from '../core/time';
 import type { CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing } from '../core/types';
-import { monthFloorIssue, offIssue, offMovable } from './dayPlan';
+import { eveFloorIssue, monthFloorIssue, offIssue, offMovable } from './dayPlan';
 import { evalSegs, levelOf, LIMITS, type LegalityIssue, type Seg } from './rules';
 import { flightsRev } from '../core/entities';
 import { aboard, block12m, cabinEarly, crewIx, crewRev, ctxOf, droppableHome, droppableOut, dutyBlock, dutySegs, locAt, outTicket, planHome, planHomeAfter, planOut, segsOf, segsTagOf, typeIdOf, withoutTickets, type TicketPlan } from './timeline';
@@ -244,6 +244,10 @@ function planCrewRaw(g: GameState, c: CrewMember, p: Pairing, base: Seg[], exist
     if (floor) issues.push(floor);
   }
   if (existing) {
+    // v0.9 round 4 fix r2 (§R.16.6): a month that can no longer reach its 7 days off takes one back through an early
+    // duty whose eve is free (dayPlan.ts eveFloorIssue): the roster takes the crew member off that duty alone.
+    const eve = eveFloorIssue(g, c, duties, merge(base, segs));
+    if (eve) issues.push(eve);
     // Unforeseen delays on the day (ORO.FTL.205(f)): a held seat whose extended recovery slipped stays on the
     // duty once the crew has reported (tight); before report the crew is re-planned like any other limit (v0.9 fix:
     // the 168 h is never planned past).

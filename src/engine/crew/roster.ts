@@ -15,7 +15,7 @@ import { callIfOnStandby, dropStandby, standbyFor, callFromStandby } from './sta
 import { fitStandby, monthFloorIssue, offDaysHit, offMovable, offSwappable, takeOffDays, takesPublishedOff, v09Stats as v09StatsOf } from './dayPlan';
 import { infoOf } from './outOfHours';
 import { lateChange, moraleShock, nextReport } from './morale';
-import { cabinFdpCap, DISCRETION, evalSegs, levelOf, LIMITS, minRest, mkSeg, recoveryAnchor, tzDeltaH, worst, type Seg } from './rules';
+import { cabinFdpCap, DISCRETION, evalSegs, levelOf, LIMITS, minRest, mkSeg, recoveryAnchor, tzDeltaH, worst, type LegalityIssue, type Seg } from './rules';
 import { cabinOwnReport, planRest, restCabinN, restLegs, restOf, restPlan } from './restPlan';
 import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, locAt, noteRiders, passengers, planHome, planOut, segsOf, ticketPrice, touchCrew, typeIdOf, withoutTickets } from './timeline';
 
@@ -468,13 +468,14 @@ function dissolve(g: GameState, p: Pairing): void {
  * the report of the first duty a crew member can't fly). `priorOnly` ignores the crew's later planned work (their
  * log stays), so a conflict frees the crew from the later pairing (re-roster order).
  */
-export function recheckPairing(g: GameState, p: Pairing, priorOnly = false): { level: Legality; illegal: string[]; from: Map<string, Minute> } {
+export function recheckPairing(g: GameState, p: Pairing, priorOnly = false): { level: Legality; illegal: string[]; from: Map<string, Minute>; issue: Map<string, LegalityIssue> } {
   let level: Legality = 'legal';
   const open = openDuties(g, p);
   for (const d of open) level = worst(level, d.legality);
   const illegal: string[] = [];
-  /** Per illegal crew member: report of the first duty they can't fly. */
+  /** Per illegal crew member: report of the first duty they can't fly, and the issue there. */
   const from = new Map<string, Minute>();
+  const issue = new Map<string, LegalityIssue>();
   const own = new Set(p.dutyIds);
   let first = Infinity;
   for (const s of p.slots) {
@@ -489,7 +490,12 @@ export function recheckPairing(g: GameState, p: Pairing, priorOnly = false): { l
     const crewLevel = levelOf(mine);
     if (crewLevel === 'illegal') {
       let t = Infinity;
-      for (const i of mine) if (i.level === 'illegal') t = Math.min(t, g.duties[i.dutyId!]?.report ?? open[0]?.report ?? 0);
+      for (const i of mine) {
+        if (i.level !== 'illegal') continue;
+        const r = g.duties[i.dutyId!]?.report ?? open[0]?.report ?? 0;
+        if (r < t || !issue.has(c.id)) issue.set(c.id, i);
+        t = Math.min(t, r);
+      }
       from.set(c.id, t);
       illegal.push(c.id);
       first = Math.min(first, t);
@@ -499,7 +505,18 @@ export function recheckPairing(g: GameState, p: Pairing, priorOnly = false): { l
   p.legality = level;
   if (first < Infinity) p.illegalFrom = first;
   else delete p.illegalFrom;
-  return { level, illegal, from };
+  return { level, illegal, from, issue };
+}
+
+/**
+ * v0.9 crew out of hours (UPDATE-0.9.md §T.2): an empty seat of p remembers who reached which limit until it is
+ * refilled (fillPairing clears it). Nothing for an issue that is no limit (place, rating, status).
+ */
+function markOoh(g: GameState, p: Pairing, crewId: string, issue: LegalityIssue): void {
+  const x = infoOf(g, crewId, issue);
+  const role = g.crew[crewId]?.role;
+  const slot = p.slots.find((z) => !z.crewId && !z.above && !z.ooh && z.role === role) ?? p.slots.find((z) => !z.crewId && !z.above && !z.ooh);
+  if (slot && x) slot.ooh = { crewId, limit: x.limit, over: x.overMin, at: g.now };
 }
 
 /** Pairings of the crew's later trips (after p) that are now illegal for them; their aircraft need a re-roster. */
@@ -591,13 +608,7 @@ export function guardDuty(g: GameState, dutyId: string): boolean {
     // v0.9 crew out of hours (UPDATE-0.9.md §T.2): an empty seat remembers who reached which limit until refilled.
     const q = g.pairings[d.pairingId];
     if (q && short) {
-      for (const b of found) {
-        if (q.slots.some((x) => x.crewId === b.crewId)) continue;
-        const x = infoOf(g, b.crewId, b.issue);
-        const role = g.crew[b.crewId]?.role;
-        const slot = q.slots.find((z) => !z.crewId && !z.above && !z.ooh && z.role === role) ?? q.slots.find((z) => !z.crewId && !z.above && !z.ooh);
-        if (slot && x) slot.ooh = { crewId: b.crewId, limit: x.limit, over: x.overMin, at: g.now };
-      }
+      for (const b of found) if (!q.slots.some((x) => x.crewId === b.crewId)) markOoh(g, q, b.crewId, b.issue);
     }
   }
   const off = found.filter((b) => !(d && g.pairings[d.pairingId]?.slots.some((s) => s.crewId === b.crewId)));
@@ -992,6 +1003,26 @@ export function fillAll(g: GameState, ps: Pairing[], res: RosterResult, exclude?
 }
 
 /**
+ * v0.9 round 4 fix r2 speed: splitTourGap's probe for "the tour from duty k on" is the same object each time it is
+ * asked in a step (planCrew's memo keys on the pairing's identity), so a tour nobody can crew, re-rostered at every
+ * ladder tick and every Crew Control look, costs its probes once per state revision instead of every time (a
+ * shortage-heavy game spent minutes in them). The slots are the live pairing's; the duties and start fix the probe.
+ */
+const probes = new WeakMap<Pairing, Map<string, Pairing>>();
+function probeOf(p: Pairing, duties: Duty[], start: Minute): Pairing {
+  let m = probes.get(p);
+  if (!m) probes.set(p, (m = new Map()));
+  const key = duties.map((x) => x.id).join(',');
+  let probe = m.get(key);
+  if (!probe) {
+    if (m.size >= 16) m.clear();
+    m.set(key, (probe = { ...p, dutyIds: duties.map((x) => x.id), start }));
+  }
+  probe.slots = p.slots;
+  return probe;
+}
+
+/**
  * A tour with an empty seat: the first later duty (after the first open one) from which a legal crew member
  * could take that seat for the rest of the tour; the tour is split there and the later part returned (null:
  * no seat open, or nobody fits any later part).
@@ -1010,7 +1041,7 @@ function splitTourGap(g: GameState, ctx: Ctx, p: Pairing, exclude?: Set<string>)
     if (d.report > horizon) return null;
     // v0.9 round 4 speed: a later part that breaks a cumulative window on its own refuses everyone.
     if (overForAnyone(g, open.slice(k))) continue;
-    const probe: Pairing = { ...p, dutyIds: open.slice(k).map((x) => x.id), start: d.report };
+    const probe = probeOf(p, open.slice(k), d.report);
     for (const c of pool) {
       // v0.9 round 3 speed: as in fillPairing, crew planCrew refuses at once are not planned.
       if (c.restUntil > d.report || c.blocks?.some((b) => b.from < end && b.to > d.report)) continue;
@@ -1155,13 +1186,26 @@ export function rerosterFrom(g: GameState, aircraftId: string, t: Minute): Roste
     // Manual (locked) assignments survive the re-plan; they stay flagged on the pairing.
     // Crew who only need new tickets are re-ticketed rather than replaced. Crew who can't fly a later duty
     // keep the earlier ones: the trip is split there and only the later part is re-crewed.
-    const rc = recheckPairing(g, p, true);
+    // v0.9 round 4 fix r2 (speed, §R.17.7): the full check first (the step's cached plans: recheckSoon, the ladder);
+    // only a trip with an illegal crew member needs the prior-only view (a filtered base, never cached), which flags
+    // the same crew or, through a loose ticket it leaves out, one the full view rightly clears.
+    const full = recheckPairing(g, p);
+    const rc = full.illegal.length ? recheckPairing(g, p, true) : full;
     const out = rc.illegal.filter((id) => !p.slots.some((s) => s.crewId === id && s.locked) && (under || !(g.crew[id] && retick(g, p, g.crew[id]))));
     const cut = Math.min(...out.map((id) => rc.from.get(id) ?? 0));
     const q = out.length && cut > firstOpen.report && cut < Infinity ? splitPairing(g, p, cut) : null;
+    // Round 4 fix r2 (§R.16.6): the days-off floor is one duty's problem (its eve becomes the day off), so that duty
+    // alone is split off and re-crewed; the crew keep the rest of the trip. The empty seat says who and why (§T.2).
+    const eve = !!q && out.every((id) => rc.from.get(id) === cut && rc.issue.get(id)?.code === 'daysOff');
+    if (eve) {
+      const next = openDuties(g, q)[1];
+      if (next) splitPairing(g, q, next.report);
+    }
     for (const id of out) {
-      if (q && (rc.from.get(id) ?? 0) >= cut) releaseCrew(g, q, id);
-      else if (!under) releaseCrew(g, p, id);
+      if (q && (rc.from.get(id) ?? 0) >= cut) {
+        releaseCrew(g, q, id);
+        if (eve) markOoh(g, q, id, rc.issue.get(id)!);
+      } else if (!under) releaseCrew(g, p, id);
     }
     setFlightsCrew(g, p);
     if (q) setFlightsCrew(g, q);

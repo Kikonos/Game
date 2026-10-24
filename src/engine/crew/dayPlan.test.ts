@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { DAY, fmtTime, fromUTC, monthKey, monthStart, yearOf } from '../core/time';
-import type { CrewMember, GameState } from '../core/types';
+import type { CrewMember, Duty, GameState } from '../core/types';
 import { demoFlights, devFleet, devRoster } from '../dev';
 import { addFlight, ownFlightNo } from '../core/entities';
 import { blockMinutes } from '../core/perf';
@@ -14,7 +14,7 @@ import { advanceTo } from '../sim';
 import { fixture } from '../fixtures/compatKit';
 import { addCrew, fixtureGame } from './fixtures';
 import { autoRoster, crewControl, crewWindows, dayIndex, dropTargets, moveDuty, offBreak, planLeave, publishedTo } from '.';
-import { crewMonth, dayPlanMonth, midnight, monthFloorIssue, offDaysHit, offOn, offSwappable, takeOffDays } from './dayPlan';
+import { crewMonth, dayPlanMonth, eveFloorIssue, midnight, monthFloorIssue, offDaysHit, offOn, offSwappable, takeOffDays } from './dayPlan';
 import { crewCalendar } from './calendar';
 import { evalSegs, localMin, minRest, nightsIn, offsetAt, standbyCut, standbyView, STANDBY, type Seg } from './rules';
 import { reserveContact, standbyFor } from './standby';
@@ -583,5 +583,39 @@ describe('v0.9 round 4: days off keep the morning free, reserve no-contact, stan
     dayPlanMonth(g);
     expect((r.yearsLow ?? 0) - before.low).toBe(2);
     expect(crewMonth(g, c.id, fromUTC(y, 12, 20)).year).toBe(91);
+  });
+  it('round 4 fix r2 (§R.16.6): a month that cannot reach 7 takes one back through the first early duty whose eve is free', () => {
+    const { g, c } = crew();
+    const y = yearOf(g.now);
+    g.now = fromUTC(y, 3, 20, 8);
+    g.dayPlan!.planned = fromUTC(y, 5, 1);
+    const a = fromUTC(y, 4, 1) / DAY;
+    c.off = [a + 5, a + 6, a + 13, a + 14, a + 21, a + 22];
+    // April: 04:00 reports every working day (each takes the eve), a 10:00 report after each off block, the 15th free.
+    const build = (late: Set<number>, free: Set<number>): { duties: Duty[]; segs: Seg[] } => {
+      const duties: Duty[] = [];
+      const segs: Seg[] = [];
+      for (let i = 0; i < 30; i++) {
+        if (c.off!.includes(a + i) || free.has(i)) continue;
+        const start = midnight(c.base, a + i) + (late.has(i) ? 10 : 4) * H;
+        duties.push({ id: `d${i}`, report: start, release: start + 6 * H, done: false } as unknown as Duty);
+        segs.push({ kind: 'duty', start, end: start + 6 * H, fdp: 6 * H, maxFdp: 13 * H, block: 4 * H, sectors: 2, aug: false, disruptive: false, rest: 12 * H, at: c.base, from: c.base, dutyId: `d${i}`, fresh: false });
+      }
+      return { duties, segs };
+    };
+    const one = build(new Set([7, 23]), new Set([15]));
+    const issue = eveFloorIssue(g, c, one.duties, one.segs);
+    expect(issue).toEqual({ code: 'daysOff', level: 'illegal', text: 'Days off in April would fall to 6 (minimum 7)', dutyId: 'd16' });
+    // The 16th reporting at 10:00 leaves the 15th a free day: the month reaches 7 by itself (topUpOffs).
+    const two = build(new Set([7, 16, 23]), new Set([15]));
+    expect(eveFloorIssue(g, c, two.duties, two.segs)).toBeNull();
+    // Positioning on the 15th for another duty: not a free eve.
+    expect(eveFloorIssue(g, c, one.duties, [...one.segs, { kind: 'pos', start: midnight(c.base, a + 15) + 12 * H, end: midnight(c.base, a + 15) + 14 * H, fdp: 0, maxFdp: 0, block: 0, sectors: 0, aug: false, disruptive: false, rest: 0, at: c.base, from: c.base, dutyId: 'other', fresh: false }])).toBeNull();
+    // An eve that is today (or past) is left as it is.
+    g.now = fromUTC(y, 4, 16, 8);
+    expect(eveFloorIssue(g, c, one.duties, one.segs)).toBeNull();
+    // Not the first duty of a longer trip (the crew would come off the whole trip).
+    g.now = fromUTC(y, 3, 20, 8);
+    expect(eveFloorIssue(g, c, one.duties.filter((d) => +d.id.slice(1) >= 16), one.segs)).toBeNull();
   });
 });

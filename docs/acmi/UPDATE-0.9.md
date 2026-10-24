@@ -930,12 +930,71 @@ Open after round 4 (all from the rule itself, not its code):
   set) the month has no two free days left and the planner's singles fall one short. The tour's later duties are not
   known when the month's free days are counted (`monthFloorIssue`, `topUpOffs` count days beyond the planned horizon
   as free). The proper fix is the design's own: the eve duty of a month that cannot reach 7 gets the `daysOff`
-  out-of-hours mark and is re-crewed through Crew Control (`guardDuty`), as any other limit; not built in this round.
+  out-of-hours mark and is re-crewed through Crew Control (`guardDuty`), as any other limit; built in fix r2 (R.16.6).
 - **Small groups off together.** All crew of a small family-and-role group (a single 747's 10–15 pilots) run their
   standby and flying in lockstep, so their 7th-day musts (uncapped by the stagger) land on the same day; with fewer
   days fitting a block the B744 run shows days with the whole group off (`--whyheld` "off share" max 1.00). The
   stagger's early blocks need to start at run 3–4 for groups under ten.
 - **Coverage** as round 3 left it (capacity and reach at outstations), plus the 747 run above. Runtime: R.17.
+
+### R.16.6 Round 4 fix r2: tour crews plan like everyone else; the days-off floor on rostered work
+
+**Tour crews no longer aim at the cap.** Fix r1 had crew on a deployment tour plan towards 10 days off with their block
+a day sooner; it doubled the shortages. Seed 1 with only that change taken out: uncovered 0.73 → 0.25 %, red 33 → 10,
+crew-months under 7 7 → 3 (airport standby at a station-wide wave, the other fix r1 roster change, made no difference
+on that seed; the old per-family wave of 3 until 10:00 gave 0.31 % / 15). `offNeed` is one rule again.
+
+**The floor on rostered work (`dayPlan.ts eveFloorIssue`, `check.ts planCrewRaw` with `existing`).** A month that can
+no longer reach its 7 (planned days off plus every free day left, standby days included: `topUpOffs` turns those into
+days off) gets one back through the first duty of the trip reporting before 06:00 whose eve is free of all other
+work: that duty carries the `daysOff` issue ("Days off in November would fall to 6 (minimum 7)"), the daily re-check
+(`recheckSoon` → `rerosterFrom`) splits that duty off alone (the crew keep the rest of the tour: a second split at the
+next duty), takes the crew member off it and marks the seat (§T.2 `slot.ooh`, `markOoh`, shared with `guardDuty`), so
+the alert reads "Crew out of hours: X would fall below 7 days off this month" with the usual fixes; the roster refills
+the seat (the other set's crew on a free day, else a ticket from base), and `topUpOffs` makes the freed eve the day off
+the same morning (whenever the mark fires the planner has reached the month's end, so its cheap pre-check passes).
+Not for the first duty of a longer trip (the crew would come off the whole trip: its positioning is the eve's work)
+and only for an eve from tomorrow on. Tests: `dayPlan.test` (the pure check, four variants), `legalityGuard.test`
+(a 05:00 HAM wave: the duty split off alone, the seat, the rest of the tour kept, the eve a day off).
+
+**Why it is partial.** The shortfall is only knowable once the month's duties are built (14 days ahead), so a month
+missing two days can get one back (the FRA set of seed 3: free-but-not-off days on the 7th, 15th and 23rd, the mark
+reaches the 23rd), an eve already today cannot move, and a late call-out from standby on the eve of the next month's
+first early duty leaves the month as it was. In the bot the mark fires about once a year (seed 3 `--whyheld`: one,
+refilled at once). Tried and dropped: a chainer rule giving a set coming to an early report off free days enough of
+them for its days off ((F − 1)/(W + F) ≥ 7/30: 6 on need 4 free). It is the honest model of a daily 05:00 wave under
+the 06:00 rule, but it cuts a set's capacity by a fifth, an existing deployment adds at most one set, and the rest flew
+as trips from base: seeds 1–3 went to 40/40/53 red. The sizing (`chainDeployment`: ⌈peak × 8/6⌉ sets, one more while
+chaining can't cover the days) would have to follow the rule, with the bot's hiring behind it: a later round.
+
+**Results (bot, 365 days, one run at a time; this code).** Any roster change moves the RNG draws, so these are other
+games than R.16.5's and than each other's variants (seed 1 alone: 0.73 % / 33 red as fix r1 left it, 0.25 % / 10 with
+the tour cap taken out, 0.48 % / 20 with the floor mark as well: the seed-to-seed spread is wider than any one change).
+
+| Seed | uncovered | red / amber | crew-months < 7 | crew-years < 96 | runtime | margin ex approvals |
+|---|---|---|---|---|---|---|
+| 1 | 0.74 % | 34 / 36 | 0 of 809 | 3 of 93 | 40.7 s | −4.7 % |
+| 2 | 0.17 % | 18 / 15 | 4 of 910 | 0 of 108 | 27.7 s | −9.5 % |
+| 3 | 0.13 % | 16 / 12 | 0 of 788 | 0 of 79 | 21.8 s | 4.6 % |
+| 4 | 0.41 % | 43 / 59 | 0 of 809 | 1 of 102 | 60.8 s | 0.9 % |
+| 5 | 0.48 % | 29 / 25 | 1 of 791 | 2 of 96 | 29.0 s | −3.8 % |
+| 6 | 0.23 % | 10 / 15 | 4 of 786 | 1 of 90 | 24.1 s | 4.1 % |
+| 7 | 0.17 % | 17 / 13 | 0 of 746 | 0 of 73 | 21.5 s | 4.1 % |
+| 8 | 0.35 % | 28 / 24 | 0 of 659 | 0 of 60 | 26.3 s | −8.4 % |
+| 9 | 0.45 % | 33 / 45 | 0 of 793 | 0 of 94 | 45.4 s | −1.2 % |
+| 10 | 0.17 % | 10 / 10 | 0 of 763 | 1 of 83 | 21.8 s | 1.9 % |
+| 11 | 0.07 % | 11 / 8 | 0 of 692 | 0 of 68 | 17.7 s | −0.3 % |
+| 12 | 0.00 % | 11 / 13 | 3 of 981 | 1 of 104 | 23.2 s | −0.9 % |
+
+| 1 --wide --aug | 0.07 % | 9 / 7 | 0 of 695 | 0 of 64 | 19.3 s | 0.8 % |
+
+Over the twelve: uncovered 0.30 % (8 seeds under the 0.3 %), 21 red a year (4 seeds at 12 or under), crew-months under
+7 12 of 9,618 (0.12 %; 0 on eight seeds), every run 0 illegal duties and recovery gap ≤ 168 h; the wide/aug run passes
+every target. Open: the coverage at deployment stations (the red count follows the shortages at the bases' early
+waves: seeds 1, 4 and 9), the runtime (R.17.7) and the structural answer to a daily early wave (the sizing above). A
+shortage-heavy game can still take minutes (seed 9 with the floor mark off, an experiment: over 10 minutes in the
+re-roster's tour probes and the ladder's looks; with the mark that seed runs 45 s): a cap on re-rosters of a tour nobody
+can crew is the next runtime step.
 
 ### R.17 Round 4 (runtime): per-crew timelines, cached plans, one seg shape
 The round 3 profile was flat after its pre-filters; what was left was the number of times the same timeline and the
@@ -1004,6 +1063,20 @@ checks), the daily planner 3.6 s, the tour chainer's crew check 1.8 s, garbage c
 bookkeeping 1 s. The 20 s limit needs the next structural step, not another cache: fewer candidate evaluations
 (`splitTourGap` probes every later duty against the whole pool every run; the re-roster re-checks every pairing of
 the aircraft twice) and preview copies that reuse the live caches.
+
+**R.17.7 Round 4 fix r2.** `rerosterFrom` re-checks each crewed pairing with the full timeline first (the step's cached
+plans: `recheckSoon` and the ladder asked the same question) and asks the prior-only view (a filtered base: never
+cached) only for a pairing the full check found illegal; a trip clean on the whole timeline is clean on part of it.
+One case a year ran the other way (seed 1: a loose ticket out starting after the trip's start carried the crew
+member to the station; prior-only read "At LIS, not DUS" and released them, the final full check was clean): the
+full view is the truer one, so that release no longer happens. Tried and dropped: `splitTourGap` probing by halving
+over the later duties (⌈log₂ n⌉ + 1 probes of the pool instead of n, on the reading that a crew member legal from duty
+k is legal from k + 1). Seed 1 played identically with it, but the reading is not a rule (a ticket out can fit before
+one report and not the next), a later split than the first that fits leaves more of a tour uncovered, and the probes
+were under 3 % of the time. Kept instead: the probe for "the tour from duty k on" is one object per tour and k within
+a step (`probeOf`), so `planCrew`'s memo answers it when the same tour is re-rostered again in that step (the ladder's
+tick, every Crew Control look of the bot, a flight change): a tour nobody can crew no longer costs its whole pool at
+every look. A shortage-heavy game (seed 9 with the floor mark off) ran over 19 minutes in those probes before this.
 
 ---
 
