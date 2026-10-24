@@ -431,6 +431,10 @@ give more (Reg. 83/2014 recital (4)).
 **Game:**
 - A day off is a local day free of all duty, standby and reserve from 00:00 to 06:00 the next morning
   (`BAL.v09.roster.off.morningFree` 360: a report before 06:00 takes the day before, no standby opens before 06:00).
+  Round 5: a deployment with a daily wave reporting before 06:00 is sized one crew set larger for it (the sizing trial
+  counts the eve as a worked day), and days off come in runs of at most 3 unless the floor needs more.
+- The year's 96: a month's planned minimum follows the year's pro-rata pace, and the last month the year counts for a
+  crew member has what the year still needs as its legal floor (round 5), so a short year is made whole in time.
 - Days off are planned in blocks of 2–3 days: about 9 a month, never below 7 (illegal: `'daysOff'`), and the
   planner floor of 8 keeps the year above 96; the year is checked too (round 4): work that would leave the calendar
   year unable to reach 96 pro rata is illegal, and the Crew month line shows "x of 96 this year".
@@ -471,7 +475,11 @@ and a month always holds at least two 2-day blocks. The existing `recovery` and 
 - Every free day that is not a day off is standby:
   - **home standby** at base: early 05:00–17:00 or late 12:00–24:00, 25 %, ready in 90 min;
   - **hotel standby** at a deployment or night-stop station: 06:00–18:00, 25 %, ready in 45 min;
-  - **airport standby** at a base whose family has ≥ 3 of our departures 05:00–10:00 (`airport.minWave`): one
+  - round 5, the early cover: where the station's first report of the day comes before the default window plus the
+    response time can reach it, one standby per early seat and role starts response time + 15 min before that report
+    (its 12 h kept); starting between 23:00 and 07:00 the night is excluded from the call-out cut until contacted, as
+    CS FTL.1.225(b)(5) reads; after a day off the window still opens at 06:00;
+  - **airport standby** at a station with ≥ 2 of our departures 03:00–12:00 (`airport.minWave`, round 4 station-wide, round 5 from 03:00): one
     captain, one first officer and one cabin crew (a purser counts as the cabin seat), 4 h from 90 min before the
     first departure, 100 %, ready in 20 min. A fleet of two or three narrowbodies whose morning bank holds one or
     two departures per family never qualifies (bot seeds 1–6: none), as a real operator would not post airport

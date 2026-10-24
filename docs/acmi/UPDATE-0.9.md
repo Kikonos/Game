@@ -687,7 +687,8 @@ roster: {
   leave: { days: 28, quarters: [10, 4, 4, 10] as number[], maxShare: 0.1, afterServiceDays: 90 },
   home: { early: [300, 1020] as [number, number], late: [720, 1440] as [number, number], maxH: 16, minH: 4, readyMin: 90 },
   hotel: { from: 360, to: 1080, readyMin: 45 },
-  airport: { minWave: 3, waveEnd: 600, leadMin: 90, hours: 4, readyMin: 20, per: { CPT: 1, FO: 1, CC: 1 } as Record<string, number> },   // round 3: minWave 6 → 3; PUR counts as CC
+  airport: { minWave: 2, waveFrom: 180, waveEnd: 720, leadMin: 90, hours: 4, readyMin: 20, per: { CPT: 1, FO: 1, CC: 1 } as Record<string, number> },   // round 3: minWave 6 → 3; PUR counts as CC; round 4: 2, station-wide until 12:00; round 5: from 03:00
+  earlyCover: { slackMin: 15 },   // round 5: standby that reaches the station's first report (R.18.2)
   reserve: { noticeMin: 600, quiet: [1320, 360] as [number, number], tightShare: 0.95 },
   share: { home: 0.25, hotel: 0.25, airport: 1, reserve: 0 },
   morale: { runFrom: 4, runDay: -0.2, above: 9, aboveEach: 0.5, aboveMax: 1.5, below: 8, belowEach: -1.5, broken: -6 },
@@ -1077,6 +1078,118 @@ were under 3 % of the time. Kept instead: the probe for "the tour from duty k on
 a step (`probeOf`), so `planCrew`'s memo answers it when the same tour is re-rostered again in that step (the ladder's
 tick, every Crew Control look of the bot, a flight change): a tour nobody can crew no longer costs its whole pool at
 every look. A shortage-heavy game (seed 9 with the floor mark off) ran over 19 minutes in those probes before this.
+
+### R.18 Round 5: the regression bisected and its root causes
+
+**R.18.1 What the bisect found, and what it did not.** Bisecting 159dce4..e8e7f54 on seeds 1 and 4 laid the red
+shortages at the door of `morningFree` 360 (7d0b3e6) and the eve-floor mark (de3f49d), and a `--seatlog` of the bot
+(every required seat that goes from crewed to empty, every new trip born empty, every crew member found illegal on a
+duty within 3 days, every contract signed with its lead) then showed what those reds were made of:
+- about half came from work the bot signed at 0.1–1.5 days' notice (AOG covers at ARN, ZAG, RUH, FRA, SOF; evacuations
+  and repatriations) that no crew could reach: the engine's crew check counts heads, not reach, and the same pattern
+  sits in the round 3 runs (seed 4's 8 reds at 159dce4 were the same ARN cover and the same AMM–EBL evacuation);
+- deployment seats went red 2–5 days out with the crew member "available": the daily re-check had found them
+  **on leave** (`statusIssues`) on a tour that had grown past a leave block between two of its duties, and attributed
+  the block to the trip's first duty, so the crew member came off the whole tour;
+- a tour's early duties (05:00 waves at DUS, RUH, HAM) with the set returning from days off: with the eve rule the
+  day off before is taken (`crewTake` moves it), the month's free singles sit on the eve of the next early duty, and the
+  month ends at 5 or 6: the crew-months under 7;
+- the eve-floor mark itself fired once a year (seed 1) and emptied a seat 1–3 days out; it was not the regression's
+  carrier (the bisect's E3 run was a different game, not a different mechanism);
+- the crew-years under 96 were hires counted for 2–4 months at exactly 8 a month of need, one month at 7.
+One correctness bug outside the roster surfaced with the new trajectories: a crew-wait delay of a day over the next
+day's base waves rippled only along the legs the aircraft could follow by location, left the shuttle's legs overlapping
+the base's and flew a leg with its crew in Lisbon (the crew audit).
+
+**R.18.2 Fixes (engine).**
+- **Sizing counts the eve (`duties.ts chainer`, sizing trial only).** The virtual-set trial counts the eve of a report
+  before 06:00 as a worked day of the set and gives such a duty first to the set that worked the eve (as the real
+  chaining does for crewed sets), so an early-only programme is sized one set larger and a mixed one (HAM–PMI 06:00 +
+  12:30: 3 sets) is not. The real chaining keeps the plain day count (round 4: counting the eve there made the sets
+  refuse duties, which then flew as trips from base).
+- **The early cover (`dayPlan.ts rawWindow`, `BAL.v09.roster.earlyCover`).** A station whose day's first report comes
+  before the default window plus the response time can reach it (07:00 station-local) gets, per role, one home or
+  hotel standby per seat reporting that early, starting response time + 15 min before that report, the window its
+  usual 12 h; starting between 23:00 and 07:00 the night is not counted towards the call-out cut until contacted
+  (CS FTL.1.225(b)(5)). After a day off the window still opens at 06:00 and a crew member still resting keeps the
+  default window (`planStandby` clips it), so a day's cover can fall short of the seats, never over them. The airport
+  wave window counts departures from 03:00 (`airport.waveFrom`; it started at 05:00 and the 04:00 banks never formed
+  one).
+- **The floors planned ahead (`dayPlan.ts minFor`, `yearPaceMin`, `legalFor`).** A month's planner minimum (8) is
+  raised, to the cap at most, when the calendar year's 96 pro rata is behind its pace (what is still needed after the
+  closed months, planned days off, leave and sickness, spread over the months left); December's *legal* floor is what
+  the year still needs, so a hire counted for two months (16 needed) with a 7 in November must hold 9 in December and
+  `monthFloorIssue` refuses work that would leave fewer. `yearPaceMin` is cached on its inputs' identities (offNeed asks
+  for every crew member and day; a new game's init had doubled in time without it).
+- **The eve floor mark on the duty furthest ahead (`eveFloorIssue`).** Of the qualifying duties (not the trip's first,
+  the eve free, from tomorrow on) the one furthest ahead in the month is marked: its seat has ten days to be re-crewed
+  where the first one had one or two.
+- **Days off in runs of at most 3 (`offRunOver`, `planDay`, `topUpOffs`, `replacementDay`).** A block, a top-up day or
+  a replacement day joins no run of days off longer than `off.block[1]`; a must that fits nowhere else, and the legal 7,
+  may (the floor is law, the cap a preference). Leave is a block, not days off, so it is untouched.
+- **A crewed tour never grows onto leave, sickness, training or a joining period (`roster.ts crewOkHook`)**, and a block
+  between two duties of a tour falls on the first duty *after* it (`check.ts statusIssues`), so the daily re-check splits
+  the tour there and re-crews that part while the duties before it fly; `planLeave` never puts leave inside a tour's
+  span. (A guard refusing any duty whose tour would span a block was tried first: it sent the duties after every
+  mid-tour leave to base as trips and doubled the reds on seed 4.)
+- **An aircraft is never scheduled in two places (`ops/flights.ts settleOverlaps`).** After every delay ripple (the
+  three branches of `delayChain0` and `ripple`), any scheduled leg still departing before the one before it has landed
+  and turned moves behind it in departure order, so duties read from the flights stay in time order and report before
+  their first departure.
+
+**R.18.3 Fixes (bot).** Short-notice work (inside two days) is signed only when the roster crews its first two days:
+the offer is signed on a copy of the game first (`previewCopy`, the engine rosters at signing) and passed over when a
+required seat of a trip reporting within two days of the start is left empty (the crew desk checks the crewing before
+the sales desk says yes). A widebody flies widebody work (the body asked for, 220+ seats, or the fleet's reading of the
+job); general work goes to it only with a week's notice and one such job at a time. A widebody lease is signed only for a
+job the airline signs in the same breath (lease and contract back to back, tried on a copy first); a lease on an open
+offer that lapsed before delivery had parked a 747 at $400K a month. The crew-control line and the red target say how
+many reds were out-of-hours; `--seatlog` is the diagnostic above.
+
+**R.18.4 Tests.** `dayPlan.test` (the year's pace: a two-month hire, a whole year with leave, a month the year does not
+count; the run cap and the planner keeping every run within it; the early cover's windows, one per early seat and
+role, never over; the eve floor mark on the later of two qualifying duties), `legalityGuard.test` (the R.16.6 scenario
+with the duty furthest ahead), `roster.test` (a tour crew member's leave: no duty on it is theirs, no tour of theirs
+spans it, the HAM–PMI sizing unchanged at 3 and 4 sets), `flights.test` (a day's crew wait over another programme's legs
+leaves no two legs overlapping and every duty in time order), `heads.test` (the analyst judged against each estimate).
+
+**R.18.5 Results.** Bot, 365 days, one run at a time, this code (a4f09b7 + docs); before = round 3 (159dce4, §R.15.9 and the bisect's own
+runs of seeds 1 and 4) and round 4.2 (e8e7f54, the ready-2 logs). Every run: 0 illegal duties, 0 planned discretion,
+recovery gap ≤ 168 h, 0 crew-months under 7, 0 crew-years under 96 pro rata; every seed solvent and both wide runs
+solvent. Red counts say how many of the reds were crew out of hours (the §T kind), as the bot now reports them.
+
+| run | uncovered r3 → r4.2 → **r5** | red r3 → r4.2 → **r5** | runtime r3 → r4.2 → **r5** | margin r3 → r4.2 → **r5** | months < 7 (r4.2 → r5) | years < 96 (r4.2 → r5) | legs r5 |
+|---|---|---|---|---|---|---|---|
+| 1 | 0.07 → 0.74 → **0.16 %** | 7 → 34 → **10** (3 ooh) | 17 → 39 → **27 s** | −2.9 → −4.7 → **+1.9 %** | 0 → 0 | 3 → 0 | 1698 |
+| 2 | 0.31 → 0.17 → **0.00 %** | 19 → 18 → **2** (0) | 26 → 27 → **21 s** | 4.0 → −9.5 → **+6.3 %** | 4 → 0 | 0 → 0 | 1897 |
+| 3 | 0.20 → 0.13 → **0.48 %** | 11 → 16 → **22** (9) | 22 → 20 → **24 s** | 4.1 → 4.6 → **−6.0 %** | 0 → 0 | 0 → 0 | 1120 |
+| 4 | 0.06 → 0.41 → **0.11 %** | 8 → 43 → **12** (2) | 25 → 59 → **24 s** | −2.2 → 0.9 → **+3.7 %** | 0 → 0 | 1 → 0 | 1669 |
+| 5 | 0.36 → 0.48 → **0.07 %** | 12 → 29 → **24** (3) | 29 → 30 → **27 s** | −5.1 → −3.8 → **−3.4 %** | 1 → 0 | 2 → 0 | 1430 |
+| 6 | 0.00 → 0.23 → **0.00 %** | 8 → 10 → **5** (1) | 27 → 29 → **16 s** | 3.0 → 4.1 → **−7.3 %** | 4 → 0 | 1 → 0 | 1194 |
+| 1 --wide --aug | 0.07 → 0.07 → **0.22 %** | 11 → 9 → **11** (1) | 21 → 26 → **21 s** | 0.4 → 0.8 → **−5.6 %** | 0 → 0 | 0 → 0 | 1259 |
+| 1 --wide --aug --b744 | 0.52 → 1.90 → **0.35 %** | 21 → 44 → **30** (6) | 52 → 83 → **45 s** | −17.4 → insolvent → **−15.9 %, solvent** | 0 → 0 | 2 → 0 | 1594 |
+
+Over seeds 1–6: uncovered 0.14 % (five seeds at or under 0.3 %; round 4.2 had three), 12.5 red a year (four seeds at
+12 or under; round 4.2 had one), every legal target green on every run, the 747 run solvent again with its lease
+signed for a job in hand (a MAD season base, day 137). Seeds 3 and 5 keep 22 and 24 reds: `--whyheld` on seed 3 shows
+ad hoc trips the two A320s and 69 crew cannot reach (free pursers in Lisbon for a Riyadh or Casablanca report, a
+captain short of rest by 7 h, two FDPs pushed over their limit by a retime) and three AOG covers the preview passed
+whose first duty then lost its rest to a delay: capacity and reach, not the roster rules. Margins: three runs sit
+1–2 points under the −5 % line (seeds 3 and 6, the wide run), on revenue not cost: seed 6 leased a narrowbody out
+for the winter ($1.2M of lease income, 1,194 legs against 1,645) and seed 3 signed 15 % less flying; salaries fell on
+both. The trajectories are other games than round 4.2's (any roster change moves the draws), so the seed-to-seed
+spread is wider than any one change.
+
+**Runtime.** 16–27 s on seeds 1–6 (21 s and 45 s on the wide runs), against 17–29 s at round 3 and 20–59 s at round
+4.2; per leg, seed 1 runs 16 ms against 12 ms at 159dce4 and 24 ms at round 4.2. The profile of seed 1 (24.6 s, `--cpu-prof`)
+is flat: `planCrew` 5.1 s (21 %: the auto-roster's candidate loop 2.3 s, the daily re-check of every crewed trip 1.2 s,
+re-rosters 3.8 s with their re-checks), the bot's Crew Control previews on state copies 4.0 s (`delayPlan` 2.1 s,
+`previewOf` 0.9 s), the daily planner 3.0 s (`planStandby` 1.5, `planOffDays` 1.2), `planAircraft` 2.1 s (the tour chainer
+1.5), garbage collection 1.5 s; `splitTourGap` is 0.06 s (the round 4 probes are gone). A memo of clean pairings for
+the daily re-check (keyed on the duties' versions, the seats and each crew member's cached timeline) was tried and
+dropped: 18 % hits, under half a second, and a pairing's label left to an older check. The next step is structural
+(fewer candidate evaluations per empty seat), as R.17.6 said; the 20 s line is not met and the bot's own previews are
+a sixth of what is left.
 
 ---
 

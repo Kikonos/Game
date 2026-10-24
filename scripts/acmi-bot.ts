@@ -6,6 +6,7 @@
 //   … --wide --aug  v0.7.3: with Widebody operations and augmented crews granted at the start (in-flight rest in play)
 //   … --b744  v0.8 fix pack: the widebody is a Boeing 747-400 (e.g. `1 --wide --aug --b744`)
 //   … --msgs (inbox lines to stderr) · --why (v0.7.3: why each new offer found no aircraft, to stderr) · --dump=day,file
+//   … --whyheld (v0.9 round 3: the census behind each held leg) · --seatlog (round 5: seats emptied, trips born empty, crew found illegal, contracts signed)
 //
 // Policy (a pure function of the game state, so a loaded save plays on identically):
 // - offers: base deployments first, then ad hoc fill-ins; accept the best ok/warn feasibility with a positive
