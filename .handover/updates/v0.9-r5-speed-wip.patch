@@ -1,0 +1,387 @@
+diff --git a/scripts/acmi-bot.ts b/scripts/acmi-bot.ts
+index 190e1d3..74ba1c6 100644
+--- a/scripts/acmi-bot.ts
++++ b/scripts/acmi-bot.ts
+@@ -1138,7 +1138,9 @@ function crewControlPolicy(g: GameState, t: Tally): void {
+     if (!memo || memo.rev !== rev || memo.at !== g.now) tried.set(x.flightId, (memo = { rev, at: g.now, failed: new Set() }));
+     const failed = memo.failed;
+     // v0.7.3 each stage reads only the fixes it weighs (the delay and jet searches try copies of the state).
+-    const view = (only: CrewFix[], previews = false) => crewControl(g, x.flightId, { previews, only, noCard: true });
++    // v0.9 round 5 (speed): the delay search stops at the cap below when the jet is not weighed against the wait (the
++    // engine tried, on copies, delays the policy then refused: 45 of 49 copies on seed 1).
++    const view = (only: CrewFix[], previews = false, cap?: number) => crewControl(g, x.flightId, { previews, only, noCard: true, ...(cap !== undefined ? { maxDelayMin: cap } : {}) });
+     const v = view(['autoFix', 'deadhead', 'callIn']);
+     if (!v || v.stage === 'ok') continue;
+     const sol = (w: NonNullable<typeof v>, id: CrewFix) => w.solutions.find((s) => s.id === id && s.available);
+@@ -1178,7 +1180,7 @@ function crewControlPolicy(g: GameState, t: Tally): void {
+     // discretion, then the delay, then a sub-charter, each read only when the one before it is not taken.
+     const jetOk = x.hoursLeft <= 18 && v.unit.pax >= 100 && (g.stats.jets ?? 0) < 8;
+     const only: CrewFix[] = jetOk ? (skipDelay ? ['jet', 'discretion'] : ['jet', 'delay', 'discretion']) : ['discretion'];
+-    const first = view(only);
++    const first = view(only, false, jetOk ? undefined : lateCapMin);
+     if (!first || first.stage === 'ok') continue;
+     // A jet when it gets a crew there at least 3 h sooner than waiting for a ticket, with passengers at stake.
+     const jet = sol(first, 'jet');
+@@ -1189,7 +1191,7 @@ function crewControlPolicy(g: GameState, t: Tally): void {
+     if (jet && jet.cost <= 60_000 && jetDep + 180 <= waitDep && apply(jet)) continue;
+     if (apply(sol(first, 'discretion'))) continue;
+     if (!jetOk && !skipDelay) {
+-      const dv = view(['delay']);
++      const dv = view(['delay'], false, lateCapMin);
+       if (!dv || dv.stage === 'ok') continue;
+       delay = sol(dv, 'delay');
+     }
+@@ -1559,14 +1561,15 @@ function onStep(): void {
+   }
+   // v0.9 round 3 speed: only windows started since the last steps (each is seen in the step it starts).
+   for (const c of Object.values(g.crew)) for (const w of c.standby ?? []) if (w.from <= g.now && w.from > g.now - 2 * STEP) sbySeen.add(`${c.id}:${w.from}`);
+-  for (const f of Object.values(g.flights)) {
+-    if (!f.crewHeld || heldSeen.has(f.id) || (f.kind !== 'revenue' && f.kind !== 'techstop') || !f.aircraftId || !g.fleet[f.aircraftId]) continue;
+-    heldSeen.add(f.id);
+-    const k = `${typeOf(g.fleet[f.aircraftId].typeId).body === 'wide' ? 'WB' : 'NB'} ${(f.contractId && CODE[g.contracts[f.contractId]?.archetype]) || '?'} ${fmtMonth(monthKey(f.std))}`;
+-    heldBy.set(k, (heldBy.get(k) ?? 0) + 1);
+-    if (MSGS) console.error(`${fmtDateTime(g.now)} HELD ${f.no} ${f.from}–${f.to} std ${fmtDateTime(f.std)} ${g.fleet[f.aircraftId].reg} duty ${f.dutyId ?? '-'} day ${dayN(g)}`);
+-  }
+-  for (const f of Object.values(g.flights)) {
++  // v0.9 round 5 (speed): one pass over the flights (held legs, augmented duties under way).
++  for (const id in g.flights) {
++    const f = g.flights[id];
++    if (f.crewHeld && !heldSeen.has(f.id) && (f.kind === 'revenue' || f.kind === 'techstop') && f.aircraftId && g.fleet[f.aircraftId]) {
++      heldSeen.add(f.id);
++      const k = `${typeOf(g.fleet[f.aircraftId].typeId).body === 'wide' ? 'WB' : 'NB'} ${(f.contractId && CODE[g.contracts[f.contractId]?.archetype]) || '?'} ${fmtMonth(monthKey(f.std))}`;
++      heldBy.set(k, (heldBy.get(k) ?? 0) + 1);
++      if (MSGS) console.error(`${fmtDateTime(g.now)} HELD ${f.no} ${f.from}–${f.to} std ${fmtDateTime(f.std)} ${g.fleet[f.aircraftId].reg} duty ${f.dutyId ?? '-'} day ${dayN(g)}`);
++    }
+     if (f.status !== 'enroute' || !f.dutyId || augSeen.has(f.dutyId)) continue;
+     const d = g.duties[f.dutyId];
+     if (!d || d.augment === 0) continue;
+diff --git a/src/engine/crew/control.ts b/src/engine/crew/control.ts
+index 8cb5761..bb22312 100644
+--- a/src/engine/crew/control.ts
++++ b/src/engine/crew/control.ts
+@@ -157,6 +157,8 @@ interface Ctx {
+   replace: { role: Role; crewId: string }[];
+   /** Seats a new crew member can take: the empty ones, then those of `replace` (call-in, fly in, jet). */
+   seats: Role[];
++  /** v0.9 round 5 (speed): the longest delay from the original departure the caller would take (the bot's cap); the delay search tries no later time. */
++  maxDelay?: Minute;
+ }
+ 
+ /**
+@@ -195,7 +197,7 @@ function heldOoh(g: GameState, f: Flight, d: Duty | undefined, p: Pairing | unde
+   return out.sort((a, b) => SLOT_ORDER.indexOf(a.role) - SLOT_ORDER.indexOf(b.role));
+ }
+ 
+-function ctxOf(g: GameState, flightId: string): Ctx | null {
++function ctxOf(g: GameState, flightId: string, maxDelay?: Minute): Ctx | null {
+   const f = g.flights[flightId];
+   const ac = f?.aircraftId ? g.fleet[f.aircraftId] : undefined;
+   if (!f || !ac || f.kind === 'deadhead' || f.status !== 'scheduled') return null;
+@@ -205,7 +207,7 @@ function ctxOf(g: GameState, flightId: string): Ctx | null {
+   const missing = [...cs.missing].sort((a, b) => SLOT_ORDER.indexOf(a) - SLOT_ORDER.indexOf(b));
+   const unit = unitOf(g, ac, f);
+   const replace = heldOoh(g, f, d, p, cs);
+-  return { g, f, ac, d, p, cs, missing, need: group(missing), unit, pax: unitPax(ac, unit), revLegs: unit.filter(isRevenue).length, dep: f.from, replace, seats: [...missing, ...replace.map((r) => r.role)] };
++  return { g, f, ac, d, p, cs, missing, need: group(missing), unit, pax: unitPax(ac, unit), revLegs: unit.filter(isRevenue).length, dep: f.from, replace, seats: [...missing, ...replace.map((r) => r.role)], ...(maxDelay !== undefined ? { maxDelay } : {}) };
+ }
+ 
+ function whatLine(x: Ctx): string {
+@@ -1009,9 +1011,12 @@ function delayTimes(g: GameState, x: Ctx): Minute[] {
+   const lead = d ? Math.max(0, f.std - d.report) : 0;
+   const floor = f.std + f.delay;
+   const times = new Set<Minute>();
++  // v0.9 round 5 (speed): never past the caller's cap (the bot takes at most 6 h: 45 of its 49 copies a year tried a
++  // later time it then refused; each is a full re-roster on a cold copy).
++  const cap = x.maxDelay === undefined ? Infinity : (f.schedStd ?? f.std) + x.maxDelay;
+   const add = (t: Minute) => {
+     t = ceil5(t);
+-    if (t > floor && t - g.now <= 2 * DAY) times.add(t);
++    if (t > floor && t - g.now <= 2 * DAY && t <= cap) times.add(t);
+   };
+   add(readyOf(g, f, ac));
+   if (d && p) {
+@@ -1073,7 +1078,7 @@ function copyData<T>(v: T): T {
+ 
+ /** The soonest of delayTimes at which the roster crews the flight, tried on copies; null when none works. Memoized per step. */
+ function delayPlan(g: GameState, x: Ctx): { at: Minute } | null {
+-  return memoOf(g, `dp:${x.f.id}`, () => {
++  return memoOf(g, `dp:${x.f.id}:${x.maxDelay ?? ''}`, () => {
+     const tryAt = (at: Minute) => {
+       const h = previewCopy(g);
+       previewing++;
+@@ -1701,8 +1706,8 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean, only?: readonly C
+ }
+ 
+ /** Crew Control for a flight: missing seats, the card and the nine ranked solutions with previews (v0.7.3 `only`: just those fixes). Pure in g. */
+-export function crewControl(g: GameState, flightId: string, opts: { previews?: boolean; only?: readonly CrewFix[]; noCard?: boolean } = {}): CrewControlView | null {
+-  const x = ctxOf(g, flightId);
++export function crewControl(g: GameState, flightId: string, opts: { previews?: boolean; only?: readonly CrewFix[]; noCard?: boolean; maxDelayMin?: number } = {}): CrewControlView | null {
++  const x = ctxOf(g, flightId, opts.maxDelayMin);
+   if (!x) return null;
+   // v0.9 §T crew out of hours gets its own card (who, which limit, by how much), as in the inbox. `noCard` (the bot,
+   // applyCrewFix): the stage from the crew status alone, the card left empty.
+diff --git a/src/engine/crew/roster.ts b/src/engine/crew/roster.ts
+index f74573e..0fa8090 100644
+--- a/src/engine/crew/roster.ts
++++ b/src/engine/crew/roster.ts
+@@ -17,7 +17,7 @@ import { infoOf } from './outOfHours';
+ import { lateChange, moraleShock, nextReport } from './morale';
+ import { cabinFdpCap, DISCRETION, evalSegs, levelOf, LIMITS, minRest, mkSeg, recoveryAnchor, tzDeltaH, worst, type LegalityIssue, type Seg } from './rules';
+ import { cabinOwnReport, planRest, restCabinN, restLegs, restOf, restPlan } from './restPlan';
+-import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, locAt, noteRiders, passengers, planHome, planOut, segsOf, ticketPrice, touchCrew, typeIdOf, withoutTickets } from './timeline';
++import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, locAt, noteRiders, passengers, planHome, planOut, segsOf, segsTagOf, ticketPrice, touchCrew, typeIdOf, withoutTickets } from './timeline';
+ 
+ export { buildDuties } from './duties';
+ 
+@@ -1152,6 +1152,10 @@ export function onFlightsChanged(g: GameState, aircraftId: string, t: Minute): v
+  * crew who became illegal are freed, then the auto-roster refills (crew already at the station score best).
+  */
+ export function rerosterFrom(g: GameState, aircraftId: string, t: Minute): RosterResult {
++  // v0.9 round 5 speed (§R.19): what each crewed trip's check read, as checked below; after the fill, a trip whose
++  // seats, duties and crew timelines are as they were keeps that check (the fill of one seat bumped the revision
++  // and had every crewed trip of the aircraft planned again: a sixth of all re-checks).
++  const checked = new Map<Pairing, string>();
+   for (const p of [...(crewIx(g).byAircraft.get(aircraftId) ?? [])]) {
+     if (!g.pairings[p.id] || p.status === 'done' || p.status === 'broken' || p.end < t) continue;
+     if (p.tour || p.dutyIds.length === 1) {
+@@ -1169,6 +1173,7 @@ export function rerosterFrom(g: GameState, aircraftId: string, t: Minute): Roste
+     const firstOpen = openDuties(g, p)[0];
+     if (!firstOpen) {
+       recheckPairing(g, p);
++      checked.set(p, checkSig(g, p));
+       continue;
+     }
+     // Under way (the first open duty has reported): its crew stay on it (the gate check guards that duty).
+@@ -1209,14 +1214,38 @@ export function rerosterFrom(g: GameState, aircraftId: string, t: Minute): Roste
+     }
+     setFlightsCrew(g, p);
+     if (q) setFlightsCrew(g, q);
++    if (!out.length) checked.set(p, checkSig(g, p));
+   }
+   // v0.9 round 4 speed: no revision bump of its own (every change above makes one): a re-roster that changes nothing
+   // leaves the step's cached plans standing for the re-checks below.
+   const res = autoRoster(g, { from: t, aircraftIds: [aircraftId] });
+-  for (const p of crewIx(g).byAircraft.get(aircraftId) ?? []) if (p.status !== 'done' && p.end >= t && crewCount(p) > 0) recheckPairing(g, p);
++  for (const p of crewIx(g).byAircraft.get(aircraftId) ?? []) {
++    if (p.status === 'done' || p.end < t || crewCount(p) === 0) continue;
++    if (checked.get(p) === checkSig(g, p)) continue;
++    recheckPairing(g, p);
++  }
+   return res;
+ }
+ 
++/**
++ * What recheckPairing reads of a crewed trip, in the same minute: its seats, its duties (times, versions, legs' and
++ * tickets' count) and each crew member's timeline entry without the trip (timeline.ts segsOf stands for everything
++ * the crew member's own work, tickets, log and standby hold). Pure.
++ */
++function checkSig(g: GameState, p: Pairing): string {
++  let s = `${p.status}|${p.start}|${p.end}|${p.dutyIds.length}`;
++  for (const id of p.dutyIds) {
++    const d = g.duties[id];
++    s += d ? `|${d.id},${d.done ? 1 : 0},${d.ev},${d.flightsEv},${d.report},${d.release},${d.fdp},${d.maxFdp},${d.discretion ?? ''},${d.legality},${d.flightIds.length},${d.deadheadIds.length}` : '|-';
++  }
++  for (const x of p.slots) {
++    if (!x.crewId) continue;
++    const c = g.crew[x.crewId];
++    s += c ? `|${c.id}@${x.from ?? ''}:${segsTagOf(segsOf(g, c, p.id)) ?? '?'}` : `|${x.crewId}?`;
++  }
++  return s;
++}
++
+ // Crew a split part no longer seats leave its flights and tickets as well.
+ setReleaseHook(releaseCrew);
+ 
+diff --git a/src/engine/crew/timeline.ts b/src/engine/crew/timeline.ts
+index d625fc5..137c2a7 100644
+--- a/src/engine/crew/timeline.ts
++++ b/src/engine/crew/timeline.ts
+@@ -540,28 +540,34 @@ function logSegs(c: CrewMember): Seg[] {
+  */
+ /**
+  * v0.9 round 4 speed (§R.17): per crew member. A revision bump by another crew member's change no longer costs a
+- * rebuild: an entry records everything its build read (`deps`: the pairings, duties, duty segs, tickets, standby
+- * calls and scalars, in reading order) and, when the crew or flight revision moved, the same walk reads them again
+- * and compares (a few objects, no segs built). The game minute only matters to the 28-day standby cut: `nowLo` /
+- * `nowHi` bound the minutes for which the same windows are in. Entries that fail are dropped.
++ * rebuild: an entry records everything its build read (`deps`: the pairings, duties, duty segs, tickets and scalars,
++ * in reading order) and, when the crew or flight revision moved, the same walk reads them again and compares (a few
++ * objects, no segs built). Entries that fail are dropped.
++ *
++ * v0.9 round 5 speed (§R.19): in two layers. The work layer (`WorkMemo`: the log, the duties and the tickets) is the
++ * walk above; the standby layer (`SegsMemo`) lays the crew member's windows over it (addStandby) and is keyed on the
++ * work entry, the standby list, its calls and the game minute's 28-day cut (`nowLo` / `nowHi`). The day planner
++ * replaces nearly every crew member's standby list every day and a call-out or a fit replaces more: a third of all
++ * timeline reads rebuilt the whole walk for a standby change alone; now only the overlay is laid again.
+  */
+-interface SegsMemo { id: number; rev: number; frev: number; nowLo: Minute; nowHi: Minute; ex: string; sby: unknown; sbyN: number; log: unknown; logN: number; deps: unknown[]; segs: Seg[] }
++interface WorkMemo { rev: number; frev: number; ex: string; log: unknown; logN: number; deps: unknown[]; segs: Seg[] }
++interface SegsMemo { id: number; work: WorkMemo; nowLo: Minute; nowHi: Minute; sby: unknown; sbyN: number; calls: (Minute | undefined)[]; segs: Seg[] }
++const workMemo = new WeakMap<CrewMember, WorkMemo[]>();
+ const segsMemo = new WeakMap<CrewMember, SegsMemo[]>();
+ /** A cached list → its entry (check.ts planCrew's memo keys on it: the base is the same while the entry stands). */
+ const segsTag = new WeakMap<Seg[], SegsMemo>();
+ let segsIds = 0;
+ export const segsTagOf = (segs: Seg[]): number | undefined => segsTag.get(segs)?.id;
+ 
+-export function segsOf(g: GameState, c: CrewMember, excludePairing?: string): Seg[] {
++/** The work layer: the log's segs, the duties' and the loose tickets', sorted (no standby). */
++function workOf(g: GameState, c: CrewMember, ex: string): WorkMemo {
+   const rev = crewRev(g);
+   const frev = flightsRev(g);
+-  const ex = excludePairing ?? '';
+-  const now = g.now;
+-  let list = segsMemo.get(c);
++  let list = workMemo.get(c);
+   if (list) {
+     for (let i = 0; i < list.length; i++) {
+       const m = list[i];
+-      if (m.ex !== ex || m.sby !== c.standby || m.sbyN !== (c.standby?.length ?? 0) || m.log !== c.log || m.logN !== c.log.length || now <= m.nowLo || now > m.nowHi) continue;
++      if (m.ex !== ex || m.log !== c.log || m.logN !== c.log.length) continue;
+       if (m.rev !== rev || m.frev !== frev) {
+         if (!sameDeps(g, c, m)) {
+           list.splice(i--, 1);
+@@ -570,13 +576,50 @@ export function segsOf(g: GameState, c: CrewMember, excludePairing?: string): Se
+         m.rev = rev;
+         m.frev = frev;
+       }
+-      return m.segs;
++      return m;
+     }
+   }
+   const deps: unknown[] = [];
+   const segs = logSegs(c).slice();
+-  const b = walk(g, c, ex, deps, segs);
+-  const m: SegsMemo = { id: ++segsIds, rev, frev, nowLo: b.lo, nowHi: b.hi, ex, sby: c.standby, sbyN: c.standby?.length ?? 0, log: c.log, logN: c.log.length, deps, segs };
++  walk(g, c, ex, deps, segs);
++  const m: WorkMemo = { rev, frev, ex, log: c.log, logN: c.log.length, deps, segs };
++  if (!list) workMemo.set(c, [m]);
++  else {
++    if (list.length >= 4) list.shift();
++    list.push(m);
++  }
++  return m;
++}
++
++/** The standby windows' calls as read by addStandby (a call is written on the window in place). */
++function sameCalls(m: SegsMemo, sby: CrewMember['standby']): boolean {
++  const calls = m.calls;
++  if (!sby) return calls.length === 0;
++  if (calls.length !== sby.length) return false;
++  for (let i = 0; i < sby.length; i++) if (sby[i].calledAt !== calls[i]) return false;
++  return true;
++}
++
++export function segsOf(g: GameState, c: CrewMember, excludePairing?: string): Seg[] {
++  const work = workOf(g, c, excludePairing ?? '');
++  const now = g.now;
++  let list = segsMemo.get(c);
++  if (list) {
++    for (let i = 0; i < list.length; i++) {
++      const m = list[i];
++      if (m.work !== work || m.sby !== c.standby || m.sbyN !== (c.standby?.length ?? 0) || now <= m.nowLo || now > m.nowHi) continue;
++      if (!sameCalls(m, c.standby)) {
++        list.splice(i--, 1);
++        continue;
++      }
++      return m.segs;
++    }
++  }
++  const segs = work.segs.slice();
++  const b = addStandby(g, c, segs);
++  const calls: (Minute | undefined)[] = [];
++  for (const w of c.standby ?? []) calls.push(w.calledAt);
++  const m: SegsMemo = { id: ++segsIds, work, nowLo: b.lo, nowHi: b.hi, sby: c.standby, sbyN: c.standby?.length ?? 0, calls, segs };
+   if (!list) segsMemo.set(c, [m]);
+   else {
+     if (list.length >= 4) list.shift();
+@@ -587,7 +630,7 @@ export function segsOf(g: GameState, c: CrewMember, excludePairing?: string): Se
+ }
+ 
+ const DEPS: unknown[] = [];
+-function sameDeps(g: GameState, c: CrewMember, m: SegsMemo): boolean {
++function sameDeps(g: GameState, c: CrewMember, m: WorkMemo): boolean {
+   DEPS.length = 0;
+   walk(g, c, m.ex, DEPS, null);
+   const d = m.deps;
+@@ -597,11 +640,11 @@ function sameDeps(g: GameState, c: CrewMember, m: SegsMemo): boolean {
+ }
+ 
+ /**
+- * The timeline build (into `segs`: the log's segs, sorted and with standby at the end) or, with null, only its inputs
+- * (`deps`): one walk, so the dependency list always matches what the build read. Returns the minutes for which the
+- * standby cut keeps the same windows (`now` in (lo, hi]).
++ * The work build (into `segs`: the log's segs, the duties' and the loose tickets', sorted) or, with null, only its
++ * inputs (`deps`): one walk, so the dependency list always matches what the build read. Standby is the overlay's
++ * (segsOf, addStandby).
+  */
+-function walk(g: GameState, c: CrewMember, ex: string, deps: unknown[], segs: Seg[] | null): { lo: Minute; hi: Minute } {
++function walk(g: GameState, c: CrewMember, ex: string, deps: unknown[], segs: Seg[] | null): void {
+   const ix = crewIx(g);
+   const own = new Set<string>();
+   const ps = ix.pairingsOf.get(c.id);
+@@ -647,19 +690,6 @@ function walk(g: GameState, c: CrewMember, ex: string, deps: unknown[], segs: Se
+     segs.push(ps);
+   }
+   if (segs) segs.sort(bySeg);
+-  let lo = -Infinity;
+-  let hi = Infinity;
+-  const sby = c.standby;
+-  if (sby?.length) {
+-    const old = g.now - 28 * 1440;
+-    for (const w of sby) {
+-      deps.push(w.calledAt);
+-      if (w.to < old) lo = Math.max(lo, w.to);
+-      else hi = Math.min(hi, w.to);
+-    }
+-    if (segs) addStandby(g, c, segs);
+-  }
+-  return { lo: lo + 28 * 1440, hi: hi + 28 * 1440 };
+ }
+ 
+ /** v0.9 share of a standby window counted towards the ORO.FTL.210 duty windows, by kind (§R.3). */
+@@ -701,8 +731,18 @@ function makeSbySeg(c: CrewMember, w: NonNullable<CrewMember['standby']>[number]
+  */
+ const sbyLists = new WeakMap<object, { n: number; called: number; base: string; segs: Seg[] }>();
+ 
+-function addStandby(g: GameState, c: CrewMember, segs: Seg[]): void {
++function addStandby(g: GameState, c: CrewMember, segs: Seg[]): { lo: Minute; hi: Minute } {
+   const list = c.standby ?? [];
++  // The minutes for which the 28-day cut keeps the same windows in (`now` in (lo, hi]).
++  let lo = -Infinity;
++  let hi = Infinity;
++  const old = g.now - 28 * 1440;
++  for (const w of list) {
++    if (w.to < old) lo = Math.max(lo, w.to);
++    else hi = Math.min(hi, w.to);
++  }
++  const bounds = { lo: lo + 28 * 1440, hi: hi + 28 * 1440 };
++  if (!list.length) return bounds;
+   let called = 0;
+   for (const w of list) if (w.calledAt !== undefined) called++;
+   let e = sbyLists.get(list);
+@@ -712,7 +752,6 @@ function addStandby(g: GameState, c: CrewMember, segs: Seg[]): void {
+     un.sort(bySeg);
+     sbyLists.set(list, (e = { n: list.length, called, base: c.base, segs: un }));
+   }
+-  const old = g.now - 28 * 1440;
+   const add: Seg[] = [];
+   for (const x of e.segs) if (x.end >= old) add.push(x);
+   for (const w of called ? list : []) {
+@@ -732,7 +771,7 @@ function addStandby(g: GameState, c: CrewMember, segs: Seg[]): void {
+     }
+     if (end > w.from) add.push(standbySeg(c, w, end));
+   }
+-  if (!add.length) return;
++  if (!add.length) return bounds;
+   // v0.9 speed: merged into the sorted timeline (as a stable sort of both: timeline segs first on a tie).
+   if (called) add.sort(bySeg);
+   const out = new Array<Seg>(segs.length + add.length);
+@@ -744,6 +783,7 @@ function addStandby(g: GameState, c: CrewMember, segs: Seg[]): void {
+   while (j < add.length) out[n++] = add[j++];
+   segs.length = 0;
+   for (let k = 0; k < n; k++) segs.push(out[k]);
++  return bounds;
+ }
+ 
+ /** A seg of a deployment tour: its crews rotate through base, so their tickets are never dropped. */

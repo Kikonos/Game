@@ -41,6 +41,7 @@
  },
  "later-ideas": {
   "crew-slip": "AGREED IDEA (player said yes 22 Oct), schedule for after v0.8, discuss details first: crew slip at a fuel stop. On a long one-way flight with a tech stop (e.g. Dili→Lisbon via PNH+OTP, Madrid→Singapore via IST) a fresh crew is positioned to the stop by airline ticket and takes over, so the duty day splits in two. Offers that are too long for one crew become flyable with a slip (priced in: tickets, hotel).",
-  "language-pass": "REMIND the player (they asked 22 Oct): a game-wide language pass to remove redundancy in wording (e.g. 'You can't fly Corendon's Winter sun to Corfu for Corendon'). Remind after the v0.8 release, alongside the crew-shortage sound reminder before v0.9."
+  "language-pass": "REMIND the player (they asked 22 Oct): a game-wide language pass to remove redundancy in wording (e.g. 'You can't fly Corendon's Winter sun to Corfu for Corendon'). Remind after the v0.8 release, alongside the crew-shortage sound reminder before v0.9.",
+  "v0.9-tuning": "AGREED (player, 24 Oct): tuning comes in a later update. Open items from round 5: crew-coverage on the hard test games (seeds 3/5: 22-24 red alerts, target 12); engine speed (bot 16-27 s vs 20 s); summer block hours (soft); 747 general-work economics; AOG rate slightly high (3.05/ac-yr). Untested speed edits saved as updates/v0.9-r5-speed-wip.patch (and git stash on acmi). Round-5 diagnosis and proposed fixes: scratchpad round5 bisect table + UPDATE-0.9.md §R.18. Do it frugally: ONE Opus agent, targeted seeds only."
  }
 }
