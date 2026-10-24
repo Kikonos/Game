@@ -335,7 +335,7 @@ export function onDelivery(g: GameState, ev: SimEvent): void {
   }
   ac.at = g.company.homeBase;
   if (dl) dl.arrived = g.now;
-  pushMessage(g, { tone: 'good', cat: 'company', title: `${ac.reg} delivered`, body: `The ${typeOf(ac.typeId).name} is on the AOC at ${g.company.homeBase}.`, ref: { kind: 'aircraft', id: ac.id } });
+  pushMessage(g, { tone: 'good', cat: 'company', title: `${ac.reg} delivered`, body: `The ${typeOf(ac.typeId).name} is on the AOC at ${g.company.homeBase}.`, ref: { kind: 'aircraft', id: ac.id }, cue: 'delivered' });
 }
 
 /** 'lease.end': a booked return ends with its check (leaseReturn.ts); else return at base when free, or roll on a month at +10%. */

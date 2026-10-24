@@ -17,7 +17,7 @@ import { AIRPORT_BY_CODE } from '../../data/airports';
 import { distance } from '../core/geo';
 import { noteLostLegs } from '../contracts/billing';
 import { isSoft } from '../contracts/plan';
-import { applyDiscretion, boardCrew, crewIssuesFor, dropStraySpares, flightCrewStatus, guardDuty, rerosterFrom, restPlan, restSeatsBlocked, setRestDelayHook } from '../crew';
+import { applyDiscretion, boardCrew, crewIssuesFor, dropStraySpares, flightCrewStatus, guardDuty, rerosterFrom, restPlan, restSeatsBlocked, setClosedWaitHook, setRestDelayHook } from '../crew';
 import { fdpLimitAt } from '../crew/timeline';
 import { dutyLegality } from '../crew/duties';
 import { cue } from '../core/cues';
@@ -31,7 +31,7 @@ import { crewReadyAt, crewShortDecision, hasOpenDecision } from './events';
 import { aogChance, isGrounded, missCheck, startAog } from './maintenance';
 import { ageF, ageOf, bumpReliable, contractOf, isBaseLeg, isRevenue, stats, turnOf, usd } from './util';
 import { bumpClient, forgiveDelay, LEVEL_NAME, levelOf, statsV08 } from '../contracts/relations';
-import { closedAtDeparture, payWarRisk, strikeDelay, whiteout } from './world';
+import { closedAirport, closedAtDeparture, closedUntil, payWarRisk, strikeDelay, whiteout } from './world';
 import { isActive, noteHiredThem } from '../contracts/rivals';
 
 /** v0.7.1: the problem ref and hurt snapshot of a message about legs lost or handed over (after the fact). */
@@ -334,10 +334,10 @@ export function delayChain(g: GameState, f: Flight, std: Minute, reason: string,
 function delayCues(g: GameState, f: Flight, was: number): void {
   if (f.status !== 'scheduled') return;
   const now = delayOf(f);
-  if (was < 6 * 60 && now >= 6 * 60) cue('cancelRisk');
+  if (was < 6 * 60 && now >= 6 * 60) cue('cancelRisk', { title: `${f.no} ${fmtDuration(now)} late: it may have to be cancelled`, body: `${f.from}–${f.to}. Open the flight to recover it.`, tone: 'bad', ref: { kind: 'flight', id: f.id } });
   else if (was < 60 && now >= 60 && isRevenue(f)) {
     const c = contractOf(g, f);
-    if (c && ((c.product.kind === 'charter' && c.penalties.perDelay > 0) || c.requirements.standards === 'vip')) cue('delayPenalty');
+    if (c && ((c.product.kind === 'charter' && c.penalties.perDelay > 0) || c.requirements.standards === 'vip')) cue('delayPenalty', { title: `${f.no} over an hour late: delay penalty`, body: `${c.title}: the client's delay terms apply.`, tone: 'warn', ref: { kind: 'flight', id: f.id } });
   }
 }
 
@@ -836,7 +836,7 @@ function depart(g: GameState, f: Flight, ac: Aircraft): void {
   ac.status = 'flying';
   f.eta = g.now + Math.max(15, Math.round(f.block * (1 + range(g, -BAL.windNoise, BAL.windNoise))));
   schedule(g, f.eta, 'flight.arr', f.id, f.ev);
-  cue('flightDep');
+  cue('flightDep', { title: `${f.no} departed ${AIRPORT_BY_CODE[f.from]?.city ?? f.from}`, body: `${g.fleet[f.aircraftId!]?.reg ?? ''} to ${AIRPORT_BY_CODE[f.to]?.city ?? f.to}`.trim(), tone: 'info', ref: { kind: 'flight', id: f.id } });
   const s = stats(g);
   s.departures++;
   const duty = f.dutyId ? g.duties[f.dutyId] : undefined;
@@ -1230,7 +1230,7 @@ export function onFlightArr(g: GameState, ev: SimEvent): void {
   const ac = g.fleet[f.aircraftId];
   f.status = 'done';
   f.ata = g.now;
-  cue('flightArr');
+  cue('flightArr', { title: `${f.no} landed in ${AIRPORT_BY_CODE[f.to]?.city ?? f.to}`, body: `${g.fleet[f.aircraftId]?.reg ?? ''} from ${AIRPORT_BY_CODE[f.from]?.city ?? f.from}`.trim(), tone: 'info', ref: { kind: 'flight', id: f.id } });
   if (AIRPORT_BY_CODE[f.to]?.ice) v09Stats(g).antarctic = (v09Stats(g).antarctic ?? 0) + 1;
   touchStatus(g, f.aircraftId);
   if (!ac) return;
@@ -1317,6 +1317,21 @@ export function pruneFlights(g: GameState): void {
   }
   if (ids.length) removeFlights(g, ids);
 }
+
+// v0.9.1: a leg whose departure or arrival airport is still closed when it would leave waits for the reopening (3 h
+// after it, as the player's "wait"), moved before its crew report: they stay at the hotel instead of on duty at the gate.
+setClosedWaitHook((g, id) => {
+  const f = g.flights[id];
+  if (!f || f.status !== 'scheduled' || !f.aircraftId) return false;
+  const own = f.contractId ? g.contracts[f.contractId]?.eventId : undefined;
+  const e = closedAirport(g, f.from, f.std, own) ?? closedAirport(g, f.to, f.std, own);
+  if (!e) return false;
+  const at = closedUntil(e) + 3 * 60;
+  if (at <= f.std) return false;
+  f.closedBy = e.id;
+  delayChain(g, f, at, `Waiting: ${e.title}`, false);
+  return f.status === 'scheduled' && f.std >= at;
+});
 
 // v0.5.2: a crew short of rest after a late finish: the duty's first leg waits for them (crew.guardDuty).
 setRestDelayHook((g, f, std) => {

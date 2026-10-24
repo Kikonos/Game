@@ -1,0 +1,40 @@
+/* v0.9.1: tap-to-dismiss toasts, the counter-offer reply and delivery pop-ups, the offer dialog's schedule portal. */
+.toast { cursor: pointer; }
+.toast.leaving { pointer-events: none; }
+
+.v91-reply b { display: block; font-size: 16px; margin-bottom: 6px; }
+.v91-reply p { margin: 0 0 8px; line-height: 1.45; }
+
+.v91-delivered .modal-body { text-align: center; }
+.v91-dl-art { margin: 4px auto 10px; max-width: 520px; }
+.v91-dl-art svg { width: 100%; height: auto; }
+.v91-dl-reg { font-size: 28px; font-weight: 700; letter-spacing: 0.06em; }
+.v91-dl-type { font-size: 16px; margin-top: 2px; }
+.v91-dl-from { margin-top: 6px; }
+.v91-dl-ferry { margin-top: 10px; color: var(--text-2); }
+
+/* The offer dialog's schedule portal (OfferPortal.tsx): one mini timeline under each candidate aircraft. */
+.v91-portal-hint { margin: -2px 0 2px; }
+.v91-cand { display: flex; flex-direction: column; gap: 4px; }
+.v91-portal-wrap { padding: 0 12px 10px; }
+.v91-portal { position: relative; height: 44px; border-radius: 8px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border); overflow: hidden; }
+.v91-portal.drop-ok { outline: 2px solid var(--good); outline-offset: 1px; }
+.v91-portal.drop-no { outline: 2px dashed var(--bad); outline-offset: 1px; }
+.v91-day { position: absolute; top: 0; bottom: 0; border-left: 1px solid rgba(255, 255, 255, 0.05); }
+.v91-day.odd { background: rgba(255, 255, 255, 0.015); }
+.v91-day-l { position: absolute; top: 1px; left: 3px; font-size: 9.5px; color: var(--text-3, #6f7b94); white-space: nowrap; pointer-events: none; }
+.v91-job { position: absolute; top: 0; bottom: 0; background: rgba(245, 196, 81, 0.13); border-left: 2px solid rgba(245, 196, 81, 0.7); border-right: 2px solid rgba(245, 196, 81, 0.7); pointer-events: none; }
+.v91-b { position: absolute; top: 15px; height: 24px; border-radius: 4px; background: #5b6b8c; touch-action: none; }
+.v91-b.pos { background: rgba(160, 172, 196, 0.45); height: 12px; top: 21px; }
+.v91-b.maint { background: repeating-linear-gradient(45deg, #6a5a3a, #6a5a3a 4px, #4a3f2a 4px, #4a3f2a 8px); }
+.v91-b.band, .v91-b.lease { background: rgba(140, 150, 170, 0.25); }
+.v91-b.done { opacity: 0.45; }
+.v91-b.movable { cursor: grab; }
+.v91-b.movable::after { content: ''; position: absolute; inset: -10px 0; }
+.v91-b.picked { box-shadow: 0 0 0 2px #fff; z-index: 2; }
+.v91-move { padding: 6px 2px 0; align-items: center; }
+.v91-move svg { width: 14px; height: 14px; vertical-align: -2px; }
+.v91-move .btn-sm { min-height: 36px; }
+.v91-ghost { position: fixed; z-index: 400; pointer-events: none; transform: translate(-50%, -130%); }
+/* Over a dialog only the newest note shows (calm; the dialog keeps its header). */
+.toasts.over-modal .toast:not(:last-child) { display: none; }

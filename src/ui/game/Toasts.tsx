@@ -1,12 +1,11 @@
 import { AlertTriangle, CheckCircle2, Info, Trophy, XCircle } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useStore } from '../store';
+import { store, useStore } from '../store';
 import { useTouch } from '../useMedia';
 
 export function Toasts() {
   const s = useStore();
-  // Tapping a toast hides it (on touch screens they can sit over controls).
-  const [gone, setGone] = useState<Set<number>>(() => new Set());
+  // v0.9.1 a tap dismisses a toast (it fades and leaves the stack); otherwise it stays 5 s.
   return (
     <>
       {/* With a dialog open the toasts move to the top centre, clear of its footer buttons. */}
@@ -14,8 +13,9 @@ export function Toasts() {
         {s.toasts.map((t) => (
           <div
             key={t.id}
-            className={`toast ${t.kind} ${t.leaving || gone.has(t.id) ? 'leaving' : ''}`}
-            onClick={() => setGone((g) => new Set(g).add(t.id))}
+            className={`toast ${t.kind} ${t.leaving ? 'leaving' : ''}`}
+            role="status"
+            onClick={() => store.dismissToast(t.id)}
           >
             {t.kind === 'good' ? <CheckCircle2 /> : t.kind === 'bad' ? <XCircle /> : t.kind === 'warn' ? <AlertTriangle /> : t.kind === 'achievement' ? <Trophy /> : <Info />}
             <div>

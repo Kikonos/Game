@@ -14,7 +14,7 @@ import { advanceTo } from '../sim';
 import { fixture } from '../fixtures/compatKit';
 import { addCrew, fixtureGame, seasonBase } from './fixtures';
 import { autoRoster, crewControl, crewWindows, dayIndex, dropTargets, moveDuty, offBreak, planLeave, publishedTo } from '.';
-import { crewMonth, dayPlanAfter, dayPlanMonth, eveFloorIssue, midnight, monthFloorIssue, offDaysHit, offOn, offRunOver, offSwappable, takeOffDays, yearPaceMin } from './dayPlan';
+import { crewMonth, dayFloorIssue, dayPlanAfter, dayPlanMonth, eveFloorIssue, midnight, monthFloorIssue, offDaysHit, offOn, offRunOver, offSwappable, takeOffDays, yearPaceMin } from './dayPlan';
 import { crewCalendar } from './calendar';
 import { evalSegs, localMin, minRest, nightsIn, offsetAt, standbyCut, standbyView, STANDBY, type Seg } from './rules';
 import { reserveContact, standbyFor } from './standby';
@@ -621,6 +621,52 @@ describe('v0.9 round 4: days off keep the morning free, reserve no-contact, stan
     // Not the first duty of a longer trip (the crew would come off the whole trip).
     g.now = fromUTC(y, 3, 20, 8);
     expect(eveFloorIssue(g, c, one.duties.filter((d) => +d.id.slice(1) >= 16), one.segs)).toBeNull();
+  });
+
+  it('v0.9.1: with no early duty to give its eve, the duty furthest ahead whose own day is free of other work gives that day', () => {
+    const { g, c } = crew();
+    const y = yearOf(g.now);
+    g.now = fromUTC(y, 3, 20, 8);
+    g.dayPlan!.planned = fromUTC(y, 5, 1);
+    const a = fromUTC(y, 4, 1) / DAY;
+    c.off = [a + 5, a + 6, a + 13, a + 14, a + 21, a + 22];
+    // April: a 10:00 report every working day (no eve to give), the 15th free: 6 days off and one free day = 7 ... less
+    // the 15th taken by positioning for another trip: 6.
+    const duties: Duty[] = [];
+    const segs: Seg[] = [];
+    for (let i = 0; i < 30; i++) {
+      if (c.off.includes(a + i) || i === 15) continue;
+      const start = midnight(c.base, a + i) + 10 * H;
+      duties.push({ id: `d${i}`, report: start, release: start + 6 * H, done: false } as unknown as Duty);
+      segs.push({ kind: 'duty', start, end: start + 6 * H, fdp: 6 * H, maxFdp: 13 * H, block: 4 * H, sectors: 2, aug: false, disruptive: false, rest: 12 * H, at: c.base, from: c.base, dutyId: `d${i}`, fresh: false });
+    }
+    const pos: Seg = { kind: 'pos', start: midnight(c.base, a + 15) + 12 * H, end: midnight(c.base, a + 15) + 14 * H, fdp: 0, maxFdp: 0, block: 0, sectors: 0, aug: false, disruptive: false, rest: 0, at: c.base, from: c.base, dutyId: 'other', fresh: false };
+    const all = [...segs, pos].sort((x, z) => x.start - z.start);
+    expect(eveFloorIssue(g, c, duties, all)).toBeNull();
+    const issue = dayFloorIssue(g, c, duties, all);
+    expect(issue).toEqual({ code: 'daysOff', level: 'illegal', text: 'Days off in April would fall to 6 (minimum 7)', dutyId: 'd29' });
+    // The 15th free again: the month reaches 7 by itself.
+    expect(dayFloorIssue(g, c, duties, segs)).toBeNull();
+    // A month already holding 7 planned days off asks nothing.
+    c.off = [...c.off, a + 28];
+    expect(dayFloorIssue(g, c, duties.filter((d) => d.id !== 'd28'), all.filter((x) => x.dutyId !== 'd28'))).toBeNull();
+  });
+
+  it('v0.9.1: on the last day of a month, work that takes its last days off is refused when the month would fall under 7', () => {
+    const { g, c } = crew();
+    const y = yearOf(g.now);
+    const a = fromUTC(y, 4, 1) / DAY;
+    g.now = fromUTC(y, 4, 30, 8);
+    g.dayPlan!.planned = fromUTC(y, 5, 20);
+    g.dayPlan!.publishedTo = g.dayPlan!.planned;
+    c.off = [a + 5, a + 6, a + 13, a + 14, a + 21, a + 22, a + 29];
+    c.blocks = [];
+    const segs = segsOf(g, c);
+    const today: Seg = { kind: 'duty', start: g.now + 3 * H, end: g.now + 9 * H, fdp: 6 * H, maxFdp: 13 * H, block: 4 * H, sectors: 2, aug: false, disruptive: false, rest: 12 * H, at: c.base, from: c.base, dutyId: 'x', fresh: true };
+    expect(monthFloorIssue(g, c, segs, [today])?.text).toBe('Days off in April would fall to 6 (minimum 7)');
+    // Work on the last day that takes no day off is not weighed.
+    c.off = [a + 5, a + 6, a + 13, a + 14, a + 21, a + 22, a + 28];
+    expect(monthFloorIssue(g, c, segs, [today])).toBeNull();
   });
 });
 

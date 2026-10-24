@@ -6,13 +6,13 @@ import { store } from './store';
 import { addCrew, fixtureGame } from '../engine/crew/fixtures';
 
 describe('store speed and pause sounds', () => {
-  it('a speed button that leaves the paused state is a resume (one LOW chime); one that only changes the speed is silent', () => {
+  it('v0.9.1: pause and resume make no sound at all (speed buttons, the pause button)', () => {
     const spy = vi.spyOn(sound, 'event').mockImplementation(() => {});
     store.paused = true;
     store.setSpeed(2);
-    expect(spy.mock.calls.filter((c) => c[0] === 'resume')).toHaveLength(1);
-    spy.mockClear();
     store.setSpeed(4);
+    store.togglePause();
+    store.togglePause();
     expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();
   });

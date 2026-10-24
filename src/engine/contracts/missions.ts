@@ -733,7 +733,7 @@ export function makeDryLeaseOffer(g: GameState, w?: IdleWindow, clientId?: strin
   };
   g.offers[o.id] = o;
   schedule(g, o.expires, 'offer.expire', o.id);
-  cue('offerNew');
+  cue('offerNew', { title: `New offer: ${o.title}`, body: `${client.name}. Answer by ${fmtDay(o.expires)}.`, tone: 'info', ref: { kind: 'offer', id: o.id } });
   return o;
 }
 

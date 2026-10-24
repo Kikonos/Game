@@ -234,3 +234,23 @@ describe('crew reach (v0.7 fix round 2)', () => {
     expect(check(feasibility(g, o.id, ac), 'crew').level).not.toBe('no');
   });
 });
+
+describe('short-notice crew reach (v0.9.1)', () => {
+  it('a job in 6 hours from a far station where the aircraft already is, with no crew there: the crew line says so in plain words', () => {
+    const g = newGame(32);
+    const ac = leased(g);
+    ac.at = 'DXB';
+    const o = legsOffer(g, [['DXB', 'MCT', g.now + 6 * 60]], 150);
+    const c = check(feasibility(g, o.id, ac.id), 'crew');
+    expect(c.level).toBe('warn');
+    expect(c.label).toMatch(/^No crew can reach Dubai before the .* report$/);
+    // A crew already there (of the family) can fly it: no such line.
+    const cm = Object.values(g.crew).find((x) => x.ratings.includes(typeOf(ac.typeId).family) && x.role === 'CPT')!;
+    cm.loc = 'DXB';
+    expect(check(feasibility(g, o.id, ac.id), 'crew').label).not.toMatch(/^No crew can reach/);
+    // With three days' notice a crew flies out on an airline and rests first.
+    cm.loc = g.company.homeBase;
+    const later = legsOffer(g, [['DXB', 'MCT', g.now + 3 * DAY]], 150);
+    expect(check(feasibility(g, later.id, ac.id), 'crew').label).not.toMatch(/^No crew can reach/);
+  });
+});

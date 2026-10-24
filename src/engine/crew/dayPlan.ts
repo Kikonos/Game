@@ -162,7 +162,10 @@ export function monthFloorIssue(g: GameState, c: CrewMember, base: Seg[], fresh:
     const a = firstDayOf(mk);
     const b = firstDayOf(mk + 1);
     // A month the crew member joined in is not counted (as the month-end count: dayPlanMonth).
-    if (b <= today + 1 || a < from || midnight(c.base, a) < c.hired) continue;
+    if (b <= today || a < from || midnight(c.base, a) < c.hired) continue;
+    // v0.9.1: on the month's last day only work that takes one of its days off is weighed (seed 6: a crew-control fix
+    // on 31 January took a purser's last two days off and left the month at 6; the last day was never counted).
+    if (b <= today + 1 && ![...hit].some((k) => k >= a && k < b)) continue;
     let n = 0;
     for (const k of c.off) if (k >= a && k < b && !hit.has(k)) n++;
     // Most months already hold their 7 planned (8–10): nothing to count.
@@ -202,6 +205,24 @@ export function monthFloorIssue(g: GameState, c: CrewMember, base: Seg[], fresh:
  * becomes the day off. Only an eve from tomorrow on: a month found short on its last day stays as it is. Pure.
  */
 export function eveFloorIssue(g: GameState, c: CrewMember, duties: Duty[], segs: Seg[]): LegalityIssue | null {
+  const mf = R().off.morningFree;
+  return floorThrough(g, c, duties, segs, (d) => {
+    const k = dayIndex(c.base, d.report - mf);
+    return k === dayIndex(c.base, d.report) ? null : k;
+  });
+}
+
+/**
+ * v0.9.1: the same floor when no early duty has a free eve (seed 3: a tour that grew by three days at the end of the
+ * month left its crew 6 days off with no early report in it). The duty whose own day (to 06:00 the morning after) is
+ * free of all other work carries the issue: the roster takes the crew member off it and that day becomes the day off.
+ * Asked only after eveFloorIssue found none. Pure.
+ */
+export function dayFloorIssue(g: GameState, c: CrewMember, duties: Duty[], segs: Seg[]): LegalityIssue | null {
+  return floorThrough(g, c, duties, segs, (d) => dayIndex(c.base, d.report));
+}
+
+function floorThrough(g: GameState, c: CrewMember, duties: Duty[], segs: Seg[], dayOf: (d: Duty) => number | null): LegalityIssue | null {
   if (!g.dayPlan || !c.off) return null;
   const mf = R().off.morningFree;
   const today = dayIndex(c.base, g.now);
@@ -215,17 +236,23 @@ export function eveFloorIssue(g: GameState, c: CrewMember, duties: Duty[], segs:
   for (const d of duties) {
     // Not the first duty of a longer trip: the crew would come off the whole trip (its positioning is the eve's work).
     if (d.done || d.report <= g.now || (d === duties[0] && duties.length > 1)) continue;
-    const k = dayIndex(c.base, d.report - mf);
-    if (k === dayIndex(c.base, d.report) || k <= today || offOn(c, k) || blockedOn(c, k)) continue;
+    const k = dayOf(d);
+    if (k === null || k <= today || offOn(c, k) || blockedOn(c, k)) continue;
     const mk = monthOfDay(k);
     const a = firstDayOf(mk);
     const b = firstDayOf(mk + 1);
     // A month not counted at its close (joined in it, before the planner) asks nothing.
     if (a < from || midnight(c.base, a) < c.hired) continue;
     if (!counted || counted.mk !== mk) {
-      busy ??= busyDays(c, segs, today, b + 31);
       let n = 0;
       for (const o of c.off) if (o >= a && o < b) n++;
+      // v0.9.1 speed: a month already holding 7 planned days off needs no day count (outside December the legal floor is
+      // at most 7: legalFor); most rechecks of rostered work stop here.
+      if (n >= R().off.legalMonth && mk % 12 !== 11) {
+        counted = { mk, n, legal: R().off.legalMonth };
+        continue;
+      }
+      busy ??= busyDays(c, segs, today, b + 31);
       for (let x = Math.max(a, today + 1); x < b; x++) if (!offOn(c, x) && !busy.hit.has(x) && !blockedOn(c, x)) n++;
       counted = { mk, n, legal: legalFor(g, c, mk) };
     }
@@ -1464,9 +1491,13 @@ function topUpOffs(g: GameState): void {
       const open = planned !== undefined ? dayIndex(c.base, planned) : end;
       // Cheap first: a planned month whose days off, with every day the planner has not reached yet, reach the floor.
       if (firstDayOf(mk) >= firstPlanDay(g, c.base)) {
-        let have = Math.max(0, end - Math.max(lo, open));
-        for (const k of c.off) if (k >= firstDayOf(mk) && k < end) have++;
-        if (have >= R().off.minMonth || have >= minFor(g, c, mk)) continue;
+        const unplanned = Math.max(0, end - Math.max(lo, open));
+        let offs = 0;
+        for (const k of c.off) if (k >= firstDayOf(mk) && k < end) offs++;
+        const have = offs + unplanned;
+        // v0.9.1: the unplanned days count as room only while two weeks of them are left (busy ones are no room: seed 4
+        // closed a month at 6 when a tour filled its last unplanned days and a free planned day was never given back).
+        if ((have >= R().off.minMonth || have >= minFor(g, c, mk)) && (unplanned > 14 || offs >= minFor(g, c, mk))) continue;
       }
       const busy = busyDays(c, segsOf(g, c), firstDayOf(mk), end);
       const free = (k: number, capped: boolean) => !offOn(c, k) && !busy.hit.has(k) && !blockedOn(c, k) && (!capped || !offRunOver(c, k, 1));

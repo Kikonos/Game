@@ -540,28 +540,34 @@ function logSegs(c: CrewMember): Seg[] {
  */
 /**
  * v0.9 round 4 speed (§R.17): per crew member. A revision bump by another crew member's change no longer costs a
- * rebuild: an entry records everything its build read (`deps`: the pairings, duties, duty segs, tickets, standby
- * calls and scalars, in reading order) and, when the crew or flight revision moved, the same walk reads them again
- * and compares (a few objects, no segs built). The game minute only matters to the 28-day standby cut: `nowLo` /
- * `nowHi` bound the minutes for which the same windows are in. Entries that fail are dropped.
+ * rebuild: an entry records everything its build read (`deps`: the pairings, duties, duty segs, tickets and scalars,
+ * in reading order) and, when the crew or flight revision moved, the same walk reads them again and compares (a few
+ * objects, no segs built). Entries that fail are dropped.
+ *
+ * v0.9 round 5 speed (§R.19): in two layers. The work layer (`WorkMemo`: the log, the duties and the tickets) is the
+ * walk above; the standby layer (`SegsMemo`) lays the crew member's windows over it (addStandby) and is keyed on the
+ * work entry, the standby list, its calls and the game minute's 28-day cut (`nowLo` / `nowHi`). The day planner
+ * replaces nearly every crew member's standby list every day and a call-out or a fit replaces more: a third of all
+ * timeline reads rebuilt the whole walk for a standby change alone; now only the overlay is laid again.
  */
-interface SegsMemo { id: number; rev: number; frev: number; nowLo: Minute; nowHi: Minute; ex: string; sby: unknown; sbyN: number; log: unknown; logN: number; deps: unknown[]; segs: Seg[] }
+interface WorkMemo { rev: number; frev: number; ex: string; log: unknown; logN: number; deps: unknown[]; segs: Seg[] }
+interface SegsMemo { id: number; work: WorkMemo; nowLo: Minute; nowHi: Minute; sby: unknown; sbyN: number; calls: (Minute | undefined)[]; segs: Seg[] }
+const workMemo = new WeakMap<CrewMember, WorkMemo[]>();
 const segsMemo = new WeakMap<CrewMember, SegsMemo[]>();
 /** A cached list → its entry (check.ts planCrew's memo keys on it: the base is the same while the entry stands). */
 const segsTag = new WeakMap<Seg[], SegsMemo>();
 let segsIds = 0;
 export const segsTagOf = (segs: Seg[]): number | undefined => segsTag.get(segs)?.id;
 
-export function segsOf(g: GameState, c: CrewMember, excludePairing?: string): Seg[] {
+/** The work layer: the log's segs, the duties' and the loose tickets', sorted (no standby). */
+function workOf(g: GameState, c: CrewMember, ex: string): WorkMemo {
   const rev = crewRev(g);
   const frev = flightsRev(g);
-  const ex = excludePairing ?? '';
-  const now = g.now;
-  let list = segsMemo.get(c);
+  let list = workMemo.get(c);
   if (list) {
     for (let i = 0; i < list.length; i++) {
       const m = list[i];
-      if (m.ex !== ex || m.sby !== c.standby || m.sbyN !== (c.standby?.length ?? 0) || m.log !== c.log || m.logN !== c.log.length || now <= m.nowLo || now > m.nowHi) continue;
+      if (m.ex !== ex || m.log !== c.log || m.logN !== c.log.length) continue;
       if (m.rev !== rev || m.frev !== frev) {
         if (!sameDeps(g, c, m)) {
           list.splice(i--, 1);
@@ -570,13 +576,50 @@ export function segsOf(g: GameState, c: CrewMember, excludePairing?: string): Se
         m.rev = rev;
         m.frev = frev;
       }
-      return m.segs;
+      return m;
     }
   }
   const deps: unknown[] = [];
   const segs = logSegs(c).slice();
-  const b = walk(g, c, ex, deps, segs);
-  const m: SegsMemo = { id: ++segsIds, rev, frev, nowLo: b.lo, nowHi: b.hi, ex, sby: c.standby, sbyN: c.standby?.length ?? 0, log: c.log, logN: c.log.length, deps, segs };
+  walk(g, c, ex, deps, segs);
+  const m: WorkMemo = { rev, frev, ex, log: c.log, logN: c.log.length, deps, segs };
+  if (!list) workMemo.set(c, [m]);
+  else {
+    if (list.length >= 4) list.shift();
+    list.push(m);
+  }
+  return m;
+}
+
+/** The standby windows' calls as read by addStandby (a call is written on the window in place). */
+function sameCalls(m: SegsMemo, sby: CrewMember['standby']): boolean {
+  const calls = m.calls;
+  if (!sby) return calls.length === 0;
+  if (calls.length !== sby.length) return false;
+  for (let i = 0; i < sby.length; i++) if (sby[i].calledAt !== calls[i]) return false;
+  return true;
+}
+
+export function segsOf(g: GameState, c: CrewMember, excludePairing?: string): Seg[] {
+  const work = workOf(g, c, excludePairing ?? '');
+  const now = g.now;
+  let list = segsMemo.get(c);
+  if (list) {
+    for (let i = 0; i < list.length; i++) {
+      const m = list[i];
+      if (m.work !== work || m.sby !== c.standby || m.sbyN !== (c.standby?.length ?? 0) || now <= m.nowLo || now > m.nowHi) continue;
+      if (!sameCalls(m, c.standby)) {
+        list.splice(i--, 1);
+        continue;
+      }
+      return m.segs;
+    }
+  }
+  const segs = work.segs.slice();
+  const b = addStandby(g, c, segs);
+  const calls: (Minute | undefined)[] = [];
+  for (const w of c.standby ?? []) calls.push(w.calledAt);
+  const m: SegsMemo = { id: ++segsIds, work, nowLo: b.lo, nowHi: b.hi, sby: c.standby, sbyN: c.standby?.length ?? 0, calls, segs };
   if (!list) segsMemo.set(c, [m]);
   else {
     if (list.length >= 4) list.shift();
@@ -587,7 +630,7 @@ export function segsOf(g: GameState, c: CrewMember, excludePairing?: string): Se
 }
 
 const DEPS: unknown[] = [];
-function sameDeps(g: GameState, c: CrewMember, m: SegsMemo): boolean {
+function sameDeps(g: GameState, c: CrewMember, m: WorkMemo): boolean {
   DEPS.length = 0;
   walk(g, c, m.ex, DEPS, null);
   const d = m.deps;
@@ -597,11 +640,11 @@ function sameDeps(g: GameState, c: CrewMember, m: SegsMemo): boolean {
 }
 
 /**
- * The timeline build (into `segs`: the log's segs, sorted and with standby at the end) or, with null, only its inputs
- * (`deps`): one walk, so the dependency list always matches what the build read. Returns the minutes for which the
- * standby cut keeps the same windows (`now` in (lo, hi]).
+ * The work build (into `segs`: the log's segs, the duties' and the loose tickets', sorted) or, with null, only its
+ * inputs (`deps`): one walk, so the dependency list always matches what the build read. Standby is the overlay's
+ * (segsOf, addStandby).
  */
-function walk(g: GameState, c: CrewMember, ex: string, deps: unknown[], segs: Seg[] | null): { lo: Minute; hi: Minute } {
+function walk(g: GameState, c: CrewMember, ex: string, deps: unknown[], segs: Seg[] | null): void {
   const ix = crewIx(g);
   const own = new Set<string>();
   const ps = ix.pairingsOf.get(c.id);
@@ -647,19 +690,6 @@ function walk(g: GameState, c: CrewMember, ex: string, deps: unknown[], segs: Se
     segs.push(ps);
   }
   if (segs) segs.sort(bySeg);
-  let lo = -Infinity;
-  let hi = Infinity;
-  const sby = c.standby;
-  if (sby?.length) {
-    const old = g.now - 28 * 1440;
-    for (const w of sby) {
-      deps.push(w.calledAt);
-      if (w.to < old) lo = Math.max(lo, w.to);
-      else hi = Math.min(hi, w.to);
-    }
-    if (segs) addStandby(g, c, segs);
-  }
-  return { lo: lo + 28 * 1440, hi: hi + 28 * 1440 };
 }
 
 /** v0.9 share of a standby window counted towards the ORO.FTL.210 duty windows, by kind (§R.3). */
@@ -701,8 +731,18 @@ function makeSbySeg(c: CrewMember, w: NonNullable<CrewMember['standby']>[number]
  */
 const sbyLists = new WeakMap<object, { n: number; called: number; base: string; segs: Seg[] }>();
 
-function addStandby(g: GameState, c: CrewMember, segs: Seg[]): void {
+function addStandby(g: GameState, c: CrewMember, segs: Seg[]): { lo: Minute; hi: Minute } {
   const list = c.standby ?? [];
+  // The minutes for which the 28-day cut keeps the same windows in (`now` in (lo, hi]).
+  let lo = -Infinity;
+  let hi = Infinity;
+  const old = g.now - 28 * 1440;
+  for (const w of list) {
+    if (w.to < old) lo = Math.max(lo, w.to);
+    else hi = Math.min(hi, w.to);
+  }
+  const bounds = { lo: lo + 28 * 1440, hi: hi + 28 * 1440 };
+  if (!list.length) return bounds;
   let called = 0;
   for (const w of list) if (w.calledAt !== undefined) called++;
   let e = sbyLists.get(list);
@@ -712,7 +752,6 @@ function addStandby(g: GameState, c: CrewMember, segs: Seg[]): void {
     un.sort(bySeg);
     sbyLists.set(list, (e = { n: list.length, called, base: c.base, segs: un }));
   }
-  const old = g.now - 28 * 1440;
   const add: Seg[] = [];
   for (const x of e.segs) if (x.end >= old) add.push(x);
   for (const w of called ? list : []) {
@@ -732,7 +771,7 @@ function addStandby(g: GameState, c: CrewMember, segs: Seg[]): void {
     }
     if (end > w.from) add.push(standbySeg(c, w, end));
   }
-  if (!add.length) return;
+  if (!add.length) return bounds;
   // v0.9 speed: merged into the sorted timeline (as a stable sort of both: timeline segs first on a tie).
   if (called) add.sort(bySeg);
   const out = new Array<Seg>(segs.length + add.length);
@@ -744,6 +783,7 @@ function addStandby(g: GameState, c: CrewMember, segs: Seg[]): void {
   while (j < add.length) out[n++] = add[j++];
   segs.length = 0;
   for (let k = 0; k < n; k++) segs.push(out[k]);
+  return bounds;
 }
 
 /** A seg of a deployment tour: its crews rotate through base, so their tickets are never dropped. */

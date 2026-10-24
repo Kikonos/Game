@@ -8,7 +8,7 @@ import { typeOf } from '../../engine/core/perf';
 import { fmtDateTime, fmtDuration, fmtTime } from '../../engine/core/time';
 import { MONEY_LINES, moneyTotal, moveTrip, quoteTripMove, type TripMoney, type TripMoveQuote } from '../../engine/ops/tripMove';
 import { Modal } from '../components/ui';
-import { store, useGame } from '../store';
+import { type ModalSpec, store, useGame } from '../store';
 
 /** '$12,400' to the nearest hundred (a quote, not an invoice). */
 export function usdRound(v: number): string {
@@ -60,9 +60,10 @@ function MoneyTable({ q }: { q: TripMoveQuote }) {
   );
 }
 
-export function TripMoveModal({ flightId, targetId }: { flightId: string; targetId: string }) {
+export function TripMoveModal({ flightId, targetId, back }: { flightId: string; targetId: string; back?: ModalSpec }) {
   const g = useGame();
-  const close = () => store.closeModal();
+  // v0.9.1 from the offer dialog's schedule portal: back to the offer, its feasibility worked out again.
+  const close = () => (back ? store.openModal(back) : store.closeModal());
   const f = g.flights[flightId];
   const tgt = g.fleet[targetId];
   if (!f || !tgt) {

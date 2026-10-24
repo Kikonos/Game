@@ -189,28 +189,25 @@ One gentle card per screen the first time it opens, placed under the screen head
 ## S. Aviation sound set (UI `src/ui/sound.ts`; cues from ENGINE)
 
 ### S.1 How events reach sound
-- ENGINE emits **cues**: runtime-only, never saved, collected like pause requests (`core/cues.ts`: `cue(c)`, `takeCues()`, isolated in previews by `isolatePauses`). `pushMessage` and `pushDecision` emit a cue derived from the message (`cueOfMessage`, one table in `core/cues.ts`). Non-message events call `cue()` directly (departure, arrival, a new offer, offer lapsing). The bot and tests ignore cues.
-- The UI store calls `takeCues()` after every `advanceTo` and after every action, then `sound.event(cue)`. UI-only events (`UiEvent`: tap, toggle, toggleOff, error, pause, resume; the speed buttons send toggle) call `sound.event()` directly.
+- ENGINE emits **cues**: runtime-only, never saved, collected like pause requests (`core/cues.ts`: `cue(c, note)`, `takeCueEvents()`, isolated in previews by `isolatePauses`). v0.9.1: every cue carries its **note** (`CueNote`: title, body, tone, the message id, a ref); `cue()` drops one without a title. `pushMessage` and `pushDecision` emit a cue derived from the message (`cueOfMessage`, one table in `core/cues.ts`) with the message as its note. Non-message events call `cue()` directly with their own note (departure, arrival, a new offer, offer lapsing, a delay over 60 min or 6 h, our legs waiting longer on a closure). The bot and tests ignore cues.
+- The UI store drains the cues (`drainCues`) after every `advanceTo` and after every action: a cue that will sound (`audible`: master on, its category on, flight chimes on for departures and landings) shows its note as a toast and then `sound.event(cue)`. UI-only events (`UiEvent`: tap, toggle, toggleOff, error) call `sound.event()` directly. v0.9.1: pause and resume make no sound at all.
 - **One table** maps each event to exactly one sound: `SOUND_OF: Record<SoundEvent, SoundId>` in `src/ui/sound.ts`. The table below is that table and is its documentation; keep them identical.
 
 ### S.2 The sounds
-All are synthesised with WebAudio. Bells are sine partials 1× (1.0), 2× (0.18, decaying twice as fast) and 3× (0.06, three times as fast), plus a 1× triangle (0.08) and a second voice detuned by +2 cents. The attack is 4 ms, followed by an exponential decay to −60 dB in 1.8 s (high) / 2.3 s (low). A shared room reverb (a `ConvolverNode` with a generated 1.2 s stereo noise impulse, wet 0.12) is built once. The chain is: per-category `GainNode` → master gain → `DynamicsCompressor` (−18 dB, ratio 3) → destination. There are no square or saw waves and nothing harsh.
+v0.9.1: every chime is the player's own recording of a real airliner HI-LO cabin chime, cut into its HI (≈ 0.91 s) and its LO (≈ 1.04 s), normalised, in `public/sounds/chime-hi.mp3` and `chime-lo.mp3`. The PWA precaches both (`includeAssets`, `globPatterns` with `mp3`), so they play offline. They are fetched and decoded into `AudioBuffer`s once, right after the first-tap unlock; a chime asked for before they are ready plays when they are (within 2.5 s, else it is skipped: its toast still shows). Sequences are built from the two samples like a cabin system: HIs **0.8 s** apart (`HI_GAP`), the LO **0.85 s** after its HI as in the recording (`LO_AFTER`), LOs 0.9 s apart (`LO_GAP`). The UI clicks, the urgent alarm and the ambience stay synthesised. The chain is: per-category `GainNode` → master gain → (dry + a 1.2 s generated room, wet 0.12) → `DynamicsCompressor` (−18 dB, ratio 3) → destination.
 
 | SoundId | Category | What it is |
 |---|---|---|
 | `tap` | ui | soft click: 1.6 kHz sine 25 ms plus a 6 ms filtered-noise tick, gain 0.04 |
 | `toggle` | ui | two ticks 40 ms apart (rising for on, falling for off) |
 | `error` | ui | low soft "dunk": 196 Hz triangle, 120 ms |
-| `high` | chimes | single soft bell, A5 880 Hz |
-| `low` | chimes | single soft bell like the seat-belt ding, D5 587 Hz, slower decay |
-| `ding` | chimes | cockpit-style single ding, D6 1175 Hz, softer (0.16) with a 1.0 s decay |
-| `highLow` | chimes | the classic bing-bong: 880 Hz then F5 698 Hz, 0.55 s apart |
-| `highLowSoft` | chimes | the same at −6 dB, 0.7 s apart, longer decay |
-| `double` | alerts | `highLow` twice, the pairs 1 s apart (≈ 2.2 s) |
-| `triple` | alerts | `highLow` three times (≈ 3.3 s) |
-| `alarm` | alerts | the urgent alarm, master-caution style: 3 bursts, each 3 pulses of a C6 + G6 dyad (1047 + 1568 Hz, sine + triangle, low-pass 3.2 kHz), 110 ms on / 70 ms off, about 0.5 s between bursts; ≈ 2.6 s total, never looped |
-| `achievement` | chimes | warm ascending three-note chime C5–E5–G5, 0.16 s apart, the last held with a soft octave |
-| `flourish` | chimes | pleasant flourish: G4–C5–E5–G5–C6 arpeggio, 0.09 s apart, softer, with a light triangle shimmer |
+| `hiLo` | chimes | one HI, then the LO 0.85 s later: a new contract offer (how flight attendants call each other on board) |
+| `hi` | chimes | one HI: a small thing needs you |
+| `lo` | chimes | one LO: calm news |
+| `lo2` | chimes | two LOs 0.9 s apart: a good-news milestone |
+| `hi2` | alerts | two HIs 0.8 s apart: an emergency |
+| `hi3` | alerts | three HIs 0.8 s apart: an urgent emergency (the triple HI-LO is gone) |
+| `alarm` | alerts | the urgent alarm, unchanged: master-caution style, 3 bursts of 3 pulses of a C6 + G6 dyad (1047 + 1568 Hz, sine + triangle, low-pass 3.2 kHz), 110 ms on / 70 ms off; ≈ 2.6 s, never looped |
 | `ambCabin` | ambience | cabin hum: brown noise low-passed at 180 Hz plus two sines at 98/101 Hz (slow beat), gain 0.05 |
 | `ambTerminal` | ambience | terminal air: pink noise band-passed 300–1,500 Hz with a 0.05 Hz level drift, gain 0.04 |
 
@@ -221,48 +218,58 @@ All are synthesised with WebAudio. Bells are sine partials 1× (1.0), 2× (0.18,
 | `tap` | any button, tab, chip | `tap` |
 | `toggle` | toggles, segmented controls, speed buttons | `toggle` |
 | `error` | an action refused (`store.act` error toast) | `error` |
-| `pause` · `resume` | the player pauses or resumes; an auto-pause | `low` |
-| `flightDep` · `flightArr` | our flight departs / lands (only with **Flight chimes** on; off by default) | `low` |
-| `message` | a new routine inbox message (info/good) | `high` |
-| `crewJoined` | a hire joins, training done, an aircraft delivered | `high` |
-| `paymentIn` · `monthEnd` | a receivable paid, the month closed | `high` |
-| `headDone` | a department head handled something | `high` |
-| `decision` | a calm decision waits (change request, fee, lease notice, proposal) | `ding` |
-| `offerNew` | a new contract offer arrives | `highLow` |
-| `contractSigned` | we signed, or the client accepted our counter | `highLowSoft` |
-| `aog` | an AOG | `double` |
-| `delayPenalty` | a delay of 60 min or more with a penalty risk (charter `perDelay`, VIP) | `double` |
-| `sickCall` | a sick call with no replacement yet | `double` |
-| `latePayer` | a receivable is late (decision) | `double` |
-| `offerLapsing` | an offer the player opened has < 6 h left (once per offer) | `double` |
-| `worldEventOurs` | a world event touches our flights | `double` |
-| `crewAmber` | a crew shortage or out-of-hours flight at the amber stage (48 h) | `double` |
-| `ruleAlert` | a watch-desk rule fired | `double` |
-| `cancelRisk` | a flight about to be cancelled (gate crew decision, uninsurable, a hold over 6 h) | `triple` |
-| `airspaceActive` | airspace closed on a flight that is scheduled or airborne | `triple` |
-| `cashNegative` | the day cash crosses below zero (with its four-line card; round 4 fix: the only cash card while cash is below zero, the fortnightly "Cash runs out" warning waits for cash to recover), and the rescue decision | `triple` |
-| `evacuation` | an urgent evacuation or repatriation request | `triple` |
-| `clientCollapse` | a client drops to Unhappy | `triple` |
+| `flightDep` · `flightArr` | our flight departs / lands (only with **Flight chimes** on; off by default) | `lo` |
+| `message` | a new routine inbox message (info/good) | `lo` |
+| `crewJoined` | a hire joins, training done | `lo` |
+| `paymentIn` · `monthEnd` | a receivable paid, the month closed | `lo` |
+| `headDone` · `headHired` | a department head handled something; a head hired | `lo` |
+| `contractSigned` | we signed, or the client accepted our counter | `lo` |
+| `decision` | a calm decision waits (change request, fee, lease notice, proposal) | `hi` |
+| `counterReply` | a client answered our counter-offer (its pop-up opens) | `hi` |
+| `notice` | a warning without a sound of its own (warn/bad message) | `hi` |
+| `offerNew` | a new contract offer arrives | `hiLo` |
+| `aog` | an AOG | `hi2` |
+| `delayPenalty` | a delay of 60 min or more with a penalty risk (charter `perDelay`, VIP) | `hi2` |
+| `sickCall` | a sick call with no replacement yet | `hi2` |
+| `latePayer` | a receivable is late (decision) | `hi2` |
+| `offerLapsing` | an offer the player opened has < 6 h left (once per offer) | `hi2` |
+| `worldEventOurs` | a world event touches our flights | `hi2` |
+| `crewAmber` | a crew shortage or out-of-hours flight at the amber stage (48 h) | `hi2` |
+| `ruleAlert` | a watch-desk rule fired | `hi2` |
+| `cancelRisk` | a flight about to be cancelled (gate crew decision, uninsurable, a hold over 6 h) | `hi3` |
+| `airspaceActive` | airspace closed on a flight that is scheduled or airborne | `hi3` |
+| `cashNegative` | the day cash crosses below zero (with its four-line card; round 4 fix: the only cash card while cash is below zero, the fortnightly "Cash runs out" warning waits for cash to recover), and the rescue decision | `hi3` |
+| `evacuation` | an urgent evacuation or repatriation request | `hi3` |
+| `clientCollapse` | a client drops to Unhappy | `hi3` |
 | `crewShortage` | CREW SHORTAGE (red stage, 12 h) | `alarm` |
 | `crewOutOfHours` | CREW OUT OF HOURS (red stage, or found at departure) | `alarm` |
-| `achievement` · `ladder` | an achievement or a ladder step | `achievement` |
-| `headUnlocked` · `headHired` | a department head unlocked or hired | `flourish` |
+| `achievement` · `ladder` | an achievement or a ladder step | `lo2` |
+| `headUnlocked` | a department head unlocked | `lo2` |
+| `delivered` | an aircraft handed over (its celebration card opens) | `lo2` |
 
-The urgent alarm is used **only** for `crewShortage` and `crewOutOfHours`.
+The urgent alarm is used **only** for `crewShortage` and `crewOutOfHours`. Pause and resume make no sound (v0.9.1, the player).
 
 ### S.4 Rate limit and merge
-- Chimes and alerts go through a 900 ms merge window that starts at the first request. When it closes, the highest-priority sound plays **once**. Priority: `alarm` 100 > `triple` 90 > `double` 80 > `achievement` 70 > `flourish` 65 > `highLow` 60 > `highLowSoft` 55 > `ding` 45 > `high` 40 > `low` 30.
-- Cross-sound window (v0.9 round 4, the player's call): for **4 s** after any sound plays, only a request that outranks it plays; the rest are dropped (one meaning at a time, never a burst). After the window a lower-priority alert plays as usual (an AOG `double` 5 s after a crew `alarm` is heard).
-- Cooldown per sound for a **repeat of the same sound**: `alarm` 20 s (a second flight's red inside 20 s is merged: the urgent alarm never sounds twice inside 20 s), `triple` 10 s, `double` 6 s, `highLow` 3 s, `ding`/`high` 2.5 s, `low` 2 s.
+- Chimes and alerts go through a 900 ms merge window that starts at the first request. When it closes, the highest-priority sound plays **once**. Priority: `alarm` 100 > `hi3` 90 > `hi2` 80 > `hiLo` 60 > `lo2` 55 > `hi` 45 > `lo` 30.
+- Cross-sound window (v0.9 round 4, the player's call): for **4 s** after any sound plays, only a request that outranks it plays; the rest are dropped (one meaning at a time, never a burst). After the window a lower-priority alert plays as usual (an AOG `hi2` 5 s after a crew `alarm` is heard).
+- Cooldown per sound for a **repeat of the same sound**: `alarm` 20 s (a second flight's red inside 20 s is merged: the urgent alarm never sounds twice inside 20 s), `hi3` 10 s, `hi2` 6 s, `hiLo`/`lo2` 3 s, `hi` 2.5 s, `lo` 2 s.
 - UI sounds play at once (not merged), at most one per 50 ms, and are muted while an alert sound plays.
-- At 4×, with five arrivals and an offer in one second, only one `highLow` plays.
+- At 4×, with five arrivals and an offer in one second, only one `hiLo` plays. Every merged cue still shows its own toast (three at most on screen).
+- The music dips under every chime and alert for the sound's length plus 0.4 s.
 
 ### S.5 Settings, unlock, platform
 - `Settings` (UI store, `load` merges defaults): `sound` (master, default **true**), `volume` (default 0.6 for new installs; kept for old ones), `soundCats: { alerts: true; chimes: true; flights: false; ui: true }`, `ambience: 'off' | 'cabin' | 'terminal'` (default `'off'`). Category gains: alerts 1.0, chimes 0.8, ui 0.5, ambience 0.25.
-- **Settings › Sound** section (replaces the two rows): Master on/off, Volume slider, toggles **Alerts** (emergencies and the urgent alarm), **Chimes** (messages, offers, achievements), **Flight chimes** (every departure and landing), **UI clicks**, and a **Ambience** Seg (Off · Cabin · Terminal). **Test sounds** opens a list (inside the settings modal, scrolling): one 56 px row per SoundId with its meaning ("Triple high-low: serious, e.g. airspace closed on an active flight") and a ▶ button.
+- **Settings › Sound** section (replaces the two rows): Master on/off, Volume slider, toggles **Alerts** (emergencies and the urgent alarm), **Chimes** (messages, offers, achievements), **Flight chimes** (every departure and landing), **UI clicks**, and a **Ambience** Seg (Off · Cabin · Terminal). **Test sounds** opens a list (inside the settings modal, scrolling): one 56 px row per SoundId with its meaning ("3 HI: urgent emergency, e.g. airspace closed on an active flight") and a ▶ button.
 - **iOS/Safari**: a `pointerdown` or `keydown` anywhere (capture; the listener stays, so a later tap wakes a context iOS suspended or interrupted) creates or resumes the `AudioContext` and plays a one-sample silent buffer. Set `navigator.audioSession.type = 'ambient'` when available (Safari 16.4+), so the ringer switch mutes the game and the player's music keeps playing. Suspend the context when the page is hidden and resume it when visible. Nothing plays before that first tap. While the context is asleep (a call, Siri, another app's audio: WebKit's `interrupted`) nothing is rendered on its frozen clock; at most the highest-priority request is kept and plays once at the next tap, so a minute-long interruption never ends in a burst of stacked chimes (round 4).
 - Previews and dry runs on copies of the state (Crew Control's nine previews, the delay search, a head's trial, roster-board verdicts) run inside `isolatePauses`, which mutes `cue()` and keeps pending pauses: a delay the player only looked at never chimes or stops the clock (round 4).
 - Ambience fades in over 2 s on the game screen and out on the title screen or when switched off.
+
+### S.6 Chimes always mean something (v0.9.1)
+- The cause of chimes without a notification: cues played on their own while toasts followed other rules (only bad or goal messages were toasted, none while a dialog was open, direct cues such as a hold past 6 h, a delay penalty, an offer lapsing, a new non-urgent offer or our legs waiting on a closure had no message at all, and routine info messages chimed into the Inbox only).
+- The rule: a cue carries its note (`CueNote`), `cue()` drops one without a title, and the store shows the note as a toast (lower right; over a dialog only the newest shows, at the top) before the sound plays. A cue that opens its own pop-up (a counter reply, a delivery) shows the pop-up instead of a toast. A cue the settings silence plays nothing and toasts by the quiet rules. Inbox messages that a cue already toasted are not toasted twice; an action whose cues showed skips its own result toast.
+- Toasts stay **5 s** (`TOAST_MS`) and a tap dismisses one.
+- A counter-offer reply (`counterReply`, 1 HI) opens a pop-up wherever the player is (behind an open dialog it waits its turn, ahead of the other cards): the reply, then **Accept** at the price on the table and **Decline** while the offer is open (one counter per offer: no second counter), or **View contract** / **OK** once it is settled.
+- An aircraft handed over (`delivered`, 2 LO) opens its celebration card (the aircraft in our livery, registration, type, where from), then "Follow the delivery flight?" when a ferry is planned: **Yes** opens the map on the aircraft. Runtime only: loading a save drains what the load raised, so old deliveries never show a card.
 
 ---
 
@@ -493,7 +500,7 @@ export function whatsNewToShow(seen: string, catchUpDone: boolean): WhatsNewEntr
 
 ### Y.2 747-400 economics (ENGINE `missions.ts`, `offers.ts`, `pricing.ts`)
 - Today the bot loses about 20 % on general work with a 747. The cause: offers are priced on the cheapest reference type that fits (a 767/A330 rate of $6.4–7.2K a block hour) while the 747 costs $3K maintenance a block hour, $90K insurance a month and 13 cabin crew.
-- **Jumbo loads.** Hajj, troop and UN rotations, evacuation, repatriation and full charters (sports fans, pilgrimages) generate 420–480 passengers (`minSeats`, any cabin with the seats) in 20 % of their widebody offers. That rises to 35 % when our fleet has a 747 idle in the window (gap-fit), and to 0 % when neither we nor a rival operates a 400-seat type. With `minSeats ≥ 420`, `referenceType` resolves to a 400-seat type (777-300ER or 747-400; an A380 counts as a jumbo type too), so the rate is about $10–11K a block hour.
+- **Jumbo loads.** Hajj, troop and UN rotations, evacuation, repatriation and full charters (sports fans, pilgrimages) generate 420–480 passengers (`minSeats`, any cabin with the seats) in 20 % of their widebody offers. That rises to 35 % (v0.9.1: 60 %, capped at 25 % of widebody offers) when our fleet has a 747 idle in the window (gap-fit), and to 0 % when neither we nor a rival operates a 400-seat type. With `minSeats ≥ 420`, `referenceType` resolves to a 400-seat type (777-300ER or 747-400; an A380 counts as a jumbo type too), so the rate is about $10–11K a block hour.
 - **Fuel at cost** on jumbo charters: `Product.fuelAtCost?: true` bills fuel after flying at the actual burn of the aircraft that flew (government and military charters work this way; a Hajj airlift is a wet lease, so its fuel is the client's anyway and the offer never carries the term). The price shows "plus fuel at cost". Ledger: `otherRevenue` "Fuel re-billed".
 - No change to the 747's costs or to general offers: on 300-seat work it stays a poor choice.
 - Targets (tests and bot):
@@ -1191,6 +1198,65 @@ dropped: 18 % hits, under half a second, and a pairing's label left to an older 
 (fewer candidate evaluations per empty seat), as R.17.6 said; the 20 s line is not met and the bot's own previews are
 a sixth of what is left.
 
+
+### R.19 v0.9.1 "Tuning"
+
+**Speed (identical output).** The crew timeline memo has two layers: the work (log, duties, tickets: the round 4
+dependency walk) and the standby overlay keyed on the work entry, the standby list, its calls and the 28-day cut, so a
+standby change no longer rebuilds the walk. `rerosterFrom` keeps a trip's check when a value signature of everything
+`recheckPairing` reads (the trip, its duties as `dutySegs` keys them, each leg's and ticket's times, status, version and
+riders, each crew member's `crewKey`/`crewIds`, their timeline entry and their other trips' spans) is unchanged since
+the check, and writes the kept result back (a prior-only check in between rewrites `p.legality`: the first version of
+this skip missed that and moved seed 3). Seeds 1 and 3 ran output-identical to v0.9 with it; `--det` identical. The bot's
+delay search stops at its 6 h cap.
+
+**Crew coverage (rules kept, planning changed).**
+- A trip runs at most 6 days from its first report to a duty's release without a recovery rest (36 h, 2 local nights)
+  inside it (`duties.ts buildTrips`, `TRIP_SPAN`); a longer ad hoc programme away from base is crewed in two parts, the
+  crew changing at the station. Seed 3's 8-day, 6-duty trip from Lisbon could not be flown by any one crew and stayed
+  empty to the day (4 red alerts).
+- A duty not yet reported keeps 2 h in hand on the 168 h between recoveries (was 1 h; a last duty 1 h 50 late ran a
+  crew to 169 h).
+- The days-off floor on rostered work: when no early duty has a free eve (`eveFloorIssue`), the duty furthest ahead whose
+  own day (to 06:00 the morning after) is free of other work carries the issue (`dayFloorIssue`). `monthFloorIssue` now
+  weighs the month's last day too when the work takes one of its days off, and a Crew Control swap never moves someone
+  the move would leave under the floor (seed 6: a swap on 31 January took a purser's last two days off). `topUpOffs`
+  trusts the month's unplanned days as room only while more than two weeks of them are left (busy ones are no room:
+  seed 4 closed a month at 6 when a tour filled its last unplanned days and a free planned day was never given back).
+- Before the crew report, a leg out of or into an airport still closed at its departure moves to 3 h after the
+  reopening (`setClosedWaitHook`): seed 5's Goma positioning crew had sat 29 h "on duty" through hourly holds, went home
+  at the reopening, and the aircraft then raised 18 red alerts in three days.
+- Positioning out of a station where the aircraft has stood idle waits for a ticket from base to reach it whenever the
+  earliest slot is inside a ticket's reach (`schedule.ts crewFree`; it only did so when that slot was already past).
+- The offer card's crew line warns in plain words when a job inside two days starts from a station nobody of the family
+  is at and the first airline seat lands too late: "No crew can reach Dubai before the … report" (`crewReachSoon`).
+
+**Bot.** No narrowbody lease-out from a fleet of two (seeds 3 and 6 leased one, then both on seed 3, for the winter with
+the crew of two aircraft on the payroll).
+
+**A stand-alone ticket home counts on the 168 h (ORO.FTL.235(d)).** Seed 2: a tour's crew flew their last duty at 144 h
+since their last recovery rest; the duty after it went to a sub-charter, so the ticket home it held (the next day,
+landing at 171 h) belonged to no duty and no check saw it. `roster.ts rebookLooseTickets` re-checks every ticket no duty
+holds (daily, after a release, and when a trip's last duty goes while under way): one landing past the 168 h less an
+hour in hand moves to the first seat once the crew's rest is over, else after the recovery rest at the hotel.
+`check.ts looseHome`: a re-check of a trip counts such a ticket as the trip's ticket home (and plans the move). Seed 2:
+171 → 168 h. Test in `roster.test.ts`.
+
+**The 747 (`1 --wide --aug --b744`).** Its year turned on a Jeddah season base priced off a 767 and on crew: the trip
+cap and the positioning wait were not the cause (the run with the v0.9 positioning wait was identical; without the trip
+cap still insolvent). What changed: big full jobs pay for an old 747. Hajj, UN and troop rotations and full
+pilgrimages take any widebody cabin with the seats (business seats sold as economy: `ops/cabin.ts fullLoadReq`; a
+24J/426Y 747 was refused 300–440-pilgrim Hajj work worth $1.8–3.2M for want of an all-economy cabin), a big full
+charter (250+ passengers on a widebody, the jumbo-load archetypes) bills the fuel at cost after flying like a jumbo
+load (`offers.ts bigFull`), and with our 747 idle over the job 60 % of eligible widebody offers become jumbo loads
+(capped at 25 % of widebody offers; 20 % and 12 % otherwise). General work is priced as before.
+
+**Music (§S).** `ui/music.ts`: pads on Imaj7–vi7–IVmaj7–Vsus and two cousins at 64 bpm, sparse electric-piano notes with
+a soft echo, key and progression drawn every few cycles (UI randomness only); scheduled 4 s ahead from a 1 s timer.
+Its own category, switch and volume (`settings.music`, `musicVolume`, on at 0.35 by default; old settings get the
+defaults), under the master switch and volume; it dips under every chime and alert and fades out (1.5 s) before the
+context sleeps when the app is hidden, back in over a few seconds. Test sounds has a Music row.
+
 ---
 
 ## 9. What's new v0.9 "Experience" (ENGINE `data/whatsNew.ts`, player words)
@@ -1237,7 +1303,7 @@ v09: {
     fleet: { idleH: 48, freeH: 72, marginMin: 60 }, proposalH: 72, severanceMonths: 1, rehireDays: 30,
   },
   slip: { maxPerSector: 1, roomNights: 1 },
-  jumbo: { pax: [420, 480], share: 0.2, shareIdle: 0.35, capShare: 0.12 },
+  jumbo: { pax: [420, 480], share: 0.2, shareIdle: 0.6, capShare: 0.12, capShareIdle: 0.25 },
   offerLapseH: 6, delayPenaltyMin: 60, holdCancelRiskH: 6,
   roster: { /* §R.11 */ },
 }

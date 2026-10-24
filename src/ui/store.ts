@@ -8,7 +8,7 @@ import type { CabinLayout, RatingFamily } from '../data/acmiTypes';
 import type { ActionResult, ApprovalId, Archetype, CrewFix, GameState, Message, PaintKind, ProblemRef, Ref, RestRefitId, Role } from '../engine/core/types';
 import { HINTS, type TermId } from '../data/glossary';
 import { problemFor } from '../engine/problems';
-import { acceptOffer, declineOffer, feasibilityAll, generateOffer } from '../engine/contracts';
+import { acceptOffer, counterOffer, declineOffer, feasibilityAll, generateOffer } from '../engine/contracts';
 import { DAY } from '../engine/core/time';
 import { pushDecision } from '../engine/core/messages';
 import type { ClientLevel } from '../engine/contracts';
@@ -16,14 +16,14 @@ import type { WorldEventKind } from '../engine/core/types';
 import { devDeportation, devDryLease, devEvacuation, devHajj, devLevel, devMixedCrew, devRivalBid, devWorldEvent } from '../engine/dev';
 import { demoFlights, devAddType, devCrewShortage, devExtension, devFleet, devGrantApproval, devMarketOffer, devRestPlan, devRestSeats, devSaleReady, devShortCruise, devSplit, devStandby } from '../engine/dev';
 import { dropTargets, moveDuty, publishedTo, resignNow, type DropTarget, type MoveScope } from '../engine/crew';
-import { headsView, headView } from '../engine/ops';
+import { acquireAircraft, headsView, headView } from '../engine/ops';
 import { createGame, type NewGameOptions } from '../engine/newGame';
 import { AUTOSAVE_SLOT, saveToSlot, serialize } from '../engine/save';
 import { advanceTo, settle } from '../engine/sim';
 import { prepareAsyncSave, saveTextAsync, supersedeAsyncSave } from './asyncSave';
 import { autoplay } from './devPlay';
 import { type Ambience, sound, type SoundEvent } from './sound';
-import { takeCues } from '../engine/core/cues';
+import { takeCueEvents, takeCues, type CueEvent } from '../engine/core/cues';
 import type { HeadId } from '../engine/core/types';
 import { devAchievement, devCrewHours, devJumbo, devPosition, devRestAtDeparture, devRoster, devSlipOffer, devUnlockHead } from '../engine/dev';
 import type { OohLimit } from '../engine/core/types';
@@ -54,6 +54,9 @@ export interface Settings {
   /** v0.9 §S.5 sound categories (master = `sound`, `volume`); ambience stays off unless chosen. */
   soundCats: { alerts: boolean; chimes: boolean; flights: boolean; ui: boolean };
   ambience: Ambience;
+  /** v0.9.1 calm background music: on by default at a low volume (its own switch and volume; ambience stays apart). */
+  music: boolean;
+  musicVolume: number;
   /** v0.9 §14.2 screens whose first-time hint the player switched off ('Don't show again'). */
   screenHintsSeen: string[];
   /** v0.9 §X: '' until the one-time What's new catch-up (v0.9 + v0.8 + v0.7.4) has been shown, then 'v0.9'. */
@@ -74,6 +77,8 @@ const DEFAULT_SETTINGS: Settings = {
   hintsSeen: [],
   soundCats: { alerts: true, chimes: true, flights: false, ui: true },
   ambience: 'off',
+  music: true,
+  musicVolume: 0.35,
   screenHintsSeen: [],
   whatsNewCatchUp: '',
 };
@@ -125,7 +130,7 @@ export type ModalSpec =
   | { kind: 'problem'; subject: ProblemRef; hint?: boolean }
   | { kind: 'glossary'; term?: TermId }
   /** v0.7.2.1 trip swap: confirm moving the trip of a flight to another aircraft (money before / after). */
-  | { kind: 'tripMove'; flightId: string; targetId: string }
+  | { kind: 'tripMove'; flightId: string; targetId: string; /** v0.9.1 the dialog to come back to (the offer's schedule portal) */ back?: ModalSpec }
   /** v0.7.2.2 check planning: confirm moving a booked A/C-check or refit along its aircraft's timeline. */
   | { kind: 'maintMove'; maintId: string; start: number }
   /** v0.8 World: a client's relationship, a rival operator, the market outlook, a world event. */
@@ -134,7 +139,12 @@ export type ModalSpec =
   | { kind: 'outlook' }
   | { kind: 'worldEvent'; eventId: string }
   /** v0.9 §5.4 the celebration card of a department head just earned (`ids`: several earned at once, e.g. an old save). */
-  | { kind: 'headUnlocked'; id: HeadId; ids?: HeadId[] };
+  | { kind: 'headUnlocked'; id: HeadId; ids?: HeadId[] }
+  /** v0.9.1 a client's answer to our counter-offer, wherever the player is (Accept / Decline as it applies). */
+  | { kind: 'counterReply'; offerId?: string; contractId?: string; title: string; body: string }
+  /** v0.9.1 an aircraft handed over: the celebration card, then 'Follow the delivery flight?'. */
+  | { kind: 'delivered'; aircraftId: string }
+  | { kind: 'followDelivery'; aircraftId: string };
 
 export interface Toast {
   id: number;
@@ -146,6 +156,15 @@ export interface Toast {
 }
 
 const SETTINGS_KEY = 'contrail-acmi:settings';
+/** v0.9.1 how long a toast stays (the player: 5 s; a tap dismisses it sooner). */
+export const TOAST_MS = 5000;
+
+/** v0.9.1 a cue's toast colour: its tone (an achievement and a ladder step get the trophy toast). */
+export function cueToastKind(e: Pick<CueEvent, 'cue' | 'tone'>): Toast['kind'] {
+  if (e.cue === 'achievement' || e.cue === 'ladder' || e.cue === 'headUnlocked' || e.cue === 'delivered') return 'achievement';
+  if (e.cue === 'crewShortage' || e.cue === 'crewOutOfHours') return 'bad';
+  return e.tone === 'bad' ? 'bad' : e.tone === 'warn' ? 'warn' : e.tone === 'good' ? 'good' : 'info';
+}
 
 /** Pushes the shell below the band iPadOS 26 blurs at the top of web apps ('auto' = 28 px when installed). */
 export function applyTopGap(s: Pick<Settings, 'topGap'>) {
@@ -159,13 +178,19 @@ export function applyTopGap(s: Pick<Settings, 'topGap'>) {
   }
 }
 
+/** Stored settings (an older version's included) with every missing field at its default. Pure. */
+export function settingsFrom(s: Partial<Settings>): Settings {
+  const out: Settings = { ...DEFAULT_SETTINGS, ...s, autoPause: { ...DEFAULT_SETTINGS.autoPause, ...s.autoPause }, soundCats: { ...DEFAULT_SETTINGS.soundCats, ...s.soundCats } };
+  // v0.9.1 settings saved before the music: on, at its low default.
+  out.music ??= DEFAULT_SETTINGS.music;
+  out.musicVolume ??= DEFAULT_SETTINGS.musicVolume;
+  return out;
+}
+
 function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
-    if (raw) {
-      const s = JSON.parse(raw) as Partial<Settings>;
-      return { ...DEFAULT_SETTINGS, ...s, autoPause: { ...DEFAULT_SETTINGS.autoPause, ...s.autoPause }, soundCats: { ...DEFAULT_SETTINGS.soundCats, ...s.soundCats } };
-    }
+    if (raw) return settingsFrom(JSON.parse(raw) as Partial<Settings>);
   } catch {
     // storage unavailable
   }
@@ -207,7 +232,9 @@ class GameStore {
   private lastMsgId: string | null = null;
   private clockLabel = -1;
   /** v0.7: ladder-step celebrations and v0.7.1 first-time hints waiting for the modal slot; ids / kinds already shown (not saved). */
-  private ladderQueue: ({ ladder: string } | { hint: ProblemRef } | { head: HeadId[] })[] = [];
+  private ladderQueue: ({ ladder: string } | { hint: ProblemRef } | { head: HeadId[] } | { pop: ModalSpec })[] = [];
+  /** v0.9.1 messages a cue already toasted (surfaceMessages skips them). */
+  private cueToasted = new Set<string>();
   private ladderSeen = new Set<string>();
   private hintShown = new Set<string>();
 
@@ -224,9 +251,39 @@ class GameStore {
 
   emit() {
     // v0.9 §S.1: the engine's sound cues since the last look (advance, actions, dev scenes) go to the sound set.
-    for (const c of takeCues()) sound.event(c);
+    this.drainCues();
     this.version++;
     for (const fn of this.listeners) fn();
+  }
+
+  /**
+   * v0.9.1 (§S.6) every chime says what it is for: a cue that will sound shows its note as a toast (the Inbox holds the
+   * message too when it came with one) and only then plays; a cue the settings silence follows the quiet toast rules.
+   * A counter-offer reply opens its pop-up and a delivery its celebration card either way.
+   */
+  private drainCues(): number {
+    let shown = 0;
+    for (const e of takeCueEvents()) {
+      if (e.cue === 'counterReply' && (e.ref?.kind === 'offer' || e.ref?.kind === 'contract')) {
+        this.queuePop({ kind: 'counterReply', ...(e.ref.kind === 'offer' ? { offerId: e.ref.id } : { contractId: e.ref.id }), title: e.title, body: e.body ?? '' }, true);
+      }
+      if (e.cue === 'delivered' && e.ref?.kind === 'aircraft') this.queuePop({ kind: 'delivered', aircraftId: e.ref.id }, true);
+      if (!sound.audible(e.cue)) continue;
+      if (e.msgId) this.cueToasted.add(e.msgId);
+      // Its own pop-up (a counter reply, a delivery) is the note; anything else shows a toast.
+      const pop = (e.cue === 'counterReply' && (e.ref?.kind === 'offer' || e.ref?.kind === 'contract')) || (e.cue === 'delivered' && e.ref?.kind === 'aircraft');
+      if (!pop) this.pushToast(cueToastKind(e), e.title, e.body ? (e.body.length > 140 ? e.body.slice(0, 137) + '…' : e.body) : undefined);
+      sound.event(e.cue);
+      shown++;
+    }
+    if (this.ladderQueue.length && !this.modal) this.flushLadder();
+    return shown;
+  }
+
+  /** v0.9.1 a pop-up waits its turn behind an open dialog (`first`: ahead of the cards already waiting). */
+  private queuePop(m: ModalSpec, first = false) {
+    if (first) this.ladderQueue.unshift({ pop: m });
+    else this.ladderQueue.push({ pop: m });
   }
 
   private emitClock() {
@@ -375,19 +432,16 @@ class GameStore {
   }
 
   setSpeed(s: GameSpeed) {
-    const wasPaused = this.paused;
     this.speed = s;
     this.paused = false;
     this.pauseReason = null;
-    // v0.9 round 4 (§S): a speed button or key that leaves the paused state is a resume (the LOW chime), like the pause button.
-    if (wasPaused) sound.event('resume');
+    // v0.9.1 (the player): pause and resume make no sound at all.
     this.emit();
   }
 
   togglePause() {
     this.paused = !this.paused;
     this.pauseReason = null;
-    sound.event(this.paused ? 'pause' : 'resume');
     this.emit();
     // After the paused state paints; skipped when nothing moved since the last save.
     if (this.paused) setTimeout(() => this.saveAutoSoon(), 0);
@@ -464,13 +518,20 @@ class GameStore {
     this.paused = true;
     this.pauseReason = reason;
     if (this.game) this.exact = this.game.now;
-    sound.event('pause');
   }
 
   /** Quiet toasts for important new messages only. Returns whether anything new arrived. */
   private surfaceMessages(): boolean {
+    this.drainCues();
     const fresh = this.takeFresh();
     for (const m of fresh) {
+      // v0.9.1 its cue already showed it (and chimed).
+      if (this.cueToasted.delete(m.id)) {
+        this.queueHint(m);
+        if (m.topic === 'ladder') this.queueLadder(m.id);
+        else this.queueHead(m);
+        continue;
+      }
       // v0.7.1: the first warning of each kind of problem gets its one-time hint (never over another dialog).
       this.queueHint(m);
       // v0.7: ladder steps get the celebration card instead of a toast; market offers a quiet info toast (alerts on).
@@ -541,6 +602,15 @@ class GameStore {
   private flushLadder(): void {
     if (this.modal || !this.game || this.game.gameOver || this.decisionOpen || !this.ladderQueue.length) return;
     const q = this.ladderQueue.shift()!;
+    if ('pop' in q) {
+      const m = q.pop;
+      // Gone meanwhile (answered on the offer card, the aircraft sold): nothing to show.
+      if (m.kind === 'counterReply' && !(m.offerId ? this.game.offers[m.offerId] : this.game.contracts[m.contractId ?? ''])) return this.flushLadder();
+      if ((m.kind === 'delivered' || m.kind === 'followDelivery') && !this.game.fleet[m.aircraftId]) return this.flushLadder();
+      this.modal = m;
+      this.toasts = this.toasts.filter((t) => !t.leaving);
+      return;
+    }
     if ('head' in q) {
       // Hired meanwhile (Company › Team): nothing to celebrate any more.
       const open = q.head.filter((id) => !headView(this.game!, id).person);
@@ -597,14 +667,17 @@ class GameStore {
     settle(g);
     const pause = takePause(this.honoured());
     if (pause && pause !== 'decision') this.autoPause(pause);
+    // v0.9.1 the action's cues show (and chime) with their notes; the result toast only when none did.
+    const cued = this.drainCues();
     if (!res.ok) {
       this.toast('bad', 'Not possible', res.error);
       sound.event('error');
-    } else if (opts.toastOk !== false && res.msg) this.toast('good', res.msg);
+    } else if (opts.toastOk !== false && res.msg && !cued) this.toast('good', res.msg);
     // The action's own messages are not toasted (its result is); ladder steps and heads still get their card, problems their hint.
     for (const m of this.takeFresh()) {
+      const cueShown = this.cueToasted.delete(m.id);
       if (m.topic === 'ladder') this.queueLadder(m.id);
-      else if (m.topic === 'achievement' && this.settings.toasts) this.toast('achievement', m.title.replace(/^Achievement: /, ''), m.body);
+      else if (m.topic === 'achievement' && this.settings.toasts && !cueShown) this.toast('achievement', m.title.replace(/^Achievement: /, ''), m.body);
       else this.queueHead(m);
       this.queueHint(m);
     }
@@ -686,26 +759,34 @@ class GameStore {
   }
 
   /** Closes the dialog; the glossary goes back to the dialog it was opened over unless `all`. */
-  closeModal(opts: { all?: boolean } = {}) {
+  closeModal(opts: { all?: boolean; /** v0.9.1 the waiting cards stay queued (they come once time runs again) */ hold?: boolean } = {}) {
     const below = !opts.all && this.modal?.kind === 'glossary' ? this.modalBelow : null;
     this.modalBelow = null;
     this.modal = below;
-    if (!below) this.flushLadder();
+    if (!below && !opts.hold) this.flushLadder();
     this.emit();
   }
 
   toast(kind: Toast['kind'], title: string, body?: string) {
+    this.pushToast(kind, title, body);
+    this.emit();
+  }
+
+  /** v0.9.1 a toast stays 5 s (lower right), then fades; a tap dismisses it (dismissToast). */
+  private pushToast(kind: Toast['kind'], title: string, body?: string) {
     const id = ++this.toastId;
     this.toasts = [...this.toasts.slice(-2), { id, kind, title, body }];
+    setTimeout(() => this.dismissToast(id), TOAST_MS);
+  }
+
+  dismissToast(id: number) {
+    if (!this.toasts.some((t) => t.id === id && !t.leaving)) return;
+    this.toasts = this.toasts.map((t) => (t.id === id ? { ...t, leaving: true } : t));
     this.emit();
     setTimeout(() => {
-      this.toasts = this.toasts.map((t) => (t.id === id ? { ...t, leaving: true } : t));
+      this.toasts = this.toasts.filter((t) => t.id !== id);
       this.emit();
-      setTimeout(() => {
-        this.toasts = this.toasts.filter((t) => t.id !== id);
-        this.emit();
-      }, 260);
-    }, kind === 'bad' ? 6000 : 4200);
+    }, 260);
   }
 
   setSettings(p: Partial<Settings>) {
@@ -846,6 +927,42 @@ class GameStore {
       this.surfaceMessages();
       this.navigate('fleet', { view: 'market', sel: { kind: 'market', id } });
       return id;
+    },
+    /**
+     * v0.9.1 a counter-offer and its reply: counters the first open offer an aircraft can fly at +5 % and plays on to
+     * the client's answer (its pop-up opens). Returns the offer id, or null.
+     */
+    counterReply: (): string | null => {
+      const g = this.game;
+      if (!g) return null;
+      for (let i = 0; i < 12 && !Object.values(g.offers).some((o) => o.status === 'open' && !o.counter && o.product.kind !== 'dry' && feasibilityAll(g, o.id).some((x) => x.level !== 'no')); i++) generateOffer(g, 'adhoc');
+      for (const o of Object.values(g.offers)) {
+        if (o.status !== 'open' || o.counter || o.product.kind === 'dry') continue;
+        const r = feasibilityAll(g, o.id).find((x) => x.level !== 'no');
+        if (!r) continue;
+        const price = o.product.kind === 'wet' ? o.product.ratePerBH * 1.05 : o.product.kind === 'charter' ? o.product.price * 1.05 : 0;
+        if (!counterOffer(g, o.id, price, [r.aircraftId]).ok) continue;
+        advanceTo(g, (g.offers[o.id].counter?.replyAt ?? g.now) + 1, new Set());
+        this.exact = g.now;
+        this.surfaceMessages();
+        this.emit();
+        return o.id;
+      }
+      return null;
+    },
+    /** v0.9.1 an aircraft handed over abroad: signs an A320 at `site` and plays on to the handover (its card opens). */
+    delivery: (site = 'SCL'): string | null => {
+      const g = this.game;
+      if (!g) return null;
+      const offer = devMarketOffer(g, 'a320ceo', { kind: 'dryLeaseIn', site });
+      const r = offer ? acquireAircraft(g, offer) : null;
+      if (!r?.ok) return null;
+      const ac = g.fleet[r.data!.aircraftId];
+      advanceTo(g, (ac.delivery?.handover ?? g.now) + 1, new Set());
+      this.exact = g.now;
+      this.surfaceMessages();
+      this.emit();
+      return ac.id;
     },
     /** v0.7: grants an approval now (the ladder goal and its celebration card follow). */
     grant: (id: ApprovalId) => {
@@ -1000,7 +1117,7 @@ class GameStore {
       return '';
     },
     /** v0.9: plays a sound now (Test sounds), or a sound event through the merge (`event`); the played log. */
-    sound: (id: Parameters<typeof sound.test>[0] = 'high') => sound.test(id),
+    sound: (id: Parameters<typeof sound.test>[0] = 'hi') => sound.test(id),
     soundEvent: (e: SoundEvent) => sound.event(e),
     soundLog: () => sound.log.slice(),
     /** B5: React renders per screen (dev builds only), to check the calm-UI budget (≤ ~2/s at 4×). */
@@ -1019,7 +1136,7 @@ const HEAD_EARNED = /^You['’]ve earned /;
 const HEADS_AVAILABLE = /department heads? (?:is|are) available/i;
 
 function configureSound(s: Settings) {
-  sound.configure({ on: s.sound, volume: s.volume, cats: s.soundCats, ambience: s.ambience });
+  sound.configure({ on: s.sound, volume: s.volume, cats: s.soundCats, ambience: s.ambience, music: s.music, musicVolume: s.musicVolume });
 }
 
 /** v0.9 §S.3 soft UI clicks: any button taps; toggles, segmented controls and speed buttons tick (capture, no React). */

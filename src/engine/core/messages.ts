@@ -13,7 +13,7 @@ export function pushMessage(g: GameState, m: Omit<Message, 'id' | 't' | 'read'> 
   const { cue: want, ...rest } = m;
   const msg: Message = { id: nextId(g, 'm'), t: g.now, read: false, ...rest };
   const c = want === undefined ? cueOfMessage(msg) : want;
-  if (c) cue(c);
+  if (c) cue(c, { title: msg.title, body: msg.body, tone: msg.tone, msgId: msg.id, ...(msg.ref ? { ref: msg.ref } : {}) });
   g.messages.unshift(msg);
   if (g.messages.length > MAX_MESSAGES) g.messages.length = MAX_MESSAGES;
   return msg;
@@ -32,7 +32,7 @@ export function setDecisionHook(f: ((g: GameState, d: Decision) => boolean) | nu
 export function pushDecision(g: GameState, d: Omit<Decision, 'id' | 't'>): Decision {
   const dec: Decision = { id: nextId(g, 'd'), t: g.now, ...d };
   if (decisionHook?.(g, dec)) return dec;
-  cue(cueOfDecision(dec));
+  cue(cueOfDecision(dec), { title: `Decision: ${dec.title}`, body: dec.body, tone: 'warn' });
   g.decisions.push(dec);
   schedule(g, dec.expires, 'decision.expire', dec.id);
   requestPause('decision');

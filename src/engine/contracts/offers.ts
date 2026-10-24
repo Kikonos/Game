@@ -1044,7 +1044,7 @@ function jumboLoad(g: GameState, d: Draft): void {
   if (!jumboForced) {
     if (!chance(r, idle747 ? J.shareIdle : J.share)) return;
     const v = v09Stats(g);
-    if ((v.offersWide ?? 0) >= 20 && (v.offersJumbo ?? 0) + 1 > J.capShare * ((v.offersWide ?? 0) + 1)) return;
+    if ((v.offersWide ?? 0) >= 20 && (v.offersJumbo ?? 0) + 1 > (idle747 ? J.capShareIdle : J.capShare) * ((v.offersWide ?? 0) + 1)) return;
   }
   // v0.9 fix: never more passengers than our biggest jumbo seats (a 747-400 comes 24J/426Y: 450), so a load we are
   // offered is one we can fly as configured.
@@ -1065,6 +1065,17 @@ function jumboLoad(g: GameState, d: Draft): void {
   delete d.req.maxSeats;
   d.req.body = 'wide';
   d.jumbo = true;
+}
+
+/**
+ * v0.9.1 a big full job (Hajj, troops, a UN or national contingent, an evacuation, a repatriation, a full widebody
+ * charter: 250+ passengers on a widebody) bills the fuel at cost after flying, as the jumbo loads do: the client pays
+ * the burn of the aircraft that carries its load, so an old 747 can take the work an A330 is priced for without
+ * flying its extra fuel at a loss. Everything else keeps the fuel in the price.
+ */
+function bigFull(d: Draft): boolean {
+  if (!JUMBO_ARCH.has(d.archetype) || d.pattern.kind !== 'legs' || !isWideJob(d.req)) return false;
+  return Math.max(0, ...d.pattern.legs.map((l) => l.pax ?? 0)) >= 250;
 }
 
 function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null {
@@ -1155,7 +1166,7 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   const product: Product = d.product ?? priceProduct(g, {
     archetype: d.archetype, typeId: ref, estBH: wet ? revBH : revBH + emptyMin / 60 + (d.extraBH ?? 0), start: d.start, end: d.end, lead: d.start - g.now,
     mult: d.mult, departures: deps, revDepartures: revDeps, roomNights, crewDays, tickets: tickets + (d.passThrough ?? 0), government: gov, mghPerMonth: d.mghPerMonth,
-    loyalty: (1 + levelPct) * (1 + standingPct) - 1, wet: d.wet, ...(d.jumbo && !wet ? { fuelAtCostBH: revBH } : {}),
+    loyalty: (1 + levelPct) * (1 + standingPct) - 1, wet: d.wet, ...((d.jumbo || bigFull(d)) && !wet ? { fuelAtCostBH: revBH } : {}),
   });
   // v0.7.3 heavy crews cost more: a wet rate +3 % when the longest chain needs 3 pilots on the type it was sized
   // for, +6 % for 4 (that type's usual rest facilities).
@@ -1268,7 +1279,7 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   if (urgency === 'urgent' && Object.keys(g.fleet).some((id) => feasibility(g, o.id, id, { quick: true }).level !== 'no')) {
     requestPause('urgentOffer');
     pushMessage(g, { tone: 'warn', cat: 'commercial', title: `Urgent: ${o.title}`, body: `${d.client.name} needs an answer by ${fmtDay(o.expires)} ${fmtTime(o.expires)} UTC.`, ref: { kind: 'offer', id: o.id }, ...cardMeta(offerFitCard(g, o.id)), hurt: { money: o.estValue, pax: 0, delayMin: 0, level: 'high' }, cue: offerCue(o) });
-  } else cue(offerCue(o));
+  } else cue(offerCue(o), { title: `New offer: ${o.title}`, body: `${d.client.name}. Answer by ${fmtDay(o.expires)}.`, tone: 'info', ref: { kind: 'offer', id: o.id } });
   return o;
 }
 
@@ -1357,7 +1368,7 @@ export function lapseCues(g: GameState): void {
   for (const o of Object.values(g.offers)) {
     if (!o.seen || (o.status !== 'open' && o.status !== 'countered') || o.expires <= g.now || o.expires - g.now >= 6 * 60 || s.has(o.id)) continue;
     s.add(o.id);
-    if (!first) cue('offerLapsing');
+    if (!first) cue('offerLapsing', { title: `Offer lapsing soon: ${o.title}`, body: `It closes at ${fmtTime(o.expires)} UTC.`, tone: 'warn', ref: { kind: 'offer', id: o.id } });
   }
 }
 
@@ -1395,7 +1406,7 @@ export function onOfferReply(g: GameState, ev: SimEvent): void {
       return true;
     }
     closeOffer(g, o, 'lost', rivalName(g, o));
-    pushMessage(g, { tone: 'info', cat: 'commercial', title: `${client} went elsewhere: ${o.title}`, body: `They wouldn't take our counter and the job couldn't wait any longer. ${o.lostTo} is flying it.`, ref: { kind: 'offer', id: o.id } });
+    pushMessage(g, { tone: 'info', cat: 'commercial', title: `${client} went elsewhere: ${o.title}`, body: `They wouldn't take our counter and the job couldn't wait any longer. ${o.lostTo} is flying it.`, ref: { kind: 'offer', id: o.id }, cue: 'counterReply' });
     return false;
   };
   // v0.5.1: a counter without the client's paint. Required: half the time they walk; else they want a cut on top.
@@ -1403,7 +1414,7 @@ export function onOfferReply(g: GameState, ev: SimEvent): void {
   if (noPaint && o.paint!.required && chance(g, BAL.paint.walkAway)) {
     k.result = 'refused';
     closeOffer(g, o, 'lost', rivalName(g, o));
-    pushMessage(g, { tone: 'info', cat: 'commercial', title: `${client} walked away`, body: `They wanted their colours on the aircraft for ${o.title}. ${o.lostTo} took the job.`, ref: { kind: 'offer', id: o.id } });
+    pushMessage(g, { tone: 'info', cat: 'commercial', title: `${client} walked away`, body: `They wanted their colours on the aircraft for ${o.title}. ${o.lostTo} took the job.`, ref: { kind: 'offer', id: o.id }, cue: 'counterReply' });
     return;
   }
   const asking = counterBase(o);
@@ -1416,10 +1427,10 @@ export function onOfferReply(g: GameState, ev: SimEvent): void {
     o.expires = Math.max(o.expires, g.now + 1);
     const res = acceptOffer(g, o.id, k.aircraftIds ?? [], { paint: !noPaint, priced: true });
     if (res.ok) {
-      pushMessage(g, { tone: 'good', cat: 'commercial', title: `Counter accepted: ${o.title}`, body: `${client} agreed to ${fmtPrice(o.product)}${noPaint ? ', without their colours on the aircraft' : ''}. The contract is signed.`, ref: { kind: 'contract', id: res.data!.contractId }, cue: null });
+      pushMessage(g, { tone: 'good', cat: 'commercial', title: `Counter accepted: ${o.title}`, body: `${client} agreed to ${fmtPrice(o.product)}${noPaint ? ', without their colours on the aircraft' : ''}. The contract is signed.`, ref: { kind: 'contract', id: res.data!.contractId }, cue: 'counterReply' });
     } else {
       closeOffer(g, o, 'lost', rivalName(g, o));
-      pushMessage(g, { tone: 'warn', cat: 'commercial', title: `Deal fell through: ${o.title}`, body: `${client} accepted, but we can no longer fly it (${res.error}). ${o.lostTo} stepped in.`, ref: { kind: 'offer', id: o.id } });
+      pushMessage(g, { tone: 'warn', cat: 'commercial', title: `Deal fell through: ${o.title}`, body: `${client} accepted, but we can no longer fly it (${res.error}). ${o.lostTo} stepped in.`, ref: { kind: 'offer', id: o.id }, cue: 'counterReply' });
     }
     return;
   }
@@ -1436,13 +1447,13 @@ export function onOfferReply(g: GameState, ev: SimEvent): void {
     pushMessage(g, {
       tone: 'warn', cat: 'commercial', title: `${client} met us halfway: ${o.title}`,
       body: `They won't go to our counter but offer ${fmtPrice(o.product)} (they asked ${was}). Accept by ${until}, or let it go.`,
-      ref: { kind: 'offer', id: o.id }, problem: { kind: 'counterExpiry', ref: { kind: 'offer', id: o.id } }, hurt: { money: o.estValue, pax: 0, delayMin: 0, level: 'high' },
+      ref: { kind: 'offer', id: o.id }, problem: { kind: 'counterExpiry', ref: { kind: 'offer', id: o.id } }, hurt: { money: o.estValue, pax: 0, delayMin: 0, level: 'high' }, cue: 'counterReply',
     });
     if (o.urgency === 'urgent') requestPause('urgentOffer');
     return;
   }
   k.result = 'refused';
-  pushMessage(g, { tone: 'info', cat: 'commercial', title: `Counter refused: ${o.title}`, body: `${client} won't move. The asking price of ${fmtPrice(o.product)} stands until ${until}.`, ref: { kind: 'offer', id: o.id } });
+  pushMessage(g, { tone: 'info', cat: 'commercial', title: `Counter refused: ${o.title}`, body: `${client} won't move. The asking price of ${fmtPrice(o.product)} stands until ${until}.`, ref: { kind: 'offer', id: o.id }, cue: 'counterReply' });
   if (o.urgency === 'urgent') requestPause('urgentOffer');
 }
 

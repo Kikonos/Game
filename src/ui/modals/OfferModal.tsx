@@ -1,8 +1,9 @@
 // Offer review (B5): terms, schedule and effects on the left; per-aircraft feasibility (traffic lights,
 // positioning, crew capacity, contribution) on the right; Decline / Counter / Accept. DESIGN.md §6.3.
 
+import { SchedulePortal } from './OfferPortal';
 import { BedDouble, Check, ChevronRight, LineChart, Palette, Scale, Sofa, Swords, Users, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { Term } from '../components/Term';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { flag } from '../../data/countries';
@@ -224,7 +225,7 @@ function posLine(r: FeasibilityReport): string {
   return `+${fmtDuration(min, true)} positioning from ${legs[0].from}${legs.length > 1 ? ` (${legs.length - 1} stop)` : ''}`;
 }
 
-function AircraftRow({ g, r, on, onPick, billBH, lift = 1, offerId, long }: { g: GameState; r: FeasibilityReport; on: boolean; onPick: () => void; billBH: number; lift?: number; offerId: string; long: boolean }) {
+function AircraftRow({ g, r, on, onPick, billBH, lift = 1, offerId, long, portal }: { g: GameState; r: FeasibilityReport; on: boolean; onPick: () => void; billBH: number; lift?: number; offerId: string; long: boolean; portal?: ReactNode }) {
   const ac = g.fleet[r.aircraftId];
   if (!ac) return null;
   // v0.6: the client-paid extra crew lifts the price (as on the Accept button); the extra crew's cost is already in estCost.
@@ -257,6 +258,7 @@ function AircraftRow({ g, r, on, onPick, billBH, lift = 1, offerId, long }: { g:
           <span className="tiny dim">contribution</span>
         </span>
       </button>
+      {portal}
       {on && (
         <div className="sc-feas-checks">
           {r.checks.filter((c) => !(unflyable && c.level === 'ok' && (c.id === 'runway' || (c.id === 'etops' && c.label === 'No ETOPS needed')))).map((c, i) => (
@@ -582,8 +584,10 @@ export function OfferModal({ offerId }: { offerId: string }) {
         <div className="sc-offer-right col gap-8">
           <div className="upper dim">Choose an aircraft</div>
           {!reports.length && <div className="small muted">No aircraft in the fleet.</div>}
+          {reports.length > 0 && o.product.kind !== 'dry' && <div className="tiny dim v91-portal-hint">Under each aircraft, its schedule around this job (shaded). Tap a trip, or hold and drag it onto another aircraft, to move it.</div>}
           {reports.map((r) => (
-            <AircraftRow key={r.aircraftId} g={g} r={r} on={sel?.aircraftId === r.aircraftId} onPick={() => setPick(r.aircraftId)} billBH={o.estBH} lift={lift} offerId={o.id} long={!!restLine} />
+            <AircraftRow key={r.aircraftId} g={g} r={r} on={sel?.aircraftId === r.aircraftId} onPick={() => setPick(r.aircraftId)} billBH={o.estBH} lift={lift} offerId={o.id} long={!!restLine}
+              portal={o.product.kind !== 'dry' ? <SchedulePortal g={g} o={o} aircraftId={r.aircraftId} candidates={reports.map((x) => x.aircraftId)} /> : undefined} />
           ))}
         </div>
       </div>

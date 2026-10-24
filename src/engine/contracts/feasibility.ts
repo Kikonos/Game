@@ -15,7 +15,7 @@ import { minRest } from '../crew/rules';
 import { dhBlock } from '../crew/timeline';
 import { bestSlip, slipCost, slipDetail, type SlipPlan } from '../crew/slip';
 import { A_CHECK_DAYS, anchorsOf, chainForward, chainsOf, CHARTER_SLACK, DEPLOY_LEAD, gapMoves, longestChains, maxPax, programmeOf, type Anchor, type ChainLeg, type Programme, type Trip } from './plan';
-import { afterRefit, cabinAt, cabinFits, cabinOf, layoutsOf, refitTip, restAfterRefit, restRefitOptions } from '../ops/cabin';
+import { afterRefit, cabinAt, cabinFits, cabinOf, fullLoadReq, layoutsOf, refitTip, restAfterRefit, restRefitOptions } from '../ops/cabin';
 import { aircraftGate, APPROVALS, gateApprovals, ratedPilots } from '../ops/company';
 import { deliveryQuote } from '../ops/delivery';
 import { paintQuote, paintWindow, type PaintSlot } from './paintTerms';
@@ -223,6 +223,36 @@ function crewReach(g: GameState, o: ContractOffer, typeId: string, f: TripFit | 
   return `No crew can be at ${dep} for the first departure ${fmtDateTime(std)}: the positioning crew would be on duty ${fmtDuration(end + rm.post - onFrom)}, and a crew on an airline lands ${fmtDateTime(lands)} with no time to rest`;
 }
 
+/**
+ * v0.9.1: a short-notice job (first departure inside two days) from a station where the aircraft already is, or will be
+ * without a crew: does any crew get there for the first report? Crew of the family already at the station, or a crew on
+ * the earliest airline ticket from home flying it the same day (a short hop) or after minimum rest. The card's plain
+ * line when none can; null when one can or the job is not short notice. Pure.
+ */
+function crewReachSoon(g: GameState, typeId: string, f: TripFit | undefined): string | null {
+  if (!f || f.posIn.length || !f.trip.legs.length) return null;
+  const legs = f.trip.legs;
+  const dep = legs[0].from;
+  const std = legs[0].std;
+  const home = g.company.homeBase;
+  if (dep === home || std - g.now > 2 * DAY) return null;
+  const fam = typeOf(typeId).family;
+  for (const c of Object.values(g.crew)) if (c.loc === dep && c.ratings.includes(fam) && c.status !== 'joining' && !c.notice) return null;
+  const rm = reportMinutes(typeId);
+  const report = std - rm.report;
+  let n = 1;
+  while (n < legs.length && legs[n].kind === 'techstop') n++;
+  const end = legs[n - 1].sta + rm.post;
+  const blk = dhBlock(home, dep);
+  const leaves = Math.ceil((g.now + BAL.deadheadCheckIn) / 60) * 60;
+  const lands = leaves + blk;
+  // Flown in the same day (the ticket counts towards the day: Table 2's best cell), or rested at the station first.
+  if (lands <= report && end - (leaves - BAL.deadheadCheckIn) <= 13 * 60) return null;
+  if (lands + minRest({ dutyMin: blk + BAL.deadheadCheckIn, atHome: false, augmented: false, tzShift: 0 }) <= report) return null;
+  const city = AIRPORT_BY_CODE[dep]?.city ?? dep;
+  return `No crew can reach ${city} before the ${fmtDateTime(report)} report`;
+}
+
 export function feasibility(g: GameState, offerId: string, aircraftId: string, opts: { paint?: boolean; cabin?: boolean; crewExtra?: CrewExtra; quick?: boolean } = {}): FeasibilityReport {
   const o = g.offers[offerId];
   const ac = g.fleet[aircraftId];
@@ -265,7 +295,8 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   else add('seats', 'ok', pax ? `${seats} seats${after} for ${pax} passengers${st}` : `${seats} seats${after} (client needs ${req.minSeats}+)`);
   // v0.8 fix pack: the body the client asks for (a widebody base, Hajj, Antarctica); no refit changes it.
   const bodyNo = !!req.body && req.body !== t.body;
-  const wantL = layoutsOf(req);
+  // v0.9.1: a big full job takes any widebody cabin with the seats (business seats sold as economy).
+  const wantL = layoutsOf(fullLoadReq(req, o.archetype, t.body));
   const layoutNo = !!wantL && !wantL.includes(cab.layout);
   const premiumNo = !!req.minPremium && cab.j + cab.w < req.minPremium;
   if (layoutNo || premiumNo) {
@@ -559,7 +590,9 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   rep.crew = flyable && !(opts.quick && rep.level === 'no') ? crewAvailability(g, t.family, t.id, winFrom, Math.max(winFrom + DAY, winTo), progBH, xc, rn.extraSets) : empty;
   const shorts = Object.entries(rep.crew.byRole).filter(([, r]) => r && r.short > 0) as [string, { short: number }][];
   const reach = flyable ? crewReach(g, o, t.id, fits[0]) : null;
+  const soon = flyable && !reach ? crewReachSoon(g, t.id, fits[0]) : null;
   if (reach) add('crew', 'no', reach, 'Too soon for this aircraft: a later start, or an aircraft already nearby.');
+  else if (soon) add('crew', 'warn', soon, 'Nobody is there and the first airline seat lands too late to rest: the seats would start empty. Ask for a later start, or pass.');
   else if (shorts.length) {
     const what = shorts.map(([role, r]) => `${r.short} ${role}`).join(', ');
     add('crew', 'warn', `Short of crew: ${what}${rep.crew.firstShort ? ` from ${fmtDay(rep.crew.firstShort)}` : ''}`, 'Hire, or the roster will deadhead crew from other work; sets may run tight.');
@@ -662,7 +695,7 @@ export function marketFit(g: GameState, offerId: string): MarketFit | null {
     const deliversBy = deliveryQuote(g, m.typeId, m.site ?? g.company.homeBase, g.now + m.leadDays * DAY).homeBy;
     if (deliversBy > o.start - 7 * DAY || (best && deliversBy >= best.deliversBy)) continue;
     if (m.cabin.total < req.minSeats || (req.maxSeats && m.cabin.total > req.maxSeats)) continue;
-    if (!cabinFits(m.cabin, req) || (req.families?.length && !req.families.includes(t.family)) || (req.body && req.body !== t.body)) continue;
+    if (!cabinFits(m.cabin, fullLoadReq(req, o.archetype, t.body)) || (req.families?.length && !req.families.includes(t.family)) || (req.body && req.body !== t.body)) continue;
     if (!sectors.every(([a, b]) => {
       const sp = planSector(t.id, a, b);
       return sp.ok && (!noStops || !sp.techStops.length);

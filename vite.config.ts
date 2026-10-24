@@ -39,7 +39,7 @@ export default defineConfig({
       disable: embed,
       registerType: 'autoUpdate',
       injectRegister: null,
-      includeAssets: ['favicon.svg', 'icons/*.png'],
+      includeAssets: ['favicon.svg', 'icons/*.png', 'sounds/*.mp3'],
       manifest: {
         name: 'BLOCK HOURS',
         short_name: 'Block Hours',
@@ -57,7 +57,8 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,woff2,json}'],
+        // v0.9.1 the cabin chime samples play offline too.
+        globPatterns: ['**/*.{js,css,html,svg,png,woff2,json,mp3}'],
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
         navigateFallback: 'index.html',
       },

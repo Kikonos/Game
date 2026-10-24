@@ -393,7 +393,7 @@ export const BAL = {
       dismissDays: 14, analystErr: 0.05,
     },
     slip: { maxPerSector: 1, roomNights: 1 },
-    jumbo: { pax: [420, 480] as [number, number], share: 0.2, shareIdle: 0.35, capShare: 0.12 },
+    jumbo: { pax: [420, 480] as [number, number], share: 0.2, shareIdle: 0.6, capShare: 0.12, capShareIdle: 0.25 },
     offerLapseH: 6, delayPenaltyMin: 60, holdCancelRiskH: 6,
     /**
      * §R roster planning like an EASA operator (crew/dayPlan.ts; EASA-FTL.md §16). Days off: a month's legal floor, the

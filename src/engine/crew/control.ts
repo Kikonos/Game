@@ -157,6 +157,8 @@ interface Ctx {
   replace: { role: Role; crewId: string }[];
   /** Seats a new crew member can take: the empty ones, then those of `replace` (call-in, fly in, jet). */
   seats: Role[];
+  /** v0.9 round 5 (speed): the longest delay from the original departure the caller would take (the bot's cap); the delay search tries no later time. */
+  maxDelay?: Minute;
 }
 
 /**
@@ -195,7 +197,7 @@ function heldOoh(g: GameState, f: Flight, d: Duty | undefined, p: Pairing | unde
   return out.sort((a, b) => SLOT_ORDER.indexOf(a.role) - SLOT_ORDER.indexOf(b.role));
 }
 
-function ctxOf(g: GameState, flightId: string): Ctx | null {
+function ctxOf(g: GameState, flightId: string, maxDelay?: Minute): Ctx | null {
   const f = g.flights[flightId];
   const ac = f?.aircraftId ? g.fleet[f.aircraftId] : undefined;
   if (!f || !ac || f.kind === 'deadhead' || f.status !== 'scheduled') return null;
@@ -205,7 +207,7 @@ function ctxOf(g: GameState, flightId: string): Ctx | null {
   const missing = [...cs.missing].sort((a, b) => SLOT_ORDER.indexOf(a) - SLOT_ORDER.indexOf(b));
   const unit = unitOf(g, ac, f);
   const replace = heldOoh(g, f, d, p, cs);
-  return { g, f, ac, d, p, cs, missing, need: group(missing), unit, pax: unitPax(ac, unit), revLegs: unit.filter(isRevenue).length, dep: f.from, replace, seats: [...missing, ...replace.map((r) => r.role)] };
+  return { g, f, ac, d, p, cs, missing, need: group(missing), unit, pax: unitPax(ac, unit), revLegs: unit.filter(isRevenue).length, dep: f.from, replace, seats: [...missing, ...replace.map((r) => r.role)], ...(maxDelay !== undefined ? { maxDelay } : {}) };
 }
 
 function whatLine(x: Ctx): string {
@@ -1009,9 +1011,12 @@ function delayTimes(g: GameState, x: Ctx): Minute[] {
   const lead = d ? Math.max(0, f.std - d.report) : 0;
   const floor = f.std + f.delay;
   const times = new Set<Minute>();
+  // v0.9 round 5 (speed): never past the caller's cap (the bot takes at most 6 h: 45 of its 49 copies a year tried a
+  // later time it then refused; each is a full re-roster on a cold copy).
+  const cap = x.maxDelay === undefined ? Infinity : (f.schedStd ?? f.std) + x.maxDelay;
   const add = (t: Minute) => {
     t = ceil5(t);
-    if (t > floor && t - g.now <= 2 * DAY) times.add(t);
+    if (t > floor && t - g.now <= 2 * DAY && t <= cap) times.add(t);
   };
   add(readyOf(g, f, ac));
   if (d && p) {
@@ -1073,7 +1078,7 @@ function copyData<T>(v: T): T {
 
 /** The soonest of delayTimes at which the roster crews the flight, tried on copies; null when none works. Memoized per step. */
 function delayPlan(g: GameState, x: Ctx): { at: Minute } | null {
-  return memoOf(g, `dp:${x.f.id}`, () => {
+  return memoOf(g, `dp:${x.f.id}:${x.maxDelay ?? ''}`, () => {
     const tryAt = (at: Minute) => {
       const h = previewCopy(g);
       previewing++;
@@ -1272,7 +1277,10 @@ function runFix(h: GameState, flightId: string, fix: CrewFix, opts: ApplyOpts): 
       for (const role of x.missing) {
         const seat = p.slots.findIndex((s) => !s.crewId && !s.above && s.role === role);
         if (seat < 0) continue;
-        const donor = q.slots.find((s) => s.crewId && canFill(role, s.role) && h.crew[s.crewId]);
+        // v0.9.1: never someone the move would leave under the month's legal days off (seed 6: a swap on 31 January took a
+        // purser's last two days off; a day off the month can spare is still taken, with its morale).
+        const floorOk = (c: CrewMember) => !planCrew(h, c, p, segsOf(h, c, q.id), false, 0, q.id).issues.some((i) => i.code === 'daysOff' && i.level === 'illegal');
+        const donor = q.slots.find((s) => s.crewId && canFill(role, s.role) && h.crew[s.crewId] && floorOk(h.crew[s.crewId]));
         if (!donor) continue;
         const c = h.crew[donor.crewId!];
         releaseCrew(h, q, c.id);
@@ -1701,8 +1709,8 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean, only?: readonly C
 }
 
 /** Crew Control for a flight: missing seats, the card and the nine ranked solutions with previews (v0.7.3 `only`: just those fixes). Pure in g. */
-export function crewControl(g: GameState, flightId: string, opts: { previews?: boolean; only?: readonly CrewFix[]; noCard?: boolean } = {}): CrewControlView | null {
-  const x = ctxOf(g, flightId);
+export function crewControl(g: GameState, flightId: string, opts: { previews?: boolean; only?: readonly CrewFix[]; noCard?: boolean; maxDelayMin?: number } = {}): CrewControlView | null {
+  const x = ctxOf(g, flightId, opts.maxDelayMin);
   if (!x) return null;
   // v0.9 §T crew out of hours gets its own card (who, which limit, by how much), as in the inbox. `noCard` (the bot,
   // applyCrewFix): the stage from the crew status alone, the card left empty.
