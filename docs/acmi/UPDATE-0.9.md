@@ -266,7 +266,7 @@ The urgent alarm is used **only** for `crewShortage` and `crewOutOfHours`. Pause
 
 ### S.6 Chimes always mean something (v0.9.1)
 - The cause of chimes without a notification: cues played on their own while toasts followed other rules (only bad or goal messages were toasted, none while a dialog was open, direct cues such as a hold past 6 h, a delay penalty, an offer lapsing, a new non-urgent offer or our legs waiting on a closure had no message at all, and routine info messages chimed into the Inbox only).
-- The rule: a cue carries its note (`CueNote`), `cue()` drops one without a title, and the store shows the note as a toast (lower right, also over a dialog) before the sound plays. A cue the settings silence plays nothing and toasts by the quiet rules. Inbox messages that a cue already toasted are not toasted twice; an action whose cues showed skips its own result toast.
+- The rule: a cue carries its note (`CueNote`), `cue()` drops one without a title, and the store shows the note as a toast (lower right; over a dialog only the newest shows, at the top) before the sound plays. A cue that opens its own pop-up (a counter reply, a delivery) shows the pop-up instead of a toast. A cue the settings silence plays nothing and toasts by the quiet rules. Inbox messages that a cue already toasted are not toasted twice; an action whose cues showed skips its own result toast.
 - Toasts stay **5 s** (`TOAST_MS`) and a tap dismisses one.
 - A counter-offer reply (`counterReply`, 1 HI) opens a pop-up wherever the player is (behind an open dialog it waits its turn, ahead of the other cards): the reply, then **Accept** at the price on the table and **Decline** while the offer is open (one counter per offer: no second counter), or **View contract** / **OK** once it is settled.
 - An aircraft handed over (`delivered`, 2 LO) opens its celebration card (the aircraft in our livery, registration, type, where from), then "Follow the delivery flight?" when a ferry is planned: **Yes** opens the map on the aircraft. Runtime only: loading a save drains what the load raised, so old deliveries never show a card.
@@ -500,7 +500,7 @@ export function whatsNewToShow(seen: string, catchUpDone: boolean): WhatsNewEntr
 
 ### Y.2 747-400 economics (ENGINE `missions.ts`, `offers.ts`, `pricing.ts`)
 - Today the bot loses about 20 % on general work with a 747. The cause: offers are priced on the cheapest reference type that fits (a 767/A330 rate of $6.4–7.2K a block hour) while the 747 costs $3K maintenance a block hour, $90K insurance a month and 13 cabin crew.
-- **Jumbo loads.** Hajj, troop and UN rotations, evacuation, repatriation and full charters (sports fans, pilgrimages) generate 420–480 passengers (`minSeats`, any cabin with the seats) in 20 % of their widebody offers. That rises to 35 % when our fleet has a 747 idle in the window (gap-fit), and to 0 % when neither we nor a rival operates a 400-seat type. With `minSeats ≥ 420`, `referenceType` resolves to a 400-seat type (777-300ER or 747-400; an A380 counts as a jumbo type too), so the rate is about $10–11K a block hour.
+- **Jumbo loads.** Hajj, troop and UN rotations, evacuation, repatriation and full charters (sports fans, pilgrimages) generate 420–480 passengers (`minSeats`, any cabin with the seats) in 20 % of their widebody offers. That rises to 35 % (v0.9.1: 60 %, capped at 25 % of widebody offers) when our fleet has a 747 idle in the window (gap-fit), and to 0 % when neither we nor a rival operates a 400-seat type. With `minSeats ≥ 420`, `referenceType` resolves to a 400-seat type (777-300ER or 747-400; an A380 counts as a jumbo type too), so the rate is about $10–11K a block hour.
 - **Fuel at cost** on jumbo charters: `Product.fuelAtCost?: true` bills fuel after flying at the actual burn of the aircraft that flew (government and military charters work this way; a Hajj airlift is a wet lease, so its fuel is the client's anyway and the offer never carries the term). The price shows "plus fuel at cost". Ledger: `otherRevenue` "Fuel re-billed".
 - No change to the 747's costs or to general offers: on 300-seat work it stays a poor choice.
 - Targets (tests and bot):
@@ -1234,6 +1234,23 @@ delay search stops at its 6 h cap.
 **Bot.** No narrowbody lease-out from a fleet of two (seeds 3 and 6 leased one, then both on seed 3, for the winter with
 the crew of two aircraft on the payroll).
 
+**A stand-alone ticket home counts on the 168 h (ORO.FTL.235(d)).** Seed 2: a tour's crew flew their last duty at 144 h
+since their last recovery rest; the duty after it went to a sub-charter, so the ticket home it held (the next day,
+landing at 171 h) belonged to no duty and no check saw it. `roster.ts rebookLooseTickets` re-checks every ticket no duty
+holds (daily, after a release, and when a trip's last duty goes while under way): one landing past the 168 h less an
+hour in hand moves to the first seat once the crew's rest is over, else after the recovery rest at the hotel.
+`check.ts looseHome`: a re-check of a trip counts such a ticket as the trip's ticket home (and plans the move). Seed 2:
+171 → 168 h. Test in `roster.test.ts`.
+
+**The 747 (`1 --wide --aug --b744`).** Its year turned on a Jeddah season base priced off a 767 and on crew: the trip
+cap and the positioning wait were not the cause (the run with the v0.9 positioning wait was identical; without the trip
+cap still insolvent). What changed: big full jobs pay for an old 747. Hajj, UN and troop rotations and full
+pilgrimages take any widebody cabin with the seats (business seats sold as economy: `ops/cabin.ts fullLoadReq`; a
+24J/426Y 747 was refused 300–440-pilgrim Hajj work worth $1.8–3.2M for want of an all-economy cabin), a big full
+charter (250+ passengers on a widebody, the jumbo-load archetypes) bills the fuel at cost after flying like a jumbo
+load (`offers.ts bigFull`), and with our 747 idle over the job 60 % of eligible widebody offers become jumbo loads
+(capped at 25 % of widebody offers; 20 % and 12 % otherwise). General work is priced as before.
+
 **Music (§S).** `ui/music.ts`: pads on Imaj7–vi7–IVmaj7–Vsus and two cousins at 64 bpm, sparse electric-piano notes with
 a soft echo, key and progression drawn every few cycles (UI randomness only); scheduled 4 s ahead from a 1 s timer.
 Its own category, switch and volume (`settings.music`, `musicVolume`, on at 0.35 by default; old settings get the
@@ -1286,7 +1303,7 @@ v09: {
     fleet: { idleH: 48, freeH: 72, marginMin: 60 }, proposalH: 72, severanceMonths: 1, rehireDays: 30,
   },
   slip: { maxPerSector: 1, roomNights: 1 },
-  jumbo: { pax: [420, 480], share: 0.2, shareIdle: 0.35, capShare: 0.12 },
+  jumbo: { pax: [420, 480], share: 0.2, shareIdle: 0.6, capShare: 0.12, capShareIdle: 0.25 },
   offerLapseH: 6, delayPenaltyMin: 60, holdCancelRiskH: 6,
   roster: { /* §R.11 */ },
 }

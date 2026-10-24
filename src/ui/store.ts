@@ -8,7 +8,7 @@ import type { CabinLayout, RatingFamily } from '../data/acmiTypes';
 import type { ActionResult, ApprovalId, Archetype, CrewFix, GameState, Message, PaintKind, ProblemRef, Ref, RestRefitId, Role } from '../engine/core/types';
 import { HINTS, type TermId } from '../data/glossary';
 import { problemFor } from '../engine/problems';
-import { acceptOffer, declineOffer, feasibilityAll, generateOffer } from '../engine/contracts';
+import { acceptOffer, counterOffer, declineOffer, feasibilityAll, generateOffer } from '../engine/contracts';
 import { DAY } from '../engine/core/time';
 import { pushDecision } from '../engine/core/messages';
 import type { ClientLevel } from '../engine/contracts';
@@ -16,7 +16,7 @@ import type { WorldEventKind } from '../engine/core/types';
 import { devDeportation, devDryLease, devEvacuation, devHajj, devLevel, devMixedCrew, devRivalBid, devWorldEvent } from '../engine/dev';
 import { demoFlights, devAddType, devCrewShortage, devExtension, devFleet, devGrantApproval, devMarketOffer, devRestPlan, devRestSeats, devSaleReady, devShortCruise, devSplit, devStandby } from '../engine/dev';
 import { dropTargets, moveDuty, publishedTo, resignNow, type DropTarget, type MoveScope } from '../engine/crew';
-import { headsView, headView } from '../engine/ops';
+import { acquireAircraft, headsView, headView } from '../engine/ops';
 import { createGame, type NewGameOptions } from '../engine/newGame';
 import { AUTOSAVE_SLOT, saveToSlot, serialize } from '../engine/save';
 import { advanceTo, settle } from '../engine/sim';
@@ -130,7 +130,7 @@ export type ModalSpec =
   | { kind: 'problem'; subject: ProblemRef; hint?: boolean }
   | { kind: 'glossary'; term?: TermId }
   /** v0.7.2.1 trip swap: confirm moving the trip of a flight to another aircraft (money before / after). */
-  | { kind: 'tripMove'; flightId: string; targetId: string }
+  | { kind: 'tripMove'; flightId: string; targetId: string; /** v0.9.1 the dialog to come back to (the offer's schedule portal) */ back?: ModalSpec }
   /** v0.7.2.2 check planning: confirm moving a booked A/C-check or refit along its aircraft's timeline. */
   | { kind: 'maintMove'; maintId: string; start: number }
   /** v0.8 World: a client's relationship, a rival operator, the market outlook, a world event. */
@@ -267,10 +267,12 @@ class GameStore {
       if (e.cue === 'counterReply' && (e.ref?.kind === 'offer' || e.ref?.kind === 'contract')) {
         this.queuePop({ kind: 'counterReply', ...(e.ref.kind === 'offer' ? { offerId: e.ref.id } : { contractId: e.ref.id }), title: e.title, body: e.body ?? '' }, true);
       }
-      if (e.cue === 'delivered' && e.ref?.kind === 'aircraft') this.queuePop({ kind: 'delivered', aircraftId: e.ref.id });
+      if (e.cue === 'delivered' && e.ref?.kind === 'aircraft') this.queuePop({ kind: 'delivered', aircraftId: e.ref.id }, true);
       if (!sound.audible(e.cue)) continue;
       if (e.msgId) this.cueToasted.add(e.msgId);
-      this.pushToast(cueToastKind(e), e.title, e.body ? (e.body.length > 140 ? e.body.slice(0, 137) + '…' : e.body) : undefined);
+      // Its own pop-up (a counter reply, a delivery) is the note; anything else shows a toast.
+      const pop = (e.cue === 'counterReply' && (e.ref?.kind === 'offer' || e.ref?.kind === 'contract')) || (e.cue === 'delivered' && e.ref?.kind === 'aircraft');
+      if (!pop) this.pushToast(cueToastKind(e), e.title, e.body ? (e.body.length > 140 ? e.body.slice(0, 137) + '…' : e.body) : undefined);
       sound.event(e.cue);
       shown++;
     }
@@ -757,11 +759,11 @@ class GameStore {
   }
 
   /** Closes the dialog; the glossary goes back to the dialog it was opened over unless `all`. */
-  closeModal(opts: { all?: boolean } = {}) {
+  closeModal(opts: { all?: boolean; /** v0.9.1 the waiting cards stay queued (they come once time runs again) */ hold?: boolean } = {}) {
     const below = !opts.all && this.modal?.kind === 'glossary' ? this.modalBelow : null;
     this.modalBelow = null;
     this.modal = below;
-    if (!below) this.flushLadder();
+    if (!below && !opts.hold) this.flushLadder();
     this.emit();
   }
 
@@ -925,6 +927,42 @@ class GameStore {
       this.surfaceMessages();
       this.navigate('fleet', { view: 'market', sel: { kind: 'market', id } });
       return id;
+    },
+    /**
+     * v0.9.1 a counter-offer and its reply: counters the first open offer an aircraft can fly at +5 % and plays on to
+     * the client's answer (its pop-up opens). Returns the offer id, or null.
+     */
+    counterReply: (): string | null => {
+      const g = this.game;
+      if (!g) return null;
+      for (let i = 0; i < 12 && !Object.values(g.offers).some((o) => o.status === 'open' && !o.counter && o.product.kind !== 'dry' && feasibilityAll(g, o.id).some((x) => x.level !== 'no')); i++) generateOffer(g, 'adhoc');
+      for (const o of Object.values(g.offers)) {
+        if (o.status !== 'open' || o.counter || o.product.kind === 'dry') continue;
+        const r = feasibilityAll(g, o.id).find((x) => x.level !== 'no');
+        if (!r) continue;
+        const price = o.product.kind === 'wet' ? o.product.ratePerBH * 1.05 : o.product.kind === 'charter' ? o.product.price * 1.05 : 0;
+        if (!counterOffer(g, o.id, price, [r.aircraftId]).ok) continue;
+        advanceTo(g, (g.offers[o.id].counter?.replyAt ?? g.now) + 1, new Set());
+        this.exact = g.now;
+        this.surfaceMessages();
+        this.emit();
+        return o.id;
+      }
+      return null;
+    },
+    /** v0.9.1 an aircraft handed over abroad: signs an A320 at `site` and plays on to the handover (its card opens). */
+    delivery: (site = 'SCL'): string | null => {
+      const g = this.game;
+      if (!g) return null;
+      const offer = devMarketOffer(g, 'a320ceo', { kind: 'dryLeaseIn', site });
+      const r = offer ? acquireAircraft(g, offer) : null;
+      if (!r?.ok) return null;
+      const ac = g.fleet[r.data!.aircraftId];
+      advanceTo(g, (ac.delivery?.handover ?? g.now) + 1, new Set());
+      this.exact = g.now;
+      this.surfaceMessages();
+      this.emit();
+      return ac.id;
     },
     /** v0.7: grants an approval now (the ladder goal and its celebration card follow). */
     grant: (id: ApprovalId) => {

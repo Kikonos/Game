@@ -206,11 +206,11 @@ function SoundSettings() {
   return (
     <>
       <div className="set-head upper dim">Sound</div>
-      <div className="set-row"><div><b>Sound</b><div className="tiny dim">Cabin and cockpit chimes; calm for calm news, urgent only for crew</div></div><Toggle on={st.sound} onChange={(v) => store.setSettings({ sound: v })} label="Sound" /></div>
+      <div className="set-row"><div><b>Sound</b><div className="tiny dim">Real cabin chimes: HI-LO for a new offer, HI when something needs you, LO for calm news; the urgent alarm only for crew</div></div><Toggle on={st.sound} onChange={(v) => store.setSettings({ sound: v })} label="Sound" /></div>
       <div className={`set-row ${off ? 'v9-dim' : ''}`}><div><b>Volume</b></div><input type="range" min={0} max={1} step={0.05} value={st.volume} aria-label="Volume" style={{ width: 200, ['--fill' as string]: `${st.volume * 100}%` }} onChange={(e) => store.setSettings({ volume: Number(e.target.value) })} /></div>
-      <div className={`set-row ${off ? 'v9-dim' : ''}`}><div><b>Alerts</b><div className="tiny dim">Double and triple chimes for problems; the urgent alarm for crew shortage and crew out of hours</div></div><Toggle on={st.soundCats.alerts} onChange={(v) => cats('alerts', v)} label="Alerts" /></div>
+      <div className={`set-row ${off ? 'v9-dim' : ''}`}><div><b>Alerts</b><div className="tiny dim">Two and three HI chimes for emergencies; the urgent alarm for crew shortage and crew out of hours</div></div><Toggle on={st.soundCats.alerts} onChange={(v) => cats('alerts', v)} label="Alerts" /></div>
       <div className={`set-row ${off ? 'v9-dim' : ''}`}><div><b>Chimes</b><div className="tiny dim">Messages, offers, decisions, achievements</div></div><Toggle on={st.soundCats.chimes} onChange={(v) => cats('chimes', v)} label="Chimes" /></div>
-      <div className={`set-row ${off ? 'v9-dim' : ''}`}><div><b>Flight chimes</b><div className="tiny dim">A low chime at every departure and landing</div></div><Toggle on={st.soundCats.flights} onChange={(v) => cats('flights', v)} label="Flight chimes" /></div>
+      <div className={`set-row ${off ? 'v9-dim' : ''}`}><div><b>Flight chimes</b><div className="tiny dim">One LO chime at every departure and landing</div></div><Toggle on={st.soundCats.flights} onChange={(v) => cats('flights', v)} label="Flight chimes" /></div>
       <div className={`set-row ${off ? 'v9-dim' : ''}`}><div><b>UI clicks</b></div><Toggle on={st.soundCats.ui} onChange={(v) => cats('ui', v)} label="UI clicks" /></div>
       <div className={`set-row ${off ? 'v9-dim' : ''}`}><div><b>Music</b><div className="tiny dim">Calm background music; it dips under chimes and alarms</div></div><Toggle on={st.music} onChange={(v) => store.setSettings({ music: v })} label="Music" /></div>
       <div className={`set-row ${off || !st.music ? 'v9-dim' : ''}`}><div><b>Music volume</b></div><input type="range" min={0} max={1} step={0.05} value={st.musicVolume} aria-label="Music volume" style={{ width: 200, ['--fill' as string]: `${st.musicVolume * 100}%` }} onChange={(e) => store.setSettings({ musicVolume: Number(e.target.value) })} /></div>
@@ -308,7 +308,7 @@ export function GlobalModals() {
     case 'crewControl': return s.game ? <CrewControlModal key={m.flightId} flightId={m.flightId} fix={m.fix} /> : null;
     case 'problem': return s.game ? <ProblemModal subject={m.subject} hint={m.hint} /> : null;
     case 'glossary': return <GlossaryModal term={m.term} />;
-    case 'tripMove': return s.game ? <TripMoveModal key={`${m.flightId}>${m.targetId}`} flightId={m.flightId} targetId={m.targetId} /> : null;
+    case 'tripMove': return s.game ? <TripMoveModal key={`${m.flightId}>${m.targetId}`} flightId={m.flightId} targetId={m.targetId} back={m.back} /> : null;
     case 'maintMove': return s.game ? <MaintMoveModal key={`${m.maintId}@${m.start}`} maintId={m.maintId} start={m.start} /> : null;
     case 'client': return s.game ? <ClientModal clientId={m.clientId} /> : null;
     case 'rival': return s.game ? <RivalModal rivalId={m.rivalId} /> : null;

@@ -20,6 +20,11 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     name: 'Tuning',
     features: [
       'Calm background music (Settings → Sound to change the volume or turn it off).',
+      'Real cabin chimes, recorded on board: HI-LO for a new contract offer, one HI when something needs you, two HIs for an emergency, three for an urgent one, one LO for calm news, two LOs for good news. Pause and resume are silent.',
+      'Every chime now shows what it is for: a note in the lower right (and in the Inbox). Notes stay 5 seconds; tap one to close it.',
+      'When a client answers your counter-offer, the reply pops up wherever you are, with Accept and Decline.',
+      'The offer window shows each aircraft’s schedule around the job. Move a trip to another aircraft right there to free one up.',
+      'A new aircraft arriving is a moment: a card with it in your colours, then you can follow its delivery flight on the map.',
     ],
     improvements: [
       'Fewer crew alerts: a long trip away from base now changes crews at the station halfway, instead of waiting for one crew that could never legally fly it all.',
@@ -28,6 +33,8 @@ export const WHATS_NEW: WhatsNewEntry[] = [
       'An empty aircraft at a quiet station leaves when a crew can get there, not before.',
       'Days off: a crew swap or a re-plan never takes the last days off a month needs, even on its last day.',
       'A little faster simulation.',
+      'Crew never fly home past the weekly rest limit, even when their last flight was handed to another airline.',
+      'Big full jobs suit an old 747 better: Hajj, troop, UN and full charters take any widebody cabin with the seats, the client pays the fuel it burns, and more of them come when your 747 is free.',
     ],
   },
   {

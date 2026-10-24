@@ -107,7 +107,8 @@ export function FollowDeliveryModal({ aircraftId }: { aircraftId: string }) {
   const ferry = deliveryFerry(g, aircraftId);
   const close = () => store.closeModal();
   const follow = () => {
-    close();
+    // The map first: the cards still waiting come once time runs again.
+    store.closeModal({ hold: true });
     store.navigate('map', { sel: { kind: 'aircraft', id: aircraftId } });
   };
   if (!ac) return null;

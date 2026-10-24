@@ -37,16 +37,25 @@ export interface CueEvent extends CueNote {
   cue: Cue;
 }
 
-const MAX = 64;
+const MAX = 256;
 let buf: CueEvent[] = [];
 /** Preview depth: while > 0 (a dry run on a copy of the state) cues are dropped. */
 let muted = 0;
 
 /** Raises a cue with its note; one without a title is dropped (a chime always says what it is for). */
 export function cue(c: Cue, note: CueNote): void {
-  if (muted || buf.length >= MAX || !note?.title?.trim()) return;
+  if (muted || !note?.title?.trim()) return;
+  // v0.9.1 a long jump (dev, a slow frame) fills the buffer with departures and landings: they make room first, so a
+  // delivery or a counter reply is never lost behind them.
+  if (buf.length >= MAX) {
+    const i = buf.findIndex((e) => ROUTINE.has(e.cue));
+    if (i < 0 || ROUTINE.has(c)) return;
+    buf.splice(i, 1);
+  }
   buf.push({ ...note, cue: c });
 }
+/** Cues that give way when the buffer is full. */
+const ROUTINE = new Set<Cue>(['flightDep', 'flightArr', 'message', 'paymentIn', 'monthEnd', 'headDone']);
 
 /** Dry runs on copies: cue() is a no-op until the matching unmuteCues (nested previews stack). */
 export function muteCues(): void {
