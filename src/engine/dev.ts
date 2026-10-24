@@ -104,7 +104,7 @@ export function devRestSeats(g: GameState): string {
   const base = Object.values(g.fleet)[0];
   if (!base) return '';
   const home = g.company.homeBase;
-  for (const a of ['widebody', 'augmented'] as const) if (!g.company.approvals.includes(a)) g.company.approvals.push(a);
+  for (const a of ['widebody', 'augmented'] as const) if (!g.company.approvals.includes(a)) { g.company.approvals.push(a); (g.company.approvalsAt ??= {})[a] = g.now; }
   const t = ACMI_TYPES.a333;
   const id = nextId(g, 'a');
   const ac = { ...structuredClone(base), id, reg: `${g.company.regPrefix}DVR`, typeId: t.id, cabin: cabinFrom(t.cabins[t.cabins.length - 1]), at: home, flightId: null, status: 'available' as const, maintId: null, crewRest: { bunks: false, seats: t.yAbreast }, rest: undefined as AcRest | undefined, bhDays: [] };
@@ -170,7 +170,7 @@ function devWide(g: GameState, typeId: string, rest: AcRest | null, suffix: stri
   const base = Object.values(g.fleet)[0];
   if (!base) return null;
   const home = g.company.homeBase;
-  for (const a of ['widebody', 'augmented'] as const) if (!g.company.approvals.includes(a)) g.company.approvals.push(a);
+  for (const a of ['widebody', 'augmented'] as const) if (!g.company.approvals.includes(a)) { g.company.approvals.push(a); (g.company.approvalsAt ??= {})[a] = g.now; }
   const t = ACMI_TYPES[typeId];
   const id = nextId(g, 'a');
   const cabin = cabinFrom(t.cabins[cabinIx]);

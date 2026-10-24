@@ -501,7 +501,7 @@ export function whatsNewToShow(seen: string, catchUpDone: boolean): WhatsNewEntr
   - the same aircraft on a 300-seat A330-referenced season base ≤ +3 %;
   - a bot with a 747 picks jumbo loads for it and ends the year with the 747's contribution ≥ 0;
   - the share of jumbo-load offers stays ≤ 12 % of widebody offers.
-- Chip "Jumbo load · 450 seats". Achievement `queen`.
+- Chip "Jumbo load" (the seats chip beside it carries the count; round 4.2: the count was said twice). Achievement `queen`.
 
 ### Y.3 Bot runtime
 Today: seed 1 runs in 28.9 s (target 12 s). Profile with `node --cpu-prof` through `tsx` and fix only the cheap hot spots, for example:
