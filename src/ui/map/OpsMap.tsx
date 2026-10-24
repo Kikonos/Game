@@ -20,6 +20,7 @@ import type { GameState, Ref } from '../../engine/core/types';
 import { slipsOfAircraft } from '../../engine/crew';
 import { commercialFlightsBetween, FLIGHT_TYPE_HINT, FLIGHT_TYPE_LABEL, worldEventPins, worldZones } from '../../engine/ops';
 import { store, useClock, useGame } from '../store';
+import { useTouch } from '../useMedia';
 import { AircraftLayer, ArcsLayer, CommercialLayer, HIT_R, type LiveShared, NightLayer, newShared, PathsLayer, PinsLayer, pinOffset, SlipArcsLayer, SlipMarksLayer } from './LiveLayers';
 import { MapPanel, TypeKey } from './MapPanels';
 import { ALERT_CHIP, awaitingDelivery, chipInfo, commercialById, fitCodes, onMap, fitFresh, isCommercialId, JET_PATH, mapAirports, offerPins, parseSlipId, pickNearest, placeEventPins, placeSlipMarks, selectedLegs, shortIndex, slipArcs, slipWindow, upNextRows } from './mapLogic';
@@ -174,6 +175,7 @@ function UpNext({ g }: { g: GameState }) {
 }
 
 export function OpsMap() {
+  const touch = useTouch();
   const g = useGame();
   const sel = store.nav.sel;
   const selCm = sel?.kind === 'flight' && isCommercialId(sel.id) ? sel.id : undefined;
@@ -383,7 +385,7 @@ export function OpsMap() {
         }}
         layers={(ctx) => (
           <>
-            <PinsLayer pins={pins} marked={marked} proj={ctx.proj} unit={ctx.unit} selected={selPin} />
+            <PinsLayer pins={pins} marked={marked} proj={ctx.proj} unit={ctx.unit} selected={selPin} touch={touch} />
             <EventPinsLayer pins={evPins} proj={ctx.proj} unit={ctx.unit} selected={selEv} />
             <SlipMarksLayer marks={slipMarks} proj={ctx.proj} unit={ctx.unit} selected={selSlip ? sel?.id : undefined} />
             <CommercialLayer shared={shared} />

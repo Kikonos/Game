@@ -89,6 +89,12 @@ describe('v0.7.1 fix round 1: plain-language helpers', () => {
     expect(decisionBodyTail('LO5102 has no pilots. Your free captains are in Lisbon. Yes: 306 passengers. It has been waiting 2h 00m at Warsaw.', card)).toBe('It has been waiting 2h 00m at Warsaw.');
     expect(decisionBodyTail('LO5102 has been waiting 2h at Warsaw: no legal CPT can take it.', card)).toBe('LO5102 has been waiting 2h at Warsaw: no legal CPT can take it.');
     expect(decisionBodyTail('anything', null)).toBe('anything');
+    // Round 4: the gate decision writes the WHAT without ' for AWQ102' and the hurt as prose (no 'Yes: ').
+    const ooh = { what: 'Ana Silva (captain) is out of hours for AWQ102', why: "Ana's day would run 12:32; the limit is 12:30.", hurt: { text: 'Yes: 108 passengers, ~19.5 h late, $19K penalty' } } as never as Parameters<typeof decisionBodyTail>[1];
+    expect(decisionBodyTail("Ana Silva (captain) is out of hours. Ana's day would run 12:32; the limit is 12:30. 108 passengers, ~19.5 h late, $19K penalty. It has been waiting 2h 00m at Cagliari.", ooh)).toBe('It has been waiting 2h 00m at Cagliari.');
+    // The extra-rotation card's WHY is the whole body: nothing is left to show twice.
+    const body = 'MAN–ORY–MAN on 29 Mar, off blocks 17:00 local: 2.5 BH, paid only above the 55 hours guaranteed that month.';
+    expect(decisionBodyTail(body, { what: 'Client asks for an extra rotation', why: body, hurt: { text: '$1.2K maintenance' } } as never as Parameters<typeof decisionBodyTail>[1])).toBe('');
   });
   it('shows one reason per person: a single location line, nothing the root cause already says', () => {
     const busy = { code: 'busy' as const, text: 'busy on DE3000 to Budapest until 16:50', all: ['On another trip until 28 Apr', 'Overlaps another duty', 'At VCE, not CMN', 'At CMN, not LIS', 'Short of rest (8:00 of 10:00)'] };

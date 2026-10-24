@@ -268,8 +268,9 @@ function yearView(g: GameState, c: CrewMember, year: number): YearView {
   const first = Math.max(firstPlanDay(g, c.base), dayIndex(c.base, c.hired - 1) + 1);
   const m = monthOfDay(first);
   const from = Math.max(y0, firstDayOf(first > firstDayOf(m) ? m + 1 : m));
-  // To the nearest day: a crew member counted for one month needs 8 (96 × 31 / 365 = 8.2), the planner's floor.
-  return { y0, y1, from, need: Math.round((R().off.yearMin * Math.max(0, y1 - from)) / (y1 - y0)) };
+  // Rounded down (Directive 2000/79 counts whole days of a calendar year): a crew member counted for one month needs
+  // 8 (96 × 31 / 365 = 8.2), the planner's floor; round 4: a 2–3-month hire is no longer judged one day short.
+  return { y0, y1, from, need: Math.floor((R().off.yearMin * Math.max(0, y1 - from)) / (y1 - y0)) };
 }
 
 /**
@@ -700,8 +701,22 @@ interface OffNeed {
   len: number;
 }
 
-function offNeed(g: GameState, c: CrewMember, D: number, busy: Busy): OffNeed | null {
-  const O = R().off;
+/** Round 4: whether c works a deployment tour within 10 days of day D (its segs' pairings carry `tour`). */
+function onTourAround(g: GameState, c: CrewMember, segs: Seg[], D: number): boolean {
+  const a = midnight(c.base, D - 10);
+  const b = midnight(c.base, D + 10);
+  for (const x of segs) {
+    if (x.kind !== 'duty' || !x.dutyId || x.end < a || x.start > b) continue;
+    if (g.pairings[g.duties[x.dutyId]?.pairingId ?? '']?.tour) return true;
+  }
+  return false;
+}
+
+function offNeed(g: GameState, c: CrewMember, D: number, busy: Busy, tour = false): OffNeed | null {
+  const O0 = R().off;
+  // Round 4: crew on a deployment tour this month plan towards the cap and their block comes a day sooner (their
+  // tour's eves and late evenings eat the free days a base crew keeps).
+  const O = tour ? { ...O0, targetMonth: O0.maxMonth, dueAfter: Math.max(2, O0.dueAfter - 1) } : O0;
   const run = runBefore(g, c, busy, D);
   const mk = monthOfDay(D);
   const m0 = firstDayOf(mk);
@@ -788,7 +803,8 @@ function planDay(g: GameState, D: number, crew: CrewMember[], facts: Map<string,
   const needs: OffNeed[] = [];
   for (const c of crew) {
     if ((only && !only.has(c.id)) || offOn(c, D) || blockedOn(c, D) || (c.notice && midnight(c.base, D) >= c.notice.leaves)) continue;
-    const n = offNeed(g, c, D, facts.get(c.id)!.busy);
+    const fx = facts.get(c.id)!;
+    const n = offNeed(g, c, D, fx.busy, onTourAround(g, c, fx.segs, D));
     if (n) needs.push(n);
   }
   needs.sort((a, b) => Number(b.must) - Number(a.must) || Number(a.early) - Number(b.early) || b.run - a.run || b.behindBy - a.behindBy
@@ -883,10 +899,13 @@ function dayFactsAll(g: GameState, X0: number, X1: number): Map<number, DayFacts
         if (fl) {
           const dl = (fl.std + offsetAt(st, fl.std)) % DAY;
           if (dl >= 5 * 60 && dl < A.waveEnd) {
-            const w = f.wave.get(`${st}|${fam}`) ?? { n: 0, first: Infinity };
-            w.n++;
-            w.first = Math.min(w.first, fl.std);
-            f.wave.set(`${st}|${fam}`, w);
+            // Round 4: the wave is the station's (every family: the cabin seat covers them all); per family its first departure.
+            for (const key of [`${st}|${fam}`, `${st}|*`]) {
+              const w = f.wave.get(key) ?? { n: 0, first: Infinity };
+              w.n++;
+              w.first = Math.min(w.first, fl.std);
+              f.wave.set(key, w);
+            }
           }
         }
       }
@@ -898,7 +917,10 @@ function dayFactsAll(g: GameState, X0: number, X1: number): Map<number, DayFacts
       if (X < X0 || X > X1) continue;
       const f = of(X);
       const st = w.at ?? c.base;
-      if (w.kind === 'airport') for (const fam of c.ratings) inc(f.airport, `${st}|${fam}|${asbyRole(c.role)}`);
+      if (w.kind === 'airport') {
+        for (const fam of c.ratings) inc(f.airport, `${st}|${fam}|${asbyRole(c.role)}`);
+        inc(f.airport, `${st}|*|${asbyRole(c.role)}`);
+      }
       else if ((w.kind ?? 'home') === 'home') inc(f.shifts, `${st}|${c.role}|${w.shift ?? shiftOf(c, w)}`);
     }
   }
@@ -911,10 +933,35 @@ const asbyRole = (r: CrewMember['role']): string => (r === 'PUR' ? 'CC' : r);
 const shiftOf = (c: CrewMember, w: Window): 'E' | 'L' => ((w.from + offsetAt(c.base, w.from)) % DAY < 12 * 60 ? 'E' : 'L');
 
 /** The window of day X before clipping, by kind and shift (home base-local; hotel station-local). */
+/**
+ * Round 4: airport standby at a busy morning wave at `at` (the station's departures of every family, 05:00–12:00): 1 CPT
+ * and 1 FO per family with a departure in it, 1 cabin crew per station; null when the wave is small or the seats are
+ * taken. At home base and at a deployment station alike (the waves are mostly at the stations of our base programmes).
+ */
+function asbyWindow(c: CrewMember, at: string, f: DayFacts): Window | null {
+  const S = R();
+  const sw = f.wave.get(`${at}|*`);
+  const cabin = c.role === 'PUR' || c.role === 'CC';
+  const per = S.airport.per[cabin ? 'CC' : c.role] ?? 0;
+  if (!sw || sw.n < S.airport.minWave || per <= 0) return null;
+  for (const fam of c.ratings) {
+    const wave = f.wave.get(`${at}|${fam}`);
+    if (!wave) continue;
+    const key = cabin ? `${at}|*|CC` : `${at}|${fam}|${c.role}`;
+    if ((f.airport.get(key) ?? 0) >= per) continue;
+    const from = (cabin ? sw.first : wave.first) - S.airport.leadMin;
+    return { from, to: from + S.airport.hours * 60, kind: 'airport', ...(at !== c.base ? { at } : {}) };
+  }
+  return null;
+}
+
 function rawWindow(c: CrewMember, X: number, at: string, f: DayFacts, prevShift: 'E' | 'L' | null): { w: Window; kind: StandbyKind } {
   const S = R();
   const m = midnight(c.base, X);
   if (at !== c.base) {
+    // Round 4: a station with a morning wave puts a crew at the airport first; else hotel standby.
+    const asby = asbyWindow(c, at, f);
+    if (asby) return { w: asby, kind: 'airport' };
     const ms = midnight(at, dayIndex(at, m + 12 * 60));
     return { w: { from: ms + S.hotel.from, to: ms + S.hotel.to, kind: 'hotel', at }, kind: 'hotel' };
   }
@@ -927,14 +974,9 @@ function rawWindow(c: CrewMember, X: number, at: string, f: DayFacts, prevShift:
     shift = e < l ? 'E' : l < e ? 'L' : hashUnit(`${c.id}:${X}`) < 0.5 ? 'E' : 'L';
   }
   if (shift === 'E') {
-    // Airport standby at a busy morning wave: 1 CPT, FO and CC per family, from the early shift.
-    for (const fam of c.ratings) {
-      const wave = f.wave.get(`${at}|${fam}`);
-      const per = S.airport.per[c.role === 'PUR' ? 'CC' : c.role] ?? 0;
-      if (!wave || wave.n < S.airport.minWave || (f.airport.get(`${at}|${fam}|${asbyRole(c.role)}`) ?? 0) >= per) continue;
-      const from = wave.first - S.airport.leadMin;
-      return { w: { from, to: from + S.airport.hours * 60, kind: 'airport' }, kind: 'airport' };
-    }
+    // Airport standby at a busy morning wave, from the early shift (asbyWindow).
+    const asby = asbyWindow(c, at, f);
+    if (asby) return { w: asby, kind: 'airport' };
   }
   const [a, b] = shift === 'E' ? S.home.early : S.home.late;
   return { w: { from: m + a, to: m + b, shift }, kind: 'home' };
@@ -1122,7 +1164,10 @@ export function planStandby(g: GameState): void {
         f.shifts.set(`${c.base}|${c.role}|${sh}`, (f.shifts.get(`${c.base}|${c.role}|${sh}`) ?? 0) + 1);
         prevShift = sh;
       } else {
-        if (kind === 'airport') for (const fam of c.ratings) f.airport.set(`${at}|${fam}|${asbyRole(c.role)}`, (f.airport.get(`${at}|${fam}|${asbyRole(c.role)}`) ?? 0) + 1);
+        if (kind === 'airport') {
+          for (const fam of c.ratings) f.airport.set(`${at}|${fam}|${asbyRole(c.role)}`, (f.airport.get(`${at}|${fam}|${asbyRole(c.role)}`) ?? 0) + 1);
+          f.airport.set(`${at}|*|${asbyRole(c.role)}`, (f.airport.get(`${at}|*|${asbyRole(c.role)}`) ?? 0) + 1);
+        }
         prevShift = kind === 'airport' ? 'E' : null;
       }
     }

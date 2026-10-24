@@ -319,6 +319,9 @@ class GameStore {
     const mark = this.mark(g);
     if (mark === this.savedMark) return true;
     supersedeAsyncSave();
+    // Round 4: settled first (statuses, re-plans), so the saved state is the one the next frame would start from and a
+    // reload serializes identically.
+    if (!g.gameOver) settle(g);
     const ok = saveToSlot(g, AUTOSAVE_SLOT);
     if (ok) {
       this.savedNow = g.now;
@@ -338,6 +341,7 @@ class GameStore {
     if (mark === this.savedMark) return;
     const now = g.now;
     this.lastAutosave = performance.now();
+    if (!g.gameOver) settle(g);
     const sent = saveTextAsync(serialize(g, AUTOSAVE_SLOT), AUTOSAVE_SLOT, (ok, latest) => {
       if (ok && latest) {
         this.savedNow = now;

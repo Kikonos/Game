@@ -12,6 +12,7 @@ import type { CrewFix, Role } from '../../engine/core/types';
 import { applyCrewFix, crewAlertKind, crewControl, crewRev, outOfHours, ROLE_WORD, type CrewSolution, type FixOption, type OohInfo } from '../../engine/crew';
 import { Modal } from '../components/ui';
 import { ProblemCardView } from '../components/ProblemCard';
+import { cardUnderStrip } from '../../engine/problems/crew';
 import { ReasonIcon, ReasonLine } from '../components/ReasonIcon';
 import { money } from '../format';
 import { Dot } from '../screens/common';
@@ -195,7 +196,7 @@ export function CrewControlModal({ flightId, fix }: { flightId: string; fix?: Cr
       <ScreenHint id="crewControl" />
       <div className="cc-cols">
         <div className="cc-left col gap-12">
-          <ProblemCardView card={view.card} g={g} hideActions />
+          <ProblemCardView card={hours && ooh.length ? cardUnderStrip(view.card, ooh, view.no) : view.card} g={g} hideActions />
           <div>
             <div className="upper dim">Missing seats</div>
             <div className="cc-seats">
@@ -208,10 +209,11 @@ export function CrewControlModal({ flightId, fix }: { flightId: string; fix?: Cr
               {!view.missing.length && <span className="small muted">Every seat is filled, but not legally.</span>}
             </div>
           </div>
-          {view.illegal.length > 0 && (
+          {view.illegal.some((x) => !ooh.some((y) => y.crewId === x.crewId)) && (
             <div className="col gap-4">
               <div className="upper dim">Can't legally fly it</div>
-              {view.illegal.map((x) => (
+              {/* v0.9 round 4 (§V): crew the strip already names are not listed again. */}
+              {view.illegal.filter((x) => !ooh.some((y) => y.crewId === x.crewId)).map((x) => (
                 <div key={x.crewId} className="cc-illegal">
                   <span className={`sc-role r-${x.role}`}>{x.role}</span>
                   <ReasonLine reason={x.reason} tone="bad" name={x.name} />

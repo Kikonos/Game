@@ -18,6 +18,7 @@ import { distance } from '../core/geo';
 import { noteLostLegs } from '../contracts/billing';
 import { isSoft } from '../contracts/plan';
 import { applyDiscretion, boardCrew, crewIssuesFor, dropStraySpares, flightCrewStatus, guardDuty, rerosterFrom, restPlan, restSeatsBlocked, setRestDelayHook } from '../crew';
+import { fdpLimitAt } from '../crew/timeline';
 import { dutyLegality } from '../crew/duties';
 import { cue } from '../core/cues';
 import { v09Stats } from '../crew/dayPlan';
@@ -712,35 +713,68 @@ export function onFlightDep(g: GameState, ev: SimEvent): void {
 }
 
 /**
+ * v0.9 round 4: the reported duty f opens or continues as it stands at the gate now (the hold included): from the
+ * crew's report to the last on-blocks if it left this minute. `rep` is the crew's effective report: the duty's, or,
+ * when every seat went to a fresh crew at the gate (slot `from`), theirs, with the Table 2 limit at that report;
+ * `full` is the day from the duty's own report (what the log and the gauges carry). Null before report / deadhead. Pure.
+ */
+export function liveDay(g: GameState, f: Flight): { fdp: number; max: number; full: number; rep: Minute } | null {
+  const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+  if (!d || d.report > g.now || f.kind === 'deadhead') return null;
+  const last = g.flights[d.flightIds[d.flightIds.length - 1]];
+  if (!last) return null;
+  const lastOn = g.now + Math.max(f.block, last.sta - f.std);
+  const p = g.pairings[d.pairingId];
+  let rep = Infinity;
+  if (p) for (const s of p.slots) if (s.crewId && !s.above) rep = Math.min(rep, s.from !== undefined && s.from > d.report ? s.from : d.report);
+  if (rep === Infinity) rep = d.report;
+  const max = p && rep > d.report ? fdpLimitAt(g, p, d, f.from, rep).max : d.maxFdp;
+  return { fdp: lastOn - rep, max, full: lastOn - d.report, rep };
+}
+
+/** Minutes the live day (liveDay) runs over its limit before discretion (negative: within); null before report. */
+export function liveOver(g: GameState, f: Flight): number | null {
+  const x = liveDay(g, f);
+  return x ? x.fdp - x.max : null;
+}
+
+/** True while the reported duty is over its limit on the clock now: a wait only lengthens it (crewProblem decides at once). */
+function fdpClock(g: GameState, f: Flight): boolean {
+  const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+  const over = liveOver(g, f);
+  return !!d && over !== null && over > (d.discretion ?? 0);
+}
+
+/**
  * Projected FDP of the duty f opens or continues (now + the rest of its legs) against its limit. Over the limit
  * without discretion used: the commander applies it (inbox note). Still over: the duty is marked illegal (true).
  */
 function fdpOver(g: GameState, f: Flight): boolean {
   const d = f.dutyId ? g.duties[f.dutyId] : undefined;
-  if (!d || d.report > g.now || f.kind === 'deadhead') return false;
-  const last = g.flights[d.flightIds[d.flightIds.length - 1]];
-  if (!last) return false;
-  const fdp = g.now + Math.max(f.block, last.sta - f.std) - d.report;
-  if (fdp <= d.maxFdp + (d.discretion ?? 0)) return false;
+  const x = liveDay(g, f);
+  if (!d || !x) return false;
+  if (x.fdp <= x.max + (d.discretion ?? 0)) return false;
   if (!d.discretion) {
     // v0.9 only for the unforeseen (UPDATE-0.9.md §U.3): a day already too long at report becomes crew out of hours.
-    const r = applyDiscretion(g, d.id, fdp);
+    const r = applyDiscretion(g, d.id, d.maxFdp + (x.fdp - x.max));
     if (r.ok) {
-      const over = fdp - d.maxFdp;
       pushMessage(g, {
         tone: 'info', cat: 'crew', title: `Commander's discretion on ${f.no}`,
-        body: `Gate holds stretched the duty by ${fmtDuration(over)}; the commander extends it to finish ${f.from}–${last.to}. The crew will want their rest.`,
+        body: `Gate holds stretched the duty by ${fmtDuration(x.fdp - x.max)}; the commander extends it to finish ${f.from}–${g.flights[d.flightIds[d.flightIds.length - 1]]?.to ?? f.to}. The crew will want their rest.`,
         ref: { kind: 'flight', id: f.id },
       });
     }
-    if (fdp <= d.maxFdp + (d.discretion ?? 0)) {
-      // v0.9 round 4 (§U): the day as flown, so the log, the gauges and the (f)(5) report at release carry the hold.
-      d.fdp = fdp;
-      d.legality = dutyLegality(d);
+    if (x.fdp <= x.max + (d.discretion ?? 0)) {
+      // v0.9 round 4 (§U): the day as flown, so the log, the gauges and the (f)(5) report at release carry the hold
+      // (a whole fresh crew's day is their own: the timeline reads it from their seats' `from`).
+      if (x.rep === d.report) {
+        d.fdp = x.full;
+        d.legality = dutyLegality(d);
+      }
       return false;
     }
   }
-  d.fdp = fdp;
+  d.fdp = x.full;
   d.legality = 'illegal';
   return true;
 }
@@ -1066,7 +1100,9 @@ function crewProblem(g: GameState, f: Flight, ac: Aircraft): void {
     if (!blocked) return holdFlight(g, f, 5);
   }
   if (!isRevenue(f)) return f.purpose === 'delivery' ? deliveryWait(g, f, ac) : emptyLegCrew(g, f, ac);
-  if (hasOpenDecision(g, 'crewShort', f.id) || heldFor(g, f) < BAL.crewWaitMin) return holdFlight(g, f, 30);
+  // v0.9 round 4: a day over its limit on the clock grows with every minute at the gate (no re-roster shortens it):
+  // the decision at once, while the commander's discretion can still cover the overrun.
+  if (hasOpenDecision(g, 'crewShort', f.id) || (!fdpClock(g, f) && heldFor(g, f) < BAL.crewWaitMin)) return holdFlight(g, f, 30);
   if (f.crewDecided) {
     const tries = (f.crewTries ?? 0) + 1;
     f.crewTries = tries;

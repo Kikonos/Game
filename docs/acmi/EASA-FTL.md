@@ -280,7 +280,7 @@ else the airport crew room (costs to `hotels` at release). `Duty.split`, `Stats.
 **Airport standby ((a)):** 100 % duty; the FDP is reduced by standby beyond 4 h; standby + FDP ≤ 16 h.
 **Other (home) standby ((b)):** at most 16 h; 25 % counts as duty; called within the first 6 h the FDP counts from
 report; called later, the max FDP is reduced by standby beyond 6 h (**8 h** with in-flight rest or split duty);
-standby between 23:00 and 07:00 does not count until contacted; procedures keep standby + FDP within **18 h awake**.
+for standby starting 23:00–07:00 that period does not count until contacted; procedures keep standby + FDP within **18 h awake**.
 **Reserve (CS FTL.1.230):** ≥ 10 h notice, an 8 h no-contact period, not duty.
 
 **Game:** home standby is rostered daily: per rating family 1 CPT, 1 FO, 1 PUR, 1 CC at home base 06:00–18:00 local,
@@ -460,7 +460,7 @@ and a month always holds at least two 2-day blocks. The existing `recovery` and 
   - 25 % counts as duty for ORO.FTL.210;
   - called within the first 6 h, the FDP counts from report; later, the max FDP is reduced by standby beyond 6 h
     (8 h with in-flight rest or split duty);
-  - 23:00–07:00 does not count towards the reduction until contacted;
+  - for standby starting between 23:00 and 07:00, that period does not count towards the reduction until contacted;
   - procedures keep standby + FDP within 18 h awake;
   - rest per ORO.FTL.235 afterwards;
   - reasonable response time.

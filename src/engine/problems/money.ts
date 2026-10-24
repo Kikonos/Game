@@ -10,6 +10,8 @@ import { usd } from '../ops/util';
 import { mkHurt, type ProblemCard, type TimelineSpec } from './types';
 
 export function cashLowCard(g: GameState): ProblemCard | null {
+  // Round 4: below zero the red cashNegative card is the one cash problem (one event, one card).
+  if (g.company.cash < 0) return null;
   const fc = cashForecast(g, 30);
   if (!fc.length) return null;
   let low = fc[0];
@@ -124,7 +126,8 @@ export function cashNegativeCard(g: GameState): ProblemCard | null {
       ...(decision ? [{ id: 'factor', label: 'Sell an invoice', open: { modal: 'decision' as const, id: decision.id } }] : []),
     ],
     details: [`Below zero since ${fmtDay(since)}`, `Fixed costs this month ${usd(fx.rent + fx.insurance + fx.overhead)}, salaries ${usd(salaries)}`, `Outstanding invoices ${usd(owed)}`],
-    visuals: { gauges: [{ id: 'cash', label: 'Days in the red', value: Math.min(BAL.rescueDays, Math.floor((g.now - since) / DAY)), limit: BAL.rescueDays, unit: 'hm', text: `${Math.floor((g.now - since) / DAY)} of ${BAL.rescueDays} days`, tone: 'bad', by: rescueAt }] },
+    // The gauge carries no `by`: Gauge prints a time of day for it, and the hurt line already gives the date.
+    visuals: { gauges: [{ id: 'cash', label: 'Days in the red', value: Math.min(BAL.rescueDays, Math.floor((g.now - since) / DAY)), limit: BAL.rescueDays, unit: 'hm', text: `${Math.floor((g.now - since) / DAY)} of ${BAL.rescueDays} days`, tone: 'bad' }] },
     terms: [], by: rescueAt,
   };
 }
@@ -143,7 +146,7 @@ export function moneyProblems(g: GameState): ProblemCard[] {
   }
   const loss = lossMonthCard(g);
   if (loss && g.now - nextMonthStart(g.now - 31 * DAY) <= 7 * DAY) out.push(loss);
-  if (cash) for (const ac of Object.values(g.fleet)) {
+  if (cash || neg) for (const ac of Object.values(g.fleet)) {
     const l = leaseDueCard(g, ac.id);
     if (l) out.push(l);
   }

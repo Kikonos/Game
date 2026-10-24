@@ -407,7 +407,8 @@ export const BAL = {
       leave: { days: 28, quarters: [10, 4, 4, 10] as number[], maxShare: 0.1, afterServiceDays: 90 },
       home: { early: [300, 1020] as [number, number], late: [720, 1440] as [number, number], maxH: 16, minH: 4, readyMin: 90 },
       hotel: { from: 360, to: 1080, readyMin: 45 },
-      airport: { minWave: 3, waveEnd: 600, leadMin: 90, hours: 4, readyMin: 20, per: { CPT: 1, FO: 1, CC: 1 } as Record<string, number> },
+      // Round 4: the wave counted station-wide over every family until 12:00 (minWave 3 per family never occurred in a year).
+      airport: { minWave: 2, waveEnd: 720, leadMin: 90, hours: 4, readyMin: 20, per: { CPT: 1, FO: 1, CC: 1 } as Record<string, number> },
       reserve: { noticeMin: 600, quiet: [1320, 360] as [number, number], tightShare: 0.95 },
       share: { home: 0.25, hotel: 0.25, airport: 1, reserve: 0 } as Record<string, number>,
       morale: { runFrom: 4, runDay: -0.2, above: 9, aboveEach: 0.5, aboveMax: 1.5, below: 8, belowEach: -1.5, broken: -6 },

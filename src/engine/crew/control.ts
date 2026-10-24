@@ -17,7 +17,7 @@ import { hashUnit } from '../core/util';
 import { relinkPositioning } from '../contracts/schedule';
 import { commercialItinerary, itinerary, itineraryText } from '../ops/commercial';
 import { crewReadyAt } from '../ops/events';
-import { cancelCost, cancelLegs, clearRestMarks, delayChain, unitOf } from '../ops/flights';
+import { cancelCost, cancelLegs, clearRestMarks, delayChain, liveOver, unitOf } from '../ops/flights';
 import { rotationOf, subcharter, subcharterQuote } from '../ops/subcharter';
 import { contractOf, isRevenue, stats, usd } from '../ops/util';
 import { hurtProse, mkHurt, type GaugeSpec, type ProblemCard, type ReachSpec, hm, limitTone } from '../problems/types';
@@ -27,9 +27,9 @@ import { crewName } from './generate';
 import { moraleShock } from './morale';
 import { city, rootReason, type Reason, type ReasonCode } from './reasons';
 import { applyDiscretion, autoRoster, discretionCheck, flightCrewStatus, onFlightsChanged, placeCrew, recheckPairing, releaseCrew, rerosterFrom, setShortHook, type FlightCrewStatus } from './roster';
-import { assignCrew, dutyCandidates, type DutyCandidate } from './rosterActions';
+import { assignCrew, dutyCandidates, freshReport, type DutyCandidate } from './rosterActions';
 import { levelOf, LIMITS, minRest, offsetAt } from './rules';
-import { cabinEarly, crewCount, crewRev, dhBlock, locAt, OUT_CONNECT, segsOf, touchCrew, typeIdOf, type TicketPlan } from './timeline';
+import { cabinEarly, crewCount, crewRev, dhBlock, fdpLimitAt, locAt, OUT_CONNECT, segsOf, touchCrew, typeIdOf, type TicketPlan } from './timeline';
 import { callFromStandby, calledNow, reserveContact } from './standby';
 import { SBY_LABEL } from './calendar';
 import { offDaysHit, takesPublishedOff, v09Stats } from './dayPlan';
@@ -159,8 +159,23 @@ interface Ctx {
   seats: Role[];
 }
 
+/**
+ * v0.9 round 4 (§Y.1): whether even a fresh crew, reporting for the held departure (their own check-in, not the hours
+ * the first crew waited), would be over the day-length limit from that report. Pure.
+ */
+function freshOver(g: GameState, f: Flight, d: Duty, p: Pairing): boolean {
+  const last = g.flights[d.flightIds[d.flightIds.length - 1]];
+  if (!last) return false;
+  const rep = freshReport(g, p, d, f);
+  const fdp = Math.max(f.std + f.delay, g.now) + Math.max(f.block, last.sta - f.std) - rep;
+  return fdp > fdpLimitAt(g, p, d, f.from, rep).max;
+}
+
+/** v0.9 round 4: the reported duty is over its day-length limit on the clock now (the hold included), as fdpOver will judge it. */
+const dutyOver = (g: GameState, f: Flight, d: Duty): boolean => Math.max(d.fdp - d.maxFdp, liveOver(g, f) ?? -Infinity) > (d.discretion ?? 0);
+
 /** v0.9 §T the seats held by crew out of hours on duty d: a crew-level illegal issue, or a rest plan failed at the gate. */
-function heldOoh(g: GameState, d: Duty | undefined, p: Pairing | undefined, cs: FlightCrewStatus): { role: Role; crewId: string }[] {
+function heldOoh(g: GameState, f: Flight, d: Duty | undefined, p: Pairing | undefined, cs: FlightCrewStatus): { role: Role; crewId: string }[] {
   if (!d || !p || d.done) return [];
   const rest = p.slots.some((s) => s.crewId && s.ooh?.limit === 'inflightRest');
   if (cs.level !== 'illegal' && !rest) return [];
@@ -174,6 +189,9 @@ function heldOoh(g: GameState, d: Duty | undefined, p: Pairing | undefined, cs: 
   };
   if (cs.level === 'illegal') for (const b of crewIssuesFor(g, d)) add(b.crewId);
   for (const s of p.slots) if (s.crewId && s.ooh?.limit === 'inflightRest') add(s.crewId);
+  // Round 4: the duty itself over its limit after a hold (a clock no re-roster shortens): every seat may go to a
+  // fresh crew whose own day, from their check-in for the held departure, still fits (else fullWhy says why not).
+  if (dutyOver(g, f, d) && !freshOver(g, f, d, p)) for (const s of p.slots) if (s.crewId && !s.above) add(s.crewId);
   return out.sort((a, b) => SLOT_ORDER.indexOf(a.role) - SLOT_ORDER.indexOf(b.role));
 }
 
@@ -186,7 +204,7 @@ function ctxOf(g: GameState, flightId: string): Ctx | null {
   const cs = flightCrewStatus(g, f.id);
   const missing = [...cs.missing].sort((a, b) => SLOT_ORDER.indexOf(a) - SLOT_ORDER.indexOf(b));
   const unit = unitOf(g, ac, f);
-  const replace = heldOoh(g, d, p, cs);
+  const replace = heldOoh(g, f, d, p, cs);
   return { g, f, ac, d, p, cs, missing, need: group(missing), unit, pax: unitPax(ac, unit), revLegs: unit.filter(isRevenue).length, dep: f.from, replace, seats: [...missing, ...replace.map((r) => r.role)] };
 }
 
@@ -902,6 +920,23 @@ function seatCandidates(g: GameState, d: Duty, role: Role, here: boolean): DutyC
   return list.map((c, i) => ({ c, i })).sort((a, b) => rank(a.c) - rank(b.c) || a.i - b.i).map((x) => x.c);
 }
 
+/**
+ * Round 4: why nobody at the departure airport can be called in. A crew member on standby there who is not legal for
+ * it (the awake cap, rest, a limit) is named with that reason, so the refusal never reads as 'nobody' beside a
+ * standby row on the board; else the plain line.
+ */
+function nobodyFree(g: GameState, x: Ctx, d: Duty): string {
+  for (const role of new Set(x.seats)) {
+    const LIMIT = new Set(['rest', 'fdp', 'hours', 'recovery']);
+    const c = candidatesOf(g, d, role).find((y) => !y.onPairing && !y.travel && y.level === 'illegal' && y.reasons.length && (y.standby || (y.reason && LIMIT.has(y.reason.code))));
+    if (c) {
+      const r = c.reasons[0].replace(/\.$/, '');
+      return `${c.name}${c.standby ? ` on ${SBY_WORD[c.standby.kind]}` : ''} cannot take it: ${r.charAt(0).toLowerCase()}${r.slice(1)}`;
+    }
+  }
+  return `Nobody is free at ${city(x.dep)} today`;
+}
+
 /** v0.9 §T the seats a new crew member can take: empty ones, then those held by crew out of hours. */
 const jetSeats = (x: Ctx): { role: Role; replaces?: string }[] => [...x.missing.map((role) => ({ role })), ...x.replace.map((r) => ({ role: r.role, replaces: r.crewId }))];
 
@@ -1104,7 +1139,7 @@ function runFix(h: GameState, flightId: string, fix: CrewFix, opts: ApplyOpts): 
       // call-in at the airport only the duty itself.
       const span: [Minute, Minute] = [fix === 'callIn' ? d.report : d.report - DAY, (p ? openDuties(h, p).at(-1)?.release : undefined) ?? d.release];
       const picks = pickCrew(x, lists, opts.crewIds, (id) => !takesPublishedOff(h, h.crew[id], span[0], span[1]));
-      if (!picks.length) return { ok: false, error: fix === 'callIn' ? `Nobody is free at ${city(x.dep)} today` : 'Nobody legal can be flown in' };
+      if (!picks.length) return { ok: false, error: fix === 'callIn' ? nobodyFree(h, x, d) : 'Nobody legal can be flown in' };
       const changes: string[] = [];
       let cost = 0;
       const had = new Set(Object.values(h.flights).filter((t) => t.kind === 'deadhead').map((t) => t.id));
@@ -1213,7 +1248,7 @@ function runFix(h: GameState, flightId: string, fix: CrewFix, opts: ApplyOpts): 
       const r = charterJet(h, f.id, picks.map((y) => y.c.id).filter((id) => !heldBy(ctxOf(h, flightId)?.p).has(id)), cls ?? jetClassFor(picks.length, distance(picks[0].loc, x.dep) / NM));
       if (!r.ok) return { ok: false, error: r.error === 'Nobody could be seated on the trip' ? 'Even flown in by jet, nobody is legal for the trip' : r.error };
       // v0.9 round 4 (§Y.1): after the report, the jet's crew start a fresh day in the seats they took over.
-      if (d.report <= h.now && hp) for (const y of picks) if (y.replaces) for (const sl of hp.slots) if (sl.crewId === y.c.id) sl.from = h.now;
+      if (d.report <= h.now && hp) for (const y of picks) if (y.replaces) for (const sl of hp.slots) if (sl.crewId === y.c.id) sl.from = freshReport(h, hp, h.duties[d.id] ?? d);
       const restBad = restStillFails(h, d.id);
       if (restBad) return { ok: false, error: restBad };
       // Seats the jet did not cover go to the roster as usual.
@@ -1393,8 +1428,9 @@ function jetBeaten(g: GameState, x: Ctx, beat: CrewSolution, jetLands: Minute, j
 
 /** Why no new crew member helps when every seat is held: the duty itself is too long, or nothing is wrong with a seat. */
 function fullWhy(x: Ctx): string {
-  const d = x.d;
-  if (d && d.fdp > d.maxFdp + (d.discretion ?? 0)) return 'The day itself is too long: a fresh crew would be over the limit too';
+  const { g, f, d, p } = x;
+  // Round 4: judged on a fresh crew's own day from the held departure, not the hours the first crew waited.
+  if (d && dutyOver(g, f, d) && (!p || d.report > g.now || freshOver(g, f, d, p))) return 'The day itself is too long: a fresh crew would be over the limit too';
   return 'Every seat is taken';
 }
 
@@ -1447,14 +1483,15 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean, only?: readonly C
       }
     }
     if (!options.length) {
-      out.push(no(s, id === 'callIn' ? `Nobody is free at ${city(x.dep)} today` : 'Nobody legal is free elsewhere'));
+      out.push(no(s, id === 'callIn' ? nobodyFree(g, x, d) : 'Nobody legal is free elsewhere'));
       continue;
     }
     s.options = options;
     const first = options[0];
     s.cost = first.cost;
     const firstC = (lists0.get(first.id) ?? null);
-    if (id === 'callIn' && !first.cost) s.desc = 'Crew on standby come in: no overtime; a long standby shortens their day.';
+    // Round 4: the blurb follows the pick (the static one read as both free and priced for an off-duty pick).
+    if (id === 'callIn') s.desc = !first.cost ? 'Crew on standby come in: no overtime; a long standby shortens their day.' : `${firstC?.dayOff ? 'A day off' : 'Off duty'}: ${usd(first.cost)} overtime, morale ${firstC?.dayOff ? BAL.v09.roster.morale.broken : CC().callInMorale}.`;
     s.chips = id === 'callIn'
       ? (first.cost ? [usd(first.cost), `Morale ${firstC?.dayOff ? BAL.v09.roster.morale.broken : CC().callInMorale}`] : ['No overtime', firstC?.standby ? SBY_LABEL[firstC.standby.kind] : 'Standby'])
       : [usd(first.cost), first.arrives !== undefined ? hrs(first.arrives) : ''].filter(Boolean);
@@ -1474,7 +1511,11 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean, only?: readonly C
       s.cost = k?.product.kind === 'charter' && late > 180 ? k.penalties.perDelay : 0;
       s.chips = [`leaves ${at(ready, g.now)} (+${fmtDuration(ready - f.std)})`];
       s.confirm = true;
-      out.push(run(s, { at: ready }));
+      const r = run(s, { at: ready });
+      // Round 4: who the wait is for (the roster's own pick on the copy), so the row names a person, not just a time.
+      const takes = r.available ? r.preview.changes.filter((c) => / takes the .+? seat/.test(c)).map((c) => c.replace(/ takes the (.+?) seat.*$/, ' ($1)')) : [];
+      if (takes.length) r.consequences = [`${takes.slice(0, 3).join(', ')}${takes.length > 3 ? ` and ${takes.length - 3} more` : ''} legal from ${at(ready, g.now)}`, ...r.consequences].slice(0, 4);
+      out.push(r);
     }
   }
   // d. jet: only for seats nobody at the departure airport can fill; with a night's rest on arrival when the

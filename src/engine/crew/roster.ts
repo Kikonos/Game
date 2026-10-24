@@ -11,7 +11,7 @@ import type { ActionResult, CrewMember, Duty, Flight, GameState, Legality, Minut
 import { acceptable, crewIssuesFor, mergeSegs, openDuties, otherTrip, overForAnyone, planCrew, type CrewPlan } from './check';
 import { deletePairing, dutyLegality, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setCrewTakeHook, setCrewTrailOkHook, setReleaseHook, setRetickHook, splitPairing, splitUnderWay, syncDuty } from './duties';
 import { crewName } from './generate';
-import { callIfOnStandby, dropStandby, standbyFor } from './standby';
+import { callIfOnStandby, dropStandby, standbyFor, callFromStandby } from './standby';
 import { fitStandby, monthFloorIssue, offDaysHit, offMovable, offSwappable, takeOffDays, takesPublishedOff, v09Stats as v09StatsOf } from './dayPlan';
 import { infoOf } from './outOfHours';
 import { lateChange, moraleShock, nextReport } from './morale';
@@ -1299,17 +1299,22 @@ export function discretionCheck(g: GameState, dutyId: string, fdp?: number, opts
     if (over <= 0) return no('The day is within its limit');
     const rest = restOf(g, p.aircraftId ?? null);
     const room = rest.cc ? cabinFdpCap(rest.cc.cls) - (d.cabinEarly ?? 0) - d.fdp : Infinity;
-    const add = Math.max(0, Math.min(d.augment > 0 ? DISCRETION.augmented : DISCRETION.basic, room));
-    if (over > add) return no(add ? `Over by ${hm(over)}: more than discretion allows` : `Over by ${hm(over)}: the cabin crew's rest class allows no longer day`);
-    return { ok: true, why: '', addMin: over };
+    const full = d.augment > 0 ? DISCRETION.augmented : DISCRETION.basic;
+    const add = Math.max(0, Math.min(full, room));
+    // Round 4: the refusal names the limit that bites (the rest-class table, when it caps the 2 h / 3 h).
+    if (over > add) return no(add ? (add < full ? `Over by ${hm(over)}: the cabin crew's rest class allows only +${hm(add)}` : `Over by ${hm(over)}: more than discretion allows`) : `Over by ${hm(over)}: the cabin crew's rest class allows no longer day`);
+    // Round 4: the whole allowance is stored (ORO.FTL.205(f)(1)(i): one increase), so a second hold inside it is still covered.
+    return { ok: true, why: '', addMin: add };
   }
+  const full = d.augment > 0 ? DISCRETION.augmented : DISCRETION.basic;
   const up = discretionMax(g, d);
   const add = d.ext && d.basicFdp ? Math.max(0, Math.min(up, d.basicFdp + up - d.maxFdp)) : up;
   const over = (fdp ?? d.fdp) - d.maxFdp;
   if (over <= 0) return no('The day is within its limit');
   if (over > add) {
     const h = hm(over);
-    return no(add ? `Over by ${h}: more than discretion allows` : d.augment > 0 ? `Over by ${h}: the cabin crew's rest does not allow a longer day` : `Over by ${h}: discretion adds nothing on a planned extension`);
+    // Round 4: on an augmented day the cabin crew's rest class (or the cruise's rest room) may cap the 3 h: say so.
+    return no(add ? (d.augment > 0 && up < full ? `Over by ${h}: the cabin crew's rest class allows only +${hm(add)}` : `Over by ${h}: more than discretion allows`) : d.augment > 0 ? `Over by ${h}: the cabin crew's rest does not allow a longer day` : `Over by ${h}: discretion adds nothing on a planned extension`);
   }
   return { ok: true, why: '', addMin: add };
 }
@@ -1444,7 +1449,10 @@ export function placeCrew(g: GameState, p: Pairing, slot: number, c: CrewMember)
   delete p.slots[slot].ooh;
   delete p.slots[slot].from;
   const od = openDuties(g, p);
-  callIfOnStandby(g, c.id, od[0]?.report);
+  // Round 4 (§Y.1): a replacement at the gate (the duty has reported) placed inside a running window is a call-out now
+  // (standbyFor would judge it against the duty's own report, already past, and the window would only be clipped).
+  if (od.length && od[0].report <= g.now) callFromStandby(g, c.id);
+  else callIfOnStandby(g, c.id, od[0]?.report);
   if (od.length) dropSbyFor(g, c, plan);
   // v0.9 a manual placement on a day off takes it (crew/dayPlan.ts: morale when published, the day re-planned).
   const offHit = od.length > 0 && plan.issues.some((i) => i.code === 'daysOff') && plan.segs.length > 0;

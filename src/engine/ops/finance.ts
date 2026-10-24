@@ -143,8 +143,10 @@ export function dailyFinance(g: GameState): void {
     if (f.negSince !== null && f.refusedRescue) f.refusedRescue = false;
     f.negSince = null;
   }
-  // Low-cash warning (every two weeks at most) when the 30-day forecast dips below zero.
-  if (g.now - (f.lowCashAt ?? -Infinity) >= 14 * DAY) {
+  // Low-cash warning (every two weeks at most) when the 30-day forecast dips below zero. Round 4: never while cash is
+  // already below zero (that is the red card above; the fortnight restarts from the day it went under).
+  if (cash < 0) f.lowCashAt = g.now;
+  else if (g.now - (f.lowCashAt ?? -Infinity) >= 14 * DAY) {
     const low = Math.min(...cashForecast(g, 30).map((p) => p.cash));
     if (low < 0) {
       f.lowCashAt = g.now;

@@ -392,6 +392,31 @@ describe('v0.9 round 3: stagger, the day-off swap, airport standby', () => {
   }, 120_000);
 });
 
+describe('v0.9 round 4: airport standby at a station-wide morning wave', () => {
+  it('two departures 10:30 and 11:30 local at base (minWave 2, until 12:00) put 1 CPT, 1 FO and 1 CC at the airport, 90 min before the first', () => {
+    const g = fixtureGame(23);
+    devFleet(g, 4);
+    addCrew(g, { CPT: 12, FO: 12, PUR: 12, CC: 36 });
+    advanceTo(g, g.now + 2 * DAY, new Set());
+    const home = g.company.homeBase;
+    const D = dayIndex(home, publishedTo(g));
+    const acs = Object.values(g.fleet).slice(0, 2);
+    const stds = acs.map((_, i) => midnight(home, D) + (10 + i) * 60 + 30);
+    acs.forEach((ac, i) => {
+      const blk = blockMinutes(ac.typeId, home, 'FAO');
+      addFlight(g, { no: ownFlightNo(g), aircraftId: ac.id, contractId: null, kind: 'revenue', from: home, to: 'FAO', std: stds[i], sta: stds[i] + blk, pax: 150 });
+      addFlight(g, { no: ownFlightNo(g), aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'FAO', to: home, std: stds[i] + blk + 50, sta: stds[i] + 2 * blk + 50, pax: 150 });
+    });
+    advanceTo(g, midnight(home, D - 13) + 60, new Set());
+    const asby = Object.values(g.crew).flatMap((c) => (c.standby ?? []).filter((w) => w.kind === 'airport' && dayIndex(home, w.from) === D).map((w) => ({ c, w })));
+    expect(asby.map(({ c }) => (c.role === 'PUR' ? 'CC' : c.role)).sort()).toEqual(['CC', 'CPT', 'FO']);
+    for (const { w } of asby) {
+      expect(w.from).toBe(Math.min(...stds) - BAL.v09.roster.airport.leadMin);
+      expect(w.to - w.from).toBe(BAL.v09.roster.airport.hours * 60);
+    }
+  }, 120_000);
+});
+
 describe('v0.9 round 4: days off keep the morning free, reserve no-contact, standby call-out cuts, the 96 a year', () => {
   const crew = () => {
     const g = fixtureGame(7);

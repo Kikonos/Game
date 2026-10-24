@@ -1,5 +1,6 @@
 // Events, decisions and their resolvers (B3). DESIGN.md §5.8, BUILD-PLAN B3 acceptance.
 
+import { onFlightDep } from './flights';
 import { describe, expect, it } from 'vitest';
 import { BAL } from '../core/balance';
 import { flightsOf } from '../core/entities';
@@ -219,6 +220,39 @@ describe('crew short', () => {
     expect(duty.legality).not.toBe('illegal');
     expect(f.crewDecided).toBe(true);
     crew.forEach((c, i) => expect(c.morale).toBeCloseTo(Math.max(0, morale[i] - 3), 5));
+  });
+
+  it('v0.9 round 4: a day 2 min over on the clock at the gate decides at once, discretion is judged live, and the leg departs at the next attempt', () => {
+    const { g, ac } = baseGame();
+    const f = atGate(g, ac);
+    const d = g.duties[f.dutyId!];
+    expect(d.report).toBeLessThanOrEqual(g.now);
+    // Held at the gate for crew (the schedule stands, only `delay` grew), 10 min into the wait: the day as it would run
+    // from now is 2 min over a limit the planned day was 30 min under; the duty still carries the FDP written earlier.
+    const last = g.flights[d.flightIds[d.flightIds.length - 1]];
+    g.now = f.std + 120;
+    f.delay = 120;
+    f.crewHeld = true;
+    f.heldAt = g.now - 10;
+    d.maxFdp = g.now + (last.sta - f.std) - d.report - 2;
+    d.plannedFdp = d.maxFdp - 30;
+    d.fdp = d.maxFdp - 30;
+    d.legality = 'illegal';
+    onFlightDep(g, ev(g, 'flight.dep', f.id));
+    // Posted at once (not after BAL.crewWaitMin, which would outgrow the allowance), with the live overrun.
+    expect(f.status).toBe('scheduled');
+    const dec = only(g, 'crewShort');
+    const opt = dec.options.find((o) => o.id === 'discretion')!;
+    expect(opt, dec.options.map((o) => o.id).join()).toBeTruthy();
+    expect(opt.chips).toContain('FDP +2m');
+    expect(dec.defaultOption).toBe('discretion');
+    expect(resolveDecision(g, dec.id, 'discretion').ok).toBe(true);
+    expect(g.duties[f.dutyId!].discretion ?? 0).toBeGreaterThanOrEqual(2);
+    expect(g.duties[f.dutyId!].legality).not.toBe('illegal');
+    // The queued attempt departs it: no 'Waiting for a rescue crew', no cancellation.
+    onFlightDep(g, ev(g, 'flight.dep', f.id));
+    expect(f.status).toBe('enroute');
+    expect(f.delayReason).not.toMatch(/rescue crew|legal crew/);
   });
 
   it('no discretion beyond 2 h: wait for a legal crew, sub-charter or cancel', () => {

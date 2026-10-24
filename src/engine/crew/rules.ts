@@ -239,7 +239,11 @@ export function standbyCut(kind: 'home' | 'airport', sbyFrom: Minute, report: Mi
   const len = Math.max(0, report - sbyFrom);
   if (kind === 'airport') return Math.max(0, len - STANDBY.airportFree);
   const quietTo = Math.min(report, contacted ?? report);
-  const quiet = quietTo > sbyFrom ? localOverlap(tz, sbyFrom, quietTo, 23 * H, 31 * H) : 0;
+  // Round 4: only standby that starts between 23:00 and 07:00 has the night excluded (CS FTL.1.225(b)(5)); a window
+  // from midday called late at night counts in full.
+  const startLocal = localMin(tz, sbyFrom);
+  const nightStart = startLocal >= 23 * H || startLocal < 7 * H;
+  const quiet = nightStart && quietTo > sbyFrom ? localOverlap(tz, sbyFrom, quietTo, 23 * H, 31 * H) : 0;
   return Math.max(0, len - quiet - (augOrSplit ? STANDBY.homeFreeAug : STANDBY.homeFree));
 }
 

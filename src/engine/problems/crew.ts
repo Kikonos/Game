@@ -413,4 +413,23 @@ export function crewHoursCard(g: GameState, flightId: string): ProblemCard | nul
   };
 }
 
+/**
+ * v0.9 round 4 (§V): the card as Crew Control shows it under its out-of-hours strip, which already names who and the
+ * limit (and the gauge the numbers): WHAT without the name, WHY without the name and without the limit figure. Pure.
+ */
+export function cardUnderStrip(card: ProblemCard, list: OohInfo[], flightNo: string): ProblemCard {
+  const x = list[0];
+  if (!x) return card;
+  const more = list.length - 1;
+  const what = `Out of hours for ${flightNo}${more ? ` with ${more} other${more > 1 ? 's' : ''}` : ''}`;
+  const who = x.name.split(' ')[0];
+  let why = card.why;
+  if (why.startsWith(`${who}'s `)) why = why.slice(who.length + 3);
+  else if (why.startsWith(`${who} `)) why = why.slice(who.length + 1);
+  else if (why.startsWith(`${who}: `)) why = why.slice(who.length + 2);
+  why = why.replace(/ \(limit \d+:\d\d\)/, '').replace(/; the limit is \d+:\d\d/, '');
+  why = why.charAt(0).toUpperCase() + why.slice(1);
+  return { ...card, title: what, what, why };
+}
+
 setCrewHoursCard(crewHoursCard);

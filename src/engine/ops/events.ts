@@ -23,7 +23,7 @@ import { calledNow } from '../crew/standby';
 import { type IssueCode } from '../crew/rules';
 import { dhBlock, OUT_CONNECT, outTicket, segsOf } from '../crew/timeline';
 import { distance } from '../core/geo';
-import { applyHold, cancelCost, cancelLegs, crewBlocked, delayChain, moveFlight, noticeText, pickRival, planHold, planRecovery, rivalFactor, stationOf, subcharterCost, subcharterLegs, subHit, windowLegs, type SubHit } from './flights';
+import { applyHold, cancelCost, cancelLegs, crewBlocked, delayChain, liveOver, moveFlight, noticeText, pickRival, planHold, planRecovery, rivalFactor, stationOf, subcharterCost, subcharterLegs, subHit, windowLegs, type SubHit } from './flights';
 import { setAogEnd } from './maintenance';
 import { ticketBlock } from './commercial';
 import { bumpReliable, isRevenue, stats, turnOf, usd } from './util';
@@ -374,10 +374,13 @@ export function crewShortDecision(g: GameState, f: Flight, ac: Aircraft): void {
   const d = f.dutyId ? g.duties[f.dutyId] : undefined;
   const cs = flightCrewStatus(g, f.id);
   const legs = tripLegs(g, ac, f);
-  const over = d ? d.fdp - d.maxFdp - (d.discretion ?? 0) : 0;
+  // v0.9 round 4: the overrun as it stands at the gate now (the hold so far included), not the FDP written at the first attempt.
+  const overRaw = d ? Math.max(d.fdp - d.maxFdp, liveOver(g, f) ?? -Infinity) : 0;
+  const fdpNow = d ? d.maxFdp + overRaw : 0;
+  const over = d ? overRaw - (d.discretion ?? 0) : 0;
   // v0.7.3 ORO.FTL.205(f): only once the crew have reported (unforeseen, at or after report).
   // v0.9 only for the unforeseen (UPDATE-0.9.md §U.3).
-  const canDisc = !!d && !cs.missing.length && over > 0 && discretionCheck(g, d.id).ok;
+  const canDisc = !!d && !cs.missing.length && over > 0 && discretionCheck(g, d.id, fdpNow).ok;
   const roll = range(g, BAL.subcharterFactor[0], BAL.subcharterFactor[1]);
   const rivalId = pickRival(g, ac.typeId, legs);
   const factor = Math.round(roll * rivalFactor(g, rivalId) * 100) / 100;
@@ -471,7 +474,8 @@ function resolveCrewShort(g: GameState, d: Decision, opt: string): ActionResult 
       return { ok: true, msg: ok ? `${f.no} now off blocks ${fmtTime(f.std)} UTC` : `${f.no} waits: no legal crew yet, operations keep trying` };
     }
     case 'discretion': {
-      const r = applyDiscretion(g, str(d.data, 'dutyId'));
+      const dd = g.duties[str(d.data, 'dutyId')];
+      const r = applyDiscretion(g, str(d.data, 'dutyId'), dd ? dd.maxFdp + Math.max(dd.fdp - dd.maxFdp, liveOver(g, f) ?? -Infinity) : undefined);
       if (!r.ok) return r;
       f.crewDecided = true;
       schedule(g, g.now, 'flight.dep', f.id, f.ev);
@@ -696,13 +700,15 @@ function extraRotation(g: GameState, c: Contract): boolean {
   const aLeft = Math.max(0, Math.round(typeOf(ac.typeId).aCheckFH - ac.maint.fhSinceA));
   ask(g, {
     kind: 'changeRequest', title: `${cl?.name ?? 'Client'} asks for an extra rotation`,
-    body: `${p.base}–${dest}–${p.base} on ${fmtDay(std)}, off blocks ${fmtTime(std, p.base)} local. ${bh.toFixed(1)} BH, paid only above the ${Math.round(mgh)} hours guaranteed ${mgh < c.product.mghPerMonth * c.aircraftIds.length - 1 ? 'for this job that month' : 'that month'}: ${earn ? `about ${paid.toFixed(1)} BH of it would be` : 'this month is planned below it, so it earns nothing extra'}.`,
+    // Round 4 (§V): the body carries the facts once (the card's WHY is this body); the option a one-line trade-off and the
+    // chips the numbers; the maintenance cost sits on the card's hurt line (changeRequestCard), not on the option too.
+    body: `${p.base}–${dest}–${p.base} on ${fmtDay(std)}, off blocks ${fmtTime(std, p.base)} local: ${bh.toFixed(1)} BH, paid only above the ${Math.round(mgh)} hours guaranteed ${mgh < c.product.mghPerMonth * c.aircraftIds.length - 1 ? 'for this job that month' : 'that month'} (${earn ? `about ${paid.toFixed(1)} BH of it would be` : 'this month is planned below it, so it earns nothing extra'}). The A-check (${aLeft} FH left) comes ${bh.toFixed(1)} FH sooner.`,
     options: [
-      { id: 'accept', label: 'Fly it', desc: `An extra crew duty; the A-check (${aLeft} FH left) comes ${bh.toFixed(1)} FH sooner. A favour they remember.`, tone: earn > maint ? 'good' : 'warn', chips: [earn ? `+${usd(earn)}` : 'No extra revenue', `−${usd(maint)} maintenance`, `Relation +${BAL.v08.rel.extraLeg}`, favourChip(g, c.clientId, BAL.v08.rel.extraLeg)] },
+      { id: 'accept', label: 'Fly it', desc: 'An extra crew duty; a favour they remember.', tone: earn > maint ? 'good' : 'warn', chips: [earn ? `+${usd(earn)}` : 'No extra revenue', `Relation +${BAL.v08.rel.extraLeg}`, favourChip(g, c.clientId, BAL.v08.rel.extraLeg)] },
       { id: 'decline', label: 'Decline', desc: 'The aircraft and crews keep their rest; the client notes it.', chips: [`Relation ${BAL.v08.rel.decline}`] },
     ],
     defaultOption: earn > maint ? 'accept' : 'decline', expires: g.now + DAY, ref: { kind: 'contract', id: c.id },
-    data: { contractId: c.id, kind: 'extra', aircraftId: ac.id, dest, std },
+    data: { contractId: c.id, kind: 'extra', aircraftId: ac.id, dest, std, maint },
   });
   return true;
 }

@@ -24,7 +24,8 @@ function plainCheck(g: GameState, o: ContractOffer, r: FeasibilityReport, c: Fea
   switch (c.id) {
     case 'crew': {
       const short = Object.entries(r.crew.byRole).filter(([, v]) => v && v.short > 0).map(([role, v]) => `${v!.short} ${role}`);
-      return { why: `You are ${short.join(' and ') || 'crew'} short${r.crew.firstShort !== null ? ` from ${fmtDay(r.crew.firstShort)}` : ''}; hires take weeks to join.`, action: { id: 'hire', label: 'Hire', open: { modal: 'hire', id: t.family }, primary: true } };
+      const list = short.length > 1 ? `${short.slice(0, -1).join(', ')} and ${short[short.length - 1]}` : short[0] ?? 'crew';
+      return { why: `You are ${list} short${r.crew.firstShort !== null ? ` from ${fmtDay(r.crew.firstShort)}` : ''}; hires take weeks to join.`, action: { id: 'hire', label: 'Hire', open: { modal: 'hire', id: t.family }, primary: true } };
     }
     case 'availability':
       return { why: `${ac.reg} is busy: ${c.label.replace(/^Busy: /, '').replace(/^Can't be back for /, "it can't be back for ")}.`, action: { id: 'schedule', label: 'Schedule', open: { tab: 'schedule', sel: { kind: 'aircraft', id: ac.id } }, primary: true } };
@@ -113,11 +114,15 @@ export function changeRequestCard(g: GameState, decisionId: string): ProblemCard
   if (!d || d.kind !== 'changeRequest') return null;
   const c = d.data?.contractId ? g.contracts[String(d.data.contractId)] : undefined;
   const accept = d.options.find((o) => o.id === 'accept');
+  // Round 4 (§V): an extra rotation's WHY is its body (said once: the modal drops the body under the card) and its
+  // hurt the maintenance it costs; other requests keep the first sentence and the accept option's chips.
+  const extra = d.data?.kind === 'extra';
+  const maint = extra && typeof d.data?.maint === 'number' ? d.data.maint : 0;
   return {
     subject: { kind: 'changeRequest', ref: { kind: 'decision', id: d.id } }, severity: 'amber',
     title: d.title, what: d.title,
-    why: `${d.body.split('. ')[0]}. ${accept?.desc ?? ''}`.trim(),
-    hurt: mkHurt({ extra: accept?.chips?.join(', ') }),
+    why: extra ? d.body : `${d.body.split('. ')[0]}. ${accept?.desc ?? ''}`.trim(),
+    hurt: extra ? mkHurt({ money: maint, what: 'maintenance' }) : mkHurt({ extra: accept?.chips?.join(', ') }),
     actions: [{ id: 'decide', label: 'Decide', open: { modal: 'decision', id: d.id }, primary: true }, ...(c ? [{ id: 'contract', label: 'Contract', open: { modal: 'contract' as const, id: c.id } }] : [])],
     details: d.options.map((o) => `${o.label}: ${o.desc}`), visuals: {}, terms: ['fdp'], by: d.expires,
   };

@@ -4,7 +4,7 @@
 // to fly. Manual assignments are locked: the rolling re-plan keeps them, flagged when illegal, never silently.
 
 import { onStandby, readyMinOf, standbyFor } from './standby';
-import { canFill, typeOf } from '../core/perf';
+import { canFill, reportMinutes, typeOf } from '../core/perf';
 import { fmtDay, fmtTime } from '../core/time';
 import type { ActionResult, CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing, Role, StandbyKind } from '../core/types';
 import { issueLevelFor, openDuties, planCrew } from './check';
@@ -86,6 +86,16 @@ export function dutyCrew(g: GameState, dutyOrFlightId: string): DutyCrewView | n
     dutyId: d.id, pairingId: p.id, aircraftId: p.aircraftId, contractId: p.contractId, kind: p.tour ? 'tour' : 'trip',
     dutyIds: [...p.dutyIds], report: d.report, release: d.release, slots, inProgress: !!inProgress(g, p),
   };
+}
+
+/**
+ * v0.9 round 4 (§Y.1): the report of a crew member who takes a seat after the duty reported: their own check-in for
+ * the held departure (never the hours the first crew waited at the gate), and never before now. Pure.
+ */
+export function freshReport(g: GameState, p: Pairing, d: Duty, f = g.flights[d.flightIds[0]]): Minute {
+  if (!f) return g.now;
+  const checkIn = f.id === d.flightIds[0] && f.std > d.report ? f.std - d.report : reportMinutes(typeIdOf(g, p)).report;
+  return Math.max(g.now, f.std + f.delay - checkIn);
 }
 
 export interface DutyCandidate {
@@ -306,9 +316,9 @@ export function assignCrew(g: GameState, dutyOrFlightId: string, crewId: string,
   }
   placeCrew(g, p, slot, c);
   p.slots[slot].locked = true;
-  // v0.9 round 4 (§Y.1): a replacement at the gate starts a fresh day: their own report is now, not the duty's.
+  // v0.9 round 4 (§Y.1): a replacement at the gate starts a fresh day: their own check-in for the held departure, not the duty's report.
   const d0 = openDuties(g, p)[0];
-  if (opts.replace && d0 && d0.report <= g.now) p.slots[slot].from = g.now;
+  if (opts.replace && d0 && d0.report <= g.now) p.slots[slot].from = freshReport(g, p, d0);
   touchCrew(g);
   const name = crewName(c);
   const msg = check.level === 'illegal' ? `${name} assigned, flagged illegal: ${check.text}` : check.level === 'tight' ? `${name} assigned (tight)` : `${name} assigned`;

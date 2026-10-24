@@ -946,7 +946,8 @@ export function analystView(g: GameState, offerId: string): AnalystView | null {
   }
   const step = o.product.kind === 'wet' ? 5 : o.product.kind === 'charter' ? 1_000 : 50;
   const counter = ratio > 1 ? Math.max(Math.ceil(asking / step) * step, Math.floor((asking * ratio) / step) * step) : null;
-  const score = best ? Math.max(1, Math.min(99, Math.round(50 + marginPct * 2))) : 0;
+  // Round 4: 50 + margin %, so the pill keeps ranking offers up to a 49 % margin (×2 saturated at 25 %).
+  const score = best ? Math.max(1, Math.min(99, Math.round(50 + marginPct))) : 0;
   const reg = best ? g.fleet[best.id].reg : '';
   const fmt = (v: number) => (o.product.kind === 'wet' ? `$${v.toLocaleString('en-US')}/BH` : usd(v));
   const busyPct = !best && busy ? Math.round((busy.margin / busy.rev) * (1 + err) * 100) : null;

@@ -101,7 +101,7 @@ On unlock: message "**You've earned an Ops Control duty manager**" (`topic: 'hea
 Company tabs become **Overview · Team · Clients · Rivals · Achievements** (`nav.view`).
 - **Left list** (460 px): 7 rows of 64 px each: icon, title, then either the person (name, skill %, salary) with an on/off pill, or "Locked" with the unlock line and a thin progress bar ("18 of 25 sectors"), or "Available: choose a candidate".
 - **Right pane**: the person, skill bar, salary, **On/Off** toggle, **Rules** (the head's `HeadRules` as `Seg`/`Stepper`/`Toggle` rows, 44 px), "Does" and "Never does" lines, **Proposals** (Accept / Dismiss), **Recent** (12 log lines; mistakes amber, overrides grey) and footer counters "Handled 41 · mistakes 3 · overridden 2". Fire is a small text button with a confirm.
-- **Offer card chip** "Analyst 78" and an **OfferModal "Analyst" block**: score pill, verdict ("Take it on CS-TQA: margin about 18 %" / "Counter at $1.24M: they usually accept within 8 % of asking" / "Pass: no aircraft makes money on it"), and **Use $1.24M**, which fills the counter field.
+- **Offer card chip** "Analyst 78" (50 + margin %, so 99 needs a 49 % margin; round 4 fix: ×2 saturated at 25 %) and an **OfferModal "Analyst" block**: score pill, verdict ("Take it on CS-TQA: margin about 18 %" / "Counter at $1.24M: they usually accept within 8 % of asking" / "Pass: no aircraft makes money on it"), and **Use $1.24M**, which fills the counter field.
 
 ### 5.6 Watch desk rules (custom alerts and auto-pause)
 Up to 8 rules, each a row: kind (Seg), value (Stepper), action (**Pause** / **Alert only**), on/off. The kinds:
@@ -240,7 +240,7 @@ All are synthesised with WebAudio. Bells are sine partials 1× (1.0), 2× (0.18,
 | `ruleAlert` | a watch-desk rule fired | `double` |
 | `cancelRisk` | a flight about to be cancelled (gate crew decision, uninsurable, a hold over 6 h) | `triple` |
 | `airspaceActive` | airspace closed on a flight that is scheduled or airborne | `triple` |
-| `cashNegative` | the day cash crosses below zero (with its four-line card), and the rescue decision | `triple` |
+| `cashNegative` | the day cash crosses below zero (with its four-line card; round 4 fix: the only cash card while cash is below zero, the fortnightly "Cash runs out" warning waits for cash to recover), and the rescue decision | `triple` |
 | `evacuation` | an urgent evacuation or repatriation request | `triple` |
 | `clientCollapse` | a client drops to Unhappy | `triple` |
 | `crewShortage` | CREW SHORTAGE (red stage, 12 h) | `alarm` |
@@ -448,7 +448,7 @@ export function bestSlip(g: GameState, typeId: string, rest: AcRest, chain: Chai
 - `bestSlip` tries each tech stop as the cut and keeps the cut where both halves are flyable. Round 4: the second half is judged on the stricter of the stop's and the home clock (`dutyNeed(…, { stricter: true })` → `planAugment`), as the roster judges a crew less than 48 h away (FTL state B); `crewN` is `complement()` of the second half (its pilots, the purser, cabin crew, the policy extra cabin crew and the rest plan's), the hotel at the policy tier (`SlipPlan.hotelNight`), so the chip's cost and the booked costs agree. It ranks cuts by the fewest pilots needed (basic > ext > aug1 > aug2), then the most FDP margin, then the cheapest tickets (`ticketPrice` from the nearest deadhead origin: home base, or the deployment base). At most **one slip per sector**: if no single cut works → `null` (the chain stays impossible).
 - **Roster**: `duties.ts slipUnits` uses `bestSlip`'s cut instead of cutting at every sector boundary, so planning and pricing agree. The deadheads and hotel come from the existing deadhead/rest code. The new duty records the stop (`Duty.slipAt?: string`).
 - **Feasibility** (`restNeed`): a chain with mode `none` and a `SlipPlan` gives a line at level `warn`: "**Crew change at IST (fresh crew flies in)**", detail "A second crew flies to Istanbul by airline the day before and rests; it takes over IST–SIN. The first crew rests in Istanbul and flies home. Tickets and hotel about $21K, priced in." Round 4: every slipping stop is named ("Crew change at PNH and OTP (fresh crews fly in)"), the worst non-slipping chain keeps its own 4-pilot / extra-cabin warning in the detail ("Another day: …"), and on a wet lease the detail and the chip end "The client pays the tickets and hotel (about $21K)."
-- **Pricing** (`offers.ts` draft costs): each slip adds `2 × crewN` one-way tickets (`tickets`), `crewN × 1` room nights (2 when the slip crew must wait for a second rest), and per diem for the extra crew-days. Charter prices include it; on wet contracts the client pays the tickets and hotels, as today.
+- **Pricing** (`offers.ts` draft costs): each slip adds `2 × crewN` one-way tickets (`tickets`), `crewN × 1` room nights (2 when the slip crew must wait for a second rest), and per diem for the extra crew-days by role (`SlipPlan.perDiem`); round 4 fix: when the first crew's half plus the ticket home would run past 13 h (`planHome` books them a hotel), their room nights and per diem are in the estimate too, so the chip and the booked costs agree. Charter prices include it; on wet contracts the client pays the tickets and hotels, as today.
 - **Offer generation**: `crewCanFly` accepts a chain with a `SlipPlan`, so the v0.8 "no impossible offers" rule counts a slip as a valid plan. `ContractOffer.slip?: { at: string[]; cost: number }` drives the card chip "Crew change at IST".
 - **Crew planning**: sets needed for the contract +1 per slipping sector in flight at the same time (`crewAvailability` gets `extraSets`; round 4: `restNeed` counts the most slipping chains overlapping in time and `feasibility` passes it, so the crew line reads "Needs 3 crew sets" on a one-way slip job that sized at 2). The 60-day Planning view (`sets.ts`) is unchanged: it counts contracts of 30 days or more, and one slip would not justify a sixth set.
 - `Stats.v09.slips` counts slip duties flown. The achievement `slipCrew` goes to the first one.
@@ -485,8 +485,9 @@ export function whatsNewToShow(seen: string, catchUpDone: boolean): WhatsNewEntr
 - Today `restDelayHook` stops at report (`d.report <= g.now → false`). New: in the departure state machine, before `depart`, for the first leg of an augmented duty (or any leg that starts an in-flight rest), re-run `restPlanForFlight` with the actual off-block time.
 - If it is not OK, the fixes run in this order:
   1. **re-plan the turns** (`planRest` with the current times and any extra cabin crew on board);
-  2. if the cabin crew's FDP overrun is the only problem and `discretionCheck` is ok → discretion applies (unforeseen, after report) with the usual note;
+  2. if the cabin crew's FDP overrun is the only problem and `discretionCheck` is ok → discretion applies (unforeseen, after report) with the usual note; round 4 fix: the whole allowance is stored (one increase, ORO.FTL.205(f)(1)(i): 2 h, 3 h augmented, capped by the cabin rest class), so a second hold inside it is still covered; a refusal names the rest class when that is the cap;
   3. else the flight is **held** and becomes **crew out of hours** with limit `inflightRest`: red at once, alarm, pause `crewHours`, and a Crew Control gate decision (fresh crew / delay to the next legal plan / sub-charter / cancel).
+- Round 4 fix (the gate clock): an FDP overrun at the gate grows with every minute on the ground, so `crewProblem` posts the decision at once (no `crewWaitMin` wait) and the decision's overrun, the discretion chip and the applied discretion read the day as it stands now (`liveDay`: from the crew's effective report to the last on-blocks if it left this minute), never the FDP written at an earlier attempt. A whole fresh crew taking the seats at the gate reports at their own check-in for the held departure (`freshReport`, slot `from`), with the Table 2 limit at that report: `fdpOver`, Crew Control's "fresh crew" rows (`fullWhy`, `heldOoh`) and the timeline all judge that day, not the hours the first crew waited; a replacement placed inside a running standby window is a call-out now.
 - No departure with an impossible rest plan: the bot target stays "0 duties flown with an impossible rest plan".
 - Test: an augmented 777 duty where a 2:30 delay after report makes the cabin crew rest impossible → re-plan fails → out-of-hours alert, flight held, never departs illegally.
 
@@ -523,7 +524,7 @@ Today `dailyStandby` puts 1 CPT, 1 FO, 1 PUR and 1 CC per rating family on home 
 | Cumulative duty | 60 h / 7 d, 110 h / 14 d, 190 h / 28 d | ORO.FTL.210(a) |
 | Flight time | 100 h / 28 d, 900 h / calendar year, 1,000 h / 12 months | ORO.FTL.210(b) |
 | Airport standby | 100 % duty; FDP cut by standby beyond 4 h; standby + FDP ≤ 16 h; rest after if not called | ORO.FTL.225, CS FTL.1.225(a) |
-| Other standby (home, hotel) | ≤ 16 h; 25 % duty; FDP cut beyond 6 h (8 h augmented/split); 23:00–07:00 not counted until contacted; standby + FDP ≤ 18 h awake; rest after | CS FTL.1.225(b) |
+| Other standby (home, hotel) | ≤ 16 h; 25 % duty; FDP cut beyond 6 h (8 h augmented/split); for standby starting 23:00–07:00 that period is not counted until contacted (round 4 fix: a window from midday called late at night counts in full); standby + FDP ≤ 18 h awake; rest after | CS FTL.1.225(b) |
 | Reserve | rostered; not duty for ORO.FTL.210/235; ≥ 10 h notice; 8 h no-contact period; never rest, never recovery | ORO.FTL.230, CS FTL.1.230, GM1 ORO.FTL.230(a) |
 | Recurrent extended recovery rest | ≥ 36 h incl. 2 local nights, ≤ 168 h apart; 2 local days twice a month | ORO.FTL.235(d) |
 | Days free of duty | ≥ 7 per calendar month, ≥ 96 per year, free of all duty **and standby**, notified in advance; a single day off = 1 day + 2 local nights | Directive 2000/79/EC Annex cl. 9; guide def. (23) |
@@ -577,11 +578,11 @@ Order each day: `planLeave` (1 Dec for next year, on load, and for each hire aft
 |---|---|---|---|---|
 | **Home standby** `home` (SBY) | at home base | early **05:00–17:00** (`E`) or late **12:00–24:00** (`L`), 12 h (≤ 16 h rule) | 25 % | report 90 min after the call; FDP cut beyond 6 h (8 h augmented/split); 18 h awake (woken 1 h before the window) |
 | **Hotel standby** `hotel` (SBY DUB) | at a deployment station or a night-stop/waiting station away from base | 06:00–18:00 station local, after the rest from the last duty | 25 % | report 45 min after the call; same cuts |
-| **Airport standby** `airport` (ASBY) | at home base or a deployment station whose family has ≥ 3 of our departures 05:00–10:00 local that day (round 3: was 6) | first departure − 90 min, 4 h | 100 % | at once (20 min); FDP cut beyond 4 h; standby + FDP ≤ 16 h |
+| **Airport standby** `airport` (ASBY) | at home base or a deployment station with ≥ 2 of our departures 05:00–12:00 local that day, counted station-wide over every family (round 4; round 3 asked ≥ 3 of one family 05:00–10:00 and never occurred in a year) | first departure − 90 min, 4 h (the cabin seat from the station's first, a pilot's from their family's first) | 100 % | at once (20 min); FDP cut beyond 4 h; standby + FDP ≤ 16 h |
 | **Reserve** `reserve` (RES) | home base, when a standby would make the 7/14/28-day duty tight (≥ 95 %) or break a rest | 24 h, no contact 22:00–06:00 | 0 % | only for a report ≥ 10 h after the call; FDP from report |
 
 - **Early or late:** split by D's reports of that family at that station (05:00–11:59 vs 12:00–23:59), filling the shift with the lower share of crew per report. A crew member keeps the same shift through a work block (GM CS FTL.1.205(a)(2): blocks of identical duties) unless the late→early rule would bite.
-- **Airport standby:** 1 CPT, 1 FO and 1 cabin crew per qualifying family (a purser counts as the cabin seat, round 3), taken from the early shift.
+- **Airport standby:** 1 CPT and 1 FO per family with a departure in the wave, 1 cabin crew per station (a purser counts as the cabin seat, round 3), taken from the early shift (round 4).
 - **Window clipping:** the window starts after the rest from the previous duty, and it ends early enough for the full ORO.FTL.235 rest before the next planned report (`minRest` of the standby length: 12 h at home, ≥ 10 h away). A window clipped below 4 h is not rostered; that day is rest.
 - **Legality:** each window is checked with `evalSegs`, with its share (home/hotel 0.25, airport 1, reserve 0). An illegal standby becomes reserve; an illegal reserve is not rostered, and the day shows "Rest (limits)".
 - **Out-of-base standby costs nothing new:** hotel and per diem accrue as already modelled for detachments and night-stops.
@@ -719,7 +720,7 @@ Round 3 also has one constant outside `BAL`: `OFF_SHARE = 0.3` in `crew/dayPlan.
    - airport at hour 5 → −1 h, and standby + FDP ≤ 16 h;
    - awake cap 18 h;
    - reserve refused for a report < 10 h away;
-   - 23:00–07:00 not counted before contact.
+   - 23:00–07:00 not counted before contact (only for standby starting in that period, CS FTL.1.225(b)(5)).
 6. **Rest after standby:** a window not called is followed by 12 h rest at home before the next report.
 7. **Annual leave:** 28 days a year, Q1/Q4 weighted, ≤ 10 % of a family-and-role group at once, never inside the published window at planning time.
 8. **Protected days off:**

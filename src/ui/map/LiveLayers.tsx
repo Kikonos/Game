@@ -233,17 +233,18 @@ export const SlipMarksLayer = memo(function SlipMarksLayer({ marks, proj, unit, 
 /** Pin offset in screen px: left of the dot at airports we already mark (code above, parked aircraft right). */
 export const pinOffset = (marked: boolean): [number, number] => (marked ? [-20, 0] : [0, 0]);
 
-/** Pin code label: font px and baseline below the diamond. */
-const PIN_FS = 10.5;
+/** Pin code label: font px (round 4: 12 on touch, the brief's minimum, as the airport labels) and baseline below the diamond. */
+const pinFs = (touch: boolean) => (touch ? 12 : 10.5);
 const PIN_LABEL_Y = 21;
 
 /**
  * Offer diamonds; pins away from our own airports carry their airport code (dropped where codes
  * would overlap). Drawn in screen px inside a `.mk` group that WorldMap counter-scales live.
  */
-export const PinsLayer = memo(function PinsLayer({ pins, marked, proj, unit, selected }: {
-  pins: PinGroup[]; marked: Set<string>; proj: MapLayerCtx['proj']; unit: number; selected?: string;
+export const PinsLayer = memo(function PinsLayer({ pins, marked, proj, unit, selected, touch = false }: {
+  pins: PinGroup[]; marked: Set<string>; proj: MapLayerCtx['proj']; unit: number; selected?: string; touch?: boolean;
 }) {
+  const PIN_FS = pinFs(touch);
   const pts = useMemo(() => pins.map((p) => {
     const a = AIRPORT_BY_CODE[p.code];
     return { p, q: proj([a.lon, a.lat]), off: pinOffset(marked.has(p.code)), marked: marked.has(p.code) };
@@ -260,7 +261,7 @@ export const PinsLayer = memo(function PinsLayer({ pins, marked, proj, unit, sel
     }
     // Diamonds first so a code never covers another pin.
     return placeLabels([...boxes.filter((b) => b.id.startsWith('d:')), ...boxes.filter((b) => !b.id.startsWith('d:'))], 1);
-  }, [pts, unit]);
+  }, [pts, unit, PIN_FS]);
   return (
     <g className="ops-pins">
       {pts.map(({ p, q, off }) => {
@@ -275,7 +276,7 @@ export const PinsLayer = memo(function PinsLayer({ pins, marked, proj, unit, sel
                 {sel && <circle className="sel-ring" r={16} />}
                 <path className="dia" d="M0 -8.5L8.5 0L0 8.5L-8.5 0Z" />
                 {p.offers.length > 1 && <text className="count" x={11} y={-7}>{p.offers.length}</text>}
-                {(labels.has(p.code) || sel) && <text className="code" y={PIN_LABEL_Y}>{p.code}</text>}
+                {(labels.has(p.code) || sel) && <text className="code" y={PIN_LABEL_Y} style={{ fontSize: PIN_FS }}>{p.code}</text>}
               </g>
             </g>
           </g>

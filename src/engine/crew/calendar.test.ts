@@ -51,6 +51,23 @@ describe('crew travelling', () => {
     expect(crewStatusView(g, ids[0]).label).not.toBe('Deadheading');
   });
 
+  it('round 4: after an uncalled home standby the pill reads Resting with the rest the gauge and calendar book, not Available', () => {
+    const g = fixtureGame(11);
+    const [id] = addCrew(g, { CC: 1 });
+    const c = g.crew[id];
+    c.off = [];
+    c.restUntil = 0;
+    c.status = 'available';
+    c.standby = [{ from: g.now - 10 * 60, to: g.now - 60, kind: 'home' }];
+    const v = crewStatusView(g, id);
+    expect(v.label).toBe('Resting');
+    expect(v.restUntil).toBe(g.now - 60 + 12 * 60);
+    expect(v.text).toMatch(/^Resting until /);
+    // Once that rest has run: available again.
+    g.now += 12 * 60;
+    expect(crewStatusView(g, id).label).toBe('Available');
+  });
+
   it("v0.9 round 4 (§U): a duty extended by the commander names the discretion in its FDP line", () => {
     const g = fixtureGame(7);
     trip(g);

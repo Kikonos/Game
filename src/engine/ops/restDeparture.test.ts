@@ -9,8 +9,9 @@ import { clearPause } from '../core/pause';
 import type { Aircraft } from '../core/types';
 import { devRestPlan } from '../dev';
 import { advanceTo, settle } from '../sim';
-import { applyCrewFix, crewAlertKind, crewControl, flightCrewStatus, outOfHours, rerosterFrom, restPlan, shortFlights } from '../crew';
+import { applyCrewFix, crewAlertKind, crewControl, discretionCheck, flightCrewStatus, outOfHours, rerosterFrom, restPlan, shortFlights } from '../crew';
 import { fixtureGame } from '../crew/fixtures';
+import { DISCRETION } from '../crew/rules';
 import { segsOf, touchCrewState } from '../crew/timeline';
 import { problems } from '../problems';
 import { delayFlight } from './flights';
@@ -84,13 +85,83 @@ describe('§Y.1 re-checked with the actual off-block time (round 4)', () => {
     const f = g.flights[fid];
     expect(f.status).toBe('enroute');
     const d = g.duties[f.dutyId!];
-    expect(d.discretion).toBe(165);
+    // Round 4: the whole allowance is stored (one increase, ORO.FTL.205(f)(1)(i)), never less than the hold it covered.
+    expect(d.discretion).toBeGreaterThanOrEqual(165);
+    expect(d.discretion).toBeLessThanOrEqual(DISCRETION.augmented);
     expect(g.messages.some((m) => m.title === `Commander's discretion on ${f.no}` && /hold outran the cabin crew's rest plan/.test(m.body))).toBe(true);
     expect(g.messages.some((m) => m.topic === 'crewHours')).toBe(false);
     expect(g.stats.illegalFlown ?? 0).toBe(ill0);
     expect(g.stats.v09!.discretionPlanned ?? 0).toBe(0);
     // The planned plan stands (the bot's 'impossible rest plan' count reads it): the overrun is under discretion.
     expect(restPlan(g, d.id)?.ok).toBe(true);
+  });
+
+  it('round 4: a cabin-only hold is covered by the whole allowance (one increase), so a second hold inside it is no out of hours', () => {
+    const g = fixtureGame(44);
+    const fid = devRestPlan(g);
+    const f = g.flights[fid];
+    g.fleet[f.aircraftId!].cabin.j = 4;
+    rerosterFrom(g, f.aircraftId!, g.now);
+    const d0 = g.duties[g.flights[fid].dutyId!];
+    advanceTo(g, d0.report + 5, new Set());
+    const d = g.duties[g.flights[fid].dutyId!];
+    expect(d.augment).toBeGreaterThan(0);
+    // The cabin branch stores the allowance (3 h augmented, capped by the rest class), not the 40 min hold itself.
+    const c = discretionCheck(g, d.id, undefined, { cabinOver: 40 });
+    expect(c.ok, c.why).toBe(true);
+    expect(c.addMin).toBeGreaterThanOrEqual(90);
+    expect(c.addMin).toBeLessThanOrEqual(DISCRETION.augmented);
+    // A hold past what the rest class allows names that limit, not 'discretion'.
+    const over = discretionCheck(g, d.id, undefined, { cabinOver: c.addMin + 10 });
+    expect(over.ok).toBe(false);
+    expect(over.why).toMatch(c.addMin < DISCRETION.augmented ? /the cabin crew's rest class allows only \+\d+:\d\d$/ : /more than discretion allows$/);
+  });
+
+  it('round 4 (§Y.1): a 6 h hold after report puts the whole crew over the day: a fresh crew from standby takes it, their day from their own check-in', () => {
+    const { g, fid, ill0, std } = heldAtGate(45, 360, (ac) => { ac.cabin.j = 2; });
+    const f = g.flights[fid];
+    expect(f.status).toBe('scheduled');
+    expect(crewAlertKind(g, fid)).toBe('hours');
+    const on = new Set(Object.values(g.pairings).flatMap((q) => q.slots.map((s) => s.crewId)));
+    const fam = typeOf(g.fleet[f.aircraftId!].typeId).family;
+    // A whole fresh crew on airport standby at the base (pilots too: the pilots' own day is over as well).
+    const sby: string[] = [];
+    const want: Record<string, number> = { CPT: 2, FO: 2, PUR: 2, CC: 6 };
+    for (const c of Object.values(g.crew)) {
+      // Rated, not on a trip, rested (their last duty ended more than 13 h ago).
+      if (!c.ratings.includes(fam) || on.has(c.id) || (c.log[c.log.length - 1]?.end ?? 0) > g.now - 13 * 60 || sby.filter((id) => g.crew[id].role === c.role).length >= (want[c.role] ?? 0)) continue;
+      c.off = [];
+      c.blocks = [];
+      c.loc = g.company.homeBase;
+      c.restUntil = 0;
+      c.standby = [{ from: g.now - 30, to: g.now + 8 * 60, kind: 'airport', at: g.company.homeBase }];
+      sby.push(c.id);
+    }
+    touchCrewState(g);
+    const v = crewControl(g, fid)!;
+    const call = v.solutions.find((s) => s.id === 'callIn')!;
+    expect(call.available, call.why).toBe(true);
+    const r = applyCrewFix(g, fid, 'callIn');
+    expect(r.ok, r.ok ? '' : r.error).toBe(true);
+    const q = g.pairings[g.duties[g.flights[fid].dutyId!].pairingId];
+    const ff = g.flights[fid];
+    const dd = g.duties[ff.dutyId!];
+    // Every seat replaced; the new crew's day starts at their own check-in for the held departure, not at the report.
+    const checkIn = std - dd.report;
+    for (const s of q.slots) {
+      if (s.above) continue;
+      expect(sby).toContain(s.crewId);
+      expect(s.from).toBe(Math.max(g.now, ff.std + ff.delay - checkIn));
+      expect(s.ooh).toBeUndefined();
+    }
+    expect(flightCrewStatus(g, fid).level).not.toBe('illegal');
+    expect(crewAlertKind(g, fid)).toBeNull();
+    // It leaves at the next attempt, legally, without discretion: the fresh crew's day fits as planned.
+    clearPause();
+    advanceTo(g, g.now + 45, new Set());
+    expect(g.flights[fid].status).toBe('enroute');
+    expect(g.stats.illegalFlown ?? 0).toBe(ill0);
+    expect(g.stats.illegalCrewFlown ?? 0).toBe(0);
   });
 
   it('a hold past the cabin rest class cap: held, CREW OUT OF HOURS on every surface, and a fresh cabin crew from standby takes it', () => {

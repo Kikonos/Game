@@ -9,7 +9,7 @@ import { fmtTime } from '../core/time';
 import type { AcRest, Duty, GameState, Minute } from '../core/types';
 import { dutyNeed, type ChainShape, type DutyNeed } from './duties';
 import { crewName } from './generate';
-import { crewIx, ticketPrice } from './timeline';
+import { crewIx, dhBlock, ticketPrice } from './timeline';
 
 export interface SlipPlan {
   /** The stop where the crews change (airport code) and the index of the first leg the fresh crew flies. */
@@ -17,11 +17,13 @@ export interface SlipPlan {
   cutIndex: number;
   first: DutyNeed;
   second: DutyNeed;
-  /** Crew in the slip complement, one-way tickets in and out ($, both crews), hotel room nights and the room rate ($). */
+  /** Crew in the slip complement, one-way tickets in and out ($, both crews), hotel room nights (both crews' when the first rests at the stop) and the room rate ($). */
   crewN: number;
   tickets: number;
   hotelNights: number;
   hotelNight: number;
+  /** Round 4: per diem by role for the extra crew-days ($; the first crew's too when they rest at the stop). */
+  perDiem?: number;
   text: string;
 }
 
@@ -57,11 +59,17 @@ export function bestSlip(g: GameState, typeId: string, rest: AcRest, chain: Chai
     const second = dutyNeed(g, typeId, rest, b, { stricter: true });
     if (first.mode === 'none' || second.mode === 'none') continue;
     // The crew the roster positions: the second half's pilots, the policy extra cabin crew and the rest plan's.
-    const crewN = complement(typeId, seats, { augment: AUG[second.mode], extraCabin: g.company.policies.extraCabin, restCabin: second.plan?.extraCabin ?? 0 }).length;
+    const roles = complement(typeId, seats, { augment: AUG[second.mode], extraCabin: g.company.policies.extraCabin, restCabin: second.plan?.extraCabin ?? 0 });
+    const crewN = roles.length;
     // The slip crew flies in, the first crew flies home: one ticket each way per person.
     const tickets = 2 * crewN * ticketPrice(home, at);
+    // Round 4: the first crew rest at the stop when their half plus the ticket home would run past 13 h (timeline.ts
+    // planHome books the hotel): their room nights too, and the per diem by role (pilots' is higher than the cabin's).
+    const firstRoles = complement(typeId, seats, { augment: AUG[first.mode], extraCabin: g.company.policies.extraCabin, restCabin: first.plan?.extraCabin ?? 0 });
+    const firstRests = first.fdp + dhBlock(at, home) + 60 > 13 * 60;
+    const perDiem = [...roles, ...(firstRests ? firstRoles : [])].reduce((n, r) => n + (BAL.perDiem[r] ?? PER_DIEM()), 0);
     const plan: SlipPlan = {
-      at, cutIndex: i, first, second, crewN, tickets, hotelNights: crewN * BAL.v09.slip.roomNights, hotelNight: HOTEL(g),
+      at, cutIndex: i, first, second, crewN, tickets, hotelNights: (crewN + (firstRests ? firstRoles.length : 0)) * BAL.v09.slip.roomNights, hotelNight: HOTEL(g), perDiem,
       text: `Crew change at ${at} (fresh crew flies in)`,
     };
     const rank = Math.max(RANK[first.mode], RANK[second.mode]);
@@ -73,7 +81,7 @@ export function bestSlip(g: GameState, typeId: string, rest: AcRest, chain: Chai
 
 /** What a slip costs us (tickets, the hotel and per diem for the extra crew-day). Pure. */
 export function slipCost(p: SlipPlan): number {
-  return Math.round(p.tickets + p.hotelNights * p.hotelNight + p.crewN * PER_DIEM());
+  return Math.round(p.tickets + p.hotelNights * p.hotelNight + (p.perDiem ?? p.crewN * PER_DIEM()));
 }
 
 /** The plain detail under the feasibility line (§W.1); on a wet lease the client pays the travel. Pure. */

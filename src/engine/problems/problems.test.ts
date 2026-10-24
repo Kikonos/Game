@@ -16,7 +16,8 @@ import { releaseCrew, setFlightsCrew } from '../crew/roster';
 import { startAog } from '../ops/maintenance';
 import { advanceTo } from '../sim';
 import { hurtBadges, mkHurt, postProblem, problemAt, problemFor, problems } from '.';
-import { hurtProse } from './types';
+import { cardUnderStrip } from './crew';
+import { hurtProse, type ProblemCard } from './types';
 
 function game(): GameState {
   const g = fixtureGame(9);
@@ -147,22 +148,27 @@ describe('cards', () => {
 
   it('money: cash low with the date; a late invoice; a loss month', () => {
     const g = game();
-    g.company.cash = -200_000;
+    // Round 4: at or above zero with the forecast dipping under: the low-cash card with the date.
+    g.company.cash = 10_000;
     const c = problemFor(g, { kind: 'cashLow', ref: { kind: 'cash', id: 'cash' } })!;
     expect(c).not.toBeNull();
     expect(c.what).toMatch(/^Cash runs out on /);
-    expect(c.hurt.level).toBe('high');
+    expect(c.hurt.money).toBeGreaterThan(0);
     expect(c.visuals.timeline).toBeDefined();
     expect(problems(g).some((x) => x.subject.kind === 'cashLow')).toBe(true);
-    // v0.9 round 4 (§S): below zero the cash dot leads with the cash-negative card (red, the rescue clock); at or above it, the forecast card.
+    expect(problemAt(g, { kind: 'cash', id: 'cash' })?.subject.kind).toBe('cashLow');
+    // v0.9 round 4 (§S): below zero the cash-negative card (red, the rescue clock) is the one cash problem: no second
+    // 'Cash runs out' card beside it, and its days-in-the-red gauge carries no `by` (the card line has the date).
+    g.company.cash = -200_000;
+    expect(problemFor(g, { kind: 'cashLow', ref: { kind: 'cash', id: 'cash' } })).toBeNull();
+    const cashCards = problems(g).filter((x) => x.subject.ref.kind === 'cash');
+    expect(cashCards.map((x) => x.subject.kind)).toEqual(['cashNegative']);
     const neg = problemAt(g, { kind: 'cash', id: 'cash' })!;
     expect(neg.subject.kind).toBe('cashNegative');
     expect(neg.what).toMatch(/^Cash is below zero \(/);
     expect(neg.severity).toBe('red');
     expect(neg.hurt.text).toMatch(/investor offers a rescue/);
-    g.company.cash = 10_000;
-    expect(problemAt(g, { kind: 'cash', id: 'cash' })?.subject.kind).toBe('cashLow');
-    g.company.cash = -200_000;
+    expect(neg.visuals.gauges?.[0].by).toBeUndefined();
     const cl = Object.values(g.clients)[0];
     const r: Receivable = { id: 'r-late', clientId: cl.id, contractId: null, desc: 'Test invoice', amount: 610_000, issued: g.now - 60 * DAY, due: g.now - 30 * DAY, payAt: g.now + 10 * DAY, paid: null, cat: 'charterRevenue' };
     g.finance.receivables.push(r);
@@ -263,5 +269,19 @@ describe('v0.7.3 restFacility card', () => {
     touchCrew(g);
     rerosterFrom(g, ac, g.now);
     expect(restFacilityCard(g, f.id)?.what).toMatch(/needs a 4th pilot/);
+  });
+});
+
+describe('v0.9 round 4 (§V): the card under Crew Control\'s out-of-hours strip', () => {
+  it('drops the name from WHAT and WHY and the limit figure the gauge shows; other cards are untouched', () => {
+    const card = { what: 'Mariana Sousa (captain) is out of hours for AWQ105', why: "Mariana's 28-day flying would reach 110:00 (limit 100:00).", title: 'x', hurt: mkHurt({ pax: 100 }) } as unknown as ProblemCard;
+    const x = { crewId: 'c1', name: 'Mariana Sousa', role: 'CPT' as const, limit: 'block28d' as const, limitText: 'has reached the 28-day flying limit (100 h)', value: 6600, max: 6000, overMin: 600 };
+    const u = cardUnderStrip(card, [x], 'AWQ105');
+    expect(u.what).toBe('Out of hours for AWQ105');
+    expect(u.why).toBe('28-day flying would reach 110:00.');
+    const two = cardUnderStrip({ ...card, why: "Mariana's day would run 17:10 after the 2:40 delay; the limit is 16:00." }, [x, { ...x, crewId: 'c2', name: 'Rui Costa' }], 'AWQ105');
+    expect(two.what).toBe('Out of hours for AWQ105 with 1 other');
+    expect(two.why).toBe('Day would run 17:10 after the 2:40 delay.');
+    expect(cardUnderStrip(card, [], 'AWQ105')).toBe(card);
   });
 });

@@ -48,7 +48,11 @@ describe('§W bestSlip', () => {
     const cab = typeOf('a332').cabins[0];
     expect(s.crewN).toBe(complement('a332', cab.j + cab.w + cab.y, { augment: 0, extraCabin: g.company.policies.extraCabin }).length);
     expect(s.hotelNight).toBe(BAL.hotelPerNight[g.company.policies.hotelTier]);
-    expect(slipCost(s)).toBe(Math.round(s.tickets + s.hotelNights * s.hotelNight + s.crewN * BAL.perDiem.CC));
+    // Round 4: per diem by role (pilots above the cabin rate) and, when the first crew rest at the stop (planHome books
+    // the hotel), their room nights and per diem too: the chip no longer under-costs the slip.
+    expect(s.perDiem).toBeGreaterThanOrEqual(s.crewN * BAL.perDiem.CC);
+    expect(s.hotelNights).toBeGreaterThanOrEqual(s.crewN * BAL.v09.slip.roomNights);
+    expect(slipCost(s)).toBe(Math.round(s.tickets + s.hotelNights * s.hotelNight + s.perDiem!));
     g.company.policies.hotelTier = 5;
     g.company.policies.extraCabin = 1;
     const s5 = bestSlip(g, 'a332', NO_REST, c)!;

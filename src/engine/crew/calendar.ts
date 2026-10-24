@@ -413,7 +413,10 @@ function statusView(g: GameState, crewId: string): CrewStatusView {
     const rel = duty?.release ?? null;
     return { ...base, label: 'On duty', tone: 'good', text: rel ? `On duty · release ${fmtTime(rel)}` : 'On duty', until: rel, restUntil: null };
   }
-  const restUntil = c.restUntil > now ? c.restUntil : null;
+  // Round 4: the rest the timeline books (the gauge and the calendar read it: after an uncalled standby too), when the
+  // crew record itself holds none, so the pill, 'Rest until' and the gauge agree.
+  let restUntil = c.restUntil > now ? c.restUntil : null;
+  if (restUntil === null) for (const s of segsOf(g, c)) if (s.kind !== 'log' && s.rest > 0 && s.end <= now && s.end + s.rest > now) restUntil = Math.max(restUntil ?? 0, s.end + s.rest);
   if (sickSoon) return { ...base, label: 'Sick', tone: 'bad', text: `Off sick from ${fmtDay(sickSoon.from)} · back ~${fmtDay(sickSoon.to)}`, until: sickSoon.to, restUntil };
   if (restUntil) return { ...base, label: 'Resting', tone: 'info', text: `Resting until ${fmtDateTime(restUntil)}${c.loc !== c.base ? ` at ${c.loc}` : ''}`, until: restUntil, restUntil };
   const next = rosterOf(g, c.id, now, now + BAL.rosterHorizonDays * DAY).find((d) => d.report > now);

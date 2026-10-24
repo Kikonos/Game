@@ -637,7 +637,15 @@ function checks(g: GameState, t: Tally): void {
         cands.push({ hub: o.hub.code, start: s0, total: o.total, winter: [10, 11, 0, 1, 2].includes(toDate(s0).getUTCMonth()) });
       }
     }
-    cands.sort((a, b) => Number(b.winter) - Number(a.winter) || a.total - b.total || a.start - b.start);
+    // v0.9 round 4: a check already due (its slot missed after an AOG away from the hub) is booked at the earliest
+    // slot anywhere rather than left until the aircraft is grounded (seed 5: 70 legs lost to a grounding).
+    const late = st.cDue - g.now <= 20 * DAY;
+    if (!cands.length && late) for (const o of cCheckOptions(g, ac.id)) {
+      if (!o.ok) continue;
+      const s0 = cCheckSlots(g, ac.id, o.hub.code, 8)[0];
+      if (s0 !== undefined) cands.push({ hub: o.hub.code, start: s0, total: o.total, winter: false });
+    }
+    cands.sort(late ? (a, b) => a.start - b.start || a.total - b.total : (a, b) => Number(b.winter) - Number(a.winter) || a.total - b.total || a.start - b.start);
     // v0.7.3 pilots' bunks with the check for an aircraft flying ≥ 8 augmented duties on class 2 pilot rest.
     const fcrc = g.company.approvals.includes('augmented') && restOf(g, ac.id).fc?.cls === 2 && !hadRestFit(g, ac.id) && augDuties(g, ac.id) >= 8
       && restRefitOptions(g, ac.id).some((o) => o.id === 'fcrc' && o.ok);
@@ -1225,10 +1233,10 @@ if (DET) {
   const g2 = deserialize(serialize(h));
   play(g2, newTally(), g2.started + END * DAY);
   const c = stateJson(g2);
-  // Off the 6-hour grid, between policy steps (a player saving at any minute).
+  // Off the 6-hour grid, between policy steps (a player saving at any minute). Round 4: through play(), so an
+  // auto-pause inside those 137 min (an AOG) gets its policy step as in the main run (advanceTo returns early on it).
   const h2 = runTo(200);
-  advanceTo(h2, h2.now + 137);
-  settle(h2);
+  play(h2, newTally(), h2.started + 200 * DAY + 137);
   const g3 = deserialize(serialize(h2));
   play(g3, newTally(), g3.started + END * DAY);
   const d3 = stateJson(g3);
@@ -1321,8 +1329,25 @@ function noteOffShare(g: GameState): void {
     bank.set(fam, (bank.get(fam) ?? 0) + 1);
   }
   for (const n of bank.values()) bankHist.set(n, (bankHist.get(n) ?? 0) + 1);
+  // Round 4: the station-wide wave (every family, 05:00–12:00) at base today from the flights, and the same wave as the
+  // planner sees it 13 days ahead from the duties then built (airport standby is placed when the day enters the roster).
+  let today = 0;
+  let ahead = 0;
+  const k13 = k0 + 13;
+  for (const f of Object.values(g.flights)) {
+    if (f.from !== home || !f.aircraftId || f.kind === 'deadhead' || f.status === 'cancelled') continue;
+    const loc = (f.std + offsetAt(home, f.std)) % DAY;
+    if (loc < 5 * 60 || loc >= 12 * 60) continue;
+    const kd = dayIndexAt(home, f.std);
+    if (kd === k0) today++;
+    else if (kd === k13 && f.dutyId && g.duties[f.dutyId]?.flightIds[0] === f.id) ahead++;
+  }
+  waveHist.set(today, (waveHist.get(today) ?? 0) + 1);
+  waveAhead.set(ahead, (waveAhead.get(ahead) ?? 0) + 1);
 }
 const bankHist = new Map<number, number>();
+const waveHist = new Map<number, number>();
+const waveAhead = new Map<number, number>();
 if (WHYHELD) {
   setHeldHook((g, f, phase) => {
     const card = crewShortCard(g, f.id);
@@ -1899,6 +1924,7 @@ console.log(
     }
     console.log(`roster spread (flying days, ${fmtMonth(lastMk)}): ${spreadTxt.join(' · ') || '-'}`);
     if (WHYHELD) console.log(`morning bank at base (days by departures 05–10 local, per family): ${[...bankHist].sort((a, b) => a[0] - b[0]).map(([n, d]) => `${n}:${d}`).join(' ')}`);
+    if (WHYHELD) console.log(`station wave at base 05–12 (days by departures, every family): today ${[...waveHist].sort((a, b) => a[0] - b[0]).map(([n, d]) => `${n}:${d}`).join(' ')} · as planned 13 days ahead (duties built) ${[...waveAhead].sort((a, b) => a[0] - b[0]).map(([n, d]) => `${n}:${d}`).join(' ')}`);
     // v0.9 round 4 (--whyheld): crew whose last closed year fell short of the 96 pro rata, with the count's parts.
     if (WHYHELD && r.years) {
       const y = yearOf(g.now) - 1; // the last December close (its early months may be pruned by now: offMonths keeps 13)

@@ -30,7 +30,7 @@ import { ProblemCardView, runAction } from '../components/ProblemCard';
 import { Modal, Stepper, Toggle } from '../components/ui';
 import { money } from '../format';
 import { ArchIcon, Chips, Dot, KV } from '../screens/common';
-import { archLabel, counterSteps, expiryLabel, offerCrewLine, pctLabel, reqChips, riskChips, ROLE_LABEL, routeSummary, offerDays, v09Chips, type Chip } from '../screens/screenLogic';
+import { archLabel, counterSteps, expiryLabel, offerCrewLine, pctLabel, reqChips, riskChips, routeSummary, offerDays, v09Chips, type Chip } from '../screens/screenLogic';
 import { analystView } from '../../engine/ops';
 import { ScreenHint } from '../components/ScreenHint';
 import { store, useGame } from '../store';
@@ -248,7 +248,8 @@ function AircraftRow({ g, r, on, onPick, billBH, lift = 1, offerId, long }: { g:
         <span className="col gap-4 grow">
           <span className="row gap-8"><b className="mono">{ac.reg}</b><span className="small muted">{typeOf(ac.typeId).short} · {ac.cabin.label}</span></span>
           {block ? <span className="small bad ellipsis">{block.label}</span> : <span className="small muted ellipsis">{posLine(r)}</span>}
-          <span className={`small ${crew.tone}`}>{crew.text}</span>
+          {/* Round 4 (§V): a blocked aircraft leads with its blocker; its crew line ('not checked') says nothing more. */}
+          {!block && <span className={`small ${crew.tone}`}>{crew.text}</span>}
           {restShown && <span className={`small of-rest ${LEVEL_TONE[restShown.level]}`}><BedDouble />{restShown.label}</span>}
         </span>
         <span className="right">
@@ -270,9 +271,7 @@ function AircraftRow({ g, r, on, onPick, billBH, lift = 1, offerId, long }: { g:
           ))}
           {r.techStops.length > 0 && <div className="small muted">Fuel stops: {r.techStops.join(', ')}</div>}
           <div className="small muted">Revenue {money(revenue)}{lift > 1 ? ` (incl. client-paid extra crew +${money(revenue - r.estRevenue)})` : ''} · costs {money(r.estCost)} · {Math.round(r.estBH)} BH flown{r.estBH - billBH > 0.5 ? ` (incl. ${Math.round(r.estBH - billBH)} BH positioning and empty legs)` : ''}</div>
-          {Object.entries(r.crew.byRole).some(([, v]) => v && v.short > 0) && (
-            <div className="small warn">Hire or move crew: {Object.entries(r.crew.byRole).filter(([, v]) => v && v.short > 0).map(([role, v]) => `${v!.short} × ${ROLE_LABEL[role as keyof typeof ROLE_LABEL].toLowerCase()}`).join(', ')}.</div>
-          )}
+          {/* Round 4 (§V): the crew check line above already says the shortage; no footer repeats it. */}
         </div>
       )}
     </div>
