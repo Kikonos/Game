@@ -196,11 +196,13 @@ describe('rootReason', () => {
     expect(sick.text).toMatch(/^sick until /);
     delete c.blocks;
     const hours = rootReason(g, [{ code: 'block28d', level: 'illegal', text: 'Block 28d 98:00 > 100:00' }], c)!;
-    expect(hours).toMatchObject({ code: 'hours', text: 'at 98 of 100 flying hours in 28 days' });
+    expect(hours).toMatchObject({ code: 'hours', text: 'at 98 of 100 h 28-day flying' });
+    // v0.9 round 4 (§V): a standby's start from the rule's own words.
+    expect(rootReason(g, [{ code: 'standby', level: 'illegal', text: 'On standby from 06:00: more than 18 h awake by the end of the day' }], c)).toMatchObject({ code: 'fdp', text: 'on standby since 06:00: standby plus the day would pass 18 h awake' });
     const place = rootReason(g, [{ code: 'location', level: 'illegal', text: 'Earliest arrival DUS 11:40, must land by 08:34 (report 09:34)' }], c)!;
     expect(place).toMatchObject({ code: 'place', text: 'in Lisbon, landing 11:40 at the earliest' });
     expect(rootReason(g, [{ code: 'recovery', level: 'illegal', text: 'No 36 h recovery in 168 h' }], c)!.code).toBe('recovery');
-    expect(rootReason(g, [{ code: 'fdp', level: 'illegal', text: 'FDP 11:45 > 11:00' }], c)).toMatchObject({ code: 'fdp', text: 'over the day limit (11:45 of 11:00)' });
+    expect(rootReason(g, [{ code: 'fdp', level: 'illegal', text: 'FDP 11:45 > 11:00' }], c)).toMatchObject({ code: 'fdp', text: 'over the day-length limit (11:45 of 11:00)' });
     expect(rootReason(g, [], c)).toBeNull();
     expect(rootReason(g, [{ code: 'rest', level: 'legal', text: '' }], c)).toBeNull();
   });

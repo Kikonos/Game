@@ -6,18 +6,25 @@
 
 import { BAL } from '../core/balance';
 import { cancelFlight, flightsOf, removeFlights, retimeFlight, subcharterFlights, touchFlights, touchStatus, touchTickets } from '../core/entities';
-import { post } from '../core/ledger';
+import { invoice, post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { blockMinutes, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { chance, next, pick, range } from '../core/rng';
 import { DAY, fmtDuration, fmtTime, monthKey } from '../core/time';
-import type { ActionResult, Aircraft, Contract, Flight, GameState, MaintenanceEvent, Message, MessageCat, Minute, Rival, SimEvent } from '../core/types';
+import type { ActionResult, Aircraft, Contract, Duty, Flight, GameState, MaintenanceEvent, Message, MessageCat, Minute, Rival, SimEvent } from '../core/types';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { distance } from '../core/geo';
 import { noteLostLegs } from '../contracts/billing';
 import { isSoft } from '../contracts/plan';
-import { applyDiscretion, boardCrew, crewIssuesFor, dropStraySpares, flightCrewStatus, guardDuty, rerosterFrom, restSeatsBlocked, setRestDelayHook } from '../crew';
+import { applyDiscretion, boardCrew, crewIssuesFor, dropStraySpares, flightCrewStatus, guardDuty, rerosterFrom, restPlan, restSeatsBlocked, setRestDelayHook } from '../crew';
+import { fdpLimitAt } from '../crew/timeline';
+import { dutyLegality } from '../crew/duties';
+import { cue } from '../core/cues';
+import { v09Stats } from '../crew/dayPlan';
+import { requestPause } from '../core/pause';
+import { problemFor } from '../problems';
+import { hurtProse } from '../problems/types';
 import { noteIncident } from './company';
 import { deliveryWaitDay } from './delivery';
 import { crewReadyAt, crewShortDecision, hasOpenDecision } from './events';
@@ -44,6 +51,28 @@ export function delayOf(f: Flight): number {
 
 /** Original scheduled arrival (before ops delays). */
 export const schedSta = (f: Flight): Minute => f.sta - (f.std - (f.schedStd ?? f.std));
+
+/**
+ * v0.9 round 5: an aircraft is never scheduled in two places at once. After a delay has rippled through the legs it
+ * could follow by location (recover stops where the chain breaks: a wave of another programme the delayed trip now
+ * overlaps), any scheduled leg still departing before the one before it has landed and turned moves behind it, in
+ * departure order. The crew module reads duties from the flights, so a duty's legs stay in time order and its report
+ * before its first departure (a crew-wait of a day over the next day's base waves flew a leg with its crew elsewhere).
+ */
+export function settleOverlaps(g: GameState, ac: Aircraft): number {
+  const legs = flightsOf(g, ac.id).filter((x) => x.status === 'scheduled').sort((a, b) => a.std - b.std);
+  const turn = turnOf(ac);
+  let n = 0;
+  for (let i = 1; i < legs.length; i++) {
+    const prev = legs[i - 1];
+    const f = legs[i];
+    const ready = prev.sta + turn;
+    if (f.std >= ready) continue;
+    moveFlight(g, f, ready, 'Late inbound aircraft');
+    n++;
+  }
+  return n;
+}
 
 /** Moves a scheduled leg to `std` (block kept), remembering the original STD. */
 export function moveFlight(g: GameState, f: Flight, std: Minute, reason?: string): void {
@@ -292,6 +321,27 @@ export function applyHold(g: GameState, plan: HoldPlan, reason: string, moveReas
  * moved (f may be cancelled: check its status).
  */
 export function delayChain(g: GameState, f: Flight, std: Minute, reason: string, own = true, crewWait = false): number {
+  const was = delayOf(f);
+  const n = delayChain0(g, f, std, reason, own, crewWait);
+  delayCues(g, f, was);
+  return n;
+}
+
+/**
+ * §S.3: a revenue leg passing 60 min late with a penalty risk (charter compensation, presidential standards) and a
+ * leg held past 6 h (it may have to be cancelled) each chime once, as the delay crosses the line.
+ */
+function delayCues(g: GameState, f: Flight, was: number): void {
+  if (f.status !== 'scheduled') return;
+  const now = delayOf(f);
+  if (was < 6 * 60 && now >= 6 * 60) cue('cancelRisk');
+  else if (was < 60 && now >= 60 && isRevenue(f)) {
+    const c = contractOf(g, f);
+    if (c && ((c.product.kind === 'charter' && c.penalties.perDelay > 0) || c.requirements.standards === 'vip')) cue('delayPenalty');
+  }
+}
+
+function delayChain0(g: GameState, f: Flight, std: Minute, reason: string, own: boolean, crewWait: boolean): number {
   const ac = f.aircraftId ? g.fleet[f.aircraftId] : undefined;
   if (f.status !== 'scheduled') return 0;
   std = Math.max(std, g.now);
@@ -308,7 +358,9 @@ export function delayChain(g: GameState, f: Flight, std: Minute, reason: string,
     touchFlights(g);
     const all = flightsOf(g, ac.id).filter((x) => x.status === 'scheduled');
     const later = all.slice(all.indexOf(f) + 1);
-    return applyHold(g, recover(g, ac, later, f.to, std + f.block + turnOf(ac), f), reason, reason, `Recovery: ${reason}`, crewWait ? ac : undefined);
+    const n = applyHold(g, recover(g, ac, later, f.to, std + f.block + turnOf(ac), f), reason, reason, `Recovery: ${reason}`, crewWait ? ac : undefined);
+    settleOverlaps(g, ac);
+    return n;
   }
   if (own) {
     const all = flightsOf(g, ac.id).filter((x) => x.status === 'scheduled');
@@ -318,11 +370,14 @@ export function delayChain(g: GameState, f: Flight, std: Minute, reason: string,
     // The first leg always takes the new time (a hold may sit on its std); the rest follow.
     if (mine) mine.std = std;
     const moved = applyHold(g, plan, reason, reason, `Recovery: ${reason}`, crewWait ? ac : undefined);
+    settleOverlaps(g, ac);
     return Math.max(0, moved - (mine ? 1 : 0));
   }
   const from = f.std;
   moveFlight(g, f, std, reason);
-  return applyHold(g, planRecovery(g, ac, f.to, f.sta + turnOf(ac), from, f), 'Schedule recovery', 'Late inbound aircraft');
+  const n = applyHold(g, planRecovery(g, ac, f.to, f.sta + turnOf(ac), from, f), 'Schedule recovery', 'Late inbound aircraft');
+  settleOverlaps(g, ac);
+  return n;
 }
 
 /**
@@ -346,6 +401,7 @@ function ripple(g: GameState, f: Flight, std: Minute): void {
   plan.moves = plan.moves.filter((x) => x.f !== f);
   moveFlight(g, f, std);
   applyHold(g, plan, 'Late inbound aircraft');
+  settleOverlaps(g, ac);
 }
 
 // ---------- disruption plans (shared by the AOG and crew decisions) ----------
@@ -413,6 +469,7 @@ export function cancelLegs(g: GameState, legs: Flight[], reason: string, repPerL
   if (empty.length) removeFlights(g, empty);
   if (pen) post(g, 'penalties', -pen);
   if (!agreed) stats(g).cancelled += rev;
+  if (!agreed && rev > 0) v09Stats(g).lastCancel = g.now;
   if (rev && repPerLeg) bumpReliable(g, -Math.min(3, rev * repPerLeg));
   return pen;
 }
@@ -679,7 +736,41 @@ export function onFlightDep(g: GameState, ev: SimEvent): void {
     crewProblem(g, f, ac);
     return;
   }
+  clearRestMarks(g, f);
   depart(g, f, ac);
+}
+
+/**
+ * v0.9 round 4: the reported duty f opens or continues as it stands at the gate now (the hold included): from the
+ * crew's report to the last on-blocks if it left this minute. `rep` is the crew's effective report: the duty's, or,
+ * when every seat went to a fresh crew at the gate (slot `from`), theirs, with the Table 2 limit at that report;
+ * `full` is the day from the duty's own report (what the log and the gauges carry). Null before report / deadhead. Pure.
+ */
+export function liveDay(g: GameState, f: Flight): { fdp: number; max: number; full: number; rep: Minute } | null {
+  const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+  if (!d || d.report > g.now || f.kind === 'deadhead') return null;
+  const last = g.flights[d.flightIds[d.flightIds.length - 1]];
+  if (!last) return null;
+  const lastOn = g.now + Math.max(f.block, last.sta - f.std);
+  const p = g.pairings[d.pairingId];
+  let rep = Infinity;
+  if (p) for (const s of p.slots) if (s.crewId && !s.above) rep = Math.min(rep, s.from !== undefined && s.from > d.report ? s.from : d.report);
+  if (rep === Infinity) rep = d.report;
+  const max = p && rep > d.report ? fdpLimitAt(g, p, d, f.from, rep).max : d.maxFdp;
+  return { fdp: lastOn - rep, max, full: lastOn - d.report, rep };
+}
+
+/** Minutes the live day (liveDay) runs over its limit before discretion (negative: within); null before report. */
+export function liveOver(g: GameState, f: Flight): number | null {
+  const x = liveDay(g, f);
+  return x ? x.fdp - x.max : null;
+}
+
+/** True while the reported duty is over its limit on the clock now: a wait only lengthens it (crewProblem decides at once). */
+function fdpClock(g: GameState, f: Flight): boolean {
+  const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+  const over = liveOver(g, f);
+  return !!d && over !== null && over > (d.discretion ?? 0);
 }
 
 /**
@@ -688,23 +779,30 @@ export function onFlightDep(g: GameState, ev: SimEvent): void {
  */
 function fdpOver(g: GameState, f: Flight): boolean {
   const d = f.dutyId ? g.duties[f.dutyId] : undefined;
-  if (!d || d.report > g.now || f.kind === 'deadhead') return false;
-  const last = g.flights[d.flightIds[d.flightIds.length - 1]];
-  if (!last) return false;
-  const fdp = g.now + Math.max(f.block, last.sta - f.std) - d.report;
-  if (fdp <= d.maxFdp + (d.discretion ?? 0)) return false;
+  const x = liveDay(g, f);
+  if (!d || !x) return false;
+  if (x.fdp <= x.max + (d.discretion ?? 0)) return false;
   if (!d.discretion) {
-    const r = applyDiscretion(g, d.id);
+    // v0.9 only for the unforeseen (UPDATE-0.9.md §U.3): a day already too long at report becomes crew out of hours.
+    const r = applyDiscretion(g, d.id, d.maxFdp + (x.fdp - x.max));
     if (r.ok) {
       pushMessage(g, {
         tone: 'info', cat: 'crew', title: `Commander's discretion on ${f.no}`,
-        body: `Gate holds stretched the duty; the commander extends it to finish ${f.from}–${last.to}. The crew will want their rest.`,
+        body: `Gate holds stretched the duty by ${fmtDuration(x.fdp - x.max)}; the commander extends it to finish ${f.from}–${g.flights[d.flightIds[d.flightIds.length - 1]]?.to ?? f.to}. The crew will want their rest.`,
         ref: { kind: 'flight', id: f.id },
       });
     }
-    if (fdp <= d.maxFdp + (d.discretion ?? 0)) return false;
+    if (x.fdp <= x.max + (d.discretion ?? 0)) {
+      // v0.9 round 4 (§U): the day as flown, so the log, the gauges and the (f)(5) report at release carry the hold
+      // (a whole fresh crew's day is their own: the timeline reads it from their seats' `from`).
+      if (x.rep === d.report) {
+        d.fdp = x.full;
+        d.legality = dutyLegality(d);
+      }
+      return false;
+    }
   }
-  d.fdp = fdp;
+  d.fdp = x.full;
   d.legality = 'illegal';
   return true;
 }
@@ -738,6 +836,7 @@ function depart(g: GameState, f: Flight, ac: Aircraft): void {
   ac.status = 'flying';
   f.eta = g.now + Math.max(15, Math.round(f.block * (1 + range(g, -BAL.windNoise, BAL.windNoise))));
   schedule(g, f.eta, 'flight.arr', f.id, f.ev);
+  cue('flightDep');
   const s = stats(g);
   s.departures++;
   const duty = f.dutyId ? g.duties[f.dutyId] : undefined;
@@ -746,10 +845,12 @@ function depart(g: GameState, f: Flight, ac: Aircraft): void {
     noteIncident(g, 'illegalCrew', `${f.no} flew on a duty over its FDP`);
   }
   // Every crew member legal for the duty this leg opens (rest, recovery, location, status…).
-  if (duty && duty.flightIds[0] === f.id && crewIssuesFor(g, duty).length) {
+  const crewIll = !!duty && duty.flightIds[0] === f.id && crewIssuesFor(g, duty).length > 0;
+  if (crewIll) {
     s.illegalCrewFlown = (s.illegalCrewFlown ?? 0) + 1;
-    if (duty.legality !== 'illegal') noteIncident(g, 'illegalCrew', `${f.no} left with a crew member over a limit`);
+    if (duty!.legality !== 'illegal') noteIncident(g, 'illegalCrew', `${f.no} left with a crew member over a limit`);
   }
+  departStats(g, f, ac, duty, !crewIll && duty?.legality !== 'illegal');
   // Charter clients are compensated for long delays (> 3 h). v0.8: a Trusted client forgives a few a month; presidential
   // standards notice anything over 30 min (× 3); our own late legs cost relation (−1, at most −4 a contract-month).
   const c = contractOf(g, f);
@@ -757,6 +858,36 @@ function depart(g: GameState, f: Flight, ac: Aircraft): void {
   // v0.8 war-risk cover for the landing (re-billed to a wet client).
   payWarRisk(g, f);
   touchStatus(g, ac.id);
+}
+
+/** Keeps the last 14 month keys of a month record. */
+function monthRec(rec: Record<number, [number, number]>, k: number): [number, number] {
+  const r = (rec[k] ??= [0, 0]);
+  const keys = Object.keys(rec).map(Number);
+  if (keys.length > 14) for (const x of keys.sort((a, b) => a - b).slice(0, keys.length - 14)) delete rec[x];
+  return r;
+}
+
+/**
+ * v0.9 achievement counters at a departure (§14.1): revenue sectors in a row with a legal crew, crew coverage and
+ * on-time departures by month, 747-400 revenue sectors, augmented duties leaving with a legal rest plan; the
+ * "nothing cancelled" clock starts with the first revenue departure.
+ */
+function departStats(g: GameState, f: Flight, ac: Aircraft, duty: Duty | undefined, legal: boolean): void {
+  const v = v09Stats(g);
+  if (duty && duty.augment > 0 && duty.flightIds[0] === f.id && restPlan(g, duty.id)?.ok === true) v.restPlans = (v.restPlans ?? 0) + 1;
+  if (!isRevenue(f)) return;
+  // v0.9 round 4 (§5.7): only an illegal duty breaks the streak (a cancellation or sub-charter for crew resets it where it happens).
+  v.legalStreak = legal ? v.legalStreak + 1 : 0;
+  v.lastCancel ??= g.now;
+  // v0.9 round 4: the "no check overdue" clock starts here too (maintenance.ts resets it while grounded).
+  v.lastOverdue ??= g.now;
+  const k = monthKey(g.now);
+  monthRec(v.cover, k)[0]++;
+  const ot = monthRec((v.onTimeM ??= {}), k);
+  ot[0]++;
+  if (delayOf(f) <= 15) ot[1]++;
+  if (ac.typeId === 'b744') v.queenSectors = (v.queenSectors ?? 0) + 1;
 }
 
 /** Delays nobody at our end controls (ATC, weather, the client, the world). */
@@ -799,6 +930,8 @@ export function crewBlocked(g: GameState, f: Flight): boolean {
   const p = dd && dd.flightIds[0] === f.id ? g.pairings[dd.pairingId] : undefined;
   if (p) for (const s of p.slots) if (s.crewId && g.crew[s.crewId] && g.crew[s.crewId].loc !== f.from) return true;
   if (p && dd && crewIssuesFor(g, dd).length) return true;
+  // v0.9 §Y.1 the in-flight rest plan re-checked at departure: a delay after report can make it impossible.
+  if (p && restFailed(g, f)) return true;
   if (cs.level !== 'illegal') return false;
   const d = f.dutyId ? g.duties[f.dutyId] : undefined;
   return !d || d.legality === 'illegal';
@@ -909,18 +1042,95 @@ function dropUnit(g: GameState, ac: Aircraft, f: Flight, reason: string, why: st
  * re-rostered. Away from the station the leg brings the aircraft home: it keeps waiting for a rested or
  * positioned crew (cancelling it would strand the aircraft) and is only given up after two days.
  */
+/**
+ * v0.9 §Y.1 the reported augmented duty this leg opens, when its in-flight rest plan no longer works (null: fine).
+ * v0.9 round 4: measured at the gate (a hold keeps the schedule and only grows `delay`: `restPlan` with `at`), and
+ * step 2 first: a hold that only breaks the cabin crew's plan (it worked as planned) is covered by the commander's
+ * discretion within its allowance (unforeseen, after report), with the usual note; beyond it the crew are out of hours.
+ */
+function restFailed(g: GameState, f: Flight): Duty | null {
+  const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+  if (!d || d.augment === 0 || d.legacyRest || d.flightIds[0] !== f.id || d.report > g.now || d.done) return null;
+  const at = Math.max(f.std + f.delay, g.now);
+  const plan = restPlan(g, d.id, { at });
+  if (!plan || plan.ok) return null;
+  const shift = at - f.std;
+  const cabinOnly = (plan.code === 'cabinFit' || plan.code === 'cabinClass') && restPlan(g, d.id, { at: f.std })?.ok === true;
+  if (!cabinOnly) return d;
+  if (d.discretion) return shift <= d.discretion ? null : d;
+  const r = applyDiscretion(g, d.id, undefined, { cabinOver: shift });
+  if (!r.ok) return d;
+  const last = g.flights[d.flightIds[d.flightIds.length - 1]] ?? f;
+  pushMessage(g, {
+    tone: 'info', cat: 'crew', title: `Commander's discretion on ${f.no}`,
+    body: `The ${fmtDuration(shift)} hold outran the cabin crew's rest plan; the commander extends their day to finish ${f.from}–${last.to}. The crew will want their rest.`,
+    ref: { kind: 'flight', id: f.id },
+  });
+  return null;
+}
+
+/**
+ * v0.9 §Y.1 the rest plan failed at the gate: the cabin crew are out of hours (limit 'inflightRest'), red at once
+ * with the urgent alarm and the crewHours pause; the gate decision (fresh crew, delay, sub-charter, cancel) follows.
+ */
+function restOutOfHours(g: GameState, f: Flight, d: Duty): void {
+  const p = g.pairings[d.pairingId];
+  if (!p) return;
+  for (const s of p.slots) if (s.crewId && (s.role === 'PUR' || s.role === 'CC')) s.ooh = { crewId: s.crewId, limit: 'inflightRest', over: 0, at: g.now };
+  if (f.crewAlert === 'red') return;
+  f.crewAlert = 'red';
+  const v9 = (g.stats.v09 ??= { legalStreak: 0, cover: {}, slips: 0, oohRed: 0, oohAmber: 0, discretionUsed: 0, discretionRefused: 0, headHandled: 0, headMistakes: 0, jumboLoads: 0, lateGovPaid: 0, cOnTime: 0 });
+  v9.oohRed++;
+  const card = problemFor(g, { kind: 'crewHours', ref: { kind: 'flight', id: f.id } });
+  pushMessage(g, {
+    tone: 'bad', cat: 'crew', topic: 'crewHours', title: `CREW OUT OF HOURS: ${f.no} at the gate`,
+    body: card ? `${card.what}. ${card.why} ${hurtProse(card)}.` : 'After the delay the in-flight rest plan no longer works: the cabin crew cannot all rest in this cruise.',
+    ref: { kind: 'flight', id: f.id }, problem: { kind: 'crewHours', ref: { kind: 'flight', id: f.id } },
+    ...(card ? { hurt: { money: card.hurt.money, pax: card.hurt.pax, delayMin: card.hurt.delayMin, level: card.hurt.level } } : {}),
+  });
+  requestPause('crewHours');
+}
+
+/** Clears the rest-plan marks of a duty whose plan works again (re-planned turns, a fresh crew). */
+export function clearRestMarks(g: GameState, f: Flight): void {
+  const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+  const p = d ? g.pairings[d.pairingId] : undefined;
+  if (p) for (const s of p.slots) if (s.ooh?.limit === 'inflightRest') delete s.ooh;
+}
+
+/**
+ * v0.9 round 3 diagnostics (bot `--whyheld`): called when a leg is first held for crew at departure ('held', before the
+ * re-roster) and after that re-roster ('fixed' / 'still'). Never saved, never read by the engine.
+ */
+let heldHook: ((g: GameState, f: Flight, phase: 'held' | 'fixed' | 'still') => void) | null = null;
+export function setHeldHook(fn: typeof heldHook): void {
+  heldHook = fn;
+}
+
 function crewProblem(g: GameState, f: Flight, ac: Aircraft): void {
+  // v0.9 round 4 (§Y.1): the rest-plan marks follow the plan at every attempt (a fresh crew or discretion clears them).
+  const rd = restFailed(g, f);
+  if (rd) restOutOfHours(g, f, rd);
+  else clearRestMarks(g, f);
   if (!f.crewHeld) {
     f.crewHeld = true;
     f.heldAt ??= g.now;
-    if (isRevenue(f)) stats(g).uncovered++;
+    if (isRevenue(f)) {
+      stats(g).uncovered++;
+      monthRec(v09Stats(g).cover, monthKey(g.now))[1]++;
+      heldHook?.(g, f, 'held');
+    }
     // Crew over a limit come off the duty first (refilled when someone legal can take the seat).
     if (f.dutyId) guardDuty(g, f.dutyId);
     rerosterFrom(g, ac.id, g.now);
-    if (!crewBlocked(g, f)) return holdFlight(g, f, 5);
+    const blocked = crewBlocked(g, f);
+    if (isRevenue(f)) heldHook?.(g, f, blocked ? 'still' : 'fixed');
+    if (!blocked) return holdFlight(g, f, 5);
   }
   if (!isRevenue(f)) return f.purpose === 'delivery' ? deliveryWait(g, f, ac) : emptyLegCrew(g, f, ac);
-  if (hasOpenDecision(g, 'crewShort', f.id) || heldFor(g, f) < BAL.crewWaitMin) return holdFlight(g, f, 30);
+  // v0.9 round 4: a day over its limit on the clock grows with every minute at the gate (no re-roster shortens it):
+  // the decision at once, while the commander's discretion can still cover the overrun.
+  if (hasOpenDecision(g, 'crewShort', f.id) || (!fdpClock(g, f) && heldFor(g, f) < BAL.crewWaitMin)) return holdFlight(g, f, 30);
   if (f.crewDecided) {
     const tries = (f.crewTries ?? 0) + 1;
     f.crewTries = tries;
@@ -1020,6 +1230,8 @@ export function onFlightArr(g: GameState, ev: SimEvent): void {
   const ac = g.fleet[f.aircraftId];
   f.status = 'done';
   f.ata = g.now;
+  cue('flightArr');
+  if (AIRPORT_BY_CODE[f.to]?.ice) v09Stats(g).antarctic = (v09Stats(g).antarctic ?? 0) + 1;
   touchStatus(g, f.aircraftId);
   if (!ac) return;
   ac.flightId = null;
@@ -1050,6 +1262,11 @@ export function onFlightArr(g: GameState, ev: SimEvent): void {
   } else post(g, 'maintenance', -Math.round(maint));
   if (paysFuel(g, f)) {
     post(g, 'fuel', -Math.round(t.fuelTBH * bh * g.market.fuelPrice));
+    // v0.9 §Y.2 fuel at cost: a jumbo charter's revenue legs re-bill the actual burn to the client.
+    const fc = contractOf(g, f);
+    if (fc && fc.product.kind === 'charter' && fc.product.fuelAtCost && isRevenue(f)) {
+      invoice(g, { clientId: fc.clientId, contractId: fc.id, desc: `Fuel re-billed: ${f.no}`, amount: Math.round(t.fuelTBH * bh * g.market.fuelPrice), cat: 'otherRevenue', dueDays: fc.payment.basis === 'arrears' ? fc.payment.dueDays : 7, deferred: true });
+    }
     post(g, 'airportFees', -(BAL.airportFees[wide] + (isRevenue(f) ? BAL.catering[wide] : 0)));
   }
   g.finance.current.bh = Math.round((g.finance.current.bh + bh) * 100) / 100;

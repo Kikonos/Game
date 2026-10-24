@@ -1,5 +1,6 @@
 // Statements, receivables, solvency and the cash forecast (B3). DESIGN.md §5.7, BUILD-PLAN B3 acceptance.
 
+import { dailyFinance } from './finance';
 import { describe, expect, it, onTestFinished } from 'vitest';
 import { BAL } from '../core/balance';
 import { flightsOf } from '../core/entities';
@@ -262,6 +263,21 @@ describe('receivables', () => {
     expect(g.messages.some((m) => m.title === `${gov.name} paid 90 days late`)).toBe(true);
     // Factored invoices are never paid twice.
     expect(line(g, 'otherRevenue')).toBe(600_000);
+  });
+});
+
+describe('v0.9 round 4: one cash problem at a time', () => {
+  it('the day cash crosses zero: the red cash-below-zero card and no fortnightly low-cash warning beside it', () => {
+    const g = newGame(27);
+    g.company.cash = -120_000;
+    g.finance.lowCashAt = undefined;
+    dailyFinance(g);
+    expect(g.finance.negSince).toBe(g.now);
+    expect(g.messages.filter((m) => /^Cash is below zero/.test(m.title))).toHaveLength(1);
+    expect(g.messages.some((m) => /^Cash runs out/.test(m.title) || m.title === 'Cash is running out')).toBe(false);
+    // Still negative a day later: no low-cash warning either (the red card stands).
+    skip(g, g.now + DAY + 60);
+    expect(g.messages.some((m) => /^Cash runs out/.test(m.title) || m.title === 'Cash is running out')).toBe(false);
   });
 });
 

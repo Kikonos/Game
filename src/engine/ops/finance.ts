@@ -1,10 +1,11 @@
 // Statements, receivables, fixed costs and solvency (B3). DESIGN.md §5.7.
 // Money moves only through core/ledger.ts (post, accrue, cashOnly, invoice).
 
+import { v09Stats } from '../crew/dayPlan';
 import { BAL } from '../core/balance';
 import { cashOnly, post, statementTotals } from '../core/ledger';
 import { pushMessage } from '../core/messages';
-import { cardMeta, cashLowCard, invoiceOverdueCard, postProblem } from '../problems';
+import { cardMeta, cashLowCard, cashNegativeCard, invoiceOverdueCard, postProblem } from '../problems';
 import { requestPause } from '../core/pause';
 import { typeOf } from '../core/perf';
 import { DAY, fmtMonth, monthKey, monthStart } from '../core/time';
@@ -76,7 +77,7 @@ export function onMonthEnd(g: GameState, ev: SimEvent): void {
   const s = stats(g);
   s.bestMonthProfit = Math.max(s.bestMonthProfit, profit);
   pushMessage(g, {
-    tone: profit >= 0 ? 'good' : 'warn', cat: 'finance', title: `${fmtMonth(cur.month, false)} statement`,
+    tone: profit >= 0 ? 'good' : 'warn', cat: 'finance', title: `${fmtMonth(cur.month, false)} statement`, cue: 'monthEnd',
     body: `Revenue ${usd(revenue)}, costs ${usd(-costs)}: ${profit >= 0 ? 'profit' : 'loss'} ${usd(Math.abs(profit))}. ${Math.round(cur.bh)} block hours. Cash ${usd(g.company.cash)}.`,
   });
   requestPause('monthEnd');
@@ -91,7 +92,8 @@ export function onPayment(g: GameState, ev: SimEvent): void {
   const late = Math.floor((g.now - r.due) / DAY);
   if (late > BAL.graceDays) {
     const name = g.clients[r.clientId]?.name ?? 'A client';
-    pushMessage(g, { tone: 'info', cat: 'finance', title: `${name} paid ${late} days late`, body: `${usd(r.amount)} for ${r.desc}.` });
+    pushMessage(g, { tone: 'info', cat: 'finance', title: `${name} paid ${late} days late`, body: `${usd(r.amount)} for ${r.desc}.`, cue: 'paymentIn' });
+    if (g.clients[r.clientId]?.kind === 'government') v09Stats(g).lateGovPaid++;
   }
 }
 
@@ -125,7 +127,12 @@ export function dailyFinance(g: GameState): void {
   // Solvency (fail forward).
   const cash = g.company.cash;
   if (cash < 0) {
-    f.negSince ??= g.now;
+    if (f.negSince === null || f.negSince === undefined) {
+      // v0.9 round 4 (§S): the day cash crosses zero: the triple and the four-line card (the rescue decision follows).
+      f.negSince = g.now;
+      const card = cashNegativeCard(g);
+      if (card) postProblem(g, card, { cat: 'finance', tone: 'bad', cue: 'cashNegative', tail: 'Find work, chase receivables or cut costs.' });
+    }
     if (f.refusedRescue && cash < BAL.bankruptFloor) return gameOver(g, `Cash fell below ${usd(BAL.bankruptFloor)} after the rescue was refused.`);
     if (g.now - f.negSince >= BAL.rescueDays * DAY) {
       if ((f.rescues ?? 0) >= 1) return gameOver(g, `Insolvent again for ${BAL.rescueDays} days after the rescue.`);
@@ -136,8 +143,10 @@ export function dailyFinance(g: GameState): void {
     if (f.negSince !== null && f.refusedRescue) f.refusedRescue = false;
     f.negSince = null;
   }
-  // Low-cash warning (every two weeks at most) when the 30-day forecast dips below zero.
-  if (g.now - (f.lowCashAt ?? -Infinity) >= 14 * DAY) {
+  // Low-cash warning (every two weeks at most) when the 30-day forecast dips below zero. Round 4: never while cash is
+  // already below zero (that is the red card above; the fortnight restarts from the day it went under).
+  if (cash < 0) f.lowCashAt = g.now;
+  else if (g.now - (f.lowCashAt ?? -Infinity) >= 14 * DAY) {
     const low = Math.min(...cashForecast(g, 30).map((p) => p.cash));
     if (low < 0) {
       f.lowCashAt = g.now;

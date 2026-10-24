@@ -178,7 +178,7 @@ describe('the plan of a rostered duty', () => {
     ac.typeId = 'a333';
     ac.cabin = { ...ac.cabin, total: 300, y: 300, j: 0, w: 0 };
     ac.rest = bunks;
-    addCrew(g, { CPT: 3, FO: 4, PUR: 4, CC: 14 }, 'A330/340');
+    for (const id of addCrew(g, { CPT: 3, FO: 4, PUR: 4, CC: 14 }, 'A330/340')) g.crew[id].off = [];
     const std = Math.floor(g.now / DAY) * DAY + 2 * DAY + 20 * 60;
     fixtureContract(g, { aircraftIds: [ac.id], start: std, end: std + DAY, pattern: { kind: 'legs', legs: [] }, product: { kind: 'charter', price: 1, depositPct: 0, balanceDaysBefore: 0, fuelEscalation: false } });
     const f = addFlight(g, { no: 'AW1', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'LIS', to: 'GRU', std, sta: std + 12 * H + 30 });

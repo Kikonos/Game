@@ -25,6 +25,7 @@ import { type GameSpeed, SPEED_LABEL, type Tab, store, useClock, useGame, useSto
 import { useMedia, useTier } from '../useMedia';
 import { CLOCK_STEP, SPEEDS } from '../../engine/core/time';
 import type { PauseReason } from '../../engine/core/pause';
+import { ScreenHint } from '../components/ScreenHint';
 
 export const NAV: { tab: Tab; label: string; short: string; icon: ReactNode }[] = [
   { tab: 'map', label: 'Ops Map', short: 'Map', icon: <Globe2 /> },
@@ -90,7 +91,7 @@ function SpeedControl() {
 
 const PAUSE_LABEL: Record<PauseReason, string> = {
   decision: 'Decision waiting', urgentOffer: 'Urgent offer', aog: 'Aircraft AOG', monthEnd: 'Month closed', contractStart: 'Contract starts', crewShortage: 'Crew shortage',
-  marketOffer: 'Market offer',
+  marketOffer: 'Market offer', crewHours: 'Crew out of hours', rule: 'Your rule',
 };
 
 /** Static amber badge saying why the clock stopped (no pulsing); tap goes where the reason lives. */
@@ -103,9 +104,10 @@ function PauseBadge() {
     if (reason === 'decision' && s.settings.autoPause.decision && !s.decisionOpen) return s.reopenDecision();
     if (reason === 'urgentOffer') s.navigate('contracts', { view: 'market' });
     else if (reason === 'monthEnd') s.navigate('finance');
-    else if (reason === 'crewShortage') {
-      // v0.7.1: Crew Control for the soonest short flight; else the newest crew message's flight sheet.
-      const short = g ? shortFlights(g)[0] : undefined;
+    else if (reason === 'crewShortage' || reason === 'crewHours') {
+      // v0.7.1: Crew Control for the soonest short flight (v0.9: of that kind first); else the newest crew message's flight sheet.
+      const all = g ? shortFlights(g) : [];
+      const short = all.find((x) => (x.kind ?? 'short') === (reason === 'crewHours' ? 'hours' : 'short')) ?? all[0];
       if (short) return s.openModal({ kind: 'crewControl', flightId: short.flightId });
       const ref = g?.messages.find((m) => m.cat === 'crew' && m.ref?.kind === 'flight' && g.flights[m.ref.id]?.status === 'scheduled')?.ref;
       const link = g && ref ? refTarget(g, ref) : null;
@@ -114,6 +116,7 @@ function PauseBadge() {
       s.openModal({ kind: 'sheet', refs: [ref] });
     }
     else if (reason === 'contractStart') s.navigate('schedule');
+    else if (reason === 'rule') s.navigate('company', { view: 'team', sel: { kind: 'head', id: 'watch' } });
     else if (reason === 'marketOffer') {
       // v0.7.2: straight to the newest offer.
       const o = g?.market.aircraft.filter((x) => x.expires > g.now).at(-1);
@@ -237,6 +240,8 @@ export function Shell() {
       <Rail />
       <main className={`main ${tab === 'map' ? 'no-scroll' : ''}`}>
         {tab === 'map' && <OpsMap />}
+        {/* The map hint sits where the selection panel opens: hidden while one is open. */}
+        {tab === 'map' && !s.nav.sel && <ScreenHint id="map" className="float" />}
         {tab === 'contracts' && <ContractsScreen />}
         {tab === 'schedule' && <ScheduleScreen />}
         {tab === 'crew' && <CrewScreen />}

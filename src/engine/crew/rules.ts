@@ -4,7 +4,7 @@
 // Pure functions on minutes; no GameState.
 
 import { DAY, dayStart, localOffset, yearOf } from '../core/time';
-import type { Legality, Minute } from '../core/types';
+import type { Legality, Minute, StandbyKind } from '../core/types';
 
 const H = 60;
 
@@ -239,8 +239,20 @@ export function standbyCut(kind: 'home' | 'airport', sbyFrom: Minute, report: Mi
   const len = Math.max(0, report - sbyFrom);
   if (kind === 'airport') return Math.max(0, len - STANDBY.airportFree);
   const quietTo = Math.min(report, contacted ?? report);
-  const quiet = quietTo > sbyFrom ? localOverlap(tz, sbyFrom, quietTo, 23 * H, 31 * H) : 0;
+  // Round 4: only standby that starts between 23:00 and 07:00 has the night excluded (CS FTL.1.225(b)(5)); a window
+  // from midday called late at night counts in full.
+  const startLocal = localMin(tz, sbyFrom);
+  const nightStart = startLocal >= 23 * H || startLocal < 7 * H;
+  const quiet = nightStart && quietTo > sbyFrom ? localOverlap(tz, sbyFrom, quietTo, 23 * H, 31 * H) : 0;
   return Math.max(0, len - quiet - (augOrSplit ? STANDBY.homeFreeAug : STANDBY.homeFree));
+}
+
+/**
+ * v0.9 round 4 rest after a duty called from airport standby (ORO.FTL.235: at least the preceding duty period, which
+ * the airport standby is part of): the duty seg's rest, raised to the minimum for the standby and the duty together.
+ */
+export function asbyRest(base: string, sbyFrom: Minute, y: Seg): number {
+  return Math.max(y.rest, minRest({ dutyMin: y.end - sbyFrom, atHome: y.at === base, augmented: y.aug, tzShift: tzDeltaH(base, y.at, y.end) }));
 }
 
 /** CS FTL.1.225(b) awake cap: from waking (wakeMin before standby starts) to the end of the FDP ≤ 18 h. */
@@ -421,6 +433,21 @@ export interface Seg {
   split?: boolean;
   /** v0.7.3 called out from home standby that began then (the 18 h awake cap). */
   sbyFrom?: Minute;
+  /** v0.9 a standby seg's kind (absent = home); on a called duty, the kind it was called from (§R.3). */
+  sby?: StandbyKind;
+}
+
+/**
+ * v0.9 round 4 speed: every timeline seg gets the same hidden class (all fields, this order), so the loops that read
+ * them (evalSegs, windowsAt, standbyView, the timeline walk and merges) stay monomorphic. An absent optional field is
+ * `undefined`, read exactly as before; nothing lists a seg's keys.
+ */
+export function mkSeg(o: Seg): Seg {
+  return {
+    kind: o.kind, start: o.start, end: o.end, fdp: o.fdp, maxFdp: o.maxFdp, block: o.block, sectors: o.sectors, aug: o.aug, disruptive: o.disruptive,
+    rest: o.rest, at: o.at, from: o.from, dutyId: o.dutyId, ticketId: o.ticketId, home: o.home, out: o.out, fresh: o.fresh, share: o.share,
+    ext: o.ext, early: o.early, late: o.late, night: o.night, split: o.split, sbyFrom: o.sbyFrom, sby: o.sby,
+  };
 }
 
 export interface TimelineCtx {
@@ -455,7 +482,9 @@ export interface TimelineCtx {
 
 export type IssueCode = 'fdp' | 'rest' | 'duty7d' | 'duty14d' | 'duty28d' | 'block28d' | 'blockYear' | 'recovery' | 'rating' | 'location' | 'status' | 'overlap' | 'workBlock'
   /** v0.7.3 */
-  | 'ext7d' | 'nightSectors' | 'lateEarly' | 'twoDays' | 'tzRest' | 'standby';
+  | 'ext7d' | 'nightSectors' | 'lateEarly' | 'twoDays' | 'tzRest' | 'standby'
+  /** v0.9 work on a planned day off (UPDATE-0.9.md §R.3; crew/dayPlan.ts offIssue). */
+  | 'daysOff';
 
 export interface LegalityIssue {
   code: IssueCode;
@@ -624,7 +653,12 @@ export function evalSegs(ctx: TimelineCtx, segsIn: Seg[]): LegalityIssue[] {
         if (s.fdp > s.maxFdp) pushIssue(issues, 'fdp', 'illegal', `FDP ${hm(s.fdp)} > ${hm(s.maxFdp)}`, tgt);
         else if (s.fdp > s.maxFdp - LIMITS.tightFdp) pushIssue(issues, 'fdp', 'tight', `FDP ${hm(s.fdp)} of ${hm(s.maxFdp)}`, tgt);
         // v0.7.3 called from home standby: at most 18 h awake by the end of the FDP (woken an hour before standby).
-        if (s.sbyFrom !== undefined && !standbyAwakeOk(s.sbyFrom, s.start + s.fdp)) pushIssue(issues, 'standby', 'illegal', `On standby from ${hm(localMin(ctx.base, s.sbyFrom))}: more than 18 h awake by the end of the day`, tgt);
+        if (s.sbyFrom !== undefined) {
+          // v0.9 airport standby: standby + FDP ≤ 16 h (CS FTL.1.225(a)); home and hotel: 18 h awake.
+          if (s.sby === 'airport') {
+            if (s.start + s.fdp - s.sbyFrom > STANDBY.airportTotal) pushIssue(issues, 'standby', 'illegal', `On airport standby from ${hm(localMin(ctx.base, s.sbyFrom))}: standby and duty over 16 h`, tgt);
+          } else if (!standbyAwakeOk(s.sbyFrom, s.start + s.fdp)) pushIssue(issues, 'standby', 'illegal', `On standby from ${hm(localMin(ctx.base, s.sbyFrom))}: more than 18 h awake by the end of the day`, tgt);
+        }
         // v0.7.3 planned extension: at most 2 in any 7 days per crew member (CS FTL.1.205(b)).
         if (s.ext) {
           let n = 0;
@@ -662,7 +696,10 @@ export function evalSegs(ctx: TimelineCtx, segsIn: Seg[]): LegalityIssue[] {
         cumIssue(issues, 'blockYear', logged + plannedYear, LIMITS.blockYear, 'Block year', tgt);
         if (ctx.block12m) cumIssue(issues, 'blockYear', ctx.block12m + planned12m, LIMITS.block12m, 'Block 12 months', tgt);
       }
-      if (segEnd(s, slack) > anchor + LIMITS.recoveryEvery) pushIssue(issues, 'recovery', 'illegal', 'No 36 h recovery in 168 h', tgt);
+      // v0.9 fix: a duty not yet reported, or a ticket not yet flown, keeps an hour in hand on the 168 h (a delay on the
+      // day, or the ticket home it moves after the rest, must not push past it).
+      const keep = (s.kind === 'duty' || s.kind === 'pos') && s.start > (ctx.now ?? Infinity) ? RECOVERY_KEEP : 0;
+      if (segEnd(s, slack) + keep > anchor + LIMITS.recoveryEvery) pushIssue(issues, 'recovery', 'illegal', 'No 36 h recovery in 168 h', tgt);
     }
     // Disruptive duties since the last recovery (as noteRecovery counts them from the log).
     if (s.disruptive && s.start >= anchor) disruptive++;
@@ -695,6 +732,8 @@ export function evalSegs(ctx: TimelineCtx, segsIn: Seg[]): LegalityIssue[] {
   return issues;
 }
 
+/** v0.9 fix: minutes a planned duty keeps in hand on the 168 h between recovery rests (delays on the day). */
+const RECOVERY_KEEP = 60;
 /** v0.7.3 extended FDPs allowed per crew member in any 7 days. */
 const EXT_PER_WEEK = 2;
 /** UTC month key of t (year × 12 + month); the bounds of the last 4 months looked up are cached (evalSegs' hot path). */
@@ -743,51 +782,90 @@ export function signedTz(a: string, b: string, t: Minute): number {
   return d;
 }
 
+/** Work in a timeline (not standby, not history). Module level: no closure per standbyView call (v0.9 round 3 speed). */
+const isWork = (y: Seg) => y.kind !== 'sby' && y.kind !== 'log';
+
 /**
- * v0.7.3 home standby in a timeline (CS FTL.1.225(b)): a standby window not yet started that overlaps planned work
- * is replaced by it (dropped); one already running when a duty reports inside it is a call-out: the standby counts
- * until the report (25 %, no rest in between), the duty's max FDP shrinks by the standby beyond 6 h (8 h augmented
- * or split; 23:00–07:00 before the call not counted) and the awake cap applies. Unchanged without standby segs.
+ * v0.7.3 standby in a timeline (CS FTL.1.225). v0.9 (§R.3): every kind (home, hotel, airport, reserve). Work being
+ * planned (fresh, not standby) treats windows not started yet as replaceable: they are left out (the roster drops or
+ * re-plans them; crew/standby.ts clearStandby), and a window running now that would cut the rest before that work ends
+ * early. A running window a duty reports inside is a call-out: the standby counts until the report (no rest in
+ * between); home and hotel standby shrink the max FDP beyond 6 h (8 h augmented or split; 23:00–07:00 before the call
+ * not counted) with the 18 h awake cap, airport standby beyond 4 h with standby + FDP ≤ 16 h, reserve not at all (the
+ * FDP counts from report). Unchanged without standby segs.
  */
-function standbyView(ctx: TimelineCtx, segs: Seg[]): Seg[] {
+export function standbyView(ctx: TimelineCtx, segsIn: Seg[]): Seg[] {
   let any = false;
-  for (const x of segs) if (x.kind === 'sby') { any = true; break; }
-  if (!any) return segs;
+  for (const x of segsIn) if (x.kind === 'sby') { any = true; break; }
+  if (!any) return segsIn;
   const now = ctx.now ?? -Infinity;
-  // Work being planned (fresh, not standby) takes over every window not started yet up to a day after it (the
-  // roster's assignment drops them: crew/standby.ts dropStandby).
-  let freshEnd = -Infinity;
-  for (const x of segs) if (x.fresh && x.kind !== 'sby') freshEnd = Math.max(freshEnd, x.end);
-  const drop = new Set<number>();
-  const called = new Map<number, number>();
+  // v0.9 nobody is on standby while still resting: a window not over yet starts when the rest ends.
+  let segs = segsIn;
+  if (segsIn.some((x) => x.kind === 'sby' && !x.fresh && x.end > now && x.start < ctx.restUntil)) {
+    segs = [];
+    for (const x of segsIn) {
+      if (x.kind !== 'sby' || x.fresh || x.end <= now || x.start >= ctx.restUntil) segs.push(x);
+      else if (x.end > ctx.restUntil) segs.push({ ...x, start: ctx.restUntil });
+    }
+  }
+  let freshWork = false;
+  for (const x of segs) if (x.fresh && x.kind !== 'sby') { freshWork = true; break; }
+  // v0.9 round 4 speed: the three tables only once a window changes (most timelines need none).
+  let drop: Set<number> | null = null;
+  let called: Map<number, number> | null = null;
+  let cut: Map<number, Minute> | null = null;
   for (let i = 0; i < segs.length; i++) {
     const x = segs[i];
-    if (x.kind !== 'sby') continue;
-    if (ctx.now !== undefined && x.start > now && x.start < freshEnd + DAY) {
-      drop.add(i);
+    if (x.kind !== 'sby' || x.fresh) continue;
+    // Windows not started yet give way to fresh work (the roster then re-fits them: crew/dayPlan.ts fitStandby).
+    if (freshWork && ctx.now !== undefined && x.start > now) {
+      (drop ??= new Set()).add(i);
       continue;
     }
+    // Work overlapping the window (segs sorted by start: a few back, then forward while they start inside it).
     let w = -1;
-    for (let k = 0; k < segs.length; k++) {
-      const y = segs[k];
-      if (k !== i && y.kind !== 'sby' && y.kind !== 'log' && y.start < x.end && y.end > x.start) { w = k; break; }
+    for (let k = i - 1; k >= 0 && k >= i - 4; k--) if (isWork(segs[k]) && segs[k].end > x.start) { w = k; break; }
+    if (w < 0) for (let k = i + 1; k < segs.length && segs[k].start < x.end; k++) if (isWork(segs[k])) { w = k; break; }
+    if (w < 0) {
+      if (x.end > now) {
+        // v0.9 a window not started yet inside the rest after earlier work gives way to it (crew/dayPlan.ts clips it).
+        let dropped = false;
+        if (x.start > now) for (let k = i - 1; k >= 0 && k >= i - 4; k--) if (isWork(segs[k]) && segs[k].end + segs[k].rest > x.start) { (drop ??= new Set()).add(i); dropped = true; break; }
+        // A window ends early for work whose start its rest would cut.
+        if (!dropped) for (let k = i + 1; k < segs.length && segs[k].start < x.end + x.rest; k++) {
+          if (!isWork(segs[k])) continue;
+          const end = Math.max(now, segs[k].start - x.rest);
+          if (end <= x.start) (drop ??= new Set()).add(i);
+          else (cut ??= new Map()).set(i, end);
+          break;
+        }
+      }
+      continue;
     }
-    if (w < 0) continue;
     const y = segs[w];
-    if (x.start > now || y.kind !== 'duty' || y.start < x.start) drop.add(i);
-    else called.set(i, w);
+    if (x.start > now || y.kind !== 'duty' || y.start < x.start) (drop ??= new Set()).add(i);
+    else (called ??= new Map()).set(i, w);
   }
+  // Nothing to change (the common case): the timeline itself (read-only, as its segs are).
+  if (!drop && !called && !cut) return segs;
   const out: Seg[] = [];
   const cutOf = new Map<number, Seg>();
-  for (const [i, w] of called) {
+  for (const [i, w] of called ?? []) {
     const x = segs[i];
     const y = segs[w];
-    cutOf.set(w, { ...y, maxFdp: y.maxFdp - standbyCut('home', x.start, y.start, ctx.base, y.aug || !!y.split), sbyFrom: x.start });
+    const kind = x.sby ?? 'home';
+    if (kind === 'reserve') continue;
+    // Round 4: the call for fresh work is now (timeline.ts addStandby cuts the placed duty from w.calledAt: the same
+    // cut); the 23:00–07:00 exclusion runs on the clock where the crew member waits (a hotel standby's station).
+    const by = standbyCut(kind === 'airport' ? 'airport' : 'home', x.start, y.start, kind === 'hotel' ? x.from ?? ctx.base : ctx.base, y.aug || !!y.split, ctx.now);
+    cutOf.set(w, { ...y, maxFdp: y.maxFdp - by, sbyFrom: x.start, sby: kind, ...(kind === 'airport' ? { rest: asbyRest(ctx.base, x.start, y) } : {}) });
   }
   for (let i = 0; i < segs.length; i++) {
-    if (drop.has(i)) continue;
-    const w = called.get(i);
+    if (drop?.has(i)) continue;
+    const w = called?.get(i);
+    const c = cut?.get(i);
     if (w !== undefined) out.push({ ...segs[i], end: segs[w].start, rest: 0 });
+    else if (c !== undefined) out.push({ ...segs[i], end: c });
     else out.push(cutOf.get(i) ?? segs[i]);
   }
   return out;

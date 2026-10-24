@@ -5,12 +5,18 @@ import type { CalBlock } from '../../engine/crew';
 import type { FlightType } from '../../engine/ops';
 
 /** Colour key of a strip block: duty blocks by their legs' flight type, everything else by kind. */
-export type CalKey = 'operating' | 'positioning' | 'ferry' | 'ride' | 'deadhead' | 'rest' | 'off' | 'sick' | 'joining' | 'training' | 'leave' | 'standby';
+/** v0.9 §R: 'standby' = home standby; hotel standby, airport standby and reserve have their own keys. */
+export type CalKey = 'operating' | 'positioning' | 'ferry' | 'ride' | 'deadhead' | 'rest' | 'off' | 'sick' | 'joining' | 'training' | 'leave' | 'standby'
+  | 'sbyHotel' | 'asby' | 'res';
 
 export const CAL_KEY_LABEL: Record<CalKey, string> = {
   operating: 'Operating', positioning: 'Positioning', ferry: 'Ferry', ride: 'Positioning (passenger)', deadhead: 'Deadhead',
-  rest: 'Rest', off: 'Day off', sick: 'Sick', joining: 'Joining', training: 'Training', leave: 'Leave', standby: 'Standby',
+  rest: 'Rest', off: 'Day off', sick: 'Sick', joining: 'Joining', training: 'Training', leave: 'Leave', standby: 'Home standby',
+  sbyHotel: 'Hotel standby', asby: 'Airport standby', res: 'Reserve',
 };
+
+/** v0.9 §R.8 roster codes, as the board writes them (legend and strip keys). */
+export const CAL_KEY_CODE: Partial<Record<CalKey, string>> = { off: 'OFF', standby: 'SBY', sbyHotel: 'SBY DUB', asby: 'ASBY', res: 'RES', leave: 'LEAVE' };
 
 /** Block title for the detail card and the list: the agreed flight-type words for work and travel, the engine's label otherwise. */
 export function calLabel(b: Pick<CalBlock, 'kind' | 'flights' | 'label'>): string {
@@ -19,7 +25,19 @@ export function calLabel(b: Pick<CalBlock, 'kind' | 'flights' | 'label'>): strin
 }
 
 /** Legend order: work first, then travel, status windows, rest and days off. */
-export const CAL_KEYS: CalKey[] = ['operating', 'positioning', 'ferry', 'ride', 'deadhead', 'standby', 'sick', 'joining', 'training', 'leave', 'rest', 'off'];
+export const CAL_KEYS: CalKey[] = ['operating', 'positioning', 'ferry', 'ride', 'deadhead', 'off', 'standby', 'sbyHotel', 'asby', 'res', 'leave', 'sick', 'joining', 'training', 'rest'];
+
+/** v0.9 §R.8 strip text of a non-duty block: OFF / OFF DUB, SBY E / SBY L, SBY DUB, ASBY, RES, LEAVE; else its label. */
+export function stripText(b: Pick<CalBlock, 'kind' | 'label' | 'flights' | 'sby' | 'shift' | 'at'>): string {
+  const k = calKey(b);
+  if (k === 'off') return b.label === 'Free' ? '' : b.at ? `OFF ${b.at}` : 'OFF';
+  if (k === 'standby') return b.shift ? `SBY ${b.shift}` : 'SBY';
+  if (k === 'sbyHotel') return b.at ? `SBY ${b.at}` : 'SBY';
+  if (k === 'asby') return 'ASBY';
+  if (k === 'res') return 'RES';
+  if (k === 'leave' && b.label === 'Leave') return 'LEAVE';
+  return b.label;
+}
 
 /** A duty's type from its legs: any revenue leg → operating; only ferries → ferry; otherwise positioning. */
 export function dutyType(b: Pick<CalBlock, 'flights'>): FlightType {
@@ -28,10 +46,11 @@ export function dutyType(b: Pick<CalBlock, 'flights'>): FlightType {
   return t.size === 1 && t.has('ferry') ? 'ferry' : 'positioning';
 }
 
-export function calKey(b: Pick<CalBlock, 'kind' | 'flights'>): CalKey {
+export function calKey(b: Pick<CalBlock, 'kind' | 'flights'> & { sby?: CalBlock['sby'] }): CalKey {
   switch (b.kind) {
     case 'duty': return dutyType(b) as CalKey;
     case 'positioning': return 'ride';
+    case 'standby': return b.sby === 'hotel' ? 'sbyHotel' : b.sby === 'airport' ? 'asby' : b.sby === 'reserve' ? 'res' : 'standby';
     default: return b.kind;
   }
 }
@@ -47,7 +66,7 @@ export function calLayer(b: Pick<CalBlock, 'kind'>): 0 | 1 | 2 {
 }
 
 /** Keys present in the blocks, in legend order. */
-export function calLegend(blocks: Pick<CalBlock, 'kind' | 'flights'>[]): CalKey[] {
+export function calLegend(blocks: (Pick<CalBlock, 'kind' | 'flights'> & { sby?: CalBlock['sby'] })[]): CalKey[] {
   const have = new Set(blocks.map(calKey));
   return CAL_KEYS.filter((k) => have.has(k));
 }

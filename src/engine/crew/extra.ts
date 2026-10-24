@@ -9,6 +9,7 @@ import type { ActionResult, CrewExtra, GameState } from '../core/types';
 import { refreshPairing } from './duties';
 import { crewExtraFor, paidMinOf } from './extraSeats';
 import { salaryFor } from './generate';
+import { setsForStation } from './sets';
 import { autoRoster, releaseCrew, setFlightsCrew } from './roster';
 import { crewIx, touchCrew } from './timeline';
 
@@ -19,7 +20,7 @@ function setsOf(g: GameState, aircraftId: string): number {
     if (dp.aircraftId !== aircraftId || dp.end < g.now || dp.start > g.now + 60 * DAY) continue;
     onStation = Math.max(onStation, dp.setsOnStation);
   }
-  return Math.max(BAL.crewSetsPerAircraft, onStation + 2);
+  return setsForStation(onStation);
 }
 
 /** Nights the aircraft's crews spend away from base in 28 days: the last 28 days flown, else the next 28 planned. */

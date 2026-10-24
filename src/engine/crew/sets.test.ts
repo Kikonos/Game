@@ -47,7 +47,7 @@ describe('crewPlan', () => {
     const p = a320(g);
     expect(p).toMatchObject({ aircraft: 2, setsPerAircraft: 5, setsNeeded: 10, setsComplete: 9, setsNow: 9, limiting: 'FO' });
     expect(p.types).toEqual([{ typeId: 'a320ceo', short: 'A320', aircraft: 2, set: { CPT: 1, FO: 1, PUR: 1, CC: 3 } }]);
-    expect(p.verdict).toBe('A320 family: 2 aircraft · 5 sets each = 10 sets needed · you have 9 complete · short 1 FO, 2 CC');
+    expect(p.verdict).toBe('Short: 1 FO, 2 CC');
     expect(p.roles.map((r) => [r.role, r.have, r.need, r.balance])).toEqual([['CPT', 10, 10, 0], ['FO', 9, 10, -1], ['PUR', 10, 10, 0], ['CC', 28, 30, -2]]);
     // a first officer still joining: complete with the joiners, one fewer working now
     g.crew[ids[10]].status = 'joining';
@@ -82,7 +82,7 @@ describe('crewPlan', () => {
     expect(after.setsComplete).toBe(10);
     expect(after.setsNow).toBe(9);
     expect(roundTargets(after).complete).toBeNull();
-    expect(after.verdict).toBe('A320 family: 2 aircraft · 5 sets each = 10 sets needed · you have 10 complete');
+    expect(after.verdict).toBe('Complete');
     // all or nothing on cash
     g.company.cash = 0;
     expect(hireBatch(g, roundUpQuote(g, after, 11).lines.map((l) => l.req)).ok).toBe(false);

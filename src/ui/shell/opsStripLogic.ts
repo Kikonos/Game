@@ -2,7 +2,8 @@
 
 import { DAY, fmtDay, fmtTime } from '../../engine/core/time';
 
-export type StripId = 'crewShort' | 'aog' | 'market' | 'next' | 'airborne' | 'onTime' | 'crew';
+/** v0.9 'crewHours': crew out of hours (§T.4), next to the crew shortage; both fold last. */
+export type StripId = 'crewShort' | 'crewHours' | 'aog' | 'market' | 'next' | 'airborne' | 'onTime' | 'crew';
 
 /** Drop order when space is short (first goes first). */
 export const DROP: StripId[] = ['crew', 'onTime', 'airborne', 'next'];

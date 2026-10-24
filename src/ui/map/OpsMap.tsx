@@ -9,17 +9,21 @@
 // v0.7.2: Up Next is a compact departures board (5 rows, grid lines, the "?" legend in its header) that folds away.
 // v0.8: world-event zones painted with the land (static), their labels and event pins (tap → event panel); a
 // dry-leased-out aircraft stands at the lessee's base in their paint with a LEASED tag.
+// v0.9: CREW OUT OF HOURS beside CREW SHORT (Up Next, fleet chips, legend); a selected aircraft's crew changes at a fuel
+// stop (slip crews' airline legs and a tappable crew-change mark, static; panel per crew change).
 
-import { ChevronDown, ChevronUp, HelpCircle, Users, X } from 'lucide-react';
+import { ArrowLeftRight, ChevronDown, ChevronUp, HelpCircle, TimerOff, Users, X } from 'lucide-react';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { DAY, fmtDay, fmtTime } from '../../engine/core/time';
 import type { GameState, Ref } from '../../engine/core/types';
+import { slipsOfAircraft } from '../../engine/crew';
 import { commercialFlightsBetween, FLIGHT_TYPE_HINT, FLIGHT_TYPE_LABEL, worldEventPins, worldZones } from '../../engine/ops';
 import { store, useClock, useGame } from '../store';
-import { AircraftLayer, ArcsLayer, CommercialLayer, HIT_R, type LiveShared, NightLayer, newShared, PathsLayer, PinsLayer, pinOffset } from './LiveLayers';
+import { useTouch } from '../useMedia';
+import { AircraftLayer, ArcsLayer, CommercialLayer, HIT_R, type LiveShared, NightLayer, newShared, PathsLayer, PinsLayer, pinOffset, SlipArcsLayer, SlipMarksLayer } from './LiveLayers';
 import { MapPanel, TypeKey } from './MapPanels';
-import { awaitingDelivery, chipInfo, commercialById, fitCodes, onMap, fitFresh, isCommercialId, JET_PATH, mapAirports, offerPins, pickNearest, placeEventPins, selectedLegs, shortIndex, upNextRows } from './mapLogic';
+import { ALERT_CHIP, awaitingDelivery, chipInfo, commercialById, fitCodes, onMap, fitFresh, isCommercialId, JET_PATH, mapAirports, offerPins, parseSlipId, pickNearest, placeEventPins, placeSlipMarks, selectedLegs, shortIndex, slipArcs, slipWindow, upNextRows } from './mapLogic';
 import { EventPinsLayer, hatchUnit, ZoneGround, ZoneLabels } from './WorldLayer';
 import { type FocusAt, type MapAirport, type MapLayerCtx, type Pad, type View, WorldMap } from './WorldMap';
 
@@ -32,6 +36,12 @@ const AC_LABEL_BOX: [number, number, number, number] = [36, 20, 36, 46];
 function safe<T>(fn: () => T, fallback: T): T {
   try { return fn(); } catch { return fallback; }
 }
+
+/** The aircraft of a crew-change selection id. */
+const slipAcOf = (g: GameState, id: string) => {
+  const f = parseSlipId(id);
+  return f ? g.flights[f]?.aircraftId ?? undefined : undefined;
+};
 
 /** View per game, so a tab switch returns to the same framing. */
 const views = new WeakMap<GameState, { view: View | null }>();
@@ -84,6 +94,8 @@ const LEGEND: { swatch: ReactNode; label: string }[] = [
   { swatch: <span className="op-dot good" />, label: 'Green dot: the flight has a legal crew' },
   { swatch: <span className="op-dot warn" />, label: 'Amber: tight, or a crew shortage two days out' },
   { swatch: <span className="op-dot bad" />, label: 'Red: no legal crew, under 12 hours to go (CREW SHORTAGE)' },
+  { swatch: <TimerOff className="ops-help-ooh" aria-hidden />, label: 'Crew out of hours: someone rostered has reached a legal limit' },
+  { swatch: <ArrowLeftRight className="ops-help-slip" aria-hidden />, label: 'Crew change at a fuel stop: a fresh crew flies in and takes over' },
   { swatch: <span className="op-dot air" />, label: 'Blue: airborne' },
   { swatch: <span className="op-dot" />, label: 'Grey chip: idle, or a delivery not yet started' },
   { swatch: <span className="ops-help-ap" />, label: 'White dot: an airport we fly to, or where our crew are at a hotel' },
@@ -151,7 +163,7 @@ function UpNext({ g }: { g: GameState }) {
               <span className="mono muted">{r.from}→{r.to}</span>
               <span className={`ops-type ${r.type}`}>
                 <TypeKey type={r.type} />
-                {r.alert ? <span className={`ops-short ${r.alert}`}>CREW SHORT</span> : r.jet ? 'Private jet' : FLIGHT_TYPE_LABEL[r.type]}
+                {r.alert ? <span className={`ops-short ${r.alert}`}>{ALERT_CHIP[r.alertKind ?? 'short']}</span> : r.jet ? 'Private jet' : FLIGHT_TYPE_LABEL[r.type]}
                 {r.crew ? <span className="ops-type-n" aria-label={`${r.crew} crew`}><Users aria-hidden />{r.crew}</span> : null}
               </span>
             </button>
@@ -163,10 +175,15 @@ function UpNext({ g }: { g: GameState }) {
 }
 
 export function OpsMap() {
+  const touch = useTouch();
   const g = useGame();
   const sel = store.nav.sel;
   const selCm = sel?.kind === 'flight' && isCommercialId(sel.id) ? sel.id : undefined;
-  const panelOpen = !!sel && (sel.kind === 'aircraft' || sel.kind === 'airport' || sel.kind === 'offer' || sel.kind === 'event' || !!selCm);
+  // v0.9 a crew change (slip at a fuel stop): its panel keeps the aircraft's arcs and slip legs on the map.
+  const selSlip = sel?.kind === 'flight' ? parseSlipId(sel.id) : null;
+  const slipAc = selSlip ? g.flights[selSlip]?.aircraftId ?? undefined : undefined;
+  const arcAc = sel?.kind === 'aircraft' ? sel.id : slipAc;
+  const panelOpen = !!sel && (sel.kind === 'aircraft' || sel.kind === 'airport' || sel.kind === 'offer' || sel.kind === 'event' || !!selCm || !!selSlip);
   const sharedRef = useRef<LiveShared | null>(null);
   const shared = (sharedRef.current ??= newShared());
   let memo = views.get(g);
@@ -176,8 +193,12 @@ export function OpsMap() {
   const v = store.version;
   const apList = useMemo(() => mapAirports(g), [g, hour, v]); // eslint-disable-line react-hooks/exhaustive-deps
   const pins = useMemo(() => offerPins(g), [g, hour, v]); // eslint-disable-line react-hooks/exhaustive-deps
-  const legs = useMemo(() => (sel?.kind === 'aircraft' ? selectedLegs(g, sel.id) : []), [g, hour, v, sel?.kind, sel?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const legs = useMemo(() => (arcAc ? selectedLegs(g, arcAc) : []), [g, hour, v, arcAc]); // eslint-disable-line react-hooks/exhaustive-deps
   const nextArcs = useMemo(() => legs.filter((l) => !l.current), [legs]);
+  // v0.9 §W.4 the selected aircraft's crew changes: static marks and the slip crews' airline legs (hourly).
+  const slips = useMemo(() => (arcAc ? safe(() => slipsOfAircraft(g, arcAc, ...slipWindow(g.now)), []) : []), [g, hour, v, arcAc]); // eslint-disable-line react-hooks/exhaustive-deps
+  const slipMarks = useMemo(() => placeSlipMarks(slips), [slips]);
+  const slipLegs = useMemo(() => safe(() => slipArcs(g, slips), []), [g, slips]); // eslint-disable-line react-hooks/exhaustive-deps
   const marked = useMemo(() => new Set(apList.filter((a) => a.label).map((a) => a.code)), [apList]);
   // v0.8 world: zones keep their array identity while unchanged (drawn once); pins step with the hourly emit.
   const zones = useMemo(() => safe(() => worldZones(g), []), [g, hour, v]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -192,18 +213,19 @@ export function OpsMap() {
     return out;
   }, [g, hour, v, selCm]); // eslint-disable-line react-hooks/exhaustive-deps
   const airports: MapAirport[] = useMemo(() => {
-    const legAps = new Set(legs.flatMap((l) => [l.from, l.to]));
+    const legAps = new Set([...legs.flatMap((l) => [l.from, l.to]), ...slipLegs.flatMap((l) => [l.from, l.to]), ...slipMarks.map((m) => m.at)]);
     const out: MapAirport[] = apList.map((a) => ({ code: a.code, state: a.hub ? 'hub' : 'served', label: a.label || legAps.has(a.code) || !!cmAps.get(a.code) }));
     for (const c of legAps) if (!apList.some((a) => a.code === c)) out.push({ code: c, state: 'served', label: true });
     for (const [c, lab] of cmAps) if (AIRPORT_BY_CODE[c] && !out.some((a) => a.code === c)) out.push({ code: c, state: 'served', label: lab });
     if (selAp && !out.some((a) => a.code === selAp)) out.push({ code: selAp, state: 'served', label: true });
     return out;
-  }, [apList, legs, selAp, cmAps]);
+  }, [apList, legs, selAp, cmAps, slipLegs, slipMarks]);
 
   /** Airports and projection shared.aps was built for (rebuilt only when they change). */
   const apsFor = useRef<{ a: MapAirport[] | null; proj: MapLayerCtx['proj'] | null }>({ a: null, proj: null });
-  const refs = useRef({ g, pins, evPins, marked, airports, proj: null as MapLayerCtx['proj'] | null });
+  const refs = useRef({ g, pins, evPins, slipMarks, marked, airports, proj: null as MapLayerCtx['proj'] | null });
   refs.current.g = g;
+  refs.current.slipMarks = slipMarks;
   refs.current.pins = pins;
   refs.current.evPins = evPins;
   refs.current.marked = marked;
@@ -221,7 +243,7 @@ export function OpsMap() {
   // The nearest aircraft, offer pin or airport dot within a finger's reach wins; airports fall through to WorldMap.
   const onTap = useCallback((m: [number, number], unit: number, finger: boolean) => {
     const r = (finger ? HIT_R.touch : HIT_R.mouse) * unit;
-    const { g: game, pins: pinList, evPins: evList, airports: aps, proj } = refs.current;
+    const { g: game, pins: pinList, evPins: evList, slipMarks: smList, airports: aps, proj } = refs.current;
     type Hit = { x: number; y: number; item: Ref | null };
     const items: Hit[] = [];
     for (const [id, p] of shared.ac) if (game.fleet[id]) items.push({ x: p[0], y: p[1], item: { kind: 'aircraft', id } });
@@ -234,6 +256,11 @@ export function OpsMap() {
       const ap = AIRPORT_BY_CODE[p.at];
       const q = ap && proj?.([ap.lon, ap.lat]);
       if (q) items.push({ x: q[0] + p.off[0] * unit, y: q[1] + p.off[1] * unit, item: { kind: 'event', id: p.eventId } });
+    }
+    for (const s of smList) {
+      const ap = AIRPORT_BY_CODE[s.at];
+      const q = ap && proj?.([ap.lon, ap.lat]);
+      if (q) items.push({ x: q[0] + s.off[0] * unit, y: q[1] + s.off[1] * unit, item: { kind: 'flight', id: s.id } });
     }
     for (const a of aps) {
       const ap = AIRPORT_BY_CODE[a.code];
@@ -278,6 +305,14 @@ export function OpsMap() {
           // Not on the map yet (before a handover abroad): reveal where it will be handed over.
           const ac = refs.current.g.fleet[sel.id];
           return ac && !onMap(ac) ? apPt(ac.at) : null;
+        }
+        if (sel.kind === 'flight' && parseSlipId(sel.id)) {
+          // A crew change: its mark at the fuel stop (and the aircraft, when it is on the map).
+          const m = refs.current.slipMarks.find((x) => x.id === sel.id);
+          const at = m && apPt(m.at);
+          const ac = slipAcOf(refs.current.g, sel.id);
+          const q = ac ? shared.ac.get(ac) : undefined;
+          return at ? { pts: q ? [at, q] : [at], box: [40 - m.off[0], 40, 40, 40 + m.off[1]] } : null;
         }
         if (sel.kind === 'flight') {
           // An airline leg: the icon first, then where it lands and any aircraft our crew are going to collect there.
@@ -343,14 +378,16 @@ export function OpsMap() {
             <>
               <ZoneLabels zones={zones} proj={ctx.proj} unit={ctx.unit} selected={selEv ? zones.find((z) => z.eventId === selEv)?.eventId : undefined} />
               <PathsLayer shared={shared} />
+              <SlipArcsLayer arcs={slipLegs} proj={ctx.proj} />
               <ArcsLayer legs={nextArcs} proj={ctx.proj} />
             </>
           );
         }}
         layers={(ctx) => (
           <>
-            <PinsLayer pins={pins} marked={marked} proj={ctx.proj} unit={ctx.unit} selected={selPin} />
+            <PinsLayer pins={pins} marked={marked} proj={ctx.proj} unit={ctx.unit} selected={selPin} touch={touch} />
             <EventPinsLayer pins={evPins} proj={ctx.proj} unit={ctx.unit} selected={selEv} />
+            <SlipMarksLayer marks={slipMarks} proj={ctx.proj} unit={ctx.unit} selected={selSlip ? sel?.id : undefined} />
             <CommercialLayer shared={shared} />
             <AircraftLayer ctx={ctx} g={g} shared={shared} selected={selAc} selectedFlight={selCm} />
           </>

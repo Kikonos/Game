@@ -10,7 +10,7 @@ import { termSegments } from './problemLogic';
 
 let closeOpen: (() => void) | null = null;
 
-function Popover({ id, anchor, onClose, extra }: { id: TermId; anchor: HTMLElement; onClose: () => void; extra?: string }) {
+function Popover({ id, anchor, onClose, extra, own }: { id: TermId; anchor: HTMLElement; onClose: () => void; extra?: string; own?: boolean }) {
   const box = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
   useLayoutEffect(() => {
@@ -41,20 +41,31 @@ function Popover({ id, anchor, onClose, extra }: { id: TermId; anchor: HTMLEleme
       window.removeEventListener('scroll', onClose, true);
     };
   }, [anchor, onClose]);
+  // A dialog the game opens (auto-pause, a card) or a tab change closes it: never left floating over the new view.
+  const shut = useRef(onClose);
+  shut.current = onClose;
+  useEffect(() => {
+    const m0 = store.modal, n0 = store.nav;
+    const off = store.subscribe(() => { if (store.modal !== m0 || store.nav !== n0) shut.current(); });
+    return () => { off(); };
+  }, []);
   const e = GLOSSARY[id];
   return createPortal(
     <div ref={box} className="term-pop" role="dialog" aria-label={e.term} style={pos ? { left: pos.left, top: pos.top } : { left: 0, top: 0, visibility: 'hidden' }}>
       <b>{e.term}</b>
-      <span className="small">{e.short}</span>
-      {extra && <span className="small muted">{extra}</span>}
+      {!(own && extra) && <span className="small">{e.short}</span>}
+      {extra && <span className={`small ${own ? '' : 'muted'}`}>{extra}</span>}
       <button className="btn btn-sm btn-ghost term-more" onClick={() => { onClose(); store.openModal({ kind: 'glossary', term: id }); }}>Glossary ›</button>
     </div>,
     document.body,
   );
 }
 
-/** v0.7.4 `extra`: a line about this very thing under the glossary meaning (e.g. this aircraft's longest day). */
-export function Term({ id, children, extra }: { id: TermId; children?: ReactNode; extra?: string }) {
+/**
+ * v0.7.4 `extra`: a line about this very thing under the glossary meaning (e.g. this aircraft's longest day).
+ * v0.9 `own`: `extra` says it all, so it replaces the glossary meaning (no line said twice).
+ */
+export function Term({ id, children, extra, own }: { id: TermId; children?: ReactNode; extra?: string; own?: boolean }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
   const close = () => {
@@ -77,7 +88,7 @@ export function Term({ id, children, extra }: { id: TermId; children?: ReactNode
       <span ref={ref} className={`term ${open ? 'on' : ''}`} tabIndex={0} aria-label={`${e.term}: tap for its meaning`} onClick={toggle} onKeyDown={(k) => (k.key === 'Enter' || k.key === ' ') && toggle(k)}>
         {children ?? e.term}
       </span>
-      {open && ref.current && <Popover id={id} anchor={ref.current} onClose={close} extra={extra} />}
+      {open && ref.current && <Popover id={id} anchor={ref.current} onClose={close} extra={extra} own={own} />}
     </>
   );
 }

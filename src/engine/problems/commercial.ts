@@ -1,4 +1,4 @@
-// v0.7.1 contract problems as ProblemCards (UPDATE-0.7.1.md §9.2): an offer we can't fly as it stands, a counter
+// v0.7.1 contract problems as ProblemCards (UPDATE-0.7.1.md §9.2): an offer we can't fly yet, a counter
 // about to expire, a client change request, a penalty just paid, a contract cancelled. Pure.
 
 import { AIRPORT_BY_CODE } from '../../data/airports';
@@ -14,6 +14,9 @@ const city = (code: string) => AIRPORT_BY_CODE[code]?.city ?? code;
 const clientName = (g: GameState, o: { clientId: string }) => g.clients[o.clientId]?.name ?? 'The client';
 
 
+/** A check label inside a sentence: its first letter lowered unless it starts a code (DIL–LIS, A320, MAA). */
+const lowerFirst = (t: string) => (/^[A-Z0-9]{2,}\b/.test(t) ? t : t.charAt(0).toLowerCase() + t.slice(1));
+
 /** The worst check of the best report, in plain words, with the fix that goes with it. */
 function plainCheck(g: GameState, o: ContractOffer, r: FeasibilityReport, c: FeasibilityCheck): { why: string; action: ProblemAction } {
   const ac = g.fleet[r.aircraftId];
@@ -21,12 +24,13 @@ function plainCheck(g: GameState, o: ContractOffer, r: FeasibilityReport, c: Fea
   switch (c.id) {
     case 'crew': {
       const short = Object.entries(r.crew.byRole).filter(([, v]) => v && v.short > 0).map(([role, v]) => `${v!.short} ${role}`);
-      return { why: `You are ${short.join(' and ') || 'crew'} short${r.crew.firstShort !== null ? ` from ${fmtDay(r.crew.firstShort)}` : ''}; hires take weeks to join.`, action: { id: 'hire', label: 'Hire', open: { modal: 'hire', id: t.family }, primary: true } };
+      const list = short.length > 1 ? `${short.slice(0, -1).join(', ')} and ${short[short.length - 1]}` : short[0] ?? 'crew';
+      return { why: `You are ${list} short${r.crew.firstShort !== null ? ` from ${fmtDay(r.crew.firstShort)}` : ''}; hires take weeks to join.`, action: { id: 'hire', label: 'Hire', open: { modal: 'hire', id: t.family }, primary: true } };
     }
     case 'availability':
       return { why: `${ac.reg} is busy: ${c.label.replace(/^Busy: /, '').replace(/^Can't be back for /, "it can't be back for ")}.`, action: { id: 'schedule', label: 'Schedule', open: { tab: 'schedule', sel: { kind: 'aircraft', id: ac.id } }, primary: true } };
     case 'range':
-      return { why: `The ${t.short} can't fly it nonstop: ${c.label.toLowerCase()}${o.requirements.noTechStops ? '; the client wants no fuel stops' : ''}.`, action: { id: 'review', label: 'Review offer', open: { modal: 'offer', id: o.id }, primary: true } };
+      return { why: `The ${t.short} can't fly it nonstop: ${lowerFirst(c.label)}${o.requirements.noTechStops ? '; the client wants no fuel stops' : ''}.`, action: { id: 'review', label: 'Review offer', open: { modal: 'offer', id: o.id }, primary: true } };
     case 'body':
       return { why: `${c.label}: no refit changes that.`, action: { id: 'market', label: 'Market', open: { tab: 'fleet', view: 'market' }, primary: true } };
     case 'layout':
@@ -34,7 +38,7 @@ function plainCheck(g: GameState, o: ContractOffer, r: FeasibilityReport, c: Fea
     case 'paint':
       return { why: `The client wants their livery on the aircraft and no paint-shop slot fits before the start.`, action: { id: 'counterNoPaint', label: 'Counter without paint', open: { modal: 'offer', id: o.id }, primary: true } };
     case 'positioning':
-      return { why: `${ac.reg} can't get to ${city(o.pin)} in time: ${c.label.toLowerCase()}.`, action: { id: 'review', label: 'Review offer', open: { modal: 'offer', id: o.id }, primary: true } };
+      return { why: `${ac.reg} can't get to ${city(o.pin)} in time: ${lowerFirst(c.label)}.`, action: { id: 'review', label: 'Review offer', open: { modal: 'offer', id: o.id }, primary: true } };
     case 'approvals':
     case 'etops':
       return { why: `${c.label}.`, action: { id: 'ladder', label: 'Ladder', open: { tab: 'company', view: 'ladder' }, primary: true } };
@@ -69,8 +73,8 @@ export function offerFitCard(g: GameState, offerId: string): ProblemCard | null 
   const hard = r.level === 'no';
   return {
     subject: { kind: 'offerFit', ref: { kind: 'offer', id: o.id } }, severity: hard ? 'red' : 'amber',
-    title: hard ? `You can't fly ${job} as it stands` : `${job} needs care`,
-    what: hard ? `You can't fly ${job} as it stands` : `${job} needs care`,
+    title: hard ? `${job}: not flyable yet` : `${job}: check before signing`,
+    what: hard ? `${job}: not flyable yet` : `${job}: check before signing`,
     why,
     hurt: mkHurt({ money: o.estValue, what: 'of work' }),
     actions: [action, ...(action.id !== 'review' ? [{ id: 'review', label: 'Review offer', open: { modal: 'offer' as const, id: o.id } }] : [])],
@@ -110,11 +114,15 @@ export function changeRequestCard(g: GameState, decisionId: string): ProblemCard
   if (!d || d.kind !== 'changeRequest') return null;
   const c = d.data?.contractId ? g.contracts[String(d.data.contractId)] : undefined;
   const accept = d.options.find((o) => o.id === 'accept');
+  // Round 4 (§V): an extra rotation's WHY is its body (said once: the modal drops the body under the card) and its
+  // hurt the maintenance it costs; other requests keep the first sentence and the accept option's chips.
+  const extra = d.data?.kind === 'extra';
+  const maint = extra && typeof d.data?.maint === 'number' ? d.data.maint : 0;
   return {
     subject: { kind: 'changeRequest', ref: { kind: 'decision', id: d.id } }, severity: 'amber',
     title: d.title, what: d.title,
-    why: `${d.body.split('. ')[0]}. ${accept?.desc ?? ''}`.trim(),
-    hurt: mkHurt({ extra: accept?.chips?.join(', ') }),
+    why: extra ? d.body : `${d.body.split('. ')[0]}. ${accept?.desc ?? ''}`.trim(),
+    hurt: extra ? mkHurt({ money: maint, what: 'maintenance' }) : mkHurt({ extra: accept?.chips?.join(', ') }),
     actions: [{ id: 'decide', label: 'Decide', open: { modal: 'decision', id: d.id }, primary: true }, ...(c ? [{ id: 'contract', label: 'Contract', open: { modal: 'contract' as const, id: c.id } }] : [])],
     details: d.options.map((o) => `${o.label}: ${o.desc}`), visuals: {}, terms: ['fdp'], by: d.expires,
   };

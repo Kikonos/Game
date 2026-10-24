@@ -26,12 +26,19 @@ export function restSeatWord(rest: AcRest): string | null {
 /** '13 h · up to 17 h' (v0.7.4: the 'Longest day: ' head dropped; the details are in the term's popover). */
 export const longestText = (g: GameState, rest: AcRest, typeId: string) => longestDay(g, rest, typeId).text.replace(/^Longest day: /, '');
 
+/**
+ * v0.9 §V the Longest-day popover text (it replaces the glossary line, which says the same): one rest word when pilots
+ * and cabin crew rest alike ('pilots and cabin crew in curtained economy seats').
+ */
+export const longestDetail = (g: GameState, rest: AcRest, typeId: string) =>
+  longestDay(g, rest, typeId).detail.replace(/\(pilots in ([^,()]+), cabin crew in \1\)/, (_, w: string) => `(pilots and cabin crew in ${/seats$/.test(w) ? 'curtained ' : ''}${w})`);
+
 /** Fleet card KV rows: Pilots rest · Cabin crew rest · Longest day. */
 export function restRows(g: GameState, rest: AcRest, typeId: string): [ReactNode, string][] {
   return [
     [<Term key="fc" id={restTerm(rest.fc)}>Pilots rest</Term>, restText(rest.fc, 'fc', typeId)],
     [<Term key="cc" id={restTerm(rest.cc)}>Cabin crew rest</Term>, restText(rest.cc, 'cc', typeId)],
-    [<Term key="ld" id="longestDay" extra={longestDay(g, rest, typeId).detail}>Longest day</Term>, longestText(g, rest, typeId)],
+    [<Term key="ld" id="longestDay" extra={longestDetail(g, rest, typeId)} own>Longest day</Term>, longestText(g, rest, typeId)],
   ];
 }
 
@@ -40,7 +47,7 @@ export function RestTwoLiner({ g, rest, typeId }: { g: GameState; rest: AcRest; 
   return (
     <div className="mk-rest">
       <span className="muted">Pilots rest: <b>{restShort(rest.fc)}</b> · Cabin crew rest: <b>{restShort(rest.cc)}</b></span>
-      <span className="dim"><Term id="longestDay" extra={longestDay(g, rest, typeId).detail}>Longest day</Term>: {longestText(g, rest, typeId)}</span>
+      <span className="dim"><Term id="longestDay" extra={longestDetail(g, rest, typeId)} own>Longest day</Term>: {longestText(g, rest, typeId)}</span>
     </div>
   );
 }

@@ -2,16 +2,21 @@
 // read and follows its ref. DESIGN.md §6.3. v0.7.1: a 'Problems only' filter, a severity badge on every warning
 // (money / passengers / lateness) and an Explain button that unfolds the four-line card in place.
 
-import { CheckCheck, ChevronRight, HelpCircle, Hourglass, Inbox as InboxIcon, ShieldAlert, X } from 'lucide-react';
+import { CheckCheck, ChevronRight, HelpCircle, Hourglass, Inbox as InboxIcon, PencilLine, ShieldAlert, TimerOff, Trophy, Users, X } from 'lucide-react';
+import { HEAD_DEFS } from '../../data/heads';
+import type { HeadId } from '../../engine/core/types';
+import { NamedIcon } from '../components/NamedIcon';
 import { useMemo, useState } from 'react';
 import { fmtDateTime } from '../../engine/core/time';
 import type { GameState, Message } from '../../engine/core/types';
 import { hurtBadges, messageBadges, problemAt, problemFor, problems, usdShort } from '../../engine/problems';
+import { reopenLatePayment } from '../../engine/ops';
 import { HurtBadges, ProblemCardView } from '../components/ProblemCard';
 import { Empty, Tabs } from '../components/ui';
 import { store, useGame } from '../store';
 import { Dot, ScreenHead, useRenderCount } from './common';
 import { expiryLabel, filterMessages, isOpportunity, isProblemMessage, MSG_CATS, PROBLEM_RECENT, refTarget, type MsgFilter } from './screenLogic';
+import { ScreenHint } from '../components/ScreenHint';
 
 const PAGE = 80;
 
@@ -26,7 +31,7 @@ function open(g: GameState, m: Message) {
     return;
   }
   // v0.7.1: a crew shortage still open goes straight to Crew Control.
-  if ((m.problem?.kind === 'crewShort' || m.problem?.kind === 'crewIllegal' || m.topic === 'crewRed') && m.ref?.kind === 'flight' && g.flights[m.ref.id]?.status === 'scheduled') {
+  if ((m.problem?.kind === 'crewShort' || m.problem?.kind === 'crewIllegal' || m.problem?.kind === 'crewHours' || m.topic === 'crewRed' || m.topic === 'crewHours') && m.ref?.kind === 'flight' && g.flights[m.ref.id]?.status === 'scheduled') {
     return store.openModal({ kind: 'crewControl', flightId: m.ref.id });
   }
   if (m.ref?.kind === 'cash' || m.ref?.kind === 'statement') return store.navigate('finance');
@@ -42,6 +47,23 @@ function open(g: GameState, m: Message) {
   } else store.navigate(link.tab, { sel: link.sel, view: link.view });
   // Crew problems on a flight still to fly: its sheet carries 'Adjust crew'.
   if (m.cat === 'crew' && m.ref?.kind === 'flight' && g.flights[m.ref.id]?.status === 'scheduled') store.openModal({ kind: 'sheet', refs: [m.ref] });
+}
+
+/**
+ * v0.9 round 4 (§5.3 override): a head's note carries a Change action: a flight still to fly opens Crew Control, a
+ * receivable still unpaid asks the late-payment decision again (the head never takes it twice). What the player then
+ * does within 2 h counts as overridden on the Team view.
+ */
+function changeOf(g: GameState, m: Message): (() => void) | null {
+  if (m.topic !== 'head' || !m.ref) return null;
+  if (m.ref.kind === 'flight' && g.flights[m.ref.id]?.status === 'scheduled') return () => store.openModal({ kind: 'crewControl', flightId: m.ref!.id });
+  if (m.ref.kind === 'receivable' && g.finance.receivables.some((r) => r.id === m.ref!.id && r.paid === null)) {
+    return () => {
+      const r = store.act((gg) => reopenLatePayment(gg, m.ref!.id), { toastOk: false });
+      if (r.ok && r.data) store.openModal({ kind: 'decision', decisionId: r.data.decisionId });
+    };
+  }
+  return null;
 }
 
 function Decisions({ g }: { g: GameState }) {
@@ -81,6 +103,16 @@ function Explain({ g, m }: { g: GameState; m: Message }) {
       {m.hurt && <div className="row gap-8 small dim">At the time: <HurtBadges badges={hurtBadges(m.hurt)} level={m.hurt.level} /></div>}
     </div>
   );
+}
+
+/** v0.9 the row's mark: crew out of hours (TimerOff) and crew shortage (Users) at the red stage, an achievement's trophy,
+ *  a department head's icon; otherwise the tone dot. */
+function MsgIcon({ m }: { m: Message }) {
+  if (m.topic === 'crewHours' || m.problem?.kind === 'crewHours') return <TimerOff className={`sc-ico-s ${m.tone === 'bad' ? 'bad' : 'warn'} v9-msg-ico`} aria-label="Crew out of hours" />;
+  if (m.topic === 'crewRed') return <Users className="sc-ico-s bad v9-msg-ico" aria-label="Crew shortage" />;
+  if (m.topic === 'achievement') return <Trophy className="sc-ico-s gold v9-msg-ico" aria-label="Achievement" />;
+  if (m.topic === 'head' && m.ref?.kind === 'head' && HEAD_DEFS[m.ref.id as HeadId]) return <NamedIcon name={HEAD_DEFS[m.ref.id as HeadId].icon} className="sc-ico-s accent v9-msg-ico" />;
+  return <Dot tone={m.tone} />;
 }
 
 /** The badge of a message: an offer's money is work on the table (blue), everything else what it costs. */
@@ -147,6 +179,7 @@ export function InboxScreen() {
       <ScreenHead title="Inbox" sub={`${g.decisions.length ? `${g.decisions.length} decision${g.decisions.length > 1 ? 's' : ''} waiting · ` : ''}${unread} unread`}>
         <button className="btn" onClick={markAll} disabled={!unread}><CheckCheck /> Mark all read</button>
       </ScreenHead>
+      <ScreenHint id="inbox" />
       <Decisions g={g} />
       <div className="sc-seg-wrap mb-8">
         <Tabs<MsgFilter> value={cat} onChange={(v) => { setCat(v); setMore(false); }} tabs={cats.map((c) => ({ id: c.id, label: c.label, count: c.id === 'all' ? unread || undefined : counts.get(c.id) }))} />
@@ -159,11 +192,12 @@ export function InboxScreen() {
           {shown.map((m) => {
             const prob = !!m.problem || m.tone === 'bad' || m.tone === 'warn';
             const on = explain === m.id;
+            const change = changeOf(g, m);
             return (
               <div key={m.id} className={`sc-msg-wrap ${on ? 'on' : ''}`}>
                 <div className="sc-msg-line">
                   <button className={`sc-msg ${m.read ? 'read' : ''}`} onClick={() => open(g, m)}>
-                    <Dot tone={m.tone} />
+                    <MsgIcon m={m} />
                     <span className="grow col gap-4" style={{ minWidth: 0 }}>
                       <span className="row gap-8"><b className="ellipsis">{m.title}</b><MsgBadges m={m} /><span className="tiny dim nowrap">{fmtDateTime(m.t)}</span></span>
                       <span className="small muted sc-clamp">{m.body}</span>
@@ -173,6 +207,11 @@ export function InboxScreen() {
                   {prob && (
                     <button className={`btn btn-ghost sc-explain ${on ? 'btn-on' : ''}`} onClick={() => setExplain(on ? null : m.id)} aria-expanded={on} aria-label={on ? 'Hide the story' : 'Explain'}>
                       {on ? <X /> : <HelpCircle />}<span className="sc-explain-t">{on ? 'Hide' : 'Explain'}</span>
+                    </button>
+                  )}
+                  {change && (
+                    <button className="btn btn-ghost sc-explain" onClick={change} aria-label="Change what the head did">
+                      <PencilLine /><span className="sc-explain-t">Change</span>
                     </button>
                   )}
                 </div>

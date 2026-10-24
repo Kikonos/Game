@@ -7,6 +7,7 @@ import { nextHajj } from '../../data/worldCalendar';
 import { DAY, fromUTC } from '../core/time';
 import type { ApprovalId, Archetype, ContractOffer, GameState } from '../core/types';
 import { dutyNeed } from '../crew/duties';
+import { bestSlip } from '../crew/slip';
 import { crewChains, ULR_REST } from './feasibility';
 import { crewCanFly, generateOffer, maxPax, newcomerNarrow } from './offers';
 import { programmeOf } from './plan';
@@ -91,7 +92,8 @@ describe('v0.8 fix pack: seats = passengers, no impossible days (sweep)', () => 
               expect(prog.ok, where).toBe(true);
               expect(crewCanFly(g, ref!, prog.chains), where).toBe(true);
               const gx = { ...g, company: { ...g.company, approvals: [...g.company.approvals, 'augmented' as ApprovalId] } };
-              for (const c of crewChains(g, prog.chains)) expect(dutyNeed(gx, ref!, ULR_REST, c).text, where).not.toMatch(/longer than any crew may fly/);
+              // (v0.9 §W: or a crew change at one fuel stop makes it flyable, priced into the offer.)
+              for (const c of crewChains(g, prog.chains)) if (!bestSlip(gx, ref!, ULR_REST, c)) expect(dutyNeed(gx, ref!, ULR_REST, c).text, where).not.toMatch(/longer than any crew may fly/);
               // Done with it: one open request per client and kind would block the next.
               delete g.offers[o.id];
             }

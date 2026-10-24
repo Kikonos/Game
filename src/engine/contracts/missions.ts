@@ -11,6 +11,7 @@ import { WORLD_ZONES } from '../../data/worldZones';
 import { BAL } from '../core/balance';
 import { nextId } from '../core/entities';
 import { distanceNm } from '../core/geo';
+import { cue } from '../core/cues';
 import { pushMessage } from '../core/messages';
 import { blockMinutes, complement, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
@@ -105,7 +106,7 @@ function hajj(ctx: Ctx): Draft | null {
   return {
     archetype: 'hajj', client,
     title: `Hajj ${h.ah} airlift ${origin}–JED/MED`,
-    blurb: `${client.name}: Hajj ${h.ah} airlift ${origin}–JED/MED for about ${pax} pilgrims a flight. In: ${tn(...terms[0])}; home: ${tn(...terms[1])}. ` +
+    blurb: `About ${pax} pilgrims a flight. In: ${tn(...terms[0])}; home: ${tn(...terms[1])}. ` +
       `${daily ? 'One rotation a day, turning at the holy city' : 'A rotation every other day, night-stopping at the holy city'}; every other leg flies empty, and the client pays those hours too. Max-seat cabin, no alcohol on board, Zamzam water in the hold on the way home.`,
     pattern: { kind: 'legs', legs },
     req: { minSeats: pax, layouts: ['all-economy'], extraCabin: 0, approvals: [], body: wide ? 'wide' : 'narrow' },
@@ -654,7 +655,9 @@ export function rollRepeat(g: GameState, contractId: string): ContractOffer | nu
   const o = generateOffer(g, c.archetype, { client: c.clientId, wide, start, window: false, repeatOf: c.id });
   if (o) {
     o.hook = `Repeat business from ${cl.name}`;
-    pushMessage(g, { tone: 'good', cat: 'commercial', title: `Repeat business from ${cl.name}`, body: `${cl.name} liked ${c.title} and asks again: ${o.title}, from ${fmtDay(o.start)}.`, ref: { kind: 'offer', id: o.id } });
+    // Round 4 (§V): the client once (the title); the new title only when it is not the old one (or it plus a month).
+    const as = o.title === c.title || o.title.startsWith(`${c.title} (`) ? '' : ` as ${o.title}`;
+    pushMessage(g, { tone: 'good', cat: 'commercial', title: `Repeat business from ${cl.name}`, body: `They liked ${c.title} and ask for it again${as} from ${fmtDay(o.start)}.`, ref: { kind: 'offer', id: o.id }, cue: null });
   }
   return o;
 }
@@ -713,7 +716,7 @@ export function makeDryLeaseOffer(g: GameState, w?: IdleWindow, clientId?: strin
   const paint: 'full' | 'decals' | undefined = chance(r, 0.5) ? (chance(r, 0.4) ? 'full' : 'decals') : undefined;
   const o: ContractOffer = {
     id: nextId(g, 'o'), archetype: 'dryLeaseOut', clientId: client.id,
-    title: `Dry lease: ${t.short} to ${client.name}`,
+    title: `Dry lease: ${t.short}`,
     blurb: `${client.name} wants ${/^[AEIOU8]/.test(t.short) ? 'an' : 'a'} ${t.short} dry, without crew, for ${months} months from ${fmtDay(start)} at ${city(site)}: ` +
       `$${Math.round(rent / 1000)}K a month plus $${reserves} per flight hour in reserves. Our pilots deliver it and fetch it back; their crews and engineers fly and maintain it` +
       `${paint ? ` in ${client.name} colours` : ''}. Line and A-checks are theirs, the C-check stays ours.${consent ? ` The lessor wants $${consent / 1000}K to consent to the sub-lease.` : ''}`,
@@ -730,6 +733,7 @@ export function makeDryLeaseOffer(g: GameState, w?: IdleWindow, clientId?: strin
   };
   g.offers[o.id] = o;
   schedule(g, o.expires, 'offer.expire', o.id);
+  cue('offerNew');
   return o;
 }
 

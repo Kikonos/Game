@@ -130,7 +130,14 @@ describe('Hajj (§2.1)', () => {
       // Exactly one of the two legs carries pilgrims.
       expect([(out.pax ?? 0) > 0, (back.pax ?? 0) > 0].filter(Boolean).length).toBe(1);
     }
-    expect(o.requirements.layouts).toEqual(['all-economy']);
+    // Round 4 (§V): the blurb repeats neither the title nor the client (both are shown above it).
+    expect(o.title).toMatch(/^Hajj \d{4} airlift /);
+    expect(o.blurb).toMatch(/^About \d+ pilgrims a flight\. In: /);
+    expect(o.blurb).not.toContain('airlift');
+    expect(o.blurb).not.toContain(g.clients[o.clientId].name);
+    // v0.9 fix: a jumbo Hajj load takes any cabin with the seats.
+    if (o.jumbo) expect(o.requirements.layouts).toBeUndefined();
+    else expect(o.requirements.layouts).toEqual(['all-economy']);
     expect(o.terms?.length).toBe(2);
     const [a, b] = o.terms!;
     expect(a[1]).toBeLessThan(b[0]);

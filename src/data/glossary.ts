@@ -15,7 +15,11 @@ export type TermId =
   | 'relationLevel' | 'standing' | 'firstRefusal' | 'hajj' | 'arafah' | 'reserves' | 'dampLease' | 'sccm' | 'warRisk' | 'forceMajeure' | 'subcharterIn'
   | 'marketPhase' | 'blueIce' | 'pnr' | 'injunction'
   /** v0.7.4 */
-  | 'ySeats' | 'jSeats' | 'crewSet' | 'quickRefit' | 'clientCabin' | 'longestDay';
+  | 'ySeats' | 'jSeats' | 'crewSet' | 'quickRefit' | 'clientCabin' | 'longestDay'
+  /** v0.9 roster planning (UPDATE-0.9.md §R.10) */
+  | 'airportStandby' | 'reserve' | 'daysOff' | 'publishedRoster'
+  /** v0.9 */
+  | 'outOfHours' | 'slipCrew' | 'departmentHead' | 'jumboLoad' | 'fuelAtCost';
 
 export interface GlossaryEntry {
   term: string;
@@ -33,12 +37,12 @@ export const GLOSSARY: Record<TermId, GlossaryEntry> = {
   deadhead: { term: 'Deadhead', short: 'Crew travelling as passengers on another airline to get to their flight.', where: { tab: 'map' } },
   positioning: { term: 'Positioning', short: 'Flying our own aircraft empty to where the work is.', where: { tab: 'schedule' } },
   tight: { term: 'Tight', short: 'Legal, but within 30 minutes or 5% of a limit; one delay breaks it.', where: { tab: 'crew', view: 'board' } },
-  discretion: { term: 'Discretion', short: "The captain may extend the crew's day after reporting, if something unforeseen happens: up to 2 h (3 h with an augmented crew).", where: { tab: 'crew', view: 'board' } },
+  discretion: { term: 'Discretion', short: "On the day only: after the crew has reported, if something unforeseen happens, the captain may extend the day by up to 2 h (3 h with an augmented crew). Never planned, never in a contract.", where: { tab: 'crew', view: 'board' } },
   acmi: { term: 'ACMI', short: 'We provide Aircraft, Crew, Maintenance and Insurance; the client pays per block hour, fuel and airport fees.', where: { tab: 'contracts' } },
   wetLease: { term: 'Wet lease', short: 'Same as ACMI: our aircraft and crew fly for the client, who pays per block hour.', where: { tab: 'contracts' } },
   subcharter: { term: 'Sub-charter', short: "Paying a rival airline to fly our client's flight; we still bill the client. Clients notice: each leg handed over costs reliability, more when it becomes a habit.", where: { tab: 'contracts' } },
   aog: { term: 'AOG', short: "Aircraft on ground: broken and can't fly until repaired.", where: { tab: 'fleet' } },
-  standby: { term: 'Standby', short: 'Crew kept free at a base to cover sickness and surprises.', where: { tab: 'crew' } },
+  standby: { term: 'Standby', short: 'On call for the day: at home, at the hotel away from base, or at the airport. Called out, the crew report within the response time. Home and hotel standby count 25 % towards the duty limits, airport standby in full.', where: { tab: 'crew', view: 'board' } },
   rest: { term: 'Rest', short: 'The time off a crew member needs before the next duty: 12 h at home, 10 h away.', where: { tab: 'crew', view: 'board' } },
   blockHours: { term: 'Block hours', short: 'Time from pushing back to parking; what clients pay for.', where: { tab: 'finance' } },
   mgh: { term: 'MGH', short: 'Minimum guaranteed hours: the block hours a wet-lease client pays for every month, flown or not.', where: { tab: 'contracts' } },
@@ -72,7 +76,7 @@ export const GLOSSARY: Record<TermId, GlossaryEntry> = {
   extension: { term: 'Planned extension', short: 'A planned extra hour (up to 14 h), at most twice a week per person, with 4 h more rest after.', where: { tab: 'crew', view: 'board' } },
   splitDuty: { term: 'Split duty', short: "A long wait on the ground (3 h or more) adds half of it to the day; a hotel room when it's 6 h or at night.", where: { tab: 'crew', view: 'board' } },
   delayedReport: { term: 'Delayed report', short: 'Crew told to come later before they leave the hotel: under 4 h the day keeps its original limit.', where: { tab: 'crew', view: 'board' } },
-  homeStandby: { term: 'Home standby', short: 'On call at home: 25 % counts as duty; called after 6 h, the day gets shorter.', where: { tab: 'crew', view: 'board' } },
+  homeStandby: { term: 'Home standby', short: 'On call at home: 25 % counts as duty; called after 6 h, the day is cut by the standby beyond 6 h.', where: { tab: 'crew', view: 'board' } },
   wocl: { term: 'WOCL', short: "02:00–05:59 body-clock time: the hours we're least alert.", where: { tab: 'crew', view: 'board' } },
   disruptive: { term: 'Disruptive duty', short: 'Early starts (05:00–05:59), late finishes (23:00–01:59) and nights (any time 02:00–04:59).', where: { tab: 'crew', view: 'board' } },
   tzRest: { term: 'Time-zone rest', short: 'After a trip 4 or more time zones away: 2–5 local nights at home before the next duty.', where: { tab: 'crew', view: 'board' } },
@@ -98,7 +102,16 @@ export const GLOSSARY: Record<TermId, GlossaryEntry> = {
   jSeats: { term: 'Curtained business seats', short: 'Business seats curtained off for resting crew: class 2 rest, on any aircraft whose cabin has business seats. Blocked only on flights where someone rests.', where: { tab: 'fleet' } },
   crewSet: { term: 'Crew set', short: 'One full crew for one aircraft: captain, first officer, purser and the cabin crew its seats need (plus a relief pilot on long days). Each aircraft needs about 5 sets to fly every day of the year.', where: { tab: 'crew', view: 'plan' } },
   quickRefit: { term: 'Quick reconfiguration', short: 'Changing the cabin with seats we already hold: move rows, the class divider and curtains, change the pitch. About 48 hours in our hangar.', where: { tab: 'fleet' } },
-  longestDay: { term: 'Longest day', short: 'The longest working day on this aircraft: first with 2 pilots, then the most with 3 or 4 pilots who take turns to rest on board (in its bunks or curtained seats). With 2 pilots a planned extension adds up to an hour, twice a week per crew; days with more pilots need the Augmented crew approval.', where: { tab: 'fleet' } },
+  longestDay: { term: 'Longest day', short: "The longest day this aircraft can be planned for: 2 pilots, or 3–4 pilots who take turns to rest on board. Captain's discretion is never planned.", where: { tab: 'fleet' } },
+  airportStandby: { term: 'Airport standby', short: 'Standby at the airport, ready at once. It counts in full as duty; called after 4 h, the day that follows is cut by the standby beyond 4 h; standby plus flying stays within 16 h.', where: { tab: 'crew', view: 'board' } },
+  reserve: { term: 'Reserve', short: 'Rostered availability with at least 10 h notice. It is not duty and not rest, so it never counts as a day off.', where: { tab: 'crew', view: 'board' } },
+  daysOff: { term: 'Days off', short: 'At least 7 days a month and 96 a year free of all duty and standby, published in advance (EU Directive 2000/79/EC). We plan 8–10 days off a month in 2–3-day blocks (one block a week is the 36 h rest) and 4 weeks’ leave.', where: { tab: 'crew', view: 'board' } },
+  publishedRoster: { term: 'Published roster', short: 'The next 14 days of the roster, as the crew see it. Days off in it are protected.', where: { tab: 'crew', view: 'board' } },
+  outOfHours: { term: 'Crew out of hours', short: 'A named pilot or cabin crew member has reached a legal limit: the day length, rest, the 7/14/28-day duty, flying hours, the weekly 36 h rest or the days off. Not the same as a crew shortage, where a seat has nobody at all.', where: { tab: 'crew', view: 'board' } },
+  slipCrew: { term: 'Crew change at a fuel stop', short: 'When a flight is too long for one crew even with rest on board, a second crew flies to the fuel stop as passengers, sleeps in a hotel and takes over. The first crew rests there and goes home by airline. It costs tickets and a hotel, and it makes the flight legal.', where: { tab: 'contracts' } },
+  departmentHead: { term: 'Department head', short: 'A hire you earn through an achievement. Takes routine work off your desk by your rules, makes the odd mistake, can be switched off, and never makes the big decisions.', where: { tab: 'company', view: 'team' } },
+  jumboLoad: { term: 'Jumbo load', short: '420 or more passengers on one aircraft: Hajj, troops, UN rotations, evacuations and big charters. Any cabin with the seats will do; only a 777-300ER, a 747-400 or an A380 takes it in one go.', where: { tab: 'contracts' } },
+  fuelAtCost: { term: 'Fuel at cost', short: 'The client pays the fuel actually burnt, billed after flying, on top of the price. Common on government and military charters.', where: { tab: 'contracts' } },
   clientCabin: { term: 'Client cabin', short: 'The client wants a different cabin for their contract. We reconfigure it before the start (about 48 hours) and they pay all or half, and often for putting it back after.', where: { tab: 'contracts' } },
 };
 
@@ -120,6 +133,9 @@ export const TERM_WORDS: [string, TermId][] = [
   ['market phase', 'marketPhase'], ['blue-ice runway', 'blueIce'], ['point of no return', 'pnr'], ['injunction', 'injunction'], ['standing', 'standing'],
   // v0.7.4
   ['curtained economy seats', 'ySeats'], ['curtained business seats', 'jSeats'], ['crew set', 'crewSet'], ['quick reconfiguration', 'quickRefit'],
+  // v0.9
+  ['airport standby', 'airportStandby'], ['reserve', 'reserve'], ['days off', 'daysOff'], ['day off', 'daysOff'], ['published roster', 'publishedRoster'],
+  ['out of hours', 'outOfHours'], ['crew change', 'slipCrew'], ['department head', 'departmentHead'], ['jumbo load', 'jumboLoad'], ['fuel at cost', 'fuelAtCost'],
 ];
 
 /** First-time hints: one plain paragraph the first time each kind of problem appears (Settings.hintsSeen). */
@@ -153,7 +169,7 @@ export const HINTS: Partial<Record<ProblemKind, { title: string; text: string }>
     text: 'The check interval ran out, so the aircraft may not carry passengers until the check is done. Book it now; the flights until then are lost.',
   },
   offerFit: {
-    title: 'An offer you cannot fly as it stands',
+    title: "An offer you can't fly yet",
     text: 'Every offer is checked against your aircraft and crew: seats, range, cabin, paint, who is free. The card names the one thing in the way and the button that fixes it.',
   },
   counterExpiry: {

@@ -1,6 +1,8 @@
 // Global dialogs (menu, saves, settings, confirm) and the in-game modal slot (decisions, game over).
 
-import { BookOpenText, Download, FolderOpen, Home, Lightbulb, Play, PlusCircle, RefreshCw, Save, Settings as SettingsIcon, Sparkles, Trash2, Upload } from 'lucide-react';
+import { BookOpenText, Download, FolderOpen, Home, Lightbulb, Play, PlusCircle, RefreshCw, Save, Settings as SettingsIcon, Sparkles, Trash2, Upload, Volume2 } from 'lucide-react';
+import { sound, SOUND_MEANING } from '../sound';
+import { HeadUnlockedModal } from '../modals/HeadUnlockedModal';
 import { useRef, useState } from 'react';
 import { DAY, fmtDate } from '../../engine/core/time';
 import { AUTOSAVE_SLOT, SLOTS, deleteSlot, deserialize, listSaves, loadFromSlot, saveToSlot, serialize } from '../../engine/save';
@@ -193,22 +195,56 @@ function SavesModal({ mode }: { mode: 'save' | 'load' }) {
   );
 }
 
+/** v0.9 §S.5 Settings › Sound: master, volume, categories, ambience and the Test sounds list. */
+function SoundSettings() {
+  const s = useStore();
+  const st = s.settings;
+  const [testing, setTesting] = useState(false);
+  const cats = (k: keyof typeof st.soundCats, v: boolean) => store.setSettings({ soundCats: { ...st.soundCats, [k]: v } });
+  const off = !st.sound;
+  return (
+    <>
+      <div className="set-head upper dim">Sound</div>
+      <div className="set-row"><div><b>Sound</b><div className="tiny dim">Cabin and cockpit chimes; calm for calm news, urgent only for crew</div></div><Toggle on={st.sound} onChange={(v) => store.setSettings({ sound: v })} label="Sound" /></div>
+      <div className={`set-row ${off ? 'v9-dim' : ''}`}><div><b>Volume</b></div><input type="range" min={0} max={1} step={0.05} value={st.volume} aria-label="Volume" style={{ width: 200, ['--fill' as string]: `${st.volume * 100}%` }} onChange={(e) => store.setSettings({ volume: Number(e.target.value) })} /></div>
+      <div className={`set-row ${off ? 'v9-dim' : ''}`}><div><b>Alerts</b><div className="tiny dim">Double and triple chimes for problems; the urgent alarm for crew shortage and crew out of hours</div></div><Toggle on={st.soundCats.alerts} onChange={(v) => cats('alerts', v)} label="Alerts" /></div>
+      <div className={`set-row ${off ? 'v9-dim' : ''}`}><div><b>Chimes</b><div className="tiny dim">Messages, offers, decisions, achievements</div></div><Toggle on={st.soundCats.chimes} onChange={(v) => cats('chimes', v)} label="Chimes" /></div>
+      <div className={`set-row ${off ? 'v9-dim' : ''}`}><div><b>Flight chimes</b><div className="tiny dim">A low chime at every departure and landing</div></div><Toggle on={st.soundCats.flights} onChange={(v) => cats('flights', v)} label="Flight chimes" /></div>
+      <div className={`set-row ${off ? 'v9-dim' : ''}`}><div><b>UI clicks</b></div><Toggle on={st.soundCats.ui} onChange={(v) => cats('ui', v)} label="UI clicks" /></div>
+      <div className={`set-row ${off ? 'v9-dim' : ''}`}><div><b>Ambience</b><div className="tiny dim">Faint, in the background of the game</div></div><Seg value={st.ambience} onChange={(v) => store.setSettings({ ambience: v })} options={[{ value: 'off', label: 'Off' }, { value: 'cabin', label: 'Cabin' }, { value: 'terminal', label: 'Terminal' }]} /></div>
+      <div className="set-row"><div><b>Test sounds</b><div className="tiny dim">Each sound and what it means</div></div><button className="btn btn-sm" onClick={() => setTesting(!testing)} aria-expanded={testing}><Volume2 /> {testing ? 'Hide' : 'Show'}</button></div>
+      {testing && (
+        <div className="v9-tests" role="list">
+          {SOUND_MEANING.map((x) => (
+            <div key={x.id} className="v9-test" role="listitem">
+              <div className="grow col"><b className="small">{x.name}</b><span className="tiny muted">{x.meaning}</span></div>
+              <button className="btn btn-icon v9-play" onClick={() => sound.test(x.id)} aria-label={`Play ${x.name}`}><Play /></button>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
 function SettingsModal() {
   const s = useStore();
   const st = s.settings;
+  const hintsOff = st.hintsSeen.length + st.screenHintsSeen.length;
   return (
     <Modal title="Settings" icon={<SettingsIcon className="accent" />} onClose={() => store.closeModal()}>
       <div className="settings">
         <div className="set-row"><div><b>Distance units</b></div><Seg value={st.units} onChange={(v) => store.setSettings({ units: v })} options={[{ value: 'km', label: 'Kilometres' }, { value: 'nm', label: 'Nautical miles' }]} /></div>
-        <div className="set-row"><div><b>Sound effects</b><div className="tiny dim">Synthesised UI sounds</div></div><Toggle on={st.sound} onChange={(v) => store.setSettings({ sound: v })} /></div>
-        <div className="set-row"><div><b>Volume</b></div><input type="range" min={0} max={1} step={0.05} value={st.volume} style={{ width: 160, ['--fill' as string]: `${st.volume * 100}%` }} onChange={(e) => store.setSettings({ volume: Number(e.target.value) })} /></div>
         <div className="set-row"><div><b>Autosave</b><div className="tiny dim">At each month end, when you pause and when you leave</div></div><Toggle on={st.autosave} onChange={(v) => store.setSettings({ autosave: v })} /></div>
         <div className="set-row"><div><b>Pause for decisions</b><div className="tiny dim">Stop the clock when an event needs you</div></div><Toggle on={st.autoPause.decision} onChange={(v) => store.setSettings({ autoPause: { ...st.autoPause, decision: v } })} /></div>
         <div className="set-row"><div><b>Pause for urgent offers</b><div className="tiny dim">AOG cover, repatriation and other short-notice work</div></div><Toggle on={st.autoPause.urgentOffer} onChange={(v) => store.setSettings({ autoPause: { ...st.autoPause, urgentOffer: v } })} /></div>
         <div className="set-row"><div><b>Pause for AOG</b><div className="tiny dim">When an aircraft breaks down</div></div><Toggle on={st.autoPause.aog} onChange={(v) => store.setSettings({ autoPause: { ...st.autoPause, aog: v } })} /></div>
-        <div className="set-row"><div><b>Pause for crew shortages</b><div className="tiny dim">A flight in the next 48 h has no legal crew</div></div><Toggle on={st.autoPause.crewShortage} onChange={(v) => store.setSettings({ autoPause: { ...st.autoPause, crewShortage: v } })} /></div>
+        <div className="set-row"><div><b>Pause for crew shortages</b><div className="tiny dim">A seat in the next 12 h has nobody to fill it</div></div><Toggle on={st.autoPause.crewShortage} onChange={(v) => store.setSettings({ autoPause: { ...st.autoPause, crewShortage: v } })} /></div>
+        <div className="set-row"><div><b>Pause for crew out of hours</b><div className="tiny dim">A pilot or cabin crew member has reached a legal limit</div></div><Toggle on={st.autoPause.crewHours} onChange={(v) => store.setSettings({ autoPause: { ...st.autoPause, crewHours: v } })} /></div>
+        <div className="set-row"><div><b>Pause for your rules</b><div className="tiny dim">Watch desk rules set to pause</div></div><Toggle on={st.autoPause.rule} onChange={(v) => store.setSettings({ autoPause: { ...st.autoPause, rule: v } })} /></div>
         <div className="set-row"><div><b>Pause when a contract starts</b><div className="tiny dim">Watch the first flights of new work</div></div><Toggle on={st.autoPause.contractStart} onChange={(v) => store.setSettings({ autoPause: { ...st.autoPause, contractStart: v } })} /></div>
         <div className="set-row"><div><b>Pause at month end</b><div className="tiny dim">Read the statement before the next month starts</div></div><Toggle on={st.autoPause.monthEnd} onChange={(v) => store.setSettings({ autoPause: { ...st.autoPause, monthEnd: v } })} /></div>
+        <SoundSettings />
         <div className="set-head upper dim">Display</div>
         <div className="set-row"><div><b>Map animations</b><div className="tiny dim">Flying aircraft on maps</div></div><Toggle on={st.mapAnimations} onChange={(v) => store.setSettings({ mapAnimations: v })} /></div>
         <div className="set-row"><div><b>Top bar spacing</b><div className="tiny dim">Moves the game below the frosted strip iPadOS adds at the top of the screen</div></div><Seg value={String(st.topGap)} onChange={(v) => store.setSettings({ topGap: v === 'auto' ? 'auto' : (Number(v) as 0 | 16 | 28 | 40) })} options={[{ value: 'auto', label: 'Auto' }, { value: '0', label: 'Off' }, { value: '16', label: '16' }, { value: '28', label: '28' }, { value: '40', label: '40' }]} /></div>
@@ -216,7 +252,7 @@ function SettingsModal() {
         <div className="set-row"><div><b>What's new</b><div className="tiny dim">{CURRENT.version} {CURRENT.name}</div></div><button className="btn btn-sm" onClick={() => store.openModal({ kind: 'whatsNew', all: true })}><Sparkles /> Show</button></div>
         <div className="set-head upper dim">Plain language</div>
         <div className="set-row"><div><b>Glossary</b><div className="tiny dim">What FDP, deadhead, AOG, sub-charter and the other words mean</div></div><button className="btn btn-sm" onClick={() => store.openModal({ kind: 'glossary' })}><BookOpenText /> Open</button></div>
-        <div className="set-row"><div><b>First-time hints</b><div className="tiny dim">{st.hintsSeen.length ? `${st.hintsSeen.length} kind${st.hintsSeen.length === 1 ? '' : 's'} of problem switched off` : 'A one-paragraph story the first time each kind of problem appears'}</div></div><button className="btn btn-sm" onClick={() => store.setSettings({ hintsSeen: [] })} disabled={!st.hintsSeen.length}><Lightbulb /> Show again</button></div>
+        <div className="set-row"><div><b>First-time hints</b><div className="tiny dim">{hintsOff ? `${hintsOff} switched off (screens and problems)` : 'A short note on each screen and the first time each kind of problem appears'}</div></div><button className="btn btn-sm" onClick={() => store.setSettings({ hintsSeen: [], screenHintsSeen: [] })} disabled={!hintsOff}><Lightbulb /> Show again</button></div>
         <div className="set-row"><div><b>Offline play</b><div className="tiny dim">{offline.ready ? 'Installed — the game works without internet.' : 'Caches after the first online visit.'}</div></div>
           {offline.installPrompt ? <button className="btn btn-sm" onClick={() => void promptInstall()}><Download /> Install app</button> : <span className={`badge ${offline.ready ? 'good' : ''}`}>{offline.ready ? 'Ready' : 'Pending'}</span>}
         </div>
@@ -275,5 +311,6 @@ export function GlobalModals() {
     case 'rival': return s.game ? <RivalModal rivalId={m.rivalId} /> : null;
     case 'outlook': return s.game ? <OutlookModal /> : null;
     case 'worldEvent': return s.game ? <WorldEventModal eventId={m.eventId} /> : null;
+    case 'headUnlocked': return s.game ? <HeadUnlockedModal key={m.id} id={m.id} ids={m.ids} /> : null;
   }
 }

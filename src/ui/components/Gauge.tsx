@@ -4,7 +4,11 @@
 import { fmtDateTime, fmtTime } from '../../engine/core/time';
 import type { GaugeSpec } from '../../engine/problems/types';
 
-export function Gauge({ spec, compact }: { spec: GaugeSpec; compact?: boolean }) {
+/** Cumulative limits (7-day duty, 28-day and year flying) are measured at report, before the duty's own hours. */
+const CUMULATIVE = new Set<GaugeSpec['id']>(['duty7d', 'block28d', 'blockYear']);
+
+/** `before`: a caption under a cumulative gauge ('before this trip') where the card's other numbers include the trip. */
+export function Gauge({ spec, compact, before }: { spec: GaugeSpec; compact?: boolean; before?: string }) {
   const r = spec.limit > 0 ? spec.value / spec.limit : 0;
   const pct = Math.max(0, Math.min(100, r * 100));
   return (
@@ -17,6 +21,7 @@ export function Gauge({ spec, compact }: { spec: GaugeSpec; compact?: boolean })
         <span className="gauge-fill" style={{ width: `${pct}%` }} />
         <span className="gauge-needle" style={{ left: `${pct}%` }} />
       </div>
+      {before && !compact && spec.by === undefined && CUMULATIVE.has(spec.id) && <div className="gauge-by tiny dim">{before}</div>}
       {spec.by !== undefined && !compact && !(spec.id === 'rest' && spec.value >= spec.limit) && <div className="gauge-by tiny dim">{spec.tone === 'good' && spec.id !== 'rest' ? 'until' : 'by'} {spec.unit === 'pct' ? fmtDateTime(spec.by) : fmtTime(spec.by)} UTC</div>}
     </div>
   );

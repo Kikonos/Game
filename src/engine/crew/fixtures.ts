@@ -6,6 +6,7 @@ import { DAY, localOffset } from '../core/time';
 import type { Contract, GameState, Minute, Role } from '../core/types';
 import { createGame } from '../newGame';
 import { makeCrewMember } from './generate';
+import { planOffDays } from './dayPlan';
 
 export const fixtureGame = (seed = 5): GameState =>
   createGame({ name: 'Atlântica Wings', code: 'AW', livery: { primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' }, base: 'LIS', seed });
@@ -72,6 +73,8 @@ export function addCrew(g: GameState, counts: Partial<Record<Role, number>>, fam
       ids.push(c.id);
     }
   }
+  // v0.9 their days off, as the next daily roster run would plan them (crew/dayPlan.ts).
+  planOffDays(g);
   return ids;
 }
 

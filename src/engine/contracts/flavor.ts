@@ -290,14 +290,32 @@ export const longHaulBrand = (name: string) => LONGHAUL_BRANDS.some((b) => brand
 export const possessive = (name: string) => (/s$/i.test(name) ? `${name}'` : `${name}'s`);
 
 /**
- * v0.8 fix pack: a job named with its client once: 'Winter sun to Corfu for Corendon' when the title already says
- * who, else "Azul Brazilian Airlines' São Paulo base". Pure.
+ * v0.9 (§V.2): a job named with its client once, the client first: 'Corendon · Winter sun to Corfu'. Titles never
+ * carry the client (clientless). Pure.
  */
 export function jobName(client: string, title: string): string {
-  return title.includes(client) || title.includes(brandOf(client)) ? title : `${possessive(client)} ${title}`;
+  return title.includes(client) || title.includes(brandOf(client)) ? title : `${client} · ${title}`;
 }
-/** 'summer', 'Easter', 'Christmas' (mid-sentence). */
-const seasonMid = (s: Season) => (s === 'easter' || s === 'christmas' ? SEASON_WORD[s] : SEASON_WORD[s].toLowerCase());
+
+const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * v0.9 (§V.2): the client's name taken out of an offer title (the client is shown on its own): 'Winter sun to Corfu
+ * for Corendon' → 'Winter sun to Corfu', "TUI's summer wet lease, Lisbon" → 'Summer wet lease, Lisbon'. Pure.
+ */
+export function clientless(title: string, client: string): string {
+  let t = title;
+  for (const n of [...new Set([client, brandOf(client)])].sort((a, b) => b.length - a.length)) {
+    if (!n) continue;
+    const e = esc(n);
+    t = t.replace(new RegExp(`\\s(?:for|to|with) ${e}(?=$|[ ,:(])`), '');
+    t = t.replace(new RegExp(`^(?:${esc(possessive(n))}|${e})\\s+`), '');
+  }
+  t = t.trim();
+  if (t.length < 6 || t === title) return title;
+  return t[0].toUpperCase() + t.slice(1);
+}
+
 export const NATIONS: Record<string, string> = {
   PT: 'Portuguese', ES: 'Spanish', LT: 'Lithuanian', MT: 'Maltese', LV: 'Latvian', CZ: 'Czech', BG: 'Bulgarian', EE: 'Estonian', GB: 'British',
   DE: 'German', FR: 'French', IT: 'Italian', PL: 'Polish', NL: 'Dutch', IE: 'Irish', BE: 'Belgian', AT: 'Austrian', SE: 'Swedish', FI: 'Finnish',
@@ -308,44 +326,44 @@ const when = (ok: (x: TitleCtx) => boolean, t: TitleFn): TitleFn => (x) => (ok(x
 
 export const TITLES: Partial<Record<string, TitleFn[]>> = {
   tourSeries: [
-    when((x) => x.season === 'summer', (x) => `${x.brand} summer programme ${x.fromCity}–${x.toCity}`),
-    (x) => `${x.brand} weekend rotation to ${x.toCity}`,
-    (x) => `${x.brand} ${x.toCity} flights`,
-    when((x) => x.season === 'winter' || x.season === 'autumn' || x.season === 'easter', (x) => `${SEASON_WORD[x.season]} sun to ${x.toCity} for ${x.brand}`),
+    when((x) => x.season === 'summer', (x) => `Summer programme ${x.fromCity}–${x.toCity}`),
+    (x) => `Weekend rotation to ${x.toCity}`,
+    (x) => `Flights to ${x.toCity}`,
+    when((x) => x.season === 'winter' || x.season === 'autumn' || x.season === 'easter', (x) => `${SEASON_WORD[x.season]} sun to ${x.toCity}`),
     when((x) => x.nation === 'British' && x.season !== 'christmas' && x.season !== 'ski', (x) => `Half-term charters ${x.fromCity}–${x.toCity}`),
     when((x) => x.season === 'easter', (x) => `Easter programme to ${x.toCity}`),
     when((x) => x.season === 'autumn', (x) => `Autumn sun: ${x.toCity}`),
-    when((x) => x.season === 'ski', (x) => `${x.brand} ski charters ${x.fromCity}–${x.toCity}`),
-    when((x) => x.season === 'ski', (x) => `Snow programme to ${x.toCity} for ${x.brand}`),
-    when((x) => x.to === 'FAO', (x) => `Golf season to Faro for ${x.brand}`),
-    when((x) => CANARIES.includes(x.to) && (x.season === 'winter' || x.season === 'christmas' || x.season === 'autumn'), (x) => `${x.brand} winter sun to the Canaries`),
+    when((x) => x.season === 'ski', (x) => `Ski charters ${x.fromCity}–${x.toCity}`),
+    when((x) => x.season === 'ski', (x) => `Snow programme to ${x.toCity}`),
+    when((x) => x.to === 'FAO', () => 'Golf season to Faro'),
+    when((x) => CANARIES.includes(x.to) && (x.season === 'winter' || x.season === 'christmas' || x.season === 'autumn'), () => 'Winter sun to the Canaries'),
     when((x) => x.season === 'christmas' && MARKETS.includes(x.to), (x) => `Christmas markets programme ${x.toCity}`),
-    when((x) => !!x.wide && longHaulBrand(x.client), (x) => `${x.brand} long-haul sun to ${x.toCity}`),
-    (x) => `${x.brand} holiday flights ${x.fromCity}–${x.toCity}`,
-    (x) => `${x.brand} ${x.month} departures to ${x.toCity}`,
-    when((x) => x.season !== 'ski', (x) => `${x.toCity} beach programme for ${x.brand}`),
-    (x) => `${x.brand} brochure flights to ${x.toCity}`,
+    when((x) => !!x.wide && longHaulBrand(x.client), (x) => `Long-haul sun to ${x.toCity}`),
+    (x) => `Holiday flights ${x.fromCity}–${x.toCity}`,
+    (x) => `${x.month} departures to ${x.toCity}`,
+    when((x) => x.season !== 'ski', (x) => `${x.toCity} beach programme`),
+    (x) => `Brochure flights to ${x.toCity}`,
   ],
   seasonBase: [
-    when((x) => x.season === 'summer', (x) => `${x.brand} summer peak at ${x.fromCity}`),
-    (x) => `Extra capacity for ${x.brand} at ${x.fromCity}`,
-    (x) => `${possessive(x.brand)} ${seasonMid(x.season)} wet lease, ${x.fromCity}`,
-    when((x) => x.season === 'summer' || x.season === 'christmas' || x.season === 'easter', (x) => `${x.brand} holiday peak cover`),
-    (x) => `Base deployment ${x.fromCity} for ${x.brand}`,
-    when((x) => x.n >= 120, (x) => `${x.brand} year-round capacity at ${x.fromCity}`),
-    (x) => `${x.fromCity} wet lease for ${x.brand}`,
-    (x) => `${x.brand} ${x.month} capacity at ${x.fromCity}`,
-    when((x) => !!x.wide, (x) => `${x.brand} long-haul capacity from ${x.fromCity}`),
+    when((x) => x.season === 'summer', (x) => `Summer peak at ${x.fromCity}`),
+    (x) => `Extra capacity at ${x.fromCity}`,
+    (x) => `${SEASON_WORD[x.season]} wet lease, ${x.fromCity}`,
+    when((x) => x.season === 'summer' || x.season === 'christmas' || x.season === 'easter', (x) => `Holiday peak cover at ${x.fromCity}`),
+    (x) => `Base deployment ${x.fromCity}`,
+    when((x) => x.n >= 120, (x) => `Year-round capacity at ${x.fromCity}`),
+    (x) => `${x.fromCity} wet lease`,
+    (x) => `${x.month} capacity at ${x.fromCity}`,
+    when((x) => !!x.wide, (x) => `Long-haul capacity from ${x.fromCity}`),
   ],
   aogCover: [
-    (x) => `${x.brand} AOG cover at ${x.fromCity}`,
-    (x) => `Rescue capacity for ${x.brand}`,
-    (x) => `Stand-in aircraft for ${x.brand}`,
-    when((x) => !!x.type, (x) => `${x.brand} needs a${/^[AEIOU8]/.test(x.type!) ? 'n' : ''} ${x.type} at ${x.fromCity}`),
-    (x) => `${x.fromCity} AOG cover for ${x.brand}`,
-    (x) => `Grounded-jet cover for ${x.brand}`,
-    (x) => `${x.brand} schedule cover, ${x.fromCity}`,
-    (x) => `Short-notice wet lease for ${x.brand}`,
+    (x) => `AOG cover at ${x.fromCity}`,
+    (x) => `Rescue capacity at ${x.fromCity}`,
+    (x) => `Stand-in aircraft at ${x.fromCity}`,
+    when((x) => !!x.type, (x) => `AOG cover: a${/^[AEIOU8]/.test(x.type!) ? 'n' : ''} ${x.type} at ${x.fromCity}`),
+    (x) => `Short-notice cover at ${x.fromCity}`,
+    (x) => `Grounded-jet cover at ${x.fromCity}`,
+    (x) => `Schedule cover, ${x.fromCity}`,
+    (x) => `Short-notice wet lease, ${x.fromCity}`,
   ],
   troopRotation: [
     when((x) => !!x.event, (x) => `${x.event} troop rotation`),

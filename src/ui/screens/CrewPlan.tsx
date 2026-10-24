@@ -5,7 +5,8 @@
 import { UserPlus } from 'lucide-react';
 import type { RatingFamily } from '../../data/acmiTypes';
 import type { GameState } from '../../engine/core/types';
-import { awayOnDryLease, crewPlan, familyName, roundTargets, setWords, type FamilyPlan } from '../../engine/crew';
+import { BAL } from '../../engine/core/balance';
+import { awayOnDryLease, crewPlan, familyName, roundTargets, SETS_DETACHED, SETS_WHY, setWords, type FamilyPlan } from '../../engine/crew';
 import { typeOf } from '../../engine/core/perf';
 import { Term } from '../components/Term';
 import { store } from '../store';
@@ -92,7 +93,9 @@ export function CrewPlanView({ g }: { g: GameState }) {
   const idle = idleTypes(g, plans);
   return (
     <div className="cp-view">
-      <div className="small muted cp-intro">Each aircraft needs about 5 full crews (<Term id="crewSet">crew sets</Term>) to fly every day with days off, leave and sickness. The role you have fewest of decides how many sets are complete.</div>
+      <div className="small muted cp-intro">
+        {SETS_WHY}{plans.some((p) => p.setsPerAircraft > BAL.crewSetsPerAircraft) ? ` ${SETS_DETACHED}` : ''} The role you have fewest of decides how many sets are complete.
+      </div>
       {!plans.length && <div className="small muted">No aircraft in the fleet yet.</div>}
       <div className="cp-grid">
         {plans.map((p) => <FamilyCard key={p.family} p={p} />)}

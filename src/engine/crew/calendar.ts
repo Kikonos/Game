@@ -6,11 +6,12 @@
 import { BAL } from '../core/balance';
 import { deadheadFlights, flightsRev } from '../core/entities';
 import { DAY, fmtDate, fmtDateTime, fmtDay, fmtDuration, fmtTime } from '../core/time';
-import type { CrewMember, Duty, Flight, GameState, Legality, Minute, TrainingKind } from '../core/types';
+import type { CrewMember, Duty, Flight, GameState, Legality, Minute, StandbyKind, TrainingKind } from '../core/types';
 import { commercialItinerary } from '../ops/commercial';
 import { FLIGHT_TYPE_LABEL, flightType, type FlightType } from '../ops/flightType';
 import { classBlockText } from './conversion';
 import { rosterOf } from './roster';
+import { dayIndex, midnight, offOn } from './dayPlan';
 import { offsetAt } from './rules';
 import { crewIx, dutyFlights, segsOf } from './timeline';
 
@@ -45,9 +46,19 @@ export interface CalBlock {
   flights?: CalFlight[];
   dutyId?: string;
   legality?: Legality;
-  /** Station (rest, day off) when away from base. */
+  /** Station (rest, day off, v0.9 hotel standby) when away from base. */
   at?: string;
+  /** v0.9 the standby kind of a 'standby' block, and a home window's shift (early 05–17, late 12–24). */
+  sby?: StandbyKind;
+  shift?: 'E' | 'L';
+  /** v0.9 a planned day off inside the published roster (a change needs a confirm and costs morale). */
+  protected?: true;
+  /** v0.9 a day off planned by the v0.9 rules (false: an old save's free day before they took over). */
+  planned?: boolean;
 }
+
+/** v0.9 strip labels per standby kind (§R.14). */
+export const SBY_LABEL: Record<StandbyKind, string> = { home: 'Home standby', hotel: 'Hotel standby', airport: 'Airport standby', reserve: 'Reserve' };
 
 const KIND_ORDER: CalKind[] = ['joining', 'sick', 'training', 'leave', 'duty', 'positioning', 'deadhead', 'standby', 'rest', 'off'];
 
@@ -99,7 +110,7 @@ function statusBlocks(g: GameState, c: CrewMember): CalBlock[] {
     } else if (c.notice && b.from >= c.notice.leaves) {
       out.push({ kind: 'leave', start: b.from, end: b.to, label: 'Left', detail: `Resigned: last day ${fmtDate(c.notice.leaves - 1)}.` });
     } else {
-      out.push({ kind: 'leave', start: b.from, end: b.to, label: 'Leave', detail: `On leave until ${fmtDate(b.to)}.` });
+      out.push({ kind: 'leave', start: b.from, end: b.to, label: 'Leave', detail: b.annual ? `Annual leave until ${fmtDate(b.to - 1)}.` : `On leave until ${fmtDate(b.to)}.` });
     }
   }
   return out;
@@ -112,7 +123,7 @@ function dutyBlock(g: GameState, d: Duty): CalBlock {
   const label = types.size === 1 && types.has('ferry') ? 'Ferry duty' : types.size === 1 && types.has('positioning') ? 'Positioning duty' : 'Duty';
   const route = fl.length ? [fl[0].from, ...fl.map((f) => f.to)].join('–') : d.restAt;
   const legs = flights.map((f) => `${f.no} ${f.from}–${f.to} ${hhmm(f.std)}–${hhmm(f.sta)} ${FLIGHT_TYPE_LABEL[f.type]}`).join(' · ');
-  const fdp = `FDP ${fmtDuration(d.fdp, true)} of ${fmtDuration(d.maxFdp + (d.discretion ?? 0), true)}`;
+  const fdp = `FDP ${fmtDuration(d.fdp, true)} of ${fmtDuration(d.maxFdp + (d.discretion ?? 0), true)}${d.discretion ? ` (commander's discretion +${fmtDuration(d.discretion, true)})` : ''}`;
   return {
     kind: 'duty', start: d.report, end: d.release, label, flightIds: fl.map((f) => f.id), flights, dutyId: d.id, legality: d.legality,
     detail: `${route} · report ${hhmm(d.report)}, release ${hhmm(d.release)} · ${fdp}${d.augment ? ` · augmented +${d.augment}` : ''}${d.legality !== 'legal' ? ` · ${d.legality}` : ''}\n${legs}`,
@@ -167,11 +178,20 @@ export function crewCalendar(g: GameState, crewId: string, from: Minute, to: Min
     work.push({ kind: 'duty', start: e.start, end: e.end, label: 'Duty', detail: `Flown: ${e.sectors} sector${e.sectors > 1 ? 's' : ''}, block ${fmtDuration(e.block, true)}, FDP ${fmtDuration(e.fdp, true)}` });
   }
   work.push(...travelBlocks(g, c, from, to));
-  // v0.7.3 home standby windows (a planned duty that took one over shows as the duty).
+  // v0.7.3 standby windows (a planned duty that took one over shows as the duty). v0.9: every kind, station-local times.
   for (const w of c.standby ?? []) {
     const end = w.calledAt ?? w.to;
     if (end <= from || w.from >= to || (w.calledAt === undefined && work.some((x) => x.kind === 'duty' && overlaps(x, { start: w.from, end: w.to })))) continue;
-    work.push({ kind: 'standby', start: w.from, end, label: 'Standby', detail: `Standby ${hhmm(w.from)}–${hhmm(w.to)} at home${w.calledAt !== undefined ? `, called out ${hhmm(w.calledAt)}` : ''}` });
+    const kind = w.kind ?? 'home';
+    const at = w.at ?? c.base;
+    const shift = kind === 'home' ? w.shift ?? ((w.from + offsetAt(c.base, w.from)) % DAY < 12 * 60 ? 'E' : 'L') : undefined;
+    const t = (x: Minute) => fmtTime(x, at);
+    const where = kind === 'home' ? `at home (${shift === 'E' ? 'early' : 'late'})` : kind === 'hotel' ? `at the hotel in ${at}` : kind === 'airport' ? `at ${at} airport` : 'reserve, 10 h notice';
+    const ready = kind === 'airport' ? 'ready in 20 min' : kind === 'hotel' ? 'ready in 45 min' : kind === 'home' ? 'ready in 1:30' : 'no contact 22:00–06:00';
+    work.push({
+      kind: 'standby', start: w.from, end, label: SBY_LABEL[kind], sby: kind, ...(shift ? { shift } : {}), ...(at !== c.base ? { at } : {}),
+      detail: `${SBY_LABEL[kind]} ${t(w.from)}–${t(w.to)} ${at} local, ${where} · ${ready}${w.calledAt !== undefined ? ` · called out ${t(w.calledAt)}` : ''}`,
+    });
   }
   work.sort((a, b) => a.start - b.start);
 
@@ -198,7 +218,6 @@ export function crewCalendar(g: GameState, crewId: string, from: Minute, to: Min
   const busy = [...work, ...status];
   const off: CalBlock[] = [];
   const horizon = g.now + BAL.rosterHorizonDays * DAY;
-  const off0 = offsetAt(c.base, from);
   // Past days: where the first movement after the day left from (the timeline only knows where they are now).
   let moves: { std: Minute; from: string }[] | null = null;
   const pastAt = (t: Minute): string => {
@@ -213,18 +232,39 @@ export function crewCalendar(g: GameState, crewId: string, from: Minute, to: Min
     }
     return moves.find((m) => m.std >= t)?.from ?? c.loc;
   };
-  for (let d = Math.floor((from + off0) / DAY) * DAY - off0; d < to; d += DAY) {
-    const day = { start: d, end: d + DAY };
-    if (busy.some((w) => overlaps(w, day))) continue;
+  // v0.9 (§R): from the first day the v0.9 rules plan, a day off is a planned one; a published day with nothing on it is
+  // rest the limits asked for; before, an old save's free days read as days off as they did.
+  const v09 = g.dayPlan ? g.dayPlan.from : Infinity;
+  const pub = g.dayPlan ? g.dayPlan.publishedTo : horizon;
+  // Base-local days (k), each from its own local midnight: a clock change moves the day's UTC edges with it.
+  const pubK = g.dayPlan ? dayIndex(c.base, pub) : Infinity;
+  for (let k = dayIndex(c.base, from); midnight(c.base, k) < to; k++) {
+    const d = midnight(c.base, k);
+    const dEnd = midnight(c.base, k + 1);
+    const day = { start: d, end: dEnd };
+    const plannedOff = d >= v09 - 60 && !!c.off && offOn(c, k);
+    if (busy.some((w) => overlaps(w, day)) && !(plannedOff && !busy.some((w) => w.kind !== 'standby' && overlaps(w, day)))) continue;
     let start = Math.max(d, from);
     for (const r of rest) if (r.start <= start && r.end > start) start = r.end;
-    const end = Math.min(d + DAY, to);
-    if (end - start < 6 * 60) continue;
+    const end = Math.min(dEnd, to);
+    if ((end - start < 6 * 60 && !plannedOff) || start >= end) continue;
     const at = start < g.now ? pastAt(start) : locAtTime(c, segs, start);
     const away = at !== c.base;
+    if (d >= v09 - 60) {
+      if (plannedOff) {
+        const prot = k < pubK;
+        off.push({
+          kind: 'off', start, end, label: 'Day off', at: away ? at : undefined, planned: true, ...(prot ? { protected: true as const } : {}),
+          detail: `Day off${away ? ` at ${at} (hotel)` : ' at home'}${prot ? ' (published): protected. Changing it costs morale.' : ' (not published yet)'}`,
+        });
+      } else if (k < pubK) {
+        off.push({ kind: 'rest', start, end, label: 'Rest (limits)', at: away ? at : undefined, detail: 'No standby today: rest the duty limits ask for.' });
+      } else off.push({ kind: 'off', start, end, label: 'Free', at: away ? at : undefined, planned: false, detail: 'Not rostered yet (beyond the published roster)' });
+      continue;
+    }
     const planned = d < horizon;
     off.push({
-      kind: 'off', start, end, label: planned ? 'Day off' : 'Free', at: away ? at : undefined,
+      kind: 'off', start, end, label: planned ? 'Day off' : 'Free', at: away ? at : undefined, planned: false,
       detail: planned ? `Day off${away ? ` at ${at} (hotel)` : ' at home'}` : 'Not rostered yet (beyond the published roster)',
     });
   }
@@ -373,7 +413,10 @@ function statusView(g: GameState, crewId: string): CrewStatusView {
     const rel = duty?.release ?? null;
     return { ...base, label: 'On duty', tone: 'good', text: rel ? `On duty · release ${fmtTime(rel)}` : 'On duty', until: rel, restUntil: null };
   }
-  const restUntil = c.restUntil > now ? c.restUntil : null;
+  // Round 4: the rest the timeline books (the gauge and the calendar read it: after an uncalled standby too), when the
+  // crew record itself holds none, so the pill, 'Rest until' and the gauge agree.
+  let restUntil = c.restUntil > now ? c.restUntil : null;
+  if (restUntil === null) for (const s of segsOf(g, c)) if (s.kind !== 'log' && s.rest > 0 && s.end <= now && s.end + s.rest > now) restUntil = Math.max(restUntil ?? 0, s.end + s.rest);
   if (sickSoon) return { ...base, label: 'Sick', tone: 'bad', text: `Off sick from ${fmtDay(sickSoon.from)} · back ~${fmtDay(sickSoon.to)}`, until: sickSoon.to, restUntil };
   if (restUntil) return { ...base, label: 'Resting', tone: 'info', text: `Resting until ${fmtDateTime(restUntil)}${c.loc !== c.base ? ` at ${c.loc}` : ''}`, until: restUntil, restUntil };
   const next = rosterOf(g, c.id, now, now + BAL.rosterHorizonDays * DAY).find((d) => d.report > now);

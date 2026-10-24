@@ -130,7 +130,7 @@ export function fitText(cands: string[], px: number, measure: (s: string) => num
   return '';
 }
 
-type Blk = Pick<CalBlock, 'kind' | 'flights' | 'label'> & { aug?: 1 | 2; ext?: boolean; split?: boolean };
+type Blk = Pick<CalBlock, 'kind' | 'flights' | 'label'> & Partial<Pick<CalBlock, 'sby' | 'shift' | 'at'>> & { aug?: 1 | 2; ext?: boolean; split?: boolean };
 
 /** v0.7.3 separator before a duty's mark in a label; the board draws the mark as a tag (a bed icon for 3P / 4P). */
 export const MARK_SEP = '\u2003';
@@ -173,24 +173,37 @@ function baseCands(b: Blk): string[] {
     case 'ferry': return [r ? `FERRY ${r}` : '', 'FERRY', 'FRY'];
     case 'ride': return [r ? `POS ${r}` : '', 'POS'];
     case 'deadhead': return [r ? `DH ${r}` : '', 'DH'];
-    case 'off': return b.label === 'Free' ? [] : ['OFF'];
+    case 'off': return b.label === 'Free' ? [] : b.at ? [`OFF ${b.at}`, 'OFF'] : ['OFF'];
     case 'sick': return ['SICK'];
     case 'joining': return ['Joining', 'JOIN'];
     case 'training': return b.label.startsWith('Conversion') ? [b.label, 'CONV'] : [b.label, 'TRG'];
-    case 'leave': return b.label === 'Left' ? ['Left'] : ['Leave', 'LV'];
-    case 'standby': return ['Standby', 'SBY'];
+    case 'leave': return b.label === 'Left' ? ['Left'] : ['LEAVE', 'LV'];
+    // v0.9 §R.8 codes: SBY E / SBY L (home), SBY DUB (hotel at a station), ASBY (airport), RES (reserve).
+    case 'standby': return b.shift ? [`SBY ${b.shift}`, 'SBY'] : ['SBY'];
+    case 'sbyHotel': return b.at ? [`SBY ${b.at}`, 'SBY'] : ['SBY'];
+    case 'asby': return ['ASBY', 'AS'];
+    case 'res': return ['RES'];
     default: return [];
   }
 }
 
-/** Month-zoom day code of work and travel: a duty's first destination, else DH / POS. */
+/** Month-zoom day code of work and travel: a duty's first destination, else DH / POS; v0.9 standby SB / AS / R. */
 export function workCode(b: Blk): string {
   const k = calKey(b);
   if (k === 'operating') return b.flights?.[0]?.to ?? 'DUTY';
   if (k === 'ferry') return 'FRY';
   if (k === 'deadhead') return 'DH';
   if (k === 'positioning' || k === 'ride') return 'POS';
+  if (k === 'standby' || k === 'sbyHotel') return 'SB';
+  if (k === 'asby') return 'AS';
+  if (k === 'res') return 'R';
   return '';
+}
+
+/** v0.9 month summary cell: '9 · S11 · F8' (days off · standby · flying); `low` when below the 7-day minimum. */
+export function monthCell(v: { off: number; offMin: number; flying: number; standby: { home: number; hotel: number; airport: number; reserve: number } }): { text: string; low: boolean } {
+  const s = v.standby.home + v.standby.hotel + v.standby.airport + v.standby.reserve;
+  return { text: `${v.off} · S${s} · F${v.flying}`, low: v.off < v.offMin };
 }
 
 /**
@@ -204,7 +217,8 @@ export function dayCodes(blocks: (Blk & Pick<CalBlock, 'start' | 'end'>)[], from
     if (!code) continue;
     const day = Math.floor((b.start - from) / DAY);
     if (day < 0 || day >= nDays) continue;
-    const rank = calKey(b) === 'operating' || calKey(b) === 'ferry' ? 0 : 1;
+    const k = calKey(b);
+    const rank = k === 'operating' || k === 'ferry' ? 0 : k === 'standby' || k === 'sbyHotel' || k === 'asby' || k === 'res' ? 2 : 1;
     const cur = by.get(day);
     if (!cur || rank < cur.rank) by.set(day, { code, key: calKey(b), rank, i });
   }
@@ -295,7 +309,7 @@ export const moraleTone = (m: number): 'good' | 'warn' | 'bad' => (m >= 60 ? 'go
 export function rowSig(r: BoardRow): string {
   let s = `${r.crewId}|${r.name}|${r.role}|${r.base}|${r.morale}|${r.leaves ?? ''}|${r.status}|${r.families.join(',')}`;
   for (const b of r.blocks) {
-    s += `#${b.kind}:${b.start}:${b.end}:${b.label}:${b.detail}:${b.dutyId ?? ''}:${b.pairingId ?? ''}:${b.legality ?? ''}:${b.locked ? 1 : 0}:${b.movable ? 1 : 0}:${b.at ?? ''}`;
+    s += `#${b.kind}:${b.start}:${b.end}:${b.label}:${b.detail}:${b.dutyId ?? ''}:${b.pairingId ?? ''}:${b.legality ?? ''}:${b.locked ? 1 : 0}:${b.movable ? 1 : 0}:${b.at ?? ''}:${b.sby ?? ''}${b.shift ?? ''}${b.protected ? 'p' : ''}`;
     for (const f of b.flights ?? []) s += `,${f.id}/${f.no}/${f.from}/${f.to}/${f.std}/${f.sta}/${f.type}`;
   }
   return s;

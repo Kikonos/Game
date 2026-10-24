@@ -1,5 +1,6 @@
 // Player actions on offers and contracts, and the contract lifecycle (B1). DESIGN.md §5.1.9.
 
+import { v09Stats } from '../crew/dayPlan';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { BAL } from '../core/balance';
 import { nextId, removeFlights } from '../core/entities';
@@ -62,6 +63,22 @@ export interface SignOpts {
   crewExtra?: CrewExtra;
 }
 
+/** v0.9 ops/heads.ts: a deposit share for a charter signed without one (the credit controller's rule); 0 = none. */
+let depositHook: ((g: GameState, c: Contract) => number) | null = null;
+export function setDepositHook(f: typeof depositHook): void {
+  depositHook = f;
+}
+
+/** v0.9 round 4 ops/heads.ts: the analyst notes its estimate on the contract at signing and is judged when it ends. */
+let signHook: ((g: GameState, c: Contract, o: ContractOffer, aircraftId: string) => void) | null = null;
+let completeHook: ((g: GameState, c: Contract) => void) | null = null;
+export function setSignHook(f: typeof signHook): void {
+  signHook = f;
+}
+export function setCompleteHook(f: typeof completeHook): void {
+  completeHook = f;
+}
+
 /**
  * Signs the offer on the chosen aircraft: creates the Contract, generates flights (schedule.ts),
  * books the charter deposit, queues contract.start/end, asks crew to roster (crew.autoRoster).
@@ -115,6 +132,7 @@ export function acceptOffer(g: GameState, offerId: string, aircraftIds: string[]
     // The contract flies the client's layout (a later refit may not take it away).
     if (cabinOn) c.requirements.layouts = [o.cabin.layout];
   }
+  signHook?.(g, c, o, ids[0]);
   g.contracts[c.id] = c;
   signCrewExtra(g, c, ids[0], opts.crewExtra);
   closeOffer(g, o, 'accepted');
@@ -134,6 +152,11 @@ export function acceptOffer(g: GameState, offerId: string, aircraftIds: string[]
     else c.cabin!.from![id] = x.from;
   }
   generateFlights(g, c);
+  // v0.9 the credit controller asks a slow payer for a deposit (ops/heads.ts).
+  if (c.product.kind === 'charter' && !c.product.depositPct) {
+    const pct = depositHook?.(g, c) ?? 0;
+    if (pct > 0) c.product = { ...c.product, depositPct: pct };
+  }
   // Charter money: deposit now, balance per trip 7–14 days before it (DESIGN §5.1.9); governments pay after the job.
   const cp = c.product;
   if (cp.kind === 'charter') {
@@ -155,6 +178,9 @@ export function acceptOffer(g: GameState, offerId: string, aircraftIds: string[]
   if (c.requirements.extraPilot) c.crewExtra = { cabin: c.crewExtra?.cabin ?? crewExtraFor(g, ids[0], c.id).cabin, pilot: 1 };
   // v0.8 short-notice cover is a favour; a rival hiring us counts on both sides.
   if (o.urgency === 'urgent') bumpClient(g, c.clientId, BAL.v08.rel.urgentSign, `Took ${c.title} at short notice`);
+  // v0.9 achievement: signed while a rival was quoting for it.
+  if (o.rivalBid) v09Stats(g).firstCall = (v09Stats(g).firstCall ?? 0) + 1;
+  if (o.jumbo) v09Stats(g).jumboLoads++;
   if (c.archetype === 'subcharterIn') {
     statsV08(g).subIn++;
     const rv = g.clients[c.clientId]?.rivalId;
@@ -162,7 +188,7 @@ export function acceptOffer(g: GameState, offerId: string, aircraftIds: string[]
   }
   autoRoster(g, { aircraftIds: ids });
   const regs = ids.map((id) => g.fleet[id].reg).join(' + ');
-  pushMessage(g, { tone: 'good', cat: 'commercial', title: `Signed: ${c.title}`, body: `${g.clients[c.clientId]?.name ?? 'Client'} · ${regs} · ${fmtDay(c.start)}–${fmtDay(c.end)}.`, ref: { kind: 'contract', id: c.id } });
+  pushMessage(g, { tone: 'good', cat: 'commercial', title: `Signed: ${c.title}`, body: `${g.clients[c.clientId]?.name ?? 'Client'} · ${regs} · ${fmtDay(c.start)}–${fmtDay(c.end)}.`, ref: { kind: 'contract', id: c.id }, cue: 'contractSigned' });
   return { ok: true, msg: `Signed: ${c.title}`, data: { contractId: c.id } };
 }
 
@@ -189,7 +215,7 @@ function acceptDry(g: GameState, o: ContractOffer, aircraftId: string): ActionRe
   closeOffer(g, o, 'accepted');
   schedule(g, Math.max(g.now, c.start), 'contract.start', c.id);
   const ac = g.fleet[aircraftId];
-  pushMessage(g, { tone: 'good', cat: 'commercial', title: `Signed: ${c.title}`, body: `${g.clients[c.clientId]?.name ?? 'Lessee'} · ${ac.reg} · ${fmtDay(c.start)}–${fmtDay(c.end)}. Our pilots ferry her out; the deposit is in.`, ref: { kind: 'contract', id: c.id } });
+  pushMessage(g, { tone: 'good', cat: 'commercial', title: `Signed: ${c.title}`, body: `${g.clients[c.clientId]?.name ?? 'Lessee'} · ${ac.reg} · ${fmtDay(c.start)}–${fmtDay(c.end)}. Our pilots ferry her out; the deposit is in.`, ref: { kind: 'contract', id: c.id }, cue: 'contractSigned' });
   return { ok: true, msg: `Signed: ${c.title}`, data: { contractId: c.id } };
 }
 
@@ -515,6 +541,9 @@ function completeContract(g: GameState, c: Contract): void {
   noteJobDone(g, c.clientId);
   // Deportation: the press noticed (clean −2 a flight with returnees, capped −10 a contract; billed as flown).
   g.stats.contractsDone++;
+  const v = v09Stats(g);
+  if (c.archetype === 'hajj') v.hajjDone = (v.hajjDone ?? 0) + 1;
+  if (c.archetype === 'evacuation' || c.archetype === 'repatriation') v.homeSafe = (v.homeSafe ?? 0) + 1;
   rollRepeat(g, c.id);
   // Legs a rival flew for us or that were cancelled (still in the flight table), so "0 legs flown" reads right.
   let sub = 0;
@@ -532,6 +561,7 @@ function completeContract(g: GameState, c: Contract): void {
     body: `${parts.join(', ')}. ${cl?.name ?? 'The client'} ${!flown ? 'has closed the contract' : onTime >= 0.85 ? 'is pleased' : 'noticed the delays'}.`,
     ref: { kind: 'contract', id: c.id },
   });
+  completeHook?.(g, c);
 }
 
 /** Days until start (UI helper). */

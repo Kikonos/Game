@@ -352,7 +352,7 @@ export function dailyRelations(g: GameState): void {
     const up = rank(now) > rank(was);
     pushMessage(g, {
       tone: now === 'unhappy' ? 'warn' : up ? 'good' : 'info', cat: 'commercial', title: up || now === 'unhappy' ? LEVEL_UP_TITLE[now](c.name) : `${c.name} is now a ${LEVEL_NAME[now]} client`,
-      body: levelBody(c, was, now), ref: { kind: 'client', id: c.id },
+      body: levelBody(c, was, now), ref: { kind: 'client', id: c.id }, ...(now === 'unhappy' ? { cue: 'clientCollapse' as const } : {}),
       ...(now === 'unhappy' ? { problem: { kind: 'clientUnhappy' as const, ref: { kind: 'client' as const, id: c.id } } } : {}),
     });
   }

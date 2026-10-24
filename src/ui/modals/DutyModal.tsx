@@ -3,15 +3,15 @@
 // choices are shown red with reasons and need a second tap ("assign anyway"); they stay flagged on the schedule.
 // Engine: crew/rosterActions.ts (dutyCrew, dutyCandidates, dutyLegality, assignCrew, unassignCrew, swapCrew, unlockCrew).
 
-import { clientCrewOf } from '../../engine/crew';
+import { clientCrewOf, crewAlertKind, slipOfFlight } from '../../engine/crew';
 import { ClientCrewRow } from './v08Bits';
-import { ArrowLeftRight, BedDouble, ChevronDown, ChevronLeft, ChevronRight, Lock, LockOpen, Plus, UserMinus, Users } from 'lucide-react';
+import { ArrowLeftRight, BedDouble, ChevronDown, ChevronLeft, ChevronRight, Lock, LockOpen, Plus, Repeat, UserMinus, Users } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { flightsRev } from '../../engine/core/entities';
 import { seatLabel } from '../../engine/core/perf';
 import { BAL } from '../../engine/core/balance';
 import { DAY, fmtDateTime, fmtTime } from '../../engine/core/time';
-import type { GameState, Role } from '../../engine/core/types';
+import type { Duty, GameState, Role } from '../../engine/core/types';
 import {
   assignCrew, crewGauges, crewRev, dutyCandidates, dutyCrew, dutyLegality, dutyOf, fdpWhy, restPlan, restPlanForFlight, restVerdict, rosterOf, setDutyAugment, swapCrew, unassignCrew, unlockCrew,
   type DutyCandidate, type DutyCrewView, type RosterSlotView,
@@ -229,7 +229,7 @@ function DayLength({ g, dutyId, ac }: { g: GameState; dutyId: string; ac?: strin
   return (
     <div className="col gap-8">
       <span className="small muted row gap-8 wrap">
-        <span><Term id="fdp">Day length</Term> <b className="num">{hm(d.fdp)}</b> of <b className="num">{hm(limit)}</b></span>
+        <span><Term id="fdp">Day length</Term> <b className="num">{hm(d.fdp)}</b> of <b className="num">{hm(d.discretion ? d.maxFdp : limit)}</b>{d.discretion ? <> + {hm(d.discretion)} <Term id="discretion">discretion</Term></> : null}</span>
         {why && <button className="dm-why-btn" onClick={() => setOpen(!open)} aria-expanded={open}>{open ? 'Hide why' : `Why ${hm(limit)}?`}</button>}
         <span>· {d.sectors} sector{d.sectors === 1 ? '' : 's'} · {2 + d.augment} pilots{d.ext ? ' · planned extension' : ''}{d.split ? ' · split duty' : ''}{ac ? ` · ${ac}` : ''}</span>
       </span>
@@ -273,6 +273,19 @@ function DayLength({ g, dutyId, ac }: { g: GameState; dutyId: string; ac?: strin
   );
 }
 
+const names = (l: string[]) => (l.length ? (l.length > 2 ? `${l.slice(0, 2).join(', ')} and ${l.length - 2} more` : l.join(' and ')) : 'the other crew');
+
+/** v0.9 §W.3 a duty that starts or ends at a crew change: 'Takes over at Istanbul from …' / 'Hands over at Istanbul to …'. */
+function SlipLine({ g, d }: { g: GameState; d: Duty }) {
+  if (!d.slipAt) return null;
+  const fl = d.flightIds.map((x) => g.flights[x]).filter(Boolean);
+  const startsThere = fl[0]?.from === d.slipAt;
+  const sv = slipOfFlight(g, (startsThere ? fl[0] : fl[fl.length - 1])!.id);
+  if (!sv) return null;
+  const text = startsThere ? `Takes over at ${sv.atName} from ${names(sv.outCrew.names)}` : `Hands over at ${sv.atName} to ${names(sv.inCrew.names)}`;
+  return <span className="small v9-slip"><Repeat className="sc-ico-s accent" /><Term id="slipCrew">{text}</Term></span>;
+}
+
 export function DutyModal({ id }: { id: string }) {
   const g = useGame();
   const [pick, setPick] = useState<Pick | null>(null);
@@ -304,7 +317,7 @@ export function DutyModal({ id }: { id: string }) {
   const later = d.report > g.now + BAL.rosterHorizonDays * DAY && v.slots.every((x) => !x.crewId);
   // v0.7.1 §4: the same four-line card as the flight sheet and the Inbox, with Crew Control for a shortage.
   const card = first && !later ? problemAt(g, { kind: 'flight', id: first.id }) : null;
-  const short = card && (card.subject.kind === 'crewShort' || card.subject.kind === 'crewIllegal' || card.subject.kind === 'ferryUncrewed');
+  const short = card && (card.subject.kind === 'crewShort' || card.subject.kind === 'crewIllegal' || card.subject.kind === 'ferryUncrewed' || card.subject.kind === 'crewHours');
   const remove = (s: RosterSlotView) => {
     if (!s.crewId) return;
     const optional = s.extra || s.above;
@@ -313,7 +326,7 @@ export function DutyModal({ id }: { id: string }) {
     setForceOff(null);
   };
   return (
-    <Modal size="wide" className="sc-duty-modal" title={<span className="row gap-12 wrap"><span>Crew · {route}</span>{short && card && !pick && <span className={`cs-banner ${card.severity}`}>CREW SHORTAGE</span>}</span>} icon={<Users className="accent" />} onClose={close} footer={
+    <Modal size="wide" className="sc-duty-modal" title={<span className="row gap-12 wrap"><span>Crew · {route}</span>{short && card && !pick && <span className={`cs-banner ${card.severity}`}>{first && crewAlertKind(g, first.id) === 'hours' ? 'CREW OUT OF HOURS' : 'CREW SHORTAGE'}</span>}</span>} icon={<Users className="accent" />} onClose={close} footer={
       pick ? undefined : (
         <>
           <button className="btn" onClick={() => setPick({ seat: null, role: 'CC' })} disabled={busy}><Plus /> Add crew member</button>
@@ -336,6 +349,7 @@ export function DutyModal({ id }: { id: string }) {
               Report {fmtDateTime(d.report)} UTC{first ? ` (${fmtTime(d.report, first.from)} at ${first.from})` : ''} · release {fmtTime(d.release)} UTC
             </span>
             <DayLength g={g} dutyId={d.id} ac={ac?.reg} />
+            <SlipLine g={g} d={d} />
             <span className="small dim">
               {v.kind === 'tour' ? 'Deployment tour' : 'Trip'} of {open.length} dut{open.length === 1 ? 'y' : 'ies'} still to fly: a change applies to all of them.
             </span>

@@ -21,7 +21,9 @@ import { money } from '../format';
 import { store, useGame } from '../store';
 import { ArchIcon, Chips, ScreenHead, useRenderCount } from './common';
 import { contractColor } from './palette';
-import { archLabel, expiryLabel, liveHook, marketOffers, missedOffers, productLine, reqChips, riskChips, routeSummary, offerDays } from './screenLogic';
+import { archLabel, expiryLabel, liveHook, marketOffers, missedOffers, productLine, reqChips, riskChips, routeSummary, offerDays, v09Chips } from './screenLogic';
+import { analystView } from '../../engine/ops';
+import { ScreenHint } from '../components/ScreenHint';
 
 type View = 'market' | 'active' | 'missed';
 
@@ -35,7 +37,9 @@ function OfferCard({ g, o, windows }: { g: GameState; o: ContractOffer; windows:
   const paint = o.paint ? [{ label: `Their livery${o.paint.required ? ' · required' : ''}`, tone: o.paint.required ? ('warn' as const) : undefined, tip: o.paint.kind === 'full' ? 'Full repaint in the client colours for the contract' : 'Client titles and logo on a white aircraft' }] : [];
   // v0.7.4 the client's cabin request (a quick reconfiguration at their expense).
   const cabin = o.cabin ? [{ label: `Their cabin: ${o.cabin.layout === 'two-class' ? 'two-class' : 'all economy'}${o.cabin.required ? ' · required' : ''}`, tone: o.cabin.required ? ('warn' as const) : undefined, tip: `A 48 h reconfiguration before the start; they pay ${o.cabin.clientShare >= 1 ? 'all of it' : 'half'}${o.cabin.revert ? ', and for putting it back' : ''}` }] : [];
-  const chips = [...paint, ...cabin, ...reqChips(o.requirements, o.pattern), ...riskChips(o.risk)];
+  // v0.9 the analyst's score (when hired and on): once per offer and game hour.
+  const av = useMemo(() => analystView(g, o.id), [g, o.id, o.status, Math.floor(g.now / 60)]); // eslint-disable-line react-hooks/exhaustive-deps
+  const chips = [...v09Chips(o, av), ...paint, ...cabin, ...reqChips(o.requirements, o.pattern), ...riskChips(o.risk)];
   // v0.7.1 §13: a WHY? dot when the offer can't be flown as it stands or a counter is about to expire.
   const prob = problemAt(g, { kind: 'offer', id: o.id });
   return (
@@ -282,6 +286,7 @@ export function ContractsScreen() {
           { id: 'missed', label: 'Missed', count: nMissed },
         ]} />
       </ScreenHead>
+      <ScreenHint id="contracts" />
       <HeadStrip g={g} />
       {view === 'market' && <Market g={g} />}
       {view === 'active' && <Active g={g} sel={nav.sel?.kind === 'contract' ? nav.sel.id : null} />}

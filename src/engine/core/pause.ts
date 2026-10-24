@@ -1,11 +1,14 @@
 // Auto-pause requests raised by handlers and actions (runtime only, not saved).
+import { muteCues, restoreCues, saveCues, unmuteCues } from './cues';
 // Every reason raised is kept; the caller decides which ones actually stop the clock (DESIGN.md §3.3, §6.5).
 
 /** v0.7 'marketOffer': a new aircraft market offer (UI honours it only with market alerts on). */
-export type PauseReason = 'decision' | 'urgentOffer' | 'aog' | 'monthEnd' | 'contractStart' | 'crewShortage' | 'marketOffer';
+export type PauseReason = 'decision' | 'urgentOffer' | 'aog' | 'monthEnd' | 'contractStart' | 'crewShortage' | 'marketOffer'
+  /** v0.9 crew out of hours (red stage); a watch-desk rule. */
+  | 'crewHours' | 'rule';
 
 /** Priority when several honoured reasons arrive in the same event (first wins for the tooltip). */
-export const PAUSE_ORDER: PauseReason[] = ['aog', 'decision', 'urgentOffer', 'crewShortage', 'contractStart', 'monthEnd', 'marketOffer'];
+export const PAUSE_ORDER: PauseReason[] = ['aog', 'decision', 'urgentOffer', 'crewHours', 'crewShortage', 'rule', 'contractStart', 'monthEnd', 'marketOffer'];
 
 const pending = new Set<PauseReason>();
 
@@ -40,10 +43,14 @@ export function takePause(honour?: ReadonlySet<PauseReason>): PauseReason | null
  */
 export function isolatePauses<T>(fn: () => T): T {
   const saved = [...pending];
+  const cues = saveCues();
+  muteCues();
   try {
     return fn();
   } finally {
+    unmuteCues();
     pending.clear();
     for (const r of saved) pending.add(r);
+    restoreCues(cues);
   }
 }

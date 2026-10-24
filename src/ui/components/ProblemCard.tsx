@@ -59,7 +59,10 @@ export function Visuals({ card, all }: { card: ProblemCard; all?: boolean }) {
   if (v.reach) parts.push(<ReachBar key="reach" spec={v.reach} limited={reachLimited(card)} />);
   if (v.minimap) parts.push(<MiniMapSlot key="mini" spec={v.minimap} />);
   if (v.timeline) parts.push(<Timeline key="tl" spec={v.timeline} />);
-  if (v.gauges?.length) parts.push(<div key="g" className="pc-gauges">{(all ? v.gauges : v.gauges.slice(0, 4)).map((s) => <Gauge key={`${s.id}-${s.crewId ?? ''}`} spec={s} />)}</div>);
+  // A crew card's cumulative gauges are at report (the strip and WHY include the trip): say so. An out-of-hours
+  // card's first gauge is the broken limit, which the engine gives with the trip (as the WHY and the strip).
+  const trip = v.gauges?.some((x) => x.id === 'fdp') ? 'before this trip' : undefined;
+  if (v.gauges?.length) parts.push(<div key="g" className="pc-gauges">{(all ? v.gauges : v.gauges.slice(0, 4)).map((s, i) => <Gauge key={`${s.id}-${s.crewId ?? ''}`} spec={s} before={card.subject.kind === 'crewHours' && i === 0 ? 'with this trip' : trip} />)}</div>);
   if (!parts.length) return null;
   return <div className="pc-visual">{parts}</div>;
 }

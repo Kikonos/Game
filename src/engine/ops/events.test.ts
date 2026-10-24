@@ -1,5 +1,6 @@
 // Events, decisions and their resolvers (B3). DESIGN.md §5.8, BUILD-PLAN B3 acceptance.
 
+import { onFlightDep } from './flights';
 import { describe, expect, it } from 'vitest';
 import { BAL } from '../core/balance';
 import { flightsOf } from '../core/entities';
@@ -7,9 +8,9 @@ import { pushDecision } from '../core/messages';
 import { DAY, fromUTC } from '../core/time';
 import type { Aircraft, Contract, Flight, GameState, Minute, Receivable, SimEvent } from '../core/types';
 import { acceptOffer } from '../contracts';
-import { addAircraft, hamBase, leased, legsOffer, newGame, owned } from '../contracts/testkit';
+import { addAircraft, hamBase, leased, legsOffer, newGame, owned, run } from '../contracts/testkit';
 import { advanceTo } from '../sim';
-import { aogDecision, canAsk, changeRequestFor, crewShortDecision, latePaymentDecision, onDecisionExpire, paceDecisions, permitDelayFor, rescueDecision, resolveDecision, seasonNudge } from './events';
+import { aogDecision, canAsk, changeRequestFor, clientFeeFor, crewShortDecision, latePaymentDecision, onDecisionExpire, paceDecisions, permitDelayFor, rescueDecision, resolveDecision, seasonNudge } from './events';
 import { cancelCost, planHold, windowLegs } from './flights';
 import { startAog } from './maintenance';
 import { isRevenue, stats, turnOf } from './util';
@@ -203,6 +204,10 @@ describe('crew short', () => {
 
   it('discretion is offered and the default when the overrun is 2 h or less', () => {
     const { g, f, duty, d } = overrun(60);
+    // v0.9 round 4 (§T, §V): an over-FDP crew is out of hours: the decision says so, names the flight once and keeps the hurt as prose.
+    expect(d.title).toBe(`Crew out of hours: ${f.no} ${f.from}–${f.to}`);
+    expect(d.body).not.toContain(` for ${f.no}.`);
+    expect(d.body).not.toMatch(/Yes:|Not much:/);
     // v0.7.1: the options are Crew Control's fixes (discretion first; delay and cancel always offered).
     expect(d.options.map((o) => o.id)).toContain('discretion');
     expect(d.options.map((o) => o.id)).toContain('delay');
@@ -215,6 +220,39 @@ describe('crew short', () => {
     expect(duty.legality).not.toBe('illegal');
     expect(f.crewDecided).toBe(true);
     crew.forEach((c, i) => expect(c.morale).toBeCloseTo(Math.max(0, morale[i] - 3), 5));
+  });
+
+  it('v0.9 round 4: a day 2 min over on the clock at the gate decides at once, discretion is judged live, and the leg departs at the next attempt', () => {
+    const { g, ac } = baseGame();
+    const f = atGate(g, ac);
+    const d = g.duties[f.dutyId!];
+    expect(d.report).toBeLessThanOrEqual(g.now);
+    // Held at the gate for crew (the schedule stands, only `delay` grew), 10 min into the wait: the day as it would run
+    // from now is 2 min over a limit the planned day was 30 min under; the duty still carries the FDP written earlier.
+    const last = g.flights[d.flightIds[d.flightIds.length - 1]];
+    g.now = f.std + 120;
+    f.delay = 120;
+    f.crewHeld = true;
+    f.heldAt = g.now - 10;
+    d.maxFdp = g.now + (last.sta - f.std) - d.report - 2;
+    d.plannedFdp = d.maxFdp - 30;
+    d.fdp = d.maxFdp - 30;
+    d.legality = 'illegal';
+    onFlightDep(g, ev(g, 'flight.dep', f.id));
+    // Posted at once (not after BAL.crewWaitMin, which would outgrow the allowance), with the live overrun.
+    expect(f.status).toBe('scheduled');
+    const dec = only(g, 'crewShort');
+    const opt = dec.options.find((o) => o.id === 'discretion')!;
+    expect(opt, dec.options.map((o) => o.id).join()).toBeTruthy();
+    expect(opt.chips).toContain('FDP +2m');
+    expect(dec.defaultOption).toBe('discretion');
+    expect(resolveDecision(g, dec.id, 'discretion').ok).toBe(true);
+    expect(g.duties[f.dutyId!].discretion ?? 0).toBeGreaterThanOrEqual(2);
+    expect(g.duties[f.dutyId!].legality).not.toBe('illegal');
+    // The queued attempt departs it: no 'Waiting for a rescue crew', no cancellation.
+    onFlightDep(g, ev(g, 'flight.dep', f.id));
+    expect(f.status).toBe('enroute');
+    expect(f.delayReason).not.toMatch(/rescue crew|legal crew/);
   });
 
   it('no discretion beyond 2 h: wait for a legal crew, sub-charter or cancel', () => {
@@ -404,6 +442,33 @@ describe('client change requests', () => {
     resolveDecision(g, d.id, 'accept');
     expect(f.std).toBe(std + Number(d.data!.minutes));
     expect(line(g, 'otherRevenue')).toBe(rev + fee);
+  });
+
+  // v0.9 round 3 (tripMoveFerries' player save on another bot path): Jet2 moved a trip by a day, then asked for a later
+  // departure; agreed, the recovery dropped both legs as "more than 24 h late" and paid the client compensation for its
+  // own request. Lateness the client asked for is accepted lateness (lateOk), as a player's own delay is.
+  it("a trip the client moved by a day and then later still is not dropped as late (the client's own lateness)", () => {
+    const g = newGame(8);
+    const ac = leased(g);
+    const t0 = g.now + 4 * DAY;
+    const o = legsOffer(g, [['LIS', 'FNC', t0 + 10 * 60], ['FNC', 'LIS', t0 + 15 * 60]]);
+    const r = acceptOffer(g, o.id, [ac.id]);
+    if (!r.ok) throw new Error(r.error);
+    const c = g.contracts[r.data!.contractId];
+    g.clients[c.clientId].level = 'known';
+    stats(g).askedAt = [];
+    expect(clientFeeFor(g, c)).toBe(true);
+    const legs = Object.values(g.flights).filter((f) => f.contractId === c.id && isRevenue(f)).sort((a, b) => a.std - b.std);
+    expect(legs[0].std - legs[0].schedStd!).toBe(DAY);
+    stats(g).askedAt = [];
+    expect(changeRequestFor(g, c)).toBe(true);
+    const d = only(g, 'changeRequest');
+    const minutes = Number(d.data!.minutes);
+    resolveDecision(g, d.id, 'accept');
+    expect(legs[0].std - legs[0].schedStd!).toBe(DAY + minutes);
+    expect(legs[0].lateOk).toBeGreaterThanOrEqual(DAY + minutes);
+    run(g, legs[1].sta + 6 * 60);
+    expect(legs.map((f) => f.status)).toEqual(['done', 'done']);
   });
 });
 

@@ -11,6 +11,7 @@ import { evalSegs, LIMITS } from './rules';
 import { ctxOf, segsOf } from './timeline';
 import { addCrew, fixtureContract, fixtureGame, seasonBase } from './fixtures';
 import { autoRoster, buildDuties, captainAsFo, crewWindows, dutyCandidates, flightCrewStatus, rosterOf } from '.';
+import { recheckSoon } from './roster';
 import { canFill, seatLabel } from '../core/perf';
 
 const scheduled = (g: GameState) => Object.values(g.flights).filter((f) => f.aircraftId && f.status === 'scheduled');
@@ -26,21 +27,25 @@ function allCrewLegal(g: GameState): string[] {
   return bad;
 }
 
-/** Each crew member gets ≥ 36 h off (two local nights not checked here) in every 7 days of their planned roster. */
+/**
+ * ORO.FTL.235(d) recurrent extended recovery: a rest of ≥ 36 h (two local nights not checked here) at most 168 h after
+ * the end of the previous one, over the planned roster (v0.9: standby is work, not rest). The roster's start counts as
+ * the end of a rest.
+ */
 function weeklyRecovery(g: GameState, from: number, to: number): string[] {
   const bad: string[] = [];
   for (const c of Object.values(g.crew)) {
     const segs = segsOf(g, c).filter((s) => s.kind !== 'log' && s.end > from && s.start < to);
     if (segs.length < 2) continue;
-    for (let w = from; w + 7 * DAY <= to; w += DAY) {
-      const inW = segs.filter((s) => s.end > w && s.start < w + 7 * DAY);
-      if (!inW.length) continue;
-      let best = Math.max(inW[0].start - w, w + 7 * DAY - inW[inW.length - 1].end);
-      for (let i = 1; i < inW.length; i++) best = Math.max(best, inW[i].start - inW[i - 1].end);
-      if (best < LIMITS.recovery) {
+    let lastEnd = Math.max(from, c.lastRecovery);
+    let prev = from;
+    for (const s of segs) {
+      if (s.start - prev >= LIMITS.recovery) lastEnd = s.start;
+      else if (s.start - lastEnd > LIMITS.recoveryEvery) {
         bad.push(c.id);
         break;
       }
+      prev = Math.max(prev, s.end);
     }
   }
   return bad;
@@ -147,6 +152,12 @@ describe('changes through core helpers', () => {
     const keep = new Set<string>();
     for (const role of ['CPT', 'FO', 'PUR', 'CC', 'CC', 'CC'] as const) keep.add(Object.values(g.crew).find((c) => c.role === role && !keep.has(c.id))!.id);
     for (const id of Object.keys(g.crew)) if (!keep.has(id)) delete g.crew[id];
+    // v0.9: no planned days off or standby in the way (roster planning: dayPlan.test.ts).
+    for (const c of Object.values(g.crew)) {
+      c.off = [];
+      delete c.standby;
+      delete c.blocks;
+    }
     const ac = Object.values(g.fleet)[0];
     const day = Math.floor(g.now / DAY) * DAY;
     const legs: [number, string, string][] = [[2 * DAY + 14 * 60, 'LIS', 'FAO'], [2 * DAY + 15 * 60 + 35, 'FAO', 'LIS'], [3 * DAY + 6 * 60, 'LIS', 'FAO'], [3 * DAY + 7 * 60 + 35, 'FAO', 'LIS']];
@@ -165,7 +176,7 @@ describe('changes through core helpers', () => {
   it('a 4 h delay rerosters: the next duty stays legal by swapping to standby crew', () => {
     const { g, d2, delay } = tightPair();
     const first = g.pairings[d2.pairingId].slots.map((s) => s.crewId);
-    addCrew(g, { CPT: 1, FO: 1, PUR: 1, CC: 3 });
+    for (const id of addCrew(g, { CPT: 1, FO: 1, PUR: 1, CC: 3 })) g.crew[id].off = [];
     delay();
     expect(g.duties[d2.id].report).toBe(d2.report);
     const [a, b] = Object.values(g.duties).sort((x, y) => x.report - y.report);
@@ -195,7 +206,7 @@ describe('augmentation', () => {
     ac.typeId = 'a333';
     ac.cabin = { ...ac.cabin, total: 300, y: 300, j: 0, w: 0 };
     ac.rest = { fc: { cls: 1, kind: 'fcrc', places: 2 }, cc: { cls: 1, kind: 'ldmcr', places: 7 } };
-    addCrew(g, { CPT: 3, FO: 4, PUR: 4, CC: 14 }, 'A330/340');
+    for (const id of addCrew(g, { CPT: 3, FO: 4, PUR: 4, CC: 14 }, 'A330/340')) g.crew[id].off = [];
     const std = Math.floor(g.now / DAY) * DAY + 2 * DAY + 20 * 60;
     fixtureContract(g, { aircraftIds: [ac.id], start: std, end: std + DAY, pattern: { kind: 'legs', legs: [] }, product: { kind: 'charter', price: 1, depositPct: 0, balanceDaysBefore: 0, fuelEscalation: false } });
     const f = { no: 'AW1', aircraftId: ac.id, contractId: null, kind: 'revenue' as const, from: 'LIS', to: 'GRU', std, sta: std + 12 * 60 + 30 };
@@ -297,6 +308,52 @@ describe('deadheads', () => {
   });
 });
 
+describe('v0.9 round 3: the ticket home after a late release', () => {
+  it('a release that leaves the free time before the ticket home short of the 60 h recovery (4 night duties) rebooks the ticket after it', async () => {
+    const { recheckAfterRelease } = await import('./roster');
+    const { BAL } = await import('../core/balance');
+    const g = fixtureGame();
+    const ac = Object.values(g.fleet)[0];
+    ac.at = 'FAO';
+    const std = Math.floor(g.now / DAY) * DAY + 2 * DAY + 9 * 60;
+    const a1 = addFlight(g, { no: 'AW1', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'FAO', to: 'FNC', std, sta: std + 110 });
+    addFlight(g, { no: 'AW2', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'FNC', to: 'FAO', std: std + 160, sta: std + 270 });
+    autoRoster(g);
+    const d = g.duties[a1.dutyId!];
+    const p = g.pairings[d.pairingId];
+    const home = Object.values(g.flights).find((f) => f.kind === 'deadhead' && f.from === 'FAO' && f.to === 'LIS' && f.status === 'scheduled')!;
+    expect(home).toBeDefined();
+    const c = g.crew[home.crewIds[0]];
+    // Four night duties since the last recovery rest (the next one must be 60 h), then this duty, released at R.
+    const R = d.release;
+    const H = 60;
+    c.lastRecovery = R - 5 * DAY;
+    c.log = [1, 2, 3, 4].map((k) => ({ start: R - (5 - k) * DAY - 20 * H, end: R - (5 - k) * DAY - 14 * H, fdp: 6 * H, block: 4 * H, sectors: 2, augmented: false, disruptive: true }));
+    c.log.push({ start: d.report, end: R, fdp: R - d.report, block: 220, sectors: 2, augmented: false, disruptive: false });
+    d.done = true;
+    for (const id of d.flightIds) g.flights[id].status = 'done';
+    // The ticket home 59 h 40 m after the release (a 20 min late release ate the recovery) lands past the 168 h.
+    const ci = BAL.deadheadCheckIn;
+    const blk = home.sta - home.std;
+    home.std = R + 59 * H + 40 + ci;
+    home.sta = home.std + blk;
+    g.now = R + 10;
+    const { touchTickets } = await import('../core/entities');
+    touchTickets(g);
+    expect(evalSegs(ctxOf(g, c), segsOf(g, c)).some((i) => i.code === 'recovery' && i.level === 'illegal')).toBe(true);
+    recheckAfterRelease(g, p);
+    const mine = Object.values(g.flights).filter((f) => f.kind === 'deadhead' && f.status === 'scheduled' && f.crewIds.includes(c.id) && f.from === 'FAO');
+    expect(mine).toHaveLength(1);
+    expect(mine[0].std - ci - R).toBeGreaterThanOrEqual(LIMITS.recoveryLong);
+    // Nothing but the standby windows the day planner re-fits (they give way to the later ticket) breaks the 168 h.
+    const work = segsOf(g, c).filter((x) => !(x.kind === 'sby' && x.start > g.now));
+    expect(evalSegs(ctxOf(g, c), work).filter((i) => i.code === 'recovery' && i.level === 'illegal')).toEqual([]);
+    // The others aboard (no night duties behind them) keep their ticket.
+    expect(home.crewIds.length).toBeGreaterThan(0);
+    expect(home.crewIds).not.toContain(c.id);
+  });
+});
+
 describe('performance', () => {
   const month = () => {
     const g = fixtureGame();
@@ -305,23 +362,48 @@ describe('performance', () => {
     demoFlights(g, undefined, 30, 'revenue');
     return g;
   };
-  it('rosters a month of flights for 4 aircraft and ~120 crew quickly (50 ms target, 120 ms budget), deterministically', () => {
-    // Best of 6 fresh games (the first is the JIT warm-up), so parallel test files don't make it flaky.
-    const times: number[] = [];
-    const sigs: string[] = [];
-    for (let k = 0; k < 6; k++) {
-      const g = month();
-      const t0 = performance.now();
-      const res = autoRoster(g, { to: g.now + 31 * DAY });
-      times.push(performance.now() - t0);
-      expect(res.uncovered).toEqual([]);
-      expect(Object.keys(g.crew).length).toBe(120);
-      sigs.push(JSON.stringify(Object.values(g.pairings).map((p) => p.slots.map((s) => s.crewId))));
-    }
-    console.log(`autoRoster (month, 4 aircraft, 120 crew): ${times.map((t) => t.toFixed(1)).join(' / ')} ms (target 50 ms)`);
-    expect(new Set(sigs).size).toBe(1);
-    // v0.7 C5: the 50 ms target stays in the log; the assertion budget is 120 ms (load from parallel files).
-    expect(Math.min(...times)).toBeLessThan(120);
+  /**
+   * v0.9 round 3: a fixed pure-JS workload (allocate, sort, hash 20,000 records) timed next to each roster run. On an
+   * idle machine it takes about CALIB_IDLE_MS (8–9 ms on the dev container); when parallel test files load the machine both slow down alike, so the
+   * budget is scaled by how much slower the reference ran (never below the 120 ms budget itself).
+   */
+  const CALIB_IDLE_MS = 9;
+  const calibrate = (): number => {
+    const t0 = performance.now();
+    let acc = 0;
+    const a = Array.from({ length: 20_000 }, (_, i) => ({ k: (i * 7919) % 20_011, v: i }));
+    a.sort((x, y) => x.k - y.k);
+    const m = new Map(a.map((x) => [x.k, x.v]));
+    for (const [k, v] of m) acc += k ^ v;
+    if (acc === 42) throw new Error('unreachable');
+    return performance.now() - t0;
+  };
+  it('rosters a month of flights for 4 aircraft and ~120 crew quickly (50 ms target, 120 ms budget scaled to the load), deterministically', () => {
+    const measure = () => {
+      // Best of 6 fresh games (the first is the JIT warm-up), so parallel test files don't make it flaky.
+      const times: number[] = [];
+      const ref: number[] = [];
+      const sigs: string[] = [];
+      for (let k = 0; k < 6; k++) {
+        const g = month();
+        ref.push(calibrate());
+        const t0 = performance.now();
+        const res = autoRoster(g, { to: g.now + 31 * DAY });
+        times.push(performance.now() - t0);
+        expect(res.uncovered).toEqual([]);
+        expect(Object.keys(g.crew).length).toBe(120);
+        sigs.push(JSON.stringify(Object.values(g.pairings).map((p) => p.slots.map((s) => s.crewId))));
+      }
+      expect(new Set(sigs).size).toBe(1);
+      const load = Math.max(1, Math.min(...ref) / CALIB_IDLE_MS);
+      return { best: Math.min(...times), budget: 120 * load, times, load };
+    };
+    // v0.7 C5: the 50 ms target stays in the log; the assertion budget is 120 ms on an idle machine. One retry: a
+    // burst of load from another file can land on the roster runs and miss the reference.
+    let r = measure();
+    if (r.best >= r.budget) r = measure();
+    console.log(`autoRoster (month, 4 aircraft, 120 crew): ${r.times.map((t) => t.toFixed(1)).join(' / ')} ms (target 50 ms, budget ${r.budget.toFixed(0)} ms at load ×${r.load.toFixed(2)})`);
+    expect(r.best).toBeLessThan(r.budget);
   });
 });
 
@@ -394,5 +476,33 @@ describe('v0.7.2 captains flying as first officers', () => {
     captainAsFo(g, c, g.now);
     expect(c.morale).toBe(m0 - 3);
     expect(g.stats.asFo).toBe(3);
+  });
+});
+
+describe('v0.9 round 5: a crewed tour never grows onto leave', () => {
+  it('a duty on a tour crew member\'s leave goes to another set or flies as a trip; the crew member is not on it', () => {
+    const g = fixtureGame();
+    g.company.policies.rotationWeeks = 4;
+    const ac = Object.keys(g.fleet)[0];
+    seasonBase(g, ac, 'HAM', 'PMI', [6 * 60, 12 * 60 + 30], 28);
+    // The first 16 days built and crewed; a tour crew member then takes leave over days 20–23.
+    autoRoster(g, { to: g.now + 16 * DAY });
+    const p = Object.values(g.pairings).filter((x) => x.tour && x.slots.every((s) => s.crewId)).sort((a, b) => a.start - b.start)[0];
+    const c = g.crew[p.slots[0].crewId!];
+    const day0 = Math.floor(g.now / DAY) * DAY;
+    const leave = { from: day0 + 20 * DAY, to: day0 + 24 * DAY, why: 'leave' as const, annual: true as const };
+    c.blocks = [...(c.blocks ?? []), leave];
+    autoRoster(g, { to: g.now + 30 * DAY });
+    // The daily re-check: a tour that grew past the leave splits at the first duty after it (that part re-crewed).
+    recheckSoon(g);
+    const onLeave = Object.values(g.duties).filter((d) => d.report < leave.to && d.release > leave.from);
+    expect(onLeave.length).toBeGreaterThan(2);
+    for (const d of onLeave) expect(g.pairings[d.pairingId]?.slots.some((s) => s.crewId === c.id), d.id).toBe(false);
+    // Nor does any tour of theirs span the leave (the crew stay at the station from first duty to last).
+    for (const q of Object.values(g.pairings)) {
+      if (!q.slots.some((s) => s.crewId === c.id)) continue;
+      expect(q.start < leave.to && q.end > leave.from, `${q.id} ${q.start}–${q.end}`).toBe(false);
+    }
+    expect(allCrewLegal(g).filter((x) => x.includes(c.id))).toEqual([]);
   });
 });

@@ -6,7 +6,7 @@ import type { RatingFamily } from '../../data/acmiTypes';
 import type { Reason } from '../../engine/crew';
 import { fmtTime, HOUR } from '../../engine/core/time';
 import type { GameState, Minute, Ref, Role } from '../../engine/core/types';
-import { hm } from '../../engine/problems/types';
+import { hm, hurtProse } from '../../engine/problems/types';
 import type { GaugeSpec, ProblemAction, ProblemCard, ReachSpec, TimelineSpec } from '../../engine/problems/types';
 import type { ModalSpec, Tab } from '../store';
 
@@ -147,8 +147,11 @@ export const reachLimited = (card: Pick<ProblemCard, 'why' | 'terms'>): boolean 
 export function decisionBodyTail(body: string, card: Pick<ProblemCard, 'what' | 'why' | 'hurt'> | null): string {
   if (!card) return body;
   let t = body;
-  for (const part of [`${card.what}.`, card.what, card.why, `${card.hurt.text}.`, card.hurt.text]) if (t.includes(part)) t = t.replace(part, '');
-  t = t.replace(/\s+/g, ' ').trim();
+  // Round 4: the WHAT without its ' for TP1234' tail and the hurt as prose (events.ts writes both that way).
+  const what2 = card.what.replace(/ for [A-Z0-9]+$/, '');
+  const prose = hurtProse(card);
+  for (const part of [`${card.what}.`, card.what, `${what2}.`, what2, card.why, `${card.hurt.text}.`, card.hurt.text, `${prose}.`, prose]) if (part && t.includes(part)) t = t.replace(part, '');
+  t = t.replace(/\s+/g, ' ').replace(/^[.;,\s]+/, '').trim();
   return t === body.trim() ? body : t;
 }
 
@@ -224,7 +227,7 @@ export function actionTarget(g: GameState, a: ProblemAction): ActionTarget {
   if ('tab' in o) return { nav: { tab: o.tab, view: o.view, sel: o.sel } };
   const id = o.id;
   switch (o.modal) {
-    case 'crewControl': return { modal: { kind: 'crewControl', flightId: id } };
+    case 'crewControl': return { modal: { kind: 'crewControl', flightId: id, ...(o.fix ? { fix: o.fix } : {}) } };
     case 'duty': return { modal: { kind: 'duty', id } };
     // v0.7.2: 'Plan at Sofia' (a C-check card) opens the hub list.
     case 'check': return { modal: /^Plan at /.test(a.label) ? { kind: 'check', aircraftId: id, checkKind: 'C' } : { kind: 'check', aircraftId: id } };

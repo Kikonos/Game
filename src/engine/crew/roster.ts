@@ -6,15 +6,17 @@ import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { requestPause } from '../core/pause';
 import { canFill, complement, typeOf } from '../core/perf';
-import { DAY, fmtDateTime } from '../core/time';
+import { DAY, fmtDateTime, monthKey } from '../core/time';
 import type { ActionResult, CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing, Role } from '../core/types';
-import { acceptable, crewIssuesFor, mergeSegs, openDuties, otherTrip, planCrew, type CrewPlan } from './check';
-import { deletePairing, dutyLegality, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setCrewTrailOkHook, setReleaseHook, setRetickHook, splitPairing, splitUnderWay, syncDuty } from './duties';
+import { acceptable, crewIssuesFor, mergeSegs, openDuties, otherTrip, overForAnyone, planCrew, type CrewPlan } from './check';
+import { deletePairing, dutyLegality, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setCrewTakeHook, setCrewTrailOkHook, setReleaseHook, setRetickHook, splitPairing, splitUnderWay, syncDuty } from './duties';
 import { crewName } from './generate';
-import { callIfOnStandby, dropStandby, standbyFor } from './standby';
+import { callIfOnStandby, dropStandby, standbyFor, callFromStandby } from './standby';
+import { fitStandby, monthFloorIssue, offDaysHit, offMovable, offSwappable, takeOffDays, takesPublishedOff, v09Stats as v09StatsOf } from './dayPlan';
+import { infoOf } from './outOfHours';
 import { lateChange, moraleShock, nextReport } from './morale';
-import { cabinFdpCap, DISCRETION, evalSegs, levelOf, minRest, tzDeltaH, worst, type Seg } from './rules';
-import { planRest, restCabinN, restLegs, restOf, restPlan } from './restPlan';
+import { cabinFdpCap, DISCRETION, evalSegs, levelOf, LIMITS, minRest, mkSeg, recoveryAnchor, tzDeltaH, worst, type LegalityIssue, type Seg } from './rules';
+import { cabinOwnReport, planRest, restCabinN, restLegs, restOf, restPlan } from './restPlan';
 import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, locAt, noteRiders, passengers, planHome, planOut, segsOf, ticketPrice, touchCrew, typeIdOf, withoutTickets } from './timeline';
 
 export { buildDuties } from './duties';
@@ -152,6 +154,7 @@ export function releaseCrew(g: GameState, p: Pairing, crewId: string): void {
     if (s.crewId !== crewId) continue;
     s.crewId = null;
     delete s.locked;
+    delete s.from;
   }
   // An extra seat exists only while someone holds it.
   if (p.slots.some((s) => s.extra && !s.crewId)) p.slots = p.slots.filter((s) => !(s.extra && !s.crewId));
@@ -265,7 +268,19 @@ function sendHome(g: GameState, c: CrewMember, p?: Pairing): void {
   if ((ix.tickets.get(c.id) ?? []).some((f) => f.status === 'scheduled' && (f.from === c.loc || f.std <= g.now))) return;
   if ((ix.pairingsOf.get(c.id) ?? []).some((x) => x.status === 'active' || (x.status === 'planned' && x.start < g.now + 3 * DAY))) return;
   const blk = dhBlock(c.loc, c.base);
-  const std = Math.ceil((Math.max(g.now, c.restUntil) + 60) / 60) * 60;
+  let std = Math.ceil((Math.max(g.now, c.restUntil) + 60) / 60) * 60;
+  // v0.9 fix: a ticket home landing past the 168 h since the last recovery rest (positioning is duty) waits for that
+  // recovery at the hotel first (36 h with 2 local nights, 60 h after 4 disruptive duties: ORO.FTL.235(d)).
+  const segs = segsOf(g, c);
+  const ctx = ctxOf(g, c);
+  const ci = BAL.deadheadCheckIn;
+  if (std + blk > recoveryAnchor(ctx, segs, std - ci) + LIMITS.recoveryEvery) {
+    for (let t = std; t < std + 4 * DAY; t += 60) {
+      if (recoveryAnchor(ctx, segs, t - ci) < t - ci) continue;
+      std = t;
+      break;
+    }
+  }
   const cost = clientPaysCrewTravel(g, p) ? 0 : ticketPrice(c.loc, c.base);
   const contractId = p?.contractId ?? null;
   // Crew going home together share one booking (one flight per group, DESIGN §3.5).
@@ -304,11 +319,52 @@ export function recheckSoon(g: GameState): void {
  * re-checked at once, and an aircraft whose crew can no longer fly a later duty is re-rostered.
  */
 export function recheckAfterRelease(g: GameState, p: Pairing): void {
+  rebookHomeForRecovery(g, p);
   const acs = new Set<string>();
   const ids = p.slots.filter((s) => s.crewId).map((s) => s.crewId!);
   if (openDuties(g, p).length && p.aircraftId && recheckPairing(g, p).level === 'illegal' && p.illegalFrom !== undefined) acs.add(p.aircraftId);
   for (const ac of laterBroken(g, ids, p)) acs.add(ac);
   if (g.company.policies.autoRoster) for (const ac of acs) rerosterFrom(g, ac, g.now);
+}
+
+/**
+ * v0.9 round 3: a duty released late can leave the ticket after it past the 168 h: the free time before the ticket is
+ * no longer a recovery rest (60 h after 4 disruptive duties: 59 h 40 m after a 70 min delay, ORO.FTL.235(d)), and a
+ * loose ticket is no duty's to re-plan, so it was flown (bot seeds 7 and 9: 217–218 h between recovery rests). The
+ * crew aboard wait for that recovery at the hotel and the ticket is rebooked after it, as sendHome plans one.
+ */
+function rebookHomeForRecovery(g: GameState, p: Pairing): void {
+  const ci = BAL.deadheadCheckIn;
+  for (const id of p.dutyIds) {
+    const d = g.duties[id];
+    if (!d?.done || d.release < g.now - 12 * 60) continue;
+    for (const fid of [...d.deadheadIds]) {
+      const f = g.flights[fid];
+      if (!f || f.kind !== 'deadhead' || f.status !== 'scheduled' || f.std < d.release || f.std - ci <= g.now) continue;
+      const late: string[] = [];
+      let std = f.std;
+      for (const cid of f.crewIds) {
+        const c = g.crew[cid];
+        if (!c) continue;
+        // Standby not started yet gives way (it is re-fitted after the rebooking).
+        const segs = segsOf(g, c).filter((x) => x.ticketId !== f.id && !(x.kind === 'sby' && x.start > g.now));
+        const ctx = ctxOf(g, c);
+        if (f.sta <= recoveryAnchor(ctx, segs, f.std - ci) + LIMITS.recoveryEvery) continue;
+        for (let t = f.std; t < f.std + 4 * DAY; t += 60) {
+          if (recoveryAnchor(ctx, segs, t - ci) < t - ci) continue;
+          std = Math.max(std, t);
+          late.push(cid);
+          break;
+        }
+      }
+      if (!late.length || std === f.std) continue;
+      for (const cid of late) unboard(g, f, cid);
+      if (!g.flights[fid]) d.deadheadIds = d.deadheadIds.filter((x) => x !== fid);
+      buyTicket(g, p, d, late, { from: f.from, to: f.to, std, sta: std + (f.sta - f.std) }, emptyResult());
+      touchCrew(g);
+      fitStandby(g, late);
+    }
+  }
 }
 
 /** Longest stay at an outstation between two trips that beats flying home and straight back out. */
@@ -412,13 +468,14 @@ function dissolve(g: GameState, p: Pairing): void {
  * the report of the first duty a crew member can't fly). `priorOnly` ignores the crew's later planned work (their
  * log stays), so a conflict frees the crew from the later pairing (re-roster order).
  */
-export function recheckPairing(g: GameState, p: Pairing, priorOnly = false): { level: Legality; illegal: string[]; from: Map<string, Minute> } {
+export function recheckPairing(g: GameState, p: Pairing, priorOnly = false): { level: Legality; illegal: string[]; from: Map<string, Minute>; issue: Map<string, LegalityIssue> } {
   let level: Legality = 'legal';
   const open = openDuties(g, p);
   for (const d of open) level = worst(level, d.legality);
   const illegal: string[] = [];
-  /** Per illegal crew member: report of the first duty they can't fly. */
+  /** Per illegal crew member: report of the first duty they can't fly, and the issue there. */
   const from = new Map<string, Minute>();
+  const issue = new Map<string, LegalityIssue>();
   const own = new Set(p.dutyIds);
   let first = Infinity;
   for (const s of p.slots) {
@@ -433,7 +490,12 @@ export function recheckPairing(g: GameState, p: Pairing, priorOnly = false): { l
     const crewLevel = levelOf(mine);
     if (crewLevel === 'illegal') {
       let t = Infinity;
-      for (const i of mine) if (i.level === 'illegal') t = Math.min(t, g.duties[i.dutyId!]?.report ?? open[0]?.report ?? 0);
+      for (const i of mine) {
+        if (i.level !== 'illegal') continue;
+        const r = g.duties[i.dutyId!]?.report ?? open[0]?.report ?? 0;
+        if (r < t || !issue.has(c.id)) issue.set(c.id, i);
+        t = Math.min(t, r);
+      }
       from.set(c.id, t);
       illegal.push(c.id);
       first = Math.min(first, t);
@@ -443,7 +505,18 @@ export function recheckPairing(g: GameState, p: Pairing, priorOnly = false): { l
   p.legality = level;
   if (first < Infinity) p.illegalFrom = first;
   else delete p.illegalFrom;
-  return { level, illegal, from };
+  return { level, illegal, from, issue };
+}
+
+/**
+ * v0.9 crew out of hours (UPDATE-0.9.md §T.2): an empty seat of p remembers who reached which limit until it is
+ * refilled (fillPairing clears it). Nothing for an issue that is no limit (place, rating, status).
+ */
+function markOoh(g: GameState, p: Pairing, crewId: string, issue: LegalityIssue): void {
+  const x = infoOf(g, crewId, issue);
+  const role = g.crew[crewId]?.role;
+  const slot = p.slots.find((z) => !z.crewId && !z.above && !z.ooh && z.role === role) ?? p.slots.find((z) => !z.crewId && !z.above && !z.ooh);
+  if (slot && x) slot.ooh = { crewId, limit: x.limit, over: x.overMin, at: g.now };
 }
 
 /** Pairings of the crew's later trips (after p) that are now illegal for them; their aircraft need a re-roster. */
@@ -532,28 +605,38 @@ export function guardDuty(g: GameState, dutyId: string): boolean {
       recheckPairing(g, q);
     }
     short = g.pairings[d.pairingId]?.slots.filter((s) => !s.crewId && !s.above).length ?? 0;
+    // v0.9 crew out of hours (UPDATE-0.9.md §T.2): an empty seat remembers who reached which limit until refilled.
+    const q = g.pairings[d.pairingId];
+    if (q && short) {
+      for (const b of found) if (!q.slots.some((x) => x.crewId === b.crewId)) markOoh(g, q, b.crewId, b.issue);
+    }
   }
   const off = found.filter((b) => !(d && g.pairings[d.pairingId]?.slots.some((s) => s.crewId === b.crewId)));
+  // v0.9 round 4 (§T): taken off for a legal limit is crew out of hours (its own kind, icon and pause), not a shortage.
+  const hours = off.some((b) => infoOf(g, b.crewId, b.issue) !== null);
   if (off.length) {
     const fid = (d ?? g.duties[dutyId])?.flightIds[0];
     const f = fid ? g.flights[fid] : undefined;
     const what = f ? `${f.no} ${f.from}–${f.to} ${fmtDateTime(f.std)}` : 'the duty';
+    const red = !!f && short > 0 && hours && f.std - g.now <= BAL.crewControl.redH * 60;
     pushMessage(g, {
-      tone: short ? 'warn' : 'info', cat: 'crew',
+      tone: short ? 'warn' : 'info', cat: 'crew', ...(red ? { topic: 'crewHours' as const } : {}),
+      // The ladder's own red message carries the alarm; this one chimes as routine news.
+      cue: 'message',
       title: `${off.length === 1 ? 'Crew member' : `${off.length} crew`} taken off ${f?.no ?? 'a duty'}`,
       body: `${off.map((b) => crewName(g.crew[b.crewId])).join(', ')}: ${off[0].issue.text}. ${short ? `No legal replacement for ${short} seat${short > 1 ? 's' : ''} on ${what} yet.` : `Replaced on ${what}.`}`,
       ref: f ? { kind: 'flight', id: f.id } : undefined,
-      ...(short && f ? { problem: { kind: 'crewShort' as const, ref: { kind: 'flight' as const, id: f.id } }, hurt: { money: 0, pax: f.pax ?? 0, delayMin: 0, level: (f.pax ?? 0) >= BAL.crewControl.hurtLowPax ? 'high' as const : 'low' as const } } : {}),
+      ...(short && f ? { problem: { kind: hours ? 'crewHours' as const : 'crewShort' as const, ref: { kind: 'flight' as const, id: f.id } }, hurt: { money: 0, pax: f.pax ?? 0, delayMin: 0, level: (f.pax ?? 0) >= BAL.crewControl.hurtLowPax ? 'high' as const : 'low' as const } } : {}),
     });
   }
-  if (short) requestPause('crewShortage');
+  if (short) requestPause(hours ? 'crewHours' : 'crewShortage');
   touchCrew(g);
   return !d || (!short && !crewIssuesFor(g, d).length);
 }
 
 // ---------- auto-roster ----------
 
-const copySeg = (x: Seg): Seg => ({
+const copySeg = (x: Seg): Seg => mkSeg({
   kind: x.kind, start: x.start, end: x.end, fdp: x.fdp, maxFdp: x.maxFdp, block: x.block, sectors: x.sectors, aug: x.aug,
   disruptive: x.disruptive, rest: x.rest, at: x.at, from: x.from, dutyId: x.dutyId, fresh: false, home: x.home && { ...x.home }, out: x.out && { ...x.out },
 });
@@ -575,6 +658,22 @@ function busyAt(segs: Seg[], from: Minute, to: Minute): boolean {
     if (s.end + s.rest > from) return true;
   }
   return false;
+}
+
+/** v0.9 crew placed on new work in the current roster run (their future standby is re-fitted at its end). */
+const placed = new Set<string>();
+
+/** v0.9 the standby a crew plan's work (and its rest) clashes with gives way (crew/standby.ts dropStandby). */
+function dropSbyFor(g: GameState, c: CrewMember, plan: CrewPlan): void {
+  if (!plan.segs.length || !c.standby) return;
+  placed.add(c.id);
+  let from = Infinity;
+  let until = -Infinity;
+  for (const x of plan.segs) {
+    from = Math.min(from, x.start);
+    until = Math.max(until, x.end + x.rest);
+  }
+  dropStandby(g, c, from, until);
 }
 
 /** Per-run cache of crew timelines (updated as slots are filled; no index churn inside the loop). */
@@ -607,6 +706,14 @@ class Ctx {
   }
 }
 
+/** Distinct days with a duty (planned or flown) in the calendar month of t (UTC month: a planning weight). */
+function monthDutyDays(segs: Seg[], t: Minute): number {
+  const mk = monthKey(t);
+  const days = new Set<number>();
+  for (const s of segs) if ((s.kind === 'duty' || s.kind === 'log') && monthKey(s.start) === mk) days.add(Math.floor(s.start / DAY));
+  return days.size;
+}
+
 /** Crew who flew the aircraft's or contract's previous pairing (crew family bonus). */
 function previousCrew(g: GameState, p: Pairing): Set<string> {
   let best: Pairing | null = null;
@@ -621,6 +728,23 @@ function previousCrew(g: GameState, p: Pairing): Set<string> {
 const asFo = (slot: Role, role: Role) => role === 'CPT' && (slot === 'FO' || slot === 'CRP');
 
 /** Fills a pairing's empty slots with the best-scoring legal crew (DESIGN §5.3 steps 1–4, 6). */
+/**
+ * v0.9 fix: a plan refused only for days off not published yet that its month can spare (offMovable): the planner may
+ * move them (the second choice, after crew who need no change). Every other issue must be acceptable as usual.
+ * v0.9 round 3: a published day off too, for short-notice work, when the crew member agrees to swap it (offSwappable):
+ * the last choice.
+ */
+function offFallback(g: GameState, c: CrewMember, plan: CrewPlan, base: Seg[]): boolean {
+  if (!plan.issues.some((i) => i.code === 'daysOff')) return false;
+  if (!acceptable(g, { ...plan, issues: plan.issues.filter((i) => i.code !== 'daysOff') })) return false;
+  if (plan.issues.some((i) => i.code === 'daysOff' && i.level === 'illegal')) return false;
+  const work = plan.segs.filter((x) => x.kind !== 'log');
+  if (!work.length) return false;
+  // v0.9 round 3: a published day off only by agreement (crew control's swap, crew/dayPlan.ts offSwappable).
+  if (takesPublishedOff(g, c, work[0].start, work[work.length - 1].end)) return offSwappable(g, c, mergeSegs(base, plan.segs));
+  return offMovable(g, c, mergeSegs(base, plan.segs));
+}
+
 function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, exclude?: Set<string>): void {
   const duties = openDuties(g, p);
   if (!duties.length) return;
@@ -635,6 +759,8 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
   const prev = previousCrew(g, p);
   const hadCrew = crewCount(p) > 0;
   promoteSpares(g, p);
+  // v0.9 round 4 speed: a trip whose own duties break a cumulative window refuses everyone (no candidate planned).
+  if (overForAnyone(g, duties)) return;
   const inP = new Set(p.slots.filter((s) => s.crewId).map((s) => s.crewId!));
   // Seats above the legal minimum after every required one, and only before the trip starts (no one is
   // positioned out to an optional seat on a trip under way).
@@ -648,6 +774,9 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
   const pool: { c: CrewMember; score: number; rank: number }[] = [];
   for (const c of ctx.crew) {
     if (!fitRoles.has(c.role) || !c.ratings.includes(family) || inP.has(c.id) || exclude?.has(c.id) || c.morale < refuseBelow) continue;
+    // v0.9 round 3 speed: crew planCrew would refuse at once (on leave, sick, in training or joining during the trip;
+    // still resting at its report) are not planned at all: they were refused anyway, one full timeline check each.
+    if (c.restUntil > first.report || c.blocks?.some((b) => b.from < spanTo && b.to > first.report)) continue;
     // v0.5.2: crew still at the departure airport with a ticket home around this trip stay on instead
     // (planCrew drops that ticket): the pilots of a trip fly its trailing ferry.
     const all = ctx.of(c);
@@ -656,7 +785,9 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
     const loc = locAt(c, segs, first.report);
     let tp = price.get(loc);
     if (tp === undefined) price.set(loc, (tp = ticketPrice(loc, dep)));
-    let score = -tp - 2 * (block28(segs, first.report) / 60);
+    // v0.9 fix: flying shared out like a crew-planning department: the fewest duty days in the month first, then the
+    // 28-day block (a crew member flying every day while another sits on standby would be noticed).
+    let score = -tp - 2 * (block28(segs, first.report) / 60) - 12 * monthDutyDays(segs, first.report);
     if (prev.has(c.id)) score += 30;
     if (unpleasant) score -= (70 - c.morale) / 2;
     // v0.7.3 short notice: the day's standby crew are called first (crew control's order; no lost day off).
@@ -669,6 +800,22 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
   // A crew member's plan does not depend on the slot, so one refused is not re-planned for the next slot.
   const refused = new Set<string>();
   const skip = (x: (typeof pool)[number]) => inP.has(x.c.id) || refused.has(x.c.id);
+  // v0.9 fix: crew refused only for a day off not published yet (a day trip on it), kept in score order: when nobody
+  // else can take the seat, the planner moves that day off within its month instead (no morale: crew never saw it).
+  const offOnly: { c: CrewMember; plan: CrewPlan; swap: boolean }[] = [];
+  const take = (c: CrewMember, plan: CrewPlan) => {
+    inP.add(c.id);
+    plans.set(c.id, plan);
+    callIfOnStandby(g, c.id, openDuties(g, p)[0]?.report);
+    dropSbyFor(g, c, plan);
+    // v0.9 a tour's duties on planned days off: the planner moves them to the tour's free days (no morale).
+    if (plan.issues.some((i) => i.code === 'daysOff')) takeOffDays(g, c, plan.segs, true);
+    lateChange(g, c.id, nextReport(g, p));
+    if (plan.drop) ctx.segs.set(c.id, ctx.of(c).filter((x) => !x.ticketId || !plan.drop!.includes(x.ticketId)));
+    ctx.add(c, plan.segs);
+    ctx.take(c.id, first.report, spanTo);
+    res.assigned++;
+  };
   for (const si of order) {
     const slot = p.slots[si];
     const role = slot.role;
@@ -700,20 +847,25 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
       const plan = planCrew(g, c, p, ctx.of(c), false, BAL.rosterSlack);
       if (!acceptable(g, plan)) {
         refused.add(c.id);
+        if (offFallback(g, c, plan, ctx.of(c))) {
+          const work = plan.segs.filter((y) => y.kind !== 'log');
+          offOnly.push({ c, plan, swap: takesPublishedOff(g, c, work[0].start, work[work.length - 1].end) });
+        }
         continue;
       }
       slot.crewId = c.id;
-      callIfOnStandby(g, c.id, openDuties(g, p)[0]?.report);
-      dropStandby(g, c, spanTo + DAY);
-      inP.add(c.id);
-      plans.set(c.id, plan);
-      lateChange(g, c.id, nextReport(g, p));
-      if (plan.drop) ctx.segs.set(c.id, ctx.of(c).filter((x) => !x.ticketId || !plan.drop!.includes(x.ticketId)));
-      ctx.add(c, plan.segs);
-      ctx.take(c.id, first.report, spanTo);
-      res.assigned++;
+      delete slot.ooh;
+      take(c, plan);
       break;
     }
+    if (slot.crewId) continue;
+    // An unpublished day off moved (the crew never saw it) before a published one swapped by agreement (morale −3).
+    const fits = (y: (typeof offOnly)[number]) => !inP.has(y.c.id) && (y.c.role === role || (canFill(role, y.c.role) && !asFo(role, y.c.role)));
+    const alt = offOnly.find((y) => !y.swap && fits(y)) ?? offOnly.find(fits);
+    if (!alt) continue;
+    slot.crewId = alt.c.id;
+    delete slot.ooh;
+    take(alt.c, alt.plan);
   }
   if (!plans.size) return;
   buyTickets(g, p, plans, res);
@@ -829,6 +981,8 @@ export function fillAll(g: GameState, ps: Pairing[], res: RosterResult, exclude?
   if (!ps.length) return;
   crewIx(g);
   const ctx = new Ctx(g);
+  placed.clear();
+  const before = res.assigned;
   for (const p of ps) {
     if (!g.pairings[p.id]) continue;
     fillPairing(g, ctx, p, res, exclude);
@@ -840,7 +994,32 @@ export function fillAll(g: GameState, ps: Pairing[], res: RosterResult, exclude?
       if (q) fillPairing(g, ctx, q, res, exclude);
     }
   }
-  touchCrew(g);
+  // v0.9 round 4 speed: the seats filled are the run's own change to the index (splits and spares bump it themselves).
+  if (res.assigned !== before) touchCrew(g);
+  if (placed.size) {
+    fitStandby(g, [...placed]);
+    placed.clear();
+  }
+}
+
+/**
+ * v0.9 round 4 fix r2 speed: splitTourGap's probe for "the tour from duty k on" is the same object each time it is
+ * asked in a step (planCrew's memo keys on the pairing's identity), so a tour nobody can crew, re-rostered at every
+ * ladder tick and every Crew Control look, costs its probes once per state revision instead of every time (a
+ * shortage-heavy game spent minutes in them). The slots are the live pairing's; the duties and start fix the probe.
+ */
+const probes = new WeakMap<Pairing, Map<string, Pairing>>();
+function probeOf(p: Pairing, duties: Duty[], start: Minute): Pairing {
+  let m = probes.get(p);
+  if (!m) probes.set(p, (m = new Map()));
+  const key = duties.map((x) => x.id).join(',');
+  let probe = m.get(key);
+  if (!probe) {
+    if (m.size >= 16) m.clear();
+    m.set(key, (probe = { ...p, dutyIds: duties.map((x) => x.id), start }));
+  }
+  probe.slots = p.slots;
+  return probe;
 }
 
 /**
@@ -860,8 +1039,12 @@ function splitTourGap(g: GameState, ctx: Ctx, p: Pairing, exclude?: Set<string>)
   for (let k = 1; k < open.length; k++) {
     const d = open[k];
     if (d.report > horizon) return null;
-    const probe: Pairing = { ...p, dutyIds: open.slice(k).map((x) => x.id), start: d.report };
+    // v0.9 round 4 speed: a later part that breaks a cumulative window on its own refuses everyone.
+    if (overForAnyone(g, open.slice(k))) continue;
+    const probe = probeOf(p, open.slice(k), d.report);
     for (const c of pool) {
+      // v0.9 round 3 speed: as in fillPairing, crew planCrew refuses at once are not planned.
+      if (c.restUntil > d.report || c.blocks?.some((b) => b.from < end && b.to > d.report)) continue;
       if (ctx.onTrip(c.id, d.report, end) || busyAt(ctx.of(c), d.report, d.release)) continue;
       if (acceptable(g, planCrew(g, c, probe, ctx.of(c), false, BAL.rosterSlack))) return splitPairing(g, p, d.report);
     }
@@ -1003,18 +1186,32 @@ export function rerosterFrom(g: GameState, aircraftId: string, t: Minute): Roste
     // Manual (locked) assignments survive the re-plan; they stay flagged on the pairing.
     // Crew who only need new tickets are re-ticketed rather than replaced. Crew who can't fly a later duty
     // keep the earlier ones: the trip is split there and only the later part is re-crewed.
-    const rc = recheckPairing(g, p, true);
+    // v0.9 round 4 fix r2 (speed, §R.17.7): the full check first (the step's cached plans: recheckSoon, the ladder);
+    // only a trip with an illegal crew member needs the prior-only view (a filtered base, never cached), which flags
+    // the same crew or, through a loose ticket it leaves out, one the full view rightly clears.
+    const full = recheckPairing(g, p);
+    const rc = full.illegal.length ? recheckPairing(g, p, true) : full;
     const out = rc.illegal.filter((id) => !p.slots.some((s) => s.crewId === id && s.locked) && (under || !(g.crew[id] && retick(g, p, g.crew[id]))));
     const cut = Math.min(...out.map((id) => rc.from.get(id) ?? 0));
     const q = out.length && cut > firstOpen.report && cut < Infinity ? splitPairing(g, p, cut) : null;
+    // Round 4 fix r2 (§R.16.6): the days-off floor is one duty's problem (its eve becomes the day off), so that duty
+    // alone is split off and re-crewed; the crew keep the rest of the trip. The empty seat says who and why (§T.2).
+    const eve = !!q && out.every((id) => rc.from.get(id) === cut && rc.issue.get(id)?.code === 'daysOff');
+    if (eve) {
+      const next = openDuties(g, q)[1];
+      if (next) splitPairing(g, q, next.report);
+    }
     for (const id of out) {
-      if (q && (rc.from.get(id) ?? 0) >= cut) releaseCrew(g, q, id);
-      else if (!under) releaseCrew(g, p, id);
+      if (q && (rc.from.get(id) ?? 0) >= cut) {
+        releaseCrew(g, q, id);
+        if (eve) markOoh(g, q, id, rc.issue.get(id)!);
+      } else if (!under) releaseCrew(g, p, id);
     }
     setFlightsCrew(g, p);
     if (q) setFlightsCrew(g, q);
   }
-  touchCrew(g);
+  // v0.9 round 4 speed: no revision bump of its own (every change above makes one): a re-roster that changes nothing
+  // leaves the step's cached plans standing for the re-checks below.
   const res = autoRoster(g, { from: t, aircraftIds: [aircraftId] });
   for (const p of crewIx(g).byAircraft.get(aircraftId) ?? []) if (p.status !== 'done' && p.end >= t && crewCount(p) > 0) recheckPairing(g, p);
   return res;
@@ -1023,20 +1220,43 @@ export function rerosterFrom(g: GameState, aircraftId: string, t: Minute): Roste
 // Crew a split part no longer seats leave its flights and tickets as well.
 setReleaseHook(releaseCrew);
 
-// Crewed tours accept a new duty only if every crew member stays legal.
+// Crewed tours accept a new duty only if every crew member stays legal (0 no, 2 yes, 1 with a day off moved).
 setCrewOkHook((g, p, d) => {
+  const moves: CrewMember[] = [];
   for (const s of p.slots) {
     if (!s.crewId) continue;
     const c = g.crew[s.crewId];
     if (!c) continue;
-    if (otherTrip(g, c, p, d.report, d.release, false)) return false;
+    if (otherTrip(g, c, p, d.report, d.release, false)) return 0;
+    // v0.9 round 5: never onto leave, sickness, training or a joining period (a tour that grew onto a crew member's
+    // leave was found only by the daily re-check: the seat went red at an outstation with nobody to reach it). A
+    // block between two duties of the tour is the re-check's (check.ts statusIssues): the tour splits at the first
+    // duty after it and that part is re-crewed; the duties before it fly.
+    if (c.blocks?.some((b) => b.from < d.release && b.to > d.report)) return 0;
+    // v0.9 never onto a planned day off; a tour moves them to its free days (the planner's own re-plan, no morale).
+    // Round 4: the move is made by the take hook, only for the set the chainer picks (a set with no change first).
+    if (offDaysHit(c, d.report, d.release).length) {
+      if (!p.tour) return 0;
+      moves.push(c);
+    }
     // The tour's own tickets are re-planned around its new ends (retick), so they are left out here.
     const own: Seg[] = [];
     for (const x of openDuties(g, p)) own.push(...dutySegs(g, c, p, x, null, null));
-    const segs = mergeSegs(mergeSegs(segsOf(g, c, p.id), own), dutySegs(g, c, p, d, null, null, true));
-    if (evalSegs({ ...ctxOf(g, c), slack: BAL.rosterSlack }, segs).some((i) => i.level === 'illegal' && i.code !== 'fdp')) return false;
+    const base = mergeSegs(segsOf(g, c, p.id), own);
+    const fresh = dutySegs(g, c, p, d, null, null, true);
+    const segs = mergeSegs(base, fresh);
+    if (evalSegs({ ...ctxOf(g, c), slack: BAL.rosterSlack }, segs).some((i) => i.level === 'illegal' && i.code !== 'fdp')) return 0;
+    // v0.9 fix: never below a month's 7 days off, and a day off it lands on only moves when its month has room.
+    if (monthFloorIssue(g, c, base, fresh) || (moves.includes(c) && !offMovable(g, c, segs, true))) return 0;
   }
-  return true;
+  return moves.length ? 1 : 2;
+});
+setCrewTakeHook((g, p, d) => {
+  for (const s of p.slots) {
+    const c = s.crewId ? g.crew[s.crewId] : undefined;
+    if (!c || !offDaysHit(c, d.report, d.release).length) continue;
+    takeOffDays(g, c, dutySegs(g, c, p, d, null, null, true).filter((x) => x.kind === 'duty'), true);
+  }
 });
 
 // A tour that grew keeps its crew: their tickets are re-planned around the new first/last duty (under way, only
@@ -1051,6 +1271,8 @@ setRetickHook((g, p) => {
     }
   }
   setFlightsCrew(g, p);
+  // v0.9 the tour's new duties ignored its crew's future standby (rules.ts standbyView): fit it again.
+  fitStandby(g, p.slots.filter((s) => s.crewId).map((s) => s.crewId!));
 });
 
 // A crewed duty may take on the empty legs that follow it when every crew member stays legal with a new ticket home.
@@ -1094,7 +1316,57 @@ function rehome(g: GameState, p: Pairing): void {
 // ---------- disruption APIs ----------
 
 /** v0.7.3 why commander's discretion is not available before report (ORO.FTL.205(f): unforeseen, at or after report). */
-export const DISCRETION_BEFORE_REPORT = 'Only after the crew have reported: for a planned day use a fresh crew, a delay or an augmented crew';
+export const DISCRETION_BEFORE_REPORT = 'Only after the crew has reported. For a planned day: a fresh crew, a delay or more pilots';
+
+/** v0.9 the FDP the duty was planned at when the crew reported (old saves: report to the last scheduled arrival). */
+export function plannedFdpOf(g: GameState, d: Duty): number {
+  if (d.plannedFdp !== undefined) return d.plannedFdp;
+  const last = g.flights[d.flightIds[d.flightIds.length - 1]];
+  return last ? last.sta - d.report : d.fdp;
+}
+
+/**
+ * v0.9 commander's discretion is never planned (UPDATE-0.9.md §U.3; ORO.FTL.205(f)): offered only once the crew has
+ * reported, every seat filled, not used yet, the day legal when they reported (the overrun is unforeseen) and the
+ * overrun within what discretion adds. `fdp`: the projected FDP (default the duty's). `addMin`: what it would add. Pure.
+ */
+export function discretionCheck(g: GameState, dutyId: string, fdp?: number, opts: { cabinOver?: number } = {}): { ok: boolean; why: string; addMin: number } {
+  const d = g.duties[dutyId];
+  const p = d && g.pairings[d.pairingId];
+  if (!d || !p || d.done) return { ok: false, why: 'No duty to extend', addMin: 0 };
+  const no = (why: string) => ({ ok: false, why, addMin: 0 });
+  if (d.report > g.now) return no(DISCRETION_BEFORE_REPORT);
+  if (requiredEmpty(p)) return no("Seats are empty: discretion doesn't crew a flight");
+  if (d.discretion) return no('Already used on this duty');
+  if (plannedFdpOf(g, d) > d.maxFdp) return no("The day was already too long when they reported: that's planning, not an emergency");
+  const hm = (m: number) => `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
+  // v0.9 round 4 (§Y.1 step 2): a hold at the gate that only breaks the cabin crew's rest plan (the pilots are within
+  // their limit): the commander extends the cabin crew's day by the hold, within the 2 h / 3 h allowance and never past
+  // the CS FTL.1.205(c)(3) cap of their rest class.
+  if (opts.cabinOver !== undefined) {
+    const over = opts.cabinOver;
+    if (over <= 0) return no('The day is within its limit');
+    const rest = restOf(g, p.aircraftId ?? null);
+    const room = rest.cc ? cabinFdpCap(rest.cc.cls) - (d.cabinEarly ?? 0) - d.fdp : Infinity;
+    const full = d.augment > 0 ? DISCRETION.augmented : DISCRETION.basic;
+    const add = Math.max(0, Math.min(full, room));
+    // Round 4: the refusal names the limit that bites (the rest-class table, when it caps the 2 h / 3 h).
+    if (over > add) return no(add ? (add < full ? `Over by ${hm(over)}: the cabin crew's rest class allows only +${hm(add)}` : `Over by ${hm(over)}: more than discretion allows`) : `Over by ${hm(over)}: the cabin crew's rest class allows no longer day`);
+    // Round 4: the whole allowance is stored (ORO.FTL.205(f)(1)(i): one increase), so a second hold inside it is still covered.
+    return { ok: true, why: '', addMin: add };
+  }
+  const full = d.augment > 0 ? DISCRETION.augmented : DISCRETION.basic;
+  const up = discretionMax(g, d);
+  const add = d.ext && d.basicFdp ? Math.max(0, Math.min(up, d.basicFdp + up - d.maxFdp)) : up;
+  const over = (fdp ?? d.fdp) - d.maxFdp;
+  if (over <= 0) return no('The day is within its limit');
+  if (over > add) {
+    const h = hm(over);
+    // Round 4: on an augmented day the cabin crew's rest class (or the cruise's rest room) may cap the 3 h: say so.
+    return no(add ? (d.augment > 0 && up < full ? `Over by ${h}: the cabin crew's rest class allows only +${hm(add)}` : `Over by ${h}: more than discretion allows`) : d.augment > 0 ? `Over by ${h}: the cabin crew's rest does not allow a longer day` : `Over by ${h}: discretion adds nothing on a planned extension`);
+  }
+  return { ok: true, why: '', addMin: add };
+}
 
 /**
  * Commander's discretion (ORO.FTL.205(f)): only once the crew have reported, for something unforeseen; up to 2 h
@@ -1109,34 +1381,40 @@ export const DISCRETION_BEFORE_REPORT = 'Only after the crew have reported: for 
 export function discretionMax(g: GameState, d: Duty): number {
   const up = d.augment > 0 ? DISCRETION.augmented : DISCRETION.basic;
   if (d.augment === 0) return up;
-  const rest = restOf(g, g.pairings[d.pairingId]?.aircraftId ?? null);
+  const p = g.pairings[d.pairingId];
+  const rest = restOf(g, p?.aircraftId ?? null);
   const n = restCabinN(g, d);
   if (!rest.cc || n === 0) return up;
   const early = d.cabinEarly ?? 0;
-  let x = Math.max(0, Math.min(up, cabinFdpCap(rest.cc.cls) - early - d.maxFdp));
+  // v0.9 round 4 (§Y.1): a cabin crew that joined at the gate has a shorter day than the pilots (their own report).
+  const own = p ? cabinOwnReport(p, d) : 0;
+  let x = Math.max(0, Math.min(up, cabinFdpCap(rest.cc.cls) - early - (d.maxFdp - own)));
   // ... nor past what the cabin crew aboard can rest for in this cruise (a longer day needs more rest each).
   const legs = restLegs(g, d);
   const fits = (m: number) => {
-    const plan = planRest(legs, rest, d.augment as 1 | 2, d.maxFdp + m + early, n);
+    const plan = planRest(legs, rest, d.augment as 1 | 2, d.maxFdp + m + early - own, n);
     return plan.ok && plan.extraCabin <= (d.restExtra ?? 0);
   };
   while (x > 0 && legs.length && !fits(x)) x = Math.max(0, x - 15);
   return x;
 }
 
-export function applyDiscretion(g: GameState, dutyId: string): ActionResult {
+export function applyDiscretion(g: GameState, dutyId: string, fdp?: number, opts: { cabinOver?: number } = {}): ActionResult {
   const d = g.duties[dutyId];
   const p = d && g.pairings[d.pairingId];
   if (!d || !p) return { ok: false, error: 'Duty not found' };
   if (d.done) return { ok: false, error: 'Duty already flown' };
-  if (d.discretion) return { ok: false, error: 'Discretion already used on this duty' };
-  if (d.report > g.now) return { ok: false, error: DISCRETION_BEFORE_REPORT };
-  const up = discretionMax(g, d);
-  d.discretion = d.ext && d.basicFdp ? Math.max(0, Math.min(up, d.basicFdp + up - d.maxFdp)) : up;
-  if (!d.discretion) {
-    delete d.discretion;
-    return { ok: false, error: d.augment > 0 ? "Discretion adds nothing: the cabin crew's day is at the most their rest allows" : 'Discretion adds nothing on a planned extension' };
+  // v0.9 only for the unforeseen, after report (§U.3).
+  const chk = discretionCheck(g, dutyId, fdp, opts);
+  const st = v09StatsOf(g);
+  if (!chk.ok) {
+    st.discretionRefused++;
+    return { ok: false, error: chk.why };
   }
+  d.discretion = chk.addMin;
+  st.discretionUsed++;
+  st.legalStreak = 0;
+  if (plannedFdpOf(g, d) > d.maxFdp || d.report > g.now) st.discretionPlanned = (st.discretionPlanned ?? 0) + 1;
   d.legality = dutyLegality(d);
   for (const s of p.slots) {
     const c = s.crewId ? g.crew[s.crewId] : undefined;
@@ -1186,6 +1464,8 @@ export function removeCrew(g: GameState, crewId: string, from: Minute, to: Minut
   if (!c) return res;
   c.blocks ??= [];
   if (!c.blocks.some((b) => b.from <= from && b.to >= to)) c.blocks.push({ from, to, why: 'leave' });
+  // v0.9 standby planned inside the block goes too (the day plan re-picks cover for those days).
+  dropStandby(g, c, from, to);
   const hit: Pairing[] = [];
   for (const p of (crewIx(g).pairingsOf.get(crewId) ?? []).filter((x) => x.status !== 'done' && x.status !== 'broken' && x.start < to && x.end > from)) {
     // Duties before `from` keep the crew member: the trip is split and only the later part is re-crewed.
@@ -1215,14 +1495,25 @@ export function placeCrew(g: GameState, p: Pairing, slot: number, c: CrewMember)
   const hadCrew = crewCount(p) > 0;
   const plan = planCrew(g, c, p, segsOf(g, c, p.id));
   p.slots[slot].crewId = c.id;
+  delete p.slots[slot].ooh;
+  delete p.slots[slot].from;
   const od = openDuties(g, p);
-  callIfOnStandby(g, c.id, od[0]?.report);
-  if (od.length) dropStandby(g, c, od[od.length - 1].release + DAY);
-  lateChange(g, c.id, nextReport(g, p));
+  // Round 4 (§Y.1): a replacement at the gate (the duty has reported) placed inside a running window is a call-out now
+  // (standbyFor would judge it against the duty's own report, already past, and the window would only be clipped).
+  if (od.length && od[0].report <= g.now) callFromStandby(g, c.id);
+  else callIfOnStandby(g, c.id, od[0]?.report);
+  if (od.length) dropSbyFor(g, c, plan);
+  // v0.9 a manual placement on a day off takes it (crew/dayPlan.ts: morale when published, the day re-planned).
+  const offHit = od.length > 0 && plan.issues.some((i) => i.code === 'daysOff') && plan.segs.length > 0;
+  // A published day off taken costs its own −6 (the confirm's number): no late-change shock on top.
+  const brokeOff = offHit && takesPublishedOff(g, c, plan.segs[0].start, plan.segs[plan.segs.length - 1].end);
+  if (offHit) takeOffDays(g, c, plan.segs);
+  if (!brokeOff) lateChange(g, c.id, nextReport(g, p));
   buyTickets(g, p, new Map([[c.id, plan]]), emptyResult());
   setFlightsCrew(g, p);
   if (!hadCrew) for (const d of openDuties(g, p)) queueDuty(g, d);
   touchCrew(g);
+  fitStandby(g, [c.id]);
   recheckPairing(g, p);
   return plan;
 }
@@ -1261,6 +1552,9 @@ export function flightCrewStatus(g: GameState, flightId: string, opts?: { live?:
   const missing = p.slots.filter((s) => !s.crewId && !s.above).map((s) => s.role);
   if (d.legality === 'illegal') return { level: 'illegal', missing };
   if (missing.length) return { level: 'missing', missing };
+  // v0.9 round 4 (§Y.1): a rest plan that failed at the gate (cabin seats marked, crew still aboard) blocks the departure
+  // like an illegal duty, so the ladder, the problems list, the strip, the pause badge and the map all see it.
+  if (!d.done && d.report <= g.now && p.slots.some((s) => s.crewId && s.ooh?.limit === 'inflightRest')) return { level: 'illegal', missing };
   if (p.legality === 'illegal') {
     // A crew member who can't fly a later duty of the trip only warns on the earlier ones (the roster takes them
     // off from that duty); another duty's FDP is that duty's problem. Old saves without the mark: whole trip.

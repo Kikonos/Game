@@ -7,6 +7,8 @@ setRestFitHook(onRestFitEnd);
 import { dailyApprovals, loadApprovals, onApprovalDone, setGrantHook } from './company';
 import { dailyEvents, onDecisionExpire, paceDecisions } from './events';
 import { dailyFinance, onMonthEnd, onPayment, settleDeparture } from './finance';
+import { checkAchievements, loadAchievements, ON_ARRIVAL, ON_DEPARTURE } from './achievements';
+import { announceBackfill, dailyHeads, loadHeads, monthlyHeads } from './heads';
 import { onFlightArr, onFlightDep, pruneFlights } from './flights';
 import { checkGoals, ladderGrant, syncGoals } from './goals';
 import { onMaintEnd, onMaintStart, planChecks, setMaintHooks, setRestFitHook } from './maintenance';
@@ -34,7 +36,7 @@ export { bookCCheck, cCheckOptions, cCheckSlots, checkLogistics, type CCheckOpti
 export { C_HUBS, type CHub } from '../../data/mro';
 export { deliveryQuote, deliveryStatus, ferryRoute, ticketPurpose, type DeliveryLeg, type DeliveryQuote, type DeliveryStatus } from './delivery';
 export { chooseLease, earlyReturnQuote, leaseView, returnEarly, returnQuote, type EarlyReturnQuote, type LeaseChoice, type LeaseView, type ReturnQuote } from './leaseReturn';
-export { resolveDecision } from './events';
+export { reopenLatePayment, resolveDecision } from './events';
 export { cashForecast, fixedCosts, monthProfit, newStatement } from './finance';
 export { delayFlight, delayOf, schedSta } from './flights';
 export { GOALS, type GoalDef } from './goals';
@@ -49,6 +51,12 @@ export { demandFactor, marketOutlook, segIndex, type MarketOutlook } from './mar
 export { flightZone, warRiskAt, worldEvent, worldEventPins, worldEvents, worldZones, EVENT_ICON, type WorldEventView, type ZoneView } from './world';
 export { dryLeaseOf, dryLeaseView, leasedText, type DryLeaseView } from './dryLease';
 export { usd } from './util';
+// v0.9 (UPDATE-0.9.md §12).
+export {
+  acceptProposal, analystView, dismissProposal, ferryAircraft, fireHead, headsView, headView, hireHead, setHeadOn, setHeadRules,
+  type AnalystView, type HeadView,
+} from './heads';
+export { achievementProgress, achievementsView, checkAchievements, grantAchievement, type AchievementView } from './achievements';
 // v0.7.1 every problem as one card (engine/problems).
 export { hurtBadges, messageBadges, postProblem, problemAt, problemFor, problems, type GaugeSpec, type Hurt, type MiniMapSpec, type ProblemAction, type ProblemCard, type ReachSpec, type TimelineSpec } from '../problems';
 import { postRestProblems } from '../problems';
@@ -81,6 +89,9 @@ function daily(g: GameState) {
   // v0.8 the lessee's hours and the monthly rent and reserves of dry leases out.
   dailyDryLeases(g);
   checkGoals(g);
+  // v0.9 achievements (and the heads they earn), then the heads' daily work.
+  checkAchievements(g);
+  dailyHeads(g);
   // v0.7.3 in-flight rest cards (rest too short, a 4th pilot for seats, extra cabin crew) inside the roster horizon.
   postRestProblems(g);
 }
@@ -100,6 +111,9 @@ export const opsModule: SimModule = {
       ac.restV ??= 2;
     }
     for (const ac of Object.values(g.fleet)) ac.bhSince ??= Math.floor(g.now / DAY);
+    // v0.9 heads locked, nothing earned yet.
+    loadHeads(g);
+    g.achievements ??= {};
   },
   // Decisions other modules post (crew's sickCrew) join the pacing budget as they appear.
   settle: paceDecisions,
@@ -119,21 +133,29 @@ export const opsModule: SimModule = {
     // v0.7.2 utilisation counts from the first load that tracks it (older saves have no bhDays).
     for (const ac of Object.values(g.fleet)) ac.bhSince ??= Math.floor(g.now / DAY);
     g.company.livery = normaliseLivery(g.company.livery);
+    // v0.9 heads (locked by default), then achievements: an older save earns what it has silently (one message each).
+    loadHeads(g);
+    loadAchievements(g);
+    announceBackfill(g);
   },
   handlers: {
     day: daily,
     month: (g, ev) => {
       refreshMarket(g);
+      monthlyHeads(g);
       onMonthEnd(g, ev);
+      checkAchievements(g, { monthEnd: true });
     },
     'flight.dep': (g, ev) => {
       onFlightDep(g, ev);
       const f = g.flights[ev.id];
       if (f?.purpose) onDeliveryDep(g, f);
+      if (f?.status === 'enroute') checkAchievements(g, { ids: ON_DEPARTURE });
     },
     'flight.arr': (g, ev) => {
       onFlightArr(g, ev);
       const f = g.flights[ev.id];
+      if (f?.status === 'done') checkAchievements(g, { ids: ON_ARRIVAL });
       if (f?.purpose && f.status === 'done') onDeliveryArr(g, f);
       if (f?.purpose === 'lease' && f.status === 'done') onLeaseFerryHome(g, f);
     },

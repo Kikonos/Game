@@ -1,5 +1,6 @@
 // Maintenance planning, checks and AOG (B3). DESIGN.md §5.6.
 
+import { v09Stats } from '../crew/dayPlan';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { BAL } from '../core/balance';
 import { addFlight, flightsOf, nextId, removeFlights, retimeFlight, touchFlights } from '../core/entities';
@@ -403,7 +404,8 @@ export function groundGaps(g: GameState, ac: Aircraft, from: Minute, until: Minu
 }
 
 /** Books the A-check into the first ground gap before it falls due (home/major airport, else a ferry home). */
-function planA(g: GameState, ac: Aircraft, due: Minute): boolean {
+/** Books an A-check in a ground gap before `due` (v0.9 `noDrop`: never by dropping legs, the maintenance planner). */
+export function planA(g: GameState, ac: Aircraft, due: Minute, noDrop = false): boolean {
   const dur = durationOf(ac, 'A');
   const t = typeOf(ac.typeId);
   const home = g.company.homeBase;
@@ -412,7 +414,12 @@ function planA(g: GameState, ac: Aircraft, due: Minute): boolean {
     if (!checkAirportOk(g, 'A', gp.at, ac.id)) continue;
     const buf = gp.at === home ? 60 : 120;
     const start = gp.from + 30;
-    if (start + dur + buf - 30 <= gp.to && scheduleCheck(g, ac.id, 'A', start, gp.at, { auto: true }).ok) return true;
+    if (start + dur + buf - 30 > gp.to) continue;
+    const r = scheduleCheck(g, ac.id, 'A', start, gp.at, { auto: true });
+    if (!r.ok) continue;
+    // v0.9 round 4 (§5.3): a line A-check away from home costs +20 %.
+    if (gp.at !== home && r.data) g.maintenance[r.data.maintId].cost = Math.round(checkCostOf(ac, 'A') * (1 + BAL.v09.heads.maint.outstation));
+    return true;
   }
   for (const gp of gaps) {
     if (checkAirportOk(g, 'A', gp.at, ac.id)) continue;
@@ -421,6 +428,7 @@ function planA(g: GameState, ac: Aircraft, due: Minute): boolean {
     const start = Math.max(gp.from, g.now + BAL.ferryLeadMin) + t.turnMin + out + 30;
     if (start + dur + 60 + t.turnMin + out <= gp.to && scheduleCheck(g, ac.id, 'A', start, home, { auto: true }).ok) return true;
   }
+  if (noDrop) return false;
   // No gap: drop one base-programme wave (out and back) with notice to make a night at an eligible base.
   const legs = flightsOf(g, ac.id).filter((f) => f.status === 'scheduled');
   for (let i = 0; i < legs.length; i++) {
@@ -440,7 +448,7 @@ function planA(g: GameState, ac: Aircraft, due: Minute): boolean {
 }
 
 /** First gap of at least the C-check length before `due`, preferring November–March. */
-function suggestC(g: GameState, ac: Aircraft, due: Minute): Gap | null {
+export function suggestC(g: GameState, ac: Aircraft, due: Minute): Gap | null {
   const need = durationOf(ac, 'C') + DAY;
   const gaps = groundGaps(g, ac, g.now + DAY, due).filter((x) => x.to - x.from >= need);
   const winter = gaps.find((x) => {
@@ -489,6 +497,7 @@ export function planChecks(g: GameState): void {
         });
       }
     }
+    if (st.grounded) v09Stats(g).lastOverdue = g.now;
     if (st.grounded && ac.status === 'available' && !ac.flightId) forceCheck(g, ac, st);
   }
 }
@@ -565,6 +574,8 @@ export function onMaintStart(g: GameState, ev: SimEvent): void {
   m.status = 'inWork';
   ac.status = 'maintenance';
   ac.maintId = m.id;
+  // v0.9 round 4: "on time" is judged at induction (the calendar keeps running during the check).
+  if (m.kind === 'C') m.onTime = checkStatus(g, ac).cUsed <= 1;
   // v0.7: a refit is paid when the work starts (return costs: leaseReturn.ts).
   if (m.kind === 'refit') post(g, 'refit', -m.cost);
   if (m.kind === 'return') maintStartHook?.(g, m);
@@ -598,6 +609,11 @@ export function onMaintEnd(g: GameState, ev: SimEvent): void {
   touchFlights(g);
   if (!ac) return;
   const mc = ac.maint;
+  // v0.9 achievements: a C-check finished inside its interval; the first AOG away from base fixed without
+  // handing a leg to another operator meanwhile.
+  const v = v09Stats(g);
+  if (m.kind === 'C' && (m.onTime ?? checkStatus(g, ac).cUsed <= 1)) v.cOnTime++;
+  if (m.kind === 'AOG' && m.at !== g.company.homeBase && !(g.stats.subLog ?? []).some((t) => t >= m.start - 6 * 60 && t <= g.now + DAY)) v.outstationFix = (v.outstationFix ?? 0) + 1;
   if (m.kind === 'A' || m.kind === 'C') {
     mc.fhSinceA = 0;
     mc.lastA = g.now;

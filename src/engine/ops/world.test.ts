@@ -6,6 +6,7 @@ import { AIRPORT_BY_CODE } from '../../data/airports';
 import { TPL_BY_ID, WORLD_EVENT_TPLS } from '../../data/worldEvents';
 import { ZONE_BY_ID } from '../../data/worldZones';
 import { BAL } from '../core/balance';
+import { takeCues } from '../core/cues';
 import { DAY } from '../core/time';
 import type { GameState } from '../core/types';
 import { acceptOffer } from '../contracts';
@@ -85,6 +86,7 @@ describe('closures (§5.4)', () => {
       const d = g.decisions.find((x) => x.kind === 'airspace')!;
       resolveDecision(g, d.id, 'wait');
       g.now = e.end;
+      takeCues();
       onWorldEnd(g, { t: g.now, seq: 0, type: 'world.end', id: e.id, v: e.ev ?? 0 });
       if (!e.extended) {
         expect(e.done).toBe(true);
@@ -92,6 +94,8 @@ describe('closures (§5.4)', () => {
       }
       expect(isLive(g, e)).toBe(true);
       expect(into.fl[0].std).toBe(e.end + 3 * 60);
+      // v0.9 round 4 (§S): our waiting legs moving again is a world event touching our flights: the double, once.
+      expect(takeCues().filter((c) => c === 'worldEventOurs')).toEqual(['worldEventOurs']);
       return;
     }
     throw new Error('no extension in 40 seeds (30 % each)');

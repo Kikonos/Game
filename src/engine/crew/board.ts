@@ -5,6 +5,7 @@
 
 import type { RatingFamily } from '../../data/acmiTypes';
 import { canFill, typeOf } from '../core/perf';
+import { isolatePauses } from '../core/pause';
 import { DAY } from '../core/time';
 import type { ActionResult, CrewMember, CrewStatus, Duty, GameState, Legality, Minute, Pairing, Role } from '../core/types';
 import { crewCalendar, type CalBlock } from './calendar';
@@ -15,6 +16,7 @@ import { levelOf, minRest, offsetAt, type Seg } from './rules';
 import { assignCrew, swapCrew } from './rosterActions';
 import { placeCrew, setFlightsCrew } from './roster';
 import { crewIx, segsOf, ticketPrice, touchCrew, typeIdOf } from './timeline';
+import { offBreak, type OffBreak } from './dayPlan';
 
 export type MoveScope = 'duty' | 'trip';
 
@@ -57,6 +59,8 @@ export interface DropTarget {
   /** v0.6: what the move leaves the source crew member (their next trip): '' when nothing changes. */
   source?: string;
   sourceLevel?: Legality;
+  /** v0.9 the move takes a published day off: 'Takes Ana's day off Tue 4 Nov; it moves to Thu 13 Nov (morale −6)' (confirm first). */
+  offBreak?: string;
 }
 
 const LATE_H = 72;
@@ -125,6 +129,11 @@ function crewKey(g: GameState, c: CrewMember): string {
     }
   }
   for (const f of ix.tickets.get(c.id) ?? []) k += `|${f.id}:${f.std}:${f.sta}:${f.status}:${f.ev}`;
+  // v0.9 days off and standby windows (re-planned through the day).
+  let h = 0;
+  for (const w of c.standby ?? []) h = (h * 31 + w.from + 7 * w.to + (w.calledAt ?? 3) + (w.kind?.length ?? 0)) % 1_000_000_007;
+  for (const x of c.off ?? []) h = (h * 31 + x) % 1_000_000_007;
+  k += `|s${c.standby?.length ?? 0}:o${c.off?.length ?? 0}:${h}:${g.dayPlan?.publishedTo ?? ''}`;
   return k;
 }
 
@@ -212,7 +221,7 @@ function ctxOf(g: GameState, dutyId: string, fromCrewId: string, scope: MoveScop
 }
 
 /** Legality of crew member c taking `to` (leaving `leaving`, whose duties `drop` come off their timeline). */
-function planLevel(g: GameState, c: CrewMember, to: Pairing, leaving: Pairing | null, drop: string[]): { level: Legality; text: string; ticket: number; wet: boolean } {
+function planLevel(g: GameState, c: CrewMember, to: Pairing, leaving: Pairing | null, drop: string[]): { level: Legality; text: string; ticket: number; wet: boolean; off: OffBreak | null } {
   let segs: Seg[] = segsOf(g, c, leaving && leaving.dutyIds.length === drop.length ? leaving.id : undefined);
   if (drop.length) segs = segs.filter((s) => !s.dutyId || !drop.includes(s.dutyId));
   const plan = planCrew(g, c, to, segs, false, 0, leaving?.id);
@@ -221,7 +230,9 @@ function planLevel(g: GameState, c: CrewMember, to: Pairing, leaving: Pairing | 
   const bad = issues.find((i) => i.level === 'illegal') ?? issues.find((i) => i.level === 'tight');
   const wet = to.contractId ? g.contracts[to.contractId]?.product.kind === 'wet' : false;
   const ticket = wet || !plan.out || plan.out.rideId ? 0 : ticketPrice(plan.out.from, plan.out.to);
-  return { level, text: bad?.text ?? '', ticket, wet };
+  // v0.9 a published day off the move would take (planCrew flags it 'daysOff').
+  const off = plan.issues.some((i) => i.code === 'daysOff') && plan.segs.length ? offBreak(g, c.id, plan.segs[0].start, plan.segs[plan.segs.length - 1].end) : null;
+  return { level, text: bad?.text ?? '', ticket, wet, off: off && (off.protected || !off.legal) ? off : null };
 }
 
 /** A crew member's next trip after `t` still to fly (not the moved work), if any. */
@@ -290,7 +301,7 @@ function verdict(g: GameState, x: Ctx, c: CrewMember, scope: MoveScope, isolateS
     const level = worse(v.level, src.level);
     const own = v.level === 'legal' ? legalText(v.ticket) : v.level === 'tight' ? `Tight: ${v.text}` : v.text;
     const reason = v.level === 'legal' && src.level === 'illegal' ? src.text : `${own}${src.text ? ` · ${src.text}` : ''}`;
-    return { ...base, level, kind: 'assign', ticket: v.ticket + src.ticket, reason, source: src.text, sourceLevel: src.level };
+    return { ...base, level, kind: 'assign', ticket: v.ticket + src.ticket, reason, source: src.text, sourceLevel: src.level, ...(v.off ? { offBreak: v.off.text } : {}) };
   }
   // Swap: the target's overlapping work goes to the source crew member.
   let { p: q, d: e } = busy[0];
@@ -306,7 +317,8 @@ function verdict(g: GameState, x: Ctx, c: CrewMember, scope: MoveScope, isolateS
   const level = worse(a.level, b.level);
   const why = a.level !== 'legal' ? a.text : b.level !== 'legal' ? `${x.from.last}: ${b.text}` : '';
   const reason = level === 'legal' ? `Swap with ${route(g, e)} (both legal)` : `Swap with ${route(g, e)}: ${why}`;
-  return { ...base, level, kind: 'swap', swapDutyId: e.id, ticket: a.ticket + b.ticket, reason, lateChange: x.late || e.report - g.now < LATE_H * 60 };
+  const off = a.off?.text ?? (b.off ? `${x.from.last}: ${b.off.text}` : undefined);
+  return { ...base, level, kind: 'swap', swapDutyId: e.id, ticket: a.ticket + b.ticket, reason, lateChange: x.late || e.report - g.now < LATE_H * 60, ...(off ? { offBreak: off } : {}) };
 }
 
 /** A copy for dry runs (its runtime indexes are its own). */
@@ -322,6 +334,11 @@ const alone = (g: GameState, d: Duty) => openDuties(g, g.pairings[d.pairingId]).
  * each swap partner's duty) is split off first, exactly as the move does it.
  */
 export function dropTargets(g: GameState, dutyId: string, fromCrewId: string, scope: MoveScope): Record<string, DropTarget> {
+  // Verdicts on copies raise no cue or pause in the live game (core/pause.ts).
+  return isolatePauses(() => dropTargets0(g, dutyId, fromCrewId, scope));
+}
+
+function dropTargets0(g: GameState, dutyId: string, fromCrewId: string, scope: MoveScope): Record<string, DropTarget> {
   const out: Record<string, DropTarget> = {};
   let h = g;
   let x = ctxOf(g, dutyId, fromCrewId, scope);
@@ -402,7 +419,7 @@ function replanNext(g: GameState, c: CrewMember | undefined, t: Minute, skip: Se
 
 type MoveResult = ActionResult<{ level: Legality; swapped: boolean }>;
 
-function applyMove(g: GameState, dutyId: string, fromCrewId: string, toCrewId: string, scope: MoveScope, force: boolean): MoveResult {
+function applyMove(g: GameState, dutyId: string, fromCrewId: string, toCrewId: string, scope: MoveScope, force: boolean, takeOff = false): MoveResult {
   if (scope === 'duty' && g.duties[dutyId] && !alone(g, g.duties[dutyId]) && typeof ctxOf(g, dutyId, fromCrewId, scope) !== 'string') isolate(g, g.duties[dutyId]);
   const x = ctxOf(g, dutyId, fromCrewId, scope);
   if (typeof x === 'string') return { ok: false, error: x };
@@ -412,6 +429,8 @@ function applyMove(g: GameState, dutyId: string, fromCrewId: string, toCrewId: s
   const v = verdict(g, x, c, scope, iso);
   if (v.level === 'ineligible') return { ok: false, error: v.reason };
   if (v.level === 'illegal' && !force) return { ok: false, error: `Illegal: ${v.reason}` };
+  // v0.9 a published day off is taken only after the player confirms (R.5).
+  if (v.offBreak && !takeOff) return { ok: false, error: v.offBreak };
   const forced = v.level === 'illegal';
   const dA = scope === 'duty' ? g.pairings[x.d.pairingId] : x.p;
   const idA = scope === 'duty' ? x.d.id : openDuties(g, dA)[0]?.id;
@@ -449,6 +468,7 @@ function applyMove(g: GameState, dutyId: string, fromCrewId: string, toCrewId: s
       if (bad) return { ok: false, error: `Illegal after the move: ${who.last}: ${bad.text}` };
     }
   }
+  if (v.offBreak) msg = `${msg ?? 'Moved'}. ${v.offBreak}`;
   return { ok: true, msg, data: { level: forced ? 'illegal' : level, swapped: v.kind === 'swap' } };
 }
 
@@ -459,14 +479,15 @@ function applyMove(g: GameState, dutyId: string, fromCrewId: string, toCrewId: s
  * source (and a swap partner) are re-planned onto their next trip from where the move leaves them.
  * All or nothing: the move is tried on a copy first and only then made, so a refused move changes nothing.
  */
-export function moveDuty(g: GameState, dutyId: string, fromCrewId: string, toCrewId: string, scope: MoveScope, opts: { force?: boolean } = {}): MoveResult {
+export function moveDuty(g: GameState, dutyId: string, fromCrewId: string, toCrewId: string, scope: MoveScope, opts: { force?: boolean; takeOff?: boolean } = {}): MoveResult {
   const force = !!opts.force;
+  const takeOff = !!opts.takeOff;
   let dry: MoveResult;
   try {
-    dry = applyMove(copyOf(g), dutyId, fromCrewId, toCrewId, scope, force);
+    dry = isolatePauses(() => applyMove(copyOf(g), dutyId, fromCrewId, toCrewId, scope, force, takeOff));
   } catch (e) {
     return { ok: false, error: `Not possible: ${e instanceof Error ? e.message : String(e)}` };
   }
   if (!dry.ok) return dry;
-  return applyMove(g, dutyId, fromCrewId, toCrewId, scope, force);
+  return applyMove(g, dutyId, fromCrewId, toCrewId, scope, force, takeOff);
 }

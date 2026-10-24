@@ -6,6 +6,7 @@ import { typeOf } from '../core/perf';
 import { DAY, fmtDateTime, fmtDay, fmtTime } from '../core/time';
 import type { CrewMember, GameState, Minute, Pairing } from '../core/types';
 import { openDuties, otherTrip } from './check';
+import { LIMIT_NAME } from './outOfHours';
 import { LIMITS, type LegalityIssue } from './rules';
 import { typeIdOf } from './timeline';
 
@@ -77,18 +78,23 @@ export function rootReason(g: GameState, issues: LegalityIssue[], c: CrewMember,
   }
   if (fdp) {
     const m = HM.exec(fdp.text);
-    set('fdp', m ? `over the day limit (${m[1]}:${m[2]} of ${m[3]}:${m[4]})` : 'over the day limit');
+    set('fdp', m ? `over the day-length limit (${m[1]}:${m[2]} of ${m[3]}:${m[4]})` : 'over the day-length limit');
   }
   const hours = has('block28d') ?? has('duty7d') ?? has('duty14d') ?? has('duty28d') ?? has('blockYear');
   if (hours) {
     const m = HM.exec(hours.text);
-    const what = hours.code === 'block28d' ? 'flying hours in 28 days' : hours.code === 'blockYear' ? 'flying hours this year' : hours.code === 'duty7d' ? 'duty hours in 7 days' : hours.code === 'duty14d' ? 'duty hours in 14 days' : 'duty hours in 28 days';
-    set('hours', m ? `at ${toH(m[1], m[2])} of ${toH(m[3], m[4])} ${what}` : `over the ${what} limit`);
+    // v0.9 round 4 (§V): the one name of each limit (crew/outOfHours.ts LIMIT_NAME).
+    const what = hours.code === 'blockYear' && /12 months/.test(hours.text) ? LIMIT_NAME.block12m : LIMIT_NAME[hours.code as 'block28d' | 'blockYear' | 'duty7d' | 'duty14d' | 'duty28d'];
+    set('hours', m ? `at ${toH(m[1], m[2])} of ${toH(m[3], m[4])} h ${what}` : `over the ${what} limit`);
   }
   if (has('recovery')) set('recovery', `due a weekly rest (${LIMITS.recovery / 60} h off) first`);
   // v0.7.3 rules (UPDATE-0.7.3.md §3): extension / night sectors / standby read as the day limit, the rest rules as rest.
   const day = has('ext7d') ?? has('nightSectors') ?? has('standby');
-  if (day && !codes.has('fdp')) set('fdp', day.code === 'ext7d' ? 'already 2 extended days this week' : day.code === 'standby' ? 'on standby since early: the day would run past 18 h awake' : 'a second night in a row with more than 4 sectors');
+  if (day && !codes.has('fdp')) {
+    // The standby's start from the rule's own words ('On standby from 06:00: …').
+    const since = day.code === 'standby' ? /from (\d\d:\d\d)/.exec(day.text)?.[1] : undefined;
+    set('fdp', day.code === 'ext7d' ? 'already 2 extended days this week' : day.code === 'standby' ? `on standby since ${since ?? 'early morning'}: standby plus the day would pass 18 h awake` : 'a second night in a row with more than 4 sectors');
+  }
   const rest2 = has('lateEarly') ?? has('tzRest');
   if (rest2 && !codes.has('rest')) set('rest', rest2.code === 'lateEarly' ? 'finished late: needs a whole local night before an early start' : 'back from a trip across time zones: needs local nights at home first');
   if (has('twoDays') && !codes.has('recovery')) set('recovery', 'due a 2-day weekend off this month');

@@ -19,8 +19,12 @@ import { KV, ScreenHead, useRenderCount } from './common';
 import { LadderCard } from './Ladder';
 import { ClientsView } from './Clients';
 import { RivalsView } from './Rivals';
+import { TeamView } from './Team';
+import { AchievementsView } from './Achievements';
+import { achievementsView, headsView } from '../../engine/ops';
+import { ScreenHint } from '../components/ScreenHint';
 
-type View = 'overview' | 'clients' | 'rivals';
+type View = 'overview' | 'team' | 'clients' | 'rivals' | 'achievements';
 
 /** v0.8 company standing (§1.6): three static steps, what this one brings, what is missing for the next. */
 export function StandingCard({ g }: { g: GameState }) {
@@ -237,7 +241,10 @@ export function CompanyScreen() {
   const fleet = Object.values(g.fleet).length;
   // v0.8: Overview · Clients · Rivals (older deep links such as 'ladder' land on the overview).
   const nv = store.nav.view;
-  const view: View = nv === 'clients' || nv === 'rivals' ? nv : 'overview';
+  const view: View = nv === 'clients' || nv === 'rivals' || nv === 'team' || nv === 'achievements' ? nv : 'overview';
+  const heads = headsView(g);
+  const waiting = heads.filter((h) => h.unlocked && !h.person).length + heads.reduce((n, h) => n + h.proposals.length, 0);
+  const got = achievementsView(g).filter((a) => a.at !== null).length;
   // Same rule as the Clients list's first filter (a job done, a contract or an open offer); moves at most daily.
   const day = Math.floor(g.now / 1440);
   const nClients = useMemo(() => clientList(g, 'working').length, [g, day, store.editCount]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -246,10 +253,15 @@ export function CompanyScreen() {
       <ScreenHead title={c.name} sub={`${c.icao} · callsign ${c.callsign} · home base ${c.homeBase}${c.ceo && c.ceo !== 'You' ? ` · CEO ${c.ceo}` : ''}`}>
         <Tabs<View> value={view} onChange={(v) => store.navigate('company', { view: v })} tabs={[
           { id: 'overview', label: 'Overview' },
+          { id: 'team', label: 'Team', count: waiting || undefined },
           { id: 'clients', label: 'Clients', count: nClients || undefined },
           { id: 'rivals', label: 'Rivals', count: g.rivals.filter((r) => (r.status ?? 'active') === 'active').length || undefined },
+          { id: 'achievements', label: 'Achievements', count: got || undefined },
         ]} />
       </ScreenHead>
+      {(view === 'team' || view === 'overview') && <ScreenHint id={view === 'team' ? 'team' : 'company'} />}
+      {view === 'team' && <TeamView g={g} />}
+      {view === 'achievements' && <AchievementsView g={g} />}
       {view === 'clients' && <ClientsView g={g} />}
       {view === 'rivals' && <RivalsView g={g} />}
       {view === 'overview' && <Overview g={g} fleet={fleet} />}

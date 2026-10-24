@@ -4,14 +4,16 @@
 import { BAL } from '../core/balance';
 import { seatLabel, typeOf } from '../core/perf';
 import { DAY, fmtDay, fmtDateTime } from '../core/time';
-import type { GameState, ProblemRef, RestFacility } from '../core/types';
-import { crewGauges, crewShortCard, shortFlights } from '../crew/control';
+import type { CrewFix, Duty, GameState, ProblemRef, RestFacility } from '../core/types';
+import { crewGauges, crewShortCard, setCrewHoursCard, shortFlights } from '../crew/control';
+import { crewAlertKind, LIMIT_NAME, outOfHours, roleWord, type OohInfo } from '../crew/outOfHours';
+import { dutyCandidates } from '../crew/rosterActions';
 import { crewName } from '../crew/generate';
 import { dutyLegality } from '../crew/rosterActions';
 import { flightCrewStatus, rosterOf } from '../crew/roster';
 import { restSeatsBlocked } from '../crew/crewRest';
 import { isSeatRest, restOf, restPlan, restText, slipShort } from '../crew/restPlan';
-import { augLimitOf, longSector } from '../crew/rules';
+import { augLimitOf, LIMITS, longSector } from '../crew/rules';
 import { ticketPrice } from '../crew/timeline';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import type { TermId } from '../../data/glossary';
@@ -23,8 +25,9 @@ export function crewFlightCard(g: GameState, flightId: string, kind: ProblemRef[
   if (!f || f.status !== 'scheduled' || !f.aircraftId || f.kind === 'deadhead') return null;
   const cs = flightCrewStatus(g, flightId);
   if (cs.level === 'missing' || cs.level === 'illegal') {
-    const card = crewShortCard(g, flightId);
-    if (card && kind !== 'crewShort' && kind !== 'crewIllegal') card.subject = { kind, ref: card.subject.ref };
+    // v0.9 round 4 (§T): a named crew member at a legal limit gets the out-of-hours card on every surface.
+    const card = (crewAlertKind(g, flightId) === 'hours' ? crewHoursCard(g, flightId) : null) ?? crewShortCard(g, flightId);
+    if (card && card.subject.kind !== 'crewHours' && kind !== 'crewShort' && kind !== 'crewIllegal') card.subject = { kind, ref: card.subject.ref };
     return card;
   }
   if (cs.level !== 'tight' || kind === 'crewShort' || kind === 'crewIllegal') return null;
@@ -329,3 +332,104 @@ export function restCards(g: GameState, days = BAL.rosterHorizonDays): ProblemCa
   }
   return out;
 }
+
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+/** WHY in words: which limit, by how much (UPDATE-0.9.md §T.3); the name first; a seat already emptied keeps the amount. */
+export function oohWhy(g: GameState, x: OohInfo, d?: Duty): string {
+  const who = x.name.split(' ')[0];
+  // A rule whose limit name is only a category (standby + FDP, a third extension, local nights) in its own words.
+  if (x.text) return `${who}: ${x.text.replace(/\.$/, '')}.`;
+  switch (x.limit) {
+    case 'fdp': {
+      const late = d ? Math.max(0, (g.flights[d.flightIds[0]]?.delay ?? 0)) : 0;
+      return x.value ? `${who}'s day would run ${hmm(x.value)}${late ? ` after the ${hmm(late)} delay` : ''}; the limit is ${hmm(x.max)}.` : x.overMin ? `${who}'s day would run ${hmm(x.overMin)} over its limit.` : `${who}'s day would run over its limit.`;
+    }
+    case 'rest': return x.overMin ? `${who}'s rest would be ${hmm(x.overMin)} short of the minimum before report.` : `${who} has not had the minimum rest before report.`;
+    case 'recovery': return `${who} would go over 7 days without a 36 h rest.`;
+    case 'daysOff': return `${who}'s ${MONTHS[new Date(Date.UTC(2000, 0, 1) + g.now * 60_000).getUTCMonth()]} days off would fall below 7.`;
+    case 'inflightRest': return `${who}'s rest plan no longer works after the delay: the cabin crew cannot all rest in this cruise.`;
+    default: {
+      const what = LIMIT_NAME[x.limit];
+      const lim = x.max || LIMITS[x.limit as 'duty7d' | 'duty14d' | 'duty28d' | 'block28d' | 'blockYear' | 'block12m'] || 0;
+      if (x.value) return `${who}'s ${what} would reach ${hmm(x.value)} (limit ${hmm(x.max)}).`;
+      return x.overMin && lim ? `${who}'s ${what} is ${hmm(x.overMin)} over the ${lim / 60} h limit.` : `${who} is at the ${what} limit.`;
+    }
+  }
+}
+
+/**
+ * v0.9 crew out of hours (UPDATE-0.9.md §T.3): a named crew member at a legal limit. WHAT names who; WHY the limit and by
+ * how much; DOES IT HURT? as the shortage card; WHAT YOU CAN DO the real fixes, cheapest first (replace from standby,
+ * delay for rest, sub-charter, cancel) with Crew Control as the button. Null when nobody is out of hours. Pure.
+ */
+export function crewHoursCard(g: GameState, flightId: string): ProblemCard | null {
+  const f = g.flights[flightId];
+  if (!f || f.status !== 'scheduled' || !f.aircraftId || f.kind === 'deadhead') return null;
+  const list = outOfHours(g, flightId);
+  if (!list.length) return null;
+  const base = crewShortCard(g, flightId);
+  const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+  const x = list[0];
+  const more = list.length - 1;
+  const what = `${x.name} (${roleWord(x.role)})${more ? ` and ${more} other${more > 1 ? 's' : ''} are` : ' is'} out of hours for ${f.no}`;
+  // v0.9 round 4 (§T): the fixes ARE the fourth line, cheapest first, each opening Crew Control on its row: a legal
+  // replacement (standby first; a failed rest plan needs a whole fresh cabin crew), a delay for the rest, sub-charter, cancel.
+  const open = (fix: CrewFix) => ({ modal: 'crewControl' as const, id: f.id, fix });
+  const actions: ProblemCard['actions'] = [];
+  if (d) {
+    const seats = x.limit === 'inflightRest' ? list : [x];
+    const taken = new Set<string>();
+    const picks = seats.map((y) => {
+      const cands = dutyCandidates(g, d.id, y.role).filter((c) => !c.onPairing && c.level !== 'illegal' && !taken.has(c.crewId) && !list.some((z) => z.crewId === c.crewId));
+      const pick = cands.find((c) => c.standby && !c.travel) ?? cands.find((c) => !c.travel && !c.dayOff) ?? cands.find((c) => !!c.travel);
+      if (pick) taken.add(pick.crewId);
+      return pick;
+    });
+    const pick = picks[0];
+    if (pick && picks.every((p) => !!p)) {
+      const how = pick.standby ? `${pick.standby.kind === 'reserve' ? 'reserve' : `${pick.standby.kind} standby`} at ${pick.standby.at}` : pick.travel ? `flies in (${pick.travel})` : `free at ${pick.loc}`;
+      actions.push({ id: pick.travel ? 'deadhead' : 'callIn', label: seats.length > 1 ? `Replace the cabin crew: ${pick.name} and ${seats.length - 1} more on standby` : `Replace ${x.name.split(' ')[0]}: ${pick.name} (${how})`, open: open(pick.travel ? 'deadhead' : 'callIn'), primary: true });
+    }
+    actions.push({ id: 'delay', label: x.limit === 'rest' && x.overMin ? `Delay ${hmm(x.overMin)} for the rest` : 'Delay until a legal crew is ready', open: open('delay'), primary: !actions.length });
+  }
+  actions.push({ id: 'subcharter', label: 'Sub-charter', open: open('subcharter') }, { id: 'cancel', label: 'Cancel', open: open('cancel') });
+  // The 14/28-day duty limits read on the duty gauge's place, the 12-month flying on the year's.
+  const gid = x.limit === 'fdp' ? 'fdp' : x.limit === 'rest' ? 'rest' : x.limit === 'duty7d' || x.limit === 'duty14d' || x.limit === 'duty28d' ? 'duty7d' : x.limit === 'block28d' ? 'block28d' : x.limit === 'blockYear' || x.limit === 'block12m' ? 'blockYear' : null;
+  const gLabel: Partial<Record<OohInfo['limit'], string>> = { duty14d: '14-day duty', duty28d: '28-day duty', block12m: '12-month flying' };
+  // One number on the screen: the limit's gauge reads the value the WHY and the strip give (the trip included).
+  const gauges = crewGauges(g, x.crewId, d?.id).map((q) => (q.id === gid && x.max > 0 && x.limit !== 'rest' ? { ...q, label: gLabel[x.limit] ?? q.label, value: x.value, limit: x.max, text: `${hmm(x.value)} of ${hmm(x.max)}`, tone: 'bad' as const } : q));
+  const term: TermId[] = x.limit === 'fdp' ? ['fdp'] : x.limit === 'rest' ? ['rest'] : x.limit === 'recovery' ? ['recovery'] : x.limit === 'daysOff' ? ['daysOff'] : x.limit === 'inflightRest' ? ['inflightRest'] : ['blockHours'];
+  return {
+    subject: { kind: 'crewHours', ref: { kind: 'flight', id: f.id } },
+    severity: base?.severity ?? ((f.std - g.now) / 60 <= BAL.crewControl.redH ? 'red' : 'amber'),
+    title: what, what, why: oohWhy(g, x, d),
+    hurt: base?.hurt ?? mkHurt({ pax: f.pax ?? 0, legs: 1, what: 'penalty' }),
+    actions,
+    details: [...list.slice(1).map((y) => `${y.name}: ${oohWhy(g, y, d).replace(/^\S+'s /, '')}`), ...(base?.details ?? [])].slice(0, 8),
+    visuals: { gauges: gid ? gauges.filter((q) => q.id === gid).concat(gauges.filter((q) => q.id !== gid)) : gauges },
+    terms: ['outOfHours', ...term],
+    by: f.std,
+  };
+}
+
+/**
+ * v0.9 round 4 (§V): the card as Crew Control shows it under its out-of-hours strip, which already names who and the
+ * limit (and the gauge the numbers): WHAT without the name, WHY without the name and without the limit figure. Pure.
+ */
+export function cardUnderStrip(card: ProblemCard, list: OohInfo[], flightNo: string): ProblemCard {
+  const x = list[0];
+  if (!x) return card;
+  const more = list.length - 1;
+  const what = `Out of hours for ${flightNo}${more ? ` with ${more} other${more > 1 ? 's' : ''}` : ''}`;
+  const who = x.name.split(' ')[0];
+  let why = card.why;
+  if (why.startsWith(`${who}'s `)) why = why.slice(who.length + 3);
+  else if (why.startsWith(`${who} `)) why = why.slice(who.length + 1);
+  else if (why.startsWith(`${who}: `)) why = why.slice(who.length + 2);
+  why = why.replace(/ \(limit \d+:\d\d\)/, '').replace(/; the limit is \d+:\d\d/, '');
+  why = why.charAt(0).toUpperCase() + why.slice(1);
+  return { ...card, title: what, what, why };
+}
+
+setCrewHoursCard(crewHoursCard);

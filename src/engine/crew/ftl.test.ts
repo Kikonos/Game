@@ -462,6 +462,14 @@ describe('standby (CS FTL.1.225)', () => {
     // guide example 6: standby 07:00, report 15:00 → 2 h off
     expect(standbyCut('home', at('07:00'), at('15:00'), 'LIS', false)).toBe(120);
   });
+  it('round 4: the 23:00–07:00 exclusion only for standby starting in that period (CS FTL.1.225(b)(5))', () => {
+    // A late window from 12:00 called at 23:30 for 00:30: 12:30 of standby, 6 h free → 6:30 off (no night excluded).
+    expect(standbyCut('home', at('12:00'), at('00:30', 1), 'LIS', false, at('23:30'))).toBe(390);
+    // Standby from 23:00 called 07:30 for 09:00: the 8 h night before the call does not count → nothing off.
+    expect(standbyCut('home', at('23:00'), at('09:00', 1), 'LIS', false, at('07:30', 1))).toBe(0);
+    // Standby from 06:00 (in the period) keeps its first hour free, as before.
+    expect(standbyCut('home', at('06:00'), at('14:00'), 'LIS', false)).toBe(60);
+  });
   it('airport: beyond 4 h; standby + FDP ≤ 16 h', () => {
     expect(standbyCut('airport', at('06:00'), at('10:00'), 'LIS', false)).toBe(0);
     expect(standbyCut('airport', at('06:00'), at('12:30'), 'LIS', false)).toBe(150);

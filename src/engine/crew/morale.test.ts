@@ -127,7 +127,12 @@ describe('morale drivers', () => {
     // Discretion −3.
     const d = g.duties[p.dutyIds[0]];
     const before = pilot.morale;
-    applyDiscretion(g, d.id);
+    // v0.9 only after report, for an unforeseen overrun (UPDATE-0.9.md §U.3).
+    const now0 = g.now;
+    g.now = d.report + 10;
+    d.fdp = d.maxFdp + 30;
+    expect(applyDiscretion(g, d.id).ok).toBe(true);
+    g.now = now0;
     expect(pilot.morale).toBeCloseTo(before - 3, 5);
     expect(pilot.moraleWhy?.discretion).toBe(-3);
     // Salaries paid out of a negative balance: −15 for everyone, one message.

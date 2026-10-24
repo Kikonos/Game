@@ -3,10 +3,10 @@
 // or tour), so a duty or flight id resolves to its pairing and a change applies to that pairing's duties still
 // to fly. Manual assignments are locked: the rolling re-plan keeps them, flagged when illegal, never silently.
 
-import { onStandby } from './standby';
-import { canFill, typeOf } from '../core/perf';
+import { onStandby, readyMinOf, standbyFor } from './standby';
+import { canFill, reportMinutes, typeOf } from '../core/perf';
 import { fmtDay, fmtTime } from '../core/time';
-import type { ActionResult, CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing, Role } from '../core/types';
+import type { ActionResult, CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing, Role, StandbyKind } from '../core/types';
 import { issueLevelFor, openDuties, planCrew } from './check';
 import { crewName } from './generate';
 import { rootReason, type Reason } from './reasons';
@@ -88,6 +88,16 @@ export function dutyCrew(g: GameState, dutyOrFlightId: string): DutyCrewView | n
   };
 }
 
+/**
+ * v0.9 round 4 (§Y.1): the report of a crew member who takes a seat after the duty reported: their own check-in for
+ * the held departure (never the hours the first crew waited at the gate), and never before now. Pure.
+ */
+export function freshReport(g: GameState, p: Pairing, d: Duty, f = g.flights[d.flightIds[0]]): Minute {
+  if (!f) return g.now;
+  const checkIn = f.id === d.flightIds[0] && f.std > d.report ? f.std - d.report : reportMinutes(typeIdOf(g, p)).report;
+  return Math.max(g.now, f.std + f.delay - checkIn);
+}
+
 export interface DutyCandidate {
   crewId: string;
   name: string;
@@ -113,8 +123,10 @@ export interface DutyCandidate {
   arrives?: Minute;
   /** v0.7.1: the one root reason when not clean (UPDATE-0.7.1.md §6). */
   reason?: Reason;
-  /** v0.7.3 on home standby at the report (Crew Control call-in: no overtime). */
-  standby?: { from: Minute };
+  /** v0.7.3 on standby for the report (Crew Control call-in: no overtime). v0.9: its kind, station and response time (§R.4). */
+  standby?: { from: Minute; to: Minute; kind: StandbyKind; at: string; readyMin: number };
+  /** v0.9 the duty would take a planned day off (Crew Control lists them last; a published one costs morale −6). */
+  dayOff?: boolean;
 }
 
 /**
@@ -156,14 +168,16 @@ export function dutyCandidates(g: GameState, dutyOrFlightId: string, role: Role)
     // v0.7.2 a captain for a first officer's seat: their own group 'Captain flying as FO', after the first officers
     // of the same legality (the UI groups by asFo).
     const asFo = c.role === 'CPT' && (role === 'FO' || role === 'CRP');
-    // v0.7.3 on home standby now (Crew Control calls them first: no overtime).
-    const sby = onStandby(g, c.id, g.now);
+    // v0.7.3 on standby for the report (Crew Control calls them first: no overtime); v0.9 any kind.
+    const sby = standbyFor(g, c, first.report) ?? onStandby(g, c.id, g.now);
+    const dayOff = issues.some((i) => i.code === 'daysOff');
     if (c.role !== role) reasons.push(asFo ? 'Captain flying as FO' : `${c.role} in a ${role} seat`);
     out.push({
       crewId: c.id, name: crewName(c), role: c.role, ...(asFo ? { asFo: true as const } : {}), legal: level !== 'illegal', level, reasons, codes: [...new Set(issues.map((i) => i.code))],
       loc, onPairing: on.has(c.id), ticket, block28dH: Math.round(b28 * 10) / 10, travel, arrives: o && !lost ? o.sta : undefined,
       reason: level !== 'legal' ? rootReason(g, issues, c, p) ?? undefined : undefined,
-      ...(sby ? { standby: { from: sby.from } } : {}),
+      ...(sby ? { standby: { from: sby.from, to: sby.to, kind: sby.kind, at: sby.at, readyMin: readyMinOf(sby.kind) } } : {}),
+      ...(dayOff ? { dayOff: true } : {}),
       score: -ticket - 2 * b28 - (c.role !== role ? 50 : 0),
     });
   }
@@ -259,12 +273,15 @@ function issuesText(g: GameState, c: CrewMember, p: Pairing): { level: Legality;
   return { level: levelOf(plan.issues.filter((i) => i.code !== 'fdp')), text: bad[0]?.text ?? '' };
 }
 
-function basicChecks(g: GameState, p: Pairing, c: CrewMember, role: Role): string | null {
+function basicChecks(g: GameState, p: Pairing, c: CrewMember, role: Role, replace = false): string | null {
   const t = typeOf(typeIdOf(g, p));
   if (!canFill(role, c.role)) return `A ${c.role} can't fill a ${role} seat`;
   if (!c.ratings.includes(t.family)) return `${crewName(c)} is not rated on ${t.short}`;
   if (!openDuties(g, p).length) return 'This trip has already flown';
-  if (inProgress(g, p)) return 'A duty of this trip is under way; change the crew after it releases';
+  const under = inProgress(g, p);
+  // v0.9 round 4 (§Y.1): a replacement at the gate (the duty reported, its first leg still on the ground) is allowed:
+  // the crew out of hours come off and the fresh crew start their own day there.
+  if (under && !(replace && g.flights[under.flightIds[0]]?.status === 'scheduled')) return 'A duty of this trip is under way; change the crew after it releases';
   return null;
 }
 
@@ -279,7 +296,7 @@ export function assignCrew(g: GameState, dutyOrFlightId: string, crewId: string,
   const { p } = x;
   const c = g.crew[crewId];
   if (!c) return { ok: false, error: 'Crew member not found' };
-  const bad = basicChecks(g, p, c, role);
+  const bad = basicChecks(g, p, c, role, !!opts.replace);
   if (bad) return { ok: false, error: bad };
   if (p.slots.some((s) => s.crewId === crewId)) return { ok: false, error: `${crewName(c)} is already on this trip` };
   let slot = -1;
@@ -299,6 +316,9 @@ export function assignCrew(g: GameState, dutyOrFlightId: string, crewId: string,
   }
   placeCrew(g, p, slot, c);
   p.slots[slot].locked = true;
+  // v0.9 round 4 (§Y.1): a replacement at the gate starts a fresh day: their own check-in for the held departure, not the duty's report.
+  const d0 = openDuties(g, p)[0];
+  if (opts.replace && d0 && d0.report <= g.now) p.slots[slot].from = freshReport(g, p, d0);
   touchCrew(g);
   const name = crewName(c);
   const msg = check.level === 'illegal' ? `${name} assigned, flagged illegal: ${check.text}` : check.level === 'tight' ? `${name} assigned (tight)` : `${name} assigned`;

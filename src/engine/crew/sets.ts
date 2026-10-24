@@ -16,6 +16,22 @@ import { hireQuote, type HireRequest } from './hr';
 
 export const SET_ROLES: Role[] = ['CPT', 'FO', 'CRP', 'PUR', 'CC'];
 
+/**
+ * v0.9 the Planning view's one line on why 5 sets per aircraft still holds with v0.9 rostering (UPDATE-0.9.md §R.7):
+ * ≈ 30.4 − 9 off − 2.3 leave − ≈ 1 sick/training ≈ 18 work days a person a month; 5 sets give ≈ 90 crew-days per seat
+ * against 30–45 flying days, the rest is standby.
+ */
+export const SETS_WHY = '5 sets per aircraft: each person has 8–10 days off a month in 2–3-day blocks and 4 weeks’ leave; every other day is flying or standby.';
+
+/** v0.9 fix: the Planning view's line for a fleet with a detached aircraft (replaces 'its sets on station plus 2 at base'). */
+export const SETS_DETACHED = 'A detached aircraft needs its sets on station plus one in five for leave and change-overs.';
+/**
+ * v0.9 fix: crew sets an aircraft on a deployment needs: its sets on station (their days off are taken at the hotel,
+ * inside the tour) plus a fifth for leave, sickness and the change-overs (the same 1.20 as the home rule), never fewer
+ * than the home base's 5. Was on-station + 2 (7 for a 5-set detachment). Pure.
+ */
+export const setsForStation = (onStation: number): number => Math.max(BAL.crewSetsPerAircraft, Math.ceil(onStation * 1.2 - 1e-9));
+
 export interface SetRole {
   role: Role;
   /** Crew in one set (may be fractional on a mixed family: an A320 and an A321 need different cabin crews). */
@@ -62,7 +78,7 @@ export interface FamilyPlan {
   /** v0.8 aircraft away on a dry lease (the lessee's crews fly them): no sets. */
   dryLeased: number;
   roles: SetRole[];
-  /** 'A320 family: 4 aircraft · 5 sets each = 20 sets needed · you have 18 complete · short 2 CPT, 1 PUR, 2 CC'. */
+  /** v0.9: 'Short: 2 CPT, 1 PUR, 2 CC' / 'Complete · 2 spare' (the tiles above show the rest). */
   verdict: string;
 }
 
@@ -163,7 +179,7 @@ export function familyNeeds(g: GameState) {
       continue;
     }
     const t = typeOf(ac.typeId);
-    const sets = Math.max(BAL.crewSetsPerAircraft, (onStation.get(ac.id) ?? 0) + 2);
+    const sets = setsForStation(onStation.get(ac.id) ?? 0);
     // The most extra crew its long work over the next 60 days asks for (as the staffing model).
     let x = crewExtraFor(g, ac.id, null);
     for (const k of Object.values(g.contracts)) {
@@ -290,7 +306,6 @@ export function completeSets(perSet: Partial<Record<Role, number>>, have: Partia
   return lo;
 }
 
-const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
 
 /** v0.7.4 the Crew planning view, one entry per fleet family (largest fleet first). Pure. */
 export function crewPlan(g: GameState): FamilyPlan[] {
@@ -332,10 +347,10 @@ export function crewPlan(g: GameState): FamilyPlan[] {
     }
     const each = Math.round(f.sets / f.aircraft);
     const shortTxt = miss.filter((m) => m.count > 0).map((m) => `${m.count} ${m.role}`).join(', ');
-    const head = `${LABEL[family]}: ${plural(f.aircraft, 'aircraft').replace(/aircrafts$/, 'aircraft')} · ${each} sets each = ${f.sets} sets needed`;
+    // v0.9 (§V.2) only what the tiles above don't show: the shortfall, or complete and any spare sets.
     const verdict = setsComplete >= f.sets
-      ? `${head} · you have ${setsComplete} complete${setsComplete > f.sets ? ` (${setsComplete - f.sets} spare)` : ''}`
-      : `${head} · you have ${setsComplete} complete · short ${shortTxt}`;
+      ? `Complete${setsComplete > f.sets ? ` · ${setsComplete - f.sets} spare` : ''}`
+      : `Short: ${shortTxt}`;
     out.push({
       family, label: LABEL[family], aircraft: f.aircraft, types: [...f.types.values()], setsPerAircraft: each, setsNeeded: f.sets, setsNow, setsComplete,
       limiting: setsComplete >= f.sets ? null : limiting, augmented: f.aug, clientCabin: Math.round(f.client), dryLeased: f.dry, roles, verdict,

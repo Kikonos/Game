@@ -10,6 +10,8 @@ import { usd } from '../ops/util';
 import { mkHurt, type ProblemCard, type TimelineSpec } from './types';
 
 export function cashLowCard(g: GameState): ProblemCard | null {
+  // Round 4: below zero the red cashNegative card is the one cash problem (one event, one card).
+  if (g.company.cash < 0) return null;
   const fc = cashForecast(g, 30);
   if (!fc.length) return null;
   let low = fc[0];
@@ -96,8 +98,44 @@ export function leaseDueCard(g: GameState, aircraftId: string): ProblemCard | nu
   };
 }
 
+/**
+ * v0.9 round 4 (§S): cash below zero, the day it happens. WHAT the fact; WHY what pushed it under; DOES IT HURT the
+ * rescue clock (an investor's offer after BAL.rescueDays days, the game lost on a second time); WHAT YOU CAN DO as the
+ * low-cash card. Null while cash is at or above zero. Pure.
+ */
+export function cashNegativeCard(g: GameState): ProblemCard | null {
+  const cash = g.company.cash;
+  if (cash >= 0) return null;
+  const since = g.finance.negSince ?? g.now;
+  const rescueAt = since + BAL.rescueDays * DAY;
+  const daysLeft = Math.max(0, Math.ceil((rescueAt - g.now) / DAY));
+  const k = monthKey(g.now);
+  const fx = fixedCosts(g, k);
+  const salaries = Object.values(g.crew).reduce((s, c) => s + c.salary, 0) * (1 + BAL.onCosts);
+  const owed = g.finance.receivables.filter((r) => r.paid === null).reduce((s, r) => s + r.amount, 0);
+  const again = (g.finance.rescues ?? 0) >= 1;
+  const decision = g.decisions.find((d) => d.kind === 'latePayment');
+  return {
+    subject: { kind: 'cashNegative', ref: { kind: 'cash', id: 'cash' } }, severity: 'red',
+    title: `Cash is below zero (${usd(cash)})`, what: `Cash is below zero (${usd(cash)})`,
+    why: `Rent, salaries and flying costs of about ${usd(fx.rent + fx.insurance + fx.overhead + salaries)} a month outran what came in${owed ? `; ${usd(owed)} of invoices are still unpaid` : ''}.`,
+    hurt: mkHurt({ money: -cash, what: 'short', extra: again ? `the company fails after ${BAL.rescueDays} days in the red` : `in ${daysLeft} days an investor offers a rescue for a quarter of the company` }),
+    actions: [
+      { id: 'finance', label: 'Finance', open: { tab: 'finance' }, primary: true },
+      { id: 'findWork', label: 'Find work', open: { tab: 'contracts' } },
+      ...(decision ? [{ id: 'factor', label: 'Sell an invoice', open: { modal: 'decision' as const, id: decision.id } }] : []),
+    ],
+    details: [`Below zero since ${fmtDay(since)}`, `Fixed costs this month ${usd(fx.rent + fx.insurance + fx.overhead)}, salaries ${usd(salaries)}`, `Outstanding invoices ${usd(owed)}`],
+    // The gauge carries no `by`: Gauge prints a time of day for it, and the hurt line already gives the date.
+    visuals: { gauges: [{ id: 'cash', label: 'Days in the red', value: Math.min(BAL.rescueDays, Math.floor((g.now - since) / DAY)), limit: BAL.rescueDays, unit: 'hm', text: `${Math.floor((g.now - since) / DAY)} of ${BAL.rescueDays} days`, tone: 'bad' }] },
+    terms: [], by: rescueAt,
+  };
+}
+
 export function moneyProblems(g: GameState): ProblemCard[] {
   const out: ProblemCard[] = [];
+  const neg = cashNegativeCard(g);
+  if (neg) out.push(neg);
   const cash = cashLowCard(g);
   if (cash) out.push(cash);
   // One card per contract (its subject): two overdue invoices of one contract are one problem.
@@ -108,7 +146,7 @@ export function moneyProblems(g: GameState): ProblemCard[] {
   }
   const loss = lossMonthCard(g);
   if (loss && g.now - nextMonthStart(g.now - 31 * DAY) <= 7 * DAY) out.push(loss);
-  if (cash) for (const ac of Object.values(g.fleet)) {
+  if (cash || neg) for (const ac of Object.values(g.fleet)) {
     const l = leaseDueCard(g, ac.id);
     if (l) out.push(l);
   }

@@ -10,6 +10,7 @@ import { BAL } from '../core/balance';
 import { cancelFlight, nextId, removeFlights, retimeFlight } from '../core/entities';
 import { distance, interpolateGC } from '../core/geo';
 import { invoice, post } from '../core/ledger';
+import { cue } from '../core/cues';
 import { pushMessage } from '../core/messages';
 import { typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
@@ -418,11 +419,12 @@ function applyClosure(g: GameState, e: WorldEvent, first: boolean, again = false
     const until = closedUntil(e);
     if (k?.pattern.kind === 'base' || !k) {
       const n = cancelForceMajeure(g, legs.filter((f) => f.std < until), `Closed: ${e.title}`);
-      if (n) pushMessage(g, { tone: 'warn', cat: 'ops', title: `${n} leg${n > 1 ? 's' : ''} dropped: ${e.title}`, body: `Force majeure: no penalty and no reputation lost. ${k ? `${k.title} flies again after the reopening.` : ''}`.trim(), ref: { kind: 'event', id: e.id }, topic: 'world' });
+      if (n) pushMessage(g, { tone: 'warn', cat: 'ops', title: `${n} leg${n > 1 ? 's' : ''} dropped: ${e.title}`, body: `Force majeure: no penalty and no reputation lost. ${k ? `${k.title} flies again after the reopening.` : ''}`.trim(), ref: { kind: 'event', id: e.id }, topic: 'world', cue: 'worldEventOurs' });
       continue;
     }
     if (again) {
-      waitLegs(g, k, e);
+      // v0.9 round 4 (§S): our waiting legs move again on the extension: a world event touching our flights.
+      if (waitLegs(g, k, e)) cue('worldEventOurs');
       continue;
     }
     // Legs of a programme the player was already asked about for this closure join that question or follow its
@@ -452,7 +454,7 @@ function applyClosure(g: GameState, e: WorldEvent, first: boolean, again = false
     pushMessage(g, {
       tone: 'warn', cat: 'ops', title: `${z.adj} airspace closed`,
       body: `${rerouted ? `${rerouted} of our legs rerouted around it, +${z.detourMin} min each. ` : ''}${n ? `${n} leg${n > 1 ? 's' : ''} into it wait for the reopening.` : ''}`.trim(),
-      ref: { kind: 'event', id: e.id }, problem: { kind: 'airspaceClosed', ref: { kind: 'event', id: e.id } }, topic: 'world',
+      ref: { kind: 'event', id: e.id }, problem: { kind: 'airspaceClosed', ref: { kind: 'event', id: e.id } }, topic: 'world', cue: fresh.length ? 'airspaceActive' : 'worldEventOurs',
     });
   }
 }

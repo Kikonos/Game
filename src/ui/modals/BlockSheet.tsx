@@ -1,13 +1,13 @@
 // Schedule detail sheet (B5): the flight(s) or maintenance near a Gantt tap, or an idle gap.
 // Flight: times UTC/local, crew and legality, contract link. Maintenance: reschedule / cancel.
 
-import { ArrowRightLeft, CalendarClock, ChevronLeft, ChevronRight, Clock, FileSignature, Handshake, Lock, Palette, Search, Sofa, Trash2, Users, Wrench } from 'lucide-react';
+import { ArrowRightLeft, CalendarClock, ChevronLeft, ChevronRight, Clock, FileSignature, Handshake, Lock, Palette, Repeat, Search, Sofa, Trash2, Users, Wrench } from 'lucide-react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { BAL } from '../../engine/core/balance';
 import { DAY, fmtDateTime, fmtDay, fmtDuration, fmtTime } from '../../engine/core/time';
 import type { Aircraft, Duty, Flight, GameState, MaintenanceEvent, Ref } from '../../engine/core/types';
-import { clientCrewOf, crewName, dutyCrew, dutyLegality, flightCrewStatus, restOf, restPlanForFlight, restSeatsBlocked, restShort, restVerdict } from '../../engine/crew';
+import { clientCrewOf, crewAlertKind, crewName, dutyCrew, slipOfFlight, dutyLegality, flightCrewStatus, restOf, restPlanForFlight, restSeatsBlocked, restShort, restVerdict } from '../../engine/crew';
 import { seatLabel, typeOf } from '../../engine/core/perf';
 import { cabinOptions, cancelCheck, checkStatus, delayFlight, dryLeaseView, flightCrewAboard, flightType, flightZone, refitSlots } from '../../engine/ops';
 import { ClientCrewRow } from './v08Bits';
@@ -140,7 +140,7 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
   if (zone) rows.push(['World event', <button className={`chip sc-chip ${zone.effect === 'held' ? 'bad' : 'warn'}`} onClick={() => store.openModal({ kind: 'worldEvent', eventId: zone.eventId })}>{zone.text}</button>]);
   if (f.warRisk) rows.push(['War-risk cover', `${money(f.warRisk)} for this landing`]);
   if (f.purpose === 'lease' && c?.dry) rows.push(['Dry lease', `${c.dry.outIds.includes(f.id) ? 'Delivery' : 'Return'} ferry · ${g.clients[c.clientId]?.name ?? 'lessee'} at ${c.dry.site}`]);
-  if (d) rows.push(['Duty', `Day length ${hm(d.fdp)} of ${hm(d.maxFdp + (d.discretion ?? 0))} · ${d.sectors} sector${d.sectors === 1 ? '' : 's'}${d.augment ? ` · ${2 + d.augment} pilots` : ''}${d.ext ? ' · planned extension' : ''}${d.split ? ' · split duty' : ''}`]);
+  if (d) rows.push(['Duty', `Day length ${hm(d.fdp)} of ${hm(d.maxFdp + (d.discretion ?? 0))} · ${d.sectors} sector${d.sectors === 1 ? '' : 's'}${d.augment ? ` · ${2 + d.augment} pilots` : ''}${d.ext ? ' · planned extension' : ''}${d.split ? ' · split duty' : ''}${d.discretion ? ` · commander's discretion +${hm(d.discretion)}` : ''}`]);
   const live = f.status === 'scheduled' && !!f.aircraftId;
   const canSub = live && !!c && (f.kind === 'revenue' || f.kind === 'techstop');
   // v0.7.2.1: the trip this leg belongs to (moves whole to another aircraft).
@@ -151,16 +151,21 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
   };
   // v0.7.1 §4: the four-line card on top (crew shortage, illegal or tight crew, an uncrewed ferry), the banner while the ladder mark stands.
   const card = live && !later && f.kind !== 'deadhead' ? problemAt(g, { kind: 'flight', id: f.id }) : null;
-  const short = !!card && (card.subject.kind === 'crewShort' || card.subject.kind === 'crewIllegal' || card.subject.kind === 'ferryUncrewed');
+  const short = !!card && (card.subject.kind === 'crewShort' || card.subject.kind === 'crewIllegal' || card.subject.kind === 'ferryUncrewed' || card.subject.kind === 'crewHours');
   return (
     <div className="col gap-12">
       {card && (
         <ProblemCardView card={card} g={g} hideActions={short}>
           {short && <button className="btn btn-primary" onClick={() => store.openModal({ kind: 'crewControl', flightId: f.id })}><Users /> Crew Control</button>}
-          {short && f.crewAlert && <span className={`cs-banner ${card.severity}`}>CREW SHORTAGE</span>}
+          {short && f.crewAlert && <span className={`cs-banner ${card.severity}`}>{crewAlertKind(g, f.id) === 'hours' ? 'CREW OUT OF HOURS' : 'CREW SHORTAGE'}</span>}
         </ProblemCardView>
       )}
       <div className="small muted">{AIRPORT_BY_CODE[f.from]?.city ?? f.from} → {AIRPORT_BY_CODE[f.to]?.city ?? f.to}</div>
+      {(() => {
+        // v0.9 §W.3: a crew change at a fuel stop on this flight's duty.
+        const sv = f.kind !== 'deadhead' ? slipOfFlight(g, f.id) : null;
+        return sv ? <div className="small v9-slip"><Repeat className="sc-ico-s accent" /><span><Term id="slipCrew">{sv.text}</Term></span></div> : null;
+      })()}
       <KV rows={rows} />
       {ac && f.kind !== 'deadhead' && f.status !== 'cancelled' && <RestSection g={g} f={f} ac={ac} d={d} legal={cs.level !== 'illegal'} />}
       {f.aircraftId && f.kind !== 'deadhead' && (

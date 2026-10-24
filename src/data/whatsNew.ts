@@ -16,6 +16,26 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.9',
+    name: 'Experience',
+    features: [
+      'Department heads: earn them by flying well, then hire one. An Ops Control duty manager, a maintenance planner, a crew scheduling desk, a commercial analyst, credit control, a fleet planner and a watch desk for your own alerts. Each takes routine work off your desk, makes the odd mistake, and never decides the big things.',
+      'Achievements: 24 milestones on the Company screen, with a quiet note when you earn one.',
+      'Sound: real cabin chimes. A high chime for news, a low chime for calm moments, the high-low bing-bong for a new contract, double for a problem that needs you soon, triple for a serious one, and one urgent alarm for crew shortage and crew out of hours. Settings has a volume, categories and a test list.',
+      'Crew out of hours: its own alert when a pilot or flight attendant reaches a legal limit, naming who, which limit and by how much, with the fixes.',
+      'Crew change at a fuel stop: a long one-way flight can now split with a fresh crew flown in to the tech stop, priced into the offer and planned by the roster.',
+      'First-time hints on each screen, written for people who know the job.',
+      'Roster planning like a real EASA operator: crews get 8–10 days off a month in 2–3-day blocks (one block a week is the 36 h rest) and 4 weeks’ leave, published 14 days ahead and protected. Every other free day is standby: at home, at the hotel on a detachment or night-stop, at the airport at busy bases, or reserve. Crew Control calls standby first.',
+    ],
+    improvements: [
+      'Captain’s discretion is never planned: it only appears after the crew has reported, for something unforeseen, and the longest day says so.',
+      'Shorter, plainer texts across the game.',
+      'A delay after the crew has reported now re-checks the in-flight rest at departure.',
+      'Jumbo loads (420+ seats) for the 747-400 and other 450-seat jets, and charters with fuel billed at cost, so a well-chosen Hajj, troop or UN job pays.',
+      'What’s new catches up: the first start after an update also shows the notes of the versions you skipped, once.',
+    ],
+  },
+  {
     version: 'v0.8',
     name: 'World',
     features: [
@@ -183,4 +203,21 @@ export function unseenEntries(seen: string): WhatsNewEntry[] {
   const s = parts(seen);
   if (!s) return [CURRENT];
   return WHATS_NEW.filter((e) => newer(parts(e.version) ?? [0], s));
+}
+
+/** The last version before the v0.9 catch-up window (everything newer shows once on the first v0.9 launch). */
+const CATCH_UP_AFTER = 'v0.7.3';
+
+/**
+ * v0.9 catch-up (UPDATE-0.9.md §X): on the first v0.9 launch every entry newer than v0.7.3 (v0.9, v0.8, v0.7.4), newest
+ * first, even if v0.8 was seen (from an older version: everything since it); afterwards unseenEntries. A fresh install
+ * ('' seen) gets CURRENT only. Pure.
+ */
+export function whatsNewToShow(seen: string, catchUpDone: boolean): WhatsNewEntry[] {
+  const s = parts(seen);
+  if (!s) return [CURRENT];
+  if (catchUpDone) return unseenEntries(seen);
+  const floor = parts(CATCH_UP_AFTER)!;
+  const from = newer(s, floor) ? floor : s;
+  return WHATS_NEW.filter((e) => newer(parts(e.version) ?? [0], from));
 }

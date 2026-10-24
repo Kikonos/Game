@@ -396,3 +396,33 @@ div.worldmap { overflow: clip; }
 .op-zone.held { color: var(--warn); }
 .op-zone.detour { color: var(--text-2); }
 .op-zone.warRisk { color: #fcd9a0; }
+
+/* ==========================================================================
+   v0.9 crew out of hours (§T.5), hotel standby (§R.9), crew change at a fuel stop (§W.4). All static.
+   ========================================================================== */
+.op-banner.hours { display: inline-flex; align-items: center; gap: 5px; }
+.op-banner svg { width: 13px; height: 13px; flex-shrink: 0; }
+.op-banner.small svg { width: 12px; height: 12px; }
+.op-ooh-what { display: flex; gap: 8px; align-items: flex-start; }
+.op-ooh-what svg { width: 18px; height: 18px; flex-shrink: 0; margin-top: 1px; color: #fecaca; }
+.op-short.amber .op-ooh-what svg { color: #fde68a; }
+.op-tag.ooh { color: #fecaca; border-color: rgba(248, 113, 113, 0.55); }
+.op-tag.sby { margin-left: auto; color: #a5c8fa; border-color: rgba(96, 165, 250, 0.45); flex-shrink: 0; }
+.ops-help-sw .ops-help-ooh { width: 15px; height: 15px; color: #fecaca; }
+.ops-help-sw .ops-help-slip { width: 15px; height: 15px; color: #cbd3e1; }
+
+/* Slip crews' airline legs (selected aircraft): the deadhead grey at selected weight; the way home fainter. */
+.ops-slip-arcs path { fill: none; stroke-linecap: round; vector-effect: non-scaling-stroke; stroke-width: 1.8px; stroke-opacity: 0.95; }
+.ops-slip-arcs path.out { stroke-opacity: 0.5; }
+/* Crew-change mark at the fuel stop: a small grey disc with two arrows. */
+.ops-slip { cursor: pointer; }
+.ops-slip .hit { fill: transparent; stroke: none; }
+.ops-slip .disc { fill: #1a2234; stroke: #b9c2d4; stroke-width: 1.6; }
+.ops-slip .glyph { fill: none; stroke: #e3e8f1; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+.ops-slip .sel-ring { fill: rgba(255, 255, 255, 0.08); stroke: #fff; stroke-width: 1.5; }
+.op-slip-row svg { width: 18px; height: 18px; flex-shrink: 0; color: var(--text-2); }
+.op-slip-chip { display: inline-flex; align-items: center; gap: 6px; }
+.op-slip-chip svg { width: 14px; height: 14px; }
+.op-slip-line { color: var(--text-2); line-height: 1.45; }
+/* With hotel standby in the list: one column, so the name and its SBY tag both fit. */
+.op-crew.one { grid-template-columns: 1fr; }

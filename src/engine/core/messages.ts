@@ -1,5 +1,6 @@
 // Inbox helpers usable from every module. Decisions also request an auto-pause.
 
+import { cue, cueOfDecision, cueOfMessage, type Cue } from './cues';
 import { nextId } from './entities';
 import { schedule } from './queue';
 import { requestPause } from './pause';
@@ -7,16 +8,31 @@ import type { ActionResult, Decision, GameState, Message } from './types';
 
 const MAX_MESSAGES = 300;
 
-export function pushMessage(g: GameState, m: Omit<Message, 'id' | 't' | 'read'>): Message {
-  const msg: Message = { id: nextId(g, 'm'), t: g.now, read: false, ...m };
+/** v0.9: `cue` overrides the sound cueOfMessage would pick (null = silent); it is never saved. */
+export function pushMessage(g: GameState, m: Omit<Message, 'id' | 't' | 'read'> & { cue?: Cue | null }): Message {
+  const { cue: want, ...rest } = m;
+  const msg: Message = { id: nextId(g, 'm'), t: g.now, read: false, ...rest };
+  const c = want === undefined ? cueOfMessage(msg) : want;
+  if (c) cue(c);
   g.messages.unshift(msg);
   if (g.messages.length > MAX_MESSAGES) g.messages.length = MAX_MESSAGES;
   return msg;
 }
 
+/**
+ * v0.9 department heads (ops/heads.ts): offered every decision the moment it is posted; true = a head took it (applied
+ * an option and posted its own quiet note), so nothing is queued, paused or chimed.
+ */
+let decisionHook: ((g: GameState, d: Decision) => boolean) | null = null;
+export function setDecisionHook(f: ((g: GameState, d: Decision) => boolean) | null): void {
+  decisionHook = f;
+}
+
 /** Adds a decision, queues its expiry (default option applies) and asks the clock to pause. */
 export function pushDecision(g: GameState, d: Omit<Decision, 'id' | 't'>): Decision {
   const dec: Decision = { id: nextId(g, 'd'), t: g.now, ...d };
+  if (decisionHook?.(g, dec)) return dec;
+  cue(cueOfDecision(dec));
   g.decisions.push(dec);
   schedule(g, dec.expires, 'decision.expire', dec.id);
   requestPause('decision');

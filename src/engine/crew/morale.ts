@@ -44,6 +44,7 @@ export interface MoraleSummary {
 export const MORALE_LABEL: Record<MoraleDriver, string> = {
   policy: 'Pay & tours', hotel: 'Hotels', tour: 'Long tour', offAway: 'Days off away', workload: 'Workload', lateChange: 'Late changes',
   discretion: 'Extended duties', mission: 'Missions', extraCrew: 'Extra crew', career: 'New type', pay: 'Pay', recognition: 'Client thanks',
+  standby: 'Long standby runs', daysOff: 'Days off',
 };
 
 const M = () => BAL.morale;
@@ -206,9 +207,21 @@ function dailyDrivers(g: GameState, c: CrewMember, target: number): Partial<Reco
     let t = 0;
     for (const [d, v] of M().awayDays) if (days > d) t = v;
     if (t) out.tour = t;
-    // Yesterday without work, at the hotel.
+    // Yesterday without work, at the hotel (v0.9: a hotel standby day is work; long standby runs are their own driver).
     const from = g.now - DAY;
-    if ((c.awaySince ?? g.now) <= from && !c.log.some((e) => e.end > from && e.start < g.now)) out.offAway = M().offAway;
+    if ((c.awaySince ?? g.now) <= from && !c.log.some((e) => e.end > from && e.start < g.now) && !c.standby?.some((w) => w.from < g.now && w.to > from)) out.offAway = M().offAway;
+  }
+  // v0.9 long standby runs (UPDATE-0.9.md §R.6): from the 4th day in a row on standby without a call-out.
+  const SR = BAL.v09.roster.morale;
+  if (c.standby?.length) {
+    let run = 0;
+    for (let k = 1; k <= SR.runFrom + 1; k++) {
+      const a = g.now - k * DAY;
+      const b = a + DAY;
+      if (!c.standby.some((w) => w.from >= a && w.from < b && w.calledAt === undefined) || c.log.some((e) => e.end > a && e.start < b)) break;
+      run++;
+    }
+    if (run >= SR.runFrom) out.standby = SR.runDay;
   }
   let duty = 0;
   for (const e of c.log) if (e.end > g.now - 28 * DAY) duty += e.end - e.start;
@@ -294,6 +307,12 @@ function averages(g: GameState): { avg: number; pilots: number; cabin: number; t
     }
   }
   return { avg: n ? s / n : 0, pilots: np ? sp / np : 0, cabin: n - np ? (s - sp) / (n - np) : 0, then: n ? then / n : 0, n };
+}
+
+/** v0.9 the company's average crew morale now (null without crew). Pure. */
+export function companyMorale(g: GameState): number | null {
+  const a = averages(g);
+  return a.n ? a.avg : null;
 }
 
 /**

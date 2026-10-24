@@ -6,7 +6,7 @@ import type { Archetype, GameState, SimEvent } from '../core/types';
 import { dailyContracts, onContractEnd, onContractStart } from './accept';
 import { onFlightArrivedContracts, onMonthContracts } from './billing';
 import { loadClients, seedClients, seedRivals } from './clients';
-import { dailyOffers, loadCounters, onOfferExpire, onOfferReply, onOfferSpawn, openingOffers, scheduleNextOffer } from './offers';
+import { dailyOffers, lapseCues, loadCounters, onOfferExpire, onOfferReply, onOfferSpawn, openingOffers, scheduleNextOffer } from './offers';
 import { extendBaseSchedules, relinkPositioning } from './schedule';
 import { dailyRelations, loadRelations, monthlyRelationDrift } from './relations';
 import { loadRivals, onRivalBid, refreshRivals } from './rivals';
@@ -95,6 +95,7 @@ export const contractsModule: SimModule = {
   },
   /** Keeps empty legs linking commitments after any flight change (delays, swaps, cancellations by other modules). */
   settle(g, full) {
+    lapseCues(g);
     const marks = takeRelink(g);
     if (relinked.get(g) === flightsRev(g)) return;
     // Relinked to a fixed point (a pass that changes nothing), so the first settle after a load finds nothing to

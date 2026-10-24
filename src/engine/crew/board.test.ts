@@ -103,8 +103,9 @@ describe('roster board row cache: the running clock', () => {
       if (k % 10 === 9) expect(JSON.stringify(cur)).toBe(JSON.stringify(rosterBoard(structuredClone(g), from, to, ids)));
       prev = cur;
     }
-    // An hourly key rebuilt every row about every other step; now a few rows per step at most.
-    expect(rebuilt / steps).toBeLessThan(Math.max(3, ids.length * 0.1));
+    // An hourly key rebuilt every row about every other step; now a few rows per step at most (v0.9: every free day
+    // is a standby window, so more rows reach a boundary).
+    expect(rebuilt / steps).toBeLessThan(Math.max(3, ids.length * 0.15));
   });
 });
 
@@ -150,6 +151,7 @@ describe('moving duties', () => {
   it('trip scope moves the rest of the trip; the seat is locked and survives a re-plan', () => {
     const g = rostered();
     const [spare] = addCrew(g, { CC: 1 });
+    g.crew[spare].off = []; // v0.9: no planned day off in the way (protected days off: dayPlan.test.ts)
     const p = future(g)[0];
     const cc = p.slots.find((s) => s.role === 'CC')!.crewId!;
     const r = moveDuty(g, p.dutyIds[0], cc, spare, 'trip');
@@ -183,7 +185,7 @@ describe('moving duties', () => {
     const mid = open[1];
     const cc = p.slots.find((s) => s.role === 'CC')!.crewId!;
     const t = dropTargets(g, mid.id, cc, 'duty');
-    const free = Object.values(t).find((v) => v.kind === 'assign' && v.level !== 'illegal');
+    const free = Object.values(t).find((v) => v.kind === 'assign' && v.level !== 'illegal' && !v.offBreak);
     expect(free).toBeTruthy();
     const r = moveDuty(g, mid.id, cc, free!.crewId, 'duty', { force: true });
     expect(r.ok).toBe(true);
@@ -199,6 +201,7 @@ describe('moving duties', () => {
   it('illegal moves are refused unless forced, then stay flagged red', () => {
     const g = rostered();
     const [sick] = addCrew(g, { CC: 1 });
+    g.crew[sick].off = [];
     const p = future(g)[0];
     g.crew[sick].blocks = [{ from: p.start - DAY, to: p.end + DAY, why: 'sick' }];
     const cc = p.slots.find((s) => s.role === 'CC')!.crewId!;

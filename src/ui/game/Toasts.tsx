@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, Info, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Info, Trophy, XCircle } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useStore } from '../store';
 import { useTouch } from '../useMedia';
@@ -17,7 +17,7 @@ export function Toasts() {
             className={`toast ${t.kind} ${t.leaving || gone.has(t.id) ? 'leaving' : ''}`}
             onClick={() => setGone((g) => new Set(g).add(t.id))}
           >
-            {t.kind === 'good' ? <CheckCircle2 /> : t.kind === 'bad' ? <XCircle /> : t.kind === 'warn' ? <AlertTriangle /> : <Info />}
+            {t.kind === 'good' ? <CheckCircle2 /> : t.kind === 'bad' ? <XCircle /> : t.kind === 'warn' ? <AlertTriangle /> : t.kind === 'achievement' ? <Trophy /> : <Info />}
             <div>
               <div className="t-title">{t.title}</div>
               {t.body && <div className="t-body">{t.body}</div>}

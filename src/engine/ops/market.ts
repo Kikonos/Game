@@ -19,7 +19,7 @@ import type { ActionResult, Aircraft, AircraftOffer, ApprovalId, Cabin, GameStat
 import { antarcticSeason, nextHajj } from '../../data/worldCalendar';
 import { clamp, hash } from '../core/util';
 import { familyLabel } from '../crew/conversion';
-import { migrateRest, rollRest } from '../crew/restPlan';
+import { fittedRest, migrateRest, rollRest } from '../crew/restPlan';
 import { aircraftGate, APPROVALS, ratedPilots, type AircraftGate } from './company';
 import { deliveryQuote, handoverMessage, planDeliveryFerry, type DeliveryQuote } from './delivery';
 import { usedHoursCycles } from './sale';
@@ -291,7 +291,10 @@ export function acquireAircraft(g: GameState, offerId: string): ActionResult<{ a
     maint: o.newBuild
       ? { fhSinceA: 0, lastA: handover, fhSinceC: 0, lastC: handover, deferred: 0 }
       : { fhSinceA: 0, lastA: handover, fhSinceC: Math.round(range(g, 0.1, 0.4) * (t.body === 'wide' ? 6000 : 7500)), lastC: handover - int(g, 60, 300) * DAY, deferred: 0.03 },
-    cabin: { ...o.cabin }, etops: t.body === 'wide' ? Math.min(180, t.etopsMax) : 0, rest: structuredClone(migrateRest(o)),
+    cabin: { ...o.cabin }, etops: t.body === 'wide' ? Math.min(180, t.etopsMax) : 0, rest: fittedRest(t.id, structuredClone(migrateRest(o)), t.rest.bunkShare === 0 && !t.rest.mro),
+    // v0.9 round 3: in the v0.7.4 rest model from the start, as a reload would put it (restPlan.ts loadRest074): a save
+    // made after a delivery played on with `restV` set and the straight game without it (bot --det, day 200).
+    restV: 2,
     at: site, flightId: null, status: 'delivering', maintId: null, deliveredAt: handover,
     // Utilisation tracked from signing (a reload would set it at the load day otherwise: save/load determinism).
     bhSince: Math.floor(g.now / DAY),

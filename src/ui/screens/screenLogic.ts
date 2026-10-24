@@ -115,6 +115,17 @@ export interface Chip {
   tip?: string;
 }
 
+/** v0.9 the crew change at a fuel stop (§W.3) and a jumbo load (§Y.2) as offer chips; `analyst`: the hired analyst's score. */
+export function v09Chips(o: Pick<ContractOffer, 'slip' | 'jumbo' | 'requirements'> & { product?: ContractOffer['product'] }, analyst?: { score: number; verdict: 'take' | 'counter' | 'pass' | 'busy' } | null): Chip[] {
+  const out: Chip[] = [];
+  // Round 4: on a wet lease the client pays the slip crew's travel (§W.1), so the chip says so instead of 'priced in'.
+  if (o.slip?.at.length) out.push({ label: `Crew change at ${o.slip.at.join(', ')}`, tone: 'warn', tip: `Too long for one crew: a fresh crew flies in to the fuel stop and takes over. ${o.product?.kind === 'wet' ? 'The client pays the tickets and hotel.' : 'Tickets and hotel are priced in.'}` });
+  if (o.jumbo) out.push({ label: 'Jumbo load', tip: '420 seats or more in any cabin: a 777-300ER, 747-400 or A380 job' });
+  // v0.9 fix: 'busy' (no aircraft free on the dates) has no score: a grey '—'.
+  if (analyst) out.push({ label: `Analyst ${analyst.verdict === 'busy' ? '—' : analyst.score}`, tone: analyst.verdict === 'pass' ? 'bad' : analyst.verdict === 'take' ? 'good' : undefined, tip: 'Your commercial analyst’s score for this offer against the fleet' });
+  return out;
+}
+
 /**
  * Requirement chips: seats, body/families, ETOPS, runway, approvals. v0.8 fix pack: with the pattern, a passenger job
  * reads '166 seats (166 passengers)' (seats = passengers; stretchers the only extra).
@@ -310,6 +321,12 @@ export function refTarget(g: GameState, ref: Ref): DeepLink | null {
       return { tab: 'company', view: 'rivals', sel: ref };
     case 'event':
       return { tab: 'map', sel: ref };
+    // v0.9 a department head: Company › Team with that head selected.
+    case 'head':
+      return { tab: 'company', view: 'team', sel: ref };
+    // v0.9 round 4 credit control's note: the receivable on Finance.
+    case 'receivable':
+      return { tab: 'finance', sel: ref };
   }
   return null;
 }
@@ -431,7 +448,8 @@ export function offerCrewLine(r: Pick<FeasibilityReport, 'crew' | 'checks'>, dry
   const cant = r.checks.some((c) => c.level === 'no' && UNFIT.has(c.id));
   if (cant || (!r.crew.setsNeeded && !Object.keys(r.crew.byRole).length)) return { text: 'Crew not checked', tone: 'warn' };
   const short = Object.entries(r.crew.byRole).filter(([, v]) => v && v.short > 0);
-  if (!short.length) return { text: `Crew OK (${r.crew.setsAvailable}/${r.crew.setsNeeded} sets)`, tone: 'good' };
+  // Sets needed round up a part-time need: fewer whole sets free with no role short is still enough crew.
+  if (!short.length) return { text: r.crew.setsAvailable >= r.crew.setsNeeded ? `Crew OK (${r.crew.setsAvailable}/${r.crew.setsNeeded} sets)` : 'Crew OK (enough in each role)', tone: 'good' };
   const list = short.map(([role, v]) => `${v!.short} ${role}`).join(', ');
   return { text: `Short ${list}${r.crew.firstShort ? ` from ${fmtDay(r.crew.firstShort)}` : ''}`, tone: 'warn' };
 }

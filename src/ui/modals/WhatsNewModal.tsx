@@ -3,7 +3,7 @@
 // jumping two versions sees both, newest first); Settings → What's new shows them all. Data: data/whatsNew.ts.
 
 import { Bug, Sparkles, Wrench } from 'lucide-react';
-import { CURRENT, unseenEntries, WHATS_NEW, type WhatsNewEntry } from '../../data/whatsNew';
+import { CURRENT, WHATS_NEW, whatsNewToShow, type WhatsNewEntry } from '../../data/whatsNew';
 import { Modal } from '../components/ui';
 import { store } from '../store';
 
@@ -38,10 +38,11 @@ function Entry({ e, head }: { e: WhatsNewEntry; head: boolean }) {
 /** `all`: every version (Settings); else what is new since settings.seenWhatsNew (the update popup). One tap closes. */
 export function WhatsNewModal({ all }: { all?: boolean }) {
   const close = () => {
-    store.setSettings({ seenWhatsNew: CURRENT.version });
+    store.setSettings({ seenWhatsNew: CURRENT.version, whatsNewCatchUp: 'v0.9' });
     store.closeModal();
   };
-  const unseen = unseenEntries(store.settings.seenWhatsNew);
+  // v0.9 §X: the one-time catch-up (v0.9, v0.8, v0.7.4 even if v0.8 was seen), then what is new since the last one seen.
+  const unseen = whatsNewToShow(store.settings.seenWhatsNew, !!store.settings.whatsNewCatchUp);
   const list = all ? WHATS_NEW : unseen.length ? unseen : [CURRENT];
   const head = list.length > 1;
   return (

@@ -1,6 +1,9 @@
 // Developer helpers (console: __contrail.dev). Lets the map and screens be built before the
 // contract generator exists: demo flights on the fleet. Not used by the game itself.
 
+import { grantAchievement } from './ops/achievements';
+import { dailyHeads, hireHead, unlockHead } from './ops/heads';
+import { acceptOffer } from './contracts/accept';
 import { ACMI_TYPES } from '../data/acmiTypes';
 import { addFlight, ownFlightNo, removeFlights, touchFlights } from './core/entities';
 import { DAY } from './core/time';
@@ -11,8 +14,8 @@ import { touchCrew, touchCrewState } from './crew/timeline';
 import { blockMinutes } from './core/perf';
 import { flightsOf } from './core/entities';
 import { nextId } from './core/entities';
-import type { AcRest, Aircraft, ClientLevel, GameState, Role } from './core/types';
-import { generateOffer } from './contracts/offers';
+import type { AcRest, Aircraft, ClientLevel, GameState, HeadId, OohLimit, Role } from './core/types';
+import { finalizeDraft, forceJumbo, generateOffer, type Draft } from './contracts/offers';
 import { rivalFits } from './contracts/rivals';
 import { schedule } from './core/queue';
 import { typeOf } from './core/perf';
@@ -22,6 +25,10 @@ import { recheckPairing, releaseCrew, setFlightsCrew } from './crew/roster';
 import { fittedRest, migrateRest, rollRestFor } from './crew/restPlan';
 import { usedHoursCycles, usedMarketValue } from './ops/sale';
 import { yearOf } from './core/time';
+import { seasonBase } from './crew/fixtures';
+import { advanceTo, settle } from './sim';
+import { restPlan } from './crew';
+import { delayFlight } from './ops/flights';
 
 /** Out-and-back legs from each aircraft's position, starting in 30 min, for `days` days (ferries by default: no client). */
 export function demoFlights(g: GameState, dests = ['FAO', 'FNC', 'PMI', 'TFS', 'OPO', 'AGP'], days = 3, kind: 'ferry' | 'revenue' = 'ferry'): number {
@@ -82,7 +89,8 @@ export function devCrewShortage(g: GameState, opts: { hours?: number; roles?: Ro
     for (const s of p.slots) if (s.crewId && roles.includes(s.role)) releaseCrew(g, p, s.crewId);
     setFlightsCrew(g, p);
     recheckPairing(g, p);
-    escalateShortages(g);
+    // The scene shows the red shortage itself: no routine call-out first.
+    escalateShortages(g, { freeFix: false });
     return f.id;
   }
   return '';
@@ -96,7 +104,7 @@ export function devRestSeats(g: GameState): string {
   const base = Object.values(g.fleet)[0];
   if (!base) return '';
   const home = g.company.homeBase;
-  for (const a of ['widebody', 'augmented'] as const) if (!g.company.approvals.includes(a)) g.company.approvals.push(a);
+  for (const a of ['widebody', 'augmented'] as const) if (!g.company.approvals.includes(a)) { g.company.approvals.push(a); (g.company.approvalsAt ??= {})[a] = g.now; }
   const t = ACMI_TYPES.a333;
   const id = nextId(g, 'a');
   const ac = { ...structuredClone(base), id, reg: `${g.company.regPrefix}DVR`, typeId: t.id, cabin: cabinFrom(t.cabins[t.cabins.length - 1]), at: home, flightId: null, status: 'available' as const, maintId: null, crewRest: { bunks: false, seats: t.yAbreast }, rest: undefined as AcRest | undefined, bhDays: [] };
@@ -162,7 +170,7 @@ function devWide(g: GameState, typeId: string, rest: AcRest | null, suffix: stri
   const base = Object.values(g.fleet)[0];
   if (!base) return null;
   const home = g.company.homeBase;
-  for (const a of ['widebody', 'augmented'] as const) if (!g.company.approvals.includes(a)) g.company.approvals.push(a);
+  for (const a of ['widebody', 'augmented'] as const) if (!g.company.approvals.includes(a)) { g.company.approvals.push(a); (g.company.approvalsAt ??= {})[a] = g.now; }
   const t = ACMI_TYPES[typeId];
   const id = nextId(g, 'a');
   const cabin = cabinFrom(t.cabins[cabinIx]);
@@ -303,4 +311,209 @@ export function devRivalBid(g: GameState): string {
     return o.id;
   }
   return '';
+}
+
+// ---------- v0.9 (UPDATE-0.9.md §12): each returns the id to open ----------
+
+/** A department head unlocked now (candidates rolled, message and card); the head id. */
+export function devUnlockHead(g: GameState, id: HeadId): HeadId {
+  unlockHead(g, id, false);
+  return id;
+}
+
+/** An achievement earned now (message, cue and any head it unlocks); its id ('' when unknown or already held). */
+export function devAchievement(g: GameState, id: string): string {
+  return grantAchievement(g, id);
+}
+
+/**
+ * v0.9 §R: 4 A320s (crew topped up to 5 sets each), one on a Dublin wet season base, the others on daily
+ * out-and-backs from base, run 20 days; returns the id of a crew member on the DUB tour ('' if none). Dev/test helper.
+ */
+export function devRoster(g: GameState): string {
+  // Four idle A320s that can fly now (leased out, stored, delivering or already flying work is left alone: stacking
+  // the scene's legs on a busy aircraft double-books it and the roster grinds).
+  const busy = new Set(Object.values(g.flights).filter((f) => f.status === 'scheduled' && f.aircraftId).map((f) => f.aircraftId!));
+  const free = () => Object.values(g.fleet).filter((a) => (a.status === 'available' || a.status === 'flying') && typeOf(a.typeId).family === 'A320' && !busy.has(a.id)).map((a) => a.id);
+  const proto = Object.values(g.fleet).find((a) => typeOf(a.typeId).family === 'A320');
+  for (let k = free().length; proto && k < 4; k++) {
+    const id = nextId(g, 'a');
+    g.fleet[id] = { ...structuredClone(proto), id, reg: `${g.company.regPrefix}DR${String.fromCharCode(65 + k)}`, at: g.company.homeBase, flightId: null, status: 'available', maintId: null };
+  }
+  const want: Partial<Record<Role, number>> = { CPT: 20, FO: 20, PUR: 20, CC: 60 };
+  for (const [role, n] of Object.entries(want) as [Role, number][]) {
+    const have = Object.values(g.crew).filter((c) => c.role === role && c.ratings.includes('A320')).length;
+    for (let i = have; i < n; i++) {
+      const c = makeCrewMember(g, role, 'A320', g.company.homeBase);
+      g.crew[c.id] = c;
+    }
+  }
+  const ids = free().slice(0, 4);
+  const k = seasonBase(g, ids[0], 'DUB', 'FAO', [6 * 60, 13 * 60], 40);
+  const client = Object.values(g.clients).find((c) => c.kind === 'airline');
+  if (client) k.clientId = client.id;
+  const home = g.company.homeBase;
+  ids.slice(1).forEach((id, i) => {
+    const ac = g.fleet[id];
+    ac.at = home;
+    const dest = ['FAO', 'FNC', 'OPO'][i % 3];
+    const blk = blockMinutes(ac.typeId, home, dest);
+    for (let d = 1; d < 40; d++) {
+      const std = Math.floor(g.now / DAY) * DAY + d * DAY + (6 + 3 * i) * 60;
+      addFlight(g, { no: ownFlightNo(g), aircraftId: id, contractId: null, kind: 'revenue', from: home, to: dest, std, sta: std + blk, pax: 150 });
+      addFlight(g, { no: ownFlightNo(g), aircraftId: id, contractId: null, kind: 'revenue', from: dest, to: home, std: std + blk + 50, sta: std + 2 * blk + 50, pax: 150 });
+    }
+  });
+  touchCrew(g);
+  advanceTo(g, g.now + 20 * DAY, new Set());
+  const tour = Object.values(g.pairings).find((p) => p.tour && p.contractId === k.id && p.status === 'active' && p.slots.some((s) => s.crewId));
+  return tour?.slots.find((s) => s.crewId)?.crewId ?? '';
+}
+
+/**
+ * v0.9 §W a one-way charter whose sector no single crew can fly (a crew change at a fuel stop priced in): Madrid–
+ * Singapore on a widebody (one is added when the fleet has none), or Dili–Lisbon on a narrowbody; longer routes are
+ * tried when the type's rest covers the first. The offer id ('' when none fits). Dev/test helper.
+ */
+export function devSlipOffer(g: GameState, routeKey: 'MAD-SIN' | 'DIL-LIS' | 'LIS-SYD' = 'MAD-SIN'): string {
+  const wide = routeKey !== 'DIL-LIS';
+  if (wide && !Object.values(g.fleet).some((a) => typeOf(a.typeId).body === 'wide')) devAddType(g, 'a332');
+  // A narrowbody fleet can't reach Dili–Lisbon even with fuel stops: a long-range widebody is added for the scene.
+  if (!wide && !Object.values(g.fleet).some((a) => typeOf(a.typeId).body === 'wide')) devAddType(g, 'a332');
+  // Round 4: 'LIS-SYD' is the slip test's stop far from home (the second crew's clocks differ by hours).
+  const routes: [string, string][] = routeKey === 'LIS-SYD' ? [['LIS', 'SYD']] : wide ? [['MAD', 'SIN'], ['LIS', 'SYD'], ['MAD', 'AKL'], ['LIS', 'NOU']] : [['DIL', 'LIS'], ['LIS', 'KUL'], ['LIS', 'BKK']];
+  const client = Object.values(g.clients).find((c) => c.kind === 'airline' && !c.rivalId) ?? Object.values(g.clients)[0];
+  if (!client) return '';
+  const start = Math.ceil((g.now + 12 * DAY) / 60) * 60;
+  const standing = g.company.standing;
+  g.company.standing = Math.max(1, standing ?? 0) as 1 | 2;
+  try {
+    for (const [a, b] of routes) {
+      const d: Draft = {
+        archetype: 'adhoc', client, title: 'One-way charter', blurb: `A one-way charter, ${a} to ${b}.`,
+        pattern: { kind: 'legs', legs: [{ from: a, to: b, dep: start, flightNo: '', pax: wide ? 250 : 150 }] },
+        req: { minSeats: wide ? 250 : 150, extraCabin: 0, approvals: [] }, start, end: start + 2 * DAY, expiresIn: 5 * DAY,
+        effects: {}, risk: { disruption: 0, politics: 0, permit: 0 }, paint: false, cabin: false,
+      };
+      const o = finalizeDraft(g, d);
+      if (o?.slip) return o.id;
+      if (o) delete g.offers[o.id];
+    }
+  } finally {
+    g.company.standing = standing;
+  }
+  return '';
+}
+
+/**
+ * v0.9 round 4 §5.3: a fleet planner (hired if need be) and a one-way job from a far station in two days whose same-day
+ * positioning leaves the crew no FDP margin, then the planner's daily pass: a "position the day before" proposal and
+ * its inbox message. Returns the proposal id ('' when the scene could not be built). Dev/test helper.
+ */
+export function devPosition(g: GameState): string {
+  unlockHead(g, 'fleetPlanner', true);
+  const h = g.heads!.fleetPlanner;
+  if (!h.hired) hireHead(g, 'fleetPlanner', 1);
+  const home = g.company.homeBase;
+  const ac = Object.values(g.fleet).find((a) => a.status === 'available' && !a.flightId && typeOf(a.typeId).family === 'A320' && a.at === home);
+  const client = Object.values(g.clients).find((c) => c.kind === 'airline' && !c.rivalId) ?? Object.values(g.clients)[0];
+  if (!ac || !client) return '';
+  const start = Math.floor(g.now / DAY) * DAY + 2 * DAY + 9 * 60;
+  const standing = g.company.standing;
+  g.company.standing = Math.max(1, standing ?? 0) as 1 | 2;
+  try {
+    for (const from of ['TLV', 'IST', 'ATH']) {
+      const d: Draft = {
+        archetype: 'adhoc', client, title: 'One-way charter', blurb: `A one-way charter, ${from} to ${home}.`,
+        pattern: { kind: 'legs', legs: [{ from, to: home, dep: start, flightNo: '', pax: 150 }] },
+        req: { minSeats: 150, extraCabin: 0, approvals: [] }, start, end: start + 2 * DAY, expiresIn: 5 * DAY,
+        effects: {}, risk: { disruption: 0, politics: 0, permit: 0 }, paint: false, cabin: false,
+      };
+      const o = finalizeDraft(g, d);
+      if (!o) continue;
+      const r = acceptOffer(g, o.id, [ac.id]);
+      if (!r.ok) {
+        delete g.offers[o.id];
+        continue;
+      }
+      dailyHeads(g);
+      const p = h.proposals.find((x) => x.kind === 'position' && x.data.contractId === r.data!.contractId);
+      if (p) return p.id;
+    }
+  } finally {
+    g.company.standing = standing;
+  }
+  return '';
+}
+
+/**
+ * v0.9 §T: the first crewed flight leaving within 10 h gets its captain over a limit (28-day flying by default; 'duty7d'
+ * the 7-day duty sum) with every other captain away but one on standby, and the red stage posts. The
+ * flight id ('' when nothing is crewed that soon). Dev/test helper.
+ */
+export function devCrewHours(g: GameState, limit: OohLimit = 'block28d'): string {
+  const cands = Object.values(g.flights)
+    .filter((f) => f.status === 'scheduled' && f.aircraftId && f.kind !== 'deadhead' && f.dutyId && f.std > g.now && f.std <= g.now + 10 * 60 && f.crewIds.length > 0 && g.fleet[f.aircraftId]?.status !== 'leasedOut')
+    // A departure from base first (where a standby captain can be), then the soonest.
+    .sort((a, b) => Number(b.from === g.company.homeBase) - Number(a.from === g.company.homeBase) || a.std - b.std || (a.id < b.id ? -1 : 1));
+  for (const f of cands) {
+    const d = g.duties[f.dutyId!];
+    const p = d ? g.pairings[d.pairingId] : undefined;
+    const cpt = p?.slots.find((s) => s.role === 'CPT' && s.crewId)?.crewId;
+    if (!p || !cpt || d.flightIds[0] !== f.id || d.report <= g.now) continue;
+    const c = g.crew[cpt];
+    const week = limit === 'duty7d';
+    for (let k = 1; k <= (week ? 5 : 10); k++) {
+      const start = d.report - (week ? 6 - k : 25 - k) * DAY;
+      c.log.push({ start, end: start + 12 * 60, fdp: 12 * 60, block: week ? 3 * 60 : 10 * 60, sectors: 2, augmented: false, disruptive: false });
+    }
+    c.log.sort((a, b) => a.start - b.start);
+    // Every other captain away but one on standby at the departure: the card's 'Replace X: Y is on standby'.
+    const fam = typeOf(g.fleet[f.aircraftId!].typeId).family;
+    const crewOn = new Set(Object.values(g.pairings).flatMap((q) => q.slots.map((s) => s.crewId)));
+    const sby = Object.values(g.crew).find((o) => o.role === 'CPT' && o.id !== cpt && o.ratings.includes(fam) && o.loc === f.from && !crewOn.has(o.id) && o.restUntil <= d.report - 2 * 60 && !o.blocks?.some((b) => b.from < d.release && b.to > g.now));
+    for (const o of Object.values(g.crew)) if (o.role === 'CPT' && o.id !== cpt && o !== sby) o.blocks = [...(o.blocks ?? []), { from: g.now, to: g.now + 2 * DAY, why: 'leave' }];
+    if (sby) sby.standby = [...(sby.standby ?? []).filter((w) => w.to <= g.now || w.from >= d.release), { from: g.now - 60, to: g.now + 11 * 60, ...(f.from === sby.base ? {} : { kind: 'hotel' as const, at: f.from }) }];
+    touchCrewState(g);
+    recheckPairing(g, p);
+    // The scene shows the red alert itself: no routine call-out first.
+    escalateShortages(g, { freeFix: false });
+    return f.id;
+  }
+  return '';
+}
+
+/** v0.9 §Y.2: a jumbo-load offer (420–480 passengers, fuel at cost on a charter); adds a 747-400 when the fleet has none. */
+export function devJumbo(g: GameState): string {
+  if (!Object.values(g.fleet).some((a) => a.typeId === 'b744')) devAddType(g, 'b744');
+  forceJumbo(true);
+  try {
+    for (let i = 0; i < 40; i++) {
+      const o = generateOffer(g, (['hajj', 'troopRotation', 'repatriation', 'unRotation', 'sports'] as const)[i % 5], { wide: true });
+      if (o?.jumbo) return o.id;
+      if (o) delete g.offers[o.id];
+    }
+  } finally {
+    forceJumbo(false);
+  }
+  return '';
+}
+
+/**
+ * v0.9 §Y.1: the augmented LIS–GRU flight of devRestPlan, the crew reported, then held at the gate until the cabin
+ * crew can no longer all rest in the cruise; the flight id. Dev/test helper (advances the clock to the report).
+ */
+export function devRestAtDeparture(g: GameState): string {
+  const fid = devRestPlan(g);
+  const f = g.flights[fid];
+  const d0 = f?.dutyId ? g.duties[f.dutyId] : undefined;
+  if (!f || !d0) return fid;
+  advanceTo(g, d0.report + 5, new Set());
+  for (let h = 0; h < 8; h++) {
+    const d = g.flights[fid].dutyId ? g.duties[g.flights[fid].dutyId!] : undefined;
+    if (!d || restPlan(g, d.id)?.ok === false || g.flights[fid].status !== 'scheduled') break;
+    delayFlight(g, fid, 60, 'Technical: APU');
+    settle(g);
+  }
+  return fid;
 }

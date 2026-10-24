@@ -540,8 +540,11 @@ const memo = new WeakMap<Duty, { key: string; plan: RestPlan }>();
 /**
  * v0.7.3 the rest plan of a duty (its augmentation, or `opts.augment` to try one), names filled from its pairing's
  * slots; null when the duty is unaugmented and no augmentation is asked for. Pure (memoised per duty).
+ * v0.9 round 4 (§Y.1) `opts.at`: the actual off-block time of the first leg at the gate (a hold keeps the schedule and
+ * only grows `delay`): every leg shifts by the hold, and the cabin crew's day is measured from their own report (a
+ * replacement who joined after the duty reported, CrewSlot.from) to the shifted last on-blocks.
  */
-export function restPlan(g: GameState, dutyId: string, opts: { augment?: 1 | 2 } = {}): RestPlan | null {
+export function restPlan(g: GameState, dutyId: string, opts: { augment?: 1 | 2; at?: Minute } = {}): RestPlan | null {
   const d = g.duties[dutyId];
   if (!d) return null;
   const augment = opts.augment ?? (d.augment > 0 ? (d.augment as 1 | 2) : null);
@@ -550,19 +553,33 @@ export function restPlan(g: GameState, dutyId: string, opts: { augment?: 1 | 2 }
   const ac = p?.aircraftId ? g.fleet[p.aircraftId] : undefined;
   const rest = restOf(g, p?.aircraftId ?? null);
   const early = d.cabinEarly ?? typeEarly(ac?.typeId ?? 'a320ceo');
-  const legs = restLegs(g, d);
+  const legs0 = restLegs(g, d);
+  const shift = opts.at !== undefined && legs0.length ? Math.max(0, opts.at - legs0[0].std) : 0;
+  const legs = shift ? legs0.map((l) => ({ id: l.id, std: l.std + shift, sta: l.sta + shift })) : legs0;
+  const own = p ? cabinOwnReport(p, d) : 0;
   const n = restCabinN(g, d);
-  const key = `${augment}:${d.legacyRest ? 'L' : ''}${d.basicFdp ?? ''}:${d.fdp}:${early}:${n}:${JSON.stringify(rest)}:${legs.map((l) => `${l.id}@${l.std}-${l.sta}`).join()}:${p ? p.slots.map((s) => s.crewId ?? '-').join() : ''}`;
+  const key = `${augment}:${d.legacyRest ? 'L' : ''}${d.basicFdp ?? ''}:${d.fdp}:${early}:${n}:${shift}:${own}:${JSON.stringify(rest)}:${legs.map((l) => `${l.id}@${l.std}-${l.sta}`).join()}:${p ? p.slots.map((s) => s.crewId ?? '-').join() : ''}`;
   // A day that has shrunk under the no-rest limit (a leg cancelled or split off under way) needs no in-flight rest.
   const moot = (x: RestPlan) => (!x.ok && !opts.augment && d.basicFdp !== undefined && d.fdp <= d.basicFdp ? null : x);
   const hit = memo.get(d);
   if (hit && hit.key === key) return moot(hit.plan);
   if (!legs.length) return null;
-  const plan = planRest(legs, rest, augment, d.fdp + early, n);
+  // At the gate the cabin day runs from their report to the shifted last on-blocks; as planned it is the duty's FDP.
+  const cabinFdp = opts.at !== undefined ? legs[legs.length - 1].sta - (d.report + own) + early : d.fdp + early;
+  const plan = planRest(legs, rest, augment, cabinFdp, n);
   if (d.legacyRest) plan.legacy = true;
   if (p) nameTurns(g, plan, p.slots);
   memo.set(d, { key, plan });
   return moot(plan);
+}
+
+/**
+ * v0.9 round 4 (§Y.1): how long after the duty's report its cabin crew reported: the earliest aboard (a fresh crew
+ * called in at the gate reports later than the duty, CrewSlot.from); 0 when they reported with the duty. Pure.
+ */
+export function cabinOwnReport(p: Pairing, d: Duty): number {
+  const cabin = p.slots.filter((s) => s.crewId && (s.role === 'PUR' || s.role === 'CC'));
+  return cabin.length ? Math.min(...cabin.map((s) => (s.from !== undefined && s.from > d.report ? s.from : d.report))) - d.report : 0;
 }
 
 /** Fills crewIds: pilots by seat (the second CPT/FO are CPT2/FO2), cabin crew in slot order by group. */
@@ -717,12 +734,14 @@ export function longestDay(g: GameState, rest: AcRest, typeId: string): LongestD
   const best = Math.max(0, ...[a1, a2, canLong ? a1L : null, canLong ? a2L : null].map((x) => x?.max ?? 0));
   const bestCap = (canLong ? a2L : a2)?.capBy ?? null;
   out.text = best > basic ? `Longest day: ${hrs(basic)} · up to ${hrs(best)}` : `Longest day: ${hrs(basic)}`;
+  // v0.9 (UPDATE-0.9.md §U.2): 'up to' is extra pilots resting on board, never captain's discretion.
   const parts = [`${hrs(basic)} with 2 pilots (${hrs(ext)} as a planned extension, twice a week per crew).`];
   if (best > basic && rest.fc && rest.cc) {
     const capWord = restWords(rest.cc.kind);
-    parts.push(`Up to ${hrs(best)} with ${a1 && best <= a1.max ? 3 : 4} pilots resting on board (pilots in ${restWords(rest.fc.kind)}, cabin crew in ${capWord})${bestCap === 'cabin' ? `; the cabin crew's ${capWord} allow ${hrs(cabinFdpCap(rest.cc.cls))}` : ''}.`);
-    if (!approved) parts.push('Longer days need the Augmented crew approval (Ladder).');
+    parts.push(`Up to ${hrs(best)} with ${a1 && best <= a1.max ? 3 : 4} pilots who take turns to rest on board (pilots in ${restWords(rest.fc.kind)}, cabin crew in ${capWord})${bestCap === 'cabin' ? `; the cabin crew's ${capWord} allow ${hrs(cabinFdpCap(rest.cc.cls))}` : ''}.`);
+    if (!approved) parts.push(`Days over ${hrs(basic)} need the Augmented crew approval.`);
   } else if (!rest.fc || !rest.cc) parts.push(`No in-flight rest for the ${!rest.fc && !rest.cc ? 'crew' : rest.fc ? 'cabin crew' : 'pilots'}.`);
+  parts.push("Captain's discretion is never part of this: it is only for surprises on the day, after the crew has reported.");
   out.detail = parts.join(' ');
   return out;
 }

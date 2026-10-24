@@ -9,6 +9,8 @@
 // v0.7: an aircraft is drawn once handed over (at its handover site, possibly abroad), with a static DELIVERY tag
 // until its delivery ferry is home; before the handover it is not drawn.
 // v0.8: an aircraft dry-leased out stands at the lessee's base (in their paint when painted) with a grey LEASED tag.
+// v0.9 §W.4: with an aircraft (or its crew change) selected, its slip crews' airline legs (static, deadhead style at
+// selected weight) and a static crew-change mark at the fuel stop. Both re-render with the hourly emit only.
 
 import { geoInterpolate, geoPath } from 'd3-geo';
 import { memo, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
@@ -20,7 +22,7 @@ import { PLANE_PATH } from '../components/Logo';
 import { liveMinute, store } from '../store';
 import { isTouch } from '../useMedia';
 import { MAP_H, MAP_W } from './mapData';
-import { deliveryTag, headingDeg, JET_PATH, leasedOut, mapLivery, onMap, type LabelBox, boxOverlap, groupCommercial, lerpAngle, parkOffset, downSide, legLabelSide, placeLabels, regSlot, type RegSlot, trackCovered, trackLabelAt, type LegArc, type PinGroup, sunPoint, terminator, TYPE_STROKE } from './mapLogic';
+import { deliveryTag, headingDeg, JET_PATH, leasedOut, mapLivery, onMap, type LabelBox, boxOverlap, groupCommercial, lerpAngle, parkOffset, downSide, legLabelSide, placeLabels, regSlot, type RegSlot, type SlipArc, type SlipMark, trackCovered, trackLabelAt, type LegArc, type PinGroup, sunPoint, terminator, TYPE_STROKE } from './mapLogic';
 import type { MapLayerCtx } from './WorldMap';
 
 /** Live positions shared with tap picking and focus (map units, as last drawn). */
@@ -177,22 +179,72 @@ export const ArcsLayer = memo(function ArcsLayer({ legs, proj }: { legs: LegArc[
   );
 });
 
+// ---------- v0.9 slip crews (§W.4) ----------
+
+/** The selected aircraft's slip crews' airline legs: deadhead grey dots at the selected weight; the way home fainter. */
+export const SlipArcsLayer = memo(function SlipArcsLayer({ arcs, proj }: { arcs: SlipArc[]; proj: MapLayerCtx['proj'] }) {
+  const path = useMemo(() => geoPath(proj), [proj]);
+  if (!arcs.length) return null;
+  const st = TYPE_STROKE.deadhead;
+  return (
+    <g className="ops-slip-arcs" pointerEvents="none">
+      {arcs.map((l) => {
+        const A = AIRPORT_BY_CODE[l.from];
+        const B = AIRPORT_BY_CODE[l.to];
+        const d = A && B ? path({ type: 'LineString', coordinates: [[A.lon, A.lat], [B.lon, B.lat]] }) : null;
+        return d ? <path key={l.id} d={d} className={l.dir} stroke={st.color} strokeDasharray={st.dash} /> : null;
+      })}
+    </g>
+  );
+});
+
+/** Crew-change marks: a small static disc with two arrows at the fuel stop (44 px hit), tap → the crew-change panel. */
+export const SlipMarksLayer = memo(function SlipMarksLayer({ marks, proj, unit, selected }: { marks: SlipMark[]; proj: MapLayerCtx['proj']; unit: number; selected?: string }) {
+  const pts = useMemo(() => marks.map((m) => {
+    const a = AIRPORT_BY_CODE[m.at];
+    return { m, q: a ? proj([a.lon, a.lat]) : null };
+  }), [marks, proj]);
+  if (!pts.length) return null;
+  return (
+    <g className="ops-slips">
+      {pts.map(({ m, q }) => {
+        if (!q) return null;
+        const sel = selected === m.id;
+        return (
+          <g key={m.id} transform={`translate(${q[0]} ${q[1]})`} className={`ops-slip${sel ? ' sel' : ''}`} data-id={m.id}>
+            <g className="mk" transform={`scale(${unit})`}>
+              <g transform={`translate(${m.off[0]} ${m.off[1]})`}>
+                <title>Crew change at {m.at}</title>
+                <circle className="hit" r={HIT_R.touch} />
+                {sel && <circle className="sel-ring" r={15} />}
+                <circle className="disc" r={10} />
+                <path className="glyph" d="M-5 -2.5H5M2.5 -5L5 -2.5L2.5 0M5 2.5H-5M-2.5 0L-5 2.5L-2.5 5" />
+              </g>
+            </g>
+          </g>
+        );
+      })}
+    </g>
+  );
+});
+
 // ---------- offer pins ----------
 
 /** Pin offset in screen px: left of the dot at airports we already mark (code above, parked aircraft right). */
 export const pinOffset = (marked: boolean): [number, number] => (marked ? [-20, 0] : [0, 0]);
 
-/** Pin code label: font px and baseline below the diamond. */
-const PIN_FS = 10.5;
+/** Pin code label: font px (round 4: 12 on touch, the brief's minimum, as the airport labels) and baseline below the diamond. */
+const pinFs = (touch: boolean) => (touch ? 12 : 10.5);
 const PIN_LABEL_Y = 21;
 
 /**
  * Offer diamonds; pins away from our own airports carry their airport code (dropped where codes
  * would overlap). Drawn in screen px inside a `.mk` group that WorldMap counter-scales live.
  */
-export const PinsLayer = memo(function PinsLayer({ pins, marked, proj, unit, selected }: {
-  pins: PinGroup[]; marked: Set<string>; proj: MapLayerCtx['proj']; unit: number; selected?: string;
+export const PinsLayer = memo(function PinsLayer({ pins, marked, proj, unit, selected, touch = false }: {
+  pins: PinGroup[]; marked: Set<string>; proj: MapLayerCtx['proj']; unit: number; selected?: string; touch?: boolean;
 }) {
+  const PIN_FS = pinFs(touch);
   const pts = useMemo(() => pins.map((p) => {
     const a = AIRPORT_BY_CODE[p.code];
     return { p, q: proj([a.lon, a.lat]), off: pinOffset(marked.has(p.code)), marked: marked.has(p.code) };
@@ -209,7 +261,7 @@ export const PinsLayer = memo(function PinsLayer({ pins, marked, proj, unit, sel
     }
     // Diamonds first so a code never covers another pin.
     return placeLabels([...boxes.filter((b) => b.id.startsWith('d:')), ...boxes.filter((b) => !b.id.startsWith('d:'))], 1);
-  }, [pts, unit]);
+  }, [pts, unit, PIN_FS]);
   return (
     <g className="ops-pins">
       {pts.map(({ p, q, off }) => {
@@ -224,7 +276,7 @@ export const PinsLayer = memo(function PinsLayer({ pins, marked, proj, unit, sel
                 {sel && <circle className="sel-ring" r={16} />}
                 <path className="dia" d="M0 -8.5L8.5 0L0 8.5L-8.5 0Z" />
                 {p.offers.length > 1 && <text className="count" x={11} y={-7}>{p.offers.length}</text>}
-                {(labels.has(p.code) || sel) && <text className="code" y={PIN_LABEL_Y}>{p.code}</text>}
+                {(labels.has(p.code) || sel) && <text className="code" y={PIN_LABEL_Y} style={{ fontSize: PIN_FS }}>{p.code}</text>}
               </g>
             </g>
           </g>
