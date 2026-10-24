@@ -8,7 +8,7 @@ import { requestPause } from '../core/pause';
 import { canFill, complement, typeOf } from '../core/perf';
 import { DAY, fmtDateTime, monthKey } from '../core/time';
 import type { ActionResult, CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing, Role } from '../core/types';
-import { acceptable, crewIssuesFor, mergeSegs, openDuties, otherTrip, overForAnyone, planCrew, type CrewPlan } from './check';
+import { acceptable, crewIds, crewIssuesFor, crewKey, mergeSegs, openDuties, otherTrip, overForAnyone, planCrew, type CrewPlan } from './check';
 import { deletePairing, dutyLegality, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setCrewTakeHook, setCrewTrailOkHook, setReleaseHook, setRetickHook, splitPairing, splitUnderWay, syncDuty } from './duties';
 import { crewName } from './generate';
 import { callIfOnStandby, dropStandby, standbyFor, callFromStandby } from './standby';
@@ -17,7 +17,7 @@ import { infoOf } from './outOfHours';
 import { lateChange, moraleShock, nextReport } from './morale';
 import { cabinFdpCap, DISCRETION, evalSegs, levelOf, LIMITS, minRest, mkSeg, recoveryAnchor, tzDeltaH, worst, type LegalityIssue, type Seg } from './rules';
 import { cabinOwnReport, planRest, restCabinN, restLegs, restOf, restPlan } from './restPlan';
-import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, locAt, noteRiders, passengers, planHome, planOut, segsOf, ticketPrice, touchCrew, typeIdOf, withoutTickets } from './timeline';
+import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, locAt, noteRiders, passengers, planHome, planOut, segsOf, segsTagOf, ticketPrice, touchCrew, typeIdOf, withoutTickets } from './timeline';
 
 export { buildDuties } from './duties';
 
@@ -1152,6 +1152,10 @@ export function onFlightsChanged(g: GameState, aircraftId: string, t: Minute): v
  * crew who became illegal are freed, then the auto-roster refills (crew already at the station score best).
  */
 export function rerosterFrom(g: GameState, aircraftId: string, t: Minute): RosterResult {
+  // v0.9 round 5 speed (§R.19): what each crewed trip's check read, as checked below; after the fill, a trip whose
+  // seats, duties and crew timelines are as they were keeps that check (the fill of one seat bumped the revision
+  // and had every crewed trip of the aircraft planned again: a sixth of all re-checks).
+  const checked = new Map<Pairing, unknown[]>();
   for (const p of [...(crewIx(g).byAircraft.get(aircraftId) ?? [])]) {
     if (!g.pairings[p.id] || p.status === 'done' || p.status === 'broken' || p.end < t) continue;
     if (p.tour || p.dutyIds.length === 1) {
@@ -1168,6 +1172,7 @@ export function rerosterFrom(g: GameState, aircraftId: string, t: Minute): Roste
     if (crewCount(p) === 0) continue;
     const firstOpen = openDuties(g, p)[0];
     if (!firstOpen) {
+      checked.set(p, checkSig(g, p));
       recheckPairing(g, p);
       continue;
     }
@@ -1189,6 +1194,7 @@ export function rerosterFrom(g: GameState, aircraftId: string, t: Minute): Roste
     // v0.9 round 4 fix r2 (speed, §R.17.7): the full check first (the step's cached plans: recheckSoon, the ladder);
     // only a trip with an illegal crew member needs the prior-only view (a filtered base, never cached), which flags
     // the same crew or, through a loose ticket it leaves out, one the full view rightly clears.
+    const sig = checkSig(g, p);
     const full = recheckPairing(g, p);
     const rc = full.illegal.length ? recheckPairing(g, p, true) : full;
     const out = rc.illegal.filter((id) => !p.slots.some((s) => s.crewId === id && s.locked) && (under || !(g.crew[id] && retick(g, p, g.crew[id]))));
@@ -1209,12 +1215,67 @@ export function rerosterFrom(g: GameState, aircraftId: string, t: Minute): Roste
     }
     setFlightsCrew(g, p);
     if (q) setFlightsCrew(g, q);
+    if (!out.length) checked.set(p, sig);
   }
   // v0.9 round 4 speed: no revision bump of its own (every change above makes one): a re-roster that changes nothing
   // leaves the step's cached plans standing for the re-checks below.
   const res = autoRoster(g, { from: t, aircraftIds: [aircraftId] });
-  for (const p of crewIx(g).byAircraft.get(aircraftId) ?? []) if (p.status !== 'done' && p.end >= t && crewCount(p) > 0) recheckPairing(g, p);
+  for (const p of crewIx(g).byAircraft.get(aircraftId) ?? []) {
+    if (p.status === 'done' || p.end < t || crewCount(p) === 0) continue;
+    const was = checked.get(p);
+    if (was && sameSig(was, checkSig(g, p))) continue;
+    recheckPairing(g, p);
+  }
   return res;
+}
+
+/**
+ * What recheckPairing reads of a crewed trip, in the same minute (a superset; compared value by value, objects by
+ * identity): the trip (status, times, base, aircraft and its rest classes, tour, seats and when each joined), each duty
+ * (every field dutySegs keys on, each leg's and each ticket's times, status, version and who is aboard), each crew
+ * member's state (check.ts crewKey and crewIds, the inputs of planCrew's own memo), their timeline entry without the
+ * trip (timeline.ts segsOf: their own work, tickets, log and standby; an untagged list never matches) and their other
+ * trips' spans (otherTrip). Taken just before the check, so a change made after it fails the comparison. Pure.
+ */
+function checkSig(g: GameState, p: Pairing): unknown[] {
+  const rest = p.aircraftId ? g.fleet[p.aircraftId]?.rest : undefined;
+  const s: unknown[] = [p.status, p.start, p.end, p.base, p.aircraftId, !!p.tour, rest?.fc?.cls, rest?.cc?.cls, p.dutyIds.length, p.slots.length];
+  for (const x of p.slots) s.push(x.crewId, x.from, !!x.locked, !!x.above, x.role);
+  const crew: CrewMember[] = [];
+  for (const x of p.slots) if (x.crewId && g.crew[x.crewId]) crew.push(g.crew[x.crewId]);
+  for (const id of p.dutyIds) {
+    const d = g.duties[id];
+    if (!d) {
+      s.push('-');
+      continue;
+    }
+    s.push(d.id, d.done, d.ev, d.flightsEv, d.report, d.release, d.fdp, d.maxFdp, d.discretion, d.legality, d.restAt, d.ext, d.split, d.augment, d.sectors, d.cabinEarly, d.flightIds.length, d.deadheadIds.length);
+    for (const fid of d.flightIds) {
+      const f = g.flights[fid];
+      s.push(f, f?.status, f?.ev, f?.std, f?.sta, f?.from, f?.to);
+    }
+    for (const fid of d.deadheadIds) {
+      const f = g.flights[fid];
+      s.push(f, f?.status, f?.ev, f?.std, f?.sta, f?.from, f?.to);
+      if (f) for (const c of crew) s.push(aboard(f, c.id));
+    }
+  }
+  for (const c of crew) {
+    s.push(c, crewKey(g, c), segsTagOf(segsOf(g, c, p.id)) ?? {});
+    for (const v of crewIds(g, c)) s.push(v);
+    for (const q of crewIx(g).pairingsOf.get(c.id) ?? []) {
+      if (q === p) continue;
+      const open = openDuties(g, q);
+      s.push(q.id, q.status, q.start, !!q.tour, open.length, open[0]?.report, open[open.length - 1]?.release);
+    }
+  }
+  return s;
+}
+
+function sameSig(a: unknown[], b: unknown[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
 }
 
 // Crew a split part no longer seats leave its flights and tickets as well.

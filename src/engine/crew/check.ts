@@ -106,10 +106,10 @@ interface PlanMemo { plan: CrewPlan; ids: unknown[] }
  * changes them with a revision bump, a test or a tool may not, so the key carries the scalars and `crewIds` the
  * objects (by identity, arrays with their length; the engine replaces or bumps, never edits one in place unseen).
  */
-function crewKey(g: GameState, c: CrewMember): string {
+export function crewKey(g: GameState, c: CrewMember): string {
   return `${c.base}|${c.loc}|${c.status}|${c.restUntil}|${c.lastRecovery}|${c.blockYear}|${c.blockYearOf}|${block12m(c, g.now)}|${c.hired}|${c.morale}|${c.notice?.leaves ?? ''}|${c.offSwapAt ?? ''}`;
 }
-function crewIds(g: GameState, c: CrewMember): unknown[] {
+export function crewIds(g: GameState, c: CrewMember): unknown[] {
   const dp = g.dayPlan;
   return [c.ratings, c.ratings.length, c.blocks, c.blocks?.length, c.off, c.off?.length, c.offMonths, c.freeMonths, c.twoDays, c.rot, c.tzBack, dp, dp?.from, dp?.publishedTo, dp?.planned];
 }

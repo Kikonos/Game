@@ -1138,7 +1138,9 @@ function crewControlPolicy(g: GameState, t: Tally): void {
     if (!memo || memo.rev !== rev || memo.at !== g.now) tried.set(x.flightId, (memo = { rev, at: g.now, failed: new Set() }));
     const failed = memo.failed;
     // v0.7.3 each stage reads only the fixes it weighs (the delay and jet searches try copies of the state).
-    const view = (only: CrewFix[], previews = false) => crewControl(g, x.flightId, { previews, only, noCard: true });
+    // v0.9 round 5 (speed): the delay search stops at the cap below when the jet is not weighed against the wait (the
+    // engine tried, on copies, delays the policy then refused: 45 of 49 copies on seed 1).
+    const view = (only: CrewFix[], previews = false, cap?: number) => crewControl(g, x.flightId, { previews, only, noCard: true, ...(cap !== undefined ? { maxDelayMin: cap } : {}) });
     const v = view(['autoFix', 'deadhead', 'callIn']);
     if (!v || v.stage === 'ok') continue;
     const sol = (w: NonNullable<typeof v>, id: CrewFix) => w.solutions.find((s) => s.id === id && s.available);
@@ -1178,7 +1180,7 @@ function crewControlPolicy(g: GameState, t: Tally): void {
     // discretion, then the delay, then a sub-charter, each read only when the one before it is not taken.
     const jetOk = x.hoursLeft <= 18 && v.unit.pax >= 100 && (g.stats.jets ?? 0) < 8;
     const only: CrewFix[] = jetOk ? (skipDelay ? ['jet', 'discretion'] : ['jet', 'delay', 'discretion']) : ['discretion'];
-    const first = view(only);
+    const first = view(only, false, jetOk ? undefined : lateCapMin);
     if (!first || first.stage === 'ok') continue;
     // A jet when it gets a crew there at least 3 h sooner than waiting for a ticket, with passengers at stake.
     const jet = sol(first, 'jet');
@@ -1189,7 +1191,7 @@ function crewControlPolicy(g: GameState, t: Tally): void {
     if (jet && jet.cost <= 60_000 && jetDep + 180 <= waitDep && apply(jet)) continue;
     if (apply(sol(first, 'discretion'))) continue;
     if (!jetOk && !skipDelay) {
-      const dv = view(['delay']);
+      const dv = view(['delay'], false, lateCapMin);
       if (!dv || dv.stage === 'ok') continue;
       delay = sol(dv, 'delay');
     }
@@ -1559,14 +1561,15 @@ function onStep(): void {
   }
   // v0.9 round 3 speed: only windows started since the last steps (each is seen in the step it starts).
   for (const c of Object.values(g.crew)) for (const w of c.standby ?? []) if (w.from <= g.now && w.from > g.now - 2 * STEP) sbySeen.add(`${c.id}:${w.from}`);
-  for (const f of Object.values(g.flights)) {
-    if (!f.crewHeld || heldSeen.has(f.id) || (f.kind !== 'revenue' && f.kind !== 'techstop') || !f.aircraftId || !g.fleet[f.aircraftId]) continue;
-    heldSeen.add(f.id);
-    const k = `${typeOf(g.fleet[f.aircraftId].typeId).body === 'wide' ? 'WB' : 'NB'} ${(f.contractId && CODE[g.contracts[f.contractId]?.archetype]) || '?'} ${fmtMonth(monthKey(f.std))}`;
-    heldBy.set(k, (heldBy.get(k) ?? 0) + 1);
-    if (MSGS) console.error(`${fmtDateTime(g.now)} HELD ${f.no} ${f.from}–${f.to} std ${fmtDateTime(f.std)} ${g.fleet[f.aircraftId].reg} duty ${f.dutyId ?? '-'} day ${dayN(g)}`);
-  }
-  for (const f of Object.values(g.flights)) {
+  // v0.9 round 5 (speed): one pass over the flights (held legs, augmented duties under way).
+  for (const id in g.flights) {
+    const f = g.flights[id];
+    if (f.crewHeld && !heldSeen.has(f.id) && (f.kind === 'revenue' || f.kind === 'techstop') && f.aircraftId && g.fleet[f.aircraftId]) {
+      heldSeen.add(f.id);
+      const k = `${typeOf(g.fleet[f.aircraftId].typeId).body === 'wide' ? 'WB' : 'NB'} ${(f.contractId && CODE[g.contracts[f.contractId]?.archetype]) || '?'} ${fmtMonth(monthKey(f.std))}`;
+      heldBy.set(k, (heldBy.get(k) ?? 0) + 1);
+      if (MSGS) console.error(`${fmtDateTime(g.now)} HELD ${f.no} ${f.from}–${f.to} std ${fmtDateTime(f.std)} ${g.fleet[f.aircraftId].reg} duty ${f.dutyId ?? '-'} day ${dayN(g)}`);
+    }
     if (f.status !== 'enroute' || !f.dutyId || augSeen.has(f.dutyId)) continue;
     const d = g.duties[f.dutyId];
     if (!d || d.augment === 0) continue;
