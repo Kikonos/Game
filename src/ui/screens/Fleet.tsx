@@ -219,7 +219,7 @@ function AircraftCard({ g, ac, sel, least, onLeastClose }: { g: GameState; ac: A
       {!out && <CrewExtraRow g={g} ac={ac} />}
       {cs ? (
         <div className="col gap-8">
-          {out ? <div className="fl-row small"><span className="upper dim">A-check</span><span className="muted">Line and A-checks by {lessee} during the lease; no crew from us</span></div>
+          {out ? <div className="fl-row small"><span className="upper dim nowrap">A-check</span><span className="muted">Line and A-checks by {lessee} during the lease; no crew from us</span></div>
             : <CheckBar label="A-check" used={cs.aUsed} due={cs.aDue} hoursLeft={cs.aHoursLeft} next={cs.nextA} onPlan={() => plan('A')} aircraftId={ac.id} />}
           <CheckBar label="C-check" used={cs.cUsed} due={cs.cDue} hoursLeft={cs.cHoursLeft} next={cs.nextC} onPlan={() => plan('C')} aircraftId={ac.id} />
           {cs.grounded && <div className="small bad">Past the check tolerance: grounded until the check is done.</div>}

@@ -34,7 +34,7 @@ function plainCheck(g: GameState, o: ContractOffer, r: FeasibilityReport, c: Fea
     case 'body':
       return { why: `${c.label}: no refit changes that.`, action: { id: 'market', label: 'Market', open: { tab: 'fleet', view: 'market' }, primary: true } };
     case 'layout':
-      return { why: `The client needs a ${o.requirements.layouts?.join(' or ') ?? o.requirements.layout ?? 'different'} cabin; ${ac.reg} is ${ac.cabin.label}.`, action: c.action ? { id: 'refit', label: 'Plan refit', open: { modal: 'refit', id: ac.id }, primary: true } : { id: 'review', label: 'Review offer', open: { modal: 'offer', id: o.id }, primary: true } };
+      return { why: `The client needs a ${(o.requirements.layouts?.join(' or ') ?? o.requirements.layout ?? 'different').replace('vip', 'VIP')} cabin; ${ac.reg} is ${ac.cabin.label}.`, action: c.action ? { id: 'refit', label: 'Plan refit', open: { modal: 'refit', id: ac.id }, primary: true } : { id: 'review', label: 'Review offer', open: { modal: 'offer', id: o.id }, primary: true } };
     case 'paint':
       return { why: `The client wants their livery on the aircraft and no paint-shop slot fits before the start.`, action: { id: 'counterNoPaint', label: 'Counter without paint', open: { modal: 'offer', id: o.id }, primary: true } };
     case 'positioning':

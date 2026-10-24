@@ -111,9 +111,10 @@ function Calendar({ g, o }: { g: GameState; o: MarketOutlook }) {
     const w = Math.max(0.8, pos(b.to) - l);
     // Under ~100 px the short label ('In', 'Winter'); the full text stays in the tooltip and the lines below.
     const txt = w > 13 ? b.label : w > 4 ? (b.short ?? b.label) : '';
-    const bar = <span key={i} className={`v8-cal-bar ${b.cls}`} style={{ left: `${l}%`, width: `${w}%` }} title={b.label}>{txt}</span>;
-    // A short event names itself beside its bar (each event has its own lane).
-    if (b.cls !== 'event' || txt === b.label || l + w > 70) return bar;
+    // A short event names itself beside its bar (each event has its own lane), so its bar stays empty.
+    const tagged = b.cls === 'event' && txt !== b.label && l + w <= 70;
+    const bar = <span key={i} className={`v8-cal-bar ${b.cls}`} style={{ left: `${l}%`, width: `${w}%` }} title={b.label}>{tagged ? '' : txt}</span>;
+    if (!tagged) return bar;
     return [bar, <span key={`${i}t`} className="v8-cal-tag small muted" style={{ left: `calc(${l + w}% + 6px)` }}>{b.label}</span>];
   };
   const months: number[] = [];
