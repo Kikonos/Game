@@ -132,15 +132,22 @@ export function planPositioning(g: GameState, aircraftId: string, to: string, ar
  * Right after landing the operating crew can still take it on.
  */
 function crewFree(g: GameState, aircraftId: string, X: string, earliest: Minute): Minute {
-  if (earliest > g.now) return earliest;
-  let landed = -Infinity;
-  for (const f of flightsOf(g, aircraftId)) if (f.status === 'done' && f.to === X) landed = Math.max(landed, f.ata ?? f.sta);
-  if (g.now - landed < 3 * 60) return earliest;
   const home = g.company.homeBase;
   // A short ticket the same morning; a long one the day before, with minimum rest on arrival (FDP).
   const blk = X === home ? 0 : ticketBlock(home, X);
   const lead = X === home ? 120 : blk + (blk <= 180 ? 6 * 60 : 14 * 60);
-  return Math.ceil((g.now + lead) / 5) * 5;
+  // v0.9.1: also when the earliest slot is still ahead but inside a ticket's reach (seed 5: an aircraft held at Goma by a
+  // closure got its positioning out 6 h after the reopening, its crew already gone home: 18 red alerts in three days).
+  if (earliest > g.now + lead) return earliest;
+  const at = Math.max(earliest, g.now);
+  let landed = -Infinity;
+  for (const f of flightsOf(g, aircraftId)) {
+    if (f.to !== X || f.status === 'cancelled') continue;
+    const t = f.status === 'done' ? f.ata ?? f.sta : f.sta;
+    if (t <= at) landed = Math.max(landed, t);
+  }
+  if (at - landed < 3 * 60) return earliest;
+  return Math.max(earliest, Math.ceil((g.now + lead) / 5) * 5);
 }
 
 const live = (g: GameState, id: string | null) => !!id && (g.contracts[id]?.status === 'signed' || g.contracts[id]?.status === 'active');

@@ -17,7 +17,7 @@ import { AIRPORT_BY_CODE } from '../../data/airports';
 import { distance } from '../core/geo';
 import { noteLostLegs } from '../contracts/billing';
 import { isSoft } from '../contracts/plan';
-import { applyDiscretion, boardCrew, crewIssuesFor, dropStraySpares, flightCrewStatus, guardDuty, rerosterFrom, restPlan, restSeatsBlocked, setRestDelayHook } from '../crew';
+import { applyDiscretion, boardCrew, crewIssuesFor, dropStraySpares, flightCrewStatus, guardDuty, rerosterFrom, restPlan, restSeatsBlocked, setClosedWaitHook, setRestDelayHook } from '../crew';
 import { fdpLimitAt } from '../crew/timeline';
 import { dutyLegality } from '../crew/duties';
 import { cue } from '../core/cues';
@@ -31,7 +31,7 @@ import { crewReadyAt, crewShortDecision, hasOpenDecision } from './events';
 import { aogChance, isGrounded, missCheck, startAog } from './maintenance';
 import { ageF, ageOf, bumpReliable, contractOf, isBaseLeg, isRevenue, stats, turnOf, usd } from './util';
 import { bumpClient, forgiveDelay, LEVEL_NAME, levelOf, statsV08 } from '../contracts/relations';
-import { closedAtDeparture, payWarRisk, strikeDelay, whiteout } from './world';
+import { closedAirport, closedAtDeparture, closedUntil, payWarRisk, strikeDelay, whiteout } from './world';
 import { isActive, noteHiredThem } from '../contracts/rivals';
 
 /** v0.7.1: the problem ref and hurt snapshot of a message about legs lost or handed over (after the fact). */
@@ -1317,6 +1317,21 @@ export function pruneFlights(g: GameState): void {
   }
   if (ids.length) removeFlights(g, ids);
 }
+
+// v0.9.1: a leg whose departure or arrival airport is still closed when it would leave waits for the reopening (3 h
+// after it, as the player's "wait"), moved before its crew report: they stay at the hotel instead of on duty at the gate.
+setClosedWaitHook((g, id) => {
+  const f = g.flights[id];
+  if (!f || f.status !== 'scheduled' || !f.aircraftId) return false;
+  const own = f.contractId ? g.contracts[f.contractId]?.eventId : undefined;
+  const e = closedAirport(g, f.from, f.std, own) ?? closedAirport(g, f.to, f.std, own);
+  if (!e) return false;
+  const at = closedUntil(e) + 3 * 60;
+  if (at <= f.std) return false;
+  f.closedBy = e.id;
+  delayChain(g, f, at, `Waiting: ${e.title}`, false);
+  return f.status === 'scheduled' && f.std >= at;
+});
 
 // v0.5.2: a crew short of rest after a late finish: the duty's first leg waits for them (crew.guardDuty).
 setRestDelayHook((g, f, std) => {

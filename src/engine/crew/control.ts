@@ -1277,7 +1277,10 @@ function runFix(h: GameState, flightId: string, fix: CrewFix, opts: ApplyOpts): 
       for (const role of x.missing) {
         const seat = p.slots.findIndex((s) => !s.crewId && !s.above && s.role === role);
         if (seat < 0) continue;
-        const donor = q.slots.find((s) => s.crewId && canFill(role, s.role) && h.crew[s.crewId]);
+        // v0.9.1: never someone the move would leave under the month's legal days off (seed 6: a swap on 31 January took a
+        // purser's last two days off; a day off the month can spare is still taken, with its morale).
+        const floorOk = (c: CrewMember) => !planCrew(h, c, p, segsOf(h, c, q.id), false, 0, q.id).issues.some((i) => i.code === 'daysOff' && i.level === 'illegal');
+        const donor = q.slots.find((s) => s.crewId && canFill(role, s.role) && h.crew[s.crewId] && floorOk(h.crew[s.crewId]));
         if (!donor) continue;
         const c = h.crew[donor.crewId!];
         releaseCrew(h, q, c.id);

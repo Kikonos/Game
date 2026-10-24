@@ -542,6 +542,16 @@ export function setRestDelayHook(f: (g: GameState, f: Flight, std: Minute) => bo
   restDelayHook = f;
 }
 
+let closedWaitHook: ((g: GameState, flightId: string) => boolean) | null = null;
+/**
+ * v0.9.1 ops registers (ops/flights.ts): before the crew are called in, a first leg out of (or into) an airport still
+ * closed at its departure moves to the reopening; true when it moved (the duty re-forms and re-queues its report).
+ */
+export function setClosedWaitHook(f: (g: GameState, flightId: string) => boolean): void {
+  closedWaitHook = f;
+}
+export const closedWait = (g: GameState, flightId: string): boolean => !!closedWaitHook && closedWaitHook(g, flightId);
+
 /**
  * A duty not yet reported whose full crew is held up only by rest still running (restUntil past the report, by
  * at most REST_SLIP): its first leg is delayed so the report falls when the rest ends, and the duty re-measured.

@@ -465,6 +465,10 @@ function dryLeases(g: GameState, t: Tally): void {
     const others = Object.values(g.fleet).filter((a) => a.id !== ac.id && typeOf(a.typeId).family === fam && a.status !== 'leasedOut' && a.status !== 'delivering');
     const baseLive = Object.values(g.contracts).some((c) => (c.status === 'active' || c.status === 'signed') && c.pattern.kind === 'base' && c.aircraftIds.some((id) => g.fleet[id] && typeOf(g.fleet[id].typeId).family === fam));
     if (!wide && !others.length && baseLive) continue;
+    // v0.9.1: never from a narrowbody fleet of two or fewer: two keep flying (round 5: seeds 3 and 6 leased one of
+    // their two A320s out for the winter, then both on seed 3, with the crew of two aircraft on the payroll; the
+    // lease income never covered the flying and the crew it left idle).
+    if (!wide && others.length < 2) continue;
     // ... and two more of the family keep flying when it is back only in June.
     if (!wide && back === 5 && others.length < 2) continue;
     // Free over the whole lease (feasibility: from the ferry out to two days after the return).

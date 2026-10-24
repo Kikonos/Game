@@ -460,7 +460,7 @@ function applyClosure(g: GameState, e: WorldEvent, first: boolean, again = false
 }
 
 /** When flights may use the closed airport again. */
-const closedUntil = (e: WorldEvent) => (e.closed ? e.end : Math.min(e.end, e.airportClosedUntil ?? e.end));
+export const closedUntil = (e: WorldEvent) => (e.closed ? e.end : Math.min(e.end, e.airportClosedUntil ?? e.end));
 
 /**
  * Wait: the contract's held legs move to 3 h after the reopening, their spacing kept; its later legs on that aircraft

@@ -10,7 +10,7 @@ import { schedule } from '../core/queue';
 import { DAY, dayStart, yearOf } from '../core/time';
 import type { AcRest, Contract, CrewMember, CrewSlot, Deployment, Duty, Flight, GameState, Legality, Minute, Pairing, Role } from '../core/types';
 import {
-  AUG_MAX_SECTORS, augLimitOf, disruptiveKinds, FDP_CAP, evalSegs, extFdp, LIMITS, localMin, longestWorkBlock, longSector, MAX_SECTORS, maxFdp, minRest, mkSeg, NIGHT_MAX_SECTORS, offsetAt, referenceTime,
+  AUG_MAX_SECTORS, augLimitOf, disruptiveKinds, FDP_CAP, evalSegs, extFdp, LIMITS, localMin, longestWorkBlock, longSector, MAX_SECTORS, maxFdp, minRest, mkSeg, NIGHT_MAX_SECTORS, nightsIn, offsetAt, referenceTime,
   splitFdp, tzDeltaH, woclMinutes, worst, type Seg, type TimelineCtx,
 } from './rules';
 import { crewExtraFor, seatsFor, type Seat } from './extraSeats';
@@ -803,9 +803,18 @@ function emptyDuty(g: GameState, d: Duty): boolean {
   });
 }
 
-/** Trips: from a duty until one releases at home base, a > 3-day gap, or 6 duty days (then 2 days off). */
+/**
+ * v0.9.1: the longest a trip runs from its first report to a duty's release without a recovery rest inside it (36 h with
+ * 2 local nights): 6 days, so the 168 h between recoveries keeps room for the days before it (a standby, the ticket
+ * out), the ticket home and a delay on the day. Longer, a programme away from base is crewed in two parts, the crew
+ * changing at the station (one crew could not legally fly a 6-duty, 8-day ad hoc trip: it stayed empty to the day).
+ */
+const TRIP_SPAN = 6 * DAY;
+
+/** Trips: from a duty until one releases at home base, a > 3-day gap, 6 duty days (then 2 days off), or TRIP_SPAN. */
 function buildTrips(g: GameState, acId: string, duties: Duty[]): void {
   const home = g.company.homeBase;
+  let anchor = 0;
   const dayOf = (t: Minute) => Math.floor((t + offsetAt(home, t)) / DAY);
   let cur: Duty[] = [];
   const empty = (d: Duty) => emptyDuty(g, d);
@@ -826,9 +835,12 @@ function buildTrips(g: GameState, acId: string, duties: Duty[]): void {
       const firstDep = g.flights[d.flightIds[0]]?.from;
       const days = new Set(cur.map((x) => dayOf(x.report)));
       days.add(dayOf(d.report));
-      const cont = last.restAt !== home && firstDep === last.restAt && d.report - last.release <= 3 * DAY && d.report - last.release >= 10 * 60 && days.size <= LIMITS.blockDays;
+      const gap = d.report - last.release;
+      if (gap >= LIMITS.recovery && nightsIn(home, last.release, d.report) >= 2) anchor = d.report;
+      const cont = last.restAt !== home && firstDep === last.restAt && gap <= 3 * DAY && gap >= 10 * 60 && days.size <= LIMITS.blockDays && d.release - anchor <= TRIP_SPAN;
       if (!cont) close();
     }
+    if (!cur.length) anchor = d.report;
     cur.push(d);
     if (d.restAt === home) close();
   }
