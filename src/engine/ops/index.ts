@@ -1,5 +1,6 @@
 // B3 — Operations, maintenance, finance, events, goals, market. Public API.
 
+import { airframeVariant, variantsOf } from '../../data/variants';
 import type { SimModule } from '../core/module';
 import type { GameState } from '../core/types';
 import { onRefitEnd, onRestFitEnd } from './cabin';
@@ -21,6 +22,16 @@ import { dailyClientCabin } from './clientCabin';
 import { DAY } from '../core/time';
 import { dailyDryLeases, onLeaseBack, onLeaseFerryHome, onLeaseOut } from './dryLease';
 import { dailyWorld, loadWorld, onWorldEnd } from './world';
+
+
+/** v0.10 every airframe of a type with variants carries one (stable: hashed from the seed and the aircraft id). */
+function loadVariants(g: GameState): void {
+  for (const ac of Object.values(g.fleet)) {
+    if (ac.variant || !variantsOf(ac.typeId).length) continue;
+    const v = airframeVariant(g.seed, ac.id, ac.typeId, ac.builtYear);
+    if (v) ac.variant = v;
+  }
+}
 
 export {
   APPROVALS, aircraftGate, applyApproval, approvalBlocker, approvalReqs, cleanRecord, gateApprovals, ladder, ratedPilots, RUNG0_TYPES, setPolicies,
@@ -111,6 +122,7 @@ export const opsModule: SimModule = {
       ac.restV ??= 2;
     }
     for (const ac of Object.values(g.fleet)) ac.bhSince ??= Math.floor(g.now / DAY);
+    loadVariants(g);
     // v0.9 heads locked, nothing earned yet.
     loadHeads(g);
     g.achievements ??= {};
@@ -133,6 +145,8 @@ export const opsModule: SimModule = {
     // v0.7.2 utilisation counts from the first load that tracks it (older saves have no bhDays).
     for (const ac of Object.values(g.fleet)) ac.bhSince ??= Math.floor(g.now / DAY);
     g.company.livery = normaliseLivery(g.company.livery);
+    // v0.10 airframe variants (engines, door layout): a stable one for aircraft from before v0.10.
+    loadVariants(g);
     // v0.9 heads (locked by default), then achievements: an older save earns what it has silently (one message each).
     loadHeads(g);
     loadAchievements(g);

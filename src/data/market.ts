@@ -44,6 +44,16 @@ export const EX_OPERATORS: Record<string, ExOperator[]> = {
   a359: [{ airline: 'Thai Airways', hub: 'BKK' }, { airline: 'Cathay Pacific', hub: 'HKG' }],
   a35u: [{ airline: 'Singapore Airlines', hub: 'SIN' }],
   b77l: [{ airline: 'Air India', hub: 'BOM' }],
+  a339: [{ airline: 'TAP', hub: 'LIS' }, { airline: 'Delta', hub: 'ATL' }, { airline: 'Condor', hub: 'FRA' }],
+  a342: [{ airline: 'Aerolíneas Argentinas', hub: 'EZE' }, { airline: 'Conviasa', hub: 'CCS' }, { airline: 'Philippine Airlines', hub: 'MNL' }],
+  a345: [{ airline: 'Emirates', hub: 'DXB' }, { airline: 'Etihad', hub: 'AUH' }, { airline: 'Azerbaijan Airlines', hub: 'GYD' }],
+  a346: [{ airline: 'Lufthansa', hub: 'MUC' }, { airline: 'Iberia', hub: 'MAD' }, { airline: 'Virgin Atlantic', hub: 'LHR' }, { airline: 'South African', hub: 'JNB' }],
+  a35k: [{ airline: 'Qatar Airways', hub: 'DOH' }, { airline: 'Cathay Pacific', hub: 'HKG' }, { airline: 'British Airways', hub: 'LHR' }],
+  b739: [{ airline: 'Lion Air', hub: 'CGK' }, { airline: 'Alaska Airlines', hub: 'SEA' }, { airline: 'United', hub: 'IAH' }],
+  b753: [{ airline: 'Condor', hub: 'FRA' }, { airline: 'Icelandair', hub: 'KEF' }, { airline: 'Delta', hub: 'MSP' }],
+  b788: [{ airline: 'Norwegian', hub: 'OSL' }, { airline: 'Ethiopian', hub: 'ADD' }, { airline: 'Jetstar', hub: 'MEL' }],
+  b78x: [{ airline: 'Etihad', hub: 'AUH' }, { airline: 'Singapore Airlines', hub: 'SIN' }, { airline: 'EVA Air', hub: 'TPE' }],
+  b748: [{ airline: 'Lufthansa', hub: 'FRA' }, { airline: 'Korean Air', hub: 'ICN' }, { airline: 'Air China', hub: 'PEK' }],
   b744: [{ airline: 'Lufthansa', hub: 'FRA' }, { airline: 'British Airways', hub: 'LHR' }, { airline: 'KLM', hub: 'AMS' }, { airline: 'Virgin Atlantic', hub: 'LGW' }],
   a388: [{ airline: 'Emirates', hub: 'DXB' }, { airline: 'Singapore Airlines', hub: 'SIN' }, { airline: 'Malaysia Airlines', hub: 'KUL' }],
 };
@@ -53,10 +63,13 @@ export const FACTORIES: Partial<Record<RatingFamily, { maker: string; sites: Sit
   A320: { maker: 'Airbus', sites: [{ code: 'HAM', name: 'Airbus', city: 'Hamburg' }, { code: 'TLS', name: 'Airbus', city: 'Toulouse' }] },
   A350: { maker: 'Airbus', sites: [{ code: 'TLS', name: 'Airbus', city: 'Toulouse' }] },
   B787: { maker: 'Boeing', sites: [{ code: 'CHS', name: 'Boeing', city: 'Charleston' }] },
+  // v0.10 A330neo final assembly in Toulouse; 777X from Everett (handed over via Seattle).
+  'A330/340': { maker: 'Airbus', sites: [{ code: 'TLS', name: 'Airbus', city: 'Toulouse' }] },
+  B777: { maker: 'Boeing', sites: [{ code: 'SEA', name: 'Boeing', city: 'Everett' }] },
 };
 
 /** Types offered as rare new-build lease slots. */
-export const NEW_BUILD = ['a321neo', 'b789', 'a359', 'a35u'];
+export const NEW_BUILD = ['a321neo', 'b789', 'a359', 'a35u', 'a339', 'a35k', 'b788', 'b78x', 'b779', 'b778'];
 
 export interface MroStation extends Site {
   /** Bodies it can take: narrowbody only, or both. */

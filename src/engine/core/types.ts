@@ -237,6 +237,8 @@ export interface Aircraft {
   deliveredAt: Minute;
   /** v0.5.1: player's livery choice (undefined = 'company'). */
   livery?: LiveryRef;
+  /** v0.10 airframe variant where the art shows one (engines, door layout; src/data/variants.ts); unset for other types. */
+  variant?: string;
   /** v0.5.1: contract whose client livery is on the aircraft (set when the paint-in ends, cleared when the strip ends). Overrides `livery`. */
   paintedFor?: string;
   /** v0.6: extra crew above the legal minimum (unset = company default). */
@@ -1182,6 +1184,8 @@ export interface AircraftOffer {
   kind: 'dryLeaseIn' | 'buy';
   lessor: string;
   builtYear: number;
+  /** v0.10 airframe variant (engines, door layout) where the type has them. */
+  variant?: string;
   cabin: Cabin;
   rentPerMonth: number;
   reservesPerFH: number;

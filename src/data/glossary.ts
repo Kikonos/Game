@@ -19,7 +19,9 @@ export type TermId =
   /** v0.9 roster planning (UPDATE-0.9.md §R.10) */
   | 'airportStandby' | 'reserve' | 'daysOff' | 'publishedRoster'
   /** v0.9 */
-  | 'outOfHours' | 'slipCrew' | 'departmentHead' | 'jumboLoad' | 'fuelAtCost';
+  | 'outOfHours' | 'slipCrew' | 'departmentHead' | 'jumboLoad' | 'fuelAtCost'
+  /** v0.10 */
+  | 'exitLimit' | 'flightEngineer' | 'newBuildSlot';
 
 export interface GlossaryEntry {
   term: string;
@@ -113,6 +115,9 @@ export const GLOSSARY: Record<TermId, GlossaryEntry> = {
   jumboLoad: { term: 'Jumbo load', short: '420 or more passengers on one aircraft: Hajj, troops, UN rotations, evacuations and big charters. Any cabin with the seats will do; only a 777-300ER, a 747-400 or an A380 takes it in one go.', where: { tab: 'contracts' } },
   fuelAtCost: { term: 'Fuel at cost', short: 'The client pays the fuel actually burnt, billed after flying, on top of the price. Common on government and military charters.', where: { tab: 'contracts' } },
   clientCabin: { term: 'Client cabin', short: 'The client wants a different cabin for their contract. We reconfigure it before the start (about 48 hours) and they pay all or half, and often for putting it back after.', where: { tab: 'contracts' } },
+  exitLimit: { term: 'Exit limit', short: 'The most seats an aircraft may carry, set by its emergency exits. An A321neo with overwing exits takes 244, one with four pairs of doors 230.', where: { tab: 'fleet' } },
+  flightEngineer: { term: 'Flight engineer', short: 'The third seat in an old cockpit (747-100, -200, -300): runs the engines, fuel and systems. Newer jets fly with two pilots.', where: { tab: 'fleet' } },
+  newBuildSlot: { term: 'New-build slot', short: 'A brand-new aircraft from the factory, leased before it is built. Months of waiting and the highest rent.', where: { tab: 'fleet' } },
 };
 
 /** Words that the UI wraps in <Term> when they appear in a card's text (lower-case match). */

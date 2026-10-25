@@ -6,6 +6,7 @@
 import { ACMI_TYPES_LIST, type AcmiType } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { EX_OPERATORS, FACTORIES, LESSOR_SITES, NEW_BUILD, type Site } from '../../data/market';
+import { airframeVariant, pickVariant } from '../../data/variants';
 import { BAL } from '../core/balance';
 import { flightsOf, nextId, touchFlights } from '../core/entities';
 import { cashOnly } from '../core/ledger';
@@ -34,7 +35,8 @@ const side = (g: GameState, key: string): RngHolder => ({ rng: hash(`${g.seed}:m
 
 const LESSORS = ['AerCap', 'Avolon', 'SMBC Aviation Capital', 'BOC Aviation', 'Carlyle Aviation Partners', 'Air Lease Corporation', 'Aviation Capital Group'];
 const MONTH = 30.44 * DAY;
-const OLD = ['b763', 'a332', 'a343', 'b752', 'b744'];
+/** Out-of-production types sold as used aircraft too (widebodies included) and built in the old window. */
+const OLD = ['b763', 'a332', 'a343', 'b752', 'b744', 'b753', 'a342', 'a345', 'a346', 'b741', 'b742', 'b743'];
 
 const cabinOf = (t: AcmiType): Cabin => {
   const p = t.cabins[0];
@@ -64,8 +66,11 @@ function rungsAway(g: GameState, missing: ApprovalId[]): number {
  */
 export function eligibleTypes(g: GameState): { t: AcmiType; w: number; teaser: boolean }[] {
   const out: { t: AcmiType; w: number; teaser: boolean }[] = [];
+  const year = yearOf(g.now);
   for (const t of ACMI_TYPES_LIST) {
-    if (!t.available) continue;
+    // v0.10 never before the type exists (the 777-8 from about 2030); new-build-only types need a factory slot.
+    if (!t.available || (t.firstYear ?? 0) > year) continue;
+    if (t.newOnly && !(NEW_BUILD.includes(t.id) && FACTORIES[t.family])) continue;
     const miss = rungsAway(g, aircraftGate(g, t.id).missing);
     if (miss === 0) out.push({ t, w: 1 - t.scarcity, teaser: false });
     else if (miss === 1) out.push({ t, w: (1 - t.scarcity) * BAL.market7.teaserWeight, teaser: true });
@@ -99,7 +104,8 @@ function makeOffer(g: GameState, t: AcmiType, opts: { lease?: boolean; kind?: 'd
   const old = OLD.includes(t.id);
   const index = t.body === 'wide' ? g.market.wideIndex : g.market.narrowIndex;
   const canNew = NEW_BUILD.includes(t.id) && !!FACTORIES[t.family];
-  const newBuild = canNew && (opts.newBuild ?? (!opts.lease && !opts.kind && chance(r, M.newBuildChance)));
+  // v0.10 the 777-9 / 777-8: new-build slots only (no used airframes exist yet).
+  const newBuild = canNew && (!!t.newOnly || (opts.newBuild ?? (!opts.lease && !opts.kind && chance(r, M.newBuildChance))));
   let o: AircraftOffer;
   if (newBuild) {
     const lead = int(r, M.newBuildLead[0], M.newBuildLead[1]);
@@ -112,7 +118,7 @@ function makeOffer(g: GameState, t: AcmiType, opts: { lease?: boolean; kind?: 'd
     };
   } else {
     // Within the type's production years (no A321neo before 2017, no 757 after 2004).
-    const [lo, hi] = old ? [1996, 2008] : t.tier <= 1 ? [2005, 2017] : [now - 16, now - 6];
+    const [lo, hi] = old ? [t.lastYear && t.lastYear < 2008 ? t.lastYear - 12 : 1996, 2008] : t.tier <= 1 ? [2005, 2017] : [now - 16, now - 6];
     const from = Math.max(lo, t.firstYear ?? lo);
     const to = Math.min(hi, t.lastYear ?? hi, now - 1);
     const built = from <= to ? int(r, from, to) : int(r, Math.min(t.firstYear ?? lo, now - 1), Math.min(t.lastYear ?? now - 1, now - 1));
@@ -158,6 +164,9 @@ function makeOffer(g: GameState, t: AcmiType, opts: { lease?: boolean; kind?: 'd
   o.created = g.now;
   // v0.7.3 pilots' and cabin crew's rest facilities per airframe, rolled last on the offer's own stream.
   o.rest = rollRest(t.id, o.cabin.j, () => range(r, 0, 1));
+  // v0.10 the airframe's variant (engines, door layout) where the art shows one, rolled after everything else.
+  const variant = pickVariant(t.id, o.builtYear, range(r, 0, 1));
+  if (variant) o.variant = variant;
   return o;
 }
 
@@ -278,6 +287,8 @@ export function acquireAircraft(g: GameState, offerId: string): ActionResult<{ a
   const w = t.body === 'wide' ? 1 : 0;
   // v0.8 pre-release: cycles on the type's own hours per cycle (a 747-400 about 1 per 8.5 h, not a narrowbody's 2 h).
   const { hours, cycles } = o.newBuild ? { hours: 0, cycles: 0 } : usedHoursCycles(o.typeId, age, range(g, 0.85, 1.15));
+  // v0.10 the offer's variant (offers posted before v0.10 get a stable one).
+  const variant = o.variant ?? airframeVariant(g.seed, o.id, o.typeId, o.builtYear);
   const ac: Aircraft = {
     id: nextId(g, 'a'), reg: registration(g), typeId: o.typeId,
     ownership: o.kind === 'buy'
@@ -286,7 +297,7 @@ export function acquireAircraft(g: GameState, offerId: string): ActionResult<{ a
           kind: 'dryLeaseIn', lessor: o.lessor, rentPerMonth: o.rentPerMonth, reservesPerFH: o.reservesPerFH, leaseStart: handover, leaseEnd: handover + Math.round(o.leaseMonths * MONTH), deposit: o.deposit,
           returnSite: returnSiteOf(o), deliveredLayout: o.cabin.layout, index: o.index ?? (t.body === 'wide' ? g.market.wideIndex : g.market.narrowIndex), ...(o.newBuild ? { newBuild: true } : {}),
         },
-    builtYear: o.builtYear, hours, cycles,
+    builtYear: o.builtYear, hours, cycles, ...(variant ? { variant } : {}),
     // Delivered fresh from a redelivery check (new-build: zero time).
     maint: o.newBuild
       ? { fhSinceA: 0, lastA: handover, fhSinceC: 0, lastC: handover, deferred: 0 }

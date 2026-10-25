@@ -1228,3 +1228,38 @@ Was (v0.7–v0.7.3): 5–7 days and $120–250k for a narrowbody layout change, 
 - KlasJet, "Reconfigures ACMI aircraft for business class accommodation": https://klasjet.aero/klasjet-reconfigures-acmi-aircraft-for-business-class-accommodation/
 - Boeing convertible seating patent (seven economy → six business per row): https://patents.justia.com/patent/5284379 · convertible seat patent noting seat swaps take the aircraft out of service "at least overnight": https://patents.google.com/patent/US5509722A
 - Sofema, EASA CS-25 practical examples for cabin reconfigurations (LOPA / AICD paperwork): https://sassofia.com/wp-content/uploads/2024/11/EASA-CS-25-Practical-Examples-Related-to-Cabin-Re-Configurations.pdf
+
+## 14. New types for the v0.10 art (October 2026)
+
+Game start April 2027. Figures in the game's units (src/data/acmiTypes.ts), calibrated against the existing types
+(ACMI rate per block hour, rent per month for a mid-life frame, fuel t per block hour). Exit limits from the type
+certificate / manufacturer tables; minimum cabin crew = 1 per 50 seats installed (EASA CS-25 / ORO.CC.100), rounded
+up, the typical ACMI crew above it as for the existing types.
+
+| Type | Seats (presets / exit limit) | Range full payload | Cockpit | Notes |
+|---|---|---|---|---|
+| 737-900ER | 215Y, 16J/164Y / 220 (extra exit pair) | 2,500 nm | 2 | 2007–2019; long take-off run; priced at the A321ceo's rate band |
+| 757-300 | 280Y, 24J/219Y / 295 | 3,000 nm | 2 | 55 built 1999–2004; slow turns (one aisle, 54 m); rare: never the pricing reference |
+| A330-900 | 28J/260Y, 440Y / 460 | 6,500 nm | 2 | EIS 2018, Trent 7000, ETOPS 285; in demand |
+| A340-200 | 30J/231Y, 300Y / 375 (8-abreast) | 6,700 nm | 2 | 28 built 1993–1998, mostly VIP/government now |
+| A340-500 | 36J/277Y, 64J/117W / 375 | 8,500 nm | 4 on ULR | 2002–2012, SIN–EWR; none in airline service (May 2025) |
+| A340-600 | 32J/320Y, 420Y / 440 (8-abreast) | 7,000 nm | 2 | 97 built 2002–2011; ~33 in service 2024 |
+| A350-1000 | 40J/330Y, 36J/24W/290Y / 480 | 7,400 nm | 2 | EIS 2018; very few with lessors |
+| 787-8 | 24J/224Y, 330Y / 359 | 6,200 nm | 2 | EIS 2011 |
+| 787-10 | 32J/302Y, 400Y / 440 | 5,600 nm | 2 | EIS 2018, Charleston only |
+| 747-8 | 36J/24W/340Y, 24J/476Y / 605 | 7,300 nm | 2 | passenger deliveries 2012–2017; two pursers |
+| 777-9 | 42J/24W/360Y, 48J/400Y / 495 | 6,900 nm | 2 | first delivery expected 2027 (Lufthansa): new-build slots only, scarcity 0.995 |
+| 777-8 | 42J/28W/280Y, 60J/40W/150Y / 440 | 8,400 nm | 4 on ULR | first delivery not before 2030: firstYear 2030 |
+| 747-100 / -200 / -300 | 32J/360Y, 480Y / 550 (-300: 32J/400Y, 520Y / 660) | 4,300 / 5,500 / 5,600 nm | 3 (flight engineer) | 1970–1986 / 1971–1991 / 1983–1990; JT9D-era engines, Chapter 3 at best; off the market (no flight engineer role yet) |
+
+Airframe variants (src/data/variants.ts): A330-200 Trent 700 vs CF6-80E1 / PW4168; 747-400 PW4056 / CF6-80C2 vs
+RB211-524G/H; A321neo Airbus Cabin Flex (door 2 replaced by overwing exits, 244 seats under EASA) vs the first
+builds' four door pairs (230, 2017–2019). Rare old types (757-300, A340-200/-500/-600) are never used to size or
+price work (pricing.ts RARE): the market prices off mainstream types.
+
+Sources: Airbus A340 specifications and service history (Wikipedia, "Airbus A340", exit limits 375/440/475,
+deliveries, Feb 2026 fleet); Boeing 747 (Wikipedia, "Boeing 747": three-person classic cockpit, -200B data); Aircraft
+Commerce 747-200/-300 owner's guide (aircraft-commerce.com, -300 production 1983–1990, 81 built); A321neo Cabin Flex
+(runwaygirlnetwork.com 2018-03-06 "Flexible door distribution…", samchui.com first ACF delivery 2018; 220 → 240/244);
+777X timing (Boeing feature "Lufthansa's first 777-9 takes flight", May 2026; airdatanews.com: certification 2026,
+first deliveries 2027; Boeing Q1 2024 report: 777-8 not before 2030); manufacturer type data for ranges and seating.
