@@ -136,7 +136,7 @@ function prep(id: string, w: number, h: number): Promise<Prep> {
       const c = ctx2d(w, h);
       c.imageSmoothingQuality = 'high';
       c.drawImage(sf, 0, 0, w, h);
-      return { px, m, sh: shadingFromField(px, c.getImageData(0, 0, w, h).data, w, h, white) };
+      return { px, m, sh: shadingFromField(px, m, c.getImageData(0, 0, w, h).data, w, h, white) };
     }
     return { px, m, sh: shadingOf(px, m, w, h) };
   });
@@ -282,7 +282,14 @@ async function draw(sprite: string, w: AssetWidth, lv: Livery, decals: readonly 
     cowlP = ec.getImageData(0, 0, w, h).data;
     if (lv.body?.lip && d.eng?.length) paintLips(cowlP, pr.m, w, h, k, d.eng, hexRgb(lv.body.lip));
   }
-  paintRegions(px, pr.m, pr.sh, [finP, bodyP, cowlP]);
+  // where the decals are (their lines are kept faint)
+  let decalA: Uint8ClampedArray | null = null;
+  if (decals.length) {
+    const dc = ctx2d(w, h);
+    paintDecals(dc, decals, lv, k);
+    decalA = dc.getImageData(0, 0, w, h).data;
+  }
+  paintRegions(px, pr.m, pr.sh, [finP, bodyP, cowlP], decalA);
   const out = ctx2d(w, h);
   out.putImageData(new ImageData(px, w, h), 0, 0);
   const blob = await new Promise<Blob | null>((res) => out.canvas.toBlob(res, 'image/webp', 0.92));

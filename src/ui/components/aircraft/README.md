@@ -32,9 +32,12 @@ roughly where the engines and pylons are. It rewrites `public/aircraft/` and `sp
      cowl behind its trailing edge or above its top, no fuselage inside the nacelle outline; the **lip** = the front
      7.5 % of each cowl row (follows the lip's curve);
    - clean-up: thin drawn lines with the same paint both sides take it; small unpainted pieces framed only by paint
-     (and not by the sky) take it; the outline fringe takes the nearest solid label;
+     (and not by the sky) take it, as do fuselage-lit slivers between body and exhaust; stray fuselage specks on an
+     engine or pylon go; at the wing root the fuselage is opened by 9 px, so the border is one clean line along the
+     wing and its flap-track fairings, as a painter would mask it; the outline fringe takes the nearest solid label;
    - per-sprite corrections: `seed` (watershed seeds — the edge still follows the drawn outline) and `force`
-     polygons (2048-px coordinates) in `scripts/sprites-paint.json`;
+     polygons (2048-px coordinates) in `scripts/sprites-paint.json`; winglets and wingtip fences drawn over the
+     fuselage and lit like it (A320ceo, A321ceo, A340-200/-300, 737-800, 767, 747-400s) are corrected there;
 3. writes `<id>-mask.png` (2048 wide RGB: R fin, G body, B cowl incl. lip; box-filtered coverage = anti-aliased;
    never overlapping; 0 off the silhouette) and `<id>-shade.webp` (1024 wide grey, lossy q95: the painting model's
    light, see below, over each region's lit white × 255 / 1.25; the whites go in the data as `white`);
@@ -50,15 +53,21 @@ About 3.0 MB for the whole set (art 2.3 MB, masks 0.4 MB, shading 0.3 MB).
 
 ## Painting model (`paintModel.ts`, pure)
 
-Per region the art is split into a smooth **shading** S (its linear luminance after a 13-px grey closing — windows,
-door and panel lines, aerials out — blurred inside the region only, over the region's own lit white: the fin is
-drawn a little greyer than the fuselage, one paint must look one colour) and the **detail** (the pixel against S).
-A painted pixel = the paint colour lit by S through a curve that is steeper for dark paints (S^(1 + 0.9 (1 − √L)),
-so navy keeps the cylinder shading and the lit top) with a faint sky sheen screened on the lit top of dark paint,
-times the art over its shading (every line, door, window stays), dark detail pressed in a little more on dark paint
-(lines still read on navy), glints screened on. White paint gives the art back exactly; plain = the untouched sprite.
-S comes from `<id>-shade.webp` (built once); without it `shadingOf` computes it in the browser (≈ 0.6 s per 2048
-sprite). One composed bitmap per sprite + width + paint key (colours and decals), LRU 120; art, mask and shading are
+Per region the art is split into a smooth **light** S and the **detail**:
+- S (built once, `scripts/sprites.py shading_field` → `<id>-shade.webp`): the fuselage as a fitted **cylinder** —
+  per 8-px column band a robust degree-4 fit of the closed luminance against the height in the tube, smoothed along
+  the length, plus the art's big residual shapes (belly fairing bulge, tail-cone taper; σ 8 px, below 4 % dropped) —
+  so the sprite's horizontal airbrush streaks and compression blotches never reach the paint; fin and cowls: the
+  closed luminance blurred inside the region (σ 10 / 5 px). Each over its region's lit white (one paint, one colour).
+- detail (`detailOf`, once per sprite and width): 1 − art / light, split into its sharp part (minus a ~2-px blur:
+  panel lines, door and window outlines, aerials) and its soft part (noise); strong features (|d| ≥ 0.35: windows,
+  door gaps) keep everything. When painting, a soft threshold (`LIGHT.grain` 5 %) drops what is left of the grain.
+A painted pixel = the paint colour lit by S through a curve that is steeper for dark paints (S^(1 + 0.9 (1 − √L)):
+navy keeps the cylinder and its lit top) with a faint sheen on the lit top, times the clean detail (brightening
+capped at 1.1×), dark lines pressed in a little more on dark paint (`detail`, 30 levels), glints screened on (capped).
+Under decals the detail is kept at 40 % (`decalFade`): a panel line through a logo is faint, not a crack. White paint
+gives the art back exactly; plain = the untouched sprite. Without the shade file `shadingOf` computes a (blur-only)
+light in the browser. One composed bitmap per sprite + width + paint key, LRU 120; art, mask, light and detail are
 kept per sprite/width for the last 4.
 
 ## Files

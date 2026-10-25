@@ -7,10 +7,11 @@
 //     the region's lit white;
 //   - a detail term: the pixel's luminance against that shading (panel lines, doors, windows < 1; glints > 1).
 // A painted pixel is the paint colour lit by S through a curve that keeps the cylinder shading on dark colours
-// (darker paints get a steeper curve and a little sky sheen on the lit top), times the art's own pixel relative to
-// its shading (so every line, door and window of the drawing stays), with the dark detail also pressed in a little
-// (lines must show on navy too) and glints screened on (dark paint keeps its sheen). White paint gives back the art
-// exactly. Text and logos are drawn into the paint before this, so they get the same light, lines and edges.
+// (darker paints get a steeper curve and a little sky sheen on the lit top), times the detail soft-thresholded (the
+// sprite's airbrush and compression grain below 5 % goes, drawn lines, doors and windows stay), with the dark detail
+// pressed in a little (lines must show on navy too) and glints screened on. Under decals the lines are fainter.
+// White paint gives back the art exactly. Text and logos are drawn into the paint before this, so they get the same
+// light, lines and edges. The fuselage's S is a fitted cylinder (scripts/sprites.py cylinder_shade): no streaks.
 
 /** Paint regions in the mask: R fin, G fuselage (body), B engine cowls. */
 export const REGIONS = 3;
@@ -38,7 +39,13 @@ export const LIGHT = {
   /** S from which the sheen starts (S = 1 is the region's lit white). */
   sheenFrom: 0.85,
   /** Dark detail pressed into dark paint (sRGB levels at full darkness of the line). */
-  detail: 45,
+  detail: 30,
+  /** Detail amplitude (share of the light) below which the art's texture is noise, not a drawn line. */
+  grain: 0.05,
+  /** Strongest glint screened onto dark paint (linear). */
+  glintMax: 0.025,
+  /** How much of the drawn detail a decal hides (0 none … 1 all). */
+  decalFade: 0.6,
   /** Grey closing and blur radii at the 2048 asset (scaled with the width). */
   close: 6,
   blur: 4,
@@ -54,6 +61,8 @@ export interface Shading {
   y: Float32Array;
   /** Smooth shading over the region's white (1 = lit white), the regions joined by coverage. */
   n: Float32Array;
+  /** The drawn detail, clean (detailOf): + darker than the light (lines, doors, windows), − brighter (glints). */
+  d: Float32Array;
   /** Each region's lit white (97th percentile of its shading), linear. */
   white: [number, number, number];
 }
@@ -71,11 +80,39 @@ export function lumaOf(px: Uint8ClampedArray, n: number): Float32Array {
   return y;
 }
 
-/** Shading from the shipped field (grey RGBA scaled to the art's size) and the data's whites. */
-export function shadingFromField(px: Uint8ClampedArray, field: Uint8ClampedArray, w: number, h: number, white: [number, number, number]): Shading {
+/** Shading from the shipped field (grey RGBA scaled to the art's size), the mask and the data's whites. */
+export function shadingFromField(px: Uint8ClampedArray, m: Uint8ClampedArray, field: Uint8ClampedArray, w: number, h: number, white: [number, number, number]): Shading {
   const n = w * h, f = new Float32Array(n);
   for (let i = 0; i < n; i++) f[i] = (field[i * 4] / 255) * SHADE_MAX;
-  return { w, h, y: lumaOf(px, n), n: f, white };
+  const y = lumaOf(px, n);
+  return { w, h, y, n: f, d: detailOf(y, f, m, w, h, white), white };
+}
+
+/**
+ * The drawn detail, clean: the art against its light (1 − Y / light, per pixel over its region's white), then split
+ * into what is sharp (minus a ~2-px blur: panel lines, door and window outlines, aerials) and what is soft (the
+ * sprite's airbrush streaks and compression blotches). Strong features (windows, doors' dark gaps; |dev| ≥ 0.35)
+ * keep everything; weaker ones keep only the sharp part. The soft threshold (LIGHT.grain) is applied when painting.
+ */
+export function detailOf(y: Float32Array, f: Float32Array, m: Uint8ClampedArray, w: number, h: number, white: [number, number, number]): Float32Array {
+  const n = w * h, dev = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const j = i * 4, r0 = m[j], r1 = m[j + 1], r2 = m[j + 2];
+    if (!(r0 | r1 | r2) || !(f[i] > 0)) continue;
+    const wt = r1 >= r0 && r1 >= r2 ? white[1] : r0 >= r2 ? white[0] : white[2];
+    const base = f[i] * wt;
+    dev[i] = 1 - y[i] / Math.max(1e-4, base);
+  }
+  const soft = Float32Array.from(dev), tmp = new Float32Array(n);
+  const r = Math.max(1, Math.round((2 * w) / 2048));
+  for (let k = 0; k < 2; k++) { box(soft, w, h, r, true, tmp); box(soft, w, h, r, false, tmp); }
+  const out = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const a = Math.abs(dev[i]);
+    const keepAll = Math.min(1, Math.max(0, (a - 0.12) / (0.35 - 0.12)));
+    out[i] = keepAll * dev[i] + (1 - keepAll) * (dev[i] - soft[i]);
+  }
+  return out;
 }
 
 /** 1-D running max (or min) over ±r along rows (dx = 1) or columns (dx = w), in place via a scratch buffer. */
@@ -157,29 +194,37 @@ export function shadingOf(px: Uint8ClampedArray, m: Uint8ClampedArray, w: number
     for (let r = 0; r < 3; r++) { num += cov[r][i] * (g[r].s[i] / g[r].white); den += cov[r][i]; }
     f[i] = den > 0.01 ? Math.min(SHADE_MAX, num / den) : 0;
   }
-  return { w, h, y, n: f, white: [g[0].white, g[1].white, g[2].white] };
+  const white: [number, number, number] = [g[0].white, g[1].white, g[2].white];
+  return { w, h, y, n: f, d: detailOf(y, f, m, w, h, white), white };
 }
 
-/** One paint lit at one pixel: art colour (linear), paint (sRGB bytes), shading, detail → sRGB channel values. */
-function litPixel(cl: [number, number, number], pr: number, pg: number, pb: number, s: number, yv: number, base: number, out: Float32Array, o: number): void {
+/**
+ * One paint lit at one pixel → sRGB channel values. `S` the smooth light (1 = the region's lit white), `base` the
+ * light in linear luminance, `dev` the clean drawn detail (detailOf), `fade` 0..1 how much of it to keep (decals keep
+ * less), `tint` the art's own colour cast per channel (red beacons and handles stay red). Detail below LIGHT.grain is
+ * dropped (soft threshold), the rest darkens (lines) or screens on (glints); dark paint gets a capped extra push so
+ * lines still read on navy.
+ */
+function litPixel(tint: [number, number, number], pr: number, pg: number, pb: number, S0: number, base: number, dev: number, fade: number, out: Float32Array): void {
   const p0 = SRGB_TO_LIN[pr], p1 = SRGB_TO_LIN[pg], p2 = SRGB_TO_LIN[pb];
   const pl = 0.2126 * p0 + 0.7152 * p1 + 0.0722 * p2;
-  const S = Math.min(1.25, Math.max(0.02, s));
+  const S = Math.min(1.25, Math.max(0.02, S0));
   const k = 1 + LIGHT.curve * (1 - Math.sqrt(pl));
   const sk = Math.exp(k * Math.log(S));
   const t = Math.min(1, Math.max(0, (S - LIGHT.sheenFrom) / (1 - LIGHT.sheenFrom)));
   const sheen = LIGHT.sheen * (1 - pl) * t * t;
   const dark = 1 - pl;
-  // glints above the shading (screened, on dark paint only); dark detail (lines, doors, windows) pressed in
-  const glint = Math.max(0, yv - base) * dark;
-  const det = base > 1e-4 ? Math.max(0, 1 - yv / base) : 0;
-  const push = LIGHT.detail * det * dark;
+  const thr = LIGHT.grain + (1 - fade) * 0.1;
+  const dc = (dev > thr ? dev - thr : dev < -thr ? dev + thr : 0) * fade;
+  const keep = Math.min(1.1, Math.max(0, 1 - dc));
+  // glints screened on, capped: the drawn highlights of a fairing bulge read as sheen, not as white blotches
+  const glint = Math.min(LIGHT.glintMax, Math.max(0, -dc) * base) * dark;
+  const push = LIGHT.detail * Math.min(1, Math.max(0, dc)) * dark;
   const p = [p0, p1, p2];
   for (let c = 0; c < 3; c++) {
     const lit = 1 - (1 - p[c] * sk) * (1 - sheen);
-    let r = (cl[c] * lit) / S;
-    r = 1 - (1 - r) * (1 - glint);
-    out[o + c] = toSrgb(r) - push;
+    const r = 1 - (1 - lit * keep * tint[c]) * (1 - glint);
+    out[c] = toSrgb(r) - push;
   }
 }
 
@@ -189,9 +234,9 @@ function litPixel(cl: [number, number, number], pr: number, pg: number, pb: numb
  * never overlap; their sum is capped at 1). Pixels outside the regions and every alpha value stay exactly as drawn,
  * and white paint (#ffffff) gives back the art exactly.
  */
-export function paintRegions(px: Uint8ClampedArray, m: Uint8ClampedArray, sh: Shading, paints: (Uint8ClampedArray | null)[]): void {
+export function paintRegions(px: Uint8ClampedArray, m: Uint8ClampedArray, sh: Shading, paints: (Uint8ClampedArray | null)[], decals?: Uint8ClampedArray | null): void {
   const n = sh.w * sh.h;
-  const cl: [number, number, number] = [0, 0, 0];
+  const tint: [number, number, number] = [1, 1, 1];
   const res = new Float32Array(3);
   for (let i = 0; i < n; i++) {
     const j = i * 4;
@@ -201,9 +246,13 @@ export function paintRegions(px: Uint8ClampedArray, m: Uint8ClampedArray, sh: Sh
     if (!sum) continue;
     if (sum > 1) { w0 /= sum; w1 /= sum; w2 /= sum; }
     const keep = 1 - w0 - w1 - w2;
-    cl[0] = SRGB_TO_LIN[px[j]]; cl[1] = SRGB_TO_LIN[px[j + 1]]; cl[2] = SRGB_TO_LIN[px[j + 2]];
-    let r0 = px[j] * keep, r1 = px[j + 1] * keep, r2 = px[j + 2] * keep;
     const yv = sh.y[i];
+    // the art's own colour cast where it is clearly coloured (beacons, handles); neutral grey otherwise
+    for (let c = 0; c < 3; c++) {
+      const v = yv > 1e-3 ? SRGB_TO_LIN[px[j + c]] / yv : 1;
+      tint[c] = Math.abs(v - 1) < 0.12 ? 1 : v;
+    }
+    let r0 = px[j] * keep, r1 = px[j + 1] * keep, r2 = px[j + 2] * keep;
     const ws = [w0, w1, w2];
     for (let r = 0; r < 3; r++) {
       const wr = ws[r];
@@ -215,7 +264,9 @@ export function paintRegions(px: Uint8ClampedArray, m: Uint8ClampedArray, sh: Sh
         continue;
       }
       const S = sh.n[i] > 0 ? sh.n[i] : yv / sh.white[r];
-      litPixel(cl, pt[j], pt[j + 1], pt[j + 2], S, yv, S * sh.white[r], res, 0);
+      // under a decal (titles, code, logos) the drawn lines are kept faint: a panel line, not a crack
+      const fade = decals ? 1 - LIGHT.decalFade * (decals[j + 3] / 255) : 1;
+      litPixel(tint, pt[j], pt[j + 1], pt[j + 2], S, S * sh.white[r], sh.d[i], fade, res);
       r0 += res[0] * wr; r1 += res[1] * wr; r2 += res[2] * wr;
     }
     px[j] = r0; px[j + 1] = r1; px[j + 2] = r2;

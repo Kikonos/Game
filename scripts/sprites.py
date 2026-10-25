@@ -529,9 +529,10 @@ def eng_params(g, specs):
     return out
 
 
-def absorb_small(lab, op, area):
+def absorb_small(lab, op, area, bodyish=None):
     """Small unpainted pieces framed only by fin / fuselage / sky / intake lip (door and panel outlines, rims,
-    a nacelle's shadow just ahead of the intake): painted with the surface around them."""
+    a nacelle's shadow just ahead of the intake) -- or by fuselage and exhaust when they are lit like the fuselage
+    (a sliver of belly fairing beside a nozzle): painted with the surface around them."""
     ul, n = ndi.label(lab == UNP)
     if not n:
         return
@@ -545,6 +546,8 @@ def absorb_small(lab, op, area):
         nb = lab[ys_, xs_][rim]
         sky = ~op[ys_, xs_][rim]
         nb_b, nb_f, nb_l = int(((nb == BODY) & ~sky).sum()), int(((nb == FIN) & ~sky).sum()), int((nb == LIP).sum())
+        if bodyish is not None and bodyish[ys_, xs_][c].mean() > 0.6:
+            nb_l += int(np.isin(nb, [METAL, PYLON]).sum())
         if nb_b + nb_f + nb_l + int(sky.sum()) >= 0.97 * len(nb) and nb_b + nb_f > nb_l and sky.sum() < 0.4 * len(nb):
             lab[ys_, xs_][c] = BODY if nb_b >= nb_f else FIN
 
@@ -691,7 +694,27 @@ def segment(g, hints):
         for y in np.nonzero(c.any(axis=1))[0]:
             xs_ = np.nonzero(c[y])[0]
             lab[y, xs_[xs_ > xs_.max() - e['lip']]] = LIP
-    absorb_small(lab, op, area)
+    absorb_small(lab, op, area, bodyish)
+    # stray specks of fuselage paint on an engine or pylon (not joined to the fuselage) are not fuselage
+    bl, n = ndi.label(lab == BODY)
+    if n:
+        sz = ndi.sum(lab == BODY, bl, np.arange(1, n + 1))
+        eng_lab = dil(np.isin(lab, [COWL, LIP, METAL, PYLON]), 2)
+        touch = np.zeros(n + 1, bool)
+        touch[np.unique(bl[eng_lab & (bl > 0)])] = True
+        small = np.zeros(n + 1, bool)
+        small[1:] = sz < 0.002 * area
+        lab[(small & touch)[bl]] = UNP
+    # the wing-root border as a painter masks it: one clean line, no thin tongues of fuselage paint between the
+    # flap-track fairings and no stair steps (an opening of the fuselage, 9 px at 2048, in the lower tube where it
+    # meets the wing)
+    if g['w0'] is not None:
+        tt = (yy - g['crown'][None, :]) / np.maximum(1, (g['belly'] - g['crown'])[None, :])
+        zone = (xx >= g['w0'] - 0.12 * g['L']) & (xx <= g['w1']) & (tt > 0.35) & dil(lab == UNP, 14 * k)
+        b = lab == BODY
+        opened = ndi.binary_opening(b, structure=disk(9 * k))
+        cut = b & ~opened & zone
+        lab[cut] = UNP
     for name, polys in hints.get('force', {}).items():
         lab[poly_mask((H, W), polys, k) & op & ((lab != FIN) | (name == 'fin'))] = NAMES.index(name)
     # nothing standing above the crown is fuselage (winglets, aerials)
@@ -803,29 +826,89 @@ SHADE_W = 1024  # the shading field is smooth: half the big asset's width is ple
 SHADE_MAX = 1.25  # encoded range of the normalised shading
 
 
-def shading_field(rgb, alpha, covs, k=1.0):
-    """The painting model's light (paintModel.ts shadingOf, done once here): per region the art's linear luminance
-    after a 13-px grey closing (windows, lines, aerials out), blurred inside the region only, over the region's lit
-    white (97th percentile); the regions' fields joined by coverage and grown past their edges (so a scaled copy has
-    no dark rim). Returns (field 0..SHADE_MAX at the asset's size, whites)."""
+def tube_t(body, H, W):
+    """Height in the fuselage tube per pixel (crown 0 .. belly 1) from the data's body lines; nan off the tube."""
+    xs = np.arange(W)
+    f = (xs - body['x0']) / body['step']
+    cr = np.array(body['crown'], float)
+    bl = np.array(body['belly'], float)
+    idx = np.arange(len(cr))
+    ok = cr >= 0
+    c = np.interp(f, idx[ok], cr[ok], left=np.nan, right=np.nan)
+    b = np.interp(f, idx[ok], bl[ok], left=np.nan, right=np.nan)
+    return (np.arange(H)[:, None] - c[None, :]) / np.maximum(1, (b - c)[None, :])
+
+
+def cylinder_shade(Y, cov, t, step=8, deg=4, sig=3):
+    """The fuselage's light as a cylinder: per 8-px column band a robust degree-4 fit of the (closed) luminance
+    against the height in the tube, the fits smoothed along the length. Airbrush streaks and compression noise run
+    along the fuselage, so a fit in height alone leaves them out; drawn lines and shadows are outliers."""
+    H, W = Y.shape
+    Yc = ndi.grey_closing(Y, size=(9, 9), mode='nearest')
+    m = (cov > 0.5) & np.isfinite(t)
+    tt = np.clip(np.nan_to_num(t, nan=0.0), -0.05, 1.3)
+    nb = (W + step - 1) // step
+    coefs = np.zeros((nb, deg + 1))
+    wts = np.zeros(nb)
+    for i in range(nb):
+        x0, x1 = max(0, i * step - 12), min(W, i * step + step + 12)
+        mm = m[:, x0:x1]
+        if mm.sum() < 30:
+            continue
+        ty, yv = tt[:, x0:x1][mm], Yc[:, x0:x1][mm]
+        p = np.polyfit(ty, yv, deg)
+        for _ in range(2):
+            r = yv - np.polyval(p, ty)
+            keep = np.abs(r) < 2.5 * (np.median(np.abs(r)) * 1.5 + 1e-4)
+            if keep.sum() > deg + 5:
+                p = np.polyfit(ty[keep], yv[keep], deg)
+        coefs[i], wts[i] = p, mm.sum()
+    good = wts > 0
+    if not good.any():
+        return Yc
+    gi = np.nonzero(good)[0]
+    for j in range(deg + 1):
+        coefs[:, j] = np.interp(np.arange(nb), gi, coefs[gi, j])
+    wv = np.maximum(wts, 1) * good
+    den = np.maximum(ndi.gaussian_filter1d(wv, sig), 1e-6)
+    sm = np.stack([ndi.gaussian_filter1d(coefs[:, j] * wv, sig) / den for j in range(deg + 1)], 1)
+    xs = (np.arange(W) + 0.5) / step - 0.5
+    C = [np.interp(xs, np.arange(nb), sm[:, j]) for j in range(deg + 1)]
+    S = np.broadcast_to(C[0][None, :], Y.shape).copy()
+    for j in range(1, deg + 1):
+        S = S * tt + C[j][None, :]
+    return np.maximum(S, 1e-3)
+
+
+def shading_field(rgb, alpha, covs, t):
+    """The painting model's light (paintModel.ts), done once here: the fuselage as a fitted cylinder
+    (cylinder_shade), the fin and the cowls as their closed luminance blurred inside the region (sigma 10 / 5 px), each
+    over the region's lit white (97th percentile); joined by coverage and grown 6 px past the edges (so a scaled copy
+    has no dark rim). Returns (field 0..SHADE_MAX at the asset's size, whites)."""
     c = rgb.astype(np.float32) / 255
     lin = np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
     Y = lin @ np.array([0.2126, 0.7152, 0.0722], np.float32)
-    rc, rb = max(1, round(6 * k)), max(1, round(4 * k))
-    Yc = ndi.grey_closing(Y, size=(2 * rc + 1, 2 * rc + 1), mode='nearest')
+    Yc = ndi.grey_closing(Y, size=(13, 13), mode='nearest')
     num_all = np.zeros_like(Y)
     den_all = np.zeros_like(Y)
     whites = []
-    for cov in covs:
+    for r, cov in enumerate(covs):
         cv = cov * (alpha > 0)
-        num, den = Yc * cv, cv.copy()
-        for _ in range(2):
-            num = ndi.uniform_filter(num, 2 * rb + 1, mode='nearest')
-            den = ndi.uniform_filter(den, 2 * rb + 1, mode='nearest')
-        sh = np.where(den > 1e-4, num / np.maximum(den, 1e-4), Y)
+        if r == 1:
+            cyl = cylinder_shade(Y, cv, t)
+            # big shapes the cylinder does not know (the belly fairing's bulge, the tail cone's taper): the art's
+            # residual, heavily smoothed inside the body, small amplitudes (streaks) thresholded away
+            res = np.where(cv > 0.5, Yc - cyl, 0)
+            den = ndi.gaussian_filter(cv, 8)
+            res = np.where(den > 1e-3, ndi.gaussian_filter(res * cv, 8) / np.maximum(den, 1e-3), 0)
+            res = np.sign(res) * np.maximum(0, np.abs(res) - 0.04)
+            sh = np.maximum(cyl + res, 1e-3)
+        else:
+            sig = 10 if r == 0 else 5
+            num, den = ndi.gaussian_filter(Yc * cv, sig), ndi.gaussian_filter(cv, sig)
+            sh = np.where(den > 1e-3, num / np.maximum(den, 1e-3), Y)
         sel = cv > 0.5
-        wt = float(np.percentile(sh[sel], 97)) if sel.any() else 1.0
-        wt = max(0.05, wt)
+        wt = max(0.05, float(np.percentile(sh[sel], 97)) if sel.any() else 1.0)
         whites.append(round(wt, 4))
         num_all += cv * sh / wt
         den_all += cv
@@ -835,7 +918,6 @@ def shading_field(rgb, alpha, covs, k=1.0):
         dist, idx = ndi.distance_transform_edt(~have, return_indices=True)
         f = np.where(dist <= 6, f[idx[0], idx[1]], 0)
     return np.clip(f, 0, SHADE_MAX), whites
-
 
 def process(job):
     """One sprite: assets, layout data, paint mask (and the check pictures)."""
@@ -895,18 +977,18 @@ def process(job):
     mk = np.dstack([fin2 * 255 * inside, body2 * 255 * inside, cowl2 * 255 * inside]).round().clip(0, 255).astype(np.uint8)
     Image.fromarray(mk, 'RGB').save(os.path.join(out_dir, f'{sid}-mask.png'), optimize=True)
     files['mask'] = os.path.getsize(os.path.join(out_dir, f'{sid}-mask.png'))
-    rgb_a = np.asarray(resize_rgba(rgba, REF_W, rh))
-    field, whites = shading_field(rgb_a[..., :3], rgb_a[..., 3], [fin2, body2, cowl2])
-    sh_h = int(round(rh * SHADE_W / REF_W))
-    enc = (field / SHADE_MAX * 255).round().clip(0, 255).astype(np.uint8)
-    Image.fromarray(enc, 'L').resize((SHADE_W, sh_h), Image.BOX).convert('RGB').save(os.path.join(out_dir, f'{sid}-shade.webp'), 'WEBP', quality=95, method=6)
-    files['shade'] = os.path.getsize(os.path.join(out_dir, f'{sid}-shade.webp'))
     data = {'w': REF_W, 'h': rh}
     data.update(layout(a2, fin2, e2, rgb2))
     xs2 = list(range(int(round(g['tx'] / k)), int(round(g['nx'] / k)) + 1, BODY_STEP))
     line = lambda arr: [int(round(arr[min(len(arr) - 1, int(round(x * k)))] / k)) if arr[min(len(arr) - 1, int(round(x * k)))] >= 0 else -1 for x in xs2]
     data['body'] = {'x0': xs2[0], 'step': BODY_STEP, 'crown': line(g['crown']), 'belly': line(g['belly'])}
     data['eng'] = [[r1(e['aft'] / k), r1(e['front'] / k), r1(e['lip'] / k)] for e in g['engs']]
+    rgb_a = np.asarray(resize_rgba(rgba, REF_W, rh))
+    field, whites = shading_field(rgb_a[..., :3], rgb_a[..., 3], [fin2, body2, cowl2], tube_t(data['body'], rh, REF_W))
+    sh_h = int(round(rh * SHADE_W / REF_W))
+    enc = (field / SHADE_MAX * 255).round().clip(0, 255).astype(np.uint8)
+    Image.fromarray(enc, 'L').resize((SHADE_W, sh_h), Image.BOX).convert('RGB').save(os.path.join(out_dir, f'{sid}-shade.webp'), 'WEBP', quality=95, method=6)
+    files['shade'] = os.path.getsize(os.path.join(out_dir, f'{sid}-shade.webp'))
     data['white'] = whites
     if check:
         check_pictures(sid, g, lab, check)
