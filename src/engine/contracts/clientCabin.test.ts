@@ -141,12 +141,12 @@ describe('client cabin requests on v0.8 work', () => {
   }, 120_000);
 
   it('a mixed crew on the client cabin: their crew counted on its seats, the rate cut following', () => {
-    // A330-300: two-class 350 seats (7 cabin crew), all-economy 440 (9).
+    // A330-300: two-class 350 seats (8 cabin crew: the certified minimum up to 400 seats), all-economy 440 (9).
     const M = (seats: number) => complement('a333', seats).filter((r) => r === 'PUR' || r === 'CC').length;
-    expect([M(350), M(440)]).toEqual([7, 9]);
+    expect([M(350), M(440)]).toEqual([8, 9]);
     expect(clientCrewOnCabin('a333', { n: 6, of: 7, leads: false }, 440)).toEqual({ n: 6, of: 9, leads: false });
     expect(clientCrewOnCabin('a333', { n: 7, of: 7, leads: true }, 440)).toEqual({ n: 9, of: 9, leads: true });
-    expect(clientCrewOnCabin('a333', { n: 8, of: 9, leads: false }, 350)).toEqual({ n: 6, of: 7, leads: false });
+    expect(clientCrewOnCabin('a333', { n: 8, of: 9, leads: false }, 350)).toEqual({ n: 7, of: 8, leads: false });
     // On generated offers: whenever both come together, the clause is counted on the requested cabin.
     let both = 0;
     for (let s = 1; s <= 60 && both < 3; s++) {

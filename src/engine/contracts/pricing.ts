@@ -181,7 +181,7 @@ export const defaultSeats = (typeId: string) => {
 };
 
 /** v0.10 rare old types (a few dozen built or left): work is never sized or priced off them. */
-const RARE = new Set(['b753', 'a342', 'a345', 'a346']);
+const RARE = new Set(['b753', 'a342', 'a345', 'a346', 'b741', 'b742', 'b743']);
 /** Old types the market prices off only when nothing mainstream fits (RESEARCH §4.2: unloved types). */
 const UNLOVED = new Set(['a343', 'b752', ...RARE]);
 

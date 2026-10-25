@@ -21,7 +21,7 @@ export type TermId =
   /** v0.9 */
   | 'outOfHours' | 'slipCrew' | 'departmentHead' | 'jumboLoad' | 'fuelAtCost'
   /** v0.10 */
-  | 'exitLimit' | 'flightEngineer' | 'newBuildSlot';
+  | 'exitLimit' | 'newBuildSlot' | 'cabinMinimum' | 'crewSeats';
 
 export interface GlossaryEntry {
   term: string;
@@ -116,7 +116,8 @@ export const GLOSSARY: Record<TermId, GlossaryEntry> = {
   fuelAtCost: { term: 'Fuel at cost', short: 'The client pays the fuel actually burnt, billed after flying, on top of the price. Common on government and military charters.', where: { tab: 'contracts' } },
   clientCabin: { term: 'Client cabin', short: 'The client wants a different cabin for their contract. We reconfigure it before the start (about 48 hours) and they pay all or half, and often for putting it back after.', where: { tab: 'contracts' } },
   exitLimit: { term: 'Exit limit', short: 'The most seats an aircraft may carry, set by its emergency exits. An A321neo with overwing exits takes 244, one with four pairs of doors 230.', where: { tab: 'fleet' } },
-  flightEngineer: { term: 'Flight engineer', short: 'The third seat in an old cockpit (747-100, -200, -300): runs the engines, fuel and systems. Newer jets fly with two pilots.', where: { tab: 'fleet' } },
+  cabinMinimum: { term: 'Cabin crew minimum', short: 'The legal least: the number the type was certified with for its exits and seats (an A330 or A340: 8, and 9 above 400 seats), or one per 50 seats on each deck if that is more.', where: { tab: 'fleet' } },
+  crewSeats: { term: 'Crew seats', short: 'The jump seats for the cabin crew. Crew beyond them sit in passenger seats, which cannot be sold.', where: { tab: 'fleet' } },
   newBuildSlot: { term: 'New-build slot', short: 'A brand-new aircraft from the factory, leased before it is built. Months of waiting and the highest rent.', where: { tab: 'fleet' } },
 };
 

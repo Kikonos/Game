@@ -376,7 +376,7 @@ const UNLOCKS: Partial<Record<ApprovalId, { tier?: number; work: string }>> = {
   widebody: { tier: 2, work: 'Signing 767-300ERs, A330s and A340s; widebody charters and wet leases' },
   etops180: { work: 'The South Atlantic direct and the Indian Ocean' },
   augmented: { tier: 3, work: 'Duties over 13 hours with 3–4 pilots; with ETOPS 180 the 777s and the A380' },
-  etops240: { tier: 4, work: 'The 787-9, A350-900 and 777-200LR; prestige long haul' },
+  etops240: { tier: 4, work: 'The 787s, A350s and the 777-8; prestige long haul' },
   ulr: { work: 'Sectors over 16 hours with 4 pilots: ultra-long-range prestige work' },
 };
 

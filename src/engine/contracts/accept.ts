@@ -230,7 +230,8 @@ function signCrewExtra(g: GameState, c: Contract, aircraftId: string, x: CrewExt
   // Paid crew fly above the client's own required extra.
   const want = c.requirements.extraCabin + paid.n;
   const eff = crewExtraFor(g, aircraftId, c.id);
-  if (eff.cabin < want) return;
+  // v0.10 the chosen number counts even past the crew seats (paid crew beyond them take passenger seats)
+  if (Math.max(eff.cabin, c.crewExtra?.cabin ?? 0) < want) return;
   c.extraPaid = true;
   c.crewExtra = { cabin: Math.max(eff.cabin, want), pilot: eff.pilot ? 1 : 0 };
   const p = c.product;

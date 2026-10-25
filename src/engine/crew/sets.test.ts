@@ -93,13 +93,13 @@ describe('crewPlan', () => {
     addCrew(g, { CPT: 10, FO: 10, PUR: 10, CC: 30 });
     addAircraft(g, 'a332');
     addCrew(g, { CPT: 5, FO: 5, PUR: 5, CC: 20 }, 'A330/340');
-    // four cabin crew on both types: the A330 is short (25 needed), so they count there, once
+    // four cabin crew on both types: the A330 is short (35 needed: 8 cabin crew a set, its certified minimum), so they count there, once
     const both = addCrew(g, { CC: 4 }, 'A330/340');
     for (const id of both) g.crew[id].ratings = ['A330/340', 'A320'];
     const plans = crewPlan(g);
     const wide = plans.find((p) => p.family === 'A330/340')!;
     const nb = plans.find((p) => p.family === 'A320')!;
-    expect(wide.roles.find((r) => r.role === 'CC')).toMatchObject({ have: 24, need: 25, shared: 4 });
+    expect(wide.roles.find((r) => r.role === 'CC')).toMatchObject({ have: 24, need: 35, shared: 4 });
     expect(nb.roles.find((r) => r.role === 'CC')).toMatchObject({ have: 30, shared: 0 });
     const total = plans.reduce((s, p) => s + (p.roles.find((r) => r.role === 'CC')?.have ?? 0), 0);
     expect(total).toBe(54);

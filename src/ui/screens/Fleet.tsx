@@ -7,11 +7,10 @@ import { useEffect, useState } from 'react';
 import { artFor } from '../../data/acmiTypes';
 import { enginesOf, variantOf } from '../../data/variants';
 import { MRO_STATIONS } from '../../data/market';
-import { cabinMinimum, typeOf } from '../../engine/core/perf';
+import { cabinCrewSeats, cabinMinimum, typeOf } from '../../engine/core/perf';
 import { DAY, fmtDate, fmtDay, yearOf } from '../../engine/core/time';
 import type { Aircraft, CrewExtra, GameState, LiveryRef, MaintenanceEvent } from '../../engine/core/types';
-import { BAL } from '../../engine/core/balance';
-import { crewAlertKind, crewExtraQuote, restOf, setCrewExtra, shortFlights } from '../../engine/crew';
+import { crewAlertKind, crewExtraQuote, extraCabinMax, restOf, setCrewExtra, shortFlights } from '../../engine/crew';
 import { cancelCheck, checkStatus, deliveryStatus, dryLeaseOf, leastUsed, type LeastUsedRow, leaseView, paintStatus, restRefitOptions, setAircraftLivery } from '../../engine/ops';
 import { problemAt } from '../../engine/problems';
 import { mapLivery } from '../map/mapLogic';
@@ -107,17 +106,19 @@ function LiveryRow({ g, ac, out }: { g: GameState; ac: Aircraft; out?: boolean }
 function CrewExtraRow({ g, ac }: { g: GameState; ac: Aircraft }) {
   const x = ac.crewExtra ?? { cabin: g.company.policies.extraCabin, pilot: 0 as const };
   const q = crewExtraQuote(g, ac.id, x);
+  // v0.10 no more optional cabin crew than the crew seats take
+  const xMax = extraCabinMax(g, ac.id);
   const set = (v: CrewExtra | null) => store.act((gg) => setCrewExtra(gg, { aircraftId: ac.id }, v), { toastOk: false });
   const extra = x.cabin + x.pilot;
   const what = [x.cabin ? `+${x.cabin} cabin` : '', x.pilot ? 'spare pilot' : ''].filter(Boolean).join(' + ');
   return (
     <div className="sc-ac-crew">
       <div className="row between small">
-        <span><span className="upper dim">Crew</span> <span className="muted">Legal minimum {q.minimum.pilots} pilots + {q.minimum.cabin} cabin</span></span>
+        <span><span className="upper dim">Crew</span> <span className="muted">Legal minimum {q.minimum.pilots} pilots + {q.minimum.cabin} cabin · {cabinCrewSeats(ac.typeId)} cabin crew seats</span></span>
         {ac.crewExtra ? <button className="btn btn-sm btn-ghost" onClick={() => set(null)}>Reset</button> : <span className="tiny dim">company default</span>}
       </div>
       <div className="row gap-12 wrap">
-        <span className="row gap-8"><span className="small">Extra cabin</span><Stepper value={x.cabin} min={0} max={BAL.crewExtra.cabinMax} onChange={(v) => set({ cabin: v, pilot: x.pilot })} /></span>
+        <span className="row gap-8"><span className="small">Extra cabin</span><Stepper value={Math.min(x.cabin, xMax)} min={0} max={xMax} onChange={(v) => set({ cabin: v, pilot: x.pilot })} /></span>
         <span className="row gap-8"><span className="small">Spare pilot</span><Toggle on={!!x.pilot} onChange={(v) => set({ cabin: x.cabin, pilot: v ? 1 : 0 })} label="Spare pilot" /></span>
       </div>
       <div className="tiny muted">{extra ? `${what} → +${q.extraPeople} people over ${Math.round(q.extraPeople / Math.max(1, extra))} crew sets · ≈ ${money(q.perMonth)}/month · Morale +${q.service > 0 ? ` · Service ${q.service >= 0.4 ? '++' : '+'}` : ''}` : 'Legal minimum only. Extra crew cost salaries and per diems but lift morale and service; a spare on board covers a sick call away from base.'}</div>
@@ -281,7 +282,7 @@ function CabinRow({ g, ac, out }: { g: GameState; ac: Aircraft; out?: boolean })
   return (
     <div className="fl-row fl-cabin">
       <div className="col grow" style={{ minWidth: 0 }}>
-        <span className="small"><span className="upper dim">Cabin</span> <b>{ac.cabin.label}</b> {layoutLabel(ac.cabin.layout)} · crew minimum {cabinMinimum(ac.cabin.total)} cabin</span>
+        <span className="small"><span className="upper dim">Cabin</span> <b>{ac.cabin.label}</b> {layoutLabel(ac.cabin.layout)} · crew minimum {cabinMinimum(ac.typeId, ac.cabin.total)} cabin</span>
         {m?.refit && <span className="small accent">{m.restFit ? `${REST_FIT_LABEL[m.restFit]}${m.restFit === 'removeRecliners' ? '' : ' fitted'}` : m.refit.restSeats !== undefined ? (m.refit.restSeats ? 'Crew rest seats fitted' : 'Crew rest seats removed') : `${m.clientCabin ? 'Client cabin: ' : ''}${m.end - m.start <= 3 * DAY ? 'Quick reconfiguration' : 'Refit'} to ${m.refit.cabin.label}`} at {st?.city ?? m.at} {fmtDay(m.start)}–{fmtDay(m.end)}{m.status === 'inWork' ? ' · in work' : ''}</span>}
       </div>
       {m ? (m.status === 'planned' && <button className="btn btn-sm" onClick={cancel}>Cancel refit</button>)

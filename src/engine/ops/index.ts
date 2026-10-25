@@ -22,6 +22,7 @@ import { dailyClientCabin } from './clientCabin';
 import { DAY } from '../core/time';
 import { dailyDryLeases, onLeaseBack, onLeaseFerryHome, onLeaseOut } from './dryLease';
 import { dailyWorld, loadWorld, onWorldEnd } from './world';
+import { retireTypes } from './retired';
 
 
 /** v0.10 every airframe of a type with variants carries one (stable: hashed from the seed and the aircraft id). */
@@ -130,6 +131,8 @@ export const opsModule: SimModule = {
   // Decisions other modules post (crew's sickCrew) join the pacing budget as they appear.
   settle: paceDecisions,
   load(g) {
+    // v0.10 retired types (the 777-200LR → 777-200ER) before anything reads a type.
+    retireTypes(g);
     // v0.8 world events (none in older saves).
     loadWorld(g);
     loadApprovals(g);

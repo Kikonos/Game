@@ -1,6 +1,6 @@
 // ACMI parameters for the shortlist types (RESEARCH §4.1, §5.2–5.7, §7.2–7.3). All money in USD.
 // `catalog` links to src/data/aircraft.ts (specs, facts); `art` is the side-view sprite (v0.10, the player's art in
-// public/aircraft/; per-airframe variants in ./variants.ts). The 777-200LR borrows the 777-200ER sprite until it has its own.
+// public/aircraft/; per-airframe variants in ./variants.ts). v0.10: the 777-200LR is gone (old saves fly it as a 777-200ER).
 
 import { variantOf } from './variants';
 
@@ -26,7 +26,7 @@ export interface AcmiType {
   engines: 2 | 4;
   /** src/data/aircraft.ts id, when the catalog has the type. */
   catalog?: string;
-  /** Sprite id (own art, or a look-alike until it has one: the 777-200LR uses the 777-200ER). */
+  /** Sprite id (public/aircraft/<art>-*.webp; variants in ./variants.ts may override it). */
   art: string;
   tier: 0 | 1 | 2 | 3 | 4;
   /** Cabin presets; the first is the default ACMI configuration. */
@@ -39,12 +39,14 @@ export interface AcmiType {
   /** Planned turnaround, minutes. */
   turnMin: number;
   /**
-   * Minimum flight crew for an unaugmented duty (4 for ULR types on ULR sectors). 3 = two pilots and a flight engineer
-   * (747-100/-200/-300): recorded as a fact; the game has no flight engineer role yet, so those types stay off the market.
+   * Minimum flight crew for an unaugmented duty (4 for ULR types on ULR sectors). v0.10: the 747-100/-200/-300 had a
+   * flight engineer as the third crew member; the game flies them with two pilots (a fact line in the catalog only).
    */
-  cockpitMin: 2 | 3 | 4;
-  /** Typical ACMI cabin crew at the default configuration (legal minimum is ceil(seats/50)). */
+  cockpitMin: 2 | 4;
+  /** Typical ACMI cabin crew at the default configuration (the legal minimum is cabinMinimum: certified floor and 1 per 50 seats per deck). */
   cabinTypical: number;
+  /** v0.10 crew numbers from the type certificate (RESEARCH §15): certified cabin crew floor, crew seats, cockpit observer seats. */
+  crew: CrewSpec;
   /** In-flight crew rest as standard (FTL F3): 1 bunks on most airframes; 2 curtained business seats (767: never bunks); 3 curtained economy seats (narrowbodies). */
   restClass: 1 | 2 | 3 | null;
   /** Highest ETOPS the type can be approved for (0 = not ETOPS capable; four-engine types bypass ETOPS). */
@@ -99,6 +101,27 @@ export interface AcmiType {
   hPerCycle?: number;
 }
 
+/** Certified minimum cabin crew by installed passenger seats: [seats up to, cabin crew], ascending; a cabin up to the first row's seats takes that row's crew. */
+export type CrewFloor = readonly (readonly [number, number])[];
+
+/**
+ * v0.10 crew numbers per type (RESEARCH §15). Minimum cabin crew = the greater of the number established at
+ * certification for the cabin (EASA TCDS "Minimum Cabin Crew" tables: `floor`) and one per 50 installed seats, per
+ * deck (ORO.CC.100(b)); the upper deck of a 747 or A380 counts on its own.
+ */
+export interface CrewSpec {
+  /** Main (or only) deck table; empty = no number established at certification (1 per 50 seats only). */
+  floor: CrewFloor;
+  /** Two-deck types: upper deck seats = the cabin's share, capped at max (its exit limit), and its own table. */
+  upper?: { share: number; max: number; floor: CrewFloor };
+  /** Cabin crew seats (jump seats, attendant stations): crew beyond them sit in passenger seats. */
+  seats: number;
+  /** Cockpit observer seats behind the two pilots (relief and spare pilots beyond them sit in the cabin). */
+  observers: number;
+  /** Which numbers are estimates (no published figure found): RESEARCH §15 flags them. */
+  est?: ('floor' | 'upper' | 'seats' | 'observers' | 'maxSeats')[];
+}
+
 /** v0.7.3 per-type crew rest (shares are estimates for the ACMI/charter used market; audit §B2). v0.7.4: bunks come as a pair. */
 export interface TypeRest {
   /**
@@ -127,9 +150,52 @@ const TR = (bunkShare: number, ccrcKind: 'ccrc' | 'ldmcr', ccrcPlaces: number, r
   ({ bunkShare, ccrcKind, ccrcPlaces, jClass: 2, recliners, ldmcr, mro });
 const NARROW_LR: TypeRest = { ...NO_REST, recliners: { rowsLost: 1, places: 3, fc: 1 } };
 
+/** v0.10 crew numbers per type (RESEARCH §15 has every source). */
+const CREW: Record<string, CrewSpec> = {
+  // EASA TCDS A.064 (A320 family) and IM.A.120 (737): the certified numbers equal 1 per 50 seats.
+  a320ceo: { floor: [[150, 3], [195, 4]], seats: 6, observers: 1, est: ['seats', 'observers'] },
+  a321ceo: { floor: [[200, 4], [230, 5]], seats: 7, observers: 1, est: ['seats', 'observers'] },
+  a321neo: { floor: [[149, 3], [200, 4], [244, 5]], seats: 6, observers: 1, est: ['seats', 'observers'] },
+  b738: { floor: [[100, 2], [150, 3], [189, 4]], seats: 5, observers: 1, est: ['seats', 'observers'] },
+  b739: { floor: [[100, 2], [150, 3], [200, 4], [220, 5]], seats: 6, observers: 1, est: ['seats', 'observers'] },
+  // 757 / 767: no number in the EASA TCDS (IM.A.205 refers to FAA A2NM; IM.A.035): 1 per 50 seats.
+  b752: { floor: [], seats: 7, observers: 2, est: ['seats', 'observers'] },
+  b753: { floor: [], seats: 8, observers: 2, est: ['seats', 'observers'] },
+  b763: { floor: [], seats: 9, observers: 2, est: ['seats', 'observers'] },
+  // EASA TCDS A.004 (A330), A.015 (A340), A.151 (A350): 2 per exit pair (8), 9 above 400 seats; +1 per A+ pair.
+  a332: { floor: [[400, 8], [406, 9]], seats: 12, observers: 2, est: ['seats'] },
+  a333: { floor: [[400, 8], [440, 9]], seats: 12, observers: 2, est: ['seats'] },
+  a339: { floor: [[400, 8], [440, 9], [460, 10], [465, 12]], seats: 12, observers: 2, est: ['seats'] },
+  a342: { floor: [[400, 8], [420, 9]], seats: 12, observers: 2, est: ['seats'] },
+  a343: { floor: [[400, 8], [440, 9]], seats: 12, observers: 2, est: ['seats'] },
+  a345: { floor: [[375, 8]], seats: 12, observers: 2, est: ['seats'] },
+  a346: { floor: [[400, 8], [440, 9]], seats: 14, observers: 2, est: ['seats'] },
+  a359: { floor: [[400, 8], [440, 9]], seats: 12, observers: 2, est: ['seats'] },
+  a35u: { floor: [[400, 8], [440, 9]], seats: 12, observers: 2, est: ['seats'] },
+  a35k: { floor: [[400, 8], [440, 9], [460, 10], [470, 11], [480, 12]], seats: 14, observers: 2, est: ['seats'] },
+  // EASA TCDS A.110: per deck, main 10 (≤ 500) / 11, upper 6 (≤ 300) / 7.
+  a388: { floor: [[500, 10], [538, 11]], upper: { share: 0.4, max: 330, floor: [[300, 6], [330, 7]] }, seats: 24, observers: 2, est: ['seats'] },
+  // EASA TCDS IM.A.003 (777): -200/-200ER 8 (≤ 400) / 9; -300ER 10 (≤ 500) / 11. The 777X is not certified yet.
+  b772: { floor: [[400, 8], [440, 9]], seats: 14, observers: 2, est: ['seats'] },
+  b77w: { floor: [[500, 10], [550, 11]], seats: 16, observers: 2, est: ['seats'] },
+  b778: { floor: [[400, 8], [440, 9]], seats: 14, observers: 2, est: ['floor', 'seats', 'maxSeats'] },
+  b779: { floor: [[500, 10]], seats: 16, observers: 2, est: ['floor', 'seats', 'maxSeats'] },
+  // EASA TCDS IM.A.115 (787): by the certified capacity of each exit arrangement.
+  b788: { floor: [[300, 6], [350, 7], [381, 8]], seats: 10, observers: 2, est: ['seats'] },
+  b789: { floor: [[300, 6], [350, 7], [400, 8], [420, 9]], seats: 12, observers: 2, est: ['seats'] },
+  b78x: { floor: [[300, 6], [355, 8], [440, 9]], seats: 12, observers: 2, est: ['seats'] },
+  // EASA TCDS IM.A.196 (747): per deck. -400 main 11 (550, five Type A pairs), upper 1 / 2 / 3 (45 / 100 / 110);
+  // -8 main 9 (440) / 10 (495). The classics have no number in the TCDS: the -400's, est.
+  b744: { floor: [[550, 11]], upper: { share: 0.12, max: 110, floor: [[45, 1], [100, 2], [110, 3]] }, seats: 18, observers: 2, est: ['seats'] },
+  b748: { floor: [[440, 9], [495, 10]], upper: { share: 0.12, max: 110, floor: [[45, 1], [100, 2], [110, 3]] }, seats: 20, observers: 2, est: ['seats'] },
+  b741: { floor: [[550, 11]], upper: { share: 0.07, max: 45, floor: [[45, 1]] }, seats: 16, observers: 2, est: ['floor', 'upper', 'seats'] },
+  b742: { floor: [[550, 11]], upper: { share: 0.07, max: 45, floor: [[45, 1]] }, seats: 16, observers: 2, est: ['floor', 'upper', 'seats'] },
+  b743: { floor: [[550, 11]], upper: { share: 0.13, max: 110, floor: [[45, 1], [100, 2], [110, 3]] }, seats: 17, observers: 2, est: ['floor', 'upper', 'seats'] },
+};
+
 const c = (label: string, layout: CabinLayout, j: number, w: number, y: number): CabinPreset => ({ label, layout, j, w, y });
 
-export const ACMI_TYPES_LIST: AcmiType[] = [
+export const ACMI_TYPES_LIST: AcmiType[] = ([
   {
     id: 'a320ceo', name: 'Airbus A320ceo', short: 'A320', family: 'A320', body: 'narrow', engines: 2, catalog: 'a320ceo', art: 'a320ceo', tier: 0,
     cabins: [c('180Y', 'all-economy', 0, 0, 180), c('12J/156Y', 'two-class', 12, 0, 156)], maxSeats: 186,
@@ -188,7 +254,7 @@ export const ACMI_TYPES_LIST: AcmiType[] = [
   },
   {
     id: 'a343', name: 'Airbus A340-300', short: 'A343', family: 'A330/340', body: 'wide', engines: 4, catalog: 'a343', art: 'a343', tier: 2,
-    cabins: [c('30J/270Y', 'two-class', 30, 0, 270), c('335Y', 'all-economy', 0, 0, 335)], maxSeats: 375,
+    cabins: [c('30J/270Y', 'two-class', 30, 0, 270), c('335Y', 'all-economy', 0, 0, 335)], maxSeats: 440,
     rangeNm: 6500, cruiseKt: 470, turnMin: 90, cockpitMin: 2, cabinTypical: 10, restClass: 1, etopsMax: 0, minRunwayM: 3000,
     rateBH: 6000, fuelTBH: 7.0, maintBH: 2200, rentMonth: 100_000, valueUsed: 8_000_000, hPerCycle: 7.5, insuranceMonth: 60_000,
     aCheckFH: 800, aCheckHours: 18, cCheckMonths: 24, cCheckDays: 21, pilotsPerAircraft: 16, scarcity: 0.5, available: true, rest: TR(0.75, 'ldmcr', 8, { rowsLost: 2, places: 7, fc: 2 }, true, 'fcrc'), yAbreast: 8,
@@ -229,15 +295,8 @@ export const ACMI_TYPES_LIST: AcmiType[] = [
     aCheckFH: 1200, aCheckHours: 14, cCheckMonths: 36, cCheckDays: 14, pilotsPerAircraft: 28, scarcity: 0.98, available: true, ulr: true, rest: TR(1, 'ccrc', 8, null, false, null), yAbreast: 9,
   },
   {
-    id: 'b77l', name: 'Boeing 777-200LR', short: 'B77L', family: 'B777', body: 'wide', engines: 2, catalog: 'b77l', art: 'b772', tier: 4,
-    cabins: [c('38J/262Y', 'two-class', 38, 0, 262), c('35J/24W/221Y', 'three-class', 35, 24, 221)], maxSeats: 440,
-    rangeNm: 7500, cruiseKt: 485, turnMin: 90, cockpitMin: 4, cabinTypical: 10, restClass: 1, etopsMax: 330, minRunwayM: 3200,
-    rateBH: 14_000, fuelTBH: 7.4, maintBH: 2200, rentMonth: 600_000, firstYear: 2006, valueUsed: 35_000_000, hPerCycle: 9.0, insuranceMonth: 100_000,
-    aCheckFH: 1000, aCheckHours: 18, cCheckMonths: 24, cCheckDays: 21, pilotsPerAircraft: 26, scarcity: 0.95, available: true, ulr: true, rest: TR(1, 'ccrc', 8, null, false, null), yAbreast: 10,
-  },
-  {
     id: 'a388', name: 'Airbus A380-800', short: 'A388', family: 'A380', body: 'wide', engines: 4, catalog: 'a388', art: 'a388', tier: 3,
-    cabins: [c('12J/459Y', 'two-class', 12, 0, 459), c('60J/411Y', 'two-class', 60, 0, 411)], maxSeats: 853,
+    cabins: [c('12J/459Y', 'two-class', 12, 0, 459), c('60J/411Y', 'two-class', 60, 0, 411)], maxSeats: 868,
     rangeNm: 7000, cruiseKt: 490, turnMin: 120, cockpitMin: 2, cabinTypical: 17, restClass: 1, etopsMax: 0, minRunwayM: 3300,
     rateBH: 21_000, fuelTBH: 12, maintBH: 4000, rentMonth: 450_000, firstYear: 2007, valueUsed: 30_000_000, hPerCycle: 8.5, insuranceMonth: 140_000,
     aCheckFH: 1000, aCheckHours: 24, cCheckMonths: 24, cCheckDays: 28, pilotsPerAircraft: 20, scarcity: 0.9, available: true, rest: TR(1, 'ccrc', 14, null, false, null), yAbreast: 10, pursers: 2,
@@ -280,7 +339,7 @@ export const ACMI_TYPES_LIST: AcmiType[] = [
   {
     // 28 built 1993–1998, the long-range short A340: by 2027 almost all VIP or government jets. Rare, cheap, thirsty.
     id: 'a342', name: 'Airbus A340-200', short: 'A342', family: 'A330/340', body: 'wide', engines: 4, catalog: 'a342', art: 'a342', tier: 2,
-    cabins: [c('30J/231Y', 'two-class', 30, 0, 231), c('300Y', 'all-economy', 0, 0, 300)], maxSeats: 375,
+    cabins: [c('30J/231Y', 'two-class', 30, 0, 231), c('300Y', 'all-economy', 0, 0, 300)], maxSeats: 420,
     rangeNm: 6700, cruiseKt: 470, turnMin: 85, cockpitMin: 2, cabinTypical: 8, restClass: 1, etopsMax: 0, minRunwayM: 3000,
     rateBH: 5600, fuelTBH: 6.6, maintBH: 2500, rentMonth: 70_000, firstYear: 1993, lastYear: 1998, valueUsed: 3_500_000, hPerCycle: 8.0, insuranceMonth: 50_000,
     aCheckFH: 800, aCheckHours: 18, cCheckMonths: 24, cCheckDays: 21, pilotsPerAircraft: 16, scarcity: 0.97, available: true, aogMult: 1.4, rest: TR(0.5, 'ldmcr', 6, { rowsLost: 2, places: 7, fc: 2 }, true, 'fcrc'), yAbreast: 8,
@@ -312,7 +371,7 @@ export const ACMI_TYPES_LIST: AcmiType[] = [
   {
     // The first Dreamliner (2011): 248 seats two-class, long range, in demand with lessors.
     id: 'b788', name: 'Boeing 787-8', short: 'B788', family: 'B787', body: 'wide', engines: 2, catalog: 'b788', art: 'b788', tier: 4,
-    cabins: [c('24J/224Y', 'two-class', 24, 0, 224), c('330Y', 'all-economy', 0, 0, 330)], maxSeats: 359,
+    cabins: [c('24J/224Y', 'two-class', 24, 0, 224), c('330Y', 'all-economy', 0, 0, 330)], maxSeats: 381,
     rangeNm: 6200, cruiseKt: 490, turnMin: 75, cockpitMin: 2, cabinTypical: 8, restClass: 1, etopsMax: 330, minRunwayM: 2700,
     rateBH: 10_000, fuelTBH: 5.0, maintBH: 1300, rentMonth: 560_000, rentNew: 850_000, firstYear: 2011, valueUsed: 62_000_000, hPerCycle: 6.5, insuranceMonth: 95_000,
     aCheckFH: 1100, aCheckHours: 14, cCheckMonths: 36, cCheckDays: 14, pilotsPerAircraft: 20, scarcity: 0.85, available: true, rest: TR(0.85, 'ccrc', 6, { rowsLost: 2, places: 8, fc: 2 }, false, 'overhead'), yAbreast: 9,
@@ -349,31 +408,31 @@ export const ACMI_TYPES_LIST: AcmiType[] = [
     rateBH: 15_500, fuelTBH: 7.3, maintBH: 1700, rentMonth: 1_350_000, rentNew: 1_450_000, newOnly: true, firstYear: 2030, valueUsed: 175_000_000, hPerCycle: 9.0, insuranceMonth: 150_000,
     aCheckFH: 1200, aCheckHours: 16, cCheckMonths: 36, cCheckDays: 18, pilotsPerAircraft: 28, scarcity: 0.99, available: true, ulr: true, rest: TR(1, 'ccrc', 10, null, false, null), yAbreast: 10,
   },
-  // 747 classics (1970–1991): three in the cockpit (captain, first officer, flight engineer), JT9D-era engines at
-  // Chapter 3 at best (night bans and noise fees at many airports), very thirsty, AOG-prone, very cheap, very rare.
-  // OFF the market until the player decides on a Flight Engineer crew role (the data is complete).
+  // 747 classics (1970–1991): JT9D-era engines at Chapter 3 at best (night bans and noise fees at many airports), very
+  // thirsty, AOG-prone, very cheap, very rare. v0.10: on the market, flown by two pilots (the real ones had a flight
+  // engineer as well: a fact line only, the player's choice).
   {
     id: 'b741', name: 'Boeing 747-100', short: 'B741', family: 'B747', body: 'wide', engines: 4, catalog: 'b741', art: 'b741', tier: 2,
     cabins: [c('32J/360Y', 'two-class', 32, 0, 360), c('480Y', 'all-economy', 0, 0, 480)], maxSeats: 550,
-    rangeNm: 4300, cruiseKt: 480, turnMin: 120, cockpitMin: 3, cabinTypical: 13, restClass: 2, etopsMax: 0, minRunwayM: 3300,
+    rangeNm: 4300, cruiseKt: 480, turnMin: 120, cockpitMin: 2, cabinTypical: 13, restClass: 2, etopsMax: 0, minRunwayM: 3300,
     rateBH: 7000, fuelTBH: 13.0, maintBH: 4800, rentMonth: 40_000, firstYear: 1970, lastYear: 1986, valueUsed: 1_200_000, hPerCycle: 6.5, insuranceMonth: 70_000,
-    aCheckFH: 450, aCheckHours: 30, cCheckMonths: 15, cCheckDays: 35, pilotsPerAircraft: 18, scarcity: 0.995, available: false, aogMult: 2.0, rest: TR(0.2, 'ccrc', 6, { rowsLost: 2, places: 9, fc: 2 }, false, null), yAbreast: 10, pursers: 2,
+    aCheckFH: 450, aCheckHours: 30, cCheckMonths: 15, cCheckDays: 35, pilotsPerAircraft: 18, scarcity: 0.995, available: true, aogMult: 2.0, rest: TR(0.2, 'ccrc', 6, { rowsLost: 2, places: 9, fc: 2 }, false, null), yAbreast: 10, pursers: 2,
   },
   {
     id: 'b742', name: 'Boeing 747-200', short: 'B742', family: 'B747', body: 'wide', engines: 4, catalog: 'b742', art: 'b742', tier: 2,
     cabins: [c('32J/360Y', 'two-class', 32, 0, 360), c('480Y', 'all-economy', 0, 0, 480)], maxSeats: 550,
-    rangeNm: 5500, cruiseKt: 480, turnMin: 120, cockpitMin: 3, cabinTypical: 13, restClass: 2, etopsMax: 0, minRunwayM: 3300,
+    rangeNm: 5500, cruiseKt: 480, turnMin: 120, cockpitMin: 2, cabinTypical: 13, restClass: 2, etopsMax: 0, minRunwayM: 3300,
     rateBH: 7500, fuelTBH: 12.8, maintBH: 4500, rentMonth: 45_000, firstYear: 1971, lastYear: 1991, valueUsed: 1_500_000, hPerCycle: 7.0, insuranceMonth: 70_000,
-    aCheckFH: 450, aCheckHours: 30, cCheckMonths: 15, cCheckDays: 35, pilotsPerAircraft: 18, scarcity: 0.995, available: false, aogMult: 1.9, rest: TR(0.25, 'ccrc', 6, { rowsLost: 2, places: 9, fc: 2 }, false, null), yAbreast: 10, pursers: 2,
+    aCheckFH: 450, aCheckHours: 30, cCheckMonths: 15, cCheckDays: 35, pilotsPerAircraft: 18, scarcity: 0.995, available: true, aogMult: 1.9, rest: TR(0.25, 'ccrc', 6, { rowsLost: 2, places: 9, fc: 2 }, false, null), yAbreast: 10, pursers: 2,
   },
   {
     id: 'b743', name: 'Boeing 747-300', short: 'B743', family: 'B747', body: 'wide', engines: 4, catalog: 'b743', art: 'b743', tier: 2,
     cabins: [c('32J/400Y', 'two-class', 32, 0, 400), c('520Y', 'all-economy', 0, 0, 520)], maxSeats: 660,
-    rangeNm: 5600, cruiseKt: 485, turnMin: 120, cockpitMin: 3, cabinTypical: 14, restClass: 2, etopsMax: 0, minRunwayM: 3300,
+    rangeNm: 5600, cruiseKt: 485, turnMin: 120, cockpitMin: 2, cabinTypical: 14, restClass: 2, etopsMax: 0, minRunwayM: 3300,
     rateBH: 8000, fuelTBH: 12.5, maintBH: 4300, rentMonth: 50_000, firstYear: 1983, lastYear: 1990, valueUsed: 1_800_000, hPerCycle: 7.0, insuranceMonth: 70_000,
-    aCheckFH: 450, aCheckHours: 30, cCheckMonths: 15, cCheckDays: 35, pilotsPerAircraft: 18, scarcity: 0.995, available: false, aogMult: 1.8, rest: TR(0.25, 'ccrc', 6, { rowsLost: 2, places: 9, fc: 2 }, false, null), yAbreast: 10, pursers: 2,
+    aCheckFH: 450, aCheckHours: 30, cCheckMonths: 15, cCheckDays: 35, pilotsPerAircraft: 18, scarcity: 0.995, available: true, aogMult: 1.8, rest: TR(0.25, 'ccrc', 6, { rowsLost: 2, places: 9, fc: 2 }, false, null), yAbreast: 10, pursers: 2,
   },
-];
+] as Omit<AcmiType, 'crew'>[]).map((t) => ({ ...t, crew: CREW[t.id] }));
 
 export const ACMI_TYPES: Record<string, AcmiType> = Object.fromEntries(ACMI_TYPES_LIST.map((t) => [t.id, t]));
 

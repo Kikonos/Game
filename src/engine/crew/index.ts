@@ -49,7 +49,7 @@ export {
   type MoraleDriverView, type MoraleSummary, type MoraleView,
 } from './morale';
 export { crewExtraQuote, setCrewExtra } from './extra';
-export { crewExtraFor, offerExtra, paidMinOf, seatsFor, type CrewExtraSource, type EffectiveExtra, type Seat } from './extraSeats';
+export { crewExtraFor, extraCabinMax, offerExtra, paidMinOf, seatsFor, type CrewExtraSource, type EffectiveExtra, type Seat } from './extraSeats';
 export { CAL_LABEL, crewCalendar, crewStatusView, crewTravelNow, joinsAt, type CalBlock, type CalFlight, type CalKind, type CrewStatusView, type CrewTravelNow } from './calendar';
 // v0.7.1 Crew Control (UPDATE-0.7.1.md §15).
 export {
@@ -61,7 +61,7 @@ import { migrateRanks } from './migrate';
 export { migrateRanks } from './migrate';
 // v0.7.2 (UPDATE-0.7.2.md §12).
 export { crewAway, type CrewAway } from './away';
-export { restClassAt, restSeatsBlocked, sellableSeats } from './crewRest';
+export { crewSeatsBlocked, restClassAt, restSeatsBlocked, sellableSeats } from './crewRest';
 // v0.7.3 (UPDATE-0.7.3.md §7).
 export {
   augLimit, bunksFor, cabinBand, effectiveRest, fittedRest, hasBunks, isSeatRest, longestDay, migrateRest, restOfAc, restWords, seatRest, ySeatsFor, planRest, restNow, restOf, restPlan, restPlanForFlight, restShort, restText, restVerdict, restWhere,

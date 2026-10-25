@@ -76,9 +76,9 @@ export const GOALS: (GoalDef & { ladder?: LadderInfo })[] = [
   },
   {
     id: 'etops240', title: 'ETOPS 240', desc: 'Earn ETOPS 240 approval.', progress: (g) => approvalProgress(g, 'etops240'),
-    ladder: { approval: 'etops240', types: ['b789', 'a359', 'b77l'], body: 'You can now sign 787-9s, A350s and 777-200LRs, and bid for prestige long haul. Next: ultra-long-range (FRMS).' },
+    ladder: { approval: 'etops240', types: ['b789', 'a359'], body: 'You can now sign 787-9s and A350s, and bid for prestige long haul. Next: ultra-long-range (FRMS).' },
   },
-  { id: 'ulrApproved', title: 'FRMS approved', desc: 'Earn ultra-long-range approval.', progress: (g) => approvalProgress(g, 'ulr'), ladder: { approval: 'ulr', types: ['a35u', 'b77l'], body: 'Sectors over 16 hours with 4 pilots are ours to fly. The top of the ladder.' } },
+  { id: 'ulrApproved', title: 'FRMS approved', desc: 'Earn ultra-long-range approval.', progress: (g) => approvalProgress(g, 'ulr'), ladder: { approval: 'ulr', types: ['a35u'], body: 'Sectors over 16 hours with 4 pilots are ours to fly. The top of the ladder.' } },
   { id: 'firstUlr', title: 'Ultra long range', desc: 'Fly an ultra-long-range sector.', progress: (g) => ((g.stats.ulrSectors ?? 0) > 0 ? 1 : approvalProgress(g, 'ulr') * 0.5), ladder: { body: 'Our first sector over 16 hours, flown with four pilots.' } },
 ];
 

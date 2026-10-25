@@ -24,7 +24,8 @@ import { typeOf } from '../../engine/core/perf';
 import { DAY, fmtDate, fmtDay, fmtDuration, fmtTime } from '../../engine/core/time';
 import type { ContractOffer, CrewExtra, GameState } from '../../engine/core/types';
 import { BAL } from '../../engine/core/balance';
-import { offerExtra } from '../../engine/crew';
+import { extraCabinMax, offerExtra } from '../../engine/crew';
+import { cabinCrewSeats, cabinMinimum } from '../../engine/core/perf';
 import type { CounterView } from '../../engine/contracts';
 import { problemAt } from '../../engine/problems';
 import { ProblemCardView, runAction } from '../components/ProblemCard';
@@ -189,16 +190,25 @@ function CabinTermsCard({ g, o, aircraftId, on, onToggle, fmtP }: { g: GameState
   );
 }
 
+/** v0.10 the chosen aircraft's cabin crew minimum and crew seats, in one line (crew beyond the seats take passenger seats). */
+function crewSeatsNote(g: GameState, aircraftId: string | null, req: number): string | undefined {
+  const ac = aircraftId ? g.fleet[aircraftId] : undefined;
+  if (!ac) return undefined;
+  const min = cabinMinimum(ac.typeId, ac.cabin.total), seats = cabinCrewSeats(ac.typeId);
+  const over = min + req - seats;
+  return `${ac.reg}: ${min} cabin crew minimum for ${ac.cabin.total} seats, ${seats} crew seats${over > 0 ? `; ${over} crew in passenger seats` : ''}.`;
+}
+
 /** v0.6: extra crew for this contract (default: the aircraft's or the company's) and the client's paid option. */
-function ExtraCrewCard({ o, x, onChange, fmtP, asking }: { o: ContractOffer; x: CrewExtra; onChange: (x: CrewExtra) => void; fmtP: (v: number) => string; asking: number }) {
+function ExtraCrewCard({ o, x, onChange, fmtP, asking, max, seatsNote }: { o: ContractOffer; x: CrewExtra; onChange: (x: CrewExtra) => void; fmtP: (v: number) => string; asking: number; max: number; seatsNote?: string }) {
   const req = o.requirements.extraCabin;
   const paid = o.requirements.extraCabinPaid;
   const on = !!paid && x.cabin >= paid.n;
   return (
     <div className={`sc-extra-card ${on ? 'paid' : ''}`}>
       <div className="row between gap-8">
-        <span className="col"><b>Extra cabin crew</b><span className="tiny dim">{req ? `The client requires +${req}. ` : ''}Above the legal minimum: more salaries and per diems, better morale and service.</span></span>
-        <Stepper value={x.cabin} min={req} max={BAL.crewExtra.cabinMax} onChange={(v) => onChange({ cabin: v, pilot: x.pilot })} format={(v) => `+${v}`} />
+        <span className="col"><b>Extra cabin crew</b><span className="tiny dim">{req ? `The client requires +${req}. ` : ''}Above the legal minimum: more salaries and per diems, better morale and service.{seatsNote ? ` ${seatsNote}` : ''}</span></span>
+        <Stepper value={x.cabin} min={req} max={Math.max(req, max, paid && x.cabin >= paid.n ? x.cabin : 0)} onChange={(v) => onChange({ cabin: v, pilot: x.pilot })} format={(v) => `+${v}`} />
       </div>
       <div className="row between gap-8">
         <span className="col"><b className="small">Spare pilot</b><span className="tiny dim">Covers a sick call away from base; no extra duty time.</span></span>
@@ -570,7 +580,7 @@ export function OfferModal({ offerId }: { offerId: string }) {
           {fit && <ProblemCardView card={{ ...fit, actions: fit.actions.filter((a) => a.id !== 'review') }} g={g} hideActions={fit.actions.every((a) => a.id === 'review')} onAction={(a) => runAction(g, a)} />}
           {o.paint && <PaintTermsCard g={g} o={o} typeId={sel && g.fleet[sel.aircraftId] ? artFor(g.fleet[sel.aircraftId].typeId, g.fleet[sel.aircraftId].variant) : 'a320ceo'} on={paintOn} onToggle={setPaintOn} fmtP={fmtP} />}
           {o.cabin && <CabinTermsCard g={g} o={o} aircraftId={sel?.aircraftId ?? null} on={cabinOn} onToggle={setCabinOn} fmtP={fmtP} />}
-          {crewed && <ExtraCrewCard o={o} x={x} onChange={setExtra} fmtP={fmtP} asking={asking} />}
+          {crewed && <ExtraCrewCard o={o} x={x} onChange={setExtra} fmtP={fmtP} asking={asking} max={extraCabinMax(g, sel?.aircraftId ?? null, o.requirements.extraCabin)} seatsNote={crewSeatsNote(g, sel?.aircraftId ?? null, o.requirements.extraCabin)} />}
           <div className="upper dim">Terms</div>
           <Terms g={g} o={o} />
           <ClientBlock g={g} o={o} />

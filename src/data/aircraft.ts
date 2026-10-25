@@ -243,7 +243,7 @@ export const AIRCRAFT: AircraftType[] = [
   },
   {
     id: 'b788', name: 'Boeing 787-8 Dreamliner', short: 'B788', manufacturer: 'Boeing', family: '787', body: 'wide',
-    typicalSeats: 248, maxSeats: 359, cabinLength: 1200, yAbreast: 9, yAbreastMax: 9, rangeKm: 13530, speedKmh: 903,
+    typicalSeats: 248, maxSeats: 381, cabinLength: 1200, yAbreast: 9, yAbreastMax: 9, rangeKm: 13530, speedKmh: 903,
     fuelBurn: 4.8, price: 125 * M, eis: 2011, availableFrom: 2011, inProduction: true, mtow: 228, cargoT: 14,
     turnMin: 80, maintHour: 1350, pilotRate: 1150, lengthM: 56.7, spanM: 60.1, engines: 'wing2', leadMonths: 10,
     generation: 'new', minLevel: 3,
@@ -251,7 +251,7 @@ export const AIRCRAFT: AircraftType[] = [
   },
   {
     id: 'b789', name: 'Boeing 787-9 Dreamliner', short: 'B789', manufacturer: 'Boeing', family: '787', body: 'wide',
-    typicalSeats: 296, maxSeats: 406, cabinLength: 1380, yAbreast: 9, yAbreastMax: 9, rangeKm: 14010, speedKmh: 903,
+    typicalSeats: 296, maxSeats: 420, cabinLength: 1380, yAbreast: 9, yAbreastMax: 9, rangeKm: 14010, speedKmh: 903,
     fuelBurn: 5.4, price: 150 * M, eis: 2014, availableFrom: 2014, inProduction: true, mtow: 254, cargoT: 18,
     turnMin: 85, maintHour: 1450, pilotRate: 1180, lengthM: 62.8, spanM: 60.1, engines: 'wing2', leadMonths: 11,
     generation: 'new', minLevel: 3,
@@ -323,7 +323,7 @@ export const AIRCRAFT: AircraftType[] = [
   },
   {
     id: 'a388', name: 'Airbus A380-800', short: 'A388', manufacturer: 'Airbus', family: 'A380', body: 'jumbo',
-    typicalSeats: 525, maxSeats: 853, cabinLength: 2500, yAbreast: 10, yAbreastMax: 11, rangeKm: 15000, speedKmh: 903,
+    typicalSeats: 525, maxSeats: 868, cabinLength: 2500, yAbreast: 10, yAbreastMax: 11, rangeKm: 15000, speedKmh: 903,
     fuelBurn: 12.5, price: 300 * M, eis: 2007, availableFrom: 2007, inProduction: false, mtow: 575, cargoT: 18,
     turnMin: 130, maintHour: 3300, pilotRate: 1400, lengthM: 72.7, spanM: 79.8, engines: 'wing4', leadMonths: 0,
     generation: 'current', minLevel: 6,
@@ -356,7 +356,7 @@ export const AIRCRAFT: AircraftType[] = [
   },
   {
     id: 'a342', name: 'Airbus A340-200', short: 'A342', manufacturer: 'Airbus', family: 'A340', body: 'wide',
-    typicalSeats: 261, maxSeats: 375, cabinLength: 1300, yAbreast: 8, yAbreastMax: 9, rangeKm: 13500, speedKmh: 871,
+    typicalSeats: 261, maxSeats: 420, cabinLength: 1300, yAbreast: 8, yAbreastMax: 9, rangeKm: 13500, speedKmh: 871,
     fuelBurn: 6.6, price: 90 * M, eis: 1993, availableFrom: 1993, inProduction: false, mtow: 275, cargoT: 14,
     turnMin: 85, maintHour: 2300, pilotRate: 1100, lengthM: 59.4, spanM: 60.3, engines: 'wing4', leadMonths: 0,
     generation: 'legacy', minLevel: 3,
@@ -364,7 +364,7 @@ export const AIRCRAFT: AircraftType[] = [
   },
   {
     id: 'a343', name: 'Airbus A340-300', short: 'A343', manufacturer: 'Airbus', family: 'A340', body: 'wide',
-    typicalSeats: 295, maxSeats: 375, cabinLength: 1460, yAbreast: 8, yAbreastMax: 9, rangeKm: 13500, speedKmh: 871,
+    typicalSeats: 295, maxSeats: 440, cabinLength: 1460, yAbreast: 8, yAbreastMax: 9, rangeKm: 13500, speedKmh: 871,
     fuelBurn: 7.0, price: 100 * M, eis: 1993, availableFrom: 1993, inProduction: false, mtow: 276.5, cargoT: 18,
     turnMin: 90, maintHour: 2200, pilotRate: 1100, lengthM: 63.7, spanM: 60.3, engines: 'wing4', leadMonths: 0,
     generation: 'legacy', minLevel: 3,
@@ -395,14 +395,6 @@ export const AIRCRAFT: AircraftType[] = [
     fact: 'Seven built for Singapore Airlines, with bigger fuel tanks and no economy class: about 18 hours to New York.',
   },
   {
-    id: 'b77l', name: 'Boeing 777-200LR', short: 'B77L', manufacturer: 'Boeing', family: '777', body: 'wide',
-    typicalSeats: 317, maxSeats: 440, cabinLength: 1500, yAbreast: 9, yAbreastMax: 10, rangeKm: 15840, speedKmh: 892,
-    fuelBurn: 7.3, price: 160 * M, eis: 2006, availableFrom: 2006, inProduction: false, mtow: 347.5, cargoT: 16,
-    turnMin: 90, maintHour: 2000, pilotRate: 1250, lengthM: 63.7, spanM: 64.8, engines: 'wing2', leadMonths: 0,
-    generation: 'current', minLevel: 6,
-    fact: 'The "Worldliner": in 2005 one flew Hong Kong–London the long way round, 21,600 km nonstop.',
-  },
-  {
     id: 'b778', name: 'Boeing 777-8', short: 'B778', manufacturer: 'Boeing', family: '777', body: 'wide',
     typicalSeats: 395, maxSeats: 440, cabinLength: 1760, yAbreast: 10, yAbreastMax: 10, rangeKm: 16190, speedKmh: 905,
     fuelBurn: 7.1, price: 220 * M, eis: 2030, availableFrom: 2030, inProduction: true, mtow: 351.5, cargoT: 22,
@@ -416,7 +408,7 @@ export const AIRCRAFT: AircraftType[] = [
     fuelBurn: 13.5, price: 25 * M, eis: 1970, availableFrom: 1970, inProduction: false, mtow: 333, cargoT: 20,
     turnMin: 120, maintHour: 4500, pilotRate: 1500, lengthM: 70.7, spanM: 59.6, engines: 'wing4', leadMonths: 0,
     generation: 'legacy', minLevel: 5,
-    fact: 'The first Jumbo (Pan Am, January 1970). Three in the cockpit: captain, first officer and flight engineer.',
+    fact: 'The first Jumbo (Pan Am, January 1970). Real ones had a flight engineer; here two pilots fly it.',
   },
   {
     id: 'b742', name: 'Boeing 747-200', short: 'B742', manufacturer: 'Boeing', family: '747', body: 'jumbo',
@@ -424,7 +416,7 @@ export const AIRCRAFT: AircraftType[] = [
     fuelBurn: 13.0, price: 30 * M, eis: 1971, availableFrom: 1971, inProduction: false, mtow: 378, cargoT: 20,
     turnMin: 120, maintHour: 4300, pilotRate: 1500, lengthM: 70.7, spanM: 59.6, engines: 'wing4', leadMonths: 0,
     generation: 'legacy', minLevel: 5,
-    fact: 'Three engine makers (JT9D, CF6-50, RB211-524) and a flight engineer. Air Force One flies a version of it.',
+    fact: 'Three engine makers (JT9D, CF6-50, RB211-524); Air Force One flies a version of it. Real ones had a flight engineer; here two pilots fly it.',
   },
   {
     id: 'b743', name: 'Boeing 747-300', short: 'B743', manufacturer: 'Boeing', family: '747', body: 'jumbo',
@@ -432,7 +424,7 @@ export const AIRCRAFT: AircraftType[] = [
     fuelBurn: 12.7, price: 35 * M, eis: 1983, availableFrom: 1983, inProduction: false, mtow: 378, cargoT: 20,
     turnMin: 120, maintHour: 4100, pilotRate: 1500, lengthM: 70.7, spanM: 59.6, engines: 'wing4', leadMonths: 0,
     generation: 'legacy', minLevel: 5,
-    fact: 'The stretched upper deck came with this one in 1983; 81 were built. Still a three-person cockpit.',
+    fact: 'The stretched upper deck came with this one in 1983; 81 were built. Real ones had a flight engineer; here two pilots fly it.',
   },
   {
     id: 'concorde', name: 'Concorde', short: 'CONC', manufacturer: 'Aérospatiale/BAC', family: 'Concorde', body: 'supersonic',

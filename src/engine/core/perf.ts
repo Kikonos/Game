@@ -1,7 +1,7 @@
 // Aircraft performance and fit: block times, range and tech stops, runway and ETOPS fit,
 // crew complements. Pure functions shared by contracts, crew and ops (DESIGN.md §5.2–5.5).
 
-import { ACMI_TYPES, type AcmiType } from '../../data/acmiTypes';
+import { ACMI_TYPES, type AcmiType, type CrewFloor } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE, AIRPORTS, type Airport } from '../../data/airports';
 import { distanceNm, haversine, interpolateGC } from './geo';
 import type { Role } from './types';
@@ -164,9 +164,50 @@ export function etopsNeeded(typeId: string, from: string, to: string): number {
 
 // ---------- crew complements ----------
 
-/** EASA ORO.CC.100: one cabin crew per 50 installed seats (at least one above 19 seats). */
-export function cabinMinimum(seats: number): number {
-  return seats <= 19 ? 0 : Math.max(1, Math.ceil(seats / 50));
+/** A certified table's crew for `n` seats: the first row whose seats cover n (beyond the last row: the last). 0 without a table. */
+function floorFor(rows: CrewFloor, n: number): number {
+  if (!rows.length || n <= 0) return 0;
+  for (const [s, c] of rows) if (n <= s) return c;
+  return rows[rows.length - 1][1];
+}
+const per50 = (n: number) => (n > 0 ? Math.ceil(n / 50) : 0);
+
+/** v0.10 seats on the upper deck of a two-deck type (0 for single-deck types). */
+export function upperDeckSeats(typeId: string, seats: number): number {
+  const u = ACMI_TYPES[typeId]?.crew?.upper;
+  return u ? Math.min(u.max, Math.round(seats * u.share)) : 0;
+}
+
+/**
+ * v0.10 minimum cabin crew (EASA ORO.CC.100(b), FAA 121.391): the greater of the number established at certification
+ * for the cabin (the type's TCDS table, by installed seats) and one per 50 or fraction of 50 installed seats on the
+ * same deck; the upper deck of a 747 or A380 is counted on its own. 0 up to 19 seats. Pure.
+ */
+export function cabinMinimum(typeId: string, seats: number): number {
+  if (seats <= 19) return 0;
+  const c = ACMI_TYPES[typeId]?.crew;
+  if (!c) return Math.max(1, per50(seats));
+  const up = upperDeckSeats(typeId, seats);
+  const main = seats - up;
+  let n = Math.max(floorFor(c.floor, main), per50(main));
+  if (c.upper && up > 0) n += Math.max(floorFor(c.upper.floor, up), per50(up));
+  return Math.max(1, n);
+}
+
+/** v0.10 cabin crew seats (jump seats) of a type: crew beyond them sit in passenger seats. */
+export const cabinCrewSeats = (typeId: string): number => ACMI_TYPES[typeId]?.crew?.seats ?? 99;
+
+/** v0.10 cockpit seats: the two pilots' and the observer seats (relief and spare pilots beyond them sit in the cabin). */
+export const cockpitSeats = (typeId: string): number => 2 + (ACMI_TYPES[typeId]?.crew?.observers ?? 2);
+
+/** v0.10 optional extra cabin crew a cabin still has jump seats for, above the minimum and the crew the duty must carry. */
+export const extraCabinRoom = (typeId: string, seats: number, required = 0): number => Math.max(0, cabinCrewSeats(typeId) - Math.max(cabinMinimum(typeId, seats), 1) - required);
+
+/** v0.10 passenger seats taken by crew on board: cabin crew beyond the jump seats and pilots beyond the cockpit's seats. */
+export function crewInPaxSeats(typeId: string, roles: readonly Role[]): number {
+  let pilots = 0, cabin = 0;
+  for (const r of roles) (r === 'CPT' || r === 'FO' || r === 'CRP' ? pilots++ : cabin++);
+  return Math.max(0, cabin - cabinCrewSeats(typeId)) + Math.max(0, pilots - cockpitSeats(typeId));
 }
 
 /** Report before the first departure and post-flight duty, minutes (RESEARCH §5.6). */
@@ -183,7 +224,7 @@ export function complement(typeId: string, seats: number, opts: { augment?: 0 | 
   const augment = opts.augment ?? 0;
   const cockpit: Role[] = augment === 2 ? ['CPT', 'CPT', 'FO', 'FO'] : augment === 1 ? ['CPT', 'FO', 'CRP'] : ['CPT', 'FO'];
   const restCabin = augment > 0 ? Math.max(0, Math.round(opts.restCabin ?? 0)) : 0;
-  const cabinN = Math.max(cabinMinimum(seats), 1) + (opts.extraCabin ?? 0) + restCabin;
+  const cabinN = Math.max(cabinMinimum(typeId, seats), 1) + (opts.extraCabin ?? 0) + restCabin;
   // v0.7.2: exactly one purser (the SCCM); a second (deputy, upper deck) only on two-deck types.
   const cabin: Role[] = ['PUR'];
   if (t.pursers === 2 && cabinN >= 2) cabin.push('PUR');

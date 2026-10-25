@@ -42,7 +42,6 @@ export const ENGINES: Record<string, string> = {
   a35k: 'Rolls-Royce Trent XWB-97',
   a388: 'Rolls-Royce Trent 900 or Engine Alliance GP7200 (four)',
   b772: 'GE90-94B, Pratt & Whitney PW4090 or Rolls-Royce Trent 895',
-  b77l: 'GE90-110B',
   b77w: 'GE90-115B',
   b778: 'GE9X',
   b779: 'GE9X',
