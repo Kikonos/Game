@@ -8,7 +8,8 @@ import { describe, expect, it } from 'vitest';
 import { BODY_PRESETS, bodyPreset } from '../../../data/livery';
 import type { Livery } from '../../../engine/core/types';
 import { normaliseLivery } from '../../../engine/ops/paint';
-import { bellyPoly, bodyColourAt, bodyLayers, inPoly, stripeLine, tubeAt, windowShare } from './bodyPaint';
+import { bellyPoly, bodyColourAt, bodyLayers, inPoly, noseBandPolys, paintY, splitAt, stripeLine, tubeAt, windowShare } from './bodyPaint';
+import { extraDecals } from './stickers';
 import { tintKey } from './compose';
 import { paintRegions, shadingOf } from './paintModel';
 import { fileOf, layoutOf, SPRITE_IDS } from './sprites';
@@ -269,5 +270,60 @@ describe('body paint geometry and data', () => {
     const d = layoutOf('a320ceo');
     const x = Math.round((d.tail + d.nose) / 2), t = tubeAt(d, x)!;
     expect(bodyColourAt('a320ceo', full, x, (t[0] + t[1]) / 2)).toBe('#123456');
+  });
+});
+
+describe('v0.11 livery conventions (split below the windows, nose band, markings)', () => {
+  it('the belly split "below the windows" sits just under the main deck windows and level through the cabin on every type', () => {
+    for (const id of FILES) {
+      const d = layoutOf(id);
+      const w = d.winMain ?? d.win;
+      if (!w) continue;
+      const belly = { color: '#c6cdd4', split: 0.62, tilt: 0, windows: true };
+      const L = d.nose - d.tail;
+      const ys: number[] = [];
+      for (const f of [0.3, 0.45, 0.6, 0.75]) {
+        const x = d.tail + f * L;
+        const y = paintY(d, x, splitAt(d, belly, x))!;
+        expect(y, `${id} at ${f}`).toBeGreaterThan(w[1]);
+        expect(y, `${id} at ${f}`).toBeLessThan(w[1] + 0.12 * (d.belly - d.crown));
+        ys.push(y);
+      }
+      // level (parallel to the cabin), also under a 747's hump
+      expect(Math.max(...ys) - Math.min(...ys), id).toBeLessThan(3);
+      // the nose band ends ahead of door 1 (within 1.2 cabin heights of the nose) and lies below the split
+      const nb = noseBandPolys(d, { belly, noseBand: { color: '#000000' } }).band;
+      expect(Math.min(...nb.map((p) => p[0])), id).toBeGreaterThan(d.nose - 1.2 * (d.belly - d.crown));
+    }
+  });
+
+  it('registration over the tail and the model under the forward windows on big views only, clear of the window row', () => {
+    const lv: Livery = { primary: '#7a1f2b', secondary: '#f5c451', tail: 'solid', logo: { id: 'arc', color: '#ffffff' }, body: { engineLogo: true } };
+    for (const id of FILES) {
+      const d = layoutOf(id);
+      const all = extraDecals(id, lv, { reg: 'CS-TBL', model: 'BOEING 777', fine: true });
+      const reg = all.find((x) => x.id === 'reg')!, model = all.find((x) => x.id === 'model')!;
+      expect(reg && model, id).toBeTruthy();
+      const w = d.win!;
+      expect(reg.cy + reg.h / 2, `${id}: registration above the windows`).toBeLessThan(w[0]);
+      expect(model.cy - model.h / 2, `${id}: model below the windows`).toBeGreaterThan(w[1]);
+      expect(all.find((x) => x.id === 'flag')?.text, id).toBe('🇵🇹');
+      expect(all.filter((x) => x.on === 'cowl').length, id).toBe(d.eng!.length);
+      // small view: no small texts; hidden registration: none
+      expect(extraDecals(id, lv, { reg: 'CS-TBL', model: 'X', fine: false }).some((x) => x.kind === 'reg'), id).toBe(false);
+      expect(extraDecals(id, { ...lv, reg: { hide: true } }, { reg: 'CS-TBL', fine: true }).some((x) => x.id === 'reg'), id).toBe(false);
+    }
+  });
+
+  it('normalises the new options and keeps old liveries as they were', () => {
+    const lv: Livery = {
+      primary: '#1F6F6B', secondary: '#d23b2a', tail: 'solid', model: 'rear', reg: { noFlag: true, color: '#000' },
+      body: { belly: { color: '#c6cdd4', split: 0.62, tilt: 0, windows: true, line: { color: '#0b2a5b', h: 0.5 } }, noseBand: { color: '#1f6f6b', accent: 'nope' }, finRoot: '#d23b2a', engineLogo: true, noseLogo: true },
+    };
+    const n = normaliseLivery(lv);
+    expect(n.body).toEqual({ belly: { color: '#c6cdd4', split: 0.62, tilt: 0, windows: true, line: { color: '#0b2a5b', h: 0.06 } }, noseBand: { color: '#1f6f6b' }, finRoot: '#d23b2a', engineLogo: true, noseLogo: true });
+    expect(n.reg).toEqual({ noFlag: true, color: '#000000' });
+    expect(n.model).toBe('rear');
+    expect(normaliseLivery(n)).toEqual(n);
   });
 });

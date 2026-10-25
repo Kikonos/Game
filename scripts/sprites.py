@@ -241,7 +241,7 @@ def layout(alpha, tail, eng, rgb):
     hist[: max(0, int(crown_main - 0.4 * D))] = 0
     hist[int(belly_ref):] = 0
     k = np.convolve(hist, np.ones(3) / 3, 'same')
-    win = None
+    win = win_main = None
     if k.max() > 8:
         # bands of rows over 40 % of the peak; the topmost band with >= 55 % of the peak is the title reference
         on = k > 0.4 * k.max()
@@ -258,6 +258,9 @@ def layout(alpha, tail, eng, rgb):
         good = [b for b in bands if b[2] >= 0.55 * k.max()]
         top = min(good, key=lambda b: b[0])
         win = (top[0], top[1])
+        # the main deck's window line (the lowest strong band: the A380's lower deck), for the belly split
+        low = max(good, key=lambda b: b[0])
+        win_main = (low[0], low[1])
 
     # the near wing drawn over the fuselage side: broad grey shading (windows and panel lines are sparse)
     grey = ((lumi < 215) & (alpha > 0.9) & (tail < 0.1)).astype(np.uint8) * 255
@@ -307,7 +310,8 @@ def layout(alpha, tail, eng, rgb):
     # title band: between the main crown level and the window line, from 16 % of L behind the nose
     if win:
         avail = win[0] - crown_main
-        cap = min(0.5 * avail, 0.2 * D)
+        # modest titles, as real aircraft carry them: cap height about 1.6 window heights (never tiny)
+        cap = min(0.5 * avail, 0.2 * D, max(1.6 * (win[1] - win[0] + 1), 0.08 * D))
         ty = (crown_main + win[0]) / 2 + 0.05 * avail
     else:
         cap = 0.18 * D
@@ -327,6 +331,7 @@ def layout(alpha, tail, eng, rgb):
         'fin': [[int(x), int(y)] for x, y in poly], 'finQuad': quad,
         'zone': [[int(x), int(y)] for x, y in zone],
         'win': [int(win[0]), int(win[1])] if win else None,
+        'winMain': [int(win_main[0]), int(win_main[1])] if win_main else None,
         'wing': list(wing) if wing else None,
         'titles': titles,
         'silArea': int(sil.sum()),
@@ -982,7 +987,7 @@ def process(job):
     xs2 = list(range(int(round(g['tx'] / k)), int(round(g['nx'] / k)) + 1, BODY_STEP))
     line = lambda arr: [int(round(arr[min(len(arr) - 1, int(round(x * k)))] / k)) if arr[min(len(arr) - 1, int(round(x * k)))] >= 0 else -1 for x in xs2]
     data['body'] = {'x0': xs2[0], 'step': BODY_STEP, 'crown': line(g['crown']), 'belly': line(g['belly'])}
-    data['eng'] = [[r1(e['aft'] / k), r1(e['front'] / k), r1(e['lip'] / k)] for e in g['engs']]
+    data['eng'] = [[r1(e['aft'] / k), r1(e['front'] / k), r1(e['lip'] / k), r1(e['top'] / k), r1(e['Dn'] / k)] for e in g['engs']]
     rgb_a = np.asarray(resize_rgba(rgba, REF_W, rh))
     field, whites = shading_field(rgb_a[..., :3], rgb_a[..., 3], [fin2, body2, cowl2], tube_t(data['body'], rh, REF_W))
     sh_h = int(round(rh * SHADE_W / REF_W))

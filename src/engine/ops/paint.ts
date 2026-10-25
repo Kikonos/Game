@@ -126,7 +126,12 @@ function bodyPaint(b: unknown): LiveryBody | undefined {
   if (color) out.color = color;
   if (x.belly && typeof x.belly === 'object') {
     const bc = hex(x.belly.color);
-    if (bc) out.belly = { color: bc, split: r3(clamp(num(x.belly.split) ?? 0.62, 0.25, 0.9)), tilt: r3(clamp(num(x.belly.tilt) ?? 0, -1, 1)) };
+    if (bc) {
+      out.belly = { color: bc, split: r3(clamp(num(x.belly.split) ?? 0.62, 0.25, 0.9)), tilt: r3(clamp(num(x.belly.tilt) ?? 0, -1, 1)) };
+      if (x.belly.windows === true) out.belly.windows = true;
+      const lc = x.belly.line && typeof x.belly.line === 'object' ? hex(x.belly.line.color) : undefined;
+      if (lc) out.belly.line = { color: lc, h: r3(clamp(num(x.belly.line!.h) ?? 0.02, 0.005, 0.06)) };
+    }
   }
   if (Array.isArray(x.stripes)) {
     const st: LiveryStripe[] = [];
@@ -141,10 +146,20 @@ function bodyPaint(b: unknown): LiveryBody | undefined {
     }
     if (st.length) out.stripes = st;
   }
-  for (const k of ['nose', 'engines', 'lip'] as const) {
+  for (const k of ['nose', 'engines', 'lip', 'finRoot'] as const) {
     const c = hex(x[k]);
     if (c) out[k] = c;
   }
+  if (x.noseBand && typeof x.noseBand === 'object') {
+    const nc = hex(x.noseBand.color);
+    if (nc) {
+      out.noseBand = { color: nc };
+      const ac = hex(x.noseBand.accent);
+      if (ac) out.noseBand.accent = ac;
+    }
+  }
+  if (x.engineLogo === true) out.engineLogo = true;
+  if (x.noseLogo === true) out.noseLogo = true;
   return Object.keys(out).length ? out : undefined;
 }
 
@@ -183,6 +198,15 @@ export function normaliseLivery(l: Partial<Livery> | undefined, fallback: Livery
   if (titles) out.titles = titles;
   const lg = logo(x.logo, out.secondary);
   if (lg) out.logo = lg;
+  if (x.reg && typeof x.reg === 'object') {
+    const rg: NonNullable<Livery['reg']> = {};
+    if (x.reg.hide === true) rg.hide = true;
+    if (x.reg.noFlag === true) rg.noFlag = true;
+    const rc = hex(x.reg.color);
+    if (rc) rg.color = rc;
+    if (Object.keys(rg).length) out.reg = rg;
+  }
+  if (x.model === 'rear' || x.model === 'off') out.model = x.model;
   if (Array.isArray(x.stickers)) {
     const seen = new Set<string>();
     out.stickers = [];

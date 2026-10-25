@@ -72,6 +72,8 @@ const livery: Livery = (() => {
   if (pr && BODY_PRESETS.some((b) => b.id === pr)) l.body = bodyPreset(pr as BodyPresetId, l);
   const bj = q.get('body');
   if (bj) l.body = JSON.parse(bj) as Livery['body'];
+  const lj = q.get('lv');
+  if (lj) Object.assign(l, JSON.parse(lj) as Partial<Livery>);
   const tail = q.get('tail');
   if (tail && ['solid', 'split', 'stripe', 'sweep'].includes(tail)) l.tail = tail as TailStyle;
   return l;
@@ -95,7 +97,7 @@ const css = `
   .g-cell figcaption { font: 600 11px/1.2 var(--font-mono); color: rgba(232,238,252,0.75); }
   .g-panel[data-bg="blue"] figcaption, .g-panel[data-bg="light"] figcaption { color: rgba(10,20,40,0.8); }
   .g-box { display: flex; align-items: center; justify-content: center; }
-  .g-hero .g-box { width: 720px; }
+  .g-hero .g-box { width: ${Number(q.get('w')) || 720}px; }
   .g-card .g-box { width: 320px; height: 120px; border-radius: 10px; background: rgba(255,255,255,0.03); }
   .g-mini .g-box { width: 92px; height: 36px; }
   .g-mini figcaption { font-size: 9px; }
@@ -108,7 +110,7 @@ function Cell({ id, size }: { id: string; size: Size }) {
   return (
     <figure className="g-cell" data-type={id} data-size={size}>
       <div className="g-box">
-        <AircraftArt typeId={id} livery={livery} code={size === 'mini' ? undefined : code} name={size === 'mini' ? undefined : name} detail={size === 'mini' ? 'simple' : 'full'} />
+        <AircraftArt typeId={id} livery={livery} code={size === 'mini' ? undefined : code} name={size === 'mini' ? undefined : name} reg={size === 'mini' ? undefined : q.get('reg') ?? 'CS-TBL'} detail={size === 'mini' ? 'simple' : 'full'} />
       </div>
       <figcaption>{id} · {NAMES[id] ?? id}</figcaption>
     </figure>

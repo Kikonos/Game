@@ -1,17 +1,17 @@
-// v0.11 painting model: livery paint lit by the sprite's own lighting, so it reads as painted, not pasted. Pure (typed
-// arrays in, typed arrays out); compose.ts does the canvas work.
+// v0.11 painting model: livery paint laid over the sprite as an illustrator paints a side-view template (multiply
+// over the white art, then gloss), so it reads as painted, not pasted. Pure (typed arrays in, typed arrays out);
+// compose.ts does the canvas work.
 //
-// The white art is split, per paint region (fin, body, cowl), into
-//   - a smooth shading term S: its luminance after a small grey closing (windows, door outlines, panel lines and
-//     aerials are taken out) and a blur that stays inside the region (no halo from the wing or the sky), relative to
-//     the region's lit white;
-//   - a detail term: the pixel's luminance against that shading (panel lines, doors, windows < 1; glints > 1).
-// A painted pixel is the paint colour lit by S through a curve that keeps the cylinder shading on dark colours
-// (darker paints get a steeper curve and a little sky sheen on the lit top), times the detail soft-thresholded (the
-// sprite's airbrush and compression grain below 5 % goes, drawn lines, doors and windows stay), with the dark detail
-// pressed in a little (lines must show on navy too) and glints screened on. Under decals the lines are fainter.
-// White paint gives back the art exactly. Text and logos are drawn into the paint before this, so they get the same
-// light, lines and edges. The fuselage's S is a fitted cylinder (scripts/sprites.py cylinder_shade): no streaks.
+// Per paint region (fin, body, cowl) the white art is split into
+//   - a smooth light S (scripts/sprites.py shading_field: the fuselage a fitted cylinder, fin and cowls a blur inside
+//     the region), over the region's lit white;
+//   - the drawn detail (detailOf): panel lines, door and window outlines, aerials -- the art's grain left out.
+// A painted pixel = paint × S (a plain multiply: the template's own soft light) × the detail (soft-thresholded), dark
+// lines pressed in a little on dark paint so they still read, then the gloss screened on (glossOf: a reflection band
+// along the upper fuselage with a soft top and a hard lower edge, a diagonal reflection on the fin with one hard edge,
+// a soft highlight on the cowls) -- white paint barely changes, dark paint gets a clear sheen. Windows stay black
+// (the detail keeps them). White paint gives back the art exactly. Text and logos are drawn into the paint before
+// this, so they get the same light, lines, gloss and edges.
 
 /** Paint regions in the mask: R fin, G fuselage (body), B engine cowls. */
 export const REGIONS = 3;
@@ -30,14 +30,8 @@ for (let i = 0; i <= LIN_N; i++) {
 export const toLin = (v: number): number => SRGB_TO_LIN[v & 255];
 export const toSrgb = (l: number): number => LIN_TO_SRGB[Math.round(Math.min(1, Math.max(0, l)) * LIN_N)];
 
-/** Lighting constants (tuned on the 777 / A320 / 747 art against airline photos). */
+/** Lighting constants (tuned against professional side-view livery art). */
 export const LIGHT = {
-  /** Extra steepness of the shading curve for a black paint (0 for white): S^(1 + CURVE (1 - √L)). */
-  curve: 0.9,
-  /** Sky sheen on the lit top of a black paint (screened, linear light). */
-  sheen: 0.035,
-  /** S from which the sheen starts (S = 1 is the region's lit white). */
-  sheenFrom: 0.85,
   /** Dark detail pressed into dark paint (sRGB levels at full darkness of the line). */
   detail: 30,
   /** Detail amplitude (share of the light) below which the art's texture is noise, not a drawn line. */
@@ -49,6 +43,23 @@ export const LIGHT = {
   /** Grey closing and blur radii at the 2048 asset (scaled with the width). */
   close: 6,
   blur: 4,
+} as const;
+
+/** Gloss (screened white, 0..1): the fuselage band, the fin reflection, the cowl highlight. */
+export const GLOSS = {
+  /** Fuselage band: hard lower edge this far above the window tops (share of the tube), soft top over `soft`. */
+  bodyGap: 0.05,
+  bodySoft: 0.24,
+  body: 0.22,
+  /** Fin: a hard diagonal edge at chord s = cut0 (root) … cut1 (tip), fading aft over `fade` of the chord. */
+  finCut0: 0.42,
+  finCut1: 0.28,
+  finFade: 0.42,
+  fin: 0.1,
+  /** Cowl: a soft band at 28 % of the nacelle height, sigma 9 %. */
+  cowlAt: 0.28,
+  cowlSigma: 0.09,
+  cowl: 0.3,
 } as const;
 
 /** Per-sprite, per-width lighting: the art's luminance and its smooth shading, per region (fin, body, cowl) over
@@ -65,6 +76,8 @@ export interface Shading {
   d: Float32Array;
   /** Each region's lit white (97th percentile of its shading), linear. */
   white: [number, number, number];
+  /** Gloss to screen on, per pixel (glossOf); absent = none. */
+  g?: Float32Array;
 }
 
 /** Encoded range of the shipped shading field (scripts/sprites.py SHADE_MAX). */
@@ -199,33 +212,83 @@ export function shadingOf(px: Uint8ClampedArray, m: Uint8ClampedArray, w: number
 }
 
 /**
- * One paint lit at one pixel → sRGB channel values. `S` the smooth light (1 = the region's lit white), `base` the
- * light in linear luminance, `dev` the clean drawn detail (detailOf), `fade` 0..1 how much of it to keep (decals keep
- * less), `tint` the art's own colour cast per channel (red beacons and handles stay red). Detail below LIGHT.grain is
- * dropped (soft threshold), the rest darkens (lines) or screens on (glints); dark paint gets a capped extra push so
- * lines still read on navy.
+ * One paint at one pixel → sRGB channel values: paint × S × the clean detail (`dev`, soft-thresholded at
+ * LIGHT.grain; `fade` 0..1 keeps less under decals), dark lines pressed in a little on dark paint, glints and the
+ * gloss `gl` screened on. `tint` the art's own colour cast per channel (red beacons and handles stay red).
  */
-function litPixel(tint: [number, number, number], pr: number, pg: number, pb: number, S0: number, base: number, dev: number, fade: number, out: Float32Array): void {
+function litPixel(tint: [number, number, number], pr: number, pg: number, pb: number, S0: number, base: number, dev: number, fade: number, gl: number, out: Float32Array): void {
   const p0 = SRGB_TO_LIN[pr], p1 = SRGB_TO_LIN[pg], p2 = SRGB_TO_LIN[pb];
   const pl = 0.2126 * p0 + 0.7152 * p1 + 0.0722 * p2;
   const S = Math.min(1.25, Math.max(0.02, S0));
-  const k = 1 + LIGHT.curve * (1 - Math.sqrt(pl));
-  const sk = Math.exp(k * Math.log(S));
-  const t = Math.min(1, Math.max(0, (S - LIGHT.sheenFrom) / (1 - LIGHT.sheenFrom)));
-  const sheen = LIGHT.sheen * (1 - pl) * t * t;
   const dark = 1 - pl;
   const thr = LIGHT.grain + (1 - fade) * 0.1;
   const dc = (dev > thr ? dev - thr : dev < -thr ? dev + thr : 0) * fade;
   const keep = Math.min(1.1, Math.max(0, 1 - dc));
-  // glints screened on, capped: the drawn highlights of a fairing bulge read as sheen, not as white blotches
   const glint = Math.min(LIGHT.glintMax, Math.max(0, -dc) * base) * dark;
+  // the gloss is a reflection on the paint: not on the window glass (dark detail) it would wash out
+  const g = gl * Math.max(0, 1 - 2.5 * Math.max(0, dc));
   const push = LIGHT.detail * Math.min(1, Math.max(0, dc)) * dark;
   const p = [p0, p1, p2];
   for (let c = 0; c < 3; c++) {
-    const lit = 1 - (1 - p[c] * sk) * (1 - sheen);
-    const r = 1 - (1 - lit * keep * tint[c]) * (1 - glint);
+    const r = 1 - (1 - p[c] * S * keep * tint[c]) * (1 - glint) * (1 - g);
     out[c] = toSrgb(r) - push;
   }
+}
+
+/**
+ * The gloss field (Norebbo's template technique, on each type's measured lines): a white reflection band along the
+ * upper fuselage, its hard lower edge a little above the window tops and a soft top toward the crown; a diagonal
+ * reflection on the fin with one hard edge, fading aft; a soft horizontal highlight on each cowl. Weighted by the
+ * region's coverage in the mask (RGBA at w × h). `tube(x)` gives [crown, belly] at a 2048-frame x (null off the tube).
+ */
+export function glossOf(m: Uint8ClampedArray, w: number, h: number, frameW: number, geo: {
+  tube: (x: number) => [number, number] | null;
+  winTop: number | null; crown: number; belly: number;
+  finQuad: [[number, number], [number, number], [number, number], [number, number]];
+  eng: [number, number, number, number, number][];
+}): Float32Array {
+  const g = new Float32Array(w * h);
+  const k = w / frameW;
+  const D = Math.max(1, geo.belly - geo.crown);
+  const hardT = geo.winTop !== null ? (geo.winTop - geo.crown) / D - GLOSS.bodyGap : 0.3;
+  const [rle, rte, tle, tte] = geo.finQuad;
+  const rootY = (rle[1] + rte[1]) / 2, tipY = (tle[1] + tte[1]) / 2;
+  const aa = 1 / k; // one output pixel in frame units: the hard edges are anti-aliased over it
+  for (let X = 0; X < w; X++) {
+    const x = (X + 0.5) / k;
+    const t = geo.tube(x);
+    for (let Y = 0; Y < h; Y++) {
+      const i = Y * w + X, j = i * 4;
+      const y = (Y + 0.5) / k;
+      let v = 0;
+      const body = m[j + 1] / 255, fin = m[j] / 255, cowl = m[j + 2] / 255;
+      if (body > 0 && t) {
+        const tt = (y - t[0]) / Math.max(1, t[1] - t[0]);
+        const edge = Math.min(1, Math.max(0, (hardT - tt) * (t[1] - t[0]) / aa + 0.5)); // hard lower edge
+        const up = Math.min(1, Math.max(0, (tt - (hardT - GLOSS.bodySoft)) / GLOSS.bodySoft)); // soft top
+        v += body * GLOSS.body * edge * up * up * (3 - 2 * up);
+      }
+      if (fin > 0 && rootY > tipY) {
+        const ft = (rootY - y) / (rootY - tipY);
+        const le = rle[0] + (tle[0] - rle[0]) * ft, te = rte[0] + (tte[0] - rte[0]) * ft;
+        const fs = (x - le) / (te - le || 1);
+        const cut = GLOSS.finCut0 + (GLOSS.finCut1 - GLOSS.finCut0) * Math.min(1, Math.max(0, ft));
+        const px = Math.abs(te - le) || 1;
+        const edge = Math.min(1, Math.max(0, (fs - cut) * px / aa + 0.5));
+        const fade = Math.max(0, 1 - (fs - cut) / GLOSS.finFade);
+        v += fin * GLOSS.fin * edge * fade;
+      }
+      if (cowl > 0) {
+        for (const [aft, front, , top, Dn] of geo.eng) {
+          if (x < aft - 2 || x > front + 4) continue;
+          const z = (y - (top + GLOSS.cowlAt * Dn)) / (GLOSS.cowlSigma * Dn);
+          v += cowl * GLOSS.cowl * Math.exp(-0.5 * z * z);
+        }
+      }
+      g[i] = Math.min(0.6, v);
+    }
+  }
+  return g;
 }
 
 /**
@@ -266,7 +329,7 @@ export function paintRegions(px: Uint8ClampedArray, m: Uint8ClampedArray, sh: Sh
       const S = sh.n[i] > 0 ? sh.n[i] : yv / sh.white[r];
       // under a decal (titles, code, logos) the drawn lines are kept faint: a panel line, not a crack
       const fade = decals ? 1 - LIGHT.decalFade * (decals[j + 3] / 255) : 1;
-      litPixel(tint, pt[j], pt[j + 1], pt[j + 2], S, S * sh.white[r], sh.d[i], fade, res);
+      litPixel(tint, pt[j], pt[j + 1], pt[j + 2], S, S * sh.white[r], sh.d[i], fade, sh.g ? sh.g[i] * (0.4 + 0.6 * fade) : 0, res);
       r0 += res[0] * wr; r1 += res[1] * wr; r2 += res[2] * wr;
     }
     px[j] = r0; px[j + 1] = r1; px[j + 2] = r2;

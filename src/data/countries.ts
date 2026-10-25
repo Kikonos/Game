@@ -157,3 +157,14 @@ export function flag(code: string): string {
   if (!/^[A-Z]{2}$/.test(code)) return '';
   return String.fromCodePoint(...[...code].map((c) => 0x1f1e6 + c.charCodeAt(0) - 65));
 }
+
+/** v0.11 the registry state of a registration (the longest matching prefix, e.g. 'CS-TQA' → 'PT'); '' if unknown. */
+export function countryOfReg(reg: string): string {
+  const r = reg.trim().toUpperCase();
+  let best = '', len = 0;
+  for (const c of Object.values(COUNTRIES)) {
+    const p = c.reg.toUpperCase();
+    if (p && r.startsWith(p) && p.length > len) { best = c.code; len = p.length; }
+  }
+  return best;
+}

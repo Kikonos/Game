@@ -10,9 +10,9 @@ import type { Livery } from '../../../engine/core/types';
 import { compose, composedNow, paintKey, type Decal } from './compose';
 import { FONT_STACK } from './fontMetrics';
 import { LogoGlyph } from './logos';
-import { assetFor, layoutOf, metresPerPx, spriteOf, type AssetWidth } from './sprites';
+import { assetFor, layoutOf, metresPerPx, MODEL_NAME, spriteOf, type AssetWidth } from './sprites';
 import { stickerInk } from './stickerInk';
-import { airframeClipPaths, stickerLayout, type StickerBox } from './stickers';
+import { airframeClipPaths, extraDecals, stickerLayout, type StickerBox } from './stickers';
 
 export { autoBodyInk, autoFinInk, contrast, lum, mix } from './ink';
 export { stickerGround, stickerInk } from './stickerInk';
@@ -25,6 +25,8 @@ export interface AircraftArtProps {
   code?: string;
   /** Default titles text on the forward fuselage (livery.titles.text wins). */
   name?: string;
+  /** v0.11 the aircraft's registration, painted small on the rear fuselage (livery.reg hides it). */
+  reg?: string;
   className?: string;
   /** Accepted for compatibility; gear is never drawn. */
   gear?: boolean;
@@ -51,7 +53,7 @@ const SELECT = '#3ee6ff';
 const f = (n: number) => Math.round(n * 100) / 100;
 const dpr = (): number => (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
 
-function AircraftArtImpl({ typeId, livery, code, name, className, height, detail = 'full', pxPerM, svgRef, selected, guides }: AircraftArtProps) {
+function AircraftArtImpl({ typeId, livery, code, name, reg, className, height, detail = 'full', pxPerM, svgRef, selected, guides }: AircraftArtProps) {
   const uid = useId().replace(/:/g, '');
   const sprite = spriteOf(typeId);
   const vb = artViewBox(sprite);
@@ -81,7 +83,10 @@ function AircraftArtImpl({ typeId, livery, code, name, className, height, detail
   }, [vb.w, vb.h]);
   const boxes = stickerLayout(sprite, livery, { code, name }, detail);
   // every sticker but the one being edited is painted into the bitmap
-  const decals: Decal[] = boxes.filter((b) => b.id !== selected).map((b) => ({ ...b, ink: b.kind === 'logo' ? undefined : (b.kind === 'code' ? livery.code : livery.titles)?.color ?? stickerInk(sprite, livery, b) }));
+  const decals: Decal[] = [
+    ...boxes.filter((b) => b.id !== selected).map((b): Decal => ({ ...b, ink: b.kind === 'logo' ? undefined : (b.kind === 'code' ? livery.code : livery.titles)?.color ?? stickerInk(sprite, livery, b) })),
+    ...extraDecals(sprite, livery, { reg, model: MODEL_NAME[sprite], fine: detail === 'full' && asset >= 2048 }),
+  ];
   const key = paintKey(livery, decals) ?? '';
   // the bitmap with the sprite and paint it shows (another type's bitmap is never stretched into this frame)
   const [shown, setShown] = useState<{ sprite: string; key: string; url?: string }>(() => ({ sprite, key, url: composedNow(sprite, asset, livery, decals) }));

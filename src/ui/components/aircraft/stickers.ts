@@ -10,6 +10,10 @@
 import type { Livery, StickerKind, StickerPlacement, StickerSide, TailStyle } from '../../../engine/core/types';
 import { textInkEm, textWidthEm, type FontWeight } from './fontMetrics';
 import { layoutOf, spriteOf, type Pt, type SpriteLayout } from './sprites';
+import { countryOfReg, flag } from '../../../data/countries';
+import { bodyColourAt } from './bodyPaint';
+import type { Decal } from './compose';
+import { contrast, INK, lum } from './ink';
 
 export type V = Pt;
 
@@ -512,4 +516,71 @@ export function snapTargets(typeId: string, side: StickerSide): { x: number[]; y
   const y = [d.titles.y];
   if (d.win) y.push((d.win[0] + d.win[1]) / 2);
   return { x: [d.nose - L / 2], y };
+}
+
+// ---------- v0.11 painted markings beyond the stickers ----------
+
+/** A small text decal: its box from the right (nose-side) end or the centre, ink by the paint under it. */
+function smallText(typeId: string, lv: Livery, id: 'reg' | 'model', text: string, cap: number, weight: FontWeight, at: { x: number; base: number; anchor: 'centre' | 'nose' }, color?: string): Decal {
+  const em = textInkEm(text);
+  const fs = cap / Math.max(0.5, em.asc);
+  const sp = 0.04;
+  const wd = textWidthEm(text, weight, sp) * fs;
+  const cx = at.anchor === 'centre' ? at.x : at.x - wd / 2;
+  const ground = bodyColourAt(typeId, lv, cx, at.base - cap / 2);
+  const auto = lum(ground) > 0.45 ? INK : '#ffffff';
+  // the asked colour where it reads on the paint under it, else ink or white
+  const ink = color && contrast(color, ground) >= 2.2 ? color : auto;
+  return { id, kind: 'reg', side: 'fuselage', cx, cy: at.base - cap / 2, w: wd, h: cap, rot: 0, text, fontSize: fs, baseline: cap / 2, weight, spacing: sp, ink };
+}
+
+/**
+ * Markings real aircraft carry beyond the livery's stickers, painted (decals): the registration (small, just above
+ * the window line over the fin's root leading edge, aft of the rear door; the registry state's flag on its tail
+ * side), the model ("BOEING 777-300ER", under the forward windows aft of door 1, or under the rear windows), and the
+ * logo on each cowl (`body.engineLogo`) and under the cockpit (`body.noseLogo`). `fine` = the big asset: the small
+ * texts are drawn only there (on the small one they would be mush). Viewbox boxes for compose.ts.
+ */
+export function extraDecals(typeId: string, lv: Livery, opt: { reg?: string; model?: string; fine: boolean }): Decal[] {
+  const d = layoutOf(typeId);
+  const out: Decal[] = [];
+  const D = Math.max(1, d.belly - d.crown);
+  const L = d.nose - d.tail;
+  const win = d.win ?? [d.crown + 0.35 * D, d.crown + 0.42 * D];
+  const winH = win[1] - win[0] + 1;
+  const titleInk = lv.titles?.color;
+  const r = opt.reg?.trim().toUpperCase();
+  const finLE = d.finQuad[0][0];
+  if (opt.fine && r && !lv.reg?.hide) {
+    const cap = Math.max(0.85 * winH, 0.035 * D);
+    const reg = smallText(typeId, lv, 'reg', r, cap, 700, { x: finLE, base: win[0] - 0.45 * winH, anchor: 'centre' }, lv.reg?.color);
+    out.push(reg);
+    const fl = lv.reg?.noFlag ? '' : flag(countryOfReg(r));
+    if (fl) {
+      const fh = cap * 1.05;
+      out.push({ id: 'flag', kind: 'flag', side: 'fuselage', cx: reg.cx - reg.w / 2 - 0.45 * cap - (fh * 1.3) / 2, cy: reg.cy, w: fh * 1.3, h: fh, rot: 0, text: fl });
+    }
+  }
+  if (opt.fine && opt.model && lv.model !== 'off' && !lv.plain) {
+    const cap = Math.max(0.6 * winH, 0.026 * D);
+    const base = win[1] + 1.6 * winH + cap;
+    out.push(lv.model === 'rear'
+      ? smallText(typeId, lv, 'model', opt.model, cap, 500, { x: finLE, base, anchor: 'centre' }, titleInk)
+      : smallText(typeId, lv, 'model', opt.model, cap, 500, { x: d.nose - 0.17 * L, base, anchor: 'nose' }, titleInk));
+  }
+  if (lv.logo && !lv.plain) {
+    if (lv.body?.engineLogo) {
+      for (const [aft, front, , top, Dn] of d.eng ?? []) {
+        if (!Dn) continue;
+        const side = 0.34 * Dn;
+        out.push({ id: `elogo${aft}`, kind: 'logo', side: 'fuselage', cx: aft + 0.52 * (front - aft), cy: top + 0.42 * Dn, w: side, h: side, rot: 0, on: 'cowl' });
+      }
+    }
+    if (lv.body?.noseLogo) {
+      const x = d.nose - 0.62 * D;
+      const side = 0.15 * D;
+      out.push({ id: 'nlogo', kind: 'logo', side: 'fuselage', cx: x, cy: win[1] + 0.6 * side, w: side, h: side, rot: 0 });
+    }
+  }
+  return out;
 }

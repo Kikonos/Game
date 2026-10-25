@@ -5,10 +5,10 @@
 // once and kept for the last few. Browser only (the maths in paintModel.ts / stickers.ts stay pure).
 
 import type { Livery } from '../../../engine/core/types';
-import { bodyLayers, engineColour } from './bodyPaint';
+import { bodyLayers, engineColour, filletTakesBody, finFilletPoly, finRootPoly, tubeAt } from './bodyPaint';
 import { FONT_FAMILY, textInkEm, textWidthEm } from './fontMetrics';
 import { LOGOS, onColor } from './logos';
-import { paintRegions, shadingFromField, shadingOf, type Shading } from './paintModel';
+import { glossOf, paintRegions, shadingFromField, shadingOf, type Shading } from './paintModel';
 import { finSecondAreas, type StickerBox } from './stickers';
 import { fileOf, layoutOf, maskUrl, shadeUrl, spriteOf, spriteUrl, type AssetWidth } from './sprites';
 
@@ -31,8 +31,9 @@ function load(url: string): Promise<HTMLImageElement> {
   return p;
 }
 
-/** A sticker painted into the livery: its box (stickers.ts) and its lettering colour. */
-export type Decal = StickerBox & { ink?: string };
+/** A sticker painted into the livery: its box (stickers.ts) and its lettering colour. v0.11 also the registration
+ *  ('reg', text), the registry state's flag ('flag', an emoji in `text`) and the logo on the cowls (`on: 'cowl'`). */
+export type Decal = Omit<StickerBox, 'kind'> & { kind: StickerBox['kind'] | 'reg' | 'flag'; ink?: string; on?: 'cowl' };
 
 /** Colours the paint depends on; null = the sprite untouched (plain white livery). */
 export function tintKey(lv: Livery): string | null {
@@ -44,7 +45,7 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 export function paintKey(lv: Livery, decals: readonly Decal[] = []): string | null {
   const t = tintKey(lv);
   const logo = decals.some((d) => d.kind === 'logo') && lv.logo ? JSON.stringify(lv.logo) : '';
-  const ds = decals.map((d) => [d.kind, r2(d.cx), r2(d.cy), r2(d.w), r2(d.h), r2(d.rot), d.text ?? '', r2(d.fontSize ?? 0), r2(d.baseline ?? 0), d.weight ?? 0, d.spacing ?? 0, d.ink ?? ''].join(',')).join(';');
+  const ds = decals.map((d) => [d.kind, d.on ?? '', r2(d.cx), r2(d.cy), r2(d.w), r2(d.h), r2(d.rot), d.text ?? '', r2(d.fontSize ?? 0), r2(d.baseline ?? 0), d.weight ?? 0, d.spacing ?? 0, d.ink ?? ''].join(',')).join(';');
   if (!t && !ds) return null;
   return `${t ?? 'plain'}#${ds}#${logo}`;
 }
@@ -132,13 +133,18 @@ function prep(id: string, w: number, h: number): Promise<Prep> {
     b.imageSmoothingQuality = 'high';
     b.drawImage(mask, 0, 0, w, h);
     const m = b.getImageData(0, 0, w, h).data;
+    let sh: Shading;
     if (sf && white) {
       const c = ctx2d(w, h);
       c.imageSmoothingQuality = 'high';
       c.drawImage(sf, 0, 0, w, h);
-      return { px, m, sh: shadingFromField(px, m, c.getImageData(0, 0, w, h).data, w, h, white) };
-    }
-    return { px, m, sh: shadingOf(px, m, w, h) };
+      sh = shadingFromField(px, m, c.getImageData(0, 0, w, h).data, w, h, white);
+    } else sh = shadingOf(px, m, w, h);
+    const d = layoutOf(id);
+    sh.g = glossOf(m, w, h, d.w, {
+      tube: (x) => tubeAt(d, x), winTop: (d.winMain ?? d.win)?.[0] ?? null, crown: d.crown, belly: d.belly, finQuad: d.finQuad, eng: d.eng ?? [],
+    });
+    return { px, m, sh };
   });
   p.catch(() => preps.delete(key));
   preps.set(key, p);
@@ -165,9 +171,19 @@ function fillSpaced(c: Ctx, text: string, fs: number, spacing: number, baseline:
   });
 }
 
-/** Paints the decals (titles, code, logos) into a paint layer, in the 2048 frame scaled by k. */
+/** Paints the decals (titles, code, logos, registration, flag) into a paint layer, in the 2048 frame scaled by k. */
 function paintDecals(c: Ctx, decals: readonly Decal[], lv: Livery, k: number): void {
   for (const d of decals) {
+    if (d.kind === 'flag') {
+      c.save();
+      c.translate(d.cx * k, d.cy * k);
+      c.font = `${d.h * k * 1.18}px 'Apple Color Emoji', 'Noto Color Emoji', 'Segoe UI Emoji', sans-serif`;
+      c.textAlign = 'center';
+      c.textBaseline = 'middle';
+      c.fillText(d.text ?? '', 0, 0);
+      c.restore();
+      continue;
+    }
     c.save();
     c.translate(d.cx * k, d.cy * k);
     if (d.rot) c.rotate((d.rot * Math.PI) / 180);
@@ -208,7 +224,7 @@ function paintDecals(c: Ctx, decals: readonly Decal[], lv: Livery, k: number): v
 }
 
 /** Engine intake lips: per engine (layout `eng`: cowl trailing edge, lip front, lip width) and row, the cowl's front. */
-function paintLips(e: Uint8ClampedArray, m: Uint8ClampedArray, w: number, h: number, k: number, engs: [number, number, number][], rgb: [number, number, number]): void {
+function paintLips(e: Uint8ClampedArray, m: Uint8ClampedArray, w: number, h: number, k: number, engs: readonly (readonly number[])[], rgb: [number, number, number]): void {
   for (const [aft, front, lip] of engs) {
     const x0 = Math.max(0, Math.floor(aft * k)), x1 = Math.min(w - 1, Math.ceil((front + 3) * k));
     const lw = Math.max(1, lip * k);
@@ -243,26 +259,45 @@ async function draw(sprite: string, w: AssetWidth, lv: Livery, decals: readonly 
   const k = w / d.w;
   const px = pr.px.slice();
   const layers = lv.plain ? [] : bodyLayers(id, lv.body);
-  // fin: the livery colour, the scheme's second colour over its areas, swept stripes, the decals (plain: white + decals)
+  const onSkin = decals.filter((x) => x.on !== 'cowl');
+  const onCowl = decals.filter((x) => x.on === 'cowl');
+  // fin: the livery colour, the scheme's second colour over its areas, swept stripes, the root stripe; the fillet
+  // under the fin's root line in the fuselage's paint when the fuselage has its own colour; the decals
   let finP: Uint8ClampedArray | null = null;
-  if (!lv.plain || decals.length) {
+  if (!lv.plain || onSkin.length) {
     const fc = ctx2d(w, h);
     fc.fillStyle = lv.plain ? '#ffffff' : lv.primary;
     fc.fillRect(0, 0, w, h);
     if (!lv.plain) {
       fc.fillStyle = lv.secondary;
       for (const poly of finSecondAreas(id, lv.tail)) fillPoly(fc, poly, k);
+      if (lv.body?.finRoot) {
+        fc.fillStyle = lv.body.finRoot;
+        fillPoly(fc, finRootPoly(d), k);
+      }
+      if (filletTakesBody(lv)) {
+        fc.save();
+        fc.beginPath();
+        finFilletPoly(d).forEach(([x, y], i) => (i ? fc.lineTo(x * k, y * k) : fc.moveTo(x * k, y * k)));
+        fc.closePath();
+        fc.clip();
+        for (const l of layers) {
+          fc.fillStyle = l.color;
+          for (const poly of l.polys) fillPoly(fc, poly, k);
+        }
+        fc.restore();
+      }
       for (const l of layers.filter((x) => x.fin)) {
         fc.fillStyle = l.color;
         for (const poly of l.polys) fillPoly(fc, poly, k);
       }
     }
-    paintDecals(fc, decals, lv, k);
+    paintDecals(fc, onSkin, lv, k);
     finP = fc.getImageData(0, 0, w, h).data;
   }
-  // fuselage: body, belly, stripes, nose, then the decals (nothing at all = left as drawn)
+  // fuselage: body, belly, split line, stripes, nose band, nose, then the decals (nothing at all = left as drawn)
   let bodyP: Uint8ClampedArray | null = null;
-  if (layers.length || decals.length) {
+  if (layers.length || onSkin.length) {
     const bc = ctx2d(w, h);
     bc.fillStyle = '#ffffff';
     bc.fillRect(0, 0, w, h);
@@ -270,17 +305,19 @@ async function draw(sprite: string, w: AssetWidth, lv: Livery, decals: readonly 
       bc.fillStyle = l.color;
       for (const poly of l.polys) fillPoly(bc, poly, k);
     }
-    paintDecals(bc, decals, lv, k);
+    paintDecals(bc, onSkin, lv, k);
     bodyP = bc.getImageData(0, 0, w, h).data;
   }
-  // cowls: their own colour (the tail colour by default) and the intake lips; plain liveries leave them as drawn
+  // cowls: their own colour (the belly's, else the tail's), the intake lips (bare metal as drawn unless the livery
+  // paints them), the cowl logos; plain liveries leave them as drawn
   let cowlP: Uint8ClampedArray | null = null;
   if (!lv.plain) {
     const ec = ctx2d(w, h);
     ec.fillStyle = engineColour(lv);
     ec.fillRect(0, 0, w, h);
+    paintDecals(ec, onCowl, lv, k);
     cowlP = ec.getImageData(0, 0, w, h).data;
-    if (lv.body?.lip && d.eng?.length) paintLips(cowlP, pr.m, w, h, k, d.eng, hexRgb(lv.body.lip));
+    if (d.eng?.length) paintLips(cowlP, pr.m, w, h, k, d.eng, hexRgb(lv.body?.lip ?? '#ffffff'));
   }
   // where the decals are (their lines are kept faint)
   let decalA: Uint8ClampedArray | null = null;

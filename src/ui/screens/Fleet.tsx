@@ -185,7 +185,7 @@ function AircraftCard({ g, ac, sel, least, onLeastClose }: { g: GameState; ac: A
   return (
     <div className={`card sc-ac ${sel ? 'selected' : ''}`} data-ac={ac.id}>
       <div className="sc-ac-top">
-        <div className="sc-ac-art"><AircraftArt typeId={artFor(ac.typeId, ac.variant)} livery={lv.livery} code={lv.code} name={lv.name} /></div>
+        <div className="sc-ac-art"><AircraftArt typeId={artFor(ac.typeId, ac.variant)} livery={lv.livery} code={lv.code} name={lv.name} reg={ac.reg} /></div>
         <div className="grow" style={{ minWidth: 0 }}>
           <div className="row gap-8">
             <b className="mono sc-ac-reg">{ac.reg}</b>

@@ -19,6 +19,8 @@ const RUNS = [
   { id: 'cheatline', q: { livery: 'redsplit', secondary: '#0b1f4d', tail: 'stripe', preset: 'cheatline' } },
   { id: 'fullColour', q: { livery: 'redsplit', secondary: '#ffffff', tail: 'solid', preset: 'fullColour' } },
   { id: 'bellyBand', q: { livery: 'navysolid', secondary: '#d6283c', tail: 'solid', preset: 'bellyBand' } },
+  { id: 'classicBelly', q: { livery: 'logo', primary: '#1f6f6b', secondary: '#d23b2a', tail: 'solid', preset: 'classicBelly' } },
+  { id: 'twoTone', q: { livery: 'logo', primary: '#2a9fd6', secondary: '#ffffff', tail: 'solid', preset: 'twoTone' } },
   {
     id: 'darkCustom',
     q: {
