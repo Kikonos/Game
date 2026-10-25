@@ -12,6 +12,7 @@ import type { Livery, LiveryRef, StickerPlacement, TailStyle } from '../../../en
 import { AircraftArt, autoBodyInk, autoFinInk, contrast, stickerGround, stickerInk } from '../aircraft/AircraftArt';
 import { defaultStickers, hitBox, placeAt, sideAt, snapTargets, stickerLayout, stickersOf, type StickerBox } from '../aircraft/stickers';
 import { BODY_PAINT } from '../aircraft/sprites';
+import { BodyPanel, BodyPresets, TailEnginePanel } from './BodyPanels';
 import { ColorPicker } from './ColorPicker';
 import { LiveryPreview } from './LiveryPreview';
 import { LogoPicker } from './LogoPicker';
@@ -38,10 +39,11 @@ export interface LiveryEditorProps {
   footer?: ReactNode;
 }
 
-type Tab = 'scheme' | 'colours' | 'text' | 'logo' | 'layout';
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'scheme', label: 'Scheme' }, { id: 'colours', label: 'Colours' }, { id: 'text', label: 'Text' }, { id: 'logo', label: 'Logo' }, { id: 'layout', label: 'Layout' },
-];
+type Tab = 'scheme' | 'colours' | 'body' | 'tail' | 'text' | 'logo' | 'layout';
+/** v0.10 with body paint: Body (fuselage) and Tail (fin and engines) replace Colours. */
+const TABS: { id: Tab; label: string }[] = BODY_PAINT
+  ? [{ id: 'scheme', label: 'Scheme' }, { id: 'body', label: 'Body' }, { id: 'tail', label: 'Tail' }, { id: 'text', label: 'Text' }, { id: 'logo', label: 'Logo' }, { id: 'layout', label: 'Layout' }]
+  : [{ id: 'scheme', label: 'Scheme' }, { id: 'colours', label: 'Colours' }, { id: 'text', label: 'Text' }, { id: 'logo', label: 'Logo' }, { id: 'layout', label: 'Layout' }];
 const SCHEMES: { id: TailStyle | 'white'; label: string }[] = [
   { id: 'solid', label: 'Solid' }, { id: 'split', label: 'Split' }, { id: 'stripe', label: 'Stripe' }, { id: 'sweep', label: 'Sweep' }, { id: 'white', label: 'White' },
 ];
@@ -164,7 +166,7 @@ export function LiveryEditor({ value, onChange, code, name, types, mode, aircraf
     const b = hit(v.X, v.Y, v.k);
     if (!b) { setSelected(undefined); return; }
     setSelected(b.id);
-    if (tab === 'scheme' || tab === 'colours') setTab('layout');
+    if (tab === 'scheme' || tab === 'colours' || tab === 'body' || tab === 'tail') setTab('layout');
     drag.current = { id: b.id, dx: v.X - b.cx, dy: v.Y - b.cy, pointer: e.pointerId };
     e.preventDefault();
   };
@@ -317,6 +319,9 @@ export function LiveryEditor({ value, onChange, code, name, types, mode, aircraf
               {!locked && ' Choose Custom to give it its own colours.'}
             </p>
           ) : tab === 'scheme' ? (
+            <>
+            {BODY_PAINT && <BodyPresets lv={lv} typeId={typeId} code={code} onBody={(b) => update({ body: b, plain: undefined })} />}
+            {BODY_PAINT && <h4 className="lv-subhead">Tail</h4>}
             <div className="lv-schemes">
               {SCHEMES.map((s) => {
                 const sample: Livery = s.id === 'white' ? { ...lv, plain: true } : { ...lv, tail: s.id, plain: undefined };
@@ -328,6 +333,11 @@ export function LiveryEditor({ value, onChange, code, name, types, mode, aircraf
                 );
               })}
             </div>
+            </>
+          ) : tab === 'body' ? (
+            <BodyPanel lv={lv} onBody={(b) => update({ body: b, plain: undefined }, false)} />
+          ) : tab === 'tail' ? (
+            <TailEnginePanel lv={lv} onTail={(p) => update(p)} onBody={(b) => update({ body: b }, false)} />
           ) : tab === 'colours' ? (
             <>
               {/* v0.10 the drawn airframe stays white: the colours go on the tail and the engines (BODY_PAINT in sprites.ts) */}

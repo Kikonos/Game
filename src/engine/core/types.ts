@@ -59,10 +59,44 @@ export interface LiveryLogo {
   text?: string;
 }
 
+/** v0.10 a fuselage stripe (cheatline): multiplied over the white art like every livery colour. */
+export interface LiveryStripe {
+  color: string;
+  /** Centre height: share of the fuselage from the crown (0) to the belly (1). Ignored with `windows`. */
+  y: number;
+  /** Thickness: share of the fuselage height (0.02–0.3). */
+  h: number;
+  /** Follows the type's window line (centred on the windows) instead of `y`. */
+  windows?: boolean;
+  /** Sweeps up the tail cone into the fin. */
+  sweep?: boolean;
+}
+
+/**
+ * v0.10 body paint: every field optional, absent = the white fuselage and today's tail-coloured engines. The fin keeps
+ * `primary` / `secondary`; the fuselage colours are independent of them.
+ */
+export interface LiveryBody {
+  /** Whole fuselage. */
+  color?: string;
+  /** Belly below a split line: height as a share of the fuselage (crown 0 → belly 1), tilt −1…1 (+ = higher at the nose). */
+  belly?: { color: string; split: number; tilt: number };
+  /** 0–3 stripes, drawn over the body and belly colours. */
+  stripes?: LiveryStripe[];
+  /** Nose and cockpit area. */
+  nose?: string;
+  /** Engines' own colour (absent: the tail colour, as before v0.10). */
+  engines?: string;
+  /** Ring on the engine intake lips. */
+  lip?: string;
+}
+
 export interface Livery {
   primary: string;
   secondary: string;
   tail: TailStyle;
+  /** v0.10 fuselage, nose and engine colours (absent = white fuselage as drawn). */
+  body?: LiveryBody;
   /** v0.5.1. Plain airframe: no scheme colour areas, grey engine accents. Stickers still draw. */
   plain?: boolean;
   code?: LiveryText;

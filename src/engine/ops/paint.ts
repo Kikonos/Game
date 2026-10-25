@@ -3,14 +3,14 @@
 
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { countryName } from '../../data/countries';
-import { CLIENT_LOGOS, CLIENT_PALETTE, LOGO_IDS, MAX_CODE, MAX_STICKERS, MAX_TITLE, WHITE_LIVERY } from '../../data/livery';
+import { CLIENT_LOGOS, CLIENT_PALETTE, LOGO_IDS, MAX_CODE, MAX_STICKERS, MAX_STRIPES, MAX_TITLE, WHITE_LIVERY } from '../../data/livery';
 import { BAL } from '../core/balance';
 import { flightsOf, removeFlights, touchFlights } from '../core/entities';
 import { invoice, post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { DAY, fmtDay } from '../core/time';
 import type {
-  ActionResult, Aircraft, Client, Contract, GameState, Livery, LiveryLogo, LiveryRef, LiveryText, MaintenanceEvent, Minute, PaintKind, StickerKind, StickerPlacement,
+  ActionResult, Aircraft, Client, Contract, GameState, Livery, LiveryBody, LiveryLogo, LiveryRef, LiveryStripe, LiveryText, MaintenanceEvent, Minute, PaintKind, StickerKind, StickerPlacement,
   StickerSide, TailStyle,
 } from '../core/types';
 import { clamp, hashUnit } from '../core/util';
@@ -117,6 +117,37 @@ function logo(l: unknown, fallbackColor: string): LiveryLogo | undefined {
   return out;
 }
 
+/** v0.10 body paint: hex colours, split 0.25–0.9, tilt ±1, ≤ 3 stripes (y 0–1, h 0.02–0.3); empty → absent. */
+function bodyPaint(b: unknown): LiveryBody | undefined {
+  if (!b || typeof b !== 'object') return undefined;
+  const x = b as Partial<LiveryBody>;
+  const out: LiveryBody = {};
+  const color = hex(x.color);
+  if (color) out.color = color;
+  if (x.belly && typeof x.belly === 'object') {
+    const bc = hex(x.belly.color);
+    if (bc) out.belly = { color: bc, split: r3(clamp(num(x.belly.split) ?? 0.62, 0.25, 0.9)), tilt: r3(clamp(num(x.belly.tilt) ?? 0, -1, 1)) };
+  }
+  if (Array.isArray(x.stripes)) {
+    const st: LiveryStripe[] = [];
+    for (const v of x.stripes) {
+      if (!v || typeof v !== 'object' || st.length >= MAX_STRIPES) continue;
+      const sc = hex(v.color);
+      if (!sc) continue;
+      const one: LiveryStripe = { color: sc, y: r3(clamp(num(v.y) ?? 0.45, 0, 1)), h: r3(clamp(num(v.h) ?? 0.08, 0.02, 0.3)) };
+      if (v.windows === true) one.windows = true;
+      if (v.sweep === true) one.sweep = true;
+      st.push(one);
+    }
+    if (st.length) out.stripes = st;
+  }
+  for (const k of ['nose', 'engines', 'lip'] as const) {
+    const c = hex(x[k]);
+    if (c) out[k] = c;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
 function sticker(s: unknown): StickerPlacement | null {
   if (!s || typeof s !== 'object') return null;
   const x = s as Partial<StickerPlacement>;
@@ -144,6 +175,8 @@ export function normaliseLivery(l: Partial<Livery> | undefined, fallback: Livery
     tail: TAILS.includes(x.tail as TailStyle) ? (x.tail as TailStyle) : fallback.tail,
   };
   if (x.plain === true) out.plain = true;
+  const body = bodyPaint(x.body);
+  if (body) out.body = body;
   const code = text(x.code, 'code');
   if (code) out.code = code;
   const titles = text(x.titles, 'titles');

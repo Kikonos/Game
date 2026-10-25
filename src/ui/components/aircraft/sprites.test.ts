@@ -4,7 +4,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { ACMI_TYPES_LIST, artFor } from '../../../data/acmiTypes';
+import { ACMI_TYPES, ACMI_TYPES_LIST, artFor } from '../../../data/acmiTypes';
 import { VARIANTS } from '../../../data/variants';
 import type { Livery, TailStyle } from '../../../engine/core/types';
 import { contrast, stickerGround, stickerInk } from './AircraftArt';
@@ -49,9 +49,9 @@ describe('sprites and assets', () => {
       const f = fileOf(s);
       for (const n of [`${f}-1024.webp`, `${f}-2048.webp`, `${f}-mask.png`]) expect(existsSync(resolve(PUB, n)), n).toBe(true);
     }
-    // the A350-900ULR has its own art; the 777-200LR borrows the 777-200ER's until it has one
+    // the A350-900ULR has its own art; the 777-200LR is gone (v0.10)
     expect(artFor('a35u')).toBe('a359ulr');
-    expect(artFor('b77l')).toBe('b772');
+    expect(ACMI_TYPES.b77l).toBeUndefined();
     expect(artFor('a332', 'cf6pw')).toBe('a332-alt-engines');
     expect(artFor('b744', 'rr')).toBe('b744-alt-engines');
     expect(artFor('a321neo', 'classic')).toBe('a321neo-classic-doors');
@@ -64,9 +64,10 @@ describe('sprites and assets', () => {
       const [w1, h1] = webpSize(resolve(PUB, `${f}-1024.webp`));
       expect(w1).toBe(1024);
       expect(Math.abs(h1 - d.h / 2)).toBeLessThanOrEqual(1);
+      // v0.10 the mask is as wide as the big asset (its body channel needs clean wing edges)
       const [mw, mh] = pngSize(resolve(PUB, `${f}-mask.png`));
-      expect(mw).toBe(1024);
-      expect(Math.abs(mh - d.h / 2)).toBeLessThanOrEqual(1);
+      expect(mw).toBe(2048);
+      expect(mh).toBe(d.h);
     }
   });
 

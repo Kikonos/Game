@@ -9,6 +9,7 @@ import { compose, composedNow, tintKey } from './compose';
 import { FONT_STACK } from './fontMetrics';
 import { autoBodyInk, autoFinInk, contrast, INK, lum } from './ink';
 import { LogoGlyph } from './logos';
+import { bodyColourAt, finStripeAt } from './bodyPaint';
 import { assetFor, layoutOf, metresPerPx, spriteOf, type AssetWidth } from './sprites';
 import { airframeClipPaths, boxSamples, onFinSecond, sideAt, stickerLayout, type StickerBox } from './stickers';
 
@@ -44,25 +45,31 @@ export function artViewBox(typeId: string, _gear?: boolean): { x: number; y: num
   return { x: 0, y: 0, w: d.w, h: d.h };
 }
 
-/** Paint a sticker can sit on: white body (or an all-white livery), the livery colour, or its second colour. */
-type Ground = 'white' | 'primary' | 'secondary';
-const groundColour = (lv: Livery, gr: Ground) => (gr === 'white' ? '#ffffff' : gr === 'primary' ? lv.primary : lv.secondary);
+/** Paint a sticker can sit on: a colour (hex). v0.10: the fuselage may carry body paint (bodyPaint.ts). */
+type Ground = string;
 
 /** Lettering on the scheme's second colour: primary, else white / ink. */
 function inkOnSecondary(lv: Livery): string {
   return contrast(lv.primary, lv.secondary) >= 2.2 ? lv.primary : lum(lv.secondary) < 0.4 ? '#ffffff' : INK;
 }
+/** The usual lettering colour on a ground: as before v0.10 on white, the fin colour and its second colour; on body
+ *  paint the livery colour that reads best (the tail colours first), else white or ink. */
 function inkOn(lv: Livery, gr: Ground): string {
-  if (gr === 'white') return autoBodyInk(lv);
-  return gr === 'primary' ? autoFinInk(lv) : inkOnSecondary(lv);
+  if (gr === '#ffffff') return autoBodyInk(lv);
+  if (!lv.plain && gr === lv.primary) return autoFinInk(lv);
+  if (!lv.plain && gr === lv.secondary) return inkOnSecondary(lv);
+  const pool = [lv.primary, lv.secondary, '#ffffff', INK].filter((c) => c !== gr);
+  const good = pool.find((c) => contrast(c, gr) >= 3);
+  return good ?? pool.reduce((a, c) => (contrast(c, gr) > contrast(a, gr) ? c : a));
 }
 
-/** Paint under a viewBox point (the fuselage stays white as drawn); null off the airframe. */
+/** Paint under a viewBox point: the fin's scheme colours, the fuselage's body paint (white as drawn); null off the airframe. */
 function groundAt(typeId: string, lv: Livery, X: number, Y: number): Ground | null {
   const side = sideAt(typeId, X, Y);
   if (!side) return null;
-  if (lv.plain || side === 'fuselage') return 'white';
-  return onFinSecond(typeId, lv.tail, X, Y) ? 'secondary' : 'primary';
+  if (side === 'fuselage') return bodyColourAt(typeId, lv, X, Y);
+  if (lv.plain) return '#ffffff';
+  return finStripeAt(typeId, lv, X, Y) ?? (onFinSecond(typeId, lv.tail, X, Y) ? lv.secondary : lv.primary);
 }
 
 /** Share of a sticker box's visible part on each ground, largest first (7 × 5 samples; empty when wholly clipped). */
@@ -87,7 +94,7 @@ export function stickerInk(typeId: string, lv: Livery, b: StickerBox): string {
   if (!sig.length) return b.side === 'fin' ? autoFinInk(lv) : autoBodyInk(lv);
   const pref = inkOn(lv, sig[0][0]);
   if (sig.length === 1) return pref;
-  const score = (c: string) => Math.min(...sig.map(([gr]) => contrast(c, groundColour(lv, gr))));
+  const score = (c: string) => Math.min(...sig.map(([gr]) => contrast(c, gr)));
   if (score(pref) >= 2.2) return pref;
   const best = [lv.secondary, lv.primary, '#ffffff', INK].reduce((a, c) => (score(c) > score(a) + 0.01 ? c : a));
   return score(best) >= 3 || sig[0][1] < 0.6 ? best : pref;
@@ -96,7 +103,7 @@ export function stickerInk(typeId: string, lv: Livery, b: StickerBox): string {
 /** Background a sticker sits on (for contrast warnings): with its box, the paint under most of it; else the fin colour or white. */
 export function stickerGround(lv: Livery, side: 'fin' | 'fuselage', at?: { typeId: string; box: StickerBox }): string {
   const top = at && groundsUnder(at.typeId, lv, at.box)[0];
-  if (top) return groundColour(lv, top[0]);
+  if (top) return top[0];
   return side === 'fin' && !lv.plain ? lv.primary : '#ffffff';
 }
 

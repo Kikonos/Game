@@ -30,6 +30,11 @@ export interface SpriteLayout {
   /** Title band: start (px behind the nose), centre y, length, letter size. */
   titles: { x: number; y: number; w: number; size: number };
   silArea: number;
+  /**
+   * v0.10 the fuselage tube (scripts/sprites.py body_mask): crown and belly y every `step` px from x0 (the tail end)
+   * to the nose; under the fin and the wing they are the straight lines the body mask uses. -1 = no fuselage there.
+   */
+  body: { x0: number; step: number; crown: number[]; belly: number[] };
 }
 
 /** Generated entry: the layout, or another sprite with byte-identical art. */
@@ -48,10 +53,10 @@ export const LENGTH_M: Record<string, number> = {
 };
 
 /**
- * Fuselage colour schemes (body colour, body stripes, the tail wrap) need a fuselage mask the sprites do not have
- * yet: off, so the editor offers tail and engine colours only. Turn on when a mask with a fuselage channel arrives.
+ * v0.10 body paint: the masks carry a fuselage channel (G, made by scripts/sprites.py from the art), so the editor
+ * offers body, belly, stripes, nose and engine colours. False puts the v0.10 'tail and engines only' editor back.
  */
-export const BODY_PAINT = false;
+export const BODY_PAINT = true;
 
 export const SPRITE_IDS = Object.keys(SPRITE_DATA);
 
@@ -81,6 +86,7 @@ export type AssetWidth = (typeof ASSET_WIDTHS)[number];
 
 /** Relative URLs (the app is served from ./ and the PWA caches public/aircraft). */
 export const spriteUrl = (id: string, w: AssetWidth): string => `aircraft/${fileOf(spriteOf(id))}-${w}.webp`;
+/** R = fin, G = fuselage (v0.10), B = engines; 2048 wide like the big asset. */
 export const maskUrl = (id: string): string => `aircraft/${fileOf(spriteOf(id))}-mask.png`;
 
 /** Asset width for a drawn size in device pixels. */

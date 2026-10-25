@@ -6,16 +6,19 @@ usage: python3 scripts/sprites.py <input-dir> [--out public/aircraft] [--meta sr
 <input-dir> holds sprites/<id>.png and masks/<id>-mask.png (or both flat in one folder): 4096 x 1640 RGB, nose
 right, on a flat #00FF00 background; the mask is the same picture with the fin + rudder solid #FF0000 and every
 engine nacelle + pylon solid #0000FF. Needs python3 with Pillow (WebP) and numpy. Re-run it when new sprites
-arrive; it rewrites every output.
+arrive; it rewrites every output. Per-sprite corrections of the fuselage mask: scripts/sprites-body.json.
 
 Per sprite it
   1. checks the mask lines up with the sprite (outside the red / blue areas the pixels must match),
   2. keys the green out to alpha (soft edge from the green excess, solid inside), unmixes the edge colour and
      removes green spill, trims to the aircraft with an even margin,
-  3. writes <id>-2048.webp and <id>-1024.webp (lossy colour, lossless alpha) and <id>-mask.png (1024 wide:
-     R = fin coverage, B = engine coverage),
+  3. writes <id>-2048.webp and <id>-1024.webp (lossy colour, lossless alpha),
   4. measures the layout the renderer and the livery stickers need (nose / tail x, fin outline and quad,
-     fuselage crown / belly, sticker zone, window line, title band) in 2048-scale pixels -> sprites.gen.ts.
+     fuselage crown / belly, sticker zone, window line, title band) in 2048-scale pixels -> sprites.gen.ts,
+  5. v0.10 derives the fuselage (body) mask from the art (body_mask: the tube between the measured crown and belly
+     lines, minus the near wing, its root fairing, the stabiliser, winglets, fin and engines, found by how the
+     white fuselage is shaded against the grey wing / stabiliser; windows, doors and the cockpit stay in), and
+     writes <id>-mask.png (2048 wide: R = fin coverage, G = body, B = engines; anti-aliased, never overlapping).
 Identical sprites share one set of files (`same` in the data).
 """
 import hashlib
@@ -28,7 +31,9 @@ import numpy as np
 from PIL import Image, ImageFilter
 
 WIDTHS = (2048, 1024)
-MASK_W = 1024
+MASK_W = 2048  # v0.10: the body channel needs the full asset width for clean wing / stabiliser edges
+BODY_STEP = 8  # body lines (crown / belly) are sampled every 8 px of the 2048 asset
+CORRECTIONS = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sprites-body.json')
 REF_W = 2048  # layout data is in pixels of the 2048 asset
 MARGIN = 0.012  # of the trimmed width, every side
 
@@ -320,6 +325,267 @@ def layout(alpha, tail, eng, rgb):
     }
 
 
+# ---------- v0.10 fuselage (body) mask ----------
+
+def label(mask):
+    """4-connected components of a boolean grid via row runs and union-find: (labels int32, sizes; label 0 = off)."""
+    h, w = mask.shape
+    parent = []
+
+    def find(a):
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+    prev, runs = [], []
+    for y in range(h):
+        row = mask[y]
+        if not row.any():
+            prev = []
+            continue
+        d = np.diff(np.concatenate([[0], row.astype(np.int8), [0]]))
+        cur, j = [], 0
+        for s0, e0 in zip(np.nonzero(d == 1)[0], np.nonzero(d == -1)[0]):
+            idx = len(parent)
+            parent.append(idx)
+            while j < len(prev) and prev[j][1] <= s0:
+                j += 1
+            k = j
+            while k < len(prev) and prev[k][0] < e0:
+                a, b = find(idx), find(prev[k][2])
+                if a != b:
+                    parent[max(a, b)] = min(a, b)
+                k += 1
+            cur.append((s0, e0, idx))
+            runs.append((y, s0, e0, idx))
+        prev = cur
+    lab = np.zeros((h, w), np.int32)
+    roots, sizes = {}, [0]
+    for y, s0, e0, idx in runs:
+        r = find(idx)
+        if r not in roots:
+            roots[r] = len(sizes)
+            sizes.append(0)
+        n = roots[r]
+        lab[y, s0:e0] = n
+        sizes[n] += e0 - s0
+    return lab, sizes
+
+
+def dil(m, r):
+    return np.asarray(Image.fromarray((m * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(2 * r + 1))) > 0
+
+
+def ero(m, r):
+    return np.asarray(Image.fromarray((m * 255).astype(np.uint8)).filter(ImageFilter.MinFilter(2 * r + 1))) > 0
+
+
+def poly_mask(h, w, polys):
+    from PIL import ImageDraw
+    im = Image.new('L', (w, h), 0)
+    dr = ImageDraw.Draw(im)
+    for pts in polys:
+        dr.polygon([tuple(p) for p in pts], fill=255)
+    return np.asarray(im) > 0
+
+
+def body_mask(alpha, rgb, fin, eng, corr=None, tol=26, tol_tail=42, small=0.0015, debug=None):
+    """
+    The fuselage of a sprite at 2048 scale, without changing the art: (soft body coverage 0..1, fin fillet bool,
+    crown line, belly line, tail x, nose x).
+      1. the tube: per column the longest opaque run outside the fin (crown .. bottom); under the wing the belly is a
+         straight line across (the fairing bulge and the engines hang below it); under the fin the hidden tail-cone
+         top is a straight line too, and the fin fillet above it (left out of the fin mask) joins the fin;
+      2. the white fuselage is lit like a cylinder: its brightness by height in the tube (t = 0 crown .. 1 belly) is
+         measured on clean columns ahead of and behind the wing; a pixel much darker than that is wing, stabiliser,
+         winglet or a shadow (looser over the tail cone, which tapers);
+      3. the wing-body fairing: brighter than the shaded belly would be there; everything below its top goes;
+      4. what is left out but never reaches the tube's edge is a detail (windows, doors, lines): back in; the nose
+         and cockpit are all in; pieces under 1 % of the tube are dropped, except the compact white overwing exits;
+      5. per-sprite corrections (scripts/sprites-body.json: 'add' / 'cut' polygons in 2048-scale pixels).
+    """
+    h, w = alpha.shape
+    op = alpha > 0.5
+    cols = np.nonzero(op.any(axis=0))[0]
+    tx, nx = int(cols.min()), int(cols.max())
+    L = nx - tx
+    rel = lambda f: int(round(nx - f * L))
+    fing = dil(fin > 0.3, 4)
+    cr = np.full(w, -1.0)
+    bo = np.full(w, -1.0)
+    for x in range(tx, nx + 1):
+        ys = np.nonzero(op[:, x] & ~fing[:, x])[0]
+        if not len(ys):
+            continue
+        cuts = np.nonzero(np.diff(ys) > 1)[0]
+        st = np.concatenate([[0], cuts + 1])
+        en = np.concatenate([cuts, [len(ys) - 1]])
+        i = int(np.argmax(en - st))
+        cr[x], bo[x] = ys[st[i]], ys[en[i]]
+    belly_ref = float(np.median([bo[x] for x in range(rel(0.28), rel(0.12)) if bo[x] >= 0]))
+    crown_ref = float(np.median([cr[x] for x in range(rel(0.5), rel(0.35)) if cr[x] >= 0]))
+    D = belly_ref - crown_ref
+    bad = np.array([rel(0.8) <= x < rel(0.15) and (bo[x] > belly_ref + 0.015 * D or eng[:, x].max() > 0.3) for x in range(w)])
+    bx = np.nonzero(bad)[0]
+    belly = bo.copy()
+    w0 = w1 = None
+    ecols = np.nonzero((eng > 0.3).any(axis=0))[0]
+    if len(ecols):
+        # the wing root and its fairing sit within about a fifth of the length behind the (inner) engines
+        bx = bx[(bx >= ecols.min() - 0.2 * L) & (bx <= ecols.max() + 0.05 * L)]
+    if len(bx):
+        w0, w1 = int(bx.min()) - 6, int(bx.max()) + 6
+        for x in range(w0, w1 + 1):
+            belly[x] = bo[w0] + (bo[w1] - bo[w0]) * (x - w0) / max(1, w1 - w0)
+    crown = cr.copy()
+    fincols = np.nonzero((fin > 0.3).any(axis=0))[0]
+    fill = np.zeros((h, w), bool)
+    if len(fincols):
+        f0, f1 = int(fincols.min()), int(fincols.max())
+        xa, xb = max(tx + 2, f0 - 4), min(nx, f1 + 6)
+        ya = cr[xa] if cr[xa] >= 0 else cr[f0]
+        yb = cr[xb]
+        for x in range(xa, xb + 1):
+            yl = ya + (yb - ya) * (x - xa) / max(1, xb - xa)
+            rows = np.nonzero(fin[:, x] > 0.3)[0]
+            # the fin's bottom edge here (the body or the fillet starts right under it: no unpainted seam)
+            fb = int(rows.max()) + 1 if len(rows) else (int(cr[x]) if cr[x] >= 0 else -1)
+            if fb < 0:
+                continue
+            if fb < yl:
+                yc = int(np.ceil(yl))
+                fill[max(0, fb - 1):yc, x] = True  # from the fin's soft bottom row: no light seam
+                crown[x] = yc
+            elif cr[x] >= 0 and 0 < cr[x] - fb <= 8:
+                crown[x] = fb
+        fill &= op & ~(fin > 0.98)
+    lum = rgb[..., 0] * 0.3 + rgb[..., 1] * 0.59 + rgb[..., 2] * 0.11
+    if debug is not None:
+        debug.update(w0=w0, w1=w1, tx=tx, nx=nx, belly_ref=belly_ref, crown_ref=crown_ref)
+    yy = np.arange(h)[:, None]
+    region = (yy >= crown[None, :]) & (yy <= belly[None, :]) & (crown[None, :] >= 0) & op
+    region &= ~(fin > 0.5) & ~(eng > 0.5)
+    t = (yy - crown[None, :]) / np.maximum(1, (belly - crown)[None, :])
+    clean = np.zeros(w, bool)
+    if w0 is not None:
+        clean[rel(0.75): max(rel(0.75), w0 - 20)] = True
+        clean[w1 + 20: rel(0.12)] = True
+    else:
+        clean[rel(0.75): rel(0.12)] = True
+    NB = 64
+    tb = np.clip((t * NB).astype(int), 0, NB - 1)
+    P = np.full(NB, 255.0)
+    for b in range(NB):
+        sel = region & (tb == b) & clean[None, :]
+        if sel.any():
+            P[b] = np.percentile(lum[sel], 75)
+    # the tapering tail cone is shaded differently: looser over its upper part (the stabiliser sits lower)
+    tolmap = np.full((h, w), float(tol))
+    tolmap[:, :tx + int(0.2 * L)] = np.where(t[:, :tx + int(0.2 * L)] < 0.4, tol_tail, tol)
+    match = region & (lum > P[tb] - tolmap)
+    area = int(region.sum())
+    if w0 is not None:
+        x0f = max(0, w0 - int(0.08 * L))
+        strong = region & (lum - P[tb] > tol) & (t > 0.45)
+        # seeds near the wing root only: ahead of the inner engine by up to a quarter of the length, or within the wing span
+        sx = min(w0, int(ecols.min() - 0.25 * L)) if len(ecols) else w0
+        strong[:, :max(0, sx)] = False
+        strong[:, w1 + 1:] = False
+        lb, sb = label(strong)
+        okb = np.array([z > 0.002 * area for z in sb])
+        okb[0] = False
+        strong = okb[lb]
+        weak = region & (lum - P[tb] > 6) & (t > 0.4)
+        weak[:, :x0f] = False
+        weak[:, w1 + 1:] = False
+        lw, sw = label(weak | strong)
+        seeds = np.zeros(len(sw), bool)
+        seeds[np.unique(lw[strong])] = True
+        seeds[0] = False
+        bright = seeds[lw]
+        for x in range(x0f, w1 + 1):
+            ys = np.nonzero(bright[:, x])[0]
+            if len(ys):
+                match[ys.min():, x] = False
+    non = region & ~match
+    lab, sizes = label(non)
+    touch = np.zeros(len(sizes), bool)
+    touch[np.unique(lab[dil(~region, 1) & non])] = True
+    keep = np.array([(not touch[i]) or z < small * area for i, z in enumerate(sizes)])
+    keep[0] = False
+    m = match | (keep[lab] & region)
+    m[:, rel(0.12):] |= region[:, rel(0.12):]
+    lab2, s2 = label(m)
+    okm = np.array([z > 0.01 * area for z in s2])
+    okm[0] = False
+    for i, z in enumerate(s2):
+        if i == 0 or okm[i] or z < 0.0004 * area:
+            continue
+        ys, xs = np.nonzero(lab2 == i)
+        bw, bh = xs.max() - xs.min() + 1, ys.max() - ys.min() + 1
+        if z / (bw * bh) > 0.55 and max(bw, bh) / min(bw, bh) < 3 and lum[ys, xs].mean() > 215 and t[ys, xs].mean() < 0.75:
+            okm[i] = True
+    m = okm[lab2]
+    if corr:
+        if corr.get('cutFill'):
+            # flood fill from seed points over smooth shading, stopped by the drawn outlines (strong edges)
+            gx = np.abs(np.diff(lum, axis=1, prepend=lum[:, :1]))
+            gy = np.abs(np.diff(lum, axis=0, prepend=lum[:1, :]))
+            smooth = region & (np.maximum(gx, gy) < corr.get('edge', 14))
+            if corr.get('box'):
+                bx0, by0, bx1, by1 = corr['box']
+                keepb = np.zeros_like(smooth)
+                keepb[int(by0):int(by1), int(bx0):int(bx1)] = True
+                smooth &= keepb
+            lf, _ = label(smooth)
+            cut = np.zeros_like(m)
+            for sx_, sy_ in corr['cutFill']:
+                if lf[int(sy_), int(sx_)]:
+                    cut |= lf == lf[int(sy_), int(sx_)]
+            # its own panel lines and the outline go with it (closing, then a 2-px rim)
+            cut = ero(dil(cut, 4), 4) | cut
+            m &= ~dil(cut, 2)
+        if corr.get('cutEllipse'):
+            # a fairing whose outline is too faint to fill up to: the ellipse it is drawn as
+            cx, cy, rx, ry = corr['cutEllipse']
+            yy2, xx2 = np.mgrid[0:h, 0:w]
+            m &= ~((((xx2 - cx) / rx) ** 2 + ((yy2 - cy) / ry) ** 2) <= 1)
+        if corr.get('add'):
+            m |= poly_mask(h, w, corr['add']) & region
+        if corr.get('cut'):
+            m &= ~poly_mask(h, w, corr['cut'])
+    # soft edge: the outline fringe (partly transparent pixels) is body where it borders the body; edges against
+    # the wing, stabiliser, fin and engines are anti-aliased over about a pixel
+    ext = m | (dil(m, 2) & (alpha < 0.5) & (alpha > 0) & ~(fin > 0.3) & ~(eng > 0.3))
+    blur = np.asarray(Image.fromarray((ext * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(0.75))).astype(np.float32) / 255
+    inner = dil(op & ~m & (fin < 0.1) & (eng < 0.1), 1)  # against the fin and engines the body is their complement
+    soft = np.where(ext & ~inner, 1.0, np.where(ext | inner, blur, 0.0))
+    soft = np.clip(soft - fin - eng, 0, 1) * (alpha > 0)
+    return soft, fill, crown, belly, tx, nx
+
+
+def body_lines(crown, belly, tx, nx):
+    """Crown and belly of the fuselage tube every BODY_STEP px from the tail to the nose (2048 scale, ints)."""
+    xs = list(range(tx, nx + 1, BODY_STEP))
+    c = [int(round(crown[x])) if crown[x] >= 0 else -1 for x in xs]
+    b = [int(round(belly[x])) if belly[x] >= 0 else -1 for x in xs]
+    return {'x0': tx, 'step': BODY_STEP, 'crown': c, 'belly': b}
+
+
+_CORR = None
+
+
+def corrections():
+    """Per-sprite body mask corrections (scripts/sprites-body.json): {sid: {add: [polygon], cut: [polygon]}}."""
+    global _CORR
+    if _CORR is None:
+        _CORR = {}
+        if os.path.exists(CORRECTIONS):
+            raw = json.load(open(CORRECTIONS))
+            _CORR = {k: v for k, v in raw.items() if not k.startswith('_')}
+    return _CORR
+
+
 def process(sid, sp, mp, out_dir, cache):
     raw = open(sp, 'rb').read()
     digest = hashlib.sha1(raw + (open(mp, 'rb').read() if mp else b'')).hexdigest()
@@ -366,10 +632,6 @@ def process(sid, sp, mp, out_dir, cache):
         fn = f'{sid}-{wd}.webp'
         im.save(os.path.join(out_dir, fn), 'WEBP', quality=86, alpha_quality=100, method=6)
         files[wd] = os.path.getsize(os.path.join(out_dir, fn))
-    mh = int(round(ch * MASK_W / cw))
-    mk = np.dstack([tail_c * 255, np.zeros_like(tail_c), eng_c * 255]).round().astype(np.uint8)
-    Image.fromarray(mk, 'RGB').resize((MASK_W, mh), Image.BOX).save(os.path.join(out_dir, f'{sid}-mask.png'), optimize=True)
-    files['mask'] = os.path.getsize(os.path.join(out_dir, f'{sid}-mask.png'))
     # layout at 2048 scale
     rh = int(round(ch * REF_W / cw))
     sc = lambda arr: np.asarray(Image.fromarray((arr * 255).astype(np.uint8)).resize((REF_W, rh), Image.BOX)).astype(np.float32) / 255
@@ -377,6 +639,15 @@ def process(sid, sp, mp, out_dir, cache):
     rgb2 = np.asarray(Image.fromarray(fg_c.round().astype(np.uint8)).resize((REF_W, rh), Image.BOX)).astype(np.float32)
     data = {'w': REF_W, 'h': rh}
     data.update(layout(a2, t2, e2, rgb2))
+    # v0.10 body mask (and the fin fillet the fin mask left out) at the asset's width
+    body, fillet, crown, belly, btx, bnx = body_mask(a2, rgb2, t2, e2, corrections().get(sid))
+    data['body'] = body_lines(crown, belly, btx, bnx)
+    fin2 = np.clip(t2 + fillet * (a2 > 0.5), 0, 1)
+    mk = np.dstack([fin2 * 255, body * 255, e2 * 255]).round().astype(np.uint8)
+    assert MASK_W == REF_W
+    Image.fromarray(mk, 'RGB').save(os.path.join(out_dir, f'{sid}-mask.png'), optimize=True)
+    files['mask'] = os.path.getsize(os.path.join(out_dir, f'{sid}-mask.png'))
+    report['body'] = f'{float(body.sum()) / max(1.0, float((a2 > 0.5).sum())):.2f} of the airframe'
     cache[digest] = sid
     report['bytes'] = files
     return data, report

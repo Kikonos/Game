@@ -172,3 +172,15 @@
   .lv-stage { min-height: 140px; padding: 10px; }
   .lv-preview figure { padding: 4px 8px; }
 }
+
+/* v0.10 body paint panels */
+.lv-section { display: flex; flex-direction: column; gap: 10px; padding-bottom: 14px; margin-bottom: 4px; border-bottom: 1px solid var(--border); }
+.lv-section:last-child { border-bottom: 0; }
+.lv-section h4 { font-size: 15px; }
+.lv-section h4 small { font-weight: 500; font-size: 12px; margin-left: 6px; }
+.lv-subhead { font-size: 15px; margin: 4px 0 8px; }
+.lv-presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+.lv-stripe { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: var(--r); border: 1px solid var(--border); background: var(--bg-2); }
+.lv-row-toggles { display: flex; flex-wrap: wrap; gap: 8px; }
+.lv-toggle.on { background: rgba(62, 230, 255, 0.12); border-color: var(--accent); color: var(--accent); }
+.lv-slider.off { opacity: 0.45; }

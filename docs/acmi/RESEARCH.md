@@ -506,7 +506,7 @@ rolling: duty 60/7d, 110/14d, 190/28d; block 100/28d, 900/yr, 1000/12m; ERRP 36h
 
 ### 5.2 Crew complements by type
 
-**Cabin crew minimum (EASA ORO.CC.100).** The greater of `ceil(installed seats / 50)` and the certification evacuation-demo number, with at least 1 above 19 seats. A senior cabin crew member (SCCM) is required whenever there is more than one cabin crew. A cabin crew member may hold **at most 3 types** (4 with approval).
+**Cabin crew minimum (EASA ORO.CC.100).** The greater of `ceil(installed seats / 50)` (per deck) and the certification evacuation-demo number, with at least 1 above 19 seats. v0.10: the game now uses the certified numbers of each type (§15); the table below is the v0.1 research, kept for the typical crews. A senior cabin crew member (SCCM) is required whenever there is more than one cabin crew. A cabin crew member may hold **at most 3 types** (4 with approval).
 
 **Cockpit crew.** 2 pilots minimum. A "heavy" crew has 3 (Captain + FO + relief SFO/second officer); a "double" or ULR crew has 4 (usually 2 captains + 2 FOs). A cruise-relief second officer may fly in cruise only, above FL200.
 
@@ -1233,8 +1233,8 @@ Was (v0.7–v0.7.3): 5–7 days and $120–250k for a narrowbody layout change, 
 
 Game start April 2027. Figures in the game's units (src/data/acmiTypes.ts), calibrated against the existing types
 (ACMI rate per block hour, rent per month for a mid-life frame, fuel t per block hour). Exit limits from the type
-certificate / manufacturer tables; minimum cabin crew = 1 per 50 seats installed (EASA CS-25 / ORO.CC.100), rounded
-up, the typical ACMI crew above it as for the existing types.
+certificate / manufacturer tables. Crew numbers (minimum and maximum cabin crew, cockpit seats): §15, which replaces
+the "1 per 50 seats" rule this section first used.
 
 | Type | Seats (presets / exit limit) | Range full payload | Cockpit | Notes |
 |---|---|---|---|---|
@@ -1250,7 +1250,7 @@ up, the typical ACMI crew above it as for the existing types.
 | 747-8 | 36J/24W/340Y, 24J/476Y / 605 | 7,300 nm | 2 | passenger deliveries 2012–2017; two pursers |
 | 777-9 | 42J/24W/360Y, 48J/400Y / 495 | 6,900 nm | 2 | first delivery expected 2027 (Lufthansa): new-build slots only, scarcity 0.995 |
 | 777-8 | 42J/28W/280Y, 60J/40W/150Y / 440 | 8,400 nm | 4 on ULR | first delivery not before 2030: firstYear 2030 |
-| 747-100 / -200 / -300 | 32J/360Y, 480Y / 550 (-300: 32J/400Y, 520Y / 660) | 4,300 / 5,500 / 5,600 nm | 3 (flight engineer) | 1970–1986 / 1971–1991 / 1983–1990; JT9D-era engines, Chapter 3 at best; off the market (no flight engineer role yet) |
+| 747-100 / -200 / -300 | 32J/360Y, 480Y / 550 (-300: 32J/400Y, 520Y / 660) | 4,300 / 5,500 / 5,600 nm | 2 in the game | 1970–1986 / 1971–1991 / 1983–1990; JT9D-era engines, Chapter 3 at best. Real ones had a flight engineer; here two pilots fly it (v0.10, the player's choice). On the market, very rare |
 
 Airframe variants (src/data/variants.ts): A330-200 Trent 700 vs CF6-80E1 / PW4168; 747-400 PW4056 / CF6-80C2 vs
 RB211-524G/H; A321neo Airbus Cabin Flex (door 2 replaced by overwing exits, 244 seats under EASA) vs the first
@@ -1263,3 +1263,137 @@ Commerce 747-200/-300 owner's guide (aircraft-commerce.com, -300 production 1983
 (runwaygirlnetwork.com 2018-03-06 "Flexible door distribution…", samchui.com first ACF delivery 2018; 220 → 240/244);
 777X timing (Boeing feature "Lufthansa's first 777-9 takes flight", May 2026; airdatanews.com: certification 2026,
 first deliveries 2027; Boeing Q1 2024 report: 777-8 not before 2030); manufacturer type data for ranges and seating.
+
+## 15. Crew numbers per type (v0.10, October 2026)
+
+The player (a former ACMI flight attendant: euroAtlantic 767/777, Getjet/Airhub A320/A330) found the game using only
+"one cabin crew per 50 seats": an A340-200 at 375 seats needs 8 cabin crew, not 6. Researched again for every type.
+
+**The rule (what the engine does: `perf.ts cabinMinimum`).**
+- EASA Air Ops ORO.CC.100(b): the minimum cabin crew is the greater of (1) the number established during the aircraft
+  certification process for the cabin configuration used by the operator, and (2) one cabin crew member for every
+  50, or fraction of 50, passenger seats installed **on the same deck**. Quoted in EASA CM-CS-008 Issue 01 (2017).
+- After CM-CS-008, EASA amended the type certificate data sheets to state the certified number. A lower number needs
+  an EASA-approved change or STC; the game never uses one.
+- FAA 14 CFR 121.391: 1 flight attendant for 20–50 seats, 2 for 51–100, then one more per 50 seats or part of 50; if
+  the evacuation demonstration used more, that number in the maximum configuration and the excess in smaller ones.
+  The EASA tables give the same or more for every type here, so the game uses the EASA numbers.
+- Two-deck aircraft (747, A380): each deck is counted on its own. The game puts a share of the seats upstairs
+  (747-400 / -8: 12 %, at most 110; 747-100/-200: 7 %, at most 45; 747-300: 13 %, at most 110; A380: 40 %, at most
+  330), an estimate of real cabins.
+- Where the certified table lists a number for a configuration, the game applies it to every cabin up to that many
+  seats ("irrespective of the MOPSC" in the A350 TCDS; the A330/A340/777 tables start at 8 for "400 or fewer"),
+  so a 30J/150Y VIP A330 still flies 8 cabin crew.
+- **Maximum cabin crew** = the cabin crew seats (jump seats). Optional extra cabin crew (the Extra cabin controls) stop
+  there; crew the client requires or pays for beyond them, and the in-flight rest plan's extra crew, sit in
+  passenger seats, which are blocked (not sold, offloaded at departure with compensation). Jump-seat counts are not
+  published in the TCDS (they are in each aircraft's LOPA): **estimated** from the door/exit pairs (one double seat
+  per floor-level exit pair and side on widebodies, plus usual galley seats) and checked against operators' crew
+  sizes (A330-300: 12 single seats in a training deck; Emirates flies 22–25 cabin crew on its A380s).
+- **Cockpit**: minimum flight crew 2 (pilot and co-pilot) for every type in its TCDS; the 747-100/-200/-300 TCDS
+  says three (pilot, co-pilot and flight engineer): in the game two pilots fly it (the player's choice; the catalog
+  says "Real ones had a flight engineer; here two pilots fly it."). Observer seats behind the pilots: 1 on the
+  A320 and 737 families (a 4th occupant seat is an option), 2 on the 757 and the widebodies (**estimated**, typical
+  delivered configurations). Relief and spare pilots beyond them sit in the cabin (blocked seats).
+
+**The table.** Exit limit (before → after where it changed); the certified floor (main deck, and upper deck for the
+two-deck types) by installed seats; the minimum for each cabin preset (before → after); cabin crew seats; cockpit.
+
+| Type | Exit limit | Certified cabin crew (installed seats: crew) | Minimum per preset (was → now) | Cabin crew seats | Cockpit | Estimated |
+|---|---|---|---|---|---|---|
+| A320ceo | 186 | ≤150: 3, ≤195: 4 | 180Y 4; 12J/156Y 4; 24J/90Y 3 | 6 | 2 + 1 obs. | (est.: seats, observers) |
+| 737-800 | 189 | ≤100: 2, ≤150: 3, ≤189: 4 | 189Y 4; 12J/162Y 4; 24J/90Y 3 | 5 | 2 + 1 obs. | (est.: seats, observers) |
+| A321ceo | 230 | ≤200: 4, ≤230: 5 | 220Y 5; 16J/180Y 4; 28J/110Y 3→4 | 7 | 2 + 1 obs. | (est.: seats, observers) |
+| A321neo (LR) | 244 | ≤149: 3, ≤200: 4, ≤244: 5 | 220Y 5; 16J/190Y 5; 28J/110Y 3 | 6 | 2 + 1 obs. | (est.: seats, observers) |
+| 757-200 | 239 | — (1 per 50) | 235Y 5; 16J/184Y 4; 28J/120Y 3 | 7 | 2 + 2 obs. | (est.: seats, observers) |
+| 767-300ER | 351 | — (1 per 50) | 16J/251Y 6; 309Y 7; 32J/140Y 4 | 9 | 2 + 2 obs. | (est.: seats, observers) |
+| A330-200 | 406 | ≤400: 8, ≤406: 9 | 18J/282Y 6→8; 330Y 7→8; 36J/150Y 4→8 | 12 | 2 + 2 obs. | (est.: seats) |
+| A330-300 | 440 | ≤400: 8, ≤440: 9 | 24J/326Y 7→8; 440Y 9; 40J/200Y 5→8 | 12 | 2 + 2 obs. | (est.: seats) |
+| A340-300 | 375→440 | ≤400: 8, ≤440: 9 | 30J/270Y 6→8; 335Y 7→8; 40J/150Y 4→8 | 12 | 2 + 2 obs. | (est.: seats) |
+| 777-200ER | 440 | ≤400: 8, ≤440: 9 | 30J/24W/239Y 6→8; 400Y 8; 40J/180Y 5→8 | 14 | 2 + 2 obs. | (est.: seats) |
+| 777-300ER | 550 | ≤500: 10, ≤550: 11 | 42J/358Y 8→10; 450Y 9→10; 48J/200Y 5→10 | 16 | 2 + 2 obs. | (est.: seats) |
+| 787-9 | 420 | ≤300: 6, ≤350: 7, ≤400: 8, ≤420: 9 | 28J/262Y 6; 330Y 7; 38J/150Y 4→6 | 12 | 2 + 2 obs. | (est.: seats) |
+| A350-900 | 440 | ≤400: 8, ≤440: 9 | 32J/288Y 7→8; 369Y 8; 40J/170Y 5→8 | 12 | 2 + 2 obs. | (est.: seats) |
+| A350-900ULR | 440 | ≤400: 8, ≤440: 9 | 67J/94W 4→8; 42J/24W/187Y 6→8; 40J/110Y 3→8 | 12 | 2 (4 on ULR) + 2 obs. | (est.: seats) |
+| A380-800 | 853→868 | main ≤500: 10, ≤538: 11; upper ≤300: 6, ≤330: 7 | 12J/459Y 10→16; 60J/411Y 10→16; 48J/210Y 6→16 | 24 | 2 + 2 obs. | (est.: seats) |
+| 747-400 | 660 | main ≤550: 11; upper ≤45: 1, ≤100: 2, ≤110: 3 | 24J/426Y 9→13; 500Y 10→13; 48J/230Y 6→12 | 18 | 2 + 2 obs. | (est.: seats) |
+| 737-900ER | 220 | ≤100: 2, ≤150: 3, ≤200: 4, ≤220: 5 | 215Y 5; 16J/164Y 4; 28J/110Y 3 | 6 | 2 + 1 obs. | (est.: seats, observers) |
+| 757-300 | 295 | — (1 per 50) | 280Y 6; 24J/219Y 5; 28J/140Y 4 | 8 | 2 + 2 obs. | (est.: seats, observers) |
+| A330-900 | 460 | ≤400: 8, ≤440: 9, ≤460: 10, ≤465: 12 | 28J/260Y 6→8; 440Y 9; 42J/200Y 5→8 | 12 | 2 + 2 obs. | (est.: seats) |
+| A340-200 | 375→420 | ≤400: 8, ≤420: 9 | 30J/231Y 6→8; 300Y 6→8; 38J/140Y 4→8 | 12 | 2 + 2 obs. | (est.: seats) |
+| A340-500 | 375 | ≤375: 8 | 36J/277Y 7→8; 64J/117W 4→8; 34J/140Y 4→8 | 12 | 2 (4 on ULR) + 2 obs. | (est.: seats) |
+| A340-600 | 440 | ≤400: 8, ≤440: 9 | 32J/320Y 8; 420Y 9; 40J/190Y 5→8 | 14 | 2 + 2 obs. | (est.: seats) |
+| A350-1000 | 480 | ≤400: 8, ≤440: 9, ≤460: 10, ≤470: 11, ≤480: 12 | 40J/330Y 8; 36J/24W/290Y 7→8; 44J/170Y 5→8 | 14 | 2 + 2 obs. | (est.: seats) |
+| 787-8 | 359→381 | ≤300: 6, ≤350: 7, ≤381: 8 | 24J/224Y 5→6; 330Y 7; 34J/150Y 4→6 | 10 | 2 + 2 obs. | (est.: seats) |
+| 787-10 | 440 | ≤300: 6, ≤355: 8, ≤440: 9 | 32J/302Y 7→8; 400Y 8→9; 40J/180Y 5→6 | 12 | 2 + 2 obs. | (est.: seats) |
+| 747-8 | 605 | main ≤440: 9, ≤495: 10; upper ≤45: 1, ≤100: 2, ≤110: 3 | 36J/24W/340Y 8→11; 24J/476Y 10→11; 48J/230Y 6→10 | 20 | 2 + 2 obs. | (est.: seats) |
+| 777-9 | 495 | ≤500: 10 | 42J/24W/360Y 9→10; 48J/400Y 9→10; 44J/200Y 5→10 | 16 | 2 + 2 obs. | (est.: floor, seats, maxSeats) |
+| 777-8 | 440 | ≤400: 8, ≤440: 9 | 42J/28W/280Y 7→8; 60J/40W/150Y 5→8; 40J/160Y 4→8 | 14 | 2 (4 on ULR) + 2 obs. | (est.: floor, seats, maxSeats) |
+| 747-100 | 550 | main ≤550: 11; upper ≤45: 1 | 32J/360Y 8→12; 480Y 10→12; 48J/220Y 6→12 | 16 | 2 + 2 obs. | (est.: floor, upper, seats) |
+| 747-200 | 550 | main ≤550: 11; upper ≤45: 1 | 32J/360Y 8→12; 480Y 10→12; 48J/220Y 6→12 | 16 | 2 + 2 obs. | (est.: floor, upper, seats) |
+| 747-300 | 660 | main ≤550: 11; upper ≤45: 1, ≤100: 2, ≤110: 3 | 32J/400Y 9→13; 520Y 11→13; 48J/230Y 6→12 | 17 | 2 + 2 obs. | (est.: floor, upper, seats) |
+
+**Sources (all read October 2026; the EASA PDFs are the current issues on easa.europa.eu)**
+- EASA CM-CS-008 Issue 01, "Determination of the number of cabin crew… for evacuation certification" (quotes
+  ORO.CC.100 and explains the TCDS amendment): https://www.easa.europa.eu/sites/default/files/dfu/EASA%20CM-CS-008%20Issue%2001.pdf
+- EASA FAQ, "Determination of the minimum required number of cabin crew on an aircraft" (the certified number is in
+  the TCDS or STC; lower numbers only with an STC): https://www.easa.europa.eu/en/the-agency/faqs/minimum-required-cabin-crew
+- EASA TCDS A.064 Airbus A318/A319/A320/A321 Issue 62 (26 June 2026), §20 tables: A320 MPSC 195 (C* exits) / 180 → 4,
+  150 → 3; A321 230 / 220 → 5, 200 → 4, Cabin Flex 244 → 5, 149 → 3: https://www.easa.europa.eu/en/downloads/16507/en
+- EASA TCDS IM.A.120 Boeing 737 Issue 29 (16 Dec 2025), §19: 737-800 151–189 → 4, 101–150 → 3, ≤100 → 2 (max 189);
+  737-900ER 216–220 → 5, 201–215 → 5, 190–200 → 4 (max 220): https://www.easa.europa.eu/en/downloads/7297/en
+- EASA TCDS IM.A.205 Boeing 757 Issue 06 (6 Nov 2024): no cabin crew number, "Refer to FAA TCDS A2NM" for seating:
+  https://www.easa.europa.eu/en/downloads/7246/en · 757 exit limits 239 (four door pairs) / 224 (overwing exits) and
+  757-300 295 (Wikipedia "Boeing 757", citing Boeing): https://en.wikipedia.org/wiki/Boeing_757
+- EASA TCDS IM.A.035 Boeing 767 Issue 11 (4 Feb 2025), 767-300 §30 Exits: A-A-I-A 351, A-III-III-A or A-A-III-A 290;
+  no cabin crew number (so 1 per 50): https://www.easa.europa.eu/en/downloads/7454/en
+- EASA TCDS A.004 Airbus A330 Issue 69 (19 Dec 2025), §18: A330-200 406 (A-A-A-A) → 9, 400 → 8, 375 (A-A-I-A) → 8;
+  A330-300 440 → 9, 400 → 8, 375 → 8; A330-900 "8 (2 per exit pair) irrespective of the MOPSC", 9 above 400 seats
+  with four Type A pairs, a third cabin crew member at each Type A+ pair (465 max with four A+ pairs, 460 with two):
+  https://www.easa.europa.eu/en/downloads/7518/en
+- EASA TCDS A.015 Airbus A340 Issue 28 (15 Jan 2026), §18: A340-200 420 (A-A-A-A, MOD 40161) → 9, 400 → 8, 375 basic
+  → 8; A340-300 440 → 9, 400 → 8, 375 → 8; A340-600 440 → 9, 400 → 8; A340-500 375 → 8:
+  https://www.easa.europa.eu/en/downloads/19823/en
+- EASA TCDS A.151 Airbus A350 Issue 32/33 (2026), §2.4: A350-900 and -1000 "8 … irrespective of the MOPSC", 9 above
+  400 seats, a third cabin crew member at each Type A+ pair; A350-1000 up to 480 with four A+ pairs:
+  https://www.easa.europa.eu/downloads/17736/en
+- EASA TCDS A.110 Airbus A380 Issue 17 (5 Aug 2026), §3.8–3.9: 868 (upper 330, main 538); upper deck 301–330 → 7,
+  ≤300 → 6 (+1 at the forward stair above 30 seats ahead of door U1: not modelled), main deck 501–538 → 11, ≤500 → 10:
+  https://www.easa.europa.eu/en/downloads/7309/en
+- EASA TCDS IM.A.003 Boeing 777 Issue 20.0 (13 May 2026), §23–24: 777-200/-200ER 401–440 → 9, ≤400 → 8 (max 440);
+  777-300ER 501–550 → 11, ≤500 → 10 (max 550); 777-200LR as the -200: https://www.easa.europa.eu/en/downloads/7521/en
+- EASA TCDS IM.A.115 Boeing 787 Issue 30 (17 Dec 2025), §19–20: 787-8 381 (A,A,A,A) → 8, 350 → 7, 300 → 6;
+  787-9 420 → 9, 400 → 8, 355 → 8, 350 → 7, 300 → 6; 787-10 440 → 9, 355 → 8, 300 → 6:
+  https://www.easa.europa.eu/en/downloads/7302/en
+- EASA TCDS IM.A.196 Boeing 747 Issue 19 (17 Dec 2024): 747-400 §19 main deck 550 (five Type A pairs) → 11, upper deck
+  110 → 3, 100 → 2, 45 → 1 (max 660); 747-8 main 495 (C,A,A,A,A) → 10, 440 (C,A,A,A,C) → 9, upper as the -400 (max
+  605); 747-100/-200/-300 §17: minimum flight crew three (pilot, co-pilot, flight engineer), "one attendant is required
+  at each No. 3 over-wing exit … at least one flight attendant on the upper deck", no certified number; limits 550
+  (-100/-200 five Type A pairs; upper deck 45 with SC 25-71-NW-3) and 660 (-300): https://www.easa.europa.eu/en/downloads/7250/en
+- FAA 14 CFR 121.391 Flight attendants: https://www.ecfr.gov/current/title-14/chapter-I/subchapter-G/part-121/subpart-K/section-121.391
+- Crew sizes in practice (for the seat estimates only): Online Aviation Training, "How many cabin crew does an airline
+  need?" (2026: A330-300 eight cabin crew effective minimum, nine at Atlántico; the floor-exit attendance argument):
+  https://oat.aero/2026/07/03/how-many-cabin-crew-does-airline-need/ · Airliners.net crew-size threads (777-300ER legal
+  minimum 10; 747-400 14–15 in service; A380 16 minimum, 20–24 flown): https://www.airliners.net/forum/viewtopic.php?t=1344749
+
+**Estimated (no published number found)**
+- Cabin crew seats of every type (the LOPA, not the TCDS, has them): the values above.
+- Cockpit observer seats (1 narrowbody, 2 widebody).
+- 777-8 and 777-9: not certified yet (the 777-9 is in its last certification phase, first delivery expected 2027;
+  Wikipedia "Boeing 777X", June 2026). Floors taken from the 777-200ER (777-8) and 777-300ER (777-9); exit limits 440
+  and 495 as before (estimates).
+- 747-100/-200/-300: no certified cabin crew number; the 747-400 tables used for the same five Type A main-deck
+  pairs and upper-deck exits.
+- The upper-deck share of the seats on the 747s and the A380.
+
+**Changes (before → after)**
+- Minimum cabin crew at the default cabin: A330-200 6 → 8, A330-300 7 → 8, A330-900 6 → 8, A340-200 6 → 8, A340-300
+  6 → 8, A340-500 7 → 8, A350-900 7 → 8, A350-900ULR 4 → 8, A350-1000 and A340-600 8 (same), 777-200ER 6 → 8, 777-300ER 8 → 10,
+  777-8 7 → 8, 777-9 9 → 10, 787-8 5 → 6, 787-10 7 → 8, A380 10 → 16, 747-400 9 → 13, 747-8 8 → 11, 747-100/-200 8 →
+  12, 747-300 9 → 13; narrowbodies, the 757s, the 767 and the 787-9 unchanged (their certified numbers equal 1 per 50,
+  or none is published). Every preset is listed in the table.
+- Exit limits: A340-200 375 → 420 and A340-300 375 → 440 (the four Type A door option, as the game already does for
+  the A330s), 787-8 359 → 381, A380 853 → 868.
+- New: cabin crew seats and cockpit observer seats per type; the Extra cabin steppers stop at the seats; crew beyond
+  them take passenger seats.
+- 777-200LR removed (the player's choice); 747-100/-200/-300 on the market with two pilots.
