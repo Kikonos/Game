@@ -1,5 +1,5 @@
 // v0.10 body paint geometry: where the livery's fuselage colours go, in the sprite's 2048-px frame (x right, y down,
-// nose right). The tube comes from the generated body lines (crown and belly every 8 px, sprites.py body_mask); the
+// nose right). The tube comes from the generated body lines (crown and belly every 8 px, sprites.py geometry); the
 // mask's body channel decides what is fuselage, so these shapes may run past the airframe. Pure (no DOM).
 
 import type { Livery, LiveryBody, LiveryStripe } from '../../../engine/core/types';

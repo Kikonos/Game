@@ -20,7 +20,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     name: 'Fleet art',
     features: [
       'New aircraft art: every type is redrawn, in full detail.',
-      'Body colours: paint the fuselage, the belly (choose where it starts and its angle), up to three stripes (along the windows or anywhere, any width, sweeping up the tail if you like) and the nose. The tail keeps its own two colours; the engines get their own colour and an intake ring. Four quick looks to start from: Eurowhite, Classic cheatline, Full colour and Belly band. Windows, doors and panel lines still show through.',
+      'Body colours: paint the fuselage, the belly (choose where it starts and its angle), up to three stripes (along the windows or anywhere, any width, sweeping up the tail if you like) and the nose. The tail keeps its own two colours; the engines get their own colour and an intake ring. Four quick looks to start from: Eurowhite, Classic cheatline, Full colour and Belly band. Windows, doors and panel lines still show through, and the paint, titles and logos follow the aircraft\'s own lighting.',
       'Some aircraft differ from others of their type, as in real life: A330-200s and 747-400s come with different engines, and early A321neos have four pairs of doors instead of the overwing exits. The Fleet card shows the engines.',
       '15 more types on the market: the 737-900ER, 757-300, A330-900, A340-200, A340-500, A340-600, A350-1000, 787-8, 787-10, 747-8 and the 747-100, -200 and -300 (very rare; two pilots fly them here, the real ones had a flight engineer too); the 777-9 as a rare new-build slot only, and the 777-8 from about 2030.',
       'Each new type has its own numbers: seats, range, crew, rest areas, rates, fuel, rent, value, checks and how often it comes up.',

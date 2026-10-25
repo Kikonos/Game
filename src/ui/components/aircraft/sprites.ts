@@ -31,10 +31,14 @@ export interface SpriteLayout {
   titles: { x: number; y: number; w: number; size: number };
   silArea: number;
   /**
-   * v0.10 the fuselage tube (scripts/sprites.py body_mask): crown and belly y every `step` px from x0 (the tail end)
+   * v0.10 the fuselage tube (scripts/sprites.py geometry): crown and belly y every `step` px from x0 (the tail end)
    * to the nose; under the fin and the wing they are the straight lines the body mask uses. -1 = no fuselage there.
    */
   body: { x0: number; step: number; crown: number[]; belly: number[] };
+  /** v0.11 engines drawn on the near side: cowl trailing edge x, intake lip front x, lip width (px). */
+  eng?: [number, number, number][];
+  /** v0.11 lit white (linear luminance) of the fin, body and cowl regions; with <id>-shade.webp the painting model's light. */
+  white?: [number, number, number];
 }
 
 /** Generated entry: the layout, or another sprite with byte-identical art. */
@@ -86,8 +90,11 @@ export type AssetWidth = (typeof ASSET_WIDTHS)[number];
 
 /** Relative URLs (the app is served from ./ and the PWA caches public/aircraft). */
 export const spriteUrl = (id: string, w: AssetWidth): string => `aircraft/${fileOf(spriteOf(id))}-${w}.webp`;
-/** R = fin, G = fuselage (v0.10), B = engines; 2048 wide like the big asset. */
+/** v0.11 paint regions: R = fin, G = fuselage, B = engine cowls (scripts/sprites.py); 2048 wide like the big asset. */
 export const maskUrl = (id: string): string => `aircraft/${fileOf(spriteOf(id))}-mask.png`;
+
+/** v0.11 the painting model's light (1024 wide grey; scripts/sprites.py shading_field). */
+export const shadeUrl = (id: string): string => `aircraft/${fileOf(spriteOf(id))}-shade.webp`;
 
 /** Asset width for a drawn size in device pixels. */
 export const assetFor = (devicePx: number): AssetWidth => (devicePx > 1100 ? 2048 : 1024);

@@ -16,7 +16,7 @@ import '../styles/screens.css';
 import { StrictMode, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ACMI_TYPES_LIST } from '../data/acmiTypes';
-import { LOGO_IDS, type LogoId } from '../data/livery';
+import { BODY_PRESETS, bodyPreset, LOGO_IDS, type BodyPresetId, type LogoId } from '../data/livery';
 import type { Livery, StickerPlacement, TailStyle } from '../engine/core/types';
 import { AircraftArt } from '../ui/components/aircraft/AircraftArt';
 import { LOGOS, LogoGlyph } from '../ui/components/aircraft/logos';
@@ -64,6 +64,14 @@ const livery: Livery = (() => {
   if (q.get('plain') === '1') l.plain = true;
   const cc = q.get('codecolor'), wt = q.get('weight');
   if (cc || wt) l.code = { ...l.code, color: cc ?? l.code?.color, weight: wt === '500' ? 500 : 700 };
+  // v0.11 paint checks: &primary=%23hex &secondary=%23hex, a body preset (&preset=fullColour) or &body=<json>
+  const pc = q.get('primary'), sc = q.get('secondary');
+  if (pc) l.primary = pc;
+  if (sc) l.secondary = sc;
+  const pr = q.get('preset');
+  if (pr && BODY_PRESETS.some((b) => b.id === pr)) l.body = bodyPreset(pr as BodyPresetId, l);
+  const bj = q.get('body');
+  if (bj) l.body = JSON.parse(bj) as Livery['body'];
   const tail = q.get('tail');
   if (tail && ['solid', 'split', 'stripe', 'sweep'].includes(tail)) l.tail = tail as TailStyle;
   return l;
