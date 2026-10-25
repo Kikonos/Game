@@ -96,6 +96,13 @@ export interface LiveryBody {
   noseBand?: { color: string; accent?: string };
   /** v0.11 a thin stripe across the fin a little above its root. */
   finRoot?: string;
+  /** v0.11 bands across the fin (t root 0 → tip 1), over the tail scheme: national colours, a mid-fin band. */
+  finBands?: { color: string; t0: number; t1: number }[];
+  /** v0.11 the tail colour wrapped onto the rear fuselage under the fin, its front edge sweeping down and aft. */
+  tailWrap?: string;
+  /** v0.11 vertical stripes over the fuselage and the fin, alternating with the paint under them (w: share of the
+   *  length). */
+  vstripes?: { color: string; w: number };
   /** v0.11 the livery's logo, small, on each engine cowl. */
   engineLogo?: boolean;
   /** v0.11 the livery's logo, small, on the forward fuselage under the cockpit (ahead of door 1). */

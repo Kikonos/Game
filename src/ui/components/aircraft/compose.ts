@@ -5,7 +5,7 @@
 // once and kept for the last few. Browser only (the maths in paintModel.ts / stickers.ts stay pure).
 
 import type { Livery } from '../../../engine/core/types';
-import { bodyLayers, engineColour, filletTakesBody, finFilletPoly, finRootPoly, tubeAt } from './bodyPaint';
+import { bodyLayers, engineColour, filletTakesBody, finBandPoly, finFilletPoly, finRootPoly, tubeAt } from './bodyPaint';
 import { FONT_FAMILY, textInkEm, textWidthEm } from './fontMetrics';
 import { LOGOS, onColor } from './logos';
 import { glossOf, paintRegions, shadingFromField, shadingOf, type Shading } from './paintModel';
@@ -271,6 +271,10 @@ async function draw(sprite: string, w: AssetWidth, lv: Livery, decals: readonly 
     if (!lv.plain) {
       fc.fillStyle = lv.secondary;
       for (const poly of finSecondAreas(id, lv.tail)) fillPoly(fc, poly, k);
+      for (const fb of lv.body?.finBands ?? []) {
+        fc.fillStyle = fb.color;
+        fillPoly(fc, finBandPoly(d, fb.t0, fb.t1), k);
+      }
       if (lv.body?.finRoot) {
         fc.fillStyle = lv.body.finRoot;
         fillPoly(fc, finRootPoly(d), k);

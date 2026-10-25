@@ -1,8 +1,7 @@
-// 15 original livery logos (v0.5.1, LIVERY.md §2.6): simple bold marks, at most
-// two tones, drawn in a 0–100 box, motion facing right (the nose). Built here
-// from a few shape helpers (rounded to 0.1) so every mark stays a plain fill.
-// None imitates a real airline mark: no bird or crane in a circle, no maple
-// leaf / shamrock / kangaroo, no Delta-style widget, no alliance pentagon.
+// 24 original livery logos (v0.5.1, LIVERY.md §2.6; v0.11 nine more): simple bold marks, at most two tones, drawn
+// in a 0–100 box, motion facing right (the nose). Built here from a few shape helpers (rounded to 0.1) so every
+// mark stays a plain fill. None is traced from a real airline mark: the v0.11 ones (trefoil, ring, crown, star,
+// leaf, lotus, palm, smile, sun) are generic shapes that client liveries use to evoke a carrier by colour and layout.
 
 import { createElement, type ReactElement } from 'react';
 import { LOGO_IDS, LOGO_NAMES, type LogoId } from '../../../data/livery';
@@ -148,6 +147,56 @@ const DEFS: Record<LogoId, LogoDef['paths']> = {
     ...[22.5, 112.5, 202.5, 292.5].map((a) => ({ d: ray(C, a, 22, 48, 15, 3), tone: 1 as const })),
     ...[67.5, 157.5, 247.5, 337.5].map((a) => ({ d: ray(C, a, 22, 37, 12, 3), tone: 1 as const })),
     { d: circle(50, 50, 10), tone: 2 },
+  ],
+  // three round leaves on a short curved stem
+  trefoil: [
+    { d: circle(50, 26, 19), tone: 1 },
+    { d: circle(29, 56, 19), tone: 1 },
+    { d: circle(71, 56, 19), tone: 1 },
+    { d: band(curve(quad([50, 60], [54, 80], [66, 95])), () => 7), tone: 2 },
+  ],
+  // a ring with a short bar across its lower half
+  ring: [
+    { d: ellBand(50, 50, 40, 40, 9, 0), tone: 1 },
+    { d: poly([[30, 58], [70, 58], [70, 66], [30, 66]]), tone: 2 },
+  ],
+  // five-point crown on a band, a dot on each point
+  crown: [
+    { d: poly([[12, 74], [8, 30], [30, 52], [50, 22], [70, 52], [92, 30], [88, 74]]), tone: 1 },
+    { d: poly([[12, 80], [88, 80], [88, 91], [12, 91]]), tone: 1 },
+    ...[[8, 26], [50, 17], [92, 26]].map(([x, y]) => ({ d: circle(x + (x < 50 ? 4 : x > 50 ? -4 : 0), y + 4, 5.5), tone: 2 as const })),
+  ],
+  // five-point star
+  star: [
+    { d: poly(Array.from({ length: 10 }, (_, i) => { const a = deg(-90 + i * 36), r = i % 2 ? 19 : 46; return [50 + r * Math.cos(a), 54 + r * Math.sin(a)] as P; })), tone: 1 },
+  ],
+  // pointed leaf with a mid-rib
+  leaf: [
+    { d: poly([...curve(quad([50, 6], [94, 46], [50, 94]), 24), ...curve(quad([50, 94], [6, 46], [50, 6]), 24).slice(1)]), tone: 1 },
+    { d: band([[50, 22], [50, 96]], () => 4), tone: 2 },
+  ],
+  // lotus: three petals over a bowl
+  lotus: [
+    { d: poly([...curve(quad([50, 8], [76, 40], [50, 70]), 20), ...curve(quad([50, 70], [24, 40], [50, 8]), 20).slice(1)]), tone: 1 },
+    { d: poly([...curve(quad([12, 30], [44, 44], [44, 72]), 20), ...curve(quad([44, 72], [16, 66], [12, 30]), 20).slice(1)]), tone: 1 },
+    { d: poly([...curve(quad([88, 30], [56, 44], [56, 72]), 20), ...curve(quad([56, 72], [84, 66], [88, 30]), 20).slice(1)]), tone: 1 },
+    { d: 'M10 76Q50 98 90 76L84 86Q50 100 16 86Z', tone: 2 },
+  ],
+  // palm: a trunk under five fronds
+  palm: [
+    ...[-160, -125, -90, -55, -20].map((a) => ({ d: band(curve(quad([50, 34], [50 + 26 * Math.cos(deg(a)), 34 + 26 * Math.sin(deg(a)) - 6], [50 + 44 * Math.cos(deg(a)), 30 + 40 * Math.sin(deg(a)) + 18]), 16), taper(2, 12)), tone: 1 as const })),
+    { d: band(curve(quad([50, 36], [44, 66], [52, 96]), 16), () => 7), tone: 2 },
+  ],
+  // a smile under two dots
+  smile: [
+    { d: band(curve(quad([12, 52], [50, 104], [88, 52]), 32), taper(5, 13)), tone: 1 },
+    { d: circle(32, 28, 8), tone: 2 },
+    { d: circle(68, 28, 8), tone: 2 },
+  ],
+  // disc with eight short rays
+  sun: [
+    { d: circle(50, 50, 22), tone: 1 },
+    ...[0, 45, 90, 135, 180, 225, 270, 315].map((a) => ({ d: ray(C, a, 29, 46, 9, 4), tone: 2 as const })),
   ],
   // triangle split in two tones
   prism: [

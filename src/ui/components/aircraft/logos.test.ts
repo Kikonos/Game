@@ -3,15 +3,15 @@ import { LOGO_IDS } from '../../../data/livery';
 import { LOGOS } from './logos';
 
 describe('logos', () => {
-  it('15 marks keyed exactly by LOGO_IDS', () => {
+  it('24 marks keyed exactly by LOGO_IDS', () => {
     expect(Object.keys(LOGOS).sort()).toEqual([...LOGO_IDS].sort());
-    expect(LOGO_IDS).toHaveLength(15);
+    expect(LOGO_IDS).toHaveLength(24);
     for (const id of LOGO_IDS) expect(LOGOS[id].id).toBe(id);
   });
 
   it('unique names', () => {
     const names = LOGO_IDS.map((id) => LOGOS[id].name);
-    expect(new Set(names).size).toBe(15);
+    expect(new Set(names).size).toBe(24);
   });
 
   it('every path is non-empty, closed, at most two tones, coordinates within 0–100', () => {

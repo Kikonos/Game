@@ -17,7 +17,7 @@ import { problemFor } from '../../engine/problems';
 import { LevelPill } from '../screens/Clients';
 import { dryMoney, ourCabin } from '../screens/v08Logic';
 import { SeatStrip } from './v08Bits';
-import { clientCode, clientTitles, restRefitOptions } from '../../engine/ops';
+import { clientCode, clientLivery, clientTitles, restRefitOptions } from '../../engine/ops';
 import { AircraftArt } from '../components/AircraftArt';
 import { flightsRev } from '../../engine/core/entities';
 import { typeOf } from '../../engine/core/perf';
@@ -135,7 +135,7 @@ function PaintTermsCard({ g, o, typeId, on, onToggle, fmtP }: { g: GameState; o:
         <span className={`badge ${t.required ? 'warn' : 'info'}`}>{t.required ? 'Required' : 'Optional'}</span>
       </div>
       <div className="sc-paint-art">
-        {cl && <AircraftArt typeId={typeId} livery={t.livery} code={clientCode(cl)} name={clientTitles(cl)} detail="full" />}
+        {cl && <AircraftArt typeId={typeId} livery={clientLivery(cl, t.kind)} code={clientCode(cl)} name={clientTitles(cl)} detail="full" />}
       </div>
       <KV rows={[
         ['Work', t.kind === 'full' ? `Full repaint · ${t.days} days in a paint shop` : `Decals on white · ${t.days} day${t.days > 1 ? 's' : ''}`],

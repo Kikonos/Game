@@ -62,9 +62,11 @@ Per region the art is split into a smooth **light** S and the **detail**:
 - detail (`detailOf`, once per sprite and width): 1 − art / light, split into its sharp part (minus a ~2-px blur:
   panel lines, door and window outlines, aerials) and its soft part (noise); strong features (|d| ≥ 0.35: windows,
   door gaps) keep everything. When painting, a soft threshold (`LIGHT.grain` 5 %) drops what is left of the grain.
-A painted pixel = the paint colour lit by S through a curve that is steeper for dark paints (S^(1 + 0.9 (1 − √L)):
-navy keeps the cylinder and its lit top) with a faint sheen on the lit top, times the clean detail (brightening
-capped at 1.1×), dark lines pressed in a little more on dark paint (`detail`, 30 levels), glints screened on (capped).
+A painted pixel = the paint colour × S (a plain multiply, as illustrators colour a white template) × the clean
+detail (brightening capped at 1.1×), dark lines pressed in a little more on dark paint (`detail`, 30 levels), glints
+screened on (capped), then the gloss (`glossOf`, per type from its crown / window lines, fin quad and engines): a
+reflection band along the upper fuselage (soft top, hard lower edge a little above the windows), a diagonal fin
+reflection with one hard edge fading aft, a soft cowl highlight; fainter under decals, never on the window glass.
 Under decals the detail is kept at 40 % (`decalFade`): a panel line through a logo is faint, not a crack. White paint
 gives the art back exactly; plain = the untouched sprite. Without the shade file `shadingOf` computes a (blur-only)
 light in the browser. One composed bitmap per sprite + width + paint key, LRU 120; art, mask, light and detail are
@@ -91,17 +93,34 @@ Size: the 1024 asset for cards and rows, the 2048 once the drawn width passes 11
 
 ## Livery
 
-- Fin (mask red): the livery's `primary`, with the scheme's second-colour areas (`split` / `stripe` / `sweep`) in
-  `secondary`, and swept stripes on top; painted through the art's light (above).
-- Fuselage (mask green, v0.10 `livery.body`, all optional): `color` (whole fuselage), `belly` {color, split share
-  crown→belly, tilt ±1}, up to 3 `stripes` {color, y, h, windows (on the window line), sweep (up into the fin)},
-  `nose`. Drawn in that order; absent = the white fuselage as drawn. The belly colour covers the belly fairing (it
-  is fuselage in the mask); stripes and the belly split follow the measured crown / belly lines.
-- Cowls (mask blue; never the exhaust, fan or pylon): `body.engines` (default `primary`), `body.lip` an intake ring
-  (per engine and row the front `lip` px of the cowl, `eng` in the data).
-- Presets (`data/livery.ts BODY_PRESETS`): Eurowhite, Classic cheatline, Full colour, Belly band — in the livery's
-  own colours. `plain: true` = the sprite untouched (stickers still paint in, on white). `WHITE_LIVERY` draws nothing.
-- `BODY_PAINT = true` (sprites.ts): the editor's Body and Tail tabs; false brings back the v0.10 tail-only editor.
+Conventions taken from professional side-view livery art (see `scripts/refcompare.cjs`):
+
+- Fin (mask red): the livery's `primary`, the scheme's second-colour areas (`split` / `stripe` / `sweep`) in
+  `secondary`, `body.finBands` (bands across the fin: national colours), `body.finRoot` (a thin stripe 13–18 % up),
+  swept stripes; the dorsal fillet under the fin's root line takes the fuselage paint when the fuselage has its own
+  colour (`filletTakesBody`). Rudder included; the stabiliser is never painted.
+- Fuselage (mask green, `livery.body`, all optional), drawn in this order: `color`, `belly` {color, split share,
+  tilt, `windows` = just below the type's main-deck windows, `line` = an accent line at the split}, `stripes`,
+  `noseBand` {color, accent} (from the split down 17 % of the tube, the nose tip to just ahead of door 1), `nose`,
+  `tailWrap` (the tail colour wrapped onto the rear fuselage), `vstripes` (vertical stripes over fuselage and fin).
+  Paint lines run level through the main cabin (`paintY`: parallel to the windows, also under a 747's hump) and
+  blend into the tube's share where it narrows, so they run smoothly into the nose tip and up the tail cone.
+- Cowls (mask blue; never the exhaust, fan or pylon): `body.engines`, default the belly colour, else the tail
+  colour; the intake lip is bare metal (as drawn) unless `body.lip` paints it.
+- Presets (`data/livery.ts BODY_PRESETS`): Eurowhite, Classic cheatline, Full colour, Belly band, Classic belly
+  (white top, light grey belly and cowls below the windows, nose band, fin-root stripe) and Two-tone (coloured top,
+  white belly with a darker line at the split) — in the livery's own colours.
+- Painted markings (`stickers.ts extraDecals`, decals): the aircraft's registration (`reg` prop) over the fin's root
+  leading edge just above the windows, with the registry state's flag (from the prefix); the model
+  (`MODEL_NAME`, "BOEING 777-300ER") under the forward windows aft of door 1, or aft (`livery.model`); the logo on
+  each cowl (`body.engineLogo`) and under the cockpit (`body.noseLogo`). The small texts are drawn only on the 2048
+  asset (big views); on cards they would be unreadable.
+- Client liveries (`data/clientLiveries.ts`): every client that can ask for its colours has a recipe after its real
+  2025–26 livery or identity (`basis`; `approx` where a pattern cannot be painted or a detail was not confirmed),
+  with our own simple marks (`trefoil`, `ring`, `crown`, `star`, `leaf`, `lotus`, `palm`, `smile`, `sun`) or
+  lettering; `engine/ops/paint.ts clientLivery` resolves it by the client's name at render time (old saves too);
+  clients without one get a generated scheme from the same options. `?gallery=clients&page=n` shows them.
+- `plain: true` = the sprite untouched (stickers still paint in, on white). `WHITE_LIVERY` draws nothing.
 
 ## Stickers
 

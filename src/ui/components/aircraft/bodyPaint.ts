@@ -147,6 +147,27 @@ export function finRootPoly(d: SpriteLayout): Pt[] {
   return [finPoint(d, -0.6, 0.13), finPoint(d, 1.6, 0.13), finPoint(d, 1.6, 0.18), finPoint(d, -0.6, 0.18)];
 }
 
+/** The rear fuselage under the fin, its front edge from the fin's root leading edge sweeping down and aft to the
+ *  belly about a fifth of the way from the tail (the tail colour wrapped onto the fuselage). */
+export function tailWrapPoly(d: SpriteLayout): Pt[] {
+  const le = d.finQuad[0];
+  const L = d.nose - d.tail;
+  const top: Pt = [le[0] + 0.03 * L, d.crown - 10];
+  const bot: Pt = [d.tail + 0.13 * L, d.h + 10];
+  const curve: Pt[] = [];
+  for (let k = 0; k <= 16; k++) {
+    const t = k / 16;
+    // ease: steep near the crown, flattening toward the belly
+    curve.push([top[0] + (bot[0] - top[0]) * t * t, top[1] + (bot[1] - top[1]) * t]);
+  }
+  return [[-10, -10], [top[0], -10], ...curve, [-10, d.h + 10]];
+}
+
+/** A band across the fin from t0 to t1 (root 0 → tip 1), the whole chord. */
+export function finBandPoly(d: SpriteLayout, t0: number, t1: number): Pt[] {
+  return [finPoint(d, -0.8, t0), finPoint(d, 1.8, t0), finPoint(d, 1.8, t1), finPoint(d, -0.8, t1)];
+}
+
 /** Below the fin's root line (the dorsal fillet and the fuselage under the fin): it takes the body paint. */
 export function finFilletPoly(d: SpriteLayout): Pt[] {
   const a = finPoint(d, -2, 0), b = finPoint(d, 3, 0);
@@ -253,6 +274,14 @@ export function bodyLayers(id: string, b: LiveryBody | undefined): PaintLayer[] 
     if (b.noseBand.accent) out.push({ color: b.noseBand.accent, polys: [nb.accent] });
   }
   if (b.nose) out.push({ color: b.nose, polys: [nosePoly(d)] });
+  if (b.tailWrap) out.push({ color: b.tailWrap, polys: [tailWrapPoly(d)] });
+  if (b.vstripes) {
+    // vertical stripes from the tail cone forward to the cockpit, over the fuselage and up the fin
+    const w = b.vstripes.w * (d.nose - d.tail);
+    const polys: Pt[][] = [];
+    for (let x = d.tail + 0.4 * w; x < d.nose - 0.12 * (d.nose - d.tail); x += 2 * w) polys.push([[x, -10], [x + w, -10], [x + w, d.h + 10], [x, d.h + 10]]);
+    out.push({ color: b.vstripes.color, polys, fin: true });
+  }
   return out;
 }
 

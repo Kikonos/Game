@@ -20,6 +20,8 @@ import { BODY_PRESETS, bodyPreset, LOGO_IDS, type BodyPresetId, type LogoId } fr
 import type { Livery, StickerPlacement, TailStyle } from '../engine/core/types';
 import { AircraftArt } from '../ui/components/aircraft/AircraftArt';
 import { LOGOS, LogoGlyph } from '../ui/components/aircraft/logos';
+import { CLIENT_LIVERIES } from '../data/clientLiveries';
+import { recipeLivery } from '../engine/ops/paint';
 import { LENGTH_M, layoutOf, metresPerPx, SPRITE_IDS } from '../ui/components/aircraft/sprites';
 import { finAt, polyPath, titleBand } from '../ui/components/aircraft/stickers';
 import { TailBadge } from '../ui/components/Logo';
@@ -279,6 +281,31 @@ function LayoutSheet() {
   );
 }
 
+/** v0.11 every client livery recipe on a narrowbody and a widebody it would charter (Boeing operators on Boeings). */
+const BOEING = /GOL|Jet2|TUI|Corendon|LOT|Air Canada|Royal Air Maroc|Fiji|Biman|Air Algérie|Sunwing|Aegean|flynas/;
+function ClientSheet() {
+  // 10 per page (`&page=1…`): a page of 20 bitmaps stays well inside the composed-bitmap cache
+  const pg = Number(q.get('page')) || 0;
+  const names = Object.keys(CLIENT_LIVERIES).filter((n) => !q.get('only') || n.includes(q.get('only')!)).slice(pg ? (pg - 1) * 10 : 0, pg ? pg * 10 : undefined);
+  return (
+    <div className="g-panel" data-bg="light" style={{ background: BGS.light, flexDirection: 'column' }}>
+      {names.map((n) => {
+        const r = CLIENT_LIVERIES[n];
+        const decals = /^(SL |Sporting|Real|Olympique|Fortuna|Manchester|FC |Ajax|Riga|Floriana|FK |Formula|Novartis|American|BBC|Live|AEG|Wasserman)/.test(n);
+        const lv = recipeLivery(r, decals ? 'decals' : 'full');
+        const [nb, wb] = BOEING.test(n) ? ['b738', 'b789'] : ['a320ceo', 'a332'];
+        return (
+          <figure key={n} className="g-cell" data-client={n} style={{ flexDirection: 'row', alignItems: 'center', gap: 18 }}>
+            <figcaption style={{ width: 210, color: '#111a2c' }}><b>{n}</b><br />{decals ? 'decals' : 'full'}{r.approx ? ' · approx.' : ''}</figcaption>
+            <div className="g-box" style={{ width: 560 }}><AircraftArt typeId={nb} livery={lv} reg="CS-TBL" /></div>
+            <div className="g-box" style={{ width: 640 }}><AircraftArt typeId={wb} livery={lv} reg="CS-TBM" /></div>
+          </figure>
+        );
+      })}
+    </div>
+  );
+}
+
 function EditorDemo() {
   const [lv, setLv] = useState<Livery>(livery);
   return (
@@ -298,7 +325,7 @@ function Gallery() {
         <h1>Aircraft art</h1>
         <span>{types.length} sprites · livery {liveryKey} ({livery.plain ? 'white' : livery.tail})</span>
       </div>
-      {mode === 'compare' ? <Compare /> : mode === 'logos' ? <LogoSheet /> : mode === 'clip' ? <ClipCheck /> : mode === 'lod' ? <LodSheet /> : mode === 'layout' ? <LayoutSheet /> : (
+      {mode === 'clients' ? <ClientSheet /> : mode === 'compare' ? <Compare /> : mode === 'logos' ? <LogoSheet /> : mode === 'clip' ? <ClipCheck /> : mode === 'lod' ? <LodSheet /> : mode === 'layout' ? <LayoutSheet /> : (
         sizes.map((size) => (
           <section className={`g-size g-${size}`} key={size} data-size={size}>
             <h2>{size}</h2>

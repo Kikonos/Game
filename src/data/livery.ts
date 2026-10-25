@@ -5,12 +5,17 @@
 import type { Livery } from '../engine/core/types';
 import { AIRPORT_BY_CODE } from './airports';
 
-export const LOGO_IDS = ['arc', 'swift', 'globe', 'polaris', 'compass', 'sunrise', 'wave', 'peaks', 'chevrons', 'ribbon', 'orbit', 'kite', 'feather', 'spark', 'prism'] as const;
+export const LOGO_IDS = [
+  'arc', 'swift', 'globe', 'polaris', 'compass', 'sunrise', 'wave', 'peaks', 'chevrons', 'ribbon', 'orbit', 'kite', 'feather', 'spark', 'prism',
+  // v0.11 simple evocative marks for client liveries (none traced from a real mark)
+  'trefoil', 'ring', 'crown', 'star', 'leaf', 'lotus', 'palm', 'smile', 'sun',
+] as const;
 export type LogoId = (typeof LOGO_IDS)[number];
 
 export const LOGO_NAMES: Record<LogoId, string> = {
   arc: 'Arc', swift: 'Swift', globe: 'Globe', polaris: 'Polaris', compass: 'Compass', sunrise: 'Sunrise', wave: 'Wave', peaks: 'Peaks',
   chevrons: 'Chevrons', ribbon: 'Ribbon', orbit: 'Orbit', kite: 'Kite', feather: 'Feather', spark: 'Spark', prism: 'Prism',
+  trefoil: 'Trefoil', ring: 'Ring', crown: 'Crown', star: 'Star', leaf: 'Leaf', lotus: 'Lotus', palm: 'Palm', smile: 'Smile', sun: 'Sun',
 };
 
 /** Logos a client livery may use (picked by client hash). */
