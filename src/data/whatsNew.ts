@@ -16,6 +16,21 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.10',
+    name: 'Fleet art',
+    features: [
+      'New aircraft art: every type is redrawn, in full detail.',
+      'Your colours go on the tail and the engines. The fuselage stays white, with your titles and logo on it.',
+      'Some aircraft differ from others of their type, as in real life: A330-200s and 747-400s come with different engines, and early A321neos have four pairs of doors instead of the overwing exits. The Fleet card shows the engines.',
+      '12 more types on the market: the 737-900ER, 757-300, A330-900, A340-200, A340-500, A340-600, A350-1000, 787-8, 787-10 and 747-8; the 777-9 as a rare new-build slot only, and the 777-8 from about 2030.',
+      'Each new type has its own numbers: seats, range, crew, rest areas, rates, fuel, rent, value, checks and how often it comes up.',
+    ],
+    improvements: [
+      'The 747-100, -200 and -300 are in the game’s data but not on the market yet: they need a flight engineer in the cockpit.',
+      'The 777-200LR uses the 777-200ER art for now.',
+    ],
+  },
+  {
     version: 'v0.9.1',
     name: 'Tuning',
     features: [
