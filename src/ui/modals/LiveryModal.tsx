@@ -19,7 +19,7 @@ export function previewTypes(first: string[]): string[] {
   return [...new Set([...first, ...DEFAULT_TYPES])].slice(0, 5);
 }
 
-const fleetTypes = (g: GameState) => [...new Set(Object.values(g.fleet).map((a) => artFor(a.typeId)))];
+const fleetTypes = (g: GameState) => [...new Set(Object.values(g.fleet).map((a) => artFor(a.typeId, a.variant)))];
 
 /** Full-height sheet around the editor; `children` is the editor. */
 function Sheet({ title, onClose, children }: { title: ReactNode; onClose: () => void; children: ReactNode }) {
@@ -110,7 +110,7 @@ function AircraftLivery({ aircraftId }: { aircraftId: string }) {
     <Sheet title={<><span className="mono">{ac.reg}</span> livery</>} onClose={close}>
       <LiveryEditor
         value={value} onChange={(l) => setRef({ custom: l })} code={code} name={name} mode="aircraft"
-        types={previewTypes([artFor(ac.typeId)])} aircraft={{ ref, onRef: pickRef, locked: st.locked ? st.why ?? 'In client colours' : undefined }}
+        types={previewTypes([artFor(ac.typeId, ac.variant)])} aircraft={{ ref, onRef: pickRef, locked: st.locked ? st.why ?? 'In client colours' : undefined }}
         onSave={st.locked ? undefined : save} onCancel={close}
         footer={st.locked ? undefined : <span className="lv-foot-note">Free and instant.</span>}
       />

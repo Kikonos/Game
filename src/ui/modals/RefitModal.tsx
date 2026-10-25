@@ -76,9 +76,9 @@ function RestOptionRow({ o, on, onPick }: { o: RestRefitOption; on: boolean; onP
   const seats = o.seats ? ` · ${o.seats > 0 ? '+' : '−'}${Math.abs(o.seats)} seats` : '';
   return (
     <button className={`rf-opt ${on ? 'on' : ''}`} aria-pressed={on} onClick={onPick} disabled={!o.ok}>
-      <span className="row gap-8 between">
+      <span className="row wrap gap-8 between">
         <b className="small">{o.label}</b>
-        <span className="row gap-4"><span className="chip sc-chip">Class {o.cls}</span><span className="chip sc-chip">{SIDE_WORD[o.side]}</span></span>
+        <span className="row gap-4"><span className="chip sc-chip nowrap">Class {o.cls}</span><span className="chip sc-chip nowrap">{SIDE_WORD[o.side]}</span></span>
       </span>
       <span className="small muted">{o.where === 'cCheck' ? `With a C-check · +${o.days} days` : `${o.days} day${o.days === 1 ? '' : 's'} at home base`} · {money(o.cost)}{seats}</span>
       {o.ok ? <span className="small rf-opt-opens">{o.opens}</span> : <span className="small warn">{o.why}</span>}
@@ -278,7 +278,7 @@ export function RefitModal({ aircraftId, layout, offerId, rest, restOption, afte
               <>
                 <div className="row between small"><span className="muted">Seats</span><b className="num">{q.seatsFrom} → {q.seatsTo}</b></div>
                 <div className="row between small"><span className="muted">Cabin crew minimum</span><b className="num">{q.cabinMinFrom} → {q.cabinMinTo}</b></div>
-                {q.restFrom && q.restTo && <div className="row between small"><span className="muted"><Term id="crewRest">Crew rest</Term></span><b className="num">{restShort(q.restFrom.cc)}{q.restTo.cc?.kind !== q.restFrom.cc?.kind ? ` → ${restShort(q.restTo.cc)}` : ''}</b></div>}
+                {q.restFrom && q.restTo && <div className="row between small"><span className="muted nowrap"><Term id="crewRest">Crew rest</Term></span><b className="num right">{restShort(q.restFrom.cc)}{q.restTo.cc?.kind !== q.restFrom.cc?.kind ? ` → ${restShort(q.restTo.cc)}` : ''}</b></div>}
               </>
             )}
             {q.ferryIn.length > 0 && <div className="row between small"><span className="muted">Ferry in</span><span className="num">{q.ferryIn.map((l) => `${l.from}–${l.to}`).join(', ')} {fmtDay(q.ferryIn[0].std)}</span></div>}

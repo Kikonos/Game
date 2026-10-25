@@ -1,18 +1,17 @@
-// Livery stickers (v0.5.1): tail code, titles and logos as decals placed in the
-// frame of the fin or the fuselage, so one livery fits every type. Pure layout
-// maths only — AircraftArt draws the boxes, the livery editor drags them.
+// Livery stickers (v0.5.1; v0.10 on the raster sprites): tail code, titles and logos as decals placed in the
+// frame of the fin or the fuselage, so one livery fits every type. Pure layout maths only — AircraftArt draws
+// the boxes, the livery editor drags them.
 //
-// Frames: geometry is nose-left, y up; the art mirrors it once, so a geometry
-// point (x, y) sits at viewBox (-x, -y). Everything exported here speaks viewBox
-// coords (the nose-right screen frame); the flip lives only in toView/toWorld.
+// Coordinates: the sprite's viewBox (pixels of the 2048-wide asset, x right, y down, nose RIGHT; sprites.ts).
+// Frames: fin `x` = chord fraction leading edge (0) → trailing edge (1), `y` = root (0) → tip (1), bilinear on
+// the fin quad measured from the mask's red area; fuselage `x` = share of the length nose (0) → tail (1),
+// `y` = share of the fuselage height crown (0) → belly (1).
 
 import type { Livery, StickerKind, StickerPlacement, StickerSide, TailStyle } from '../../../engine/core/types';
-import { artGeometry } from './AircraftArt';
 import { textInkEm, textWidthEm, type FontWeight } from './fontMetrics';
-import { finAt, pathPoly, type Geometry } from './geometry';
-import { lerp, type V } from './path';
+import { layoutOf, spriteOf, type Pt, type SpriteLayout } from './sprites';
 
-export type { V };
+export type V = Pt;
 
 export interface StickerBox {
   id: string;
@@ -38,36 +37,42 @@ export const CODE_SPACING = 0.02;
 export const TITLE_SPACING = 0.04;
 /** Auto fin-code anchors (s along the chord, t root → tip) per scheme, as v0.5. */
 const CODE_ANCHOR: Record<TailStyle, V> = { solid: [0.5, 0.42], split: [0.36, 0.26], stripe: [0.48, 0.3], sweep: [0.62, 0.3] };
+/** v0.5 code size per scheme: share of the fin height (capped at 62 % of the chord). */
+const CODE_SIZE: Record<TailStyle, number> = { solid: 0.5, split: 0.4, stripe: 0.45, sweep: 0.4 };
 /** Fuselage logos smaller than this share of L are dropped at detail 'simple'. */
 const MINI_LOGO = 0.06;
 
-const toView = (p: V): V => [-p[0], -p[1]];
-const toWorld = (X: number, Y: number): V => [-X, -Y];
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
+const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+const lerpV = (a: V, b: V, t: number): V => [lerp(a[0], b[0], t), lerp(a[1], b[1], t)];
 
-// ---------- per-type frame data (cached) ----------
+/** Map fin-normalised (s along chord, t root → tip) to viewBox coords. */
+export function finAt(q: readonly [V, V, V, V], s: number, t: number): V {
+  return lerpV(lerpV(q[0], q[1], s), lerpV(q[2], q[3], s), t);
+}
+
+// ---------- per-sprite frame data (cached) ----------
 
 interface Frames {
-  g: Geometry;
+  d: SpriteLayout;
   fin: V[];
-  fus: V[];
-  /** Outline mode: the tube zone (fuselage stickers stay off the delta). */
-  tube?: V[];
-  /** Window line centre (world y), if any windows. */
-  winY?: number;
+  zone: V[];
+  q: [V, V, V, V];
+  /** Length nose → tail and fuselage height crown → belly. */
+  L: number;
+  H: number;
+  finH: number;
 }
 
 const frames = new Map<string, Frames>();
 function framesOf(typeId: string): Frames {
-  let f = frames.get(typeId);
+  const id = spriteOf(typeId);
+  let f = frames.get(id);
   if (!f) {
-    const g = artGeometry(typeId);
-    const win = g.windows ? pathPoly(g.windows, 2) : [];
-    f = {
-      g, fin: g.fin.poly, fus: pathPoly(g.fus), tube: g.zones ? pathPoly(g.zones.tube, 1) : undefined,
-      winY: win.length ? win.reduce((a, v) => a + v[1], 0) / win.length : undefined,
-    };
-    frames.set(typeId, f);
+    const d = layoutOf(id);
+    const ys = d.fin.map((p) => p[1]);
+    f = { d, fin: d.fin, zone: d.zone, q: d.finQuad, L: d.nose - d.tail, H: d.belly - d.crown, finH: Math.max(...ys) - Math.min(...ys) };
+    frames.set(id, f);
   }
   return f;
 }
@@ -82,29 +87,73 @@ export function inPoly(poly: readonly V[], p: V): boolean {
   return inside;
 }
 
+/** SVG path of a polygon. */
+export const polyPath = (poly: readonly V[]): string => (poly.length ? `M${poly.map((p) => `${Math.round(p[0] * 10) / 10} ${Math.round(p[1] * 10) / 10}`).join('L')}Z` : '');
+
+// ---------- the tail schemes on the fin ----------
+
+/** Cubic Bézier sampled (excluding its start). */
+function cubic(a: V, b: V, c: V, d: V, n = 12): V[] {
+  const out: V[] = [];
+  for (let i = 1; i <= n; i++) {
+    const t = i / n, u = 1 - t;
+    out.push([u * u * u * a[0] + 3 * u * u * t * b[0] + 3 * u * t * t * c[0] + t * t * t * d[0], u * u * u * a[1] + 3 * u * u * t * b[1] + 3 * u * t * t * c[1] + t * t * t * d[1]]);
+  }
+  return out;
+}
+
+const schemeCache = new Map<string, V[][]>();
+/** The scheme's second-colour areas on the fin (polygons, viewBox; drawn clipped to the fin). Solid has none. */
+export function finSecondAreas(typeId: string, style: TailStyle): V[][] {
+  const key = `${spriteOf(typeId)}|${style}`;
+  let out = schemeCache.get(key);
+  if (out) return out;
+  const { q } = framesOf(typeId);
+  const F = (s: number, t: number) => finAt(q, s, t);
+  out = [];
+  if (style === 'split') {
+    // upper-rear part of the fin, gently S-curved divide
+    const a = F(1.3, 0.02);
+    out.push([a, ...cubic(a, F(0.85, 0.3), F(0.35, 0.5), F(-0.3, 0.8)), F(-0.4, 2), F(2, 2), F(2, 0.02)]);
+  } else if (style === 'stripe') {
+    // two diagonal bands rising aft across the upper fin
+    const band = (t0: number, wd: number): V[] => [F(-0.4, t0 - 0.22), F(1.4, t0 + 0.2), F(1.4, t0 + 0.2 + wd), F(-0.4, t0 - 0.22 + wd)];
+    out.push(band(0.62, 0.12), band(0.8, 0.055));
+  } else if (style === 'sweep') {
+    // swoosh hugging the leading edge from the root and rising to the tip of the trailing edge
+    const s0 = F(-0.45, -0.2), s1 = F(-0.06, 0.48), tip = F(1.3, 1.05), r0 = F(0.08, 0.32);
+    out.push([
+      s0, ...cubic(s0, F(-0.3, 0.15), F(-0.15, 0.35), s1), ...cubic(s1, F(0.2, 0.76), F(0.6, 1.0), F(1.0, 1.25)), tip,
+      ...cubic(tip, F(0.8, 0.9), F(0.35, 0.62), r0), ...cubic(r0, F(0.02, 0.18), F(-0.02, 0.05), F(-0.05, -0.2)),
+    ]);
+  }
+  schemeCache.set(key, out);
+  return out;
+}
+
+/** Is a viewBox point on the scheme's second colour of the fin? */
+export const onFinSecond = (typeId: string, scheme: TailStyle, X: number, Y: number): boolean => finSecondAreas(typeId, scheme).some((p) => inPoly(p, [X, Y]));
+
 // ---------- frame <-> viewBox ----------
 
 /** Frame point of `side` (fractions, see StickerPlacement) to viewBox coords. */
 export function frameToView(typeId: string, side: StickerSide, x: number, y: number): V {
-  const { g } = framesOf(typeId);
-  return toView(side === 'fin' ? finAt(g.fin.quad, x, y) : [x * g.L, g.H / 2 - y * g.H]);
+  const { d, q, L, H } = framesOf(typeId);
+  return side === 'fin' ? finAt(q, x, y) : [d.nose - x * L, d.crown + y * H];
 }
 
 /** viewBox point to the frame of `side`; the fin is the inverse bilinear map of its quad (Newton). */
 export function viewToFrame(typeId: string, side: StickerSide, X: number, Y: number): V {
-  const { g } = framesOf(typeId);
-  const [wx, wy] = toWorld(X, Y);
-  if (side === 'fuselage') return [wx / g.L, (g.H / 2 - wy) / g.H];
-  const q = g.fin.quad;
-  // start from the root/tip heights, then refine (s, t) on the bilinear map
-  let t = (wy - q[0][1]) / ((q[2][1] + q[3][1]) / 2 - q[0][1] || 1);
+  const { d, q, L, H } = framesOf(typeId);
+  if (side === 'fuselage') return [(d.nose - X) / L, (Y - d.crown) / H];
+  let t = (Y - q[0][1]) / ((q[2][1] + q[3][1]) / 2 - q[0][1] || 1);
   const r0 = lerp(q[0][0], q[2][0], t), r1 = lerp(q[1][0], q[3][0], t);
-  let s = (wx - r0) / (r1 - r0 || 1);
-  for (let k = 0; k < 6; k++) {
+  let s = (X - r0) / (r1 - r0 || 1);
+  for (let k = 0; k < 8; k++) {
     const p = finAt(q, s, t);
     const ds: V = [lerp(q[1][0] - q[0][0], q[3][0] - q[2][0], t), lerp(q[1][1] - q[0][1], q[3][1] - q[2][1], t)];
     const dt: V = [lerp(q[2][0] - q[0][0], q[3][0] - q[1][0], s), lerp(q[2][1] - q[0][1], q[3][1] - q[1][1], s)];
-    const ex = wx - p[0], ey = wy - p[1];
+    const ex = X - p[0], ey = Y - p[1];
     const det = ds[0] * dt[1] - ds[1] * dt[0];
     if (!det) break;
     s += (ex * dt[1] - ey * dt[0]) / det;
@@ -113,19 +162,18 @@ export function viewToFrame(typeId: string, side: StickerSide, X: number, Y: num
   return [s, t];
 }
 
-/** Airframe part under a viewBox point: the fin first (its root overlaps the crown), then the fuselage tube. */
+/** Airframe part under a viewBox point: the fin first, then the fuselage sticker zone (clear of wing and engines). */
 export function sideAt(typeId: string, X: number, Y: number): StickerSide | null {
   const f = framesOf(typeId);
-  const p = toWorld(X, Y);
-  if (inPoly(f.fin, p)) return 'fin';
-  if (inPoly(f.fus, p) && (!f.tube || inPoly(f.tube, p))) return 'fuselage';
+  if (inPoly(f.fin, [X, Y])) return 'fin';
+  if (inPoly(f.zone, [X, Y])) return 'fuselage';
   return null;
 }
 
-/** Clip outlines of the airframe [fuselage, fin], in the art's inner (mirrored) frame: draw under `scale(-1,1)`. */
+/** Clip outlines [fuselage sticker zone, fin] as SVG paths in viewBox coords. */
 export function airframeClipPaths(typeId: string): string[] {
-  const g = artGeometry(typeId);
-  return [g.fus, g.fin.fill];
+  const f = framesOf(typeId);
+  return [polyPath(f.zone), polyPath(f.fin)];
 }
 
 // ---------- fitting inside the fin ----------
@@ -143,7 +191,6 @@ function spansAt(poly: readonly V[], y: number): [number, number][] {
   return out;
 }
 
-/** Spans at every vertex height of a polygon, sorted by y (cached: fitting scans many bands). */
 const vspans = new WeakMap<readonly V[], { ys: number[]; spans: [number, number][][] }>();
 function vertexSpans(poly: readonly V[]) {
   let v = vspans.get(poly);
@@ -160,11 +207,7 @@ function lowerBound(a: readonly number[], x: number): number {
   return lo;
 }
 
-/**
- * x-interval (world) where every horizontal line of the band [y0, y1] is inside the polygon,
- * following the span nearest `x` on the band's centre line. Exact for a polygon: the span ends
- * move linearly between vertex heights.
- */
+/** x-interval where every horizontal line of the band [y0, y1] is inside the polygon, following the span nearest x. */
 function bandSpan(poly: readonly V[], y0: number, y1: number, x: number): [number, number] | null {
   const mid = spansAt(poly, (y0 + y1) / 2);
   if (!mid.length) return null;
@@ -185,17 +228,12 @@ function bandSpan(poly: readonly V[], y0: number, y1: number, x: number): [numbe
 
 interface Rect { cx: number; cy: number; w: number; h: number }
 
-/**
- * Largest rectangle of aspect ~`aspect` (w/h) inside the polygon, vertically centred on the anchor
- * (or the nearest height that is inside), free to slide along the chord; margin `m` on all sides.
- * World coords.
- */
+/** Largest rectangle of aspect ~`aspect` (w/h) inside the polygon, vertically centred on the anchor; margin `m`. */
 function fitRect(poly: readonly V[], a: V, aspect: number, m: number, maxH: number): Rect | null {
   const tryAt = (p: V): Rect | null => {
     let best: Rect | null = null, score = 0;
     for (let k = 1; k <= 48; k++) {
       const h = (maxH * k) / 48;
-      // centre the search on the middle of the anchor line's span so a skewed anchor still finds room
       const sp = bandSpan(poly, p[1] - h / 2 - m, p[1] + h / 2 + m, p[0]);
       if (!sp) break;
       const w = sp[1] - sp[0] - 2 * m;
@@ -212,24 +250,42 @@ function fitRect(poly: readonly V[], a: V, aspect: number, m: number, maxH: numb
   };
   let r = tryAt(a);
   if (r) return r;
-  // anchor outside the outline: walk it toward the polygon's centroid
   const c: V = [poly.reduce((s, v) => s + v[0], 0) / poly.length, poly.reduce((s, v) => s + v[1], 0) / poly.length];
   for (let k = 1; k <= 10 && !r; k++) r = tryAt([lerp(a[0], c[0], k / 10), lerp(a[1], c[1], k / 10)]);
   return r;
 }
 
+const chordAt = (q: readonly [V, V, V, V], t: number) => Math.hypot(finAt(q, 1, t)[0] - finAt(q, 0, t)[0], finAt(q, 1, t)[1] - finAt(q, 0, t)[1]);
+
+/** v0.5 letter size of the fin code for a scheme (cap on the auto size). */
+function codeCap(typeId: string, scheme: TailStyle): number {
+  const { q, finH } = framesOf(typeId);
+  const [, t] = CODE_ANCHOR[scheme] ?? CODE_ANCHOR.sweep;
+  return Math.min(finH * (CODE_SIZE[scheme] ?? 0.4), chordAt(q, t) * 0.62);
+}
+
+/** Share of a rect on the scheme's second-colour fin area (9 × 5 samples). */
+function secondShare(typeId: string, scheme: TailStyle, r: Rect): number {
+  const polys = finSecondAreas(typeId, scheme);
+  if (!polys.length) return 0;
+  let k = 0;
+  for (let i = 0; i < 9; i++) for (let j = 0; j < 5; j++) {
+    const p: V = [r.cx + (i / 8 - 0.5) * r.w, r.cy + (j / 4 - 0.5) * r.h];
+    if (polys.some((x) => inPoly(x, p))) k++;
+  }
+  return k / 45;
+}
+
 const insets = new Map<string, Rect | null>();
 function finRect(typeId: string, scheme: TailStyle, aspect: number, capH = Infinity): Rect | null {
-  const key = `${typeId}|${scheme}|${aspect.toFixed(3)}|${capH.toFixed(3)}`;
+  const key = `${spriteOf(typeId)}|${scheme}|${aspect.toFixed(3)}|${capH.toFixed(3)}`;
   if (insets.has(key)) return insets.get(key)!;
-  const { g, fin } = framesOf(typeId);
-  const q = g.fin.quad;
+  const { fin, q, finH } = framesOf(typeId);
   const [s, t] = CODE_ANCHOR[scheme] ?? CODE_ANCHOR.sweep;
   const a = finAt(q, s, t);
-  const chord = Math.hypot(...([0, 1].map((i) => finAt(q, 1, t)[i] - finAt(q, 0, t)[i]) as [number, number]));
-  const height = Math.max(...fin.map((v) => v[1])) - Math.min(...fin.map((v) => v[1]));
-  const at = (dy: number) => fitRect(fin, [a[0], a[1] + dy * height], aspect, chord * 0.04, height * 0.9);
-  // the anchor height, or up to 12 % of the fin away when that gives clearly bigger letters
+  const chord = chordAt(q, t);
+  // + dy moves toward the tip (up the screen)
+  const at = (dy: number) => fitRect(fin, [a[0], a[1] - dy * finH], aspect, chord * 0.04, finH * 0.9);
   let r = at(0);
   const size = (x: Rect | null) => (x ? Math.min(x.w / aspect, x.h) : 0);
   for (const dy of [0.06, -0.06, 0.12, -0.12]) {
@@ -254,35 +310,14 @@ function finRect(typeId: string, scheme: TailStyle, aspect: number, capH = Infin
   return r;
 }
 
-/** Share of a world-coords rect on the scheme's second-colour fin area (9 × 5 samples). */
-const finSecond = new Map<string, V[][]>();
-function secondShare(typeId: string, scheme: TailStyle, r: Rect): number {
-  const key = `${typeId}|${scheme}`;
-  let polys = finSecond.get(key);
-  if (!polys) {
-    const d = framesOf(typeId).g.livery(scheme).fin;
-    finSecond.set(key, (polys = d ? d.split(/(?=M)/).filter(Boolean).map((x) => pathPoly(x)) : []));
-  }
-  if (!polys.length) return 0;
-  let k = 0;
-  for (let i = 0; i < 9; i++) for (let j = 0; j < 5; j++) {
-    const p: V = [r.cx + (i / 8 - 0.5) * r.w, r.cy + (j / 4 - 0.5) * r.h];
-    if (polys.some((x) => inPoly(x, p))) k++;
-  }
-  return k / 45;
-}
-
 /** Biggest square inside the fin (any height between 20 % and 65 % of it): the auto tail logo, whatever the scheme. */
 function logoRect(typeId: string): Rect | null {
-  const key = `${typeId}|logo`;
+  const key = `${spriteOf(typeId)}|logo`;
   if (insets.has(key)) return insets.get(key)!;
-  const { g, fin } = framesOf(typeId);
-  const q = g.fin.quad;
-  const height = Math.max(...fin.map((v) => v[1])) - Math.min(...fin.map((v) => v[1]));
+  const { fin, q, finH } = framesOf(typeId);
   let r: Rect | null = null;
   for (let t = 0.2; t <= 0.651; t += 0.05) {
-    const chord = Math.hypot(finAt(q, 1, t)[0] - finAt(q, 0, t)[0], finAt(q, 1, t)[1] - finAt(q, 0, t)[1]);
-    const o = fitRect(fin, finAt(q, 0.5, t), 1, chord * 0.04, height * 0.9);
+    const o = fitRect(fin, finAt(q, 0.5, t), 1, chordAt(q, t) * 0.04, finH * 0.9);
     if (o && (!r || Math.min(o.w, o.h) > Math.min(r.w, r.h) * 1.02)) r = o;
   }
   insets.set(key, r);
@@ -290,13 +325,11 @@ function logoRect(typeId: string): Rect | null {
 }
 
 /** viewBox rectangle wholly inside the fin outline around the scheme's code anchor (4 % chord margin). */
-export function finInset(typeId: string, scheme: TailStyle, aspect = 2): { cx: number; cy: number; w: number; h: number } {
+export function finInset(typeId: string, scheme: TailStyle, aspect = 2): Rect {
   const r = finRect(typeId, scheme, aspect);
-  if (!r) {
-    const c = artGeometry(typeId).livery(scheme).code;
-    return { cx: -c.x, cy: -c.y, w: 0, h: 0 };
-  }
-  return { cx: -r.cx, cy: -r.cy, w: r.w, h: r.h };
+  if (r) return r;
+  const c = finAt(framesOf(typeId).q, 0.5, 0.4);
+  return { cx: c[0], cy: c[1], w: 0, h: 0 };
 }
 
 // ---------- layout ----------
@@ -322,27 +355,31 @@ export function stickerText(lv: Livery, kind: StickerKind, d: StickerTexts): str
   return '';
 }
 
+/** The title band (viewBox): nose-side start x of the ink, centre line, longest run, letter size. */
+export function titleBand(typeId: string): { x: number; y: number; w: number; size: number } {
+  const { d } = framesOf(typeId);
+  return { x: d.nose - d.titles.x, y: d.titles.y, w: d.titles.w, size: d.titles.size };
+}
+
 /**
  * Boxes for every sticker the livery draws on this type, in draw order (viewBox coords).
  * Scale 1 at the auto position fits its zone: the code and a fin logo inside the fin inset,
  * titles inside the title band. Anything bigger or moved is clipped by the renderer.
  */
 export function stickerLayout(typeId: string, lv: Livery, defaults: StickerTexts, detail: 'full' | 'simple' = 'full'): StickerBox[] {
-  const { g } = framesOf(typeId);
+  const { q, L, H } = framesOf(typeId);
   const scheme = lv.tail;
-  const legacy = g.livery(scheme).code;
-  // v0.5 letter size caps the code (a few traces give no usable value: no cap then)
-  const cap = legacy.size > 0 ? legacy.size : Infinity;
-  const fallback = legacy.size > 0 ? legacy.size * 0.5 : g.H * 0.2;
-  const band = g.titles;
+  const cap = codeCap(typeId, scheme);
+  const fallback = cap * 0.5;
+  const band = titleBand(typeId);
   const bandCap = band.size * textInkEm('H').asc;
   const out: StickerBox[] = [];
-  /** Nose-side end of the auto titles' ink (world x), for an auto fuselage logo aft of them. */
+  /** Tail-side end of the auto titles' ink (viewBox x), for an auto fuselage logo aft of them. */
   let titlesEnd = band.x;
   const list = stickersOf(lv).slice(0, 6);
-  // titles first: an auto fuselage logo sits aft of them
   const order = [...list].sort((a, b) => (a.kind === 'titles' ? 0 : 1) - (b.kind === 'titles' ? 0 : 1));
   const boxes = new Map<string, StickerBox>();
+  const anchor = finAt(q, 0.5, 0.42);
   for (const st of order) {
     const scale = clamp(Number.isFinite(st.scale) ? st.scale : 1, 0.3, 3);
     const rot = clamp(st.rotation ?? 0, -45, 45);
@@ -354,13 +391,13 @@ export function stickerLayout(typeId: string, lv: Livery, defaults: StickerTexts
       if (st.side === 'fin') {
         const r = logoRect(typeId);
         side = r ? Math.min(r.w, r.h) : fallback;
-        c = r ? toView([r.cx, r.cy]) : toView([legacy.x, legacy.y]);
+        c = r ? [r.cx, r.cy] : anchor;
       } else {
-        side = Math.min(g.H * 0.42, bandCap * 2.2);
-        c = toView([Math.min(titlesEnd + side * 0.9, g.L * 0.7), band.y]);
+        side = Math.min(H * 0.42, bandCap * 2.2);
+        c = [Math.max(titlesEnd - side * 0.9, band.x - L * 0.7 + side), band.y];
       }
       side *= scale;
-      if (detail === 'simple' && st.side === 'fuselage' && side < g.L * MINI_LOGO) continue;
+      if (detail === 'simple' && st.side === 'fuselage' && side < L * MINI_LOGO) continue;
       const p = at ? pullOn(typeId, st, { cx: at[0], cy: at[1], w: side, h: side, rot }) : c;
       boxes.set(st.id, { id: st.id, kind: 'logo', side: st.side, cx: p[0], cy: p[1], w: side, h: side, rot });
       continue;
@@ -376,27 +413,21 @@ export function stickerLayout(typeId: string, lv: Livery, defaults: StickerTexts
     let fs: number, c: V;
     if (st.side === 'fin') {
       const r = finRect(typeId, scheme, wEm / hEm, st.kind === 'code' ? cap * hEm : Infinity);
-      // never bigger than v0.5's letters; never outside the inset
       fs = r ? Math.min(r.h / hEm, r.w / wEm, st.kind === 'code' ? cap : Infinity) : fallback;
-      c = r ? toView([r.cx, r.cy]) : toView([legacy.x, legacy.y]);
-    } else if (st.kind === 'titles') {
-      fs = Math.min(band.size, band.w / wEm);
-      c = toView([band.x + (fs * wEm) / 2, band.y]);
+      c = r ? [r.cx, r.cy] : anchor;
     } else {
-      // code on the fuselage: title-band letters
+      // titles (and a code moved to the fuselage): title-band letters, starting behind the forward door
       fs = Math.min(band.size, band.w / wEm);
-      c = toView([band.x + (fs * wEm) / 2, band.y]);
+      c = [band.x - (fs * wEm) / 2, band.y];
     }
-    if (st.kind === 'titles' && st.side === 'fuselage' && !custom) titlesEnd = band.x + fs * wEm;
+    if (st.kind === 'titles' && st.side === 'fuselage' && !custom) titlesEnd = band.x - fs * wEm;
     fs *= scale;
-    // a placed sticker never vanishes: mostly off the airframe, it is drawn pulled back on
     const p = at ? pullOn(typeId, st, { cx: at[0], cy: at[1], w: fs * wEm, h: fs * hEm, rot }) : c;
     boxes.set(st.id, {
       id: st.id, kind: st.kind, side: st.side, cx: p[0], cy: p[1], w: fs * wEm, h: fs * hEm, rot,
       fontSize: fs, text, baseline: ((ink.asc - ink.desc) / 2) * fs, weight, spacing,
     });
   }
-  // draw order = the livery's list order
   for (const st of list) {
     const b = boxes.get(st.id);
     if (b) out.push(b);
@@ -432,7 +463,7 @@ export function boxSamples(b: Pick<StickerBox, 'cx' | 'cy' | 'w' | 'h' | 'rot'>,
   return out;
 }
 
-/** Share of a box on the airframe (fin or fuselage tube): what survives the renderer's clip. */
+/** Share of a box on the airframe (fin or fuselage zone): what survives the renderer's clip. */
 export function visibleShare(typeId: string, b: Pick<StickerBox, 'cx' | 'cy' | 'w' | 'h' | 'rot'>): number {
   const pts = boxSamples(b, 9, 5);
   return pts.filter(([X, Y]) => sideAt(typeId, X, Y)).length / pts.length;
@@ -444,18 +475,15 @@ export const MIN_VISIBLE = 0.5;
 /** Centre for a placed box that is mostly off the airframe: walked toward the middle of its side until enough shows. */
 function pullOn(typeId: string, st: StickerPlacement, b: Pick<StickerBox, 'cx' | 'cy' | 'w' | 'h' | 'rot'>): V {
   if (visibleShare(typeId, b) >= MIN_VISIBLE) return [b.cx, b.cy];
-  // target: the same station on the frame's middle line (fin: mid-chord), held off the ends
-  // then on toward the frame's middle
   const x = clamp(st.x ?? 0.5, 0.1, 0.9), y = clamp(st.y ?? 0.5, 0.15, 0.85);
-  // last: a point surely inside (the fin's auto inset; a skewed trace's quad can sit off its outline)
   const fi = st.side === 'fin' ? finInset(typeId, 'solid') : undefined;
-  const mid: V = fi ? [fi.cx, fi.cy] : frameToView(typeId, 'fuselage', 0.5, 0.5);
+  const band = titleBand(typeId);
+  const mid: V = fi ? [fi.cx, fi.cy] : [band.x - band.w / 2, band.y];
   let from: V = [b.cx, b.cy];
-  for (const goal of [st.side === 'fin' ? frameToView(typeId, 'fin', 0.5, y) : frameToView(typeId, 'fuselage', x, 0.5), mid]) {
+  for (const goal of [st.side === 'fin' ? frameToView(typeId, 'fin', 0.5, y) : frameToView(typeId, 'fuselage', x, 0.3), mid]) {
     const at = (k: number): V => [lerp(from[0], goal[0], k), lerp(from[1], goal[1], k)];
     const ok = (k: number) => { const p = at(k); return visibleShare(typeId, { ...b, cx: p[0], cy: p[1] }) >= MIN_VISIBLE; };
     if (ok(1)) {
-      // bisect for the first point on the way that shows enough (the drop stays as close as it can)
       let lo = 0, hi = 1;
       for (let i = 0; i < 8; i++) { const m = (lo + hi) / 2; if (ok(m)) hi = m; else lo = m; }
       return at(hi);
@@ -475,14 +503,13 @@ export function placeAt(typeId: string, st: StickerPlacement, X: number, Y: numb
 
 /** Snap lines (viewBox): fin inset centre and fin mid-point; fuselage title band line, window line and mid-length. */
 export function snapTargets(typeId: string, side: StickerSide): { x: number[]; y: number[] } {
-  const f = framesOf(typeId);
-  const { g } = f;
+  const { d, q, L } = framesOf(typeId);
   if (side === 'fin') {
     const r = finInset(typeId, 'solid');
-    const mid = finAt(g.fin.quad, 0.5, 0.5);
-    return { x: [r.cx, -mid[0]], y: [r.cy, -mid[1]] };
+    const mid = finAt(q, 0.5, 0.5);
+    return { x: [r.cx, mid[0]], y: [r.cy, mid[1]] };
   }
-  const y = [-g.titles.y];
-  if (f.winY !== undefined) y.push(-f.winY);
-  return { x: [-g.L / 2], y };
+  const y = [d.titles.y];
+  if (d.win) y.push((d.win[0] + d.win[1]) / 2);
+  return { x: [d.nose - L / 2], y };
 }

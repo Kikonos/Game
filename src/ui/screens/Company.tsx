@@ -210,7 +210,7 @@ function LiveryCard({ g }: { g: GameState }) {
   for (const ac of fleet) count[liveryOf(g, ac).source]++;
   const locked = fleet.filter((ac) => paintStatus(g, ac.id).locked).length;
   const others = fleet.length - count.company - locked;
-  const typeId = artFor(fleet[0]?.typeId ?? 'a320ceo');
+  const typeId = artFor(fleet[0]?.typeId ?? 'a320ceo', fleet[0]?.variant);
   const parts = [
     `${count.company} in company colours`,
     count.white ? `${count.white} all white` : '',

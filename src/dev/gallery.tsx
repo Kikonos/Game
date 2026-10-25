@@ -1,46 +1,33 @@
-// Dev-only aircraft art gallery: /gallery.html?types=a320neo,b738&livery=redsplit&bg=dark&size=hero&compare=1
+// Dev-only aircraft art gallery (v0.10 raster sprites): /gallery.html?types=a320ceo,b738&livery=redsplit&bg=dark&size=hero
 // See src/ui/components/aircraft/README.md for all parameters.
-// Traced-profile checks (crops served from /dev-ref/<type>/ by the vite dev-ref plugin):
-//   ?gallery=compare&type=a320ceo   art over the reference crop at the crop's own pixel scale, nose aligned
-//     &k=3 (crop px per source px; crop.png is the source ×3) &nx=&ny= (nose tip in crop px, auto from mask.png)
-//     &op=0.5 &zoom=1 &under=1 (art under the crop) &crop=<id> (borrow another type's crop)
-//   ?gallery=sheet[&w=440]          every traced type: crop | art at the same scale | overlay
-// Livery checks (v0.5.1):
-//   ?gallery=logos[&types=a320ceo,b77w]   the 15 logos alone (64/28/14 px) and on each type's tail
-//   ?gallery=float[&codes=WW,MQ,XQZ]      tail code v0.5 (left, needs zzLegacyArt.tmp.tsx) | now (right)
-//   ?gallery=clip[&stickers=0]            magenta stickers at scale 3 in the corners (stickers=0: mask)
-//   ?gallery=editor                       the LiveryEditor sheet with local state
-// v0.5.2 checks:
-//   ?gallery=lod[&types=…&detail=simple]  each type at 60…720 px wide (windows/doors level of detail, artLod)
-//   ?gallery=crown[&types=…]              each type alone at 1150 px wide (crown / belly / tail cone fairing)
-//   &fair=0                               raw traces, no fairing (before/after comparisons)
-//   &logo=<id>|mono &plain=1 &codecolor=#hex &weight=500   override the chosen livery
+//   ?gallery=compare        every type at one scale (real length; &ppm=<CSS px per metre>)
+//   ?gallery=logos[&types=] the 15 logos alone (64/28/14 px), tail badges, and each logo on each type's tail
+//   ?gallery=clip[&stickers=0]  magenta stickers at scale 3 in the corners (stickers=0: the plain sprites)
+//   ?gallery=editor[&types=] the LiveryEditor sheet with local state (#g-livery-json holds the value)
+//   ?gallery=lod            each type in boxes 60…720 px wide (thumbnails, cards, rows)
+//   ?gallery=layout         the measured layout over each sprite (fin, fin frame, sticker zone, title band)
+//   &logo=<id>|mono &plain=1 &tail=<scheme> &codecolor=#hex &weight=500   override the chosen livery
 
 import '@fontsource-variable/inter';
 import '@fontsource-variable/space-grotesk';
 import '@fontsource-variable/jetbrains-mono';
 import '../styles/app.css';
 import '../styles/screens.css';
-import { StrictMode, useEffect, useState, type ReactNode } from 'react';
+import { StrictMode, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ACMI_TYPES_LIST } from '../data/acmiTypes';
-import { AIRCRAFT } from '../data/aircraft';
 import { LOGO_IDS, type LogoId } from '../data/livery';
 import type { Livery, StickerPlacement, TailStyle } from '../engine/core/types';
-import { AircraftArt, artMetrics, artViewBox, type AircraftArtProps } from '../ui/components/aircraft/AircraftArt';
-import { fairing } from '../ui/components/aircraft/fair';
+import { AircraftArt } from '../ui/components/aircraft/AircraftArt';
 import { LOGOS, LogoGlyph } from '../ui/components/aircraft/logos';
-import { TRACED } from '../ui/components/aircraft/traced/load';
+import { LENGTH_M, layoutOf, metresPerPx, SPRITE_IDS } from '../ui/components/aircraft/sprites';
+import { finAt, polyPath, titleBand } from '../ui/components/aircraft/stickers';
 import { TailBadge } from '../ui/components/Logo';
 import { LiveryEditor } from '../ui/components/livery/LiveryEditor';
 import '../styles/acmi/livery.css';
 
-// v0.5 renderer, when a scratch copy is present (git show <v0.5>:…/AircraftArt.tsx > …/zzLegacyArt.tmp.tsx)
-const legacyMods = import.meta.glob<{ AircraftArt: (p: AircraftArtProps) => ReactNode }>('../ui/components/aircraft/zzLegacyArt.tmp.tsx', { eager: true });
-const LegacyArt = Object.values(legacyMods)[0]?.AircraftArt as ((p: AircraftArtProps) => ReactNode) | undefined;
-
-// catalogue types plus the ACMI-only ones (a332, a343, a35u, b77l)
-const NAMES: Record<string, string> = Object.fromEntries([...AIRCRAFT, ...ACMI_TYPES_LIST].map((t) => [t.id, t.name]));
+/** Sprite → the type(s) drawn with it. */
+const NAMES: Record<string, string> = Object.fromEntries(SPRITE_IDS.map((id) => [id, ACMI_TYPES_LIST.filter((t) => t.art === id || t.id === id).map((t) => t.short).join(' / ') || id]));
 
 const LIVERIES: Record<string, Livery> = {
   blockhours: { primary: '#1e4fd8', secondary: '#3ee6ff', tail: 'sweep' },
@@ -56,20 +43,19 @@ const LIVERIES: Record<string, Livery> = {
     logo: { id: 'orbit', color: '#f5c451', color2: '#0b1f4d' },
     stickers: [
       { id: 'logo', kind: 'logo', side: 'fin', scale: 1 }, { id: 'titles', kind: 'titles', side: 'fuselage', scale: 1 },
-      { id: 'code', kind: 'code', side: 'fuselage', x: 0.72, y: 0.62, scale: 1.4, rotation: -8 },
+      { id: 'code', kind: 'code', side: 'fuselage', x: 0.72, y: 0.55, scale: 1.4, rotation: -8 },
       { id: 'logo2', kind: 'logo', side: 'fuselage', scale: 1 },
     ],
   },
 };
 const LOGO_SET = new Set<string>([...LOGO_IDS, 'mono']);
-const BGS: Record<string, string> = { dark: '#111a2c', blue: '#6f8fc4' };
+const BGS: Record<string, string> = { dark: '#111a2c', blue: '#6f8fc4', light: '#eef2f8' };
 const SIZES = ['hero', 'card', 'mini'] as const;
 type Size = (typeof SIZES)[number];
 
 const q = new URLSearchParams(location.search);
-if (q.get('fair') === '0') fairing.on = false;
 const list = (k: string) => q.get(k)?.split(',').map((s) => s.trim()).filter(Boolean);
-const types = (list('types') ?? Object.keys(NAMES)).filter((id) => NAMES[id] || TRACED.has(id));
+const types = (list('types') ?? SPRITE_IDS).filter((id) => SPRITE_IDS.includes(id) || ACMI_TYPES_LIST.some((t) => t.id === id));
 const liveryKey = q.get('livery') ?? 'blockhours';
 const livery: Livery = (() => {
   const l: Livery = { ...(LIVERIES[liveryKey] ?? LIVERIES.blockhours) };
@@ -82,16 +68,11 @@ const livery: Livery = (() => {
   if (tail && ['solid', 'split', 'stripe', 'sweep'].includes(tail)) l.tail = tail as TailStyle;
   return l;
 })();
-const bgs = (list('bg') ?? Object.keys(BGS)).filter((b) => BGS[b]);
+const bgs = (list('bg') ?? ['dark', 'blue']).filter((b) => BGS[b]);
 const sizes = (list('size') ?? [...SIZES]).filter((s): s is Size => (SIZES as readonly string[]).includes(s));
 const code = q.get('code') ?? (liveryKey === 'used' ? undefined : 'BH');
 const name = q.get('name') ?? (liveryKey === 'used' ? undefined : 'Block Hours');
-const compare = q.get('compare') === '1';
-/** 'compare' = one type over its reference crop, 'sheet' = every traced type next to its crop. */
 const mode = q.get('gallery');
-const num = (k: string, d: number) => { const v = Number(q.get(k)); return Number.isFinite(v) && q.get(k) !== null ? v : d; };
-/** Fixed compare scale in CSS px per metre (default: widest type fills ~1150px). */
-const ppm = Number(q.get('ppm')) || 0;
 
 const css = `
   body { margin: 0; background: #070b14; color: #e8eefc; font-family: var(--font-ui); }
@@ -104,215 +85,47 @@ const css = `
   .g-panel { border-radius: 14px; padding: 16px; margin-bottom: 12px; display: flex; flex-wrap: wrap; gap: 14px; }
   .g-cell { margin: 0; display: flex; flex-direction: column; gap: 4px; }
   .g-cell figcaption { font: 600 11px/1.2 var(--font-mono); color: rgba(232,238,252,0.75); }
-  .g-panel[data-bg="blue"] figcaption { color: rgba(10,20,40,0.8); }
+  .g-panel[data-bg="blue"] figcaption, .g-panel[data-bg="light"] figcaption { color: rgba(10,20,40,0.8); }
   .g-box { display: flex; align-items: center; justify-content: center; }
   .g-hero .g-box { width: 720px; }
   .g-card .g-box { width: 320px; height: 120px; border-radius: 10px; background: rgba(255,255,255,0.03); }
   .g-mini .g-box { width: 92px; height: 36px; }
   .g-mini figcaption { font-size: 9px; }
-  .g-cmp { position: relative; border-radius: 14px; padding: 20px; display: flex; flex-direction: column; gap: 6px; width: max-content; min-width: 100%; box-sizing: border-box; }
-  .g-cmp-row { margin: 0; display: flex; flex-direction: row; align-items: flex-end; justify-content: flex-start; gap: 0; }
-  .g-cmp-row figcaption { width: 90px; margin-right: 12px; flex: none; align-self: center; font: 600 11px/1.2 var(--font-mono); color: rgba(232,238,252,0.75); text-align: right; }
-  .g-cmp-art { flex: none; line-height: 0; }
-  .g-cmp-nose { position: absolute; top: 12px; bottom: 12px; width: 0; border-left: 1px dashed rgba(232,238,252,0.18); pointer-events: none; }
-  .g-cmp[data-bg="blue"] .g-cmp-nose { border-color: rgba(10,20,40,0.25); }
-  .g-ref { position: relative; overflow: hidden; background: #6f8fc4; border-radius: 6px; }
-  .g-ref img { position: absolute; left: 0; top: 0; display: block; }
-  .g-ref-art { position: absolute; line-height: 0; transform: scaleX(-1); }
-  .g-ref-cross { position: absolute; width: 0; height: 0; pointer-events: none; }
-  .g-ref-cross::before, .g-ref-cross::after { content: ''; position: absolute; background: #ff2d55; }
-  .g-ref-cross::before { left: -12px; top: 0; width: 25px; height: 1px; }
-  .g-ref-cross::after { left: 0; top: -12px; width: 1px; height: 25px; }
-  .g-ref-info { font: 500 12px/1.5 var(--font-mono); color: #93a0bb; margin: 8px 0 18px; white-space: pre-wrap; }
-  .g-sheet-row { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 16px; }
-  .g-sheet-row h3 { font: 600 12px/1.2 var(--font-mono); margin: 0 0 6px; color: #e8eefc; }
+  .g-cmp { border-radius: 14px; padding: 20px; display: flex; flex-direction: column; gap: 6px; }
+  .g-cmp-row { margin: 0; display: flex; align-items: flex-end; gap: 12px; }
+  .g-cmp-row figcaption { width: 120px; flex: none; font: 600 11px/1.2 var(--font-mono); color: rgba(232,238,252,0.75); text-align: right; }
 `;
 
-// ---------- traced-profile reference overlays ----------
-
-interface Crop { W: number; H: number; src: string; nose: [number, number] | null; /** Rightmost aircraft column (tail cone or stabiliser tip). */ aft: number | null; error?: string }
-
-/** Nose tip (leftmost aircraft pixel) and aft-most column of mask.png, else of crop.png by colour distance to the row's edge pixels. */
-function findNose(img: HTMLImageElement, binary: boolean): [number, number, number] | null {
-  const W = img.naturalWidth, H = img.naturalHeight;
-  const c = document.createElement('canvas');
-  c.width = W; c.height = H;
-  const ctx = c.getContext('2d', { willReadFrequently: true });
-  if (!ctx) return null;
-  ctx.drawImage(img, 0, 0);
-  const d = ctx.getImageData(0, 0, W, H).data;
-  const set = new Uint8Array(W * H);
-  let n = 0;
-  if (binary) {
-    for (let i = 0; i < W * H; i++) if (d[i * 4] + d[i * 4 + 1] + d[i * 4 + 2] > 382) { set[i] = 1; n++; }
-    if (n > (W * H) / 2) { for (let i = 0; i < W * H; i++) set[i] = set[i] ? 0 : 1; }
-  } else {
-    const px = (x: number, y: number) => [d[(y * W + x) * 4], d[(y * W + x) * 4 + 1], d[(y * W + x) * 4 + 2]];
-    const dist = (a: number[], b: number[]) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
-    for (let y = 0; y < H; y++) {
-      const l = px(1, y), r = px(W - 2, y);
-      for (let x = 0; x < W; x++) {
-        const v = px(x, y);
-        if (dist(v, l) > 48 && dist(v, r) > 48) set[y * W + x] = 1;
-      }
-    }
-  }
-  // first / last column with two set pixels whose neighbour column is set too (skips specks)
-  const rowsAt = (x: number) => {
-    const rows: number[] = [];
-    for (let y = 0; y < H; y++) if (set[y * W + x] && (set[y * W + x + 1] || set[y * W + x - 1])) rows.push(y);
-    return rows;
-  };
-  let aft = -1;
-  for (let x = W - 2; x > 0 && aft < 0; x--) if (rowsAt(x).length >= 2) aft = x;
-  for (let x = 1; x < W - 1; x++) {
-    const rows = rowsAt(x);
-    if (rows.length >= 2) {
-      rows.sort((a, b) => a - b);
-      return [x, rows[Math.floor(rows.length / 2)], aft];
-    }
-  }
-  return null;
-}
-
-function load(src: string): Promise<HTMLImageElement> {
-  return new Promise((ok, err) => {
-    const im = new Image();
-    im.onload = () => ok(im);
-    im.onerror = () => err(new Error(`cannot load ${src}`));
-    im.src = src;
-  });
-}
-
-function useCrop(id: string): Crop | null {
-  const [crop, setCrop] = useState<Crop | null>(null);
-  useEffect(() => {
-    let live = true;
-    // &crop=<id> borrows another type's crop folder (e.g. a traced variant sharing a reference)
-    const base = `${q.get('ref') ?? '/dev-ref'}/${q.get('crop') ?? id}`;
-    (async () => {
-      try {
-        const im = await load(`${base}/crop.png`);
-        let found: [number, number, number] | null = null;
-        try { found = findNose(await load(`${base}/mask.png`), true); } catch { /* no mask: segment the crop */ }
-        found ??= findNose(im, false);
-        if (live) setCrop({ W: im.naturalWidth, H: im.naturalHeight, src: im.src, nose: found && [found[0], found[1]], aft: found && found[2] });
-      } catch (e) {
-        if (live) setCrop({ W: 0, H: 0, src: '', nose: null, aft: null, error: String(e) });
-      }
-    })();
-    return () => { live = false; };
-  }, [id]);
-  return crop;
-}
-
-/** Art (mirrored to the crop's nose-left frame) at the crop's pixel scale, nose tip on the crop's nose tip. */
-function RefOverlay({ id, crop, zoom, opacity, under, showCrop = true, showArt = true }: { id: string; crop: Crop; zoom: number; opacity: number; under?: boolean; showCrop?: boolean; showArt?: boolean }) {
-  const m = artMetrics(id);
-  const t = m.traced;
-  if (!t) return <div className="g-ref-info">{id}: no traced profile</div>;
-  // crop.png is the source crop upscaled x3 (contract): the art spans exactly lengthPx x 3 crop pixels
-  const k = num('k', 3);
-  const ppm = (t.lengthPx * k) / m.length;
-  const nose: [number, number] = [num('nx', crop.nose?.[0] ?? 0), num('ny', crop.nose?.[1] ?? crop.H / 2)];
-  const { vb, tip } = m;
-  const left = nose[0] - (vb.x + vb.w - tip[0]) * ppm;
-  const top = nose[1] - (tip[1] - vb.y) * ppm;
-  const art = (
-    <div className="g-ref-art" style={{ left, top, width: vb.w * ppm, height: vb.h * ppm, opacity: under ? 1 : opacity }}>
-      <AircraftArt typeId={id} livery={livery} pxPerM={ppm} />
-    </div>
-  );
-  return (
-    <div style={{ width: crop.W * zoom, height: crop.H * zoom, overflow: 'hidden' }}>
-      <div className="g-ref" data-type={id} style={{ width: crop.W, height: crop.H, transform: `scale(${zoom})`, transformOrigin: '0 0' }}>
-        {under && showArt && art}
-        {showCrop && <img src={crop.src} width={crop.W} height={crop.H} alt="" style={{ opacity: under && showArt ? opacity : 1 }} />}
-        {!under && showArt && art}
-        {showCrop && <div className="g-ref-cross" style={{ left: nose[0], top: nose[1] }} />}
-      </div>
-    </div>
-  );
-}
-
-function refInfo(id: string, crop: Crop): string {
-  const m = artMetrics(id);
-  const t = m.traced;
-  if (!t) return `${id}: no traced profile`;
-  const k = num('k', 3);
-  const span = crop.nose && crop.aft !== null ? crop.aft - crop.nose[0] : null;
-  const len = t.lengthPx * k;
-  return `${id} · ${t.source}\ncrop ${crop.W}×${crop.H}px · lengthPx ${t.lengthPx} × k ${k} = ${len.toFixed(0)}px for ${m.length.toFixed(2)} m (${(len / m.length).toFixed(2)} px/m)`
-    + `${span ? ` · mask nose→aft-most span ${span}px (${((span / len - 1) * 100).toFixed(1)}% vs lengthPx; tail cone or stabiliser tip)` : ''}`
-    + `\nnose tip ${crop.nose ? `${crop.nose[0]},${crop.nose[1]}px (from mask/crop)` : 'not found'}${q.get('nx') ? ` · override ${q.get('nx')},${q.get('ny')}` : ''}`;
-}
-
-function CompareRef({ id }: { id: string }) {
-  const crop = useCrop(id);
-  if (!crop) return <div className="g-ref-info">loading {id} …</div>;
-  if (crop.error) return <div className="g-ref-info">{crop.error} (is dev-ref → trace folder linked and the vite dev-ref plugin running?)</div>;
-  return (
-    <>
-      <div className="g-ref-info">{refInfo(id, crop)}</div>
-      <RefOverlay id={id} crop={crop} zoom={num('zoom', 1)} opacity={num('op', 0.5)} under={q.get('under') === '1'} />
-    </>
-  );
-}
-
-function SheetRow({ id, w }: { id: string; w: number }) {
-  const crop = useCrop(id);
-  if (!crop) return <div className="g-ref-info">loading {id} …</div>;
-  if (crop.error) return <div className="g-ref-info">{id}: {crop.error}</div>;
-  const zoom = w / crop.W;
-  return (
-    <div>
-      <h3>{refInfo(id, crop).replace(/\n/g, ' · ')}</h3>
-      <div className="g-sheet-row" data-type={id}>
-        <RefOverlay id={id} crop={crop} zoom={zoom} opacity={1} showArt={false} />
-        <RefOverlay id={id} crop={crop} zoom={zoom} opacity={1} showCrop={false} />
-        <RefOverlay id={id} crop={crop} zoom={zoom} opacity={num('op', 0.5)} />
-      </div>
-    </div>
-  );
-}
-
 function Cell({ id, size }: { id: string; size: Size }) {
-  const props = size === 'mini'
-    ? { detail: 'simple' as const, height: 36 }
-    : size === 'card' ? { height: 110 } : {};
   return (
     <figure className="g-cell" data-type={id} data-size={size}>
       <div className="g-box">
-        <AircraftArt typeId={id} livery={livery} code={size === 'mini' ? undefined : code} name={size === 'mini' ? undefined : name} {...props} />
+        <AircraftArt typeId={id} livery={livery} code={size === 'mini' ? undefined : code} name={size === 'mini' ? undefined : name} detail={size === 'mini' ? 'simple' : 'full'} />
       </div>
-      <figcaption>{size === 'mini' ? id : `${id} · ${NAMES[id] ?? 'traced only'}`}</figcaption>
+      <figcaption>{id} · {NAMES[id] ?? id}</figcaption>
     </figure>
   );
 }
 
-function Compare({ bg }: { bg: string }) {
-  // every row shares one scale (px per metre) and ends at the nose tip (x = 0 m, nose right), so
-  // lengths, heights and wing positions compare directly; turboprop discs etc. may poke past it
-  const boxes = types.map((id) => ({ id, vb: artViewBox(id) }));
-  const x0 = Math.min(...boxes.map((b) => b.vb.x));
-  const k = ppm || Math.min(16, 1150 / Math.max(...boxes.map((b) => b.vb.x + b.vb.w - x0)));
-  const nose = 20 + 90 + 12 + -x0 * k;
+/** Every type at one scale (CSS px per metre of the real aircraft), noses lined up on the right. */
+function Compare() {
+  const longest = Math.max(...types.map((t) => LENGTH_M[t] ?? 40));
+  const ppm = Number(q.get('ppm')) || 1000 / longest;
   return (
-    <div className="g-cmp" data-bg={bg} data-ppm={k} style={{ background: BGS[bg] }}>
-      <div className="g-cmp-nose" style={{ left: nose }} />
-      {boxes.map(({ id, vb }) => (
-        <figure className="g-cmp-row" key={id} data-type={id} data-size="compare">
-          <figcaption>{id}</figcaption>
-          <div className="g-cmp-art" style={{ marginLeft: (vb.x - x0) * k, width: vb.w * k }}>
-            <AircraftArt typeId={id} livery={livery} code={code} name={name} pxPerM={k} />
-          </div>
-        </figure>
-      ))}
+    <div className="g-cmp" style={{ background: BGS[bgs[0] ?? 'dark'] }}>
+      {[...types].sort((a, b) => (LENGTH_M[a] ?? 0) - (LENGTH_M[b] ?? 0)).map((t) => {
+        const d = layoutOf(t);
+        const right = (d.w - d.nose) * metresPerPx(t) * ppm;
+        return (
+          <figure className="g-cmp-row" key={t} data-type={t}>
+            <figcaption>{t} {LENGTH_M[t]} m</figcaption>
+            <div style={{ marginLeft: 'auto', marginRight: 40 - right, lineHeight: 0 }}><AircraftArt typeId={t} livery={livery} code={code} name={name} pxPerM={ppm} /></div>
+          </figure>
+        );
+      })}
     </div>
   );
 }
-
-// ---------- livery checks ----------
 
 const TONES: [string, string][] = [['#1e4fd8', '#3ee6ff'], ['#d6283c', '#1e293b'], ['#0f9d76', '#f5c451'], ['#7a1f2b', '#e8b04a']];
 
@@ -320,18 +133,16 @@ function LogoSheet() {
   const ids = [...LOGO_IDS];
   const tailTypes = list('types') ?? ['a320ceo', 'b77w'];
   return (
-    <div className="g-logos">
+    <div>
       <section className="g-size">
-        <h2>logos · 64 / 28 / 14 px</h2>
+        <h2>logos</h2>
         <div className="g-panel" style={{ background: BGS.dark }}>
           {ids.map((id, i) => {
             const [c1, c2] = TONES[i % TONES.length];
             return (
               <figure className="g-cell" key={id} data-logo={id}>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center', background: '#fff', borderRadius: 8, padding: 6 }}>
-                  {[64, 28, 14].map((s) => (
-                    <svg key={s} width={s} height={s} viewBox="0 0 100 100"><LogoGlyph logo={{ id, color: c1, color2: c2 }} /></svg>
-                  ))}
+                  {[64, 28, 14].map((s) => <svg key={s} width={s} height={s} viewBox="0 0 100 100"><LogoGlyph logo={{ id, color: c1, color2: c2 }} /></svg>)}
                 </div>
                 <figcaption>{LOGOS[id].name}</figcaption>
               </figure>
@@ -344,7 +155,6 @@ function LogoSheet() {
         <div className="g-panel" style={{ background: BGS.dark, gap: 8 }}>
           {(['solid', 'split', 'stripe', 'sweep'] as const).map((tail) => <TailBadge key={tail} primary="#d6283c" secondary="#ffffff" code="BH" size={44} livery={{ ...livery, tail, plain: undefined, logo: undefined }} />)}
           <TailBadge primary="#fff" secondary="#000" code="BH" size={44} livery={{ ...livery, plain: true, logo: undefined }} />
-          <TailBadge primary="#1e4fd8" secondary="#3ee6ff" code="BH" size={44} />
           {ids.map((id, i) => <TailBadge key={id} primary="#000" secondary="#000" code="BH" size={44} livery={{ primary: TONES[i % 4][0], secondary: TONES[i % 4][1], tail: 'solid', logo: { id, color: '#ffffff', color2: TONES[i % 4][1] } }} />)}
         </div>
       </section>
@@ -360,36 +170,6 @@ function LogoSheet() {
                   <div className="g-box" style={{ width: 300, height: 104 }}><AircraftArt typeId={t} livery={lv} name="Block Hours" height={100} /></div>
                   <div className="g-box" style={{ width: 92, height: 36 }}><AircraftArt typeId={t} livery={lv} detail="simple" height={34} /></div>
                   <figcaption>{id}</figcaption>
-                </figure>
-              );
-            })}
-          </div>
-        </section>
-      ))}
-    </div>
-  );
-}
-
-function FloatCheck() {
-  const codes = list('codes') ?? ['WW', 'MQ', 'XQZ'];
-  const schemes: TailStyle[] = ['split', 'solid', 'sweep', 'stripe'];
-  return (
-    <div>
-      {!LegacyArt && <div className="g-ref-info">no zzLegacyArt.tmp.tsx: showing the current renderer only</div>}
-      {types.map((t) => (
-        <section className="g-size" key={t} data-type={t}>
-          <h2>{t}</h2>
-          <div className="g-panel" style={{ background: BGS.blue }}>
-            {schemes.map((sc, i) => {
-              const lv: Livery = { ...LIVERIES[['redsplit', 'navysolid', 'blockhours', 'greenstripe'][i]], tail: sc };
-              const c = codes[i % codes.length];
-              return (
-                <figure className="g-cell" key={sc}>
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    {LegacyArt && <div className="g-box" style={{ width: 280, height: 110, outline: '1px dashed rgba(255,60,60,0.6)' }}><LegacyArt typeId={t} livery={lv} code={c} name="Block Hours" height={106} /></div>}
-                    <div className="g-box" style={{ width: 280, height: 110 }}><AircraftArt typeId={t} livery={lv} code={c} name="Block Hours" height={106} /></div>
-                  </div>
-                  <figcaption>{sc} · {c} · {LegacyArt ? 'v0.5 | v0.5.1' : 'v0.5.1'}</figcaption>
                 </figure>
               );
             })}
@@ -416,6 +196,7 @@ const CORNERS: StickerPlacement[][] = [
   ],
 ];
 
+/** Magenta stickers pushed to the frame corners at scale 3: no magenta may show off the fin or the fuselage zone. */
 function ClipCheck() {
   const on = q.get('stickers') !== '0';
   const base: Livery = { primary: '#ffffff', secondary: '#ffffff', tail: 'solid', plain: true };
@@ -428,11 +209,11 @@ function ClipCheck() {
               const lv: Livery = on
                 ? { ...base, code: { color: MAGENTA, text: 'WMQ' }, titles: { color: MAGENTA }, logo: { id: 'spark', color: MAGENTA }, stickers: st }
                 : { ...base, stickers: [] };
-              return ['hero', 'card', 'mini'].map((sz) => (
-                <div key={`${i}${sz}`} className="g-box" style={{ width: sz === 'hero' ? 520 : sz === 'card' ? 300 : 92, height: sz === 'hero' ? 170 : sz === 'card' ? 104 : 36 }}>
-                  <AircraftArt typeId={t} livery={lv} code="WW" name="Block Hours Wide Name" detail={sz === 'mini' ? 'simple' : 'full'} height={sz === 'hero' ? 166 : sz === 'card' ? 100 : 34} />
+              return (
+                <div key={i} className="g-box" style={{ width: 520, height: 170 }}>
+                  <AircraftArt typeId={t} livery={lv} code="WW" name="Block Hours Wide Name" height={166} />
                 </div>
-              ));
+              );
             })}
           </div>
         </section>
@@ -443,18 +224,16 @@ function ClipCheck() {
 
 const LOD_W = [60, 90, 120, 150, 220, 320, 480, 720];
 
-/** Each type in boxes of growing width (art fills the box, as in Fleet / market / map panels). */
 function LodSheet() {
-  const det = q.get('detail') === 'simple' ? 'simple' : 'full';
   return (
-    <div className="g-lod">
+    <div>
       {types.map((t) => (
         <section className="g-size" key={t} data-type={t}>
           <h2>{t}</h2>
-          <div className="g-panel" style={{ background: BGS.dark, display: 'flex', alignItems: 'end', gap: 12, flexWrap: 'wrap' }}>
+          <div className="g-panel" style={{ background: BGS.dark, alignItems: 'end', gap: 12 }}>
             {LOD_W.map((w) => (
               <div key={w} className="g-box" data-w={w} style={{ width: w, height: Math.round(w * 0.36) }}>
-                <AircraftArt typeId={t} livery={livery} code={code} name={name} detail={det} height="100%" />
+                <AircraftArt typeId={t} livery={livery} code={code} name={name} detail={w < 120 ? 'simple' : 'full'} height="100%" />
               </div>
             ))}
           </div>
@@ -464,15 +243,28 @@ function LodSheet() {
   );
 }
 
-/** One type per row, 1150 px wide: the crown, belly and tail cone at a size where a bump shows. */
-function CrownSheet() {
+/** The measured layout over each sprite: fin (red), fin frame (yellow), sticker zone (cyan), title band (magenta). */
+function LayoutSheet() {
   return (
-    <div className="g-crown">
-      {types.map((t) => (
-        <figure className="g-cell" key={t} data-type={t} data-size="crown" style={{ width: 1150, margin: '0 0 16px' }}>
-          <AircraftArt typeId={t} livery={livery} code={code} name={name} />
-        </figure>
-      ))}
+    <div>
+      {types.map((t) => {
+        const d = layoutOf(t), b = titleBand(t), cap = b.size * 0.72;
+        const q4 = d.finQuad;
+        const a = finAt(q4, 0.5, 0.42);
+        return (
+          <figure className="g-cell" key={t} data-type={t} style={{ width: 1100, margin: '0 0 16px', position: 'relative' }}>
+            <AircraftArt typeId={t} livery={LIVERIES.white} />
+            <svg viewBox={`0 0 ${d.w} ${d.h}`} style={{ position: 'absolute', left: 0, top: 0, width: '100%' }}>
+              <path d={polyPath(d.fin)} fill="rgba(255,0,0,0.2)" stroke="#f00" />
+              <path d={polyPath([q4[0], q4[1], q4[3], q4[2]])} fill="none" stroke="#ff0" />
+              <path d={polyPath(d.zone)} fill="rgba(0,255,255,0.12)" stroke="#0ff" />
+              <rect x={b.x - b.w} y={b.y - cap / 2} width={b.w} height={cap} fill="none" stroke="#f0f" strokeWidth={2} />
+              <circle cx={a[0]} cy={a[1]} r={5} fill="#ff0" />
+            </svg>
+            <figcaption>{t}</figcaption>
+          </figure>
+        );
+      })}
     </div>
   );
 }
@@ -481,7 +273,7 @@ function EditorDemo() {
   const [lv, setLv] = useState<Livery>(livery);
   return (
     <div style={{ position: 'fixed', inset: 0, padding: 16, background: 'var(--bg)' }}>
-      <LiveryEditor value={lv} onChange={setLv} code="BH" name="Block Hours" mode="company" onApplyAll={() => {}} onSave={() => {}} onCancel={() => {}} />
+      <LiveryEditor value={lv} onChange={setLv} code="BH" name="Block Hours" mode="company" types={list('types')} onApplyAll={() => {}} onSave={() => {}} onCancel={() => {}} />
       <pre id="g-livery-json" style={{ display: 'none' }}>{JSON.stringify(lv)}</pre>
     </div>
   );
@@ -494,15 +286,9 @@ function Gallery() {
       <style>{css}</style>
       <div className="g-head">
         <h1>Aircraft art</h1>
-        <span>{types.length} types · livery {liveryKey} ({livery.tail})</span>
+        <span>{types.length} sprites · livery {liveryKey} ({livery.plain ? 'white' : livery.tail})</span>
       </div>
-      {mode === 'lod' ? <LodSheet /> : mode === 'crown' ? <CrownSheet /> : mode === 'logos' ? <LogoSheet /> : mode === 'float' ? <FloatCheck /> : mode === 'clip' ? <ClipCheck /> : mode === 'compare' ? (
-        (list('type') ?? types.filter((id) => TRACED.has(id))).map((id) => <CompareRef key={id} id={id} />)
-      ) : mode === 'sheet' ? (
-        [...TRACED.keys()].sort().map((id) => <SheetRow key={id} id={id} w={num('w', 440)} />)
-      ) : compare ? (
-        bgs.map((bg) => <Compare key={bg} bg={bg} />)
-      ) : (
+      {mode === 'compare' ? <Compare /> : mode === 'logos' ? <LogoSheet /> : mode === 'clip' ? <ClipCheck /> : mode === 'lod' ? <LodSheet /> : mode === 'layout' ? <LayoutSheet /> : (
         sizes.map((size) => (
           <section className={`g-size g-${size}`} key={size} data-size={size}>
             <h2>{size}</h2>

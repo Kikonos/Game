@@ -180,8 +180,10 @@ export const defaultSeats = (typeId: string) => {
   return c.j + c.w + c.y;
 };
 
+/** v0.10 rare old types (a few dozen built or left): work is never sized or priced off them. */
+const RARE = new Set(['b753', 'a342', 'a345', 'a346', 'b741', 'b742', 'b743']);
 /** Old types the market prices off only when nothing mainstream fits (RESEARCH §4.2: unloved types). */
-const UNLOVED = new Set(['a343', 'b752']);
+const UNLOVED = new Set(['a343', 'b752', ...RARE]);
 
 /**
  * Reference type (DESIGN §5.1.3): the cheapest available shortlist type with a cabin preset that meets the seat
@@ -191,7 +193,7 @@ const UNLOVED = new Set(['a343', 'b752']);
 type RefReq = Pick<Requirements, 'minSeats'> & Partial<Pick<Requirements, 'maxSeats' | 'layout' | 'families' | 'noTechStops' | 'layouts' | 'minPremium' | 'body'>>;
 
 /** The most seats a narrowbody cabin preset has (the 757-200's 235Y). */
-const NB_MAX_SEATS = Math.max(...ACMI_TYPES_LIST.filter((t) => t.body === 'narrow' && t.available).flatMap((t) => t.cabins.map((c) => c.j + c.w + c.y)));
+const NB_MAX_SEATS = Math.max(...ACMI_TYPES_LIST.filter((t) => t.body === 'narrow' && t.available && !RARE.has(t.id)).flatMap((t) => t.cabins.map((c) => c.j + c.w + c.y)));
 
 /** v0.9 §Y.2: jumbo loads start at 420 passengers; a jumbo type seats 450 or more (777-300ER, 747-400, A380). */
 export const JUMBO_SEATS = 420;

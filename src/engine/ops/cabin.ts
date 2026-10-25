@@ -128,7 +128,7 @@ export function refitQuote(g: GameState, aircraftId: string, label: string, stat
   const empty: Cabin = ac?.cabin ?? { j: 0, w: 0, y: 0, total: 0, label, layout: 'all-economy' };
   const base: RefitQuote = {
     ok: false, why: null, cabin: empty, days: 0, cost: 0, start, end: start, station, ferryIn: [], seatsFrom: empty.total, seatsTo: empty.total,
-    cabinMinFrom: cabinMinimum(empty.total), cabinMinTo: cabinMinimum(empty.total), opens: [], closes: [], reinstateAtReturn: null, clashes: [], breaks: [],
+    cabinMinFrom: cabinMinimum(ac?.typeId ?? '', empty.total), cabinMinTo: cabinMinimum(ac?.typeId ?? '', empty.total), opens: [], closes: [], reinstateAtReturn: null, clashes: [], breaks: [],
   };
   if (!ac) return { ...base, why: 'Aircraft not found' };
   const preset = cabinOptions(ac.typeId).find((p) => p.label === label);
@@ -148,7 +148,7 @@ export function refitQuote(g: GameState, aircraftId: string, label: string, stat
   if (better(restFrom, restTo)) opens.push(`crew rest in ${restShort(restTo.cc)}`);
   else if (better(restTo, restFrom)) closes.push(`crew rest in ${restShort(restFrom.cc)} (now ${restShort(restTo.cc)})`);
   const q: RefitQuote = {
-    ...base, cabin, days: terms.days, cost: terms.cost, end, seatsTo: cabin.total, cabinMinTo: cabinMinimum(cabin.total),
+    ...base, cabin, days: terms.days, cost: terms.cost, end, seatsTo: cabin.total, cabinMinTo: cabinMinimum(ac.typeId, cabin.total),
     opens, closes, reinstateAtReturn: reinstateCost(ac, preset.layout), kind: terms.kind, restFrom, restTo,
   };
   const why = (w: string) => ({ ...q, why: w });
@@ -343,8 +343,8 @@ export function onRefitEnd(g: GameState, m: MaintenanceEvent): void {
   const toW = workOf(ac.typeId, ac.cabin);
   const opens = toW.filter((x) => !fromW.includes(x));
   const closes = fromW.filter((x) => !toW.includes(x));
-  const minFrom = cabinMinimum(was.total);
-  const minTo = cabinMinimum(ac.cabin.total);
+  const minFrom = cabinMinimum(ac.typeId, was.total);
+  const minTo = cabinMinimum(ac.typeId, ac.cabin.total);
   pushMessage(g, {
     tone: 'good', cat: 'tech', title: `${ac.reg} refitted: ${ac.cabin.label}${ac.cabin.layout === 'vip' ? ' VIP' : ''}`,
     body: `Out of the hangar (${stationName(g, m.at)}) after ${Math.round((m.end - m.start) / DAY)} day${Math.round((m.end - m.start) / DAY) === 1 ? '' : 's'} (${usd(m.cost)}). Cabin crew minimum ${minTo}${minTo !== minFrom ? ` (was ${minFrom})` : ''}.${restNow.cc?.kind !== restWas.cc?.kind ? ` Crew rest now in ${restShort(restNow.cc)} (was ${restShort(restWas.cc)}).` : ''}${opens.length ? ` It can now bid for ${opens.join(' and ')}.` : ''}${closes.length ? ` No longer: ${closes.join(', ')}.` : ''}`,
@@ -559,14 +559,14 @@ export function restRefitQuote(g: GameState, aircraftId: string, id: RestRefitId
   const cabin: Cabin = ac?.cabin ?? { j: 0, w: 0, y: 0, total: 0, label: '', layout: 'all-economy' };
   const q: RefitQuote = {
     ok: false, why: null, cabin, days: 0, cost: 0, start, end: start, station: g.company.homeBase, ferryIn: [], seatsFrom: cabin.total, seatsTo: cabin.total,
-    cabinMinFrom: cabinMinimum(cabin.total), cabinMinTo: cabinMinimum(cabin.total), opens: [], closes: [], reinstateAtReturn: null, clashes: [], breaks: [],
+    cabinMinFrom: cabinMinimum(ac?.typeId ?? '', cabin.total), cabinMinTo: cabinMinimum(ac?.typeId ?? '', cabin.total), opens: [], closes: [], reinstateAtReturn: null, clashes: [], breaks: [],
   };
   if (!ac) return { ...q, why: 'Aircraft not found' };
   const opt = restRefitOptions(g, aircraftId).find((o) => o.id === id);
   if (!opt) return { ...q, why: `${REFIT_LABEL[id]} is not offered for ${ac.reg}` };
   if (opt.where === 'cCheck') return { ...q, days: opt.days, cost: opt.cost, why: 'Fitted with a C-check at an MRO hub: book it from the C-check' };
   const after = restAfterRefit(ac, id);
-  const full: RefitQuote = { ...q, cabin: after.cabin, days: opt.days, cost: opt.cost, end: start + opt.days * DAY, seatsTo: after.cabin.total, cabinMinTo: cabinMinimum(after.cabin.total), opens: [opt.opens.replace(/^Opens: /, '')] };
+  const full: RefitQuote = { ...q, cabin: after.cabin, days: opt.days, cost: opt.cost, end: start + opt.days * DAY, seatsTo: after.cabin.total, cabinMinTo: cabinMinimum(ac.typeId, after.cabin.total), opens: [opt.opens.replace(/^Opens: /, '')] };
   if (!opt.ok) return { ...full, why: opt.why };
   return refitWindow(g, ac, full, g.company.homeBase);
 }

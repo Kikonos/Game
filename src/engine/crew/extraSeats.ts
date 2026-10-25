@@ -2,7 +2,7 @@
 // to a complement (UPDATE-0.6.md §F4.1). Core imports only (duties.ts and hr.ts use it). Pure.
 
 import { BAL } from '../core/balance';
-import { complement, isPilot } from '../core/perf';
+import { complement, extraCabinRoom, isPilot } from '../core/perf';
 import type { Contract, CrewExtra, GameState, Requirements, Role } from '../core/types';
 import { clamp } from '../core/util';
 
@@ -32,14 +32,27 @@ export function crewExtraFor(g: GameState, aircraftId: string | null, contractId
     source = 'client';
   }
   const pilot = (k?.crewExtra?.pilot ?? ac?.crewExtra?.pilot ?? 0) ? 1 : 0;
-  return { cabin: clamp(Math.round(cabin), 0, Math.max(BAL.crewExtra.cabinMax, req)), pilot, source, paidMin };
+  cabin = clamp(Math.round(cabin), 0, Math.max(BAL.crewExtra.cabinMax, req));
+  // v0.10 optional extras only up to the crew seats left; the client's required and paid crew fly regardless (beyond
+  // the jump seats they take passenger seats: crewSeatsBlocked).
+  if (ac) cabin = Math.min(cabin, Math.max(req, paidMin, req + extraCabinRoom(ac.typeId, ac.cabin.total, req)));
+  return { cabin, pilot, source, paidMin };
+}
+
+/** v0.10 the most extra cabin crew an aircraft's crew seats take for this requirement (client extra included). */
+export function extraCabinMax(g: GameState, aircraftId: string | null, req = 0): number {
+  const ac = aircraftId ? g.fleet[aircraftId] : undefined;
+  const room = ac ? extraCabinRoom(ac.typeId, ac.cabin.total, req) : BAL.crewExtra.cabinMax;
+  return Math.max(req, Math.min(BAL.crewExtra.cabinMax, req + room));
 }
 
 /** Extra for an offer not yet signed on an aircraft (feasibility, quotes): client request vs the aircraft/company setting. */
 export function offerExtra(g: GameState, aircraftId: string | null, req: Pick<Requirements, 'extraCabin'>, chosen?: CrewExtra): CrewExtra {
   const ac = aircraftId ? g.fleet[aircraftId] : undefined;
   const base = chosen ?? ac?.crewExtra ?? { cabin: g.company.policies.extraCabin, pilot: 0 as const };
-  return { cabin: Math.max(req.extraCabin, base.cabin), pilot: base.pilot ? 1 : 0 };
+  // v0.10 a default (not chosen) is capped by the crew seats; a chosen number (the client's paid option) is kept.
+  const cabin = chosen ? base.cabin : Math.min(base.cabin, extraCabinMax(g, aircraftId, req.extraCabin));
+  return { cabin: Math.max(req.extraCabin, cabin), pilot: base.pilot ? 1 : 0 };
 }
 
 export interface Seat {

@@ -191,7 +191,7 @@ describe('§Y.1 re-checked with the actual off-block time (round 4)', () => {
     const fam = typeOf(g.fleet[f.aircraftId!].typeId).family;
     const sby: string[] = [];
     for (const c of Object.values(g.crew)) {
-      if (!(c.role === 'PUR' || c.role === 'CC') || !c.ratings.includes(fam) || on.has(c.id) || sby.filter((id) => g.crew[id].role === c.role).length >= (c.role === 'PUR' ? 2 : 6)) continue;
+      if (!(c.role === 'PUR' || c.role === 'CC') || !c.ratings.includes(fam) || on.has(c.id) || sby.filter((id) => g.crew[id].role === c.role).length >= (c.role === 'PUR' ? 2 : 8)) continue;
       c.off = [];
       c.blocks = [];
       c.loc = g.company.homeBase;
@@ -200,11 +200,12 @@ describe('§Y.1 re-checked with the actual off-block time (round 4)', () => {
       sby.push(c.id);
     }
     touchCrewState(g);
-    expect(sby.length).toBe(8);
+    expect(sby.length).toBe(10);
+    const cabinN = p.slots.filter((s) => s.role === 'PUR' || s.role === 'CC').length;
     const v = crewControl(g, fid)!;
     const call = v.solutions.find((s) => s.id === 'callIn')!;
     expect(call.available, call.why).toBe(true);
-    expect(call.preview.changes.filter((c) => /comes off \(out of hours\)/.test(c))).toHaveLength(6);
+    expect(call.preview.changes.filter((c) => /comes off \(out of hours\)/.test(c))).toHaveLength(cabinN);
     expect(call.preview.after.level).toBe('ok');
     const pilots = p.slots.filter((s) => s.role === 'CPT' || s.role === 'FO' || s.role === 'CRP').map((s) => s.crewId);
     const r = applyCrewFix(g, fid, 'callIn');

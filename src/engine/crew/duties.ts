@@ -156,7 +156,7 @@ function planCabinN(g: GameState, acId: string | null, fl: Flight[], p?: Pairing
     const c = f.contractId ? g.contracts[f.contractId] : undefined;
     if (c) req = Math.max(req, c.requirements.extraCabin ?? 0);
   }
-  return Math.max(cabinMinimum(ac?.cabin.total ?? 180), 1) + req;
+  return Math.max(cabinMinimum(ac?.typeId ?? 'a320ceo', ac?.cabin.total ?? 180), 1) + req;
 }
 
 /**
@@ -1141,7 +1141,7 @@ export function dutyNeed(g: GameState, typeId: string, rest: AcRest, chain: Chai
   const approved = g.company.approvals.includes('augmented');
   const t = typeOf(typeId);
   const seats = t.cabins[0] ? t.cabins[0].j + t.cabins[0].w + t.cabins[0].y : 180;
-  const ctx: PlanCtx = { rest, canAug: approved && !!rest.fc && !!rest.cc, split: true, ext: true, cabinN: Math.max(cabinMinimum(seats), 1) };
+  const ctx: PlanCtx = { rest, canAug: approved && !!rest.fc && !!rest.cc, split: true, ext: true, cabinN: Math.max(cabinMinimum(typeId, seats), 1) };
   const pa = opts?.stricter ? planAugment(g, sh, ctx) : pickPlan(sh, { reportLocal: localMin(sh.dep, sh.report), acclimatised: true, tz: sh.dep }, ctx);
   const hmm = (m: number) => `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
   const hrs = (m: number) => (m % 60 ? hmm(m) : `${m / 60} h`);

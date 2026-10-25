@@ -11,8 +11,7 @@ import { v08Chips } from './v08Logic';
 import { flightsRev } from '../../engine/core/entities';
 import { DAY, fmtDateTime, fmtDay } from '../../engine/core/time';
 import type { Contract, ContractOffer, CrewExtra, GameState } from '../../engine/core/types';
-import { BAL } from '../../engine/core/balance';
-import { crewExtraFor, setCrewExtra, shortFlights } from '../../engine/crew';
+import { crewExtraFor, extraCabinMax, setCrewExtra, shortFlights } from '../../engine/crew';
 import { problemAt } from '../../engine/problems';
 import { ProblemCardView } from '../components/ProblemCard';
 import { Why } from '../components/Why';
@@ -129,7 +128,7 @@ function ContractExtra({ g, c }: { g: GameState; c: Contract }) {
   }
   return (
     <div className="row gap-12 wrap sc-contract-extra">
-      <span className="row gap-8"><span className="small">Extra cabin</span><Stepper value={eff.cabin} min={min} max={BAL.crewExtra.cabinMax} onChange={(v) => set({ cabin: v, pilot: eff.pilot })} format={(v) => `+${v}`} /></span>
+      <span className="row gap-8"><span className="small">Extra cabin</span><Stepper value={eff.cabin} min={min} max={Math.max(min, extraCabinMax(g, c.aircraftIds[0] ?? null, c.requirements.extraCabin))} onChange={(v) => set({ cabin: v, pilot: eff.pilot })} format={(v) => `+${v}`} /></span>
       <span className="row gap-8"><span className="small">Spare pilot</span><Toggle on={!!eff.pilot} onChange={(v) => set({ cabin: eff.cabin, pilot: v ? 1 : 0 })} label="Spare pilot" /></span>
       <span className="tiny dim">{src}</span>
       {c.crewExtra && !eff.paidMin && <button className="btn btn-sm btn-ghost" onClick={() => set(null)}>Reset</button>}

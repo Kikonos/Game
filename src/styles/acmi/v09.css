@@ -95,7 +95,7 @@
 .v9-hint .btn-sm { min-height: 44px; }
 .v9-hint.float { flex-wrap: wrap; width: 360px; }
 .v9-hint.float .v9-hint-t { flex: 1 1 280px; }
-.v9-hint.float { position: fixed; top: calc(var(--topbar-h, 72px) + var(--safe-t, 0px) + 12px); right: 16px; z-index: 6; margin: 0; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); }
+.v9-hint.float { position: fixed; top: calc(var(--topbar-h, 72px) + var(--safe-t, 0px) + 12px); right: 16px; z-index: 6; margin: 0; background: rgba(12, 19, 34, 0.97); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); }
 
 /* ---------- §5.5 Company › Team, §14.1 Achievements ---------- */
 .v9-head-row { min-height: 64px; }

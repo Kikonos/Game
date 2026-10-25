@@ -4,6 +4,7 @@
 // (business / economy seats, crew rest recliners) sell unless someone rests in them on that leg.
 
 import { ACMI_TYPES } from '../../data/acmiTypes';
+import { crewInPaxSeats } from '../core/perf';
 import type { GameState } from '../core/types';
 import { restOf, restPlan } from './restPlan';
 
@@ -30,9 +31,23 @@ export function restSeatsBlocked(g: GameState, flightId: string): number {
   return restPlan(g, d.id)?.blocked[flightId] ?? 0;
 }
 
-/** Seats that can be sold on a flight: the cabin less any blocked for crew rest. Pure. */
+/**
+ * v0.10 passenger seats crew take on a flight because the jump seats (or the cockpit's observer seats) are full:
+ * the duty's crew slots beyond the type's crew seats. Pure.
+ */
+export function crewSeatsBlocked(g: GameState, flightId: string): number {
+  const f = g.flights[flightId];
+  if (!f?.dutyId || !f.aircraftId) return 0;
+  const d = g.duties[f.dutyId];
+  const p = d ? g.pairings[d.pairingId] : undefined;
+  const ac = g.fleet[f.aircraftId];
+  if (!p || !ac) return 0;
+  return crewInPaxSeats(ac.typeId, p.slots.map((s) => s.role));
+}
+
+/** Seats that can be sold on a flight: the cabin less any blocked for crew rest or taken by crew beyond the crew seats. Pure. */
 export function sellableSeats(g: GameState, flightId: string): number {
   const f = g.flights[flightId];
   const ac = f?.aircraftId ? g.fleet[f.aircraftId] : undefined;
-  return ac ? ac.cabin.total - restSeatsBlocked(g, flightId) : 0;
+  return ac ? ac.cabin.total - restSeatsBlocked(g, flightId) - crewSeatsBlocked(g, flightId) : 0;
 }

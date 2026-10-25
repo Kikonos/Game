@@ -34,5 +34,33 @@ export const MARKET_LIVERY: Livery = { ...WHITE_LIVERY, stickers: [] };
 export const PAINT_SHOPS: readonly string[] = ['LIS', 'MAD', 'MLA', 'VNO', 'SNN', 'LDE', 'TLS', 'HAM', 'BUD', 'IST', 'AUH', 'SIN'].filter((c) => !!AIRPORT_BY_CODE[c]);
 
 export const MAX_STICKERS = 6;
+/** v0.10 fuselage stripes per livery. */
+export const MAX_STRIPES = 3;
 export const MAX_TITLE = 28;
 export const MAX_CODE = 3;
+
+// ---------- v0.10 body paint presets ----------
+
+export type BodyPresetId = 'eurowhite' | 'cheatline' | 'fullColour' | 'bellyBand';
+
+export const BODY_PRESETS: { id: BodyPresetId; label: string; hint: string }[] = [
+  { id: 'eurowhite', label: 'Eurowhite', hint: 'White fuselage, coloured tail and engines' },
+  { id: 'cheatline', label: 'Classic cheatline', hint: 'A stripe along the windows, a thin one under it, grey belly' },
+  { id: 'fullColour', label: 'Full colour', hint: 'The whole fuselage in the tail colour' },
+  { id: 'bellyBand', label: 'Belly band', hint: 'White top, coloured belly with an accent line' },
+];
+
+/** The body paint of a preset in the livery's own colours (the tail scheme and the stickers are kept). Pure. */
+export function bodyPreset(id: BodyPresetId, lv: Livery): Livery['body'] {
+  const p = lv.primary, s = lv.secondary;
+  switch (id) {
+    case 'eurowhite':
+      return undefined;
+    case 'cheatline':
+      return { belly: { color: '#c9ced8', split: 0.7, tilt: 0 }, stripes: [{ color: p, y: 0.4, h: 0.1, windows: true }, { color: s, y: 0.56, h: 0.03 }] };
+    case 'fullColour':
+      return { color: p, engines: s, lip: '#ffffff' };
+    case 'bellyBand':
+      return { belly: { color: p, split: 0.58, tilt: 0 }, stripes: [{ color: s, y: 0.545, h: 0.035 }] };
+  }
+}

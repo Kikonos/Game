@@ -164,9 +164,11 @@ describe('approvals (v0.7 ladder)', () => {
     expect(n.etops120.state).toBe('ready');
     expect(n.widebody.state).toBe('locked');
     expect(n.widebody.blocker).toBe('Needs 90 days of operations (0 so far)');
-    expect(n.widebody.unlocksTypes).toEqual(['b763', 'a332', 'a333', 'a343', 'b744']);
-    expect(n.augmented.unlocksTypes).toEqual(['b772', 'b77w', 'a388']);
-    expect(n.etops240.unlocksTypes).toEqual(['b789', 'a359', 'a35u', 'b77l']);
+    // v0.10: the 747 classics are on the market too (flown by two pilots)
+    expect(n.widebody.unlocksTypes).toEqual(['b763', 'a332', 'a333', 'a343', 'b744', 'a342', 'a346', 'b741', 'b742', 'b743']);
+    expect(n.augmented.unlocksTypes).toEqual(['b772', 'b77w', 'a388', 'a339', 'a345', 'b748', 'b779']);
+    // v0.10: the 777-8 is not listed before it exists (about 2030)
+    expect(n.etops240.unlocksTypes).toEqual(['b789', 'a359', 'a35u', 'a35k', 'b788', 'b78x']);
     expect(applyApproval(g, 'etops120').ok).toBe(true);
     g.now += 60 * DAY;
     const p = ladder(g)[1].nodes[0];

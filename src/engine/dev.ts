@@ -1,6 +1,7 @@
 // Developer helpers (console: __contrail.dev). Lets the map and screens be built before the
 // contract generator exists: demo flights on the fleet. Not used by the game itself.
 
+import { airframeVariant } from '../data/variants';
 import { grantAchievement } from './ops/achievements';
 import { dailyHeads, hireHead, unlockHead } from './ops/heads';
 import { acceptOffer } from './contracts/accept';
@@ -178,6 +179,9 @@ function devWide(g: GameState, typeId: string, rest: AcRest | null, suffix: stri
   // v0.7.4 fitted facilities only (the cabin's curtained seats are always there), bunks paired.
   const ac: Aircraft = { ...structuredClone(base), ...devAirframe(g, typeId), id, reg: `${g.company.regPrefix}${suffix}`, typeId, cabin, at: home, flightId: null, status: 'available', maintId: null, rest: fittedRest(typeId, structuredClone(facilities)), restV: 2, bhDays: [] };
   delete ac.crewRest;
+  delete ac.variant;
+  const variant = airframeVariant(g.seed, id, typeId, ac.builtYear);
+  if (variant) ac.variant = variant;
   ac.maint = { ...ac.maint, fhSinceA: 0, lastA: g.now, fhSinceC: 0, lastC: g.now };
   g.fleet[id] = ac;
   for (const [role, n] of [['CPT', 4], ['FO', 5], ['PUR', 3], ['CC', 24]] as const) for (let i = 0; i < n; i++) {

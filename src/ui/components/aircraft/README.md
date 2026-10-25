@@ -1,94 +1,81 @@
-# Aircraft art and liveries
+# Aircraft art and liveries (v0.10: the player's raster sprites)
 
-`AircraftArt` draws every type nose-RIGHT, in flight (no gear), from the traced profiles in
-`traced/*.ts` (or the parametric spec in `specs/*.ts`) via `geometry.ts`. The outlines, noses,
-windows and engines are approved artwork: **never change them** — `stickers.test.ts` hashes
-`g.fus`, `g.fin.fill`, `g.windows` and every engine cowl and fails on any change.
+`AircraftArt` draws the player's final aircraft art, nose RIGHT, in flight: one sprite per type (and per airframe
+variant), **exactly as drawn** — no redraw, no filters. The only change to the picture is the livery tint (a multiply)
+on the fin, the fuselage (v0.10 body paint) and the engines; everything else (titles, code, logos) is a sticker drawn
+on top.
 
-**Fairing (v0.5.2)**: the traced top / bottom lines are drawn through `fairLine` (`fair.ts`): the nose
-(x < 0.09 L) and the tail-cone tip (x > 0.975 L) stay exactly as traced; between them a stiff Whittaker
-smoother (second + third differences, eased off at both junctions) keeps every point within 0.0012 L
-(junctions) … 0.0032 L (cabin) of the trace — no crown / belly bumps. Fin vertices on the crown follow
-it. The trace files stay the record; `fair.test.ts` checks the bounds per type. `?fair=0` in the gallery
-draws the raw traces. Silhouette traces (`outline`, the Concorde) are not faired.
+## Pipeline (`scripts/sprites.py`)
 
-**Fairing**: traced crown / belly lines are faired in `fair.ts`; the crown is held straight over the
-constant-section span `TracedProfile.cabin` (default `CABIN` 0.2–0.65 L; 747 aft of the hump).
+`python3 scripts/sprites.py <input-dir>` (Pillow with WebP + numpy). Input: `sprites/<id>.png` and
+`masks/<id>-mask.png` (4096 × 1640, flat #00FF00 background; the mask has the fin + rudder solid #FF0000 and every
+nacelle + pylon solid #0000FF). It rewrites `public/aircraft/` and `sprites.gen.ts`:
 
-**Level of detail**: windows and doors follow the drawn scale and screen density (`artLod(pxPerM, dpr)`,
-measured after layout): `full` ≥ 8 CSS px/m, `card` (separate windows ≥ ~1 device px, darker door
-outlines), `band` below 4.6 px/m at 1× or 5.2 device px/m on dense screens (each run of windows one slim
-band, `g.windowBands`; the 2× iPad Fleet card and market rows keep separate windows). `detail="simple"` only drops titles and fine lines.
+1. checks each mask against its sprite (outside the red / blue areas the pixels must match; a misaligned mask falls
+   back to its hard colour areas, a missing one to no tint) and prints the mismatch count;
+2. keys the green out (alpha from the green excess, solid inside the airframe), unmixes the edge colour and removes
+   green spill, trims to the aircraft with a 1.2 % even margin;
+3. writes `<id>-2048.webp` and `<id>-1024.webp` (lossy colour q86, lossless alpha) and `<id>-mask.png` (**2048** wide,
+   R = fin coverage, G = fuselage (body), B = engine coverage, anti-aliased, never overlapping); identical sprites
+   (a359 / a359ulr) share one set (`same`);
+4. measures the layout in pixels of the 2048 asset (x right, y down): nose / tail x, crown and belly lines, the fin
+   outline and its frame quad, the fuselage sticker zone (crown to belly, above the windows over the wing, clear of
+   the engines and of the near wing where it crosses the fuselage side), the window line and the title band;
+5. v0.10 `body_mask` derives the fuselage from the art itself: the tube between the measured crown and belly (straight
+   across under the wing and, for the hidden tail-cone top, under the fin — the fin fillet above that line joins the
+   fin), minus whatever is much darker than the white fuselage's own cylinder shading at that height (wing,
+   stabiliser, winglets; looser over the tapering tail cone), minus the wing-body fairing where it is drawn brighter
+   than the belly; enclosed details (windows, doors, lines) and the nose/cockpit go back in; overwing exit hatches are
+   kept. Per-sprite corrections in `scripts/sprites-body.json` (`cutFill` seeds flood-filled to the drawn outline,
+   `cutEllipse`, `add` / `cut` polygons) cut the fairings drawn in the fuselage's shading (787-8/-9, A330-200/-900,
+   A340-200/-300, 747s, 757s). The tube lines are exported as `body` (crown / belly every 8 px) for the paint
+   geometry. Checks: `.handover/updates/shots-body/mask-<id>*.png` (red body, navy fin, gold engines; 2× crops of
+   the wing and the tail).
+
+The 4096 px originals are not in the repo (`.handover/updates/sprites-src/`). About 2.5 MB for the whole set.
 
 ## Files
 
 | File | What |
 |---|---|
-| `AircraftArt.tsx` | Colours, z-order, level of detail; the two sticker passes; auto ink colours (`autoFinInk`, `autoBodyInk`) |
-| `geometry.ts` | Paths in metres (nose-left, y up). `fin.poly` = the fin fill outline as a polygon; `pathPoly(d)` samples any path it builds |
-| `stickers.ts` | Sticker frames, coordinate mapping, fitting and layout (pure; tested) |
-| `fontMetrics.ts` | Space Grotesk advances (500 / 700) and cap ink for text fitting without a DOM |
-| `logos.ts` | The 15 original logos (`LOGOS`), `Monogram`, `LogoGlyph` |
-| `../livery/*` | Editor sheet (`LiveryEditor`), `LiveryPreview`, `ColorPicker`, `LogoPicker`; styles in `styles/acmi/livery.css` |
+| `AircraftArt.tsx` | `<svg>` in the sprite's 2048-px frame: the (tinted) bitmap as `<image>`, stickers clipped to the fin and the fuselage zone, editor ghost and guides; ink choice (`stickerInk`, `stickerGround`) |
+| `compose.ts` | The tint: multiply of the fin, body and engine colours over the white art where the mask says (`applyTints`, pure), one bitmap per sprite + width + colours (object URL, LRU 120); decoded masks kept for the last 8 sprite/widths |
+| `bodyPaint.ts` | v0.10 body paint geometry (pure): the tube at x, belly split, stripes (window line, sweep into the fin), nose; `bodyColourAt` for sticker inks |
+| `sprites.ts` | Sprite ids, asset URLs, layout lookup, real lengths (`LENGTH_M`, `metresPerPx` for same-scale views), `BODY_PAINT` |
+| `sprites.gen.ts` | Generated layout data (do not edit) |
+| `stickers.ts` | Sticker frames, fitting, layout, the tail schemes on the fin (`finSecondAreas`) — pure, tested |
+| `ink.ts` | Colour helpers and auto ink (`autoFinInk`, `autoBodyInk`, `contrast`) |
+| `fontMetrics.ts`, `logos.ts` | Text fitting without a DOM; the 15 logos |
+| `../../../data/variants.ts` | Airframe variants (engines, door layout) → sprite, engines text, exit limit |
 
-## Livery (engine type `Livery`, `src/engine/core/types.ts`)
+Size: the 1024 asset for cards and rows, the 2048 once the drawn width passes 1100 device px (never steps down).
+`pxPerM` sizes the art by the real aircraft length (A320 37.6 m … 747-8 76.3 m).
 
-- `primary`, `secondary`, `tail` (`solid` · `split` · `stripe` · `sweep`): the scheme, as in v0.5.
-- `plain: true`: all-white airframe — no scheme areas, white fin, grey engine bands. Stickers still draw.
-  `WHITE_LIVERY` (`src/data/livery.ts`) is plain with `stickers: []` (nothing at all).
-- `code`, `titles`: `{ text?, color?, weight? }`. Omitted text = the `code` / `name` props; omitted colour = auto contrast.
-- `logo`: `{ id: LogoId | 'mono', color, color2?, text? }` (`mono` = roundel with 1–3 letters).
-- `stickers`: up to 6 placements `{ id, kind: 'code' | 'titles' | 'logo', side: 'fin' | 'fuselage', x?, y?, scale, rotation? }`.
-  Absent = the legacy look (`defaultStickers`: code on the fin + titles; with a logo, the logo takes the fin).
+## Livery
+
+- Fin (mask red): the livery's `primary`, with the scheme's second-colour areas (`split` / `stripe` / `sweep`) in
+  `secondary`, and swept stripes on top. Multiplied over the white art, so panel lines and shading show.
+- Fuselage (mask green, v0.10 `livery.body`, all optional): `color` (whole fuselage), `belly` {color, split share
+  crown→belly, tilt ±1}, up to 3 `stripes` {color, y, h, windows (on the window line), sweep (up into the fin)},
+  `nose`. Drawn in that order; absent = the white fuselage as drawn (older liveries look exactly as before).
+- Engines (mask blue): `body.engines` (default `primary`, as before v0.10), `body.lip` an intake ring (the front 11 %
+  of each engine's columns in the mask).
+- Presets (`data/livery.ts BODY_PRESETS`): Eurowhite, Classic cheatline, Full colour, Belly band — in the livery's
+  own colours. `plain: true` = the sprite untouched (stickers still draw). `WHITE_LIVERY` draws nothing at all.
+- `BODY_PAINT = true` (sprites.ts): the editor's Body and Tail tabs; false brings back the v0.10 tail-only editor.
 
 ## Stickers
 
-**Frames** (so one livery fits every type):
-- fin: `x` = chord fraction leading edge (0) → trailing edge (1), `y` = root (0) → tip (1), bilinear on `fin.quad`;
-- fuselage: `x` = fraction of L nose tip (0) → tail (1), `y` = fraction of H crown line (0) → belly line (1).
-- `x`/`y` omitted = auto: the code sits in the biggest box inside the real fin outline around the scheme's
-  anchor (`finInset`, 4 % chord margin, per-glyph widths); a fin logo takes the biggest square in the fin;
-  titles start behind the forward door in the title band, as v0.5.
+Frames (one livery fits every type): fin `x` = chord leading edge (0) → trailing edge (1), `y` = root (0) → tip (1),
+bilinear on the measured fin quad; fuselage `x` = share of the length nose (0) → tail (1), `y` = crown (0) → belly
+(1). Auto: the code in the biggest box inside the fin around the scheme's anchor (stepping off a colour divide), a
+fin logo the biggest square in the fin, titles in the title band behind the forward door. Every sticker is drawn
+twice, clipped to the fuselage zone and to the fin, so nothing paints outside the airframe or over the wing and
+engines. A placed sticker keeps at least half of it on the airframe (`MIN_VISIBLE`).
 
-**Scale** 1 = fits its zone (0.3–3); **rotation** ±45° clockwise.
+## Gallery (`/gallery.html`, dev)
 
-**Clipping** — the fix for letters floating off the fin: every sticker is drawn twice, clipped to the
-fuselage (`fc`; outline mode also `tz`, never on the Concorde delta) and to the fin (`tc`). A decal that
-straddles the fin root reads as one, and nothing ever paints outside the airframe, at any size or position.
-Windows, doors and cockpit draw over fuselage stickers; wing, stabiliser and engines pass in front.
-
-**Coordinates**: geometry is nose-left; the art mirrors it once, so geometry `(x, y)` is viewBox `(-x, -y)`.
-All `stickers.ts` exports speak viewBox coords: `frameToView` / `viewToFrame` (inverse bilinear on the fin),
-`sideAt`, `placeAt` (drag → side + clamped frame coords), `stickerLayout` (boxes in draw order),
-`hitBox`, `snapTargets`, `airframeClipPaths`. Text never mirrors.
-
-**Detail `simple`** (≤ 120 px): fin stickers stay; fuselage text drops; fuselage logos stay if ≥ 6 % of L;
-windows and doors stay (as bands at small sizes).
-
-**Auto ink**: fin text uses the accent when it reads on the fin (2.2:1), else white / ink; on a split or
-stripe area it switches, and a box straddling the divide gets the colour that reads on both. Fuselage text
-uses the primary unless it vanishes on white.
-
-## Editor (`LiveryEditor`)
-
-Host owns `value` and persists it (`onChange` fires per animation frame while dragging). One finger drags
-a sticker (hit boxes padded to 44 px), two fingers pinch its size, ctrl+wheel on desktop; within 8 px the
-centre snaps to the fin inset / title band / window line and a cyan guide shows. While selected, the whole
-sticker shows faintly outside the airframe, so the trim is visible. Tabs: Scheme (+ White), Colours, Text
-(text, colour with Auto + custom picker and contrast warning, weight), Logo, Layout (show/hide, size, tilt,
-add logo to fin / fuselage, reset). `mode: 'aircraft'` adds the Company · All white · Custom header and a
-lock message (client paint).
-
-## Gallery checks (`/gallery.html`)
-
-- `?types=a,b&livery=blockhours|redsplit|greenstripe|navysolid|used|white|logo|plainlogo|stickers&bg=dark,blue&size=hero,card,mini&compare=1`
-  — `&logo=<id>|mono &plain=1 &tail=<scheme> &codecolor=%23hex &weight=500` override the livery.
-- `?gallery=logos[&types=a320ceo,b77w]` — the 15 logos at 64 / 28 / 14 px, tail badges, each logo on each type's tail.
-- `?gallery=float[&codes=WW,MQ,XQZ]` — tail code in every scheme; with a scratch copy of the v0.5 renderer at
-  `aircraft/zzLegacyArt.tmp.tsx` (not committed) it shows v0.5 | now side by side.
-- `?gallery=clip[&stickers=0]` — magenta stickers at scale 3 in the corners (`stickers=0` = the silhouette mask);
-  diff the two screenshots: no magenta pixel may fall outside the mask.
-- `?gallery=editor[&livery=…]` — the editor sheet with local state (`#g-livery-json` holds the value).
-- `?gallery=lod[&types=…&detail=simple]` — each type at 60…720 px wide (window / door level of detail).
-- `?gallery=crown[&types=…][&fair=0]` — each type 1150 px wide, for crown / belly / tail-cone checks (raw with `fair=0`).
-- `?gallery=compare&type=<id>`, `?gallery=sheet` — traced-profile reference overlays (see `src/dev/gallery.tsx`).
+`?types=a,b&livery=blockhours|redsplit|greenstripe|navysolid|used|white|logo|plainlogo|stickers&bg=dark,blue,light&size=hero,card,mini`
+(`&logo=<id>|mono &plain=1 &tail=<scheme> &codecolor=%23hex &weight=500`); `?gallery=compare` (real-length scale),
+`logos`, `clip[&stickers=0]` (magenta stickers at scale 3 in the corners: none may show off the airframe), `editor`,
+`lod`, `layout` (the measured fin, frame, zone and title band over each sprite).

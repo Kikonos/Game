@@ -8,9 +8,8 @@ import { VitePWA } from 'vite-plugin-pwa';
 // (sandboxed previews); the regular build ships the offline-capable PWA.
 const embed = !!process.env.EMBED;
 
-// Dev only: /dev-ref/<type>/<file>.png serves the traced-reference crops the art gallery's
-// compare/sheet modes overlay (DEV_REF_DIR, default ./dev-ref — a gitignored symlink to the
-// trace scratch folder). Never part of a build.
+// Dev only: /dev-ref/<type>/<file>.png serves reference crops (DEV_REF_DIR, default ./dev-ref — a
+// gitignored symlink to a scratch folder). Never part of a build.
 const devRef = (): Plugin => ({
   name: 'dev-ref',
   apply: 'serve',
@@ -39,7 +38,7 @@ export default defineConfig({
       disable: embed,
       registerType: 'autoUpdate',
       injectRegister: null,
-      includeAssets: ['favicon.svg', 'icons/*.png', 'sounds/*.mp3'],
+      includeAssets: ['favicon.svg', 'icons/*.png', 'sounds/*.mp3', 'aircraft/*.webp', 'aircraft/*.png'],
       manifest: {
         name: 'BLOCK HOURS',
         short_name: 'Block Hours',
@@ -57,8 +56,8 @@ export default defineConfig({
         ],
       },
       workbox: {
-        // v0.9.1 the cabin chime samples play offline too.
-        globPatterns: ['**/*.{js,css,html,svg,png,woff2,json,mp3}'],
+        // v0.9.1 the cabin chime samples play offline too; v0.10 the aircraft art (public/aircraft, WebP + mask PNGs).
+        globPatterns: ['**/*.{js,css,html,svg,png,webp,woff2,json,mp3}'],
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
         navigateFallback: 'index.html',
       },

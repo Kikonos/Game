@@ -4,6 +4,7 @@
 
 import { AlertTriangle, ShoppingCart } from 'lucide-react';
 import { artFor } from '../../data/acmiTypes';
+import { enginesOf, variantOf } from '../../data/variants';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { MARKET_LIVERY } from '../../data/livery';
 import { typeOf } from '../../engine/core/perf';
@@ -84,10 +85,12 @@ export function AcquireModal({ offerId }: { offerId: string }) {
       </>
     }>
       <div className="aq-top">
-        <div className="aq-art"><AircraftArt typeId={artFor(o.typeId)} livery={MARKET_LIVERY} detail="simple" /></div>
+        <div className="aq-art"><AircraftArt typeId={artFor(o.typeId, o.variant)} livery={MARKET_LIVERY} detail="simple" /></div>
         <div className="col gap-4 grow" style={{ minWidth: 0 }}>
           <div className="row gap-8"><b>{t.name}</b><span className={`badge ${kind.tone}`}>{kind.label}</span></div>
           <div className="small muted">{sellerOf(o)} · {o.where ?? q.site} · built {o.builtYear} · {o.cabin.label}</div>
+          {/* v0.10 the airframe's engines (and exit layout where it sets the seat limit) */}
+          <div className="small muted">{enginesOf(o.typeId, o.variant)}{variantOf(o.typeId, o.variant)?.maxSeats ? ` · ${variantOf(o.typeId, o.variant)!.label}, up to ${variantOf(o.typeId, o.variant)!.maxSeats} seats` : ''}</div>
           <div className="row gap-8 wrap"><GateChip v={v} /><span className={`chip mk-chip ${v.crew.level === 'ok' ? 'good' : v.crew.level}`}>{v.crew.text}</span></div>
           <RestTwoLiner g={g} rest={offerRest(v)} typeId={o.typeId} />
         </div>

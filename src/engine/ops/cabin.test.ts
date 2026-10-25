@@ -24,7 +24,7 @@ describe('cabin layouts', () => {
     expect(vip('b772')).toBe('40J/180Y');
     expect(cabinOptions('a320ceo').map((p) => p.label)).toEqual(['180Y', '12J/156Y', '24J/90Y']);
     // A VIP A320 still needs 3 cabin crew by the seats.
-    expect(cabinMinimum(114)).toBe(3);
+    expect(cabinMinimum('a320ceo', 114)).toBe(3);
   });
 });
 

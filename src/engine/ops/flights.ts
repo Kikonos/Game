@@ -17,7 +17,7 @@ import { AIRPORT_BY_CODE } from '../../data/airports';
 import { distance } from '../core/geo';
 import { noteLostLegs } from '../contracts/billing';
 import { isSoft } from '../contracts/plan';
-import { applyDiscretion, boardCrew, crewIssuesFor, dropStraySpares, flightCrewStatus, guardDuty, rerosterFrom, restPlan, restSeatsBlocked, setClosedWaitHook, setRestDelayHook } from '../crew';
+import { applyDiscretion, boardCrew, crewIssuesFor, dropStraySpares, flightCrewStatus, guardDuty, rerosterFrom, restPlan, crewSeatsBlocked, restSeatsBlocked, setClosedWaitHook, setRestDelayHook } from '../crew';
 import { fdpLimitAt } from '../crew/timeline';
 import { dutyLegality } from '../crew/duties';
 import { cue } from '../core/cues';
@@ -812,16 +812,23 @@ function fdpOver(g: GameState, f: Flight): boolean {
  * the sellable seats are offloaded once, at departure (compensation to penalties, one message with the card).
  */
 export function offloadRestSeats(g: GameState, f: Flight, ac: Aircraft): void {
-  const blocked = restSeatsBlocked(g, f.id);
+  const rest = restSeatsBlocked(g, f.id);
+  // v0.10 crew beyond the jump seats (or the cockpit's observer seats) fly in passenger seats.
+  const crew = crewSeatsBlocked(g, f.id);
+  const blocked = rest + crew;
   if (!blocked || !isRevenue(f) || f.pax === undefined) return;
   const n = f.pax - (ac.cabin.total - blocked);
   if (n <= 0) return;
   f.pax -= n;
   const cost = n * BAL.v072.restSeats.offloadPerPax;
   post(g, 'penalties', -cost);
+  const why = [
+    rest ? `the duty needs in-flight rest and ${ac.reg} has no bunks: ${rest} seats are curtained off for the crew` : '',
+    crew ? `${crew} crew fly in passenger seats (the crew seats are full)` : '',
+  ].filter(Boolean).join('; ');
   pushMessage(g, {
-    tone: 'bad', cat: 'ops', title: `${f.no}: ${n} passenger${n > 1 ? 's' : ''} offloaded for crew rest`,
-    body: `The duty needs in-flight rest and ${ac.reg} has no bunks: its last row (${blocked} seats) is curtained off for the crew. Compensation ${usd(cost)}.`,
+    tone: 'bad', cat: 'ops', title: `${f.no}: ${n} passenger${n > 1 ? 's' : ''} offloaded for crew ${rest ? 'rest' : 'seats'}`,
+    body: `${why.charAt(0).toUpperCase()}${why.slice(1)}. Compensation ${usd(cost)}.`,
     ref: { kind: 'flight', id: f.id }, problem: { kind: 'restSeats', ref: { kind: 'flight', id: f.id } }, hurt: { money: cost, pax: n, delayMin: 0, level: cost >= BAL.crewControl.hurtLowUsd ? 'high' : 'low' },
   });
 }

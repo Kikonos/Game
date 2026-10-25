@@ -527,7 +527,7 @@ export function restCabinN(g: GameState, d: Duty): number {
   if (p && pilotsOnlyTrip(g, p)) return 0;
   const ac = p?.aircraftId ? g.fleet[p.aircraftId] : undefined;
   const c = p?.contractId ? g.contracts[p.contractId] : undefined;
-  return Math.max(cabinMinimum(ac?.cabin.total ?? 180), 1) + (c?.requirements.extraCabin ?? 0);
+  return Math.max(cabinMinimum(ac?.typeId ?? 'a320ceo', ac?.cabin.total ?? 180), 1) + (c?.requirements.extraCabin ?? 0);
 }
 
 const typeEarly = (typeId: string) => {

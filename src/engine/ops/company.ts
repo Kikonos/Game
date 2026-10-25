@@ -6,7 +6,7 @@ import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
-import { DAY, fmtDate } from '../core/time';
+import { DAY, fmtDate, yearOf } from '../core/time';
 import type { ActionResult, Aircraft, ApprovalId, GameState, HotelTier, Minute, PendingApproval, Policies, SimEvent } from '../core/types';
 import { clamp } from '../core/util';
 import { familyLabel } from '../crew/conversion';
@@ -376,12 +376,12 @@ const UNLOCKS: Partial<Record<ApprovalId, { tier?: number; work: string }>> = {
   widebody: { tier: 2, work: 'Signing 767-300ERs, A330s and A340s; widebody charters and wet leases' },
   etops180: { work: 'The South Atlantic direct and the Indian Ocean' },
   augmented: { tier: 3, work: 'Duties over 13 hours with 3–4 pilots; with ETOPS 180 the 777s and the A380' },
-  etops240: { tier: 4, work: 'The 787-9, A350-900 and 777-200LR; prestige long haul' },
+  etops240: { tier: 4, work: 'The 787s, A350s and the 777-8; prestige long haul' },
   ulr: { work: 'Sectors over 16 hours with 4 pilots: ultra-long-range prestige work' },
 };
 
 /** Types a tier unlocks (offered on the market). */
-const typesOfTier = (tier: number) => ACMI_TYPES_LIST.filter((t) => t.available && (tier <= 1 ? t.tier <= 1 : t.tier === tier)).map((t) => t.id);
+const typesOfTier = (tier: number, year: number) => ACMI_TYPES_LIST.filter((t) => t.available && (t.firstYear ?? 0) <= year && (tier <= 1 ? t.tier <= 1 : t.tier === tier)).map((t) => t.id);
 
 function node(g: GameState, id: ApprovalId): LadderNode {
   const def = defOf(id)!;
@@ -395,7 +395,7 @@ function node(g: GameState, id: ApprovalId): LadderNode {
     requires: [...def.requires], reqs: approvalReqs(g, id), blocker,
     heldSince: held ? (co.approvalsAt?.[id] ?? g.started) : null,
     pending: p ? { ...p, progress: clamp((g.now - p.started) / Math.max(1, p.done - p.started), 0, 1) } : null,
-    unlocksTypes: u?.tier ? typesOfTier(u.tier) : [], unlocksWork: u?.work ?? '',
+    unlocksTypes: u?.tier ? typesOfTier(u.tier, yearOf(g.now)) : [], unlocksWork: u?.work ?? '',
   };
 }
 
@@ -411,7 +411,7 @@ export function ladder(g: GameState): LadderRung[] {
 }
 
 /** Rung 0's types (no approval needed). */
-export const RUNG0_TYPES = typesOfTier(1);
+export const RUNG0_TYPES = typesOfTier(1, 9999);
 
 /** v0.7 dev: grants an approval now (as if the authority finished). */
 export function devGrantApproval(g: GameState, id: ApprovalId): void {

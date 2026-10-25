@@ -43,7 +43,7 @@ describe('delivery ferry planning', () => {
     expect(scl.legs[scl.legs.length - 1].to).toBe('LIS');
     const cgk = deliveryQuote(g, 'a320ceo', 'CGK', g.now + 10 * DAY);
     expect(cgk.days).toBeGreaterThanOrEqual(2);
-    for (const q of [scl, cgk, deliveryQuote(g, 'a388', 'KUL', g.now), deliveryQuote(g, 'b77l', 'BOM', g.now), deliveryQuote(g, 'a35u', 'SIN', g.now), deliveryQuote(g, 'b789', 'CHS', g.now)]) {
+    for (const q of [scl, cgk, deliveryQuote(g, 'a388', 'KUL', g.now), deliveryQuote(g, 'b772', 'BOM', g.now), deliveryQuote(g, 'a35u', 'SIN', g.now), deliveryQuote(g, 'b789', 'CHS', g.now)]) {
       expect(q.legs.length, q.site).toBeGreaterThan(0);
       for (const d of days(q.legs)) {
         expect(d.length).toBeLessThanOrEqual(BAL.delivery.daySectorsMax);
@@ -51,7 +51,7 @@ describe('delivery ferry planning', () => {
       }
       // A night stop gives the pilots their rest away from base: release to next report at least the day's duty
       // and never under the night stop (seed 6: SCL–DSS–LIS was planned 5 minutes short, the ferry waited a month).
-      const rm = reportMinutes(q === scl ? 'b763' : q === cgk ? 'a320ceo' : 'b77l');
+      const rm = reportMinutes(q === scl ? 'b763' : q === cgk ? 'a320ceo' : 'b772');
       let day0 = q.legs[0].std;
       for (let i = 1; i < q.legs.length; i++) {
         const gap = q.legs[i].std - q.legs[i - 1].sta;

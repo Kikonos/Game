@@ -34,7 +34,8 @@ describe('extra crew settings', () => {
     expect(crewExtraFor(g, ac, null)).toMatchObject({ cabin: 2, pilot: 1, source: 'aircraft' });
     const k = fixtureContract(g, { aircraftIds: [ac], start: g.now, end: g.now + 10 * DAY, pattern: { kind: 'legs', legs: [] } });
     k.crewExtra = { cabin: 3, pilot: 0 };
-    expect(crewExtraFor(g, ac, k.id)).toMatchObject({ cabin: 3, pilot: 0, source: 'contract' });
+    // v0.10 optional extras stop at the crew seats: an A320 has 6, the minimum takes 4
+    expect(crewExtraFor(g, ac, k.id)).toMatchObject({ cabin: 2, pilot: 0, source: 'contract' });
     k.requirements.extraCabin = 4;
     expect(crewExtraFor(g, ac, k.id)).toMatchObject({ cabin: 4, source: 'client' });
     k.requirements.extraCabin = 0;
