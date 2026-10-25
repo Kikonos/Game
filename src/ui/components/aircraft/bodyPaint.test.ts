@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { BODY_PRESETS, bodyPreset } from '../../../data/livery';
 import type { Livery } from '../../../engine/core/types';
 import { normaliseLivery } from '../../../engine/ops/paint';
-import { bellyPoly, bodyColourAt, bodyLayers, inPoly, noseBandPolys, paintY, splitAt, stripeLine, tubeAt, windowShare } from './bodyPaint';
+import { bellyPoly, bodyColourAt, bodyLayers, finFilletPoly, inPoly, noseBandPolys, paintY, splitAt, stripeLine, tubeAt, windowShare } from './bodyPaint';
 import { extraDecals } from './stickers';
 import { tintKey } from './compose';
 import { paintRegions, shadingOf } from './paintModel';
@@ -325,5 +325,37 @@ describe('v0.11 livery conventions (split below the windows, nose band, markings
     expect(n.reg).toEqual({ noFlag: true, color: '#000000' });
     expect(n.model).toBe('rear');
     expect(normaliseLivery(n)).toEqual(n);
+  });
+});
+
+describe('v0.11 small markings keep clear; the fin paint ends along the crown', () => {
+  const looks: Livery[] = [
+    { primary: '#ffffff', secondary: '#2a9fd6', tail: 'solid', model: 'rear', body: { color: '#2a9fd6', belly: { color: '#ffffff', split: 0.62, tilt: 0, windows: true, line: { color: '#0b2a5b', h: 0.018 } } } },
+    { primary: '#1f6f6b', secondary: '#d23b2a', tail: 'solid', body: { belly: { color: '#c6cdd4', split: 0.62, tilt: 0, windows: true }, noseBand: { color: '#1f6f6b', accent: '#d23b2a' }, finRoot: '#d23b2a' } },
+    { primary: '#7a1f2b', secondary: '#f5c451', tail: 'solid', body: { stripes: [{ color: '#7a1f2b', y: 0.4, h: 0.1, windows: true }, { color: '#f5c451', y: 0.56, h: 0.03 }], belly: { color: '#c9ced8', split: 0.7, tilt: 0 } } },
+  ];
+  it('registration and model sit on one colour (no split line, stripe or band edge through them) and off the wing', () => {
+    for (const id of FILES) {
+      const d = layoutOf(id);
+      for (const lv of looks) {
+        for (const t of extraDecals(id, lv, { reg: 'CS-TBL', model: 'BOEING 777-200ER', fine: true }).filter((x) => x.id === 'reg' || x.id === 'model')) {
+          const cols = new Set<string>();
+          for (let i = 0; i <= 8; i++) for (let j = 0; j <= 3; j++) cols.add(bodyColourAt(id, lv, t.cx - t.w / 2 + (t.w * i) / 8, t.cy - t.h / 2 + (t.h * j) / 3));
+          expect(cols.size, `${id} ${t.id} on ${[...cols]}`).toBe(1);
+          expect(inPoly(d.zone, t.cx, t.cy), `${id} ${t.id} off the fuselage zone`).toBe(true);
+        }
+      }
+    }
+  });
+  it('the fillet line runs just above the crown from the tail cone to past the fin', () => {
+    for (const id of FILES) {
+      const d = layoutOf(id);
+      const poly = finFilletPoly(d);
+      for (const x of [d.finQuad[1][0], (d.finQuad[0][0] + d.finQuad[1][0]) / 2, d.finQuad[0][0]]) {
+        const t = tubeAt(d, x)!;
+        expect(inPoly(poly, x, t[0] + 1), `${id} at ${x}`).toBe(true);
+        expect(inPoly(poly, x, t[0] - 0.06 * (d.belly - d.crown)), `${id} at ${x}`).toBe(false);
+      }
+    }
   });
 });

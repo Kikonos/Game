@@ -534,6 +534,46 @@ function smallText(typeId: string, lv: Livery, id: 'reg' | 'model', text: string
   return { id, kind: 'reg', side: 'fuselage', cx, cy: at.base - cap / 2, w: wd, h: cap, rot: 0, text, fontSize: fs, baseline: cap / 2, weight, spacing: sp, ink };
 }
 
+/** Is the paint under a text box (plus a margin) one colour? (No split line, stripe or band edge through it.) */
+function clearBand(typeId: string, lv: Livery, cx: number, cy: number, w: number, h: number): boolean {
+  const mx = 0.2 * h, my = 0.45 * h;
+  let first: string | null = null;
+  for (let i = 0; i <= 10; i++) {
+    for (let j = 0; j <= 4; j++) {
+      const c = bodyColourAt(typeId, lv, cx - w / 2 - mx + ((w + 2 * mx) * i) / 10, cy - h / 2 - my + ((h + 2 * my) * j) / 4);
+      if (first === null) first = c;
+      else if (c !== first) return false;
+    }
+  }
+  return true;
+}
+
+/** Registration centre x where the default (over the fin's root leading edge) meets the art: the 747-8's raked
+ *  wingtip reaches the rear fuselage there. */
+const REG_X: Record<string, number> = { b748: 500 };
+
+/** Is a box inside the fuselage sticker zone (clear of the wing where it crosses the fuselage, and of the engines)? */
+function inZone(typeId: string, b: { cx: number; cy: number; w: number; h: number }): boolean {
+  const z = layoutOf(typeId).zone as V[];
+  // with a margin: the wing's drawn edge must not touch the text
+  const w = b.w + 0.6 * b.h, h = 2.2 * b.h;
+  return [[-1, -1], [0, -1], [1, -1], [1, 1], [0, 1], [-1, 1], [0, 0]].every(([u, v]) => inPoly(z, [b.cx + (u * w) / 2, b.cy + (v * h) / 2]));
+}
+
+/** The first candidate (baselines, then sideways shifts of up to 2.5 text widths) where the text sits on one colour
+ *  and inside the fuselage zone (never over the wing); else the first. */
+function placeClear(typeId: string, lv: Livery, make: (base: number) => Decal, bases: number[], shiftDir = -1): Decal {
+  const t0 = make(bases[0]);
+  for (const k of [0, 0.5, 1, 1.5, 2, 2.5]) {
+    for (const b of bases) {
+      const t = make(b);
+      const u = { ...t, cx: t.cx + shiftDir * k * t0.w };
+      if (inZone(typeId, u) && clearBand(typeId, lv, u.cx, u.cy, u.w, u.h)) return u;
+    }
+  }
+  return t0;
+}
+
 /**
  * Markings real aircraft carry beyond the livery's stickers, painted (decals): the registration (small, just above
  * the window line over the fin's root leading edge, aft of the rear door; the registry state's flag on its tail
@@ -553,7 +593,12 @@ export function extraDecals(typeId: string, lv: Livery, opt: { reg?: string; mod
   const finLE = d.finQuad[0][0];
   if (opt.fine && r && !lv.reg?.hide) {
     const cap = Math.max(0.85 * winH, 0.035 * D);
-    const reg = smallText(typeId, lv, 'reg', r, cap, 700, { x: finLE, base: win[0] - 0.45 * winH, anchor: 'centre' }, lv.reg?.color);
+    // above the windows; higher when a line or band edge runs there
+    const bases = [0, 1, 2, 3, 4].map((k) => win[0] - 0.45 * winH - k * 0.5 * cap).filter((b) => b - cap > d.crown + 0.06 * D);
+    // else under the windows (a stripe along them, little room over them)
+    const under = Array.from({ length: 10 }, (_, k) => win[1] + 0.6 * winH + cap + k * 0.6 * cap).filter((b) => b < d.crown + 0.8 * D);
+    const rx = REG_X[spriteOf(typeId)] ?? finLE;
+    const reg = placeClear(typeId, lv, (base) => smallText(typeId, lv, 'reg', r, cap, 700, { x: rx, base, anchor: 'centre' }, lv.reg?.color), [...(bases.length ? bases : [win[0] - 0.45 * winH]), ...under]);
     out.push(reg);
     const fl = lv.reg?.noFlag ? '' : flag(countryOfReg(r));
     if (fl) {
@@ -563,10 +608,27 @@ export function extraDecals(typeId: string, lv: Livery, opt: { reg?: string; mod
   }
   if (opt.fine && opt.model && lv.model !== 'off' && !lv.plain) {
     const cap = Math.max(0.6 * winH, 0.026 * D);
-    const base = win[1] + 1.6 * winH + cap;
-    out.push(lv.model === 'rear'
-      ? smallText(typeId, lv, 'model', opt.model, cap, 500, { x: finLE, base, anchor: 'centre' }, titleInk)
-      : smallText(typeId, lv, 'model', opt.model, cap, 500, { x: d.nose - 0.17 * L, base, anchor: 'nose' }, titleInk));
+    // under the windows, lower in steps until no split line, stripe or band edge runs through it; else above them
+    const below = Array.from({ length: 12 }, (_, k) => win[1] + 1.6 * winH + cap + k * 0.6 * cap).filter((b) => b < d.crown + 0.8 * D);
+    const above = [win[0] - 0.6 * winH, win[0] - 0.6 * winH - cap].filter((b) => b - cap > d.crown + 0.06 * D);
+    const reg = out.find((x) => x.id === 'reg');
+    if (lv.model === 'rear') {
+      // aft: on the registration's line above the windows, just forward of it (under the rear door its sill is drawn)
+      const x0 = reg ? reg.cx + reg.w / 2 + 1.2 * reg.h : finLE;
+      const base0 = reg ? reg.cy + reg.h / 2 : win[0] - 0.45 * winH;
+      const make = (base: number) => { const t = smallText(typeId, lv, 'model', opt.model!, cap, 500, { x: x0, base, anchor: 'centre' }, titleInk); return { ...t, cx: x0 + t.w / 2 }; };
+      const bases = [base0, base0 - 0.5 * cap, base0 - cap];
+      let t = placeClear(typeId, lv, make, bases, 1);
+      if (!inZone(typeId, t) && reg) {
+        // the wing is forward of it: on the tail side of the registration (and its flag) instead
+        const fl = out.find((x) => x.id === 'flag');
+        const end = (fl ? fl.cx - fl.w / 2 : reg.cx - reg.w / 2) - 1.2 * reg.h;
+        t = placeClear(typeId, lv, (base) => { const u = make(base); return { ...u, cx: end - u.w / 2 }; }, bases, -1);
+      }
+      out.push(t);
+    } else {
+      out.push(placeClear(typeId, lv, (base) => smallText(typeId, lv, 'model', opt.model!, cap, 500, { x: d.nose - 0.17 * L, base, anchor: 'nose' }, titleInk), [...below, ...above]));
+    }
   }
   if (lv.logo && !lv.plain) {
     if (lv.body?.engineLogo) {

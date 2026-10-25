@@ -285,6 +285,8 @@ async function draw(sprite: string, w: AssetWidth, lv: Livery, decals: readonly 
         finFilletPoly(d).forEach(([x, y], i) => (i ? fc.lineTo(x * k, y * k) : fc.moveTo(x * k, y * k)));
         fc.closePath();
         fc.clip();
+        fc.fillStyle = '#ffffff';
+        fc.fillRect(0, 0, w, h);
         for (const l of layers) {
           fc.fillStyle = l.color;
           for (const poly of l.polys) fillPoly(fc, poly, k);

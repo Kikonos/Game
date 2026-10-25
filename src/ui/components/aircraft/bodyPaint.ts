@@ -168,10 +168,20 @@ export function finBandPoly(d: SpriteLayout, t0: number, t1: number): Pt[] {
   return [finPoint(d, -0.8, t0), finPoint(d, 1.8, t0), finPoint(d, 1.8, t1), finPoint(d, -0.8, t1)];
 }
 
-/** Below the fin's root line (the dorsal fillet and the fuselage under the fin): it takes the body paint. */
+/** Where the fin's paint ends: everything of the fin's mask below a line just above the fuselage's crown (3 % of
+ *  the cabin height, following the crown's own curve) is fuselage: the dorsal fillet blends into the crown and the
+ *  tail cone's top under the rudder, with no straight-edged block and no sliver along the crown. */
 export function finFilletPoly(d: SpriteLayout): Pt[] {
-  const a = finPoint(d, -2, 0), b = finPoint(d, 3, 0);
-  return [a, b, [b[0], d.h + 10], [a[0], d.h + 10]];
+  const gap = 0.03 * tubeHeight(d);
+  const top: Pt[] = [];
+  const x1 = d.finQuad[0][0] + 0.08 * (d.nose - d.tail);
+  let last = d.crown;
+  for (let x = d.tail - 10; x <= x1; x += 4) {
+    const t = tubeAt(d, Math.max(d.tail + 2, x));
+    if (t) last = t[0];
+    top.push([x, last - gap]);
+  }
+  return [...top, [x1, d.h + 10], [d.tail - 10, d.h + 10]];
 }
 
 /** A stripe's centre share and its thickness in px. */
@@ -315,5 +325,5 @@ export function finStripeAt(id: string, lv: Livery, X: number, Y: number): strin
  *  most liveries), else the tail colour (as before v0.10). */
 export const engineColour = (lv: Livery): string => lv.body?.engines ?? lv.body?.belly?.color ?? lv.primary;
 
-/** The fin's own paint at its root (fillet) is the fuselage's when the fuselage has its own colour. */
-export const filletTakesBody = (lv: Livery): boolean => !lv.plain && !!lv.body?.color;
+/** The fin's paint ends just above the crown: the fillet and the tail cone's top take the fuselage's paint. */
+export const filletTakesBody = (lv: Livery): boolean => !lv.plain;
