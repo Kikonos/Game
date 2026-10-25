@@ -174,8 +174,17 @@ function planCrewRaw(g: GameState, c: CrewMember, p: Pairing, base: Seg[], exist
         base = withoutTickets(base, [t.id]);
       }
     }
-    const at = out ? out.to : locAt(c, base, first.report);
     const started = g.flights[first.flightIds[0]]?.status !== 'scheduled';
+    // v0.10.1 a ticket out moves only crew who are where it leaves from (BLU511: an FO in Lisbon held a ticket out of
+    // Düsseldorf; the roster read her as landed in Antalya, the gate found her in Lisbon and held the leg for 34 h). One
+    // still to fly needs them at its departure by then; one flown (or under way) without them leaves them where they
+    // really are, and the duty is checked from there.
+    const tk = out && !started ? (out as Flight) : null;
+    if (tk?.status === 'scheduled') {
+      const w = locAt(c, base, tk.std);
+      if (w !== tk.from) issues.push({ code: 'location', level: 'illegal', text: `At ${w}, not ${tk.from} for the ticket to ${tk.to}`, dutyId: first.id });
+    } else if (tk && ((tk.status === 'enroute' && c.loc !== tk.from) || (tk.status === 'done' && locAt(c, base, first.report) !== tk.to))) out = null;
+    const at = out ? out.to : locAt(c, base, first.report);
     if (at !== dep && !started) issues.push({ code: 'location', level: 'illegal', text: `At ${at}, not ${dep}`, dutyId: first.id });
   } else {
     // Still at the departure airport with a ticket home around this trip: they stay on instead.
