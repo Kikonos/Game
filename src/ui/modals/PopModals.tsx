@@ -89,7 +89,7 @@ export function DeliveredModal({ aircraftId }: { aircraftId: string }) {
     <Modal size="wide" className="v91-pop v91-delivered" title="A new aircraft joins the fleet" icon={<PartyPopper className="gold" />} onClose={next} footer={
       <button className="btn btn-primary" onClick={next}>{ferry.length ? 'Continue' : 'Wonderful'}</button>
     }>
-      <div className="v91-dl-art"><AircraftArt typeId={artFor(ac.typeId)} livery={lv.livery} code={lv.code} name={lv.name} /></div>
+      <div className="v91-dl-art"><AircraftArt typeId={artFor(ac.typeId, ac.variant)} livery={lv.livery} code={lv.code} name={lv.name} /></div>
       <div className="v91-dl-reg mono">{ac.reg}</div>
       <div className="v91-dl-type">{t?.name ?? ac.typeId} · {ac.cabin.label}</div>
       <div className="small muted v91-dl-from">Handed over at {from}{dl ? ` on ${fmtDay(dl.handover)}` : ''} · {how}</div>

@@ -56,7 +56,7 @@ function OfferCard({ g, now, v, sel }: { g: GameState; now: number; v: MarketOff
   return (
     <div className={`card mk-card ${sel ? 'selected' : ''} ${v.gate.ok ? '' : 'locked'}`} data-offer={o.id}>
       <div className="mk-top">
-        <div className="mk-art"><AircraftArt typeId={artFor(o.typeId)} livery={MARKET_LIVERY} detail="simple" /></div>
+        <div className="mk-art"><AircraftArt typeId={artFor(o.typeId, o.variant)} livery={MARKET_LIVERY} detail="simple" /></div>
         <div className="grow" style={{ minWidth: 0 }}>
           <div className="row gap-8 between">
             <b className="ellipsis">{typeName(o.typeId)} · {o.builtYear} · {o.cabin.label}</b>

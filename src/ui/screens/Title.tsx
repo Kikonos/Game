@@ -1,5 +1,6 @@
 import { Download, FolderOpen, Play, Plus, Settings, Wifi, WifiOff } from 'lucide-react';
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { ACMI_TYPES_LIST } from '../../data/acmiTypes';
 import { AIRCRAFT_BY_ID } from '../../data/aircraft';
 import { AIRPORTS } from '../../data/airports';
 import { BRAND_LIVERY } from '../../data/livery';
@@ -20,7 +21,7 @@ const AMBIENT: [string, string][] = [
   ['PEK', 'CDG'], ['BOM', 'DXB'], ['CAI', 'FRA'], ['GRU', 'EZE'], ['SEA', 'ANC'], ['DEN', 'ORD'], ['MNL', 'NRT'],
 ];
 
-const SHOWCASE = ['a320ceo', 'b738', 'b752', 'b763', 'a333', 'b772', 'b77w', 'b744', 'a359', 'a388'];
+const SHOWCASE = ['a320ceo', 'b738', 'a321neo', 'b752', 'b763', 'a333', 'a339', 'b772', 'b77w', 'b788', 'b789', 'a359', 'a35k', 'b744', 'b748', 'a388'];
 
 function useOffline() {
   return useSyncExternalStore(
@@ -135,7 +136,7 @@ export function Title() {
           {offline.online ? <Wifi size={14} /> : <WifiOff size={14} />}
           {offline.ready ? 'Offline ready — plays without internet' : offline.online ? 'Online' : 'Offline mode'}
         </span>
-        <span className="dim small">{CURRENT.version} {CURRENT.name} · {AIRPORTS.length} airports · {SHOWCASE.length} aircraft types</span>
+        <span className="dim small">{CURRENT.version} {CURRENT.name} · {AIRPORTS.length} airports · {ACMI_TYPES_LIST.filter((x) => x.available).length} aircraft types</span>
       </div>
       <GlobalModals />
     </div>

@@ -5,6 +5,7 @@
 import { BadgeDollarSign, BedDouble, CalendarRange, HelpCircle, Lock, Palette, Plane, Sofa, TimerOff, Undo2, Wrench, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { artFor } from '../../data/acmiTypes';
+import { enginesOf, variantOf } from '../../data/variants';
 import { MRO_STATIONS } from '../../data/market';
 import { cabinMinimum, typeOf } from '../../engine/core/perf';
 import { DAY, fmtDate, fmtDay, yearOf } from '../../engine/core/time';
@@ -183,7 +184,7 @@ function AircraftCard({ g, ac, sel, least, onLeastClose }: { g: GameState; ac: A
   return (
     <div className={`card sc-ac ${sel ? 'selected' : ''}`} data-ac={ac.id}>
       <div className="sc-ac-top">
-        <div className="sc-ac-art"><AircraftArt typeId={artFor(ac.typeId)} livery={lv.livery} code={lv.code} name={lv.name} /></div>
+        <div className="sc-ac-art"><AircraftArt typeId={artFor(ac.typeId, ac.variant)} livery={lv.livery} code={lv.code} name={lv.name} /></div>
         <div className="grow" style={{ minWidth: 0 }}>
           <div className="row gap-8">
             <b className="mono sc-ac-reg">{ac.reg}</b>
@@ -213,6 +214,9 @@ function AircraftCard({ g, ac, sel, least, onLeastClose }: { g: GameState; ac: A
         ['At', ac.status === 'delivering' ? (ds ? `handover at ${ds.site} ${fmtDay(ds.handover)}` : `arrives ${fmtDate(ac.deliveredAt)}`) : ac.at],
         ['Hours / cycles', `${Math.round(ac.hours).toLocaleString('en-US')} / ${Math.round(ac.cycles).toLocaleString('en-US')}`],
         ['ETOPS', etopsLabel(g, ac)],
+        // v0.10 the airframe's engines (and the A321neo's exit layout, which sets its seat limit)
+        ['Engines', enginesOf(ac.typeId, ac.variant)],
+        ...(variantOf(ac.typeId, ac.variant)?.maxSeats ? [['Exits', `${variantOf(ac.typeId, ac.variant)!.label} · up to ${variantOf(ac.typeId, ac.variant)!.maxSeats} seats`] as [string, string]] : []),
         // v0.7.3 §2.6 item 1: pilots' and cabin crew's rest (every type) and the longest day it allows.
         ...restRows(g, restOf(g, ac.id), ac.typeId),
       ]} />
