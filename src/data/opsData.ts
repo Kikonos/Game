@@ -1,4 +1,4 @@
-// v0.11 Operations reference data (docs/acmi/RESEARCH.md §16): night curfews at real airports, the EU/ECAC states
+// v0.11 Operations reference data (docs/acmi/RESEARCH.md §17): night curfews at real airports, the EU/ECAC states
 // for ramp inspection programmes, ramp-inspection items by category, audit findings and their corrective actions,
 // and the money of disruptions. Numbers are mid-range public figures; sources in RESEARCH §16.
 
@@ -136,3 +136,14 @@ export const WEATHER_CAUSES = ['Fog below landing minimums', 'Thunderstorms over
 export const TECH_CAUSES = ['A hydraulic system warning', 'An engine oil pressure warning', 'Smoke smell in the cabin', 'A pressurisation fault', 'A cracked cockpit window'];
 /** Turnaround slow-downs. */
 export const TURN_CAUSES = ['Cleaning team late', 'Catering truck late', 'Fuel bowser held up', 'Boarding slow: a large group checked in late', 'Baggage loaders short-staffed'];
+
+/** Island airports in the data (by island): no coach to or from another island or the mainland. */
+export const ISLAND: Record<string, string> = {
+  PMI: 'Mallorca', IBZ: 'Ibiza', MAH: 'Menorca', TFS: 'Tenerife', LPA: 'Gran Canaria', ACE: 'Lanzarote', FUE: 'Fuerteventura', FNC: 'Madeira',
+  PDL: 'São Miguel', TER: 'Terceira', MLA: 'Malta', LCA: 'Cyprus', PFO: 'Cyprus', HER: 'Crete', CHQ: 'Crete', RHO: 'Rhodes', KGS: 'Kos', CFU: 'Corfu',
+  JTR: 'Santorini', ZTH: 'Zakynthos', OLB: 'Sardinia', CAG: 'Sardinia', PMO: 'Sicily', CTA: 'Sicily', KEF: 'Iceland', DPS: 'Bali', MRU: 'Mauritius',
+  SEZ: 'Mahé', MLE: 'Malé', HNL: 'Oahu', OGG: 'Maui', SID: 'Sal', BVC: 'Boa Vista', RAI: 'Santiago (CV)', MBJ: 'Jamaica', NAS: 'New Providence',
+  AUA: 'Aruba', SJU: 'Puerto Rico', ZNZ: 'Zanzibar', TNR: 'Madagascar',
+};
+/** Mainland Europe (open borders by road; Great Britain and Ireland are across the sea). */
+export const MAINLAND_EU = new Set(['AT', 'BE', 'BG', 'HR', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU', 'IT', 'LV', 'LT', 'LU', 'NL', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE', 'NO', 'CH', 'LI', 'AL', 'BA', 'ME', 'MK', 'RS', 'MD', 'MC', 'SM']);

@@ -18,6 +18,11 @@ import { hurtTone } from './crewControlLogic';
 import { spanLabel } from '../screens/screenLogic';
 import { store, useStore } from '../store';
 
+/** A chip's colour: money out / reliability lost red, lateness and crew limits amber, gains green. */
+function chipTone(c: string): string {
+  return hurtTone(c) ?? (/^[−-]/.test(c) || /−/.test(c) ? 'bad' : /\blate\b|out of hours|discretion|curfew|penalty|offloaded|risk/i.test(c) ? 'warn' : /^\+/.test(c) ? 'good' : '');
+}
+
 export function DecisionModal({ decisionId }: { decisionId?: string }) {
   const s = useStore();
   const g = s.game!;
@@ -60,7 +65,7 @@ export function DecisionModal({ decisionId }: { decisionId?: string }) {
             <span className="small muted">{o.desc}</span>
             {!!chipsOf(o)?.length && (
               <span className="sc-chips">
-                {chipsOf(o)!.map((c) => <span key={c} className={`chip sc-chip ${hurtTone(c) ?? (/^[−-]/.test(c) || /−/.test(c) ? 'bad' : /^\+/.test(c) ? 'good' : '')}`}>{c}</span>)}
+                {chipsOf(o)!.map((c) => <span key={c} className={`chip sc-chip ${chipTone(c)}`}>{c}</span>)}
               </span>
             )}
           </button>

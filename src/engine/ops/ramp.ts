@@ -6,18 +6,18 @@
 // lightly, into our reliable name. Rolls are on a side stream.
 
 import { AIRPORT_BY_CODE } from '../../data/airports';
-import { EASA_STATES, ECAC, RAMP_ITEMS, RAMP_MEAN } from '../../data/opsData';
+import { EASA_STATES, RAMP_ITEMS, RAMP_MEAN } from '../../data/opsData';
 import { nextId } from '../core/entities';
 import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { hashUnit } from '../core/util';
-import { DAY, fmtTime, yearOf } from '../core/time';
+import { DAY, fmtDuration, fmtTime, yearOf } from '../core/time';
 import type { Aircraft, Flight, GameState, RampCheck, RampProgramme } from '../core/types';
 import { OPS_LIVE, optionalFactor } from './director';
 import { countOps, lineMx, opsState } from './disrupt';
 import { bumpReliable, usd } from './util';
 
-/** Inspections per landing: at an ECAC airport abroad, at home, outside Europe (the local authority's own checks). */
+/** Inspections per landing: at an EASA-state airport abroad, at home, elsewhere (the local authority's own checks). */
 export const RAMP_RATE = { ecac: 0.004, home: 0.003, local: 0.0015 };
 /** An EU operator with a good record finds less than the all-operator average (2025: 0.92 findings per inspection). */
 const OPERATOR_F = 0.55;
@@ -41,7 +41,8 @@ function poisson(g: GameState, key: string, lambda: number): number {
 /** The programme an inspection at `airport` falls under for our company. Pure. */
 export function programmeAt(g: GameState, airport: string): RampProgramme {
   const c = AIRPORT_BY_CODE[airport]?.country ?? '';
-  if (!ECAC.has(c)) return 'local';
+  // SAFA/SACA run in the EASA states (the UK CAA, Turkey and the other ECAC states inspect under their own rules).
+  if (!EASA_STATES.has(c)) return 'local';
   const home = AIRPORT_BY_CODE[g.company.homeBase]?.country ?? '';
   return EASA_STATES.has(home) ? 'SACA' : 'SAFA';
 }
@@ -100,7 +101,7 @@ export function inspect(g: GameState, ac: Aircraft, at: string, prog: RampProgra
   pushMessage(g, {
     tone: worst === 3 ? 'bad' : worst === 2 ? 'warn' : 'info', cat: 'tech',
     title: worst === 3 ? `${name}: ${ac.reg} ${action === '3c' ? 'detained' : 'held'} at ${where}` : `${name}: ${n} finding${n > 1 ? 's' : ''} on ${ac.reg}`,
-    body: `${items.map(([c, t]) => `Cat ${c}: ${t}`).join('. ')}.${fixMin ? ` Put right before the next flight: about ${Math.round(fixMin / 60)} h, ready ${fmtTime(g.now + fixMin)} UTC.` : ''}${cost ? ` ${usd(cost)}.` : ''}`,
+    body: `${items.map(([c, t]) => `Cat ${c}: ${t}`).join('. ')}.${fixMin ? ` Put right before the next flight: about ${fmtDuration(fixMin)}, ready ${fmtTime(g.now + fixMin)} UTC.` : ''}${cost ? ` ${usd(cost)}.` : ''}`,
     ref: { kind: 'ramp', id: r.id }, problem: { kind: 'rampFinding', ref: { kind: 'ramp', id: r.id } },
     hurt: { money: cost, pax: 0, delayMin: fixMin, level: worst === 3 ? 'high' : worst === 2 ? 'low' : 'none' },
     cue: action === '3c' ? 'opsEmergency' : worst >= 2 ? 'notice' : 'message',

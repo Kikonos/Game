@@ -18,17 +18,17 @@ const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 /** The year's disruption counts in plain words (Company and the bot read the same record). Pure. */
 export function disruptionLine(g: GameState): string {
   const c = g.opsx?.counts[yearOf(g.now)] ?? {};
-  const parts: [string, number][] = [
-    ['diversions', (c.weatherDivert ?? 0) + (c.techDivert ?? 0) + (c.curfewDivert ?? 0)],
-    ['medical emergencies', c.medical ?? 0],
-    ['bird strikes', c.birdStrike ?? 0],
-    ['crew sick away', c.sickAway ?? 0],
-    ['ATC slots', c.ctot ?? 0],
-    ['slow turnarounds', c.turnaround ?? 0],
-    ['curfews', c.curfew ?? 0],
+  const parts: [string, string, number][] = [
+    ['diversion', 'diversions', (c.weatherDivert ?? 0) + (c.techDivert ?? 0) + (c.medicalDivert ?? 0) + (c.curfewDivert ?? 0)],
+    ['medical emergency', 'medical emergencies', c.medical ?? 0],
+    ['bird strike', 'bird strikes', c.birdStrike ?? 0],
+    ['crew member sick away', 'crew sick away', c.sickAway ?? 0],
+    ['ATC slot', 'ATC slots', c.ctot ?? 0],
+    ['slow turnaround', 'slow turnarounds', c.turnaround ?? 0],
+    ['curfew', 'curfews', c.curfew ?? 0],
   ];
-  const on = parts.filter(([, n]) => n > 0);
-  return on.length ? on.map(([w, n]) => `${n} ${w}`).join(' · ') : 'None yet this year';
+  const on = parts.filter(([, , n]) => n > 0);
+  return on.length ? on.map(([one, many, n]) => `${n} ${n === 1 ? one : many}`).join(' · ') : 'None yet this year';
 }
 
 function Finding({ g, f }: { g: GameState; f: AuditFinding }) {
@@ -85,7 +85,7 @@ export function SafetyCard({ g }: { g: GameState }) {
       <div className="ops-gauges">
         <div className={`ops-gauge ${tone(rec.illegal > 0)}`}><b>{rec.illegal}</b><span className="tiny dim">illegal duties, 12 months</span></div>
         <div className={`ops-gauge ${tone(rec.ramp.cats[2] >= 2 || rec.ramp.detained > 0, rec.ramp.cats[2] > 0 || rec.ramp.cats[1] >= 3)}`}><b>{rec.ramp.n}</b><span className="tiny dim">ramp checks: {rec.ramp.cats[0]}/{rec.ramp.cats[1]}/{rec.ramp.cats[2]} by Cat 1/2/3</span></div>
-        <div className={`ops-gauge ${tone(rec.tech.pct !== null && rec.tech.pct < 97, rec.tech.pct !== null && rec.tech.pct < 98)}`}><b>{rec.tech.pct === null ? '–' : `${rec.tech.pct}%`}</b><span className="tiny dim">technical reliability (97 % standard)</span></div>
+        <div className={`ops-gauge ${rec.tech.pct === null ? '' : tone(rec.tech.pct < 97, rec.tech.pct < 98)}`}><b>{rec.tech.pct === null ? '–' : `${rec.tech.pct}%`}</b><span className="tiny dim">technical reliability (97 % standard)</span></div>
         <div className={`ops-gauge ${tone(rec.grounded >= 10, rec.grounded > 0)}`}><b>{rec.grounded}</b><span className="tiny dim">days grounded, check overdue</span></div>
       </div>
       <div className="row gap-8 mt-12"><ClipboardCheck className="sc-ico-s dim" /><b className="small">Audit findings</b><span className="tiny dim grow">{last ? `Last audit ${fmtDate(last[0])}: ${last[1] + last[2] ? `${last[1]} Level 1, ${last[2]} Level 2` : 'no findings'}` : 'No audit yet'}</span></div>

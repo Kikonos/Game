@@ -30,6 +30,7 @@ import { devAchievement, devCrewHours, devJumbo, devPosition, devRestAtDeparture
 import type { OohLimit, Pace } from '../engine/core/types';
 import { setPace } from '../engine/ops/director';
 import { devDisruption } from '../engine/ops/disrupt';
+import { CURFEWS } from '../data/opsData';
 import { inspect, rampFindings } from '../engine/ops/ramp';
 import { devAudit } from '../engine/ops/audit';
 
@@ -939,16 +940,21 @@ class GameStore {
       const g = this.game;
       if (!g) return false;
       const air = ['diversion', 'technical', 'medical'].includes(kind);
-      const pick = Object.values(g.flights).filter((f) => f.aircraftId && f.kind === 'revenue' && (air ? f.status === 'enroute' && (f.eta ?? f.sta) > g.now + 40 : kind === 'birdStrike' || kind === 'onward' ? f.status === 'done' && g.fleet[f.aircraftId].at === f.to && !g.fleet[f.aircraftId].flightId : f.status === 'scheduled' && f.std > g.now && !!f.dutyId))
-        .sort((a, b) => (kind === 'birdStrike' || kind === 'onward' ? (b.ata ?? 0) - (a.ata ?? 0) : a.std - b.std))[0];
+      const pick = Object.values(g.flights).filter((f) => f.aircraftId && f.kind === 'revenue' && (air ? f.status === 'enroute' && (f.eta ?? f.sta) > g.now + 40 : kind === 'birdStrike' || kind === 'onward' ? f.status === 'done' && g.fleet[f.aircraftId].at === f.to && !g.fleet[f.aircraftId].flightId : f.status === 'scheduled' && f.std > g.now && !!f.dutyId && (kind !== 'sickAway' || (g.duties[f.dutyId]?.report ?? 0) > g.now + 30)))
+        .sort((a, b) => (kind === 'curfew' ? Number(!!CURFEWS[b.to]) - Number(!!CURFEWS[a.to]) : 0) || (kind === 'birdStrike' || kind === 'onward' ? (b.ata ?? 0) - (a.ata ?? 0) : a.std - b.std))[0];
       if (!pick) return false;
       if (kind === 'onward' && !pick.div) pick.div = { to0: pick.to, at: g.now - 60, eta0: g.now - 30, cause: 'weather' };
       if (kind === 'onward') {
         const alt = Object.values(g.flights).find((x) => x.id !== pick.id)?.to ?? pick.from;
         if (pick.to === pick.div!.to0 && alt !== pick.to) pick.to = alt === pick.div!.to0 ? pick.from : alt;
       }
+      // A weather closure shows on the approach: the clock moves to 25 min before the leg lands.
+      if (kind === 'diversion' && (pick.eta ?? pick.sta) - g.now > 40) advanceTo(g, (pick.eta ?? pick.sta) - 25, new Set(['decision']));
+      if (kind === 'diversion' && pick.status !== 'enroute') return false;
       const ok = devDisruption(g, kind, pick.id);
-      if (kind === 'ctot' || kind === 'curfew' || kind === 'turnaround' || kind === 'sickAway') { this.decisionDeferred = null; }
+      this.exact = g.now;
+      this.clockLabel = -1;
+      this.emitClock();
       this.emit();
       return ok;
     },
@@ -960,6 +966,8 @@ class GameStore {
       const end = g.now + min;
       for (let i = 0; i < 200 && g.now < end && g.decisions.length <= n; i++) advanceTo(g, Math.min(end, g.now + 10), new Set(['decision']));
       this.exact = g.now;
+      this.clockLabel = -1;
+      this.emitClock();
       this.emit();
     },
     /** v0.11 a ramp inspection now on the first aircraft (`cat`: the worst finding wanted, 0 = clean). */

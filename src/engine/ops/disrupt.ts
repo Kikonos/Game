@@ -8,7 +8,7 @@
 // engine (holds at the gate run through fdpOver / crewProblem; continuation legs are crewed by the roster).
 
 import { AIRPORTS, AIRPORT_BY_CODE } from '../../data/airports';
-import { CTOT_CAUSES, CURFEWS, DISRUPT, MEDICAL_EVENTS, TECH_CAUSES, TURN_CAUSES, WEATHER_CAUSES } from '../../data/opsData';
+import { CTOT_CAUSES, CURFEWS, DISRUPT, ISLAND, MAINLAND_EU, MEDICAL_EVENTS, TECH_CAUSES, TURN_CAUSES, WEATHER_CAUSES } from '../../data/opsData';
 import { addFlight, flightsOf, markFlightsChanged, nextId, touchFlights } from '../core/entities';
 import { haversine, interpolateGC } from '../core/geo';
 import { post } from '../core/ledger';
@@ -74,6 +74,9 @@ const span = (g: GameState, key: string, [lo, hi]: [number, number]) => Math.rou
 const city = (code: string) => AIRPORT_BY_CODE[code]?.city ?? code;
 const wide = (ac: Aircraft) => (typeOf(ac.typeId).body === 'wide' ? 1 : 0);
 const hm = (min: number) => fmtDuration(Math.max(0, Math.round(min)));
+/** Passengers on a leg: the booked count, else (ACMI: the client's load) about 85 % of the seats. */
+const paxOf = (g: GameState, f: Flight) => f.pax ?? Math.round((f.aircraftId ? g.fleet[f.aircraftId]?.cabin.total ?? 0 : 0) * 0.85);
+const ROLE_WORD: Record<string, string> = { CPT: 'captain', FO: 'first officer', CRP: 'relief pilot', PUR: 'purser', CC: 'cabin crew member' };
 const isCharter = (g: GameState, f: Flight) => contractOf(g, f)?.product.kind === 'charter' || !f.contractId;
 
 /** One disruption card open already (the queue: never two at once). */
@@ -148,7 +151,7 @@ export interface AltOption {
 }
 
 /** Up to `n` alternates around `near` for this aircraft, open at their arrival, best first. Pure. */
-export function alternates(g: GameState, ac: Aircraft, near: [number, number], dest: string, maxKm: number, n = 3, exclude: string[] = []): AltOption[] {
+export function alternates(g: GameState, ac: Aircraft, near: [number, number], dest: string, maxKm: number, n = 3, exclude: string[] = [], from: [number, number] = near): AltOption[] {
   const t = typeOf(ac.typeId);
   const kmPerMin = (t.cruiseKt * 1.852) / 60;
   const D = AIRPORT_BY_CODE[dest];
@@ -158,17 +161,31 @@ export function alternates(g: GameState, ac: Aircraft, near: [number, number], d
     out.length = 0;
     for (const a of AIRPORTS) {
       if (a.code === dest || a.ice || a.size < 2 || exclude.includes(a.code) || runwayFit(ac.typeId, a.code) !== 'ok') continue;
-      const km = haversine(near[1], near[0], a.lat, a.lon);
-      if (km > lim) continue;
+      if (haversine(near[1], near[0], a.lat, a.lon) > lim) continue;
+      const km = haversine(from[1], from[0], a.lat, a.lon);
       const min = Math.round(km / kmPerMin + 18);
       const curfew = inCurfew(a.code, g.now + min);
       if (curfew) continue;
       const station = engineersAt(g, ac.id, a.code) ? 'ours' : a.size >= 3 ? 'full' : 'adhoc';
-      const roadKm = D ? Math.round(haversine(a.lat, a.lon, D.lat, D.lon) * 1.25) : 0;
-      out.push({ code: a.code, km: Math.round(km), min, runwayM: a.runwayM, station, curfew, roadKm, score: km + (station === 'ours' ? -150 : station === 'full' ? 0 : 120) - a.size * 10 });
+      const road = D ? roadKm(a.code, dest) : Infinity;
+      out.push({ code: a.code, km: Math.round(km), min, runwayM: a.runwayM, station, curfew, roadKm: road, score: km + (station === 'ours' ? -150 : station === 'full' ? 0 : 120) - a.size * 10 + (road <= 450 ? 0 : 90) });
     }
   }
   return out.sort((a, b) => a.score - b.score).slice(0, n).map(({ score: _s, ...x }) => x);
+}
+
+/**
+ * Road km from a to b for a coach, or Infinity across the sea (islands, Great Britain and Ireland, another continent):
+ * the same island, the same country, or both in mainland Europe. Pure.
+ */
+export function roadKm(a: string, b: string): number {
+  const A = AIRPORT_BY_CODE[a];
+  const B = AIRPORT_BY_CODE[b];
+  if (!A || !B) return Infinity;
+  const ia = ISLAND[a];
+  const ib = ISLAND[b];
+  const ok = ia || ib ? ia === ib : A.country === B.country || (MAINLAND_EU.has(A.country) && MAINLAND_EU.has(B.country));
+  return ok ? Math.round(haversine(A.lat, A.lon, B.lat, B.lon) * 1.25) : Infinity;
 }
 
 /** Alternate option chips: time, runway, handling, road to the destination. */
@@ -177,7 +194,7 @@ function altChips(o: AltOption, dest: string): string[] {
     `${hm(o.min)} away`,
     `Runway ${(o.runwayM / 1000).toFixed(1)} km`,
     o.station === 'ours' ? 'Our station' : o.station === 'full' ? 'Full handling' : 'Handling ad hoc',
-    o.roadKm <= 450 ? `Coach to ${city(dest)} ~${hm((o.roadKm / 70) * 60 + 30)}` : 'Too far by road',
+    o.roadKm <= 450 ? `Coach to ${city(dest)} ~${hm((o.roadKm / 70) * 60 + 30)}` : o.roadKm === Infinity ? 'No road: across the sea' : 'Too far by road',
   ];
 }
 
@@ -218,15 +235,15 @@ function ctotCard(g: GameState, f: Flight, ac: Aircraft, slot?: number): boolean
   const later = flightsOf(g, ac.id).filter((x) => x.status === 'scheduled' && x !== f && x.std < f.std + DAY && x.std > f.std);
   const fdp = fdpNote(g, f, wait);
   const opts: DecisionOption[] = [
-    { id: 'wait', label: 'Wait for the slot', desc: `Off blocks about ${fmtTime(g.now + wait)} UTC. ATC delays are not our fault: no penalty.`, chips: [`+${hm(wait)} late`, ...(later.length ? [`${later.length} later leg${later.length > 1 ? 's' : ''} move`] : []), ...(fdp ? [fdp] : [])] },
-    { id: 'reroute', label: 'File a longer route', desc: `A routing around the busy sector gets a slot in ${hm(better)}; ${extraBlock} min more flying.`, tone: 'good', chips: [`+${hm(better)} late`, `+${extraBlock} min flying`, charter ? usd(-fuel) : 'Client pays the fuel'] },
+    { id: 'wait', label: 'Wait for the slot', desc: `Off blocks about ${fmtTime(g.now + wait)} UTC. ATC delays are not our fault: no penalty.`, chips: [`${hm(wait)} late`, ...(later.length ? [`${later.length} later leg${later.length > 1 ? 's' : ''} move`] : []), ...(fdp ? [fdp] : [])] },
+    { id: 'reroute', label: 'File a longer route', desc: `A routing around the busy sector gets a slot in ${hm(better)}; ${extraBlock} min more flying.`, tone: 'good', chips: [`${hm(better)} late`, `${extraBlock} min more flying`, charter ? usd(-fuel) : 'Client pays the fuel'] },
   ];
-  if (later.length) opts.push({ id: 'client', label: 'Ask the client to move later legs', desc: 'They agree to the later times: no recovery cancels today, but they notice.', chips: [`+${hm(wait)} late`, 'Relation −1'] });
+  if (later.length) opts.push({ id: 'client', label: 'Ask the client to move later legs', desc: 'They agree to the later times: no recovery cancels today, but they notice.', chips: [`${hm(wait)} late`, 'Relation −1'] });
   raise(g, {
     kind: 'ctot', title: `${f.no}: ATC slot ${hm(wait)} late`,
     body: `${cause}. Eurocontrol gave ${f.no} ${f.from}–${f.to} a departure slot (CTOT) ${hm(wait)} after its time.`,
     options: opts, defaultOption: wait > 90 ? 'reroute' : 'wait', expires: g.now + 20, ref: { kind: 'flight', id: f.id },
-    data: { flightId: f.id, wait, better, extraBlock, fuel, cause, ...cardData(`${f.no} has an ATC slot ${hm(wait)} late`, `${cause}: Eurocontrol holds the flight on the ground until its slot.`, `${f.pax ?? 0} passengers ${hm(wait)} late${later.length ? `, ${later.length} later legs` : ''}; no penalty (ATC)`, charter ? 0 : 0, f.pax ?? 0, wait) },
+    data: { flightId: f.id, wait, better, extraBlock, fuel, cause, ...cardData(`${f.no} has an ATC slot ${hm(wait)} late`, `${cause}: Eurocontrol holds the flight on the ground until its slot.`, `${paxOf(g, f)} passengers ${hm(wait)} late${later.length ? `, ${later.length} later legs` : ''}; no penalty (ATC)`, charter ? 0 : 0, paxOf(g, f), wait) },
   }, { optional: true });
   f.ops = 'ctot';
   return true;
@@ -295,11 +312,11 @@ function turnCard(g: GameState, f: Flight, ac: Aircraft, slow?: { min: number; r
     kind: 'turnaround', title: `${f.no}: turnaround running ${late} min late`,
     body: `${cause} at ${city(f.from)}. ${ac.reg} turned in ${turnOf(ac)} minutes, the type's minimum.`,
     options: [
-      { id: 'pay', label: 'Pay for extra handling', desc: 'A second team and a priority fuel truck: off blocks almost on time.', tone: 'good', chips: [usd(-cost), '+5 min'] },
-      { id: 'accept', label: 'Accept the delay', desc: 'The later legs move with it.', chips: [`+${late} min late`, ...(fdp ? [fdp] : []), ...(curfew ? [`Curfew at ${f.to}`] : []), ...(penalty ? ['Delay penalty'] : [])] },
+      { id: 'pay', label: 'Pay for extra handling', desc: 'A second team and a priority fuel truck: off blocks almost on time.', tone: 'good', chips: [usd(-cost), '5 min late'] },
+      { id: 'accept', label: 'Accept the delay', desc: 'The later legs move with it.', chips: [`${late} min late`, ...(fdp ? [fdp] : []), ...(curfew ? [`Curfew at ${f.to}`] : []), ...(penalty ? ['Delay penalty'] : [])] },
     ],
     defaultOption: penalty || curfew || fdp || late >= 35 ? 'pay' : 'accept', expires: g.now + 15, ref: { kind: 'flight', id: f.id },
-    data: { flightId: f.id, late, cost, cause, ...cardData(`${f.no} turnaround is ${late} min late`, `${cause}: the turn was already at the ${typeOf(ac.typeId).short}'s minimum.`, `${f.pax ?? 0} passengers ${late} min late${penalty ? ', delay penalty' : ''}`, penalty ? (c?.penalties.perDelay ?? 0) : 0, f.pax ?? 0, late) },
+    data: { flightId: f.id, late, cost, cause, ...cardData(`${f.no} turnaround is ${late} min late`, `${cause}: the turn was already at the ${typeOf(ac.typeId).short}'s minimum.`, `${paxOf(g, f)} passengers ${late} min late${penalty ? ', delay penalty' : ''}`, penalty ? (c?.penalties.perDelay ?? 0) : 0, paxOf(g, f), late) },
   }, { optional: true });
   return true;
 }
@@ -323,7 +340,7 @@ function resolveTurn(g: GameState, d: Decision, opt: string): ActionResult {
 function curfewAlt(g: GameState, ac: Aircraft, code: string, t: Minute): AltOption | null {
   const A = AIRPORT_BY_CODE[code];
   if (!A) return null;
-  return alternates(g, ac, [A.lon, A.lat], code, 250, 1).find((o) => !inCurfew(o.code, t)) ?? null;
+  return alternates(g, ac, [A.lon, A.lat], code, 250, 4).find((o) => !inCurfew(o.code, t) && o.roadKm <= 450) ?? null;
 }
 
 /**
@@ -339,7 +356,7 @@ function curfewCard(g: GameState, f: Flight, ac: Aircraft): boolean {
   f.ops = 'curfew';
   const end = curfewEnd(f.to, eta);
   const alt = curfewAlt(g, ac, f.to, g.now + f.block + 20);
-  const pax = f.pax ?? 0;
+  const pax = paxOf(g, f);
   const charter = isCharter(g, f);
   const rush = span(g, `cur:${f.id}:r`, DISRUPT.rushSaves);
   const rushOk = !inCurfew(f.to, eta - rush, true);
@@ -350,7 +367,7 @@ function curfewCard(g: GameState, f: Flight, ac: Aircraft): boolean {
     const bus = coachCost(pax, alt.roadKm);
     opts.push({ id: 'divert', label: `Land at ${city(alt.code)} instead`, desc: `${alt.code} is open; passengers go on by coach (${alt.roadKm} km). The aircraft repositions in the morning.`, chips: [charter ? usd(-(bus + handlingAt(ac, alt.station))) : 'Client pays the coaches', `Coach ~${hm((alt.roadKm / 70) * 60 + 30)}`, 'Relation −1'] });
   }
-  opts.push({ id: 'night', label: 'Night-stop, fly at first light', desc: `Hotels here for passengers and crew; off blocks ${fmtTime(night)} UTC to land as ${f.to} opens.`, chips: [charter ? usd(-(hotelCost(pax) + crewOn(f) * DISRUPT.crewRoom)) : usd(-crewOn(f) * DISRUPT.crewRoom), `+${hm(night - g.now)} late`, 'Relation −1'] });
+  opts.push({ id: 'night', label: 'Night-stop, fly at first light', desc: `Hotels here for passengers and crew; off blocks ${fmtTime(night)} UTC to land as ${f.to} opens.`, chips: [charter ? usd(-(hotelCost(pax) + crewOn(f) * DISRUPT.crewRoom)) : usd(-crewOn(f) * DISRUPT.crewRoom), `${hm(night - g.now)} late`, 'Relation −1'] });
   opts.push({ id: 'cancel', label: 'Cancel the leg', desc: 'Compensation to the client and a reliability hit.', tone: 'bad', chips: ['Reliability −3'] });
   const def = rushOk ? 'rush' : alt ? 'divert' : 'night';
   raise(g, {
@@ -366,7 +383,7 @@ function resolveCurfew(g: GameState, d: Decision, opt: string): ActionResult {
   const f = g.flights[String(d.data?.flightId)];
   const ac = f?.aircraftId ? g.fleet[f.aircraftId] : undefined;
   if (!f || !ac || f.status !== 'scheduled') return { ok: true, msg: 'The flight has gone' };
-  const pax = f.pax ?? 0;
+  const pax = paxOf(g, f);
   const charter = isCharter(g, f);
   const c = contractOf(g, f);
   switch (opt) {
@@ -426,7 +443,7 @@ export function rollEnRoute(g: GameState, f: Flight, ac: Aircraft): void {
   const em = emergencyFactor(g);
   const age = 1 + Math.max(0, yearOf(g.now) - ac.builtYear) / 15;
   const pW = RATES.weather * optionalFactor(g);
-  const pM = RATES.medical * em * Math.max(0.5, (f.pax ?? 150) / 180);
+  const pM = RATES.medical * em * Math.max(0.5, paxOf(g, f) / 180);
   const pT = RATES.technical * em * age;
   const r = roll(g, key);
   let kind: DisruptCause | null = null;
@@ -461,18 +478,20 @@ export function onOpsEvent(g: GameState, ev: SimEvent): void {
 function diversionCard(g: GameState, f: Flight, ac: Aircraft, cause: 'weather' | 'technical'): void {
   const key = `div:${f.id}`;
   const P = legPos(f, g.now);
-  const alts = alternates(g, ac, P, f.to, cause === 'weather' ? 400 : 600, 3);
+  const D = AIRPORT_BY_CODE[f.to];
+  // Weather: alternates around the closed destination (the flight plan's alternates); technical: the nearest suitable.
+  const alts = cause === 'weather' ? alternates(g, ac, [D.lon, D.lat], f.to, 350, 3, [], P) : alternates(g, ac, P, f.to, 600, 3);
   if (cause === 'technical' && haversine(P[1], P[0], AIRPORT_BY_CODE[f.from].lat, AIRPORT_BY_CODE[f.from].lon) < 500 && !alts.some((a) => a.code === f.from)) {
     const A = AIRPORT_BY_CODE[f.from];
     const km = Math.round(haversine(P[1], P[0], A.lat, A.lon));
-    alts.unshift({ code: f.from, km, min: Math.round(km / ((typeOf(ac.typeId).cruiseKt * 1.852) / 60) + 18), runwayM: A.runwayM, station: engineersAt(g, ac.id, f.from) ? 'ours' : A.size >= 3 ? 'full' : 'adhoc', curfew: false, roadKm: 0 });
+    alts.unshift({ code: f.from, km, min: Math.round(km / ((typeOf(ac.typeId).cruiseKt * 1.852) / 60) + 18), runwayM: A.runwayM, station: engineersAt(g, ac.id, f.from) ? 'ours' : A.size >= 3 ? 'full' : 'adhoc', curfew: false, roadKm: roadKm(f.from, f.to) });
     alts.length = Math.min(alts.length, 3);
   }
   if (!alts.length) return;
   const what = cause === 'weather' ? pickOf(g, `${key}:w`, WEATHER_CAUSES) : pickOf(g, `${key}:t`, TECH_CAUSES);
-  const pax = f.pax ?? 0;
+  const pax = paxOf(g, f);
   const opts: DecisionOption[] = alts.map((o) => ({ id: `alt:${o.code}`, label: o.code === f.from ? `Return to ${city(o.code)} (${o.code})` : altLabel(o), desc: `${AIRPORT_BY_CODE[o.code]?.name ?? o.code}: ${o.station === 'ours' ? 'our engineers and handling' : o.station === 'full' ? 'a full-service handler, hotels nearby' : 'handling at short notice, dearer'}.`, tone: o.station === 'adhoc' ? 'warn' : 'good', chips: altChips(o, f.to) }));
-  if (cause === 'weather') opts.unshift({ id: 'hold', label: 'Hold for 30 minutes', desc: 'Circle and wait for the weather to lift; fuel for about 40 minutes of holding. If it does not, divert to the first alternate.', tone: 'warn', chips: ['Half the time it clears', '+30 min'] });
+  if (cause === 'weather') opts.unshift({ id: 'hold', label: 'Hold for 30 minutes', desc: 'Circle and wait for the weather to lift; fuel for about 40 minutes of holding. If it does not, divert to the first alternate.', tone: 'warn', chips: ['Half the time it clears', '30 min more'] });
   raise(g, {
     kind: 'diversion', title: cause === 'weather' ? `${f.no}: ${city(f.to)} closed by weather` : `${f.no}: technical problem en route`,
     body: cause === 'weather' ? `${what} at ${city(f.to)}. ${ac.reg} must hold or divert.` : `${what} on ${ac.reg}. The captain wants to land at the nearest suitable airport.`,
@@ -496,7 +515,7 @@ function medicalCard(g: GameState, f: Flight, ac: Aircraft): void {
     kind: 'medical', title: `${f.no}: medical emergency on board`,
     body: `${ev.what}. The purser called for a doctor; the captain is talking to the medical service on the ground.`,
     options: opts, defaultOption: def, expires: g.now + 10, ref: { kind: 'flight', id: f.id },
-    data: { flightId: f.id, severe: ev.severe, what: ev.what, ...cardData(`A passenger on ${f.no} needs a hospital`, `${ev.what}.`, ev.severe ? 'A life may depend on it; a diversion costs time and money, never a penalty' : 'Probably stable; the doctor on board is helping', 0, f.pax ?? 0, ev.severe ? 90 : 0) },
+    data: { flightId: f.id, severe: ev.severe, what: ev.what, ...cardData(`A passenger on ${f.no} needs a hospital`, `${ev.what}.`, ev.severe ? 'A life may depend on it; a diversion costs time and money, never a penalty' : 'Probably stable; the doctor on board is helping', 0, paxOf(g, f), ev.severe ? 90 : 0) },
   }, { optional: false });
 }
 
@@ -583,11 +602,11 @@ export function onDivertedArrival(g: GameState, f: Flight): void {
   const to0 = f.div.to0;
   const cause = f.div.cause;
   const alt = f.to;
-  const pax = Math.max(0, (f.pax ?? 0) - (cause === 'medical' ? 2 : 0));
+  const pax = Math.max(0, paxOf(g, f) - (cause === 'medical' ? 2 : 0));
   const charter = isCharter(g, f);
   const t = typeOf(ac.typeId);
   const block = blockMinutes(ac.typeId, alt, to0);
-  const roadKm = Math.round(haversine(AIRPORT_BY_CODE[alt].lat, AIRPORT_BY_CODE[alt].lon, AIRPORT_BY_CODE[to0].lat, AIRPORT_BY_CODE[to0].lon) * 1.25);
+  const road = roadKm(alt, to0);
   const station: AltOption['station'] = engineersAt(g, ac.id, alt) ? 'ours' : AIRPORT_BY_CODE[alt].size >= 3 ? 'full' : 'adhoc';
   // Our costs at the alternate now: handling and the extra fuel (charters; ACMI clients pay fuel and handling).
   if (charter) {
@@ -612,16 +631,16 @@ export function onDivertedArrival(g: GameState, f: Flight): void {
   if (cause !== 'technical' || fixEnd < g.now + 6 * 60) {
     opts.push({ id: 'flyOn', label: `Fly on to ${city(to0)} ${cause === 'technical' ? 'after the fix' : 'today'}`, desc: `Refuel, ${cause === 'weather' ? 'wait for the weather to lift' : cause === 'medical' ? 'hand the patient to the ambulance' : 'fix it'}, then ${hm(block)} to ${to0}.`, tone: 'good', chips: [`Off ${fmtTime(flyAt)} UTC`, sameCrew ? 'Same crew, within their day' : 'Crew out of hours: a fresh crew', charter ? usd(-(2 * DISRUPT.mealPax * pax)) : 'Client pays fuel'] });
   }
-  if (roadKm <= 450) opts.push({ id: 'bus', label: 'Coach the passengers', desc: `${Math.ceil(Math.max(1, pax) / 50)} coaches, ${roadKm} km to ${city(to0)}. The aircraft repositions empty.`, chips: [charter ? usd(-coachCost(pax, roadKm)) : 'Client pays the coaches', `~${hm((roadKm / 70) * 60 + 45)} by road`, 'Relation −1'] });
+  if (road <= 450) opts.push({ id: 'bus', label: 'Coach the passengers', desc: `${Math.ceil(Math.max(1, pax) / 50)} coaches, ${road} km to ${city(to0)}. The aircraft repositions empty.`, chips: [charter ? usd(-coachCost(pax, road)) : 'Client pays the coaches', `~${hm((road / 70) * 60 + 45)} by road`, 'Relation −1'] });
   opts.push({ id: 'hotel', label: 'Hotels tonight, fly in the morning', desc: `Passengers and crew to hotels in ${city(alt)}; the crew get their legal rest, then fly to ${to0}.`, chips: [charter ? usd(-(hotelCost(pax) + crewOn(f) * DISRUPT.crewRoom)) : usd(-crewOn(f) * DISRUPT.crewRoom), `Off ${fmtTime(morning)} UTC`, 'Relation −1'] });
   if (cause === 'technical') opts.push({ id: 'subcharter', label: 'A rival flies the passengers on', desc: 'Another operator sends an aircraft; our aircraft stays for the fix.', tone: 'warn', chips: [usd(-subcharterCost(g, [f], 1.3)), 'Fast'] });
-  const def = opts[0].id === 'flyOn' && sameCrew ? 'flyOn' : roadKm <= 300 ? 'bus' : 'hotel';
+  const def = opts[0].id === 'flyOn' && sameCrew ? 'flyOn' : road <= 300 ? 'bus' : 'hotel';
   const late = Math.max(0, flyAt + block - (f.div.eta0 ?? f.sta));
   raise(g, {
     kind: 'divertOnward', title: `${f.no} on the ground at ${city(alt)}`,
     body: `${pax} passengers for ${city(to0)}${next ? `; ${next.no} from ${to0} is due ${fmtTime(next.std)} UTC` : ''}.`,
     options: opts, defaultOption: def, expires: g.now + 30, ref: { kind: 'flight', id: f.id },
-    data: { flightId: f.id, to0, alt, cause, pax, roadKm, flyAt, morning, block, ...cardData(`${pax} passengers are in ${city(alt)}, not ${city(to0)}`, cause === 'weather' ? 'The weather closed the destination.' : cause === 'medical' ? 'We landed for a sick passenger.' : 'A technical problem made us land.', `${pax} passengers ${hm(late)}+ late${cause === 'technical' && isCharter(g, f) ? '; EU261 compensation over 3 h' : ''}`, 0, pax, late) },
+    data: { flightId: f.id, to0, alt, cause, pax, roadKm: Number.isFinite(road) ? road : 0, flyAt, morning, block, ...cardData(`${pax} passengers are in ${city(alt)}, not ${city(to0)}`, cause === 'weather' ? 'The weather closed the destination.' : cause === 'medical' ? 'We landed for a sick passenger.' : 'A technical problem made us land.', `${pax} passengers at least ${hm(late)} late${cause === 'technical' && isCharter(g, f) ? '; EU261 compensation over 3 h' : ''}`, 0, pax, late) },
   }, { optional: false });
 }
 
@@ -734,7 +753,7 @@ export function rollBirdStrike(g: GameState, f: Flight, ac: Aircraft): void {
     kind: 'birdStrike', title: `Bird strike: ${ac.reg} at ${city(at)}`,
     body: `${f.no} hit birds on the approach to ${at}. The crew wrote it up; it needs an inspection (engines, leading edges, radome) before the next flight.`,
     options: opts, defaultOption: def, expires: g.now + 30, ref: { kind: 'aircraft', id: ac.id },
-    data: { aircraftId: ac.id, at, ownMin, localMin, own, morning, ...cardData(`${ac.reg} hit birds and needs an inspection`, 'A bird strike must be inspected before the next flight; usually nothing, sometimes a damaged fan blade.', next ? `${next.no} at ${fmtTime(next.std)} UTC waits for it` : 'Nothing waits for it yet', 0, next?.pax ?? 0, Math.max(0, g.now + ownMin - (next?.std ?? Infinity))) },
+    data: { aircraftId: ac.id, at, ownMin, localMin, own, morning, ...cardData(`${ac.reg} hit birds and needs an inspection`, 'A bird strike must be inspected before the next flight; usually nothing, sometimes a damaged fan blade.', next ? `${next.no} at ${fmtTime(next.std)} UTC waits for it` : 'Nothing waits for it yet', 0, next ? paxOf(g, next) : 0, Math.max(0, g.now + (def === 'local' ? localMin : ownMin) - (next?.std ?? Infinity))) },
   }, { optional: false });
 }
 
@@ -810,7 +829,7 @@ function sickCall(g: GameState, dutyId: string): void {
   countOps(g, 'sickAway');
   const cs = flightCrewStatus(g, f.id, { live: false });
   if (cs.level !== 'missing') {
-    pushMessage(g, { tone: 'info', cat: 'crew', title: `${crewName(c)} is sick in ${city(f.from)}`, body: `${crewName(c)} (${slot.role}) called in sick at the hotel. Crew control found cover for ${f.no}; they fly home when fit.`, ref: { kind: 'crew', id: c.id } });
+    pushMessage(g, { tone: 'info', cat: 'crew', title: `${crewName(c)} is sick in ${city(f.from)}`, body: `${crewName(c)} (${ROLE_WORD[slot.role]}) called in sick at the hotel. Crew control found cover for ${f.no}; they fly home when fit.`, ref: { kind: 'crew', id: c.id } });
     return;
   }
   const ac = f.aircraftId ? g.fleet[f.aircraftId] : undefined;
@@ -819,20 +838,25 @@ function sickCall(g: GameState, dutyId: string): void {
   const cabinOnly = missing.length === 1 && missing[0] === 'CC';
   const ccAboard = p.slots.filter((s) => s.crewId && (s.role === 'CC' || s.role === 'PUR')).length;
   const maxPax = ccAboard * 50;
-  const offload = Math.max(0, (f.pax ?? 0) - maxPax);
+  const offload = Math.max(0, paxOf(g, f) - maxPax);
   const view = crewControl(g, f.id, { previews: false, only: ['callIn', 'deadhead', 'jet', 'delay'], noCard: true });
-  const sol = view?.solutions.filter((s) => s.available).sort((a, b) => (a.newDeparture ?? f.std) - (b.newDeparture ?? f.std) || a.cost - b.cost)[0];
+  // Up to two ways to bring someone in: the cheapest that still leaves within 3 h, and the fastest (often a jet).
+  const avail = view?.solutions.filter((s) => s.available) ?? [];
+  const fastest = [...avail].sort((a, b) => (a.newDeparture ?? f.std) - (b.newDeparture ?? f.std) || a.cost - b.cost)[0];
+  const cheap = avail.filter((s) => (s.newDeparture ?? f.std) <= f.std + 180).sort((a, b) => a.cost - b.cost)[0];
+  const sols = [cheap ?? fastest, fastest].filter((x, i, a): x is NonNullable<typeof x> => !!x && a.indexOf(x) === i);
+  const sol = sols[0];
   const opts: DecisionOption[] = [];
   if (cabinOnly) opts.push({ id: 'minCrew', label: 'Fly one cabin crew short', desc: `Allowed when unforeseen (ORO.CC.100): at most 50 passengers per cabin crew member, ${maxPax} today; a report goes to the authority.`, tone: offload ? 'warn' : 'good', chips: [offload ? `${offload} passengers offloaded` : 'No one offloaded', offload ? usd(-offload * (isCharter(g, f) ? eu261(f.from, f.to) + 150 : 0)) : 'On time', 'Report filed'] });
-  if (sol) opts.push({ id: 'replace', label: sol.id === 'callIn' ? 'Call in standby crew' : sol.id === 'jet' ? 'Charter a jet with a replacement' : sol.id === 'delay' ? 'Wait for a replacement' : 'Fly a replacement in', desc: sol.desc, tone: 'good', chips: sol.chips.slice(0, 3) });
+  for (const x of sols) opts.push({ id: `fix:${x.id}`, label: x.id === 'callIn' ? 'Call in standby crew' : x.id === 'jet' ? 'Charter a jet with a replacement' : x.id === 'delay' ? 'Wait for a replacement' : 'Fly a replacement in', desc: x.desc, tone: 'good', chips: x.chips.slice(0, 3) });
   opts.push({ id: 'crewControl', label: 'Let crew control sort it', desc: 'The flight waits at the gate and Crew Control shows every way to fix it.', chips: ['Decide at the gate'] });
   opts.push({ id: 'subcharter', label: 'Sub-charter the trip', desc: 'A rival flies these legs; we still bill the client.', tone: 'warn', chips: [usd(-subcharterCost(g, unitOf(g, ac, f), 1.5))] });
-  const def = cabinOnly && !offload ? 'minCrew' : sol ? 'replace' : 'crewControl';
+  const def = cabinOnly && !offload ? 'minCrew' : sol ? `fix:${sol.id}` : 'crewControl';
   raise(g, {
     kind: 'sickAway', title: `${crewName(c)} called in sick in ${city(f.from)}`,
-    body: `${crewName(c)} (${slot.role}) can't fly ${f.no} ${f.from}–${f.to} at ${fmtTime(f.std)} UTC: sick at the hotel for about ${days} days.`,
+    body: `${crewName(c)} (${ROLE_WORD[slot.role]}) can't fly ${f.no} ${f.from}–${f.to} at ${fmtTime(f.std)} UTC: sick at the hotel for about ${days} days.`,
     options: opts, defaultOption: def, expires: Math.max(g.now + 30, Math.min(f.std - 30, g.now + 90)), ref: { kind: 'flight', id: f.id },
-    data: { flightId: f.id, crewId: c.id, offload, fix: sol?.id ?? '', ...cardData(`${f.no} is one ${slot.role === 'CC' ? 'cabin crew member' : slot.role} short in ${city(f.from)}`, `${crewName(c)} is sick at the hotel, away from base.`, `${f.pax ?? 0} passengers at ${fmtTime(f.std)} UTC`, 0, f.pax ?? 0, 0) },
+    data: { flightId: f.id, crewId: c.id, offload, fix: sol?.id ?? '', ...cardData(`${f.no} is one ${ROLE_WORD[slot.role]} short in ${city(f.from)}`, `${crewName(c)} is sick at the hotel, away from base.`, `${paxOf(g, f)} passengers at ${fmtTime(f.std)} UTC`, 0, paxOf(g, f), 0) },
   }, { optional: false });
 }
 
@@ -849,8 +873,8 @@ function resolveSickAway(g: GameState, d: Decision, opt: string): ActionResult {
       s.above = true;
       f.reducedCabin = 1;
       const off = Number(d.data?.offload ?? 0);
-      if (off > 0 && f.pax !== undefined) {
-        f.pax -= off;
+      if (off > 0) {
+        f.pax = paxOf(g, f) - off;
         if (isCharter(g, f)) post(g, 'penalties', -off * (eu261(f.from, f.to) + 150));
         else bumpClient(g, contractOf(g, f)?.clientId, -2, `${f.no}: ${off} passengers offloaded, one cabin crew short`);
       }
@@ -858,8 +882,9 @@ function resolveSickAway(g: GameState, d: Decision, opt: string): ActionResult {
       countOps(g, 'reducedCabin');
       return { ok: true, msg: `${f.no} flies with one cabin crew short${off ? `, ${off} passengers offloaded` : ''}; report filed` };
     }
-    case 'replace': {
-      const fix = String(d.data?.fix || 'deadhead') as 'callIn' | 'deadhead' | 'jet' | 'delay';
+    case 'replace':
+    case 'fix:callIn': case 'fix:deadhead': case 'fix:jet': case 'fix:delay': {
+      const fix = (opt.startsWith('fix:') ? opt.slice(4) : String(d.data?.fix || 'deadhead')) as 'callIn' | 'deadhead' | 'jet' | 'delay';
       const r = applyCrewFix(g, f.id, fix, { confirmed: true });
       return r.ok ? { ok: true, msg: r.msg } : r;
     }

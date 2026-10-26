@@ -2,7 +2,7 @@
 // disruption (its decision carries the lines), a ramp inspection finding, an authority audit finding. Pure.
 
 import { AIRPORT_BY_CODE } from '../../data/airports';
-import { fmtDate } from '../core/time';
+import { fmtDate, fmtDuration } from '../core/time';
 import type { Decision, GameState, Message, Ref } from '../core/types';
 import { mkHurt, usdShort, type Hurt, type ProblemCard } from './types';
 
@@ -56,7 +56,7 @@ export function rampFindingCard(g: GameState, id: string): ProblemCard | null {
     subject: { kind: 'rampFinding', ref: { kind: 'ramp', id: r.id } }, severity: worst === 3 ? 'red' : 'amber', title: what, what,
     why: `${r.prog === 'local' ? 'The local authority' : `A ${r.prog} inspector`} found: ${r.items.map(([c, t]) => `${t.charAt(0).toLowerCase()}${t.slice(1)} (Cat ${c})`).join('; ')}.`,
     hurt: { ...mkHurt({ money: r.cost, delayMin: r.fixMin }), level: worst === 3 ? 'high' : worst === 2 ? 'low' : 'none',
-      text: worst === 3 ? `Yes: ${Math.round(r.fixMin / 60)} h on the ground, ${usdShort(r.cost)}; it goes on our safety record` : `A little: ${worst === 2 ? 'a letter to us and our authority' : 'a note'}; it goes on our safety record` },
+      text: worst === 3 ? `Yes: ${fmtDuration(r.fixMin)} on the ground, ${usdShort(r.cost)}; it goes on our safety record` : `A little: ${worst === 2 ? 'a letter to us and our authority' : 'a note'}; it goes on our safety record` },
     actions: [{ id: 'safety', label: 'Safety record', open: { tab: 'company', view: 'safety' }, primary: true }],
     details: ['Older aircraft and a backlog of deferred defects find more', 'A check clears the deferred defects', 'The yearly audit reads every inspection'],
     visuals: {}, terms: [],

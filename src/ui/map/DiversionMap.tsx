@@ -56,7 +56,11 @@ export function DiversionMap({ spec, width = 520, onPick }: { spec: DivSpec; wid
     if (spec.pos) pts.push(spec.pos);
     // Fit the alternates, the destination and the aircraft (the origin only when it is close: a long-haul origin
     // would shrink the picture to nothing).
-    const near = pts.filter((_, i) => i !== 0 || spec.alts.some((a) => a.code === spec.from));
+    // A destination far from the aircraft (a medical event mid-ocean) is left out of the fit: the picture is the
+    // aircraft and its alternates; the planned track still runs off the edge towards it.
+    const D0 = AIRPORT_BY_CODE[spec.dest];
+    const far = !!spec.pos && !!D0 && Math.hypot(D0.lon - spec.pos[0], D0.lat - spec.pos[1]) > 12 && spec.alts.length > 0;
+    const near = pts.filter((_, i) => (i !== 0 || spec.alts.some((a) => a.code === spec.from)) && !(far && codes[i] === spec.dest));
     const fit = near.length >= 2 ? near : pts;
     const lons = fit.map((p) => p[0]);
     const lats = fit.map((p) => p[1]);
@@ -83,7 +87,16 @@ export function DiversionMap({ spec, width = 520, onPick }: { spec: DivSpec; wid
       return path({ type: 'LineString', coordinates: [o, [A.lon, A.lat]] }) ?? '';
     });
     const road = spec.at ? path({ type: 'LineString', coordinates: [[AIRPORT_BY_CODE[spec.at].lon, AIRPORT_BY_CODE[spec.at].lat], [dest.lon, dest.lat]] }) ?? '' : '';
-    return { land: landPathFor(proj), planned, flown, plane, lines, road, dest: P(spec.dest), from: P(spec.from), alts: spec.alts.map((a) => ({ ...a, p: P(a.code) })), at: spec.at ? P(spec.at) : null };
+    // Labels: right of the dot, or left / below when another alternate's label (or the destination's) would collide.
+    const placed: [number, number][] = [P(spec.dest)];
+    const alts = spec.alts.map((a) => {
+      const p = P(a.code);
+      const near = placed.some((q) => Math.abs(q[0] - p[0]) < 70 && Math.abs(q[1] - p[1]) < 16);
+      const side: 'r' | 'l' = near ? 'l' : 'r';
+      placed.push([p[0] + (side === 'l' ? -60 : 0), p[1]]);
+      return { ...a, p, side };
+    });
+    return { land: landPathFor(proj), planned, flown, plane, lines, road, dest: P(spec.dest), from: P(spec.from), alts, at: spec.at ? P(spec.at) : null };
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
   const destName = AIRPORT_BY_CODE[spec.dest]?.city ?? spec.dest;
   return (
@@ -111,8 +124,7 @@ export function DiversionMap({ spec, width = 520, onPick }: { spec: DivSpec; wid
         <g key={a.code} transform={`translate(${a.p[0].toFixed(1)} ${a.p[1].toFixed(1)})`} className={`dm-alt${a.def ? ' def' : ''}${onPick ? ' tap' : ''}`} onClick={onPick ? () => onPick(a.optionId) : undefined} role={onPick ? 'button' : undefined} aria-label={onPick ? `Divert to ${a.code}` : undefined}>
           <circle className="dm-hit" r={18} />
           <circle className="dm-alt-dot" r={5.5} />
-          <text x={9} y={4}>{a.code}</text>
-          {a.def && <text className="mm-sub" x={9} y={16}>default</text>}
+          <text x={a.side === 'l' ? -9 : 9} y={4} style={a.side === 'l' ? { textAnchor: 'end' } : undefined}>{a.code}</text>
         </g>
       ))}
       {b.plane && (

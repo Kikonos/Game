@@ -1582,7 +1582,7 @@ What the game models in the Operations update, with the real numbers behind it. 
 - EASA 2025 data: 10,683 inspections, 4,754 Cat 1, 3,048 Cat 2, 2,042 Cat 3 findings (0.45 / 0.29 / 0.19 per
   inspection, all operators). The game uses 55 % of that for our company, × (1 + age/20) × (1 + 2.5 × the deferred
   defect backlog). Detention (3c) only with a Cat 3 on an aircraft 15+ years old with a heavy deferred backlog.
-- Frequency (game): 0.4 % of landings at European airports, 0.3 % at home, 0.15 % elsewhere, in busy spells: 3–7 a
+- Frequency (game): 0.4 % of landings at EASA-state airports, 0.3 % at home, 0.15 % elsewhere (the local authority, the UK CAA included), in busy spells: 3–7 a
   year for a small fleet.
 - Fixes: Cat 3 put right before flight in 1–4 h ($2,000–10,000 per finding); detained 8–22 h plus $15,000. Each
   inspection goes on the record the audit reads; Cat 3 costs the reliable name 1 (2 when detained), Cat 2 0.3.
