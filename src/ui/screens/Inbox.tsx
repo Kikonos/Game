@@ -180,7 +180,7 @@ export function InboxScreen() {
   ];
   return (
     <div className="screen sc-inbox">
-      <ScreenHead title="Inbox" sub={`${g.decisions.length ? `${g.decisions.length} decision${g.decisions.length > 1 ? 's' : ''} waiting · ` : ''}${unread} unread`}>
+      <ScreenHead hint="inbox" title="Inbox" sub={`${g.decisions.length ? `${g.decisions.length} decision${g.decisions.length > 1 ? 's' : ''} waiting · ` : ''}${unread} unread`}>
         <button className="btn" onClick={markAll} disabled={!unread}><CheckCheck /> Mark all read</button>
       </ScreenHead>
       <ScreenHint id="inbox" />

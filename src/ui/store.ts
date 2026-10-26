@@ -65,6 +65,8 @@ export interface Settings {
   musicVolume: number;
   /** v0.9 §14.2 screens whose first-time hint the player switched off ('Don't show again'). */
   screenHintsSeen: string[];
+  /** v0.12 screens whose hint has been seen once: it folds into the screen's '?' button. */
+  screenHintsFolded: string[];
   /** v0.9 §X: '' until the one-time What's new catch-up (v0.9 + v0.8 + v0.7.4) has been shown, then 'v0.9'. */
   whatsNewCatchUp: string;
   /** v0.11 Appearance: Light, Dark or follow the device. New installs: 'system'; players from before: 'dark' (their look). */
@@ -90,6 +92,7 @@ const DEFAULT_SETTINGS: Settings = {
   music: true,
   musicVolume: 0.35,
   screenHintsSeen: [],
+  screenHintsFolded: [],
   whatsNewCatchUp: '',
   theme: 'system',
   pace: 'normal',
@@ -198,6 +201,8 @@ export function settingsFrom(s: Partial<Settings>): Settings {
   // v0.9.1 settings saved before the music: on, at its low default.
   out.music ??= DEFAULT_SETTINGS.music;
   out.musicVolume ??= DEFAULT_SETTINGS.musicVolume;
+  // v0.12 settings saved before folded hints: none folded yet.
+  out.screenHintsFolded ??= [];
   // v0.11 settings saved before themes: the dark look they have played with.
   if (s.theme !== 'light' && s.theme !== 'dark' && s.theme !== 'system') out.theme = 'dark';
   // v0.11 settings saved before Pace: Normal.

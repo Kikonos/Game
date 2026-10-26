@@ -246,7 +246,7 @@ export function CompanyScreen() {
   const got = achievementsView(g).filter((a) => a.at !== null).length;
   return (
     <div className={`screen sc-company v8-company ${view}`}>
-      <ScreenHead title={c.name} sub={`${c.icao} · callsign ${c.callsign} · home base ${c.homeBase}${c.ceo && c.ceo !== 'You' ? ` · CEO ${c.ceo}` : ''}`}>
+      <ScreenHead hint={view === 'team' ? 'team' : view === 'overview' ? 'company' : undefined} title={c.name} sub={`${c.icao} · callsign ${c.callsign} · home base ${c.homeBase}${c.ceo && c.ceo !== 'You' ? ` · CEO ${c.ceo}` : ''}`}>
         <Tabs<View> value={view} onChange={(v) => store.navigate('company', { view: v })} tabs={[
           { id: 'overview', label: 'Overview' },
           { id: 'team', label: 'Team', count: waiting || undefined },

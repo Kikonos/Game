@@ -5,3 +5,13 @@
 .gb > .gb-two { display: flex; flex-direction: column; justify-content: center; padding: 0 4px; font-size: 11px; line-height: 12.5px; letter-spacing: 0.01em; }
 .gb > .gb-two > span { overflow: visible; }
 .gb > .gb-two > span + span { font-weight: 500; opacity: 0.85; }
+
+/* Folded screen hints: the '?' in the screen head or dialog title, and the note at the top of a colours popover */
+.v12-hint-btn { color: var(--gold); }
+.v12-hint-pop { width: 340px; z-index: 42; }
+.v12-hint-pop.left { right: auto; left: 0; }
+.v12-hint-pop .row { align-items: flex-start; }
+.v12-hint-pop .v9-hint-ico { margin-top: 1px; }
+.v12-hint-note { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border-radius: 10px; background: var(--panel-2); border: 1px solid rgba(var(--gold-rgb), 0.35); line-height: 1.35; }
+.v12-hint-note .v9-hint-ico { margin-top: 1px; }
+.modal-title .v12-hint-wrap, h2 .v12-hint-wrap { margin-left: 6px; vertical-align: middle; }

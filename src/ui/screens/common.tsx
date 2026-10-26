@@ -1,5 +1,7 @@
 // Small shared pieces for the B5 screens and modals.
 
+import { HintButton } from '../components/ScreenHint';
+import type { ScreenHintId } from '../screenHints';
 import {
   Briefcase, CalendarClock, Flag as FlagIcon, Globe2, HeartHandshake, Medal, Music, Plane, PlaneLanding, Shield, Ship, Snowflake, Stethoscope, Trophy, Users, Wrench,
 } from 'lucide-react';
@@ -56,14 +58,15 @@ export function LimitBar({ label, value, limit, unit = 'h', tone }: { label: str
   );
 }
 
-export function ScreenHead({ title, sub, children }: { title: string; sub?: ReactNode; children?: ReactNode }) {
+/** v0.12 `hint`: the screen's first-time hint folds into a '?' here once seen (ScreenHint shows the strip before that). */
+export function ScreenHead({ title, sub, children, hint }: { title: string; sub?: ReactNode; children?: ReactNode; hint?: ScreenHintId }) {
   return (
     <div className="screen-head sc-head">
       <div className="grow">
         <h1>{title}</h1>
         {sub && <div className="subtitle">{sub}</div>}
       </div>
-      {children && <div className="sc-head-tools">{children}</div>}
+      {(children || hint) && <div className="sc-head-tools">{hint && <HintButton id={hint} />}{children}</div>}
     </div>
   );
 }

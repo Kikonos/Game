@@ -32,6 +32,7 @@ import { MapPanel, TypeKey } from './MapPanels';
 import { ALERT_CHIP, awaitingDelivery, chipInfo, commercialById, fitCodes, onMap, fitFresh, isCommercialId, JET_PATH, mapAirports, offerPins, parseSlipId, pickNearest, placeEventPins, placeSlipMarks, selectedLegs, shortIndex, slipArcs, slipWindow, upNextRows } from './mapLogic';
 import { EventPinsLayer, hatchUnit, ZoneGround, ZoneLabels } from './WorldLayer';
 import { type FocusAt, type MapAirport, type MapLayerCtx, type Pad, type View, WorldMap } from './WorldMap';
+import { HintNote } from '../components/ScreenHint';
 
 /** Panel width (px) kept clear when revealing a selection, and the fleet strip's height. */
 const PANEL_W = 360;
@@ -131,6 +132,7 @@ function MapLegend() {
       <button className="btn btn-ghost btn-icon ops-help-btn" onClick={() => setOpen((v) => !v)} aria-label="What the colours mean" aria-expanded={open} title="What the colours mean"><HelpCircle /></button>
       {open && (
         <div className="ops-help-pop card" role="dialog" aria-label="What the colours mean">
+          <HintNote id="map" />
           <div className="row between ops-help-h"><span className="upper dim">What the colours mean</span><button className="btn btn-ghost btn-icon" onClick={() => setOpen(false)} aria-label="Close"><X /></button></div>
           {LEGEND.map((l, i) => <div key={i} className="ops-help-row"><span className="ops-help-sw">{l.swatch}</span><span>{l.label}</span></div>)}
         </div>

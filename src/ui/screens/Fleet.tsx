@@ -321,7 +321,7 @@ export function FleetScreen() {
   const monthly = fleet.reduce((s, a) => s + (a.ownership.kind === 'dryLeaseIn' ? a.ownership.rentPerMonth : 0), 0);
   return (
     <div className="screen sc-fleet">
-      <ScreenHead title={view === 'market' ? 'Aircraft market' : 'Fleet'} sub={view === 'market' ? `${offers.length} open offer${offers.length === 1 ? '' : 's'} · cash ${money(g.company.cash)}` : `${fleet.length} aircraft · rent ${money(monthly)}/month`}>
+      <ScreenHead hint="fleet" title={view === 'market' ? 'Aircraft market' : 'Fleet'} sub={view === 'market' ? `${offers.length} open offer${offers.length === 1 ? '' : 's'} · cash ${money(g.company.cash)}` : `${fleet.length} aircraft · rent ${money(monthly)}/month`}>
         {view === 'fleet' && fleet.length > 1 && <button className="btn" onClick={pickLeast} aria-label="Which one? Show the least used aircraft"><HelpCircle /> Which one?</button>}
         <Seg<FleetView> value={view} onChange={setView} options={[
           { value: 'fleet', label: 'Fleet' },

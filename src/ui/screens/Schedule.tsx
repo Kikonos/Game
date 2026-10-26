@@ -617,7 +617,7 @@ export function ScheduleScreen() {
       <ScreenHead title="Schedule" sub={<>Times in UTC · {base} local is {offLabel} · tap a flight for details · hold and drag it to move the trip, or a check or refit to move it along its row · pinch to zoom</>}>
         <button className="btn" onClick={() => scrollTo(g.now)}><Crosshair /> Today</button>
         <Seg<ZoomDays> value={zoom} onChange={setZoom} options={ZOOMS.map((z) => ({ value: z, label: `${z} days` }))} />
-        <ColourLegend title="Schedule colours" items={[
+        <ColourLegend title="Schedule colours" hint="schedule" items={[
           { swatch: 'op', label: 'Solid block in a contract colour: a flight with passengers, flown by us' },
           { swatch: 'pos', label: 'Striped outline: positioning or ferry, empty' },
           { swatch: 'corner', label: 'Red corner: the crew cannot legally fly it · amber corner: no crew yet' },

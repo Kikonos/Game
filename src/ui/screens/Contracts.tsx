@@ -283,7 +283,7 @@ export function ContractsScreen() {
   const nClients = useMemo(() => clientList(g, 'working').length, [g, day, store.editCount]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="screen sc-contracts">
-      <ScreenHead title="Contracts" sub="Offers from brokers and clients, and the work you have signed.">
+      <ScreenHead hint="contracts" title="Contracts" sub="Offers from brokers and clients, and the work you have signed.">
         <Tabs<View> value={view} onChange={(v) => store.navigate('contracts', { view: v })} tabs={[
           { id: 'market', label: 'Market', count: nMarket },
           { id: 'active', label: 'Active', count: nActive },

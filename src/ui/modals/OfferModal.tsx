@@ -34,7 +34,7 @@ import { money } from '../format';
 import { ArchIcon, Chips, Dot, KV } from '../screens/common';
 import { archLabel, counterSteps, expiryLabel, offerCrewLine, pctLabel, reqChips, riskChips, routeSummary, offerDays, v09Chips, type Chip } from '../screens/screenLogic';
 import { analystView } from '../../engine/ops';
-import { ScreenHint } from '../components/ScreenHint';
+import { HintButton, ScreenHint } from '../components/ScreenHint';
 import { store, useGame } from '../store';
 
 const LEVEL_TONE = { ok: 'good', warn: 'warn', no: 'bad' } as const;
@@ -536,7 +536,7 @@ export function OfferModal({ offerId }: { offerId: string }) {
   };
 
   return (
-    <Modal size="xwide" className="sc-offer-modal" icon={<ArchIcon a={o.archetype} />} title={o.title} onClose={() => store.closeModal()} footer={
+    <Modal size="xwide" className="sc-offer-modal" icon={<ArchIcon a={o.archetype} />} title={<>{o.title}<HintButton id="offer" align="left" /></>} onClose={() => store.closeModal()} footer={
       <div className="sc-offer-foot">
         <button className="btn btn-ghost" onClick={decline} disabled={!live}><X /> Decline</button>
         <span className="grow" />

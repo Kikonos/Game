@@ -108,7 +108,7 @@ export function FinanceScreen() {
   const showLoss = loss && loss.subject.kind === 'lossMonth' && showLossMonth(g) && lossHidden !== loss.subject.ref.id;
   return (
     <div className="screen sc-finance">
-      <ScreenHead title="Finance" sub={`${fmtMonth(g.finance.current.month, false)} so far · revenue when invoiced (wet leases at month end), costs when incurred`} />
+      <ScreenHead hint="finance" title="Finance" sub={`${fmtMonth(g.finance.current.month, false)} so far · revenue when invoiced (wet leases at month end), costs when incurred`} />
       <ScreenHint id="finance" />
       {cash && <div className="fin-card"><ProblemCardView card={cash} g={g} /></div>}
       {showLoss && (
