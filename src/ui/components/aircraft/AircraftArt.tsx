@@ -1,19 +1,21 @@
 // Side profile of an aircraft in the airline's livery, nose RIGHT, in flight: the player's final raster art
-// (v0.10, public/aircraft/), untouched except for the livery tint on the fin and the engines (compose.ts), with
-// the stickers (tail code, titles, logos) drawn on top as SVG, clipped to the fin and to the fuselage zone.
+// (public/aircraft/) with the livery painted on through its own lighting (compose.ts, v0.11): fin, fuselage and
+// engine cowls, and the stickers (tail code, titles, logos) painted in with them as decals. The livery editor's
+// selected sticker is drawn live as SVG on top (clipped to the fin and the fuselage zone) while it is being moved;
+// so are all stickers until the painted bitmap is ready.
 // The SVG's viewBox is the sprite's 2048-scale pixel frame, so the livery editor maps pointers through it.
 
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type Ref } from 'react';
 import type { Livery } from '../../../engine/core/types';
-import { compose, composedNow, tintKey } from './compose';
+import { compose, composedNow, paintKey, type Decal } from './compose';
 import { FONT_STACK } from './fontMetrics';
-import { autoBodyInk, autoFinInk, contrast, INK, lum } from './ink';
 import { LogoGlyph } from './logos';
-import { bodyColourAt, finStripeAt } from './bodyPaint';
-import { assetFor, layoutOf, metresPerPx, spriteOf, type AssetWidth } from './sprites';
-import { airframeClipPaths, boxSamples, onFinSecond, sideAt, stickerLayout, type StickerBox } from './stickers';
+import { assetFor, layoutOf, metresPerPx, MODEL_NAME, spriteOf, type AssetWidth } from './sprites';
+import { stickerInk } from './stickerInk';
+import { airframeClipPaths, extraDecals, stickerLayout, type StickerBox } from './stickers';
 
 export { autoBodyInk, autoFinInk, contrast, lum, mix } from './ink';
+export { stickerGround, stickerInk } from './stickerInk';
 
 export interface AircraftArtProps {
   /** A sprite id (artFor(typeId, variant)) or an ACMI type id. */
@@ -23,6 +25,8 @@ export interface AircraftArtProps {
   code?: string;
   /** Default titles text on the forward fuselage (livery.titles.text wins). */
   name?: string;
+  /** v0.11 the aircraft's registration, painted small on the rear fuselage (livery.reg hides it). */
+  reg?: string;
   className?: string;
   /** Accepted for compatibility; gear is never drawn. */
   gear?: boolean;
@@ -45,73 +49,11 @@ export function artViewBox(typeId: string, _gear?: boolean): { x: number; y: num
   return { x: 0, y: 0, w: d.w, h: d.h };
 }
 
-/** Paint a sticker can sit on: a colour (hex). v0.10: the fuselage may carry body paint (bodyPaint.ts). */
-type Ground = string;
-
-/** Lettering on the scheme's second colour: primary, else white / ink. */
-function inkOnSecondary(lv: Livery): string {
-  return contrast(lv.primary, lv.secondary) >= 2.2 ? lv.primary : lum(lv.secondary) < 0.4 ? '#ffffff' : INK;
-}
-/** The usual lettering colour on a ground: as before v0.10 on white, the fin colour and its second colour; on body
- *  paint the livery colour that reads best (the tail colours first), else white or ink. */
-function inkOn(lv: Livery, gr: Ground): string {
-  if (gr === '#ffffff') return autoBodyInk(lv);
-  if (!lv.plain && gr === lv.primary) return autoFinInk(lv);
-  if (!lv.plain && gr === lv.secondary) return inkOnSecondary(lv);
-  const pool = [lv.primary, lv.secondary, '#ffffff', INK].filter((c) => c !== gr);
-  const good = pool.find((c) => contrast(c, gr) >= 3);
-  return good ?? pool.reduce((a, c) => (contrast(c, gr) > contrast(a, gr) ? c : a));
-}
-
-/** Paint under a viewBox point: the fin's scheme colours, the fuselage's body paint (white as drawn); null off the airframe. */
-function groundAt(typeId: string, lv: Livery, X: number, Y: number): Ground | null {
-  const side = sideAt(typeId, X, Y);
-  if (!side) return null;
-  if (side === 'fuselage') return bodyColourAt(typeId, lv, X, Y);
-  if (lv.plain) return '#ffffff';
-  return finStripeAt(typeId, lv, X, Y) ?? (onFinSecond(typeId, lv.tail, X, Y) ? lv.secondary : lv.primary);
-}
-
-/** Share of a sticker box's visible part on each ground, largest first (7 × 5 samples; empty when wholly clipped). */
-function groundsUnder(typeId: string, lv: Livery, b: StickerBox): [Ground, number][] {
-  const n = new Map<Ground, number>();
-  let k = 0;
-  for (const [X, Y] of boxSamples(b, 7, 5)) {
-    const gr = groundAt(typeId, lv, X, Y);
-    if (!gr) continue;
-    n.set(gr, (n.get(gr) ?? 0) + 1);
-    k++;
-  }
-  return [...n].map(([gr, c]): [Ground, number] => [gr, c / k]).sort((a, b) => b[1] - a[1]);
-}
-
-/**
- * Auto lettering colour for a sticker box: the usual ink of the ground under most of it; when it straddles
- * grounds (≥ 10 % each) and that ink fails on one, the colour with the best worst-case contrast.
- */
-export function stickerInk(typeId: string, lv: Livery, b: StickerBox): string {
-  const sig = groundsUnder(typeId, lv, b).filter(([, s]) => s >= 0.1);
-  if (!sig.length) return b.side === 'fin' ? autoFinInk(lv) : autoBodyInk(lv);
-  const pref = inkOn(lv, sig[0][0]);
-  if (sig.length === 1) return pref;
-  const score = (c: string) => Math.min(...sig.map(([gr]) => contrast(c, gr)));
-  if (score(pref) >= 2.2) return pref;
-  const best = [lv.secondary, lv.primary, '#ffffff', INK].reduce((a, c) => (score(c) > score(a) + 0.01 ? c : a));
-  return score(best) >= 3 || sig[0][1] < 0.6 ? best : pref;
-}
-
-/** Background a sticker sits on (for contrast warnings): with its box, the paint under most of it; else the fin colour or white. */
-export function stickerGround(lv: Livery, side: 'fin' | 'fuselage', at?: { typeId: string; box: StickerBox }): string {
-  const top = at && groundsUnder(at.typeId, lv, at.box)[0];
-  if (top) return top[0];
-  return side === 'fin' && !lv.plain ? lv.primary : '#ffffff';
-}
-
 const SELECT = '#3ee6ff';
 const f = (n: number) => Math.round(n * 100) / 100;
 const dpr = (): number => (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
 
-function AircraftArtImpl({ typeId, livery, code, name, className, height, detail = 'full', pxPerM, svgRef, selected, guides }: AircraftArtProps) {
+function AircraftArtImpl({ typeId, livery, code, name, reg, className, height, detail = 'full', pxPerM, svgRef, selected, guides }: AircraftArtProps) {
   const uid = useId().replace(/:/g, '');
   const sprite = spriteOf(typeId);
   const vb = artViewBox(sprite);
@@ -139,22 +81,29 @@ function AircraftArtImpl({ typeId, livery, code, name, className, height, detail
     ro.observe(n);
     return () => ro.disconnect();
   }, [vb.w, vb.h]);
-  const tint = tintKey(livery);
-  // the bitmap with the sprite it shows (another type's bitmap is never stretched into this frame)
-  const [shown, setShown] = useState<{ sprite: string; url?: string }>(() => ({ sprite, url: composedNow(sprite, asset, livery) }));
+  const boxes = stickerLayout(sprite, livery, { code, name }, detail);
+  // every sticker but the one being edited is painted into the bitmap
+  const decals: Decal[] = [
+    ...boxes.filter((b) => b.id !== selected).map((b): Decal => ({ ...b, ink: b.kind === 'logo' ? undefined : (b.kind === 'code' ? livery.code : livery.titles)?.color ?? stickerInk(sprite, livery, b) })),
+    ...extraDecals(sprite, livery, { reg, model: MODEL_NAME[sprite], fine: detail === 'full' && asset >= 2048 }),
+  ];
+  const key = paintKey(livery, decals) ?? '';
+  // the bitmap with the sprite and paint it shows (another type's bitmap is never stretched into this frame)
+  const [shown, setShown] = useState<{ sprite: string; key: string; url?: string }>(() => ({ sprite, key, url: composedNow(sprite, asset, livery, decals) }));
   useEffect(() => {
-    const now = composedNow(sprite, asset, livery);
-    if (now) { setShown({ sprite, url: now }); return; }
+    const now = composedNow(sprite, asset, livery, decals);
+    if (now) { setShown({ sprite, key, url: now }); return; }
     let live = true;
-    compose(sprite, asset, livery).then((u) => { if (live) setShown({ sprite, url: u }); }, () => { /* missing asset: the stickers still draw */ });
+    compose(sprite, asset, livery, decals).then((u) => { if (live) setShown({ sprite, key, url: u }); }, () => { /* missing asset: the stickers still draw */ });
     return () => { live = false; };
-    // the tint key holds every colour the bitmap depends on
+    // the paint key holds every colour and decal the bitmap depends on
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sprite, asset, tint]);
+  }, [sprite, asset, key]);
 
   const url = shown.sprite === sprite ? shown.url : undefined;
+  // until this paint's bitmap is ready, the stickers are drawn flat on top (an older bitmap may lack them)
+  const live = url && shown.key === key ? boxes.filter((b) => b.id === selected) : boxes;
   const style = pxPerM ? { width: vb.w * mpp * pxPerM, height: vb.h * mpp * pxPerM } : { height, width: '100%' };
-  const boxes = stickerLayout(sprite, livery, { code, name }, detail);
   const [zone, fin] = airframeClipPaths(sprite);
   const id = (k: string) => `${uid}-${k}`;
   const sticker = (b: StickerBox, pass: string) => {
@@ -207,10 +156,10 @@ function AircraftArtImpl({ typeId, livery, code, name, className, height, detail
         href={url} x={0} y={0} width={vb.w} height={vb.h} preserveAspectRatio="none"
         style={{ opacity: url ? 1 : 0, transition: 'opacity 120ms ease-out' }}
       />
-      {boxes.length > 0 && (
+      {live.length > 0 && (
         <>
-          <g clipPath={`url(#${id('fz')})`}>{boxes.map((b) => sticker(b, 'f'))}</g>
-          <g clipPath={`url(#${id('tc')})`}>{boxes.map((b) => sticker(b, 't'))}</g>
+          <g clipPath={`url(#${id('fz')})`}>{live.map((b) => sticker(b, 'f'))}</g>
+          <g clipPath={`url(#${id('tc')})`}>{live.map((b) => sticker(b, 't'))}</g>
         </>
       )}
       {/* editor: the selected sticker unclipped and faint (shows what the airframe cuts off), dashed box */}

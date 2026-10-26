@@ -107,7 +107,10 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
   const seat = view?.slots.some((x) => x.level === 'illegal') ? 'illegal' : view?.slots.some((x) => x.level === 'tight') ? 'tight' : null;
   const cs = seat === 'illegal' && cs0.level !== 'missing' ? { ...cs0, level: 'illegal' as const } : seat === 'tight' && cs0.level === 'ok' ? { ...cs0, level: 'tight' as const } : cs0;
   // Why (v0.6.3): the first problem of the same check the Adjust crew panel shows (empty seats are listed above).
-  const why = (cs.level === 'illegal' || cs.level === 'tight') && f.dutyId ? dutyLegality(g, f.id).warnings.find((w) => w.code !== 'missing' && w.level !== 'legal')?.text : undefined;
+  const w0 = (cs.level === 'illegal' || cs.level === 'tight') && f.dutyId ? dutyLegality(g, f.id).warnings.find((w) => w.code !== 'missing' && w.level !== 'legal') : undefined;
+  // v0.10.1 a crew member who is not at the departure airport reads as where they are ('FO Teresa Martins is in Lisbon, not Antalya').
+  const away = w0?.crewId && w0.reason?.code === 'place' ? g.crew[w0.crewId] : undefined;
+  const why = away ? `${view?.slots.find((x) => x.crewId === away.id)?.role ?? away.role} ${crewName(away)} is ${w0!.reason!.text}` : w0?.text;
   const rival = f.operatedBy ? g.rivals.find((r) => r.id === f.operatedBy)?.name : undefined;
   const [hold, setHold] = useState(0);
   const [moving, setMoving] = useState(false);

@@ -5,16 +5,24 @@
 import type { Livery } from '../engine/core/types';
 import { AIRPORT_BY_CODE } from './airports';
 
-export const LOGO_IDS = ['arc', 'swift', 'globe', 'polaris', 'compass', 'sunrise', 'wave', 'peaks', 'chevrons', 'ribbon', 'orbit', 'kite', 'feather', 'spark', 'prism'] as const;
+export const LOGO_IDS = [
+  'arc', 'swift', 'globe', 'polaris', 'compass', 'sunrise', 'wave', 'peaks', 'chevrons', 'ribbon', 'kite', 'feather', 'spark', 'prism',
+  // v0.11 simple evocative marks for client liveries (none traced from a real mark)
+  'trefoil', 'ring', 'crown', 'star', 'leaf', 'lotus', 'palm', 'smile', 'sun',
+] as const;
 export type LogoId = (typeof LOGO_IDS)[number];
 
 export const LOGO_NAMES: Record<LogoId, string> = {
   arc: 'Arc', swift: 'Swift', globe: 'Globe', polaris: 'Polaris', compass: 'Compass', sunrise: 'Sunrise', wave: 'Wave', peaks: 'Peaks',
-  chevrons: 'Chevrons', ribbon: 'Ribbon', orbit: 'Orbit', kite: 'Kite', feather: 'Feather', spark: 'Spark', prism: 'Prism',
+  chevrons: 'Chevrons', ribbon: 'Ribbon', kite: 'Kite', feather: 'Feather', spark: 'Spark', prism: 'Prism',
+  trefoil: 'Trefoil', ring: 'Ring', crown: 'Crown', star: 'Star', leaf: 'Leaf', lotus: 'Lotus', palm: 'Palm', smile: 'Smile', sun: 'Sun',
 };
 
 /** Logos a client livery may use (picked by client hash). */
-export const CLIENT_LOGOS: readonly LogoId[] = ['globe', 'compass', 'wave', 'peaks', 'orbit', 'prism', 'arc'];
+export const CLIENT_LOGOS: readonly LogoId[] = ['globe', 'compass', 'wave', 'peaks', 'prism', 'arc'];
+
+/** v0.11 marks no longer in the set and the one a saved livery gets instead. */
+export const REMOVED_LOGOS: Record<string, LogoId> = { orbit: 'globe' };
 
 /** 16 generic primary/secondary pairs for client liveries. */
 export const CLIENT_PALETTE: readonly [string, string][] = [
@@ -41,16 +49,27 @@ export const MAX_CODE = 3;
 
 // ---------- v0.10 body paint presets ----------
 
-export type BodyPresetId = 'eurowhite' | 'cheatline' | 'fullColour' | 'bellyBand';
+export type BodyPresetId = 'eurowhite' | 'cheatline' | 'fullColour' | 'bellyBand' | 'classicBelly' | 'twoTone';
 
 export const BODY_PRESETS: { id: BodyPresetId; label: string; hint: string }[] = [
   { id: 'eurowhite', label: 'Eurowhite', hint: 'White fuselage, coloured tail and engines' },
   { id: 'cheatline', label: 'Classic cheatline', hint: 'A stripe along the windows, a thin one under it, grey belly' },
   { id: 'fullColour', label: 'Full colour', hint: 'The whole fuselage in the tail colour' },
-  { id: 'bellyBand', label: 'Belly band', hint: 'White top, coloured belly with an accent line' },
+  { id: 'bellyBand', label: 'Belly band', hint: 'White top, coloured belly below the windows with an accent line' },
+  { id: 'classicBelly', label: 'Classic belly', hint: 'White top, light grey belly and cowls below the windows, a nose band and a fin-root stripe' },
+  { id: 'twoTone', label: 'Two-tone', hint: 'Coloured top, white belly below the windows with a darker line at the split' },
 ];
 
-/** The body paint of a preset in the livery's own colours (the tail scheme and the stickers are kept). Pure. */
+/** Light grey of a painted belly (and its cowls). */
+export const BELLY_GREY = '#c6cdd4';
+
+/** A colour darkened toward black by t (0–1); hex in, hex out. */
+function darker(c: string, t: number): string {
+  const n = parseInt(c.slice(1), 16);
+  const ch = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => Math.round(v * (1 - t)));
+  return `#${((1 << 24) | (ch[0] << 16) | (ch[1] << 8) | ch[2]).toString(16).slice(1)}`;
+}
+
 export function bodyPreset(id: BodyPresetId, lv: Livery): Livery['body'] {
   const p = lv.primary, s = lv.secondary;
   switch (id) {
@@ -61,6 +80,10 @@ export function bodyPreset(id: BodyPresetId, lv: Livery): Livery['body'] {
     case 'fullColour':
       return { color: p, engines: s, lip: '#ffffff' };
     case 'bellyBand':
-      return { belly: { color: p, split: 0.58, tilt: 0 }, stripes: [{ color: s, y: 0.545, h: 0.035 }] };
+      return { belly: { color: p, split: 0.62, tilt: 0, windows: true, line: { color: s, h: 0.03 } } };
+    case 'classicBelly':
+      return { belly: { color: BELLY_GREY, split: 0.62, tilt: 0, windows: true }, noseBand: { color: p, accent: s }, finRoot: s };
+    case 'twoTone':
+      return { color: p, belly: { color: '#ffffff', split: 0.62, tilt: 0, windows: true, line: { color: darker(p, 0.45), h: 0.018 } }, engines: '#ffffff' };
   }
 }

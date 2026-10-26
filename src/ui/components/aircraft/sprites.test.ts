@@ -1,4 +1,4 @@
-// v0.10 raster sprites: every type has art, the assets exist and match the layout data, the tint stays inside
+// v0.10 raster sprites: every type has art, the assets exist and match the layout data, the paint stays inside
 // the masks, and the livery stickers fit the measured fin and fuselage zone.
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -8,7 +8,7 @@ import { ACMI_TYPES, ACMI_TYPES_LIST, artFor } from '../../../data/acmiTypes';
 import { VARIANTS } from '../../../data/variants';
 import type { Livery, TailStyle } from '../../../engine/core/types';
 import { contrast, stickerGround, stickerInk } from './AircraftArt';
-import { applyTint } from './compose';
+import { paintKey } from './compose';
 import { fileOf, LENGTH_M, layoutOf, SPRITE_IDS } from './sprites';
 import { SPRITE_DATA } from './sprites.gen';
 import {
@@ -85,30 +85,16 @@ describe('sprites and assets', () => {
     }
   });
 
-  it('the tint changes only pixels inside the mask, never the alpha', () => {
-    const n = 4096;
-    const p = new Uint8ClampedArray(n * 4), m = new Uint8ClampedArray(n * 4), t = new Uint8ClampedArray(n * 4);
-    let seed = 7;
-    const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff) * 255;
-    for (let i = 0; i < n * 4; i++) { p[i] = rnd(); t[i] = rnd(); }
-    for (let i = 0; i < n; i++) {
-      // a third fin, a third engines, a third outside
-      const k = i % 3;
-      m[i * 4] = k === 0 ? rnd() : 0;
-      m[i * 4 + 2] = k === 1 ? rnd() : 0;
-    }
-    const before = p.slice();
-    applyTint(p, m, t);
-    for (let i = 0; i < n; i++) {
-      expect(p[i * 4 + 3]).toBe(before[i * 4 + 3]);
-      if (!m[i * 4] && !m[i * 4 + 2]) for (let c = 0; c < 3; c++) expect(p[i * 4 + c]).toBe(before[i * 4 + c]);
-      // a multiply never brightens the art
-      for (let c = 0; c < 3; c++) expect(p[i * 4 + c]).toBeLessThanOrEqual(before[i * 4 + c]);
-    }
-    // white art under a full-coverage mask takes the tint colour
-    const w = new Uint8ClampedArray([255, 255, 255, 255]);
-    applyTint(w, new Uint8ClampedArray([255, 0, 0, 255]), new Uint8ClampedArray([30, 79, 216, 255]));
-    expect([...w]).toEqual([30, 79, 216, 255]);
+  it('paint keys: a plain livery without stickers draws the sprite untouched; stickers and colours change the key', () => {
+    const base = lv('solid');
+    expect(paintKey({ ...base, plain: true })).toBeNull();
+    const k0 = paintKey(base);
+    expect(k0).not.toBeNull();
+    const box = stickerLayout('a320ceo', base, { code: 'BH', name: 'Block Hours' })[0];
+    expect(box).toBeDefined();
+    expect(paintKey(base, [{ ...box, ink: '#ffffff' }])).not.toBe(k0);
+    expect(paintKey(base, [{ ...box, ink: '#ffffff' }])).not.toBe(paintKey(base, [{ ...box, ink: '#000000' }]));
+    expect(paintKey({ ...base, plain: true }, [{ ...box, ink: '#000000' }])).not.toBeNull();
   });
 });
 

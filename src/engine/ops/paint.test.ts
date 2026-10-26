@@ -1,5 +1,6 @@
 // Liveries: resolving, normalising, client liveries, the player's picker and old saves (v0.5.1, LIVERY.md §1, §6 ENGINE).
 
+import { CLIENT_LIVERIES } from '../../data/clientLiveries';
 import { describe, expect, it } from 'vitest';
 import { LOGO_IDS, MAX_STICKERS, WHITE_LIVERY } from '../../data/livery';
 import { acceptOffer, feasibility } from '../contracts';
@@ -8,7 +9,7 @@ import { DAY } from '../core/time';
 import type { GameState, Livery } from '../core/types';
 import { createGame } from '../newGame';
 import { deserialize, serialize } from '../save';
-import { clientLivery, liveryOf, normaliseLivery, paintStatus, setAircraftLivery, setCompanyLivery, setFleetLivery } from './paint';
+import { clientLivery, liveryOf, recipeLivery, normaliseLivery, paintStatus, setAircraftLivery, setCompanyLivery, setFleetLivery } from './paint';
 
 const LEGACY: Livery = { primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' };
 
@@ -78,7 +79,7 @@ describe('normaliseLivery', () => {
     expect(n.secondary).toBe('#12ab9f');
     expect(n.tail).toBe('split');
     expect(n.plain).toBe(true);
-    expect(n.code).toEqual({ text: 'ABC', color: '#ffffff' });
+    expect(n.code).toEqual({ text: 'ABC9', color: '#ffffff' }); // v0.11 up to 4 (client marks)
     expect(n.titles!.text!.length).toBeLessThanOrEqual(28);
     expect(n.titles).toMatchObject({ text: 'Very long airline name that', weight: 500 });
     expect(n.titles!.color).toBeUndefined();
@@ -105,10 +106,11 @@ describe('client liveries', () => {
       expect(normaliseLivery(full)).toEqual(full);
       expect(full.plain).toBeUndefined();
       // A two-tone fin never gets a logo in either fin colour.
-      if (full.tail !== 'solid') expect([full.primary, full.secondary]).not.toContain(full.logo!.color);
+      if (full.tail !== 'solid' && full.logo) expect([full.primary, full.secondary]).not.toContain(full.logo.color);
       const dec = clientLivery(c, 'decals');
       expect(dec).toMatchObject({ primary: '#ffffff', plain: true });
-      expect(dec.logo!.id === 'mono' || LOGO_IDS.includes(dec.logo!.id as never)).toBe(true);
+      // a tail mark: a logo of the set or lettering
+      expect(dec.logo ? dec.logo.id === 'mono' || LOGO_IDS.includes(dec.logo.id as never) : dec.code?.text !== undefined, c.name).toBe(true);
     }
     // The same client in another game (other ids) looks the same.
     const h = newGame(4);
@@ -143,5 +145,34 @@ describe('the livery picker', () => {
     expect(paintStatus(g, id)).toMatchObject({ locked: true, paintedFor: st.booked!.paint!.contractId });
     expect(paintStatus(g, id).why).toMatch(/^In .* colours until /);
     expect(liveryOf(g, id).source).toBe('client');
+  });
+});
+
+describe('v0.11 client livery recipes', () => {
+  it('every recipe is a real client, normalises to itself, carries its titles and a mark readable on its fin', () => {
+    const g = newGame(3);
+    const names = new Set(Object.values(g.clients).map((c) => c.name));
+    for (const [name, r] of Object.entries(CLIENT_LIVERIES)) {
+      expect(names.has(name), `${name}: no such client`).toBe(true);
+      for (const kind of ['full', 'decals'] as const) {
+        const lv = recipeLivery(r, kind);
+        expect(normaliseLivery(lv), `${name} ${kind}`).toEqual(lv);
+        expect(lv.titles?.text, name).toBe(r.titles[0]);
+        expect(lv.titles!.text!.length, name).toBeLessThanOrEqual(28);
+      }
+      // the clients that ask for paint get their real colours, by name
+      const c = Object.values(g.clients).find((x) => x.name === name)!;
+      expect(clientLivery(c, 'full').titles?.text).toBe(r.titles[0]);
+    }
+    // every airline and tour operator has a recipe
+    for (const c of Object.values(g.clients)) if (c.kind === 'airline') expect(CLIENT_LIVERIES[c.name], c.name).toBeDefined();
+  });
+});
+
+describe('v0.11 removed marks', () => {
+  it('a saved livery with the orbit logo gets the globe; nothing else changes', () => {
+    const n = normaliseLivery({ primary: '#123456', secondary: '#abcdef', tail: 'solid', logo: { id: 'orbit' as never, color: '#ffffff' } });
+    expect(n.logo).toEqual({ id: 'globe', color: '#ffffff' });
+    expect(LOGO_IDS).not.toContain('orbit');
   });
 });

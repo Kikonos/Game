@@ -1,5 +1,5 @@
-// v0.10 body paint: the fuselage masks made by scripts/sprites.py (G channel) stay on the fuselage tube and off the
-// fin and the engines; the body tint changes only masked pixels; the paint geometry and the livery data are sane.
+// Paint masks (scripts/sprites.py segment): body on the fuselage tube with no holes at the fairings, fin above the
+// crown, cowls off the exhaust; the painting model keeps the light and paints only the regions; geometry and data sane.
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -8,8 +8,10 @@ import { describe, expect, it } from 'vitest';
 import { BODY_PRESETS, bodyPreset } from '../../../data/livery';
 import type { Livery } from '../../../engine/core/types';
 import { normaliseLivery } from '../../../engine/ops/paint';
-import { bellyPoly, bodyColourAt, bodyLayers, inPoly, stripeLine, tubeAt, windowShare } from './bodyPaint';
-import { applyTints, tintKey } from './compose';
+import { bellyPoly, bodyColourAt, bodyLayers, finFilletPoly, inPoly, noseBandPolys, paintY, splitAt, stripeLine, tubeAt, windowShare } from './bodyPaint';
+import { extraDecals } from './stickers';
+import { tintKey } from './compose';
+import { paintRegions, shadingOf } from './paintModel';
 import { fileOf, layoutOf, SPRITE_IDS } from './sprites';
 
 const PUB = resolve(__dirname, '../../../../public/aircraft');
@@ -58,36 +60,61 @@ function readPng(f: string): { w: number; h: number; px: Uint8Array; ch: number 
 
 const FILES = [...new Set(SPRITE_IDS.map(fileOf))];
 
-describe('body masks (scripts/sprites.py body_mask)', () => {
-  it('every mask is 2048 wide with a body channel that stays on the fuselage tube, off the fin and the engines', () => {
+/** The tube (raw crown / belly lines) as a per-pixel test, inset by `inset` px. */
+function inTubeAt(d: ReturnType<typeof layoutOf>, x: number, y: number, inset = 0): boolean {
+  const t = tubeAt(d, x, true);
+  return !!t && y >= t[0] + inset && y <= t[1] - inset;
+}
+
+describe('paint masks (scripts/sprites.py segment)', () => {
+  it('every mask is 2048 wide; body on the fuselage tube, fin above the crown, cowl between its trailing edge and lip; no overlaps', () => {
     for (const id of FILES) {
       const d = layoutOf(id);
       const { w, h, px, ch } = readPng(resolve(PUB, `${id}-mask.png`));
       expect([w, h], id).toEqual([d.w, d.h]);
-      let body = 0, outside = 0, overlap = 0, tube = 0;
+      expect(d.eng?.length, `${id}: engines`).toBeGreaterThan(0);
+      let body = 0, outside = 0, overlap = 0, tube = 0, fin = 0, finLow = 0, cowl = 0, cowlOff = 0, cover = 0;
       for (let y = 0; y < h; y++) {
         for (let x = 0; x < w; x++) {
           const i = (y * w + x) * ch;
           const r = px[i], g = px[i + 1], b = px[i + 2];
-          const t = tubeAt(d, x, true);
-          const inTube = !!t && y >= t[0] - 3 && y <= t[1] + 3;
+          cover += (r + g + b) / 255;
+          const inTube = inTubeAt(d, x, y, -3);
           if (inTube) tube++;
+          if (r >= 128) {
+            fin++;
+            // the fin (rudder and dorsal fillet included) stands above the fuselage crown
+            const tc = tubeAt(d, x, true);
+            if (tc && y > tc[0] + 3) finLow++;
+          }
+          if (b >= 128) {
+            cowl++;
+            // the cowl lies between an engine's trailing edge and its lip: never on the exhaust behind it
+            if (!d.eng!.some(([aft, front]) => x >= aft - 2 && x <= front + 4)) cowlOff++;
+          }
           if (g < 128) continue;
           body++;
-          if (!inTube) outside++;
-          // the fin's and the engines' areas are theirs (anti-aliased edges share a pixel)
+          // the belly fairing bulges below the tube's straight belly line under the wing: fuselage too
+          const t = tubeAt(d, x, true);
+          const fairing = !!d.wing && !!t && x >= d.wing[0] - 0.12 * (d.nose - d.tail) && x <= d.wing[1] && y > t[1];
+          if (!inTube && !fairing) outside++;
+          // regions never overlap (anti-aliased edges share a pixel)
           if (r + b > 128) overlap++;
         }
       }
       expect(body / tube, `${id}: the body covers most of the tube`).toBeGreaterThan(0.6);
       // only the thin aerials on the crown (the tube lines are sampled every 8 px, so they fall outside)
-      expect(outside / body, `${id}: body pixels outside the tube`).toBeLessThan(0.003);
-      expect(overlap / body, `${id}: body over the fin or the engines`).toBeLessThan(0.002);
+      expect(outside / body, `${id}: body pixels outside the tube`).toBeLessThan(0.004);
+      expect(overlap / body, `${id}: body over the fin or the cowls`).toBeLessThan(0.002);
+      expect(finLow / fin, `${id}: fin below the crown`).toBeLessThan(0.01);
+      expect(cowlOff, `${id}: cowl paint behind the cowl (exhaust) or off the engines`).toBe(0);
+      expect(cowl, id).toBeGreaterThan(0);
+      // paint only on the airframe: the regions together never cover more than the silhouette
+      expect(cover / d.silArea, `${id}: paint coverage vs the silhouette`).toBeLessThan(1.01);
     }
   }, 120_000);
 
   it('the wing over the fuselage is left out: below the wing root, behind the engines, a band of the tube is not body', () => {
-    // under the wing (the engines' columns) at the window line the mask has a gap where the wing crosses the fuselage
     for (const id of FILES) {
       const d = layoutOf(id);
       if (!d.wing) continue;
@@ -101,36 +128,103 @@ describe('body masks (scripts/sprites.py body_mask)', () => {
           if (px[(y * w + x) * ch + 1] < 128) off++;
         }
       }
-      expect(off / Math.max(1, n), `${id}: lower fuselage under the wing left out`).toBeGreaterThan(0.25);
+      expect(off / Math.max(1, n), `${id}: lower fuselage under the wing left out`).toBeGreaterThan(0.1);
+    }
+  }, 120_000);
+
+  it('no unpainted hole in the fuselage: wing-body and belly fairings are body (only the pylons between body and cowl stay out)', () => {
+    for (const id of FILES) {
+      const d = layoutOf(id);
+      const { w, h, px, ch } = readPng(resolve(PUB, `${id}-mask.png`));
+      // unpainted pixels inside the tube (inset 2 px), labelled; a hole is a piece that never reaches the tube's edge
+      const un = new Uint8Array(w * h);
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * ch;
+        if (inTubeAt(d, x, y, 2) && Math.max(px[i], px[i + 1], px[i + 2]) < 128) un[y * w + x] = 1;
+      }
+      const seen = new Uint8Array(w * h);
+      const holes: { n: number; x0: number; x1: number }[] = [];
+      for (let s = 0; s < w * h; s++) {
+        if (!un[s] || seen[s]) continue;
+        const stack = [s];
+        seen[s] = 1;
+        let n = 0, edge = false, x0 = w, x1 = 0;
+        while (stack.length) {
+          const q = stack.pop()!, x = q % w, y = (q - x) / w;
+          n++;
+          x0 = Math.min(x0, x); x1 = Math.max(x1, x);
+          for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            const X = x + dx, Y = y + dy;
+            if (X < 0 || Y < 0 || X >= w || Y >= h || !inTubeAt(d, X, Y, 2)) { edge = true; continue; }
+            const k = Y * w + X;
+            if (un[k] && !seen[k]) { seen[k] = 1; stack.push(k); }
+          }
+        }
+        if (!edge && n > 60) holes.push({ n, x0, x1 });
+      }
+      // pylons: inside an engine's columns
+      const bad = holes.filter((o) => !d.eng!.some(([aft, front]) => o.x1 >= aft - 0.5 * (front - aft) && o.x0 <= front));
+      expect(bad, `${id}: unpainted holes in the fuselage`).toEqual([]);
     }
   }, 120_000);
 });
 
-describe('body tint', () => {
-  it('changes only the pixels the mask covers, never brightens, keeps alpha; body and tail tints are independent', () => {
-    const n = 64;
-    const p = new Uint8ClampedArray(n * 4), m = new Uint8ClampedArray(n * 4);
-    for (let i = 0; i < n; i++) {
-      p.set([200 + (i % 50), 180, 190 + (i % 60), i % 3 ? 255 : 0], i * 4);
-      // quarter fin, quarter body, quarter engines, quarter none (and a few soft edges)
-      const k = i % 4;
-      m.set([k === 0 ? 255 : i === 5 ? 90 : 0, k === 1 ? 255 : i === 9 ? 120 : 0, k === 2 ? 255 : 0, 255], i * 4);
+describe('painting model (paintModel.ts)', () => {
+  /** A small synthetic sprite: a lit cylinder with panel lines and a window row, one region per third. */
+  function scene() {
+    const w = 60, h = 30, n = w * h;
+    const px = new Uint8ClampedArray(n * 4), m = new Uint8ClampedArray(n * 4);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      let v = 250 - Math.round(((y - 8) / 22) ** 2 * 80);
+      if (x % 15 === 0) v -= 60; // panel line
+      if (y === 12 && x % 4 === 1) v = 30; // window
+      px.set([v, v, v, x > 55 ? 0 : 255], i);
+      // fin | body | cowl by column thirds, one soft column at each seam
+      const r = x < 20 ? 255 : x === 20 ? 128 : 0, b = x > 40 ? 255 : x === 40 ? 127 : 0;
+      m.set([r, Math.max(0, 255 - r - b), b, 255], i);
+      if (y > 27) m.set([0, 0, 0, 255], i); // unpainted strip
     }
-    const before = p.slice();
-    const fin = new Uint8ClampedArray(n * 4).fill(40), body = new Uint8ClampedArray(n * 4).fill(120), eng = new Uint8ClampedArray(n * 4).fill(220);
-    applyTints(p, m, fin, body, eng);
-    for (let i = 0; i < n; i++) {
-      expect(p[i * 4 + 3]).toBe(before[i * 4 + 3]);
-      const masked = m[i * 4] || m[i * 4 + 1] || m[i * 4 + 2];
-      for (let c = 0; c < 3; c++) {
-        if (!masked || !before[i * 4 + 3]) expect(p[i * 4 + c]).toBe(before[i * 4 + c]);
-        expect(p[i * 4 + c]).toBeLessThanOrEqual(before[i * 4 + c]);
-      }
+    return { w, h, px, m };
+  }
+  const solid = (n: number, rgb: [number, number, number]) => {
+    const a = new Uint8ClampedArray(n * 4);
+    for (let i = 0; i < n; i++) a.set([...rgb, 255], i * 4);
+    return a;
+  };
+
+  it('paints only the regions, keeps every alpha; white paint gives the art back exactly', () => {
+    const { w, h, px, m } = scene();
+    const sh = shadingOf(px, m, w, h);
+    const white = solid(w * h, [255, 255, 255]);
+    const q = px.slice();
+    paintRegions(q, m, sh, [white, white, white]);
+    expect([...q]).toEqual([...px]);
+    const navy = solid(w * h, [19, 41, 75]);
+    const p = px.slice();
+    paintRegions(p, m, sh, [navy, navy, null]);
+    for (let i = 0; i < w * h; i++) {
+      const j = i * 4;
+      expect(p[j + 3]).toBe(px[j + 3]);
+      const painted = (m[j] || m[j + 1]) && px[j + 3];
+      if (!painted) for (let c = 0; c < 3; c++) expect(p[j + c], `pixel ${i}`).toBe(px[j + c]);
     }
-    // no body paint (null): the fuselage stays exactly as drawn
-    const q = before.slice();
-    applyTints(q, m, fin, null, eng);
-    for (let i = 0; i < n; i++) if (i % 4 === 1 && i !== 5) for (let c = 0; c < 3; c++) expect(q[i * 4 + c]).toBe(before[i * 4 + c]);
+  });
+
+  it('keeps the lighting: dark paint still shows the cylinder shading, the panel lines and the windows', () => {
+    const { w, h, px, m } = scene();
+    const sh = shadingOf(px, m, w, h);
+    const navy = solid(w * h, [19, 41, 75]);
+    const p = px.slice();
+    paintRegions(p, m, sh, [navy, navy, navy]);
+    const at = (x: number, y: number) => p[(y * w + x) * 4 + 2];
+    // lit top brighter than the shaded belly
+    expect(at(27, 8)).toBeGreaterThan(at(27, 26) + 8);
+    // a panel line and a window stay darker than the paint beside them
+    expect(at(30, 20)).toBeLessThan(at(28, 20) - 4);
+    expect(at(25, 12)).toBeLessThan(at(27, 12) - 15);
+    // the paint reads as its colour where the art is lit white
+    expect(Math.abs(at(27, 8) - 75)).toBeLessThan(40);
   });
 
   it('old liveries keep their look: no body paint, the same tint key; plain stays untouched', () => {
@@ -176,5 +270,105 @@ describe('body paint geometry and data', () => {
     const d = layoutOf('a320ceo');
     const x = Math.round((d.tail + d.nose) / 2), t = tubeAt(d, x)!;
     expect(bodyColourAt('a320ceo', full, x, (t[0] + t[1]) / 2)).toBe('#123456');
+  });
+});
+
+describe('v0.11 livery conventions (split below the windows, nose band, markings)', () => {
+  it('the belly split "below the windows" sits just under the main deck windows and level through the cabin on every type', () => {
+    for (const id of FILES) {
+      const d = layoutOf(id);
+      const w = d.winMain ?? d.win;
+      if (!w) continue;
+      const belly = { color: '#c6cdd4', split: 0.62, tilt: 0, windows: true };
+      const L = d.nose - d.tail;
+      const ys: number[] = [];
+      for (const f of [0.3, 0.45, 0.6, 0.75]) {
+        const x = d.tail + f * L;
+        const y = paintY(d, x, splitAt(d, belly, x))!;
+        expect(y, `${id} at ${f}`).toBeGreaterThan(w[1]);
+        expect(y, `${id} at ${f}`).toBeLessThan(w[1] + 0.12 * (d.belly - d.crown));
+        ys.push(y);
+      }
+      // level (parallel to the cabin), also under a 747's hump
+      expect(Math.max(...ys) - Math.min(...ys), id).toBeLessThan(3);
+      // the nose band ends ahead of door 1 (within 1.2 cabin heights of the nose) and lies below the split
+      const nb = noseBandPolys(d, { belly, noseBand: { color: '#000000' } }).band;
+      expect(Math.min(...nb.map((p) => p[0])), id).toBeGreaterThan(d.nose - 1.2 * (d.belly - d.crown));
+    }
+  });
+
+  it('registration and model by the last door (narrowbodies aft of it above the windows; widebodies forward of it), big views only', () => {
+    const lv: Livery = { primary: '#7a1f2b', secondary: '#f5c451', tail: 'solid', logo: { id: 'arc', color: '#ffffff' }, body: { engineLogo: true } };
+    const narrow = new Set(['a320ceo', 'a321ceo', 'a321neo', 'a321neo-classic-doors', 'b738', 'b739', 'b752', 'b753']);
+    for (const id of FILES) {
+      const d = layoutOf(id);
+      expect(d.door, `${id}: last door measured`).toBeTruthy();
+      const all = extraDecals(id, lv, { reg: 'CS-TBL', model: 'BOEING 777', fine: true });
+      const reg = all.find((x) => x.id === 'reg')!, model = all.find((x) => x.id === 'model')!;
+      expect(reg && model, id).toBeTruthy();
+      const [a, b] = d.door!;
+      const H = d.belly - d.crown;
+      if (narrow.has(id)) expect(reg.cx + reg.w / 2, `${id}: registration aft of the last door`).toBeLessThanOrEqual(a + 1);
+      else expect(reg.cx - reg.w / 2, `${id}: registration forward of the last door`).toBeGreaterThanOrEqual(b - 1);
+      // close by: within a fifth of the cabin height... of the door, both
+      for (const t of [reg, model]) expect(Math.min(Math.abs(t.cx - a), Math.abs(t.cx - b)), `${id} ${t.id} by the door`).toBeLessThan(0.25 * (d.nose - d.tail));
+      expect(reg.h, id).toBeGreaterThan(model.h);
+      expect(reg.h, id).toBeLessThan(0.1 * H);
+      const flag = all.find((x) => x.id === 'flag');
+      if (!narrow.has(id)) expect(flag?.text, id).toBe('🇵🇹');
+      else if (flag) expect(flag.text, id).toBe('🇵🇹');
+      expect(all.filter((x) => x.on === 'cowl').length, id).toBe(d.eng!.length);
+      expect(extraDecals(id, lv, { reg: 'CS-TBL', model: 'X', fine: false }).some((x) => x.kind === 'reg'), id).toBe(false);
+      expect(extraDecals(id, { ...lv, reg: { hide: true } }, { reg: 'CS-TBL', fine: true }).some((x) => x.id === 'reg'), id).toBe(false);
+      // fleet number at the top of the fin, the registration's last three
+      const fleet = extraDecals(id, { ...lv, reg: { fleet: true } }, { reg: 'CS-TBL', fine: true }).find((x) => x.id === 'fleet')!;
+      expect(fleet.text, id).toBe('TBL');
+      expect(fleet.cy, id).toBeLessThan(d.finQuad[0][1] - 0.7 * (d.finQuad[0][1] - d.finQuad[2][1]));
+    }
+  });
+
+  it('normalises the new options and keeps old liveries as they were', () => {
+    const lv: Livery = {
+      primary: '#1F6F6B', secondary: '#d23b2a', tail: 'solid', model: 'rear', reg: { noFlag: true, color: '#000' },
+      body: { belly: { color: '#c6cdd4', split: 0.62, tilt: 0, windows: true, line: { color: '#0b2a5b', h: 0.5 } }, noseBand: { color: '#1f6f6b', accent: 'nope' }, finRoot: '#d23b2a', engineLogo: true, noseLogo: true },
+    };
+    const n = normaliseLivery(lv);
+    expect(n.body).toEqual({ belly: { color: '#c6cdd4', split: 0.62, tilt: 0, windows: true, line: { color: '#0b2a5b', h: 0.06 } }, noseBand: { color: '#1f6f6b' }, finRoot: '#d23b2a', engineLogo: true, noseLogo: true });
+    expect(n.reg).toEqual({ noFlag: true, color: '#000000' });
+    expect(n.model).toBeUndefined(); // 'rear' is the default now
+    expect(normaliseLivery(n)).toEqual(n);
+  });
+});
+
+describe('v0.11 small markings keep clear; the fin paint ends along the crown', () => {
+  const looks: Livery[] = [
+    { primary: '#ffffff', secondary: '#2a9fd6', tail: 'solid', model: 'rear', body: { color: '#2a9fd6', belly: { color: '#ffffff', split: 0.62, tilt: 0, windows: true, line: { color: '#0b2a5b', h: 0.018 } } } },
+    { primary: '#1f6f6b', secondary: '#d23b2a', tail: 'solid', body: { belly: { color: '#c6cdd4', split: 0.62, tilt: 0, windows: true }, noseBand: { color: '#1f6f6b', accent: '#d23b2a' }, finRoot: '#d23b2a' } },
+    { primary: '#7a1f2b', secondary: '#f5c451', tail: 'solid', body: { stripes: [{ color: '#7a1f2b', y: 0.4, h: 0.1, windows: true }, { color: '#f5c451', y: 0.56, h: 0.03 }], belly: { color: '#c9ced8', split: 0.7, tilt: 0 } } },
+  ];
+  it('registration and model sit on one colour (no split line, stripe or band edge through them) and off the wing', () => {
+    for (const id of FILES) {
+      const d = layoutOf(id);
+      for (const lv of looks) {
+        for (const t of extraDecals(id, lv, { reg: 'CS-TBL', model: 'BOEING 777-200ER', fine: true }).filter((x) => x.id === 'reg' || x.id === 'model')) {
+          const cols = new Set<string>();
+          for (let i = 0; i <= 8; i++) for (let j = 0; j <= 3; j++) cols.add(bodyColourAt(id, lv, t.cx - t.w / 2 + (t.w * i) / 8, t.cy - t.h / 2 + (t.h * j) / 3));
+          expect(cols.size, `${id} ${t.id} on ${[...cols]}`).toBe(1);
+          // (the 787's zone stops under its raked wingtip at the crown; its marks go below the windows, clear of it)
+          if (!/^b78/.test(id)) expect(inPoly(d.zone, t.cx, t.cy), `${id} ${t.id} off the fuselage zone`).toBe(true);
+        }
+      }
+    }
+  });
+  it('the fillet line runs just above the crown from the tail cone to past the fin', () => {
+    for (const id of FILES) {
+      const d = layoutOf(id);
+      const poly = finFilletPoly(d);
+      for (const x of [d.finQuad[1][0], (d.finQuad[0][0] + d.finQuad[1][0]) / 2, d.finQuad[0][0]]) {
+        const t = tubeAt(d, x)!;
+        expect(inPoly(poly, x, t[0] + 1), `${id} at ${x}`).toBe(true);
+        expect(inPoly(poly, x, t[0] - 0.06 * (d.belly - d.crown)), `${id} at ${x}`).toBe(false);
+      }
+    }
   });
 });

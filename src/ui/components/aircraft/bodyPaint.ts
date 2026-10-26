@@ -1,5 +1,5 @@
 // v0.10 body paint geometry: where the livery's fuselage colours go, in the sprite's 2048-px frame (x right, y down,
-// nose right). The tube comes from the generated body lines (crown and belly every 8 px, sprites.py body_mask); the
+// nose right). The tube comes from the generated body lines (crown and belly every 8 px, sprites.py geometry); the
 // mask's body channel decides what is fuselage, so these shapes may run past the airframe. Pure (no DOM).
 
 import type { Livery, LiveryBody, LiveryStripe } from '../../../engine/core/types';
@@ -68,9 +68,120 @@ function xsOf(d: SpriteLayout): number[] {
 /** Share of the length from the tail end (0) to the nose (1). */
 const along = (d: SpriteLayout, x: number) => (x - d.tail) / Math.max(1, d.nose - d.tail);
 
-/** Belly split as a share of the tube at x: tilt + raises it toward the nose. */
+/**
+ * The y of a paint line at a share s of the tube: level through the main cabin (the share of the mid-cabin crown →
+ * belly, so it stays parallel to the windows under a 747's hump and along its long nose), blending into the same share
+ * of the local tube where the tube narrows (nose tip, tail cone) so the line runs smoothly into them.
+ */
+export function paintY(d: SpriteLayout, x: number, s: number): number | null {
+  const t = tubeAt(d, x);
+  if (!t) return null;
+  const h = t[1] - t[0];
+  const level = d.crown + s * tubeHeight(d);
+  const local = t[0] + s * h;
+  const w = Math.min(1, Math.max(0, (h / tubeHeight(d) - 0.45) / 0.35));
+  const k = w * w * (3 - 2 * w);
+  return local + (level - local) * k;
+}
+
+/** The share of the tube just below the main deck's windows (a small gap under them): where real liveries split. */
+export function underWindows(d: SpriteLayout): number {
+  const w = d.winMain ?? d.win;
+  if (!w) return 0.55;
+  return Math.min(0.85, Math.max(0.3, (w[1] - d.crown) / tubeHeight(d) + 0.035));
+}
+
+/** Belly split as a share of the tube at x: below the windows (`windows`) or at `split`; tilt + raises it toward the
+ *  nose. A share of the tube, so the line follows the fuselage: up the tail cone, round under the cockpit. */
 export function splitAt(d: SpriteLayout, belly: NonNullable<LiveryBody['belly']>, x: number): number {
-  return Math.min(1.05, Math.max(0.02, belly.split - 0.3 * belly.tilt * (along(d, x) - 0.5)));
+  const base = belly.windows ? underWindows(d) : belly.split;
+  return Math.min(1.05, Math.max(0.02, base - 0.3 * belly.tilt * (along(d, x) - 0.5)));
+}
+
+/** A band between two tube shares (functions of x) along the whole fuselage, or from x0 forward. */
+function shareBand(d: SpriteLayout, top: (x: number) => number, bot: (x: number) => number, x0 = -Infinity): Pt[] {
+  const up: Pt[] = [], dn: Pt[] = [];
+  for (const x of [...xsOf(d), d.nose]) {
+    if (x < x0) continue;
+    const a = paintY(d, x, top(x)), b = paintY(d, x, bot(x));
+    if (a === null || b === null) continue;
+    up.push([x, a]);
+    dn.push([x, b]);
+  }
+  if (!up.length) return [];
+  // past the nose tip, and (x0 = -∞) past the tail cone, so the mask (not this polygon) ends the paint
+  const head: Pt[] = x0 === -Infinity ? [[-10, up[0][1]]] : [];
+  const tail: Pt[] = x0 === -Infinity ? [[-10, dn[0][1]]] : [];
+  return [...head, ...up, [d.w + 10, up[up.length - 1][1]], [d.w + 10, dn[dn.length - 1][1]], ...dn.reverse(), ...tail];
+}
+
+/** The accent line along the belly split (thickness `h` of the tube, centred on the split). */
+export function splitLinePoly(d: SpriteLayout, belly: NonNullable<LiveryBody['belly']>): Pt[] {
+  const h = belly.line?.h ?? 0.02;
+  return shareBand(d, (x) => splitAt(d, belly, x) - h / 2, (x) => splitAt(d, belly, x) + h / 2);
+}
+
+/** Nose band: from the split line (or just below the windows) down 17 % of the tube, the nose tip aft to just ahead
+ *  of the first door (0.95 of the cabin's height: door 1 sits a fixed way behind the cockpit, whatever the length);
+ *  its accent a thin line under it. */
+export const NOSE_BAND = { len: 0.95, h: 0.17, accent: 0.022 };
+export function noseBandPolys(d: SpriteLayout, b: LiveryBody): { band: Pt[]; accent: Pt[] } {
+  const top = (x: number) => (b.belly ? splitAt(d, b.belly, x) : underWindows(d));
+  const x0 = d.nose - NOSE_BAND.len * tubeHeight(d);
+  return {
+    band: shareBand(d, top, (x) => top(x) + NOSE_BAND.h, x0),
+    accent: shareBand(d, (x) => top(x) + NOSE_BAND.h, (x) => top(x) + NOSE_BAND.h + NOSE_BAND.accent, x0),
+  };
+}
+
+/** A point of the fin frame: s chord LE (0) → TE (1), t root (0) → tip (1) (bilinear on the measured quad). */
+export function finPoint(d: SpriteLayout, s: number, t: number): Pt {
+  const [rle, rte, tle, tte] = d.finQuad;
+  const r: Pt = [rle[0] + (rte[0] - rle[0]) * s, rle[1] + (rte[1] - rle[1]) * s];
+  const u: Pt = [tle[0] + (tte[0] - tle[0]) * s, tle[1] + (tte[1] - tle[1]) * s];
+  return [r[0] + (u[0] - r[0]) * t, r[1] + (u[1] - r[1]) * t];
+}
+
+/** The fin-root stripe: across the whole chord, 13–18 % of the fin's height above its root. */
+export function finRootPoly(d: SpriteLayout): Pt[] {
+  return [finPoint(d, -0.6, 0.13), finPoint(d, 1.6, 0.13), finPoint(d, 1.6, 0.18), finPoint(d, -0.6, 0.18)];
+}
+
+/** The rear fuselage under the fin, its front edge from the fin's root leading edge sweeping down and aft to the
+ *  belly about a fifth of the way from the tail (the tail colour wrapped onto the fuselage). */
+export function tailWrapPoly(d: SpriteLayout): Pt[] {
+  const le = d.finQuad[0];
+  const L = d.nose - d.tail;
+  const top: Pt = [le[0] + 0.03 * L, d.crown - 10];
+  const bot: Pt = [d.tail + 0.13 * L, d.h + 10];
+  const curve: Pt[] = [];
+  for (let k = 0; k <= 16; k++) {
+    const t = k / 16;
+    // ease: steep near the crown, flattening toward the belly
+    curve.push([top[0] + (bot[0] - top[0]) * t * t, top[1] + (bot[1] - top[1]) * t]);
+  }
+  return [[-10, -10], [top[0], -10], ...curve, [-10, d.h + 10]];
+}
+
+/** A band across the fin from t0 to t1 (root 0 → tip 1), the whole chord. */
+export function finBandPoly(d: SpriteLayout, t0: number, t1: number): Pt[] {
+  return [finPoint(d, -0.8, t0), finPoint(d, 1.8, t0), finPoint(d, 1.8, t1), finPoint(d, -0.8, t1)];
+}
+
+/** Where the fin's paint ends: everything of the fin's mask below a line just above the fuselage's crown (3 % of
+ *  the cabin height, following the crown's own curve) is fuselage: the dorsal fillet blends into the crown and the
+ *  tail cone's top under the rudder, with no straight-edged block and no sliver along the crown. */
+export function finFilletPoly(d: SpriteLayout): Pt[] {
+  const gap = 0.03 * tubeHeight(d);
+  const top: Pt[] = [];
+  const x1 = d.finQuad[0][0] + 0.08 * (d.nose - d.tail);
+  let last = d.crown;
+  for (let x = d.tail - 10; x <= x1; x += 4) {
+    const t = tubeAt(d, Math.max(d.tail + 2, x));
+    if (t) last = t[0];
+    top.push([x, last - gap]);
+  }
+  return [...top, [x1, d.h + 10], [d.tail - 10, d.h + 10]];
 }
 
 /** A stripe's centre share and its thickness in px. */
@@ -89,8 +200,8 @@ export function stripeLine(d: SpriteLayout, s: LiveryStripe): Pt[] {
   const x0 = s.sweep ? sweepStart(d) : -Infinity;
   for (const x of xs) {
     if (x < x0) continue;
-    const t = tubeAt(d, x);
-    if (t) pts.push([x, t[0] + c * (t[1] - t[0])]);
+    const y = paintY(d, x, c);
+    if (y !== null) pts.push([x, y]);
   }
   pts.push([d.w, pts.length ? pts[pts.length - 1][1] : d.crown]);
   if (!s.sweep || !pts.length) return [[-10, pts[0]?.[1] ?? d.crown], ...pts];
@@ -136,8 +247,8 @@ export function bandAround(line: Pt[], px: number): Pt[] {
 export function bellyPoly(d: SpriteLayout, belly: NonNullable<LiveryBody['belly']>): Pt[] {
   const top: Pt[] = [];
   for (const x of xsOf(d)) {
-    const t = tubeAt(d, x);
-    if (t) top.push([x, t[0] + splitAt(d, belly, x) * (t[1] - t[0])]);
+    const y = paintY(d, x, splitAt(d, belly, x));
+    if (y !== null) top.push([x, y]);
   }
   if (!top.length) return [];
   return [[-10, top[0][1]], ...top, [d.w + 10, top[top.length - 1][1]], [d.w + 10, d.h + 10], [-10, d.h + 10]];
@@ -165,8 +276,22 @@ export function bodyLayers(id: string, b: LiveryBody | undefined): PaintLayer[] 
   const out: PaintLayer[] = [];
   if (b.color) out.push({ color: b.color, polys: [all] });
   if (b.belly) out.push({ color: b.belly.color, polys: [bellyPoly(d, b.belly)] });
+  if (b.belly?.line) out.push({ color: b.belly.line.color, polys: [splitLinePoly(d, b.belly)] });
   for (const s of b.stripes ?? []) out.push({ color: s.color, polys: [bandAround(stripeLine(d, s), stripeShape(d, s).px)], fin: !!s.sweep });
+  if (b.noseBand) {
+    const nb = noseBandPolys(d, b);
+    out.push({ color: b.noseBand.color, polys: [nb.band] });
+    if (b.noseBand.accent) out.push({ color: b.noseBand.accent, polys: [nb.accent] });
+  }
   if (b.nose) out.push({ color: b.nose, polys: [nosePoly(d)] });
+  if (b.tailWrap) out.push({ color: b.tailWrap, polys: [tailWrapPoly(d)] });
+  if (b.vstripes) {
+    // vertical stripes from the tail cone forward to the cockpit, over the fuselage and up the fin
+    const w = b.vstripes.w * (d.nose - d.tail);
+    const polys: Pt[][] = [];
+    for (let x = d.tail + 0.4 * w; x < d.nose - 0.12 * (d.nose - d.tail); x += 2 * w) polys.push([[x, -10], [x + w, -10], [x + w, d.h + 10], [x, d.h + 10]]);
+    out.push({ color: b.vstripes.color, polys, fin: true });
+  }
   return out;
 }
 
@@ -181,9 +306,22 @@ export function inPoly(p: Pt[], x: number, y: number): boolean {
 }
 
 /** Paint on the fuselage at a viewBox point (white where nothing is painted). */
+const layerCache = new Map<string, PaintLayer[]>();
+/** bodyLayers, kept for the last few liveries (marking placement asks for the paint under hundreds of points). */
+function layersOf(id: string, b: LiveryBody): PaintLayer[] {
+  const key = `${id}|${JSON.stringify(b)}`;
+  let l = layerCache.get(key);
+  if (!l) {
+    l = bodyLayers(id, b);
+    layerCache.set(key, l);
+    while (layerCache.size > 48) layerCache.delete(layerCache.keys().next().value as string);
+  }
+  return l;
+}
+
 export function bodyColourAt(id: string, lv: Livery, X: number, Y: number): string {
   if (lv.plain || !lv.body) return '#ffffff';
-  const layers = bodyLayers(id, lv.body);
+  const layers = layersOf(id, lv.body);
   for (let i = layers.length - 1; i >= 0; i--) if (layers[i].polys.some((p) => inPoly(p, X, Y))) return layers[i].color;
   return '#ffffff';
 }
@@ -196,5 +334,9 @@ export function finStripeAt(id: string, lv: Livery, X: number, Y: number): strin
   return null;
 }
 
-/** Engine colour (the tail colour unless the livery sets its own). */
-export const engineColour = (lv: Livery): string => lv.body?.engines ?? lv.primary;
+/** Engine colour: the livery's own, else the belly colour when there is a belly (cowls are painted with the belly on
+ *  most liveries), else the tail colour (as before v0.10). */
+export const engineColour = (lv: Livery): string => lv.body?.engines ?? lv.body?.belly?.color ?? lv.primary;
+
+/** The fin's paint ends just above the crown: the fillet and the tail cone's top take the fuselage's paint. */
+export const filletTakesBody = (lv: Livery): boolean => !lv.plain;

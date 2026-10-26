@@ -1,6 +1,7 @@
-// v0.10 livery editor panels for body paint (BODY_PAINT): quick looks, the fuselage (colour, belly, stripes, nose)
-// and the tail and engines (fin colours, engine colour, intake lips). Every colour is multiplied over the white art,
-// so panel lines, windows and doors show through. No game state: the editor owns the livery.
+// v0.10 livery editor panels for body paint (BODY_PAINT): quick looks, the fuselage (colour, belly and its split
+// line, stripes, nose band, nose) and the tail and engines (fin colours, fin-root stripe, engine colour, intake lips).
+// Every colour is painted through the art's light, so panel lines, windows and doors show through. No game state:
+// the editor owns the livery.
 
 import type { ReactNode } from 'react';
 import { BODY_PRESETS, bodyPreset, MAX_STRIPES, type BodyPresetId } from '../../../data/livery';
@@ -79,12 +80,22 @@ export function BodyPanel({ lv, onBody }: { lv: Livery; onBody: Patch }) {
       <section className="lv-section">
         <div className="lv-textblock-head">
           <h4>Belly</h4>
-          <Toggle on={!!b?.belly} onChange={(v) => set({ belly: v ? { color: lv.secondary, split: 0.62, tilt: 0 } : undefined })}>{b?.belly ? 'On' : 'Off'}</Toggle>
+          <Toggle on={!!b?.belly} onChange={(v) => set({ belly: v ? { color: lv.secondary, split: 0.62, tilt: 0, windows: true } : undefined })}>{b?.belly ? 'On' : 'Off'}</Toggle>
         </div>
         {b?.belly && (
           <>
             <ColorPicker label="Belly colour" value={b.belly.color} onChange={(c) => c && set({ belly: { ...b.belly!, color: c } })} />
-            <Range label="Split" min={0.25} max={0.9} step={0.01} value={b.belly.split} fmt={pct} onChange={(v) => set({ belly: { ...b.belly!, split: v } })} />
+            <div className="lv-row-toggles">
+              <Toggle on={!!b.belly.windows} onChange={(v) => set({ belly: { ...b.belly!, windows: v || undefined } })}>Just below the windows</Toggle>
+              <Toggle on={!!b.belly.line} onChange={(v) => set({ belly: { ...b.belly!, line: v ? { color: lv.primary, h: 0.02 } : undefined } })}>Line at the split</Toggle>
+            </div>
+            <Range label="Split" min={0.25} max={0.9} step={0.01} value={b.belly.split} fmt={pct} disabled={!!b.belly.windows} onChange={(v) => set({ belly: { ...b.belly!, split: v } })} />
+            {b.belly.line && (
+              <>
+                <ColorPicker label="Line colour" value={b.belly.line.color} onChange={(c) => c && set({ belly: { ...b.belly!, line: { ...b.belly!.line!, color: c } } })} />
+                <Range label="Line width" min={0.005} max={0.06} step={0.005} value={b.belly.line.h} fmt={pct} onChange={(v) => set({ belly: { ...b.belly!, line: { ...b.belly!.line!, h: v } } })} />
+              </>
+            )}
             <Range label="Angle" min={-1} max={1} step={0.05} value={b.belly.tilt} fmt={(v) => (Math.abs(v) < 0.025 ? 'level' : v > 0 ? `nose +${Math.round(v * 10)}` : `tail +${Math.round(-v * 10)}`)} onChange={(v) => set({ belly: { ...b.belly!, tilt: Math.abs(v) < 0.025 ? 0 : v } })} />
           </>
         )}
@@ -112,6 +123,19 @@ export function BodyPanel({ lv, onBody }: { lv: Livery; onBody: Patch }) {
       </section>
       <section className="lv-section">
         <div className="lv-textblock-head">
+          <h4>Nose band</h4>
+          <Toggle on={!!b?.noseBand} onChange={(v) => set({ noseBand: v ? { color: lv.primary, accent: lv.secondary } : undefined })}>{b?.noseBand ? 'On' : 'Off'}</Toggle>
+        </div>
+        {b?.noseBand && (
+          <>
+            <ColorPicker label="Band colour" value={b.noseBand.color} onChange={(c) => c && set({ noseBand: { ...b.noseBand!, color: c } })} />
+            <ColorPicker label="Line under it" value={b.noseBand.accent} auto autoColor={b.noseBand.color} onChange={(c) => set({ noseBand: { ...b.noseBand!, accent: c } })} />
+          </>
+        )}
+        <p className="lv-note small">Under the cockpit, from the nose tip back to the first door.</p>
+      </section>
+      <section className="lv-section">
+        <div className="lv-textblock-head">
           <h4>Nose</h4>
           <Toggle on={!!b?.nose} onChange={(v) => set({ nose: v ? '#16213a' : undefined })}>{b?.nose ? 'On' : 'Off'}</Toggle>
         </div>
@@ -130,13 +154,18 @@ export function TailEnginePanel({ lv, onTail, onBody }: { lv: Livery; onTail: (p
       <section className="lv-section">
         <ColorPicker label="Tail" value={lv.primary} onChange={(c) => onTail({ primary: c ?? lv.primary })} />
         <ColorPicker label="Tail accent" value={lv.secondary} onChange={(c) => onTail({ secondary: c ?? lv.secondary })} />
+        <div className="lv-textblock-head">
+          <h4>Fin-root stripe</h4>
+          <Toggle on={!!b?.finRoot} onChange={(v) => set({ finRoot: v ? lv.secondary : undefined })}>{b?.finRoot ? 'On' : 'Off'}</Toggle>
+        </div>
+        {b?.finRoot && <ColorPicker label="Stripe colour" value={b.finRoot} onChange={(c) => c && set({ finRoot: c })} />}
       </section>
       <section className="lv-section">
-        <ColorPicker label="Engines" value={b?.engines} auto autoColor={lv.primary} onChange={(c) => set({ engines: c })} />
-        <p className="lv-note small">Auto paints them in the tail colour.</p>
+        <ColorPicker label="Engines" value={b?.engines} auto autoColor={b?.belly?.color ?? lv.primary} onChange={(c) => set({ engines: c })} />
+        <p className="lv-note small">Auto paints the cowls in the belly colour, or the tail colour without a belly. The exhaust stays bare metal.</p>
         <div className="lv-textblock-head">
           <h4>Intake lips</h4>
-          <Toggle on={!!b?.lip} onChange={(v) => set({ lip: v ? '#c9ced8' : undefined })}>{b?.lip ? 'On' : 'Off'}</Toggle>
+          <Toggle on={!!b?.lip} onChange={(v) => set({ lip: v ? lv.secondary : undefined })}>{b?.lip ? 'Painted' : 'Bare metal'}</Toggle>
         </div>
         {b?.lip && <ColorPicker label="Lip colour" value={b.lip} onChange={(c) => c && set({ lip: c })} />}
       </section>

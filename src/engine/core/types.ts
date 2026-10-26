@@ -79,16 +79,46 @@ export interface LiveryStripe {
 export interface LiveryBody {
   /** Whole fuselage. */
   color?: string;
-  /** Belly below a split line: height as a share of the fuselage (crown 0 → belly 1), tilt −1…1 (+ = higher at the nose). */
-  belly?: { color: string; split: number; tilt: number };
+  /** Belly below a split line: height as a share of the fuselage (crown 0 → belly 1), tilt −1…1 (+ = higher at the nose).
+   *  v0.11 `windows`: the split sits just below the type's window line instead of `split` (every type its own);
+   *  `line`: a thin accent line along the split (thickness as a share of the fuselage height, 0.005–0.06). */
+  belly?: { color: string; split: number; tilt: number; windows?: boolean; line?: { color: string; h: number } };
   /** 0–3 stripes, drawn over the body and belly colours. */
   stripes?: LiveryStripe[];
   /** Nose and cockpit area. */
   nose?: string;
   /** Engines' own colour (absent: the tail colour, as before v0.10). */
   engines?: string;
-  /** Ring on the engine intake lips. */
+  /** Ring on the engine intake lips (absent: the bare metal lip as drawn). */
   lip?: string;
+  /** v0.11 a band under the cockpit from the nose tip aft to about the first door, below the belly split line, with an
+   *  optional thin accent line under it. */
+  noseBand?: { color: string; accent?: string };
+  /** v0.11 a thin stripe across the fin a little above its root. */
+  finRoot?: string;
+  /** v0.11 bands across the fin (t root 0 → tip 1), over the tail scheme: national colours, a mid-fin band. */
+  finBands?: { color: string; t0: number; t1: number }[];
+  /** v0.11 the tail colour wrapped onto the rear fuselage under the fin, its front edge sweeping down and aft. */
+  tailWrap?: string;
+  /** v0.11 vertical stripes over the fuselage and the fin, alternating with the paint under them (w: share of the
+   *  length). */
+  vstripes?: { color: string; w: number };
+  /** v0.11 the livery's logo, small, on each engine cowl. */
+  engineLogo?: boolean;
+  /** v0.11 the livery's logo, small, on the forward fuselage under the cockpit (ahead of door 1). */
+  noseLogo?: boolean;
+}
+
+/** v0.11 the registration painted small on the rear fuselage (on by default, with the registry state's flag). */
+export interface LiveryReg {
+  hide?: boolean;
+  noFlag?: boolean;
+  /** On the lower fin instead of the rear fuselage. */
+  at?: 'fin';
+  /** The fleet number (the registration's last letters or digits) at the top of the fin. */
+  fleet?: boolean;
+  /** Omitted = auto ink. */
+  color?: string;
 }
 
 export interface Livery {
@@ -102,6 +132,11 @@ export interface Livery {
   code?: LiveryText;
   titles?: LiveryText;
   logo?: LiveryLogo;
+  /** v0.11 the registration on the rear fuselage. */
+  reg?: LiveryReg;
+  /** v0.11 the aircraft model ("BOEING 777-300ER") painted small: by the registration (default; 'rear' the same), under
+   *  the forward windows, or not at all. */
+  model?: 'rear' | 'forward' | 'off';
   /** Absent = legacy: [code auto on the fin, titles auto on the fuselage]. Present = exactly these draw (≤ 6). */
   stickers?: StickerPlacement[];
 }

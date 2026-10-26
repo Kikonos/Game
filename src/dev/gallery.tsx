@@ -16,10 +16,12 @@ import '../styles/screens.css';
 import { StrictMode, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ACMI_TYPES_LIST } from '../data/acmiTypes';
-import { LOGO_IDS, type LogoId } from '../data/livery';
+import { BODY_PRESETS, bodyPreset, LOGO_IDS, type BodyPresetId, type LogoId } from '../data/livery';
 import type { Livery, StickerPlacement, TailStyle } from '../engine/core/types';
 import { AircraftArt } from '../ui/components/aircraft/AircraftArt';
 import { LOGOS, LogoGlyph } from '../ui/components/aircraft/logos';
+import { CLIENT_LIVERIES } from '../data/clientLiveries';
+import { recipeLivery } from '../engine/ops/paint';
 import { LENGTH_M, layoutOf, metresPerPx, SPRITE_IDS } from '../ui/components/aircraft/sprites';
 import { finAt, polyPath, titleBand } from '../ui/components/aircraft/stickers';
 import { TailBadge } from '../ui/components/Logo';
@@ -40,7 +42,7 @@ const LIVERIES: Record<string, Livery> = {
   plainlogo: { primary: '#d6283c', secondary: '#1e293b', tail: 'solid', plain: true, logo: { id: 'kite', color: '#d6283c', color2: '#1e293b' } },
   stickers: {
     primary: '#0f9d76', secondary: '#f5c451', tail: 'stripe', code: { color: '#ffffff', weight: 500 }, titles: { color: '#0b1f4d' },
-    logo: { id: 'orbit', color: '#f5c451', color2: '#0b1f4d' },
+    logo: { id: 'globe', color: '#f5c451', color2: '#0b1f4d' },
     stickers: [
       { id: 'logo', kind: 'logo', side: 'fin', scale: 1 }, { id: 'titles', kind: 'titles', side: 'fuselage', scale: 1 },
       { id: 'code', kind: 'code', side: 'fuselage', x: 0.72, y: 0.55, scale: 1.4, rotation: -8 },
@@ -64,6 +66,16 @@ const livery: Livery = (() => {
   if (q.get('plain') === '1') l.plain = true;
   const cc = q.get('codecolor'), wt = q.get('weight');
   if (cc || wt) l.code = { ...l.code, color: cc ?? l.code?.color, weight: wt === '500' ? 500 : 700 };
+  // v0.11 paint checks: &primary=%23hex &secondary=%23hex, a body preset (&preset=fullColour) or &body=<json>
+  const pc = q.get('primary'), sc = q.get('secondary');
+  if (pc) l.primary = pc;
+  if (sc) l.secondary = sc;
+  const pr = q.get('preset');
+  if (pr && BODY_PRESETS.some((b) => b.id === pr)) l.body = bodyPreset(pr as BodyPresetId, l);
+  const bj = q.get('body');
+  if (bj) l.body = JSON.parse(bj) as Livery['body'];
+  const lj = q.get('lv');
+  if (lj) Object.assign(l, JSON.parse(lj) as Partial<Livery>);
   const tail = q.get('tail');
   if (tail && ['solid', 'split', 'stripe', 'sweep'].includes(tail)) l.tail = tail as TailStyle;
   return l;
@@ -87,7 +99,7 @@ const css = `
   .g-cell figcaption { font: 600 11px/1.2 var(--font-mono); color: rgba(232,238,252,0.75); }
   .g-panel[data-bg="blue"] figcaption, .g-panel[data-bg="light"] figcaption { color: rgba(10,20,40,0.8); }
   .g-box { display: flex; align-items: center; justify-content: center; }
-  .g-hero .g-box { width: 720px; }
+  .g-hero .g-box { width: ${Number(q.get('w')) || 720}px; }
   .g-card .g-box { width: 320px; height: 120px; border-radius: 10px; background: rgba(255,255,255,0.03); }
   .g-mini .g-box { width: 92px; height: 36px; }
   .g-mini figcaption { font-size: 9px; }
@@ -100,7 +112,7 @@ function Cell({ id, size }: { id: string; size: Size }) {
   return (
     <figure className="g-cell" data-type={id} data-size={size}>
       <div className="g-box">
-        <AircraftArt typeId={id} livery={livery} code={size === 'mini' ? undefined : code} name={size === 'mini' ? undefined : name} detail={size === 'mini' ? 'simple' : 'full'} />
+        <AircraftArt typeId={id} livery={livery} code={size === 'mini' ? undefined : code} name={size === 'mini' ? undefined : name} reg={size === 'mini' ? undefined : q.get('reg') ?? 'CS-TBL'} detail={size === 'mini' ? 'simple' : 'full'} />
       </div>
       <figcaption>{id} · {NAMES[id] ?? id}</figcaption>
     </figure>
@@ -269,6 +281,31 @@ function LayoutSheet() {
   );
 }
 
+/** v0.11 every client livery recipe on a narrowbody and a widebody it would charter (Boeing operators on Boeings). */
+const BOEING = /GOL|Jet2|TUI|Corendon|LOT|Air Canada|Royal Air Maroc|Fiji|Biman|Air Algérie|Sunwing|Aegean|flynas/;
+function ClientSheet() {
+  // 10 per page (`&page=1…`): a page of 20 bitmaps stays well inside the composed-bitmap cache
+  const pg = Number(q.get('page')) || 0;
+  const names = Object.keys(CLIENT_LIVERIES).filter((n) => !q.get('only') || n.includes(q.get('only')!)).slice(pg ? (pg - 1) * 10 : 0, pg ? pg * 10 : undefined);
+  return (
+    <div className="g-panel" data-bg="light" style={{ background: BGS.light, flexDirection: 'column' }}>
+      {names.map((n) => {
+        const r = CLIENT_LIVERIES[n];
+        const decals = /^(SL |Sporting|Real|Olympique|Fortuna|Manchester|FC |Ajax|Riga|Floriana|FK |Formula|Novartis|American|BBC|Live|AEG|Wasserman)/.test(n);
+        const lv = recipeLivery(r, decals ? 'decals' : 'full');
+        const [nb, wb] = BOEING.test(n) ? ['b738', 'b789'] : ['a320ceo', 'a332'];
+        return (
+          <figure key={n} className="g-cell" data-client={n} style={{ flexDirection: 'row', alignItems: 'center', gap: 18 }}>
+            <figcaption style={{ width: 210, color: '#111a2c' }}><b>{n}</b><br />{decals ? 'decals' : 'full'}{r.approx ? ' · approx.' : ''}</figcaption>
+            <div className="g-box" style={{ width: 560 }}><AircraftArt typeId={nb} livery={lv} reg="CS-TBL" /></div>
+            <div className="g-box" style={{ width: 640 }}><AircraftArt typeId={wb} livery={lv} reg="CS-TBM" /></div>
+          </figure>
+        );
+      })}
+    </div>
+  );
+}
+
 function EditorDemo() {
   const [lv, setLv] = useState<Livery>(livery);
   return (
@@ -288,7 +325,7 @@ function Gallery() {
         <h1>Aircraft art</h1>
         <span>{types.length} sprites · livery {liveryKey} ({livery.plain ? 'white' : livery.tail})</span>
       </div>
-      {mode === 'compare' ? <Compare /> : mode === 'logos' ? <LogoSheet /> : mode === 'clip' ? <ClipCheck /> : mode === 'lod' ? <LodSheet /> : mode === 'layout' ? <LayoutSheet /> : (
+      {mode === 'clients' ? <ClientSheet /> : mode === 'compare' ? <Compare /> : mode === 'logos' ? <LogoSheet /> : mode === 'clip' ? <ClipCheck /> : mode === 'lod' ? <LodSheet /> : mode === 'layout' ? <LayoutSheet /> : (
         sizes.map((size) => (
           <section className={`g-size g-${size}`} key={size} data-size={size}>
             <h2>{size}</h2>

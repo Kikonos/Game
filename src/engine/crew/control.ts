@@ -491,7 +491,9 @@ export function crewShortCard(g: GameState, flightId: string): ProblemCard | nul
     const first = bad[0] ? g.crew[bad[0].crewId] : undefined;
     const r = first && d && p ? rootReason(g, bad.filter((b) => b.crewId === first.id).map((b) => b.issue), first, p) : null;
     if (first && r) {
-      why = `${crewName(first)} is ${r.text}${r.code === 'rest' && d ? `, after the ${fmtTime(d.report)} report` : ''}.`;
+      // v0.10.1 not at the departure airport: which seat ('FO Teresa Martins is in Lisbon, not Antalya').
+      const seat = r.code === 'place' ? p?.slots.find((s) => s.crewId === first.id)?.role : undefined;
+      why = `${seat ? `${seat} ` : ''}${crewName(first)} is ${r.text}${r.code === 'rest' && d ? `, after the ${fmtTime(d.report)} report` : ''}.`;
       for (const b of bad) details.push(`${crewName(g.crew[b.crewId])}: ${b.issue.text}`);
       if (r.code === 'rest' || r.code === 'fdp' || r.code === 'hours' || r.code === 'recovery') visuals.gauges = crewGauges(g, first.id, d?.id);
       if (r.code === 'place' && p && d) visuals.reach = reachFor(g, p, d, first, f.std);

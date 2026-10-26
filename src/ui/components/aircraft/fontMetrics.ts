@@ -26,6 +26,8 @@ export const CAP_ASC = 0.72;
 const DESC_Q = 0.19, DESC = 0.02;
 
 export const FONT_STACK = "var(--font-display, 'Space Grotesk Variable', sans-serif)";
+/** The same font for canvas text (no CSS variables there). */
+export const FONT_FAMILY = "'Space Grotesk Variable', 'Space Grotesk', sans-serif";
 
 /** Advance width of `text` in em, letter-spacing (em) added after every glyph as browsers do. */
 export function textWidthEm(text: string, weight: FontWeight = 700, spacing = 0): number {

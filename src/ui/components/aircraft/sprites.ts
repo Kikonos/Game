@@ -25,16 +25,28 @@ export interface SpriteLayout {
   zone: Pt[];
   /** Window line used for the titles (top, bottom y), if found. */
   win: [number, number] | null;
+  /** v0.11 the rearmost passenger door (aft, forward x of its frame), measured from the art; null if not found. */
+  door?: [number, number] | null;
+  /** The horizontal stabiliser's forward edge at the window band (x; sprites.py, from the art). */
+  stab?: number | null;
+  /** Unpainted airframe over the tube (wing, winglet, stabiliser) above and below the window row: [x0, x1, y0, y1]. */
+  bare?: { above: [number, number, number, number][]; below: [number, number, number, number][] } | null;
+  /** v0.11 the main deck's window line (the A380's lower deck; else the same as `win`), for the belly split. */
+  winMain?: [number, number] | null;
   /** Wing / engine x range. */
   wing: [number, number] | null;
   /** Title band: start (px behind the nose), centre y, length, letter size. */
   titles: { x: number; y: number; w: number; size: number };
   silArea: number;
   /**
-   * v0.10 the fuselage tube (scripts/sprites.py body_mask): crown and belly y every `step` px from x0 (the tail end)
+   * v0.10 the fuselage tube (scripts/sprites.py geometry): crown and belly y every `step` px from x0 (the tail end)
    * to the nose; under the fin and the wing they are the straight lines the body mask uses. -1 = no fuselage there.
    */
   body: { x0: number; step: number; crown: number[]; belly: number[] };
+  /** v0.11 engines drawn on the near side: cowl trailing edge x, intake lip front x, lip width, cowl top y, nacelle height (px). */
+  eng?: [number, number, number, number, number][];
+  /** v0.11 lit white (linear luminance) of the fin, body and cowl regions; with <id>-shade.webp the painting model's light. */
+  white?: [number, number, number];
 }
 
 /** Generated entry: the layout, or another sprite with byte-identical art. */
@@ -50,6 +62,18 @@ export const LENGTH_M: Record<string, number> = {
   b752: 47.32, b753: 54.43, b763: 54.94,
   b772: 63.73, b778: 70.86, b779: 76.72, b77w: 73.86,
   b788: 56.72, b789: 62.81, b78x: 68.28,
+};
+
+/** v0.11 the model as airlines paint it on the fuselage. */
+export const MODEL_NAME: Record<string, string> = {
+  a320ceo: 'AIRBUS A320', a321ceo: 'AIRBUS A321', a321neo: 'AIRBUS A321neo', 'a321neo-classic-doors': 'AIRBUS A321neo',
+  a332: 'AIRBUS A330-200', 'a332-alt-engines': 'AIRBUS A330-200', a333: 'AIRBUS A330-300', a339: 'AIRBUS A330-900neo',
+  a342: 'AIRBUS A340-200', a343: 'AIRBUS A340-300', a345: 'AIRBUS A340-500', a346: 'AIRBUS A340-600',
+  a359: 'AIRBUS A350-900', a359ulr: 'AIRBUS A350-900ULR', a35k: 'AIRBUS A350-1000', a388: 'AIRBUS A380',
+  b738: 'BOEING 737-800', b739: 'BOEING 737-900ER', b741: 'BOEING 747-100', b742: 'BOEING 747-200', b743: 'BOEING 747-300',
+  b744: 'BOEING 747-400', 'b744-alt-engines': 'BOEING 747-400', b748: 'BOEING 747-8', b752: 'BOEING 757-200', b753: 'BOEING 757-300',
+  b763: 'BOEING 767-300ER', b772: 'BOEING 777-200ER', b778: 'BOEING 777-8', b779: 'BOEING 777-9', b77w: 'BOEING 777-300ER',
+  b788: 'BOEING 787-8 DREAMLINER', b789: 'BOEING 787-9 DREAMLINER', b78x: 'BOEING 787-10 DREAMLINER',
 };
 
 /**
@@ -86,8 +110,11 @@ export type AssetWidth = (typeof ASSET_WIDTHS)[number];
 
 /** Relative URLs (the app is served from ./ and the PWA caches public/aircraft). */
 export const spriteUrl = (id: string, w: AssetWidth): string => `aircraft/${fileOf(spriteOf(id))}-${w}.webp`;
-/** R = fin, G = fuselage (v0.10), B = engines; 2048 wide like the big asset. */
+/** v0.11 paint regions: R = fin, G = fuselage, B = engine cowls (scripts/sprites.py); 2048 wide like the big asset. */
 export const maskUrl = (id: string): string => `aircraft/${fileOf(spriteOf(id))}-mask.png`;
+
+/** v0.11 the painting model's light (1024 wide grey; scripts/sprites.py shading_field). */
+export const shadeUrl = (id: string): string => `aircraft/${fileOf(spriteOf(id))}-shade.webp`;
 
 /** Asset width for a drawn size in device pixels. */
 export const assetFor = (devicePx: number): AssetWidth => (devicePx > 1100 ? 2048 : 1024);

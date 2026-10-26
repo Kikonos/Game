@@ -1397,3 +1397,71 @@ two-deck types) by installed seats; the minimum for each cabin preset (before �
 - New: cabin crew seats and cockpit observer seats per type; the Extra cabin steppers stop at the seats; crew beyond
   them take passenger seats.
 - 777-200LR removed (the player's choice); 747-100/-200/-300 on the market with two pilots.
+
+## 16. Registration, model and fleet-number marks (v0.11 livery pass, October 2026)
+
+The player: "the registrations are off in every aircraft". Researched where airlines really put them, then measured
+the reference side views (Cathay 747-400/777-200/777-300ER, KLM 777-200, a 737-700 and a 787-8 side view used for
+placement only, nose left, mirrored for the game's nose-right art).
+
+**The rules (what is regulated)**
+- ICAO Annex 7 §4.3.2: on heavier-than-air aircraft the marks go on both sides of the fuselage between the wings and
+  the tail surface, or on the upper halves of the vertical tail surfaces. §4.3.1 (one set under the left wing) and
+  §5.2.2 (marks on the fuselage and fin at least 30 cm high) also apply. §4.1: the marks must be painted on, or fixed
+  just as permanently, and kept clean and visible. Overview: https://applications.icao.int/postalhistory/annex_7_aircraft_nationality_and_registration_marks.htm
+  · New Zealand compliance checklist for Annex 7, Amendment 7 (25 August 2025; quotes §4.1, §4.3.1 and §5.2.2): https://www.aviation.govt.nz/assets/about-us/icao/annex-07-a7.pdf
+- FAA 14 CFR 45.25: marks on the vertical tail, or horizontally on both sides of the fuselage between the trailing edge
+  of the wing and the leading edge of the horizontal stabiliser. 14 CFR 45.29: at least 12 in (30 cm) high on
+  fixed-wing aircraft, with every character the same height, width, thickness and spacing on both sides:
+  https://www.ecfr.gov/current/title-14/chapter-I/subchapter-C/part-45/subpart-C/section-45.29
+- Europe follows Annex 7 through each state's register (no EASA rule moves the marks). The regulations stop there:
+  which part of that span, above or below the windows, is the operator's choice. Explainer:
+  https://en.wikipedia.org/wiki/Aircraft_livery
+
+**Practice (what the references and the spotting record show)**
+- Airliners carry the registration on the rear fuselage, close to the last door. FlyerTalk, "all airliners have the
+  ID painted on the fuselage near the rear door": https://www.flyertalk.com/forum/30597781-post6.html (forum, matches
+  every reference).
+- **Narrowbodies** (737, A320 family, 757): above the window line, just aft of the last door, in the space between
+  the door and the stabiliser. The 737 reference: the registration sits aft of door 2L and above the windows. Its cap
+  is 8 px against 6–7 px windows, about 1.2 window heights. The country flag sits by the titles or the registration.
+- **Widebodies**: forward of the last door. The 787 reference puts it below the windows, with the model mark
+  ("Dreamliner") on the same line just forward of it. On the 787 the dark tail wrap and the raked wing leave little
+  clean paint above the windows. The registration's cap is 8 px against 7 px windows, about 1.15 window heights.
+  Cathay and KLM's 777s and 747s put it above the windows forward of the last door, with the model mark nearby. Cathay
+  sometimes puts it aft of the door; the game uses the forward spot.
+- **Fleet numbers**: some airlines repeat a short code at the top of the fin and on the nose-gear door. That is the
+  last two or three characters of the registration (Aer Lingus, AeroMexico's "CYM" and "782"), or a fleet number
+  (Air Canada's "801"). FlyerTalk: https://www.flyertalk.com/forum/30597683-post5.html · https://www.flyertalk.com/forum/30597781-post6.html
+- The ink contrasts with the paint under it: dark on white, white on a dark tail wrap (the 737 reference's white
+  registration on the navy wrap).
+
+**What the game does (`stickers.ts extraDecals`; the last door is measured from the art in `sprites.py layout`)**
+- Narrowbodies: the registration sits above the windows. Its nose end is 0.7 window heights aft of the last door,
+  and it steps up when the paint under it changes colour. The model mark goes on the same line, just forward of the
+  last door. The flag
+  goes just aft of the registration if that is clear of the stabiliser, otherwise just forward of it. When neither
+  fits, there is no flag. The cap is 1.0 window height.
+- 787s: the registration goes below the windows, forward of the last door, with the model mark just forward of it on
+  the same line, as on the reference.
+- Other widebodies: the registration goes above the windows, forward of the last door, with the flag between them.
+  The model mark goes on the same baseline, just aft of the last door. The cap is 1.15 window heights.
+- Measured from the art (`scripts/sprites.py`): the last passenger door, as two frame lines with a frame edge at the
+  top and at the sill (A330-900 and 747-8 set by hand; on the A380 the upper deck's door, where its marks go). Also
+  the stabiliser's forward edge, and boxes of unpainted airframe over the tube (wing, winglet, stabiliser). No mark
+  sits on the door or on those boxes.
+- When a tail wrap leaves no clean spot forward of a widebody's last door, the registration goes aft of the door
+  and the model forward of it.
+- Every mark looks for one clean colour under itself and takes contrasting ink (the livery's colour when it
+  contrasts, otherwise dark on light and white on dark). Weight is regular (500). The model cap is 0.55 of a window
+  height.
+- Options (Livery editor, Text tab):
+  - "On the fin": the registration goes on the lower fin.
+  - "Fleet number": the last three characters of the registration at the fin top. Off by default; client recipes
+    that use one turn it on.
+  - Model mark: "by the registration" (default), "forward" (the old spot under the forward windows) or "none".
+
+**Estimated**
+- The 1.0 and 1.15 window-height caps are rounded down from the measured 1.15–1.2, so the marks stay inside the
+  paint on the game's small sprites. The real 30 cm minimum is close to one cabin window's height.
+- Flag size and gap (one registration cap tall, half a cap apart).

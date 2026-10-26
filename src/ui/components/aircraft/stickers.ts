@@ -10,6 +10,10 @@
 import type { Livery, StickerKind, StickerPlacement, StickerSide, TailStyle } from '../../../engine/core/types';
 import { textInkEm, textWidthEm, type FontWeight } from './fontMetrics';
 import { layoutOf, spriteOf, type Pt, type SpriteLayout } from './sprites';
+import { countryOfReg, flag } from '../../../data/countries';
+import { bodyColourAt, finPoint } from './bodyPaint';
+import type { Decal } from './compose';
+import { contrast, INK, lum } from './ink';
 
 export type V = Pt;
 
@@ -512,4 +516,238 @@ export function snapTargets(typeId: string, side: StickerSide): { x: number[]; y
   const y = [d.titles.y];
   if (d.win) y.push((d.win[0] + d.win[1]) / 2);
   return { x: [d.nose - L / 2], y };
+}
+
+// ---------- v0.11 painted markings beyond the stickers ----------
+
+/** A small text decal: its box from the right (nose-side) end or the centre, ink by the paint under it. */
+function smallText(typeId: string, lv: Livery, id: 'reg' | 'model', text: string, cap: number, weight: FontWeight, at: { x: number; base: number; anchor: 'centre' | 'nose' }, color?: string): Decal {
+  const em = textInkEm(text);
+  const fs = cap / Math.max(0.5, em.asc);
+  const sp = 0.04;
+  const wd = textWidthEm(text, weight, sp) * fs;
+  const cx = at.anchor === 'centre' ? at.x : at.x - wd / 2;
+  const ground = bodyColourAt(typeId, lv, cx, at.base - cap / 2);
+  const auto = lum(ground) > 0.45 ? INK : '#ffffff';
+  // the asked colour where it reads on the paint under it, else ink or white
+  const ink = color && contrast(color, ground) >= 2.2 ? color : auto;
+  return { id, kind: 'reg', side: 'fuselage', cx, cy: at.base - cap / 2, w: wd, h: cap, rot: 0, text, fontSize: fs, baseline: cap / 2, weight, spacing: sp, ink };
+}
+
+/** Is the paint under a text box (plus a margin) one colour? (No split line, stripe or band edge through it.) */
+function clearBand(typeId: string, lv: Livery, cx: number, cy: number, w: number, h: number, margin = 1): boolean {
+  const mx = 0.2 * h * margin, my = 0.25 * h * margin;
+  let first: string | null = null;
+  // rows at most 2 px apart: a thin split line must not slip between them
+  const rows = Math.max(4, Math.ceil((h + 2 * my) / 2));
+  for (let i = 0; i <= 10; i++) {
+    for (let j = 0; j <= rows; j++) {
+      const c = bodyColourAt(typeId, lv, cx - w / 2 - mx + ((w + 2 * mx) * i) / 10, cy - h / 2 - my + ((h + 2 * my) * j) / rows);
+      if (first === null) first = c;
+      else if (c !== first) return false;
+    }
+  }
+  return true;
+}
+
+/** Narrowbodies carry the registration above the windows aft of the last door; the 787 below the windows (its
+ *  usual marking), other widebodies above them, just forward of the last door (RESEARCH.md, livery markings). */
+const NARROW = new Set(['a320ceo', 'a321ceo', 'a321neo', 'a321neo-classic-doors', 'b738', 'b739', 'b752', 'b753']);
+const BELOW_WINDOWS = new Set(['b788', 'b789', 'b78x']);
+
+/** Is a box inside the fuselage sticker zone (clear of the wing where it crosses the fuselage, and of the engines)? */
+function inZone(typeId: string, b: { cx: number; cy: number; w: number; h: number }): boolean {
+  const z = layoutOf(typeId).zone as V[];
+  // with a margin: the wing's drawn edge must not touch the text
+  const w = b.w + 0.6 * b.h, h = 2.2 * b.h;
+  return [[-1, -1], [0, -1], [1, -1], [1, 1], [0, 1], [-1, 1], [0, 0]].every(([u, v]) => inPoly(z, [b.cx + (u * w) / 2, b.cy + (v * h) / 2]));
+}
+
+/** The first candidate (baselines, then sideways shifts of up to 2.5 text widths) where the text sits on one colour
+ *  and inside the fuselage zone (never over the wing); else the first. */
+/** The ink of a small text where it finally sits: the asked colour when it reads on the paint there, else ink/white. */
+function reink(typeId: string, lv: Livery, t: Decal, color?: string): Decal {
+  const ground = bodyColourAt(typeId, lv, t.cx, t.cy);
+  const auto = lum(ground) > 0.45 ? INK : '#ffffff';
+  return { ...t, ink: color && contrast(color, ground) >= 2.2 ? color : auto };
+}
+
+/** Does a small text cross unpainted airframe drawn over the tube (a wing, a winglet, the stabiliser)? */
+function onBare(typeId: string, b: { cx: number; cy: number; w: number; h: number }): boolean {
+  const d = layoutOf(typeId);
+  if (!d.bare || !d.win) return false;
+  const spans = b.cy < d.win[0] ? d.bare.above : b.cy > d.win[1] ? d.bare.below : [...d.bare.above, ...d.bare.below];
+  const x0 = b.cx - b.w / 2 - 0.3 * b.h, x1 = b.cx + b.w / 2 + 0.3 * b.h;
+  const y0 = b.cy - b.h / 2 - 0.25 * b.h, y1 = b.cy + b.h / 2 + 0.25 * b.h;
+  return spans.some(([a, c, top, bottom]) => c >= x0 && a <= x1 && bottom >= y0 && top <= y1);
+}
+
+/** Does a small text cover the last passenger door (its frame and a little air either side)? */
+function onDoor(typeId: string, b: { cx: number; w: number }): boolean {
+  const d = layoutOf(typeId);
+  if (!d.door) return false;
+  const pad = 0.15 * (d.win ? d.win[1] - d.win[0] + 1 : 12);
+  return b.cx + b.w / 2 > d.door[0] - pad && b.cx - b.w / 2 < d.door[1] + pad;
+}
+
+/** Where a small text can go: on one colour, inside the fuselage zone, off the wing, the stabiliser and the last door. */
+function fits(typeId: string, lv: Livery, u: Decal, zone: boolean, margin: number, avoid: Decal[] = []): boolean {
+  const pad = 0.5 * u.h;
+  const hits = avoid.some((a) => Math.abs(a.cx - u.cx) < (a.w + u.w) / 2 + pad && Math.abs(a.cy - u.cy) < (a.h + u.h) / 2 + 0.2 * u.h);
+  return !hits && (!zone || inZone(typeId, u)) && !onBare(typeId, u) && !onDoor(typeId, u) && clearBand(typeId, lv, u.cx, u.cy, u.w, u.h, margin);
+}
+
+/** The first candidate (baselines, then sideways shifts of up to 2.5 text widths, the asked way first, then the
+ *  other) where the text fits; undefined when none does. */
+function placeClearOr(typeId: string, lv: Livery, make: (base: number) => Decal, bases: number[], shiftDir = -1, zone = true, color?: string, both = true, avoid: Decal[] = []): Decal | undefined {
+  if (!bases.length) return undefined;
+  const w0 = make(bases[0]).w;
+  // with a margin first; a tight band between two lines without
+  for (const dir of both ? [shiftDir, -shiftDir] : [shiftDir]) {
+    for (const margin of [1, 0]) {
+      for (let k = dir === shiftDir ? 0 : 0.25; k <= 2.5; k += 0.25) {
+        for (const b of bases) {
+          const t = make(b);
+          const u = { ...t, cx: t.cx + dir * k * w0 };
+          if (fits(typeId, lv, u, zone, margin, avoid)) return reink(typeId, lv, u, color);
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
+function placeClear(typeId: string, lv: Livery, make: (base: number) => Decal, bases: number[], shiftDir = -1, zone = true, color?: string, both = true, avoid: Decal[] = []): Decal {
+  return placeClearOr(typeId, lv, make, bases, shiftDir, zone, color, both, avoid) ?? reink(typeId, lv, make(bases[0] ?? 0), color);
+}
+
+/**
+ * Markings real aircraft carry beyond the livery's stickers, painted (decals): the registration (small, just above
+ * the window line over the fin's root leading edge, aft of the rear door; the registry state's flag on its tail
+ * side), the model ("BOEING 777-300ER", under the forward windows aft of door 1, or under the rear windows), and the
+ * logo on each cowl (`body.engineLogo`) and under the cockpit (`body.noseLogo`). `fine` = the big asset: the small
+ * texts are drawn only there (on the small one they would be mush). Viewbox boxes for compose.ts.
+ */
+const extraCache = new Map<string, Decal[]>();
+export function extraDecals(typeId: string, lv: Livery, opt: { reg?: string; model?: string; fine: boolean }): Decal[] {
+  // placement samples the paint under many points: kept per type, markings and the paint they depend on (moving a
+  // sticker in the editor does not change it)
+  const key = JSON.stringify([typeId, opt, lv.plain, lv.primary, lv.secondary, lv.tail, lv.body, lv.reg, lv.model, lv.titles?.color, !!lv.logo]);
+  let hit = extraCache.get(key);
+  if (!hit) {
+    hit = extraDecalsOf(typeId, lv, opt);
+    extraCache.set(key, hit);
+    while (extraCache.size > 64) extraCache.delete(extraCache.keys().next().value as string);
+  }
+  return hit;
+}
+
+function extraDecalsOf(typeId: string, lv: Livery, opt: { reg?: string; model?: string; fine: boolean }): Decal[] {
+  const d = layoutOf(typeId);
+  const out: Decal[] = [];
+  const D = Math.max(1, d.belly - d.crown);
+  const L = d.nose - d.tail;
+  const win = d.win ?? [d.crown + 0.35 * D, d.crown + 0.42 * D];
+  const winH = win[1] - win[0] + 1;
+  const finLE = d.finQuad[0][0];
+  const narrow = NARROW.has(spriteOf(typeId));
+  const below = BELOW_WINDOWS.has(spriteOf(typeId));
+  // the last door (measured from the art; else about where it sits: just ahead of the fin's root leading edge)
+  const door: [number, number] = d.door ?? [finLE - 0.5 * winH, finLE + 2.2 * winH];
+  const regCap = (narrow ? 1.0 : 1.15) * winH;
+  const modelCap = 0.55 * winH;
+  const lineAbove = win[0] - 0.5 * winH;
+  const lineBelow = win[1] + 0.75 * winH + regCap;
+  const base0 = below ? lineBelow : lineAbove;
+  /** A small text with one end at x ('tail' = its aft end at x, 'nose' = its forward end at x). */
+  const textAt = (id: 'reg' | 'model', text: string, cap: number, end: 'tail' | 'nose', x: number, color?: string) => (base: number): Decal => {
+    const t = smallText(typeId, lv, id, text, cap, 500, { x, base, anchor: 'centre' }, color);
+    return { ...t, cx: end === 'tail' ? x + t.w / 2 : x - t.w / 2 };
+  };
+  const steps = (b: number, dir: number) => Array.from({ length: 16 }, (_, k) => k).map((k) => b + dir * k * 0.25 * regCap).filter((y) => y - regCap > d.crown + 0.05 * D && y < d.crown + 0.85 * D);
+  const r = opt.reg?.trim().toUpperCase();
+  const fl = r && !lv.reg?.noFlag ? flag(countryOfReg(r)) : '';
+  const flagW = 1.3 * regCap;
+  // the stabiliser's forward edge (measured from the art; else about 0.4 of the fin's root chord), with a gap
+  const stabX = (d.stab ?? d.finQuad[1][0] + 0.4 * (d.finQuad[0][0] - d.finQuad[1][0])) + 0.4 * winH;
+  let reg: Decal | undefined;
+  if (opt.fine && r && !lv.reg?.hide) {
+    if (lv.reg?.at === 'fin') {
+      // on the lower fin, over its root
+      const [x, y] = finPoint(d, 0.5, 0.06);
+      const cap = 1.3 * winH;
+      const ink = lv.reg.color ?? (lum(lv.plain ? '#ffffff' : lv.primary) > 0.45 ? INK : '#ffffff');
+      reg = { ...smallText(typeId, lv, 'reg', r, cap, 500, { x, base: y, anchor: 'centre' }, ink), ink };
+    } else if (narrow) {
+      // narrowbodies: above the windows, just aft of the last door
+      reg = placeClear(typeId, lv, textAt('reg', r, regCap, 'nose', door[0] - 0.7 * winH, lv.reg?.color), steps(base0, -1), -1, true, lv.reg?.color, false);
+      // clear of the stabiliser: a little closer to the door when the space between them is short
+      const over = stabX - 0.2 * winH - (reg.cx - reg.w / 2);
+      if (over > 0 && reg.cx + reg.w / 2 + over <= door[0] - 0.25 * winH && clearBand(typeId, lv, reg.cx + over, reg.cy, reg.w, reg.h, 0)) reg = reink(typeId, lv, { ...reg, cx: reg.cx + over }, lv.reg?.color);
+    } else {
+      // widebodies: just forward of the last door (with the flag between), above the windows (below on the 787);
+      // aft of the door when no clean spot is forward (a tail wrap meeting the wing)
+      // (the 787's sticker zone stops under its raked wingtip at the crown; below the windows it is clear)
+      reg = placeClear(typeId, lv, textAt('reg', r, regCap, 'tail', door[1] + 0.9 * winH + (fl ? flagW + 0.5 * regCap : 0), lv.reg?.color), steps(base0, below ? 1 : -1), 1, !below, lv.reg?.color);
+    }
+    out.push(reg);
+    if (fl) {
+      // on its tail side; on its nose side when the stabiliser is there (or none, when the door is too)
+      const f = { id: 'flag', kind: 'flag' as const, side: 'fuselage' as const, cx: reg.cx - reg.w / 2 - 0.45 * reg.h - flagW / 2, cy: reg.cy, w: flagW, h: reg.h * 1.05, rot: 0, text: fl };
+      const g = { ...f, cx: reg.cx + reg.w / 2 + 0.45 * reg.h + flagW / 2 };
+      const regAft = reg.cx < door[0];
+      const okFlag = (x: Decal) => !onBare(typeId, x) && !onDoor(typeId, x) && clearBand(typeId, lv, x.cx, x.cy, x.w, x.h, 0) && (!regAft || x.cx - flagW / 2 > stabX);
+      const room = f.cx - flagW / 2 - stabX;
+      if (lv.reg?.at === 'fin' || okFlag(f)) out.push(f);
+      else if (okFlag(g)) out.push(g);
+      else if (narrow && reg.cx + reg.w / 2 - room <= door[0] - 0.25 * winH && clearBand(typeId, lv, reg.cx - room, reg.cy, reg.w, reg.h, 0) && clearBand(typeId, lv, f.cx - room, f.cy, f.w, f.h, 0)) {
+        // a little closer to the door, so the flag clears the stabiliser
+        const moved = reink(typeId, lv, { ...reg, cx: reg.cx - room }, lv.reg?.color);
+        out[out.indexOf(reg)] = moved;
+        reg = moved;
+        out.push({ ...f, cx: f.cx - room });
+      }
+    }
+  }
+  // the model: small, by the registration as the type is usually marked
+  if (opt.fine && opt.model && lv.model !== 'off' && !lv.plain) {
+    const titleInk = lv.titles?.color;
+    if (lv.model === 'forward') {
+      const fwd = Array.from({ length: 12 }, (_, k) => win[1] + 1.6 * winH + modelCap + k * 0.6 * modelCap).filter((y) => y < d.crown + 0.8 * D);
+      out.push(placeClear(typeId, lv, (base) => smallText(typeId, lv, 'model', opt.model!, modelCap, 500, { x: d.nose - 0.17 * L, base, anchor: 'nose' }, titleInk), fwd, -1, true, titleInk));
+    } else {
+      const base = reg && lv.reg?.at !== 'fin' ? reg.cy + reg.h / 2 : base0;
+      let make: (b: number) => Decal, dir: number;
+      if (narrow || (reg && lv.reg?.at !== 'fin' && reg.cx < door[0])) { make = textAt('model', opt.model, modelCap, 'tail', door[1] + 0.7 * winH, titleInk); dir = 1; }
+      else if (below && reg && lv.reg?.at !== 'fin') { make = textAt('model', opt.model, modelCap, 'tail', reg.cx + reg.w / 2 + 1.0 * regCap, titleInk); dir = 1; }
+      else { make = textAt('model', opt.model, modelCap, 'nose', door[0] - 0.9 * winH, titleInk); dir = -1; }
+      // on the registration's side of the window row, never on it
+      const ok = (y: number) => (below ? y - modelCap >= win[1] + 0.3 * winH : y <= win[0] - 0.3 * winH) && y - modelCap > d.crown + 0.04 * D && y < d.crown + 0.85 * D;
+      out.push(placeClear(typeId, lv, make, [0, -0.5, 0.5, -1, 1, -1.5, -2].map((k) => base + k * regCap).filter(ok), dir, !below, titleInk, true, out.filter((x) => x.id === 'reg' || x.id === 'flag')));
+    }
+  }
+  // the fleet number at the top of the fin (the registration's last letters or digits)
+  if (opt.fine && r && lv.reg?.fleet) {
+    const num = r.replace(/[^A-Z0-9]/g, '').slice(-3);
+    const [x, y] = finPoint(d, 0.62, 0.9);
+    const cap = 0.9 * winH;
+    const ground = !lv.plain && onFinSecond(typeId, lv.tail, x, y) ? lv.secondary : lv.plain ? '#ffffff' : lv.primary;
+    const ink = lum(ground) > 0.45 ? INK : '#ffffff';
+    out.push({ ...smallText(typeId, lv, 'reg', num, cap, 500, { x, base: y + cap / 2, anchor: 'centre' }, ink), id: 'fleet', ink });
+  }
+  if (lv.logo && !lv.plain) {
+    if (lv.body?.engineLogo) {
+      for (const [aft, front, , top, Dn] of d.eng ?? []) {
+        if (!Dn) continue;
+        const side = 0.34 * Dn;
+        out.push({ id: `elogo${aft}`, kind: 'logo', side: 'fuselage', cx: aft + 0.52 * (front - aft), cy: top + 0.42 * Dn, w: side, h: side, rot: 0, on: 'cowl' });
+      }
+    }
+    if (lv.body?.noseLogo) {
+      const x = d.nose - 0.62 * D;
+      const side = 0.15 * D;
+      out.push({ id: 'nlogo', kind: 'logo', side: 'fuselage', cx: x, cy: win[1] + 0.6 * side, w: side, h: side, rot: 0 });
+    }
+  }
+  return out;
 }

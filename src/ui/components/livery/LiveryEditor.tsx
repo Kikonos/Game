@@ -23,6 +23,8 @@ export interface LiveryEditorProps {
   /** Default texts for previews (company code / name). */
   code: string;
   name: string;
+  /** v0.11 a registration for the preview (the aircraft's; else one of the fleet's). */
+  reg?: string;
   /** Preview type chips; default ['a320ceo', 'b738', 'b763', 'b77w']. */
   types?: string[];
   mode: 'company' | 'aircraft';
@@ -75,7 +77,7 @@ function logoDefaults(lv: Livery): { color: string; color2: string } {
 interface Drag { id: string; dx: number; dy: number; pointer: number }
 interface Pinch { id: string; d0: number; s0: number }
 
-export function LiveryEditor({ value, onChange, code, name, types, mode, aircraft, onApplyAll, onSave, onCancel, resetTo, footer }: LiveryEditorProps) {
+export function LiveryEditor({ value, onChange, code, name, reg, types, mode, aircraft, onApplyAll, onSave, onCancel, resetTo, footer }: LiveryEditorProps) {
   const typeList = types?.length ? types : DEFAULT_TYPES;
   const [typeId, setTypeId] = useState(typeList[0]);
   const [tab, setTab] = useState<Tab>('scheme');
@@ -295,7 +297,7 @@ export function LiveryEditor({ value, onChange, code, name, types, mode, aircraf
           className={`lv-stage${editable ? '' : ' readonly'}${selected ? ' has-sel' : ''}`}
           onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onWheel={onWheel}
         >
-          <AircraftArt typeId={typeId} livery={lv} code={code} name={name} svgRef={svg} selected={editable ? selected : undefined} guides={guides} />
+          <AircraftArt typeId={typeId} livery={lv} code={code} name={name} reg={reg} svgRef={svg} selected={editable ? selected : undefined} guides={guides} />
           {editable && !selected && <div className="lv-hint">Drag the tail code, titles or logo · pinch to resize</div>}
         </div>
         <div className="lv-types" role="radiogroup" aria-label="Preview aircraft">
@@ -362,10 +364,33 @@ export function LiveryEditor({ value, onChange, code, name, types, mode, aircraf
               >
                 <ColorPicker label="Colour" value={lv.titles?.color} auto autoColor={titleBox ? stickerInk(typeId, lv, titleBox) : titleSide === 'fin' ? finInk : bodyInk} contrastWith={stickerGround(lv, titleSide, titleBox && { typeId, box: titleBox })} onChange={(c) => update({ titles: { ...lv.titles, color: c } })} />
               </TextBlock>
+              <section className="lv-section">
+                <h4>Small markings</h4>
+                <div className="lv-row-toggles">
+                  <button type="button" className={`lv-btn small lv-toggle${!lv.reg?.hide ? ' on' : ''}`} aria-pressed={!lv.reg?.hide} onClick={() => update({ reg: lv.reg?.hide ? (lv.reg.noFlag ? { noFlag: true } : undefined) : { ...lv.reg, hide: true } })}>Registration</button>
+                  <button type="button" className={`lv-btn small lv-toggle${!lv.reg?.noFlag ? ' on' : ''}`} aria-pressed={!lv.reg?.noFlag} disabled={!!lv.reg?.hide} onClick={() => update({ reg: lv.reg?.noFlag ? (lv.reg.hide ? { hide: true } : undefined) : { ...lv.reg, noFlag: true } })}>Flag</button>
+                </div>
+                <div className="lv-row-toggles">
+                  <button type="button" className={`lv-btn small lv-toggle${lv.reg?.at === 'fin' ? ' on' : ''}`} aria-pressed={lv.reg?.at === 'fin'} disabled={!!lv.reg?.hide} onClick={() => update({ reg: { ...lv.reg, at: lv.reg?.at === 'fin' ? undefined : 'fin' } })}>On the fin</button>
+                  <button type="button" className={`lv-btn small lv-toggle${lv.reg?.fleet ? ' on' : ''}`} aria-pressed={!!lv.reg?.fleet} onClick={() => update({ reg: { ...lv.reg, fleet: lv.reg?.fleet ? undefined : true } })}>Fleet number</button>
+                </div>
+                <div className="lv-seg" role="radiogroup" aria-label="Aircraft model">
+                  {([[undefined, 'Model by the registration'], ['forward', 'Model forward'], ['off', 'No model']] as const).map(([v, label]) => (
+                    <button key={label} type="button" role="radio" aria-checked={(lv.model === 'rear' ? undefined : lv.model) === v} className={(lv.model === 'rear' ? undefined : lv.model) === v ? 'on' : ''} onClick={() => update({ model: v })}>{label}</button>
+                  ))}
+                </div>
+                <p className="lv-note small">Painted small where real aircraft carry them: the registration on the rear fuselage by the last door (or on the fin), the type next to it, the fleet number at the top of the fin. Shown on big views only.</p>
+              </section>
             </>
           ) : tab === 'logo' ? (
             <>
               <LogoPicker value={lv.logo} onChange={setLogo} defaults={{ ...logoDefaults(lv), text: code.slice(0, 2) }} />
+              {lv.logo && (
+                <div className="lv-row-toggles">
+                  <button type="button" className={`lv-btn small lv-toggle${lv.body?.engineLogo ? ' on' : ''}`} aria-pressed={!!lv.body?.engineLogo} onClick={() => update({ body: { ...lv.body, engineLogo: lv.body?.engineLogo ? undefined : true } })}>On the engines</button>
+                  <button type="button" className={`lv-btn small lv-toggle${lv.body?.noseLogo ? ' on' : ''}`} aria-pressed={!!lv.body?.noseLogo} onClick={() => update({ body: { ...lv.body, noseLogo: lv.body?.noseLogo ? undefined : true } })}>By the nose</button>
+                </div>
+              )}
               {logoNote && <p className="lv-note small">{logoNote}</p>}
             </>
           ) : (
