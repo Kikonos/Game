@@ -117,6 +117,8 @@ export interface LiveryReg {
   at?: 'fin';
   /** The fleet number (the registration's last letters or digits) at the top of the fin. */
   fleet?: boolean;
+  /** v0.10.2 the aircraft's name (when it has one) not painted under the cockpit windows. */
+  noName?: boolean;
   /** Omitted = auto ink. */
   color?: string;
 }

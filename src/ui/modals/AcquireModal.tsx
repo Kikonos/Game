@@ -3,13 +3,15 @@
 // conditions and warnings (gate pending, rated pilots, cash after signing). Signing runs acquireAircraft.
 
 import { AlertTriangle, ShoppingCart } from 'lucide-react';
+import { useState } from 'react';
 import { artFor } from '../../data/acmiTypes';
 import { enginesOf, variantOf } from '../../data/variants';
 import { AIRPORT_BY_CODE } from '../../data/airports';
+import { COUNTRIES } from '../../data/countries';
 import { MARKET_LIVERY } from '../../data/livery';
 import { typeOf } from '../../engine/core/perf';
 import { fmtDay, fmtDuration, fmtTime } from '../../engine/core/time';
-import { acquireAircraft, marketView } from '../../engine/ops';
+import { acquireAircraft, checkRegistration, cleanRegInput, marketView, NAME_MAX, regCountry, suggestRegistration } from '../../engine/ops';
 import { AircraftArt } from '../components/AircraftArt';
 import { Modal } from '../components/ui';
 import { money } from '../format';
@@ -20,11 +22,17 @@ import { offerKind, sellerOf } from '../screens/screenLogic';
 import { store, useGame } from '../store';
 
 const city = (code: string) => AIRPORT_BY_CODE[code]?.city ?? code;
+const regName = (g: ReturnType<typeof useGame>) => COUNTRIES[regCountry(g)]?.name ?? 'national';
 
 export function AcquireModal({ offerId }: { offerId: string }) {
   const g = useGame();
   const v = marketView(g).find((x) => x.offer.id === offerId);
   const close = () => store.closeModal();
+  // v0.10.2 the registration (the registry's prefix fixed, the rest typed; pre-filled with a free one) and a name
+  const prefix = g.company.regPrefix;
+  const [regIn, setRegIn] = useState(() => suggestRegistration(g, offerId).slice(prefix.length));
+  const [acName, setAcName] = useState('');
+  const reg = checkRegistration(g, regIn);
   if (!v) {
     return (
       <Modal title="Offer gone" icon={<ShoppingCart className="accent" />} onClose={close} footer={<button className="btn" onClick={close}>Close</button>}>
@@ -40,9 +48,10 @@ export function AcquireModal({ offerId }: { offerId: string }) {
   const after = g.company.cash - now;
   // The engine refuses below the deposit (a buy's deposit is the price).
   const short = g.company.cash < o.deposit;
-  const blocker = !v.gate.ok ? 'Approval needed first' : short ? `Needs ${money(o.deposit)} · ${money(g.company.cash)} cash` : null;
+  const blocker = !v.gate.ok ? 'Approval needed first' : short ? `Needs ${money(o.deposit)} · ${money(g.company.cash)} cash` : !reg.ok ? `Registration: ${reg.reason}` : null;
   const sign = () => {
-    const res = store.act((gg) => acquireAircraft(gg, o.id));
+    if (!reg.ok) return;
+    const res = store.act((gg) => acquireAircraft(gg, o.id, { reg: reg.reg, name: acName }));
     if (!res.ok) return;
     close();
     store.navigate('fleet', { sel: { kind: 'aircraft', id: res.data!.aircraftId } });
@@ -117,6 +126,28 @@ export function AcquireModal({ offerId }: { offerId: string }) {
           ]} />
           {v.returnText && <div className="small muted">{v.returnText}; repaint white.</div>}
           <div className="tiny dim">Offer open {v.daysLeft} more day{v.daysLeft === 1 ? '' : 's'}.</div>
+        </div>
+      </div>
+      <div className="aq-reg mt-12">
+        <div className="field">
+          <label htmlFor="aq-reg-in">Registration</label>
+          <div className={`aq-reg-box ${reg.ok ? '' : 'bad'}`}>
+            <span className="aq-reg-prefix mono" aria-hidden>{prefix}</span>
+            <input
+              id="aq-reg-in" className="input mono" value={regIn} inputMode="text" autoCapitalize="characters" autoCorrect="off" autoComplete="off" spellCheck={false}
+              aria-label={`Registration after ${prefix}`} aria-invalid={!reg.ok} aria-describedby="aq-reg-why"
+              onChange={(e) => setRegIn(cleanRegInput(prefix, e.target.value, regCountry(g)))}
+            />
+          </div>
+          <span id="aq-reg-why" className={`tiny ${reg.ok ? 'dim' : 'bad'}`}>{reg.ok ? `${reg.reg} · on the ${regName(g)} register` : reg.reason}</span>
+        </div>
+        <div className="field">
+          <label htmlFor="aq-name-in">Name <span className="dim">(optional)</span></label>
+          <input
+            id="aq-name-in" className="input" value={acName} maxLength={NAME_MAX} placeholder="e.g. Vasco da Gama" autoCorrect="off" autoComplete="off" spellCheck={false}
+            onChange={(e) => setAcName(e.target.value.slice(0, NAME_MAX))}
+          />
+          <span className="tiny dim">Painted under the cockpit windows</span>
         </div>
       </div>
       {warns.length > 0 && (

@@ -5,6 +5,7 @@
 
 import { ACMI_TYPES_LIST, type AcmiType } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE } from '../../data/airports';
+import { checkRegistration, cleanAircraftName } from './registration';
 import { EX_OPERATORS, FACTORIES, LESSOR_SITES, NEW_BUILD, type Site } from '../../data/market';
 import { airframeVariant, pickVariant } from '../../data/variants';
 import { BAL } from '../core/balance';
@@ -269,7 +270,7 @@ function registration(g: GameState): string {
  * cash is short or the offer has lapsed. The aircraft is 'delivering' at the handover site until the handover; the
  * delivery ferry home is planned at once (the roster sends rated pilots out on airline tickets before it).
  */
-export function acquireAircraft(g: GameState, offerId: string): ActionResult<{ aircraftId: string }> {
+export function acquireAircraft(g: GameState, offerId: string, opts: { reg?: string; name?: string } = {}): ActionResult<{ aircraftId: string }> {
   const i = g.market.aircraft.findIndex((o) => o.id === offerId);
   if (i < 0) return { ok: false, error: 'Offer not found' };
   const o = g.market.aircraft[i];
@@ -277,6 +278,16 @@ export function acquireAircraft(g: GameState, offerId: string): ActionResult<{ a
   if (!gate.ok) return { ok: false, error: `${gate.text}: apply under Company → Ladder` };
   if (g.company.cash < o.deposit) return { ok: false, error: `Not enough cash: ${usd(o.deposit)} due at signing` };
   if (o.expires <= g.now) return { ok: false, error: 'This offer has expired' };
+  // v0.10.2 the registration the player chose (the prefix is the registry's): in format and free; else generated
+  let chosen: string | undefined;
+  if (opts.reg !== undefined) {
+    const prefix = g.company.regPrefix;
+    const up = opts.reg.trim().toUpperCase();
+    const chk = checkRegistration(g, up.startsWith(prefix) ? up.slice(prefix.length) : up);
+    if (!chk.ok) return { ok: false, error: chk.reason };
+    chosen = chk.reg;
+  }
+  const acName = cleanAircraftName(opts.name ?? '');
   const t = typeOf(o.typeId);
   g.market.aircraft.splice(i, 1);
   cashOnly(g, -o.deposit);
@@ -290,7 +301,7 @@ export function acquireAircraft(g: GameState, offerId: string): ActionResult<{ a
   // v0.10 the offer's variant (offers posted before v0.10 get a stable one).
   const variant = o.variant ?? airframeVariant(g.seed, o.id, o.typeId, o.builtYear);
   const ac: Aircraft = {
-    id: nextId(g, 'a'), reg: registration(g), typeId: o.typeId,
+    id: nextId(g, 'a'), reg: chosen ?? registration(g), typeId: o.typeId, ...(acName ? { name: acName } : {}),
     ownership: o.kind === 'buy'
       ? { kind: 'owned', bookValue: o.price, boughtAt: g.now, boughtPrice: o.price, boughtIndex: o.index ?? (w ? g.market.wideIndex : g.market.narrowIndex), ...(o.newBuild ? { newBuild: true } : {}) }
       : {
@@ -329,6 +340,16 @@ export function acquireAircraft(g: GameState, offerId: string): ActionResult<{ a
     ref: { kind: 'aircraft', id: ac.id },
   });
   return { ok: true, msg: `${ac.reg} signed · handover at ${city} ${fmtDay(handover)}`, data: { aircraftId: ac.id } };
+}
+
+/** v0.10.2 names (or renames) an aircraft; an empty name clears it. The registration stays as registered. */
+export function renameAircraft(g: GameState, aircraftId: string, name: string): ActionResult {
+  const ac = g.fleet[aircraftId];
+  if (!ac) return { ok: false, error: 'Aircraft not found' };
+  const n = cleanAircraftName(name);
+  if (n) ac.name = n;
+  else delete ac.name;
+  return { ok: true, msg: n ? `${ac.reg} named ${n}` : `${ac.reg}: name removed` };
 }
 
 /** 'aircraft.delivery': on the AOC at the handover site (v0.6 deliveries without a site: at home base). */

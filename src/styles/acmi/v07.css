@@ -140,3 +140,15 @@ button.ld-node { cursor: pointer; font: inherit; }
 /* v0.7.3: 44 px touch targets in the What's new modal (Safari 1180×750 over the loading screen) */
 .wn-modal button { min-height: 44px; }
 .wn-modal .modal-head button, .wn-modal button.btn-icon { min-width: 44px; }
+
+/* v0.10.2 registering a new aircraft: the registry prefix fixed, the rest typed; an optional name */
+.aq-reg { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 12px; }
+.aq-reg-box { display: flex; align-items: stretch; min-width: 0; }
+.aq-reg-prefix { display: inline-flex; align-items: center; padding: 0 10px; border: 1px solid var(--border-strong); border-right: none; border-radius: 10px 0 0 10px; background: rgba(148, 170, 220, 0.08); color: var(--text-2); }
+.aq-reg-box .input { flex: 1; border-radius: 0 10px 10px 0; text-transform: uppercase; letter-spacing: 0.06em; }
+.aq-reg-box.bad .input { border-color: var(--bad, #ff6b6b); }
+@media (max-width: 560px) { .aq-reg { grid-template-columns: minmax(0, 1fr); } }
+.sc-ac-name { color: var(--text-2); font-size: 13px; flex-shrink: 1; }
+.sc-ac-name-btn { height: 24px; width: 24px; color: var(--text-3); }
+.sc-ac-name-btn svg { width: 13px; height: 13px; }
+.sc-ac-name-in { max-width: 200px; }

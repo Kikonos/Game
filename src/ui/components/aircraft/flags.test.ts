@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { COUNTRIES } from '../../../data/countries';
 import type { Livery } from '../../../engine/core/types';
 import { flagCodes, flagRatio, flagUrl } from './flags';
+import { layoutOf, SPRITE_IDS, fileOf } from './sprites';
 import { extraDecals } from './stickers';
 
 const svg = (code: string) => readFileSync(resolve(__dirname, '../../../../node_modules/country-flag-icons/3x2', `${code}.svg`), 'utf8');
@@ -60,5 +61,19 @@ describe('registration flags', () => {
       if (onDark) expect(onDark.ink, id).toBeUndefined();
     }
     expect(flagOf('a332', white, 'JA-801A')).toBeTruthy();
+  });
+
+  it('v0.10.2 the aircraft name: under the cockpit windows near the nose on every type, off with the livery toggle and on small art', () => {
+    for (const id of [...new Set(SPRITE_IDS.map(fileOf))]) {
+      const d = layoutOf(id);
+      const n = extraDecals(id, white, { reg: 'CS-TBL', name: 'Vasco da Gama', model: 'AIRBUS A320', fine: true }).find((x) => x.id === 'acname');
+      expect(n, id).toBeTruthy();
+      expect(n!.text, id).toBe('Vasco da Gama');
+      // forward fifth of the fuselage, below the window line
+      expect(n!.cx, id).toBeGreaterThan(d.nose - 0.25 * (d.nose - d.tail));
+      expect(n!.cy - n!.h / 2, id).toBeGreaterThan(d.win![1]);
+      expect(extraDecals(id, { ...white, reg: { noName: true } }, { reg: 'CS-TBL', name: 'Vasco da Gama', fine: true }).some((x) => x.id === 'acname'), id).toBe(false);
+      expect(extraDecals(id, white, { reg: 'CS-TBL', name: 'Vasco da Gama', fine: false }).some((x) => x.id === 'acname'), id).toBe(false);
+    }
   });
 });

@@ -220,6 +220,7 @@ export function normaliseLivery(l: Partial<Livery> | undefined, fallback: Livery
     if (x.reg.noFlag === true) rg.noFlag = true;
     if (x.reg.at === 'fin') rg.at = 'fin';
     if (x.reg.fleet === true) rg.fleet = true;
+    if (x.reg.noName === true) rg.noName = true;
     const rc = hex(x.reg.color);
     if (rc) rg.color = rc;
     if (Object.keys(rg).length) out.reg = rg;

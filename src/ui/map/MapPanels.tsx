@@ -454,8 +454,8 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
   }
 
   return (
-    <Panel title={<span className="mono">{ac.reg}</span>} kicker={`${type?.name ?? ac.typeId} · ${ac.cabin.label}`} onClose={() => store.select(undefined)}>
-      <div className="op-art"><AircraftArt typeId={artFor(ac.typeId, ac.variant)} livery={lv.livery} code={lv.code} name={lv.name} reg={ac.reg} /></div>
+    <Panel title={<><span className="mono">{ac.reg}</span>{ac.name && <span className="dim"> · {ac.name}</span>}</>} kicker={`${type?.name ?? ac.typeId} · ${ac.cabin.label}`} onClose={() => store.select(undefined)}>
+      <div className="op-art"><AircraftArt typeId={artFor(ac.typeId, ac.variant)} livery={lv.livery} code={lv.code} name={lv.name} reg={ac.reg} acName={ac.name} /></div>
       {lv.source === 'client' && <div className="small muted op-livery">In {lv.clientName} colours{lv.contractId && g.contracts[lv.contractId] ? ` for ${clientless(g.contracts[lv.contractId].title, lv.clientName ?? '')}` : ''}</div>}
       <div className="row wrap op-chips">
         <span className={`chip tone-${chip.tone}`}><Dot tone={chip.tone} />{cur ? 'Airborne' : ac.status === 'available' ? 'Available' : ac.status === 'aog' ? 'AOG' : ac.status === 'maintenance' ? capFirst(hangarWord(g, ac)) : ac.status === 'delivering' ? 'Delivering' : ac.status === 'leasedOut' ? 'Leased out' : ac.status}</span>

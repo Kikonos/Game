@@ -2,7 +2,7 @@
 // Fleet · Market switch (the scarce aircraft market, Market.tsx); cards add the delivery, the lease end
 // (extend or return) and the cabin with refits. DESIGN.md §6.3, UPDATE-0.7.md §F6.7, §F7.5.
 
-import { BadgeDollarSign, BedDouble, CalendarRange, HelpCircle, Lock, Palette, Plane, Sofa, TimerOff, Undo2, Wrench, X } from 'lucide-react';
+import { BadgeDollarSign, BedDouble, CalendarRange, HelpCircle, Lock, Palette, Pencil, Plane, Sofa, TimerOff, Undo2, Wrench, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { artFor } from '../../data/acmiTypes';
 import { enginesOf, variantOf } from '../../data/variants';
@@ -11,7 +11,7 @@ import { cabinCrewSeats, cabinMinimum, typeOf } from '../../engine/core/perf';
 import { DAY, fmtDate, fmtDay, yearOf } from '../../engine/core/time';
 import type { Aircraft, CrewExtra, GameState, LiveryRef, MaintenanceEvent } from '../../engine/core/types';
 import { crewAlertKind, crewExtraQuote, extraCabinMax, restOf, setCrewExtra, shortFlights } from '../../engine/crew';
-import { cancelCheck, checkStatus, deliveryStatus, dryLeaseOf, leastUsed, type LeastUsedRow, leaseView, paintStatus, restRefitOptions, setAircraftLivery } from '../../engine/ops';
+import { cancelCheck, checkStatus, deliveryStatus, dryLeaseOf, leastUsed, type LeastUsedRow, leaseView, NAME_MAX, paintStatus, renameAircraft, restRefitOptions, setAircraftLivery } from '../../engine/ops';
 import { problemAt } from '../../engine/problems';
 import { mapLivery } from '../map/mapLogic';
 import { AircraftArt } from '../components/AircraftArt';
@@ -185,10 +185,11 @@ function AircraftCard({ g, ac, sel, least, onLeastClose }: { g: GameState; ac: A
   return (
     <div className={`card sc-ac ${sel ? 'selected' : ''}`} data-ac={ac.id}>
       <div className="sc-ac-top">
-        <div className="sc-ac-art"><AircraftArt typeId={artFor(ac.typeId, ac.variant)} livery={lv.livery} code={lv.code} name={lv.name} reg={ac.reg} /></div>
+        <div className="sc-ac-art"><AircraftArt typeId={artFor(ac.typeId, ac.variant)} livery={lv.livery} code={lv.code} name={lv.name} reg={ac.reg} acName={ac.name} /></div>
         <div className="grow" style={{ minWidth: 0 }}>
           <div className="row gap-8">
             <b className="mono sc-ac-reg">{ac.reg}</b>
+            <AcNameEdit ac={ac} />
             <span className="sc-status-why"><span className={`badge ${tone}`}>{label}</span>{acProblem && <Why refs={{ kind: 'aircraft', id: ac.id }} tone={acProblem.severity === 'red' ? 'bad' : 'warn'} className="inline" />}</span>
             {!out && cs && cs.risk >= 0.5 && <span className={`badge ${cs.risk >= 0.9 ? 'bad' : 'warn'}`} data-tip="Chance of a technical fault grows with deferred defects and overdue checks">AOG risk</span>}
           </div>
@@ -346,5 +347,30 @@ export function FleetScreen() {
         <div className="sc-ac-grid">{fleet.map((ac) => <AircraftCard key={ac.id} g={g} ac={ac} sel={sel === ac.id} least={least?.aircraftId === ac.id ? least : undefined} onLeastClose={() => setWhich(false)} />)}</div>
       )}
     </div>
+  );
+}
+
+/** v0.10.2 the aircraft's name beside its registration ('CS-TQM · Vasco da Gama'), renamed in place (the registration
+ *  stays as registered). */
+function AcNameEdit({ ac }: { ac: Aircraft }) {
+  const [edit, setEdit] = useState<string | null>(null);
+  const save = () => {
+    if (edit !== null && edit.trim() !== (ac.name ?? '')) store.act((gg) => renameAircraft(gg, ac.id, edit), { toastOk: false });
+    setEdit(null);
+  };
+  if (edit !== null) {
+    return (
+      <input
+        className="input sm sc-ac-name-in" value={edit} maxLength={NAME_MAX} placeholder="Name" autoFocus autoCorrect="off" autoComplete="off" spellCheck={false} aria-label={`Name of ${ac.reg}`}
+        onChange={(e) => setEdit(e.target.value.slice(0, NAME_MAX))} onBlur={save}
+        onKeyDown={(e) => { if (e.key === 'Enter') save(); else if (e.key === 'Escape') { e.stopPropagation(); setEdit(null); } }}
+      />
+    );
+  }
+  return (
+    <span className="sc-ac-name row gap-4" style={{ minWidth: 0 }}>
+      {ac.name && <span className="ellipsis">· {ac.name}</span>}
+      <button type="button" className="btn btn-ghost btn-icon btn-xs sc-ac-name-btn" onClick={() => setEdit(ac.name ?? '')} aria-label={ac.name ? `Rename ${ac.reg}` : `Name ${ac.reg}`} data-tip={ac.name ? 'Rename' : 'Give it a name'}><Pencil /></button>
+    </span>
   );
 }

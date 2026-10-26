@@ -12,7 +12,7 @@ import { textInkEm, textWidthEm, type FontWeight } from './fontMetrics';
 import { layoutOf, spriteOf, type Pt, type SpriteLayout } from './sprites';
 import { countryOfReg } from '../../../data/countries';
 import { flagRatio, flagUrl } from './flags';
-import { bodyColourAt, finPoint } from './bodyPaint';
+import { bodyColourAt, finPoint, tubeAt } from './bodyPaint';
 import type { Decal } from './compose';
 import { contrast, INK, lum } from './ink';
 
@@ -630,7 +630,7 @@ function placeClear(typeId: string, lv: Livery, make: (base: number) => Decal, b
  * texts are drawn only there (on the small one they would be mush). Viewbox boxes for compose.ts.
  */
 const extraCache = new Map<string, Decal[]>();
-export function extraDecals(typeId: string, lv: Livery, opt: { reg?: string; model?: string; fine: boolean }): Decal[] {
+export function extraDecals(typeId: string, lv: Livery, opt: { reg?: string; model?: string; name?: string; fine: boolean }): Decal[] {
   // placement samples the paint under many points: kept per type, markings and the paint they depend on (moving a
   // sticker in the editor does not change it)
   const key = JSON.stringify([typeId, opt, lv.plain, lv.primary, lv.secondary, lv.tail, lv.body, lv.reg, lv.model, lv.titles?.color, !!lv.logo]);
@@ -643,7 +643,7 @@ export function extraDecals(typeId: string, lv: Livery, opt: { reg?: string; mod
   return hit;
 }
 
-function extraDecalsOf(typeId: string, lv: Livery, opt: { reg?: string; model?: string; fine: boolean }): Decal[] {
+function extraDecalsOf(typeId: string, lv: Livery, opt: { reg?: string; model?: string; name?: string; fine: boolean }): Decal[] {
   const d = layoutOf(typeId);
   const out: Decal[] = [];
   const D = Math.max(1, d.belly - d.crown);
@@ -766,6 +766,29 @@ function extraDecalsOf(typeId: string, lv: Livery, opt: { reg?: string; model?: 
       const side = 0.15 * D;
       out.push({ id: 'nlogo', kind: 'logo', side: 'fuselage', cx: x, cy: win[1] + 0.6 * side, w: side, h: side, rot: 0 });
     }
+  }
+  // v0.10.2 the aircraft's name, as airlines paint it: small, under the cockpit windows, in the titles' ink, from just
+  // aft of the radome; clear of the nose logo, the model and door 1 (moved aft, then lower, when it must)
+  const acName = opt.name?.trim();
+  if (opt.fine && acName && !lv.reg?.noName) {
+    const cap = 0.62 * winH;
+    const x0 = d.nose - Math.max(0.05 * L, 0.55 * D);
+    const inTube = (u: Decal) => [u.cx - u.w / 2, u.cx + u.w / 2].every((x) => {
+      const t = tubeAt(d, x);
+      return !!t && u.cy - u.h / 2 > t[0] + 0.12 * (t[1] - t[0]) && u.cy + u.h / 2 < t[1] - 0.15 * (t[1] - t[0]);
+    });
+    const bases = [0.55, 0.85, 1.15, 1.5].map((k) => win[1] + k * winH + cap);
+    const make = (base: number) => ({ ...smallText(typeId, lv, 'model', acName, cap, 500, { x: x0, base, anchor: 'nose' }, lv.titles?.color), id: 'acname' });
+    const avoid = out.filter((x) => x.on !== 'cowl' && x.side === 'fuselage');
+    let best: Decal | undefined;
+    for (let k = 0; k <= 12 && !best; k++) {
+      for (const b of bases) {
+        const t = make(b);
+        const u = { ...t, cx: t.cx - k * 0.25 * winH * 2 };
+        if (inTube(u) && fits(typeId, lv, u, false, 0, avoid)) { best = reink(typeId, lv, u, lv.titles?.color); break; }
+      }
+    }
+    if (best) out.push(best);
   }
   return out;
 }

@@ -27,6 +27,8 @@ export interface AircraftArtProps {
   name?: string;
   /** v0.11 the aircraft's registration, painted small on the rear fuselage (livery.reg hides it). */
   reg?: string;
+  /** v0.10.2 the aircraft's name, painted small under the cockpit windows (livery.reg.noName hides it). */
+  acName?: string;
   className?: string;
   /** Accepted for compatibility; gear is never drawn. */
   gear?: boolean;
@@ -53,7 +55,7 @@ const SELECT = '#3ee6ff';
 const f = (n: number) => Math.round(n * 100) / 100;
 const dpr = (): number => (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
 
-function AircraftArtImpl({ typeId, livery, code, name, reg, className, height, detail = 'full', pxPerM, svgRef, selected, guides }: AircraftArtProps) {
+function AircraftArtImpl({ typeId, livery, code, name, reg, acName, className, height, detail = 'full', pxPerM, svgRef, selected, guides }: AircraftArtProps) {
   const uid = useId().replace(/:/g, '');
   const sprite = spriteOf(typeId);
   const vb = artViewBox(sprite);
@@ -85,7 +87,7 @@ function AircraftArtImpl({ typeId, livery, code, name, reg, className, height, d
   // every sticker but the one being edited is painted into the bitmap
   const decals: Decal[] = [
     ...boxes.filter((b) => b.id !== selected).map((b): Decal => ({ ...b, ink: b.kind === 'logo' ? undefined : (b.kind === 'code' ? livery.code : livery.titles)?.color ?? stickerInk(sprite, livery, b) })),
-    ...extraDecals(sprite, livery, { reg, model: MODEL_NAME[sprite], fine: detail === 'full' && asset >= 2048 }),
+    ...extraDecals(sprite, livery, { reg, model: MODEL_NAME[sprite], name: acName, fine: detail === 'full' && asset >= 2048 }),
   ];
   const key = paintKey(livery, decals) ?? '';
   // the bitmap with the sprite and paint it shows (another type's bitmap is never stretched into this frame)

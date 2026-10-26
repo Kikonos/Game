@@ -112,7 +112,7 @@ function Cell({ id, size }: { id: string; size: Size }) {
   return (
     <figure className="g-cell" data-type={id} data-size={size}>
       <div className="g-box">
-        <AircraftArt typeId={id} livery={livery} code={size === 'mini' ? undefined : code} name={size === 'mini' ? undefined : name} reg={size === 'mini' ? undefined : q.get('reg') ?? 'CS-TBL'} detail={size === 'mini' ? 'simple' : 'full'} />
+        <AircraftArt typeId={id} livery={livery} code={size === 'mini' ? undefined : code} name={size === 'mini' ? undefined : name} reg={size === 'mini' ? undefined : q.get('reg') ?? 'CS-TBL'} acName={size === 'mini' ? undefined : q.get('acname') ?? undefined} detail={size === 'mini' ? 'simple' : 'full'} />
       </div>
       <figcaption>{id} · {NAMES[id] ?? id}</figcaption>
     </figure>
