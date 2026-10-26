@@ -95,6 +95,7 @@ import { setHeldHook } from '../src/engine/ops/flights';
 import { crewIssuesFor, crewShortCard, dutyCandidates, flightCrewStatus } from '../src/engine/crew';
 import { dayIndex as dayIndexAt, isOff } from '../src/engine/crew/dayPlan';
 import { offsetAt } from '../src/engine/crew/rules';
+import { createChecker } from './invariants';
 
 
 const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
@@ -121,9 +122,12 @@ const BIG_DAYS = Number(process.env.BIG_DAYS ?? 120);
 /** --dump=<day>,<file>: the save at the first step past that game day (debugging a run). */
 const DUMP = process.argv.find((a) => a.startsWith('--dump='))?.slice(7).split(',');
 const STEP = 6 * 60;
+/** Debug round (26 Oct 2026): --base=XXX starts at another home base; --inv runs scripts/invariants.ts every step (slower). */
+const BASE = process.argv.find((a) => a.startsWith('--base='))?.slice(7) ?? 'LIS';
+const INV = process.argv.includes('--inv') ? createChecker() : null;
 
 const newGame = () => {
-  const g = createGame({ name: 'Atlântica Wings', code: 'AW', livery: { primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' }, base: 'LIS', seed });
+  const g = createGame({ name: 'Atlântica Wings', code: 'AW', livery: { primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' }, base: BASE, seed });
   if (AUG || JUMBO) for (const id of ['widebody', 'augmented'] as const) devGrantApproval(g, id);
   // v0.9 fix (JUMBO=1): an old 747-400 from day one, to test its economics and the crew changes at fuel stops.
   if (JUMBO) {
@@ -1189,7 +1193,7 @@ function crewControlPolicy(g: GameState, t: Tally): void {
         failed.add(s.id);
         return false;
       }
-      if (MSGS) console.error(`${fmtDateTime(g.now)} CREW CONTROL ${f.no} ${s.id}: ${r.data!.changes.join(' / ')}`);
+      if (MSGS || process.env.PROBE) console.error(`${fmtDateTime(g.now)} CREW CONTROL ${f.no} ${s.id}: ${r.data!.changes.join(' / ')}`);
       act(g, t);
       t.crewFixes.set(s.id, (t.crewFixes.get(s.id) ?? 0) + 1);
       return r.data!.after === null;
@@ -1275,7 +1279,7 @@ function auditTasks(g: GameState): void {
 
 function policy(g: GameState, t: Tally, urgent: boolean, newDay: boolean): void {
   decide(g, t);
-  crewControlPolicy(g, t);
+  if (!process.env.NOCC) crewControlPolicy(g, t);
   if (newDay) {
     auditTasks(g);
     heads(g, t);
@@ -1596,6 +1600,15 @@ let trustedAt: number | null = null;
 const mixedSeen = new Set<string>();
 
 function onStep(): void {
+  if (process.env.PROG) console.error(`step ${fmtDateTime(g.now)}`);
+  // Debugging: PROBE=<flight no>: its duty's seats at every step (stderr).
+  if (process.env.PROBE) for (const f of Object.values(g.flights)) {
+    if (f.no !== process.env.PROBE || f.status === 'done' || f.status === 'cancelled') continue;
+    const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+    const p = d ? g.pairings[d.pairingId] : undefined;
+    console.error(`${fmtDateTime(g.now)} PROBE ${f.no} ${f.from}-${f.to} ${f.status} crew ${f.crewIds.map((x) => g.crew[x]?.last).join(',')} slots ${p?.slots.map((s) => `${s.role}:${s.crewId ? g.crew[s.crewId]?.last : '-'}`).join(' ')}`);
+  }
+  INV?.observe(g);
   const m = mon(monthKey(g.now));
   if (WHYHELD) noteOffShare(g);
   if (SEATLOG) seatLog(g);
@@ -1780,7 +1793,7 @@ const goalsBy = (t: number) => g.goals.filter((x) => x.done !== null && x.done <
 
 const pad = (s: string | number, n: number) => String(s).padStart(n);
 const k$ = (v: number) => `${(v / 1000).toFixed(0)}k`;
-console.log(`BLOCK HOURS bot — seed ${seed}, ${days} days, Startup at LIS (2× A320ceo)\n`);
+console.log(`BLOCK HOURS bot — seed ${seed}, ${days} days, Startup at ${BASE} (2× A320ceo)\n`);
 console.log('month       cash  revenue   profit  BH/ac  wet BH/MGH  contracts        legs cx/sub ill util  AOG mxd  dec/msg goals');
 let revenueY = 0;
 let profitY = 0;
@@ -1842,6 +1855,11 @@ if (BIG) {
 errors.push(...badNumbers(g).map((p) => `final: non-finite ${p}`));
 // v0.8 pre-release: an engine safety net that tripped (a re-planning loop broken) is a bug like an exception.
 errors.push(...safetyTrips.map((x) => `safety net tripped: ${x}`));
+if (INV) {
+  INV.finish(g);
+  INV.print(`invariants seed ${seed}${process.argv.slice(3).filter((a) => a.startsWith('--')).join(' ')}`);
+  for (const n of (process.env.INVDUMP ?? '').split(',').filter(Boolean)) INV.dump(n);
+}
 
 const s = g.stats;
 const weeks = Math.max(1, Math.floor(days / 7));
