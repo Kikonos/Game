@@ -196,7 +196,8 @@ function retimeTickets(g: GameState, p: Pairing, d: Duty, moved: Set<string>): v
       // Too late for the report, or (v0.11 debug: the duty moved later) so early that the wait at the gate takes the
       // ticket and the duty past one FDP: re-planned.
       const t = planOut(g, p, d, f.from);
-      if (!t.rideId && t.std - BAL.deadheadCheckIn >= g.now) std = t.std;
+      // (A re-plan for the FDP only when the new ticket fits: else the booked one stays and the 2 h check decides.)
+      if (!t.rideId && t.std - BAL.deadheadCheckIn >= g.now && (f.sta > d.report || outStillFits(g, p, d, f.from, t.std, t.sta - t.std))) std = t.std;
     }
     if (std === f.std) continue;
     retimeFlight(g, f, std, std + f.block);
