@@ -8,11 +8,11 @@ import { DAY, monthKey, yearOf } from '../core/time';
 import type { CrewMember, Flight, GameState, Minute, SimEvent } from '../core/types';
 import { cancelConversion, classOf, dailyClasses } from './conversion';
 import { dailyCrewCosts, monthlySalaries } from './costs';
-import { afterDiversion, deletePairing, planAircraft } from './duties';
+import { afterDiversion, deletePairing, pairingSeats, planAircraft, refreshPairing } from './duties';
 export { aboveMinimum, afterDiversion, legalMinimum } from './duties';
 import { dailySickness, onCrewJoin, onTrainingDone } from './hr';
 import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, settleService, setResignHooks } from './morale';
-import { autoRoster, closedWait, guardDuty, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, removeCrew, sendStrandedHome, stayOn } from './roster';
+import { autoRoster, closedWait, guardDuty, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, removeCrew, sendStrandedHome, stayOn } from './roster';
 import { localMin, minRest, signedTz, tzDeltaH, tzNights } from './rules';
 import { clipToRest, dailyStandby, noteRecovery } from './standby';
 import { dayPlanAfter, dayPlanBefore, dayPlanInit, dayPlanLoad, dayPlanMonth, v09Stats } from './dayPlan';
@@ -391,6 +391,19 @@ function repairDiverted(g: GameState): void {
 }
 
 /**
+ * Crew-planning round save repair: a trip joining a mixed-crew job's empty leg to another charter was given no cabin
+ * seats for that charter (duties.ts clientCabinOf). Trips still to fly whose seats now read more crew get them (empty,
+ * for the roster to fill).
+ */
+function repairMixedTrips(g: GameState): void {
+  for (const p of Object.values(g.pairings)) {
+    if (p.status === 'done' || p.status === 'broken') continue;
+    const want = pairingSeats(g, p).filter((s) => !s.above).length;
+    if (want > p.slots.filter((s) => !s.above && !s.extra).length) for (const id of refreshPairing(g, p)) releaseCrew(g, p, id);
+  }
+}
+
+/**
  * v0.10.2 save repair (BLU1109): before 0.10.2 a home standby running when its crew member was given new work was cut
  * short instead of being marked as a call-out, so the rest owed after an uncalled window (12 h at home) stood between
  * the standby and the work it was cut for. A window still uncalled whose end is followed within the hour by that
@@ -598,6 +611,7 @@ export const crewModule: SimModule = {
     repairMissedTickets(g);
     repairCutStandby(g);
     repairDiverted(g);
+    repairMixedTrips(g);
   },
   settle(g) {
     for (const [aircraftId, t] of takeFlightChanges(g)) onFlightsChanged(g, aircraftId, t);
