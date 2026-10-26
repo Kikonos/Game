@@ -92,6 +92,7 @@ export function DiversionMap({ spec, width = 520, onPick }: { spec: DivSpec; wid
     // the Gatwick label right under Heathrow's).
     const d0 = P(spec.dest);
     const placed: [number, number, number, number][] = [[d0[0] - 12, d0[1] - 12, d0[0] + 96, d0[1] + 21]];
+    if (plane) placed.push([plane.x - 11, plane.y - 11, plane.x + 11, plane.y + 11]);
     const hits = (b: [number, number, number, number]) => placed.some((q) => b[0] < q[2] && q[0] < b[2] && b[1] < q[3] && q[1] < b[3]);
     const alts = spec.alts.map((a) => {
       const p = P(a.code);
