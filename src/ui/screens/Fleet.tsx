@@ -25,6 +25,7 @@ import { KV, ScreenHead, useRenderCount } from './common';
 import { MarketView } from './Market';
 import { capFirst, hangarWord, layoutLabel, limitTone, unseenOffers } from './screenLogic';
 import { ScreenHint } from '../components/ScreenHint';
+import { HangarView, hangarRows } from './Hangar';
 
 const STATUS: Record<Aircraft['status'], [string, string]> = {
   available: ['On ground', 'good'], flying: ['Flying', 'info'], maintenance: ['In check', 'warn'], aog: ['AOG', 'bad'],
@@ -285,6 +286,17 @@ function CabinRow({ g, ac, out }: { g: GameState; ac: Aircraft; out?: boolean })
 }
 
 type FleetView = 'fleet' | 'market';
+/** v0.12 how the fleet is shown: the cards, or the hangar line-up (to scale). */
+type FleetLook = 'cards' | 'hangar';
+
+/** v0.12 the last look chosen, a per-viewer convenience (browser storage may be missing or blocked: cards). */
+const LOOK_KEY = 'bh:fleetLook';
+const readLook = (): FleetLook => {
+  try { return localStorage.getItem(LOOK_KEY) === 'hangar' ? 'hangar' : 'cards'; } catch { return 'cards'; }
+};
+const writeLook = (v: FleetLook) => {
+  try { if (v === 'hangar') localStorage.setItem(LOOK_KEY, v); else localStorage.removeItem(LOOK_KEY); } catch { /* not stored */ }
+};
 
 export function FleetScreen() {
   useRenderCount('fleet');
@@ -296,7 +308,11 @@ export function FleetScreen() {
   const view: FleetView = nav.view === 'market' ? 'market' : 'fleet';
   const mkSel = nav.sel?.kind === 'market' ? nav.sel.id : null;
   const fresh = view === 'market' ? 0 : unseenOffers(offers.map((o) => o.id));
-  const setView = (v: FleetView) => store.navigate('fleet', { view: v });
+  const setView = (v: FleetView) => store.navigate('fleet', { view: v === 'fleet' && readLook() === 'hangar' ? 'hangar' : v });
+  // v0.12 Cards · Hangar: a deep link to a card (sel) shows the cards; otherwise the last look chosen.
+  const look: FleetLook = view === 'market' ? 'cards' : nav.view === 'hangar' || (nav.view !== 'fleet' && nav.view !== 'check' && !sel && readLook() === 'hangar') ? 'hangar' : 'cards';
+  const setLook = (v: FleetLook) => { writeLook(v); store.navigate('fleet', { view: v === 'hangar' ? 'hangar' : 'fleet' }); };
+  const hangar = look === 'hangar' ? hangarRows(g) : null;
 
   // Deep links: navigate('fleet', {sel, view: 'check'}) opens check planning; a selected card scrolls into view.
   useEffect(() => {
@@ -322,7 +338,8 @@ export function FleetScreen() {
   return (
     <div className="screen sc-fleet">
       <ScreenHead hint="fleet" title={view === 'market' ? 'Aircraft market' : 'Fleet'} sub={view === 'market' ? `${offers.length} open offer${offers.length === 1 ? '' : 's'} · cash ${money(g.company.cash)}` : `${fleet.length} aircraft · rent ${money(monthly)}/month`}>
-        {view === 'fleet' && fleet.length > 1 && <button className="btn" onClick={pickLeast} aria-label="Which one? Show the least used aircraft"><HelpCircle /> Which one?</button>}
+        {view === 'fleet' && fleet.length > 0 && <Seg<FleetLook> value={look} onChange={setLook} options={[{ value: 'cards', label: 'Cards' }, { value: 'hangar', label: 'Hangar' }]} />}
+        {view === 'fleet' && look === 'cards' && fleet.length > 1 && <button className="btn" onClick={pickLeast} aria-label="Which one? Show the least used aircraft"><HelpCircle /> Which one?</button>}
         <Seg<FleetView> value={view} onChange={setView} options={[
           { value: 'fleet', label: 'Fleet' },
           { value: 'market', label: <span className="row gap-4">Market ({offers.length}){fresh > 0 && <span className="fl-dot" aria-label={`${fresh} new`} />}</span> },
@@ -331,7 +348,7 @@ export function FleetScreen() {
       <ScreenHint id="fleet" />
       {view === 'market' ? <MarketView g={g} sel={mkSel} /> : !fleet.length ? (
         <Empty icon={<Wrench />} title="No aircraft">Lease one from the Market.</Empty>
-      ) : (
+      ) : hangar ? <HangarView rows={hangar.rows} k={hangar.key} /> : (
         <div className="sc-ac-grid">{fleet.map((ac) => <AircraftCard key={ac.id} g={g} ac={ac} sel={sel === ac.id} least={least?.aircraftId === ac.id ? least : undefined} onLeastClose={() => setWhich(false)} />)}</div>
       )}
     </div>

@@ -89,7 +89,7 @@ export interface Series {
 }
 
 export function LineChart({
-  series, labels, height = 200, format = (v) => String(Math.round(v)), area = true, zero = true,
+  series, labels, height = 200, format = (v) => String(Math.round(v)), area = true, zero = true, endLabel = false,
 }: {
   series: Series[];
   labels: string[];
@@ -97,6 +97,8 @@ export function LineChart({
   format?: (v: number) => string;
   area?: boolean;
   zero?: boolean;
+  /** v0.12 a dot and the value at the line's last point (a direct label, in text ink). */
+  endLabel?: boolean;
 }) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const n = labels.length;
@@ -107,7 +109,8 @@ export function LineChart({
   const lo = ticks[0];
   const hi = ticks[ticks.length - 1];
   const { fs, padL } = useAxis(ticks.map(format));
-  const padR = 12, padT = 10, padB = fs + 13;
+  const endW = endLabel ? Math.max(0, ...series.map((s) => format(s.values[s.values.length - 1] ?? 0).length)) * fs * 0.62 + 12 : 0;
+  const padR = 12 + endW, padT = 10, padB = fs + 13;
   const w = Math.max(10, width - padL - padR);
   const h = height - padT - padB;
   const x = (i: number) => padL + (n <= 1 ? w / 2 : (i / (n - 1)) * w);
@@ -136,6 +139,12 @@ export function LineChart({
                   <polygon points={`${x(0)},${y(Math.max(lo, 0))} ${pts} ${x(s.values.length - 1)},${y(Math.max(lo, 0))}`} fill={s.color} opacity="0.12" />
                 )}
                 <polyline points={pts} fill="none" stroke={s.color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+                {endLabel && s.values.length > 0 && (
+                  <>
+                    <circle cx={x(s.values.length - 1)} cy={y(s.values[s.values.length - 1])} r="4" fill={s.color} stroke="var(--panel-solid)" strokeWidth="2" />
+                    <text x={x(s.values.length - 1) + 8} y={y(s.values[s.values.length - 1]) + 4} fontSize={fs} fill="var(--text-2)" className="num">{format(s.values[s.values.length - 1])}</text>
+                  </>
+                )}
               </g>
             );
           })}
