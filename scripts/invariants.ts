@@ -187,6 +187,9 @@ export function createChecker(opts: CheckerOpts = {}) {
         const prev = h.sby.get(w.from);
         h.sby.set(w.from, { from: w.from, to: w.to, calledAt: w.calledAt ?? prev?.calledAt, kind: w.kind ?? 'home', at: w.at ?? c.base });
       }
+      // Blocks re-planned before they began (leave moved to start once the crew member is home) never happened either.
+      const curB = new Set((c.blocks ?? []).map((b) => `${b.from}|${b.why}`));
+      for (const [k, b] of h.blocks) if (b.from > lastObs && !curB.has(k)) h.blocks.delete(k);
       for (const b of c.blocks ?? []) h.blocks.set(`${b.from}|${b.why}`, { ...b });
       // A running standby is kept where the crew member is (home: base; hotel/airport/reserve: its station).
       const run = c.standby?.find((w) => w.from <= g.now && g.now < w.to && w.calledAt === undefined);
