@@ -11,7 +11,7 @@ import { cabinCrewSeats, cabinMinimum, typeOf } from '../../engine/core/perf';
 import { DAY, fmtDate, fmtDay, yearOf } from '../../engine/core/time';
 import type { Aircraft, CrewExtra, GameState, LiveryRef, MaintenanceEvent } from '../../engine/core/types';
 import { crewAlertKind, crewExtraQuote, extraCabinMax, restOf, setCrewExtra, shortFlights } from '../../engine/crew';
-import { cancelCheck, checkStatus, deliveryStatus, dryLeaseOf, leastUsed, type LeastUsedRow, leaseView, NAME_MAX, paintStatus, renameAircraft, restRefitOptions, setAircraftLivery } from '../../engine/ops';
+import { cancelCheck, checkStatus, deliveryStatus, dryLeaseOf, etopsLine, leastUsed, type LeastUsedRow, leaseView, NAME_MAX, paintStatus, renameAircraft, restRefitOptions, setAircraftLivery } from '../../engine/ops';
 import { problemAt } from '../../engine/problems';
 import { mapLivery } from '../map/mapLogic';
 import { AircraftArt } from '../components/AircraftArt';
@@ -25,18 +25,6 @@ import { KV, ScreenHead, useRenderCount } from './common';
 import { MarketView } from './Market';
 import { capFirst, hangarWord, layoutLabel, limitTone, unseenOffers } from './screenLogic';
 import { ScreenHint } from '../components/ScreenHint';
-
-/** The type's ETOPS capability (what the engine checks) and whether the company holds an approval for it. */
-function etopsLabel(g: GameState, ac: Aircraft): string {
-  const t = typeOf(ac.typeId);
-  const max = t.etopsMax;
-  // v0.8 fix pack: four engines fly any ocean without ETOPS (the 747-400, A340, A380).
-  if (t.engines === 4) return 'not needed (four engines)';
-  if (!max) return 'not capable';
-  const held = Math.max(0, ...g.company.approvals.map((a) => /^etops(\d+)$/.exec(a)).map((m) => (m ? Number(m[1]) : 0)));
-  const usable = Math.min(max, held);
-  return usable ? `${usable} min${usable < max ? ` (type capable of ${max})` : ''}` : `capable of ${max} min · needs approval (Company)`;
-}
 
 const STATUS: Record<Aircraft['status'], [string, string]> = {
   available: ['On ground', 'good'], flying: ['Flying', 'info'], maintenance: ['In check', 'warn'], aog: ['AOG', 'bad'],
@@ -215,7 +203,7 @@ function AircraftCard({ g, ac, sel, least, onLeastClose }: { g: GameState; ac: A
         ...own,
         ['At', ac.status === 'delivering' ? (ds ? `handover at ${ds.site} ${fmtDay(ds.handover)}` : `arrives ${fmtDate(ac.deliveredAt)}`) : ac.at],
         ['Hours / cycles', `${Math.round(ac.hours).toLocaleString('en-US')} / ${Math.round(ac.cycles).toLocaleString('en-US')}`],
-        ['ETOPS', etopsLabel(g, ac)],
+        ['ETOPS', etopsLine(g, ac.typeId)],
         // v0.10 the airframe's engines (and the A321neo's exit layout, which sets its seat limit)
         ['Engines', enginesOf(ac.typeId, ac.variant)],
         ...(variantOf(ac.typeId, ac.variant)?.maxSeats ? [['Exits', `${variantOf(ac.typeId, ac.variant)!.label} · up to ${variantOf(ac.typeId, ac.variant)!.maxSeats} seats`] as [string, string]] : []),

@@ -74,6 +74,8 @@ function OfferCard({ g, now, v, sel }: { g: GameState; now: number; v: MarketOff
       <div className="mk-deliv small">
         <div>{handoverLine(now, v)}</div>
         {v.quote.legs.length > 0 && <div className="muted">Ferry {v.quote.text}</div>}
+        {/* v0.11 no legal ferry home on our certificate (ETOPS): the Lease/Buy dialog offers the ways out. */}
+        {v.quote.blocked && <div className="warn">{v.quote.text}</div>}
         {dh && <div className="muted ellipsis">Pilots deadhead out: {dh}</div>}
       </div>
       <div className="mk-chips">
