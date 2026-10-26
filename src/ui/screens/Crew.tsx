@@ -1,6 +1,7 @@
 // Crew (B5): staffing strip, filterable list with 28-day duty / block bars, and a detail panel with every
 // limit, morale and fatigue, days off and a 14-day roster; Train / Hire similar. DESIGN.md §6.3.
 
+import { BoardingPasses } from '../components/BoardingPass';
 import { RankMark } from '../components/RankMark';
 import { ArrowDownRight, ArrowRight, ArrowUpRight, Check, CheckSquare, GraduationCap, Layers, LayoutGrid, List, Lock, Search, UserPlus, Users, X } from 'lucide-react';
 import { CrewPlanView, PlanStrip } from './CrewPlan';
@@ -88,6 +89,8 @@ function CalDetail({ g, c, b }: { g: GameState; c: CrewMember; b: CalBlock }) {
   const key = calKey(b);
   const [line1, line2] = b.detail.split('\n');
   const d = b.dutyId ? g.duties[b.dutyId] : undefined;
+  const tk = b.kind === 'deadhead' && b.flightIds?.[0] ? g.flights[b.flightIds[0]] : undefined;
+  const pass = tk && tk.kind === 'deadhead' && !tk.charter ? tk.id : null;
   return (
     <div className={`sc-cal-detail k-${key}`}>
       <div className="row gap-8">
@@ -99,7 +102,8 @@ function CalDetail({ g, c, b }: { g: GameState; c: CrewMember; b: CalBlock }) {
         <span className="small muted nowrap">{spanText(b)}</span>
       </div>
       <div className="small muted">{line1}</div>
-      {b.flights && b.flights.length > 0 && (
+      {/* v0.12 an airline ticket reads as its boarding pass(es) */}
+      {pass ? <BoardingPasses g={g} ticketId={pass} crew={c} /> : b.flights && b.flights.length > 0 && (
         <div className="sc-cal-legs">
           {b.flights.map((f) => (
             <span key={f.id} className="sc-cal-leg small">
@@ -111,7 +115,7 @@ function CalDetail({ g, c, b }: { g: GameState; c: CrewMember; b: CalBlock }) {
           ))}
         </div>
       )}
-      {line2 && !(b.kind === 'duty' && b.flights?.length) && <div className="small dim">{line2}</div>}
+      {line2 && !pass && !(b.kind === 'duty' && b.flights?.length) && <div className="small dim">{line2}</div>}
       {d && !d.done && <button className="btn btn-sm" onClick={() => store.openModal({ kind: 'duty', id: d.id })}><Users /> Change crew</button>}
     </div>
   );

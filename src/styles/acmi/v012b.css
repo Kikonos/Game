@@ -29,3 +29,40 @@
 :root[data-theme='light'] .rank-wings path, :root[data-theme='light'] .rank-wings circle { fill: #8a94a6; }
 :root[data-theme='light'] .rank-wings.gold path { fill: #b8891f; }
 :root[data-theme='light'] .rank-wings.gold .rank-crest { fill: #b8891f; stroke: #fff; }
+
+/* Boarding passes (deadhead tickets): a paper-like card with a perforated stub; same paper in both themes, softer in dark */
+.bp-list { display: flex; flex-direction: column; gap: 8px; }
+.bp {
+  --bp-paper: #fbfaf6; --bp-ink: #18202e; --bp-dim: #6b7383; --bp-line: #d9d6cc; --bp-band: #1f3b63;
+  display: flex; max-width: 420px; border-radius: 10px; overflow: hidden; background: var(--bp-paper); color: var(--bp-ink);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.08), 0 4px 14px rgba(var(--shade-rgb), calc(0.18 * var(--shade-k)));
+}
+:root[data-theme='dark'] .bp { --bp-paper: #e9e6dc; --bp-line: #c9c4b6; }
+.bp .muted, .bp .tiny.muted { color: var(--bp-dim); }
+.bp-main { flex: 1 1 auto; min-width: 0; padding: 8px 12px 9px; display: flex; flex-direction: column; gap: 6px; }
+.bp-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.bp-code { flex-shrink: 0; padding: 1px 5px; border-radius: 4px; background: var(--bp-band); color: #fff; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; }
+.bp-airline { font-size: 13px; min-width: 0; flex: 1 1 auto; }
+.bp-kind { flex-shrink: 0; font-size: 9.5px; letter-spacing: 0.12em; color: var(--bp-dim); }
+.bp-route { display: flex; align-items: center; gap: 10px; }
+.bp-end { display: flex; flex-direction: column; min-width: 0; flex: 1 1 0; line-height: 1.15; }
+.bp-end.right { align-items: flex-end; text-align: right; }
+.bp-end b { font-size: 20px; letter-spacing: 0.02em; }
+.bp-time { font-size: 12px; font-weight: 600; }
+.bp-arrow { color: var(--bp-dim); font-size: 14px; }
+.bp-meta { display: flex; gap: 12px; border-top: 1px dashed var(--bp-line); padding-top: 6px; }
+.bp-meta > span { display: flex; flex-direction: column; min-width: 0; }
+.bp-meta > span:first-child { flex: 1 1 auto; }
+.bp-meta b { font-size: 12px; white-space: nowrap; }
+.bp-k { font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--bp-dim); }
+.bp-stub {
+  flex: 0 0 74px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; padding: 8px 6px;
+  border-left: 2px dashed var(--bp-line); position: relative;
+}
+.bp-stub::before, .bp-stub::after { content: ''; position: absolute; left: -7px; width: 12px; height: 12px; border-radius: 50%; background: var(--panel-solid); }
+.bp-stub::before { top: -6px; }
+.bp-stub::after { bottom: -6px; }
+.bp-seat { font-size: 22px; line-height: 1.1; }
+.bp-stub b:last-child { font-size: 12px; }
+.rb-pop.has-pass { width: 386px; gap: 6px; }
+.rb-pop .bp-stub::before, .rb-pop .bp-stub::after, .sc-cal-detail .bp-stub::before, .sc-cal-detail .bp-stub::after { background: var(--panel-solid); }
