@@ -468,3 +468,7 @@ Player notes (22 Oct, with top-bar screenshot .handover/updates/topbar-space.jpg
 - What's new v0.11 "Operations" drafted: updates/whatsnew-v0.11.md (paste on top of WHATS_NEW at release; update whatsNew.test/fixpack08 expected lists).
 - RELEASE after test rewrite: verify (tsc, vitest ×1, bot seeds 1–3, player save load), whatsNew + version, build, Game merge, push branch + main, live check. Player approved.
 - PLAYER: will rename repo Game → Block-Hours AFTER the v0.11 release. Then: add_repo kikonos/Block-Hours (session scope is kikonos/game), update remotes (GitHub redirects git), verify Pages at kikonos.github.io/Block-Hours/play/ (vite base './' so no code change), What's new shows; remind: re-add home-screen app, saves stay (same origin), export save first. Offered (not yet accepted): redirect repo "Game" at old address.
+
+### 26 Oct — test rewrite done; release in progress
+- Tests run with Ops on (c4656fc), runner flake fixed (52506e2: long tests yield, forks, timeouts), real bugs fixed: closure hold loop slow-down + closure lateness penalties (9906fc1), early ticket re-planned when duty moves later + ticket home waits rest after hotel standby (3706cfa, eef36d4). 1264 tests ×2 green. Seed 3 reds 22→43 (bigger operation on a new path) — watch in crew-planning round.
+- v0.11 What's new inserted in src/data/whatsNew.ts (+2 fixes), tests updated. Final checks running (scratchpad/final/: vitest, bot1, inv-save 60 d on player save). Then build + release.
