@@ -237,7 +237,7 @@ export function pickN<T>(g: GameState, xs: T[], n: number, weight: (x: T) => num
 }
 
 export function airportsWithin(from: string, minKm: number, maxKm: number, pred: (a: Airport) => boolean): Airport[] {
-  return AIRPORTS.filter((a) => a.code !== from && a.runwayM >= 2000 && pred(a) && km(from, a.code) >= minKm && km(from, a.code) <= maxKm);
+  return AIRPORTS.filter((a) => a.code !== from && !a.enroute && a.runwayM >= 2000 && pred(a) && km(from, a.code) >= minKm && km(from, a.code) <= maxKm);
 }
 
 /** v0.8 a destination an airline client would really send our aircraft to: never a war zone, inside its market when listed. Pure. */

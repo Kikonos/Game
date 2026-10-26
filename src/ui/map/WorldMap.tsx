@@ -1025,7 +1025,7 @@ export function WorldMap({
   const regionLabelEls = useMemo(() => {
     if (!regionLabels) return [];
     return regionLabels.map((r) => {
-      const aps = AIRPORTS.filter((a) => a.region === r.id);
+      const aps = AIRPORTS.filter((a) => a.region === r.id && !a.enroute);
       const pts = aps.map((a) => proj([a.lon, a.lat])!).filter(Boolean);
       const x = pts.reduce((s, p) => s + p[0], 0) / pts.length;
       const y = pts.reduce((s, p) => s + p[1], 0) / pts.length;
