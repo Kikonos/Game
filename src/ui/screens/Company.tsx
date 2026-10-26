@@ -238,7 +238,7 @@ export function CompanyScreen() {
   const g = useGame();
   const c = g.company;
   const fleet = Object.values(g.fleet).length;
-  // v0.8: Overview · Rivals (Clients moved to Schedule in v0.11) (older deep links such as 'ladder' land on the overview).
+  // v0.8: Overview · Rivals (Clients moved to Contracts in v0.11) (older deep links such as 'ladder' land on the overview).
   const nv = store.nav.view;
   const view: View = nv === 'rivals' || nv === 'team' || nv === 'achievements' ? nv : 'overview';
   const heads = headsView(g);

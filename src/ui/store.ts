@@ -781,8 +781,8 @@ class GameStore {
   // ---------- navigation & UI ----------
 
   navigate(tab: Tab, extra: Omit<Nav, 'tab'> = {}) {
-    // v0.11 Clients moved from Company to Schedule; older links still land there.
-    if (tab === 'company' && extra.view === 'clients') tab = 'schedule';
+    // v0.11 Clients moved from Company to Contracts; older links still land there.
+    if (tab === 'company' && extra.view === 'clients') tab = 'contracts';
     this.nav = { tab, ...extra };
     this.emit();
     document.querySelector('.main')?.scrollTo({ top: 0 });
@@ -1153,7 +1153,7 @@ class GameStore {
       return id;
     },
     /** v0.8 dev scenes: each builds an offer (opens the offer dialog), a mixed-crew duty (duty modal), a client level
-     *  (Schedule › Clients) or a world event (its dialog); returns the id ('' when none fits). */
+     *  (Contracts › Clients) or a world event (its dialog); returns the id ('' when none fits). */
     hajj: () => this.devOffer(devHajj),
     dryLease: () => this.devOffer(devDryLease),
     deportation: () => this.devOffer(devDeportation),
@@ -1166,7 +1166,7 @@ class GameStore {
       const id = devLevel(g, clientId, level);
       settle(g);
       this.lastMsgId = g.messages[0]?.id ?? this.lastMsgId;
-      if (id) this.navigate('schedule', { view: 'clients', sel: { kind: 'client', id } });
+      if (id) this.navigate('contracts', { view: 'clients', sel: { kind: 'client', id } });
       else this.emit();
       return id;
     },

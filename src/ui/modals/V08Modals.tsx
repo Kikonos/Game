@@ -21,7 +21,7 @@ export function ClientModal({ clientId }: { clientId: string }) {
   return (
     <Modal title={v.name} icon={<Users className="accent" />} onClose={() => store.closeModal()} className="v8-modal" footer={
       <>
-        <button className="btn" onClick={() => { store.closeModal(); store.navigate('schedule', { view: 'clients', sel: { kind: 'client', id: v.id } }); }}>All clients</button>
+        <button className="btn" onClick={() => { store.closeModal(); store.navigate('contracts', { view: 'clients', sel: { kind: 'client', id: v.id } }); }}>All clients</button>
         <button className="btn btn-primary" onClick={() => store.closeModal()}>Done</button>
       </>
     }>

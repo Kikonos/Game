@@ -11,9 +11,7 @@ import { DAY, fmtDay, fmtTime, localOffset } from '../../engine/core/time';
 import type { Aircraft, GameState } from '../../engine/core/types';
 import { TailBadge } from '../components/Logo';
 import { ColourLegend } from '../components/ColourLegend';
-import { Empty, Seg, Tabs } from '../components/ui';
-import { clientList } from '../../engine/contracts';
-import { ClientsView } from './Clients';
+import { Empty, Seg } from '../components/ui';
 import { FLIGHT_TYPE_HINT } from '../../engine/ops';
 import { mapLivery } from '../map/mapLogic';
 import { liveMinute, store, useGame } from '../store';
@@ -188,35 +186,7 @@ function Legend({ g, win }: { g: GameState; win: [number, number] }) {
   );
 }
 
-type SchedView = 'timeline' | 'clients';
-
-/** v0.11 Schedule › Timeline · Clients (Clients moved here from Company). */
-function SchedTabs({ g, view }: { g: GameState; view: SchedView }) {
-  // Same rule as the Clients list's first filter (a job done, a contract or an open offer); moves at most daily.
-  const day = Math.floor(g.now / 1440);
-  const nClients = useMemo(() => clientList(g, 'working').length, [g, day, store.editCount]); // eslint-disable-line react-hooks/exhaustive-deps
-  return (
-    <Tabs<SchedView> value={view} onChange={(v) => store.navigate('schedule', v === 'clients' ? { view: 'clients' } : {})} tabs={[
-      { id: 'timeline', label: 'Timeline' },
-      { id: 'clients', label: 'Clients', count: nClients || undefined },
-    ]} />
-  );
-}
-
 export function ScheduleScreen() {
-  const g = useGame();
-  if (store.nav.view === 'clients') {
-    return (
-      <div className="screen sc-schedule v8-company clients">
-        <ScreenHead title="Schedule"><SchedTabs g={g} view="clients" /></ScreenHead>
-        <ClientsView g={g} />
-      </div>
-    );
-  }
-  return <TimelineScreen />;
-}
-
-function TimelineScreen() {
   useRenderCount('schedule');
   const g = useGame();
   const [zoom, setZoomState] = useState<ZoomDays>(loadZoom);
@@ -633,7 +603,7 @@ function TimelineScreen() {
   if (!fleet.length) {
     return (
       <div className="screen sc-schedule">
-        <ScreenHead title="Schedule"><SchedTabs g={g} view="timeline" /></ScreenHead>
+        <ScreenHead title="Schedule" />
         <Empty icon={<CalendarRange />} title="No aircraft yet">Lease an aircraft from the Fleet tab; its flights and checks appear here.</Empty>
       </div>
     );
@@ -643,7 +613,6 @@ function TimelineScreen() {
   return (
     <div className="screen sc-schedule">
       <ScreenHead title="Schedule" sub={<>Times in UTC · {base} local is {offLabel} · tap a flight for details · hold and drag it to move the trip, or a check or refit to move it along its row · pinch to zoom</>}>
-        <SchedTabs g={g} view="timeline" />
         <button className="btn" onClick={() => scrollTo(g.now)}><Crosshair /> Today</button>
         <Seg<ZoomDays> value={zoom} onChange={setZoom} options={ZOOMS.map((z) => ({ value: z, label: `${z} days` }))} />
         <ColourLegend title="Schedule colours" items={[

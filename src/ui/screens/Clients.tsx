@@ -1,4 +1,4 @@
-// v0.8 Schedule › Clients (on Company until v0.11) (UPDATE-0.8.md §1.8): every client's relationship level, what it brings and what is missing
+// v0.8 Contracts › Clients (on Company until v0.11) (UPDATE-0.8.md §1.8): every client's relationship level, what it brings and what is missing
 // for the next; recent changes in plain words; their contracts and open offers. ClientDetail is shared with ClientModal.
 
 import {
@@ -148,7 +148,7 @@ function ClientRow({ v, on, onPick }: { v: ClientView; on: boolean; onPick: () =
   );
 }
 
-/** Schedule › Clients: filtered list on the left, the selected client on the right (no modal on landscape). */
+/** Contracts › Clients: filtered list on the left, the selected client on the right (no modal on landscape). */
 export function ClientsView({ g }: { g: GameState }) {
   const [filter, setFilter] = useState<Filter>(() => (clientList(g, 'working').length ? 'working' : 'all'));
   const day = Math.floor(g.now / 1440);
