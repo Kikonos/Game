@@ -791,6 +791,61 @@ function absorbTrailing(g: GameState, acId: string, from: Minute): void {
   }
 }
 
+/**
+ * Crew-planning round (26 Oct 2026): a diversion settled (ops/disrupt.ts resolveOnward). The crew's duty under way still
+ * held its legs from the destination the aircraft never reached. It takes the onward leg `x` from the alternate (and
+ * its own later legs) when the crew can fly on within their day; what they cannot fly is split off as a duty of its own
+ * after their rest (they go to the hotel at the alternate; the roster re-crews it or waits for them), and `x` is left
+ * to the roster. Without `x` (passengers coached, a rival flies them, a fix), the duty ends at the alternate.
+ * (Seed 1: SK4002 ARN–OTP landed at Cluj; its crew stayed "on duty" for SK4003 OTP–ARN for two days while the onward
+ * Cluj–Bucharest leg waited for a rescue crew six times.)
+ */
+export function afterDiversion(g: GameState, f: Flight, x: Flight | null): void {
+  const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+  const p = d ? g.pairings[d.pairingId] : undefined;
+  if (!d || !p || d.done || crewCount(p) === 0) return;
+  const i = d.flightIds.indexOf(f.id);
+  if (i < 0) return;
+  const head = d.flightIds.slice(0, i + 1);
+  const tail = d.flightIds.slice(i + 1).filter((id) => g.flights[id]?.status === 'scheduled');
+  const fits = (ids: string[]): boolean => {
+    d.flightIds = ids;
+    for (const id of ids) g.flights[id].dutyId = d.id;
+    syncDuty(g, d, p);
+    touchCrew(g);
+    if (d.legality === 'illegal') return false;
+    for (const s of p.slots) {
+      const c = s.crewId ? g.crew[s.crewId] : undefined;
+      if (c && crewTrailOkHook && !crewTrailOkHook(g, p, c)) return false;
+    }
+    return true;
+  };
+  let rest: string[] = tail;
+  if (x && fits([...head, x.id, ...tail])) rest = [];
+  else if (!(x && fits([...head, x.id]))) {
+    if (x) x.dutyId = null;
+    fits(head);
+  }
+  if (rest.length) {
+    const d2: Duty = {
+      id: nextId(g, 'du'), pairingId: p.id, report: Number.MAX_SAFE_INTEGER, release: 0, flightIds: rest, deadheadIds: [], sectors: 0,
+      fdp: 0, maxFdp: 0, augment: 0, restAt: '', legality: 'legal', ev: 0, flightsEv: 0,
+    };
+    g.duties[d2.id] = d2;
+    for (const id of rest) g.flights[id].dutyId = d2.id;
+    const end = onBlocks(g.flights[d.flightIds[d.flightIds.length - 1]]);
+    d2.deadheadIds = d.deadheadIds.filter((id) => (g.flights[id]?.std ?? 0) > end);
+    d.deadheadIds = d.deadheadIds.filter((id) => !d2.deadheadIds.includes(id));
+    p.dutyIds.push(d2.id);
+    syncDuty(g, d2, p);
+    queueDuty(g, d2);
+  }
+  queueDuty(g, d);
+  refreshPairing(g, p);
+  retickHook(g, p);
+  touchCrew(g);
+}
+
 /** Hook (roster.ts): can crew member c fly pairing p as it now stands (its tickets home will be re-planned)? */
 let crewTrailOkHook: ((g: GameState, p: Pairing, c: CrewMember) => boolean) | null = null;
 export function setCrewTrailOkHook(f: (g: GameState, p: Pairing, c: CrewMember) => boolean): void {

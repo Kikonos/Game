@@ -8,8 +8,8 @@ import { DAY, monthKey, yearOf } from '../core/time';
 import type { CrewMember, Flight, GameState, Minute, SimEvent } from '../core/types';
 import { cancelConversion, classOf, dailyClasses } from './conversion';
 import { dailyCrewCosts, monthlySalaries } from './costs';
-import { deletePairing, planAircraft } from './duties';
-export { aboveMinimum, legalMinimum } from './duties';
+import { afterDiversion, deletePairing, planAircraft } from './duties';
+export { aboveMinimum, afterDiversion, legalMinimum } from './duties';
 import { dailySickness, onCrewJoin, onTrainingDone } from './hr';
 import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, settleService, setResignHooks } from './morale';
 import { autoRoster, closedWait, guardDuty, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, rebookAfterLateRelease, removeCrew, sendStrandedHome, stayOn } from './roster';
@@ -373,6 +373,24 @@ function repairMissedTickets(g: GameState): void {
 }
 
 /**
+ * Crew-planning round save repair (seed 1, SK4002): before it, a duty under way kept its legs from the destination a
+ * diverted leg never reached, its crew "on duty" at the alternate until a rescue loop gave up. Such a duty (the
+ * diversion settled: no onward card open) is settled as resolveOnward now does.
+ */
+function repairDiverted(g: GameState): void {
+  for (const d of Object.values(g.duties)) {
+    if (d.done || d.report > g.now) continue;
+    const fl = d.flightIds.map((id) => g.flights[id]).filter((f): f is Flight => !!f && f.status !== 'cancelled');
+    const i = fl.findIndex((f, k) => f.status === 'done' && !!f.div && f.to !== f.div.to0 && fl[k + 1]?.status === 'scheduled' && fl[k + 1].from !== f.to);
+    if (i < 0) continue;
+    const f = fl[i];
+    if (g.decisions.some((x) => x.kind === 'divertOnward' && x.data?.flightId === f.id)) continue;
+    const x = f.contOf ? g.flights[f.contOf] : undefined;
+    afterDiversion(g, f, x && x.status === 'scheduled' && !x.dutyId ? x : null);
+  }
+}
+
+/**
  * v0.10.2 save repair (BLU1109): before 0.10.2 a home standby running when its crew member was given new work was cut
  * short instead of being marked as a call-out, so the rest owed after an uncalled window (12 h at home) stood between
  * the standby and the work it was cut for. A window still uncalled whose end is followed within the hour by that
@@ -577,6 +595,7 @@ export const crewModule: SimModule = {
     dayPlanLoad(g);
     repairMissedTickets(g);
     repairCutStandby(g);
+    repairDiverted(g);
   },
   settle(g) {
     for (const [aircraftId, t] of takeFlightChanges(g)) onFlightsChanged(g, aircraftId, t);
