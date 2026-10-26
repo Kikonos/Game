@@ -414,6 +414,10 @@ button.tb-stat { border: none; background: none; padding: 0; text-align: left; }
 .tb-cash .v { font-family: var(--font-display); font-weight: 650; font-size: 17px; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
 .tb-cash .s { font-size: 12px; color: var(--text-3); }
 .tb-cash .s b { font-weight: 600; font-variant-numeric: tabular-nums; }
+/* v0.12 profit per day beside 'cash' */
+.tb-cash .s { display: inline-flex; align-items: baseline; gap: 6px; }
+.tb-cash .tb-rate.up { color: var(--good); }
+.tb-cash .tb-rate.down { color: var(--bad); }
 /* Level ring around the tail badge (rail and compact tiers). */
 .lv-badge { position: relative; width: 46px; height: 46px; flex-shrink: 0; display: grid; place-items: center; border: none; background: none; padding: 0; border-radius: 50%; }
 .lv-badge .lv-ring { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
