@@ -1,6 +1,7 @@
 // Crew (B5): staffing strip, filterable list with 28-day duty / block bars, and a detail panel with every
 // limit, morale and fatigue, days off and a 14-day roster; Train / Hire similar. DESIGN.md §6.3.
 
+import { RankMark } from '../components/RankMark';
 import { ArrowDownRight, ArrowRight, ArrowUpRight, Check, CheckSquare, GraduationCap, Layers, LayoutGrid, List, Lock, Search, UserPlus, Users, X } from 'lucide-react';
 import { CrewPlanView, PlanStrip } from './CrewPlan';
 import { FlightTypeChip } from '../components/FlightType';
@@ -48,7 +49,7 @@ function CrewRow({ g, c, w, on, t, selecting, checked, onTap }: { g: GameState; 
     <button className={`sc-crew-row ${on ? 'on' : ''} ${selecting ? 'selecting' : ''} ${checked ? 'checked' : ''}`} onClick={onTap} aria-pressed={selecting ? checked : undefined}>
       {selecting && <span className={`rb-check ${checked ? 'on' : ''}`} aria-hidden>{checked && <Check />}</span>}
       <span className="col sc-crew-name">
-        <span className="row gap-8"><span className={`rb-morale ${moraleTone(c.morale)}`} aria-label={`Morale ${Math.round(c.morale)}`} title={`Morale ${Math.round(c.morale)}`} /><span className={`sc-role r-${c.role}`}>{c.role}</span><b className="ellipsis">{c.last}, {c.first}</b></span>
+        <span className="row gap-8"><span className={`rb-morale ${moraleTone(c.morale)}`} aria-label={`Morale ${Math.round(c.morale)}`} title={`Morale ${Math.round(c.morale)}`} /><span className={`sc-role r-${c.role}`}>{c.role}</span><b className="ellipsis">{c.last}, {c.first}</b><RankMark role={c.role} /></span>
         <span className="tiny muted row gap-4 ellipsis">
           {prob ? <Why refs={{ kind: 'crew', id: c.id }} tone={prob.severity === 'red' ? 'bad' : 'warn'} /> : null}
           {where ? <>{!prob && <Dot tone="info" />}{where}</> : training ? <>{!prob && <Dot tone="warn" />}{training}</> : <>{!prob && <Dot tone={STATUS_TONE[c.status]} />}{CREW_STATUS_LABEL[c.status]} · {c.loc}{c.loc !== c.base ? ` (base ${c.base})` : ''}{booked}</>}
@@ -303,7 +304,7 @@ function Detail({ g, c }: { g: GameState; c: CrewMember }) {
         <div className="row gap-12">
           <span className="sc-flag" aria-hidden>{flag(c.nationality)}</span>
           <div className="grow" style={{ minWidth: 0 }}>
-            <h3 className="ellipsis">{crewName(c)}</h3>
+            <h3 className="row gap-8 sc-crew-h"><span className="ellipsis">{crewName(c)}</span><RankMark role={c.role} /></h3>
             <div className="small muted">{ROLE_LABEL[c.role]} · {c.ratings.map(familyLabel).join(', ') || 'no rating'} · base {c.base}</div>
           </div>
           <span className={`badge ${sv.tone === 'bad' ? 'bad' : sv.tone === 'warn' ? 'warn' : sv.tone === 'good' ? 'good' : ''}`}>{sv.label}</span>

@@ -14,6 +14,7 @@
 // v0.9: CREW OUT OF HOURS (crewAlertKind via shortIndex) beside CREW SHORTAGE, naming who and which limit; hotel standby
 // tags in the station's hotel list (standbyNow); the crew-change panel of a slip at a fuel stop (slipOfFlight).
 
+import { RankMark } from '../components/RankMark';
 import { ArrowLeftRight, CalendarRange, FileSearch, Info, KeyRound, LifeBuoy, PackageCheck, Plane, TimerOff, Undo2, Users, Wrench, X } from 'lucide-react';
 import { type ReactNode, useMemo } from 'react';
 import { ACMI_TYPES, artFor } from '../../data/acmiTypes';
@@ -135,7 +136,7 @@ function CrewRows({ crew }: { crew: CrewMember[] }) {
     <div className="op-crew">
       {crew.map((m) => (
         <button key={m.id} className="op-crew-row op-crew-link" onClick={() => store.navigate('crew', { sel: { kind: 'crew', id: m.id } })}>
-          <span className="role">{m.role}</span><span className="ellipsis">{crewName(m)}</span>
+          <span className="role">{m.role}</span><span className="ellipsis">{crewName(m)}</span><RankMark role={m.role} />
         </button>
       ))}
     </div>

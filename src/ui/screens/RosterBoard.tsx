@@ -4,6 +4,7 @@
 // engine's dropTargets verdict, the ghost bubble names the hovered row's reason, a red drop asks first. Nothing
 // animates but the ghost; the drag runs on refs (no React render per move).
 
+import { RankMark } from '../components/RankMark';
 import { BedDouble, CalendarDays, Check, Lock } from 'lucide-react';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flightsRev } from '../../engine/core/entities';
@@ -121,7 +122,7 @@ const Row = memo(function Row({ row, from, dayW, d0, d1, zoom, tone, selecting, 
       <div className="rb-name" data-name={row.crewId}>
         {selecting && <span className={`rb-check ${checked ? 'on' : ''}`} aria-hidden>{checked && <Check />}</span>}
         <span className="col rb-name-txt">
-          <span className="row gap-4"><span className={`sc-role r-${row.role}`}>{row.role}</span><b className="ellipsis">{row.name}</b></span>
+          <span className="row gap-4"><span className={`sc-role r-${row.role}`}>{row.role}</span><b className="ellipsis">{row.name}</b><RankMark role={row.role} /></span>
           <span className="row gap-4 tiny muted">
             <span className={`rb-morale ${moraleTone(row.morale)}`} aria-label={`Morale ${row.morale}`} title={`Morale ${row.morale}`} />
             <span>{row.base}</span>

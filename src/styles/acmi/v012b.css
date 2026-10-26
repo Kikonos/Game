@@ -15,3 +15,17 @@
 .v12-hint-note { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border-radius: 10px; background: var(--panel-2); border: 1px solid rgba(var(--gold-rgb), 0.35); line-height: 1.35; }
 .v12-hint-note .v9-hint-ico { margin-top: 1px; }
 .modal-title .v12-hint-wrap, h2 .v12-hint-wrap { margin-left: 6px; vertical-align: middle; }
+
+/* Rank marks beside crew names (RankMark): gold stripes on a navy epaulette; gold (purser) or silver (cabin crew) wings */
+.rank-mark { flex-shrink: 0; display: inline-block; vertical-align: middle; overflow: visible; }
+.rank-ep-body { fill: #14203a; stroke: rgba(255, 255, 255, 0.28); stroke-width: 1; }
+.rank-ep-btn { fill: #d9b45a; }
+.rank-ep-stripe { fill: #d9b45a; }
+:root[data-theme='light'] .rank-ep-body { fill: #14203a; stroke: rgba(20, 32, 58, 0.5); }
+:root[data-theme='light'] .rank-ep-stripe, :root[data-theme='light'] .rank-ep-btn { fill: #c99a2e; }
+.rank-wings path, .rank-wings circle { fill: #c3cad6; }
+.rank-wings.gold path { fill: #d9b45a; }
+.rank-wings.gold .rank-crest { fill: #d9b45a; stroke: #14203a; stroke-width: 0.8; }
+:root[data-theme='light'] .rank-wings path, :root[data-theme='light'] .rank-wings circle { fill: #8a94a6; }
+:root[data-theme='light'] .rank-wings.gold path { fill: #b8891f; }
+:root[data-theme='light'] .rank-wings.gold .rank-crest { fill: #b8891f; stroke: #fff; }
