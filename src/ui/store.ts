@@ -313,8 +313,9 @@ class GameStore {
           this.welcomed.add(id);
           this.queuePop({ kind: 'delivered', aircraftId: id }, true);
           if (e.msgId) this.cueToasted.add(e.msgId);
+          continue;
         }
-        continue;
+        // No card (no aircraft named, or already welcomed): the usual toast, then the chime.
       }
       // v0.10.2 a phone call: the clock stops whatever the auto-pause settings say; its pop-up is the note and rings
       // while it shows (CallModal) when its turn in the queue comes. Closed unanswered, the Inbox line rings it again.
