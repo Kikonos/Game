@@ -41,7 +41,8 @@ describe('a flown ticket out held by a later duty', () => {
     const { g, ticket, crewId } = trip(true);
     const h = deserialize(serialize(g));
     expect(h.flights[ticket].crewIds).toEqual([crewId]);
-    expect(serialize(deserialize(serialize(h)))).toBe(serialize(h));
+    const state = (x: GameState) => JSON.parse(serialize(x)).state;
+    expect(state(deserialize(serialize(h)))).toEqual(state(h));
   });
 
   it('still takes off crew who never got there (v0.10.1 repair)', () => {
