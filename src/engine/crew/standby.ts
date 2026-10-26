@@ -147,6 +147,23 @@ export function dropStandby(g: GameState, c: CrewMember, from: Minute, until: Mi
   touchCrewState(g);
 }
 
+/**
+ * Debug round (26 Oct 2026): after a duty ended later than planned (a late landing), standby windows not started yet
+ * begin after the rest it needs, or go when under 4 h are left (seed 3: a hotel standby at 08:45 after a duty that
+ * ended at 01:04, 7:41 of 10:19 rested). The day planner refills a day that lost its window.
+ */
+export function clipToRest(g: GameState, c: CrewMember): void {
+  if (!c.standby?.some((w) => w.calledAt === undefined && w.from > g.now && w.from < c.restUntil)) return;
+  const keep: Window[] = [];
+  for (const w of c.standby) {
+    if (w.calledAt !== undefined || w.from <= g.now || w.from >= c.restUntil) keep.push(w);
+    else if (w.to - c.restUntil >= BAL.v09.roster.home.minH * 60) keep.push({ ...w, from: c.restUntil });
+  }
+  if (keep.length) c.standby = keep;
+  else delete c.standby;
+  touchCrewState(g);
+}
+
 /** v0.7.3 a crew member on standby is called out now (Crew Control call-in): the window closes at their report. */
 export function callFromStandby(g: GameState, crewId: string): boolean {
   const c = g.crew[crewId];

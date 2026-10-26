@@ -203,7 +203,9 @@ export function ticketPrice(from: string, to: string): number {
 /** Ticket door-to-door minutes: the airline itinerary (nonstop, or two legs and a connection; ops/commercial.ts). */
 export const dhBlock = (from: string, to: string) => ticketBlock(from, to);
 
-const posRest = (t: TicketPlan, atHome: boolean) => minRest({ dutyMin: t.sta - t.std + CHECKIN(), atHome, augmented: false, tzShift: 0 });
+/** Rest after a ticket on its own. Debug round (26 Oct 2026): 14 h away after one across 4+ time zones, as after a duty
+ * (seed 1: crew ticketed LIS–SJU, 13:25 on the way, then a duty from San Juan 13:45 later). */
+const posRest = (t: TicketPlan, atHome: boolean, tzShift = 0) => minRest({ dutyMin: t.sta - t.std + CHECKIN(), atHome, augmented: false, tzShift });
 
 /** Minimum time from a ticket's arrival at the outstation to the duty's report (airport to crew room). */
 export const OUT_CONNECT = 60;
@@ -384,7 +386,7 @@ export function ctxOf(g: GameState, c: CrewMember): TimelineCtx {
 export const checkInOf = (t: TicketPlan): number => ((t as Partial<Flight>).charter ? BAL.crewControl.jet.checkInMin : CHECKIN());
 
 export function posSeg(t: TicketPlan, c: CrewMember, fresh = false): Seg {
-  return mkSeg({ kind: 'pos', start: t.std - checkInOf(t), end: t.sta, fdp: 0, maxFdp: 0, block: 0, sectors: 0, aug: false, disruptive: false, rest: posRest(t, t.to === c.base), at: t.to, from: t.from, dutyId: undefined, ticketId: (t as Partial<Flight>).id, fresh });
+  return mkSeg({ kind: 'pos', start: t.std - checkInOf(t), end: t.sta, fdp: 0, maxFdp: 0, block: 0, sectors: 0, aug: false, disruptive: false, rest: posRest(t, t.to === c.base, tzDeltaH(c.base, t.to, t.sta)), at: t.to, from: t.from, dutyId: undefined, ticketId: (t as Partial<Flight>).id, fresh });
 }
 
 /** A ticket already flown on its own is in the crew log (onFlightArrCrew); only merged ones still shape the duty. */
