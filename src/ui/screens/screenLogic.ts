@@ -317,7 +317,7 @@ export function refTarget(g: GameState, ref: Ref): DeepLink | null {
       return { tab: 'fleet', view: 'market', sel: ref };
     // v0.8: a client / rival opens its pane on Company; a world event its pin on the map.
     case 'client':
-      return { tab: 'company', view: 'clients', sel: ref };
+      return { tab: 'schedule', view: 'clients', sel: ref };
     case 'rival':
       return { tab: 'company', view: 'rivals', sel: ref };
     case 'event':
