@@ -304,7 +304,11 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
       chainBackward(typeId, X, Y, from, latest) ??
       chainBackward(typeId, X, Y, earliest, b.std - leadFor(g, b, turn)) ??
       chainBackward(typeId, X, Y, earliest, latest) ??
-      chainForward(typeId, X, Y, earliest);
+      // Debug round (26 Oct 2026): already late for Y, the move leaves when a crew can be at X, not at once: planned at
+      // `earliest` with nobody there, its departure re-rostered, the gap re-planned the same leg anew at the same
+      // minute, a fresh red alarm and pause each time, and the clock never moved on (seed 3: an A320 back from an AOG
+      // at Riyadh, 26 Oct; in the game the Play button paused again at once, for ever).
+      chainForward(typeId, X, Y, from);
     if (ch) add(ch, inId);
   }
   replacing([]);
