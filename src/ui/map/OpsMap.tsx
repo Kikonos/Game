@@ -14,7 +14,7 @@
 // v0.12 Visual A: a soft day/night with city lights, top-down silhouettes per type, flown/to-go lines with contrails,
 // weather and closure marks on airports, and spotter mode (binoculars: follow one airborne aircraft, a view only).
 
-import { ArrowLeftRight, Binoculars, ChevronDown, ChevronUp, HelpCircle, TimerOff, Users, X } from 'lucide-react';
+import { ArrowLeftRight, Binoculars, ChevronDown, CloudLightning, ChevronUp, HelpCircle, TimerOff, Users, X } from 'lucide-react';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { DAY, fmtDay, fmtTime } from '../../engine/core/time';
@@ -23,7 +23,7 @@ import { slipsOfAircraft } from '../../engine/crew';
 import { commercialFlightsBetween, FLIGHT_TYPE_HINT, FLIGHT_TYPE_LABEL, worldEventPins, worldZones } from '../../engine/ops';
 import { store, useClock, useGame, useTheme } from '../store';
 import { useTouch } from '../useMedia';
-import { AircraftLayer, ArcsLayer, CityLightsLayer, CommercialLayer, DiversionLayer, divMarks, HIT_R, type LiveShared, NightLayer, newShared, PathsLayer, PinsLayer, pinOffset, SlipArcsLayer, SlipMarksLayer, WeatherLayer, WX_OFF } from './LiveLayers';
+import { AircraftLayer, ArcsLayer, CommercialLayer, DiversionLayer, divMarks, HIT_R, type LiveShared, NightLayer, newShared, paintCityLights, PathsLayer, PinsLayer, pinOffset, SlipArcsLayer, SlipMarksLayer, WeatherLayer, WX_OFF } from './LiveLayers';
 import { SpotterPanel } from './Spotter';
 import { nextDeparture, SPOT_SECONDS, spotList, spotNext } from './spotter';
 import { wxMarks, type WxMark } from './weather';
@@ -104,6 +104,10 @@ const LEGEND: { swatch: ReactNode; label: string }[] = [
   { swatch: <span className="op-dot air" />, label: 'Blue: airborne' },
   { swatch: <span className="op-dot" />, label: 'Grey chip: idle, or a delivery not yet started' },
   { swatch: <span className="ops-help-ap" />, label: 'White dot: an airport we fly to, or where our crew are at a hotel' },
+  // v0.12 Visual A.
+  { swatch: <svg width={16} height={16} viewBox="0 0 16 16" aria-hidden><path d="M1 8H8" stroke="var(--path-operating)" strokeWidth={2} /><path d="M9 8H15" stroke="var(--path-operating)" strokeWidth={2} strokeDasharray="2.5 2" /></svg>, label: 'Solid behind an aircraft: flown; dashed ahead: still to fly' },
+  { swatch: <CloudLightning className="ops-help-wx" aria-hidden />, label: 'Storm, cloud or moon on an airport: closed or limited by weather, a curfew or an event. Tap it' },
+  { swatch: <Binoculars className="ops-help-spot" aria-hidden />, label: 'Binoculars: spotter mode. Follow one aircraft and watch it fly' },
 ];
 
 function MapLegend() {
@@ -179,6 +183,20 @@ function UpNext({ g }: { g: GameState }) {
   );
 }
 
+/**
+ * The watched aircraft landed (or one took off while we waited): move on at once. Checked with the clock label in its
+ * own small component, so the map itself never re-renders with the clock.
+ */
+function SpotWatch({ id, onMove }: { id: string | null; onMove: () => void }) {
+  const clock = useClock();
+  const g = useGame();
+  useEffect(() => {
+    const air = spotList(g);
+    if (id ? !air.some((a) => a.id === id) : air.length > 0) onMove();
+  }, [clock, g, id, onMove]);
+  return null;
+}
+
 /** Spotter: which aircraft (null: the next departure), the last one watched (for the round), a counter that re-aims the map. */
 interface Spot { id: string | null; last: string | null; n: number; since: number }
 
@@ -206,15 +224,7 @@ export function OpsMap() {
   // Any navigation (another tab, a selection on the map) ends it.
   const sig = navSig();
   useEffect(() => { if (spot && sig !== spotNav.current) setSpot(null); }, [sig, spot]);
-  // The watched aircraft landed (or one took off while we waited): move on at once. Checked with the clock label.
-  const clock = useClock();
-  useEffect(() => {
-    if (!spot) return;
-    const air = spotList(g);
-    if (spot.id && air.some((a) => a.id === spot.id)) return;
-    if (!spot.id && !air.length) return;
-    nextSpot();
-  }, [spot, clock, g, nextSpot]);
+
   // About every 60 s of real time, the next airborne aircraft (not while the page is hidden).
   useEffect(() => {
     if (!spot) return;
@@ -232,6 +242,7 @@ export function OpsMap() {
   const panelOpen = !!spot || (!!sel && (sel.kind === 'aircraft' || sel.kind === 'airport' || sel.kind === 'offer' || sel.kind === 'event' || !!selCm || !!selSlip));
   const sharedRef = useRef<LiveShared | null>(null);
   const shared = (sharedRef.current ??= newShared());
+  const glowPaint = useMemo(() => paintCityLights(shared), [shared]);
   let memo = views.get(g);
   if (!memo) views.set(g, (memo = { view: null }));
 
@@ -432,6 +443,7 @@ export function OpsMap() {
         memo={memo}
         follow={follow}
         backdrop={(ctx) => <NightLayer shared={shared} shift={ctx.backShift} theme={theme} />}
+        glow={glowPaint}
         ground={(ctx) => <ZoneGround zones={zones} proj={ctx.proj} hatch={hatchUnit(ctx.px, ctx.k)} />}
         underlay={(ctx) => {
           refs.current.proj = ctx.proj;
@@ -446,7 +458,6 @@ export function OpsMap() {
           // The current leg is always drawn by the live paths; the arcs add the selected aircraft's next legs.
           return (
             <>
-              <CityLightsLayer shared={shared} proj={ctx.proj} unit={ctx.unit} />
               <ZoneLabels zones={zones} proj={ctx.proj} unit={ctx.unit} selected={selEv ? zones.find((z) => z.eventId === selEv)?.eventId : undefined} />
               <PathsLayer shared={shared} />
               <SlipArcsLayer arcs={slipLegs} proj={ctx.proj} />
@@ -468,6 +479,7 @@ export function OpsMap() {
       />
       <UpNext g={g} />
       <FleetStrip g={g} sel={sel} panelOpen={panelOpen} />
+      {spot && <SpotWatch id={spot.id} onMove={nextSpot} />}
       {spot ? <SpotterPanel g={g} id={spot.id} onNext={nextSpot} onClose={() => setSpot(null)} canNext={spotList(g).length > 1} /> : <MapPanel g={g} sel={sel} />}
       {!spot && <button className="btn btn-icon ops-spot-btn" onClick={startSpot} aria-label="Spotter: watch the planes" title="Spotter: watch the planes"><Binoculars /></button>}
     </div>

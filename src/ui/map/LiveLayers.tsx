@@ -30,7 +30,8 @@ import { parkedFit, silhouette, silSpec } from './silhouettes';
 import { fillNight, lightAlpha, mercLat, parseRgb } from './sky';
 import { contrailWindow } from './spotter';
 import type { WxKind, WxMark } from './weather';
-import type { MapLayerCtx } from './WorldMap';
+import { projection } from './mapData';
+import type { GlowPaint, MapLayerCtx } from './WorldMap';
 
 /** Live positions shared with tap picking and focus (map units, as last drawn). */
 export interface LiveShared {
@@ -43,8 +44,8 @@ export interface LiveShared {
   nightDec: number;
   /** Subsolar point the night was placed for (it is then slid by the sun's longitude change). */
   nightSun: [number, number] | null;
-  /** v0.12 city lights: their groups, [lon, lat] and the level last written. */
-  lights: { els: SVGGElement[]; ll: [number, number][]; lvl: Int8Array } | null;
+  /** v0.12 city lights: [lon, lat], map points, glow radii, the levels painted and when they were last updated. */
+  lights: { ll: [number, number][]; pts: [number, number][]; r: number[]; lvl: Int8Array; at: number } | null;
   /** Path groups (underlay): airline legs under ours. */
   pathsCm: SVGGElement | null;
   pathsOwn: SVGGElement | null;
@@ -100,8 +101,8 @@ const NIGHT_W = 360;
 const NIGHT_H = 240;
 const NIGHT_Y0 = -0.2 * MAP_H;
 const NIGHT_Y1 = 1.2 * MAP_H;
-/** Declination drift (deg) before the raster is rebuilt (≈ every 1 to 2 game hours near an equinox, days at a solstice). */
-const NIGHT_DEC_STEP = 0.02;
+/** Declination drift (deg) before the raster is repainted (≈ every 9 game hours near an equinox, days at a solstice). */
+const NIGHT_DEC_STEP = 0.15;
 
 /** Sideways shift (map units) of a night layer built for sun0 to where the sun is now. */
 export const nightShift = (sun0: [number, number], sun: [number, number]) => (((((sun[0] - sun0[0] + 180) % 360) + 360) % 360) - 180) / 360 * MAP_W;
@@ -170,55 +171,85 @@ export const NightLayer = memo(function NightLayer({ shared, shift, theme }: { s
 /** Glow radius (screen px) of an airport's city lights: bigger cities glow wider. */
 const lightR = (pop: number) => 3.2 + 2.6 * Math.log10(1 + Math.max(0, pop));
 
-/**
- * Every airport's city lights (render first in the WorldMap `underlay`): a soft warm glow, faded in by the live loop
- * once the sun there is well below the horizon. Screen px inside `.mk` groups (counter-scaled by WorldMap).
- */
-export const CityLightsLayer = memo(function CityLightsLayer({ shared, proj, unit }: { shared: LiveShared; proj: MapLayerCtx['proj']; unit: number }) {
-  const ref = useRef<SVGGElement>(null);
-  const pts = useMemo(() => AIRPORTS.map((a) => ({ a, q: proj([a.lon, a.lat]) })).filter((x) => x.q), [proj]);
-  useLayoutEffect(() => {
-    const g = ref.current;
-    if (!g) return;
-    const els = Array.from(g.querySelectorAll('.cl')) as SVGGElement[];
-    shared.lights = { els, ll: pts.map((x) => [x.a.lon, x.a.lat] as [number, number]), lvl: new Int8Array(els.length).fill(-1) };
-    return () => { shared.lights = null; };
-  }, [shared, pts]);
-  return (
-    <g ref={ref} className="ops-lights" pointerEvents="none">
-      <defs>
-        <radialGradient id="bh-city-light">
-          <stop offset="0" className="c0" />
-          <stop offset="0.28" className="c1" />
-          <stop offset="1" className="c2" />
-        </radialGradient>
-      </defs>
-      {pts.map(({ a, q }) => (
-        <g key={a.code} className="cl" opacity={0} transform={`translate(${q![0]} ${q![1]})`}>
-          <g className="mk" transform={`scale(${unit})`}>
-            <circle r={lightR(a.pop)} fill="url(#bh-city-light)" />
-          </g>
-        </g>
-      ))}
-    </g>
-  );
-});
-
-/** Light levels (0 … LIGHT_STEPS) the loop writes, so only the lights near the terminator change per frame. */
+/** Light levels (0 … LIGHT_STEPS) the loop keeps, so the canvas is repainted only when a light changed. */
 const LIGHT_STEPS = 12;
+/** Real ms between city-light updates (a fade is a few steps). */
+const LIGHTS_MS = 160;
 
-/** Fades each city's lights with its sun elevation (DOM writes only where the level changed). */
-function lightCities(shared: LiveShared, sun: [number, number]) {
-  const L = shared.lights;
-  if (!L) return;
-  for (let i = 0; i < L.els.length; i++) {
+/** Every airport's lights: [lon, lat], glow radius, map point (the ops map's unrotated projection). */
+function cityLights(): NonNullable<LiveShared['lights']> {
+  const proj = projection(0);
+  const list = AIRPORTS.map((a) => ({ a, q: proj([a.lon, a.lat]) })).filter((x) => x.q);
+  return {
+    ll: list.map((x) => [x.a.lon, x.a.lat] as [number, number]),
+    pts: list.map((x) => [x.q![0], x.q![1]] as [number, number]),
+    r: list.map((x) => lightR(x.a.pop)),
+    lvl: new Int8Array(list.length),
+    at: -Infinity,
+  };
+}
+
+/** A soft warm glow (a radial gradient in the theme's light colours), drawn once per theme (data-theme on the root). */
+let sprite: { key: string; theme: string; cv: HTMLCanvasElement } | null = null;
+function lightSprite(): HTMLCanvasElement {
+  // Reading the colours forces a style pass: only when the theme attribute has changed.
+  const theme = document.documentElement.dataset.theme ?? '';
+  if (sprite && sprite.theme === theme) return sprite.cv;
+  const cs = getComputedStyle(document.documentElement);
+  const core = cs.getPropertyValue('--map-light-core').trim() || '#fff1c9';
+  const glow = cs.getPropertyValue('--map-light-glow').trim() || '#ffb547';
+  const a = Number.parseFloat(cs.getPropertyValue('--map-light-a')) || 0.9;
+  const key = `${core}|${glow}|${a}`;
+  if (sprite?.key === key) { sprite.theme = theme; return sprite.cv; }
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = 64;
+  const c = cv.getContext('2d')!;
+  const gr = c.createRadialGradient(32, 32, 0, 32, 32, 32);
+  const rgba = (hex: string, al: number) => { const [r, g, b] = parseRgb(hex, [255, 200, 120]); return `rgba(${r},${g},${b},${al})`; };
+  gr.addColorStop(0, rgba(core, a));
+  gr.addColorStop(0.28, rgba(glow, a * 0.5));
+  gr.addColorStop(1, rgba(glow, 0));
+  c.fillStyle = gr;
+  c.fillRect(0, 0, 64, 64);
+  sprite = { key, theme, cv };
+  return cv;
+}
+
+/** Paints the city lights at their levels (the WorldMap `glow` canvas: one paint item, no SVG nodes). */
+export function paintCityLights(shared: LiveShared): GlowPaint {
+  return (c, at, px) => {
+    const L = (shared.lights ??= cityLights());
+    const img = lightSprite();
+    const W = c.canvas.width;
+    const H = c.canvas.height;
+    for (let i = 0; i < L.pts.length; i++) {
+      const lv = L.lvl[i];
+      if (lv <= 0) continue;
+      const [x, y] = at(L.pts[i]);
+      const r = L.r[i] * px;
+      if (x < -r || y < -r || x > W + r || y > H + r) continue;
+      c.globalAlpha = lv / LIGHT_STEPS;
+      c.drawImage(img, x - r, y - r, 2 * r, 2 * r);
+    }
+    c.globalAlpha = 1;
+  };
+}
+
+/** Fades each city's lights with its sun elevation, at most every LIGHTS_MS; repaints the canvas only on a change. */
+function lightCities(shared: LiveShared, sun: [number, number], now: number, redraw: () => void, force: boolean) {
+  const L = (shared.lights ??= cityLights());
+  if (!force && now - L.at < LIGHTS_MS) return;
+  L.at = now;
+  let changed = force;
+  for (let i = 0; i < L.ll.length; i++) {
     const [lon, lat] = L.ll[i];
     const lv = Math.round(lightAlpha(sunElevation(sun, lon, lat)) * LIGHT_STEPS);
     if (lv !== L.lvl[i]) {
       L.lvl[i] = lv;
-      L.els[i].setAttribute('opacity', (lv / LIGHT_STEPS).toFixed(3));
+      changed = true;
     }
   }
+  if (changed) redraw();
 }
 
 // ---------- always-on flight paths ----------
@@ -508,9 +539,60 @@ interface Glide { ox: number; oy: number; ang: number }
 
 /**
  * Our airborne leg's path: v0.12 the part flown solid behind the aircraft, the part to go dashed ahead. `pts` samples
- * the track (map units) at even times from off- to on-blocks, so the split falls exactly where the aircraft is.
+ * the track (map units) at even times from off- to on-blocks, so the split falls exactly where the aircraft is. The
+ * track is cut into static chunks (solid behind, dashed ahead); only the chunk under the aircraft is redrawn as it
+ * moves, as two short paths, so a frame never repaints a whole ocean-wide line.
  */
-interface OwnPath { done: SVGPathElement; ahead: SVGPathElement; acId: string; type: FlightType; key: string; pts: [number, number][]; at: string }
+interface OwnPath { chunks: SVGPathElement[]; done: SVGPathElement; ahead: SVGPathElement; acId: string; type: FlightType; key: string; pts: [number, number][]; ci: number; at: [number, number] | null; atK: number }
+
+/** Track samples per static chunk. */
+const CHUNK = 6;
+
+/** All of an own path's elements. */
+const ownEls = (op: OwnPath) => [...op.chunks, op.done, op.ahead];
+
+/** (Re)builds a leg's chunks from its samples (after a new track or projection); the split is redrawn next. */
+function buildChunks(op: OwnPath, root: SVGGElement) {
+  for (const c of op.chunks) c.remove();
+  op.chunks = [];
+  const n = op.pts.length - 1;
+  for (let j = 0; j * CHUNK < n; j++) {
+    const el = svgEl('path', { d: polyD(op.pts.slice(j * CHUNK, Math.min(n, (j + 1) * CHUNK) + 1)) });
+    root.insertBefore(el, op.done);
+    op.chunks.push(el);
+  }
+  op.ci = -1;
+  op.at = null;
+}
+
+/** Redraws a leg's split at the aircraft (map point q, `progress` along the leg). */
+function drawSplit(op: OwnPath, q: [number, number], progress: number, k: number) {
+  const n = op.pts.length - 1;
+  if (n <= 0) return;
+  op.at = q;
+  op.atK = k;
+  const i = Math.max(0, Math.min(n - 1, Math.floor(progress * n)));
+  const ci = Math.floor(i / CHUNK);
+  if (ci !== op.ci) {
+    // Chunks behind solid, ahead dashed; the one under the aircraft is drawn by the two split paths.
+    op.ci = ci;
+    op.chunks.forEach((c, j) => {
+      const part = j < ci ? 'done' : j > ci ? 'ahead' : '';
+      if (part) { stylePath(c, op.type, part); c.style.display = ''; }
+      else c.style.display = 'none';
+    });
+  }
+  op.done.setAttribute('d', polyD([...op.pts.slice(ci * CHUNK, i + 1), q]));
+  op.ahead.setAttribute('d', polyD([q, ...op.pts.slice(i + 1, Math.min(n, (ci + 1) * CHUNK) + 1)]));
+}
+
+/** v0.12 screen px an aircraft moves before its flown / to-go split is redrawn (well inside its icon). */
+const PATH_STEP = 4;
+/**
+ * At most this many splits are redrawn per frame (the ones furthest behind, on screen; the selected aircraft's every
+ * time): a path's 'd' is a style change, and 26 of them a frame cost more than the whole map. Off-screen ones wait.
+ */
+const SPLITS_PER_FRAME = 2;
 
 /** v0.12 dash of the part still to fly (screen px): the operating leg's solid line turns dashed ahead. */
 const AHEAD_DASH: Record<FlightType, string> = { operating: '6 5', positioning: TYPE_STROKE.positioning.dash, ferry: TYPE_STROKE.ferry.dash, deadhead: TYPE_STROKE.deadhead.dash };
@@ -631,7 +713,7 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
       const proj = c.proj;
       if (!rooted || proj !== projUsed) {
         // (Re)mounted groups or a new projection: rebuild every path and icon.
-        for (const p of own.values()) { p.done.remove(); p.ahead.remove(); }
+        for (const p of own.values()) for (const el of ownEls(p)) el.remove();
         own.clear();
         for (const [id, x] of cms) dropCm(id, x);
         ownRoot = shared.pathsOwn;
@@ -646,17 +728,16 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
       // v0.12 Map animations off: the night steps every quarter hour of game time instead of gliding.
       const anim = store.settings.mapAnimations;
       const tn = anim ? t : Math.floor(t / 15) * 15;
-      if (shared.night || shared.lights) {
-        const sun = tn === lastSunT && lastSun ? lastSun : sunPoint(tn);
-        lastSunT = tn;
-        lastSun = sun;
-        const s0 = shared.nightSun;
-        if (shared.night) {
-          if (!s0 || Math.abs(sun[1] - shared.nightDec) > 0.02) buildNight(shared, tn, c.backShift);
-          else if (Math.abs(c.backShift(nightShift(s0, sun))) > c.margin / 2) buildNight(shared, tn, c.backShift);
-        }
-        lightCities(shared, sun);
+      const sun = tn === lastSunT && lastSun ? lastSun : sunPoint(tn);
+      lastSunT = tn;
+      lastSun = sun;
+      const s0 = shared.nightSun;
+      if (shared.night) {
+        if (!s0 || !(Math.abs(sun[1] - shared.nightDec) < NIGHT_DEC_STEP)) buildNight(shared, tn, c.backShift);
+        else if (Math.abs(c.backShift(nightShift(s0, sun))) > c.margin / 2) buildNight(shared, tn, c.backShift);
       }
+      // City lights (their own canvas layer); a React render (a theme change) repaints them.
+      lightCities(shared, sun, now, c.redrawGlow, fresh);
       const trails = anim && !calm;
       if (trails !== root.classList.contains('trails')) root.classList.toggle('trails', trails);
       const u = 1 / (c.px * k); // map units per screen px right now
@@ -798,6 +879,9 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
       for (const b of ownLabels) parkedBoxes.push(b);
       // Our airborne legs: v0.12 flown solid behind the aircraft, dashed ahead (types refreshed with each React render).
       const seen = new Set<string>();
+      const view = c.onScreen();
+      const pad = 60 * u;
+      const splits: { op: OwnPath; q: [number, number]; p: number; w: number }[] = [];
       for (const live of lives) {
         const f = live.phase === 'airborne' ? live.flight : undefined;
         const e = els.get(live.aircraft.id);
@@ -814,32 +898,30 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
           const ahead = svgEl('path', {}, ownRoot);
           stylePath(done, type, 'done');
           stylePath(ahead, type, 'ahead');
-          own.set(f.id, (op = { done, ahead, acId: live.aircraft.id, type, key, pts: trackPts(f, proj), at: '' }));
+          own.set(f.id, (op = { chunks: [], done, ahead, acId: live.aircraft.id, type, key, pts: trackPts(f, proj), at: null, atK: 0, ci: -1 }));
+          buildChunks(op, ownRoot);
           selKey = '';
         } else if (op && fresh) {
           const type = flightType(game, f);
-          if (type !== op.type) { stylePath(op.done, (op.type = type), 'done'); stylePath(op.ahead, type, 'ahead'); }
+          if (type !== op.type) { op.type = type; stylePath(op.done, type, 'done'); stylePath(op.ahead, type, 'ahead'); op.ci = -1; op.at = null; }
           selKey = '';
         }
-        if (op && op.key !== key) { op.key = key; op.pts = trackPts(f, proj); op.at = ''; }
+        if (op && op.key !== key && ownRoot) { op.key = key; op.pts = trackPts(f, proj); buildChunks(op, ownRoot); selKey = ''; }
         if (op) {
-          // Rebuilt only when the aircraft has moved half a screen pixel (or the zoom changed).
+          // How far (screen px) the aircraft is from where its split was last drawn; redrawn below, a few per frame.
           const q = shared.ac.get(live.aircraft.id);
-          const n = op.pts.length - 1;
-          if (q && n > 0) {
-            const at = `${(q[0] / u / 0.5) | 0},${(q[1] / u / 0.5) | 0}|${k.toPrecision(4)}`;
-            if (at !== op.at) {
-              op.at = at;
-              const i = Math.max(0, Math.min(n - 1, Math.floor(live.progress * n)));
-              const here: [number, number] = [q[0], q[1]];
-              op.done.setAttribute('d', polyD([...op.pts.slice(0, i + 1), here]));
-              op.ahead.setAttribute('d', polyD([here, ...op.pts.slice(i + 1)]));
-            }
+          if (q) {
+            const far = !op.at || op.atK !== k ? Infinity : Math.hypot(q[0] - op.at[0], q[1] - op.at[1]) / u;
+            const sel = op.acId === selRef.current;
+            const vis = q[0] > view[0] - pad && q[0] < view[2] + pad && q[1] > view[1] - pad && q[1] < view[3] + pad;
+            if (far >= PATH_STEP && (vis || sel || !op.at)) splits.push({ op, q, p: live.progress, w: sel || !op.at ? Infinity : far });
           }
         }
         if (e && op && e.el.dataset.type !== op.type) e.el.dataset.type = op.type;
       }
-      for (const [id, op] of own) if (!seen.has(id)) { op.done.remove(); op.ahead.remove(); own.delete(id); }
+      splits.sort((a, b) => b.w - a.w);
+      for (let i = 0; i < splits.length && (i < SPLITS_PER_FRAME || splits[i].w === Infinity); i++) drawSplit(splits[i].op, splits[i].q, splits[i].p, k);
+      for (const [id, op] of own) if (!seen.has(id)) { for (const el of ownEls(op)) el.remove(); own.delete(id); }
       for (const id of trailWin.keys()) if (!seen.has(id)) trailWin.delete(id);
       // Airline legs carrying our crew: fetched per CM_BUCKET minutes (and per emit), filtered to the airborne ones.
       if (cmRoot) {
@@ -939,7 +1021,7 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
       const sk = `${selRef.current ?? ''}|${selFRef.current ?? ''}`;
       if (sk !== selKey) {
         selKey = sk;
-        for (const op of own.values()) { op.done.classList.toggle('sel', op.acId === selRef.current); op.ahead.classList.toggle('sel', op.acId === selRef.current); }
+        for (const op of own.values()) for (const el of ownEls(op)) el.classList.toggle('sel', op.acId === selRef.current);
         for (const [id, x] of cms) {
           const on = id === selFRef.current;
           x.el.classList.toggle('sel', on);

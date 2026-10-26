@@ -17,10 +17,7 @@ div.worldmap { overflow: clip; }
 .ops-night path { fill: var(--map-night); stroke: none; }
 
 /* ---------- v0.12 Visual A ---------- */
-/* City lights: a warm glow, faded in by the live loop after sunset (opacity attribute). */
-.ops-lights .c0 { stop-color: var(--map-light-core); stop-opacity: var(--map-light-a); }
-.ops-lights .c1 { stop-color: var(--map-light-glow); stop-opacity: calc(var(--map-light-a) * 0.5); }
-.ops-lights .c2 { stop-color: var(--map-light-glow); stop-opacity: 0; }
+/* City lights: painted on their own canvas layer (LiveLayers paintCityLights) in --map-light-core / --map-light-glow. */
 /* Silhouettes: contrails only while high enough, and only with Map animations on (no reduced motion). */
 .ops-ac .trail { display: none; }
 .ops-aircraft.trails .ops-ac.trail-on[data-phase='airborne'] .trail { display: block; }
@@ -48,6 +45,8 @@ div.worldmap { overflow: clip; }
 .ops-wx .h1 { stop-opacity: 0.16; }
 .ops-wx .h2 { stop-opacity: 0; }
 /* Spotter: the binoculars button (top right of the map) and its panel (where the selection panel sits, shorter). */
+.ops-help-wx, .ops-help-spot { width: 16px; height: 16px; color: var(--wx-storm); }
+.ops-help-spot { color: var(--text-2); }
 .ops-spot-btn { position: absolute; top: 12px; right: var(--edge-r); z-index: 5; width: var(--tap); height: var(--tap); background: var(--op-bg); box-shadow: 0 4px 16px rgba(var(--shade-rgb), calc(0.3 * var(--shade-k))); }
 .ops-spot-btn svg { width: 22px; height: 22px; }
 .ops-map.panel-open .ops-spot-btn { right: calc(var(--edge-r) + 360px + 12px); }
