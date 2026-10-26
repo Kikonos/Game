@@ -1,6 +1,7 @@
 // Bridges the engine and React: owns the game state, the real-time loop (game minutes per frame),
 // navigation, modals, quiet toasts, settings and saving. DESIGN.md §3.4 and §6.
 
+import { deliveryCardFor } from './modals/deliveryCard';
 import { startTransition, useEffect, useState, useSyncExternalStore } from 'react';
 import { clearPause, takePause, type PauseReason } from '../engine/core/pause';
 import { CLOCK_STEP, type GameSpeed, minutesPerMs, monthKey } from '../engine/core/time';
@@ -272,6 +273,8 @@ class GameStore {
   private cueToasted = new Set<string>();
   private ladderSeen = new Set<string>();
   private hintShown = new Set<string>();
+  /** v0.12 aircraft whose welcome card this session already queued (once per delivery). */
+  private welcomed = new Set<string>();
 
   subscribe = (fn: () => void) => {
     this.listeners.add(fn);
@@ -302,7 +305,17 @@ class GameStore {
       if (e.cue === 'counterReply' && (e.ref?.kind === 'offer' || e.ref?.kind === 'contract')) {
         this.queuePop({ kind: 'counterReply', ...(e.ref.kind === 'offer' ? { offerId: e.ref.id } : { contractId: e.ref.id }), title: e.title, body: e.body ?? '' }, true);
       }
-      if (e.cue === 'delivered' && e.ref?.kind === 'aircraft') this.queuePop({ kind: 'delivered', aircraftId: e.ref.id }, true);
+      // v0.12 the welcome card: once per handover, never for the fleet a new game starts with (deliveryCardFor). Its
+      // chime rings when the card opens (flushLadder), not while another dialog (a phone call) still has the screen.
+      if (e.cue === 'delivered') {
+        const id = this.game ? deliveryCardFor(this.game, e, this.welcomed) : null;
+        if (id) {
+          this.welcomed.add(id);
+          this.queuePop({ kind: 'delivered', aircraftId: id }, true);
+          if (e.msgId) this.cueToasted.add(e.msgId);
+        }
+        continue;
+      }
       // v0.10.2 a phone call: the clock stops whatever the auto-pause settings say; its pop-up is the note and rings
       // while it shows (CallModal) when its turn in the queue comes. Closed unanswered, the Inbox line rings it again.
       if (e.cue === 'offerCall' && e.ref?.kind === 'offer') {
@@ -313,8 +326,8 @@ class GameStore {
       }
       if (!sound.audible(e.cue)) continue;
       if (e.msgId) this.cueToasted.add(e.msgId);
-      // Its own pop-up (a counter reply, a delivery) is the note; anything else shows a toast.
-      const pop = (e.cue === 'counterReply' && (e.ref?.kind === 'offer' || e.ref?.kind === 'contract')) || (e.cue === 'delivered' && e.ref?.kind === 'aircraft');
+      // Its own pop-up (a counter reply) is the note; anything else shows a toast.
+      const pop = e.cue === 'counterReply' && (e.ref?.kind === 'offer' || e.ref?.kind === 'contract');
       if (!pop) this.pushToast(cueToastKind(e), e.title, e.body ? (e.body.length > 140 ? e.body.slice(0, 137) + '…' : e.body) : undefined);
       sound.event(e.cue);
       shown++;
@@ -370,6 +383,7 @@ class GameStore {
     this.ladderQueue = [];
     this.ladderSeen = new Set();
     this.hintShown = new Set();
+    this.welcomed = new Set();
     this.exact = this.game?.now ?? 0;
     this.paused = true;
     this.pauseReason = null;
@@ -655,6 +669,8 @@ class GameStore {
       // answered on the offer card, lapsed or taken meanwhile: no call
       if (m.kind === 'offerCall' && !(this.game.offers[m.offerId]?.status === 'open' && this.game.offers[m.offerId].expires > this.game.now)) return this.flushLadder();
       this.modal = m;
+      // v0.12 the delivery chime rings with its card (the card is its note; the Inbox keeps the message).
+      if (m.kind === 'delivered' && sound.audible('delivered')) sound.event('delivered');
       this.toasts = this.toasts.filter((t) => !t.leaving);
       return;
     }
