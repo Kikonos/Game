@@ -929,13 +929,22 @@ function lateLeg(g: GameState, f: Flight, c: Contract): void {
  * This departure can't go: seats unfilled, its own duty is illegal, or (on the duty's first leg) a crew member is
  * over a limit for it (a later duty's problem is re-rostered from there).
  */
+/** v0.10.1 crew rostered on the duty f opens who are not at its departure airport (the gate's check; the roster's agrees). */
+export function absentCrew(g: GameState, f: Flight): string[] {
+  const dd = f.dutyId ? g.duties[f.dutyId] : undefined;
+  const p = dd && dd.flightIds[0] === f.id ? g.pairings[dd.pairingId] : undefined;
+  const out: string[] = [];
+  if (p) for (const s of p.slots) if (s.crewId && g.crew[s.crewId] && g.crew[s.crewId].loc !== f.from) out.push(s.crewId);
+  return out;
+}
+
 export function crewBlocked(g: GameState, f: Flight): boolean {
   const cs = flightCrewStatus(g, f.id, { live: false });
   if (cs.level === 'missing') return true;
   // The duty's crew must be at its first departure airport (tickets in have landed by now).
   const dd = f.dutyId ? g.duties[f.dutyId] : undefined;
   const p = dd && dd.flightIds[0] === f.id ? g.pairings[dd.pairingId] : undefined;
-  if (p) for (const s of p.slots) if (s.crewId && g.crew[s.crewId] && g.crew[s.crewId].loc !== f.from) return true;
+  if (p && absentCrew(g, f).length) return true;
   if (p && dd && crewIssuesFor(g, dd).length) return true;
   // v0.9 §Y.1 the in-flight rest plan re-checked at departure: a delay after report can make it impossible.
   if (p && restFailed(g, f)) return true;
@@ -1139,6 +1148,19 @@ function crewProblem(g: GameState, f: Flight, ac: Aircraft): void {
   // the decision at once, while the commander's discretion can still cover the overrun.
   if (hasOpenDecision(g, 'crewShort', f.id) || (!fdpClock(g, f) && heldFor(g, f) < BAL.crewWaitMin)) return holdFlight(g, f, 30);
   if (f.crewDecided) {
+    // v0.10.1 (BLU511) someone rostered is not at the departure airport: a new problem, not the one decided. They come
+    // off the duty and the seat is refilled; with nobody to fill it the player decides again at once (the crew-short
+    // card), never a string of 6-hour 'rescue crew' pushes with a crew member who can't get here.
+    if (f.dutyId && absentCrew(g, f).length) {
+      guardDuty(g, f.dutyId);
+      rerosterFrom(g, ac.id, g.now);
+      if (f.status !== 'scheduled') return;
+      if (!crewBlocked(g, f)) return holdFlight(g, f, 5);
+      delete f.crewDecided;
+      f.crewTries = 0;
+      crewShortDecision(g, f, ac);
+      return holdFlight(g, f, 30);
+    }
     const tries = (f.crewTries ?? 0) + 1;
     f.crewTries = tries;
     const away = f.from !== stationOf(g, f);

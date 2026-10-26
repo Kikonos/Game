@@ -221,7 +221,7 @@ function recheckLater(g: GameState, crewIds: Set<string>, after: Pairing): void 
 }
 
 /** Crew whose whereabouts changed outside a trip (a ticket they never boarded): their next trip is re-checked. */
-export function recheckNext(g: GameState, crewIds: string[]): void {
+export function recheckNext(g: GameState, crewIds: string[], also?: Pairing): void {
   const acs = new Set<string>();
   for (const id of crewIds) {
     let next: Pairing | null = null;
@@ -231,6 +231,10 @@ export function recheckNext(g: GameState, crewIds: string[]): void {
     }
     if (next && recheckPairing(g, next).level === 'illegal' && inHorizon(g, next.start)) acs.add(next.aircraftId!);
   }
+  // v0.10.1 the trip the missed ticket was taking them to, even one already started or reporting (BLU511): its first
+  // leg still to fly is re-crewed or re-ticketed now, not found out at the gate.
+  const d0 = also ? openDuties(g, also)[0] : undefined;
+  if (also?.aircraftId && d0 && g.flights[d0.flightIds[0]]?.status === 'scheduled' && recheckPairing(g, also).level === 'illegal') acs.add(also.aircraftId);
   if (g.company.policies.autoRoster) for (const ac of acs) rerosterFrom(g, ac, g.now);
 }
 

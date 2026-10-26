@@ -1,7 +1,7 @@
 // B2 — Crew & HR. Public API for the UI and other modules.
 
 import { BAL } from '../core/balance';
-import { flightsOf, flightsRev, takeFlightChanges } from '../core/entities';
+import { flightsOf, flightsRev, takeFlightChanges, touchTickets } from '../core/entities';
 import type { SimModule } from '../core/module';
 import { schedule } from '../core/queue';
 import { DAY, monthKey, yearOf } from '../core/time';
@@ -12,7 +12,7 @@ import { deletePairing, planAircraft } from './duties';
 export { aboveMinimum, legalMinimum } from './duties';
 import { dailySickness, onCrewJoin, onTrainingDone } from './hr';
 import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, settleService, setResignHooks } from './morale';
-import { autoRoster, closedWait, guardDuty, onFlightsChanged, recheckAfterRelease, recheckNext, recheckSoon, removeCrew, sendStrandedHome, stayOn } from './roster';
+import { autoRoster, closedWait, guardDuty, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, removeCrew, sendStrandedHome, stayOn } from './roster';
 import { localMin, minRest, signedTz, tzNights } from './rules';
 import { dailyStandby, noteRecovery } from './standby';
 import { dayPlanAfter, dayPlanBefore, dayPlanInit, dayPlanLoad, dayPlanMonth, v09Stats } from './dayPlan';
@@ -279,7 +279,55 @@ function onFlightArrCrew(g: GameState, ev: SimEvent): void {
     }
   }
   if (pax.length) touchCrewState(g);
-  if (missed.length) recheckNext(g, missed);
+  if (missed.length) {
+    // v0.10.1 never boarded: they come off the ticket, so no timeline (the roster's, the duty log's) moves them with
+    // it; the trip it was for is re-checked from where they really are (re-ticketed or re-crewed, or the shortage
+    // ladder raises it), as is their next trip.
+    if (f.kind === 'deadhead') f.crewIds = f.crewIds.filter((x) => !missed.includes(x));
+    else if (f.riders) {
+      f.riders = f.riders.filter((x) => !missed.includes(x));
+      if (!f.riders.length) delete f.riders;
+    }
+    touchTickets(g);
+    touchCrew(g);
+    recheckNext(g, missed, d && !d.done ? g.pairings[d.pairingId] : undefined);
+  }
+}
+
+/**
+ * v0.10.1 save repair (BLU511): before 0.10.1 a ticket out flown without a crew member (they were elsewhere: a re-plan
+ * left the ticket behind) still counted as theirs, so the roster saw them at the trip's departure while they were not
+ * there. Such crew come off the flown ticket and the trip's crew legality is re-read (the hourly crew check and the gate
+ * then re-crew it). Crew locations are kept: they are where the crew last flew.
+ */
+function repairMissedTickets(g: GameState): void {
+  const fixed = new Set<string>();
+  for (const d of Object.values(g.duties)) {
+    const p = g.pairings[d.pairingId];
+    const f0 = g.flights[d.flightIds[0]];
+    if (d.done || !p || !f0 || f0.status !== 'scheduled') continue;
+    for (const fid of d.deadheadIds) {
+      const t = g.flights[fid];
+      if (!t || t.status !== 'done' || t.sta > d.report) continue;
+      const gone = passengers(t).filter((id) => g.crew[id] && g.crew[id].loc !== t.to && p.slots.some((s) => s.crewId === id));
+      if (!gone.length) continue;
+      if (t.kind === 'deadhead') t.crewIds = t.crewIds.filter((x) => !gone.includes(x));
+      else if (t.riders) {
+        t.riders = t.riders.filter((x) => !gone.includes(x));
+        if (!t.riders.length) delete t.riders;
+      }
+      fixed.add(p.id);
+      // A gate decision taken on the old reading (wait for this crew) is asked again: the crew are not coming.
+      if (f0.crewDecided) {
+        delete f0.crewDecided;
+        delete f0.crewTries;
+      }
+    }
+  }
+  if (!fixed.size) return;
+  touchTickets(g);
+  touchCrew(g);
+  for (const id of fixed) recheckPairing(g, g.pairings[id]);
 }
 
 /** Status from blocks (sick, leave, training, joining) and rest; crew left 'onDuty' without an active trip are freed. */
@@ -451,6 +499,7 @@ export const crewModule: SimModule = {
     touchCrew(g);
     // v0.9 old saves keep their published roster; the v0.9 planner takes over from the first unpublished day.
     dayPlanLoad(g);
+    repairMissedTickets(g);
   },
   settle(g) {
     for (const [aircraftId, t] of takeFlightChanges(g)) onFlightsChanged(g, aircraftId, t);
