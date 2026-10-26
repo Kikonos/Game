@@ -106,17 +106,18 @@ function blockDays(base: string, from: Minute, to: Minute): number {
 }
 
 /**
- * Crew-planning round (26 Oct 2026): annual leave (or a course) starts once the crew member is home. A ticket that
- * leaves before a leave not yet begun and lands after its start (the rest after a late landing, or the 36 h recovery at the hotel,
+ * Crew-planning round (26 Oct 2026): annual leave (or a course) starts once the crew member is home. A ticket home
+ * that lands after the start of a leave not yet begun (the rest after a late landing, or the 36 h recovery at the hotel,
  * comes first: positioning is duty) moves the start of that leave to the landing, the leave keeping its days (seeds
  * 2-5 and the player's save: crew flew home on a deadhead on the first morning of their leave).
  */
 export function leaveAfterTicket(g: GameState, crewIds: Iterable<string>, t: { std: Minute; sta: Minute; to: string }): void {
   for (const id of crewIds) {
     const c = g.crew[id];
-    // A leave not begun that the ticket lands inside: one home (sent home late), or one leaving before the leave starts.
+    // A leave not begun (or beginning this minute) that a ticket home lands inside. (A ticket on to a trip across the
+    // start of a leave is the roster's to refuse, never a reason to move the leave.)
     const hit = (b: NonNullable<CrewMember['blocks']>[number]) =>
-      (b.why === 'leave' || b.why === 'training') && b.from > g.now && b.from < t.sta && b.to > t.sta && (t.to === c.base || t.std - BAL.deadheadCheckIn < b.from);
+      (b.why === 'leave' || b.why === 'training') && b.from >= g.now && b.from < t.sta && b.to > t.sta && t.to === c.base;
     if (!c?.blocks?.some(hit)) continue;
     c.blocks = c.blocks.map((b) => {
       if (!hit(b)) return b;
