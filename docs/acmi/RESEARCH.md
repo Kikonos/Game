@@ -1622,3 +1622,64 @@ What the game models in the Operations update, with the real numbers behind it. 
 - Night restrictions: https://en.wikipedia.org/wiki/Night_flying_restrictions ; https://www.universalweather.com/blog/noise-curfews-abatement-planning-considerations/ ; airport operators' pages.
 - Eurocontrol Performance Review Reports (ATFM delay), Network Manager CTOT procedures.
 - EU Regulation 965/2012 ORO.CC.100 (cabin crew numbers and the unforeseen-circumstances reduction), ORO.FTL.205(f) (discretion), ORO.FTL.235 (rest).
+
+## 18. ETOPS on ferries and positioning (v0.11, October 2026)
+
+Player decision (26 Oct 2026): "do the same as real airlines while we don't hold ETOPS approval". Before this,
+delivery and lease ferries crossed oceans on a one-off "ferry permit"; the per-aircraft ETOPS capability on the Fleet
+card fed no rule.
+
+### 18.1 The rule
+- **Without ETOPS approval a twin stays within 60 minutes of an adequate aerodrome.** EASA Part-CAT CAT.OP.MPA.140:
+  two-engined aeroplanes without an ETOPS approval (performance class A with 20+ seats or 45,360 kg+) may not fly
+  further from an adequate aerodrome than the distance flown in 60 minutes at the one-engine-inoperative cruise speed,
+  in still air (ISA). Further than that needs an ETOPS approval (Part-SPA, SPA.ETOPS) with the acceptable means in
+  AMC 20-6 (rev. 2): the operator's approval is for a stated diversion time (120, 180, 240 …) and an aircraft-engine
+  combination whose type design is ETOPS-capable to at least that time (CS-ETOPS). A ferry flight is still flown under
+  the operator's AOC: there is no general ETOPS exemption for non-revenue legs.
+- **The limit that applies to one of our aircraft** is therefore the lower of the company approval and the aircraft's
+  capability: an A320 (capable of 120 min in the game) stays at 120 even when the company holds ETOPS 180. Three- and
+  four-engine aeroplanes (747, A340, A380) are not limited by the twin rules.
+- **Isolated aerodromes.** A destination with no alternate in reach (Kangerlussuaq, Narsarsuaq, Iqaluit, Bermuda) needs
+  fuel for about two hours at normal cruise above it, final reserve included, instead of an alternate (Part-CAT fuel
+  rules, isolated-aerodrome procedure; formerly EU-OPS 1.255). That shortens the leg into it by roughly an hour of range.
+
+### 18.2 How real operators ferry a twin without ETOPS
+- **North Atlantic, the northern route:** Europe (Scotland, Ireland, Norway) – Keflavík (BIKF) – Kangerlussuaq (BGSF) or
+  Narsarsuaq (BGBW) – Iqaluit (CYFB) or Goose Bay (CYYR) – onward. It is the route of ferry pilots and of aircraft
+  without full North Atlantic equipment (the "Blue Spruce" routes of ICAO NAT Doc 007). Kangerlussuaq (2,810 m) and
+  Iqaluit (2,621 m) take jets; Narsarsuaq's single 1,830 m runway is short for most of them.
+- **The Azores do not bridge the mid-Atlantic for a twin:** Lajes and Ponta Delgada are ~800 nm from Newfoundland, far
+  beyond 60 minutes. Lisbon–Azores itself is fine (Madeira and the mainland are close enough).
+- **South Atlantic:** Natal–Cape Verde leaves ~600 nm from land at the middle: ETOPS 120 at least. Without it a twin
+  from South America goes north through the Caribbean and North America and over the northern route.
+- **Pacific:** US West Coast–Hawaii is ~2,100 nm of open ocean: ETOPS 180 for a twin; there is no 60-minute way.
+  Real answers: get the approval first, take the aircraft on this side, or pay a specialist ferry company that flies it
+  under its own approval or permit.
+
+### 18.3 In the game
+- Every ferry and positioning routing (delivery, lease return, refit, C-check hub, dry lease, sale, paint, contract
+  positioning, trip moves) is checked leg by leg against min(company approval, type capability); 0 = the 60-minute rule.
+  When the usual way needs more, a time-shortest chain of legs whose every leg stays inside the limit is planned (A*
+  over proper airports and the en-route fields; each leg within range, runway and a ferry day's block; isolated
+  fuel into Kangerlussuaq, Narsarsuaq, Iqaluit and Bermuda). It is flown as ferry days: ≤ 3 sectors and ≤ 10 h block
+  a day, 14 h night stops, so the auto-roster plans the duties and hotels like any multi-leg ferry.
+- One-engine speed 0.85 × cruise; adequate aerodrome = runway ≥ 2,400 m (unchanged). Each fuel stop is a flight: fuel,
+  landing and handling post on arrival as on any leg.
+- No legal way at all (an A320 out of Honolulu): said before signing in the four-line card; the ways out are the
+  approval (when the type is capable of it), a handover at a lessor site on this side, or a ferry company to our base
+  (fuel and fees at cost + 15 %, a day rate for its crew, permits; paid at signing, ledger line "Ferry companies").
+- Examples (A320, no approval): Lisbon–Halifax LIS–BFS–YFB–YHZ; Frankfurt–San Juan FRA–SFJ–RDU–SJU; a 767 from Montréal
+  YUL–SFJ–SNN–LIS, from Santiago SCL–UIO–SFJ–SNN–LIS.
+
+### 18.4 Sources
+- EASA Easy Access Rules for Air Operations (Reg. (EU) No 965/2012): CAT.OP.MPA.140 (maximum distance from an adequate
+  aerodrome for two-engined aeroplanes without an ETOPS approval), SPA.ETOPS.100–115, CAT.OP.MPA.150/181 fuel
+  (isolated aerodromes): https://www.easa.europa.eu/en/document-library/easy-access-rules/easy-access-rules-air-operations
+- EASA AMC 20-6 rev. 2, Extended Range Operation with Two-Engine Aeroplanes (ETOPS) Certification and Operation, and
+  CS-ETOPS: https://www.easa.europa.eu/en/document-library/certification-specifications/cs-etops-initial-issue
+- ICAO NAT Doc 007, North Atlantic Operations and Airspace Manual (Blue Spruce routes; operations without HF or with
+  limited long-range navigation): https://www.icao.int/EURNAT/EUR%20and%20NAT%20Documents/NAT%20Documents/
+- Aerodrome data (runways, positions): Isavia AIP Iceland (BIKF), Naviair AIP Greenland (BGSF, BGBW), NAV CANADA
+  Canada Flight Supplement (CYFB, CYYR, CYQX, CYYT), Bermuda AIP (TXKF), DGAC Chile AIP (SCFA, SCDA), FAA Chart
+  Supplement (KMDW 1,988 m).

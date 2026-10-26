@@ -117,6 +117,12 @@ export function AcquireModal({ offerId }: { offerId: string }) {
           <RestTwoLiner g={g} rest={offerRest(v)} typeId={o.typeId} />
         </div>
       </div>
+      {card && (
+        <div className="mt-12 mb-8 aq-noferry">
+          <ProblemCardView card={card} g={g} onAction={pickWay} />
+          {way && <div className="small muted mt-8">Chosen: {way === 'ferryCo' ? `a ferry company flies it to ${city(g.company.homeBase)} (home ~${dayIn(g.now, q.handover)})` : `handover at ${city(q.site)} on ${dayIn(g.now, q.handover)}, then our own ferry home`}. <button className="btn btn-ghost btn-sm" onClick={() => setVia(null)}>Change</button></div>}
+        </div>
+      )}
       <div className="aq-cols">
         <div className="col gap-8" style={{ minWidth: 0 }}>
           <div className="upper dim">Delivery plan</div>
@@ -132,7 +138,7 @@ export function AcquireModal({ offerId }: { offerId: string }) {
         <div className="col gap-8" style={{ minWidth: 0 }}>
           <div className="upper dim">Costs</div>
           <KV rows={[
-            [lease ? 'Deposit now' : 'Price now', money(now)],
+            [lease ? 'Deposit now' : 'Price now', money(now - fee)],
             ...(lease ? [['Rent from handover', `${money(o.rentPerMonth)}/month × ${o.leaseMonths} months`], ['Reserves', `$${o.reservesPerFH.toLocaleString('en-US')}/FH`]] as [string, string][] : []),
             ...(q.legs.length ? [['Delivery ferry', `≈ ${money(q.fuel + q.fees)} fuel & fees`], ['Delivery crew', `≈ ${money(q.crew)} tickets, hotels`]] as [string, string][] : []),
             ...(fee ? [[way === 'ferryCo' ? 'Ferry company' : 'Seller\'s ferry', `${money(fee)} at signing`]] as [string, string][] : []),
@@ -164,12 +170,6 @@ export function AcquireModal({ offerId }: { offerId: string }) {
           <span className="tiny dim">Painted under the cockpit windows</span>
         </div>
       </div>
-      {card && (
-        <div className="mt-12 aq-noferry">
-          <ProblemCardView card={card} g={g} onAction={pickWay} />
-          {way && <div className="small muted mt-8">Chosen: {way === 'ferryCo' ? `a ferry company flies it to ${city(g.company.homeBase)} (home ~${dayIn(g.now, q.handover)})` : `handover at ${city(q.site)} on ${dayIn(g.now, q.handover)}, then our own ferry home`}. <button className="btn btn-ghost btn-sm" onClick={() => setVia(null)}>Change</button></div>}
-        </div>
-      )}
       {warns.length > 0 && (
         <div className="col gap-4 mt-12">
           {warns.map((w, i) => <div key={i} className={`small row gap-8 cv-warn ${w.tone}`}><AlertTriangle className="sc-ico-s" /><span>{w.text}</span></div>)}
