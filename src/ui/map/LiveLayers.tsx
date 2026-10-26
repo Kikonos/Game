@@ -1065,9 +1065,10 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
             <circle className="aog-ring" r={14} />
             <g className="glyph">
               <path className="trail" d={sil.trails} fill="url(#bh-trail)" />
+              {/* v0.12 engines go under the wing (as on Flightradar24): only the intake shows ahead of the leading edge. */}
+              <path className="eng" d={sil.engines} fill={ink.eng} stroke={ink.edge} strokeWidth={1.2} strokeLinejoin="round" paintOrder="stroke" />
               <path className="sil" d={sil.body} fill={ink.fill} stroke={ink.edge} strokeWidth={2} strokeLinejoin="round" paintOrder="stroke" />
               {sil.deck && <path className="deck" d={sil.deck} fill={ink.deck} />}
-              <path className="eng" d={sil.engines} fill={ink.eng} stroke={ink.edge} strokeWidth={1.2} strokeLinejoin="round" paintOrder="stroke" />
             </g>
             <g className="badge maint" transform="translate(11 -11)">
               <circle r={7.5} />

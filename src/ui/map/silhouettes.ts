@@ -220,7 +220,7 @@ function area(q: Pt[]): number {
 export interface Silhouette {
   /** Fuselage, wings and tailplane (screen px, nose up, centred on the middle of the length). */
   body: string;
-  /** The engine nacelles, drawn over the wing so they read at map size. */
+  /** The engine nacelles, drawn under the wing: only the part ahead of the leading edge shows. */
   engines: string;
   /** The upper deck (747 hump, A380 full length): a lighter band on the crown. */
   deck: string;
