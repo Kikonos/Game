@@ -16,6 +16,22 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.10.1',
+    name: 'Liveries',
+    features: [
+      'Paint redone: it covers exactly the tail, the body and the engine cowlings. The belly colour runs under the wing, exhausts stay bare metal, and the finish has a gloss band along the body and a reflection on the tail.',
+      'New looks: Classic belly and Two-tone, a nose band, a stripe at the tail root and a line where two colours meet.',
+      'Every aircraft carries its registration and flag where real ones do (by the last door), with the model name beside it. Options: the registration on the tail, a fleet number at the top of the tail, and logos on the engines or by the nose.',
+      'Clients who ask for their paint now get their real livery: their colours, layout and name as on their own aircraft. Governments fly in their national colours, the UN in white with black titles.',
+    ],
+    improvements: [
+      'The planet logo is gone; aircraft that wore it now show the globe.',
+    ],
+    fixes: [
+      'A flight could be pushed back again and again ("Waiting for a rescue crew") when a crew member had missed the ticket to it. Crew who miss a ticket are now re-ticketed or replaced in time; if nobody can go, you get the crew-shortage decision at once. The flight sheet shows where the missing crew member is, and saves are repaired on load.',
+    ],
+  },
+  {
     version: 'v0.10',
     name: 'Fleet art',
     features: [
