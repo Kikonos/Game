@@ -448,3 +448,6 @@ Player notes (22 Oct, with top-bar screenshot .handover/updates/topbar-space.jpg
 - Visual A on acmi (ce647ef..9375008): day/night + city lights, top-down silhouettes (31 types, engines, size 24–41 px), flown/to-go lines + contrail >26k ft, weather marks, spotter mode. 1215 tests green. Shots updates/shots-visualA/. Leftovers: label pile-up with many aircraft near one airport (do in Visual B: label de-clutter), diversion mini-map + deadhead airline flights still generic plane icon, weather mark refresh hourly.
 - fix/wording merged → acmi 8e13fea (ff).
 - ETOPS ferry agent running (northern route while no approval; Fleet ETOPS line; impossible crossing card). Next: Visual B (5,7,8,9,10,11,12,13 + map label de-clutter + generic icons on mini-map/deadheads) → test rewrite with Ops on.
+
+### 26 Oct — map icons approved ("Fantastic love it")
+- Branch ui/engines (pushed, adfb846): engines under the wing (only intake ahead of LE, FR24-style) + silhouettes coloured BY FAMILY (SIL_COLOURS in silhouettes.ts: A320 blue, A330 purple, A340 pink, A350 teal, A380 red, 737 green, 757 lime, 767 brown, 777 orange, 787 cyan, 747 yellow), key in map ? legend. Livery stays in spotter/fleet. Merge into acmi after the ETOPS agent finishes.
