@@ -32,7 +32,7 @@ import { crewReadyAt, crewShortDecision, hasOpenDecision } from './events';
 import { aogChance, isGrounded, missCheck, startAog } from './maintenance';
 import { ageF, ageOf, bumpReliable, contractOf, isBaseLeg, isRevenue, stats, turnOf, usd } from './util';
 import { bumpClient, forgiveDelay, LEVEL_NAME, levelOf, statsV08 } from '../contracts/relations';
-import { closedAirport, closedAtDeparture, closedUntil, payWarRisk, strikeDelay, whiteout } from './world';
+import { closedAirport, closedAtDeparture, closedUntil, payWarRisk, strikeDelay, waitAtGate, whiteout } from './world';
 import { isActive, noteHiredThem } from '../contracts/rivals';
 import { atGate, delayCard, rollEnRoute } from './disrupt';
 
@@ -691,6 +691,8 @@ export function onFlightDep(g: GameState, ev: SimEvent): void {
   const closed = closedAtDeparture(g, f);
   if (closed) {
     f.closedBy = closed.id;
+    // v0.11 debug: a closure of more than the hour waits in one move (world.ts waitAtGate), not hourly holds.
+    if (waitAtGate(g, f, closed)) return;
     return quietHold(g, f, 60);
   }
   if (whiteout(g, f)) return;

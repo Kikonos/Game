@@ -14,6 +14,7 @@ import { feasibility } from '../contracts/feasibility';
 import { warRiskCost } from '../contracts/missionChecks';
 import { hamBase, leased, legsOffer, newGame, owned } from '../contracts/testkit';
 import { resolveDecision } from './events';
+import { advanceTo } from '../sim';
 import { crosses, dailyWorld, flightZone, isLive, onWorldEnd, payWarRisk, startEvent, warRiskAt, worldEvent, worldEventPins, worldEvents, worldZones } from './world';
 
 const iraq = ZONE_BY_ID.iraq;
@@ -133,6 +134,31 @@ describe('closures (§5.4)', () => {
     expect(dropped.every((f) => f.std < (e.airportClosedUntil ?? 0))).toBe(true);
     expect(g.decisions.some((x) => x.kind === 'airspace')).toBe(false);
     expect(g.messages.slice(0, g.messages.length - m0).some((m) => /dropped: Strike closes Hamburg/.test(m.title))).toBe(true);
+  });
+
+  // v0.11 debug (found with the Operations update on, in the v0.8 save test): a leg first stopped by a closure at the
+  // gate (here the closure begins after its crew reported) used to be held an hour at a time; once it was overdue every
+  // hold retimed the aircraft's chain and re-rostered its crew, every hour for the whole closure (the game slowed to
+  // seconds per day).
+  it('a leg stopped at the gate by a long closure waits for the reopening in one move, not hourly holds', () => {
+    const g = newGame(31);
+    const t = g.now + 2 * DAY;
+    const into = trip(g, leased(g).id, [['AMM', 'BGW', t], ['BGW', 'AMM', t + 3 * 60]]);
+    const f = into.fl[0];
+    advanceTo(g, f.std - 30, new Set());
+    expect(f.status).toBe('scheduled');
+    const ev0 = f.ev;
+    const e = startEvent(g, { ...TPL_BY_ID.airspaceIraq, closeP: 1 });
+    // The player leaves the Wait/Cancel question open: the departure check meets the closure first.
+    advanceTo(g, g.now + 3 * DAY, new Set());
+    expect(f.closedBy).toBe(e.id);
+    expect(f.status).toBe('scheduled');
+    expect(f.std + f.delay).toBeGreaterThanOrEqual(e.end + 3 * 60);
+    // One move (and a re-plan or two around it), not one per hour of the three days.
+    expect(f.ev - ev0).toBeLessThanOrEqual(4);
+    // The wait is force majeure: a crew wait elsewhere in the meantime never drops the waiting legs as "over 24 h late".
+    advanceTo(g, e.end + DAY, new Set());
+    for (const x of into.fl) expect(x.status, x.no).not.toBe('cancelled');
   });
 });
 

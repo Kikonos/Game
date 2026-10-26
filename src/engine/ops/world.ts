@@ -25,7 +25,7 @@ import { ceaseRival, isActive } from '../contracts/rivals';
 import { creditCancelledLeg, noteLostLegs } from '../contracts/billing';
 import { addShock, setPhase } from './market';
 import { ask } from './events';
-import { moveFlight } from './flights';
+import { delayChain, moveFlight } from './flights';
 import { subcharter, subcharterQuotes } from './subcharter';
 import { contractOf, isRevenue } from './util';
 
@@ -476,6 +476,9 @@ function waitLegs(g: GameState, k: Contract, e: WorldEvent): number {
   const later = Object.values(g.flights).filter((f) => f.contractId === k.id && f.status === 'scheduled' && f.aircraftId && f.std >= held[0].std && !ids.has(f.id)).sort((a, b) => a.std - b.std);
   let moved = 0;
   for (const f of held) {
+    // Force majeure: the wait is accepted lateness (here and for the legs it pushes), so a later recovery (a crew wait)
+    // does not count it toward its lateness cap and drop the leg "over 24 h late" with compensation.
+    f.lateOk = Math.max(f.lateOk ?? 0, f.std + shift - (f.schedStd ?? f.std));
     moveFlight(g, f, f.std + shift, `Waiting: ${e.title}`);
     moved++;
   }
@@ -483,11 +486,32 @@ function waitLegs(g: GameState, k: Contract, e: WorldEvent): number {
   let ready = held[held.length - 1].sta + turn(held[held.length - 1]);
   for (const f of later) {
     if (f.std >= ready) break;
+    f.lateOk = Math.max(f.lateOk ?? 0, ready - (f.schedStd ?? f.std));
     moveFlight(g, f, ready, `Waiting: ${e.title}`);
     ready = f.sta + turn(f);
     moved++;
   }
   return moved;
+}
+
+/**
+ * Departure check (ops flights.ts): a leg stopped at the gate by a closure that outlasts the next hour waits for the
+ * reopening in one move (3 h after it), not in hourly holds (each hold of an overdue leg retimed the aircraft's chain and
+ * re-rostered its crew, every hour of a closure of weeks). A trip's legs held by it go together, as the player's Wait
+ * (any open question on them then has nothing left to move); other legs (base waves, positioning) move with the
+ * usual recovery behind them. The wait is force majeure: accepted lateness. True when the leg was moved.
+ */
+export function waitAtGate(g: GameState, f: Flight, e: WorldEvent): boolean {
+  const at = closedUntil(e) + 3 * 60;
+  if (at <= g.now + 60 || f.status !== 'scheduled') return false;
+  f.closedBy = e.id;
+  const k = f.contractId ? g.contracts[f.contractId] : undefined;
+  if (k && k.pattern.kind !== 'base') waitLegs(g, k, e);
+  if (f.status === 'scheduled' && f.std < at) {
+    f.lateOk = Math.max(f.lateOk ?? 0, at - (f.schedStd ?? f.std));
+    delayChain(g, f, at, `Waiting: ${e.title}`, false);
+  }
+  return f.status !== 'scheduled' || f.std + f.delay >= at;
 }
 
 /** Resolver of 'airspace' decisions: wait (retime) or cancel as force majeure. */
