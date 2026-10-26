@@ -1,0 +1,24 @@
+== NEW · iPad touch mode · CPU 1x slower · 26 aircraft all airborne
+4x map (throttle 1x): 26 aircraft (26 airborne) | 718 frames, 60 fps | frame interval mean 16.7 ms, p95 16.7, p99 16.8, max 50.0 | over 33 ms: 1 | live loop avg 0.85 ms, max 5.2 ms | long tasks 0 (max 0 ms)
+4x map zoomed (throttle 1x): 26 aircraft (26 airborne) | 719 frames, 60 fps | frame interval mean 16.7 ms, p95 16.8, p99 16.8, max 33.3 | over 33 ms: 0 | live loop avg 0.73 ms, max 10.1 ms | long tasks 0 (max 0 ms)
+4x spotter (throttle 1x): 26 aircraft (26 airborne) | 694 frames, 58 fps | frame interval mean 17.3 ms, p95 16.8, p99 33.4, max 50.1 | over 33 ms: 12 | live loop avg 0.92 ms, max 5.1 ms | long tasks 0 (max 0 ms)
+== BEFORE · iPad touch mode · CPU 1x slower · 26 aircraft all airborne
+4x map (throttle 1x): 26 aircraft (26 airborne) | 721 frames, 60 fps | frame interval mean 16.7 ms, p95 16.7, p99 16.8, max 16.8 | over 33 ms: 0 | live loop avg 0.72 ms, max 3.7 ms | long tasks 0 (max 0 ms)
+4x map zoomed (throttle 1x): 26 aircraft (26 airborne) | 720 frames, 60 fps | frame interval mean 16.7 ms, p95 16.8, p99 16.8, max 16.8 | over 33 ms: 0 | live loop avg 0.67 ms, max 3.4 ms | long tasks 0 (max 0 ms)
+4x spotter (throttle 1x): 26 aircraft (26 airborne) | 719 frames, 60 fps | frame interval mean 16.7 ms, p95 16.7, p99 16.8, max 33.4 | over 33 ms: 1 | live loop avg 0.65 ms, max 3.0 ms | long tasks 0 (max 0 ms)
+== NEW · iPad touch mode · CPU 4x slower · 26 aircraft all airborne
+4x map (throttle 4x): 26 aircraft (26 airborne) | 535 frames, 45 fps | frame interval mean 22.5 ms, p95 33.4, p99 50.0, max 66.7 | over 33 ms: 45 | live loop avg 4.60 ms, max 34.0 ms | long tasks 2 (max 77 ms)
+4x map zoomed (throttle 4x): 26 aircraft (26 airborne) | 578 frames, 48 fps | frame interval mean 20.8 ms, p95 33.4, p99 50.0, max 116.7 | over 33 ms: 38 | live loop avg 4.12 ms, max 65.6 ms | long tasks 5 (max 106 ms)
+4x spotter (throttle 4x): 26 aircraft (26 airborne) | 486 frames, 41 fps | frame interval mean 24.7 ms, p95 50.0, p99 50.1, max 66.8 | over 33 ms: 92 | live loop avg 4.04 ms, max 17.2 ms | long tasks 1 (max 50 ms)
+== BEFORE · iPad touch mode · CPU 4x slower · 26 aircraft all airborne
+4x map (throttle 4x): 26 aircraft (26 airborne) | 688 frames, 57 fps | frame interval mean 17.5 ms, p95 16.8, p99 33.4, max 49.9 | over 33 ms: 9 | live loop avg 3.61 ms, max 11.9 ms | long tasks 0 (max 0 ms)
+4x map zoomed (throttle 4x): 26 aircraft (26 airborne) | 697 frames, 58 fps | frame interval mean 17.2 ms, p95 16.8, p99 33.4, max 66.6 | over 33 ms: 7 | live loop avg 3.32 ms, max 30.7 ms | long tasks 2 (max 65 ms)
+4x spotter (throttle 4x): 26 aircraft (26 airborne) | 676 frames, 56 fps | frame interval mean 17.8 ms, p95 33.3, p99 33.4, max 33.4 | over 33 ms: 17 | live loop avg 3.19 ms, max 11.7 ms | long tasks 0 (max 0 ms)
+== NEW · real game running at 4x (engine + React) · touch mode
+4x map (throttle 1x): 26 aircraft (7 airborne) | 636 frames, 53 fps | frame interval mean 19.0 ms, p95 33.2, p99 66.7, max 300.0 | over 33 ms: 27 | live loop avg 0.88 ms, max 5.9 ms | long tasks 23 (max 300 ms)
+4x map zoomed (throttle 1x): 26 aircraft (0 airborne) | 643 frames, 54 fps | frame interval mean 18.7 ms, p95 16.8, p99 66.7, max 150.1 | over 33 ms: 22 | live loop avg 0.70 ms, max 4.8 ms | long tasks 21 (max 157 ms)
+4x spotter (throttle 1x): 26 aircraft (0 airborne) | 718 frames, 60 fps | frame interval mean 16.7 ms, p95 16.7, p99 16.8, max 50.0 | over 33 ms: 1 | live loop avg 0.00 ms, max 0.0 ms | long tasks 0 (max 0 ms)
+== BEFORE · real game running at 4x (engine + React) · touch mode
+4x map (throttle 1x): 26 aircraft (7 airborne) | 664 frames, 55 fps | frame interval mean 18.1 ms, p95 16.8, p99 50.0, max 199.9 | over 33 ms: 19 | live loop avg 0.61 ms, max 1.7 ms | long tasks 15 (max 209 ms)
+4x map zoomed (throttle 1x): 26 aircraft (0 airborne) | 660 frames, 55 fps | frame interval mean 18.2 ms, p95 16.8, p99 66.7, max 100.0 | over 33 ms: 18 | live loop avg 0.60 ms, max 3.1 ms | long tasks 14 (max 105 ms)
+4x spotter (throttle 1x): 26 aircraft (0 airborne) | 716 frames, 60 fps | frame interval mean 16.8 ms, p95 16.8, p99 16.8, max 50.0 | over 33 ms: 2 | live loop avg 0.00 ms, max 0.0 ms | long tasks 0 (max 0 ms)

@@ -1,0 +1,33 @@
+Production builds (vite build + preview), Chromium headless 1180x820 @2x, iPad touch mode (?touch: 30 fps map loop), 12 s per row.
+== NEW · CPU 1x slower · 26 aircraft all airborne, clock driven at the 4x pace
+4x map (throttle 1x): 26 aircraft (26 airborne) | 719 frames, 60 fps | frame interval mean 16.7 ms, p95 16.7, p99 16.8, max 33.4 | over 33 ms: 0 | live loop avg 0.80 ms, max 3.8 ms | long tasks 0 (max 0 ms)
+4x map zoomed (throttle 1x): 26 aircraft (26 airborne) | 714 frames, 60 fps | frame interval mean 16.8 ms, p95 16.8, p99 16.8, max 66.8 | over 33 ms: 2 | live loop avg 0.77 ms, max 12.1 ms | long tasks 0 (max 0 ms)
+4x spotter (throttle 1x): 26 aircraft (26 airborne) | 688 frames, 57 fps | frame interval mean 17.4 ms, p95 16.8, p99 33.4, max 50.0 | over 33 ms: 6 | live loop avg 0.84 ms, max 4.1 ms | long tasks 0 (max 0 ms)
+== BEFORE · CPU 1x slower · 26 aircraft all airborne, clock driven at the 4x pace
+4x map (throttle 1x): 26 aircraft (26 airborne) | 720 frames, 60 fps | frame interval mean 16.7 ms, p95 16.8, p99 16.8, max 16.8 | over 33 ms: 0 | live loop avg 0.66 ms, max 2.2 ms | long tasks 0 (max 0 ms)
+4x map zoomed (throttle 1x): 26 aircraft (26 airborne) | 720 frames, 60 fps | frame interval mean 16.7 ms, p95 16.8, p99 16.8, max 16.8 | over 33 ms: 0 | live loop avg 0.64 ms, max 4.2 ms | long tasks 0 (max 0 ms)
+4x spotter (throttle 1x): 26 aircraft (26 airborne) | 718 frames, 60 fps | frame interval mean 16.7 ms, p95 16.8, p99 16.8, max 33.4 | over 33 ms: 1 | live loop avg 0.66 ms, max 3.2 ms | long tasks 0 (max 0 ms)
+== NEW · CPU 4x slower · 26 aircraft all airborne, clock driven at the 4x pace
+4x map (throttle 4x): 26 aircraft (26 airborne) | 595 frames, 50 fps | frame interval mean 20.2 ms, p95 33.4, p99 33.4, max 50.0 | over 33 ms: 14 | live loop avg 3.82 ms, max 20.6 ms | long tasks 0 (max 0 ms)
+4x map zoomed (throttle 4x): 26 aircraft (26 airborne) | 649 frames, 54 fps | frame interval mean 18.5 ms, p95 33.4, p99 33.4, max 66.6 | over 33 ms: 22 | live loop avg 3.56 ms, max 21.5 ms | long tasks 2 (max 58 ms)
+4x spotter (throttle 4x): 26 aircraft (26 airborne) | 546 frames, 46 fps | frame interval mean 22.0 ms, p95 33.4, p99 50.0, max 66.6 | over 33 ms: 55 | live loop avg 3.51 ms, max 41.0 ms | long tasks 3 (max 71 ms)
+== BEFORE · CPU 4x slower · 26 aircraft all airborne, clock driven at the 4x pace
+4x map (throttle 4x): 26 aircraft (26 airborne) | 718 frames, 60 fps | frame interval mean 16.7 ms, p95 16.8, p99 16.8, max 33.3 | over 33 ms: 0 | live loop avg 3.20 ms, max 13.2 ms | long tasks 0 (max 0 ms)
+4x map zoomed (throttle 4x): 26 aircraft (26 airborne) | 706 frames, 59 fps | frame interval mean 17.0 ms, p95 16.8, p99 33.3, max 83.4 | over 33 ms: 2 | live loop avg 3.37 ms, max 28.5 ms | long tasks 1 (max 83 ms)
+4x spotter (throttle 4x): 26 aircraft (26 airborne) | 672 frames, 56 fps | frame interval mean 17.9 ms, p95 33.3, p99 33.4, max 50.0 | over 33 ms: 16 | live loop avg 3.25 ms, max 11.9 ms | long tasks 0 (max 0 ms)
+== NEW · CPU 1x slower · real game running at 4x (engine + React)
+4x map (throttle 1x): 26 aircraft (7 airborne) | 703 frames, 59 fps | frame interval mean 17.1 ms, p95 16.8, p99 16.8, max 166.6 | over 33 ms: 2 | live loop avg 0.88 ms, max 9.0 ms | long tasks 3 (max 177 ms)
+4x map zoomed (throttle 1x): 26 aircraft (0 airborne) | 701 frames, 58 fps | frame interval mean 17.1 ms, p95 16.8, p99 33.3, max 66.7 | over 33 ms: 7 | live loop avg 0.73 ms, max 4.8 ms | long tasks 1 (max 64 ms)
+4x spotter (throttle 1x): 26 aircraft (0 airborne) | 718 frames, 60 fps | frame interval mean 16.7 ms, p95 16.7, p99 16.8, max 50.0 | over 33 ms: 1 | live loop avg 0.00 ms, max 0.0 ms | long tasks 0 (max 0 ms)
+== BEFORE · CPU 1x slower · real game running at 4x (engine + React)
+4x map (throttle 1x): 26 aircraft (7 airborne) | 705 frames, 59 fps | frame interval mean 17.6 ms, p95 16.8, p99 16.8, max 400.0 | over 33 ms: 3 | live loop avg 0.63 ms, max 2.9 ms | long tasks 4 (max 411 ms)
+4x map zoomed (throttle 1x): 26 aircraft (0 airborne) | 704 frames, 59 fps | frame interval mean 17.1 ms, p95 16.8, p99 33.3, max 83.4 | over 33 ms: 6 | live loop avg 0.61 ms, max 3.9 ms | long tasks 2 (max 66 ms)
+4x spotter (throttle 1x): 26 aircraft (0 airborne) | 719 frames, 60 fps | frame interval mean 16.7 ms, p95 16.8, p99 16.8, max 33.4 | over 33 ms: 0 | live loop avg 0.00 ms, max 0.0 ms | long tasks 0 (max 0 ms)
+== NEW · CPU 4x slower · real game running at 4x (engine + React)
+4x map (throttle 4x): 26 aircraft (7 airborne) | 410 frames, 34 fps | frame interval mean 29.3 ms, p95 83.3, p99 116.7, max 233.3 | over 33 ms: 74 | live loop avg 4.10 ms, max 22.5 ms | long tasks 44 (max 235 ms)
+4x map zoomed (throttle 4x): 26 aircraft (0 airborne) | 408 frames, 34 fps | frame interval mean 29.5 ms, p95 66.7, p99 166.6, max 583.3 | over 33 ms: 69 | live loop avg 3.74 ms, max 48.4 ms | long tasks 39 (max 579 ms)
+4x spotter (throttle 4x): 26 aircraft (0 airborne) | 717 frames, 60 fps | frame interval mean 16.8 ms, p95 16.7, p99 16.8, max 66.7 | over 33 ms: 1 | live loop avg 0.00 ms, max 0.0 ms | long tasks 0 (max 0 ms)
+== BEFORE · CPU 4x slower · real game running at 4x (engine + React)
+4x map (throttle 4x): 26 aircraft (7 airborne) | 508 frames, 42 fps | frame interval mean 23.7 ms, p95 66.7, p99 116.6, max 183.3 | over 33 ms: 49 | live loop avg 3.31 ms, max 12.0 ms | long tasks 39 (max 198 ms)
+4x map zoomed (throttle 4x): 26 aircraft (0 airborne) | 514 frames, 43 fps | frame interval mean 23.3 ms, p95 50.0, p99 150.0, max 383.3 | over 33 ms: 40 | live loop avg 2.92 ms, max 13.5 ms | long tasks 26 (max 393 ms)
+4x spotter (throttle 4x): 26 aircraft (0 airborne) | 712 frames, 59 fps | frame interval mean 16.9 ms, p95 16.7, p99 16.8, max 150.1 | over 33 ms: 1 | live loop avg 0.00 ms, max 0.0 ms | long tasks 0 (max 0 ms)
