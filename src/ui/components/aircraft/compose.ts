@@ -9,6 +9,7 @@ import { bodyLayers, engineColour, filletTakesBody, finBandPoly, finFilletPoly, 
 import { FONT_FAMILY, textInkEm, textWidthEm } from './fontMetrics';
 import { LOGOS, onColor } from './logos';
 import { glossOf, paintRegions, shadingFromField, shadingOf, type Shading } from './paintModel';
+import { flagUrl } from './flags';
 import { finSecondAreas, type StickerBox } from './stickers';
 import { fileOf, layoutOf, maskUrl, shadeUrl, spriteOf, spriteUrl, type AssetWidth } from './sprites';
 
@@ -31,8 +32,47 @@ function load(url: string): Promise<HTMLImageElement> {
   return p;
 }
 
+/** A flag's artwork (sized: WebKit draws an SVG without width/height unreliably) and whether its edge is light
+ *  (white or pale along a good part of its border, so it needs the hairline on light paint). */
+interface FlagArt { img: HTMLImageElement; lightEdge: boolean }
+const flagArts = new Map<string, Promise<FlagArt | null>>();
+function loadFlag(code: string): Promise<FlagArt | null> {
+  let p = flagArts.get(code);
+  if (!p) {
+    const url = flagUrl(code);
+    p = !url ? Promise.resolve(null) : fetch(url)
+      .then((r) => (r.ok ? r.text() : Promise.reject(new Error(`flag ${code}`))))
+      .then((svg) => load(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg.replace(/<svg\b/, '<svg width="600" height="400" preserveAspectRatio="none"'))}`))
+      .then((img) => {
+        const c = ctx2d(30, 20);
+        c.drawImage(img, 0, 0, 30, 20);
+        const px = c.getImageData(0, 0, 30, 20).data;
+        let light = 0, n = 0;
+        for (let y = 0; y < 20; y++) for (let x = 0; x < 30; x++) {
+          if (x > 0 && x < 29 && y > 0 && y < 19) continue;
+          const i = (y * 30 + x) * 4;
+          n++;
+          if (px[i + 3] < 128 || Math.min(px[i], px[i + 1], px[i + 2]) > 215) light++;
+        }
+        return { img, lightEdge: light / n > 0.2 };
+      })
+      // missing (offline before it was ever cached): painted without it
+      .catch(() => {
+        flagArts.delete(code);
+        return null;
+      });
+    flagArts.set(code, p);
+  }
+  return p;
+}
+async function flagsOf(decals: readonly Decal[]): Promise<Map<string, FlagArt>> {
+  const codes = [...new Set(decals.filter((d) => d.kind === 'flag' && d.text).map((d) => d.text!))];
+  const arts = await Promise.all(codes.map(loadFlag));
+  return new Map(codes.flatMap((c, i) => (arts[i] ? [[c, arts[i]] as const] : [])));
+}
+
 /** A sticker painted into the livery: its box (stickers.ts) and its lettering colour. v0.11 also the registration
- *  ('reg', text), the registry state's flag ('flag', an emoji in `text`) and the logo on the cowls (`on: 'cowl'`). */
+ *  ('reg', text), the registry state's flag ('flag', its ISO code in `text`, `ink` its hairline on light paint) and the logo on the cowls (`on: 'cowl'`). */
 export type Decal = Omit<StickerBox, 'kind'> & { kind: StickerBox['kind'] | 'reg' | 'flag'; ink?: string; on?: 'cowl' };
 
 /** Colours the paint depends on; null = the sprite untouched (plain white livery). */
@@ -172,16 +212,27 @@ function fillSpaced(c: Ctx, text: string, fs: number, spacing: number, baseline:
 }
 
 /** Paints the decals (titles, code, logos, registration, flag) into a paint layer, in the 2048 frame scaled by k. */
-function paintDecals(c: Ctx, decals: readonly Decal[], lv: Livery, k: number): void {
+function paintDecals(c: Ctx, decals: readonly Decal[], lv: Livery, k: number, flags: ReadonlyMap<string, FlagArt>): void {
   for (const d of decals) {
     if (d.kind === 'flag') {
+      // a flat rectangle on whole pixels (crisp edges); the 3:2 artwork clipped to the centre for a square flag
+      const art = flags.get(d.text ?? '');
+      if (!art) continue;
+      const x0 = Math.round((d.cx - d.w / 2) * k), x1 = Math.round((d.cx + d.w / 2) * k);
+      const y0 = Math.round((d.cy - d.h / 2) * k), y1 = Math.round((d.cy + d.h / 2) * k);
+      const h = y1 - y0, fw = 1.5 * h;
       c.save();
-      c.translate(d.cx * k, d.cy * k);
-      c.font = `${d.h * k * 1.18}px 'Apple Color Emoji', 'Noto Color Emoji', 'Segoe UI Emoji', sans-serif`;
-      c.textAlign = 'center';
-      c.textBaseline = 'middle';
-      c.fillText(d.text ?? '', 0, 0);
+      c.beginPath();
+      c.rect(x0, y0, x1 - x0, h);
+      c.clip();
+      c.drawImage(art.img, (x0 + x1) / 2 - fw / 2, y0, fw, h);
       c.restore();
+      if (d.ink && art.lightEdge) {
+        const lw = Math.max(1, 0.05 * h);
+        c.strokeStyle = d.ink;
+        c.lineWidth = lw;
+        c.strokeRect(x0 + lw / 2, y0 + lw / 2, x1 - x0 - lw, h - lw);
+      }
       continue;
     }
     c.save();
@@ -255,7 +306,8 @@ async function draw(sprite: string, w: AssetWidth, lv: Livery, decals: readonly 
   const file = fileOf(id);
   const d = layoutOf(id);
   const h = Math.round((d.h * w) / d.w);
-  const [pr] = await Promise.all([prep(file, w, h), decals.some((x) => x.kind !== 'logo' || x.text) ? fontsReady() : null]);
+  // the flags are loaded before anything is painted: the bitmap never shows without its flag
+  const [pr, flags] = await Promise.all([prep(file, w, h), flagsOf(decals), decals.some((x) => x.kind !== 'logo' || x.text) ? fontsReady() : null]);
   const k = w / d.w;
   const px = pr.px.slice();
   const layers = lv.plain ? [] : bodyLayers(id, lv.body);
@@ -298,7 +350,7 @@ async function draw(sprite: string, w: AssetWidth, lv: Livery, decals: readonly 
         for (const poly of l.polys) fillPoly(fc, poly, k);
       }
     }
-    paintDecals(fc, onSkin, lv, k);
+    paintDecals(fc, onSkin, lv, k, flags);
     finP = fc.getImageData(0, 0, w, h).data;
   }
   // fuselage: body, belly, split line, stripes, nose band, nose, then the decals (nothing at all = left as drawn)
@@ -311,7 +363,7 @@ async function draw(sprite: string, w: AssetWidth, lv: Livery, decals: readonly 
       bc.fillStyle = l.color;
       for (const poly of l.polys) fillPoly(bc, poly, k);
     }
-    paintDecals(bc, onSkin, lv, k);
+    paintDecals(bc, onSkin, lv, k, flags);
     bodyP = bc.getImageData(0, 0, w, h).data;
   }
   // cowls: their own colour (the belly's, else the tail's), the intake lips (bare metal as drawn unless the livery
@@ -321,7 +373,7 @@ async function draw(sprite: string, w: AssetWidth, lv: Livery, decals: readonly 
     const ec = ctx2d(w, h);
     ec.fillStyle = engineColour(lv);
     ec.fillRect(0, 0, w, h);
-    paintDecals(ec, onCowl, lv, k);
+    paintDecals(ec, onCowl, lv, k, flags);
     cowlP = ec.getImageData(0, 0, w, h).data;
     if (d.eng?.length) paintLips(cowlP, pr.m, w, h, k, d.eng, hexRgb(lv.body?.lip ?? '#ffffff'));
   }
@@ -329,7 +381,7 @@ async function draw(sprite: string, w: AssetWidth, lv: Livery, decals: readonly 
   let decalA: Uint8ClampedArray | null = null;
   if (decals.length) {
     const dc = ctx2d(w, h);
-    paintDecals(dc, decals, lv, k);
+    paintDecals(dc, decals, lv, k, flags);
     decalA = dc.getImageData(0, 0, w, h).data;
   }
   paintRegions(px, pr.m, pr.sh, [finP, bodyP, cowlP], decalA);

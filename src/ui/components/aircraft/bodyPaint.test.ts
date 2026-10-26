@@ -315,8 +315,9 @@ describe('v0.11 livery conventions (split below the windows, nose band, markings
       expect(reg.h, id).toBeGreaterThan(model.h);
       expect(reg.h, id).toBeLessThan(0.1 * H);
       const flag = all.find((x) => x.id === 'flag');
-      if (!narrow.has(id)) expect(flag?.text, id).toBe('🇵🇹');
-      else if (flag) expect(flag.text, id).toBe('🇵🇹');
+      if (!narrow.has(id)) expect(flag?.text, id).toBe('PT');
+      else if (flag) expect(flag.text, id).toBe('PT');
+      if (flag) expect(flag.w / flag.h, id).toBeCloseTo(1.5, 5);
       expect(all.filter((x) => x.on === 'cowl').length, id).toBe(d.eng!.length);
       expect(extraDecals(id, lv, { reg: 'CS-TBL', model: 'X', fine: false }).some((x) => x.kind === 'reg'), id).toBe(false);
       expect(extraDecals(id, { ...lv, reg: { hide: true } }, { reg: 'CS-TBL', fine: true }).some((x) => x.id === 'reg'), id).toBe(false);

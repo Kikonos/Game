@@ -11,6 +11,7 @@ import { demoFlights } from '../dev';
 import { addCrew, fixtureGame, seasonBase } from './fixtures';
 import { autoRoster, crewCalendar, dropTargets, dutyLegality, flightCrewStatus, moveDuty, rerosterFrom, rosterBoard, rosterOf } from '.';
 import { touchCrew } from './timeline';
+import { perfBudgetFactor } from '../../test/perf';
 
 function rostered(seed = 5): GameState {
   const g = fixtureGame(seed);
@@ -248,7 +249,7 @@ describe('moving duties', () => {
       dropTargets(g, p.dutyIds[0], cc, 'trip');
       times.push(performance.now() - t0);
     }
-    expect(Math.min(...times)).toBeLessThan(400);
+    expect(Math.min(...times)).toBeLessThan(400 * perfBudgetFactor());
   });
 
   it('dropTargets green ⇒ moveDuty works; a refused move changes nothing (v0.5.2 fixture, both scopes)', () => {

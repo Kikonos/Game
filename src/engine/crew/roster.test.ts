@@ -13,6 +13,7 @@ import { addCrew, fixtureContract, fixtureGame, seasonBase } from './fixtures';
 import { autoRoster, buildDuties, captainAsFo, crewWindows, dutyCandidates, flightCrewStatus, rosterOf } from '.';
 import { recheckSoon } from './roster';
 import { canFill, seatLabel } from '../core/perf';
+import { perfBudgetFactor } from '../../test/perf';
 
 const scheduled = (g: GameState) => Object.values(g.flights).filter((f) => f.aircraftId && f.status === 'scheduled');
 const crewedDuties = (g: GameState): Duty[] => Object.values(g.duties).filter((d) => g.pairings[d.pairingId]?.slots.some((s) => s.crewId));
@@ -442,13 +443,14 @@ describe('performance', () => {
       }
       expect(new Set(sigs).size).toBe(1);
       const load = Math.max(1, Math.min(...ref) / CALIB_IDLE_MS);
-      return { best: Math.min(...times), budget: 120 * load, times, load };
+      // on a slower machine (CI) the budget scales by its factor too: the roster's own work, not just the load
+      return { best: Math.min(...times), budget: 120 * load * perfBudgetFactor(), times, load };
     };
     // v0.7 C5: the 50 ms target stays in the log; the assertion budget is 120 ms on an idle machine. One retry: a
     // burst of load from another file can land on the roster runs and miss the reference.
     let r = measure();
     if (r.best >= r.budget) r = measure();
-    console.log(`autoRoster (month, 4 aircraft, 120 crew): ${r.times.map((t) => t.toFixed(1)).join(' / ')} ms (target 50 ms, budget ${r.budget.toFixed(0)} ms at load ×${r.load.toFixed(2)})`);
+    console.log(`autoRoster (month, 4 aircraft, 120 crew): ${r.times.map((t) => t.toFixed(1)).join(' / ')} ms (target 50 ms, budget ${r.budget.toFixed(0)} ms at load ×${r.load.toFixed(2)}, machine ×${perfBudgetFactor()})`);
     expect(r.best).toBeLessThan(r.budget);
   });
 });
