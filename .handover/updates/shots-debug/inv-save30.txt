@@ -1,0 +1,142 @@
+played to 15 Sep 16:51, cash 3518572, 5 aircraft, 208 crew, 9.1 s
+
+== save /home/user/wt/notes/.handover/updates/shots-debug/save/blue.json: 0 errors, 15 warnings (372 legs, 208 crew, 668 rests checked (740 without legs on record), 727 steps, 16 Aug 16:51 → 15 Sep 16:51)
+  warn hold-loop × 2
+    18 Aug 11:10  BLU404 LGW–LHR retimed 8 times near departure (first STD 18 Aug 04:05, now 18 Aug 13:45)
+    18 Aug 19:20  BLU1111 LHR–MLA retimed 8 times near departure (first STD 18 Aug 05:55, now 18 Aug 23:55)
+  warn orphan × 6
+    29 Aug 00:15  duty duxf9 lists missing ticket f10zf
+    29 Aug 00:15  duty duxf9 lists missing ticket f10zj
+    29 Aug 00:15  duty duxf9 lists missing ticket f10zn
+    29 Aug 00:15  duty duxf9 lists missing ticket f10zr
+    29 Aug 00:15  duty duxf9 lists missing ticket f10zv
+    29 Aug 00:15  duty duxf9 lists missing ticket f10zz
+  warn sby-rest × 7
+    23 Jul 16:00  Sofia Ribeiro (PUR): 8:00 after an uncalled hotel standby ending 23 Jul 16:00 before work 24 Jul 00:00 (engine rule 10:00)
+    23 Jul 16:00  Léa Bernard (CC): 8:00 after an uncalled hotel standby ending 23 Jul 16:00 before work 24 Jul 00:00 (engine rule 10:00)
+    23 Jul 16:00  Mariana Marques (CC): 8:00 after an uncalled hotel standby ending 23 Jul 16:00 before work 24 Jul 00:00 (engine rule 10:00)
+    16 Aug 16:30  Marta Lopes (CC): 0:30 after an uncalled hotel standby ending 16 Aug 16:30 before work 16 Aug 17:00 (engine rule 10:00)
+    16 Aug 16:30  Mariana Vieira (CC): 0:30 after an uncalled hotel standby ending 16 Aug 16:30 before work 16 Aug 17:00 (engine rule 10:00)
+    16 Aug 16:30  Manon Lefebvre (CC): 0:30 after an uncalled hotel standby ending 16 Aug 16:30 before work 16 Aug 17:00 (engine rule 10:00)
+    16 Aug 16:30  Diogo Ferreira (PUR): 0:30 after an uncalled hotel standby ending 16 Aug 16:30 before work 16 Aug 17:00 (engine rule 10:00)
+--- Válter Tavares (CPT) base LIS, first seen at LIS 16 Aug 16:51
+  SBY  19 Jul 05:00 → 19 Jul 16:00 hotel at DUS
+  SBY  20 Jul 04:00 → 20 Jul 16:00 hotel at DUS
+  LOG  22 Jul 16:00 → 22 Jul 17:45 1:45 sectors 0
+  LOG  23 Jul 04:30 → 23 Jul 13:30 9:00 sectors 2
+  SBY  24 Jul 04:00 → 24 Jul 16:00 hotel at FRA
+  LOG  25 Jul 02:20 → 25 Jul 10:40 8:20 sectors 2
+  LOG  25 Jul 21:00 → 26 Jul 05:10 8:10 sectors 0
+  SBY  29 Jul 05:00 → 29 Jul 16:00 home at LIS
+  SBY  1 Aug 05:00 → 1 Aug 08:00 home at LIS
+  LOG  2 Aug 15:00 → 2 Aug 18:25 3:25 sectors 0
+  LOG  3 Aug 07:30 → 4 Aug 05:25 21:55 sectors 2
+  SBY  5 Aug 04:00 → 5 Aug 16:00 home at LIS
+  SBY  7 Aug 04:00 → 7 Aug 16:00 home at LIS
+  LOG  9 Aug 13:00 → 9 Aug 20:05 7:05 sectors 0
+  LOG  10 Aug 06:40 → 10 Aug 11:20 4:40 sectors 1
+  FLT  10 Aug 07:40 → 10 Aug 10:45 BLU634 HER–VNO revenue
+  LOG  11 Aug 14:00 → 11 Aug 17:20 3:20 sectors 0
+  LOG  12 Aug 04:00 → 12 Aug 16:35 12:35 sectors 1
+  FLT  12 Aug 06:14 → 12 Aug 09:41 BLU538 AMS–RHO revenue
+  SBY  13 Aug 05:10 → 13 Aug 16:00 home at LIS
+  SBY  14 Aug 04:00 → 14 Aug 11:55 home at LIS
+  BLK  14 Aug 23:00 → 18 Aug 23:00 leave
+  SBY  22 Aug 11:00 → 22 Aug 23:00 home at LIS
+  SBY  23 Aug 11:00 → 23 Aug 23:00 home at LIS
+  SBY  24 Aug 11:00 → 24 Aug 23:00 home at LIS
+  LOG  26 Aug 02:00 → 26 Aug 04:15 2:15 sectors 0
+  FLT  26 Aug 03:00 → 26 Aug 04:15 DH LIS–CMN deadhead
+  SBY  27 Aug 05:00 → 27 Aug 17:00 hotel at CMN
+  SBY  31 Aug 05:00 → 31 Aug 15:00 hotel at CMN
+  LOG  1 Sep 14:20 → 2 Sep 01:13 10:53 sectors 2
+  FLT  1 Sep 18:03 → 1 Sep 21:00 AT1062 CMN–FCO revenue
+  FLT  1 Sep 21:40 → 2 Sep 00:47 AT1063 FCO–CMN revenue
+  SBY  3 Sep 03:00 → 3 Sep 15:00 hotel at CMN
+  LOG  6 Sep 04:00 → 6 Sep 11:10 7:10 sectors 2
+  FLT  6 Sep 05:00 → 6 Sep 07:26 AT1040 CMN–MRS revenue
+  FLT  6 Sep 08:10 → 6 Sep 10:39 AT1041 MRS–CMN revenue
+  LOG  7 Sep 04:00 → 7 Sep 12:40 8:40 sectors 2
+  FLT  7 Sep 05:00 → 7 Sep 08:17 AT1080 CMN–BRU revenue
+  FLT  7 Sep 09:02 → 7 Sep 12:13 AT1081 BRU–CMN revenue
+  SBY  8 Sep 03:00 → 8 Sep 15:00 hotel at CMN
+  LOG  9 Sep 14:20 → 9 Sep 23:54 9:34 sectors 2
+  FLT  9 Sep 16:14 → 9 Sep 19:36 AT1082 CMN–BRU revenue
+  FLT  9 Sep 20:16 → 9 Sep 23:35 AT1083 BRU–CMN revenue
+  SBY  12 Sep 05:00 → 12 Sep 15:00 hotel at CMN
+  LOG  13 Sep 04:00 → 13 Sep 15:10 11:10 sectors 2
+  FLT  13 Sep 05:00 → 13 Sep 09:14 AT1020 CMN–ADB revenue
+  FLT  13 Sep 09:55 → 13 Sep 14:42 AT1021 ADB–CMN revenue
+  LOG  14 Sep 04:00 → 14 Sep 15:15 11:15 sectors 2
+  FLT  14 Sep 05:00 → 14 Sep 07:50 AT1060 CMN–FCO revenue
+  FLT  14 Sep 08:30 → 14 Sep 11:38 AT1061 FCO–CMN revenue
+  FLT  14 Sep 14:00 → 14 Sep 15:15 DH CMN–LIS deadhead
+  SBY  18 Sep 11:00 → 18 Sep 23:00 home at LIS
+  SBY  19 Sep 11:00 → 19 Sep 23:00 home at LIS
+  SBY  20 Sep 11:00 → 20 Sep 23:00 home at LIS
+  SBY  21 Sep 11:00 → 21 Sep 23:00 home at LIS
+  SBY  24 Sep 05:00 → 24 Sep 16:00 home at LIS
+  SBY  25 Sep 04:00 → 25 Sep 16:00 home at LIS
+  SBY  26 Sep 04:00 → 26 Sep 12:45 home at LIS
+  SBY  27 Sep 04:00 → 27 Sep 16:00 home at LIS
+  SBY  28 Sep 04:00 → 28 Sep 16:00 home at LIS
+  BLK  2 Nov 00:00 → 12 Nov 00:00 leave
+--- Sofia Lopes (CPT) base LIS, first seen at LIS 16 Aug 16:51
+  SBY  19 Jul 11:00 → 19 Jul 23:00 home at LIS
+  SBY  22 Jul 05:00 → 22 Jul 09:00 home at LIS
+  LOG  23 Jul 01:30 → 23 Jul 05:14 3:44 sectors 0
+  LOG  23 Jul 15:25 → 24 Jul 00:45 9:20 sectors 2
+  LOG  24 Jul 11:00 → 24 Jul 14:50 3:50 sectors 0
+  SBY  25 Jul 04:00 → 25 Jul 16:00 home at LIS
+  SBY  26 Jul 04:00 → 26 Jul 16:00 home at LIS
+  SBY  27 Jul 04:00 → 27 Jul 16:00 home at LIS
+  SBY  30 Jul 11:00 → 30 Jul 23:00 home at LIS
+  SBY  31 Jul 11:00 → 31 Jul 17:00 home at LIS
+  LOG  1 Aug 05:00 → 1 Aug 16:50 11:50 sectors 1
+  LOG  2 Aug 09:15 → 2 Aug 21:55 12:40 sectors 2
+  SBY  3 Aug 10:35 → 3 Aug 16:00 home at LIS
+  SBY  6 Aug 05:00 → 6 Aug 16:00 home at LIS
+  LOG  7 Aug 16:00 → 7 Aug 19:40 3:40 sectors 0
+  LOG  8 Aug 06:30 → 8 Aug 11:55 5:25 sectors 2
+  SBY  9 Aug 04:00 → 9 Aug 13:00 hotel at MXP
+  LOG  9 Aug 23:00 → 10 Aug 08:40 9:40 sectors 1
+  FLT  10 Aug 00:00 → 10 Aug 02:16 BLU1003 MXP–VNO positioning
+  SBY  13 Aug 11:00 → 13 Aug 23:00 home at LIS
+  SBY  14 Aug 11:00 → 14 Aug 23:00 home at LIS
+  SBY  15 Aug 11:00 → 15 Aug 23:00 home at LIS
+  SBY  16 Aug 11:00 → 16 Aug 12:00 home at LIS
+  LOG  17 Aug 10:00 → 18 Aug 01:55 15:55 sectors 1
+  FLT  17 Aug 11:00 → 17 Aug 13:25 DH LIS–LHR deadhead
+  FLT  17 Aug 17:50 → 17 Aug 21:44 BLU403 LHR–ACE revenue
+  FLT  18 Aug 00:00 → 18 Aug 01:55 DH ACE–LIS deadhead
+  SBY  21 Aug 11:00 → 21 Aug 23:00 home at LIS
+  SBY  22 Aug 11:00 → 22 Aug 23:00 home at LIS
+  SBY  23 Aug 11:00 → 23 Aug 23:00 home at LIS
+  BLK  23 Aug 23:00 → 27 Aug 23:00 leave
+  LOG  28 Aug 12:00 → 28 Aug 16:05 4:05 sectors 0
+  FLT  28 Aug 13:00 → 28 Aug 16:05 DH LIS–HAM deadhead
+  LOG  29 Aug 02:25 → 29 Aug 14:25 12:00 sectors 2
+  FLT  29 Aug 03:25 → 29 Aug 05:41 DE3060 HAM–NAP revenue
+  FLT  29 Aug 06:25 → 29 Aug 08:49 DE3061 NAP–HAM revenue
+  FLT  29 Aug 11:00 → 29 Aug 14:25 DH HAM–LIS deadhead
+  SBY  2 Sep 05:00 → 2 Sep 10:15 home at LIS
+  SBY  3 Sep 04:00 → 3 Sep 16:00 home at LIS
+  SBY  4 Sep 04:00 → 4 Sep 16:00 home at LIS
+  LOG  6 Sep 20:00 → 6 Sep 22:55 2:55 sectors 0
+  FLT  6 Sep 21:00 → 6 Sep 22:55 DH LIS–ACE deadhead
+  LOG  7 Sep 09:25 → 7 Sep 14:50 5:25 sectors 1
+  FLT  7 Sep 10:43 → 7 Sep 14:39 BLU410 ACE–LHR revenue
+  SBY  8 Sep 05:00 → 8 Sep 15:55 hotel at LHR
+  LOG  9 Sep 01:55 → 10 Sep 02:35 24:40 sectors 2
+  FLT  9 Sep 02:55 → 9 Sep 03:48 BLU827 LHR–AMS positioning
+  FLT  9 Sep 08:00 → 9 Sep 11:23 BLU546 AMS–RHO revenue
+  FLT  9 Sep 20:00 → 10 Sep 02:35 DH RHO–LIS deadhead
+  SBY  13 Sep 05:00 → 13 Sep 16:00 home at LIS
+  SBY  14 Sep 04:00 → 14 Sep 16:00 home at LIS
+  SBY  15 Sep 04:00 → 15 Sep 16:00 home at LIS
+  SBY  20 Sep 08:35 → 20 Sep 16:00 home at LIS
+  SBY  21 Sep 04:00 → 21 Sep 16:00 home at LIS
+  SBY  24 Sep 11:00 → 24 Sep 23:00 home at LIS
+  SBY  27 Sep 11:00 → 27 Sep 23:00 home at LIS
+  SBY  28 Sep 11:00 → 28 Sep 23:00 home at LIS
+  BLK  11 Oct 23:00 → 20 Oct 23:00 leave

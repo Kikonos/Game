@@ -1,0 +1,173 @@
+BLOCK HOURS bot — seed 1, 365 days, Startup at LIS (2× A320ceo)
+
+month       cash  revenue   profit  BH/ac  wet BH/MGH  contracts        legs cx/sub ill util  AOG mxd  dec/msg goals
+Mar ’27    1735k    1122k    -251k     59         3/0  AH2 RP3 SB1        12    0/0   0  11%    0   0     0/38     1
+Apr ’27     240k    1641k      38k    196     362/299  RP1 SB2           159    0/2   0  40%    0   0     7/54     2
+May ’27    1038k    1474k     -43k    140     225/181  AH6 SB4           105    0/0   0  28%    0   0     5/44     2
+Jun ’27    1230k    1731k     162k    199     372/293  AH2 SB3 SP1       150    0/0   0  39%    0   0     5/53     2
+Jul ’27    1760k    1681k     208k    189     358/258  AH2 SB3           170    0/0   0  37%    0   0     5/29     2
+Aug ’27    1890k    1674k     147k    168     303/238  AC1 AH2 SB4 SP1   120    0/0   0  26%    0   0     1/44     2
+Sep ’27    1062k    1641k     130k    192     376/310  AH1 SB3           135    2/0   0  19%    0   0     2/32     2
+Oct ’27    1054k    1303k    -669k    141     253/218  AC1 AH2 SB2 SP1    98    2/0   0  21%    1   2     4/43     2
+Nov ’27     897k    1136k   -1044k     55      110/86  AC1 AH4 SB3 SI1    42    0/0   0  11%    0  15     1/54     3
+Dec ’27   -1077k    3091k     432k    211     630/582  AH2 SB3 SI1       310   10/8   0  48%    0   0     6/68     3
+Jan ’28    -136k    2644k     -18k    198     585/510  AH2 DL1 SB3 SP1   250    9/7   0  44%    1   2     4/56     3
+Feb ’28*   1115k     537k    -436k    137     387/326  AH2 DL1 SB3       166    0/0   0  30%    0   4     1/53     4
+
+== invariants seed 1--inv: 139 errors, 6 warnings (2514 legs, 110 crew, 6378 rests checked (6 without legs on record), 1536 steps, 1 Mar 06:00 → 29 Feb 00:00)
+  ERROR blocked × 19
+    2 Apr 00:00  Vasco Rodrigues (CPT) flew DH 2 Apr 00:00 while leave (1 Apr 23:00–7 Apr 23:00)
+    1 Jan 07:00  Francisco Lopes (FO) flew DH 1 Jan 07:00 while leave (1 Jan 00:00–11 Jan 00:00)
+    12 Jan 00:00  Catarina Oliveira (PUR) flew DH 12 Jan 00:00 while leave (12 Jan 00:00–22 Jan 00:00)
+    23 Oct 13:00  Inês Oliveira (PUR) flew DH 23 Oct 13:00 while leave (22 Oct 23:00–2 Nov 00:00)
+    3 Jul 05:00  Beatriz Vieira (CC) flew DH 3 Jul 05:00 while leave (2 Jul 23:00–6 Jul 23:00)
+    19 Jan 07:00  Beatriz Vieira (CC) flew DH 19 Jan 07:00 while leave (19 Jan 00:00–29 Jan 00:00)
+    1 Oct 01:00  Diogo Ribeiro (CC) flew DH 1 Oct 01:00 while leave (30 Sep 23:00–10 Oct 23:00)
+    1 Jan 07:00  Inês Teixeira (CC) flew DH 1 Jan 07:00 while leave (1 Jan 00:00–11 Jan 00:00)
+    4 Dec 07:00  Felipe Nascimento (CC) flew DH 4 Dec 07:00 while leave (4 Dec 00:00–14 Dec 00:00)
+    19 Jun 00:00  Sofia Pereira (CC) flew DH 19 Jun 00:00 while leave (16 Jun 23:00–22 Jun 23:00)
+    12 Jan 00:00  Sofia Pereira (CC) flew DH 12 Jan 00:00 while leave (12 Jan 00:00–22 Jan 00:00)
+    24 Apr 07:00  Diogo Mendes (CC) flew DH 24 Apr 07:00 while leave (23 Apr 23:00–29 Apr 23:00)
+    1 Jan 07:00  Mariana Pereira (CC) flew DH 1 Jan 07:00 while leave (1 Jan 00:00–11 Jan 00:00)
+    5 Jan 15:00  Marta Mendes (CC) flew DH 5 Jan 15:00 while leave (5 Jan 00:00–2 Jan 00:00)
+    7 Dec 01:00  Nuno Ferreira (CC) flew DH 7 Dec 01:00 while leave (7 Dec 00:00–13 Dec 00:00)
+    1 Oct 01:00  Mateus Moreira (FO) flew DH 1 Oct 01:00 while leave (30 Sep 23:00–11 Oct 23:00)
+    1 Oct 01:00  Pedro Oliveira (PUR) flew DH 1 Oct 01:00 while leave (30 Sep 23:00–10 Oct 23:00)
+    1 Jan 07:00  Joana Martins (CC) flew DH 1 Jan 07:00 while leave (1 Jan 00:00–11 Jan 00:00)
+    22 Jan 07:00  Mariana Teixeira (CC) flew DH 22 Jan 07:00 while leave (22 Jan 00:00–1 Feb 00:00)
+  ERROR crew-min × 38
+    15 Aug 05:00  AT1000 CMN–FRA flew with 1 cabin crew (minimum 4 for 180 seats)
+    15 Aug 08:50  AT1001 FRA–CMN flew with 1 cabin crew (minimum 4 for 180 seats)
+    15 Aug 13:10  AT1022 CMN–BRU flew with 1 cabin crew (minimum 4 for 180 seats)
+    15 Aug 17:10  AT1023 BRU–CMN flew with 1 cabin crew (minimum 4 for 180 seats)
+    16 Aug 05:00  AT1040 CMN–LHR flew with 1 cabin crew (minimum 4 for 180 seats)
+    16 Aug 08:45  AT1041 LHR–CMN flew with 1 cabin crew (minimum 4 for 180 seats)
+    16 Aug 13:10  AT1062 CMN–CDG flew with 1 cabin crew (minimum 4 for 180 seats)
+    16 Aug 16:46  AT1063 CDG–CMN flew with 1 cabin crew (minimum 4 for 180 seats)
+    17 Aug 05:00  AT1080 CMN–BCN flew with 1 cabin crew (minimum 4 for 180 seats)
+    17 Aug 07:40  AT1081 BCN–CMN flew with 1 cabin crew (minimum 4 for 180 seats)
+    18 Aug 05:00  AT1120 CMN–LPA flew with 1 cabin crew (minimum 4 for 180 seats)
+    18 Aug 07:20  AT1121 LPA–CMN flew with 1 cabin crew (minimum 4 for 180 seats)
+    19 Aug 05:00  AT1020 CMN–BRU flew with 1 cabin crew (minimum 4 for 180 seats)
+    19 Aug 08:55  AT1021 BRU–CMN flew with 1 cabin crew (minimum 4 for 180 seats)
+    20 Aug 05:00  AT1060 CMN–CDG flew with 1 cabin crew (minimum 4 for 180 seats)
+    20 Aug 08:35  AT1061 CDG–CMN flew with 1 cabin crew (minimum 4 for 180 seats)
+    24 Aug 13:10  AT1102 CMN–MUC flew with 1 cabin crew (minimum 4 for 180 seats)
+    24 Aug 17:05  AT1103 MUC–CMN flew with 1 cabin crew (minimum 4 for 180 seats)
+    1 Sep 04:10  EI4000 DUB–AGP flew with 1 cabin crew (minimum 4 for 180 seats)
+    1 Sep 07:40  EI4001 AGP–DUB flew with 1 cabin crew (minimum 4 for 180 seats)
+    1 Sep 12:00  EI4022 DUB–SPU flew with 1 cabin crew (minimum 4 for 180 seats)
+    1 Sep 13:10  AT1002 CMN–FRA flew with 1 cabin crew (minimum 4 for 180 seats)
+    1 Sep 15:32  EI4023 SPU–DUB flew with 1 cabin crew (minimum 4 for 180 seats)
+    1 Sep 17:03  AT1003 FRA–CMN flew with 1 cabin crew (minimum 4 for 180 seats)
+    2 Sep 04:21  EI4040 DUB–DBV flew with 1 cabin crew (minimum 4 for 180 seats)
+  ERROR fdp × 3
+    28 Jun 09:40  duty du61b max FDP 13:00 over Table 2 for 3 sectors
+    22 Oct 20:20  duty duebj unaugmented max FDP 15:45 over 14 h
+    22 Oct 20:20  duty duebj max FDP 15:45 over Table 2 for 3 sectors
+  ERROR sby-where × 79
+    3 Apr 06:00  Rita Mendes (CC): on hotel standby at DUB 3 Apr 03:00–3 Apr 15:00 but is at LIS
+    7 Apr 06:00  Rita Mendes (CC): on hotel standby at DUB 7 Apr 05:00–7 Apr 17:00 but is at LIS
+    8 Apr 06:00  Rita Mendes (CC): on hotel standby at DUB 8 Apr 05:00–8 Apr 17:00 but is at LIS
+    14 Apr 06:00  Inês Ribeiro (FO): on hotel standby at HAM 14 Apr 02:00–14 Apr 14:00 but is at LIS
+    15 Apr 06:00  Inês Ribeiro (FO): on hotel standby at HAM 15 Apr 02:00–15 Apr 14:00 but is at LIS
+    16 Apr 06:00  Inês Ribeiro (FO): on hotel standby at HAM 16 Apr 02:00–16 Apr 14:00 but is at LIS
+    17 Apr 06:00  Inês Ribeiro (FO): on hotel standby at HAM 17 Apr 02:00–17 Apr 14:00 but is at LIS
+    25 Apr 06:00  Carolina Marques (CC): on hotel standby at DUB 25 Apr 05:00–25 Apr 17:00 but is at LIS
+    24 May 06:00  Joana Pereira (CC): on hotel standby at SPU 24 May 04:00–24 May 16:00 but is at OLB
+    27 May 12:00  Rafael Cardoso (CPT): on hotel standby at MRS 27 May 11:00–27 May 16:00 but is at LIS
+    2 Jul 06:00  Inês Teixeira (CC): on hotel standby at WAW 2 Jul 02:00–2 Jul 13:10 but is at LIS
+    31 Jul 06:00  Inês Ribeiro (FO): on hotel standby at DUB 31 Jul 05:00–31 Jul 15:00 but is at LIS
+    31 Aug 06:00  Nuno Costa (FO): on hotel standby at CMN 31 Aug 03:00–31 Aug 15:00 but is at LIS
+    1 Sep 06:00  Nuno Costa (FO): on hotel standby at CMN 1 Sep 03:00–1 Sep 15:00 but is at LIS
+    2 Sep 06:00  Nuno Costa (FO): on hotel standby at CMN 2 Sep 03:00–2 Sep 15:00 but is at LIS
+    7 Sep 06:00  Nuno Costa (FO): on hotel standby at CMN 7 Sep 03:00–7 Sep 15:00 but is at LIS
+    23 Sep 06:00  Pedro Teixeira (CPT): on hotel standby at WAW 23 Sep 02:00–23 Sep 14:00 but is at LIS
+    27 Sep 06:00  Pedro Teixeira (CPT): on hotel standby at WAW 27 Sep 05:00–27 Sep 16:00 but is at LIS
+    31 Oct 06:00  Inês Teixeira (CC): on hotel standby at WAW 31 Oct 03:00–31 Oct 15:00 but is at LIS
+    13 Nov 05:40  Joana Rodrigues (PUR): on hotel standby at WAW 13 Nov 05:00–13 Nov 17:00 but is at LIS
+    13 Nov 06:00  Leonor Ferreira (CC): on hotel standby at WAW 13 Nov 06:00–13 Nov 17:00 but is at LIS
+    13 Nov 12:00  Miguel Carvalho (CC): on hotel standby at WAW 13 Nov 12:00–13 Nov 17:00 but is at LIS
+    14 Nov 06:00  Leonor Ferreira (CC): on hotel standby at WAW 14 Nov 05:00–14 Nov 17:00 but is at LIS
+    14 Nov 06:00  Miguel Carvalho (CC): on hotel standby at WAW 14 Nov 05:00–14 Nov 17:00 but is at LIS
+    18 Nov 06:00  Leonor Lopes (PUR): on hotel standby at LHR 18 Nov 06:00–18 Nov 18:00 but is at LIS
+  warn orphan × 2
+    28 Dec 00:00  duty duht7 lists missing ticket fj4m
+    10 Jan 00:00  duty duj3n lists missing ticket fm1g
+  warn sby-rest × 3
+    1 Jan 16:00  Leonor Lopes (PUR): 8:00 after an uncalled hotel standby ending 1 Jan 16:00 before work 2 Jan 00:00 (engine rule 10:00)
+    7 Jan 00:00  Catarina Oliveira (PUR): 11:30 after an uncalled home standby ending 7 Jan 00:00 before work 7 Jan 11:30 (engine rule 12:00)
+    31 Oct 15:00  Teresa Ferreira (CC): 9:00 after an uncalled hotel standby ending 31 Oct 15:00 before work 1 Nov 00:00 (engine rule 10:00)
+  warn slip × 1
+    30 Oct 07:40  LO5101 BCN–WAW slipped 56 h (first seen STD 30 Oct 07:40)
+
+P&L of the closed months: acmiRevenue 14940k, charterRevenue 4123k, leaseIncome 59k, otherRevenue 15k, disruption -17k, compliance -18k, crewJet -67k, hotels -124k, subcharter -171k, deadhead -274k, penalties -285k, hiring -296k, approvals -300k, airportFees -437k, perDiem -548k, checks -685k, reserves -760k, fuel -767k, insurance -1026k, overhead -2894k, maintenance -3206k, rent -3464k, salaries -4708k
+legs 1719, on time 86.9%, cancelled 19, contracts 46 signed (21 countered), done 51, decisions 41, sub-chartered 17, reliable 96.9, fleet A320+A320+A21N, crew 104, messages 568
+decisions answered: changeRequest:accept 27, latePayment:wait 3, turnaround:accept 2, sickCrew:callIn 1, diversion:alt:BER 1, ctot:wait 1, aog:team 1, clientFee:bill 1, aog:subcharter 1, diversion:alt:FCO 1, diversion:alt:SOF 1, divertOnward:hotel 1
+uncovered at departure (held for crew): NB SB Dec ’27 2, NB SB Jan ’28 1
+cancelled legs by reason: Recovery: Waiting for a legal crew (revenue) 12, Closed: Etna ash closes Catania (revenue) 2, AOG: engineering team (revenue) 2, Lufthansa cancelled (revenue) 2, Schedule recovery (revenue) 2, Recovery: Maintenance overrun (revenue) 2, Recovery: Technical: diversion (revenue) 1
+ladder: widebody signed never; tour series / troop rotations signed 0
+crew control: amber 10, red 13 (out of hours 1), fixes {delay 5, subcharter 5, jet 2, discretion 1, swap 1}, jets 2 67k (0.35% of revenue) · short-notice offers passed over 2, widebody general work capped 0, leases without a job 0
+paint: 1 deals with client paint (decals/100%); paint-shop visits 2 in / 0 out; paint -30k, reimbursed 0k, net -30k (-0.2% of revenue)
+crew v0.6: morale 63.8 (min 61.1, month trend +1.4), resigned 6, hired back 6, classes booked 0 done 0, extra-crew duties 1.0% of 912, paid extras 0, policies [-], government invoices late 1/1
+technical reliability (90 days, weekly): min 95.9% median 98.5% max 100% · year 98.5% (26 technical failures in 1741 departures)
+ladder record: etops120 first met day 34 (met on 297 of 365 days) · widebody first met day 34 (met on 297 of 365 days) · etops180 first met day 34 (met on 225 of 365 days)
+ladder v0.7: filed [widebody day 221], granted [widebody day 341], pending [-], findings 0
+market: 8 offers (1/1/1/1/1/1/1/1 per month), 2 teasers, 0 new-build; signed [A21N day 174 at DUB]
+deliveries: 1 handed over (1 abroad), ferry legs 1 (2.5 BH), delivery-crew airline tickets 1, waits 0 days (longest 0), wait hires 0
+refits: 0 done [-] 0k; leases: 0 extended, 0 returned 0k
+v0.7.4: client cabin requests seen 0, signed with the cabin 0, reconfigurations done 0 (0k, client share invoiced on completion)
+v0.7.2: sub-chartered legs 17 (reliability -7.4), C-checks at hubs [SOF], ferry+ticket cost 26k, ferry legs 2, captains as FO 9, multi-type cabin hires 0, early returns 0, sales 0
+v0.7.3: augmented duties flown 0, standby crew-days held 13515, in the state 0 (3P 0 / 4P 0; class 1 0 / 2 0 / 3 0), rest plans not possible 0, extra cabin crew for rest 0, extensions 0, splits 2, standby call-ins 58, delayed reports 0, rest refits [-], 4 pilots for a short cruise 0, discretion reports 1
+v0.8: levels U/N/K/T/P 0/91/26/4/1 · standing Est. day 120, Resp. day 365 · types AC 2 AH 27 DL 1 RP 4 SB 8 SI 1 SP 4 · lost to rivals 93 (cheaper 54/closer 4/sooner 35) · sub-charter out 17 (Titan Airways 2, Avion Express 2, Heston Airlines 3) in 2 · events 22 (closures hit 2, legs rerouted 4, strike delays 3, FM cancels 4, war-risk 0k, injunctions 0, whiteouts 0) · phases by quarter steady/steady/steady/steady · fuel 679–869 · dry leases 1 (1 months, 328k) · mixed-crew contracts 2 · fees waived 0 · runtime 49.1 s
+v0.9: heads unlocked opsControl d32 crewDesk d61 analyst d32 credit d106 fleetPlanner – maintPlanner d264 watch d97 · hired 6 · handled 58 (mistakes 1, overridden 0) · achievements 12/24 · slips 0 (offers 3) · out of hours red 1 amber 1 · discretion used 2 (planned 0) refused 0 · jumbo loads 0 (747 invoiced 0k) · runtime 49.1 s
+v0.11 ops: pace normal · quiet days 67 % (245 quiet / 120 busy) · audit 1, ctot 3, diversion 3, divertOnward 3, overnight 1, ramp 3, rampCat1 2, rampCat2 1, techDivert 1, turnaround 2, weatherDivert 2 · audits 25 Jan L1 0 L2 0 · findings open 0 (started 0, overdue 0) · suspended no
+roster: days off/crew-month 8.1 (min 7, <7: 0 of 896) · leave 2.3 · standby 43% of days (home 37 · hotel 6 · airport 0 · reserve 0) · standby share of free days 92% · call-outs 58 (crew fixes 14) · max recovery gap 168 h · offBroken 7 · moved 793 · swapped 278 · crew-days home/hotel/airport/reserve 11528/1913/31/0 · years <96: 0 of 101
+roster spread (flying days, Jan ’28): A320 CPT 0–4 · A320 FO 0–2 · A320 PUR 0–6 · A320 CC 0–11
+
+targets
+  PASS  no exceptions, no NaN/Infinity         clean
+  PASS  solvent all year (no game over, cash < 0 ≤ rescue days) month-end low -1077k, end 1115k, longest below 0 3 days
+  PASS  summer BH per aircraft 180–320         187
+  PASS  year net margin −5%…+12% (ex Ladder fees) -3.2% ex 300k approvals; -4.7% all in (-908k on 19138k)
+  PASS  no illegal duties flown (FDP + crew)   0 (FDP 0, crew 0)
+  PASS  0 duties flown with an impossible rest plan (v0.7.3) 0 of 0 augmented duties
+  PASS  ≤ 0.3% flights uncovered at departure  0.17% of 1816
+  PASS  ≥ 1 meaningful action per week         3.1/wk, 48/52 weeks (idle: 24 47 48 49)
+  PASS  ≤ 3 decisions per week                 max 2, 41 answered
+  PASS  ≥ 30 offers per year                   321
+  PASS  first contract within 7 days           day 6
+  FAIL  1–3 AOGs per aircraft-year             0.88 (2 in 2.3 ac-yr)
+  PASS  governments pay late (info; pool seeds 1–6) 1/1 invoices late
+  PASS  save < 300 KB (and with 10 aircraft)   peak 230 KB (compress 352 ms), with 10 aircraft 221 KB (idle clones)
+  FAIL  runs in < 12 s                         49.1 s
+  PASS  company morale 55–75 at the end        63.8 (lowest 61.1, last month +1.4)
+  PASS  resignations 4–20% of headcount a year 8.2% (6 left, 1 on notice, avg headcount 85)
+  PASS  C-check ferries: 0 illegal duties      2 legs, 0 illegal
+  PASS  delivery ferries: 0 illegal duties, no wait > 30 days 1 legs, 0 illegal, longest wait 0 days
+  PASS  discretion never planned (v0.9)        0
+  FAIL  runs in ≤ 20 s (v0.9 hard limit)       49.1 s
+  PASS  roster: no crew-month below 7 days off (v0.9) 0 of 896
+  PASS  roster: no crew-year below 96 free days pro rata (v0.9 round 4) 0 of 101
+  PASS  roster: recovery gap ≤ 168 h (v0.9)    168 h
+  ok    jets ≤ 8 a year and ≤ 1% of revenue — 2 jets, 67k
+  no    red crew shortages ≤ 12 a year — 13 red (1 out of hours), 10 amber
+  no    ladder: widebody ops filed by day 200, a widebody signed by day 365 (≥ 4 of seeds 1–6) — filed widebody day 221; signed never
+  ok    delivery pilots on airline deadheads (when handed over abroad) — 1 tickets for 1 abroad
+  ok    standby call-ins ≥ 3 a year (v0.7.3) — 58 call-ins, 13515 standby crew-days
+  ok    reliability ends ≥ 85 (v0.7.1: 90–97) — 60.0 → 96.9 (sub-charters -7.4)
+  no    month-end cash ≥ 0 and the year ends ≥ 0 (v0.7.1 seed 6: −2657k low) — month-end low -1077k, end 1115k
+  ok    captains as FO ≤ 24 duties a year — 9
+  ok    Established by day 240 (≥ 5 of seeds 1–6, v0.8) — day 120
+  ok    a Trusted client by day 365 (≥ 4 of seeds 1–6, v0.8) — day 101
+  no    a widebody signed (2–4 of seeds 1–6, v0.8) — never
+  ok    ≥ 1 offer lost to a rival with a reason (v0.8) — 93
+  ok    a world event touching our flights (≥ 3 of seeds 1–6, v0.8) — closures 2, rerouted 4, strike delays 3, war-risk 0k
+  ok    a dry lease (≥ 2 of seeds 1–6, v0.8) — 1
+  ok    quiet days 45–75 % (v0.11 director, Normal pace) — 67 %
+  ok    ≥ 3 heads unlocked (v0.9; ≥ 5 on 3 seeds) — 6
+  ok    heads take ≥ 40 % of the routine decisions (v0.9) — 58 of 99
+  ok    achievements 6–14 (v0.9) — 12
+  no    roster: flying days spread ≤ 10 within a family and role (v0.9 fix) — 11 (A320 CC)
+  no    roster: average days off 8.5–10 (v0.9) — 8.1
+  ok    roster: standby + reserve ≥ 85% of the free days (v0.9) — 92%
