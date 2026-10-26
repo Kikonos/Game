@@ -46,7 +46,7 @@ export const HangarView = memo(function HangarView({ rows }: { rows: HangarRow[]
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  const k = hangarScale(width || 1000);
+  const k = hangarScale(width || 1000, rows.map((r) => r.lengthM));
   const open = (id: string) => store.navigate('fleet', { view: 'fleet', sel: { kind: 'aircraft', id } });
   return (
     <div className="hg card" ref={ref} aria-label="Hangar: the fleet to scale">

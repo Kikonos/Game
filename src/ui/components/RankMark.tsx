@@ -34,7 +34,7 @@ function RankMarkImpl({ role, className }: { role: Role; className?: string }) {
   }
   const gold = role === 'PUR';
   return (
-    <svg className={`rank-mark rank-wings ${gold ? 'gold' : 'silver'} ${className ?? ''}`} width={22} height={10} viewBox="0 0 22 10" role="img" aria-label={what}>
+    <svg className={`rank-mark rank-wings ${gold ? 'gold' : 'silver'} ${className ?? ''}`} width={27} height={12} viewBox="0 0 22 10" role="img" aria-label={what}>
       <title>{what}</title>
       <path d={WING} />
       <path d={WING} transform="translate(22 0) scale(-1 1)" />

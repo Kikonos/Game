@@ -29,4 +29,14 @@ describe('hangar line-up', () => {
     expect(hangarScale(1050) * 84 * 3).toBeLessThan(1050);
     expect(hangarScale(300)).toBeGreaterThanOrEqual(2.8);
   });
+  it('draws a small fleet larger (one scale for all of it) and a big one at the base scale', () => {
+    const two = hangarScale(1050, [37.6, 37.6]);
+    expect(two).toBeGreaterThan(hangarScale(1050));
+    expect(37.6 * 1.12 * 2 * two).toBeLessThan(1050);
+    const thirty = hangarScale(1050, Array.from({ length: 30 }, (_, i) => 38 + i));
+    expect(thirty).toBeCloseTo(hangarScale(1050), 5);
+    // a 747 beside an A320 still twice its length on screen
+    const mix = hangarScale(1050, [76.3, 37.6]);
+    expect(76.3 * mix / (37.6 * mix)).toBeCloseTo(2.03, 1);
+  });
 });
