@@ -8,7 +8,9 @@ import { DAY } from '../core/time';
 import type { ContractOffer, GameState } from '../core/types';
 import { offerExtra } from '../crew/extraSeats';
 import { acceptOffer, declineOffer } from './accept';
-import { answerCall, CALL_MARGIN_X, callPlan, callScore, callScript, declineCall, isCallOffer } from './call';
+import { COUNTRIES } from '../../data/countries';
+import { kitsFor, NAMES } from '../../data/names';
+import { answerCall, CALL_MARGIN_X, callPlan, callScore, callScript, contactOf, declineCall, isCallOffer } from './call';
 import { feasibilityAll } from './feasibility';
 import { generateOffer } from './offers';
 import { newGame, offer } from './testkit';
@@ -108,5 +110,44 @@ describe('the phone call (v0.10.2)', () => {
     expect(s.seats).toBeGreaterThan(0);
     // The same person every time this client calls.
     expect(callScript(g, o.id)!.person).toBe(s.person);
+  });
+
+  it('every client gets a caller named from its own country (Belgium Dutch or French, never a stray Portuguese)', () => {
+    // Every country in the game can field a caller.
+    for (const c of Object.keys(COUNTRIES)) {
+      const kits = kitsFor(c);
+      expect(kits.length, c).toBeGreaterThan(0);
+      for (const k of kits) expect(NAMES[k], `${c} → ${k}`).toBeTruthy();
+    }
+    const fromKit = (name: string, country: string) => kitsFor(country).some((k) => {
+      const kit = NAMES[k];
+      const [a, ...rest] = name.split(' ');
+      // Family name first or last; first names can be two words ('Juan Pablo', 'Mei Ling').
+      const parts = kit.familyFirst ? [rest.join(' '), a] : (() => {
+        for (const l of [...kit.last, ...(kit.lastF ?? [])]) if (name.endsWith(` ${l}`)) return [name.slice(0, -l.length - 1), l];
+        return [a, rest.join(' ')];
+      })();
+      return [...kit.f, ...kit.m].includes(parts[0]) && [...kit.last, ...(kit.lastF ?? [])].includes(parts[1]);
+    });
+    const g = newGame(25);
+    const clients = Object.values(g.clients);
+    expect(clients.length).toBeGreaterThan(50);
+    for (const cl of clients) {
+      const name = contactOf(`client:${cl.id}`, cl.country);
+      expect(fromKit(name, cl.country), `${cl.name} (${cl.country}): ${name}`).toBe(true);
+      // Deterministic: the same client, the same caller.
+      expect(contactOf(`client:${cl.id}`, cl.country)).toBe(name);
+    }
+    // The script uses the client's country.
+    const o = aogCover(g, 4);
+    o.broker = undefined;
+    const be = clients.find((c) => c.country === 'BE')!;
+    o.clientId = be.id;
+    const p = callScript(g, o.id)!.person;
+    expect(fromKit(p, 'BE')).toBe(true);
+    // Belgium draws from both its languages across clients.
+    const be100 = Array.from({ length: 60 }, (_, i) => contactOf(`client:x${i}`, 'BE'));
+    expect(be100.some((n) => fromKit(n, 'BE') && NAMES['BE-fr'].last.some((l) => n.endsWith(l)))).toBe(true);
+    expect(be100.some((n) => NAMES['BE-nl'].last.some((l) => n.endsWith(l)))).toBe(true);
   });
 });

@@ -8,7 +8,7 @@
 
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { ACMI_TYPES } from '../../data/acmiTypes';
-import { DEFAULT_MIX, NAMES } from '../../data/names';
+import { kitsFor, NAMES } from '../../data/names';
 import { DAY, fmtDay, fmtTime, localMinuteOfDay, toLocal } from '../core/time';
 import type { ActionResult, ClientKind, ContractOffer, GameState } from '../core/types';
 import { hashUnit } from '../core/util';
@@ -96,15 +96,18 @@ export interface CallScript {
 
 const city = (code: string) => AIRPORT_BY_CODE[code]?.city ?? code;
 
-/** The same contact every time a client calls: a name from the client's country (the crew name kits). */
-function contactOf(key: string, country: string): string {
-  const kit = NAMES[country] ?? NAMES[DEFAULT_MIX[Math.floor(hashUnit(`${key}:mix`) * DEFAULT_MIX.length)][0]];
+/** The same contact every time a client calls: a name from the client's own country (Belgium: a Dutch or a French
+ *  name, never mixed). Exported for tests. */
+export function contactOf(key: string, country: string): string {
+  const kits = kitsFor(country);
+  const kit = NAMES[kits.length > 1 ? kits[Math.floor(hashUnit(`${key}:kit`) * kits.length)] : kits[0] ?? 'GB'];
   if (!kit) return '';
   const fem = hashUnit(`${key}:sex`) < 0.5;
   const firsts = fem ? kit.f : kit.m;
   const first = firsts[Math.floor(hashUnit(`${key}:first`) * firsts.length)];
   const i = Math.floor(hashUnit(`${key}:last`) * kit.last.length);
-  return `${first} ${(fem && kit.lastF?.[i]) || kit.last[i]}`;
+  const last = (fem && kit.lastF?.[i]) || kit.last[i];
+  return kit.familyFirst ? `${last} ${first}` : `${first} ${last}`;
 }
 
 /** 'tonight at 21:00' / 'tomorrow morning at 06:30' / 'on Tue 12 May at 06:30' (local at the airport, from now). */
