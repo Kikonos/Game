@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { newGame } from '../contracts/testkit';
 import type { CrewMember } from '../core/types';
 import { evalSegs } from './rules';
+import { dropStandby } from './standby';
 import { ctxOf, posSeg, standbySeg, touchCrew } from './timeline';
 
 const H = 60;
@@ -47,5 +48,18 @@ describe('rest after an uncalled standby', () => {
     };
     expect(at(8 * H).length).toBe(1);
     expect(at(10 * H).length).toBe(0);
+  });
+  it('work given during a running window that starts at its end is a call-out, not an early release short of rest', () => {
+    const { g, c } = fo();
+    // On home standby 03:00-15:00 (it began 8 h ago); given a duty reporting at 15:00, the window's end.
+    const run = { from: g.now - 8 * H, to: g.now + 4 * H, kind: 'home' as const, at: c.base };
+    c.standby = [run];
+    dropStandby(g, c, run.to, run.to + 9 * H);
+    expect(c.standby).toEqual([{ ...run, calledAt: g.now }]);
+    // Reserve is never a call-out: the window ends now instead.
+    const res = { from: g.now - 8 * H, to: g.now + 4 * H, kind: 'reserve' as const, at: c.base };
+    c.standby = [res];
+    dropStandby(g, c, res.to, res.to + 9 * H);
+    expect(c.standby?.[0]?.calledAt).toBeUndefined();
   });
 });
