@@ -232,8 +232,10 @@ export function createChecker(opts: CheckerOpts = {}) {
         // (Tickets stay 'scheduled' until they land: judged by their arrival.)
         // (A leg held at the gate keeps its STD while the hold adds to its delay until it would land past its STA: a long
         // sector held for hours is not stuck.)
-        const due = f.kind === 'deadhead' ? f.sta : f.std + (f.delay ?? 0);
-        if (due < g.now - 6 * H && !f.closedBy) err('stuck', g.now, `${f.no} ${f.from}–${f.to} (${f.kind}) still scheduled ${Math.round((g.now - due) / 60)} h after its ${f.kind === 'deadhead' ? 'STA' : f.delay ? 'held departure' : 'STD'} ${fmtDateTime(due)}`, `stuck|${f.id}`);
+        // (A leg a rival flies for us, like a ticket, stays scheduled until it lands.)
+        const byArr = f.kind === 'deadhead' || !!f.operatedBy;
+        const due = byArr ? f.sta : f.std + (f.delay ?? 0);
+        if (due < g.now - 6 * H && !f.closedBy) err('stuck', g.now, `${f.no} ${f.from}–${f.to} (${f.kind}) still scheduled ${Math.round((g.now - due) / 60)} h after its ${byArr ? 'STA' : f.delay ? 'held departure' : 'STD'} ${fmtDateTime(due)}`, `stuck|${f.id}`);
         // Hold loop: STD moved again and again inside the last two days before it.
         const l = lastStd.get(f.id);
         if (!l) lastStd.set(f.id, { std: f.std, n: 0, first: f.std });
