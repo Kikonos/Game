@@ -244,7 +244,6 @@ export function outTicket(g: GameState, p: Pairing, d: Duty, from: string, ready
   const to = g.flights[d.flightIds[0]]?.from ?? d.restAt;
   const free = Math.max(g.now, ready);
   const ride = early ? null : rideTo(g, from, to, d, free);
-  if (ride) return { plan: ride, why: null };
   const blk = dhBlock(from, to);
   const mk = (std: Minute): TicketPlan => ({ from, to, std, sta: std + blk });
   const first = hour(free + CHECKIN(), true);
@@ -264,6 +263,14 @@ export function outTicket(g: GameState, p: Pairing, d: Duty, from: string, ready
     const x = fdpOf(std);
     return x.fdp <= x.max - 30;
   };
+  // Crew-planning round: riding our own empty leg is preferred only when it works like a ticket would: the crew rest
+  // after it, or the ride and the duty fit one FDP. (747 run: crew rode a LIS–LIM positioning landing 10:30 before a
+  // Lima report; with 14 h due after it every crew member read a 33 h day, the duty stayed empty and was sub-chartered.)
+  if (ride) {
+    const rideRest = minRest({ dutyMin: ride.sta - ride.std + CHECKIN(), atHome: false, augmented: false, tzShift: tzDeltaH(p.base, to, d.report) });
+    const x = fdpOf(ride.std);
+    if (ride.sta + rideRest <= d.report || x.fdp <= x.max) return { plan: ride, why: null };
+  }
   const pref = hour(d.report - OUT_BUFFER - blk, false);
   const prefFits = fits(pref);
   if (pref >= first && prefFits) return { plan: mk(pref), why: null };
