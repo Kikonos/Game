@@ -59,7 +59,7 @@ export function DiversionMap({ spec, width = 520, onPick }: { spec: DivSpec; wid
     // A destination far from the aircraft (a medical event mid-ocean) is left out of the fit: the picture is the
     // aircraft and its alternates; the planned track still runs off the edge towards it.
     const D0 = AIRPORT_BY_CODE[spec.dest];
-    const far = !!spec.pos && !!D0 && Math.hypot(D0.lon - spec.pos[0], D0.lat - spec.pos[1]) > 12 && spec.alts.length > 0;
+    const far = !!spec.pos && !!D0 && Math.hypot(D0.lon - spec.pos[0], D0.lat - spec.pos[1]) > 5 && spec.alts.length > 0;
     const near = pts.filter((_, i) => (i !== 0 || spec.alts.some((a) => a.code === spec.from)) && !(far && codes[i] === spec.dest));
     const fit = near.length >= 2 ? near : pts;
     const lons = fit.map((p) => p[0]);

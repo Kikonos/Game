@@ -936,22 +936,27 @@ class GameStore {
     },
     /** B5: a sample decision (no engine effect) to check DecisionModal, the Inbox pin and the pause badge. */
     /** v0.11 a disruption card now: on an airborne revenue leg (diversion, medical, technical) or the next one at the gate. */
-    disruption: (kind: 'diversion' | 'technical' | 'medical' | 'birdStrike' | 'curfew' | 'ctot' | 'turnaround' | 'sickAway' | 'onward') => {
+    disruption: (kind: 'diversion' | 'technical' | 'medical' | 'birdStrike' | 'curfew' | 'ctot' | 'turnaround' | 'sickAway') => {
       const g = this.game;
       if (!g) return false;
       const air = ['diversion', 'technical', 'medical'].includes(kind);
-      const pick = Object.values(g.flights).filter((f) => f.aircraftId && f.kind === 'revenue' && (air ? f.status === 'enroute' && (f.eta ?? f.sta) > g.now + 40 : kind === 'birdStrike' || kind === 'onward' ? f.status === 'done' && g.fleet[f.aircraftId].at === f.to && !g.fleet[f.aircraftId].flightId : f.status === 'scheduled' && f.std > g.now && !!f.dutyId && (kind !== 'sickAway' || (g.duties[f.dutyId]?.report ?? 0) > g.now + 30)))
-        .sort((a, b) => (kind === 'curfew' ? Number(!!CURFEWS[b.to]) - Number(!!CURFEWS[a.to]) : 0) || (kind === 'birdStrike' || kind === 'onward' ? (b.ata ?? 0) - (a.ata ?? 0) : a.std - b.std))[0];
-      if (!pick) return false;
-      if (kind === 'onward' && !pick.div) pick.div = { to0: pick.to, at: g.now - 60, eta0: g.now - 30, cause: 'weather' };
-      if (kind === 'onward') {
-        const alt = Object.values(g.flights).find((x) => x.id !== pick.id)?.to ?? pick.from;
-        if (pick.to === pick.div!.to0 && alt !== pick.to) pick.to = alt === pick.div!.to0 ? pick.from : alt;
+      const landed = kind === 'birdStrike';
+      const list = Object.values(g.flights).filter((f) => {
+        if (!f.aircraftId || f.kind !== 'revenue') return false;
+        if (air) return f.status === 'enroute' && (f.eta ?? f.sta) > g.now + 40;
+        if (landed) return f.status === 'done' && g.fleet[f.aircraftId].at === f.to && !g.fleet[f.aircraftId].flightId;
+        const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+        return f.status === 'scheduled' && f.std > g.now && !!d && (kind !== 'sickAway' || (d.report > g.now + 30 && d.flightIds[0] === f.id && f.from !== g.company.homeBase && !!g.pairings[d.pairingId]?.slots.some((x) => x.crewId && g.crew[x.crewId]?.loc === f.from)));
+      }).sort((a, b) => (kind === 'curfew' ? Number(!!CURFEWS[b.to]) - Number(!!CURFEWS[a.to]) : 0)
+        || (kind === 'sickAway' ? Number(b.from !== g.company.homeBase) - Number(a.from !== g.company.homeBase) : 0)
+        || (landed ? (b.ata ?? 0) - (a.ata ?? 0) : a.std - b.std));
+      let ok = false;
+      for (const pick of list.slice(0, 8)) {
+        // A weather closure shows on the approach: the clock moves to 25 min before the leg lands.
+        if (kind === 'diversion' && (pick.eta ?? pick.sta) - g.now > 40) advanceTo(g, (pick.eta ?? pick.sta) - 25, new Set(['decision']));
+        if (air && pick.status !== 'enroute') continue;
+        if ((ok = devDisruption(g, kind, pick.id))) break;
       }
-      // A weather closure shows on the approach: the clock moves to 25 min before the leg lands.
-      if (kind === 'diversion' && (pick.eta ?? pick.sta) - g.now > 40) advanceTo(g, (pick.eta ?? pick.sta) - 25, new Set(['decision']));
-      if (kind === 'diversion' && pick.status !== 'enroute') return false;
-      const ok = devDisruption(g, kind, pick.id);
       this.exact = g.now;
       this.clockLabel = -1;
       this.emitClock();

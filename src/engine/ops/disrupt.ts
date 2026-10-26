@@ -825,7 +825,11 @@ function sickCall(g: GameState, dutyId: string): void {
   const days = 2 + Math.floor(roll(g, `sickdays:${c.id}:${d.id}`) * 3);
   const until = dayStart(g.now) + (days + 1) * DAY;
   c.blocks = [...(c.blocks ?? []), { from: g.now, to: until, why: 'sick' }];
+  // Dev/tests (forcing): the seat is left empty so the card shows (the auto-roster would usually cover it).
+  const auto = g.company.policies.autoRoster;
+  if (forcing) g.company.policies.autoRoster = false;
   removeCrew(g, c.id, g.now, until);
+  g.company.policies.autoRoster = auto;
   countOps(g, 'sickAway');
   const cs = flightCrewStatus(g, f.id, { live: false });
   if (cs.level !== 'missing') {
@@ -847,7 +851,7 @@ function sickCall(g: GameState, dutyId: string): void {
   const sols = [cheap ?? fastest, fastest].filter((x, i, a): x is NonNullable<typeof x> => !!x && a.indexOf(x) === i);
   const sol = sols[0];
   const opts: DecisionOption[] = [];
-  if (cabinOnly) opts.push({ id: 'minCrew', label: 'Fly one cabin crew short', desc: `Allowed when unforeseen (ORO.CC.100): at most 50 passengers per cabin crew member, ${maxPax} today; a report goes to the authority.`, tone: offload ? 'warn' : 'good', chips: [offload ? `${offload} passengers offloaded` : 'No one offloaded', offload ? usd(-offload * (isCharter(g, f) ? eu261(f.from, f.to) + 150 : 0)) : 'On time', 'Report filed'] });
+  if (cabinOnly) opts.push({ id: 'minCrew', label: 'Fly one cabin crew short', desc: `Allowed when unforeseen (ORO.CC.100): at most 50 passengers per cabin crew member, ${maxPax} today; a report goes to the authority.`, tone: offload ? 'warn' : 'good', chips: [offload ? `${offload} passengers offloaded` : 'No one offloaded', !offload ? 'On time' : isCharter(g, f) ? usd(-offload * (eu261(f.from, f.to) + 150)) : 'Client rebooks them: relation −2', 'Report filed'] });
   for (const x of sols) opts.push({ id: `fix:${x.id}`, label: x.id === 'callIn' ? 'Call in standby crew' : x.id === 'jet' ? 'Charter a jet with a replacement' : x.id === 'delay' ? 'Wait for a replacement' : 'Fly a replacement in', desc: x.desc, tone: 'good', chips: x.chips.slice(0, 3) });
   opts.push({ id: 'crewControl', label: 'Let crew control sort it', desc: 'The flight waits at the gate and Crew Control shows every way to fix it.', chips: ['Decide at the gate'] });
   opts.push({ id: 'subcharter', label: 'Sub-charter the trip', desc: 'A rival flies these legs; we still bill the client.', tone: 'warn', chips: [usd(-subcharterCost(g, unitOf(g, ac, f), 1.5))] });
