@@ -408,7 +408,7 @@ export function OpsMap() {
     at: () => shared.ac.get(spotTarget) ?? null,
     pad: [12, PANEL_W + 40, STRIP_H + 8, 12] as Pad,
     // About 3,500 km across the map: close enough to see the aircraft's shape, wide enough to see where it goes.
-    zoom: 6,
+    zoom: 7,
   } : null), [spot?.n, spotTarget]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selAc = sel?.kind === 'aircraft' ? sel.id : undefined;
