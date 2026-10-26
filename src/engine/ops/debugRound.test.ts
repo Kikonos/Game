@@ -1,13 +1,12 @@
 // Debug round (26 Oct 2026) on the player's Blue Airlines save (16 Aug 2027, v0.10.2): BLU404 ACE–LHR is late into
 // the Heathrow night curfew on 17 Aug and lands at Gatwick instead (operations' default).
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { addFlight } from '../core/entities';
 import { fixture } from '../fixtures/compatKit';
 import type { GameState } from '../core/types';
 import { deserialize } from '../save';
 import { advanceTo } from '../sim';
-import { OPS_LIVE } from './director';
 
 const load = (): GameState => deserialize(fixture('v0102-blue'));
 const byNo = (g: GameState, no: string) => Object.values(g.flights).filter((f) => f.no === no);
@@ -19,13 +18,6 @@ const run = (g: GameState, min: number) => {
 };
 
 describe('debug round: Blue Airlines save', () => {
-  // The Operations update on, as in the game (src/test/opsSetup.ts turns it off for the older tests).
-  beforeAll(() => {
-    OPS_LIVE.on = true;
-  });
-  afterAll(() => {
-    OPS_LIVE.on = false;
-  });
   it('a curfew diversion is settled at the gate: no second card, no passenger leg into the curfew', () => {
     const g = load();
     run(g, 34 * 60);

@@ -10,9 +10,8 @@ import { DAY, dayStart } from '../core/time';
 import type { DirectorState, GameState, Minute, Pace, Spell } from '../core/types';
 
 /**
- * The Operations update live (the director's rhythm, disruptions, ramp inspections, the audit). The test setup turns it
- * off for the scenario tests written before it (their seeds pin outcomes the offer rhythm would move); the Operations
- * tests turn it on. The game and the bot always run with it on.
+ * The Operations update live (the director's rhythm, disruptions, ramp inspections, the audit). The game, the tests and
+ * the bot run with it on; the bot's OPS_OFF / OPS_NODISRUPT / OPS_NOWAVES switches are for balance experiments only.
  */
 export const OPS_LIVE = { on: true, /** bot experiments: disruptions, ramp checks and the audit (off: the director alone) */ disrupt: true, /** bot experiments: offers in waves (off: the old steady flow) */ waves: true };
 

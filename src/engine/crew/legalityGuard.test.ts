@@ -117,6 +117,8 @@ describe('crew legality: the 2 h check and the gate', () => {
   const saved = { delayChance: BAL.delayChance, techDelayChance: BAL.techDelayChance, aogBase: BAL.aogBase };
   beforeEach(() => Object.assign(bal, { delayChance: 0, techDelayChance: 0, aogBase: 0 }));
   afterEach(() => Object.assign(bal, saved));
+  // (Played straight to each check time, new Set(): an offer's phone call would otherwise stop the clock early, and the
+  // director's offer rhythm decides when those come.)
 
   /** A crewed duty reporting away from midnight (no daily job between the injection and the check). */
   function midday(): { g: GameState; acId: string; p: Pairing; d: Duty } {
@@ -138,7 +140,7 @@ describe('crew legality: the 2 h check and the gate', () => {
     // v0.9: free that day (the guard never takes a planned day off).
     const k = dayIndex('HAM', d.report);
     g.crew[spare].off = g.crew[spare].off!.filter((x) => Math.abs(x - k) > 1);
-    advanceTo(g, d.report - 180);
+    advanceTo(g, d.report - 180, new Set());
     const p = g.pairings[d.pairingId];
     const c = g.crew[p.slots[0].crewId!];
     // Sick from just before report (as if reported late: the roster has not seen it yet).
@@ -146,7 +148,7 @@ describe('crew legality: the 2 h check and the gate', () => {
     expect(crewIssuesFor(g, d).map((x) => x.crewId)).toEqual([c.id]);
     // v0.9: the spare's standby days since joining are work; give them a fresh weekly rest for the tour ahead.
     g.crew[spare].lastRecovery = d.report - 180;
-    advanceTo(g, d.report - 119);
+    advanceTo(g, d.report - 119, new Set());
     const now = g.pairings[g.duties[d.id].pairingId];
     expect(now.slots.some((s) => s.crewId === c.id)).toBe(false);
     expect(crewIssuesFor(g, g.duties[d.id])).toEqual([]);
@@ -156,18 +158,18 @@ describe('crew legality: the 2 h check and the gate', () => {
 
   it('with nobody legal to take the seat, leaves it empty: the flight does not go and ops raise the crew-short decision', () => {
     const { g, d } = midday();
-    advanceTo(g, d.report - 180);
+    advanceTo(g, d.report - 180, new Set());
     const p = g.pairings[d.pairingId];
     const c = g.crew[p.slots[0].crewId!];
     // Every other captain is away for the day.
     for (const x of Object.values(g.crew)) if (x.role === 'CPT' && x.id !== c.id) x.blocks = [...(x.blocks ?? []), { from: d.report - 3 * DAY, to: d.report + 3 * DAY, why: 'leave' }];
     c.blocks = [...(c.blocks ?? []), { from: d.report - 30, to: d.report + 2 * DAY, why: 'sick' }];
-    advanceTo(g, d.report - 119);
+    advanceTo(g, d.report - 119, new Set());
     const now = g.pairings[g.duties[d.id]?.pairingId ?? ''] ?? p;
     expect(now.slots.some((s) => s.crewId === c.id)).toBe(false);
     const f = g.flights[d.flightIds[0]];
     expect(flightCrewStatus(g, f.id).level).toBe('missing');
-    advanceTo(g, f.std + 3 * 60);
+    advanceTo(g, f.std + 3 * 60, new Set());
     expect(f.status === 'enroute' && f.crewIds.includes(c.id)).toBe(false);
     // (v0.7: or re-planned later, still on the ground.)
     expect(g.decisions.some((x) => x.kind === 'crewShort') || f.status !== 'scheduled' || !!f.operatedBy || f.std > g.now).toBe(true);
@@ -176,12 +178,12 @@ describe('crew legality: the 2 h check and the gate', () => {
 
   it('blocks the gate when a crew member falls over a limit after the 2 h check', () => {
     const { g, d } = midday();
-    advanceTo(g, d.report - 60);
+    advanceTo(g, d.report - 60, new Set());
     const p = g.pairings[d.pairingId];
     const c = g.crew[p.slots[0].crewId!];
     c.blocks = [...(c.blocks ?? []), { from: d.report - 30, to: d.report + 2 * DAY, why: 'sick' }];
     const f = g.flights[d.flightIds[0]];
-    advanceTo(g, f.std + 6 * 60);
+    advanceTo(g, f.std + 6 * 60, new Set());
     expect(f.status !== 'scheduled' && f.crewIds.includes(c.id) && !f.operatedBy).toBe(false);
     expect(g.stats.illegalCrewFlown ?? 0).toBe(0);
   });

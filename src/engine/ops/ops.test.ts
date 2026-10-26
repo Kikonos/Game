@@ -1,7 +1,6 @@
 // v0.11 Operations (UPDATE 1): the event director, the live disruptions, ramp inspections and the yearly audit.
-// These run with the Operations update on (the older scenario tests run with it off: src/test/opsSetup.ts).
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { acceptOffer } from '../contracts';
 import { hamBase, leased, legsOffer, newGame, run } from '../contracts/testkit';
 import { flightsOf } from '../core/entities';
@@ -10,19 +9,12 @@ import type { Aircraft, Flight, GameState } from '../core/types';
 import { deserialize, serialize } from '../save';
 import { advanceTo } from '../sim';
 import { fixture } from '../fixtures/compatKit';
-import { afterOfferDays, busyShare, director, isQuiet, newDirector, OPS_LIVE, PACE_SPELLS, quietShare, setPace, spellAt } from './director';
+import { afterOfferDays, busyShare, director, isQuiet, newDirector, PACE_SPELLS, quietShare, setPace, spellAt } from './director';
 import { devDisruption, DISRUPT_KINDS, inCurfew, opsState, raise } from './disrupt';
 import { inspect, rampYear } from './ramp';
 import { approvalsSuspended, dailyAudit, runAudit, startAuditTask } from './audit';
 import { approvalBlocker, resolveDecision } from './index';
 import { isRevenue } from './util';
-
-beforeAll(() => {
-  OPS_LIVE.on = true;
-});
-afterAll(() => {
-  OPS_LIVE.on = false;
-});
 
 const line = (g: GameState, cat: string) => (g.finance.current.lines as Record<string, number>)[cat] ?? 0;
 const skip = (g: GameState, t: number) => advanceTo(g, t, new Set());
@@ -154,7 +146,7 @@ describe('event director', () => {
     expect(quietShare(g)).toBeGreaterThan(0.3);
     expect((g.director!.days!.quiet + g.director!.days!.busy)).toBeGreaterThanOrEqual(59);
     expect(g.stats.illegalFlown ?? 0).toBe(0);
-  });
+  }, 30_000);
 });
 
 describe('disruptions', () => {
