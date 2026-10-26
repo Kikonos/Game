@@ -110,9 +110,11 @@
 .cp-row { display: flex; align-items: center; gap: 8px; min-height: 50px; min-width: 0; }
 .cp-spacer { flex: 1; min-width: 0; }
 .cp-top .clock .date { font-size: 15px; }
-.cp-top .tb-cash { align-items: flex-start; text-align: left; padding: 2px 6px; }
+.cp-top .tb-cash { justify-content: start; text-align: left; padding: 2px 6px; }
+.cp-top .tb-cash .v, .cp-top .tb-cash .tb-rate { justify-self: start; }
 .cp-top .speed button, .cp-top .speed .sp-pause { min-width: 44px; }
-.shell.compact.short .cp-top .tb-cash { align-items: flex-end; text-align: right; }
+.shell.compact.short .cp-top .tb-cash { justify-content: end; text-align: right; }
+.shell.compact.short .cp-top .tb-cash .v, .shell.compact.short .cp-top .tb-cash .tb-rate { justify-self: end; }
 @media (max-width: 389.98px) {
   .cp-top .speed button, .cp-top .speed .sp-pause { min-width: 40px; padding: 0 4px; }
   .cp-top .clock .time { display: none; }

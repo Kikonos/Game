@@ -18,6 +18,7 @@ import { Dot, ScreenHead, useRenderCount } from './common';
 import { earnedUnbilled, showLossMonth, statementView } from './screenLogic';
 import { type MonthPoint, monthSeries, seriesKey } from './financeCharts';
 import { ScreenHint } from '../components/ScreenHint';
+import { monthEndCosts } from '../shell/cashRate';
 
 const tone = (v: number) => (v < 0 ? 'bad' : v > 0 ? 'good' : '');
 
@@ -136,6 +137,7 @@ export function FinanceScreen() {
   const monthsKey = seriesKey(months);
   // Wet leases invoice at month end; show what is already earned so mid-month profit is not misleading.
   const earned = earnedUnbilled(g);
+  const afterMonthEnd = cur.profit + earned - monthEndCosts(g);
   // v0.7.1 §14: the cash card on top with the date it bites; a losing month is one calm line (only while this month
   // is losing too, or after two in a row), which the player can put away. The full card stays behind Explain in the Inbox.
   const cash = problemAt(g, { kind: 'cash', id: 'cash' });
@@ -159,7 +161,11 @@ export function FinanceScreen() {
         <Kpi label="Cash" icon={<Wallet />} value={<span className={g.company.cash < 0 ? 'bad' : ''}>{money(g.company.cash)}</span>} sub={fc.length ? `90-day low ${money(low)}` : undefined} />
         <Kpi label="Revenue" icon={<TrendingUp />} value={money(cur.revenue)} sub={earned > 0 ? <span className="good">+{money(earned)} earned, invoiced at month end</span> : 'invoiced this month'} />
         <Kpi label="Costs" icon={<Banknote />} value={money(cur.costs)} sub="this month" />
-        <Kpi label="Profit" icon={<Landmark />} value={<span className={tone(cur.profit)}>{money(cur.profit)}</span>} sub={earned > 0 ? <span className={tone(cur.profit + earned)}>≈ {money(cur.profit + earned)} with earned revenue</span> : 'this month'} />
+        <Kpi className="fin-profit" label="Profit" icon={<Landmark />} value={<span className={tone(cur.profit)}>{money(cur.profit)}</span>} sub={<>
+          {earned > 0 ? <span className={tone(cur.profit + earned)}>≈ {money(cur.profit + earned)} with earned revenue</span> : 'this month'}
+          {/* v0.12 rent, insurance, overhead and salaries are booked at month end: the profit once they are */}
+          <span className={`fin-after ${tone(afterMonthEnd)}`}>after month-end costs: <b>{money(afterMonthEnd)}</b></span>
+        </>} />
         <Kpi label="Receivables" icon={<Clock />} value={money(outstanding)} sub={overdue > 0 ? <span className="warn">{money(overdue)} overdue</span> : 'none overdue'} />
       </div>
       <MonthCharts pts={months} k={monthsKey} />

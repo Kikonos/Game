@@ -157,16 +157,15 @@ function CashBlock() {
   const rateWhy = rate ? (rate.basis === 'lastMonth' ? 'Profit per day last month' : 'Profit per day this month, with rent, insurance, overhead and salaries spread over the month') : '';
   return (
     <button className="tb-cash" onClick={() => store.navigate('finance')} aria-label={`Cash ${money(cash)}${rate ? `, ${rateText}` : ''}: finance`} title={rateWhy || undefined}>
+      {/* v0.12 '$2.97M cash' on one line; the profit-per-day pill under the amount, right edges aligned */}
       <span className={`v ${cash < 0 ? 'bad' : ''}`}>{money(cash)}</span>
-      <span className="s">
-        {rate && (
-          <span className={`tb-rate ${rate.perDay >= 0 ? 'up' : 'down'}`}>
-            {rate.perDay >= 0 ? <TrendingUp aria-hidden /> : <TrendingDown aria-hidden />}
-            <b>{money(Math.abs(Math.round(rate.perDay)))}</b><i>/day</i>
-          </span>
-        )}
-        <span className="sl">cash</span>
-      </span>
+      <span className="sl">cash</span>
+      {rate && (
+        <span className={`tb-rate ${rate.perDay >= 0 ? 'up' : 'down'}`}>
+          {rate.perDay >= 0 ? <TrendingUp aria-hidden /> : <TrendingDown aria-hidden />}
+          <b>{money(Math.abs(Math.round(rate.perDay)))}</b><i>/day</i>
+        </span>
+      )}
     </button>
   );
 }
