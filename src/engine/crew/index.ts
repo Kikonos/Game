@@ -5,14 +5,14 @@ import { flightsOf, flightsRev, takeFlightChanges, touchTickets } from '../core/
 import type { SimModule } from '../core/module';
 import { schedule } from '../core/queue';
 import { DAY, monthKey, yearOf } from '../core/time';
-import type { CrewMember, GameState, Minute, SimEvent } from '../core/types';
+import type { CrewMember, Flight, GameState, Minute, SimEvent } from '../core/types';
 import { cancelConversion, classOf, dailyClasses } from './conversion';
 import { dailyCrewCosts, monthlySalaries } from './costs';
 import { deletePairing, planAircraft } from './duties';
 export { aboveMinimum, legalMinimum } from './duties';
 import { dailySickness, onCrewJoin, onTrainingDone } from './hr';
 import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, settleService, setResignHooks } from './morale';
-import { autoRoster, closedWait, guardDuty, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, removeCrew, sendStrandedHome, stayOn } from './roster';
+import { autoRoster, closedWait, guardDuty, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, rebookAfterLateRelease, removeCrew, sendStrandedHome, stayOn } from './roster';
 import { localMin, minRest, signedTz, tzDeltaH, tzNights } from './rules';
 import { clipToRest, dailyStandby, noteRecovery } from './standby';
 import { dayPlanAfter, dayPlanBefore, dayPlanInit, dayPlanLoad, dayPlanMonth, v09Stats } from './dayPlan';
@@ -149,7 +149,16 @@ function onDutyReport(g: GameState, ev: SimEvent): void {
   for (const s of p.slots) {
     const c = s.crewId ? g.crew[s.crewId] : undefined;
     if (!c) continue;
-    noteRecovery(c, d.report, g);
+    // Crew-planning round: from the crew member's own start (a ticket out merged into the FDP checks in hours before
+    // the report; cabin crew report earlier). Seed 6: an FO ticketed out at 08:00 for a 13:45 report, 33 h after a home
+    // standby, had the time off counted as a recovery rest up to 13:45; the next 168 h ran from there (179 h in fact).
+    let out: Flight | null = null;
+    for (const fid of d.deadheadIds) {
+      const f = g.flights[fid];
+      if (f && f.status !== 'cancelled' && f.sta <= d.report && aboard(f, c.id)) out = f;
+    }
+    const own = dutySegs(g, c, p, d, out, null).find((x) => x.kind === 'duty')?.start ?? d.report;
+    noteRecovery(c, Math.min(d.report, own), g);
     c.status = 'onDuty';
     if (c.awaySince === null && (dep !== c.base || d.restAt !== c.base)) c.awaySince = g.now;
   }
@@ -191,6 +200,9 @@ function onDutyRelease(g: GameState, ev: SimEvent): void {
   }
   // ... and the crew rest where the last leg really landed (a diversion the duty was not re-synced for).
   if (lastF?.status === 'done') d.restAt = lastF.to;
+  // Crew-planning round: tickets after the duty that the real release no longer leaves room for (no check-in in time,
+  // or leaving inside the rest) are rebooked before the duty is logged.
+  rebookAfterLateRelease(g, p, d);
   const y = yearOf(g.now);
   const block = dutyBlock(g, d);
   // v0.9 §W a duty that took over at a fuel stop: one crew change flown.

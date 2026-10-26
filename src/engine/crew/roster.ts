@@ -428,6 +428,59 @@ function rebookHomeForRecovery(g: GameState, p: Pairing): void {
   }
 }
 
+/** A ticket checking in at most this long after release takes the crew straight on (part of the duty, no rest). */
+const STRAIGHT_ON = 3 * 60;
+
+/**
+ * Crew-planning round (26 Oct 2026): the duty was released later than planned (its last leg landed late). Its tickets
+ * after it are re-read against the real release, as crew control would: a ticket straight on that the crew can no
+ * longer check in for, or one booked for after the rest that now leaves before that rest is over (positioning is
+ * duty: ORO.FTL.235 rest comes first), is rebooked onto the first seat that works: straight on when the duty still
+ * allows it (planHome), else once the rest is over. Commander's discretion never shortens that rest. (Player's save:
+ * crew landed late at Rhodes and their ticket home left 9:16 later, 10:00 due; seed 1, 9:19 at Riga.)
+ * Called at release, before the duty is logged, so the log and the rest read the ticket the crew will really take.
+ */
+export function rebookAfterLateRelease(g: GameState, p: Pairing, d: Duty): void {
+  const ci = BAL.deadheadCheckIn;
+  for (const fid of [...d.deadheadIds]) {
+    const f = g.flights[fid];
+    // (One that left already, its crew still on duty, was never boarded: rebooked too.)
+    if (!f || f.kind !== 'deadhead' || f.status !== 'scheduled' || f.std <= d.report || f.from !== d.restAt) continue;
+    const wait = f.std - ci - d.release;
+    if (wait >= 0 && wait <= STRAIGHT_ON) continue;
+    const ends = new Map<string, Minute>();
+    for (const cid of f.crewIds) {
+      const c = g.crew[cid];
+      if (!c) continue;
+      let out: Flight | null = null;
+      for (const oid of d.deadheadIds) {
+        const o = g.flights[oid];
+        if (o && o.status !== 'cancelled' && o.sta <= d.report && aboard(o, cid)) out = o;
+      }
+      const seg = dutySegs(g, c, p, d, out, null).find((x) => x.kind === 'duty');
+      const end = Math.max(c.restUntil, seg ? seg.end + seg.rest : d.release);
+      if (wait < 0 || f.std - ci < end) ends.set(cid, end);
+    }
+    if (!ends.size) continue;
+    const blk = f.sta - f.std;
+    const t = planHome(d, f.to, cabinEarly(g, p, d));
+    const straight = t.std - ci - d.release <= STRAIGHT_ON ? t.std : null;
+    const groups = new Map<Minute, string[]>();
+    for (const [cid, end] of ends) {
+      const std = straight ?? Math.ceil((end + ci) / 60) * 60;
+      groups.set(std, [...(groups.get(std) ?? []), cid]);
+    }
+    for (const [std, ids] of groups) {
+      if (std === f.std) continue;
+      for (const cid of ids) unboard(g, f, cid);
+      if (!g.flights[fid]) d.deadheadIds = d.deadheadIds.filter((x) => x !== fid);
+      buyTicket(g, p, d, ids, { from: f.from, to: f.to, std, sta: std + blk }, emptyResult());
+      fitStandby(g, ids);
+    }
+    touchCrew(g);
+  }
+}
+
 /** Longest stay at an outstation between two trips that beats flying home and straight back out. */
 const STAY_MAX = 30 * 60;
 
