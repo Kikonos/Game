@@ -500,7 +500,7 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
               <div key={m.id} className={`op-crew-row${aboveIds.has(m.id) || m.notice || oh ? ' tagged' : ''}`}>
                 <span className={`role${seat !== m.role ? ' as' : ''}`} title={seat !== m.role ? `${m.role === 'CPT' ? 'A captain' : m.role} flying in the ${seat} seat` : undefined}>{seatLabel(seat, m.role)}</span>
                 <span className="col op-crew-who">
-                  <span className="ellipsis">{crewName(m)}</span>
+                  <span className="row gap-4" style={{ minWidth: 0 }}><span className="ellipsis">{crewName(m)}</span><RankMark role={m.role} /></span>
                   {(aboveIds.has(m.id) || m.notice || oh) && (
                     <span className="op-crew-tags">
                       {oh && <span className="op-tag ooh" title={`Reached ${oh.limitText}`}>{OOH_SHORT[oh.limit]}</span>}
