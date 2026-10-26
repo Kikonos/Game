@@ -86,7 +86,7 @@ export const GLOSSARY: Record<TermId, GlossaryEntry> = {
   tzRest: { term: 'Time-zone rest', short: 'After a trip 4 or more time zones away: 2–5 local nights at home before the next duty.', where: { tab: 'crew', view: 'board' } },
   twoDays: { term: 'Two-day weekend', short: 'Twice a month the weekly rest is 2 whole local days.', where: { tab: 'crew', view: 'board' } },
   // v0.8
-  relationLevel: { term: 'Relationship level', short: 'How well a client knows us: New, Known, Trusted, Partner (or Unhappy). Higher levels pay better, ask us first and forgive a small delay.', where: { tab: 'company', view: 'clients' } },
+  relationLevel: { term: 'Relationship level', short: 'How well a client knows us: New, Known, Trusted, Partner (or Unhappy). Higher levels pay better, ask us first and forgive a small delay.', where: { tab: 'contracts', view: 'clients' } },
   standing: { term: 'Standing', short: 'How the market sees our company: a Newcomer gets the short, cheap work; Established and Respected operators get the rest.', where: { tab: 'company' } },
   firstRefusal: { term: 'First refusal', short: 'The client asks us before any rival: the offer stays ours until it expires.', where: { tab: 'contracts' } },
   hajj: { term: 'Hajj', short: 'The yearly pilgrimage to Mecca: weeks of full flights to Jeddah and Medina, then home again; every other leg flies empty.', where: { tab: 'contracts' } },

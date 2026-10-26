@@ -23,8 +23,10 @@ import { contractColor } from './palette';
 import { archLabel, expiryLabel, liveHook, marketOffers, missedOffers, productLine, reqChips, riskChips, routeSummary, offerDays, v09Chips } from './screenLogic';
 import { analystView } from '../../engine/ops';
 import { ScreenHint } from '../components/ScreenHint';
+import { clientList } from '../../engine/contracts';
+import { ClientsView } from './Clients';
 
-type View = 'market' | 'active' | 'missed';
+type View = 'market' | 'active' | 'missed' | 'clients';
 
 function OfferCard({ g, o, windows }: { g: GameState; o: ContractOffer; windows: IdleWindow[] }) {
   const hook = liveHook(g, o, windows);
@@ -272,10 +274,13 @@ export function ContractsScreen() {
   useRenderCount('contracts');
   const g = useGame();
   const nav = store.nav;
-  const view = (['market', 'active', 'missed'].includes(nav.view ?? '') ? nav.view : 'market') as View;
+  const view = (['market', 'active', 'missed', 'clients'].includes(nav.view ?? '') ? nav.view : 'market') as View;
   const nMarket = marketOffers(g).length;
   const nActive = Object.values(g.contracts).filter((c) => c.status === 'signed' || c.status === 'active').length;
   const nMissed = missedOffers(g).length;
+  // v0.11 Clients moved here from Company. Same rule as the Clients list's first filter (a job done, a contract or an open offer); moves at most daily.
+  const day = Math.floor(g.now / 1440);
+  const nClients = useMemo(() => clientList(g, 'working').length, [g, day, store.editCount]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="screen sc-contracts">
       <ScreenHead title="Contracts" sub="Offers from brokers and clients, and the work you have signed.">
@@ -283,6 +288,7 @@ export function ContractsScreen() {
           { id: 'market', label: 'Market', count: nMarket },
           { id: 'active', label: 'Active', count: nActive },
           { id: 'missed', label: 'Missed', count: nMissed },
+          { id: 'clients', label: 'Clients', count: nClients || undefined },
         ]} />
       </ScreenHead>
       <ScreenHint id="contracts" />
@@ -290,6 +296,7 @@ export function ContractsScreen() {
       {view === 'market' && <Market g={g} />}
       {view === 'active' && <Active g={g} sel={nav.sel?.kind === 'contract' ? nav.sel.id : null} />}
       {view === 'missed' && <Missed g={g} />}
+      {view === 'clients' && <ClientsView g={g} />}
     </div>
   );
 }
