@@ -17,7 +17,7 @@ import { infoOf } from './outOfHours';
 import { lateChange, moraleShock, nextReport } from './morale';
 import { cabinFdpCap, DISCRETION, evalSegs, levelOf, LIMITS, minRest, mkSeg, recoveryAnchor, tzDeltaH, worst, type LegalityIssue, type Seg } from './rules';
 import { cabinOwnReport, planRest, restCabinN, restLegs, restOf, restPlan } from './restPlan';
-import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, locAt, noteRiders, outStillFits, passengers, planHome, planOut, segsOf, segsTagOf, ticketPrice, touchCrew, typeIdOf, withoutTickets } from './timeline';
+import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, locAt, noteRiders, outStillFits, passengers, planHome, planOut, posSeg, segsOf, segsTagOf, ticketPrice, touchCrew, typeIdOf, withoutTickets } from './timeline';
 
 export { buildDuties } from './duties';
 
@@ -326,6 +326,19 @@ function sendHome(g: GameState, c: CrewMember, p?: Pairing, force = false): void
   let ready = Math.max(g.now, c.restUntil);
   for (const x of segs) if (x.kind !== 'log' && x.start < g.now) ready = Math.max(ready, x.end + x.rest);
   let std = Math.ceil((ready + ci) / 60) * 60;
+  // Crew-planning round: positioning is duty (ORO.FTL.210): a ticket home that would run past the 7, 14 or 28-day duty
+  // limit waits at the hotel until it fits. (Bot seed 5: an FO sent home before his leave after six long days in Riyadh;
+  // the 01:00 flight home made it 65:31 of duty in 7 days.)
+  const cumOk = (t: Minute) =>
+    !evalSegs(ctx, [...segs.filter((x) => x.start < t - ci), posSeg({ from: c.loc, to: c.base, std: t, sta: t + blk }, c, true)])
+      .some((i) => i.level === 'illegal' && (i.code === 'duty7d' || i.code === 'duty14d' || i.code === 'duty28d'));
+  if (!cumOk(std)) {
+    for (let t = std + 60; t < std + 4 * DAY; t += 60) {
+      if (!cumOk(t)) continue;
+      std = t;
+      break;
+    }
+  }
   // v0.9 fix: a ticket home landing past the 168 h since the last recovery rest (positioning is duty) waits for that
   // recovery at the hotel first (36 h with 2 local nights, 60 h after 4 disruptive duties: ORO.FTL.235(d)).
   if (std + blk > recoveryAnchor(ctx, segs, std - ci) + LIMITS.recoveryEvery) {
