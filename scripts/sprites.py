@@ -325,8 +325,53 @@ def layout(alpha, tail, eng, rgb):
         run_w = x0 - x
     titles = {'x': r1(0.16 * L), 'y': r1(ty), 'w': r1(max(run_w, 0.12 * L)), 'size': r1(cap / 0.72)}
 
+    # the last (rearmost) passenger door: a pair of strong vertical frame lines across the window band, 1.4-3.8 window
+    # heights apart, closed by a frame edge at the top and at the sill (a panel seam beside the door has at most one),
+    # the first such pair from the tail in the rear 45 % of the length (for the registration and the model);
+    # scripts/sprites-paint.json 'door' overrides it
+    door = None
+    wm = win_main or win
+    if wm:
+        wh = wm[1] - wm[0] + 1
+        y0, y1 = int(wm[0] - 2 * wh), int(wm[1] + 2 * wh)
+        gx = np.abs(np.diff(lumi, axis=1, prepend=lumi[:, :1]))
+        gy = np.abs(np.diff(lumi, axis=0, prepend=lumi[:1]))
+        prof = (gx[y0:y1] > 8).sum(axis=0)
+
+        def framed(a, b):
+            rows = []
+            for y in range(int(wm[0] - 4 * wh), int(wm[1] + 5 * wh)):
+                if not op[y - 3:y + 4, a[0] - 10:b[1] + 11].all():
+                    continue
+                inner = (gy[y, a[1] + 2:b[0] - 1] > 8).mean()
+                outer = max((gy[y, a[0] - 10:a[0] - 2] > 8).mean(), (gy[y, b[1] + 3:b[1] + 11] > 8).mean())
+                if inner >= 0.6 and outer <= 0.5:
+                    rows.append(y)
+            groups = [r for i, r in enumerate(rows) if i == 0 or r - rows[i - 1] > 3]
+            return 2 if len(groups) >= 2 and groups[-1] - groups[0] >= 2 * wh else min(1, len(groups))
+
+        best = {}
+        for thr in (0.72, 0.62, 0.52, 0.42):
+            strong = [x for x in range(int(tail_x + 0.08 * L), int(tail_x + 0.45 * L)) if prof[x] >= thr * (y1 - y0)]
+            cl = []
+            for x in strong:
+                if cl and x - cl[-1][-1] <= 3:
+                    cl[-1].append(x)
+                else:
+                    cl.append([x])
+            cs = [(min(c), max(c)) for c in cl]
+            for i, a in enumerate(cs):
+                for b in cs[i + 1:]:
+                    if 1.4 * wh <= b[0] - a[1] <= 3.8 * wh:
+                        f = framed(a, b)
+                        if f and f not in best:
+                            best[f] = [int(a[0]), int(b[1])]
+            if 2 in best:
+                break
+        door = best.get(2) or best.get(1)
     sil = alpha > 0.5
     return {
+        'door': door,
         'nose': nose_x, 'tail': tail_x, 'crown': r1(crown_main), 'belly': r1(belly_ref),
         'fin': [[int(x), int(y)] for x, y in poly], 'finQuad': quad,
         'zone': [[int(x), int(y)] for x, y in zone],
@@ -984,9 +1029,47 @@ def process(job):
     files['mask'] = os.path.getsize(os.path.join(out_dir, f'{sid}-mask.png'))
     data = {'w': REF_W, 'h': rh}
     data.update(layout(a2, fin2, e2, rgb2))
+    if 'door' in hints().get(sid, {}):
+        data['door'] = hints()[sid]['door']
+    # the horizontal stabiliser's forward edge at the window band: scanning aft from the last door, the first column
+    # with unpainted airframe over the tube (so the registration's flag never sits under the stabiliser)
+    wm = data.get('winMain') or data.get('win')
+    data['stab'] = None
+    if data.get('door') and wm:
+        wh = wm[1] - wm[0] + 1
+        y0, y1 = int(wm[0] - 2.5 * wh), int(wm[1] + wh)
+        bare = (alpha2[y0:y1] > 128) & (np.maximum(np.maximum(fin2, body2), cowl2)[y0:y1] < 0.5)
+        cnt = bare.sum(axis=0)
+        data['stab'] = next((int(x) for x in range(data['door'][0] - 2, data['tail'], -1) if cnt[x] >= max(3, 0.5 * wh)), None)
     xs2 = list(range(int(round(g['tx'] / k)), int(round(g['nx'] / k)) + 1, BODY_STEP))
     line = lambda arr: [int(round(arr[min(len(arr) - 1, int(round(x * k)))] / k)) if arr[min(len(arr) - 1, int(round(x * k)))] >= 0 else -1 for x in xs2]
     data['body'] = {'x0': xs2[0], 'step': BODY_STEP, 'crown': line(g['crown']), 'belly': line(g['belly'])}
+    # unpainted airframe over the tube (a wing or winglet drawn across it, the stabiliser, door fittings) in the bands
+    # where the small markings go: [x0, x1, y0, y1] boxes (16 px wide at most) above the windows and below them, rear 60 % (the markings
+    # avoid them)
+    wm = data.get('win') or data.get('winMain')  # the window row the markings measure from (stickers.ts)
+    data['bare'] = None
+    if wm:
+        wh = wm[1] - wm[0] + 1
+        paint = np.maximum(np.maximum(fin2, body2), cowl2)
+        bc, bb = data['body']['crown'], data['body']['belly']
+        line = lambda arr, x: arr[max(0, min(len(arr) - 1, int(round((x - xs2[0]) / BODY_STEP))))]
+        spans = {}
+        for name, (ya, yb) in (('above', (wm[0] - 3 * wh, wm[0] - 1)), ('below', (wm[1] + 1, wm[1] + 4.5 * wh))):
+            cols = []  # per column: (top, bottom) of its unpainted airframe in the band, or None
+            for x in range(data['tail'], int(data['tail'] + 0.6 * (data['nose'] - data['tail']))):
+                c, b = line(bc, x), line(bb, x)
+                y0, y1 = int(max(ya, c + 4)), int(min(yb, b - 4))
+                ys = np.nonzero((alpha2[y0:y1, x] > 128) & (paint[y0:y1, x] < 0.5))[0] if c >= 0 and b >= 0 and y1 > y0 else []
+                cols.append((y0 + int(ys.min()), y0 + int(ys.max())) if len(ys) >= 2 else None)
+            # in 16-px pieces, each with its own top and bottom (a stabiliser's root is high, its tail cone low)
+            out = []
+            for i in range(0, len(cols), 16):
+                on = [(data['tail'] + i + j, c) for j, c in enumerate(cols[i:i + 16]) if c]
+                if len(on) >= 2:
+                    out.append([on[0][0], on[-1][0], min(c[0] for _, c in on), max(c[1] for _, c in on)])
+            spans[name] = out
+        data['bare'] = spans
     data['eng'] = [[r1(e['aft'] / k), r1(e['front'] / k), r1(e['lip'] / k), r1(e['top'] / k), r1(e['Dn'] / k)] for e in g['engs']]
     rgb_a = np.asarray(resize_rgba(rgba, REF_W, rh))
     field, whites = shading_field(rgb_a[..., :3], rgb_a[..., 3], [fin2, body2, cowl2], tube_t(data['body'], rh, REF_W))

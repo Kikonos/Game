@@ -4,7 +4,7 @@
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { countryName } from '../../data/countries';
 import { CLIENT_LIVERIES, recipeLogo, type ClientLiveryRecipe } from '../../data/clientLiveries';
-import { CLIENT_LOGOS, CLIENT_PALETTE, LOGO_IDS, MAX_CODE, MAX_STICKERS, MAX_STRIPES, MAX_TITLE, WHITE_LIVERY } from '../../data/livery';
+import { CLIENT_LOGOS, CLIENT_PALETTE, LOGO_IDS, MAX_CODE, REMOVED_LOGOS, MAX_STICKERS, MAX_STRIPES, MAX_TITLE, WHITE_LIVERY } from '../../data/livery';
 import { BAL } from '../core/balance';
 import { flightsOf, removeFlights, touchFlights } from '../core/entities';
 import { invoice, post } from '../core/ledger';
@@ -109,8 +109,10 @@ function text(t: unknown, kind: 'code' | 'titles'): LiveryText | undefined {
 function logo(l: unknown, fallbackColor: string): LiveryLogo | undefined {
   if (!l || typeof l !== 'object') return undefined;
   const x = l as Partial<LiveryLogo>;
-  if (x.id !== 'mono' && !(LOGO_IDS as readonly string[]).includes(x.id as string)) return undefined;
-  const out: LiveryLogo = { id: x.id as LiveryLogo['id'], color: hex(x.color) ?? fallbackColor };
+  // a mark no longer in the set (v0.11: the orbit) becomes its stand-in
+  const id: string | undefined = REMOVED_LOGOS[x.id as string] ?? x.id;
+  if (id !== 'mono' && !(LOGO_IDS as readonly string[]).includes(id as string)) return undefined;
+  const out: LiveryLogo = { id: id as LiveryLogo['id'], color: hex(x.color) ?? fallbackColor };
   const c2 = hex(x.color2);
   if (c2) out.color2 = c2;
   if (typeof x.text === 'string') {
@@ -216,11 +218,13 @@ export function normaliseLivery(l: Partial<Livery> | undefined, fallback: Livery
     const rg: NonNullable<Livery['reg']> = {};
     if (x.reg.hide === true) rg.hide = true;
     if (x.reg.noFlag === true) rg.noFlag = true;
+    if (x.reg.at === 'fin') rg.at = 'fin';
+    if (x.reg.fleet === true) rg.fleet = true;
     const rc = hex(x.reg.color);
     if (rc) rg.color = rc;
     if (Object.keys(rg).length) out.reg = rg;
   }
-  if (x.model === 'rear' || x.model === 'off') out.model = x.model;
+  if (x.model === 'forward' || x.model === 'off') out.model = x.model;
   if (Array.isArray(x.stickers)) {
     const seen = new Set<string>();
     out.stickers = [];
@@ -286,6 +290,7 @@ export function recipeLivery(r: ClientLiveryRecipe, kind: PaintKind): Livery {
   return {
     primary: fin, secondary: fin2, tail, ...(r.body ? { body: structuredClone(r.body) } : {}),
     titles: { text, color: tcolor, weight: weight ?? 700 }, ...(code ? { code } : {}), ...(logo ? { logo } : {}), stickers,
+    ...(r.fleet ? { reg: { fleet: true } } : {}),
   };
 }
 

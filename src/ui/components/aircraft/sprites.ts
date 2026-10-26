@@ -25,6 +25,12 @@ export interface SpriteLayout {
   zone: Pt[];
   /** Window line used for the titles (top, bottom y), if found. */
   win: [number, number] | null;
+  /** v0.11 the rearmost passenger door (aft, forward x of its frame), measured from the art; null if not found. */
+  door?: [number, number] | null;
+  /** The horizontal stabiliser's forward edge at the window band (x; sprites.py, from the art). */
+  stab?: number | null;
+  /** Unpainted airframe over the tube (wing, winglet, stabiliser) above and below the window row: [x0, x1, y0, y1]. */
+  bare?: { above: [number, number, number, number][]; below: [number, number, number, number][] } | null;
   /** v0.11 the main deck's window line (the A380's lower deck; else the same as `win`), for the belly split. */
   winMain?: [number, number] | null;
   /** Wing / engine x range. */

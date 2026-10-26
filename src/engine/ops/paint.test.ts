@@ -168,3 +168,11 @@ describe('v0.11 client livery recipes', () => {
     for (const c of Object.values(g.clients)) if (c.kind === 'airline') expect(CLIENT_LIVERIES[c.name], c.name).toBeDefined();
   });
 });
+
+describe('v0.11 removed marks', () => {
+  it('a saved livery with the orbit logo gets the globe; nothing else changes', () => {
+    const n = normaliseLivery({ primary: '#123456', secondary: '#abcdef', tail: 'solid', logo: { id: 'orbit' as never, color: '#ffffff' } });
+    expect(n.logo).toEqual({ id: 'globe', color: '#ffffff' });
+    expect(LOGO_IDS).not.toContain('orbit');
+  });
+});

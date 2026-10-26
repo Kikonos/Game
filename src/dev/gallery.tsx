@@ -42,7 +42,7 @@ const LIVERIES: Record<string, Livery> = {
   plainlogo: { primary: '#d6283c', secondary: '#1e293b', tail: 'solid', plain: true, logo: { id: 'kite', color: '#d6283c', color2: '#1e293b' } },
   stickers: {
     primary: '#0f9d76', secondary: '#f5c451', tail: 'stripe', code: { color: '#ffffff', weight: 500 }, titles: { color: '#0b1f4d' },
-    logo: { id: 'orbit', color: '#f5c451', color2: '#0b1f4d' },
+    logo: { id: 'globe', color: '#f5c451', color2: '#0b1f4d' },
     stickers: [
       { id: 'logo', kind: 'logo', side: 'fin', scale: 1 }, { id: 'titles', kind: 'titles', side: 'fuselage', scale: 1 },
       { id: 'code', kind: 'code', side: 'fuselage', x: 0.72, y: 0.55, scale: 1.4, rotation: -8 },

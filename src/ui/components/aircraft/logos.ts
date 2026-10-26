@@ -1,4 +1,4 @@
-// 24 original livery logos (v0.5.1, LIVERY.md §2.6; v0.11 nine more): simple bold marks, at most two tones, drawn
+// 23 original livery logos (v0.5.1, LIVERY.md §2.6; v0.11 nine more, the orbit removed): simple bold marks, at most two tones, drawn
 // in a 0–100 box, motion facing right (the nose). Built here from a few shape helpers (rounded to 0.1) so every
 // mark stays a plain fill. None is traced from a real airline mark: the v0.11 ones (trefoil, ring, crown, star,
 // leaf, lotus, palm, smile, sun) are generic shapes that client liveries use to evoke a carrier by colour and layout.
@@ -125,12 +125,6 @@ const DEFS: Record<LogoId, LogoDef['paths']> = {
     { d: poly([[4, 64], [38, 22], [38, 46], [4, 88]]), tone: 1 },
     { d: poly([[38, 22], [62, 54], [62, 78], [38, 46]]), tone: 2 },
     { d: poly([[62, 54], [96, 12], [96, 36], [62, 78]]), tone: 1 },
-  ],
-  // planet with a tilted ring: back half behind it, front half over it
-  orbit: [
-    { d: ellBand(50, 52, 44, 14, 9, -22, Math.PI, TAU), tone: 2 },
-    { d: circle(50, 52, 21), tone: 1 },
-    { d: ellBand(50, 52, 44, 14, 9, -22, 0, Math.PI), tone: 2 },
   ],
   // diamond split on its long diagonal
   kite: [

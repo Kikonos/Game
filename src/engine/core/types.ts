@@ -113,6 +113,10 @@ export interface LiveryBody {
 export interface LiveryReg {
   hide?: boolean;
   noFlag?: boolean;
+  /** On the lower fin instead of the rear fuselage. */
+  at?: 'fin';
+  /** The fleet number (the registration's last letters or digits) at the top of the fin. */
+  fleet?: boolean;
   /** Omitted = auto ink. */
   color?: string;
 }
@@ -130,9 +134,9 @@ export interface Livery {
   logo?: LiveryLogo;
   /** v0.11 the registration on the rear fuselage. */
   reg?: LiveryReg;
-  /** v0.11 the aircraft model ("BOEING 777-300ER") painted small: under the forward windows by default, or near the
-   *  rear door, or not at all. */
-  model?: 'rear' | 'off';
+  /** v0.11 the aircraft model ("BOEING 777-300ER") painted small: by the registration (default; 'rear' the same), under
+   *  the forward windows, or not at all. */
+  model?: 'rear' | 'forward' | 'off';
   /** Absent = legacy: [code auto on the fin, titles auto on the fuselage]. Present = exactly these draw (≤ 6). */
   stickers?: StickerPlacement[];
 }

@@ -12,14 +12,19 @@ const TEAL = '#1f6f6b', RED = '#d23b2a', BLUE = '#2a9fd6', NAVY = '#0b2a5b';
 const classic = { primary: TEAL, secondary: RED, tail: 'solid', logo: { id: 'kite', color: '#ffffff', color2: TEAL },
   body: { belly: { color: '#c6cdd4', split: 0.62, tilt: 0, windows: true }, noseBand: { color: TEAL, accent: RED }, finRoot: RED, noseLogo: true },
   titles: { color: TEAL } };
-const twoTone = { primary: '#ffffff', secondary: BLUE, tail: 'solid', code: { color: BLUE }, logo: { id: 'orbit', color: BLUE, color2: NAVY },
+const twoTone = { primary: '#ffffff', secondary: BLUE, tail: 'solid', code: { color: BLUE }, logo: { id: 'globe', color: BLUE, color2: '#ffffff' },
+  stickers: [{ id: 'code', kind: 'code', side: 'fin', scale: 1.15 }, { id: 'titles', kind: 'titles', side: 'fuselage', scale: 1 }],
   body: { color: BLUE, belly: { color: '#ffffff', split: 0.62, tilt: 0, windows: true, line: { color: NAVY, h: 0.018 } }, engines: '#ffffff', engineLogo: true },
-  titles: { color: '#ffffff' }, model: 'rear' };
+  titles: { color: '#ffffff' } };
+const wrap = { primary: NAVY, secondary: '#7fb3e6', tail: 'solid', code: { color: '#ffffff' }, reg: { fleet: true },
+  body: { tailWrap: NAVY, engines: NAVY, stripes: [{ color: '#d23b2a', y: 0.56, h: 0.02 }] }, titles: { color: NAVY } };
 const RUNS = [
   { ref: 'ref-b744.jpg', type: 'b744', lv: classic, reg: 'CS-TBL' },
   { ref: 'ref-b772.jpg', type: 'b772', lv: classic, reg: 'CS-TBM' },
   { ref: 'ref-b77w.jpg', type: 'b77w', lv: classic, reg: 'CS-TBN' },
   { ref: 'ref-b772-klm.jpg', type: 'b772', lv: twoTone, reg: 'PH-BHA', out: 'b772-twotone' },
+  { ref: 'ref-b737-reg.jpg', type: 'b738', lv: wrap, reg: 'CS-TBP' },
+  { ref: 'ref-b788-reg.jpg', type: 'b788', lv: wrap, reg: 'CS-TBQ' },
 ];
 
 (async () => {

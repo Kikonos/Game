@@ -1,5 +1,5 @@
 {
- "_doc": "v0.11 paint hints for scripts/sprites.py, in pixels of the 2048-wide asset (x right, y down). Per sprite id: 'eng' = one [aft, front, top] (optionally a 4th: lip width) per engine drawn on the near side: the cowl's trailing edge x (snapped to the drawn edge within 6 px), the intake lip's front x and the cowl's top y; the cowl is painted between them, the exhaust behind it never. 'force' = {label: [polygon, ...]} hand corrections applied after the automatic regions (labels: body, unp, fin, cowl); 'seed' = the same as watershed seeds (the edge still follows the drawn outline): winglets and wingtip fences drawn over the fuselage, lit like it, are seeded 'unp' here. Check with the pictures from --check.",
+ "_doc": "v0.11 paint hints for scripts/sprites.py, in pixels of the 2048-wide asset (x right, y down). Per sprite id: 'eng' = one [aft, front, top] (optionally a 4th: lip width) per engine drawn on the near side: the cowl's trailing edge x (snapped to the drawn edge within 6 px), the intake lip's front x and the cowl's top y; the cowl is painted between them, the exhaust behind it never. 'force' = {label: [polygon, ...]} hand corrections applied after the automatic regions (labels: body, unp, fin, cowl); 'seed' = the same as watershed seeds (the edge still follows the drawn outline): winglets and wingtip fences drawn over the fuselage, lit like it, are seeded 'unp' here. Check with the pictures from --check. 'door' = [aft x, front x] of the last passenger door where the measurement picks the wrong frames (the A380: the upper deck's, where its markings go).",
  "a320ceo": {
   "eng": [
    [1244, 1432, 500]
@@ -46,6 +46,7 @@
   ]
  },
  "a339": {
+  "door": [409, 448],
   "eng": [
    [1203, 1373, 400]
   ]
@@ -115,6 +116,7 @@
   }
  },
  "a388": {
+  "door": [612, 647],
   "eng": [
    [1030, 1182, 540],
    [1258, 1414, 568]
@@ -198,6 +200,7 @@
   }
  },
  "b748": {
+  "door": [410, 441],
   "eng": [
    [938, 1091, 403],
    [1166, 1317, 415]

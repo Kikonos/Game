@@ -21,6 +21,8 @@ export interface ClientLiveryRecipe {
   mark: { logo: [LogoId | 'mono', string, string?, string?] } | { code: [string, string] };
   /** Decals-only (white aircraft): the lettering and mark colour when it differs from the titles'. */
   decalInk?: string;
+  /** The client repeats a short fleet code at the top of the fin (the registration's last three). */
+  fleet?: boolean;
 }
 
 const W = '#ffffff';
@@ -55,9 +57,9 @@ export const CLIENT_LIVERIES: Record<string, ClientLiveryRecipe> = {
     titles: ['SCANDINAVIAN', '#000a5a', 700], mark: { code: ['SAS', W] }, approx: true,
   },
   'Aer Lingus': {
-    basis: 'Aer Lingus 2019: white top, teal belly, tail and engines, light-green ring at the tail base, light-green shamrock on the fin',
+    basis: 'Aer Lingus 2019: white top, teal belly, tail and engines, light-green ring at the tail base, light-green shamrock on the fin, the registration\'s last letters at the fin top',
     fin: ['#006272', '#006272', 'solid'], body: { belly: under('#006272'), finRoot: '#7ac143' },
-    titles: ['AER LINGUS', '#006272', 500], mark: { logo: ['trefoil', '#7ac143', W] },
+    titles: ['AER LINGUS', '#006272', 500], mark: { logo: ['trefoil', '#7ac143', W] }, fleet: true,
   },
   airBaltic: {
     basis: 'airBaltic: white fuselage, lime-green tail and engines, grey titles',
@@ -126,8 +128,8 @@ export const CLIENT_LIVERIES: Record<string, ClientLiveryRecipe> = {
     fin: ['#0b2e7b', '#00a8e1', 'sweep'], body: { engines: '#0b2e7b' }, titles: ['AZUL', '#0b2e7b', 700], mark: { code: ['AZ', W] }, approx: true,
   },
   'Air Canada': {
-    basis: 'Air Canada 2017: white top, black belly, tail and engines, the red leaf on the fin, black titles',
-    fin: ['#000000', '#000000', 'solid'], body: { belly: under('#000000') }, titles: ['AIR CANADA', '#000000', 700], mark: { logo: ['leaf', '#d22630', '#d22630'] },
+    basis: 'Air Canada 2017: white top, black belly, tail and engines, the red leaf on the fin, black titles, a fin number (ours: the registration\'s last three)',
+    fin: ['#000000', '#000000', 'solid'], body: { belly: under('#000000') }, titles: ['AIR CANADA', '#000000', 700], mark: { logo: ['leaf', '#d22630', '#d22630'] }, fleet: true,
   },
   'Vietnam Airlines': {
     basis: 'Vietnam Airlines: white fuselage, teal tail with the gold lotus, teal engines and titles',

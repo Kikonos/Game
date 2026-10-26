@@ -297,21 +297,33 @@ describe('v0.11 livery conventions (split below the windows, nose band, markings
     }
   });
 
-  it('registration over the tail and the model under the forward windows on big views only, clear of the window row', () => {
+  it('registration and model by the last door (narrowbodies aft of it above the windows; widebodies forward of it), big views only', () => {
     const lv: Livery = { primary: '#7a1f2b', secondary: '#f5c451', tail: 'solid', logo: { id: 'arc', color: '#ffffff' }, body: { engineLogo: true } };
+    const narrow = new Set(['a320ceo', 'a321ceo', 'a321neo', 'a321neo-classic-doors', 'b738', 'b739', 'b752', 'b753']);
     for (const id of FILES) {
       const d = layoutOf(id);
+      expect(d.door, `${id}: last door measured`).toBeTruthy();
       const all = extraDecals(id, lv, { reg: 'CS-TBL', model: 'BOEING 777', fine: true });
       const reg = all.find((x) => x.id === 'reg')!, model = all.find((x) => x.id === 'model')!;
       expect(reg && model, id).toBeTruthy();
-      const w = d.win!;
-      expect(reg.cy + reg.h / 2, `${id}: registration above the windows`).toBeLessThan(w[0]);
-      expect(model.cy - model.h / 2, `${id}: model below the windows`).toBeGreaterThan(w[1]);
-      expect(all.find((x) => x.id === 'flag')?.text, id).toBe('🇵🇹');
+      const [a, b] = d.door!;
+      const H = d.belly - d.crown;
+      if (narrow.has(id)) expect(reg.cx + reg.w / 2, `${id}: registration aft of the last door`).toBeLessThanOrEqual(a + 1);
+      else expect(reg.cx - reg.w / 2, `${id}: registration forward of the last door`).toBeGreaterThanOrEqual(b - 1);
+      // close by: within a fifth of the cabin height... of the door, both
+      for (const t of [reg, model]) expect(Math.min(Math.abs(t.cx - a), Math.abs(t.cx - b)), `${id} ${t.id} by the door`).toBeLessThan(0.25 * (d.nose - d.tail));
+      expect(reg.h, id).toBeGreaterThan(model.h);
+      expect(reg.h, id).toBeLessThan(0.1 * H);
+      const flag = all.find((x) => x.id === 'flag');
+      if (!narrow.has(id)) expect(flag?.text, id).toBe('🇵🇹');
+      else if (flag) expect(flag.text, id).toBe('🇵🇹');
       expect(all.filter((x) => x.on === 'cowl').length, id).toBe(d.eng!.length);
-      // small view: no small texts; hidden registration: none
       expect(extraDecals(id, lv, { reg: 'CS-TBL', model: 'X', fine: false }).some((x) => x.kind === 'reg'), id).toBe(false);
       expect(extraDecals(id, { ...lv, reg: { hide: true } }, { reg: 'CS-TBL', fine: true }).some((x) => x.id === 'reg'), id).toBe(false);
+      // fleet number at the top of the fin, the registration's last three
+      const fleet = extraDecals(id, { ...lv, reg: { fleet: true } }, { reg: 'CS-TBL', fine: true }).find((x) => x.id === 'fleet')!;
+      expect(fleet.text, id).toBe('TBL');
+      expect(fleet.cy, id).toBeLessThan(d.finQuad[0][1] - 0.7 * (d.finQuad[0][1] - d.finQuad[2][1]));
     }
   });
 
@@ -323,7 +335,7 @@ describe('v0.11 livery conventions (split below the windows, nose band, markings
     const n = normaliseLivery(lv);
     expect(n.body).toEqual({ belly: { color: '#c6cdd4', split: 0.62, tilt: 0, windows: true, line: { color: '#0b2a5b', h: 0.06 } }, noseBand: { color: '#1f6f6b' }, finRoot: '#d23b2a', engineLogo: true, noseLogo: true });
     expect(n.reg).toEqual({ noFlag: true, color: '#000000' });
-    expect(n.model).toBe('rear');
+    expect(n.model).toBeUndefined(); // 'rear' is the default now
     expect(normaliseLivery(n)).toEqual(n);
   });
 });
@@ -342,7 +354,8 @@ describe('v0.11 small markings keep clear; the fin paint ends along the crown', 
           const cols = new Set<string>();
           for (let i = 0; i <= 8; i++) for (let j = 0; j <= 3; j++) cols.add(bodyColourAt(id, lv, t.cx - t.w / 2 + (t.w * i) / 8, t.cy - t.h / 2 + (t.h * j) / 3));
           expect(cols.size, `${id} ${t.id} on ${[...cols]}`).toBe(1);
-          expect(inPoly(d.zone, t.cx, t.cy), `${id} ${t.id} off the fuselage zone`).toBe(true);
+          // (the 787's zone stops under its raked wingtip at the crown; its marks go below the windows, clear of it)
+          if (!/^b78/.test(id)) expect(inPoly(d.zone, t.cx, t.cy), `${id} ${t.id} off the fuselage zone`).toBe(true);
         }
       }
     }

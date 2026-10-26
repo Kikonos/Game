@@ -370,12 +370,16 @@ export function LiveryEditor({ value, onChange, code, name, reg, types, mode, ai
                   <button type="button" className={`lv-btn small lv-toggle${!lv.reg?.hide ? ' on' : ''}`} aria-pressed={!lv.reg?.hide} onClick={() => update({ reg: lv.reg?.hide ? (lv.reg.noFlag ? { noFlag: true } : undefined) : { ...lv.reg, hide: true } })}>Registration</button>
                   <button type="button" className={`lv-btn small lv-toggle${!lv.reg?.noFlag ? ' on' : ''}`} aria-pressed={!lv.reg?.noFlag} disabled={!!lv.reg?.hide} onClick={() => update({ reg: lv.reg?.noFlag ? (lv.reg.hide ? { hide: true } : undefined) : { ...lv.reg, noFlag: true } })}>Flag</button>
                 </div>
+                <div className="lv-row-toggles">
+                  <button type="button" className={`lv-btn small lv-toggle${lv.reg?.at === 'fin' ? ' on' : ''}`} aria-pressed={lv.reg?.at === 'fin'} disabled={!!lv.reg?.hide} onClick={() => update({ reg: { ...lv.reg, at: lv.reg?.at === 'fin' ? undefined : 'fin' } })}>On the fin</button>
+                  <button type="button" className={`lv-btn small lv-toggle${lv.reg?.fleet ? ' on' : ''}`} aria-pressed={!!lv.reg?.fleet} onClick={() => update({ reg: { ...lv.reg, fleet: lv.reg?.fleet ? undefined : true } })}>Fleet number</button>
+                </div>
                 <div className="lv-seg" role="radiogroup" aria-label="Aircraft model">
-                  {([[undefined, 'Model forward'], ['rear', 'Model aft'], ['off', 'No model']] as const).map(([v, label]) => (
-                    <button key={label} type="button" role="radio" aria-checked={lv.model === v} className={lv.model === v ? 'on' : ''} onClick={() => update({ model: v })}>{label}</button>
+                  {([[undefined, 'Model by the registration'], ['forward', 'Model forward'], ['off', 'No model']] as const).map(([v, label]) => (
+                    <button key={label} type="button" role="radio" aria-checked={(lv.model === 'rear' ? undefined : lv.model) === v} className={(lv.model === 'rear' ? undefined : lv.model) === v ? 'on' : ''} onClick={() => update({ model: v })}>{label}</button>
                   ))}
                 </div>
-                <p className="lv-note small">Painted small as real aircraft carry them: the registration over the tail, the type under the forward windows. Shown on big views only.</p>
+                <p className="lv-note small">Painted small where real aircraft carry them: the registration on the rear fuselage by the last door (or on the fin), the type next to it, the fleet number at the top of the fin. Shown on big views only.</p>
               </section>
             </>
           ) : tab === 'logo' ? (

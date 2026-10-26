@@ -306,9 +306,22 @@ export function inPoly(p: Pt[], x: number, y: number): boolean {
 }
 
 /** Paint on the fuselage at a viewBox point (white where nothing is painted). */
+const layerCache = new Map<string, PaintLayer[]>();
+/** bodyLayers, kept for the last few liveries (marking placement asks for the paint under hundreds of points). */
+function layersOf(id: string, b: LiveryBody): PaintLayer[] {
+  const key = `${id}|${JSON.stringify(b)}`;
+  let l = layerCache.get(key);
+  if (!l) {
+    l = bodyLayers(id, b);
+    layerCache.set(key, l);
+    while (layerCache.size > 48) layerCache.delete(layerCache.keys().next().value as string);
+  }
+  return l;
+}
+
 export function bodyColourAt(id: string, lv: Livery, X: number, Y: number): string {
   if (lv.plain || !lv.body) return '#ffffff';
-  const layers = bodyLayers(id, lv.body);
+  const layers = layersOf(id, lv.body);
   for (let i = layers.length - 1; i >= 0; i--) if (layers[i].polys.some((p) => inPoly(p, X, Y))) return layers[i].color;
   return '#ffffff';
 }
