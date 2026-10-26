@@ -46,7 +46,7 @@ export function Title() {
     return () => clearTimeout(id);
   }, [show]);
   const routes: MapRoute[] = useMemo(
-    () => AMBIENT.map(([a, b], i) => ({ id: `amb${i}`, from: a, to: b, weight: 0.35, planes: 1, color: i % 3 === 0 ? '#8b5cff' : '#3ee6ff' })),
+    () => AMBIENT.map(([a, b], i) => ({ id: `amb${i}`, from: a, to: b, weight: 0.35, planes: 1, color: i % 3 === 0 ? 'var(--accent-2)' : 'var(--accent)' })),
     [],
   );
   const airports = useMemo(() => AIRPORTS.filter((a) => a.size >= 4).map((a) => ({ code: a.code, state: 'open' as const })), []);

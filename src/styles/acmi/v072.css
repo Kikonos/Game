@@ -19,9 +19,9 @@
 .os-ico { display: grid; place-items: center; }
 .os-ico svg { width: 16px; height: 16px; }
 /* Warning chips: the pause badge's shape; amber / red / slate (a market offer is never alarming). */
-.os-warn.warn { border-color: rgba(251, 191, 36, 0.45); background: rgba(251, 191, 36, 0.1); color: var(--warn); }
-.os-warn.bad { border-color: rgba(248, 113, 113, 0.5); background: rgba(248, 113, 113, 0.1); color: var(--bad); }
-.os-warn.info { border-color: rgba(148, 170, 220, 0.3); background: rgba(148, 170, 220, 0.08); color: var(--text-2); }
+.os-warn.warn { border-color: rgba(var(--warn-rgb), 0.45); background: rgba(var(--warn-rgb), 0.1); color: var(--warn); }
+.os-warn.bad { border-color: rgba(var(--bad-rgb), 0.5); background: rgba(var(--bad-rgb), 0.1); color: var(--bad); }
+.os-warn.info { border-color: rgba(var(--line-rgb), 0.3); background: rgba(var(--line-rgb), 0.08); color: var(--text-2); }
 .os-warn .os-k { color: inherit; opacity: 0.85; }
 .os-plus { justify-content: center; min-width: 44px; padding: 0 10px; border-color: var(--border); color: var(--text-2); font-weight: 650; font-size: 13px; }
 @media (hover: hover) { .os-item:hover { background: var(--panel-2); } }
@@ -39,7 +39,7 @@
 .hm-tick { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px 0 10px; font-size: 13.5px; cursor: pointer; }
 .hm-tick .hm-box { width: 20px; height: 20px; border-radius: 6px; border: 1.5px solid var(--border-strong); display: grid; place-items: center; flex-shrink: 0; }
 .hm-tick .hm-box svg { width: 14px; height: 14px; }
-.hm-tick.on { border-color: rgba(62, 230, 255, 0.55); background: rgba(62, 230, 255, 0.1); color: var(--text); }
+.hm-tick.on { border-color: rgba(var(--accent-rgb), 0.55); background: rgba(var(--accent-rgb), 0.1); color: var(--text); }
 .hm-tick.on .hm-box { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .hm-tick:disabled { opacity: 0.4; cursor: default; }
 .hm-cover { align-items: flex-end; gap: 2px; text-align: right; }
@@ -51,11 +51,11 @@
   display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 12px; border-radius: 10px; text-align: left;
   border: 1px solid var(--border); background: var(--panel-2); color: var(--text); font: inherit; cursor: pointer;
 }
-.rf-slot.on { border-color: var(--accent); background: rgba(62, 230, 255, 0.12); }
+.rf-slot.on { border-color: var(--accent); background: rgba(var(--accent-rgb), 0.12); }
 .rf-slot-k { width: 62px; flex-shrink: 0; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); }
 .rf-slot.on .rf-slot-k { color: var(--accent); }
 .rf-slot-v { font-size: 13.5px; font-variant-numeric: tabular-nums; }
-.rf-why { padding: 8px 12px; border-radius: 10px; border: 1px solid rgba(251, 191, 36, 0.35); background: rgba(251, 191, 36, 0.07); }
+.rf-why { padding: 8px 12px; border-radius: 10px; border: 1px solid rgba(var(--warn-rgb), 0.35); background: rgba(var(--warn-rgb), 0.07); }
 .rf-why b { color: var(--warn); }
 .rf-more { align-self: flex-start; }
 .rf-rest-what { display: flex; flex-direction: column; gap: 6px; line-height: 1.45; }
@@ -63,14 +63,14 @@
 .sc-asfo-head { display: flex; align-items: baseline; gap: 8px; padding: 10px 4px 4px; border-top: 1px solid var(--border); margin-top: 6px; }
 .sl-price { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 12px 14px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--border); }
 .sl-price b { font-family: var(--font-display); font-size: 22px; }
-.fl-which { display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 12px; border-radius: 12px; border: 1px solid rgba(62, 230, 255, 0.4); background: rgba(62, 230, 255, 0.07); }
+.fl-which { display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 12px; border-radius: 12px; border: 1px solid rgba(var(--accent-rgb), 0.4); background: rgba(var(--accent-rgb), 0.07); }
 .fl-actions { flex-wrap: wrap; }
 .fl-actions .btn { min-width: 0; }
 .fl-sale { align-items: center; }
 
 /* ---- §7 C-check at an MRO hub ---- */
 .ck-hub { display: flex; flex-direction: column; align-items: stretch; gap: 2px; text-align: left; }
-.ck-booked { padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(62, 230, 255, 0.35); background: rgba(62, 230, 255, 0.06); }
+.ck-booked { padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(var(--accent-rgb), 0.35); background: rgba(var(--accent-rgb), 0.06); }
 .ck-booked .sc-ico-s { flex-shrink: 0; }
 .ck-plan { gap: 4px; }
 .mt-4 { margin-top: 4px; }

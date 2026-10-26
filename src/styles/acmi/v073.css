@@ -7,8 +7,8 @@
 /* ---- static rest timeline (components/RestTimeline.tsx) ---- */
 .rt { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--border); }
 .rt-legs { position: relative; height: 22px; }
-.rt-leg { position: absolute; top: 3px; bottom: 3px; border-radius: 4px; background: rgba(148, 170, 220, 0.16); overflow: hidden; }
-.rt-cruise { position: absolute; top: 0; bottom: 0; background: rgba(148, 170, 220, 0.3); }
+.rt-leg { position: absolute; top: 3px; bottom: 3px; border-radius: 4px; background: rgba(var(--line-rgb), 0.16); overflow: hidden; }
+.rt-cruise { position: absolute; top: 0; bottom: 0; background: rgba(var(--line-rgb), 0.3); }
 .rt-leg-t { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; }
 .rt-note, .rt-times { font-size: 12px; color: var(--text-3); }
 .rt-times { display: flex; justify-content: space-between; gap: 12px; margin-top: 4px; font-variant-numeric: tabular-nums; flex-wrap: wrap; }
@@ -16,14 +16,14 @@
 .rt-row { display: flex; flex-direction: column; gap: 2px; padding-top: 4px; }
 .rt-line { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 6px; row-gap: 0; font-size: 12px; line-height: 16px; color: var(--text-2); }
 .rt-who { color: var(--text); font-weight: 600; }
-.rt-tag { padding: 0 6px; border-radius: 6px; font-size: 12px; font-weight: 600; line-height: 16px; color: var(--accent); background: rgba(62, 230, 255, 0.12); }
+.rt-tag { padding: 0 6px; border-radius: 6px; font-size: 12px; font-weight: 600; line-height: 16px; color: var(--accent); background: rgba(var(--accent-rgb), 0.12); }
 .rt-when { margin-left: auto; color: var(--text-3); white-space: nowrap; }
 .rt-names { font-size: 12px; line-height: 16px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rt-lane { position: relative; height: 10px; }
 .rt-blk { position: absolute; top: 0; bottom: 0; border-radius: 3px; }
-.rt-blk.pilots { background: rgba(62, 230, 255, 0.42); border: 1px solid rgba(62, 230, 255, 0.75); }
-.rt-blk.pilots.landing { background: rgba(62, 230, 255, 0.62); border-color: var(--accent); }
-.rt-blk.cabin { background: rgba(167, 139, 250, 0.4); border: 1px solid rgba(167, 139, 250, 0.75); }
+.rt-blk.pilots { background: rgba(var(--accent-rgb), 0.42); border: 1px solid rgba(var(--accent-rgb), 0.75); }
+.rt-blk.pilots.landing { background: rgba(var(--accent-rgb), 0.62); border-color: var(--accent); }
+.rt-blk.cabin { background: rgba(var(--violet-rgb), 0.4); border: 1px solid rgba(var(--violet-rgb), 0.75); }
 
 /* ---- flight sheet / duty modal sections ---- */
 .rt-sec { display: flex; flex-direction: column; gap: 8px; }
@@ -32,7 +32,7 @@
 .rt-facts { display: flex; flex-direction: column; gap: 2px; line-height: 1.4; }
 .dm-why-btn { min-height: 44px; padding: 0 10px; margin: -12px 0; border: 0; background: none; color: var(--accent); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; border-radius: 8px; }
 @media (hover: hover) { .dm-why-btn:hover { background: var(--panel-hover); } }
-.dm-why { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(62, 230, 255, 0.3); background: rgba(62, 230, 255, 0.05); line-height: 1.45; }
+.dm-why { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(var(--accent-rgb), 0.3); background: rgba(var(--accent-rgb), 0.05); line-height: 1.45; }
 .dm-why-opts { display: flex; flex-wrap: wrap; gap: 6px; }
 .dm-why-opts .chip.on { border-color: var(--accent); color: var(--accent); }
 .dm-rest-toggle { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); font: inherit; cursor: pointer; text-align: left; width: 100%; }
@@ -45,7 +45,7 @@
 .mk-rest b { font-weight: 600; color: var(--text); }
 .mk-filter { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border-radius: 22px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text-2); font: inherit; font-size: 13.5px; cursor: pointer; }
 .mk-filter svg { width: 16px; height: 16px; }
-.mk-filter.on { border-color: var(--accent); background: rgba(62, 230, 255, 0.12); color: var(--accent); }
+.mk-filter.on { border-color: var(--accent); background: rgba(var(--accent-rgb), 0.12); color: var(--accent); }
 
 /* ---- offer modal rest lines ---- */
 .of-rest { display: flex; align-items: flex-start; gap: 8px; line-height: 1.4; }
@@ -58,20 +58,20 @@
   display: flex; flex-direction: column; align-items: stretch; gap: 2px; min-height: 44px; padding: 8px 12px; border-radius: 10px; text-align: left;
   border: 1px solid var(--border); background: var(--panel-2); color: var(--text); font: inherit; cursor: pointer;
 }
-.rf-opt.on { border-color: var(--accent); background: rgba(62, 230, 255, 0.1); }
+.rf-opt.on { border-color: var(--accent); background: rgba(var(--accent-rgb), 0.1); }
 .rf-opt:disabled { opacity: 0.55; cursor: default; }
 .rf-opt .rf-opt-opens { color: var(--good); }
 .ck-restfit { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); font: inherit; text-align: left; cursor: pointer; width: 100%; }
-.ck-restfit.on { border-color: var(--accent); background: rgba(62, 230, 255, 0.1); }
+.ck-restfit.on { border-color: var(--accent); background: rgba(var(--accent-rgb), 0.1); }
 .ck-restfit:disabled { opacity: 0.55; cursor: default; }
 .ck-restfit .hm-box { width: 20px; height: 20px; border-radius: 6px; border: 1.5px solid var(--border-strong); display: grid; place-items: center; flex-shrink: 0; }
-.ck-restfit.on .hm-box { background: var(--accent); border-color: var(--accent); color: var(--accent-ink, #08101e); }
+.ck-restfit.on .hm-box { background: var(--accent); border-color: var(--accent); color: var(--accent-ink, var(--c-fg-08101e)); }
 .ck-restfit .hm-box svg { width: 14px; height: 14px; }
 
 /* ---- roster board marks (static) ---- */
 .rb-mark { display: inline-flex; align-items: center; gap: 2px; margin-left: 4px; font-size: 12px; font-weight: 700; letter-spacing: 0.02em; color: var(--text); opacity: 0.9; }
 .rb-mark svg { width: 12px; height: 12px; }
-.sc-cal.k-standby { background: repeating-linear-gradient(135deg, rgba(62, 230, 255, 0.16) 0 4px, rgba(62, 230, 255, 0.04) 4px 8px); }
+.sc-cal.k-standby { background: repeating-linear-gradient(135deg, rgba(var(--accent-rgb), 0.16) 0 4px, rgba(var(--accent-rgb), 0.04) 4px 8px); }
 
 /* ---- v0.7.2 leftovers: WHY? dot text 12 px on touch; lists clear the home indicator ---- */
 .touch .why .sc-dot.why-dot { width: 20px; height: 20px; font-size: 12px; }

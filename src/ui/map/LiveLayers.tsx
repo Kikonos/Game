@@ -71,7 +71,7 @@ function svgEl<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<strin
 function stylePath(e: SVGPathElement, type: FlightType) {
   const st = TYPE_STROKE[type];
   e.setAttribute('class', `ops-path ${type}`);
-  e.setAttribute('stroke', st.color);
+  e.style.stroke = st.color;
   e.setAttribute('stroke-width', String(st.width));
   if (st.dash) e.setAttribute('stroke-dasharray', st.dash);
   else e.removeAttribute('stroke-dasharray');
@@ -162,13 +162,13 @@ export const ArcsLayer = memo(function ArcsLayer({ legs, proj }: { legs: LegArc[
         const B = AIRPORT_BY_CODE[l.to];
         const d = A && B ? path({ type: 'LineString', coordinates: [[A.lon, A.lat], [B.lon, B.lat]] }) : null;
         if (!d) return null;
-        const color = l.color ?? '#dfe8fb';
+        const color = l.color ?? 'var(--map-route)';
         return (
           <path
             key={l.id}
             d={d}
             className={l.current ? 'cur' : 'next'}
-            stroke={color}
+            style={{ stroke: color }}
             strokeOpacity={l.current ? 0.95 : Math.max(0.22, 0.42 - i * 0.06)}
             strokeWidth={l.current ? 2.2 : 1.4}
             strokeDasharray={l.dashed ? '5 5' : undefined}
@@ -192,7 +192,7 @@ export const SlipArcsLayer = memo(function SlipArcsLayer({ arcs, proj }: { arcs:
         const A = AIRPORT_BY_CODE[l.from];
         const B = AIRPORT_BY_CODE[l.to];
         const d = A && B ? path({ type: 'LineString', coordinates: [[A.lon, A.lat], [B.lon, B.lat]] }) : null;
-        return d ? <path key={l.id} d={d} className={l.dir} stroke={st.color} strokeDasharray={st.dash} /> : null;
+        return d ? <path key={l.id} d={d} className={l.dir} style={{ stroke: st.color }} strokeDasharray={st.dash} /> : null;
       })}
     </g>
   );

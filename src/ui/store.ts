@@ -23,6 +23,7 @@ import { advanceTo, settle } from '../engine/sim';
 import { prepareAsyncSave, saveTextAsync, supersedeAsyncSave } from './asyncSave';
 import { autoplay } from './devPlay';
 import { type Ambience, sound, type SoundEvent } from './sound';
+import { activeTheme, applyTheme, type Theme, type ThemePref } from './theme';
 import { cue, takeCueEvents, takeCues, type CueEvent } from '../engine/core/cues';
 import type { HeadId } from '../engine/core/types';
 import { devAchievement, devCrewHours, devJumbo, devPosition, devRestAtDeparture, devRoster, devSlipOffer, devUnlockHead } from '../engine/dev';
@@ -61,6 +62,8 @@ export interface Settings {
   screenHintsSeen: string[];
   /** v0.9 §X: '' until the one-time What's new catch-up (v0.9 + v0.8 + v0.7.4) has been shown, then 'v0.9'. */
   whatsNewCatchUp: string;
+  /** v0.11 Appearance: Light, Dark or follow the device. New installs: 'system'; players from before: 'dark' (their look). */
+  theme: ThemePref;
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -81,6 +84,7 @@ const DEFAULT_SETTINGS: Settings = {
   musicVolume: 0.35,
   screenHintsSeen: [],
   whatsNewCatchUp: '',
+  theme: 'system',
 };
 
 export interface Nav {
@@ -186,7 +190,19 @@ export function settingsFrom(s: Partial<Settings>): Settings {
   // v0.9.1 settings saved before the music: on, at its low default.
   out.music ??= DEFAULT_SETTINGS.music;
   out.musicVolume ??= DEFAULT_SETTINGS.musicVolume;
+  // v0.11 settings saved before themes: the dark look they have played with.
+  if (s.theme !== 'light' && s.theme !== 'dark' && s.theme !== 'system') out.theme = 'dark';
   return out;
+}
+
+/** Saved games in this browser (a player from before themes, even with no settings stored). */
+function hasSaves(): boolean {
+  try {
+    for (let i = 0; i < localStorage.length; i++) if (localStorage.key(i)?.startsWith('contrail-acmi:save:')) return true;
+  } catch {
+    // storage unavailable
+  }
+  return false;
 }
 
 function loadSettings(): Settings {
@@ -196,7 +212,7 @@ function loadSettings(): Settings {
   } catch {
     // storage unavailable
   }
-  return { ...DEFAULT_SETTINGS, autoPause: { ...DEFAULT_SETTINGS.autoPause }, soundCats: { ...DEFAULT_SETTINGS.soundCats } };
+  return { ...DEFAULT_SETTINGS, autoPause: { ...DEFAULT_SETTINGS.autoPause }, soundCats: { ...DEFAULT_SETTINGS.soundCats }, theme: hasSaves() ? 'dark' : DEFAULT_SETTINGS.theme };
 }
 
 class GameStore {
@@ -214,6 +230,8 @@ class GameStore {
   holdTime = false;
   toasts: Toast[] = [];
   settings: Settings = loadSettings();
+  /** v0.11 the colour theme on screen (Settings › Appearance; 'system' follows the device live). */
+  theme: Theme = applyTheme(this.settings.theme, () => this.onSystemTheme());
   version = 0;
   clockVersion = 0;
   /** Continuous game time (fractional minutes) for smooth plane motion; g.now is its integer part. */
@@ -801,10 +819,17 @@ class GameStore {
     }, 260);
   }
 
+  /** The device switched light/dark while Appearance is 'System'. */
+  private onSystemTheme() {
+    this.theme = activeTheme();
+    this.emit();
+  }
+
   setSettings(p: Partial<Settings>) {
     this.settings = { ...this.settings, ...p };
     configureSound(this.settings);
     applyTopGap(this.settings);
+    if (p.theme) this.theme = applyTheme(this.settings.theme, () => this.onSystemTheme());
     try {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(this.settings));
     } catch {
@@ -1265,4 +1290,9 @@ export function useThrottledNow(ms = 1000): number {
     };
   }, [ms]);
   return store.game?.now ?? 0;
+}
+
+/** v0.11 the colour theme on screen; re-renders only when it changes (Appearance, or the device under 'System'). */
+export function useTheme(): Theme {
+  return useSyncExternalStore(store.subscribe, () => store.theme);
 }

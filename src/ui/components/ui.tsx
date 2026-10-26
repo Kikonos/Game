@@ -285,8 +285,8 @@ export function Stars({ value }: { value: number }) {
           <svg key={i} viewBox="0 0 24 24" width="13" height="13">
             <defs>
               <linearGradient id={`sg${i}-${Math.round(fill * 10)}`}>
-                <stop offset={`${fill * 100}%`} stopColor="#f5c451" />
-                <stop offset={`${fill * 100}%`} stopColor="rgba(148,170,220,0.25)" />
+                <stop offset={`${fill * 100}%`} style={{ stopColor: 'var(--gold)' }} />
+                <stop offset={`${fill * 100}%`} style={{ stopColor: 'rgba(var(--line-rgb),0.25)' }} />
               </linearGradient>
             </defs>
             <path fill={`url(#sg${i}-${Math.round(fill * 10)})`} d="M12 2.5l2.9 6.1 6.6.8-4.9 4.6 1.3 6.5L12 17.3 6.1 20.5l1.3-6.5L2.5 9.4l6.6-.8z" />

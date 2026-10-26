@@ -4,6 +4,8 @@ import { memo, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo,
 import { AIRPORT_BY_CODE, AIRPORTS, type Airport } from '../../data/airports';
 import { REGIONS } from '../../data/regions';
 import { PLANE_PATH } from '../components/Logo';
+import { useTheme } from '../store';
+import { paleOnLight } from '../theme';
 import { isTouch, useTouch } from '../useMedia';
 import { MAP_H, MAP_W, basePaths, projection } from './mapData';
 import { type LabelBox, placeLabels } from './mapLogic';
@@ -113,7 +115,7 @@ interface Geo { w: number; h: number; s: number; ox: number; oy: number; left: n
  */
 const marginOf = (g: { w: number; h: number }) => Math.round(Math.max(g.w, g.h) * 0.3);
 /** The ocean as a background (static under the moving layers); matches the old SVG gradient. */
-const OCEAN = 'radial-gradient(75% 75% at 50% 40%, #0c1528 0%, #050912 100%)';
+const OCEAN = 'radial-gradient(75% 75% at 50% 40%, var(--map-ocean-0) 0%, var(--map-ocean-1) 100%)';
 
 const K_MAX = 16;
 const MAX_PLANES = 60;
@@ -129,13 +131,13 @@ const BaseLayers = memo(function BaseLayers({ rotate }: { rotate: number }) {
     <g className="map-base">
       <defs>
         <linearGradient id="land-grad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#1a2640" />
-          <stop offset="1" stopColor="#131d33" />
+          <stop offset="0" style={{ stopColor: 'var(--map-land-0)' }} />
+          <stop offset="1" style={{ stopColor: 'var(--map-land-1)' }} />
         </linearGradient>
       </defs>
-      <path d={p.graticule} fill="none" stroke="rgba(120,150,210,0.07)" strokeWidth={0.6} vectorEffect="non-scaling-stroke" />
-      <path d={p.land} fill="url(#land-grad)" stroke="rgba(120,160,230,0.28)" strokeWidth={0.7} vectorEffect="non-scaling-stroke" />
-      <path d={p.borders} fill="none" stroke="rgba(150,175,230,0.13)" strokeWidth={0.6} vectorEffect="non-scaling-stroke" />
+      <path d={p.graticule} fill="none" style={{ stroke: 'var(--map-grid)' }} strokeWidth={0.6} vectorEffect="non-scaling-stroke" />
+      <path d={p.land} fill="url(#land-grad)" style={{ stroke: 'var(--map-coast)' }} strokeWidth={0.7} vectorEffect="non-scaling-stroke" />
+      <path d={p.borders} fill="none" style={{ stroke: 'var(--map-border)' }} strokeWidth={0.6} vectorEffect="non-scaling-stroke" />
     </g>
   );
 });
@@ -211,11 +213,11 @@ const RoutesLayer = memo(function RoutesLayer({ items, accent }: { items: { r: M
         const color = r.color ?? accent;
         return (
           <g key={r.id}>
-            {r.highlight && <path d={d} fill="none" stroke={color} strokeOpacity={0.25} strokeWidth={8} vectorEffect="non-scaling-stroke" />}
+            {r.highlight && <path d={d} fill="none" style={{ stroke: color }} strokeOpacity={0.25} strokeWidth={8} vectorEffect="non-scaling-stroke" />}
             <path
               d={d}
               fill="none"
-              stroke={color}
+              style={{ stroke: color }}
               strokeOpacity={r.highlight ? 1 : 0.25 + 0.6 * r.weight}
               strokeWidth={0.8 + r.weight * 2.4 + (r.highlight ? 1 : 0)}
               strokeDasharray={r.dashed ? '4 4' : undefined}
@@ -264,13 +266,13 @@ const AirportsLayer = memo(function AirportsLayer({ els, unit, selected, hover, 
   let sel: ApEl | undefined;
   const item = (ap: ApEl) => {
     const { big, isSel, rad, ring, fs, ty } = geom(ap);
-    const fill = ap.state === 'hub' ? accent : ap.state === 'served' ? '#ffffff' : ap.state === 'open' ? '#9fb2d8' : ap.state === 'locked' ? '#3a4766' : '#56617a';
+    const fill = ap.state === 'hub' ? accent : ap.state === 'served' ? 'var(--map-pin)' : ap.state === 'open' ? 'var(--map-ap-open)' : ap.state === 'locked' ? 'var(--map-ap-locked)' : 'var(--map-ap-other)';
     return (
       <g key={ap.code} data-code={ap.code} transform={`translate(${ap.x} ${ap.y})`} className={`ap ap-${ap.state} ${isSel ? 'sel' : ''} ${hover === ap.code ? 'hov' : ''}`}>
         <g className="mk" transform={`scale(${unit})`}>
-          {big && <circle r={rad * 2.4} fill={accent} opacity={0.18} className="pulse" />}
-          {isSel && <circle r={ring} fill="rgba(255,255,255,0.08)" stroke="#fff" strokeWidth={1.5} vectorEffect="non-scaling-stroke" className="sel-ring" />}
-          <circle r={rad} fill={fill} stroke={big || isSel ? '#fff' : 'rgba(5,9,18,0.8)'} strokeWidth={big ? 1.5 : 1} vectorEffect="non-scaling-stroke" />
+          {big && <circle r={rad * 2.4} style={{ fill: accent }} opacity={0.18} className="pulse" />}
+          {isSel && <circle r={ring} style={{ fill: 'rgba(var(--ink-rgb),0.08)', stroke: 'var(--map-ring)' }} strokeWidth={1.5} vectorEffect="non-scaling-stroke" className="sel-ring" />}
+          <circle r={rad} style={{ fill, stroke: big || isSel ? 'var(--map-ring)' : 'rgba(var(--halo-rgb),0.8)' }} strokeWidth={big ? 1.5 : 1} vectorEffect="non-scaling-stroke" />
           {shown.has(ap.code) && (
             <text y={ty} textAnchor="middle" fontSize={fs} className="ap-label">
               {ap.code}
@@ -329,10 +331,13 @@ interface Gesture {
  * and React re-renders markers at most every 120 ms.
  */
 export function WorldMap({
-  rotate = 0, routes, airports, fit, fitPad, interactive = true, animate = true, accent = '#3ee6ff', selected, onSelect, onSelectRoute, onHover,
+  rotate = 0, routes, airports, fit, fitPad, interactive = true, animate = true, accent: accentIn = 'var(--accent)', selected, onSelect, onSelectRoute, onHover,
   tooltip, regionLabels, className, planesKey, controls = true, revealPad, layers, underlay, ground, backdrop, onTap, fitFn, fitCentre, focus, memo,
 }: Props) {
   const touch = useTouch();
+  // v0.11 a pale livery colour (white, cream) would vanish on the light map: the theme accent there instead.
+  const theme = useTheme();
+  const accent = theme === 'light' && paleOnLight(accentIn) ? 'var(--accent)' : accentIn;
   const wrapRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<SVGGElement>(null);
   const planesRef = useRef<SVGGElement>(null);
@@ -960,11 +965,11 @@ export function WorldMap({
         const icon = document.createElementNS(NS, 'path');
         icon.setAttribute('d', PLANE_PATH);
         icon.setAttribute('transform', 'translate(-12 -12)');
-        icon.setAttribute('fill', '#ffffff');
+        icon.style.fill = 'var(--map-plane)';
         el.appendChild(icon);
         const trail = document.createElementNS(NS, 'polyline');
         trail.setAttribute('fill', 'none');
-        trail.setAttribute('stroke', r.color ?? accent);
+        trail.style.stroke = r.color ?? accent;
         trail.setAttribute('stroke-opacity', '0.55');
         trail.setAttribute('stroke-width', '1.6');
         trail.setAttribute('stroke-linecap', 'round');

@@ -11,6 +11,7 @@
 import '@fontsource-variable/inter';
 import '@fontsource-variable/space-grotesk';
 import '@fontsource-variable/jetbrains-mono';
+import '../styles/theme.css';
 import '../styles/app.css';
 import '../styles/screens.css';
 import { StrictMode, useState } from 'react';

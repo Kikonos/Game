@@ -185,12 +185,12 @@ export function upNext(g: GameState, n = 3, after = -Infinity): Flight[] {
 
 // ---------- flight types (v0.5.2) ----------
 
-/** Map stroke per flight type: colour, dash (screen px; '' = solid) and width (screen px). */
+/** Map stroke per flight type: colour (a theme token: set it as a style, not an SVG attribute), dash (screen px; '' = solid) and width (screen px). */
 export const TYPE_STROKE: Record<FlightType, { color: string; dash: string; width: number }> = {
-  operating: { color: '#34d399', dash: '', width: 1.8 },
-  positioning: { color: '#fbbf24', dash: '2 5', width: 1.8 },
-  ferry: { color: '#fbbf24', dash: '2 5', width: 1.8 },
-  deadhead: { color: '#9aa5bb', dash: '1.5 4', width: 1.1 },
+  operating: { color: 'var(--path-operating)', dash: '', width: 1.8 },
+  positioning: { color: 'var(--path-positioning)', dash: '2 5', width: 1.8 },
+  ferry: { color: 'var(--path-positioning)', dash: '2 5', width: 1.8 },
+  deadhead: { color: 'var(--path-deadhead)', dash: '1.5 4', width: 1.1 },
 };
 
 /** Selection id of an airline leg on the map (a Ref of kind 'flight'): `${ticketId}:${legIndex}`. */

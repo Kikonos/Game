@@ -15,8 +15,8 @@
 /* Shared count pip on nav icons (rail, compact tabs, More tiles). */
 .nb {
   position: absolute; top: -6px; right: -10px; min-width: 19px; height: 19px; padding: 0 5px; border-radius: 999px;
-  background: var(--bad); color: #fff; font-size: 12px; font-weight: 700; line-height: 1; display: grid; place-items: center;
-  box-shadow: 0 0 0 2px #070b14; font-variant-numeric: tabular-nums;
+  background: var(--bad); color: var(--on-color); font-size: 12px; font-weight: 700; line-height: 1; display: grid; place-items: center;
+  box-shadow: 0 0 0 2px var(--bg); font-variant-numeric: tabular-nums;
 }
 /* Informational unread only: a plain dot, no count. */
 .nb.dot { min-width: 9px; width: 9px; height: 9px; padding: 0; top: -3px; right: -5px; background: var(--accent); }
@@ -40,7 +40,7 @@
 .touch .tb-right { gap: 6px; }
 .touch .tb-stat .l { font-size: 12px; }
 .touch .tb-rep { min-height: var(--tap); justify-content: center; padding: 0 8px; border-radius: 12px; }
-.touch .bell .pip { top: 3px; right: auto; left: 23px; min-width: 19px; height: 19px; font-size: 12px; box-shadow: 0 0 0 2px #070b14; }
+.touch .bell .pip { top: 3px; right: auto; left: 23px; min-width: 19px; height: 19px; font-size: 12px; box-shadow: 0 0 0 2px var(--bg); }
 .touch .nav-item { height: 48px; padding: 0 14px; gap: 14px; border-radius: 12px; font-size: 14.5px; }
 .touch .nav-item svg { width: 20px; height: 20px; }
 .touch .nav-item.active::before { top: 13px; bottom: 13px; }
@@ -52,7 +52,7 @@
 .touch .ticker { font-size: 13.5px; }
 .touch .ticker .tag { font-size: 12px; padding: 0 16px; }
 .touch .ticker .item .d { font-size: 12px; }
-.touch .ticker:active .tag { background: rgba(62, 230, 255, 0.16); }
+.touch .ticker:active .tag { background: rgba(var(--accent-rgb), 0.16); }
 /* iPad landscape in Safari (~750px tall): keep all 11 destinations without scrolling. */
 @media (max-height: 800px) { .touch .shell.wide .nav-foot { display: none; } }
 @media (max-width: 1299.98px) { .touch .shell.wide .tb-rep { display: none; } }
@@ -69,7 +69,7 @@
 }
 .shell.medium .nav-item svg { width: 22px; height: 22px; }
 .shell.medium .nav-item .lbl { max-width: 100%; line-height: 1.1; }
-.shell.medium .nav-item.active { background: rgba(62, 230, 255, 0.1); box-shadow: inset 0 0 0 1px rgba(62, 230, 255, 0.22); }
+.shell.medium .nav-item.active { background: rgba(var(--accent-rgb), 0.1); box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), 0.22); }
 .shell.medium .nav-item.active::before { left: calc(-8px - var(--safe-l)); top: 16px; bottom: 16px; }
 .shell.medium .nav-item .nb, .cp-tab .nb, .more-tile .nb { top: -8px; right: auto; left: calc(50% + 3px); }
 /* Short rail windows (iPad portrait Split View, artifact viewer): fit all 11 at the 48px minimum. */
@@ -104,7 +104,7 @@
 .cp-top {
   grid-area: top; display: flex; flex-direction: column; gap: 2px; min-width: 0; z-index: 30;
   padding: calc(4px + var(--safe-t)) calc(10px + var(--safe-r)) 4px calc(10px + var(--safe-l));
-  background: #080c16; border-bottom: 1px solid var(--border);
+  background: var(--c-bg-080c16); border-bottom: 1px solid var(--border);
 }
 .shell.compact.short .cp-top { padding-left: 10px; }
 .cp-row { display: flex; align-items: center; gap: 8px; min-height: 50px; min-width: 0; }
@@ -120,12 +120,12 @@
 .cp-tabbar {
   grid-area: nav; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px; z-index: 30;
   min-height: calc(var(--tabbar-h) + var(--safe-b)); padding: 3px calc(8px + var(--safe-r)) var(--safe-b) calc(8px + var(--safe-l));
-  background: #070b14; border-top: 1px solid var(--border);
+  background: var(--bg); border-top: 1px solid var(--border);
 }
 .cp-rail {
   grid-area: nav; display: flex; flex-direction: column; justify-content: center; gap: 4px; overflow-y: auto; z-index: 30;
   padding: calc(6px + var(--safe-t)) 6px calc(6px + var(--safe-b)) calc(6px + var(--safe-l));
-  background: rgba(7, 11, 20, 0.6); border-right: 1px solid var(--border);
+  background: rgba(var(--bg-rgb), 0.6); border-right: 1px solid var(--border);
 }
 .cp-tab {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-height: 52px; min-width: 0;
@@ -135,7 +135,7 @@
 .cp-tab svg { width: 22px; height: 22px; }
 .cp-tab .lbl { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cp-tab.active { color: var(--text); }
-.cp-tab.active .ico { background: rgba(62, 230, 255, 0.14); color: var(--accent); }
+.cp-tab.active .ico { background: rgba(var(--accent-rgb), 0.14); color: var(--accent); }
 .cp-tab:active .ico { background: var(--panel-hover); }
 
 /* More sheet (compact): the destinations that are not tabs, plus quick actions. */
@@ -153,7 +153,7 @@
 }
 .more-tile .ico { position: relative; display: grid; place-items: center; }
 .more-tile svg { width: 24px; height: 24px; }
-.more-tile.active { color: var(--text); border-color: rgba(62, 230, 255, 0.4); background: rgba(62, 230, 255, 0.08); }
+.more-tile.active { color: var(--text); border-color: rgba(var(--accent-rgb), 0.4); background: rgba(var(--accent-rgb), 0.08); }
 .more-tile.active svg { color: var(--accent); }
 .more-tile:active, .more-goal:active { background: var(--panel-hover); transform: scale(0.98); }
 .more-shortcuts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
@@ -178,7 +178,7 @@
     animation: sheet-up 0.3s var(--ease); transition: transform 0.25s var(--ease);
   }
   .sheet-grip { display: block; flex-shrink: 0; height: 22px; margin-bottom: -10px; position: relative; touch-action: none; }
-  .sheet-grip::after { content: ''; position: absolute; left: 50%; top: 9px; width: 40px; height: 5px; margin-left: -20px; border-radius: 999px; background: rgba(148, 170, 220, 0.35); }
+  .sheet-grip::after { content: ''; position: absolute; left: 50%; top: 9px; width: 40px; height: 5px; margin-left: -20px; border-radius: 999px; background: rgba(var(--line-rgb), 0.35); }
   .modal-head { touch-action: none; }
   .modal-head, .touch .modal-head { padding-left: 18px; padding-right: 10px; }
   .modal-body { padding-left: 18px; padding-right: 18px; }

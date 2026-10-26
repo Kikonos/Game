@@ -121,7 +121,7 @@ export function LineChart({
         <svg width={width} height={height}>
           {ticks.map((t) => (
             <g key={t}>
-              <line x1={padL} x2={padL + w} y1={y(t)} y2={y(t)} stroke={t === 0 ? 'rgba(148,170,220,0.35)' : 'rgba(148,170,220,0.09)'} />
+              <line x1={padL} x2={padL + w} y1={y(t)} y2={y(t)} style={{ stroke: t === 0 ? 'rgba(var(--line-rgb),0.35)' : 'rgba(var(--line-rgb),0.09)' }} />
               <text x={padL - 8} y={y(t) + 4} textAnchor="end" fontSize={fs} fill="var(--text-3)" className="num">{format(t)}</text>
             </g>
           ))}
@@ -141,7 +141,7 @@ export function LineChart({
           })}
           {hover !== null && (
             <g>
-              <line x1={x(hover)} x2={x(hover)} y1={padT} y2={padT + h} stroke="rgba(148,170,220,0.4)" strokeDasharray="3 3" />
+              <line x1={x(hover)} x2={x(hover)} y1={padT} y2={padT + h} style={{ stroke: 'rgba(var(--line-rgb),0.4)' }} strokeDasharray="3 3" />
               {series.map((s) => (
                 <circle key={s.name} cx={x(hover)} cy={y(s.values[hover] ?? 0)} r="4" fill={s.color} stroke="var(--panel-solid)" strokeWidth="2" />
               ))}
@@ -196,7 +196,7 @@ export function BarChart({
         <svg width={width} height={height}>
           {ticks.map((t) => (
             <g key={t}>
-              <line x1={padL} x2={padL + w} y1={y(t)} y2={y(t)} stroke={t === 0 ? 'rgba(148,170,220,0.35)' : 'rgba(148,170,220,0.09)'} />
+              <line x1={padL} x2={padL + w} y1={y(t)} y2={y(t)} style={{ stroke: t === 0 ? 'rgba(var(--line-rgb),0.35)' : 'rgba(var(--line-rgb),0.09)' }} />
               <text x={padL - 8} y={y(t) + 4} textAnchor="end" fontSize={fs} fill="var(--text-3)">{format(t)}</text>
             </g>
           ))}
@@ -271,7 +271,7 @@ export function PairBars({
         <svg width={width} height={height}>
           {ticks.map((t) => (
             <g key={t}>
-              <line x1={padL} x2={padL + w} y1={y(t)} y2={y(t)} stroke={t === 0 ? 'rgba(148,170,220,0.35)' : 'rgba(148,170,220,0.09)'} />
+              <line x1={padL} x2={padL + w} y1={y(t)} y2={y(t)} style={{ stroke: t === 0 ? 'rgba(var(--line-rgb),0.35)' : 'rgba(var(--line-rgb),0.09)' }} />
               <text x={padL - 8} y={y(t) + 4} textAnchor="end" fontSize={fs} fill="var(--text-3)">{format(t)}</text>
             </g>
           ))}
