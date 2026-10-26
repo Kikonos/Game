@@ -1551,6 +1551,78 @@ function seatLog(g: GameState): void {
     }
   }
 }
+/**
+ * Crew-planning round (--redwhy): each red crew alarm by cause, read from its message (out of hours; no rested crew at
+ * the station, the free ones too far; the nearest crew still resting; nobody rated free at all; free crew the roster
+ * had not placed) and from its trip's seat history (born empty, or emptied how long before report and by whom).
+ * Histogram at the end; one line per red to stderr.
+ */
+const REDWHY = process.argv.includes('--redwhy');
+const redSeats = new Map<string, (string | null)[]>();
+const redEmptied = new Map<string, { t: number; ahead: number; status: string }[]>();
+const redCauses = new Map<string, number>();
+function redTrack(g: GameState): void {
+  for (const p of Object.values(g.pairings)) {
+    if (p.status === 'done' || p.status === 'broken' || p.end < g.now) continue;
+    const now = p.slots.map((s) => (s.above ? 'x' : s.crewId));
+    const was = redSeats.get(p.id);
+    if (was) {
+      const first = p.dutyIds.map((id) => g.duties[id]).filter((d) => d && !d.done).sort((a, b) => a.report - b.report)[0];
+      for (let i = 0; i < now.length; i++) {
+        if (now[i] || !was[i] || was[i] === 'x') continue;
+        const c = g.crew[was[i]!];
+        const list = redEmptied.get(p.id) ?? [];
+        list.push({ t: g.now, ahead: first ? (first.report - g.now) / 60 : -1, status: c ? `${c.status}${c.blocks?.some((b) => b.from <= g.now && b.to > g.now) ? '/blocked' : ''}${p.slots[i].ooh ? `/ooh ${p.slots[i].ooh!.limit}` : ''}` : 'left' });
+        redEmptied.set(p.id, list);
+      }
+    }
+    redSeats.set(p.id, now);
+  }
+}
+function redNote(g: GameState, m: GameState['messages'][number]): void {
+  const f = m.ref?.kind === 'flight' ? g.flights[m.ref.id] : undefined;
+  const d = f?.dutyId ? g.duties[f.dutyId] : undefined;
+  const body = m.body;
+  const cause = m.topic === 'crewHours' ? 'out of hours' : /are in .* earliest they can land|are in .*: flown in the same day/.test(body) ? 'no rested crew at the station (free crew too far)'
+    : /but their rest at .* ends|nearest free .* but they/.test(body) ? 'nearest crew still resting' : /No .* are free at all|Nobody free holds|Every rated .* is busy|nobody else rated/.test(body) ? 'nobody rated free (headcount)'
+    : /roster has not placed|can take the .* seat|is on a day off/.test(body) ? 'free crew not placed' : /day would run/.test(body) ? 'day too long' : 'other';
+  // Who could have flown it, per missing seat: free crew of the role at hand (legal, standby), free but too far, free
+  // but resting (rest, recovery, day length, hours), or none at all (busy, off, on leave, sick, joining: headcount).
+  let pool = 'n/a';
+  if (f && d) {
+    const roles = [...new Set(flightCrewStatus(g, f.id, { live: false }).missing)];
+    const rank = ['free at hand', 'free but too far', 'free but resting', 'headcount (all busy, off, on leave or joining)'];
+    let w = roles.length ? 0 : -1;
+    for (const role of roles) {
+      let local = 0, far = 0, tired = 0;
+      for (const c of dutyCandidates(g, d.id, role)) {
+        if (c.onPairing) continue;
+        const off = c.dayOff || c.codes.includes('daysOff');
+        if (c.level !== 'illegal' && !off) local++;
+        else if (c.level === 'illegal' && !off && c.reason?.code === 'place') far++;
+        else if (c.level === 'illegal' && !off && ['rest', 'recovery', 'fdp', 'hours'].includes(c.reason?.code ?? '')) tired++;
+      }
+      w = Math.max(w, local ? 0 : tired ? 2 : far ? 1 : 3);
+    }
+    pool = w < 0 ? 'crew on it out of hours' : rank[w];
+  }
+  const ev = d ? redEmptied.get(d.pairingId) ?? [] : [];
+  const last = ev[ev.length - 1];
+  const hist = !last ? 'seat never crewed (born empty / split)' : last.ahead <= 24 ? `emptied ≤ 24 h before report (${last.status})` : `emptied ${Math.round(last.ahead / 24)} d before report (${last.status})`;
+  const k = `${pool} | ${hist.replace(/ \(.*\)/, '')}`;
+  redCauses.set(k, (redCauses.get(k) ?? 0) + 1);
+  console.error(`${fmtDateTime(g.now)} RED ${f?.no ?? '?'} ${f ? `${f.from}–${f.to} std ${fmtDateTime(f.std)}` : ''} pool: ${pool}; cause: ${cause}; ${hist} — ${body.slice(0, 160)}`);
+}
+let probeLast = '';
+function crewProbe(g: GameState, name: string): void {
+  const c = Object.values(g.crew).find((x) => `${x.first} ${x.last}` === name);
+  if (!c) return;
+  const tix = Object.values(g.flights).filter((f) => f.kind === 'deadhead' && f.crewIds.includes(c.id) && f.sta > g.now - DAY);
+  const duties = Object.values(g.duties).filter((d) => d.release > g.now - DAY && g.pairings[d.pairingId]?.slots.some((s) => s.crewId === c.id));
+  const line = `${c.status} ${c.loc} rest ${fmtDateTime(c.restUntil)} lastRec ${fmtDateTime(c.lastRecovery)} | sby ${(c.standby ?? []).filter((w) => w.to > g.now - DAY).map((w) => `${w.kind ?? 'home'}@${w.at ?? c.base} ${fmtDateTime(w.from)}-${fmtDateTime(w.to)}${w.calledAt !== undefined ? ' called' : ''}`).join(', ')} | blocks ${(c.blocks ?? []).filter((b) => b.to > g.now).map((b) => `${b.why} ${fmtDateTime(b.from)}-${fmtDateTime(b.to)}`).join(',')} | tix ${tix.map((f) => `${f.from}-${f.to} ${fmtDateTime(f.std)} ${f.status}`).join('; ')} | duties ${duties.map((d) => `${d.id} ${fmtDateTime(d.report)}-${fmtDateTime(d.release)}${d.done ? ' done' : ''} ${d.flightIds.map((i) => g.flights[i]?.no).join(',')}`).join('; ')}`;
+  if (line !== probeLast) console.error(`${fmtDateTime(g.now)} CREW ${name}: ${line}`);
+  probeLast = line;
+}
 const seatContracts = new Set<string>();
 const seatIssues = new Set<string>();
 const tally = newTally();
@@ -1626,10 +1698,13 @@ function onStep(): void {
     const p = d ? g.pairings[d.pairingId] : undefined;
     console.error(`${fmtDateTime(g.now)} PROBE ${f.no} ${f.from}-${f.to} ${f.status} crew ${f.crewIds.map((x) => g.crew[x]?.last).join(',')} slots ${p?.slots.map((s) => `${s.role}:${s.crewId ? g.crew[s.crewId]?.last : '-'}`).join(' ')}`);
   }
+  // Debugging: CREWPROBE=First_Last: that crew member's state, duties, tickets and standby whenever they change (stderr).
+  if (process.env.CREWPROBE) crewProbe(g, process.env.CREWPROBE.replace(/_/g, ' '));
   INV?.observe(g);
   const m = mon(monthKey(g.now));
   if (WHYHELD) noteOffShare(g);
   if (SEATLOG) seatLog(g);
+  if (REDWHY) redTrack(g);
   if (WHYHELD) for (const x of shortFlights(g)) {
     const f = g.flights[x.flightId];
     if (!f.crewAlert || alertSeen.get(f.id) === f.crewAlert) continue;
@@ -1675,6 +1750,7 @@ function onStep(): void {
     n++;
     // --msgs: inbox lines to stderr (debugging a run).
     if (MSGS) console.error(`${fmtDateTime(x.t)} [${x.cat}/${x.tone}] ${x.title} — ${x.body}`);
+    if (REDWHY && (x.topic === 'crewRed' || x.topic === 'crewHours')) redNote(g, x);
   }
   lastMsgId = g.messages[0]?.id;
   m.msgs += n;
@@ -1876,6 +1952,8 @@ errors.push(...safetyTrips.map((x) => `safety net tripped: ${x}`));
 if (INV) {
   INV.finish(g);
   INV.print(`invariants seed ${seed}${process.argv.slice(3).filter((a) => a.startsWith('--')).join(' ')}`);
+  // --invdump=First_Last,…: those crew members' records as the checker saw them (reading an issue).
+  for (const n of (process.argv.find((a) => a.startsWith('--invdump='))?.slice(10) ?? '').split(',').filter(Boolean)) INV.dump(n.replace(/_/g, ' '));
   for (const n of (process.env.INVDUMP ?? '').split(',').filter(Boolean)) INV.dump(n);
 }
 
@@ -1953,6 +2031,7 @@ console.log(`ladder: widebody signed ${dayOf(tally.wideSigned)}; tour series / t
   const jetShare = revenueY ? (s.jetSpend ?? 0) / revenueY : 0;
   console.log(`crew control: amber ${s.crewAmber ?? 0}, red ${s.crewRed ?? 0} (out of hours ${g.stats.v09?.oohRed ?? 0}), fixes {${fixes}}, jets ${s.jets ?? 0} ${k$(s.jetSpend ?? 0)} (${(jetShare * 100).toFixed(2)}% of revenue) · short-notice offers passed over ${tally.shortSkipped}, widebody general work capped ${tally.wideCapped}, leases without a job ${tally.leaseNoJob}`);
   softTargets.push(['jets ≤ 8 a year and ≤ 1% of revenue', (s.jets ?? 0) * (365 / days) <= 8 && jetShare <= 0.01, `${s.jets ?? 0} jets, ${k$(s.jetSpend ?? 0)}`]);
+  if (REDWHY) console.log(`red alarms by cause: ${[...redCauses].sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(' · ') || 'none'}`);
   softTargets.push(['red crew shortages ≤ 12 a year', (s.crewRed ?? 0) * (365 / days) <= 12, `${s.crewRed ?? 0} red (${g.stats.v09?.oohRed ?? 0} out of hours), ${s.crewAmber ?? 0} amber`]);
 }
 // v0.5.1 client paint: jobs in the paint shop, and what paint cost net of the clients' share (all months incl. the open one).
