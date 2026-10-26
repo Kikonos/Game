@@ -104,6 +104,29 @@ export const SIL_FAMILY: Record<string, string> = {
   b741: '747', b742: '747', b743: '747', b744: '747', b748: '747', a388: 'A380',
 };
 
+/** v0.12 map colour per family (the player reads the type at a glance): Airbus and Boeing families each get their own hue,
+ *  variants (neo, 777X, A340-500/600) keep their family's. Order = the legend's. */
+export const SIL_COLOURS: { family: string; label: string; colour: string }[] = [
+  { family: 'A320', label: 'A320 / A321', colour: '#3b82f6' },
+  { family: 'A330', label: 'A330', colour: '#a855f7' },
+  { family: 'A340', label: 'A340', colour: '#ec4899' },
+  { family: 'A350', label: 'A350', colour: '#0d9488' },
+  { family: 'A380', label: 'A380', colour: '#ef4444' },
+  { family: '737', label: '737', colour: '#22c55e' },
+  { family: '757', label: '757', colour: '#a3e635' },
+  { family: '767', label: '767', colour: '#b45309' },
+  { family: '777', label: '777', colour: '#f97316' },
+  { family: '787', label: '787', colour: '#06b6d4' },
+  { family: '747', label: '747', colour: '#facc15' },
+];
+const COLOUR_OF = new Map(SIL_COLOURS.map((c) => [c.family, c.colour]));
+
+/** The colour family of a type (A321neo → A320, 777-9 → 777, A340-600 → A340). */
+export const silColourFamily = (typeId: string): string => (SIL_FAMILY[typeId] ?? 'A320').replace(/neo$|X$|-500\/600$/, '');
+
+/** The map fill of a type: its family's colour. */
+export const silColour = (typeId: string): string => COLOUR_OF.get(silColourFamily(typeId)) ?? '#3b82f6';
+
 const DIMS = new Map(AIRCRAFT.map((a) => [a.id, { L: a.lengthM, S: a.spanM }]));
 
 /** The silhouette spec of a type (unknown types: an A320, so nothing ever goes undrawn). */
@@ -220,7 +243,7 @@ function area(q: Pt[]): number {
 export interface Silhouette {
   /** Fuselage, wings and tailplane (screen px, nose up, centred on the middle of the length). */
   body: string;
-  /** The engine nacelles, drawn over the wing so they read at map size. */
+  /** The engine nacelles, drawn under the wing: only the part ahead of the leading edge shows. */
   engines: string;
   /** The upper deck (747 hump, A380 full length): a lighter band on the crown. */
   deck: string;

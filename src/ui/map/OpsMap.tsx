@@ -25,6 +25,7 @@ import { store, useClock, useGame, useTheme } from '../store';
 import { useTouch } from '../useMedia';
 import { AircraftLayer, ArcsLayer, CommercialLayer, DiversionLayer, divMarks, HIT_R, type LiveShared, NightLayer, newShared, paintCityLights, PathsLayer, PinsLayer, pinOffset, SlipArcsLayer, SlipMarksLayer, WeatherLayer, WX_OFF } from './LiveLayers';
 import { SpotterPanel } from './Spotter';
+import { SIL_COLOURS, silhouette } from './silhouettes';
 import { nextDeparture, SPOT_SECONDS, spotList, spotNext } from './spotter';
 import { wxMarks, type WxMark } from './weather';
 import { MapPanel, TypeKey } from './MapPanels';
@@ -91,7 +92,7 @@ function depLabel(now: number, t: number) {
 }
 
 /** v0.7.1 colour legend for the map's crew layer: what the lines, icons, dots and chips mean. */
-const LEGEND: { swatch: ReactNode; label: string }[] = [
+const LEGEND: { swatch: ReactNode; label: ReactNode }[] = [
   { swatch: <TypeKey type="operating" />, label: 'Solid green: our aircraft flying passengers' },
   { swatch: <TypeKey type="positioning" />, label: 'Dotted amber: our aircraft flying empty (positioning or ferry)' },
   { swatch: <TypeKey type="deadhead" />, label: 'Thin dotted grey: our crew riding an airline or a private jet' },
@@ -108,6 +109,11 @@ const LEGEND: { swatch: ReactNode; label: string }[] = [
   { swatch: <svg width={16} height={16} viewBox="0 0 16 16" aria-hidden><path d="M1 8H8" stroke="var(--path-operating)" strokeWidth={2} /><path d="M9 8H15" stroke="var(--path-operating)" strokeWidth={2} strokeDasharray="2.5 2" /></svg>, label: 'Solid behind an aircraft: flown; dashed ahead: still to fly' },
   { swatch: <CloudLightning className="ops-help-wx" aria-hidden />, label: 'Storm, cloud or moon on an airport: closed or limited by weather, a curfew or an event. Tap it' },
   { swatch: <Binoculars className="ops-help-spot" aria-hidden />, label: 'Binoculars: spotter mode. Follow one aircraft and watch it fly' },
+  // v0.12 our aircraft are painted by family, so the type reads at a glance.
+  {
+    swatch: <svg width={16} height={16} viewBox="-8 -8 16 16" aria-hidden><path d={silhouette('a320ceo', 15).body} fill={SIL_COLOURS[0].colour} /></svg>,
+    label: <span className="ops-help-fams">Our aircraft, coloured by family: {SIL_COLOURS.map((c) => <span key={c.family} className="ops-help-fam"><i style={{ background: c.colour }} />{c.label}</span>)}</span>,
+  },
 ];
 
 function MapLegend() {

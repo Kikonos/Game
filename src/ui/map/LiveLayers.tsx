@@ -25,8 +25,8 @@ import { liveMinute, store } from '../store';
 import { mix } from '../components/aircraft/ink';
 import { isTouch } from '../useMedia';
 import { MAP_H, MAP_W } from './mapData';
-import { deliveryTag, headingDeg, JET_PATH, leasedOut, mapLivery, onMap, type LabelBox, boxOverlap, groupCommercial, lerpAngle, parkOffset, downSide, legLabelSide, placeLabels, regSlot, type RegSlot, type SlipArc, type SlipMark, trackCovered, trackLabelAt, type LegArc, type PinGroup, sunElevation, sunPoint, TYPE_STROKE } from './mapLogic';
-import { parkedFit, silhouette, silSpec } from './silhouettes';
+import { deliveryTag, headingDeg, JET_PATH, leasedOut, onMap, type LabelBox, boxOverlap, groupCommercial, lerpAngle, parkOffset, downSide, legLabelSide, placeLabels, regSlot, type RegSlot, type SlipArc, type SlipMark, trackCovered, trackLabelAt, type LegArc, type PinGroup, sunElevation, sunPoint, TYPE_STROKE } from './mapLogic';
+import { parkedFit, silColour, silhouette, silSpec } from './silhouettes';
 import { fillNight, lightAlpha, mercLat, parseRgb } from './sky';
 import { contrailWindow } from './spotter';
 import type { WxKind, WxMark } from './weather';
@@ -521,7 +521,11 @@ export const WeatherLayer = memo(function WeatherLayer({ marks, proj, unit }: { 
  * engines and the upper deck a step lighter (dark paint) or darker (light paint). A plain airframe is white.
  */
 export function silInk(l: Livery): { fill: string; edge: string; eng: string; deck: string } {
-  const fill = l.plain ? '#eef2f8' : l.primary;
+  return inkOf(l.plain ? '#eef2f8' : l.primary);
+}
+
+/** v0.12 silhouette inks for a fill colour (the map paints each type in its family's colour, `silColour`). */
+export function inkOf(fill: string): { fill: string; edge: string; eng: string; deck: string } {
   const dark = luminance(fill) < 0.32;
   return { fill, edge: dark ? '#f4f7ff' : '#141c2c', eng: mix(fill, dark ? '#ffffff' : '#000000', dark ? 0.5 : 0.4), deck: mix(fill, dark ? '#ffffff' : '#000000', dark ? 0.3 : 0.16) };
 }
@@ -1051,7 +1055,8 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
       </defs>
       {ids.map((id) => {
         const ac = g.fleet[id];
-        const ink = silInk(mapLivery(g, ac).livery);
+        // v0.12 the family's colour (A320 blue, 777 orange…), so the type reads at a glance; the legend lists them.
+        const ink = inkOf(silColour(ac.typeId));
         // v0.12 a top-down silhouette of the type (engines where they really are), sized by the real aircraft.
         const sil = silhouette(ac.typeId);
         const half = Math.max(sil.hl, sil.hs);
@@ -1065,9 +1070,10 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
             <circle className="aog-ring" r={14} />
             <g className="glyph">
               <path className="trail" d={sil.trails} fill="url(#bh-trail)" />
+              {/* v0.12 engines go under the wing (as on Flightradar24): only the intake shows ahead of the leading edge. */}
+              <path className="eng" d={sil.engines} fill={ink.eng} stroke={ink.edge} strokeWidth={1.2} strokeLinejoin="round" paintOrder="stroke" />
               <path className="sil" d={sil.body} fill={ink.fill} stroke={ink.edge} strokeWidth={2} strokeLinejoin="round" paintOrder="stroke" />
               {sil.deck && <path className="deck" d={sil.deck} fill={ink.deck} />}
-              <path className="eng" d={sil.engines} fill={ink.eng} stroke={ink.edge} strokeWidth={1.2} strokeLinejoin="round" paintOrder="stroke" />
             </g>
             <g className="badge maint" transform="translate(11 -11)">
               <circle r={7.5} />
