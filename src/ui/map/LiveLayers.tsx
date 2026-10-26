@@ -725,8 +725,9 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
       }
       // Night: slid sideways on the compositor as the sun moves; placed again (one backdrop repaint) when the slide
       // nears the layer's margin (also after a zoom: the margin is in screen px), repainted when the declination drifts.
-      // v0.12 Map animations off: the night steps every quarter hour of game time instead of gliding.
-      const anim = store.settings.mapAnimations;
+      // v0.12 Map animations off (or the system's reduced motion): the night steps every quarter hour of game time
+      // instead of gliding, and no contrails.
+      const anim = store.settings.mapAnimations && !calm;
       const tn = anim ? t : Math.floor(t / 15) * 15;
       const sun = tn === lastSunT && lastSun ? lastSun : sunPoint(tn);
       lastSunT = tn;
@@ -738,8 +739,7 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
       }
       // City lights (their own canvas layer); a React render (a theme change) repaints them.
       lightCities(shared, sun, now, c.redrawGlow, fresh);
-      const trails = anim && !calm;
-      if (trails !== root.classList.contains('trails')) root.classList.toggle('trails', trails);
+      if (anim !== root.classList.contains('trails')) root.classList.toggle('trails', anim);
       const u = 1 / (c.px * k); // map units per screen px right now
       const wantLabels = k / (c.fitK || 1) >= 2;
       if (wantLabels !== labels) {
