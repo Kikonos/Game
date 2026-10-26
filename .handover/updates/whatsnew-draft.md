@@ -11,3 +11,13 @@ features:
 
 improvements:
 - Contrails and the gliding night follow the Map animations setting and the system's Reduce Motion.
+
+## ETOPS on ferries (engine, after Visual A)
+
+features:
+- Ferries and empty legs now follow ETOPS like a real airline: without an ETOPS approval a twin stays within 60 minutes of an airport, so a delivery from Canada or the US comes home the northern way (Kangerlussuaq, Iqaluit, Keflavík, Shannon), with fuel stops and night stops on the map and in the Schedule. With the approval and a capable aircraft it flies direct.
+- A crossing we may not fly (a twin across the Pacific without ETOPS 180) is said before you sign, with what real operators do: get the approval first, take the aircraft on this side, or pay a ferry company to bring it home.
+
+improvements:
+- The Fleet card's ETOPS line says what is really used, e.g. "capable of 120 min · approved 60 min → ferries go the northern way".
+- Pilots flying out to collect an aircraft across 4+ time zones now land with their full 14 h rest (deliveries from North America no longer wait for ever).
