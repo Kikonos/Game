@@ -809,6 +809,9 @@ function offFallback(g: GameState, c: CrewMember, plan: CrewPlan, base: Seg[]): 
   return offMovable(g, c, mergeSegs(base, plan.segs));
 }
 
+/** Time from a trip's last release to home: none at base; away, a night's rest and the ticket. */
+const homeTravel = (d: Duty, base: string): number => (d.restAt === base ? 0 : 10 * 60 + dhBlock(d.restAt, base) + 60);
+
 function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, exclude?: Set<string>): void {
   const duties = openDuties(g, p);
   if (!duties.length) return;
@@ -840,7 +843,10 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
     if (!fitRoles.has(c.role) || !c.ratings.includes(family) || inP.has(c.id) || exclude?.has(c.id) || c.morale < refuseBelow) continue;
     // v0.9 round 3 speed: crew planCrew would refuse at once (on leave, sick, in training or joining during the trip;
     // still resting at its report) are not planned at all: they were refused anyway, one full timeline check each.
-    if (c.restUntil > first.report || c.blocks?.some((b) => b.from < spanTo && b.to > first.report)) continue;
+    // Debug round (26 Oct 2026): until they are home again (a trip ending away: its rest and the ticket home), so leave
+    // never starts on the deadhead home (seed 1: eighteen crew flew home on the first morning of their annual leave).
+    const back = spanTo + homeTravel(duties[duties.length - 1], c.base);
+    if (c.restUntil > first.report || c.blocks?.some((b) => b.from < back && b.to > first.report)) continue;
     // v0.5.2: crew still at the departure airport with a ticket home around this trip stay on instead
     // (planCrew drops that ticket): the pilots of a trip fly its trailing ferry.
     const all = ctx.of(c);
