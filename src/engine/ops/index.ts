@@ -23,6 +23,24 @@ import { DAY } from '../core/time';
 import { dailyDryLeases, onLeaseBack, onLeaseFerryHome, onLeaseOut } from './dryLease';
 import { dailyWorld, loadWorld, onWorldEnd } from './world';
 import { retireTypes } from './retired';
+import { registerResolvers } from './events';
+import { DISRUPT_RESOLVERS, holdingForDecision, onDivertedArrival, onOpsEvent, opsState, rollBirdStrike, rollSickAway } from './disrupt';
+import { dailyDirector, newDirector } from './director';
+import { rollRamp } from './ramp';
+import { dailyAudit } from './audit';
+import { DAY as DAY_MIN } from '../core/time';
+
+// v0.11 Operations: the disruption cards' resolvers join the decision table (wired here, after every module loaded).
+registerResolvers(DISRUPT_RESOLVERS);
+
+/** v0.11 load / init: the director and the operations record (older saves: a first audit at least 60 days off). */
+function loadOps(g: GameState): void {
+  g.director ??= newDirector(g);
+  if (!g.opsx) {
+    const st = opsState(g);
+    st.audit.next = Math.max(g.started + 330 * DAY_MIN, Math.floor(g.now / DAY_MIN) * DAY_MIN + 60 * DAY_MIN);
+  }
+}
 
 
 /** v0.10 every airframe of a type with variants carries one (stable: hashed from the seed and the aircraft id). */
@@ -88,6 +106,10 @@ setMaintHooks((g, m) => onReturnStart(g, m), (g, m) => {
 setGrantHook(ladderGrant);
 
 function daily(g: GameState) {
+  // v0.11 the director's day (quiet or busy), sick calls away from base, the yearly audit.
+  dailyDirector(g);
+  rollSickAway(g);
+  dailyAudit(g);
   pruneFlights(g);
   planChecks(g);
   dailyPaint(g);
@@ -129,6 +151,7 @@ export const opsModule: SimModule = {
     // v0.9 heads locked, nothing earned yet.
     loadHeads(g);
     g.achievements ??= {};
+    loadOps(g);
   },
   // Decisions other modules post (crew's sickCrew) join the pacing budget as they appear.
   settle: paceDecisions,
@@ -156,6 +179,7 @@ export const opsModule: SimModule = {
     loadHeads(g);
     loadAchievements(g);
     announceBackfill(g);
+    loadOps(g);
   },
   handlers: {
     day: daily,
@@ -172,8 +196,18 @@ export const opsModule: SimModule = {
       if (f?.status === 'enroute') checkAchievements(g, { ids: ON_DEPARTURE });
     },
     'flight.arr': (g, ev) => {
+      // v0.11 a diversion or medical card still open: the aircraft holds (circles) until it is answered.
+      const f0 = g.flights[ev.id];
+      if (f0 && f0.ev === ev.v && f0.status === 'enroute' && holdingForDecision(g, f0)) return;
       onFlightArr(g, ev);
       const f = g.flights[ev.id];
+      // v0.11 on blocks: the onward card after a diversion, else a bird strike may be written up; a ramp inspector.
+      if (f && f.status === 'done' && f.ev === ev.v && f.aircraftId && g.fleet[f.aircraftId]) {
+        const ac = g.fleet[f.aircraftId];
+        if (f.div && f.to !== f.div.to0 && !f.contOf) onDivertedArrival(g, f);
+        else rollBirdStrike(g, f, ac);
+        rollRamp(g, f, ac);
+      }
       if (f?.status === 'done') checkAchievements(g, { ids: ON_ARRIVAL });
       if (f?.purpose && f.status === 'done') onDeliveryArr(g, f);
       if (f?.purpose === 'lease' && f.status === 'done') onLeaseFerryHome(g, f);
@@ -196,5 +230,7 @@ export const opsModule: SimModule = {
     'lease.out': onLeaseOut,
     'lease.back': onLeaseBack,
     'world.end': onWorldEnd,
+    // v0.11 a timed disruption (a mid-flight card, a sick call at the hotel).
+    'ops.event': onOpsEvent,
   },
 };

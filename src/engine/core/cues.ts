@@ -15,14 +15,17 @@ export type Cue =
   // v0.9.1: a client's answer to a counter-offer, a warning without a sound of its own, an aircraft handed over.
   | 'counterReply' | 'notice' | 'delivered'
   // v0.10.2 an urgent, high-paying offer phones in (the call pop-up, its ring).
-  | 'offerCall';
+  | 'offerCall'
+  // v0.11 Operations: a disruption needing a choice (1 HI); an emergency in operations: a diversion, a medical
+  // emergency, a crew member sick away, an aircraft detained, an audit deadline missed (2 HI).
+  | 'opsDisruption' | 'opsEmergency';
 
 /** Every cue, in the §S.3 table order (tests, the UI's test list). */
 export const CUES: Cue[] = [
   'message', 'crewJoined', 'paymentIn', 'monthEnd', 'headDone', 'decision', 'offerNew', 'contractSigned', 'flightDep', 'flightArr',
   'aog', 'delayPenalty', 'sickCall', 'latePayer', 'offerLapsing', 'worldEventOurs', 'crewAmber', 'ruleAlert',
   'cancelRisk', 'airspaceActive', 'cashNegative', 'evacuation', 'clientCollapse', 'crewShortage', 'crewOutOfHours',
-  'achievement', 'ladder', 'headUnlocked', 'headHired', 'counterReply', 'notice', 'delivered', 'offerCall',
+  'achievement', 'ladder', 'headUnlocked', 'headHired', 'counterReply', 'notice', 'delivered', 'offerCall', 'opsDisruption', 'opsEmergency',
 ];
 
 /** v0.9.1 what a cue is for, in the player's words (the toast; the Inbox message when `msgId`). */
@@ -87,6 +90,8 @@ export function restoreCues(saved: CueEvent[]): void {
 const OF_PROBLEM: Partial<Record<string, Cue>> = {
   aog: 'aog', crewSick: 'sickCall', invoiceOverdue: 'latePayer', clientUnhappy: 'clientCollapse', airspaceClosed: 'airspaceActive', uninsurable: 'cancelRisk',
   penalty: 'delayPenalty', crewHours: 'crewOutOfHours',
+  // v0.11
+  rampFinding: 'notice', auditFinding: 'notice', disruption: 'notice',
 };
 
 /**
@@ -113,6 +118,9 @@ export function cueOfMessage(m: Pick<Message, 'topic' | 'problem' | 'tone' | 'ca
 const OF_DECISION: Record<string, Cue> = {
   aog: 'aog', sickCrew: 'sickCall', latePayment: 'latePayer', crewShort: 'cancelRisk', rescue: 'cashNegative', airspace: 'airspaceActive',
   uninsurable: 'cancelRisk',
+  // v0.11 Operations: emergencies 2 HI, the other disruptions 1 HI.
+  diversion: 'opsEmergency', medical: 'opsEmergency', sickAway: 'sickCall',
+  ctot: 'opsDisruption', turnaround: 'opsDisruption', curfew: 'opsDisruption', divertOnward: 'opsDisruption', birdStrike: 'opsDisruption',
 };
 
 export function cueOfDecision(d: Pick<Decision, 'kind'>): Cue {

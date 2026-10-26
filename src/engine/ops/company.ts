@@ -314,6 +314,8 @@ export function approvalBlocker(g: GameState, id: ApprovalId): string | null {
   const co = g.company;
   if (co.approvals.includes(id)) return 'Already held';
   if (co.pendingApprovals.some((p) => p.id === id)) return 'In progress';
+  // v0.11 an audit finding left open past its deadline suspends approval work.
+  if (g.opsx?.audit.suspended) return 'Suspended: close the overdue audit finding first';
   return reqsOf(g, id, true).find((r) => !r.ok)?.why ?? null;
 }
 
@@ -332,6 +334,7 @@ export function applyApproval(g: GameState, id: ApprovalId): ActionResult {
 
 /** Grant-time re-check: rated crew (actually rated), no illegal duties, technical reliability, the ETOPS programme done. The first failure's text, or null. */
 function grantBlocker(g: GameState, id: ApprovalId): string | null {
+  if (g.opsx?.audit.suspended) return 'Needs the overdue audit finding closed (approvals suspended)';
   return reqsOf(g, id, false).find((r) => r.grant && !r.ok)?.why ?? null;
 }
 
@@ -355,6 +358,7 @@ function grant(g: GameState, i: number): void {
 
 /** What a waiting application waits for, in a few words ('rated pilots', 'technical reliability'). */
 export function waitingFor(why: string): string {
+  if (/audit/.test(why)) return 'the audit finding to close';
   if (/rated/.test(why)) return 'rated pilots';
   if (/maintenance programme/.test(why)) return 'the ETOPS maintenance programme';
   if (/technical reliability/.test(why)) return 'technical reliability';

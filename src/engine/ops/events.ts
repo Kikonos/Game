@@ -30,6 +30,7 @@ import { bumpReliable, isRevenue, stats, turnOf, usd } from './util';
 import { bumpClient, favourChip, levelOf, statsV08 } from '../contracts/relations';
 import { mghFor } from '../contracts/billing';
 import { cancelForceMajeure, resolveAirspace, resolveUninsurable } from './world';
+import { optionalFactor } from './director';
 
 type Data = Record<string, string | number | boolean>;
 const num = (d: Data | undefined, k: string) => Number(d?.[k] ?? 0);
@@ -64,7 +65,20 @@ const CAT: Record<string, MessageCat> = {
   aog: 'tech', crewShort: 'crew', sickCrew: 'crew', latePayment: 'finance', rescue: 'finance', changeRequest: 'commercial', leaseEnd: 'company',
   // v0.8
   clientFee: 'commercial', airspace: 'ops', uninsurable: 'ops',
+  // v0.11
+  sickAway: 'crew', birdStrike: 'tech',
 };
+
+/** v0.11 other modules (ops/disrupt.ts, ops/audit.ts) add their decision kinds' resolvers and inbox categories. */
+export function registerResolvers(map: Record<string, Resolver>, cat: MessageCat = 'ops'): void {
+  for (const [k, fn] of Object.entries(map)) {
+    RESOLVERS[k] = fn;
+    CAT[k] ??= cat;
+  }
+}
+
+/** v0.11 applies a decision's default without asking (a quiet spell, one card already open): one Inbox note. */
+export const autoDecide = (g: GameState, d: Omit<Decision, 'id' | 't'>, lead?: string): void => autoApply(g, d, lead);
 
 /** Applies the default (or the next workable option) and explains it in the inbox. `lead` opens the message body. */
 function autoApply(g: GameState, d: Omit<Decision, 'id' | 't'>, lead = 'Operations chose'): void {
@@ -785,7 +799,8 @@ function resolveChange(g: GameState, d: Decision, opt: string): ActionResult {
 function changeRequests(g: GameState): void {
   for (const c of Object.values(g.contracts)) {
     if (c.status !== 'active') continue;
-    if (!chance(g, BAL.changeRequestWeekly / 7) || !canAsk(g)) continue;
+    // v0.11 the director: client requests come in busy spells only (their yearly rate packed into those days).
+    if (!chance(g, (BAL.changeRequestWeekly / 7) * optionalFactor(g)) || !canAsk(g)) continue;
     changeRequestFor(g, c);
   }
 }
@@ -918,7 +933,7 @@ function resolveClientFee(g: GameState, d: Decision, opt: string): ActionResult 
 
 function clientFees(g: GameState): void {
   for (const c of Object.values(g.contracts)) {
-    if (c.status !== 'active' || c.dry || !chance({ rng: hash(`${g.seed}:feeday:${c.id}:${Math.floor(g.now / DAY)}`) | 0 }, BAL.v08.rel.clientFeeWeekly / 7)) continue;
+    if (c.status !== 'active' || c.dry || !chance({ rng: hash(`${g.seed}:feeday:${c.id}:${Math.floor(g.now / DAY)}`) | 0 }, (BAL.v08.rel.clientFeeWeekly / 7) * optionalFactor(g))) continue;
     clientFeeFor(g, c);
   }
 }

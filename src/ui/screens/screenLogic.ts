@@ -218,12 +218,13 @@ export const LEDGER_LABEL: Record<LedgerCat, string> = {
   insurance: 'Insurance', overhead: 'Overhead', training: 'Training', hiring: 'Hiring', penalties: 'Penalties', subcharter: 'Sub-charter',
   approvals: 'Approvals', interest: 'Interest', capex: 'Aircraft purchases', assetSale: 'Asset sales', paint: 'Paint & livery',
   refit: 'Cabin refits', leaseReturn: 'Lease returns', leaseIncome: 'Lease income', warRisk: 'War-risk cover',
+  disruption: 'Disruptions', compliance: 'Safety & compliance',
 };
 
 const REVENUE: LedgerCat[] = ['acmiRevenue', 'charterRevenue', 'otherRevenue', /** v0.8 */ 'leaseIncome', 'assetSale'];
 const COSTS: LedgerCat[] = [
   'fuel', 'airportFees', 'rent', 'reserves', 'salaries', 'perDiem', 'hotels', 'deadhead', 'maintenance', 'checks', 'paint', 'insurance', 'overhead',
-  'training', 'hiring', 'penalties', 'subcharter', 'approvals', 'interest', 'capex', 'refit', 'leaseReturn', /** v0.8 */ 'warRisk',
+  'training', 'hiring', 'penalties', 'subcharter', 'approvals', 'interest', 'capex', 'refit', 'leaseReturn', /** v0.8 */ 'warRisk', /** v0.11 */ 'disruption', 'compliance',
 ];
 
 export interface StatementRow {

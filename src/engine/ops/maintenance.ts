@@ -129,7 +129,7 @@ export function isGrounded(g: GameState, ac: Aircraft): boolean {
 }
 
 /** Our engineers are at home base and at the base of a running base programme the aircraft flies. */
-function engineersAt(g: GameState, acId: string, airport: string): boolean {
+export function engineersAt(g: GameState, acId: string, airport: string): boolean {
   if (airport === g.company.homeBase) return true;
   for (const c of Object.values(g.contracts)) {
     if ((c.status === 'active' || c.status === 'signed') && c.pattern.kind === 'base' && c.pattern.base === airport && c.aircraftIds.includes(acId)) return true;
@@ -632,8 +632,8 @@ export function onMaintEnd(g: GameState, ev: SimEvent): void {
   if (m.kind === 'C' && m.restFit) restFitHook?.(g, m);
   pushMessage(g, {
     tone: m.kind === 'AOG' ? 'good' : 'info', cat: 'tech',
-    title: m.kind === 'AOG' ? `${ac.reg} back in service` : `${m.kind}-check done: ${ac.reg}`,
-    body: m.kind === 'AOG' ? `${m.cause ?? 'Fault'} fixed at ${m.at}. Repair ${usd(m.cost)}.` : `${ac.reg} is released to service at ${m.hub ? m.hub.name : m.at}. ${usd(m.cost)}.${homeText(g, m)}`,
+    title: m.kind === 'AOG' || m.kind === 'line' ? `${ac.reg} back in service` : `${m.kind}-check done: ${ac.reg}`,
+    body: m.kind === 'AOG' ? `${m.cause ?? 'Fault'} fixed at ${m.at}. Repair ${usd(m.cost)}.` : m.kind === 'line' ? `${m.cause ?? 'Line maintenance'}: done at ${m.at}.` : `${ac.reg} is released to service at ${m.hub ? m.hub.name : m.at}. ${usd(m.cost)}.${homeText(g, m)}`,
     ref: { kind: 'aircraft', id: ac.id },
   });
 }

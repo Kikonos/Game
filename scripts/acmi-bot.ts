@@ -73,6 +73,12 @@ import { requiredEmpty } from '../src/engine/crew/timeline';
 import { deliveryQuote } from '../src/engine/ops/delivery';
 import { devMarketOffer } from '../src/engine/ops/market';
 import { restCards } from '../src/engine/problems/crew';
+import { openFindings, startAuditTask } from '../src/engine/ops/audit';
+import { OPS_LIVE, quietShare } from '../src/engine/ops/director';
+// v0.11 OPS_OFF=1: the Operations update off (the pre-update game, for before/after comparisons).
+if (process.env.OPS_OFF) OPS_LIVE.on = false;
+if (process.env.OPS_NODISRUPT) OPS_LIVE.disrupt = false;
+if (process.env.OPS_NOWAVES) OPS_LIVE.waves = false;
 import type { ProblemCard } from '../src/engine/problems/types';
 import type { ApprovalId } from '../src/engine/core/types';
 import { chainAugment } from '../src/engine/contracts/offers';
@@ -1259,10 +1265,19 @@ function heads(g: GameState, t: Tally): void {
   }
 }
 
+/** v0.11 audit findings: start each corrective action at once (Level 1 or overdue whatever the cash; the rest above $300K). */
+function auditTasks(g: GameState): void {
+  for (const f of openFindings(g)) {
+    if (f.started) continue;
+    if (f.level === 1 || f.overdue || g.now > f.due - 14 * 1440 || g.company.cash > f.task.cost + 300_000) startAuditTask(g, f.id);
+  }
+}
+
 function policy(g: GameState, t: Tally, urgent: boolean, newDay: boolean): void {
   decide(g, t);
   crewControlPolicy(g, t);
   if (newDay) {
+    auditTasks(g);
     heads(g, t);
     policies(g, t);
     rehire(g, t);
@@ -2043,6 +2058,19 @@ console.log(
       `achievements ${ach}/24 · slips ${v9?.slips ?? 0} (offers ${slipOffers}) · out of hours red ${v9?.oohRed ?? 0} amber ${v9?.oohAmber ?? 0} · ` +
       `discretion used ${v9?.discretionUsed ?? 0} (planned ${v9?.discretionPlanned ?? 0}) refused ${v9?.discretionRefused ?? 0} · jumbo loads ${v9?.jumboLoads ?? 0} (747 invoiced ${k$(rev744)}) · runtime ${runSecs.toFixed(1)} s`,
   );
+  {
+    // v0.11 Operations: the director's quiet share, disruptions, ramp inspections and audit findings by kind (whole run).
+    const all: Record<string, number> = {};
+    for (const y of Object.values(g.opsx?.counts ?? {})) for (const [k, v] of Object.entries(y)) all[k] = (all[k] ?? 0) + v;
+    const keys = Object.keys(all).sort();
+    const au = g.opsx?.audit;
+    console.log(
+      `v0.11 ops: pace ${g.director?.pace ?? '-'} · quiet days ${(quietShare(g) * 100).toFixed(0)} % (${g.director?.days?.quiet ?? 0} quiet / ${g.director?.days?.busy ?? 0} busy) · ` +
+        `${keys.map((k) => `${k} ${all[k]}`).join(', ') || 'no events'} · audits ${au?.history.map(([t, a, b]) => `${fmtDateTime(t).slice(0, 6)} L1 ${a} L2 ${b}`).join('; ') || 'none'} · ` +
+        `findings open ${(au?.findings ?? []).filter((f) => !f.closed).length} (started ${(au?.findings ?? []).filter((f) => !f.closed && f.started).length}, overdue ${(au?.findings ?? []).filter((f) => f.overdue && !f.closed).length}) · suspended ${au?.suspended ? 'yes' : 'no'}`,
+    );
+    softTargets.push(['quiet days 45–75 % (v0.11 director, Normal pace)', quietShare(g) >= 0.45 && quietShare(g) <= 0.75, `${(quietShare(g) * 100).toFixed(0)} %`]);
+  }
   targets.push(['discretion never planned (v0.9)', (v9?.discretionPlanned ?? 0) === 0, `${v9?.discretionPlanned ?? 0}`]);
   targets.push(['runs in ≤ 20 s (v0.9 hard limit)', runSecs <= 20, `${runSecs.toFixed(1)} s`]);
   softTargets.push(['≥ 3 heads unlocked (v0.9; ≥ 5 on 3 seeds)', headUnlocked.size >= 3 * Math.min(1, days / 365), `${headUnlocked.size}`]);

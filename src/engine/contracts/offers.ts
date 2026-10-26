@@ -37,6 +37,7 @@ import { LEVEL_PERKS, levelOf, standingRate } from './relations';
 import { rivalTakes, rollRivalBid } from './rivals';
 import { inWarZone, warRiskLandings } from '../ops/world';
 import { demandFactor } from '../ops/market';
+import { afterOfferDays, isQuiet } from '../ops/director';
 import { clientCrewOnCabin, fuelFactor, MISSION_BUILDERS, missionWeights, presidential, rollClientCabin, WINDOW_FIT_V08 } from './missions';
 
 // ---------- process ----------
@@ -59,7 +60,8 @@ export function scheduleNextOffer(g: GameState): void {
   let sum = 0;
   for (let i = 0; i < 3; i++) sum -= Math.log(Math.max(1e-9, next(g)));
   const gapDays = sum / (3 * lambda);
-  schedule(g, g.now + Math.max(30, Math.round(gapDays * DAY)), 'offer.spawn');
+  // v0.11 the event director: the gap is laid over busy (a wave) and quiet (a trickle) spells; the year's volume holds.
+  schedule(g, Math.max(g.now + 30, afterOfferDays(g, g.now, gapDays)), 'offer.spawn');
 }
 
 /** The three hand-shaped opening offers (DESIGN §5.1.1): AOG cover < 24 h, ad hoc in 3–5 days, an April season base. */
@@ -1492,8 +1494,8 @@ export function dailyOffers(g: GameState): void {
     o.closedAt ??= g.now;
     if (g.now - o.closedAt > 14 * DAY) delete g.offers[o.id];
   }
-  // v0.7: a failed company is offered nothing new.
-  if (PACING.quietFloor && !g.gameOver) quietWeekOffer(g);
+  // v0.7: a failed company is offered nothing new. v0.11: the floor tops up in busy spells only (quiet days stay quiet).
+  if (PACING.quietFloor && !g.gameOver && !isQuiet(g)) quietWeekOffer(g);
 }
 
 /** v0.6 pacing switches (tests compare against the v0.5.2 offer flow). */

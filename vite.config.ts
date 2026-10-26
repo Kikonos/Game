@@ -69,7 +69,8 @@ export default defineConfig({
       },
     }),
   ],
-  test: ci ? { pool: 'forks', maxWorkers: 2, minWorkers: 1, testTimeout: 30_000, hookTimeout: 60_000 } : {},
+  // v0.11 src/test/opsSetup.ts: the pre-Operations scenario tests run with the Operations update off.
+  test: { setupFiles: ['src/test/opsSetup.ts'], ...(ci ? { pool: 'forks' as const, maxWorkers: 2, minWorkers: 1, testTimeout: 30_000, hookTimeout: 60_000 } : {}) },
   build: {
     target: 'es2022',
     chunkSizeWarningLimit: 2000,

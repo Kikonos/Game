@@ -1465,3 +1465,160 @@ placement only, nose left, mirrored for the game's nose-right art).
 - The 1.0 and 1.15 window-height caps are rounded down from the measured 1.15–1.2, so the marks stay inside the
   paint on the game's small sprites. The real 30 cm minimum is close to one cabin window's height.
 - Flag size and gap (one registration cap tall, half a cap apart).
+
+## 17. Operations: disruptions, ramp inspections and the yearly audit (Update 1, October 2026)
+
+What the game models in the Operations update, with the real numbers behind it. Game values are in
+`src/data/opsData.ts` and the rates at the top of `src/engine/ops/disrupt.ts` and `ops/ramp.ts`.
+
+### 17.1 Pacing: the event director
+- Not a real-world rule; the player's request ("a few days of peace in between"). Busy spells of 1–3 days alternate
+  with quiet spells of 3–5 days (Normal). Calm: busy 1–2, quiet 5–8. Busy: busy 1–3, quiet 1–3.
+- Quiet spell: contract offers at 35 % of the usual rate, no optional disruption cards, emergencies at 20 % of their
+  rate. Busy spell: offers at (1 − quiet share × 0.35) ÷ busy share of the rate (2.3× at Normal), so a year carries
+  the same number of offers. Normal works out at about two thirds of the days quiet.
+
+### 17.2 ATC departure slots (CTOT)
+- Eurocontrol's Network Manager gives a regulated flight a calculated take-off time (CTOT). About 8–10 % of flights
+  in the European network are regulated on a summer day; the average ATFM delay per delayed flight is about 15–25
+  min, and a minority wait over an hour (Eurocontrol Performance Review Reports, 2023–2025).
+- Reasons used: ATC capacity, ATC staffing, weather on the route or at the destination, military airspace.
+- Options the game gives: wait for the slot; file a longer routing around the regulated sector (Eurocontrol offers
+  rerouting proposals; a better slot for 12–25 min more flying, the fuel is ours on a charter, the client's on ACMI);
+  ask the client to move the day's later legs. ATC delays are not the operator's fault (no penalty, no client
+  relation loss). The card comes from the game's existing delay roll (12 % of departures) when the slot is 30 min
+  or more, so it adds a choice, not more delay.
+- Crew: a gate hold runs through the existing FTL checks (commander's discretion up to 2 h when unforeseen, ORO.FTL.205(f);
+  over that a fresh crew).
+
+### 17.3 Turnarounds
+- Minimum turns in the game are the type's planned turn (`turnMin`: A320 40 min, 767 70 min, 777 80 min), in line
+  with airline ground-time standards (IATA AHM 810 / Airbus and Boeing airport planning documents: 30–45 min for an
+  A320 with one door, 60–90 min widebody).
+- A slow turn (cleaning, catering, fuel, boarding, baggage) after a turn within 20 min of the minimum becomes a card
+  when it is 20 min or more late; extra handling (a second team, a priority bowser) costs $1,800 narrowbody /
+  $4,500 widebody and saves most of it (estimated from published ad hoc handling rates).
+
+### 17.4 Diversions
+- Rates per leg (game): weather 0.08 %, medical 0.06 %, technical 0.025 % × age. Real-world diversion rates are about
+  1–2 per 1,000 flights overall (weather the commonest), so a three-aircraft fleet sees 2–5 a year.
+- Alternates: suitable airports within 400 km (weather) or 600 km of the aircraft (technical) / 500 km (medical), with
+  a runway at least the type's `minRunwayM`, open at the arrival time (curfews), ranked by distance and handling: our
+  station, a full-service handler, or ad hoc handling at short notice (×1.8).
+- Costs (charter: ours; ACMI: the client pays fuel, handling and passenger care, as in the wet-lease split in §2):
+  handling $2,800 narrowbody / $6,500 widebody at the alternate; extra fuel at the type's burn; passenger hotels $110
+  a night plus meals $18 each ×2; coaches about $450 per 50-seat coach per 100 km; crew rooms $160 a night.
+- Onward: fly on the same day when the crew's FDP allows (the roster crews the continuation leg; FTL is the crew
+  engine's), coach the passengers (up to ~450 km by road), or hotels and fly in the morning after the crew's rest
+  (minimum rest 12 h away from base, ORO.FTL.235(b)).
+- IATA puts the cost of a diversion at $10,000–200,000; Emirates quoted $50,000–600,000 for a widebody long-haul
+  diversion; a US study of medical diversions found about $38,000 on average in direct cost and passenger time. The
+  game's narrowbody numbers sit at the low end, widebody higher.
+
+### 17.5 EU261 and who pays
+- Regulation (EC) 261/2004 Art. 7: €250 (≤ 1,500 km), €400 (1,500–3,500 km), €600 (beyond) per passenger when
+  arriving 3 h or more late (Sturgeon, C-402/07), unless extraordinary circumstances.
+- Extraordinary circumstances: weather, ATC, a medical emergency, a bird strike (Pešková, C-315/15). A technical
+  fault is not (Wallentin-Hermann, C-549/07). Duty of care (meals, hotels, transport) applies either way.
+- Who is the operating carrier: on a charter we fly for a tour operator, we are (we pay). On ACMI the lessee that
+  bears operational responsibility is the operating carrier, not the lessor (Wirth v Thomson Airways, C-532/17, 2018):
+  the client pays its passengers, so in the game an ACMI client's relation drops instead of our ledger.
+- Game values (USD ≈ EUR plus a little): $270 / $430 / $650.
+
+### 17.6 Medical emergencies
+- About 1 in 600 flights has an in-flight medical event (Peterson et al., NEJM 2013); about 7 % of them divert.
+  Commonest: fainting, breathing problems, nausea, heart symptoms, seizures.
+- A diversion for a severe case is usually the right call (the captain decides with ground medical support such as
+  MedAire/STAT-MD). In the game, continuing more than an hour with a severe case goes badly about a third of the
+  time (clean name −3, client −3); diverting gains clean name +1 and client +1. No penalty either way (extraordinary).
+
+### 17.7 Bird strikes
+- FAA Wildlife Strike Database: about 13 strikes per 10,000 aircraft movements in the US (2022–2023), most below
+  3,000 ft on approach and landing; about 5–8 % damage the aircraft. Strikes are reported and the aircraft is
+  inspected (engines, leading edges, radome) before the next flight, per the AMM.
+- Game: 0.12 % of landings; inspection by our engineers (90–150 min at our stations; flown in 5–8 h, $2,500
+  elsewhere), a local contractor (2.5–4 h, $7,500) or wait for the morning shift (free, slow). Damage found in 12 %
+  (a short AOG of 12–36 h, $15,000–60,000, then the usual AOG card). Examples in the FAA record: an MD-10 out of
+  service a month for an engine tear-down; another two weeks and $164,000 with fan blades lost.
+- There is no ferry option before the inspection: an aircraft may not fly with an unassessed bird strike.
+
+### 17.8 Crew sick away from base
+- The existing sickness model (4 % of crew a month at home) is unchanged; Update 1 adds a sick call at the hotel
+  before a duty away from base (0.3 % of such duties).
+- Options: standby or a deadheading replacement through Crew Control (callIn / deadhead / jet / delay, the existing
+  machinery), sub-charter, or fly one cabin crew short: allowed under unforeseen circumstances if passengers are
+  reduced to 50 per cabin crew member actually on board and a report goes to the authority (ORO.CC.100: one cabin
+  crew per 50 seats installed; the reduction under unforeseen circumstances with fewer passengers and a report). Pilots: no reduced crew (two pilots minimum).
+- Passengers offloaded on a charter get EU261 denied-boarding money plus rebooking (~$150).
+
+### 17.9 Night curfews (local time)
+| Airport | Restriction | Source |
+|---|---|---|
+| LHR | Night quota 23:30–06:00 | Heathrow / DfT night flight restrictions |
+| FRA | No planned movements 23:00–05:00 | Fraport planning approval |
+| ZRH | Ban 23:30–06:00; 23:00–23:30 delayed flights only | Zurich Airport operating rules |
+| GVA | No jet movements 00:00–06:00 (delayed until 00:30) | Geneva Airport |
+| ORY | Curfew 23:30–06:00 (since 1968) | Paris-Orly |
+| BRU | Night slots 23:00–06:00 by quota | Brussels Airport |
+| MUC | Night restrictions 00:00–05:00 | Munich Airport |
+| DUS | Landings until 23:00, delayed until 23:30 | Düsseldorf operating permit |
+| HAM | Ban 23:00–06:00, delayed until 24:00 | Hamburg Airport |
+| STR | Ban 23:30–06:00 | Stuttgart Airport |
+| BER | Core night 00:00–05:00 | BER planning approval |
+| LIN | Closed 23:00–07:00 | Milano Linate |
+| NRT | Operating hours 06:00–24:00 | Narita International Airport |
+| SYD | Curfew 23:00–06:00 | Sydney Airport Curfew Act 1995 |
+- Options: rush it out (priority handling ×1.5 the extra-handling price) when that is enough, land at an open airport
+  nearby and coach the passengers, night-stop and fly at the curfew's end (hotels), or cancel. Our aircraft hold no
+  night quota at quota airports, so the game treats those hours as closed to us.
+
+### 17.10 Ramp inspections (SAFA / SACA)
+- Legal basis: Regulation (EU) 965/2012 Annex II ARO.RAMP. SAFA covers third-country operators, SACA operators from
+  EASA states (our case: home bases are EU/EASA states; a UK base makes us SAFA in Europe). Outside Europe the local
+  authority inspects under its own programme.
+- Categories (ARO.RAMP.130): Cat 1 minor, Cat 2 significant, Cat 3 major influence on safety. Classes of action:
+  1 information to the commander; 2 information to the operator and its authority; 3a a restriction on the flight;
+  3b corrective action before the flight; 3c the aircraft detained (grounded until put right).
+- EASA 2025 data: 10,683 inspections, 4,754 Cat 1, 3,048 Cat 2, 2,042 Cat 3 findings (0.45 / 0.29 / 0.19 per
+  inspection, all operators). The game uses 55 % of that for our company, × (1 + age/20) × (1 + 2.5 × the deferred
+  defect backlog). Detention (3c) only with a Cat 3 on an aircraft 15+ years old with a heavy deferred backlog.
+- Frequency (game): 0.4 % of landings at European airports, 0.3 % at home, 0.15 % elsewhere, in busy spells: 3–7 a
+  year for a small fleet.
+- Fixes: Cat 3 put right before flight in 1–4 h ($2,000–10,000 per finding); detained 8–22 h plus $15,000. Each
+  inspection goes on the record the audit reads; Cat 3 costs the reliable name 1 (2 when detained), Cat 2 0.3.
+
+### 17.11 The yearly authority audit (Part-ORO oversight)
+- The authority oversees the AOC holder continuously (ARO.GEN.305, an oversight planning cycle of up to 24 months);
+  the game makes it a yearly audit announced about four weeks ahead, as authorities usually agree the date.
+- Findings (ARO.GEN.350): Level 1 a significant non-compliance lowering safety or seriously hazarding flight safety:
+  immediate action, approvals limited, suspended or revoked; Level 2 any other non-compliance: a corrective action
+  period that, per GM2 ARO.GEN.350(d), should not exceed 3 months.
+- Game: Level 1 due in 21 days; Level 2 in 30–90 days. From the year's record: 3+ illegal duties → Level 1 FTL (1–2
+  → Level 2); a detention or 4+ Cat 3 → Level 1 ramp (2+ Cat 3 or 4+ Cat 2 → Level 2); technical dispatch
+  reliability below 97 % → Level 2; grounded with a check overdue 10+ days → Level 1 (any → Level 2); 2+ reduced cabin
+  crew reports → Level 2 training; and half the time a small Level 2 from the document review.
+- Corrective actions (cost, days): retrain crew control on FTL ($45,000, 14), a compliance officer for the line
+  stations ($60,000, 21), reliability review with the CAMO ($35,000, 14), revise maintenance planning ($30,000, 10),
+  complete training files ($25,000, 10), revise the operations manual ($20,000, 14); Level 1 costs ×1.5. Audit fee
+  and staff time $18,000.
+- A deadline missed: the authority suspends our approval work (nothing new filed or granted on the Ladder) until the
+  finding is closed; reliable name −2 (Level 2) / −4 (Level 1). A clean audit: reliable +1.
+
+### 17.12 Sources
+- EASA, Ramp Inspection Programmes (SAFA/SACA) and the 2025 data summary: https://www.easa.europa.eu/en/node/15629 ;
+  https://ops.group/blog/wp-content/uploads/2026/08/SAFA-SACA-data-2025.pdf
+- Transport Malta, OAN No 10/14 (classes of action): https://www.transport.gov.mt/Air-Regulation-Policy-Oan-OSC-OAN-No-10-14.pdf-f598
+- UK CAA regulatory library, ARO.GEN.350 and GM2 ARO.GEN.350(d):
+  https://regulatorylibrary.caa.co.uk/965-2012/Content/Document%20Structure/02%20ARO/2%20Regs/00720_AROGEN350_Findings_and_corrective_actions_organisations.htm ;
+  https://regulatorylibrary.caa.co.uk/965-2012/Content/Document%20Structure/02%20ARO/4%20GM/GM2%20ARO%20GEN%20350%20d%20Findings.htm
+- Transport Malta OAN 02/25 (closing Level 2 findings): https://transport.gov.mt/OAN-02-25-Procedure-for-the-correct-closure-of-Level-2-findings-issued-by-TM-CAD.pdf-f10420
+- CJEU C-532/17 Wirth v Thomson Airways (wet lease, operating carrier): https://curia.europa.eu/jcms/jcms/p1_1180726/en ;
+  https://www.williamfry.com/knowledge/european-court-of-justice-provides-clarity-for-aircraft-carriers-operating-under-wet-leases/
+- CJEU C-315/15 Pešková (bird strike, extraordinary); C-549/07 Wallentin-Hermann (technical faults); C-402/07 Sturgeon (3 h delay).
+- Diversion costs: https://www.airlineratings.com/news/emirates-reveals-the-real-cost-of-medical-diversions-for-an-airline/ ;
+  https://www.advisory.com/daily-briefing/2018/06/07/in-flight-emergencies ; https://asma.kglmeridian.com/downloadpdf/view/journals/amhp/92/2/article-p99.pdf
+- Peterson DC et al., Outcomes of medical emergencies on commercial airline flights, NEJM 2013 (1 per 604 flights, 7.3 % diverted).
+- FAA Wildlife Strike Database / AC 150/5200-32C; strike cost examples: https://rosap.ntl.bts.gov/view/dot/70258/dot_70258_DS1.pdf
+- Night restrictions: https://en.wikipedia.org/wiki/Night_flying_restrictions ; https://www.universalweather.com/blog/noise-curfews-abatement-planning-considerations/ ; airport operators' pages.
+- Eurocontrol Performance Review Reports (ATFM delay), Network Manager CTOT procedures.
+- EU Regulation 965/2012 ORO.CC.100 (cabin crew numbers and the unforeseen-circumstances reduction), ORO.FTL.205(f) (discretion), ORO.FTL.235 (rest).

@@ -34,6 +34,7 @@ import { ageF, ageOf, bumpReliable, contractOf, isBaseLeg, isRevenue, stats, tur
 import { bumpClient, forgiveDelay, LEVEL_NAME, levelOf, statsV08 } from '../contracts/relations';
 import { closedAirport, closedAtDeparture, closedUntil, payWarRisk, strikeDelay, whiteout } from './world';
 import { isActive, noteHiredThem } from '../contracts/rivals';
+import { atGate, delayCard, rollEnRoute } from './disrupt';
 
 /** v0.7.1: the problem ref and hurt snapshot of a message about legs lost or handed over (after the fact). */
 function penaltyMeta(g: GameState, rev: Flight[], money: number): Pick<Message, 'problem' | 'hurt'> {
@@ -703,6 +704,8 @@ export function onFlightDep(g: GameState, ev: SimEvent): void {
     crewProblem(g, f, ac);
     return;
   }
+  // v0.11 Operations: a night curfew in reach, an ATC slot or a slow turnaround (cards through the director).
+  if (atGate(g, f, ac)) return;
   // 3. Random delay, rolled once per flight (v0.8: an ATC strike on its countries first, not our fault).
   if (f.delayReason === undefined) {
     const st = strikeDelay(g, f);
@@ -715,6 +718,8 @@ export function onFlightDep(g: GameState, ev: SimEvent): void {
       return;
     }
     const d = rollDelay(g, ac);
+    // v0.11 a long ATC slot or a slow tight turn becomes a card in a busy spell (the same delay, a way to cut it).
+    if (d && delayCard(g, f, ac, d)) return;
     if (d) {
       const n = delayChain(g, f, g.now + d.min, d.reason);
       if (d.min >= BAL.delayMessageMin && f.status === 'scheduled') {
@@ -847,6 +852,8 @@ function depart(g: GameState, f: Flight, ac: Aircraft): void {
   ac.status = 'flying';
   f.eta = g.now + Math.max(15, Math.round(f.block * (1 + range(g, -BAL.windNoise, BAL.windNoise))));
   schedule(g, f.eta, 'flight.arr', f.id, f.ev);
+  // v0.11 a weather closure, a medical event or a technical fault later in this flight (side stream, the director).
+  rollEnRoute(g, f, ac);
   cue('flightDep', { title: `${f.no} departed ${AIRPORT_BY_CODE[f.from]?.city ?? f.from}`, body: `${g.fleet[f.aircraftId!]?.reg ?? ''} to ${AIRPORT_BY_CODE[f.to]?.city ?? f.to}`.trim(), tone: 'info', ref: { kind: 'flight', id: f.id } });
   const s = stats(g);
   s.departures++;
@@ -903,7 +910,7 @@ function departStats(g: GameState, f: Flight, ac: Aircraft, duty: Duty | undefin
 }
 
 /** Delays nobody at our end controls (ATC, weather, the client, the world). */
-const NOT_OURS = /^(ATC|Weather|Late passengers|Airport congestion|Client|Landing permit|Waiting:|Closed:|Whiteout|Moved to)/;
+const NOT_OURS = /^(ATC|Weather|Late passengers|Airport congestion|Client|Landing permit|Waiting:|Closed:|Whiteout|Moved to|Medical|Night stop|Bird strike)/;
 
 /**
  * v0.8 (§1.3, §1.4, §2.3) a revenue leg leaving late by our fault: over 3 h, charter compensation and relation −1

@@ -32,6 +32,8 @@ export const SOUND_OF: Record<SoundEvent, SoundId> = {
   achievement: 'lo2', ladder: 'lo2', headUnlocked: 'lo2', delivered: 'lo2',
   // v0.10.2 an urgent, high-paying offer phones in: a soft ring until answered (the call pop-up is its note)
   offerCall: 'ring',
+  // v0.11 Operations: a disruption card 1 HI; a diversion, a medical emergency, a detention, a missed audit deadline 2 HI.
+  opsDisruption: 'hi', opsEmergency: 'hi2',
 };
 
 export const CAT_OF: Record<SoundId, SoundCat> = {
@@ -88,8 +90,8 @@ const UI_GAP_MS = 50;
 /** The Test sounds list (Settings): every sound with its meaning, in the player's words. */
 export const SOUND_MEANING: { id: SoundId; name: string; meaning: string }[] = [
   { id: 'hiLo', name: 'HI-LO', meaning: 'A new contract offer (how flight attendants call each other on board)' },
-  { id: 'hi', name: '1 HI', meaning: 'A small thing needs you: a counter-offer reply, a decision waiting, a minor issue' },
-  { id: 'hi2', name: '2 HI', meaning: 'Emergency: an AOG, a sick call, a late payer, an offer about to lapse, a delay penalty' },
+  { id: 'hi', name: '1 HI', meaning: 'A small thing needs you: a counter-offer reply, a decision waiting, an ATC slot, a slow turnaround, a curfew, a bird strike, a ramp finding' },
+  { id: 'hi2', name: '2 HI', meaning: 'Emergency: an AOG, a sick call, a diversion, a medical emergency on board, an aircraft detained, a late payer, an offer about to lapse, a delay penalty' },
   { id: 'hi3', name: '3 HI', meaning: 'Urgent emergency: a flight about to be cancelled, airspace closed on an active flight, cash below zero, an evacuation' },
   { id: 'lo', name: '1 LO', meaning: 'Calm news: a contract signed, crew joined, a payment in; with Flight chimes on, each departure and landing' },
   { id: 'lo2', name: '2 LO', meaning: 'Good news: an achievement, a department head unlocked, an aircraft delivered' },
