@@ -20,7 +20,7 @@ import { AUTHORITY } from '../../data/flavor';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { pushMessage } from '../core/messages';
 import { post } from '../core/ledger';
-import { aboard, crewCount, crewIx, dutyBlock, dutyFlights, dutySegs, passengers, touchCrew, touchCrewState, typeIdOf } from './timeline';
+import { aboard, checkInOf, crewCount, crewIx, dutyBlock, dutyFlights, dutySegs, passengers, touchCrew, touchCrewState, typeIdOf } from './timeline';
 import { reportMinutes } from '../core/perf';
 
 export {
@@ -313,8 +313,12 @@ function onFlightArrCrew(g: GameState, ev: SimEvent): void {
     if (!merged) {
       const off = f.atd ?? f.std;
       const on = f.ata ?? f.sta;
-      noteRecovery(c, off - CHECKIN(), g);
-      c.log.push({ start: off - CHECKIN(), end: on, fdp: 0, block: 0, sectors: 0, augmented: false, disruptive: false });
+      // Crew-planning round: checked in as the plan reads the ticket (a private jet 30 min at the FBO, not an airline's
+      // hour). Seed 3: a jet at 04:00 after a 60 h recovery from 15:10 three days before was logged from 03:00, the
+      // recovery read 59:50 and the 168 h ran to 193 h.
+      const ci = checkInOf(f);
+      noteRecovery(c, off - ci, g);
+      c.log.push({ start: off - ci, end: on, fdp: 0, block: 0, sectors: 0, augmented: false, disruptive: false });
       const r = minRest({ dutyMin: on - off + CHECKIN(), atHome: f.to === c.base, augmented: false, tzShift: tzDeltaH(c.base, f.to, on) });
       c.restUntil = Math.max(c.restUntil, on + r);
       if (c.status === 'available') c.status = 'resting';
