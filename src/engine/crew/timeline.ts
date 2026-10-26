@@ -248,7 +248,10 @@ export function outTicket(g: GameState, p: Pairing, d: Duty, from: string, ready
   const blk = dhBlock(from, to);
   const mk = (std: Minute): TicketPlan => ({ from, to, std, sta: std + blk });
   const first = hour(free + CHECKIN(), true);
-  const rest = minRest({ dutyMin: blk + CHECKIN(), atHome: false, augmented: false, tzShift: 0 });
+  // v0.11 the rest the check asks for after the ticket (posSeg): 14 h away from base after a ≥ 4 h time-zone shift
+  // (CS FTL.1.235(b)(3)(ii)). Planned at 10 h, a ticket to Montréal or New York landed short of rest every time and
+  // a delivery ferry from North America never found pilots.
+  const rest = minRest({ dutyMin: blk + CHECKIN(), atHome: false, augmented: false, tzShift: tzDeltaH(p.base, to, d.report) });
   const rested = hour(d.report - rest - blk, false);
   if (early) return { plan: mk(rested), why: rested >= first ? null : `Rest at ${to} needed landing by ${at(rested + blk, g.now)}` };
   const disc = d.discretion ?? 0;
