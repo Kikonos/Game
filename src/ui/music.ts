@@ -132,6 +132,16 @@ export class MusicPlayer {
     g.setTargetAtTime(1, this.duckUntil, DUCK.upTau);
   }
 
+  /** v0.10.2 back up now (a ring stopped early). */
+  unduck() {
+    const t = this.c.currentTime;
+    this.duckUntil = t;
+    const g = this.duckG.gain;
+    g.cancelScheduledValues(t);
+    g.setValueAtTime(g.value, t);
+    g.setTargetAtTime(1, t, DUCK.upTau);
+  }
+
   private start() {
     if (this.timer) return;
     this.next = Math.max(this.next, this.c.currentTime + 0.1);

@@ -9,7 +9,7 @@ import { cashOnly, post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
-import { DAY, fmtDay, yearOf } from '../core/time';
+import { DAY, fmtDay, yearOf, fmtDayRange } from '../core/time';
 import type { ActionResult, Aircraft, GameState, Minute, SimEvent } from '../core/types';
 import { clamp, hashUnit } from '../core/util';
 import { planPositioning } from '../contracts';
@@ -157,7 +157,7 @@ function blockersOf(g: GameState, ac: Aircraft, closes: Minute): { lines: string
     const until = back.length ? Math.max(...back.map((f) => f.sta)) : m.end;
     if (until <= leave) continue;
     const what = m.kind === 'A' || m.kind === 'C' ? `${m.kind}-check` : m.kind === 'refit' ? 'Cabin refit' : m.kind === 'return' ? 'Lease return check' : m.kind === 'paint' ? 'Paint' : m.kind;
-    const text = `${what}${m.hub ? ` at ${m.hub.name}` : ''} ${fmtDay(m.start)}–${fmtDay(m.end)}: cancel it or sell after ${fmtDay(until)}`;
+    const text = `${what}${m.hub ? ` at ${m.hub.name}` : ''} ${fmtDayRange(m.start, m.end)}: cancel it or sell after ${fmtDay(until)}`;
     lines.push(text);
     if (!booking) booking = { maintId: m.id, kind: m.kind, until, text };
   }

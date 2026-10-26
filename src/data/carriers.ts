@@ -46,9 +46,9 @@ type Extra = Pick<Carrier, 'avoid' | 'maxKm' | 'reach' | 'extra' | 'domestic' | 
 const N = (iata: string, name: string, country: string, hubs: string[], markets?: string[], x?: Extra): Carrier => ({ iata, name, country, kind: 'network', hubs, markets, ...x });
 const R = (iata: string, name: string, country: string, hubs: string[], markets?: string[], x?: Extra): Carrier => ({ iata, name, country, kind: 'regional', hubs, markets, ...x });
 /** v0.7: the countries of our European airports (the reach of Europe's network carriers starts there). */
-const EUROPE = [...new Set(AIRPORTS.filter((a) => a.continent === 'EU').map((a) => a.country))].sort();
+const EUROPE = [...new Set(AIRPORTS.filter((a) => a.continent === 'EU' && !a.enroute).map((a) => a.country))].sort();
 /** v0.7: the countries of our airports outside Europe (the Gulf and African super-connectors reach all of them). */
-const NON_EUROPE = [...new Set(AIRPORTS.filter((a) => a.continent !== 'EU').map((a) => a.country))].sort();
+const NON_EUROPE = [...new Set(AIRPORTS.filter((a) => a.continent !== 'EU' && !a.enroute).map((a) => a.country))].sort();
 /** v0.7: a closed network keeps only the airports in our list. */
 const net = (codes: string): string[] => codes.split(' ').filter((c) => !!AIRPORT_BY_CODE[c]);
 

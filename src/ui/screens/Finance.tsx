@@ -2,13 +2,13 @@
 // receivables by due date. DESIGN.md §6.3.
 
 import { Banknote, Clock, Landmark, TrendingUp, Wallet, X } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { statementTotals } from '../../engine/core/ledger';
 import { DAY, fmtDay, fmtMonth } from '../../engine/core/time';
 import type { GameState } from '../../engine/core/types';
 import { cashForecast } from '../../engine/ops';
 import { problemAt } from '../../engine/problems';
-import { LineChart } from '../components/charts';
+import { LineChart, PairBars } from '../components/charts';
 import { ProblemCardView } from '../components/ProblemCard';
 import { Why } from '../components/Why';
 import { Card, Kpi } from '../components/ui';
@@ -16,7 +16,9 @@ import { money } from '../format';
 import { store, useGame } from '../store';
 import { Dot, ScreenHead, useRenderCount } from './common';
 import { earnedUnbilled, showLossMonth, statementView } from './screenLogic';
+import { type MonthPoint, monthSeries, seriesKey } from './financeCharts';
 import { ScreenHint } from '../components/ScreenHint';
+import { monthEndCosts } from '../shell/cashRate';
 
 const tone = (v: number) => (v < 0 ? 'bad' : v > 0 ? 'good' : '');
 
@@ -50,6 +52,38 @@ function Statement({ g, earned }: { g: GameState; earned: number }) {
     </div>
   );
 }
+
+/** v0.12 a series swatch with its name and this month's value (the legend and the direct label in one). */
+function Key({ color, name, value }: { color: string; name: string; value: string }) {
+  return <span className="row gap-4 small fin-key"><span className="fin-key-sw" style={{ background: color }} aria-hidden /><span className="muted">{name}</span><b className="num">{value}</b></span>;
+}
+
+/**
+ * v0.12 the last 12 months: revenue and costs as paired bars on one axis, and the month-end cash as its own small line
+ * (two scales never share a chart). Drawn from a key that changes at most daily (and on a month's close), so the clock
+ * running never redraws them.
+ */
+const MonthCharts = memo(function MonthCharts({ pts }: { pts: MonthPoint[]; k: string }) {
+  const labels = pts.map((p) => fmtMonth(p.month));
+  const last = pts[pts.length - 1];
+  return (
+    <div className="sc-fin-cols fin-months mt-16">
+      <Card title="Revenue and costs" sub={pts.length > 1 ? `last ${pts.length} months` : 'this month'} actions={
+        <span className="row gap-12 wrap fin-keys">
+          <Key color="var(--series-1)" name="Revenue" value={money(last.revenue)} />
+          <Key color="var(--series-2)" name="Costs" value={money(last.costs)} />
+        </span>
+      }>
+        <PairBars height={190} labels={labels.map((l, i) => (pts[i].current ? `${l} so far` : l))} a={{ name: 'Revenue', color: 'var(--series-1)', values: pts.map((p) => p.revenue) }} b={{ name: 'Costs', color: 'var(--series-2)', values: pts.map((p) => p.costs) }} format={(v) => money(v)} />
+      </Card>
+      <Card title="Cash at month end" sub="this month: cash now">
+        {pts.length > 1
+          ? <LineChart height={190} labels={labels} series={[{ name: 'Cash', color: 'var(--accent)', values: pts.map((p) => p.cash) }]} format={(v) => money(v)} zero endLabel />
+          : <div className="small muted">The line starts when this month closes. Cash now {money(last.cash)}.</div>}
+      </Card>
+    </div>
+  );
+}, (a, b) => a.k === b.k);
 
 function Receivables({ g }: { g: GameState }) {
   const open = g.finance.receivables.filter((r) => r.paid === null).sort((a, b) => a.due - b.due);
@@ -96,9 +130,14 @@ export function FinanceScreen() {
       return [];
     }
   }, [g, day]); // eslint-disable-line react-hooks/exhaustive-deps
-  const low = fc.reduce((m, p) => Math.min(m, p.cash), Infinity);
+  // Debug round: from the cash now (the forecast's first day already holds today's receipts: 'low $3.24M' under $3.18M).
+  const low = fc.reduce((m, p) => Math.min(m, p.cash), g.company.cash);
+  // v0.12 12-month charts: rebuilt once a day (and when a month closes), never on each clock tick.
+  const months = useMemo(() => monthSeries(g.finance, g.company.cash), [g, day, g.finance.history.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  const monthsKey = seriesKey(months);
   // Wet leases invoice at month end; show what is already earned so mid-month profit is not misleading.
   const earned = earnedUnbilled(g);
+  const afterMonthEnd = cur.profit + earned - monthEndCosts(g);
   // v0.7.1 §14: the cash card on top with the date it bites; a losing month is one calm line (only while this month
   // is losing too, or after two in a row), which the player can put away. The full card stays behind Explain in the Inbox.
   const cash = problemAt(g, { kind: 'cash', id: 'cash' });
@@ -107,7 +146,7 @@ export function FinanceScreen() {
   const showLoss = loss && loss.subject.kind === 'lossMonth' && showLossMonth(g) && lossHidden !== loss.subject.ref.id;
   return (
     <div className="screen sc-finance">
-      <ScreenHead title="Finance" sub={`${fmtMonth(g.finance.current.month, false)} so far · revenue when invoiced (wet leases at month end), costs when incurred`} />
+      <ScreenHead hint="finance" title="Finance" sub={`${fmtMonth(g.finance.current.month, false)} so far · revenue when invoiced (wet leases at month end), costs when incurred`} />
       <ScreenHint id="finance" />
       {cash && <div className="fin-card"><ProblemCardView card={cash} g={g} /></div>}
       {showLoss && (
@@ -122,9 +161,14 @@ export function FinanceScreen() {
         <Kpi label="Cash" icon={<Wallet />} value={<span className={g.company.cash < 0 ? 'bad' : ''}>{money(g.company.cash)}</span>} sub={fc.length ? `90-day low ${money(low)}` : undefined} />
         <Kpi label="Revenue" icon={<TrendingUp />} value={money(cur.revenue)} sub={earned > 0 ? <span className="good">+{money(earned)} earned, invoiced at month end</span> : 'invoiced this month'} />
         <Kpi label="Costs" icon={<Banknote />} value={money(cur.costs)} sub="this month" />
-        <Kpi label="Profit" icon={<Landmark />} value={<span className={tone(cur.profit)}>{money(cur.profit)}</span>} sub={earned > 0 ? <span className={tone(cur.profit + earned)}>≈ {money(cur.profit + earned)} with earned revenue</span> : 'this month'} />
+        <Kpi className="fin-profit" label="Profit" icon={<Landmark />} value={<span className={tone(cur.profit)}>{money(cur.profit)}</span>} sub={<>
+          {earned > 0 ? <span className={tone(cur.profit + earned)}>≈ {money(cur.profit + earned)} with earned revenue</span> : 'this month'}
+          {/* v0.12 rent, insurance, overhead and salaries are booked at month end: the profit once they are */}
+          <span className={`fin-after ${tone(afterMonthEnd)}`}>after month-end costs: <b>{money(afterMonthEnd)}</b></span>
+        </>} />
         <Kpi label="Receivables" icon={<Clock />} value={money(outstanding)} sub={overdue > 0 ? <span className="warn">{money(overdue)} overdue</span> : 'none overdue'} />
       </div>
+      <MonthCharts pts={months} k={monthsKey} />
       <div className="sc-fin-cols mt-16">
         <Card title="Cash forecast" sub="90 days: invoices due, salaries, rent and planned flying">
           {fc.length > 1 ? (

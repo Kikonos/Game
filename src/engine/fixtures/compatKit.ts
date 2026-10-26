@@ -3,8 +3,10 @@
 import { readFileSync } from 'node:fs';
 import LZString from 'lz-string';
 import { acceptOffer, feasibilityAll } from '../contracts';
-import type { GameState } from '../core/types';
+import type { GameState, Minute } from '../core/types';
 import { resolveDecision } from '../ops';
+import { advanceTo } from '../sim';
+import { breathe } from '../../test/breathe';
 
 /** A fixture save as JSON text (fixtures/save-<name>.lz.txt). */
 export const fixture = (name: string): string => LZString.decompressFromBase64(readFileSync(new URL(`./save-${name}.lz.txt`, import.meta.url), 'utf8'))!;
@@ -26,5 +28,14 @@ export function play(g: GameState): void {
   for (const o of open.slice(0, 3)) {
     const r = feasibilityAll(g, o.id).find((x) => (x.level === 'ok' || x.level === 'warn') && x.estMargin > 0);
     if (r && acceptOffer(g, o.id, [r.aircraftId]).ok) return;
+  }
+}
+
+/** Plays on to `end` in 6-hour steps with the light player step (until game over); the test worker breathes between steps. */
+export async function playTo(g: GameState, end: Minute): Promise<void> {
+  while (g.now < end && !g.gameOver) {
+    advanceTo(g, Math.min(end, g.now + 6 * 60), new Set());
+    play(g);
+    await breathe();
   }
 }

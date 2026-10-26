@@ -3,6 +3,7 @@
 // delivery flight?"). Queued like ladder steps, never over another dialog.
 
 import { Check, Eye, MapPinned, PartyPopper, Plane, X } from 'lucide-react';
+import { useEffect } from 'react';
 import { ACMI_TYPES, artFor } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { acceptOffer, declineOffer, fmtPrice } from '../../engine/contracts';
@@ -10,6 +11,7 @@ import { fmtDay, fmtTime } from '../../engine/core/time';
 import type { Flight, GameState } from '../../engine/core/types';
 import { liveryOf } from '../../engine/ops';
 import { AircraftArt } from '../components/AircraftArt';
+import { SkyArt } from '../components/SkyArt';
 import { Modal } from '../components/ui';
 import { store, useGame } from '../store';
 
@@ -70,10 +72,24 @@ export function deliveryFerry(g: GameState, aircraftId: string): Flight[] {
 
 const city = (code: string) => AIRPORT_BY_CODE[code]?.city ?? code;
 
-/** An aircraft handed over: the aircraft in our livery, registration, type, where from. */
+/**
+ * An aircraft handed over: the aircraft in our livery, registration, type, where from. v0.12 a full-screen welcome card:
+ * the aircraft big against the sky of the handover site's local time, its name and registration, 'Welcome to the fleet'.
+ * Skippable (✕, Escape); its chime rings as it opens (store.flushLadder) and time holds while it shows (a modal).
+ */
 export function DeliveredModal({ aircraftId }: { aircraftId: string }) {
   const g = useGame();
   const ac = g.fleet[aircraftId];
+  const skip = () => store.closeModal();
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      skip();
+    };
+    window.addEventListener('keydown', h, true);
+    return () => window.removeEventListener('keydown', h, true);
+  }, []);
   if (!ac) return null;
   const t = ACMI_TYPES[ac.typeId];
   const lv = liveryOf(g, ac);
@@ -86,17 +102,27 @@ export function DeliveredModal({ aircraftId }: { aircraftId: string }) {
   };
   const how = ac.ownership.kind === 'dryLeaseIn' ? `Leased from ${ac.ownership.lessor}` : 'Ours';
   return (
-    <Modal size="wide" className="v91-pop v91-delivered" title="A new aircraft joins the fleet" icon={<PartyPopper className="gold" />} onClose={next} footer={
-      <button className="btn btn-primary" onClick={next}>{ferry.length ? 'Continue' : 'Wonderful'}</button>
-    }>
-      <div className="v91-dl-art"><AircraftArt typeId={artFor(ac.typeId, ac.variant)} livery={lv.livery} code={lv.code} name={lv.name} reg={ac.reg} /></div>
-      <div className="v91-dl-reg mono">{ac.reg}</div>
-      <div className="v91-dl-type">{t?.name ?? ac.typeId} · {ac.cabin.label}</div>
-      <div className="small muted v91-dl-from">Handed over at {from}{dl ? ` on ${fmtDay(dl.handover)}` : ''} · {how}</div>
-      {ferry.length > 0 && (
-        <div className="small v91-dl-ferry">Ferry home: {city(ferry[0].from)} → {city(ferry[ferry.length - 1].to)}, leaving {fmtDay(ferry[0].std)} {fmtTime(ferry[0].std, ferry[0].from)} local{ferry.length > 1 ? ` (${ferry.length} legs)` : ''}.</div>
-      )}
-    </Modal>
+    <div className="v12-welcome" role="dialog" aria-modal="true" aria-label="A new aircraft joins the fleet">
+      <button className="btn btn-ghost btn-icon v12-welcome-skip" onClick={skip} aria-label="Skip"><X /></button>
+      <div className="v12-welcome-card">
+        <div className="v12-welcome-kicker"><PartyPopper className="gold" aria-hidden /> Welcome to the fleet</div>
+        <h1 className="v12-welcome-name">{ac.name ?? ac.reg}</h1>
+        <SkyArt g={g} ac={ac} className="v12-welcome-sky">
+          <AircraftArt typeId={artFor(ac.typeId, ac.variant)} livery={lv.livery} code={lv.code} name={lv.name} reg={ac.reg} acName={ac.name} />
+        </SkyArt>
+        <div className="v12-welcome-id">
+          <b className="mono v91-dl-reg">{ac.reg}</b>
+          <span className="v91-dl-type">{t?.name ?? ac.typeId} · {ac.cabin.label}</span>
+        </div>
+        <div className="small muted v91-dl-from">Handed over at {from}{dl ? ` on ${fmtDay(dl.handover)}` : ''} · {how}</div>
+        {ferry.length > 0 && (
+          <div className="small v91-dl-ferry">Ferry home: {city(ferry[0].from)} → {city(ferry[ferry.length - 1].to)}, leaving {fmtDay(ferry[0].std)} {fmtTime(ferry[0].std, ferry[0].from)} local{ferry.length > 1 ? ` (${ferry.length} legs)` : ''}.</div>
+        )}
+        <div className="v12-welcome-foot">
+          <button className="btn btn-primary" onClick={next} autoFocus>{ferry.length ? 'Continue' : 'Wonderful'}</button>
+        </div>
+      </div>
+    </div>
   );
 }
 

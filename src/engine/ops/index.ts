@@ -13,7 +13,7 @@ import { announceBackfill, dailyHeads, loadHeads, monthlyHeads } from './heads';
 import { onFlightArr, onFlightDep, pruneFlights } from './flights';
 import { checkGoals, ladderGrant, syncGoals } from './goals';
 import { onMaintEnd, onMaintStart, planChecks, setMaintHooks, setRestFitHook } from './maintenance';
-import { dailyDelivery, onDeliveryArr, onDeliveryDep } from './delivery';
+import { dailyDelivery, loadEtopsFerries, onDeliveryArr, onDeliveryDep } from './delivery';
 import { dailyLeases, onReturnEnd, onReturnStart } from './leaseReturn';
 import { dailyMarket, loadMarket, onDelivery, onLeaseEnd, refreshMarket } from './market';
 import { dailyPaint, normaliseLivery } from './paint';
@@ -23,6 +23,24 @@ import { DAY } from '../core/time';
 import { dailyDryLeases, onLeaseBack, onLeaseFerryHome, onLeaseOut } from './dryLease';
 import { dailyWorld, loadWorld, onWorldEnd } from './world';
 import { retireTypes } from './retired';
+import { registerResolvers } from './events';
+import { DISRUPT_RESOLVERS, holdingForDecision, onDivertedArrival, onOpsEvent, opsState, rollBirdStrike, rollSickAway } from './disrupt';
+import { dailyDirector, newDirector } from './director';
+import { rollRamp } from './ramp';
+import { dailyAudit } from './audit';
+import { DAY as DAY_MIN } from '../core/time';
+
+// v0.11 Operations: the disruption cards' resolvers join the decision table (wired here, after every module loaded).
+registerResolvers(DISRUPT_RESOLVERS);
+
+/** v0.11 load / init: the director and the operations record (older saves: a first audit at least 60 days off). */
+function loadOps(g: GameState): void {
+  g.director ??= newDirector(g);
+  if (!g.opsx) {
+    const st = opsState(g);
+    st.audit.next = Math.max(g.started + 330 * DAY_MIN, Math.floor(g.now / DAY_MIN) * DAY_MIN + 60 * DAY_MIN);
+  }
+}
 
 
 /** v0.10 every airframe of a type with variants carries one (stable: hashed from the seed and the aircraft id). */
@@ -35,7 +53,8 @@ function loadVariants(g: GameState): void {
 }
 
 export {
-  APPROVALS, aircraftGate, applyApproval, approvalBlocker, approvalReqs, cleanRecord, gateApprovals, ladder, ratedPilots, RUNG0_TYPES, setPolicies,
+  APPROVALS, aircraftGate, applyApproval, approvalBlocker, approvalReqs, cleanRecord, etopsMxBlocker, etopsMxState, gateApprovals, ladder, ratedPilots, RUNG0_TYPES, setPolicies,
+  setUpEtopsMx, waitingFor, type EtopsMxState,
   type AircraftGate, type ApprovalDef, type ApprovalReq, type LadderNode, type LadderRung, type NodeState,
 } from './company';
 export { addRestToCCheck, bookRefit, bookRestRefit, bookRestSeats, cabinOptions, refitKindText, refitQuote, refitSlots, refitStations, refitTerms, restAfterRefit, restRefitLabel, restRefitOptions, restRefitQuote, restSeatsQuote, type RefitKind, type RefitQuote, type RefitSlot, type RestRefitOption } from './cabin';
@@ -46,14 +65,17 @@ export { cancelSale, leastUsed, saleQuote, sellAircraft, type LeastUsedRow, type
 import { onSaleClose } from './sale';
 export { bookCCheck, cCheckOptions, cCheckSlots, checkLogistics, type CCheckOption, type CheckTicket } from './cHub';
 export { C_HUBS, type CHub } from '../../data/mro';
-export { deliveryQuote, deliveryStatus, ferryRoute, ticketPurpose, type DeliveryLeg, type DeliveryQuote, type DeliveryStatus } from './delivery';
+export { deliveryQuote, deliveryStatus, ferryRoute, ticketPurpose, type DeliveryLeg, type DeliveryQuote, type DeliveryStatus, type FerryBlock } from './delivery';
+// v0.11 ETOPS on ferries and positioning.
+export { approvalName, capText, etopsFixText, etopsLine } from './etops';
 export { chooseLease, earlyReturnQuote, leaseView, returnEarly, returnQuote, type EarlyReturnQuote, type LeaseChoice, type LeaseView, type ReturnQuote } from './leaseReturn';
 export { reopenLatePayment, resolveDecision } from './events';
 export { cashForecast, fixedCosts, monthProfit, newStatement } from './finance';
 export { delayFlight, delayOf, schedSta } from './flights';
 export { GOALS, type GoalDef } from './goals';
 export { aogChance, cancelCheck, checkAirportOk, checkStatus, checkUsedAt, groundGaps, scheduleCheck, type CheckStatus } from './maintenance';
-export { acquireAircraft, eligibleTypes, marketView, returnSiteOf, type MarketOfferView } from './market';
+export { acquireAircraft, eligibleTypes, marketView, renameAircraft, returnSiteOf, type MarketOfferView } from './market';
+export { checkRegistration, cleanAircraftName, cleanRegInput, NAME_MAX, regCountry, regFormat, suggestRegistration } from './registration';
 export {
   clientCode, clientLivery, clientTitles, liveryOf, normaliseLivery, paintStatus, setAircraftLivery, setCompanyLivery, setFleetLivery, type PaintStatus, type ResolvedLivery,
 } from './paint';
@@ -86,6 +108,10 @@ setMaintHooks((g, m) => onReturnStart(g, m), (g, m) => {
 setGrantHook(ladderGrant);
 
 function daily(g: GameState) {
+  // v0.11 the director's day (quiet or busy), sick calls away from base, the yearly audit.
+  dailyDirector(g);
+  rollSickAway(g);
+  dailyAudit(g);
   pruneFlights(g);
   planChecks(g);
   dailyPaint(g);
@@ -127,6 +153,7 @@ export const opsModule: SimModule = {
     // v0.9 heads locked, nothing earned yet.
     loadHeads(g);
     g.achievements ??= {};
+    loadOps(g);
   },
   // Decisions other modules post (crew's sickCrew) join the pacing budget as they appear.
   settle: paceDecisions,
@@ -137,6 +164,8 @@ export const opsModule: SimModule = {
     loadWorld(g);
     loadApprovals(g);
     loadMarket(g);
+    // v0.11 delivery ferries planned straight across an ocean before the ETOPS rule: the legal way from the next leg.
+    loadEtopsFerries(g);
     syncGoals(g);
     g.finance.negSince ??= null;
     // v0.5.1 liveries: client paint of a contract no longer in the save is gone; the company livery normalised (idempotent).
@@ -154,6 +183,7 @@ export const opsModule: SimModule = {
     loadHeads(g);
     loadAchievements(g);
     announceBackfill(g);
+    loadOps(g);
   },
   handlers: {
     day: daily,
@@ -170,8 +200,18 @@ export const opsModule: SimModule = {
       if (f?.status === 'enroute') checkAchievements(g, { ids: ON_DEPARTURE });
     },
     'flight.arr': (g, ev) => {
+      // v0.11 a diversion or medical card still open: the aircraft holds (circles) until it is answered.
+      const f0 = g.flights[ev.id];
+      if (f0 && f0.ev === ev.v && f0.status === 'enroute' && holdingForDecision(g, f0)) return;
       onFlightArr(g, ev);
       const f = g.flights[ev.id];
+      // v0.11 on blocks: the onward card after a diversion, else a bird strike may be written up; a ramp inspector.
+      if (f && f.status === 'done' && f.ev === ev.v && f.aircraftId && g.fleet[f.aircraftId]) {
+        const ac = g.fleet[f.aircraftId];
+        if (f.div && f.to !== f.div.to0 && !f.contOf) onDivertedArrival(g, f);
+        else rollBirdStrike(g, f, ac);
+        rollRamp(g, f, ac);
+      }
       if (f?.status === 'done') checkAchievements(g, { ids: ON_ARRIVAL });
       if (f?.purpose && f.status === 'done') onDeliveryArr(g, f);
       if (f?.purpose === 'lease' && f.status === 'done') onLeaseFerryHome(g, f);
@@ -194,5 +234,7 @@ export const opsModule: SimModule = {
     'lease.out': onLeaseOut,
     'lease.back': onLeaseBack,
     'world.end': onWorldEnd,
+    // v0.11 a timed disruption (a mid-flight card, a sick call at the hotel).
+    'ops.event': onOpsEvent,
   },
 };

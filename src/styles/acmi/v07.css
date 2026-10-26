@@ -24,9 +24,9 @@
 .mk-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .mk-chip { font-size: 12px; padding: 4px 9px; }
 .mk-chip svg { width: 13px; height: 13px; }
-.mk-chip.good { color: var(--good); border-color: rgba(52, 211, 153, 0.35); }
-.mk-chip.warn { color: var(--warn); border-color: rgba(251, 191, 36, 0.35); }
-.mk-chip.bad { color: var(--bad); border-color: rgba(248, 113, 113, 0.35); }
+.mk-chip.good { color: var(--good); border-color: rgba(var(--good-rgb), 0.35); }
+.mk-chip.warn { color: var(--warn); border-color: rgba(var(--warn-rgb), 0.35); }
+.mk-chip.bad { color: var(--bad); border-color: rgba(var(--bad-rgb), 0.35); }
 .mk-foot { align-items: center; }
 .mk-ret { min-width: 0; }
 
@@ -53,7 +53,7 @@
 .ls-lines { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--border); }
 .sc-opt.current { border-color: var(--info); }
 .sc-opt:disabled { opacity: 0.7; cursor: default; transform: none; }
-.sc-opt.on { border-color: var(--accent); background: rgba(62, 230, 255, 0.08); box-shadow: inset 0 0 0 1px var(--accent); }
+.sc-opt.on { border-color: var(--accent); background: rgba(var(--accent-rgb), 0.08); box-shadow: inset 0 0 0 1px var(--accent); }
 
 /* ---------- the Ladder (Company) ---------- */
 .ld-card { margin-bottom: 16px; }
@@ -73,13 +73,13 @@ button.ld-node { cursor: pointer; font: inherit; }
 .ld-node .bar { width: 100%; }
 .ld-name { font-size: 14px; line-height: 1.2; }
 .ld-req { line-height: 1.3; }
-.ld-node.s-held { border-color: rgba(52, 211, 153, 0.45); }
-.ld-node.s-pending { border-color: rgba(96, 165, 250, 0.5); }
-.ld-node.s-ready { border-color: var(--accent); box-shadow: inset 0 0 0 1px rgba(62, 230, 255, 0.25); }
+.ld-node.s-held { border-color: rgba(var(--good-rgb), 0.45); }
+.ld-node.s-pending { border-color: rgba(var(--info-rgb), 0.5); }
+.ld-node.s-ready { border-color: var(--accent); box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), 0.25); }
 .ld-node.s-locked { background: var(--bg-2); }
 .ld-node.s-locked .ld-name { color: var(--text-2); }
 .ld-types { display: flex; flex-wrap: wrap; gap: 4px; margin-top: auto; }
-.ld-type { font-size: 12px; padding: 1px 6px; border-radius: 6px; background: rgba(148, 170, 220, 0.1); color: var(--text-2); }
+.ld-type { font-size: 12px; padding: 1px 6px; border-radius: 6px; background: rgba(var(--line-rgb), 0.1); color: var(--text-2); }
 @media (hover: hover) { button.ld-node:hover { border-color: var(--accent); } }
 
 /* ---------- approval dialog / ladder step ---------- */
@@ -107,7 +107,7 @@ button.ld-node { cursor: pointer; font: inherit; }
 /* ---------- conversion confirm (C1) ---------- */
 .cv-confirm {
   display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; padding: 12px 14px; border-radius: 12px;
-  background: rgba(248, 113, 113, 0.08); border: 1px solid rgba(248, 113, 113, 0.45);
+  background: rgba(var(--bad-rgb), 0.08); border: 1px solid rgba(var(--bad-rgb), 0.45);
 }
 
 /* ---------- narrower (portrait / Split View) ---------- */
@@ -124,7 +124,7 @@ button.ld-node { cursor: pointer; font: inherit; }
 .ls-step-reward { margin-top: -4px; }
 
 /* ---------- schedule: delivering band (before handover) ---------- */
-.gb-band { background: rgba(148, 170, 220, 0.1); box-shadow: inset 0 0 0 1px rgba(148, 170, 220, 0.22); color: var(--text-2); font-weight: 500; top: 14px; height: 28px; border-radius: 8px; pointer-events: none; }
+.gb-band { background: rgba(var(--line-rgb), 0.1); box-shadow: inset 0 0 0 1px rgba(var(--line-rgb), 0.22); color: var(--text-2); font-weight: 500; top: 14px; height: 28px; border-radius: 8px; pointer-events: none; }
 .gb-band > span { padding-left: 10px; }
 .ls-step-award { display: grid; place-items: center; margin: 10px 0 14px; }
 .ls-step-award svg { width: 56px; height: 56px; color: var(--gold); stroke-width: 1.5; }
@@ -136,7 +136,19 @@ button.ld-node { cursor: pointer; font: inherit; }
 .wn-head { display: flex; align-items: center; gap: 8px; font-weight: 600; }
 .wn-head svg { width: 18px; height: 18px; }
 .wn-list { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; line-height: 1.4; }
-.wn-list li::marker { color: var(--accent, #3ee6ff); }
+.wn-list li::marker { color: var(--accent, var(--accent)); }
 /* v0.7.3: 44 px touch targets in the What's new modal (Safari 1180×750 over the loading screen) */
 .wn-modal button { min-height: 44px; }
 .wn-modal .modal-head button, .wn-modal button.btn-icon { min-width: 44px; }
+
+/* v0.10.2 registering a new aircraft: the registry prefix fixed, the rest typed; an optional name */
+.aq-reg { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 12px; }
+.aq-reg-box { display: flex; align-items: stretch; min-width: 0; }
+.aq-reg-prefix { display: inline-flex; align-items: center; padding: 0 10px; border: 1px solid var(--border-strong); border-right: none; border-radius: 10px 0 0 10px; background: rgba(var(--line-rgb), 0.08); color: var(--text-2); }
+.aq-reg-box .input { flex: 1; border-radius: 0 10px 10px 0; text-transform: uppercase; letter-spacing: 0.06em; }
+.aq-reg-box.bad .input { border-color: var(--bad, var(--c-line-ff6b6b)); }
+@media (max-width: 560px) { .aq-reg { grid-template-columns: minmax(0, 1fr); } }
+.sc-ac-name { color: var(--text-2); font-size: 13px; flex-shrink: 1; }
+.sc-ac-name-btn { height: 24px; width: 24px; color: var(--text-3); }
+.sc-ac-name-btn svg { width: 13px; height: 13px; }
+.sc-ac-name-in { max-width: 200px; }

@@ -230,6 +230,8 @@ describe('relinkPositioning', () => {
       const { addAircraft } = await import('./testkit');
       const { safetyTrips } = await import('../core/safety');
       const g = newGame(31);
+      // v0.11 an A330 flying Lisbon–São Paulo holds ETOPS 180 (without it the empty leg goes the 60-minute way).
+      (await import('../ops/company')).devGrantApproval(g, 'etops180');
       const ac = addAircraft(g, 'a332');
       expect(typeOf(ac.typeId).turnMin).toBeGreaterThan(blockMinutes(ac.typeId, b[0], b[1]) + 5);
       const t = Math.ceil((g.now + 5 * DAY) / 60) * 60;

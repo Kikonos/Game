@@ -53,6 +53,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import LZString from 'lz-string';
 import { BAL } from '../src/engine/core/balance';
+import { techReliability } from '../src/engine/core/techLog';
 import { statementTotals } from '../src/engine/core/ledger';
 import { complement, typeOf } from '../src/engine/core/perf';
 import { DAY, dayIndex, fmtDateTime, fmtDay, fmtMonth, fromUTC, monthKey, toDate, yearOf } from '../src/engine/core/time';
@@ -64,7 +65,7 @@ import { devAddType, devFleet, devGrantApproval } from '../src/engine/dev';
 import { salaryFor } from '../src/engine/crew/generate';
 import { createGame } from '../src/engine/newGame';
 import {
-  acquireAircraft, addRestToCCheck, aircraftGate, applyApproval, approvalBlocker, approvalReqs, APPROVALS, bookCCheck, bookRefit, bookRestRefit, cabinOptions, cancelCheck, cCheckOptions, cCheckSlots, checkStatus, deliveryStatus,
+  acquireAircraft, addRestToCCheck, aircraftGate, applyApproval, approvalBlocker, approvalReqs, APPROVALS, etopsMxState, setUpEtopsMx, bookCCheck, bookRefit, bookRestRefit, cabinOptions, cancelCheck, cCheckOptions, cCheckSlots, checkStatus, deliveryStatus,
   earlyReturnQuote, fixedCosts, groundGaps, leastUsed, ratedPilots, refitQuote, refitSlots, refitStations, resolveDecision, restRefitOptions, returnEarly, saleQuote, sellAircraft, ticketPurpose,
 } from '../src/engine/ops';
 import { cabinAt, cabinFits, refitTip } from '../src/engine/ops/cabin';
@@ -72,6 +73,12 @@ import { requiredEmpty } from '../src/engine/crew/timeline';
 import { deliveryQuote } from '../src/engine/ops/delivery';
 import { devMarketOffer } from '../src/engine/ops/market';
 import { restCards } from '../src/engine/problems/crew';
+import { openFindings, startAuditTask } from '../src/engine/ops/audit';
+import { OPS_LIVE, quietShare } from '../src/engine/ops/director';
+// v0.11 OPS_OFF=1: the Operations update off (the pre-update game, for before/after comparisons).
+if (process.env.OPS_OFF) OPS_LIVE.on = false;
+if (process.env.OPS_NODISRUPT) OPS_LIVE.disrupt = false;
+if (process.env.OPS_NOWAVES) OPS_LIVE.waves = false;
 import type { ProblemCard } from '../src/engine/problems/types';
 import type { ApprovalId } from '../src/engine/core/types';
 import { chainAugment } from '../src/engine/contracts/offers';
@@ -88,6 +95,7 @@ import { setHeldHook } from '../src/engine/ops/flights';
 import { crewIssuesFor, crewShortCard, dutyCandidates, flightCrewStatus } from '../src/engine/crew';
 import { dayIndex as dayIndexAt, isOff } from '../src/engine/crew/dayPlan';
 import { offsetAt } from '../src/engine/crew/rules';
+import { createChecker } from './invariants';
 
 
 const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
@@ -114,9 +122,12 @@ const BIG_DAYS = Number(process.env.BIG_DAYS ?? 120);
 /** --dump=<day>,<file>: the save at the first step past that game day (debugging a run). */
 const DUMP = process.argv.find((a) => a.startsWith('--dump='))?.slice(7).split(',');
 const STEP = 6 * 60;
+/** Debug round (26 Oct 2026): --base=XXX starts at another home base; --inv runs scripts/invariants.ts every step (slower). */
+const BASE = process.argv.find((a) => a.startsWith('--base='))?.slice(7) ?? 'LIS';
+const INV = process.argv.includes('--inv') ? createChecker() : null;
 
 const newGame = () => {
-  const g = createGame({ name: 'Atlântica Wings', code: 'AW', livery: { primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' }, base: 'LIS', seed });
+  const g = createGame({ name: 'Atlântica Wings', code: 'AW', livery: { primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' }, base: BASE, seed });
   if (AUG || JUMBO) for (const id of ['widebody', 'augmented'] as const) devGrantApproval(g, id);
   // v0.9 fix (JUMBO=1): an old 747-400 from day one, to test its economics and the crew changes at fuel stops.
   if (JUMBO) {
@@ -929,6 +940,22 @@ function fleet(g: GameState, t: Tally): void {
 
 // ---------- v0.7 ----------
 
+/** Ladder record diagnostic: per approval, the first day its record rows (clean record / technical reliability / no illegal duties) were all met, and days met. */
+const REC = new Map<string, { first: number | null; ok: number; n: number }>();
+const TDR: number[] = [];
+function recDiag(g: GameState): void {
+  const tr = techReliability(g, 90);
+  if (tr.pct !== null && dayN(g) % 7 === 0) TDR.push(tr.pct);
+  for (const id of ['etops120', 'widebody', 'etops180'] as ApprovalId[]) {
+    const rows = approvalReqs(g, id).filter((r) => /Clean record|[Tt]echnical reliability|illegal/.test(r.label));
+    if (!rows.length) continue;
+    const r = REC.get(id) ?? { first: null, ok: 0, n: 0 };
+    r.n++;
+    if (rows.every((x) => x.ok)) { r.ok++; r.first ??= dayN(g); }
+    REC.set(id, r);
+  }
+}
+
 const dayN = (g: GameState) => Math.floor((g.now - g.started) / DAY);
 const held = (g: GameState, id: ApprovalId) => g.company.approvals.includes(id) || g.company.pendingApprovals.some((p) => p.id === id);
 const monthFixed = (g: GameState) => {
@@ -953,6 +980,15 @@ function ladderSteps(g: GameState, t: Tally): void {
   const cost = (id: ApprovalId) => APPROVALS.find((a) => a.id === id)!.cost;
   // ETOPS 120 once the work asks for it: two open over-water jobs worth $300K+ on the board at once.
   const overWater = Object.values(g.offers).filter((o) => o.status === 'open' && o.estValue >= 300_000 && (o.requirements.etops > 0 || o.requirements.approvals.includes('etops120'))).length;
+  // v0.10.2 the ETOPS maintenance programme first when it is all that stands in the way (filing may go on while it is set up).
+  const mxOnly = (id: ApprovalId) => approvalReqs(g, id).filter((r) => !r.ok && !/^Cash /.test(r.label)).every((r) => r.label === 'ETOPS maintenance programme');
+  const wantEtops = (id: ApprovalId, extra: number) => !held(g, id) && cash >= cost(id) + BAL.ladder.etopsMx.cost + extra && etopsMxState(g) === 'none' && mxOnly(id);
+  if ((dayN(g) >= 90 && overWater >= 2 && wantEtops('etops120', 2_500_000)) || wantEtops('etops180', 2_000_000) || wantEtops('etops240', 2_000_000)) {
+    if (setUpEtopsMx(g).ok) {
+      t.filed.push(`etopsMx day ${dayN(g)}`);
+      act(g, t);
+    }
+  }
   if (dayN(g) >= 90 && overWater >= 2 && !held(g, 'etops120') && !approvalBlocker(g, 'etops120') && cash >= cost('etops120') + 2_500_000) file(g, t, 'etops120');
   // Widebody operations once an old 767 / A330 lease is on the market (the family to crew for is known then).
   const wideLease = g.market.aircraft.some((o) => o.kind === 'dryLeaseIn' && o.expires > g.now + 3 * DAY && (o.typeId === 'a332' || o.typeId === 'b763'));
@@ -1157,7 +1193,7 @@ function crewControlPolicy(g: GameState, t: Tally): void {
         failed.add(s.id);
         return false;
       }
-      if (MSGS) console.error(`${fmtDateTime(g.now)} CREW CONTROL ${f.no} ${s.id}: ${r.data!.changes.join(' / ')}`);
+      if (MSGS || process.env.PROBE) console.error(`${fmtDateTime(g.now)} CREW CONTROL ${f.no} ${s.id}: ${r.data!.changes.join(' / ')}`);
       act(g, t);
       t.crewFixes.set(s.id, (t.crewFixes.get(s.id) ?? 0) + 1);
       return r.data!.after === null;
@@ -1233,10 +1269,19 @@ function heads(g: GameState, t: Tally): void {
   }
 }
 
+/** v0.11 audit findings: start each corrective action at once (Level 1 or overdue whatever the cash; the rest above $300K). */
+function auditTasks(g: GameState): void {
+  for (const f of openFindings(g)) {
+    if (f.started) continue;
+    if (f.level === 1 || f.overdue || g.now > f.due - 14 * 1440 || g.company.cash > f.task.cost + 300_000) startAuditTask(g, f.id);
+  }
+}
+
 function policy(g: GameState, t: Tally, urgent: boolean, newDay: boolean): void {
   decide(g, t);
-  crewControlPolicy(g, t);
+  if (!process.env.NOCC) crewControlPolicy(g, t);
   if (newDay) {
+    auditTasks(g);
     heads(g, t);
     policies(g, t);
     rehire(g, t);
@@ -1251,6 +1296,7 @@ function policy(g: GameState, t: Tally, urgent: boolean, newDay: boolean): void 
     earlyReturns(g, t);
     sales(g, t);
     ladderSteps(g, t);
+    recDiag(g);
     fleet(g, t);
     narrowGrowth(g, t);
     deliveryWaits(g, t);
@@ -1265,7 +1311,25 @@ function play(g: GameState, t: Tally, end: number, onStep?: () => void): void {
   let day = dayIndex(g.now);
   while (g.now < end && !g.gameOver) {
     const grid = g.started + (Math.floor((g.now - g.started) / STEP) + 1) * STEP;
+    // Debugging (STOPAT=<minute>,<file>): the save one minute before that instant, then exit.
+    const stopAt = process.env.STOPAT?.split(',');
+    if (stopAt && g.now < +stopAt[0] && +stopAt[0] <= Math.min(end, grid)) {
+      advanceTo(g, +stopAt[0] - 1);
+      writeFileSync(stopAt[1], serialize(g));
+      process.exit(0);
+    }
+    const trips0 = safetyTrips.length;
     const r = advanceTo(g, Math.min(end, grid));
+    // Debugging (TRIPINFO=1): the legs of the aircraft a safety-net trip names, when it trips.
+    if (process.env.TRIPINFO && safetyTrips.length > trips0) {
+      for (const x of safetyTrips.slice(trips0)) {
+        const id = /\(\S+ (\S+)\)/.exec(x)?.[1] ?? '';
+        const f0 = g.flights[id];
+        const ac = f0?.aircraftId ? g.fleet[f0.aircraftId] : undefined;
+        console.error(`TRIP ${x} → ${f0 ? `${f0.no} ${f0.kind} ${f0.from}-${f0.to} std ${fmtDateTime(f0.std)}+${f0.delay} ${f0.status} ${f0.delayReason ?? ''} crewHeld ${f0.crewHeld ?? ''} tries ${f0.crewTries ?? ''}` : 'gone'} ac ${ac?.reg} ${ac?.status} at ${ac?.at} flight ${ac?.flightId} maint ${ac?.maintId ? JSON.stringify(g.maintenance[ac.maintId]) : '-'}`);
+        if (ac) for (const f of Object.values(g.flights).filter((y) => y.aircraftId === ac.id && (y.status === 'scheduled' || y.status === 'enroute')).sort((a, b) => a.std - b.std).slice(0, 8)) console.error(`   ${f.id} ${f.no} ${f.kind} ${f.from}-${f.to} ${fmtDateTime(f.std)}+${f.delay} ${f.status} ${f.delayReason ?? ''} duty ${f.dutyId ?? '-'} purpose ${f.purpose ?? ''}`);
+      }
+    }
     const newDay = dayIndex(g.now) !== day;
     day = dayIndex(g.now);
     policy(g, t, r.pause === 'urgentOffer', newDay);
@@ -1554,6 +1618,15 @@ let trustedAt: number | null = null;
 const mixedSeen = new Set<string>();
 
 function onStep(): void {
+  if (process.env.PROG) console.error(`step ${fmtDateTime(g.now)}`);
+  // Debugging: PROBE=<flight no>: its duty's seats at every step (stderr).
+  if (process.env.PROBE) for (const f of Object.values(g.flights)) {
+    if (f.no !== process.env.PROBE || f.status === 'done' || f.status === 'cancelled') continue;
+    const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+    const p = d ? g.pairings[d.pairingId] : undefined;
+    console.error(`${fmtDateTime(g.now)} PROBE ${f.no} ${f.from}-${f.to} ${f.status} crew ${f.crewIds.map((x) => g.crew[x]?.last).join(',')} slots ${p?.slots.map((s) => `${s.role}:${s.crewId ? g.crew[s.crewId]?.last : '-'}`).join(' ')}`);
+  }
+  INV?.observe(g);
   const m = mon(monthKey(g.now));
   if (WHYHELD) noteOffShare(g);
   if (SEATLOG) seatLog(g);
@@ -1738,7 +1811,7 @@ const goalsBy = (t: number) => g.goals.filter((x) => x.done !== null && x.done <
 
 const pad = (s: string | number, n: number) => String(s).padStart(n);
 const k$ = (v: number) => `${(v / 1000).toFixed(0)}k`;
-console.log(`BLOCK HOURS bot — seed ${seed}, ${days} days, Startup at LIS (2× A320ceo)\n`);
+console.log(`BLOCK HOURS bot — seed ${seed}, ${days} days, Startup at ${BASE} (2× A320ceo)\n`);
 console.log('month       cash  revenue   profit  BH/ac  wet BH/MGH  contracts        legs cx/sub ill util  AOG mxd  dec/msg goals');
 let revenueY = 0;
 let profitY = 0;
@@ -1800,6 +1873,11 @@ if (BIG) {
 errors.push(...badNumbers(g).map((p) => `final: non-finite ${p}`));
 // v0.8 pre-release: an engine safety net that tripped (a re-planning loop broken) is a bug like an exception.
 errors.push(...safetyTrips.map((x) => `safety net tripped: ${x}`));
+if (INV) {
+  INV.finish(g);
+  INV.print(`invariants seed ${seed}${process.argv.slice(3).filter((a) => a.startsWith('--')).join(' ')}`);
+  for (const n of (process.env.INVDUMP ?? '').split(',').filter(Boolean)) INV.dump(n);
+}
 
 const s = g.stats;
 const weeks = Math.max(1, Math.floor(days / 7));
@@ -1893,6 +1971,10 @@ console.log(
 {
   // v0.7 lines: the ladder, the market, deliveries, refits and leases.
   const granted = Object.entries(g.company.approvalsAt ?? {}).filter(([, t]) => (t ?? 0) > g.started).map(([id, t]) => `${id} day ${Math.floor(((t ?? 0) - g.started) / DAY)}`);
+  const tl = Object.values(g.stats.techDisp ?? {}).reduce((a, [d, f]) => [a[0] + d, a[1] + f], [0, 0]);
+  const td = [...TDR].sort((a, b) => a - b);
+  console.log(`technical reliability (90 days, weekly): min ${td[0] ?? '-'}% median ${td[Math.floor(td.length / 2)] ?? '-'}% max ${td.at(-1) ?? '-'}% · year ${tl[0] ? (100 * (1 - tl[1] / tl[0])).toFixed(1) : '-'}% (${Math.round(tl[1])} technical failures in ${Math.round(tl[0])} departures)`);
+  console.log(`ladder record: ${[...REC].map(([id, r]) => `${id} first met day ${r.first ?? 'never'} (met on ${r.ok} of ${r.n} days)`).join(' · ')}`);
   console.log(`ladder v0.7: filed [${tally.filed.join(', ') || '-'}], granted [${granted.join(', ') || '-'}], pending [${g.company.pendingApprovals.map((p) => `${p.id}${p.waiting ? ' (waiting)' : ''}`).join(', ') || '-'}], findings ${s.findings ?? 0}`);
   const byMonth = new Map<number, number>();
   for (const x of seenMarket.values()) byMonth.set(x.month, (byMonth.get(x.month) ?? 0) + 1);
@@ -2012,6 +2094,19 @@ console.log(
       `achievements ${ach}/24 · slips ${v9?.slips ?? 0} (offers ${slipOffers}) · out of hours red ${v9?.oohRed ?? 0} amber ${v9?.oohAmber ?? 0} · ` +
       `discretion used ${v9?.discretionUsed ?? 0} (planned ${v9?.discretionPlanned ?? 0}) refused ${v9?.discretionRefused ?? 0} · jumbo loads ${v9?.jumboLoads ?? 0} (747 invoiced ${k$(rev744)}) · runtime ${runSecs.toFixed(1)} s`,
   );
+  {
+    // v0.11 Operations: the director's quiet share, disruptions, ramp inspections and audit findings by kind (whole run).
+    const all: Record<string, number> = {};
+    for (const y of Object.values(g.opsx?.counts ?? {})) for (const [k, v] of Object.entries(y)) all[k] = (all[k] ?? 0) + v;
+    const keys = Object.keys(all).sort();
+    const au = g.opsx?.audit;
+    console.log(
+      `v0.11 ops: pace ${g.director?.pace ?? '-'} · quiet days ${(quietShare(g) * 100).toFixed(0)} % (${g.director?.days?.quiet ?? 0} quiet / ${g.director?.days?.busy ?? 0} busy) · ` +
+        `${keys.map((k) => `${k} ${all[k]}`).join(', ') || 'no events'} · audits ${au?.history.map(([t, a, b]) => `${fmtDateTime(t).slice(0, 6)} L1 ${a} L2 ${b}`).join('; ') || 'none'} · ` +
+        `findings open ${(au?.findings ?? []).filter((f) => !f.closed).length} (started ${(au?.findings ?? []).filter((f) => !f.closed && f.started).length}, overdue ${(au?.findings ?? []).filter((f) => f.overdue && !f.closed).length}) · suspended ${au?.suspended ? 'yes' : 'no'}`,
+    );
+    softTargets.push(['quiet days 45–75 % (v0.11 director, Normal pace)', quietShare(g) >= 0.45 && quietShare(g) <= 0.75, `${(quietShare(g) * 100).toFixed(0)} %`]);
+  }
   targets.push(['discretion never planned (v0.9)', (v9?.discretionPlanned ?? 0) === 0, `${v9?.discretionPlanned ?? 0}`]);
   targets.push(['runs in ≤ 20 s (v0.9 hard limit)', runSecs <= 20, `${runSecs.toFixed(1)} s`]);
   softTargets.push(['≥ 3 heads unlocked (v0.9; ≥ 5 on 3 seeds)', headUnlocked.size >= 3 * Math.min(1, days / 365), `${headUnlocked.size}`]);

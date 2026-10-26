@@ -1,8 +1,16 @@
+/// <reference types="vitest/config" />
 import react from '@vitejs/plugin-react';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { defineConfig, type Plugin } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
+
+// Tests run in forked workers (one process per file at a time). CI (GitHub's 4-vCPU runners, slower per core than the
+// dev box): 2 workers, so the heavy save-compat and season-long tests don't starve the runner; locally the default
+// (cores − 1). Vitest's worker RPC times out after 60 s of a blocked event loop, so the long scenario tests breathe
+// (src/test/breathe.ts) and carry their own timeouts; the default test timeout leaves room for a few-second sweep on a
+// loaded machine (5 s did not). Perf budgets scale by PERF_BUDGET_FACTOR (src/test/perf.ts).
+const ci = !!process.env.CI;
 
 // EMBED=1 builds a variant for hosts where service workers are unavailable
 // (sandboxed previews); the regular build ships the offline-capable PWA.
@@ -63,6 +71,7 @@ export default defineConfig({
       },
     }),
   ],
+  test: { pool: 'forks', testTimeout: ci ? 40_000 : 20_000, hookTimeout: 60_000, teardownTimeout: 30_000, ...(ci ? { maxWorkers: 2, minWorkers: 1 } : {}) },
   build: {
     target: 'es2022',
     chunkSizeWarningLimit: 2000,

@@ -12,7 +12,7 @@ import type { CabinLayout } from '../../data/acmiTypes';
 import type { GameState, Minute, RestRefitId } from '../../engine/core/types';
 import { flightsOf, flightsRev } from '../../engine/core/entities';
 import { route } from '../../engine/contracts/plan';
-import { typeOf } from '../../engine/core/perf';
+import { etopsCap, typeOf } from '../../engine/core/perf';
 import { DAY, HOUR, dayStart, fmtDay, fmtDuration, fmtTime, toDate } from '../../engine/core/time';
 import { bookRefit, bookRestRefit, cabinOptions, cancelCheck, refitKindText, refitQuote, refitSlots, refitStations, refitTerms, restRefitOptions, restRefitQuote, type RefitQuote, type RestRefitOption } from '../../engine/ops';
 import { longestDay, restOf, restShort, restText } from '../../engine/crew';
@@ -138,7 +138,7 @@ export function RefitModal({ aircraftId, layout, offerId, rest, restOption, afte
   if (!ac || !t) return null;
   const q = quote(start);
   const from = plannedAt(g, aircraftId, start - 1);
-  const ferry = route(ac.typeId, from, station)?.reduce((n, l) => n + l.block, 0) ?? null;
+  const ferry = route(ac.typeId, from, station, etopsCap(g.company.approvals, ac.typeId))?.reduce((n, l) => n + l.block, 0) ?? null;
   const leased = ac.ownership.kind === 'dryLeaseIn';
   const book = () => {
     if (viaCheck && ropt) {

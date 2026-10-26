@@ -2,7 +2,7 @@
 // the joiners, a clean per-role table and one verdict line; Round up opens the hire flow pre-filled with exactly the
 // crew that complete the sets. The People view keeps a one-line summary per family that links here.
 
-import { UserPlus } from 'lucide-react';
+import { Check, UserPlus } from 'lucide-react';
 import type { RatingFamily } from '../../data/acmiTypes';
 import type { GameState } from '../../engine/core/types';
 import { BAL } from '../../engine/core/balance';
@@ -75,17 +75,34 @@ function FamilyCard({ p }: { p: FamilyPlan }) {
           ))}
         </tbody>
       </table>
-      {p.roles.some((r) => r.shared) && <div className="tiny muted">Shared: cabin crew who also fly another type in the fleet are counted once, where they are needed most.</div>}
+      {p.alsoRated.map((b) => (
+        <div key={`a${b.family}`} className="tiny muted cp-backup">{backupWho(b)} also rated on the {b.label} <span className="dim">(backup there; counted here, where they were hired)</span></div>
+      ))}
+      {p.backupFrom.map((b) => (
+        <div key={`f${b.family}`} className="tiny muted cp-backup">{backupWho(b)} from the {b.label} also rated here <span className="dim">(backup; counted in the {b.label})</span></div>
+      ))}
       {p.clientCabin > 0 && <div className="tiny muted"><Term id="dampLease">Mixed crew</Term>: clients' own cabin crew fly about {p.clientCabin} of the cabin places in these sets; only ours are counted.</div>}
       {p.dryLeased > 0 && <div className="tiny muted">Dry lease out: {p.dryLeased} more {p.dryLeased === 1 ? 'aircraft is' : 'aircraft are'} away with the lessee's crews; no sets until {p.dryLeased === 1 ? 'it comes' : 'they come'} back.</div>}
       <div className="row gap-8 cp-actions">
-        {t.complete !== null && (
+        {t.complete !== null ? (
           <button className="btn btn-primary" onClick={() => store.openModal({ kind: 'roundUp', family: p.family, target: t.complete! })}><UserPlus /> Hire to complete {t.complete} sets</button>
+        ) : t.next !== null ? (
+          <button className="btn btn-primary" onClick={() => store.openModal({ kind: 'roundUp', family: p.family, target: t.next! })}><UserPlus /> Round up to {t.next} sets</button>
+        ) : (
+          <button className="btn" disabled><Check /> Sets complete</button>
         )}
-        <button className="btn" onClick={() => store.openModal({ kind: 'roundUp', family: p.family, target: t.next })}>Round up to {t.next} sets</button>
+        {t.complete === null && t.next === null && (
+          <button className="btn btn-ghost small" onClick={() => store.openModal({ kind: 'roundUp', family: p.family, target: t.spare })}>Add a spare set</button>
+        )}
       </div>
     </div>
   );
+}
+
+/** '3 cabin crew' / '2 pilots and 3 cabin crew'. */
+function backupWho(b: { cabin: number; pilots: number }): string {
+  const parts = [b.pilots ? `${b.pilots} pilot${b.pilots === 1 ? '' : 's'}` : '', b.cabin ? `${b.cabin} cabin crew` : ''].filter(Boolean);
+  return parts.join(' and ');
 }
 
 export function CrewPlanView({ g }: { g: GameState }) {

@@ -490,9 +490,14 @@ describe('v0.7.3 crew rest on the aircraft panel', () => {
     expect(id).not.toBe('');
     const plan = restPlanForFlight(g, id);
     expect(plan?.ok).toBe(true);
-    const turn = plan!.pilots.find((x) => x.flightId === id)!;
-    const acId = g.flights[id].aircraftId!;
-    advanceTo(g, turn.start + 5);
+    const f = g.flights[id];
+    const acId = f.aircraftId!;
+    // Off blocks first (a random delay at the gate moves the rest plan with it), then into the first pilot rest.
+    advanceTo(g, f.std, new Set());
+    for (let i = 0; i < 48 && f.status === 'scheduled'; i++) advanceTo(g, g.now + 15, new Set());
+    expect(f.status).toBe('enroute');
+    const turn = restPlanForFlight(g, id)!.pilots.find((x) => x.flightId === id)!;
+    advanceTo(g, Math.max(g.now, turn.start + 5), new Set());
     expect(g.fleet[acId].flightId).toBe(id);
     const a = restingLine(restNow(g, acId, g.now));
     expect(a).toMatch(/^Resting: .*\((bunk|business seat)\) until \d\d:\d\d.* UTC$/);

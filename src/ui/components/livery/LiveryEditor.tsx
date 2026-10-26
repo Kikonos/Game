@@ -25,6 +25,8 @@ export interface LiveryEditorProps {
   name: string;
   /** v0.11 a registration for the preview (the aircraft's; else one of the fleet's). */
   reg?: string;
+  /** v0.10.2 the aircraft's name (painted under the cockpit windows unless the livery turns it off). */
+  acName?: string;
   /** Preview type chips; default ['a320ceo', 'b738', 'b763', 'b77w']. */
   types?: string[];
   mode: 'company' | 'aircraft';
@@ -77,7 +79,7 @@ function logoDefaults(lv: Livery): { color: string; color2: string } {
 interface Drag { id: string; dx: number; dy: number; pointer: number }
 interface Pinch { id: string; d0: number; s0: number }
 
-export function LiveryEditor({ value, onChange, code, name, reg, types, mode, aircraft, onApplyAll, onSave, onCancel, resetTo, footer }: LiveryEditorProps) {
+export function LiveryEditor({ value, onChange, code, name, reg, acName, types, mode, aircraft, onApplyAll, onSave, onCancel, resetTo, footer }: LiveryEditorProps) {
   const typeList = types?.length ? types : DEFAULT_TYPES;
   const [typeId, setTypeId] = useState(typeList[0]);
   const [tab, setTab] = useState<Tab>('scheme');
@@ -297,7 +299,7 @@ export function LiveryEditor({ value, onChange, code, name, reg, types, mode, ai
           className={`lv-stage${editable ? '' : ' readonly'}${selected ? ' has-sel' : ''}`}
           onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onWheel={onWheel}
         >
-          <AircraftArt typeId={typeId} livery={lv} code={code} name={name} reg={reg} svgRef={svg} selected={editable ? selected : undefined} guides={guides} />
+          <AircraftArt typeId={typeId} livery={lv} code={code} name={name} reg={reg} acName={acName} svgRef={svg} selected={editable ? selected : undefined} guides={guides} />
           {editable && !selected && <div className="lv-hint">Drag the tail code, titles or logo · pinch to resize</div>}
         </div>
         <div className="lv-types" role="radiogroup" aria-label="Preview aircraft">
@@ -367,12 +369,13 @@ export function LiveryEditor({ value, onChange, code, name, reg, types, mode, ai
               <section className="lv-section">
                 <h4>Small markings</h4>
                 <div className="lv-row-toggles">
-                  <button type="button" className={`lv-btn small lv-toggle${!lv.reg?.hide ? ' on' : ''}`} aria-pressed={!lv.reg?.hide} onClick={() => update({ reg: lv.reg?.hide ? (lv.reg.noFlag ? { noFlag: true } : undefined) : { ...lv.reg, hide: true } })}>Registration</button>
-                  <button type="button" className={`lv-btn small lv-toggle${!lv.reg?.noFlag ? ' on' : ''}`} aria-pressed={!lv.reg?.noFlag} disabled={!!lv.reg?.hide} onClick={() => update({ reg: lv.reg?.noFlag ? (lv.reg.hide ? { hide: true } : undefined) : { ...lv.reg, noFlag: true } })}>Flag</button>
+                  <button type="button" className={`lv-btn small lv-toggle${!lv.reg?.hide ? ' on' : ''}`} aria-pressed={!lv.reg?.hide} onClick={() => update({ reg: lv.reg?.hide ? { ...lv.reg, hide: undefined } : { ...lv.reg, hide: true } })}>Registration</button>
+                  <button type="button" className={`lv-btn small lv-toggle${!lv.reg?.noFlag ? ' on' : ''}`} aria-pressed={!lv.reg?.noFlag} disabled={!!lv.reg?.hide} onClick={() => update({ reg: lv.reg?.noFlag ? { ...lv.reg, noFlag: undefined } : { ...lv.reg, noFlag: true } })}>Flag</button>
                 </div>
                 <div className="lv-row-toggles">
                   <button type="button" className={`lv-btn small lv-toggle${lv.reg?.at === 'fin' ? ' on' : ''}`} aria-pressed={lv.reg?.at === 'fin'} disabled={!!lv.reg?.hide} onClick={() => update({ reg: { ...lv.reg, at: lv.reg?.at === 'fin' ? undefined : 'fin' } })}>On the fin</button>
                   <button type="button" className={`lv-btn small lv-toggle${lv.reg?.fleet ? ' on' : ''}`} aria-pressed={!!lv.reg?.fleet} onClick={() => update({ reg: { ...lv.reg, fleet: lv.reg?.fleet ? undefined : true } })}>Fleet number</button>
+                  <button type="button" className={`lv-btn small lv-toggle${!lv.reg?.noName ? ' on' : ''}`} aria-pressed={!lv.reg?.noName} data-tip="Each aircraft's name, when it has one, under the cockpit windows" onClick={() => update({ reg: { ...lv.reg, noName: lv.reg?.noName ? undefined : true } })}>Aircraft name</button>
                 </div>
                 <div className="lv-seg" role="radiogroup" aria-label="Aircraft model">
                   {([[undefined, 'Model by the registration'], ['forward', 'Model forward'], ['off', 'No model']] as const).map(([v, label]) => (

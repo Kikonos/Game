@@ -325,7 +325,7 @@ describe('v0.7.2 cabin crew hires (F5, §5)', () => {
     expect(hireQuote(g, { role: 'FO', family: 'A320', families: ['A320', 'B777'], base: 'LIS', count: 1 }).cost).toBe(BAL.hireCost.pilot);
   });
 
-  it('staffing counts cabin crew who also hold another fleet type as shared', () => {
+  it('staffing counts dual-rated cabin crew once: their hire family first, the spare ones where another family is short (as Planning)', () => {
     const g = fixtureGame();
     const wb = Object.values(g.fleet)[1];
     wb.typeId = 'a333';
@@ -334,6 +334,18 @@ describe('v0.7.2 cabin crew hires (F5, §5)', () => {
     const l = staffing(g).find((x) => x.family === 'A330/340' && x.role === 'CC')!;
     expect(l.have).toBe(4);
     expect(l.shared).toBe(4);
-    expect(staffing(g).find((x) => x.family === 'A320' && x.role === 'CC')!.shared).toBe(4);
+    // the A320 family is full without them, so all four spill over to the A330 and are not counted twice
+    expect(staffing(g).find((x) => x.family === 'A320' && x.role === 'CC')!.shared ?? 0).toBe(0);
+  });
+
+  it('staffing: every dual-rated cabin crew member is counted exactly once, home family first while it is short', () => {
+    const g = fixtureGame();
+    Object.values(g.fleet)[1].typeId = 'a333';
+    const cc = Object.values(g.crew).filter((c) => c.role === 'CC' && !c.notice);
+    for (const c of cc) c.ratings = ['A320', 'A330/340'];
+    const lines = staffing(g).filter((x) => x.role === 'CC');
+    expect(lines.reduce((s, l) => s + l.have, 0)).toBe(cc.length);
+    const a320 = lines.find((l) => l.family === 'A320')!;
+    expect(a320.have).toBe(Math.min(cc.length, a320.need));
   });
 });

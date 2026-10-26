@@ -10,7 +10,7 @@
   display: flex; align-items: baseline; gap: 10px; min-height: 44px; padding: 8px 14px; flex-shrink: 0;
   background: var(--panel); border: 1px solid var(--border); border-radius: 12px; color: inherit; font: inherit; cursor: pointer; white-space: nowrap;
 }
-.cp-chip.short { border-color: rgba(251, 191, 36, 0.45); }
+.cp-chip.short { border-color: rgba(var(--warn-rgb), 0.45); }
 .cp-chip b { font-size: 14px; }
 
 /* ---- Planning view ---- */
@@ -18,15 +18,15 @@
 .cp-intro { max-width: 760px; }
 .cp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(500px, 1fr)); gap: 14px; align-items: start; }
 .cp-card { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; }
-.cp-card.short { border-color: rgba(251, 191, 36, 0.35); }
+.cp-card.short { border-color: rgba(var(--warn-rgb), 0.35); }
 .cp-name { font-size: 16px; }
 .cp-sets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 12px; }
 .cp-num { display: flex; flex-direction: column; gap: 1px; }
 .cp-num b { font-size: 22px; line-height: 1.15; }
 .cp-bar { grid-column: 1 / -1; position: relative; height: 6px; border-radius: 3px; background: var(--panel-2); overflow: hidden; }
 .cp-bar span { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; }
-.cp-bar-join { background: rgba(62, 230, 255, 0.28); }
-.cp-bar-now { background: rgba(62, 230, 255, 0.7); z-index: 1; }
+.cp-bar-join { background: rgba(var(--accent-rgb), 0.28); }
+.cp-bar-now { background: rgba(var(--accent-rgb), 0.7); z-index: 1; }
 .cp-verdict { font-weight: 600; }
 .cp-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .cp-table th { text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); padding: 4px 6px; border-bottom: 1px solid var(--border); }

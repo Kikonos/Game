@@ -10,8 +10,9 @@
 import type { Livery, StickerKind, StickerPlacement, StickerSide, TailStyle } from '../../../engine/core/types';
 import { textInkEm, textWidthEm, type FontWeight } from './fontMetrics';
 import { layoutOf, spriteOf, type Pt, type SpriteLayout } from './sprites';
-import { countryOfReg, flag } from '../../../data/countries';
-import { bodyColourAt, finPoint } from './bodyPaint';
+import { countryOfReg } from '../../../data/countries';
+import { flagRatio, flagUrl } from './flags';
+import { bodyColourAt, finPoint, tubeAt } from './bodyPaint';
 import type { Decal } from './compose';
 import { contrast, INK, lum } from './ink';
 
@@ -629,7 +630,7 @@ function placeClear(typeId: string, lv: Livery, make: (base: number) => Decal, b
  * texts are drawn only there (on the small one they would be mush). Viewbox boxes for compose.ts.
  */
 const extraCache = new Map<string, Decal[]>();
-export function extraDecals(typeId: string, lv: Livery, opt: { reg?: string; model?: string; fine: boolean }): Decal[] {
+export function extraDecals(typeId: string, lv: Livery, opt: { reg?: string; model?: string; name?: string; fine: boolean }): Decal[] {
   // placement samples the paint under many points: kept per type, markings and the paint they depend on (moving a
   // sticker in the editor does not change it)
   const key = JSON.stringify([typeId, opt, lv.plain, lv.primary, lv.secondary, lv.tail, lv.body, lv.reg, lv.model, lv.titles?.color, !!lv.logo]);
@@ -642,7 +643,7 @@ export function extraDecals(typeId: string, lv: Livery, opt: { reg?: string; mod
   return hit;
 }
 
-function extraDecalsOf(typeId: string, lv: Livery, opt: { reg?: string; model?: string; fine: boolean }): Decal[] {
+function extraDecalsOf(typeId: string, lv: Livery, opt: { reg?: string; model?: string; name?: string; fine: boolean }): Decal[] {
   const d = layoutOf(typeId);
   const out: Decal[] = [];
   const D = Math.max(1, d.belly - d.crown);
@@ -666,11 +667,15 @@ function extraDecalsOf(typeId: string, lv: Livery, opt: { reg?: string; model?: 
   };
   const steps = (b: number, dir: number) => Array.from({ length: 16 }, (_, k) => k).map((k) => b + dir * k * 0.25 * regCap).filter((y) => y - regCap > d.crown + 0.05 * D && y < d.crown + 0.85 * D);
   const r = opt.reg?.trim().toUpperCase();
-  const fl = r && !lv.reg?.noFlag ? flag(countryOfReg(r)) : '';
-  const flagW = 1.3 * regCap;
+  // the registry state's flag: flat artwork at the registration's cap height, in its own proportion
+  const cc = r && !lv.reg?.noFlag ? countryOfReg(r) : '';
+  const fl = cc && flagUrl(cc) ? cc : '';
+  const flagW = (fl ? flagRatio(fl) : 1.5) * regCap;
   // the stabiliser's forward edge (measured from the art; else about 0.4 of the fin's root chord), with a gap
   const stabX = (d.stab ?? d.finQuad[1][0] + 0.4 * (d.finQuad[0][0] - d.finQuad[1][0])) + 0.4 * winH;
   let reg: Decal | undefined;
+  // how far the model moves forward for a flag forward of the door
+  let flagFwd = 0;
   if (opt.fine && r && !lv.reg?.hide) {
     if (lv.reg?.at === 'fin') {
       // on the lower fin, over its root
@@ -693,7 +698,7 @@ function extraDecalsOf(typeId: string, lv: Livery, opt: { reg?: string; model?: 
     out.push(reg);
     if (fl) {
       // on its tail side; on its nose side when the stabiliser is there (or none, when the door is too)
-      const f = { id: 'flag', kind: 'flag' as const, side: 'fuselage' as const, cx: reg.cx - reg.w / 2 - 0.45 * reg.h - flagW / 2, cy: reg.cy, w: flagW, h: reg.h * 1.05, rot: 0, text: fl };
+      const f = { id: 'flag', kind: 'flag' as const, side: 'fuselage' as const, cx: reg.cx - reg.w / 2 - 0.45 * reg.h - flagW / 2, cy: reg.cy, w: flagW, h: reg.h, rot: 0, text: fl };
       const g = { ...f, cx: reg.cx + reg.w / 2 + 0.45 * reg.h + flagW / 2 };
       const regAft = reg.cx < door[0];
       const okFlag = (x: Decal) => !onBare(typeId, x) && !onDoor(typeId, x) && clearBand(typeId, lv, x.cx, x.cy, x.w, x.h, 0) && (!regAft || x.cx - flagW / 2 > stabX);
@@ -706,9 +711,22 @@ function extraDecalsOf(typeId: string, lv: Livery, opt: { reg?: string; model?: 
         out[out.indexOf(reg)] = moved;
         reg = moved;
         out.push({ ...f, cx: f.cx - room });
+      } else if (narrow) {
+        // no room beside it (short space between the stabiliser and the door): just above it over its forward end,
+        // else just forward of the door at its height
+        const up = { ...f, cx: reg.cx + reg.w / 2 - flagW / 2, cy: reg.cy - 1.4 * reg.h };
+        const fwd = { ...f, cx: door[1] + 0.6 * winH + flagW / 2 };
+        if (up.cy - up.h / 2 > d.crown + 0.05 * D && okFlag(up)) out.push(up);
+        else if (okFlag(fwd)) {
+          out.push(fwd);
+          flagFwd = flagW + 0.6 * winH;
+        }
       }
     }
   }
+  // on light paint a hairline round the flag (painted only where the flag's own edge is light, e.g. Japan's)
+  const fd = out.find((x) => x.id === 'flag');
+  if (fd && lum(lv.reg?.at === 'fin' ? (lv.plain ? '#ffffff' : lv.primary) : bodyColourAt(typeId, lv, fd.cx, fd.cy)) > 0.6) fd.ink = '#7d8590';
   // the model: small, by the registration as the type is usually marked
   if (opt.fine && opt.model && lv.model !== 'off' && !lv.plain) {
     const titleInk = lv.titles?.color;
@@ -718,7 +736,7 @@ function extraDecalsOf(typeId: string, lv: Livery, opt: { reg?: string; model?: 
     } else {
       const base = reg && lv.reg?.at !== 'fin' ? reg.cy + reg.h / 2 : base0;
       let make: (b: number) => Decal, dir: number;
-      if (narrow || (reg && lv.reg?.at !== 'fin' && reg.cx < door[0])) { make = textAt('model', opt.model, modelCap, 'tail', door[1] + 0.7 * winH, titleInk); dir = 1; }
+      if (narrow || (reg && lv.reg?.at !== 'fin' && reg.cx < door[0])) { make = textAt('model', opt.model, modelCap, 'tail', door[1] + 0.7 * winH + flagFwd, titleInk); dir = 1; }
       else if (below && reg && lv.reg?.at !== 'fin') { make = textAt('model', opt.model, modelCap, 'tail', reg.cx + reg.w / 2 + 1.0 * regCap, titleInk); dir = 1; }
       else { make = textAt('model', opt.model, modelCap, 'nose', door[0] - 0.9 * winH, titleInk); dir = -1; }
       // on the registration's side of the window row, never on it
@@ -748,6 +766,29 @@ function extraDecalsOf(typeId: string, lv: Livery, opt: { reg?: string; model?: 
       const side = 0.15 * D;
       out.push({ id: 'nlogo', kind: 'logo', side: 'fuselage', cx: x, cy: win[1] + 0.6 * side, w: side, h: side, rot: 0 });
     }
+  }
+  // v0.10.2 the aircraft's name, as airlines paint it: small, under the cockpit windows, in the titles' ink, from just
+  // aft of the radome; clear of the nose logo, the model and door 1 (moved aft, then lower, when it must)
+  const acName = opt.name?.trim();
+  if (opt.fine && acName && !lv.reg?.noName) {
+    const cap = 0.62 * winH;
+    const x0 = d.nose - Math.max(0.05 * L, 0.55 * D);
+    const inTube = (u: Decal) => [u.cx - u.w / 2, u.cx + u.w / 2].every((x) => {
+      const t = tubeAt(d, x);
+      return !!t && u.cy - u.h / 2 > t[0] + 0.12 * (t[1] - t[0]) && u.cy + u.h / 2 < t[1] - 0.15 * (t[1] - t[0]);
+    });
+    const bases = [0.55, 0.85, 1.15, 1.5].map((k) => win[1] + k * winH + cap);
+    const make = (base: number) => ({ ...smallText(typeId, lv, 'model', acName, cap, 500, { x: x0, base, anchor: 'nose' }, lv.titles?.color), id: 'acname' });
+    const avoid = out.filter((x) => x.on !== 'cowl' && x.side === 'fuselage');
+    let best: Decal | undefined;
+    for (let k = 0; k <= 12 && !best; k++) {
+      for (const b of bases) {
+        const t = make(b);
+        const u = { ...t, cx: t.cx - k * 0.25 * winH * 2 };
+        if (inTube(u) && fits(typeId, lv, u, false, 0, avoid)) { best = reink(typeId, lv, u, lv.titles?.color); break; }
+      }
+    }
+    if (best) out.push(best);
   }
   return out;
 }

@@ -1,6 +1,7 @@
 // v0.9 §14.2 first-time hints per screen: one gentle card the first time a screen opens, written for someone who has
-// worked ACMI (no welcome, no explaining the job). 'Got it' hides it for this session; 'Don't show again' is saved
-// (Settings › First-time hints › Show again brings them all back).
+// worked ACMI (no welcome, no explaining the job). v0.12: once seen ('Got it', or the screen left after the hint showed)
+// it folds into the screen's '?' button, where a tap shows it again; 'Don't show again' removes it, '?' and all (both
+// saved; Settings › First-time hints › Show again brings them all back).
 
 export type ScreenHintId =
   | 'map' | 'contracts' | 'offer' | 'schedule' | 'crewPeople' | 'crewBoard' | 'crewPlan' | 'fleet' | 'finance' | 'company' | 'team'
@@ -22,7 +23,23 @@ export const SCREEN_HINTS: Record<ScreenHintId, string> = {
   crewControl: 'Every way to crew this flight, cheapest and quickest first. Standby call-outs come first: no overtime.',
 };
 
-/** Hidden for this session ('Got it'); not saved. */
+/** v0.12 how a screen's hint shows: the full strip (first time), folded into the '?' button, or not at all. */
+export type HintMode = 'strip' | 'fold' | 'off';
+
+/** v0.12 the hint's mode from the saved lists ('Don't show again' wins; seen once → folded). Pure. */
+export function hintMode(id: ScreenHintId, s: { screenHintsSeen: readonly string[]; screenHintsFolded?: readonly string[] }): HintMode {
+  if (s.screenHintsSeen.includes(id)) return 'off';
+  if (hiddenThisSession(id) || s.screenHintsFolded?.includes(id)) return 'fold';
+  return 'strip';
+}
+
+/** v0.12 the folded list with this hint added (unchanged when it is already there). Pure. */
+export const foldHint = (folded: readonly string[] | undefined, id: ScreenHintId): string[] => (folded?.includes(id) ? [...folded] : [...(folded ?? []), id]);
+
+/** A strip shown at least this long (real ms) counts as seen when its screen closes. */
+export const HINT_SEEN_MS = 1500;
+
+/** Hidden for this session; not saved (v0.12: folded into '?' instead of hidden). */
 const sessionHidden = new Set<ScreenHintId>();
 export const hiddenThisSession = (id: ScreenHintId) => sessionHidden.has(id);
 export const hideForSession = (id: ScreenHintId) => void sessionHidden.add(id);

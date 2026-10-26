@@ -4,6 +4,7 @@ import { BookOpenText, Download, FolderOpen, Home, Lightbulb, Play, PlusCircle, 
 import { sound, SOUND_MEANING } from '../sound';
 import { HeadUnlockedModal } from '../modals/HeadUnlockedModal';
 import { CounterReplyModal, DeliveredModal, FollowDeliveryModal } from '../modals/PopModals';
+import { CallModal } from '../modals/CallModal';
 import { useRef, useState } from 'react';
 import { DAY, fmtDate } from '../../engine/core/time';
 import { AUTOSAVE_SLOT, SLOTS, deleteSlot, deserialize, listSaves, loadFromSlot, saveToSlot, serialize } from '../../engine/save';
@@ -34,6 +35,14 @@ import { TripMoveModal } from '../modals/TripMoveModal';
 import { MaintMoveModal } from '../modals/MaintMoveModal';
 import { ClientModal, OutlookModal, RivalModal, WorldEventModal } from '../modals/V08Modals';
 import { CURRENT } from '../../data/whatsNew';
+import { PACE_HINT, PACE_LABEL, PACES, spellView } from '../../engine/ops/director';
+import type { GameState } from '../../engine/core/types';
+
+/** 'quiet days until Thu 4 Mar' / 'busy days until …' (the director's current spell). */
+function spellText(g: GameState): string {
+  const v = spellView(g);
+  return `${v.quiet ? 'quiet' : 'busy'} days until ${fmtDate(v.until)}`;
+}
 import { int, money } from '../format';
 import { offline, promptInstall } from '../offline';
 import { store, useStore } from '../store';
@@ -237,6 +246,8 @@ function SettingsModal() {
   return (
     <Modal title="Settings" icon={<SettingsIcon className="accent" />} onClose={() => store.closeModal()}>
       <div className="settings">
+        <div className="set-head upper dim">Gameplay</div>
+        <div className="set-row sc-pace"><div><b>Pace</b><div className="tiny dim">{PACE_HINT[st.pace]}</div>{s.game && !s.game.gameOver && <div className="tiny dim">Now: {spellText(s.game)}</div>}</div><Seg value={st.pace} onChange={(v) => store.setSettings({ pace: v })} options={PACES.map((p) => ({ value: p, label: PACE_LABEL[p] }))} /></div>
         <div className="set-row"><div><b>Distance units</b></div><Seg value={st.units} onChange={(v) => store.setSettings({ units: v })} options={[{ value: 'km', label: 'Kilometres' }, { value: 'nm', label: 'Nautical miles' }]} /></div>
         <div className="set-row"><div><b>Autosave</b><div className="tiny dim">At each month end, when you pause and when you leave</div></div><Toggle on={st.autosave} onChange={(v) => store.setSettings({ autosave: v })} /></div>
         <div className="set-row"><div><b>Pause for decisions</b><div className="tiny dim">Stop the clock when an event needs you</div></div><Toggle on={st.autoPause.decision} onChange={(v) => store.setSettings({ autoPause: { ...st.autoPause, decision: v } })} /></div>
@@ -249,13 +260,14 @@ function SettingsModal() {
         <div className="set-row"><div><b>Pause at month end</b><div className="tiny dim">Read the statement before the next month starts</div></div><Toggle on={st.autoPause.monthEnd} onChange={(v) => store.setSettings({ autoPause: { ...st.autoPause, monthEnd: v } })} /></div>
         <SoundSettings />
         <div className="set-head upper dim">Display</div>
+        <div className="set-row"><div><b>Appearance</b><div className="tiny dim">{st.theme === 'system' ? `Follows your device (now ${s.theme})` : st.theme === 'light' ? 'Light, for daylight' : 'Dark, the original look'}</div></div><Seg value={st.theme} onChange={(v) => store.setSettings({ theme: v })} options={[{ value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }, { value: 'system', label: 'System' }]} /></div>
         <div className="set-row"><div><b>Map animations</b><div className="tiny dim">Flying aircraft on maps</div></div><Toggle on={st.mapAnimations} onChange={(v) => store.setSettings({ mapAnimations: v })} /></div>
         <div className="set-row"><div><b>Top bar spacing</b><div className="tiny dim">Moves the game below the frosted strip iPadOS adds at the top of the screen</div></div><Seg value={String(st.topGap)} onChange={(v) => store.setSettings({ topGap: v === 'auto' ? 'auto' : (Number(v) as 0 | 16 | 28 | 40) })} options={[{ value: 'auto', label: 'Auto' }, { value: '0', label: 'Off' }, { value: '16', label: '16' }, { value: '28', label: '28' }, { value: '40', label: '40' }]} /></div>
         <div className="set-row"><div><b>Pop-up notifications</b></div><Toggle on={st.toasts} onChange={(v) => store.setSettings({ toasts: v })} /></div>
         <div className="set-row"><div><b>What's new</b><div className="tiny dim">{CURRENT.version} {CURRENT.name}</div></div><button className="btn btn-sm" onClick={() => store.openModal({ kind: 'whatsNew', all: true })}><Sparkles /> Show</button></div>
         <div className="set-head upper dim">Plain language</div>
         <div className="set-row"><div><b>Glossary</b><div className="tiny dim">What FDP, deadhead, AOG, sub-charter and the other words mean</div></div><button className="btn btn-sm" onClick={() => store.openModal({ kind: 'glossary' })}><BookOpenText /> Open</button></div>
-        <div className="set-row"><div><b>First-time hints</b><div className="tiny dim">{hintsOff ? `${hintsOff} switched off (screens and problems)` : 'A short note on each screen and the first time each kind of problem appears'}</div></div><button className="btn btn-sm" onClick={() => store.setSettings({ hintsSeen: [], screenHintsSeen: [] })} disabled={!hintsOff}><Lightbulb /> Show again</button></div>
+        <div className="set-row"><div><b>First-time hints</b><div className="tiny dim">{hintsOff ? `${hintsOff} switched off (screens and problems)` : 'A short note on each screen and the first time each kind of problem appears'}</div></div><button className="btn btn-sm" onClick={() => store.setSettings({ hintsSeen: [], screenHintsSeen: [], screenHintsFolded: [] })} disabled={!hintsOff && !st.screenHintsFolded.length}><Lightbulb /> Show again</button></div>
         <div className="set-row"><div><b>Offline play</b><div className="tiny dim">{offline.ready ? 'Installed — the game works without internet.' : 'Caches after the first online visit.'}</div></div>
           {offline.installPrompt ? <button className="btn btn-sm" onClick={() => void promptInstall()}><Download /> Install app</button> : <span className={`badge ${offline.ready ? 'good' : ''}`}>{offline.ready ? 'Ready' : 'Pending'}</span>}
         </div>
@@ -316,6 +328,7 @@ export function GlobalModals() {
     case 'worldEvent': return s.game ? <WorldEventModal eventId={m.eventId} /> : null;
     case 'headUnlocked': return s.game ? <HeadUnlockedModal key={m.id} id={m.id} ids={m.ids} /> : null;
     case 'counterReply': return s.game ? <CounterReplyModal {...m} /> : null;
+    case 'offerCall': return s.game ? <CallModal key={m.offerId} offerId={m.offerId} /> : null;
     case 'delivered': return s.game ? <DeliveredModal aircraftId={m.aircraftId} /> : null;
     case 'followDelivery': return s.game ? <FollowDeliveryModal aircraftId={m.aircraftId} /> : null;
   }

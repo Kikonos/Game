@@ -13,14 +13,15 @@ export { aboveMinimum, legalMinimum } from './duties';
 import { dailySickness, onCrewJoin, onTrainingDone } from './hr';
 import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, settleService, setResignHooks } from './morale';
 import { autoRoster, closedWait, guardDuty, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, removeCrew, sendStrandedHome, stayOn } from './roster';
-import { localMin, minRest, signedTz, tzNights } from './rules';
-import { dailyStandby, noteRecovery } from './standby';
+import { localMin, minRest, signedTz, tzDeltaH, tzNights } from './rules';
+import { clipToRest, dailyStandby, noteRecovery } from './standby';
 import { dayPlanAfter, dayPlanBefore, dayPlanInit, dayPlanLoad, dayPlanMonth, v09Stats } from './dayPlan';
 import { AUTHORITY } from '../../data/flavor';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { pushMessage } from '../core/messages';
 import { post } from '../core/ledger';
-import { aboard, crewCount, crewIx, dutyBlock, dutyFlights, dutySegs, onBlocks, passengers, touchCrew, touchCrewState } from './timeline';
+import { aboard, crewCount, crewIx, dutyBlock, dutyFlights, dutySegs, passengers, touchCrew, touchCrewState, typeIdOf } from './timeline';
+import { reportMinutes } from '../core/perf';
 
 export {
   AUG_FDP, CABIN_REST, cabinInflightRest, checkAssignment, crewWindows, daysOffInMonth, DISCRETION, FDP_BANDS, LIMITS, maxFdp, minRest, restAfter,
@@ -163,8 +164,11 @@ function onDutyRelease(g: GameState, ev: SimEvent): void {
   if (!p) return;
   const fl = dutyFlights(g, d).filter((f) => f.status !== 'cancelled');
   const lastF = fl[fl.length - 1];
+  // Debug round (26 Oct 2026): the post-flight duty after the actual on-blocks (release − on-blocks read negative for
+  // a leg landing late, so the duty ended before the aircraft was on the ground).
+  const postMin = reportMinutes(typeIdOf(g, p)).post;
   if (lastF && g.now < d.release + DAY) {
-    const post = d.release - onBlocks(lastF);
+    const post = Math.max(postMin, d.release - lastF.sta);
     if (lastF.status === 'enroute') {
       const at = (lastF.eta ?? lastF.sta) + Math.max(0, post);
       if (at > g.now) {
@@ -176,6 +180,17 @@ function onDutyRelease(g: GameState, ev: SimEvent): void {
       return;
     }
   }
+  // The duty ends at the last sector's actual on-blocks plus the post-flight duty, not the planned release: a leg that
+  // lands late (winds, holding) makes the FDP and the duty longer and the rest after it starts later (ORO.FTL.105).
+  // Seed 2: XY3103 landed 17:33 and the crew were logged off at 17:20, resting from then (10:40 before a 14 h rest).
+  if (lastF?.status === 'done' && lastF.ata !== undefined && lastF.ata + postMin > d.release) {
+    d.fdp = Math.max(d.fdp, lastF.ata - d.report);
+    d.release = lastF.ata + postMin;
+    // Past the max FDP in the air: the commander's discretion covered it (ORO.FTL.205(f), unforeseen after take-off).
+    if (d.fdp > d.maxFdp + (d.discretion ?? 0)) d.discretion = d.fdp - d.maxFdp;
+  }
+  // ... and the crew rest where the last leg really landed (a diversion the duty was not re-synced for).
+  if (lastF?.status === 'done') d.restAt = lastF.to;
   const y = yearOf(g.now);
   const block = dutyBlock(g, d);
   // v0.9 §W a duty that took over at a fuel stop: one crew change flown.
@@ -213,6 +228,7 @@ function onDutyRelease(g: GameState, ev: SimEvent): void {
     c.restUntil = Math.max(c.restUntil, seg.end + seg.rest);
     c.status = 'resting';
     c.loc = d.restAt;
+    clipToRest(g, c);
     noteRotation(c, seg.at || d.restAt, seg.start, seg.end);
     c.fatigue = Math.min(100, c.fatigue + Math.round(d.fdp / 60));
     if (d.restAt === c.base) c.awaySince = null;
@@ -242,6 +258,18 @@ function onDutyRelease(g: GameState, ev: SimEvent): void {
   recheckAfterRelease(g, p);
 }
 
+/** Crew who got to `at` (on a leg they operated or rode) after `t`. */
+function landedAfter(g: GameState, at: string, t: Minute): Set<string> {
+  const out = new Set<string>();
+  for (const id in g.flights) {
+    const x = g.flights[id];
+    if (x.to !== at || x.status !== 'done' || x.kind === 'deadhead' || (x.ata ?? x.sta) <= t) continue;
+    for (const c of x.crewIds) out.add(c);
+    for (const c of x.riders ?? []) out.add(c);
+  }
+  return out;
+}
+
 /** 'flight.arr': crew aboard (operating or deadheading) move to the arrival airport; loose tickets are logged as positioning duty. */
 function onFlightArrCrew(g: GameState, ev: SimEvent): void {
   const f = g.flights[ev.id];
@@ -255,12 +283,14 @@ function onFlightArrCrew(g: GameState, ev: SimEvent): void {
   if (f.kind !== 'deadhead') for (const id of f.crewIds) if (g.crew[id]) g.crew[id].loc = f.to;
   noteService(g, f);
   const missed: string[] = [];
+  let late: Set<string> | undefined;
   for (const id of pax) {
     const c = g.crew[id];
     if (!c) continue;
     // A ticket from somewhere the crew member is not was never boarded (a re-plan left it behind): their next
-    // trip is re-checked now (they are not where it expects them).
-    if (c.loc !== f.from) {
+    // trip is re-checked now (they are not where it expects them). Debug round (26 Oct 2026): nor one that left
+    // before they landed there (their own leg arrived late: seed 1, a DH at 18:00 'boarded' off a leg on blocks 18:10).
+    if (c.loc !== f.from || (late ??= landedAfter(g, f.from, (f.atd ?? f.std) - 15)).has(id)) {
       missed.push(id);
       continue;
     }
@@ -273,7 +303,7 @@ function onFlightArrCrew(g: GameState, ev: SimEvent): void {
       const on = f.ata ?? f.sta;
       noteRecovery(c, off - CHECKIN(), g);
       c.log.push({ start: off - CHECKIN(), end: on, fdp: 0, block: 0, sectors: 0, augmented: false, disruptive: false });
-      const r = minRest({ dutyMin: on - off + CHECKIN(), atHome: f.to === c.base, augmented: false, tzShift: 0 });
+      const r = minRest({ dutyMin: on - off + CHECKIN(), atHome: f.to === c.base, augmented: false, tzShift: tzDeltaH(c.base, f.to, on) });
       c.restUntil = Math.max(c.restUntil, on + r);
       if (c.status === 'available') c.status = 'resting';
     }
@@ -327,6 +357,40 @@ function repairMissedTickets(g: GameState): void {
   if (!fixed.size) return;
   touchTickets(g);
   touchCrew(g);
+  for (const id of fixed) recheckPairing(g, g.pairings[id]);
+}
+
+/**
+ * v0.10.2 save repair (BLU1109): before 0.10.2 a home standby running when its crew member was given new work was cut
+ * short instead of being marked as a call-out, so the rest owed after an uncalled window (12 h at home) stood between
+ * the standby and the work it was cut for. A window still uncalled whose end is followed within the hour by that
+ * crew member's next duty or ticket was such a call-out: it is marked called and the trips re-read.
+ */
+function repairCutStandby(g: GameState): void {
+  const fixed = new Set<string>();
+  for (const c of Object.values(g.crew)) {
+    if (!c.standby?.length) continue;
+    for (const w of c.standby) {
+      if (w.calledAt !== undefined || w.kind === 'reserve' || w.to < g.now - DAY || w.to > g.now + DAY) continue;
+      let hit = false;
+      for (const p of Object.values(g.pairings)) {
+        if (!p.slots.some((s) => s.crewId === c.id)) continue;
+        for (const id of p.dutyIds) {
+          const d = g.duties[id];
+          if (!d || d.done) continue;
+          const tk = d.deadheadIds.map((x) => g.flights[x]).filter((f) => f && f.status === 'scheduled' && aboard(f, c.id));
+          const start = Math.min(d.report, ...tk.map((f) => f!.std - 60));
+          if (start >= w.to && start < w.to + 60) {
+            hit = true;
+            fixed.add(p.id);
+          }
+        }
+      }
+      if (hit) w.calledAt = w.to;
+    }
+  }
+  if (!fixed.size) return;
+  touchCrewState(g);
   for (const id of fixed) recheckPairing(g, g.pairings[id]);
 }
 
@@ -500,6 +564,7 @@ export const crewModule: SimModule = {
     // v0.9 old saves keep their published roster; the v0.9 planner takes over from the first unpublished day.
     dayPlanLoad(g);
     repairMissedTickets(g);
+    repairCutStandby(g);
   },
   settle(g) {
     for (const [aircraftId, t] of takeFlightChanges(g)) onFlightsChanged(g, aircraftId, t);

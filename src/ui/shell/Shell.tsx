@@ -3,12 +3,12 @@
 // v0.7.2: the live ops strip (OpsStrip) fills the space between the speed control and cash.
 
 import {
-  Bell, Building2, CalendarRange, FileSignature, Globe2, Inbox as InboxIcon, Menu, Pause, Plane, Play, Users, Wallet,
+  Bell, Building2, CalendarRange, FileSignature, Globe2, Inbox as InboxIcon, Menu, Pause, Plane, Play, TrendingDown, TrendingUp, Users, Wallet,
 } from 'lucide-react';
-import { type ReactNode, useEffect } from 'react';
+import { type ReactNode, useEffect, useMemo } from 'react';
 import { fmtDate, fmtTime } from '../../engine/core/time';
 import { TailBadge } from '../components/Logo';
-import { money } from '../format';
+import { money, moneyDelta } from '../format';
 import { GameModals, GlobalModals } from '../game/Modals';
 import { OpsMap } from '../map/OpsMap';
 import { CompanyScreen } from '../screens/Company';
@@ -20,6 +20,7 @@ import { InboxScreen } from '../screens/Inbox';
 import { ScheduleScreen } from '../screens/Schedule';
 import { refTarget } from '../screens/screenLogic';
 import { OpsStrip } from './OpsStrip';
+import { profitPerDay } from './cashRate';
 import { shortFlights } from '../../engine/crew';
 import { type GameSpeed, SPEED_LABEL, type Tab, store, useClock, useGame, useStore } from '../store';
 import { useMedia, useTier } from '../useMedia';
@@ -149,10 +150,22 @@ function CompanyPill() {
 function CashBlock() {
   const g = useGame();
   const cash = g.company.cash;
+  // v0.12 profit per day (green / red), recomputed at most hourly.
+  const hour = Math.floor(g.now / 60);
+  const rate = useMemo(() => profitPerDay(g), [g, hour]); // eslint-disable-line react-hooks/exhaustive-deps
+  const rateText = rate ? `${moneyDelta(Math.round(rate.perDay))}/day` : '';
+  const rateWhy = rate ? (rate.basis === 'lastMonth' ? 'Profit per day last month' : 'Profit per day this month, with rent, insurance, overhead and salaries spread over the month') : '';
   return (
-    <button className="tb-cash" onClick={() => store.navigate('finance')} aria-label={`Cash ${money(cash)}: finance`}>
+    <button className="tb-cash" onClick={() => store.navigate('finance')} aria-label={`Cash ${money(cash)}${rate ? `, ${rateText}` : ''}: finance`} title={rateWhy || undefined}>
+      {/* v0.12 '$2.97M cash' on one line; the profit-per-day pill under the amount, right edges aligned */}
       <span className={`v ${cash < 0 ? 'bad' : ''}`}>{money(cash)}</span>
-      <span className="s"><span className="sl">cash</span></span>
+      <span className="sl">cash</span>
+      {rate && (
+        <span className={`tb-rate ${rate.perDay >= 0 ? 'up' : 'down'}`}>
+          {rate.perDay >= 0 ? <TrendingUp aria-hidden /> : <TrendingDown aria-hidden />}
+          <b>{money(Math.abs(Math.round(rate.perDay)))}</b><i>/day</i>
+        </span>
+      )}
     </button>
   );
 }

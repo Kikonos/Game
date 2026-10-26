@@ -5,8 +5,8 @@ import { AIRPORT_BY_CODE } from '../../data/airports';
 import { BAL } from '../core/balance';
 import { flightsOf } from '../core/entities';
 import { distanceNm } from '../core/geo';
-import { blockMinutes, complement, etopsNeeded, maxSectorNm, planSector, reportMinutes, runwayFit, typeOf } from '../core/perf';
-import { DAY, fmtDate, fmtDateTime, fmtDay, fmtDuration, toDate } from '../core/time';
+import { blockMinutes, complement, etopsCap, etopsNeeded, maxSectorNm, planSector, reportMinutes, runwayFit, typeOf } from '../core/perf';
+import { DAY, fmtDate, fmtDateTime, fmtDay, fmtDuration, toDate, fmtDayRange } from '../core/time';
 import type { AcRest, Aircraft, ApprovalId, ContractOffer, CrewExtra, GameState, Minute, RestRefitId } from '../core/types';
 import { crewAvailability, offerExtra, type Availability } from '../crew';
 import { dutyNeed, type ChainShape, type DutyNeed } from '../crew/duties';
@@ -14,7 +14,8 @@ import { restOf } from '../crew/restPlan';
 import { minRest } from '../crew/rules';
 import { dhBlock } from '../crew/timeline';
 import { bestSlip, slipCost, slipDetail, type SlipPlan } from '../crew/slip';
-import { A_CHECK_DAYS, anchorsOf, chainForward, chainsOf, CHARTER_SLACK, DEPLOY_LEAD, gapMoves, longestChains, maxPax, programmeOf, type Anchor, type ChainLeg, type Programme, type Trip } from './plan';
+import { A_CHECK_DAYS, anchorsOf, chainForward, chainsOf, CHARTER_SLACK, DEPLOY_LEAD, gapMoves, longestChains, maxPax, noRouteWhy, programmeOf, route, type Anchor, type ChainLeg, type Programme, type Trip } from './plan';
+import { etopsCapText, etopsFixText } from '../ops/etops';
 import { afterRefit, cabinAt, cabinFits, cabinOf, fullLoadReq, layoutsOf, refitTip, restAfterRefit, restRefitOptions } from '../ops/cabin';
 import { aircraftGate, APPROVALS, gateApprovals, ratedPilots } from '../ops/company';
 import { deliveryQuote } from '../ops/delivery';
@@ -103,10 +104,10 @@ function returnFrom(g: GameState, ac: Aircraft): Minute | null {
 function describe(g: GameState, a: Anchor): string {
   if (a.kind === 'maint') {
     const m = g.maintenance[a.id];
-    return m ? `${maintWord(m)} at ${m.at} ${fmtDay(m.start)}–${fmtDay(m.end)}` : 'maintenance';
+    return m ? `${maintWord(m)} at ${m.at} ${fmtDayRange(m.start, m.end)}` : 'maintenance';
   }
   const c = a.contractId ? g.contracts[a.contractId] : undefined;
-  if (c) return `${c.title} (${fmtDay(a.std)}–${fmtDay(a.sta)})`;
+  if (c) return `${c.title} (${fmtDayRange(a.std, a.sta)})`;
   const f = g.flights[a.id];
   return f ? `${f.kind === 'ferry' ? 'ferry' : 'flight'} ${f.no} ${f.from}–${f.to} ${fmtDateTime(f.std)}` : 'another commitment';
 }
@@ -126,8 +127,13 @@ interface TripFit {
   /** Arrival when posIn cannot make the first departure (forward-planned), else null. */
   lateArrival: Minute | null;
   noRoute: boolean;
+  /** v0.11 only our ETOPS limit stands in the way (a 60-minute way round does not exist). */
+  noRouteEtops?: [string, string];
   blockedNext: Anchor | null;
 }
+
+/** v0.11 the chain calls at the same airports as the route (null: no route). */
+const samePath = (legs: { from: string; to: string }[], r: { from: string; to: string }[] | null) => !!r && r.length === legs.length && r.every((l, i) => l.from === legs[i].from && l.to === legs[i].to);
 
 /** A gap move through home (a long wait spent at base) split into the legs home and the legs on from home. */
 function splitHome(legs: ChainLeg[], home: string): [ChainLeg[], ChainLeg[]] | null {
@@ -141,6 +147,8 @@ function fitTrips(g: GameState, ac: Aircraft, o: ContractOffer, prog: Programme)
   const turn = t.turnMin;
   const home = g.company.homeBase;
   const lead = o.pattern.kind === 'base' ? DEPLOY_LEAD : turn + CHARTER_SLACK;
+  // v0.11 empty legs stay inside our ETOPS approval and the type's capability (the 60-minute rule without one).
+  const cap = etopsCap(g.company.approvals, t.id);
   const anchors = anchorsOf(g, ac.id);
   const conflicts: Anchor[] = [];
   for (const a of anchors) {
@@ -162,11 +170,14 @@ function fitTrips(g: GameState, ac: Aircraft, o: ContractOffer, prog: Programme)
     if (prev) {
       const earliest = prev.a?.kind === 'start' ? prev.sta : prev.sta + turn;
       const hop = prev.a?.kind !== 'maint';
-      const ch = gapMoves(t.id, prev.to, n.from, earliest, n.std - lead, home, hop) ?? gapMoves(t.id, prev.to, n.from, earliest, n.std - turn, home, hop);
+      const ch = gapMoves(t.id, prev.to, n.from, earliest, n.std - lead, home, hop, cap) ?? gapMoves(t.id, prev.to, n.from, earliest, n.std - turn, home, hop, cap);
       if (ch) [fit.homeBefore, fit.posIn] = splitHome(ch, home) ?? [[], ch];
       else {
-        const fwd = chainForward(t.id, prev.to, n.from, earliest);
-        if (!fwd) fit.noRoute = true;
+        const fwd = chainForward(t.id, prev.to, n.from, earliest, cap);
+        if (!fwd) {
+          fit.noRoute = true;
+          if (noRouteWhy(t.id, prev.to, n.from, cap) === 'etops') fit.noRouteEtops = [prev.to, n.from];
+        }
         else {
           fit.posIn = fwd;
           fit.lateArrival = fwd.length ? fwd[fwd.length - 1].sta : earliest;
@@ -175,11 +186,11 @@ function fitTrips(g: GameState, ac: Aircraft, o: ContractOffer, prog: Programme)
     }
     const nx = nodes[i + 1];
     if (nx?.a) {
-      const ch = gapMoves(t.id, n.to, nx.from, n.sta + turn, nx.std - turn, home, nx.a.kind !== 'maint');
+      const ch = gapMoves(t.id, n.to, nx.from, n.sta + turn, nx.std - turn, home, nx.a.kind !== 'maint', cap);
       if (ch) [fit.posOut, fit.homeAfter] = splitHome(ch, home) ?? [ch, []];
       else fit.blockedNext = nx.a;
     } else if (!nx && n.to !== home) {
-      fit.posOut = chainForward(t.id, n.to, home, n.sta + turn) ?? [];
+      fit.posOut = chainForward(t.id, n.to, home, n.sta + turn, cap) ?? [];
     }
     fits.push(fit);
   });
@@ -446,7 +457,7 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
     if (blocked) {
       availNo = true;
       add('availability', 'no', `Can't be back for ${describe(g, blocked.blockedNext!)}`, `It would have to be at ${blocked.blockedNext!.from} by ${fmtDateTime(blocked.blockedNext!.std - turn)} UTC.`);
-    } else add('availability', 'ok', `Free ${fmtDay(firstDep)}–${fmtDay(lastArr)}`);
+    } else add('availability', 'ok', `Free ${fmtDayRange(firstDep, lastArr)}`);
   }
 
   // 10. Positioning in and out.
@@ -454,7 +465,10 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
     const late = fits.find((f) => f.lateArrival !== null);
     const noRoute = fits.some((f) => f.noRoute);
     const pIn = rep.positionIn;
-    if (noRoute) add('positioning', 'no', 'No route to position the aircraft (range or runway)');
+    const etopsWall = fits.find((f) => f.noRouteEtops);
+    // v0.11 no 60-minute (or within-approval) way to get there: said plainly, with what real operators do.
+    if (etopsWall) add('positioning', 'no', `No legal way to position it: every routing crosses water more than ${etopsCapText(g, t.id)} from an airport`, etopsFixText(g, t.id, (c) => !!route(t.id, etopsWall.noRouteEtops![0], etopsWall.noRouteEtops![1], c)));
+    else if (noRoute) add('positioning', 'no', 'No route to position the aircraft (range or runway)');
     else if (late) {
       const arr = late.lateArrival!;
       const missBy = arr + turn - late.trip.std;
@@ -471,7 +485,8 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
       const first = before.length ? `Home to ${home} ${fmtDay(before[0].std)} after its last job, then ` : '';
       if (pIn.length) {
         const stops = pIn.length - 1;
-        add('positioning', 'ok', `Positioning ${routeText(pIn)} ${fmtDuration(chainMin(pIn))}${stops ? ` (fuel stop${stops > 1 ? 's' : ''})` : ''}, ${pay}`, `${first}${first ? 'leaves' : 'Leaves'} ${fmtDateTime(pIn[0].std)} UTC, lands ${fmtDateTime(pIn[pIn.length - 1].sta)} UTC. ${out}${extra}`);
+        const longWay = etopsCap(g.company.approvals, t.id) !== Infinity && !samePath(pIn, route(t.id, pIn[0].from, pIn[pIn.length - 1].to));
+        add('positioning', 'ok', `Positioning ${routeText(pIn)} ${fmtDuration(chainMin(pIn))}${stops ? ` (fuel stop${stops > 1 ? 's' : ''}${longWay ? `: ${etopsCapText(g, t.id)} way` : ''})` : ''}, ${pay}`, `${first}${first ? 'leaves' : 'Leaves'} ${fmtDateTime(pIn[0].std)} UTC, lands ${fmtDateTime(pIn[pIn.length - 1].sta)} UTC. ${out}${extra}`);
       } else add('positioning', 'ok', `Already at ${fits[0]?.trip.from ?? o.pin} when it starts`, `${out}${extra}`);
     }
   } else add('positioning', availNo ? 'no' : 'warn', availNo ? 'Not planned: the aircraft is busy' : 'Not planned');
@@ -492,7 +507,7 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
     else {
       rep.paint = slot;
       const ferry = blockMin(slot.ferryIn);
-      const where = `${what} at ${AIRPORT_BY_CODE[slot.shop]?.city ?? slot.shop}, ${fmtDay(slot.start)}–${fmtDay(slot.end)}`;
+      const where = `${what} at ${AIRPORT_BY_CODE[slot.shop]?.city ?? slot.shop}, ${fmtDayRange(slot.start, slot.end)}`;
       const detail = `${slot.ferryIn.length ? `Ferry ${routeText(slot.ferryIn)} ${fmtDuration(ferry)}. ` : ''}Blocks the aircraft like a check. ${ac.livery === 'white' ? 'Back to plain white' : typeof ac.livery === 'object' ? 'Back in its own livery' : 'Back in our colours'} after the job (${pt.stripDays} day${pt.stripDays > 1 ? 's' : ''}).`;
       if (other && (other.status === 'active' || other.status === 'signed')) add('paint', 'warn', `${where}: it flies ${other.title} in ${possessive(g.clients[other.clientId]?.name ?? 'another client')} colours until then`, detail);
       else if (ferry > BAL.paint.longFerryMin) add('paint', 'warn', `${where}: long ferry to the shop (${fmtDuration(ferry)})`, detail);
@@ -517,7 +532,7 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
       else {
         rep.cabinSlot = { label: target.label, start: slot.start };
         cabinCost = q.cost + q.back - q.reimbursed;
-        add('cabinReq', 'ok', `Client cabin: quick reconfiguration to ${target.label}, ${fmtDay(slot.start)}–${fmtDay(slot.end)} (${pays}, ${usd(q.cost)}${q.back ? ` + ${usd(q.back)} to put back` : ''})`, `${q.days * 24} h in our hangar; the cabin crew minimum follows the new seats.`);
+        add('cabinReq', 'ok', `Client cabin: quick reconfiguration to ${target.label}, ${fmtDayRange(slot.start, slot.end)} (${pays}, ${usd(q.cost)}${q.back ? ` + ${usd(q.back)} to put back` : ''})`, `${q.days * 24} h in our hangar; the cabin crew minimum follows the new seats.`);
       }
     }
   }

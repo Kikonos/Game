@@ -14,10 +14,10 @@ import { BAL } from '../core/balance';
 import { flightsOf, flightsRev } from '../core/entities';
 import { pushMessage } from '../core/messages';
 import { isolatePauses } from '../core/pause';
-import { typeOf } from '../core/perf';
-import { DAY, fmtDate, fmtDateTime, fmtDay, fmtDuration, fmtTime } from '../core/time';
+import { etopsCap, typeOf } from '../core/perf';
+import { DAY, fmtDate, fmtDateTime, fmtDay, fmtDuration, fmtTime, fmtDayRange } from '../core/time';
 import type { ActionResult, Aircraft, Flight, GameState, MaintenanceEvent, Minute } from '../core/types';
-import { anchorsOf, route, routeMinutes, type Anchor } from '../contracts/plan';
+import { anchorsOf, route, routeSpan, type Anchor } from '../contracts/plan';
 import { settle } from '../sim';
 import { refitQuote, restRefitQuote, restSeatsQuote } from './cabin';
 import { bookCCheck, cCheckOptions, cCheckSlots } from './cHub';
@@ -115,9 +115,10 @@ export function checkMaintMove(g: GameState, maintId: string, start: Minute): Ma
   if (q.used !== null && q.used > 1) return no(`Overdue by then (${Math.round(q.used * 100)}% used): not allowed`);
   // The way there.
   const prev = before(g, ac, m, start);
-  const r = route(ac.typeId, prev.at, q.at);
+  const cap = etopsCap(g.company.approvals, ac.typeId);
+  const r = route(ac.typeId, prev.at, q.at, cap);
   if (!r) return no(`No ferry route from ${prev.at} to ${q.at}`);
-  const ferryMin = r.length ? routeMinutes(r) : 0;
+  const ferryMin = r.length ? routeSpan(r, ac.typeId) : 0;
   // Shown: where its planned flying (empty legs included) leaves it; the relink brings it home when it can.
   const own0 = new Set([...(m.ferryIds ?? []), ...(m.homeIds ?? [])]);
   let last: Flight | null = null;
@@ -125,8 +126,8 @@ export function checkMaintMove(g: GameState, maintId: string, start: Minute): Ma
   const there = last ? last.to : ac.at;
   if (there !== q.at) q.ferryFrom = there;
   // A hub C-check flies home a while after the check ends.
-  const homeR = m.kind === 'C' && m.hub ? route(ac.typeId, q.at, g.company.homeBase) : [];
-  const homeMin = homeR && homeR.length ? BAL.v072.cHub.homeAfterMin + routeMinutes(homeR) : 0;
+  const homeR = m.kind === 'C' && m.hub ? route(ac.typeId, q.at, g.company.homeBase, cap) : [];
+  const homeMin = homeR && homeR.length ? BAL.v072.cHub.homeAfterMin + routeSpan(homeR, ac.typeId) : 0;
   const busyFrom = start - (ferryMin ? ferryMin + turn : 0) - 30;
   const busyTo = start + dur + 30 + homeMin;
   const own = new Set([...(m.ferryIds ?? []), ...(m.homeIds ?? [])]);
@@ -136,7 +137,7 @@ export function checkMaintMove(g: GameState, maintId: string, start: Minute): Ma
   }
   for (const o of Object.values(g.maintenance)) {
     if (o.id === m.id || o.aircraftId !== ac.id || (o.status !== 'planned' && o.status !== 'inWork')) continue;
-    if (o.start < busyTo && o.end > busyFrom) return no(`It would overlap the ${maintWord(o)} ${fmtDay(o.start)}–${fmtDay(o.end)}`);
+    if (o.start < busyTo && o.end > busyFrom) return no(`It would overlap the ${maintWord(o)} ${fmtDayRange(o.start, o.end)}`);
   }
   for (const c of Object.values(g.contracts)) {
     if ((c.status !== 'signed' && c.status !== 'active') || c.pattern.kind !== 'base' || !c.aircraftIds.includes(ac.id) || c.generatedUntil >= c.pattern.to) continue;
@@ -344,9 +345,9 @@ export function gapCheck(g: GameState, aircraftId: string, kind: 'A' | 'C', from
       if (start + dur + 60 > to) return no(out.until ? `${out.until}: no room for an A-check (${t.aCheckHours} h)` : `The gap is too short for an A-check (${t.aCheckHours} h)`);
       return { ...out, ok: true, start, at };
     }
-    const r = route(ac.typeId, at, home);
+    const r = route(ac.typeId, at, home, etopsCap(g.company.approvals, ac.typeId));
     if (!r) return no(`${ac.reg} can't reach ${home} from ${at}`);
-    const fly = routeMinutes(r);
+    const fly = routeSpan(r, ac.typeId);
     const start = up30(Math.max(from, g.now + BAL.ferryLeadMin) + t.turnMin + fly + 30);
     if (start + dur + 60 + t.turnMin + fly > to) return no(`${ac.reg} can't get to ${home} and back in this gap (A-checks need ${home} or a major airport)`);
     return { ...out, ok: true, start, at: home };

@@ -9,7 +9,7 @@ import { BAL } from '../core/balance';
 import { flightsOf, removeFlights, touchFlights } from '../core/entities';
 import { invoice, post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
-import { DAY, fmtDay } from '../core/time';
+import { DAY, fmtDay, fmtDayRange } from '../core/time';
 import type {
   ActionResult, Aircraft, Client, Contract, GameState, Livery, LiveryBody, LiveryLogo, LiveryRef, LiveryStripe, LiveryText, MaintenanceEvent, Minute, PaintKind, StickerKind, StickerPlacement,
   StickerSide, TailStyle,
@@ -220,6 +220,7 @@ export function normaliseLivery(l: Partial<Livery> | undefined, fallback: Livery
     if (x.reg.noFlag === true) rg.noFlag = true;
     if (x.reg.at === 'fin') rg.at = 'fin';
     if (x.reg.fleet === true) rg.fleet = true;
+    if (x.reg.noName === true) rg.noName = true;
     const rc = hex(x.reg.color);
     if (rc) rg.color = rc;
     if (Object.keys(rg).length) out.reg = rg;
@@ -441,8 +442,8 @@ export function bookPaint(g: GameState, c: Contract, aircraftId: string, phase: 
   const what = phase === 'out' ? (t.kind === 'full' ? 'Repaint' : 'Decal removal') : t.kind === 'full' ? 'Full repaint' : 'Decals';
   const share = t.clientShare >= 1 ? 'all of it' : t.clientShare > 0 ? pct(t.clientShare) : 'nothing';
   pushMessage(g, phase === 'in'
-    ? { tone: 'info', cat: 'tech', title: `Paint booked: ${ac.reg} in ${client} colours`, body: `${what} at ${city(m.at)}, ${fmtDay(m.start)}–${fmtDay(m.end)}. ${usd(cost)}; ${client} pays ${share}.`, ref: { kind: 'maint', id } }
-    : { tone: 'info', cat: 'tech', title: `Repaint booked: ${ac.reg} ${homeLook(g, ac).to}`, body: `${what} at ${city(m.at)}, ${fmtDay(m.start)}–${fmtDay(m.end)}. ${usd(cost)}${c.status === 'completed' && t.clientShare > 0 ? `; ${client} pays ${share}` : ''}.`, ref: { kind: 'maint', id } });
+    ? { tone: 'info', cat: 'tech', title: `Paint booked: ${ac.reg} in ${client} colours`, body: `${what} at ${city(m.at)}, ${fmtDayRange(m.start, m.end)}. ${usd(cost)}; ${client} pays ${share}.`, ref: { kind: 'maint', id } }
+    : { tone: 'info', cat: 'tech', title: `Repaint booked: ${ac.reg} ${homeLook(g, ac).to}`, body: `${what} at ${city(m.at)}, ${fmtDayRange(m.start, m.end)}. ${usd(cost)}${c.status === 'completed' && t.clientShare > 0 ? `; ${client} pays ${share}` : ''}.`, ref: { kind: 'maint', id } });
   return null;
 }
 

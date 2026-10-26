@@ -13,6 +13,7 @@ import { serialize } from '../save';
 import { advanceTo } from '../sim';
 import { aogChance, delayFlight, resolveDecision } from '.';
 import { cancelLegs, delayChain, pickRival, planHold, pruneFlights, subcharterCost, subcharterLegs, unitOf } from './flights';
+import { breathe } from '../../test/breathe';
 
 // ---------- helpers ----------
 
@@ -446,23 +447,24 @@ describe('pruning', () => {
 });
 
 describe('determinism', () => {
-  function play(seed: number): string {
+  async function play(seed: number): Promise<string> {
     const g = newGame(seed);
     sign(g, hamBase(g, g.now + 3 * DAY, 60, 3).id, owned(g));
     demoFlights(g, ['FAO', 'OPO'], 2);
     const end = g.now + 90 * DAY;
     while (g.now < end && !g.gameOver) {
-      advanceTo(g, end, new Set(['decision', 'aog']));
+      advanceTo(g, Math.min(end, g.now + DAY), new Set(['decision', 'aog']));
       for (const d of [...g.decisions]) resolveDecision(g, d.id, d.defaultOption);
+      await breathe();
     }
     const save = JSON.parse(serialize(g));
     delete save.meta.savedAt;
     return JSON.stringify(save);
   }
 
-  it('90 days with the same seed and actions give identical saves', () => {
-    const a = play(41);
-    expect(play(41) === a).toBe(true);
-    expect(play(42) === a).toBe(false);
+  it('90 days with the same seed and actions give identical saves', async () => {
+    const a = await play(41);
+    expect((await play(41)) === a).toBe(true);
+    expect((await play(42)) === a).toBe(false);
   }, 60_000);
 });

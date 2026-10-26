@@ -118,6 +118,12 @@ export function fmtDay(t: Minute): string {
   return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
 }
 
+/** v0.11 '4 Nov–7 Nov', or just '4 Nov' when both ends fall on the same day. */
+export function fmtDayRange(a: Minute, b: Minute): string {
+  const x = fmtDay(a), y = fmtDay(b);
+  return x === y ? x : `${x}–${y}`;
+}
+
 /** '1 Mar' / '1 Mar 2027' on the local calendar at an airport (home-base dates in messages: classes, leave dates). */
 export const fmtDayAt = (code: string, t: Minute): string => fmtDay(toLocal(code, t));
 export const fmtDateAt = (code: string, t: Minute): string => fmtDate(toLocal(code, t));

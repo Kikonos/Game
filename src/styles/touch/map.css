@@ -22,5 +22,5 @@
 .touch .map-zoom { gap: 8px; }
 .touch .map-zoom .btn { width: var(--tap); height: var(--tap); min-height: var(--tap); border-radius: 14px; }
 .touch .map-zoom .btn svg { width: 20px; height: 20px; }
-.touch .map-zoom .btn:active { background: rgba(62, 230, 255, 0.16); border-color: var(--accent); }
+.touch .map-zoom .btn:active { background: rgba(var(--accent-rgb), 0.16); border-color: var(--accent); }
 .map-zoom, .side-mode .map-panel { right: var(--edge-r); }

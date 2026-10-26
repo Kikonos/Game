@@ -8,7 +8,7 @@ import { typeOf } from '../core/perf';
 import { DAY, monthKey } from '../core/time';
 import type { CrewMember, GameState, Minute, Role, StandbyKind } from '../core/types';
 import { evalSegs, LIMITS, localMin, nightsIn, twoDayCredits } from './rules';
-import { ctxOf, segsOf, standbySeg, touchCrewState } from './timeline';
+import { ctxOf, locAt, segsOf, standbySeg, touchCrewState } from './timeline';
 
 type Window = NonNullable<CrewMember['standby']>[number];
 
@@ -130,10 +130,41 @@ export function dropStandby(g: GameState, c: CrewMember, from: Minute, until: Mi
     }
     changed = true;
     if (w.from > g.now) continue;
+    // v0.10.2 work starting inside a window running now is a call-out from it (CS FTL.1.225), not the end of an
+    // uncalled window: no rest is owed in between (BLU1109: an FO called at 16:51 for a 17:00 ticket was read as
+    // 0:09 rested of the 12:00 owed after an uncalled home standby, and the ferry he was called for went red).
+    if (from < w.to && w.kind !== 'reserve') {
+      keep.push({ ...w, calledAt: g.now });
+      noteCall(g);
+      continue;
+    }
     const end = Math.max(g.now, from - restAfterWindow(c, w));
     if (end > w.from) keep.push({ ...w, to: end });
   }
   if (!changed) return;
+  if (keep.length) c.standby = keep;
+  else delete c.standby;
+  touchCrewState(g);
+}
+
+/**
+ * Debug round (26 Oct 2026): after a duty ended later than planned (a late landing), standby windows not started yet
+ * begin after the rest it needs, or go when under 4 h are left (seed 3: a hotel standby at 08:45 after a duty that
+ * ended at 01:04, 7:41 of 10:19 rested). The day planner refills a day that lost its window.
+ */
+export function clipToRest(g: GameState, c: CrewMember): void {
+  // ... and a window in the next day at a station they did not end up at goes too (the trip changed after the day
+  // was planned: a hotel standby at Gatwick for crew who flew home to Lisbon).
+  let segs: ReturnType<typeof segsOf> | null = null;
+  const away = (w: Window) => w.from < g.now + DAY && (w.at ?? c.base) !== (locAt(c, (segs ??= segsOf(g, c)), w.from) || c.base);
+  if (!c.standby?.some((w) => w.calledAt === undefined && w.from > g.now && (w.from < c.restUntil || away(w)))) return;
+  const keep: Window[] = [];
+  for (const w of c.standby) {
+    if (w.calledAt !== undefined || w.from <= g.now) keep.push(w);
+    else if (away(w)) continue;
+    else if (w.from >= c.restUntil) keep.push(w);
+    else if (w.to - c.restUntil >= BAL.v09.roster.home.minH * 60) keep.push({ ...w, from: c.restUntil });
+  }
   if (keep.length) c.standby = keep;
   else delete c.standby;
   touchCrewState(g);

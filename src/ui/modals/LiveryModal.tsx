@@ -66,7 +66,7 @@ function CompanyLivery() {
     <>
     <Sheet title="Company livery" onClose={ask ? () => setAsk(false) : close}>
       <LiveryEditor
-        value={lv} onChange={setLv} code={c.code} name={c.name} reg={Object.values(g.fleet)[0]?.reg ?? `${c.regPrefix}BHA`} mode="company" types={previewTypes(fleetTypes(g))}
+        value={lv} onChange={setLv} code={c.code} name={c.name} reg={Object.values(g.fleet)[0]?.reg ?? `${c.regPrefix}BHA`} acName={Object.values(g.fleet)[0]?.name} mode="company" types={previewTypes(fleetTypes(g))}
         onApplyAll={() => setAsk(true)} onSave={save} onCancel={close} resetTo={c.livery}
         footer={<span className="lv-foot-note">Free and instant. Aircraft in client colours keep them.</span>}
       />
@@ -109,7 +109,7 @@ function AircraftLivery({ aircraftId }: { aircraftId: string }) {
   return (
     <Sheet title={<><span className="mono">{ac.reg}</span> livery</>} onClose={close}>
       <LiveryEditor
-        value={value} onChange={(l) => setRef({ custom: l })} code={code} name={name} reg={ac.reg} mode="aircraft"
+        value={value} onChange={(l) => setRef({ custom: l })} code={code} name={name} reg={ac.reg} acName={ac.name} mode="aircraft"
         types={previewTypes([artFor(ac.typeId, ac.variant)])} aircraft={{ ref, onRef: pickRef, locked: st.locked ? st.why ?? 'In client colours' : undefined }}
         onSave={st.locked ? undefined : save} onCancel={close}
         footer={st.locked ? undefined : <span className="lv-foot-note">Free and instant.</span>}

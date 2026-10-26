@@ -10,14 +10,15 @@ import { ctxOf, segsOf } from './crew/timeline';
 import { typeOf } from './core/perf';
 import { deserialize, serialize } from './save';
 import { advanceTo } from './sim';
-import { bad, fixture, play } from './fixtures/compatKit';
+import { bad, fixture, playTo } from './fixtures/compatKit';
+import { breathe } from '../test/breathe';
 
 // v0.7.3 (UPDATE-0.7.3.md §2.1, §9): a real v0.7.2 save (made by the v0.7.2 code: bot seed 3 --wide, 240 days, plus
 // three A330-300s with rest seats / nothing / bunks and an augmented LIS–GRU duty each two days out) loads with the
 // new rest facilities, keeps every duty's legality over the first 72 h, and plays 60 days legally.
 describe('v0.7.3 load: pilot and cabin crew rest facilities', () => {
   const v072 = () => fixture('v072');
-  it('v0.7.2: {bunks, seats} → rest per the migration table, crewed duties kept, 60 days legal, round-trip', () => {
+  it('v0.7.2: {bunks, seats} → rest per the migration table, crewed duties kept, 60 days legal, round-trip', async () => {
     const file = JSON.parse(v072()) as { state: GameState };
     const before = new Map(Object.values(file.state.duties).map((d) => [d.id, d.legality]));
     const g = deserialize(JSON.stringify(file));
@@ -36,13 +37,10 @@ describe('v0.7.3 load: pilot and cabin crew rest facilities', () => {
     while (g.now < end72) {
       advanceTo(g, Math.min(end72, g.now + 60), new Set());
       for (const d of Object.values(g.duties)) if (before.has(d.id) && before.get(d.id) !== 'illegal') expect(d.legality, d.id).not.toBe('illegal');
+      await breathe();
     }
     expect(g.stats.illegalFlown ?? 0).toBe(file.state.stats.illegalFlown ?? 0);
-    const end = g.now + 60 * DAY;
-    while (g.now < end && !g.gameOver) {
-      advanceTo(g, Math.min(end, g.now + 6 * 60), new Set());
-      play(g);
-    }
+    await playTo(g, g.now + 60 * DAY);
     expect(g.gameOver).toBeNull();
     expect(bad(g)).toEqual([]);
     // Inside the published roster (v0.7.4: a far-off duty may carry a stale ticket home until the roster reaches it;
@@ -54,7 +52,7 @@ describe('v0.7.3 load: pilot and cabin crew rest facilities', () => {
     expect(JSON.parse(serialize(again)).state).toEqual(JSON.parse(serialize(g)).state);
   }, 240_000);
 
-  it('v0.7.2: a crewed trip is grandfathered per pairing; every other augmented duty is re-planned and flies with a working rest plan', () => {
+  it('v0.7.2: a crewed trip is grandfathered per pairing; every other augmented duty is re-planned and flies with a working rest plan', async () => {
     const g = deserialize(v072());
     for (const p of Object.values(g.pairings)) {
       const open = p.dutyIds.map((id) => g.duties[id]).filter((d) => d && !d.done);
@@ -70,6 +68,7 @@ describe('v0.7.3 load: pilot and cabin crew rest facilities', () => {
     const end = g.now + 5 * DAY;
     while (g.now < end) {
       advanceTo(g, Math.min(end, g.now + 60), new Set());
+      await breathe();
       for (const d of Object.values(g.duties)) {
         if (flown.has(d.id) || !d.done || d.augment === 0 || d.legacyRest) continue;
         flown.add(d.id);

@@ -12,7 +12,7 @@ import { blockMinutes, typeOf } from '../core/perf';
 import { requestPause } from '../core/pause';
 import { schedule } from '../core/queue';
 import { int, pick, range } from '../core/rng';
-import { DAY, fmtDate, fmtDateTime, fmtDay, fmtTime, toDate } from '../core/time';
+import { DAY, fmtDate, fmtDateTime, fmtDay, fmtTime, toDate, fmtDayRange } from '../core/time';
 import type { ActionResult, Aircraft, Cabin, Flight, GameState, MaintenanceEvent, MaintKind, Minute, SimEvent } from '../core/types';
 import { clamp } from '../core/util';
 import { planPositioning } from '../contracts';
@@ -129,7 +129,7 @@ export function isGrounded(g: GameState, ac: Aircraft): boolean {
 }
 
 /** Our engineers are at home base and at the base of a running base programme the aircraft flies. */
-function engineersAt(g: GameState, acId: string, airport: string): boolean {
+export function engineersAt(g: GameState, acId: string, airport: string): boolean {
   if (airport === g.company.homeBase) return true;
   for (const c of Object.values(g.contracts)) {
     if ((c.status === 'active' || c.status === 'signed') && c.pattern.kind === 'base' && c.pattern.base === airport && c.aircraftIds.includes(acId)) return true;
@@ -236,7 +236,7 @@ export function scheduleCheck(
   if (other) return { ok: false, error: `Overlaps the ${other.kind} event ${fmtDay(other.start)}` };
   // A base programme's days beyond the generated schedule are committed too (its maintenance nights aren't known yet).
   const base = Object.values(g.contracts).find((c) => (c.status === 'signed' || c.status === 'active') && c.pattern.kind === 'base' && c.aircraftIds.includes(ac.id) && c.generatedUntil < c.pattern.to && Math.max(c.generatedUntil, c.pattern.from) < end && c.pattern.to > start);
-  if (base) return { ok: false, error: `Clashes with ${base.title} (${fmtDay(base.start)}–${fmtDay(base.end)})` };
+  if (base) return { ok: false, error: `Clashes with ${base.title} (${fmtDayRange(base.start, base.end)})` };
   // Reachability before touching anything.
   const before = clash.length ? Math.min(start, ...clash.map((f) => f.std)) : start;
   const loc = locationAt(g, ac, before - 1);
@@ -492,7 +492,7 @@ export function planChecks(g: GameState): void {
         const dur = typeOf(ac.typeId).cCheckDays;
         pushMessage(g, {
           tone: w <= 30 ? 'bad' : 'warn', cat: 'tech', title: `C-check due in ${Math.max(0, days)} days: ${ac.reg}`,
-          body: `${dur} days at an MRO hub (${C_HUBS[typeOf(ac.typeId).family].map((h) => h.city).join(' or ')}), due ${fmtDate(st.cDue)}. ${s ? `Free window: ${fmtDay(s.from)}–${fmtDay(s.to)}${s.to - s.from > 60 * DAY ? ' (open)' : ''}.` : 'No free window yet: plan around your contracts.'} Winter checks cost no summer revenue.`,
+          body: `${dur} days at an MRO hub (${C_HUBS[typeOf(ac.typeId).family].map((h) => h.city).join(' or ')}), due ${fmtDate(st.cDue)}. ${s ? `Free window: ${fmtDayRange(s.from, s.to)}${s.to - s.from > 60 * DAY ? ' (open)' : ''}.` : 'No free window yet: plan around your contracts.'} Winter checks cost no summer revenue.`,
           ref: { kind: 'aircraft', id: ac.id }, ...cardMeta(checkCard(g, ac.id)),
         });
       }
@@ -632,8 +632,8 @@ export function onMaintEnd(g: GameState, ev: SimEvent): void {
   if (m.kind === 'C' && m.restFit) restFitHook?.(g, m);
   pushMessage(g, {
     tone: m.kind === 'AOG' ? 'good' : 'info', cat: 'tech',
-    title: m.kind === 'AOG' ? `${ac.reg} back in service` : `${m.kind}-check done: ${ac.reg}`,
-    body: m.kind === 'AOG' ? `${m.cause ?? 'Fault'} fixed at ${m.at}. Repair ${usd(m.cost)}.` : `${ac.reg} is released to service at ${m.hub ? m.hub.name : m.at}. ${usd(m.cost)}.${homeText(g, m)}`,
+    title: m.kind === 'AOG' || m.kind === 'line' ? `${ac.reg} back in service` : `${m.kind}-check done: ${ac.reg}`,
+    body: m.kind === 'AOG' ? `${m.cause ?? 'Fault'} fixed at ${m.at}. Repair ${usd(m.cost)}.` : m.kind === 'line' ? `${m.cause ?? 'Line maintenance'}: done at ${m.at}.` : `${ac.reg} is released to service at ${m.hub ? m.hub.name : m.at}. ${usd(m.cost)}.${homeText(g, m)}`,
     ref: { kind: 'aircraft', id: ac.id },
   });
 }

@@ -9,15 +9,15 @@ import { MRO_STATIONS } from '../../data/market';
 import { BAL } from '../core/balance';
 import { flightsOf } from '../core/entities';
 import { pushMessage } from '../core/messages';
-import { cabinMinimum, typeOf } from '../core/perf';
-import { DAY, fmtDate, fmtDay } from '../core/time';
+import { cabinMinimum, etopsCap, typeOf } from '../core/perf';
+import { DAY, fmtDate, fmtDay, fmtDayRange } from '../core/time';
 import type { AcRest, ActionResult, Aircraft, Cabin, Flight, GameState, MaintenanceEvent, Minute, Requirements, RestRefitId } from '../core/types';
 import { C_HUBS } from '../../data/mro';
 import { schedule } from '../core/queue';
 import { cabinInflightRest } from '../crew/rules';
 import { bunksFor, effectiveRest, longestDay, migrateRest, restOfAc, restShort, restText } from '../crew/restPlan';
 import { retimeFlight } from '../core/entities';
-import { route, routeMinutes, timeChain } from '../contracts/plan';
+import { route, routeMinutes, routeSpan, timeChain } from '../contracts/plan';
 import { rerosterFrom } from '../crew';
 import type { DeliveryLeg } from './delivery';
 import { scheduleCheck } from './maintenance';
@@ -167,11 +167,11 @@ function refitWindow(g: GameState, ac: Aircraft, q: RefitQuote, station: string)
   if (Object.values(g.maintenance).some((m) => m.aircraftId === ac.id && m.kind === 'refit' && (m.status === 'planned' || m.status === 'inWork'))) return why(`${ac.reg} already has a refit booked`);
   // The ferry in (when it is elsewhere), timed to land a turn before the slot.
   const loc = whereAt(g, ac, start - 1);
-  const r = route(ac.typeId, loc.at, station);
+  const r = route(ac.typeId, loc.at, station, etopsCap(g.company.approvals, ac.typeId));
   if (!r) return why(`No ferry route to ${station}`);
   const turn = typeOf(ac.typeId).turnMin;
-  const ferryStart = start - turn - routeMinutes(r);
-  q.ferryIn = r.length ? timeChain(r, ferryStart).map((l) => ({ ...l, block: l.sta - l.std, nightStopAfter: false })) : [];
+  const ferryStart = start - turn - routeSpan(r, ac.typeId);
+  q.ferryIn = r.length ? timeChain(r, ferryStart, ac.typeId).map((l) => ({ ...l, block: l.sta - l.std, nightStopAfter: false })) : [];
   const busyFrom = r.length ? ferryStart - turn : start;
   for (const f of flightsOf(g, ac.id)) {
     if ((f.status === 'scheduled' || f.status === 'enroute') && f.kind !== 'positioning' && f.std < end + 30 && (f.eta ?? f.sta) > busyFrom - 30) q.clashes.push(`${f.no} ${f.from}–${f.to} ${fmtDay(f.std)}`);
@@ -302,10 +302,10 @@ export function bookRefit(g: GameState, aircraftId: string, label: string, stati
   if (!r.ok) return r;
   pushMessage(g, {
     tone: 'info', cat: 'tech', title: `Refit booked: ${ac.reg} to ${q.cabin.label}`,
-    body: `${q.kind === 'quick' ? 'A quick reconfiguration' : 'A full retrofit with new seats'} at ${stationName(g, station)}: ${fmtDay(start)}–${fmtDay(q.end)} (${q.days} day${q.days === 1 ? '' : 's'}, ${usd(q.cost)}, paid when the work starts).${q.ferryIn.length ? ` Ferry in ${q.ferryIn[0].from}–${station} ${fmtDay(q.ferryIn[0].std)}.` : ''}${q.reinstateAtReturn ? ` The lessor wants it back as delivered: about ${usd(q.reinstateAtReturn)} at the lease return.` : ''}`,
+    body: `${q.kind === 'quick' ? 'A quick reconfiguration' : 'A full retrofit with new seats'} at ${stationName(g, station)}: ${fmtDayRange(start, q.end)} (${q.days} day${q.days === 1 ? '' : 's'}, ${usd(q.cost)}, paid when the work starts).${q.ferryIn.length ? ` Ferry in ${q.ferryIn[0].from}–${station} ${fmtDay(q.ferryIn[0].std)}.` : ''}${q.reinstateAtReturn ? ` The lessor wants it back as delivered: about ${usd(q.reinstateAtReturn)} at the lease return.` : ''}`,
     ref: { kind: 'maint', id: r.data!.maintId },
   });
-  return { ok: true, msg: `Refit to ${q.cabin.label} at ${AIRPORT_BY_CODE[station]?.city ?? station} ${fmtDay(start)}–${fmtDay(q.end)}`, data: r.data };
+  return { ok: true, msg: `Refit to ${q.cabin.label} at ${AIRPORT_BY_CODE[station]?.city ?? station} ${fmtDayRange(start, q.end)}`, data: r.data };
 }
 
 /** 'maint.end' of a refit: the new cabin, re-rostered duties for the new complement, one message. */
@@ -583,10 +583,10 @@ export function bookRestRefit(g: GameState, aircraftId: string, id: RestRefitId,
   const what = REFIT_LABEL[id].toLowerCase().replace(/^curtain off/, 'curtained-off');
   pushMessage(g, {
     tone: 'info', cat: 'tech', title: `Crew rest refit booked: ${ac.reg}`,
-    body: `${ac.reg} gets ${id === 'removeRecliners' ? 'its crew rest recliners removed' : `a ${what}`} at ${homeHangar(g)}, ${fmtDay(start)}–${fmtDay(q.end)} (${usd(q.cost)}, paid when the work starts). ${q.opens[0] ? `Opens: ${q.opens[0]}.` : ''}${q.ferryIn.length ? ` Ferry in ${q.ferryIn[0].from}–${q.station} ${fmtDay(q.ferryIn[0].std)}.` : ''}`,
+    body: `${ac.reg} gets ${id === 'removeRecliners' ? 'its crew rest recliners removed' : `a ${what}`} at ${homeHangar(g)}, ${fmtDayRange(start, q.end)} (${usd(q.cost)}, paid when the work starts). ${q.opens[0] ? `Opens: ${q.opens[0]}.` : ''}${q.ferryIn.length ? ` Ferry in ${q.ferryIn[0].from}–${q.station} ${fmtDay(q.ferryIn[0].std)}.` : ''}`,
     ref: { kind: 'maint', id: m.id },
   });
-  return { ok: true, msg: `${REFIT_LABEL[id]} ${fmtDay(start)}–${fmtDay(q.end)}`, data: r.data };
+  return { ok: true, msg: `${REFIT_LABEL[id]} ${fmtDayRange(start, q.end)}`, data: r.data };
 }
 
 /** v0.7.3 adds (or with null removes) a compartment refit on a booked hub C-check: the check grows by its days and cost; the ferry home moves. */

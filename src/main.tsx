@@ -1,3 +1,4 @@
+import './styles/theme.css';
 import './styles/acmi/fonts.css';
 import './styles/app.css';
 import './styles/screens.css';

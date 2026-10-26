@@ -44,7 +44,7 @@ describe('v0.8 links', () => {
     expect(actionTarget(g, { id: 'o', label: 'x', open: { modal: 'outlook', id: '' } })).toEqual({ modal: { kind: 'outlook' } });
   });
   it('inbox refs lead to Company › Clients / Rivals and the map', () => {
-    expect(refTarget(g, { kind: 'client', id: 'c1' })).toEqual({ tab: 'company', view: 'clients', sel: { kind: 'client', id: 'c1' } });
+    expect(refTarget(g, { kind: 'client', id: 'c1' })).toEqual({ tab: 'contracts', view: 'clients', sel: { kind: 'client', id: 'c1' } });
     expect(refTarget(g, { kind: 'rival', id: 'r1' })).toEqual({ tab: 'company', view: 'rivals', sel: { kind: 'rival', id: 'r1' } });
     expect(refTarget(g, { kind: 'event', id: 'e1' })).toEqual({ tab: 'map', sel: { kind: 'event', id: 'e1' } });
   });

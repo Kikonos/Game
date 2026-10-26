@@ -23,6 +23,7 @@ import type {
   AcRest, ApprovalId, Archetype, Client, ContractOffer, GameState, LegTemplate, Minute, OfferEffects, PaintKind, Product, Requirements, SchedulePattern, SimEvent,
 } from '../core/types';
 import { acceptOffer, closeOffer, setPrice } from './accept';
+import { isCallOffer } from './call';
 import { answerBy, counterBase, counterOdds, halfwayPrice, leftOf } from './counter';
 import { crewChains, feasibility, ulrNeed, type UlrNeed } from './feasibility';
 import { adhocGroupClients, clientPrefix, clientsOf, isBigClub, isCruiseLine, isDiaspora, isGovernment, isMarineCrewing, isPilgrim, ministry, rivalFor } from './clients';
@@ -36,6 +37,7 @@ import { LEVEL_PERKS, levelOf, standingRate } from './relations';
 import { rivalTakes, rollRivalBid } from './rivals';
 import { inWarZone, warRiskLandings } from '../ops/world';
 import { demandFactor } from '../ops/market';
+import { afterOfferDays, isQuiet } from '../ops/director';
 import { clientCrewOnCabin, fuelFactor, MISSION_BUILDERS, missionWeights, presidential, rollClientCabin, WINDOW_FIT_V08 } from './missions';
 
 // ---------- process ----------
@@ -58,7 +60,8 @@ export function scheduleNextOffer(g: GameState): void {
   let sum = 0;
   for (let i = 0; i < 3; i++) sum -= Math.log(Math.max(1e-9, next(g)));
   const gapDays = sum / (3 * lambda);
-  schedule(g, g.now + Math.max(30, Math.round(gapDays * DAY)), 'offer.spawn');
+  // v0.11 the event director: the gap is laid over busy (a wave) and quiet (a trickle) spells; the year's volume holds.
+  schedule(g, Math.max(g.now + 30, afterOfferDays(g, g.now, gapDays)), 'offer.spawn');
 }
 
 /** The three hand-shaped opening offers (DESIGN §5.1.1): AOG cover < 24 h, ad hoc in 3–5 days, an April season base. */
@@ -234,7 +237,7 @@ export function pickN<T>(g: GameState, xs: T[], n: number, weight: (x: T) => num
 }
 
 export function airportsWithin(from: string, minKm: number, maxKm: number, pred: (a: Airport) => boolean): Airport[] {
-  return AIRPORTS.filter((a) => a.code !== from && a.runwayM >= 2000 && pred(a) && km(from, a.code) >= minKm && km(from, a.code) <= maxKm);
+  return AIRPORTS.filter((a) => a.code !== from && !a.enroute && a.runwayM >= 2000 && pred(a) && km(from, a.code) >= minKm && km(from, a.code) <= maxKm);
 }
 
 /** v0.8 a destination an airline client would really send our aircraft to: never a war zone, inside its market when listed. Pure. */
@@ -1278,7 +1281,13 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   // Urgent work we could actually fly stops the clock (setting) and gets an inbox line; the rest just pins the map.
   if (urgency === 'urgent' && Object.keys(g.fleet).some((id) => feasibility(g, o.id, id, { quick: true }).level !== 'no')) {
     requestPause('urgentOffer');
-    pushMessage(g, { tone: 'warn', cat: 'commercial', title: `Urgent: ${o.title}`, body: `${d.client.name} needs an answer by ${fmtDay(o.expires)} ${fmtTime(o.expires)} UTC.`, ref: { kind: 'offer', id: o.id }, ...cardMeta(offerFitCard(g, o.id)), hurt: { money: o.estValue, pax: 0, delayMin: 0, level: 'high' }, cue: offerCue(o) });
+    // v0.10.2 urgent and high-paying: the client phones (the call pop-up and its ring are the note; the Inbox keeps it)
+    const call = isCallOffer(g, o);
+    if (call) o.call = true;
+    pushMessage(g, {
+      tone: 'warn', cat: 'commercial', title: call ? `Phone call: ${o.title}` : `Urgent: ${o.title}`, body: `${d.client.name} needs an answer by ${fmtDay(o.expires)} ${fmtTime(o.expires)} UTC.`,
+      ref: { kind: 'offer', id: o.id }, ...cardMeta(offerFitCard(g, o.id)), hurt: { money: o.estValue, pax: 0, delayMin: 0, level: 'high' }, cue: call ? 'offerCall' : offerCue(o),
+    });
   } else cue(offerCue(o), { title: `New offer: ${o.title}`, body: `${d.client.name}. Answer by ${fmtDay(o.expires)}.`, tone: 'info', ref: { kind: 'offer', id: o.id } });
   return o;
 }
@@ -1485,8 +1494,8 @@ export function dailyOffers(g: GameState): void {
     o.closedAt ??= g.now;
     if (g.now - o.closedAt > 14 * DAY) delete g.offers[o.id];
   }
-  // v0.7: a failed company is offered nothing new.
-  if (PACING.quietFloor && !g.gameOver) quietWeekOffer(g);
+  // v0.7: a failed company is offered nothing new. v0.11: the floor tops up in busy spells only (quiet days stay quiet).
+  if (PACING.quietFloor && !g.gameOver && !isQuiet(g)) quietWeekOffer(g);
 }
 
 /** v0.6 pacing switches (tests compare against the v0.5.2 offer flow). */

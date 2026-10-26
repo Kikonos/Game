@@ -185,12 +185,12 @@ export function upNext(g: GameState, n = 3, after = -Infinity): Flight[] {
 
 // ---------- flight types (v0.5.2) ----------
 
-/** Map stroke per flight type: colour, dash (screen px; '' = solid) and width (screen px). */
+/** Map stroke per flight type: colour (a theme token: set it as a style, not an SVG attribute), dash (screen px; '' = solid) and width (screen px). */
 export const TYPE_STROKE: Record<FlightType, { color: string; dash: string; width: number }> = {
-  operating: { color: '#34d399', dash: '', width: 1.8 },
-  positioning: { color: '#fbbf24', dash: '2 5', width: 1.8 },
-  ferry: { color: '#fbbf24', dash: '2 5', width: 1.8 },
-  deadhead: { color: '#9aa5bb', dash: '1.5 4', width: 1.1 },
+  operating: { color: 'var(--path-operating)', dash: '', width: 1.8 },
+  positioning: { color: 'var(--path-positioning)', dash: '2 5', width: 1.8 },
+  ferry: { color: 'var(--path-positioning)', dash: '2 5', width: 1.8 },
+  deadhead: { color: 'var(--path-deadhead)', dash: '1.5 4', width: 1.1 },
 };
 
 /** Selection id of an airline leg on the map (a Ref of kind 'flight'): `${ticketId}:${legIndex}`. */
@@ -393,6 +393,31 @@ export function placeLabels(boxes: LabelBox[], gap = 2): Set<string> {
     if (hit) continue;
     kept.push(b);
     out.add(b.id);
+  }
+  return out;
+}
+
+/** v0.12 an aircraft's label on the map: its registration or its FERRY / DELIVERY tag (screen px box). */
+export interface AcLabel extends LabelBox {
+  /** The aircraft it belongs to. */
+  ac: string;
+}
+
+/**
+ * v0.12 label thinning (many aircraft near one airport): which labels stay, by id. The selected aircraft's labels always
+ * stay (even over another), then `fixed` ones (parked labels, already thinned per stand), then those shown last time
+ * (so a label does not flicker as aircraft pass), then the rest in a stable order; a label overlapping one already kept
+ * goes (`fixed` boxes may be aircraft icons: a label never covers another aircraft; its own may touch it). Pure.
+ */
+export function thinLabels(labels: AcLabel[], selected: string | undefined, prev: ReadonlySet<string>, fixed: ReadonlySet<string> = new Set(), gap = 1): Set<string> {
+  const rank = (l: AcLabel) => (l.ac === selected ? 0 : fixed.has(l.id) ? 1 : prev.has(l.id) ? 2 : 3);
+  const order = [...labels].sort((a, b) => rank(a) - rank(b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const kept: AcLabel[] = [];
+  const out = new Set<string>();
+  for (const l of order) {
+    if (l.ac !== selected && kept.some((k) => k.ac !== l.ac && boxOverlap(k, l, gap) > 0)) continue;
+    kept.push(l);
+    out.add(l.id);
   }
   return out;
 }

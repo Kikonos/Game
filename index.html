@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#070b14" />
-    <meta name="color-scheme" content="dark" />
+    <meta name="color-scheme" content="dark light" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black" />
@@ -14,6 +14,23 @@
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon-180.png" />
     <title>BLOCK HOURS</title>
+    <script>
+      // Paint the chosen theme before the app loads (Settings › Appearance; ui/theme.ts keeps it in step afterwards).
+      // No settings yet: a player with saves had the dark look, a new install follows the device.
+      try {
+        var st = JSON.parse(localStorage.getItem('contrail-acmi:settings') || 'null');
+        var hasSave = false;
+        for (var i = 0; i < localStorage.length; i++) if ((localStorage.key(i) || '').indexOf('contrail-acmi:save:') === 0) hasSave = true;
+        var pref = st ? (st.theme === 'light' || st.theme === 'dark' || st.theme === 'system' ? st.theme : 'dark') : hasSave ? 'dark' : 'system';
+        var th = pref === 'system' ? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : pref;
+        var bg = th === 'light' ? '#eef2f7' : '#070b14';
+        document.documentElement.dataset.theme = th;
+        document.documentElement.style.background = bg;
+        document.documentElement.style.colorScheme = th;
+        document.querySelector('meta[name="theme-color"]').content = bg;
+        document.querySelector('meta[name="color-scheme"]').content = th;
+      } catch (e) {}
+    </script>
     <script>
       // GitHub Pages serves this repository as-is; the playable build lives in play/.
       if (/\.github\.io$/.test(location.hostname) && !/\/play\//.test(location.pathname)) location.replace('play/' + location.search);

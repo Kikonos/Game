@@ -4,6 +4,8 @@ import { memo, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo,
 import { AIRPORT_BY_CODE, AIRPORTS, type Airport } from '../../data/airports';
 import { REGIONS } from '../../data/regions';
 import { PLANE_PATH } from '../components/Logo';
+import { useTheme } from '../store';
+import { paleOnLight } from '../theme';
 import { isTouch, useTouch } from '../useMedia';
 import { MAP_H, MAP_W, basePaths, projection } from './mapData';
 import { type LabelBox, placeLabels } from './mapLogic';
@@ -42,7 +44,14 @@ export interface MapLayerCtx {
   backShift: (dx: number) => number;
   /** Screen px of spare layer around the view: rebuild the backdrop before |backShift| passes margin / 2. */
   margin: number;
+  /** v0.12 repaints the `glow` canvas (call when what it draws has changed). */
+  redrawGlow: () => void;
+  /** v0.12 the part of the map on screen right now (map units: x0, y0, x1, y1); cheap, call per frame. */
+  onScreen: () => [number, number, number, number];
 }
+
+/** v0.12 the `glow` layer's painter: draws on a canvas; `at` gives a map point's canvas px, `px` canvas px per screen px. */
+export type GlowPaint = (c: CanvasRenderingContext2D, at: (p: [number, number]) => [number, number], px: number) => void;
 
 /**
  * What a focus keeps clear of the overlays: one point, or several (map units) each grown by `box`
@@ -91,6 +100,11 @@ interface Props {
   underlay?: (ctx: MapLayerCtx) => ReactNode;
   /** A big, slow layer right above the land in its own composited layer (ops map: night), shifted with ctx.backShift. */
   backdrop?: (ctx: MapLayerCtx) => ReactNode;
+  /**
+   * v0.12 a canvas layer of its own above the backdrop (ops map: city lights): moved with the land on the compositor,
+   * repainted only when the land is (gesture end, out of margin) or on ctx.redrawGlow(). One paint item, no SVG nodes.
+   */
+  glow?: GlowPaint;
   /** Called with the tapped map point (map units) and map units per screen px before airports are hit-tested; true consumes the tap. */
   onTap?: (m: [number, number], unit: number, finger: boolean) => boolean;
   /** Fit list read only when fitting (first view, Reset): data changes never re-fit the map. Overrides `fit`. */
@@ -101,6 +115,12 @@ interface Props {
   focus?: { key: string; at: () => FocusAt | null } | null;
   /** Keeps the view across remounts (tab switches): read on mount, written on every commit. */
   memo?: { view: View | null };
+  /**
+   * v0.12 spotter mode: keeps the map point `at()` (map units) in the middle of the area clear of `pad`, easing after
+   * it every frame (no React render). A new `key` flies there first, zoomed in to at least `zoom` (map zoom k). A pan
+   * or pinch by the player pauses it for a few seconds. Reduced motion: it jumps only when the point nears an edge.
+   */
+  follow?: { key: string; at: () => [number, number] | null; pad: Pad; zoom?: number } | null;
 }
 
 /** Container geometry: the SVG uses "slice" scaling (s screen px per map unit at zoom 1, offset ox/oy). */
@@ -113,7 +133,7 @@ interface Geo { w: number; h: number; s: number; ox: number; oy: number; left: n
  */
 const marginOf = (g: { w: number; h: number }) => Math.round(Math.max(g.w, g.h) * 0.3);
 /** The ocean as a background (static under the moving layers); matches the old SVG gradient. */
-const OCEAN = 'radial-gradient(75% 75% at 50% 40%, #0c1528 0%, #050912 100%)';
+const OCEAN = 'radial-gradient(75% 75% at 50% 40%, var(--map-ocean-0) 0%, var(--map-ocean-1) 100%)';
 
 const K_MAX = 16;
 const MAX_PLANES = 60;
@@ -129,13 +149,13 @@ const BaseLayers = memo(function BaseLayers({ rotate }: { rotate: number }) {
     <g className="map-base">
       <defs>
         <linearGradient id="land-grad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#1a2640" />
-          <stop offset="1" stopColor="#131d33" />
+          <stop offset="0" style={{ stopColor: 'var(--map-land-0)' }} />
+          <stop offset="1" style={{ stopColor: 'var(--map-land-1)' }} />
         </linearGradient>
       </defs>
-      <path d={p.graticule} fill="none" stroke="rgba(120,150,210,0.07)" strokeWidth={0.6} vectorEffect="non-scaling-stroke" />
-      <path d={p.land} fill="url(#land-grad)" stroke="rgba(120,160,230,0.28)" strokeWidth={0.7} vectorEffect="non-scaling-stroke" />
-      <path d={p.borders} fill="none" stroke="rgba(150,175,230,0.13)" strokeWidth={0.6} vectorEffect="non-scaling-stroke" />
+      <path d={p.graticule} fill="none" style={{ stroke: 'var(--map-grid)' }} strokeWidth={0.6} vectorEffect="non-scaling-stroke" />
+      <path d={p.land} fill="url(#land-grad)" style={{ stroke: 'var(--map-coast)' }} strokeWidth={0.7} vectorEffect="non-scaling-stroke" />
+      <path d={p.borders} fill="none" style={{ stroke: 'var(--map-border)' }} strokeWidth={0.6} vectorEffect="non-scaling-stroke" />
     </g>
   );
 });
@@ -211,11 +231,11 @@ const RoutesLayer = memo(function RoutesLayer({ items, accent }: { items: { r: M
         const color = r.color ?? accent;
         return (
           <g key={r.id}>
-            {r.highlight && <path d={d} fill="none" stroke={color} strokeOpacity={0.25} strokeWidth={8} vectorEffect="non-scaling-stroke" />}
+            {r.highlight && <path d={d} fill="none" style={{ stroke: color }} strokeOpacity={0.25} strokeWidth={8} vectorEffect="non-scaling-stroke" />}
             <path
               d={d}
               fill="none"
-              stroke={color}
+              style={{ stroke: color }}
               strokeOpacity={r.highlight ? 1 : 0.25 + 0.6 * r.weight}
               strokeWidth={0.8 + r.weight * 2.4 + (r.highlight ? 1 : 0)}
               strokeDasharray={r.dashed ? '4 4' : undefined}
@@ -264,13 +284,13 @@ const AirportsLayer = memo(function AirportsLayer({ els, unit, selected, hover, 
   let sel: ApEl | undefined;
   const item = (ap: ApEl) => {
     const { big, isSel, rad, ring, fs, ty } = geom(ap);
-    const fill = ap.state === 'hub' ? accent : ap.state === 'served' ? '#ffffff' : ap.state === 'open' ? '#9fb2d8' : ap.state === 'locked' ? '#3a4766' : '#56617a';
+    const fill = ap.state === 'hub' ? accent : ap.state === 'served' ? 'var(--map-pin)' : ap.state === 'open' ? 'var(--map-ap-open)' : ap.state === 'locked' ? 'var(--map-ap-locked)' : 'var(--map-ap-other)';
     return (
       <g key={ap.code} data-code={ap.code} transform={`translate(${ap.x} ${ap.y})`} className={`ap ap-${ap.state} ${isSel ? 'sel' : ''} ${hover === ap.code ? 'hov' : ''}`}>
         <g className="mk" transform={`scale(${unit})`}>
-          {big && <circle r={rad * 2.4} fill={accent} opacity={0.18} className="pulse" />}
-          {isSel && <circle r={ring} fill="rgba(255,255,255,0.08)" stroke="#fff" strokeWidth={1.5} vectorEffect="non-scaling-stroke" className="sel-ring" />}
-          <circle r={rad} fill={fill} stroke={big || isSel ? '#fff' : 'rgba(5,9,18,0.8)'} strokeWidth={big ? 1.5 : 1} vectorEffect="non-scaling-stroke" />
+          {big && <circle r={rad * 2.4} style={{ fill: accent }} opacity={0.18} className="pulse" />}
+          {isSel && <circle r={ring} style={{ fill: 'rgba(var(--ink-rgb),0.08)', stroke: 'var(--map-ring)' }} strokeWidth={1.5} vectorEffect="non-scaling-stroke" className="sel-ring" />}
+          <circle r={rad} style={{ fill, stroke: big || isSel ? 'var(--map-ring)' : 'rgba(var(--halo-rgb),0.8)' }} strokeWidth={big ? 1.5 : 1} vectorEffect="non-scaling-stroke" />
           {shown.has(ap.code) && (
             <text y={ty} textAnchor="middle" fontSize={fs} className="ap-label">
               {ap.code}
@@ -329,10 +349,13 @@ interface Gesture {
  * and React re-renders markers at most every 120 ms.
  */
 export function WorldMap({
-  rotate = 0, routes, airports, fit, fitPad, interactive = true, animate = true, accent = '#3ee6ff', selected, onSelect, onSelectRoute, onHover,
-  tooltip, regionLabels, className, planesKey, controls = true, revealPad, layers, underlay, ground, backdrop, onTap, fitFn, fitCentre, focus, memo,
+  rotate = 0, routes, airports, fit, fitPad, interactive = true, animate = true, accent: accentIn = 'var(--accent)', selected, onSelect, onSelectRoute, onHover,
+  tooltip, regionLabels, className, planesKey, controls = true, revealPad, layers, underlay, ground, backdrop, glow, onTap, fitFn, fitCentre, focus, memo, follow,
 }: Props) {
   const touch = useTouch();
+  // v0.11 a pale livery colour (white, cream) would vanish on the light map: the theme accent there instead.
+  const theme = useTheme();
+  const accent = theme === 'light' && paleOnLight(accentIn) ? 'var(--accent)' : accentIn;
   const wrapRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<SVGGElement>(null);
   const planesRef = useRef<SVGGElement>(null);
@@ -340,6 +363,10 @@ export function WorldMap({
   const baseG = useRef<SVGGElement>(null);
   const backWrap = useRef<HTMLDivElement>(null);
   const backG = useRef<SVGGElement>(null);
+  const glowWrap = useRef<HTMLDivElement>(null);
+  const glowCv = useRef<HTMLCanvasElement>(null);
+  const glowRef = useRef(glow);
+  glowRef.current = glow;
   const [view, setView] = useState<View>({ k: 1, x: 0, y: 0 });
   // Container geometry as rendered (s = screen pixels per map unit at zoom 1; the SVG uses "slice" scaling).
   const [box, setBox] = useState<Geo>(() => geoOf(1000, 600));
@@ -362,6 +389,8 @@ export function WorldMap({
   const settleTimer = useRef(0);
   const userMoved = useRef(false);
   const lastTap = useRef<{ t: number; x: number; y: number } | null>(null);
+  /** v0.12 when the player last panned or zoomed (follow waits a few seconds after). */
+  const userAt = useRef(0);
   const [hover, setHover] = useState<{ code: string; x: number; y: number } | null>(null);
   const proj = projection(rotate);
   const path = useMemo(() => geoPath(proj), [proj]);
@@ -382,6 +411,7 @@ export function WorldMap({
     if (!ok && allowSync) { syncLayers(); return; }
     const tf = `translate(${tx.toFixed(2)}px, ${ty.toFixed(2)}px) scale(${r.toPrecision(6)})`;
     if (baseWrap.current) baseWrap.current.style.transform = tf;
+    if (glowWrap.current) glowWrap.current.style.transform = tf;
     if (backWrap.current) backWrap.current.style.transform = `${tf} translateX(${(backDx.current * lv.k * g.s).toFixed(2)}px)`;
   };
   /** Rewrites the land/backdrop SVG transform to the live view (one repaint of the land). */
@@ -391,6 +421,7 @@ export function WorldMap({
     const tf = `translate(${v.x} ${v.y}) scale(${v.k})`;
     baseG.current?.setAttribute('transform', tf);
     backG.current?.setAttribute('transform', tf);
+    drawGlow();
     placeLayers(v, false);
   };
   /** Moves the map on screen without a React render (the transforms are owned here, not by JSX). */
@@ -422,13 +453,30 @@ export function WorldMap({
     if (memo && restored.current) memo.view = view;
   }, [view]); // eslint-disable-line react-hooks/exhaustive-deps
   // New geometry (resize) or new layer elements: rewrite the layer transforms.
-  useLayoutEffect(() => { syncLayers(); }, [box, !!backdrop]); // eslint-disable-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => { syncLayers(); }, [box, !!backdrop, !!glow]); // eslint-disable-line react-hooks/exhaustive-deps
   // After every render: the marker groups to counter-scale (React wrote the committed scale into them).
   useLayoutEffect(() => {
     mkEls.current = worldRef.current ? (Array.from(worldRef.current.querySelectorAll('.mk')) as SVGGElement[]) : [];
     mkU.current = 1 / (pxPerUnit * view.k);
     if (!sameView(live.current, view)) apply(live.current);
   });
+  /** Paints the glow canvas at the layer's view (soft glows: at most 1.5 device px per CSS px). */
+  const drawGlow = useCallback(() => {
+    const cv = glowCv.current;
+    const paint = glowRef.current;
+    if (!cv || !paint) return;
+    const g = geoRef.current;
+    const M = marginOf(g);
+    const dpr = 0.6;
+    const W = Math.round((g.w + 2 * M) * dpr);
+    const H = Math.round((g.h + 2 * M) * dpr);
+    if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+    const c = cv.getContext('2d');
+    if (!c) return;
+    c.clearRect(0, 0, W, H);
+    const lv = layerView.current;
+    paint(c, (p) => [((p[0] * lv.k + lv.x) * g.s + g.ox + M) * dpr, ((p[1] * lv.k + lv.y) * g.s + g.oy + M) * dpr], dpr);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const backShift = useCallback((dx: number) => {
     backDx.current = dx;
     placeLayers(live.current, false);
@@ -724,6 +772,7 @@ export function WorldMap({
         g.start = live.current;
         g.samples = [{ t: performance.now(), x: e.clientX, y: e.clientY }];
         userMoved.current = true;
+        userAt.current = performance.now();
         return;
       }
       apply(clampView({ k: g.start.k, x: g.start.x + dx / geo.s, y: g.start.y + dy / geo.s }, geo));
@@ -738,6 +787,7 @@ export function WorldMap({
         g.pinchMoved = true;
         userMoved.current = true;
       }
+      userAt.current = performance.now();
       if (!g.pinchMoved) return;
       g.mid = mc;
       const m = vbOf(mc[0], mc[1]);
@@ -828,6 +878,7 @@ export function WorldMap({
       const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
       zoomBy(Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0015)), vbOf(e.clientX, e.clientY), false);
       wheelUntil.current = performance.now() + 160;
+      userAt.current = performance.now();
       scheduleCommit();
       settle();
     };
@@ -911,12 +962,70 @@ export function WorldMap({
     return () => cancelAnimationFrame(id);
   }, [focusKey, interactive, proj]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ---------- v0.12 follow (spotter mode) ----------
+  const followRef = useRef(follow);
+  followRef.current = follow;
+  const followKey = follow?.key ?? '';
+  useEffect(() => {
+    if (!followKey || !interactive) return;
+    const calm = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let raf = 0;
+    let last = performance.now();
+    let arrived = false;
+    let moved = false;
+    /** The view with the point in the middle of the clear area at zoom k. */
+    const centred = (p: [number, number], k: number, pad: Pad): View => {
+      const geo = geoRef.current;
+      const cx = (pad[3] + geo.w - pad[1]) / 2;
+      const cy = (pad[0] + geo.h - pad[2]) / 2;
+      return clampView({ k, x: (cx - geo.ox) / geo.s - p[0] * k, y: (cy - geo.oy) / geo.s - p[1] * k }, geo);
+    };
+    const step = (now: number) => {
+      raf = requestAnimationFrame(step);
+      const dt = Math.min(100, now - last);
+      last = now;
+      const f = followRef.current;
+      if (!f || document.visibilityState === 'hidden') return;
+      // A gesture or an animation (the fly-in) owns the view; after the player moved the map, wait a while.
+      if (busy() || now - userAt.current < 4000) return;
+      const p = f.at();
+      if (!p) return;
+      const v = live.current;
+      if (!arrived) {
+        // First the fly-in, zoomed in to at least `zoom`.
+        arrived = true;
+        measure();
+        const k = Math.min(K_MAX, Math.max(v.k, f.zoom ?? 1));
+        const target = centred(p, k, f.pad);
+        if (calm) { apply(target); commit(); } else flyTo(target, 900);
+        return;
+      }
+      const target = centred(p, v.k, f.pad);
+      const geo = geoRef.current;
+      const off = Math.hypot((target.x - v.x) * geo.s, (target.y - v.y) * geo.s);
+      if (calm) {
+        // Reduced motion: no gliding; one jump when the aircraft has drifted well off the middle.
+        if (off > Math.min(geo.w, geo.h) * 0.3) { apply(target); commit(); }
+        return;
+      }
+      if (off < 0.25) return;
+      const a = 1 - Math.exp(-dt / 450);
+      apply({ k: v.k, x: v.x + (target.x - v.x) * a, y: v.y + (target.y - v.y) * a });
+      moved = true;
+    };
+    raf = requestAnimationFrame(step);
+    return () => {
+      cancelAnimationFrame(raf);
+      if (moved && !busy()) commit();
+    };
+  }, [followKey, interactive]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ---------- region labels ----------
   const regionKey = (regionLabels ?? []).map((r) => `${r.id}${r.locked ? 1 : 0}`).join(',');
   const regionLabelEls = useMemo(() => {
     if (!regionLabels) return [];
     return regionLabels.map((r) => {
-      const aps = AIRPORTS.filter((a) => a.region === r.id);
+      const aps = AIRPORTS.filter((a) => a.region === r.id && !a.enroute);
       const pts = aps.map((a) => proj([a.lon, a.lat])!).filter(Boolean);
       const x = pts.reduce((s, p) => s + p[0], 0) / pts.length;
       const y = pts.reduce((s, p) => s + p[1], 0) / pts.length;
@@ -960,11 +1069,11 @@ export function WorldMap({
         const icon = document.createElementNS(NS, 'path');
         icon.setAttribute('d', PLANE_PATH);
         icon.setAttribute('transform', 'translate(-12 -12)');
-        icon.setAttribute('fill', '#ffffff');
+        icon.style.fill = 'var(--map-plane)';
         el.appendChild(icon);
         const trail = document.createElementNS(NS, 'polyline');
         trail.setAttribute('fill', 'none');
-        trail.setAttribute('stroke', r.color ?? accent);
+        trail.style.stroke = r.color ?? accent;
         trail.setAttribute('stroke-opacity', '0.55');
         trail.setAttribute('stroke-width', '1.6');
         trail.setAttribute('stroke-linecap', 'round');
@@ -1028,8 +1137,15 @@ export function WorldMap({
   const crowded = airports.filter((a) => a.label).length > 16 && k * pxPerUnit < 2.2;
   const regionFont = touch ? 12.5 : 11;
   const liveK = useCallback(() => live.current.k, []);
+  const onScreen = useCallback((): [number, number, number, number] => {
+    const g = geoRef.current;
+    const v = live.current;
+    const x0 = (-g.ox / g.s - v.x) / v.k;
+    const y0 = (-g.oy / g.s - v.y) / v.k;
+    return [x0, y0, x0 + g.w / g.s / v.k, y0 + g.h / g.s / v.k];
+  }, []);
   const M = marginOf(box);
-  const ctx: MapLayerCtx = { proj, unit, k, px: pxPerUnit, liveK, fitK: fitK.current, backShift, margin: M };
+  const ctx: MapLayerCtx = { proj, unit, k, px: pxPerUnit, liveK, fitK: fitK.current, backShift, margin: M, redrawGlow: drawGlow, onScreen };
   // Oversized layer box (container + margin) and the viewBox that keeps the overlay's "slice" mapping.
   const layerStyle: React.CSSProperties = { position: 'absolute', left: -M, top: -M, width: box.w + 2 * M, height: box.h + 2 * M, transformOrigin: '0 0', willChange: 'transform', pointerEvents: 'none' };
   const layerVB = `${(-M - box.ox) / box.s} ${(-M - box.oy) / box.s} ${(box.w + 2 * M) / box.s} ${(box.h + 2 * M) / box.s}`;
@@ -1059,6 +1175,11 @@ export function WorldMap({
           <svg viewBox={layerVB} preserveAspectRatio="none" style={svgFill}>
             <g ref={backG}>{backdrop(ctx)}</g>
           </svg>
+        </div>
+      )}
+      {glow && (
+        <div ref={glowWrap} className="map-layer map-layer-glow" style={layerStyle}>
+          <canvas ref={glowCv} style={svgFill} />
         </div>
       )}
       <svg viewBox={`0 0 ${MAP_W} ${MAP_H}`} preserveAspectRatio="xMidYMid slice" style={svgFill}>

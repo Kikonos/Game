@@ -7,10 +7,10 @@ import { BAL } from '../core/balance';
 import { addFlight, flightsOf, ownFlightNo, touchFlights } from '../core/entities';
 import { pushMessage } from '../core/messages';
 import { typeOf } from '../core/perf';
-import { DAY, fmtDay } from '../core/time';
+import { DAY, fmtDay, fmtDayRange } from '../core/time';
 import type { ActionResult, Aircraft, Flight, GameState, Minute } from '../core/types';
 import { rerosterFrom } from '../crew';
-import { ferryCost, ferryCrewCost, ferryDays, ferryRoute, type DeliveryLeg } from './delivery';
+import { ferryCap, ferryCost, ferryCrewCost, ferryDays, ferryRoute, noFerryText, type DeliveryLeg } from './delivery';
 import { checkCostOf, disposalWhy, durationOf, groundGaps, scheduleCheck } from './maintenance';
 import { usd } from './util';
 
@@ -41,9 +41,10 @@ const addOf = (r?: 'fcrc' | 'overhead') => (r ? BAL.v073.restRefit[r].addDays : 
 const up = (t: Minute) => Math.ceil(t / 30) * 30;
 
 /** Ferry legs from → to departing `dep` (night stops on long chains); [] when already there; null: no route. */
-function ferryLegs(ac: Aircraft, from: string, to: string, dep: Minute): DeliveryLeg[] | null {
+function ferryLegs(g: GameState, ac: Aircraft, from: string, to: string, dep: Minute): DeliveryLeg[] | null {
   if (from === to) return [];
-  const r = ferryRoute(ac.typeId, from, to);
+  // v0.11 inside our ETOPS approval and the type's capability (the 60-minute rule without one).
+  const r = ferryRoute(ac.typeId, from, to, ferryCap(g, ac.typeId));
   return r ? ferryDays(r, dep, ac.typeId) : null;
 }
 /** Minutes from the first departure to the last arrival of a ferry chain. */
@@ -52,13 +53,13 @@ const span = (legs: DeliveryLeg[]) => (legs.length ? legs[legs.length - 1].sta -
 /** The whole window a hub check needs from `at`: ferry out (landing a turn before), check, ferry home. */
 function windowAt(g: GameState, ac: Aircraft, hub: string, at: string, start: Minute, restFit?: 'fcrc' | 'overhead') {
   const turn = typeOf(ac.typeId).turnMin;
-  const out0 = ferryLegs(ac, at, hub, 0);
-  const home0 = ferryLegs(ac, hub, g.company.homeBase, 0);
+  const out0 = ferryLegs(g, ac, at, hub, 0);
+  const home0 = ferryLegs(g, ac, hub, g.company.homeBase, 0);
   if (!out0 || !home0) return null;
   const outDep = start - turn - span(out0);
-  const ferryOut = ferryLegs(ac, at, hub, outDep)!;
+  const ferryOut = ferryLegs(g, ac, at, hub, outDep)!;
   const end = start + durationOf(ac, 'C') + addOf(restFit) * DAY;
-  const ferryHome = ferryLegs(ac, hub, g.company.homeBase, end + BAL.v072.cHub.homeAfterMin)!;
+  const ferryHome = ferryLegs(g, ac, hub, g.company.homeBase, end + BAL.v072.cHub.homeAfterMin)!;
   const from = ferryOut.length ? ferryOut[0].std - turn : start;
   const to = ferryHome.length ? ferryHome[ferryHome.length - 1].sta + turn : end;
   return { ferryOut, ferryHome, end, from, to };
@@ -72,7 +73,7 @@ export function cCheckSlots(g: GameState, aircraftId: string, hub: string, n = 6
   const turn = typeOf(ac.typeId).turnMin;
   // v0.7.2.2 `after`: windows from an idle gap's start (Schedule gap panel).
   for (const gp of groundGaps(g, ac, Math.max(g.now + BAL.ferryLeadMin, after), Math.max(g.now, after) + 365 * DAY)) {
-    const o = ferryLegs(ac, gp.at, hub, 0);
+    const o = ferryLegs(g, ac, gp.at, hub, 0);
     if (!o) continue;
     let start = up(Math.max(gp.from, g.now + BAL.ferryLeadMin) + turn + span(o) + turn + 30);
     for (; out.length < n; start += 7 * DAY) {
@@ -113,7 +114,7 @@ export function cCheckOptions(g: GameState, aircraftId: string, start?: Minute, 
     const at = gp?.at ?? ac.at;
     const w = windowAt(g, ac, hub.code, at, s, restFit);
     if (!w) {
-      out.push({ ...none, why: `No ferry route to ${hub.city}` });
+      out.push({ ...none, why: noFerryText(g, ac.typeId, at, hub.code) });
       continue;
     }
     const fo = ferryCost(ac.typeId, w.ferryOut, g.market.fuelPrice);
@@ -148,8 +149,8 @@ export function bookCCheck(g: GameState, aircraftId: string, hub: string, start:
   const h = cHubAt(typeOf(ac.typeId).family, hub);
   if (!h) return { ok: false, error: `${city(hub)} does not do ${typeOf(ac.typeId).short} C-checks` };
   const home = g.company.homeBase;
-  const homeR = ferryRoute(ac.typeId, hub, home);
-  if (!homeR) return { ok: false, error: `No ferry route home from ${h.city}` };
+  const homeR = ferryRoute(ac.typeId, hub, home, ferryCap(g, ac.typeId));
+  if (!homeR) return { ok: false, error: noFerryText(g, ac.typeId, hub, home) };
   // The ferry home must be clear too.
   const end = Math.round(Math.max(start, g.now)) + durationOf(ac, 'C') + addOf(restFit) * DAY;
   const homeLegs = ferryDays(homeR, end + BAL.v072.cHub.homeAfterMin, ac.typeId);
@@ -179,10 +180,10 @@ export function bookCCheck(g: GameState, aircraftId: string, hub: string, start:
   // v0.7.2.2 a check moved along the timeline: the caller posts one 'moved' message.
   if (!quiet) pushMessage(g, {
     tone: 'info', cat: 'tech', title: `C-check booked: ${ac.reg} at ${h.name}`,
-    body: `${h.name}, ${h.city}: ${fmtDay(m.start)}–${fmtDay(m.end)}${restFit ? `, plus a ${restFit === 'fcrc' ? 'flight crew rest compartment' : 'overhead crew rest'} (+${addOf(restFit)} days, ${usd(BAL.v073.restRefit[restFit].cost)})` : ''}.${out.length ? ` Ferry out ${fmtDay(out[0].std)} ${out[0].from}–${out[out.length - 1].to},` : ''} home ${legs.length ? fmtDay(legs[0].std) : fmtDay(m.end)}; the pilots fly home and back on airline flights. About ${usd(all)} all in.`,
+    body: `${h.name}, ${h.city}: ${fmtDayRange(m.start, m.end)}${restFit ? `, plus a ${restFit === 'fcrc' ? 'flight crew rest compartment' : 'overhead crew rest'} (+${addOf(restFit)} days, ${usd(BAL.v073.restRefit[restFit].cost)})` : ''}.${out.length ? ` Ferry out ${fmtDay(out[0].std)} ${out[0].from}–${out[out.length - 1].to},` : ''} home ${legs.length ? fmtDay(legs[0].std) : fmtDay(m.end)}; the pilots fly home and back on airline flights. About ${usd(all)} all in.`,
     ref: { kind: 'maint', id: m.id },
   });
-  return { ok: true, msg: `C-check at ${h.name} ${fmtDay(m.start)}–${fmtDay(m.end)}`, data: { maintId: m.id } };
+  return { ok: true, msg: `C-check at ${h.name} ${fmtDayRange(m.start, m.end)}`, data: { maintId: m.id } };
 }
 
 /** A booked hub check's ferries and the pilots' airline tickets. Pure. */

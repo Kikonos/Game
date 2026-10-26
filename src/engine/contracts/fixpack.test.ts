@@ -13,6 +13,7 @@ import { crewCanFly, generateOffer, maxPax, newcomerNarrow } from './offers';
 import { programmeOf } from './plan';
 import { isWideJob, referenceType } from './pricing';
 import { addAircraft, newGame } from './testkit';
+import { breathe } from '../../test/breathe';
 
 const KINDS: Archetype[] = [
   'seasonBase', 'aogCover', 'adhoc', 'sports', 'repatriation', 'tourSeries', 'troopRotation', 'vip',
@@ -61,7 +62,7 @@ function build(g: GameState, kind: Archetype, i: number): ContractOffer | null {
 }
 
 describe('v0.8 fix pack: seats = passengers, no impossible days (sweep)', () => {
-  it('every generated offer over seeds, dates and company states: pax ≤ seats = most pax (+6 a stretcher); every day flyable on its reference type', { timeout: 240_000 }, () => {
+  it('every generated offer over seeds, dates and company states: pax ≤ seats = most pax (+6 a stretcher); every day flyable on its reference type', { timeout: 240_000 }, async () => {
     let n = 0;
     let legsJobs = 0;
     const seen = new Set<Archetype>();
@@ -69,6 +70,7 @@ describe('v0.8 fix pack: seats = passengers, no impossible days (sweep)', () => 
       for (const state of ['newcomer', 'established', 'respected'] as State[]) {
         for (const month of [2, 6, 10]) {
           const g = setUp(seed, state, month);
+          await breathe();
           for (const kind of KINDS) {
             for (let i = 0; i < 2; i++) {
               const o = build(g, kind, i + seed);

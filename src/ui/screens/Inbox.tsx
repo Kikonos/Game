@@ -39,6 +39,10 @@ function open(g: GameState, m: Message) {
     if (g.decisions.some((d) => d.id === m.ref!.id)) store.openModal({ kind: 'decision', decisionId: m.ref.id });
     return;
   }
+  // v0.10.2 a phone call still open rings again from its Inbox line
+  if (m.ref?.kind === 'offer' && g.offers[m.ref.id]?.call && g.offers[m.ref.id].status === 'open' && g.offers[m.ref.id].expires > g.now) {
+    return store.openModal({ kind: 'offerCall', offerId: m.ref.id });
+  }
   const link = m.ref ? refTarget(g, m.ref) : null;
   if (!link) return;
   if (link.offerId) {
@@ -176,7 +180,7 @@ export function InboxScreen() {
   ];
   return (
     <div className="screen sc-inbox">
-      <ScreenHead title="Inbox" sub={`${g.decisions.length ? `${g.decisions.length} decision${g.decisions.length > 1 ? 's' : ''} waiting · ` : ''}${unread} unread`}>
+      <ScreenHead hint="inbox" title="Inbox" sub={`${g.decisions.length ? `${g.decisions.length} decision${g.decisions.length > 1 ? 's' : ''} waiting · ` : ''}${unread} unread`}>
         <button className="btn" onClick={markAll} disabled={!unread}><CheckCheck /> Mark all read</button>
       </ScreenHead>
       <ScreenHint id="inbox" />

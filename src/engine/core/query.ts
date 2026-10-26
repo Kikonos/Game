@@ -52,13 +52,27 @@ export function aircraftLive(g: GameState, ac: Aircraft, t: number): AircraftLiv
     const B = AIRPORT_BY_CODE[f.to];
     const span = Math.max(1, on - off);
     const progress = Math.min(1, Math.max(0, (t - off) / span));
-    const pos = interpolateGC(A.lon, A.lat, B.lon, B.lat, progress);
-    const ahead = interpolateGC(A.lon, A.lat, B.lon, B.lat, Math.min(1, progress + 0.01));
+    // v0.11 a diverted leg turns from its planned track at the moment it diverted.
+    const pos = f.div ? divPos(f, t) : interpolateGC(A.lon, A.lat, B.lon, B.lat, progress);
+    const ahead = f.div ? divPos(f, t + Math.max(1, span * 0.01)) : interpolateGC(A.lon, A.lat, B.lon, B.lat, Math.min(1, progress + 0.01));
     return { aircraft: ac, phase: 'airborne', pos, ahead, flight: f, progress, next: nextFlight(g, ac.id, on) };
   }
   const A = AIRPORT_BY_CODE[ac.at];
   const phase: LivePhase = ac.status === 'maintenance' ? 'maintenance' : ac.status === 'aog' ? 'aog' : ac.status === 'delivering' ? 'delivering' : 'parked';
   return { aircraft: ac, phase, pos: [A.lon, A.lat], at: ac.at, progress: 0, next: nextFlight(g, ac.id, t) };
+}
+
+/** v0.11 [lon, lat] of a diverted airborne leg at t: along the planned track until it turned, then to the alternate. */
+export function divPos(f: Flight, t: number): [number, number] {
+  const off = f.atd ?? f.std;
+  const A = AIRPORT_BY_CODE[f.from];
+  const B0 = AIRPORT_BY_CODE[f.div!.to0];
+  const B = AIRPORT_BY_CODE[f.to];
+  const k = (x: number) => Math.min(1, Math.max(0, x));
+  if (t <= f.div!.at) return interpolateGC(A.lon, A.lat, B0.lon, B0.lat, k((t - off) / Math.max(1, f.div!.eta0 - off)));
+  const P = interpolateGC(A.lon, A.lat, B0.lon, B0.lat, k((f.div!.at - off) / Math.max(1, f.div!.eta0 - off)));
+  const on = f.ata ?? f.eta ?? f.sta;
+  return interpolateGC(P[0], P[1], B.lon, B.lat, k((t - f.div!.at) / Math.max(1, on - f.div!.at)));
 }
 
 export function fleetList(g: GameState): Aircraft[] {

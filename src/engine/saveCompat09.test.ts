@@ -5,14 +5,13 @@ import { describe, expect, it } from 'vitest';
 import { DAY } from './core/time';
 import type { GameState } from './core/types';
 import { deserialize, serialize } from './save';
-import { advanceTo } from './sim';
-import { bad, fixture, play } from './fixtures/compatKit';
+import { bad, fixture, playTo } from './fixtures/compatKit';
 import { headsView } from './ops/heads';
 import { achievementsView } from './ops/achievements';
 
 describe('v0.9 load: heads, achievements, roster planning, stats (UPDATE-0.9.md §10)', () => {
   for (const name of ['v052', 'v06', 'v07', 'v071', 'v072', 'v073', 'v08']) {
-    it(`${name}: §10 defaults, heads locked or backfilled once${name === 'v08' ? ', 60 days legal, round-trip' : ''}`, () => {
+    it(`${name}: §10 defaults, heads locked or backfilled once${name === 'v08' ? ', 60 days legal, round-trip' : ''}`, async () => {
       const text = fixture(name);
       const file = JSON.parse(text) as { state: GameState };
       expect(file.state.heads).toBeUndefined();
@@ -36,11 +35,7 @@ describe('v0.9 load: heads, achievements, roster planning, stats (UPDATE-0.9.md 
       if (unlocked) expect(titles.some((t) => /department heads? (is|are) available/.test(t))).toBe(true);
       if (name !== 'v08') return;
       const ill0 = g.stats.illegalFlown ?? 0;
-      const end = g.now + 60 * DAY;
-      while (g.now < end && !g.gameOver) {
-        advanceTo(g, Math.min(end, g.now + 6 * 60), new Set());
-        play(g);
-      }
+      await playTo(g, g.now + 60 * DAY);
       expect(g.gameOver).toBeNull();
       expect(g.stats.illegalFlown ?? 0).toBe(ill0);
       expect(bad(g)).toEqual([]);

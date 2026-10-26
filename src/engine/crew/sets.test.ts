@@ -67,7 +67,8 @@ describe('crewPlan', () => {
     const g = twoA320();
     addCrew(g, { CPT: 10, FO: 9, PUR: 10, CC: 28 });
     const p = a320(g);
-    expect(roundTargets(p)).toEqual({ complete: 10, next: 11 });
+    // every role in whole sets: nothing to round up beyond completing the 10 (a spare set is its own choice)
+    expect(roundTargets(p)).toEqual({ complete: 10, next: null, spare: 11 });
     expect(roundUpRoles(p, 10)).toEqual([{ role: 'FO', count: 1 }, { role: 'CC', count: 2 }]);
     expect(roundUpRoles(p, 11)).toEqual([{ role: 'CPT', count: 1 }, { role: 'FO', count: 2 }, { role: 'PUR', count: 1 }, { role: 'CC', count: 5 }]);
     const q = roundUpQuote(g, p, 10);
@@ -105,6 +106,72 @@ describe('crewPlan', () => {
     expect(total).toBe(54);
     // the widebody set: its cabin crew follow its seats
     expect(wide.types[0].set.CC! + wide.types[0].set.PUR!).toBeGreaterThanOrEqual(6);
+  });
+});
+
+// v0.11 fix: multi-type crew count first in the family they were hired for; Round up reaches zero after one press.
+describe('round up with cabin crew on two types', () => {
+  /** Two A320s fully crewed but 6 CC short, and an A330 with no cabin crew (short everywhere). */
+  const mixed = () => {
+    const g = twoA320();
+    addCrew(g, { CPT: 10, FO: 10, PUR: 10, CC: 24 });
+    addAircraft(g, 'a332');
+    addCrew(g, { CPT: 5, FO: 5, PUR: 5, CC: 10 }, 'A330/340');
+    g.company.cash = 50_000_000;
+    return g;
+  };
+  const fam = (g: GameState, f: string) => crewPlan(g).find((p) => p.family === f)!;
+  const cc = (g: GameState, f: string) => fam(g, f).roles.find((r) => r.role === 'CC')!;
+
+  it('round up twice in a row: the second quote is empty and the button has nothing to offer', () => {
+    const g = mixed();
+    const p = a320(g);
+    expect(roundTargets(p).complete).toBe(10);
+    const q = roundUpQuote(g, p, 10, ['A320', 'A330/340']);
+    expect(q.lines.map((l) => [l.req.role, l.req.count, l.req.families])).toEqual([['CC', 6, ['A320', 'A330/340']]]);
+    const r = hireBatch(g, q.lines.map((l) => l.req));
+    if (!r.ok) throw new Error(r.error);
+    // the dual-rated hires count in the family they were hired for, not the widebody's (larger) shortfall
+    const after = a320(g);
+    expect(after.setsComplete).toBe(10);
+    expect(cc(g, 'A320')).toMatchObject({ have: 30, joining: 6, shared: 6 });
+    expect(cc(g, 'A330/340').have).toBe(10);
+    expect(roundTargets(after)).toMatchObject({ complete: null, next: null });
+    expect(roundUpQuote(g, after, after.setsNeeded, ['A320', 'A330/340']).lines).toEqual([]);
+    // the flexibility, shown on both cards and never counted twice
+    expect(after.alsoRated).toEqual([{ family: 'A330/340', label: 'A330/A340', cabin: 6, pilots: 0 }]);
+    expect(fam(g, 'A330/340').backupFrom).toEqual([{ family: 'A320', label: 'A320 family', cabin: 6, pilots: 0 }]);
+    expect(fam(g, 'A330/340').alsoRated).toEqual([]);
+  });
+
+  it('spill-over: crew beyond their home family\'s need fill another family\'s shortfall, else stay home', () => {
+    const g = mixed();
+    addCrew(g, { CC: 6 });
+    // home full: 4 more A320 cabin crew who also hold the A330 go where they are needed
+    const extra = addCrew(g, { CC: 4 });
+    for (const id of extra) g.crew[id].ratings = ['A320', 'A330/340'];
+    expect(cc(g, 'A320')).toMatchObject({ have: 30, shared: 0 });
+    expect(cc(g, 'A330/340')).toMatchObject({ have: 14, shared: 4 });
+    // nobody short anywhere: the spare ones stay in their home family
+    addCrew(g, { CC: 40 }, 'A330/340');
+    expect(cc(g, 'A320')).toMatchObject({ have: 34, shared: 4 });
+    // a home family under its need takes its own back first
+    for (const id of Object.keys(g.crew).filter((id) => g.crew[id].role === 'CC' && g.crew[id].ratings.length === 1 && g.crew[id].ratings[0] === 'A320').slice(0, 3)) delete g.crew[id];
+    expect(cc(g, 'A320')).toMatchObject({ have: 31, shared: 4 });
+  });
+
+  it('single-type crew (old saves): each counted in their one family, exactly as before', () => {
+    const g = mixed();
+    const plans = crewPlan(g);
+    for (const p of plans) {
+      for (const r of p.roles) {
+        const n = Object.values(g.crew).filter((c) => !c.notice && c.role === r.role && c.ratings[0] === p.family).length;
+        expect(r.have, `${p.family} ${r.role}`).toBe(n);
+        expect(r.shared).toBe(0);
+      }
+      expect(p.alsoRated).toEqual([]);
+      expect(p.backupFrom).toEqual([]);
+    }
   });
 });
 

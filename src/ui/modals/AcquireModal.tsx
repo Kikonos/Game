@@ -3,13 +3,16 @@
 // conditions and warnings (gate pending, rated pilots, cash after signing). Signing runs acquireAircraft.
 
 import { AlertTriangle, ShoppingCart } from 'lucide-react';
+import { useState } from 'react';
 import { artFor } from '../../data/acmiTypes';
 import { enginesOf, variantOf } from '../../data/variants';
 import { AIRPORT_BY_CODE } from '../../data/airports';
+import { COUNTRIES } from '../../data/countries';
 import { MARKET_LIVERY } from '../../data/livery';
 import { typeOf } from '../../engine/core/perf';
-import { fmtDay, fmtDuration, fmtTime } from '../../engine/core/time';
-import { acquireAircraft, marketView } from '../../engine/ops';
+import { DAY, fmtDay, fmtDuration, fmtTime } from '../../engine/core/time';
+import { acquireAircraft, checkRegistration, cleanRegInput, deliveryQuote, marketView, NAME_MAX, problemFor, regCountry, suggestRegistration, type DeliveryQuote, type ProblemAction } from '../../engine/ops';
+import { ProblemCardView, runAction } from '../components/ProblemCard';
 import { AircraftArt } from '../components/AircraftArt';
 import { Modal } from '../components/ui';
 import { money } from '../format';
@@ -20,11 +23,19 @@ import { offerKind, sellerOf } from '../screens/screenLogic';
 import { store, useGame } from '../store';
 
 const city = (code: string) => AIRPORT_BY_CODE[code]?.city ?? code;
+const regName = (g: ReturnType<typeof useGame>) => COUNTRIES[regCountry(g)]?.name ?? 'national';
 
 export function AcquireModal({ offerId }: { offerId: string }) {
   const g = useGame();
   const v = marketView(g).find((x) => x.offer.id === offerId);
   const close = () => store.closeModal();
+  // v0.10.2 the registration (the registry's prefix fixed, the rest typed; pre-filled with a free one) and a name
+  const prefix = g.company.regPrefix;
+  const [regIn, setRegIn] = useState(() => suggestRegistration(g, offerId).slice(prefix.length));
+  const [acName, setAcName] = useState('');
+  // v0.11 no legal ferry home (ETOPS): how it gets here instead (a handover on this side, or a ferry company).
+  const [via, setVia] = useState<'thisSide' | 'ferryCo' | null>(null);
+  const reg = checkRegistration(g, regIn);
   if (!v) {
     return (
       <Modal title="Offer gone" icon={<ShoppingCart className="accent" />} onClose={close} footer={<button className="btn" onClick={close}>Close</button>}>
@@ -34,15 +45,24 @@ export function AcquireModal({ offerId }: { offerId: string }) {
   }
   const o = v.offer;
   const t = typeOf(o.typeId);
-  const q = v.quote;
+  const blk = v.quote.blocked ?? null;
+  const way = blk && via === 'thisSide' && !blk.thisSide ? null : blk ? via : null;
+  const fee = !blk || !way ? 0 : way === 'ferryCo' ? blk.ferryCo.fee : blk.thisSide!.fee;
+  // The plan shown: ours from the site on this side, or none (the ferry company lands it at our base).
+  const q: DeliveryQuote = !blk || !way ? v.quote
+    : way === 'thisSide' ? deliveryQuote(g, o.typeId, blk.thisSide!.site, v.quote.handover + blk.thisSide!.days * DAY, blk.thisSide!.where)
+    : { ...deliveryQuote(g, o.typeId, g.company.homeBase, blk.ferryCo.homeBy), where: 'flown in by a ferry company' };
+  const card = blk ? problemFor(g, { kind: 'noFerry', ref: { kind: 'market', id: o.id } }) : null;
+  const pickWay = (a: ProblemAction) => (a.id === 'thisSide' || a.id === 'ferryCo' ? setVia(a.id) : runAction(g, a));
   const lease = o.kind === 'dryLeaseIn';
-  const now = lease ? o.deposit : o.price;
+  const now = (lease ? o.deposit : o.price) + fee;
   const after = g.company.cash - now;
   // The engine refuses below the deposit (a buy's deposit is the price).
-  const short = g.company.cash < o.deposit;
-  const blocker = !v.gate.ok ? 'Approval needed first' : short ? `Needs ${money(o.deposit)} · ${money(g.company.cash)} cash` : null;
+  const short = g.company.cash < o.deposit + fee;
+  const blocker = !v.gate.ok ? 'Approval needed first' : blk && !way ? 'No legal ferry home: choose how it gets here' : short ? `Needs ${money(o.deposit + fee)} · ${money(g.company.cash)} cash` : !reg.ok ? `Registration: ${reg.reason}` : null;
   const sign = () => {
-    const res = store.act((gg) => acquireAircraft(gg, o.id));
+    if (!reg.ok) return;
+    const res = store.act((gg) => acquireAircraft(gg, o.id, { reg: reg.reg, name: acName, ...(way ? { delivery: way } : {}) }));
     if (!res.ok) return;
     close();
     store.navigate('fleet', { sel: { kind: 'aircraft', id: res.data!.aircraftId } });
@@ -56,8 +76,10 @@ export function AcquireModal({ offerId }: { offerId: string }) {
   const label = lease ? `${o.newBuild ? 'Sign new-build lease' : 'Sign lease'} · ${money(o.deposit)} deposit` : `Buy · ${money(o.price)}`;
   // In time order (the pilots arrive after the handover, for the ferry); the airline itinerary is an estimate.
   const steps: { k: string; t: number; title: string; sub?: string; tone?: string }[] = [
-    { k: 'sign', t: g.now, title: `Sign today, ${fmtDay(g.now)}`, sub: lease ? `Deposit ${money(o.deposit)} now` : `${money(o.price)} now` },
+    { k: 'sign', t: g.now, title: `Sign today, ${fmtDay(g.now)}`, sub: `${lease ? `Deposit ${money(o.deposit)}` : money(o.price)}${fee ? ` + ${money(fee)} ${way === 'ferryCo' ? 'ferry company' : 'seller\'s ferry'}` : ''} now` },
   ];
+  if (way === 'ferryCo') steps.push({ k: 'co', t: v.quote.handover, title: `A ferry company flies it from ${city(v.quote.site)} · ${dayIn(g.now, v.quote.handover)}`, sub: `Under its own ETOPS approval, the usual way (${blk!.usual})` });
+  if (way === 'thisSide') steps.push({ k: 'seller', t: v.quote.handover, title: `The seller ferries it from ${city(v.quote.site)} to ${city(q.site)}`, sub: `Under its own ETOPS approval, the usual way` });
   const dh = q.deadhead;
   if (dh.length) steps.push({
     k: 'dh', t: dh[0].dep, title: `Pilots fly out on airlines · ${dayIn(g.now, dh[0].dep)}`,
@@ -65,7 +87,7 @@ export function AcquireModal({ offerId }: { offerId: string }) {
   });
   steps.push({
     k: 'hand', t: q.handover, title: `Handover at ${site} · ${dayIn(g.now, q.handover)}`,
-    sub: q.legs.length ? `${lease ? 'Lessor' : 'Seller'} acceptance: inspection, records and test flight (36 h)` : 'At our base: no ferry',
+    sub: q.legs.length ? `${lease ? 'Lessor' : 'Seller'} acceptance: inspection, records and test flight (36 h)` : blk && !way ? 'No legal ferry home from there' : 'At our base: no ferry',
   });
   q.legs.forEach((l, i) => steps.push({
     k: `leg${i}`, t: l.std, title: `Ferry ${l.from}–${l.to} · ${dayIn(g.now, l.std)} ${fmtTime(l.std, l.from)} local`, sub: `${fmtDuration(l.block)} block${l.nightStopAfter ? ` · night stop at ${city(l.to)}` : ''}`,
@@ -95,6 +117,12 @@ export function AcquireModal({ offerId }: { offerId: string }) {
           <RestTwoLiner g={g} rest={offerRest(v)} typeId={o.typeId} />
         </div>
       </div>
+      {card && (
+        <div className="mt-12 mb-8 aq-noferry">
+          <ProblemCardView card={card} g={g} onAction={pickWay} />
+          {way && <div className="small muted mt-8">Chosen: {way === 'ferryCo' ? `a ferry company flies it to ${city(g.company.homeBase)} (home ~${dayIn(g.now, q.handover)})` : `handover at ${city(q.site)} on ${dayIn(g.now, q.handover)}, then our own ferry home`}. <button className="btn btn-ghost btn-sm" onClick={() => setVia(null)}>Change</button></div>}
+        </div>
+      )}
       <div className="aq-cols">
         <div className="col gap-8" style={{ minWidth: 0 }}>
           <div className="upper dim">Delivery plan</div>
@@ -110,13 +138,36 @@ export function AcquireModal({ offerId }: { offerId: string }) {
         <div className="col gap-8" style={{ minWidth: 0 }}>
           <div className="upper dim">Costs</div>
           <KV rows={[
-            [lease ? 'Deposit now' : 'Price now', money(now)],
-            ...(lease ? [['Rent from handover', `${money(o.rentPerMonth)}/month × ${o.leaseMonths}`], ['Reserves', `$${o.reservesPerFH.toLocaleString('en-US')}/FH`]] as [string, string][] : []),
+            [lease ? 'Deposit now' : 'Price now', money(now - fee)],
+            ...(lease ? [['Rent from handover', `${money(o.rentPerMonth)}/month × ${o.leaseMonths} months`], ['Reserves', `$${o.reservesPerFH.toLocaleString('en-US')}/FH`]] as [string, string][] : []),
             ...(q.legs.length ? [['Delivery ferry', `≈ ${money(q.fuel + q.fees)} fuel & fees`], ['Delivery crew', `≈ ${money(q.crew)} tickets, hotels`]] as [string, string][] : []),
+            ...(fee ? [[way === 'ferryCo' ? 'Ferry company' : 'Seller\'s ferry', `${money(fee)} at signing`]] as [string, string][] : []),
             ['Cash after signing', money(after)],
           ]} />
           {v.returnText && <div className="small muted">{v.returnText}; repaint white.</div>}
           <div className="tiny dim">Offer open {v.daysLeft} more day{v.daysLeft === 1 ? '' : 's'}.</div>
+        </div>
+      </div>
+      <div className="aq-reg mt-12">
+        <div className="field">
+          <label htmlFor="aq-reg-in">Registration</label>
+          <div className={`aq-reg-box ${reg.ok ? '' : 'bad'}`}>
+            <span className="aq-reg-prefix mono" aria-hidden>{prefix}</span>
+            <input
+              id="aq-reg-in" className="input mono" value={regIn} inputMode="text" autoCapitalize="characters" autoCorrect="off" autoComplete="off" spellCheck={false}
+              aria-label={`Registration after ${prefix}`} aria-invalid={!reg.ok} aria-describedby="aq-reg-why"
+              onChange={(e) => setRegIn(cleanRegInput(prefix, e.target.value, regCountry(g)))}
+            />
+          </div>
+          <span id="aq-reg-why" className={`tiny ${reg.ok ? 'dim' : 'bad'}`}>{reg.ok ? `${reg.reg} · on the ${regName(g)} register` : reg.reason}</span>
+        </div>
+        <div className="field">
+          <label htmlFor="aq-name-in">Name <span className="dim">(optional)</span></label>
+          <input
+            id="aq-name-in" className="input" value={acName} maxLength={NAME_MAX} placeholder="e.g. Vasco da Gama" autoCorrect="off" autoComplete="off" spellCheck={false}
+            onChange={(e) => setAcName(e.target.value.slice(0, NAME_MAX))}
+          />
+          <span className="tiny dim">Painted under the cockpit windows</span>
         </div>
       </div>
       {warns.length > 0 && (

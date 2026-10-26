@@ -21,7 +21,9 @@ export type TermId =
   /** v0.9 */
   | 'outOfHours' | 'slipCrew' | 'departmentHead' | 'jumboLoad' | 'fuelAtCost'
   /** v0.10 */
-  | 'exitLimit' | 'newBuildSlot' | 'cabinMinimum' | 'crewSeats';
+  | 'exitLimit' | 'newBuildSlot' | 'cabinMinimum' | 'crewSeats'
+  /** v0.10.2 */
+  | 'techReliability' | 'etopsMx';
 
 export interface GlossaryEntry {
   term: string;
@@ -84,7 +86,7 @@ export const GLOSSARY: Record<TermId, GlossaryEntry> = {
   tzRest: { term: 'Time-zone rest', short: 'After a trip 4 or more time zones away: 2–5 local nights at home before the next duty.', where: { tab: 'crew', view: 'board' } },
   twoDays: { term: 'Two-day weekend', short: 'Twice a month the weekly rest is 2 whole local days.', where: { tab: 'crew', view: 'board' } },
   // v0.8
-  relationLevel: { term: 'Relationship level', short: 'How well a client knows us: New, Known, Trusted, Partner (or Unhappy). Higher levels pay better, ask us first and forgive a small delay.', where: { tab: 'company', view: 'clients' } },
+  relationLevel: { term: 'Relationship level', short: 'How well a client knows us: New, Known, Trusted, Partner (or Unhappy). Higher levels pay better, ask us first and forgive a small delay.', where: { tab: 'contracts', view: 'clients' } },
   standing: { term: 'Standing', short: 'How the market sees our company: a Newcomer gets the short, cheap work; Established and Respected operators get the rest.', where: { tab: 'company' } },
   firstRefusal: { term: 'First refusal', short: 'The client asks us before any rival: the offer stays ours until it expires.', where: { tab: 'contracts' } },
   hajj: { term: 'Hajj', short: 'The yearly pilgrimage to Mecca: weeks of full flights to Jeddah and Medina, then home again; every other leg flies empty.', where: { tab: 'contracts' } },
@@ -118,6 +120,8 @@ export const GLOSSARY: Record<TermId, GlossaryEntry> = {
   exitLimit: { term: 'Exit limit', short: 'The most seats an aircraft may carry, set by its emergency exits. An A321neo with overwing exits takes 244, one with four pairs of doors 230.', where: { tab: 'fleet' } },
   cabinMinimum: { term: 'Cabin crew minimum', short: 'The legal least: the number the type was certified with for its exits and seats (an A330 or A340: 8, and 9 above 400 seats), or one per 50 seats on each deck if that is more.', where: { tab: 'fleet' } },
   crewSeats: { term: 'Crew seats', short: 'The jump seats for the cabin crew. Crew beyond them sit in passenger seats, which cannot be sold.', where: { tab: 'fleet' } },
+  techReliability: { term: 'Technical reliability', short: 'The share of our flights that left on time (at most 15 min late) and were not cancelled for a technical fault. A spare aircraft or a sub-charter that gets the flight away on time counts as on time. The big approvals ask for 97 to 98.5 %.', where: { tab: 'company' } },
+  etopsMx: { term: 'ETOPS maintenance programme', short: 'Extra maintenance rules for flying far from an airport: engine and oil watch, trained engineers, approved parts. Set up once on the Ladder; ETOPS 120, 180 and 240 all use it.', where: { tab: 'company' } },
   newBuildSlot: { term: 'New-build slot', short: 'A brand-new aircraft from the factory, leased before it is built. Months of waiting and the highest rent.', where: { tab: 'fleet' } },
 };
 
@@ -125,7 +129,7 @@ export const GLOSSARY: Record<TermId, GlossaryEntry> = {
 export const TERM_WORDS: [string, TermId][] = [
   ['FDP', 'fdp'], ['deadhead', 'deadhead'], ['positioning', 'positioning'], ['tight', 'tight'], ['discretion', 'discretion'], ['ACMI', 'acmi'],
   ['wet lease', 'wetLease'], ['sub-charter', 'subcharter'], ['AOG', 'aog'], ['standby', 'standby'], ['rest', 'rest'], ['block hours', 'blockHours'],
-  ['MGH', 'mgh'], ['ferry', 'ferry'], ['augmented', 'augmented'], ['ETOPS', 'etops'], ['A-check', 'aCheck'], ['C-check', 'cCheck'], ['per diem', 'perDiem'],
+  ['MGH', 'mgh'], ['ferry', 'ferry'], ['augmented', 'augmented'], ['ETOPS maintenance programme', 'etopsMx'], ['technical reliability', 'techReliability'], ['ETOPS', 'etops'], ['A-check', 'aCheck'], ['C-check', 'cCheck'], ['per diem', 'perDiem'],
   ['weekly rest', 'recovery'], ['private jet', 'privateJet'],
   ['purser', 'pur'], ['crew rest seats', 'restSeats'], ['crew rest', 'crewRest'], ['class 1 rest', 'restClass1'], ['class 3 rest', 'restClass3'], ['MRO', 'mro'],
   ['dry lease', 'dryLease'], ['market value', 'marketValue'], ['early return', 'earlyReturn'],

@@ -123,7 +123,7 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
   const type = flightType(g, f);
   const aboard = flightCrewAboard(g, f);
   const rows: [ReactNode, ReactNode][] = [
-    ['Aircraft', rival ? `Sub-chartered to ${rival}` : ac ? `${ac.reg}` : '—'],
+    ['Aircraft', rival ? `Sub-chartered to ${rival}` : ac ? `${ac.reg}${ac.name ? ` · ${ac.name}` : ''}` : '—'],
     ['Type', <span className="row gap-8 sc-ft-row"><FlightTypeChip type={type} />{f.kind === 'techstop' && <span className="small muted">fuel stop</span>}</span>],
     ['Status', `${STATUS[f.status]}${f.delay ? ` · ${fmtDuration(f.delay)} late${f.delayReason ? ` (${f.delayReason})` : ''}` : ''}`],
     ['Departs', both(f.atd ?? f.std + f.delay, f.from)],
@@ -241,7 +241,7 @@ function PaintDetail({ g, m }: { g: GameState; m: MaintenanceEvent }) {
   return (
     <div className="col gap-12">
       <KV rows={[
-        ['Aircraft', ac?.reg ?? '—'],
+        ['Aircraft', ac ? `${ac.reg}${ac.name ? ` · ${ac.name}` : ''}` : '—'],
         ['Work', what],
         ['Paint shop', `${m.at} · ${AIRPORT_BY_CODE[m.at]?.city ?? ''}`],
         ['From', `${fmtDateTime(m.start)} UTC`],
@@ -267,7 +267,7 @@ function MaintDetail({ g, m }: { g: GameState; m: MaintenanceEvent }) {
   return (
     <div className="col gap-12">
       <KV rows={[
-        ['Aircraft', ac?.reg ?? '—'],
+        ['Aircraft', ac ? `${ac.reg}${ac.name ? ` · ${ac.name}` : ''}` : '—'],
         ['Where', `${m.at} · ${AIRPORT_BY_CODE[m.at]?.city ?? ''}`],
         ['From', `${fmtDateTime(m.start)} UTC`],
         ['To', `${fmtDateTime(m.end)} UTC (${durLabel(m.end - m.start)})`],

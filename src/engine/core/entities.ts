@@ -1,6 +1,7 @@
 // Ids, entity creation helpers shared by all modules, and runtime indexes (not saved).
 
 import { schedule } from './queue';
+import { noteTechCancel } from './techLog';
 import type { Flight, FlightKind, GameState, Minute } from './types';
 
 export function nextId(g: GameState, prefix: string): string {
@@ -101,7 +102,9 @@ export function flightsOf(g: GameState, aircraftId: string): Flight[] {
       if (!list) ix.byAircraft.set(f.aircraftId, (list = []));
       list.push(f);
     }
-    for (const list of ix.byAircraft.values()) list.sort((a, b) => a.std - b.std || (a.id < b.id ? -1 : 1));
+    // Debug round (26 Oct 2026): legs leaving at the same minute in chain order (the shorter first: an empty move into
+    // the next departure's airport sorted after it by id, so a delay of that departure pushed its own inbound behind it).
+    for (const list of ix.byAircraft.values()) list.sort((a, b) => a.std - b.std || a.sta - b.sta || (a.id < b.id ? -1 : 1));
     ix.builtRev = ix.flightsRev;
   }
   return ix.byAircraft.get(aircraftId) ?? [];
@@ -195,6 +198,8 @@ export function retimeFlight(g: GameState, f: Flight, std: Minute, sta: Minute):
 }
 
 export function cancelFlight(g: GameState, f: Flight, reason?: string): void {
+  // v0.10.2 a revenue leg cancelled for a technical reason is a technical dispatch failure.
+  if (f.status === 'scheduled') noteTechCancel(g, f, reason);
   markFlightsChanged(g, f.aircraftId, f.std);
   f.status = 'cancelled';
   f.delayReason = reason ?? f.delayReason;

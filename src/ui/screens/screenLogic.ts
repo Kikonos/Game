@@ -218,12 +218,13 @@ export const LEDGER_LABEL: Record<LedgerCat, string> = {
   insurance: 'Insurance', overhead: 'Overhead', training: 'Training', hiring: 'Hiring', penalties: 'Penalties', subcharter: 'Sub-charter',
   approvals: 'Approvals', interest: 'Interest', capex: 'Aircraft purchases', assetSale: 'Asset sales', paint: 'Paint & livery',
   refit: 'Cabin refits', leaseReturn: 'Lease returns', leaseIncome: 'Lease income', warRisk: 'War-risk cover',
+  disruption: 'Disruptions', compliance: 'Safety & compliance', delivery: 'Ferry companies',
 };
 
 const REVENUE: LedgerCat[] = ['acmiRevenue', 'charterRevenue', 'otherRevenue', /** v0.8 */ 'leaseIncome', 'assetSale'];
 const COSTS: LedgerCat[] = [
   'fuel', 'airportFees', 'rent', 'reserves', 'salaries', 'perDiem', 'hotels', 'deadhead', 'maintenance', 'checks', 'paint', 'insurance', 'overhead',
-  'training', 'hiring', 'penalties', 'subcharter', 'approvals', 'interest', 'capex', 'refit', 'leaseReturn', /** v0.8 */ 'warRisk',
+  'training', 'hiring', 'penalties', 'subcharter', 'approvals', 'interest', 'capex', 'refit', 'leaseReturn', /** v0.8 */ 'warRisk', /** v0.11 */ 'disruption', 'compliance', 'delivery',
 ];
 
 export interface StatementRow {
@@ -316,7 +317,7 @@ export function refTarget(g: GameState, ref: Ref): DeepLink | null {
       return { tab: 'fleet', view: 'market', sel: ref };
     // v0.8: a client / rival opens its pane on Company; a world event its pin on the map.
     case 'client':
-      return { tab: 'company', view: 'clients', sel: ref };
+      return { tab: 'contracts', view: 'clients', sel: ref };
     case 'rival':
       return { tab: 'company', view: 'rivals', sel: ref };
     case 'event':

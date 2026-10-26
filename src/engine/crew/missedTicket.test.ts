@@ -98,10 +98,13 @@ describe('v0.10.1 a ticket out the crew member never boards', () => {
     f0.crewTries = 1;
     run(g, f0.std + 90);
     expect(f0.delayReason ?? '').not.toMatch(/rescue crew/);
-    const d = g.duties[f0.dutyId!];
-    expect(g.pairings[d.pairingId]?.slots.some((s) => s.crewId === fo) ?? false).toBe(false);
-    // Refilled at the gate and away within the hour, or the player is asked now.
-    if (f0.status !== 'scheduled') expect(f0.atd!).toBeLessThan(f0.std + 60);
-    else expect(g.decisions.some((x) => x.kind === 'crewShort' && x.ref?.id === f0.id) || g.messages.some((m) => m.ref?.id === f0.id && /Crew short/.test(m.title))).toBe(true);
+    // Off the trip (its duty may be gone too: the player's answer, or its default after the hour, can cancel the legs).
+    expect(f0.crewIds).not.toContain(fo);
+    const d = f0.dutyId ? g.duties[f0.dutyId] : undefined;
+    expect(d ? (g.pairings[d.pairingId]?.slots.some((s) => s.crewId === fo) ?? false) : false).toBe(false);
+    // Refilled at the gate and away within the hour, or the player was asked at the gate (the crew-short card).
+    const asked = g.decisions.some((x) => x.kind === 'crewShort' && x.ref?.id === f0.id) || g.messages.some((m) => m.ref?.id === f0.id && /Crew short/.test(m.title));
+    if (f0.atd !== undefined) expect(f0.atd).toBeLessThan(f0.std + 60);
+    else expect(asked).toBe(true);
   });
 });

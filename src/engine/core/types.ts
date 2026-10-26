@@ -117,6 +117,8 @@ export interface LiveryReg {
   at?: 'fin';
   /** The fleet number (the registration's last letters or digits) at the top of the fin. */
   fleet?: boolean;
+  /** v0.10.2 the aircraft's name (when it has one) not painted under the cockpit windows. */
+  noName?: boolean;
   /** Omitted = auto ink. */
   color?: string;
 }
@@ -216,6 +218,8 @@ export interface Company {
   reputation: Reputation;
   approvals: ApprovalId[];
   pendingApprovals: PendingApproval[];
+  /** v0.10.2 the ETOPS maintenance programme (a one-off CAMO set-up the ETOPS approvals need): started, ready, paid; `held` once done. Older saves: not set up. */
+  etopsMx?: { started: Minute; done: Minute; cost: number; held?: true };
   policies: Policies;
   departments: Department[];
   /** Next numeric flight number for own-designator flights. */
@@ -544,6 +548,8 @@ export interface ContractOffer {
   rivalBid?: { rivalId: string; at: Minute; factor: number; why: string };
   /** v0.8 a Trusted/Partner client asked us first (+48 h, no rival bid). */
   firstRefusal?: boolean;
+  /** v0.10.2 urgent and high-paying: it came as a phone call (contracts/call.ts). */
+  call?: true;
   /** v0.8 repeat business: the contract it repeats. */
   repeatOf?: string;
   /** v0.8 the player opened or countered it (markOfferSeen): a rival win is announced. */
@@ -788,7 +794,21 @@ export interface Flight {
   warRisk?: number;
   /** v0.8 insurers withdrew war-risk cover: asked (the decision is open), or 'wait' (asked again in a day). */
   uninsured?: 'asked' | 'wait' | 'ok';
+  /** v0.10.2 a technical cause hit this leg (a technical delay, the aircraft AOG or in an overrunning check, grounded): technical dispatch reliability. */
+  tech?: true;
+  /** v0.11 Operations: diverted en route (ops/disrupt.ts): the planned destination, when and why it turned, the eta it had. */
+  div?: { to0: string; at: Minute; eta0: Minute; cause: DisruptCause };
+  /** v0.11 the leg that carries on to the planned destination after a diversion (its id on the diverted leg, and back). */
+  contOf?: string;
+  /** v0.11 a disruption already rolled or decided for this leg (one card per leg at most). */
+  ops?: DisruptKind;
+  /** v0.11 one cabin crew short under ORO.CC.100 (unforeseen: fewer passengers, a report to the authority). */
+  reducedCabin?: number;
 }
+
+/** v0.11 the live disruption cards (ops/disrupt.ts). */
+export type DisruptKind = 'ctot' | 'diversion' | 'medical' | 'birdStrike' | 'sickAway' | 'curfew' | 'turnaround';
+export type DisruptCause = 'weather' | 'medical' | 'technical';
 
 /** v0.7.1 private-jet charter classes (data/jets.ts). */
 export type JetClass = 'light' | 'midsize' | 'heavy';
@@ -805,6 +825,8 @@ export type ProblemKind =
   /** v0.9 round 4 (§S): cash below zero, the day it happens. */
   | 'cashNegative'
   | 'deliveryWait' | 'ferryUncrewed' | 'refit' | 'leaseReturn'
+  /** v0.11 a market offer we may not ferry home (ETOPS): told before signing, never posted. */
+  | 'noFerry'
   /** v0.7.2 */
   | 'restSeats' | 'captainAsFo' | 'sale'
   /** v0.7.3 */
@@ -812,7 +834,9 @@ export type ProblemKind =
   /** v0.8 */
   | 'clientUnhappy' | 'lostToRival' | 'airspaceClosed' | 'uninsurable' | 'leaseLate' | 'leaseDamage' | 'dryLeaseInfo'
   /** v0.9 crew out of hours (a named crew member at a legal limit). */
-  | 'crewHours';
+  | 'crewHours'
+  /** v0.11 Operations: a live disruption (its decision), a ramp inspection finding, an authority audit finding. */
+  | 'disruption' | 'rampFinding' | 'auditFinding';
 
 /** v0.7.1 what a card is about: the entity (as a message Ref) plus the kind. */
 export interface ProblemRef { kind: ProblemKind; ref: Ref }
@@ -1137,7 +1161,9 @@ export interface Ref {
     /** v0.8 */
     | 'client' | 'rival' | 'event'
     /** v0.9 a department head (Company › Team); v0.9 round 4 a receivable (Finance) for credit control's notes. */
-    | 'head' | 'receivable';
+    | 'head' | 'receivable'
+    /** v0.11 a ramp inspection, an audit finding (Company › Safety). */
+    | 'ramp' | 'audit';
   id: string;
 }
 
@@ -1198,7 +1224,11 @@ export type LedgerCat =
   /** v0.7.1: private jets chartered to position crew. */
   | 'crewJet'
   /** v0.8: dry lease out rent and reserves; war-risk insurance per landing. */
-  | 'leaseIncome' | 'warRisk';
+  | 'leaseIncome' | 'warRisk'
+  /** v0.11 Operations: diversions (handling, passenger care, hotels), extra handling, ramp fixes, audit corrective actions. */
+  | 'disruption' | 'compliance'
+  /** v0.11 a ferry company (or the seller) delivering an aircraft we may not ferry ourselves (ETOPS). */
+  | 'delivery';
 
 export interface MonthStatement {
   month: MonthKey;
@@ -1356,7 +1386,9 @@ export type SimEventType =
   /** v0.7.2: an agreed aircraft sale closes (ops/sale.ts). */
   | 'aircraft.sale'
   /** v0.8: a rival's bid lands; a world event starts / ends; a dry lease starts / is collected. */
-  | 'rival.bid' | 'world.start' | 'world.end' | 'lease.out' | 'lease.back';
+  | 'rival.bid' | 'world.start' | 'world.end' | 'lease.out' | 'lease.back'
+  /** v0.11 Operations: a timed disruption (mid-flight diversion, a sick call at the hotel). */
+  | 'ops.event';
 
 export interface SimEvent {
   t: Minute;
@@ -1413,7 +1445,10 @@ export interface Stats {
   ratedHires?: [Minute, string, number][];
   /** v0.6: required seats an on-board spare took over this month (reset by the monthly morale line). */
   sparesCovered?: number;
-  /** v0.7: illegal-crew and AOG incidents (pruned after 365 days; the Ladder's clean record). */
+  /** v0.10.2 technical dispatch reliability by day (day number → [revenue departures, technical failures: off > 15 min
+   *  late or cancelled for a technical reason]); 366 days kept. Older saves: seeded at load from onTimeM and the AOGs. */
+  techDisp?: Record<number, [number, number]>;
+  /** v0.7: illegal-crew and AOG incidents (pruned after 365 days; the Ladder's illegal-duty check). */
   incidents?: [Minute, 'illegalCrew' | 'aog'][];
   /** v0.7: deliveries, days delivery ferries waited for pilots, refits, lease returns and extensions, authority findings. */
   deliveries?: number;
@@ -1613,6 +1648,10 @@ export interface GameState {
   world?: { events: WorldEvent[]; lastKind?: Partial<Record<WorldEventKind, Minute>> };
   /** v0.9 department heads (ops/heads.ts). load: ??= all locked */
   heads?: Record<HeadId, Head>;
+  /** v0.11 the event director (ops/director.ts): busy and quiet spells. load: ??= a fresh director (Normal pace). */
+  director?: DirectorState;
+  /** v0.11 Operations: disruptions, ramp inspections and the yearly audit (ops/ramp.ts, ops/audit.ts). load: ??= opsDefaults */
+  opsx?: OpsState;
   /** v0.9 achievements earned: id → when. load: ??= {} then a silent backfill */
   achievements?: Record<string, Minute>;
   /**
@@ -1631,3 +1670,93 @@ export interface GameState {
 
 /** Result of a player action (store.act toasts the error or message). */
 export type ActionResult<T = undefined> = { ok: true; msg?: string; data?: T } | { ok: false; error: string };
+
+// ======================================================================
+// v0.11 Operations (UPDATE 1): the event director, disruptions, ramp inspections, the yearly audit
+// ======================================================================
+
+/** Settings → Gameplay → Pace (the UI's setting is pushed into the game: the engine reads it here). */
+export type Pace = 'calm' | 'normal' | 'busy';
+
+/** One spell of the director: [start, end, busy 1 / quiet 0]. */
+export type Spell = [Minute, Minute, 0 | 1];
+
+export interface DirectorState {
+  pace: Pace;
+  /** Spells from the current one on (past ones pruned after 60 days), contiguous. */
+  spells: Spell[];
+  /** Spells drawn so far (side-stream index, deterministic). */
+  n: number;
+  /** Closed days by kind (whole UTC days): quiet, busy. */
+  days?: { quiet: number; busy: number };
+}
+
+/** EASA ramp inspection programme: SAFA (third-country operators), SACA (EU operators), or the local authority abroad. */
+export type RampProgramme = 'SAFA' | 'SACA' | 'local';
+
+export interface RampCheck {
+  id: string;
+  t: Minute;
+  at: string;
+  aircraftId: string;
+  reg: string;
+  prog: RampProgramme;
+  /** Findings by category (Cat 1 minor, Cat 2 significant, Cat 3 major). */
+  cats: [number, number, number];
+  /** One plain line per finding: [category, text]. */
+  items: [1 | 2 | 3, string][];
+  /** Class of action: 1 information, 2 information to the operator/authority, 3a restriction, 3b fix before flight, 3c detained. */
+  action: '1' | '2' | '3a' | '3b' | '3c' | null;
+  /** Time to rectify (min) and its cost. */
+  fixMin: number;
+  cost: number;
+}
+
+export type AuditLevel = 1 | 2;
+
+export interface AuditFinding {
+  id: string;
+  level: AuditLevel;
+  /** Area code (ops manual, FTL, maintenance, training, ramp, quality). */
+  area: 'ftl' | 'ramp' | 'tech' | 'checks' | 'training' | 'quality';
+  /** 'Crew flew over their FTL limits'. */
+  text: string;
+  /** The record behind it. */
+  why: string;
+  raised: Minute;
+  due: Minute;
+  /** The corrective action that closes it. */
+  task: { label: string; cost: number; days: number };
+  started?: Minute;
+  /** When the started action completes (the finding closes). */
+  ready?: Minute;
+  closed?: Minute;
+  /** The deadline passed with the finding open. */
+  overdue?: boolean;
+}
+
+export interface AuditState {
+  /** Next audit date, and whether its 4-week notice was given. */
+  next: Minute;
+  announced?: boolean;
+  last?: Minute;
+  findings: AuditFinding[];
+  /** Approvals suspended since (an overdue finding); null when none. */
+  suspended?: Minute | null;
+  /** Past audits: [time, level 1, level 2]. */
+  history: [Minute, number, number][];
+}
+
+export interface OpsState {
+  /** Disruptions (and ramp checks, findings) by kind and year: year → kind → count. */
+  counts: Record<number, Record<string, number>>;
+  /** Ramp inspections of the last 400 days, newest last. */
+  ramp: RampCheck[];
+  audit: AuditState;
+  /** Timed disruption events by id (queued as 'ops.event'). */
+  pending: Record<string, { kind: DisruptKind | 'sickCall'; flightId?: string; dutyId?: string; t: Minute; cause?: DisruptCause }>;
+  /** ORO.CC.100 reduced cabin crew reports filed (the audit reads them). */
+  reducedReports?: Minute[];
+  /** Aircraft-days spent grounded with a check overdue (day starts; the audit reads the last year). */
+  grounded?: Minute[];
+}

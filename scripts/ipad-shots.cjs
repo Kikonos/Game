@@ -53,6 +53,7 @@
  *   --embed        artifact host: :root padded 24px top / 20px bottom, html.embed
  *   --force-touch  set window.__CONTRAIL_FORCE_TOUCH__ (html.touch) in case touch media queries don't match
  *   --pages N      also capture N-1 extra shots per screen, each scrolled one viewport further
+ *   --theme T      light or dark: the device colour scheme (a fresh install follows it); names the shots <theme>-…
  *
  * Per screen it writes <out>/<view>[-standalone|-embed]-<screen>.png and prints: horizontal page
  * overflow, elements beyond the viewport, console/page errors, visible tap targets smaller than 44×44
@@ -86,6 +87,8 @@ const ALL = [
   'company-team-locked', 'head-unlocked-card', 'company-team', 'company-achievements', 'achievement-toast', 'offer-analyst', 'offer-slip', 'offer-jumbo',
   'crew-control-out-of-hours', 'crew-control-discretion-greyed', 'inbox-crew-hours', 'opsstrip-hours', 'settings-sound', 'settings-test-sounds',
   'screen-hint-contracts', 'whats-new-catchup', 'fleet-longest-day-popover', 'crewplan-verdict',
+  // v0.10.2 the phone call and the new approval rules
+  'offer-call', 'approval-etops',
 ];
 const PRE_GAME = new Set(['loading', 'title', 'newgame', 'newgame-livery']);
 const VIEWS = {
@@ -102,7 +105,7 @@ const MIN_TARGET = 44;
 const MIN_TEXT = 12;
 
 function parseArgs(argv) {
-  const a = { url: 'http://localhost:5173/', out: path.resolve('ipad-shots'), view: 'safari,landscape', screens: 'all', save: null, days: 40, base: 'LIS', standalone: false, embed: false, forceTouch: false, pages: 1, sizes: [] };
+  const a = { url: 'http://localhost:5173/', out: path.resolve('ipad-shots'), view: 'safari,landscape', screens: 'all', save: null, days: 40, base: 'LIS', standalone: false, embed: false, forceTouch: false, pages: 1, sizes: [], theme: null };
   for (let i = 2; i < argv.length; i++) {
     const k = argv[i];
     const next = () => argv[++i];
@@ -118,6 +121,7 @@ function parseArgs(argv) {
     else if (k === '--force-touch') a.forceTouch = true;
     else if (k === '--pages') a.pages = Math.max(1, Number(next()) || 1);
     else if (k === '--size') a.sizes.push(next());
+    else if (k === '--theme') a.theme = next() === 'light' ? 'light' : 'dark';
     else if (k === '-h' || k === '--help') { console.log(fs.readFileSync(__filename, 'utf8').split('*/')[0]); process.exit(0); }
     else { console.error(`Unknown flag ${k}`); process.exit(2); }
   }
@@ -1317,6 +1321,13 @@ Object.assign(ACTIONS, {
     await page.evaluate(() => { const h = [...document.querySelectorAll('.set-head')].find((x) => x.textContent.trim() === 'Sound'); h?.scrollIntoView({ block: 'start' }); });
     await settle(page, 300);
   },
+  'offer-call': async (page) => {
+    await nav(page, 'map');
+    const id = await page.evaluate(() => window.__contrail.dev.call());
+    if (!id) throw new Error('SKIP no AOG cover offer');
+    await settle(page, 900);
+  },
+  'approval-etops': async (page) => { await nav(page, 'company'); await modal(page, { kind: 'approval', id: 'etops120' }); },
   'settings-test-sounds': async (page, _s, d) => {
     await modal(page, { kind: 'settings' });
     const btn = page.locator('.set-row', { hasText: 'Test sounds' }).locator('button');
@@ -1362,8 +1373,8 @@ async function run() {
     const desktop = view === 'desktop';
     const size = VIEWS[view];
     const ctx = await browser.newContext(desktop
-      ? { viewport: size, deviceScaleFactor: 1 }
-      : { viewport: size, screen: size, deviceScaleFactor: 2, isMobile: true, hasTouch: true, userAgent: UA_IPAD });
+      ? { viewport: size, deviceScaleFactor: 1, ...(args.theme ? { colorScheme: args.theme } : {}) }
+      : { viewport: size, screen: size, deviceScaleFactor: 2, isMobile: true, hasTouch: true, userAgent: UA_IPAD, ...(args.theme ? { colorScheme: args.theme } : {}) });
     await ctx.addInitScript(initScript, { css: hostCss(desktop), embed: args.embed && !desktop, forceTouch: args.forceTouch && !desktop });
     const page = await ctx.newPage();
     page.setDefaultTimeout(15000);
@@ -1371,7 +1382,7 @@ async function run() {
     page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text().slice(0, 300)); });
     page.on('pageerror', (e) => errors.push(`[pageerror] ${String(e.message).slice(0, 300)}`));
     const report = {};
-    const prefix = `${view}${mode && !desktop ? `-${mode}` : ''}`;
+    const prefix = `${args.theme ? `${args.theme}-` : ''}${view}${mode && !desktop ? `-${mode}` : ''}`;
     started = false;
     console.log(`\n=== ${prefix} ${size.width}×${size.height}${desktop ? ' (mouse, DPR 1)' : ' (touch, DPR 2)'} ===`);
     let loggedTouch = false;

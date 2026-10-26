@@ -1,5 +1,8 @@
 // Crew name kit per nationality, and the crew mix hired at each home base.
 // First names are [female, male] lists so generated crews are mixed.
+// namesWorld.ts adds a kit for every other country a client can come from (the phone call's caller).
+
+import { CALLER_KITS, WORLD_NAMES } from './namesWorld';
 
 export interface NameKit {
   f: string[];
@@ -9,9 +12,11 @@ export interface NameKit {
   lastF?: string[];
   /** Working languages beyond English. */
   langs: string[];
+  /** Said family name first ('Nguyễn Lan', 'Kim Ji-woo'). */
+  familyFirst?: boolean;
 }
 
-export const NAMES: Record<string, NameKit> = {
+const CREW_NAMES: Record<string, NameKit> = {
   PT: {
     f: ['Ana', 'Beatriz', 'Catarina', 'Inês', 'Joana', 'Mariana', 'Rita', 'Sofia', 'Teresa', 'Leonor', 'Carolina', 'Marta'],
     m: ['António', 'Bruno', 'Diogo', 'Duarte', 'Francisco', 'João', 'Miguel', 'Nuno', 'Pedro', 'Rui', 'Tiago', 'Vasco'],
@@ -115,6 +120,14 @@ export const NAMES: Record<string, NameKit> = {
     langs: ['pt', 'fr'],
   },
 };
+
+/** Every name kit: the crew kits first (PT stays the first one), then the world's. */
+export const NAMES: Record<string, NameKit> = { ...CREW_NAMES, ...WORLD_NAMES };
+
+/** The kits a country's people are named from (Belgium: Dutch and French…); [] when the country has none. */
+export function kitsFor(country: string): string[] {
+  return CALLER_KITS[country] ?? (NAMES[country] ? [country] : []);
+}
 
 /** Nationality weights for crew hired at a home base (by base country). */
 export const CREW_MIX: Record<string, [string, number][]> = {

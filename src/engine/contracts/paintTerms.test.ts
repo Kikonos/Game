@@ -11,6 +11,7 @@ import { programmeOf } from './plan';
 import { newGame, offer, run } from './testkit';
 import { liveryOf } from '../ops/paint';
 import { deserialize, serialize } from '../save';
+import { breathe } from '../../test/breathe';
 
 type Opts = OfferOpts;
 const line = (g: GameState, cat: 'paint' | 'otherRevenue') =>
@@ -24,7 +25,7 @@ function paintBase(g: GameState, kind: 'full' | 'decals', required: boolean, lea
 const firstOk = (g: GameState, o: ContractOffer, paint = true) => Object.keys(g.fleet).find((id) => feasibility(g, o.id, id, { paint }).level !== 'no')!;
 
 describe('paint requests on offers', () => {
-  it('turn up at the §4.1 rates (±50%), never on AOG cover or repatriation', () => {
+  it('turn up at the §4.1 rates (±50%), never on AOG cover or repatriation', async () => {
     const n = new Map<string, [number, number]>();
     const bump = (k: string, p: boolean) => {
       const v = n.get(k) ?? [0, 0];
@@ -35,6 +36,7 @@ describe('paint requests on offers', () => {
     const mix: Archetype[] = ['seasonBase', 'seasonBase', 'seasonBase', 'troopRotation', 'tourSeries', 'aogCover', 'repatriation'];
     // 30 seeds: the tour56 band rests on a few dozen offers (10, then 20 seeds sat on its edge).
     for (let seed = 1; seed <= 30; seed++) {
+      await breathe();
       const g = newGame(seed);
       // v0.8 UN rotations go to IOSA-registered operators only.
       g.company.approvals.push('iosa');

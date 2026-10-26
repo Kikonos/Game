@@ -21,6 +21,8 @@ export interface Airport {
   runwayM: number;
   /** v0.8 blue-ice runway (Antarctica): no fuel, polar approval, round-trip fuel. */
   ice?: true;
+  /** v0.11 an en-route field (ferry fuel stop, ETOPS alternate): never a job destination or a market. */
+  enroute?: true;
 }
 
 // code, airport name, city, country, lat, lon, pop, size, biz, tour
@@ -605,12 +607,35 @@ const EXTRA_V08: Record<string, Row[]> = {
   ],
 };
 const RUNWAY_V08: Record<string, number> = { MJI: 3350, DAM: 3600, BGW: 4000, EBL: 4800, NJF: 3000, SAH: 3250, ADE: 3100, PAP: 3040, KIV: 3590, UPG: 3100, WFR: 3000, TRL: 3000, UGL: 3000 };
+// v0.11 ETOPS ferries: the North Atlantic's 60-minute stepping stones (fuel stops and adequate alternates real
+// operators use to ferry twins without ETOPS approval: Keflavík, Kangerlussuaq, Narsarsuaq, Iqaluit, Goose Bay,
+// Gander, St. John's), Bermuda and the Chilean coast. Published positions and longest runways (AIP; Chicago Midway's
+// 1,988 m corrected from the size estimate). En-route fields only.
+const EXTRA_ETOPS: Record<string, Row[]> = {
+  CAN: [
+    ['YYR', 'Goose Bay', 'Goose Bay', 'CA', 53.319, -60.426, 0.01, 1, 0.1, 0.1],
+    ['YFB', 'Iqaluit', 'Iqaluit', 'CA', 63.756, -68.556, 0.01, 1, 0.2, 0.2],
+    ['YQX', 'Gander Intl', 'Gander', 'CA', 48.937, -54.568, 0.01, 1, 0.1, 0.1],
+    ['YYT', "St. John's Intl", "St. John's", 'CA', 47.619, -52.752, 0.2, 1, 0.3, 0.4],
+    ['SFJ', 'Kangerlussuaq', 'Kangerlussuaq', 'GL', 67.012, -50.712, 0.001, 1, 0.1, 0.3],
+    ['UAK', 'Narsarsuaq', 'Narsarsuaq', 'GL', 61.161, -45.426, 0.001, 1, 0.1, 0.3],
+  ],
+  MXC: [['BDA', 'L.F. Wade Intl', 'Bermuda', 'BM', 32.364, -64.679, 0.06, 1, 0.3, 0.8]],
+  // The Chilean coast north of Santiago (a twin's 60-minute way up the Pacific side).
+  SCO: [
+    ['ANF', 'Andrés Sabella', 'Antofagasta', 'CL', -23.444, -70.445, 0.4, 1, 0.3, 0.2],
+    ['IQQ', 'Diego Aracena', 'Iquique', 'CL', -20.535, -70.181, 0.2, 1, 0.3, 0.3],
+  ],
+};
+const RUNWAY_ETOPS: Record<string, number> = { KEF: 3065, YYR: 3367, YFB: 2621, YQX: 3109, YYT: 2591, SFJ: 2810, UAK: 1830, BDA: 2961, ANF: 2600, IQQ: 3350, MDW: 1988 };
+const ENROUTE = new Set(Object.values(EXTRA_ETOPS).flat().map((r) => r[0]));
+
 /** v0.8 blue-ice runways; airports whose continent differs from their region's (Union Glacier lies south of South America). */
 const ICE = new Set(['WFR', 'TRL', 'UGL']);
 const CONTINENT_OF: Record<string, ContinentId> = { UGL: 'SA' };
 
-for (const extra of [EXTRA, EXTRA_B1, EXTRA_B3, EXTRA_V08]) for (const [region, rows] of Object.entries(extra)) (DATA[region] ??= []).push(...rows);
-Object.assign(RUNWAY, RUNWAY_B1, RUNWAY_B3, RUNWAY_V08);
+for (const extra of [EXTRA, EXTRA_B1, EXTRA_B3, EXTRA_V08, EXTRA_ETOPS]) for (const [region, rows] of Object.entries(extra)) (DATA[region] ??= []).push(...rows);
+Object.assign(RUNWAY, RUNWAY_B1, RUNWAY_B3, RUNWAY_V08, RUNWAY_ETOPS);
 
 export const AIRPORTS: Airport[] = Object.entries(DATA).flatMap(([region, rows]) =>
   rows.map(([code, name, city, country, lat, lon, pop, size, biz, tour]) => ({
@@ -628,6 +653,7 @@ export const AIRPORTS: Airport[] = Object.entries(DATA).flatMap(([region, rows])
     continent: CONTINENT_OF[code] ?? REGION_BY_ID[region].continent,
     runwayM: RUNWAY[code] ?? RUNWAY_BY_SIZE[size],
     ...(ICE.has(code) ? { ice: true as const } : {}),
+    ...(ENROUTE.has(code) ? { enroute: true as const } : {}),
   })),
 );
 

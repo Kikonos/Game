@@ -11,7 +11,7 @@ import { BAL } from '../core/balance';
 import { flightsOf, flightsRev, reassignFlights, retimeFlight, touchFlights } from '../core/entities';
 import { distance } from '../core/geo';
 import { isolatePauses } from '../core/pause';
-import { blockMinutes, canFill, complement, etopsNeeded, planSector, runwayFit, typeOf } from '../core/perf';
+import { blockMinutes, canFill, complement, etopsCap, etopsNeeded, heldEtops, planSector, runwayFit, typeOf } from '../core/perf';
 import { DAY, fmtDateTime, fmtDay, fmtDuration, fmtTime } from '../core/time';
 import type { ActionResult, Aircraft, Contract, Flight, GameState, Minute, Pairing, Role } from '../core/types';
 import { brokerCut } from '../contracts/accept';
@@ -262,6 +262,11 @@ function planMove(g: GameState, flightId: string, targetId: string): Plan | { er
       reasons.push(`${f.from}–${f.to} needs ETOPS ${need}; the ${typeWord(tgt.typeId)} is certified to ${t.etopsMax || 'none'}`);
       break;
     }
+    // v0.11 and our approval (as the offer's feasibility checks it).
+    if (need > 0 && t.engines !== 4 && heldEtops(g.company.approvals) < need) {
+      reasons.push(`${f.from}–${f.to} needs ETOPS ${need}: we hold ${heldEtops(g.company.approvals) ? `ETOPS ${heldEtops(g.company.approvals)}` : 'no ETOPS approval'}`);
+      break;
+    }
   }
   reasons.push(...requirementGaps(g, c, src, tgt, trip.moved, trip.start));
   const rated = ratedGap(g, tgt, c);
@@ -278,6 +283,8 @@ function planMove(g: GameState, flightId: string, targetId: string): Plan | { er
 
   // Its other work: nothing of its own may overlap; it must get there (a short delay allowed) and back.
   const anchors = anchorsOf(g, tgt.id);
+  // v0.11 its empty legs stay inside our ETOPS approval and its capability (the 60-minute rule without one).
+  const cap = etopsCap(g.company.approvals, tgt.typeId);
   const first = trip.moved[0];
   const last = trip.moved[trip.moved.length - 1];
   const overlap = (): boolean => {
@@ -301,9 +308,9 @@ function planMove(g: GameState, flightId: string, targetId: string): Plan | { er
     const X = prev.to;
     const earliest = prev.kind === 'start' ? prev.sta : prev.sta + turn;
     if (X !== first.from) {
-      const back = chainBackward(tgt.typeId, X, first.from, earliest, first.std - turn);
+      const back = chainBackward(tgt.typeId, X, first.from, earliest, first.std - turn, cap);
       if (!back) {
-        const fwd = chainForward(tgt.typeId, X, first.from, earliest);
+        const fwd = chainForward(tgt.typeId, X, first.from, earliest, cap);
         if (!fwd) reasons.push(`${tgt.reg} can't fly from ${X} to ${first.from} (range or runway)`);
         else {
           const arr = fwd[fwd.length - 1].sta;
@@ -325,7 +332,7 @@ function planMove(g: GameState, flightId: string, targetId: string): Plan | { er
   const e = times.get(last.id)![1];
   const next = anchors.find((a) => a.kind !== 'start' && a.std >= e);
   if (next && next.from !== last.to) {
-    const ch = chainForward(tgt.typeId, last.to, next.from, e + turn);
+    const ch = chainForward(tgt.typeId, last.to, next.from, e + turn, cap);
     if (!ch || ch[ch.length - 1].sta + turn > next.std) {
       const what = next.kind === 'flight' ? `${next.from}–${next.to} at ${fmtTime(next.std)}${Math.floor(next.std / DAY) === Math.floor(e / DAY) ? '' : ` on ${fmtDay(next.std)}`}` : next.kind === 'maint' ? `its ${g.maintenance[next.id]?.kind ?? ''}-check at ${next.from} on ${fmtDay(next.std)}` : `its programme at ${next.from}`;
       reasons.push(`${tgt.reg} couldn't be back at ${next.from} for ${what}`);

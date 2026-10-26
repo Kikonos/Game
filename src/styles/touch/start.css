@@ -41,8 +41,8 @@
 .showcase-dots span { width: 6px; height: 6px; border-radius: 3px; background: var(--border-strong); transition: width 0.3s var(--ease), background 0.3s; }
 .showcase-dots span.on { width: 18px; background: var(--accent); }
 .touch .menu-btn { min-height: 72px; padding: 14px 20px; }
-.touch .menu-btn:active { transform: scale(0.985); border-color: var(--accent); background: rgba(24, 36, 62, 0.92); }
-.touch .menu-btn.primary:active { background: linear-gradient(120deg, rgba(62, 230, 255, 0.26), rgba(139, 92, 255, 0.26)); }
+.touch .menu-btn:active { transform: scale(0.985); border-color: var(--accent); background: rgba(var(--panel-hi-rgb), 0.92); }
+.touch .menu-btn.primary:active { background: linear-gradient(120deg, rgba(var(--accent-rgb), 0.26), rgba(var(--accent2-rgb), 0.26)); }
 .touch .mb-s { font-size: 13px; }
 .touch .showcase:active { border-color: var(--border-strong); }
 .touch .showcase .small { font-size: 13px; }
@@ -63,8 +63,8 @@
   .title-left { max-width: none; }
   .title-right { display: block; width: 100%; }
   .title-vignette {
-    background: radial-gradient(130% 75% at 50% 42%, rgba(7, 11, 20, 0.5), rgba(7, 11, 20, 0.92) 78%),
-      linear-gradient(0deg, rgba(7, 11, 20, 0.85), transparent 30%);
+    background: radial-gradient(130% 75% at 50% 42%, rgba(var(--bg-rgb), 0.5), rgba(var(--bg-rgb), 0.92) 78%),
+      linear-gradient(0deg, rgba(var(--bg-rgb), 0.85), transparent 30%);
   }
   .title-word { font-size: clamp(56px, 9.4vw, 88px); }
   .title-tag { font-size: 13px; }
@@ -101,7 +101,7 @@
 .touch .ng-steps li .n { width: 24px; height: 24px; font-size: 12.5px; }
 .touch .ng-step-btn { min-height: 44px; padding: 0 14px; margin: 0 -14px; }
 .touch .ng-step-btn:active { background: var(--panel-2); color: var(--text); }
-.touch .ng-foot { background: rgba(7, 11, 20, 0.9); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
+.touch .ng-foot { background: rgba(var(--bg-rgb), 0.9); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
 .touch .ng-foot-pick { font-size: 15px; }
 .touch .region-card, .touch .hub-card, .touch .diff-card { padding: 14px 16px; }
 .touch .rc-bars { grid-template-columns: 52px 1fr; gap: 6px 10px; }
@@ -109,7 +109,7 @@
 .touch .ng-panel .field { gap: 8px; }
 .touch .swatches { gap: 10px; }
 .touch .swatch { width: 44px; height: 44px; border-radius: 12px; }
-.touch .swatch.on { box-shadow: 0 0 0 3px rgba(62, 230, 255, 0.55); }
+.touch .swatch.on { box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.55); }
 .touch .swatch:active { transform: scale(0.92); }
 .touch .swatch-input { width: 56px; height: 44px; border-radius: 12px; padding: 4px; }
 .touch .ng-tail .seg button { min-height: 44px; font-size: 14.5px; }
@@ -228,7 +228,7 @@
 .statement th:first-child, .sticky-first th:first-child, .rivals-table th:nth-child(-n + 2) { z-index: 2; }
 .rivals-table :is(th, td):first-child { width: 48px; min-width: 48px; }
 .rivals-table :is(th, td):nth-child(2) { left: 48px; }
-.rivals-table tr.selected td:nth-child(-n + 2) { background: linear-gradient(rgba(62, 230, 255, 0.06), rgba(62, 230, 255, 0.06)), var(--panel-solid); }
+.rivals-table tr.selected td:nth-child(-n + 2) { background: linear-gradient(rgba(var(--accent-rgb), 0.06), rgba(var(--accent-rgb), 0.06)), var(--panel-solid); }
 
 /* ---------- Intel ---------- */
 .mk-wrap { max-height: 620px; }

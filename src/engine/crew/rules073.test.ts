@@ -200,6 +200,10 @@ describe('home standby (CS FTL.1.225(b))', () => {
     c.standby = [run];
     dropStandby(g, c, g.now + 3 * DAY, g.now + 4 * DAY);
     expect(c.standby).toEqual([run]);
+    // v0.10.2 (BLU1109) work starting inside the running window is a call-out from it: marked called, not cut short
+    // (a cut window owed its 12 h rest before the very work it was cut for).
+    dropStandby(g, c, g.now + 9, g.now + 10 * H);
+    expect(c.standby).toEqual([{ ...run, calledAt: g.now }]);
   });
   it('a duty given at short notice before the window, reporting inside it, counts as a call (the duty replaces the standby)', () => {
     const g = newDev();

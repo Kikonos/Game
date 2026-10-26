@@ -1,6 +1,7 @@
 // Bridges the engine and React: owns the game state, the real-time loop (game minutes per frame),
 // navigation, modals, quiet toasts, settings and saving. DESIGN.md §3.4 and §6.
 
+import { deliveryCardFor } from './modals/deliveryCard';
 import { startTransition, useEffect, useState, useSyncExternalStore } from 'react';
 import { clearPause, takePause, type PauseReason } from '../engine/core/pause';
 import { CLOCK_STEP, type GameSpeed, minutesPerMs, monthKey } from '../engine/core/time';
@@ -23,10 +24,16 @@ import { advanceTo, settle } from '../engine/sim';
 import { prepareAsyncSave, saveTextAsync, supersedeAsyncSave } from './asyncSave';
 import { autoplay } from './devPlay';
 import { type Ambience, sound, type SoundEvent } from './sound';
-import { takeCueEvents, takeCues, type CueEvent } from '../engine/core/cues';
+import { activeTheme, applyTheme, type Theme, type ThemePref } from './theme';
+import { cue, takeCueEvents, takeCues, type CueEvent } from '../engine/core/cues';
 import type { HeadId } from '../engine/core/types';
 import { devAchievement, devCrewHours, devJumbo, devPosition, devRestAtDeparture, devRoster, devSlipOffer, devUnlockHead } from '../engine/dev';
-import type { OohLimit } from '../engine/core/types';
+import type { OohLimit, Pace } from '../engine/core/types';
+import { setPace } from '../engine/ops/director';
+import { devDisruption } from '../engine/ops/disrupt';
+import { CURFEWS } from '../data/opsData';
+import { inspect, rampFindings } from '../engine/ops/ramp';
+import { devAudit } from '../engine/ops/audit';
 
 export type { GameSpeed } from '../engine/core/time';
 export type AppScreen = 'loading' | 'title' | 'newgame' | 'game';
@@ -59,8 +66,14 @@ export interface Settings {
   musicVolume: number;
   /** v0.9 §14.2 screens whose first-time hint the player switched off ('Don't show again'). */
   screenHintsSeen: string[];
+  /** v0.12 screens whose hint has been seen once: it folds into the screen's '?' button. */
+  screenHintsFolded: string[];
   /** v0.9 §X: '' until the one-time What's new catch-up (v0.9 + v0.8 + v0.7.4) has been shown, then 'v0.9'. */
   whatsNewCatchUp: string;
+  /** v0.11 Appearance: Light, Dark or follow the device. New installs: 'system'; players from before: 'dark' (their look). */
+  theme: ThemePref;
+  /** v0.11 Gameplay → Pace: how long the quiet spells between busy ones are (the engine's event director). */
+  pace: Pace;
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -80,7 +93,10 @@ const DEFAULT_SETTINGS: Settings = {
   music: true,
   musicVolume: 0.35,
   screenHintsSeen: [],
+  screenHintsFolded: [],
   whatsNewCatchUp: '',
+  theme: 'system',
+  pace: 'normal',
 };
 
 export interface Nav {
@@ -142,6 +158,8 @@ export type ModalSpec =
   | { kind: 'headUnlocked'; id: HeadId; ids?: HeadId[] }
   /** v0.9.1 a client's answer to our counter-offer, wherever the player is (Accept / Decline as it applies). */
   | { kind: 'counterReply'; offerId?: string; contractId?: string; title: string; body: string }
+  /** v0.10.2 an urgent, high-paying offer phones in (it rings while shown). */
+  | { kind: 'offerCall'; offerId: string }
   /** v0.9.1 an aircraft handed over: the celebration card, then 'Follow the delivery flight?'. */
   | { kind: 'delivered'; aircraftId: string }
   | { kind: 'followDelivery'; aircraftId: string };
@@ -184,7 +202,23 @@ export function settingsFrom(s: Partial<Settings>): Settings {
   // v0.9.1 settings saved before the music: on, at its low default.
   out.music ??= DEFAULT_SETTINGS.music;
   out.musicVolume ??= DEFAULT_SETTINGS.musicVolume;
+  // v0.12 settings saved before folded hints: none folded yet.
+  out.screenHintsFolded ??= [];
+  // v0.11 settings saved before themes: the dark look they have played with.
+  if (s.theme !== 'light' && s.theme !== 'dark' && s.theme !== 'system') out.theme = 'dark';
+  // v0.11 settings saved before Pace: Normal.
+  if (s.pace !== 'calm' && s.pace !== 'normal' && s.pace !== 'busy') out.pace = 'normal';
   return out;
+}
+
+/** Saved games in this browser (a player from before themes, even with no settings stored). */
+function hasSaves(): boolean {
+  try {
+    for (let i = 0; i < localStorage.length; i++) if (localStorage.key(i)?.startsWith('contrail-acmi:save:')) return true;
+  } catch {
+    // storage unavailable
+  }
+  return false;
 }
 
 function loadSettings(): Settings {
@@ -194,7 +228,7 @@ function loadSettings(): Settings {
   } catch {
     // storage unavailable
   }
-  return { ...DEFAULT_SETTINGS, autoPause: { ...DEFAULT_SETTINGS.autoPause }, soundCats: { ...DEFAULT_SETTINGS.soundCats } };
+  return { ...DEFAULT_SETTINGS, autoPause: { ...DEFAULT_SETTINGS.autoPause }, soundCats: { ...DEFAULT_SETTINGS.soundCats }, theme: hasSaves() ? 'dark' : DEFAULT_SETTINGS.theme };
 }
 
 class GameStore {
@@ -212,6 +246,8 @@ class GameStore {
   holdTime = false;
   toasts: Toast[] = [];
   settings: Settings = loadSettings();
+  /** v0.11 the colour theme on screen (Settings › Appearance; 'system' follows the device live). */
+  theme: Theme = applyTheme(this.settings.theme, () => this.onSystemTheme());
   version = 0;
   clockVersion = 0;
   /** Continuous game time (fractional minutes) for smooth plane motion; g.now is its integer part. */
@@ -237,6 +273,8 @@ class GameStore {
   private cueToasted = new Set<string>();
   private ladderSeen = new Set<string>();
   private hintShown = new Set<string>();
+  /** v0.12 aircraft whose welcome card this session already queued (once per delivery). */
+  private welcomed = new Set<string>();
 
   subscribe = (fn: () => void) => {
     this.listeners.add(fn);
@@ -267,11 +305,30 @@ class GameStore {
       if (e.cue === 'counterReply' && (e.ref?.kind === 'offer' || e.ref?.kind === 'contract')) {
         this.queuePop({ kind: 'counterReply', ...(e.ref.kind === 'offer' ? { offerId: e.ref.id } : { contractId: e.ref.id }), title: e.title, body: e.body ?? '' }, true);
       }
-      if (e.cue === 'delivered' && e.ref?.kind === 'aircraft') this.queuePop({ kind: 'delivered', aircraftId: e.ref.id }, true);
+      // v0.12 the welcome card: once per handover, never for the fleet a new game starts with (deliveryCardFor). Its
+      // chime rings when the card opens (flushLadder), not while another dialog (a phone call) still has the screen.
+      if (e.cue === 'delivered') {
+        const id = this.game ? deliveryCardFor(this.game, e, this.welcomed) : null;
+        if (id) {
+          this.welcomed.add(id);
+          this.queuePop({ kind: 'delivered', aircraftId: id }, true);
+          if (e.msgId) this.cueToasted.add(e.msgId);
+          continue;
+        }
+        // No card (no aircraft named, or already welcomed): the usual toast, then the chime.
+      }
+      // v0.10.2 a phone call: the clock stops whatever the auto-pause settings say; its pop-up is the note and rings
+      // while it shows (CallModal) when its turn in the queue comes. Closed unanswered, the Inbox line rings it again.
+      if (e.cue === 'offerCall' && e.ref?.kind === 'offer') {
+        if (e.msgId) this.cueToasted.add(e.msgId);
+        this.queuePop({ kind: 'offerCall', offerId: e.ref.id }, true);
+        if (!this.paused) this.autoPause('urgentOffer');
+        continue;
+      }
       if (!sound.audible(e.cue)) continue;
       if (e.msgId) this.cueToasted.add(e.msgId);
-      // Its own pop-up (a counter reply, a delivery) is the note; anything else shows a toast.
-      const pop = (e.cue === 'counterReply' && (e.ref?.kind === 'offer' || e.ref?.kind === 'contract')) || (e.cue === 'delivered' && e.ref?.kind === 'aircraft');
+      // Its own pop-up (a counter reply) is the note; anything else shows a toast.
+      const pop = e.cue === 'counterReply' && (e.ref?.kind === 'offer' || e.ref?.kind === 'contract');
       if (!pop) this.pushToast(cueToastKind(e), e.title, e.body ? (e.body.length > 140 ? e.body.slice(0, 137) + '…' : e.body) : undefined);
       sound.event(e.cue);
       shown++;
@@ -313,6 +370,8 @@ class GameStore {
   }
 
   private afterLoad() {
+    // v0.11 the game follows the player's Pace setting (the director redraws the spells still to come).
+    if (this.game && !this.game.gameOver) setPace(this.game, this.settings.pace);
     // v0.7.2.2: the normal re-plan (the same settle the first clock tick runs) before the first look, so empty legs
     // left behind by an older version (a moved trip's ferries) are already cleaned up when the Schedule opens.
     if (this.game && !this.game.gameOver) settle(this.game);
@@ -325,6 +384,7 @@ class GameStore {
     this.ladderQueue = [];
     this.ladderSeen = new Set();
     this.hintShown = new Set();
+    this.welcomed = new Set();
     this.exact = this.game?.now ?? 0;
     this.paused = true;
     this.pauseReason = null;
@@ -607,7 +667,11 @@ class GameStore {
       // Gone meanwhile (answered on the offer card, the aircraft sold): nothing to show.
       if (m.kind === 'counterReply' && !(m.offerId ? this.game.offers[m.offerId] : this.game.contracts[m.contractId ?? ''])) return this.flushLadder();
       if ((m.kind === 'delivered' || m.kind === 'followDelivery') && !this.game.fleet[m.aircraftId]) return this.flushLadder();
+      // answered on the offer card, lapsed or taken meanwhile: no call
+      if (m.kind === 'offerCall' && !(this.game.offers[m.offerId]?.status === 'open' && this.game.offers[m.offerId].expires > this.game.now)) return this.flushLadder();
       this.modal = m;
+      // v0.12 the delivery chime rings with its card (the card is its note; the Inbox keeps the message).
+      if (m.kind === 'delivered' && sound.audible('delivered')) sound.event('delivered');
       this.toasts = this.toasts.filter((t) => !t.leaving);
       return;
     }
@@ -739,6 +803,8 @@ class GameStore {
   // ---------- navigation & UI ----------
 
   navigate(tab: Tab, extra: Omit<Nav, 'tab'> = {}) {
+    // v0.11 Clients moved from Company to Contracts; older links still land there.
+    if (tab === 'company' && extra.view === 'clients') tab = 'contracts';
     this.nav = { tab, ...extra };
     this.emit();
     document.querySelector('.main')?.scrollTo({ top: 0 });
@@ -789,10 +855,18 @@ class GameStore {
     }, 260);
   }
 
+  /** The device switched light/dark while Appearance is 'System'. */
+  private onSystemTheme() {
+    this.theme = activeTheme();
+    this.emit();
+  }
+
   setSettings(p: Partial<Settings>) {
     this.settings = { ...this.settings, ...p };
     configureSound(this.settings);
     applyTopGap(this.settings);
+    if (p.theme) this.theme = applyTheme(this.settings.theme, () => this.onSystemTheme());
+    if (p.pace && this.game && !this.game.gameOver) setPace(this.game, p.pace);
     try {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(this.settings));
     } catch {
@@ -816,6 +890,19 @@ class GameStore {
       if (o) this.openModal({ kind: 'offer', offerId: o.id });
       this.emit();
       return o?.id ?? null;
+    },
+    /** v0.10.2 an urgent, high-paying AOG cover that phones in (the call card and its ring); returns the offer id. */
+    call: () => {
+      const g = this.game;
+      if (!g) return null;
+      const o = generateOffer(g, 'aogCover', { start: g.now + 26 * 60, wide: false, window: false, paint: false, cabin: false });
+      if (!o) return null;
+      o.urgency = 'urgent';
+      o.call = true;
+      o.expires = Math.min(o.expires, g.now + 5 * 60);
+      cue('offerCall', { title: `Phone call: ${o.title}`, ref: { kind: 'offer', id: o.id } });
+      this.emit();
+      return o.id;
     },
     /** v0.7.4: an aircraft of a type at home base with its crew (e.g. 'b763'); returns its id. */
     addType: (typeId: string, cabinIx = 0) => {
@@ -872,6 +959,79 @@ class GameStore {
       return added;
     },
     /** B5: a sample decision (no engine effect) to check DecisionModal, the Inbox pin and the pause badge. */
+    /** v0.11 a disruption card now: on an airborne revenue leg (diversion, medical, technical) or the next one at the gate. */
+    disruption: (kind: 'diversion' | 'technical' | 'medical' | 'birdStrike' | 'curfew' | 'ctot' | 'turnaround' | 'sickAway') => {
+      const g = this.game;
+      if (!g) return false;
+      const air = ['diversion', 'technical', 'medical'].includes(kind);
+      const landed = kind === 'birdStrike';
+      const list = Object.values(g.flights).filter((f) => {
+        if (!f.aircraftId || f.kind !== 'revenue') return false;
+        if (air) return f.status === 'enroute' && (f.eta ?? f.sta) > g.now + 40;
+        if (landed) return f.status === 'done' && g.fleet[f.aircraftId].at === f.to && !g.fleet[f.aircraftId].flightId;
+        const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+        return f.status === 'scheduled' && f.std > g.now && !!d && (kind !== 'sickAway' || (d.report > g.now + 30 && d.flightIds[0] === f.id && f.from !== g.company.homeBase && !!g.pairings[d.pairingId]?.slots.some((x) => x.crewId && g.crew[x.crewId]?.loc === f.from)));
+      }).sort((a, b) => (kind === 'curfew' ? Number(!!CURFEWS[b.to]) - Number(!!CURFEWS[a.to]) : 0)
+        || (kind === 'sickAway' ? Number(b.from !== g.company.homeBase) - Number(a.from !== g.company.homeBase) : 0)
+        || (landed ? (b.ata ?? 0) - (a.ata ?? 0) : a.std - b.std));
+      let ok = false;
+      for (const pick of list.slice(0, 8)) {
+        // A weather closure shows on the approach: the clock moves to 25 min before the leg lands.
+        if (kind === 'diversion' && (pick.eta ?? pick.sta) - g.now > 40) advanceTo(g, (pick.eta ?? pick.sta) - 25, new Set(['decision']));
+        if (air && pick.status !== 'enroute') continue;
+        if ((ok = devDisruption(g, kind, pick.id))) break;
+      }
+      this.exact = g.now;
+      this.clockLabel = -1;
+      this.emitClock();
+      this.emit();
+      return ok;
+    },
+    /** v0.11 advances the clock `min` minutes (stops at a new decision); dev and screenshots. */
+    advance: (min: number) => {
+      const g = this.game;
+      if (!g) return;
+      const n = g.decisions.length;
+      const end = g.now + min;
+      for (let i = 0; i < 200 && g.now < end && g.decisions.length <= n; i++) advanceTo(g, Math.min(end, g.now + 10), new Set(['decision']));
+      this.exact = g.now;
+      this.clockLabel = -1;
+      this.emitClock();
+      this.emit();
+    },
+    /** v0.11 a ramp inspection now on the first aircraft (`cat`: the worst finding wanted, 0 = clean). */
+    ramp: (cat = 3) => {
+      const g = this.game;
+      if (!g) return null;
+      const ac = Object.values(g.fleet).find((a) => !a.flightId && a.status === 'available') ?? Object.values(g.fleet)[0];
+      ac.maint.deferred = Math.max(ac.maint.deferred, cat >= 3 ? 0.5 : 0.1);
+      for (let i = 0; i < 2000; i++) {
+        const k = `dev:${i}`;
+        const r = rampFindings(g, ac, k);
+        const worst = r.cats[2] ? 3 : r.cats[1] ? 2 : r.cats[0] ? 1 : 0;
+        if (worst === cat && (cat < 3 || r.action === '3b')) {
+          const out = inspect(g, ac, ac.at, undefined, k);
+          this.emit();
+          return out.id;
+        }
+      }
+      return null;
+    },
+    /** v0.11 the yearly audit: 'announce' (4 weeks' notice) or held now with a record that brings findings. */
+    audit: (mode: 'announce' | 'now' = 'now') => {
+      const g = this.game;
+      if (!g) return;
+      if (mode === 'now') {
+        g.stats.incidents = [...(g.stats.incidents ?? []), [g.now - 20 * DAY, 'illegalCrew']];
+        const ac = Object.values(g.fleet)[0];
+        for (let i = 0; i < 2; i++) {
+          const k = Array.from({ length: 400 }, (_, j) => `audit-dev:${i}:${j}`).find((x) => rampFindings(g, ac, x).cats[2] > 0 && rampFindings(g, ac, x).action === '3b');
+          if (k) inspect(g, ac, ac.at, undefined, k);
+        }
+      }
+      devAudit(g, mode === 'announce');
+      this.emit();
+    },
     decision: () => {
       if (!this.game) return null;
       const d = pushDecision(this.game, {
@@ -1015,7 +1175,7 @@ class GameStore {
       return id;
     },
     /** v0.8 dev scenes: each builds an offer (opens the offer dialog), a mixed-crew duty (duty modal), a client level
-     *  (Company › Clients) or a world event (its dialog); returns the id ('' when none fits). */
+     *  (Contracts › Clients) or a world event (its dialog); returns the id ('' when none fits). */
     hajj: () => this.devOffer(devHajj),
     dryLease: () => this.devOffer(devDryLease),
     deportation: () => this.devOffer(devDeportation),
@@ -1028,7 +1188,7 @@ class GameStore {
       const id = devLevel(g, clientId, level);
       settle(g);
       this.lastMsgId = g.messages[0]?.id ?? this.lastMsgId;
-      if (id) this.navigate('company', { view: 'clients', sel: { kind: 'client', id } });
+      if (id) this.navigate('contracts', { view: 'clients', sel: { kind: 'client', id } });
       else this.emit();
       return id;
     },
@@ -1240,4 +1400,9 @@ export function useThrottledNow(ms = 1000): number {
     };
   }, [ms]);
   return store.game?.now ?? 0;
+}
+
+/** v0.11 the colour theme on screen; re-renders only when it changes (Appearance, or the device under 'System'). */
+export function useTheme(): Theme {
+  return useSyncExternalStore(store.subscribe, () => store.theme);
 }

@@ -13,10 +13,10 @@
 .shell.acmi.compact-acmi .nav-item .lbl { display: none; }
 .shell.acmi.compact-acmi .nav-item { justify-content: center; padding: 0; }
 /* B5: calm pause state: no pulsing; a static amber badge says why the clock stopped. */
-.shell.acmi .speed.blocked .sp-pause { animation: none; background: rgba(251, 191, 36, 0.16); color: var(--warn); }
+.shell.acmi .speed.blocked .sp-pause { animation: none; background: rgba(var(--warn-rgb), 0.16); color: var(--warn); }
 .pause-badge {
   display: inline-flex; flex-direction: column; justify-content: center; gap: 0; min-height: 44px; padding: 2px 12px; border-radius: 12px;
-  border: 1px solid rgba(251, 191, 36, 0.45); background: rgba(251, 191, 36, 0.1); color: var(--warn); font: inherit; text-align: left;
+  border: 1px solid rgba(var(--warn-rgb), 0.45); background: rgba(var(--warn-rgb), 0.1); color: var(--warn); font: inherit; text-align: left;
   cursor: pointer; max-width: 170px; flex-shrink: 1; min-width: 0;
 }
 .pause-badge .pb-k { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.8; }

@@ -3,6 +3,7 @@
 // choices are shown red with reasons and need a second tap ("assign anyway"); they stay flagged on the schedule.
 // Engine: crew/rosterActions.ts (dutyCrew, dutyCandidates, dutyLegality, assignCrew, unassignCrew, swapCrew, unlockCrew).
 
+import { RankMark } from '../components/RankMark';
 import { clientCrewOf, crewAlertKind, slipOfFlight } from '../../engine/crew';
 import { ClientCrewRow } from './v08Bits';
 import { ArrowLeftRight, BedDouble, ChevronDown, ChevronLeft, ChevronRight, Lock, LockOpen, Plus, Repeat, UserMinus, Users } from 'lucide-react';
@@ -78,7 +79,10 @@ function Seat({ s, busy, later, onChange, onRemove, onUnlock }: { s: RosterSlotV
         <span className="row gap-8">
           <Dot tone={tone} />
           {s.crewId ? (
-            <button className="sc-seat-name ellipsis" onClick={() => store.navigate('crew', { sel: { kind: 'crew', id: s.crewId! } })}>{s.name}</button>
+            <>
+              <button className="sc-seat-name ellipsis" onClick={() => store.navigate('crew', { sel: { kind: 'crew', id: s.crewId! } })}>{s.name}</button>
+              {store.game?.crew[s.crewId] && <RankMark role={store.game.crew[s.crewId].role} />}
+            </>
           ) : (
             <b className={later ? 'muted' : s.above ? 'warn' : 'bad'}>{later ? 'Open seat' : s.above ? 'Extra seat open' : 'Empty seat'}</b>
           )}
@@ -108,6 +112,7 @@ function Candidate({ c, confirm, swapWith, onTap, seat }: { c: DutyCandidate; co
       <span className="grow col sc-cand-main">
         <span className="row gap-8">
           <b className="ellipsis">{c.name}</b>
+          <RankMark role={c.role} />
           <span className={`sc-role r-${c.role}`}>{seatLabel(seat, c.role)}</span>
           {c.onPairing && <span className="chip sc-chip">on this trip</span>}
         </span>

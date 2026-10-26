@@ -8,6 +8,8 @@ import { AlertTriangle, Users } from 'lucide-react';
 import { fmtDateTime } from '../../engine/core/time';
 import { leaseView, resolveDecision } from '../../engine/ops';
 import { problemAt } from '../../engine/problems';
+import { disruptionCard, isDisruption } from '../../engine/problems/ops';
+import { DiversionMap, divSpec } from '../map/DiversionMap';
 import { decisionBodyTail } from '../components/problemLogic';
 import { Modal } from '../components/ui';
 import { ProblemCardView } from '../components/ProblemCard';
@@ -15,6 +17,11 @@ import { ReturnLines } from './LeaseModal';
 import { hurtTone } from './crewControlLogic';
 import { spanLabel } from '../screens/screenLogic';
 import { store, useStore } from '../store';
+
+/** A chip's colour: money out / reliability lost red, lateness and crew limits amber, gains green. */
+function chipTone(c: string): string {
+  return hurtTone(c) ?? (/^[−-]/.test(c) || /−/.test(c) ? 'bad' : /\blate\b|out of hours|discretion|curfew|penalty|offloaded|risk/i.test(c) ? 'warn' : /^\+/.test(c) ? 'good' : '');
+}
 
 export function DecisionModal({ decisionId }: { decisionId?: string }) {
   const s = useStore();
@@ -34,7 +41,9 @@ export function DecisionModal({ decisionId }: { decisionId?: string }) {
   const chipsOf = (o: (typeof d.options)[number]) => (live?.options.find((x) => x.id === o.id)?.chips ?? o.chips)?.filter((c) => !/^Deposit \$0 back$/.test(c));
   // v0.7.1: the card behind the decision (its flight / aircraft / contract, else the decision itself).
   const flightId = d.kind === 'crewShort' && typeof d.data?.flightId === 'string' ? d.data.flightId : null;
-  const card = (flightId ? problemAt(g, { kind: 'flight', id: flightId }) : null) ?? (d.ref ? problemAt(g, d.ref) : null) ?? problemAt(g, { kind: 'decision', id: d.id });
+  // v0.11 an operations disruption carries its own four lines (and a map when an airport is to be chosen).
+  const card = isDisruption(d) ? disruptionCard(g, d) : (flightId ? problemAt(g, { kind: 'flight', id: flightId }) : null) ?? (d.ref ? problemAt(g, d.ref) : null) ?? problemAt(g, { kind: 'decision', id: d.id });
+  const dspec = divSpec(g, d);
   const crewControl = () => {
     // Never over the decision: it is set aside (Inbox / pause badge bring it back) and Crew Control opens.
     if (closable) store.closeModal();
@@ -45,6 +54,7 @@ export function DecisionModal({ decisionId }: { decisionId?: string }) {
     <Modal title={d.title} icon={<AlertTriangle className="warn" />} className="decision sc-decision" onClose={close}>
       {(() => { const tail = decisionBodyTail(d.body, card); return tail ? <p className="muted">{tail}</p> : null; })()}
       {card && <ProblemCardView card={card} g={g} hideActions />}
+      {dspec && <DiversionMap spec={dspec} onPick={d.kind === 'divertOnward' ? undefined : pick} />}
       <div className="col gap-8 mt-12">
         {d.options.map((o) => (
           <button key={o.id} className={`decision-opt sc-opt ${o.tone ?? ''}`} onClick={() => pick(o.id)}>
@@ -55,7 +65,7 @@ export function DecisionModal({ decisionId }: { decisionId?: string }) {
             <span className="small muted">{o.desc}</span>
             {!!chipsOf(o)?.length && (
               <span className="sc-chips">
-                {chipsOf(o)!.map((c) => <span key={c} className={`chip sc-chip ${hurtTone(c) ?? (/^[−-]/.test(c) || /−/.test(c) ? 'bad' : /^\+/.test(c) ? 'good' : '')}`}>{c}</span>)}
+                {chipsOf(o)!.map((c) => <span key={c} className={`chip sc-chip ${chipTone(c)}`}>{c}</span>)}
               </span>
             )}
           </button>

@@ -21,6 +21,7 @@ import { applyDiscretion, boardCrew, crewIssuesFor, dropStraySpares, flightCrewS
 import { fdpLimitAt } from '../crew/timeline';
 import { dutyLegality } from '../crew/duties';
 import { cue } from '../core/cues';
+import { markTech, noteDispatch } from '../core/techLog';
 import { v09Stats } from '../crew/dayPlan';
 import { requestPause } from '../core/pause';
 import { problemFor } from '../problems';
@@ -31,8 +32,9 @@ import { crewReadyAt, crewShortDecision, hasOpenDecision } from './events';
 import { aogChance, isGrounded, missCheck, startAog } from './maintenance';
 import { ageF, ageOf, bumpReliable, contractOf, isBaseLeg, isRevenue, stats, turnOf, usd } from './util';
 import { bumpClient, forgiveDelay, LEVEL_NAME, levelOf, statsV08 } from '../contracts/relations';
-import { closedAirport, closedAtDeparture, closedUntil, payWarRisk, strikeDelay, whiteout } from './world';
+import { closedAirport, closedAtDeparture, closedUntil, payWarRisk, strikeDelay, waitAtGate, whiteout } from './world';
 import { isActive, noteHiredThem } from '../contracts/rivals';
+import { atGate, delayCard, rollEnRoute } from './disrupt';
 
 /** v0.7.1: the problem ref and hurt snapshot of a message about legs lost or handed over (after the fact). */
 function penaltyMeta(g: GameState, rev: Flight[], money: number): Pick<Message, 'problem' | 'hurt'> {
@@ -80,6 +82,7 @@ export function moveFlight(g: GameState, f: Flight, std: Minute, reason?: string
   f.schedStd ??= f.std;
   f.delay = 0;
   if (reason) f.delayReason = reason;
+  markTech(f, reason);
   retimeFlight(g, f, std, std + f.block);
 }
 
@@ -344,6 +347,7 @@ function delayCues(g: GameState, f: Flight, was: number): void {
 function delayChain0(g: GameState, f: Flight, std: Minute, reason: string, own: boolean, crewWait: boolean): number {
   const ac = f.aircraftId ? g.fleet[f.aircraftId] : undefined;
   if (f.status !== 'scheduled') return 0;
+  markTech(f, reason);
   std = Math.max(std, g.now);
   if (!ac) {
     moveFlight(g, f, std, reason);
@@ -687,6 +691,8 @@ export function onFlightDep(g: GameState, ev: SimEvent): void {
   const closed = closedAtDeparture(g, f);
   if (closed) {
     f.closedBy = closed.id;
+    // v0.11 debug: a closure of more than the hour waits in one move (world.ts waitAtGate), not hourly holds.
+    if (waitAtGate(g, f, closed)) return;
     return quietHold(g, f, 60);
   }
   if (whiteout(g, f)) return;
@@ -700,6 +706,8 @@ export function onFlightDep(g: GameState, ev: SimEvent): void {
     crewProblem(g, f, ac);
     return;
   }
+  // v0.11 Operations: a night curfew in reach, an ATC slot or a slow turnaround (cards through the director).
+  if (atGate(g, f, ac)) return;
   // 3. Random delay, rolled once per flight (v0.8: an ATC strike on its countries first, not our fault).
   if (f.delayReason === undefined) {
     const st = strikeDelay(g, f);
@@ -712,6 +720,8 @@ export function onFlightDep(g: GameState, ev: SimEvent): void {
       return;
     }
     const d = rollDelay(g, ac);
+    // v0.11 a long ATC slot or a slow tight turn becomes a card in a busy spell (the same delay, a way to cut it).
+    if (d && delayCard(g, f, ac, d)) return;
     if (d) {
       const n = delayChain(g, f, g.now + d.min, d.reason);
       if (d.min >= BAL.delayMessageMin && f.status === 'scheduled') {
@@ -727,6 +737,7 @@ export function onFlightDep(g: GameState, ev: SimEvent): void {
   }
   // 4. AOG (its own roll; technical delays never become one).
   if (chance(g, aogChance(g, ac, f.from))) {
+    f.tech = true;
     startAog(g, ac, f);
     holdFlight(g, f, 30);
     return;
@@ -843,9 +854,12 @@ function depart(g: GameState, f: Flight, ac: Aircraft): void {
   ac.status = 'flying';
   f.eta = g.now + Math.max(15, Math.round(f.block * (1 + range(g, -BAL.windNoise, BAL.windNoise))));
   schedule(g, f.eta, 'flight.arr', f.id, f.ev);
+  // v0.11 a weather closure, a medical event or a technical fault later in this flight (side stream, the director).
+  rollEnRoute(g, f, ac);
   cue('flightDep', { title: `${f.no} departed ${AIRPORT_BY_CODE[f.from]?.city ?? f.from}`, body: `${g.fleet[f.aircraftId!]?.reg ?? ''} to ${AIRPORT_BY_CODE[f.to]?.city ?? f.to}`.trim(), tone: 'info', ref: { kind: 'flight', id: f.id } });
   const s = stats(g);
   s.departures++;
+  noteDispatch(g, f);
   const duty = f.dutyId ? g.duties[f.dutyId] : undefined;
   if (duty?.legality === 'illegal') {
     s.illegalFlown++;
@@ -898,7 +912,7 @@ function departStats(g: GameState, f: Flight, ac: Aircraft, duty: Duty | undefin
 }
 
 /** Delays nobody at our end controls (ATC, weather, the client, the world). */
-const NOT_OURS = /^(ATC|Weather|Late passengers|Airport congestion|Client|Landing permit|Waiting:|Closed:|Whiteout|Moved to)/;
+const NOT_OURS = /^(ATC|Weather|Late passengers|Airport congestion|Client|Landing permit|Waiting:|Closed:|Whiteout|Moved to|Medical|Night stop|Bird strike)/;
 
 /**
  * v0.8 (§1.3, §1.4, §2.3) a revenue leg leaving late by our fault: over 3 h, charter compensation and relation −1
@@ -1158,8 +1172,7 @@ function crewProblem(g: GameState, f: Flight, ac: Aircraft): void {
       if (!crewBlocked(g, f)) return holdFlight(g, f, 5);
       delete f.crewDecided;
       f.crewTries = 0;
-      crewShortDecision(g, f, ac);
-      return holdFlight(g, f, 30);
+      return askCrewShort(g, f, ac);
     }
     const tries = (f.crewTries ?? 0) + 1;
     f.crewTries = tries;
@@ -1173,8 +1186,19 @@ function crewProblem(g: GameState, f: Flight, ac: Aircraft): void {
     if (!subcharterInstead(g, ac, unitOf(g, ac, f), why)) dropUnit(g, ac, f, 'No legal crew', why, 'crew');
     return;
   }
+  askCrewShort(g, f, ac);
+}
+
+/**
+ * The gate decision, and a 30-minute hold while it is open. Debug round (26 Oct 2026): a decision applied at once
+ * (operations over the pacing budget, or Ops Control) has already retimed the leg for the crew it waits for; a hold on
+ * top re-tried the departure 30 min later, before that crew could be there, so the leg dropped them as absent and asked
+ * again, every half hour (Blue Airlines BLU404 LGW–LHR, 18 Aug 2027: 20 cards in 10 hours, the STD jumping back and forth).
+ */
+function askCrewShort(g: GameState, f: Flight, ac: Aircraft): void {
+  const ev = f.ev;
   crewShortDecision(g, f, ac);
-  holdFlight(g, f, 30);
+  if (f.status === 'scheduled' && (f.ev === ev || hasOpenDecision(g, 'crewShort', f.id))) holdFlight(g, f, 30);
 }
 
 /**
@@ -1252,6 +1276,8 @@ export function onFlightArr(g: GameState, ev: SimEvent): void {
     f.status = 'done';
     f.atd = f.std;
     f.ata = g.now;
+    // v0.10.2 a rival flew our client's leg: dispatched on time when it left within 15 minutes of the schedule.
+    if (f.operatedBy) noteDispatch(g, f);
     touchTickets(g);
     return;
   }

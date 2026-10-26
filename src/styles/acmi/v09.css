@@ -2,29 +2,29 @@
    department heads and achievements (§5, §14), screen hints (§14.2). Static: nothing here animates. */
 
 /* ---------- §R roster codes: colour plus text, never colour alone ---------- */
-.k-off { --c: #a3c9a8; }
-.k-standby { --c: #60c8f5; }
-.k-sbyHotel { --c: #f5a742; }
-.k-asby { --c: #93c5fd; }
-.k-res { --c: #94a3b8; }
-.k-leave { --c: #c4b5fd; }
-.sc-cal.k-off { background: rgba(163, 201, 168, 0.2); color: #d5ead8; }
-.sc-cal.k-standby { background: rgba(96, 200, 245, 0.08); border: 1.5px dashed var(--c); color: var(--c); }
-.sc-cal.k-sbyHotel { background: rgba(245, 167, 66, 0.08); border: 1.5px dashed var(--c); color: #fcd9a8; }
-.sc-cal.k-asby { background: rgba(147, 197, 253, 0.4); color: #e0edff; }
-.sc-cal.k-res { background: rgba(148, 163, 184, 0.08); border: 1.5px dotted var(--c); color: #cbd5e1; }
-.sc-cal.k-leave { background: rgba(196, 181, 253, 0.32); color: #ede9fe; }
-.sc-cal-sw.k-off { background: rgba(163, 201, 168, 0.4); }
+.k-off { --c: var(--c-fg-a3c9a8); }
+.k-standby { --c: var(--c-fg-60c8f5); }
+.k-sbyHotel { --c: var(--c-fg-f5a742); }
+.k-asby { --c: var(--c-fg-93c5fd); }
+.k-res { --c: var(--c-fg-94a3b8); }
+.k-leave { --c: var(--c-fg-c4b5fd); }
+.sc-cal.k-off { background: rgba(var(--c-bg-163-201-168-rgb), 0.2); color: var(--c-fg-d5ead8); }
+.sc-cal.k-standby { background: rgba(var(--c-bg-96-200-245-rgb), 0.08); border: 1.5px dashed var(--c); color: var(--c); }
+.sc-cal.k-sbyHotel { background: rgba(var(--c-bg-245-167-66-rgb), 0.08); border: 1.5px dashed var(--c); color: var(--c-fg-fcd9a8); }
+.sc-cal.k-asby { background: rgba(var(--c-bg-147-197-253-rgb), 0.4); color: var(--c-fg-e0edff); }
+.sc-cal.k-res { background: rgba(var(--c-bg-148-163-184-rgb), 0.08); border: 1.5px dotted var(--c); color: var(--c-fg-cbd5e1); }
+.sc-cal.k-leave { background: rgba(var(--c-bg-196-181-253-rgb), 0.32); color: var(--c-fg-ede9fe); }
+.sc-cal-sw.k-off { background: rgba(var(--c-bg-163-201-168-rgb), 0.4); }
 .sc-cal-sw.k-standby { background: transparent; border: 1.5px dashed var(--c); }
 .sc-cal-sw.k-sbyHotel { background: transparent; border: 1.5px dashed var(--c); }
-.sc-cal-sw.k-asby { background: rgba(147, 197, 253, 0.6); }
+.sc-cal-sw.k-asby { background: rgba(var(--c-bg-147-197-253-rgb), 0.6); }
 .sc-cal-sw.k-res { background: transparent; border: 1.5px dotted var(--c); }
-.sc-cal-sw.k-leave { background: rgba(196, 181, 253, 0.55); }
-.rb-hit.k-standby .rb-lbl { color: #9edcf7; }
-.rb-hit.k-sbyHotel .rb-lbl { color: #fcd9a8; }
-.rb-hit.k-asby .rb-lbl { color: #bcd8fd; }
+.sc-cal-sw.k-leave { background: rgba(var(--c-bg-196-181-253-rgb), 0.55); }
+.rb-hit.k-standby .rb-lbl { color: var(--c-fg-9edcf7); }
+.rb-hit.k-sbyHotel .rb-lbl { color: var(--c-fg-fcd9a8); }
+.rb-hit.k-asby .rb-lbl { color: var(--c-fg-bcd8fd); }
 .rb-hit.k-res .rb-lbl { color: var(--text-2); font-weight: 600; }
-.z-month .rb-lane .sc-cal.k-off { background: rgba(163, 201, 168, 0.1); color: #b9d8bd; }
+.z-month .rb-lane .sc-cal.k-off { background: rgba(var(--c-bg-163-201-168-rgb), 0.1); color: var(--c-fg-b9d8bd); }
 .rb-code.k-standby, .rb-code.k-sbyHotel, .rb-code.k-asby, .rb-code.k-res { color: var(--c); font-weight: 600; }
 .rb-prot { width: 11px; height: 11px; margin: 0 6px 0 4px; opacity: 0.7; }
 .sc-cal.k-off.rb-blk { justify-content: center; }
@@ -33,9 +33,9 @@
 /* The published roster ends at a thin static rule; its date sits under the crew count. */
 .rb-corner.col { flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px; line-height: 1.2; }
 .rb-pub-k { font-size: 12px; color: var(--text-3); white-space: nowrap; }
-.rb-pub { position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px dashed rgba(196, 210, 240, 0.55); z-index: 1; pointer-events: none; }
+.rb-pub { position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px dashed rgba(var(--c-line-196-210-240-rgb), 0.55); z-index: 1; pointer-events: none; }
 .rb-pub-h { height: 40px; }
-.rb-pub-sw { display: inline-block; width: 0; height: 14px; border-left: 1px dashed rgba(196, 210, 240, 0.8); margin: 0 6px; }
+.rb-pub-sw { display: inline-block; width: 0; height: 14px; border-left: 1px dashed rgba(var(--c-line-196-210-240-rgb), 0.8); margin: 0 6px; }
 
 /* Month: an 88 px summary column pinned to the right (days off · standby · flying). */
 .rb-head.with-sum { display: flex; }
@@ -54,15 +54,15 @@
 /* ---------- §T crew out of hours ---------- */
 .cc-ooh {
   display: flex; align-items: center; gap: 12px; margin: 0 0 12px; padding: 8px 12px; border-radius: 10px;
-  background: rgba(248, 113, 113, 0.08); border: 1px solid rgba(248, 113, 113, 0.35);
+  background: rgba(var(--bad-rgb), 0.08); border: 1px solid rgba(var(--bad-rgb), 0.35);
 }
 .cc-ooh-ico { width: 20px; height: 20px; color: var(--bad); flex-shrink: 0; }
 .cc-ooh-main { gap: 2px; min-width: 0; }
 .cc-ooh-bar { flex: 0 0 140px; }
-.cc-sby { color: #9edcf7; border-color: rgba(96, 200, 245, 0.45); }
+.cc-sby { color: var(--c-fg-9edcf7); border-color: rgba(var(--c-line-96-200-245-rgb), 0.45); }
 
 /* ---------- §S.5 Settings › Sound ---------- */
-.toast.achievement svg { color: #f5c451; }
+.toast.achievement svg { color: var(--gold); }
 .v9-dim { opacity: 0.5; }
 .v9-tests { display: flex; flex-direction: column; gap: 4px; margin: 0 0 8px; }
 .v9-test { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 4px 4px 4px 12px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--border); }
@@ -71,7 +71,7 @@
 
 /* ---------- §5.4 head unlocked card ---------- */
 .v9-unlock-head { align-items: center; margin-bottom: 12px; }
-.v9-unlock-ico { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 12px; background: rgba(245, 196, 81, 0.12); color: #f5c451; flex-shrink: 0; }
+.v9-unlock-ico { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 12px; background: rgba(var(--gold-rgb), 0.12); color: var(--gold); flex-shrink: 0; }
 .v9-unlock-ico svg { width: 26px; height: 26px; }
 .v9-unlock-tabs { margin-bottom: 12px; }
 .v9-unlock-tab { min-height: 44px; gap: 6px; }
@@ -82,31 +82,31 @@
 .v9-cand-blurb { min-height: 34px; }
 .v9-cand .btn { min-height: 44px; margin-top: auto; }
 .v9-msg-ico { width: 16px; height: 16px; flex-shrink: 0; margin-top: 2px; }
-.sc-ico-s.gold, .gold { color: #f5c451; }
+.sc-ico-s.gold, .gold { color: var(--gold); }
 
 /* ---------- §14.2 first-time screen hints (static) ---------- */
 .v9-hint {
   display: flex; gap: 12px; align-items: center; margin: 0 0 12px; padding: 6px 8px 6px 12px;
-  border-radius: 12px; background: var(--panel-2); border: 1px solid rgba(245, 196, 81, 0.35);
+  border-radius: 12px; background: var(--panel-2); border: 1px solid rgba(var(--gold-rgb), 0.35);
 }
-.v9-hint-ico { width: 18px; height: 18px; color: #f5c451; flex-shrink: 0; }
+.v9-hint-ico { width: 18px; height: 18px; color: var(--gold); flex-shrink: 0; }
 .v9-hint-t { min-width: 0; line-height: 1.35; }
 .v9-hint-b { flex-shrink: 0; }
 .v9-hint .btn-sm { min-height: 44px; }
 .v9-hint.float { flex-wrap: wrap; width: 360px; }
 .v9-hint.float .v9-hint-t { flex: 1 1 280px; }
-.v9-hint.float { position: fixed; top: calc(var(--topbar-h, 72px) + var(--safe-t, 0px) + 12px); right: 16px; z-index: 6; margin: 0; background: rgba(12, 19, 34, 0.97); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); }
+.v9-hint.float { position: fixed; top: calc(var(--topbar-h, 72px) + var(--safe-t, 0px) + 12px); right: 16px; z-index: 6; margin: 0; background: rgba(var(--surface-rgb), 0.97); box-shadow: 0 8px 24px rgba(var(--shade-rgb), calc(0.35 * var(--shade-k))); }
 
 /* ---------- §5.5 Company › Team, §14.1 Achievements ---------- */
 .v9-head-row { min-height: 64px; }
 .v9-head-row.locked b { color: var(--text-2); }
-.v9-head-ico { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px; background: rgba(62, 230, 255, 0.08); color: var(--accent); flex-shrink: 0; }
-.v9-head-ico.dim { background: rgba(148, 170, 220, 0.06); color: var(--text-3); }
+.v9-head-ico { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px; background: rgba(var(--accent-rgb), 0.08); color: var(--accent); flex-shrink: 0; }
+.v9-head-ico.dim { background: rgba(var(--line-rgb), 0.06); color: var(--text-3); }
 .v9-head-ico svg { width: 18px; height: 18px; }
 .v9-head-ico.lg { width: 48px; height: 48px; border-radius: 12px; }
 .v9-head-ico.lg svg { width: 24px; height: 24px; }
 .v9-pill { font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--border-strong); color: var(--text-3); }
-.v9-pill.on { color: var(--good); border-color: rgba(52, 211, 153, 0.45); }
+.v9-pill.on { color: var(--good); border-color: rgba(var(--good-rgb), 0.45); }
 .v9-does { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .v9-rule { min-height: 56px; }
 .v9-alert { display: grid; grid-template-columns: auto minmax(0, 1fr) auto 44px; gap: 8px; align-items: center; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
@@ -119,9 +119,9 @@
 .v9-ach-count { color: var(--text); }
 .v9-ach-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .v9-tile { display: flex; gap: 10px; align-items: flex-start; min-height: 96px; padding: 12px; opacity: 0.62; }
-.v9-tile.got { opacity: 1; border-color: rgba(245, 196, 81, 0.35); }
-.v9-tile-ico { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; background: rgba(148, 170, 220, 0.08); color: var(--text-3); flex-shrink: 0; }
-.v9-tile.got .v9-tile-ico { background: rgba(245, 196, 81, 0.14); color: #f5c451; }
+.v9-tile.got { opacity: 1; border-color: rgba(var(--gold-rgb), 0.35); }
+.v9-tile-ico { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; background: rgba(var(--line-rgb), 0.08); color: var(--text-3); flex-shrink: 0; }
+.v9-tile.got .v9-tile-ico { background: rgba(var(--gold-rgb), 0.14); color: var(--gold); }
 .v9-tile-ico svg { width: 18px; height: 18px; }
 @media (max-width: 1000px) { .v9-ach-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .v9-does { grid-template-columns: 1fr; } }
 
@@ -134,4 +134,4 @@
 .rb-sum-h { flex-direction: column; line-height: 1.2; gap: 1px; }
 .rb-sum-h b { color: var(--text-2); font-weight: 650; }
 /* v0.9 round 4: the receivable credit control's note points at. */
-.sc-recv.on { background: rgba(148, 170, 220, 0.08); box-shadow: inset 3px 0 0 var(--accent); }
+.sc-recv.on { background: rgba(var(--line-rgb), 0.08); box-shadow: inset 3px 0 0 var(--accent); }

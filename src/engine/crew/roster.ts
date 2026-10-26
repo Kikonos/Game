@@ -17,7 +17,7 @@ import { infoOf } from './outOfHours';
 import { lateChange, moraleShock, nextReport } from './morale';
 import { cabinFdpCap, DISCRETION, evalSegs, levelOf, LIMITS, minRest, mkSeg, recoveryAnchor, tzDeltaH, worst, type LegalityIssue, type Seg } from './rules';
 import { cabinOwnReport, planRest, restCabinN, restLegs, restOf, restPlan } from './restPlan';
-import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, locAt, noteRiders, passengers, planHome, planOut, segsOf, segsTagOf, ticketPrice, touchCrew, typeIdOf, withoutTickets } from './timeline';
+import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, locAt, noteRiders, outStillFits, passengers, planHome, planOut, segsOf, segsTagOf, ticketPrice, touchCrew, typeIdOf, withoutTickets } from './timeline';
 
 export { buildDuties } from './duties';
 
@@ -192,9 +192,12 @@ function retimeTickets(g: GameState, p: Pairing, d: Duty, moved: Set<string>): v
         const need = Math.ceil((d.release + rest + BAL.deadheadCheckIn) / 60) * 60;
         if (f.std < need) std = need;
       }
-    } else if (f.to === dep && f.sta > d.report && f.std > g.now) {
+    } else if (f.to === dep && f.std > g.now && (f.sta > d.report || !outStillFits(g, p, d, f.from, f.std, f.block))) {
+      // Too late for the report, or (v0.11 debug: the duty moved later) so early that the wait at the gate takes the
+      // ticket and the duty past one FDP: re-planned.
       const t = planOut(g, p, d, f.from);
-      if (!t.rideId && t.std - BAL.deadheadCheckIn >= g.now) std = t.std;
+      // (A re-plan for the FDP only when the new ticket fits: else the booked one stays and the 2 h check decides.)
+      if (!t.rideId && t.std - BAL.deadheadCheckIn >= g.now && (f.sta > d.report || outStillFits(g, p, d, f.from, t.std, t.sta - t.std))) std = t.std;
     }
     if (std === f.std) continue;
     retimeFlight(g, f, std, std + f.block);
@@ -272,12 +275,16 @@ function sendHome(g: GameState, c: CrewMember, p?: Pairing): void {
   if ((ix.tickets.get(c.id) ?? []).some((f) => f.status === 'scheduled' && (f.from === c.loc || f.std <= g.now))) return;
   if ((ix.pairingsOf.get(c.id) ?? []).some((x) => x.status === 'active' || (x.status === 'planned' && x.start < g.now + 3 * DAY))) return;
   const blk = dhBlock(c.loc, c.base);
-  let std = Math.ceil((Math.max(g.now, c.restUntil) + 60) / 60) * 60;
-  // v0.9 fix: a ticket home landing past the 168 h since the last recovery rest (positioning is duty) waits for that
-  // recovery at the hotel first (36 h with 2 local nights, 60 h after 4 disruptive duties: ORO.FTL.235(d)).
   const segs = segsOf(g, c);
   const ctx = ctxOf(g, c);
   const ci = BAL.deadheadCheckIn;
+  // Checked in once rested: after the last duty (restUntil) and (v0.11 debug) after a standby already begun, whose
+  // rest restUntil does not hold (a hotel standby until 15:00 had its crew checking in for the ticket home 9 h later).
+  let ready = Math.max(g.now, c.restUntil);
+  for (const x of segs) if (x.kind !== 'log' && x.start < g.now) ready = Math.max(ready, x.end + x.rest);
+  let std = Math.ceil((ready + ci) / 60) * 60;
+  // v0.9 fix: a ticket home landing past the 168 h since the last recovery rest (positioning is duty) waits for that
+  // recovery at the hotel first (36 h with 2 local nights, 60 h after 4 disruptive duties: ORO.FTL.235(d)).
   if (std + blk > recoveryAnchor(ctx, segs, std - ci) + LIMITS.recoveryEvery) {
     for (let t = std; t < std + 4 * DAY; t += 60) {
       if (recoveryAnchor(ctx, segs, t - ci) < t - ci) continue;
@@ -809,6 +816,9 @@ function offFallback(g: GameState, c: CrewMember, plan: CrewPlan, base: Seg[]): 
   return offMovable(g, c, mergeSegs(base, plan.segs));
 }
 
+/** Time from a trip's last release to home: none at base; away, a night's rest and the ticket. */
+const homeTravel = (d: Duty, base: string): number => (d.restAt === base ? 0 : 10 * 60 + dhBlock(d.restAt, base) + 60);
+
 function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, exclude?: Set<string>): void {
   const duties = openDuties(g, p);
   if (!duties.length) return;
@@ -840,7 +850,10 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
     if (!fitRoles.has(c.role) || !c.ratings.includes(family) || inP.has(c.id) || exclude?.has(c.id) || c.morale < refuseBelow) continue;
     // v0.9 round 3 speed: crew planCrew would refuse at once (on leave, sick, in training or joining during the trip;
     // still resting at its report) are not planned at all: they were refused anyway, one full timeline check each.
-    if (c.restUntil > first.report || c.blocks?.some((b) => b.from < spanTo && b.to > first.report)) continue;
+    // Debug round (26 Oct 2026): until they are home again (a trip ending away: its rest and the ticket home), so leave
+    // never starts on the deadhead home (seed 1: eighteen crew flew home on the first morning of their annual leave).
+    const back = spanTo + homeTravel(duties[duties.length - 1], c.base);
+    if (c.restUntil > first.report || c.blocks?.some((b) => b.from < back && b.to > first.report)) continue;
     // v0.5.2: crew still at the departure airport with a ticket home around this trip stay on instead
     // (planCrew drops that ticket): the pilots of a trip fly its trailing ferry.
     const all = ctx.of(c);

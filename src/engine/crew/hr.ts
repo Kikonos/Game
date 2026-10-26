@@ -381,19 +381,33 @@ export function staffing(g: GameState): StaffingLine[] {
     }
   }
   const count = new Map<string, { have: number; leaving: number; converting: number; shared: number }>();
-  for (const c of Object.values(g.crew)) {
+  const cell = (f: RatingFamily, r: Role) => {
+    const key = `${f}:${r}`;
+    let x = count.get(key);
+    if (!x) count.set(key, (x = { have: 0, leaving: 0, converting: 0, shared: 0 }));
+    return x;
+  };
+  // v0.10.2 as the Planning view (sets.ts supply): cabin crew on several fleet types count once, in the family they
+  // were hired for (their first rating), and spill over to another family's shortfall only when theirs is full.
+  const multi: { c: CrewMember; fs: RatingFamily[] }[] = [];
+  for (const c of Object.values(g.crew).sort((a, b) => (a.id < b.id ? -1 : 1))) {
+    const fs = c.ratings.filter((f) => fams.has(f) && !losing.get(c.id)?.includes(f));
+    if (!c.notice && !isPilot(c.role) && fs.length > 1) multi.push({ c, fs });
     for (const f of c.ratings) {
-      const key = `${f}:${c.role}`;
-      let x = count.get(key);
-      if (!x) count.set(key, (x = { have: 0, leaving: 0, converting: 0, shared: 0 }));
+      const x = cell(f, c.role);
       if (c.notice) x.leaving++;
       else if (losing.get(c.id)?.includes(f)) x.converting++;
-      else {
-        x.have++;
-        // v0.7.2 cabin crew on several types also count towards another fleet family.
-        if (!isPilot(c.role) && c.ratings.some((o) => o !== f && fams.has(o))) x.shared++;
-      }
+      else if (!(fs.length > 1 && !isPilot(c.role))) x.have++;
     }
+  }
+  for (const { c, fs } of multi) {
+    const home = fs.includes(c.ratings[0]) ? c.ratings[0] : fs[0];
+    const gap = (f: RatingFamily) => (fams.get(f)?.[c.role] ?? 0) - cell(f, c.role).have;
+    let to = home;
+    if (gap(home) <= 0) for (const f of fs) if (f !== home && gap(f) > 0 && gap(f) > (to === home ? 0 : gap(to))) to = f;
+    const x = cell(to, c.role);
+    x.have++;
+    x.shared++;
   }
   const out: StaffingLine[] = [];
   for (const [family, need] of fams) {

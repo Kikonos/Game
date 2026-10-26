@@ -19,7 +19,7 @@ import { Dot, ScreenHead, useRenderCount } from './common';
 import { contractColor } from './palette';
 import { hangarWord } from './screenLogic';
 import {
-  axisTicks, chooseHits, dragStart, idleAt, pickBlocks, ppmOf, pressFlight, pressMaint, rowBlocks, timelineSpan, visibleWindow, type GanttBlock, type ZoomDays,
+  axisTicks, blockText, chooseHits, dragStart, idleAt, pickBlocks, ppmOf, pressFlight, pressMaint, rowBlocks, timelineSpan, visibleWindow, type GanttBlock, type ZoomDays,
 } from './scheduleLogic';
 import { quoteTripMove, tripOf, type TripMoveQuote, type TripView } from '../../engine/ops/tripMove';
 import { checkMaintMove, maintWord, movableMaint, type MaintMoveCheck } from '../../engine/ops/maintMove';
@@ -86,12 +86,10 @@ function Block({ b, from, ppm, win0 }: { b: GanttBlock; from: number; ppm: numbe
   const x = (b.start - from) * ppm;
   const w = Math.max(b.kind === 'idle' || b.kind === 'cont' ? 0 : 3, (b.end - b.start) * ppm);
   const k = b.color !== null ? contractColor(b.color) : undefined;
-  // The short label only when it fits whole (12 px padding + ≈ 9 px per bold capital): never 'L…'.
-  const text = w >= 64 ? b.label : b.short && w >= 12 + (b.short.length === 1 ? 7.5 : 9 * b.short.length) ? b.short : '';
-  // Ferry legs carry the FERRY tag in front of the full label (the short label already is 'FERRY').
-  const tag = b.ftype === 'ferry' && w >= 120 && text === b.label;
-  // v0.7.1 §3.12: a flight the crew-shortage ladder marked carries CREW SHORT in front of its label when it fits.
-  const short = !!b.alert && w >= 150 && text === b.label;
+  // v0.12 only whole labels (never 'L…'): the full label, else number over route, else the number, else the short one.
+  const bt = blockText(b, w);
+  const tag = bt.tag === 'ferry';
+  const short = bt.tag === 'short';
   // Long idle gaps that start off-screen: keep the label near the visible left edge (window start + 18 h).
   const shift = b.kind === 'idle' || b.kind === 'cont' || b.kind === 'lease' ? Math.min(Math.max(0, (win0 + 18 * 60 - b.start) * ppm), Math.max(0, w - 90)) : 0;
   return (
@@ -100,7 +98,9 @@ function Block({ b, from, ppm, win0 }: { b: GanttBlock; from: number; ppm: numbe
       className={`gb gb-${b.kind}${b.ftype && b.ftype !== 'operating' ? ` ${b.ftype}` : ''}${b.paint ? ' gb-paint' : ''}${b.done ? ' done' : ''}${b.crew ? ` crew-${b.crew}` : ''}${b.alert ? ' crew-short' : ''}`}
       style={{ transform: `translateX(${x.toFixed(1)}px)`, width: w, ['--kc' as string]: k, ['--pc' as string]: b.paint }}
     >
-      {text && <span style={shift ? { marginLeft: shift } : undefined}>{tag && <b className="gb-tag">FERRY</b>}{short && <b className="gb-tag cs">CREW SHORT</b>}{text}</span>}
+      {bt.lines.length === 2
+        ? <span className="gb-two"><span>{bt.lines[0]}</span><span>{bt.lines[1]}</span></span>
+        : bt.lines.length === 1 && <span style={shift ? { marginLeft: shift } : undefined}>{tag && <b className="gb-tag">FERRY</b>}{short && <b className="gb-tag cs">CREW SHORT</b>}{bt.lines[0]}</span>}
     </div>
   );
 }
@@ -178,6 +178,8 @@ function Legend({ g, win }: { g: GameState; win: [number, number] }) {
       ))}
       {more > 0 && <span className="gl-item" title={list.slice(LEGEND_MAX - 1).map((c) => c.title).join(' · ')}>+{more + 1} more</span>}
 
+      {/* v0.11 outlined: a leg of our contract flown by another airline */}
+      <span className="gl-item"><span className="gl-sw gl-sub" />sub-chartered</span>
       <span className="gl-item"><span className="gl-sw gl-maint" />maintenance</span>
       {paint && <span className="gl-item"><span className="gl-sw gl-paint" style={{ ['--pc' as string]: paint }} />paint shop</span>}
       <span className="gl-item"><span className="gl-sw gl-idle" />idle 12 h+</span>
@@ -615,11 +617,12 @@ export function ScheduleScreen() {
       <ScreenHead title="Schedule" sub={<>Times in UTC · {base} local is {offLabel} · tap a flight for details · hold and drag it to move the trip, or a check or refit to move it along its row · pinch to zoom</>}>
         <button className="btn" onClick={() => scrollTo(g.now)}><Crosshair /> Today</button>
         <Seg<ZoomDays> value={zoom} onChange={setZoom} options={ZOOMS.map((z) => ({ value: z, label: `${z} days` }))} />
-        <ColourLegend title="Schedule colours" items={[
+        <ColourLegend title="Schedule colours" hint="schedule" items={[
           { swatch: 'op', label: 'Solid block in a contract colour: a flight with passengers, flown by us' },
           { swatch: 'pos', label: 'Striped outline: positioning or ferry, empty' },
           { swatch: 'corner', label: 'Red corner: the crew cannot legally fly it · amber corner: no crew yet' },
           { swatch: <span className="cs-banner red" style={{ height: 18, fontSize: 11 }}>CREW SHORT</span>, label: 'A crew shortage the warning ladder has flagged (tap the block → Crew Control)' },
+          { swatch: <span className="gl-sw gl-sub" />, label: 'Outlined: a leg of our contract flown by another airline (sub-chartered)' },
           { swatch: 'maint', label: 'Hatched grey: a check, repair or paint shop' },
           { swatch: 'idle', label: 'Dashed outline: idle 12 h or more (rent still runs)' },
           { swatch: 'grey', label: 'Faded: already flown' },

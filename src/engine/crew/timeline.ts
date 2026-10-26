@@ -203,7 +203,9 @@ export function ticketPrice(from: string, to: string): number {
 /** Ticket door-to-door minutes: the airline itinerary (nonstop, or two legs and a connection; ops/commercial.ts). */
 export const dhBlock = (from: string, to: string) => ticketBlock(from, to);
 
-const posRest = (t: TicketPlan, atHome: boolean) => minRest({ dutyMin: t.sta - t.std + CHECKIN(), atHome, augmented: false, tzShift: 0 });
+/** Rest after a ticket on its own. Debug round (26 Oct 2026): 14 h away after one across 4+ time zones, as after a duty
+ * (seed 1: crew ticketed LIS–SJU, 13:25 on the way, then a duty from San Juan 13:45 later). */
+const posRest = (t: TicketPlan, atHome: boolean, tzShift = 0) => minRest({ dutyMin: t.sta - t.std + CHECKIN(), atHome, augmented: false, tzShift });
 
 /** Minimum time from a ticket's arrival at the outstation to the duty's report (airport to crew room). */
 export const OUT_CONNECT = 60;
@@ -246,7 +248,10 @@ export function outTicket(g: GameState, p: Pairing, d: Duty, from: string, ready
   const blk = dhBlock(from, to);
   const mk = (std: Minute): TicketPlan => ({ from, to, std, sta: std + blk });
   const first = hour(free + CHECKIN(), true);
-  const rest = minRest({ dutyMin: blk + CHECKIN(), atHome: false, augmented: false, tzShift: 0 });
+  // v0.11 the rest the check asks for after the ticket (posSeg): 14 h away from base after a ≥ 4 h time-zone shift
+  // (CS FTL.1.235(b)(3)(ii)). Planned at 10 h, a ticket to Montréal or New York landed short of rest every time and
+  // a delivery ferry from North America never found pilots.
+  const rest = minRest({ dutyMin: blk + CHECKIN(), atHome: false, augmented: false, tzShift: tzDeltaH(p.base, to, d.report) });
   const rested = hour(d.report - rest - blk, false);
   if (early) return { plan: mk(rested), why: rested >= first ? null : `Rest at ${to} needed landing by ${at(rested + blk, g.now)}` };
   const disc = d.discretion ?? 0;
@@ -282,6 +287,18 @@ export function outTicket(g: GameState, p: Pairing, d: Duty, from: string, ready
   const x = fdpOf(last);
   const over = x.fdp > x.max ? `${hm(x.fdp)} > ${hm(x.max)} max` : `${hm(x.fdp)}, within 30 min of ${hm(x.max)} max`;
   return { plan, why: resting + cap(`deadhead + duty FDP ${over}; rest at ${to} needed landing by ${t(rested + blk)}`) };
+}
+
+/**
+ * Whether a booked ticket out (leaving `from` at std, block blk) still works for d as it now stands: the crew rest
+ * after it, or the ticket and the duty fit one FDP (a duty moved later leaves an early ticket's crew waiting on duty).
+ */
+export function outStillFits(g: GameState, p: Pairing, d: Duty, from: string, std: Minute, blk: number): boolean {
+  const to = g.flights[d.flightIds[0]]?.from ?? d.restAt;
+  const rest = minRest({ dutyMin: blk + CHECKIN(), atHome: false, augmented: false, tzShift: tzDeltaH(p.base, to, d.report) });
+  if (std + blk + rest <= d.report) return true;
+  const start = std - CHECKIN();
+  return d.fdp + (d.report - start) <= fdpLimitAt(g, p, d, from, start).max + (d.discretion ?? 0);
 }
 
 /** The planned ticket out (outTicket's plan; workable when it can still be checked in: see outTicket). */
@@ -384,7 +401,7 @@ export function ctxOf(g: GameState, c: CrewMember): TimelineCtx {
 export const checkInOf = (t: TicketPlan): number => ((t as Partial<Flight>).charter ? BAL.crewControl.jet.checkInMin : CHECKIN());
 
 export function posSeg(t: TicketPlan, c: CrewMember, fresh = false): Seg {
-  return mkSeg({ kind: 'pos', start: t.std - checkInOf(t), end: t.sta, fdp: 0, maxFdp: 0, block: 0, sectors: 0, aug: false, disruptive: false, rest: posRest(t, t.to === c.base), at: t.to, from: t.from, dutyId: undefined, ticketId: (t as Partial<Flight>).id, fresh });
+  return mkSeg({ kind: 'pos', start: t.std - checkInOf(t), end: t.sta, fdp: 0, maxFdp: 0, block: 0, sectors: 0, aug: false, disruptive: false, rest: posRest(t, t.to === c.base, tzDeltaH(c.base, t.to, t.sta)), at: t.to, from: t.from, dutyId: undefined, ticketId: (t as Partial<Flight>).id, fresh });
 }
 
 /** A ticket already flown on its own is in the crew log (onFlightArrCrew); only merged ones still shape the duty. */

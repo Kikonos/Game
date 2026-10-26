@@ -3,6 +3,8 @@
 
 import { HelpCircle } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
+import type { ScreenHintId } from '../screenHints';
+import { HintNote } from './ScreenHint';
 
 export interface LegendItem {
   /** A swatch class (lg-sw-… / sc-cal-sw k-…) or a custom node. */
@@ -10,7 +12,8 @@ export interface LegendItem {
   label: string;
 }
 
-export function ColourLegend({ title, items, align }: { title: string; items: LegendItem[]; align?: 'left' | 'right' }) {
+/** v0.12 `hint`: the screen's folded first-time hint shows on top of the list. */
+export function ColourLegend({ title, items, align, hint }: { title: string; items: LegendItem[]; align?: 'left' | 'right'; hint?: ScreenHintId }) {
   const [open, setOpen] = useState(false);
   return (
     <span className="sc-pop-wrap lg-wrap">
@@ -19,6 +22,7 @@ export function ColourLegend({ title, items, align }: { title: string; items: Le
         <>
           <button className="sc-pop-shade" aria-label="Close" onClick={() => setOpen(false)} />
           <div className={`sc-pop lg-pop card ${align === 'left' ? 'left' : ''}`} role="dialog" aria-label={title}>
+            {hint && <HintNote id={hint} />}
             <b>{title}</b>
             <div className="lg-list">
               {items.map((it, i) => (

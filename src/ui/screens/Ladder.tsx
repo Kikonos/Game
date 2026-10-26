@@ -7,7 +7,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { typeOf } from '../../engine/core/perf';
 import { fmtDate, fmtDay } from '../../engine/core/time';
 import type { ApprovalId, GameState } from '../../engine/core/types';
-import { ladder, RUNG0_TYPES, type ApprovalReq, type LadderNode } from '../../engine/ops';
+import { ladder, RUNG0_TYPES, waitingFor, type ApprovalReq, type LadderNode } from '../../engine/ops';
 import { Bar, Card } from '../components/ui';
 import { money } from '../format';
 import { store } from '../store';
@@ -17,10 +17,13 @@ const shortOf = (ids: string[]) => ids.map((id) => typeOf(id)?.short ?? id);
 /** Whether a node waits on a prerequisite approval not yet held (Locked) rather than on its own requirements (Not ready). */
 export const prereqMissing = (n: LadderNode, held: ReadonlySet<ApprovalId>) => n.requires.some((r) => !held.has(r));
 
+/** v0.10.2 the chip's short form of what a filed application waits for. */
+const WAIT_SHORT: Record<string, string> = { 'rated pilots': 'crew', 'the ETOPS maintenance programme': 'the programme', 'technical reliability': 'reliability', 'a clean crew record': 'a clean record' };
+
 /** The status chip of a node. `held`: the approvals held (Locked vs Not ready). */
 export function nodeStatus(n: LadderNode, held?: ReadonlySet<ApprovalId>): { label: string; tone: string; locked: boolean } {
   if (n.state === 'held') return { label: `Held since ${fmtDay(n.heldSince ?? 0)}`, tone: 'good', locked: false };
-  if (n.state === 'pending') return { label: n.pending?.waiting ? 'Waiting for crew' : `In progress · due ${fmtDay(n.pending?.done ?? 0)}`, tone: n.pending?.waiting ? 'warn' : 'info', locked: false };
+  if (n.state === 'pending') return { label: n.pending?.waiting ? `Waiting for ${WAIT_SHORT[waitingFor(n.pending.waiting)] ?? 'a requirement'}` : `In progress · due ${fmtDay(n.pending?.done ?? 0)}`, tone: n.pending?.waiting ? 'warn' : 'info', locked: false };
   if (n.state === 'ready') return { label: 'Ready to apply', tone: 'accent', locked: false };
   if (held && !prereqMissing(n, held)) return { label: 'Not ready', tone: '', locked: false };
   return { label: 'Locked', tone: '', locked: true };

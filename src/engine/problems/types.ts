@@ -151,8 +151,12 @@ export function mkHurt(x: { money?: number; pax?: number; delayMin?: number; leg
   return { money, pax, delayMin, legs, level, text, badges: hurtBadges({ money, pax, delayMin, level }) };
 }
 
-/** v0.9 round 4 (§V): the DOES-IT-HURT line as prose for an inbox body: 'Yes: ' / 'Not much: ' dropped. */
-export const hurtProse = (card: Pick<ProblemCard, 'hurt'>): string => card.hurt.text.replace(/^(Yes|Not much|Not now): /, '');
+/** v0.9 round 4 (§V): the DOES-IT-HURT line as prose for an inbox body: 'Yes: ' / 'Not much: ' dropped, first letter capitalised. */
+export const hurtProse = (card: Pick<ProblemCard, 'hurt'>): string => {
+  // v0.11 it always follows a full sentence (the WHY), so it starts with a capital ('Nothing lost yet', not 'nothing lost yet').
+  const t = card.hurt.text.replace(/^(Yes|Not much|Not now): /, '');
+  return t.charAt(0).toUpperCase() + t.slice(1);
+};
 
 /** Tone of a value against its limit (0.75 / 0.95 of it). */
 export const limitTone = (value: number, limit: number): GaugeSpec['tone'] => (limit <= 0 ? 'good' : value >= limit * 0.95 ? 'bad' : value >= limit * 0.75 ? 'warn' : 'good');

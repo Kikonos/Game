@@ -1012,6 +1012,8 @@ function planDay(g: GameState, D: number, crew: CrewMember[], facts: Map<string,
 
 /** Where the crew member is at `t` per their timeline (base when unknown). */
 const whereAt = (c: CrewMember, segs: Seg[], t: Minute) => locAt(c, segs, t) || c.base;
+/** Debug round: where the day planner would put a window starting at `from` (where they are at 06:00 that base day). */
+const stationFor = (c: CrewMember, segs: Seg[], from: Minute) => whereAt(c, segs, midnight(c.base, dayIndex(c.base, from)) + 6 * 60);
 
 interface DayFacts {
   /** Reports at a station on the day: early (before 12:00 local) and late, per role. */
@@ -1238,6 +1240,13 @@ export function planStandby(g: GameState): void {
           keep.push(w);
           continue;
         }
+        // Debug round (26 Oct 2026): a window at a station the crew member will not be at any more (a trip cut short by
+        // sickness, a leg cancelled or diverted) goes; the day is planned again where they are (seed 1: a cabin crew
+        // member home sick kept her hotel standbys at the Dublin deployment).
+        if ((w.at ?? c.base) !== stationFor(c, segs, w.from)) {
+          clipped = true;
+          continue;
+        }
         let a = Math.max(w.from, c.restUntil);
         let b = w.to;
         const r = restOf(c, w);
@@ -1385,6 +1394,11 @@ export function fitStandby(g: GameState, ids: Iterable<string>): void {
     const keep: Window[] = [];
     let moved = false;
     for (const w of future) {
+      // Debug round: a window where the crew member will not be (the new work takes them elsewhere) goes.
+      if ((w.at ?? c.base) !== stationFor(c, segs, w.from)) {
+        moved = true;
+        continue;
+      }
       const v = windowIssues(g, c, segs, w, base);
       let x: Window | null = w;
       if (v.illegal || (v.tight && w.kind !== 'reserve')) {

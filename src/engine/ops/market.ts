@@ -5,11 +5,12 @@
 
 import { ACMI_TYPES_LIST, type AcmiType } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE } from '../../data/airports';
+import { checkRegistration, cleanAircraftName } from './registration';
 import { EX_OPERATORS, FACTORIES, LESSOR_SITES, NEW_BUILD, type Site } from '../../data/market';
 import { airframeVariant, pickVariant } from '../../data/variants';
 import { BAL } from '../core/balance';
 import { flightsOf, nextId, touchFlights } from '../core/entities';
-import { cashOnly } from '../core/ledger';
+import { cashOnly, post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { requestPause } from '../core/pause';
 import { runwayFit, typeOf } from '../core/perf';
@@ -269,19 +270,47 @@ function registration(g: GameState): string {
  * cash is short or the offer has lapsed. The aircraft is 'delivering' at the handover site until the handover; the
  * delivery ferry home is planned at once (the roster sends rated pilots out on airline tickets before it).
  */
-export function acquireAircraft(g: GameState, offerId: string): ActionResult<{ aircraftId: string }> {
+export function acquireAircraft(g: GameState, offerId: string, opts: { reg?: string; name?: string; /** v0.11 a delivery we may not ferry (ETOPS) */ delivery?: 'thisSide' | 'ferryCo' } = {}): ActionResult<{ aircraftId: string }> {
   const i = g.market.aircraft.findIndex((o) => o.id === offerId);
   if (i < 0) return { ok: false, error: 'Offer not found' };
   const o = g.market.aircraft[i];
   const gate = aircraftGate(g, o.typeId);
   if (!gate.ok) return { ok: false, error: `${gate.text}: apply under Company → Ladder` };
-  if (g.company.cash < o.deposit) return { ok: false, error: `Not enough cash: ${usd(o.deposit)} due at signing` };
+  // v0.11 no legal ferry home on our certificate (ETOPS): the seller hands over on this side, or a ferry company
+  // brings it to our base; both fly it under their own approval and charge for it (paid at signing).
+  let site = o.site ?? g.company.homeBase;
+  let handover = g.now + o.leadDays * DAY;
+  let where = o.where;
+  let fee = 0;
+  const block = deliveryQuote(g, o.typeId, site, handover, o.where).blocked;
+  if (block) {
+    if (opts.delivery === 'thisSide' && block.thisSide) {
+      ({ site, where } = block.thisSide);
+      handover += block.thisSide.days * DAY;
+      fee = block.thisSide.fee;
+    } else if (opts.delivery === 'ferryCo') {
+      site = g.company.homeBase;
+      handover = block.ferryCo.homeBy;
+      where = `${AIRPORT_BY_CODE[site]?.city ?? site} (${site}), flown in by a ferry company`;
+      fee = block.ferryCo.fee;
+    } else return { ok: false, error: `No legal ferry home: every way crosses water more than ${block.capText} from an airport. Pick a handover on this side or a ferry company.` };
+  }
+  if (g.company.cash < o.deposit + fee) return { ok: false, error: `Not enough cash: ${usd(o.deposit + fee)} due at signing` };
   if (o.expires <= g.now) return { ok: false, error: 'This offer has expired' };
+  // v0.10.2 the registration the player chose (the prefix is the registry's): in format and free; else generated
+  let chosen: string | undefined;
+  if (opts.reg !== undefined) {
+    const prefix = g.company.regPrefix;
+    const up = opts.reg.trim().toUpperCase();
+    const chk = checkRegistration(g, up.startsWith(prefix) ? up.slice(prefix.length) : up);
+    if (!chk.ok) return { ok: false, error: chk.reason };
+    chosen = chk.reg;
+  }
+  const acName = cleanAircraftName(opts.name ?? '');
   const t = typeOf(o.typeId);
   g.market.aircraft.splice(i, 1);
   cashOnly(g, -o.deposit);
-  const handover = g.now + o.leadDays * DAY;
-  const site = o.site ?? g.company.homeBase;
+  if (fee) post(g, 'delivery', -fee);
   const age = Math.max(0, yearOf(g.now) - o.builtYear);
   // v0.7.2 hours and cycles on the sale model's norms (its adjustments average 1.0 on a fresh purchase).
   const w = t.body === 'wide' ? 1 : 0;
@@ -290,7 +319,7 @@ export function acquireAircraft(g: GameState, offerId: string): ActionResult<{ a
   // v0.10 the offer's variant (offers posted before v0.10 get a stable one).
   const variant = o.variant ?? airframeVariant(g.seed, o.id, o.typeId, o.builtYear);
   const ac: Aircraft = {
-    id: nextId(g, 'a'), reg: registration(g), typeId: o.typeId,
+    id: nextId(g, 'a'), reg: chosen ?? registration(g), typeId: o.typeId, ...(acName ? { name: acName } : {}),
     ownership: o.kind === 'buy'
       ? { kind: 'owned', bookValue: o.price, boughtAt: g.now, boughtPrice: o.price, boughtIndex: o.index ?? (w ? g.market.wideIndex : g.market.narrowIndex), ...(o.newBuild ? { newBuild: true } : {}) }
       : {
@@ -309,7 +338,7 @@ export function acquireAircraft(g: GameState, offerId: string): ActionResult<{ a
     at: site, flightId: null, status: 'delivering', maintId: null, deliveredAt: handover,
     // Utilisation tracked from signing (a reload would set it at the load day otherwise: save/load determinism).
     bhSince: Math.floor(g.now / DAY),
-    delivery: { site, where: o.where ?? `${AIRPORT_BY_CODE[site]?.city ?? site} (${site})`, handover, ferryIds: [] },
+    delivery: { site, where: where ?? `${AIRPORT_BY_CODE[site]?.city ?? site} (${site})`, handover, ferryIds: [] },
   };
   g.fleet[ac.id] = ac;
   schedule(g, handover, 'aircraft.delivery', ac.id);
@@ -322,13 +351,25 @@ export function acquireAircraft(g: GameState, offerId: string): ActionResult<{ a
   const ferry = legs.length
     ? ` Handover at ${city}${o.exOperator ? ` (ex-${o.exOperator})` : ''} on ${fmtDay(handover)}; ferry home ${fmtDay(legs[0].std)}${fmtDay(legs[legs.length - 1].sta) !== fmtDay(legs[0].std) ? `–${fmtDay(legs[legs.length - 1].sta)}` : ''}${legs.length > 1 ? ` via ${legs.slice(0, -1).map((l) => AIRPORT_BY_CODE[l.to]?.city ?? l.to).join(', ')}` : ''}. Our pilots deadhead out on airline flights before that.`
     : ` Handover at ${city} on ${fmtDay(handover)}.`;
+  // v0.11 flown in under someone else's approval (we may not ferry it across).
+  const via = fee ? ` ${opts.delivery === 'ferryCo' ? 'A ferry company flies it to us' : `The seller ferries it to ${city}`} under its own ETOPS approval (${usd(fee)}).` : '';
   const crew = rated.CPT >= 1 && rated.FO >= 1 ? '' : ` No ${fam}-rated pilots yet: book a conversion before ${fmtDay(legs[0]?.std ?? handover)}.`;
   pushMessage(g, {
     tone: 'good', cat: 'company', title: `${shortName(t)} signed: ${ac.reg}`,
-    body: `${o.kind === 'buy' ? `Bought for ${usd(o.price)}` : `Leased from ${o.lessor} at ${usd(o.rentPerMonth)}/month for ${o.leaseMonths} months`}.${ferry}${crew}`,
+    body: `${o.kind === 'buy' ? `Bought for ${usd(o.price)}` : `Leased from ${o.lessor} at ${usd(o.rentPerMonth)}/month for ${o.leaseMonths} months`}.${ferry}${via}${crew}`,
     ref: { kind: 'aircraft', id: ac.id },
   });
   return { ok: true, msg: `${ac.reg} signed · handover at ${city} ${fmtDay(handover)}`, data: { aircraftId: ac.id } };
+}
+
+/** v0.10.2 names (or renames) an aircraft; an empty name clears it. The registration stays as registered. */
+export function renameAircraft(g: GameState, aircraftId: string, name: string): ActionResult {
+  const ac = g.fleet[aircraftId];
+  if (!ac) return { ok: false, error: 'Aircraft not found' };
+  const n = cleanAircraftName(name);
+  if (n) ac.name = n;
+  else delete ac.name;
+  return { ok: true, msg: n ? `${ac.reg} named ${n}` : `${ac.reg}: name removed` };
 }
 
 /** 'aircraft.delivery': on the AOC at the handover site (v0.6 deliveries without a site: at home base). */

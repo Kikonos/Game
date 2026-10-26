@@ -5,7 +5,7 @@ import { DAY, monthKey } from '../core/time';
 import type { GameState } from '../core/types';
 import { acceptOffer } from '../contracts';
 import { addAircraft, hamBase, leased, newGame } from '../contracts/testkit';
-import { applyApproval, GOALS, newStatement } from '.';
+import { applyApproval, GOALS, newStatement, setUpEtopsMx } from '.';
 import { checkGoals, syncGoals } from './goals';
 
 const progress = (g: GameState, id: string) => GOALS.find((d) => d.id === id)!.progress(g);
@@ -64,6 +64,9 @@ describe('goals', () => {
   it('ETOPS 180, augmented long haul and ULR follow approvals and flown duties', () => {
     const g = newGame(32);
     expect(progress(g, 'etops180')).toBe(0);
+    // v0.10.2 the ETOPS maintenance programme under way and a technical dispatch record to judge.
+    expect(setUpEtopsMx(g).ok).toBe(true);
+    g.stats.techDisp = { [Math.floor(g.now / DAY)]: [100, 0] };
     expect(applyApproval(g, 'etops120').ok).toBe(true);
     expect(progress(g, 'etops180')).toBeCloseTo(0.1 * 0.4);
     expect(progress(g, 'etops120')).toBeCloseTo(0.1);

@@ -4,6 +4,8 @@
 // engine's dropTargets verdict, the ghost bubble names the hovered row's reason, a red drop asks first. Nothing
 // animates but the ghost; the drag runs on refs (no React render per move).
 
+import { BoardingPasses } from '../components/BoardingPass';
+import { RankMark } from '../components/RankMark';
 import { BedDouble, CalendarDays, Check, Lock } from 'lucide-react';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flightsRev } from '../../engine/core/entities';
@@ -121,7 +123,7 @@ const Row = memo(function Row({ row, from, dayW, d0, d1, zoom, tone, selecting, 
       <div className="rb-name" data-name={row.crewId}>
         {selecting && <span className={`rb-check ${checked ? 'on' : ''}`} aria-hidden>{checked && <Check />}</span>}
         <span className="col rb-name-txt">
-          <span className="row gap-4"><span className={`sc-role r-${row.role}`}>{row.role}</span><b className="ellipsis">{row.name}</b></span>
+          <span className="row gap-4"><span className={`sc-role r-${row.role}`}>{row.role}</span><b className="ellipsis">{row.name}</b><RankMark role={row.role} /></span>
           <span className="row gap-4 tiny muted">
             <span className={`rb-morale ${moraleTone(row.morale)}`} aria-label={`Morale ${row.morale}`} title={`Morale ${row.morale}`} />
             <span>{row.base}</span>
@@ -250,6 +252,8 @@ interface Pop {
   key: CalKey;
   title: string;
   detail: string;
+  /** v0.12 an airline ticket: its boarding pass for this crew member. */
+  pass?: { ticketId: string; crewId: string };
 }
 
 export interface RosterBoardProps {
@@ -652,7 +656,9 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
     const d = b.dutyId ? g.duties[b.dutyId] : undefined;
     const slot = d && cm ? g.pairings[d.pairingId]?.slots.find((x) => x.crewId === cm.id) : undefined;
     const as = slot && cm && slot.role !== cm.role ? `\nSeat: ${seatLabel(slot.role, cm.role)}` : '';
-    setPop({ x: e.clientX, y: e.clientY, key: k, title: b.kind === 'training' || b.kind === 'leave' || b.kind === 'rest' ? b.label : b.label === 'Free' ? 'Not rostered yet' : CAL_KEY_LABEL[k], detail: b.detail + as });
+    const tk = b.kind === 'deadhead' && b.flightIds?.[0] ? g.flights[b.flightIds[0]] : undefined;
+    const pass = tk && cm && tk.kind === 'deadhead' && !tk.charter ? { ticketId: tk.id, crewId: cm.id } : undefined;
+    setPop({ x: e.clientX, y: e.clientY, key: k, pass, title: b.kind === 'training' || b.kind === 'leave' || b.kind === 'rest' ? b.label : b.label === 'Free' ? 'Not rostered yet' : CAL_KEY_LABEL[k], detail: b.detail + as });
   };
 
   const families = useMemo(() => [...new Set(Object.values(g.crew).flatMap((c) => c.ratings))].sort() as RatingFamily[], [g, nCrew, crev]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -789,9 +795,10 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
         <span className="tiny dim">{drag ? 'Drop on a green or amber row · red asks first · grey can’t take it' : 'Tap a duty to change its crew · long-press to drag it to someone else'}</span>
       </div>
       {pop && (
-        <div className={`rb-pop k-${pop.key}`} style={{ left: Math.min(pop.x, window.innerWidth - 300), top: Math.min(pop.y + 12, window.innerHeight - 140) }} onClick={() => setPop(null)}>
+        <div className={`rb-pop k-${pop.key}${pop.pass ? ' has-pass' : ''}`} style={{ left: Math.min(pop.x, window.innerWidth - (pop.pass ? 396 : 300)), top: Math.max(8, Math.min(pop.y + 12, window.innerHeight - (pop.pass ? 300 : 140))) }} onClick={() => setPop(null)}>
           <div className="row gap-8"><span className={`sc-cal-sw k-${pop.key}`} aria-hidden /><b className="small">{pop.title}</b></div>
-          {pop.detail.split('\n').map((l, i) => <div key={i} className="small muted">{l}</div>)}
+          {(pop.pass ? pop.detail.split('\n').slice(0, 1) : pop.detail.split('\n')).map((l, i) => <div key={i} className="small muted">{l}</div>)}
+          {pop.pass && g.crew[pop.pass.crewId] && <BoardingPasses g={g} ticketId={pop.pass.ticketId} crew={g.crew[pop.pass.crewId]} />}
         </div>
       )}
     </div>

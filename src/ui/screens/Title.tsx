@@ -46,7 +46,7 @@ export function Title() {
     return () => clearTimeout(id);
   }, [show]);
   const routes: MapRoute[] = useMemo(
-    () => AMBIENT.map(([a, b], i) => ({ id: `amb${i}`, from: a, to: b, weight: 0.35, planes: 1, color: i % 3 === 0 ? '#8b5cff' : '#3ee6ff' })),
+    () => AMBIENT.map(([a, b], i) => ({ id: `amb${i}`, from: a, to: b, weight: 0.35, planes: 1, color: i % 3 === 0 ? 'var(--accent-2)' : 'var(--accent)' })),
     [],
   );
   const airports = useMemo(() => AIRPORTS.filter((a) => a.size >= 4).map((a) => ({ code: a.code, state: 'open' as const })), []);
@@ -132,10 +132,17 @@ export function Title() {
         </div>
       </div>
       <div className="title-foot">
-        <span className={`chip ${offline.online ? '' : 'active'}`}>
-          {offline.online ? <Wifi size={14} /> : <WifiOff size={14} />}
-          {offline.ready ? 'Offline ready — plays without internet' : offline.online ? 'Online' : 'Offline mode'}
-        </span>
+        {offline.online ? (
+          <span className="chip" style={{ color: 'var(--good)', borderColor: 'var(--good)' }}>
+            <Wifi size={14} />
+            Online
+          </span>
+        ) : (
+          <span className="chip active">
+            <WifiOff size={14} />
+            {offline.ready ? 'Offline ready — plays without internet' : 'Offline mode'}
+          </span>
+        )}
         <span className="dim small">{CURRENT.version} {CURRENT.name} · {AIRPORTS.length} airports · {ACMI_TYPES_LIST.filter((x) => x.available).length} aircraft types</span>
       </div>
       <GlobalModals />

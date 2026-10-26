@@ -10,11 +10,11 @@ import { flightsOf, removeFlights, touchFlights } from '../core/entities';
 import { cashOnly, post } from '../core/ledger';
 import { pushDecision, pushMessage } from '../core/messages';
 import { cardMeta, leaseReturnCard } from '../problems';
-import { typeOf } from '../core/perf';
+import { etopsCap, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
-import { DAY, fmtDate, fmtDay } from '../core/time';
+import { DAY, fmtDate, fmtDay, fmtDayRange } from '../core/time';
 import type { ActionResult, Aircraft, GameState, MaintenanceEvent, Minute } from '../core/types';
-import { route, routeMinutes, timeChain } from '../contracts/plan';
+import { route, routeSpan, timeChain } from '../contracts/plan';
 import { layoutName, reinstateCost } from './cabin';
 import type { DeliveryLeg } from './delivery';
 import { settleDeparture } from './finance';
@@ -55,8 +55,8 @@ export function earlyReturnQuote(g: GameState, aircraftId: string, end?: Minute)
   const checkDays = BAL.leaseReturn.checkDays[w];
   const turn = typeOf(ac.typeId).turnMin;
   const site = own.returnSite ?? g.company.homeBase;
-  const r = route(ac.typeId, g.company.homeBase, site);
-  const ferryMin = r && r.length ? routeMinutes(r) + 2 * turn : 0;
+  const r = route(ac.typeId, g.company.homeBase, site, etopsCap(g.company.approvals, ac.typeId));
+  const ferryMin = r && r.length ? routeSpan(r, ac.typeId) + 2 * turn : 0;
   const earliest = Math.ceil((g.now + E.noticeDays * DAY) / DAY) * DAY + 12 * 60;
   // Signed work that keeps it busy: legs (not soft positioning), checks, base programmes.
   const work: { end: Minute; what: string; contractId: string | null }[] = [];
@@ -166,9 +166,10 @@ export function returnQuote(g: GameState, aircraftId: string, at?: Minute): Retu
     const [lo, hi] = BAL.paint.full.cost[w];
     lines.push({ label: 'Strip and white repaint', amount: Math.round((((lo + hi) / 2) * L.repaintFactor) / 1000) * 1000 });
   }
-  const r = route(ac.typeId, g.company.homeBase, site);
+  // v0.11 inside our ETOPS approval and the type's capability (the 60-minute rule without one).
+  const r = route(ac.typeId, g.company.homeBase, site, etopsCap(g.company.approvals, ac.typeId));
   const start = endAt - checkDays * DAY;
-  const ferry = r && r.length ? timeChain(r, start - typeOf(ac.typeId).turnMin - routeMinutes(r)).map((l) => ({ ...l, block: l.sta - l.std, nightStopAfter: false })) : [];
+  const ferry = r && r.length ? timeChain(r, start - typeOf(ac.typeId).turnMin - routeSpan(r, ac.typeId), ac.typeId).map((l, i, all) => ({ ...l, block: l.sta - l.std, nightStopAfter: i < all.length - 1 && all[i + 1].std - l.sta > 8 * 60 })) : [];
   return { site, lines, total: lines.reduce((s, l) => s + l.amount, 0), deposit: own.deposit ?? 0, checkDays, ferry };
 }
 
@@ -245,7 +246,7 @@ function bookLeaseReturn(g: GameState, ac: Aircraft): ActionResult {
   if (ac.status === 'delivering') return { ok: false, error: `${ac.reg} has not been delivered yet` };
   const q = returnQuote(g, ac.id)!;
   const end = ac.ownership.leaseEnd;
-  const start = Math.max(end - q.checkDays * DAY, g.now + BAL.ferryLeadMin + (q.ferry.length ? routeMinutes(q.ferry.map((l) => ({ block: l.block }))) + 2 * typeOf(ac.typeId).turnMin : 60));
+  const start = Math.max(end - q.checkDays * DAY, g.now + BAL.ferryLeadMin + (q.ferry.length ? q.ferry[q.ferry.length - 1].sta - q.ferry[0].std + 2 * typeOf(ac.typeId).turnMin : 60));
   const from = q.ferry.length ? Math.min(start, q.ferry[0].std) - typeOf(ac.typeId).turnMin : start;
   const clash = flightsOf(g, ac.id).filter((f) => (f.status === 'scheduled' || f.status === 'enroute') && f.kind !== 'positioning' && f.std < start + q.checkDays * DAY && (f.eta ?? f.sta) > from);
   if (clash.length) return { ok: false, error: `Clashes with ${clash.length} flight${clash.length > 1 ? 's' : ''} from ${fmtDay(clash[0].std)}: move them first` };
@@ -256,7 +257,7 @@ function bookLeaseReturn(g: GameState, ac: Aircraft): ActionResult {
   const f0 = m.ferryIds?.length ? g.flights[m.ferryIds[0]] : undefined;
   pushMessage(g, {
     tone: 'info', cat: 'company', title: `Lease return booked: ${ac.reg}`,
-    body: `${f0 ? `Return ferry ${fmtDay(f0.std)} · ` : ''}return check ${q.site} ${fmtDay(m.start)}–${fmtDay(m.end)}. Return costs about ${usd(q.total)}; deposit ${usd(q.deposit)} back at the end.`,
+    body: `${f0 ? `Return ferry ${fmtDay(f0.std)} · ` : ''}return check ${q.site} ${fmtDayRange(m.start, m.end)}. Return costs about ${usd(q.total)}; deposit ${usd(q.deposit)} back at the end.`,
     ref: { kind: 'aircraft', id: ac.id },
   });
   return { ok: true, msg: `${ac.reg} goes back to ${lessorOf(ac)} at ${siteCity(q.site)} on ${fmtDay(m.end)}` };

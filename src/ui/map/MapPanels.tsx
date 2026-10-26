@@ -14,6 +14,8 @@
 // v0.9: CREW OUT OF HOURS (crewAlertKind via shortIndex) beside CREW SHORTAGE, naming who and which limit; hotel standby
 // tags in the station's hotel list (standbyNow); the crew-change panel of a slip at a fuel stop (slipOfFlight).
 
+import { SkyArt } from '../components/SkyArt';
+import { RankMark } from '../components/RankMark';
 import { ArrowLeftRight, CalendarRange, FileSearch, Info, KeyRound, LifeBuoy, PackageCheck, Plane, TimerOff, Undo2, Users, Wrench, X } from 'lucide-react';
 import { type ReactNode, useMemo } from 'react';
 import { ACMI_TYPES, artFor } from '../../data/acmiTypes';
@@ -135,7 +137,7 @@ function CrewRows({ crew }: { crew: CrewMember[] }) {
     <div className="op-crew">
       {crew.map((m) => (
         <button key={m.id} className="op-crew-row op-crew-link" onClick={() => store.navigate('crew', { sel: { kind: 'crew', id: m.id } })}>
-          <span className="role">{m.role}</span><span className="ellipsis">{crewName(m)}</span>
+          <span className="role">{m.role}</span><span className="ellipsis">{crewName(m)}</span><RankMark role={m.role} />
         </button>
       ))}
     </div>
@@ -415,6 +417,7 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
         <div className="row between"><b className="mono op-big">{cur.from} → {cur.to}</b><span className="row op-tight">{curType && <TypeChip type={curType} />}<span className="mono small muted">{cur.no}</span></span></div>
         {cur.purpose ? <div className="small muted">{purposeLine(g, cur)}</div> : curType && curType !== 'operating' && <div className="small muted">{FLIGHT_TYPE_HINT[curType]}</div>}
         {curZone && <div className={`small op-zone ${curZone.effect}`}>{curZone.text}</div>}
+        {cur.div && <div className="small warn-t">Diverted to {AIRPORT_BY_CODE[cur.to]?.city ?? cur.to} ({cur.div.cause === 'medical' ? 'a sick passenger' : cur.div.cause === 'technical' ? 'a technical problem' : 'weather'}); planned {cur.div.to0}</div>}
         <Bar value={prog} size="thin" />
         <div className="op-kv">
           <div><span>Off blocks</span><b className="num">{fmtTime(off)} UTC</b></div>
@@ -454,8 +457,9 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
   }
 
   return (
-    <Panel title={<span className="mono">{ac.reg}</span>} kicker={`${type?.name ?? ac.typeId} · ${ac.cabin.label}`} onClose={() => store.select(undefined)}>
-      <div className="op-art"><AircraftArt typeId={artFor(ac.typeId, ac.variant)} livery={lv.livery} code={lv.code} name={lv.name} reg={ac.reg} /></div>
+    <Panel title={<><span className="mono">{ac.reg}</span>{ac.name && <span className="dim"> · {ac.name}</span>}</>} kicker={`${type?.name ?? ac.typeId} · ${ac.cabin.label}`} onClose={() => store.select(undefined)}>
+      {/* v0.12 against the sky of the local time where it is (or lands) */}
+      <SkyArt g={g} ac={ac} className="op-art"><AircraftArt typeId={artFor(ac.typeId, ac.variant)} livery={lv.livery} code={lv.code} name={lv.name} reg={ac.reg} acName={ac.name} /></SkyArt>
       {lv.source === 'client' && <div className="small muted op-livery">In {lv.clientName} colours{lv.contractId && g.contracts[lv.contractId] ? ` for ${clientless(g.contracts[lv.contractId].title, lv.clientName ?? '')}` : ''}</div>}
       <div className="row wrap op-chips">
         <span className={`chip tone-${chip.tone}`}><Dot tone={chip.tone} />{cur ? 'Airborne' : ac.status === 'available' ? 'Available' : ac.status === 'aog' ? 'AOG' : ac.status === 'maintenance' ? capFirst(hangarWord(g, ac)) : ac.status === 'delivering' ? 'Delivering' : ac.status === 'leasedOut' ? 'Leased out' : ac.status}</span>
@@ -496,7 +500,7 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
               <div key={m.id} className={`op-crew-row${aboveIds.has(m.id) || m.notice || oh ? ' tagged' : ''}`}>
                 <span className={`role${seat !== m.role ? ' as' : ''}`} title={seat !== m.role ? `${m.role === 'CPT' ? 'A captain' : m.role} flying in the ${seat} seat` : undefined}>{seatLabel(seat, m.role)}</span>
                 <span className="col op-crew-who">
-                  <span className="ellipsis">{crewName(m)}</span>
+                  <span className="row gap-4" style={{ minWidth: 0 }}><span className="ellipsis">{crewName(m)}</span><RankMark role={m.role} /></span>
                   {(aboveIds.has(m.id) || m.notice || oh) && (
                     <span className="op-crew-tags">
                       {oh && <span className="op-tag ooh" title={`Reached ${oh.limitText}`}>{OOH_SHORT[oh.limit]}</span>}
