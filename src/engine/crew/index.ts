@@ -258,13 +258,16 @@ function onDutyRelease(g: GameState, ev: SimEvent): void {
   recheckAfterRelease(g, p);
 }
 
-/** True when crew member `id` got to `at` (on a leg they operated or rode) after `t`. */
-function landedAfter(g: GameState, id: string, at: string, t: Minute): boolean {
-  for (const x of Object.values(g.flights)) {
-    if (x.status !== 'done' || x.to !== at || (x.ata ?? x.sta) <= t || x.kind === 'deadhead') continue;
-    if (x.crewIds.includes(id) || x.riders?.includes(id)) return true;
+/** Crew who got to `at` (on a leg they operated or rode) after `t`. */
+function landedAfter(g: GameState, at: string, t: Minute): Set<string> {
+  const out = new Set<string>();
+  for (const id in g.flights) {
+    const x = g.flights[id];
+    if (x.to !== at || x.status !== 'done' || x.kind === 'deadhead' || (x.ata ?? x.sta) <= t) continue;
+    for (const c of x.crewIds) out.add(c);
+    for (const c of x.riders ?? []) out.add(c);
   }
-  return false;
+  return out;
 }
 
 /** 'flight.arr': crew aboard (operating or deadheading) move to the arrival airport; loose tickets are logged as positioning duty. */
@@ -280,13 +283,14 @@ function onFlightArrCrew(g: GameState, ev: SimEvent): void {
   if (f.kind !== 'deadhead') for (const id of f.crewIds) if (g.crew[id]) g.crew[id].loc = f.to;
   noteService(g, f);
   const missed: string[] = [];
+  let late: Set<string> | undefined;
   for (const id of pax) {
     const c = g.crew[id];
     if (!c) continue;
     // A ticket from somewhere the crew member is not was never boarded (a re-plan left it behind): their next
     // trip is re-checked now (they are not where it expects them). Debug round (26 Oct 2026): nor one that left
     // before they landed there (their own leg arrived late: seed 1, a DH at 18:00 'boarded' off a leg on blocks 18:10).
-    if (c.loc !== f.from || landedAfter(g, id, f.from, (f.atd ?? f.std) - 15)) {
+    if (c.loc !== f.from || (late ??= landedAfter(g, f.from, (f.atd ?? f.std) - 15)).has(id)) {
       missed.push(id);
       continue;
     }
