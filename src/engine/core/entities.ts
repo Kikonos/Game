@@ -102,7 +102,9 @@ export function flightsOf(g: GameState, aircraftId: string): Flight[] {
       if (!list) ix.byAircraft.set(f.aircraftId, (list = []));
       list.push(f);
     }
-    for (const list of ix.byAircraft.values()) list.sort((a, b) => a.std - b.std || (a.id < b.id ? -1 : 1));
+    // Debug round (26 Oct 2026): legs leaving at the same minute in chain order (the shorter first: an empty move into
+    // the next departure's airport sorted after it by id, so a delay of that departure pushed its own inbound behind it).
+    for (const list of ix.byAircraft.values()) list.sort((a, b) => a.std - b.std || a.sta - b.sta || (a.id < b.id ? -1 : 1));
     ix.builtRev = ix.flightsRev;
   }
   return ix.byAircraft.get(aircraftId) ?? [];

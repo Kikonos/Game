@@ -260,7 +260,11 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
   for (const { a, b, legs } of gaps) {
     legs.sort((x, y) => x.std - y.std);
     const X = a.to;
-    const earliest = a.kind === 'start' ? a.sta : a.sta + turn;
+    // Debug round (26 Oct 2026): an empty leg of this gap held at the gate for a crew (operations moved it to when one
+    // can be there) keeps that wait: re-planned from earlier, it was retimed or replaced to leave at once, its departure
+    // held it again, and so on at one minute (seed 1: LGW–LHR after a curfew diversion, 500 copies, the safety net).
+    const held = legs.reduce((m, l) => ((l.crewTries ?? 0) > 0 && l.status === 'scheduled' ? Math.max(m, l.std) : m), -Infinity);
+    const earliest = Math.max(a.kind === 'start' ? a.sta : a.sta + turn, held);
     if (!b) {
       // End gap: after a live contract's last leg, go home.
       const wantHome = live(g, a.contractId) && X !== home && a.kind !== 'maint';
