@@ -322,7 +322,8 @@
 .gantt-ac-reg { min-width: 0; }
 .gantt-ac-reg svg { flex-shrink: 0; }
 /* Fleet card livery row */
-.sc-ac-livery { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.sc-ac-livery { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 0; border-top: 1px solid var(--border); }
+/* v0.12 no line under the livery row: the row after it (lease, cabin) draws its own, so an owned card has no empty double divider */
 .sc-ac-livery .upper { margin-right: auto; }
 .sc-ac-livery.locked { flex-wrap: nowrap; }
 .sc-ac-livery.locked .grow { min-width: 0; }
