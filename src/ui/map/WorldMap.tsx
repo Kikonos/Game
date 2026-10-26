@@ -103,6 +103,12 @@ interface Props {
   focus?: { key: string; at: () => FocusAt | null } | null;
   /** Keeps the view across remounts (tab switches): read on mount, written on every commit. */
   memo?: { view: View | null };
+  /**
+   * v0.12 spotter mode: keeps the map point `at()` (map units) in the middle of the area clear of `pad`, easing after
+   * it every frame (no React render). A new `key` flies there first, zoomed in to at least `zoom` (map zoom k). A pan
+   * or pinch by the player pauses it for a few seconds. Reduced motion: it jumps only when the point nears an edge.
+   */
+  follow?: { key: string; at: () => [number, number] | null; pad: Pad; zoom?: number } | null;
 }
 
 /** Container geometry: the SVG uses "slice" scaling (s screen px per map unit at zoom 1, offset ox/oy). */
@@ -332,7 +338,7 @@ interface Gesture {
  */
 export function WorldMap({
   rotate = 0, routes, airports, fit, fitPad, interactive = true, animate = true, accent: accentIn = 'var(--accent)', selected, onSelect, onSelectRoute, onHover,
-  tooltip, regionLabels, className, planesKey, controls = true, revealPad, layers, underlay, ground, backdrop, onTap, fitFn, fitCentre, focus, memo,
+  tooltip, regionLabels, className, planesKey, controls = true, revealPad, layers, underlay, ground, backdrop, onTap, fitFn, fitCentre, focus, memo, follow,
 }: Props) {
   const touch = useTouch();
   // v0.11 a pale livery colour (white, cream) would vanish on the light map: the theme accent there instead.
@@ -367,6 +373,8 @@ export function WorldMap({
   const settleTimer = useRef(0);
   const userMoved = useRef(false);
   const lastTap = useRef<{ t: number; x: number; y: number } | null>(null);
+  /** v0.12 when the player last panned or zoomed (follow waits a few seconds after). */
+  const userAt = useRef(0);
   const [hover, setHover] = useState<{ code: string; x: number; y: number } | null>(null);
   const proj = projection(rotate);
   const path = useMemo(() => geoPath(proj), [proj]);
@@ -729,6 +737,7 @@ export function WorldMap({
         g.start = live.current;
         g.samples = [{ t: performance.now(), x: e.clientX, y: e.clientY }];
         userMoved.current = true;
+        userAt.current = performance.now();
         return;
       }
       apply(clampView({ k: g.start.k, x: g.start.x + dx / geo.s, y: g.start.y + dy / geo.s }, geo));
@@ -743,6 +752,7 @@ export function WorldMap({
         g.pinchMoved = true;
         userMoved.current = true;
       }
+      userAt.current = performance.now();
       if (!g.pinchMoved) return;
       g.mid = mc;
       const m = vbOf(mc[0], mc[1]);
@@ -833,6 +843,7 @@ export function WorldMap({
       const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
       zoomBy(Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0015)), vbOf(e.clientX, e.clientY), false);
       wheelUntil.current = performance.now() + 160;
+      userAt.current = performance.now();
       scheduleCommit();
       settle();
     };
@@ -915,6 +926,64 @@ export function WorldMap({
     id = requestAnimationFrame(reveal);
     return () => cancelAnimationFrame(id);
   }, [focusKey, interactive, proj]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ---------- v0.12 follow (spotter mode) ----------
+  const followRef = useRef(follow);
+  followRef.current = follow;
+  const followKey = follow?.key ?? '';
+  useEffect(() => {
+    if (!followKey || !interactive) return;
+    const calm = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let raf = 0;
+    let last = performance.now();
+    let arrived = false;
+    let moved = false;
+    /** The view with the point in the middle of the clear area at zoom k. */
+    const centred = (p: [number, number], k: number, pad: Pad): View => {
+      const geo = geoRef.current;
+      const cx = (pad[3] + geo.w - pad[1]) / 2;
+      const cy = (pad[0] + geo.h - pad[2]) / 2;
+      return clampView({ k, x: (cx - geo.ox) / geo.s - p[0] * k, y: (cy - geo.oy) / geo.s - p[1] * k }, geo);
+    };
+    const step = (now: number) => {
+      raf = requestAnimationFrame(step);
+      const dt = Math.min(100, now - last);
+      last = now;
+      const f = followRef.current;
+      if (!f || document.visibilityState === 'hidden') return;
+      // A gesture or an animation (the fly-in) owns the view; after the player moved the map, wait a while.
+      if (busy() || now - userAt.current < 4000) return;
+      const p = f.at();
+      if (!p) return;
+      const v = live.current;
+      if (!arrived) {
+        // First the fly-in, zoomed in to at least `zoom`.
+        arrived = true;
+        measure();
+        const k = Math.min(K_MAX, Math.max(v.k, f.zoom ?? 1));
+        const target = centred(p, k, f.pad);
+        if (calm) { apply(target); commit(); } else flyTo(target, 900);
+        return;
+      }
+      const target = centred(p, v.k, f.pad);
+      const geo = geoRef.current;
+      const off = Math.hypot((target.x - v.x) * geo.s, (target.y - v.y) * geo.s);
+      if (calm) {
+        // Reduced motion: no gliding; one jump when the aircraft has drifted well off the middle.
+        if (off > Math.min(geo.w, geo.h) * 0.3) { apply(target); commit(); }
+        return;
+      }
+      if (off < 0.25) return;
+      const a = 1 - Math.exp(-dt / 450);
+      apply({ k: v.k, x: v.x + (target.x - v.x) * a, y: v.y + (target.y - v.y) * a });
+      moved = true;
+    };
+    raf = requestAnimationFrame(step);
+    return () => {
+      cancelAnimationFrame(raf);
+      if (moved && !busy()) commit();
+    };
+  }, [followKey, interactive]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------- region labels ----------
   const regionKey = (regionLabels ?? []).map((r) => `${r.id}${r.locked ? 1 : 0}`).join(',');
