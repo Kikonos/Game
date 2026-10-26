@@ -460,3 +460,10 @@ Player notes (22 Oct, with top-bar screenshot .handover/updates/topbar-space.jpg
 - ETOPS ferries on acmi (41cfcc6, 4e5270f crew 14h after ≥4tz ticket fix, bcee27f, f9aa970, f6cb1ea): ferries/positioning ≤ min(approval, aircraft capability), 60 min with none, quads free; northern routing via new en-route airports (SFJ, UAK, YFB, YYR, YQX, YYT, BDA, ANF, IQQ; KEF runway; MDW runway corrected); ferry days ≤3 legs/10 h, 14 h night stops; impossible crossing card (hand over this side / ferry company, new ledger "Ferry companies"); Fleet ETOPS line; load repair. 1226 tests. RESEARCH.md §18. Widebody bot −12% → −27% (noise; already bankrupt before).
 - ui/engines merged → acmi f5fccb9 (engines under wing, family colours, profit/day pill).
 - Visual B agent running (5,7,8,9,10,11,12,13 + map label thinning + airline/diversion-map silhouettes + empty divider). Then: test rewrite with Ops on → release (approved).
+
+### 26 Oct — Visual B done; cash layout; test rewrite running; release prep
+- Visual B on acmi (63b14a6..062f3ab): hangar, welcome card, local sky, schedule labels, finance charts, rank marks (relief pilot 2 stripes), boarding passes, hints fold into ?, map label thinning, airline silhouettes, diversion map. 1261 tests.
+- ui/cash2 ff → acmi 00a12cc: "$X cash" one line + pill under the amount (grid), pill counts earnedUnbilled; Finance profit tile "after month-end costs".
+- Test-rewrite agent running (remove global OPS_LIVE.on=false, fix vitest runner flake).
+- What's new v0.11 "Operations" drafted: updates/whatsnew-v0.11.md (paste on top of WHATS_NEW at release; update whatsNew.test/fixpack08 expected lists).
+- RELEASE after test rewrite: verify (tsc, vitest ×1, bot seeds 1–3, player save load), whatsNew + version, build, Game merge, push branch + main, live check. Player approved.

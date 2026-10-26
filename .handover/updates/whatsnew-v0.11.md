@@ -1,0 +1,48 @@
+# v0.11 "Operations" — What's new entry (to paste into src/data/whatsNew.ts at release, on top)
+
+```ts
+  {
+    version: 'v0.11',
+    name: 'Operations',
+    features: [
+      'Live operations: weather diversions (pick the alternate on a map), medical emergencies, bird strikes, ATC slots, slow turnarounds, curfews and crew falling sick away from base, each with a card and choices.',
+      'Ramp inspections (SACA in Europe, the local authority elsewhere) and a yearly audit by your authority. Findings come with a fix, a cost and a deadline. Company › Safety & audit keeps it all in one place.',
+      'Pace setting (Calm, Normal, Busy): quiet spells of a few days between busy ones, so you can watch the planes fly.',
+      'Urgent phone calls: a high-paying job that must start within three days rings through. The game pauses; answer, decline or see the details.',
+      'Name and register new aircraft when you lease or buy them (the country prefix is fixed, you choose the rest).',
+      'A light theme: Settings › Appearance offers Light, Dark or System.',
+      'The map: day and night from the real sun, with city lights after dark; every aircraft drawn from above as its real type, engines tucked under the wing like Flightradar24, sized by the real aircraft and coloured by family (A320 blue, 737 green, 777 orange, 747 yellow…; the key is under the map\'s ?); solid lines behind an aircraft, dashed ahead, and a contrail at cruise; a storm, cloud or moon mark on an airport closed by weather, a curfew or an event.',
+      'Spotter mode: the binoculars on the Map follow one aircraft in the air, big in its livery against the local sky, with its flight, route, altitude, speed and landing time. Next, or a new one every minute.',
+      'Hangar: Fleet › Hangar lines up the whole fleet side by side to scale. Tap one for its card.',
+      'Welcome to the fleet: a new aircraft arrives with a full-screen card, big in our colours under the sky where it was handed over.',
+      'Ferries follow ETOPS like a real airline: without the approval a twin stays within 60 minutes of an airport, so deliveries from North America come home the northern way (Greenland, Iceland, Ireland), with fuel and night stops. A crossing we may not fly is flagged before you sign, with what real operators do instead.',
+      'Finance charts: revenue and costs for the last 12 months, and cash at each month end.',
+      'Profit per day under the cash in the top bar, green or red. Rent, insurance, overhead and salaries are spread over the month so it does not jump on the 1st.',
+      'Rank marks beside crew names (captain 4 stripes, first officer 3, relief pilot 2, purser gold wings, cabin crew silver wings), and airline tickets shown as boarding passes.',
+    ],
+    improvements: [
+      'Approvals: ETOPS 120, Widebody operations and the other steps now ask for technical dispatch reliability (97–98.5 %) instead of a spotless AOG record, and an ETOPS maintenance programme ($90K, 45 days).',
+      'Clients moved to the Contracts screen (Market · Active · Missed · Clients).',
+      'Callers have names that fit their country.',
+      'Registration flags are flat rectangles.',
+      'The home screen says Online in green when you are online.',
+      'Hiring: dual-rated cabin crew count once (in the family they were hired for first), so training crew on a second type no longer shrinks your sets; Round up stays at zero after one press.',
+      'The Fleet card\'s ETOPS line says what the rules really use ("capable of 120 min · approved 60 min → ferries go the northern way").',
+      'Finance › Profit also shows the month after month-end costs.',
+      'The Schedule shows the flight number and route inside a block when it fits, and the key explains sub-chartered (outlined) flights.',
+      'Screen tips fold into a small ? after the first time.',
+      'Map labels fade where many aircraft crowd one airport (the selected one keeps its label); airline flights carrying our crew show the airline\'s own type in grey.',
+      'Wording: the curfew card names the airport (Gatwick, not London); a job on one day shows one date; leases say "months".',
+    ],
+    fixes: [
+      'Minimum rest away from base: a standby that was called out could be treated as cut short, showing "rest 0:09 < 12:00". A call-out from standby needs no rest in between; saves are repaired on load.',
+      'Crew were released while still in the air after a late landing; duties now end at the real landing, a late landing counts as commander\'s discretion, and crew who land after their ticket home has gone get a new one.',
+      'The game could keep pausing straight after Play (an empty flight after an AOG, or a curfew diversion, re-planned again and again).',
+      'BLU404-style curfew diversions no longer plan a flight back into the curfew, and a crew-short card is not asked again every 30 minutes.',
+      'One captain could end up in both pilot seats after Swap crews.',
+      'Hotel standby is always in the city the crew member is in; crew no longer fly home on the first morning of their leave.',
+      'Pilots flying out to collect an aircraft across 4+ time zones get their full 14 h rest.',
+      'Finance no longer shows a 90-day low above today\'s cash; long aircraft names no longer wrap the registration.',
+    ],
+  },
+```
