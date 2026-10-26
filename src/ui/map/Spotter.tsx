@@ -4,6 +4,7 @@
 // nothing in the air it shows the next departure counting down, the aircraft on its stand. A view only: it reads the
 // game, never changes it, and works the same with the clock running or paused.
 
+import { SkyArt } from '../components/SkyArt';
 import { ChevronRight, X } from 'lucide-react';
 import { ACMI_TYPES, artFor } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE } from '../../data/airports';
@@ -22,7 +23,8 @@ const ft = (n: number) => `${n.toLocaleString('en-US')} ft`;
 
 function Art({ g, ac }: { g: GameState; ac: Aircraft }) {
   const lv = mapLivery(g, ac);
-  return <div className="spot-art"><AircraftArt typeId={artFor(ac.typeId, ac.variant)} livery={lv.livery} code={lv.code} name={lv.name} reg={ac.reg} acName={ac.name} /></div>;
+  // v0.12 against the sky of the local time where it is (or lands)
+  return <SkyArt g={g} ac={ac} className="spot-art"><AircraftArt typeId={artFor(ac.typeId, ac.variant)} livery={lv.livery} code={lv.code} name={lv.name} reg={ac.reg} acName={ac.name} /></SkyArt>;
 }
 
 function Who({ ac }: { ac: Aircraft }) {

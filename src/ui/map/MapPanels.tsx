@@ -14,6 +14,7 @@
 // v0.9: CREW OUT OF HOURS (crewAlertKind via shortIndex) beside CREW SHORTAGE, naming who and which limit; hotel standby
 // tags in the station's hotel list (standbyNow); the crew-change panel of a slip at a fuel stop (slipOfFlight).
 
+import { SkyArt } from '../components/SkyArt';
 import { RankMark } from '../components/RankMark';
 import { ArrowLeftRight, CalendarRange, FileSearch, Info, KeyRound, LifeBuoy, PackageCheck, Plane, TimerOff, Undo2, Users, Wrench, X } from 'lucide-react';
 import { type ReactNode, useMemo } from 'react';
@@ -457,7 +458,8 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
 
   return (
     <Panel title={<><span className="mono">{ac.reg}</span>{ac.name && <span className="dim"> · {ac.name}</span>}</>} kicker={`${type?.name ?? ac.typeId} · ${ac.cabin.label}`} onClose={() => store.select(undefined)}>
-      <div className="op-art"><AircraftArt typeId={artFor(ac.typeId, ac.variant)} livery={lv.livery} code={lv.code} name={lv.name} reg={ac.reg} acName={ac.name} /></div>
+      {/* v0.12 against the sky of the local time where it is (or lands) */}
+      <SkyArt g={g} ac={ac} className="op-art"><AircraftArt typeId={artFor(ac.typeId, ac.variant)} livery={lv.livery} code={lv.code} name={lv.name} reg={ac.reg} acName={ac.name} /></SkyArt>
       {lv.source === 'client' && <div className="small muted op-livery">In {lv.clientName} colours{lv.contractId && g.contracts[lv.contractId] ? ` for ${clientless(g.contracts[lv.contractId].title, lv.clientName ?? '')}` : ''}</div>}
       <div className="row wrap op-chips">
         <span className={`chip tone-${chip.tone}`}><Dot tone={chip.tone} />{cur ? 'Airborne' : ac.status === 'available' ? 'Available' : ac.status === 'aog' ? 'AOG' : ac.status === 'maintenance' ? capFirst(hangarWord(g, ac)) : ac.status === 'delivering' ? 'Delivering' : ac.status === 'leasedOut' ? 'Leased out' : ac.status}</span>

@@ -75,3 +75,24 @@ export function parseRgb(s: string, dflt: [number, number, number]): [number, nu
   const m = t.split(/[ ,]+/).map(Number);
   return m.length >= 3 && m.slice(0, 3).every((x) => Number.isFinite(x)) ? [m[0], m[1], m[2]] : dflt;
 }
+
+// ---------- v0.12 Visual B: the sky behind the big side view ----------
+
+/** Dawn, day, dusk or night at an airport, from the sun's real elevation there. */
+export type SkyPhase = 'dawn' | 'day' | 'dusk' | 'night';
+
+/** Sun elevations (deg): above DAY_FROM it is day; below NIGHT_FROM (civil twilight's end, −6°) it is night. */
+export const SKY_DAY_FROM = 6;
+export const SKY_NIGHT_FROM = -6;
+
+/** The sky's phase at a sun elevation (deg); between −6° and +6° the sun rising makes it dawn, setting dusk. Pure. */
+export function skyPhase(elev: number, rising: boolean): SkyPhase {
+  if (elev >= SKY_DAY_FROM) return 'day';
+  if (elev < SKY_NIGHT_FROM) return 'night';
+  return rising ? 'dawn' : 'dusk';
+}
+
+/** A few stars for the night sky (fixed: % of the box, size px), placed clear of the aircraft's middle band. */
+export const SKY_STARS: [number, number, number][] = [
+  [6, 14, 1.6], [17, 30, 1.1], [29, 9, 1.3], [41, 22, 1], [55, 12, 1.7], [66, 28, 1.1], [78, 8, 1.2], [90, 20, 1.5], [96, 36, 1], [12, 82, 1], [84, 86, 1.2],
+];
