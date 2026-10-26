@@ -599,6 +599,10 @@ function resolveMedical(g: GameState, d: Decision, opt: string): ActionResult {
 export function onDivertedArrival(g: GameState, f: Flight): void {
   const ac = f.aircraftId ? g.fleet[f.aircraftId] : undefined;
   if (!ac || !f.div || f.to === f.div.to0) return;
+  // Debug round (26 Oct 2026): a curfew diversion was settled at the gate (the passengers go on by coach, the aircraft
+  // repositions empty once the curfew lifts). No second card: its 'fly on today' default flew the passengers into the
+  // curfew it had avoided (Blue Airlines BLU404 ACE–LHR landed at Gatwick 02:15 UTC, then LGW–LHR planned at 04:05).
+  if (f.ops === 'curfew') return;
   const to0 = f.div.to0;
   const cause = f.div.cause;
   const alt = f.to;

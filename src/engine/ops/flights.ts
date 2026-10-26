@@ -1170,8 +1170,7 @@ function crewProblem(g: GameState, f: Flight, ac: Aircraft): void {
       if (!crewBlocked(g, f)) return holdFlight(g, f, 5);
       delete f.crewDecided;
       f.crewTries = 0;
-      crewShortDecision(g, f, ac);
-      return holdFlight(g, f, 30);
+      return askCrewShort(g, f, ac);
     }
     const tries = (f.crewTries ?? 0) + 1;
     f.crewTries = tries;
@@ -1185,8 +1184,19 @@ function crewProblem(g: GameState, f: Flight, ac: Aircraft): void {
     if (!subcharterInstead(g, ac, unitOf(g, ac, f), why)) dropUnit(g, ac, f, 'No legal crew', why, 'crew');
     return;
   }
+  askCrewShort(g, f, ac);
+}
+
+/**
+ * The gate decision, and a 30-minute hold while it is open. Debug round (26 Oct 2026): a decision applied at once
+ * (operations over the pacing budget, or Ops Control) has already retimed the leg for the crew it waits for; a hold on
+ * top re-tried the departure 30 min later, before that crew could be there, so the leg dropped them as absent and asked
+ * again, every half hour (Blue Airlines BLU404 LGW–LHR, 18 Aug 2027: 20 cards in 10 hours, the STD jumping back and forth).
+ */
+function askCrewShort(g: GameState, f: Flight, ac: Aircraft): void {
+  const ev = f.ev;
   crewShortDecision(g, f, ac);
-  holdFlight(g, f, 30);
+  if (f.status === 'scheduled' && (f.ev === ev || hasOpenDecision(g, 'crewShort', f.id))) holdFlight(g, f, 30);
 }
 
 /**
