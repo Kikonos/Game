@@ -96,7 +96,8 @@ export function FinanceScreen() {
       return [];
     }
   }, [g, day]); // eslint-disable-line react-hooks/exhaustive-deps
-  const low = fc.reduce((m, p) => Math.min(m, p.cash), Infinity);
+  // Debug round: from the cash now (the forecast's first day already holds today's receipts: 'low $3.24M' under $3.18M).
+  const low = fc.reduce((m, p) => Math.min(m, p.cash), g.company.cash);
   // Wet leases invoice at month end; show what is already earned so mid-month profit is not misleading.
   const earned = earnedUnbilled(g);
   // v0.7.1 §14: the cash card on top with the date it bites; a losing month is one calm line (only while this month

@@ -88,12 +88,16 @@ export function DiversionMap({ spec, width = 520, onPick }: { spec: DivSpec; wid
     });
     const road = spec.at ? path({ type: 'LineString', coordinates: [[AIRPORT_BY_CODE[spec.at].lon, AIRPORT_BY_CODE[spec.at].lat], [dest.lon, dest.lat]] }) ?? '' : '';
     // Labels: right of the dot, or left / below when another alternate's label (or the destination's) would collide.
-    const placed: [number, number][] = [P(spec.dest)];
+    // Debug round: label boxes [x0, y0, x1, y1]; the destination's holds two lines (code and note: 'night curfew' sat on
+    // the Gatwick label right under Heathrow's).
+    const d0 = P(spec.dest);
+    const placed: [number, number, number, number][] = [[d0[0] - 12, d0[1] - 12, d0[0] + 96, d0[1] + 21]];
+    const hits = (b: [number, number, number, number]) => placed.some((q) => b[0] < q[2] && q[0] < b[2] && b[1] < q[3] && q[1] < b[3]);
     const alts = spec.alts.map((a) => {
       const p = P(a.code);
-      const near = placed.some((q) => Math.abs(q[0] - p[0]) < 70 && Math.abs(q[1] - p[1]) < 16);
-      const side: 'r' | 'l' = near ? 'l' : 'r';
-      placed.push([p[0] + (side === 'l' ? -60 : 0), p[1]]);
+      const right: [number, number, number, number] = [p[0] - 6, p[1] - 8, p[0] + 40, p[1] + 8];
+      const side: 'r' | 'l' = hits(right) ? 'l' : 'r';
+      placed.push(side === 'r' ? right : [p[0] - 40, p[1] - 8, p[0] + 6, p[1] + 8]);
       return { ...a, p, side };
     });
     return { land: landPathFor(proj), planned, flown, plane, lines, road, dest: P(spec.dest), from: P(spec.from), alts, at: spec.at ? P(spec.at) : null };
