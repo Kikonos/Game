@@ -36,7 +36,7 @@ describe('delivery card', () => {
     const g = newGame(2);
     g.company.cash = 60_000_000;
     const r = acquireAircraft(g, devMarketOffer(g, 'a320ceo', { kind: 'dryLeaseIn', site: 'SCL' }));
-    expect(r.ok).toBe(true);
+    if (!r.ok) throw new Error(r.error);
     const id = r.data!.aircraftId;
     const ac = g.fleet[id];
     const shown = new Set<string>();

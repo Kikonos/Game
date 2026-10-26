@@ -490,3 +490,8 @@ div.worldmap { overflow: clip; }
 .op-slip-line { color: var(--text-2); line-height: 1.45; }
 /* With hotel standby in the list: one column, so the name and its SBY tag both fit. */
 .op-crew.one { grid-template-columns: 1fr; }
+/* v0.12 label thinning (LiveLayers + mapLogic thinLabels): a reg or tag piled on another fades; the selected one stays. */
+.ops-ac.thin-reg:not(.sel) .reg, .ops-ac.thin-tag:not(.sel) .tag, .ops-ac.thin-tag:not(.sel) .op-delivery-tag { opacity: 0; }
+/* v0.12 airline legs as grey silhouettes of their type: engines a step darker, the same outline as before. */
+.ops-cmf .glyph path { paint-order: stroke; }
+.ops-cmf .glyph path.eng { fill: color-mix(in srgb, var(--c-mark-848ea2) 72%, #000); stroke-width: 1.1px; }

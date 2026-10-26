@@ -9,7 +9,8 @@ import { useMemo } from 'react';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import type { Decision, GameState } from '../../engine/core/types';
 import { legPos } from '../../engine/ops/disrupt';
-import { PLANE_PATH } from '../components/Logo';
+import { inkOf } from './LiveLayers';
+import { silColour, silhouette } from './silhouettes';
 import { landPathFor } from './mapData';
 import { headingDeg } from './mapLogic';
 
@@ -22,6 +23,8 @@ export interface DivSpec {
   alts: { code: string; optionId: string; def: boolean }[];
   /** After a diversion: the aircraft sits at this alternate (road line to the destination). */
   at?: string;
+  /** v0.12 our aircraft's type: its family-colour silhouette (else the A320's). */
+  typeId?: string;
 }
 
 const MAP_KINDS = new Set(['diversion', 'medical', 'divertOnward', 'curfew']);
@@ -42,7 +45,7 @@ export function divSpec(g: GameState, d: Decision): DivSpec | null {
   }
   const dest = f.div?.to0 ?? f.to;
   const note = d.kind === 'curfew' ? 'curfew' : d.kind === 'medical' ? 'destination' : d.data?.cause === 'technical' ? 'destination' : 'closed';
-  return { from: f.from, dest, destNote: note, pos: f.status === 'enroute' ? legPos(f, g.now) : null, alts };
+  return { from: f.from, dest, destNote: note, pos: f.status === 'enroute' ? legPos(f, g.now) : null, alts, typeId: f.aircraftId ? g.fleet[f.aircraftId]?.typeId : undefined };
 }
 
 const PAD = 1.2;
@@ -104,6 +107,8 @@ export function DiversionMap({ spec, width = 520, onPick }: { spec: DivSpec; wid
     return { land: landPathFor(proj), planned, flown, plane, lines, road, dest: P(spec.dest), from: P(spec.from), alts, at: spec.at ? P(spec.at) : null };
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
   const destName = AIRPORT_BY_CODE[spec.dest]?.city ?? spec.dest;
+  const sil = silhouette(spec.typeId ?? 'a320ceo', 22);
+  const ink = inkOf(silColour(spec.typeId ?? 'a320ceo'));
   return (
     <svg className="minimap divmap" width={width} height={height} viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`Alternates for ${destName}`}>
       <rect className="mm-sea" width={width} height={height} rx={10} />
@@ -133,8 +138,13 @@ export function DiversionMap({ spec, width = 520, onPick }: { spec: DivSpec; wid
         </g>
       ))}
       {b.plane && (
-        <g transform={`translate(${b.plane.x.toFixed(1)} ${b.plane.y.toFixed(1)})`} className="mm-glyph dm-plane">
-          <path d={PLANE_PATH} transform={`rotate(${b.plane.ang.toFixed(1)}) scale(0.8) translate(-12 -12)`} />
+        <g transform={`translate(${b.plane.x.toFixed(1)} ${b.plane.y.toFixed(1)})`} className="mm-glyph dm-plane dm-sil">
+          {/* v0.12 the type's top-down silhouette in its family colour, as on the live map */}
+          <g transform={`rotate(${b.plane.ang.toFixed(1)})`}>
+            <path d={sil.engines} style={{ fill: ink.eng, stroke: ink.edge, strokeWidth: 1, paintOrder: 'stroke' }} strokeLinejoin="round" />
+            <path d={sil.body} style={{ fill: ink.fill, stroke: ink.edge, strokeWidth: 1.6, paintOrder: 'stroke' }} strokeLinejoin="round" />
+            {sil.deck && <path d={sil.deck} style={{ fill: ink.deck, stroke: 'none' }} />}
+          </g>
         </g>
       )}
     </svg>

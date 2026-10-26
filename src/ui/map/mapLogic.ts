@@ -397,6 +397,31 @@ export function placeLabels(boxes: LabelBox[], gap = 2): Set<string> {
   return out;
 }
 
+/** v0.12 an aircraft's label on the map: its registration or its FERRY / DELIVERY tag (screen px box). */
+export interface AcLabel extends LabelBox {
+  /** The aircraft it belongs to. */
+  ac: string;
+}
+
+/**
+ * v0.12 label thinning (many aircraft near one airport): which labels stay, by id. The selected aircraft's labels always
+ * stay (even over another), then `fixed` ones (parked labels, already thinned per stand), then those shown last time
+ * (so a label does not flicker as aircraft pass), then the rest in a stable order; a label overlapping one already kept
+ * goes (`fixed` boxes may be aircraft icons: a label never covers another aircraft; its own may touch it). Pure.
+ */
+export function thinLabels(labels: AcLabel[], selected: string | undefined, prev: ReadonlySet<string>, fixed: ReadonlySet<string> = new Set(), gap = 1): Set<string> {
+  const rank = (l: AcLabel) => (l.ac === selected ? 0 : fixed.has(l.id) ? 1 : prev.has(l.id) ? 2 : 3);
+  const order = [...labels].sort((a, b) => rank(a) - rank(b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const kept: AcLabel[] = [];
+  const out = new Set<string>();
+  for (const l of order) {
+    if (l.ac !== selected && kept.some((k) => k.ac !== l.ac && boxOverlap(k, l, gap) > 0)) continue;
+    kept.push(l);
+    out.add(l.id);
+  }
+  return out;
+}
+
 /** Overlap area (px²) of two boxes, each grown by `gap` on every side; 0 when apart. */
 export function boxOverlap(a: LabelBox, b: LabelBox, gap = 0): number {
   const ox = (a.w + b.w) / 2 + gap * 2 - Math.abs(a.x - b.x);

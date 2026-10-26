@@ -20,13 +20,13 @@ import { aircraftLive, type AircraftLive, divPos, flightTimes } from '../../engi
 import { interpolateGC } from '../../engine/core/geo';
 import type { Flight, GameState, Livery } from '../../engine/core/types';
 import { commercialFlightsBetween, commercialProgress, type CommercialFlight, type FlightType, flightType } from '../../engine/ops';
-import { PLANE_PATH } from '../components/Logo';
 import { liveMinute, store } from '../store';
 import { mix } from '../components/aircraft/ink';
 import { isTouch } from '../useMedia';
 import { MAP_H, MAP_W } from './mapData';
-import { deliveryTag, headingDeg, JET_PATH, leasedOut, onMap, type LabelBox, boxOverlap, groupCommercial, lerpAngle, parkOffset, downSide, legLabelSide, placeLabels, regSlot, type RegSlot, type SlipArc, type SlipMark, trackCovered, trackLabelAt, type LegArc, type PinGroup, sunElevation, sunPoint, TYPE_STROKE } from './mapLogic';
-import { parkedFit, silColour, silhouette, silSpec } from './silhouettes';
+import { type AcLabel, thinLabels, deliveryTag, headingDeg, JET_PATH, leasedOut, onMap, type LabelBox, boxOverlap, groupCommercial, lerpAngle, parkOffset, downSide, legLabelSide, placeLabels, regSlot, type RegSlot, type SlipArc, type SlipMark, trackCovered, trackLabelAt, type LegArc, type PinGroup, sunElevation, sunPoint, TYPE_STROKE } from './mapLogic';
+import { parkedFit, silColour, silhouette, silPx, silSpec } from './silhouettes';
+import { airlineType } from './airlineTypes';
 import { fillNight, lightAlpha, mercLat, parseRgb } from './sky';
 import { contrailWindow } from './spotter';
 import type { WxKind, WxMark } from './weather';
@@ -64,8 +64,6 @@ const stats = { frames: 0, avgMs: 0, maxMs: 0, reset() { this.frames = 0; this.a
 const WRENCH = 'M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z';
 /** Hit radius in screen px (44 px target on touch). */
 export const HIT_R = { touch: 22, mouse: 14 };
-/** Airline icons: a little smaller than ours. */
-const CM_GLYPH_PX = 20;
 /** v0.7.1 chartered private jets: smaller still, in the same grey ink. */
 const JET_GLYPH_PX = 18;
 /** Airline legs are fetched for this many game minutes at a time, then filtered per frame. */
@@ -628,6 +626,12 @@ function polyD(pts: [number, number][]): string {
   return d;
 }
 
+/** v0.12 an airline leg's grey silhouette (it was a generic plane glyph): its type at 85 % of our aircraft's map size, a little smaller than ours. */
+function cmSilhouette(iata: string, from: string, to: string) {
+  const t = airlineType(iata, from, to);
+  return silhouette(t, Math.round(silPx(silSpec(t)) * 0.85 * 10) / 10);
+}
+
 /** Contrails off: the Map animations setting, or the system's reduced motion. */
 const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 /** An airline leg on the map: icon group, rotating glyph and path. */
@@ -651,12 +655,14 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
     const root = ref.current;
     if (!root) return;
     const REG_FS = isTouch() ? 12 : 11; // .ops-ac .reg font size
-    const els = new Map<string, { el: SVGGElement; glyph: SVGGElement; crowd: boolean; reg: RegSlot; regW: number; fit: number; trail: boolean }>();
+    const els = new Map<string, { el: SVGGElement; glyph: SVGGElement; crowd: boolean; reg: RegSlot; regW: number; fit: number; trail: boolean; half: number; thinReg: boolean; thinTag: boolean }>();
     for (const el of Array.from(root.querySelectorAll(':scope > .ops-ac')) as SVGGElement[]) {
       const id = el.dataset.id!;
       const reg = el.querySelector('.reg')?.textContent ?? '';
-      els.set(id, { el, glyph: el.querySelector('.glyph') as SVGGElement, crowd: false, reg: 0, regW: reg.length * REG_FS * 0.62 + 2, fit: Number(el.dataset.fit) || 1, trail: false });
+      els.set(id, { el, glyph: el.querySelector('.glyph') as SVGGElement, crowd: false, reg: 0, regW: reg.length * REG_FS * 0.62 + 2, fit: Number(el.dataset.fit) || 1, trail: false, half: Number(el.dataset.half) || 11, thinReg: false, thinTag: false });
     }
+    /** v0.12 airborne labels shown last frame (label thinning keeps them in place: no flicker as aircraft pass). */
+    let shownLabels = new Set<string>();
     /** v0.12 contrail windows per leg (game minutes when it is high enough), by flight id and its times. */
     const trailWin = new Map<string, { key: string; w: [number, number] | null }>();
     let calm = reducedMotion();
@@ -764,6 +770,8 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
           e.el.classList.toggle('crowd', e.crowd);
           e.el.classList.toggle('reg-up', e.reg === 1);
           e.el.classList.toggle('reg-off', e.reg === 2);
+          e.el.classList.toggle('thin-reg', e.thinReg);
+          e.el.classList.toggle('thin-tag', e.thinTag);
         }
         if (!ac || !AIRPORT_BY_CODE[ac.at]) continue;
         if (!onMap(ac)) {
@@ -926,6 +934,49 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
         }
         if (e && op && e.el.dataset.type !== op.type) e.el.dataset.type = op.type;
       }
+      // v0.12 label thinning: with many aircraft near one airport their regs and FERRY / DELIVERY tags would pile up.
+      // A label that overlaps one kept before it fades (the selected aircraft's always stay; parked labels go first).
+      {
+        const want: AcLabel[] = [];
+        const fixed = new Set<string>();
+        ownLabels.forEach((b, i) => { const id = `${b.id}:p${i}`; fixed.add(id); want.push({ id, ac: b.id, x: b.x, y: b.y, w: b.w, h: b.h }); });
+        for (const live of lives) {
+          if (live.phase !== 'airborne') continue;
+          const id = live.aircraft.id;
+          const e = els.get(id);
+          const q = shared.ac.get(id);
+          if (!e || !q) continue;
+          const ix = q[0] / u;
+          const iy = q[1] / u;
+          const ry = Math.max(0, e.half - 11);
+          // its icon: other aircraft's labels keep off it
+          const ib = `${id}:i`;
+          fixed.add(ib);
+          want.push({ id: ib, ac: id, x: ix, y: iy, w: e.half * 1.5, h: e.half * 1.5 });
+          if ((labels || selRef.current === id) && e.reg !== 2) {
+            const dy = e.reg === 1 ? 25 - 42 - 2 * ry : 25 + ry;
+            want.push({ id: `${id}:reg`, ac: id, x: ix, y: iy + dy - REG_FS * 0.35, w: e.regW, h: REG_FS });
+          }
+          const dlv = e.el.classList.contains('dlv');
+          if (dlv || e.el.dataset.type === 'ferry') {
+            const dy = -16 - (dlv ? 0 : ry) - (e.reg === 1 ? 15 : 0);
+            want.push({ id: `${id}:tag`, ac: id, x: ix, y: iy + dy - TAG_FS * 0.35, w: (dlv ? 8 : 5) * TAG_FS * 0.68 + 2, h: TAG_FS });
+          }
+        }
+        const keep = thinLabels(want, selRef.current, shownLabels, fixed);
+        const asked = new Set(want.map((l) => l.id));
+        shownLabels = keep;
+        for (const live of lives) {
+          const id = live.aircraft.id;
+          const e = els.get(id);
+          if (!e) continue;
+          const air = live.phase === 'airborne';
+          const tr = air && asked.has(`${id}:reg`) && !keep.has(`${id}:reg`);
+          const tt = air && asked.has(`${id}:tag`) && !keep.has(`${id}:tag`);
+          if (tr !== e.thinReg) e.el.classList.toggle('thin-reg', (e.thinReg = tr));
+          if (tt !== e.thinTag) e.el.classList.toggle('thin-tag', (e.thinTag = tt));
+        }
+      }
       splits.sort((a, b) => b.w - a.w);
       for (let i = 0; i < splits.length && (i < SPLITS_PER_FRAME || splits[i].w === Infinity); i++) drawSplit(splits[i].op, splits[i].q, splits[i].p, k);
       for (const [id, op] of own) if (!seen.has(id)) { for (const el of ownEls(op)) el.remove(); own.delete(id); }
@@ -954,7 +1005,13 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
             svgEl('circle', { class: 'hit', r: HIT_R.touch }, el);
             svgEl('circle', { class: 'sel-ring', r: 14 }, el);
             const glyph = svgEl('g', { class: 'glyph' }, el);
-            svgEl('path', { d: jet ? JET_PATH : PLANE_PATH, transform: `scale(${(jet ? JET_GLYPH_PX : CM_GLYPH_PX) / 24}) translate(-12 -12)` }, glyph);
+            if (jet) svgEl('path', { d: JET_PATH, transform: `scale(${JET_GLYPH_PX / 24}) translate(-12 -12)` }, glyph);
+            else {
+              // v0.12 the airline's own type seen from above (737, A320, its widebody on a long leg), in neutral grey.
+              const sil = cmSilhouette(cf.leg.iata, cf.leg.from, cf.leg.to);
+              svgEl('path', { class: 'eng', d: sil.engines }, glyph);
+              svgEl('path', { class: 'sil', d: sil.body }, glyph);
+            }
             const no = svgEl('text', { class: 'no' }, el);
             no.textContent = cf.leg.no;
             const path = cmPathRoot ? svgEl('path', { d: lineD(cf.leg.from, cf.leg.to) }, cmPathRoot) : null;
@@ -1063,7 +1120,7 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
         const ring = Math.max(16, half + 4);
         const vars = { '--ry': `${Math.max(0, half - 11).toFixed(1)}px`, '--ru': `${(-42 - Math.max(0, half - 11) * 2).toFixed(1)}px`, '--ty': `${(-Math.max(0, half - 11)).toFixed(1)}px` } as React.CSSProperties;
         return (
-          <g key={id} data-id={id} data-phase="parked" data-fit={parkedFit(silSpec(ac.typeId)).toFixed(3)} style={vars} className={`ops-ac${selected === id ? ' sel' : ''}${deliveryTag(ac) ? ' dlv' : leasedOut(ac) ? ' lsd' : ''}`}>
+          <g key={id} data-id={id} data-phase="parked" data-half={half.toFixed(1)} data-fit={parkedFit(silSpec(ac.typeId)).toFixed(3)} style={vars} className={`ops-ac${selected === id ? ' sel' : ''}${deliveryTag(ac) ? ' dlv' : leasedOut(ac) ? ' lsd' : ''}`}>
             <circle className="hit" r={Math.max(HIT_R.touch, half)} />
             <path className="hangar" d="M-15 11V-1Q0 -17 15 -1V11Z" />
             <circle className="sel-ring" r={ring} />
