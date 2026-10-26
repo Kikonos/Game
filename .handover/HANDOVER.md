@@ -451,3 +451,7 @@ Player notes (22 Oct, with top-bar screenshot .handover/updates/topbar-space.jpg
 
 ### 26 Oct — map icons approved ("Fantastic love it")
 - Branch ui/engines (pushed, adfb846): engines under the wing (only intake ahead of LE, FR24-style) + silhouettes coloured BY FAMILY (SIL_COLOURS in silhouettes.ts: A320 blue, A330 purple, A340 pink, A350 teal, A380 red, 737 green, 757 lime, 767 brown, 777 orange, 787 cyan, 747 yellow), key in map ? legend. Livery stays in spotter/fleet. Merge into acmi after the ETOPS agent finishes.
+
+### 26 Oct — cash rate + RELEASE GO for this batch
+- Top bar profit/day beside "cash" (src/ui/shell/cashRate.ts): month-to-date statement profit/elapsed days − (rent+insurance+overhead+salaries+heads)/days in month; first 2 days of a month = last month's average. Green/red. On branch ui/engines.
+- PLAYER SAID: "After you finish everything, you can push it to main and update. This batch is big enough." → release (main + Pages) is APPROVED once ETOPS ferries + Visual B + test rewrite are done and verified. Needs a What's new entry (assemble from updates/whatsnew-draft.md + earlier drafts: phone call, approvals reliability/ETOPS programme, caller names, round-up, light theme, Ops update 1, debug fixes, Clients on Contracts, map visuals, family colours, cash rate, ETOPS ferries, Visual B) and version bump.
