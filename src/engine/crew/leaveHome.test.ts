@@ -69,13 +69,14 @@ describe('leave starts at home', () => {
     expect(late.c.blocks![0].to).toBe(b0.to + DAY);
     expect(std).toBeLessThan(b.from);
   });
-  it('a ticket home moved by any other path (a retime) into the leave starts the leave at its landing', () => {
+  it('a ticket home moved by any other path (a retime) into the leave starts the leave at its landing (daily check)', () => {
     const { g, c, from } = away(2);
     const t = addDeadhead(g, { crewIds: [c.id], from: 'HAM', to: c.base, std: from - 8 * 60, sta: from - 5 * 60, cost: 0 });
     advanceTo(g, g.now + 1, new Set());
     expect(c.blocks![0].from).toBe(from);
     retimeFlight(g, t, from - 60, from + 2 * 60);
-    advanceTo(g, g.now + 1, new Set());
+    // The daily crew run (at midnight UTC, before the leave starts at local midnight).
+    advanceTo(g, Math.floor(g.now / DAY) * DAY + DAY + 1, new Set());
     expect(c.blocks![0].from).toBe(from + 2 * 60);
   });
 });

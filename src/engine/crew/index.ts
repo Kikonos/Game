@@ -482,6 +482,8 @@ function daily(g: GameState) {
     if (stayed.length) recheckNext(g, stayed);
   }
   sendStrandedHome(g);
+  // Crew-planning round: a ticket moved by any other path that lands after a leave began starts that leave at home.
+  leaveAfterTickets(g);
   // v0.7.3 home standby for the days an old save published before v0.9; v0.9 standby for every free published day.
   dailyStandby(g);
   dayPlanAfter(g);
@@ -601,8 +603,6 @@ export const crewModule: SimModule = {
     for (const [aircraftId, t] of takeFlightChanges(g)) onFlightsChanged(g, aircraftId, t);
     const rev = flightsRev(g);
     if (lastFlightsRev.get(g) !== rev) {
-      // Crew-planning round: a ticket bought or moved by any path that lands after a leave began starts that leave at home.
-      leaveAfterTickets(g);
       rosterNewFlights(g);
       lastFlightsRev.set(g, flightsRev(g));
     }

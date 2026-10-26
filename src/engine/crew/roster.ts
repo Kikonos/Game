@@ -130,7 +130,7 @@ export function leaveAfterTicket(g: GameState, crewIds: Iterable<string>, t: { s
   }
 }
 
-/** Every ticket still to fly, as above (a ticket moved or bought by any path; crew settle, when the flights changed). */
+/** Every ticket still to fly, as above (a ticket moved by any other path; daily, after the stranded crew go home). */
 export function leaveAfterTickets(g: GameState): void {
   for (const f of deadheadFlights(g)) if (f.status === 'scheduled' && f.crewIds.length && f.sta > g.now) leaveAfterTicket(g, f.crewIds, f);
 }
@@ -242,6 +242,7 @@ function retimeTickets(g: GameState, p: Pairing, d: Duty, moved: Set<string>): v
     }
     if (std === f.std) continue;
     retimeFlight(g, f, std, std + f.block);
+    leaveAfterTicket(g, f.crewIds, f);
     for (const id of f.crewIds) moved.add(id);
   }
   touchCrew(g);
