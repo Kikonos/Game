@@ -1,0 +1,161 @@
+
+=== landscape-standalone 1180×820 (touch, DPR 2) ===
+  touch: (hover: none)=true (pointer: coarse)=true html.touch=true
+- loading [-] (-): landscape-standalone-loading.png OK
+- title [-] (-): landscape-standalone-title.png OK
+- newgame [-] (-): landscape-standalone-newgame.png OK
+- map [acmi medium] (day 60): landscape-standalone-map.png OK
+- map-aircraft [acmi medium] (day 60): landscape-standalone-map-aircraft.png OK
+- map-airport [acmi medium] (day 60): landscape-standalone-map-airport.png OK
+- map-offer [acmi medium] (day 60): landscape-standalone-map-offer.png OK
+- contracts [acmi medium] (day 60): landscape-standalone-contracts.png OK
+- contracts-active [acmi medium] (day 60): landscape-standalone-contracts-active.png OK
+- contracts-missed [acmi medium] (day 60): landscape-standalone-contracts-missed.png OK
+- offer-modal [acmi medium] (day 60): landscape-standalone-offer-modal.png OK
+- schedule [acmi medium] (day 60): landscape-standalone-schedule.png OK
+- schedule-28d [acmi medium] (day 60): landscape-standalone-schedule-28d.png OK
+- block-sheet [acmi medium] (day 60): landscape-standalone-block-sheet.png OK
+- duty-modal [acmi medium] (day 60): landscape-standalone-duty-modal.png OK
+- crew [acmi medium] (day 60): landscape-standalone-crew.png
+    under status bar/home indicator: div.col.gap-8 > div.card.sc-crew-list > button.sc-crew-row "CPTRibeiro, TiagoAvailab"
+- hire [acmi medium] (day 60): landscape-standalone-hire.png OK
+- fleet [acmi medium] (day 60): landscape-standalone-fleet.png
+    under status bar/home indicator: div.card.sc-ac > div.row.gap-8 > button.btn.grow "Schedule" | div.card.sc-ac > div.row.gap-8 > button.btn.grow "On map" | div.card.sc-ac > div.row.gap-8 > button.btn.grow "Sell…"
+- check-modal [acmi medium] (day 60): landscape-standalone-check-modal.png OK
+- finance [acmi medium] (day 60): landscape-standalone-finance.png OK
+- company [acmi medium] (day 60): landscape-standalone-company.png OK
+- inbox [acmi medium] (day 60): landscape-standalone-inbox.png
+    under status bar/home indicator: div.sc-msg-wrap > div.sc-msg-line > button.sc-msg "CREW OUT OF HOURS: DE302" | div.sc-msg-wrap > div.sc-msg-line > button.btn.btn-ghost "Explain"
+- decision [acmi medium] (day 60): landscape-standalone-decision.png OK
+- subcharter [acmi medium] (day 60): landscape-standalone-subcharter.png OK
+- menu [acmi medium] (day 60): landscape-standalone-menu.png OK
+- settings [acmi medium] (day 60): landscape-standalone-settings.png OK
+- saves [acmi medium] (day 60): landscape-standalone-saves.png OK
+- newgame-livery [-] (-): landscape-standalone-newgame-livery.png OK
+- livery-company [acmi medium] (day 60): landscape-standalone-livery-company.png OK
+- livery-aircraft [acmi medium] (day 60): landscape-standalone-livery-aircraft.png OK
+- offer-paint [acmi medium] (day 60): landscape-standalone-offer-paint.png OK
+- offer-paint-optional [acmi medium] (day 60): landscape-standalone-offer-paint-optional.png OK
+- schedule-paint: skipped (no aircraft free for a paint job)
+- paint-sheet: skipped (no aircraft free for a paint job)
+- map-painted: skipped (no aircraft free for a paint job)
+- fleet-painted: skipped (no aircraft free for a paint job)
+- crew-board [acmi medium] (day 60): landscape-standalone-crew-board.png OK
+- crew-board-month [acmi medium] (day 60): landscape-standalone-crew-board-month.png OK
+- board-drag [acmi medium] (day 60): landscape-standalone-board-drag.png OK
+- board-popover [acmi medium] (day 60): landscape-standalone-board-popover.png OK
+- crew-select [acmi medium] (day 60): landscape-standalone-crew-select.png OK
+- convert-modal [acmi medium] (day 60): landscape-standalone-convert-modal.png OK
+- classes-modal [acmi medium] (day 60): landscape-standalone-classes-modal.png OK
+- crew-converting [acmi medium] (day 65): landscape-standalone-crew-converting.png
+    under status bar/home indicator: div.col.gap-8 > div.card.sc-crew-list > button.sc-crew-row.selecting "CPTLima, HélderConversio"
+- board-converting [acmi medium] (day 65): landscape-standalone-board-converting.png OK
+- crew-morale [acmi medium] (day 65): landscape-standalone-crew-morale.png OK
+- crew-notice [acmi medium] (day 65): landscape-standalone-crew-notice.png
+    under status bar/home indicator: div.col.gap-8 > div.card.sc-crew-list > button.sc-crew-row.selecting "CPTLima, HélderConversio"
+- train-modal [acmi medium] (day 65): landscape-standalone-train-modal.png OK
+- company-policies [acmi medium] (day 65): landscape-standalone-company-policies.png OK
+- fleet-extra [acmi medium] (day 65): landscape-standalone-fleet-extra.png OK
+- offer-extra [acmi medium] (day 65): landscape-standalone-offer-extra.png OK
+- contracts-extra [acmi medium] (day 65): landscape-standalone-contracts-extra.png
+    under status bar/home indicator: div.pc.red > div.pc-details > button.btn.btn-ghost "Details"
+- duty-extra [acmi medium] (day 65): landscape-standalone-duty-extra.png OK
+- convert-confirm [acmi medium] (day 65): landscape-standalone-convert-confirm.png OK
+- fleet-market [acmi medium] (day 65): landscape-standalone-fleet-market.png OK
+- acquire-modal [acmi medium] (day 65): landscape-standalone-acquire-modal.png OK
+- company-ladder [acmi medium] (day 65): landscape-standalone-company-ladder.png OK
+- approval-modal [acmi medium] (day 65): landscape-standalone-approval-modal.png OK
+- ladder-step [acmi medium] (day 65): landscape-standalone-ladder-step.png OK
+- acquire-widebody [acmi medium] (day 65): landscape-standalone-acquire-widebody.png OK
+- fleet-delivering [acmi medium] (day 65): landscape-standalone-fleet-delivering.png OK
+- schedule-delivering [acmi medium] (day 65): landscape-standalone-schedule-delivering.png OK
+- refit-modal [acmi medium] (day 65): landscape-standalone-refit-modal.png OK
+- fleet-refit [acmi medium] (day 65): landscape-standalone-fleet-refit.png OK
+- schedule-refit [acmi medium] (day 65): landscape-standalone-schedule-refit.png OK
+- lease-modal [acmi medium] (day 65): landscape-standalone-lease-modal.png OK
+- market-toggles [acmi medium] (day 65): landscape-standalone-market-toggles.png OK
+- inbox-market [acmi medium] (day 65): landscape-standalone-inbox-market.png OK
+- crew-control [acmi medium] (day 65): landscape-standalone-crew-control.png OK
+- crew-control-jet [acmi medium] (day 65): landscape-standalone-crew-control-jet.png OK
+- problem-modal [acmi medium] (day 65): landscape-standalone-problem-modal.png OK
+- inbox-problems [acmi medium] (day 65): landscape-standalone-inbox-problems.png
+    under status bar/home indicator: div.sc-msg-wrap > div.sc-msg-line > button.sc-msg "AWQ170 is missing 1 capt" | div.sc-msg-wrap > div.sc-msg-line > button.btn.btn-ghost "Explain"
+- glossary [acmi medium] (day 65): landscape-standalone-glossary.png OK
+- duty-gauges [acmi medium] (day 65): landscape-standalone-duty-gauges.png OK
+- schedule-why [acmi medium] (day 65): landscape-standalone-schedule-why.png OK
+- term-popover [acmi medium] (day 65): landscape-standalone-term-popover.png OK
+- hint [acmi medium] (day 65): landscape-standalone-hint.png OK
+- fleet-short [acmi medium] (day 65): landscape-standalone-fleet-short.png OK
+- settings-glossary [acmi medium] (day 65): landscape-standalone-settings-glossary.png OK
+- topbar-strip [acmi medium] (day 65): landscape-standalone-topbar-strip.png OK
+- topbar-strip-warnings [acmi medium] (day 65): landscape-standalone-topbar-strip-warnings.png OK
+- hire-multitype [acmi medium] (day 65): landscape-standalone-hire-multitype.png OK
+- refit-earliest [acmi medium] (day 65): landscape-standalone-refit-earliest.png OK
+- refit-booked [acmi medium] (day 65): landscape-standalone-refit-booked.png OK
+- flight-sheet-rest-seats [acmi medium] (day 65): landscape-standalone-flight-sheet-rest-seats.png OK
+- refit-rest-seats [acmi medium] (day 65): landscape-standalone-refit-rest-seats.png OK
+- sell [acmi medium] (day 65): landscape-standalone-sell.png OK
+- return-early [acmi medium] (day 65): landscape-standalone-return-early.png OK
+- which-one [acmi medium] (day 65): landscape-standalone-which-one.png OK
+- check-hub [acmi medium] (day 65): landscape-standalone-check-hub.png OK
+- whats-new-072 [acmi medium] (day 65): landscape-standalone-whats-new-072.png OK
+- fleet-rest [acmi medium] (day 65): landscape-standalone-fleet-rest.png
+    under status bar/home indicator: div.card.sc-ac > div.row.gap-8 > button.btn.grow "Schedule" | div.card.sc-ac > div.row.gap-8 > button.btn.grow "On map" | div.card.sc-ac > div.row.gap-8 > button.btn.grow "Sell…"
+- market-rest-filter [acmi medium] (day 65): landscape-standalone-market-rest-filter.png OK
+- flight-sheet-rest [acmi medium] (day 65): landscape-standalone-flight-sheet-rest.png OK
+- flight-sheet-rest-tooshort [acmi medium] (day 65): landscape-standalone-flight-sheet-rest-tooshort.png OK
+- duty-why [acmi medium] (day 65): landscape-standalone-duty-why.png OK
+- offer-rest-lines [acmi medium] (day 65): landscape-standalone-offer-rest-lines.png OK
+- refit-crew-rest [acmi medium] (day 65): landscape-standalone-refit-crew-rest.png OK
+- check-c-restfit [acmi medium] (day 65): landscape-standalone-check-c-restfit.png OK
+- roster-board-aug [acmi medium] (day 65): landscape-standalone-roster-board-aug.png OK
+- crew-control-standby [acmi medium] (day 65): landscape-standalone-crew-control-standby.png OK
+- whats-new-073 [acmi medium] (day 65): landscape-standalone-whats-new-073.png OK
+- company-clients [acmi medium] (day 65): landscape-standalone-company-clients.png OK
+- company-client-unhappy [acmi medium] (day 65): landscape-standalone-company-client-unhappy.png OK
+- company-rivals [acmi medium] (day 65): landscape-standalone-company-rivals.png OK
+- contracts-head-standing-outlook [acmi medium] (day 65): landscape-standalone-contracts-head-standing-outlook.png OK
+- offer-trusted-first-refusal [acmi medium] (day 65): landscape-standalone-offer-trusted-first-refusal.png OK
+- offer-rivals-bidding [acmi medium] (day 65): landscape-standalone-offer-rivals-bidding.png OK
+- offer-hajj [acmi medium] (day 65): landscape-standalone-offer-hajj.png OK
+- offer-deportation-moral [acmi medium] (day 65): landscape-standalone-offer-deportation-moral.png OK
+- offer-mixed-crew [acmi medium] (day 65): landscape-standalone-offer-mixed-crew.png OK
+- outlook-modal [acmi medium] (day 65): landscape-standalone-outlook-modal.png OK
+- subcharter-3-quotes [acmi medium] (day 65): landscape-standalone-subcharter-3-quotes.png OK
+- inbox-world-event [acmi medium] (day 65): landscape-standalone-inbox-world-event.png OK
+- world-event-modal [acmi medium] (day 65): landscape-standalone-world-event-modal.png OK
+- client-modal [acmi medium] (day 65): landscape-standalone-client-modal.png OK
+- schedule-programme-continues [acmi medium] (day 65): landscape-standalone-schedule-programme-continues.png OK
+- roster-board-client-crew [acmi medium] (day 65): landscape-standalone-roster-board-client-crew.png OK
+- duty-client-seats [acmi medium] (day 65): landscape-standalone-duty-client-seats.png OK
+- offer-dry-lease [acmi medium] (day 65): landscape-standalone-offer-dry-lease.png OK
+- schedule-dry-lease: skipped (dry lease cannot be signed)
+- fleet-dry-lease [acmi medium] (day 65): landscape-standalone-fleet-dry-lease.png OK
+- whats-new-08 [acmi medium] (day 65): landscape-standalone-whats-new-08.png OK
+- roster-board-standby [acmi medium] (day 85): landscape-standalone-roster-board-standby.png OK
+- roster-board-month-summary [acmi medium] (day 85): landscape-standalone-roster-board-month-summary.png OK
+- roster-offbreak-confirm [acmi medium] (day 85): landscape-standalone-roster-offbreak-confirm.png OK
+- crew-person-month [acmi medium] (day 85): landscape-standalone-crew-person-month.png
+    under status bar/home indicator: div.col.gap-8 > div.card.sc-crew-list > button.sc-crew-row "CPTFerreira, TiagoConver"
+- crew-control-standby-kinds [acmi medium] (day 85): landscape-standalone-crew-control-standby-kinds.png OK
+- crewplan-sets-why [acmi medium] (day 85): landscape-standalone-crewplan-sets-why.png OK
+- company-team-locked [acmi medium] (day 85): landscape-standalone-company-team-locked.png OK
+- head-unlocked-card [acmi medium] (day 85): landscape-standalone-head-unlocked-card.png OK
+- company-team [acmi medium] (day 85): landscape-standalone-company-team.png OK
+- company-achievements [acmi medium] (day 85): landscape-standalone-company-achievements.png OK
+- achievement-toast [acmi medium] (day 85): landscape-standalone-achievement-toast.png OK
+- offer-analyst [acmi medium] (day 85): landscape-standalone-offer-analyst.png OK
+- offer-slip [acmi medium] (day 85): landscape-standalone-offer-slip.png OK
+- offer-jumbo [acmi medium] (day 85): landscape-standalone-offer-jumbo.png OK
+- crew-control-out-of-hours [acmi medium] (day 85): landscape-standalone-crew-control-out-of-hours.png OK
+- crew-control-discretion-greyed [acmi medium] (day 85): landscape-standalone-crew-control-discretion-greyed.png OK
+- inbox-crew-hours [acmi medium] (day 85): landscape-standalone-inbox-crew-hours.png OK
+- opsstrip-hours [acmi medium] (day 85): landscape-standalone-opsstrip-hours.png OK
+- settings-sound [acmi medium] (day 85): landscape-standalone-settings-sound.png OK
+- settings-test-sounds [acmi medium] (day 85): landscape-standalone-settings-test-sounds.png OK
+- screen-hint-contracts [acmi medium] (day 85): landscape-standalone-screen-hint-contracts.png OK
+- whats-new-catchup [acmi medium] (day 85): landscape-standalone-whats-new-catchup.png OK
+- fleet-longest-day-popover [acmi medium] (day 85): landscape-standalone-fleet-longest-day-popover.png OK
+- crewplan-verdict [acmi medium] (day 85): landscape-standalone-crewplan-verdict.png OK
+
+Done. 0 failed. Output: /tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/dbg/h1

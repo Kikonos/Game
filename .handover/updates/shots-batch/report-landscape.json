@@ -1,0 +1,93 @@
+{
+  "company-ladder": {
+    "vw": 1180,
+    "vh": 820,
+    "scrollWidth": 1180,
+    "touch": "(hover: none)=true (pointer: coarse)=true html.touch=true",
+    "tier": "acmi medium",
+    "beyondCount": 0,
+    "beyond": [],
+    "tapTargets": 31,
+    "smallTargets": 0,
+    "smallTargetSamples": [],
+    "smallText": 0,
+    "smallTextSamples": [],
+    "errors": []
+  },
+  "approval-modal": {
+    "vw": 1180,
+    "vh": 820,
+    "scrollWidth": 1180,
+    "touch": "(hover: none)=true (pointer: coarse)=true html.touch=true",
+    "tier": "acmi medium",
+    "beyondCount": 0,
+    "beyond": [],
+    "tapTargets": 3,
+    "smallTargets": 0,
+    "smallTargetSamples": [],
+    "smallText": 0,
+    "smallTextSamples": [],
+    "dialog": {
+      "h": 788,
+      "out": false
+    },
+    "errors": []
+  },
+  "settings-test-sounds": {
+    "vw": 1180,
+    "vh": 820,
+    "scrollWidth": 1180,
+    "touch": "(hover: none)=true (pointer: coarse)=true html.touch=true",
+    "tier": "acmi medium",
+    "beyondCount": 0,
+    "beyond": [],
+    "tapTargets": 13,
+    "smallTargets": 0,
+    "smallTargetSamples": [],
+    "smallText": 0,
+    "smallTextSamples": [],
+    "dialog": {
+      "h": 788,
+      "out": false
+    },
+    "errors": []
+  },
+  "offer-call": {
+    "vw": 1180,
+    "vh": 820,
+    "scrollWidth": 1180,
+    "touch": "(hover: none)=true (pointer: coarse)=true html.touch=true",
+    "tier": "acmi medium",
+    "beyondCount": 0,
+    "beyond": [],
+    "tapTargets": 4,
+    "smallTargets": 0,
+    "smallTargetSamples": [],
+    "smallText": 0,
+    "smallTextSamples": [],
+    "dialog": {
+      "h": 472,
+      "out": false
+    },
+    "errors": []
+  },
+  "approval-etops": {
+    "vw": 1180,
+    "vh": 820,
+    "scrollWidth": 1180,
+    "touch": "(hover: none)=true (pointer: coarse)=true html.touch=true",
+    "tier": "acmi medium",
+    "beyondCount": 0,
+    "beyond": [],
+    "tapTargets": 4,
+    "smallTargets": 0,
+    "smallTargetSamples": [],
+    "smallText": 0,
+    "smallTextSamples": [],
+    "dialog": {
+      "h": 642,
+      "out": false
+    },
+    "errors": []
+  }
+}

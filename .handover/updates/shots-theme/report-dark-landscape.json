@@ -1,0 +1,85 @@
+{
+  "title": {
+    "vw": 1180,
+    "vh": 820,
+    "scrollWidth": 1180,
+    "touch": "(hover: none)=true (pointer: coarse)=true html.touch=true",
+    "tier": "-",
+    "beyondCount": 0,
+    "beyond": [],
+    "tapTargets": 2,
+    "smallTargets": 0,
+    "smallTargetSamples": [],
+    "smallText": 0,
+    "smallTextSamples": [],
+    "dialog": {
+      "h": 670,
+      "out": false
+    },
+    "errors": []
+  },
+  "map": {
+    "vw": 1180,
+    "vh": 820,
+    "scrollWidth": 1180,
+    "touch": "(hover: none)=true (pointer: coarse)=true html.touch=true",
+    "tier": "acmi medium",
+    "beyondCount": 0,
+    "beyond": [],
+    "tapTargets": 32,
+    "smallTargets": 0,
+    "smallTargetSamples": [],
+    "smallText": 0,
+    "smallTextSamples": [],
+    "errors": []
+  },
+  "schedule-28d": {
+    "vw": 1180,
+    "vh": 820,
+    "scrollWidth": 1180,
+    "touch": "(hover: none)=true (pointer: coarse)=true html.touch=true",
+    "tier": "acmi medium",
+    "beyondCount": 0,
+    "beyond": [],
+    "tapTargets": 27,
+    "smallTargets": 0,
+    "smallTargetSamples": [],
+    "smallText": 0,
+    "smallTextSamples": [],
+    "errors": []
+  },
+  "achievement-toast": {
+    "vw": 1180,
+    "vh": 820,
+    "scrollWidth": 1180,
+    "touch": "(hover: none)=true (pointer: coarse)=true html.touch=true",
+    "tier": "acmi medium",
+    "beyondCount": 0,
+    "beyond": [],
+    "tapTargets": 23,
+    "smallTargets": 0,
+    "smallTargetSamples": [],
+    "smallText": 0,
+    "smallTextSamples": [],
+    "errors": []
+  },
+  "offer-call": {
+    "vw": 1180,
+    "vh": 820,
+    "scrollWidth": 1180,
+    "touch": "(hover: none)=true (pointer: coarse)=true html.touch=true",
+    "tier": "acmi medium",
+    "beyondCount": 0,
+    "beyond": [],
+    "tapTargets": 4,
+    "smallTargets": 0,
+    "smallTargetSamples": [],
+    "smallText": 0,
+    "smallTextSamples": [],
+    "dialog": {
+      "h": 472,
+      "out": false
+    },
+    "errors": []
+  }
+}

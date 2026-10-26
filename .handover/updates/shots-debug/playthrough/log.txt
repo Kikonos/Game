@@ -1,0 +1,66 @@
+shot /tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/dbg/play1/01-title.png
+title dialog: Version 0.9.1 is live!
+shot /tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/dbg/play1/02-newgame.png
+shot /tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/dbg/play1/03-map-start.png
+settings: {"sound":true,"toasts":true,"music":true}
+first20s: toast "New offer: Base deployment Amman"
+shot /tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/dbg/play1/04-first20s-toast.png
+shot /tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/dbg/play1/05-map-after-run.png
+shot /tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/dbg/play1/06-contracts.png
+offer cards: 0
+wait-reply: toast "New offer: Roulement flights to Mogadishu"
+shot /tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/dbg/play1/07-wait-reply-toast.png
+dev counterReply o5r: dialog "The client answered"
+shot /tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/dbg/play1/08-counter-reply-popup.png
+toasts with reply popup: ["Signed: Film crew with their kit to Lanzarote"]
+shot /tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/dbg/play1/09-hire.png
+after hire dialog: null
+shot /tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/dbg/play1/10-market.png
+market buttons: 0
+autoplay 0: dialog "null"
+m0: toast "New offer: Extra capacity at Zagreb"
+shot /tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/dbg/play1/11-m0-toast.png
+m0: toast "A-check done: CS-TBO"
+shot /tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/dbg/play1/12-m0-toast.png
+m0: toast "New offer: July departures to Mahón"
+m0: toast "New offer: Cruise crew change Naples–Lisbon"
+m0: toast "Achievement: Fresh crew at the fuel stop"
+m0: toast "New offer: Kos beach programme"
+autoplay 1: dialog "null"
+m1: toast "Air Sénégal paid 40 days late"
+shot /tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/dbg/play1/13-m1-toast.png
+m1: toast "New offer: Short-notice cover at Casablanca"
+shot /tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/dbg/play1/14-m1-toast.png
+m1: toast "New offer: Extra capacity at Amman"
+m1: toast "New offer: Lisbon wet lease"
+autoplay 2: dialog "null"
+m2: toast "Signed: Diaspora charter LIS–BVC"
+shot /tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/dbg/play1/15-m2-toast.png
+m2: toast "Signed: Cruise crew change Athens–Las Palmas"
+shot /tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/dbg/play1/16-m2-toast.png
+m2: toast "New offer: September departures to Bodrum"
+dev delivery a48n: dialog "A new aircraft joins the fleet"
+shot /tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/dbg/play1/17-delivery-popup.png
+delivery buttons: ["Continue"]
+shot /tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/dbg/play1/18-tab-map.png
+shot /tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/dbg/play1/19-tab-contracts.png
+shot /tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/dbg/play1/20-tab-schedule.png
+shot /tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/dbg/play1/21-tab-crew.png
+shot /tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/dbg/play1/22-tab-fleet.png
+shot /tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/dbg/play1/23-tab-finance.png
+shot /tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/dbg/play1/24-tab-company.png
+shot /tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/dbg/play1/25-tab-inbox.png
+roster foot {"footTop":786,"footBottom":808,"vh":820,"mainScroll":[766,756,"auto"]}
+shot /tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/dbg/play1/26-roster-board.png
+shot /tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/dbg/play1/27-menu.png
+shot /tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/dbg/play1/28-settings-test-sounds.png
+play buttons: 13
+soundLog: [{"id":"tap","t":8051},{"id":"tap","t":9808.59999999986},{"id":"toggle","t":13156.799999999814},{"id":"hiLo","t":28478.799999999814},{"id":"tap","t":35341},{"id":"tap","t":36738.89999999991},{"id":"hiLo","t":49497},{"id":"hi","t":63738.19999999995},{"id":"tap","t":65138.89999999991},{"id":"tap","t":66275.5},{"id":"tap","t":68122.5},{"id":"tap","t":69238},{"id":"toggle","t":70288.29999999981},{"id":"hi3","t":73805},{"id":"lo2","t":80751.5},{"id":"hi3","t":83032.19999999995},{"id":"hiLo","t":89854.59999999986},{"id":"hi3","t":94145.79999999981},{"id":"alarm","t":104965.19999999995},{"id":"tap","
+shot /tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/dbg/play1/29-portrait-map.png
+shot /tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/dbg/play1/30-portrait-contracts.png
+shot /tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/dbg/play1/31-portrait-crew.png
+shot /tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/dbg/play1/32-portrait-fleet.png
+shot /tmp/claude-0/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/scratchpad/dbg/play1/33-portrait-company.png
+
+ERRORS:
+[title] requestfailed http://localhost:4601/assets/countries-50m-DgYPl3oJ.js net::ERR_ABORTED
