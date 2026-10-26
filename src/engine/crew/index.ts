@@ -12,7 +12,7 @@ import { afterDiversion, deletePairing, planAircraft } from './duties';
 export { aboveMinimum, afterDiversion, legalMinimum } from './duties';
 import { dailySickness, onCrewJoin, onTrainingDone } from './hr';
 import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, settleService, setResignHooks } from './morale';
-import { autoRoster, closedWait, guardDuty, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, rebookAfterLateRelease, removeCrew, sendStrandedHome, stayOn } from './roster';
+import { autoRoster, closedWait, guardDuty, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, removeCrew, sendStrandedHome, stayOn } from './roster';
 import { localMin, minRest, signedTz, tzDeltaH, tzNights } from './rules';
 import { clipToRest, dailyStandby, noteRecovery } from './standby';
 import { dayPlanAfter, dayPlanBefore, dayPlanInit, dayPlanLoad, dayPlanMonth, v09Stats } from './dayPlan';
@@ -601,6 +601,8 @@ export const crewModule: SimModule = {
     for (const [aircraftId, t] of takeFlightChanges(g)) onFlightsChanged(g, aircraftId, t);
     const rev = flightsRev(g);
     if (lastFlightsRev.get(g) !== rev) {
+      // Crew-planning round: a ticket bought or moved by any path that lands after a leave began starts that leave at home.
+      leaveAfterTickets(g);
       rosterNewFlights(g);
       lastFlightsRev.set(g, flightsRev(g));
     }

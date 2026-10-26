@@ -5,7 +5,8 @@
 
 import { describe, expect, it } from 'vitest';
 import { newGame } from '../contracts/testkit';
-import { addDeadhead } from '../core/entities';
+import { addDeadhead, retimeFlight } from '../core/entities';
+import { advanceTo } from '../sim';
 import { DAY } from '../core/time';
 import type { CrewMember, Flight, GameState } from '../core/types';
 import { dayIndex, midnight } from './dayPlan';
@@ -55,17 +56,26 @@ describe('leave starts at home', () => {
     // Rebooked after a late landing: leaves at 22:00 the evening before, lands at 02:00 on the first day of leave.
     const std = from - 2 * 60;
     const sta = from + 2 * 60;
-    leaveAfterTicket(g, [c.id], sta);
+    leaveAfterTicket(g, [c.id], { std, sta, to: c.base });
     const b = c.blocks![0];
     expect(b.from).toBe(sta);
     expect(days(b)).toBe(before);
     // A late evening landing loses the first day: the leave runs a day longer.
     const late = away(2);
     const b0 = { ...late.c.blocks![0] };
-    leaveAfterTicket(late.g, [late.c.id], late.from + 20 * 60);
+    leaveAfterTicket(late.g, [late.c.id], { std: late.from + 16 * 60, sta: late.from + 20 * 60, to: late.c.base });
     expect(late.c.blocks![0].from).toBe(late.from + 20 * 60);
     expect(days(late.c.blocks![0])).toBe(days(b0));
     expect(late.c.blocks![0].to).toBe(b0.to + DAY);
     expect(std).toBeLessThan(b.from);
+  });
+  it('a ticket home moved by any other path (a retime) into the leave starts the leave at its landing', () => {
+    const { g, c, from } = away(2);
+    const t = addDeadhead(g, { crewIds: [c.id], from: 'HAM', to: c.base, std: from - 8 * 60, sta: from - 5 * 60, cost: 0 });
+    advanceTo(g, g.now + 1, new Set());
+    expect(c.blocks![0].from).toBe(from);
+    retimeFlight(g, t, from - 60, from + 2 * 60);
+    advanceTo(g, g.now + 1, new Set());
+    expect(c.blocks![0].from).toBe(from + 2 * 60);
   });
 });

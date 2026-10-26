@@ -87,7 +87,7 @@ function buyTicket(g: GameState, p: Pairing, d: Duty, crewIds: string[], t: Tick
   }
   const cost = clientPaysCrewTravel(g, p) ? 0 : ticketPrice(t.from, t.to) * crewIds.length;
   const f = addDeadhead(g, { crewIds, from: t.from, to: t.to, std: t.std, sta: t.sta, cost, contractId: p.contractId });
-  leaveAfterTicket(g, crewIds, t.sta);
+  leaveAfterTicket(g, crewIds, t);
   if (cost) post(g, 'deadhead', -cost);
   d.deadheadIds.push(f.id);
   res.deadheads++;
@@ -111,21 +111,28 @@ function blockDays(base: string, from: Minute, to: Minute): number {
  * comes first: positioning is duty) moves the start of that leave to the landing, the leave keeping its days (seeds
  * 2-5 and the player's save: crew flew home on a deadhead on the first morning of their leave).
  */
-export function leaveAfterTicket(g: GameState, crewIds: Iterable<string>, sta: Minute): void {
-  const hit = (b: NonNullable<CrewMember['blocks']>[number]) => (b.why === 'leave' || b.why === 'training') && b.from > g.now && b.from < sta && b.to > sta;
+export function leaveAfterTicket(g: GameState, crewIds: Iterable<string>, t: { std: Minute; sta: Minute; to: string }): void {
   for (const id of crewIds) {
     const c = g.crew[id];
+    // A leave not begun that the ticket lands inside: one home (sent home late), or one leaving before the leave starts.
+    const hit = (b: NonNullable<CrewMember['blocks']>[number]) =>
+      (b.why === 'leave' || b.why === 'training') && b.from > g.now && b.from < t.sta && b.to > t.sta && (t.to === c.base || t.std - BAL.deadheadCheckIn < b.from);
     if (!c?.blocks?.some(hit)) continue;
     c.blocks = c.blocks.map((b) => {
       if (!hit(b)) return b;
       // (A course keeps its dates: only its start waits for them.)
       const days = blockDays(c.base, b.from, b.to);
-      const x = { ...b, from: sta };
+      const x = { ...b, from: t.sta };
       if (b.why === 'leave') while (blockDays(c.base, x.from, x.to) < days) x.to += DAY;
       return x;
     });
     touchCrew(g);
   }
+}
+
+/** Every ticket still to fly, as above (a ticket moved or bought by any path; crew settle, when the flights changed). */
+export function leaveAfterTickets(g: GameState): void {
+  for (const f of deadheadFlights(g)) if (f.status === 'scheduled' && f.crewIds.length && f.sta > g.now) leaveAfterTicket(g, f.crewIds, f);
 }
 
 /**
@@ -335,7 +342,7 @@ function sendHome(g: GameState, c: CrewMember, p?: Pairing, force = false): void
     group.cost = (group.cost ?? 0) + cost;
     touchTickets(g);
   } else addDeadhead(g, { crewIds: [c.id], from: c.loc, to: c.base, std, sta: std + blk, cost, contractId });
-  leaveAfterTicket(g, [c.id], std + blk);
+  leaveAfterTicket(g, [c.id], { std, sta: std + blk, to: c.base });
   if (cost) post(g, 'deadhead', -cost);
   touchCrew(g);
 }
@@ -379,7 +386,7 @@ export function rebookLooseTickets(g: GameState, only?: Set<string>): void {
       const each = (f.cost ?? 0) / Math.max(1, f.crewIds.length);
       for (const cid of ids) unboard(g, f, cid);
       addDeadhead(g, { crewIds: ids, from, to, std, sta: std + blk, cost: Math.round(each * ids.length), contractId });
-      leaveAfterTicket(g, ids, std + blk);
+      leaveAfterTicket(g, ids, { std, sta: std + blk, to });
       if (each) post(g, 'deadhead', -Math.round(each * ids.length));
       touchCrew(g);
       fitStandby(g, ids);
