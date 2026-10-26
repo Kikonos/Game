@@ -281,6 +281,7 @@ export function syncDuty(g: GameState, d: Duty, p: Pairing): void {
       removeFlights(g, stale);
     }
   }
+  const moved = crewed && !d.done && (d.report !== sh.report || d.release !== sh.release);
   d.report = sh.report;
   d.release = sh.release;
   d.fdp = sh.fdp;
@@ -289,6 +290,12 @@ export function syncDuty(g: GameState, d: Duty, p: Pairing): void {
   d.restAt = sh.restAt;
   d.flightsEv = fl.reduce((s, f) => s + f.ev, 0);
   d.legality = dutyLegality(d);
+  // Crew-planning round: a crewed duty re-measured here (a leg dropped, a pairing refreshed) re-queues its report and
+  // release at once. Before, a sync from refreshPairing could take the change detection's place (the flights then
+  // matched the duty again), the release kept its old time, and the crew stayed on duty after flying home on their
+  // ticket, then were logged off where the duty had ended (invariant seed 1: a fuel-stop leg dropped overnight, the crew
+  // "teleported" back to Algiers from Lisbon).
+  if (moved) queueDuty(g, d);
 }
 
 /** Crew check before report (roster.guardDuty): a 'duty.report' event this long before the report. */
