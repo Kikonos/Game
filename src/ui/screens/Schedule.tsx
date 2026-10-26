@@ -19,7 +19,7 @@ import { Dot, ScreenHead, useRenderCount } from './common';
 import { contractColor } from './palette';
 import { hangarWord } from './screenLogic';
 import {
-  axisTicks, chooseHits, dragStart, idleAt, pickBlocks, ppmOf, pressFlight, pressMaint, rowBlocks, timelineSpan, visibleWindow, type GanttBlock, type ZoomDays,
+  axisTicks, blockText, chooseHits, dragStart, idleAt, pickBlocks, ppmOf, pressFlight, pressMaint, rowBlocks, timelineSpan, visibleWindow, type GanttBlock, type ZoomDays,
 } from './scheduleLogic';
 import { quoteTripMove, tripOf, type TripMoveQuote, type TripView } from '../../engine/ops/tripMove';
 import { checkMaintMove, maintWord, movableMaint, type MaintMoveCheck } from '../../engine/ops/maintMove';
@@ -86,12 +86,10 @@ function Block({ b, from, ppm, win0 }: { b: GanttBlock; from: number; ppm: numbe
   const x = (b.start - from) * ppm;
   const w = Math.max(b.kind === 'idle' || b.kind === 'cont' ? 0 : 3, (b.end - b.start) * ppm);
   const k = b.color !== null ? contractColor(b.color) : undefined;
-  // The short label only when it fits whole (12 px padding + ≈ 9 px per bold capital): never 'L…'.
-  const text = w >= 64 ? b.label : b.short && w >= 12 + (b.short.length === 1 ? 7.5 : 9 * b.short.length) ? b.short : '';
-  // Ferry legs carry the FERRY tag in front of the full label (the short label already is 'FERRY').
-  const tag = b.ftype === 'ferry' && w >= 120 && text === b.label;
-  // v0.7.1 §3.12: a flight the crew-shortage ladder marked carries CREW SHORT in front of its label when it fits.
-  const short = !!b.alert && w >= 150 && text === b.label;
+  // v0.12 only whole labels (never 'L…'): the full label, else number over route, else the number, else the short one.
+  const bt = blockText(b, w);
+  const tag = bt.tag === 'ferry';
+  const short = bt.tag === 'short';
   // Long idle gaps that start off-screen: keep the label near the visible left edge (window start + 18 h).
   const shift = b.kind === 'idle' || b.kind === 'cont' || b.kind === 'lease' ? Math.min(Math.max(0, (win0 + 18 * 60 - b.start) * ppm), Math.max(0, w - 90)) : 0;
   return (
@@ -100,7 +98,9 @@ function Block({ b, from, ppm, win0 }: { b: GanttBlock; from: number; ppm: numbe
       className={`gb gb-${b.kind}${b.ftype && b.ftype !== 'operating' ? ` ${b.ftype}` : ''}${b.paint ? ' gb-paint' : ''}${b.done ? ' done' : ''}${b.crew ? ` crew-${b.crew}` : ''}${b.alert ? ' crew-short' : ''}`}
       style={{ transform: `translateX(${x.toFixed(1)}px)`, width: w, ['--kc' as string]: k, ['--pc' as string]: b.paint }}
     >
-      {text && <span style={shift ? { marginLeft: shift } : undefined}>{tag && <b className="gb-tag">FERRY</b>}{short && <b className="gb-tag cs">CREW SHORT</b>}{text}</span>}
+      {bt.lines.length === 2
+        ? <span className="gb-two"><span>{bt.lines[0]}</span><span>{bt.lines[1]}</span></span>
+        : bt.lines.length === 1 && <span style={shift ? { marginLeft: shift } : undefined}>{tag && <b className="gb-tag">FERRY</b>}{short && <b className="gb-tag cs">CREW SHORT</b>}{bt.lines[0]}</span>}
     </div>
   );
 }

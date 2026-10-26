@@ -3,7 +3,7 @@ import { acceptOffer, feasibility, generateOffer } from '../../engine/contracts'
 import { leased, legsOffer, newGame } from '../../engine/contracts/testkit';
 import { DAY, HOUR, dayStart } from '../../engine/core/time';
 import {
-  axisTicks, chooseHits, dayPills, idleAt, idleGaps, paintLabel, pickBlocks, ppmOf, pressFlight, rowBlocks, timelineSpan, visibleWindow, type GanttBlock,
+  axisTicks, blockText, chooseHits, dayPills, idleAt, idleGaps, paintLabel, pickBlocks, ppmOf, pressFlight, rowBlocks, textW, timelineSpan, visibleWindow, type GanttBlock,
 } from './scheduleLogic';
 
 const blk = (key: string, start: number, end: number, kind: GanttBlock['kind'] = 'flight', color: number | null = 0): GanttBlock => ({
@@ -181,5 +181,35 @@ describe('programme continues (v0.8)', () => {
     expect(cont!.start).toBeGreaterThanOrEqual(c.generatedUntil - DAY);
     // Not tappable as a block (it is not an idle gap either).
     expect(pickBlocks(blocks, cont!.start + HOUR, ppmOf(7)).some((h) => h.block.kind === 'cont')).toBe(false);
+  });
+});
+
+// v0.12 Visual B: block labels show only whole text, number over route when the full label does not fit.
+describe('blockText', () => {
+  const op = { kind: 'flight' as const, label: 'AWL145 LIS-PMI', short: 'PMI', no: 'AWL145', route: 'LIS-PMI', ftype: 'operating' as const };
+  it('shows the full label when it fits, else number over route, else the number, else the short label', () => {
+    expect(blockText(op, 200)).toEqual({ lines: ['AWL145 LIS-PMI'], tag: null });
+    expect(blockText(op, 60).lines).toEqual(['AWL145', 'LIS-PMI']);
+    expect(blockText(op, 45).lines).toEqual(['PMI']);
+    expect(blockText({ ...op, kind: 'pos' }, 70).lines).toEqual(['AWL145']);
+    expect(blockText(op, 42).lines.join()).not.toMatch(/…/);
+    expect(blockText(op, 40).lines).toEqual(['PMI']);
+    expect(blockText(op, 10).lines).toEqual([]);
+  });
+  it('never shows a label wider than its block', () => {
+    for (let w = 0; w < 260; w += 3) {
+      const t = blockText(op, w);
+      for (const l of t.lines) expect(textW(l, t.lines.length === 2 ? 11 : 12)).toBeLessThanOrEqual(w);
+    }
+  });
+  it('puts the FERRY and CREW SHORT tags in front only when everything fits', () => {
+    const ferry = { ...op, kind: 'pos' as const, ftype: 'ferry' as const, label: 'Delivery SCL-LIS', no: 'Delivery', short: 'FERRY' };
+    expect(blockText(ferry, 300).tag).toBe('ferry');
+    expect(blockText(ferry, 120).tag).toBe(null);
+    expect(blockText({ ...op, alert: 'red' }, 300).tag).toBe('short');
+  });
+  it('keeps the long one-line label of idle and maintenance blocks', () => {
+    expect(blockText({ kind: 'idle', label: 'idle 15h' }, 80).lines).toEqual(['idle 15h']);
+    expect(blockText({ kind: 'maint', label: 'C-check LIS', short: 'C' }, 30).lines).toEqual(['C']);
   });
 });

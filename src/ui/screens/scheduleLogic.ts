@@ -45,6 +45,52 @@ export interface GanttBlock {
   paint?: string;
   /** v0.5.2 flights: Operating / Positioning / Ferry (same words and colours as the map). */
   ftype?: FlightType;
+  /** v0.12 flights: the flight number (or why an empty leg flies) and the route, for the two-line label. */
+  no?: string;
+  route?: string;
+}
+
+// ---------- v0.12 block labels ----------
+
+/** Width (px) of a character of the Gantt's semibold sans at 1 px (narrow digits and punctuation, wide W and M). */
+const CHAR_W: Record<string, number> = { ' ': 0.27, '-': 0.4, '·': 0.3, '→': 0.85, I: 0.3, J: 0.5, L: 0.55, '1': 0.48, W: 0.96, M: 0.86 };
+/** Rough rendered width (px) of a label at font size `fs`: per character, a little generous so it never clips. */
+export function textW(s: string, fs: number): number {
+  let w = 0;
+  for (const ch of s) w += CHAR_W[ch] ?? (ch >= 'a' && ch <= 'z' ? 0.56 : ch >= '0' && ch <= '9' ? 0.62 : 0.68);
+  return Math.ceil(w * fs);
+}
+
+/** What a block shows: one line (full label, or just the number, or the short label), or two (number over route). */
+export interface BlockText {
+  lines: string[];
+  /** The FERRY or CREW SHORT tag in front of the full label. */
+  tag: 'ferry' | 'short' | null;
+}
+
+/** Inner padding (px) of a one-line block label, and of the two-line one (smaller type). */
+const PAD = 12;
+const PAD2 = 8;
+/** Font sizes: block labels, the two-line label, the tags. */
+const FS = 12;
+const FS2 = 11;
+
+/**
+ * v0.12 the label a block of `w` px shows, only ever whole (never 'L…'): the full label (with its FERRY or CREW SHORT
+ * tag when that fits too), else for an operating leg the flight number over the route on two lines, else the number,
+ * else the short label. Maintenance, idle and lease blocks keep their one long label. Pure.
+ */
+export function blockText(b: Pick<GanttBlock, 'kind' | 'label' | 'short' | 'no' | 'route' | 'ftype' | 'alert'>, w: number): BlockText {
+  const fitsShort = !!b.short && w >= PAD + (b.short.length === 1 ? 7.5 : 9 * b.short.length);
+  if (!b.no || (b.kind !== 'flight' && b.kind !== 'pos')) return { lines: w >= 64 ? [b.label] : fitsShort ? [b.short!] : [], tag: null };
+  const full = textW(b.label, FS);
+  if (b.alert && w >= PAD + textW('CREW SHORT', FS) + 6 + full) return { lines: [b.label], tag: 'short' };
+  if (b.ftype === 'ferry' && w >= PAD + textW('FERRY', FS) + 4 + full) return { lines: [b.label], tag: 'ferry' };
+  if (w >= PAD + full) return { lines: [b.label], tag: null };
+  // Two lines only in the tall (operating) block: the positioning one is too thin for two.
+  if (b.kind === 'flight' && b.route && w >= PAD2 + Math.max(textW(b.no, FS2), textW(b.route, FS2))) return { lines: [b.no, b.route], tag: null };
+  if (w >= PAD + textW(b.no, FS)) return { lines: [b.no], tag: null };
+  return { lines: fitsShort ? [b.short!] : [], tag: null };
 }
 
 /** 'Paint · Saudia' (paint-in), 'Repaint' (strip after full paint), 'Decals off'. */
@@ -106,6 +152,7 @@ export function rowBlocks(g: GameState, aircraftId: string, from: Minute, to: Mi
     out.push({
       key: f.id, kind: empty ? 'pos' : 'flight', start: s, end: e, color: colorOf(g, f), ftype,
       label: why ? `${why} ${f.from}-${f.to}` : `${f.no} ${f.from}-${f.to}`, short: ftype === 'ferry' || why ? 'FERRY' : f.to, refs: [{ kind: 'flight', id: f.id }],
+      no: why ?? f.no, route: `${f.from}-${f.to}`,
       crew, done: f.status === 'done', at: f.from, alert: crew && f.crewAlert ? f.crewAlert : undefined,
     });
   }

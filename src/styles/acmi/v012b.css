@@ -1,2 +1,7 @@
 /* ---------- v0.12 Visual B: hangar line-up, delivery card, sky behind the big side view, schedule labels, finance
    charts, rank marks, boarding passes, folded hints ---------- */
+
+/* Schedule: a narrow operating block shows its flight number over its route (scheduleLogic blockText) */
+.gb > .gb-two { display: flex; flex-direction: column; justify-content: center; padding: 0 4px; font-size: 11px; line-height: 12.5px; letter-spacing: 0.01em; }
+.gb > .gb-two > span { overflow: visible; }
+.gb > .gb-two > span + span { font-weight: 500; opacity: 0.85; }
