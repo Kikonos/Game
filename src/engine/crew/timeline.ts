@@ -289,6 +289,18 @@ export function outTicket(g: GameState, p: Pairing, d: Duty, from: string, ready
   return { plan, why: resting + cap(`deadhead + duty FDP ${over}; rest at ${to} needed landing by ${t(rested + blk)}`) };
 }
 
+/**
+ * Whether a booked ticket out (leaving `from` at std, block blk) still works for d as it now stands: the crew rest
+ * after it, or the ticket and the duty fit one FDP (a duty moved later leaves an early ticket's crew waiting on duty).
+ */
+export function outStillFits(g: GameState, p: Pairing, d: Duty, from: string, std: Minute, blk: number): boolean {
+  const to = g.flights[d.flightIds[0]]?.from ?? d.restAt;
+  const rest = minRest({ dutyMin: blk + CHECKIN(), atHome: false, augmented: false, tzShift: tzDeltaH(p.base, to, d.report) });
+  if (std + blk + rest <= d.report) return true;
+  const start = std - CHECKIN();
+  return d.fdp + (d.report - start) <= fdpLimitAt(g, p, d, from, start).max + (d.discretion ?? 0);
+}
+
 /** The planned ticket out (outTicket's plan; workable when it can still be checked in: see outTicket). */
 export function planOut(g: GameState, p: Pairing, d: Duty, from: string, early = false): TicketPlan {
   return outTicket(g, p, d, from, g.now, early).plan;
