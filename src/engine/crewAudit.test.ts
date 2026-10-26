@@ -8,6 +8,7 @@ import type { GameState } from './core/types';
 import { createGame } from './newGame';
 import { resolveDecision } from './ops';
 import { advanceTo } from './sim';
+import { breathe } from '../test/breathe';
 
 function play(g: GameState): void {
   for (const d of [...g.decisions]) resolveDecision(g, d.id, d.defaultOption);
@@ -20,7 +21,7 @@ function play(g: GameState): void {
   }
 }
 
-function audit(seed: number, days: number): string[] {
+async function audit(seed: number, days: number): Promise<string[]> {
   const g = createGame({ name: 'Atlântica Wings', code: 'AW', livery: { primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' }, base: 'LIS', seed });
   const bad: string[] = [];
   const seen = new Set<string>();
@@ -34,6 +35,7 @@ function audit(seed: number, days: number): string[] {
     // Crew positions just before the step (departures in the step are checked against them).
     const loc = new Map(Object.values(g.crew).map((c) => [c.id, c.loc]));
     advanceTo(g, g.now + 15, new Set());
+    await breathe();
     for (const f of Object.values(g.flights)) {
       if (!f.aircraftId || f.status !== 'enroute' || seen.has(f.id)) continue;
       seen.add(f.id);
@@ -50,9 +52,9 @@ function audit(seed: number, days: number): string[] {
 }
 
 describe('crew audit', () => {
-  it('flies every departure with its crew at the departure airport (seeds 7 and 3, 50 days)', () => {
+  it('flies every departure with its crew at the departure airport (seeds 7 and 3, 50 days)', async () => {
     for (const seed of [7, 3]) {
-      const out = audit(seed, 50);
+      const out = await audit(seed, 50);
       expect(Number(out.pop()!.split(' ')[1])).toBeGreaterThan(60);
       expect(out).toEqual([]);
     }

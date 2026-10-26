@@ -9,6 +9,7 @@ import type { Flight, GameState } from '../core/types';
 import { advanceTo } from '../sim';
 import { autoRoster, crewCalendar, crewStatusView, hireCrew, trainCrew } from '.';
 import { addCrew, at, fixtureContract, fixtureGame } from './fixtures';
+import { breathe } from '../../test/breathe';
 
 function trip(g: GameState) {
   const ac = Object.values(g.fleet)[0];
@@ -79,18 +80,19 @@ describe('crew travelling', () => {
     expect(line()).toMatch(/FDP \d+:\d\d of \d+:\d\d \(commander's discretion \+1:00\)/);
   });
 
-  it('calendar blocks have unique kind/start keys (no doubled rest block)', () => {
+  it('calendar blocks have unique kind/start keys (no doubled rest block)', async () => {
     const g = fixtureGame(54);
     trip(g);
     for (let t = g.now; t < g.now + 5 * DAY; t += 6 * 60) {
       advanceTo(g, t, new Set());
+      await breathe();
       for (const c of Object.values(g.crew)) {
         const bs = crewCalendar(g, c.id, g.now, g.now + 14 * DAY);
         const keys = bs.map((b) => `${b.kind}-${b.dutyId ?? ''}-${b.start}`);
         expect(new Set(keys).size, c.id).toBe(keys.length);
       }
     }
-  }, 20_000);
+  }, 60_000);
 });
 
 describe('crew calendar', () => {

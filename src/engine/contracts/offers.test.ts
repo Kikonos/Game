@@ -16,6 +16,7 @@ import { computeWaves, programmeOf } from './plan';
 import { referenceType } from './pricing';
 import * as F from './flavor';
 import { addAircraft, newGame, offer, run } from './testkit';
+import { breathe } from '../../test/breathe';
 
 const ARCHETYPES: Archetype[] = ['seasonBase', 'aogCover', 'adhoc', 'sports', 'repatriation', 'tourSeries', 'troopRotation', 'vip'];
 
@@ -437,14 +438,15 @@ describe('quiet-week floor', () => {
     expect(BAL.quietFloor).toEqual({ days: 5, idleDays: 2, maxOpen: 5 });
   });
 
-  it('keeps the yearly offer count within ±10% of v0.5.2 (3.7/week, no floor) over 10 seeds', () => {
-    const count = (seed: number) => {
+  it('keeps the yearly offer count within ±10% of v0.5.2 (3.7/week, no floor) over 10 seeds', async () => {
+    const count = async (seed: number) => {
       const g = newGame(seed);
       const seen = new Set<string>();
       const end = g.started + 120 * DAY;
       for (let t = g.now + DAY; t <= end && !g.gameOver; t += DAY) {
         advanceTo(g, t, new Set());
         for (const id of Object.keys(g.offers)) seen.add(id);
+        await breathe();
       }
       return seen.size;
     };
@@ -453,10 +455,10 @@ describe('quiet-week floor', () => {
     let a = 0;
     let b = 0;
     try {
-      for (let s = 1; s <= 10; s++) a += count(s);
+      for (let s = 1; s <= 10; s++) a += await count(s);
       B.offersPerWeek = 3.7;
       PACING.quietFloor = false;
-      for (let s = 1; s <= 10; s++) b += count(s);
+      for (let s = 1; s <= 10; s++) b += await count(s);
     } finally {
       B.offersPerWeek = now;
       PACING.quietFloor = true;

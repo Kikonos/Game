@@ -4,12 +4,11 @@ import { describe, expect, it } from 'vitest';
 import { DAY } from './core/time';
 import type { GameState } from './core/types';
 import { deserialize, serialize } from './save';
-import { advanceTo } from './sim';
-import { bad, fixture, play } from './fixtures/compatKit';
+import { bad, fixture, playTo } from './fixtures/compatKit';
 
 describe('v0.8 load: relations, rivals, market cycle, world (UPDATE-0.8.md §10)', () => {
   const v073 = () => fixture('v073');
-  it('v0.7.3: every §10 default, levels computed without messages, 60 days legal, round-trip', () => {
+  it('v0.7.3: every §10 default, levels computed without messages, 60 days legal, round-trip', async () => {
     const file = JSON.parse(v073()) as { state: GameState };
     const msgs0 = file.state.messages.length;
     const g = deserialize(v073());
@@ -37,11 +36,7 @@ describe('v0.8 load: relations, rivals, market cycle, world (UPDATE-0.8.md §10)
     expect(g.messages.filter((m) => !v09Note(m.title)).length).toBe(Math.min(msgs0, 300));
     // 60 days: no illegal duty flown, nothing non-finite.
     const ill0 = g.stats.illegalFlown ?? 0;
-    const end = g.now + 60 * DAY;
-    while (g.now < end && !g.gameOver) {
-      advanceTo(g, Math.min(end, g.now + 6 * 60), new Set());
-      play(g);
-    }
+    await playTo(g, g.now + 60 * DAY);
     expect(g.gameOver).toBeNull();
     expect(g.stats.illegalFlown ?? 0).toBe(ill0);
     expect(bad(g)).toEqual([]);
