@@ -507,8 +507,9 @@ export function rebookAfterLateRelease(g: GameState, p: Pairing, d: Duty): void 
     }
     if (!ends.size) continue;
     const blk = f.sta - f.std;
-    const t = planHome(d, f.to, cabinEarly(g, p, d));
-    const straight = t.std - ci - d.release <= STRAIGHT_ON ? t.std : null;
+    // Straight on again only for crew who missed a ticket straight on; one booked for after the rest stays after it.
+    const t = wait < 0 ? planHome(d, f.to, cabinEarly(g, p, d)) : null;
+    const straight = t && t.std - ci - d.release <= STRAIGHT_ON ? t.std : null;
     const groups = new Map<Minute, string[]>();
     for (const [cid, end] of ends) {
       const std = straight ?? Math.ceil((end + ci) / 60) * 60;
