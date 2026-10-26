@@ -11,17 +11,22 @@
 // dry-leased-out aircraft stands at the lessee's base in their paint with a LEASED tag.
 // v0.9: CREW OUT OF HOURS beside CREW SHORT (Up Next, fleet chips, legend); a selected aircraft's crew changes at a fuel
 // stop (slip crews' airline legs and a tappable crew-change mark, static; panel per crew change).
+// v0.12 Visual A: a soft day/night with city lights, top-down silhouettes per type, flown/to-go lines with contrails,
+// weather and closure marks on airports, and spotter mode (binoculars: follow one airborne aircraft, a view only).
 
-import { ArrowLeftRight, ChevronDown, ChevronUp, HelpCircle, TimerOff, Users, X } from 'lucide-react';
+import { ArrowLeftRight, Binoculars, ChevronDown, CloudLightning, ChevronUp, HelpCircle, TimerOff, Users, X } from 'lucide-react';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { DAY, fmtDay, fmtTime } from '../../engine/core/time';
 import type { GameState, Ref } from '../../engine/core/types';
 import { slipsOfAircraft } from '../../engine/crew';
 import { commercialFlightsBetween, FLIGHT_TYPE_HINT, FLIGHT_TYPE_LABEL, worldEventPins, worldZones } from '../../engine/ops';
-import { store, useClock, useGame } from '../store';
+import { store, useClock, useGame, useTheme } from '../store';
 import { useTouch } from '../useMedia';
-import { AircraftLayer, ArcsLayer, CommercialLayer, DiversionLayer, divMarks, HIT_R, type LiveShared, NightLayer, newShared, PathsLayer, PinsLayer, pinOffset, SlipArcsLayer, SlipMarksLayer } from './LiveLayers';
+import { AircraftLayer, ArcsLayer, CommercialLayer, DiversionLayer, divMarks, HIT_R, type LiveShared, NightLayer, newShared, paintCityLights, PathsLayer, PinsLayer, pinOffset, SlipArcsLayer, SlipMarksLayer, WeatherLayer, WX_OFF } from './LiveLayers';
+import { SpotterPanel } from './Spotter';
+import { nextDeparture, SPOT_SECONDS, spotList, spotNext } from './spotter';
+import { wxMarks, type WxMark } from './weather';
 import { MapPanel, TypeKey } from './MapPanels';
 import { ALERT_CHIP, awaitingDelivery, chipInfo, commercialById, fitCodes, onMap, fitFresh, isCommercialId, JET_PATH, mapAirports, offerPins, parseSlipId, pickNearest, placeEventPins, placeSlipMarks, selectedLegs, shortIndex, slipArcs, slipWindow, upNextRows } from './mapLogic';
 import { EventPinsLayer, hatchUnit, ZoneGround, ZoneLabels } from './WorldLayer';
@@ -99,6 +104,10 @@ const LEGEND: { swatch: ReactNode; label: string }[] = [
   { swatch: <span className="op-dot air" />, label: 'Blue: airborne' },
   { swatch: <span className="op-dot" />, label: 'Grey chip: idle, or a delivery not yet started' },
   { swatch: <span className="ops-help-ap" />, label: 'White dot: an airport we fly to, or where our crew are at a hotel' },
+  // v0.12 Visual A.
+  { swatch: <svg width={16} height={16} viewBox="0 0 16 16" aria-hidden><path d="M1 8H8" stroke="var(--path-operating)" strokeWidth={2} /><path d="M9 8H15" stroke="var(--path-operating)" strokeWidth={2} strokeDasharray="2.5 2" /></svg>, label: 'Solid behind an aircraft: flown; dashed ahead: still to fly' },
+  { swatch: <CloudLightning className="ops-help-wx" aria-hidden />, label: 'Storm, cloud or moon on an airport: closed or limited by weather, a curfew or an event. Tap it' },
+  { swatch: <Binoculars className="ops-help-spot" aria-hidden />, label: 'Binoculars: spotter mode. Follow one aircraft and watch it fly' },
 ];
 
 function MapLegend() {
@@ -174,18 +183,66 @@ function UpNext({ g }: { g: GameState }) {
   );
 }
 
+/**
+ * The watched aircraft landed (or one took off while we waited): move on at once. Checked with the clock label in its
+ * own small component, so the map itself never re-renders with the clock.
+ */
+function SpotWatch({ id, onMove }: { id: string | null; onMove: () => void }) {
+  const clock = useClock();
+  const g = useGame();
+  useEffect(() => {
+    const air = spotList(g);
+    if (id ? !air.some((a) => a.id === id) : air.length > 0) onMove();
+  }, [clock, g, id, onMove]);
+  return null;
+}
+
+/** Spotter: which aircraft (null: the next departure), the last one watched (for the round), a counter that re-aims the map. */
+interface Spot { id: string | null; last: string | null; n: number; since: number }
+
+const navSig = () => `${store.nav.tab}|${store.nav.view ?? ''}|${store.nav.sel ? `${store.nav.sel.kind}:${store.nav.sel.id}` : ''}`;
+
 export function OpsMap() {
   const touch = useTouch();
   const g = useGame();
+  const theme = useTheme();
   const sel = store.nav.sel;
+  // v0.12 spotter mode (a view only: never touches the game or its clock).
+  const [spot, setSpot] = useState<Spot | null>(null);
+  const spotNav = useRef('');
+  const startSpot = () => {
+    if (store.nav.sel) store.select(undefined);
+    spotNav.current = navSig();
+    const id = spotNext(g, null);
+    setSpot({ id, last: id, n: 1, since: performance.now() });
+  };
+  const nextSpot = useCallback(() => setSpot((s) => {
+    if (!s) return s;
+    const id = spotNext(store.game!, s.last);
+    return { id, last: id ?? s.last, n: s.n + 1, since: performance.now() };
+  }), []);
+  // Any navigation (another tab, a selection on the map) ends it.
+  const sig = navSig();
+  useEffect(() => { if (spot && sig !== spotNav.current) setSpot(null); }, [sig, spot]);
+
+  // About every 60 s of real time, the next airborne aircraft (not while the page is hidden).
+  useEffect(() => {
+    if (!spot) return;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'hidden') return;
+      if (performance.now() - spot.since >= SPOT_SECONDS * 1000 && spotList(store.game!).length > 1) nextSpot();
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [spot, nextSpot]);
   const selCm = sel?.kind === 'flight' && isCommercialId(sel.id) ? sel.id : undefined;
   // v0.9 a crew change (slip at a fuel stop): its panel keeps the aircraft's arcs and slip legs on the map.
   const selSlip = sel?.kind === 'flight' ? parseSlipId(sel.id) : null;
   const slipAc = selSlip ? g.flights[selSlip]?.aircraftId ?? undefined : undefined;
   const arcAc = sel?.kind === 'aircraft' ? sel.id : slipAc;
-  const panelOpen = !!sel && (sel.kind === 'aircraft' || sel.kind === 'airport' || sel.kind === 'offer' || sel.kind === 'event' || !!selCm || !!selSlip);
+  const panelOpen = !!spot || (!!sel && (sel.kind === 'aircraft' || sel.kind === 'airport' || sel.kind === 'offer' || sel.kind === 'event' || !!selCm || !!selSlip));
   const sharedRef = useRef<LiveShared | null>(null);
   const shared = (sharedRef.current ??= newShared());
+  const glowPaint = useMemo(() => paintCityLights(shared), [shared]);
   let memo = views.get(g);
   if (!memo) views.set(g, (memo = { view: null }));
 
@@ -200,6 +257,8 @@ export function OpsMap() {
   const slipMarks = useMemo(() => placeSlipMarks(slips), [slips]);
   // v0.11 diverted flights: the planned destination ringed, the alternate marked.
   const divs = useMemo(() => divMarks(g), [g, hour, v]); // eslint-disable-line react-hooks/exhaustive-deps
+  // v0.12 weather and closure marks (cleared ones go with the next emit).
+  const wx = useMemo(() => safe(() => wxMarks(g), [] as WxMark[]), [g, hour, v]); // eslint-disable-line react-hooks/exhaustive-deps
   const slipLegs = useMemo(() => safe(() => slipArcs(g, slips), []), [g, slips]); // eslint-disable-line react-hooks/exhaustive-deps
   const marked = useMemo(() => new Set(apList.filter((a) => a.label).map((a) => a.code)), [apList]);
   // v0.8 world: zones keep their array identity while unchanged (drawn once); pins step with the hourly emit.
@@ -225,8 +284,9 @@ export function OpsMap() {
 
   /** Airports and projection shared.aps was built for (rebuilt only when they change). */
   const apsFor = useRef<{ a: MapAirport[] | null; proj: MapLayerCtx['proj'] | null }>({ a: null, proj: null });
-  const refs = useRef({ g, pins, evPins, slipMarks, marked, airports, proj: null as MapLayerCtx['proj'] | null });
+  const refs = useRef({ g, pins, evPins, slipMarks, marked, airports, wx, proj: null as MapLayerCtx['proj'] | null });
   refs.current.g = g;
+  refs.current.wx = wx;
   refs.current.slipMarks = slipMarks;
   refs.current.pins = pins;
   refs.current.evPins = evPins;
@@ -245,9 +305,16 @@ export function OpsMap() {
   // The nearest aircraft, offer pin or airport dot within a finger's reach wins; airports fall through to WorldMap.
   const onTap = useCallback((m: [number, number], unit: number, finger: boolean) => {
     const r = (finger ? HIT_R.touch : HIT_R.mouse) * unit;
-    const { g: game, pins: pinList, evPins: evList, slipMarks: smList, airports: aps, proj } = refs.current;
-    type Hit = { x: number; y: number; item: Ref | null };
+    const { g: game, pins: pinList, evPins: evList, slipMarks: smList, airports: aps, wx: wxList, proj } = refs.current;
+    type Hit = { x: number; y: number; item: Ref | null | (() => void) };
     const items: Hit[] = [];
+    // v0.12 a weather mark opens what the game has on it: the open card, the diverted aircraft, the event.
+    for (const m of wxList) {
+      const ap = AIRPORT_BY_CODE[m.at];
+      const q = ap && proj?.([ap.lon, ap.lat]);
+      const tapIt = 'decision' in m.tap ? () => { const id = (m.tap as { decision: string }).decision; if (game.decisions.some((d) => d.id === id)) store.openModal({ kind: 'decision', decisionId: id }); } : (m.tap as { sel: Ref }).sel;
+      if (q) items.push({ x: q[0] + WX_OFF[0] * unit, y: q[1] + WX_OFF[1] * unit, item: tapIt });
+    }
     for (const [id, p] of shared.ac) if (game.fleet[id]) items.push({ x: p[0], y: p[1], item: { kind: 'aircraft', id } });
     for (const [id, p] of shared.cm) items.push({ x: p[0], y: p[1], item: { kind: 'flight', id } });
     for (const p of pinList) {
@@ -271,7 +338,8 @@ export function OpsMap() {
     }
     const hit = pickNearest(items, m[0], m[1], r);
     if (!hit) return false;
-    store.select(hit);
+    if (typeof hit === 'function') hit();
+    else store.select(hit);
     return true;
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -344,6 +412,16 @@ export function OpsMap() {
     };
   }, [focusKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // v0.12 spotter: the map follows the watched aircraft (or the next departure's, on its stand), clear of the panel.
+  const spotTarget = spot ? spot.id ?? nextDeparture(g, g.now)?.ac.id ?? null : null;
+  const follow = useMemo(() => (spot && spotTarget ? {
+    key: `${spot.n}:${spotTarget}`,
+    at: () => shared.ac.get(spotTarget) ?? null,
+    pad: [12, PANEL_W + 40, STRIP_H + 8, 12] as Pad,
+    // About 3,500 km across the map: close enough to see the aircraft's shape, wide enough to see where it goes.
+    zoom: 7,
+  } : null), [spot?.n, spotTarget]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const selAc = sel?.kind === 'aircraft' ? sel.id : undefined;
   const selPin = sel?.kind === 'offer' || sel?.kind === 'airport' ? sel.id : undefined;
 
@@ -363,7 +441,9 @@ export function OpsMap() {
         revealPad={revealPad}
         focus={focus}
         memo={memo}
-        backdrop={(ctx) => <NightLayer shared={shared} proj={ctx.proj} shift={ctx.backShift} />}
+        follow={follow}
+        backdrop={(ctx) => <NightLayer shared={shared} shift={ctx.backShift} theme={theme} />}
+        glow={glowPaint}
         ground={(ctx) => <ZoneGround zones={zones} proj={ctx.proj} hatch={hatchUnit(ctx.px, ctx.k)} />}
         underlay={(ctx) => {
           refs.current.proj = ctx.proj;
@@ -391,14 +471,17 @@ export function OpsMap() {
             <EventPinsLayer pins={evPins} proj={ctx.proj} unit={ctx.unit} selected={selEv} />
             <SlipMarksLayer marks={slipMarks} proj={ctx.proj} unit={ctx.unit} selected={selSlip ? sel?.id : undefined} />
             <DiversionLayer marks={divs} proj={ctx.proj} unit={ctx.unit} />
+            <WeatherLayer marks={wx} proj={ctx.proj} unit={ctx.unit} />
             <CommercialLayer shared={shared} />
-            <AircraftLayer ctx={ctx} g={g} shared={shared} selected={selAc} selectedFlight={selCm} />
+            <AircraftLayer ctx={ctx} g={g} shared={shared} selected={selAc ?? (spot?.id || undefined)} selectedFlight={selCm} />
           </>
         )}
       />
       <UpNext g={g} />
       <FleetStrip g={g} sel={sel} panelOpen={panelOpen} />
-      <MapPanel g={g} sel={sel} />
+      {spot && <SpotWatch id={spot.id} onMove={nextSpot} />}
+      {spot ? <SpotterPanel g={g} id={spot.id} onNext={nextSpot} onClose={() => setSpot(null)} canNext={spotList(g).length > 1} /> : <MapPanel g={g} sel={sel} />}
+      {!spot && <button className="btn btn-icon ops-spot-btn" onClick={startSpot} aria-label="Spotter: watch the planes" title="Spotter: watch the planes"><Binoculars /></button>}
     </div>
   );
 }

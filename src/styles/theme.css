@@ -57,6 +57,18 @@
   --map-plane: #ffffff;
   --map-night: rgba(0, 0, 0, 0.28);
   --map-route: #dfe8fb;
+  /* v0.12 night shade (raster colour, strongest alpha), city lights, contrails, weather halos. */
+  --map-night-rgb: 1, 4, 14;
+  --map-night-a: 0.58;
+  --map-light-core: #fff1c9;
+  --map-light-glow: #ffb547;
+  --map-light-a: 0.9;
+  --map-contrail: #ffffff;
+  --map-contrail-a: 0.42;
+  --wx-storm: #fbbf24;
+  --wx-cloud: #cbd5e1;
+  --wx-curfew: #a5b4fc;
+  --wx-closed: #f87171;
   --path-operating: #34d399;
   --path-positioning: #fbbf24;
   --path-deadhead: #9aa5bb;
@@ -297,6 +309,17 @@
   --map-ap-other: #94a0b6;
   --map-plane: #1e293b;
   --map-night: rgba(30, 45, 90, 0.1);
+  --map-night-rgb: 26, 40, 92;
+  --map-night-a: 0.22;
+  --map-light-core: #fffbeb;
+  --map-light-glow: #f59e0b;
+  --map-light-a: 0.85;
+  --map-contrail: #64748b;
+  --map-contrail-a: 0.4;
+  --wx-storm: #d97706;
+  --wx-cloud: #64748b;
+  --wx-curfew: #4f46e5;
+  --wx-closed: #dc2626;
   --map-route: #334a78;
   --path-operating: #059669;
   --path-positioning: #d97706;
