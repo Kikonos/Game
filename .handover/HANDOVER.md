@@ -467,3 +467,4 @@ Player notes (22 Oct, with top-bar screenshot .handover/updates/topbar-space.jpg
 - Test-rewrite agent running (remove global OPS_LIVE.on=false, fix vitest runner flake).
 - What's new v0.11 "Operations" drafted: updates/whatsnew-v0.11.md (paste on top of WHATS_NEW at release; update whatsNew.test/fixpack08 expected lists).
 - RELEASE after test rewrite: verify (tsc, vitest ×1, bot seeds 1–3, player save load), whatsNew + version, build, Game merge, push branch + main, live check. Player approved.
+- PLAYER: will rename repo Game → Block-Hours AFTER the v0.11 release. Then: add_repo kikonos/Block-Hours (session scope is kikonos/game), update remotes (GitHub redirects git), verify Pages at kikonos.github.io/Block-Hours/play/ (vite base './' so no code change), What's new shows; remind: re-add home-screen app, saves stay (same origin), export save first. Offered (not yet accepted): redirect repo "Game" at old address.
