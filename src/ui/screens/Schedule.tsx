@@ -178,6 +178,8 @@ function Legend({ g, win }: { g: GameState; win: [number, number] }) {
       ))}
       {more > 0 && <span className="gl-item" title={list.slice(LEGEND_MAX - 1).map((c) => c.title).join(' · ')}>+{more + 1} more</span>}
 
+      {/* v0.11 outlined: a leg of our contract flown by another airline */}
+      <span className="gl-item"><span className="gl-sw gl-sub" />sub-chartered</span>
       <span className="gl-item"><span className="gl-sw gl-maint" />maintenance</span>
       {paint && <span className="gl-item"><span className="gl-sw gl-paint" style={{ ['--pc' as string]: paint }} />paint shop</span>}
       <span className="gl-item"><span className="gl-sw gl-idle" />idle 12 h+</span>
@@ -620,6 +622,7 @@ export function ScheduleScreen() {
           { swatch: 'pos', label: 'Striped outline: positioning or ferry, empty' },
           { swatch: 'corner', label: 'Red corner: the crew cannot legally fly it · amber corner: no crew yet' },
           { swatch: <span className="cs-banner red" style={{ height: 18, fontSize: 11 }}>CREW SHORT</span>, label: 'A crew shortage the warning ladder has flagged (tap the block → Crew Control)' },
+          { swatch: <span className="gl-sw gl-sub" />, label: 'Outlined: a leg of our contract flown by another airline (sub-chartered)' },
           { swatch: 'maint', label: 'Hatched grey: a check, repair or paint shop' },
           { swatch: 'idle', label: 'Dashed outline: idle 12 h or more (rent still runs)' },
           { swatch: 'grey', label: 'Faded: already flown' },

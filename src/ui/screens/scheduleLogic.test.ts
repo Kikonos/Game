@@ -104,6 +104,23 @@ describe('rows from a real game', () => {
     expect(idle!.start).toBe(g.now);
     expect(idle!.end).toBeGreaterThan(g.now + 9 * DAY);
   });
+  it('v0.11 an idle gap stops at a sub-chartered leg instead of running under it', () => {
+    const g = newGame();
+    const ac = leased(g);
+    const t = dayStart(g.now) + 10 * DAY;
+    const o = legsOffer(g, [['LIS', 'OPO', t], ['OPO', 'LIS', t + 4 * HOUR]]);
+    acceptOffer(g, o.id, [ac.id]);
+    const rival = g.rivals[0];
+    expect(rival).toBeDefined();
+    for (const f of Object.values(g.flights)) if (f.contractId) f.operatedBy = rival.id;
+    const blocks = rowBlocks(g, ac.id, g.now, g.now + 20 * DAY);
+    const subs = blocks.filter((b) => b.kind === 'sub');
+    expect(subs.length).toBeGreaterThanOrEqual(2);
+    const idles = blocks.filter((b) => b.kind === 'idle');
+    expect(idles.length).toBeGreaterThanOrEqual(2);
+    for (const i of idles) for (const b of subs) expect(i.end <= b.start || i.start >= b.end).toBe(true);
+    expect(idles[0].label).toMatch(/^idle /);
+  });
 });
 
 describe('paint blocks (v0.5.1)', () => {

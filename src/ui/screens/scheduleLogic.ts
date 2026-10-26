@@ -168,6 +168,22 @@ export function rowBlocks(g: GameState, aircraftId: string, from: Minute, to: Mi
     const label = gap.to >= end ? `free at ${gap.at} · nothing booked` : `idle ${durLabel(gap.to - gap.from)}`;
     out.push({ key: `idle-${gap.from}`, kind: 'idle', start: gap.from, end: gap.to, color: null, label, refs: [], at: gap.at });
   }
+  // v0.11 an idle gap stops at a sub-chartered leg drawn in the same row (the label ran under the outline): the pieces either side
+  // stay when they are 12 h or more, the last keeps a 'free at … · nothing booked' label.
+  const subs = out.filter((b) => b.kind === 'sub');
+  if (subs.length) {
+    for (const idle of out.filter((b) => b.kind === 'idle')) {
+      const cut = subs.filter((b) => b.end > idle.start && b.start < idle.end).sort((a, b) => a.start - b.start);
+      if (!cut.length) continue;
+      out.splice(out.indexOf(idle), 1);
+      let at = idle.start;
+      for (const [i, b] of [...cut, null].entries()) {
+        const until = b ? b.start : idle.end;
+        if (until - at >= IDLE_MIN) out.push({ ...idle, key: `${idle.key}-${i}`, start: at, end: until, label: b || !idle.label.startsWith('free at') ? `idle ${durLabel(until - at)}` : idle.label });
+        if (b) at = Math.max(at, b.end);
+      }
+    }
+  }
   const sorted = out.sort((a, b) => a.start - b.start || a.end - b.end);
   return opts.pills ? dayPills(sorted) : sorted;
 }

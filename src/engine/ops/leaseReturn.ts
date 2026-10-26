@@ -12,7 +12,7 @@ import { pushDecision, pushMessage } from '../core/messages';
 import { cardMeta, leaseReturnCard } from '../problems';
 import { typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
-import { DAY, fmtDate, fmtDay } from '../core/time';
+import { DAY, fmtDate, fmtDay, fmtDayRange } from '../core/time';
 import type { ActionResult, Aircraft, GameState, MaintenanceEvent, Minute } from '../core/types';
 import { route, routeMinutes, timeChain } from '../contracts/plan';
 import { layoutName, reinstateCost } from './cabin';
@@ -256,7 +256,7 @@ function bookLeaseReturn(g: GameState, ac: Aircraft): ActionResult {
   const f0 = m.ferryIds?.length ? g.flights[m.ferryIds[0]] : undefined;
   pushMessage(g, {
     tone: 'info', cat: 'company', title: `Lease return booked: ${ac.reg}`,
-    body: `${f0 ? `Return ferry ${fmtDay(f0.std)} · ` : ''}return check ${q.site} ${fmtDay(m.start)}–${fmtDay(m.end)}. Return costs about ${usd(q.total)}; deposit ${usd(q.deposit)} back at the end.`,
+    body: `${f0 ? `Return ferry ${fmtDay(f0.std)} · ` : ''}return check ${q.site} ${fmtDayRange(m.start, m.end)}. Return costs about ${usd(q.total)}; deposit ${usd(q.deposit)} back at the end.`,
     ref: { kind: 'aircraft', id: ac.id },
   });
   return { ok: true, msg: `${ac.reg} goes back to ${lessorOf(ac)} at ${siteCity(q.site)} on ${fmtDay(m.end)}` };

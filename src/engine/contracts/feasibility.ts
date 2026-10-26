@@ -6,7 +6,7 @@ import { BAL } from '../core/balance';
 import { flightsOf } from '../core/entities';
 import { distanceNm } from '../core/geo';
 import { blockMinutes, complement, etopsNeeded, maxSectorNm, planSector, reportMinutes, runwayFit, typeOf } from '../core/perf';
-import { DAY, fmtDate, fmtDateTime, fmtDay, fmtDuration, toDate } from '../core/time';
+import { DAY, fmtDate, fmtDateTime, fmtDay, fmtDuration, toDate, fmtDayRange } from '../core/time';
 import type { AcRest, Aircraft, ApprovalId, ContractOffer, CrewExtra, GameState, Minute, RestRefitId } from '../core/types';
 import { crewAvailability, offerExtra, type Availability } from '../crew';
 import { dutyNeed, type ChainShape, type DutyNeed } from '../crew/duties';
@@ -103,10 +103,10 @@ function returnFrom(g: GameState, ac: Aircraft): Minute | null {
 function describe(g: GameState, a: Anchor): string {
   if (a.kind === 'maint') {
     const m = g.maintenance[a.id];
-    return m ? `${maintWord(m)} at ${m.at} ${fmtDay(m.start)}–${fmtDay(m.end)}` : 'maintenance';
+    return m ? `${maintWord(m)} at ${m.at} ${fmtDayRange(m.start, m.end)}` : 'maintenance';
   }
   const c = a.contractId ? g.contracts[a.contractId] : undefined;
-  if (c) return `${c.title} (${fmtDay(a.std)}–${fmtDay(a.sta)})`;
+  if (c) return `${c.title} (${fmtDayRange(a.std, a.sta)})`;
   const f = g.flights[a.id];
   return f ? `${f.kind === 'ferry' ? 'ferry' : 'flight'} ${f.no} ${f.from}–${f.to} ${fmtDateTime(f.std)}` : 'another commitment';
 }
@@ -446,7 +446,7 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
     if (blocked) {
       availNo = true;
       add('availability', 'no', `Can't be back for ${describe(g, blocked.blockedNext!)}`, `It would have to be at ${blocked.blockedNext!.from} by ${fmtDateTime(blocked.blockedNext!.std - turn)} UTC.`);
-    } else add('availability', 'ok', `Free ${fmtDay(firstDep)}–${fmtDay(lastArr)}`);
+    } else add('availability', 'ok', `Free ${fmtDayRange(firstDep, lastArr)}`);
   }
 
   // 10. Positioning in and out.
@@ -492,7 +492,7 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
     else {
       rep.paint = slot;
       const ferry = blockMin(slot.ferryIn);
-      const where = `${what} at ${AIRPORT_BY_CODE[slot.shop]?.city ?? slot.shop}, ${fmtDay(slot.start)}–${fmtDay(slot.end)}`;
+      const where = `${what} at ${AIRPORT_BY_CODE[slot.shop]?.city ?? slot.shop}, ${fmtDayRange(slot.start, slot.end)}`;
       const detail = `${slot.ferryIn.length ? `Ferry ${routeText(slot.ferryIn)} ${fmtDuration(ferry)}. ` : ''}Blocks the aircraft like a check. ${ac.livery === 'white' ? 'Back to plain white' : typeof ac.livery === 'object' ? 'Back in its own livery' : 'Back in our colours'} after the job (${pt.stripDays} day${pt.stripDays > 1 ? 's' : ''}).`;
       if (other && (other.status === 'active' || other.status === 'signed')) add('paint', 'warn', `${where}: it flies ${other.title} in ${possessive(g.clients[other.clientId]?.name ?? 'another client')} colours until then`, detail);
       else if (ferry > BAL.paint.longFerryMin) add('paint', 'warn', `${where}: long ferry to the shop (${fmtDuration(ferry)})`, detail);
@@ -517,7 +517,7 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
       else {
         rep.cabinSlot = { label: target.label, start: slot.start };
         cabinCost = q.cost + q.back - q.reimbursed;
-        add('cabinReq', 'ok', `Client cabin: quick reconfiguration to ${target.label}, ${fmtDay(slot.start)}–${fmtDay(slot.end)} (${pays}, ${usd(q.cost)}${q.back ? ` + ${usd(q.back)} to put back` : ''})`, `${q.days * 24} h in our hangar; the cabin crew minimum follows the new seats.`);
+        add('cabinReq', 'ok', `Client cabin: quick reconfiguration to ${target.label}, ${fmtDayRange(slot.start, slot.end)} (${pays}, ${usd(q.cost)}${q.back ? ` + ${usd(q.back)} to put back` : ''})`, `${q.days * 24} h in our hangar; the cabin crew minimum follows the new seats.`);
       }
     }
   }

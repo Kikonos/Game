@@ -15,7 +15,7 @@ import { flightsOf, flightsRev } from '../core/entities';
 import { pushMessage } from '../core/messages';
 import { isolatePauses } from '../core/pause';
 import { typeOf } from '../core/perf';
-import { DAY, fmtDate, fmtDateTime, fmtDay, fmtDuration, fmtTime } from '../core/time';
+import { DAY, fmtDate, fmtDateTime, fmtDay, fmtDuration, fmtTime, fmtDayRange } from '../core/time';
 import type { ActionResult, Aircraft, Flight, GameState, MaintenanceEvent, Minute } from '../core/types';
 import { anchorsOf, route, routeMinutes, type Anchor } from '../contracts/plan';
 import { settle } from '../sim';
@@ -136,7 +136,7 @@ export function checkMaintMove(g: GameState, maintId: string, start: Minute): Ma
   }
   for (const o of Object.values(g.maintenance)) {
     if (o.id === m.id || o.aircraftId !== ac.id || (o.status !== 'planned' && o.status !== 'inWork')) continue;
-    if (o.start < busyTo && o.end > busyFrom) return no(`It would overlap the ${maintWord(o)} ${fmtDay(o.start)}–${fmtDay(o.end)}`);
+    if (o.start < busyTo && o.end > busyFrom) return no(`It would overlap the ${maintWord(o)} ${fmtDayRange(o.start, o.end)}`);
   }
   for (const c of Object.values(g.contracts)) {
     if ((c.status !== 'signed' && c.status !== 'active') || c.pattern.kind !== 'base' || !c.aircraftIds.includes(ac.id) || c.generatedUntil >= c.pattern.to) continue;

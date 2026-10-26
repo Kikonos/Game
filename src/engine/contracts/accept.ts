@@ -8,7 +8,7 @@ import { accrue, cashOnly, invoice, post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { requestPause } from '../core/pause';
 import { schedule } from '../core/queue';
-import { DAY, fmtDay, monthKey, monthStart } from '../core/time';
+import { DAY, fmtDay, monthKey, monthStart, fmtDayRange } from '../core/time';
 import { clamp } from '../core/util';
 import type { ActionResult, Contract, ContractOffer, CrewExtra, GameState, Minute, OfferStatus, Product, SimEvent } from '../core/types';
 import { autoRoster, crewExtraFor, flightCrewStatus, onContractDoneMorale } from '../crew';
@@ -188,7 +188,7 @@ export function acceptOffer(g: GameState, offerId: string, aircraftIds: string[]
   }
   autoRoster(g, { aircraftIds: ids });
   const regs = ids.map((id) => g.fleet[id].reg).join(' + ');
-  pushMessage(g, { tone: 'good', cat: 'commercial', title: `Signed: ${c.title}`, body: `${g.clients[c.clientId]?.name ?? 'Client'} · ${regs} · ${fmtDay(c.start)}–${fmtDay(c.end)}.`, ref: { kind: 'contract', id: c.id }, cue: 'contractSigned' });
+  pushMessage(g, { tone: 'good', cat: 'commercial', title: `Signed: ${c.title}`, body: `${g.clients[c.clientId]?.name ?? 'Client'} · ${regs} · ${fmtDayRange(c.start, c.end)}.`, ref: { kind: 'contract', id: c.id }, cue: 'contractSigned' });
   return { ok: true, msg: `Signed: ${c.title}`, data: { contractId: c.id } };
 }
 
@@ -215,7 +215,7 @@ function acceptDry(g: GameState, o: ContractOffer, aircraftId: string): ActionRe
   closeOffer(g, o, 'accepted');
   schedule(g, Math.max(g.now, c.start), 'contract.start', c.id);
   const ac = g.fleet[aircraftId];
-  pushMessage(g, { tone: 'good', cat: 'commercial', title: `Signed: ${c.title}`, body: `${g.clients[c.clientId]?.name ?? 'Lessee'} · ${ac.reg} · ${fmtDay(c.start)}–${fmtDay(c.end)}. Our pilots ferry her out; the deposit is in.`, ref: { kind: 'contract', id: c.id }, cue: 'contractSigned' });
+  pushMessage(g, { tone: 'good', cat: 'commercial', title: `Signed: ${c.title}`, body: `${g.clients[c.clientId]?.name ?? 'Lessee'} · ${ac.reg} · ${fmtDayRange(c.start, c.end)}. Our pilots ferry her out; the deposit is in.`, ref: { kind: 'contract', id: c.id }, cue: 'contractSigned' });
   return { ok: true, msg: `Signed: ${c.title}`, data: { contractId: c.id } };
 }
 

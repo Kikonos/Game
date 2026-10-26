@@ -120,7 +120,7 @@ export function AcquireModal({ offerId }: { offerId: string }) {
           <div className="upper dim">Costs</div>
           <KV rows={[
             [lease ? 'Deposit now' : 'Price now', money(now)],
-            ...(lease ? [['Rent from handover', `${money(o.rentPerMonth)}/month × ${o.leaseMonths}`], ['Reserves', `$${o.reservesPerFH.toLocaleString('en-US')}/FH`]] as [string, string][] : []),
+            ...(lease ? [['Rent from handover', `${money(o.rentPerMonth)}/month × ${o.leaseMonths} months`], ['Reserves', `$${o.reservesPerFH.toLocaleString('en-US')}/FH`]] as [string, string][] : []),
             ...(q.legs.length ? [['Delivery ferry', `≈ ${money(q.fuel + q.fees)} fuel & fees`], ['Delivery crew', `≈ ${money(q.crew)} tickets, hotels`]] as [string, string][] : []),
             ['Cash after signing', money(after)],
           ]} />

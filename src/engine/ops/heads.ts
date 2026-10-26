@@ -13,7 +13,7 @@ import { isolatePauses, requestPause } from '../core/pause';
 import { blockMinutes, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { chance, int, next, range, weightedPick, type RngHolder } from '../core/rng';
-import { DAY, fmtDay, fmtDuration, fmtTime } from '../core/time';
+import { DAY, fmtDay, fmtDuration, fmtTime, fmtDayRange } from '../core/time';
 import type {
   ActionResult, Aircraft, AlertRule, Contract, Decision, Flight, GameState, Head, HeadCandidate, HeadId, HeadLogLine, HeadProposal, HeadRules, MessageCat, Minute, Ref,
 } from '../core/types';
@@ -585,7 +585,7 @@ function maintPlanner(g: GameState): void {
     }
     if (!nextPlanned(g, ac.id, 'C') && st.cDue - g.now <= M.cDays * DAY && !h.proposals.some((p) => p.kind === 'cSlot' && p.data.aircraftId === ac.id) && !dismissedNow(g, h, { kind: 'cSlot', data: { aircraftId: ac.id } })) {
       const s = suggestC(g, ac, st.cDue);
-      if (s) propose(g, h, { kind: 'cSlot', text: `${ac.reg} C-check ${fmtDay(s.from)}–${fmtDay(s.to)}`, cost: checkCostOf(ac, 'C'), ref: { kind: 'aircraft', id: ac.id }, data: { aircraftId: ac.id, reg: ac.reg, from: s.from, to: s.to } }, 14 * 24);
+      if (s) propose(g, h, { kind: 'cSlot', text: `${ac.reg} C-check ${fmtDayRange(s.from, s.to)}`, cost: checkCostOf(ac, 'C'), ref: { kind: 'aircraft', id: ac.id }, data: { aircraftId: ac.id, reg: ac.reg, from: s.from, to: s.to } }, 14 * 24);
     }
   }
 }

@@ -116,6 +116,7 @@
 .gl-pos { background: repeating-linear-gradient(135deg, rgba(var(--line-rgb), 0.55) 0 3px, transparent 3px 6px); border: 1px solid rgba(var(--line-rgb), 0.55); }
 .gl-maint { background: repeating-linear-gradient(45deg, var(--c-bg-59647a) 0 4px, var(--c-bg-3a4356) 4px 8px); }
 .gl-idle { border: 1px dashed rgba(var(--line-rgb), 0.4); }
+.gl-sub { box-shadow: inset 0 0 0 2px var(--c-line-8a96b3); }
 .gl-crew { background: linear-gradient(225deg, var(--bad) 0 45%, rgba(var(--line-rgb), 0.35) 45%); }
 .gantt { display: flex; padding: 0; overflow: hidden; --row-h: 56px; --axis-h: 34px; }
 .gantt-left { flex: 0 0 150px; border-right: 1px solid var(--border); background: var(--panel-solid); z-index: 2; }

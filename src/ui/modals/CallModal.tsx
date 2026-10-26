@@ -71,7 +71,7 @@ export function CallModal({ offerId }: { offerId: string }) {
         <span>Price</span><b>{fmtPrice(o.product)}{o.product.kind === 'wet' ? ` · about ${money(o.estValue)}` : ''}</b>
         <span>Answer within</span><b className={left < 120 ? 'warn' : ''}>{open ? fmtDuration(left) : 'too late'}</b>
       </div>
-      {open && blocked && <div className="v10-call-block small warn">Can't take it as it stands: {blocked}. See details for the options.</div>}
+      {open && blocked && <div className="v10-call-block small warn">Can't take it as it stands: {blocked.replace(/^Busy: /, 'busy with ')}. See details for the options.</div>}
       {!open && <div className="small muted mt-8">This offer is no longer open.</div>}
     </Modal>
   );

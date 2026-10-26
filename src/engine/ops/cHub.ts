@@ -7,7 +7,7 @@ import { BAL } from '../core/balance';
 import { addFlight, flightsOf, ownFlightNo, touchFlights } from '../core/entities';
 import { pushMessage } from '../core/messages';
 import { typeOf } from '../core/perf';
-import { DAY, fmtDay } from '../core/time';
+import { DAY, fmtDay, fmtDayRange } from '../core/time';
 import type { ActionResult, Aircraft, Flight, GameState, Minute } from '../core/types';
 import { rerosterFrom } from '../crew';
 import { ferryCost, ferryCrewCost, ferryDays, ferryRoute, type DeliveryLeg } from './delivery';
@@ -179,10 +179,10 @@ export function bookCCheck(g: GameState, aircraftId: string, hub: string, start:
   // v0.7.2.2 a check moved along the timeline: the caller posts one 'moved' message.
   if (!quiet) pushMessage(g, {
     tone: 'info', cat: 'tech', title: `C-check booked: ${ac.reg} at ${h.name}`,
-    body: `${h.name}, ${h.city}: ${fmtDay(m.start)}–${fmtDay(m.end)}${restFit ? `, plus a ${restFit === 'fcrc' ? 'flight crew rest compartment' : 'overhead crew rest'} (+${addOf(restFit)} days, ${usd(BAL.v073.restRefit[restFit].cost)})` : ''}.${out.length ? ` Ferry out ${fmtDay(out[0].std)} ${out[0].from}–${out[out.length - 1].to},` : ''} home ${legs.length ? fmtDay(legs[0].std) : fmtDay(m.end)}; the pilots fly home and back on airline flights. About ${usd(all)} all in.`,
+    body: `${h.name}, ${h.city}: ${fmtDayRange(m.start, m.end)}${restFit ? `, plus a ${restFit === 'fcrc' ? 'flight crew rest compartment' : 'overhead crew rest'} (+${addOf(restFit)} days, ${usd(BAL.v073.restRefit[restFit].cost)})` : ''}.${out.length ? ` Ferry out ${fmtDay(out[0].std)} ${out[0].from}–${out[out.length - 1].to},` : ''} home ${legs.length ? fmtDay(legs[0].std) : fmtDay(m.end)}; the pilots fly home and back on airline flights. About ${usd(all)} all in.`,
     ref: { kind: 'maint', id: m.id },
   });
-  return { ok: true, msg: `C-check at ${h.name} ${fmtDay(m.start)}–${fmtDay(m.end)}`, data: { maintId: m.id } };
+  return { ok: true, msg: `C-check at ${h.name} ${fmtDayRange(m.start, m.end)}`, data: { maintId: m.id } };
 }
 
 /** A booked hub check's ferries and the pilots' airline tickets. Pure. */

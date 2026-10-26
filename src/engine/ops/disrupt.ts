@@ -72,6 +72,8 @@ const roll = (g: GameState, key: string) => hashUnit(`${g.seed}:ops:${key}`);
 const pickOf = <T>(g: GameState, key: string, xs: readonly T[]): T => xs[Math.floor(roll(g, key) * xs.length) % xs.length];
 const span = (g: GameState, key: string, [lo, hi]: [number, number]) => Math.round(lo + roll(g, key) * (hi - lo));
 const city = (code: string) => AIRPORT_BY_CODE[code]?.city ?? code;
+/** v0.11 the airport itself ('Gatwick'), where the city alone is ambiguous (London has several). */
+const apName = (code: string) => AIRPORT_BY_CODE[code]?.name ?? code;
 const wide = (ac: Aircraft) => (typeOf(ac.typeId).body === 'wide' ? 1 : 0);
 const hm = (min: number) => fmtDuration(Math.max(0, Math.round(min)));
 /** Passengers on a leg: the booked count, else (ACMI: the client's load) about 85 % of the seats. */
@@ -365,7 +367,7 @@ function curfewCard(g: GameState, f: Flight, ac: Aircraft): boolean {
   if (rushOk) opts.push({ id: 'rush', label: 'Rush it out now', desc: `Priority handling and a quick boarding gain ${rush} min: lands before the curfew.`, tone: 'good', chips: [usd(-DISRUPT.rushTurn[wide(ac)] * 1.5), 'Lands in time'] });
   if (alt) {
     const bus = coachCost(pax, alt.roadKm);
-    opts.push({ id: 'divert', label: `Land at ${city(alt.code)} instead`, desc: `${alt.code} is open; passengers go on by coach (${alt.roadKm} km). The aircraft repositions in the morning.`, chips: [charter ? usd(-(bus + handlingAt(ac, alt.station))) : 'Client pays the coaches', `Coach ~${hm((alt.roadKm / 70) * 60 + 30)}`, 'Relation −1'] });
+    opts.push({ id: 'divert', label: `Land at ${apName(alt.code)} (${alt.code}) instead`, desc: `${alt.code} is open; passengers go on by coach (${alt.roadKm} km). The aircraft repositions in the morning.`, chips: [charter ? usd(-(bus + handlingAt(ac, alt.station))) : 'Client pays the coaches', `Coach ~${hm((alt.roadKm / 70) * 60 + 30)}`, 'Relation −1'] });
   }
   opts.push({ id: 'night', label: 'Night-stop, fly at first light', desc: `Hotels here for passengers and crew; off blocks ${fmtTime(night)} UTC to land as ${f.to} opens.`, chips: [charter ? usd(-(hotelCost(pax) + crewOn(f) * DISRUPT.crewRoom)) : usd(-crewOn(f) * DISRUPT.crewRoom), `${hm(night - g.now)} late`, 'Relation −1'] });
   opts.push({ id: 'cancel', label: 'Cancel the leg', desc: 'Compensation to the client and a reliability hit.', tone: 'bad', chips: ['Reliability −3'] });
@@ -374,7 +376,7 @@ function curfewCard(g: GameState, f: Flight, ac: Aircraft): boolean {
     kind: 'curfew', title: `${f.no} would land in the ${f.to} curfew`,
     body: `${CURFEWS[f.to]?.note ?? 'Night curfew'}. Leaving now, ${f.no} lands about ${fmtTime(eta)} UTC.`,
     options: opts, defaultOption: def, expires: g.now + 20, ref: { kind: 'flight', id: f.id },
-    data: { flightId: f.id, alt: alt?.code ?? '', roadKm: alt?.roadKm ?? 0, station: alt?.station ?? 'adhoc', night, rush, ...cardData(`${f.no} would land after ${city(f.to)} closes for the night`, `Delays today pushed its arrival into the night curfew (${(CURFEWS[f.to]?.note ?? 'night curfew').toLowerCase()}).`, `${pax} passengers: a coach, a night stop or a cancellation`, 0, pax, 60) },
+    data: { flightId: f.id, alt: alt?.code ?? '', roadKm: alt?.roadKm ?? 0, station: alt?.station ?? 'adhoc', night, rush, ...cardData(`${f.no} would land after ${apName(f.to)} closes for the night`, `Delays today pushed its arrival into the night curfew (${(CURFEWS[f.to]?.note ?? 'night curfew').toLowerCase()}).`, `${pax} passengers: a coach, a night stop or a cancellation`, 0, pax, 60) },
   }, { optional: false });
   return true;
 }

@@ -12,7 +12,7 @@ import { typeOf } from '../core/perf';
 import { requestPause } from '../core/pause';
 import { schedule } from '../core/queue';
 import { chance, int, next, range, type RngHolder } from '../core/rng';
-import { DAY, fmtDay, fmtMonth, monthKey, monthStart } from '../core/time';
+import { DAY, fmtDay, fmtMonth, monthKey, monthStart, fmtDayRange } from '../core/time';
 import { hash } from '../core/util';
 import type { ActionResult, Aircraft, Contract, ContractOffer, Flight, GameState, Minute, SimEvent } from '../core/types';
 import type { CheckLevel, FeasibilityCheck, FeasibilityReport } from '../contracts/feasibility';
@@ -172,7 +172,7 @@ export function dryFeasibility(g: GameState, o: ContractOffer, ac: Aircraft, rep
   // (a bot year signed a Zagreb wet lease and then a dry lease of the same A320 over it: 190 legs cancelled).
   const base = Object.values(g.contracts).find((c) => live(c) && !c.dry && c.pattern.kind === 'base' && c.aircraftIds.includes(ac.id) && c.pattern.from < to && c.pattern.to > from);
   if (other) add('availability', 'no', `Already leased out: ${other.title}`);
-  else if (base) add('availability', 'no', `Busy: ${base.title} (${fmtDay(base.start)}–${fmtDay(base.end)})`, 'The aircraft must be free from the ferry out to two days after it is back.');
+  else if (base) add('availability', 'no', `Busy: ${base.title} (${fmtDayRange(base.start, base.end)})`, 'The aircraft must be free from the ferry out to two days after it is back.');
   else if (busy.length) add('availability', 'no', `Busy: ${busy[0].no} ${busy[0].from}–${busy[0].to} ${fmtDay(busy[0].std)}${busy.length > 1 ? ` and ${busy.length - 1} more` : ''}`, 'The aircraft must be free from the ferry out to two days after it is back.');
   else if (mx.length) add('availability', 'no', `${mx[0].kind}-check at ${mx[0].at} ${fmtDay(mx[0].start)} falls inside`);
   else add('availability', 'ok', `Free ${fmtDay(from)} – ${fmtDay(to)}`);
