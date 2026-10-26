@@ -669,6 +669,7 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
     let lastSunT = NaN;
     let lastSun: [number, number] | null = null;
     let labels: boolean | null = null;
+    let lightTheme = '';
     let settling = true;
     // Paths and airline legs (built once per leg; d rebuilt only when the projection changes).
     const own = new Map<string, OwnPath>();
@@ -737,8 +738,10 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
         if (!s0 || !(Math.abs(sun[1] - shared.nightDec) < NIGHT_DEC_STEP)) buildNight(shared, tn, c.backShift);
         else if (Math.abs(c.backShift(nightShift(s0, sun))) > c.margin / 2) buildNight(shared, tn, c.backShift);
       }
-      // City lights (their own canvas layer); a React render (a theme change) repaints them.
-      lightCities(shared, sun, now, c.redrawGlow, fresh);
+      // City lights (their own canvas layer); a theme change repaints them in the new colours.
+      const th = document.documentElement.dataset.theme ?? '';
+      lightCities(shared, sun, now, c.redrawGlow, th !== lightTheme);
+      lightTheme = th;
       if (anim !== root.classList.contains('trails')) root.classList.toggle('trails', anim);
       const u = 1 / (c.px * k); // map units per screen px right now
       const wantLabels = k / (c.fitK || 1) >= 2;
