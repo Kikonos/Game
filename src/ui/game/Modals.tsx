@@ -35,6 +35,14 @@ import { TripMoveModal } from '../modals/TripMoveModal';
 import { MaintMoveModal } from '../modals/MaintMoveModal';
 import { ClientModal, OutlookModal, RivalModal, WorldEventModal } from '../modals/V08Modals';
 import { CURRENT } from '../../data/whatsNew';
+import { PACE_HINT, PACE_LABEL, PACES, spellView } from '../../engine/ops/director';
+import type { GameState } from '../../engine/core/types';
+
+/** 'quiet days until Thu 4 Mar' / 'busy days until …' (the director's current spell). */
+function spellText(g: GameState): string {
+  const v = spellView(g);
+  return `${v.quiet ? 'quiet' : 'busy'} days until ${fmtDate(v.until)}`;
+}
 import { int, money } from '../format';
 import { offline, promptInstall } from '../offline';
 import { store, useStore } from '../store';
@@ -238,6 +246,8 @@ function SettingsModal() {
   return (
     <Modal title="Settings" icon={<SettingsIcon className="accent" />} onClose={() => store.closeModal()}>
       <div className="settings">
+        <div className="set-head upper dim">Gameplay</div>
+        <div className="set-row sc-pace"><div><b>Pace</b><div className="tiny dim">{PACE_HINT[st.pace]}{s.game && !s.game.gameOver ? ` · now ${spellText(s.game)}` : ''}</div></div><Seg value={st.pace} onChange={(v) => store.setSettings({ pace: v })} options={PACES.map((p) => ({ value: p, label: PACE_LABEL[p] }))} /></div>
         <div className="set-row"><div><b>Distance units</b></div><Seg value={st.units} onChange={(v) => store.setSettings({ units: v })} options={[{ value: 'km', label: 'Kilometres' }, { value: 'nm', label: 'Nautical miles' }]} /></div>
         <div className="set-row"><div><b>Autosave</b><div className="tiny dim">At each month end, when you pause and when you leave</div></div><Toggle on={st.autosave} onChange={(v) => store.setSettings({ autosave: v })} /></div>
         <div className="set-row"><div><b>Pause for decisions</b><div className="tiny dim">Stop the clock when an event needs you</div></div><Toggle on={st.autoPause.decision} onChange={(v) => store.setSettings({ autoPause: { ...st.autoPause, decision: v } })} /></div>

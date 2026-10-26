@@ -415,6 +415,7 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
         <div className="row between"><b className="mono op-big">{cur.from} → {cur.to}</b><span className="row op-tight">{curType && <TypeChip type={curType} />}<span className="mono small muted">{cur.no}</span></span></div>
         {cur.purpose ? <div className="small muted">{purposeLine(g, cur)}</div> : curType && curType !== 'operating' && <div className="small muted">{FLIGHT_TYPE_HINT[curType]}</div>}
         {curZone && <div className={`small op-zone ${curZone.effect}`}>{curZone.text}</div>}
+        {cur.div && <div className="small warn-t">Diverted to {AIRPORT_BY_CODE[cur.to]?.city ?? cur.to} ({cur.div.cause === 'medical' ? 'a sick passenger' : cur.div.cause === 'technical' ? 'a technical problem' : 'weather'}); planned {cur.div.to0}</div>}
         <Bar value={prog} size="thin" />
         <div className="op-kv">
           <div><span>Off blocks</span><b className="num">{fmtTime(off)} UTC</b></div>

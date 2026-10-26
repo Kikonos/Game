@@ -27,7 +27,11 @@ import { activeTheme, applyTheme, type Theme, type ThemePref } from './theme';
 import { cue, takeCueEvents, takeCues, type CueEvent } from '../engine/core/cues';
 import type { HeadId } from '../engine/core/types';
 import { devAchievement, devCrewHours, devJumbo, devPosition, devRestAtDeparture, devRoster, devSlipOffer, devUnlockHead } from '../engine/dev';
-import type { OohLimit } from '../engine/core/types';
+import type { OohLimit, Pace } from '../engine/core/types';
+import { setPace } from '../engine/ops/director';
+import { devDisruption } from '../engine/ops/disrupt';
+import { inspect, rampFindings } from '../engine/ops/ramp';
+import { devAudit } from '../engine/ops/audit';
 
 export type { GameSpeed } from '../engine/core/time';
 export type AppScreen = 'loading' | 'title' | 'newgame' | 'game';
@@ -64,6 +68,8 @@ export interface Settings {
   whatsNewCatchUp: string;
   /** v0.11 Appearance: Light, Dark or follow the device. New installs: 'system'; players from before: 'dark' (their look). */
   theme: ThemePref;
+  /** v0.11 Gameplay → Pace: how long the quiet spells between busy ones are (the engine's event director). */
+  pace: Pace;
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -85,6 +91,7 @@ const DEFAULT_SETTINGS: Settings = {
   screenHintsSeen: [],
   whatsNewCatchUp: '',
   theme: 'system',
+  pace: 'normal',
 };
 
 export interface Nav {
@@ -192,6 +199,8 @@ export function settingsFrom(s: Partial<Settings>): Settings {
   out.musicVolume ??= DEFAULT_SETTINGS.musicVolume;
   // v0.11 settings saved before themes: the dark look they have played with.
   if (s.theme !== 'light' && s.theme !== 'dark' && s.theme !== 'system') out.theme = 'dark';
+  // v0.11 settings saved before Pace: Normal.
+  if (s.pace !== 'calm' && s.pace !== 'normal' && s.pace !== 'busy') out.pace = 'normal';
   return out;
 }
 
@@ -341,6 +350,8 @@ class GameStore {
   }
 
   private afterLoad() {
+    // v0.11 the game follows the player's Pace setting (the director redraws the spells still to come).
+    if (this.game && !this.game.gameOver) setPace(this.game, this.settings.pace);
     // v0.7.2.2: the normal re-plan (the same settle the first clock tick runs) before the first look, so empty legs
     // left behind by an older version (a moved trip's ferries) are already cleaned up when the Schedule opens.
     if (this.game && !this.game.gameOver) settle(this.game);
@@ -830,6 +841,7 @@ class GameStore {
     configureSound(this.settings);
     applyTopGap(this.settings);
     if (p.theme) this.theme = applyTheme(this.settings.theme, () => this.onSystemTheme());
+    if (p.pace && this.game && !this.game.gameOver) setPace(this.game, p.pace);
     try {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(this.settings));
     } catch {
@@ -922,6 +934,67 @@ class GameStore {
       return added;
     },
     /** B5: a sample decision (no engine effect) to check DecisionModal, the Inbox pin and the pause badge. */
+    /** v0.11 a disruption card now: on an airborne revenue leg (diversion, medical, technical) or the next one at the gate. */
+    disruption: (kind: 'diversion' | 'technical' | 'medical' | 'birdStrike' | 'curfew' | 'ctot' | 'turnaround' | 'sickAway' | 'onward') => {
+      const g = this.game;
+      if (!g) return false;
+      const air = ['diversion', 'technical', 'medical'].includes(kind);
+      const pick = Object.values(g.flights).filter((f) => f.aircraftId && f.kind === 'revenue' && (air ? f.status === 'enroute' && (f.eta ?? f.sta) > g.now + 40 : kind === 'birdStrike' || kind === 'onward' ? f.status === 'done' && g.fleet[f.aircraftId].at === f.to && !g.fleet[f.aircraftId].flightId : f.status === 'scheduled' && f.std > g.now && !!f.dutyId))
+        .sort((a, b) => (kind === 'birdStrike' || kind === 'onward' ? (b.ata ?? 0) - (a.ata ?? 0) : a.std - b.std))[0];
+      if (!pick) return false;
+      if (kind === 'onward' && !pick.div) pick.div = { to0: pick.to, at: g.now - 60, eta0: g.now - 30, cause: 'weather' };
+      if (kind === 'onward') {
+        const alt = Object.values(g.flights).find((x) => x.id !== pick.id)?.to ?? pick.from;
+        if (pick.to === pick.div!.to0 && alt !== pick.to) pick.to = alt === pick.div!.to0 ? pick.from : alt;
+      }
+      const ok = devDisruption(g, kind, pick.id);
+      if (kind === 'ctot' || kind === 'curfew' || kind === 'turnaround' || kind === 'sickAway') { this.decisionDeferred = null; }
+      this.emit();
+      return ok;
+    },
+    /** v0.11 advances the clock `min` minutes (stops at a new decision); dev and screenshots. */
+    advance: (min: number) => {
+      const g = this.game;
+      if (!g) return;
+      const n = g.decisions.length;
+      const end = g.now + min;
+      for (let i = 0; i < 200 && g.now < end && g.decisions.length <= n; i++) advanceTo(g, Math.min(end, g.now + 10), new Set(['decision']));
+      this.exact = g.now;
+      this.emit();
+    },
+    /** v0.11 a ramp inspection now on the first aircraft (`cat`: the worst finding wanted, 0 = clean). */
+    ramp: (cat = 3) => {
+      const g = this.game;
+      if (!g) return null;
+      const ac = Object.values(g.fleet).find((a) => !a.flightId && a.status === 'available') ?? Object.values(g.fleet)[0];
+      ac.maint.deferred = Math.max(ac.maint.deferred, cat >= 3 ? 0.5 : 0.1);
+      for (let i = 0; i < 2000; i++) {
+        const k = `dev:${i}`;
+        const r = rampFindings(g, ac, k);
+        const worst = r.cats[2] ? 3 : r.cats[1] ? 2 : r.cats[0] ? 1 : 0;
+        if (worst === cat && (cat < 3 || r.action === '3b')) {
+          const out = inspect(g, ac, ac.at, undefined, k);
+          this.emit();
+          return out.id;
+        }
+      }
+      return null;
+    },
+    /** v0.11 the yearly audit: 'announce' (4 weeks' notice) or held now with a record that brings findings. */
+    audit: (mode: 'announce' | 'now' = 'now') => {
+      const g = this.game;
+      if (!g) return;
+      if (mode === 'now') {
+        g.stats.incidents = [...(g.stats.incidents ?? []), [g.now - 20 * DAY, 'illegalCrew']];
+        const ac = Object.values(g.fleet)[0];
+        for (let i = 0; i < 2; i++) {
+          const k = Array.from({ length: 400 }, (_, j) => `audit-dev:${i}:${j}`).find((x) => rampFindings(g, ac, x).cats[2] > 0 && rampFindings(g, ac, x).action === '3b');
+          if (k) inspect(g, ac, ac.at, undefined, k);
+        }
+      }
+      devAudit(g, mode === 'announce');
+      this.emit();
+    },
     decision: () => {
       if (!this.game) return null;
       const d = pushDecision(this.game, {

@@ -21,7 +21,7 @@ import { slipsOfAircraft } from '../../engine/crew';
 import { commercialFlightsBetween, FLIGHT_TYPE_HINT, FLIGHT_TYPE_LABEL, worldEventPins, worldZones } from '../../engine/ops';
 import { store, useClock, useGame } from '../store';
 import { useTouch } from '../useMedia';
-import { AircraftLayer, ArcsLayer, CommercialLayer, HIT_R, type LiveShared, NightLayer, newShared, PathsLayer, PinsLayer, pinOffset, SlipArcsLayer, SlipMarksLayer } from './LiveLayers';
+import { AircraftLayer, ArcsLayer, CommercialLayer, DiversionLayer, divMarks, HIT_R, type LiveShared, NightLayer, newShared, PathsLayer, PinsLayer, pinOffset, SlipArcsLayer, SlipMarksLayer } from './LiveLayers';
 import { MapPanel, TypeKey } from './MapPanels';
 import { ALERT_CHIP, awaitingDelivery, chipInfo, commercialById, fitCodes, onMap, fitFresh, isCommercialId, JET_PATH, mapAirports, offerPins, parseSlipId, pickNearest, placeEventPins, placeSlipMarks, selectedLegs, shortIndex, slipArcs, slipWindow, upNextRows } from './mapLogic';
 import { EventPinsLayer, hatchUnit, ZoneGround, ZoneLabels } from './WorldLayer';
@@ -198,6 +198,8 @@ export function OpsMap() {
   // v0.9 §W.4 the selected aircraft's crew changes: static marks and the slip crews' airline legs (hourly).
   const slips = useMemo(() => (arcAc ? safe(() => slipsOfAircraft(g, arcAc, ...slipWindow(g.now)), []) : []), [g, hour, v, arcAc]); // eslint-disable-line react-hooks/exhaustive-deps
   const slipMarks = useMemo(() => placeSlipMarks(slips), [slips]);
+  // v0.11 diverted flights: the planned destination ringed, the alternate marked.
+  const divs = useMemo(() => divMarks(g), [g, hour, v]); // eslint-disable-line react-hooks/exhaustive-deps
   const slipLegs = useMemo(() => safe(() => slipArcs(g, slips), []), [g, slips]); // eslint-disable-line react-hooks/exhaustive-deps
   const marked = useMemo(() => new Set(apList.filter((a) => a.label).map((a) => a.code)), [apList]);
   // v0.8 world: zones keep their array identity while unchanged (drawn once); pins step with the hourly emit.
@@ -388,6 +390,7 @@ export function OpsMap() {
             <PinsLayer pins={pins} marked={marked} proj={ctx.proj} unit={ctx.unit} selected={selPin} touch={touch} />
             <EventPinsLayer pins={evPins} proj={ctx.proj} unit={ctx.unit} selected={selEv} />
             <SlipMarksLayer marks={slipMarks} proj={ctx.proj} unit={ctx.unit} selected={selSlip ? sel?.id : undefined} />
+            <DiversionLayer marks={divs} proj={ctx.proj} unit={ctx.unit} />
             <CommercialLayer shared={shared} />
             <AircraftLayer ctx={ctx} g={g} shared={shared} selected={selAc} selectedFlight={selCm} />
           </>

@@ -17,6 +17,7 @@ import { money } from '../format';
 import { store, useGame } from '../store';
 import { KV, ScreenHead, useRenderCount } from './common';
 import { LadderCard } from './Ladder';
+import { SafetyCard } from './Safety';
 import { ClientsView } from './Clients';
 import { RivalsView } from './Rivals';
 import { TeamView } from './Team';
@@ -274,6 +275,7 @@ function Overview({ g, fleet }: { g: GameState; fleet: number }) {
   return (
     <>
       <LadderCard g={g} />
+      <SafetyCard g={g} />
       <div className="sc-company-cols">
         <div className="col gap-16">
           <LiveryCard g={g} />

@@ -228,6 +228,61 @@ export const SlipMarksLayer = memo(function SlipMarksLayer({ marks, proj, unit, 
   );
 });
 
+// ---------- v0.11 diverted flights ----------
+
+export interface DivMark { id: string; at: string; to0: string; airborne: boolean }
+
+/** Diverted legs airborne or landed in the last 12 h (not yet flown on). Pure. */
+export function divMarks(g: GameState): DivMark[] {
+  const out: DivMark[] = [];
+  for (const f of Object.values(g.flights)) {
+    if (!f.div || f.to === f.div.to0 || f.status === 'cancelled') continue;
+    const cont = f.contOf ? g.flights[f.contOf] : undefined;
+    if (cont && cont.status !== 'scheduled') continue;
+    if (f.status === 'done' && (f.ata ?? 0) < g.now - 12 * 60) continue;
+    if (f.status === 'scheduled' && f.std > g.now + 6 * 60) continue;
+    out.push({ id: f.id, at: f.to, to0: f.div.to0, airborne: f.status === 'enroute' });
+  }
+  return out;
+}
+
+/**
+ * A diverted flight on the map: the planned destination ringed (dashed, amber) with its code, a dashed line from
+ * the alternate the aircraft is going to (or sits at), and 'DIVERTED' by the alternate.
+ */
+export const DiversionLayer = memo(function DiversionLayer({ marks, proj, unit }: { marks: DivMark[]; proj: MapLayerCtx['proj']; unit: number }) {
+  const path = useMemo(() => geoPath(proj), [proj]);
+  if (!marks.length) return null;
+  return (
+    <g className="dv-marker" pointerEvents="none">
+      {marks.map((m) => {
+        const A = AIRPORT_BY_CODE[m.at];
+        const B = AIRPORT_BY_CODE[m.to0];
+        if (!A || !B) return null;
+        const d = path({ type: 'LineString', coordinates: [[A.lon, A.lat], [B.lon, B.lat]] });
+        const pa = proj([A.lon, A.lat]);
+        const pb = proj([B.lon, B.lat]);
+        return (
+          <g key={m.id}>
+            {d && <path className="dv-line" d={d} style={{ strokeWidth: 1.2 * unit }} />}
+            {pb && (
+              <g transform={`translate(${pb[0]} ${pb[1]}) scale(${unit})`}>
+                <circle className="dv-ring" r={11} />
+                <text x={14} y={-8}>planned {m.to0}</text>
+              </g>
+            )}
+            {pa && (
+              <g transform={`translate(${pa[0]} ${pa[1]}) scale(${unit})`}>
+                <text x={12} y={18}>DIVERTED {m.at}</text>
+              </g>
+            )}
+          </g>
+        );
+      })}
+    </g>
+  );
+});
+
 // ---------- offer pins ----------
 
 /** Pin offset in screen px: left of the dot at airports we already mark (code above, parked aircraft right). */
