@@ -472,3 +472,7 @@ Player notes (22 Oct, with top-bar screenshot .handover/updates/topbar-space.jpg
 ### 26 Oct — test rewrite done; release in progress
 - Tests run with Ops on (c4656fc), runner flake fixed (52506e2: long tests yield, forks, timeouts), real bugs fixed: closure hold loop slow-down + closure lateness penalties (9906fc1), early ticket re-planned when duty moves later + ticket home waits rest after hotel standby (3706cfa, eef36d4). 1264 tests ×2 green. Seed 3 reds 22→43 (bigger operation on a new path) — watch in crew-planning round.
 - v0.11 What's new inserted in src/data/whatsNew.ts (+2 fixes), tests updated. Final checks running (scratchpad/final/: vitest, bot1, inv-save 60 d on player save). Then build + release.
+
+### 26 Oct — v0.11 Operations RELEASED
+- Release af97c80 on claude/contrail-airline-game + main (acmi 9c7d0ca). Live index-B2khoJNM.js, 0 console errors, title "v0.11 Operations", What's new pops ("Version 0.11 is live!"). 1264 tests, bot s1 fine (30.7 s), player save 60 d: no new errors (2 historic release errors from 11–12 Aug in the save; rest-pos warnings = known "next duty not pushed after late landing", for the crew-planning round).
+- NEXT: player renames repo → Block-Hours (remind: export save first; re-add home-screen app at kikonos.github.io/Block-Hours/play/); then add_repo + verify. Reminders owed: crew-planning round (late landing → next duty, weekly rest 176 h, planner slack / reds, seed 3 reds 43, widebody bot), old questions A–E + wording 1–37. Roadmap Update 2 Commercial next with player's go.
