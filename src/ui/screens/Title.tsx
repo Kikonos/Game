@@ -132,10 +132,17 @@ export function Title() {
         </div>
       </div>
       <div className="title-foot">
-        <span className={`chip ${offline.online ? '' : 'active'}`}>
-          {offline.online ? <Wifi size={14} /> : <WifiOff size={14} />}
-          {offline.ready ? 'Offline ready — plays without internet' : offline.online ? 'Online' : 'Offline mode'}
-        </span>
+        {offline.online ? (
+          <span className="chip" style={{ color: 'var(--good)', borderColor: 'var(--good)' }}>
+            <Wifi size={14} />
+            Online
+          </span>
+        ) : (
+          <span className="chip active">
+            <WifiOff size={14} />
+            {offline.ready ? 'Offline ready — plays without internet' : 'Offline mode'}
+          </span>
+        )}
         <span className="dim small">{CURRENT.version} {CURRENT.name} · {AIRPORTS.length} airports · {ACMI_TYPES_LIST.filter((x) => x.available).length} aircraft types</span>
       </div>
       <GlobalModals />
