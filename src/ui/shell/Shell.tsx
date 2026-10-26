@@ -3,7 +3,7 @@
 // v0.7.2: the live ops strip (OpsStrip) fills the space between the speed control and cash.
 
 import {
-  Bell, Building2, CalendarRange, FileSignature, Globe2, Inbox as InboxIcon, Menu, Pause, Plane, Play, Users, Wallet,
+  Bell, Building2, CalendarRange, FileSignature, Globe2, Inbox as InboxIcon, Menu, Pause, Plane, Play, TrendingDown, TrendingUp, Users, Wallet,
 } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo } from 'react';
 import { fmtDate, fmtTime } from '../../engine/core/time';
@@ -158,7 +158,15 @@ function CashBlock() {
   return (
     <button className="tb-cash" onClick={() => store.navigate('finance')} aria-label={`Cash ${money(cash)}${rate ? `, ${rateText}` : ''}: finance`} title={rateWhy || undefined}>
       <span className={`v ${cash < 0 ? 'bad' : ''}`}>{money(cash)}</span>
-      <span className="s">{rate && <b className={`tb-rate ${rate.perDay >= 0 ? 'up' : 'down'}`}>{rateText}</b>}<span className="sl">cash</span></span>
+      <span className="s">
+        {rate && (
+          <span className={`tb-rate ${rate.perDay >= 0 ? 'up' : 'down'}`}>
+            {rate.perDay >= 0 ? <TrendingUp aria-hidden /> : <TrendingDown aria-hidden />}
+            <b>{money(Math.abs(Math.round(rate.perDay)))}</b><i>/day</i>
+          </span>
+        )}
+        <span className="sl">cash</span>
+      </span>
     </button>
   );
 }
