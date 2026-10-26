@@ -226,9 +226,9 @@ function onDutyRelease(g: GameState, ev: SimEvent): void {
     for (const key in bm) if (+key <= mk - 12) delete bm[key];
     c.totalHours += block / 60;
     c.restUntil = Math.max(c.restUntil, seg.end + seg.rest);
-    clipToRest(g, c);
     c.status = 'resting';
     c.loc = d.restAt;
+    clipToRest(g, c);
     noteRotation(c, seg.at || d.restAt, seg.start, seg.end);
     c.fatigue = Math.min(100, c.fatigue + Math.round(d.fdp / 60));
     if (d.restAt === c.base) c.awaySince = null;

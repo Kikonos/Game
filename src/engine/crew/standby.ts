@@ -8,7 +8,7 @@ import { typeOf } from '../core/perf';
 import { DAY, monthKey } from '../core/time';
 import type { CrewMember, GameState, Minute, Role, StandbyKind } from '../core/types';
 import { evalSegs, LIMITS, localMin, nightsIn, twoDayCredits } from './rules';
-import { ctxOf, segsOf, standbySeg, touchCrewState } from './timeline';
+import { ctxOf, locAt, segsOf, standbySeg, touchCrewState } from './timeline';
 
 type Window = NonNullable<CrewMember['standby']>[number];
 
@@ -153,10 +153,16 @@ export function dropStandby(g: GameState, c: CrewMember, from: Minute, until: Mi
  * ended at 01:04, 7:41 of 10:19 rested). The day planner refills a day that lost its window.
  */
 export function clipToRest(g: GameState, c: CrewMember): void {
-  if (!c.standby?.some((w) => w.calledAt === undefined && w.from > g.now && w.from < c.restUntil)) return;
+  // ... and a window in the next day at a station they did not end up at goes too (the trip changed after the day
+  // was planned: a hotel standby at Gatwick for crew who flew home to Lisbon).
+  let segs: ReturnType<typeof segsOf> | null = null;
+  const away = (w: Window) => w.from < g.now + DAY && (w.at ?? c.base) !== (locAt(c, (segs ??= segsOf(g, c)), w.from) || c.base);
+  if (!c.standby?.some((w) => w.calledAt === undefined && w.from > g.now && (w.from < c.restUntil || away(w)))) return;
   const keep: Window[] = [];
   for (const w of c.standby) {
-    if (w.calledAt !== undefined || w.from <= g.now || w.from >= c.restUntil) keep.push(w);
+    if (w.calledAt !== undefined || w.from <= g.now) keep.push(w);
+    else if (away(w)) continue;
+    else if (w.from >= c.restUntil) keep.push(w);
     else if (w.to - c.restUntil >= BAL.v09.roster.home.minH * 60) keep.push({ ...w, from: c.restUntil });
   }
   if (keep.length) c.standby = keep;
