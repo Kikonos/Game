@@ -307,3 +307,16 @@ describe('weather marks', () => {
     expect(wxMarks({ ...g, now: T0 + 1500 } as GameState)).toEqual([]);
   });
 });
+
+describe('v0.12 family colours', () => {
+  it('every type has its family colour; families never share a colour; variants keep their family', async () => {
+    const { SIL_COLOURS, SIL_TYPES, silColour, silColourFamily } = await import('./silhouettes');
+    expect(new Set(SIL_COLOURS.map((c) => c.colour)).size).toBe(SIL_COLOURS.length);
+    const fams = new Set(SIL_COLOURS.map((c) => c.family));
+    for (const t of SIL_TYPES) expect(fams.has(silColourFamily(t)), t).toBe(true);
+    expect(silColour('a321neo')).toBe(silColour('a320ceo'));
+    expect(silColour('b779')).toBe(silColour('b77w'));
+    expect(silColour('a346')).toBe(silColour('a343'));
+    expect(silColour('b744')).not.toBe(silColour('a388'));
+  });
+});
