@@ -344,6 +344,21 @@ function onFlightArrCrew(g: GameState, ev: SimEvent): void {
  */
 function repairMissedTickets(g: GameState): void {
   const fixed = new Set<string>();
+  // Crew-planning round: crew who left the ticket's destination on a later flight did fly it (their trip's first duty
+  // went with its aircraft's flights at the gate and the flown ticket moved on to the next duty, from elsewhere).
+  let left: Map<string, Flight[]> | null = null;
+  const leftFrom = (st: string): Flight[] => {
+    if (!left) {
+      left = new Map();
+      for (const f of Object.values(g.flights)) {
+        if (f.status !== 'done' && f.status !== 'enroute') continue;
+        const l = left.get(f.from);
+        if (l) l.push(f);
+        else left.set(f.from, [f]);
+      }
+    }
+    return left.get(st) ?? [];
+  };
   for (const d of Object.values(g.duties)) {
     const p = g.pairings[d.pairingId];
     const f0 = g.flights[d.flightIds[0]];
@@ -351,7 +366,7 @@ function repairMissedTickets(g: GameState): void {
     for (const fid of d.deadheadIds) {
       const t = g.flights[fid];
       if (!t || t.status !== 'done' || t.sta > d.report) continue;
-      const gone = passengers(t).filter((id) => g.crew[id] && g.crew[id].loc !== t.to && p.slots.some((s) => s.crewId === id));
+      const gone = passengers(t).filter((id) => g.crew[id] && g.crew[id].loc !== t.to && p.slots.some((s) => s.crewId === id) && !leftFrom(t.to).some((f) => f.std >= t.sta && (f.crewIds.includes(id) || aboard(f, id))));
       if (!gone.length) continue;
       if (t.kind === 'deadhead') t.crewIds = t.crewIds.filter((x) => !gone.includes(x));
       else if (t.riders) {
