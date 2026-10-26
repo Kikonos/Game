@@ -330,6 +330,40 @@ function repairMissedTickets(g: GameState): void {
   for (const id of fixed) recheckPairing(g, g.pairings[id]);
 }
 
+/**
+ * v0.10.2 save repair (BLU1109): before 0.10.2 a home standby running when its crew member was given new work was cut
+ * short instead of being marked as a call-out, so the rest owed after an uncalled window (12 h at home) stood between
+ * the standby and the work it was cut for. A window still uncalled whose end is followed within the hour by that
+ * crew member's next duty or ticket was such a call-out: it is marked called and the trips re-read.
+ */
+function repairCutStandby(g: GameState): void {
+  const fixed = new Set<string>();
+  for (const c of Object.values(g.crew)) {
+    if (!c.standby?.length) continue;
+    for (const w of c.standby) {
+      if (w.calledAt !== undefined || w.kind === 'reserve' || w.to < g.now - DAY || w.to > g.now + DAY) continue;
+      let hit = false;
+      for (const p of Object.values(g.pairings)) {
+        if (!p.slots.some((s) => s.crewId === c.id)) continue;
+        for (const id of p.dutyIds) {
+          const d = g.duties[id];
+          if (!d || d.done) continue;
+          const tk = d.deadheadIds.map((x) => g.flights[x]).filter((f) => f && f.status === 'scheduled' && aboard(f, c.id));
+          const start = Math.min(d.report, ...tk.map((f) => f!.std - 60));
+          if (start >= w.to && start < w.to + 60) {
+            hit = true;
+            fixed.add(p.id);
+          }
+        }
+      }
+      if (hit) w.calledAt = w.to;
+    }
+  }
+  if (!fixed.size) return;
+  touchCrewState(g);
+  for (const id of fixed) recheckPairing(g, g.pairings[id]);
+}
+
 /** Status from blocks (sick, leave, training, joining) and rest; crew left 'onDuty' without an active trip are freed. */
 function refreshStatuses(g: GameState): void {
   const ix = crewIx(g);
@@ -500,6 +534,7 @@ export const crewModule: SimModule = {
     // v0.9 old saves keep their published roster; the v0.9 planner takes over from the first unpublished day.
     dayPlanLoad(g);
     repairMissedTickets(g);
+    repairCutStandby(g);
   },
   settle(g) {
     for (const [aircraftId, t] of takeFlightChanges(g)) onFlightsChanged(g, aircraftId, t);

@@ -130,6 +130,14 @@ export function dropStandby(g: GameState, c: CrewMember, from: Minute, until: Mi
     }
     changed = true;
     if (w.from > g.now) continue;
+    // v0.10.2 work starting inside a window running now is a call-out from it (CS FTL.1.225), not the end of an
+    // uncalled window: no rest is owed in between (BLU1109: an FO called at 16:51 for a 17:00 ticket was read as
+    // 0:09 rested of the 12:00 owed after an uncalled home standby, and the ferry he was called for went red).
+    if (from < w.to && w.kind !== 'reserve') {
+      keep.push({ ...w, calledAt: g.now });
+      noteCall(g);
+      continue;
+    }
     const end = Math.max(g.now, from - restAfterWindow(c, w));
     if (end > w.from) keep.push({ ...w, to: end });
   }
