@@ -40,3 +40,17 @@ improvements:
 
 fixes:
 - Owned aircraft cards no longer show an empty double line under the livery row.
+
+## Crew planning round (after v0.11)
+
+fixes:
+- Crew who land late now always get their full rest. Their airline ticket home (or on to the next trip) is rebooked for after the rest, instead of leaving while they are still resting.
+- Annual leave starts at home. Crew away from base are flown home before their leave. If a late flight means they can only get home on the first day, the leave starts when they land and keeps all its days.
+- After a diversion, the crew fly on with the passengers when their day allows. Otherwise they rest at the hotel there and the rest of the trip gets a crew. No more crew stuck "on duty" for days while the flight waits for a rescue crew.
+- The weekly 36-hour rest is counted from when the crew really start work (an early airline ticket out counts), so it can no longer stretch past 7 days.
+- A trip that joins two jobs now always carries our own cabin crew on the flights where the client does not bring theirs. (A charter could be crewed with pilots only.)
+- Crew no longer ride our own empty flight out to a far-away job when it would land too late for their rest. They take an airline ticket the day before instead.
+- Crew on standby who are given a duty starting when their standby ends now count as called out, as the rules say.
+- A crew whose duty got shorter overnight are now signed off on time, where they really are.
+- A private jet ride now counts from its 30-minute check-in, as it was planned. The weekly rest before it no longer comes up 10 minutes short.
+- Crew sent home after a long week away now wait at the hotel until the flight home fits their 60 hours of duty in 7 days. (Travelling as a passenger counts as duty.)
