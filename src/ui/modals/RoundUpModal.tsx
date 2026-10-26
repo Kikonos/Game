@@ -75,6 +75,7 @@ export function RoundUpModal({ family, target }: { family: RatingFamily; target:
                 );
               })}
             </div>
+            {types.length > 1 && <div className="tiny muted">They count in the {plan.label} sets first; the other types only get them when the {plan.label} has more than it needs.</div>}
           </div>
         )}
         {n > 0 && (

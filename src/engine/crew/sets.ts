@@ -80,6 +80,10 @@ export interface FamilyPlan {
   roles: SetRole[];
   /** v0.9: 'Short: 2 CPT, 1 PUR, 2 CC' / 'Complete · 2 spare' (the tiles above show the rest). */
   verdict: string;
+  /** v0.11 crew counted here who also hold another fleet type (a backup there; counted here only). */
+  alsoRated: Backup[];
+  /** v0.11 crew counted in another family who also hold this one (a backup here; counted there only). */
+  backupFrom: Backup[];
 }
 
 const LABEL: Record<RatingFamily, string> = {
@@ -222,7 +226,18 @@ export function familyNeeds(g: GameState) {
   return fams;
 }
 
-/** Crew per family and role, each person once: single-type crew first, then multi-type crew to the family that needs them most. */
+/** One family's crew on another family's rating, for the card's backup line. */
+export interface Backup { family: RatingFamily; label: string; cabin: number; pilots: number }
+
+/**
+ * Crew per family and role, each person once. v0.11 fix: a person on several types counts first in their HOME family
+ * (the type they were hired for: their first rating); only those beyond the home family's need for their role spill
+ * to the other family with the largest shortfall (ties: rating order), and back home when no family is short. Was:
+ * every multi-type person went to the largest shortfall, so cabin crew hired for the A320 family with an extra
+ * widebody rating filled the widebody's sets and Round up offered the same A320 hires again. Single-type crew and
+ * saves without multi-type crew count exactly as before. Also returns, per family, who is counted there while also
+ * holding another fleet type (`backups`: the flexibility, never counted twice).
+ */
 function supply(g: GameState, fams: Map<RatingFamily, { need: Partial<Record<Role, number>> }>) {
   const losing = new Map<string, RatingFamily[]>();
   for (const k of conversionClasses(g)) {
@@ -241,35 +256,53 @@ function supply(g: GameState, fams: Map<RatingFamily, { need: Partial<Record<Rol
     if (!x) out.set(k, (x = { have: 0, joining: 0, away: 0, shared: 0 }));
     return x;
   };
-  const add = (f: RatingFamily, c: GameState['crew'][string], shared: boolean) => {
+  const backups = new Map<RatingFamily, Map<RatingFamily, { cabin: number; pilots: number }>>();
+  const add = (f: RatingFamily, c: GameState['crew'][string], fs: RatingFamily[]) => {
     const x = cell(f, c.role);
     x.have++;
     if (c.status === 'joining') x.joining++;
     else if (c.status === 'sick' || c.status === 'leave' || c.status === 'training') x.away++;
-    if (shared) x.shared++;
+    if (fs.length > 1) {
+      x.shared++;
+      const m = backups.get(f) ?? new Map<RatingFamily, { cabin: number; pilots: number }>();
+      backups.set(f, m);
+      for (const o of fs) {
+        if (o === f) continue;
+        const b = m.get(o) ?? { cabin: 0, pilots: 0 };
+        if (isPilot(c.role)) b.pilots++;
+        else b.cabin++;
+        m.set(o, b);
+      }
+    }
   };
+  const gap = (f: RatingFamily, r: Role) => Math.ceil((fams.get(f)!.need[r] ?? 0) - 1e-9) - (out.get(`${f}:${r}`)?.have ?? 0);
   const multi: { c: GameState['crew'][string]; fs: RatingFamily[] }[] = [];
   for (const c of Object.values(g.crew).sort((a, b) => (a.id < b.id ? -1 : 1))) {
     if (c.notice) continue;
     const fs = c.ratings.filter((f) => fams.has(f) && !losing.get(c.id)?.includes(f));
     if (!fs.length) continue;
-    if (fs.length === 1) add(fs[0], c, false);
+    if (fs.length === 1) add(fs[0], c, fs);
     else multi.push({ c, fs });
   }
-  for (const { c, fs } of multi) {
-    // The family with the largest shortfall for this role (ties: the first rating).
+  // Home first (the first rating still held in the fleet), oldest first; the rest wait to spill.
+  const spill: typeof multi = [];
+  for (const m of multi) {
+    if (gap(m.fs[0], m.c.role) > 0) add(m.fs[0], m.c, m.fs);
+    else spill.push(m);
+  }
+  for (const { c, fs } of spill) {
     let best = fs[0];
-    let gap = -Infinity;
-    for (const f of fs) {
-      const d = (fams.get(f)!.need[c.role] ?? 0) - (out.get(`${f}:${c.role}`)?.have ?? 0);
-      if (d > gap) {
-        gap = d;
+    let most = 0;
+    for (const f of fs.slice(1)) {
+      const d = gap(f, c.role);
+      if (d > most) {
+        most = d;
         best = f;
       }
     }
-    add(best, c, true);
+    add(best, c, fs);
   }
-  return out;
+  return { cells: out, backups };
 }
 
 /** Can `have` crew per role fill `t` sets of `perSet` (first officers fill relief pilot seats, pursers cabin crew seats)? */
@@ -310,7 +343,7 @@ export function completeSets(perSet: Partial<Record<Role, number>>, have: Partia
 /** v0.7.4 the Crew planning view, one entry per fleet family (largest fleet first). Pure. */
 export function crewPlan(g: GameState): FamilyPlan[] {
   const fams = familyNeeds(g);
-  const sup = supply(g, fams);
+  const { cells: sup, backups } = supply(g, fams);
   const out: FamilyPlan[] = [];
   for (const [family, f] of fams) {
     const perSet: Partial<Record<Role, number>> = {};
@@ -354,19 +387,25 @@ export function crewPlan(g: GameState): FamilyPlan[] {
     out.push({
       family, label: LABEL[family], aircraft: f.aircraft, types: [...f.types.values()], setsPerAircraft: each, setsNeeded: f.sets, setsNow, setsComplete,
       limiting: setsComplete >= f.sets ? null : limiting, augmented: f.aug, clientCabin: Math.round(f.client), dryLeased: f.dry, roles, verdict,
+      alsoRated: [...(backups.get(family) ?? [])].map(([o, b]) => ({ family: o, label: LABEL[o], ...b })),
+      backupFrom: [...backups].flatMap(([home, m]) => (home !== family && m.get(family) ? [{ family: home, label: LABEL[home], ...m.get(family)! }] : [])),
     });
   }
   return out.sort((a, b) => b.aircraft - a.aircraft || a.label.localeCompare(b.label));
 }
 
-/** The round-up choices: complete the sets needed (when short), and the next whole set count above both. Pure. */
-export function roundTargets(p: FamilyPlan): { complete: number | null; next: number } {
+/**
+ * The round-up choices: complete the sets needed (when short), and round a partial set up to whole sets (a role
+ * held beyond the complete sets, e.g. one cabin crew more than 5 sets use). v0.11 fix: `next` is null when every set
+ * is whole and complete: Round up then has nothing to offer ('Sets complete'), so pressing it twice never hires
+ * twice. `spare`: one whole set more, offered only as its own choice. Pure.
+ */
+export function roundTargets(p: FamilyPlan): { complete: number | null; next: number | null; spare: number } {
   const complete = p.setsComplete < p.setsNeeded ? p.setsNeeded : null;
-  // The smallest whole set count with no role left over in a partial set, at least one above what is needed and held.
-  let next = Math.max(p.setsNeeded, p.setsComplete);
+  const held = Math.max(p.setsNeeded, p.setsComplete);
+  let next = held;
   for (const r of p.roles) if (r.perSet > 0) next = Math.max(next, Math.ceil(r.have / r.perSet - 1e-9));
-  if (next <= Math.max(p.setsNeeded, p.setsComplete)) next = Math.max(p.setsNeeded, p.setsComplete) + 1;
-  return { complete, next };
+  return { complete, next: next > held ? next : null, spare: held + 1 };
 }
 
 /** Crew per role to hire for `target` complete sets of a family. Pure. */
