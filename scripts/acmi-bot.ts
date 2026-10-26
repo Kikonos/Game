@@ -53,6 +53,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import LZString from 'lz-string';
 import { BAL } from '../src/engine/core/balance';
+import { techReliability } from '../src/engine/core/techLog';
 import { statementTotals } from '../src/engine/core/ledger';
 import { complement, typeOf } from '../src/engine/core/perf';
 import { DAY, dayIndex, fmtDateTime, fmtDay, fmtMonth, fromUTC, monthKey, toDate, yearOf } from '../src/engine/core/time';
@@ -64,7 +65,7 @@ import { devAddType, devFleet, devGrantApproval } from '../src/engine/dev';
 import { salaryFor } from '../src/engine/crew/generate';
 import { createGame } from '../src/engine/newGame';
 import {
-  acquireAircraft, addRestToCCheck, aircraftGate, applyApproval, approvalBlocker, approvalReqs, APPROVALS, bookCCheck, bookRefit, bookRestRefit, cabinOptions, cancelCheck, cCheckOptions, cCheckSlots, checkStatus, deliveryStatus,
+  acquireAircraft, addRestToCCheck, aircraftGate, applyApproval, approvalBlocker, approvalReqs, APPROVALS, etopsMxState, setUpEtopsMx, bookCCheck, bookRefit, bookRestRefit, cabinOptions, cancelCheck, cCheckOptions, cCheckSlots, checkStatus, deliveryStatus,
   earlyReturnQuote, fixedCosts, groundGaps, leastUsed, ratedPilots, refitQuote, refitSlots, refitStations, resolveDecision, restRefitOptions, returnEarly, saleQuote, sellAircraft, ticketPurpose,
 } from '../src/engine/ops';
 import { cabinAt, cabinFits, refitTip } from '../src/engine/ops/cabin';
@@ -929,6 +930,22 @@ function fleet(g: GameState, t: Tally): void {
 
 // ---------- v0.7 ----------
 
+/** Ladder record diagnostic: per approval, the first day its record rows (clean record / technical reliability / no illegal duties) were all met, and days met. */
+const REC = new Map<string, { first: number | null; ok: number; n: number }>();
+const TDR: number[] = [];
+function recDiag(g: GameState): void {
+  const tr = techReliability(g, 90);
+  if (tr.pct !== null && dayN(g) % 7 === 0) TDR.push(tr.pct);
+  for (const id of ['etops120', 'widebody', 'etops180'] as ApprovalId[]) {
+    const rows = approvalReqs(g, id).filter((r) => /Clean record|[Tt]echnical reliability|illegal/.test(r.label));
+    if (!rows.length) continue;
+    const r = REC.get(id) ?? { first: null, ok: 0, n: 0 };
+    r.n++;
+    if (rows.every((x) => x.ok)) { r.ok++; r.first ??= dayN(g); }
+    REC.set(id, r);
+  }
+}
+
 const dayN = (g: GameState) => Math.floor((g.now - g.started) / DAY);
 const held = (g: GameState, id: ApprovalId) => g.company.approvals.includes(id) || g.company.pendingApprovals.some((p) => p.id === id);
 const monthFixed = (g: GameState) => {
@@ -953,6 +970,15 @@ function ladderSteps(g: GameState, t: Tally): void {
   const cost = (id: ApprovalId) => APPROVALS.find((a) => a.id === id)!.cost;
   // ETOPS 120 once the work asks for it: two open over-water jobs worth $300K+ on the board at once.
   const overWater = Object.values(g.offers).filter((o) => o.status === 'open' && o.estValue >= 300_000 && (o.requirements.etops > 0 || o.requirements.approvals.includes('etops120'))).length;
+  // v0.10.2 the ETOPS maintenance programme first when it is all that stands in the way (filing may go on while it is set up).
+  const mxOnly = (id: ApprovalId) => approvalReqs(g, id).filter((r) => !r.ok && !/^Cash /.test(r.label)).every((r) => r.label === 'ETOPS maintenance programme');
+  const wantEtops = (id: ApprovalId, extra: number) => !held(g, id) && cash >= cost(id) + BAL.ladder.etopsMx.cost + extra && etopsMxState(g) === 'none' && mxOnly(id);
+  if ((dayN(g) >= 90 && overWater >= 2 && wantEtops('etops120', 2_500_000)) || wantEtops('etops180', 2_000_000) || wantEtops('etops240', 2_000_000)) {
+    if (setUpEtopsMx(g).ok) {
+      t.filed.push(`etopsMx day ${dayN(g)}`);
+      act(g, t);
+    }
+  }
   if (dayN(g) >= 90 && overWater >= 2 && !held(g, 'etops120') && !approvalBlocker(g, 'etops120') && cash >= cost('etops120') + 2_500_000) file(g, t, 'etops120');
   // Widebody operations once an old 767 / A330 lease is on the market (the family to crew for is known then).
   const wideLease = g.market.aircraft.some((o) => o.kind === 'dryLeaseIn' && o.expires > g.now + 3 * DAY && (o.typeId === 'a332' || o.typeId === 'b763'));
@@ -1251,6 +1277,7 @@ function policy(g: GameState, t: Tally, urgent: boolean, newDay: boolean): void 
     earlyReturns(g, t);
     sales(g, t);
     ladderSteps(g, t);
+    recDiag(g);
     fleet(g, t);
     narrowGrowth(g, t);
     deliveryWaits(g, t);
@@ -1893,6 +1920,10 @@ console.log(
 {
   // v0.7 lines: the ladder, the market, deliveries, refits and leases.
   const granted = Object.entries(g.company.approvalsAt ?? {}).filter(([, t]) => (t ?? 0) > g.started).map(([id, t]) => `${id} day ${Math.floor(((t ?? 0) - g.started) / DAY)}`);
+  const tl = Object.values(g.stats.techDisp ?? {}).reduce((a, [d, f]) => [a[0] + d, a[1] + f], [0, 0]);
+  const td = [...TDR].sort((a, b) => a - b);
+  console.log(`technical reliability (90 days, weekly): min ${td[0] ?? '-'}% median ${td[Math.floor(td.length / 2)] ?? '-'}% max ${td.at(-1) ?? '-'}% · year ${tl[0] ? (100 * (1 - tl[1] / tl[0])).toFixed(1) : '-'}% (${Math.round(tl[1])} technical failures in ${Math.round(tl[0])} departures)`);
+  console.log(`ladder record: ${[...REC].map(([id, r]) => `${id} first met day ${r.first ?? 'never'} (met on ${r.ok} of ${r.n} days)`).join(' · ')}`);
   console.log(`ladder v0.7: filed [${tally.filed.join(', ') || '-'}], granted [${granted.join(', ') || '-'}], pending [${g.company.pendingApprovals.map((p) => `${p.id}${p.waiting ? ' (waiting)' : ''}`).join(', ') || '-'}], findings ${s.findings ?? 0}`);
   const byMonth = new Map<number, number>();
   for (const x of seenMarket.values()) byMonth.set(x.month, (byMonth.get(x.month) ?? 0) + 1);

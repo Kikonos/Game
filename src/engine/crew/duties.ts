@@ -307,7 +307,7 @@ export function queueDuty(g: GameState, d: Duty): void {
 
 /**
  * v0.5.2: a duty under way whose next leg now leaves a night-stop after the last landing (an AOG or a long hold
- * away from base) ends at that landing: the crew go to the hotel and the later legs become a duty of their own
+ * away from base) ends at that landing (v0.10.2: or at the estimated landing of the leg in the air): the crew go to the hotel and the later legs become a duty of their own
  * (own report, FDP and rest), not one duty stretched over days. Tickets home move to the new duty. The caller
  * re-sorts the pairing (refreshPairing). The new duty, or null.
  */
@@ -319,7 +319,9 @@ export function splitUnderWay(g: GameState, p: Pairing, d: Duty): Duty | null {
   for (let i = 1; i < fl.length; i++) {
     const a = fl[i - 1];
     const b = fl[i];
-    if (a.status !== 'done' || b.status !== 'scheduled') continue;
+    // v0.10.2 also while the leg before is still in the air (its estimated on-blocks): a later leg moved days out (an
+    // empty leg re-linked to the next job) otherwise kept the crew on one duty stretched over days until its gate.
+    if ((a.status !== 'done' && a.status !== 'enroute') || b.status !== 'scheduled') continue;
     const landed = onBlocks(a);
     const need = minRest({ dutyMin: landed - d.report + cabinEarly(g, p, d), atHome: a.to === g.company.homeBase, augmented: d.augment > 0, tzShift: tzDeltaH(g.company.homeBase, a.to, landed), extended: !!d.ext }) + rm.report + rm.post;
     if (b.std - landed < need) continue;

@@ -92,10 +92,12 @@ export const BAL = {
   /** AOG chance per departure (one roll, separate from technical delays): base × (1 + age/10) × (1 + 4 × deferred) × outstation 1.5. */
   aogBase: 0.00032,
   delayChance: 0.12,
-  /** Operational delay minutes (exponential mean, cap); technical delay chance per departure × age factor, mean minutes. */
+  /** Operational delay minutes (exponential mean, cap); technical delay chance per departure × age factor, mean minutes.
+   *  v0.10.2 0.006 → 0.0035: a 20-year-old aircraft about 1 % of departures (technical dispatch reliability near 98.5–99 %
+   *  with its AOGs, as ACMI fleets of old 767s and A320s report; a new one about 99.5 %). */
   delayMean: 25,
   delayCap: 180,
-  techDelayChance: 0.006,
+  techDelayChance: 0.0035,
   techDelayMean: 60,
   /** Block time noise (± share) applied at departure (winds). */
   windNoise: 0.04,
@@ -252,8 +254,17 @@ export const BAL = {
     /** The reconfiguration ends this long before the first departure (minutes); the change back is booked within this many days. */
     readyBefore: 24 * 60, revertWithinDays: 30,
   },
-  /** Ladder: days an authority finding adds, max findings, AOGs allowed per aircraft on a clean record, incident memory. */
-  ladder: { findingDays: 30, maxFindings: 2, aogPerAircraft: 0.5, incidentKeepDays: 365 },
+  /** Ladder: days an authority finding adds, max findings, incident memory. v0.10.2 technical dispatch reliability (the
+   *  AOG count retired): a revenue departure off more than `lateMin` late or cancelled for a technical reason is a
+   *  failure; under `minDeps` departures in the window it is not judged yet; the target per approval in %. The ETOPS
+   *  maintenance programme (EASA AMC 20-6: ETOPS additions to the approved maintenance programme and the CAME: CMP
+   *  standard, oil and engine monitoring, ETOPS reliability reporting, dual-maintenance limits, engineer training):
+   *  consultants, manuals and training about $50–150K, the authority's review 30–60 days. */
+  ladder: {
+    findingDays: 30, maxFindings: 2, incidentKeepDays: 365,
+    tech: { lateMin: 15, minDeps: 30, keepDays: 366, target: { etops120: 97, widebody: 97, etops180: 98, etops240: 98, ulr: 98.5 } as Partial<Record<string, number>> },
+    etopsMx: { cost: 90_000, days: 45 },
+  },
   /** C4 quiet-week floor: days since the last gap-fit offer, idle-window days, open-offer cap. */
   quietFloor: { days: 5, idleDays: 2, maxOpen: 5 },
 

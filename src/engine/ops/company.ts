@@ -8,6 +8,7 @@ import { typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { DAY, fmtDate, yearOf } from '../core/time';
 import type { ActionResult, Aircraft, ApprovalId, GameState, HotelTier, Minute, PendingApproval, Policies, SimEvent } from '../core/types';
+import { pruneTechLog, seedTechLog, techReliability } from '../core/techLog';
 import { clamp } from '../core/util';
 import { familyLabel } from '../crew/conversion';
 import { restOf } from '../crew/restPlan';
@@ -110,17 +111,51 @@ export function pruneIncidents(g: GameState): void {
   if (g.stats.incidents?.length && g.stats.incidents[0][0] < keep) g.stats.incidents = g.stats.incidents.filter(([t]) => t >= keep);
 }
 
-/** No illegal-crew incident in the window and AOGs ≤ max(1, aircraft on the AOC × 0.5). Pure. */
+/** No illegal crew duty in the window (v0.10.2: AOGs no longer count; technical reliability replaced them). Pure. */
 export function cleanRecord(g: GameState, days: number): { ok: boolean; text: string } {
   const from = g.now - days * DAY;
-  const inc = (g.stats.incidents ?? []).filter(([t]) => t >= from);
-  const illegal = inc.filter(([, k]) => k === 'illegalCrew');
-  const aogs = inc.filter(([, k]) => k === 'aog').length;
-  const maxAog = Math.max(1, Math.floor(fleetOf(g, false).length * BAL.ladder.aogPerAircraft));
+  const illegal = (g.stats.incidents ?? []).filter(([t, k]) => t >= from && k === 'illegalCrew');
   if (illegal.length) return { ok: false, text: `illegal duty ${fmtDate(illegal[illegal.length - 1][0])}` };
-  if (aogs > maxAog) return { ok: false, text: `${aogs} AOGs (at most ${maxAog})` };
-  const last = (g.stats.incidents ?? []).at(-1);
-  return { ok: true, text: last ? `last incident ${fmtDate(last[0])}` : 'no incidents' };
+  const last = (g.stats.incidents ?? []).filter(([, k]) => k === 'illegalCrew').at(-1);
+  return { ok: true, text: last ? `last one ${fmtDate(last[0])}` : 'none' };
+}
+
+// ---------- v0.10.2 the ETOPS maintenance programme ----------
+
+export type EtopsMxState = 'held' | 'pending' | 'none';
+/** The ETOPS maintenance programme: set up (held), being set up, or not started. Pure. */
+export function etopsMxState(g: GameState): EtopsMxState {
+  const m = g.company.etopsMx;
+  return !m ? 'none' : m.held ? 'held' : 'pending';
+}
+
+/** Why the programme can't be set up now (null = it can). Pure. */
+export function etopsMxBlocker(g: GameState): string | null {
+  const st = etopsMxState(g);
+  if (st === 'held') return 'Already set up';
+  if (st === 'pending') return 'Already being set up';
+  if (g.company.cash < BAL.ladder.etopsMx.cost) return `Costs ${usd(BAL.ladder.etopsMx.cost)}`;
+  return null;
+}
+
+/** Starts the ETOPS maintenance programme: pays now, ready in BAL.ladder.etopsMx.days (dailyApprovals finishes it). */
+export function setUpEtopsMx(g: GameState): ActionResult {
+  const why = etopsMxBlocker(g);
+  if (why) return { ok: false, error: why };
+  const { cost, days } = BAL.ladder.etopsMx;
+  post(g, 'approvals', -cost);
+  const done = g.now + days * DAY;
+  g.company.etopsMx = { started: g.now, done, cost };
+  pushMessage(g, { tone: 'info', cat: 'company', title: 'ETOPS maintenance programme: set-up started', body: `${usd(cost)} paid for the manuals, the engineers' training and the authority's review. Ready by ${fmtDate(done)}; every ETOPS approval uses it.` });
+  return { ok: true, msg: `ETOPS maintenance programme ready ${fmtDate(done)}` };
+}
+
+/** Daily: a programme whose review is over is held. */
+function finishEtopsMx(g: GameState): void {
+  const m = g.company.etopsMx;
+  if (!m || m.held || m.done > g.now) return;
+  m.held = true;
+  pushMessage(g, { tone: 'good', cat: 'company', title: 'ETOPS maintenance programme approved', body: 'Our engineering now meets the ETOPS rules. Every ETOPS approval (120, 180 and 240) can use it.' });
 }
 
 const twins = (min: number) => (t: AcmiType) => t.engines === 2 && t.etopsMax >= min;
@@ -130,7 +165,7 @@ const familiesOf = (acs: Aircraft[]): RatingFamily[] => [...new Set(acs.map((a) 
 interface Req extends ApprovalReq {
   /** Blocker text when it fails. */
   why: string;
-  /** Re-checked at the grant (rated crew, clean record). */
+  /** Re-checked at the grant (rated crew, clean record, technical reliability, the ETOPS programme). */
   grant?: boolean;
 }
 
@@ -152,7 +187,33 @@ function reliabilityReq(g: GameState, min: number): Req {
 
 function cleanReq(g: GameState, days: number): Req {
   const c = cleanRecord(g, days);
-  return { label: `Clean record: ${days} days`, ok: c.ok, have: c.text, why: `Needs a clean record for ${days} days (${c.text})`, grant: true };
+  return { label: `No illegal crew duties: ${days} days`, ok: c.ok, have: c.text, why: `Needs ${days} days without an illegal crew duty (${c.text})`, grant: true };
+}
+
+/** v0.10.2 technical dispatch reliability over the window, at the approval's target (needs a minimum of departures). */
+function techReq(g: GameState, id: ApprovalId, days: number): Req {
+  const need = BAL.ladder.tech.target[id] ?? 97;
+  const r = techReliability(g, days);
+  if (r.pct === null) {
+    const label = `Technical reliability: not enough flights yet (${r.deps} of ${BAL.ladder.tech.minDeps}; needs ${need}% over ${days} days)`;
+    return { label, ok: false, why: `Needs technical reliability ${need}% over ${days} days: not enough flights yet (${r.deps} of ${BAL.ladder.tech.minDeps})`, grant: true };
+  }
+  return {
+    label: `Technical reliability ${r.pct}% (needs ${need}%) over ${days} days`, ok: r.pct >= need,
+    why: `Needs technical reliability ${need}% over ${days} days (${r.pct}% now)`, grant: true,
+  };
+}
+
+/** v0.10.2 the ETOPS maintenance programme: being set up is enough to file; the grant needs it done. */
+function etopsMxReq(g: GameState, filing: boolean): Req {
+  const st = etopsMxState(g);
+  const m = g.company.etopsMx;
+  return {
+    label: 'ETOPS maintenance programme', ok: st === 'held' || (filing && st === 'pending'),
+    have: st === 'held' ? 'set up' : st === 'pending' ? `ready ${fmtDate(m!.done)}` : 'not set up',
+    why: st === 'pending' ? `Needs the ETOPS maintenance programme finished (ready ${fmtDate(m!.done)})` : 'Needs an ETOPS maintenance programme: set it up on the Ladder',
+    grant: true, ...(st === 'none' ? { action: 'etopsMx' as const } : {}),
+  };
 }
 
 function heldReq(g: GameState, id: ApprovalId, days: number): Req {
@@ -160,10 +221,12 @@ function heldReq(g: GameState, id: ApprovalId, days: number): Req {
   return { label: `${nameOf(id)} held ${days} days`, ok: d !== null && d >= days, have: d === null ? 'not held' : `${d} days`, need: `${days} days`, why: d === null ? `Needs ${nameOf(id)} first` : `${nameOf(id)} must be held ${days} days (${d} so far)` };
 }
 
-/** Every requirement of an approval (prerequisites first), with the text naming the first failure. Pure. */
-function reqsOf(g: GameState, id: ApprovalId, booked: boolean): Req[] {
+/** Every requirement of an approval (prerequisites first), with the text naming the first failure. `filing`: what it takes
+ *  to apply (booked conversions, a programme being set up count); otherwise what the grant needs. Pure. */
+function reqsOf(g: GameState, id: ApprovalId, filing: boolean): Req[] {
   const def = defOf(id);
   if (!def) return [];
+  const booked = filing && id === 'widebody';
   const out: Req[] = [];
   const opsDays = Math.floor((g.now - g.started) / DAY);
   const fleet = fleetOf(g, false);
@@ -173,13 +236,14 @@ function reqsOf(g: GameState, id: ApprovalId, booked: boolean): Req[] {
       const acs = fleet.filter((a) => twins(120)(typeOf(a.typeId)));
       out.push({ label: 'An ETOPS-capable twin in the fleet', ok: acs.length > 0, why: 'Needs a twin capable of ETOPS 120' });
       out.push(crewReq(g, familiesOf(acs), 4, false, 'it'));
-      out.push(reliabilityReq(g, 60), cleanReq(g, 90));
+      out.push(etopsMxReq(g, filing));
+      out.push(reliabilityReq(g, 60), techReq(g, id, 90), cleanReq(g, 90));
       break;
     }
     case 'widebody': {
       out.push({ label: '90 days of operations', ok: opsDays >= 90, have: `${opsDays} days`, need: '90 days', why: `Needs 90 days of operations (${opsDays} so far)` });
       out.push(crewReq(g, wideFamilies(), 4, booked, 'a widebody family'));
-      out.push(reliabilityReq(g, 62), cleanReq(g, 90));
+      out.push(reliabilityReq(g, 62), techReq(g, id, 90), cleanReq(g, 90));
       break;
     }
     case 'etops180': {
@@ -187,7 +251,8 @@ function reqsOf(g: GameState, id: ApprovalId, booked: boolean): Req[] {
       const acs = fleetD.filter((a) => twins(180)(typeOf(a.typeId)));
       out.push({ label: 'A 180-capable twin in the fleet or delivering', ok: acs.length > 0, why: 'Needs a twin capable of ETOPS 180' });
       out.push(crewReq(g, familiesOf(acs), 4, false, 'it'));
-      out.push(reliabilityReq(g, 65), cleanReq(g, 180));
+      out.push(etopsMxReq(g, filing));
+      out.push(reliabilityReq(g, 65), techReq(g, id, 180), cleanReq(g, 180));
       break;
     }
     case 'augmented': {
@@ -208,7 +273,8 @@ function reqsOf(g: GameState, id: ApprovalId, booked: boolean): Req[] {
       const fams = [...byFam].filter(([, n]) => n >= 2).map(([f]) => f);
       out.push({ label: '2 aircraft of an ETOPS 240 type in the fleet', ok: fams.length > 0, have: `${Math.max(0, ...byFam.values())}`, need: '2', why: 'Needs 2 aircraft of an ETOPS 240 type (A330-200, 777, 787, A350)' });
       out.push(crewReq(g, fams, 6, false, 'it'));
-      out.push(reliabilityReq(g, 70), cleanReq(g, 180));
+      out.push(etopsMxReq(g, filing));
+      out.push(reliabilityReq(g, 70), techReq(g, id, 180), cleanReq(g, 180));
       break;
     }
     case 'ulr': {
@@ -219,7 +285,7 @@ function reqsOf(g: GameState, id: ApprovalId, booked: boolean): Req[] {
       const acs = fleetD.filter((a) => { const r = restOf(g, a.id); return typeOf(a.typeId).ulr && r.fc?.cls === 1 && r.cc?.cls === 1; });
       out.push({ label: 'A ULR-capable aircraft in the fleet or delivering', ok: acs.length > 0, why: 'Needs a ULR-capable aircraft with bunks for pilots and cabin crew (class 1 crew rest)' });
       out.push(crewReq(g, familiesOf(acs), 8, false, 'it'));
-      out.push(reliabilityReq(g, 75), cleanReq(g, 365));
+      out.push(reliabilityReq(g, 75), techReq(g, id, 365), cleanReq(g, 365));
       break;
     }
     case 'iosa':
@@ -238,7 +304,7 @@ function reqsOf(g: GameState, id: ApprovalId, booked: boolean): Req[] {
 
 /** v0.7: the requirement checklist of an approval (✓/✗ with have/need). Pure. */
 export function approvalReqs(g: GameState, id: ApprovalId): ApprovalReq[] {
-  return reqsOf(g, id, id === 'widebody').map(({ label, ok, have, need }) => ({ label, ok, ...(have !== undefined ? { have } : {}), ...(need !== undefined ? { need } : {}) }));
+  return reqsOf(g, id, true).map(({ label, ok, have, need, action }) => ({ label, ok, ...(have !== undefined ? { have } : {}), ...(need !== undefined ? { need } : {}), ...(action ? { action } : {}) }));
 }
 
 /** Why an approval can't be started now (null = it can): the first failing requirement. Pure. */
@@ -248,7 +314,7 @@ export function approvalBlocker(g: GameState, id: ApprovalId): string | null {
   const co = g.company;
   if (co.approvals.includes(id)) return 'Already held';
   if (co.pendingApprovals.some((p) => p.id === id)) return 'In progress';
-  return reqsOf(g, id, id === 'widebody').find((r) => !r.ok)?.why ?? null;
+  return reqsOf(g, id, true).find((r) => !r.ok)?.why ?? null;
 }
 
 /** Starts an approval: pays the cost now; granted on 'approval.done' (after the rated-crew and record re-check). */
@@ -264,7 +330,7 @@ export function applyApproval(g: GameState, id: ApprovalId): ActionResult {
   return { ok: true, msg: `${def.name} under way, done ${fmtDate(done)}` };
 }
 
-/** Grant-time re-check: rated crew (actually rated) and the clean record. The first failure's text, or null. */
+/** Grant-time re-check: rated crew (actually rated), no illegal duties, technical reliability, the ETOPS programme done. The first failure's text, or null. */
 function grantBlocker(g: GameState, id: ApprovalId): string | null {
   return reqsOf(g, id, false).find((r) => r.grant && !r.ok)?.why ?? null;
 }
@@ -287,6 +353,14 @@ function grant(g: GameState, i: number): void {
   pushMessage(g, { tone: 'good', cat: 'company', title: `${def?.name ?? p.id} approved`, body: `${def?.desc ?? ''} New work is open to us.` });
 }
 
+/** What a waiting application waits for, in a few words ('rated pilots', 'technical reliability'). */
+export function waitingFor(why: string): string {
+  if (/rated/.test(why)) return 'rated pilots';
+  if (/maintenance programme/.test(why)) return 'the ETOPS maintenance programme';
+  if (/technical reliability/.test(why)) return 'technical reliability';
+  return 'a clean crew record';
+}
+
 /** The authority is ready but a requirement fails: one message, re-checked daily. */
 function wait(g: GameState, p: PendingApproval, why: string): void {
   const first = !p.waiting;
@@ -296,7 +370,7 @@ function wait(g: GameState, p: PendingApproval, why: string): void {
   const pilots = /rated/.test(why);
   const cls = Object.values(g.classes ?? {}).filter((k) => k.group === 'pilot' && (k.status === 'planned' || k.status === 'running')).sort((a, b) => a.end - b.end)[0];
   pushMessage(g, {
-    tone: 'warn', cat: 'company', title: `${def?.name ?? p.id} waits for ${pilots ? 'rated pilots' : 'a clean record'}`,
+    tone: 'warn', cat: 'company', title: `${def?.name ?? p.id} waits for ${waitingFor(why)}`,
     body: `The authority is ready but ${why.replace(/^Needs /, 'needs ')}.${pilots && cls ? ` The ${cls.no} class finishes on ${fmtDate(cls.end)}.` : ''}`,
   });
 }
@@ -314,6 +388,8 @@ export function onApprovalDone(g: GameState, ev: SimEvent): void {
 /** Daily: waiting applications are granted once their requirement is met. */
 export function dailyApprovals(g: GameState): void {
   pruneIncidents(g);
+  pruneTechLog(g);
+  finishEtopsMx(g);
   const co = g.company;
   for (let i = co.pendingApprovals.length - 1; i >= 0; i--) {
     const p = co.pendingApprovals[i];
@@ -336,7 +412,7 @@ export function setPolicies(g: GameState, patch: Partial<Policies>): ActionResul
 
 // ---------- v0.7 the Ladder ----------
 
-export interface ApprovalReq { label: string; ok: boolean; have?: string; need?: string }
+export interface ApprovalReq { label: string; ok: boolean; have?: string; need?: string; /** v0.10.2 the row has its own action ('etopsMx': Set up). */ action?: 'etopsMx' }
 export type NodeState = 'held' | 'pending' | 'ready' | 'locked';
 export interface LadderNode {
   id: ApprovalId; name: string; desc: string; state: NodeState; cost: number; /** Paid at the grant (0 = none). */ grantCost: number; days: number;
@@ -431,6 +507,8 @@ export function loadApprovals(g: GameState): void {
   const firstV07 = co.approvalsAt === undefined;
   co.approvalsAt ??= {};
   for (const id of co.approvals) co.approvalsAt[id] ??= g.started;
+  // v0.10.2 technical dispatch reliability from the records an older save has (its departures by month, its AOGs).
+  seedTechLog(g);
   if (!firstV07) {
     g.stats.incidents ??= [];
     return;

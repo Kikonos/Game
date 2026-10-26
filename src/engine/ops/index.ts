@@ -35,7 +35,8 @@ function loadVariants(g: GameState): void {
 }
 
 export {
-  APPROVALS, aircraftGate, applyApproval, approvalBlocker, approvalReqs, cleanRecord, gateApprovals, ladder, ratedPilots, RUNG0_TYPES, setPolicies,
+  APPROVALS, aircraftGate, applyApproval, approvalBlocker, approvalReqs, cleanRecord, etopsMxBlocker, etopsMxState, gateApprovals, ladder, ratedPilots, RUNG0_TYPES, setPolicies,
+  setUpEtopsMx, waitingFor, type EtopsMxState,
   type AircraftGate, type ApprovalDef, type ApprovalReq, type LadderNode, type LadderRung, type NodeState,
 } from './company';
 export { addRestToCCheck, bookRefit, bookRestRefit, bookRestSeats, cabinOptions, refitKindText, refitQuote, refitSlots, refitStations, refitTerms, restAfterRefit, restRefitLabel, restRefitOptions, restRefitQuote, restSeatsQuote, type RefitKind, type RefitQuote, type RefitSlot, type RestRefitOption } from './cabin';

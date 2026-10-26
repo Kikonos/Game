@@ -7,7 +7,14 @@ import { addAircraft, newGame } from '../contracts/testkit';
 import { advanceTo } from '../sim';
 import { addCrew } from '../crew/fixtures';
 import { aircraftGate, APPROVALS, applyApproval, approvalBlocker, approvalReqs, cleanRecord, gateApprovals, ladder, ratedPilots, setPolicies } from '.';
-import { dailyApprovals, devGrantApproval, loadApprovals, noteIncident, onApprovalDone } from './company';
+import { dailyApprovals, devGrantApproval, loadApprovals, noteIncident, onApprovalDone, setUpEtopsMx } from './company';
+import type { GameState } from '../core/types';
+
+/** v0.10.2 a technical dispatch record: `deps` revenue departures, `fails` technical failures, on the day of `at`. */
+function techDays(g: GameState, deps: number, fails: number, at = g.now): void {
+  const k = Math.floor(at / DAY);
+  (g.stats.techDisp ??= {})[k] = [deps, fails];
+}
 
 describe('approvals (v0.7 ladder)', () => {
   it('the ladder costs, times and prerequisites (UPDATE-0.7 §F8.1), then IOSA and DG', () => {
@@ -24,6 +31,15 @@ describe('approvals (v0.7 ladder)', () => {
 
   it('blockers name the first failing requirement: prerequisites, held-for days, fleet, operations, crew, reliability, record, cash', () => {
     const g = newGame(33);
+    // v0.10.2 the ETOPS maintenance programme (filing may go on while it is set up), then technical reliability.
+    expect(approvalBlocker(g, 'etops120')).toBe('Needs an ETOPS maintenance programme: set it up on the Ladder');
+    expect(setUpEtopsMx(g).ok).toBe(true);
+    expect(approvalBlocker(g, 'etops120')).toBe('Needs technical reliability 97% over 90 days: not enough flights yet (0 of 30)');
+    techDays(g, 29, 0);
+    expect(approvalBlocker(g, 'etops120')).toMatch(/not enough flights yet \(29 of 30\)/);
+    techDays(g, 100, 4);
+    expect(approvalBlocker(g, 'etops120')).toBe('Needs technical reliability 97% over 90 days (96% now)');
+    techDays(g, 100, 1);
     expect(approvalBlocker(g, 'etops120')).toBeNull();
     expect(approvalBlocker(g, 'dg')).toBeNull();
     expect(approvalBlocker(g, 'widebody')).toBe('Needs 90 days of operations (0 so far)');
@@ -38,7 +54,7 @@ describe('approvals (v0.7 ladder)', () => {
     expect(approvalBlocker(g, 'etops120')).toBe('Needs reliability 60 (55 now)');
     g.company.reputation.reliable = 70;
     g.stats.incidents = [[g.now - 10 * DAY, 'illegalCrew']];
-    expect(approvalBlocker(g, 'etops120')).toMatch(/^Needs a clean record for 90 days \(illegal duty/);
+    expect(approvalBlocker(g, 'etops120')).toMatch(/^Needs 90 days without an illegal crew duty \(illegal duty/);
     g.stats.incidents = [[g.now - 100 * DAY, 'illegalCrew']];
     expect(approvalBlocker(g, 'etops120')).toBeNull();
     // ETOPS 120 held: ETOPS 180 needs 120 days of it, then a 180-capable twin with rated pilots.
@@ -65,6 +81,7 @@ describe('approvals (v0.7 ladder)', () => {
   it('Widebody operations: 90 days, then 4 + 4 pilots rated on or converting to one widebody family (filing only)', () => {
     const g = newGame(36);
     g.now += 91 * DAY;
+    techDays(g, 100, 1);
     g.company.reputation.reliable = 70;
     expect(approvalBlocker(g, 'widebody')).toBe('Needs 4 B767 captains rated (0 now)');
     // Pilots booked on a planned conversion class count for filing…
@@ -79,7 +96,7 @@ describe('approvals (v0.7 ladder)', () => {
     if (fo >= 4 && pil.CPT >= 4) expect(approvalBlocker(g, 'widebody')).toBeNull();
     // …and approvalReqs lists the checklist (✓/✗ with have/need).
     const reqs = approvalReqs(g, 'widebody');
-    expect(reqs.map((r) => r.label)).toEqual(['90 days of operations', expect.stringMatching(/^4 CPT \+ 4 FO rated on .* or converting$/), 'Reliability 62', 'Clean record: 90 days', 'Cash $300K']);
+    expect(reqs.map((r) => r.label)).toEqual(['90 days of operations', expect.stringMatching(/^4 CPT \+ 4 FO rated on .* or converting$/), 'Reliability 62', 'Technical reliability 99% (needs 97%) over 90 days', 'No illegal crew duties: 90 days', 'Cash $300K']);
     expect(reqs[0]).toMatchObject({ ok: true, have: '91 days', need: '90 days' });
   });
 
@@ -87,6 +104,7 @@ describe('approvals (v0.7 ladder)', () => {
     const g = newGame(34);
     g.now += 91 * DAY;
     g.company.reputation.reliable = 70;
+    techDays(g, 100, 1);
     addCrew(g, { CPT: 4, FO: 4 }, 'B757/767');
     expect(approvalBlocker(g, 'widebody')).toBeNull();
     const cash = g.company.cash;
@@ -106,6 +124,7 @@ describe('approvals (v0.7 ladder)', () => {
     // The pilots leave the type before the grant: it waits (one message), re-checked daily.
     for (const c of Object.values(g.crew)) if (c.ratings.includes('B757/767') && c.role === 'CPT') c.ratings = ['A320'];
     g.stats.incidents = [];
+    techDays(g, 100, 1, p.done);
     const done = (t: number) => {
       g.now = t;
       onApprovalDone(g, { t, seq: 0, type: 'approval.done', id: 'widebody', v: 0 });
@@ -161,7 +180,12 @@ describe('approvals (v0.7 ladder)', () => {
     expect(JSON.stringify(g)).toBe(before);
     expect(l.map((r) => r.nodes.map((n) => n.id))).toEqual([[], ['etops120', 'widebody'], ['etops180', 'augmented'], ['etops240'], ['ulr']]);
     const n = Object.fromEntries(l.flatMap((r) => r.nodes).map((x) => [x.id, x]));
-    expect(n.etops120.state).toBe('ready');
+    // v0.10.2 not ready before the ETOPS maintenance programme and enough flights to judge technical reliability.
+    expect(n.etops120.state).toBe('locked');
+    expect(n.etops120.reqs.find((r) => r.label === 'ETOPS maintenance programme')).toMatchObject({ ok: false, have: 'not set up', action: 'etopsMx' });
+    setUpEtopsMx(g);
+    techDays(g, 60, 0);
+    expect(ladder(g)[1].nodes[0].state).toBe('ready');
     expect(n.widebody.state).toBe('locked');
     expect(n.widebody.blocker).toBe('Needs 90 days of operations (0 so far)');
     // v0.10: the 747 classics are on the market too (flown by two pilots)
@@ -191,14 +215,14 @@ describe('approvals (v0.7 ladder)', () => {
     expect(g.stats.incidents).toEqual([]);
   });
 
-  it('clean record: illegal duties in the window fail it; AOGs up to max(1, fleet × 0.5); incidents older than a year are pruned', () => {
+  it('clean record: illegal duties in the window fail it; AOGs no longer count (v0.10.2); incidents older than a year are pruned', () => {
     const g = newGame(40);
-    expect(cleanRecord(g, 90)).toMatchObject({ ok: true, text: 'no incidents' });
+    expect(cleanRecord(g, 90)).toMatchObject({ ok: true, text: 'none' });
     g.stats.incidents = [[g.now - 200 * DAY, 'illegalCrew'], [g.now - 5 * DAY, 'aog']];
     expect(cleanRecord(g, 90).ok).toBe(true);
     expect(cleanRecord(g, 365).ok).toBe(false);
-    g.stats.incidents.push([g.now - 4 * DAY, 'aog']);
-    expect(cleanRecord(g, 90)).toMatchObject({ ok: false, text: '2 AOGs (at most 1)' });
+    g.stats.incidents.push([g.now - 4 * DAY, 'aog'], [g.now - 3 * DAY, 'aog'], [g.now - 2 * DAY, 'aog']);
+    expect(cleanRecord(g, 90)).toMatchObject({ ok: true });
     g.now += 400 * DAY;
     advanceTo(g, g.now + 1, new Set());
     expect(g.stats.incidents.length).toBeLessThan(3);

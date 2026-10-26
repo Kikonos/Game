@@ -21,6 +21,7 @@ import { applyDiscretion, boardCrew, crewIssuesFor, dropStraySpares, flightCrewS
 import { fdpLimitAt } from '../crew/timeline';
 import { dutyLegality } from '../crew/duties';
 import { cue } from '../core/cues';
+import { markTech, noteDispatch } from '../core/techLog';
 import { v09Stats } from '../crew/dayPlan';
 import { requestPause } from '../core/pause';
 import { problemFor } from '../problems';
@@ -80,6 +81,7 @@ export function moveFlight(g: GameState, f: Flight, std: Minute, reason?: string
   f.schedStd ??= f.std;
   f.delay = 0;
   if (reason) f.delayReason = reason;
+  markTech(f, reason);
   retimeFlight(g, f, std, std + f.block);
 }
 
@@ -344,6 +346,7 @@ function delayCues(g: GameState, f: Flight, was: number): void {
 function delayChain0(g: GameState, f: Flight, std: Minute, reason: string, own: boolean, crewWait: boolean): number {
   const ac = f.aircraftId ? g.fleet[f.aircraftId] : undefined;
   if (f.status !== 'scheduled') return 0;
+  markTech(f, reason);
   std = Math.max(std, g.now);
   if (!ac) {
     moveFlight(g, f, std, reason);
@@ -727,6 +730,7 @@ export function onFlightDep(g: GameState, ev: SimEvent): void {
   }
   // 4. AOG (its own roll; technical delays never become one).
   if (chance(g, aogChance(g, ac, f.from))) {
+    f.tech = true;
     startAog(g, ac, f);
     holdFlight(g, f, 30);
     return;
@@ -846,6 +850,7 @@ function depart(g: GameState, f: Flight, ac: Aircraft): void {
   cue('flightDep', { title: `${f.no} departed ${AIRPORT_BY_CODE[f.from]?.city ?? f.from}`, body: `${g.fleet[f.aircraftId!]?.reg ?? ''} to ${AIRPORT_BY_CODE[f.to]?.city ?? f.to}`.trim(), tone: 'info', ref: { kind: 'flight', id: f.id } });
   const s = stats(g);
   s.departures++;
+  noteDispatch(g, f);
   const duty = f.dutyId ? g.duties[f.dutyId] : undefined;
   if (duty?.legality === 'illegal') {
     s.illegalFlown++;
@@ -1252,6 +1257,8 @@ export function onFlightArr(g: GameState, ev: SimEvent): void {
     f.status = 'done';
     f.atd = f.std;
     f.ata = g.now;
+    // v0.10.2 a rival flew our client's leg: dispatched on time when it left within 15 minutes of the schedule.
+    if (f.operatedBy) noteDispatch(g, f);
     touchTickets(g);
     return;
   }

@@ -1,6 +1,7 @@
 // Ids, entity creation helpers shared by all modules, and runtime indexes (not saved).
 
 import { schedule } from './queue';
+import { noteTechCancel } from './techLog';
 import type { Flight, FlightKind, GameState, Minute } from './types';
 
 export function nextId(g: GameState, prefix: string): string {
@@ -195,6 +196,8 @@ export function retimeFlight(g: GameState, f: Flight, std: Minute, sta: Minute):
 }
 
 export function cancelFlight(g: GameState, f: Flight, reason?: string): void {
+  // v0.10.2 a revenue leg cancelled for a technical reason is a technical dispatch failure.
+  if (f.status === 'scheduled') noteTechCancel(g, f, reason);
   markFlightsChanged(g, f.aircraftId, f.std);
   f.status = 'cancelled';
   f.delayReason = reason ?? f.delayReason;
