@@ -23,6 +23,7 @@ import type {
   AcRest, ApprovalId, Archetype, Client, ContractOffer, GameState, LegTemplate, Minute, OfferEffects, PaintKind, Product, Requirements, SchedulePattern, SimEvent,
 } from '../core/types';
 import { acceptOffer, closeOffer, setPrice } from './accept';
+import { isCallOffer } from './call';
 import { answerBy, counterBase, counterOdds, halfwayPrice, leftOf } from './counter';
 import { crewChains, feasibility, ulrNeed, type UlrNeed } from './feasibility';
 import { adhocGroupClients, clientPrefix, clientsOf, isBigClub, isCruiseLine, isDiaspora, isGovernment, isMarineCrewing, isPilgrim, ministry, rivalFor } from './clients';
@@ -1278,7 +1279,13 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   // Urgent work we could actually fly stops the clock (setting) and gets an inbox line; the rest just pins the map.
   if (urgency === 'urgent' && Object.keys(g.fleet).some((id) => feasibility(g, o.id, id, { quick: true }).level !== 'no')) {
     requestPause('urgentOffer');
-    pushMessage(g, { tone: 'warn', cat: 'commercial', title: `Urgent: ${o.title}`, body: `${d.client.name} needs an answer by ${fmtDay(o.expires)} ${fmtTime(o.expires)} UTC.`, ref: { kind: 'offer', id: o.id }, ...cardMeta(offerFitCard(g, o.id)), hurt: { money: o.estValue, pax: 0, delayMin: 0, level: 'high' }, cue: offerCue(o) });
+    // v0.10.2 urgent and high-paying: the client phones (the call pop-up and its ring are the note; the Inbox keeps it)
+    const call = isCallOffer(g, o);
+    if (call) o.call = true;
+    pushMessage(g, {
+      tone: 'warn', cat: 'commercial', title: call ? `Phone call: ${o.title}` : `Urgent: ${o.title}`, body: `${d.client.name} needs an answer by ${fmtDay(o.expires)} ${fmtTime(o.expires)} UTC.`,
+      ref: { kind: 'offer', id: o.id }, ...cardMeta(offerFitCard(g, o.id)), hurt: { money: o.estValue, pax: 0, delayMin: 0, level: 'high' }, cue: call ? 'offerCall' : offerCue(o),
+    });
   } else cue(offerCue(o), { title: `New offer: ${o.title}`, body: `${d.client.name}. Answer by ${fmtDay(o.expires)}.`, tone: 'info', ref: { kind: 'offer', id: o.id } });
   return o;
 }

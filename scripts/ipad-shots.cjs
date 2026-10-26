@@ -86,6 +86,8 @@ const ALL = [
   'company-team-locked', 'head-unlocked-card', 'company-team', 'company-achievements', 'achievement-toast', 'offer-analyst', 'offer-slip', 'offer-jumbo',
   'crew-control-out-of-hours', 'crew-control-discretion-greyed', 'inbox-crew-hours', 'opsstrip-hours', 'settings-sound', 'settings-test-sounds',
   'screen-hint-contracts', 'whats-new-catchup', 'fleet-longest-day-popover', 'crewplan-verdict',
+  // v0.10.2 the phone call and the new approval rules
+  'offer-call', 'approval-etops',
 ];
 const PRE_GAME = new Set(['loading', 'title', 'newgame', 'newgame-livery']);
 const VIEWS = {
@@ -1317,6 +1319,13 @@ Object.assign(ACTIONS, {
     await page.evaluate(() => { const h = [...document.querySelectorAll('.set-head')].find((x) => x.textContent.trim() === 'Sound'); h?.scrollIntoView({ block: 'start' }); });
     await settle(page, 300);
   },
+  'offer-call': async (page) => {
+    await nav(page, 'map');
+    const id = await page.evaluate(() => window.__contrail.dev.call());
+    if (!id) throw new Error('SKIP no AOG cover offer');
+    await settle(page, 900);
+  },
+  'approval-etops': async (page) => { await nav(page, 'company'); await modal(page, { kind: 'approval', id: 'etops120' }); },
   'settings-test-sounds': async (page, _s, d) => {
     await modal(page, { kind: 'settings' });
     const btn = page.locator('.set-row', { hasText: 'Test sounds' }).locator('button');

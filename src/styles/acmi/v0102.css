@@ -1,0 +1,19 @@
+/* v0.10.2: the incoming-call card (CallModal) and the Ladder's set-up row. */
+.v10-call-head { display: flex; align-items: center; gap: 14px; margin: 2px 0 10px; }
+.v10-caller { font-size: 17px; font-family: var(--font-display); }
+.v10-ring { position: relative; flex: none; width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; background: rgba(62, 230, 255, 0.1); border: 1px solid rgba(62, 230, 255, 0.35); color: var(--accent); }
+.v10-ring > svg { width: 22px; height: 22px; position: relative; z-index: 1; }
+.v10-ring > span { position: absolute; inset: -1px; border-radius: 50%; border: 1.5px solid rgba(62, 230, 255, 0.5); opacity: 0; pointer-events: none; }
+.v10-ring.on > svg { animation: v10-wobble 3s ease-in-out infinite; }
+.v10-ring.on > span { animation: v10-wave 3s ease-out infinite; }
+.v10-ring.on > span + span { animation-delay: 0.6s; }
+@keyframes v10-wave { 0% { transform: scale(1); opacity: 0.7; } 30% { transform: scale(1.55); opacity: 0; } 100% { opacity: 0; } }
+@keyframes v10-wobble { 0%, 40%, 100% { transform: rotate(0); } 5%, 15%, 25%, 35% { transform: rotate(-12deg); } 10%, 20%, 30% { transform: rotate(12deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .v10-ring.on > svg, .v10-ring.on > span { animation: none; }
+  .v10-ring.on > span:first-child { opacity: 0.6; transform: scale(1.18); }
+}
+.v10-line { margin: 0 0 12px; font-size: 15px; line-height: 1.5; color: var(--text); font-style: italic; }
+.v10-terms > b { text-align: left; font-weight: 500; }
+.v10-call-block { margin-top: 10px; padding: 8px 10px; border-radius: var(--r-sm); background: rgba(251, 191, 36, 0.08); border: 1px solid rgba(251, 191, 36, 0.25); }
+.ap-req .btn-sm { min-height: 32px; padding: 0 10px; }

@@ -11,7 +11,7 @@ import type { Cue } from '../engine/core/cues';
 import { MUSIC_FADE, musicLevel, MusicPlayer } from './music';
 
 export type SoundId =
-  | 'tap' | 'toggle' | 'error' | 'hi' | 'lo' | 'hiLo' | 'hi2' | 'hi3' | 'lo2' | 'alarm'
+  | 'tap' | 'toggle' | 'error' | 'hi' | 'lo' | 'hiLo' | 'hi2' | 'hi3' | 'lo2' | 'alarm' | 'ring'
   | 'ambCabin' | 'ambTerminal' | 'music';
 export type SoundCat = 'alerts' | 'chimes' | 'ui' | 'ambience' | 'music';
 /** UI-only events (the engine's cues are the rest). v0.9.1: pause and resume make no sound. */
@@ -30,23 +30,25 @@ export const SOUND_OF: Record<SoundEvent, SoundId> = {
   cancelRisk: 'hi3', airspaceActive: 'hi3', cashNegative: 'hi3', evacuation: 'hi3', clientCollapse: 'hi3',
   crewShortage: 'alarm', crewOutOfHours: 'alarm',
   achievement: 'lo2', ladder: 'lo2', headUnlocked: 'lo2', delivered: 'lo2',
+  // v0.10.2 an urgent, high-paying offer phones in: a soft ring until answered (the call pop-up is its note)
+  offerCall: 'ring',
 };
 
 export const CAT_OF: Record<SoundId, SoundCat> = {
   tap: 'ui', toggle: 'ui', error: 'ui',
   hi: 'chimes', lo: 'chimes', hiLo: 'chimes', lo2: 'chimes',
-  hi2: 'alerts', hi3: 'alerts', alarm: 'alerts',
+  hi2: 'alerts', hi3: 'alerts', alarm: 'alerts', ring: 'alerts',
   ambCabin: 'ambience', ambTerminal: 'ambience',
   music: 'music',
 };
 
 /** Merge priority (§S.4): the highest in a window plays once. */
 export const PRIORITY: Partial<Record<SoundId, number>> = {
-  alarm: 100, hi3: 90, hi2: 80, hiLo: 60, lo2: 55, hi: 45, lo: 30,
+  alarm: 100, hi3: 90, ring: 85, hi2: 80, hiLo: 60, lo2: 55, hi: 45, lo: 30,
 };
 /** Quiet time after a sound plays (ms) for a repeat of the SAME sound (§S.4): the alarm never twice inside 20 s. */
 export const COOLDOWN: Partial<Record<SoundId, number>> = {
-  alarm: 20_000, hi3: 10_000, hi2: 6_000, hiLo: 3_000, lo2: 3_000, hi: 2_500, lo: 2_000,
+  alarm: 20_000, ring: 20_000, hi3: 10_000, hi2: 6_000, hiLo: 3_000, lo2: 3_000, hi: 2_500, lo: 2_000,
 };
 /** v0.9 round 4 (§S.4): for this long after any sound, only a request that outranks it plays (one meaning at a time). */
 export const CROSS_MS = 4_000;
@@ -71,9 +73,14 @@ const SAMPLE_LEN = { hi: 0.92, lo: 1.05 };
 /** Rough length (s) of a sound, so UI clicks stay quiet while an alert sounds and the music stays dipped. */
 export function soundLength(id: SoundId): number {
   if (id === 'alarm') return 2.6;
+  if (id === 'ring') return RING_CYCLES * RING_EVERY;
   const q = SEQ[id];
   return q ? Math.max(...q.map(([k, t]) => t + SAMPLE_LEN[k])) : 0;
 }
+
+/** v0.10.2 the phone ring: two short trills every RING_EVERY s, RING_CYCLES times (about 20 s) or until answered. */
+export const RING_EVERY = 3;
+export const RING_CYCLES = 7;
 
 export const MERGE_MS = 900;
 const UI_GAP_MS = 50;
@@ -87,6 +94,7 @@ export const SOUND_MEANING: { id: SoundId; name: string; meaning: string }[] = [
   { id: 'lo', name: '1 LO', meaning: 'Calm news: a contract signed, crew joined, a payment in; with Flight chimes on, each departure and landing' },
   { id: 'lo2', name: '2 LO', meaning: 'Good news: an achievement, a department head unlocked, an aircraft delivered' },
   { id: 'alarm', name: 'Urgent alarm', meaning: 'Only crew shortage and crew out of hours' },
+  { id: 'ring', name: 'Phone ring', meaning: 'A client on the phone: urgent work that pays well above the norm (rings until you answer)' },
   { id: 'tap', name: 'Click', meaning: 'Buttons and tabs' },
   { id: 'toggle', name: 'Toggle', meaning: 'Switches and speed buttons' },
   { id: 'error', name: 'Soft dunk', meaning: 'An action that is not possible' },
@@ -460,8 +468,24 @@ class Sound {
         tone(c, out, o.down ? 1200 : 1500, t + 0.04, 0.03, 0.035, 'sine');
         break;
       case 'error': tone(c, out, 196, t, 0.12, 0.09, 'triangle'); break;
-      case 'alarm': alarm(c, out, t); break
+      case 'alarm': alarm(c, out, t); break;
+      case 'ring':
+        this.stopRing();
+        this.ringStop = ring(c, out, t, o.test ? 2 : RING_CYCLES);
+        break;
       default: break;
+    }
+  }
+
+  private ringStop: (() => void) | null = null;
+  /** v0.10.2 the call was answered, declined or put away: the ring stops at once (clicks sound again, the music returns). */
+  stopRing() {
+    this.ringStop?.();
+    this.ringStop = null;
+    this.pending = this.pending.filter((x) => x !== 'ring');
+    if (this.last?.id === 'ring') {
+      this.alertUntil = 0;
+      this.music?.unduck();
     }
   }
 
@@ -538,6 +562,52 @@ function alarm(c: AudioContext, out: AudioNode, t: number) {
       }
     }
   }
+}
+
+/** v0.10.2 a soft phone ring: per cycle two 0.4 s trills (two sines a minor third apart, warbled at 20 Hz), 0.2 s
+ *  apart, every RING_EVERY s; all scheduled through one gain so stopping it is one fade. */
+function ring(c: AudioContext, out: AudioNode, t: number, cycles: number): () => void {
+  const bus = c.createGain();
+  bus.gain.value = 1;
+  const lp = c.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = 2600;
+  bus.connect(lp).connect(out);
+  const oscs: OscillatorNode[] = [];
+  for (let k = 0; k < cycles; k++) {
+    for (const off of [0, 0.6]) {
+      const s = t + k * RING_EVERY + off;
+      const g = c.createGain();
+      g.gain.setValueAtTime(0.0001, s);
+      // the warble: 20 Hz on/off within the trill, soft edges
+      for (let i = 0; i < 8; i++) {
+        const a = s + i * 0.05;
+        g.gain.linearRampToValueAtTime(0.07, a + 0.008);
+        g.gain.linearRampToValueAtTime(0.012, a + 0.045);
+      }
+      g.gain.exponentialRampToValueAtTime(0.0001, s + 0.42);
+      g.connect(bus);
+      for (const f of [1046.5, 1244.5]) {
+        const o = c.createOscillator();
+        o.type = 'sine';
+        o.frequency.value = f;
+        o.connect(g);
+        o.start(s);
+        o.stop(s + 0.45);
+        oscs.push(o);
+      }
+    }
+  }
+  return () => {
+    const now = c.currentTime;
+    bus.gain.cancelScheduledValues(now);
+    bus.gain.setValueAtTime(bus.gain.value, now);
+    bus.gain.linearRampToValueAtTime(0, now + 0.08);
+    setTimeout(() => {
+      for (const o of oscs) try { o.stop(); } catch { /* already stopped */ }
+      bus.disconnect();
+    }, 150);
+  };
 }
 
 /** A 1.2 s stereo room: decaying noise. */

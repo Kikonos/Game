@@ -23,7 +23,7 @@ import { advanceTo, settle } from '../engine/sim';
 import { prepareAsyncSave, saveTextAsync, supersedeAsyncSave } from './asyncSave';
 import { autoplay } from './devPlay';
 import { type Ambience, sound, type SoundEvent } from './sound';
-import { takeCueEvents, takeCues, type CueEvent } from '../engine/core/cues';
+import { cue, takeCueEvents, takeCues, type CueEvent } from '../engine/core/cues';
 import type { HeadId } from '../engine/core/types';
 import { devAchievement, devCrewHours, devJumbo, devPosition, devRestAtDeparture, devRoster, devSlipOffer, devUnlockHead } from '../engine/dev';
 import type { OohLimit } from '../engine/core/types';
@@ -142,6 +142,8 @@ export type ModalSpec =
   | { kind: 'headUnlocked'; id: HeadId; ids?: HeadId[] }
   /** v0.9.1 a client's answer to our counter-offer, wherever the player is (Accept / Decline as it applies). */
   | { kind: 'counterReply'; offerId?: string; contractId?: string; title: string; body: string }
+  /** v0.10.2 an urgent, high-paying offer phones in (it rings while shown). */
+  | { kind: 'offerCall'; offerId: string }
   /** v0.9.1 an aircraft handed over: the celebration card, then 'Follow the delivery flight?'. */
   | { kind: 'delivered'; aircraftId: string }
   | { kind: 'followDelivery'; aircraftId: string };
@@ -268,6 +270,14 @@ class GameStore {
         this.queuePop({ kind: 'counterReply', ...(e.ref.kind === 'offer' ? { offerId: e.ref.id } : { contractId: e.ref.id }), title: e.title, body: e.body ?? '' }, true);
       }
       if (e.cue === 'delivered' && e.ref?.kind === 'aircraft') this.queuePop({ kind: 'delivered', aircraftId: e.ref.id }, true);
+      // v0.10.2 a phone call: the clock stops whatever the auto-pause settings say; its pop-up is the note and rings
+      // while it shows (CallModal) when its turn in the queue comes. Closed unanswered, the Inbox line rings it again.
+      if (e.cue === 'offerCall' && e.ref?.kind === 'offer') {
+        if (e.msgId) this.cueToasted.add(e.msgId);
+        this.queuePop({ kind: 'offerCall', offerId: e.ref.id }, true);
+        if (!this.paused) this.autoPause('urgentOffer');
+        continue;
+      }
       if (!sound.audible(e.cue)) continue;
       if (e.msgId) this.cueToasted.add(e.msgId);
       // Its own pop-up (a counter reply, a delivery) is the note; anything else shows a toast.
@@ -607,6 +617,8 @@ class GameStore {
       // Gone meanwhile (answered on the offer card, the aircraft sold): nothing to show.
       if (m.kind === 'counterReply' && !(m.offerId ? this.game.offers[m.offerId] : this.game.contracts[m.contractId ?? ''])) return this.flushLadder();
       if ((m.kind === 'delivered' || m.kind === 'followDelivery') && !this.game.fleet[m.aircraftId]) return this.flushLadder();
+      // answered on the offer card, lapsed or taken meanwhile: no call
+      if (m.kind === 'offerCall' && !(this.game.offers[m.offerId]?.status === 'open' && this.game.offers[m.offerId].expires > this.game.now)) return this.flushLadder();
       this.modal = m;
       this.toasts = this.toasts.filter((t) => !t.leaving);
       return;
@@ -816,6 +828,19 @@ class GameStore {
       if (o) this.openModal({ kind: 'offer', offerId: o.id });
       this.emit();
       return o?.id ?? null;
+    },
+    /** v0.10.2 an urgent, high-paying AOG cover that phones in (the call card and its ring); returns the offer id. */
+    call: () => {
+      const g = this.game;
+      if (!g) return null;
+      const o = generateOffer(g, 'aogCover', { start: g.now + 26 * 60, wide: false, window: false, paint: false, cabin: false });
+      if (!o) return null;
+      o.urgency = 'urgent';
+      o.call = true;
+      o.expires = Math.min(o.expires, g.now + 5 * 60);
+      cue('offerCall', { title: `Phone call: ${o.title}`, ref: { kind: 'offer', id: o.id } });
+      this.emit();
+      return o.id;
     },
     /** v0.7.4: an aircraft of a type at home base with its crew (e.g. 'b763'); returns its id. */
     addType: (typeId: string, cabinIx = 0) => {

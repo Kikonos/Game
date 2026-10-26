@@ -30,6 +30,7 @@ export {
 export { markOfferSeen, offerCompetition, rivalList, rivalSummary, rivalView, STYLE_NAME, type RivalStyle, type RivalView } from './rivals';
 export { deportationCleanHit, hajjTender } from './missions';
 export { warRiskCost } from './missionChecks';
+export { answerCall, CALL_MARGIN_X, callPlan, callScore, callScript, declineCall, isCallOffer, whenSaid, type CallPlan, type CallScript } from './call';
 
 function daily(g: GameState) {
   dailyOffers(g);

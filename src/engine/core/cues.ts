@@ -13,14 +13,16 @@ export type Cue =
   | 'cancelRisk' | 'airspaceActive' | 'cashNegative' | 'evacuation' | 'clientCollapse' | 'crewShortage' | 'crewOutOfHours'
   | 'achievement' | 'ladder' | 'headUnlocked' | 'headHired'
   // v0.9.1: a client's answer to a counter-offer, a warning without a sound of its own, an aircraft handed over.
-  | 'counterReply' | 'notice' | 'delivered';
+  | 'counterReply' | 'notice' | 'delivered'
+  // v0.10.2 an urgent, high-paying offer phones in (the call pop-up, its ring).
+  | 'offerCall';
 
 /** Every cue, in the §S.3 table order (tests, the UI's test list). */
 export const CUES: Cue[] = [
   'message', 'crewJoined', 'paymentIn', 'monthEnd', 'headDone', 'decision', 'offerNew', 'contractSigned', 'flightDep', 'flightArr',
   'aog', 'delayPenalty', 'sickCall', 'latePayer', 'offerLapsing', 'worldEventOurs', 'crewAmber', 'ruleAlert',
   'cancelRisk', 'airspaceActive', 'cashNegative', 'evacuation', 'clientCollapse', 'crewShortage', 'crewOutOfHours',
-  'achievement', 'ladder', 'headUnlocked', 'headHired', 'counterReply', 'notice', 'delivered',
+  'achievement', 'ladder', 'headUnlocked', 'headHired', 'counterReply', 'notice', 'delivered', 'offerCall',
 ];
 
 /** v0.9.1 what a cue is for, in the player's words (the toast; the Inbox message when `msgId`). */

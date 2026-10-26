@@ -4,6 +4,7 @@ import { BookOpenText, Download, FolderOpen, Home, Lightbulb, Play, PlusCircle, 
 import { sound, SOUND_MEANING } from '../sound';
 import { HeadUnlockedModal } from '../modals/HeadUnlockedModal';
 import { CounterReplyModal, DeliveredModal, FollowDeliveryModal } from '../modals/PopModals';
+import { CallModal } from '../modals/CallModal';
 import { useRef, useState } from 'react';
 import { DAY, fmtDate } from '../../engine/core/time';
 import { AUTOSAVE_SLOT, SLOTS, deleteSlot, deserialize, listSaves, loadFromSlot, saveToSlot, serialize } from '../../engine/save';
@@ -316,6 +317,7 @@ export function GlobalModals() {
     case 'worldEvent': return s.game ? <WorldEventModal eventId={m.eventId} /> : null;
     case 'headUnlocked': return s.game ? <HeadUnlockedModal key={m.id} id={m.id} ids={m.ids} /> : null;
     case 'counterReply': return s.game ? <CounterReplyModal {...m} /> : null;
+    case 'offerCall': return s.game ? <CallModal key={m.offerId} offerId={m.offerId} /> : null;
     case 'delivered': return s.game ? <DeliveredModal aircraftId={m.aircraftId} /> : null;
     case 'followDelivery': return s.game ? <FollowDeliveryModal aircraftId={m.aircraftId} /> : null;
   }

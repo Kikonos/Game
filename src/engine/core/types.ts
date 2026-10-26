@@ -218,6 +218,8 @@ export interface Company {
   reputation: Reputation;
   approvals: ApprovalId[];
   pendingApprovals: PendingApproval[];
+  /** v0.10.2 the ETOPS maintenance programme (a one-off CAMO set-up the ETOPS approvals need): started, ready, paid; `held` once done. Older saves: not set up. */
+  etopsMx?: { started: Minute; done: Minute; cost: number; held?: true };
   policies: Policies;
   departments: Department[];
   /** Next numeric flight number for own-designator flights. */
@@ -546,6 +548,8 @@ export interface ContractOffer {
   rivalBid?: { rivalId: string; at: Minute; factor: number; why: string };
   /** v0.8 a Trusted/Partner client asked us first (+48 h, no rival bid). */
   firstRefusal?: boolean;
+  /** v0.10.2 urgent and high-paying: it came as a phone call (contracts/call.ts). */
+  call?: true;
   /** v0.8 repeat business: the contract it repeats. */
   repeatOf?: string;
   /** v0.8 the player opened or countered it (markOfferSeen): a rival win is announced. */
@@ -790,6 +794,8 @@ export interface Flight {
   warRisk?: number;
   /** v0.8 insurers withdrew war-risk cover: asked (the decision is open), or 'wait' (asked again in a day). */
   uninsured?: 'asked' | 'wait' | 'ok';
+  /** v0.10.2 a technical cause hit this leg (a technical delay, the aircraft AOG or in an overrunning check, grounded): technical dispatch reliability. */
+  tech?: true;
 }
 
 /** v0.7.1 private-jet charter classes (data/jets.ts). */
@@ -1415,7 +1421,10 @@ export interface Stats {
   ratedHires?: [Minute, string, number][];
   /** v0.6: required seats an on-board spare took over this month (reset by the monthly morale line). */
   sparesCovered?: number;
-  /** v0.7: illegal-crew and AOG incidents (pruned after 365 days; the Ladder's clean record). */
+  /** v0.10.2 technical dispatch reliability by day (day number → [revenue departures, technical failures: off > 15 min
+   *  late or cancelled for a technical reason]); 366 days kept. Older saves: seeded at load from onTimeM and the AOGs. */
+  techDisp?: Record<number, [number, number]>;
+  /** v0.7: illegal-crew and AOG incidents (pruned after 365 days; the Ladder's illegal-duty check). */
   incidents?: [Minute, 'illegalCrew' | 'aog'][];
   /** v0.7: deliveries, days delivery ferries waited for pilots, refits, lease returns and extensions, authority findings. */
   deliveries?: number;
