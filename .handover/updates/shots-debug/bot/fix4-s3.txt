@@ -1,0 +1,112 @@
+BLOCK HOURS bot — seed 3, 365 days, Startup at LIS (2× A320ceo)
+
+month       cash  revenue   profit  BH/ac  wet BH/MGH  contracts        legs cx/sub ill util  AOG mxd  dec/msg goals
+Mar ’27    2013k     857k    -408k     57       34/26  AH2 RP2 SB1        24    0/0   0  12%    0   0     1/32     1
+Apr ’27    1289k    1153k    -367k    115     164/144  AH4 RP1 SB3        93    0/4   0  25%    0   0     5/63     2
+May ’27     455k    1268k    -431k    177     369/320  SB2               152    8/7   0  36%    0   0     7/73     2
+Jun ’27    1436k    1756k     133k    167     286/239  AH6 SB3 SI1       124    2/0   0  32%    1   0     5/57     2
+Jul ’27     796k    2009k     332k    197     351/268  AH4 SB2           179    2/0   0  38%    0   0     7/62     2
+Aug ’27    2337k    2233k     637k    152     240/174  AC1 AH10 SB3 SP1   115    0/0   0  29%    0   0     5/68     2
+Sep ’27    2322k    1818k     247k    167     290/235  AH6 SB3           110    0/0   0  26%    0   0     3/36     2
+Oct ’27     774k    1806k    -254k    174     284/246  AH2 RP1 SB2 SP1   146    0/0   0  31%    1   1     5/47     2
+Nov ’27     650k     999k    -888k    130     236/201  AH1 RP1 SB2 SP1   118    0/0   0  23%    0  14     3/43     2
+Dec ’27     469k    2002k     303k    210     389/319  AC1 AH2 RP1 SB3   163    0/0   0  28%    0   0     2/46     2
+Jan ’28    1197k    1613k      74k    208     417/394  SB3               214    0/0   0  28%    0   0     3/23     2
+Feb ’28*   1116k     367k    -622k    192     410/400  SB3               187  18/13   0  25%    1   2     6/75     2
+
+== invariants seed 3--inv: 3 errors, 35 warnings (2562 legs, 93 crew, 5950 rests checked (0 without legs on record), 1555 steps, 1 Mar 06:00 → 29 Feb 00:00)
+  ERROR recovery × 2
+    28 Nov 14:00  Rui Costa (FO): 170:00 between recovery rests (from 21 Nov 12:00 to 28 Nov 14:00; limit 168 h)
+    28 Nov 14:00  Mariana Mendes (CC): 170:00 between recovery rests (from 21 Nov 12:00 to 28 Nov 14:00; limit 168 h)
+  ERROR rest × 1
+    3 Feb 05:25  Miguel Martins (CPT): 10:00 rest after 8:25 duty ending 3 Feb 05:25 (needs 14:00; tz 4 h, away at AUH) before duty 3 Feb 15:25
+  warn orphan × 6
+    24 Apr 00:00  duty du1py lists missing ticket f2bv
+    6 May 00:00  duty du2gp lists missing ticket f458
+    26 May 00:00  duty du3u1 lists missing ticket f5mf
+    5 Feb 00:00  duty duldv lists missing ticket fn5e
+    5 Feb 00:00  duty duldv lists missing ticket fn5i
+    5 Feb 00:00  duty duldv lists missing ticket fn5m
+  warn rest-pos × 27
+    7 Apr 17:52  Duarte Rodrigues (CPT): 9:08 rest after 9:47 duty ending 7 Apr 17:52 (needs 10:00; away at OXB) before duty 8 Apr 03:00
+    9 Jun 22:25  Duarte Rodrigues (CPT): 10:35 rest after 10:50 duty ending 9 Jun 22:25 (needs 10:50; away at BJV) before duty 10 Jun 09:00
+    12 Jun 10:04  Rita Sousa (CPT): 10:56 rest after 10:59 duty ending 12 Jun 10:04 (needs 10:59; away at MAN) before duty 12 Jun 21:00
+    6 Aug 11:06  Rita Sousa (CPT): 9:54 rest after 8:06 duty ending 6 Aug 11:06 (needs 10:00; away at ZAG) before duty 6 Aug 21:00
+    7 Nov 05:06  Rita Sousa (CPT): 9:54 rest after 9:36 duty ending 7 Nov 05:06 (needs 10:00; away at SOF) before duty 7 Nov 15:00
+    12 Jun 10:04  Vasco Vieira (FO): 10:56 rest after 10:59 duty ending 12 Jun 10:04 (needs 10:59; away at MAN) before duty 12 Jun 21:00
+    20 Jan 07:03  Vasco Vieira (FO): 9:57 rest after 5:03 duty ending 20 Jan 07:03 (needs 10:00; away at AMM) before duty 20 Jan 17:00
+    9 Jun 22:25  Rita Gomes (FO): 10:35 rest after 10:50 duty ending 9 Jun 22:25 (needs 10:50; away at BJV) before duty 10 Jun 09:00
+  warn slip × 2
+    4 Feb 00:00  XY3043 MCT–RUH slipped 54 h (first seen STD 2 Feb 14:30)
+    12 Feb 05:00  XY971 CAI–RUH slipped 53 h (first seen STD 10 Feb 18:50)
+
+P&L of the closed months: acmiRevenue 12509k, charterRevenue 4995k, otherRevenue 11k, disruption -17k, compliance -18k, subcharter -125k, hotels -130k, penalties -184k, hiring -227k, deadhead -287k, approvals -300k, airportFees -470k, perDiem -515k, reserves -625k, checks -690k, insurance -924k, fuel -998k, rent -2508k, overhead -2750k, maintenance -2985k, salaries -4387k
+legs 1625, on time 83.0%, cancelled 30, contracts 49 signed (16 countered), done 54, decisions 52, sub-chartered 24, reliable 85.8, fleet A320+A320, crew 86, messages 625
+decisions answered: changeRequest:accept 36, ctot:wait 3, turnaround:accept 2, turnaround:pay 2, aog:team 2, curfew:divert 1, sickAway:fix:delay 1, diversion:alt:SOF 1, crewShort:delay 1, aog:courier 1, sickCrew:callIn 1, diversion:alt:MED 1
+uncovered at departure (held for crew): NB SB May ’27 1, NB SB Jul ’27 1, NB SB Feb ’28 2
+cancelled legs by reason: Recovery: Waiting for a legal crew (revenue) 14, Schedule recovery (revenue) 6, AOG: engineering team (revenue) 6, Recovery: Technical: diversion (revenue) 1, Recovery: Late inbound aircraft (revenue) 1, AOG: waiting for parts (revenue) 1, Aircraft out of position (revenue) 1
+ladder: widebody signed never; tour series / troop rotations signed 0
+crew control: amber 19, red 24 (out of hours 3), fixes {subcharter 9, swap 3, delay 1, jet 1}, jets 1 40k (0.23% of revenue) · short-notice offers passed over 5, widebody general work capped 0, leases without a job 15
+paint: 0 deals with client paint (-); paint-shop visits 0 in / 0 out; paint 0k, reimbursed 0k, net 0k (0.0% of revenue)
+crew v0.6: morale 63.0 (min 62.1, month trend -0.8), resigned 7, hired back 7, classes booked 0 done 0, extra-crew duties 0.3% of 891, paid extras 0, policies [-], government invoices late 3/6
+technical reliability (90 days, weekly): min 95% median 98% max 100% · year 97.8% (37 technical failures in 1658 departures)
+ladder record: etops120 first met day 33 (met on 262 of 365 days) · widebody first met day 33 (met on 262 of 365 days) · etops180 first met day 33 (met on 136 of 365 days)
+ladder v0.7: filed [widebody day 219], granted [-], pending [widebody (waiting)], findings 0
+market: 17 offers (2/1/1/4/3/2/1/1/2 per month), 4 teasers, 0 new-build; signed [-]
+deliveries: 0 handed over (0 abroad), ferry legs 0 (0.0 BH), delivery-crew airline tickets 0, waits 0 days (longest 0), wait hires 0
+refits: 0 done [-] 0k; leases: 0 extended, 0 returned 0k
+v0.7.4: client cabin requests seen 2, signed with the cabin 1, reconfigurations done 0 (0k, client share invoiced on completion)
+v0.7.2: sub-chartered legs 24 (reliability -9.7), C-checks at hubs [SOF], ferry+ticket cost 27k, ferry legs 2, captains as FO 15, multi-type cabin hires 0, early returns 0, sales 0
+v0.7.3: augmented duties flown 0, standby crew-days held 12039, in the state 0 (3P 0 / 4P 0; class 1 0 / 2 0 / 3 0), rest plans not possible 0, extra cabin crew for rest 0, extensions 1, splits 0, standby call-ins 34, delayed reports 0, rest refits [-], 4 pilots for a short cruise 0, discretion reports 0
+v0.8: levels U/N/K/T/P 1/91/27/3/0 · standing Est. day 120, Resp. day 365 · types AC 2 AH 33 RP 6 SB 5 SI 1 SP 2 · lost to rivals 85 (cheaper 48/closer 1/sooner 36) · sub-charter out 24 (Heston Airlines 4, Avion Express 3, Airhub Airlines 5, KlasJet 1) in 1 · events 25 (closures hit 1, legs rerouted 60, strike delays 3, FM cancels 0, war-risk 0k, injunctions 0, whiteouts 0) · phases by quarter steady/steady/steady/steady · fuel 756–940 · dry leases 0 (0 months, 0k) · mixed-crew contracts 3 · fees waived 0 · runtime 45.8 s
+v0.9: heads unlocked opsControl d31 crewDesk d61 analyst d37 credit d88 fleetPlanner – maintPlanner d266 watch d126 · hired 6 · handled 86 (mistakes 6, overridden 0) · achievements 12/24 · slips 0 (offers 1) · out of hours red 3 amber 4 · discretion used 0 (planned 0) refused 0 · jumbo loads 0 (747 invoiced 0k) · runtime 45.8 s
+v0.11 ops: pace normal · quiet days 64 % (235 quiet / 130 busy) · audit 1, birdStrike 2, ctot 3, curfew 1, curfewDivert 1, diversion 3, divertOnward 3, overnight 1, ramp 8, rampCat1 5, rampCat2 7, rampCat3 1, sickAway 2, techDivert 1, turnaround 5, weatherDivert 2 · audits 25 Jan L1 0 L2 0 · findings open 0 (started 0, overdue 0) · suspended no
+roster: days off/crew-month 8.0 (min 7, <7: 0 of 827) · leave 2.4 · standby 43% of days (home 37 · hotel 6 · airport 0 · reserve 0) · standby share of free days 92% · call-outs 34 (crew fixes 14) · max recovery gap 167 h · offBroken 2 · moved 599 · swapped 213 · crew-days home/hotel/airport/reserve 10401/1599/0/0 · years <96: 0 of 84
+roster spread (flying days, Jan ’28): A320 CPT 0–13 · A320 FO 0–4 · A320 PUR 0–8 · A320 CC 0–13
+
+targets
+  PASS  no exceptions, no NaN/Infinity         clean
+  PASS  solvent all year (no game over, cash < 0 ≤ rescue days) month-end low 455k, end 1116k, longest below 0 0 days
+  FAIL  summer BH per aircraft 180–320         171
+  PASS  year net margin −5%…+12% (ex Ladder fees) -1.8% ex 300k approvals; -3.6% all in (-623k on 17516k)
+  PASS  no illegal duties flown (FDP + crew)   0 (FDP 0, crew 0)
+  PASS  0 duties flown with an impossible rest plan (v0.7.3) 0 of 0 augmented duties
+  PASS  ≤ 0.3% flights uncovered at departure  0.23% of 1721
+  PASS  ≥ 1 meaningful action per week         3.1/wk, 45/52 weeks (idle: 4 27 36 44 46 47 48)
+  PASS  ≤ 3 decisions per week                 max 2, 52 answered
+  PASS  ≥ 30 offers per year                   328
+  PASS  first contract within 7 days           day 1
+  PASS  1–3 AOGs per aircraft-year             1.50 (3 in 2.0 ac-yr)
+  PASS  governments pay late (info; pool seeds 1–6) 3/6 invoices late
+  PASS  save < 300 KB (and with 10 aircraft)   peak 213 KB (compress 345 ms), with 10 aircraft 218 KB (idle clones)
+  FAIL  runs in < 12 s                         45.8 s
+  PASS  company morale 55–75 at the end        63.0 (lowest 62.1, last month -0.8)
+  PASS  resignations 4–20% of headcount a year 10.3% (7 left, 1 on notice, avg headcount 77)
+  PASS  C-check ferries: 0 illegal duties      2 legs, 0 illegal
+  PASS  delivery ferries: 0 illegal duties, no wait > 30 days 0 legs, 0 illegal, longest wait 0 days
+  PASS  discretion never planned (v0.9)        0
+  FAIL  runs in ≤ 20 s (v0.9 hard limit)       45.8 s
+  PASS  roster: no crew-month below 7 days off (v0.9) 0 of 827
+  PASS  roster: no crew-year below 96 free days pro rata (v0.9 round 4) 0 of 84
+  PASS  roster: recovery gap ≤ 168 h (v0.9)    167 h
+  ok    jets ≤ 8 a year and ≤ 1% of revenue — 1 jets, 40k
+  no    red crew shortages ≤ 12 a year — 24 red (3 out of hours), 19 amber
+  no    ladder: widebody ops filed by day 200, a widebody signed by day 365 (≥ 4 of seeds 1–6) — filed widebody day 219; signed never
+  ok    delivery pilots on airline deadheads (when handed over abroad) — 0 tickets for 0 abroad
+  ok    standby call-ins ≥ 3 a year (v0.7.3) — 34 call-ins, 12039 standby crew-days
+  ok    reliability ends ≥ 85 (v0.7.1: 90–97) — 60.0 → 85.8 (sub-charters -9.7)
+  ok    month-end cash ≥ 0 and the year ends ≥ 0 (v0.7.1 seed 6: −2657k low) — month-end low 455k, end 1116k
+  ok    captains as FO ≤ 24 duties a year — 15
+  ok    Established by day 240 (≥ 5 of seeds 1–6, v0.8) — day 120
+  ok    a Trusted client by day 365 (≥ 4 of seeds 1–6, v0.8) — day 53
+  no    a widebody signed (2–4 of seeds 1–6, v0.8) — never
+  ok    ≥ 1 offer lost to a rival with a reason (v0.8) — 85
+  ok    a world event touching our flights (≥ 3 of seeds 1–6, v0.8) — closures 1, rerouted 60, strike delays 3, war-risk 0k
+  no    a dry lease (≥ 2 of seeds 1–6, v0.8) — 0
+  ok    quiet days 45–75 % (v0.11 director, Normal pace) — 64 %
+  ok    ≥ 3 heads unlocked (v0.9; ≥ 5 on 3 seeds) — 6
+  ok    heads take ≥ 40 % of the routine decisions (v0.9) — 86 of 138
+  ok    achievements 6–14 (v0.9) — 12
+  no    roster: flying days spread ≤ 10 within a family and role (v0.9 fix) — 13 (A320 CPT)
+  no    roster: average days off 8.5–10 (v0.9) — 8.0
+  ok    roster: standby + reserve ≥ 85% of the free days (v0.9) — 92%

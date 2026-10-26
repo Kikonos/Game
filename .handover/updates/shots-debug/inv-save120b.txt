@@ -1,0 +1,25 @@
+played to 14 Dec 16:51, cash 746703, 5 aircraft, 206 crew, 28.2 s
+
+== save /home/user/wt/notes/.handover/updates/shots-debug/save/blue.json: 2 errors, 20 warnings (971 legs, 208 crew, 2553 rests checked (748 without legs on record), 2896 steps, 16 Aug 16:51 → 14 Dec 16:51)
+  ERROR release × 2
+    11 Aug 19:30  duty duw4d released 11 Aug 19:30 before BLU1056 landed 11 Aug 21:06
+    12 Aug 09:00  duty ducw0 released 12 Aug 09:00 before BLU538 landed 12 Aug 09:41
+  warn rest-pos × 12
+    28 Oct 12:20  Rui Carvalho (CPT): 9:40 rest after 10:35 duty ending 28 Oct 12:20 (needs 10:35; away at LPA) before duty 28 Oct 22:00
+    20 Nov 11:05  Rui Carvalho (CPT): 9:55 rest after 5:05 duty ending 20 Nov 11:05 (needs 10:00; away at RHO) before duty 20 Nov 21:00
+    28 Oct 12:20  António Ribeiro (CC): 9:40 rest after 10:35 duty ending 28 Oct 12:20 (needs 10:35; away at LPA) before duty 28 Oct 22:00
+    28 Oct 12:20  Mariana Ferreira (FO): 9:40 rest after 10:35 duty ending 28 Oct 12:20 (needs 10:35; away at LPA) before duty 28 Oct 22:00
+    20 Nov 11:05  Mariana Ferreira (FO): 9:55 rest after 5:05 duty ending 20 Nov 11:05 (needs 10:00; away at RHO) before duty 20 Nov 21:00
+    20 Nov 11:05  Sofia Vieira (PUR): 9:55 rest after 5:05 duty ending 20 Nov 11:05 (needs 10:00; away at RHO) before duty 20 Nov 21:00
+    20 Nov 11:05  António Ferreira (CC): 9:55 rest after 5:05 duty ending 20 Nov 11:05 (needs 10:00; away at RHO) before duty 20 Nov 21:00
+    20 Nov 11:05  Rita Silva (CC): 9:55 rest after 5:05 duty ending 20 Nov 11:05 (needs 10:00; away at RHO) before duty 20 Nov 21:00
+  warn sby-rest × 7
+    23 Jul 16:00  Sofia Ribeiro (PUR): 8:00 after an uncalled hotel standby ending 23 Jul 16:00 before work 24 Jul 00:00 (engine rule 10:00)
+    23 Jul 16:00  Léa Bernard (CC): 8:00 after an uncalled hotel standby ending 23 Jul 16:00 before work 24 Jul 00:00 (engine rule 10:00)
+    23 Jul 16:00  Mariana Marques (CC): 8:00 after an uncalled hotel standby ending 23 Jul 16:00 before work 24 Jul 00:00 (engine rule 10:00)
+    16 Aug 16:30  Marta Lopes (CC): 0:30 after an uncalled hotel standby ending 16 Aug 16:30 before work 16 Aug 17:00 (engine rule 10:00)
+    16 Aug 16:30  Mariana Vieira (CC): 0:30 after an uncalled hotel standby ending 16 Aug 16:30 before work 16 Aug 17:00 (engine rule 10:00)
+    16 Aug 16:30  Manon Lefebvre (CC): 0:30 after an uncalled hotel standby ending 16 Aug 16:30 before work 16 Aug 17:00 (engine rule 10:00)
+    16 Aug 16:30  Diogo Ferreira (PUR): 0:30 after an uncalled hotel standby ending 16 Aug 16:30 before work 16 Aug 17:00 (engine rule 10:00)
+  warn slip × 1
+    1 Oct 16:00  BLU683 MAN–LIS slipped 82 h (first seen STD 1 Oct 17:30)

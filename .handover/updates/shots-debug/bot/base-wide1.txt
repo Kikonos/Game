@@ -1,0 +1,87 @@
+BLOCK HOURS bot — seed 1, 365 days, Startup at LIS (2× A320ceo)
+
+month       cash  revenue   profit  BH/ac  wet BH/MGH  contracts        legs cx/sub ill util  AOG mxd  dec/msg goals
+Mar ’27    2224k     530k    -564k     32         3/0  AH3 RP1 SB1         7    0/0   0   9%    0   0     1/33     2
+Apr ’27     923k    1273k    -146k    179     356/299  AH1 SB2           154    1/0   0  43%    1   0     4/33     2
+May ’27     750k    1746k      31k    188     350/320  AH2 RP1 SB3 SI1   142   14/0   0  44%    1   0     4/48     3
+Jun ’27     592k    1727k    -151k    166     274/213  AH5 RP1 SB2       113    0/0   0  38%    0   0     4/66     3
+Jul ’27    1117k    1775k    -389k     93     213/176  AH6 RP2 SB3       102    2/2   0  12%    0   0     1/84     5
+Aug ’27    -172k    1601k    -664k    115     333/299  AH3 SB2           169    2/2   0  14%    0   0     5/68     5
+Sep ’27   -1206k    3187k   -1662k    123     193/163  AH8 SB2 SI1 TS1   108    0/1   0  21%    1  16    4/103     6
+Oct ’27   -1352k    1994k    -887k     99     231/211  AH2 RP1 SB2 SI1 TS1   115    0/7   0  15%    0   1     4/86     6
+Nov ’27   -3680k    3995k    -223k    143     276/303  AC1 AH4 RP3 SB1 SI1 SP1   148    3/4   0  22%    1   1    7/113     6
+Dec ’27   -1361k    2064k   -1079k    104     206/203  AC1 AH6 RP1 SB2   129    2/0   0  13%    0   1     4/94     6
+Jan ’28*   -517k    1157k    -559k    150     494/474  AC1 SB4           160  10/11   0  29%    1   1    6/116     6
+
+P&L of the closed months: acmiRevenue 10518k, charterRevenue 9356k, otherRevenue 16k, disruption -7k, crewJet -34k, training -68k, warRisk -76k, subcharter -175k, hotels -246k, perDiem -503k, penalties -505k, hiring -718k, checks -744k, airportFees -921k, reserves -945k, deadhead -1196k, insurance -1307k, overhead -2812k, rent -2971k, fuel -3126k, maintenance -3194k, salaries -6079k
+legs 1351, on time 85.2%, cancelled 32, contracts 60 signed (19 countered), done 62, decisions 44, sub-chartered 27, reliable 85.7, fleet A320+A320+B744, crew 192, messages 844
+decisions answered: changeRequest:accept 21, crewShort:delay 4, turnaround:pay 3, aog:team 2, changeRequest:decline 2, sickCrew:callIn 1, aog:courier 1, latePayment:wait 1, clientFee:bill 1, aog:swap 1, diversion:alt:FRA 1, divertOnward:flyOn 1, sickAway:fix:delay 1, ctot:wait 1, aog:subcharter 1, rescue:accept 1, curfew:divert 1
+uncovered at departure (held for crew): WB TS Sep ’27 1, WB AH Sep ’27 1, WB TS Oct ’27 1, WB SI Nov ’27 1, WB AH Dec ’27 1, NB SB Jan ’28 1, WB SB Jan ’28 2
+cancelled legs by reason: AOG: engineering team (revenue) 10, Schedule recovery (revenue) 7, Recovery: Aircraft unserviceable (revenue) 6, Recovery: Waiting for a legal crew (revenue) 6, Eurowings cancelled (revenue) 2, AOG: waiting for parts (revenue) 1, Recovery: Waiting for crew (revenue) 1, Recovery: Waiting for crew (techstop) 1
+ladder: widebody signed day 116; tour series / troop rotations signed 0
+crew control: amber 31, red 33 (out of hours 3), fixes {swap 9, subcharter 4, delay 2, jet 2, autoFix 1, deadhead 1, callIn 1}, jets 2 54k (0.27% of revenue) · short-notice offers passed over 3, widebody general work capped 8, leases without a job 0
+paint: 0 deals with client paint (-); paint-shop visits 0 in / 0 out; paint 0k, reimbursed 0k, net 0k (0.0% of revenue)
+crew v0.6: morale 53.8 (min 42.2, month trend +10.2), resigned 10, hired back 10, classes booked 2 done 2, extra-crew duties 6.9% of 786, paid extras 1, policies [per diem 110% day 225], government invoices late 8/14
+technical reliability (90 days, weekly): min 93.1% median 98.5% max 100% · year 97.9% (29 technical failures in 1395 departures)
+ladder record: etops120 first met day 36 (met on 207 of 336 days) · widebody first met day 36 (met on 207 of 336 days) · etops180 first met day 36 (met on 113 of 336 days)
+ladder v0.7: filed [-], granted [-], pending [-], findings 0
+market: 15 offers (2/4/2/2/1/2/1/1 per month), 0 teasers, 0 new-build; signed [B744 day 116 at FRA for TS]
+deliveries: 1 handed over (1 abroad), ferry legs 1 (2.7 BH), delivery-crew airline tickets 1, waits 13 days (longest 13), wait hires 0
+refits: 0 done [-] 0k; leases: 0 extended, 0 returned 0k
+v0.7.4: client cabin requests seen 0, signed with the cabin 0, reconfigurations done 0 (0k, client share invoiced on completion)
+v0.7.2: sub-chartered legs 27 (reliability -12.7), C-checks at hubs [SOF], ferry+ticket cost 23k, ferry legs 2, captains as FO 12, multi-type cabin hires 0, early returns 0, sales 0
+v0.7.3: augmented duties flown 27, standby crew-days held 21326, in the state 14 (3P 0 / 4P 14; class 1 14 / 2 0 / 3 0), rest plans not possible 0, extra cabin crew for rest 14, extensions 2, splits 1, standby call-ins 130, delayed reports 1, rest refits [-], 4 pilots for a short cruise 0, discretion reports 0
+v0.8: levels U/N/K/T/P 0/93/27/2/0 · standing Est. day 120, Resp. never · types AC 2 AH 37 RP 10 SB 7 SI 2 SP 1 TS 1 · lost to rivals 60 (cheaper 35/closer 3/sooner 22) · sub-charter out 27 (Heston Airlines 2, Titan Airways 2, GetJet Airlines 5, Air Atlanta Icelandic 6) in 3 · events 16 (closures hit 0, legs rerouted 0, strike delays 1, FM cancels 2, war-risk 76k, injunctions 0, whiteouts 0) · phases by quarter steady/steady/steady/steady · fuel 651–812 · dry leases 0 (0 months, 0k) · mixed-crew contracts 1 · fees waived 0 · runtime 91.8 s
+v0.9: heads unlocked opsControl d35 crewDesk d61 analyst d63 credit d104 fleetPlanner d117 maintPlanner d205 watch d117 · hired 7 · handled 114 (mistakes 7, overridden 0) · achievements 15/24 · slips 0 (offers 3) · out of hours red 3 amber 4 · discretion used 0 (planned 0) refused 0 · jumbo loads 1 (747 invoiced 6347k) · runtime 91.8 s
+v0.11 ops: pace normal · quiet days 68 % (227 quiet / 109 busy) · audit 1, ctot 1, curfew 2, curfewDivert 2, diversion 2, divertOnward 3, medical 1, ramp 2, sickAway 2, turnaround 4, weatherDivert 2 · audits 25 Jan L1 0 L2 0 · findings open 0 (started 0, overdue 0) · suspended no
+roster: days off/crew-month 8.3 (min 7, <7: 0 of 1224) · leave 2.1 · standby 47% of days (home 43 · hotel 4 · airport 0 · reserve 0) · standby share of free days 91% · call-outs 130 (crew fixes 20) · max recovery gap 167 h · offBroken 12 · moved 1101 · swapped 399 · crew-days home/hotel/airport/reserve 19288/1976/3/8 · years <96: 0 of 189
+roster spread (flying days, Dec ’27): A320 CPT 0–12 · A320 FO 0–11 · A320 PUR 0–14 · A320 CC 0–14 · B747 CPT 0–5 · B747 FO 0–3 · B747 PUR 0–3 · B747 CC 0–3
+
+targets
+  PASS  no exceptions, no NaN/Infinity         clean
+  FAIL  solvent all year (no game over, cash < 0 ≤ rescue days) Insolvent again for 30 days after the rescue.
+  FAIL  summer BH per aircraft 180–320         124
+  FAIL  year net margin −5%…+12% (ex Ladder fees) -28.8% ex 0k approvals; -28.8% all in (-5735k on 19891k)
+  PASS  no illegal duties flown (FDP + crew)   0 (FDP 0, crew 0)
+  PASS  0 duties flown with an impossible rest plan (v0.7.3) 0 of 27 augmented duties
+  FAIL  ≤ 0.3% flights uncovered at departure  0.61% of 1471
+  PASS  ≥ 1 meaningful action per week         3.7/wk, 47/52 weeks (idle: 4 49 50 51 52)
+  PASS  ≤ 3 decisions per week                 max 3, 44 answered
+  PASS  ≥ 30 offers per year                   297
+  PASS  first contract within 7 days           day 5
+  PASS  1–3 AOGs per aircraft-year             2.12 (5 in 2.4 ac-yr)
+  PASS  governments pay late (info; pool seeds 1–6) 8/14 invoices late
+  PASS  save < 300 KB (and with 10 aircraft)   peak 283 KB (compress 339 ms), with 10 aircraft 286 KB (idle clones)
+  FAIL  runs in < 12 s                         91.8 s
+  FAIL  company morale 55–75 at the end        53.8 (lowest 42.2, last month +10.2)
+  PASS  resignations 4–20% of headcount a year 11.2% (10 left, 5 on notice, avg headcount 134)
+  PASS  C-check ferries: 0 illegal duties      2 legs, 0 illegal
+  PASS  delivery ferries: 0 illegal duties, no wait > 30 days 1 legs, 0 illegal, longest wait 13 days
+  PASS  discretion never planned (v0.9)        0
+  FAIL  runs in ≤ 20 s (v0.9 hard limit)       91.8 s
+  PASS  roster: no crew-month below 7 days off (v0.9) 0 of 1224
+  PASS  roster: no crew-year below 96 free days pro rata (v0.9 round 4) 0 of 189
+  PASS  roster: recovery gap ≤ 168 h (v0.9)    167 h
+  ok    jets ≤ 8 a year and ≤ 1% of revenue — 2 jets, 54k
+  no    red crew shortages ≤ 12 a year — 33 red (3 out of hours), 31 amber
+  no    ladder: widebody ops filed by day 200, a widebody signed by day 365 (≥ 4 of seeds 1–6) — filed never; signed day 116
+  ok    delivery pilots on airline deadheads (when handed over abroad) — 1 tickets for 1 abroad
+  ok    augmented duties ≥ 20 on --wide --aug seeds 1–3 (v0.7.3) — 27 flown
+  ok    the rest-plan check covers ≥ 1 duty (v0.7.3) — 27 augmented duties checked
+  ok    standby call-ins ≥ 3 a year (v0.7.3) — 130 call-ins, 21326 standby crew-days
+  ok    reliability ends ≥ 85 (v0.7.1: 90–97) — 61.0 → 85.7 (sub-charters -12.7)
+  no    month-end cash ≥ 0 and the year ends ≥ 0 (v0.7.1 seed 6: −2657k low) — month-end low -3680k, end -517k
+  ok    captains as FO ≤ 24 duties a year — 12
+  ok    Established by day 240 (≥ 5 of seeds 1–6, v0.8) — day 120
+  ok    a Trusted client by day 365 (≥ 4 of seeds 1–6, v0.8) — day 153
+  ok    a widebody signed (2–4 of seeds 1–6, v0.8) — day 116
+  ok    ≥ 1 offer lost to a rival with a reason (v0.8) — 60
+  ok    a world event touching our flights (≥ 3 of seeds 1–6, v0.8) — closures 0, rerouted 0, strike delays 1, war-risk 76k
+  no    a dry lease (≥ 2 of seeds 1–6, v0.8) — 0
+  ok    quiet days 45–75 % (v0.11 director, Normal pace) — 68 %
+  ok    ≥ 3 heads unlocked (v0.9; ≥ 5 on 3 seeds) — 7
+  ok    heads take ≥ 40 % of the routine decisions (v0.9) — 114 of 158
+  no    achievements 6–14 (v0.9) — 15
+  no    roster: flying days spread ≤ 10 within a family and role (v0.9 fix) — 14 (A320 PUR)
+  no    roster: average days off 8.5–10 (v0.9) — 8.3
+  ok    roster: standby + reserve ≥ 85% of the free days (v0.9) — 91%

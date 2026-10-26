@@ -1,0 +1,4 @@
+BLOCK HOURS determinism, seed 2 (107.1 s)
+  two runs to day 365:            identical (671 KB JSON)
+  save/load at day 90 → day 365:   identical
+  save/load at day 200 + 2h17 → 365: identical

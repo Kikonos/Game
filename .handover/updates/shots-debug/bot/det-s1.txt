@@ -1,0 +1,12 @@
+[safety net] advanceTo: over 500 events at minute 14715470 (flight.dep fu53)
+[safety net] advanceTo: over 500 events at minute 14715670 (flight.dep fu41)
+[safety net] advanceTo: over 500 events at minute 14715470 (flight.dep fu53)
+[safety net] advanceTo: over 500 events at minute 14715670 (flight.dep fu41)
+[safety net] advanceTo: over 500 events at minute 14715470 (flight.dep fu53)
+[safety net] advanceTo: over 500 events at minute 14715670 (flight.dep fu41)
+[safety net] advanceTo: over 500 events at minute 14715470 (flight.dep fu53)
+[safety net] advanceTo: over 500 events at minute 14715670 (flight.dep fu41)
+BLOCK HOURS determinism, seed 1 (377.2 s)
+  two runs to day 365:            identical (761 KB JSON)
+  save/load at day 90 → day 365:   identical
+  save/load at day 200 + 2h17 → 365: identical

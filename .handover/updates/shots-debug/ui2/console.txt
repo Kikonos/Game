@@ -1,0 +1,8 @@
+[clip l-blue-tab-schedule] off-screen right: span.gt major "23 Aug" | off-screen right: span. "idle 1d 7h"
+[light] dev.disruption(diversion) found no leg
+[light] dev.disruption(medical) found no leg
+[clip l-big-schedule] off-screen right: span.gt major "23 Aug" | off-screen right: span. "idle 1d 7h"
+[clip d-blue-tab-schedule] off-screen right: span.gt major "23 Aug" | off-screen right: span. "idle 1d 7h"
+[dark] dev.disruption(diversion) found no leg
+[dark] dev.disruption(medical) found no leg
+[clip d-big-schedule] off-screen right: span.gt major "23 Aug" | off-screen right: span. "idle 1d 7h"
