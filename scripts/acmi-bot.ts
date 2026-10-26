@@ -1311,7 +1311,25 @@ function play(g: GameState, t: Tally, end: number, onStep?: () => void): void {
   let day = dayIndex(g.now);
   while (g.now < end && !g.gameOver) {
     const grid = g.started + (Math.floor((g.now - g.started) / STEP) + 1) * STEP;
+    // Debugging (STOPAT=<minute>,<file>): the save one minute before that instant, then exit.
+    const stopAt = process.env.STOPAT?.split(',');
+    if (stopAt && g.now < +stopAt[0] && +stopAt[0] <= Math.min(end, grid)) {
+      advanceTo(g, +stopAt[0] - 1);
+      writeFileSync(stopAt[1], serialize(g));
+      process.exit(0);
+    }
+    const trips0 = safetyTrips.length;
     const r = advanceTo(g, Math.min(end, grid));
+    // Debugging (TRIPINFO=1): the legs of the aircraft a safety-net trip names, when it trips.
+    if (process.env.TRIPINFO && safetyTrips.length > trips0) {
+      for (const x of safetyTrips.slice(trips0)) {
+        const id = /\(\S+ (\S+)\)/.exec(x)?.[1] ?? '';
+        const f0 = g.flights[id];
+        const ac = f0?.aircraftId ? g.fleet[f0.aircraftId] : undefined;
+        console.error(`TRIP ${x} → ${f0 ? `${f0.no} ${f0.kind} ${f0.from}-${f0.to} std ${fmtDateTime(f0.std)}+${f0.delay} ${f0.status} ${f0.delayReason ?? ''} crewHeld ${f0.crewHeld ?? ''} tries ${f0.crewTries ?? ''}` : 'gone'} ac ${ac?.reg} ${ac?.status} at ${ac?.at} flight ${ac?.flightId} maint ${ac?.maintId ? JSON.stringify(g.maintenance[ac.maintId]) : '-'}`);
+        if (ac) for (const f of Object.values(g.flights).filter((y) => y.aircraftId === ac.id && (y.status === 'scheduled' || y.status === 'enroute')).sort((a, b) => a.std - b.std).slice(0, 8)) console.error(`   ${f.id} ${f.no} ${f.kind} ${f.from}-${f.to} ${fmtDateTime(f.std)}+${f.delay} ${f.status} ${f.delayReason ?? ''} duty ${f.dutyId ?? '-'} purpose ${f.purpose ?? ''}`);
+      }
+    }
     const newDay = dayIndex(g.now) !== day;
     day = dayIndex(g.now);
     policy(g, t, r.pause === 'urgentOffer', newDay);

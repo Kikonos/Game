@@ -52,6 +52,8 @@ interface FlightRec {
   purpose?: string;
   operatedBy?: string;
   reducedCabin?: number;
+  /** Operating crew without the type rating when the leg was first seen flown. */
+  unrated?: string[];
 }
 interface LogRec {
   start: Minute;
@@ -217,6 +219,7 @@ export function createChecker(opts: CheckerOpts = {}) {
         flights.set(f.id, {
           id: f.id, no: f.no, kind: f.kind, from: f.from, to: f.to, atd: f.atd ?? f.std, ata: f.ata ?? f.sta, aircraftId: f.aircraftId, contractId: f.contractId,
           crewIds: [...f.crewIds], riders: [...(f.riders ?? [])], purpose: f.purpose, operatedBy: f.operatedBy, reducedCabin: f.reducedCabin,
+          unrated: f.kind !== 'deadhead' && f.aircraftId && g.fleet[f.aircraftId] ? f.crewIds.filter((id) => g.crew[id] && !g.crew[id].ratings.includes(typeOf(g.fleet[f.aircraftId!].typeId).family)) : [],
         });
         for (const id of new Set([...f.crewIds, ...(f.riders ?? [])])) if (g.crew[id] || crew.has(id)) (g.crew[id] ? hist(g, id) : crew.get(id)!).flights.push(f.id);
       }
@@ -303,7 +306,10 @@ export function createChecker(opts: CheckerOpts = {}) {
       if (typeId) {
         const need = etopsNeeded(typeId, f.from, f.to);
         const ac = g.fleet[f.aircraftId];
-        if (need > 0 && f.purpose !== 'delivery' && (need > etops || (ac && need > ac.etops))) err('etops', f.atd, `${f.no} ${f.from}–${f.to} needs ETOPS ${need} (company ${etops}, airframe ${ac?.etops ?? '?'})`);
+        // Empty ferries (delivery, lease, return, sale) fly on a one-off ferry permit, as the game says for deliveries:
+        // reported apart. The airframe's own ETOPS figure is not used by the game (company approval and type only).
+        const ferry = f.kind === 'ferry' && !!f.purpose;
+        if (need > etops) (ferry ? warn : err)(ferry ? 'etops-ferry' : 'etops', f.atd, `${f.no} ${f.from}–${f.to} (${f.kind}${f.purpose ? ` ${f.purpose}` : ''}) needs ETOPS ${need} (company ${etops}, airframe ${ac?.etops ?? '?'})`);
       }
     }
     for (const [acId, fl] of byAc) {
@@ -337,9 +343,9 @@ export function createChecker(opts: CheckerOpts = {}) {
         if (a && b.atd < a.ata) err('crew-twice', b.atd, `${h.name}: ${b.no} left ${fmtDateTime(b.atd)} before ${a.no} landed ${fmtDateTime(a.ata)}`);
         // Unavailable windows.
         for (const bl of h.blocks.values()) if (b.atd >= bl.from && b.atd < bl.to && bl.why !== 'joining' && !(bl.why === 'sick' && b.kind === 'deadhead')) err('blocked', b.atd, `${h.name} flew ${b.no} ${fmtDateTime(b.atd)} while ${bl.why} (${fmtDateTime(bl.from)}–${fmtDateTime(bl.to)})`);
-        if (b.kind !== 'deadhead' && !b.riders.includes(h.id) && b.aircraftId) {
-          const typeId = typeOfAc.get(b.aircraftId);
-          if (typeId && c && !c.ratings.includes(typeOf(typeId).family)) err('rating', b.atd, `${h.name} operated ${b.no} on ${typeOf(typeId).short} without the ${typeOf(typeId).family} rating`);
+        if (b.unrated?.includes(h.id)) {
+          const typeId = typeOfAc.get(b.aircraftId ?? '') ?? 'a320ceo';
+          err('rating', b.atd, `${h.name} operated ${b.no} on ${typeOf(typeId).short} without the ${typeOf(typeId).family} rating`);
         }
       }
       if (c && live.length) {
@@ -430,7 +436,7 @@ export function createChecker(opts: CheckerOpts = {}) {
       }
       // Recurrent extended recovery rest (36 h with 2 local nights) at most 168 h apart.
       const work = items.filter((x) => x.e > x.s).map((x) => [x.s, x.e] as [number, number]);
-      for (const b of h.blocks.values()) if (b.why === 'training') work.push([b.from, b.to]);
+      // (Training blocks are left out: the game models a course as one block, without its weekends.)
       work.sort((a, b) => a[0] - b[0]);
       let lastErr: Minute | null = null;
       let cur = -Infinity;
