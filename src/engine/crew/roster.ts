@@ -427,6 +427,16 @@ export function recheckAfterRelease(g: GameState, p: Pairing): void {
   rebookHomeForRecovery(g, p);
   const acs = new Set<string>();
   const ids = p.slots.filter((s) => s.crewId).map((s) => s.crewId!);
+  // Crew-planning round: released away from base with a leave starting within two days and nothing taking them home
+  // first: home now, after their rest (the leave then starts when they land). Invariant seed 1: a duty ended in
+  // Düsseldorf at 16:30, leave began at 23:00 with the captain still there, and he flew home on its second day.
+  for (const id of ids) {
+    const c = g.crew[id];
+    if (c && c.loc !== c.base && leaveAway(g, c)) {
+      sendHome(g, c, p, true);
+      recheckNext(g, [c.id]);
+    }
+  }
   rebookLooseTickets(g, new Set(ids));
   if (openDuties(g, p).length && p.aircraftId && recheckPairing(g, p).level === 'illegal' && p.illegalFrom !== undefined) acs.add(p.aircraftId);
   for (const ac of laterBroken(g, ids, p)) acs.add(ac);

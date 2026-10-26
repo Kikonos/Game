@@ -281,7 +281,6 @@ export function syncDuty(g: GameState, d: Duty, p: Pairing): void {
       removeFlights(g, stale);
     }
   }
-  const moved = crewed && !d.done && (d.report !== sh.report || d.release !== sh.release);
   d.report = sh.report;
   d.release = sh.release;
   d.fdp = sh.fdp;
@@ -290,12 +289,6 @@ export function syncDuty(g: GameState, d: Duty, p: Pairing): void {
   d.restAt = sh.restAt;
   d.flightsEv = fl.reduce((s, f) => s + f.ev, 0);
   d.legality = dutyLegality(d);
-  // Crew-planning round: a crewed duty re-measured here (a leg dropped, a pairing refreshed) re-queues its report and
-  // release at once. Before, a sync from refreshPairing could take the change detection's place (the flights then
-  // matched the duty again), the release kept its old time, and the crew stayed on duty after flying home on their
-  // ticket, then were logged off where the duty had ended (invariant seed 1: a fuel-stop leg dropped overnight, the crew
-  // "teleported" back to Algiers from Lisbon).
-  if (moved) queueDuty(g, d);
 }
 
 /** Crew check before report (roster.guardDuty): a 'duty.report' event this long before the report. */
@@ -457,7 +450,17 @@ export function refreshPairing(g: GameState, p: Pairing): string[] {
   p.dutyIds = duties.map((d) => d.id);
   if (!duties.length) return [];
   if (p.status === 'planned') p.start = duties[0].report;
-  for (const d of duties) if (!d.done) syncDuty(g, d, p);
+  // Crew-planning round: a crewed duty this refresh re-measures (a leg dropped) re-queues its report and release; the
+  // flight-change pass that would have done it then finds the duty matching its flights. (Invariant seed 1: a fuel-stop
+  // leg dropped overnight left the release queued for 21:10 on a duty now ending 14:05; the crew flew home on their
+  // ticket still "on duty" and were logged off at 21:10 back where the duty ended, in Algiers.)
+  const crewed = crewCount(p) > 0;
+  for (const d of duties) {
+    if (d.done) continue;
+    const [r0, l0] = [d.report, d.release];
+    syncDuty(g, d, p);
+    if (crewed && (d.report !== r0 || d.release !== l0)) queueDuty(g, d);
+  }
   p.start = p.status === 'planned' ? duties[0].report : Math.min(p.start, duties[0].report);
   p.end = duties[duties.length - 1].release;
   const seats = pairingSeats(g, p);

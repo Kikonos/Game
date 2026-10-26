@@ -4,13 +4,14 @@
 // him there for a trip after the leave).
 
 import { describe, expect, it } from 'vitest';
-import { newGame } from '../contracts/testkit';
+import { acceptOffer } from '../contracts';
+import { leased, legsOffer, newGame } from '../contracts/testkit';
 import { addDeadhead, retimeFlight } from '../core/entities';
 import { advanceTo } from '../sim';
 import { DAY } from '../core/time';
 import type { CrewMember, Flight, GameState } from '../core/types';
 import { dayIndex, midnight } from './dayPlan';
-import { leaveAfterTicket, sendStrandedHome } from './roster';
+import { leaveAfterTicket, recheckAfterRelease, sendStrandedHome } from './roster';
 import { touchCrew } from './timeline';
 
 /** An FO away in Hamburg, rested, with annual leave from the local midnight `days` days ahead (10 days). */
@@ -78,5 +79,24 @@ describe('leave starts at home', () => {
     // The daily crew run (at midnight UTC, before the leave starts at local midnight).
     advanceTo(g, Math.floor(g.now / DAY) * DAY + DAY + 1, new Set());
     expect(c.blocks![0].from).toBe(from + 2 * 60);
+  });
+  it('crew released away with their leave starting within hours go home after their rest, not on its second day', () => {
+    const { g, c, from } = away(1);
+    // Leave from the next local midnight; their duty in Hamburg has just been released (no ticket home: the trip
+    // after the leave starts there).
+    const o = legsOffer(g, [['LIS', 'FAO', g.now + 3 * DAY], ['FAO', 'LIS', g.now + 3 * DAY + 3 * 60]], 150);
+    o.broker = undefined;
+    const r = acceptOffer(g, o.id, [leased(g).id]);
+    if (!r.ok) throw new Error(r.error);
+    const p = Object.values(g.pairings).find((x) => x.contractId === r.data!.contractId)!;
+    const slot = p.slots.find((x) => x.role === 'FO')!;
+    slot.crewId = c.id;
+    c.restUntil = g.now + 10 * 60;
+    expect(from).toBeGreaterThan(g.now);
+    recheckAfterRelease(g, p);
+    const home = ticketsOf(g, c.id).find((f) => f.from === 'HAM' && f.to === c.base);
+    expect(home, 'a ticket home').toBeDefined();
+    // The leave starts when they land (its days kept).
+    expect(c.blocks!.find((x) => x.why === 'leave')!.from).toBe(Math.max(from, home!.sta));
   });
 });
