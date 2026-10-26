@@ -96,7 +96,7 @@ export function planSector(typeId: string, from: string, to: string): SectorPlan
 }
 
 /** Countries no operator picks for a fuel stop (war zones). */
-const NO_STOP_COUNTRY = new Set(['YE', 'SY', 'LY', 'SD', 'SS', 'SO', 'AF']);
+export const NO_STOP_COUNTRY: ReadonlySet<string> = new Set(['YE', 'SY', 'LY', 'SD', 'SS', 'SO', 'AF']);
 
 function viaStops(typeId: string, from: string, to: string): SectorPlan {
   // Fuel stops at proper airports first; small strips (size 1: diversion-only desert fields) only as a last resort.
@@ -133,33 +133,212 @@ function viaStopsAt(typeId: string, from: string, to: string, minSize: number): 
 }
 
 const etopsCache = new Map<string, number>();
+let adequateList: Airport[] | null = null;
+/** Adequate en-route alternates: any airport with a runway of at least ADEQUATE_RUNWAY_M. */
+const adequate = () => (adequateList ??= AIRPORTS.filter((x) => x.runwayM >= ADEQUATE_RUNWAY_M));
+/** Adequate airports in 5° cells (lat band × lon band) for the 'any within reach?' test. */
+let grid: Map<number, Airport[]> | null = null;
+const cellOf = (lat: number, lon: number) => Math.floor((lat + 90) / 5) * 100 + Math.floor((((lon + 180) % 360) + 360) % 360 / 5);
+function adequateWithin(lat: number, lon: number, reachKm: number): boolean {
+  if (!grid) {
+    grid = new Map();
+    for (const x of adequate()) {
+      const k = cellOf(x.lat, x.lon);
+      const l = grid.get(k);
+      if (l) l.push(x);
+      else grid.set(k, [x]);
+    }
+  }
+  const dLat = reachKm / 111;
+  const lat0 = Math.max(-90, lat - dLat);
+  const lat1 = Math.min(89.999, lat + dLat);
+  // Longitude span at the band's highest latitude (the whole circle near the poles).
+  const cos = Math.cos((Math.min(89, Math.max(Math.abs(lat0), Math.abs(lat1))) * Math.PI) / 180);
+  const dLon = Math.min(180, dLat / Math.max(0.01, cos));
+  for (let b = Math.floor((lat0 + 90) / 5); b <= Math.floor((lat1 + 90) / 5); b++) {
+    const n = dLon >= 180 ? 72 : Math.ceil((2 * dLon) / 5) + 1;
+    const c0 = Math.floor((((lon - dLon + 180) % 360) + 360) % 360 / 5);
+    for (let i = 0; i < Math.min(72, n); i++) {
+      const l = grid.get(b * 100 + ((c0 + i) % 72));
+      if (l && l.some((x) => haversine(lat, lon, x.lat, x.lon) <= reachKm)) return true;
+    }
+  }
+  return false;
+}
+/** One-engine-inoperative speed as a share of cruise (still air). */
+export const OEI_SPEED = 0.85;
+/** ETOPS 'need' buckets: 0 is the 60-minute rule (no ETOPS). */
+const bucket = (minutes: number) => (minutes <= 60 ? 0 : minutes <= 120 ? 120 : minutes <= 180 ? 180 : minutes <= 240 ? 240 : 330);
+/** The track a → b sampled every ~150 nm (end points left out). */
+function samples(from: string, to: string): [number, number][] {
+  const A = AIRPORT_BY_CODE[from];
+  const B = AIRPORT_BY_CODE[to];
+  const n = Math.max(2, Math.ceil(distanceNm(from, to) / 150));
+  const out: [number, number][] = [];
+  for (let i = 1; i < n; i++) out.push(interpolateGC(A.lon, A.lat, B.lon, B.lat, i / n));
+  return out;
+}
+
+/**
+ * v0.11 the furthest a twin is from an adequate airport on the direct track a → b, in minutes at the one-engine
+ * speed in still air (≈ 0.85 × cruise): the figure the 60-minute rule and ETOPS approvals are measured against
+ * (EASA AMC 20-6). 0 for three or four engines. Pure.
+ */
+export function etopsMinutes(typeId: string, from: string, to: string): number {
+  const t = typeOf(typeId);
+  if (t.engines !== 2) return 0;
+  const key = `${t.cruiseKt}:${from}:${to}`;
+  const hit = etopsCache.get(key);
+  if (hit !== undefined) return hit;
+  // v0.8 the blue-ice runways alternate for each other (Troll / Wolf's Fang), as on the real Antarctic flights.
+  let worstNm = 0;
+  for (const [lon, lat] of samples(from, to)) {
+    let near = Infinity;
+    for (const x of adequate()) near = Math.min(near, haversine(lat, lon, x.lat, x.lon) / 1.852);
+    worstNm = Math.max(worstNm, near);
+  }
+  const minutes = (worstNm / (t.cruiseKt * OEI_SPEED)) * 60;
+  etopsCache.set(key, minutes);
+  return minutes;
+}
 
 /**
  * ETOPS minutes needed for a direct sector by a twin: the largest distance from the track to an adequate
  * airport, flown at single-engine speed (≈ 0.85 × cruise), bucketed to 0/120/180/240/330.
  */
 export function etopsNeeded(typeId: string, from: string, to: string): number {
+  return bucket(etopsMinutes(typeId, from, to));
+}
+
+/** The longest diversion time a cap allows (0: the 60-minute rule). */
+const capMinutes = (cap: number) => (cap >= 330 ? Infinity : cap >= 240 ? 240 : cap >= 180 ? 180 : cap >= 120 ? 120 : 60);
+const withinCache = new Map<string, boolean>();
+
+/**
+ * v0.11 a direct leg stays inside an ETOPS cap (0: within 60 minutes of an adequate airport everywhere): the
+ * same answer as etopsNeeded(…) ≤ cap, found without measuring every point exactly (it stops at the first point
+ * out of reach). Always true for three or four engines. Pure.
+ */
+export function withinEtops(typeId: string, from: string, to: string, cap: number): boolean {
   const t = typeOf(typeId);
-  if (t.engines === 4) return 0;
-  const key = `${t.cruiseKt}:${from}:${to}`;
-  const hit = etopsCache.get(key);
+  const lim = capMinutes(cap);
+  if (t.engines !== 2 || lim === Infinity) return true;
+  const exact = etopsCache.get(`${t.cruiseKt}:${from}:${to}`);
+  if (exact !== undefined) return exact <= lim;
+  const key = `${t.cruiseKt}:${lim}:${from}:${to}`;
+  const hit = withinCache.get(key);
   if (hit !== undefined) return hit;
-  const A = AIRPORT_BY_CODE[from];
-  const B = AIRPORT_BY_CODE[to];
-  // v0.8 the blue-ice runways alternate for each other (Troll / Wolf's Fang), as on the real Antarctic flights.
-  const adequate = AIRPORTS.filter((x) => x.runwayM >= ADEQUATE_RUNWAY_M);
-  const n = Math.max(2, Math.ceil(distanceNm(from, to) / 150));
-  let worstNm = 0;
-  for (let i = 1; i < n; i++) {
-    const [lon, lat] = interpolateGC(A.lon, A.lat, B.lon, B.lat, i / n);
-    let near = Infinity;
-    for (const x of adequate) near = Math.min(near, haversine(lat, lon, x.lat, x.lon) / 1.852);
-    worstNm = Math.max(worstNm, near);
+  const reach = (lim / 60) * t.cruiseKt * OEI_SPEED * 1.852;
+  let ok = true;
+  for (const [lon, lat] of samples(from, to)) {
+    if (!adequateWithin(lat, lon, reach)) {
+      ok = false;
+      break;
+    }
   }
-  const minutes = (worstNm / (t.cruiseKt * 0.85)) * 60;
-  const need = minutes <= 60 ? 0 : minutes <= 120 ? 120 : minutes <= 180 ? 180 : minutes <= 240 ? 240 : 330;
-  etopsCache.set(key, need);
-  return need;
+  withinCache.set(key, ok);
+  return ok;
+}
+
+/** v0.11 the highest ETOPS approval held (0: none) from the company's approvals. Pure. */
+export function heldEtops(approvals: readonly string[]): number {
+  return approvals.includes('etops240') ? 240 : approvals.includes('etops180') ? 180 : approvals.includes('etops120') ? 120 : 0;
+}
+
+/**
+ * v0.11 how far from an adequate airport this type may fly on our AOC, as an ETOPS cap: the lower of the company's
+ * approval and the type's own capability (0 = the 60-minute rule, with no approval or an incapable twin);
+ * Infinity for three or four engines (no twin rules). Every ferry and positioning routing respects it. Pure.
+ */
+export function etopsCap(approvals: readonly string[], typeId: string): number {
+  const t = typeOf(typeId);
+  if (t.engines !== 2) return Infinity;
+  return Math.min(heldEtops(approvals), t.etopsMax);
+}
+
+export interface EtopsRouteOpts {
+  /** Longest block of one leg (a ferry day). */
+  maxBlock: number;
+  /** Countries never used for a stop. */
+  noStop: ReadonlySet<string>;
+  /** Extra test on each leg (closed airspace). */
+  ok?: (a: string, b: string) => boolean;
+}
+
+const etopsRoutes = new Map<string, SectorLeg[] | null>();
+/**
+ * Isolated aerodromes (no destination alternate within reach): a leg into one carries fuel for two hours above it
+ * instead of an alternate and 30 minutes' holding (Part-CAT isolated-aerodrome fuel): about an hour of range less.
+ */
+export const ISOLATED = new Set(['SFJ', 'UAK', 'YFB', 'BDA']);
+
+/**
+ * v0.11 the quickest chain of legs from → to in which every leg stays within the ETOPS cap (the 60-minute rule at
+ * 0), each within the type's range and runways and at most `maxBlock` long, with fuel stops at proper airports or
+ * the en-route fields (Keflavík, Kangerlussuaq, Iqaluit, Goose Bay…): the way real operators ferry a twin without
+ * ETOPS approval. Shortest elapsed time (block plus an hour per stop), A* on the great circle; null when no such
+ * chain exists (no 60-minute way across the Pacific or the South Atlantic). Pure, cached.
+ */
+export function etopsRoute(typeId: string, from: string, to: string, cap: number, opts: EtopsRouteOpts, tag = ''): SectorLeg[] | null {
+  const key = `${typeId}:${capMinutes(cap)}:${opts.maxBlock}:${tag}:${from}:${to}`;
+  if (etopsRoutes.has(key)) return etopsRoutes.get(key)!;
+  const out = searchRoute(typeId, from, to, cap, opts);
+  etopsRoutes.set(key, out);
+  return out;
+}
+
+function searchRoute(typeId: string, from: string, to: string, cap: number, opts: EtopsRouteOpts): SectorLeg[] | null {
+  if (from === to) return [];
+  if (!AIRPORT_BY_CODE[from] || !AIRPORT_BY_CODE[to] || runwayFit(typeId, from) === 'no' || runwayFit(typeId, to) === 'no') return null;
+  const t = typeOf(typeId);
+  // Nodes: the start, the stops (proper airports and the en-route fields), the destination last.
+  const stops = AIRPORTS.filter((x) => x.code !== from && x.code !== to && !x.ice && (x.size >= 2 || x.enroute) && !opts.noStop.has(x.country) && runwayFit(typeId, x.code) === 'ok');
+  const N: Airport[] = [AIRPORT_BY_CODE[from], ...stops, AIRPORT_BY_CODE[to]];
+  const n = N.length;
+  const T = n - 1;
+  const limited = N.map((x) => runwayFit(typeId, x.code) === 'limited');
+  const full = t.rangeNm * RANGE_RESERVE;
+  // Great-circle nm as distanceNm gives it (whole km), without its pair cache (a search touches every pair).
+  const nm = (i: number, j: number) => Math.round(haversine(N[i].lat, N[i].lon, N[j].lat, N[j].lon)) / 1.852;
+  const block = (i: number, j: number) => roundUp5(((nm(i, j) * ROUTE_FACTOR) / t.cruiseKt) * 60 * windFactor(N[i], N[j]) + TAXI_CLIMB_MIN);
+  const hT = N.map((_, i) => ((nm(i, T) * ROUTE_FACTOR) / t.cruiseKt) * 60 * 0.95);
+  const best = new Float64Array(n).fill(Infinity);
+  const prev = new Int32Array(n).fill(-1);
+  const legs = new Int32Array(n);
+  const done = new Uint8Array(n);
+  const open = new Set<number>([0]);
+  best[0] = 0;
+  while (open.size) {
+    let cur = -1;
+    let f = Infinity;
+    for (const i of open) {
+      const v = best[i] + hT[i];
+      if (v < f || (v === f && N[i].code < N[cur].code)) [cur, f] = [i, v];
+    }
+    open.delete(cur);
+    if (cur === T) break;
+    done[cur] = 1;
+    if (legs[cur] >= 14) continue;
+    for (let j = 1; j < n; j++) {
+      if (done[j] || j === cur) continue;
+      const d = nm(cur, j);
+      if (d > full * (limited[cur] || limited[j] ? LIMITED_RANGE_SHARE : 1) - (ISOLATED.has(N[j].code) ? t.cruiseKt : 0)) continue;
+      const blk = block(cur, j);
+      if (blk > opts.maxBlock) continue;
+      const g1 = best[cur] + blk + (j === T ? 0 : TECH_STOP_MIN);
+      if (g1 >= best[j]) continue;
+      if (opts.ok && !opts.ok(N[cur].code, N[j].code)) continue;
+      if (!withinEtops(typeId, N[cur].code, N[j].code, cap)) continue;
+      best[j] = g1;
+      prev[j] = cur;
+      legs[j] = legs[cur] + 1;
+      open.add(j);
+    }
+  }
+  if (prev[T] < 0) return null;
+  const path = [T];
+  while (path[0] !== 0) path.unshift(prev[path[0]]);
+  return path.slice(1).map((j, k) => ({ from: N[path[k]].code, to: N[j].code, block: blockMinutes(typeId, N[path[k]].code, N[j].code) }));
 }
 
 // ---------- crew complements ----------

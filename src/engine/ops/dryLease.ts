@@ -8,7 +8,7 @@ import { BAL } from '../core/balance';
 import { addFlight, nextId, ownFlightNo, removeFlights, retimeFlight, touchStatus } from '../core/entities';
 import { accrue, cashOnly, invoice, post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
-import { typeOf } from '../core/perf';
+import { etopsCap, typeOf } from '../core/perf';
 import { requestPause } from '../core/pause';
 import { schedule } from '../core/queue';
 import { chance, int, next, range, type RngHolder } from '../core/rng';
@@ -16,7 +16,7 @@ import { DAY, fmtDay, fmtMonth, monthKey, monthStart, fmtDayRange } from '../cor
 import { hash } from '../core/util';
 import type { ActionResult, Aircraft, Contract, ContractOffer, Flight, GameState, Minute, SimEvent } from '../core/types';
 import type { CheckLevel, FeasibilityCheck, FeasibilityReport } from '../contracts/feasibility';
-import { route } from '../contracts/plan';
+import { chainBackward, chainForward, isRerouted, route } from '../contracts/plan';
 import { bumpClient, noteJobDone, statsV08 } from '../contracts/relations';
 import { autoRoster } from '../crew';
 import { checkStatus } from './maintenance';
@@ -108,10 +108,12 @@ export function leasedText(g: GameState, aircraftId: string): string | null {
 interface FerryLeg { from: string; to: string; std: Minute; sta: Minute }
 
 /** Ferry legs from → to arriving by `arriveBy` (latest), or leaving at `leave` (earliest). Pure. */
-function ferryLegs(typeId: string, from: string, to: string, opts: { arriveBy?: Minute; leave?: Minute }): FerryLeg[] | null {
+function ferryLegs(typeId: string, from: string, to: string, opts: { arriveBy?: Minute; leave?: Minute }, cap = Infinity): FerryLeg[] | null {
   if (from === to) return [];
-  const r = route(typeId, from, to);
+  const r = route(typeId, from, to, cap);
   if (!r) return null;
+  // v0.11 the long way round an ETOPS limit flies as ferry days (night stops).
+  if (isRerouted(r)) return opts.leave !== undefined ? chainForward(typeId, from, to, Math.ceil(opts.leave / 15) * 15, cap) : chainBackward(typeId, from, to, -Infinity, opts.arriveBy!, cap);
   const turn = typeOf(typeId).turnMin;
   const total = r.reduce((s, l) => s + l.block, 0) + turn * (r.length - 1);
   let t = opts.leave ?? (opts.arriveBy! - total);
@@ -140,8 +142,8 @@ export function dryPlan(g: GameState, o: Pick<ContractOffer, 'start' | 'end' | '
   const site = o.dry?.site;
   if (!site) return null;
   const from = whereAt(g, ac, o.start - 3 * DAY);
-  const out = ferryLegs(ac.typeId, from, site, { arriveBy: o.start - DAY });
-  const back = ferryLegs(ac.typeId, site, g.company.homeBase, { leave: o.end + DAY + 8 * 60 });
+  const out = ferryLegs(ac.typeId, from, site, { arriveBy: o.start - DAY }, etopsCap(g.company.approvals, ac.typeId));
+  const back = ferryLegs(ac.typeId, site, g.company.homeBase, { leave: o.end + DAY + 8 * 60 }, etopsCap(g.company.approvals, ac.typeId));
   if (!out || !back) return null;
   return { out, back, from };
 }
@@ -438,7 +440,7 @@ export function recallDry(g: GameState, c: Contract): ActionResult<{ penalty: nu
   const t = recallTerms(g, c);
   if (!t || !isDry(c)) return { ok: false, error: c.dry?.returnedAt !== undefined ? 'She is already on her way home' : 'The lease ends within two days anyway' };
   const d = c.dry;
-  const plan = ferryLegs(g.fleet[c.aircraftIds[0]]?.typeId ?? 'a320ceo', d.site, g.company.homeBase, { leave: t.at + DAY + 8 * 60 });
+  const plan = ferryLegs(g.fleet[c.aircraftIds[0]]?.typeId ?? 'a320ceo', d.site, g.company.homeBase, { leave: t.at + DAY + 8 * 60 }, etopsCap(g.company.approvals, g.fleet[c.aircraftIds[0]]?.typeId ?? 'a320ceo'));
   const back = d.backIds.map((id) => g.flights[id]).filter((f): f is Flight => !!f && f.status === 'scheduled').sort((a, b) => a.std - b.std);
   if (plan && back.length === plan.length) back.forEach((f, i) => retimeFlight(g, f, plan[i].std, plan[i].sta));
   else if (back.length) {

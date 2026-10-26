@@ -10,7 +10,7 @@ import { flightsOf, nextId, removeFlights } from '../core/entities';
 import { post } from '../core/ledger';
 import { pushMessage, setDecisionHook } from '../core/messages';
 import { isolatePauses, requestPause } from '../core/pause';
-import { blockMinutes, typeOf } from '../core/perf';
+import { blockMinutes, etopsCap, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { chance, int, next, range, weightedPick, type RngHolder } from '../core/rng';
 import { DAY, fmtDay, fmtDuration, fmtTime, fmtDayRange } from '../core/time';
@@ -681,7 +681,7 @@ function positionPlans(g: GameState, h: Head): void {
     const arriveBy = f0.std - F.arriveBeforeMin;
     const data = { aircraftId: ac.id, to: f0.from, arriveBy, contractId: c.id };
     if (dismissedNow(g, h, { kind: 'position', data })) continue;
-    const chain = chainBackward(ac.typeId, pos[0].from, f0.from, g.now + BAL.ferryLeadMin, arriveBy);
+    const chain = chainBackward(ac.typeId, pos[0].from, f0.from, g.now + BAL.ferryLeadMin, arriveBy, etopsCap(g.company.approvals, ac.typeId));
     if (!chain?.length) continue;
     let cost = legsCost(g, ac.typeId, chain);
     const mistake = slips(g, h);

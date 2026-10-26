@@ -13,7 +13,7 @@ import { announceBackfill, dailyHeads, loadHeads, monthlyHeads } from './heads';
 import { onFlightArr, onFlightDep, pruneFlights } from './flights';
 import { checkGoals, ladderGrant, syncGoals } from './goals';
 import { onMaintEnd, onMaintStart, planChecks, setMaintHooks, setRestFitHook } from './maintenance';
-import { dailyDelivery, onDeliveryArr, onDeliveryDep } from './delivery';
+import { dailyDelivery, loadEtopsFerries, onDeliveryArr, onDeliveryDep } from './delivery';
 import { dailyLeases, onReturnEnd, onReturnStart } from './leaseReturn';
 import { dailyMarket, loadMarket, onDelivery, onLeaseEnd, refreshMarket } from './market';
 import { dailyPaint, normaliseLivery } from './paint';
@@ -65,7 +65,9 @@ export { cancelSale, leastUsed, saleQuote, sellAircraft, type LeastUsedRow, type
 import { onSaleClose } from './sale';
 export { bookCCheck, cCheckOptions, cCheckSlots, checkLogistics, type CCheckOption, type CheckTicket } from './cHub';
 export { C_HUBS, type CHub } from '../../data/mro';
-export { deliveryQuote, deliveryStatus, ferryRoute, ticketPurpose, type DeliveryLeg, type DeliveryQuote, type DeliveryStatus } from './delivery';
+export { deliveryQuote, deliveryStatus, ferryRoute, ticketPurpose, type DeliveryLeg, type DeliveryQuote, type DeliveryStatus, type FerryBlock } from './delivery';
+// v0.11 ETOPS on ferries and positioning.
+export { approvalName, capText, etopsFixText, etopsLine } from './etops';
 export { chooseLease, earlyReturnQuote, leaseView, returnEarly, returnQuote, type EarlyReturnQuote, type LeaseChoice, type LeaseView, type ReturnQuote } from './leaseReturn';
 export { reopenLatePayment, resolveDecision } from './events';
 export { cashForecast, fixedCosts, monthProfit, newStatement } from './finance';
@@ -162,6 +164,8 @@ export const opsModule: SimModule = {
     loadWorld(g);
     loadApprovals(g);
     loadMarket(g);
+    // v0.11 delivery ferries planned straight across an ocean before the ETOPS rule: the legal way from the next leg.
+    loadEtopsFerries(g);
     syncGoals(g);
     g.finance.negSince ??= null;
     // v0.5.1 liveries: client paint of a contract no longer in the save is gone; the company livery normalised (idempotent).

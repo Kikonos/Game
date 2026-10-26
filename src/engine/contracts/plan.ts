@@ -6,8 +6,9 @@
 import { dryAnchor } from '../ops/dryLease';
 import type { ChainShape } from '../crew/duties';
 import { liveFlightsOf } from '../core/entities';
-import { blockMinutes, planSector, TECH_STOP_MIN, typeOf } from '../core/perf';
-import { DAY, dayIndex, localOffset, monthKey, monthStart, toLocal } from '../core/time';
+import { BAL } from '../core/balance';
+import { blockMinutes, etopsRoute, NO_STOP_COUNTRY, planSector, reportMinutes, TECH_STOP_MIN, typeOf, withinEtops } from '../core/perf';
+import { DAY, dayIndex, dayStart, localOffset, monthKey, monthStart, toLocal } from '../core/time';
 import { hash } from '../core/util';
 import type { Contract, ContractOffer, Flight, GameState, LegTemplate, Minute, Requirements, SchedulePattern } from '../core/types';
 
@@ -39,16 +40,46 @@ export interface ChainLeg {
   sta: Minute;
 }
 
-/** Sector legs of an empty move (fuel stops included); [] when already there, null when there is no route. */
-export function route(typeId: string, from: string, to: string): { from: string; to: string; block: number }[] | null {
+type Hop = { from: string; to: string; block: number };
+/** v0.11 chains re-routed to stay inside an ETOPS cap (their legs are timed as ferry days, with night stops). */
+const rerouted = new WeakSet<object>();
+export const isRerouted = (legs: readonly Hop[]) => rerouted.has(legs);
+
+/**
+ * Sector legs of an empty move (fuel stops included); [] when already there, null when there is no route.
+ * v0.11 `cap` (etopsCap: the company's ETOPS approval and the type's capability; 0 = the 60-minute rule): a routing
+ * that would leave a twin further from an adequate airport goes the long way round on fuel stops that keep every
+ * leg inside it (Europe–Keflavík–Iqaluit–Halifax), or null when there is none (no 60-minute Pacific crossing).
+ * Omitted: no cap (revenue planning and the quotes that do not move an aircraft).
+ */
+export function route(typeId: string, from: string, to: string, cap = Infinity): Hop[] | null {
   if (from === to) return [];
   const p = planSector(typeId, from, to);
-  return p.ok ? p.legs : null;
+  if (!p.ok) return null;
+  if (cap === Infinity || p.legs.every((l) => withinEtops(typeId, l.from, l.to, cap))) return p.legs;
+  const r = etopsRoute(typeId, from, to, cap, { maxBlock: BAL.delivery.dayBlockMax, noStop: NO_STOP_COUNTRY });
+  if (r) rerouted.add(r);
+  return r;
+}
+
+/** v0.11 why route() found nothing: 'etops' when only the ETOPS cap stands in the way. Pure. */
+export function noRouteWhy(typeId: string, from: string, to: string, cap: number): 'etops' | 'range' {
+  return planSector(typeId, from, to).ok && cap !== Infinity ? 'etops' : 'range';
 }
 
 export const routeMinutes = (legs: { block: number }[]) => legs.reduce((s, l) => s + l.block, 0) + Math.max(0, legs.length - 1) * TECH_STOP_MIN;
 
-export function timeChain(legs: { from: string; to: string; block: number }[], std: Minute): ChainLeg[] {
+/** v0.11 first departure to last landing of an empty move: its night stops included when it is re-routed (ferry days). */
+export function routeSpan(legs: Hop[], typeId: string, std = 0): number {
+  if (!legs.length) return 0;
+  if (!rerouted.has(legs)) return routeMinutes(legs);
+  const d = ferryDays(legs, std, typeId);
+  return d[d.length - 1].sta - d[0].std;
+}
+
+/** Times a chain from `std`; a re-routed one (with `typeId`) as ferry days with night stops (ferryDays). */
+export function timeChain(legs: Hop[], std: Minute, typeId?: string): ChainLeg[] {
+  if (typeId && rerouted.has(legs)) return ferryDays(legs, std, typeId).map((l) => ({ from: l.from, to: l.to, std: l.std, sta: l.sta }));
   let t = std;
   return legs.map((l) => {
     const leg = { from: l.from, to: l.to, std: t, sta: t + l.block };
@@ -58,17 +89,70 @@ export function timeChain(legs: { from: string; to: string; block: number }[], s
 }
 
 /** Empty move landing at `latest` (as late as possible), departing no earlier than `earliest`; null: no route or no time. */
-export function chainBackward(typeId: string, from: string, to: string, earliest: Minute, latest: Minute): ChainLeg[] | null {
-  const r = route(typeId, from, to);
+export function chainBackward(typeId: string, from: string, to: string, earliest: Minute, latest: Minute, cap = Infinity): ChainLeg[] | null {
+  const r = route(typeId, from, to, cap);
   if (!r) return null;
   if (!r.length) return [];
-  const std = latest - routeMinutes(r);
-  return std < earliest ? null : timeChain(r, std);
+  let std = latest - routeMinutes(r);
+  if (!rerouted.has(r)) return std < earliest ? null : timeChain(r, std);
+  // Ferry days snap their night stops to local mornings: walk the start back until the chain lands in time.
+  for (let k = 0; k < 8; k++) {
+    if (std < earliest) return null;
+    const legs = timeChain(r, std, typeId);
+    const over = legs[legs.length - 1].sta - latest;
+    if (over <= 0) return legs;
+    std -= Math.max(5, over);
+  }
+  return null;
 }
 
-export function chainForward(typeId: string, from: string, to: string, earliest: Minute): ChainLeg[] | null {
-  const r = route(typeId, from, to);
-  return r ? timeChain(r, earliest) : null;
+export function chainForward(typeId: string, from: string, to: string, earliest: Minute, cap = Infinity): ChainLeg[] | null {
+  const r = route(typeId, from, to, cap);
+  return r ? timeChain(r, earliest, typeId) : null;
+}
+
+// ---------- ferry days ----------
+
+export interface DayLeg { from: string; to: string; std: Minute; sta: Minute; block: number; nightStopAfter: boolean }
+
+/**
+ * After a night stop at `at`: from release (landing + post-flight) at least the minimum rest away from base (the
+ * day's duty, never under the 14 h night stop) to the next report, but not in the small hours (07:00 local instead).
+ */
+function nextDay(at: string, landed: Minute, day0: Minute, typeId?: string): Minute {
+  const rm = typeId ? reportMinutes(typeId) : { report: 0, post: 0 };
+  const release = landed + rm.post;
+  const t = release + Math.max(BAL.delivery.nightStop, release - (day0 - rm.report)) + rm.report;
+  const h = Math.floor((toLocal(at, t) - dayStart(toLocal(at, t))) / 60);
+  if (h >= 7 && h < 22) return t;
+  const local = toLocal(at, t);
+  const d = dayStart(local) + 7 * 60 + (h >= 22 ? DAY : 0);
+  return localToUTC(at, d);
+}
+
+/**
+ * Ferry days: ≤ 3 sectors and ≤ 10:00 of block plus fuel-stop turns, joined by night stops long enough for the
+ * pilots' rest (with `typeId`: its report and post-flight times; see nextDay). Pure.
+ */
+export function ferryDays(legs: Hop[], first: Minute, typeId?: string): DayLeg[] {
+  const D = BAL.delivery;
+  const out: DayLeg[] = [];
+  let t = first;
+  let day0 = first;
+  let n = 0;
+  for (const h of legs) {
+    if (n > 0 && (n + 1 > D.daySectorsMax || t + h.block - day0 > D.dayBlockMax)) {
+      const last = out[out.length - 1];
+      last.nightStopAfter = true;
+      t = nextDay(last.to, last.sta, day0, typeId);
+      day0 = t;
+      n = 0;
+    }
+    out.push({ from: h.from, to: h.to, std: t, sta: t + h.block, block: h.block, nightStopAfter: false });
+    n++;
+    t = t + h.block + D.fuelStopTurn;
+  }
+  return out;
 }
 
 /**
@@ -76,20 +160,20 @@ export function chainForward(typeId: string, from: string, to: string, earliest:
  * or (allowHop) a hop home and on to Y when the aircraft would otherwise idle ≥ AWAY_GAP at an outstation.
  * null: cannot make it.
  */
-export function gapMoves(typeId: string, X: string, Y: string, earliest: Minute, latest: Minute, home: string, allowHop: boolean): ChainLeg[] | null {
+export function gapMoves(typeId: string, X: string, Y: string, earliest: Minute, latest: Minute, home: string, allowHop: boolean, cap = Infinity): ChainLeg[] | null {
   if (X !== Y) {
     // A long wait away from base is spent at home: back to base at once, then out to Y as late as possible.
     if (allowHop && X !== home && latest - earliest >= AWAY_GAP) {
-      const out = chainForward(typeId, X, home, earliest);
+      const out = chainForward(typeId, X, home, earliest, cap);
       if (out?.length && Y === home && out[out.length - 1].sta <= latest) return out;
-      const back = Y === home ? null : chainBackward(typeId, home, Y, earliest, latest);
+      const back = Y === home ? null : chainBackward(typeId, home, Y, earliest, latest, cap);
       if (out?.length && back?.length && out[out.length - 1].sta + HOME_HOP_MIN <= back[0].std) return [...out, ...back];
     }
-    return chainBackward(typeId, X, Y, earliest, latest);
+    return chainBackward(typeId, X, Y, earliest, latest, cap);
   }
   if (!allowHop || X === home || latest - earliest < TRIP_GAP) return [];
-  const out = chainForward(typeId, X, home, earliest);
-  const back = chainBackward(typeId, home, Y, earliest, latest);
+  const out = chainForward(typeId, X, home, earliest, cap);
+  const back = chainBackward(typeId, home, Y, earliest, latest, cap);
   if (out && back && out.length && back.length && out[out.length - 1].sta + HOME_HOP_MIN <= back[0].std) return [...out, ...back];
   return [];
 }

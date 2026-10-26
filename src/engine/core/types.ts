@@ -825,6 +825,8 @@ export type ProblemKind =
   /** v0.9 round 4 (§S): cash below zero, the day it happens. */
   | 'cashNegative'
   | 'deliveryWait' | 'ferryUncrewed' | 'refit' | 'leaseReturn'
+  /** v0.11 a market offer we may not ferry home (ETOPS): told before signing, never posted. */
+  | 'noFerry'
   /** v0.7.2 */
   | 'restSeats' | 'captainAsFo' | 'sale'
   /** v0.7.3 */
@@ -1224,7 +1226,9 @@ export type LedgerCat =
   /** v0.8: dry lease out rent and reserves; war-risk insurance per landing. */
   | 'leaseIncome' | 'warRisk'
   /** v0.11 Operations: diversions (handling, passenger care, hotels), extra handling, ramp fixes, audit corrective actions. */
-  | 'disruption' | 'compliance';
+  | 'disruption' | 'compliance'
+  /** v0.11 a ferry company (or the seller) delivering an aircraft we may not ferry ourselves (ETOPS). */
+  | 'delivery';
 
 export interface MonthStatement {
   month: MonthKey;

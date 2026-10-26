@@ -5,19 +5,21 @@
 
 import { AIRPORT_BY_CODE, AIRPORTS } from '../../data/airports';
 import { BAL } from '../core/balance';
-import { addFlight, liveFlightsOf, ownFlightNo, retimeFlight } from '../core/entities';
+import { addFlight, liveFlightsOf, ownFlightNo, removeFlights, retimeFlight } from '../core/entities';
 import { distanceNm, interpolateGC } from '../core/geo';
 import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
-import { blockMinutes, etopsNeeded, isPilot, maxSectorNm, reportMinutes, runwayFit, typeOf } from '../core/perf';
+import { blockMinutes, etopsCap, etopsMinutes, heldEtops, etopsNeeded, etopsRoute, isPilot, maxSectorNm, NO_STOP_COUNTRY, runwayFit, typeOf, withinEtops } from '../core/perf';
 import { DAY, dayStart, fmtDate, fmtDay, fmtDuration, fmtTime, toLocal } from '../core/time';
-import type { Aircraft, Flight, GameState, Minute } from '../core/types';
-import { localToUTC, route } from '../contracts/plan';
+import type { Aircraft, ApprovalId, Flight, GameState, Minute } from '../core/types';
+import { LESSOR_SITES } from '../../data/market';
+import { approvalThatWorks, capText } from './etops';
+import { ferryDays, localToUTC, route, type DayLeg } from '../contracts/plan';
 import { crewIx } from '../crew/timeline';
 import { commercialItinerary, itinerary, ticketBlock, type CommercialLeg } from './commercial';
 import { usd } from './util';
 
-export interface DeliveryLeg { from: string; to: string; std: Minute; sta: Minute; block: number; nightStopAfter: boolean }
+export type DeliveryLeg = DayLeg;
 export interface DeliveryQuote {
   site: string; where: string; handover: Minute; homeBy: Minute; legs: DeliveryLeg[]; days: number;
   fuel: number; fees: number; crew: number; total: number;
@@ -25,6 +27,28 @@ export interface DeliveryQuote {
   deadhead: CommercialLeg[];
   /** 'SCL–REC–LIS · 2 legs · 1 night stop · ≈ $96K'. */
   text: string;
+  /** v0.11 our ETOPS cap for this type (0: the 60-minute rule; Infinity: four engines). */
+  cap?: number;
+  /** v0.11 the usual way needs more than our cap: the ferry goes the long way round on fuel stops inside it. */
+  longWay?: boolean;
+  /** v0.11 no legal ferry home on our certificate: why, and what real operators do instead. */
+  blocked?: FerryBlock | null;
+}
+
+/** v0.11 a delivery ferry we may not fly (ETOPS): the usual way, its worst leg, and the ways out. */
+export interface FerryBlock {
+  /** The usual way home ('SYD–NAN–HNL–SFO–…'). */
+  usual: string;
+  /** Its leg furthest from an airport (minutes at one-engine speed). */
+  worst: { from: string; to: string; min: number };
+  /** Our cap in words ('60 minutes'). */
+  capText: string;
+  /** The ETOPS approval that would open it for this type, if any. */
+  approval: ApprovalId | null;
+  /** The seller hands it over at a lessor site on this side instead (they ferry it under their own approval). */
+  thisSide: { site: string; where: string; fee: number; days: number } | null;
+  /** A specialist ferry company flies it to our base under its own approval. */
+  ferryCo: { fee: number; days: number; homeBy: Minute };
 }
 export interface DeliveryStatus {
   phase: 'preparing' | 'handedOver' | 'ferrying' | 'waiting' | 'home';
@@ -72,10 +96,13 @@ const sectorOk = (a: string, b: string, europe: boolean) => !NO_STOP.has(AIRPORT
 /**
  * Ferry legs from → to: the fuel-stop router when every leg fits a ferry day (and avoids sanctioned stops and, for
  * a European operator flying home, Russian/Belarusian/Ukrainian airspace), else hops of at most a ferry day's block
- * (10:00) between proper airports, each making progress home (a narrowbody from Jakarta takes several). Pure.
+ * (10:00) between proper airports, each making progress home (a narrowbody from Jakarta takes several).
+ * v0.11 `cap` (etopsCap: our ETOPS approval and the type's capability, 0 = the 60-minute rule): a routing with a leg
+ * beyond it goes the long way on stops that keep every leg inside it, as real operators ferry a twin without
+ * ETOPS approval (Europe–Keflavík–Iqaluit–Halifax); null when there is none (no 60-minute Pacific crossing). Pure.
  */
-export function ferryRoute(typeId: string, from: string, to: string): Hop[] | null {
-  const key = `${typeId}:${from}:${to}`;
+export function ferryRoute(typeId: string, from: string, to: string, cap = Infinity): Hop[] | null {
+  const key = `${typeId}:${cap}:${from}:${to}`;
   if (routes.has(key)) return routes.get(key)!;
   const max = BAL.delivery.dayBlockMax;
   const europe = AIRPORT_BY_CODE[to]?.continent === 'EU';
@@ -87,9 +114,27 @@ export function ferryRoute(typeId: string, from: string, to: string): Hop[] | nu
     if (distanceNm(from, to) * DETOUR <= maxSectorNm(typeId, from, to) && block <= max) r = [{ from, to, block }];
   }
   if (!r) r = hops(typeId, from, to, max, europe);
+  if (cap !== Infinity && (!r || !r.every((l) => withinEtops(typeId, l.from, l.to, cap)))) {
+    r = etopsRoute(typeId, from, to, cap, { maxBlock: max, noStop: FERRY_NO_STOP, ok: (a, b) => sectorOk(a, b, europe) }, europe ? 'eu' : '');
+  }
   routes.set(key, r);
   return r;
 }
+
+/** Stops a ferry never makes: sanctioned states and the war zones insurers won't cover. */
+const FERRY_NO_STOP: ReadonlySet<string> = new Set([...NO_STOP, ...NO_STOP_COUNTRY]);
+
+/**
+ * v0.11 why there is no ferry from → to: 'No legal ferry to Miami: every way crosses water more than 60 minutes from
+ * an airport' when only our ETOPS limit stands in the way, else 'No ferry route to Miami'. Pure.
+ */
+export function noFerryText(g: GameState, typeId: string, from: string, to: string): string {
+  const etops = !!ferryRoute(typeId, from, to) && !ferryRoute(typeId, from, to, ferryCap(g, typeId));
+  return etops ? `No legal ferry to ${cityOf(to)}: every way crosses water more than ${capText(ferryCap(g, typeId))} from an airport` : `No ferry route to ${cityOf(to)}`;
+}
+
+/** v0.11 the ferry cap for one of our aircraft of this type (etopsCap with the company's approvals). */
+export const ferryCap = (g: GameState, typeId: string): number => etopsCap(g.company.approvals, typeId);
 
 function hops(typeId: string, from: string, to: string, max: number, europe: boolean): Hop[] | null {
   if (runwayFit(typeId, from) === 'no' || runwayFit(typeId, to) === 'no') return null;
@@ -134,45 +179,8 @@ export function firstFerryDep(site: string, handover: Minute): Minute {
   return localToUTC(site, d);
 }
 
-/**
- * After a night stop at `at`: from release (landing + post-flight) at least the minimum rest away from base (the
- * day's duty, never under the 14 h night stop) to the next report, but not in the small hours (07:00 local instead).
- */
-function nextDay(at: string, landed: Minute, day0: Minute, typeId?: string): Minute {
-  const rm = typeId ? reportMinutes(typeId) : { report: 0, post: 0 };
-  const release = landed + rm.post;
-  const t = release + Math.max(BAL.delivery.nightStop, release - (day0 - rm.report)) + rm.report;
-  const h = Math.floor((toLocal(at, t) - dayStart(toLocal(at, t))) / 60);
-  if (h >= 7 && h < 22) return t;
-  const local = toLocal(at, t);
-  const d = dayStart(local) + 7 * 60 + (h >= 22 ? DAY : 0);
-  return localToUTC(at, d);
-}
-
-/**
- * Ferry days: ≤ 3 sectors and ≤ 10:00 of block plus fuel-stop turns, joined by night stops long enough for the
- * pilots' rest (with `typeId`: its report and post-flight times; see nextDay). Pure.
- */
-export function ferryDays(legs: Hop[], first: Minute, typeId?: string): DeliveryLeg[] {
-  const D = BAL.delivery;
-  const out: DeliveryLeg[] = [];
-  let t = first;
-  let day0 = first;
-  let n = 0;
-  for (const h of legs) {
-    if (n > 0 && (n + 1 > D.daySectorsMax || t + h.block - day0 > D.dayBlockMax)) {
-      const last = out[out.length - 1];
-      last.nightStopAfter = true;
-      t = nextDay(last.to, last.sta, day0, typeId);
-      day0 = t;
-      n = 0;
-    }
-    out.push({ from: h.from, to: h.to, std: t, sta: t + h.block, block: h.block, nightStopAfter: false });
-    n++;
-    t = t + h.block + D.fuelStopTurn;
-  }
-  return out;
-}
+/** v0.11 ferry days moved to contracts/plan.ts (positioning re-routed round an ETOPS limit uses them too). */
+export { ferryDays } from '../contracts/plan';
 
 export const pathText = (legs: { from: string; to: string }[]) => (legs.length ? [legs[0].from, ...legs.map((l) => l.to)].join('–') : '');
 
@@ -200,6 +208,9 @@ export function ferryCrewCost(g: GameState, home: string, site: string, legs: De
   return Math.round(2 * ticket + 2 * nights * hotel + (nights + 1) * (BAL.perDiem.CPT + BAL.perDiem.FO) * pct);
 }
 
+/** v0.11 what a crossing needs beyond our cap, in a few words ('the 60-minute way', 'within ETOPS 120'). */
+const capWay = (cap: number) => (cap ? `within ETOPS ${cap}` : 'the 60-minute way');
+
 /** Delivery ferry quote from a handover site to home base (legs, days, fuel, fees, crew, the pilots' airline trip out). Pure. */
 export function deliveryQuote(g: GameState, typeId: string, site: string, handover: Minute, where?: string): DeliveryQuote {
   const home = g.company.homeBase;
@@ -207,7 +218,11 @@ export function deliveryQuote(g: GameState, typeId: string, site: string, handov
   if (site === home) {
     return { site, where: w, handover, homeBy: handover, legs: [], days: 0, fuel: 0, fees: 0, crew: 0, total: 0, deadhead: [], text: `Handed over at ${cityOf(home)}: no ferry` };
   }
-  const r = ferryRoute(typeId, site, home);
+  // v0.11 inside our ETOPS approval and the type's capability (the 60-minute rule without one).
+  const cap = ferryCap(g, typeId);
+  const r = ferryRoute(typeId, site, home, cap);
+  const usual = cap === Infinity ? r : ferryRoute(typeId, site, home);
+  const longWay = !!r && !!usual && pathText(r) !== pathText(usual);
   const legs = r ? ferryDays(r, firstFerryDep(site, handover), typeId) : [];
   const { fuel, fees } = ferryCost(typeId, legs, g.market.fuelPrice);
   const crew = ferryCrewCost(g, home, site, legs);
@@ -219,13 +234,54 @@ export function deliveryQuote(g: GameState, typeId: string, site: string, handov
     const sta = Math.floor((legs[0].std - 14 * 60) / 5) * 5;
     deadhead = itinerary(home, site, sta - blk, sta);
   }
+  const blocked = !r && usual ? ferryBlock(g, typeId, site, handover, usual, cap) : null;
   const stopsN = legs.filter((l) => l.nightStopAfter).length;
   const text = legs.length
-    ? `${pathText(legs)} · ${legs.length} leg${legs.length > 1 ? 's' : ''}${stopsN ? ` · ${stopsN} night stop${stopsN > 1 ? 's' : ''}` : ''} · ≈ ${usd(total)}`
+    ? `${pathText(legs)} · ${legs.length} leg${legs.length > 1 ? 's' : ''}${stopsN ? ` · ${stopsN} night stop${stopsN > 1 ? 's' : ''}` : ''}${longWay ? ` · ${capWay(cap)}` : ''} · ≈ ${usd(total)}`
+    : blocked ? `No legal ferry home from ${cityOf(site)}: every way crosses water more than ${blocked.capText} from an airport`
     : `No ferry route from ${site} for the ${typeOf(typeId).short}`;
   return {
     site, where: w, handover, homeBy: legs.length ? legs[legs.length - 1].sta : handover, legs,
-    days: legs.length ? 1 + stopsN : 0, fuel, fees, crew, total, deadhead, text,
+    days: legs.length ? 1 + stopsN : 0, fuel, fees, crew, total, deadhead, text, cap, longWay, blocked,
+  };
+}
+
+/** Days a ferry of these legs takes from its first departure to its last landing (whole days, at least one). */
+const daysOf = (legs: DayLeg[]) => (legs.length ? Math.max(1, Math.ceil((legs[legs.length - 1].sta - legs[0].std) / DAY)) : 0);
+
+/** What a ferry company (or the seller) charges to fly these legs under its own approval. */
+function companyFee(typeId: string, legs: DayLeg[], fuelPrice: number): number {
+  const F = BAL.delivery.ferryCo;
+  const { fuel, fees } = ferryCost(typeId, legs, fuelPrice);
+  return Math.round(((fuel + fees) * F.margin + daysOf(legs) * F.dayRate[wideOf(typeId)] + F.permits) / 1000) * 1000;
+}
+
+/**
+ * v0.11 a delivery we may not ferry home on our certificate: the usual way and its worst leg, the approval that
+ * would open it, a handover at a lessor site on this side (the nearest one with a legal ferry home), or a ferry
+ * company to our base. Pure.
+ */
+function ferryBlock(g: GameState, typeId: string, site: string, handover: Minute, usual: Hop[], cap: number): FerryBlock {
+  const home = g.company.homeBase;
+  const worstLeg = usual.map((l) => ({ from: l.from, to: l.to, min: Math.round(etopsMinutes(typeId, l.from, l.to)) })).sort((a, b) => b.min - a.min)[0];
+  const F = BAL.delivery.ferryCo;
+  const first = firstFerryDep(site, handover);
+  const coLegs = ferryDays(usual, first, typeId);
+  const coDays = daysOf(coLegs) + F.extraDays;
+  const sites = LESSOR_SITES.filter((x) => AIRPORT_BY_CODE[x.code] && x.code !== site && ferryRoute(typeId, x.code, home, cap))
+    .map((x) => ({ x, r: ferryRoute(typeId, site, x.code) }))
+    .filter((y): y is { x: (typeof LESSOR_SITES)[number]; r: Hop[] } => !!y.r)
+    .sort((a, b) => a.r.reduce((n, l) => n + l.block, 0) - b.r.reduce((n, l) => n + l.block, 0) || (a.x.code < b.x.code ? -1 : 1));
+  let thisSide: FerryBlock['thisSide'] = null;
+  if (sites.length) {
+    const { x, r } = sites[0];
+    const sl = ferryDays(r, first, typeId);
+    thisSide = { site: x.code, where: `${x.name}, ${x.city} (${x.code})`, fee: companyFee(typeId, sl, g.market.fuelPrice), days: daysOf(sl) + F.extraDays };
+  }
+  return {
+    usual: pathText(usual), worst: worstLeg, capText: capText(cap),
+    approval: approvalThatWorks(g, typeId, (c) => !!ferryRoute(typeId, site, home, c)),
+    thisSide, ferryCo: { fee: companyFee(typeId, coLegs, g.market.fuelPrice), days: coDays, homeBy: handover + coDays * DAY },
   };
 }
 
@@ -236,7 +292,7 @@ export function planDeliveryFerry(g: GameState, aircraftId: string): Flight[] {
   const ac = g.fleet[aircraftId];
   const dl = ac?.delivery;
   if (!ac || !dl || dl.site === g.company.homeBase) return [];
-  const r = ferryRoute(ac.typeId, dl.site, g.company.homeBase);
+  const r = ferryRoute(ac.typeId, dl.site, g.company.homeBase, ferryCap(g, ac.typeId));
   if (!r) return [];
   const legs = ferryDays(r, firstFerryDep(dl.site, dl.handover), ac.typeId);
   const out = legs.map((l) => {
@@ -353,11 +409,22 @@ export function handoverMessage(g: GameState, ac: Aircraft): void {
   pushMessage(g, {
     tone: 'info', cat: 'company', title: `${ac.reg} handed over at ${cityOf(dl.site)}`,
     body: fs.length
-      ? `Ferry home ${when} ${fmtTime(fs[0].std, dl.site)} local: ${pathText(fs)}, ${fs.length} leg${fs.length > 1 ? 's' : ''}, ${fmtDuration(block)} block (${fs.some((f) => etopsNeeded(ac.typeId, f.from, f.to) > 0) ? 'ferry permit: non-revenue, one-off ETOPS authorisation' : 'ferry permit: 60-min routing'}).${crew}`
+      ? `Ferry home ${when} ${fmtTime(fs[0].std, dl.site)} local: ${pathText(fs)}, ${fs.length} leg${fs.length > 1 ? 's' : ''}, ${fmtDuration(block)} block (${ferryRuleText(g, ac.typeId, fs)}).${crew}`
       : `The ${typeOf(ac.typeId).name} is on the AOC.`,
     // v0.9.1 a delivery is a big event: two LOs, the celebration card and 'Follow the delivery flight?' (UI).
     ref: { kind: 'aircraft', id: ac.id }, cue: 'delivered',
   });
+}
+
+/** v0.11 the ETOPS rule the ferry flies under, in words: 'every leg within 60 minutes of an airport'. */
+export function ferryRuleText(g: GameState, typeId: string, legs: { from: string; to: string }[]): string {
+  const t = typeOf(typeId);
+  if (t.engines !== 2) return 'four engines: no ETOPS limits';
+  const need = Math.max(0, ...legs.map((f) => etopsNeeded(typeId, f.from, f.to)));
+  if (need) return `within our ETOPS ${heldEtops(g.company.approvals)} approval`;
+  const usual = legs.length ? ferryRoute(typeId, legs[0].from, legs[legs.length - 1].to) : null;
+  const long = !!usual && pathText(usual) !== pathText(legs);
+  return `every leg within 60 minutes of an airport${long ? ': the long way round, as the direct way needs more ETOPS than we may fly' : ''}`;
 }
 
 /** 'flight.arr' of a delivery ferry: the last leg home ends the delivery. */
@@ -441,6 +508,34 @@ export function dailyDelivery(g: GameState): void {
   }
 }
 
+/**
+ * v0.11 load: a delivery ferry planned before the ETOPS rule (the old one-off 'ferry permit' straight across an
+ * ocean) is re-planned from its first leg not yet flown, the way the rule allows, keeping that leg's departure time.
+ * Left as planned once a leg of it is in the air, or when there is no legal way (it flies as it was agreed). A fresh
+ * game never plans such a ferry (approvals are never taken away), so this changes nothing there.
+ */
+export function loadEtopsFerries(g: GameState): void {
+  for (const ac of Object.values(g.fleet)) {
+    const dl = ac.delivery;
+    if (!dl || dl.arrived !== undefined) continue;
+    const fs = ferries(g, ac);
+    if (fs.some((f) => f.status === 'enroute')) continue;
+    const left = fs.filter((f) => f.status === 'scheduled').sort((a, b) => a.std - b.std);
+    const cap = ferryCap(g, ac.typeId);
+    if (!left.length || left.every((f) => withinEtops(ac.typeId, f.from, f.to, cap))) continue;
+    const r = ferryRoute(ac.typeId, left[0].from, g.company.homeBase, cap);
+    if (!r) continue;
+    const legs = ferryDays(r, left[0].std, ac.typeId);
+    removeFlights(g, left.map((f) => f.id));
+    const out = legs.map((l) => {
+      const f = addFlight(g, { no: ownFlightNo(g), aircraftId: ac.id, contractId: null, kind: 'ferry', from: l.from, to: l.to, std: l.std, sta: l.sta });
+      f.purpose = 'delivery';
+      return f;
+    });
+    dl.ferryIds = [...dl.ferryIds.filter((id) => g.flights[id]?.status === 'done'), ...out.map((f) => f.id)];
+  }
+}
+
 /** A new delivery ferry from where the aircraft is (from 08:00 local tomorrow); at home base the delivery ends. */
 function replanFerry(g: GameState, ac: Aircraft): void {
   const dl = ac.delivery!;
@@ -449,7 +544,7 @@ function replanFerry(g: GameState, ac: Aircraft): void {
     dl.arrived = g.now;
     return;
   }
-  const r = ferryRoute(ac.typeId, ac.at, home);
+  const r = ferryRoute(ac.typeId, ac.at, home, ferryCap(g, ac.typeId));
   if (!r) return;
   const local = toLocal(ac.at, g.now + 12 * 60);
   const legs = ferryDays(r, localToUTC(ac.at, dayStart(local) + 8 * 60 + (local - dayStart(local) > 8 * 60 ? DAY : 0)), ac.typeId);

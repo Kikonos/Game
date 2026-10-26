@@ -3,7 +3,7 @@
 
 import { PAINT_SHOPS } from '../../data/livery';
 import { BAL } from '../core/balance';
-import { typeOf } from '../core/perf';
+import { etopsCap, typeOf } from '../core/perf';
 import { chance, int, range, weightedPick, type RngHolder } from '../core/rng';
 import { DAY } from '../core/time';
 import type { Client, ContractOffer, GameState, Minute, PaintKind, PaintTerms, Product } from '../core/types';
@@ -12,7 +12,7 @@ import { clientLivery } from '../ops/paint';
 import { setPrice } from './accept';
 import { isBigClub, isGovernment } from './clients';
 import type { PositioningLeg } from './feasibility';
-import { anchorsOf, DEPLOY_LEAD, route, routeMinutes, timeChain } from './plan';
+import { anchorsOf, DEPLOY_LEAD, route, routeSpan, timeChain } from './plan';
 import { isWideJob, productValue } from './pricing';
 
 export interface PaintSlot {
@@ -136,14 +136,15 @@ export function paintWindow(g: GameState, aircraftId: string, terms: Pick<PaintT
   const dur = terms.days * DAY;
   const shops = PAINT_SHOPS.includes(home) ? [home] : [...PAINT_SHOPS];
   const anchors = anchorsOf(g, aircraftId);
+  const cap = etopsCap(g.company.approvals, ac.typeId);
   /** Best shop between X (free from `free`) and Y (null = open end): least block in + out. */
   const shopFor = (X: string, Y: string | null) => {
     let best: { shop: string; inR: { from: string; to: string; block: number }[]; outR: { from: string; to: string; block: number }[]; cost: number } | null = null;
     for (const shop of shops) {
-      const inR = route(ac.typeId, X, shop);
-      const outR = Y === null ? [] : route(ac.typeId, shop, Y);
+      const inR = route(ac.typeId, X, shop, cap);
+      const outR = Y === null ? [] : route(ac.typeId, shop, Y, cap);
       if (!inR || !outR) continue;
-      const cost = routeMinutes(inR) + routeMinutes(outR);
+      const cost = routeSpan(inR, ac.typeId) + routeSpan(outR, ac.typeId);
       if (!best || cost < best.cost) best = { shop, inR, outR, cost };
     }
     return best;
@@ -151,8 +152,8 @@ export function paintWindow(g: GameState, aircraftId: string, terms: Pick<PaintT
   const earliestFrom = (free: Minute, ferry: boolean) => (ferry ? Math.max(free, g.now + BAL.ferryLeadMin) : Math.max(free, g.now + 60));
   const slot = (s: NonNullable<ReturnType<typeof shopFor>>, start: Minute): PaintSlot => ({
     shop: s.shop, start, end: start + dur,
-    ferryIn: s.inR.length ? timeChain(s.inR, start - turn - routeMinutes(s.inR)) : [],
-    ferryOut: s.outR.length ? timeChain(s.outR, start + dur + turn) : [],
+    ferryIn: s.inR.length ? timeChain(s.inR, start - turn - routeSpan(s.inR, ac.typeId), ac.typeId) : [],
+    ferryOut: s.outR.length ? timeChain(s.outR, start + dur + turn, ac.typeId) : [],
   });
 
   if (after === undefined) {
@@ -164,11 +165,11 @@ export function paintWindow(g: GameState, aircraftId: string, terms: Pick<PaintT
     const Y = opts.nextAt ?? anchors.find((a) => a.std >= before)?.from ?? home;
     const s = shopFor(prev.to, Y);
     if (!s) return null;
-    const outMin = s.outR.length ? routeMinutes(s.outR) + turn + DEPLOY_LEAD : 0;
+    const outMin = s.outR.length ? routeSpan(s.outR, ac.typeId) + turn + DEPLOY_LEAD : 0;
     const end = Math.floor((before - Math.max(BAL.paint.readyBefore, outMin)) / 15) * 15;
     const start = end - dur;
     const ferry = s.inR.length > 0;
-    if (start < earliestFrom(free, ferry) + (ferry ? routeMinutes(s.inR) + turn : 0)) return null;
+    if (start < earliestFrom(free, ferry) + (ferry ? routeSpan(s.inR, ac.typeId) + turn : 0)) return null;
     return slot(s, start);
   }
 
@@ -190,9 +191,9 @@ export function paintWindow(g: GameState, aircraftId: string, terms: Pick<PaintT
     const s = shopFor(at, nx ? nx.from : null);
     if (s) {
       const ferry = s.inR.length > 0;
-      const start = Math.ceil((Math.max(earliestFrom(Math.max(free, after), ferry) + (ferry ? routeMinutes(s.inR) + turn : 0), after) / 15)) * 15;
+      const start = Math.ceil((Math.max(earliestFrom(Math.max(free, after), ferry) + (ferry ? routeSpan(s.inR, ac.typeId) + turn : 0), after) / 15)) * 15;
       const end = start + dur;
-      const room = nx ? nx.std - (s.outR.length ? routeMinutes(s.outR) + turn + DEPLOY_LEAD : turn) : Infinity;
+      const room = nx ? nx.std - (s.outR.length ? routeSpan(s.outR, ac.typeId) + turn + DEPLOY_LEAD : turn) : Infinity;
       if (end <= room && end <= before) return slot(s, start);
       if (start + dur > before) return null;
     }

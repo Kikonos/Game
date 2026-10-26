@@ -13,7 +13,7 @@ import { nextId } from '../core/entities';
 import { distanceNm } from '../core/geo';
 import { cue } from '../core/cues';
 import { pushMessage } from '../core/messages';
-import { blockMinutes, complement, typeOf } from '../core/perf';
+import { blockMinutes, complement, etopsCap, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { chance, int, next, pick, range, weightedPick } from '../core/rng';
 import { DAY, fmtDay, fromUTC, toDate } from '../core/time';
@@ -674,7 +674,7 @@ const rentOf = (g: GameState, typeId: string, r: { rng: number }) => {
 function lessees(g: GameState, typeId: string): Client[] {
   const homeCountry = AIRPORT_BY_CODE[g.company.homeBase]?.country;
   const fam = typeOf(typeId).family;
-  return clientsOf(g, ['airline'], (c) => !c.rivalId && c.country !== homeCountry && !EUROPE.has(c.country) && exists(c.base) && fliesFamily(c.name, fam) && !!route(typeId, g.company.homeBase, c.base));
+  return clientsOf(g, ['airline'], (c) => !c.rivalId && c.country !== homeCountry && !EUROPE.has(c.country) && exists(c.base) && fliesFamily(c.name, fam) && !!route(typeId, g.company.homeBase, c.base, etopsCap(g.company.approvals, typeId)));
 }
 
 /**
@@ -699,8 +699,8 @@ export function makeDryLeaseOffer(g: GameState, w?: IdleWindow, clientId?: strin
   const client = (clientId && g.clients[clientId]) || weightedPick(r, pool, (c) => 1 + (c.base === 'LAD' || c.base === 'DSS' || c.base === 'CMN' ? 1 : 0));
   if (!client) return null;
   const site = client.base;
-  const out = route(ac.typeId, win.at, site);
-  const back = route(ac.typeId, site, g.company.homeBase);
+  const out = route(ac.typeId, win.at, site, etopsCap(g.company.approvals, ac.typeId));
+  const back = route(ac.typeId, site, g.company.homeBase, etopsCap(g.company.approvals, ac.typeId));
   if (!out || !back) return null;
   const start = Math.ceil(Math.max(win.from + out.reduce((s, l) => s + l.block, 0) + 2 * DAY, g.now + 14 * DAY) / DAY) * DAY;
   const maxMonths = Math.floor((win.to - start - back.reduce((s, l) => s + l.block, 0) - 3 * DAY) / (30.44 * DAY));

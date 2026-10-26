@@ -64,7 +64,8 @@ describe('delivery ferry planning', () => {
         expect(q.legs[i].from).toBe(q.legs[i - 1].to);
       }
       expect(q.total).toBe(q.fuel + q.fees + q.crew);
-      expect(q.text).toMatch(/^[A-Z]{3}(–[A-Z]{3})+ · \d+ legs? (· \d+ night stops? )?· ≈ \$/);
+      // v0.11 '· the 60-minute way' when the usual way needs more ETOPS than we may fly.
+      expect(q.text).toMatch(/^[A-Z]{3}(–[A-Z]{3})+ · \d+ legs? (· \d+ night stops? )?(· (the 60-minute way|within ETOPS \d+) )?· ≈ \$/);
     }
     // First departure: acceptance after the handover, then 08:00 local at the site.
     const h = g.now + 3 * DAY + 5 * 60;

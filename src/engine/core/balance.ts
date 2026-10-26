@@ -228,7 +228,12 @@ export const BAL = {
     newBuildDepositMonths: 3, lessorSiteShare: 0.5, wideAfterFilingDays: 45,
   },
   /** Delivery ferry: acceptance hours after handover, ferry-day limits (block min, sectors), fuel-stop turn, night stop, parking/day [NB, WB], no-pilot warning (h). */
-  delivery: { acceptH: 36, dayBlockMax: 600, daySectorsMax: 3, fuelStopTurn: 60, nightStop: 14 * 60, parkPerDay: [400, 900] as [number, number], warnH: 48 },
+  delivery: {
+    acceptH: 36, dayBlockMax: 600, daySectorsMax: 3, fuelStopTurn: 60, nightStop: 14 * 60, parkPerDay: [400, 900] as [number, number], warnH: 48,
+    /** v0.11 a crossing we may not ferry (ETOPS): a specialist ferry company (or the seller) flies it under its own
+     *  approval: fuel and fees at cost + 15%, a day rate for its crew [NB, WB], permits, and the days to arrange it. */
+    ferryCo: { margin: 1.15, dayRate: [6_000, 9_000] as [number, number], permits: 12_000, extraDays: 3 },
+  },
   /** Lease end: notice and decision days, return check days and cost [NB, WB], half-life share, repaint factor, extension rent factors. */
   leaseReturn: {
     noticeDays: 120, decisionDays: 14, checkDays: [7, 14] as [number, number], checkCost: [180_000, 450_000] as [number, number],

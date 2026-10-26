@@ -8,6 +8,8 @@ import { DAY, fmtDay } from '../core/time';
 import type { GameState } from '../core/types';
 import { flightsOf } from '../core/entities';
 import { deliveryStatus } from '../ops/delivery';
+import { approvalName } from '../ops/etops';
+import { marketView } from '../ops/market';
 import { saleQuote } from '../ops/sale';
 import { leaseView, returnQuote } from '../ops/leaseReturn';
 import { usd } from '../ops/util';
@@ -32,6 +34,36 @@ export function deliveryWaitCard(g: GameState, aircraftId: string): ProblemCard 
     hurt: mkHurt({ money: park * days + Math.round((rent / 30) * days), what: 'so far', extra: `${days} day${days > 1 ? 's' : ''} waiting` }),
     actions: [{ id: 'hire', label: 'Hire', open: { modal: 'hire', id: t.family }, primary: true }, { id: 'convert', label: 'Convert', open: { tab: 'crew', view: 'conversions' } }, { id: 'fleet', label: 'Fleet', open: { tab: 'fleet', sel: { kind: 'aircraft', id: ac.id } } }],
     details: [st.text], visuals: {}, terms: ['ferry', 'deadhead'], by: st.homeBy ?? undefined,
+  };
+}
+
+/**
+ * v0.11 a market offer we may not ferry home on our certificate (ETOPS), on the Lease/Buy dialog before signing:
+ * WHAT, WHY (the usual way's worst leg against our limit), DOES IT HURT (not yet: nothing signed) and the ways out real
+ * operators use: the approval first, a handover on this side, a ferry company. Pure.
+ */
+export function noFerryCard(g: GameState, offerId: string): ProblemCard | null {
+  const v = marketView(g).find((x) => x.offer.id === offerId);
+  const b = v?.quote.blocked;
+  if (!v || !b) return null;
+  const t = typeOf(v.typeId);
+  const site = city(v.quote.site);
+  const actions: ProblemCard['actions'] = [];
+  if (b.thisSide) actions.push({ id: 'thisSide', label: `Hand over at ${city(b.thisSide.site)} · +${usd(b.thisSide.fee)}, +${b.thisSide.days} days`, open: { modal: 'market', id: offerId }, primary: true });
+  actions.push({ id: 'ferryCo', label: `Ferry company to our base · +${usd(b.ferryCo.fee)}`, open: { modal: 'market', id: offerId } });
+  if (b.approval) actions.push({ id: 'ladder', label: `Get ${approvalName(b.approval)} first`, open: { tab: 'company', view: 'ladder' } });
+  return {
+    subject: { kind: 'noFerry', ref: { kind: 'market', id: offerId } }, severity: 'amber',
+    title: `No legal ferry home from ${site}`, what: `We may not ferry this ${t.short} home from ${site}`,
+    why: `Every way home crosses water more than ${b.capText} from an airport (${b.worst.from}–${b.worst.to}: ${b.worst.min} min), and ${b.capText === '60 minutes' ? 'we hold no ETOPS approval' : `our ETOPS limit for the ${t.short} is ${b.capText}`}.`,
+    hurt: { money: 0, pax: 0, delayMin: 0, legs: 0, level: 'none', text: `Not yet: nothing is signed. Signed as it is, it would be stuck at ${site}.`, badges: ['no cost'] },
+    actions,
+    details: [
+      `Usual way: ${b.usual}.`,
+      b.approval ? `${approvalName(b.approval)} would let the ${t.short} fly it (the ${t.short} is capable of ${t.etopsMax} minutes).` : `No ETOPS approval we can get opens it for the ${t.short} (capable of ${t.etopsMax || 'no'} minutes${t.etopsMax ? '' : ' ETOPS'}).`,
+      'A ferry company or the seller flies it under its own approval; we pay at signing.',
+    ],
+    visuals: {}, terms: ['ferry', 'etops'],
   };
 }
 

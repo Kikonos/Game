@@ -9,7 +9,7 @@ import { MRO_STATIONS } from '../../data/market';
 import { BAL } from '../core/balance';
 import { flightsOf } from '../core/entities';
 import { pushMessage } from '../core/messages';
-import { cabinMinimum, typeOf } from '../core/perf';
+import { cabinMinimum, etopsCap, typeOf } from '../core/perf';
 import { DAY, fmtDate, fmtDay, fmtDayRange } from '../core/time';
 import type { AcRest, ActionResult, Aircraft, Cabin, Flight, GameState, MaintenanceEvent, Minute, Requirements, RestRefitId } from '../core/types';
 import { C_HUBS } from '../../data/mro';
@@ -17,7 +17,7 @@ import { schedule } from '../core/queue';
 import { cabinInflightRest } from '../crew/rules';
 import { bunksFor, effectiveRest, longestDay, migrateRest, restOfAc, restShort, restText } from '../crew/restPlan';
 import { retimeFlight } from '../core/entities';
-import { route, routeMinutes, timeChain } from '../contracts/plan';
+import { route, routeMinutes, routeSpan, timeChain } from '../contracts/plan';
 import { rerosterFrom } from '../crew';
 import type { DeliveryLeg } from './delivery';
 import { scheduleCheck } from './maintenance';
@@ -167,11 +167,11 @@ function refitWindow(g: GameState, ac: Aircraft, q: RefitQuote, station: string)
   if (Object.values(g.maintenance).some((m) => m.aircraftId === ac.id && m.kind === 'refit' && (m.status === 'planned' || m.status === 'inWork'))) return why(`${ac.reg} already has a refit booked`);
   // The ferry in (when it is elsewhere), timed to land a turn before the slot.
   const loc = whereAt(g, ac, start - 1);
-  const r = route(ac.typeId, loc.at, station);
+  const r = route(ac.typeId, loc.at, station, etopsCap(g.company.approvals, ac.typeId));
   if (!r) return why(`No ferry route to ${station}`);
   const turn = typeOf(ac.typeId).turnMin;
-  const ferryStart = start - turn - routeMinutes(r);
-  q.ferryIn = r.length ? timeChain(r, ferryStart).map((l) => ({ ...l, block: l.sta - l.std, nightStopAfter: false })) : [];
+  const ferryStart = start - turn - routeSpan(r, ac.typeId);
+  q.ferryIn = r.length ? timeChain(r, ferryStart, ac.typeId).map((l) => ({ ...l, block: l.sta - l.std, nightStopAfter: false })) : [];
   const busyFrom = r.length ? ferryStart - turn : start;
   for (const f of flightsOf(g, ac.id)) {
     if ((f.status === 'scheduled' || f.status === 'enroute') && f.kind !== 'positioning' && f.std < end + 30 && (f.eta ?? f.sta) > busyFrom - 30) q.clashes.push(`${f.no} ${f.from}–${f.to} ${fmtDay(f.std)}`);
