@@ -429,6 +429,6 @@ Player notes (22 Oct, with top-bar screenshot .handover/updates/topbar-space.jpg
 ### 26 Oct — player decisions
 - Disruption cost ~9% cash: OK (keep).
 - Pre-Ops tests: REWRITE them with Ops on (drop src/test/opsSetup.ts Ops-off where possible). Queued.
-- Clients tab moved Company → Schedule (Timeline · Clients): done on branch ui/clients 9217830 (pushed); merge into acmi after the debug round. Old links company/clients redirect in store.navigate.
+- Clients tab moved Company → CONTRACTS (Market · Active · Missed · Clients) — player corrected Schedule→Contracts: done on branch ui/clients (pushed); merge into acmi after the debug round. Old links company/clients redirect in store.navigate.
 - ALL visual improvements 1–13 approved. #2: top-down silhouettes with the CORRECT ENGINES per type (count and position, like Flightradar24), and icon size scaled to aircraft size.
 - Queue (one agent at a time): debug round (running) → merge ui/clients → Visual A (map: 1 day/night, 2 silhouettes, 3 flown/to-go lines + contrail, 4 weather marks, 6 spotter mode) → Visual B (5 hangar line-up, 7 delivery card, 8 big aircraft view w/ local-time sky, 9 schedule block labels, 10 finance charts, 11 crew rank stripes/purser badge, 12 boarding-pass tickets, 13 hints fold into ?) → test rewrite with Ops on.
