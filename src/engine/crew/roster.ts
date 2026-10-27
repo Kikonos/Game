@@ -121,6 +121,12 @@ export function leaveAfterTicket(g: GameState, crewIds: Iterable<string>, t: { s
     if (!c?.blocks?.some(hit)) continue;
     c.blocks = c.blocks.map((b) => {
       if (!hit(b)) return b;
+      // Leftover-breach round: the block a resignation leaves behind (from the last day on) is the notice itself: it
+      // ends when they land home (invariant seed 5: crew on notice, left at an outstation, flew home hours after it).
+      if (c.notice && b.why === 'leave' && b.from === c.notice.leaves) {
+        c.notice = { ...c.notice, leaves: t.sta };
+        return { ...b, from: t.sta };
+      }
       // (A course keeps its dates: only its start waits for them.)
       const days = blockDays(c.base, b.from, b.to);
       const x = { ...b, from: t.sta };
@@ -626,7 +632,10 @@ export function sendStrandedHome(g: GameState): void {
   }
 }
 
-/** Away from base, a leave (or a course) starting within two days, no work before it and no ticket home landing in time. */
+/**
+ * Away from base, a leave (or a course) starting within two days, no work before it and no ticket home landing in time.
+ * Leftover-breach round: a notice ending within two days counts too (home by the last day; its block is a 'leave').
+ */
 function leaveAway(g: GameState, c: CrewMember): boolean {
   const b = c.blocks?.find((x) => (x.why === 'leave' || x.why === 'training') && x.from > g.now && x.from < g.now + 2 * DAY);
   if (!b) return false;
