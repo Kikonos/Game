@@ -1364,6 +1364,22 @@ export function onFlightsChanged(g: GameState, aircraftId: string, t: Minute): v
       }
       if (keep.length === d.flightIds.length && ev === d.flightsEv) continue;
       pChanged = true;
+      // Leftover-breach round: legs no longer flown in the duty's order, or no longer joined airport to airport (a leg
+      // retimed ahead of the one before it), make no day of work: before any of them flies the duty goes and the legs
+      // are planned afresh. Invariant seed 1: a Heathrow–Innsbruck leg slipped to 21:20 and the return to 15:20; the
+      // duty kept both, its first listed leg was not the first flown, and its crew 'flew' out of Innsbruck from
+      // Heathrow (the gate checks the crew's place at a duty's first leg).
+      const legs = keep.map((id) => g.flights[id]);
+      if (legs.length > 1 && legs.every((f) => f.status === 'scheduled') && legs.some((f, i) => i > 0 && (f.std < legs[i - 1].sta || f.from !== legs[i - 1].to))) {
+        for (const f of legs) if (f.dutyId === d.id) {
+          f.dutyId = null;
+          f.crewIds = [];
+        }
+        detachDuty(g, p, d);
+        if (!openDuties(g, p).length) for (const x of p.slots) if (x.crewId) loose.add(x.crewId);
+        reroster = true;
+        continue;
+      }
       if (!keep.length) {
         detachDuty(g, p, d);
         if (!openDuties(g, p).length) for (const x of p.slots) if (x.crewId) loose.add(x.crewId);
