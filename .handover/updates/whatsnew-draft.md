@@ -54,3 +54,18 @@ fixes:
 - A crew whose duty got shorter overnight are now signed off on time, where they really are.
 - A private jet ride now counts from its 30-minute check-in, as it was planned. The weekly rest before it no longer comes up 10 minutes short.
 - Crew sent home after a long week away now wait at the hotel until the flight home fits their 60 hours of duty in 7 days. (Travelling as a passenger counts as duty.)
+
+## Peak staffing round (after the crew planning round)
+
+features:
+- Busy months ahead: the Crew screen now warns before a month your signed work needs more crew than you will have, for example "July needs 3 more A320 cabin crew (about 1 set) and 1 captain". It looks three months ahead and counts days off, leave, courses, standby and crew still joining. Each person is counted once, as in Planning and the Hire screen.
+- The warning comes in time to act: about six weeks ahead for cabin crew, and as long ahead as a new captain or first officer takes to join (about 12 weeks on the A320) for pilots. A serious gap (a whole crew set, any pilot, or too late to hire in time) shows as a card that says what, why, whether it hurts and what you can do, with a Hire button already filled in. A small gap is one quiet line with its own Hire button.
+- One Inbox note per busy month and gap, never repeated daily. Tap it to open Crew › Planning.
+- The crew desk head proposes hires for a busy month from the same numbers.
+
+fixes:
+- Crew sent home from an outstation no longer keep a hotel standby planned there, and a standby after a flight home now waits for the rest the flight needs.
+- Crew who resign while away are flown home before they leave the company. If they can only land after their last day, their notice ends when they land.
+- A flight that lands a few minutes past the crew's duty limit because of headwinds is now recorded as the captain's discretion, as EASA allows after take-off on the last flight of the day.
+- Crew whose leave starts within a few hours at an outstation are flown home first; the leave starts when they land.
+- A trip whose return flight is moved ahead of its outbound is planned again, so no crew "fly" from an airport they never reached.

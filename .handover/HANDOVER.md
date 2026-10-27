@@ -484,3 +484,9 @@ Player notes (22 Oct, with top-bar screenshot .handover/updates/topbar-space.jpg
 - Left: 5 checker errors on 365-d seeds (hotel standby 0:50 rest; standby planned at MAD for crew in LIS; resigned crew flown home after last day); widebody 3 FDP overruns 4–19 min.
 - What's new drafts under "## Crew planning round (after v0.11)" in updates/whatsnew-draft.md.
 - 27 Oct PLAYER: (1) YES to peak staffing heads-up (Crew screen, 4–6 weeks ahead, e.g. "July needs 3 more A320 cabin crew sets"); (2) fix the 5 leftover breaches; RELEASE (v0.11.1) when everything is finished — approved. Agent running: Part A forecast (+ head uses it, bot --forecast-hire to measure), Part B leftovers (hotel-standby rest, standby at wrong station, resigned crew flown home late, widebody FDP 4–19 min). Then I release v0.11.1 with What's new from whatsnew-draft.md "Crew planning round" + staffing lines.
+
+### 27 Oct — v0.11.1 Crew planning RELEASED
+- Release c472073 on claude/contrail-airline-game + main (acmi 8707abe). Live index-JkboY_UY.js, 0 console errors, title "v0.11.1 Crew planning". 1302 tests; bot s1 8 reds; player save 60 d: 2 historic errors only.
+- Staffing heads-up (forecast.ts): Crew › People + Planning; fixed "about N sets" to use the type's own complement (d7c4549). Bot --forecast-hire barely moves reds (242→235 over 12 seeds); cautious 0.6 setting 166 but costs margin — reds are day-level (place/rest/hours), not month headcount.
+- Bot s1: 1 crew-month <7 days off (offBroken 1 — designed day-off break by crew control, replaced next month). Watch.
+- NEXT (player's choice): Update 2 Commercial (tenders, trade fairs in Team tab with deadhead-style traveller, client crises); repo rename to Block-Hours when player does it; old questions A–E + wording 1–37 still unanswered.
