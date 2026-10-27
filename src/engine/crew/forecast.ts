@@ -443,7 +443,8 @@ export function peakHeadsUp(g: GameState): void {
     pushMessage(g, {
       tone: serious ? 'warn' : 'info', cat: 'crew', cue: serious ? 'notice' : null,
       title: card.what, body: `${card.why} ${hurtProse(card)}.`, ref: card.subject.ref,
-      ...(serious ? { problem: card.subject, hurt: { money: 0, pax: 0, delayMin: 0, level: card.hurt.level } } : {}),
+      // (No hurt snapshot: no money or passengers are at stake yet, and a 'no cost' badge would read as 'no harm'.)
+      ...(serious ? { problem: card.subject } : {}),
     });
   }
 }
