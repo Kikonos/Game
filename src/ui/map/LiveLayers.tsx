@@ -15,7 +15,7 @@
 import { geoInterpolate, geoPath } from 'd3-geo';
 import { Ban, CloudFog, CloudLightning, type LucideIcon, Moon } from 'lucide-react';
 import { memo, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
-import { AIRPORT_BY_CODE, AIRPORTS } from '../../data/airports';
+import { AIRPORT_BY_CODE } from '../../data/airports';
 import { aircraftLive, type AircraftLive, divPos, flightTimes } from '../../engine/core/query';
 import { interpolateGC } from '../../engine/core/geo';
 import type { Flight, GameState, Livery } from '../../engine/core/types';
@@ -24,14 +24,13 @@ import { liveMinute, store } from '../store';
 import { mix } from '../components/aircraft/ink';
 import { isTouch } from '../useMedia';
 import { MAP_H, MAP_W } from './mapData';
-import { type AcLabel, thinLabels, deliveryTag, headingDeg, JET_PATH, leasedOut, onMap, type LabelBox, boxOverlap, groupCommercial, lerpAngle, parkOffset, downSide, legLabelSide, placeLabels, regSlot, type RegSlot, type SlipArc, type SlipMark, trackCovered, trackLabelAt, type LegArc, type PinGroup, sunElevation, sunPoint, TYPE_STROKE } from './mapLogic';
+import { type AcLabel, thinLabels, deliveryTag, headingDeg, JET_PATH, leasedOut, onMap, type LabelBox, boxOverlap, groupCommercial, lerpAngle, parkOffset, downSide, legLabelSide, placeLabels, regSlot, type RegSlot, type SlipArc, type SlipMark, trackCovered, trackLabelAt, type LegArc, type PinGroup, sunPoint, TYPE_STROKE } from './mapLogic';
 import { parkedFit, silColour, silhouette, silPx, silSpec } from './silhouettes';
 import { airlineType } from './airlineTypes';
-import { fillNight, lightAlpha, mercLat, parseRgb } from './sky';
+import { fillNight, mercLat, parseRgb } from './sky';
 import { contrailWindow } from './spotter';
 import type { WxKind, WxMark } from './weather';
-import { projection } from './mapData';
-import type { GlowPaint, MapLayerCtx } from './WorldMap';
+import type { MapLayerCtx } from './WorldMap';
 
 /** Live positions shared with tap picking and focus (map units, as last drawn). */
 export interface LiveShared {
@@ -44,8 +43,6 @@ export interface LiveShared {
   nightDec: number;
   /** Subsolar point the night was placed for (it is then slid by the sun's longitude change). */
   nightSun: [number, number] | null;
-  /** v0.12 city lights: [lon, lat], map points, glow radii, the levels painted and when they were last updated. */
-  lights: { ll: [number, number][]; pts: [number, number][]; r: number[]; lvl: Int8Array; at: number } | null;
   /** Path groups (underlay): airline legs under ours. */
   pathsCm: SVGGElement | null;
   pathsOwn: SVGGElement | null;
@@ -55,7 +52,7 @@ export interface LiveShared {
   aps: [number, number][];
 }
 
-export const newShared = (): LiveShared => ({ ac: new Map(), cm: new Map(), night: null, nightImgs: [], nightDec: NaN, nightSun: null, lights: null, pathsCm: null, pathsOwn: null, cmRoot: null, aps: [] });
+export const newShared = (): LiveShared => ({ ac: new Map(), cm: new Map(), night: null, nightImgs: [], nightDec: NaN, nightSun: null, pathsCm: null, pathsOwn: null, cmRoot: null, aps: [] });
 
 /** Frame cost stats for perf checks (console: __contrailMap). */
 const stats = { frames: 0, avgMs: 0, maxMs: 0, reset() { this.frames = 0; this.avgMs = 0; this.maxMs = 0; } };
@@ -165,90 +162,6 @@ export const NightLayer = memo(function NightLayer({ shared, shift, theme }: { s
 });
 
 // ---------- v0.12 city lights ----------
-
-/** Glow radius (screen px) of an airport's city lights: bigger cities glow wider. */
-const lightR = (pop: number) => 3.2 + 2.6 * Math.log10(1 + Math.max(0, pop));
-
-/** Light levels (0 … LIGHT_STEPS) the loop keeps, so the canvas is repainted only when a light changed. */
-const LIGHT_STEPS = 12;
-/** Real ms between city-light updates (a fade is a few steps). */
-const LIGHTS_MS = 160;
-
-/** Every airport's lights: [lon, lat], glow radius, map point (the ops map's unrotated projection). */
-function cityLights(): NonNullable<LiveShared['lights']> {
-  const proj = projection(0);
-  const list = AIRPORTS.map((a) => ({ a, q: proj([a.lon, a.lat]) })).filter((x) => x.q);
-  return {
-    ll: list.map((x) => [x.a.lon, x.a.lat] as [number, number]),
-    pts: list.map((x) => [x.q![0], x.q![1]] as [number, number]),
-    r: list.map((x) => lightR(x.a.pop)),
-    lvl: new Int8Array(list.length),
-    at: -Infinity,
-  };
-}
-
-/** A soft warm glow (a radial gradient in the theme's light colours), drawn once per theme (data-theme on the root). */
-let sprite: { key: string; theme: string; cv: HTMLCanvasElement } | null = null;
-function lightSprite(): HTMLCanvasElement {
-  // Reading the colours forces a style pass: only when the theme attribute has changed.
-  const theme = document.documentElement.dataset.theme ?? '';
-  if (sprite && sprite.theme === theme) return sprite.cv;
-  const cs = getComputedStyle(document.documentElement);
-  const core = cs.getPropertyValue('--map-light-core').trim() || '#fff1c9';
-  const glow = cs.getPropertyValue('--map-light-glow').trim() || '#ffb547';
-  const a = Number.parseFloat(cs.getPropertyValue('--map-light-a')) || 0.9;
-  const key = `${core}|${glow}|${a}`;
-  if (sprite?.key === key) { sprite.theme = theme; return sprite.cv; }
-  const cv = document.createElement('canvas');
-  cv.width = cv.height = 64;
-  const c = cv.getContext('2d')!;
-  const gr = c.createRadialGradient(32, 32, 0, 32, 32, 32);
-  const rgba = (hex: string, al: number) => { const [r, g, b] = parseRgb(hex, [255, 200, 120]); return `rgba(${r},${g},${b},${al})`; };
-  gr.addColorStop(0, rgba(core, a));
-  gr.addColorStop(0.28, rgba(glow, a * 0.5));
-  gr.addColorStop(1, rgba(glow, 0));
-  c.fillStyle = gr;
-  c.fillRect(0, 0, 64, 64);
-  sprite = { key, theme, cv };
-  return cv;
-}
-
-/** Paints the city lights at their levels (the WorldMap `glow` canvas: one paint item, no SVG nodes). */
-export function paintCityLights(shared: LiveShared): GlowPaint {
-  return (c, at, px) => {
-    const L = (shared.lights ??= cityLights());
-    const img = lightSprite();
-    const W = c.canvas.width;
-    const H = c.canvas.height;
-    for (let i = 0; i < L.pts.length; i++) {
-      const lv = L.lvl[i];
-      if (lv <= 0) continue;
-      const [x, y] = at(L.pts[i]);
-      const r = L.r[i] * px;
-      if (x < -r || y < -r || x > W + r || y > H + r) continue;
-      c.globalAlpha = lv / LIGHT_STEPS;
-      c.drawImage(img, x - r, y - r, 2 * r, 2 * r);
-    }
-    c.globalAlpha = 1;
-  };
-}
-
-/** Fades each city's lights with its sun elevation, at most every LIGHTS_MS; repaints the canvas only on a change. */
-function lightCities(shared: LiveShared, sun: [number, number], now: number, redraw: () => void, force: boolean) {
-  const L = (shared.lights ??= cityLights());
-  if (!force && now - L.at < LIGHTS_MS) return;
-  L.at = now;
-  let changed = force;
-  for (let i = 0; i < L.ll.length; i++) {
-    const [lon, lat] = L.ll[i];
-    const lv = Math.round(lightAlpha(sunElevation(sun, lon, lat)) * LIGHT_STEPS);
-    if (lv !== L.lvl[i]) {
-      L.lvl[i] = lv;
-      changed = true;
-    }
-  }
-  if (changed) redraw();
-}
 
 // ---------- always-on flight paths ----------
 
@@ -679,7 +592,6 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
     let lastSunT = NaN;
     let lastSun: [number, number] | null = null;
     let labels: boolean | null = null;
-    let lightTheme = '';
     let settling = true;
     // Paths and airline legs (built once per leg; d rebuilt only when the projection changes).
     const own = new Map<string, OwnPath>();
@@ -748,10 +660,6 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
         if (!s0 || !(Math.abs(sun[1] - shared.nightDec) < NIGHT_DEC_STEP)) buildNight(shared, tn, c.backShift);
         else if (Math.abs(c.backShift(nightShift(s0, sun))) > c.margin / 2) buildNight(shared, tn, c.backShift);
       }
-      // City lights (their own canvas layer); a theme change repaints them in the new colours.
-      const th = document.documentElement.dataset.theme ?? '';
-      lightCities(shared, sun, now, c.redrawGlow, th !== lightTheme);
-      lightTheme = th;
       if (anim !== root.classList.contains('trails')) root.classList.toggle('trails', anim);
       const u = 1 / (c.px * k); // map units per screen px right now
       const wantLabels = k / (c.fitK || 1) >= 2;

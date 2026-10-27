@@ -60,9 +60,6 @@
   /* v0.12 night shade (raster colour, strongest alpha), city lights, contrails, weather halos. */
   --map-night-rgb: 1, 4, 14;
   --map-night-a: 0.58;
-  --map-light-core: #fff1c9;
-  --map-light-glow: #ffb547;
-  --map-light-a: 0.9;
   --map-contrail: #ffffff;
   --map-contrail-a: 0.42;
   --wx-storm: #fbbf24;
@@ -311,9 +308,6 @@
   --map-night: rgba(30, 45, 90, 0.1);
   --map-night-rgb: 26, 40, 92;
   --map-night-a: 0.22;
-  --map-light-core: #fffbeb;
-  --map-light-glow: #f59e0b;
-  --map-light-a: 0.85;
   --map-contrail: #64748b;
   --map-contrail-a: 0.4;
   --wx-storm: #d97706;

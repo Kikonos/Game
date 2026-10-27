@@ -8,7 +8,7 @@ import { fromUTC } from '../../engine/core/time';
 import type { Aircraft, Decision, Flight, GameState, WorldEvent } from '../../engine/core/types';
 import { sunElevation, sunPoint } from './mapLogic';
 import { buildSilhouette, nacelles, parkedFit, SIL_FAMILY, SIL_TYPES, silPx, silScale, silSpec, silhouette, wingOutline } from './silhouettes';
-import { fillNight, lightAlpha, mercLat, nightAlpha } from './sky';
+import { fillNight, mercLat, nightAlpha } from './sky';
 import { CONTRAIL_FT, contrailWindow, flightProfile, nextDeparture, spotList, spotNext } from './spotter';
 import { wxMarks } from './weather';
 
@@ -156,9 +156,6 @@ describe('sun and the soft night', () => {
     expect(nightAlpha(-6)).toBeGreaterThan(0.3);
     expect(nightAlpha(-6)).toBeLessThan(0.7);
     for (let e = 5; e > -20; e -= 0.5) expect(nightAlpha(e - 0.5)).toBeGreaterThanOrEqual(nightAlpha(e));
-    // City lights come on after sunset, fully by the end of civil twilight.
-    expect(lightAlpha(0)).toBe(0);
-    expect(lightAlpha(-9)).toBe(1);
   });
 
   it('paints the night raster dark on the far side, clear under the sun, with a band between', () => {

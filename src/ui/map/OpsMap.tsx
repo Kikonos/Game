@@ -11,7 +11,7 @@
 // dry-leased-out aircraft stands at the lessee's base in their paint with a LEASED tag.
 // v0.9: CREW OUT OF HOURS beside CREW SHORT (Up Next, fleet chips, legend); a selected aircraft's crew changes at a fuel
 // stop (slip crews' airline legs and a tappable crew-change mark, static; panel per crew change).
-// v0.12 Visual A: a soft day/night with city lights, top-down silhouettes per type, flown/to-go lines with contrails,
+// v0.12 Visual A: a soft day/night (city lights removed in v0.11.2 at the player's ask), top-down silhouettes per type, flown/to-go lines with contrails,
 // weather and closure marks on airports, and spotter mode (binoculars: follow one airborne aircraft, a view only).
 
 import { ArrowLeftRight, Binoculars, ChevronDown, CloudLightning, ChevronUp, HelpCircle, TimerOff, Users, X } from 'lucide-react';
@@ -23,7 +23,7 @@ import { slipsOfAircraft } from '../../engine/crew';
 import { commercialFlightsBetween, FLIGHT_TYPE_HINT, FLIGHT_TYPE_LABEL, worldEventPins, worldZones } from '../../engine/ops';
 import { store, useClock, useGame, useTheme } from '../store';
 import { useTouch } from '../useMedia';
-import { AircraftLayer, ArcsLayer, CommercialLayer, DiversionLayer, divMarks, HIT_R, type LiveShared, NightLayer, newShared, paintCityLights, PathsLayer, PinsLayer, pinOffset, SlipArcsLayer, SlipMarksLayer, WeatherLayer, WX_OFF } from './LiveLayers';
+import { AircraftLayer, ArcsLayer, CommercialLayer, DiversionLayer, divMarks, HIT_R, type LiveShared, NightLayer, newShared, PathsLayer, PinsLayer, pinOffset, SlipArcsLayer, SlipMarksLayer, WeatherLayer, WX_OFF } from './LiveLayers';
 import { SpotterPanel } from './Spotter';
 import { SIL_COLOURS, silhouette } from './silhouettes';
 import { nextDeparture, SPOT_SECONDS, spotList, spotNext } from './spotter';
@@ -250,7 +250,6 @@ export function OpsMap() {
   const panelOpen = !!spot || (!!sel && (sel.kind === 'aircraft' || sel.kind === 'airport' || sel.kind === 'offer' || sel.kind === 'event' || !!selCm || !!selSlip));
   const sharedRef = useRef<LiveShared | null>(null);
   const shared = (sharedRef.current ??= newShared());
-  const glowPaint = useMemo(() => paintCityLights(shared), [shared]);
   let memo = views.get(g);
   if (!memo) views.set(g, (memo = { view: null }));
 
@@ -451,7 +450,6 @@ export function OpsMap() {
         memo={memo}
         follow={follow}
         backdrop={(ctx) => <NightLayer shared={shared} shift={ctx.backShift} theme={theme} />}
-        glow={glowPaint}
         ground={(ctx) => <ZoneGround zones={zones} proj={ctx.proj} hatch={hatchUnit(ctx.px, ctx.k)} />}
         underlay={(ctx) => {
           refs.current.proj = ctx.proj;
