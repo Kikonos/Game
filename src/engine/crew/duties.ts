@@ -288,7 +288,18 @@ export function syncDuty(g: GameState, d: Duty, p: Pairing): void {
   applyPick(d, pa);
   d.restAt = sh.restAt;
   d.flightsEv = fl.reduce((s, f) => s + f.ev, 0);
+  const wasIllegal = d.legality === 'illegal';
   d.legality = dutyLegality(d);
+  // Leftover-breach round: on the final sector, once airborne, a longer day than planned (headwinds: the ETA drawn at
+  // take-off) is the commander's discretion (ORO.FTL.205(f)(2): unforeseen after take-off, the flight continues to its
+  // destination). It is recorded on the duty, so the duty, its log and the checker agree. Widebody bot seed 1: a 747
+  // planned 11:55 of a 12:00 limit landed 9 min late and its 12:04 day read legal with no discretion on record. A duty
+  // already over its limit at that take-off stays illegal (the gate counted it flown illegally).
+  const last = fl[fl.length - 1];
+  if (!wasIllegal && reported && (last.status === 'enroute' || last.status === 'done') && d.fdp > d.maxFdp + (d.discretion ?? 0)) {
+    d.discretion = d.fdp - d.maxFdp;
+    d.legality = dutyLegality(d);
+  }
 }
 
 /** Crew check before report (roster.guardDuty): a 'duty.report' event this long before the report. */

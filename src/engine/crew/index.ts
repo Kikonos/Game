@@ -8,7 +8,7 @@ import { DAY, monthKey, yearOf } from '../core/time';
 import type { CrewMember, Flight, GameState, Minute, SimEvent } from '../core/types';
 import { cancelConversion, classOf, dailyClasses } from './conversion';
 import { dailyCrewCosts, monthlySalaries } from './costs';
-import { afterDiversion, deletePairing, pairingSeats, planAircraft, refreshPairing } from './duties';
+import { afterDiversion, deletePairing, dutyLegality as dutyLevel, pairingSeats, planAircraft, refreshPairing } from './duties';
 export { aboveMinimum, afterDiversion, legalMinimum } from './duties';
 import { dailySickness, onCrewJoin, onTrainingDone } from './hr';
 import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, settleService, setResignHooks } from './morale';
@@ -195,8 +195,13 @@ function onDutyRelease(g: GameState, ev: SimEvent): void {
   if (lastF?.status === 'done' && lastF.ata !== undefined && lastF.ata + postMin > d.release) {
     d.fdp = Math.max(d.fdp, lastF.ata - d.report);
     d.release = lastF.ata + postMin;
-    // Past the max FDP in the air: the commander's discretion covered it (ORO.FTL.205(f), unforeseen after take-off).
-    if (d.fdp > d.maxFdp + (d.discretion ?? 0)) d.discretion = d.fdp - d.maxFdp;
+  }
+  // Past the max FDP in the air: the commander's discretion covered it (ORO.FTL.205(f), unforeseen after take-off).
+  // Leftover-breach round: also when the release had already moved with the ETA (the duty synced in flight), so the
+  // FDP on record never exceeds its limit plus the discretion on record; not for a duty that left already illegal.
+  if (lastF?.status === 'done' && d.legality !== 'illegal' && d.fdp > d.maxFdp + (d.discretion ?? 0)) {
+    d.discretion = d.fdp - d.maxFdp;
+    d.legality = dutyLevel(d);
   }
   // ... and the crew rest where the last leg really landed (a diversion the duty was not re-synced for).
   if (lastF?.status === 'done') d.restAt = lastF.to;
