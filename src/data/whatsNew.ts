@@ -16,6 +16,29 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.11.1',
+    name: 'Crew planning',
+    features: [
+      'Busy months ahead: the Crew screen warns before a month your signed work needs more crew than you will have, for example "July needs 3 more A320 cabin crew (about 1 set) and 1 captain". It looks three months ahead and counts days off, leave, courses, standby and crew still joining, each person once, as in Planning and Hire.',
+      'The warning comes in time to act: about six weeks ahead for cabin crew, and as long ahead as a new pilot takes to join (about 12 weeks for an A320 captain). A serious gap shows as a card with Hire buttons already filled in; a small one is a quiet line. One Inbox note per busy month, never daily, and the crew desk head proposes the same hires.',
+    ],
+    improvements: [
+      'After a diversion the crew fly on with the passengers when their day allows; otherwise they rest at the hotel there and the rest of the trip gets a crew.',
+      'A flight that lands a few minutes past the duty limit because of headwinds is recorded as the captain\'s discretion, as EASA allows after take-off on the last flight.',
+    ],
+    fixes: [
+      'Crew who land late always get their full rest: a ticket home or on to the next trip that would cut into it is rebooked for after it.',
+      'The weekly 36-hour rest always comes within 7 days: it counts from an early airline ticket out, a private jet check-in is 30 minutes, and a ticket home waits until it fits 60 hours of duty in 7 days (travelling as a passenger is duty).',
+      'Annual leave starts at home: crew away from base are flown home first; if they can only land on the first day, the leave starts when they land and keeps all its days.',
+      'Crew stuck "on duty" for days after a diversion while the next flight waited for a rescue crew: fixed, and saves are repaired on load.',
+      'Rest after a standby that was not called follows the EASA rule (airport standby as long as the standby, hotel or home 12 h at home and 10 h away); a duty that starts as a standby ends counts as a call-out.',
+      'A hotel standby is always where the crew member is, with the rest it needs after a flight home.',
+      'Crew who resign while away are flown home before they leave the company.',
+      'A trip joining two jobs always carries our own cabin crew where the client brings none; crew no longer ride our own empty flight into a day too long for their rest.',
+      'A return flight moved ahead of its outbound is planned again, so no crew "fly" from an airport they never reached.',
+    ],
+  },
+  {
     version: 'v0.11',
     name: 'Operations',
     features: [
