@@ -39,3 +39,14 @@
 .cp-idle { padding: 0 4px; }
 
 @media (max-width: 1100px) { .cp-grid { grid-template-columns: 1fr; } }
+
+/* ---- Peak-staffing round: the busy months ahead (Crew › People under the strip, Crew › Planning on top) ---- */
+.cp-peak { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; max-width: 900px; }
+.cp-view .cp-peak { margin-bottom: 0; }
+.cp-peak-line {
+  display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 8px 6px 14px;
+  background: var(--panel); border: 1px solid rgba(var(--warn-rgb), 0.35); border-radius: 12px;
+}
+.cp-peak-ico { color: var(--warn); flex-shrink: 0; }
+.cp-peak-text { flex: 1; min-width: 0; }
+.cp-peak-line .btn { min-height: 36px; flex-shrink: 0; }

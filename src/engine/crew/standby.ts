@@ -133,7 +133,10 @@ export function dropStandby(g: GameState, c: CrewMember, from: Minute, until: Mi
     // v0.10.2 work starting inside a window running now is a call-out from it (CS FTL.1.225), not the end of an
     // uncalled window: no rest is owed in between (BLU1109: an FO called at 16:51 for a 17:00 ticket was read as
     // 0:09 rested of the 12:00 owed after an uncalled home standby, and the ferry he was called for went red).
-    if (from < w.to && w.kind !== 'reserve') {
+    // Crew-planning round: so is work given now that starts at (or soon after) the window's end, before the rest an
+    // uncalled window would owe (seed 3: crew on a 03:00-15:00 home standby given a 15:00 duty at 10:55 were read as
+    // released at 10:55 and 4:05 rested of 12:00). The duty's limit then counts the standby (CS FTL.1.225(b)).
+    if (from < w.to + restAfterWindow(c, w) && w.kind !== 'reserve') {
       keep.push({ ...w, calledAt: g.now });
       noteCall(g);
       continue;

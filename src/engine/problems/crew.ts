@@ -7,6 +7,7 @@ import { DAY, fmtDay, fmtDateTime } from '../core/time';
 import type { CrewFix, Duty, GameState, ProblemRef, RestFacility } from '../core/types';
 import { crewGauges, crewShortCard, setCrewHoursCard, shortFlights } from '../crew/control';
 import { crewAlertKind, LIMIT_NAME, outOfHours, roleWord, type OohInfo } from '../crew/outOfHours';
+import { crewPeakCard, peakForecast, peakGroups, peakId } from '../crew/forecast';
 import { dutyCandidates } from '../crew/rosterActions';
 import { crewName } from '../crew/generate';
 import { dutyLegality } from '../crew/rosterActions';
@@ -117,6 +118,12 @@ export function crewProblems(g: GameState): ProblemCard[] {
       const card = crewResignedCard(g, c.id);
       if (card) out.push(card);
     }
+  }
+  // Peak-staffing round: a busy month ahead with a serious gap (a whole set, any pilot, or too late to hire in time).
+  for (const xs of peakGroups(peakForecast(g))) {
+    if (!xs.some((x) => x.serious)) continue;
+    const card = crewPeakCard(g, peakId(xs[0].month, xs[0].family));
+    if (card) out.push(card);
   }
   return out;
 }

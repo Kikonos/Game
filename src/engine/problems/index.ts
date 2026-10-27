@@ -7,6 +7,7 @@ import { pushMessage } from '../core/messages';
 import type { Cue } from '../core/cues';
 import type { GameState, Message, MessageCat, ProblemKind, ProblemRef, Ref } from '../core/types';
 import { crewRev } from '../crew/timeline';
+import { crewPeakCard } from '../crew/forecast';
 import { cabinRestCard, captainAsFoCard, crewFlightCard, crewHoursCard, crewProblems, crewResignedCard, crewSickCard, restCards, restFacilityCard, restSeatsCard, restTooShortCard } from './crew';
 import { changeRequestCard, commercialProblems, contractCancelledCard, counterExpiryCard, offerFitCard, penaltyCard } from './commercial';
 import { deliveryWaitCard, ferryUncrewedCard, noFerryCard, fleetProblems, leaseReturnCard, refitMissedCard, saleCard } from './fleet';
@@ -75,6 +76,8 @@ export function problemFor(g: GameState, subject: ProblemRef): ProblemCard | nul
     case 'disruption': return disruptionAt(g, id);
     case 'rampFinding': return rampFindingCard(g, id);
     case 'auditFinding': return auditFindingCard(g, id);
+    // Peak-staffing round
+    case 'crewPeak': return crewPeakCard(g, id);
   }
 }
 
@@ -121,7 +124,7 @@ export function problemAt(g: GameState, ref: Ref): ProblemCard | null {
       return crewFlightCard(g, ref.id, f?.purpose ? 'ferryUncrewed' : 'crewShort') ?? crewFlightCard(g, ref.id, 'crewTight');
     }
     case 'aircraft': return aogCard(g, ref.id) ?? checkCard(g, ref.id) ?? noSlotCard(g, ref.id) ?? deliveryWaitCard(g, ref.id) ?? leaseReturnCard(g, ref.id);
-    case 'crew': return crewSickCard(g, ref.id) ?? crewResignedCard(g, ref.id);
+    case 'crew': return ref.id.startsWith('peak:') ? crewPeakCard(g, ref.id) : crewSickCard(g, ref.id) ?? crewResignedCard(g, ref.id);
     case 'maint': return checkClashCard(g, ref.id) ?? refitMissedCard(g, ref.id);
     case 'offer': return counterExpiryCard(g, ref.id) ?? offerFitCard(g, ref.id) ?? lostToRivalCard(g, ref.id);
     case 'client': return clientUnhappyCard(g, ref.id);

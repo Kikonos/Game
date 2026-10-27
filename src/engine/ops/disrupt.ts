@@ -20,7 +20,7 @@ import { divPos } from '../core/query';
 import { DAY, dayStart, fmtDuration, fmtTime, localMinuteOfDay, yearOf } from '../core/time';
 import type { ActionResult, Aircraft, Decision, DecisionOption, DisruptCause, DisruptKind, Flight, GameState, MaintenanceEvent, Minute, OpsState, SimEvent } from '../core/types';
 import { bumpClient } from '../contracts/relations';
-import { applyCrewFix, crewControl, flightCrewStatus, removeCrew } from '../crew';
+import { afterDiversion, applyCrewFix, crewControl, flightCrewStatus, removeCrew } from '../crew';
 import { crewName } from '../crew/generate';
 import { emergencyFactor, OPS_LIVE, optionalFactor } from './director';
 import { delayChain, moveFlight, pickRival, rivalFactor, subcharterCost, subcharterLegs, unitOf, cancelLegs } from './flights';
@@ -703,6 +703,8 @@ function resolveOnward(g: GameState, d: Decision, opt: string): ActionResult {
       const at = Number(d.data?.flyAt ?? g.now + 60);
       if (charter) post(g, 'disruption', -2 * DISRUPT.mealPax * pax);
       const x = cont(at);
+      // Crew-planning round: the crew fly on within their day, or rest here while the roster re-crews what follows.
+      afterDiversion(g, f, x);
       if (at + block - (f.div.eta0 ?? f.sta) >= 180) comp();
       bumpClient(g, c?.clientId, 1, `${f.no} flew on to ${to0} the same day`);
       return { ok: true, msg: `${x.no} flies on ${alt}–${to0} at ${fmtTime(at)} UTC` };
@@ -710,6 +712,7 @@ function resolveOnward(g: GameState, d: Decision, opt: string): ActionResult {
     case 'bus': {
       const km = Number(d.data?.roadKm ?? 200);
       if (charter) post(g, 'disruption', -coachCost(pax, km));
+      afterDiversion(g, f, null);
       if ((km / 70) * 60 + 45 >= 180) comp();
       bumpClient(g, c?.clientId, -1, `${f.no}: passengers coached from ${alt}`);
       countOps(g, 'coach');
@@ -719,7 +722,7 @@ function resolveOnward(g: GameState, d: Decision, opt: string): ActionResult {
       const at = Number(d.data?.morning ?? g.now + 12 * 60);
       if (charter) post(g, 'disruption', -hotelCost(pax));
       post(g, 'hotels', -crewOn(f) * DISRUPT.crewRoom);
-      cont(at);
+      afterDiversion(g, f, cont(at));
       comp();
       bumpClient(g, c?.clientId, -1, `${f.no}: an overnight in ${alt}`);
       countOps(g, 'overnight');
@@ -729,6 +732,7 @@ function resolveOnward(g: GameState, d: Decision, opt: string): ActionResult {
       const rival = pickRival(g, ac.typeId, [f]);
       const cost = subcharterCost(g, [f], 1.3 * rivalFactor(g, rival));
       post(g, 'subcharter', -cost);
+      afterDiversion(g, f, null);
       bumpClient(g, c?.clientId, -1, `${f.no}: passengers flown on by ${g.rivals.find((r) => r.id === rival)?.name ?? 'a rival'}`);
       return { ok: true, msg: `${g.rivals.find((r) => r.id === rival)?.name ?? 'A rival'} flies the passengers on` };
     }

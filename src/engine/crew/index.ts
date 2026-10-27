@@ -5,22 +5,23 @@ import { flightsOf, flightsRev, takeFlightChanges, touchTickets } from '../core/
 import type { SimModule } from '../core/module';
 import { schedule } from '../core/queue';
 import { DAY, monthKey, yearOf } from '../core/time';
-import type { CrewMember, GameState, Minute, SimEvent } from '../core/types';
+import type { CrewMember, Flight, GameState, Minute, SimEvent } from '../core/types';
 import { cancelConversion, classOf, dailyClasses } from './conversion';
 import { dailyCrewCosts, monthlySalaries } from './costs';
-import { deletePairing, planAircraft } from './duties';
-export { aboveMinimum, legalMinimum } from './duties';
+import { afterDiversion, deletePairing, dutyLegality as dutyLevel, pairingSeats, planAircraft, refreshPairing } from './duties';
+export { aboveMinimum, afterDiversion, legalMinimum } from './duties';
 import { dailySickness, onCrewJoin, onTrainingDone } from './hr';
 import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, settleService, setResignHooks } from './morale';
-import { autoRoster, closedWait, guardDuty, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, removeCrew, sendStrandedHome, stayOn } from './roster';
+import { autoRoster, closedWait, guardDuty, homeBeforeLeave, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, removeCrew, sendStrandedHome, stayOn } from './roster';
 import { localMin, minRest, signedTz, tzDeltaH, tzNights } from './rules';
 import { clipToRest, dailyStandby, noteRecovery } from './standby';
 import { dayPlanAfter, dayPlanBefore, dayPlanInit, dayPlanLoad, dayPlanMonth, v09Stats } from './dayPlan';
+import { peakHeadsUp } from './forecast';
 import { AUTHORITY } from '../../data/flavor';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { pushMessage } from '../core/messages';
 import { post } from '../core/ledger';
-import { aboard, crewCount, crewIx, dutyBlock, dutyFlights, dutySegs, passengers, touchCrew, touchCrewState, typeIdOf } from './timeline';
+import { aboard, checkInOf, crewCount, crewIx, dutyBlock, dutyFlights, dutySegs, passengers, touchCrew, touchCrewState, typeIdOf } from './timeline';
 import { reportMinutes } from '../core/perf';
 
 export {
@@ -28,7 +29,8 @@ export {
   acclimState, referenceTime, type Acclim, type CrewWindows, type FdpInput, type IssueCode, type LegalityIssue, type LegalityReport, type RestInput,
 } from './ftl';
 export { crewName, makeCrewMember, salaryFor } from './generate';
-export { crewAvailability, hireBatch, hireCrew, hireFamilies, hireQuote, ratedMarket, staffing, trainCrew, type Availability, type HireRequest, type RatedMarket, type RoleCapacity, type StaffingLine } from './hr';
+export { crewPeakCard, gapWords, hireLeadDays, monthPlan, PEAK, peakForecast, peakGroups, peakId, peakLine, warnDays, type PeakForecast, type PeakGap, type PeakMonth } from './forecast';
+export { crewAvailability, hireBatch, hireCrew, hireFamilies, hireQuote, ratedMarket, staffing, staffingAssign, trainCrew, type Availability, type HireRequest, type RatedMarket, type RoleCapacity, type StaffingLine } from './hr';
 export {
   applyDiscretion, autoRoster, discretionCheck, discretionMax, plannedFdpOf, boardCrew, dropStraySpares, promoteSpares, buildDuties, flightCrewStatus, guardDuty, onFlightsChanged, removeCrew, replaceCrew, rerosterFrom, rosterOf, setClosedWaitHook, setRestDelayHook,
   type FlightCrewStatus, type RosterResult,
@@ -149,7 +151,16 @@ function onDutyReport(g: GameState, ev: SimEvent): void {
   for (const s of p.slots) {
     const c = s.crewId ? g.crew[s.crewId] : undefined;
     if (!c) continue;
-    noteRecovery(c, d.report, g);
+    // Crew-planning round: from the crew member's own start (a ticket out merged into the FDP checks in hours before
+    // the report; cabin crew report earlier). Seed 6: an FO ticketed out at 08:00 for a 13:45 report, 33 h after a home
+    // standby, had the time off counted as a recovery rest up to 13:45; the next 168 h ran from there (179 h in fact).
+    let out: Flight | null = null;
+    for (const fid of d.deadheadIds) {
+      const f = g.flights[fid];
+      if (f && f.status !== 'cancelled' && f.sta <= d.report && aboard(f, c.id)) out = f;
+    }
+    const own = dutySegs(g, c, p, d, out, null).find((x) => x.kind === 'duty')?.start ?? d.report;
+    noteRecovery(c, Math.min(d.report, own), g);
     c.status = 'onDuty';
     if (c.awaySince === null && (dep !== c.base || d.restAt !== c.base)) c.awaySince = g.now;
   }
@@ -186,11 +197,19 @@ function onDutyRelease(g: GameState, ev: SimEvent): void {
   if (lastF?.status === 'done' && lastF.ata !== undefined && lastF.ata + postMin > d.release) {
     d.fdp = Math.max(d.fdp, lastF.ata - d.report);
     d.release = lastF.ata + postMin;
-    // Past the max FDP in the air: the commander's discretion covered it (ORO.FTL.205(f), unforeseen after take-off).
-    if (d.fdp > d.maxFdp + (d.discretion ?? 0)) d.discretion = d.fdp - d.maxFdp;
+  }
+  // Past the max FDP in the air: the commander's discretion covered it (ORO.FTL.205(f), unforeseen after take-off).
+  // Leftover-breach round: also when the release had already moved with the ETA (the duty synced in flight), so the
+  // FDP on record never exceeds its limit plus the discretion on record; not for a duty that left already illegal.
+  if (lastF?.status === 'done' && d.legality !== 'illegal' && d.fdp > d.maxFdp + (d.discretion ?? 0)) {
+    d.discretion = d.fdp - d.maxFdp;
+    d.legality = dutyLevel(d);
   }
   // ... and the crew rest where the last leg really landed (a diversion the duty was not re-synced for).
   if (lastF?.status === 'done') d.restAt = lastF.to;
+  // Crew-planning round: tickets after the duty that the real release no longer leaves room for (no check-in in time,
+  // or leaving inside the rest) are rebooked before the duty is logged.
+  rebookAfterLateRelease(g, p, d);
   const y = yearOf(g.now);
   const block = dutyBlock(g, d);
   // v0.9 §W a duty that took over at a fuel stop: one crew change flown.
@@ -301,11 +320,18 @@ function onFlightArrCrew(g: GameState, ev: SimEvent): void {
     if (!merged) {
       const off = f.atd ?? f.std;
       const on = f.ata ?? f.sta;
-      noteRecovery(c, off - CHECKIN(), g);
-      c.log.push({ start: off - CHECKIN(), end: on, fdp: 0, block: 0, sectors: 0, augmented: false, disruptive: false });
+      // Crew-planning round: checked in as the plan reads the ticket (a private jet 30 min at the FBO, not an airline's
+      // hour). Seed 3: a jet at 04:00 after a 60 h recovery from 15:10 three days before was logged from 03:00, the
+      // recovery read 59:50 and the 168 h ran to 193 h.
+      const ci = checkInOf(f);
+      noteRecovery(c, off - ci, g);
+      c.log.push({ start: off - ci, end: on, fdp: 0, block: 0, sectors: 0, augmented: false, disruptive: false });
       const r = minRest({ dutyMin: on - off + CHECKIN(), atHome: f.to === c.base, augmented: false, tzShift: tzDeltaH(c.base, f.to, on) });
       c.restUntil = Math.max(c.restUntil, on + r);
       if (c.status === 'available') c.status = 'resting';
+      // Leftover-breach round: as after a duty (onDutyRelease), standby not started yet waits for this rest, and a
+      // window at a station the ticket took them away from goes.
+      clipToRest(g, c);
     }
   }
   if (pax.length) touchCrewState(g);
@@ -332,6 +358,21 @@ function onFlightArrCrew(g: GameState, ev: SimEvent): void {
  */
 function repairMissedTickets(g: GameState): void {
   const fixed = new Set<string>();
+  // Crew-planning round: crew who left the ticket's destination on a later flight did fly it (their trip's first duty
+  // went with its aircraft's flights at the gate and the flown ticket moved on to the next duty, from elsewhere).
+  let left: Map<string, Flight[]> | null = null;
+  const leftFrom = (st: string): Flight[] => {
+    if (!left) {
+      left = new Map();
+      for (const f of Object.values(g.flights)) {
+        if (f.status !== 'done' && f.status !== 'enroute') continue;
+        const l = left.get(f.from);
+        if (l) l.push(f);
+        else left.set(f.from, [f]);
+      }
+    }
+    return left.get(st) ?? [];
+  };
   for (const d of Object.values(g.duties)) {
     const p = g.pairings[d.pairingId];
     const f0 = g.flights[d.flightIds[0]];
@@ -339,7 +380,7 @@ function repairMissedTickets(g: GameState): void {
     for (const fid of d.deadheadIds) {
       const t = g.flights[fid];
       if (!t || t.status !== 'done' || t.sta > d.report) continue;
-      const gone = passengers(t).filter((id) => g.crew[id] && g.crew[id].loc !== t.to && p.slots.some((s) => s.crewId === id));
+      const gone = passengers(t).filter((id) => g.crew[id] && g.crew[id].loc !== t.to && p.slots.some((s) => s.crewId === id) && !leftFrom(t.to).some((f) => f.std >= t.sta && (f.crewIds.includes(id) || aboard(f, id))));
       if (!gone.length) continue;
       if (t.kind === 'deadhead') t.crewIds = t.crewIds.filter((x) => !gone.includes(x));
       else if (t.riders) {
@@ -358,6 +399,37 @@ function repairMissedTickets(g: GameState): void {
   touchTickets(g);
   touchCrew(g);
   for (const id of fixed) recheckPairing(g, g.pairings[id]);
+}
+
+/**
+ * Crew-planning round save repair (seed 1, SK4002): before it, a duty under way kept its legs from the destination a
+ * diverted leg never reached, its crew "on duty" at the alternate until a rescue loop gave up. Such a duty (the
+ * diversion settled: no onward card open) is settled as resolveOnward now does.
+ */
+function repairDiverted(g: GameState): void {
+  for (const d of Object.values(g.duties)) {
+    if (d.done || d.report > g.now) continue;
+    const fl = d.flightIds.map((id) => g.flights[id]).filter((f): f is Flight => !!f && f.status !== 'cancelled');
+    const i = fl.findIndex((f, k) => f.status === 'done' && !!f.div && f.to !== f.div.to0 && fl[k + 1]?.status === 'scheduled' && fl[k + 1].from !== f.to);
+    if (i < 0) continue;
+    const f = fl[i];
+    if (g.decisions.some((x) => x.kind === 'divertOnward' && x.data?.flightId === f.id)) continue;
+    const x = f.contOf ? g.flights[f.contOf] : undefined;
+    afterDiversion(g, f, x && x.status === 'scheduled' && !x.dutyId ? x : null);
+  }
+}
+
+/**
+ * Crew-planning round save repair: a trip joining a mixed-crew job's empty leg to another charter was given no cabin
+ * seats for that charter (duties.ts clientCabinOf). Trips still to fly whose seats now read more crew get them (empty,
+ * for the roster to fill).
+ */
+function repairMixedTrips(g: GameState): void {
+  for (const p of Object.values(g.pairings)) {
+    if (p.status === 'done' || p.status === 'broken') continue;
+    const want = pairingSeats(g, p).filter((s) => !s.above).length;
+    if (want > p.slots.filter((s) => !s.above && !s.extra).length) for (const id of refreshPairing(g, p)) releaseCrew(g, p, id);
+  }
 }
 
 /**
@@ -452,9 +524,13 @@ function daily(g: GameState) {
     if (stayed.length) recheckNext(g, stayed);
   }
   sendStrandedHome(g);
+  // Crew-planning round: a ticket moved by any other path that lands after a leave began starts that leave at home.
+  leaveAfterTickets(g);
   // v0.7.3 home standby for the days an old save published before v0.9; v0.9 standby for every free published day.
   dailyStandby(g);
   dayPlanAfter(g);
+  // Peak-staffing round: the busy-month heads-up (one Inbox note per family, month and role).
+  peakHeadsUp(g);
 }
 
 const lastHour = new WeakMap<GameState, number>();
@@ -526,6 +602,8 @@ function queueAlert(g: GameState): void {
 }
 
 function onCrewAlert(g: GameState): void {
+  // Leftover-breach round: crew away with a leave (or their last day) starting within 3 h go home first.
+  homeBeforeLeave(g);
   // The hourly check re-rosters a freshly short aircraft before warning (a roster not yet run is not a shortage).
   escalateShortages(g, { reroster: true });
   hourlyHook?.(g);
@@ -565,6 +643,8 @@ export const crewModule: SimModule = {
     dayPlanLoad(g);
     repairMissedTickets(g);
     repairCutStandby(g);
+    repairDiverted(g);
+    repairMixedTrips(g);
   },
   settle(g) {
     for (const [aircraftId, t] of takeFlightChanges(g)) onFlightsChanged(g, aircraftId, t);

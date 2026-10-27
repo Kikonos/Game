@@ -351,6 +351,11 @@ export function dailyMorale(g: GameState): void {
   }
   for (const c of leaving) {
     if (c.status === 'onDuty') continue;
+    // Leftover-breach round: nobody leaves the company stranded at an outstation. Away from base on the last day, they
+    // are flown home first (the daily stranded-crew run books the ticket; the notice then ends when it lands). Seed 5:
+    // leaving here booked their ticket home and deleted them, and the ticket flew hours into their notice's end.
+    // (Three days on, they go wherever they are: a ticket that never came.)
+    if (c.loc !== c.base && g.now - c.notice!.leaves < 3 * DAY) continue;
     leaveHook?.(g, c);
     delete g.crew[c.id];
     g.stats.resigned = (g.stats.resigned ?? 0) + 1;

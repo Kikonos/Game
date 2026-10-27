@@ -357,6 +357,16 @@ export interface StaffingLine {
  * as first officers here (a first officer fills a relief seat).
  */
 export function staffing(g: GameState): StaffingLine[] {
+  return staffingAssign(g).lines;
+}
+
+/**
+ * staffing() with the family each crew member is counted in (crew on notice left out, as in `have`): pilots and
+ * single-type cabin crew in each rating they keep, cabin crew on several fleet types in the one family staffing()
+ * counts them in (their hire family first). The peak forecast (crew/forecast.ts) counts crew the same way. Pure.
+ */
+export function staffingAssign(g: GameState): { lines: StaffingLine[]; homeOf: Map<string, RatingFamily[]> } {
+  const homeOf = new Map<string, RatingFamily[]>();
   const fams = new Map<RatingFamily, Partial<Record<Role, number>>>();
   for (const [family, f] of familyNeeds(g)) {
     // Rounded per role as the Planning view shows them, relief pilots added to the first officers.
@@ -397,7 +407,10 @@ export function staffing(g: GameState): StaffingLine[] {
       const x = cell(f, c.role);
       if (c.notice) x.leaving++;
       else if (losing.get(c.id)?.includes(f)) x.converting++;
-      else if (!(fs.length > 1 && !isPilot(c.role))) x.have++;
+      else if (!(fs.length > 1 && !isPilot(c.role))) {
+        x.have++;
+        homeOf.set(c.id, [...(homeOf.get(c.id) ?? []), f]);
+      }
     }
   }
   for (const { c, fs } of multi) {
@@ -408,6 +421,7 @@ export function staffing(g: GameState): StaffingLine[] {
     const x = cell(to, c.role);
     x.have++;
     x.shared++;
+    homeOf.set(c.id, [to]);
   }
   const out: StaffingLine[] = [];
   for (const [family, need] of fams) {
@@ -417,7 +431,7 @@ export function staffing(g: GameState): StaffingLine[] {
       out.push({ family, role: r, need: need[r]!, ...x, ...(shared ? { shared } : {}) });
     }
   }
-  return out;
+  return { lines: out, homeOf };
 }
 
 function clearBlock(c: CrewMember, why: 'joining' | 'training'): void {

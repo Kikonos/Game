@@ -8,7 +8,7 @@ import { flightsOf, nextId, removeFlights } from '../core/entities';
 import { cabinMinimum, reportMinutes, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { DAY, dayStart, yearOf } from '../core/time';
-import type { AcRest, Contract, CrewMember, CrewSlot, Deployment, Duty, Flight, GameState, Legality, Minute, Pairing, Role } from '../core/types';
+import type { AcRest, Contract, CrewMember, CrewSlot, Deployment, Duty, Flight, GameState, Legality, Minute, Pairing, Requirements, Role } from '../core/types';
 import {
   AUG_MAX_SECTORS, augLimitOf, disruptiveKinds, FDP_CAP, evalSegs, extFdp, LIMITS, localMin, longestWorkBlock, longSector, MAX_SECTORS, maxFdp, minRest, mkSeg, NIGHT_MAX_SECTORS, nightsIn, offsetAt, referenceTime,
   splitFdp, tzDeltaH, woclMinutes, worst, type Seg, type TimelineCtx,
@@ -288,7 +288,18 @@ export function syncDuty(g: GameState, d: Duty, p: Pairing): void {
   applyPick(d, pa);
   d.restAt = sh.restAt;
   d.flightsEv = fl.reduce((s, f) => s + f.ev, 0);
+  const wasIllegal = d.legality === 'illegal';
   d.legality = dutyLegality(d);
+  // Leftover-breach round: on the final sector, once airborne, a longer day than planned (headwinds: the ETA drawn at
+  // take-off) is the commander's discretion (ORO.FTL.205(f)(2): unforeseen after take-off, the flight continues to its
+  // destination). It is recorded on the duty, so the duty, its log and the checker agree. Widebody bot seed 1: a 747
+  // planned 11:55 of a 12:00 limit landed 9 min late and its 12:04 day read legal with no discretion on record. A duty
+  // already over its limit at that take-off stays illegal (the gate counted it flown illegally).
+  const last = fl[fl.length - 1];
+  if (!wasIllegal && reported && (last.status === 'enroute' || last.status === 'done') && d.fdp > d.maxFdp + (d.discretion ?? 0)) {
+    d.discretion = d.fdp - d.maxFdp;
+    d.legality = dutyLegality(d);
+  }
 }
 
 /** Crew check before report (roster.guardDuty): a 'duty.report' event this long before the report. */
@@ -376,11 +387,33 @@ export function pairingSeats(g: GameState, p: Pairing): Seat[] {
   const c: Contract | undefined = p.contractId ? g.contracts[p.contractId] : undefined;
   let x = crewExtraFor(g, p.aircraftId, p.contractId);
   // v0.8 mixed crew: the client staffs part of the cabin (no company extra on top); we fill only our share.
-  const cc = c?.requirements.clientCabin;
+  const cc = clientCabinOf(g, p);
   if (cc && cc.n > 0) x = { ...x, cabin: Math.min(x.cabin, c?.requirements.extraCabin ?? 0) };
   const seats = dropClientSeats(seatsFor(typeId, ac?.cabin.total ?? 180, x, c?.requirements.extraCabin ?? 0, { augment, restCabin, pilotsOnly: empty }), empty ? undefined : cc);
   const rank = (s: Seat) => (s.above ? 10 : 0) + ROLE_ORDER.indexOf(s.role);
   return seats.sort((a, b) => rank(a) - rank(b));
+}
+
+/**
+ * Crew-planning round (26 Oct 2026): the client's own cabin crew a pairing can count on, read from the contract of every
+ * passenger leg it flies, not only the pairing's own contract: a trip that joins the empty leg of a mixed-crew job to
+ * the next charter flew that charter with no cabin crew of ours (bot seed 2: AWL329 ATH–ZRH with 0 of 4; seed 1
+ * AWL156 with 2 of 4). Every passenger leg must carry them; the smallest share counts. Without passenger legs, the
+ * pairing's contract's (it flies with its pilots anyway).
+ */
+function clientCabinOf(g: GameState, p: Pairing): Requirements['clientCabin'] {
+  const all: NonNullable<Requirements['clientCabin']>[] = [];
+  for (const id of p.dutyIds) {
+    for (const fid of g.duties[id]?.flightIds ?? []) {
+      const f = g.flights[fid];
+      if (!f || f.kind === 'positioning' || f.kind === 'ferry') continue;
+      const x = f.contractId ? g.contracts[f.contractId]?.requirements.clientCabin : undefined;
+      if (!x || x.n <= 0) return undefined;
+      all.push(x);
+    }
+  }
+  if (!all.length) return p.contractId ? g.contracts[p.contractId]?.requirements.clientCabin : undefined;
+  return all.reduce((a, b) => (a === b ? a : { n: Math.min(a.n, b.n), of: a.of, leads: a.leads && b.leads }));
 }
 
 /** v0.6: the legal minimum complement of a pairing (no client or company extras): pilots and cabin crew. */
@@ -394,8 +427,7 @@ export function legalMinimum(g: GameState, p: Pairing): { pilots: number; cabin:
     if (d.augment > augment) augment = d.augment;
     if (d.augment > 0) restCabin = Math.max(restCabin, d.restExtra ?? 0);
   }
-  const c = p.contractId ? g.contracts[p.contractId] : undefined;
-  const seats = dropClientSeats(seatsFor(ac?.typeId ?? 'a320ceo', ac?.cabin.total ?? 180, { cabin: 0, pilot: 0 }, 0, { augment, restCabin }), c?.requirements.clientCabin);
+  const seats = dropClientSeats(seatsFor(ac?.typeId ?? 'a320ceo', ac?.cabin.total ?? 180, { cabin: 0, pilot: 0 }, 0, { augment, restCabin }), clientCabinOf(g, p));
   const pilots = seats.filter((s) => s.role === 'CPT' || s.role === 'FO' || s.role === 'CRP').length;
   return { pilots, cabin: seats.length - pilots };
 }
@@ -429,7 +461,17 @@ export function refreshPairing(g: GameState, p: Pairing): string[] {
   p.dutyIds = duties.map((d) => d.id);
   if (!duties.length) return [];
   if (p.status === 'planned') p.start = duties[0].report;
-  for (const d of duties) if (!d.done) syncDuty(g, d, p);
+  // Crew-planning round: a crewed duty this refresh re-measures (a leg dropped) re-queues its report and release; the
+  // flight-change pass that would have done it then finds the duty matching its flights. (Invariant seed 1: a fuel-stop
+  // leg dropped overnight left the release queued for 21:10 on a duty now ending 14:05; the crew flew home on their
+  // ticket still "on duty" and were logged off at 21:10 back where the duty ended, in Algiers.)
+  const crewed = crewCount(p) > 0;
+  for (const d of duties) {
+    if (d.done) continue;
+    const [r0, l0] = [d.report, d.release];
+    syncDuty(g, d, p);
+    if (crewed && (d.report !== r0 || d.release !== l0)) queueDuty(g, d);
+  }
   p.start = p.status === 'planned' ? duties[0].report : Math.min(p.start, duties[0].report);
   p.end = duties[duties.length - 1].release;
   const seats = pairingSeats(g, p);
@@ -789,6 +831,61 @@ function absorbTrailing(g: GameState, acId: string, from: Minute): void {
     retickHook(g, p);
     touchCrew(g);
   }
+}
+
+/**
+ * Crew-planning round (26 Oct 2026): a diversion settled (ops/disrupt.ts resolveOnward). The crew's duty under way still
+ * held its legs from the destination the aircraft never reached. It takes the onward leg `x` from the alternate (and
+ * its own later legs) when the crew can fly on within their day; what they cannot fly is split off as a duty of its own
+ * after their rest (they go to the hotel at the alternate; the roster re-crews it or waits for them), and `x` is left
+ * to the roster. Without `x` (passengers coached, a rival flies them, a fix), the duty ends at the alternate.
+ * (Seed 1: SK4002 ARN–OTP landed at Cluj; its crew stayed "on duty" for SK4003 OTP–ARN for two days while the onward
+ * Cluj–Bucharest leg waited for a rescue crew six times.)
+ */
+export function afterDiversion(g: GameState, f: Flight, x: Flight | null): void {
+  const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+  const p = d ? g.pairings[d.pairingId] : undefined;
+  if (!d || !p || d.done || crewCount(p) === 0) return;
+  const i = d.flightIds.indexOf(f.id);
+  if (i < 0) return;
+  const head = d.flightIds.slice(0, i + 1);
+  const tail = d.flightIds.slice(i + 1).filter((id) => g.flights[id]?.status === 'scheduled');
+  const fits = (ids: string[]): boolean => {
+    d.flightIds = ids;
+    for (const id of ids) g.flights[id].dutyId = d.id;
+    syncDuty(g, d, p);
+    touchCrew(g);
+    if (d.legality === 'illegal') return false;
+    for (const s of p.slots) {
+      const c = s.crewId ? g.crew[s.crewId] : undefined;
+      if (c && crewTrailOkHook && !crewTrailOkHook(g, p, c)) return false;
+    }
+    return true;
+  };
+  let rest: string[] = tail;
+  if (x && fits([...head, x.id, ...tail])) rest = [];
+  else if (!(x && fits([...head, x.id]))) {
+    if (x) x.dutyId = null;
+    fits(head);
+  }
+  if (rest.length) {
+    const d2: Duty = {
+      id: nextId(g, 'du'), pairingId: p.id, report: Number.MAX_SAFE_INTEGER, release: 0, flightIds: rest, deadheadIds: [], sectors: 0,
+      fdp: 0, maxFdp: 0, augment: 0, restAt: '', legality: 'legal', ev: 0, flightsEv: 0,
+    };
+    g.duties[d2.id] = d2;
+    for (const id of rest) g.flights[id].dutyId = d2.id;
+    const end = onBlocks(g.flights[d.flightIds[d.flightIds.length - 1]]);
+    d2.deadheadIds = d.deadheadIds.filter((id) => (g.flights[id]?.std ?? 0) > end);
+    d.deadheadIds = d.deadheadIds.filter((id) => !d2.deadheadIds.includes(id));
+    p.dutyIds.push(d2.id);
+    syncDuty(g, d2, p);
+    queueDuty(g, d2);
+  }
+  queueDuty(g, d);
+  refreshPairing(g, p);
+  retickHook(g, p);
+  touchCrew(g);
 }
 
 /** Hook (roster.ts): can crew member c fly pairing p as it now stands (its tickets home will be re-planned)? */

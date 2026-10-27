@@ -35,7 +35,7 @@ export const FAMILY_TICK: Record<RatingFamily, string> = {
 const famShort = (f: RatingFamily) => FAMILY_TICK[f].replace(' family', '').replace('/A340', '');
 const MAX_TYPES = 3;
 
-export function HireModal({ role: role0, family: fam0, base: base0 }: { role?: Role; family?: RatingFamily; base?: string }) {
+export function HireModal({ role: role0, family: fam0, base: base0, count: count0 }: { role?: Role; family?: RatingFamily; base?: string; count?: number }) {
   const g = useGame();
   const fams = families(g);
   const [role, setRole] = useState<Role>(role0 ?? 'CC');
@@ -43,7 +43,7 @@ export function HireModal({ role: role0, family: fam0, base: base0 }: { role?: R
   // v0.7.2: the cabin crew's ticked types (the first is the primary family).
   const [ticked, setTicked] = useState<RatingFamily[]>([fam0 ?? fams[0] ?? 'A320']);
   const [base, setBase] = useState(base0 ?? g.company.homeBase);
-  const [count, setCount] = useState(1);
+  const [count, setCount] = useState(Math.max(1, Math.min(30, Math.round(count0 ?? 1))));
   const pilot = isPilotRole(role);
   const req: HireRequest = pilot ? { role, family, base, count } : { role, family: ticked[0], base, count, families: ticked };
   const q = hireQuote(g, req);

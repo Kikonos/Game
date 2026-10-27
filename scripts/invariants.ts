@@ -10,7 +10,8 @@
 // Checks
 // - crew: rest before each duty / ticket / standby (ORO.FTL.235: max(preceding duty, 12 h home / 10 h away), 14 h after
 //   an augmented duty or away ≥ 4 h time-zone shift, +4 h after a planned extension; a standby call-out needs no rest
-//   between the standby and the duty, CS FTL.1.225), no overlap, FDP within max + discretion (≤ 2 h / 3 h augmented),
+//   between the standby and the duty, CS FTL.1.225; an uncalled one is followed by rest: 12 h home / 10 h away, airport
+//   standby at least its length, reserve none), no overlap, FDP within max + discretion (≤ 2 h / 3 h augmented),
 //   cumulative duty / block limits (ORO.FTL.210, standby counted 25 % home / 100 % airport), recurrent extended
 //   recovery rest at most 168 h apart (ORO.FTL.235(d)), every flight leaving from where the crew are (no teleporting),
 //   no flying while sick, on leave, training or joining, pilots ≥ 2 with a captain, cabin crew ≥ the certified
@@ -187,6 +188,9 @@ export function createChecker(opts: CheckerOpts = {}) {
         const prev = h.sby.get(w.from);
         h.sby.set(w.from, { from: w.from, to: w.to, calledAt: w.calledAt ?? prev?.calledAt, kind: w.kind ?? 'home', at: w.at ?? c.base });
       }
+      // Blocks re-planned before they began (leave moved to start once the crew member is home) never happened either.
+      const curB = new Set((c.blocks ?? []).map((b) => `${b.from}|${b.why}`));
+      for (const [k, b] of h.blocks) if (b.from > lastObs && !curB.has(k)) h.blocks.delete(k);
       for (const b of c.blocks ?? []) h.blocks.set(`${b.from}|${b.why}`, { ...b });
       // A running standby is kept where the crew member is (home: base; hotel/airport/reserve: its station).
       const run = c.standby?.find((w) => w.from <= g.now && g.now < w.to && w.calledAt === undefined);
@@ -226,8 +230,12 @@ export function createChecker(opts: CheckerOpts = {}) {
       if (f.status === 'scheduled') {
         // Overdue: should have left (or been retimed) hours ago.
         // (Tickets stay 'scheduled' until they land: judged by their arrival.)
-        const due = f.kind === 'deadhead' ? f.sta : f.std;
-        if (due < g.now - 6 * H && !f.closedBy) err('stuck', g.now, `${f.no} ${f.from}–${f.to} (${f.kind}) still scheduled ${Math.round((g.now - due) / 60)} h after its ${f.kind === 'deadhead' ? 'STA' : 'STD'} ${fmtDateTime(due)}`, `stuck|${f.id}`);
+        // (A leg held at the gate keeps its STD while the hold adds to its delay until it would land past its STA: a long
+        // sector held for hours is not stuck.)
+        // (A leg a rival flies for us, like a ticket, stays scheduled until it lands.)
+        const byArr = f.kind === 'deadhead' || !!f.operatedBy;
+        const due = byArr ? f.sta : f.std + (f.delay ?? 0);
+        if (due < g.now - 6 * H && !f.closedBy) err('stuck', g.now, `${f.no} ${f.from}–${f.to} (${f.kind}) still scheduled ${Math.round((g.now - due) / 60)} h after its ${byArr ? 'STA' : f.delay ? 'held departure' : 'STD'} ${fmtDateTime(due)}`, `stuck|${f.id}`);
         // Hold loop: STD moved again and again inside the last two days before it.
         const l = lastStd.get(f.id);
         if (!l) lastStd.set(f.id, { std: f.std, n: 0, first: f.std });
@@ -398,8 +406,11 @@ export function createChecker(opts: CheckerOpts = {}) {
         }
       }
       // Rest after an uncalled standby before the next duty (12 h home / 10 h away; airport: its length; reserve: none).
+      // CS FTL.1.225: standby not leading to an FDP is followed by an ORO.FTL.235 rest, airport (a) and other (b)(4)
+      // alike; reserve is not duty (CS FTL.1.230). Windows that ended before the checker started are history (a save's
+      // past, played by an older version): not judged, as rests without legs on record are not.
       for (const w of sby) {
-        if (w.calledAt !== undefined || w.kind === 'reserve') continue;
+        if (w.calledAt !== undefined || w.kind === 'reserve' || w.to <= h.t0) continue;
         const nx = log.find((e) => e.start >= w.from);
         if (!nx || nx.start >= w.to + 16 * H) continue;
         if (nx.start < w.to) {

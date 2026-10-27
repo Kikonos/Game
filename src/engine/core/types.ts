@@ -836,7 +836,9 @@ export type ProblemKind =
   /** v0.9 crew out of hours (a named crew member at a legal limit). */
   | 'crewHours'
   /** v0.11 Operations: a live disruption (its decision), a ramp inspection finding, an authority audit finding. */
-  | 'disruption' | 'rampFinding' | 'auditFinding';
+  | 'disruption' | 'rampFinding' | 'auditFinding'
+  /** Peak-staffing round: a busy month ahead short of crew (crew/forecast.ts). */
+  | 'crewPeak';
 
 /** v0.7.1 what a card is about: the entity (as a message Ref) plus the kind. */
 export interface ProblemRef { kind: ProblemKind; ref: Ref }
@@ -1408,6 +1410,8 @@ export interface SimEvent {
 export interface Stats {
   /** v0.8 fix pack: offers' and contracts' `requirements.body` means the client asks for one (older saves: stripped once on load). */
   bodyAsked?: boolean;
+  /** Peak-staffing round: busy-month gaps already told in the Inbox ('<month key>|<family>|<role>'; past months pruned). */
+  peakWarned?: string[];
   /** Lifetime billable block minutes and revenue legs. */
   blockMin: number;
   legs: number;
