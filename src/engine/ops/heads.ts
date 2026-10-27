@@ -30,7 +30,8 @@ import { setFixHook } from '../crew/control';
 import { takesPublishedOff, v09Stats } from '../crew/dayPlan';
 import { dutyNeed, type ChainShape } from '../crew/duties';
 import { crewName } from '../crew/generate';
-import { hireCrew } from '../crew/hr';
+import { peakForecast, peakGroups, peakLine } from '../crew/forecast';
+import { hireCrew, hireQuote } from '../crew/hr';
 import { restOf } from '../crew/restPlan';
 import { crewPlan, roundTargets, roundUpQuote } from '../crew/sets';
 import { bestSlip } from '../crew/slip';
@@ -267,7 +268,7 @@ export function acceptProposal(g: GameState, id: HeadId, proposalId: string): Ac
 
 /** The subject of a proposal (a dismissal holds for it until the situation changes, or 14 days). */
 function subjectOf(p: Pick<HeadProposal, 'kind' | 'data'>): string {
-  return `${p.kind}:${['aircraftId', 'at', 'to', 'contractId', 'family'].map((k) => p.data[k]).filter((x) => x !== undefined).join(':')}`;
+  return `${p.kind}:${['aircraftId', 'at', 'to', 'contractId', 'family', 'peak'].map((k) => p.data[k]).filter((x) => x !== undefined).join(':')}`;
 }
 const dismissedNow = (g: GameState, h: Head, p: Pick<HeadProposal, 'kind' | 'data'>): boolean => (h.dismissed?.[subjectOf(p)] ?? 0) > g.now;
 
@@ -295,6 +296,18 @@ function runProposal(g: GameState, p: HeadProposal): ActionResult {
     case 'cSlot':
       return { ok: true, msg: 'Pick the slot in the check planner' };
     case 'hire': {
+      // Peak-staffing round: a busy month's gaps as the forecast stands now.
+      if (p.data.peak !== undefined) {
+        const xs = peakForecast(g).gaps.filter((x) => x.family === p.data.family && x.month === Number(p.data.peak));
+        if (!xs.length) return { ok: true, msg: 'That month is staffed already' };
+        let n = 0;
+        for (const x of xs) {
+          const r = hireCrew(g, { role: x.role, family: x.family, base: g.company.homeBase, count: x.short, ...(x.role === 'PUR' || x.role === 'CC' ? { families: [x.family] } : {}) });
+          if (!r.ok) return n ? { ok: true, msg: `Hired ${n}; ${r.error}` } : r;
+          n += x.short;
+        }
+        return { ok: true, msg: `Hired ${n} crew for ${xs[0].monthName}` };
+      }
       const plan = crewPlan(g).find((x) => x.family === p.data.family);
       if (!plan) return { ok: false, error: 'No crew plan for that family any more' };
       const q = roundUpQuote(g, plan, Number(p.data.target));
@@ -758,6 +771,27 @@ function crewDeskHires(g: GameState): void {
     }
     if (h.proposals.some((x) => x.kind === 'hire' && x.data.family === p.family) || dismissedNow(g, h, { kind: 'hire', data: { family: p.family } })) continue;
     propose(g, h, { kind: 'hire', text: `Hire ${who} to complete ${target} ${p.label} sets`, cost: q.cost, data: { family: p.family, target } }, H().proposalH);
+  }
+  // Peak-staffing round: the busy months ahead, from the same forecast as the Crew screen's heads-up (sets first: the
+  // forecast counts the hires just made, so only what is still short is proposed).
+  for (const xs of peakGroups(peakForecast(g))) {
+    const x0 = xs[0];
+    const who = xs.map((x) => `${x.short} ${x.role}`).join(', ');
+    const reqs = xs.map((x) => ({ role: x.role, family: x.family, base: g.company.homeBase, count: x.short, ...(x.role === 'PUR' || x.role === 'CC' ? { families: [x.family] } : {}) }));
+    if (rulesOf(h).autoHire) {
+      let n = 0;
+      for (const r of reqs) {
+        if (n >= 4) break;
+        const count = Math.min(r.count, 4 - n);
+        if (hireCrew(g, { ...r, count }).ok) n += count;
+      }
+      if (n) done(g, h, 'crew', `The crew desk hired ${n} for the ${x0.label} in ${x0.monthName}`, `${peakLine(xs)}.`);
+      continue;
+    }
+    const data = { family: x0.family, peak: x0.month };
+    if (h.proposals.some((x) => x.kind === 'hire' && x.data.family === x0.family) || dismissedNow(g, h, { kind: 'hire', data })) continue;
+    const cost = reqs.reduce((sum, r) => sum + hireQuote(g, r).cost, 0);
+    propose(g, h, { kind: 'hire', text: `Hire ${who} for ${x0.monthName} (${x0.label})`, cost, data }, H().proposalH);
   }
 }
 
