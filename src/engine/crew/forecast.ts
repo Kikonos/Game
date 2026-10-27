@@ -332,7 +332,9 @@ function forecastNow(g: GameState): PeakForecast {
         if (short < 1) continue;
         const lead = hireLeadDays(g, m.family, r.role);
         if (m.start - g.now > warnDays(g, m.family, r.role) * DAY) continue;
-        const perSet = f && f.sets ? (f.need[r.role] ?? 0) / f.sets + (r.role === 'FO' ? (f.need.CRP ?? 0) / f.sets : 0) : 0;
+        // One full set of this role on the family's types (the type's own crew complement), not the family's average need
+        // per set: a mixed-crew contract (the client's cabin crew in some seats) would shrink that and inflate 'about N sets'.
+        const perSet = f ? Math.max(0, ...[...f.types.values()].map((t) => t.set[r.role] ?? 0)) : 0;
         const hireBy = m.start - lead * DAY;
         const late = g.now > hireBy;
         gaps.push({
