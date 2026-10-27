@@ -692,6 +692,10 @@ function detachDuty(g: GameState, p: Pairing, d: Duty): void {
     }
   }
   delete g.duties[d.id];
+  // Leftover-breach round: the trip's last open duty gone with every other one flown: the trip is over (as when its last
+  // duty releases), so leaving the company later never finds it 'active' with them in a seat (widebody bot seed 1: a
+  // tour's last duty re-planned away after its last release kept the tour active and its seats held a week on).
+  if (p.status === 'active' && p.dutyIds.length && p.dutyIds.every((id) => !g.duties[id] || g.duties[id].done)) p.status = 'done';
   touchCrew(g);
 }
 
