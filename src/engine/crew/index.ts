@@ -322,6 +322,9 @@ function onFlightArrCrew(g: GameState, ev: SimEvent): void {
       const r = minRest({ dutyMin: on - off + CHECKIN(), atHome: f.to === c.base, augmented: false, tzShift: tzDeltaH(c.base, f.to, on) });
       c.restUntil = Math.max(c.restUntil, on + r);
       if (c.status === 'available') c.status = 'resting';
+      // Leftover-breach round: as after a duty (onDutyRelease), standby not started yet waits for this rest, and a
+      // window at a station the ticket took them away from goes.
+      clipToRest(g, c);
     }
   }
   if (pax.length) touchCrewState(g);

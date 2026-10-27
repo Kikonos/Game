@@ -360,6 +360,10 @@ function sendHome(g: GameState, c: CrewMember, p?: Pairing, force = false): void
   leaveAfterTicket(g, [c.id], { std, sta: std + blk, to: c.base });
   if (cost) post(g, 'deadhead', -cost);
   touchCrew(g);
+  // Leftover-breach round: standby planned where the ticket takes them away from (a hotel standby at the outstation),
+  // or too soon after it for the rest it needs, is re-fitted: dropped, or kept as reserve when that is legal. Invariant
+  // seed 1: cabin crew sent home MAD → LIS at 02:00 kept their hotel standby at Madrid from 04:00 (0:50 after landing).
+  fitStandby(g, [c.id]);
 }
 
 /**
