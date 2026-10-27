@@ -7,6 +7,8 @@
 //   … --b744  v0.8 fix pack: the widebody is a Boeing 747-400 (e.g. `1 --wide --aug --b744`)
 //   … --msgs (inbox lines to stderr) · --why (v0.7.3: why each new offer found no aircraft, to stderr) · --dump=day,file
 //   … --whyheld (v0.9 round 3: the census behind each held leg) · --seatlog (round 5: seats emptied, trips born empty, crew found illegal, contracts signed)
+//   … --forecast-hire (peak-staffing round: hires on the Crew screen's busy-month heads-up, as an attentive player; off by
+//   default) · --fclog (the forecast's utilisation per month and day against the red alarms; PEAK_PACKING=x to vary it)
 //
 // Policy (a pure function of the game state, so a loaded save plays on identically):
 // - offers: base deployments first, then ad hoc fill-ins; accept the best ok/warn feasibility with a positive
@@ -74,6 +76,8 @@ import { deliveryQuote } from '../src/engine/ops/delivery';
 import { devMarketOffer } from '../src/engine/ops/market';
 import { restCards } from '../src/engine/problems/crew';
 import { openFindings, startAuditTask } from '../src/engine/ops/audit';
+import { dayLoad, monthPlan, PEAK, peakForecast } from '../src/engine/crew/forecast';
+if (process.env.PEAK_PACKING) PEAK.packing = Number(process.env.PEAK_PACKING);
 import { OPS_LIVE, quietShare } from '../src/engine/ops/director';
 // v0.11 OPS_OFF=1: the Operations update off (the pre-update game, for before/after comparisons).
 if (process.env.OPS_OFF) OPS_LIVE.on = false;
@@ -559,6 +563,31 @@ function hire(g: GameState, t: Tally): void {
     for (const [role, n] of per) if (hireSplit(g, { role, family, base: g.company.homeBase, count: n }).ok) act(g, t);
   }
 }
+
+/**
+ * Peak-staffing round (--forecast-hire): an attentive player acting on the Crew screen's heads-up. Each gap it shows
+ * (a busy month inside its warning window) is hired at home base as shown; a gap whose hires can no longer join before
+ * the month starts is hired once (they still help its later weeks). Never with less than $500K of cash.
+ */
+const FORECAST_HIRE = process.argv.includes('--forecast-hire');
+const fcActed = new Set<string>();
+let fcHired = 0;
+const fcHiredBy = new Map<string, number>();
+function forecastHire(g: GameState, t: Tally): void {
+  for (const x of peakForecast(g).gaps) {
+    const key = `${x.month}|${x.family}|${x.role}`;
+    if (x.late && fcActed.has(key)) continue;
+    if (g.company.cash < 500_000) return;
+    const r = hireCrew(g, { role: x.role, family: x.family, base: g.company.homeBase, count: Math.min(30, x.short), ...(isPilotRole(x.role) ? {} : { families: [x.family] }) });
+    if (!r.ok) continue;
+    fcActed.add(key);
+    fcHired += x.short;
+    fcHiredBy.set(x.role, (fcHiredBy.get(x.role) ?? 0) + x.short);
+    if (MSGS) console.error(`${fmtDateTime(g.now)} FORECAST HIRE ${x.short} ${x.role} ${x.family} for ${x.monthName}${x.late ? ' (late)' : ''}`);
+    act(g, t);
+  }
+}
+const isPilotRole = (r: Role) => r === 'CPT' || r === 'FO' || r === 'CRP';
 
 /** v0.7.3 when a widebody family first flies revenue: its first aircraft home and Widebody operations granted. */
 function wideFrom(g: GameState, family: RatingFamily): number {
@@ -1288,6 +1317,7 @@ function policy(g: GameState, t: Tally, urgent: boolean, newDay: boolean): void 
     extraCrew(g, t);
     conversions(g, t);
     hire(g, t);
+    if (FORECAST_HIRE) forecastHire(g, t);
     checks(g, t);
     // v0.7.3 the rest cards (widebodies held with augmented crews only: the cards read every duty's rest plan).
     const cards = g.company.approvals.includes('augmented') && Object.values(g.fleet).some((a) => typeOf(a.typeId).body === 'wide') ? restCards(g) : [];
@@ -1557,7 +1587,72 @@ function seatLog(g: GameState): void {
  * had not placed) and from its trip's seat history (born empty, or emptied how long before report and by whom).
  * Histogram at the end; one line per red to stderr.
  */
-const REDWHY = process.argv.includes('--redwhy');
+const REDWHY = process.argv.includes('--redwhy') || process.argv.includes('--fclog');
+/**
+ * Peak-staffing round (--fclog): on the 1st of each month the forecast's raw utilisation (crew-days the work needs
+ * without the packing factor, over the crew-days the crew can give) for this month and the next two, per family and
+ * role; at the end, joined with the red alarms of each month (calibrates PEAK.packing). Implies --redwhy.
+ */
+const FCLOG = process.argv.includes('--fclog');
+const redByMonth = new Map<string, number>();
+const redByDay = new Map<string, number>();
+const fcSeen = new Map<string, number[]>();
+function fcLog(g: GameState): void {
+  const k0 = monthKey(g.now);
+  const save = PEAK.packing;
+  PEAK.packing = 1;
+  try {
+    for (let k = k0; k <= k0 + 2; k++) {
+      for (const m of monthPlan(g, k)) {
+        for (const r of m.roles) {
+          const key = `${k}|${m.family}|${r.role}`;
+          const u = r.haveDays > 0 ? r.needDays / r.haveDays : 9;
+          const list = fcSeen.get(key) ?? [];
+          list[k - k0] = Math.round(u * 100) / 100;
+          fcSeen.set(key, list);
+        }
+      }
+    }
+  } finally {
+    PEAK.packing = save;
+  }
+}
+const dayU = new Map<string, number>();
+/** Daily (--fclog): the load of today and of the day 21 days ahead, per family and role (no packing). */
+function fcDay(g: GameState): void {
+  const save = PEAK.packing;
+  PEAK.packing = 1;
+  try {
+    for (const ahead of [0, 21]) {
+      const day = Math.floor(g.now / DAY) * DAY + ahead * DAY;
+      for (const [fam, rows] of dayLoad(g, day)) for (const r of rows) dayU.set(`${ahead}|${Math.floor(day / DAY)}|${fam}|${r.role}`, r.have > 0 ? r.need / r.have : 9);
+    }
+  } finally {
+    PEAK.packing = save;
+  }
+}
+function fcPrint(): void {
+  // Daily: load buckets vs reds that day (reds by the std day of the red leg).
+  for (const ahead of [0, 21]) {
+    const n = new Map<string, number>();
+    const r = new Map<string, number>();
+    for (const [k, u] of dayU) {
+      const [a, d, fam, role] = k.split('|');
+      if (Number(a) !== ahead || (role !== 'CPT' && role !== 'FO')) continue;
+      const b = (Math.min(20, Math.floor(u * 10)) / 10).toFixed(1);
+      n.set(b, (n.get(b) ?? 0) + 1);
+      r.set(b, (r.get(b) ?? 0) + (redByDay.get(`${d}|${fam}|${role}`) ?? 0));
+    }
+    console.log(`daily pilot load (${ahead} d ahead) → reds: ${[...n.keys()].sort().map((b) => `${b}:${n.get(b)}d/${r.get(b) ?? 0}r`).join(' ')}`);
+  }
+  console.log('\nforecast log (utilisation = need without packing / have; at the month start, 1 and 2 months ahead) and reds');
+  const keys = [...new Set([...fcSeen.keys(), ...redByMonth.keys()])].sort();
+  for (const key of keys) {
+    const [k, fam, role] = key.split('|');
+    const u = fcSeen.get(key) ?? [];
+    console.log(`FC ${fmtMonth(Number(k))} ${fam} ${role} u0 ${u[0] ?? '-'} u1 ${u[1] ?? '-'} u2 ${u[2] ?? '-'} reds ${redByMonth.get(key) ?? 0}`);
+  }
+}
 const redSeats = new Map<string, (string | null)[]>();
 const redEmptied = new Map<string, { t: number; ahead: number; status: string }[]>();
 const redCauses = new Map<string, number>();
@@ -1611,6 +1706,15 @@ function redNote(g: GameState, m: GameState['messages'][number]): void {
   const hist = !last ? 'seat never crewed (born empty / split)' : last.ahead <= 24 ? `emptied ≤ 24 h before report (${last.status})` : `emptied ${Math.round(last.ahead / 24)} d before report (${last.status})`;
   const k = `${pool} | ${hist.replace(/ \(.*\)/, '')}`;
   redCauses.set(k, (redCauses.get(k) ?? 0) + 1);
+  if (f?.aircraftId && g.fleet[f.aircraftId]) {
+    const fam = typeOf(g.fleet[f.aircraftId].typeId).family;
+    for (const role of new Set(flightCrewStatus(g, f.id, { live: false }).missing)) {
+      const key = `${monthKey(f.std)}|${fam}|${role === 'CRP' ? 'FO' : role}`;
+      redByMonth.set(key, (redByMonth.get(key) ?? 0) + 1);
+      const dk = `${Math.floor(f.std / DAY)}|${fam}|${role === 'CRP' ? 'FO' : role}`;
+      redByDay.set(dk, (redByDay.get(dk) ?? 0) + 1);
+    }
+  }
   console.error(`${fmtDateTime(g.now)} RED ${f?.no ?? '?'} ${f ? `${f.from}–${f.to} std ${fmtDateTime(f.std)}` : ''} pool: ${pool}; cause: ${cause}; ${hist} — ${body.slice(0, 160)}`);
 }
 let probeLast = '';
@@ -1762,6 +1866,8 @@ function onStep(): void {
   prev = { aogs: s.aogs ?? 0, illegal: ill };
   if (dayIndex(g.now) === lastDay && g.now < end) return;
   lastDay = dayIndex(g.now);
+  if (FCLOG && toDate(g.now).getUTCDate() === 1) fcLog(g);
+  if (FCLOG) fcDay(g);
   if (DUMP && dayN(g) === Number(DUMP[0])) writeFileSync(DUMP[1], serialize(g));
   // v0.7 deliveries: airline tickets of delivery crews, ferry legs flown, waits.
   for (const f of Object.values(g.flights)) {
@@ -1949,6 +2055,8 @@ if (BIG) {
 errors.push(...badNumbers(g).map((p) => `final: non-finite ${p}`));
 // v0.8 pre-release: an engine safety net that tripped (a re-planning loop broken) is a bug like an exception.
 errors.push(...safetyTrips.map((x) => `safety net tripped: ${x}`));
+if (FCLOG) fcPrint();
+if (FORECAST_HIRE) console.log(`forecast hires: ${fcHired} (${[...fcHiredBy].map(([r, n]) => `${r} ${n}`).join(', ') || 'none'}) on ${fcActed.size} heads-ups (packing ${PEAK.packing})`);
 if (INV) {
   INV.finish(g);
   INV.print(`invariants seed ${seed}${process.argv.slice(3).filter((a) => a.startsWith('--')).join(' ')}`);
