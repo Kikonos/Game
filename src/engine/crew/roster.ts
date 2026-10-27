@@ -633,11 +633,33 @@ export function sendStrandedHome(g: GameState): void {
 }
 
 /**
+ * Leftover-breach round, hourly: crew away whose leave (or course, or last day) starts within the next 3 hours with no
+ * work before it and no way home yet go home now (the leave then starts when they land). The daily run's check can come
+ * too early (a duty before the leave, re-planned away later that night) and the next one too late.
+ */
+export function homeBeforeLeave(g: GameState): void {
+  let riding: Set<string> | null = null;
+  for (const c of Object.values(g.crew)) {
+    if (c.loc === c.base || c.status === 'onDuty' || !c.blocks?.some((b) => (b.why === 'leave' || b.why === 'training') && b.from >= g.now && b.from <= g.now + 3 * 60)) continue;
+    if (!riding) {
+      riding = new Set<string>();
+      for (const f of Object.values(g.flights)) if (f.status === 'enroute') for (const id of passengers(f)) riding.add(id);
+    }
+    if (riding.has(c.id) || !leaveAway(g, c)) continue;
+    sendHome(g, c, undefined, true);
+    recheckNext(g, [c.id]);
+  }
+}
+
+/**
  * Away from base, a leave (or a course) starting within two days, no work before it and no ticket home landing in time.
- * Leftover-breach round: a notice ending within two days counts too (home by the last day; its block is a 'leave').
+ * Leftover-breach round: a notice ending within two days counts too (home by the last day; its block is a 'leave'); and
+ * a leave starting this very minute (the run at its start: the leave then starts on landing). Invariant seed 1: the day
+ * before, a duty at Prague held a cabin crew member there; re-planned away at 02:30, the next run found her leave begun
+ * and a ticket out of Prague for a trip after it kept her there for 5 days of it.
  */
 function leaveAway(g: GameState, c: CrewMember): boolean {
-  const b = c.blocks?.find((x) => (x.why === 'leave' || x.why === 'training') && x.from > g.now && x.from < g.now + 2 * DAY);
+  const b = c.blocks?.find((x) => (x.why === 'leave' || x.why === 'training') && x.from >= g.now && x.from < g.now + 2 * DAY);
   if (!b) return false;
   for (const x of segsOf(g, c)) {
     if (x.kind === 'log' || x.end <= g.now || x.start >= b.from) continue;
