@@ -238,7 +238,12 @@ export function actionTarget(g: GameState, a: ProblemAction): ActionTarget {
       const cid = f?.contractId ?? (g.contracts[id] ? id : undefined);
       return cid ? { modal: { kind: 'subcharter', contractId: cid, flightId: f ? id : undefined } } : null;
     }
-    case 'hire': return { modal: ROLES.includes(id as Role) ? { kind: 'hire', role: id as Role } : { kind: 'hire', family: id as RatingFamily } };
+    case 'hire': {
+      // Peak-staffing round: 'CC:A320:3' — role, family and how many, prefilled from the busy-month card.
+      const [r, fam, n] = id.split(':');
+      if (fam && ROLES.includes(r as Role)) return { modal: { kind: 'hire', role: r as Role, family: fam as RatingFamily, ...(Number(n) > 0 ? { count: Number(n) } : {}) } };
+      return { modal: ROLES.includes(id as Role) ? { kind: 'hire', role: id as Role } : { kind: 'hire', family: id as RatingFamily } };
+    }
     case 'offer': return { modal: { kind: 'offer', offerId: id } };
     // v0.7.2: 'Plan crew rest' opens the refit dialog on crew rest; v0.7.3 'Plan a lower-deck module' picks that option.
     case 'refit': return { modal: /lower-deck/i.test(a.label) ? { kind: 'refit', aircraftId: id, section: 'rest', restOption: 'ldmcr' } : /crew rest|bunk|recliner/i.test(a.label) ? { kind: 'refit', aircraftId: id, section: 'rest' } : { kind: 'refit', aircraftId: id } };

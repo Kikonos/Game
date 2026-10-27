@@ -30,6 +30,9 @@ import { seasonBase } from './crew/fixtures';
 import { advanceTo, settle } from './sim';
 import { restPlan } from './crew';
 import { delayFlight } from './ops/flights';
+import { monthPlan, peakForecast, type PeakGap } from './crew/forecast';
+import { removeCrew } from './crew/roster';
+import { monthKey } from './core/time';
 
 /** Out-and-back legs from each aircraft's position, starting in 30 min, for `days` days (ferries by default: no client). */
 export function demoFlights(g: GameState, dests = ['FAO', 'FNC', 'PMI', 'TFS', 'OPO', 'AGP'], days = 3, kind: 'ferry' | 'revenue' = 'ferry'): number {
@@ -520,4 +523,31 @@ export function devRestAtDeparture(g: GameState): string {
     settle(g);
   }
   return fid;
+}
+
+/**
+ * Peak-staffing round (dev, screenshots): stages a busy month ahead. For the first aircraft's family, crew of each
+ * role in `short` are let go (newest first) until next month's work is `short[role]` people more than the crew left
+ * can give. Returns the heads-up's gaps.
+ */
+export function devPeak(g: GameState, short: Partial<Record<Role, number>> = { CC: 2 }): PeakGap[] {
+  const ac = Object.values(g.fleet)[0];
+  if (!ac) return [];
+  const fam = typeOf(ac.typeId).family;
+  const mk = monthKey(g.now) + 1;
+  // Spare pursers fill cabin crew seats: trimmed to what the month needs first when cabin crew are to be short.
+  const order = Object.entries(short) as [Role, number][];
+  if (short.CC && short.PUR === undefined) order.unshift(['PUR', 0]);
+  for (const [role, n] of order) {
+    for (let i = 0; i < 200; i++) {
+      const r = monthPlan(g, mk).find((m) => m.family === fam)?.roles.find((x) => x.role === role);
+      if (!r || r.need - r.have >= n - (n ? 0.5 : 0.9)) break;
+      const c = Object.values(g.crew).filter((x) => x.role === role && x.ratings.includes(fam) && x.status !== 'onDuty').sort((a, b) => (a.id < b.id ? 1 : -1))[0];
+      if (!c) break;
+      removeCrew(g, c.id, g.now, g.now + 3650 * DAY);
+      delete g.crew[c.id];
+      touchCrew(g);
+    }
+  }
+  return peakForecast(g).gaps;
 }

@@ -2,11 +2,13 @@
 // the joiners, a clean per-role table and one verdict line; Round up opens the hire flow pre-filled with exactly the
 // crew that complete the sets. The People view keeps a one-line summary per family that links here.
 
-import { Check, UserPlus } from 'lucide-react';
+import { CalendarClock, Check, UserPlus } from 'lucide-react';
 import type { RatingFamily } from '../../data/acmiTypes';
 import type { GameState } from '../../engine/core/types';
 import { BAL } from '../../engine/core/balance';
-import { awayOnDryLease, crewPlan, familyName, roundTargets, SETS_DETACHED, SETS_WHY, setWords, type FamilyPlan } from '../../engine/crew';
+import { awayOnDryLease, crewPeakCard, crewPlan, familyName, peakForecast, peakGroups, peakId, roundTargets, SETS_DETACHED, SETS_WHY, setWords, type FamilyPlan } from '../../engine/crew';
+import { fmtDay } from '../../engine/core/time';
+import { ProblemCardView, runAction } from '../components/ProblemCard';
 import { typeOf } from '../../engine/core/perf';
 import { Term } from '../components/Term';
 import { store } from '../store';
@@ -105,11 +107,40 @@ function backupWho(b: { cabin: number; pilots: number }): string {
   return parts.join(' and ');
 }
 
+/**
+ * Peak-staffing round: the busy months ahead short of crew (crew/forecast.ts), shown only when there is a gap: a quiet
+ * line with a prefilled Hire button, or the four-line card when the gap is serious (a whole set, any pilot, or too late
+ * to hire in time). People view (under the sets strip) and Planning view (on top).
+ */
+export function PeakHeadsUp({ g }: { g: GameState }) {
+  const groups = peakGroups(peakForecast(g));
+  if (!groups.length) return null;
+  return (
+    <div className="cp-peak" aria-label="Busy months ahead">
+      {groups.map((xs) => {
+        const id = peakId(xs[0].month, xs[0].family);
+        const card = crewPeakCard(g, id);
+        if (!card) return null;
+        if (xs.some((x) => x.serious)) return <ProblemCardView key={id} g={g} card={card} />;
+        const hire = card.actions[0];
+        return (
+          <div key={id} className="cp-peak-line">
+            <CalendarClock className="sc-ico-s cp-peak-ico" aria-hidden />
+            <span className="small cp-peak-text">{card.what}<span className="muted"> · hire by {fmtDay(Math.min(...xs.map((x) => x.hireBy)))}</span></span>
+            {hire && <button className="btn btn-sm" onClick={() => runAction(g, hire)}><UserPlus /> {hire.label}</button>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function CrewPlanView({ g }: { g: GameState }) {
   const plans = crewPlan(g);
   const idle = idleTypes(g, plans);
   return (
     <div className="cp-view">
+      <PeakHeadsUp g={g} />
       <div className="small muted cp-intro">
         {SETS_WHY}{plans.some((p) => p.setsPerAircraft > BAL.crewSetsPerAircraft) ? ` ${SETS_DETACHED}` : ''} The role you have fewest of decides how many sets are complete.
       </div>

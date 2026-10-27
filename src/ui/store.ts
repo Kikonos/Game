@@ -27,7 +27,7 @@ import { type Ambience, sound, type SoundEvent } from './sound';
 import { activeTheme, applyTheme, type Theme, type ThemePref } from './theme';
 import { cue, takeCueEvents, takeCues, type CueEvent } from '../engine/core/cues';
 import type { HeadId } from '../engine/core/types';
-import { devAchievement, devCrewHours, devJumbo, devPosition, devRestAtDeparture, devRoster, devSlipOffer, devUnlockHead } from '../engine/dev';
+import { devAchievement, devCrewHours, devJumbo, devPeak, devPosition, devRestAtDeparture, devRoster, devSlipOffer, devUnlockHead } from '../engine/dev';
 import type { OohLimit, Pace } from '../engine/core/types';
 import { setPace } from '../engine/ops/director';
 import { devDisruption } from '../engine/ops/disrupt';
@@ -116,7 +116,7 @@ export type ModalSpec =
   | { kind: 'confirm'; title: string; body: string; confirm: string; danger?: boolean; onConfirm: () => void }
   /** B5: a decision opened from the Inbox (closable); hire, training and check planning dialogs. */
   | { kind: 'decision'; decisionId: string }
-  | { kind: 'hire'; role?: Role; family?: RatingFamily; base?: string }
+  | { kind: 'hire'; role?: Role; family?: RatingFamily; base?: string; /** Peak-staffing round: prefilled from the busy-month heads-up. */ count?: number }
   /** v0.7.4 Crew planning round-up: hire the crew that complete `target` sets of a family. */
   | { kind: 'roundUp'; family: RatingFamily; target: number }
   | { kind: 'train'; crewId: string }
@@ -1044,6 +1044,14 @@ class GameStore {
       });
       this.emit();
       return d.id;
+    },
+    /** Peak-staffing round: stages a busy month ahead `short` people per role short (screenshots); returns the gaps. */
+    peak: (short?: Partial<Record<Role, number>>) => {
+      const g = this.game;
+      if (!g) return [];
+      const gaps = devPeak(g, short);
+      this.emit();
+      return gaps.map((x) => `${x.monthName} ${x.family} ${x.role} short ${x.short}${x.serious ? ' serious' : ''}${x.late ? ' late' : ''}`);
     },
     /** Fast-forwards `days` game days with a simple policy (accept best offers, decision defaults, hire to staffing). */
     autoplay: (days = 30) => {
