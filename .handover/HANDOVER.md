@@ -491,3 +491,4 @@ Player notes (22 Oct, with top-bar screenshot .handover/updates/topbar-space.jpg
 - Bot s1: 1 crew-month <7 days off (offBroken 1 — designed day-off break by crew control, replaced next month). Watch.
 - NEXT (player's choice): Update 2 Commercial (tenders, trade fairs in Team tab with deadhead-style traveller, client crises); repo rename to Block-Hours when player does it; old questions A–E + wording 1–37 still unanswered.
 - 27 Oct: city lights removed on acmi (1dc9d40), not released; asked player: release now (v0.11.2) or batch. What's new line needed: 'Night on the map no longer shows city lights.'
+- 28 Oct: Hangar from above (default, Side switch), real L×S, 10 m grid, footprint order — acmi c430f18. Not released (with city-lights removal). What's new: 'Fleet › Hangar now shows the fleet from above, to scale…'.
