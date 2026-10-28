@@ -139,3 +139,16 @@
 }
 @keyframes v12-fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes v12-glide { from { transform: translateX(-6%); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* v0.12 the hangar from above: a floor gridded every 10 m (--hg-m), nose up, tails on one line */
+.hg-head { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+.hg-top .hg-floor {
+  display: flex; flex-wrap: wrap; align-items: flex-end; gap: 22px 22px; padding: 16px;
+  border-radius: 12px; background-color: var(--panel-2, rgba(127, 127, 127, 0.06));
+  background-image: linear-gradient(to right, rgba(var(--line-rgb), 0.12) 1px, transparent 1px), linear-gradient(to bottom, rgba(var(--line-rgb), 0.12) 1px, transparent 1px);
+  background-size: var(--hg-m) var(--hg-m);
+}
+.hg-plane { display: flex; flex-direction: column; align-items: center; gap: 4px; border: none; background: none; padding: 0; color: inherit; min-width: 44px; }
+.hg-plane svg { display: block; overflow: visible; }
+.hg-plane .hg-tag { display: flex; gap: 6px; align-items: baseline; max-width: 100%; }
+.hg-bar { display: inline-block; width: var(--hg-m); height: 6px; border: 1.5px solid currentColor; border-top: none; flex-shrink: 0; }
