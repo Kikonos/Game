@@ -1002,6 +1002,39 @@ function tryDelay(h: GameState, flightId: string, at: Minute): boolean {
   return !BAD(flightCrewStatus(h, flightId).level);
 }
 
+/** A rest-before shortfall in a candidate's reasons ('Rest 13:55 < 14:00'; not 'Rest before next duty'). */
+const REST_SHORT = /^Rest (\d+):(\d\d) < (\d+):(\d\d)$/;
+
+/**
+ * BLU1396 round: whether the roster can crew every empty seat of the flight as it stands (a candidate who is not
+ * illegal, off no published day, per seat), the condition under which Crew Control may point to Auto-fix. Pure.
+ */
+function crewableOnTime(g: GameState, x: Ctx): boolean {
+  const { d } = x;
+  if (!d) return false;
+  const need = new Map<Role, number>();
+  for (const r of x.seats) need.set(r, (need.get(r) ?? 0) + 1);
+  const used = new Set<string>();
+  for (const [role, n] of need) {
+    let k = 0;
+    for (const c of candidatesOf(g, d, role)) {
+      if (k >= n) break;
+      if (c.onPairing || c.level === 'illegal' || c.dayOff || used.has(c.crewId)) continue;
+      used.add(c.crewId);
+      k++;
+    }
+    if (k < n) return false;
+  }
+  return true;
+}
+
+/** Why 'delay' has no time to offer: a crew can go on time (Auto-fix, when its preview or the candidates say so), or nobody can even later. */
+function noDelayWhy(g: GameState, x: Ctx, autoFixWorks: boolean | null = null): string {
+  const { f, ac } = x;
+  if (autoFixWorks !== false && crewAlertKind(g, f.id) !== 'hours' && readyOf(g, f, ac) <= f.std + f.delay && (autoFixWorks || crewableOnTime(g, x))) return 'A crew can take it on time: use Auto-fix';
+  return f.kind === 'positioning' ? 'The schedule re-plans empty legs itself: this one waits for a crew at the gate' : 'Nobody can take it even two days later';
+}
+
 /**
  * Departures worth trying for 'delay', soonest first, within two days: crewReadyAt, and from the roster's own
  * refusals: a candidate's ticket arrival, the end of a rest or of another trip (plus a night's rest), the
@@ -1037,6 +1070,12 @@ function delayTimes(g: GameState, x: Ctx): Minute[] {
           add(reach.earliestArrival + night(false) + lead);
         }
         if (r?.code === 'fdp' || r?.code === 'rest') add(Math.max(g.now, cm.restUntil, c.arrives ?? 0) + night(c.loc === cm.base) + lead);
+        // BLU1396 round: a crew member just short of the rest before it (cabin crew 'Rest 13:55 < 14:00' after the
+        // ticket out) is legal once the departure moves by the shortfall: a small delay is tried too, with 5 min in hand.
+        for (const t of c.reasons) {
+          const m = REST_SHORT.exec(t);
+          if (m) add(floor + (Number(m[3]) * 60 + Number(m[4])) - (Number(m[1]) * 60 + Number(m[2])) + 5);
+        }
       }
     }
   }
@@ -1189,8 +1228,8 @@ function runFix(h: GameState, flightId: string, fix: CrewFix, opts: ApplyOpts): 
       // The departure comes from the roster's own answer (delayPlan tried it on copies); never a guess that
       // leaves the seats empty.
       const at0 = opts.at ?? delayPlan(h, x)?.at;
-      if (at0 === undefined) return { ok: false, error: !delayTimes(h, x).length && crewReadyAt(h, f, ac) <= f.std + f.delay ? 'A crew can take it on time: use Auto-fix' : 'Nobody can take it even two days later' };
-      if (at0 <= f.std + f.delay) return { ok: false, error: 'A crew can take it on time: use Auto-fix' };
+      if (at0 === undefined) return { ok: false, error: noDelayWhy(h, x) };
+      if (at0 <= f.std + f.delay) return { ok: false, error: noDelayWhy(h, x) };
       if (at0 - h.now > 2 * DAY) return { ok: false, error: 'No legal crew within two days' };
       const was = f.std;
       if (!tryDelay(h, f.id, at0)) {
@@ -1514,7 +1553,10 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean, only?: readonly C
     const s = base('delay');
     const plan = delayPlan(g, x);
     // An out-of-hours crew is "ready" at the gate but may not go: never point to Auto-fix for it.
-    if (!plan) out.push(no(s, !delayTimes(g, x).length && crewAlertKind(g, f.id) !== 'hours' && readyOf(g, f, ac) <= f.std + f.delay ? 'A crew can take it on time: use Auto-fix' : f.kind === 'positioning' ? 'The schedule re-plans empty legs itself: this one waits for a crew at the gate' : 'Nobody can take it even two days later'));
+    // BLU1396 round: Auto-fix is named only when it can crew the flight (its own preview when there is one).
+    const af = out.find((o) => o.id === 'autoFix');
+    const afWorks = previews && af ? af.available && !BAD(af.preview.after.level) : null;
+    if (!plan) out.push(no(s, noDelayWhy(g, x, afWorks)));
     else {
       const ready = plan.at;
       const k = contractOf(g, f);
