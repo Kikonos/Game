@@ -60,6 +60,8 @@ export interface FeasibilityReport {
   /** Empty legs needed before the first and after the last revenue leg ([] when none; > 1 leg = fuel stops). */
   positionIn: PositioningLeg[];
   positionOut: PositioningLeg[];
+  /** v0.12 every empty leg the job adds on this aircraft (before, between and after its trips, home hops included). */
+  positionAll?: PositioningLeg[];
   techStops: string[];
   /**
    * Flight ids and maintenance ids that overlap the programme on this aircraft (v0.12 or that it can't be back for),
@@ -379,6 +381,7 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   const { fits, conflicts } = flyable ? fitTrips(g, ac, o, prog) : { fits: [] as TripFit[], conflicts: [] as Anchor[] };
   rep.positionIn = fits[0]?.posIn ?? [];
   rep.positionOut = fits[fits.length - 1]?.posOut ?? [];
+  rep.positionAll = fits.flatMap((f) => [...f.homeBefore, ...f.posIn, ...f.posOut, ...f.homeAfter]);
 
   // 6. ETOPS over revenue and positioning legs.
   let etops = 0;
