@@ -16,6 +16,14 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.11.3',
+    name: 'Offer ghosts',
+    features: [
+      'A new offer shows its flights on every aircraft\'s timeline before you accept: dashed outlines at the client\'s times (not booked yet), with the empty positioning that aircraft would need as smaller dotted ones. Only a job with no flights yet (a base deployment) stays one shaded block.',
+    ],
+    improvements: [],
+  },
+  {
     version: 'v0.11.2',
     name: 'Every device',
     features: [

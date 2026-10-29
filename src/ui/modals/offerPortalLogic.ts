@@ -7,7 +7,8 @@
 
 import { DAY } from '../../engine/core/time';
 import type { FeasibilityReport } from '../../engine/contracts';
-import type { GameState, Minute } from '../../engine/core/types';
+import type { ContractOffer, GameState, Minute } from '../../engine/core/types';
+import { blockMinutes, planSector } from '../../engine/core/perf';
 import { tripOf, type TripView } from '../../engine/ops/tripMove';
 import { subleaseTrip, type SubleaseView } from '../../engine/ops/sublease';
 import { rowBlocks, type GanttBlock } from '../screens/scheduleLogic';
@@ -99,4 +100,41 @@ export function subleaseGroups(trips: ClashTrip[]): { contractId: string; trips:
   const m = new Map<string, ClashTrip[]>();
   for (const t of trips) if (t.sub.ok && t.sub.contractId) m.set(t.sub.contractId, [...(m.get(t.sub.contractId) ?? []), t]);
   return [...m.entries()].map(([contractId, list]) => ({ contractId, trips: list, flightIds: [...new Set(list.flatMap((t) => t.sub.flightIds))] }));
+}
+
+/** v0.12 the offer's own flights drawn faintly on a candidate's timeline (dashed outline: not ours yet). */
+export interface OfferGhost {
+  key: string;
+  start: Minute;
+  end: Minute;
+  /** 'rev' a flight the client asks for; 'pos' an empty leg this aircraft would need to get there or back. */
+  kind: 'rev' | 'pos';
+  label: string;
+}
+
+/** Ground time at a fuel stop between the legs of one revenue sector (as the flights are built). */
+const TECH_STOP_MIN = 45;
+
+/**
+ * v0.12 player request: "I just want the block when there isn't any flights assigned. Everything else, I want the actual
+ * flights on the timeline as a ghostly [outline]". The offer's revenue legs (fuel stops split a sector) at the client's
+ * times, and this aircraft's positioning in and out from its feasibility report. A base programme has no legs yet:
+ * none (the portal keeps the job block). Pure.
+ */
+export function offerGhosts(o: Pick<ContractOffer, 'pattern'>, typeId: string, report?: Pick<FeasibilityReport, 'positionIn' | 'positionOut'>): OfferGhost[] {
+  if (o.pattern.kind !== 'legs') return [];
+  const out: OfferGhost[] = [];
+  for (const [i, l] of [...o.pattern.legs].sort((a, b) => a.dep - b.dep).entries()) {
+    const sp = planSector(typeId, l.from, l.to);
+    const legs = sp.ok && sp.legs.length ? sp.legs : [{ from: l.from, to: l.to, block: blockMinutes(typeId, l.from, l.to) }];
+    let t = l.dep;
+    for (const [j, x] of legs.entries()) {
+      out.push({ key: `g${i}-${j}`, start: t, end: t + x.block, kind: 'rev', label: `${l.flightNo} ${x.from}–${x.to}` });
+      t += x.block + TECH_STOP_MIN;
+    }
+  }
+  for (const [k, p] of [...(report?.positionIn ?? []), ...(report?.positionOut ?? [])].entries()) {
+    out.push({ key: `p${k}`, start: p.std, end: p.sta, kind: 'pos', label: `Empty ${p.from}–${p.to}` });
+  }
+  return out.sort((a, b) => a.start - b.start);
 }
