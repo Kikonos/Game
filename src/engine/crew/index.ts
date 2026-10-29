@@ -13,7 +13,7 @@ export { aboveMinimum, afterDiversion, legalMinimum } from './duties';
 import { dailySickness, onCrewJoin, onTrainingDone } from './hr';
 import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, settleService, setResignHooks } from './morale';
 import { autoRoster, closedWait, guardDuty, homeBeforeLeave, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, removeCrew, sendStrandedHome, stayOn } from './roster';
-import { localMin, minRest, signedTz, tzDeltaH, tzNights } from './rules';
+import { extRestCut, localMin, minRest, signedTz, tzDeltaH, tzNights } from './rules';
 import { clipToRest, dailyStandby, noteRecovery } from './standby';
 import { dayPlanAfter, dayPlanBefore, dayPlanInit, dayPlanLoad, dayPlanMonth, v09Stats } from './dayPlan';
 import { peakHeadsUp } from './forecast';
@@ -226,11 +226,14 @@ function onDutyRelease(g: GameState, ev: SimEvent): void {
       else if (f.std >= d.release) home = f;
     }
     const seg = dutySegs(g, c, p, d, out, home).find((x) => x.kind === 'duty')!;
+    // BLU1396 round: the planned extension's rest option (ORO.FTL.205(d)): +2 h before and after when this crew member
+    // rested 2 h more than the minimum before it (c.restUntil is still the rest before), else +4 h after.
+    const extCut = d.ext ? extRestCut(seg.start, c.restUntil) : 0;
     // v0.9 crew who joined the duty after its report (a call-in at the gate) get their recovery noted too.
     noteRecovery(c, seg.start, g);
     c.log.push({
       start: seg.start, end: seg.end, fdp: seg.fdp, block, sectors: d.sectors, augmented: d.augment > 0, disruptive: seg.disruptive,
-      ...(d.ext ? { ext: true as const } : {}), ...(seg.early ? { early: true } : {}), ...(seg.late ? { late: true } : {}), ...(seg.night ? { night: true } : {}),
+      ...(d.ext ? { ext: true as const, extRest: extCut ? ('split' as const) : ('after' as const) } : {}), ...(seg.early ? { early: true } : {}), ...(seg.late ? { late: true } : {}), ...(seg.night ? { night: true } : {}),
     });
     c.log = c.log.filter((e) => e.end > g.now - 28 * DAY);
     if (c.blockYearOf !== y) {
@@ -244,7 +247,7 @@ function onDutyRelease(g: GameState, ev: SimEvent): void {
     bm[mk] = (bm[mk] ?? 0) + block;
     for (const key in bm) if (+key <= mk - 12) delete bm[key];
     c.totalHours += block / 60;
-    c.restUntil = Math.max(c.restUntil, seg.end + seg.rest);
+    c.restUntil = Math.max(c.restUntil, seg.end + seg.rest - extCut);
     c.status = 'resting';
     c.loc = d.restAt;
     clipToRest(g, c);

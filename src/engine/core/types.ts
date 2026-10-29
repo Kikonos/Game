@@ -867,6 +867,11 @@ export interface DutyLogEntry {
   disruptive: boolean;
   /** v0.7.3 planned extension (CS FTL.1.205(b)); early start / late finish / night duty (CS FTL.1.235(a)). */
   ext?: true;
+  /**
+   * BLU1396 round: the ORO.FTL.205(d) rest option this crew member took for the extension: 'split' = +2 h before and
+   * +2 h after, 'after' = +4 h after (absent on older entries: +4 h after, as they were rested).
+   */
+  extRest?: 'split' | 'after';
   early?: boolean;
   late?: boolean;
   night?: boolean;

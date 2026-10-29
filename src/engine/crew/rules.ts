@@ -265,9 +265,25 @@ export interface RestInput {
   augmented: boolean;
   /** Time-zone shift of the trip in hours. */
   tzShift: number;
-  /** v0.7.3 after a planned extension: +4 h (ORO.FTL.205(d), the post-flight option). */
+  /**
+   * v0.7.3 after a planned extension: +4 h (ORO.FTL.205(d), the post-flight option). The other option, +2 h before and
+   * +2 h after, is taken per crew member where their rest before allows it (evalSegs, `extRestCut`).
+   */
   extended?: boolean;
 }
+
+/**
+ * BLU1396 round: ORO.FTL.205(d) rest options around a planned extension: the rest after grows by `after` (4 h), or the
+ * rest before and the rest after each grow by `split` (2 h). The operator may take either, per extended duty.
+ */
+export const EXT_REST = { after: 4 * H, split: 2 * H } as const;
+
+/**
+ * Minutes the rest after an extended duty may be shorter than `minRest({ extended: true })`: 2 h when the crew member
+ * starts it (`start`) at least 2 h after their minimum rest before it ended (`restEnd`), i.e. took +2 h before;
+ * else 0 (+4 h after). Pure.
+ */
+export const extRestCut = (start: Minute, restEnd: Minute): number => (start >= restEnd + EXT_REST.split ? EXT_REST.after - EXT_REST.split : 0);
 
 /**
  * ORO.FTL.235(a)/(b) minimum rest: max(duty, 12 h home / 10 h away). v0.7.3: 14 h after any augmented FDP wherever
@@ -277,7 +293,7 @@ export interface RestInput {
 export function minRest(i: RestInput): number {
   let base = i.atHome ? 12 * H : 10 * H;
   if (i.augmented || (!i.atHome && i.tzShift >= 4)) base = 14 * H;
-  return Math.max(i.dutyMin, base) + (i.extended ? 4 * H : 0);
+  return Math.max(i.dutyMin, base) + (i.extended ? EXT_REST.after : 0);
 }
 
 /** ORO.FTL.210 cumulative limits, ORO.FTL.235(d) recurrent extended recovery rest and CS FTL.1.235(a)(2). */
@@ -596,8 +612,21 @@ export function evalSegs(ctx: TimelineCtx, segsIn: Seg[]): LegalityIssue[] {
   let rot = ctx.rot ? { ...ctx.rot } : null;
   let back = ctx.tzBack ? { ...ctx.tzBack } : null;
   let lastAwayDir: -1 | 0 | 1 = back?.dir ?? 0;
+  // BLU1396 round: the planned-extension rest option each extended duty takes (ORO.FTL.205(d)): with 2 h more than the
+  // minimum rest before it, +2 h after (2 h off the seg's +4 h, `extRestCut`); otherwise +4 h after.
+  let cutAt = -1;
+  let cut = 0;
+  const restOfSeg = (k: number) => (k === cutAt ? segs[k].rest - cut : segs[k].rest);
   for (let i = 0; i < segs.length; i++) {
     const s = segs[i];
+    if (s.ext && s.kind !== 'log') {
+      const before = i === 0 ? ctx.restUntil : i - 1 === lastLog ? Math.max(segs[i - 1].end + (segs[i - 1].rest || 0), ctx.restUntil) : segs[i - 1].end + restOfSeg(i - 1);
+      const x = extRestCut(s.start, before);
+      if (x) {
+        cutAt = i;
+        cut = x;
+      }
+    }
     // Planned recovery gaps with 2 whole local days, by the month of the first whole day.
     if (td && s.kind !== 'log' && s.start >= tdMin) {
       const tdPrev = Math.max(prevEnd, ctx.workEnd ?? -Infinity);
@@ -630,7 +659,7 @@ export function evalSegs(ctx: TimelineCtx, segsIn: Seg[]): LegalityIssue[] {
       // Rest after the previous seg (the last logged one rests until ctx.restUntil).
       if (i > 0) {
         const p = segs[i - 1];
-        const restEnd = i - 1 === lastLog ? Math.max(p.end + (p.rest || 0), ctx.restUntil) : p.end + p.rest;
+        const restEnd = i - 1 === lastLog ? Math.max(p.end + (p.rest || 0), ctx.restUntil) : p.end + restOfSeg(i - 1);
         if (s.start < p.end) pushIssue(issues, 'overlap', 'illegal', 'Overlaps another duty', tgt);
         else if (s.start < restEnd) pushIssue(issues, 'rest', 'illegal', `Rest ${hm(s.start - p.end)} < ${hm(restEnd - p.end)}`, tgt);
       } else if (s.start < ctx.restUntil) pushIssue(issues, 'rest', 'illegal', 'Still resting', tgt);
@@ -647,7 +676,7 @@ export function evalSegs(ctx: TimelineCtx, segsIn: Seg[]): LegalityIssue[] {
       const n = segs[i + 1];
       if (n && s.fresh && !n.fresh) {
         if (n.start < s.end) pushIssue(issues, 'overlap', 'illegal', 'Overlaps another duty', tgt);
-        else if (n.start < s.end + s.rest) pushIssue(issues, 'rest', 'illegal', `Rest before next duty ${hm(n.start - s.end)} < ${hm(s.rest)}`, tgt);
+        else if (n.start < s.end + restOfSeg(i)) pushIssue(issues, 'rest', 'illegal', `Rest before next duty ${hm(n.start - s.end)} < ${hm(restOfSeg(i))}`, tgt);
       }
       if (s.kind === 'duty') {
         if (s.fdp > s.maxFdp) pushIssue(issues, 'fdp', 'illegal', `FDP ${hm(s.fdp)} > ${hm(s.maxFdp)}`, tgt);

@@ -15,7 +15,7 @@ import { callIfOnStandby, dropStandby, standbyFor, callFromStandby } from './sta
 import { fitStandby, midnight, monthFloorIssue, offDaysHit, offMovable, offSwappable, takeOffDays, takesPublishedOff, v09Stats as v09StatsOf } from './dayPlan';
 import { infoOf } from './outOfHours';
 import { lateChange, moraleShock, nextReport } from './morale';
-import { cabinFdpCap, DISCRETION, evalSegs, levelOf, LIMITS, minRest, mkSeg, recoveryAnchor, tzDeltaH, worst, type LegalityIssue, type Seg } from './rules';
+import { cabinFdpCap, DISCRETION, evalSegs, extRestCut, levelOf, LIMITS, minRest, mkSeg, recoveryAnchor, tzDeltaH, worst, type LegalityIssue, type Seg } from './rules';
 import { cabinOwnReport, planRest, restCabinN, restLegs, restOf, restPlan } from './restPlan';
 import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, locAt, noteRiders, outStillFits, passengers, planHome, planOut, posSeg, segsOf, segsTagOf, ticketPrice, touchCrew, typeIdOf, withoutTickets } from './timeline';
 
@@ -236,7 +236,7 @@ function retimeTickets(g: GameState, p: Pairing, d: Duty, moved: Set<string>): v
       else if (f.from === d.restAt && f.std - d.release >= 600) {
         // v0.5.2: a ticket home after rest (planHome) leaves once the rest is over again: a later release
         // would otherwise put its check-in inside the rest and the whole crew off the duty at the gate.
-        const rest = minRest({ dutyMin: d.release - d.report + cabinEarly(g, p), atHome: false, augmented: d.augment > 0, tzShift: tzDeltaH(f.to, f.from, d.release) });
+        const rest = minRest({ dutyMin: d.release - d.report + cabinEarly(g, p), atHome: false, augmented: d.augment > 0, tzShift: tzDeltaH(f.to, f.from, d.release), extended: !!d.ext });
         const need = Math.ceil((d.release + rest + BAL.deadheadCheckIn) / 60) * 60;
         if (f.std < need) std = need;
       }
@@ -536,7 +536,8 @@ export function rebookAfterLateRelease(g: GameState, p: Pairing, d: Duty): void 
         if (o && o.status !== 'cancelled' && o.sta <= d.report && aboard(o, cid)) out = o;
       }
       const seg = dutySegs(g, c, p, d, out, null).find((x) => x.kind === 'duty');
-      const end = Math.max(c.restUntil, seg ? seg.end + seg.rest : d.release);
+      // (A planned extension's rest: +2 h after when the crew member took +2 h before, as the release logs it.)
+      const end = Math.max(c.restUntil, seg ? seg.end + seg.rest - (d.ext ? extRestCut(seg.start, c.restUntil) : 0) : d.release);
       if (wait < 0 || f.std - ci < end) ends.set(cid, end);
     }
     if (!ends.size) continue;
@@ -1001,7 +1002,7 @@ function offFallback(g: GameState, c: CrewMember, plan: CrewPlan, base: Seg[]): 
 // Crew-planning round: the rest the last duty needs (its length, 14 h after an augmented day or across 4+ time zones),
 // not a flat 10 h (a 12 h day's ticket home landed on the first morning of the leave).
 const homeTravel = (d: Duty, base: string): number => (d.restAt === base ? 0
-  : minRest({ dutyMin: d.release - d.report, atHome: false, augmented: d.augment > 0, tzShift: tzDeltaH(base, d.restAt, d.release) }) + dhBlock(d.restAt, base) + 2 * 60);
+  : minRest({ dutyMin: d.release - d.report, atHome: false, augmented: d.augment > 0, tzShift: tzDeltaH(base, d.restAt, d.release), extended: !!d.ext }) + dhBlock(d.restAt, base) + 2 * 60);
 
 function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, exclude?: Set<string>): void {
   const duties = openDuties(g, p);

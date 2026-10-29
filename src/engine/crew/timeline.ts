@@ -211,6 +211,9 @@ const posRest = (t: TicketPlan, atHome: boolean, tzShift = 0) => minRest({ dutyM
 export const OUT_CONNECT = 60;
 /** Preferred arrival margin before report (delays, immigration): used whenever a ticket that early still fits. */
 export const OUT_BUFFER = 180;
+/** BLU1396 round: extra margin on top of the rest when the ticket out is far (4+ time zones, or this long a ticket). */
+export const OUT_REST_BUFFER = 180;
+export const OUT_FAR_BLOCK = 6 * 60;
 
 /** A ticket out, or why none works (`why`: then `plan` is only the best guess, not workable). */
 export interface OutTicket {
@@ -250,8 +253,18 @@ export function outTicket(g: GameState, p: Pairing, d: Duty, from: string, ready
   // v0.11 the rest the check asks for after the ticket (posSeg): 14 h away from base after a ≥ 4 h time-zone shift
   // (CS FTL.1.235(b)(3)(ii)). Planned at 10 h, a ticket to Montréal or New York landed short of rest every time and
   // a delivery ferry from North America never found pilots.
-  const rest = minRest({ dutyMin: blk + CHECKIN(), atHome: false, augmented: false, tzShift: tzDeltaH(p.base, to, d.report) });
-  const rested = hour(d.report - rest - blk, false);
+  const tz = tzDeltaH(p.base, to, d.report);
+  const rest = minRest({ dutyMin: blk + CHECKIN(), atHome: false, augmented: false, tzShift: tz });
+  // BLU1396 round: the rest runs to the crew's earliest report, the cabin crew's (one ticket for the whole crew). Timed
+  // to the pilots' report, a ticket the day before left the cabin crew 13:55 of a 14 h rest.
+  const rep = d.report - cabinEarly(g, p, d);
+  const exact = hour(rep - rest - blk, false);
+  // ... and a trip that starts far away (4+ time zones, or a long ticket) gets the ticket out a few hours before the
+  // last one that still rests: a late-landing itinerary, or a report moved a little earlier, no longer leaves the
+  // whole crew minutes short. The last one that rests stays the fallback when the earlier one has left already.
+  const far = tz >= 4 || blk >= OUT_FAR_BLOCK;
+  const buffered = far ? hour(rep - rest - blk - OUT_REST_BUFFER, false) : exact;
+  const rested = buffered >= first ? buffered : exact;
   if (early) return { plan: mk(rested), why: rested >= first ? null : `Rest at ${to} needed landing by ${at(rested + blk, g.now)}` };
   const disc = d.discretion ?? 0;
   /** Merged FDP and its limit for a ticket leaving at std. */
@@ -269,15 +282,15 @@ export function outTicket(g: GameState, p: Pairing, d: Duty, from: string, ready
   if (ride) {
     const rideRest = minRest({ dutyMin: ride.sta - ride.std + CHECKIN(), atHome: false, augmented: false, tzShift: tzDeltaH(p.base, to, d.report) });
     const x = fdpOf(ride.std);
-    if (ride.sta + rideRest <= d.report || x.fdp <= x.max) return { plan: ride, why: null };
+    if (ride.sta + rideRest <= rep || x.fdp <= x.max) return { plan: ride, why: null };
   }
   const pref = hour(d.report - OUT_BUFFER - blk, false);
   const prefFits = fits(pref);
   if (pref >= first && prefFits) return { plan: mk(pref), why: null };
   if (rested >= first) return { plan: mk(rested), why: null };
-  const last = hour(d.report - OUT_CONNECT - blk, false);
+  const last = hour(rep - OUT_CONNECT - blk, false);
   let best: Minute | null = null;
-  for (let std = Math.max(first, rested + 60); std <= last; std += 60) {
+  for (let std = Math.max(first, exact + 60); std <= last; std += 60) {
     if (!fits(std)) continue;
     if (best === null || Math.abs(d.report - std - blk - OUT_BUFFER) <= Math.abs(d.report - best - blk - OUT_BUFFER)) best = std;
   }
@@ -289,11 +302,11 @@ export function outTicket(g: GameState, p: Pairing, d: Duty, from: string, ready
   const cap = (x: string) => (resting ? x : x[0].toUpperCase() + x.slice(1));
   if (last < first) {
     const arr = first + blk;
-    return { plan, why: resting + cap(`earliest arrival ${to} ${t(arr)}${viaText(from, to, first, arr)}, must land by ${t(d.report - OUT_CONNECT)} (report ${t(d.report)})`) };
+    return { plan, why: resting + cap(`earliest arrival ${to} ${t(arr)}${viaText(from, to, first, arr)}, must land by ${t(rep - OUT_CONNECT)} (report ${t(rep)})`) };
   }
   const x = fdpOf(last);
   const over = x.fdp > x.max ? `${hm(x.fdp)} > ${hm(x.max)} max` : `${hm(x.fdp)}, within 30 min of ${hm(x.max)} max`;
-  return { plan, why: resting + cap(`deadhead + duty FDP ${over}; rest at ${to} needed landing by ${t(rested + blk)}`) };
+  return { plan, why: resting + cap(`deadhead + duty FDP ${over}; rest at ${to} needed landing by ${t(exact + blk)}`) };
 }
 
 /**
@@ -303,7 +316,7 @@ export function outTicket(g: GameState, p: Pairing, d: Duty, from: string, ready
 export function outStillFits(g: GameState, p: Pairing, d: Duty, from: string, std: Minute, blk: number): boolean {
   const to = g.flights[d.flightIds[0]]?.from ?? d.restAt;
   const rest = minRest({ dutyMin: blk + CHECKIN(), atHome: false, augmented: false, tzShift: tzDeltaH(p.base, to, d.report) });
-  if (std + blk + rest <= d.report) return true;
+  if (std + blk + rest <= d.report - cabinEarly(g, p, d)) return true;
   const start = std - CHECKIN();
   return d.fdp + (d.report - start) <= fdpLimitAt(g, p, d, from, start).max + (d.discretion ?? 0);
 }
@@ -376,14 +389,17 @@ function rideTo(g: GameState, from: string, to: string, d: Duty, free: Minute): 
   return best ? { from, to, std: best.std, sta: best.sta, rideId: best.id } : null;
 }
 
-/** Ticket home after the last duty: same day when the whole duty stays within 13 h, else after minimum rest. */
-export function planHome(d: Duty, to: string, early = 0): TicketPlan {
+/**
+ * Ticket home after the last duty: same day when the whole duty stays within 13 h, else after minimum rest (after a
+ * planned extension +4 h, or +2 h with `extCut` 2 h when the crew member took the +2 h before option: ORO.FTL.205(d)).
+ */
+export function planHome(d: Duty, to: string, early = 0, extCut = 0): TicketPlan {
   // v0.7.2 `early`: the cabin crew's earlier report (one ticket for the whole crew: the longest day sets the rest).
   const from = d.restAt;
   const blk = dhBlock(from, to);
   const std = hour(d.release + 60, true);
   if (std + blk - d.report + early <= 13 * 60) return { from, to, std, sta: std + blk };
-  const rest = minRest({ dutyMin: d.release - d.report + early, atHome: false, augmented: d.augment > 0, tzShift: tzDeltaH(to, from, d.release) });
+  const rest = minRest({ dutyMin: d.release - d.report + early, atHome: false, augmented: d.augment > 0, tzShift: tzDeltaH(to, from, d.release), extended: !!d.ext }) - (d.ext ? extCut : 0);
   const std2 = hour(d.release + rest + CHECKIN(), true);
   return { from, to, std: std2, sta: std2 + blk };
 }
