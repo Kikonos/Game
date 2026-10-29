@@ -85,3 +85,31 @@ improvements:
 - A warning in the top bar that does not fit shortens to its icon instead of being cut off.
 - Windows: room is kept for the scrollbar so screens never jump sideways; scrollbars are thin and match light and dark.
 - The iPadOS top-bar spacing only applies on the iPad.
+
+## Sub-lease, and the flights in the offer's schedule (player request)
+
+features:
+- Sub-lease: another operator flies a trip for us and the client still pays us (in the trade, a sub-charter). It sits next to swapping aircraft: tap a trip under an aircraft in a new offer, in the trip move confirm, or in a flight's sheet. You see up to three operators with their quality, price, what we still bill and how much the client notices, or why it can't be done (less than 6 hours to go, already under way, a ferry or empty leg, no operator free).
+- When a new job doesn't fit because the aircraft is busy, "What you can do" offers to sub-lease the trips in the way. Afterwards the offer checks the aircraft again, just as after moving a trip.
+
+improvements:
+- The schedule under each aircraft in an offer shows every flight on its own: it is wider and scrolls sideways, and opens on the job. Only work without flights yet (the later days of a base programme, a dry lease) stays one block.
+- Flights in the way of the new job have a red outline, and the chosen aircraft lists those trips with Move and Sub-lease, plus "Sub-lease all".
+- A trip lifted onto another aircraft scrolls the offer when you hold it near the top or bottom edge, and a swipe on the timeline scrolls it instead of picking a trip up.
+- The flight sheet's Sub-charter button is now called Sub-lease and opens on this trip, with the reason when the trip can't be handed over.
+
+## Crew sets review (player request: "weird numbers and sets, especially when flight attendants hold multiple types")
+
+fixes:
+- Hire crew now counts everyone the way Crew › Planning does, so both screens show the same numbers for every type.
+- Pilots rated on two types (777 and 787, A330 and A350) are counted once, not in both fleets. Before, Hire could say the 787 needed 1 more captain when it needed 3.
+- Relief pilots you have hired now count in Hire (with the first officers, whose need includes their seats). Before, a fully crewed augmented fleet could show "FO 5 of 8 needed".
+- Spare pursers fill cabin crew seats: the cabin crew row reads "exact, with 2 PUR" instead of "short 2" on a complete family. Round up no longer offers a whole extra set because of two spare pursers.
+- A flight attendant on two types is not kept on their home fleet for a seat a spare purser already fills. They count where the other fleet is short.
+- With a mixed-crew contract (the client brings some cabin crew), Round up no longer offers sets you don't need (it could say "Round up to 14 sets" with 10 needed and all complete).
+- "Limited by" names the role that really runs out, with spare pursers working cabin crew seats.
+- The backup lines say when flight attendants hired for one fleet are counted in another because their own fleet has all it needs. Before, they were said to be counted "where they were hired".
+- The crew strip shows "5 of 5 sets · 4 spare" instead of "9 of 5 sets" when you have more crew than you need (for example with an aircraft away on a dry lease).
+- Hiring a relief pilot shows the first officer and relief pilot numbers instead of "none in the fleet".
+- When an offer checks whether you have enough crew, a flight attendant on two types is counted in one fleet only. Before, someone your A320 sets need could also count as free for an A330 job.
+- The busy-month heads-up counts each person once (pilots on two types and crew who have handed in their notice included).
