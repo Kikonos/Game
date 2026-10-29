@@ -9,6 +9,7 @@
 //   … --whyheld (v0.9 round 3: the census behind each held leg) · --seatlog (round 5: seats emptied, trips born empty, crew found illegal, contracts signed)
 //   … --forecast-hire (peak-staffing round: hires on the Crew screen's busy-month heads-up, as an attentive player; off by
 //   default) · --fclog (the forecast's utilisation per month and day against the red alarms; PEAK_PACKING=x to vary it)
+//   … --nosign (no new contracts, aircraft or leases: with --from, A/B of the crew planner on one book of work)
 //
 // Policy (a pure function of the game state, so a loaded save plays on identically):
 // - offers: base deployments first, then ad hoc fill-ins; accept the best ok/warn feasibility with a positive
@@ -1324,17 +1325,27 @@ function policy(g: GameState, t: Tally, urgent: boolean, newDay: boolean): void 
     restRefits(g, t, cards);
     restTooShort(g, t, cards);
     earlyReturns(g, t);
-    sales(g, t);
+    if (!NOSIGN) sales(g, t);
     ladderSteps(g, t);
     recDiag(g);
-    fleet(g, t);
-    narrowGrowth(g, t);
+    if (!NOSIGN) {
+      fleet(g, t);
+      narrowGrowth(g, t);
+    }
     deliveryWaits(g, t);
-    refits(g, t);
-    dryLeases(g, t);
+    if (!NOSIGN) {
+      refits(g, t);
+      dryLeases(g, t);
+    }
   }
-  if (newDay || urgent) offers(g, t);
+  if ((newDay || urgent) && !NOSIGN) offers(g, t);
 }
+
+/**
+ * Crew-planning round (--nosign): no new contracts, aircraft or leases: with --from=<save>, an A/B of the crew planner
+ * on one book of work (the bot otherwise signs different work as soon as two runs differ by a dollar).
+ */
+const NOSIGN = process.argv.includes('--nosign');
 
 /** Advances to `end` on a fixed 6-hour grid from the start (a save at a grid point plays on identically). */
 function play(g: GameState, t: Tally, end: number, onStep?: () => void): void {
