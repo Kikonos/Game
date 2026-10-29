@@ -316,7 +316,8 @@ export function lateChangeNote(g: GameState, f: Flight): string {
     // A leg added or moved at short notice: nobody could have been planned for it earlier.
     if (f.born !== undefined && f.born > f.std - 2 * DAY) return `Late change: this leg was only added on ${fmtDay(f.born)} at ${fmtTime(f.born)} UTC (a schedule change at short notice). `;
     const moved = f.schedStd !== undefined ? f.std + f.delay - f.schedStd : f.delay;
-    if (moved >= 60) return `Late change: ${f.delayReason ? f.delayReason.toLowerCase() : 'a delay'} moved it ${fmtDuration(moved)} later. `;
+    // (Not a wait for crew: that is the shortage itself.)
+    if (moved >= 60 && !/crew/i.test(f.delayReason ?? '')) return `Late change: ${f.delayReason ? f.delayReason.toLowerCase() : 'a delay'} moved it ${fmtDuration(moved)} later. `;
     return '';
   }
   const c = g.crew[lost.crewId];
@@ -341,7 +342,8 @@ function earlyShort(g: GameState, reroster: boolean): Flight[] {
   for (const id of Object.keys(g.fleet)) {
     const legs = liveFlightsOf(g, id);
     for (const f of legs) {
-      if (f.status !== 'scheduled' || f.aircraftId !== id || f.std <= from || f.std > until || f.crewEarly || f.crewAlert || phantomLeg(f, legs)) continue;
+      // (A leg with no duty yet is one the roster has not planned: not known to be short.)
+      if (f.status !== 'scheduled' || f.aircraftId !== id || f.std <= from || f.std > until || f.crewEarly || f.crewAlert || !f.dutyId || phantomLeg(f, legs)) continue;
       const cs = flightCrewStatus(g, f.id, { live: false });
       if (cs.level !== 'missing') continue;
       const key = f.dutyId ?? f.id;

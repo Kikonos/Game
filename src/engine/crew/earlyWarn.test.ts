@@ -101,5 +101,8 @@ describe('the early heads-up', () => {
     far.std += 3 * H;
     far.delayReason = 'Late inbound aircraft';
     expect(lateChangeNote(g, far)).toBe('Late change: late inbound aircraft moved it 3h 00m later. ');
+    // A wait for crew is the shortage itself, not a late change.
+    far.delayReason = 'Waiting for crew';
+    expect(lateChangeNote(g, far)).toBe('');
   });
 });
