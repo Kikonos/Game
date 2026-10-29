@@ -12,7 +12,7 @@
 // timeline still scrolls with a swipe), a mouse drags at once; a tap or click picks it.
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowRightLeft, Handshake, TriangleAlert, X } from 'lucide-react';
+import { ArrowRightLeft, Handshake, Menu, TriangleAlert, X } from 'lucide-react';
 import { DAY, fmtDay, fmtTime } from '../../engine/core/time';
 import type { ContractOffer, GameState, Minute } from '../../engine/core/types';
 import type { FeasibilityReport } from '../../engine/contracts';
@@ -121,11 +121,8 @@ function ClashList({ g, o, r, trips, picked, onPick, others }: { g: GameState; o
               <b className="ellipsis">{t.label}</b>
               <span className="tiny muted ellipsis">{t.nos}{t.contractId && g.contracts[t.contractId] ? ` · ${g.contracts[t.contractId].title}` : ''}</span>
             </span>
-            <span className="row gap-4 v12-clash-can">
-              {t.move.ok && <span className="chip sc-chip">Move</span>}
-              {t.sub.ok && <span className="chip sc-chip good">Sub-lease</span>}
-              {!t.move.ok && !t.sub.ok && <span className="chip sc-chip warn">Fixed</span>}
-            </span>
+            {/* v0.12 (player) one quiet 'more' mark instead of Move / Sub-lease tags: the row opens what it can do */}
+            <span className="v12-clash-more" aria-hidden title={t.move.ok || t.sub.ok ? 'Move or sub-lease' : 'Fixed: it can\'t move or be sub-leased'}><Menu /></span>
           </button>
           {pickedTrip === t && <TripActions g={g} offerId={o.id} flightId={t.flightId} others={others} onClose={() => onPick(null)} />}
         </div>
