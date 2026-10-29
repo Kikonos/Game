@@ -626,7 +626,7 @@ export function OfferModal({ offerId }: { offerId: string }) {
         <div className="sc-offer-right col gap-8">
           <div className="upper dim">Choose an aircraft</div>
           {!reports.length && <div className="small muted">No aircraft in the fleet.</div>}
-          {reports.length > 0 && o.product.kind !== 'dry' && <div className="tiny dim v91-portal-hint">Under each aircraft, its schedule around this job (shaded), every flight on its own; red outlines are in the way. Tap a trip to move it to another aircraft or sub-lease it, or hold and drag it onto another aircraft.</div>}
+          {reports.length > 0 && o.product.kind !== 'dry' && <div className="tiny dim v91-portal-hint">Under each aircraft, its schedule around this job, every flight on its own. This job's flights are dashed outlines (not booked yet), or one shaded block while it has no flights yet; red outlines are in the way. Tap a trip to move it to another aircraft or sub-lease it, or hold and drag it onto another aircraft.</div>}
           {reports.map((r) => (
             <AircraftRow key={r.aircraftId} g={g} r={r} on={sel?.aircraftId === r.aircraftId} onPick={() => setPick(r.aircraftId)} billBH={o.estBH} lift={lift} offerId={o.id} long={!!restLine}
               portal={o.product.kind !== 'dry' ? <SchedulePortal g={g} o={o} aircraftId={r.aircraftId} candidates={reports.map((x) => x.aircraftId)} report={r} open={sel?.aircraftId === r.aircraftId} /> : undefined} />

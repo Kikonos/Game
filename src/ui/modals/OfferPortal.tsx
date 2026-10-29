@@ -22,7 +22,7 @@ import { contractColor } from '../screens/palette';
 import { store } from '../store';
 import { toCss } from '../device';
 import { money } from '../format';
-import { clashTrips, portalBlocks, portalWidth, subleaseGroups, type ClashTrip } from './offerPortalLogic';
+import { clashTrips, offerGhosts, portalBlocks, portalWidth, subleaseGroups, type ClashTrip } from './offerPortalLogic';
 import { SUBLEASE_LINE } from './SubcharterModal';
 
 /** The portal's window: two days either side of the job, at most three weeks (a long base shows its first weeks). Pure. */
@@ -158,6 +158,8 @@ export function SchedulePortal({ g, o, aircraftId, candidates, report, open = fa
   const suppressClick = useRef(false);
   const days: Minute[] = [];
   for (let t = from; t < to; t += DAY) days.push(t);
+  // v0.12 the offer's flights (and this aircraft's positioning for it) as ghosts; none for a base programme.
+  const ghosts = offerGhosts(o, g.fleet[aircraftId]?.typeId ?? 'a320ceo', report);
   const jobFrom = Math.max(o.start, from);
   const jobTo = Math.min(o.end, to);
   const others = candidates.filter((id) => id !== aircraftId && g.fleet[id] && g.fleet[id].status !== 'leasedOut');
@@ -350,7 +352,8 @@ export function SchedulePortal({ g, o, aircraftId, candidates, report, open = fa
               <span className="v91-day-l">{fmtDay(t).replace(/ \d{4}$/, '')}</span>
             </span>
           ))}
-          {jobTo > jobFrom && <span className="v91-job" style={{ left: x(jobFrom), width: x(jobTo) - x(jobFrom) }} title={`This job: ${fmtDay(o.start)} – ${fmtDay(o.end)}`} />}
+          {/* v0.12 the job as one block only when it has no flights yet (a base programme); otherwise its flights, ghosted */}
+          {ghosts.length === 0 && jobTo > jobFrom && <span className="v91-job" style={{ left: x(jobFrom), width: x(jobTo) - x(jobFrom) }} title={`This job: ${fmtDay(o.start)} – ${fmtDay(o.end)}`} />}
           {blocks.map((b) => {
             const w = Math.max(b.kind === 'cont' ? 12 : 4, x(Math.min(b.end, to)) - x(Math.max(b.start, from)));
             const style: React.CSSProperties = { left: x(b.start), width: w };
@@ -374,6 +377,11 @@ export function SchedulePortal({ g, o, aircraftId, candidates, report, open = fa
                 {b.kind === 'cont' && w >= 150 && <span className="v12-cont-l">Programme · no flights yet</span>}
               </span>
             );
+          })}
+          {ghosts.map((gh) => {
+            if (gh.end <= from || gh.start >= to) return null;
+            const w = Math.max(6, x(Math.min(gh.end, to)) - x(Math.max(gh.start, from)));
+            return <span key={gh.key} className={`v12-ghost ${gh.kind}`} style={{ left: x(gh.start), width: w }} title={`From this offer, not booked yet: ${gh.label} · ${fmtDay(gh.start)} ${fmtTime(gh.start)} UTC`} />;
           })}
         </div>
       </div>
