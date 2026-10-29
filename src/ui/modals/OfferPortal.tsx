@@ -37,7 +37,10 @@ const HOLD_MS = 350;
 const SLOP = 10;
 const MOUSE_SLOP = 6;
 
-interface Drag { flightId: string; x0: number; y0: number; timer: number; lifted: boolean; touch: boolean; ghost?: HTMLDivElement; hover?: string | null }
+interface Drag { flightId: string; x0: number; y0: number; timer: number; lifted: boolean; touch: boolean; ghost?: HTMLDivElement; hover?: string | null; x?: number; y?: number; raf?: number }
+
+/** Near the dialog's top or bottom edge (px) a lifted trip scrolls the dialog, so every aircraft can be reached. */
+const EDGE = 64;
 
 /** Opens the Schedule's trip move confirm, coming back to this offer afterwards. */
 function askMove(offerId: string, flightId: string, targetId: string) {
@@ -195,8 +198,25 @@ export function SchedulePortal({ g, o, aircraftId, candidates, report, open = fa
     document.body.append(ghost);
     d.ghost = ghost;
     scrollRef.current?.closest('.v91-portal-wrap')?.classList.add('v12-dragging');
+    d.raf = requestAnimationFrame(() => autoScroll(d));
+  };
+  /** While lifted: the dialog body scrolls when the finger or pointer rests near its top or bottom edge. */
+  const autoScroll = (d: Drag) => {
+    const body = scrollRef.current?.closest<HTMLElement>('.modal-body');
+    if (!body || drag.current !== d || !d.lifted) return;
+    const r = body.getBoundingClientRect();
+    const y = d.y ?? d.y0;
+    const dy = y > r.bottom - EDGE ? Math.min(EDGE, y - (r.bottom - EDGE)) : y < r.top + EDGE ? -Math.min(EDGE, r.top + EDGE - y) : 0;
+    if (dy) {
+      body.scrollTop += dy / 4;
+      d.hover = undefined;
+      place(d, d.x ?? d.x0, y);
+    }
+    d.raf = requestAnimationFrame(() => autoScroll(d));
   };
   const place = (d: Drag, cx: number, cy: number) => {
+    d.x = cx;
+    d.y = cy;
     if (d.ghost) {
       d.ghost.style.left = `${toCss(cx)}px`;
       d.ghost.style.top = `${toCss(cy)}px`;
@@ -216,6 +236,7 @@ export function SchedulePortal({ g, o, aircraftId, candidates, report, open = fa
     drag.current = null;
     if (!d) return;
     window.clearTimeout(d.timer);
+    if (d.raf) cancelAnimationFrame(d.raf);
     d.ghost?.remove();
     clearHover();
     scrollRef.current?.closest('.v91-portal-wrap')?.classList.remove('v12-dragging');
@@ -283,6 +304,7 @@ export function SchedulePortal({ g, o, aircraftId, candidates, report, open = fa
     const d = drag.current;
     if (d) {
       window.clearTimeout(d.timer);
+      if (d.raf) cancelAnimationFrame(d.raf);
       d.ghost?.remove();
       clearHover();
     }
