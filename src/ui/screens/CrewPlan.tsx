@@ -72,15 +72,22 @@ function FamilyCard({ p }: { p: FamilyPlan }) {
               <td className="num">{r.need}</td>
               <td className="num">{r.joining || '–'}</td>
               <td className="num">{r.away || '–'}</td>
-              <td className={`num ${r.balance < 0 ? 'warn' : r.balance > 0 ? 'muted' : 'good'}`}>{r.balance < 0 ? `short ${-r.balance}` : r.balance > 0 ? `+${r.balance}` : 'exact'}</td>
+              <td className={`num ${r.balance < 0 ? 'warn' : r.balance > 0 ? 'muted' : 'good'}`}>
+                {r.balance < 0 ? `short ${-r.balance}` : r.balance > 0 ? `+${r.balance}` : 'exact'}
+                {r.covered > 0 && <span className="tiny muted cp-covered">{coverWords(r)}</span>}
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
-      {p.alsoRated.map((b) => (
+      {p.alsoRated.map((b) => b.spill ? (
+        <div key={`as${b.family}`} className="tiny muted cp-backup">{backupWho(b)} hired for the {b.label} also rated here <span className="dim">(counted here, where they are needed: the {b.label} has all it needs)</span></div>
+      ) : (
         <div key={`a${b.family}`} className="tiny muted cp-backup">{backupWho(b)} also rated on the {b.label} <span className="dim">(backup there; counted here, where they were hired)</span></div>
       ))}
-      {p.backupFrom.map((b) => (
+      {p.backupFrom.map((b) => b.spill ? (
+        <div key={`fs${b.family}`} className="tiny muted cp-backup">{backupWho(b)} hired here also rated on the {b.label} <span className="dim">(counted in the {b.label}, where they are needed: this family has all it needs)</span></div>
+      ) : (
         <div key={`f${b.family}`} className="tiny muted cp-backup">{backupWho(b)} from the {b.label} also rated here <span className="dim">(backup; counted in the {b.label})</span></div>
       ))}
       {p.clientCabin > 0 && <div className="tiny muted"><Term id="dampLease">Mixed crew</Term>: clients' own cabin crew fly about {p.clientCabin} of the cabin places in these sets; only ours are counted.</div>}
@@ -99,6 +106,13 @@ function FamilyCard({ p }: { p: FamilyPlan }) {
       </div>
     </div>
   );
+}
+
+/** v0.11.2 seniors in junior seats: 'with 2 PUR' on the cabin crew row, '2 in CC seats' on the pursers' row. */
+function coverWords(r: { role: string; covered: number }): string {
+  if (r.role === 'CC') return ` with ${r.covered} PUR`;
+  if (r.role === 'CRP') return ` with ${r.covered} FO`;
+  return ` ${r.covered} in ${r.role === 'PUR' ? 'CC' : 'CRP'} seats`;
 }
 
 /** '3 cabin crew' / '2 pilots and 3 cabin crew'. */
@@ -166,10 +180,14 @@ export function PlanStrip({ g, onOpen }: { g: GameState; onOpen: () => void }) {
       {plans.map((p) => {
         const short = p.setsComplete < p.setsNeeded;
         const miss = p.roles.filter((r) => r.balance < 0).map((r) => `${-r.balance} ${r.role}`).join(', ');
+        // v0.11.2 fix: more complete sets than needed read '9 of 5 sets'; now '5 of 5 sets · 4 spare' (as Planning).
+        const of = Math.min(p.setsComplete, p.setsNeeded);
+        const spare = p.setsComplete - of;
+        const sets = `${of} of ${p.setsNeeded} sets${spare ? ` · ${spare} spare` : ''}`;
         return (
-          <button key={p.family} className={`cp-chip ${short ? 'short' : ''}`} onClick={onOpen} aria-label={`${p.label}: ${p.setsComplete} of ${p.setsNeeded} crew sets. Open crew planning`}>
+          <button key={p.family} className={`cp-chip ${short ? 'short' : ''}`} onClick={onOpen} aria-label={`${p.label}: ${of} of ${p.setsNeeded} crew sets${spare ? `, ${spare} spare` : ''}. Open crew planning`}>
             <b>{p.label}</b>
-            <span className={`num ${short ? 'warn' : 'good'}`}>{p.setsComplete} of {p.setsNeeded} sets</span>
+            <span className={`num ${short ? 'warn' : 'good'}`}>{sets}</span>
             {short && <span className="tiny muted">short {miss}</span>}
           </button>
         );
