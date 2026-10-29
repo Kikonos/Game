@@ -1482,7 +1482,12 @@ export function rerosterFrom(g: GameState, aircraftId: string, t: Minute): Roste
     const full = recheckPairing(g, p);
     const fullFrom = p.illegalFrom;
     const rc = full.illegal.length ? recheckPairing(g, p, true) : full;
-    const out = rc.illegal.filter((id) => !p.slots.some((s) => s.crewId === id && s.locked) && (under || !(g.crew[id] && retick(g, p, g.crew[id]))));
+    const locked = (id: string) => p.slots.some((s) => s.crewId === id && s.locked);
+    // Crew-planning round: a locked crew member (Crew Control's pick, the player's) who is only somewhere else is
+    // re-ticketed too: kept on the trip but never left there (bot seed 5: a captain swapped onto a Warsaw tour stayed in
+    // Lisbon for 12 days, one red alarm a day and every leg 4–12 h late).
+    if (!under) for (const id of rc.illegal) if (locked(id) && g.crew[id]) retick(g, p, g.crew[id]);
+    const out = rc.illegal.filter((id) => !locked(id) && (under || !(g.crew[id] && retick(g, p, g.crew[id]))));
     const cut = Math.min(...out.map((id) => rc.from.get(id) ?? 0));
     const q = out.length && cut > firstOpen.report && cut < Infinity ? splitPairing(g, p, cut) : null;
     // Round 4 fix r2 (§R.16.6): the days-off floor is one duty's problem (its eve becomes the day off), so that duty
