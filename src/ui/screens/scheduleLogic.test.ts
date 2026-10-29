@@ -62,6 +62,15 @@ describe('axis and window', () => {
     expect(days.every((t) => t.major)).toBe(true);
     expect(days).toHaveLength(3);
   });
+  it('v0.12 a narrow timeline keeps the hour ticks but drops their labels (dates stay)', () => {
+    const t0 = 100 * DAY;
+    const wide = axisTicks(t0, t0 + 2 * DAY, 7, 1000 / (7 * DAY) * 7);
+    expect(wide.filter((t) => !t.major).every((t) => t.label)).toBe(true);
+    const phone = axisTicks(t0, t0 + 2 * DAY, 7, 520 / (7 * DAY));
+    expect(phone).toHaveLength(wide.length);
+    expect(phone.filter((t) => !t.major).every((t) => t.label === '')).toBe(true);
+    expect(phone.filter((t) => t.major).every((t) => t.label)).toBe(true);
+  });
   it('snaps the visible window to 6 h with 12 h of padding', () => {
     const ppm = ppmOf(7);
     const [a, b] = visibleWindow(1000, 900, 0, ppm);

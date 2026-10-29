@@ -340,15 +340,17 @@ export interface Tick {
 }
 
 /** Axis ticks: days (major, labelled) plus hours at 3 d (every 6 h) and 7 d (every 12 h); spaced for a fitted width. */
-export function axisTicks(from: Minute, to: Minute, zoom: ZoomDays): Tick[] {
+export function axisTicks(from: Minute, to: Minute, zoom: ZoomDays, ppm?: number): Tick[] {
   const step = zoom === 3 ? 6 * HOUR : zoom === 7 ? 12 * HOUR : DAY;
+  // v0.12 a narrow timeline (an iPhone on its side) keeps the hour lines but drops their labels before they collide.
+  const hours = ppm === undefined || step * ppm >= 56;
   const out: Tick[] = [];
   for (let t = dayStart(from); t <= to; t += step) {
     if (t < from) continue;
     const major = t % DAY === 0;
     // 28 d: a day is ~30 px, too narrow for a date each; label the Mondays (epoch day 0, 1 Jan 2000, is a Saturday).
     const weekly = zoom === 28 && (Math.floor(t / DAY) + 5) % 7 !== 0;
-    out.push({ t, major, label: weekly ? '' : major ? fmtDay(t) : fmtTime(t) });
+    out.push({ t, major, label: weekly ? '' : major ? fmtDay(t) : hours ? fmtTime(t) : '' });
   }
   return out;
 }

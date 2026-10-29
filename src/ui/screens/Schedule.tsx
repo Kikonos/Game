@@ -611,7 +611,7 @@ export function ScheduleScreen() {
     );
   }
 
-  const ticks = axisTicks(win[0], win[1], zoom);
+  const ticks = axisTicks(win[0], win[1], zoom, ppm);
   return (
     <div className="screen sc-schedule">
       <ScreenHead title="Schedule" sub={<>Times in UTC · {base} local is {offLabel} · tap a flight for details · hold and drag it to move the trip, or a check or refit to move it along its row · pinch to zoom</>}>
