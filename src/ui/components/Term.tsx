@@ -7,6 +7,7 @@ import { createPortal } from 'react-dom';
 import { GLOSSARY, type TermId } from '../../data/glossary';
 import { store } from '../store';
 import { termSegments } from './problemLogic';
+import { toCss } from '../device';
 
 let closeOpen: (() => void) | null = null;
 
@@ -23,7 +24,8 @@ function Popover({ id, anchor, onClose, extra, own }: { id: TermId; anchor: HTML
     const left = Math.min(vw - b.width - 8, Math.max(8, r.left + r.width / 2 - b.width / 2));
     const below = r.bottom + 8;
     const top = below + b.height <= vh - 8 ? below : Math.max(8, r.top - b.height - 8);
-    setPos({ left, top });
+    // v0.12 rects are screen px; the popover is placed in the page's px (Settings › Size zooms the page).
+    setPos({ left: toCss(left), top: toCss(top) });
   }, [anchor]);
   useEffect(() => {
     const down = (e: Event) => {

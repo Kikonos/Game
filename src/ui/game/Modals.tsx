@@ -2,10 +2,11 @@
 
 import { BookOpenText, Download, FolderOpen, Home, Lightbulb, Play, PlusCircle, RefreshCw, Save, Settings as SettingsIcon, Sparkles, Trash2, Upload, Volume2 } from 'lucide-react';
 import { sound, SOUND_MEANING } from '../sound';
+import { TRACKS } from '../music';
 import { HeadUnlockedModal } from '../modals/HeadUnlockedModal';
 import { CounterReplyModal, DeliveredModal, FollowDeliveryModal } from '../modals/PopModals';
 import { CallModal } from '../modals/CallModal';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { DAY, fmtDate } from '../../engine/core/time';
 import { AUTOSAVE_SLOT, SLOTS, deleteSlot, deserialize, listSaves, loadFromSlot, saveToSlot, serialize } from '../../engine/save';
 import { Modal, Seg, Toggle } from '../components/ui';
@@ -35,6 +36,7 @@ import { TripMoveModal } from '../modals/TripMoveModal';
 import { MaintMoveModal } from '../modals/MaintMoveModal';
 import { ClientModal, OutlookModal, RivalModal, WorldEventModal } from '../modals/V08Modals';
 import { CURRENT } from '../../data/whatsNew';
+import { DEVICE_NAME, deviceLabel, deviceNow, type DevicePref, detectedDevice, INPUT_NAME, UI_SCALE, type UiSize, uiSizeNow, uiZoomNow } from '../device';
 import { PACE_HINT, PACE_LABEL, PACES, spellView } from '../../engine/ops/director';
 import type { GameState } from '../../engine/core/types';
 
@@ -206,6 +208,21 @@ function SavesModal({ mode }: { mode: 'save' | 'load' }) {
 }
 
 /** v0.9 §S.5 Settings › Sound: master, volume, categories, ambience and the Test sounds list. */
+/** v0.12 the piece playing now and a Next button (the name refreshes every few seconds while Settings is open). */
+function MusicNowPlaying({ dim }: { dim: boolean }) {
+  const [name, setName] = useState(() => sound.musicTrack);
+  useEffect(() => {
+    const id = setInterval(() => setName(sound.musicTrack), 3000);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <div className={`set-row ${dim ? 'v9-dim' : ''}`}>
+      <div><b>Now playing</b><div className="tiny dim">{name ?? 'Starts after your first tap'} · {TRACKS.map((t) => t.name).join(', ')}</div></div>
+      <button className="btn btn-sm" disabled={!name} onClick={() => { sound.nextMusicTrack(); setTimeout(() => setName(sound.musicTrack), 50); }}>Next piece</button>
+    </div>
+  );
+}
+
 function SoundSettings() {
   const s = useStore();
   const st = s.settings;
@@ -221,7 +238,8 @@ function SoundSettings() {
       <div className={`set-row ${off ? 'v9-dim' : ''}`}><div><b>Chimes</b><div className="tiny dim">Messages, offers, decisions, achievements</div></div><Toggle on={st.soundCats.chimes} onChange={(v) => cats('chimes', v)} label="Chimes" /></div>
       <div className={`set-row ${off ? 'v9-dim' : ''}`}><div><b>Flight chimes</b><div className="tiny dim">One LO chime at every departure and landing</div></div><Toggle on={st.soundCats.flights} onChange={(v) => cats('flights', v)} label="Flight chimes" /></div>
       <div className={`set-row ${off ? 'v9-dim' : ''}`}><div><b>UI clicks</b></div><Toggle on={st.soundCats.ui} onChange={(v) => cats('ui', v)} label="UI clicks" /></div>
-      <div className={`set-row ${off ? 'v9-dim' : ''}`}><div><b>Music</b><div className="tiny dim">Calm background music; it dips under chimes and alarms</div></div><Toggle on={st.music} onChange={(v) => store.setSettings({ music: v })} label="Music" /></div>
+      <div className={`set-row ${off ? 'v9-dim' : ''}`}><div><b>Music</b><div className="tiny dim">Calm background music, {TRACKS.length} pieces taking turns; it dips under chimes and alarms</div></div><Toggle on={st.music} onChange={(v) => store.setSettings({ music: v })} label="Music" /></div>
+      <MusicNowPlaying dim={off || !st.music} />
       <div className={`set-row ${off || !st.music ? 'v9-dim' : ''}`}><div><b>Music volume</b></div><input type="range" min={0} max={1} step={0.05} value={st.musicVolume} aria-label="Music volume" style={{ width: 200, ['--fill' as string]: `${st.musicVolume * 100}%` }} onChange={(e) => store.setSettings({ musicVolume: Number(e.target.value) })} /></div>
       <div className={`set-row ${off ? 'v9-dim' : ''}`}><div><b>Ambience</b><div className="tiny dim">Faint, in the background of the game</div></div><Seg value={st.ambience} onChange={(v) => store.setSettings({ ambience: v })} options={[{ value: 'off', label: 'Off' }, { value: 'cabin', label: 'Cabin' }, { value: 'terminal', label: 'Terminal' }]} /></div>
       <div className="set-row"><div><b>Test sounds</b><div className="tiny dim">Each sound and what it means</div></div><button className="btn btn-sm" onClick={() => setTesting(!testing)} aria-expanded={testing}><Volume2 /> {testing ? 'Hide' : 'Show'}</button></div>
@@ -233,6 +251,46 @@ function SoundSettings() {
               <button className="btn btn-icon v9-play" onClick={() => sound.test(x.id)} aria-label={`Play ${x.name}`}><Play /></button>
             </div>
           ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+const DEVICE_PREFS: { value: DevicePref; label: string }[] = [
+  { value: 'auto', label: 'Auto' }, { value: 'iphone', label: 'iPhone' }, { value: 'ipad', label: 'iPad' }, { value: 'computer', label: 'Computer' },
+];
+const SIZE_LABEL: Record<UiSize, string> = { small: 'Smaller', normal: 'Normal', large: 'Larger' };
+
+/** v0.12 Settings › Display: the device the game detected (and the override), the UI size and the keyboard shortcuts. */
+function DeviceSettings() {
+  const st = useStore().settings;
+  const found = detectedDevice();
+  const d = deviceNow();
+  const how = [INPUT_NAME[d.input], d.standalone ? 'home-screen app' : 'in the browser'].join(' · ');
+  const zoom = uiZoomNow();
+  const size = uiSizeNow();
+  const sizeHint = st.uiSize === 'auto' ? `Auto: ${SIZE_LABEL[size]}${zoom !== 1 ? ` (${Math.round(zoom * 100)} %)` : ''}` : zoom !== UI_SCALE[size] ? `${Math.round(zoom * 100)} % in this window; more when it is bigger` : 'Text and buttons';
+  return (
+    <>
+      <div className="set-row dv-device">
+        <div><b>Device</b><div className="tiny dim">{st.device === 'auto' ? `Auto: ${deviceLabel(found)}` : `${DEVICE_NAME[d.kind]} (detected: ${deviceLabel(found)})`} · {how}</div></div>
+        <Seg value={st.device} onChange={(v) => store.setSettings({ device: v })} options={DEVICE_PREFS} />
+      </div>
+      {d.form !== 'phone' && (
+        <div className="set-row dv-size">
+          <div><b>Size</b><div className="tiny dim">{sizeHint}</div></div>
+          <Seg value={st.uiSize} onChange={(v) => store.setSettings({ uiSize: v })} options={[{ value: 'auto', label: 'Auto' }, { value: 'small', label: 'Smaller' }, { value: 'normal', label: 'Normal' }, { value: 'large', label: 'Larger' }]} />
+        </div>
+      )}
+      {d.input !== 'touch' && (
+        <div className="set-row dv-keys">
+          <div><b>Keyboard</b><div className="tiny dim">Not while you type in a field</div></div>
+          <dl className="dv-keylist">
+            <dt><kbd>Space</kbd></dt><dd>Pause / play</dd>
+            <dt><kbd>1</kbd> <kbd>2</kbd> <kbd>4</kbd></dt><dd>Speed 1× 2× 4×</dd>
+            <dt><kbd>Esc</kbd></dt><dd>Close a window · Menu</dd>
+          </dl>
         </div>
       )}
     </>
@@ -262,7 +320,8 @@ function SettingsModal() {
         <div className="set-head upper dim">Display</div>
         <div className="set-row"><div><b>Appearance</b><div className="tiny dim">{st.theme === 'system' ? `Follows your device (now ${s.theme})` : st.theme === 'light' ? 'Light, for daylight' : 'Dark, the original look'}</div></div><Seg value={st.theme} onChange={(v) => store.setSettings({ theme: v })} options={[{ value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }, { value: 'system', label: 'System' }]} /></div>
         <div className="set-row"><div><b>Map animations</b><div className="tiny dim">Flying aircraft on maps</div></div><Toggle on={st.mapAnimations} onChange={(v) => store.setSettings({ mapAnimations: v })} /></div>
-        <div className="set-row"><div><b>Top bar spacing</b><div className="tiny dim">Moves the game below the frosted strip iPadOS adds at the top of the screen</div></div><Seg value={String(st.topGap)} onChange={(v) => store.setSettings({ topGap: v === 'auto' ? 'auto' : (Number(v) as 0 | 16 | 28 | 40) })} options={[{ value: 'auto', label: 'Auto' }, { value: '0', label: 'Off' }, { value: '16', label: '16' }, { value: '28', label: '28' }, { value: '40', label: '40' }]} /></div>
+        <DeviceSettings />
+        {(deviceNow().kind === 'ipad' || st.topGap !== 'auto') && <div className="set-row"><div><b>Top bar spacing</b><div className="tiny dim">Moves the game below the frosted strip iPadOS adds at the top of the screen</div></div><Seg value={String(st.topGap)} onChange={(v) => store.setSettings({ topGap: v === 'auto' ? 'auto' : (Number(v) as 0 | 16 | 28 | 40) })} options={[{ value: 'auto', label: 'Auto' }, { value: '0', label: 'Off' }, { value: '16', label: '16' }, { value: '28', label: '28' }, { value: '40', label: '40' }]} /></div>}
         <div className="set-row"><div><b>Pop-up notifications</b></div><Toggle on={st.toasts} onChange={(v) => store.setSettings({ toasts: v })} /></div>
         <div className="set-row"><div><b>What's new</b><div className="tiny dim">{CURRENT.version} {CURRENT.name}</div></div><button className="btn btn-sm" onClick={() => store.openModal({ kind: 'whatsNew', all: true })}><Sparkles /> Show</button></div>
         <div className="set-head upper dim">Plain language</div>
@@ -306,7 +365,7 @@ export function GlobalModals() {
     case 'check': return s.game ? <CheckModal aircraftId={m.aircraftId} checkKind={m.checkKind} replace={m.replace} restFit={m.restFit} backToRefit={m.backToRefit} suggest={m.suggest} after={m.after} /> : null;
     case 'sheet': return s.game ? <BlockSheet refs={m.refs} idle={m.idle} /> : null;
     case 'duty': return s.game ? <DutyModal id={m.id} /> : null;
-    case 'subcharter': return s.game ? <SubcharterModal contractId={m.contractId} flightId={m.flightId} rivalId={m.rivalId} /> : null;
+    case 'subcharter': return s.game ? <SubcharterModal key={m.flightIds?.join(',') ?? m.flightId ?? m.contractId} contractId={m.contractId} flightId={m.flightId} rivalId={m.rivalId} flightIds={m.flightIds} back={m.back} /> : null;
     case 'livery': return s.game ? <LiveryModal target={m.target} /> : null;
     case 'convert': return s.game ? <ConvertModal key={m.crewIds.join()} crewIds={m.crewIds} family={m.family} onBooked={m.onBooked} /> : null;
     case 'classes': return s.game ? <ClassesModal /> : null;

@@ -14,7 +14,7 @@ import type { ActionResult, CrewExtra, CrewMember, GameState, Minute, Role, SimE
 import { hashUnit } from '../core/util';
 import { classOf, conversionClasses, conversionEarliest, onClassItemDone, startConversion } from './conversion';
 import { crewExtraFor, rolesWithExtra } from './extraSeats';
-import { familyNeeds } from './sets';
+import { crewSupply, familyNeeds } from './sets';
 import { sickMult } from './morale';
 import { crewName, makeCrewMember, salaryFor } from './generate';
 import { removeCrew, rosterOf } from './roster';
@@ -216,12 +216,25 @@ const countRoles = (roles: Role[]) => roles.reduce<Partial<Record<Role, number>>
  * v0.7: crewAvailability's per-crew timelines and per-contract block totals, kept while the clock, the crew
  * plan and the flights stand still (offers are sized many times between two clock steps). Runtime only.
  */
-const availMemo = new WeakMap<GameState, { key: string; segs: Map<string, Seg[]>; blk: Map<string, number> }>();
+const availMemo = new WeakMap<GameState, { key: string; segs: Map<string, Seg[]>; blk: Map<string, number>; homes?: { of: Map<string, RatingFamily>; fleet: Set<RatingFamily> } }>();
 function memoOf(g: GameState) {
-  const key = `${g.now}:${crewRev(g)}:${flightsRev(g)}`;
+  // (Hires, contracts and deployments change who counts where: their counts are in the key.)
+  const key = `${g.now}:${crewRev(g)}:${flightsRev(g)}:${Object.keys(g.crew).length}:${Object.keys(g.contracts).length}:${Object.keys(g.deployments).length}`;
   let m = availMemo.get(g);
   if (!m || m.key !== key) availMemo.set(g, (m = { key, segs: new Map(), blk: new Map() }));
   return m;
+}
+
+/**
+ * v0.11.2 the family each crew member on several fleet types counts in (as staffing() and Planning), and the fleet's
+ * families; memoised with the availability timelines.
+ */
+function homesOf(g: GameState, memo: ReturnType<typeof memoOf>): { of: Map<string, RatingFamily>; fleet: Set<RatingFamily> } {
+  if (!memo.homes) {
+    const fn = familyNeeds(g);
+    memo.homes = { of: crewSupply(g, fn).homes, fleet: new Set(fn.keys()) };
+  }
+  return memo.homes;
 }
 
 export function crewAvailability(g: GameState, family: RatingFamily, typeId: string, from: Minute, to: Minute, programmeBH: number, extra?: CrewExtra, extraSets = 0): Availability {
@@ -238,8 +251,15 @@ export function crewAvailability(g: GameState, family: RatingFamily, typeId: str
   const supply: Record<Role, Int32Array> = Object.fromEntries(ROLES.map((r) => [r, new Int32Array(days)])) as Record<Role, Int32Array>;
   const ix = crewIx(g);
   const memo = memoOf(g);
+  const homes = homesOf(g, memo);
   for (const c of Object.values(g.crew)) {
     if (!c.ratings.includes(family)) continue;
+    // v0.11.2 fix: crew on two fleet types count once, in the family Planning counts them in (were free supply in
+    // both, so a widebody offer read 'Crew OK' on cabin crew the A320 family's own sets need).
+    if (homes.fleet.has(family) && c.ratings.filter((f) => homes.fleet.has(f)).length > 1) {
+      const h = homes.of.get(c.id) ?? c.ratings.find((f) => homes.fleet.has(f));
+      if (h !== family) continue;
+    }
     const off = new Uint8Array(days);
     const mark = (a: Minute, b: Minute) => {
       for (let d = Math.max(0, Math.floor((a - from) / DAY)); d < days && from + d * DAY < b; d++) off[d] = 1;
@@ -347,6 +367,8 @@ export interface StaffingLine {
   converting: number;
   /** v0.7.2 cabin crew counted here who also hold another type in the fleet. */
   shared?: number;
+  /** v0.11.2 cabin crew line: seats of `need − have` that spare pursers fill (as Planning; not in have). */
+  covered?: number;
 }
 
 /**
@@ -361,14 +383,19 @@ export function staffing(g: GameState): StaffingLine[] {
 }
 
 /**
- * staffing() with the family each crew member is counted in (crew on notice left out, as in `have`): pilots and
- * single-type cabin crew in each rating they keep, cabin crew on several fleet types in the one family staffing()
- * counts them in (their hire family first). The peak forecast (crew/forecast.ts) counts crew the same way. Pure.
+ * staffing() with the family each crew member is counted in (crew on notice left out, as in `have`): every person once,
+ * in the family the Planning view counts them in (sets.ts crewSupply: the family they were hired for first, spare ones
+ * where another family is short). The peak forecast (crew/forecast.ts) and the offer crew check count crew the same way.
+ * v0.11.2 fixes: pilots on two types (777/787 or A330/A350 common type rating) were counted in both families (the Hire
+ * view said the 787 needed 1 more captain when Planning said 3); relief pilots on the books were not counted at all
+ * while their seats were in the first officers' need (a fully crewed augmented 777 read 'FO 5 of 8 needed'); cabin crew
+ * on two types could be counted in another family than Planning's. `covered` on a cabin crew line: spare pursers who
+ * fill its seats (as Planning). Pure.
  */
 export function staffingAssign(g: GameState): { lines: StaffingLine[]; homeOf: Map<string, RatingFamily[]> } {
-  const homeOf = new Map<string, RatingFamily[]>();
+  const fn = familyNeeds(g);
   const fams = new Map<RatingFamily, Partial<Record<Role, number>>>();
-  for (const [family, f] of familyNeeds(g)) {
+  for (const [family, f] of fn) {
     // Rounded per role as the Planning view shows them, relief pilots added to the first officers.
     const need: Partial<Record<Role, number>> = {};
     for (const r of ROLES) {
@@ -379,8 +406,9 @@ export function staffingAssign(g: GameState): { lines: StaffingLine[]; homeOf: M
     }
     fams.set(family, need);
   }
-  // One pass over the crew: who keeps each rating (pilots on a full course to another type lose the old one; cabin
-  // crew at 3 types drop the one named in the class).
+  const { cells, homes } = crewSupply(g, fn);
+  const homeOf = new Map<string, RatingFamily[]>([...homes].map(([id, f]) => [id, [f]]));
+  // Leaving and converting: per rating held (shown next to the line; not in have).
   const losing = new Map<string, RatingFamily[]>();
   for (const k of conversionClasses(g)) {
     for (const id of k.crewIds) {
@@ -390,45 +418,33 @@ export function staffingAssign(g: GameState): { lines: StaffingLine[]; homeOf: M
       if (lost.length) losing.set(id, [...(losing.get(id) ?? []), ...lost]);
     }
   }
-  const count = new Map<string, { have: number; leaving: number; converting: number; shared: number }>();
-  const cell = (f: RatingFamily, r: Role) => {
-    const key = `${f}:${r}`;
-    let x = count.get(key);
-    if (!x) count.set(key, (x = { have: 0, leaving: 0, converting: 0, shared: 0 }));
-    return x;
-  };
-  // v0.10.2 as the Planning view (sets.ts supply): cabin crew on several fleet types count once, in the family they
-  // were hired for (their first rating), and spill over to another family's shortfall only when theirs is full.
-  const multi: { c: CrewMember; fs: RatingFamily[] }[] = [];
-  for (const c of Object.values(g.crew).sort((a, b) => (a.id < b.id ? -1 : 1))) {
-    const fs = c.ratings.filter((f) => fams.has(f) && !losing.get(c.id)?.includes(f));
-    if (!c.notice && !isPilot(c.role) && fs.length > 1) multi.push({ c, fs });
+  const off = new Map<string, { leaving: number; converting: number }>();
+  for (const c of Object.values(g.crew)) {
+    const role: Role = c.role === 'CRP' ? 'FO' : c.role;
     for (const f of c.ratings) {
-      const x = cell(f, c.role);
+      const key = `${f}:${role}`;
+      const x = off.get(key) ?? { leaving: 0, converting: 0 };
       if (c.notice) x.leaving++;
       else if (losing.get(c.id)?.includes(f)) x.converting++;
-      else if (!(fs.length > 1 && !isPilot(c.role))) {
-        x.have++;
-        homeOf.set(c.id, [...(homeOf.get(c.id) ?? []), f]);
-      }
+      else continue;
+      off.set(key, x);
     }
   }
-  for (const { c, fs } of multi) {
-    const home = fs.includes(c.ratings[0]) ? c.ratings[0] : fs[0];
-    const gap = (f: RatingFamily) => (fams.get(f)?.[c.role] ?? 0) - cell(f, c.role).have;
-    let to = home;
-    if (gap(home) <= 0) for (const f of fs) if (f !== home && gap(f) > 0 && gap(f) > (to === home ? 0 : gap(to))) to = f;
-    const x = cell(to, c.role);
-    x.have++;
-    x.shared++;
-    homeOf.set(c.id, [to]);
-  }
+  const sup = (f: RatingFamily, r: Role) => {
+    const x = cells.get(`${f}:${r}`) ?? { have: 0, shared: 0 };
+    if (r !== 'FO') return x;
+    const y = cells.get(`${f}:CRP`) ?? { have: 0, shared: 0 };
+    return { have: x.have + y.have, shared: x.shared + y.shared };
+  };
   const out: StaffingLine[] = [];
   for (const [family, need] of fams) {
     for (const r of ROLES) {
       if (!need[r]) continue;
-      const { shared, ...x } = count.get(`${family}:${r}`) ?? { have: 0, leaving: 0, converting: 0, shared: 0 };
-      out.push({ family, role: r, need: need[r]!, ...x, ...(shared ? { shared } : {}) });
+      const { have, shared } = sup(family, r);
+      const { leaving, converting } = off.get(`${family}:${r}`) ?? { leaving: 0, converting: 0 };
+      const spare = r === 'CC' ? Math.max(0, sup(family, 'PUR').have - (need.PUR ?? 0)) : 0;
+      const covered = Math.min(spare, Math.max(0, need[r]! - have));
+      out.push({ family, role: r, need: need[r]!, have, leaving, converting, ...(shared ? { shared } : {}), ...(covered ? { covered } : {}) });
     }
   }
   return { lines: out, homeOf };

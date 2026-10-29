@@ -1,0 +1,54 @@
+/* v0.12 sub-lease + flights in the offer portal (player request): every flight its own block on a scrolling
+   timeline, red outlines on the trips in the way of the new job, the clash list and the Sub-lease actions. */
+
+/* The portal box scrolls sideways; the inner strip carries the days, the job and the blocks. */
+.v91-portal { height: auto; overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; touch-action: pan-x pan-y; user-select: none; -webkit-user-select: none; scrollbar-width: thin; }
+.v12-portal-in { position: relative; height: 44px; }
+.v91-portal-wrap.v12-dragging .v91-portal { touch-action: none; }
+.v91-b { touch-action: pan-x pan-y; -webkit-touch-callout: none; box-shadow: 0 0 0 1px var(--panel-solid); }
+.v91-b.movable::after { inset: -10px -2px; }
+.v91-b.clash { outline: 2px solid var(--bad); outline-offset: 1px; z-index: 1; }
+.v91-b.picked { box-shadow: 0 0 0 2px var(--text); z-index: 2; }
+.v91-b.cont { opacity: 0.55; background-image: repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.22) 0 6px, transparent 6px 12px); display: flex; align-items: center; overflow: hidden; }
+.v91-b.sub { background: transparent; border: 2px dashed var(--c-bg-5b6b8c); }
+.v12-cont-l { padding: 0 8px; font-size: 11px; font-weight: 600; color: #fff; white-space: nowrap; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }
+
+/* A picked trip: move to another aircraft, or sub-lease it. */
+.v12-trip-actions { display: flex; flex-direction: column; align-items: stretch; gap: 6px; padding: 8px 10px; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; background: rgba(var(--ink-rgb), 0.03); }
+.v12-ta-head { align-items: center; }
+.v12-ta-row { align-items: center; }
+.v12-ta-k { display: inline-flex; align-items: center; gap: 4px; min-width: 76px; }
+.v12-ta-why { flex: 1 1 200px; min-width: 0; }
+.v12-sublease svg, .v12-clash-head svg { width: 14px; height: 14px; }
+.v12-sublease { min-height: 36px; }
+
+/* The open aircraft's clash list. */
+.v12-clash { margin-top: 8px; }
+.v12-clash-head { align-items: center; }
+.v12-clash-head .bad { display: inline-flex; align-items: center; gap: 6px; }
+.v12-clash-row {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 48px; padding: 6px 10px; text-align: left; font: inherit; color: inherit; cursor: pointer;
+  background: var(--panel-2); border: 1px solid var(--border); border-left: 3px solid var(--bad); border-radius: 10px;
+}
+.v12-clash-row.on { border-color: var(--accent); border-left-color: var(--bad); }
+.v12-clash-row:active { background: var(--panel-hover); }
+.v12-clash-when { min-width: 74px; font-size: 13px; }
+.v12-clash-what { min-width: 0; }
+.v12-clash-can { flex-shrink: 0; }
+.v12-clash-prog { padding: 4px 2px; line-height: 1.4; }
+
+/* Trip move confirm: or sub-lease it. */
+.tm-sublease { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: rgba(var(--ink-rgb), 0.03); }
+.tm-sublease .grow { min-width: 200px; flex: 1 1 260px; }
+.tm-sublease svg { width: 16px; height: 16px; }
+
+/* Sub-lease dialog. */
+.sl-line { margin: 0; }
+.sl-legs { padding: 2px 0; }
+
+/* iPhone on its side: the chips under the trip and the price wrap under the name. */
+@media (max-height: 499.98px), (max-width: 699.98px) {
+  .v12-clash-row { flex-wrap: wrap; gap: 4px 10px; }
+  .v12-clash-what { flex: 1 1 140px; }
+  .v12-ta-why { flex-basis: 100%; }
+}

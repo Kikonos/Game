@@ -17,7 +17,6 @@ div.worldmap { overflow: clip; }
 .ops-night path { fill: var(--map-night); stroke: none; }
 
 /* ---------- v0.12 Visual A ---------- */
-/* City lights: painted on their own canvas layer (LiveLayers paintCityLights) in --map-light-core / --map-light-glow. */
 /* Silhouettes: contrails only while high enough, and only with Map animations on (no reduced motion). */
 .ops-ac .trail { display: none; }
 .ops-aircraft.trails .ops-ac.trail-on[data-phase='airborne'] .trail { display: block; }

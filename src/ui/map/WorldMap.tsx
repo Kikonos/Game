@@ -9,6 +9,7 @@ import { paleOnLight } from '../theme';
 import { isTouch, useTouch } from '../useMedia';
 import { MAP_H, MAP_W, basePaths, projection } from './mapData';
 import { type LabelBox, placeLabels } from './mapLogic';
+import { cssRect, toCss } from '../device';
 
 export interface MapRoute {
   id: string;
@@ -486,7 +487,8 @@ export function WorldMap({
   const measure = (): Geo => {
     const el = wrapRef.current;
     if (!el) return geoRef.current;
-    const r = el.getBoundingClientRect();
+    // v0.12 in the page's own px, as the pointer positions below (Settings › Size zooms the page; rects are screen px).
+    const r = cssRect(el);
     if (r.width > 0 && r.height > 0) geoRef.current = geoOf(r.width, r.height, r.left, r.top);
     return geoRef.current;
   };
@@ -725,13 +727,13 @@ export function WorldMap({
     if ((e.target as Element).closest('button, a, input, select, textarea')) return;
     stopAnim();
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* not capturable */ }
-    ptrs.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    ptrs.current.set(e.pointerId, { x: toCss(e.clientX), y: toCss(e.clientY) });
     const g = gest.current;
     if (!g || ptrs.current.size === 1) {
       measure();
       gest.current = {
-        mode: 'pan', type: e.pointerType, start: live.current, sx: e.clientX, sy: e.clientY, moved: false, t0: performance.now(),
-        max: 1, d0: 0, anchor: [0, 0], mid: [e.clientX, e.clientY], pinchMoved: false, samples: [],
+        mode: 'pan', type: e.pointerType, start: live.current, sx: toCss(e.clientX), sy: toCss(e.clientY), moved: false, t0: performance.now(),
+        max: 1, d0: 0, anchor: [0, 0], mid: [toCss(e.clientX), toCss(e.clientY)], pinchMoved: false, samples: [],
       };
       if (hover) { setHover(null); onHover?.(null); }
     } else {
@@ -752,32 +754,32 @@ export function WorldMap({
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     const p = ptrs.current.get(e.pointerId);
     if (!p) {
-      if (e.pointerType !== 'touch' && !gest.current) hoverAt(e.clientX, e.clientY);
+      if (e.pointerType !== 'touch' && !gest.current) hoverAt(toCss(e.clientX), toCss(e.clientY));
       return;
     }
-    p.x = e.clientX;
-    p.y = e.clientY;
+    p.x = toCss(e.clientX);
+    p.y = toCss(e.clientY);
     const g = gest.current;
     if (!g) return;
     const geo = geoRef.current;
     if (g.mode === 'pan') {
-      const dx = e.clientX - g.sx;
-      const dy = e.clientY - g.sy;
+      const dx = toCss(e.clientX) - g.sx;
+      const dy = toCss(e.clientY) - g.sy;
       if (!g.moved) {
         if (Math.hypot(dx, dy) < (g.type === 'mouse' ? 3 : 8)) return;
         // Start from here so the map doesn't jump by the slop distance.
         g.moved = true;
-        g.sx = e.clientX;
-        g.sy = e.clientY;
+        g.sx = toCss(e.clientX);
+        g.sy = toCss(e.clientY);
         g.start = live.current;
-        g.samples = [{ t: performance.now(), x: e.clientX, y: e.clientY }];
+        g.samples = [{ t: performance.now(), x: toCss(e.clientX), y: toCss(e.clientY) }];
         userMoved.current = true;
         userAt.current = performance.now();
         return;
       }
       apply(clampView({ k: g.start.k, x: g.start.x + dx / geo.s, y: g.start.y + dy / geo.s }, geo));
       const now = performance.now();
-      g.samples.push({ t: now, x: e.clientX, y: e.clientY });
+      g.samples.push({ t: now, x: toCss(e.clientX), y: toCss(e.clientY) });
       while (g.samples.length > 2 && now - g.samples[0].t > 100) g.samples.shift();
     } else {
       const [a, b] = [...ptrs.current.values()];
@@ -839,7 +841,7 @@ export function WorldMap({
     }
     if (cancelled) return;
     swallowClick();
-    tap(e.clientX, e.clientY, e.pointerType !== 'mouse', e.timeStamp);
+    tap(toCss(e.clientX), toCss(e.clientY), e.pointerType !== 'mouse', e.timeStamp);
   };
 
   // A tap selects on pointerup; the panel it opens can land under the finger, and that same tap's click
@@ -876,7 +878,7 @@ export function WorldMap({
       stopAnim();
       measure();
       const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
-      zoomBy(Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0015)), vbOf(e.clientX, e.clientY), false);
+      zoomBy(Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0015)), vbOf(toCss(e.clientX), toCss(e.clientY)), false);
       wheelUntil.current = performance.now() + 160;
       userAt.current = performance.now();
       scheduleCommit();
@@ -892,7 +894,7 @@ export function WorldMap({
       const e = ev as GestureEv;
       stopAnim();
       measure();
-      gz = { v0: live.current, m: vbOf(e.clientX, e.clientY) };
+      gz = { v0: live.current, m: vbOf(toCss(e.clientX), toCss(e.clientY)) };
     };
     const onGChange = (ev: Event) => {
       ev.preventDefault();

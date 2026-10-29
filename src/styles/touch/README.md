@@ -96,3 +96,18 @@ node scripts/ipad-shots.cjs --url http://localhost:<port>/ --out <dir> \
 Look at every PNG and fix what the report flags: horizontal overflow, elements beyond the
 viewport, targets under 40×40, text under 12px, errors. `node scripts/ipad-shots.cjs --help`
 lists views and screens.
+
+## Devices and UI size (v0.12, `src/ui/device.ts`, `src/styles/acmi/devices.css`)
+
+- `<html data-device="iphone|ipad|android|mac|windows|other" data-form="phone|tablet|computer"
+  data-input="touch|mouse|hybrid" data-standalone>` from UA Client Hints, platform/UA, touch points and the
+  any-pointer queries (never the screen size). Settings › Display › Device overrides it. Use these only where a
+  device really needs its own treatment; the tiers above stay the main mechanism.
+- Phones and tablets keep `html.touch` with a keyboard and trackpad attached.
+- Phone landscape is `@media (max-height: 499.98px)`: the rail runs the full height, screen heads are one line,
+  toolbars scroll sideways. Upright phones get the RotateHint card.
+- Settings › Display › Size zooms `<html>` (CSS `zoom`). Pointer and rect values are then screen px: convert with
+  `toCss()` / `cssRect()` from device.ts before using them as page px (positions, widths, time-per-px), and use
+  `var(--app-h)` / `var(--app-w)` instead of `100dvh` / `100vw`.
+- Check every screen at the iPhone, Mac and Windows sizes, light and dark:
+  `node <notes>/.handover/updates/shots-devices/device-check.cjs --url http://localhost:<port>/`.

@@ -184,7 +184,7 @@
 .sc-role { display: inline-grid; place-items: center; min-width: 36px; height: 20px; padding: 0 5px; border-radius: 6px; font-size: 12px; font-weight: 700; background: rgba(var(--info-rgb), 0.15); color: var(--info); flex-shrink: 0; }
 .sc-role.r-CPT { background: rgba(var(--gold-rgb), 0.15); color: var(--gold); }
 .sc-role.r-PUR, .sc-role.r-CC { background: rgba(var(--c-bg-196-106-214-rgb), 0.15); color: var(--c-fg-d9a2e6); }
-.sc-crew-detail { position: sticky; top: 12px; max-height: calc(100dvh - var(--topbar-h) - 24px); overflow-y: auto; overscroll-behavior: contain; }
+.sc-crew-detail { position: sticky; top: 12px; max-height: calc(var(--app-h) - var(--topbar-h) - 24px); overflow-y: auto; overscroll-behavior: contain; }
 .sc-crew-detail h3 { font-size: 17px; }
 .sc-limits, .sc-moods { gap: 10px 16px; }
 .sc-roster { display: flex; flex-direction: column; gap: 6px; }
@@ -305,7 +305,7 @@
 .shell.acmi .bar > span { transition: none; }
 
 /* ---------- v0.5.1 liveries (UI lane): editor sheet, livery rows, paint terms ---------- */
-.modal.lv-modal { height: calc(var(--vv-h, 100dvh) - var(--vp-safe-t) - var(--vp-safe-b) - 32px); }
+.modal.lv-modal { height: calc(var(--vv-h, var(--app-h)) - var(--vp-safe-t) - var(--vp-safe-b) - 32px); }
 .lv-modal .modal-head { padding-top: 10px; padding-bottom: 8px; }
 .touch .lv-modal .modal-head { min-height: 56px; }
 .lv-modal .modal-body { overflow: hidden; display: flex; flex-direction: column; padding-bottom: 16px; }

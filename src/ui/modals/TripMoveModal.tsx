@@ -2,12 +2,15 @@
 // the flight sheet's 'Move trip to…'). Verdict first in big words, then the legs, the before/after money table and
 // plain notes (ferries, crew, what the first aircraft is free for). Everything comes from quoteTripMove.
 
-import { ArrowRightLeft, Plane, TriangleAlert } from 'lucide-react';
+import { ArrowRightLeft, Handshake, Plane, TriangleAlert } from 'lucide-react';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { typeOf } from '../../engine/core/perf';
 import { fmtDateTime, fmtDuration, fmtTime } from '../../engine/core/time';
 import { MONEY_LINES, moneyTotal, moveTrip, quoteTripMove, type TripMoney, type TripMoveQuote } from '../../engine/ops/tripMove';
 import { Modal } from '../components/ui';
+import { subleaseTrip } from '../../engine/ops/sublease';
+import { money } from '../format';
+import { SUBLEASE_LINE } from './SubcharterModal';
 import { type ModalSpec, store, useGame } from '../store';
 
 /** '$12,400' to the nearest hundred (a quote, not an invoice). */
@@ -75,6 +78,9 @@ export function TripMoveModal({ flightId, targetId, back }: { flightId: string; 
     const r = store.act((gg) => moveTrip(gg, flightId, targetId, q.net));
     if (r.ok) close();
   };
+  // v0.12 or another operator flies the trip for us (the player's 'sub-lease'; a sub-charter).
+  const sub = subleaseTrip(g, flightId);
+  const subleaseIt = () => sub.contractId && store.openModal({ kind: 'subcharter', contractId: sub.contractId, flightIds: sub.flightIds, flightId, back });
   const ferries = q.positioning.filter((x) => x.added);
   const dropped = q.positioning.filter((x) => !x.added);
   const why = q.reasons[0];
@@ -138,6 +144,14 @@ export function TripMoveModal({ flightId, targetId, back }: { flightId: string; 
               <div className="tm-empty small muted"><Plane /> The money is worked out once {q.targetReg} can take the trip.</div>
             )}
           </div>
+        </div>
+        <div className="tm-sublease">
+          <span className="col grow">
+            <b>Or sub-lease it</b>
+            <span className="small muted">{SUBLEASE_LINE} (a sub-charter)</span>
+            <span className={`small ${sub.ok ? '' : 'warn'}`}>{sub.ok && sub.best ? `${sub.best.rivalName} asks ${money(sub.best.cost)}; we still bill ${money(sub.best.revenue)}. Hurts: ${sub.best.hit.text || 'nothing'}.` : sub.reason}</span>
+          </span>
+          <button className="btn" onClick={subleaseIt} disabled={!sub.ok}><Handshake /> Sub-lease…</button>
         </div>
       </div>
     </Modal>

@@ -50,3 +50,21 @@ export function hangarScale(width: number, lengths: number[] = []): number {
   }
   return Math.max(2.8, Math.min(7, k));
 }
+
+/** Gap between aircraft seen from above (px). */
+const TOP_GAP_PX = 22;
+
+/**
+ * v0.12 the hangar from above: screen px per metre so the whole fleet stands wingtip to wingtip at one scale from the
+ * real spans and lengths. A small fleet fits one row (the widest span at most 30 % of the width); a big one wraps,
+ * the widest span about 18 % of the width (five jumbos a row). Pure.
+ */
+export function topScale(width: number, spans: number[] = []): number {
+  if (!spans.length) return 4;
+  const widest = Math.max(...spans);
+  const base = (width * 0.18) / widest;
+  const row = spans.reduce((a, b) => a + b, 0);
+  const fit = (width - TOP_GAP_PX * (spans.length + 1)) / row;
+  const cap = (width * 0.3) / widest;
+  return Math.max(1.6, Math.min(9, Math.max(base, Math.min(fit, cap))));
+}

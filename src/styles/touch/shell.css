@@ -175,7 +175,7 @@
 @media (max-width: 699.98px), (max-height: 499.98px) {
   .modal-backdrop { place-items: end center; padding: calc(10px + var(--vp-safe-t)) var(--safe-r) 0 var(--safe-l); }
   .modal, .modal.wide, .modal.xwide, .touch .modal, .touch .modal.wide, .touch .modal.xwide {
-    width: min(760px, 100%); max-height: calc(var(--vv-h, 100dvh) - var(--vp-safe-t) - 10px);
+    width: min(760px, 100%); max-height: calc(var(--vv-h, var(--app-h)) - var(--vp-safe-t) - 10px);
     border-radius: 22px 22px 0 0; border-bottom: none; padding-bottom: var(--vp-safe-b);
     animation: sheet-up 0.3s var(--ease); transition: transform 0.25s var(--ease);
   }

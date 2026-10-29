@@ -346,6 +346,10 @@ describe('v0.7.2 cabin crew hires (F5, §5)', () => {
     const lines = staffing(g).filter((x) => x.role === 'CC');
     expect(lines.reduce((s, l) => s + l.have, 0)).toBe(cc.length);
     const a320 = lines.find((l) => l.family === 'A320')!;
-    expect(a320.have).toBe(Math.min(cc.length, a320.need));
+    // v0.11.2 home first up to its need less the seats its spare pursers fill (they fly cabin crew seats)
+    const pur = staffing(g).find((l) => l.family === 'A320' && l.role === 'PUR')!;
+    const spare = Math.max(0, pur.have - pur.need);
+    expect(a320.have).toBe(Math.min(cc.length, a320.need - spare));
+    expect(a320.covered ?? 0).toBe(Math.min(spare, a320.need - a320.have));
   });
 });

@@ -1,19 +1,21 @@
 // Sub-charter (B5 + integration): hand a rotation, some days of a base programme or the rest of a charter to a
 // rival operator at their price. The client is still billed. v0.7.2 F3: the client notices: each leg handed over
 // costs reliability, more when it becomes a habit (subcharterHit, shown as a 'Hurts' chip). Compared with cancelling.
+// v0.12 the player calls it a sub-lease: the dialog is titled so and opens on given trips (the offer dialog's clashing
+// trips, a trip move, the flight sheet), coming back to the offer afterwards with its feasibility worked out again.
 
 import { Handshake } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { flightsRev } from '../../engine/core/entities';
-import { DAY, fmtDateTime, fmtDay } from '../../engine/core/time';
+import { DAY, fmtDateTime, fmtDay, fmtTime } from '../../engine/core/time';
 import { Modal, Toggle } from '../components/ui';
 import { money } from '../format';
 import { KV } from '../screens/common';
 import { STYLE_NAME } from '../../engine/contracts';
 import { hurtTone } from './crewControlLogic';
-import { store, useGame } from '../store';
+import { type ModalSpec, store, useGame } from '../store';
 import type { Flight } from '../../engine/core/types';
-import { rotationOf, subcharter, subcharterable, subcharterQuotes, type SubcharterQuote } from '../../engine/ops';
+import { rotationOf, SUB_LEAD, subcharter, subcharterable, subcharterQuotes, type SubcharterQuote } from '../../engine/ops';
 
 const MAX_DAYS = 14;
 
@@ -28,7 +30,7 @@ function legsByDay(legs: Flight[]): { day: number; legs: Flight[] }[] {
 }
 
 /** v0.8 quality 0–1 as three dots (a Prestige operator embarrasses us least with the client). */
-function Quality({ q }: { q: number }) {
+export function Quality({ q }: { q: number }) {
   const n = q >= 0.8 ? 3 : q >= 0.55 ? 2 : 1;
   return <span className="v8-dots" aria-label={`Quality ${n} of 3`}>{[1, 2, 3].map((i) => <span key={i} className={i <= n ? 'on' : ''} />)}</span>;
 }
@@ -50,7 +52,10 @@ function Quotes({ quotes, pick, onPick }: { quotes: SubcharterQuote[]; pick: str
   );
 }
 
-export function SubcharterModal({ contractId, flightId, rivalId }: { contractId: string; flightId?: string; rivalId?: string }) {
+/** The one line the sub-lease buttons and this dialog lead with (the player's word, the trade's in brackets). */
+export const SUBLEASE_LINE = 'Another operator flies it for us; the client still pays us.';
+
+export function SubcharterModal({ contractId, flightId, rivalId, flightIds, back }: { contractId: string; flightId?: string; rivalId?: string; flightIds?: string[]; back?: ModalSpec }) {
   const g = useGame();
   const c = g.contracts[contractId];
   const rev = flightsRev(g);
@@ -59,12 +64,15 @@ export function SubcharterModal({ contractId, flightId, rivalId }: { contractId:
   const days = useMemo(() => legsByDay(all).filter((d) => d.legs.some((x) => x.kind === 'revenue' || x.kind === 'techstop')).slice(0, MAX_DAYS), [all]);
   const f = flightId ? g.flights[flightId] : undefined;
   const rot = useMemo(() => (f && f.status === 'scheduled' ? rotationOf(g, f.id) : []), [g, f, rev]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [picked, setPicked] = useState<Set<number>>(() => new Set(rot.length || !base ? [] : days.slice(0, 1).map((d) => d.day)));
-  const [mode, setMode] = useState<'rotation' | 'days' | 'rest'>(rot.length ? 'rotation' : base ? 'days' : 'rest');
+  // v0.12 the given trips' legs that can still be handed over (6 h or more before departure).
+  const trips = useMemo(() => (flightIds ? all.filter((x) => flightIds.includes(x.id)) : []), [all, flightIds]);
+  const [picked, setPicked] = useState<Set<number>>(() => new Set(flightIds || rot.length || !base ? [] : days.slice(0, 1).map((d) => d.day)));
+  const [mode, setMode] = useState<'trip' | 'rotation' | 'days' | 'rest'>(flightIds ? 'trip' : rot.length ? 'rotation' : base ? 'days' : 'rest');
   const [pickRival, setPickRival] = useState<string | null>(rivalId ?? null);
-  const close = () => store.closeModal();
+  const close = () => (back ? store.openModal(back) : store.closeModal());
   if (!c) return null;
-  const legs = mode === 'rotation' ? rot : mode === 'rest' ? all : days.filter((d) => picked.has(d.day)).flatMap((d) => d.legs);
+  const legs = mode === 'trip' ? trips : mode === 'rotation' ? rot : mode === 'rest' ? all : days.filter((d) => picked.has(d.day)).flatMap((d) => d.legs);
+  const nTrips = flightIds ? new Set(trips.map((x) => Math.floor(x.std / DAY))).size : 0;
   const quotes = legs.length ? subcharterQuotes(g, legs.map((x) => x.id)) : [];
   // The chosen rival while it can fly them, else the cheapest available.
   const q = quotes.find((x) => x.rivalId === pickRival && x.available) ?? quotes.find((x) => x.available) ?? null;
@@ -80,19 +88,33 @@ export function SubcharterModal({ contractId, flightId, rivalId }: { contractId:
     setPicked(s);
   };
   return (
-    <Modal title={`Sub-charter: ${c.title}`} icon={<Handshake className="accent" />} onClose={close} footer={
+    <Modal className="sl-modal" title={`Sub-lease: ${c.title}`} icon={<Handshake className="accent" />} onClose={close} footer={
       <>
         <button className="btn" onClick={close}>Keep flying it</button>
-        <button className="btn btn-primary" onClick={go} disabled={!q || !q.revenueLegs}>Hand over for {q ? money(q.cost) : '—'}</button>
+        <button className="btn btn-primary" onClick={go} disabled={!q || !q.revenueLegs}><Handshake /> Sub-lease for {q ? money(q.cost) : '—'}</button>
       </>
     }>
       <div className="col gap-12">
+        <p className="sl-line"><b>{SUBLEASE_LINE}</b> <span className="muted">(a sub-charter)</span></p>
         <p className="muted sc-blurb">A rival operator flies the legs with its own aircraft and crew. {g.clients[c.clientId]?.name ?? 'The client'} is billed by us as usual; we pay the rival. Empty positioning legs in the selection are dropped.</p>
         <div className="row gap-8 wrap">
-          {rot.length > 0 && <button className={`chip ${mode === 'rotation' ? 'active' : ''}`} onClick={() => setMode('rotation')}>This rotation ({rot.length} leg{rot.length > 1 ? 's' : ''})</button>}
+          {flightIds && <button className={`chip ${mode === 'trip' ? 'active' : ''}`} onClick={() => setMode('trip')}>{nTrips > 1 ? `These trips (${trips.length} legs)` : `This trip (${trips.length} leg${trips.length === 1 ? '' : 's'})`}</button>}
+          {rot.length > 0 && !flightIds && <button className={`chip ${mode === 'rotation' ? 'active' : ''}`} onClick={() => setMode('rotation')}>This rotation ({rot.length} leg{rot.length > 1 ? 's' : ''})</button>}
           {base && <button className={`chip ${mode === 'days' ? 'active' : ''}`} onClick={() => setMode('days')}>Pick days</button>}
           <button className={`chip ${mode === 'rest' ? 'active' : ''}`} onClick={() => setMode('rest')}>Everything still to fly ({all.length})</button>
         </div>
+        {mode === 'trip' && (trips.length ? (
+          <div className="col gap-4 sl-legs">
+            {legsByDay(trips).map((d) => (
+              <div key={d.day} className="small">
+                <b>{fmtDay(d.day * DAY)}</b> <span className="mono">{[d.legs[0].from, ...d.legs.map((x) => x.to)].join('–')}</span>{' '}
+                <span className="muted">{fmtTime(d.legs[0].std)} UTC · {d.legs.map((x) => x.no).filter((n, i, a) => a.indexOf(n) === i).join(' · ')}{d.legs.some((x) => x.kind === 'positioning') ? ' · empty legs dropped' : ''}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="small warn">These legs can no longer be handed over: another operator needs at least {SUB_LEAD / 60} h before departure.</div>
+        ))}
         {mode === 'rotation' && f && (
           <div className="small muted">{rot.map((x) => `${x.no} ${x.from}–${x.to}`).join(' · ')} · from {fmtDateTime(rot[0]?.std ?? f.std)} UTC</div>
         )}

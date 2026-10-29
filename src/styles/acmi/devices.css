@@ -1,0 +1,220 @@
+/* ==========================================================================
+   v0.12 devices: the iPhone on its side, Mac and Windows computers, big screens (ui/device.ts).
+   The layout tier still comes from the window size (useMedia.ts); these rules finish what the tiers leave:
+     phone landscape   @media (max-height: 499.98px)   (compact + short: rail down the left, one-row top bar)
+     computers         html[data-form="computer"], (hover: hover) and (pointer: fine)
+     big windows       @media (min-width: 1800px)
+   Safe areas: the --safe-* tokens only (the device check overrides them to simulate the iPhone's Dynamic Island,
+   rounded corners and home indicator).
+   ========================================================================== */
+
+/* Viewport units under Settings › Size (html zoom): 100dvh is the window, the page's own px are zoomed. */
+:root { --ui-zoom: 1; --app-h: calc(100dvh / var(--ui-zoom)); --app-w: calc(100vw / var(--ui-zoom)); }
+
+/* Everything that sits at the bottom of the map clears the home indicator (iPhone, iPad home-screen app). */
+.ops-strip, .ops-map .map-zoom { bottom: calc(12px + var(--safe-b)); }
+.ops-panel { bottom: calc(12px + var(--safe-b)); }
+.ops-panel.ops-spot { max-height: calc(100% - 24px - var(--safe-b)); }
+
+/* The top-bar ops strip: the one warning it always keeps shortens with an ellipsis rather than being cut off. */
+.tb-strip .os-item { flex-shrink: 1; min-width: 44px; overflow: hidden; }
+.tb-strip .os-item .os-v, .tb-strip .os-item .os-k { overflow: hidden; text-overflow: ellipsis; }
+.tb-strip .os-item .os-txt { min-width: 0; }
+/* A narrow top-bar strip (a phone, a small window): warnings show their icon only; the label is in the button name. */
+.tb-strip { container-type: inline-size; }
+@container (max-width: 150px) {
+  .tb-strip > .os-item .os-v, .tb-strip > .os-item .os-txt { display: none; }
+  .tb-strip > .os-item { padding-inline: 12px; }
+}
+/* The delivery card's Skip clears the right edge (Dynamic Island, rounded corners). */
+.v12-welcome { padding-left: calc(24px + var(--safe-l)); padding-right: calc(24px + var(--safe-r)); overflow-y: auto; }
+.v12-welcome-skip { right: calc(18px + var(--safe-r)); }
+
+/* ---------- phone on its side (and any window under 500 px tall) ---------- */
+@media (max-height: 499.98px) {
+  /* The rail runs the full height down the left (the Dynamic Island side is padded by --safe-l); the top bar sits
+     beside it. Eight sections at 44 px or more fit 375 px; shorter (Safari's toolbars) the rail scrolls a little. */
+  .shell.acmi.compact-acmi {
+    --side-w: 60px; --topbar-h: 52px; --main-pl: 14px; --main-pr: calc(14px + var(--safe-r)); --main-pb: calc(20px + var(--safe-b));
+    grid-template-rows: calc(var(--topbar-h) + var(--safe-t)) minmax(0, 1fr);
+    grid-template-areas: 'side top' 'side main';
+  }
+  .shell.acmi.compact-acmi .sidebar {
+    padding: calc(4px + var(--safe-t)) 6px calc(4px + var(--safe-b)) calc(6px + var(--safe-l)); gap: 0;
+    justify-content: space-between; scrollbar-width: none;
+  }
+  .shell.acmi.compact-acmi .sidebar::-webkit-scrollbar { display: none; }
+  .shell.acmi.compact-acmi .nav-item {
+    width: 48px; height: clamp(44px, calc((var(--app-h) - var(--safe-t) - var(--safe-b) - 8px) / 8), 52px); border-radius: 12px; gap: 0;
+  }
+  .shell.acmi.compact-acmi .nav-item.active::before { left: calc(-6px - var(--safe-l)); top: 12px; bottom: 12px; }
+  .shell.acmi.compact-acmi .topbar { gap: 8px; padding-left: 8px; }
+  .shell.acmi.compact-acmi .tb-sep { display: none; }
+  .shell.acmi.compact-acmi .clock { min-width: 0; }
+  .shell.acmi.compact-acmi .clock .date { font-size: 14px; }
+  .shell.acmi.compact-acmi .airline-pill { padding: 3px; }
+  .shell.acmi.compact-acmi .tb-right { gap: 2px; }
+  .shell.acmi.compact-acmi .tb-cash { padding: 2px 6px; }
+  .shell.acmi.compact-acmi .tb-cash .sl { display: none; }
+  .shell.acmi.compact-acmi .airline-pill { min-width: 44px; justify-content: center; }
+
+  /* Screen heads: title and subtitle on one line, the tools in one row that scrolls sideways when it must. */
+  .shell.acmi .screen { padding-top: 10px; }
+  .shell.acmi .sc-head { margin-bottom: 10px; gap: 6px 12px; align-items: center; }
+  .shell.acmi .sc-head > .grow { display: flex; align-items: baseline; gap: 10px; flex: 1 1 220px; min-width: 0; }
+  .shell.acmi .sc-head h1 { font-size: 19px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; max-width: 75%; }
+  .shell.acmi .sc-head .subtitle { margin: 0; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .shell.acmi .sc-head-tools {
+    flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; max-width: 100%; min-width: 0; scrollbar-width: none;
+    overscroll-behavior-x: contain; margin-left: auto;
+  }
+  .shell.acmi .sc-head-tools::-webkit-scrollbar { display: none; }
+  .shell.acmi .sc-head-tools > * { flex-shrink: 0; }
+
+  /* Map: three rows of Up Next (folds as before), hidden while a panel is open; the panel narrower. */
+  .ops-next-grid .ops-next-row:nth-child(n + 4) { display: none; }
+  .ops-map.panel-open .ops-next { display: none; }
+  .ops-panel { top: 8px; width: min(340px, calc(100% - var(--edge-r) - 70px)); }
+  .ops-map.panel-open .ops-spot-btn, .ops-map.panel-open .map-zoom { right: calc(var(--edge-r) + min(340px, 100% - var(--edge-r) - 70px) + 10px); }
+  .ops-map.panel-open .ops-strip { right: calc(var(--edge-r) + min(340px, 100% - var(--edge-r) - 70px) + 66px); }
+  .ops-next, .ops-spot-btn { top: 8px; }
+  .ops-strip, .ops-map .map-zoom { bottom: calc(8px + var(--safe-b)); }
+  .ops-panel { bottom: calc(8px + var(--safe-b)); }
+  .ops-map .map-zoom { gap: 6px; }
+  .op-art { height: 64px; }
+
+  /* Title: brand on the left, the menu on the right. */
+  .title-content { flex-direction: row; align-items: center; padding: 10px calc(20px + var(--safe-r)) 6px calc(20px + var(--safe-l)); gap: 24px; }
+  .title-left { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); grid-template-areas: 'brand menu' 'pitch menu'; column-gap: 28px; max-width: none; width: 100%; align-items: center; }
+  .title-brand { grid-area: brand; align-self: end; }
+  .title-brand svg { width: 64px; height: 64px; }
+  .title-word { font-size: 34px; }
+  .title-tag { font-size: 12px; letter-spacing: 0.4em; }
+  .title-pitch { grid-area: pitch; align-self: start; font-size: 13.5px; margin: 12px 0 0; }
+  .title-menu { grid-area: menu; gap: 8px; }
+  .touch .menu-btn, .menu-btn { min-height: 56px; padding: 8px 16px; }
+  .title-menu .row.mt-8 { margin-top: 0; }
+  .title-right { display: none; }
+  .title-foot { padding: 0 calc(20px + var(--safe-r)) calc(6px + var(--safe-b)) calc(20px + var(--safe-l)); }
+
+  /* Full-height screens (roster board): the rail already says where we are, so the title line goes; toolbars in
+     one row that scrolls sideways; the board takes the rest. */
+  .sc-crew-board { min-height: 0; padding-bottom: calc(var(--safe-b) + 8px); }
+  .shell.acmi .sc-crew-board > .sc-head > .grow { display: none; }
+  .rb-foot { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; flex-shrink: 0; }
+  .rb-foot::-webkit-scrollbar { display: none; }
+  .rb-foot > * { flex-shrink: 0; white-space: nowrap; }
+  .sc-crew-board > .sc-head { margin-bottom: 6px; }
+  .rb { gap: 6px; }
+  .rb-tools { flex-shrink: 0; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; padding-bottom: 1px; }
+  .rb-tools::-webkit-scrollbar { display: none; }
+  .rb-tools > * { flex-shrink: 0; }
+  .rb-tools > .grow { display: none; }
+  .rb-scroll { min-height: 150px; }
+
+  /* Schedule: the colour key in one line that scrolls sideways. */
+  .gantt-legend { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: -2px 0 8px; padding-bottom: 2px; }
+  .gantt-legend::-webkit-scrollbar { display: none; }
+  .gantt-legend > * { flex-shrink: 0; white-space: nowrap; }
+
+  /* Dialogs (bottom sheets here): a slimmer grip and header, so the body gets the height. */
+  .sheet-grip { height: 14px; margin-bottom: -4px; }
+  .sheet-grip::after { top: 5px; }
+  .modal-head, .touch .modal-head { min-height: 52px; padding-top: 4px; padding-bottom: 4px; }
+  .modal-head h2, .touch .modal-head h2 { font-size: 18px; }
+  .modal-foot, .touch .modal-foot { padding-top: 8px; padding-bottom: 8px; }
+
+  /* The delivery card: the sky shorter, the words closer. */
+  .v12-welcome { padding-top: calc(var(--safe-t) + 10px); padding-bottom: calc(var(--safe-b) + 8px); place-items: start center; }
+  .v12-welcome-card { gap: 4px; margin: auto 0; }
+  .v12-welcome-kicker { font-size: 12.5px; }
+  .v12-welcome-name { font-size: 26px; }
+  .v12-welcome-sky { height: clamp(120px, 34vh, 190px); margin: 4px 0 2px; padding: 10px 20px 18px; }
+  .v12-welcome-foot { margin-top: 6px; }
+  .v12-welcome-skip { top: calc(var(--safe-t) + 6px); }
+}
+
+/* Phone on its side, wide enough: KPI rows side by side instead of two by two. */
+@media (max-height: 499.98px) and (min-width: 800px) {
+  .shell.acmi .grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .shell.acmi .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+/* Touch: the pencil beside an aircraft's name gets a full-size target without moving the line. */
+.touch .sc-ac-name-btn { width: 44px; height: 44px; margin: -10px -8px; }
+
+/* An iPhone held upright: 'Turn your phone sideways' (RotateHint), calm and centred over everything. */
+.rotate-hint {
+  position: fixed; inset: 0; z-index: 2000; display: grid; place-items: center;
+  padding: calc(var(--vp-safe-t) + 24px) calc(24px + var(--safe-r)) calc(var(--vp-safe-b) + 24px) calc(24px + var(--safe-l));
+  background: rgba(var(--bg-rgb), 0.96);
+}
+.rotate-card { display: flex; flex-direction: column; align-items: center; gap: 12px; max-width: 320px; text-align: center; }
+.rotate-card h2 { font-size: 22px; }
+.rotate-card p { margin: 0; font-size: 15px; line-height: 1.5; }
+.rotate-card .btn { margin-top: 8px; min-height: 44px; }
+.rotate-ico { display: grid; place-items: center; width: 84px; height: 84px; border-radius: 24px; background: rgba(var(--accent-rgb), 0.1); color: var(--accent); }
+.rotate-ico svg { width: 40px; height: 40px; }
+@media (prefers-reduced-motion: no-preference) {
+  .rotate-ico svg { animation: rotate-nudge 2.6s var(--ease) 1s 2; }
+}
+@keyframes rotate-nudge { 0%, 35% { transform: rotate(0); } 55%, 85% { transform: rotate(-90deg); } 100% { transform: rotate(0); } }
+
+/* New game: the long heading wraps in a narrow window instead of widening the page. */
+.newgame { grid-template-columns: minmax(0, 1fr); }
+.ng-head > .row { min-width: 0; flex: 1 1 auto; }
+.ng-head > .row > div { min-width: 0; }
+
+/* A phone held upright ('Play upright anyway'), or a very narrow window: the top bar wraps onto a second row
+   instead of pushing the page wider than the screen. */
+@media (max-width: 559.98px) {
+  .shell.acmi.compact-acmi { grid-template-rows: auto minmax(0, 1fr) calc(var(--ticker-h) + var(--safe-b)); }
+  .shell.acmi.compact-acmi .topbar { flex-wrap: wrap; gap: 4px 8px; padding-top: calc(var(--safe-t) + 4px); padding-bottom: 4px; min-height: calc(var(--topbar-h) + var(--safe-t)); }
+  .shell.acmi.compact-acmi .tb-sep { display: none; }
+  .shell.acmi.compact-acmi .clock { min-width: 0; }
+  /* Row 1: date, cash, bell, menu (Company stays on the rail); row 2: the speed control and the strip. */
+  .shell.acmi.compact-acmi .airline-pill { display: none; }
+  .shell.acmi.compact-acmi .clock { order: 1; }
+  .shell.acmi.compact-acmi .tb-right { order: 2; margin-left: auto; }
+  .shell.acmi.compact-acmi .speed { order: 3; }
+  .shell.acmi.compact-acmi .tb-strip { order: 4; flex: 1 1 0; height: 44px; }
+  .shell.acmi.compact-acmi .tb-cash .sl { display: none; }
+}
+.shell { overflow: hidden; }
+/* Up Next never runs past the map's right edge (a narrow window, a phone held upright). */
+.ops-next { max-width: calc(100% - var(--edge-l) - var(--edge-r) - 56px); }
+
+/* ---------- computers: mouse and trackpad ---------- */
+/* Everything that acts on a click shows the hand (buttons already do). */
+[role='button'], [role='tab'], summary, select, label:has(> input[type='checkbox']), label:has(> input[type='radio']), .clickable { cursor: pointer; }
+[role='button'][aria-disabled='true'] { cursor: default; }
+/* Scrollbars: room kept for a classic (Windows) scrollbar so a screen growing past the window never jumps sideways;
+   overlay scrollbars (Mac, phones) take none. Firefox gets the thin themed bar the others style with ::-webkit-. */
+.main:not(.no-scroll) { scrollbar-gutter: stable; }
+@supports not selector(::-webkit-scrollbar) {
+  html, .main, .modal-body { scrollbar-width: thin; scrollbar-color: rgba(var(--line-rgb), 0.28) transparent; }
+}
+::-webkit-scrollbar-corner { background: transparent; }
+
+/* Settings › Display › Keyboard: the shortcuts as keys. */
+.dv-keylist { display: grid; grid-template-columns: auto auto; gap: 6px 12px; margin: 0; align-items: center; font-size: 13px; }
+.dv-keylist dt { margin: 0; text-align: right; white-space: nowrap; }
+.dv-keylist dd { margin: 0; color: var(--text-2); white-space: nowrap; }
+kbd {
+  display: inline-block; min-width: 24px; padding: 1px 7px; border-radius: 6px; border: 1px solid var(--border-strong);
+  border-bottom-width: 2px; background: var(--panel-2); color: var(--text); font: 600 12px/1.6 var(--font-mono); text-align: center;
+}
+.set-row.dv-device .seg, .set-row.dv-size .seg { flex-wrap: wrap; justify-content: flex-end; }
+
+/* ---------- big windows (a 27" screen, a 1920 px browser) ---------- */
+/* Reading screens stay at the 1600 px cap (.screen) and centre; the map, the schedule and the roster board use the
+   whole width. Dialogs keep their sizes. */
+@media (min-width: 1800px) {
+  .shell.acmi .sc-schedule, .shell.acmi .sc-crew-board { max-width: none; }
+}
+
+/* New game on a phone held upright: the summary drops below Back and Start. */
+@media (max-width: 479.98px) {
+  .ng-foot { flex-wrap: wrap; row-gap: 8px; }
+  .ng-foot-sum { order: -1; flex: 1 1 100%; }
+}

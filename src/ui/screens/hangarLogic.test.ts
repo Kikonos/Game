@@ -40,3 +40,16 @@ describe('hangar line-up', () => {
     expect(76.3 * mix / (37.6 * mix)).toBeCloseTo(2.03, 1);
   });
 });
+
+describe('v0.12 hangar from above', () => {
+  it('one scale for all: a wider fleet is drawn smaller, a lone A320 not huge, a big one wraps', async () => {
+    const { topScale } = await import('./hangarLogic');
+    const one = topScale(1000, [34.1]);
+    const mixed = topScale(1000, [34.1, 64.8, 79.8]);
+    expect(one).toBeGreaterThanOrEqual(mixed);
+    expect(34.1 * one).toBeLessThanOrEqual(1000 * 0.3 + 1e-6);
+    // Thirty jumbos: the widest about 18 % of the width (rows wrap), never below the floor scale.
+    const big = topScale(1000, Array(30).fill(79.8));
+    expect(79.8 * big).toBeCloseTo(180, 0);
+  });
+});

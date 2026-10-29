@@ -115,9 +115,12 @@ export function HireModal({ role: role0, family: fam0, base: base0, count: count
           </div>
           <div className="col hm-cover">
             {shown.map((f) => {
-              const l = lines.find((x) => x.family === f && x.role === role);
-              if (!l) return <div key={f} className="small muted">{famShort(f)} {role}: none in the fleet</div>;
-              return <div key={f} className={`small ${l.have < l.need ? 'warn' : 'muted'}`}>{famShort(f)} {role}: {l.have} of {l.need} needed{l.shared ? ` (${l.shared} also on another type)` : ''}</div>;
+              // v0.11.2 fix: relief pilots are counted with the first officers (their seats are in that need); was 'none in the fleet'.
+              const r = role === 'CRP' ? 'FO' : role;
+              const what = role === 'CRP' ? 'FO + CRP' : role;
+              const l = lines.find((x) => x.family === f && x.role === r);
+              if (!l) return <div key={f} className="small muted">{famShort(f)} {what}: none in the fleet</div>;
+              return <div key={f} className={`small ${l.have + (l.covered ?? 0) < l.need ? 'warn' : 'muted'}`}>{famShort(f)} {what}: {l.have} of {l.need} needed{l.shared ? ` (${l.shared} also on another type)` : ''}{l.covered ? ` · ${l.covered} filled by spare pursers` : ''}</div>;
             })}
           </div>
         </div>

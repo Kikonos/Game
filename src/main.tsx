@@ -11,10 +11,13 @@ import { App } from './ui/App';
 import { registerOffline } from './ui/offline';
 import { setResumeSave, store } from './ui/store';
 import { installTouchClass } from './ui/useMedia';
+import { installDevice } from './ui/device';
 
 // The artifact host pads the page top/bottom by the safe-area insets itself
 // (see --safe-t/--safe-b in app.css); it also runs the page under the side bars.
 if (__EMBED__) document.documentElement.classList.add('embed');
+// v0.12 which device (html[data-device], data-input, data-standalone) and the UI size; before html.touch, which uses it.
+installDevice({ device: store.settings.device, uiSize: store.settings.uiSize });
 // html.touch drives the touch sizing in the CSS (see src/styles/touch/README.md).
 installTouchClass();
 // Lets iOS apply :active (pressed) styles on touch.

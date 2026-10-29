@@ -32,6 +32,8 @@
 .cp-table th { text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); padding: 4px 6px; border-bottom: 1px solid var(--border); }
 .cp-table td { padding: 6px; border-bottom: 1px solid var(--border); vertical-align: baseline; }
 .cp-table tr:last-child td { border-bottom: none; }
+/* v0.11.2 seniors in junior seats under the short / over figure ('with 2 PUR', '2 in CC seats'). */
+.cp-covered { display: block; white-space: nowrap; }
 .cp-table td.num, .cp-table th:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
 .ru-table td:nth-child(2), .ru-table td:nth-child(3), .ru-table th:nth-child(2), .ru-table th:nth-child(3) { text-align: left; }
 .cp-actions { flex-wrap: wrap; }

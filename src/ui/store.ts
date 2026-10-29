@@ -25,6 +25,7 @@ import { prepareAsyncSave, saveTextAsync, supersedeAsyncSave } from './asyncSave
 import { autoplay } from './devPlay';
 import { type Ambience, sound, type SoundEvent } from './sound';
 import { activeTheme, applyTheme, type Theme, type ThemePref } from './theme';
+import { deviceNow, type DevicePref, onDeviceChange, setDevicePrefs, type UiSizePref } from './device';
 import { cue, takeCueEvents, takeCues, type CueEvent } from '../engine/core/cues';
 import type { HeadId } from '../engine/core/types';
 import { devAchievement, devCrewHours, devJumbo, devPeak, devPosition, devRestAtDeparture, devRoster, devSlipOffer, devUnlockHead } from '../engine/dev';
@@ -74,6 +75,10 @@ export interface Settings {
   theme: ThemePref;
   /** v0.11 Gameplay → Pace: how long the quiet spells between busy ones are (the engine's event director). */
   pace: Pace;
+  /** v0.12 Display › Device: 'auto' detects the iPhone, iPad or computer (ui/device.ts); the others override it. */
+  device: DevicePref;
+  /** v0.12 Display › Size: Smaller / Normal / Larger; 'auto' is Larger on a big computer screen, Normal elsewhere. */
+  uiSize: UiSizePref;
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -97,6 +102,8 @@ const DEFAULT_SETTINGS: Settings = {
   whatsNewCatchUp: '',
   theme: 'system',
   pace: 'normal',
+  device: 'auto',
+  uiSize: 'auto',
 };
 
 export interface Nav {
@@ -126,7 +133,8 @@ export type ModalSpec =
   /** Manual roster adjustment for a duty's trip (duty id or flight id). */
   | { kind: 'duty'; id: string }
   /** Hand legs of a contract to a rival operator. */
-  | { kind: 'subcharter'; contractId: string; flightId?: string; /** v0.8 the rival to pre-select */ rivalId?: string }
+  | { kind: 'subcharter'; contractId: string; flightId?: string; /** v0.8 the rival to pre-select */ rivalId?: string;
+      /** v0.12 sub-lease: these trips' legs (offer dialog, trip move, flight sheet), and the dialog to come back to */ flightIds?: string[]; back?: ModalSpec }
   /** v0.5.1 livery editor: the company livery or one aircraft's (Company · All white · Custom). */
   | { kind: 'livery'; target: 'company' | { aircraftId: string } }
   /** v0.6: bulk type-rating conversion for the selected crew; the classes list (cancel per class / member). */
@@ -189,7 +197,8 @@ export function applyTopGap(s: Pick<Settings, 'topGap'>) {
   try {
     const nav = navigator as Navigator & { standalone?: boolean };
     const installed = nav.standalone === true || matchMedia('(display-mode: standalone)').matches;
-    const px = s.topGap === 'auto' ? (installed ? 28 : 0) : s.topGap;
+    // v0.12 only the iPad frosts that band: an iPhone on its side or an installed app on a computer has none.
+    const px = s.topGap === 'auto' ? (installed && deviceNow().kind === 'ipad' ? 28 : 0) : s.topGap;
     document.documentElement.style.setProperty('--top-gap', `${px}px`);
   } catch {
     // no DOM (tests)
@@ -208,6 +217,11 @@ export function settingsFrom(s: Partial<Settings>): Settings {
   if (s.theme !== 'light' && s.theme !== 'dark' && s.theme !== 'system') out.theme = 'dark';
   // v0.11 settings saved before Pace: Normal.
   if (s.pace !== 'calm' && s.pace !== 'normal' && s.pace !== 'busy') out.pace = 'normal';
+  // v0.12 settings saved before devices: detect the device, size from the screen.
+  out.device ??= DEFAULT_SETTINGS.device;
+  out.uiSize ??= DEFAULT_SETTINGS.uiSize;
+  if (!(['auto', 'iphone', 'ipad', 'computer'] as const).includes(out.device)) out.device = 'auto';
+  if (!(['auto', 'small', 'normal', 'large'] as const).includes(out.uiSize)) out.uiSize = 'auto';
   return out;
 }
 
@@ -866,6 +880,7 @@ class GameStore {
     configureSound(this.settings);
     applyTopGap(this.settings);
     if (p.theme) this.theme = applyTheme(this.settings.theme, () => this.onSystemTheme());
+    if (p.device || p.uiSize) setDevicePrefs({ device: this.settings.device, uiSize: this.settings.uiSize });
     if (p.pace && this.game && !this.game.gameOver) setPace(this.game, p.pace);
     try {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(this.settings));
@@ -1375,6 +1390,8 @@ export function liveMinute(): number {
 }
 
 applyTopGap(store.settings);
+// v0.12 the device is known once main.tsx installs it (and may change with the Device setting).
+onDeviceChange(() => applyTopGap(store.settings));
 
 /**
  * v0.7 C2: the game minute for heavy views (roster board). While the clock runs it re-renders at most once per `ms`

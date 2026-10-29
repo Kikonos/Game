@@ -126,3 +126,41 @@ describe('v0.9.1 background music: fades, ducking, scheduling', () => {
     vi.useRealTimers();
   });
 });
+
+describe('v0.12 the soundtrack: five pieces taking turns', () => {
+  it('has five named pieces, each playable, and moves on to the next after its minutes', async () => {
+    const { TRACKS } = await import('./music');
+    expect(TRACKS.map((t) => t.name)).toEqual(['Cruise', 'Night Flight', 'Golden Hour', 'Ops Room', 'Long Haul']);
+    vi.useFakeTimers();
+    const ctx = new MockCtx();
+    const p = player(ctx);
+    p.setLevel(0.1);
+    const first = p.track.name;
+    const seen = new Set([first]);
+    // Play on for longer than every piece's minutes put together: each one takes its turn.
+    for (let i = 0; i < 25 * 60; i++) {
+      ctx.currentTime += 1;
+      vi.advanceTimersByTime(1000);
+      seen.add(p.track.name);
+    }
+    expect(seen.size).toBe(TRACKS.length);
+    p.stop();
+    vi.useRealTimers();
+  });
+
+  it('Next piece changes the piece at once and keeps scheduling notes', () => {
+    vi.useFakeTimers();
+    const ctx = new MockCtx();
+    const p = player(ctx);
+    p.setLevel(0.1);
+    const a = p.track.name;
+    p.nextTrack();
+    expect(p.track.name).not.toBe(a);
+    const n = ctx.sources.length;
+    ctx.currentTime += 10;
+    vi.advanceTimersByTime(10_000);
+    expect(ctx.sources.length).toBeGreaterThan(n);
+    p.stop();
+    vi.useRealTimers();
+  });
+});

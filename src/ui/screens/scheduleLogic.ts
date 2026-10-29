@@ -207,7 +207,7 @@ export function rowBlocks(g: GameState, aircraftId: string, from: Minute, to: Mi
     const cont = continuing(g, aircraftId, gap.from);
     if (cont) {
       const cEnd = Math.min(gap.to, cont.to);
-      out.push({ key: `cont-${gap.from}`, kind: 'cont', start: gap.from, end: cEnd, color: cont.color, label: cont.label, short: 'CONT', refs: [], at: gap.at });
+      out.push({ key: `cont-${gap.from}`, kind: 'cont', start: gap.from, end: cEnd, color: cont.color, label: cont.label, short: 'CONT', refs: [{ kind: 'contract', id: cont.contractId }], at: gap.at });
       if (gap.to - cEnd >= IDLE_MIN) out.push({ key: `idle-${cEnd}`, kind: 'idle', start: cEnd, end: gap.to, color: null, label: gap.to >= end ? `free at ${cont.base} · nothing booked` : `idle ${durLabel(gap.to - cEnd)}`, refs: [], at: cont.base });
       continue;
     }
@@ -236,13 +236,13 @@ export function rowBlocks(g: GameState, aircraftId: string, from: Minute, to: Mi
 }
 
 /** v0.8 the base programme flying on this aircraft whose flights are generated day by day past `t`, if any. */
-export function continuing(g: GameState, aircraftId: string, t: Minute): { to: Minute; color: number; label: string; base: string } | null {
+export function continuing(g: GameState, aircraftId: string, t: Minute): { to: Minute; color: number; label: string; base: string; contractId: string } | null {
   for (const c of Object.values(g.contracts)) {
     const p = c.pattern;
     if (p.kind !== 'base' || (c.status !== 'active' && c.status !== 'signed') || !c.aircraftIds.includes(aircraftId)) continue;
     if (c.generatedUntil >= p.to || p.to <= t || c.generatedUntil > t + DAY || c.start > t + DAY || c.generatedUntil < g.now - DAY) continue;
     const client = g.clients[c.clientId]?.name ?? 'Client';
-    return { to: p.to, color: c.color, base: p.base, label: `${client} programme continues · flights added daily until ${fmtDay(p.to)}` };
+    return { to: p.to, color: c.color, base: p.base, contractId: c.id, label: `${client} programme continues · flights added daily until ${fmtDay(p.to)}` };
   }
   return null;
 }
@@ -340,15 +340,17 @@ export interface Tick {
 }
 
 /** Axis ticks: days (major, labelled) plus hours at 3 d (every 6 h) and 7 d (every 12 h); spaced for a fitted width. */
-export function axisTicks(from: Minute, to: Minute, zoom: ZoomDays): Tick[] {
+export function axisTicks(from: Minute, to: Minute, zoom: ZoomDays, ppm?: number): Tick[] {
   const step = zoom === 3 ? 6 * HOUR : zoom === 7 ? 12 * HOUR : DAY;
+  // v0.12 a narrow timeline (an iPhone on its side) keeps the hour lines but drops their labels before they collide.
+  const hours = ppm === undefined || step * ppm >= 56;
   const out: Tick[] = [];
   for (let t = dayStart(from); t <= to; t += step) {
     if (t < from) continue;
     const major = t % DAY === 0;
     // 28 d: a day is ~30 px, too narrow for a date each; label the Mondays (epoch day 0, 1 Jan 2000, is a Saturday).
     const weekly = zoom === 28 && (Math.floor(t / DAY) + 5) % 7 !== 0;
-    out.push({ t, major, label: weekly ? '' : major ? fmtDay(t) : fmtTime(t) });
+    out.push({ t, major, label: weekly ? '' : major ? fmtDay(t) : hours ? fmtTime(t) : '' });
   }
   return out;
 }

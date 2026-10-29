@@ -10,9 +10,6 @@ const RAD = Math.PI / 180;
 /** Sun elevations (deg) where the night shade starts and where it is full. */
 export const NIGHT_FROM = 0.8;
 export const NIGHT_FULL = -14;
-/** City lights fade in between these elevations (after sunset, by the end of civil twilight). */
-export const LIGHTS_FROM = -2;
-export const LIGHTS_FULL = -9;
 
 const smooth = (t: number) => t * t * (3 - 2 * t);
 const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x);
@@ -20,11 +17,6 @@ const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x);
 /** Night shade 0 (day) … 1 (full night) at a sun elevation (deg): a soft twilight band, never a hard edge. */
 export function nightAlpha(elev: number): number {
   return smooth(clamp01((NIGHT_FROM - elev) / (NIGHT_FROM - NIGHT_FULL)));
-}
-
-/** City-light strength 0 … 1 at a sun elevation (deg). */
-export function lightAlpha(elev: number): number {
-  return smooth(clamp01((LIGHTS_FROM - elev) / (LIGHTS_FROM - LIGHTS_FULL)));
 }
 
 /** Same thing on sin(elevation) (no asin per pixel): the band is narrow enough for sin to be all but linear. */

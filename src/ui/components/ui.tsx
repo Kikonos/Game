@@ -2,6 +2,7 @@ import { Minus, Plus, X } from 'lucide-react';
 import { type ReactNode, type RefObject, type TouchEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { flag } from '../../data/countries';
 import { tierNow } from '../useMedia';
+import { toCss } from '../device';
 
 const FIELD = 'input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea';
 
@@ -24,8 +25,8 @@ function useKeyboardAware(dialog: RefObject<HTMLDivElement | null>) {
       // The layout viewport keeps its height when the keyboard opens; the visual viewport shrinks.
       const kb = Math.max(window.innerHeight, document.documentElement.clientHeight) - vv.height - vv.offsetTop;
       if (kb > 40) {
-        root.style.setProperty('--vv-top', `${Math.round(vv.offsetTop)}px`);
-        root.style.setProperty('--vv-h', `${Math.round(vv.height)}px`);
+        root.style.setProperty('--vv-top', `${Math.round(toCss(vv.offsetTop))}px`);
+        root.style.setProperty('--vv-h', `${Math.round(toCss(vv.height))}px`);
         window.clearTimeout(timer);
         timer = window.setTimeout(reveal, 60);
       } else {

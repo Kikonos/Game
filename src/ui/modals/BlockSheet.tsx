@@ -14,6 +14,7 @@ import { ClientCrewRow } from './v08Bits';
 import { gapCheck, type GapOption } from '../../engine/ops/maintMove';
 import { problemAt } from '../../engine/problems';
 import { tripOf, tripTargets } from '../../engine/ops/tripMove';
+import { subleaseTrip } from '../../engine/ops/sublease';
 import { usdSigned } from './TripMoveModal';
 import { FlightTypeChip } from '../components/FlightType';
 import { ProblemCardView } from '../components/ProblemCard';
@@ -146,6 +147,8 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
   if (d) rows.push(['Duty', `Day length ${hm(d.fdp)} of ${hm(d.maxFdp + (d.discretion ?? 0))} · ${d.sectors} sector${d.sectors === 1 ? '' : 's'}${d.augment ? ` · ${2 + d.augment} pilots` : ''}${d.ext ? ' · planned extension' : ''}${d.split ? ' · split duty' : ''}${d.discretion ? ` · commander's discretion +${hm(d.discretion)}` : ''}`]);
   const live = f.status === 'scheduled' && !!f.aircraftId;
   const canSub = live && !!c && (f.kind === 'revenue' || f.kind === 'techstop');
+  // v0.12 the trip's sub-lease (another operator flies it for us), or why it can't be handed over.
+  const sub = canSub ? subleaseTrip(g, f.id) : null;
   // v0.7.2.1: the trip this leg belongs to (moves whole to another aircraft).
   const trip = live && !!c && f.kind !== 'ferry' && !f.purpose ? tripOf(g, f.id) : null;
   const doHold = () => {
@@ -207,11 +210,12 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
         <div className="row wrap gap-8 sc-sheet-actions">
           <Stepper value={hold} min={0} max={8} onChange={setHold} format={(v) => (v ? `+${v * 30} min` : 'Hold')} />
           <button className="btn" onClick={doHold} disabled={!hold}><Clock /> Delay</button>
-          {canSub && <button className="btn" onClick={() => store.openModal({ kind: 'subcharter', contractId: c!.id, flightId: f.id })}><Handshake /> Sub-charter</button>}
+          {canSub && <button className="btn" onClick={() => store.openModal({ kind: 'subcharter', contractId: c!.id, flightId: f.id, ...(sub?.ok ? { flightIds: sub.flightIds } : {}) })} title="Another operator flies it for us; the client still pays us (a sub-charter)"><Handshake /> Sub-lease</button>}
           {trip && <button className={`btn ${moving ? 'active' : ''}`} onClick={() => setMoving(!moving)} disabled={!trip.ok} title={trip.ok ? `Move ${trip.label} to another aircraft` : trip.reason}><ArrowRightLeft /> Move trip to…</button>}
         </div>
       )}
       {live && trip && !trip.ok && <div className="small muted">{trip.reason}.</div>}
+      {live && sub && !sub.ok && <div className="small muted">Sub-lease this trip: {sub.reason}.</div>}
       {moving && trip?.ok && (
         <div className="col gap-8" ref={moveRef}>
           <div className="small muted">Move the whole trip <b>{trip.label}</b> ({trip.moved.length} leg{trip.moved.length > 1 ? 's' : ''}) to:</div>
