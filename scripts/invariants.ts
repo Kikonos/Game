@@ -9,7 +9,8 @@
 //
 // Checks
 // - crew: rest before each duty / ticket / standby (ORO.FTL.235: max(preceding duty, 12 h home / 10 h away), 14 h after
-//   an augmented duty or away ≥ 4 h time-zone shift, +4 h after a planned extension; a standby call-out needs no rest
+//   an augmented duty or away ≥ 4 h time-zone shift, +4 h after a planned extension (+2 h when the rest before it was 2 h
+//   over its minimum: ORO.FTL.205(d)'s +2 h before and after); a standby call-out needs no rest
 //   between the standby and the duty, CS FTL.1.225; an uncalled one is followed by rest: 12 h home / 10 h away, airport
 //   standby at least its length, reserve none), no overlap, FDP within max + discretion (≤ 2 h / 3 h augmented),
 //   cumulative duty / block limits (ORO.FTL.210, standby counted 25 % home / 100 % airport), recurrent extended
@@ -387,7 +388,18 @@ export function createChecker(opts: CheckerOpts = {}) {
         }
         const home = at === h.base;
         const tz = home ? 0 : tzDiffH(h.base, at, a.end);
-        const need = restNeeded(a.end - a.start, home, a.aug, tz, a.ext);
+        let need = restNeeded(a.end - a.start, home, a.aug, tz, a.ext);
+        // ORO.FTL.205(d) the other option (BLU1396 round): +2 h before and +2 h after an extension, when the rest
+        // before it was 2 h longer than its own minimum.
+        if (a.ext && i >= 2) {
+          const z = log[i - 2];
+          const zAt = restAt(z.start, z.end);
+          if (zAt) {
+            const zHome = zAt === h.base;
+            const before = restNeeded(z.end - z.start, zHome, z.aug, zHome ? 0 : tzDiffH(h.base, zAt, z.end), z.ext);
+            if (a.start - z.end >= before + 2 * H) need -= 2 * H;
+          }
+        }
         // A standby between them: called for b → rest is needed before the standby only.
         const w = sby.find((s) => s.from >= a.end && s.from < b.start + 1);
         let gap = b.start - a.end;
