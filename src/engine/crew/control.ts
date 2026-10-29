@@ -302,7 +302,8 @@ function markDuty(g: GameState, f: Flight, mark: 'amber' | 'red'): void {
 
 /**
  * Crew-planning round: 'Late change: Ana Gomes fell sick on 14 Oct. ' when a late change emptied a seat on the flight's
- * duty (Flight.crewLost on one of its legs), so a notice tells a sickness or a delay from a planning failure; else ''.
+ * duty (Flight.crewLost on one of its legs), the leg was added at short notice (Flight.born) or a delay moved it an hour
+ * or more, so a notice tells a late change from a planning failure; else ''.
  */
 export function lateChangeNote(g: GameState, f: Flight): string {
   const d = f.dutyId ? g.duties[f.dutyId] : undefined;
@@ -311,7 +312,13 @@ export function lateChangeNote(g: GameState, f: Flight): string {
     const y = g.flights[id]?.crewLost;
     if (y && (!lost || y.t > lost.t)) lost = y;
   }
-  if (!lost || lost.t < f.std - 7 * DAY) return '';
+  if (!lost || lost.t < f.std - 7 * DAY) {
+    // A leg added or moved at short notice: nobody could have been planned for it earlier.
+    if (f.born !== undefined && f.born > f.std - 2 * DAY) return `Late change: this leg was only added on ${fmtDay(f.born)} at ${fmtTime(f.born)} UTC (a schedule change at short notice). `;
+    const moved = f.schedStd !== undefined ? f.std + f.delay - f.schedStd : f.delay;
+    if (moved >= 60) return `Late change: ${f.delayReason ? f.delayReason.toLowerCase() : 'a delay'} moved it ${fmtDuration(moved)} later. `;
+    return '';
+  }
   const c = g.crew[lost.crewId];
   const who = c ? crewName(c) : 'A crew member';
   return lost.why === 'sick' ? `Late change: ${who} fell sick on ${fmtDay(lost.t)}. ` : `Late change: ${who} can no longer fly it after a delay or change on ${fmtDay(lost.t)}. `;

@@ -161,6 +161,8 @@ export function addFlight(g: GameState, init: FlightInit): Flight {
     delay: 0,
     ev: 0,
   };
+  // Crew-planning round: a leg added at short notice says so in the crew notices (a late change, not a planning failure).
+  if (f.aircraftId && init.std - g.now < 2 * 1440) f.born = g.now;
   g.flights[f.id] = f;
   if (f.aircraftId) schedule(g, f.std, 'flight.dep', f.id, f.ev);
   touchFlights(g);

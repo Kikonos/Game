@@ -86,4 +86,20 @@ describe('the early heads-up', () => {
     escalateShortages(g, { reroster: true });
     expect(crewNotes(g)[0].body).toMatch(/^Late change: .+ fell sick on /);
   });
+
+  it('a leg added at short notice, or moved by a delay, reads as a late change too', () => {
+    const g = fixtureGame(5);
+    const ac = Object.values(g.fleet)[0];
+    const std = g.now + 20 * H;
+    const f = addFlight(g, { no: 'AW900', aircraftId: ac.id, contractId: null, kind: 'positioning', from: 'LIS', to: 'MAD', std, sta: std + 75 });
+    expect(f.born).toBe(g.now);
+    expect(lateChangeNote(g, f)).toMatch(/^Late change: this leg was only added on .+ UTC \(a schedule change at short notice\)\. $/);
+    const far = addFlight(g, { no: 'AW902', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'LIS', to: 'MAD', std: g.now + 5 * DAY, sta: g.now + 5 * DAY + 75 });
+    expect(far.born).toBeUndefined();
+    expect(lateChangeNote(g, far)).toBe('');
+    far.schedStd = far.std;
+    far.std += 3 * H;
+    far.delayReason = 'Late inbound aircraft';
+    expect(lateChangeNote(g, far)).toBe('Late change: late inbound aircraft moved it 3h 00m later. ');
+  });
 });

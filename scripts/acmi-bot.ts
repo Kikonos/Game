@@ -1346,6 +1346,8 @@ function policy(g: GameState, t: Tally, urgent: boolean, newDay: boolean): void 
 /** Crew-planning round: when the player was first told a leg was short of crew (any notice on it or its trip). */
 const firstTold = new Map<string, number>();
 const toldLeads: number[] = [];
+/** ... the reds whose notice does not open with a late change (a sickness, a short-notice leg, a delay). */
+const toldPlan: number[] = [];
 let headsUps = 0;
 function told(g: GameState, flightId: string, t = g.now): void {
   const f = g.flights[flightId];
@@ -1888,6 +1890,8 @@ function onStep(): void {
       const f = g.flights[x.ref.id];
       const first = firstTold.get(x.ref.id) ?? x.t;
       if (f) toldLeads.push((f.std - Math.min(first, x.t)) / 60);
+      if (f && !/(^|\. )Late change: /.test(x.body)) toldPlan.push((f.std - Math.min(first, x.t)) / 60);
+      if (f && REDWHY) console.error(`${fmtDateTime(x.t)} TOLD ${((f.std - Math.min(first, x.t)) / 60).toFixed(1)} h ${f.no} early ${f.crewEarly ? 'y' : 'n'} lost ${f.crewLost ? f.crewLost.why : '-'} late ${/(^|\. )Late change: /.test(x.body) ? 'y' : 'n'} first ${fmtDateTime(Math.min(first, x.t))}`);
     }
     told(g, x.ref.id, x.t);
     if (x.title.startsWith('Heads-up')) headsUps++;
@@ -2185,7 +2189,8 @@ console.log(`ladder: widebody signed ${dayOf(tally.wideSigned)}; tour series / t
   {
     const l = [...toldLeads].sort((a, b) => a - b);
     const med = l.length ? l[Math.floor((l.length - 1) / 2)] : 0;
-    console.log(`red alarms first told (h before departure): n ${l.length}, median ${med.toFixed(1)}, worst ${(l[0] ?? 0).toFixed(1)}, ≥ 24 h ${l.filter((x) => x >= 24).length} · early heads-ups ${headsUps}`);
+    const q = [...toldPlan].sort((a, b) => a - b);
+    console.log(`red alarms first told (h before departure): n ${l.length}, median ${med.toFixed(1)}, worst ${(l[0] ?? 0).toFixed(1)}, ≥ 24 h ${l.filter((x) => x >= 24).length} · not a late change: n ${q.length}, median ${(q[Math.floor((q.length - 1) / 2)] ?? 0).toFixed(1)}, worst ${(q[0] ?? 0).toFixed(1)} · early heads-ups ${headsUps}`);
   }
   if (REDWHY) console.log(`red alarms by cause: ${[...redCauses].sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(' · ') || 'none'}`);
   softTargets.push(['red crew shortages ≤ 12 a year', (s.crewRed ?? 0) * (365 / days) <= 12, `${s.crewRed ?? 0} red (${g.stats.v09?.oohRed ?? 0} out of hours), ${s.crewAmber ?? 0} amber`]);

@@ -791,6 +791,8 @@ export interface Flight {
    * them unable to fly it): the shortage notices say so, so a late change reads apart from a planning failure.
    */
   crewLost?: { crewId: string; why: 'sick' | 'change'; t: Minute };
+  /** Crew-planning round: when a leg was added less than 2 days before it leaves (a recovery leg, a diversion's onward leg). */
+  born?: Minute;
   /** v0.7.1 a chartered business jet carrying our crew (kind 'deadhead'). */
   charter?: { cls: JetClass; model: string; operator: string; reg: string };
   /** v0.8 held by a closed airport (world event id). */
