@@ -325,7 +325,7 @@ button.chip:disabled { opacity: 0.45; cursor: default; }
 .dbar .s { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--text); border-radius: 2px; box-shadow: 0 0 6px rgba(var(--ink-rgb),0.6); }
 .legend { display: flex; gap: 12px; flex-wrap: wrap; }
 /* route planner: fixed-height dialog, list and details scroll on their own */
-.modal.planner-modal { height: min(880px, calc(var(--vv-h, 100dvh) - var(--vp-safe-t) - var(--vp-safe-b) - 32px)); }
+.modal.planner-modal { height: min(880px, calc(var(--vv-h, var(--app-h)) - var(--vp-safe-t) - var(--vp-safe-b) - 32px)); }
 .planner-modal .modal-body { display: flex; flex-direction: column; overflow: hidden; padding-bottom: 0; }
 .planner { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(320px, 1fr); grid-template-rows: minmax(0, 1fr); gap: 20px; }
 .planner-list { display: flex; flex-direction: column; min-height: 0; min-width: 0; }

@@ -12,6 +12,7 @@ import { quoteTripMove, tripOf } from '../../engine/ops/tripMove';
 import { contractColor } from '../screens/palette';
 import { rowBlocks } from '../screens/scheduleLogic';
 import { store } from '../store';
+import { toCss } from '../device';
 
 /** The portal's window: two days either side of the job, at most three weeks (a long base shows its first weeks). Pure. */
 export function portalWindow(o: Pick<ContractOffer, 'start' | 'end'>, now: Minute): [Minute, Minute] {
@@ -77,8 +78,8 @@ export function SchedulePortal({ g, o, aircraftId, candidates }: { g: GameState;
     const ghost = document.createElement('div');
     ghost.className = 'tm-ghost v91-ghost';
     ghost.textContent = `${trip.label} · ${g.fleet[d.sourceId]?.reg ?? ''}`;
-    ghost.style.left = `${d.x0}px`;
-    ghost.style.top = `${d.y0}px`;
+    ghost.style.left = `${toCss(d.x0)}px`;
+    ghost.style.top = `${toCss(d.y0)}px`;
     document.body.append(ghost);
     d.ghost = ghost;
   };
@@ -94,8 +95,8 @@ export function SchedulePortal({ g, o, aircraftId, candidates }: { g: GameState;
     }
     e.preventDefault();
     if (d.ghost) {
-      d.ghost.style.left = `${e.clientX}px`;
-      d.ghost.style.top = `${e.clientY}px`;
+      d.ghost.style.left = `${toCss(e.clientX)}px`;
+      d.ghost.style.top = `${toCss(e.clientY)}px`;
     }
     const ac = rowAt(e.clientX, e.clientY);
     if (ac === d.hover) return;

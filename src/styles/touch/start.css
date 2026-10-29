@@ -232,7 +232,7 @@
 
 /* ---------- Intel ---------- */
 .mk-wrap { max-height: 620px; }
-.touch .mk-wrap { max-height: max(380px, calc(100dvh - var(--topbar-h) - var(--ticker-h) - var(--safe-t) - var(--safe-b) - 240px)); }
+.touch .mk-wrap { max-height: max(380px, calc(var(--app-h) - var(--topbar-h) - var(--ticker-h) - var(--safe-t) - var(--safe-b) - 240px)); }
 .mk-dest { display: flex; flex-direction: column; gap: 3px; }
 .mk-dest > .tiny { white-space: nowrap; }
 .touch .intel-markets .table td { padding-block: 9px; }

@@ -24,6 +24,7 @@ import {
 import { quoteTripMove, tripOf, type TripMoveQuote, type TripView } from '../../engine/ops/tripMove';
 import { checkMaintMove, maintWord, movableMaint, type MaintMoveCheck } from '../../engine/ops/maintMove';
 import { ScreenHint } from '../components/ScreenHint';
+import { cssRect, toCss } from '../device';
 
 const ZOOMS: ZoomDays[] = [3, 7, 28];
 const STATUS_TONE: Record<Aircraft['status'], 'good' | 'warn' | 'bad' | 'info' | 'off'> = {
@@ -111,7 +112,7 @@ function Row({ g, ac, from, until, win, zoom, ppm, sel }: { g: GameState; ac: Ai
     // The release of a trip drag is not a tap.
     if (performance.now() - dragEndedAt < 450) return;
     const r = e.currentTarget.getBoundingClientRect();
-    const t = from + (e.clientX - r.left) / ppm;
+    const t = from + toCss(e.clientX - r.left) / ppm;
     const picked = chooseHits(pickBlocks(blocks, t, ppm));
     if (picked.length) {
       store.openModal({ kind: 'sheet', refs: picked.flatMap((b) => b.refs) });
@@ -350,12 +351,13 @@ export function ScheduleScreen() {
       const { g: gg, from: f0, ppm: p } = liveRef.current;
       const m = d.maintId ? gg.maintenance[d.maintId] : undefined;
       if (!gh || !row || !m) return;
-      const rr = row.getBoundingClientRect();
-      const t = f0 + (d.x - rr.left) / p;
+      // v0.12 the ghost and bubble are placed in the page's px (Settings › Size zooms it); pointer and rects are screen px.
+      const rr = cssRect(row);
+      const t = f0 + (toCss(d.x) - rr.left) / p;
       const start = dragStart(t, d.grab ?? 0);
       const dur = m.end - m.start;
       // Fixed on the page (never inside React's tree), clipped to the Gantt's visible width.
-      const sr0 = sc.getBoundingClientRect();
+      const sr0 = cssRect(sc);
       const x0 = rr.left + (start - f0) * p;
       const x1 = Math.max(x0 + 3, x0 + dur * p);
       const l = Math.max(sr0.left, x0);
@@ -382,11 +384,11 @@ export function ScheduleScreen() {
       const b = d.bubble;
       if (b) {
         const bw = b.offsetWidth || 260;
-        const r = row.getBoundingClientRect();
-        b.style.left = `${Math.round(Math.min(Math.max(d.x, bw / 2 + 8), window.innerWidth - bw / 2 - 8))}px`;
+        const r = cssRect(row);
+        b.style.left = `${Math.round(Math.min(Math.max(toCss(d.x), bw / 2 + 8), toCss(window.innerWidth) - bw / 2 - 8))}px`;
         // Above the row when there is room, so the finger never covers it.
         const above = r.top - (b.offsetHeight || 48) - 10;
-        b.style.top = `${Math.round(above > 70 ? above : Math.min(r.bottom + 10, window.innerHeight - (b.offsetHeight || 48) - 6))}px`;
+        b.style.top = `${Math.round(above > 70 ? above : Math.min(r.bottom + 10, toCss(window.innerHeight) - (b.offsetHeight || 48) - 6))}px`;
       }
       // Near the edge of the Gantt: scroll it along (the drag keeps its place under the finger).
       const sr = sc.getBoundingClientRect();
@@ -395,7 +397,7 @@ export function ScheduleScreen() {
     const place = (d: TripDrag) => {
       if (d.mode === 'maint') return placeMaint(d);
       const gh = d.ghost;
-      if (gh) gh.style.transform = `translate(${Math.round(d.x - gh.offsetWidth / 2)}px, ${Math.round(d.y - 58)}px)`;
+      if (gh) gh.style.transform = `translate(${Math.round(toCss(d.x) - gh.offsetWidth / 2)}px, ${Math.round(toCss(d.y) - 58)}px)`;
       const hit = document.elementFromPoint(d.x, d.y)?.closest<HTMLElement>('[data-ac]');
       setHover(d, hit && el.contains(hit) ? hit.dataset.ac ?? null : null);
       const b = d.bubble;
@@ -405,8 +407,8 @@ export function ScheduleScreen() {
       b.textContent = !d.hover || d.hover === d.sourceId ? `Drop ${d.trip?.label ?? 'the trip'} on another aircraft` : q?.ok ? `${gg.fleet[d.hover]?.reg ?? ''}: release to see the money` : q?.reasons[0] ?? '';
       b.className = `tm-bubble ${!d.hover || d.hover === d.sourceId ? '' : q?.ok ? 'ok' : 'no'}`;
       const bw = b.offsetWidth || 240;
-      b.style.left = `${Math.round(Math.min(Math.max(d.x, bw / 2 + 8), window.innerWidth - bw / 2 - 8))}px`;
-      b.style.top = `${Math.round(Math.min(d.y + 30, window.innerHeight - (b.offsetHeight || 34) - 6))}px`;
+      b.style.left = `${Math.round(Math.min(Math.max(toCss(d.x), bw / 2 + 8), toCss(window.innerWidth) - bw / 2 - 8))}px`;
+      b.style.top = `${Math.round(Math.min(toCss(d.y) + 30, toCss(window.innerHeight) - (b.offsetHeight || 34) - 6))}px`;
     };
     const pickupMaint = (d: TripDrag) => {
       const gg = liveRef.current.g;
@@ -497,7 +499,7 @@ export function ScheduleScreen() {
       const acId = row?.dataset.ac;
       if (!row || !acId) return null;
       const { g: gg, from: f0, to: t1, ppm: p, win: w, zoom: z } = liveRef.current;
-      const t = f0 + (x - row.getBoundingClientRect().left) / p;
+      const t = f0 + toCss(x - row.getBoundingClientRect().left) / p;
       const blocks = rowBlocks(gg, acId, w[0], w[1], { pills: z === 28, until: t1 });
       // v0.7.2.2: a booked check or refit slides along its own row.
       const mid = pressMaint(gg, blocks, t, p);

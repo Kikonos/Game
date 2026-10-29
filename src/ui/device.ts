@@ -177,6 +177,13 @@ export const deviceNow = (): Device => current;
 /** The UI size zoom applied to <html> (1: none). Coordinates read from the page (getBoundingClientRect, clientX) are
  * in screen pixels; divide by this to get the page's own CSS pixels. */
 export const uiZoomNow = (): number => zoom;
+/** Screen pixels (getBoundingClientRect, clientX, innerWidth) → the page's own CSS pixels under the UI size zoom. */
+export const toCss = (screenPx: number): number => screenPx / zoom;
+/** An element's box in the page's own CSS pixels (getBoundingClientRect is in screen pixels). */
+export function cssRect(el: Element): { left: number; top: number; right: number; bottom: number; width: number; height: number } {
+  const r = el.getBoundingClientRect();
+  return { left: r.left / zoom, top: r.top / zoom, right: r.right / zoom, bottom: r.bottom / zoom, width: r.width / zoom, height: r.height / zoom };
+}
 /** The size 'Auto' would pick here and now. */
 export const autoUiSizeNow = (): UiSize => autoUiSize(current, typeof innerWidth === 'number' ? innerWidth : 1180, typeof innerHeight === 'number' ? innerHeight : 820);
 export const uiSizeNow = (): UiSize => (sizePref === 'auto' ? autoUiSizeNow() : sizePref);

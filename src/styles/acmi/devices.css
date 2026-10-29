@@ -20,6 +20,12 @@
 .tb-strip .os-item { flex-shrink: 1; min-width: 44px; overflow: hidden; }
 .tb-strip .os-item .os-v, .tb-strip .os-item .os-k { overflow: hidden; text-overflow: ellipsis; }
 .tb-strip .os-item .os-txt { min-width: 0; }
+/* A narrow top-bar strip (a phone, a small window): warnings show their icon only; the label is in the button name. */
+.tb-strip { container-type: inline-size; }
+@container (max-width: 150px) {
+  .tb-strip > .os-item .os-v, .tb-strip > .os-item .os-txt { display: none; }
+  .tb-strip > .os-item { padding-inline: 12px; }
+}
 /* The delivery card's Skip clears the right edge (Dynamic Island, rounded corners). */
 .v12-welcome { padding-left: calc(24px + var(--safe-l)); padding-right: calc(24px + var(--safe-r)); overflow-y: auto; }
 .v12-welcome-skip { right: calc(18px + var(--safe-r)); }
@@ -56,7 +62,7 @@
   .shell.acmi .screen { padding-top: 10px; }
   .shell.acmi .sc-head { margin-bottom: 10px; gap: 6px 12px; align-items: center; }
   .shell.acmi .sc-head > .grow { display: flex; align-items: baseline; gap: 10px; flex: 1 1 220px; min-width: 0; }
-  .shell.acmi .sc-head h1 { font-size: 19px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 1; min-width: 0; max-width: max-content; }
+  .shell.acmi .sc-head h1 { font-size: 19px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; max-width: 75%; }
   .shell.acmi .sc-head .subtitle { margin: 0; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .shell.acmi .sc-head-tools {
     flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; max-width: 100%; min-width: 0; scrollbar-width: none;
@@ -158,3 +164,22 @@
 .newgame { grid-template-columns: minmax(0, 1fr); }
 .ng-head > .row { min-width: 0; flex: 1 1 auto; }
 .ng-head > .row > div { min-width: 0; }
+
+/* A phone held upright ('Play upright anyway'), or a very narrow window: the top bar wraps onto a second row
+   instead of pushing the page wider than the screen. */
+@media (max-width: 559.98px) {
+  .shell.acmi.compact-acmi { grid-template-rows: auto minmax(0, 1fr) calc(var(--ticker-h) + var(--safe-b)); }
+  .shell.acmi.compact-acmi .topbar { flex-wrap: wrap; gap: 4px 8px; padding-top: calc(var(--safe-t) + 4px); padding-bottom: 4px; min-height: calc(var(--topbar-h) + var(--safe-t)); }
+  .shell.acmi.compact-acmi .tb-sep { display: none; }
+  .shell.acmi.compact-acmi .clock { min-width: 0; }
+  /* Row 1: date, cash, bell, menu (Company stays on the rail); row 2: the speed control and the strip. */
+  .shell.acmi.compact-acmi .airline-pill { display: none; }
+  .shell.acmi.compact-acmi .clock { order: 1; }
+  .shell.acmi.compact-acmi .tb-right { order: 2; margin-left: auto; }
+  .shell.acmi.compact-acmi .speed { order: 3; }
+  .shell.acmi.compact-acmi .tb-strip { order: 4; flex: 1 1 0; height: 44px; }
+  .shell.acmi.compact-acmi .tb-cash .sl { display: none; }
+}
+.shell { overflow: hidden; }
+/* Up Next never runs past the map's right edge (a narrow window, a phone held upright). */
+.ops-next { max-width: calc(100% - var(--edge-l) - var(--edge-r) - 56px); }

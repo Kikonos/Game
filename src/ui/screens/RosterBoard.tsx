@@ -20,6 +20,7 @@ import { liveMinute, store, useThrottledNow } from '../store';
 import { useRenderCount } from './common';
 import { seatLabel } from '../../engine/core/perf';
 import { CAL_KEY_CODE, CAL_KEY_LABEL, calKey, calLayer, calLegend, type CalKey } from './crewLogic';
+import { cssRect, toCss } from '../device';
 import {
   BACK_DAYS, BOARD_DAYS, blockCands, blockKeys, boardItems, clientItems, itemsSig, rowSig, boardLayout, dayCodes, dayWidth, dayWindow, edgeSpeed, fitText, HEAD_H, itemAt, LEFT_W,
   monthCell, moraleTone, NO_BOARD_FILTER, ROLE_PLURAL, splitMark, verdictText, visibleRange, weekLabels, type BoardFilter, type BoardItem, type BoardZoom, type RankFilter,
@@ -406,12 +407,15 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
     if (!el) return;
     const rowEl = (id: string | null) => (id ? el.querySelector<HTMLElement>(`.rb-row[data-row="${CSS.escape(id)}"]`) : null);
 
+    // v0.12 pointer and rects are screen px; rows, the ghost and the bubble live in the page's px (Settings › Size).
     const hoverAt = (d: Drag) => {
-      const r = el.getBoundingClientRect();
+      const r = cssRect(el);
+      const x = toCss(d.x);
+      const y = toCss(d.y);
       let id: string | null = null;
-      if (d.x >= r.left && d.x < r.right && d.y >= r.top + HEAD_H && d.y < r.bottom) {
+      if (x >= r.left && x < r.right && y >= r.top + HEAD_H && y < r.bottom) {
         const { items: it, tops: t, total: tt } = live.current;
-        const i = itemAt(t, tt, d.y - r.top + el.scrollTop - HEAD_H);
+        const i = itemAt(t, tt, y - r.top + el.scrollTop - HEAD_H);
         const x = it[i];
         if (x && x.kind === 'crew') id = x.id;
       }
@@ -429,22 +433,25 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
 
     // Bubble above the ghost, below it in the top third of the grid; never over the source row.
     const place = (d: Drag) => {
-      if (d.ghost) d.ghost.style.transform = `translate(${d.x - d.offX}px, ${d.y - d.offY}px) scale(1.04)`;
+      const x = toCss(d.x);
+      const y = toCss(d.y);
+      if (d.ghost) d.ghost.style.transform = `translate(${x - d.offX}px, ${y - d.offY}px) scale(1.04)`;
       const bub = d.bubble;
       if (!bub) return;
-      const r = el.getBoundingClientRect();
-      const gTop = d.y - d.offY;
+      const r = cssRect(el);
+      const gTop = y - d.offY;
       const gBot = gTop + (d.ghost?.offsetHeight ?? 26) * 1.04;
       const bh = bub.offsetHeight || 34;
       const bw = bub.offsetWidth || 200;
       const above = gTop - 10 - bh;
       const below = gBot + 10;
-      const src = rowEl(d.crewId)?.getBoundingClientRect();
+      const srcEl = rowEl(d.crewId);
+      const src = srcEl ? cssRect(srcEl) : undefined;
       const hits = (t: number) => !!src && t < src.bottom && t + bh > src.top;
-      let top = d.y < r.top + HEAD_H + (r.height - HEAD_H) / 3 ? below : above;
+      let top = y < r.top + HEAD_H + (r.height - HEAD_H) / 3 ? below : above;
       if (hits(top)) top = top === above ? below : above;
-      bub.style.left = `${Math.round(Math.min(Math.max(d.x, bw / 2 + 8), window.innerWidth - bw / 2 - 8))}px`;
-      bub.style.top = `${Math.round(Math.max(4, Math.min(top, window.innerHeight - bh - 4)))}px`;
+      bub.style.left = `${Math.round(Math.min(Math.max(x, bw / 2 + 8), toCss(window.innerWidth) - bw / 2 - 8))}px`;
+      bub.style.top = `${Math.round(Math.max(4, Math.min(top, toCss(window.innerHeight) - bh - 4)))}px`;
     };
 
     const pickup = (d: Drag) => {
@@ -453,7 +460,7 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
       // The clock holds while a duty is in hand (the verdicts are taken once, at pick-up).
       store.holdTime = true;
       d.targets = dropTargets(gg, d.dutyId, d.crewId, sc);
-      const rect = d.el.getBoundingClientRect();
+      const rect = cssRect(d.el);
       const ghost = d.el.cloneNode(false) as HTMLElement;
       ghost.classList.add('rb-ghost');
       ghost.classList.remove('rb-thin');
@@ -467,8 +474,8 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
       ghost.style.top = '0px';
       ghost.style.width = `${gw}px`;
       ghost.style.height = `${gh}px`;
-      d.offX = Math.min(Math.max(0, d.x0 - rect.left), gw);
-      d.offY = Math.min(Math.max(0, d.y0 - rect.top), gh);
+      d.offX = Math.min(Math.max(0, toCss(d.x0) - rect.left), gw);
+      d.offY = Math.min(Math.max(0, toCss(d.y0) - rect.top), gh);
       const bubble = document.createElement('div');
       bubble.className = 'rb-bubble';
       document.body.append(ghost, bubble);
@@ -483,8 +490,8 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
       const tick = (now: number) => {
         const dt = Math.min(64, now - d.t) / 1000;
         d.t = now;
-        const r = el.getBoundingClientRect();
-        const v = edgeSpeed(d.y, r.top + HEAD_H, r.bottom);
+        const r = cssRect(el);
+        const v = edgeSpeed(toCss(d.y), r.top + HEAD_H, r.bottom);
         if (v) {
           el.scrollTop += v * dt;
           hoverAt(d);
@@ -631,7 +638,7 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
       const id = sumEl.dataset.sum!;
       const v = crewMonth(g, id, monthT);
       const cm = g.crew[id];
-      setPop({ x: e.clientX - 200, y: e.clientY, key: 'off', title: cm ? `${cm.first} ${cm.last}` : 'Month', detail: v.line });
+      setPop({ x: toCss(e.clientX) - 200, y: toCss(e.clientY), key: 'off', title: cm ? `${cm.first} ${cm.last}` : 'Month', detail: v.line });
       return;
     }
     const name = t.closest<HTMLElement>('[data-name]');
@@ -658,7 +665,7 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
     const as = slot && cm && slot.role !== cm.role ? `\nSeat: ${seatLabel(slot.role, cm.role)}` : '';
     const tk = b.kind === 'deadhead' && b.flightIds?.[0] ? g.flights[b.flightIds[0]] : undefined;
     const pass = tk && cm && tk.kind === 'deadhead' && !tk.charter ? { ticketId: tk.id, crewId: cm.id } : undefined;
-    setPop({ x: e.clientX, y: e.clientY, key: k, pass, title: b.kind === 'training' || b.kind === 'leave' || b.kind === 'rest' ? b.label : b.label === 'Free' ? 'Not rostered yet' : CAL_KEY_LABEL[k], detail: b.detail + as });
+    setPop({ x: toCss(e.clientX), y: toCss(e.clientY), key: k, pass, title: b.kind === 'training' || b.kind === 'leave' || b.kind === 'rest' ? b.label : b.label === 'Free' ? 'Not rostered yet' : CAL_KEY_LABEL[k], detail: b.detail + as });
   };
 
   const families = useMemo(() => [...new Set(Object.values(g.crew).flatMap((c) => c.ratings))].sort() as RatingFamily[], [g, nCrew, crev]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -795,7 +802,7 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
         <span className="tiny dim">{drag ? 'Drop on a green or amber row · red asks first · grey can’t take it' : 'Tap a duty to change its crew · long-press to drag it to someone else'}</span>
       </div>
       {pop && (
-        <div className={`rb-pop k-${pop.key}${pop.pass ? ' has-pass' : ''}`} style={{ left: Math.min(pop.x, window.innerWidth - (pop.pass ? 396 : 300)), top: Math.max(8, Math.min(pop.y + 12, window.innerHeight - (pop.pass ? 300 : 140))) }} onClick={() => setPop(null)}>
+        <div className={`rb-pop k-${pop.key}${pop.pass ? ' has-pass' : ''}`} style={{ left: Math.min(pop.x, toCss(window.innerWidth) - (pop.pass ? 396 : 300)), top: Math.max(8, Math.min(pop.y + 12, toCss(window.innerHeight) - (pop.pass ? 300 : 140))) }} onClick={() => setPop(null)}>
           <div className="row gap-8"><span className={`sc-cal-sw k-${pop.key}`} aria-hidden /><b className="small">{pop.title}</b></div>
           {(pop.pass ? pop.detail.split('\n').slice(0, 1) : pop.detail.split('\n')).map((l, i) => <div key={i} className="small muted">{l}</div>)}
           {pop.pass && g.crew[pop.pass.crewId] && <BoardingPasses g={g} ticketId={pop.pass.ticketId} crew={g.crew[pop.pass.crewId]} />}

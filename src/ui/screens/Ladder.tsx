@@ -11,6 +11,9 @@ import { ladder, RUNG0_TYPES, waitingFor, type ApprovalReq, type LadderNode } fr
 import { Bar, Card } from '../components/ui';
 import { money } from '../format';
 import { store } from '../store';
+import { cssRect } from '../device';
+
+type Box = ReturnType<typeof cssRect>;
 
 const shortOf = (ids: string[]) => ids.map((id) => typeOf(id)?.short ?? id);
 
@@ -79,12 +82,13 @@ export function LadderCard({ g }: { g: GameState }) {
     const el = box.current;
     if (!el) return;
     const measure = () => {
-      const o = el.getBoundingClientRect();
-      const at = (id: string) => el.querySelector<HTMLElement>(`[data-node="${id}"]`)?.getBoundingClientRect();
+      // v0.12 in the page's own px (Settings › Size zooms the page; rects are screen px).
+      const o = cssRect(el);
+      const at = (id: string) => { const n = el.querySelector<HTMLElement>(`[data-node="${id}"]`); return n ? cssRect(n) : undefined; };
       const out: Edge[] = [];
-      const cards = Array.from(el.querySelectorAll<HTMLElement>('[data-node]')).map((c) => c.getBoundingClientRect());
+      const cards = Array.from(el.querySelectorAll<HTMLElement>('[data-node]')).map((c) => cssRect(c));
       const f = (v: number) => v.toFixed(1);
-      const join = (a: DOMRect | undefined, b: DOMRect | undefined, held: boolean) => {
+      const join = (a: Box | undefined, b: Box | undefined, held: boolean) => {
         if (!a || !b) return;
         const x1 = a.right - o.left;
         const y1 = a.top + a.height / 2 - o.top;

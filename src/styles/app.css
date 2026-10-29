@@ -284,7 +284,7 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13px; }
   animation: fade-in 0.18s ease-out; overscroll-behavior: contain;
 }
 .modal {
-  width: min(560px, 100%); max-height: calc(var(--vv-h, 100dvh) - var(--vp-safe-t) - var(--vp-safe-b) - 32px); display: flex; flex-direction: column;
+  width: min(560px, 100%); max-height: calc(var(--vv-h, var(--app-h)) - var(--vp-safe-t) - var(--vp-safe-b) - 32px); display: flex; flex-direction: column;
   min-height: 0; overflow: hidden;
   background: linear-gradient(180deg, rgba(var(--surface-hi-rgb), 0.98), rgba(var(--surface-rgb), 0.98));
   border: 1px solid var(--border-strong); border-radius: 20px; box-shadow: 0 30px 80px rgba(var(--shade-rgb), calc(0.6 * var(--shade-k)));
@@ -308,7 +308,7 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13px; }
   display: flex; flex-direction: column; gap: 8px; pointer-events: none;
 }
 .toast {
-  pointer-events: auto; display: flex; gap: 10px; align-items: flex-start; width: 340px; max-width: calc(100vw - 20px); padding: 12px 14px; border-radius: 14px;
+  pointer-events: auto; display: flex; gap: 10px; align-items: flex-start; width: 340px; max-width: calc(var(--app-w) - 20px); padding: 12px 14px; border-radius: 14px;
   background: rgba(var(--panel-rgb), 0.96); border: 1px solid var(--border-strong); box-shadow: var(--shadow);
   animation: toast-in 0.3s var(--ease); font-size: 13px; cursor: default;
 }
@@ -331,7 +331,7 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13px; }
 }
 }
 .tap-tip {
-  position: fixed; z-index: 300; max-width: min(300px, calc(100vw - 20px)); padding: 8px 11px; border-radius: 10px;
+  position: fixed; z-index: 300; max-width: min(300px, calc(var(--app-w) - 20px)); padding: 8px 11px; border-radius: 10px;
   background: var(--c-bg-05080f); color: var(--text); border: 1px solid var(--border-strong); box-shadow: var(--shadow);
   font-size: 13px; line-height: 1.4; pointer-events: none; animation: fade-in 0.15s ease-out;
 }

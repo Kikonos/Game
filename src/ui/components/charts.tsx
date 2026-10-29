@@ -3,6 +3,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTouch } from '../useMedia';
+import { toCss } from '../device';
 
 function useWidth<T extends HTMLElement>(): [React.RefObject<T | null>, number] {
   const ref = useRef<T>(null);
@@ -12,7 +13,7 @@ function useWidth<T extends HTMLElement>(): [React.RefObject<T | null>, number] 
     if (!el) return;
     const ro = new ResizeObserver((e) => setW(e[0].contentRect.width));
     ro.observe(el);
-    setW(el.getBoundingClientRect().width);
+    setW(toCss(el.getBoundingClientRect().width));
     return () => ro.disconnect();
   }, []);
   return [ref, w];
@@ -36,7 +37,7 @@ function useReadout(ref: React.RefObject<HTMLElement | null>, pick: (px: number)
   }, [shown, ref]);
   const at = (e: React.PointerEvent<SVGRectElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
-    setHover(pick(e.clientX - r.left));
+    setHover(pick(toCss(e.clientX - r.left)));
   };
   const handlers = {
     onPointerDown: (e: React.PointerEvent<SVGRectElement>) => { if (e.pointerType !== 'mouse') at(e); },

@@ -2,6 +2,7 @@ import { AlertTriangle, CheckCircle2, Info, Trophy, XCircle } from 'lucide-react
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { store, useStore } from '../store';
 import { useTouch } from '../useMedia';
+import { toCss } from '../device';
 
 export function Toasts() {
   const s = useStore();
@@ -79,7 +80,7 @@ function TapTip() {
     const vw = window.innerWidth;
     const left = Math.min(vw - b.width - 10, Math.max(10, r.left + r.width / 2 - b.width / 2));
     const above = r.top - b.height - 8;
-    setPos({ left, top: above > 60 ? above : r.bottom + 8 });
+    setPos({ left: toCss(left), top: toCss(above > 60 ? above : r.bottom + 8) });
   }, [tip]);
 
   if (!tip) return null;

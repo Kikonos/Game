@@ -34,7 +34,7 @@
 .v8-company .sc-head .grow { min-width: 0; }
 .v8-split { display: grid; grid-template-columns: 460px minmax(0, 1fr); gap: 16px; align-items: start; }
 .v8-pane {
-  max-height: calc(100dvh - var(--topbar-h) - var(--safe-t, 0px) - var(--safe-b, 0px) - 128px); min-height: 320px;
+  max-height: calc(var(--app-h) - var(--topbar-h) - var(--safe-t, 0px) - var(--safe-b, 0px) - 128px); min-height: 320px;
   overflow-y: auto; overscroll-behavior: contain; padding: 0;
 }
 .v8-pane-r { padding: 16px 18px; }

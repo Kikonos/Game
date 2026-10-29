@@ -33,6 +33,7 @@ import { ALERT_CHIP, awaitingDelivery, chipInfo, commercialById, fitCodes, onMap
 import { EventPinsLayer, hatchUnit, ZoneGround, ZoneLabels } from './WorldLayer';
 import { type FocusAt, type MapAirport, type MapLayerCtx, type Pad, type View, WorldMap } from './WorldMap';
 import { HintNote } from '../components/ScreenHint';
+import { cssRect } from '../device';
 
 /** Panel width (px) kept clear when revealing a selection, and the fleet strip's height. */
 const PANEL_W = 360;
@@ -360,7 +361,7 @@ export function OpsMap() {
     if (s?.kind === 'event') {
       const card = document.querySelector('.ops-map .ops-next:not(.folded)');
       const map = document.querySelector('.ops-map');
-      if (card && map) top = Math.max(top, card.getBoundingClientRect().bottom - map.getBoundingClientRect().top + 12);
+      if (card && map) top = Math.max(top, cssRect(card).bottom - cssRect(map).top + 12);
     }
     return [top, s ? PANEL_W + 40 : 12, STRIP_H + 8, 12];
   }, []);
