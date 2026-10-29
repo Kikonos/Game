@@ -1,0 +1,212 @@
+// v0.11.2 crew sets review (29 Oct 2026, the player: "it still shows weird numbers and sets, especially when flight
+// attendants hold multiple types"): built fleets where the Planning view, the Hire view, Round up, the peak forecast
+// and the offer crew check must agree, each person counted once.
+
+import { describe, expect, it } from 'vitest';
+import { devMixedCrew } from '../contracts/missions';
+import { addAircraft, newGame } from '../contracts/testkit';
+import { DAY } from '../core/time';
+import type { GameState, Role } from '../core/types';
+import { crewDays } from './forecast';
+import { addCrew } from './fixtures';
+import { crewAvailability, staffing } from './hr';
+import { crewPlan, roundTargets, type FamilyPlan } from './sets';
+
+/** Two A320s (180Y: 1 CPT + 1 FO + 1 PUR + 3 CC), no crew, no extra cabin crew. */
+const twoA320 = (): GameState => {
+  const g = newGame(11);
+  for (const id of Object.keys(g.crew)) delete g.crew[id];
+  for (const ac of Object.values(g.fleet)) ac.cabin = { j: 0, w: 0, y: 180, total: 180, label: '180Y', layout: 'all-economy' };
+  g.company.policies.extraCabin = 0;
+  g.company.cash = 50_000_000;
+  return g;
+};
+/** Only aircraft of these types (each at home base, its default cabin). */
+const fleetOf = (...types: string[]): GameState => {
+  const g = twoA320();
+  const old = Object.keys(g.fleet);
+  for (const t of types) addAircraft(g, t);
+  for (const id of old) delete g.fleet[id];
+  return g;
+};
+const plan = (g: GameState, f: string): FamilyPlan => crewPlan(g).find((p) => p.family === f)!;
+const row = (g: GameState, f: string, r: Role) => plan(g, f).roles.find((x) => x.role === r)!;
+const line = (g: GameState, f: string, r: Role) => staffing(g).find((l) => l.family === f && l.role === r)!;
+const rate = (ids: string[], g: GameState, ratings: string[]) => { for (const id of ids) g.crew[id].ratings = ratings as never; };
+
+/** The Hire view's have per role is the Planning view's (relief pilots with the first officers), every family. */
+function agree(g: GameState) {
+  for (const p of crewPlan(g)) {
+    const have = (r: Role) => p.roles.find((x) => x.role === r)?.have ?? 0;
+    for (const r of ['CPT', 'PUR', 'CC'] as Role[]) {
+      const l = staffing(g).find((x) => x.family === p.family && x.role === r);
+      if (l) expect(l.have, `${p.family} ${r}`).toBe(have(r));
+    }
+    const fo = staffing(g).find((x) => x.family === p.family && x.role === 'FO');
+    if (fo) expect(fo.have, `${p.family} FO`).toBe(have('FO') + have('CRP'));
+  }
+}
+
+/** Fake augmented days on an aircraft: `n` duties over the next days, every other one with `level` relief pilots. */
+function augmented(g: GameState, acId: string, level: 1 | 2, n = 10) {
+  const dutyIds: string[] = [];
+  for (let i = 0; i < n; i++) {
+    const id = `dx${i}`;
+    (g.duties as Record<string, unknown>)[id] = { id, pairingId: 'px', report: g.now + (i + 1) * DAY, release: g.now + (i + 1) * DAY + 600, augment: i % 2 ? level : 0, flightIds: [], deadheadIds: [] };
+    dutyIds.push(id);
+  }
+  (g.pairings as Record<string, unknown>).px = { id: 'px', aircraftId: acId, contractId: null, deploymentId: null, base: g.company.homeBase, start: g.now, end: g.now + (n + 1) * DAY, dutyIds, slots: [], status: 'planned' };
+}
+
+describe('sets review: 777 + 787 with pilots on both (common type rating)', () => {
+  /** One 777 and one 787; 3 777-only captains and FOs, 4 of each on both types (hired for the 777). */
+  const ccq = () => {
+    const g = fleetOf('b772', 'b788');
+    addCrew(g, { CPT: 3, FO: 3, PUR: 5, CC: 40 }, 'B777');
+    addCrew(g, { PUR: 5, CC: 30 }, 'B787');
+    rate(addCrew(g, { CPT: 4, FO: 4 }, 'B777'), g, ['B777', 'B787']);
+    return g;
+  };
+
+  it('Planning: 7 captains for 10 seats: the 777 complete, the 787 short 3 captains and 3 first officers', () => {
+    const g = ccq();
+    expect(plan(g, 'B777')).toMatchObject({ setsNeeded: 5, setsComplete: 5 });
+    expect(plan(g, 'B787')).toMatchObject({ setsNeeded: 5, setsComplete: 2, verdict: 'Short: 3 CPT, 3 FO' });
+  });
+
+  it('Hire view: each pilot counted once, as Planning (was in both families: "787 CPT 4 of 5" for 3 short)', () => {
+    const g = ccq();
+    agree(g);
+    expect(line(g, 'B777', 'CPT')).toMatchObject({ have: 5, need: 5, shared: 2 });
+    expect(line(g, 'B787', 'CPT')).toMatchObject({ have: 2, need: 5, shared: 2 });
+    expect(staffing(g).filter((l) => l.role === 'CPT').reduce((s, l) => s + l.have, 0)).toBe(7);
+  });
+
+  it('peak forecast: each pilot gives their days to one family only', () => {
+    const g = ccq();
+    const from = g.now + 40 * DAY;
+    const days = crewDays(g, from, from + DAY);
+    const one = days.get('B777')!.CPT / 5;
+    expect(days.get('B787')!.CPT).toBeCloseTo(one * 2, 5);
+  });
+});
+
+describe('sets review: relief pilots on the books (augmented 777)', () => {
+  it('Hire view counts the relief pilots in the first officers line, whose need holds their seats (was "FO 5 of 8")', () => {
+    const g = fleetOf('b772');
+    augmented(g, Object.keys(g.fleet)[0], 1);
+    addCrew(g, { CPT: 5, FO: 5, CRP: 3, PUR: 5, CC: 35 }, 'B777');
+    expect(plan(g, 'B777')).toMatchObject({ setsComplete: 5, verdict: 'Complete' });
+    expect(row(g, 'B777', 'CRP')).toMatchObject({ have: 3, need: 3, balance: 0 });
+    expect(line(g, 'B777', 'FO')).toMatchObject({ have: 8, need: 8 });
+    agree(g);
+  });
+});
+
+describe('sets review: A320 + A330 with cabin crew on both, hired for either', () => {
+  /** A320 family 3 CC short and the A330 5 short of single-type crew; 5 A320 hires and 4 A330 hires hold both. */
+  const both = () => {
+    const g = twoA320();
+    addAircraft(g, 'a332');
+    addCrew(g, { CPT: 10, FO: 10, PUR: 10, CC: 27 });
+    rate(addCrew(g, { CC: 5 }), g, ['A320', 'A330/340']);
+    addCrew(g, { CPT: 5, FO: 5, PUR: 5, CC: 30 }, 'A330/340');
+    rate(addCrew(g, { CC: 4 }, 'A330/340'), g, ['A330/340', 'A320']);
+    return g;
+  };
+
+  it('Planning and the Hire view put each dual-rated person in the same family (were 31/35 vs 30/36)', () => {
+    const g = both();
+    expect(row(g, 'A320', 'CC')).toMatchObject({ have: 31, need: 30, shared: 4 });
+    expect(row(g, 'A330/340', 'CC')).toMatchObject({ have: 35, need: 35, shared: 5 });
+    agree(g);
+    expect(line(g, 'A320', 'CC').shared).toBe(4);
+    expect(line(g, 'A330/340', 'CC').shared).toBe(5);
+    expect(staffing(g).filter((l) => l.role === 'CC').reduce((s, l) => s + l.have, 0)).toBe(66);
+  });
+
+  it('backup lines: one A320 hire counted on the A330 is shown as hired for the A320, not "where they were hired"', () => {
+    const g = both();
+    const wide = plan(g, 'A330/340');
+    expect(wide.alsoRated).toEqual([
+      { family: 'A320', label: 'A320 family', cabin: 4, pilots: 0 },
+      { family: 'A320', label: 'A320 family', cabin: 1, pilots: 0, spill: true },
+    ]);
+    expect(plan(g, 'A320').backupFrom).toEqual([
+      { family: 'A330/340', label: 'A330/A340', cabin: 4, pilots: 0 },
+      { family: 'A330/340', label: 'A330/A340', cabin: 1, pilots: 0, spill: true },
+    ]);
+  });
+});
+
+describe('sets review: spare pursers fly cabin crew seats', () => {
+  /** 12 pursers and 28 cabin crew for 10 A320 sets: complete (two pursers in cabin crew seats). */
+  const pursers = () => {
+    const g = twoA320();
+    addCrew(g, { CPT: 10, FO: 10, PUR: 12, CC: 28 });
+    return g;
+  };
+
+  it('the card is complete and the cabin crew row is not "short 2" (2 pursers fill the seats)', () => {
+    const g = pursers();
+    expect(plan(g, 'A320')).toMatchObject({ setsComplete: 10, verdict: 'Complete' });
+    expect(row(g, 'A320', 'CC')).toMatchObject({ have: 28, need: 30, balance: 0, covered: 2 });
+    expect(row(g, 'A320', 'PUR')).toMatchObject({ have: 12, balance: 2, covered: 2 });
+    expect(line(g, 'A320', 'CC')).toMatchObject({ have: 28, need: 30, covered: 2 });
+  });
+
+  it('Round up has nothing to offer (was "Round up to 12 sets": 2 CPT, 2 FO and 8 CC for two pursers)', () => {
+    const g = pursers();
+    expect(roundTargets(plan(g, 'A320'))).toEqual({ complete: null, next: null, spare: 11 });
+    // a captain and first officer more: the 11th set needs 4 cabin crew only
+    addCrew(g, { CPT: 1, FO: 1 });
+    expect(roundTargets(plan(g, 'A320')).next).toBe(11);
+  });
+
+  it('a dual-rated cabin crew member is not kept home for a seat a spare purser fills: they go to the A330 gap', () => {
+    const g = pursers();
+    addAircraft(g, 'a332');
+    addCrew(g, { CPT: 5, FO: 5, PUR: 5, CC: 20 }, 'A330/340');
+    rate(addCrew(g, { CC: 4 }), g, ['A320', 'A330/340']);
+    expect(row(g, 'A320', 'CC')).toMatchObject({ have: 28, balance: 0, covered: 2 });
+    expect(row(g, 'A330/340', 'CC')).toMatchObject({ have: 24, shared: 4 });
+    agree(g);
+  });
+
+  it('"limited by" names the role that runs out with the pursers in cabin seats (was cabin crew, covered by pursers)', () => {
+    const g = twoA320();
+    addCrew(g, { CPT: 9, FO: 10, PUR: 13, CC: 26 });
+    expect(plan(g, 'A320')).toMatchObject({ setsComplete: 9, limiting: 'CPT' });
+  });
+});
+
+describe('sets review: a mixed-crew contract', () => {
+  it('fully crewed for whole sets: Round up has nothing to offer (was "Round up to 14 sets" with 10 needed)', () => {
+    const g = twoA320();
+    addCrew(g, { CPT: 10, FO: 10, PUR: 10, CC: 30 });
+    expect(devMixedCrew(g)).not.toBe('');
+    const p = plan(g, 'A320');
+    expect(p.roles.find((r) => r.role === 'CC')!.need).toBeLessThan(30);
+    expect(p).toMatchObject({ setsNeeded: 10, setsComplete: 10 });
+    expect(roundTargets(p)).toMatchObject({ complete: null, next: null });
+  }, 120_000);
+});
+
+describe('sets review: the offer crew check counts dual-rated crew once', () => {
+  it('A320 hires on both types the A320 family needs are not free crew for an A330 offer', () => {
+    const g = twoA320();
+    addAircraft(g, 'a332');
+    addCrew(g, { CPT: 10, FO: 10, PUR: 10, CC: 26 });
+    const duals = addCrew(g, { CC: 4 });
+    addCrew(g, { CPT: 5, FO: 5, PUR: 5, CC: 20 }, 'A330/340');
+    const from = g.now + 10 * DAY;
+    const free = () => crewAvailability(g, 'A330/340', 'a332', from, from + 30 * DAY, 100).byRole.CC!.free;
+    const single = free();
+    rate(duals, g, ['A320', 'A330/340']);
+    // counted in the A320 family's sets (it is short without them): no extra A330 supply
+    expect(free()).toBe(single);
+    // the A320 family full without them: they count for the A330
+    addCrew(g, { CC: 4 });
+    expect(free()).toBeGreaterThan(single);
+  });
+});

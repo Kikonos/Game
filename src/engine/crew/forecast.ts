@@ -265,8 +265,9 @@ export function crewDays(g: GameState, from: Minute, to: Minute): Map<RatingFami
   const onto = new Map<string, { family: RatingFamily; end: Minute }>();
   for (const k of conversionClasses(g)) for (const id of k.crewIds) if (!g.crew[id]?.ratings.includes(k.family)) onto.set(id, { family: k.family, end: k.end });
   for (const c of Object.values(g.crew).sort((a, b) => (a.id < b.id ? -1 : 1))) {
-    // On notice: counted where they fly until their last day (their hire family for cabin crew).
-    const fams = c.notice ? (isPilot(c.role) ? c.ratings : c.ratings.slice(0, 1)) : homeOf.get(c.id) ?? [];
+    // On notice: counted where they fly until their last day, once (the first type they hold in the fleet). v0.11.2
+    // fix: everyone counted once, as staffing() (pilots on two types were counted in both families).
+    const fams = c.notice ? c.ratings.filter((f) => fleet.has(f)).slice(0, 1) : homeOf.get(c.id) ?? [];
     const role: Role = c.role === 'CRP' ? 'FO' : c.role;
     const joins = c.status === 'joining' ? c.hired : -Infinity;
     for (const f of fams) if (fleet.has(f)) famOf(f)[role] += supplyDays(g, c, f, from, to, joins);

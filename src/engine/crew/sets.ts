@@ -48,6 +48,13 @@ export interface SetRole {
   shared: number;
   /** have − need after seniors fill junior seats (FO → relief pilot, purser → cabin crew): < 0 short, > 0 over. */
   balance: number;
+  /**
+   * v0.11.2 seats of this role in the sets needed that spare seniors fill (pursers in cabin crew seats, first officers
+   * in relief pilot seats; counted in `balance`); on the senior role, how many of its spare fill them.
+   */
+  covered: number;
+  /** v0.11.2 crew in one set with the client's own cabin crew seats as ours (whole sets for the round-up). */
+  perSetAll: number;
 }
 
 export interface TypeSet {
@@ -80,9 +87,12 @@ export interface FamilyPlan {
   roles: SetRole[];
   /** v0.9: 'Short: 2 CPT, 1 PUR, 2 CC' / 'Complete · 2 spare' (the tiles above show the rest). */
   verdict: string;
-  /** v0.11 crew counted here who also hold another fleet type (a backup there; counted here only). */
+  /**
+   * v0.11 crew counted here who also hold another fleet type (a backup there; counted here only). `spill`: crew hired
+   * for `family` counted here because it has all it needs.
+   */
   alsoRated: Backup[];
-  /** v0.11 crew counted in another family who also hold this one (a backup here; counted there only). */
+  /** v0.11 crew counted in another family who also hold this one (a backup here; counted there only). `spill`: hired here. */
   backupFrom: Backup[];
 }
 
@@ -169,10 +179,11 @@ export function familyNeeds(g: GameState) {
     if (dp.end < g.now || dp.start > g.now + WINDOW) continue;
     onStation.set(dp.aircraftId, Math.max(onStation.get(dp.aircraftId) ?? 0, dp.setsOnStation));
   }
-  const fams = new Map<RatingFamily, { aircraft: number; sets: number; need: Partial<Record<Role, number>>; types: Map<string, TypeSet>; aug: boolean; client: number; dry: number }>();
+  // v0.11.2 `full`: the need with the client's cabin crew seats as ours (whole sets for the round-up).
+  const fams = new Map<RatingFamily, { aircraft: number; sets: number; need: Partial<Record<Role, number>>; full: Partial<Record<Role, number>>; types: Map<string, TypeSet>; aug: boolean; client: number; dry: number }>();
   const famOf = (f: RatingFamily) => {
     let x = fams.get(f);
-    if (!x) fams.set(f, (x = { aircraft: 0, sets: 0, need: {}, types: new Map<string, TypeSet>(), aug: false, client: 0, dry: 0 }));
+    if (!x) fams.set(f, (x = { aircraft: 0, sets: 0, need: {}, full: {}, types: new Map<string, TypeSet>(), aug: false, client: 0, dry: 0 }));
     return x;
   };
   const dryAway: Aircraft[] = [];
@@ -201,16 +212,17 @@ export function familyNeeds(g: GameState) {
     for (const r of SET_ROLES) {
       const own = (per[r] ?? 0) - (theirs[r] ?? 0);
       if (own > 0) f.need[r] = (f.need[r] ?? 0) + own * sets;
+      if (per[r]) f.full[r] = (f.full[r] ?? 0) + per[r]! * sets;
       f.client += (theirs[r] ?? 0) * sets;
     }
     // Long days flown with 3 or 4 pilots: relief pilots (or a second captain and first officer) for that share of the sets.
     const a = augOf(g, ac.id);
     if (a.level) {
       const extra = Math.ceil(sets * a.share - 1e-9);
-      if (a.level === 1) f.need.CRP = (f.need.CRP ?? 0) + extra;
-      else {
-        f.need.CPT = (f.need.CPT ?? 0) + extra;
-        f.need.FO = (f.need.FO ?? 0) + extra;
+      const roles: Role[] = a.level === 1 ? ['CRP'] : ['CPT', 'FO'];
+      for (const r of roles) {
+        f.need[r] = (f.need[r] ?? 0) + extra;
+        f.full[r] = (f.full[r] ?? 0) + extra;
       }
       f.aug = true;
     }
@@ -226,8 +238,18 @@ export function familyNeeds(g: GameState) {
   return fams;
 }
 
-/** One family's crew on another family's rating, for the card's backup line. */
-export interface Backup { family: RatingFamily; label: string; cabin: number; pilots: number }
+/**
+ * One family's crew on another family's rating, for the card's backup line. v0.11.2 `spill`: crew counted away from
+ * the family they were hired for (it has all it needs): on the card where they are counted, `family` is the family
+ * they were hired for; on that family's card, `family` is where they are counted.
+ */
+export interface Backup { family: RatingFamily; label: string; cabin: number; pilots: number; spill?: true }
+
+/** Senior roles that fill a junior role's seats in the sets (first officers relief pilot seats, pursers cabin crew seats). */
+const SENIOR: Partial<Record<Role, Role>> = { CRP: 'FO', CC: 'PUR' };
+
+/** The family each person is counted in (crew/hr.ts staffing() and the peak forecast use the same). */
+export type CrewHomes = Map<string, RatingFamily>;
 
 /**
  * Crew per family and role, each person once. v0.11 fix: a person on several types counts first in their HOME family
@@ -237,8 +259,12 @@ export interface Backup { family: RatingFamily; label: string; cabin: number; pi
  * widebody rating filled the widebody's sets and Round up offered the same A320 hires again. Single-type crew and
  * saves without multi-type crew count exactly as before. Also returns, per family, who is counted there while also
  * holding another fleet type (`backups`: the flexibility, never counted twice).
+ * v0.11.2 fixes: a family's need for a role counts the spare seniors who fill its seats (pursers beyond their own
+ * need fly cabin crew seats, first officers relief pilot seats), so a multi-type cabin crew member is not kept home
+ * for a seat a spare purser already fills; the seniors are placed first (roles in set order, then oldest first).
+ * `homes`: the family each person is counted in (Hire view, peak forecast and offer checks count crew the same way).
  */
-function supply(g: GameState, fams: Map<RatingFamily, { need: Partial<Record<Role, number>> }>) {
+export function crewSupply(g: GameState, fams: Map<RatingFamily, { need: Partial<Record<Role, number>> }>) {
   const losing = new Map<string, RatingFamily[]>();
   for (const k of conversionClasses(g)) {
     for (const id of k.crewIds) {
@@ -250,32 +276,42 @@ function supply(g: GameState, fams: Map<RatingFamily, { need: Partial<Record<Rol
   }
   type Cell = { have: number; joining: number; away: number; shared: number };
   const out = new Map<string, Cell>();
+  const homes: CrewHomes = new Map();
   const cell = (f: RatingFamily, r: Role) => {
     const k = `${f}:${r}`;
     let x = out.get(k);
     if (!x) out.set(k, (x = { have: 0, joining: 0, away: 0, shared: 0 }));
     return x;
   };
-  const backups = new Map<RatingFamily, Map<RatingFamily, { cabin: number; pilots: number }>>();
+  const backups = new Map<RatingFamily, Map<string, Backup>>();
+  const note = (on: RatingFamily, o: RatingFamily, pilot: boolean, spill: boolean) => {
+    const m = backups.get(on) ?? new Map<string, Backup>();
+    backups.set(on, m);
+    const key = `${o}:${spill ? 1 : 0}`;
+    const b = m.get(key) ?? { family: o, label: LABEL[o], cabin: 0, pilots: 0, ...(spill ? { spill: true as const } : {}) };
+    if (pilot) b.pilots++;
+    else b.cabin++;
+    m.set(key, b);
+  };
   const add = (f: RatingFamily, c: GameState['crew'][string], fs: RatingFamily[]) => {
     const x = cell(f, c.role);
     x.have++;
+    homes.set(c.id, f);
     if (c.status === 'joining') x.joining++;
     else if (c.status === 'sick' || c.status === 'leave' || c.status === 'training') x.away++;
     if (fs.length > 1) {
       x.shared++;
-      const m = backups.get(f) ?? new Map<RatingFamily, { cabin: number; pilots: number }>();
-      backups.set(f, m);
-      for (const o of fs) {
-        if (o === f) continue;
-        const b = m.get(o) ?? { cabin: 0, pilots: 0 };
-        if (isPilot(c.role)) b.pilots++;
-        else b.cabin++;
-        m.set(o, b);
-      }
+      // Counted away from the family they were hired for: one 'spill' line (by that family); else each other rating.
+      if (f !== fs[0]) note(f, fs[0], isPilot(c.role), true);
+      else for (const o of fs) if (o !== f) note(f, o, isPilot(c.role), false);
     }
   };
-  const gap = (f: RatingFamily, r: Role) => Math.ceil((fams.get(f)!.need[r] ?? 0) - 1e-9) - (out.get(`${f}:${r}`)?.have ?? 0);
+  const need = (f: RatingFamily, r: Role) => Math.ceil((fams.get(f)!.need[r] ?? 0) - 1e-9);
+  const gap = (f: RatingFamily, r: Role) => {
+    const up = SENIOR[r];
+    const spare = up ? Math.max(0, (out.get(`${f}:${up}`)?.have ?? 0) - need(f, up)) : 0;
+    return need(f, r) - (out.get(`${f}:${r}`)?.have ?? 0) - spare;
+  };
   const multi: { c: GameState['crew'][string]; fs: RatingFamily[] }[] = [];
   for (const c of Object.values(g.crew).sort((a, b) => (a.id < b.id ? -1 : 1))) {
     if (c.notice) continue;
@@ -284,7 +320,9 @@ function supply(g: GameState, fams: Map<RatingFamily, { need: Partial<Record<Rol
     if (fs.length === 1) add(fs[0], c, fs);
     else multi.push({ c, fs });
   }
-  // Home first (the first rating still held in the fleet), oldest first; the rest wait to spill.
+  // Seniors first (they fill the juniors' seats), then oldest first.
+  multi.sort((a, b) => SET_ROLES.indexOf(a.c.role) - SET_ROLES.indexOf(b.c.role));
+  // Home first (the first rating still held in the fleet); the rest wait to spill.
   const spill: typeof multi = [];
   for (const m of multi) {
     if (gap(m.fs[0], m.c.role) > 0) add(m.fs[0], m.c, m.fs);
@@ -302,7 +340,7 @@ function supply(g: GameState, fams: Map<RatingFamily, { need: Partial<Record<Rol
     }
     add(best, c, fs);
   }
-  return { cells: out, backups };
+  return { cells: out, backups, homes };
 }
 
 /** Can `have` crew per role fill `t` sets of `perSet` (first officers fill relief pilot seats, pursers cabin crew seats)? */
@@ -310,10 +348,14 @@ export function setsFit(perSet: Partial<Record<Role, number>>, have: Partial<Rec
   return missingFor(perSet, have, t).every((m) => m.count === 0);
 }
 
-/** Crew to hire per role for `t` complete sets (seniors spilling into junior seats first). Pure. */
-export function missingFor(perSet: Partial<Record<Role, number>>, have: Partial<Record<Role, number>>, t: number): { role: Role; count: number }[] {
+/**
+ * Crew left over per role after filling `t` complete sets (< 0: short), seniors spilling into junior seats first, and
+ * how many seniors sit in each junior role's seats (`moved`, by the junior role). Pure.
+ */
+export function leftover(perSet: Partial<Record<Role, number>>, have: Partial<Record<Role, number>>, t: number): { left: Record<Role, number>; moved: Partial<Record<Role, number>> } {
   const want = (r: Role) => Math.ceil((perSet[r] ?? 0) * t - 1e-9);
-  const left: Record<string, number> = {};
+  const left = {} as Record<Role, number>;
+  const moved: Partial<Record<Role, number>> = {};
   for (const r of SET_ROLES) left[r] = (have[r] ?? 0) - want(r);
   // FO → relief pilot, purser → cabin crew.
   for (const [from, to] of [['FO', 'CRP'], ['PUR', 'CC']] as const) {
@@ -321,8 +363,15 @@ export function missingFor(perSet: Partial<Record<Role, number>>, have: Partial<
       const m = Math.min(left[from], -left[to]);
       left[from] -= m;
       left[to] += m;
+      moved[to] = m;
     }
   }
+  return { left, moved };
+}
+
+/** Crew to hire per role for `t` complete sets (seniors spilling into junior seats first). Pure. */
+export function missingFor(perSet: Partial<Record<Role, number>>, have: Partial<Record<Role, number>>, t: number): { role: Role; count: number }[] {
+  const { left } = leftover(perSet, have, t);
   return SET_ROLES.map((r) => ({ role: r, count: Math.max(0, -left[r]) }));
 }
 
@@ -343,11 +392,13 @@ export function completeSets(perSet: Partial<Record<Role, number>>, have: Partia
 /** v0.7.4 the Crew planning view, one entry per fleet family (largest fleet first). Pure. */
 export function crewPlan(g: GameState): FamilyPlan[] {
   const fams = familyNeeds(g);
-  const { cells: sup, backups } = supply(g, fams);
+  const { cells: sup, backups } = crewSupply(g, fams);
   const out: FamilyPlan[] = [];
   for (const [family, f] of fams) {
     const perSet: Partial<Record<Role, number>> = {};
     for (const r of SET_ROLES) if (f.need[r]) perSet[r] = f.need[r]! / f.sets;
+    const perAll: Partial<Record<Role, number>> = {};
+    for (const r of SET_ROLES) if (f.full[r]) perAll[r] = f.full[r]! / f.sets;
     const have: Partial<Record<Role, number>> = {};
     const now: Partial<Record<Role, number>> = {};
     for (const r of SET_ROLES) {
@@ -358,23 +409,36 @@ export function crewPlan(g: GameState): FamilyPlan[] {
     const setsComplete = completeSets(perSet, have);
     const setsNow = completeSets(perSet, now);
     const miss = missingFor(perSet, have, f.sets);
+    // v0.11.2 spare seniors in junior seats (the table shows them; the junior role is not short for those seats).
+    const { moved } = leftover(perSet, have, f.sets);
     const roles: SetRole[] = [];
     for (const r of SET_ROLES) {
       const x = sup.get(`${family}:${r}`) ?? { have: 0, joining: 0, away: 0, shared: 0 };
       const need = Math.ceil((f.need[r] ?? 0) - 1e-9);
       if (!need && !x.have) continue;
       const short = miss.find((m) => m.role === r)!.count;
-      roles.push({ role: r, perSet: perSet[r] ?? 0, need, have: x.have, joining: x.joining, away: x.away, shared: x.shared, balance: short ? -short : x.have - need });
+      // v0.11.2 fix: a junior role whose seats spare seniors fill is not short for them (was: 'short 2' cabin crew on a
+      // complete card with 2 spare pursers).
+      const inSeats = moved[r] ?? 0;
+      const lent = r === 'FO' ? moved.CRP ?? 0 : r === 'PUR' ? moved.CC ?? 0 : 0;
+      roles.push({ role: r, perSet: perSet[r] ?? 0, need, have: x.have, joining: x.joining, away: x.away, shared: x.shared, balance: short ? -short : x.have + inSeats - need, covered: inSeats || lent, perSetAll: perAll[r] ?? perSet[r] ?? 0 });
     }
-    // The role that runs out first (the fewest whole sets on its own).
+    // The role that runs out first (the fewest whole sets with the seniors filling its seats). v0.11.2 fix: was each
+    // role on its own, so 'limited by cabin crew' showed when spare pursers covered them and another role ran out.
     let limiting: Role | null = null;
     let lim = Infinity;
     for (const r of SET_ROLES) {
-      const p = perSet[r] ?? 0;
-      if (!p) continue;
-      const own = Math.floor((have[r] ?? 0) / p + 1e-9);
-      if (own < lim) {
-        lim = own;
+      if (!(perSet[r] ?? 0)) continue;
+      const ok = (t: number) => missingFor(perSet, have, t).find((m) => m.role === r)!.count === 0;
+      let lo = 0;
+      let hi = 500;
+      while (lo < hi) {
+        const mid = Math.ceil((lo + hi) / 2);
+        if (ok(mid)) lo = mid;
+        else hi = mid - 1;
+      }
+      if (lo < lim) {
+        lim = lo;
         limiting = r;
       }
     }
@@ -387,8 +451,8 @@ export function crewPlan(g: GameState): FamilyPlan[] {
     out.push({
       family, label: LABEL[family], aircraft: f.aircraft, types: [...f.types.values()], setsPerAircraft: each, setsNeeded: f.sets, setsNow, setsComplete,
       limiting: setsComplete >= f.sets ? null : limiting, augmented: f.aug, clientCabin: Math.round(f.client), dryLeased: f.dry, roles, verdict,
-      alsoRated: [...(backups.get(family) ?? [])].map(([o, b]) => ({ family: o, label: LABEL[o], ...b })),
-      backupFrom: [...backups].flatMap(([home, m]) => (home !== family && m.get(family) ? [{ family: home, label: LABEL[home], ...m.get(family)! }] : [])),
+      alsoRated: [...(backups.get(family)?.values() ?? [])].map((b) => ({ ...b })),
+      backupFrom: [...backups].flatMap(([counted, m]) => (counted === family ? [] : [...m.values()].filter((b) => b.family === family).map((b) => ({ ...b, family: counted, label: LABEL[counted] })))),
     });
   }
   return out.sort((a, b) => b.aircraft - a.aircraft || a.label.localeCompare(b.label));
@@ -403,8 +467,19 @@ export function crewPlan(g: GameState): FamilyPlan[] {
 export function roundTargets(p: FamilyPlan): { complete: number | null; next: number | null; spare: number } {
   const complete = p.setsComplete < p.setsNeeded ? p.setsNeeded : null;
   const held = Math.max(p.setsNeeded, p.setsComplete);
+  // v0.11.2 fix: what is left after the held sets, with spare pursers in cabin crew seats (first officers in relief
+  // seats) and whole sets (a client's own cabin crew seats counted as ours). Was each role on its own against the
+  // set without the client's seats: 2 spare pursers covering 2 cabin crew seats offered 'Round up to 12 sets' on a
+  // complete A320 family, and a mixed-crew contract 'Round up to 14 sets' with 10 needed and complete.
+  const per: Partial<Record<Role, number>> = {};
+  const have: Partial<Record<Role, number>> = {};
+  for (const r of p.roles) {
+    per[r.role] = Math.max(r.perSet, r.perSetAll ?? 0);
+    have[r.role] = r.have;
+  }
+  const { left } = leftover(per, have, held);
   let next = held;
-  for (const r of p.roles) if (r.perSet > 0) next = Math.max(next, Math.ceil(r.have / r.perSet - 1e-9));
+  for (const r of SET_ROLES) if ((per[r] ?? 0) > 0 && left[r] > 0) next = Math.max(next, held + Math.ceil(left[r] / per[r]! - 1e-9));
   return { complete, next: next > held ? next : null, spare: held + 1 };
 }
 
