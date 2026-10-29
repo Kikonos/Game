@@ -68,13 +68,16 @@ function Clock() {
   );
 }
 
+/** v0.12 keys 1, 2 and 4 pick the speed they name (3 stays 4×, the third button, as before). */
+const SPEED_KEYS: Record<string, GameSpeed> = { 1: SPEEDS[0], 2: SPEEDS[1], 3: SPEEDS[2], 4: SPEEDS[2] };
+
 /** Pause + labelled speeds (1× 2× 4×); static amber while a decision holds time. */
 function SpeedControl() {
   const s = useStore();
   const hover = useMedia('(hover: hover)');
   const blocked = s.blocked;
   const running = !s.paused && !blocked;
-  const hint = blocked ? 'Time is paused until you decide' : hover ? 'Space: pause · 1–3: speed' : undefined;
+  const hint = blocked ? 'Time is paused until you decide' : hover ? 'Space: pause · 1, 2, 4: speed' : undefined;
   return (
     <div className={`speed ${blocked ? 'blocked' : ''}`} role="group" aria-label="Game speed" title={hint}>
       <button className={`sp-pause ${running ? '' : 'on'}`} onClick={() => s.togglePause()} aria-label={s.paused ? 'Resume' : 'Pause'} aria-pressed={!running}>
@@ -230,14 +233,17 @@ export function Shell() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      const el = e.target as HTMLElement | null;
+      const tag = el?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable) return;
+      // v0.12 ⌘1 / Ctrl+1 belong to the browser (tabs), and a held key repeats nothing here.
+      if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
       if (e.code === 'Space') {
         e.preventDefault();
         (document.activeElement as HTMLElement | null)?.blur?.();
         store.togglePause();
-      } else if (['1', '2', '3'].includes(e.key) && !store.modal) {
-        store.setSpeed(SPEEDS[Number(e.key) - 1] as GameSpeed);
+      } else if (SPEED_KEYS[e.key] && !store.modal) {
+        store.setSpeed(SPEED_KEYS[e.key]);
       } else if (e.key === 'Escape' && !store.modal) {
         store.openModal({ kind: 'menu' });
       }

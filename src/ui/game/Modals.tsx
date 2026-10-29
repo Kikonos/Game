@@ -35,6 +35,7 @@ import { TripMoveModal } from '../modals/TripMoveModal';
 import { MaintMoveModal } from '../modals/MaintMoveModal';
 import { ClientModal, OutlookModal, RivalModal, WorldEventModal } from '../modals/V08Modals';
 import { CURRENT } from '../../data/whatsNew';
+import { DEVICE_NAME, deviceLabel, deviceNow, type DevicePref, detectedDevice, INPUT_NAME, UI_SCALE, type UiSize, uiSizeNow, uiZoomNow } from '../device';
 import { PACE_HINT, PACE_LABEL, PACES, spellView } from '../../engine/ops/director';
 import type { GameState } from '../../engine/core/types';
 
@@ -239,6 +240,46 @@ function SoundSettings() {
   );
 }
 
+const DEVICE_PREFS: { value: DevicePref; label: string }[] = [
+  { value: 'auto', label: 'Auto' }, { value: 'iphone', label: 'iPhone' }, { value: 'ipad', label: 'iPad' }, { value: 'computer', label: 'Computer' },
+];
+const SIZE_LABEL: Record<UiSize, string> = { small: 'Smaller', normal: 'Normal', large: 'Larger' };
+
+/** v0.12 Settings › Display: the device the game detected (and the override), the UI size and the keyboard shortcuts. */
+function DeviceSettings() {
+  const st = useStore().settings;
+  const found = detectedDevice();
+  const d = deviceNow();
+  const how = [INPUT_NAME[d.input], d.standalone ? 'home-screen app' : 'in the browser'].join(' · ');
+  const zoom = uiZoomNow();
+  const size = uiSizeNow();
+  const sizeHint = st.uiSize === 'auto' ? `Auto: ${SIZE_LABEL[size]}${zoom !== 1 ? ` (${Math.round(zoom * 100)} %)` : ''}` : zoom !== UI_SCALE[size] ? `${Math.round(zoom * 100)} % in this window; more when it is bigger` : 'Text and buttons';
+  return (
+    <>
+      <div className="set-row dv-device">
+        <div><b>Device</b><div className="tiny dim">{st.device === 'auto' ? `Auto: ${deviceLabel(found)}` : `${DEVICE_NAME[d.kind]} (detected: ${deviceLabel(found)})`} · {how}</div></div>
+        <Seg value={st.device} onChange={(v) => store.setSettings({ device: v })} options={DEVICE_PREFS} />
+      </div>
+      {d.form !== 'phone' && (
+        <div className="set-row dv-size">
+          <div><b>Size</b><div className="tiny dim">{sizeHint}</div></div>
+          <Seg value={st.uiSize} onChange={(v) => store.setSettings({ uiSize: v })} options={[{ value: 'auto', label: 'Auto' }, { value: 'small', label: 'Smaller' }, { value: 'normal', label: 'Normal' }, { value: 'large', label: 'Larger' }]} />
+        </div>
+      )}
+      {d.input !== 'touch' && (
+        <div className="set-row dv-keys">
+          <div><b>Keyboard</b><div className="tiny dim">Not while you type in a field</div></div>
+          <dl className="dv-keylist">
+            <dt><kbd>Space</kbd></dt><dd>Pause / play</dd>
+            <dt><kbd>1</kbd> <kbd>2</kbd> <kbd>4</kbd></dt><dd>Speed 1× 2× 4×</dd>
+            <dt><kbd>Esc</kbd></dt><dd>Close a window · Menu</dd>
+          </dl>
+        </div>
+      )}
+    </>
+  );
+}
+
 function SettingsModal() {
   const s = useStore();
   const st = s.settings;
@@ -262,7 +303,8 @@ function SettingsModal() {
         <div className="set-head upper dim">Display</div>
         <div className="set-row"><div><b>Appearance</b><div className="tiny dim">{st.theme === 'system' ? `Follows your device (now ${s.theme})` : st.theme === 'light' ? 'Light, for daylight' : 'Dark, the original look'}</div></div><Seg value={st.theme} onChange={(v) => store.setSettings({ theme: v })} options={[{ value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }, { value: 'system', label: 'System' }]} /></div>
         <div className="set-row"><div><b>Map animations</b><div className="tiny dim">Flying aircraft on maps</div></div><Toggle on={st.mapAnimations} onChange={(v) => store.setSettings({ mapAnimations: v })} /></div>
-        <div className="set-row"><div><b>Top bar spacing</b><div className="tiny dim">Moves the game below the frosted strip iPadOS adds at the top of the screen</div></div><Seg value={String(st.topGap)} onChange={(v) => store.setSettings({ topGap: v === 'auto' ? 'auto' : (Number(v) as 0 | 16 | 28 | 40) })} options={[{ value: 'auto', label: 'Auto' }, { value: '0', label: 'Off' }, { value: '16', label: '16' }, { value: '28', label: '28' }, { value: '40', label: '40' }]} /></div>
+        <DeviceSettings />
+        {(deviceNow().kind === 'ipad' || st.topGap !== 'auto') && <div className="set-row"><div><b>Top bar spacing</b><div className="tiny dim">Moves the game below the frosted strip iPadOS adds at the top of the screen</div></div><Seg value={String(st.topGap)} onChange={(v) => store.setSettings({ topGap: v === 'auto' ? 'auto' : (Number(v) as 0 | 16 | 28 | 40) })} options={[{ value: 'auto', label: 'Auto' }, { value: '0', label: 'Off' }, { value: '16', label: '16' }, { value: '28', label: '28' }, { value: '40', label: '40' }]} /></div>}
         <div className="set-row"><div><b>Pop-up notifications</b></div><Toggle on={st.toasts} onChange={(v) => store.setSettings({ toasts: v })} /></div>
         <div className="set-row"><div><b>What's new</b><div className="tiny dim">{CURRENT.version} {CURRENT.name}</div></div><button className="btn btn-sm" onClick={() => store.openModal({ kind: 'whatsNew', all: true })}><Sparkles /> Show</button></div>
         <div className="set-head upper dim">Plain language</div>

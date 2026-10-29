@@ -4,10 +4,12 @@
 //   medium   700–1099px wide (and >= 500px tall): 76px icon + label rail — iPad portrait
 //   compact  < 700px wide or < 500px tall: top bar + bottom tabs + More sheet — Split View, Slide Over, phones
 //
-// Touch is a separate axis: html.touch is set while (hover: none) and (pointer: coarse) matches,
-// or when forced for testing with ?touch in the URL or window.__CONTRAIL_FORCE_TOUCH__ = true.
+// Touch is a separate axis: html.touch is set while (hover: none) and (pointer: coarse) matches, on a phone or tablet
+// (v0.12 ui/device.ts, even with a trackpad attached), or when forced for testing with ?touch in the URL or
+// window.__CONTRAIL_FORCE_TOUCH__ = true. The device never picks the tier: that is the window size alone.
 
 import { useSyncExternalStore } from 'react';
+import { deviceNow, onDeviceChange, wantsTouchSizing } from './device';
 
 export const WIDE = '(min-width: 1100px) and (min-height: 500px)';
 export const MEDIUM = '(min-width: 700px) and (max-width: 1099.98px) and (min-height: 500px)';
@@ -91,9 +93,10 @@ function forcedTouch(): boolean {
   }
 }
 
-/** True when the primary input is a finger (iPad, phones); mirrors html.touch. */
+/** True when the primary input is a finger (iPad, phones); mirrors html.touch.
+ * v0.12 an iPhone or iPad keeps the touch sizing with a keyboard and trackpad attached (ui/device.ts). */
 export function isTouch(): boolean {
-  return forcedTouch() || !!mql(TOUCH)?.matches;
+  return forcedTouch() || !!mql(TOUCH)?.matches || wantsTouchSizing(deviceNow());
 }
 
 export function useTouch(): boolean {
@@ -105,4 +108,5 @@ export function installTouchClass() {
   const apply = () => document.documentElement.classList.toggle('touch', isTouch());
   apply();
   mql(TOUCH)?.addEventListener('change', apply);
+  onDeviceChange(apply);
 }
