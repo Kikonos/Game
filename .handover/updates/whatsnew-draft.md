@@ -69,3 +69,19 @@ fixes:
 - A flight that lands a few minutes past the crew's duty limit because of headwinds is now recorded as the captain's discretion, as EASA allows after take-off on the last flight of the day.
 - Crew whose leave starts within a few hours at an outstation are flown home first; the leave starts when they land.
 - A trip whose return flight is moved ahead of its outbound is planned again, so no crew "fly" from an airport they never reached.
+
+## Every device: iPhone, iPad, Mac and Windows (after the hangar from above)
+
+features:
+- The game knows which device you play on: iPhone, iPad, Mac, Windows (or another computer), whether you use touch, a mouse or trackpad, or both, and whether it runs as a home-screen app. Settings › Display › Device shows what it found ("Auto: iPhone") and lets you pick iPhone, iPad or Computer if it guessed wrong.
+- iPhone on its side: the sections run down the left edge beside a one-line top bar, clear of the Dynamic Island and the home indicator. Screen titles share a line with their summary, toolbars slide sideways, Up Next shows three rows and the roster board gets the height.
+- Holding the iPhone upright shows a calm "Turn your phone sideways" card (you can still play upright).
+- Mac and Windows: Space pauses and plays, 1, 2 and 4 pick the speed (never while you type), Esc closes a window. Settings lists the keys.
+- Settings › Display › Size: Smaller, Normal or Larger. Auto picks Larger on a big screen such as a 27" monitor; text, buttons, the map and the schedule all grow together, and dragging still lands where you point.
+
+improvements:
+- The map's aircraft strip, zoom buttons and side panel stay clear of the home indicator on the iPad home-screen app as well.
+- On a narrow schedule the hour labels step aside so the dates never overlap.
+- A warning in the top bar that does not fit shortens to its icon instead of being cut off.
+- Windows: room is kept for the scrollbar so screens never jump sideways; scrollbars are thin and match light and dark.
+- The iPadOS top-bar spacing only applies on the iPad.
