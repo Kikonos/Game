@@ -2,10 +2,11 @@
 
 import { BookOpenText, Download, FolderOpen, Home, Lightbulb, Play, PlusCircle, RefreshCw, Save, Settings as SettingsIcon, Sparkles, Trash2, Upload, Volume2 } from 'lucide-react';
 import { sound, SOUND_MEANING } from '../sound';
+import { TRACKS } from '../music';
 import { HeadUnlockedModal } from '../modals/HeadUnlockedModal';
 import { CounterReplyModal, DeliveredModal, FollowDeliveryModal } from '../modals/PopModals';
 import { CallModal } from '../modals/CallModal';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { DAY, fmtDate } from '../../engine/core/time';
 import { AUTOSAVE_SLOT, SLOTS, deleteSlot, deserialize, listSaves, loadFromSlot, saveToSlot, serialize } from '../../engine/save';
 import { Modal, Seg, Toggle } from '../components/ui';
@@ -207,6 +208,21 @@ function SavesModal({ mode }: { mode: 'save' | 'load' }) {
 }
 
 /** v0.9 §S.5 Settings › Sound: master, volume, categories, ambience and the Test sounds list. */
+/** v0.12 the piece playing now and a Next button (the name refreshes every few seconds while Settings is open). */
+function MusicNowPlaying({ dim }: { dim: boolean }) {
+  const [name, setName] = useState(() => sound.musicTrack);
+  useEffect(() => {
+    const id = setInterval(() => setName(sound.musicTrack), 3000);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <div className={`set-row ${dim ? 'v9-dim' : ''}`}>
+      <div><b>Now playing</b><div className="tiny dim">{name ?? 'Starts after your first tap'} · {TRACKS.map((t) => t.name).join(', ')}</div></div>
+      <button className="btn btn-sm" disabled={!name} onClick={() => { sound.nextMusicTrack(); setTimeout(() => setName(sound.musicTrack), 50); }}>Next piece</button>
+    </div>
+  );
+}
+
 function SoundSettings() {
   const s = useStore();
   const st = s.settings;
@@ -222,7 +238,8 @@ function SoundSettings() {
       <div className={`set-row ${off ? 'v9-dim' : ''}`}><div><b>Chimes</b><div className="tiny dim">Messages, offers, decisions, achievements</div></div><Toggle on={st.soundCats.chimes} onChange={(v) => cats('chimes', v)} label="Chimes" /></div>
       <div className={`set-row ${off ? 'v9-dim' : ''}`}><div><b>Flight chimes</b><div className="tiny dim">One LO chime at every departure and landing</div></div><Toggle on={st.soundCats.flights} onChange={(v) => cats('flights', v)} label="Flight chimes" /></div>
       <div className={`set-row ${off ? 'v9-dim' : ''}`}><div><b>UI clicks</b></div><Toggle on={st.soundCats.ui} onChange={(v) => cats('ui', v)} label="UI clicks" /></div>
-      <div className={`set-row ${off ? 'v9-dim' : ''}`}><div><b>Music</b><div className="tiny dim">Calm background music; it dips under chimes and alarms</div></div><Toggle on={st.music} onChange={(v) => store.setSettings({ music: v })} label="Music" /></div>
+      <div className={`set-row ${off ? 'v9-dim' : ''}`}><div><b>Music</b><div className="tiny dim">Calm background music, {TRACKS.length} pieces taking turns; it dips under chimes and alarms</div></div><Toggle on={st.music} onChange={(v) => store.setSettings({ music: v })} label="Music" /></div>
+      <MusicNowPlaying dim={off || !st.music} />
       <div className={`set-row ${off || !st.music ? 'v9-dim' : ''}`}><div><b>Music volume</b></div><input type="range" min={0} max={1} step={0.05} value={st.musicVolume} aria-label="Music volume" style={{ width: 200, ['--fill' as string]: `${st.musicVolume * 100}%` }} onChange={(e) => store.setSettings({ musicVolume: Number(e.target.value) })} /></div>
       <div className={`set-row ${off ? 'v9-dim' : ''}`}><div><b>Ambience</b><div className="tiny dim">Faint, in the background of the game</div></div><Seg value={st.ambience} onChange={(v) => store.setSettings({ ambience: v })} options={[{ value: 'off', label: 'Off' }, { value: 'cabin', label: 'Cabin' }, { value: 'terminal', label: 'Terminal' }]} /></div>
       <div className="set-row"><div><b>Test sounds</b><div className="tiny dim">Each sound and what it means</div></div><button className="btn btn-sm" onClick={() => setTesting(!testing)} aria-expanded={testing}><Volume2 /> {testing ? 'Hide' : 'Show'}</button></div>
