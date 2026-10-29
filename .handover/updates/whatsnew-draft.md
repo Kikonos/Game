@@ -113,3 +113,19 @@ fixes:
 - Hiring a relief pilot shows the first officer and relief pilot numbers instead of "none in the fleet".
 - When an offer checks whether you have enough crew, a flight attendant on two types is counted in one fleet only. Before, someone your A320 sets need could also count as free for an A330 job.
 - The busy-month heads-up counts each person once (pilots on two types and crew who have handed in their notice included).
+
+## Crew planning round: BLU1396, private jets and fewer crew shortages (player request)
+
+fixes:
+- A trip with a long planned day (an extension) that ends away from base can be crewed again. The ticket home now waits for the longer rest after that day. Before, every pilot read "Rest 14:15 < 17:45" and nobody could ever take the trip (BLU1396, Montego Bay to Amsterdam).
+- On a widebody, the ticket out now gives the cabin crew their full rest too: they report 15 minutes before the pilots. Before, every flight attendant was 5 minutes short ("Rest 13:55 < 14:00").
+- A trip far away (4 or more time zones, or a long ticket) gets the crew there a few hours before they need to be, with full rest. One late airline arrival no longer leaves the whole crew minutes short.
+- After a planned extension, crew who rested 2 hours more than the minimum before it need only 2 extra hours of rest after it. The others still need 4 (EASA ORO.FTL.205(d) allows either).
+- Crew Control's Delay now offers a short delay when a crew is only a few minutes short of rest, for example +10 minutes. It no longer says "use Auto-fix" when Auto-fix can't crew the flight. When Auto-fix crews the flight on time, no delay is offered beside it.
+- Two days of flying with too short a night between them are no longer planned as one trip that no crew can legally fly. The second day gets its own crew, flown out in time.
+- A crew member you placed yourself (or Crew Control placed) who ends up in the wrong city gets a new ticket to the trip. Before, they stayed on it where they were, with a red alarm every day.
+
+improvements:
+- Private jets work like real crew-positioning jets. The jet is wheels up about 2 hours after you book it, from the nearest business-jet base. It flies straight from wherever the crew are to the aircraft, at real jet speeds. A new long-range class (Global 6000, Gulfstream G650, Falcon 8X) crosses an ocean without a fuel stop. Prices follow 2026 charter rates, including the jet's empty flights to and from its base.
+- Crew Control looks first at crew who are close by, such as pilots resting a short hop away, not only at crew at base.
+- A jet that lands with a night's rest before the flight now waits for the rest the crew really need (14 hours after crossing 4 or more time zones). When a jet can't help, Crew Control says who was refused and why.
