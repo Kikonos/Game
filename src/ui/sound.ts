@@ -231,6 +231,16 @@ class Sound {
     this.syncMusic();
   }
 
+  /** v0.12 the piece of music playing now (null before the first tap or with the music off). */
+  get musicTrack(): string | null {
+    return this.music?.running ? this.music.track.name : null;
+  }
+
+  /** v0.12 on to the next piece. */
+  nextMusicTrack() {
+    this.music?.nextTrack();
+  }
+
   /** v0.9.1 the music's level for the settings and the app's visibility; it starts only after the first-tap unlock. */
   private syncMusic(fade = MUSIC_FADE) {
     const lvl = this.unlocked ? musicLevel(this.cfg, this.visible) : 0;
