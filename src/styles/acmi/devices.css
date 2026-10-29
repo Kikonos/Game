@@ -183,3 +183,38 @@
 .shell { overflow: hidden; }
 /* Up Next never runs past the map's right edge (a narrow window, a phone held upright). */
 .ops-next { max-width: calc(100% - var(--edge-l) - var(--edge-r) - 56px); }
+
+/* ---------- computers: mouse and trackpad ---------- */
+/* Everything that acts on a click shows the hand (buttons already do). */
+[role='button'], [role='tab'], summary, select, label:has(> input[type='checkbox']), label:has(> input[type='radio']), .clickable { cursor: pointer; }
+[role='button'][aria-disabled='true'] { cursor: default; }
+/* Scrollbars: room kept for a classic (Windows) scrollbar so a screen growing past the window never jumps sideways;
+   overlay scrollbars (Mac, phones) take none. Firefox gets the thin themed bar the others style with ::-webkit-. */
+.main:not(.no-scroll) { scrollbar-gutter: stable; }
+@supports not selector(::-webkit-scrollbar) {
+  html, .main, .modal-body { scrollbar-width: thin; scrollbar-color: rgba(var(--line-rgb), 0.28) transparent; }
+}
+::-webkit-scrollbar-corner { background: transparent; }
+
+/* Settings › Display › Keyboard: the shortcuts as keys. */
+.dv-keylist { display: grid; grid-template-columns: auto auto; gap: 6px 12px; margin: 0; align-items: center; font-size: 13px; }
+.dv-keylist dt { margin: 0; text-align: right; white-space: nowrap; }
+.dv-keylist dd { margin: 0; color: var(--text-2); white-space: nowrap; }
+kbd {
+  display: inline-block; min-width: 24px; padding: 1px 7px; border-radius: 6px; border: 1px solid var(--border-strong);
+  border-bottom-width: 2px; background: var(--panel-2); color: var(--text); font: 600 12px/1.6 var(--font-mono); text-align: center;
+}
+.set-row.dv-device .seg, .set-row.dv-size .seg { flex-wrap: wrap; justify-content: flex-end; }
+
+/* ---------- big windows (a 27" screen, a 1920 px browser) ---------- */
+/* Reading screens stay at the 1600 px cap (.screen) and centre; the map, the schedule and the roster board use the
+   whole width. Dialogs keep their sizes. */
+@media (min-width: 1800px) {
+  .shell.acmi .sc-schedule, .shell.acmi .sc-crew-board { max-width: none; }
+}
+
+/* New game on a phone held upright: the summary drops below Back and Start. */
+@media (max-width: 479.98px) {
+  .ng-foot { flex-wrap: wrap; row-gap: 8px; }
+  .ng-foot-sum { order: -1; flex: 1 1 100%; }
+}
