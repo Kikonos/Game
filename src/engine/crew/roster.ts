@@ -1497,6 +1497,13 @@ export function rerosterFrom(g: GameState, aircraftId: string, t: Minute): Roste
       const next = openDuties(g, q)[1];
       if (next) splitPairing(g, q, next.report);
     }
+    // Crew-planning round: a crew member taken off a trip within 4 days of it by a delay or change (rest, the day's
+    // length, where they are, a limit) is noted on its first leg: a shortage that follows reads as a late change.
+    for (const id of out) {
+      const code = rc.issue.get(id)?.code;
+      const f0 = g.flights[firstOpen.flightIds[0]];
+      if (f0 && firstOpen.report - g.now < 4 * DAY && code && code !== 'daysOff' && code !== 'status') f0.crewLost = { crewId: id, why: 'change', t: g.now };
+    }
     for (const id of out) {
       if (q && (rc.from.get(id) ?? 0) >= cut) {
         releaseCrew(g, q, id);

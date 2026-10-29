@@ -262,6 +262,8 @@ function aogCost(chips: string[]): number {
 }
 
 function decide(g: GameState, t: Tally): void {
+  // Crew-planning round: a sick-crew decision names the uncovered leg: the player is told then.
+  for (const d of g.decisions) if (d.kind === 'sickCrew' && d.ref?.kind === 'flight') told(g, d.ref.id);
   for (const d of [...g.decisions]) {
     const usable = (id: string) => d.options.some((o) => o.id === id && !o.chips?.includes('Unavailable'));
     let opt = d.defaultOption;
@@ -1341,6 +1343,18 @@ function policy(g: GameState, t: Tally, urgent: boolean, newDay: boolean): void 
   if ((newDay || urgent) && !NOSIGN) offers(g, t);
 }
 
+/** Crew-planning round: when the player was first told a leg was short of crew (any notice on it or its trip). */
+const firstTold = new Map<string, number>();
+const toldLeads: number[] = [];
+let headsUps = 0;
+function told(g: GameState, flightId: string, t = g.now): void {
+  const f = g.flights[flightId];
+  const d = f?.dutyId ? g.duties[f.dutyId] : undefined;
+  const p = d ? g.pairings[d.pairingId] : undefined;
+  const ids = p ? p.dutyIds.flatMap((id) => g.duties[id]?.flightIds ?? []) : [flightId];
+  for (const id of [flightId, ...ids]) if (!firstTold.has(id)) firstTold.set(id, t);
+}
+
 /**
  * Crew-planning round (--nosign): no new contracts, aircraft or leases: with --from=<save>, an A/B of the crew planner
  * on one book of work (the bot otherwise signs different work as soon as two runs differ by a dollar).
@@ -1860,6 +1874,24 @@ function onStep(): void {
   for (const o of g.market.aircraft) if (!seenMarket.has(o.id)) seenMarket.set(o.id, { month: monthKey(g.now), teaser: !aircraftGate(g, o.typeId).ok, newBuild: !!o.newBuild });
   // Inbox is newest first: count down to the last message seen.
   let n = 0;
+  const batch: GameState['messages'] = [];
+  for (const x of g.messages) {
+    if (x.id === lastMsgId) break;
+    batch.push(x);
+  }
+  // Crew-planning round: when the player was first told about each crew-short leg (oldest first), read at each red.
+  for (const x of batch.reverse()) {
+    if (x.cat !== 'crew' || x.ref?.kind !== 'flight') continue;
+    const crewNote = x.problem?.kind === 'crewShort' || x.topic === 'crewRed' || x.topic === 'crewHours' || /^Heads-up|has no crew|is missing|crew out of hours|CREW SHORTAGE|CREW OUT OF HOURS/.test(x.title);
+    if (!crewNote) continue;
+    if (x.topic === 'crewRed' || x.topic === 'crewHours') {
+      const f = g.flights[x.ref.id];
+      const first = firstTold.get(x.ref.id) ?? x.t;
+      if (f) toldLeads.push((f.std - Math.min(first, x.t)) / 60);
+    }
+    told(g, x.ref.id, x.t);
+    if (x.title.startsWith('Heads-up')) headsUps++;
+  }
   for (const x of g.messages) {
     if (x.id === lastMsgId) break;
     n++;
@@ -2150,6 +2182,11 @@ console.log(`ladder: widebody signed ${dayOf(tally.wideSigned)}; tour series / t
   const jetShare = revenueY ? (s.jetSpend ?? 0) / revenueY : 0;
   console.log(`crew control: amber ${s.crewAmber ?? 0}, red ${s.crewRed ?? 0} (out of hours ${g.stats.v09?.oohRed ?? 0}), fixes {${fixes}}, jets ${s.jets ?? 0} ${k$(s.jetSpend ?? 0)} (${(jetShare * 100).toFixed(2)}% of revenue) · short-notice offers passed over ${tally.shortSkipped}, widebody general work capped ${tally.wideCapped}, leases without a job ${tally.leaseNoJob}`);
   softTargets.push(['jets ≤ 8 a year and ≤ 1% of revenue', (s.jets ?? 0) * (365 / days) <= 8 && jetShare <= 0.01, `${s.jets ?? 0} jets, ${k$(s.jetSpend ?? 0)}`]);
+  {
+    const l = [...toldLeads].sort((a, b) => a - b);
+    const med = l.length ? l[Math.floor((l.length - 1) / 2)] : 0;
+    console.log(`red alarms first told (h before departure): n ${l.length}, median ${med.toFixed(1)}, worst ${(l[0] ?? 0).toFixed(1)}, ≥ 24 h ${l.filter((x) => x >= 24).length} · early heads-ups ${headsUps}`);
+  }
   if (REDWHY) console.log(`red alarms by cause: ${[...redCauses].sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(' · ') || 'none'}`);
   softTargets.push(['red crew shortages ≤ 12 a year', (s.crewRed ?? 0) * (365 / days) <= 12, `${s.crewRed ?? 0} red (${g.stats.v09?.oohRed ?? 0} out of hours), ${s.crewAmber ?? 0} amber`]);
 }

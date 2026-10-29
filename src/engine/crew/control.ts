@@ -11,7 +11,7 @@ import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { isolatePauses, requestPause } from '../core/pause';
 import { canFill, isPilot, typeOf } from '../core/perf';
-import { DAY, fmtDateTime, fmtDuration, fmtTime } from '../core/time';
+import { DAY, fmtDateTime, fmtDay, fmtDuration, fmtTime } from '../core/time';
 import type { ActionResult, Aircraft, CrewFix, CrewMember, Duty, Flight, GameState, JetClass, Legality, Minute, Pairing, Role, StandbyKind } from '../core/types';
 import { hashUnit } from '../core/util';
 import { relinkPositioning } from '../contracts/schedule';
@@ -254,7 +254,8 @@ export function shortFlights(g: GameState): { flightId: string; stage: 'amber' |
 }
 
 /**
- * The warning ladder: a flight first seen short inside 48 h gets an amber mark and one message per batch (no pause);
+ * The warning ladder: crew-planning round: a trip the roster cannot crew is announced days ahead (earlyH: a calm
+ * heads-up, once, Flight.crewEarly) as soon as that is known; a flight first seen short inside 48 h gets an amber mark and one message per batch (no pause);
  * still short inside 12 h it turns red, with one message per duty, the crewShortage pause and the 'crewRed' sound
  * hook. Marks are saved on the flight (never repeated). Called hourly and after every auto-roster.
  */
@@ -299,9 +300,90 @@ function markDuty(g: GameState, f: Flight, mark: 'amber' | 'red'): void {
   }
 }
 
+/**
+ * Crew-planning round: 'Late change: Ana Gomes fell sick on 14 Oct. ' when a late change emptied a seat on the flight's
+ * duty (Flight.crewLost on one of its legs), so a notice tells a sickness or a delay from a planning failure; else ''.
+ */
+export function lateChangeNote(g: GameState, f: Flight): string {
+  const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+  let lost = f.crewLost;
+  for (const id of d?.flightIds ?? []) {
+    const y = g.flights[id]?.crewLost;
+    if (y && (!lost || y.t > lost.t)) lost = y;
+  }
+  if (!lost || lost.t < f.std - 7 * DAY) return '';
+  const c = g.crew[lost.crewId];
+  const who = c ? crewName(c) : 'A crew member';
+  return lost.why === 'sick' ? `Late change: ${who} fell sick on ${fmtDay(lost.t)}. ` : `Late change: ${who} can no longer fly it after a delay or change on ${fmtDay(lost.t)}. `;
+}
+
+/** Crew-planning round: when each duty was last read for the early heads-up (runtime: once every 6 h at most). */
+const earlyRead = new WeakMap<GameState, Map<string, Minute>>();
+
+/**
+ * Crew-planning round: legs beyond the amber stage and inside earlyH whose trip the roster cannot crew (a seat with no
+ * legal crew member at all, after the aircraft's own re-plan): the early heads-up, once per trip. One leg per duty.
+ */
+function earlyShort(g: GameState, reroster: boolean): Flight[] {
+  const from = g.now + CC().amberH * 60;
+  const until = g.now + CC().earlyH * 60;
+  const read = earlyRead.get(g) ?? new Map<string, Minute>();
+  earlyRead.set(g, read);
+  const out: Flight[] = [];
+  const planned = new Set<string>();
+  for (const id of Object.keys(g.fleet)) {
+    const legs = liveFlightsOf(g, id);
+    for (const f of legs) {
+      if (f.status !== 'scheduled' || f.aircraftId !== id || f.std <= from || f.std > until || f.crewEarly || f.crewAlert || phantomLeg(f, legs)) continue;
+      const cs = flightCrewStatus(g, f.id, { live: false });
+      if (cs.level !== 'missing') continue;
+      const key = f.dutyId ?? f.id;
+      if ((read.get(key) ?? -Infinity) > g.now - 6 * 60) continue;
+      read.set(key, g.now);
+      if (reroster && !planned.has(id)) {
+        planned.add(id);
+        planNow(g, f);
+        if (flightCrewStatus(g, f.id, { live: false }).level !== 'missing') continue;
+      }
+      const x = ctxOf(g, f.id);
+      if (!x || crewableOnTime(g, x)) continue;
+      out.push(f);
+    }
+  }
+  return out;
+}
+
 function escalate(g: GameState, reroster: boolean, freeFix: boolean): void {
   const amber: Flight[] = [];
   const red: Flight[] = [];
+  // Crew-planning round: the early heads-up, days ahead, as soon as the roster knows it cannot crew a trip.
+  const early = earlyShort(g, reroster);
+  if (early.length) {
+    const seen = new Set<string>();
+    const fl = early.filter((f) => {
+      const k = f.dutyId ? g.duties[f.dutyId]?.pairingId ?? f.dutyId : f.id;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+    for (const f of early) {
+      const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+      const p = d ? g.pairings[d.pairingId] : undefined;
+      for (const id of p ? openDuties(g, p).flatMap((x) => x.flightIds) : [f.id]) if (g.flights[id]) g.flights[id].crewEarly = true;
+    }
+    stats(g).crewEarly = (stats(g).crewEarly ?? 0) + fl.length;
+    for (const f of fl.slice(0, 3)) {
+      const card = crewShortCard(g, f.id);
+      if (!card) continue;
+      const days = Math.max(1, Math.round((f.std - g.now) / DAY));
+      pushMessage(g, {
+        tone: 'info', cat: 'crew',
+        title: `Heads-up: ${card.what} (${fmtDay(f.std)})`,
+        body: `${lateChangeNote(g, f)}${card.why} ${days} days to go: hire, fly someone in on a ticket or a private jet, swap crews, sub-lease the trip or move it. ${hurtProse(card)}.${fl.length > 3 && f === fl[0] ? ` Also ${fl.slice(3, 6).map((y) => y.no).join(', ')}.` : ''}`,
+        ref: card.subject.ref, problem: card.subject, hurt: { money: card.hurt.money, pax: card.hurt.pax, delayMin: card.hurt.delayMin, level: card.hurt.level },
+      });
+    }
+  }
   // A shortage first seen now may only be a roster not yet run (a leg just planned or retimed): one re-roster of
   // the aircraft before any warning, so 'free but not placed' never stands. (Not after the roster's own run.)
   const fresh = new Set<string>();
@@ -381,7 +463,7 @@ function escalate(g: GameState, reroster: boolean, freeFix: boolean): void {
       pushMessage(g, {
         tone: 'warn', cat: 'crew', cue: 'crewAmber',
         title: fl.length === 1 ? (hours ? `${fl[0].no}: crew out of hours` : card.what) : `${fl.length} flights need crew`,
-        body: `${hours ? `${card.what}. ` : ''}${card.why} ${hurtProse(card)}. Departs in ${h} h.${fl.length > 1 ? ` Also ${fl.slice(1, 4).map((f) => f.no).join(', ')}.` : ''}`,
+        body: `${hours ? `${card.what}. ` : ''}${lateChangeNote(g, fl[0])}${card.why} ${hurtProse(card)}. Departs in ${h} h.${fl.length > 1 ? ` Also ${fl.slice(1, 4).map((f) => f.no).join(', ')}.` : ''}`,
         ref: card.subject.ref, problem: card.subject, hurt: { money: card.hurt.money, pax: card.hurt.pax, delayMin: card.hurt.delayMin, level: card.hurt.level },
       });
     }
@@ -405,7 +487,7 @@ function escalate(g: GameState, reroster: boolean, freeFix: boolean): void {
 
       pushMessage(g, {
         tone: 'bad', cat: 'crew', topic: hours ? 'crewHours' : 'crewRed', title: `${hours ? 'CREW OUT OF HOURS' : 'CREW SHORTAGE'}: ${f.no} in ${h} h`,
-        body: `${hours ? `${card.what}. ` : ''}${card.why} ${hurtProse(card)}.${also.length ? ` Also ${also.slice(0, 3).join(', ')} on the same aircraft.` : ''}`,
+        body: `${hours ? `${card.what}. ` : ''}${lateChangeNote(g, f)}${card.why} ${hurtProse(card)}.${also.length ? ` Also ${also.slice(0, 3).join(', ')} on the same aircraft.` : ''}`,
         ref: card.subject.ref, problem: card.subject, hurt: { money: card.hurt.money, pax: card.hurt.pax, delayMin: card.hurt.delayMin, level: card.hurt.level },
       });
     }

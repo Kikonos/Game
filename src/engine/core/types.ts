@@ -784,6 +784,13 @@ export interface Flight {
   purpose?: 'delivery' | 'return' | 'refit' | /** v0.7.2 */ 'check' | 'sale' | /** v0.8 dry lease ferries */ 'lease';
   /** v0.7.1 crew-shortage ladder stage reached (amber ≤ 48 h, red ≤ 12 h); load: crewWarned → 'amber'. */
   crewAlert?: 'amber' | 'red';
+  /** Crew-planning round: the early heads-up (beyond the 48 h amber stage) was given for this leg's trip; once. */
+  crewEarly?: true;
+  /**
+   * Crew-planning round: a late change emptied a seat on this leg (the crew member fell sick, or a delay or change left
+   * them unable to fly it): the shortage notices say so, so a late change reads apart from a planning failure.
+   */
+  crewLost?: { crewId: string; why: 'sick' | 'change'; t: Minute };
   /** v0.7.1 a chartered business jet carrying our crew (kind 'deadhead'). */
   charter?: { cls: JetClass; model: string; operator: string; reg: string };
   /** v0.8 held by a closed airport (world event id). */
@@ -1472,6 +1479,8 @@ export interface Stats {
   jetSpend?: number;
   crewFixes?: Partial<Record<CrewFix, number>>;
   crewAmber?: number;
+  /** Crew-planning round: early heads-ups (trips the roster cannot crew, announced beyond the amber stage). */
+  crewEarly?: number;
   crewRed?: number;
   /** v0.7.2: std of company legs sub-chartered (90 days); aircraft sold; leases returned early; captain-as-FO duties. */
   subLog?: Minute[];

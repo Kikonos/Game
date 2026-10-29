@@ -276,6 +276,11 @@ export const BAL = {
   // ---------- crew control v0.7.1 (ENGINE; UPDATE-0.7.1.md §14) ----------
   crewControl: {
     amberH: 48, redH: 12,
+    /**
+     * Crew-planning round: the early heads-up: a trip inside this many hours (beyond amberH) that the roster cannot
+     * crew (no legal crew member for a seat after its own re-plan) is announced once, as soon as that is known.
+     */
+    earlyH: 10 * 24,
     /** Call-in: overtime as a multiple of a day's pay (salary / 21); morale shock. Swap: morale for crew moved at short notice. */
     callInPay: 1.5, callInMorale: -4, swapMorale: -2,
     /** Cancel from Crew Control: reputation per leg (max 3), as the decisions. */
