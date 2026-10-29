@@ -16,6 +16,26 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.11.2',
+    name: 'Every device',
+    features: [
+      'Play on iPhone, iPad, Mac and Windows: the game knows which device you are on (touch or mouse, home-screen app or browser). Settings › Display › Device shows what it found and lets you pick iPhone, iPad or Computer if it guessed wrong.',
+      'iPhone on its side: the sections run down the left edge beside a one-line top bar, clear of the Dynamic Island and the home indicator; windows fit the height with their buttons always in reach. Held upright, a calm card asks you to turn the phone (you can still play upright).',
+      'Mac and Windows: Space pauses and plays, 1, 2 and 4 pick the speed, Esc closes a window (never while you type; Settings lists the keys). Settings › Display › Size: Smaller, Normal or Larger (Larger by itself on a big screen).',
+      'Sub-lease: another operator flies a trip for us and the client still pays us. It sits next to swapping aircraft (in a new offer, the trip move confirm and the flight sheet), with each operator\'s quality, price and what the client notices, or why it can\'t be done.',
+      'A new offer shows every flight under each aircraft on its own (only work without flights yet stays one block); flights in the way of the job have a red outline and are listed with Move and Sub-lease, or "Sub-lease all".',
+      'Fleet › Hangar from above: every aircraft seen from the top, from its real length and wingspan, at one scale on a 10 m grid (Side keeps the side view).',
+      'Music: five calm pieces take turns (Cruise, Night Flight, Golden Hour, Ops Room, Long Haul). Settings › Sound shows what is playing, with Next piece.',
+    ],
+    improvements: [
+      'The map\'s night no longer shows city lights.',
+      'The profit per day sits right under the cash, ending under "cash".',
+      'Crew sets: every screen counts each person once, in the same fleet: Hire and Planning agree, pilots on two types and relief pilots are counted right, spare pursers fill cabin crew seats ("exact, with 2 PUR"), and the strip says "5 of 5 sets · 4 spare" instead of "9 of 5 sets".',
+      'Round up no longer offers sets you don\'t need (spare pursers, or a client bringing some cabin crew), and "Limited by" names the role that really runs out.',
+      'The flight sheet\'s Sub-charter button is now called Sub-lease.',
+    ],
+  },
+  {
     version: 'v0.11.1',
     name: 'Crew planning',
     features: [
