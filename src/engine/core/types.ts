@@ -811,7 +811,8 @@ export type DisruptKind = 'ctot' | 'diversion' | 'medical' | 'birdStrike' | 'sic
 export type DisruptCause = 'weather' | 'medical' | 'technical';
 
 /** v0.7.1 private-jet charter classes (data/jets.ts). */
-export type JetClass = 'light' | 'midsize' | 'heavy';
+/** v0.7.1 private-jet classes; 'long' (crew-planning round): Global 6000 / G650 / Falcon 8X, nonstop across an ocean. */
+export type JetClass = 'light' | 'midsize' | 'heavy' | 'long';
 
 /** v0.7.1 Crew Control fixes (crew/control.ts). */
 export type CrewFix = 'autoFix' | 'deadhead' | 'delay' | 'jet' | 'callIn' | 'discretion' | 'swap' | 'subcharter' | 'cancel';

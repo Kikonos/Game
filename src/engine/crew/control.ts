@@ -3,7 +3,7 @@
 // and the crew-shortage ProblemCard. Read APIs are pure in g (previews clone it); actions go through the roster,
 // flight and ledger helpers.
 
-import { JET_CLASSES, JETS } from '../../data/jets';
+import { JET_BASES, JET_CLASSES, JETS } from '../../data/jets';
 import { BAL } from '../core/balance';
 import { addDeadhead, flightsRev, liveFlightsOf, removeFlights, takeFlightChanges } from '../core/entities';
 import { distance } from '../core/geo';
@@ -29,7 +29,7 @@ import { city, rootReason, type Reason, type ReasonCode } from './reasons';
 import { applyDiscretion, autoRoster, discretionCheck, flightCrewStatus, onFlightsChanged, placeCrew, recheckPairing, releaseCrew, rerosterFrom, setShortHook, type FlightCrewStatus } from './roster';
 import { assignCrew, dutyCandidates, freshReport, type DutyCandidate } from './rosterActions';
 import { levelOf, LIMITS, minRest, offsetAt } from './rules';
-import { cabinEarly, crewCount, crewRev, dhBlock, fdpLimitAt, locAt, OUT_CONNECT, segsOf, touchCrew, typeIdOf, type TicketPlan } from './timeline';
+import { cabinEarly, crewCount, crewRev, dhBlock, fdpLimitAt, locAt, OUT_CONNECT, posSeg, segsOf, touchCrew, typeIdOf, type TicketPlan } from './timeline';
 import { callFromStandby, calledNow, reserveContact } from './standby';
 import { SBY_LABEL } from './calendar';
 import { offDaysHit, takesPublishedOff, v09Stats } from './dayPlan';
@@ -660,17 +660,38 @@ export interface JetQuote {
 
 const NM = 1.852;
 
-/** The smallest class that seats the crew and covers the distance (with one fuel stop at most); a light jet only up to ~3 h. */
+/**
+ * The smallest class that seats the crew and flies the distance nonstop; else the smallest with one fuel stop (a light
+ * jet only up to ~3 h). Crew-planning round: nonstop first (a long-range jet over an ocean, not a heavy with a stop).
+ */
 function jetClassFor(crewN: number, nm: number): JetClass {
   const J = CC().jet;
-  for (const cls of JET_CLASSES) {
-    if (cls === 'light' && (nm / J.cruiseKt.light) * 60 + J.taxiMin > 180) continue;
-    if (crewN <= J.seats[cls] && nm <= J.rangeNm[cls] * 2) return cls;
-  }
-  return 'heavy';
+  const ok = (cls: JetClass, legs: number) => !(cls === 'light' && (nm / J.cruiseKt.light) * 60 + J.taxiMin > 180) && crewN <= J.seats[cls] && nm <= J.rangeNm[cls] * legs;
+  return JET_CLASSES.find((c) => ok(c, 1)) ?? JET_CLASSES.find((c) => ok(c, 2)) ?? 'long';
 }
 
-/** A charter quote for `crewN` crew from → to, free from `ready` (now at the earliest). Pure (hash-picked operator). */
+/** Crew-planning round: the business-aviation base nearest an airport and the distance (nm); 0 at a base. Memoized. */
+const nearBase = new Map<string, { base: string; nm: number }>();
+export function nearestJetBase(code: string): { base: string; nm: number } {
+  let r = nearBase.get(code);
+  if (!r) {
+    r = { base: code, nm: Infinity };
+    for (const b of JET_BASES) {
+      const nm = b === code ? 0 : distance(b, code) / NM;
+      if (nm < r.nm) r = { base: b, nm };
+    }
+    if (!Number.isFinite(r.nm)) r = { base: code, nm: 0 };
+    nearBase.set(code, r);
+  }
+  return r;
+}
+
+/**
+ * A charter quote for `crewN` crew from → to, free from `ready` (now at the earliest). Pure (hash-picked operator).
+ * Crew-planning round: a direct route at the class's real cruise speed, a fuel stop only past its range; the jet
+ * comes from the nearest business-aviation base, wheels up 2 h after the call (or its positioning + 1 h when the base
+ * is far), and its empty legs there and back are billed.
+ */
 export function jetQuote(g: GameState, from: string, to: string, crewN: number, ready: Minute, cls?: JetClass): JetQuote {
   const J = CC().jet;
   const nm = distance(from, to) / NM;
@@ -678,12 +699,17 @@ export function jetQuote(g: GameState, from: string, to: string, crewN: number, 
   const seats = J.seats[c];
   const jets = Math.max(1, Math.ceil(crewN / seats));
   const stop = nm > J.rangeNm[c];
-  let block = Math.round((nm / J.cruiseKt[c]) * 60 + J.taxiMin);
+  const fly = (x: number) => (x / J.cruiseKt[c]) * 60;
+  let block = Math.round(fly(nm) + J.taxiMin);
   if (stop) block += J.fuelStopMin;
-  const hours = Math.max(J.minH, block / 60) + J.positioningH;
+  const posIn = nearestJetBase(from).nm;
+  const posBack = nearestJetBase(to).nm;
+  const posH = (posIn ? fly(posIn) + J.taxiMin : 0) / 60 + (posBack ? fly(posBack) + J.taxiMin : 0) / 60;
+  const hours = Math.max(J.minH, block / 60) + J.posShare * posH;
   const per = Math.round((hours * J.rate[c] + J.fees + (stop ? J.fuelStopFee : 0)) / 100) * 100;
   const cost = per * jets;
-  const wheelsUp = Math.ceil(Math.max(g.now + J.fboLeadMin, ready) / 15) * 15;
+  const lead = Math.max(J.fboLeadMin, posIn ? fly(posIn) + J.taxiMin + J.posLeadMin : 0);
+  const wheelsUp = Math.ceil(Math.max(g.now + lead, ready) / 15) * 15;
   const arrives = wheelsUp + block;
   const day = Math.floor(g.now / DAY);
   const data = JETS[c];
@@ -727,7 +753,7 @@ function jetCandidatesAll(g: GameState, p: Pairing, d: Duty, role: Role, cls?: J
   const on = new Set(p.slots.filter((s) => s.crewId).map((s) => s.crewId!));
   const fdpOnly = { v: false };
   // The nearest-ready dozen are planned (one planCrew each); the rest could only be worse rides.
-  const pool: { c: CrewMember; loc: string; ready: Minute; km: number; segs: ReturnType<typeof segsOf> }[] = [];
+  const pool: { c: CrewMember; loc: string; ready: Minute; km: number; segs: ReturnType<typeof segsOf>; lands: Minute }[] = [];
   for (const c of Object.values(g.crew)) {
     if (!canFill(role, c.role) || !c.ratings.includes(fam) || on.has(c.id)) continue;
     if (c.status === 'sick' || c.status === 'leave' || c.status === 'training' || c.status === 'joining') continue;
@@ -736,9 +762,12 @@ function jetCandidatesAll(g: GameState, p: Pairing, d: Duty, role: Role, cls?: J
     const segs = segsOf(g, c, p.id);
     const loc = locAt(c, segs, d.report);
     if (loc === dep) continue;
-    pool.push({ c, loc, ready: Math.max(g.now, readyAt(c, segs, d.report, g.now)), km: distance(loc, dep), segs });
+    const ready = Math.max(g.now, readyAt(c, segs, d.report, g.now));
+    // Crew-planning round: ranked by when a jet would land them (crew resting a short hop away beat crew free now
+    // an ocean away; seed: two pilots resting in Bermuda 2.5 h from Montego Bay were never looked at).
+    pool.push({ c, loc, ready, km: distance(loc, dep), segs, lands: jetQuote(g, loc, dep, 1, ready, cls).arrives });
   }
-  pool.sort((a, b) => a.ready - b.ready || a.km - b.km || (a.c.role === role ? -1 : 1) || (a.c.id < b.c.id ? -1 : 1));
+  pool.sort((a, b) => a.lands - b.lands || a.km - b.km || (a.c.role === role ? -1 : 1) || (a.c.id < b.c.id ? -1 : 1));
   const out: (JetCand & { km: number })[] = [];
   const rested: JetCand[] = [];
   for (const { c, loc, ready, km, segs } of pool.slice(0, 12)) {
@@ -747,7 +776,11 @@ function jetCandidatesAll(g: GameState, p: Pairing, d: Duty, role: Role, cls?: J
     // report, i.e. shifted earlier by the gap for the check.
     const shift = Math.max(0, q.arrives + OUT_CONNECT - d.report);
     const ride = jetRide(q, loc, dep);
-    const plan = planCrew(g, c, p, segs, false, 0, undefined, shift ? { ...ride, std: ride.std - shift, sta: ride.sta - shift } : ride);
+    // Crew-planning round: never earlier than the crew can check in (moved by the whole gap, a crew resting until just
+    // before the jet read 'Rest 9:42 < 10:00' and a jet from 2.5 h away was never offered). Moved less than the gap,
+    // the merged day reads a little short here; the preview (the flight really delayed on a copy) has the last word.
+    const k = Math.min(shift, Math.max(0, ride.std - CC().jet.checkInMin - ready));
+    const plan = planCrew(g, c, p, segs, false, 0, undefined, k ? { ...ride, std: ride.std - k, sta: ride.sta - k } : ride);
     // The duty's own FDP problem is the duty's (crewIllegal), not the ride's.
     const issues = plan.issues.filter((i) => !(i.code === 'fdp' && d.legality === 'illegal'));
     const level = levelOf(issues);
@@ -800,11 +833,13 @@ export function charterJet(g: GameState, flightId: string, crewIds: string[], cl
   touchCrew(g);
   // Seat them; anyone the roster still refuses comes off the jet (an empty jet is not chartered).
   const seated: string[] = [];
+  let refused: string | undefined;
   for (const c of crew) {
     const seat = p.slots.find((s) => !s.crewId && !s.above && s.role === c.role) ?? p.slots.find((s) => !s.crewId && !s.above && canFill(s.role, c.role));
     const r = seat ? assignCrew(g, f.id, c.id, seat.role) : { ok: false as const, error: 'No empty seat' };
     if (r.ok) seated.push(c.id);
     else {
+      refused ??= `${crewName(c)}: ${r.error}`;
       for (const id of ticketIds) {
         const t = g.flights[id];
         if (t) t.crewIds = t.crewIds.filter((y) => y !== c.id);
@@ -818,7 +853,8 @@ export function charterJet(g: GameState, flightId: string, crewIds: string[], cl
     d.deadheadIds = d.deadheadIds.filter((id) => !empty.includes(id));
     touchCrew(g);
   }
-  if (!seated.length) return { ok: false, error: 'Nobody could be seated on the trip' };
+  // Crew-planning round: the first refusal is named (the player saw only 'nobody is legal').
+  if (!seated.length) return { ok: false, error: `Nobody could be seated on the trip${refused ? ` (${refused})` : ''}` };
   post(g, 'crewJet', -cost);
   const s = stats(g);
   s.jets = (s.jets ?? 0) + ticketIds.length - empty.length;
@@ -1036,6 +1072,17 @@ function noDelayWhy(g: GameState, x: Ctx, autoFixWorks: boolean | null = null): 
 }
 
 /**
+ * Crew-planning round: the rest a crew member needs after a ride from → the duty's first departure (std → sta) before
+ * reporting, as the check reads it (posSeg: the ride's length or 10 h, 14 h across 4+ time zones), plus the cabin
+ * crew's earlier report. Pure.
+ */
+function arrivalRest(g: GameState, p: Pairing, d: Duty, c: CrewMember, from: string, std: Minute, sta: Minute, charter = false): number {
+  const to = g.flights[d.flightIds[0]]?.from ?? d.restAt;
+  const t = { from, to, std, sta, ...(charter ? { charter: { cls: 'heavy' as JetClass, model: '', operator: '', reg: '' } } : {}) } as TicketPlan;
+  return posSeg(t, c).rest + (c.role === 'PUR' || c.role === 'CC' ? cabinEarly(g, p, d) : 0);
+}
+
+/**
  * Departures worth trying for 'delay', soonest first, within two days: crewReadyAt, and from the roster's own
  * refusals: a candidate's ticket arrival, the end of a rest or of another trip (plus a night's rest), the
  * nearest person's earliest landing, each with the connection and the report lead; and the same after a night's
@@ -1068,6 +1115,9 @@ function delayTimes(g: GameState, x: Ctx): Minute[] {
           const reach = reachFor(g, p, d, cm, f.std);
           add(reach.earliestArrival + OUT_CONNECT + lead);
           add(reach.earliestArrival + night(false) + lead);
+          // Crew-planning round: the rest the check really asks after that ticket (14 h across 4+ time zones, the
+          // ticket's length when longer) and the cabin crew's earlier report.
+          add(reach.earliestArrival + arrivalRest(g, p, d, cm, reach.from, reach.earliestArrival - dhBlock(reach.from, x.dep), reach.earliestArrival) + lead);
         }
         if (r?.code === 'fdp' || r?.code === 'rest') add(Math.max(g.now, cm.restUntil, c.arrives ?? 0) + night(c.loc === cm.base) + lead);
         // BLU1396 round: a crew member just short of the rest before it (cabin crew 'Rest 13:55 < 14:00' after the
@@ -1292,7 +1342,7 @@ function runFix(h: GameState, flightId: string, fix: CrewFix, opts: ApplyOpts): 
         changes.push(`${crewName(h.crew[y.replaces])} comes off (out of hours)`);
       }
       const r = charterJet(h, f.id, picks.map((y) => y.c.id).filter((id) => !heldBy(ctxOf(h, flightId)?.p).has(id)), cls ?? jetClassFor(picks.length, distance(picks[0].loc, x.dep) / NM));
-      if (!r.ok) return { ok: false, error: r.error === 'Nobody could be seated on the trip' ? 'Even flown in by jet, nobody is legal for the trip' : r.error };
+      if (!r.ok) return { ok: false, error: r.error?.startsWith('Nobody could be seated on the trip') ? r.error.replace('Nobody could be seated on the trip', 'Even flown in by jet, nobody is legal for the trip') : r.error };
       // v0.9 round 4 (§Y.1): after the report, the jet's crew start a fresh day in the seats they took over.
       if (d.report <= h.now && hp) for (const y of picks) if (y.replaces) for (const sl of hp.slots) if (sl.crewId === y.c.id) sl.from = freshReport(h, hp, h.duties[d.id] ?? d);
       const restBad = restStillFails(h, d.id);
@@ -1551,11 +1601,12 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean, only?: readonly C
   // c. delay: the departure the roster itself accepts (tried on copies), never a guess.
   if (want('delay')) {
     const s = base('delay');
-    const plan = delayPlan(g, x);
     // An out-of-hours crew is "ready" at the gate but may not go: never point to Auto-fix for it.
-    // BLU1396 round: Auto-fix is named only when it can crew the flight (its own preview when there is one).
+    // BLU1396 round: Auto-fix is named only when it can crew the flight (its own preview when there is one); when it
+    // crews it on time, no delay is offered beside it.
     const af = out.find((o) => o.id === 'autoFix');
-    const afWorks = previews && af ? af.available && !BAD(af.preview.after.level) : null;
+    const afWorks = previews && af ? af.available && !BAD(af.preview.after.level) && !af.newDeparture : null;
+    const plan = afWorks ? null : delayPlan(g, x);
     if (!plan) out.push(no(s, noDelayWhy(g, x, afWorks)));
     else {
       const ready = plan.at;
@@ -1651,7 +1702,15 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean, only?: readonly C
         s.cost = auto.cost;
         const lead = Math.max(0, f.std - d.report);
         let gap = auto.arrives + OUT_CONNECT - d.report;
-        if (rest) gap = Math.max(gap, auto.arrives + minRest({ dutyMin: 0, atHome: false, augmented: false, tzShift: 0 }) + lead - f.std);
+        // Crew-planning round: jet + rest waits the rest each crew member really needs after the ride (14 h across 4+
+        // time zones; the cabin crew report earlier), not a flat 10 h (Lisbon–Montego Bay crew landed 4 h short of it
+        // and the preview read 'Even flown in by jet, nobody is legal for the trip').
+        if (rest) {
+          for (const y of picks) {
+            const q = jetQuote(g, y.loc, x.dep, byLoc.get(y.loc)!.n, byLoc.get(y.loc)!.ready);
+            gap = Math.max(gap, q.arrives + arrivalRest(g, p, d, y.c, y.loc, q.wheelsUp, q.arrives, true) + lead - f.std);
+          }
+        }
         // v0.9 round 3: as for Delay, an empty leg is never held back for a jet: past the commitment it leads to, the
         // schedule re-plans it as a fresh, uncrewed leg at the earliest time, and the two fixes chased each other
         // (bot seed 5: dozens of copies of one OXB–LIS leg after an AOG, each a red alarm).
