@@ -51,12 +51,22 @@ function plainCheck(g: GameState, o: ContractOffer, r: FeasibilityReport, c: Fea
 
 const RANK = { ok: 0, warn: 1, no: 2 } as const;
 
-/** The best report for an offer (quick feasibility per aircraft). */
+/** v0.12 what no move, sub-lease, hire or check can fix for this aircraft and job (it is the wrong aircraft for it). */
+const HARD = new Set(['seats', 'layout', 'family', 'body', 'range', 'runway', 'etops', 'approvals', 'restSeats', 'rest']);
+const hardNos = (r: FeasibilityReport) => r.checks.filter((c) => c.level === 'no' && HARD.has(c.id)).length;
+
+/**
+ * The best report for an offer (quick feasibility per aircraft). v0.12 among aircraft that can't take it, one only busy
+ * (its trips can move or be sub-leased) comes before one that can never fit (too few seats), so the card's WHY and
+ * its WHAT YOU CAN DO speak of the same aircraft.
+ */
 function bestReport(g: GameState, o: ContractOffer): FeasibilityReport | null {
   let best: FeasibilityReport | null = null;
   for (const id of Object.keys(g.fleet)) {
     const r = feasibility(g, o.id, id, { quick: true });
-    if (!best || RANK[r.level] < RANK[best.level] || (r.level === best.level && r.estMargin > best.estMargin)) best = r;
+    const better = !best || RANK[r.level] < RANK[best.level]
+      || (r.level === best.level && (hardNos(r) < hardNos(best) || (hardNos(r) === hardNos(best) && r.estMargin > best.estMargin)));
+    if (better) best = r;
   }
   return best;
 }
