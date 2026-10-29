@@ -61,8 +61,11 @@ export interface FeasibilityReport {
   positionIn: PositioningLeg[];
   positionOut: PositioningLeg[];
   techStops: string[];
-  /** Flight ids and maintenance ids that overlap the programme on this aircraft. */
-  conflicts: { flights: string[]; maintenance: string[] };
+  /**
+   * Flight ids and maintenance ids that overlap the programme on this aircraft (v0.12 or that it can't be back for),
+   * and the base programmes and dry leases whose not-yet-generated days do (contract ids: no flights to move yet).
+   */
+  conflicts: { flights: string[]; maintenance: string[]; programmes: string[] };
   /** Crew capacity vs the programme's need (crew.crewAvailability): shortfall by role and when it bites. */
   crew: Availability;
   estBH: number;
@@ -269,7 +272,7 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   const ac = g.fleet[aircraftId];
   const empty: Availability = { setsNeeded: 0, setsAvailable: 0, byRole: {}, firstShort: null };
   const rep: FeasibilityReport = {
-    offerId, aircraftId, level: 'ok', checks: [], positionIn: [], positionOut: [], techStops: [], conflicts: { flights: [], maintenance: [] },
+    offerId, aircraftId, level: 'ok', checks: [], positionIn: [], positionOut: [], techStops: [], conflicts: { flights: [], maintenance: [], programmes: [] },
     crew: empty, estBH: 0, estRevenue: 0, estCost: 0, estMargin: 0,
   };
   const add = (id: FeasibilityCheck['id'], level: CheckLevel, label: string, detail?: string) => {
@@ -427,11 +430,14 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
 
   // 9. Availability: overlaps with flights, maintenance and signed base deployments.
   let availNo = false;
-  for (const a of conflicts) {
+  // v0.12 the offer dialog marks these on its schedule portal and offers to move or sub-lease their trips.
+  const note = (a: Anchor) => {
     if (a.kind === 'maint') rep.conflicts.maintenance.push(a.id);
     else if (a.kind === 'flight') rep.conflicts.flights.push(a.id);
-    else if (a.kind === 'base') for (const f of flightsOf(g, ac.id)) if (f.contractId === a.contractId && f.status === 'scheduled') { rep.conflicts.flights.push(f.id); break; }
-  }
+    else if (a.kind === 'base' && a.contractId && !rep.conflicts.programmes.includes(a.contractId)) rep.conflicts.programmes.push(a.contractId);
+  };
+  for (const a of conflicts) note(a);
+  if (!conflicts.length) for (const f of fits) if (f.blockedNext) note(f.blockedNext);
   // v0.7.2 an aircraft being sold takes no new work.
   if (ac.sale) {
     availNo = true;

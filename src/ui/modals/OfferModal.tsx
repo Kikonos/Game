@@ -1,8 +1,9 @@
 // Offer review (B5): terms, schedule and effects on the left; per-aircraft feasibility (traffic lights,
 // positioning, crew capacity, contribution) on the right; Decline / Counter / Accept. DESIGN.md §6.3.
 
-import { SchedulePortal } from './OfferPortal';
-import { BedDouble, Check, ChevronRight, LineChart, Palette, Scale, Sofa, Swords, Users, X } from 'lucide-react';
+import { askSublease, SchedulePortal } from './OfferPortal';
+import { clashTrips, subleaseGroups } from './offerPortalLogic';
+import { BedDouble, Check, ChevronRight, Handshake, LineChart, Palette, Scale, Sofa, Swords, Users, X } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { Term } from '../components/Term';
 import { AIRPORT_BY_CODE } from '../../data/airports';
@@ -275,6 +276,8 @@ function AircraftRow({ g, r, on, onPick, billBH, lift = 1, offerId, long, portal
             <div key={`${c.id}-${i}`} className="sc-check">
               <Dot tone={LEVEL_TONE[c.level]} />
               <span className="grow"><span>{SLIP_RE.test(c.label) ? <Term id="slipCrew">{c.label}</Term> : c.label}</span>{c.detail && <span className="small muted"> · {c.detail}</span>}</span>
+              {/* v0.12 the trips in the way can be handed to another operator (listed under the timeline above). */}
+              {c.id === 'availability' && c.level === 'no' && <SubleaseButtons g={g} r={r} offerId={offerId} />}
               {c.action?.kind === 'refit' && <button className="btn btn-sm" onClick={() => store.openModal({ kind: 'refit', aircraftId: r.aircraftId, layout: c.action!.layout, offerId })}>Plan refit…</button>}
               {/* v0.7.3 §2.9: the cheapest crew rest refit that makes the job legal; the seats check offers the section too. */}
               {c.action?.kind === 'restRefit' && <button className="btn btn-sm" onClick={() => openRest(c)}>Plan a refit…</button>}
@@ -287,6 +290,25 @@ function AircraftRow({ g, r, on, onPick, billBH, lift = 1, offerId, long, portal
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * v0.12 'Sub-lease N trips…' for the trips of this aircraft in the way of the job that another operator can fly
+ * (one button per contract: one hand-over each). Nothing when none can be handed over.
+ */
+function SubleaseButtons({ g, r, offerId, long }: { g: GameState; r: FeasibilityReport; offerId: string; long?: boolean }) {
+  const groups = subleaseGroups(clashTrips(g, r)).slice(0, 3);
+  if (!groups.length) return null;
+  const reg = g.fleet[r.aircraftId]?.reg ?? '';
+  return (
+    <>
+      {groups.map((x) => (
+        <button key={x.contractId} className="btn btn-sm v12-sublease" title="Another operator flies it for us; the client still pays us (a sub-charter)" onClick={() => askSublease(offerId, x.contractId, x.flightIds)}>
+          <Handshake /> {long ? `Sub-lease ${reg}'s ${x.trips.length > 1 ? `${x.trips.length} clashing trips` : 'clashing trip'}${groups.length > 1 ? ` (${g.contracts[x.contractId]?.title ?? ''})` : ''}…` : `Sub-lease ${x.trips.length > 1 ? `${x.trips.length} trips` : 'the trip'}…`}
+        </button>
+      ))}
+    </>
   );
 }
 
@@ -577,7 +599,17 @@ export function OfferModal({ offerId }: { offerId: string }) {
             const mission = sel.checks.find((c) => c.id === 'mission');
             return mission ? <div className={`small v8-mission ${LEVEL_TONE[mission.level]}`}><Dot tone={LEVEL_TONE[mission.level]} /><span>{mission.label}{mission.detail ? ` · ${mission.detail}` : ''}</span></div> : null;
           })()}
-          {fit && <ProblemCardView card={{ ...fit, actions: fit.actions.filter((a) => a.id !== 'review') }} g={g} hideActions={fit.actions.every((a) => a.id === 'review')} onAction={(a) => runAction(g, a)} />}
+          {fit && (() => {
+            // v0.12 WHAT YOU CAN DO also sub-leases the chosen aircraft's trips in the way (when it is busy).
+            const busy = sel && sel.checks.some((c) => c.id === 'availability' && c.level === 'no');
+            const subs = busy && subleaseGroups(clashTrips(g, sel)).length ? <SubleaseButtons g={g} r={sel} offerId={o.id} long /> : null;
+            const acts = fit.actions.filter((a) => a.id !== 'review');
+            return (
+              <ProblemCardView card={{ ...fit, actions: acts }} g={g} hideActions={fit.actions.every((a) => a.id === 'review')} onAction={(a) => runAction(g, a)}>
+                {subs}
+              </ProblemCardView>
+            );
+          })()}
           {o.paint && <PaintTermsCard g={g} o={o} typeId={sel && g.fleet[sel.aircraftId] ? artFor(g.fleet[sel.aircraftId].typeId, g.fleet[sel.aircraftId].variant) : 'a320ceo'} on={paintOn} onToggle={setPaintOn} fmtP={fmtP} />}
           {o.cabin && <CabinTermsCard g={g} o={o} aircraftId={sel?.aircraftId ?? null} on={cabinOn} onToggle={setCabinOn} fmtP={fmtP} />}
           {crewed && <ExtraCrewCard o={o} x={x} onChange={setExtra} fmtP={fmtP} asking={asking} max={extraCabinMax(g, sel?.aircraftId ?? null, o.requirements.extraCabin)} seatsNote={crewSeatsNote(g, sel?.aircraftId ?? null, o.requirements.extraCabin)} />}
@@ -594,10 +626,10 @@ export function OfferModal({ offerId }: { offerId: string }) {
         <div className="sc-offer-right col gap-8">
           <div className="upper dim">Choose an aircraft</div>
           {!reports.length && <div className="small muted">No aircraft in the fleet.</div>}
-          {reports.length > 0 && o.product.kind !== 'dry' && <div className="tiny dim v91-portal-hint">Under each aircraft, its schedule around this job (shaded). Tap a trip, or hold and drag it onto another aircraft, to move it.</div>}
+          {reports.length > 0 && o.product.kind !== 'dry' && <div className="tiny dim v91-portal-hint">Under each aircraft, its schedule around this job (shaded), every flight on its own; red outlines are in the way. Tap a trip to move it to another aircraft or sub-lease it, or hold and drag it onto another aircraft.</div>}
           {reports.map((r) => (
             <AircraftRow key={r.aircraftId} g={g} r={r} on={sel?.aircraftId === r.aircraftId} onPick={() => setPick(r.aircraftId)} billBH={o.estBH} lift={lift} offerId={o.id} long={!!restLine}
-              portal={o.product.kind !== 'dry' ? <SchedulePortal g={g} o={o} aircraftId={r.aircraftId} candidates={reports.map((x) => x.aircraftId)} /> : undefined} />
+              portal={o.product.kind !== 'dry' ? <SchedulePortal g={g} o={o} aircraftId={r.aircraftId} candidates={reports.map((x) => x.aircraftId)} report={r} open={sel?.aircraftId === r.aircraftId} /> : undefined} />
           ))}
         </div>
       </div>

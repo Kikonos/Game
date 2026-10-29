@@ -133,7 +133,8 @@ export type ModalSpec =
   /** Manual roster adjustment for a duty's trip (duty id or flight id). */
   | { kind: 'duty'; id: string }
   /** Hand legs of a contract to a rival operator. */
-  | { kind: 'subcharter'; contractId: string; flightId?: string; /** v0.8 the rival to pre-select */ rivalId?: string }
+  | { kind: 'subcharter'; contractId: string; flightId?: string; /** v0.8 the rival to pre-select */ rivalId?: string;
+      /** v0.12 sub-lease: these trips' legs (offer dialog, trip move, flight sheet), and the dialog to come back to */ flightIds?: string[]; back?: ModalSpec }
   /** v0.5.1 livery editor: the company livery or one aircraft's (Company · All white · Custom). */
   | { kind: 'livery'; target: 'company' | { aircraftId: string } }
   /** v0.6: bulk type-rating conversion for the selected crew; the classes list (cancel per class / member). */

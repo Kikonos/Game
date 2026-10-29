@@ -348,7 +348,7 @@ export function GlobalModals() {
     case 'check': return s.game ? <CheckModal aircraftId={m.aircraftId} checkKind={m.checkKind} replace={m.replace} restFit={m.restFit} backToRefit={m.backToRefit} suggest={m.suggest} after={m.after} /> : null;
     case 'sheet': return s.game ? <BlockSheet refs={m.refs} idle={m.idle} /> : null;
     case 'duty': return s.game ? <DutyModal id={m.id} /> : null;
-    case 'subcharter': return s.game ? <SubcharterModal contractId={m.contractId} flightId={m.flightId} rivalId={m.rivalId} /> : null;
+    case 'subcharter': return s.game ? <SubcharterModal key={m.flightIds?.join(',') ?? m.flightId ?? m.contractId} contractId={m.contractId} flightId={m.flightId} rivalId={m.rivalId} flightIds={m.flightIds} back={m.back} /> : null;
     case 'livery': return s.game ? <LiveryModal target={m.target} /> : null;
     case 'convert': return s.game ? <ConvertModal key={m.crewIds.join()} crewIds={m.crewIds} family={m.family} onBooked={m.onBooked} /> : null;
     case 'classes': return s.game ? <ClassesModal /> : null;
