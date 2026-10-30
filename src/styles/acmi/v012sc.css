@@ -78,7 +78,7 @@
 .sc-numbers { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 14px 0 10px; }
 .sc-numbers > div { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--panel-2); min-width: 0; }
 .sc-numbers b { font-variant-numeric: tabular-nums; }
-.sc-result-actions { justify-content: center; }
+.sc-result-actions { justify-content: center; flex: 1; }
 
 /* ---------- iPhone on its side, small windows ---------- */
 @media (max-height: 499.98px), (max-width: 699.98px) {
@@ -91,6 +91,10 @@
   .sc-list-screen .ng-head h2 { font-size: 17px; }
   .sc-numbers { grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 10px 0 6px; }
   .sc-result-stars { padding: 0 0 4px; }
+  .sc-result-stars svg { width: 28px; height: 28px; }
+  .sc-result-main .big { font-size: 22px; }
+  .sc-numbers { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
+  .sc-numbers > div { padding: 6px 8px; }
 }
 @media (max-width: 479.98px) {
   .ng-setups { grid-template-columns: minmax(0, 1fr); }
@@ -110,4 +114,11 @@
   .livery-stage .aircraft-art { height: 90px; }
   .ng-summary { padding: 10px 4px 4px; }
   .ng-foot { padding-block: 8px calc(8px + var(--safe-b)); }
+}
+
+/* v0.12 Title on a phone on its side: four menu entries now (Scenarios), each on two lines. */
+@media (max-height: 499.98px) and (orientation: landscape) {
+  .title-menu .menu-btn, .touch .title-menu .menu-btn, .touch .title-menu > .menu-btn.primary { min-height: 50px; padding-block: 5px; }
+  .title-menu .menu-btn > div { min-width: 0; }
+  .title-menu .mb-s { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }

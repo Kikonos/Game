@@ -94,7 +94,7 @@ export function Title() {
               <Plus />
               <div>
                 <div className="mb-t">New Operator</div>
-                <div className="mb-s">Your own company: pick a base and a start</div>
+                <div className="mb-s">Pick a base and a start setup</div>
               </div>
             </button>
             {/* v0.12 Scenarios mode: ten set challenges with goals and stars. */}
@@ -102,7 +102,7 @@ export function Title() {
               <Flag />
               <div>
                 <div className="mb-t">Scenarios</div>
-                <div className="mb-s">Ten challenges with goals and stars</div>
+                <div className="mb-s">Ten challenges, up to three stars</div>
               </div>
             </button>
             <button className="menu-btn" onClick={() => store.openModal({ kind: 'saves', mode: 'load' })}>

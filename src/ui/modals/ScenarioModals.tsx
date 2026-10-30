@@ -115,7 +115,12 @@ export function ScenarioResultModal() {
   const title = r.stars === 3 ? 'Outstanding' : r.stars === 2 ? 'Well flown' : r.stars === 1 ? 'Done' : 'Not this time';
   const id = v.def.id;
   return (
-    <Modal title={`${v.def.name}: ${title}`} icon={<Flag className="accent" />} className="sc-result">
+    <Modal title={`${v.def.name}: ${title}`} icon={<Flag className="accent" />} className="sc-result" footer={
+      <div className="row gap-8 wrap sc-result-actions">
+        <button className="btn btn-primary" onClick={() => store.startScenario(id)}><RotateCcw /> Retry</button>
+        <button className="btn" onClick={() => { store.quitToTitle(); store.setScreen('scenarios'); }}><ArrowLeft /> Back to scenarios</button>
+      </div>
+    }>
       <div className="sc-result-stars"><Stars n={r.stars} size={40} /></div>
       <div className="sc-result-main">
         <div className="small muted">{v.metric.label}</div>
@@ -129,10 +134,6 @@ export function ScenarioResultModal() {
         ))}
       </div>
       {best && <div className="tiny dim">Best on this device: <Stars n={best.stars} size={11} /> {fmtValue(v.metric.unit, best.value)}</div>}
-      <div className="row gap-8 mt-16 wrap sc-result-actions">
-        <button className="btn btn-primary" onClick={() => store.startScenario(id)}><RotateCcw /> Retry</button>
-        <button className="btn" onClick={() => { store.quitToTitle(); store.setScreen('scenarios'); }}><ArrowLeft /> Back to scenarios</button>
-      </div>
     </Modal>
   );
 }

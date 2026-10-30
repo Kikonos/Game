@@ -113,7 +113,7 @@ export const SCENARIOS: ScenarioDef[] = [
     fleet: [A('a320ceo', true, 2008), A('a320ceo', false, 2014, { lessor: 'Avolon' }), A('a321ceo', false, 2012, { lessor: 'AerCap' })],
     sets: 5, cash: 2_500_000,
     bias: { seasonBase: 1.5, adhoc: 1.4, tourSeries: 1.4, sports: 1.2, troopRotation: 0.5, repatriation: 0.7, vip: 0.7 }, rate: 1.35,
-    metric: 'profit', stars: [25_000, 600_000, 1_200_000],
+    metric: 'profit', stars: [150_000, 800_000, 1_500_000],
     brief: 'Madrid, May. Tour operators want seats to the islands and the coasts, and every airline is short of aircraft. One season base is signed; two aircraft are free. Fill them, keep them flying and bank the summer.',
     setup(g) {
       const [a, b, c] = fleetIds(g);
@@ -127,7 +127,7 @@ export const SCENARIOS: ScenarioDef[] = [
   {
     id: 'aogFirefighter', name: 'AOG Firefighter', difficulty: 2, seed: 2702,
     story: 'Two standby A320s. When an airline’s jet breaks, the phone rings.',
-    region: 'Northern and central Europe', aircraft: '2× A320', goal: 'Earn revenue, reliability 95 %+',
+    region: 'Northern and central Europe', aircraft: '2× A320', goal: 'Revenue, with 95 % of legs flown',
     start: [2027, 6, 1], days: 61,
     company: { name: 'Amberline Air', code: 'AB', icao: 'ABL', callsign: 'AMBERLINE', base: 'VNO', livery: L('#c8a000', '#202733', 'stripe') },
     fleet: [A('a320ceo', true, 2009), A('a320ceo', false, 2013, { lessor: 'AerCap' })],
@@ -145,7 +145,7 @@ export const SCENARIOS: ScenarioDef[] = [
   {
     id: 'cashCrunch', name: 'Cash Crunch', difficulty: 3, seed: 2703,
     story: 'Take over a nearly bankrupt operator: no cash, rent overdue, aircraft idle.',
-    region: 'The Balkans and Europe', aircraft: '2× A320 + 1× 737-800', goal: 'Cash positive and staying there',
+    region: 'The Balkans and Europe', aircraft: '2× A320 + 1× 737-800', goal: 'Days in a row with cash above zero',
     start: [2027, 3, 15], days: 90,
     company: { name: 'Balkan Wings', code: 'B9', icao: 'BWQ', callsign: 'BALKANWING', base: 'SOF', livery: L('#0f9d76', '#ffffff', 'split') },
     fleet: [A('a320ceo', true, 2004), A('a320ceo', true, 2006), A('b738', false, 2012, { lessor: 'Carlyle Aviation Partners' })],
@@ -159,7 +159,7 @@ export const SCENARIOS: ScenarioDef[] = [
   {
     id: 'hajjAirlift', name: 'Hajj Airlift', difficulty: 3, seed: 2704,
     story: 'Two 747-400s fly pilgrims to Jeddah and Medina on a fixed schedule.',
-    region: 'North and West Africa, Saudi Arabia', aircraft: '2× 747-400', goal: 'Fly every Hajj leg on time',
+    region: 'North and West Africa, Saudi Arabia', aircraft: '2× 747-400', goal: 'Hajj legs on time',
     start: [2027, 4, 6], days: 75,
     company: { name: 'Anfa Air Charter', code: 'A9', icao: 'AFQ', callsign: 'ANFA', base: 'CMN', livery: L('#0f9d76', '#d6283c') },
     fleet: [A('b744', true, 2002, { cabin: 1 }), A('b744', false, 2004, { cabin: 1, lessor: 'Global Aircraft Leasing' })],
@@ -186,7 +186,7 @@ export const SCENARIOS: ScenarioDef[] = [
     fleet: [A('b738', true, 2007), A('b738', false, 2012, { lessor: 'SMBC Aviation Capital' }), A('b738', false, 2015, { lessor: 'Avolon' })],
     sets: 5, cash: 2_500_000,
     bias: { repatriation: 1.5, adhoc: 1.3 },
-    focus: ['repatriation'], metric: 'rescues', stars: [8, 16, 24],
+    focus: ['repatriation'], metric: 'rescues', stars: [6, 14, 22],
     brief: 'Porto, April. Two of our 737s are about to start for Jet2 in Manchester and SAS in Stockholm; the third is free. Iceland’s volcanoes have been restless all week.',
     setup(g) {
       const [a, b, c] = fleetIds(g);
@@ -229,7 +229,7 @@ export const SCENARIOS: ScenarioDef[] = [
   {
     id: 'crewCrisis', name: 'Crew Crisis', difficulty: 3, seed: 2706,
     story: 'Half your crews have gone to a rival. Three contracts start next week.',
-    region: 'The Baltics and the Nordics', aircraft: '2× A320 + 1× A321', goal: 'Fly the legs you signed',
+    region: 'The Baltics and the Nordics', aircraft: '2× A320 + 1× A321', goal: 'Legs flown as planned',
     start: [2027, 5, 20], days: 42,
     company: { name: 'Daugava Wetlease', code: 'DW', icao: 'DGW', callsign: 'DAUGAVA', base: 'RIX', livery: L('#d6283c', '#ffffff', 'solid') },
     fleet: [A('a320ceo', true, 2007), A('a320ceo', false, 2014, { lessor: 'AerCap' }), A('a321ceo', false, 2013, { lessor: 'Avolon' })],
@@ -330,7 +330,7 @@ export const SCENARIOS: ScenarioDef[] = [
     fleet: [A('b763', false, 2003, { cabin: 1, lessor: 'Aircastle' }), A('a321ceo', true, 2010)],
     sets: 5, cash: 3_000_000, approvals: ['widebody', 'etops120', 'dg'],
     bias: { evacuation: 2, repatriation: 2, medical: 2, seasonBase: 0.4, tourSeries: 0.4 },
-    focus: MISSIONS, metric: 'fDone', stars: [2, 4, 7],
+    focus: MISSIONS, metric: 'fDone', stars: [2, 4, 6],
     brief: 'Malta, June. Embassies, the UN and the aid agencies keep our number for short-notice work: evacuations under war-risk cover, medical airbridges, relief into places nobody else flies. Permits slip, insurers withdraw, plans change by the hour.',
     script: [
       { day: 1, run: (g) => { startEvent(g, TPL_BY_ID.warLibya); } },
