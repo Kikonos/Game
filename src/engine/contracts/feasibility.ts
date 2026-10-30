@@ -5,7 +5,7 @@ import { AIRPORT_BY_CODE } from '../../data/airports';
 import { BAL } from '../core/balance';
 import { flightsOf } from '../core/entities';
 import { distanceNm } from '../core/geo';
-import { blockMinutes, complement, etopsCap, etopsNeeded, maxSectorNm, planSector, reportMinutes, runwayFit, typeOf } from '../core/perf';
+import { blockMinutes, complement, etopsCap, etopsNeeded, maxSectorNm, planSector, rangeFromNm, reportMinutes, runwayFit, typeOf, usableRangeNm } from '../core/perf';
 import { DAY, fmtDate, fmtDateTime, fmtDay, fmtDuration, toDate, fmtDayRange } from '../core/time';
 import type { AcRest, Aircraft, ApprovalId, ContractOffer, CrewExtra, GameState, Minute, RestRefitId } from '../core/types';
 import { crewAvailability, offerExtra, type Availability } from '../crew';
@@ -331,7 +331,7 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
 
   // 4–5. Range and runways, sector by sector.
   const prog = programmeOf(o, ac.typeId);
-  const usable = t.rangeNm * 0.95;
+  const usable = usableRangeNm(t.id);
   const sectors = [...new Map(prog.sectors.map(([a, b]) => [`${a}-${b}`, [a, b] as [string, string]])).values()];
   const stops: string[] = [];
   const rangeNo: string[] = [];
@@ -342,7 +342,7 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
     longest = Math.max(longest, distanceNm(a, b));
     for (const c of [a, b]) {
       const fit = runwayFit(t.id, c);
-      if (fit === 'no') runwayNo.set(c, `${c} runway ${AIRPORT_BY_CODE[c]?.runwayM ?? 0} m; the ${t.short} needs ${t.minRunwayM} m`);
+      if (fit === 'no') runwayNo.set(c, AIRPORT_BY_CODE[c]?.narrow && t.body === 'wide' ? `${c} takes narrowbodies only` : `${c} runway ${AIRPORT_BY_CODE[c]?.runwayM ?? 0} m; the ${t.short} needs ${t.minRunwayM} m`);
       else if (fit === 'limited') runwayLtd.add(c);
     }
     // v0.8 no fuel on the ice: the aircraft carries the way back (Antarctica).
@@ -361,17 +361,22 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
       else stops.push(`${sp.techStops.join(' + ')} on ${a}–${b} (${nm(distanceNm(a, b))})`);
       for (const s of sp.techStops) if (!rep.techStops.includes(s)) rep.techStops.push(s);
     }
-    if (runwayFit(t.id, a) === 'limited' || runwayFit(t.id, b) === 'limited') {
-      const lim = maxSectorNm(t.id, a, b);
-      if (sp.techStops.length) stops.push(`payload limit at ${runwayFit(t.id, a) === 'limited' ? a : b} caps legs at ${nm(lim)}`);
-    }
+    // v0.12.1 only the take-off end limits the range.
+    if (runwayFit(t.id, a) === 'limited' && sp.techStops.length) stops.push(`short runway at ${a} caps legs at ${nm(maxSectorNm(t.id, a, b))}`);
   }
   if (rangeNo.length) add('range', 'no', rangeNo[0], rangeNo.slice(1).join('; ') || undefined);
   else if (stops.length) add('range', 'warn', `Fuel stop${stops.length > 1 ? 's' : ''} at ${stops[0]}`, stops.length > 1 ? stops.slice(1).join('; ') : `Adds about an hour on the ground per stop; usable range ${nm(usable)}.`);
   else add('range', 'ok', `All sectors direct (longest ${nm(longest)} of ${nm(usable)})`);
   if (runwayNo.size) add('runway', 'no', [...runwayNo.values()][0], [...runwayNo.values()].slice(1).join('; ') || undefined);
-  else if (runwayLtd.size) add('runway', 'warn', `Payload-limited at ${[...runwayLtd].join(', ')} (${[...runwayLtd].map((c) => `${AIRPORT_BY_CODE[c]?.runwayM} m`).join(', ')})`, `Shorter legs from there; the ${t.short} likes ${t.minRunwayM} m.`);
-  else {
+  // v0.12.1 graded: the range from each short or high runway (hot and high: the altitude lengthens the take-off).
+  else if (runwayLtd.size) {
+    const where = (c: string) => {
+      const a = AIRPORT_BY_CODE[c];
+      return `${(a?.runwayM ?? 0).toLocaleString('en-US')} m${a?.elevM && a.elevM >= 1000 ? `, ${a.elevM.toLocaleString('en-US')} m high` : ''}`;
+    };
+    add('runway', 'warn', `Payload-limited at ${[...runwayLtd].join(', ')} (${[...runwayLtd].map(where).join('; ')})`,
+      `Shorter range taking off there: ${[...runwayLtd].map((c) => `${c} ${nm(rangeFromNm(t.id, c))}`).join(', ')} (full range ${nm(usable)}). The ${t.short} likes ${t.minRunwayM.toLocaleString('en-US')} m at sea level.`);
+  } else {
     const shortest = prog.airports.reduce((m, c) => Math.min(m, AIRPORT_BY_CODE[c]?.runwayM ?? 9999), 9999);
     add('runway', 'ok', `Runways fine (shortest ${shortest.toLocaleString('en-US')} m)`);
   }

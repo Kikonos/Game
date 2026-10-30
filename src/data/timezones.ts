@@ -26,6 +26,10 @@ const COUNTRY: Record<string, [number, DstRule]> = {
   TH: [7, null], VN: [7, null], KH: [7, null], ID: [7, null], SG: [8, null], MY: [8, null], PH: [8, null], CN: [8, null], HK: [8, null], MO: [8, null], TW: [8, null],
   TL: [9, null], JP: [9, null], KR: [9, null],
   AU: [10, null], NZ: [12, null], FJ: [12, null], NC: [11, null], GU: [10, null], WS: [13, null], PF: [-10, null], CK: [-10, null],
+  // v0.12.1 the new airports' states and territories.
+  CW: [-4, null], BQ: [-4, null], SX: [-4, null], SR: [-3, null], FK: [-3, null], SH: [0, null], RE: [4, null], MN: [8, null], LA: [7, null],
+  PW: [9, null], MP: [10, null], TO: [13, null], KI: [12, null], VU: [11, null], SB: [11, null], MH: [12, null], FM: [11, null], NF: [11, null],
+  CC: [6.5, null], CX: [7, null],
 };
 
 /** Airports whose zone differs from their country's default (standard time, hours). */
@@ -38,6 +42,8 @@ const AIRPORT: Record<string, number> = {
   UPG: 8, WFR: 2, TRL: 2, UGL: -3,
   // v0.11 Newfoundland keeps half-hour time (Gander, St. John's)
   YQX: -3.5, YYT: -3.5,
+  // v0.12.1 Easter Island and Galápagos run behind the mainland; Kiritimati is UTC+14; Broome and Uluru
+  IPC: -6, GPS: -6, CXI: 14, BME: 8, AYQ: 9.5,
 };
 
 /** Multi-zone countries use longitude bands (US/Canada). */

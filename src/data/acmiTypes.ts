@@ -33,7 +33,11 @@ export interface AcmiType {
   cabins: CabinPreset[];
   /** Exit-limit (certified maximum) seats. */
   maxSeats: number;
-  /** Realistic range at full payload, nautical miles. */
+  /**
+   * Realistic range at full payload, nautical miles: the charter cabin full (denser than the brochure's seating, so
+   * below the brochure range). v0.12.1 reviewed: 737-800 2,700 (Amsterdam–Sal with 189 seats, TUI and Transavia),
+   * A321ceo 2,600 (Stockholm–Gran Canaria), A320neo 3,100 (186 seats; 3,400 is the brochure's 165).
+   */
   rangeNm: number;
   cruiseKt: number;
   /** Planned turnaround, minutes. */
@@ -51,7 +55,10 @@ export interface AcmiType {
   restClass: 1 | 2 | 3 | null;
   /** Highest ETOPS the type can be approved for (0 = not ETOPS capable; four-engine types bypass ETOPS). */
   etopsMax: number;
-  /** Shortest runway (m) for normal ACMI operations at typical weights. */
+  /**
+   * Shortest runway (m) for normal ACMI operations at typical weights. v0.12.1 read as the take-off run at full
+   * payload and range at sea level (perf.rangeFromNm: a shorter or higher runway costs range, graded).
+   */
   minRunwayM: number;
   /** Default ACMI rate per block hour. */
   rateBH: number;
@@ -207,14 +214,14 @@ export const ACMI_TYPES_LIST: AcmiType[] = ([
   {
     id: 'b738', name: 'Boeing 737-800', short: 'B738', family: 'B737', body: 'narrow', engines: 2, catalog: 'b738', art: 'b738', tier: 0,
     cabins: [c('189Y', 'all-economy', 0, 0, 189), c('12J/162Y', 'two-class', 12, 0, 162)], maxSeats: 189,
-    rangeNm: 2500, cruiseKt: 450, turnMin: 40, cockpitMin: 2, cabinTypical: 4, restClass: 3, etopsMax: 120, minRunwayM: 2200,
+    rangeNm: 2700, cruiseKt: 450, turnMin: 40, cockpitMin: 2, cabinTypical: 4, restClass: 3, etopsMax: 120, minRunwayM: 2200,
     rateBH: 3700, fuelTBH: 2.5, maintBH: 900, rentMonth: 235_000, valueUsed: 15_000_000, insuranceMonth: 42_000,
     aCheckFH: 700, aCheckHours: 8, cCheckMonths: 24, cCheckDays: 14, pilotsPerAircraft: 11, scarcity: 0.2, available: true, rest: NO_REST, yAbreast: 6,
   },
   {
     id: 'a321ceo', name: 'Airbus A321ceo', short: 'A321', family: 'A320', body: 'narrow', engines: 2, catalog: 'a321ceo', art: 'a321ceo', tier: 1,
     cabins: [c('220Y', 'all-economy', 0, 0, 220), c('16J/180Y', 'two-class', 16, 0, 180)], maxSeats: 230,
-    rangeNm: 2300, cruiseKt: 450, turnMin: 45, cockpitMin: 2, cabinTypical: 5, restClass: 3, etopsMax: 120, minRunwayM: 2300,
+    rangeNm: 2600, cruiseKt: 450, turnMin: 45, cockpitMin: 2, cabinTypical: 5, restClass: 3, etopsMax: 120, minRunwayM: 2300,
     rateBH: 4300, fuelTBH: 2.9, maintBH: 1000, rentMonth: 280_000, valueUsed: 18_000_000, insuranceMonth: 46_000,
     aCheckFH: 750, aCheckHours: 8, cCheckMonths: 24, cCheckDays: 14, pilotsPerAircraft: 11, scarcity: 0.3, available: true, rest: NO_REST, yAbreast: 6,
   },
@@ -439,7 +446,7 @@ export const ACMI_TYPES_LIST: AcmiType[] = ([
   {
     id: 'a320neo', name: 'Airbus A320neo', short: 'A20N', family: 'A320', body: 'narrow', engines: 2, catalog: 'a320neo', art: 'a320ceo', tier: 0,
     cabins: [c('186Y', 'all-economy', 0, 0, 186), c('12J/156Y', 'two-class', 12, 0, 156)], maxSeats: 194,
-    rangeNm: 3400, cruiseKt: 450, turnMin: 40, cockpitMin: 2, cabinTypical: 4, restClass: 3, etopsMax: 180, minRunwayM: 2000,
+    rangeNm: 3100, cruiseKt: 450, turnMin: 40, cockpitMin: 2, cabinTypical: 4, restClass: 3, etopsMax: 180, minRunwayM: 2000,
     rateBH: 4600, fuelTBH: 2.1, maintBH: 750, rentMonth: 300_000, rentNew: 360_000, firstYear: 2016, valueUsed: 36_000_000, insuranceMonth: 52_000,
     aCheckFH: 1000, aCheckHours: 8, cCheckMonths: 36, cCheckDays: 12, pilotsPerAircraft: 11, scarcity: 0.7, available: false, rest: NO_REST, yAbreast: 6,
   },

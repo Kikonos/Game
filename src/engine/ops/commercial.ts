@@ -22,10 +22,10 @@ const LONG_KM = 4_500;
 const LINKS: Record<string, string[]> = {
   PT: ['BR', 'AO', 'MZ', 'CV', 'ST', 'GW', 'US', 'CA', 'VE'],
   ES: ['MX', 'CO', 'PE', 'AR', 'CU', 'DO', 'EC', 'CL', 'UY', 'PA', 'GT', 'SV', 'CR', 'VE', 'BO', 'PY', 'US', 'GQ'],
-  FR: ['SN', 'CI', 'ML', 'BF', 'NE', 'CM', 'MA', 'DZ', 'TN', 'MG', 'NC', 'MU', 'SC', 'TG', 'GN', 'MR', 'CD', 'DJ', 'US', 'CA', 'MX', 'BR', 'IN', 'CN', 'JP', 'AE', 'ZA'],
+  FR: ['SN', 'CI', 'ML', 'BF', 'NE', 'CM', 'MA', 'DZ', 'TN', 'MG', 'NC', 'MU', 'SC', 'TG', 'GN', 'MR', 'CD', 'DJ', 'US', 'CA', 'MX', 'BR', 'IN', 'CN', 'JP', 'AE', 'ZA', 'RE', 'SX'],
   GB: ['IN', 'PK', 'BD', 'LK', 'ZA', 'KE', 'NG', 'GH', 'US', 'CA', 'JM', 'BS', 'AE', 'QA', 'SG', 'HK', 'AU', 'MV', 'MU', 'SC', 'UG', 'TZ'],
   DE: ['US', 'CA', 'BR', 'IN', 'CN', 'JP', 'ZA', 'NA', 'TH', 'AE', 'MX', 'AR'],
-  NL: ['AW', 'US', 'CA', 'ID', 'KE', 'NG', 'ZA', 'BR'],
+  NL: ['AW', 'US', 'CA', 'ID', 'KE', 'NG', 'ZA', 'BR', 'CW', 'BQ', 'SX', 'SR'],
   BE: ['CD', 'RW', 'UG', 'SN', 'CI', 'GH', 'US'],
   IT: ['US', 'BR', 'AR', 'JP'],
   TR: ['US', 'CA', 'BR', 'NG', 'ZA', 'SO', 'DJ', 'KE', 'ET', 'TZ', 'AF', 'TM', 'UZ', 'TJ', 'IN', 'JP', 'CN', 'KR', 'TH', 'ID', 'MY'],

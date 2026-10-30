@@ -146,9 +146,11 @@ describe('feasibility', () => {
 
   it('rest: long duties need the augmented approval and in-flight rest on the aircraft (v0.7.3)', () => {
     const g = newGame(30);
-    const wb = addAircraft(g, 'b772');
+    // v0.12.1 an A350 Lisbon–Jakarta nonstop (a 15:45 day). The 777's Lisbon–Hong Kong now stops midway at Tashkent,
+    // where a fresh crew can take over, so it no longer needs the augmented crew this test is about.
+    const wb = addAircraft(g, 'a359');
     g.company.approvals.push('etops120', 'etops180');
-    const o = legsOffer(g, [['LIS', 'HKG', g.now + 8 * DAY]], 250);
+    const o = legsOffer(g, [['LIS', 'CGK', g.now + 8 * DAY]], 250);
     const r = check(feasibility(g, o.id, wb.id), 'rest');
     expect(r.level).toBe('no');
     expect(r.label).toMatch(/augmented/);

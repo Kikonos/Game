@@ -240,8 +240,15 @@ export function pickN<T>(g: GameState, xs: T[], n: number, weight: (x: T) => num
   return out;
 }
 
-export function airportsWithin(from: string, minKm: number, maxKm: number, pred: (a: Airport) => boolean): Airport[] {
-  return AIRPORTS.filter((a) => a.code !== from && !a.enroute && a.runwayM >= 2000 && pred(a) && km(from, a.code) >= minKm && km(from, a.code) <= maxKm);
+/**
+ * v0.12.1 a remote destination's weight in a pool that admits them (a rare pick). A later 'world tour' job can draw
+ * on them directly: AIRPORTS.filter((a) => a.remote), widebody-capable where !a.narrow.
+ */
+export const REMOTE_PULL = 0.25;
+
+/** v0.12.1 `remote`: also the remote, late-game destinations (Airport.remote), which the usual pools leave out. */
+export function airportsWithin(from: string, minKm: number, maxKm: number, pred: (a: Airport) => boolean, remote = false): Airport[] {
+  return AIRPORTS.filter((a) => a.code !== from && !a.enroute && (remote || !a.remote) && a.runwayM >= 2000 && pred(a) && km(from, a.code) >= minKm && km(from, a.code) <= maxKm);
 }
 
 /** v0.8 a destination an airline client would really send our aircraft to: never a war zone, inside its market when listed. Pure. */
@@ -617,10 +624,12 @@ function adhoc(ctx: Ctx): Draft | null {
     client = nearClient(ctx, adhocGroupClients(g, group));
     if (!client) return null;
     if (group.pax && !wide) pax = int(g, ...group.pax);
+    // v0.12.1 once we are Respected, a leisure group now and then picks a remote place (Easter Island, Svalbard…).
+    const far = standingOf(g) >= 2 && group.dest === 'leisure';
     const pool = wide
-      ? airportsWithin(client.base, 5000, 9000, (a) => a.tour >= 0.7 && F.groupDestOk(group, a))
-      : airportsWithin(client.base, 600, 3500, (a) => (a.tour >= 0.6 || a.size >= 4 || !!group.dests) && F.groupDestOk(group, a));
-    const dest = o.airport ?? weightedPick(g, pool, (a) => a.tour + (standingOf(g) === 0 ? (6 - a.size) / 5 : a.size / 5))?.code;
+      ? airportsWithin(client.base, 5000, 9000, (a) => a.tour >= 0.7 && F.groupDestOk(group, a), far)
+      : airportsWithin(client.base, 600, 3500, (a) => (a.tour >= 0.6 || a.size >= 4 || !!group.dests) && F.groupDestOk(group, a), far);
+    const dest = o.airport ?? weightedPick(g, pool, (a) => (a.tour + (standingOf(g) === 0 ? (6 - a.size) / 5 : a.size / 5)) * (a.remote ? REMOTE_PULL : 1))?.code;
     if (!dest) return null;
     const oneWay = chance(g, 0.2) || maxBack < 1;
     const back = Math.max(1, Math.min(int(g, ...(group.back ?? [2, 6])), maxBack));

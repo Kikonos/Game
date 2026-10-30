@@ -13,7 +13,7 @@ import { addFlight, flightsOf, markFlightsChanged, nextId, touchFlights } from '
 import { haversine, interpolateGC } from '../core/geo';
 import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
-import { blockMinutes, runwayFit, typeOf } from '../core/perf';
+import { blockMinutes, fullLength, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { hashUnit } from '../core/util';
 import { divPos } from '../core/query';
@@ -162,7 +162,7 @@ export function alternates(g: GameState, ac: Aircraft, near: [number, number], d
     const lim = maxKm * (pass + 1);
     out.length = 0;
     for (const a of AIRPORTS) {
-      if (a.code === dest || a.ice || a.size < 2 || exclude.includes(a.code) || runwayFit(ac.typeId, a.code) !== 'ok') continue;
+      if (a.code === dest || a.ice || a.size < 2 || exclude.includes(a.code) || !fullLength(ac.typeId, a.code)) continue;
       if (haversine(near[1], near[0], a.lat, a.lon) > lim) continue;
       const km = haversine(from[1], from[0], a.lat, a.lon);
       const min = Math.round(km / kmPerMin + 18);

@@ -13,7 +13,7 @@ import { nextId } from '../core/entities';
 import { distanceNm } from '../core/geo';
 import { cue } from '../core/cues';
 import { pushMessage } from '../core/messages';
-import { blockMinutes, complement, etopsCap, typeOf } from '../core/perf';
+import { blockMinutes, complement, etopsCap, maxSectorNm, typeOf, usableRangeNm } from '../core/perf';
 import { schedule } from '../core/queue';
 import { chance, int, next, pick, range, weightedPick } from '../core/rng';
 import { DAY, fmtDay, fromUTC, toDate } from '../core/time';
@@ -270,8 +270,10 @@ function evacuation(ctx: Ctx): Draft | null {
       const T = typeOf(a.typeId);
       const nm = distanceNm(a.at, hub);
       // An ocean crossing needs ETOPS 180 (type and approval) on a twin that can't make it in one hop.
-      if (atlantic(a.at, hub) && nm > T.rangeNm * 0.9 && (T.etopsMax < 180 || !g.company.approvals.includes('etops180'))) return Infinity;
-      return (nm / T.cruiseKt) * 60 * 1.15 + Math.floor(nm / (T.rangeNm * 0.9)) * 90 + 6 * 60;
+      // v0.12.1 the usable range (perf.usableRangeNm), as every other range decision.
+      const reach = usableRangeNm(a.typeId);
+      if (atlantic(a.at, hub) && nm > reach && (T.etopsMax < 180 || !g.company.approvals.includes('etops180'))) return Infinity;
+      return (nm / T.cruiseKt) * 60 * 1.15 + Math.floor(nm / reach) * 90 + 6 * 60;
     };
     const soonest = Math.min(Infinity, ...fleet.map(travel));
     if (soonest > 72 * 60) return null;
@@ -285,7 +287,7 @@ function evacuation(ctx: Ctx): Draft | null {
     t = Math.ceil((dep + back + 60) / 15) * 15;
   }
   // Home to the capital only when the type reaches it non-stop; else the ministry books scheduled flights from the hub.
-  const home = capital !== hub && distanceNm(hub, capital) <= typeOf(typeRef).rangeNm * 0.95;
+  const home = capital !== hub && distanceNm(hub, capital) <= maxSectorNm(typeRef, hub, capital);
   if (home) legs.push({ from: hub, to: capital, dep: t + 60, flightNo: '', pax });
   const level = Math.max(2, warRiskAt(g, x));
   const cover = warRiskCost(level, wide) * n;

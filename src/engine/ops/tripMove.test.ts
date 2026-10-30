@@ -153,10 +153,11 @@ describe('quoteTripMove', () => {
     const a = owned(g);
     const c = addAircraft(g, 'a321ceo');
     c.reg = 'CS-TQB';
-    const legs = charter(g, a.id, [['LIS', 'AMM', g.now + 3 * DAY + 8 * 60], ['AMM', 'LIS', g.now + 3 * DAY + 15 * 60]]);
+    // v0.12.1 the A321 reaches Amman now (2,600 nm with 220 seats); Libreville is within the A320's reach, not the A321's.
+    const legs = charter(g, a.id, [['LIS', 'LBV', g.now + 3 * DAY + 8 * 60], ['LBV', 'LIS', g.now + 3 * DAY + 17 * 60]]);
     const q = quoteTripMove(g, legs[0].id, c.id);
     expect(q.ok).toBe(false);
-    expect(q.reasons[0]).toMatch(/^An A321 can't fly this [\d,]+ km leg \(LIS–AMM\) without a fuel stop$/);
+    expect(q.reasons[0]).toMatch(/^An A321 can't fly this [\d,]+ km leg \(LIS–LBV\) without a fuel stop$/);
   });
 
   it('refuses a cabin the client did not ask for', () => {

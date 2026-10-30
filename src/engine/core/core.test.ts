@@ -139,7 +139,9 @@ describe('performance and fit', () => {
     expect(runwayFit('b772', 'DIL')).toBe('no');
     expect(runwayFit('b763', 'DIL')).toBe('limited');
     expect(planSector('b772', 'LIS', 'DIL').ok).toBe(false);
-    const p = planSector('b763', 'DXB', 'DIL');
+    // v0.12.1 only the take-off end limits: Dubai–Dili lands on the short runway nonstop, the way back stops.
+    expect(planSector('b763', 'DXB', 'DIL').techStops).toEqual([]);
+    const p = planSector('b763', 'DIL', 'DXB');
     expect(p.ok).toBe(true);
     expect(p.techStops.length).toBeGreaterThan(0);
   });
