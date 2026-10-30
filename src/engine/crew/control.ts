@@ -1155,7 +1155,9 @@ function crewableOnTime(g: GameState, x: Ctx): boolean {
 /** Why 'delay' has no time to offer: a crew can go on time (Auto-fix, when its preview or the candidates say so), or nobody can even later. */
 function noDelayWhy(g: GameState, x: Ctx, autoFixWorks: boolean | null = null): string {
   const { f, ac } = x;
-  if (autoFixWorks !== false && crewAlertKind(g, f.id) !== 'hours' && readyOf(g, f, ac) <= f.std + f.delay && (autoFixWorks || crewableOnTime(g, x))) return 'A crew can take it on time: use Auto-fix';
+  // Auto-fix's own preview crews it on time (an out-of-hours crew member replaced included): the delay was not looked for.
+  if (autoFixWorks) return 'A crew can take it on time: use Auto-fix';
+  if (autoFixWorks !== false && crewAlertKind(g, f.id) !== 'hours' && readyOf(g, f, ac) <= f.std + f.delay && crewableOnTime(g, x)) return 'A crew can take it on time: use Auto-fix';
   return f.kind === 'positioning' ? 'The schedule re-plans empty legs itself: this one waits for a crew at the gate' : 'Nobody can take it even two days later';
 }
 
