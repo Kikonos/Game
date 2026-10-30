@@ -106,7 +106,19 @@ export const WORLD_ZONES: WorldZone[] = [
   },
 ];
 
-export const ZONE_BY_ID: Record<string, WorldZone> = Object.fromEntries(WORLD_ZONES.map((z) => [z.id, z]));
+/**
+ * v0.12 Scenarios only (Ash Cloud): the airspace an Icelandic ash cloud closes, roughly as in April 2010: the UK and
+ * Ireland, the Netherlands, northern Germany, Denmark, Norway, Sweden, Finland and the Baltic coast. Paris, Brussels,
+ * Düsseldorf, Frankfurt and Berlin stay open. Not in WORLD_ZONES (no standing war risk, never drawn).
+ */
+export const SCENARIO_ZONES: WorldZone[] = [
+  {
+    id: 'northEurope', name: 'northern Europe', adj: 'Northern European', countries: [], detourMin: 45, airports: ['LHR', 'DUB', 'AMS', 'CPH', 'OSL', 'ARN'],
+    ring: [[-11, 51.3], [-5, 49.9], [1.6, 50.9], [3.3, 51.4], [6, 51.8], [10, 52.6], [15, 53.3], [21, 54.3], [28, 55.6], [31, 60], [30, 70], [15, 71], [5, 62], [-8, 60], [-14, 57]],
+  },
+];
+
+export const ZONE_BY_ID: Record<string, WorldZone> = Object.fromEntries([...WORLD_ZONES, ...SCENARIO_ZONES].map((z) => [z.id, z]));
 
 /** Point in polygon (ray casting, lon/lat plane; fine for these small shapes). Pure. */
 export function inRing(ring: [number, number][], lon: number, lat: number): boolean {

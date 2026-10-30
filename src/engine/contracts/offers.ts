@@ -36,6 +36,7 @@ import { ARCH_MULT, defaultSeats, isJumboType, isWetArchetype, isWideJob, priceP
 import { LEVEL_PERKS, levelOf, standingRate } from './relations';
 import { rivalTakes, rollRivalBid } from './rivals';
 import { inWarZone, warRiskLandings } from '../ops/world';
+import type { HajjDates } from '../../data/worldCalendar';
 import { demandFactor } from '../ops/market';
 import { afterOfferDays, isQuiet } from '../ops/director';
 import { clientCrewOnCabin, fuelFactor, MISSION_BUILDERS, missionWeights, presidential, rollClientCabin, WINDOW_FIT_V08 } from './missions';
@@ -51,7 +52,8 @@ export function offerRate(g: GameState): number {
   const fleetF = 0.7 + 0.15 * n;
   const repF = 0.6 + (0.8 * g.company.reputation.reliable) / 100;
   // v0.8 market cycle: volume × (fleet-weighted segment index)² (slump ≈ 0.67, boom ≈ 1.32).
-  return (BAL.offersPerWeek / 7) * fleetF * SEASON_F[toDate(g.now).getUTCMonth()] * repF * demandFactor(g);
+  // v0.12 Scenarios: a scenario may run a busier (or quieter) offer stream.
+  return (BAL.offersPerWeek / 7) * fleetF * SEASON_F[toDate(g.now).getUTCMonth()] * repF * demandFactor(g) * (g.scen?.rate ?? 1);
 }
 
 /** Queues the next 'offer.spawn': gamma(3) gaps with the Poisson mean (steadier than exponential, same rate). */
@@ -128,6 +130,8 @@ export interface OfferOpts {
   waves?: number;
   rotations?: number;
   variant?: 'group' | 'diaspora' | 'pilgrimage' | 'music' | 'oneway';
+  /** v0.12 Scenarios: the Hajj season to tender for (else the one whose tender is open now). */
+  hajj?: HajjDates;
   /** v0.5.1 client paint: false = never; true = roll as usual; a kind = force a request of that kind (tests, dev helper). */
   paint?: boolean | { kind: PaintKind; required?: boolean };
   /** v0.8: evacuation staging hub; the world event; the rival hiring us and its end client; the contract repeated. */
@@ -996,7 +1000,10 @@ function weights(g: GameState): [Archetype, number][] {
     ['vip', standingOf(g) === 0 ? 0 : Object.values(g.fleet).some((a) => a.cabin.layout === 'vip') ? 0.08 : 0.04],
   ];
   // v0.8 more contract types (missions.ts); fuel over $900/t: charter clients wait (× 0.85).
-  return [...list.map(([a, w]): [Archetype, number] => [a, w * fuelFactor(g, a)]), ...missionWeights(g)];
+  const all = [...list.map(([a, w]): [Archetype, number] => [a, w * fuelFactor(g, a)]), ...missionWeights(g)];
+  // v0.12 Scenarios: the scenario's bias on the kinds of work (a normal game has none).
+  const bias = g.scen?.bias;
+  return bias ? all.map(([a, w]): [Archetype, number] => [a, w * (bias[a] ?? 1)]) : all;
 }
 
 /** Per archetype: lead from now to start [min, max] and the room it needs inside a window, in days. */

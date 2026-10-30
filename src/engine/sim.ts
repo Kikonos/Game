@@ -10,9 +10,10 @@ import { DAY, monthKey, nextDayStart } from './core/time';
 import type { GameState, Minute, SimEvent, SimEventType } from './core/types';
 import { crewModule } from './crew';
 import { opsModule } from './ops';
+import { scenarioModule } from './scenario/module';
 
-/** Dispatch order for every event type: ops (state machine, money) → contracts → crew. */
-export const MODULES: SimModule[] = [opsModule, contractsModule, crewModule];
+/** Dispatch order for every event type: ops (state machine, money) → contracts → crew (→ v0.12 the scenario's goals, last). */
+export const MODULES: SimModule[] = [opsModule, contractsModule, crewModule, scenarioModule];
 
 const table = new Map<SimEventType, ((g: GameState, ev: SimEvent) => void)[]>();
 for (const m of MODULES) {
