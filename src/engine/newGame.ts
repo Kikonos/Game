@@ -83,7 +83,7 @@ function emptyState(o: NewGameOptions, seed: number, now: Minute, cash: number =
       reputation: { ...BAL.startReputation },
       approvals: [],
       pendingApprovals: [],
-      policies: { extraCabin: 0, hotelTier: 4, perDiemPct: 100, rotationWeeks: 5, autoRoster: true, autoMaintenance: true, allowTight: false, autoDeadhead: true },
+      policies: { extraCabin: 0, hotelTier: 4, perDiemPct: 100, rotationWeeks: 5, autoRoster: true, autoMaintenance: true, allowTight: false, autoDeadhead: true, buyBack: 'auto' },
       departments: [],
       nextFlightNo: 101,
     },

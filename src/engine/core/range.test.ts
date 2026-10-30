@@ -58,10 +58,12 @@ describe('v0.12.1 runway performance', () => {
 
   it('hot and high: the altitude lengthens the take-off (Bogotá, Addis, La Paz, Cusco, Leh), landing is no bar', () => {
     expect(altitudeFactor(0)).toBe(1);
-    expect(altitudeFactor(1000)).toBeGreaterThan(1.2);
-    expect(altitudeFactor(1000)).toBeLessThan(1.3);
-    expect(altitudeFactor(2230)).toBeGreaterThan(1.55);
-    expect(altitudeFactor(2230)).toBeLessThan(1.75);
+    // v0.12.1 round D: softer up to 2,600 m (flat-rated engines: the 787 and A350 MTOW charts), the full σ·δ by 4,000 m.
+    expect(altitudeFactor(1000)).toBeGreaterThan(1.1);
+    expect(altitudeFactor(1000)).toBeLessThan(1.2);
+    expect(altitudeFactor(2230)).toBeGreaterThan(1.3);
+    expect(altitudeFactor(2230)).toBeLessThan(1.45);
+    expect(altitudeFactor(4061)).toBeGreaterThan(2.3);
     // Bogotá's 3,800 m is a short runway for an A330 at 2,548 m up, but Madrid is still nonstop (Avianca).
     expect(runwayFit('a332', 'BOG')).toBe('limited');
     expect(nonstop('a332', 'BOG', 'MAD')).toBe(true);
@@ -70,9 +72,31 @@ describe('v0.12.1 runway performance', () => {
     expect(nonstop('b763', 'LPB', 'VVI')).toBe(true);
     expect(nonstop('a320ceo', 'CUZ', 'LIM')).toBe(true);
     expect(nonstop('a320ceo', 'IXL', 'DEL')).toBe(true);
-    // A diversion field needs its length, not the altitude allowance.
-    expect(fullLength('b744', 'JNB')).toBe(true);
-    expect(runwayFit('b744', 'JNB')).toBe('limited');
+    // A diversion field needs its length, not the altitude allowance (v0.12.1 round D: Mexico City; Johannesburg's
+    // 4,418 m now lets a 747 go at full weight).
+    expect(fullLength('b744', 'MEX')).toBe(true);
+    expect(runwayFit('b744', 'MEX')).toBe('limited');
+  });
+
+  it('v0.12.1 round D: the real hot-and-high long hauls leave nonstop', () => {
+    for (const [t, a, b, why] of [
+      ['b789', 'MEX', 'NRT', 'Aeroméxico'],
+      ['a359', 'ADD', 'IAD', 'Ethiopian'],
+      ['a359', 'ADD', 'EWR', 'Ethiopian'],
+      ['b789', 'ADD', 'EWR', 'Ethiopian'],
+      ['a332', 'BOG', 'MAD', 'Avianca'],
+      ['b789', 'BOG', 'MAD', 'Avianca'],
+      ['b789', 'NBO', 'JFK', 'Kenya Airways'],
+      ['b789', 'UIO', 'AMS', 'KLM'],
+    ] as const) {
+      expect(runwayFit(t, a), `${t} ${a}`).not.toBe('no');
+      expect(nonstop(t, a, b), `${t} ${a}–${b} (${why})`).toBe(true);
+      expect(nonstop(t, b, a), `${t} ${b}–${a} (${why})`).toBe(true);
+    }
+    // Still weight-limited up there, and La Paz stays a short-hop field for a widebody.
+    expect(runwayFit('b789', 'ADD')).toBe('limited');
+    expect(runwayFit('a332', 'BOG')).toBe('limited');
+    expect(nonstop('b763', 'LPB', 'MIA')).toBe(false);
   });
 
   it('fuel stops lie on the way: never further from the destination than the start, no short hop when a midway stop fits', () => {

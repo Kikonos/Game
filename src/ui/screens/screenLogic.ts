@@ -247,7 +247,7 @@ export function statementView(current: MonthStatement, history: MonthStatement[]
 }
 
 /** v0.7: 'market' filters by topic (aircraft market alerts). v0.7.1: 'problems' = messages about a problem still open, and bad news of the last week. */
-export type MsgFilter = MessageCat | 'all' | 'market' | 'problems' | /** v0.8 world events */ 'world';
+export type MsgFilter = MessageCat | 'all' | 'market' | 'problems' | /** v0.8 world events */ 'world' | /** v0.12.1 the toast log (UI only) */ 'popups';
 
 /** Bad news stays under 'Problems only' this long. */
 export const PROBLEM_RECENT = 7 * DAY;
@@ -265,6 +265,8 @@ export function filterMessages(list: Message[], cat: MsgFilter, g?: GameState): 
   if (cat === 'all') return list;
   if (cat === 'market') return list.filter((m) => m.topic === 'market');
   if (cat === 'world') return list.filter((m) => m.topic === 'world');
+  // v0.12.1 the pop-up log is not messages (InboxScreen lists store.toastLog).
+  if (cat === 'popups') return [];
   if (cat === 'problems') return g ? list.filter((m) => isProblemMessage(m, g)) : list.filter((m) => !!m.problem || m.tone === 'bad');
   return list.filter((m) => m.cat === cat);
 }

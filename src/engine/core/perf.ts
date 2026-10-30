@@ -65,13 +65,21 @@ export type RunwayFit = 'ok' | 'limited' | 'no';
 /**
  * v0.12.1 how much longer a take-off run is at the airport's elevation than at sea level (ISA, still air): lift-off
  * speed (true airspeed) grows as 1/σ and the engines give thrust in proportion to the pressure ratio δ, so the
- * distance grows as 1/(σ·δ): +24% at 1,000 m, +64% at Mexico City (2,230 m), ×2.2 at Lhasa (3,570 m). Pure.
+ * distance grows as 1/(σ·δ). v0.12.1 round D: up to 2,600 m (the high big-jet hubs: Mexico City, Bogotá, Addis Ababa,
+ * Quito) to the power 0.65 only: flat-rated engines keep much of their take-off thrust there and the published MTOW
+ * runway charts of the 787 and A350 grow by about 35–40 %, not the bare 64–67 % (the full figure made Mexico City–Tokyo
+ * on a 787-9 stop in Anchorage; Aeroméxico flies it nonstop). Above it the full 1/(σ·δ) returns by 4,000 m (La Paz,
+ * Lhasa: big jets only on short hops). +12% at 1,000 m, +38% at Mexico City, +40% at Addis Ababa, ×2.5 at La Paz. Pure.
  */
+export const ALT_EXP = 0.65;
+const ALT_SOFT_TO = 2600;
+const ALT_FULL_AT = 4000;
 export function altitudeFactor(elevM: number): number {
   if (elevM <= 0) return 1;
   const theta = 1 - 2.2558e-5 * elevM;
   const delta = theta ** 5.2559;
-  return 1 / ((delta / theta) * delta);
+  const k = elevM <= ALT_SOFT_TO ? ALT_EXP : Math.min(1, ALT_EXP + ((1 - ALT_EXP) * (elevM - ALT_SOFT_TO)) / (ALT_FULL_AT - ALT_SOFT_TO));
+  return (1 / ((delta / theta) * delta)) ** k;
 }
 
 /** v0.12.1 the take-off run the airport offers, as if at sea level (its runway over the altitude factor). */

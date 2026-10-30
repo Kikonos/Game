@@ -2387,7 +2387,7 @@ console.log(
     const pct = (a: number, b: number) => (b ? Math.round((100 * a) / b) : 0);
     console.log(
       `roster: days off/crew-month ${avg.toFixed(1)} (min 7, <7: ${r.monthsLow} of ${r.months}) · leave ${(r.leaveDays / Math.max(1, months.length)).toFixed(1)} · standby ${pct(sby, all)}% of days (home ${pct(r.sbyHome, all)} · hotel ${pct(r.sbyHotel, all)} · airport ${pct(r.asby, all)} · reserve ${pct(r.res, all)}) · ` +
-        `standby share of free days ${pct(sby, free)}% · call-outs ${r.callOuts} (crew fixes ${fixes}) · max recovery gap ${r.maxRecGapH} h · offBroken ${r.offBroken} · moved ${r.offMoved ?? 0} · swapped ${r.offSwaps ?? 0} · crew-days home/hotel/airport/reserve ${r.sbyHome}/${r.sbyHotel}/${r.asby}/${r.res} · years <96: ${r.yearsLow ?? 0} of ${r.years ?? 0}`,
+        `standby share of free days ${pct(sby, free)}% · call-outs ${r.callOuts} (crew fixes ${fixes}) · max recovery gap ${r.maxRecGapH} h · offBroken ${r.offBroken} · moved ${r.offMoved ?? 0} · swapped ${r.offSwaps ?? 0} · bought back ${r.offBought ?? 0} (${Math.round((r.offBoughtPaid ?? 0) / 1000)}k) · crew-days home/hotel/airport/reserve ${r.sbyHome}/${r.sbyHotel}/${r.asby}/${r.res} · years <96: ${r.yearsLow ?? 0} of ${r.years ?? 0}`,
     );
     // v0.9 fix: how evenly flying is shared (last closed month, per family and role, crew on the books all month).
     const lastMk = monthKey(g.now) - 1;

@@ -300,6 +300,22 @@ export function createChecker(opts: CheckerOpts = {}) {
     if (g.now - lastScan >= (opts.scanDays ?? 1) * DAY_MS) {
       lastScan = g.now;
       for (const p of badNumbers(g)) err('nan', g.now, `non-finite ${p}`);
+      // v0.12.1 round D: planned legs of one aircraft should not overlap either (the Schedule drew BLU1565 over an FNC
+      // leg): a warning (a schedule recovery can leave one for a while; the gate sorts it out).
+      const live = new Map<string, { no: string; kind: string; from: string; to: string; s: Minute; e: Minute }[]>();
+      for (const f of Object.values(g.flights)) {
+        if (!f.aircraftId || f.operatedBy || (f.status !== 'scheduled' && f.status !== 'enroute')) continue;
+        const s = f.status === 'enroute' ? f.atd ?? f.std : f.std + f.delay;
+        (live.get(f.aircraftId) ?? live.set(f.aircraftId, []).get(f.aircraftId)!).push({ no: f.no, kind: f.kind, from: f.from, to: f.to, s, e: f.status === 'enroute' ? f.eta ?? f.sta : f.sta + f.delay });
+      }
+      for (const [acId, fl] of live) {
+        fl.sort((a, b) => a.s - b.s);
+        for (let i = 1; i < fl.length; i++) {
+          const a = fl[i - 1];
+          const b = fl[i];
+          if (b.s < a.e) warn('ac-plan-overlap', b.s, `${g.fleet[acId]?.reg ?? acId}: ${b.no} ${b.kind} ${b.from}–${b.to} ${fmtDateTime(b.s)} planned before ${a.no} ${a.kind} ${a.from}–${a.to} lands ${fmtDateTime(a.e)}`, `ac-plan-overlap|${acId}|${a.no}|${b.no}|${a.s}`);
+        }
+      }
     }
   }
 

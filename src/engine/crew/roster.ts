@@ -12,6 +12,7 @@ import { acceptable, crewIds, crewIssuesFor, crewKey, mergeSegs, openDuties, oth
 import { deletePairing, dutyLegality, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setCrewTakeHook, setCrewTrailOkHook, setReleaseHook, setRetickHook, splitPairing, splitUnderWay, syncDuty } from './duties';
 import { crewName } from './generate';
 import { callIfOnStandby, dropStandby, standbyFor, callFromStandby } from './standby';
+import { applyBuyBack, buyBackFor, buyBackMode, type BuyBack } from './buyBack';
 import { fitStandby, midnight, monthFloorIssue, offDaysHit, offMovable, offSwappable, takeOffDays, takesPublishedOff, v09Stats as v09StatsOf } from './dayPlan';
 import { infoOf } from './outOfHours';
 import { lateChange, moraleShock, nextReport } from './morale';
@@ -86,8 +87,11 @@ function buyTicket(g: GameState, p: Pairing, d: Duty, crewIds: string[], t: Tick
     return ride;
   }
   const cost = clientPaysCrewTravel(g, p) ? 0 : ticketPrice(t.from, t.to) * crewIds.length;
-  const f = addDeadhead(g, { crewIds, from: t.from, to: t.to, std: t.std, sta: t.sta, cost, contractId: p.contractId });
-  leaveAfterTicket(g, crewIds, t);
+  // v0.12.1 never a ticket already gone: an illegal plan's fallback ticket (a swap bought 'TP 311 LIS–GOM, lands 26 Oct
+  // 15:15' on 27 Oct) leaves at the first hour it can still be checked in for.
+  const late = Math.max(0, Math.ceil((g.now + BAL.deadheadCheckIn) / 60) * 60 - t.std);
+  const f = addDeadhead(g, { crewIds, from: t.from, to: t.to, std: t.std + late, sta: t.sta + late, cost, contractId: p.contractId });
+  leaveAfterTicket(g, crewIds, f);
   if (cost) post(g, 'deadhead', -cost);
   d.deadheadIds.push(f.id);
   res.deadheads++;
@@ -298,6 +302,8 @@ function dropTickets(g: GameState, p: Pairing, crewId: string): void {
     for (const fid of [...d.deadheadIds]) {
       const f = g.flights[fid];
       if (!f || f.status !== 'scheduled' || !aboard(f, crewId)) continue;
+      // v0.12.1 a ticket that has left (it stays 'scheduled' until it lands) carries them on: they are aboard.
+      if (f.kind === 'deadhead' && f.std <= g.now) continue;
       if (unboard(g, f, crewId)) d.deadheadIds = d.deadheadIds.filter((x) => x !== fid);
     }
   }
@@ -1065,13 +1071,20 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
   // v0.9 fix: crew refused only for a day off not published yet (a day trip on it), kept in score order: when nobody
   // else can take the seat, the planner moves that day off within its month instead (no morale: crew never saw it).
   const offOnly: { c: CrewMember; plan: CrewPlan; swap: boolean }[] = [];
-  const take = (c: CrewMember, plan: CrewPlan) => {
+  // v0.12.1 crew refused only for day-off rules a buy-back lifts (Settings › Buy back days off: automatically), those
+  // already at the departure first (BLU1570: the two pilots sitting in Goma were dropped for a day off and the seats
+  // called a shortage). Used after every free option and before anyone needs a ticket out to replace them.
+  const autoBuy = buyBackMode(g) === 'auto';
+  const buy: { c: CrewMember; plan: CrewPlan; bb: BuyBack; here: boolean }[] = [];
+  const f0 = g.flights[first.flightIds[0]];
+  const take = (c: CrewMember, plan: CrewPlan, bb?: BuyBack) => {
     inP.add(c.id);
     plans.set(c.id, plan);
     callIfOnStandby(g, c.id, openDuties(g, p)[0]?.report);
     dropSbyFor(g, c, plan);
     // v0.9 a tour's duties on planned days off: the planner moves them to the tour's free days (no morale).
-    if (plan.issues.some((i) => i.code === 'daysOff')) takeOffDays(g, c, plan.segs, true);
+    if (bb) applyBuyBack(g, c, plan.segs, bb, f0?.no ?? 'a trip', f0 ? { kind: 'flight', id: f0.id } : undefined);
+    else if (plan.issues.some((i) => i.code === 'daysOff')) takeOffDays(g, c, plan.segs, true);
     lateChange(g, c.id, nextReport(g, p));
     if (plan.drop) ctx.segs.set(c.id, ctx.of(c).filter((x) => !x.ticketId || !plan.drop!.includes(x.ticketId)));
     ctx.add(c, plan.segs);
@@ -1081,6 +1094,7 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
   for (const si of order) {
     const slot = p.slots[si];
     const role = slot.role;
+    const fitsRole = (y: CrewMember) => !inP.has(y.id) && (y.role === role || (canFill(role, y.role) && !asFo(role, y.role)));
     let i = 0;
     let j = 0;
     let k = 0;
@@ -1112,8 +1126,19 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
         if (offFallback(g, c, plan, ctx.of(c))) {
           const work = plan.segs.filter((y) => y.kind !== 'log');
           offOnly.push({ c, plan, swap: takesPublishedOff(g, c, work[0].start, work[work.length - 1].end) });
+        } else if (autoBuy) {
+          const bb = buyBackFor(g, c, plan, ctx.of(c));
+          if (bb) buy.push({ c, plan, bb, here: !plan.out });
         }
         continue;
+      }
+      // v0.12.1 someone who must be flown out loses to a crew member already there whose day off can be bought.
+      const here = plan.out ? buy.find((y) => y.here && fitsRole(y.c)) : undefined;
+      if (here) {
+        slot.crewId = here.c.id;
+        delete slot.ooh;
+        take(here.c, here.plan, here.bb);
+        break;
       }
       slot.crewId = c.id;
       delete slot.ooh;
@@ -1124,10 +1149,18 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
     // An unpublished day off moved (the crew never saw it) before a published one swapped by agreement (morale −3).
     const fits = (y: (typeof offOnly)[number]) => !inP.has(y.c.id) && (y.c.role === role || (canFill(role, y.c.role) && !asFo(role, y.c.role)));
     const alt = offOnly.find((y) => !y.swap && fits(y)) ?? offOnly.find(fits);
-    if (!alt) continue;
-    slot.crewId = alt.c.id;
+    if (alt) {
+      slot.crewId = alt.c.id;
+      delete slot.ooh;
+      take(alt.c, alt.plan);
+      continue;
+    }
+    // v0.12.1 then a day off bought back: crew at the departure first, then the cheapest.
+    const bought = buy.filter((y) => fitsRole(y.c)).sort((a, b) => Number(b.here) - Number(a.here) || a.bb.cost - b.bb.cost)[0];
+    if (!bought) continue;
+    slot.crewId = bought.c.id;
     delete slot.ooh;
-    take(alt.c, alt.plan);
+    take(bought.c, bought.plan, bought.bb);
   }
   if (!plans.size) return;
   buyTickets(g, p, plans, res);
@@ -1852,11 +1885,13 @@ export function removeCrew(g: GameState, crewId: string, from: Minute, to: Minut
  * Puts crew member c into slot `slot` of p (the current holder is released first): tickets, operating crew on
  * the flights, duty events, legality. No checks: callers validate (rosterActions.ts, replaceCrew).
  */
-export function placeCrew(g: GameState, p: Pairing, slot: number, c: CrewMember): CrewPlan {
+export function placeCrew(g: GameState, p: Pairing, slot: number, c: CrewMember, buy?: { what: string; quiet?: boolean }): CrewPlan {
   const cur = p.slots[slot].crewId;
   if (cur) releaseCrew(g, p, cur);
   const hadCrew = crewCount(p) > 0;
   const plan = planCrew(g, c, p, segsOf(g, c, p.id));
+  // v0.12.1 Crew Control's buy-back: the day is worked for pay and repaid (crew/buyBack.ts), no broken-day morale.
+  const bb = buy ? buyBackFor(g, c, plan, segsOf(g, c, p.id)) : null;
   p.slots[slot].crewId = c.id;
   delete p.slots[slot].ooh;
   delete p.slots[slot].from;
@@ -1870,8 +1905,9 @@ export function placeCrew(g: GameState, p: Pairing, slot: number, c: CrewMember)
   const offHit = od.length > 0 && plan.issues.some((i) => i.code === 'daysOff') && plan.segs.length > 0;
   // A published day off taken costs its own −6 (the confirm's number): no late-change shock on top.
   const brokeOff = offHit && takesPublishedOff(g, c, plan.segs[0].start, plan.segs[plan.segs.length - 1].end);
-  if (offHit) takeOffDays(g, c, plan.segs);
-  if (!brokeOff) lateChange(g, c.id, nextReport(g, p));
+  if (bb && offHit) applyBuyBack(g, c, plan.segs, bb, buy!.what, undefined, buy!.quiet);
+  else if (offHit) takeOffDays(g, c, plan.segs);
+  if (!brokeOff && !(bb && offHit)) lateChange(g, c.id, nextReport(g, p));
   buyTickets(g, p, new Map([[c.id, plan]]), emptyResult());
   setFlightsCrew(g, p);
   if (!hadCrew) for (const d of openDuties(g, p)) queueDuty(g, d);

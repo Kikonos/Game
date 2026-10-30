@@ -5,7 +5,7 @@ import { Award, BadgeCheck, Building2, ChevronRight, Flag as FlagIcon, Medal, Pa
 import { rivalSummary, standing, STANDING_NAME } from '../../engine/contracts';
 import { BAL } from '../../engine/core/balance';
 import { fmtDate } from '../../engine/core/time';
-import type { GameState, Policies } from '../../engine/core/types';
+import type { BuyBackMode, GameState, Policies } from '../../engine/core/types';
 import { artFor } from '../../data/acmiTypes';
 import { APPROVALS, applyApproval, approvalBlocker, GOALS, liveryOf, paintStatus, setFleetLivery, setPolicies, type ApprovalDef } from '../../engine/ops';
 import { moraleSummary, policyPreview } from '../../engine/crew';
@@ -164,6 +164,8 @@ function PolicyForm({ g }: { g: GameState }) {
       {row('Auto-roster', 'Crew new and changed flights automatically', <Toggle on={p.autoRoster} onChange={(v) => set({ autoRoster: v })} label="Auto-roster" />)}
       {row('Use tight duties', 'Allow duties within 30 min of a limit', <Toggle on={p.allowTight} onChange={(v) => set({ allowTight: v })} label="Tight duties" />)}
       {row('Auto deadhead', 'Buy deadhead tickets for crew automatically', <Toggle on={p.autoDeadhead} onChange={(v) => set({ autoDeadhead: v })} label="Auto deadhead" />)}
+      {/* v0.12.1 day-off buy-back (crew/buyBack.ts) */}
+      {row('Buy back days off', "Ask crew held back only by a day off to work it: twice a day's pay, the day given back later. Never the rest rules, at most once a month each", <Seg<BuyBackMode> value={p.buyBack ?? 'auto'} onChange={(v) => set({ buyBack: v })} options={[{ value: 'auto', label: 'Automatically' }, { value: 'ask', label: 'Ask me' }, { value: 'never', label: 'Never' }]} />)}
       {row('Auto A-checks', 'Plan A-checks in free slots (C-checks need you)', <Toggle on={p.autoMaintenance} onChange={(v) => set({ autoMaintenance: v })} label="Auto A-checks" />)}
       {row('Default extra cabin crew', 'Above the legal minimum; each aircraft and contract can set its own', <Stepper value={p.extraCabin} min={0} max={BAL.crewExtra.cabinMax} onChange={(v) => set({ extraCabin: v })} />)}
       {row('Crew hotels', 'Better hotels lift morale and cost more (wet leases: client hotels)', <Seg<number> value={p.hotelTier} onChange={(v) => set({ hotelTier: v as Policies['hotelTier'] })} options={[3, 4, 5].map((v) => ({ value: v, label: `${v}★` }))} />, effect(g, { hotelTier: 4 }, { hotelTier: 5 }, 'At 5★', hotelMorale))}

@@ -192,7 +192,15 @@ export interface Policies {
   allowTight: boolean;
   /** Buy short-notice positioning tickets automatically. */
   autoDeadhead: boolean;
+  /**
+   * v0.12.1 buy back a day off (crew/buyBack.ts): 'auto' the roster asks crew whose only blocker is a day off to work it
+   * (paid, the day repaid later); 'ask' only from Crew Control; 'never'. load: ??= 'auto'.
+   */
+  buyBack?: BuyBackMode;
 }
+
+/** v0.12.1 Settings › Buy back days off. */
+export type BuyBackMode = 'auto' | 'ask' | 'never';
 
 /** Department heads arrive in v0.6; the shape is reserved so saves stay compatible. */
 export interface Department {
@@ -824,7 +832,9 @@ export type DisruptCause = 'weather' | 'medical' | 'technical';
 export type JetClass = 'light' | 'midsize' | 'heavy' | 'long';
 
 /** v0.7.1 Crew Control fixes (crew/control.ts). */
-export type CrewFix = 'autoFix' | 'deadhead' | 'delay' | 'jet' | 'callIn' | 'discretion' | 'swap' | 'subcharter' | 'cancel';
+export type CrewFix = 'autoFix' | 'deadhead' | 'delay' | 'jet' | 'callIn' | 'discretion' | 'swap' | 'subcharter' | 'cancel'
+  /** v0.12.1 ask a crew member to work a day off (crew/buyBack.ts). */
+  | 'buyBack';
 
 /** v0.7.1 every kind of problem a ProblemCard can be about (engine/problems). */
 export type ProblemKind =
@@ -967,6 +977,8 @@ export interface CrewMember {
   leaveYear?: number;
   /** v0.9 round 3: when crew control last asked them to swap a published day off (one ask in 14 days). */
   offSwapAt?: Minute;
+  /** v0.12.1 months (base-local MonthKey) in which a day off was bought back (crew/buyBack.ts: at most one a month); the last 13 kept. */
+  boughtOff?: MonthKey[];
 }
 
 export interface CrewSlot {
@@ -1549,6 +1561,8 @@ export interface StatsRoster09 {
   offMoved?: number;
   /** v0.9 round 3: published days off swapped by agreement for short-notice work (crew control's ask, morale −3). */
   offSwaps?: number;
+  /** v0.12.1 days off bought back (worked for pay, the day repaid later) and what they cost. */
+  offBought?: number; offBoughtPaid?: number;
   /** Crew-months closed and those below 7 days off. */
   months: number; monthsLow: number;
   /** v0.9 round 4: crew-years closed (at the December close) and those below 96 free days pro rata. */

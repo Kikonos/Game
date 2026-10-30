@@ -1,7 +1,7 @@
 // v0.7.1 one reason per person (UPDATE-0.7.1.md §6): the icon for a root-cause code and the one-line reason row used
 // by the candidate lists (duty modal, Crew Control) and the illegal-crew rows.
 
-import { BedDouble, BookOpen, Gauge, GraduationCap, Hourglass, MapPin, Moon, Palmtree, Plane, Thermometer, UserPlus } from 'lucide-react';
+import { BedDouble, BookOpen, CalendarOff, Gauge, GraduationCap, Hourglass, MapPin, Moon, Palmtree, Plane, Thermometer, UserPlus } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import type { Reason, ReasonCode } from '../../engine/crew';
 import { moreReasons } from './problemLogic';
@@ -9,11 +9,14 @@ import { moreReasons } from './problemLogic';
 const ICON: Record<ReasonCode, ReactNode> = {
   place: <MapPin />, rest: <BedDouble />, fdp: <Hourglass />, busy: <Plane />, sick: <Thermometer />, rating: <GraduationCap />,
   leave: <Palmtree />, joining: <UserPlus />, training: <BookOpen />, hours: <Gauge />, recovery: <Moon />,
+  // v0.12.1
+  daysOff: <CalendarOff />,
 };
 
 export const REASON_WORD: Record<ReasonCode, string> = {
   place: 'wrong place', rest: 'needs rest', fdp: 'day too long', busy: 'busy on another flight', sick: 'sick', rating: 'not rated',
   leave: 'on leave', joining: 'not joined yet', training: 'in training', hours: 'out of hours', recovery: 'needs a weekly rest',
+  daysOff: 'on days off',
 };
 
 export function ReasonIcon({ code }: { code: ReasonCode }) {

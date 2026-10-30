@@ -19,7 +19,7 @@ import { Dot, ScreenHead, useRenderCount } from './common';
 import { contractColor } from './palette';
 import { hangarWord } from './screenLogic';
 import {
-  axisTicks, blockText, chooseHits, dragStart, idleAt, pickBlocks, ppmOf, pressFlight, pressMaint, rowBlocks, timelineSpan, visibleWindow, type GanttBlock, type ZoomDays,
+  axisTicks, blockText, chooseHits, dragStart, idleAt, layoutRow, pickBlocks, ppmOf, pressFlight, pressMaint, rowBlocks, timelineSpan, visibleWindow, type BlockPlace, type GanttBlock, type ZoomDays,
 } from './scheduleLogic';
 import { quoteTripMove, tripOf, type TripMoveQuote, type TripView } from '../../engine/ops/tripMove';
 import { checkMaintMove, maintWord, movableMaint, type MaintMoveCheck } from '../../engine/ops/maintMove';
@@ -83,12 +83,20 @@ interface TripDrag {
   edgeTimer?: number;
 }
 
-function Block({ b, from, ppm, win0 }: { b: GanttBlock; from: number; ppm: number; win0: number }) {
+/** v0.12.1 blocks overlapping in time share the row in lanes (top and height in px of the 56 px row). */
+function laneBox(lane: number, lanes: number): { top: number; height: number } {
+  const h = Math.floor((48 - (lanes - 1) * 2) / lanes);
+  return { top: 4 + lane * (h + 2), height: h };
+}
+
+function Block({ b, from, ppm, win0, place }: { b: GanttBlock; from: number; ppm: number; win0: number; place?: BlockPlace }) {
   const x = (b.start - from) * ppm;
   const w = Math.max(b.kind === 'idle' || b.kind === 'cont' ? 0 : 3, (b.end - b.start) * ppm);
   const k = b.color !== null ? contractColor(b.color) : undefined;
   // v0.12 only whole labels (never 'L…'): the full label, else number over route, else the number, else the short one.
-  const bt = blockText(b, w);
+  // v0.12.1 within the room up to the next block (layoutRow), so a label never runs into its neighbour.
+  const lanes = place?.lanes ?? 1;
+  const bt = blockText(lanes > 1 && b.kind === 'flight' ? { ...b, route: undefined } : b, place ? place.room : w);
   const tag = bt.tag === 'ferry';
   const short = bt.tag === 'short';
   // Long idle gaps that start off-screen: keep the label near the visible left edge (window start + 18 h).
@@ -97,7 +105,7 @@ function Block({ b, from, ppm, win0 }: { b: GanttBlock; from: number; ppm: numbe
     <div
       data-k={b.key}
       className={`gb gb-${b.kind}${b.ftype && b.ftype !== 'operating' ? ` ${b.ftype}` : ''}${b.paint ? ' gb-paint' : ''}${b.done ? ' done' : ''}${b.crew ? ` crew-${b.crew}` : ''}${b.alert ? ' crew-short' : ''}`}
-      style={{ transform: `translateX(${x.toFixed(1)}px)`, width: w, ['--kc' as string]: k, ['--pc' as string]: b.paint }}
+      style={{ transform: `translateX(${x.toFixed(1)}px)`, width: w, ['--kc' as string]: k, ['--pc' as string]: b.paint, ...(lanes > 1 ? laneBox(place!.lane, lanes) : {}) }}
     >
       {bt.lines.length === 2
         ? <span className="gb-two"><span>{bt.lines[0]}</span><span>{bt.lines[1]}</span></span>
@@ -108,6 +116,7 @@ function Block({ b, from, ppm, win0 }: { b: GanttBlock; from: number; ppm: numbe
 
 function Row({ g, ac, from, until, win, zoom, ppm, sel }: { g: GameState; ac: Aircraft; from: number; until: number; win: [number, number]; zoom: ZoomDays; ppm: number; sel: boolean }) {
   const blocks = rowBlocks(g, ac.id, win[0], win[1], { pills: zoom === 28, until });
+  const places = layoutRow(blocks, ppm);
   const onClick = (e: React.MouseEvent<HTMLDivElement>) => {
     // The release of a trip drag is not a tap.
     if (performance.now() - dragEndedAt < 450) return;
@@ -123,7 +132,7 @@ function Row({ g, ac, from, until, win, zoom, ppm, sel }: { g: GameState; ac: Ai
   };
   return (
     <div className={`gantt-row ${sel ? 'sel' : ''}`} data-ac={ac.id} onClick={onClick}>
-      {blocks.map((b) => <Block key={b.key} b={b} from={from} ppm={ppm} win0={win[0]} />)}
+      {blocks.map((b, i) => <Block key={b.key} b={b} from={from} ppm={ppm} win0={win[0]} place={places[i]} />)}
     </div>
   );
 }

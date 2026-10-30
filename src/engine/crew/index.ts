@@ -313,7 +313,10 @@ function onFlightArrCrew(g: GameState, ev: SimEvent): void {
     // A ticket from somewhere the crew member is not was never boarded (a re-plan left it behind): their next
     // trip is re-checked now (they are not where it expects them). Debug round (26 Oct 2026): nor one that left
     // before they landed there (their own leg arrived late: seed 1, a DH at 18:00 'boarded' off a leg on blocks 18:10).
-    if (c.loc !== f.from || (late ??= landedAfter(g, f.from, (f.atd ?? f.std) - 15)).has(id)) {
+    // v0.12.1 round D: nor by someone on leave, sick or not joined at its departure (they stay home: a captain placed
+    // by hand while on annual leave rode our aircraft out to her trip).
+    const off = c.blocks?.some((b) => b.why !== 'training' && b.from <= (f.atd ?? f.std) && b.to > (f.atd ?? f.std));
+    if (off || c.loc !== f.from || (late ??= landedAfter(g, f.from, (f.atd ?? f.std) - 15)).has(id)) {
       missed.push(id);
       continue;
     }
@@ -625,6 +628,7 @@ export const crewModule: SimModule = {
   init(g) {
     // The same defaults load sets (a fresh game and a reloaded one serialise alike).
     g.stats.crewFixes ??= {};
+    g.company.policies.buyBack ??= 'auto';
     for (const c of Object.values(g.crew)) c.twoDays ??= { 0: monthKey(g.now) };
     // v0.9 roster planning from the first day (leave, days off and standby for the published 14 days).
     dayPlanInit(g);
@@ -634,6 +638,8 @@ export const crewModule: SimModule = {
     // v0.7.2: CSD/SCC → PUR before anything reads roles.
     migrateRanks(g);
     g.classes ??= {};
+    // v0.12.1 Settings › Buy back days off: automatically.
+    g.company.policies.buyBack ??= 'auto';
     const y = yearOf(g.now);
     for (const c of Object.values(g.crew)) c.blockYearOf ??= y;
     // v0.7.3 two local days twice a month: tracked from the load month (that month counts as satisfied).

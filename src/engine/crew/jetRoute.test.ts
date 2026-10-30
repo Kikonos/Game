@@ -132,11 +132,13 @@ describe('jet classes offered (code review)', () => {
     g.now = d.report - 20 * 60;
     releaseCrew(g, p, fo);
     g.crew[fo].status = 'sick';
+    // v0.12.1 sick for the days ahead too: a ticket out already in the air keeps them aboard (roster.ts dropTickets).
+    g.crew[fo].blocks = [{ from: g.now, to: g.now + 5 * DAY, why: 'sick' }];
     touchCrew(g);
     // 3,735 nm: past twice a light jet's 1,800 nm.
     expect(distance('LIS', 'MBJ') / NM).toBeGreaterThan(J.rangeNm.light * 2);
     const jet = crewControl(g, f.id)!.solutions.find((s) => s.id === 'jet')!;
-    expect(jet.available).toBe(true);
+    expect(jet.available, jet.why).toBe(true);
     const ids = (jet.options ?? []).map((o) => o.id);
     expect(ids).toContain('heavy');
     expect(ids).not.toContain('light');

@@ -8,9 +8,11 @@ import type { CrewMember, GameState, Minute, Pairing } from '../core/types';
 import { openDuties, otherTrip } from './check';
 import { LIMIT_NAME } from './outOfHours';
 import { LIMITS, type LegalityIssue } from './rules';
-import { typeIdOf } from './timeline';
+import { crewIx, typeIdOf } from './timeline';
 
-export type ReasonCode = 'place' | 'rest' | 'fdp' | 'busy' | 'sick' | 'leave' | 'joining' | 'training' | 'rating' | 'hours' | 'recovery';
+export type ReasonCode = 'place' | 'rest' | 'fdp' | 'busy' | 'sick' | 'leave' | 'joining' | 'training' | 'rating' | 'hours' | 'recovery'
+  /** v0.12.1 only days off stand in the way (a published day off, the month's minimum): before, it read as 'place'. */
+  | 'daysOff';
 
 export interface Reason {
   code: ReasonCode;
@@ -23,7 +25,8 @@ export interface Reason {
 }
 
 /** Root-cause order: a later code never wins over an earlier one present in the issues. */
-const ORDER: ReasonCode[] = ['busy', 'sick', 'leave', 'joining', 'training', 'rating', 'rest', 'fdp', 'hours', 'recovery', 'place'];
+// v0.12.1 days off last: the softest blocker (a buy-back lifts it), named only when nothing harder is in the way.
+const ORDER: ReasonCode[] = ['busy', 'sick', 'leave', 'joining', 'training', 'rating', 'rest', 'fdp', 'hours', 'recovery', 'place', 'daysOff'];
 
 export const city = (code: string): string => AIRPORT_BY_CODE[code]?.city ?? code;
 const at = (t: Minute, now: Minute) => (Math.floor(t / DAY) === Math.floor(now / DAY) ? fmtTime(t) : fmtDateTime(t));
@@ -74,7 +77,13 @@ export function rootReason(g: GameState, issues: LegalityIssue[], c: CrewMember,
   const rest = has('rest');
   if (rest) {
     const until = c.restUntil > from ? c.restUntil : undefined;
-    set('rest', until !== undefined ? `resting until ${at(until, g.now)}` : `short of rest before it (${rest.text.toLowerCase()})`, until);
+    // v0.12.1 the rest before their NEXT trip: name it (BLU1570: 'short of rest before it' read as resting now, while the
+    // captain was simply rostered on BLU755 that evening).
+    const next = /^Rest before next duty (\d+:\d\d) < (\d+:\d\d)/.exec(rest.text);
+    const q = next && p ? nextTrip(g, c, p) : null;
+    const qf = q ? g.flights[openDuties(g, q)[0]?.flightIds[0] ?? ''] : undefined;
+    if (qf && next) set('rest', `rostered next on ${qf.no} ${city(qf.from)}–${city(qf.to)} (${fmtDay(qf.std)}): only ${next[1]} rest before it, ${next[2]} needed`);
+    else set('rest', until !== undefined ? `resting until ${at(until, g.now)}` : `short of rest before it (${rest.text.toLowerCase()})`, until);
   }
   if (fdp) {
     const m = HM.exec(fdp.text);
@@ -108,9 +117,36 @@ export function rootReason(g: GameState, issues: LegalityIssue[], c: CrewMember,
     else if (/FDP/.test(loc.text)) set('place', `in ${city(resting?.[1] ?? c.loc)}: flown in the same day the day runs too long`);
     else set('place', `in ${city(c.loc)}, can't get there in time`);
   }
+  // v0.12.1 a day off (published, or the month's minimum): its own words, never the 'place' fallback (BLU1565: Lisbon
+  // captains on days off read as 'free in Lisbon, flown in the same day the day runs too long').
+  const off = has('daysOff');
+  if (off) set('daysOff', offText(off.text));
   for (const code of ORDER) {
     const r = codes.get(code);
     if (r) return r;
   }
   return { code: 'place', text: all[0] ?? 'not available', all };
+}
+
+/**
+ * v0.12.1 a 'daysOff' issue in plain words: 'on a day off Tue 26 Oct (published)', 'short of days off in October (6 of
+ * 7 with this trip)'. Pure.
+ */
+export function offText(text: string): string {
+  const m = /^Days off in (\S+) would fall to (\d+) \(minimum (\d+)\)/.exec(text);
+  if (m) return `short of days off in ${m[1]} (${m[2]} of ${m[3]} with this trip)`;
+  const d = /^Day off (\w{3} \d+ \w{3})(?: \((published)\))?/.exec(text);
+  if (d) return `on a day off ${d[1]}${d[2] ? ' (published)' : ''}`;
+  return text.charAt(0).toLowerCase() + text.slice(1);
+}
+
+
+/** v0.12.1 c's next trip after p (the one a short rest after p bites on). */
+function nextTrip(g: GameState, c: CrewMember, p: Pairing): Pairing | null {
+  let best: Pairing | null = null;
+  for (const q of crewIx(g).pairingsOf.get(c.id) ?? []) {
+    if (q.id === p.id || q.status === 'done' || q.status === 'broken' || q.start < p.start) continue;
+    if (!best || q.start < best.start) best = q;
+  }
+  return best;
 }

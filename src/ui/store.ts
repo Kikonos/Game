@@ -28,6 +28,7 @@ import { type Ambience, sound, type SoundEvent } from './sound';
 import { activeTheme, applyTheme, type Theme, type ThemePref } from './theme';
 import { deviceNow, type DevicePref, onDeviceChange, setDevicePrefs, type UiSizePref } from './device';
 import { cue, takeCueEvents, takeCues, type CueEvent } from '../engine/core/cues';
+import { logToast, pushStack, resumeMs, stickyCue, toastMs, TOAST_MS as TOAST_TONE_MS, type ToastLogEntry } from './toastLogic';
 import type { HeadId } from '../engine/core/types';
 import { devAchievement, devCrewHours, devJumbo, devPeak, devPosition, devRestAtDeparture, devRoster, devSlipOffer, devUnlockHead } from '../engine/dev';
 import type { OohLimit, Pace } from '../engine/core/types';
@@ -187,11 +188,19 @@ export interface Toast {
   title: string;
   body?: string;
   leaving?: boolean;
+  /** v0.12.1 stays until closed (an urgent alarm); held while hovered or touched; what a tap opens. */
+  sticky?: boolean;
+  held?: boolean;
+  ref?: Ref;
+  msgId?: string;
 }
 
+/** v0.12.1 what a toast may carry besides its words. */
+export interface ToastExtra { sticky?: boolean; ref?: Ref; msgId?: string }
+
 const SETTINGS_KEY = 'contrail-acmi:settings';
-/** v0.9.1 how long a toast stays (the player: 5 s; a tap dismisses it sooner). */
-export const TOAST_MS = 5000;
+/** v0.9.1 how long a toast stays; v0.12.1 by tone (toastLogic.ts: news 8 s, warnings 15 s, alarms until closed). */
+export const TOAST_MS = TOAST_TONE_MS.info;
 
 /** v0.9.1 a cue's toast colour: its tone (an achievement and a ladder step get the trophy toast). */
 export function cueToastKind(e: Pick<CueEvent, 'cue' | 'tone'>): Toast['kind'] {
@@ -269,6 +278,10 @@ class GameStore {
   /** v0.6: a roster-board drag in progress holds the clock like a modal (no render; the speed control stays as set). */
   holdTime = false;
   toasts: Toast[] = [];
+  /** v0.12.1 the last pop-ups, newest first (Inbox › Recent pop-ups); UI state only, never saved. */
+  toastLog: ToastLogEntry[] = [];
+  /** v0.12.1 running timers: when each toast goes, or how long it has left while held. */
+  private toastTimers = new Map<number, { timer?: ReturnType<typeof setTimeout>; due: number; left: number }>();
   settings: Settings = loadSettings();
   /** v0.11 the colour theme on screen (Settings › Appearance; 'system' follows the device live). */
   theme: Theme = applyTheme(this.settings.theme, () => this.onSystemTheme());
@@ -353,7 +366,7 @@ class GameStore {
       if (e.msgId) this.cueToasted.add(e.msgId);
       // Its own pop-up (a counter reply) is the note; anything else shows a toast.
       const pop = e.cue === 'counterReply' && (e.ref?.kind === 'offer' || e.ref?.kind === 'contract');
-      if (!pop) this.pushToast(cueToastKind(e), e.title, e.body ? (e.body.length > 140 ? e.body.slice(0, 137) + '…' : e.body) : undefined);
+      if (!pop) this.pushToast(cueToastKind(e), e.title, e.body ? (e.body.length > 140 ? e.body.slice(0, 137) + '…' : e.body) : undefined, { sticky: stickyCue(e.cue), ref: e.ref, msgId: e.msgId });
       sound.event(e.cue);
       shown++;
     }
@@ -641,7 +654,7 @@ class GameStore {
       else if (this.queueHead(m)) continue;
       else if (m.topic === 'crewRed' || m.topic === 'crewHours') {
         // v0.7.1 the red crew stage (v0.9: shortage or out of hours; the urgent alarm comes from its cue): the banner as the toast title.
-        if (this.settings.toasts && !this.modal) this.toast('bad', crewRedTitle(m), m.body.length > 140 ? m.body.slice(0, 137) + '…' : m.body);
+        if (this.settings.toasts && !this.modal) this.toast('bad', crewRedTitle(m), m.body.length > 140 ? m.body.slice(0, 137) + '…' : m.body, { sticky: true, ref: m.ref, msgId: m.id });
       } else if (!this.settings.toasts || this.modal) continue; // news waits in the Inbox while a dialog is open
       else if (m.topic === 'achievement') {
         // v0.9 §14.1 a calm trophy toast; an achievement that earns a head is followed by the head's card instead.
@@ -649,7 +662,7 @@ class GameStore {
       } else if (m.topic === 'head') continue; // a head's quiet note waits in the Inbox
       else if (m.topic === 'market') {
         if (this.settings.marketAlerts) this.toast('info', m.title.replace(/^Market: /, ''), marketToastBody(m));
-      } else if (m.tone === 'bad' || m.cat === 'goal') this.toast(m.tone === 'bad' ? 'bad' : 'good', m.title, m.body.length > 140 ? m.body.slice(0, 137) + '…' : m.body);
+      } else if (m.tone === 'bad' || m.cat === 'goal') this.toast(m.tone === 'bad' ? 'bad' : 'good', m.title, m.body.length > 140 ? m.body.slice(0, 137) + '…' : m.body, { ref: m.ref, msgId: m.id });
     }
     this.flushLadder();
     return fresh.length > 0;
@@ -875,19 +888,55 @@ class GameStore {
     this.emit();
   }
 
-  toast(kind: Toast['kind'], title: string, body?: string) {
-    this.pushToast(kind, title, body);
+  toast(kind: Toast['kind'], title: string, body?: string, extra: ToastExtra = {}) {
+    this.pushToast(kind, title, body, extra);
     this.emit();
   }
 
-  /** v0.9.1 a toast stays 5 s (lower right), then fades; a tap dismisses it (dismissToast). */
-  private pushToast(kind: Toast['kind'], title: string, body?: string) {
+  /**
+   * v0.9.1 a toast stays a while (lower right), then fades; a tap dismisses it (dismissToast). v0.12.1 news 8 s, warnings
+   * and bad news 15 s, the urgent alarms until closed; hovering or touching one holds it (holdToast); every toast also
+   * goes to the log (Inbox › Recent pop-ups).
+   */
+  private pushToast(kind: Toast['kind'], title: string, body?: string, extra: ToastExtra = {}) {
     const id = ++this.toastId;
-    this.toasts = [...this.toasts.slice(-2), { id, kind, title, body }];
-    setTimeout(() => this.dismissToast(id), TOAST_MS);
+    const t: Toast = { id, kind, title, body, ...extra };
+    const kept = pushStack(this.toasts, t);
+    for (const x of this.toasts) if (!kept.includes(x)) this.clearToastTimer(x.id);
+    this.toasts = kept;
+    this.toastLog = logToast(this.toastLog, { id, kind, title, body, at: this.game?.now ?? 0, ...(extra.ref ? { ref: extra.ref } : {}), ...(extra.msgId ? { msgId: extra.msgId } : {}) });
+    const ms = toastMs(kind, extra.sticky);
+    if (ms !== null) this.armToast(id, ms);
+  }
+
+  private armToast(id: number, ms: number) {
+    this.clearToastTimer(id);
+    this.toastTimers.set(id, { timer: setTimeout(() => this.dismissToast(id), ms), due: Date.now() + ms, left: ms });
+  }
+
+  private clearToastTimer(id: number) {
+    const x = this.toastTimers.get(id);
+    if (x?.timer) clearTimeout(x.timer);
+    this.toastTimers.delete(id);
+  }
+
+  /** v0.12.1 a toast hovered or touched stays while held; let go, it keeps what it had left (3 s at least). */
+  holdToast(id: number, on: boolean) {
+    const t = this.toasts.find((x) => x.id === id && !x.leaving);
+    if (!t || !!t.held === on) return;
+    const x = this.toastTimers.get(id);
+    if (on) {
+      if (x?.timer) {
+        clearTimeout(x.timer);
+        this.toastTimers.set(id, { due: 0, left: Math.max(0, x.due - Date.now()) });
+      }
+    } else if (x && !t.sticky) this.armToast(id, resumeMs(x.left));
+    this.toasts = this.toasts.map((y) => (y.id === id ? { ...y, held: on } : y));
+    this.emit();
   }
 
   dismissToast(id: number) {
+    this.clearToastTimer(id);
     if (!this.toasts.some((t) => t.id === id && !t.leaving)) return;
     this.toasts = this.toasts.map((t) => (t.id === id ? { ...t, leaving: true } : t));
     this.emit();

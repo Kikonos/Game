@@ -451,6 +451,12 @@ export const BAL = {
        * out the roster may still find someone without a change).
        */
       swap: { morale: -3, minMorale: 50, everyDays: 14, noticeH: 12, horizonH: 72 },
+      /**
+       * v0.12.1 a day off bought back (crew/buyBack.ts): worked for twice a day's pay (salary / 21; Portuguese and most
+       * EU cabin and flight crew agreements pay a worked day off at 200 %), the day repaid on a free day of the month;
+       * only for work reporting within 72 h, at most once a month a person, never from crew whose morale is under 35.
+       */
+      buyBack: { pay: 2, horizonH: 72, minMorale: 35 },
     },
   },
 } as const;

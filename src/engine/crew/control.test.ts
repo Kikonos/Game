@@ -56,15 +56,16 @@ function shortOfCaptain(dep = 'DUS', dest = 'FNC', hoursBefore = 40, seed = 5) {
 }
 
 describe('Crew Control view', () => {
-  it('lists nine solutions, the missing seat and a card whose WHY reads the place template 2 h before report', () => {
+  it('lists ten solutions (v0.12.1: nine and the buy-back), the missing seat and a card whose WHY reads the place template 2 h before report', () => {
     const { g, flightId, was } = shortOfCaptain('DUS', 'FNC', 2);
     // Everyone else who could take the seat is on leave; the released captain is at LIS (free, but can't reach DUS).
     for (const c of Object.values(g.crew)) if (c.role === 'CPT' && c.id !== was) { c.blocks = [{ from: g.now - DAY, to: g.now + 10 * DAY, why: 'leave' }]; c.status = 'leave'; }
     const v = crewControl(g, flightId)!;
     expect(v).not.toBeNull();
-    expect(v.solutions).toHaveLength(9);
-    expect(new Set(v.solutions.map((s) => s.id)).size).toBe(9);
-    expect(v.solutions.map((s) => s.rank)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    // v0.12.1 ten: the day-off buy-back joined them.
+    expect(v.solutions).toHaveLength(10);
+    expect(new Set(v.solutions.map((s) => s.id)).size).toBe(10);
+    expect(v.solutions.map((s) => s.rank)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     expect(v.missing).toEqual([{ role: 'CPT', n: 1 }]);
     expect(v.stage).toBe('red');
     expect(v.card.what).toBe('AW816 is missing 1 captain');

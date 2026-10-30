@@ -93,6 +93,49 @@ export function blockText(b: Pick<GanttBlock, 'kind' | 'label' | 'short' | 'no' 
   return { lines: fitsShort ? [b.short!] : [], tag: null };
 }
 
+/**
+ * v0.12.1 round D (the player: "it was all clumped together": a positioning block drawn over the next leg, labels
+ * mashed into 'BLU15 FNC'): where each block of a row goes. Blocks that overlap in time (an empty leg planned beside
+ * the leg it duplicates, a check over a flight) take lanes, one above the other, so none is drawn over another; and
+ * each label gets only the room up to the next block's start (less a 4 px gap), so a narrow block drops or shortens its
+ * label instead of spilling into its neighbour. Idle, continuing and band blocks are background: no lane, no limit. Pure.
+ */
+export interface BlockPlace { lane: number; lanes: number; room: number }
+const BACKGROUND = new Set<BlockKind>(['idle', 'cont', 'band', 'pill']);
+export function layoutRow(blocks: GanttBlock[], ppm: number): BlockPlace[] {
+  const out: BlockPlace[] = blocks.map((b) => ({ lane: 0, lanes: 1, room: Math.max(0, (b.end - b.start) * ppm) }));
+  const fg = blocks.map((b, i) => ({ b, i })).filter((x) => !BACKGROUND.has(x.b.kind)).sort((x, y) => x.b.start - y.b.start || x.b.end - y.b.end);
+  // Clusters of blocks that overlap one another; inside one, each block takes the first lane free at its start.
+  let cluster: typeof fg = [];
+  let clusterEnd = -Infinity;
+  const close = () => {
+    const ends: number[] = [];
+    for (const x of cluster) {
+      let lane = ends.findIndex((e) => e <= x.b.start);
+      if (lane < 0) lane = ends.length;
+      ends[lane] = x.b.end;
+      out[x.i].lane = lane;
+    }
+    for (const x of cluster) out[x.i].lanes = Math.max(1, ends.length);
+    cluster = [];
+  };
+  for (const x of fg) {
+    if (cluster.length && x.b.start >= clusterEnd) close();
+    clusterEnd = cluster.length ? Math.max(clusterEnd, x.b.end) : x.b.end;
+    cluster.push(x);
+  }
+  if (cluster.length) close();
+  // Label room: up to the next block in the same lane (or any lane when the rows are shared), less a small gap.
+  for (const x of fg) {
+    const p = out[x.i];
+    let next = Infinity;
+    for (const y of fg) if (y !== x && y.b.start >= x.b.start && y.b.start < next && (y.b.start > x.b.start || y.i > x.i) && out[y.i].lane === p.lane) next = y.b.start;
+    const w = (x.b.end - x.b.start) * ppm;
+    p.room = Math.max(0, Math.min(w, next === Infinity ? w : (next - x.b.start) * ppm - 4));
+  }
+  return out;
+}
+
 /** 'Paint · Saudia' (paint-in), 'Repaint' (strip after full paint), 'Decals off'. */
 export function paintLabel(g: GameState, m: MaintenanceEvent): string {
   const c = m.paint ? g.contracts[m.paint.contractId] : undefined;

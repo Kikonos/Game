@@ -4,7 +4,7 @@
 import { GLOSSARY, TERM_WORDS, type GlossaryEntry, type TermId } from '../../data/glossary';
 import type { RatingFamily } from '../../data/acmiTypes';
 import type { Reason } from '../../engine/crew';
-import { fmtTime, HOUR } from '../../engine/core/time';
+import { DAY, fmtDay, fmtTime, HOUR, toLocal } from '../../engine/core/time';
 import type { GameState, Minute, Ref, Role } from '../../engine/core/types';
 import { hm, hurtProse } from '../../engine/problems/types';
 import type { GaugeSpec, ProblemAction, ProblemCard, ReachSpec, TimelineSpec } from '../../engine/problems/types';
@@ -214,10 +214,19 @@ export function glossaryTarget(where: NonNullable<GlossaryEntry['where']>): { ta
 }
 
 /** 'TP 1342 LIS–DUS 05:10→07:10' per leg of the itinerary. */
-export const legText = (l: ReachSpec['legs'][number]) => `${l.jet ? 'Private jet' : l.airline} ${l.no} ${l.from}–${l.to} ${fmtTime(l.dep)}→${fmtTime(l.arr)}`;
+export const legText = (l: ReachSpec['legs'][number], now?: Minute) => `${l.jet ? 'Private jet' : l.airline} ${l.no} ${l.from}–${l.to} ${dated(l.dep, now)}→${dated(l.arr, now)}`;
 
-/** '11:40 UTC' and '12:40 DUS' for a tick (the local time at `airport`). */
-export const tickTimes = (t: Minute, airport: string): [string, string] => [`${fmtTime(t)} UTC`, `${fmtTime(t, airport)} ${airport}`];
+/** v0.12.1 '07:55' on the day of `now`, else '24 Oct 07:55' (a reach timeline three days long read as one day). */
+export const dated = (t: Minute, now?: Minute): string => (now === undefined || Math.floor(t / DAY) === Math.floor(now / DAY) ? fmtTime(t) : `${fmtDay(t)} ${fmtTime(t)}`);
+
+/**
+ * '11:40 UTC' and '12:40 DUS' for a tick (the local time at `airport`); v0.12.1 with the date whenever it is not the
+ * day of `now` ('24 Oct 07:55 UTC', '27 Oct 21:00 FNC'), on each clock's own calendar.
+ */
+export function tickTimes(t: Minute, airport: string, now?: Minute): [string, string] {
+  const localDay = now !== undefined && Math.floor(toLocal(airport, t) / DAY) !== Math.floor(toLocal(airport, now) / DAY);
+  return [`${dated(t, now)} UTC`, `${localDay ? `${fmtDay(toLocal(airport, t))} ` : ''}${fmtTime(t, airport)} ${airport}`];
+}
 
 export type ActionTarget = { modal: ModalSpec } | { nav: { tab: Tab; view?: string; sel?: Ref } } | null;
 
