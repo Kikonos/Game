@@ -66,6 +66,7 @@ const OWN: Record<string, Partial<SilSpec> & { base: Shape }> = {
   a320ceo: { base: A320 },
   a321ceo: { base: A320, wingX: 0.385 },
   a321neo: { base: A320NEO, wingX: 0.385 },
+  a320neo: { base: A320NEO },
   b738: { base: B737 },
   b739: { base: B737, wingX: 0.39 },
   b752: { base: B757 },
@@ -98,7 +99,7 @@ const OWN: Record<string, Partial<SilSpec> & { base: Shape }> = {
 
 /** Silhouette family per type, for the legend and the test table. */
 export const SIL_FAMILY: Record<string, string> = {
-  a320ceo: 'A320', a321ceo: 'A320', a321neo: 'A320neo', b738: '737', b739: '737', b752: '757', b753: '757', b763: '767',
+  a320ceo: 'A320', a321ceo: 'A320', a321neo: 'A320neo', a320neo: 'A320neo', b738: '737', b739: '737', b752: '757', b753: '757', b763: '767',
   a332: 'A330', a333: 'A330', a339: 'A330neo', a342: 'A340', a343: 'A340', a345: 'A340-500/600', a346: 'A340-500/600',
   b772: '777', b77w: '777', b778: '777X', b779: '777X', b788: '787', b789: '787', b78x: '787', a359: 'A350', a35u: 'A350', a35k: 'A350',
   b741: '747', b742: '747', b743: '747', b744: '747', b748: '747', a388: 'A380',

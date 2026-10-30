@@ -25,6 +25,7 @@ export const ENGINES: Record<string, string> = {
   a320ceo: 'CFM56-5B or IAE V2500',
   a321ceo: 'CFM56-5B or IAE V2500',
   a321neo: 'CFM LEAP-1A or Pratt & Whitney PW1100G',
+  a320neo: 'CFM LEAP-1A or Pratt & Whitney PW1100G',
   b738: 'CFM56-7B',
   b739: 'CFM56-7B',
   b752: 'Rolls-Royce RB211-535 or Pratt & Whitney PW2000',

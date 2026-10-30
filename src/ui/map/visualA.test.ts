@@ -14,7 +14,7 @@ import { wxMarks } from './weather';
 
 /** Every type in the game → its silhouette family and engine count (the table the player asked for). */
 const TABLE: Record<string, [string, 2 | 4]> = {
-  a320ceo: ['A320', 2], a321ceo: ['A320', 2], a321neo: ['A320neo', 2],
+  a320ceo: ['A320', 2], a320neo: ['A320neo', 2], a321ceo: ['A320', 2], a321neo: ['A320neo', 2],
   b738: ['737', 2], b739: ['737', 2],
   b752: ['757', 2], b753: ['757', 2],
   b763: ['767', 2],
