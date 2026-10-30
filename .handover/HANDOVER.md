@@ -517,3 +517,8 @@ Player notes (22 Oct, with top-bar screenshot .handover/updates/topbar-space.jpg
 
 30 Oct: v0.12 "Scenarios" RELEASED (player: "Release it"). acmi ea306f9 (What's new entry), release fb6484f on claude/contrail-airline-game + main, live asset index-DxfOpK7J.js.
 Pending reminders for the player: crew-sets UX 1–7 (rec. 1–4); repo rename to Block-Hours (player does it; then add_repo + verify new URL, export save first, re-add home-screen app); Update 2 Commercial (tenders, trade fairs, client crises).
+
+31 Oct: Round A DONE on acmi 6a514b3 (graded runway range loss, hot&high, arrival never cuts range, fuel stops on the way, 737-800 2700/A321 2600/A320neo 3100 nm, 38 airports incl. remote flag, 1456 tests). Not released.
+Round D running: 27 Oct save (scratchpad/s1027): Goma crew stripped by soft day-off rule, BLU1565 contradictory reason + dates on timeline, past tickets in swap preview, day-off buy-back (setting Auto/Ask/Never), toasts longer + pause + history, overlap check, hot&high calibration.
+Then Round B (crew ride own revenue flights, no seat cap beyond free seats) and Round C (TMR-style world tour: ~21 d from CDG, any widebody with business seats, same augmented crew + extra cabin crew, late game, AIRPORTS.filter(remote)).
+Open question to player: schedule screenshot arrow = overlap (a) / use idle aircraft (b) / both?
