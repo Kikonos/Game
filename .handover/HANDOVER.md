@@ -513,3 +513,4 @@ Player notes (22 Oct, with top-bar screenshot .handover/updates/topbar-space.jpg
 - Release e28a005 on main (acmi 90b147b). Live index-BXGRlYLm.js, 0 console errors. Review agent fixed 5 more (12c7cf3 earlyRead saved, 2688d3c extCutAt standby, f9d0310 delay text, bb11f25 jet range, b78abbc cabin early in buildTrips). 1379 tests.
 - Known, not fixed: jet chartered for crew from two origins picks class from first origin only.
 - NEXT: presets (short-haul only) + Scenarios mode agent. Reminders owed: sets UX 1–7, repo rename, Update 2 Commercial.
+- 30 Oct: presets + Scenarios DONE on acmi (909ceda..fadba65): 7 short-haul setups, 10 scenarios with stars/thresholds, A320neo added (setups/scenarios only, ceo art). 1406 tests. NOT released — ask player.
