@@ -1,16 +1,19 @@
-// New Game: home base (the engine's list, Lisbon default), company name, code and livery, scenario "Startup".
+// New Game: start setup (v0.12: data/setups.ts, the classic pair by default), home base (the engine's list, Lisbon
+// default), company name, code and livery.
 // The base drives where the fleet and crew start, the registration prefix and the offers around it
 // (engine/newGame.ts, data/naming.ts). DESIGN.md §2.3, §6.3.
 
 import { ArrowLeft, Palette, Rocket } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { ACMI_TYPES } from '../../data/acmiTypes';
+import { DEFAULT_SETUP, DIFFICULTY_LABEL, SETUP_BY_ID, START_SETUPS, type SetupId, type StartSetup } from '../../data/setups';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { COUNTRIES, flag } from '../../data/countries';
 import { COMPANY_PRESETS, DEFAULT_HOME_BASE, HOME_BASE_NOTES, HOME_BASES, type HomeBase } from '../../data/naming';
-import { BAL } from '../../engine/core/balance';
 import { localOffset } from '../../engine/core/time';
 import type { Livery, TailStyle } from '../../engine/core/types';
-import { normaliseOptions } from '../../engine/newGame';
+import { fleetWords, normaliseOptions, setupCrew } from '../../engine/newGame';
+import { familyName } from '../../engine/crew/sets';
 import { normaliseLivery } from '../../engine/ops';
 import { AircraftArt } from '../components/AircraftArt';
 import { LogoMark, TailBadge } from '../components/Logo';
@@ -34,18 +37,34 @@ const utcLabel = (base: string) => {
 
 const isBase = (b: string): b is HomeBase => (HOME_BASES as readonly string[]).includes(b);
 
+/** v0.12 the crew each setup starts with (computed once). */
+const CREW = new Map(START_SETUPS.map((x) => [x.id, setupCrew(x)]));
+
+/** '2× A320 · 60 crew · $3.0M' (a setup card). */
+const setupLine = (x: StartSetup) => `${fleetWords(x.fleet)} · ${CREW.get(x.id)?.total ?? 0} crew · ${money(x.cash, 1)}`;
+
+/** The fleet in the summary: 'A320ceo 180Y, owned (2006); A320ceo 180Y, leased from AerCap (2013)'. */
+const fleetText = (x: StartSetup) => x.fleet.map((a) => {
+  const t = ACMI_TYPES[a.typeId];
+  return `${t.name.replace(/^(Airbus|Boeing) /, '')} ${t.cabins[a.cabin ?? 0].label}, ${a.owned ? 'owned' : 'leased'} (${a.built})`;
+}).join('; ');
+
 export function NewGame() {
   const first = Math.max(0, COMPANY_PRESETS.findIndex((p) => p.base === DEFAULT_HOME_BASE));
   const [preset, setPreset] = useState(first);
   const [name, setName] = useState(COMPANY_PRESETS[first]?.name ?? '');
   const [code, setCode] = useState(COMPANY_PRESETS[first]?.code ?? '');
   const [base, setBase] = useState<HomeBase>(DEFAULT_HOME_BASE);
+  const [setupId, setSetupId] = useState<SetupId>(DEFAULT_SETUP);
+  const setup = SETUP_BY_ID[setupId];
+  const crew = CREW.get(setupId)!;
+  const families = useMemo(() => [...new Set(setup.fleet.map((a) => ACMI_TYPES[a.typeId].family))], [setup]);
   const [livery, setLivery] = useState<Livery>({ primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' });
   const [editing, setEditing] = useState(false);
   const derived = (code || name.replace(/[^A-Za-z]/g, '').slice(0, 2)).toUpperCase().padEnd(2, 'X');
   const p = COMPANY_PRESETS[preset];
   const same = !!p && p.name === name.trim();
-  const opts = normaliseOptions({ name, code: derived, icao: same ? p.icao : undefined, callsign: same ? p.callsign : undefined, livery, base });
+  const opts = normaliseOptions({ name, code: derived, icao: same ? p.icao : undefined, callsign: same ? p.callsign : undefined, livery, base, setup: setupId });
   const ap = AIRPORT_BY_CODE[base];
   const reg = COUNTRIES[ap?.country ?? '']?.reg ?? '';
 
@@ -74,8 +93,8 @@ export function NewGame() {
         <div className="row gap-12">
           <LogoMark size={36} />
           <div>
-            <div className="upper dim">Block Hours · new operator · Startup</div>
-            <h2>Two A320s, a crew room and a summer to win</h2>
+            <div className="upper dim">Block Hours · new operator · {setup.name}</div>
+            <h2>{setup.blurb}</h2>
           </div>
         </div>
       </header>
@@ -83,6 +102,22 @@ export function NewGame() {
       <div className="ng-body">
         <div className="ng-panel">
           <div className="col gap-16">
+            {/* v0.12 start setups: every one narrowbody short-haul. */}
+            <div className="field">
+              <label>Start setup</label>
+              <div className="ng-setups" role="radiogroup" aria-label="Start setup">
+                {START_SETUPS.map((x) => (
+                  <button key={x.id} role="radio" className={`card ng-setup hoverable ${setupId === x.id ? 'selected' : ''}`} onClick={() => setSetupId(x.id)} aria-checked={setupId === x.id}>
+                    <span className="ng-setup-top">
+                      <b className="ellipsis">{x.name}</b>
+                      <span className={`chip ng-diff d${x.difficulty}`}>{DIFFICULTY_LABEL[x.difficulty]}</span>
+                    </span>
+                    <span className="small dim ellipsis">{setupLine(x)}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="small muted ng-base-note">{setup.blurb} {DIFFICULTY_LABEL[setup.difficulty]}: {setup.why.toLowerCase()}.</div>
+            </div>
             <div className="field">
               <label>Home base</label>
               <div className="ng-bases">
@@ -150,7 +185,7 @@ export function NewGame() {
           <div className="ng-livery card">
             <div className="upper dim">Your first aircraft</div>
             <div className="livery-stage">
-              <AircraftArt typeId="a320ceo" livery={livery} code={derived} name={opts.name} />
+              <AircraftArt typeId={setup.fleet[0].typeId} livery={livery} code={derived} name={opts.name} />
               <button className="btn ng-edit-livery" onClick={() => setEditing(true)}><Palette /> Customise</button>
             </div>
             <div className="ng-summary">
@@ -162,9 +197,9 @@ export function NewGame() {
                 </div>
               </div>
               <ul className="ng-tips small muted">
-                <li>2× A320ceo 180Y at {base}: one owned (2006), one dry-leased in (2013){reg ? `, on the ${reg} register` : ''}.</li>
-                <li>60 crew based at {base}: 10 captains, 10 first officers, 10 pursers, 30 cabin crew.</li>
-                <li>{money(BAL.startCash, 1)} in the bank. Rent and salaries are due every month.</li>
+                <li>{fleetText(setup)} at {base}{reg ? `, on the ${reg} register` : ''}.</li>
+                <li>{crew.total} crew based at {base}: {crew.byRole.CPT ?? 0} captains, {crew.byRole.FO ?? 0} first officers, {crew.byRole.PUR ?? 0} pursers, {crew.byRole.CC ?? 0} cabin crew{families.length > 1 ? `, in ${families.length} type pools (${families.map(familyName).join(' and ')})` : ''}.</li>
+                <li>{money(setup.cash, 1)} in the bank. {setup.fleet.some((a) => !a.owned) ? 'Rent and salaries are due every month.' : 'No rent: salaries and maintenance are due every month.'}</li>
               </ul>
             </div>
           </div>

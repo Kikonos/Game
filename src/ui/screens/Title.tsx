@@ -1,4 +1,4 @@
-import { Download, FolderOpen, Play, Plus, Settings, Wifi, WifiOff } from 'lucide-react';
+import { Download, Flag, FolderOpen, Play, Plus, Settings, Wifi, WifiOff } from 'lucide-react';
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { ACMI_TYPES_LIST } from '../../data/acmiTypes';
 import { AIRCRAFT_BY_ID } from '../../data/aircraft';
@@ -94,7 +94,15 @@ export function Title() {
               <Plus />
               <div>
                 <div className="mb-t">New Operator</div>
-                <div className="mb-s">Two A320s, sixty crew and a summer to win</div>
+                <div className="mb-s">Your own company: pick a base and a start</div>
+              </div>
+            </button>
+            {/* v0.12 Scenarios mode: ten set challenges with goals and stars. */}
+            <button className="menu-btn" onClick={() => store.setScreen('scenarios')}>
+              <Flag />
+              <div>
+                <div className="mb-t">Scenarios</div>
+                <div className="mb-s">Ten challenges with goals and stars</div>
               </div>
             </button>
             <button className="menu-btn" onClick={() => store.openModal({ kind: 'saves', mode: 'load' })}>

@@ -20,6 +20,7 @@ import { InboxScreen } from '../screens/Inbox';
 import { ScheduleScreen } from '../screens/Schedule';
 import { refTarget } from '../screens/screenLogic';
 import { OpsStrip } from './OpsStrip';
+import { ScenarioChip } from '../modals/ScenarioModals';
 import { profitPerDay } from './cashRate';
 import { shortFlights } from '../../engine/crew';
 import { type GameSpeed, SPEED_LABEL, type Tab, store, useClock, useGame, useStore } from '../store';
@@ -198,6 +199,8 @@ function TopBar({ compact }: { compact: boolean }) {
       <SpeedControl />
       <OpsStrip badge={<PauseBadge />} badgeKey={badgeKey} compact={compact} />
       <div className="tb-right">
+        {/* v0.12 a scenario's stars so far and its days left (a tap: the goals). */}
+        {s.game?.scen && <ScenarioChip g={s.game} />}
         <CashBlock />
         <Alerts />
       </div>

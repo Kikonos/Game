@@ -10,6 +10,7 @@ import { artFor } from '../../data/acmiTypes';
 import { APPROVALS, applyApproval, approvalBlocker, GOALS, liveryOf, paintStatus, setFleetLivery, setPolicies, type ApprovalDef } from '../../engine/ops';
 import { moraleSummary, policyPreview } from '../../engine/crew';
 import { AircraftArt } from '../components/AircraftArt';
+import { ScenarioPanel } from '../modals/ScenarioModals';
 import { TailBadge } from '../components/Logo';
 import { Bar, Card, Seg, Stepper, Tabs, Toggle } from '../components/ui';
 import { money } from '../format';
@@ -267,6 +268,8 @@ function Overview({ g, fleet }: { g: GameState; fleet: number }) {
   const c = g.company;
   return (
     <>
+      {/* v0.12 a scenario's goals first. */}
+      {g.scen && <ScenarioPanel g={g} />}
       <LadderCard g={g} />
       <SafetyCard g={g} />
       <div className="sc-company-cols">

@@ -8,7 +8,9 @@ import { CounterReplyModal, DeliveredModal, FollowDeliveryModal } from '../modal
 import { CallModal } from '../modals/CallModal';
 import { useEffect, useRef, useState } from 'react';
 import { DAY, fmtDate } from '../../engine/core/time';
-import { AUTOSAVE_SLOT, SLOTS, deleteSlot, deserialize, listSaves, loadFromSlot, saveToSlot, serialize } from '../../engine/save';
+import { AUTOSAVE_SLOT, SCENARIO_SLOT, SLOTS, autosaveSlot, deleteSlot, deserialize, listSaves, loadFromSlot, saveToSlot, serialize } from '../../engine/save';
+import { SCENARIO_BY_ID } from '../../engine/scenario';
+import { ScenarioModal, ScenarioResultModal } from '../modals/ScenarioModals';
 import { Modal, Seg, Toggle } from '../components/ui';
 import { DecisionModal } from '../modals/DecisionModal';
 import { CheckModal } from '../modals/CheckModal';
@@ -53,7 +55,7 @@ function GameOverModal() {
   const s = useStore();
   const g = s.game!;
   const days = Math.max(1, Math.round(((g.gameOver?.t ?? g.now) - g.started) / DAY));
-  const auto = listSaves().find((m) => m.slot === AUTOSAVE_SLOT);
+  const auto = listSaves().find((m) => m.slot === autosaveSlot(g));
   if (s.modal) return null;
   return (
     <Modal title="Operations suspended">
@@ -76,6 +78,8 @@ export function GameModals() {
   const s = useStore();
   const g = s.game;
   if (!g) return null;
+  // v0.12 a scenario's end (or its company failing): the results card.
+  if (g.scen && g.gameOver) return <ScenarioResultModal />;
   if (g.gameOver) return <GameOverModal />;
   // While decisions hold time (setting) the oldest opens by itself, unless set aside with 'Look first'
   // (the amber pause badge re-opens it); otherwise the Inbox pins them.
@@ -150,7 +154,8 @@ function SavesModal({ mode }: { mode: 'save' | 'load' }) {
   const [, force] = useState(0);
   const saves = listSaves();
   const fileRef = useRef<HTMLInputElement>(null);
-  const slots = mode === 'save' ? SLOTS : [AUTOSAVE_SLOT, ...SLOTS];
+  const slots = mode === 'save' ? SLOTS : [AUTOSAVE_SLOT, ...(saves.some((x) => x.slot === SCENARIO_SLOT) ? [SCENARIO_SLOT] : []), ...SLOTS];
+  const auto = (slot: string) => slot === AUTOSAVE_SLOT || slot === SCENARIO_SLOT;
   const back = () => store.openModal({ kind: 'saves', mode });
   const save = (slot: string) => {
     if (store.game && saveToSlot(store.game, slot)) {
@@ -171,7 +176,7 @@ function SavesModal({ mode }: { mode: 'save' | 'load' }) {
     if (mode === 'save') {
       if (!m) return save(slot);
       store.openModal({ kind: 'confirm', title: `Overwrite slot ${slot}?`, confirm: 'Overwrite', body: `It holds ${m.company} on ${m.date}. That save will be replaced.`, onConfirm: () => { save(slot); back(); } });
-    } else if (m) confirmReplace(`Load ${slot === AUTOSAVE_SLOT ? 'the autosave' : `slot ${slot}`}?`, 'Load', () => load(slot));
+    } else if (m) confirmReplace(`Load ${slot === AUTOSAVE_SLOT ? 'the autosave' : slot === SCENARIO_SLOT ? 'the scenario autosave' : `slot ${slot}`}?`, 'Load', () => load(slot));
   };
   const del = (slot: string) => {
     const m = saves.find((x) => x.slot === slot);
@@ -189,13 +194,13 @@ function SavesModal({ mode }: { mode: 'save' | 'load' }) {
               <button className="slot-main" disabled={mode === 'load' && !m} onClick={() => onSlot(slot)}>
                 <span className="slot-color" style={{ background: m?.color ?? 'transparent' }} />
                 <div className="grow">
-                  <b>{slot === AUTOSAVE_SLOT ? 'Autosave' : `Slot ${slot}`}</b>
-                  <div className="small muted">{m ? `${m.company} · ${m.date} · ${money(m.cash)} · ${m.fleet} aircraft` : 'Empty'}</div>
+                  <b>{slot === AUTOSAVE_SLOT ? 'Autosave' : slot === SCENARIO_SLOT ? 'Scenario autosave' : `Slot ${slot}`}</b>
+                  <div className="small muted">{m ? `${m.scen && SCENARIO_BY_ID[m.scen] ? `${SCENARIO_BY_ID[m.scen].name} · ` : ''}${m.company} · ${m.date} · ${money(m.cash)} · ${m.fleet} aircraft` : 'Empty'}</div>
                   {m && <div className="tiny dim">Saved {new Date(m.savedAt).toLocaleString()}</div>}
                 </div>
                 <span className="small accent">{mode === 'save' ? (m ? 'Overwrite' : 'Save') : m ? 'Load' : ''}</span>
               </button>
-              {m && slot !== AUTOSAVE_SLOT && (
+              {m && !auto(slot) && (
                 <button className="btn btn-ghost btn-icon btn-sm" onClick={() => del(slot)} aria-label="Delete save"><Trash2 /></button>
               )}
             </div>
@@ -354,6 +359,7 @@ export function GlobalModals() {
   if (!m) return null;
   switch (m.kind) {
     case 'menu': return <MenuModal />;
+    case 'scenario': return s.game ? <ScenarioModal /> : null;
     case 'saves': return <SavesModal mode={m.mode} />;
     case 'settings': return <SettingsModal />;
     case 'confirm': return <ConfirmModal {...m} />;

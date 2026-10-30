@@ -19,7 +19,8 @@ import { demoFlights, devAddType, devCrewShortage, devExtension, devFleet, devGr
 import { dropTargets, moveDuty, publishedTo, resignNow, type DropTarget, type MoveScope } from '../engine/crew';
 import { acquireAircraft, headsView, headView } from '../engine/ops';
 import { createGame, type NewGameOptions } from '../engine/newGame';
-import { AUTOSAVE_SLOT, saveToSlot, serialize } from '../engine/save';
+import { autosaveSlot, saveToSlot, serialize } from '../engine/save';
+import { createScenario, scenarioOutcome } from '../engine/scenario';
 import { advanceTo, settle } from '../engine/sim';
 import { prepareAsyncSave, saveTextAsync, supersedeAsyncSave } from './asyncSave';
 import { autoplay } from './devPlay';
@@ -37,7 +38,7 @@ import { inspect, rampFindings } from '../engine/ops/ramp';
 import { devAudit } from '../engine/ops/audit';
 
 export type { GameSpeed } from '../engine/core/time';
-export type AppScreen = 'loading' | 'title' | 'newgame' | 'game';
+export type AppScreen = 'loading' | 'title' | 'newgame' | 'game' | /** v0.12 */ 'scenarios';
 export type Tab = 'map' | 'contracts' | 'schedule' | 'crew' | 'fleet' | 'finance' | 'company' | 'inbox';
 
 export const SPEED_LABEL: Record<GameSpeed, string> = { 1: '1×', 2: '2×', 4: '4×' };
@@ -79,7 +80,11 @@ export interface Settings {
   device: DevicePref;
   /** v0.12 Display › Size: Smaller / Normal / Larger; 'auto' is Larger on a big computer screen, Normal elsewhere. */
   uiSize: UiSizePref;
+  /** v0.12 Scenarios: the best result on this device per scenario id (stars, the goal's value, when). */
+  scenarioBest: Record<string, ScenarioBest>;
 }
+
+export interface ScenarioBest { stars: number; value: number; at: number }
 
 const DEFAULT_SETTINGS: Settings = {
   units: 'km',
@@ -104,6 +109,7 @@ const DEFAULT_SETTINGS: Settings = {
   pace: 'normal',
   device: 'auto',
   uiSize: 'auto',
+  scenarioBest: {},
 };
 
 export interface Nav {
@@ -116,6 +122,8 @@ export interface Nav {
 
 export type ModalSpec =
   | { kind: 'menu' }
+  /** v0.12 a scenario's goals in full. */
+  | { kind: 'scenario' }
   | { kind: 'saves'; mode: 'save' | 'load' }
   | { kind: 'settings' }
   /** Offer review / accept / counter flow (B5). */
@@ -220,6 +228,8 @@ export function settingsFrom(s: Partial<Settings>): Settings {
   // v0.12 settings saved before devices: detect the device, size from the screen.
   out.device ??= DEFAULT_SETTINGS.device;
   out.uiSize ??= DEFAULT_SETTINGS.uiSize;
+  // v0.12 settings saved before Scenarios: no results yet.
+  out.scenarioBest = out.scenarioBest && typeof out.scenarioBest === 'object' ? { ...out.scenarioBest } : {};
   if (!(['auto', 'iphone', 'ipad', 'computer'] as const).includes(out.device)) out.device = 'auto';
   if (!(['auto', 'small', 'normal', 'large'] as const).includes(out.uiSize)) out.uiSize = 'auto';
   return out;
@@ -377,6 +387,23 @@ class GameStore {
     this.emit();
   }
 
+  /** v0.12 Scenarios: a new game of scenario `id` (Retry plays the same one again: same seed, same start). */
+  startScenario(id: string) {
+    this.game = createScenario(id);
+    this.afterLoad();
+    this.saveAuto();
+    this.emit();
+  }
+
+  /** v0.12 keeps the best result of a finished scenario on this device (more stars, then a higher value). */
+  recordScenario(g: GameState) {
+    const r = scenarioOutcome(g);
+    if (!g.scen || !r) return;
+    const old = this.settings.scenarioBest[g.scen.id];
+    if (old && (old.stars > r.stars || (old.stars === r.stars && old.value >= r.value))) return;
+    this.setSettings({ scenarioBest: { ...this.settings.scenarioBest, [g.scen.id]: { stars: r.stars, value: r.value, at: Date.now() } } });
+  }
+
   loadGame(state: GameState) {
     this.game = state;
     this.afterLoad();
@@ -453,7 +480,7 @@ class GameStore {
     // Round 4: settled first (statuses, re-plans), so the saved state is the one the next frame would start from and a
     // reload serializes identically.
     if (!g.gameOver) settle(g);
-    const ok = saveToSlot(g, AUTOSAVE_SLOT);
+    const ok = saveToSlot(g, autosaveSlot(g));
     if (ok) {
       this.savedNow = g.now;
       this.savedMark = mark;
@@ -473,7 +500,8 @@ class GameStore {
     const now = g.now;
     this.lastAutosave = performance.now();
     if (!g.gameOver) settle(g);
-    const sent = saveTextAsync(serialize(g, AUTOSAVE_SLOT), AUTOSAVE_SLOT, (ok, latest) => {
+    const slot = autosaveSlot(g);
+    const sent = saveTextAsync(serialize(g, slot), slot, (ok, latest) => {
       if (ok && latest) {
         this.savedNow = now;
         this.savedMark = mark;

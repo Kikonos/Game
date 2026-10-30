@@ -1,4 +1,5 @@
 import { NewGame } from './screens/NewGame';
+import { Scenarios } from './screens/Scenarios';
 import { Loading } from './screens/Loading';
 import { Title } from './screens/Title';
 import { Shell } from './shell/Shell';
@@ -13,6 +14,7 @@ export function App() {
       {s.screen === 'loading' && <Loading />}
       {s.screen === 'title' && <Title />}
       {s.screen === 'newgame' && <NewGame />}
+      {s.screen === 'scenarios' && <Scenarios />}
       {s.screen === 'game' && s.game && <Shell />}
       <Toasts />
       <RotateHint />
