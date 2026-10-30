@@ -3,7 +3,7 @@
 // and the crew-shortage ProblemCard. Read APIs are pure in g (previews clone it); actions go through the roster,
 // flight and ledger helpers.
 
-import { JET_BASES, JET_CLASSES, JETS } from '../../data/jets';
+import { JET_BASES, JET_CLASS_LABEL, JET_CLASSES, JETS } from '../../data/jets';
 import { BAL } from '../core/balance';
 import { addDeadhead, flightsRev, liveFlightsOf, removeFlights, takeFlightChanges } from '../core/entities';
 import { distance } from '../core/geo';
@@ -1403,6 +1403,7 @@ function runFix(h: GameState, flightId: string, fix: CrewFix, opts: ApplyOpts): 
         }
       }
       if (!picks.length) return { ok: false, error: 'Nobody legal is free anywhere' };
+      if (cls && picks.some((y) => distance(y.loc, x.dep) / NM > CC().jet.rangeNm[cls] * 2)) return { ok: false, error: `A ${JET_CLASS_LABEL[cls].toLowerCase()} cannot fly that far with one fuel stop` };
       // Even a jet may land after the report: the flight is delayed first by the gap.
       let latest = 0;
       const byLoc = new Map<string, { n: number; ready: Minute }>();
@@ -1781,7 +1782,10 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean, only?: readonly C
           return { cost, arrives, text, jets };
         };
         const auto = quote();
-        s.options = JET_CLASSES.filter((cls) => picks.length <= CC().jet.seats[cls] * 2).map((cls) => {
+        // Code review: only classes that reach with one fuel stop at most (a light jet's 1,800 nm do not cross the
+        // Atlantic in two hops: it was offered Lisbon–Montego Bay, 3,735 nm, as the cheapest jet).
+        const reach = (cls: JetClass) => [...byLoc.keys()].every((loc) => distance(loc, x.dep) / NM <= CC().jet.rangeNm[cls] * 2);
+        s.options = JET_CLASSES.filter((cls) => picks.length <= CC().jet.seats[cls] * 2 && reach(cls)).map((cls) => {
           const q = quote(cls);
           const first = [...byLoc.keys()][0];
           const qq = jetQuote(g, first, x.dep, byLoc.get(first)!.n, byLoc.get(first)!.ready, cls);

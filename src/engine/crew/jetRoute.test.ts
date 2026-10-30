@@ -112,3 +112,35 @@ describe('jets in Crew Control', () => {
     expect(f.status).toBe('scheduled');
   });
 });
+
+describe('jet classes offered (code review)', () => {
+  it('only classes that reach with one fuel stop at most: no light jet Lisbon–Montego Bay', async () => {
+    const { applyCrewFix } = await import('.');
+    const g = fixtureGame();
+    const ac = Object.values(g.fleet)[0];
+    ac.typeId = 'a332';
+    ac.cabin = { ...ac.cabin, total: 263, y: 263, j: 0, w: 0 };
+    ac.at = 'MBJ';
+    const std = Math.floor(g.now / DAY) * DAY + 2 * DAY + 14 * 60 + 30;
+    const f = addFlight(g, { no: 'AW1396', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'MBJ', to: 'PAP', std, sta: std + 70, pax: 263 });
+    addFlight(g, { no: 'AW1396', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'PAP', to: 'AMS', std: std + 180, sta: std + 180 + 540, pax: 263 });
+    addCrew(g, { CPT: 3, FO: 3, PUR: 2, CC: 10 }, 'A330/340');
+    const d = buildDuties(g, ac.id, g.now, g.now + 5 * DAY)[0];
+    autoRoster(g, {});
+    const p = g.pairings[d.pairingId];
+    const fo = p.slots.find((s) => s.role === 'FO' && s.crewId)!.crewId!;
+    g.now = d.report - 20 * 60;
+    releaseCrew(g, p, fo);
+    g.crew[fo].status = 'sick';
+    touchCrew(g);
+    // 3,735 nm: past twice a light jet's 1,800 nm.
+    expect(distance('LIS', 'MBJ') / NM).toBeGreaterThan(J.rangeNm.light * 2);
+    const jet = crewControl(g, f.id)!.solutions.find((s) => s.id === 'jet')!;
+    expect(jet.available).toBe(true);
+    const ids = (jet.options ?? []).map((o) => o.id);
+    expect(ids).toContain('heavy');
+    expect(ids).not.toContain('light');
+    const r = applyCrewFix(g, f.id, 'jet', { optionId: 'light' });
+    expect(r.ok).toBe(false);
+  });
+});
