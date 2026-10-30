@@ -920,6 +920,8 @@ function buildTrips(g: GameState, acId: string, duties: Duty[]): void {
   const dayOf = (t: Minute) => Math.floor((t + offsetAt(home, t)) / DAY);
   let cur: Duty[] = [];
   const empty = (d: Duty) => emptyDuty(g, d);
+  /** The cabin crew's earlier report (absent: the type's default, as timeline.cabinEarly reads it). */
+  const early = (d: Duty) => d.cabinEarly ?? cabinEarlyOf(g.fleet[acId]?.typeId ?? '');
   // v0.5.2: empty duties after the trip's last revenue duty are their own pilots-only trip (a ferry: the cabin
   // crew aren't needed at the destination and go home by ticket; the pilots usually fly on, crew.planCrew drop).
   const close = () => {
@@ -943,8 +945,10 @@ function buildTrips(g: GameState, acId: string, duties: Duty[]): void {
       // 10 h, 14 h after an augmented day or across 4+ time zones, +4 h after an extension), not a flat 10 h. (Bot
       // seed 2: LIS–LXR–MGQ, 12:20 on duty, then MGQ–LXR–LIS 10:40 later: one trip nobody could ever fly, empty for
       // 85 days.) Shorter, the next duty is a trip of its own: another crew positioned out to it.
-      const need = minRest({ dutyMin: last.release - last.report + (last.cabinEarly ?? 0), atHome: false, augmented: last.augment > 0, tzShift: tzDeltaH(home, last.restAt, last.release), extended: !!last.ext });
-      const cont = last.restAt !== home && firstDep === last.restAt && gap <= 3 * DAY && gap >= need && days.size <= LIMITS.blockDays && d.release + homeLeg(d, home) - anchor <= TRIP_SPAN;
+      // (Code review: the cabin crew's earlier report counts at both ends: their day is longer and their next one
+      // starts sooner. A widebody's days 10:05 apart read 'Rest 9:50 < 10:00' for every cabin crew member.)
+      const need = minRest({ dutyMin: last.release - last.report + early(last), atHome: false, augmented: last.augment > 0, tzShift: tzDeltaH(home, last.restAt, last.release), extended: !!last.ext });
+      const cont = last.restAt !== home && firstDep === last.restAt && gap <= 3 * DAY && gap - early(d) >= need && days.size <= LIMITS.blockDays && d.release + homeLeg(d, home) - anchor <= TRIP_SPAN;
       if (!cont) close();
     }
     if (!cur.length) anchor = d.report;

@@ -79,3 +79,27 @@ describe('a locked crew member somewhere else', () => {
     expect(Object.values(g.flights).some((f) => f.kind === 'deadhead' && f.status === 'scheduled' && f.to === 'DUS' && f.crewIds.includes(c.id))).toBe(true);
   });
 });
+
+describe('a widebody layover the cabin crew cannot rest (code review)', () => {
+  it("counts the cabin crew's earlier report at both ends: two trips, both crewed, not one with every cabin seat empty", () => {
+    const g = fixtureGame();
+    const ac = Object.values(g.fleet)[0];
+    ac.typeId = 'a332';
+    ac.cabin = { ...ac.cabin, total: 263, y: 263, j: 0, w: 0 };
+    ac.at = 'LIS';
+    addCrew(g, { CPT: 3, FO: 3, PUR: 3, CC: 16 }, 'A330/340');
+    const b = blockMinutes('a332', 'LIS', 'FNC');
+    const std = Math.floor(g.now / DAY) * DAY + 2 * DAY + 17 * H;
+    const f1 = addFlight(g, { no: 'AW1', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'LIS', to: 'FNC', std, sta: std + b, pax: 263 });
+    const d1 = buildDuties(g, ac.id, g.now, g.now + 5 * DAY)[0];
+    // Day 2 from Funchal: the pilots report 10:05 after the release, the cabin crew 15 min earlier (9:50 of rest).
+    const std2 = d1.release + 10 * H + 5 + (f1.std - d1.report);
+    addFlight(g, { no: 'AW2', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'FNC', to: 'LIS', std: std2, sta: std2 + b, pax: 263 });
+    const [a, c] = buildDuties(g, ac.id, g.now, g.now + 5 * DAY);
+    expect(c.report - a.release).toBe(10 * H + 5);
+    expect(c.cabinEarly).toBe(15);
+    expect(a.pairingId).not.toBe(c.pairingId);
+    autoRoster(g, {});
+    for (const d of [a, c]) expect(g.pairings[g.duties[d.id].pairingId].slots.filter((s) => !s.above).every((s) => s.crewId)).toBe(true);
+  });
+});
