@@ -396,8 +396,15 @@ export function createChecker(opts: CheckerOpts = {}) {
           const zAt = restAt(z.start, z.end);
           if (zAt) {
             const zHome = zAt === h.base;
-            const before = restNeeded(z.end - z.start, zHome, z.aug, zHome ? 0 : tzDiffH(h.base, zAt, z.end), z.ext);
-            if (a.start - z.end >= before + 2 * H) need -= 2 * H;
+            let restEnd = z.end + restNeeded(z.end - z.start, zHome, z.aug, zHome ? 0 : tzDiffH(h.base, zAt, z.end), z.ext);
+            // A standby between them is not rest (engine extCutAt): one called out runs into the extended duty, an
+            // uncalled one is followed by its own rest (12 h home / 10 h away, airport at least its length; reserve none).
+            for (const w of sby) {
+              if (w.from < z.end || w.from >= a.start) continue;
+              if (w.calledAt !== undefined) restEnd = Math.max(restEnd, a.start);
+              else restEnd = Math.max(restEnd, w.to + (w.kind === 'reserve' ? 0 : Math.max(w.kind === 'airport' ? w.to - w.from : 0, w.at === h.base ? 12 * H : 10 * H)));
+            }
+            if (a.start >= restEnd + 2 * H) need -= 2 * H;
           }
         }
         // A standby between them: called for b → rest is needed before the standby only.

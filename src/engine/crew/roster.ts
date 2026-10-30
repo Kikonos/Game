@@ -15,9 +15,9 @@ import { callIfOnStandby, dropStandby, standbyFor, callFromStandby } from './sta
 import { fitStandby, midnight, monthFloorIssue, offDaysHit, offMovable, offSwappable, takeOffDays, takesPublishedOff, v09Stats as v09StatsOf } from './dayPlan';
 import { infoOf } from './outOfHours';
 import { lateChange, moraleShock, nextReport } from './morale';
-import { cabinFdpCap, DISCRETION, evalSegs, extRestCut, levelOf, LIMITS, minRest, mkSeg, recoveryAnchor, tzDeltaH, worst, type LegalityIssue, type Seg } from './rules';
+import { cabinFdpCap, DISCRETION, evalSegs, levelOf, LIMITS, minRest, mkSeg, recoveryAnchor, tzDeltaH, worst, type LegalityIssue, type Seg } from './rules';
 import { cabinOwnReport, planRest, restCabinN, restLegs, restOf, restPlan } from './restPlan';
-import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, locAt, noteRiders, outStillFits, passengers, planHome, planOut, posSeg, segsOf, segsTagOf, ticketPrice, touchCrew, typeIdOf, withoutTickets } from './timeline';
+import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, extCutAt, locAt, noteRiders, outStillFits, passengers, planHome, planOut, posSeg, segsOf, segsTagOf, ticketPrice, touchCrew, typeIdOf, withoutTickets } from './timeline';
 
 export { buildDuties } from './duties';
 
@@ -537,7 +537,7 @@ export function rebookAfterLateRelease(g: GameState, p: Pairing, d: Duty): void 
       }
       const seg = dutySegs(g, c, p, d, out, null).find((x) => x.kind === 'duty');
       // (A planned extension's rest: +2 h after when the crew member took +2 h before, as the release logs it.)
-      const end = Math.max(c.restUntil, seg ? seg.end + seg.rest - (d.ext ? extRestCut(seg.start, c.restUntil) : 0) : d.release);
+      const end = Math.max(c.restUntil, seg ? seg.end + seg.rest - (d.ext ? extCutAt(c, seg.start) : 0) : d.release);
       if (wait < 0 || f.std - ci < end) ends.set(cid, end);
     }
     if (!ends.size) continue;

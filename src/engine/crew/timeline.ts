@@ -8,7 +8,7 @@ import { deadheadFlights, flightsOf, flightsRev } from '../core/entities';
 import { itinerary, ticketBlock } from '../ops/commercial';
 import { DAY, fmtDateTime, fmtTime, monthKey, yearOf } from '../core/time';
 import type { CrewMember, Duty, Flight, GameState, Minute, Pairing, StandbyKind } from '../core/types';
-import { asbyRest, disruptiveKinds, isDisruptive, maxFdp, minRest, mkSeg, referenceTime, standbyCut, tzDeltaH, type RefTime, type Seg, type TimelineCtx } from './rules';
+import { asbyRest, disruptiveKinds, extRestCut, isDisruptive, maxFdp, minRest, mkSeg, referenceTime, standbyCut, tzDeltaH, type RefTime, type Seg, type TimelineCtx } from './rules';
 import { restOf } from './restPlan';
 
 // ---------- index ----------
@@ -749,6 +749,25 @@ export function standbySeg(c: CrewMember, w: NonNullable<CrewMember['standby']>[
   return seg;
 }
 const SBY_SEGS = new WeakMap<object, { base: string; seg: Seg }>();
+
+/**
+ * BLU1396 review: the ORO.FTL.205(d) rest option crew member c takes for an extended duty they start at `start`, as
+ * the release reads it (`extRestCut`): the rest before it ends at c.restUntil, or later when a standby window followed
+ * that rest (standby is not rest; as evalSegs reads the timeline): one called out for this duty runs into it (no +2 h
+ * before), an uncalled one is followed by its own rest. Pure.
+ */
+export function extCutAt(c: CrewMember, start: Minute): number {
+  let end = c.restUntil;
+  for (const w of c.standby ?? []) {
+    if (w.from >= start) continue;
+    // (A window called for other work: that work's rest is in restUntil. Matched as addStandby matches the duty.)
+    const called = w.calledAt !== undefined;
+    if (called && !(start >= w.calledAt! - 60 && start < w.calledAt! + DAY)) continue;
+    const s = standbySeg(c, w, called ? start : undefined);
+    end = Math.max(end, s.end + s.rest);
+  }
+  return extRestCut(start, end);
+}
 function makeSbySeg(c: CrewMember, w: NonNullable<CrewMember['standby']>[number], end: Minute | undefined, fresh: boolean): Seg {
   const kind = w.kind ?? 'home';
   const at = w.at ?? c.base;

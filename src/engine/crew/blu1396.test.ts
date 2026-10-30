@@ -15,8 +15,9 @@ import { planCrew } from './check';
 import { buildDuties } from './duties';
 import { addCrew, fixtureContract, fixtureGame } from './fixtures';
 import { evalSegs, EXT_REST, extRestCut, minRest, mkSeg, type Seg, type TimelineCtx } from './rules';
-import { cabinEarly, dhBlock, OUT_REST_BUFFER, outTicket, segsOf, touchCrew } from './timeline';
+import { aboard, cabinEarly, dhBlock, OUT_REST_BUFFER, outTicket, segsOf, touchCrew } from './timeline';
 import { autoRoster, crewControl, dutyCandidates } from '.';
+import { advanceTo } from '../sim';
 
 const H = 60;
 
@@ -119,6 +120,42 @@ describe('ORO.FTL.205(d) rest options around a planned extension', () => {
     expect(rests(evalSegs(ctx, [a, e2, duty(e2.end + 15 * H + 30, 8 * H)]))).toEqual(['Rest 15:30 < 17:30']);
     expect(extRestCut(100, 100 - 2 * H)).toBe(2 * H);
     expect(extRestCut(100, 100 - 2 * H + 1)).toBe(0);
+  });
+});
+
+describe('ORO.FTL.205(d) at the release: a standby is not rest before the extended duty', () => {
+  /** MBJ–PAP–AMS rostered and flown to the release; an FO's hotel standby at MBJ from the end of her rest (`sby`). */
+  function flown(sby: boolean) {
+    const { g, dutyId } = mbj();
+    autoRoster(g, {});
+    const d = g.duties[dutyId];
+    const p = g.pairings[d.pairingId];
+    const fo = g.crew[p.slots.find((s) => s.role === 'FO' && s.crewId)!.crewId!];
+    const t = d.deadheadIds.map((id) => g.flights[id]).find((f) => f && aboard(f, fo.id) && f.sta <= d.report)!;
+    advanceTo(g, t.sta + 30, new Set());
+    // The ticket out lands with the far-trip margin: her minimum rest ends over 2 h before the report.
+    expect(d.report - fo.restUntil).toBeGreaterThanOrEqual(EXT_REST.split);
+    if (sby) {
+      // Called out from it for this duty: standby and duty run on, the rest before was only the minimum.
+      fo.standby = [{ from: fo.restUntil, to: d.report + 4 * H, kind: 'hotel', at: 'MBJ', calledAt: d.report - 60 }];
+      touchCrew(g);
+    }
+    advanceTo(g, g.duties[dutyId].release + 3 * H, new Set());
+    const e = fo.log.find((x) => x.ext)!;
+    expect(g.duties[dutyId].done).toBe(true);
+    return { fo, e, full: minRest({ dutyMin: e.end - e.start, atHome: false, augmented: false, tzShift: 0, extended: true }) };
+  }
+
+  it('2 h more rest before: +2 h after', () => {
+    const { fo, e, full } = flown(false);
+    expect(e.extRest).toBe('split');
+    expect(fo.restUntil - e.end).toBeGreaterThanOrEqual(full - EXT_REST.split);
+  });
+
+  it('a standby after the minimum rest: +4 h after', () => {
+    const { fo, e, full } = flown(true);
+    expect(e.extRest).toBe('after');
+    expect(fo.restUntil - e.end).toBeGreaterThanOrEqual(full);
   });
 });
 

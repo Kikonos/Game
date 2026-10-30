@@ -13,7 +13,7 @@ export { aboveMinimum, afterDiversion, legalMinimum } from './duties';
 import { dailySickness, onCrewJoin, onTrainingDone } from './hr';
 import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, settleService, setResignHooks } from './morale';
 import { autoRoster, closedWait, guardDuty, homeBeforeLeave, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, removeCrew, sendStrandedHome, stayOn } from './roster';
-import { extRestCut, localMin, minRest, signedTz, tzDeltaH, tzNights } from './rules';
+import { localMin, minRest, signedTz, tzDeltaH, tzNights } from './rules';
 import { clipToRest, dailyStandby, noteRecovery } from './standby';
 import { dayPlanAfter, dayPlanBefore, dayPlanInit, dayPlanLoad, dayPlanMonth, v09Stats } from './dayPlan';
 import { peakHeadsUp } from './forecast';
@@ -21,7 +21,7 @@ import { AUTHORITY } from '../../data/flavor';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { pushMessage } from '../core/messages';
 import { post } from '../core/ledger';
-import { aboard, checkInOf, crewCount, crewIx, dutyBlock, dutyFlights, dutySegs, passengers, touchCrew, touchCrewState, typeIdOf } from './timeline';
+import { aboard, checkInOf, crewCount, crewIx, dutyBlock, dutyFlights, dutySegs, extCutAt, passengers, touchCrew, touchCrewState, typeIdOf } from './timeline';
 import { reportMinutes } from '../core/perf';
 
 export {
@@ -227,8 +227,9 @@ function onDutyRelease(g: GameState, ev: SimEvent): void {
     }
     const seg = dutySegs(g, c, p, d, out, home).find((x) => x.kind === 'duty')!;
     // BLU1396 round: the planned extension's rest option (ORO.FTL.205(d)): +2 h before and after when this crew member
-    // rested 2 h more than the minimum before it (c.restUntil is still the rest before), else +4 h after.
-    const extCut = d.ext ? extRestCut(seg.start, c.restUntil) : 0;
+    // rested 2 h more than the minimum before it (c.restUntil is still the rest before; a standby after it is not
+    // rest: extCutAt), else +4 h after.
+    const extCut = d.ext ? extCutAt(c, seg.start) : 0;
     // v0.9 crew who joined the duty after its report (a call-in at the gate) get their recovery noted too.
     noteRecovery(c, seg.start, g);
     c.log.push({
