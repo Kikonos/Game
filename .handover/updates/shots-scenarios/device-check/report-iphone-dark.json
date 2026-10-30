@@ -1,0 +1,34 @@
+{
+ "dark/iphone15pro-app/title": {
+  "vw": 852,
+  "vh": 393,
+  "scrollWidth": 852,
+  "overflowX": false,
+  "beyond": [],
+  "smallTargets": 0,
+  "smallTargetKinds": [],
+  "underSafe": [],
+  "underSafeCount": 0,
+  "smallText": 0,
+  "smallTextSamples": [],
+  "tier": "-",
+  "device": "iphone/touch+touch",
+  "pageErrors": []
+ },
+ "dark/iphoneX-app/title": {
+  "vw": 812,
+  "vh": 375,
+  "scrollWidth": 812,
+  "overflowX": false,
+  "beyond": [],
+  "smallTargets": 0,
+  "smallTargetKinds": [],
+  "underSafe": [],
+  "underSafeCount": 0,
+  "smallText": 0,
+  "smallTextSamples": [],
+  "tier": "-",
+  "device": "iphone/touch+touch",
+  "pageErrors": []
+ }
+}

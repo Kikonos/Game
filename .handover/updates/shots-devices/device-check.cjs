@@ -63,6 +63,8 @@ const SCREENS = [
   'fleet', 'fleet-hangar-top', 'fleet-hangar-side', 'fleet-market', 'acquire-modal',
   'finance', 'company', 'inbox', 'settings', 'whats-new', 'menu',
   'offer-call', 'problem-modal', 'delivered',
+  // v0.12 Scenarios mode (last: they replace the game with a scenario one).
+  'scenarios', 'scenario-play', 'scenario-goals', 'scenario-company', 'scenario-result',
 ];
 
 function parseArgs(argv) {
@@ -340,7 +342,23 @@ const nav = async (page, tab, extra) => { await page.evaluate(([t, x]) => window
 const modal = async (page, spec) => { await page.evaluate((m) => window.__contrail.openModal(m), spec); await settle(page, 550); };
 const click = async (page, selector) => { const l = page.locator(selector).first(); if (await l.count()) { await l.click({ timeout: 3000 }).catch(() => {}); await settle(page, 400); return true; } return false; };
 
+async function scenario(page, id, days) {
+  await page.evaluate(({ id, days }) => {
+    const s = window.__contrail;
+    s.startScenario(id);
+    s.setSettings({ autoPause: Object.fromEntries(Object.keys(s.settings.autoPause).map((k) => [k, false])) });
+    if (days) s.dev.autoplay(days);
+    s.modal = null; s.paused = true; s.toasts = []; if (s.game && !s.game.gameOver) s.decisionDeferred = s.game.decisions.map((d) => d.id).join(','); s.emit();
+  }, { id, days });
+  await settle(page, 900);
+}
+
 const ACTIONS = {
+  scenarios: async (page) => { await page.evaluate(() => { const s = window.__contrail; s.closeModal(); s.setScreen('scenarios'); }); await page.waitForSelector('.sc-list', { timeout: 10000 }).catch(() => {}); await settle(page, 600); },
+  'scenario-play': async (page) => { await scenario(page, 'ashCloud', 6); await nav(page, 'map'); },
+  'scenario-goals': async (page) => { await nav(page, 'map'); await modal(page, { kind: 'scenario' }); },
+  'scenario-company': (page) => nav(page, 'company'),
+  'scenario-result': async (page) => { await scenario(page, 'cupFinal', 12); await page.waitForSelector('.sc-result', { timeout: 15000 }).catch(() => {}); await settle(page, 600); },
   title: async (page) => { await page.evaluate(() => { const s = window.__contrail; s.closeModal(); s.setScreen('title'); }); await settle(page, 700); await page.evaluate(() => window.__contrail.closeModal()); await settle(page, 200); },
   newgame: async (page) => { await page.evaluate(() => window.__contrail.setScreen('newgame')); await page.waitForSelector('.newgame', { timeout: 10000 }).catch(() => {}); await settle(page, 600); },
   map: (page) => nav(page, 'map'),
@@ -456,6 +474,8 @@ async function runGroup(browser, profile, theme, report, vps) {
   await resize(vps[0][1]);
   await startGame(page, theme);
   for (const [name, vp] of vps) {
+    // v0.12 the scenario screens replace the game: a fresh normal game for the next viewport.
+    if (await page.evaluate(() => !!window.__contrail.game?.scen)) await startGame(page, theme);
     await resize(vp);
     for (const s of pre) await run(name, vp, s);
     await page.evaluate(() => window.__contrail.setScreen('game'));

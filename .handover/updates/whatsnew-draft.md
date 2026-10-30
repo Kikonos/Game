@@ -131,3 +131,17 @@ improvements:
 - A jet that lands with a night's rest before the flight now waits for the rest the crew really need (14 hours after crossing 4 or more time zones). When a jet can't help, Crew Control says who was refused and why.
 - Crew shortages are announced as soon as the roster knows it can't crew a trip, up to 10 days ahead, with a calm heads-up and what you can do: hire, fly someone in on a ticket or a jet, swap crews, sub-lease the trip or move it. The 48-hour and 12-hour warnings follow only if it is still short, one notice per trip at each stage.
 - A shortage caused by a late change says so first: "Late change: Ana Gomes fell sick on 14 Oct.", a leg added at short notice (after a diversion, for example) or a delay that moved the flight. You can tell those apart from a trip the roster could not plan.
+
+## Start setups and Scenarios (player request: "other presets when starting a new company", "a new playing mode 'scenarios'")
+
+features:
+- New Game has a Start setup choice. Seven starts, all short-haul narrowbodies: Classic pair (two A320s), Boeing shop (two 737-800s), Leisure workhorses (two 220-seat A321s), New tech (one A320neo and more cash), Mixed fleet (an A320 and a 737: two type ratings, two crew pools), Owned veterans (two old A320s you own: no rent, checks due soon) and Shoestring (one A320, a small crew, tight cash). Each card shows the fleet, the crew, the cash and how hard it is.
+- The crew of each setup is sized in sets, as Crew › Planning counts them, and rent, value and checks follow the real aircraft and their age.
+- Scenarios: a new mode on the Title screen. Ten challenges, each with its own company, base, date, fleet, crew, cash and contracts: Summer Surge, AOG Firefighter, Cash Crunch, Hajj Airlift, Ash Cloud, Crew Crisis, Cup Final Week, Long-Haul Debut, Southern Winter and Humanitarian Airlift.
+- Each scenario has one goal with one, two or three stars, an end date, and sometimes a condition (Fly at least 95 % of the legs as planned). The top bar shows your stars so far and the days left; tap it, or open Company, for the goals.
+- At the end a results card shows your stars and the key numbers, with Retry and Back to scenarios. Your best result for each scenario stays on this device.
+- Ash Cloud: a Katla eruption closes the airspace over the UK, Ireland, the Netherlands, northern Germany, Scandinavia and the Baltics for about a week. Stranded holidaymakers need flights to the nearest open airport, then home once the skies reopen.
+
+improvements:
+- A scenario game saves and loads like any game. It autosaves to its own slot, so it never replaces your normal game's autosave.
+- New Game on an iPhone on its side: the form and the aircraft now sit side by side. Before, the form could not be reached.
