@@ -7,24 +7,25 @@ const v = (xs: { version: string }[]) => xs.map((e) => e.version);
 describe("v0.9 What's new catch-up (UPDATE-0.9.md §X)", () => {
   it('first v0.9 launch shows v0.9, v0.8 and v0.7.4 even when v0.8 was seen; then the normal rule', () => {
     // v0.9.1 is the newest now: it comes first and a v0.9 player sees it alone.
-    // v0.11.4 is the newest now: it comes first.
-    expect(CURRENT.version).toBe('v0.11.4');
-    expect(v(whatsNewToShow('v0.8', false))).toEqual(['v0.11.4', 'v0.11.3', 'v0.11.2', 'v0.11.1', 'v0.11', 'v0.10.1', 'v0.10', 'v0.9.1', 'v0.9', 'v0.8', 'v0.7.4']);
-    expect(v(whatsNewToShow('v0.8', true))).toEqual(['v0.11.4', 'v0.11.3', 'v0.11.2', 'v0.11.1', 'v0.11', 'v0.10.1', 'v0.10', 'v0.9.1', 'v0.9']);
-    expect(v(whatsNewToShow('v0.9', true))).toEqual(['v0.11.4', 'v0.11.3', 'v0.11.2', 'v0.11.1', 'v0.11', 'v0.10.1', 'v0.10', 'v0.9.1']);
-    expect(v(whatsNewToShow('v0.9.1', true))).toEqual(['v0.11.4', 'v0.11.3', 'v0.11.2', 'v0.11.1', 'v0.11', 'v0.10.1', 'v0.10']);
-    expect(v(whatsNewToShow('v0.10', true))).toEqual(['v0.11.4', 'v0.11.3', 'v0.11.2', 'v0.11.1', 'v0.11', 'v0.10.1']);
-    expect(v(whatsNewToShow('v0.10.1', true))).toEqual(['v0.11.4', 'v0.11.3', 'v0.11.2', 'v0.11.1', 'v0.11']);
-    expect(v(whatsNewToShow('v0.11', true))).toEqual(['v0.11.4', 'v0.11.3', 'v0.11.2', 'v0.11.1']);
-    expect(v(whatsNewToShow('v0.11.1', true))).toEqual(['v0.11.4', 'v0.11.3', 'v0.11.2']);
-    expect(v(whatsNewToShow('v0.11.2', true))).toEqual(['v0.11.4', 'v0.11.3']);
-    expect(v(whatsNewToShow('v0.11.3', true))).toEqual(['v0.11.4']);
-    expect(whatsNewToShow('v0.11.4', true)).toEqual([]);
-    expect(v(whatsNewToShow('v0.7.4', false))).toEqual(['v0.11.4', 'v0.11.3', 'v0.11.2', 'v0.11.1', 'v0.11', 'v0.10.1', 'v0.10', 'v0.9.1', 'v0.9', 'v0.8', 'v0.7.4']);
+    // v0.12 is the newest now: it comes first.
+    expect(CURRENT.version).toBe('v0.12');
+    expect(v(whatsNewToShow('v0.8', false))).toEqual(['v0.12', 'v0.11.4', 'v0.11.3', 'v0.11.2', 'v0.11.1', 'v0.11', 'v0.10.1', 'v0.10', 'v0.9.1', 'v0.9', 'v0.8', 'v0.7.4']);
+    expect(v(whatsNewToShow('v0.8', true))).toEqual(['v0.12', 'v0.11.4', 'v0.11.3', 'v0.11.2', 'v0.11.1', 'v0.11', 'v0.10.1', 'v0.10', 'v0.9.1', 'v0.9']);
+    expect(v(whatsNewToShow('v0.9', true))).toEqual(['v0.12', 'v0.11.4', 'v0.11.3', 'v0.11.2', 'v0.11.1', 'v0.11', 'v0.10.1', 'v0.10', 'v0.9.1']);
+    expect(v(whatsNewToShow('v0.9.1', true))).toEqual(['v0.12', 'v0.11.4', 'v0.11.3', 'v0.11.2', 'v0.11.1', 'v0.11', 'v0.10.1', 'v0.10']);
+    expect(v(whatsNewToShow('v0.10', true))).toEqual(['v0.12', 'v0.11.4', 'v0.11.3', 'v0.11.2', 'v0.11.1', 'v0.11', 'v0.10.1']);
+    expect(v(whatsNewToShow('v0.10.1', true))).toEqual(['v0.12', 'v0.11.4', 'v0.11.3', 'v0.11.2', 'v0.11.1', 'v0.11']);
+    expect(v(whatsNewToShow('v0.11', true))).toEqual(['v0.12', 'v0.11.4', 'v0.11.3', 'v0.11.2', 'v0.11.1']);
+    expect(v(whatsNewToShow('v0.11.1', true))).toEqual(['v0.12', 'v0.11.4', 'v0.11.3', 'v0.11.2']);
+    expect(v(whatsNewToShow('v0.11.2', true))).toEqual(['v0.12', 'v0.11.4', 'v0.11.3']);
+    expect(v(whatsNewToShow('v0.11.3', true))).toEqual(['v0.12', 'v0.11.4']);
+    expect(v(whatsNewToShow('v0.11.4', true))).toEqual(['v0.12']);
+    expect(whatsNewToShow('v0.12', true)).toEqual([]);
+    expect(v(whatsNewToShow('v0.7.4', false))).toEqual(['v0.12', 'v0.11.4', 'v0.11.3', 'v0.11.2', 'v0.11.1', 'v0.11', 'v0.10.1', 'v0.10', 'v0.9.1', 'v0.9', 'v0.8', 'v0.7.4']);
   });
   it('a fresh install gets the newest only; an older player everything since their version', () => {
     expect(whatsNewToShow('', false)).toEqual([CURRENT]);
-    expect(v(whatsNewToShow('v0.7.2', false))).toEqual(['v0.11.4', 'v0.11.3', 'v0.11.2', 'v0.11.1', 'v0.11', 'v0.10.1', 'v0.10', 'v0.9.1', 'v0.9', 'v0.8', 'v0.7.4', 'v0.7.3', 'v0.7.2.2', 'v0.7.2.1']);
+    expect(v(whatsNewToShow('v0.7.2', false))).toEqual(['v0.12', 'v0.11.4', 'v0.11.3', 'v0.11.2', 'v0.11.1', 'v0.11', 'v0.10.1', 'v0.10', 'v0.9.1', 'v0.9', 'v0.8', 'v0.7.4', 'v0.7.3', 'v0.7.2.2', 'v0.7.2.1']);
     expect(whatsNewToShow('v0.7.2', true)).toEqual(unseenEntries('v0.7.2'));
   });
   it("v0.9.1: the tuning entry lists the music and the crew changes in plain words", () => {

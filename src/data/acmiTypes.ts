@@ -156,6 +156,7 @@ const CREW: Record<string, CrewSpec> = {
   a320ceo: { floor: [[150, 3], [195, 4]], seats: 6, observers: 1, est: ['seats', 'observers'] },
   a321ceo: { floor: [[200, 4], [230, 5]], seats: 7, observers: 1, est: ['seats', 'observers'] },
   a321neo: { floor: [[149, 3], [200, 4], [244, 5]], seats: 6, observers: 1, est: ['seats', 'observers'] },
+  a320neo: { floor: [[150, 3], [195, 4]], seats: 6, observers: 1, est: ['seats', 'observers'] },
   b738: { floor: [[100, 2], [150, 3], [189, 4]], seats: 5, observers: 1, est: ['seats', 'observers'] },
   b739: { floor: [[100, 2], [150, 3], [200, 4], [220, 5]], seats: 6, observers: 1, est: ['seats', 'observers'] },
   // 757 / 767: no number in the EASA TCDS (IM.A.205 refers to FAA A2NM; IM.A.035): 1 per 50 seats.
@@ -431,6 +432,16 @@ export const ACMI_TYPES_LIST: AcmiType[] = ([
     rangeNm: 5600, cruiseKt: 485, turnMin: 120, cockpitMin: 2, cabinTypical: 14, restClass: 2, etopsMax: 0, minRunwayM: 3300,
     rateBH: 8000, fuelTBH: 12.5, maintBH: 4300, rentMonth: 50_000, firstYear: 1983, lastYear: 1990, valueUsed: 1_800_000, hPerCycle: 7.0, insuranceMonth: 70_000,
     aCheckFH: 450, aCheckHours: 30, cCheckMonths: 15, cCheckDays: 35, pilotsPerAircraft: 18, scarcity: 0.995, available: true, aogMult: 1.8, rest: TR(0.25, 'ccrc', 6, { rowsLost: 2, places: 9, fc: 2 }, false, null), yAbreast: 10, pursers: 2,
+  },
+  // v0.12 start setups ('New tech'): the A320neo. Same pilot type rating as the A320ceo (Airbus differences training only),
+  // about 15 % less fuel, a dearer lease; 186Y as most European operators fly it. Not on the market (available: false):
+  // only a start setup or a scenario brings one. Art: the A320 sprite (no neo sprite yet).
+  {
+    id: 'a320neo', name: 'Airbus A320neo', short: 'A20N', family: 'A320', body: 'narrow', engines: 2, catalog: 'a320neo', art: 'a320ceo', tier: 0,
+    cabins: [c('186Y', 'all-economy', 0, 0, 186), c('12J/156Y', 'two-class', 12, 0, 156)], maxSeats: 194,
+    rangeNm: 3400, cruiseKt: 450, turnMin: 40, cockpitMin: 2, cabinTypical: 4, restClass: 3, etopsMax: 180, minRunwayM: 2000,
+    rateBH: 4600, fuelTBH: 2.1, maintBH: 750, rentMonth: 300_000, rentNew: 360_000, firstYear: 2016, valueUsed: 36_000_000, insuranceMonth: 52_000,
+    aCheckFH: 1000, aCheckHours: 8, cCheckMonths: 36, cCheckDays: 12, pilotsPerAircraft: 11, scarcity: 0.7, available: false, rest: NO_REST, yAbreast: 6,
   },
 ] as Omit<AcmiType, 'crew'>[]).map((t) => ({ ...t, crew: CREW[t.id] }));
 

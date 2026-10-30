@@ -83,6 +83,8 @@ export function saleQuote(g: GameState, aircraftId: string): SaleQuote {
   const none: SaleQuote = { ok: false, why: null, price: 0, lines: [], buyer: '', closes: g.now, bookValue: 0, gain: 0, blockers: [] };
   if (!ac) return { ...none, why: 'Aircraft not found' };
   if (ac.ownership.kind !== 'owned') return { ...none, why: 'Only aircraft we own can be sold; leased ones go back to the lessor' };
+  // v0.12 Scenarios (Cash Crunch): the bank holds the owned aircraft as security for the overdraft.
+  if (g.scen?.noSale) return { ...none, why: 'The bank holds it as security for the overdraft: it cannot be sold now' };
   const S = BAL.v072.sale;
   const t = typeOf(ac.typeId);
   const w = t.body === 'wide' ? 1 : 0;

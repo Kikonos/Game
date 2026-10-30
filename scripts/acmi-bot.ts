@@ -101,11 +101,16 @@ import { crewIssuesFor, crewShortCard, dutyCandidates, flightCrewStatus } from '
 import { dayIndex as dayIndexAt, isOff } from '../src/engine/crew/dayPlan';
 import { offsetAt } from '../src/engine/crew/rules';
 import { createChecker } from './invariants';
+import { SETUP_BY_ID, type SetupId } from '../src/data/setups';
+import { createScenario, METRICS, SCENARIO_BY_ID, fmtValue, reliability, scenarioOutcome, scenarioView } from '../src/engine/scenario';
+import { fleetWords } from '../src/engine/newGame';
 
 
 const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 const seed = Number(args[0] ?? 1);
-const days = Number(args[1] ?? 365);
+/** v0.12 --scenario=<id>: plays a scenario (data in src/engine/scenario/defs.ts) to its end with the same policy; its own seed. */
+const SCEN = process.argv.find((a) => a.startsWith('--scenario='))?.slice(11);
+const days = SCEN ? (SCENARIO_BY_ID[SCEN]?.days ?? 0) + 1 : Number(args[1] ?? 365);
 const DET = process.argv.includes('--det');
 const BIG = process.argv.includes('--big');
 const MSGS = process.argv.includes('--msgs');
@@ -130,9 +135,12 @@ const STEP = 6 * 60;
 /** Debug round (26 Oct 2026): --base=XXX starts at another home base; --inv runs scripts/invariants.ts every step (slower). */
 const BASE = process.argv.find((a) => a.startsWith('--base='))?.slice(7) ?? 'LIS';
 const INV = process.argv.includes('--inv') ? createChecker() : null;
+/** v0.12 --setup=<id>: another New Game start setup (data/setups.ts: boeing, leisure, newtech, mixed, veterans, shoestring). */
+const SETUP = process.argv.find((a) => a.startsWith('--setup='))?.slice(8) as SetupId | undefined;
 
 const newGame = () => {
-  const g = createGame({ name: 'Atlântica Wings', code: 'AW', livery: { primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' }, base: BASE, seed });
+  if (SCEN) return createScenario(SCEN);
+  const g = createGame({ name: 'Atlântica Wings', code: 'AW', livery: { primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' }, base: BASE, seed, ...(SETUP ? { setup: SETUP } : {}) });
   if (AUG || JUMBO) for (const id of ['widebody', 'augmented'] as const) devGrantApproval(g, id);
   // v0.9 fix (JUMBO=1): an old 747-400 from day one, to test its economics and the crew changes at fuel stops.
   if (JUMBO) {
@@ -2040,7 +2048,19 @@ const goalsBy = (t: number) => g.goals.filter((x) => x.done !== null && x.done <
 
 const pad = (s: string | number, n: number) => String(s).padStart(n);
 const k$ = (v: number) => `${(v / 1000).toFixed(0)}k`;
-console.log(`BLOCK HOURS bot — seed ${seed}, ${days} days, Startup at ${BASE} (2× A320ceo)\n`);
+console.log(`BLOCK HOURS bot — seed ${seed}, ${days} days, Startup at ${BASE} (${SETUP && SETUP !== 'classic' ? `${SETUP}: ${fleetWords(SETUP_BY_ID[SETUP].fleet)}` : '2× A320ceo'})\n`);
+// v0.12 the scenario's result first (stars, the measure, the conditions and the tally).
+if (SCEN && g.scen) {
+  const d = SCENARIO_BY_ID[SCEN];
+  const v = scenarioView(g)!;
+  const r = scenarioOutcome(g);
+  const t = g.scen.tally;
+  console.log(`SCENARIO ${d.name} (${SCEN}, seed ${d.seed}, ${d.days} days)`);
+  console.log(`  result: ${r ? `${'★'.repeat(r.stars)}${'☆'.repeat(3 - r.stars)} ${r.stars} star${r.stars === 1 ? '' : 's'}` : 'still running'} · ${METRICS[d.metric].label} ${fmtValue(METRICS[d.metric].unit, v.value)} (thresholds ${d.stars.map((x) => fmtValue(METRICS[d.metric].unit, x)).join(' / ')})${r?.failed ? ` · ${r.failed}` : ''}`);
+  for (const m of v.musts) console.log(`  must: ${m.text}: ${m.now} ${m.ok ? 'ok' : 'MISSED'}`);
+  console.log(`  tally: legs ${t.legs} (on time ${t.onTime}, cancelled ${t.cxl}, handed over ${t.sub}, as planned ${reliability(g)} %), pax ${t.pax}, BH ${Math.round(t.bh)} (wide ${Math.round(t.wideBh)}, region ${Math.round(t.regionBh)}), focus legs ${t.fLegs} (on time ${t.fOn}, cancelled ${t.fCxl}, done ${t.fDone}), cash run ${t.posRun} / below zero ${t.negRun}, cash ${k$(g.company.cash)}`);
+  console.log(`  contracts: ${Object.values(g.contracts).map((c) => `${c.archetype}:${c.status}`).join(' ')}\n`);
+}
 console.log('month       cash  revenue   profit  BH/ac  wet BH/MGH  contracts        legs cx/sub ill util  AOG mxd  dec/msg goals');
 let revenueY = 0;
 let profitY = 0;

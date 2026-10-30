@@ -22,7 +22,8 @@ const floorOf = (rows: CrewFloor, n: number): number => {
 
 describe('minimum cabin crew (v0.10, RESEARCH §15)', () => {
   it('every type has crew data; tables ascend; the crew seats hold the minimum at the exit limit', () => {
-    expect(ACMI_TYPES_LIST).toHaveLength(31);
+    // v0.12 + the A320neo (start setups and scenarios only).
+    expect(ACMI_TYPES_LIST).toHaveLength(32);
     for (const t of ACMI_TYPES_LIST) {
       expect(t.crew, t.id).toBeDefined();
       for (const rows of [t.crew.floor, t.crew.upper?.floor ?? []]) {

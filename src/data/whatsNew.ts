@@ -16,6 +16,21 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.12',
+    name: 'Scenarios',
+    features: [
+      'Start setups in New Game: seven short-haul starts. Classic pair (two A320s), Boeing shop (two 737-800s), Leisure workhorses (two 220-seat A321s), New tech (one A320neo and more cash), Mixed fleet (an A320 and a 737: two type ratings, two crew pools), Owned veterans (two old A320s you own: no rent, checks due soon) and Shoestring (one A320, a small crew, tight cash). Each card shows the fleet, the crew, the cash and how hard it is.',
+      'Scenarios, a new mode on the Title screen: ten challenges, each with its own company, base, date, fleet, crew, cash and contracts. Summer Surge, AOG Firefighter, Cash Crunch, Hajj Airlift, Ash Cloud, Crew Crisis, Cup Final Week, Long-Haul Debut, Southern Winter and Humanitarian Airlift.',
+      'Each scenario has one goal with one, two or three stars, an end date and sometimes a condition (fly at least 95 % of the legs as planned). The top bar shows your stars and the days left; tap it, or open Company, for the goals.',
+      'At the end a results card shows your stars and the key numbers, with Retry and Back to scenarios. Your best result for each scenario stays on this device.',
+    ],
+    improvements: [
+      'The crew of each setup is sized in sets, as Crew › Planning counts them; rent, value and checks follow the real aircraft and their age.',
+      'A scenario game autosaves to its own slot, so it never replaces your normal game\'s autosave.',
+      'New Game on an iPhone on its side: the form and the aircraft sit side by side, so the form can be reached. The Title menu fits the screen.',
+    ],
+  },
+  {
     version: 'v0.11.4',
     name: 'Crew planning 2',
     features: [

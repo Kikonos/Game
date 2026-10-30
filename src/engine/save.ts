@@ -7,10 +7,16 @@ import { fmtDate } from './core/time';
 import type { GameState } from './core/types';
 import { SAVE_VERSION } from './newGame';
 import { onLoad } from './sim';
+// v0.12 a loaded scenario game needs its daily goals (the module registers itself when this loads).
+import './scenario';
 
 const PREFIX = 'contrail-acmi:save:';
 const FORMAT = 'contrail-acmi-save';
 export const AUTOSAVE_SLOT = 'auto';
+/** v0.12 a scenario game autosaves here, so it never overwrites the normal game's autosave. */
+export const SCENARIO_SLOT = 'scenario';
+/** The autosave slot of a game: its own for a scenario. */
+export const autosaveSlot = (g: GameState) => (g.scen ? SCENARIO_SLOT : AUTOSAVE_SLOT);
 export const SLOTS = ['1', '2', '3', '4', '5'];
 
 export interface SaveMeta {
@@ -23,6 +29,8 @@ export interface SaveMeta {
   fleet: number;
   savedAt: number;
   color: string;
+  /** v0.12 the scenario's name (a scenario game). */
+  scen?: string;
 }
 
 interface SaveFile {
@@ -42,6 +50,7 @@ function metaFor(g: GameState, slot: string): SaveMeta {
     fleet: Object.keys(g.fleet).length,
     savedAt: Date.now(),
     color: g.company.livery.primary,
+    ...(g.scen ? { scen: g.scen.id } : {}),
   };
 }
 
@@ -149,7 +158,7 @@ export function listSaves(): SaveMeta[] {
   const s = storage();
   if (!s) return [];
   const out: SaveMeta[] = [];
-  for (const slot of [AUTOSAVE_SLOT, ...SLOTS]) {
+  for (const slot of [AUTOSAVE_SLOT, SCENARIO_SLOT, ...SLOTS]) {
     const raw = s.getItem(PREFIX + slot);
     if (!raw) continue;
     try {

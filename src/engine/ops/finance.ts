@@ -134,7 +134,10 @@ export function dailyFinance(g: GameState): void {
       if (card) postProblem(g, card, { cat: 'finance', tone: 'bad', cue: 'cashNegative', tail: 'Find work, chase receivables or cut costs.' });
     }
     if (f.refusedRescue && cash < BAL.bankruptFloor) return gameOver(g, `Cash fell below ${usd(BAL.bankruptFloor)} after the rescue was refused.`);
-    if (g.now - f.negSince >= BAL.rescueDays * DAY) {
+    // v0.12 Scenarios (Cash Crunch): no investor comes; below the floor the creditors close the company.
+    if (g.scen?.noRescue) {
+      if (cash < BAL.bankruptFloor) return gameOver(g, `Cash fell below ${usd(BAL.bankruptFloor)}: the creditors closed the company.`);
+    } else if (g.now - f.negSince >= BAL.rescueDays * DAY) {
       if ((f.rescues ?? 0) >= 1) return gameOver(g, `Insolvent again for ${BAL.rescueDays} days after the rescue.`);
       if (!f.refusedRescue && !g.decisions.some((d) => d.kind === 'rescue')) rescueDecision(g);
     }

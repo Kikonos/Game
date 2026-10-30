@@ -58,9 +58,10 @@ export function hajjTender(t: Minute): ReturnType<typeof nextHajj>[number] | nul
 
 function hajj(ctx: Ctx): Draft | null {
   const { g, o } = ctx;
-  const h = hajjTender(g.now);
+  // v0.12 Scenarios: a given season and client (Hajj Airlift signs its airlifts before the start).
+  const h = o.hajj ?? hajjTender(g.now);
   if (!h) return null;
-  const client = nearClient({ ...ctx, window: undefined }, clientsOf(g, ['airline', 'government'], (c) => roleOf(c) === 'hajj' || HAJJ_CLIENTS.has(c.name)));
+  const client = (o.client && g.clients[o.client]) || nearClient({ ...ctx, window: undefined }, clientsOf(g, ['airline', 'government'], (c) => roleOf(c) === 'hajj' || HAJJ_CLIENTS.has(c.name)));
   if (!client) return null;
   // v0.8 fix pack: a Newcomer without a widebody flies its Hajj from origins a narrowbody reaches (North and West Africa).
   const narrowOnly = !ctx.wide && newcomerNarrow(g);

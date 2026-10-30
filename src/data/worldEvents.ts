@@ -260,4 +260,17 @@ export const WORLD_EVENT_TPLS: WorldEventTpl[] = [
   },
 ];
 
-export const TPL_BY_ID: Record<string, WorldEventTpl> = Object.fromEntries(WORLD_EVENT_TPLS.map((t) => [t.id, t]));
+/**
+ * v0.12 Scenarios only (never drawn by the daily world roll, which reads WORLD_EVENT_TPLS): Ash Cloud's eruption. Katla,
+ * under the Mýrdalsjökull ice cap, is Iceland's next big one; in April 2010 Eyjafjallajökull's ash closed most of
+ * northern Europe's airspace for six days.
+ */
+export const SCENARIO_EVENT_TPLS: WorldEventTpl[] = [
+  {
+    id: 'ashKatla', kind: 'ash', at: 'KEF', country: 'IS', zoneId: 'northEurope', closeP: 1, days: [6, 7], work: [],
+    title: 'Katla erupts: ash closes the skies over northern Europe', reopen: "Northern Europe's airspace has reopened",
+    body: "Katla has broken through the Mýrdalsjökull ice cap. The ash cloud is drifting south-east: the UK, Ireland, the Netherlands, northern Germany, Scandinavia and the Baltics close their airspace until at least {until}. Flights there wait or are cancelled; tens of thousands of travellers are stranded in the south.",
+  },
+];
+
+export const TPL_BY_ID: Record<string, WorldEventTpl> = Object.fromEntries([...WORLD_EVENT_TPLS, ...SCENARIO_EVENT_TPLS].map((t) => [t.id, t]));

@@ -117,11 +117,24 @@ function hitsOf(c: CrewMember, segs: Seg[]): number[] {
 }
 
 /** Days off counted in month mk: planned ones, plus (old saves) free days before v0.9 planned them. */
+/**
+ * v0.12 days of month mk before the game began (a scenario that starts mid-month): the crew had their days off then
+ * too, at the target's pace. 0 in a game that began on the 1st (the normal game: 1 March). Pure.
+ */
+function preStart(g: GameState, c: CrewMember, mk: MonthKey): number {
+  const a = firstDayOf(mk);
+  const start = dayIndex(c.base, g.started);
+  return start > a && start < firstDayOf(mk + 1) ? start - a : 0;
+}
+
 function offsIn(g: GameState, c: CrewMember, mk: MonthKey, busy?: Busy): number {
   const a = firstDayOf(mk);
   const b = firstDayOf(mk + 1);
   let n = 0;
   for (const k of c.off ?? []) if (k >= a && k < b) n++;
+  // v0.12 a game begun mid-month: the days before it held their share of days off.
+  const pre = preStart(g, c, mk);
+  if (pre) n += Math.round((R().off.targetMonth * pre) / (b - a));
   const from = firstPlanDay(g, c.base);
   const start = dayIndex(c.base, g.started);
   if (from > a && busy) for (let k = Math.max(a, start); k < Math.min(b, from); k++) if (!busy.work.has(k) && !busy.sby.has(k) && !blockedOn(c, k)) n++;
@@ -880,7 +893,9 @@ function offNeed(g: GameState, c: CrewMember, D: number, busy: Busy): OffNeed | 
   const pace = (O.targetMonth * dom) / mDays;
   const minM = minFor(g, c, mk);
   const missing = minM - offs;
-  const blocks = blocksIn(c, mk);
+  // v0.12 a game begun mid-month: the days before it held their share of the month's two blocks.
+  const pre = preStart(g, c, mk);
+  const blocks = blocksIn(c, mk) + (pre ? Math.round((2 * pre) / mDays) : 0);
   // v0.9 round 4: a block already planned within the next days (a must that found D taken and went on the first
   // free days after it) answers the run, and one inside this month its pace too: no second block stacks behind
   // it. The month's minimum still asks for its own (a block ahead may sit in the next month).

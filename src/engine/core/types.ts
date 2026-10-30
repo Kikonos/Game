@@ -1201,7 +1201,9 @@ export interface Message {
   /** v0.7: market alerts (UI may hide them) and ladder steps (celebration). v0.7.1 'crewRed': the red crew-shortage stage (sound hook). */
   topic?: 'market' | 'ladder' | 'crewRed' | /** v0.8 world events (never toast) */ 'world'
     /** v0.9 the red crew-out-of-hours stage; an achievement; a department head's note. */
-    | 'crewHours' | 'achievement' | 'head';
+    | 'crewHours' | 'achievement' | 'head'
+    /** v0.12 a scenario's own note (goals, script). */
+    | 'scenario';
   /** v0.7.1 the problem this message is about, and its severity when posted (a snapshot for the badge once the problem is gone). */
   problem?: ProblemRef;
   hurt?: { money: number; pax: number; delayMin: number; level: 'none' | 'low' | 'high' };
@@ -1649,6 +1651,10 @@ export interface GameState {
   now: Minute;
   started: Minute;
   scenario: string;
+  /** v0.12 the New Game start setup (data/setups.ts); absent = the classic two-A320 start. */
+  setup?: string;
+  /** v0.12 Scenarios mode (engine/scenario): goals, tallies and the result. Absent in a normal game (`scenario` stays 'startup'). */
+  scen?: ScenarioState;
   company: Company;
   fleet: Record<string, Aircraft>;
   crew: Record<string, CrewMember>;
@@ -1692,6 +1698,56 @@ export interface GameState {
   queue: SimEvent[];
   /** Bankruptcy (fail-forward later) or retirement. */
   gameOver: { t: Minute; reason: string } | null;
+}
+
+/** v0.12 Scenarios mode: what the daily scan counts from the scenario's start (engine/scenario/index.ts). */
+export interface ScenarioTally {
+  /** Our revenue legs flown, of them on time (≤ 15 min), cancelled, handed to rivals; passengers; block hours. */
+  legs: number; onTime: number; cxl: number; sub: number; pax: number; bh: number;
+  /** Block hours flown by widebodies, and with an end in the scenario's region (Southern Winter). */
+  wideBh: number; regionBh: number;
+  /** Legs of the scenario's focus contracts (Hajj, sports, missions): flown, on time, cancelled; focus contracts completed. */
+  fLegs: number; fOn: number; fCxl: number; fDone: number;
+  /** Focus legs handed to rivals (sub-chartered). */
+  fSub?: number;
+  /** Days in a row the day ended with cash ≥ 0 (now), and the most days below zero in a row. */
+  posRun: number; negRun: number;
+}
+
+export interface ScenarioResult {
+  stars: 0 | 1 | 2 | 3;
+  t: Minute;
+  /** Why it ended early (bankrupt, reliability floor), or the condition missed at the end. */
+  failed?: string;
+  /** The goal's value at the end. */
+  value: number;
+}
+
+/** v0.12 Scenarios mode: one scenario run (data/scenarios.ts the definitions). */
+export interface ScenarioState {
+  id: string;
+  /** The scenario ends at this minute (00:00 UTC the day after its last day). */
+  end: Minute;
+  tally: ScenarioTally;
+  /** Flights done or cancelled after this time are counted at the next daily scan. */
+  scan: Minute;
+  /** Script steps run (indexes). */
+  fired: number[];
+  /** Offer stream: archetype weight multipliers and the rate multiplier (contracts/offers.ts). */
+  bias?: Partial<Record<Archetype, number>>;
+  rate?: number;
+  /** Focus contract archetypes (their legs count apart), and the region's countries (ISO-2). */
+  focus?: Archetype[];
+  region?: string[];
+  /** No investor rescue: cash below the bankruptcy floor ends it (Cash Crunch). */
+  noRescue?: boolean;
+  /** The owned aircraft are the bank's security: no sale (Cash Crunch). */
+  noSale?: boolean;
+  /** Contracts counted complete already (fDone). */
+  doneIds?: string[];
+  /** A script's own small memory (Ash Cloud: when the airspace reopened). */
+  mem?: Record<string, number>;
+  result?: ScenarioResult;
 }
 
 /** Result of a player action (store.act toasts the error or message). */
