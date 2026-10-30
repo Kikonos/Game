@@ -514,3 +514,6 @@ Player notes (22 Oct, with top-bar screenshot .handover/updates/topbar-space.jpg
 - Known, not fixed: jet chartered for crew from two origins picks class from first origin only.
 - NEXT: presets (short-haul only) + Scenarios mode agent. Reminders owed: sets UX 1–7, repo rename, Update 2 Commercial.
 - 30 Oct: presets + Scenarios DONE on acmi (909ceda..fadba65): 7 short-haul setups, 10 scenarios with stars/thresholds, A320neo added (setups/scenarios only, ceo art). 1406 tests. NOT released — ask player.
+
+30 Oct: v0.12 "Scenarios" RELEASED (player: "Release it"). acmi ea306f9 (What's new entry), release fb6484f on claude/contrail-airline-game + main, live asset index-DxfOpK7J.js.
+Pending reminders for the player: crew-sets UX 1–7 (rec. 1–4); repo rename to Block-Hours (player does it; then add_repo + verify new URL, export save first, re-add home-screen app); Update 2 Commercial (tenders, trade fairs, client crises).
