@@ -21,7 +21,7 @@ import { AUTHORITY } from '../../data/flavor';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { pushMessage } from '../core/messages';
 import { post } from '../core/ledger';
-import { aboard, checkInOf, crewCount, crewIx, dutyBlock, dutyFlights, dutySegs, passengers, touchCrew, touchCrewState, typeIdOf } from './timeline';
+import { aboard, checkInOf, crewCount, crewIx, dutyBlock, dutyFlights, dutySegs, extCutAt, passengers, touchCrew, touchCrewState, typeIdOf } from './timeline';
 import { reportMinutes } from '../core/perf';
 
 export {
@@ -226,11 +226,15 @@ function onDutyRelease(g: GameState, ev: SimEvent): void {
       else if (f.std >= d.release) home = f;
     }
     const seg = dutySegs(g, c, p, d, out, home).find((x) => x.kind === 'duty')!;
+    // BLU1396 round: the planned extension's rest option (ORO.FTL.205(d)): +2 h before and after when this crew member
+    // rested 2 h more than the minimum before it (c.restUntil is still the rest before; a standby after it is not
+    // rest: extCutAt), else +4 h after.
+    const extCut = d.ext ? extCutAt(c, seg.start) : 0;
     // v0.9 crew who joined the duty after its report (a call-in at the gate) get their recovery noted too.
     noteRecovery(c, seg.start, g);
     c.log.push({
       start: seg.start, end: seg.end, fdp: seg.fdp, block, sectors: d.sectors, augmented: d.augment > 0, disruptive: seg.disruptive,
-      ...(d.ext ? { ext: true as const } : {}), ...(seg.early ? { early: true } : {}), ...(seg.late ? { late: true } : {}), ...(seg.night ? { night: true } : {}),
+      ...(d.ext ? { ext: true as const, extRest: extCut ? ('split' as const) : ('after' as const) } : {}), ...(seg.early ? { early: true } : {}), ...(seg.late ? { late: true } : {}), ...(seg.night ? { night: true } : {}),
     });
     c.log = c.log.filter((e) => e.end > g.now - 28 * DAY);
     if (c.blockYearOf !== y) {
@@ -244,7 +248,7 @@ function onDutyRelease(g: GameState, ev: SimEvent): void {
     bm[mk] = (bm[mk] ?? 0) + block;
     for (const key in bm) if (+key <= mk - 12) delete bm[key];
     c.totalHours += block / 60;
-    c.restUntil = Math.max(c.restUntil, seg.end + seg.rest);
+    c.restUntil = Math.max(c.restUntil, seg.end + seg.rest - extCut);
     c.status = 'resting';
     c.loc = d.restAt;
     clipToRest(g, c);

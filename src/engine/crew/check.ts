@@ -6,7 +6,7 @@ import { typeOf } from '../core/perf';
 import { DAY, fmtDay } from '../core/time';
 import type { CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing } from '../core/types';
 import { dayFloorIssue, eveFloorIssue, monthFloorIssue, offIssue, offMovable } from './dayPlan';
-import { evalSegs, levelOf, LIMITS, type LegalityIssue, type Seg } from './rules';
+import { evalSegs, EXT_REST, levelOf, LIMITS, type LegalityIssue, type Seg } from './rules';
 import { flightsRev } from '../core/entities';
 import { aboard, block12m, cabinEarly, crewIx, crewRev, ctxOf, droppableHome, droppableOut, dutyBlock, dutySegs, locAt, outTicket, planHome, planHomeAfter, planOut, segsOf, segsTagOf, typeIdOf, withoutTickets, type TicketPlan } from './timeline';
 
@@ -255,6 +255,21 @@ function planCrewRaw(g: GameState, c: CrewMember, p: Pairing, base: Seg[], exist
       home = plain;
     }
   }
+  // BLU1396 round: after a planned extension the ticket home waits +4 h of rest; when this crew member rests 2 h more
+  // than the minimum before the extended duty, the +2 h before / +2 h after option (ORO.FTL.205(d)) brings them home
+  // 2 h sooner. evalSegs decides whether that option holds; the earlier ticket is kept only when nothing gets worse.
+  if (!existing && home && last.ext && home.std > last.release + 60) {
+    const alt = planHome(last, c.base, cabinEarly(g, p), EXT_REST.after - EXT_REST.split);
+    if (alt.std < home.std) {
+      const s2 = buildSegs(g, c, p, duties, out, alt);
+      const f2 = evalSegs(ctx, merge(base, s2));
+      if (badCount(f2) <= badCount(ftl)) {
+        home = alt;
+        segs = s2;
+        ftl = f2;
+      }
+    }
+  }
   const other = otherTrip(g, c, p, segs[0].start, segs[segs.length - 1].end, existing, leaving);
   if (other) issues.push({ code: 'overlap', level: 'illegal', text: `On another ${other.tour ? 'tour' : 'trip'} until ${fmtDay(other.end)}`, dutyId: first.id });
   issues.push(...statusIssues(c, segs[0].start, segs[segs.length - 1].end, typeOf(typeIdOf(g, p)).family, duties));
@@ -309,6 +324,9 @@ function buildSegs(g: GameState, c: CrewMember, p: Pairing, duties: Duty[], out:
   for (const d of duties) for (const x of dutySegs(g, c, p, d, d === first ? out : null, d === last ? home : null, true)) segs.push(x);
   return segs;
 }
+
+/** Illegal issues of a plan's timeline. */
+const badCount = (l: LegalityIssue[]): number => l.filter((i) => i.level === 'illegal').length;
 
 /** Illegal rest or FDP issues on the pairing's own duties. */
 function badRestFdp(l: LegalityIssue[], own: Set<string>): number {

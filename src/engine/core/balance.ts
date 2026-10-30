@@ -276,16 +276,29 @@ export const BAL = {
   // ---------- crew control v0.7.1 (ENGINE; UPDATE-0.7.1.md §14) ----------
   crewControl: {
     amberH: 48, redH: 12,
+    /**
+     * Crew-planning round: the early heads-up: a trip inside this many hours (beyond amberH) that the roster cannot
+     * crew (no legal crew member for a seat after its own re-plan) is announced once, as soon as that is known.
+     */
+    earlyH: 10 * 24,
     /** Call-in: overtime as a multiple of a day's pay (salary / 21); morale shock. Swap: morale for crew moved at short notice. */
     callInPay: 1.5, callInMorale: -4, swapMorale: -2,
     /** Cancel from Crew Control: reputation per leg (max 3), as the decisions. */
     cancelRep: 3,
+    /**
+     * Crew-planning round (private jets, est. 2026 charter market): per flight hour by class (light: CJ3+ / Phenom 300E;
+     * midsize: super-midsize Praetor 500 / Challenger 350 / Longitude; heavy: Challenger 650 / Falcon 2000LXS / Legacy
+     * 650E; long: Global 6000 / G650 / Falcon 8X), seats with crew bags, range with reserves, cruise. The jet comes from
+     * the nearest business-aviation base (`JET_BASES`): callout fboLeadMin (2 h) or its positioning + 1 h, whichever
+     * is later; the empty legs there and back are billed at the hourly rate (posShare). Was v0.7.1: a flat 2:30
+     * callout, 1 h of positioning, midsize 2,100 nm / heavy 4,000 nm at 430 / 470 kt and no long-range class.
+     */
     jet: {
-      rate: { light: 4_500, midsize: 6_000, heavy: 8_500 } as Record<string, number>,
-      seats: { light: 6, midsize: 8, heavy: 13 } as Record<string, number>,
-      rangeNm: { light: 1_700, midsize: 2_100, heavy: 4_000 } as Record<string, number>,
-      cruiseKt: { light: 400, midsize: 430, heavy: 470 } as Record<string, number>,
-      positioningH: 1.0, minH: 2, fees: 2_500, fuelStopMin: 45, fuelStopFee: 1_500, fboLeadMin: 150, checkInMin: 30, taxiMin: 25,
+      rate: { light: 5_000, midsize: 7_500, heavy: 10_000, long: 13_000 } as Record<string, number>,
+      seats: { light: 6, midsize: 8, heavy: 12, long: 13 } as Record<string, number>,
+      rangeNm: { light: 1_800, midsize: 3_000, heavy: 4_000, long: 6_000 } as Record<string, number>,
+      cruiseKt: { light: 420, midsize: 460, heavy: 470, long: 485 } as Record<string, number>,
+      posShare: 1, minH: 2, fees: 2_500, fuelStopMin: 45, fuelStopFee: 1_500, fboLeadMin: 120, posLeadMin: 60, checkInMin: 30, taxiMin: 25,
     },
     /** Hurt levels: 'low' below these. */
     hurtLowUsd: 10_000, hurtLowPax: 100,

@@ -511,6 +511,8 @@ export function dailySickness(g: GameState): void {
     const to = from + days * DAY;
     c.blocks = [...(c.blocks ?? []), { from, to, why: 'sick' }];
     const res = removeCrew(g, c.id, from, to);
+    // Crew-planning round: the legs left without crew carry who fell sick (the shortage notices say so plainly).
+    for (const id of res.uncovered) if (g.flights[id]) g.flights[id].crewLost = { crewId: c.id, why: 'sick', t: g.now };
     const f = res.uncovered.map((id) => g.flights[id]).filter((x) => x && x.std < to + DAY).sort((a, b) => a.std - b.std)[0];
     if (f) {
       pushDecision(g, {

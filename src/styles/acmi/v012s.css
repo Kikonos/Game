@@ -54,6 +54,12 @@
 }
 
 /* v0.12 the offer's own flights on a candidate's timeline: ghosts with a dashed outline (not booked yet), drawn above the
-   aircraft's flights so a clash shows as an overlap; empty legs lower and thinner, like positioning. */
-.v12-ghost { position: absolute; top: 13px; height: 28px; border-radius: 5px; border: 1.5px dashed var(--accent); background: repeating-linear-gradient(135deg, rgba(var(--accent-rgb, 56, 189, 248), 0.16) 0 4px, rgba(var(--accent-rgb, 56, 189, 248), 0.05) 4px 8px); pointer-events: auto; z-index: 3; box-sizing: border-box; }
+   aircraft's flights so a clash shows as an overlap but never catching a tap (the flights under them stay movable);
+   empty legs lower and thinner, like positioning. */
+.v12-ghost { position: absolute; top: 13px; height: 28px; border-radius: 5px; border: 1.5px dashed var(--accent); background: repeating-linear-gradient(135deg, rgba(var(--accent-rgb, 56, 189, 248), 0.16) 0 4px, rgba(var(--accent-rgb, 56, 189, 248), 0.05) 4px 8px); pointer-events: none; z-index: 3; box-sizing: border-box; }
 .v12-ghost.pos { top: 19px; height: 16px; border-style: dotted; background: rgba(var(--accent-rgb, 56, 189, 248), 0.06); }
+
+/* v0.12 the clash row's 'more' mark (three bars): tappable, opens Move / Sub-lease */
+.v12-clash-more { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 8px; color: var(--text-3); flex-shrink: 0; }
+.v12-clash-more svg { width: 20px; height: 20px; }
+.v12-clash-row:hover .v12-clash-more, .v12-clash-row.on .v12-clash-more { color: var(--text); background: var(--panel-hover); }

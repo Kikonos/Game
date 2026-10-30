@@ -213,7 +213,7 @@ function ctxOf(g: GameState, dutyId: string, fromCrewId: string, scope: MoveScop
   if (!open.length) return 'Nothing left to fly';
   const first = open[0];
   const last = open[open.length - 1];
-  const rest = minRest({ dutyMin: last.release - last.report, atHome: false, augmented: last.augment > 0, tzShift: 0 });
+  const rest = minRest({ dutyMin: last.release - last.report, atHome: false, augmented: last.augment > 0, tzShift: 0, extended: !!last.ext });
   return {
     p, d, view, from, role: seat.role, family: typeOf(typeIdOf(g, p)).family, first, last, win: [first.report - 12 * 60, last.release + rest],
     wet: p.contractId ? g.contracts[p.contractId]?.product.kind === 'wet' : false, late: first.report - g.now < LATE_H * 60,

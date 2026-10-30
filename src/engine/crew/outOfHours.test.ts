@@ -186,3 +186,21 @@ describe('§T Crew Control replaces crew out of hours (fix round 1)', () => {
     expect(q.slots.some((s) => s.crewId === cpt)).toBe(false);
   });
 });
+
+describe('Crew Control beside an Auto-fix that replaces crew out of hours (code review)', () => {
+  it('Delay is not offered and says Auto-fix crews it on time, never "nobody can take it"', async () => {
+    const { crewControl } = await import('.');
+    const { g, f, d, p, cpt } = trip();
+    over28(g, cpt, d.report);
+    recheckPairing(g, p);
+    expect(crewAlertKind(g, f.id)).toBe('hours');
+    g.now = d.report - 8 * 60;
+    const v = crewControl(g, f.id)!;
+    const auto = v.solutions.find((s) => s.id === 'autoFix')!;
+    expect(auto.available).toBe(true);
+    expect(auto.preview.after.level).toBe('ok');
+    const delay = v.solutions.find((s) => s.id === 'delay')!;
+    expect(delay.available).toBe(false);
+    expect(delay.why).toBe('A crew can take it on time: use Auto-fix');
+  });
+});

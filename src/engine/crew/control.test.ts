@@ -330,7 +330,7 @@ describe('previews and apply', () => {
 });
 
 describe('private jets', () => {
-  it('quotes: LIS→DUS midsize ≈ $25K, LIS→JED heavy ≈ $50–70K, two jets for 9 crew on a light jet', () => {
+  it('quotes: LIS→DUS midsize ≈ $25K, LIS→JED heavy ≈ $70–100K (2026 rates, the empty leg back billed), two jets for 9 crew on a light jet', () => {
     const g = fixtureGame();
     const q = jetQuote(g, 'LIS', 'DUS', 4, g.now);
     expect(q.cls).toBe('light');
@@ -346,8 +346,8 @@ describe('private jets', () => {
     const h = jetQuote(g, 'LIS', 'JED', 10, g.now);
     expect(h.cls).toBe('heavy');
     expect(h.fuelStop).toBeNull();
-    expect(h.cost).toBeGreaterThan(45_000);
-    expect(h.cost).toBeLessThan(75_000);
+    expect(h.cost).toBeGreaterThan(70_000);
+    expect(h.cost).toBeLessThan(100_000);
     const two = jetQuote(g, 'LIS', 'DUS', 9, g.now, 'light');
     expect(two.jets).toBe(2);
     expect(two.cost).toBe(2 * jetQuote(g, 'LIS', 'DUS', 6, g.now, 'light').cost);

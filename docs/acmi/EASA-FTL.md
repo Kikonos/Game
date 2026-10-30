@@ -128,7 +128,19 @@ split duty (ORO.FTL.205(d)(4)). Sectors: **5** if the WOCL is not encroached, **
 
 **Game:** implemented. `EXT_TABLE`, `extSectorCap`, `woclMinutes`, `extFdp`; `pickPlan` tries `ext` after `basic`
 and `split`, for a single unit, at planning only (`syncDuty` keeps or drops it, never adds it). `Duty.ext`,
-`Duty.basicFdp`; `minRest({ extended })` +4 h; `evalSegs` `'ext7d'` (> 2 in 7 days, per crew member).
+`Duty.basicFdp`; `evalSegs` `'ext7d'` (> 2 in 7 days, per crew member).
+
+**Rest options (BLU1396 round).** Both options are read, per crew member and per extended duty (`EXT_REST`,
+`extRestCut`):
+- **+4 h after** (the default): `minRest({ extended })` adds 4 h to the rest after. The rest before only needs the
+  normal minimum, so a crew member who lands just in time for the normal rest before an extended duty is legal.
+- **+2 h before and +2 h after**: when the crew member's rest before the extended duty is at least 2 h longer than
+  its minimum, the rest after needs only +2 h. `evalSegs` takes this option by itself when the rest before allows
+  it and asks +4 h otherwise; it never asks less than one of the two options.
+- The option taken is recorded at release: `CrewLog.extRest` `'split'` or `'after'`, and `restUntil` follows it.
+- Planning: the ticket home after an extended duty waits the extended rest (`planHome`, +4 h; `planCrew` tries +2 h
+  when the rest before allows it). Before this round the ticket home waited only the normal rest, so every crew
+  member read "Rest 14:15 < 17:45" and an extended trip ending away from base could never be crewed.
 
 ---
 
@@ -255,6 +267,9 @@ Positioning after report and before operating is FDP but not a sector; all posit
 last operated sector is duty, not FDP.
 
 **Game:** implemented: tickets out are FDP, not sectors; tickets home are duty (`posSeg`, `planHome`).
+A ticket out the day before rests to the crew's earliest report (the cabin crew's, 15 min before the pilots' on a
+widebody); far trips (4+ time zones or a ticket of 6 h or more) land a further 3 h early when that ticket can still
+be taken (`OUT_REST_BUFFER`, `outTicket`).
 
 ---
 
@@ -297,7 +312,7 @@ not rostered. Reserve: not modelled.
 |---|---|---|
 | Home base | ≥ preceding duty or 12 h | ORO.FTL.235(a) |
 | Away | ≥ preceding duty or 10 h, incl. 8 h sleep opportunity | ORO.FTL.235(b) |
-| After a planned extension | +4 h after (or +2 h before and after) | ORO.FTL.205(d) |
+| After a planned extension | +4 h after, or +2 h before and +2 h after (both read, §3) | ORO.FTL.205(d) |
 | After an augmented FDP | ≥ preceding duty or 14 h | CS FTL.1.205(c)(6) |
 | Away after an FDP ≥ 4 h time difference | ≥ preceding duty or 14 h | CS FTL.1.235(b)(3)(ii) |
 | After discretion | never below 10 h | ORO.FTL.205(f) |
@@ -370,6 +385,7 @@ Tests in `crew/ftl.test.ts` unless a file is named.
 | Cabin crew earlier report | ORO.FTL.205(c) | `cabinEarly`, `Duty.cabinEarly` | `crewRest.test.ts` "cabin crew report 15 min earlier on widebodies" |
 | Consecutive nights ≤ 4 sectors (C6) | CS FTL.1.205(a)(1) | `NIGHT_MAX_SECTORS` | "nightSectors: consecutive night duties …" |
 | Planned extension | ORO.FTL.205(d), CS FTL.1.205(b) | `EXT_TABLE`, `extFdp`, `extSectorCap` | "planned extension (…)", "ext7d: …" |
+| Extension rest options | ORO.FTL.205(d) | `EXT_REST`, `extRestCut`, `CrewLog.extRest` | `blu1396.test.ts` "ORO.FTL.205(d) rest options …" |
 | Augmented FDP | CS FTL.1.205(c)(2), (4) | `AUG_FDP`, `augLimitOf` | "maxFdp F3 (augmented)", "augmented crew (CS FTL.1.205(c)) pinned" |
 | Cabin rest table (C1, C2) | CS FTL.1.205(c)(3) | `CABIN_REST`, `cabinFdpCap` | "cabin crew in-flight rest table"; `rules073.test.ts` "C2: …" |
 | Facilities, migration (C8, C9) | CS FTL.1.205(c)(1) | `restOf`, `migrateRest`, `rollRest` | `crewRest.test.ts` "v0.7.3 migration …"; `restPlan.test.ts` "market roll …" |

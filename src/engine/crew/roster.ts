@@ -17,7 +17,7 @@ import { infoOf } from './outOfHours';
 import { lateChange, moraleShock, nextReport } from './morale';
 import { cabinFdpCap, DISCRETION, evalSegs, levelOf, LIMITS, minRest, mkSeg, recoveryAnchor, tzDeltaH, worst, type LegalityIssue, type Seg } from './rules';
 import { cabinOwnReport, planRest, restCabinN, restLegs, restOf, restPlan } from './restPlan';
-import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, locAt, noteRiders, outStillFits, passengers, planHome, planOut, posSeg, segsOf, segsTagOf, ticketPrice, touchCrew, typeIdOf, withoutTickets } from './timeline';
+import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, extCutAt, locAt, noteRiders, outStillFits, passengers, planHome, planOut, posSeg, segsOf, segsTagOf, ticketPrice, touchCrew, typeIdOf, withoutTickets } from './timeline';
 
 export { buildDuties } from './duties';
 
@@ -236,7 +236,7 @@ function retimeTickets(g: GameState, p: Pairing, d: Duty, moved: Set<string>): v
       else if (f.from === d.restAt && f.std - d.release >= 600) {
         // v0.5.2: a ticket home after rest (planHome) leaves once the rest is over again: a later release
         // would otherwise put its check-in inside the rest and the whole crew off the duty at the gate.
-        const rest = minRest({ dutyMin: d.release - d.report + cabinEarly(g, p), atHome: false, augmented: d.augment > 0, tzShift: tzDeltaH(f.to, f.from, d.release) });
+        const rest = minRest({ dutyMin: d.release - d.report + cabinEarly(g, p), atHome: false, augmented: d.augment > 0, tzShift: tzDeltaH(f.to, f.from, d.release), extended: !!d.ext });
         const need = Math.ceil((d.release + rest + BAL.deadheadCheckIn) / 60) * 60;
         if (f.std < need) std = need;
       }
@@ -536,7 +536,8 @@ export function rebookAfterLateRelease(g: GameState, p: Pairing, d: Duty): void 
         if (o && o.status !== 'cancelled' && o.sta <= d.report && aboard(o, cid)) out = o;
       }
       const seg = dutySegs(g, c, p, d, out, null).find((x) => x.kind === 'duty');
-      const end = Math.max(c.restUntil, seg ? seg.end + seg.rest : d.release);
+      // (A planned extension's rest: +2 h after when the crew member took +2 h before, as the release logs it.)
+      const end = Math.max(c.restUntil, seg ? seg.end + seg.rest - (d.ext ? extCutAt(c, seg.start) : 0) : d.release);
       if (wait < 0 || f.std - ci < end) ends.set(cid, end);
     }
     if (!ends.size) continue;
@@ -1001,7 +1002,7 @@ function offFallback(g: GameState, c: CrewMember, plan: CrewPlan, base: Seg[]): 
 // Crew-planning round: the rest the last duty needs (its length, 14 h after an augmented day or across 4+ time zones),
 // not a flat 10 h (a 12 h day's ticket home landed on the first morning of the leave).
 const homeTravel = (d: Duty, base: string): number => (d.restAt === base ? 0
-  : minRest({ dutyMin: d.release - d.report, atHome: false, augmented: d.augment > 0, tzShift: tzDeltaH(base, d.restAt, d.release) }) + dhBlock(d.restAt, base) + 2 * 60);
+  : minRest({ dutyMin: d.release - d.report, atHome: false, augmented: d.augment > 0, tzShift: tzDeltaH(base, d.restAt, d.release), extended: !!d.ext }) + dhBlock(d.restAt, base) + 2 * 60);
 
 function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, exclude?: Set<string>): void {
   const duties = openDuties(g, p);
@@ -1481,7 +1482,12 @@ export function rerosterFrom(g: GameState, aircraftId: string, t: Minute): Roste
     const full = recheckPairing(g, p);
     const fullFrom = p.illegalFrom;
     const rc = full.illegal.length ? recheckPairing(g, p, true) : full;
-    const out = rc.illegal.filter((id) => !p.slots.some((s) => s.crewId === id && s.locked) && (under || !(g.crew[id] && retick(g, p, g.crew[id]))));
+    const locked = (id: string) => p.slots.some((s) => s.crewId === id && s.locked);
+    // Crew-planning round: a locked crew member (Crew Control's pick, the player's) who is only somewhere else is
+    // re-ticketed too: kept on the trip but never left there (bot seed 5: a captain swapped onto a Warsaw tour stayed in
+    // Lisbon for 12 days, one red alarm a day and every leg 4–12 h late).
+    if (!under) for (const id of rc.illegal) if (locked(id) && g.crew[id]) retick(g, p, g.crew[id]);
+    const out = rc.illegal.filter((id) => !locked(id) && (under || !(g.crew[id] && retick(g, p, g.crew[id]))));
     const cut = Math.min(...out.map((id) => rc.from.get(id) ?? 0));
     const q = out.length && cut > firstOpen.report && cut < Infinity ? splitPairing(g, p, cut) : null;
     // Round 4 fix r2 (§R.16.6): the days-off floor is one duty's problem (its eve becomes the day off), so that duty
@@ -1490,6 +1496,13 @@ export function rerosterFrom(g: GameState, aircraftId: string, t: Minute): Roste
     if (eve) {
       const next = openDuties(g, q)[1];
       if (next) splitPairing(g, q, next.report);
+    }
+    // Crew-planning round: a crew member taken off a trip within 4 days of it by a delay or change (rest, the day's
+    // length, where they are, a limit) is noted on its first leg: a shortage that follows reads as a late change.
+    for (const id of out) {
+      const code = rc.issue.get(id)?.code;
+      const f0 = g.flights[firstOpen.flightIds[0]];
+      if (f0 && firstOpen.report - g.now < 4 * DAY && code && code !== 'daysOff' && code !== 'status') f0.crewLost = { crewId: id, why: 'change', t: g.now };
     }
     for (const id of out) {
       if (q && (rc.from.get(id) ?? 0) >= cut) {

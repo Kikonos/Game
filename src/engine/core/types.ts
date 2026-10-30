@@ -784,6 +784,15 @@ export interface Flight {
   purpose?: 'delivery' | 'return' | 'refit' | /** v0.7.2 */ 'check' | 'sale' | /** v0.8 dry lease ferries */ 'lease';
   /** v0.7.1 crew-shortage ladder stage reached (amber ≤ 48 h, red ≤ 12 h); load: crewWarned → 'amber'. */
   crewAlert?: 'amber' | 'red';
+  /** Crew-planning round: the early heads-up (beyond the 48 h amber stage) was given for this leg's trip; once. */
+  crewEarly?: true;
+  /**
+   * Crew-planning round: a late change emptied a seat on this leg (the crew member fell sick, or a delay or change left
+   * them unable to fly it): the shortage notices say so, so a late change reads apart from a planning failure.
+   */
+  crewLost?: { crewId: string; why: 'sick' | 'change'; t: Minute };
+  /** Crew-planning round: when a leg was added less than 2 days before it leaves (a recovery leg, a diversion's onward leg). */
+  born?: Minute;
   /** v0.7.1 a chartered business jet carrying our crew (kind 'deadhead'). */
   charter?: { cls: JetClass; model: string; operator: string; reg: string };
   /** v0.8 held by a closed airport (world event id). */
@@ -811,7 +820,8 @@ export type DisruptKind = 'ctot' | 'diversion' | 'medical' | 'birdStrike' | 'sic
 export type DisruptCause = 'weather' | 'medical' | 'technical';
 
 /** v0.7.1 private-jet charter classes (data/jets.ts). */
-export type JetClass = 'light' | 'midsize' | 'heavy';
+/** v0.7.1 private-jet classes; 'long' (crew-planning round): Global 6000 / G650 / Falcon 8X, nonstop across an ocean. */
+export type JetClass = 'light' | 'midsize' | 'heavy' | 'long';
 
 /** v0.7.1 Crew Control fixes (crew/control.ts). */
 export type CrewFix = 'autoFix' | 'deadhead' | 'delay' | 'jet' | 'callIn' | 'discretion' | 'swap' | 'subcharter' | 'cancel';
@@ -867,6 +877,11 @@ export interface DutyLogEntry {
   disruptive: boolean;
   /** v0.7.3 planned extension (CS FTL.1.205(b)); early start / late finish / night duty (CS FTL.1.235(a)). */
   ext?: true;
+  /**
+   * BLU1396 round: the ORO.FTL.205(d) rest option this crew member took for the extension: 'split' = +2 h before and
+   * +2 h after, 'after' = +4 h after (absent on older entries: +4 h after, as they were rested).
+   */
+  extRest?: 'split' | 'after';
   early?: boolean;
   late?: boolean;
   night?: boolean;
@@ -1021,6 +1036,11 @@ export interface Duty {
   plannedFdp?: number;
   /** v0.9 crew slip: this duty takes over (or hands over) at this tech stop (§W). */
   slipAt?: string;
+  /**
+   * Crew-planning round: when the early heads-up last read this duty (crew/control.ts earlyShort: every 6 h at most).
+   * Saved, so a reloaded game reads it when the original would (absent: read now).
+   */
+  earlyRead?: Minute;
 }
 
 /** A crew complement's trip: duties from base back to base (or a deployment at a client base). */
@@ -1466,6 +1486,8 @@ export interface Stats {
   jetSpend?: number;
   crewFixes?: Partial<Record<CrewFix, number>>;
   crewAmber?: number;
+  /** Crew-planning round: early heads-ups (trips the roster cannot crew, announced beyond the amber stage). */
+  crewEarly?: number;
   crewRed?: number;
   /** v0.7.2: std of company legs sub-chartered (90 days); aircraft sold; leases returned early; captain-as-FO duties. */
   subLog?: Minute[];

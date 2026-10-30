@@ -16,6 +16,27 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.11.4',
+    name: 'Crew planning 2',
+    features: [
+      'Crew shortages are announced as soon as the roster knows it can\'t crew a trip, up to 10 days ahead, with what you can do: hire, fly someone in, swap crews, sub-lease or move the trip. The 48-hour and 12-hour warnings follow only if it is still short, one notice per trip at each stage.',
+      'A shortage from a late change says so first ("Late change: … fell sick on 14 Oct", a leg added at short notice, a delay), so you can tell it from a trip the roster couldn\'t plan.',
+      'Private jets work like real crew-positioning jets: wheels up about 2 hours after booking from the nearest business-jet base, straight from wherever the crew are to the aircraft at real jet speeds. A new long-range class (Global 6000, Gulfstream G650, Falcon 8X) crosses an ocean without a fuel stop, and a jet can bring the crew the evening before so they rest there. Crew Control also looks at crew resting close by, not only at base.',
+    ],
+    improvements: [
+      'Trips far away (4 or more time zones, or a long ticket) get their crew there a few hours early with full rest, so one late airline arrival no longer leaves everyone minutes short.',
+      'Crew Control\'s Delay offers the short delay that makes a crew legal (e.g. +10 minutes) and never says "use Auto-fix" when Auto-fix can\'t crew the flight.',
+      'Offers: the reason and the fixes on the card speak of the same aircraft; long Sub-lease buttons wrap inside the card; each trip in the way ends with a quiet ☰ instead of Move / Sub-lease tags.',
+      'The offer\'s ghost flights are now exactly what accepting would book (fuel stops, turn times, empty legs between legs, positioning before, between and after trips) and never get in the way of tapping your own flights.',
+    ],
+    fixes: [
+      'A long day with a planned extension that ends away from base could never be crewed (every pilot "Rest 14:15 < 17:45", e.g. BLU1396 Montego Bay–Amsterdam). The extra rest is now taken the way EASA allows: +4 h after, or +2 h before and +2 h after.',
+      'On a widebody the ticket out gives the cabin crew their full rest too (they report 15 minutes before the pilots; before, every flight attendant was 5 minutes short).',
+      'Two days with too short a night between them are no longer planned as one trip nobody can fly; a crew member placed on a trip but left in the wrong city gets a new ticket.',
+      'A jet that can\'t reach is no longer offered, and a jet with a night\'s rest waits for the rest the crew really need.',
+    ],
+  },
+  {
     version: 'v0.11.3',
     name: 'Offer ghosts',
     features: [

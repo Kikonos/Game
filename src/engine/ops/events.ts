@@ -296,7 +296,7 @@ function readyAt(g: GameState, roles: Role[], at: string, family: RatingFamily, 
     if (c.status === 'onDuty') {
       const d = rosterOf(g, c.id, g.now, g.now + 1).find((x) => x.report <= g.now && !x.done);
       if (!d || d.restAt !== at) continue;
-      t = d.release + minRest({ dutyMin: d.release - d.report, atHome: at === c.base, augmented: d.augment > 0, tzShift: 0 });
+      t = d.release + minRest({ dutyMin: d.release - d.report, atHome: at === c.base, augmented: d.augment > 0, tzShift: 0, extended: !!d.ext });
     }
     t = Math.max(g.now, t);
     const end = t + need;
