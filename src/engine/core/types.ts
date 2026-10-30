@@ -1036,6 +1036,11 @@ export interface Duty {
   plannedFdp?: number;
   /** v0.9 crew slip: this duty takes over (or hands over) at this tech stop (§W). */
   slipAt?: string;
+  /**
+   * Crew-planning round: when the early heads-up last read this duty (crew/control.ts earlyShort: every 6 h at most).
+   * Saved, so a reloaded game reads it when the original would (absent: read now).
+   */
+  earlyRead?: Minute;
 }
 
 /** A crew complement's trip: duties from base back to base (or a deployment at a client base). */

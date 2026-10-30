@@ -12,11 +12,12 @@ import { addCrew, fixtureContract, fixtureGame } from './fixtures';
 import { autoRoster } from './roster';
 import { escalateShortages, lateChangeNote } from './control';
 import { touchCrew } from './timeline';
+import { deserialize, serialize } from '../save';
 
 const H = 60;
 
-/** A DUS–FNC trip 5 days out; every captain on leave (`leave`). */
-function trip(leave = true): { g: GameState; flightId: string } {
+/** A DUS–FNC trip 5 days out; every captain on leave (`leave`); rostered unless `roster` is false. */
+function trip(leave = true, roster = true): { g: GameState; flightId: string } {
   const g = fixtureGame(5);
   const ac = Object.values(g.fleet)[0];
   ac.at = 'DUS';
@@ -32,7 +33,7 @@ function trip(leave = true): { g: GameState; flightId: string } {
     c.status = 'leave';
   }
   buildDuties(g, ac.id, g.now, g.now + 8 * DAY);
-  autoRoster(g);
+  if (roster) autoRoster(g);
   touchCrew(g);
   return { g, flightId: f.id };
 }
@@ -65,6 +66,32 @@ describe('the early heads-up', () => {
     expect(crewNotes(g)).toHaveLength(3);
     expect(f.crewAlert).toBe('red');
     expect(crewNotes(g)[0].title).toMatch(/^CREW SHORTAGE: AW816/);
+  });
+
+  it('reads a trip when the original game would after a save and reload (the 6 h between reads is saved)', () => {
+    // Not rostered yet but crewable: read, no heads-up. Then every captain goes on leave.
+    const { g } = trip(false, false);
+    escalateShortages(g, { reroster: false });
+    expect(crewNotes(g)).toHaveLength(0);
+    for (const c of Object.values(g.crew).filter((x) => x.role === 'CPT')) {
+      c.blocks = [{ from: g.now - DAY, to: g.now + 20 * DAY, why: 'leave' }];
+      c.status = 'leave';
+    }
+    touchCrew(g);
+    const h = deserialize(serialize(g));
+    for (const x of [g, h]) {
+      x.now += H;
+      escalateShortages(x, { reroster: false });
+    }
+    // Both wait out the 6 h since the last read; then both announce it, at the same minute.
+    expect(crewNotes(h)).toHaveLength(crewNotes(g).length);
+    expect(crewNotes(g)).toHaveLength(0);
+    for (const x of [g, h]) {
+      x.now += 5 * H;
+      escalateShortages(x, { reroster: false });
+    }
+    expect(crewNotes(g)).toHaveLength(1);
+    expect(crewNotes(h)).toHaveLength(1);
   });
 
   it('stays quiet about a trip the roster can crew', () => {

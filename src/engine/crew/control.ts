@@ -325,9 +325,6 @@ export function lateChangeNote(g: GameState, f: Flight): string {
   return lost.why === 'sick' ? `Late change: ${who} fell sick on ${fmtDay(lost.t)}. ` : `Late change: ${who} can no longer fly it after a delay or change on ${fmtDay(lost.t)}. `;
 }
 
-/** Crew-planning round: when each duty was last read for the early heads-up (runtime: once every 6 h at most). */
-const earlyRead = new WeakMap<GameState, Map<string, Minute>>();
-
 /**
  * Crew-planning round: legs beyond the amber stage and inside earlyH whose trip the roster cannot crew (a seat with no
  * legal crew member at all, after the aircraft's own re-plan): the early heads-up, once per trip. One leg per duty.
@@ -335,8 +332,6 @@ const earlyRead = new WeakMap<GameState, Map<string, Minute>>();
 function earlyShort(g: GameState, reroster: boolean): Flight[] {
   const from = g.now + CC().amberH * 60;
   const until = g.now + CC().earlyH * 60;
-  const read = earlyRead.get(g) ?? new Map<string, Minute>();
-  earlyRead.set(g, read);
   const out: Flight[] = [];
   const planned = new Set<string>();
   for (const id of Object.keys(g.fleet)) {
@@ -346,9 +341,11 @@ function earlyShort(g: GameState, reroster: boolean): Flight[] {
       if (f.status !== 'scheduled' || f.aircraftId !== id || f.std <= from || f.std > until || f.crewEarly || f.crewAlert || !f.dutyId || phantomLeg(f, legs)) continue;
       const cs = flightCrewStatus(g, f.id, { live: false });
       if (cs.level !== 'missing') continue;
-      const key = f.dutyId ?? f.id;
-      if ((read.get(key) ?? -Infinity) > g.now - 6 * 60) continue;
-      read.set(key, g.now);
+      // Each duty is read once every 6 h at most; the time is saved on the duty (Duty.earlyRead), so a reloaded game
+      // reads (and re-plans) when the original would: a runtime map, empty after a load, gave the heads-up hours apart.
+      const d = g.duties[f.dutyId];
+      if (!d || (d.earlyRead ?? -Infinity) > g.now - 6 * 60) continue;
+      d.earlyRead = g.now;
       if (reroster && !planned.has(id)) {
         planned.add(id);
         planNow(g, f);
