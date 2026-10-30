@@ -508,3 +508,8 @@ Player notes (22 Oct, with top-bar screenshot .handover/updates/topbar-space.jpg
 - 30 Oct PLAYER: (1) more New-company start presets with other SHORT-HAUL aircraft/setups — every preset short-haul only; (2) new play mode "Scenarios": fun, different, challenging, variety. Queued after the crew-debug agent (one agent at a time). Draft scenario list sent to player for tweaks.
 - 30 Oct PLAYER: 'When you are done release' — RELEASE APPROVED after the crew-planning agent finishes (merge ui/cardwrap too). Added to agent: early crew-shortage warnings days ahead (not 12 h), escalate, measure lead time; late changes explained plainly. Then presets + scenarios agent.
 - 30 Oct: crew round agent DONE (acmi 92fc213; BLU1396 auto-fixable; jets reworked; early heads-ups; reds 154→127 over 7 runs; planning reds told median 96.8 h ahead). ui/cardwrap merged. Code-review fixes on offer ghosts (58923fe: programmeOf legs, positionAll, pointer-events none, memo). Independent review agent of the crew diff running; then release v0.11.4 (approved).
+
+### 30 Oct — v0.11.4 Crew planning 2 RELEASED
+- Release e28a005 on main (acmi 90b147b). Live index-BXGRlYLm.js, 0 console errors. Review agent fixed 5 more (12c7cf3 earlyRead saved, 2688d3c extCutAt standby, f9d0310 delay text, bb11f25 jet range, b78abbc cabin early in buildTrips). 1379 tests.
+- Known, not fixed: jet chartered for crew from two origins picks class from first origin only.
+- NEXT: presets (short-haul only) + Scenarios mode agent. Reminders owed: sets UX 1–7, repo rename, Update 2 Commercial.
