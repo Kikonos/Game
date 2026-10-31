@@ -25,13 +25,46 @@ export function newStatement(month: MonthKey, cash: number): MonthStatement {
 
 export const monthProfit = (st: MonthStatement) => statementTotals(st.lines).profit;
 
-/** Share of month k an aircraft is on the AOC (delivered and not yet returned). */
-function shareOfMonth(ac: GameState['fleet'][string], k: MonthKey): number {
+/**
+ * Share of month k an aircraft is on the AOC (delivered and not yet returned). v0.12.1 `leaveAt`: it leaves the
+ * fleet then (sold, returned), so the share stops there for every kind of ownership.
+ */
+function shareOfMonth(ac: GameState['fleet'][string], k: MonthKey, leaveAt?: Minute): number {
   const a = monthStart(k);
   const b = monthStart(k + 1);
   const from = Math.max(a, ac.deliveredAt);
-  const to = ac.ownership.kind === 'dryLeaseIn' ? Math.min(b, Math.max(ac.ownership.leaseEnd, from)) : b;
+  let to = Math.min(b, leaveAt ?? b);
+  if (ac.ownership.kind === 'dryLeaseIn') to = Math.min(to, Math.max(ac.ownership.leaseEnd, from));
   return Math.max(0, Math.min(1, (to - from) / (b - a)));
+}
+
+/** v0.12.1 share of month k an aircraft was out on a dry lease (the lessee insures the airframe then). Pure. */
+function leasedOutShare(g: GameState, ac: GameState['fleet'][string], k: MonthKey, upTo?: Minute): number {
+  const a = monthStart(k);
+  const b = Math.min(monthStart(k + 1), upTo ?? Infinity);
+  let out = 0;
+  for (const c of Object.values(g.contracts)) {
+    const d = c.dry;
+    if (!d || d.leasedAt === undefined || !c.aircraftIds.includes(ac.id)) continue;
+    const back = d.returnedAt ?? Infinity;
+    out += Math.max(0, Math.min(b, back) - Math.max(a, d.leasedAt));
+  }
+  return Math.min(1, out / (monthStart(k + 1) - a));
+}
+
+/**
+ * v0.12.1 rent of a leased-in aircraft for month k: its days on lease, and a holdover past the lease end while it
+ * is still with us (the lessor's +10%), so an aircraft kept after its lease never flies rent-free.
+ */
+function rentOf(g: GameState, ac: GameState['fleet'][string], k: MonthKey, leaveAt?: Minute): number {
+  if (ac.ownership.kind !== 'dryLeaseIn') return 0;
+  const own = ac.ownership;
+  const a = monthStart(k), b = monthStart(k + 1);
+  let rent = own.rentPerMonth * shareOfMonth(ac, k, leaveAt);
+  const end = Math.min(b, leaveAt ?? b);
+  const held = Math.max(a, own.leaseEnd, ac.deliveredAt);
+  if (own.leaseEnd <= g.now && !ac.returning && end > held) rent += own.rentPerMonth * 1.1 * ((end - held) / (b - a));
+  return rent;
 }
 
 /** Fixed monthly costs of month k: rent, insurance, overhead (each fleet aircraft pro-rated to its days). */
@@ -41,25 +74,28 @@ export function fixedCosts(g: GameState, k: MonthKey): { rent: number; insurance
   let n = 0;
   for (const ac of Object.values(g.fleet)) {
     const s = shareOfMonth(ac, k);
+    rent += rentOf(g, ac, k);
     if (s <= 0) continue;
     n += s;
-    if (ac.ownership.kind === 'dryLeaseIn') rent += ac.ownership.rentPerMonth * s;
-    // v0.8 a dry lease out: the lessee insures the airframe; our rent and overhead keep running.
-    if (ac.status === 'leasedOut') continue;
-    insurance += typeOf(ac.typeId).insuranceMonth * s;
+    // v0.8 a dry lease out: the lessee insures the airframe; our rent and overhead keep running (v0.12.1 by days).
+    insurance += typeOf(ac.typeId).insuranceMonth * Math.max(0, s - leasedOutShare(g, ac, k));
   }
   return { rent: Math.round(rent), insurance: Math.round(insurance), overhead: Math.round(BAL.overheadBase + BAL.overheadPerAircraft * n) };
 }
 
 /**
- * An aircraft leaving the fleet mid-month (lease returned): posts its share of this month's rent, insurance and
+ * An aircraft leaving the fleet mid-month (sold, lease returned): posts its share of this month's rent, insurance and
  * per-aircraft overhead now, since month end only sees the fleet that is left. Call just before it is deleted.
+ * v0.12.1 the share runs to `leaveAt` (now), not to the month end.
  */
-export function settleDeparture(g: GameState, ac: GameState['fleet'][string]): void {
-  const s = shareOfMonth(ac, g.finance.current.month);
+export function settleDeparture(g: GameState, ac: GameState['fleet'][string], leaveAt: Minute = g.now): void {
+  const k = g.finance.current.month;
+  const s = shareOfMonth(ac, k, leaveAt);
+  const rent = rentOf(g, ac, k, leaveAt);
+  if (rent > 0) post(g, 'rent', -Math.round(rent));
   if (s <= 0) return;
-  if (ac.ownership.kind === 'dryLeaseIn') post(g, 'rent', -Math.round(ac.ownership.rentPerMonth * s));
-  if (ac.status !== 'leasedOut') post(g, 'insurance', -Math.round(typeOf(ac.typeId).insuranceMonth * s));
+  const ins = typeOf(ac.typeId).insuranceMonth * Math.max(0, s - leasedOutShare(g, ac, k, leaveAt));
+  if (ins > 0) post(g, 'insurance', -Math.round(ins));
   post(g, 'overhead', -Math.round(BAL.overheadPerAircraft * s));
 }
 

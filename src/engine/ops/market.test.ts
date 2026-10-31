@@ -279,6 +279,14 @@ describe('onLeaseEnd (holdover)', () => {
     ac.ownership.deposit = 456_000;
     ac.status = 'available';
     ac.at = g.company.homeBase;
+    // v0.12.1 a lease with return conditions is never handed back free: with no return booked it rolls on +10%.
+    const rent = ac.ownership.rentPerMonth;
+    onLeaseEnd(g, ev(g, 'lease.end', ac.id));
+    expect(g.fleet[ac.id]).toBe(ac);
+    expect(ac.ownership.rentPerMonth).toBe(Math.round(rent * 1.1));
+    // A lease from before return conditions (no return site) goes back at base as before.
+    ac.ownership.leaseEnd = g.now;
+    delete ac.ownership.returnSite;
     const cash = g.company.cash;
     onLeaseEnd(g, ev(g, 'lease.end', ac.id));
     expect(g.fleet[ac.id]).toBeUndefined();

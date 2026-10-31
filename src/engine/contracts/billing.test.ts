@@ -2,13 +2,14 @@
 
 import { describe, expect, it } from 'vitest';
 import { BAL } from '../core/balance';
-import { flightsOf, retimeFlight, subcharterFlights } from '../core/entities';
+import { addFlight, flightsOf, retimeFlight, subcharterFlights } from '../core/entities';
 import { DAY, fromUTC, monthKey } from '../core/time';
 import type { Contract, GameState } from '../core/types';
 import { cancelLegs } from '../ops/flights';
 import { acceptOffer, billContractMonth, cancelContract, cancelCost, cancelPenalty, contractProgress } from '.';
 import { mghFor, mghRemaining, noteLostLegs, onFlightArrivedContracts } from './billing';
 import { clientMoved, moveFlight } from '../ops/flights';
+import { v09Stats } from '../crew/dayPlan';
 import { feasibility } from './feasibility';
 import { devHajj } from './missions';
 import { earnedUnbilled } from '../../ui/screens/screenLogic';
@@ -374,5 +375,57 @@ describe('v0.12.1 on time = against the original schedule', () => {
     expect(c.legsOnTime).toBe(1);
     const u = c.use[monthKey(g.now)]!;
     expect(u.onTime).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('v0.12.1 completion counts the legs that did not fly', () => {
+  const setup = (seed: number) => {
+    const g = newGame(seed);
+    const dep = g.now + 5 * DAY;
+    const o = legsOffer(g, [['LIS', 'PMI', dep], ['PMI', 'LIS', dep + DAY]]);
+    o.archetype = 'evacuation';
+    const res = acceptOffer(g, o.id, [owned(g).id]);
+    if (!res.ok) throw new Error(res.error);
+    return { g, c: g.contracts[res.data!.contractId] };
+  };
+  it('every leg cancelled by us: no completion credit, no job, no rescue counted, no repeat business', () => {
+    const { g, c } = setup(43);
+    const legs = Object.values(g.flights).filter((f) => f.contractId === c.id && f.kind === 'revenue');
+    cancelLegs(g, legs, 'Crew shortage', 3);
+    const rel = g.clients[c.clientId].relation;
+    const done = g.stats.contractsDone;
+    const safe = v09Stats(g).homeSafe ?? 0;
+    run(g, c.end + DAY);
+    expect(c.status).toBe('completed');
+    expect(g.stats.contractsDone).toBe(done);
+    expect(v09Stats(g).homeSafe ?? 0).toBe(safe);
+    expect(g.clients[c.clientId].relation).toBeLessThanOrEqual(rel);
+    expect(c.repeatRolled).toBeFalsy();
+    expect(g.messages.some((m) => m.title === `Closed without flying: ${c.title}`)).toBe(true);
+  });
+  it('legs we cancelled count against the on-time score (1 flown of 2 = 50 %)', () => {
+    const { g, c } = setup(43);
+    const legs = Object.values(g.flights).filter((f) => f.contractId === c.id && f.kind === 'revenue').sort((a, b) => a.std - b.std);
+    cancelLegs(g, [legs[1]], 'Crew shortage', 3);
+    run(g, c.end + DAY);
+    expect(c.legsFlown).toBe(1);
+    const m = g.messages.find((x) => x.title === `Completed: ${c.title}`);
+    expect(m?.body).toMatch(/1 leg flown, (0|50)% on time, 1 cancelled/);
+  });
+});
+
+describe('v0.12.1 a contract ends with its last revenue leg', () => {
+  it("a crew deadhead three days later does not hold it open", () => {
+    const g = newGame(42);
+    const dep = g.now + 5 * DAY;
+    const o = legsOffer(g, [['LIS', 'PMI', dep], ['PMI', 'LIS', dep + DAY]]);
+    const res = acceptOffer(g, o.id, [owned(g).id]);
+    if (!res.ok) throw new Error(res.error);
+    const c = g.contracts[res.data!.contractId];
+    const last = Object.values(g.flights).filter((f) => f.contractId === c.id && f.kind === 'revenue').sort((a, b) => b.sta - a.sta)[0];
+    const t = last.sta + 3 * DAY;
+    addFlight(g, { no: 'TP1', aircraftId: null, contractId: c.id, kind: 'deadhead', from: 'PMI', to: 'LIS', std: t, sta: t + 150 });
+    run(g, Math.max(c.end, last.sta) + 60);
+    expect(c.status).toBe('completed');
   });
 });

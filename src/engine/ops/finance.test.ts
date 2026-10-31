@@ -1,15 +1,16 @@
 // Statements, receivables, solvency and the cash forecast (B3). DESIGN.md §5.7, BUILD-PLAN B3 acceptance.
 
-import { dailyFinance, forecastItems, headsBill, monthEndBill } from './finance';
+import { dailyFinance, forecastItems, headsBill, monthEndBill, settleDeparture } from './finance';
 import { bookRefit } from './cabin';
 import { cashLowCard } from '../problems/money';
 import { describe, expect, it, onTestFinished } from 'vitest';
 import { BAL } from '../core/balance';
 import { flightsOf } from '../core/entities';
-import { invoice, statementTotals } from '../core/ledger';
+import { COST_CATS, invoice, REVENUE_CATS, statementTotals } from '../core/ledger';
+import { LEDGER_LABEL } from '../../ui/screens/screenLogic';
 import { typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
-import { DAY, fromUTC, monthKey, monthStart } from '../core/time';
+import { DAY, daysInMonth, fromUTC, monthKey, monthStart } from '../core/time';
 import type { Client, Contract, Flight, GameState, LedgerCat, Minute } from '../core/types';
 import { acceptOffer } from '../contracts';
 import { mghInMonth } from '../contracts/pricing';
@@ -128,6 +129,8 @@ describe('month end', () => {
     const rent = l.ownership.rentPerMonth;
     const end = Math.min(g.now + 10 * DAY, monthStart(k + 1) - DAY);
     l.ownership.leaseEnd = end;
+    // A lease with no return conditions (handed back at the lease end; v0.12.1 one with them rolls on instead).
+    delete l.ownership.returnSite;
     schedule(g, end, 'lease.end', l.id);
     const share = (end - Math.max(monthStart(k), l.deliveredAt)) / (days * DAY);
     const fc = fixedCosts(g, k); // still counts the leased aircraft, pro-rated to its last day
@@ -529,5 +532,45 @@ describe('v0.12.1 the cash card names what pulls cash under', () => {
     g.company.cash = 500_000;
     const card = cashLowCard(g);
     expect(card?.why).toContain(`${ac.reg}'s cabin refit`);
+  });
+});
+
+describe('v0.12.1 fixed costs by the days the aircraft is ours', () => {
+  it('a sale on day 22 pays 22 days of insurance and overhead, not the month', () => {
+    const g = newGame(27);
+    const k = monthKey(g.now);
+    const ac = owned(g);
+    const days = daysInMonth(k);
+    g.now = monthStart(k) + 22 * DAY;
+    const before = { ...g.finance.current.lines };
+    settleDeparture(g, ac);
+    const share = (g.now - Math.max(monthStart(k), ac.deliveredAt)) / (days * DAY);
+    expect((g.finance.current.lines.insurance ?? 0) - (before.insurance ?? 0)).toBe(-Math.round(typeOf(ac.typeId).insuranceMonth * share));
+    expect((g.finance.current.lines.overhead ?? 0) - (before.overhead ?? 0)).toBe(-Math.round(BAL.overheadPerAircraft * share));
+  });
+  it('leased out from day 3: our insurance for the first days only; back on day 27: those days again', () => {
+    const g = newGame(27);
+    const k = monthKey(g.now) + 1;
+    const ac = owned(g);
+    ac.deliveredAt = Math.min(ac.deliveredAt, monthStart(k - 1));
+    const a = monthStart(k), len = monthStart(k + 1) - a;
+    const ins = typeOf(ac.typeId).insuranceMonth;
+    const others = fixedCosts(g, k).insurance - ins;
+    g.contracts.kx = { id: 'kx', aircraftIds: [ac.id], dry: { leasedAt: a + 2 * DAY } } as never;
+    expect(fixedCosts(g, k).insurance - others).toBe(Math.round(ins * (2 * DAY) / len));
+    g.contracts.kx.dry!.returnedAt = a + 26 * DAY;
+    expect(fixedCosts(g, k).insurance - others).toBe(Math.round(ins * (len - 24 * DAY) / len));
+  });
+});
+
+describe('v0.12.1 statement totals by category', () => {
+  it('a loss on a sale is negative revenue; insurance and overhead are costs', () => {
+    expect(statementTotals({ assetSale: -1_040_000, insurance: -42_000, overhead: -60_000 })).toEqual({ revenue: -1_040_000, costs: -102_000, profit: -1_142_000 });
+    // A refund lowers costs instead of counting as revenue.
+    expect(statementTotals({ charterRevenue: 100_000, refit: 5_000, fuel: -20_000 })).toEqual({ revenue: 100_000, costs: -15_000, profit: 85_000 });
+  });
+  it('every ledger category is a revenue or a cost row (crew jets included)', () => {
+    for (const cat of Object.keys(LEDGER_LABEL) as LedgerCat[]) expect(REVENUE_CATS.includes(cat) !== COST_CATS.includes(cat)).toBe(true);
+    expect(COST_CATS).toContain('crewJet');
   });
 });

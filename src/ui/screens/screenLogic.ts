@@ -1,7 +1,7 @@
 // Pure helpers for the B5 screens (labels, sorting, filtering, deep links). No React, no writes.
 
 import type { RatingFamily } from '../../data/acmiTypes';
-import { statementTotals } from '../../engine/core/ledger';
+import { COST_CATS, REVENUE_CATS, statementTotals } from '../../engine/core/ledger';
 import { problemFor } from '../../engine/problems';
 import { DAY, HOUR, fmtDay, monthKey, toLocal } from '../../engine/core/time';
 import { mghLabel } from '../../engine/contracts/pricing';
@@ -221,11 +221,9 @@ export const LEDGER_LABEL: Record<LedgerCat, string> = {
   disruption: 'Disruptions', compliance: 'Safety & compliance', delivery: 'Ferry companies',
 };
 
-const REVENUE: LedgerCat[] = ['acmiRevenue', 'charterRevenue', 'otherRevenue', /** v0.8 */ 'leaseIncome', 'assetSale'];
-const COSTS: LedgerCat[] = [
-  'fuel', 'airportFees', 'rent', 'reserves', 'salaries', 'perDiem', 'hotels', 'deadhead', 'maintenance', 'checks', 'paint', 'insurance', 'overhead',
-  'training', 'hiring', 'penalties', 'subcharter', 'approvals', 'interest', 'capex', 'refit', 'leaseReturn', /** v0.8 */ 'warRisk', /** v0.11 */ 'disruption', 'compliance', 'delivery',
-];
+// v0.12.1 the engine's lists (statementTotals splits the same way).
+const REVENUE: readonly LedgerCat[] = REVENUE_CATS;
+const COSTS: readonly LedgerCat[] = COST_CATS;
 
 export interface StatementRow {
   cat: LedgerCat;

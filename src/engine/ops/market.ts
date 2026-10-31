@@ -396,11 +396,16 @@ export function onLeaseEnd(g: GameState, ev: SimEvent): void {
   if (!ac || ac.ownership.kind !== 'dryLeaseIn' || ac.ownership.leaseEnd > g.now || ac.returning) return;
   const busy = ac.status !== 'available' || ac.at !== g.company.homeBase || flightsOf(g, ac.id).some((f) => f.status === 'scheduled' || f.status === 'enroute')
     || Object.values(g.contracts).some((c) => (c.status === 'signed' || c.status === 'active') && c.aircraftIds.includes(ac.id));
-  if (busy) {
+  // v0.12.1 a v0.7 lease (return site and return conditions) is never handed back for free: with no return booked
+  // it rolls on a month at +10% and the lease-end choice comes again (the return check, its costs, the deposit).
+  const terms = !!ac.ownership.returnSite;
+  if (busy || terms) {
     ac.ownership.leaseEnd = g.now + Math.round(MONTH);
     ac.ownership.rentPerMonth = Math.round(ac.ownership.rentPerMonth * 1.1);
+    ac.ownership.noticeGiven = false;
     schedule(g, ac.ownership.leaseEnd, 'lease.end', ac.id);
-    pushMessage(g, { tone: 'warn', cat: 'company', title: `Lease extended: ${ac.reg}`, body: `${ac.reg} is still working, so the lease rolls on a month at ${usd(ac.ownership.rentPerMonth)} (+10%).`, ref: { kind: 'aircraft', id: ac.id } });
+    const why = busy ? `${ac.reg} is still working` : `No return is booked for ${ac.reg}`;
+    pushMessage(g, { tone: 'warn', cat: 'company', title: `Lease extended: ${ac.reg}`, body: `${why}, so the lease rolls on a month at ${usd(ac.ownership.rentPerMonth)} (+10%). Book the return or extend.`, ref: { kind: 'aircraft', id: ac.id } });
     return;
   }
   if (ac.ownership.deposit) cashOnly(g, ac.ownership.deposit);

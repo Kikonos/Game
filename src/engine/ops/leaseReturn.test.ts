@@ -3,12 +3,15 @@
 import { describe, expect, it } from 'vitest';
 import { BAL } from '../core/balance';
 import { addFlight, removeFlights } from '../core/entities';
-import { DAY } from '../core/time';
+import { DAY, monthKey } from '../core/time';
 import type { Aircraft, GameState } from '../core/types';
 import { leased, newGame, run } from '../contracts/testkit';
 import { resolveDecision } from './events';
 import { chooseLease, dailyLeases, earlyReturnQuote, leaseView, returnEarly, returnQuote } from './leaseReturn';
 import { leastUsed } from './sale';
+import { missCheck } from './maintenance';
+import { onLeaseEnd } from './market';
+import { fixedCosts } from './finance';
 
 const MONTH = 30.44 * DAY;
 const line = (g: GameState, cat: 'leaseReturn') => [g.finance.current, ...g.finance.history].reduce((s, st) => s + (st.lines[cat] ?? 0), 0);
@@ -227,5 +230,62 @@ describe('v0.7.2 which one? (least used)', () => {
     // An older save loaded today: no history yet, so nothing is named as least used.
     a.bhSince = b.bhSince = today;
     expect(leastUsed(g, 'any').every((x) => !x.enough)).toBe(true);
+  });
+});
+
+describe('v0.12.1 a return that falls through', () => {
+  it('an early return whose check is missed: the lease end goes back, the rent runs again in full, no fee', () => {
+    const { g, ac } = ending(4, 400);
+    if (ac.ownership.kind !== 'dryLeaseIn') throw new Error('no lease');
+    const was = ac.ownership.leaseEnd;
+    const rent = ac.ownership.rentPerMonth;
+    const q = earlyReturnQuote(g, ac.id);
+    if (!returnEarly(g, ac.id, q.end).ok) throw new Error('not booked');
+    expect(ac.returning?.wasEnd).toBe(was);
+    const m = g.maintenance[ac.returning!.maintId];
+    run(g, m.start - 2 * DAY);
+    missCheck(g, m, 'test: it could not get there');
+    run(g, q.end + 45 * DAY);
+    expect(g.fleet[ac.id]).toBeDefined();
+    expect(ac.ownership.leaseEnd).toBe(was);
+    expect(line(g, 'leaseReturn')).toBe(0);
+    // A month after the early date: the full rent, not $0.
+    const k = monthKey(q.end) + 1;
+    expect(g.finance.history.find((st) => st.month === k)?.lines.rent).toBe(-rent);
+    expect(g.messages.some((x) => x.title === `Lease return slipped: ${ac.reg}` && x.body.includes('early return is off'))).toBe(true);
+  });
+  it('a normal return whose check is missed: the lease-end choice comes again, and at the end it is never handed back free', () => {
+    const { g, ac } = ending(3, 40);
+    if (ac.ownership.kind !== 'dryLeaseIn') throw new Error('no lease');
+    ac.ownership.noticeGiven = true;
+    g.decisions.length = 0;
+    if (!chooseLease(g, ac.id, 'return').ok) throw new Error('not booked');
+    const m = g.maintenance[ac.returning!.maintId];
+    run(g, m.start - 3 * DAY);
+    missCheck(g, m, 'test: the ferry fell through');
+    dailyLeases(g);
+    expect(ac.returning).toBeUndefined();
+    expect(ac.ownership.noticeGiven).toBe(false);
+    // The next day's pass asks again.
+    dailyLeases(g);
+    expect(ac.ownership.noticeGiven).toBe(true);
+    expect(g.decisions.some((d) => d.kind === 'leaseEnd' && d.data?.aircraftId === ac.id)).toBe(true);
+    // Nobody answers and the decision is dropped: at the end it rolls on a month at +10%, still ours.
+    g.decisions.length = 0;
+    const rent = ac.ownership.rentPerMonth;
+    const end = ac.ownership.leaseEnd;
+    g.now = end;
+    onLeaseEnd(g, { t: end, kind: 'lease.end', id: ac.id } as never);
+    expect(g.fleet[ac.id]).toBeDefined();
+    expect(ac.ownership.rentPerMonth).toBe(Math.round(rent * 1.1));
+    expect(ac.ownership.leaseEnd).toBeGreaterThan(end);
+    expect(ac.ownership.noticeGiven).toBe(false);
+  });
+  it('an aircraft still with us after its lease end pays holdover rent (+10%), never $0', () => {
+    const { g, ac } = ending(3, 400);
+    if (ac.ownership.kind !== 'dryLeaseIn') throw new Error('no lease');
+    const k = monthKey(g.now) + 2;
+    ac.ownership.leaseEnd = g.now - DAY;
+    expect(fixedCosts(g, k).rent).toBeGreaterThanOrEqual(Math.round(ac.ownership.rentPerMonth * 1.1) - 1);
   });
 });

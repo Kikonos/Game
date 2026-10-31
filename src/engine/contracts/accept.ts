@@ -10,7 +10,7 @@ import { requestPause } from '../core/pause';
 import { schedule } from '../core/queue';
 import { DAY, fmtDay, monthKey, monthStart, fmtDayRange } from '../core/time';
 import { clamp } from '../core/util';
-import type { ActionResult, Contract, ContractOffer, CrewExtra, GameState, Minute, OfferStatus, Product, Receivable, SimEvent } from '../core/types';
+import type { ActionResult, Contract, ContractOffer, CrewExtra, Flight, GameState, Minute, OfferStatus, Product, Receivable, SimEvent } from '../core/types';
 import { autoRoster, crewExtraFor, flightCrewStatus, onContractDoneMorale } from '../crew';
 import { billContractMonth, issueBill, mghFor, mghRemaining } from './billing';
 import { feasibility } from './feasibility';
@@ -501,10 +501,16 @@ export function onContractStart(g: GameState, ev: SimEvent): void {
 export function onContractEnd(g: GameState, ev: SimEvent): void {
   const c = g.contracts[ev.id];
   if (!c || (c.status !== 'signed' && c.status !== 'active') || c.dry) return;
+  // v0.12.1 the job's own legs only: revenue and tech stops, and the empty legs that are its way out (leaving
+  // within two days of the last revenue leg: a night stop or a delay on the way home). Crew deadheads and later positioning never hold the contract open.
+  const live = Object.values(g.flights).filter((f) => f.contractId === c.id && (f.status === 'scheduled' || f.status === 'enroute') && f.kind !== 'deadhead');
+  const endOf = (f: Flight) => (f.status === 'enroute' ? (f.eta ?? f.sta) : f.sta + f.delay);
+  const rev = live.filter((f) => f.kind === 'revenue' || f.kind === 'techstop');
+  const lastRev = Math.max(0, ...rev.map(endOf), ...Object.values(g.flights).filter((f) => f.contractId === c.id && f.status === 'done' && (f.kind === 'revenue' || f.kind === 'techstop')).map((f) => f.ata ?? f.sta));
   let last = 0;
-  for (const f of Object.values(g.flights)) {
-    if (f.contractId !== c.id || (f.status !== 'scheduled' && f.status !== 'enroute')) continue;
-    last = Math.max(last, f.status === 'enroute' ? (f.eta ?? f.sta) : f.sta + f.delay);
+  for (const f of live) {
+    if (f.kind !== 'revenue' && f.kind !== 'techstop' && f.std + f.delay > (lastRev || c.end) + 2 * DAY) continue;
+    last = Math.max(last, endOf(f));
   }
   if (last) {
     // Next look just after the last leg's on-blocks; a leg held past its time is looked at hourly, not every 5 min.
@@ -513,6 +519,9 @@ export function onContractEnd(g: GameState, ev: SimEvent): void {
   }
   completeContract(g, c);
 }
+
+/** v0.12.1 a leg cancelled by the client or by force majeure (a closure, a court, no war-risk cover), not by us. */
+const notOursCancel = (why = ''): boolean => /^(Cancelled: |Closed: |Court injunction|No war-risk cover)|cancelled$/.test(why);
 
 function completeContract(g: GameState, c: Contract): void {
   c.status = 'completed';
@@ -541,38 +550,48 @@ function completeContract(g: GameState, c: Contract): void {
     }
     settleCharter(g, c, Math.round(c.accrued ?? 0), c.payment.basis === 'arrears' ? `Invoice: ${c.title}` : `Final balance: ${c.title}`);
   }
+  // v0.12.1 the legs that did not fly count: ours (recovery, AOG, no crew) against the on-time score; the client's
+  // own or force majeure (a closure, a court) not. Flights are pruned a week after their day, so older
+  // cancellations are no longer seen here. legsFlown includes legs a rival flew for us.
   const flown = c.legsFlown ?? 0;
-  const onTime = flown ? (c.legsOnTime ?? 0) / flown : 1;
+  let sub = 0;
+  let cxUs = 0;
+  let cxFm = 0;
+  for (const f of Object.values(g.flights)) {
+    if (f.contractId !== c.id || (f.kind !== 'revenue' && f.kind !== 'techstop')) continue;
+    if (f.status === 'cancelled') {
+      if (notOursCancel(f.delayReason)) cxFm++;
+      else cxUs++;
+    } else if (f.operatedBy) sub++;
+  }
+  const onTime = flown + cxUs ? (c.legsOnTime ?? 0) / (flown + cxUs) : 1;
   const rep = g.company.reputation;
   const e = c.effects;
-  if (e.reliable && (c.archetype !== 'seasonBase' || onTime >= 0.85)) rep.reliable = clamp(rep.reliable + e.reliable, 0, 100);
-  if (e.clean) rep.clean = clamp(rep.clean + e.clean, 0, 100);
   const cl = g.clients[c.clientId];
-  // v0.8 completion moves the relation (§1.3) and counts a job; repeat business may follow.
-  const R = BAL.v08.rel;
-  const d = c.archetype === 'aogCover' ? R.doneAog : onTime >= 0.85 ? R.done : R.doneBad;
-  bumpClient(g, c.clientId, d, d > 0 ? `Completed ${c.title}${flown ? `, ${Math.round(onTime * 100)} % on time` : ''}` : `${c.title}: only ${Math.round(onTime * 100)} % on time`);
-  noteJobDone(g, c.clientId);
-  // Deportation: the press noticed (clean −2 a flight with returnees, capped −10 a contract; billed as flown).
-  g.stats.contractsDone++;
-  const v = v09Stats(g);
-  if (c.archetype === 'hajj') v.hajjDone = (v.hajjDone ?? 0) + 1;
-  if (c.archetype === 'evacuation' || c.archetype === 'repatriation') v.homeSafe = (v.homeSafe ?? 0) + 1;
-  rollRepeat(g, c.id);
-  // Legs a rival flew for us or that were cancelled (still in the flight table), so "0 legs flown" reads right.
-  let sub = 0;
-  let cx = 0;
-  for (const f of Object.values(g.flights)) {
-    if (f.contractId !== c.id || f.kind !== 'revenue') continue;
-    if (f.status === 'cancelled') cx++;
-    else if (f.operatedBy) sub++;
+  // Nothing flew (every leg cancelled): no completion credit, no job counted, no repeat business.
+  const flewAny = flown > 0;
+  if (flewAny) {
+    if (e.reliable && (c.archetype !== 'seasonBase' || onTime >= 0.85)) rep.reliable = clamp(rep.reliable + e.reliable, 0, 100);
+    if (e.clean) rep.clean = clamp(rep.clean + e.clean, 0, 100);
+    // v0.8 completion moves the relation (§1.3) and counts a job; repeat business may follow.
+    const R = BAL.v08.rel;
+    const d = c.archetype === 'aogCover' ? R.doneAog : onTime >= 0.85 ? R.done : R.doneBad;
+    bumpClient(g, c.clientId, d, d > 0 ? `Completed ${c.title}, ${Math.round(onTime * 100)} % on time` : `${c.title}: only ${Math.round(onTime * 100)} % on time`);
+    noteJobDone(g, c.clientId);
+    // Deportation: the press noticed (clean −2 a flight with returnees, capped −10 a contract; billed as flown).
+    g.stats.contractsDone++;
+    const v = v09Stats(g);
+    if (c.archetype === 'hajj') v.hajjDone = (v.hajjDone ?? 0) + 1;
+    if (c.archetype === 'evacuation' || c.archetype === 'repatriation') v.homeSafe = (v.homeSafe ?? 0) + 1;
+    rollRepeat(g, c.id);
   }
-  const parts = [`${flown} ${flown === 1 ? 'leg' : 'legs'} flown${flown ? `, ${Math.round(onTime * 100)}% on time` : ''}`];
+  const own = flown - sub;
+  const parts = [`${own} ${own === 1 ? 'leg' : 'legs'} flown${own ? `, ${Math.round(onTime * 100)}% on time` : ''}`];
   if (sub) parts.push(`${sub} sub-chartered`);
-  if (cx) parts.push(`${cx} cancelled`);
+  if (cxUs + cxFm) parts.push(`${cxUs + cxFm} cancelled`);
   pushMessage(g, {
-    tone: flown ? 'good' : 'info', cat: 'commercial', title: `Completed: ${c.title}`,
-    body: `${parts.join(', ')}. ${cl?.name ?? 'The client'} ${!flown ? 'has closed the contract' : onTime >= 0.85 ? 'is pleased' : 'noticed the delays'}.`,
+    tone: flewAny ? 'good' : 'info', cat: 'commercial', title: flewAny ? `Completed: ${c.title}` : `Closed without flying: ${c.title}`,
+    body: `${parts.join(', ')}. ${cl?.name ?? 'The client'} ${!flewAny ? 'has closed the contract' : onTime >= 0.85 ? 'is pleased' : 'noticed the delays'}.`,
     ref: { kind: 'contract', id: c.id },
   });
   completeHook?.(g, c);

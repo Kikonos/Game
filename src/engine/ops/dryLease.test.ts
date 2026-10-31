@@ -82,10 +82,12 @@ describe('dry lease out (§6)', () => {
     const rent = g.finance.receivables.slice(recv0).find((r) => r.cat === 'leaseIncome' && /^Rent/.test(r.desc));
     expect(rent).toBeDefined();
     // Insurance: the lessee's while she is out.
+    // v0.12.1 by the days she is out (from the handover), not by the status at month end.
     const ins = fixedCosts(g, monthKey(g.now)).insurance;
-    ac.status = 'available';
+    const at = d.leasedAt;
+    d.leasedAt = undefined;
     expect(fixedCosts(g, monthKey(g.now)).insurance).toBeGreaterThan(ins);
-    ac.status = 'leasedOut';
+    d.leasedAt = at;
     // A month of their flying: hours on our airframe, the A-check counter reset by their own checks.
     const h0 = ac.hours;
     const k0 = monthKey(g.now);

@@ -27,12 +27,25 @@ export function cashOnly(g: GameState, amount: number): void {
   g.company.cash += amount;
 }
 
+/** v0.12.1 the statement's revenue lines (the Finance rows and the totals split the same way). */
+export const REVENUE_CATS: readonly LedgerCat[] = ['acmiRevenue', 'charterRevenue', 'otherRevenue', 'leaseIncome', 'assetSale'];
+
+/** v0.12.1 the statement's cost lines, in the Finance screen's order. */
+export const COST_CATS: readonly LedgerCat[] = [
+  'fuel', 'airportFees', 'rent', 'reserves', 'salaries', 'perDiem', 'hotels', 'deadhead', 'crewJet', 'maintenance', 'checks', 'paint', 'insurance', 'overhead',
+  'training', 'hiring', 'penalties', 'subcharter', 'approvals', 'interest', 'capex', 'refit', 'leaseReturn', 'warRisk', 'disruption', 'compliance', 'delivery',
+];
+
+/**
+ * Revenue and costs by category (v0.12.1 not by sign: a loss on a sale is negative revenue, a refund lowers costs).
+ * A line under no known category (none should exist) still counts by its sign.
+ */
 export function statementTotals(lines: Partial<Record<LedgerCat, number>>): { revenue: number; costs: number; profit: number } {
   let revenue = 0;
   let costs = 0;
-  for (const v of Object.values(lines)) {
+  for (const [cat, v] of Object.entries(lines) as [LedgerCat, number | undefined][]) {
     if (v === undefined) continue;
-    if (v >= 0) revenue += v;
+    if (REVENUE_CATS.includes(cat) || (!COST_CATS.includes(cat) && v >= 0)) revenue += v;
     else costs += v;
   }
   return { revenue, costs, profit: revenue + costs };
