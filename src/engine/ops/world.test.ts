@@ -405,6 +405,17 @@ describe('v0.12.1 airport closures follow the reopening', () => {
     expect(closureHits(g, e).held).not.toContain(fl[0]);
   });
 
+  it('D5 the airline cover a strike creates is offered once the airport reopens, starting after it', () => {
+    const g = newGame(31);
+    const e = startEvent(g, { ...TPL_BY_ID.strikeBelgium, days: [3, 3], airportDays: [1, 1] });
+    expect(e.offerIds).toHaveLength(0);
+    expect(e.workLeft).toContain('aogCover');
+    advanceTo(g, e.airportClosedUntil! + 60, new Set());
+    expect(e.offerIds.length).toBe(1);
+    const o = g.offers[e.offerIds[0]];
+    expect(o.start).toBeGreaterThanOrEqual(e.airportClosedUntil!);
+  });
+
   it('D12 the card counts our legs hit so far and never says "none" next to it', () => {
     const { g, e } = bru();
     const v = worldEvent(g, e.id)!;

@@ -160,7 +160,7 @@ function effectsOf(g: GameState, e: WorldEvent): string[] {
   for (const s of g.market.shocks ?? []) if (s.eventId === e.id && s.until > g.now) out.push(`${s.delta > 0 ? '+' : '−'}${Math.round(Math.abs(s.delta) * 100)} % ${s.seg === 'all' ? '' : `${s.seg}body `}demand`.replace('  ', ' '));
   if (e.offerIds.length) out.push(`${e.offerIds.length} offer${e.offerIds.length === 1 ? '' : 's'} from it`);
   // v0.12.1 a running count (past tense): the card also says whether any flights are still affected now.
-  if (e.flightsHit) out.push(`${e.flightsHit} of our leg${e.flightsHit === 1 ? '' : 's'} ${e.flightsHit === 1 ? 'was' : 'were'} affected so far`);
+  if (e.flightsHit) out.push(`${e.flightsHit} of our legs ${e.flightsHit === 1 ? 'was' : 'were'} affected so far`);
   return out;
 }
 
@@ -318,7 +318,8 @@ function relevance(g: GameState): (t: WorldEventTpl) => number {
 export function dailyWorld(g: GameState): void {
   const w = (g.world ??= { events: [] });
   // Work still to come from live events, 0–48 h after they start.
-  for (const e of w.events) if (isLive(g, e) && e.workLeft?.length && g.now - e.start <= 2 * DAY) makeWork(g, e, 1);
+  // v0.12.1 cover work held back while the airport is shut comes the day after it reopens.
+  for (const e of w.events) if (isLive(g, e) && e.workLeft?.length && (g.now - e.start <= 2 * DAY || (e.airportClosedUntil && g.now <= e.airportClosedUntil + DAY))) makeWork(g, e, 1);
   // Closures keep catching new flights; war-risk cover can be withdrawn 48 h before; courts stop deportation flights.
   for (const e of w.events) if (isLive(g, e)) applyClosure(g, e, false);
   uninsurableChecks(g);
@@ -412,7 +413,12 @@ function onReopen(g: GameState, e: WorldEvent): void {
 function makeWork(g: GameState, e: WorldEvent, n: number): void {
   const t = TPL_BY_ID[e.tpl];
   for (let i = 0; i < n && e.workLeft?.length; i++) {
-    const kind = e.workLeft.shift()! as Parameters<typeof eventOffer>[1];
+    // v0.12.1 an airline's cover (ACMI) for an airport-closure event is offered once the airport is open again: offered
+    // during the strike, its first legs at Brussels sat inside the closure (and the aircraft sent to fly them was stuck).
+    const shut = !!e.airportClosedUntil && e.airportClosedUntil > g.now;
+    const idx = e.workLeft.findIndex((k) => !shut || (k !== 'aogCover' && k !== 'acmi'));
+    if (idx < 0) break;
+    const kind = e.workLeft.splice(idx, 1)[0] as Parameters<typeof eventOffer>[1];
     const z = e.zoneId ? ZONE_BY_ID[e.zoneId] : undefined;
     const pair = z?.staging?.find(([a, b]) => AIRPORT_BY_CODE[a] && AIRPORT_BY_CODE[b]);
     const cover = (t?.coverFor ?? []).map((name) => Object.values(g.clients).find((c) => c.name === name)).find((c) => !!c);
@@ -632,15 +638,19 @@ export function waitAtGate(g: GameState, f: Flight, e: WorldEvent): boolean {
   return f.status !== 'scheduled' || f.std + f.delay >= at;
 }
 
-/** v0.12.1 other jobs' revenue legs a wait of f until `at` would drop (late past their cap), in departure order. Pure. */
-export function strandedLegs(g: GameState, f: Flight, at: Minute): Flight[] {
+/**
+ * v0.12.1 other jobs' revenue legs a wait of f until `at` would drop (late past their cap), in departure order; with
+ * `e`, not the legs that closure holds itself (they wait for the airport whichever aircraft flies them). Pure.
+ */
+export function strandedLegs(g: GameState, f: Flight, at: Minute, e?: WorldEvent): Flight[] {
   const ac = f.aircraftId ? g.fleet[f.aircraftId] : undefined;
   if (!ac) return [];
   const plan = planRecovery(g, ac, f.to, at + f.block + typeOf(ac.typeId).turnMin, f.std, f);
   // A trip's own legs wait with it (waitLegs: accepted lateness); a positioning's job, or any other job, is dropped.
   const k = contractOf(g, f);
   const waits = isRevenue(f) && !!k && k.pattern.kind !== 'base';
-  return plan.cancels.filter((x) => x.status === 'scheduled' && isRevenue(x) && !(waits && x.contractId === f.contractId)).sort((a, b) => a.std - b.std);
+  const heldToo = (x: Flight) => !!e && (closedAirport(g, x.from, x.std, permitOf(g, x)) === e || closedAirport(g, x.to, x.sta, permitOf(g, x)) === e);
+  return plan.cancels.filter((x) => x.status === 'scheduled' && isRevenue(x) && !(waits && x.contractId === f.contractId) && !heldToo(x)).sort((a, b) => a.std - b.std);
 }
 
 /**
@@ -652,7 +662,7 @@ export function strandedAsk(g: GameState, f: Flight, e: WorldEvent, at: Minute):
   const ac = f.aircraftId ? g.fleet[f.aircraftId] : undefined;
   if (!ac) return false;
   if (g.decisions.some((d) => d.kind === 'stranded' && d.data?.aircraftId === ac.id && d.data?.eventId === e.id)) return true;
-  const lost = strandedLegs(g, f, at);
+  const lost = strandedLegs(g, f, at, e);
   if (!lost.length) return false;
   const k = contractOf(g, lost[0]);
   const who = (k && g.clients[k.clientId]?.name) || 'the client';
@@ -713,7 +723,7 @@ export function resolveStranded(g: GameState, d: Decision, opt: string): ActionR
   const ac = g.fleet[String(d.data?.aircraftId ?? '')];
   const e = eventsOf(g).find((x) => x.id === String(d.data?.eventId ?? ''));
   if (!f || !ac || !e || f.status !== 'scheduled') return { ok: true, msg: 'The aircraft is on its way' };
-  const lost = strandedLegs(g, f, Math.max(f.std, closedUntil(e) + 3 * 60));
+  const lost = strandedLegs(g, f, Math.max(f.std, closedUntil(e) + 3 * 60), e);
   if (!lost.length) return { ok: true, msg: 'Nothing is lost any more' };
   if (opt === 'subcharter') {
     const rival = String(d.data?.rivalId ?? '') || pickRival(g, ac.typeId, lost);
