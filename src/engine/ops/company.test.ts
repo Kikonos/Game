@@ -96,7 +96,7 @@ describe('approvals (v0.7 ladder)', () => {
     if (fo >= 4 && pil.CPT >= 4) expect(approvalBlocker(g, 'widebody')).toBeNull();
     // …and approvalReqs lists the checklist (✓/✗ with have/need).
     const reqs = approvalReqs(g, 'widebody');
-    expect(reqs.map((r) => r.label)).toEqual(['90 days of operations', expect.stringMatching(/^4 CPT \+ 4 FO rated on .* or converting$/), 'Reliability 62', 'Technical reliability 99% (needs 97%) over 90 days', 'No illegal crew duties: 90 days', 'Cash $300K']);
+    expect(reqs.map((r) => r.label)).toEqual(['90 days of operations', expect.stringMatching(/^4 CPT \+ 4 FO rated on .* or converting$/), 'Reliability 62', 'Technical reliability 99% (needs 95%) over 90 days', 'No illegal crew duties: 90 days', 'Cash $300K']);
     expect(reqs[0]).toMatchObject({ ok: true, have: '91 days', need: '90 days' });
   });
 

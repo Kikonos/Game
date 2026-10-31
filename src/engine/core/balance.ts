@@ -22,10 +22,17 @@ export const BAL = {
   /** Client compensation per departure delayed over 3 h / per cancelled leg (narrow, wide). */
   perDelay: [2_500, 6_000] as [number, number],
   perCancelledLeg: [15_000, 40_000] as [number, number],
-  /** Charter all-in markup on cost-plus (RESEARCH §4.4). */
-  charterMargin: 1.08,
+  /** Charter all-in markup on cost-plus (RESEARCH §4.4). v0.14 1.08 → 1.14: a charter carries the empty legs, the
+   *  date risk and the broker's and our sales effort; ad hoc charter quotes carry 10–15 % over the ACMI-plus-costs base. */
+  charterMargin: 1.14,
   premium: { peakSummer: 0.15, winter: -0.15, short: 0.25, urgent: 0.35, longTerm: -0.1, oldType: -0.15, vip: 0.35, conflict: 0.6, deportation: 0.4 },
-  mgh: { narrow: 200, wide: 250 },
+  /**
+   * v0.14 widebody MGH 250 → 300 BH a month and widebody wet leases 3–6 months (were 1–3): a long-haul ACMI lease
+   * guarantees 300–350 block hours a month (an A330 flies 10–12 BH a day on long sectors) and runs a season, since
+   * the client pays to position the aircraft and its crews across the world.
+   */
+  mgh: { narrow: 200, wide: 300 },
+  wideWetDays: [91, 183] as [number, number],
   excessRate: 0.95,
   cycleFee: { narrow: 900, wide: 1800 },
   /** Cancel-by-us scale: [days before start, fraction of value]. */
@@ -37,9 +44,20 @@ export const BAL = {
   counterReplyHours: [6, 30] as [number, number],
 
   // ---------- crew & HR (B2) ----------
-  /** Monthly gross salary by role (narrowbody / widebody rating), USD, season-averaged. */
+  /**
+   * Monthly gross salary by role (narrowbody / widebody rating), USD, season-averaged.
+   * v0.14 balance (the player, an ex-ACMI flight attendant: "flight attendants earn the same across all aircraft
+   * types"): cabin crew and pursers are paid one scale on every type (was PUR 2,500 / 2,900, CC 1,900 / 2,100; now the
+   * middle of the two). Widebody pilots: recruiters put the widebody premium at 25–40 %, largest for captains and paid
+   * partly through allowances in Europe (aviationcv.com, "Widebody type rating value by region"); European A320
+   * captains earn about €9,000–10,500 basic a month and first officers €4,500–6,000 (the same survey), so an ACMI
+   * widebody captain earns about €11,500–12,500 and a first officer €6,500–7,000 (+20–30 % on the market's narrowbody
+   * pay). Our narrowbody scale sits at the low end of the market, so the widebody scale is set against the market:
+   * CPT 12,000 → 13,000 (about €11,300), FO 7,000 → 7,500, a cruise relief pilot (second officer) 4,300 → 5,500 on a
+   * widebody (below a widebody FO, above a narrowbody one). B757/767 pilots keep widebody pay while a 767 is in the fleet.
+   */
   salary: {
-    CPT: [9_400, 12_000], FO: [5_300, 7_000], CRP: [4_300, 4_300], PUR: [2_500, 2_900], CC: [1_900, 2_100],
+    CPT: [9_400, 13_000], FO: [5_300, 7_500], CRP: [4_300, 5_500], PUR: [2_700, 2_700], CC: [2_000, 2_000],
   } as Record<string, [number, number]>,
   /** Employer on-costs on salaries (RESEARCH §5.5: +10–35%; v0.5.1 mid-range, was 0.2). */
   onCosts: 0.25,
@@ -83,10 +101,20 @@ export const BAL = {
   /** OCC, CAMO, safety, sales, audits (RESEARCH §4.5: €300–500/BH at 250 BH a month; v0.5.1 nearer the middle, was 110k + 55k). */
   overheadBase: 130_000,
   overheadPerAircraft: 60_000,
+  /**
+   * v0.14 insurance (data/acmiTypes insuranceMonth, ops/finance insuranceOf): hull all risks with hull war, a year, on
+   * the agreed value up to `tier` and above it, for a small ACMI / charter operator; liability a seat a month.
+   */
+  insurance: { hull: 0.003, hullAbove: 0.0015, tier: 30_000_000, liabilitySeat: { narrow: 50, wide: 60 } },
   /** Maintenance cost multiplier per year of age above 12. */
   maintAgeFactor: 0.025,
-  /** Check cost (narrow, wide). The A-check sits partly inside maintBH (all-in DMC), so it is kept low. */
-  checkCost: { A: [25_000, 60_000], C: [1_200_000, 3_500_000] } as Record<'A' | 'C', [number, number]>,
+  /**
+   * Check cost (narrow, wide). The A-check sits partly inside maintBH (all-in DMC), so it is kept low. C: the gross
+   * cost of one C-check averaged over the type's check cycle (light checks and the 6- and 12-year heavy ones);
+   * v0.14 the default when a type has no `cCheck` of its own (data/acmiTypes). Was 1.2M / 3.5M: an A320 light C-check
+   * costs about $0.3–0.7M and its 6-year heavy check $1.2–2M, about $0.7M a check over the cycle.
+   */
+  checkCost: { A: [25_000, 60_000], C: [700_000, 2_000_000] } as Record<'A' | 'C', [number, number]>,
   /** Share of a C-check paid out of maintenance reserves (leased: the lessor reimburses) or the per-BH provision (owned). */
   cReserveCover: 0.5,
   /** AOG chance per departure (one roll, separate from technical delays): base × (1 + age/10) × (1 + 4 × deferred) × outstation 1.5. */
@@ -286,7 +314,8 @@ export const BAL = {
    *  consultants, manuals and training about $50–150K, the authority's review 30–60 days. */
   ladder: {
     findingDays: 30, maxFindings: 2, incidentKeepDays: 365,
-    tech: { lateMin: 15, minDeps: 30, keepDays: 366, target: { etops120: 97, widebody: 97, etops180: 98, etops240: 98, ulr: 98.5 } as Partial<Record<string, number>> },
+    // v0.14 Widebody operations at 95 % (was 97: the player's call; the ETOPS levels keep 97–98.5 %).
+    tech: { lateMin: 15, minDeps: 30, keepDays: 366, target: { etops120: 97, widebody: 95, etops180: 98, etops240: 98, ulr: 98.5 } as Partial<Record<string, number>> },
     etopsMx: { cost: 90_000, days: 45 },
     /** v0.12.1 legs that need an approval we won't hold by their departure get the card this many days ahead; red inside redH hours. */
     gateWarnDays: 14, gateRedH: 48,
@@ -394,7 +423,7 @@ export const BAL = {
     /** Company standing (§1.6). */
     standing: {
       est: { done: 3, days: 120, reliable: 55 }, resp: { done: 10, days: 365, reliable: 70, clean: 50 }, respDown: { reliable: 60, clean: 40 },
-      newcomerRate: -0.08, respectedRate: 0.04, newcomerBaseDays: [30, 45] as [number, number], newcomerMgh: [160, 200] as [number, number],
+      newcomerRate: -0.08, respectedRate: 0.04, newcomerBaseDays: [30, 45] as [number, number], newcomerMgh: [160, 300] as [number, number],
       oddHours: 0.4, demandingDelay: 1.5, demandingPay: 1.5, respectedBaseDays: 210,
       /** v0.8 fix pack: a Newcomer without a widebody (fleet, held or pending): the odds of a job it can never fly (widebody, missing approval). */
       newcomerReach: 0.25,

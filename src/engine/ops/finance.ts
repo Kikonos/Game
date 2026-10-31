@@ -8,8 +8,9 @@ import { pushMessage } from '../core/messages';
 import { cardMeta, cashLowCard, cashNegativeCard, invoiceOverdueCard, postProblem } from '../problems';
 import { requestPause } from '../core/pause';
 import { typeOf } from '../core/perf';
-import { DAY, daysInMonth, fmtDay, fmtMonth, monthKey, monthStart } from '../core/time';
-import type { GameState, Minute, MonthKey, MonthStatement, SimEvent } from '../core/types';
+import { DAY, daysInMonth, fmtDay, fmtMonth, monthKey, monthStart, yearOf } from '../core/time';
+import { ageFactor } from '../../data/acmiTypes';
+import type { Aircraft, GameState, Minute, MonthKey, MonthStatement, SimEvent } from '../core/types';
 import { joinsAt, paidShare } from '../crew';
 import { brokerCut } from '../contracts/accept';
 import { mghFor, wetMonthLines } from '../contracts/billing';
@@ -67,6 +68,23 @@ function rentOf(g: GameState, ac: GameState['fleet'][string], k: MonthKey, leave
   return rent;
 }
 
+/** v0.14 the hull part of a month's insurance on an agreed value (BAL.insurance: a lower rate on value above `tier`). Pure. */
+export function hullMonth(value: number): number {
+  const I = BAL.insurance;
+  return (I.hull * Math.min(value, I.tier) + I.hullAbove * Math.max(0, value - I.tier)) / 12;
+}
+
+/**
+ * v0.14 an aircraft's insurance for a whole month: its type's mid-life all-in figure (data/acmiTypes insuranceMonth) with
+ * the hull part moved to the airframe's value at its age (the market's age factor), so an old jet costs a little less
+ * to insure and a new one a little more; liability stays (it follows the seats). Pure.
+ */
+export function insuranceOf(g: GameState, ac: Pick<Aircraft, 'typeId' | 'builtYear'>): number {
+  const t = typeOf(ac.typeId);
+  const age = Math.max(0, yearOf(g.now) - ac.builtYear);
+  return Math.round(t.insuranceMonth + hullMonth(t.valueUsed * ageFactor(age)) - hullMonth(t.valueUsed));
+}
+
 /** Fixed monthly costs of month k: rent, insurance, overhead (each fleet aircraft pro-rated to its days). */
 export function fixedCosts(g: GameState, k: MonthKey): { rent: number; insurance: number; overhead: number } {
   let rent = 0;
@@ -78,7 +96,7 @@ export function fixedCosts(g: GameState, k: MonthKey): { rent: number; insurance
     if (s <= 0) continue;
     n += s;
     // v0.8 a dry lease out: the lessee insures the airframe; our rent and overhead keep running (v0.12.1 by days).
-    insurance += typeOf(ac.typeId).insuranceMonth * Math.max(0, s - leasedOutShare(g, ac, k));
+    insurance += insuranceOf(g, ac) * Math.max(0, s - leasedOutShare(g, ac, k));
   }
   return { rent: Math.round(rent), insurance: Math.round(insurance), overhead: Math.round(BAL.overheadBase + BAL.overheadPerAircraft * n) };
 }
@@ -94,7 +112,7 @@ export function settleDeparture(g: GameState, ac: GameState['fleet'][string], le
   const rent = rentOf(g, ac, k, leaveAt);
   if (rent > 0) post(g, 'rent', -Math.round(rent));
   if (s <= 0) return;
-  const ins = typeOf(ac.typeId).insuranceMonth * Math.max(0, s - leasedOutShare(g, ac, k, leaveAt));
+  const ins = insuranceOf(g, ac) * Math.max(0, s - leasedOutShare(g, ac, k, leaveAt));
   if (ins > 0) post(g, 'insurance', -Math.round(ins));
   post(g, 'overhead', -Math.round(BAL.overheadPerAircraft * s));
 }

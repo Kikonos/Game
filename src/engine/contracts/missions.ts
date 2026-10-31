@@ -3,7 +3,7 @@
 // capacity leases (the exclusive reward), rivals hiring us (sub-charter in) and dry leases out. Builders return a
 // Draft for offers.ts finalize; dry leases build their own offer (no flying of ours but the ferries).
 
-import { ACMI_TYPES } from '../../data/acmiTypes';
+import { ACMI_TYPES, rentForAge } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE, AIRPORTS, type Airport } from '../../data/airports';
 import { fliesFamily } from '../../data/naming';
 import { nextHajj } from '../../data/worldCalendar';
@@ -16,9 +16,9 @@ import { pushMessage } from '../core/messages';
 import { blockMinutes, complement, etopsCap, maxSectorNm, planSector, typeOf, usableRangeNm } from '../core/perf';
 import { schedule } from '../core/queue';
 import { chance, int, next, pick, range, weightedPick } from '../core/rng';
-import { DAY, fmtDay, fromUTC, toDate } from '../core/time';
+import { DAY, fmtDay, fromUTC, toDate, yearOf } from '../core/time';
 import type { CabinLayout } from '../../data/acmiTypes';
-import type { Archetype, ApprovalId, Client, ContractOffer, GameState, LegTemplate, Minute, Requirements, Rival } from '../core/types';
+import type { Aircraft, Archetype, ApprovalId, Client, ContractOffer, GameState, LegTemplate, Minute, Requirements, Rival } from '../core/types';
 import { segIndex } from '../ops/market';
 import { isDisruptive, LIMITS, nightsIn } from '../crew/rules';
 import { dutyNeed } from '../crew/duties';
@@ -496,7 +496,8 @@ function capacityLease(ctx: Ctx): Draft | null {
   const fam = wide ? 'widebody' : d.req.families?.[0] === 'B737' ? '737' : 'A320';
   d.archetype = 'capacityLease';
   d.mult = V.arch.capacity;
-  d.mghPerMonth = wide ? 280 : 220;
+  // v0.14 a widebody capacity lease guarantees 330 BH (was 280: under the 300 of any widebody wet lease now).
+  d.mghPerMonth = wide ? 330 : 220;
   if (d.pattern.kind === 'base') d.pattern.targetBH = Math.round(d.mghPerMonth * 1.15);
   const mon = (t: Minute) => fmtDay(t).replace(/^\d+ /, '');
   d.title = `Capacity lease: one ${fam} for ${d.client.name}, ${mon(d.start)}–${mon(d.end)}`;
@@ -925,10 +926,10 @@ export function rollRepeat(g: GameState, contractId: string): ContractOffer | nu
 
 // ---------- dry lease out (§6.1) ----------
 
-/** Market rent of a type (dry), index-adjusted. */
-const rentOf = (g: GameState, typeId: string, r: { rng: number }) => {
-  const t = ACMI_TYPES[typeId];
-  return Math.round((t.rentMonth * segIndex(g, t.body === 'wide' ? 'wide' : 'narrow') * range(r, 0.95, 1.1)) / 1000) * 1000;
+/** Market rent of an airframe (dry), index-adjusted; v0.14 by its age as the market leases one in (rentForAge; was the mid-life rent at any age). */
+const rentOf = (g: GameState, ac: Aircraft, r: { rng: number }) => {
+  const t = ACMI_TYPES[ac.typeId];
+  return Math.round((rentForAge(t, Math.max(0, yearOf(g.now) - ac.builtYear)) * segIndex(g, t.body === 'wide' ? 'wide' : 'narrow') * range(r, 0.95, 1.1)) / 1000) * 1000;
 };
 
 /** Airline clients outside our home market (and outside Europe) that could take the aircraft at their base. */
@@ -970,7 +971,7 @@ export function makeDryLeaseOffer(g: GameState, w?: IdleWindow, clientId?: strin
   const months = int(r, lo, Math.min(hi, maxMonths));
   const end = start + Math.round(months * 30.44) * DAY;
   if (ac.ownership.kind === 'dryLeaseIn' && ac.ownership.leaseEnd < end + 30 * DAY) return null;
-  const rent = rentOf(g, ac.typeId, r);
+  const rent = rentOf(g, ac, r);
   const reserves = wide ? D.reserves.wide : D.reserves.narrow;
   const fh = wide ? D.fh.wide : D.fh.narrow;
   const consent = ac.ownership.kind === 'dryLeaseIn' ? (wide ? D.consent.wide : D.consent.narrow) : 0;
