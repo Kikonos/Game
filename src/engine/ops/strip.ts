@@ -3,15 +3,16 @@
 import { DAY, dayStart } from '../core/time';
 import type { GameState, Minute } from '../core/types';
 import { crewAway } from '../crew/away';
+import { delayOf, onTimeLeg } from './latePolicy';
 import { isRevenue } from './util';
 
 export interface OpsStripFacts {
   /** Aircraft in the air, of the fleet on the AOC (not delivering / stored / leased out). */
   airborne: number;
   fleet: number;
-  /** The next departure of our own aircraft. */
-  next: { flightId: string; no: string; from: string; to: string; dep: Minute; aircraftId: string | null } | null;
-  /** Revenue legs landed since 00:00 UTC and those on time (≤ 15 min late off blocks); null before the first landing. */
+  /** The next departure of our own aircraft: v0.12.1 its expected off-blocks (std + delay) and minutes behind schedule. */
+  next: { flightId: string; no: string; from: string; to: string; dep: Minute; late: number; aircraftId: string | null } | null;
+  /** Revenue legs landed since 00:00 UTC and those on time (≤ 15 min late off blocks against the schedule); null before the first landing. */
   onTime: { landed: number; onTime: number } | null;
   crewOnDuty: number;
   crewAtHotels: number;
@@ -35,12 +36,15 @@ export function opsStripFacts(g: GameState): OpsStripFacts {
   let onTime = 0;
   for (const f of Object.values(g.flights)) {
     if (f.kind === 'deadhead' || !f.aircraftId) continue;
-    if (f.status === 'scheduled' && f.std >= g.now && f.std < g.now + 2 * DAY && (!next || f.std < next.dep || (f.std === next.dep && f.id < next.flightId))) {
-      next = { flightId: f.id, no: f.no, from: f.from, to: f.to, dep: f.std, aircraftId: f.aircraftId };
+    // v0.12.1 a held leg is next at its expected time, not dropped once its old time has passed.
+    const dep = f.std + f.delay;
+    if (f.status === 'scheduled' && dep >= g.now && dep < g.now + 2 * DAY && (!next || dep < next.dep || (dep === next.dep && f.id < next.flightId))) {
+      next = { flightId: f.id, no: f.no, from: f.from, to: f.to, dep, late: delayOf(f), aircraftId: f.aircraftId };
     }
     if (f.status === 'done' && isRevenue(f) && (f.ata ?? f.sta) >= today && (f.ata ?? f.sta) <= g.now) {
       landed++;
-      if ((f.atd ?? f.std) - f.std <= 15) onTime++;
+      // v0.12.1 against the schedule, not the moved time (a leg moved 2 h and flown on it was late).
+      if (onTimeLeg(f)) onTime++;
     }
   }
   aog.sort((a, b) => (a.reg < b.reg ? -1 : 1));

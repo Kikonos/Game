@@ -288,3 +288,14 @@ describe('v0.7.2 refits start straight away, at home base', () => {
     expect(restRefitOptions(g, b767.id).map((o) => o.id)).toEqual(['removeRecliners']);
   });
 });
+
+describe('v0.12.1 cabin wording', () => {
+  it('D17 "needs an all-economy cabin", "a two-class cabin"', async () => {
+    const { cabinBreak } = await import('./cabin');
+    const c = { total: 180, j: 12, w: 0, y: 168, layout: 'two-class', label: '12J 168Y' } as never;
+    const req = { minSeats: 150, layout: 'all-economy' } as never;
+    expect(cabinBreak(c, req)).toMatch(/^needs an all-economy cabin/);
+    const c2 = { total: 180, j: 0, w: 0, y: 180, layout: 'all-economy', label: '180Y' } as never;
+    expect(cabinBreak(c2, { minSeats: 150, layout: 'two-class' } as never)).toMatch(/^needs a two-class cabin/);
+  });
+});

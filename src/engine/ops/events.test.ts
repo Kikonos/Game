@@ -10,7 +10,7 @@ import type { Aircraft, Contract, Flight, GameState, Minute, Receivable, SimEven
 import { acceptOffer } from '../contracts';
 import { addAircraft, hamBase, leased, legsOffer, newGame, owned, run } from '../contracts/testkit';
 import { advanceTo } from '../sim';
-import { aogDecision, canAsk, changeRequestFor, clientFeeFor, crewShortDecision, latePaymentDecision, onDecisionExpire, paceDecisions, permitDelayFor, rescueDecision, resolveDecision, seasonNudge } from './events';
+import { aogDecision, canAsk, changeRequestFor, clientFeeFor, crewShortDecision, latePaymentDecision, moveForClient, onDecisionExpire, paceDecisions, permitDelayFor, rescueDecision, resolveDecision, seasonNudge } from './events';
 import { cancelCost, planHold, windowLegs } from './flights';
 import { startAog } from './maintenance';
 import { isRevenue, stats, turnOf } from './util';
@@ -461,10 +461,11 @@ describe('client change requests', () => {
     const legs = Object.values(g.flights).filter((f) => f.contractId === c.id && isRevenue(f)).sort((a, b) => a.std - b.std);
     expect(legs[0].asked?.min).toBe(DAY);
     stats(g).askedAt = [];
-    expect(changeRequestFor(g, c)).toBe(true);
-    const d = only(g, 'changeRequest');
-    const minutes = Number(d.data!.minutes);
-    resolveDecision(g, d.id, 'accept');
+    // v0.12.1 (D8) a leg the client has already moved is not asked about again; a later move of theirs (here
+    // directly) still re-bases it.
+    expect(changeRequestFor(g, c)).toBe(false);
+    const minutes = 120;
+    moveForClient(g, c, legs[0], minutes);
     // v0.12.1 the client's moves are their schedule now (re-based: no penalty, not late), said on the leg.
     expect(legs[0].std - legs[0].schedStd!).toBe(0);
     expect(legs[0].asked).toEqual({ min: DAY + minutes, by: g.clients[c.clientId].name });
@@ -517,5 +518,109 @@ describe('messages', () => {
     g.decisions.length = 0;
     aogDecision(g, ac, f, m);
     expect(only(g, 'aog').data!.maintId).toBe(m.id);
+  });
+});
+
+// ---------- v0.12.1 Round F lane D ----------
+
+describe('v0.12.1 decisions, client changes and AOG chips', () => {
+  it('D15 the AOG card says the repair cost once, in the body; no option adds it again; the result says when the card was wrong', () => {
+    const { g, m, d } = aog();
+    const cost = `$${Math.round(m.cost / 1000)}K`;
+    expect(d.body).toContain('whichever you choose');
+    for (const o of d.options) for (const chip of o.chips ?? []) expect(chip.replace('−', '')).not.toBe(cost);
+    expect(d.options.find((o) => o.id === 'team')!.chips!.some((c) => c.startsWith('Team '))).toBe(true);
+    // A card that said 3 legs while the hold now cancels another number says so.
+    d.data = { ...d.data, cutC: 3 };
+    const r = resolveDecision(g, d.id, 'courier');
+    expect(r.ok).toBe(true);
+    expect(r.ok && r.msg).toMatch(/the card said 3/);
+  });
+
+  it('D6 a decision posted straight to the inbox over the week budget is applied quietly: no chime, no pause, one note', async () => {
+    const { takeCueEvents } = await import('../core/cues');
+    const { clearPause, takePause } = await import('../core/pause');
+    const g = newGame(5);
+    stats(g).askedAt = Array.from({ length: BAL.maxDecisionsWeek }, () => g.now);
+    takeCueEvents();
+    clearPause();
+    const m0 = g.messages.length;
+    pushDecision(g, { kind: 'dev', title: 'Sample', body: 'A sample.', options: [{ id: 'a', label: 'Do A', desc: '' }], defaultOption: 'a', expires: g.now + 60 });
+    expect(g.decisions).toHaveLength(0);
+    expect(takePause()).toBeNull();
+    expect(takeCueEvents().some((c) => c.title?.startsWith('Decision:'))).toBe(false);
+    expect(g.messages.length).toBe(m0 + 1);
+    expect(g.messages[0].body).toContain('Operations chose: Do A');
+    // Under the budget it is asked as before.
+    stats(g).askedAt = [];
+    pushDecision(g, { kind: 'dev', title: 'Sample', body: 'A sample.', options: [{ id: 'a', label: 'Do A', desc: '' }], defaultOption: 'a', expires: g.now + 60 });
+    expect(g.decisions).toHaveLength(1);
+    expect(takePause()).toBe('decision');
+  });
+
+  it('D7 a client moving one charter of a weekly series by a day moves that trip only', () => {
+    const g = newGame(8);
+    const ac = leased(g);
+    const t0 = g.now + 4 * DAY;
+    const o = legsOffer(g, [0, 1, 2].flatMap((w) => [['LIS', 'FNC', t0 + w * 7 * DAY + 10 * 60], ['FNC', 'LIS', t0 + w * 7 * DAY + 15 * 60]] as [string, string, number][]));
+    const r = acceptOffer(g, o.id, [ac.id]);
+    if (!r.ok) throw new Error(r.error);
+    const c = g.contracts[r.data!.contractId];
+    g.clients[c.clientId].level = 'known';
+    stats(g).askedAt = [];
+    const legs = Object.values(g.flights).filter((f) => f.contractId === c.id && isRevenue(f)).sort((a, b) => a.std - b.std);
+    const std0 = legs.map((f) => f.std);
+    expect(clientFeeFor(g, c)).toBe(true);
+    expect(legs[0].std).toBe(std0[0] + DAY);
+    expect(legs[1].std).toBe(std0[1] + DAY);
+    for (const f of legs.slice(2)) {
+      expect(f.std).toBe(std0[legs.indexOf(f)]);
+      expect(f.schedStd ?? f.std).toBe(f.std);
+    }
+    // The card names the trip it moves.
+    expect(g.decisions.find((d) => d.kind === 'clientFee')?.title).toContain(legs[0].no);
+  });
+
+  it('D4 a client cancelling a wet rotation late keeps the hours on the MGH (no "we cancelled")', () => {
+    const { g, c } = baseGame(21);
+    g.clients[c.clientId].level = 'known';
+    let ok = false;
+    for (let i = 0; i < 48 && !ok; i++) {
+      stats(g).askedAt = [];
+      g.decisions.length = 0;
+      ok = clientFeeFor(g, c);
+      if (!ok) skip(g, g.now + 60);
+    }
+    expect(ok).toBe(true);
+    for (const u of Object.values(c.use)) {
+      expect(u.lostMin ?? 0).toBe(0);
+      expect(u.lostFmMin ?? 0).toBe(0);
+    }
+  });
+
+  it('D8 the late-group retime is never asked twice for the same flight', () => {
+    const g = newGame(8);
+    const ac = leased(g);
+    const t0 = g.now + 3 * DAY;
+    const o = legsOffer(g, [0, 1, 2].flatMap((w) => [['LIS', 'FNC', t0 + w * 2 * DAY + 10 * 60], ['FNC', 'LIS', t0 + w * 2 * DAY + 15 * 60]] as [string, string, number][]));
+    const r = acceptOffer(g, o.id, [ac.id]);
+    if (!r.ok) throw new Error(r.error);
+    const c = g.contracts[r.data!.contractId];
+    stats(g).askedAt = [];
+    expect(changeRequestFor(g, c)).toBe(true);
+    const d1 = only(g, 'changeRequest');
+    const f1 = String(d1.data!.flightId);
+    // While it is open, a second request picks another flight.
+    stats(g).askedAt = [];
+    if (changeRequestFor(g, c)) expect(g.decisions.filter((d) => d.kind === 'changeRequest').map((d) => d.data!.flightId)).not.toEqual([f1, f1]);
+    for (const d of g.decisions.filter((x) => x.kind === 'changeRequest' && x !== d1)) resolveDecision(g, d.id, 'decline');
+    resolveDecision(g, d1.id, 'accept');
+    for (let i = 0; i < 5; i++) {
+      stats(g).askedAt = [];
+      if (!changeRequestFor(g, c)) break;
+      const d = g.decisions.filter((x) => x.kind === 'changeRequest').pop()!;
+      expect(d.data!.flightId).not.toBe(f1);
+      resolveDecision(g, d.id, 'decline');
+    }
   });
 });

@@ -161,3 +161,31 @@ describe('performance and fit', () => {
     expect(complement('a35u', 161, { augment: 2 }).slice(0, 4)).toEqual(['CPT', 'CPT', 'FO', 'FO']);
   });
 });
+
+// ---------- v0.12.1 Round F lane D: dates and time zones ----------
+
+describe('v0.12.1 time zones and long dates', () => {
+  it('D14 Egypt keeps summer time (last Friday of April to the last Thursday of October); Tijuana follows the US change', async () => {
+    const { fromUTC, localOffset } = await import('./time');
+    expect(localOffset('HRG', fromUTC(2028, 7, 15))).toBe(180);
+    expect(localOffset('HRG', fromUTC(2028, 1, 15))).toBe(120);
+    // 2028: from 00:00 local on Fri 28 Apr to 24:00 local on Thu 26 Oct.
+    expect(localOffset('CAI', fromUTC(2028, 4, 27, 21, 59))).toBe(120);
+    expect(localOffset('CAI', fromUTC(2028, 4, 27, 22, 0))).toBe(180);
+    expect(localOffset('CAI', fromUTC(2028, 10, 26, 20, 59))).toBe(180);
+    expect(localOffset('CAI', fromUTC(2028, 10, 26, 21, 0))).toBe(120);
+    expect(localOffset('TIJ', fromUTC(2028, 7, 15))).toBe(-420);
+    expect(localOffset('TIJ', fromUTC(2028, 1, 15))).toBe(-480);
+    // The rest of Mexico has no summer time; Los Cabos is UTC−7.
+    expect(localOffset('MEX', fromUTC(2028, 7, 15))).toBe(-360);
+    expect(localOffset('SJD', fromUTC(2028, 7, 15))).toBe(-420);
+  });
+
+  it('D13 a date in another year, or far off, carries its year', async () => {
+    const { fmtDayRel, fmtWeekdayTime, fromUTC } = await import('./time');
+    expect(fmtDayRel(fromUTC(2028, 11, 28), fromUTC(2027, 11, 18))).toBe('28 Nov 2028');
+    expect(fmtDayRel(fromUTC(2027, 12, 2), fromUTC(2027, 11, 18))).toBe('2 Dec');
+    expect(fmtDayRel(fromUTC(2028, 1, 2), fromUTC(2027, 12, 20))).toBe('2 Jan 2028');
+    expect(fmtWeekdayTime(fromUTC(2027, 10, 29, 7, 20))).toBe('Fri 07:20');
+  });
+});

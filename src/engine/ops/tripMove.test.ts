@@ -119,6 +119,10 @@ describe('quoteTripMove', () => {
     expect(q.crewOff.length + q.crewOn.length).toBeGreaterThan(0);
     expect(q.sourceFree).toMatch(new RegExp(`^${b.reg} is free at DUB`));
     expect(q.notes.some((n) => n.startsWith(`${a.reg} flies empty LIS–DUB`))).toBe(true);
+    // v0.12.1 D17 'Crew: 2 off, none on', never '1 come off, 0 go on'.
+    const crew = q.notes.find((n) => n.startsWith('Crew: '))!;
+    expect(crew).not.toMatch(/come off|go on|\b0\b/);
+    expect(crew).toBe(`Crew: ${q.crewOff.length || 'none'} off, ${q.crewOn.length || 'none'} on.`);
   });
 
   it('refuses an overlap with the target’s own flying, in plain words', () => {

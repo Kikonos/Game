@@ -86,6 +86,8 @@ describe('(a) closures: an airport the event leaves open, the permit out, the de
     const { c, fl } = trip(g, ac.id, [['MLA', 'MJI', t], ['MJI', 'MLA', t + 4 * 60]]);
     const e = startEvent(g, { ...TPL_BY_ID.warLibya, closeP: 1 });
     c.eventId = e.id;
+    // v0.12.1 permits are for rescue work (evacuation, repatriation, relief, medical).
+    c.archetype = 'evacuation';
     flown(g, fl[0].id);
     cancelFlight(g, fl[1]);
     const out = addFlight(g, { no: 'BLU9001', aircraftId: ac.id, contractId: null, kind: 'positioning', from: 'MJI', to: 'MLA', std: fl[0].sta + 3 * 60, sta: fl[0].sta + 4 * 60 });

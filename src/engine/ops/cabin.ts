@@ -430,7 +430,9 @@ export function cabinBreak(c: Cabin, req: Pick<Requirements, 'minSeats' | 'maxSe
   if (c.total < req.minSeats) return `needs ${req.minSeats}+ seats (refit gives ${c.total})`;
   if (req.maxSeats && c.total > req.maxSeats) return `wants at most ${req.maxSeats} seats (refit gives ${c.total})`;
   const ls = layoutsOf(req);
-  if (ls && !ls.includes(c.layout)) return `needs a ${ls.map(layoutName).join(' or ')} cabin (refit gives ${c.label})`;
+  // v0.12.1 'an all-economy cabin' (the article follows the first word).
+  const names = ls?.map(layoutName).join(' or ') ?? '';
+  if (ls && !ls.includes(c.layout)) return `needs ${/^[aeiou]/i.test(names) ? 'an' : 'a'} ${names} cabin (refit gives ${c.label})`;
   if (req.minPremium && c.j + c.w < req.minPremium) return `needs ${req.minPremium}+ premium seats (refit gives ${c.j + c.w})`;
   return null;
 }

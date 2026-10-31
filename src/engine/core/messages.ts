@@ -28,10 +28,21 @@ export function setDecisionHook(f: ((g: GameState, d: Decision) => boolean) | nu
   decisionHook = f;
 }
 
+/**
+ * v0.12.1 ops/events.ts pacing: a decision posted straight here (crew's sick call, a lease notice) is offered to the
+ * week's question budget first; true = over it, operations applied the default (one quiet inbox note), so it never
+ * chimes, toasts "Decision: …" or pauses the clock for a card that is already gone.
+ */
+let paceHook: ((g: GameState, d: Decision) => boolean) | null = null;
+export function setPaceHook(f: ((g: GameState, d: Decision) => boolean) | null): void {
+  paceHook = f;
+}
+
 /** Adds a decision, queues its expiry (default option applies) and asks the clock to pause. */
 export function pushDecision(g: GameState, d: Omit<Decision, 'id' | 't'>): Decision {
   const dec: Decision = { id: nextId(g, 'd'), t: g.now, ...d };
   if (decisionHook?.(g, dec)) return dec;
+  if (!dec.data?.paced && paceHook?.(g, dec)) return dec;
   cue(cueOfDecision(dec), { title: `Decision: ${dec.title}`, body: dec.body, tone: 'warn' });
   g.decisions.push(dec);
   schedule(g, dec.expires, 'decision.expire', dec.id);

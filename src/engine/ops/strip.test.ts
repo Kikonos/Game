@@ -64,3 +64,28 @@ describe('opsStripFacts (F8)', () => {
     expect(opsStripFacts(g).aog).toEqual([{ aircraftId: ac.id, reg: ac.reg, at: ac.at }]);
   });
 });
+
+describe('v0.12.1 the strip reads the real times', () => {
+  it('D9 a held leg is next at std + delay with its lateness; a leg moved and flown on the new time is not on time', () => {
+    const g = newGame(5);
+    demoFlights(g, undefined, 3, 'revenue');
+    const legs = Object.values(g.flights).filter((f) => f.status === 'scheduled' && f.aircraftId && f.kind !== 'deadhead').sort((x, y) => x.std - y.std);
+    const [a, b] = legs;
+    g.now = a.std + 10;
+    a.delay = 30;
+    b.std = Math.max(b.std, g.now + 60);
+    const x = opsStripFacts(g);
+    expect(x.next?.flightId).toBe(a.id);
+    expect(x.next?.dep).toBe(a.std + 30);
+    expect(x.next?.late).toBe(30);
+    // Flown on its moved time two hours behind schedule: late, not on time.
+    a.status = 'done';
+    a.schedStd = a.std - 120;
+    a.atd = a.std + a.delay;
+    a.ata = a.atd + a.block;
+    g.now = a.ata + 1;
+    const y = opsStripFacts(g);
+    expect(y.onTime?.landed).toBeGreaterThanOrEqual(1);
+    expect(y.onTime!.onTime).toBe(y.onTime!.landed - 1);
+  });
+});

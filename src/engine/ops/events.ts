@@ -9,8 +9,8 @@ import type { RatingFamily } from '../../data/acmiTypes';
 import { BAL } from '../core/balance';
 import { addFlight, flightsOf, reassignFlights } from '../core/entities';
 import { cashOnly, invoice, post } from '../core/ledger';
-import { pushDecision, pushMessage } from '../core/messages';
-import { isolatePauses } from '../core/pause';
+import { pushDecision, pushMessage, setPaceHook } from '../core/messages';
+import { dropPause, isolatePauses } from '../core/pause';
 import { blockMinutes, canFill, complement, reportMinutes, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { chance, int, pick, range } from '../core/rng';
@@ -24,7 +24,8 @@ import { calledNow } from '../crew/standby';
 import { type IssueCode } from '../crew/rules';
 import { dhBlock, OUT_CONNECT, outTicket, segsOf } from '../crew/timeline';
 import { distance } from '../core/geo';
-import { applyHold, cancelCost, cancelLegs, clientMoved, crewBlocked, delayChain, delayOf, liveOver, moveFlight, noticeText, pickRival, planHold, planRecovery, rivalFactor, stationOf, subcharterCost, subcharterLegs, subHit, windowLegs, type SubHit } from './flights';
+import { applyHold, cancelCost, cancelLegs, clientMoved, crewBlocked, delayChain, delayOf, liveOver, moveFlight, noticeText, pickRival, planHold, planRecovery, rivalFactor, settleOverlaps, stationOf, subcharterCost, subcharterLegs, subHit, unitOf, windowLegs, type SubHit } from './flights';
+import { excusedLate, latePenalty } from './latePolicy';
 import { setAogEnd } from './maintenance';
 import { ticketBlock } from './commercial';
 import { bumpReliable, contractOf, isRevenue, stats, turnOf, usd } from './util';
@@ -121,8 +122,22 @@ export function paceDecisions(g: GameState): void {
     }
     g.decisions.splice(g.decisions.indexOf(d), 1);
     autoApply(g, d);
+    // v0.12.1 its pause request goes with it, unless another card posted this minute still wants the clock stopped.
+    if (!g.decisions.some((x) => x.t === g.now)) dropPause('decision');
   }
 }
+
+// v0.12.1 the same budget, applied the moment a decision is posted straight to the inbox (messages.ts pushDecision):
+// over it, the default is applied before any chime, toast or pause.
+setPaceHook((g, d) => {
+  d.data = { ...d.data, paced: true };
+  if (g.decisions.length < BAL.maxOpenDecisions && recentAsks(g).length < BAL.maxDecisionsWeek - 1) {
+    recentAsks(g).push(d.t);
+    return false;
+  }
+  autoApply(g, d);
+  return true;
+});
 
 // ---------- AOG ----------
 
@@ -186,8 +201,9 @@ export function aogDecision(g: GameState, ac: Aircraft, f: Flight, m: Maintenanc
   const swap = findSwap(g, ac, win, m.at);
   const hrs = (t: Minute) => `~${fmtDuration(t - g.now)}`;
   const options: DecisionOption[] = [
-    { id: 'courier', label: 'Wait for the part', desc: `A spare comes by courier. Legs wait; base legs held over ${BAL.holdMax / 60} h are cancelled.`, tone: 'warn', chips: [hrs(m.end), usd(-m.cost), ...holdChips(g, holdC)] },
-    { id: 'team', label: 'Fly in an AOG team', desc: 'Engineers and the part on the next flight: faster, dearer.', tone: 'warn', chips: [hrs(teamEnd), usd(-(m.cost + teamCost)), ...holdChips(g, holdT)] },
+    // v0.12.1 the repair is paid whatever we choose (said once in the body): the chips show only what each option adds.
+    { id: 'courier', label: 'Wait for the part', desc: `A spare comes by courier. Legs wait; base legs held over ${BAL.holdMax / 60} h are cancelled.`, tone: 'warn', chips: [hrs(m.end), ...holdChips(g, holdC)] },
+    { id: 'team', label: 'Fly in an AOG team', desc: 'Engineers and the part on the next flight: faster, dearer.', tone: 'warn', chips: [hrs(teamEnd), `Team ${usd(-teamCost)}`, ...holdChips(g, holdT)] },
     swap
       ? { id: 'swap', label: `Swap in ${swap.ac.reg}`, desc: swap.from === m.at ? `${swap.ac.reg} is here and free: it takes over the legs.` : `${swap.ac.reg} ferries ${swap.from}–${m.at} and takes over the legs.`, tone: 'good', chips: [swap.from === m.at ? 'No ferry' : `Ferry ${fmtDuration(blockMinutes(swap.ac.typeId, swap.from, m.at))}`, `First leg ${fmtTime(swap.moves[0]?.std ?? swap.arrive)} UTC`, legsChip(win)] }
       : { id: 'swap', label: 'Swap aircraft', desc: 'No other aircraft of this type is free to take over now.', tone: 'bad', chips: ['Unavailable'] },
@@ -199,10 +215,16 @@ export function aogDecision(g: GameState, ac: Aircraft, f: Flight, m: Maintenanc
   const def = waitPen > 0 && sub < waitPen ? 'subcharter' : 'courier';
   ask(g, {
     kind: 'aog', title: `AOG: ${ac.reg} at ${city(m.at)}`,
-    body: `${m.cause}. ${f.no} ${f.from}–${f.to} can't leave. With a part by courier the aircraft is back in about ${Math.round((m.end - g.now) / 60)} h.`,
+    body: `${m.cause}. ${f.no} ${f.from}–${f.to} can't leave. With a part by courier the aircraft is back in about ${Math.round((m.end - g.now) / 60)} h. The repair costs about ${usd(m.cost)} whichever you choose.`,
     options, defaultOption: def, expires: g.now + BAL.aogDecisionMin, ref: { kind: 'aircraft', id: ac.id },
-    data: { aircraftId: ac.id, maintId: m.id, flightId: f.id, teamEnd, teamCost, factor, rivalId },
+    data: { aircraftId: ac.id, maintId: m.id, flightId: f.id, teamEnd, teamCost, factor, rivalId, cutC: revCount(holdC.cancels), cutT: revCount(holdT.cancels) },
   }, true);
+}
+
+/** v0.12.1 the card's count of cancelled legs no longer holds (the schedule changed since): the result says what happened. */
+function changedText(n: number, data: Data | undefined, key: string): string {
+  if (data?.[key] === undefined || num(data, key) === n) return '';
+  return n ? `. ${plural(n, 'leg')} cancelled after all (the card said ${num(data, key)})` : `. No leg had to be cancelled (the card said ${num(data, key)})`;
 }
 
 function resolveAog(g: GameState, d: Decision, opt: string): ActionResult {
@@ -211,16 +233,22 @@ function resolveAog(g: GameState, d: Decision, opt: string): ActionResult {
   if (!ac || !m || m.status !== 'inWork') return { ok: true, msg: 'The aircraft is already fixed' };
   const fix = () => m.end + 30;
   switch (opt) {
-    case 'courier':
+    case 'courier': {
       m.fix = 'courier';
-      applyHold(g, planHold(g, ac, m.at, fix()), 'AOG: waiting for parts');
-      return { ok: true, msg: `${ac.reg}: part on its way, back about ${fmtDateTime(m.end)}` };
-    case 'team':
+      const h = planHold(g, ac, m.at, fix());
+      const said = changedText(revCount(h.cancels), d.data, 'cutC');
+      applyHold(g, h, 'AOG: waiting for parts');
+      return { ok: true, msg: `${ac.reg}: part on its way, back about ${fmtDateTime(m.end)}${said}` };
+    }
+    case 'team': {
       m.fix = 'team';
       setAogEnd(g, m, num(d.data, 'teamEnd'));
       m.cost += num(d.data, 'teamCost');
-      applyHold(g, planHold(g, ac, m.at, fix()), 'AOG: engineering team');
-      return { ok: true, msg: `AOG team flying to ${city(m.at)}, ${ac.reg} back about ${fmtDateTime(m.end)}` };
+      const h = planHold(g, ac, m.at, fix());
+      const said = changedText(revCount(h.cancels), d.data, 'cutT');
+      applyHold(g, h, 'AOG: engineering team');
+      return { ok: true, msg: `AOG team flying to ${city(m.at)}, ${ac.reg} back about ${fmtDateTime(m.end)}${said}` };
+    }
     case 'swap': {
       const win = windowLegs(g, ac, m.at, fix());
       const sw = findSwap(g, ac, win, m.at);
@@ -733,10 +761,15 @@ function extraRotation(g: GameState, c: Contract): boolean {
 }
 
 function retimeRequest(g: GameState, c: Contract): boolean {
-  const f = Object.values(g.flights)
-    .filter((x) => x.contractId === c.id && x.status === 'scheduled' && x.kind === 'revenue' && x.aircraftId && x.std >= g.now + 2 * DAY)
-    .sort((a, b) => a.std - b.std)[0];
-  if (!f) return false;
+  // v0.12.1 a leg they have not already moved, nor one with a request open, 2–10 days out, picked on a side stream
+  // (the same flight was asked again four days later and the retimes stacked).
+  const asked = new Set(g.decisions.filter((d) => d.kind === 'changeRequest').map((d) => str(d.data, 'flightId')));
+  const pool = Object.values(g.flights)
+    .filter((x) => x.contractId === c.id && x.status === 'scheduled' && x.kind === 'revenue' && x.aircraftId && x.std >= g.now + 2 * DAY && x.std <= g.now + 10 * DAY)
+    .filter((x) => !x.asked && !x.delayReason?.startsWith("Client's request") && !asked.has(x.id))
+    .sort((a, b) => a.std - b.std || a.id.localeCompare(b.id));
+  if (!pool.length) return false;
+  const f = pick({ rng: hash(`${g.seed}:retime:${c.id}:${Math.floor(g.now / DAY)}`) | 0 }, pool);
   const min = pick(g, [60, 90, 120, 180]);
   const fee = int(g, 15, 50) * 100;
   const cl = g.clients[c.clientId];
@@ -795,8 +828,8 @@ export function moveForClient(g: GameState, c: Contract, f: Flight, min: number)
     else if (x.delayReason?.startsWith("Client's request")) x.delayReason = 'Late inbound aircraft';
     if (x === f || !isRevenue(x)) continue;
     const late = delayOf(x);
-    const vip = k?.requirements.standards === 'vip';
-    const pen = own || !k || late <= (vip ? 30 : 180) || k.product.kind !== 'charter' ? 0 : k.penalties.perDelay * (vip ? 3 : 1);
+    // v0.12.1 the late-leg rule in one place (latePolicy): not ours, or within the limit, costs nothing.
+    const pen = own || !k ? 0 : latePenalty(k, x, excusedLate(x)).money;
     out.push({ id, no: x.no, client: who, own, late: own ? shift : late, pen });
   }
   return out;
@@ -941,7 +974,9 @@ export function seasonNudge(g: GameState): boolean {
 /**
  * A Known+ client cancels a rotation within 12 h (its slot, crew or passenger problem) or moves a charter a day;
  * the contract allows a late-change fee: bill it (relation −1) or waive it (+4, default for Trusted and Partner).
- * The legs go as force majeure (off the month's MGH, no reliability effect).
+ * v0.12.1 their cancellation is theirs: no compensation and no reliability effect, and the hours they guaranteed stay
+ * on the month's MGH (they still pay them; the invoice never says "we cancelled"). A moved charter moves alone:
+ * that trip, not the rest of the series.
  */
 export function clientFeeFor(g: GameState, c: Contract): boolean {
   const cl = g.clients[c.clientId];
@@ -963,17 +998,29 @@ export function clientFeeFor(g: GameState, c: Contract): boolean {
     if (!f || !back) return false;
     legs = [f, back];
     what = `cancels ${f.no}/${back.no.slice(-2)} ${f.from}–${f.to}–${back.to}`;
-    cancelForceMajeure(g, legs, `${cl.name} cancelled`);
+    cancelForceMajeure(g, legs, `${cl.name} cancelled`, { client: true });
   } else {
     const f = mine.find((x) => x.std > g.now + 2 * DAY && x.std <= g.now + 10 * DAY);
-    if (!f) return false;
-    legs = mine.filter((x) => x.std >= f.std);
-    what = `moves ${f.no} ${f.from}–${f.to} by a day`;
+    const fac = f?.aircraftId ? g.fleet[f.aircraftId] : undefined;
+    if (!f || !fac) return false;
+    // v0.12.1 the trip f starts (its legs of this job until the aircraft is back), not every later leg of the series.
+    legs = unitOf(g, fac, f).filter((x) => x.contractId === c.id && isRevenue(x));
+    if (!legs.includes(f)) legs = [f];
+    const nos = legs.length > 1 ? `${f.no}–${legs[legs.length - 1].no.slice(-2)} ${[f.from, ...legs.map((x) => x.to)].join('–')}` : `${f.no} ${f.from}–${f.to}`;
+    what = `moves ${nos} by a day`;
+    const before = new Map(flightsOf(g, fac.id).filter((x) => x.status === 'scheduled').map((x) => [x, x.std] as const));
     for (const x of [...legs].reverse()) {
       // v0.9 round 3: the day the client moved it is not lateness of ours (recovery's cap counts on top of it).
       // v0.12.1 nor a delay we pay for: the schedule moves with it (it paid the delay penalty at departure).
       moveFlight(g, x, x.std + DAY, 'Client request');
       clientMoved(x, DAY, cl.name);
+    }
+    // v0.12.1 a leg the moved trip now runs into follows it; theirs re-based like the trip, another client's is our delay.
+    settleOverlaps(g, fac);
+    for (const [x, std] of before) {
+      if (legs.includes(x) || x.std <= std) continue;
+      const k = contractOf(g, x);
+      if (k?.clientId === c.clientId) clientMoved(x, x.std - std, cl.name);
     }
   }
   const why = pick(r, ['their crew shortage', 'a slot problem at their end', 'their passengers were rebooked', 'a change in their programme']);
