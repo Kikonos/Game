@@ -341,7 +341,14 @@ function dropTickets(g: GameState, p: Pairing, crewId: string): void {
       const f = g.flights[fid];
       if (!f || f.status !== 'scheduled' || !aboard(f, crewId)) continue;
       // v0.12.1 a ticket that has left (it stays 'scheduled' until it lands) carries them on: they are aboard.
-      if (f.kind === 'deadhead' && f.std <= g.now) continue;
+      if (f.kind === 'deadhead' && f.std <= g.now) {
+        // v0.12.1 (review) one out to where the trip no longer starts (its first legs sub-chartered while they flew) is
+        // theirs alone now, a loose ticket: their timeline lands them there and the plan goes on from it (seed 1: crew
+        // on PER–SGN got a PER–MAA ticket and a hotel standby in Perth while they were landing in Saigon).
+        const dep = g.flights[d.flightIds[0]]?.from ?? d.restAt;
+        if (f.sta <= d.report && f.to !== dep) d.deadheadIds = d.deadheadIds.filter((x) => x !== fid);
+        continue;
+      }
       if (unboard(g, f, crewId)) d.deadheadIds = d.deadheadIds.filter((x) => x !== fid);
     }
   }
@@ -467,6 +474,9 @@ export function closureTickets(g: GameState, shut: (code: string, t: Minute) => 
     } else sendHome(g, c);
   }
   if (stuck.length) recheckNext(g, stuck, p);
+  // v0.12.1 (review) a dropped ticket other duties listed too (crew of two trips on one booking) leaves none of them
+  // pointing at it (S1118 at load: 'duty du1rmr lists missing ticket f1sig').
+  forgetGoneTickets(g);
   return hit.length;
 }
 

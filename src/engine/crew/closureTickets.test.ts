@@ -7,6 +7,7 @@ import { newGame } from '../contracts/testkit';
 import { TPL_BY_ID } from '../../data/worldEvents';
 import { addDeadhead } from '../core/entities';
 import { DAY } from '../core/time';
+import type { Duty } from '../core/types';
 import { closedAirport, closedUntil, startEvent } from '../ops/world';
 import { crewIx, dhBlock } from './timeline';
 
@@ -25,4 +26,21 @@ describe('a ticket home through a long closure (v0.12.1 review)', () => {
     for (const f of mine) expect(closedAirport(g, f.from, f.std) || closedAirport(g, f.to, f.sta)).toBeNull();
     expect(mine.some((f) => f.from === 'MAD' && f.std >= closedUntil(e))).toBe(true);
   });
+
+  // v0.12.1 (review) S1118 at load: 'duty du1rmr lists missing ticket f1sig': a dropped ticket another duty listed too.
+  it('leaves no duty listing a ticket it dropped', () => {
+    const g = newGame(3);
+    const ix = crewIx(g);
+    const c = Object.values(g.crew).find((x) => !(ix.pairingsOf.get(x.id) ?? []).length && x.status !== 'onDuty')!;
+    c.loc = 'MAD';
+    const std = Math.ceil((g.now + 6 * 60) / 60) * 60;
+    const t = addDeadhead(g, { crewIds: [c.id], from: 'MAD', to: c.base, std, sta: std + dhBlock('MAD', c.base), cost: 0 });
+    // Another trip's duty lists the same booking (two trips' crew on one ticket).
+    const d = { id: 'duX', pairingId: 'pX', report: std + DAY, release: std + DAY + 600, flightIds: [], deadheadIds: [t.id], sectors: 0, fdp: 0, maxFdp: 0, augment: 0, restAt: 'MAD', legality: 'legal', ev: 0, flightsEv: 0 } as Duty;
+    g.duties[d.id] = d;
+    startEvent(g, { ...TPL_BY_ID.airspaceIraq, id: 'madClosed', kind: 'strike', at: 'MAD', country: 'ES', zoneId: undefined, closeP: 0, airportDays: [6, 6], days: [6, 6], title: 'Strike closes Madrid', body: '' });
+    expect(g.flights[t.id]).toBeUndefined();
+    for (const x of Object.values(g.duties)) expect(x.deadheadIds.every((id) => g.flights[id])).toBe(true);
+  });
 });
+
