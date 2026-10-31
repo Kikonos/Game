@@ -116,6 +116,12 @@ export const BAL = {
   holdMax: 360,
   /** Trips (charters, rotations) run at most this late before recovery cancels a leg (minutes). */
   tripHoldMax: 1440,
+  /**
+   * v0.12.1 an evacuation, a repatriation, a relief or medical flight waits a day longer before recovery or crew control
+   * drops it (a ministry would rather its citizens leave late than not at all): its lateness cap and the window in
+   * which a delay that gets a legal crew always beats a cancellation (minutes).
+   */
+  missionHoldExtra: 1440,
   /** Rival price for sub-chartered legs × contract rate (RESEARCH §4.3, §5.7). */
   subcharterFactor: [1.2, 2.0] as [number, number],
   /** A-check calendar limit (days); auto-planning starts at this share used or this many days before due. */
@@ -249,8 +255,19 @@ export const BAL = {
   refit: {
     /** v0.7.2: 0, a refit starts as soon as the aircraft is free (at home base). */
     leadDays: 0,
-    nb: { 'all-economy': [2, 30_000], 'two-class': [2, 40_000], vip: [21, 1_600_000] } as Record<string, [number, number]>,
-    wb: { 'all-economy': [2, 80_000], 'two-class': [2, 95_000], 'three-class': [3, 140_000], vip: [28, 4_000_000] } as Record<string, [number, number]>,
+    nb: { 'all-economy': [2, 30_000], 'two-class': [2, 40_000] } as Record<string, [number, number]>,
+    wb: { 'all-economy': [2, 80_000], 'two-class': [2, 95_000], 'three-class': [3, 140_000] } as Record<string, [number, number]>,
+    /**
+     * v0.12.1 the VIP cabin (new premium seats) scales with the seats installed (was a flat 21 days / $1.6M narrow,
+     * 28 days / $4M wide, whatever the layout). Per seat installed: a narrowbody recliner business seat $25–35K, a
+     * widebody lie-flat $70–100K (seat, track and PSU work, wiring, dressing); fixed: engineering, the LOPA, weight and
+     * balance and the authority's approval (about $120K narrow, $300K wide); days: 5 + 1 per 6 seats narrow, 10 + 1 per
+     * 4 wide. Taking them out again is a quick reconfiguration (the table above). RESEARCH.md §13.
+     */
+    premium: {
+      nb: { seat: 30_000, engineering: 120_000, baseDays: 5, seatsPerDay: 6 },
+      wb: { seat: 85_000, engineering: 300_000, baseDays: 10, seatsPerDay: 4 },
+    },
   },
   /** v0.7.4 client cabin requests (CabinTerms): chances by archetype and term, required share, client share weights, decline cut, change back. */
   clientCabin: {

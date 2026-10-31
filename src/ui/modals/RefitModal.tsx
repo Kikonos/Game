@@ -14,7 +14,7 @@ import { flightsOf, flightsRev } from '../../engine/core/entities';
 import { route } from '../../engine/contracts/plan';
 import { etopsCap, typeOf } from '../../engine/core/perf';
 import { DAY, HOUR, dayStart, fmtDay, fmtDuration, fmtTime, toDate } from '../../engine/core/time';
-import { bookRefit, bookRestRefit, cabinOptions, cancelCheck, refitKindText, refitQuote, refitSlots, refitStations, refitTerms, restRefitOptions, restRefitQuote, type RefitQuote, type RestRefitOption } from '../../engine/ops';
+import { bookRefit, bookRestRefit, cabinOptions, cancelCheck, refitKindText, refitQuote, refitSlots, refitStations, refitTerms, restRefitOptions, twoClassInstead, restRefitQuote, type RefitQuote, type RestRefitOption } from '../../engine/ops';
 import { longestDay, restOf, restShort, restText } from '../../engine/crew';
 import { longestDetail, restTerm } from '../components/RestLines';
 import { REST_FIT_LABEL } from '../screens/Fleet';
@@ -162,6 +162,13 @@ export function RefitModal({ aircraftId, layout, offerId, rest, restOption, afte
   // A C-check add-on with a check already booked: it can still be ticked there (the dialog applies it at once).
   const canBook = noRest ? false : viaCheck ? !!ropt?.ok : q.ok;
   const now = restOf(g, aircraftId);
+  // v0.12.1 the VIP retrofit picked while a two-class cabin (2 days, tens of thousands) meets the need: say so. The need
+  // is the offer this was opened from, else the signed work on the aircraft that wants premium seats.
+  const sel = presets.find((p) => p.label === label);
+  const offer = offerId ? g.offers[offerId] : undefined;
+  const work = offer ? [{ title: offer.title, req: offer.requirements }] : Object.values(g.contracts).filter((c) => (c.status === 'signed' || c.status === 'active') && c.aircraftIds.includes(aircraftId) && c.requirements.minPremium).map((c) => ({ title: c.title, req: c.requirements }));
+  const cheaper = sel?.layout === 'vip' && ac.cabin.layout !== 'two-class' && work.every((w) => twoClassInstead(ac.typeId, w.req)) ? twoClassInstead(ac.typeId) : null;
+  const need = work.find((w) => w.req.minPremium)?.title;
   return (
     <Modal size="wide" className="rf-modal" title={`${mode === 'rest' ? 'Crew rest' : 'Cabin refit'} · ${ac.reg}`} icon={mode === 'rest' ? <BedDouble className="accent" /> : <Sofa className="accent" />} onClose={close} footer={
       <>
@@ -179,7 +186,7 @@ export function RefitModal({ aircraftId, layout, offerId, rest, restOption, afte
               <div className="cv-chips">
                 {presets.map((p) => {
                   const cur = p.label === ac.cabin.label;
-                  const tm = refitTerms(ac.typeId, p.layout);
+                  const tm = refitTerms(ac.typeId, p.layout, p);
                   return (
                     <button key={p.label} className={`cv-chip rf-chip ${p.label === label ? 'on' : ''} ${cur ? 'off' : ''}`} onClick={() => { setLabel(p.label); reset(); }} aria-pressed={p.label === label}>
                       <b>{p.label}</b>
@@ -282,9 +289,12 @@ export function RefitModal({ aircraftId, layout, offerId, rest, restOption, afte
               </>
             )}
             {q.ferryIn.length > 0 && <div className="row between small"><span className="muted">Ferry in</span><span className="num">{q.ferryIn.map((l) => `${l.from}–${l.to}`).join(', ')} {fmtDay(q.ferryIn[0].std)}</span></div>}
+            {/* v0.12.1 a premium retrofit's breakdown: seats × price, engineering, days by the seats. */}
+            {mode === 'cabin' && q.parts?.map((x) => <div key={x} className="small muted rf-part">{x}</div>)}
             <div className="row between"><b>Cost</b><b className="num">{noRest ? '–' : money(viaCheck ? ropt?.cost ?? 0 : q.cost)}</b></div>
             <div className="small dim">{viaCheck ? 'Paid with the check.' : 'Paid when the work starts. Free to cancel until then.'}</div>
           </div>
+          {mode === 'cabin' && cheaper && <div className="small rf-why"><b>Only need business seats?</b> {cheaper.label} two-class: European business with the middle seat blocked, no new seats. {cheaper.days * 24} h, {money(cheaper.cost)}{need ? `, enough for ${need}` : ''}.</div>}
           {mode === 'rest' && <div className="small muted">Seats used for crew rest are blocked only on flights where someone rests in them; every other flight sells them.</div>}
           {viaCheck && ropt?.ok && <div className="small"><span className="good">{ropt.opens}</span></div>}
           {!viaCheck && (q.opens.length > 0 || q.closes.length > 0) && (

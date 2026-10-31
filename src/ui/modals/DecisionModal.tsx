@@ -42,7 +42,9 @@ export function DecisionModal({ decisionId }: { decisionId?: string }) {
   // v0.7.1: the card behind the decision (its flight / aircraft / contract, else the decision itself).
   const flightId = d.kind === 'crewShort' && typeof d.data?.flightId === 'string' ? d.data.flightId : null;
   // v0.11 an operations disruption carries its own four lines (and a map when an airport is to be chosen).
-  const card = isDisruption(d) ? disruptionCard(g, d) : (flightId ? problemAt(g, { kind: 'flight', id: flightId }) : null) ?? (d.ref ? problemAt(g, d.ref) : null) ?? problemAt(g, { kind: 'decision', id: d.id });
+  // v0.12.1 a client's change request is its own card (its flight's crew card read "BLU1631 has no crew" over it).
+  const own = d.kind === 'changeRequest' ? problemAt(g, { kind: 'decision', id: d.id }) : null;
+  const card = isDisruption(d) ? disruptionCard(g, d) : own ?? (flightId ? problemAt(g, { kind: 'flight', id: flightId }) : null) ?? (d.ref ? problemAt(g, d.ref) : null) ?? problemAt(g, { kind: 'decision', id: d.id });
   const dspec = divSpec(g, d);
   const crewControl = () => {
     // Never over the decision: it is set aside (Inbox / pause badge bring it back) and Crew Control opens.

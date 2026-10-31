@@ -40,6 +40,7 @@ import { achievementProgress, setHeadUnlockHook } from './achievements';
 import { applyDecisionOption, crewReadyAt, setReceivableHook } from './events';
 import { cancelCheck, checkCostOf, checkStatus, nextPlanned, planA, suggestC } from './maintenance';
 import { usd } from './util';
+import { closedAirport } from './world';
 
 const H = () => BAL.v09.heads;
 
@@ -286,9 +287,34 @@ export function dismissProposal(g: GameState, id: HeadId, proposalId: string): A
   return { ok: true, msg: `Dismissed until ${fmtDay(until)}` };
 }
 
+/** v0.12.1 load: ferry-home proposals a planned way out has overtaken are withdrawn. */
+export function dropMootFerries(g: GameState): void {
+  for (const h of Object.values(g.heads ?? {})) h.proposals = h.proposals.filter((p) => !(p.kind === 'ferryHome' && ferryMoot(g, p)));
+}
+
+/** v0.12.1 a ferry-home proposal overtaken: the aircraft is gone or home, or a way out is planned now. */
+function ferryMoot(g: GameState, p: HeadProposal): boolean {
+  const ac = g.fleet[String(p.data.aircraftId)];
+  return !ac || ac.at === String(p.data.to) || ac.at !== String(p.data.at) || moveOutPlanned(g, ac);
+}
+
+/** v0.12.1 an empty move out of where the aircraft is on the ground (a ferry or positioning) is planned already. */
+export function moveOutPlanned(g: GameState, ac: Aircraft): boolean {
+  return !ac.flightId && flightsOf(g, ac.id).some((f) => f.status === 'scheduled' && f.from === ac.at && (f.kind === 'ferry' || f.kind === 'positioning'));
+}
+
 function runProposal(g: GameState, p: HeadProposal): ActionResult {
   switch (p.kind) {
-    case 'ferryHome':
+    case 'ferryHome': {
+      // v0.12.1 accepting works or says why: a way home planned since (the schedule's own) is kept, not doubled.
+      const ac = g.fleet[String(p.data.aircraftId)];
+      if (!ac) return { ok: false, error: 'Aircraft not found' };
+      if (ac.at === String(p.data.to)) return { ok: true, msg: `${ac.reg} is home already` };
+      const out = moveOutPlanned(g, ac) ? flightsOf(g, ac.id).find((f) => f.status === 'scheduled' && f.from === ac.at) : undefined;
+      if (out) return { ok: true, msg: `${ac.reg} already leaves ${ac.at}: ${out.no} ${out.from}–${out.to} ${fmtDay(out.std)} ${fmtTime(out.std)}` };
+      const r = ferryAircraft(g, ac.id, String(p.data.to));
+      return r.ok ? { ok: true, msg: r.msg } : r;
+    }
     case 'position': {
       const r = ferryAircraft(g, String(p.data.aircraftId), String(p.data.to), typeof p.data.arriveBy === 'number' ? p.data.arriveBy : undefined, p.data.contractId ? String(p.data.contractId) : undefined);
       return r.ok ? { ok: true, msg: r.msg } : r;
@@ -505,7 +531,7 @@ export function dailyHeads(g: GameState): void {
     } else if (h.firedAt !== undefined && g.now >= h.firedAt + H().rehireDays * DAY && !h.candidates?.length) {
       h.candidates = rollCandidates(g, h.id, Math.floor(h.firedAt));
     }
-    h.proposals = h.proposals.filter((p) => p.expires > g.now && !(p.kind === 'cSlot' && nextPlanned(g, String(p.data.aircraftId), 'C')));
+    h.proposals = h.proposals.filter((p) => p.expires > g.now && !(p.kind === 'cSlot' && nextPlanned(g, String(p.data.aircraftId), 'C')) && !(p.kind === 'ferryHome' && ferryMoot(g, p)));
   }
   acting = true;
   try {
@@ -729,6 +755,9 @@ function fleetPlanner(g: GameState): void {
     if (!(g.now - last >= F.idleH * 60)) continue;
     if (fs.some((f) => f.status === 'scheduled' && f.std < g.now + F.freeH * 60)) continue;
     if (Object.values(g.maintenance).some((m) => m.aircraftId === ac.id && m.status !== 'done' && m.status !== 'cancelled' && m.start < g.now + F.freeH * 60)) continue;
+    // v0.12.1 one way home: none when a ferry or positioning out is planned already (held or not), nor while the
+    // airport is closed (a ferry there could not leave either). Ana proposed CS-TTL's ferry home three times.
+    if (moveOutPlanned(g, ac) || closedAirport(g, ac.at)) continue;
     const blk = emptyBlock(ac.typeId, ac.at, home);
     if (!blk) continue;
     let cost = legsCost(g, ac.typeId, [{ std: 0, sta: blk }]);

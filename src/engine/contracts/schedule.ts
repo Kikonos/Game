@@ -153,6 +153,18 @@ function crewFree(g: GameState, aircraftId: string, X: string, earliest: Minute)
 
 const live = (g: GameState, id: string | null) => !!id && (g.contracts[id]?.status === 'signed' || g.contracts[id]?.status === 'active');
 
+/**
+ * v0.12.1 the aircraft is on the ground at X after its last leg of a job whose later legs out of X were cancelled (a
+ * crew shortage, a client's cancellation): nothing would take it home (CS-TTL sat at Port Sudan for a month). Pure.
+ */
+export function stranded(g: GameState, aircraftId: string, X: string): boolean {
+  let last: Flight | undefined;
+  for (const f of flightsOf(g, aircraftId)) if (f.status === 'done' && f.kind !== 'deadhead' && (!last || f.std >= last.std)) last = f;
+  if (!last || last.to !== X || !last.contractId) return false;
+  const k = last.contractId;
+  return flightsOf(g, aircraftId).some((f) => f.status === 'cancelled' && f.contractId === k && f.from === X && f.std >= last!.std);
+}
+
 /** Positioning lead before a commitment: the evening before a deployment, a turn plus slack before a charter. */
 function leadFor(g: GameState, b: Anchor, turn: number): number {
   const c = b.contractId ? g.contracts[b.contractId] : undefined;
@@ -269,8 +281,9 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     const held = legs.reduce((m, l) => ((l.crewTries ?? 0) > 0 && l.status === 'scheduled' ? Math.max(m, l.std) : m), -Infinity);
     const earliest = Math.max(a.kind === 'start' ? a.sta : a.sta + turn, held);
     if (!b) {
-      // End gap: after a live contract's last leg, go home.
-      const wantHome = live(g, a.contractId) && X !== home && a.kind !== 'maint';
+      // End gap: after a live contract's last leg, go home. v0.12.1 also when the aircraft was stranded (the rest of
+      // its job, the legs that would have taken it away, cancelled): one way home, at once (crewFree).
+      const wantHome = (live(g, a.contractId) || (a.kind === 'start' && stranded(g, aircraftId, X))) && X !== home && a.kind !== 'maint';
       if (legs.length ? chainOk(legs, X, null, earliest) && chainSane(typeId, legs, X, null, home, false, cap) : !wantHome) continue;
       replacing(legs);
       if (wantHome) {
@@ -281,7 +294,10 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     }
     const Y = b.from;
     const sameBase = !!a.contractId && a.contractId === b.contractId && g.contracts[a.contractId]?.pattern.kind === 'base';
-    const allowHop = a.kind !== 'maint' && b.kind !== 'maint' && !sameBase;
+    // v0.12.1 never a hop home and back before an empty move of its own (a ferry home held at X): the out-and-back
+    // PZU–LIS–PZU planned around CS-TTL's ferry home (two planners each bringing the aircraft home).
+    const emptyNext = b.kind === 'flight' && (g.flights[b.id]?.kind === 'ferry' || g.flights[b.id]?.kind === 'positioning');
+    const allowHop = a.kind !== 'maint' && b.kind !== 'maint' && !sameBase && !emptyNext;
     const latest = b.std - turn;
     const hop = X === Y ? gapMoves(typeId, X, Y, crewFree(g, aircraftId, X, earliest), latest, home, allowHop, cap) : null;
     if (X === Y && !legs.length && !hop?.length) continue;

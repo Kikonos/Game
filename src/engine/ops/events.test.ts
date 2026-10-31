@@ -459,14 +459,15 @@ describe('client change requests', () => {
     stats(g).askedAt = [];
     expect(clientFeeFor(g, c)).toBe(true);
     const legs = Object.values(g.flights).filter((f) => f.contractId === c.id && isRevenue(f)).sort((a, b) => a.std - b.std);
-    expect(legs[0].std - legs[0].schedStd!).toBe(DAY);
+    expect(legs[0].asked?.min).toBe(DAY);
     stats(g).askedAt = [];
     expect(changeRequestFor(g, c)).toBe(true);
     const d = only(g, 'changeRequest');
     const minutes = Number(d.data!.minutes);
     resolveDecision(g, d.id, 'accept');
-    expect(legs[0].std - legs[0].schedStd!).toBe(DAY + minutes);
-    expect(legs[0].lateOk).toBeGreaterThanOrEqual(DAY + minutes);
+    // v0.12.1 the client's moves are their schedule now (re-based: no penalty, not late), said on the leg.
+    expect(legs[0].std - legs[0].schedStd!).toBe(0);
+    expect(legs[0].asked).toEqual({ min: DAY + minutes, by: g.clients[c.clientId].name });
     run(g, legs[1].sta + 6 * 60);
     expect(legs.map((f) => f.status)).toEqual(['done', 'done']);
   });

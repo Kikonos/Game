@@ -821,6 +821,8 @@ export interface Flight {
   ops?: DisruptKind;
   /** v0.11 one cabin crew short under ORO.CC.100 (unforeseen: fewer passengers, a report to the authority). */
   reducedCabin?: number;
+  /** v0.12.1 moved later at its client's own request (minutes, by whom): the schedule moved with it (no penalty, not late). */
+  asked?: { min: number; by: string };
 }
 
 /** v0.11 the live disruption cards (ops/disrupt.ts). */
