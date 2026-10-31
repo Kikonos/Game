@@ -3,19 +3,24 @@
 // and plain notes; everything from quoteMaintMove (previewed on a copy: exactly what the move does).
 
 import { CalendarClock, Plane, TriangleAlert } from 'lucide-react';
-import { fmtDay, fmtTime } from '../../engine/core/time';
-import { maintWord, moveMaint, quoteMaintMove } from '../../engine/ops/maintMove';
+import { fmtDayRel, fmtTime } from '../../engine/core/time';
+import { maintWord, movableMaint, moveMaint, quoteMaintMove } from '../../engine/ops/maintMove';
 import { Modal } from '../components/ui';
 import { store, useGame } from '../store';
 
-const when = (t: number) => `${fmtDay(t)} ${fmtTime(t)}`;
 
 export function MaintMoveModal({ maintId, start }: { maintId: string; start: number }) {
   const g = useGame();
   const close = () => store.closeModal();
+  // v0.12.1 a check moved into next year says so.
+  const fmtDay = (t: number) => fmtDayRel(t, g.now);
+  const when = (t: number) => `${fmtDay(t)} ${fmtTime(t)}`;
   const m = g.maintenance[maintId];
   const ac = m ? g.fleet[m.aircraftId] : undefined;
   if (!m || !ac) return <Modal title="Move" onClose={close}><p className="muted">This booking is no longer in the schedule.</p></Modal>;
+  // v0.12.1 a booking that can't move (client paint) says why and nothing else (no 'same price ()' line).
+  const mv = movableMaint(g, maintId);
+  if (!mv.ok) return <Modal title={`Move ${maintWord(m)}`} icon={<CalendarClock className="accent" />} onClose={close}><p className="muted">{mv.reason}</p></Modal>;
   const q = quoteMaintMove(g, maintId, start);
   const what = maintWord(m);
   const refit = m.kind === 'refit';
@@ -41,7 +46,7 @@ export function MaintMoveModal({ maintId, start }: { maintId: string; start: num
             <span className="small">{q.level === 'bad' ? 'overdue by then: not allowed' : q.level === 'warn' ? 'close to the limit' : 'well within the interval'}</span>
           </div>
         ) : (
-          <div className="mm-usage good"><b>{ac.reg} out of service {Math.round((q.end - q.start) / 1440)} days</b><span className="small">{m.restFit ? 'same crew rest work, same price' : `same layout, same price (${m.refit?.cabin.label ?? ''})`}</span></div>
+          <div className="mm-usage good"><b>{ac.reg} out of service {Math.round((q.end - q.start) / 1440)} days</b><span className="small">{m.restFit ? 'same crew rest work, same price' : m.refit?.cabin.label ? `same layout, same price (${m.refit.cabin.label})` : 'same work, same price'}</span></div>
         )}
         {!q.ok && (
           <div className="tm-verdict blocked"><b><TriangleAlert /> Can't move it there</b><span className="small">{q.reason}</span></div>

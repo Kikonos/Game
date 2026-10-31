@@ -8,7 +8,7 @@ import { artFor } from '../../data/acmiTypes';
 import { enginesOf, variantOf } from '../../data/variants';
 import { MRO_STATIONS } from '../../data/market';
 import { cabinCrewSeats, cabinMinimum, typeOf } from '../../engine/core/perf';
-import { DAY, fmtDate, fmtDay, yearOf } from '../../engine/core/time';
+import { DAY, fmtDate, fmtDay, fmtDayRel, yearOf } from '../../engine/core/time';
 import type { Aircraft, CrewExtra, GameState, LiveryRef, MaintenanceEvent } from '../../engine/core/types';
 import { crewAlertKind, crewExtraQuote, extraCabinMax, restOf, setCrewExtra, shortFlights } from '../../engine/crew';
 import { cancelCheck, checkStatus, deliveryStatus, dryLeaseOf, etopsLine, leastUsed, type LeastUsedRow, leaseView, NAME_MAX, paintStatus, renameAircraft, restRefitOptions, setAircraftLivery } from '../../engine/ops';
@@ -142,7 +142,7 @@ export const REST_FIT_LABEL: Record<NonNullable<MaintenanceEvent['restFit']>, st
 function DryLeaseRow({ g, acId }: { g: GameState; acId: string }) {
   const v = dryLeaseOf(g, acId);
   if (!v) return null;
-  const when = v.phase === 'signed' || v.phase === 'delivering' ? `delivery ${fmtDay(v.out[0])}, back ${fmtDay(v.lease[1])}` : `until ${fmtDay(v.lease[1])} · ${v.fhSoFar.toLocaleString('en-US')} FH flown by them`;
+  const when = v.phase === 'signed' || v.phase === 'delivering' ? `delivery ${fmtDay(v.out[0])}, back ${fmtDayRel(v.lease[1], g.now)}` : `until ${fmtDayRel(v.lease[1], g.now)} · ${v.fhSoFar.toLocaleString('en-US')} FH flown by them`;
   return (
     <button className="fl-row small v8-fleet-lease" onClick={() => store.openModal({ kind: 'sheet', refs: [{ kind: 'contract', id: v.contractId }] })}>
       <span className="upper dim">Dry lease</span>
