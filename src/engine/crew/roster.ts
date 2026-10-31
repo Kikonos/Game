@@ -10,7 +10,7 @@ import { canFill, complement, typeOf } from '../core/perf';
 import { DAY, fmtDateTime, monthKey } from '../core/time';
 import type { ActionResult, CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing, Role } from '../core/types';
 import { acceptable, crewIds, crewIssuesFor, crewKey, mergeSegs, openDuties, otherTrip, overForAnyone, planCrew, type CrewPlan } from './check';
-import { deletePairing, dutyLegality, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setCrewTakeHook, setCrewTrailOkHook, setDropBuyBackHook, setReleaseHook, setRetickHook, splitPairing, splitUnderWay, syncDuty } from './duties';
+import { deletePairing, dropGoneCrew, dutyLegality, unboardGone, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setCrewTakeHook, setCrewTrailOkHook, setDropBuyBackHook, setReleaseHook, setRetickHook, splitPairing, splitUnderWay, syncDuty } from './duties';
 import { crewName } from './generate';
 import { callIfOnStandby, dropStandby, standbyFor, callFromStandby } from './standby';
 import { applyBuyBack, buyBackFor, buyBackMode, undoBuyBack, type BuyBack } from './buyBack';
@@ -616,17 +616,23 @@ function sendHome(g: GameState, c: CrewMember, p?: Pairing, force = false): void
   }
   // v0.9 fix: a ticket home landing past the 168 h since the last recovery rest (positioning is duty) waits for that
   // recovery at the hotel first (36 h with 2 local nights, 60 h after 4 disruptive duties: ORO.FTL.235(d)).
-  if (std + blk > recoveryAnchor(ctx, segs, std - ci) + LIMITS.recoveryEvery) {
-    for (let t = std; t < std + 4 * DAY; t += 60) {
-      if (recoveryAnchor(ctx, segs, t - ci) < t - ci) continue;
-      std = t;
-      break;
-    }
-  }
+  const recOk = (t: Minute) => t + blk <= recoveryAnchor(ctx, segs, t - ci) + LIMITS.recoveryEvery;
+  const afterRecovery = (from: Minute): Minute => {
+    for (let t = from; t < from + 4 * DAY; t += 60) if (recoveryAnchor(ctx, segs, t - ci) >= t - ci) return t;
+    return from;
+  };
+  if (!recOk(std)) std = afterRecovery(std);
   // v0.12.1 only a seat that exists (no closed airport, no landing in a night curfew).
   // v0.12.1 (review) none at all: nothing bought, they wait at the hotel (the daily run tries again).
-  const seat = slotAfter(g, c.loc, c.base, std, blk);
+  let seat = slotAfter(g, c.loc, c.base, std, blk);
   if (seat === null) return;
+  // v0.14 the first seat can be hours later than the hour checked (no departures in the night): judged again on the
+  // 168 h, and past it the recovery is taken at the hotel first (bot seed 1: Pablo López's ticket home was checked
+  // for 01:00 and booked for the 04:00 seat, landing 170:25 after his last recovery rest).
+  if (seat !== std && !recOk(seat)) {
+    seat = slotAfter(g, c.loc, c.base, afterRecovery(seat), blk);
+    if (seat === null) return;
+  }
   std = seat;
   // v0.12.1 forced (home before a leave): the ticket home they hold stands unless this one leaves at least an hour sooner.
   if (homeHeld.some((f) => f.std <= std + 60)) return;
@@ -690,15 +696,18 @@ export function rebookLooseTickets(g: GameState, only?: Set<string>): void {
       const fits = (std: Minute) => std + blk + RECOVERY_KEEP_POS <= recoveryAnchor(ctx, segs, std - ci) + LIMITS.recoveryEvery;
       if (fits(f.std)) continue;
       let std = Math.ceil((Math.max(g.now + ci, c.restUntil) + 60) / 60) * 60;
-      if (std >= f.std || !fits(std)) {
-        std = 0;
-        for (let t = f.std; t < f.std + 4 * DAY; t += 60) {
-          if (recoveryAnchor(ctx, segs, t - ci) < t - ci) continue;
-          std = t;
-          break;
-        }
+      const afterRecovery = (from: Minute): Minute => {
+        for (let t = from; t < from + 4 * DAY; t += 60) if (recoveryAnchor(ctx, segs, t - ci) >= t - ci) return t;
+        return 0;
+      };
+      if (std >= f.std || !fits(std)) std = afterRecovery(f.std);
+      // v0.14 only a seat that exists (as sendHome), judged again on the 168 h when it is later than the hour checked.
+      let seat = std ? slotAfter(g, f.from, f.to, std, blk) : null;
+      if (seat !== null && seat !== std && !fits(seat)) {
+        const t = afterRecovery(seat);
+        seat = t ? slotAfter(g, f.from, f.to, t, blk) : null;
       }
-      if (std) moves.set(std, [...(moves.get(std) ?? []), cid]);
+      if (seat !== null) moves.set(seat, [...(moves.get(seat) ?? []), cid]);
     }
     for (const [std, ids] of moves) {
       const { from, to, contractId } = f;
@@ -2258,6 +2267,61 @@ export function removeCrew(g: GameState, crewId: string, from: Minute, to: Minut
   for (const p of hit) if (g.pairings[p.id]) recheckPairing(g, p);
   res.uncovered = uncoveredOf(g, hit, g.now, Infinity);
   return res;
+}
+
+/**
+ * v0.14 leaving the company (their last day): off every seat with work still to fly, whatever the trip's status (a
+ * finished tour that grew again was 'done' and removeCrew passed it by: bot seeds 3 and 4), off every ticket and ride
+ * still to leave, and the seats re-crewed. The caller deletes the record.
+ */
+export function releaseLeaver(g: GameState, crewId: string): RosterResult {
+  const res = removeCrew(g, crewId, g.now, g.now + 3650 * DAY);
+  const left = Object.values(g.pairings).filter((p) => p.slots.some((s) => s.crewId === crewId) && openDuties(g, p).length > 0);
+  ownRelease = crewId;
+  try {
+    for (const p of left) {
+      if (p.status === 'done' || p.status === 'broken') p.status = p.dutyIds.some((id) => g.duties[id]?.done) ? 'active' : 'planned';
+      releaseCrew(g, p, crewId);
+    }
+  } finally {
+    ownRelease = null;
+  }
+  unboardGone(g, new Set([crewId]));
+  fillAll(g, left, res, new Set([crewId]));
+  for (const p of left) if (g.pairings[p.id]) recheckPairing(g, p);
+  return res;
+}
+
+/**
+ * v0.14 load repair (saves from bot seeds 3 and 4): a trip with work still to fly that is marked finished is live again,
+ * seats held by crew who have left are emptied, they come off flights, tickets and rides still to leave, and the
+ * emptied seats are re-crewed. Returns the pairings repaired.
+ */
+export function repairGoneCrew(g: GameState): Pairing[] {
+  const hit: Pairing[] = [];
+  const gone = new Set<string>();
+  for (const p of Object.values(g.pairings)) {
+    if (p.status === 'broken' || !p.dutyIds.some((id) => g.duties[id] && !g.duties[id].done && g.duties[id].release > g.now)) continue;
+    const ids = p.slots.filter((s) => s.crewId && !g.crew[s.crewId]).map((s) => s.crewId!);
+    const dead = p.status === 'done';
+    if (!ids.length && !dead) continue;
+    if (dead) p.status = 'active';
+    for (const id of ids) gone.add(id);
+    dropGoneCrew(g, p);
+    hit.push(p);
+  }
+  for (const f of Object.values(g.flights)) {
+    if (f.status !== 'scheduled') continue;
+    for (const id of [...f.crewIds, ...(f.riders ?? [])]) if (!g.crew[id]) gone.add(id);
+  }
+  if (gone.size) unboardGone(g, gone);
+  if (hit.length) {
+    for (const p of hit) setFlightsCrew(g, p);
+    fillAll(g, hit, emptyResult());
+    for (const p of hit) if (g.pairings[p.id]) recheckPairing(g, p);
+  }
+  if (hit.length || gone.size) touchCrew(g);
+  return hit;
 }
 
 /**

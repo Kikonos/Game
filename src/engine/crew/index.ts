@@ -12,7 +12,7 @@ import { afterDiversion, deletePairing, dutyLegality as dutyLevel, pairingSeats,
 export { aboveMinimum, afterDiversion, legalMinimum } from './duties';
 import { dailyPay, dailySickness, onCrewJoin, onTrainingDone } from './hr';
 import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, settleService, setResignHooks } from './morale';
-import { autoRoster, closedWait, recheckBuyBacks, guardDuty, homeBeforeLeave, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, removeCrew, sendStrandedHome, settleRides, splitOverlong, stayOn, forgetGoneTickets } from './roster';
+import { autoRoster, closedWait, recheckBuyBacks, guardDuty, homeBeforeLeave, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, releaseLeaver, removeCrew, repairGoneCrew, sendStrandedHome, settleRides, splitOverlong, stayOn, forgetGoneTickets } from './roster';
 import { localMin, minRest, signedTz, tzDeltaH, tzNights } from './rules';
 import { clipToRest, dailyStandby, noteRecovery } from './standby';
 import { dayPlanAfter, dayPlanBefore, dayPlanInit, dayPlanLoad, dayPlanMonth, v09Stats } from './dayPlan';
@@ -606,7 +606,8 @@ setResignHooks(
     removeCrew(g, c.id, c.notice!.leaves, c.notice!.leaves + 3650 * DAY);
   },
   (g, c) => {
-    removeCrew(g, c.id, g.now, g.now + 3650 * DAY);
+    // v0.14 off every seat, ticket and ride still to come (removeCrew alone passed finished tours that grew again).
+    releaseLeaver(g, c.id);
     g.training = g.training.filter((x) => x.crewId !== c.id);
     for (const k of Object.values(g.classes ?? {})) if (k.crewIds.includes(c.id) && k.status !== 'done') k.crewIds = k.crewIds.filter((x) => x !== c.id);
   },
@@ -669,6 +670,8 @@ export const crewModule: SimModule = {
     // v0.12.1 open duties no longer list rides on legs already gone (a relinked positioning leg removed with crew on it).
     for (const d of Object.values(g.duties)) if (!d.done && d.deadheadIds.some((id) => !g.flights[id])) d.deadheadIds = d.deadheadIds.filter((id) => g.flights[id]);
     repairCutStandby(g);
+    // v0.14 seats, tickets and rides still held by crew who have left (a finished tour that grew again kept them).
+    repairGoneCrew(g);
     repairDiverted(g);
     repairMixedTrips(g);
     // v0.12.1 (review) crew tickets through an airport closed now: dropped and re-planned.

@@ -2008,6 +2008,17 @@ function wideTiming(): void {
   }
 }
 
+let idProbeSig = '';
+function idProbe(g: GameState, id: string): void {
+  const ps = Object.values(g.pairings).filter((p) => p.slots.some((s) => s.crewId === id))
+    .map((p) => `${p.id}:${p.status}:${p.dutyIds.map((d) => (g.duties[d] ? `${fmtDateTime(g.duties[d].report)}/${g.duties[d].flightIds.map((f) => g.flights[f]?.no).join('+')}` : d)).join(',')}`).join(' ; ');
+  const fl = Object.values(g.flights).filter((f) => f.status !== 'done' && (f.crewIds.includes(id) || f.riders?.includes(id))).map((f) => `${f.no}${f.kind === 'deadhead' ? '(DH)' : ''}@${fmtDateTime(f.std)}`).join(' ');
+  const sig = `${!!g.crew[id]} ${ps} || ${fl}`;
+  if (sig === idProbeSig) return;
+  idProbeSig = sig;
+  console.error(`${fmtDateTime(g.now)} IDPROBE ${g.crew[id] ? `at ${g.crew[id].loc}` : 'gone'} ${ps} || ${fl}`);
+}
+
 function onStep(): void {
   if (process.env.PROG) console.error(`step ${fmtDateTime(g.now)}`);
   wideTiming();
@@ -2020,6 +2031,9 @@ function onStep(): void {
   }
   // Debugging: CREWPROBE=First_Last: that crew member's state, duties, tickets and standby whenever they change (stderr).
   if (process.env.CREWPROBE) crewProbe(g, process.env.CREWPROBE.replace(/_/g, ' '));
+  // Debugging (v0.14): IDPROBE=<crew id>: the pairings holding that id and the flights still to fly carrying it, whenever
+  // they change (stderr; also once the record is gone: crew who have left).
+  if (process.env.IDPROBE) idProbe(g, process.env.IDPROBE);
   INV?.observe(g);
   const m = mon(monthKey(g.now));
   if (WHYHELD) noteOffShare(g);
