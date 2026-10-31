@@ -250,12 +250,10 @@ export function dailyTrips(g: GameState): void {
 
 export const tripTitle = (t: SalesTrip): string => (t.kind === 'fair' ? FAIR_BY_ID[t.fairId ?? '']?.name ?? 'Trade fair' : `Visit to ${city(t.at)}`);
 
-/** The clients a fair's audience offers (airlines and tour operators of its countries; the v0.14 issuers added on first meeting). */
+/** The clients a fair's audience offers: airlines and tour operators (or its other kinds) of its countries, still flying. */
 function audience(g: GameState, f: Fair): Client[] {
   const inc = (country: string) => !f.countries.length || f.countries.includes(country);
-  if (f.meets.includes('airline')) for (const s of TENDER_CLIENT_SEEDS) if (inc(s.country) && !Object.values(g.clients).some((c) => c.name === s.name)) { /* met in person: added below when picked */ }
-  const out = Object.values(g.clients).filter((c) => !c.rivalId && f.meets.includes(c.kind) && inc(c.country) && AIRPORT_BY_CODE[c.base]);
-  return out;
+  return Object.values(g.clients).filter((c) => !c.rivalId && c.ceased === undefined && f.meets.includes(c.kind) && inc(c.country) && AIRPORT_BY_CODE[c.base]);
 }
 
 /** Back home: hotel and per diem, the clients met, the leads. */

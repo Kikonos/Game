@@ -12,7 +12,7 @@ import { money } from '../format';
 import { store } from '../store';
 
 const days = (t: number, now: number) => Math.max(0, Math.ceil((t - now) / DAY));
-const window = (t: TenderRow) => `${fmtDay(t.start)} – ${fmtDay(t.end - 1)}`;
+const span = (t: TenderRow) => `${fmtDay(t.start)} – ${fmtDay(t.end - 1)}`;
 
 /** The season line: the round open now, or when the next one opens. */
 export function seasonLine(now: number): string {
@@ -31,7 +31,7 @@ function Row({ g, t, kind }: { g: GameState; t: TenderRow; kind: 'open' | 'mine'
       <span className="v14-tn-ico">{kind === 'result' ? (t.status === 'won' ? <Trophy /> : <Gavel />) : kind === 'mine' ? <CalendarClock /> : <FileSignature />}</span>
       <span className="col grow" style={{ minWidth: 0, gap: 2 }}>
         <b className="ellipsis">{flag(t.country)} {t.client}{t.invited && <span className="chip v14-chip">Invitation</span>}</b>
-        <span className="small muted ellipsis">{t.base} · {window(t)} · {t.wanted}</span>
+        <span className="small muted ellipsis">{t.base} · {span(t)} · {t.wanted}</span>
         {kind === 'result' && t.result && (
           <span className={`small ellipsis ${t.status === 'won' ? 'good' : 'warn'}`}>{t.status === 'won' ? `Won: ${t.result.why}` : `${t.result.winnerName}: ${t.result.why}`}</span>
         )}
