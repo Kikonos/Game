@@ -526,3 +526,4 @@ Open question to player: schedule screenshot arrow = overlap (a) / use idle airc
 31 Oct (later): Round D DONE acmi 7043b0f. Player: "fix everything", opted into a workflow.
 Running at once: Round B agent in /home/user/wt/acmi (own-flight riding); Round E agent in /home/user/wt/roundE branch roundE (Port Sudan stranding, orphan legs, favour delays, refit pricing; save scratchpad/s1118);
 Bug-hunt workflow wf_6ff50ee1-ac7 (6 hunters in /home/user/wt/hunt-{move,crew,comm,money,events,ui} at 7043b0f → verify → fix-lane plan). Then: merge B+E into acmi, run fix lanes (workflow), re-verify, then Round C world tour. Nothing released since v0.12.
+Player (31 Oct): 'When you finish, push it to main.' → release authorised once rounds B, E, bug-hunt fixes (and world tour?) are done and verified. World tour (Round C) was queued after fixes; release after all finished.
