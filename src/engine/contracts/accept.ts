@@ -247,6 +247,24 @@ function signCrewExtra(g: GameState, c: Contract, aircraftId: string, x: CrewExt
 
 const tripMin = (t: { legs: { kind: string; std: number; sta: number }[] }) => t.legs.filter((l) => l.kind !== 'positioning').reduce((s, l) => s + l.sta - l.std, 0);
 
+/**
+ * v0.12.1 (review) the contract's passenger legs of each rotation, by first planned departure (a leg's schedStd, else
+ * its std: legs are made from the programme at its times): a leg falls in the last rotation begun by then (an hour of
+ * slack for a client's move earlier). Sorted by departure. Pure.
+ */
+function tripLegs(g: GameState, c: Contract, trips: { std: number }[]): Flight[][] {
+  const out: Flight[][] = trips.map(() => []);
+  for (const f of Object.values(g.flights)) {
+    if (f.contractId !== c.id || (f.kind !== 'revenue' && f.kind !== 'techstop')) continue;
+    const t0 = (f.schedStd ?? f.std) + 60;
+    let ix = -1;
+    for (let i = 0; i < trips.length; i++) if (trips[i].std <= t0) ix = i;
+    if (ix >= 0) out[ix].push(f);
+  }
+  for (const l of out) l.sort((a, b) => a.std - b.std);
+  return out;
+}
+
 /** Issues a deferred charter invoice (revenue is recognised as legs fly). */
 function bill(g: GameState, c: Contract, desc: string, amount: number): void {
   if (amount <= 0) return;
@@ -335,16 +353,28 @@ export function cancelPenalty(g: GameState, contractId: string): number {
     const value = g.now < c.start ? p.price : p.price * (1 - brokerCut(c));
     const trips = programmeOf(c, g.fleet[c.aircraftIds[0]]?.typeId ?? 'a320ceo').trips;
     const total = trips.reduce((s, t) => s + tripMin(t), 0) || 1;
-    let ahead = 0;
+    // v0.12.1 (review, COMM-S1) a rotation already begun is charged only for its legs still to fly: one over (flown, or
+    // its legs cancelled by us, compensation paid) costs nothing more. The old "value − earned − ahead" charged every
+    // past rotation that never flew in full again (S1118 Burgas: $279K for the 2 rotations ahead, worth $186K).
+    const legsOf = tripLegs(g, c, trips);
     let pen = 0;
-    for (const t of trips) {
-      if (t.std <= g.now) continue;
+    trips.forEach((t, i) => {
       const share = (value * tripMin(t)) / total;
-      ahead += share;
-      pen += share * cancelScale(c, (t.std - g.now) / DAY);
-    }
-    const underWay = Math.max(0, value - (c.accrued ?? 0) - ahead);
-    return Math.round(pen + underWay);
+      if (t.std > g.now) {
+        pen += share * cancelScale(c, (t.std - g.now) / DAY);
+        return;
+      }
+      const legs = legsOf[i];
+      const left = legs.filter((f) => f.status === 'scheduled' || f.status === 'enroute');
+      if (!left.length) return;
+      const leftMin = left.reduce((s, f) => s + f.block, 0);
+      // Not begun yet (its first leg late on the ground): a rotation ahead, at the scale for its real departure. (Legs
+      // flown over a week ago are pruned: a rotation missing legs has begun.)
+      const begun = legs.some((f) => f.status === 'done' || f.status === 'enroute') || legs.length < t.legs.filter((l) => l.kind !== 'positioning').length;
+      if (!begun) pen += share * cancelScale(c, Math.max(0, left[0].std - g.now) / DAY);
+      else pen += share * Math.min(1, leftMin / (tripMin(t) || 1));
+    });
+    return Math.round(pen);
   }
   if (g.now < c.start) {
     // v0.12.1 wet: the guaranteed hours over the term (Hajj: the phases only), as billing counts them.

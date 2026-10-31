@@ -456,3 +456,45 @@ describe('v0.12.1 cancelling a charter series: each rotation by its own notice',
     expect(Math.abs(pen - Math.round(want + Math.max(0, unflown - c.product.price * (1 - mins[0] / total))))).toBeLessThanOrEqual(2);
   });
 });
+
+describe('v0.12.1 (review, COMM-S1) a charter series cancelled: past rotations are never charged again', () => {
+  const series = (seed: number) => {
+    const g = newGame(seed);
+    const t = g.now + 2 * DAY;
+    const o = legsOffer(g, [['LIS', 'PMI', t], ['PMI', 'LIS', t + 300], ['LIS', 'PMI', t + 30 * DAY], ['PMI', 'LIS', t + 30 * DAY + 300], ['LIS', 'PMI', t + 60 * DAY], ['PMI', 'LIS', t + 60 * DAY + 300]]);
+    o.broker = undefined;
+    const res = acceptOffer(g, o.id, [owned(g).id]);
+    if (!res.ok) throw new Error(res.error);
+    const c = g.contracts[res.data!.contractId];
+    if (c.product.kind !== 'charter') throw new Error('charter');
+    const trips = programmeOf(c, owned(g).typeId).trips;
+    const mins = trips.map((x) => x.legs.filter((l) => l.kind !== 'positioning').reduce((s2, l) => s2 + l.sta - l.std, 0));
+    const total = mins.reduce((a, b) => a + b, 0);
+    const scale = (d: number) => c.penalties.cancelScale.find(([x]) => d >= x)?.[1] ?? 1;
+    const ahead = () => trips.reduce((s2, x, i) => (x.std > g.now ? s2 + c.product.price * (mins[i] / total) * scale((x.std - g.now) / DAY) : s2), 0);
+    const legs = Object.values(g.flights).filter((f) => f.contractId === c.id && f.kind === 'revenue').sort((a, b) => a.std - b.std);
+    return { g, c, t, trips, mins, total, ahead, legs };
+  };
+
+  it('a past rotation we cancelled (compensation paid) adds nothing: only the rotations ahead', () => {
+    const { g, c, t, ahead, legs } = series(44);
+    // The first rotation's two legs cancelled by us before they flew (crew), as BLU1205/1206 on S1118.
+    for (const f of legs.slice(0, 2)) f.status = 'cancelled';
+    run(g, t + DAY);
+    expect(c.accrued ?? 0).toBe(0);
+    expect(Math.abs(cancelPenalty(g, c.id) - Math.round(ahead()))).toBeLessThanOrEqual(2);
+  });
+
+  it('a rotation under way is charged for its legs still to fly only', () => {
+    const { g, c, t, trips, mins, total, ahead, legs } = series(44);
+    run(g, t + 200);
+    expect(legs[0].status).toBe('done');
+    expect(legs[1].status).toBe('scheduled');
+    const back = (trips[0].legs.filter((l) => l.kind !== 'positioning').at(-1)!);
+    const share = c.product.price * (mins[0] / total);
+    const want = ahead() + share * ((legs[1].block) / mins[0]);
+    expect(back.from).toBe('PMI');
+    expect(Math.abs(cancelPenalty(g, c.id) - Math.round(want))).toBeLessThanOrEqual(2);
+  });
+});
+
