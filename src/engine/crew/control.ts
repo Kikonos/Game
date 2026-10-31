@@ -350,7 +350,15 @@ export function lateChangeNote(g: GameState, f: Flight): string {
   }
   if (!lost || lost.t < f.std - 7 * DAY) {
     // A leg added or moved at short notice: nobody could have been planned for it earlier.
-    if (f.born !== undefined && f.born > f.std - 2 * DAY) return `Late change: this leg was only added on ${fmtDay(f.born)} at ${fmtTime(f.born)} UTC (a schedule change at short notice). `;
+    if (f.born !== undefined && f.born > f.std - 2 * DAY) {
+      const when = `${fmtDay(f.born)} at ${fmtTime(f.born)} UTC`;
+      // v0.12.1 (review) the real cause: the onward leg after a diversion, an empty leg planned again (not "a schedule
+      // change at short notice" for BT4062 after the diversion to Riga, or BLU1574 after the cancellations).
+      const div = f.contOf ? g.flights[f.contOf] : undefined;
+      if (div?.div) return `Late change: this is the onward leg after the diversion to ${city(f.from)}, added on ${when}. `;
+      if (f.kind === 'positioning' || f.kind === 'ferry') return `Late change: this empty leg was planned on ${when}, when the aircraft's schedule changed. `;
+      return `Late change: this leg was only added on ${when} (a new or moved job at short notice). `;
+    }
     const moved = f.schedStd !== undefined ? f.std + f.delay - f.schedStd : f.delay;
     // (Not a wait for crew: that is the shortage itself.)
     if (moved >= 60 && !/crew/i.test(f.delayReason ?? '')) return `Late change: ${f.delayReason ? f.delayReason.toLowerCase() : 'a delay'} moved it ${fmtDuration(moved)} later. `;
