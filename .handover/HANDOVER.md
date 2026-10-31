@@ -522,3 +522,7 @@ Pending reminders for the player: crew-sets UX 1–7 (rec. 1–4); repo rename t
 Round D running: 27 Oct save (scratchpad/s1027): Goma crew stripped by soft day-off rule, BLU1565 contradictory reason + dates on timeline, past tickets in swap preview, day-off buy-back (setting Auto/Ask/Never), toasts longer + pause + history, overlap check, hot&high calibration.
 Then Round B (crew ride own revenue flights, no seat cap beyond free seats) and Round C (TMR-style world tour: ~21 d from CDG, any widebody with business seats, same augmented crew + extra cabin crew, late game, AIRPORTS.filter(remote)).
 Open question to player: schedule screenshot arrow = overlap (a) / use idle aircraft (b) / both?
+
+31 Oct (later): Round D DONE acmi 7043b0f. Player: "fix everything", opted into a workflow.
+Running at once: Round B agent in /home/user/wt/acmi (own-flight riding); Round E agent in /home/user/wt/roundE branch roundE (Port Sudan stranding, orphan legs, favour delays, refit pricing; save scratchpad/s1118);
+Bug-hunt workflow wf_6ff50ee1-ac7 (6 hunters in /home/user/wt/hunt-{move,crew,comm,money,events,ui} at 7043b0f → verify → fix-lane plan). Then: merge B+E into acmi, run fix lanes (workflow), re-verify, then Round C world tour. Nothing released since v0.12.
