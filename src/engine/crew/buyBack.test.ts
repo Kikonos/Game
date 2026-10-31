@@ -3,7 +3,7 @@
 // home while the card blames 'your free captains are in Lisbon'; never the rest rules; once a month; the setting.
 
 import { describe, expect, it } from 'vitest';
-import { addFlight } from '../core/entities';
+import { addFlight, retimeFlight } from '../core/entities';
 import { takeCueEvents } from '../core/cues';
 import { DAY } from '../core/time';
 import type { BuyBackMode, GameState } from '../core/types';
@@ -13,8 +13,8 @@ import { applyCrewFix, crewControl } from './control';
 import { dayIndex } from './dayPlan';
 import { buildDuties } from './duties';
 import { addCrew, fixtureGame } from './fixtures';
-import { autoRoster, placeCrew, releaseCrew } from './roster';
-import { advanceTo } from '../sim';
+import { autoRoster, placeCrew, promoteSpares, releaseCrew } from './roster';
+import { advanceTo, settle } from '../sim';
 import { segsOf, touchCrew } from './timeline';
 
 const H = 60;
@@ -159,4 +159,48 @@ describe('v0.12.1 day-off buy-back', () => {
     const v = crewControl(g, g.duties[dutyId].flightIds[0])!;
     for (const s of v.solutions) for (const line of s.preview.changes) expect(line, s.id).not.toMatch(/lands \d+ \w{3} \d\d:\d\d\)/);
   });
+
+  // v0.12.1 (review): S1027, Miguel Costa's Thu 28 Oct was bought for BLU943; the trip was rebuilt to start on the 29th,
+  // the day stayed bought (a home standby put on it) and he worked the 31st, the day given back for it.
+  it('a trip moved off the bought day gives it back, unpaid, and a standby on it gives way', () => {
+    const { g, dutyId, here } = goma('auto');
+    autoRoster(g, {});
+    const d = g.duties[dutyId];
+    const p = g.pairings[d.pairingId];
+    const f = g.flights[d.flightIds[0]];
+    const a = g.crew[here[0]];
+    const dayA = dayIndex(a.base, f.std);
+    expect(a.off).not.toContain(dayA);
+    expect(p.slots.find((s) => s.crewId === a.id)?.buyBack).toBeDefined();
+    // A home standby planned on the bought day meanwhile.
+    a.standby = [{ kind: 'home', at: a.base, from: f.std - 4 * H, to: f.std - 2 * H } as never];
+    const sal0 = g.finance.current.lines.salaries ?? 0;
+    // The trip moves two days later (a client's change): the bought day is no longer touched.
+    retimeFlight(g, f, f.std + 2 * DAY, f.sta + 2 * DAY);
+    settle(g);
+    const slot = p.slots.find((s) => s.crewId === a.id);
+    expect(slot?.buyBack).toBeUndefined();
+    expect(a.off).toContain(dayA);
+    expect(a.boughtOff ?? []).toEqual([]);
+    expect((a.standby ?? []).some((w) => dayIndex(a.base, w.from) === dayA)).toBe(false);
+    expect(g.finance.current.lines.salaries ?? 0).toBe(sal0);
+  });
+
+  it('a spare moved to a required seat keeps the buy-back with them', () => {
+    const { g, dutyId, here } = goma('auto');
+    autoRoster(g, {});
+    const p = g.pairings[g.duties[dutyId].pairingId];
+    const s0 = p.slots.find((s) => s.crewId === here[1])!;
+    const bb = s0.buyBack;
+    expect(bb).toBeDefined();
+    // The FO sits on a seat above the minimum; the required FO seat is empty.
+    s0.above = true;
+    p.slots.push({ role: s0.role, crewId: null });
+    expect(promoteSpares(g, p)).toBe(1);
+    const now = p.slots.find((s) => s.crewId === here[1])!;
+    expect(now.above).toBeFalsy();
+    expect(now.buyBack).toEqual(bb);
+    expect(p.slots.filter((s) => s.buyBack).length).toBe(p.slots.filter((s) => s.crewId && here.includes(s.crewId)).length);
+  });
 });
+

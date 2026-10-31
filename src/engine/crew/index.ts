@@ -12,7 +12,7 @@ import { afterDiversion, deletePairing, dutyLegality as dutyLevel, pairingSeats,
 export { aboveMinimum, afterDiversion, legalMinimum } from './duties';
 import { dailySickness, onCrewJoin, onTrainingDone } from './hr';
 import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, settleService, setResignHooks } from './morale';
-import { autoRoster, closedWait, guardDuty, homeBeforeLeave, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, removeCrew, sendStrandedHome, settleRides, splitOverlong, stayOn, forgetGoneTickets } from './roster';
+import { autoRoster, closedWait, recheckBuyBacks, guardDuty, homeBeforeLeave, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, removeCrew, sendStrandedHome, settleRides, splitOverlong, stayOn, forgetGoneTickets } from './roster';
 import { localMin, minRest, signedTz, tzDeltaH, tzNights } from './rules';
 import { clipToRest, dailyStandby, noteRecovery } from './standby';
 import { dayPlanAfter, dayPlanBefore, dayPlanInit, dayPlanLoad, dayPlanMonth, v09Stats } from './dayPlan';
@@ -680,6 +680,8 @@ export const crewModule: SimModule = {
       settleRides(g);
       forgetGoneTickets(g);
       rosterNewFlights(g);
+      // v0.12.1 (review) a trip a day off was bought for that moved off that day gives it back.
+      recheckBuyBacks(g);
       lastFlightsRev.set(g, flightsRev(g));
     }
     const h = Math.floor(g.now / 60);

@@ -503,11 +503,17 @@ export function refreshPairing(g: GameState, p: Pairing): string[] {
         used.add(i);
         slot.crewId = old[i].crewId;
         if (old[i].locked) slot.locked = true;
+        // v0.12.1 (review) a day-off buy-back still to be paid goes with the crew member to the new seat.
+        if (old[i].buyBack) slot.buyBack = old[i].buyBack;
         next[j] = slot;
       });
     }
     old.forEach((s, k) => {
-      if (!used.has(k) && s.crewId) dropped.push(s.crewId);
+      if (!used.has(k) && s.crewId) {
+        dropped.push(s.crewId);
+        // v0.12.1 (review) ... and a crew member who loses the seat gets the day off back, unpaid (crew/buyBack.ts).
+        if (s.buyBack) dropBuyBackHook(g, s);
+      }
     });
     p.slots = [...next, ...extras];
   }
@@ -563,6 +569,12 @@ export function splitPairing(g: GameState, p: Pairing, t: Minute): Pairing | nul
   for (const id of refreshPairing(g, q)) releaseHook(g, q, id);
   touchCrew(g);
   return q;
+}
+
+/** v0.12.1 (review) roster.ts: undoBuyBack for a crew member whose seat a re-measured complement dropped. */
+let dropBuyBackHook: (g: GameState, slot: CrewSlot) => void = () => {};
+export function setDropBuyBackHook(f: (g: GameState, slot: CrewSlot) => void): void {
+  dropBuyBackHook = f;
 }
 
 let releaseHook: (g: GameState, p: Pairing, crewId: string) => void = () => {};

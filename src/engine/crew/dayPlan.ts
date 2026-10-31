@@ -87,7 +87,10 @@ function removeOff(c: CrewMember, days: number[]): void {
 export function restoreOffDays(g: GameState, c: CrewMember, days: number[], repay: number[]): void {
   const today = dayIndex(c.base, g.now);
   removeOff(c, repay.filter((k) => k > today));
-  addOff(c, days.filter((k) => k >= today));
+  const back = days.filter((k) => k >= today);
+  addOff(c, back);
+  // v0.12.1 (review) a standby planned on a day given back gives way to it (S1027: a home standby put on 28 Oct).
+  for (const k of back) clearDays(g, c, k, k + 1);
   touchCrewState(g);
 }
 

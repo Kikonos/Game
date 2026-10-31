@@ -9,11 +9,11 @@ import { canFill, complement, typeOf } from '../core/perf';
 import { DAY, fmtDateTime, monthKey } from '../core/time';
 import type { ActionResult, CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing, Role } from '../core/types';
 import { acceptable, crewIds, crewIssuesFor, crewKey, mergeSegs, openDuties, otherTrip, overForAnyone, planCrew, type CrewPlan } from './check';
-import { deletePairing, dutyLegality, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setCrewTakeHook, setCrewTrailOkHook, setReleaseHook, setRetickHook, splitPairing, splitUnderWay, syncDuty } from './duties';
+import { deletePairing, dutyLegality, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setCrewTakeHook, setCrewTrailOkHook, setDropBuyBackHook, setReleaseHook, setRetickHook, splitPairing, splitUnderWay, syncDuty } from './duties';
 import { crewName } from './generate';
 import { callIfOnStandby, dropStandby, standbyFor, callFromStandby } from './standby';
 import { applyBuyBack, buyBackFor, buyBackMode, undoBuyBack, type BuyBack } from './buyBack';
-import { fitStandby, midnight, monthFloorIssue, offDaysHit, offMovable, offSwappable, takeOffDays, takesPublishedOff, v09Stats as v09StatsOf } from './dayPlan';
+import { dayIndex, dayLabel, fitStandby, midnight, monthFloorIssue, offDaysHit, offMovable, offSwappable, takeOffDays, takesPublishedOff, v09Stats as v09StatsOf } from './dayPlan';
 import { infoOf } from './outOfHours';
 import { lateChange, moraleShock, nextReport } from './morale';
 import { cabinFdpCap, DISCRETION, evalSegs, levelOf, LIMITS, minRest, mkSeg, recoveryAnchor, tzDeltaH, worst, type LegalityIssue, type Seg } from './rules';
@@ -468,6 +468,43 @@ export function closureTickets(g: GameState, shut: (code: string, t: Minute) => 
   }
   if (stuck.length) recheckNext(g, stuck, p);
   return hit.length;
+}
+
+/**
+ * v0.12.1 (review) settle (after any flight change): a trip a day off was bought for that no longer touches the bought
+ * days (retimed to another day, legs dropped) gives the day back unpaid (undoBuyBack), unless other work now takes it;
+ * a day given in return that work now falls on moves to another free day (no morale: it was agreed). S1027: Miguel
+ * Costa's 28 Oct was bought for BLU943, the trip moved to the 29th and he worked the 31st, the day given back for it.
+ */
+export function recheckBuyBacks(g: GameState): void {
+  const touches = (c: CrewMember, k: number, x: Seg) => offDaysHit({ ...c, off: [k] }, x.start, x.end).length > 0;
+  for (const p of Object.values(g.pairings)) {
+    if (p.status === 'done' || !p.slots.some((s) => s.buyBack)) continue;
+    for (const s of p.slots) {
+      const c = s.crewId ? g.crew[s.crewId] : undefined;
+      if (!s.buyBack || !c) continue;
+      const today = dayIndex(c.base, g.now);
+      const work = segsOf(g, c).filter((x) => (x.kind === 'duty' || x.kind === 'pos') && x.end > g.now);
+      const mine = work.filter((x) => x.dutyId && g.duties[x.dutyId]?.pairingId === p.id);
+      // Not reported yet for it: the work it was bought for is still ahead.
+      if (mine.some((x) => x.start <= g.now)) continue;
+      const days = s.buyBack.days.filter((k) => k >= today);
+      if (days.length && !days.some((k) => mine.some((x) => touches(c, k, x)))) {
+        if (!days.some((k) => work.some((x) => touches(c, k, x)))) {
+          undoBuyBack(g, c, s);
+          continue;
+        }
+      }
+      // A day given back that work now falls on: moved to another free day, the record following.
+      const hit = work.filter((x) => s.buyBack!.repay.some((k) => k > today && (c.off ?? []).includes(k) && touches(c, k, x)));
+      if (!hit.length) continue;
+      const moves = takeOffDays(g, c, hit, 'bought');
+      if (!moves.length) continue;
+      const to = new Map(moves);
+      s.buyBack.repay = s.buyBack.repay.flatMap((k) => (to.has(k) ? (to.get(k) === null ? [] : [to.get(k)!]) : [k]));
+      pushMessage(g, { cue: null, tone: 'info', cat: 'crew', title: `${crewName(c)}'s day off moves`, body: `A trip now falls on ${moves.map(([k]) => dayLabel(k)).join(' and ')}, the day given back for the one they work: ${moves.some(([, t]) => t !== null) ? `off on ${moves.filter(([, t]) => t !== null).map(([, t]) => dayLabel(t!)).join(' and ')} instead` : 'owed a day off'}.` });
+    }
+  }
 }
 
 /** v0.12.1 settle (after any flight change): rides lost (leg cancelled or gone) or over the seats free are re-planned. */
@@ -1457,6 +1494,9 @@ export function promoteSpares(g: GameState, p: Pairing): number {
     if (!spare) continue;
     s.crewId = spare.crewId;
     if (spare.locked) s.locked = true;
+    // v0.12.1 (review) a day-off buy-back still to be paid moves with the spare to the required seat.
+    if (spare.buyBack) s.buyBack = spare.buyBack;
+    delete spare.buyBack;
     spare.crewId = null;
     delete spare.locked;
     n++;
@@ -1913,6 +1953,11 @@ function sameSig(a: unknown[], b: unknown[]): boolean {
 
 // Crew a split part no longer seats leave its flights and tickets as well.
 setReleaseHook(releaseCrew);
+// v0.12.1 (review) a seat a re-measured complement drops gives its day-off buy-back back, unpaid.
+setDropBuyBackHook((g, slot) => {
+  const c = slot.crewId ? g.crew[slot.crewId] : undefined;
+  if (c) undoBuyBack(g, c, slot);
+});
 
 // Crewed tours accept a new duty only if every crew member stays legal (0 no, 2 yes, 1 with a day off moved).
 setCrewOkHook((g, p, d) => {
