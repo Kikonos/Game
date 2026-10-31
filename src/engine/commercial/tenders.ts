@@ -369,10 +369,10 @@ function rivalScore(g: GameState, t: Tender, b: RivalTenderBid, rv: Rival | unde
 }
 
 const PART_TEXT: Record<keyof Score['parts'], [string, string]> = {
-  price: ['your rate was lower', 'their rate was lower'],
-  mgh: ['your MGH asked less of them', 'their MGH asked less'],
+  price: ['your lower rate', 'their lower rate'],
+  mgh: ['your lower MGH', 'their lower MGH'],
   rel: ['your reliability record', 'their reliability record'],
-  level: ['your relationship with them', 'they know them better'],
+  level: ['your relationship with them', 'their relationship with the airline'],
   age: ['your younger aircraft', 'their younger aircraft'],
   fit: ['your aircraft and crew fit their fleet', 'their aircraft fit the fleet better'],
   cover: ['you covered their dates', 'they covered all the dates'],
@@ -384,7 +384,7 @@ function whyWords(a: Score, b: Score, weWon: boolean): string {
   const diffs = (Object.keys(a.parts) as (keyof Score['parts'])[]).map((k) => [k, a.parts[k] - b.parts[k]] as const).filter(([, d]) => (weWon ? d > 0.004 : d < -0.004));
   diffs.sort((x, y) => Math.abs(y[1]) - Math.abs(x[1]));
   const words = diffs.slice(0, 2).map(([k]) => PART_TEXT[k][weWon ? 0 : 1]);
-  return words.length ? words.join(' and ') : weWon ? 'a close call' : 'a close call';
+  return words.length ? words.join(' and ') : 'a close call';
 }
 
 /** Awards the tender: our score against the rivals' (noise from the tender's own stream); won → signed or offered to sign. */
@@ -417,7 +417,7 @@ export function decideTender(g: GameState, t: Tender): void {
     return;
   }
   t.status = 'won';
-  t.result = { winner: 'us', why: whyWords(us, best?.s ?? us, true), ours: round3(us.total), ...(best ? { best: round3(best.s.total) } : {}) };
+  t.result = { winner: 'us', why: best ? whyWords(us, best.s, true) : 'no other operator met their terms', ours: round3(us.total), ...(best ? { best: round3(best.s.total) } : {}) };
   st.won++;
   bumpClient(g, t.clientId, 4, `We won their ${roundName(t.round)} tender`);
   award(g, t);
