@@ -313,7 +313,8 @@ describe('offer flow (acceptance: 30/60 days from a new game)', () => {
 });
 
 describe('pricing', () => {
-  it('A320 wet rates stay in the $3,200–4,800/BH band', () => {
+  // v0.14 the 737-800 reference rate 3,700 → 4,000 (2024–25 summer market): the band's top 4,800 → 5,000.
+  it('A320 wet rates stay in the $3,200–5,000/BH band', () => {
     const g = newGame(6);
     for (let seed = 0; seed < 120; seed++) {
       g.rng = seed * 31 + 7;
@@ -321,7 +322,7 @@ describe('pricing', () => {
       const o = generateOffer(g, 'seasonBase', { wide: false, window: false, airport: 'HAM' });
       if (!o || o.product.kind !== 'wet') continue;
       expect(o.product.ratePerBH).toBeGreaterThanOrEqual(3200);
-      expect(o.product.ratePerBH).toBeLessThanOrEqual(4800);
+      expect(o.product.ratePerBH).toBeLessThanOrEqual(5000);
       expect(o.product.mghPerMonth).toBe(BAL.mgh.narrow);
       expect(o.product.excessRate).toBe(0.95);
     }

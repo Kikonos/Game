@@ -1,6 +1,6 @@
 // Statements, receivables, solvency and the cash forecast (B3). DESIGN.md §5.7, BUILD-PLAN B3 acceptance.
 
-import { dailyFinance, forecastItems, headsBill, monthEndBill, settleDeparture } from './finance';
+import { dailyFinance, forecastItems, headsBill, insuranceOf, monthEndBill, settleDeparture } from './finance';
 import { bookRefit } from './cabin';
 import { cashLowCard } from '../problems/money';
 import { describe, expect, it, onTestFinished } from 'vitest';
@@ -52,7 +52,7 @@ describe('month end', () => {
     const cash0 = g.company.cash;
     const own = leased(g).ownership;
     expect(fc.rent).toBe(own.kind === 'dryLeaseIn' ? own.rentPerMonth : 0);
-    expect(fc.insurance).toBe(2 * typeOf('a320ceo').insuranceMonth);
+    expect(fc.insurance).toBe(Object.values(g.fleet).reduce((t, a) => t + insuranceOf(g, a), 0));
     expect(fc.overhead).toBe(BAL.overheadBase + 2 * BAL.overheadPerAircraft);
     skip(g, g.now + 32 * DAY);
     expect(g.finance.history).toHaveLength(1);
@@ -105,7 +105,7 @@ describe('month end', () => {
     const share = (days - 15) / days;
     const fc = fixedCosts(g, k);
     expect(fc.rent).toBe(base.rent);
-    expect(fc.insurance).toBe(Math.round(base.insurance + typeOf('a320ceo').insuranceMonth * share));
+    expect(fc.insurance).toBe(Math.round(base.insurance + insuranceOf(g, ac) * share));
     expect(fc.overhead).toBe(Math.round(BAL.overheadBase + BAL.overheadPerAircraft * (2 + share)));
     // A lease ending on the 10th pays a third of the rent.
     const l = leased(g);
@@ -113,7 +113,7 @@ describe('month end', () => {
     const leaseEnd = l.ownership.leaseEnd;
     l.ownership.leaseEnd = monthStart(k) + 10 * DAY;
     expect(fixedCosts(g, k).rent).toBe(Math.round((l.ownership.rentPerMonth * 10) / days));
-    expect(fixedCosts(g, k).insurance).toBe(Math.round(typeOf('a320ceo').insuranceMonth * (1 + 10 / days + share)));
+    expect(fixedCosts(g, k).insurance).toBe(Math.round(insuranceOf(g, owned(g)) + insuranceOf(g, l) * (10 / days) + insuranceOf(g, ac) * share));
     l.ownership.leaseEnd = leaseEnd;
     // Not delivered until the month after next: nothing.
     ac.deliveredAt = monthStart(k + 2);
@@ -139,7 +139,7 @@ describe('month end', () => {
     expect(g.fleet[l.id]).toBeUndefined();
     expect(g.messages.some((m) => m.title === `${l.reg} returned`)).toBe(true);
     expect(g.finance.current.lines.rent).toBe(-Math.round(rent * share));
-    expect(g.finance.current.lines.insurance).toBe(-Math.round(typeOf(l.typeId).insuranceMonth * share));
+    expect(g.finance.current.lines.insurance).toBe(-Math.round(insuranceOf(g, l) * share));
     skip(g, monthStart(k + 1) + DAY);
     const st = g.finance.history[0];
     expect(st.month).toBe(k);
@@ -148,7 +148,7 @@ describe('month end', () => {
     expect(Math.abs(st.lines.insurance! + fc.insurance)).toBeLessThanOrEqual(2);
     expect(Math.abs(st.lines.overhead! + fc.overhead)).toBeLessThanOrEqual(2);
     // The month after: only the owned aircraft.
-    expect(fixedCosts(g, k + 1)).toEqual({ rent: 0, insurance: typeOf('a320ceo').insuranceMonth, overhead: BAL.overheadBase + BAL.overheadPerAircraft });
+    expect(fixedCosts(g, k + 1)).toEqual({ rent: 0, insurance: insuranceOf(g, owned(g)), overhead: BAL.overheadBase + BAL.overheadPerAircraft });
   });
 });
 
@@ -563,7 +563,7 @@ describe('v0.12.1 fixed costs by the days the aircraft is ours', () => {
     const before = { ...g.finance.current.lines };
     settleDeparture(g, ac);
     const share = (g.now - Math.max(monthStart(k), ac.deliveredAt)) / (days * DAY);
-    expect((g.finance.current.lines.insurance ?? 0) - (before.insurance ?? 0)).toBe(-Math.round(typeOf(ac.typeId).insuranceMonth * share));
+    expect((g.finance.current.lines.insurance ?? 0) - (before.insurance ?? 0)).toBe(-Math.round(insuranceOf(g, ac) * share));
     expect((g.finance.current.lines.overhead ?? 0) - (before.overhead ?? 0)).toBe(-Math.round(BAL.overheadPerAircraft * share));
   });
   it('leased out from day 3: our insurance for the first days only; back on day 27: those days again', () => {
@@ -572,7 +572,7 @@ describe('v0.12.1 fixed costs by the days the aircraft is ours', () => {
     const ac = owned(g);
     ac.deliveredAt = Math.min(ac.deliveredAt, monthStart(k - 1));
     const a = monthStart(k), len = monthStart(k + 1) - a;
-    const ins = typeOf(ac.typeId).insuranceMonth;
+    const ins = insuranceOf(g, ac);
     const others = fixedCosts(g, k).insurance - ins;
     g.contracts.kx = { id: 'kx', aircraftIds: [ac.id], dry: { leasedAt: a + 2 * DAY } } as never;
     expect(fixedCosts(g, k).insurance - others).toBe(Math.round(ins * (2 * DAY) / len));

@@ -1,7 +1,7 @@
 // New game: the "Startup" scenario (BRIEF v0.5) — two A320ceo at a European base, one owned and
 // older, one dry-leased in, ~5 crew sets per aircraft, starting cash. DESIGN.md §2.3.
 
-import { ACMI_TYPES, type CabinPreset } from '../data/acmiTypes';
+import { ACMI_TYPES, ageFactor, rentForAge, type CabinPreset } from '../data/acmiTypes';
 import { AIRPORT_BY_CODE } from '../data/airports';
 import { COUNTRIES } from '../data/countries';
 import { DEFAULT_HOME_BASE, HOME_BASES } from '../data/naming';
@@ -188,8 +188,6 @@ export function createGame(opts: NewGameOptions): GameState {
 
 // ---------- v0.12 start setups ----------
 
-/** Market age factor (ops/market.ts makeOffer): −2 %/year past 12, −4 %/year past 18 (0.55–1.15). Pure. */
-const ageAdj = (age: number) => Math.min(1.15, Math.max(0.55, 1 - (age - 12) * 0.02 - Math.max(0, age - 18) * 0.04));
 
 /**
  * v0.12 one start aircraft from a setup line: the type's own rent, reserves, value and check intervals (data/acmiTypes),
@@ -201,7 +199,7 @@ export function startAircraft(g: GameState, s: SetupAircraft, base: string, used
   const age = Math.max(0, yearOf(now) - s.built);
   const wide = t.body === 'wide';
   const hours = Math.max(800, age * (wide ? 4_200 : 2_550) + int(g, -1_500, 1_500));
-  const adj = ageAdj(age);
+  const adj = ageFactor(age);
   const cDays = t.cCheckMonths * 30.44;
   const maint = s.wear === 'fresh'
     ? { fhSinceA: 60, lastA: now - 12 * DAY, fhSinceC: 400, lastC: now - 70 * DAY, deferred: 0.02 }
@@ -210,7 +208,8 @@ export function startAircraft(g: GameState, s: SetupAircraft, base: string, used
       : s.owned
         ? { fhSinceA: 520, lastA: now - 70 * DAY, fhSinceC: 3_100, lastC: now - 470 * DAY, deferred: 0.12 }
         : { fhSinceA: 140, lastA: now - 20 * DAY, fhSinceC: 900, lastC: now - 150 * DAY, deferred: 0.03 };
-  const rent = Math.round((t.rentMonth * adj) / 1000) * 1000;
+  // v0.14 priced as the market prices it (rentForAge: the type's floor under an old airframe).
+  const rent = Math.round(rentForAge(t, age) / 1000) * 1000;
   return {
     id: nextId(g, 'a'),
     reg: registration(g, g.company.regPrefix, used),
@@ -268,6 +267,7 @@ function createSetupGame(o: NewGameOptions, s: Pick<StartSetup, 'fleet' | 'sets'
     const a = startAircraft(g, line, o.base, used, now);
     g.fleet[a.id] = a;
   }
+  if (s.id) staggerChecks(g, now);
   const crew = startCrew(g, o.base, s.sets, now);
   // Scenarios: aircraft that come without crews join after the crew is sized.
   for (const line of s.fleet.filter((x) => x.noCrew)) {
@@ -284,6 +284,28 @@ function createSetupGame(o: NewGameOptions, s: Pick<StartSetup, 'fleet' | 'sets'
     body: `${fleetWords(s.fleet)} at ${AIRPORT_BY_CODE[o.base].city} (${o.base}), ${crew} crew and $${(s.cash / 1e6).toFixed(1)}M in the bank. ${s.fleet.length === 1 ? 'Find work for the aircraft' : 'Find work for the fleet'} before the ${s.fleet.some((a) => !a.owned) ? 'rent' : 'salaries'} ${s.fleet.some((a) => !a.owned) ? 'is' : 'are'} due.`,
   });
   return g;
+}
+
+/**
+ * v0.14 a start fleet's C-checks fall due in different months, as an operator staggers them: an aircraft whose
+ * calendar C-check would fall due in the same month as an earlier one's had its last C-check 4 months later (its hours
+ * since in step), so two worn A320s don't both stand in the hangar in May. No RNG. Returns the aircraft moved.
+ */
+export function staggerChecks(g: GameState, now: Minute): number {
+  const months = new Set<number>();
+  let moved = 0;
+  for (const a of Object.values(g.fleet)) {
+    const t = ACMI_TYPES[a.typeId];
+    const cDays = t.cCheckMonths * 30.44;
+    const dueMonth = () => monthKey(a.maint.lastC + Math.round(cDays * DAY));
+    for (let i = 0; i < 6 && months.has(dueMonth()) && a.maint.lastC + 120 * DAY < now; i++) {
+      a.maint.lastC += 120 * DAY;
+      a.maint.fhSinceC = Math.max(200, a.maint.fhSinceC - Math.round((120 / cDays) * t.cCheckMonths * 250));
+      moved++;
+    }
+    months.add(dueMonth());
+  }
+  return moved;
 }
 
 /**

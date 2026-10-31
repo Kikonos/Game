@@ -150,7 +150,11 @@ describe('v0.12.1 B757/767 pay follows the fleet', () => {
     expect(makeCrewMember(g, 'FO', 'B757/767', g.company.homeBase).salary).toBe(BAL.salary.FO[1]);
     expect(dailyPay(g)).toBe(0);
     delete g.fleet[ac767];
-    expect(dailyPay(g)).toBe(Object.values(g.crew).filter((c) => c.ratings.includes('B757/767')).length);
+    // v0.14 only the pilots move: cabin crew earn the same on every type.
+    const back = Object.values(g.crew).filter((c) => c.ratings.includes('B757/767') && c.salary !== crewPay(g, c));
+    expect(back.length).toBeGreaterThan(0);
+    expect(back.every((c) => c.role === 'CPT' || c.role === 'FO' || c.role === 'CRP')).toBe(true);
+    expect(dailyPay(g)).toBe(back.length);
     expect(g.crew[cpt].salary).toBe(BAL.salary.CPT[0]);
     expect(g.messages[0].title).toBe('B757/767 crews move to narrowbody pay');
   });

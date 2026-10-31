@@ -9,7 +9,7 @@ import { pushDecision, pushMessage } from '../core/messages';
 import { isPilot, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { chance, int } from '../core/rng';
-import { DAY, dayStart, fmtDate, fmtDateTime, yearOf } from '../core/time';
+import { DAY, dayStart, fmtDate, fmtDateTime, monthKey, monthStart, yearOf } from '../core/time';
 import type { ActionResult, CrewExtra, CrewMember, GameState, Minute, Role, SimEvent, TrainingKind } from '../core/types';
 import { hashUnit } from '../core/util';
 import { classOf, conversionClasses, conversionEarliest, onClassItemDone, ratingsLost, startConversion } from './conversion';
@@ -17,7 +17,7 @@ import { crewExtraFor, rolesWithExtra } from './extraSeats';
 import { farBase, patternSets, reserveRoles } from './farBase';
 import { crewSupply, familyNeeds } from './sets';
 import { sickMult } from './morale';
-import { crewName, crewPay, makeCrewMember, payFor } from './generate';
+import { crewName, crewPay, makeCrewMember, payFor, salaryFor, wideOfFamilyInFleet } from './generate';
 import { removeCrew, rosterOf, setReserveOkHook } from './roster';
 import { dropStandby } from './standby';
 import { block28, crewIx, crewRev, segsOf, touchCrew } from './timeline';
@@ -534,20 +534,44 @@ export function onTrainingDone(g: GameState, ev: SimEvent): void {
   touchCrew(g);
 }
 
+/** v0.14 what a crew member would earn on the other side of the 767 switch (B757/767 pay flipped). Pure. */
+function payFlipped757(g: GameState, c: CrewMember, wide: boolean): number {
+  let best = 0;
+  for (const f of c.ratings) best = Math.max(best, f === 'B757/767' ? salaryFor(c.role, f, wide) : payFor(g, c.role, f));
+  return best || salaryFor(c.role, 'A320');
+}
+
 /**
  * v0.12.1 daily: B757/767 crews earn widebody pay while a 767 is in the fleet (narrowbody pay on a 757-only fleet).
  * When the fleet changes their pay follows, with one Inbox message. Returns how many salaries changed.
+ * v0.14 new pay scales (BAL.salary) reach the crew already on the books when a month begins (its first two days, once
+ * the closed month has been paid at the old scale), with one Inbox message.
  */
 export function dailyPay(g: GameState): number {
   let up = 0;
   let down = 0;
+  let scale = 0;
+  const k = monthKey(g.now);
+  const scaleDay = g.finance.current.month === k && g.now - monthStart(k) < 2 * DAY;
+  const wide757 = wideOfFamilyInFleet(g, 'B757/767');
   for (const c of Object.values(g.crew)) {
-    if (!c.ratings.includes('B757/767')) continue;
     const pay = crewPay(g, c);
     if (pay === c.salary) continue;
-    if (pay > c.salary) up++;
+    const fleetMove = c.ratings.includes('B757/767') && c.salary === payFlipped757(g, c, !wide757);
+    if (!fleetMove && !scaleDay) continue;
+    if (!fleetMove) scale++;
+    else if (pay > c.salary) up++;
     else down++;
     c.salary = pay;
+  }
+  if (scale) {
+    const S = BAL.salary;
+    const $ = (n: number) => `$${n.toLocaleString('en-US')}`;
+    pushMessage(g, {
+      tone: 'info', cat: 'crew', title: 'New pay scales from this month',
+      body: `${scale} crew moved to the new pay scales. Cabin crew earn the same on every type (purser ${$(S.PUR[0])}, cabin crew ${$(S.CC[0])} a month); ` +
+        `widebody captains earn ${$(S.CPT[1])} and first officers ${$(S.FO[1])} (narrowbody ${$(S.CPT[0])} and ${$(S.FO[0])}).`,
+    });
   }
   if (up || down) {
     const n = up + down;
@@ -558,7 +582,7 @@ export function dailyPay(g: GameState): number {
         : `No 767 left in the fleet: ${n} crew rated on the 757/767 are back on the narrowbody scale.`,
     });
   }
-  return up + down;
+  return up + down + scale;
 }
 
 /**

@@ -161,7 +161,8 @@ describe('ETOPS maintenance programme (v0.10.2)', () => {
     g.stats.techDisp = { [Math.floor(g.now / DAY)]: [1000, 36] };
     const row = (id: Parameters<typeof approvalReqs>[1]) => approvalReqs(g, id).find((r) => /^Technical reliability/.test(r.label))!.label;
     expect(row('etops120')).toBe('Technical reliability 96.4% (needs 97%) over 90 days');
-    expect(row('widebody')).toBe('Technical reliability 96.4% (needs 97%) over 90 days');
+    // v0.14 Widebody operations at 95 % (was 97).
+    expect(row('widebody')).toBe('Technical reliability 96.4% (needs 95%) over 90 days');
     expect(row('etops180')).toBe('Technical reliability 96.4% (needs 98%) over 180 days');
     expect(row('etops240')).toBe('Technical reliability 96.4% (needs 98%) over 180 days');
     expect(row('ulr')).toBe('Technical reliability 96.4% (needs 98.5%) over 365 days');

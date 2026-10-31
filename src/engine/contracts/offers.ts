@@ -389,12 +389,14 @@ function seasonBase(ctx: Ctx): Draft | null {
   const st = standingOf(g);
   const longShare = st === 0 ? 0 : st === 2 ? BAL.paint.longBaseShare * 2 : BAL.paint.longBaseShare;
   const long = !o.days && (o.start === undefined || o.start - g.now >= 30 * DAY) && chance(sideRng(g, `long:${g.seq}:${g.now}`), longShare);
-  let days = o.days ?? (long ? int(g, 120, 240) : int(g, 30, 92));
-  if (!o.days && st === 0) days = int(sideRng(g, `nb:${g.seq}:${g.now}`), BAL.v08.standing.newcomerBaseDays[0], BAL.v08.standing.newcomerBaseDays[1]);
-  else if (!o.days && !long) days = Math.round(days * perks(g, client).length);
-  // Gap-fit: shorten the season to the idle window (but never under a month).
+  // v0.14 a widebody wet lease runs 3–6 months (BAL.wideWetDays; was 30–92 days), for a Newcomer too.
+  const WW = BAL.wideWetDays;
+  let days = o.days ?? (wide ? int(g, WW[0], WW[1]) : long ? int(g, 120, 240) : int(g, 30, 92));
+  if (!o.days && st === 0 && !wide) days = int(sideRng(g, `nb:${g.seq}:${g.now}`), BAL.v08.standing.newcomerBaseDays[0], BAL.v08.standing.newcomerBaseDays[1]);
+  else if (!o.days && !long) days = Math.min(wide ? WW[1] : Infinity, Math.round(days * perks(g, client).length));
+  // Gap-fit: shorten the season to the idle window (but never under a month; v0.14 a widebody never under 3 months).
   if (!o.days && ctx.window) days = Math.min(days, roomDays(ctx, Math.max(ctx.window.from, g.now + 14 * DAY)) - 2);
-  if (days < 30) return null;
+  if (days < (wide && !o.days ? WW[0] : 30)) return null;
   // Long-haul bases are planned months ahead (time to lease a widebody and hire rated crew).
   let s = o.start ?? (wide ? pickStart(ctx, 75 * DAY, 150 * DAY, (days + 1) * DAY) : pickStart(ctx, long ? 30 * DAY : 14 * DAY, long ? 90 * DAY : 60 * DAY, (days + 1) * DAY));
   if (s === null) return null;
@@ -436,7 +438,7 @@ function seasonBase(ctx: Ctx): Draft | null {
   const ref = referenceType(req, dests.flatMap((d) => [[base, d], [d, base]] as [string, string][]), true);
   if (!ref) return null;
   let waves = computeWaves(base, dests, ref, o.waves ?? (wide ? int(g, 1, 2) : int(g, 2, 3)));
-  // v0.8 a Newcomer's MGH is lower (160 NB / 200 WB); Trusted / Partner clients guarantee 10 / 15 % more.
+  // v0.8 a Newcomer's MGH is lower (160 NB; v0.14 a widebody's stays 300); Trusted / Partner clients guarantee 10 / 15 % more.
   const S8 = BAL.v08.standing;
   const mgh = st === 0 ? S8.newcomerMgh[wide ? 1 : 0] : Math.round((wide ? BAL.mgh.wide : BAL.mgh.narrow) * (1 + perks(g, client).mgh));
   const targetBH = Math.round(mgh * range(g, ...BAL.targetOverMgh));

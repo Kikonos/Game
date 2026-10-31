@@ -18,7 +18,7 @@ import { route, routeSpan, timeChain } from '../contracts/plan';
 import { layoutName, reinstateCost } from './cabin';
 import type { DeliveryLeg } from './delivery';
 import { settleDeparture } from './finance';
-import { scheduleCheck } from './maintenance';
+import { cCheckGross, scheduleCheck } from './maintenance';
 import { maintWord, usd } from './util';
 
 export interface ReturnQuote { site: string; lines: { label: string; amount: number }[]; total: number; deposit: number; checkDays: number; ferry: DeliveryLeg[] }
@@ -160,7 +160,7 @@ export function returnQuote(g: GameState, aircraftId: string, at?: Minute): Retu
   const site = own.returnSite ?? g.company.homeBase;
   const checkDays = L.checkDays[w];
   const lines: { label: string; amount: number }[] = [{ label: 'Return check', amount: L.checkCost[w] }];
-  const half = Math.round((Math.max(0, usedC(g, ac, endAt) - 0.5) * BAL.checkCost.C[w] * L.halfLifeShare) / 1000) * 1000;
+  const half = Math.round((Math.max(0, usedC(g, ac, endAt) - 0.5) * cCheckGross(ac.typeId) * L.halfLifeShare) / 1000) * 1000;
   if (half > 0) lines.push({ label: 'Half-life compensation', amount: half });
   const cabin = reinstateCost(ac);
   if (cabin) lines.push({ label: `Cabin back to ${layoutName(own.deliveredLayout ?? ac.cabin.layout)}`, amount: cabin });

@@ -3,7 +3,7 @@
 // rare teaser), rare new-build slots, and a real handover site (lessor site, factory or previous operator's hub)
 // from which the aircraft is ferried home.
 
-import { ACMI_TYPES_LIST, type AcmiType } from '../../data/acmiTypes';
+import { ACMI_TYPES_LIST, ageFactor, rentForAge, type AcmiType } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { checkRegistration, cleanAircraftName } from './registration';
 import { EX_OPERATORS, FACTORIES, LESSOR_SITES, NEW_BUILD, type Site } from '../../data/market';
@@ -125,10 +125,11 @@ function makeOffer(g: GameState, t: AcmiType, opts: { lease?: boolean; kind?: 'd
     const built = from <= to ? int(r, from, to) : int(r, Math.min(t.firstYear ?? lo, now - 1), Math.min(t.lastYear ?? now - 1, now - 1));
     const age = now - built;
     // Steeper past 18 years (lessors price old jets down fast).
-    const ageAdj = clamp(1 - (age - 12) * 0.02 - Math.max(0, age - 18) * 0.04, 0.55, 1.15);
+    const ageAdj = ageFactor(age);
     const canBuy = t.body === 'narrow' || old;
     const buy = opts.kind ? opts.kind === 'buy' && canBuy : !opts.lease && canBuy && chance(r, 0.3);
-    const rent = Math.round((t.rentMonth * range(r, 0.9, 1.15) * index * ageAdj) / 1000) * 1000;
+    // v0.14 the rent never below the type's floor for old airframes (rentForAge).
+    const rent = Math.round((rentForAge(t, age) * range(r, 0.9, 1.15) * index) / 1000) * 1000;
     // v0.7.2 priced like a sale (the market index included), so buying and selling straight back loses the spread.
     const price = buy ? Math.round((t.valueUsed * range(r, 0.95, 1.12) * ageAdj * index) / 10_000) * 10_000 : 0;
     o = {
