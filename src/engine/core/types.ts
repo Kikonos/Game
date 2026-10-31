@@ -884,7 +884,9 @@ export type ProblemKind =
   /** v0.11 Operations: a live disruption (its decision), a ramp inspection finding, an authority audit finding. */
   | 'disruption' | 'rampFinding' | 'auditFinding'
   /** Peak-staffing round: a busy month ahead short of crew (crew/forecast.ts). */
-  | 'crewPeak';
+  | 'crewPeak'
+  /** v0.12.1 a leg that needs an approval we won't hold by its departure (ops/approvalGate.ts). */
+  | 'approvalLate';
 
 /** v0.7.1 what a card is about: the entity (as a message Ref) plus the kind. */
 export interface ProblemRef { kind: ProblemKind; ref: Ref }
@@ -1481,6 +1483,9 @@ export interface SimEvent {
 // ======================================================================
 
 export interface Stats {
+  /** v0.12.1 approvals at departure: when each job ('<contract>|<aircraft>') last got the 'approvalLate' decision; revenue legs stopped at the gate. */
+  gateAsked?: Record<string, Minute>;
+  gateStopped?: number;
   /** v0.8 fix pack: offers' and contracts' `requirements.body` means the client asks for one (older saves: stripped once on load). */
   bodyAsked?: boolean;
   /** Peak-staffing round: busy-month gaps already told in the Inbox ('<month key>|<family>|<role>'; past months pruned). */

@@ -19,7 +19,7 @@ import { autoRoster, releaseCrew, setFlightsCrew } from '../crew/roster';
 import { serialize } from '../save';
 import { checkAchievements } from './achievements';
 import {
-  acceptProposal, analystView, dailyHeads, defaultRules, dismissProposal, fireHead, headsView, headView, hireHead, mistakeRoll, monthlyHeads, rollCandidates, setHeadRules, unlockHead, watchDeskHour,
+  acceptProposal, analystView, dailyHeads, defaultRules, deskFixBody, dismissProposal, fireHead, headsView, headView, hireHead, mistakeRoll, monthlyHeads, rollCandidates, setHeadRules, unlockHead, watchDeskHour,
 } from './heads';
 import { checkStatus, nextPlanned, scheduleCheck } from './maintenance';
 import { dayIndex, v09Stats } from '../crew/dayPlan';
@@ -544,5 +544,13 @@ describe('v0.12.1 one reminder a client a day', () => {
     const n1 = g.messages.length;
     dailyFinance(g);
     expect(g.messages.slice(0, g.messages.length - n1).filter((m) => m.title === `Invoice overdue: ${cl.name}`)).toHaveLength(1);
+  });
+});
+
+describe('v0.12.1 crew desk notes', () => {
+  it('name the cost once', () => {
+    expect(deskFixBody('Henrique Castro called in for the captain seat ($671 overtime, morale −4)', 671)).toBe('Henrique Castro called in for the captain seat ($671 overtime, morale −4).');
+    expect(deskFixBody('Ana Lopes flies out on TP 1342', 1_900)).toBe('Ana Lopes flies out on TP 1342 ($1.9K).');
+    expect(deskFixBody('Crewed from the station', 0)).toBe('Crewed from the station.');
   });
 });

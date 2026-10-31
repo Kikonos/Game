@@ -10,7 +10,7 @@ import { BAL } from '../core/balance';
 import { blockMinutes, etopsRoute, NO_STOP_COUNTRY, planSector, reportMinutes, TECH_STOP_MIN, typeOf, withinEtops } from '../core/perf';
 import { DAY, dayIndex, dayStart, localOffset, monthKey, monthStart, toLocal } from '../core/time';
 import { hash } from '../core/util';
-import { curfewOk, curfewShift } from '../core/curfew';
+import { curfewOk, curfewShift, shutLocal, zoneDiffs } from '../core/curfew';
 import type { Contract, ContractOffer, Flight, GameState, LegTemplate, Minute, Requirements, SchedulePattern } from '../core/types';
 
 export type BasePattern = Extract<SchedulePattern, { kind: 'base' }>;
@@ -499,18 +499,37 @@ export function localToUTC(code: string, local: Minute): Minute {
 
 /**
  * Wave departure times (local minutes): 06:00, then each next wave after the longest rotation plus a turn,
- * while it leaves by 21:00 local; at most maxWaves (DESIGN §5.1.6). HAM–PMI on an A320: 06:00, 12:30, 19:00.
+ * while it leaves by 21:00 local; at most maxWaves (DESIGN §5.1.6). v0.12.1 (A7) no wave leaves, lands, turns or
+ * lands back inside a night curfew (strict, at the base and every destination, in every season): a wave that would
+ * moves later; when the day then holds fewer waves than without curfews, it may start earlier (not before 05:00
+ * or the base's curfew end) to win one back; a wave that still does not fit is dropped. HAM–PMI on an A320: 06:00,
+ * 12:30 (a 19:00 third would land back after HAM's 23:00 night ban, as real Hamburg programmes fly two).
  */
 export function computeWaves(base: string, dests: string[], typeId: string, maxWaves: number): number[] {
   const turn = typeOf(typeId).turnMin;
-  const rot = Math.max(...dests.map((d) => blockMinutes(typeId, base, d) + turn + blockMinutes(typeId, d, base)));
-  const waves = [360];
-  while (waves.length < maxWaves) {
-    const next = roundUp5(waves[waves.length - 1] + rot + turn);
-    if (next > 21 * 60) break;
-    waves.push(next);
+  const legs = dests.map((d) => ({ d, out: blockMinutes(typeId, base, d), back: blockMinutes(typeId, d, base), z: zoneDiffs(base, d) }));
+  const rot = Math.max(...legs.map((l) => l.out + turn + l.back));
+  const clear = (w: number) => !shutLocal(base, w) && legs.every((l) => !shutLocal(base, w + l.out + turn + l.back) && l.z.every((z) => !shutLocal(l.d, w + z + l.out) && !shutLocal(l.d, w + z + l.out + turn)));
+  const day = (first: number) => {
+    const waves: number[] = [];
+    for (let t = first; waves.length < maxWaves && t <= 21 * 60; ) {
+      if (!clear(t)) t += 5;
+      else {
+        waves.push(t);
+        t = roundUp5(t + rot + turn);
+      }
+    }
+    return waves;
+  };
+  // The day as it was without curfews: an earlier start only wins back a wave a curfew took, never one more.
+  let plain = 1;
+  for (let t = 360; plain < maxWaves && roundUp5(t + rot + turn) <= 21 * 60; plain++) t = roundUp5(t + rot + turn);
+  let best = day(360);
+  for (let first = 355; best.length < plain && first >= 300 && !shutLocal(base, first); first -= 5) {
+    const w = day(first);
+    if (w.length > best.length) best = w;
   }
-  return waves;
+  return best;
 }
 
 export interface Rotation {

@@ -16,7 +16,7 @@ import { payLeaver } from './crew/costs';
 import { blockMinutes } from './core/perf';
 import { flightsOf } from './core/entities';
 import { nextId } from './core/entities';
-import type { AcRest, Aircraft, ClientLevel, GameState, HeadId, OohLimit, Role } from './core/types';
+import type { AcRest, Aircraft, ApprovalId, ClientLevel, GameState, HeadId, OohLimit, Role } from './core/types';
 import { finalizeDraft, forceJumbo, generateOffer, type Draft } from './contracts/offers';
 import { rivalFits } from './contracts/rivals';
 import { schedule } from './core/queue';
@@ -171,6 +171,11 @@ export function devAirframe(g: GameState, typeId: string): Pick<Aircraft, 'built
  * A widebody of the first aircraft's state at home base with these facilities (null: the type's market roll) and its
  * crew hired (dev); v0.8 pre-release: its own airframe (devAirframe), not the A320's hours, cycles and value.
  */
+/** Approvals held from now (dev: a scenario's aircraft and routes on our certificate). */
+function grantDev(g: GameState, ids: readonly ApprovalId[]): void {
+  for (const a of ids) if (!g.company.approvals.includes(a)) { g.company.approvals.push(a); (g.company.approvalsAt ??= {})[a] = g.now; }
+}
+
 function devWide(g: GameState, typeId: string, rest: AcRest | null, suffix: string, cabinIx = 0): Aircraft | null {
   const base = Object.values(g.fleet)[0];
   if (!base) return null;
@@ -199,6 +204,8 @@ function devWide(g: GameState, typeId: string, rest: AcRest | null, suffix: stri
 export function devRestPlan(g: GameState): string {
   const ac = devWide(g, 'a332', { fc: { cls: 2, kind: 'jSeats', places: 2 }, cc: { cls: 2, kind: 'jSeats', places: 5 } }, 'DVJ');
   if (!ac) return '';
+  // v0.12.1 approvals are checked at departure: the South Atlantic crossing needs ETOPS 120.
+  grantDev(g, ['etops120']);
   const home = g.company.homeBase;
   const dest = home === 'GRU' ? 'LIS' : 'GRU';
   const std = Math.ceil((g.now + 2 * DAY) / 60) * 60;

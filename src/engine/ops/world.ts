@@ -25,7 +25,7 @@ import { ceaseRival, isActive } from '../contracts/rivals';
 import { creditCancelledLeg } from '../contracts/billing';
 import { addShock, setPhase } from './market';
 import { ask } from './events';
-import { applyHold, cancelCost, cancelLegs, delayChain, moveFlight, pickRival, planRecovery, rivalFactor, settleOverlaps, subcharterCost, subcharterLegs } from './flights';
+import { applyHold, delayChain, moveFlight, pickRival, planRecovery, rivalFactor, settleOverlaps, subcharterCost, subcharterLegs, underClosure } from './flights';
 import { subcharter, subcharterQuotes } from './subcharter';
 import { contractOf, isRevenue, turnOf, usd } from './util';
 import { tourStopAsk } from './tourStop';
@@ -118,6 +118,16 @@ export function closedAirport(g: GameState, code: string, t: Minute = g.now, exe
     if (e.closed && e.zoneId && ZONE_BY_ID[e.zoneId] && inZone(ZONE_BY_ID[e.zoneId], code) && !openDuring(e, code)) return e;
   }
   return null;
+}
+
+/**
+ * v0.12.1 (Goma, designer) the closure that is the real cause when `f` can't be crewed or flown: its departure airport
+ * closed now (no crew can be ticketed in: their only way in), or the leg itself barred (its own airport closed at its
+ * time, no permit). null for our own crew shortages at open airports. Pure.
+ */
+export function closureCause(g: GameState, f: Flight): WorldEvent | null {
+  const own = permitOf(g, f);
+  return closedAirport(g, f.from, g.now) ?? closedAirport(g, f.from, Math.max(g.now, f.std), own) ?? closedAirport(g, f.to, Math.max(g.now, f.std) + f.block, own);
 }
 
 /**
@@ -656,8 +666,9 @@ export function waitAtGate(g: GameState, f: Flight, e: WorldEvent): boolean {
   if (k && k.pattern.kind !== 'base') waitLegs(g, k, e);
   if (f.status === 'scheduled' && f.std < at) {
     f.lateOk = Math.max(f.lateOk ?? 0, at - (f.schedStd ?? f.std));
-    excuse(f, at - (f.std + f.delay));
-    delayChain(g, f, at, `Waiting: ${e.title}`, false);
+    // v0.12.1 (Goma) the wait and the knock-on it gives the later legs are excused, and a leg it drops past its cap is
+    // force majeure (underClosure), as at the pre-report hold.
+    underClosure(g, f, () => delayChain(g, f, at, `Waiting: ${e.title}`, false), e);
   }
   return f.status !== 'scheduled' || f.std + f.delay >= at;
 }
@@ -695,7 +706,6 @@ export function strandedAsk(g: GameState, f: Flight, e: WorldEvent, at: Minute, 
   const where = city(lost[0].from);
   const rivalId = pickRival(g, ac.typeId, lost);
   const sub = subcharterCost(g, lost, 1.5 * rivalFactor(g, rivalId));
-  const pen = cancelCost(g, lost);
   const swap = findSwapHook?.(g, ac, lost, lost[0].from) ?? null;
   const n = lost.length;
   const legs = `${n} leg${n > 1 ? 's' : ''}`;
@@ -707,9 +717,10 @@ export function strandedAsk(g: GameState, f: Flight, e: WorldEvent, at: Minute, 
       swap
         ? { id: 'swap', label: `Swap in ${swap.ac.reg}`, desc: `${swap.ac.reg} takes over the legs${swap.from === lost[0].from ? '' : ` (ferry ${swap.from}–${lost[0].from})`}.`, tone: 'good', chips: [`First leg ${fmtDay(swap.moves[0]?.std ?? swap.arrive)}`, legs] }
         : { id: 'swap', label: 'Swap aircraft', desc: 'No other aircraft of the type is free for them.', tone: 'bad', chips: ['Unavailable'] },
-      { id: 'cancel', label: 'Cancel those legs', desc: 'Compensation to the client and a reliability hit.', tone: 'bad', chips: [usd(-pen), 'Reliability −3', legs] },
+      // v0.12.1 (Goma, designer) the closure holds the aircraft: cancelling its later legs is force majeure.
+      { id: 'cancel', label: 'Cancel those legs', desc: `Force majeure (${e.title}): no compensation and no reliability hit.`, tone: 'bad', chips: ['Force majeure', legs] },
     ],
-    defaultOption: swap ? 'swap' : sub < pen ? 'subcharter' : 'cancel', expires: g.now + 12 * 60, ref: { kind: 'aircraft', id: ac.id },
+    defaultOption: swap ? 'swap' : 'cancel', expires: g.now + 12 * 60, ref: { kind: 'aircraft', id: ac.id },
     data: { aircraftId: ac.id, eventId: e.id, flightId: f.id, rivalId, ...(from < f.std ? { from } : {}) },
   }, true);
   return g.decisions.some((d) => d.kind === 'stranded' && d.data?.aircraftId === ac.id);
@@ -776,8 +787,9 @@ export function resolveStranded(g: GameState, d: Decision, opt: string): ActionR
     return { ok: true, msg: `${sw.ac.reg} takes over ${lost.length} leg${lost.length === 1 ? '' : 's'} from ${ac.reg}` };
   }
   if (opt === 'cancel') {
-    const pen = cancelLegs(g, lost, `${ac.reg} held: ${e.title}`, 3);
-    return { ok: true, msg: `${lost.length} legs cancelled, ${usd(pen)} compensation` };
+    // v0.12.1 (Goma) force majeure: off the MGH as lostFmMin, no compensation or reliability hit.
+    const n = cancelForceMajeure(g, lost, `Cancelled: ${e.title}`);
+    return { ok: true, msg: `${n} leg${n === 1 ? '' : 's'} cancelled (force majeure)` };
   }
   return { ok: false, error: 'Unknown option' };
 }

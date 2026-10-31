@@ -634,3 +634,28 @@ describe('crewReadyAt on the real timetable', () => {
     expect(t2).toBeGreaterThanOrEqual(g.now + 60);
   });
 });
+
+describe('v0.12.1 Crew Control lists each crew member once', () => {
+  it('a captain who may sit as FO is one call-in or fly-in option, not one per seat', () => {
+    const t = trip('LIS', 'FNC');
+    const { g } = t;
+    autoRoster(g);
+    const { p } = live(g, t.flightId);
+    // Both pilots off the trip: a CPT and an FO seat to fill, and captains may take either.
+    for (const role of ['CPT', 'FO'] as const) {
+      const sl = p.slots.find((s) => s.role === role && s.crewId)!;
+      releaseCrew(g, p, sl.crewId!);
+    }
+    setFlightsCrew(g, p);
+    // One captain free at Lisbon, no first officer: the same captain is the pick for both seats.
+    const free = Object.values(g.crew).find((c) => c.role === 'CPT' && !p.slots.some((s) => s.crewId === c.id))!;
+    for (const c of Object.values(g.crew)) if (c.id !== free.id && (c.role === 'CPT' || c.role === 'FO') && !p.slots.some((s) => s.crewId === c.id)) c.blocks = [{ from: g.now, to: g.now + 10 * DAY, why: 'leave' }];
+    touchCrew(g);
+    const v = crewControl(g, t.flightId)!;
+    expect(v.solutions.find((s) => s.id === 'callIn')?.options?.map((o) => o.id)).toContain(free.id);
+    for (const s of v.solutions) {
+      const ids = (s.options ?? []).map((o) => o.id);
+      expect(new Set(ids).size, s.id).toBe(ids.length);
+    }
+  });
+});

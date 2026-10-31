@@ -7,7 +7,7 @@ import { ACMI_TYPES_LIST, type RatingFamily } from '../../data/acmiTypes';
 import { typeOf } from '../../engine/core/perf';
 import { DAY, fmtDate, fmtDay } from '../../engine/core/time';
 import type { GameState, Role } from '../../engine/core/types';
-import { hireCrew, hireQuote, type HireRequest, salaryFor, staffing } from '../../engine/crew';
+import { hireCrew, hireQuote, type HireRequest, payFor, staffing } from '../../engine/crew';
 import { Modal, Seg, Stepper } from '../components/ui';
 import { money } from '../format';
 import { KV } from '../screens/common';
@@ -49,7 +49,8 @@ export function HireModal({ role: role0, family: fam0, base: base0, count: count
   const q = hireQuote(g, req);
   const lines = staffing(g);
   const shown = pilot ? [family] : ticked;
-  const salary = salaryFor(role, req.family);
+  // v0.12.1 B757/767: widebody pay while a 767 is in the fleet.
+  const salary = payFor(g, role, req.family);
   const days = Math.max(1, Math.round((q.readyAt - g.now) / DAY));
   const tick = (f: RatingFamily) => {
     if (ticked.includes(f)) { if (ticked.length > 1) setTicked(ticked.filter((x) => x !== f)); }

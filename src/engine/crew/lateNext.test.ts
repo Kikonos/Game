@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { acceptOffer } from '../contracts';
-import { hamBase, leased, newGame, run } from '../contracts/testkit';
+import { leased, dubBase, newGame, run } from '../contracts/testkit';
 import { retimeFlight, touchTickets } from '../core/entities';
 import { BAL } from '../core/balance';
 import { schedule } from '../core/queue';
@@ -17,10 +17,10 @@ import { cabinEarly, touchCrew } from './timeline';
 
 const CI = BAL.deadheadCheckIn;
 
-/** A Hamburg base crewed from Lisbon: the first trip whose last duty has a ticket home on an airline. */
+/** A Dublin base (v0.12.1: was Hamburg, whose night ban now trims the third wave) crewed from Lisbon: the first trip whose last duty has a ticket home on an airline. */
 function trip(): { g: GameState; d: Duty; t: Flight } {
   const g = newGame(21);
-  const o = hamBase(g, g.now + 3 * DAY, 30);
+  const o = dubBase(g, g.now + 3 * DAY, 30);
   o.broker = undefined;
   const r = acceptOffer(g, o.id, [leased(g).id]);
   if (!r.ok) throw new Error(r.error);

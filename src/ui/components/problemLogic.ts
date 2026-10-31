@@ -70,17 +70,25 @@ const pos = (t: Minute, from: Minute, to: Minute) => Math.max(0, Math.min(100, (
 /** Alternates label rows in time order; a tick within `near` % of the previous one on the same side is pushed to the other. */
 /** Labels of one row at least this far apart (% of the bar: 'Earliest landing' is ~95 px in a 400 px card). */
 const LABEL_GAP = 24;
+/** v0.12.1 next to an edge-aligned label (it reaches a whole label width inwards). */
+const EDGE_GAP = 36;
 
 function alternate<T extends { x: number; side: 'above' | 'below'; lx?: number }>(ticks: T[]): T[] {
   const sorted = [...ticks].sort((a, b) => a.x - b.x);
   sorted.forEach((t, i) => (t.side = i % 2 ? 'below' : 'above'));
   // Labels two apart share a row: push the later one along (never the tick), then pull a run back from the right edge.
+  // v0.12.1 a label at an edge is drawn edge-aligned (BarTicks: under 8 % or over 92 %), so it reaches a whole label
+  // width inwards: its neighbour keeps half a label more away (iPad Crew Control: 'Report' ran into 'Departs').
   for (const side of ['above', 'below'] as const) {
     const row = sorted.filter((t) => t.side === side);
     let prev = -Infinity;
-    for (const t of row) { t.lx = Math.max(t.x, prev + LABEL_GAP); prev = t.lx; }
-    const over = prev - 100;
-    if (over > 0) for (const t of row) t.lx = Math.max(0, (t.lx ?? t.x) - over);
+    for (const t of row) { t.lx = Math.max(t.x, prev + (prev < 8 ? EDGE_GAP : LABEL_GAP)); prev = t.lx; }
+    let next = Infinity;
+    for (let i = row.length - 1; i >= 0; i--) {
+      const t = row[i];
+      t.lx = Math.max(0, Math.min(t.lx ?? t.x, next === Infinity ? 100 : next - (next > 92 ? EDGE_GAP : LABEL_GAP)));
+      next = t.lx;
+    }
   }
   return sorted;
 }

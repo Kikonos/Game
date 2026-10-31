@@ -244,14 +244,33 @@ export function dailyMarket(g: GameState): void {
   if (!m.gotWideFiled && filed) {
     const days = (g.now - filed.started) / DAY;
     // v0.8 only one handed over near the grant counts (one open on the filing day lapses months before it).
-    const open = m.aircraft.some((o) => typeOf(o.typeId).body === 'wide' && o.kind === 'dryLeaseIn' && aircraftGate(g, o.typeId).ok && g.now + o.leadDays * DAY >= filed.done - 30 * DAY);
+    // v0.12.1 one we can crew: of our widebody pilots' family when they fly the 767 or the A330 (a 747-400 on offer
+    // left A330 pilots with nothing to fly).
+    const want = postFilingType(g);
+    const open = m.aircraft.some((o) => typeOf(o.typeId).body === 'wide' && o.kind === 'dryLeaseIn' && aircraftGate(g, o.typeId).ok && g.now + o.leadDays * DAY >= filed.done - 30 * DAY && (!want || typeOf(o.typeId).family === typeOf(want).family));
     if (days >= M.wideAfterFilingDays) m.gotWideFiled = true;
     else if (!open && (days >= M.wideAfterFilingDays - 1 || chance(r, 1 / 20))) {
       m.gotWideFiled = true;
       // A lessor keen to place an old widebody: one month's deposit, handed over around the approval's due date.
-      postOffer(g, makeOffer(g, typeOf(chance(r, 0.5) ? 'b763' : 'a332'), { lease: true, depositMonths: 1, handoverAt: filed.done + int(r, -15, 15) * DAY }));
+      // v0.12.1 the type our widebody pilots fly when they fly one of the two (filing needs 4 + 4 rated): a lessor
+      // pitches what the operator can crew (the coin is still thrown, so the day's other draws stay as they were).
+      const coin = chance(r, 0.5);
+      postOffer(g, makeOffer(g, typeOf(postFilingType(g) ?? (coin ? 'b763' : 'a332')), { lease: true, depositMonths: 1, handoverAt: filed.done + int(r, -15, 15) * DAY }));
     }
   }
+}
+
+/**
+ * v0.12.1 the post-filing lessor's widebody: the 767-300ER or the A330-200 by the family most of our widebody pilots
+ * (rated, joining or converting) fly; null when we have none of either (a coin decides). Pure.
+ */
+export function postFilingType(g: GameState): 'b763' | 'a332' | null {
+  const a = ratedPilots(g, ['A330/340'], { booked: true });
+  const b = ratedPilots(g, ['B757/767'], { booked: true });
+  const na = Math.min(a.CPT, a.FO) * 1000 + a.CPT + a.FO;
+  const nb = Math.min(b.CPT, b.FO) * 1000 + b.CPT + b.FO;
+  if (na === nb) return null;
+  return na > nb ? 'a332' : 'b763';
 }
 
 function registration(g: GameState): string {

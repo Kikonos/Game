@@ -6,11 +6,11 @@ import type { SimModule } from '../core/module';
 import { schedule } from '../core/queue';
 import { DAY, monthKey, yearOf } from '../core/time';
 import type { CrewMember, Flight, GameState, Minute, SimEvent } from '../core/types';
-import { cancelConversion, classOf, dailyClasses } from './conversion';
+import { cancelConversion, classOf, dailyClasses, restoreCcqRatings } from './conversion';
 import { dailyCrewCosts, monthlySalaries } from './costs';
 import { afterDiversion, deletePairing, dutyLegality as dutyLevel, pairingSeats, planAircraft, refreshPairing } from './duties';
 export { aboveMinimum, afterDiversion, legalMinimum } from './duties';
-import { dailySickness, onCrewJoin, onTrainingDone } from './hr';
+import { dailyPay, dailySickness, onCrewJoin, onTrainingDone } from './hr';
 import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, settleService, setResignHooks } from './morale';
 import { autoRoster, closedWait, recheckBuyBacks, guardDuty, homeBeforeLeave, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, removeCrew, sendStrandedHome, settleRides, splitOverlong, stayOn, forgetGoneTickets } from './roster';
 import { localMin, minRest, signedTz, tzDeltaH, tzNights } from './rules';
@@ -28,7 +28,7 @@ export {
   AUG_FDP, CABIN_REST, cabinInflightRest, checkAssignment, crewWindows, daysOffInMonth, DISCRETION, FDP_BANDS, LIMITS, maxFdp, minRest, restAfter,
   acclimState, referenceTime, type Acclim, type CrewWindows, type FdpInput, type IssueCode, type LegalityIssue, type LegalityReport, type RestInput,
 } from './ftl';
-export { crewName, makeCrewMember, salaryFor } from './generate';
+export { crewName, crewPay, makeCrewMember, payFor, salaryFor } from './generate';
 export { crewPeakCard, gapWords, hireLeadDays, monthPlan, PEAK, peakForecast, peakGroups, peakId, peakLine, warnDays, type PeakForecast, type PeakGap, type PeakMonth } from './forecast';
 export { crewAvailability, hireBatch, hireCrew, hireFamilies, hireQuote, ratedMarket, staffing, staffingAssign, trainCrew, type Availability, type HireRequest, type RatedMarket, type RoleCapacity, type StaffingLine } from './hr';
 export {
@@ -44,7 +44,7 @@ export { paidShare, salaryBill } from './costs';
 export { crewRev, rideRoom, rideSeats, ridersText, ridesAllowed, revenueRide, ticketPrice } from './timeline';
 export { dropTargets, moveDuty, rosterBoard, type BoardBlock, type BoardRow, type DropTarget, type MoveScope } from './board';
 export {
-  cancelConversion, ccqPartner, classOf, conversionClasses, conversionEarliest, conversionPlan, courseOf, familyLabel, refundShare, startConversion,
+  cancelConversion, ccqKeeps, ccqPartner, ccqPartners, classOf, conversionClasses, conversionEarliest, conversionPlan, courseOf, courseText, familyLabel, ratingsLost, refundShare, startConversion,
   type ConversionClassPlan, type ConversionPlan, type ConversionRequest,
 } from './conversion';
 export {
@@ -525,6 +525,8 @@ function daily(g: GameState) {
   refreshStatuses(g);
   prune(g);
   dailyCrewCosts(g);
+  // v0.12.1 B757/767 pay follows the fleet (widebody scale while a 767 is in it).
+  dailyPay(g);
   for (const c of Object.values(g.crew)) if (c.status !== 'onDuty') c.fatigue = Math.max(0, c.fatigue - 6);
   dailySickness(g);
   dailyMorale(g);
@@ -648,6 +650,8 @@ export const crewModule: SimModule = {
     // v0.7.2: CSD/SCC → PUR before anything reads roles.
     migrateRanks(g);
     g.classes ??= {};
+    // v0.12.1 pilots who lost the A320 on an A330 conversion before the CCQ get it back (both kept now).
+    restoreCcqRatings(g);
     // v0.12.1 Settings › Buy back days off: automatically.
     g.company.policies.buyBack ??= 'auto';
     const y = yearOf(g.now);

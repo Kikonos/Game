@@ -843,6 +843,9 @@ function crewDeskHires(g: GameState): void {
 /** The roster re-runs itself every hour (auto-fix); the desk adds a ticket, a call-in and (within its limit) a jet. */
 const DESK_FIXES = ['deadhead', 'callIn', 'jet'] as const;
 
+/** v0.12.1 the crew desk's note: the fix's own line, its cost added only when the line does not already say it ('($671 overtime, morale −4) ($671)'). Pure. */
+export const deskFixBody = (msg: string, cost: number): string => `${msg}${cost && !msg.includes(usd(cost)) ? ` (${usd(cost)})` : ''}.`;
+
 /** Crew desk (every 6 h): the cheapest Crew Control fix within the limit on amber flights (at most 3 a round). */
 export function crewDeskHour(g: GameState): number {
   const h = active(g, 'crewDesk');
@@ -865,7 +868,7 @@ export function crewDeskHour(g: GameState): number {
     const f = g.flights[row.flightId];
     const mistake = slips(g, h);
     if (mistake) post(g, 'deadhead', -1_900);
-    done(g, h, 'crew', `The crew desk fixed ${f?.no ?? 'a flight'}: ${best.label.toLowerCase()}`, `${r.msg ?? ''}${best.cost ? ` (${usd(best.cost)})` : ''}.`, { kind: 'flight', id: row.flightId },
+    done(g, h, 'crew', `The crew desk fixed ${f?.no ?? 'a flight'}: ${best.label.toLowerCase()}`, deskFixBody(r.msg ?? '', best.cost), { kind: 'flight', id: row.flightId },
       mistake ? 'They bought a $1,900 ticket where a standby was free.' : undefined);
   }
   return n;

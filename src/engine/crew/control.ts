@@ -17,11 +17,11 @@ import { hashUnit } from '../core/util';
 import { relinkPositioning } from '../contracts/schedule';
 import { commercialItinerary, itinerary, itineraryText } from '../ops/commercial';
 import { crewReadyAt } from '../ops/events';
-import { cancelCost, cancelLegs, clearRestMarks, delayChain, liveOver, unitOf, waitsFirst } from '../ops/flights';
+import { cancelCost, cancelLegs, clearRestMarks, delayChain, liveOver, underClosure, unitOf, waitsFirst } from '../ops/flights';
 import { latePenalty } from '../ops/latePolicy';
 import { rotationOf, subcharter, subcharterQuote } from '../ops/subcharter';
 import { contractOf, isRevenue, stats, usd } from '../ops/util';
-import { closedAirport, closedUntil, eventsOf, permitOf, setClosureTicketHook } from '../ops/world';
+import { closedAirport, closedUntil, closureCause, eventsOf, permitOf, setClosureTicketHook } from '../ops/world';
 import { hurtProse, mkHurt, type GaugeSpec, type ProblemCard, type ReachSpec, hm, limitTone } from '../problems/types';
 import { crewIssuesFor, openDuties, planCrew, readyAt } from './check';
 import { crewWindows } from './ftl';
@@ -635,7 +635,8 @@ export function crewShortCard(g: GameState, flightId: string): ProblemCard | nul
   const ready = readyOf(g, f, ac);
   const delayMin = Math.max(0, ready - f.std);
   const perDelay = crewWaitPenalty(g, f, ready);
-  const hurt = mkHurt({ money: cancelCost(g, x.unit) + perDelay, pax: x.pax, delayMin, legs: x.revLegs, what: 'penalty', empty: !x.revLegs });
+  // v0.12.1 (Goma) a closure keeps crew out of the departure (or bars the leg): force majeure, no penalty to show.
+  const hurt = mkHurt({ money: closureCause(g, f) ? 0 : cancelCost(g, x.unit) + perDelay, pax: x.pax, delayMin, legs: x.revLegs, what: 'penalty', empty: !x.revLegs });
   const what = whatLine(x);
   const visuals: ProblemCard['visuals'] = {};
   const details: string[] = [];
@@ -764,8 +765,15 @@ export function crewShortCard(g: GameState, flightId: string): ProblemCard | nul
     // v0.12.1 (review) the departure airport closed by a world event (no permit): nobody is flown in or rests there
     // first (BLU1574's cards offered "rest in Goma first" during the fighting): the leg waits for the reopening.
     const shut = closedAirport(g, x.dep, Math.max(g.now, f.std), permitOf(g, f));
+    // v0.12.1 (Goma) with the event's permit the aircraft may leave, but no airline ticket gets a crew in: the card no
+    // longer shows a ride into the closed airport (S1027 BLU1570: 'TAP TP 115 LIS–GOM lands 08:15').
+    const noWayIn = shut ?? closedAirport(g, x.dep, g.now);
     if (shut) {
       why = `${city(x.dep)} is closed (${shut.title}) until ${at(closedUntil(shut), g.now)}: no crew can be flown in or rest there before then. ${f.no} waits for the reopening.`;
+      visuals.reach = undefined;
+      visuals.minimap = undefined;
+    } else if (noWayIn) {
+      why = `${city(x.dep)} is closed (${noWayIn.title}) until ${at(closedUntil(noWayIn), g.now)}: no crew can be flown in before then; only crew already there can take ${f.no} out.`;
       visuals.reach = undefined;
       visuals.minimap = undefined;
     }
@@ -1075,19 +1083,21 @@ export function feedersOf(g: GameState, flightId: string): Flight[] {
 }
 
 /** Cancels the unit the flight starts (wave or trip) for want of crew: compensation, reliability −3 (revenue legs), one message unless `quiet`. */
-export function cancelTrip(g: GameState, flightId: string, quiet = false): ActionResult<{ legs: number; empty: number; penalty: number }> {
+export function cancelTrip(g: GameState, flightId: string, quiet = false): ActionResult<{ legs: number; empty: number; penalty: number; fm?: string }> {
   const x = ctxOf(g, flightId);
   if (!x) return { ok: false, error: 'Flight not found or already left' };
   const legs = [...feedersOf(g, flightId), ...x.unit].filter((l) => l.status === 'scheduled' && l.purpose !== 'delivery');
   const rev = legs.filter(isRevenue).length;
-  const penalty = cancelLegs(g, legs, 'Crew shortage', rev ? CC().cancelRep : 0);
+  // v0.12.1 (Goma, designer) a closure keeps crew out of the departure (or bars the leg): force majeure.
+  const fm = closureCause(g, x.f);
+  const penalty = underClosure(g, x.f, () => cancelLegs(g, legs, 'Crew shortage', rev ? CC().cancelRep : 0), fm);
   if (!quiet) pushMessage(g, {
-    tone: rev ? 'bad' : 'info', cat: 'crew', title: `${x.f.no} cancelled${legs.length > 1 ? ` with ${legs.length - 1} more` : ''}: crew shortage`,
-    body: `${legs.map((l) => `${l.no} ${l.from}–${l.to}`).join(', ')} cancelled for want of a legal crew.${penalty ? ` Compensation ${usd(penalty)}.` : ''}`,
+    tone: rev ? 'bad' : 'info', cat: 'crew', title: `${x.f.no} cancelled${legs.length > 1 ? ` with ${legs.length - 1} more` : ''}: ${fm ? 'force majeure' : 'crew shortage'}`,
+    body: `${legs.map((l) => `${l.no} ${l.from}–${l.to}`).join(', ')} cancelled for want of a legal crew.${fm ? ` Force majeure (${fm.title}): no compensation and no reliability hit.` : penalty ? ` Compensation ${usd(penalty)}.` : ''}`,
     ref: { kind: 'flight', id: x.f.id }, hurt: { money: penalty, pax: x.pax, delayMin: 0, level: penalty || x.pax ? 'high' : 'none' },
   });
   if (x.ac) rerosterFrom(g, x.ac.id, g.now);
-  return { ok: true, msg: `${plural(rev, 'leg')} cancelled, ${usd(penalty)} compensation`, data: { legs: rev, empty: legs.length - rev, penalty } };
+  return { ok: true, msg: `${plural(rev, 'leg')} cancelled, ${fm ? 'force majeure' : `${usd(penalty)} compensation`}`, data: { legs: rev, empty: legs.length - rev, penalty, ...(fm ? { fm: fm.title } : {}) } };
 }
 
 // ---------- the fixes (§3.4) ----------
@@ -1740,9 +1750,9 @@ function runFix(h: GameState, flightId: string, fix: CrewFix, opts: ApplyOpts): 
     case 'cancel': {
       const r = cancelTrip(h, f.id, true);
       if (!r.ok) return r;
-      const { legs, empty, penalty } = r.data!;
+      const { legs, empty, penalty, fm } = r.data!;
       const what = [legs ? plural(legs, 'revenue leg') : '', empty ? plural(empty, 'empty leg') : ''].filter(Boolean).join(' and ');
-      return { ok: true, changes: [`${what} cancelled, ${usd(penalty)} compensation${legs ? ', reliability −3' : ''}`], cost: penalty };
+      return { ok: true, changes: [fm ? `${what} cancelled: force majeure (${fm}), no compensation` : `${what} cancelled, ${usd(penalty)} compensation${legs ? ', reliability −3' : ''}`], cost: penalty };
     }
   }
 }
@@ -1967,6 +1977,8 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean, only?: readonly C
     const lists0 = new Map<string, DutyCandidate>();
     for (const role of new Set(x.seats)) {
       for (const c of seatCandidates(g, d, role, id === 'callIn').slice(0, 6)) {
+        // v0.12.1 once each: a captain who may sit as FO was listed for both seats (S1118, Miguel Costa twice).
+        if (lists0.has(c.crewId)) continue;
         lists0.set(c.crewId, c);
         const cm = g.crew[c.crewId];
         const sby = id === 'callIn' ? c.standby : undefined;
@@ -2206,9 +2218,12 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean, only?: readonly C
     const live = [...feedersOf(g, f.id), ...x.unit].filter((l) => l.status === 'scheduled' && l.purpose !== 'delivery');
     if (!live.length) out.push(no(s, 'Nothing to cancel'));
     else {
-      s.cost = cancelCost(g, live);
+      // v0.12.1 (Goma) a closure keeps crew out of the departure (or bars the leg): force majeure, nothing to pay.
+      const fm = closureCause(g, f);
+      s.cost = fm ? 0 : cancelCost(g, live);
       const rev = live.filter(isRevenue).length;
-      s.chips = [usd(s.cost), `${rev ? 'Reliability −3' : 'No client'}`, rev ? plural(rev, 'revenue leg') : plural(live.length, 'empty leg')];
+      s.chips = [fm ? 'Force majeure' : usd(s.cost), `${!rev ? 'No client' : fm ? 'No reliability hit' : 'Reliability −3'}`, rev ? plural(rev, 'revenue leg') : plural(live.length, 'empty leg')];
+      if (fm) s.desc = `Force majeure (${fm.title}): no compensation and no reliability hit.`;
       if (x.pax) s.chips.push(`${x.pax} pax`);
       s.confirm = true;
       out.push(run(s));
@@ -2295,10 +2310,12 @@ export function applyCrewFix(g: GameState, flightId: string, fix: CrewFix, opts:
   // One message per event: a cancellation posts its own (with the hurt) from here.
   if (fix === 'cancel') {
     const unit = [...feed, ...view.unit.flightIds].map((id) => g.flights[id]).filter((l): l is Flight => !!l && l.status === 'cancelled');
+    // v0.12.1 (Goma) a closure's force majeure, as runFix worded it.
+    const fm = /: force majeure \((.+)\), no compensation$/.exec(r.changes[0] ?? '')?.[1];
     // v0.9 round 4 (§V): 'cancelled' once (the title), the leg count once; the legs, the reason and what it costs.
     pushMessage(g, {
       tone: view.unit.revenueLegs ? 'bad' : 'info', cat: 'crew', title: `${view.no} cancelled${unit.length > 1 ? ` with ${unit.length - 1} more` : ''}: ${kind === 'hours' ? 'crew out of hours' : 'crew shortage'}`,
-      body: `${unit.map((l) => `${l.no} ${l.from}–${l.to}`).join(', ')}: no legal crew. ${r.cost ? `${usd(r.cost)} compensation` : 'No compensation'}${view.unit.revenueLegs ? ', reliability −3' : ''}.`,
+      body: `${unit.map((l) => `${l.no} ${l.from}–${l.to}`).join(', ')}: no legal crew. ${fm ? `Force majeure (${fm}): no compensation and no reliability hit.` : `${r.cost ? `${usd(r.cost)} compensation` : 'No compensation'}${view.unit.revenueLegs ? ', reliability −3' : ''}.`}`,
       ref: { kind: 'flight', id: flightId }, hurt: { money: r.cost, pax: view.unit.pax, delayMin: 0, level: r.cost || view.unit.pax ? 'high' : 'none' },
     });
   } else pushMessage(g, {

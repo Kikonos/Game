@@ -13,7 +13,7 @@ import { DAY, daysInMonth, fmtDay, fromUTC, monthKey, monthStart, yearOf } from 
 import type { CrewMember, Duty, GameState, Minute, MonthKey, StandbyKind, StatsRoster09, StatsV09 } from '../core/types';
 import { hash } from '../core/util';
 import { moraleShock } from './morale';
-import { evalSegs, offsetAt, type LegalityIssue, type Seg } from './rules';
+import { evalSegs, offsetAt, tzDeltaH, type LegalityIssue, type Seg } from './rules';
 import { noteRecovery, onStandby, pruneStandby } from './standby';
 import { crewIx, ctxOf, locAt, segsOf, standbySeg, touchCrewState, typeIdOf } from './timeline';
 
@@ -1483,6 +1483,19 @@ export function fitStandby(g: GameState, ids: Iterable<string>): void {
 
 // ---------- daily ----------
 
+/** v0.12.1 windows still to come inside the time-zone recovery nights at home (or otherwise illegal now) go. */
+export const fitTzStandby = (g: GameState): void => fitStandby(g, tzReturning(g));
+
+/** v0.12.1 crew with standby still to come and work in the last or next 5 days 4 h or more from their base's clock. */
+function tzReturning(g: GameState): string[] {
+  const out: string[] = [];
+  for (const c of Object.values(g.crew)) {
+    if (!c.standby?.some((w) => w.calledAt === undefined && w.from > g.now)) continue;
+    if (segsOf(g, c).some((x) => x.kind !== 'sby' && x.end > g.now - 5 * DAY && x.start < g.now + 5 * DAY && [x.from, x.at].some((a) => a && tzDeltaH(c.base, a, x.start) >= 4))) out.push(c.id);
+  }
+  return out;
+}
+
 /** Recovery bookkeeping for standby windows that started since yesterday (standby is not rest). */
 function noteStarted(g: GameState): void {
   for (const c of Object.values(g.crew)) {
@@ -1538,6 +1551,10 @@ export function dayPlanBefore(g: GameState): void {
 export function dayPlanAfter(g: GameState): void {
   if (!g.dayPlan) return;
   topUpOffs(g);
+  // v0.12.1 a window inside the local nights owed at home after a trip across time zones goes (CS FTL.1.235(b)(3)):
+  // a trip or ticket home changed after the window was planned left it there (v0.7.2 save: an FO home from Nadi at
+  // 08:30, on standby from 12:00 the next day). planStandby refills the day.
+  fitTzStandby(g);
   planStandby(g);
   // v0.9 fix: after planStandby, so a window it starts right now (a hotel standby from 06:00 local = the daily tick)
   // is noted too; before, it was neither today's (not planned yet) nor tomorrow's (not after a day ago).

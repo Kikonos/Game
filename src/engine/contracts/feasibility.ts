@@ -431,10 +431,16 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
     for (const f of fits) for (const l of [...f.posIn, ...f.posOut]) etops = Math.max(etops, etopsNeeded(t.id, l.from, l.to));
   }
   const have = ETOPS_APPROVALS.find(([id]) => g.company.approvals.includes(id))?.[1] ?? 0;
+  // v0.12.1 a world tour on a twin crosses the Pacific: ETOPS 180 at least, held or granted before its first leg (the
+  // approval gate, ops/approvalGate.ts, checks it at every departure: a grant that slips grounds the tour at a stop).
+  if (hold && t.engines === 2) etops = Math.max(etops, 180);
+  const firstLeg = Math.min(o.start, rep.positionIn[0]?.std ?? Infinity);
+  const tourGrant = hold && have < etops ? ETOPS_APPROVALS.map(([id, min]) => ({ min, p: g.company.pendingApprovals.find((x) => x.id === id) })).find((x) => x.min >= etops && x.p && !x.p.waiting && x.p.done <= firstLeg)?.p : undefined;
   if (t.engines === 4) add('etops', 'ok', 'Four engines: no ETOPS limits');
   else if (!etops) add('etops', 'ok', 'No ETOPS needed');
   else if (t.etopsMax < etops) add('etops', 'no', `Routing needs ETOPS ${etops}; the ${t.short} is certified to ${t.etopsMax || 'none'}`);
-  else if (have < etops) add('etops', 'no', `Routing needs ETOPS ${etops}: we hold ${have ? `ETOPS ${have}` : 'no ETOPS approval'}`, 'Apply for it under Company → Approvals.');
+  else if (tourGrant) add('etops', 'warn', `Routing needs ETOPS ${etops}: pending, due ${fmtDate(tourGrant.done)} (before the tour leaves)`, 'If the grant slips, the tour cannot leave: every leg is checked at departure.');
+  else if (have < etops) add('etops', 'no', `Routing needs ETOPS ${etops}: we hold ${have ? `ETOPS ${have}` : 'no ETOPS approval'}${hold ? ', and no grant is due before the tour leaves' : ''}`, 'Apply for it under Company → Approvals.');
   else add('etops', 'ok', `ETOPS ${etops} (approved ${have})`);
 
   // 7. Approvals (v0.7: plus the Ladder's gate for this type; a pending gate approval flies revenue only after its grant).

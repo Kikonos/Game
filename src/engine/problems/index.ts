@@ -15,11 +15,13 @@ import { cashLowCard, cashNegativeCard, invoiceOverdueCard, leaseDueCard, lossMo
 import { aogCard, checkCard, checkClashCard, noSlotCard, techProblems } from './tech';
 import { hurtBadges, hurtProse, type ProblemCard } from './types';
 import { auditFindingCard, disruptionAt, disruptionCard, isDisruption, opsProblems, rampFindingCard } from './ops';
+import { approvalLateCard, approvalProblems } from './approval';
 import { airspaceClosedCard, clientUnhappyCard, dryLeaseInfoCard, leaseDamageCard, leaseLateCard, lostToRivalCard, uninsurableCard, worldProblems } from './world';
 
 export { hurtBadges, lateText, limitTone, mkHurt, usdShort } from './types';
 export type { GaugeSpec, Hurt, MiniMapSpec, ProblemAction, ProblemCard, ReachSpec, TimelineSpec } from './types';
 export type { ProblemKind, ProblemRef };
+export { approvalLateCard };
 export { clientUnhappyCard, lostToRivalCard, airspaceClosedCard, uninsurableCard, leaseLateCard, leaseDamageCard, dryLeaseInfoCard };
 export { crewFlightCard, crewHoursCard, crewSickCard, crewResignedCard, aogCard, checkCard, checkClashCard, noSlotCard, offerFitCard, counterExpiryCard, changeRequestCard, contractCancelledCard, cashLowCard, cashNegativeCard, invoiceOverdueCard, lossMonthCard, leaseDueCard, deliveryWaitCard, ferryUncrewedCard, noFerryCard, refitMissedCard, leaseReturnCard, captainAsFoCard, restSeatsCard, saleCard, restFacilityCard, restTooShortCard, cabinRestCard };
 
@@ -78,6 +80,8 @@ export function problemFor(g: GameState, subject: ProblemRef): ProblemCard | nul
     case 'auditFinding': return auditFindingCard(g, id);
     // Peak-staffing round
     case 'crewPeak': return crewPeakCard(g, id);
+    // v0.12.1
+    case 'approvalLate': return approvalLateCard(g, id);
   }
 }
 
@@ -93,6 +97,8 @@ const KIND_RANK: ProblemKind[] = [
   'airspaceClosed', 'uninsurable', 'leaseLate', 'clientUnhappy', 'leaseDamage', 'lostToRival', 'dryLeaseInfo',
   // v0.11
   'disruption', 'auditFinding', 'rampFinding',
+  // v0.12.1
+  'approvalLate',
 ];
 const rankOf = (c: ProblemCard) => SEV[c.severity] * 100 + KIND_RANK.indexOf(c.subject.kind);
 
@@ -108,7 +114,7 @@ export function problems(g: GameState): ProblemCard[] {
   const key = keyOf(g);
   const hit = cache.get(g);
   if (hit && hit.key === key) return hit.list;
-  const list = [...crewProblems(g), ...techProblems(g), ...commercialProblems(g), ...moneyProblems(g), ...fleetProblems(g), ...worldProblems(g), ...opsProblems(g)];
+  const list = [...crewProblems(g), ...techProblems(g), ...commercialProblems(g), ...moneyProblems(g), ...fleetProblems(g), ...worldProblems(g), ...opsProblems(g), ...approvalProblems(g)];
   list.sort((a, b) => rankOf(a) - rankOf(b) || (a.by ?? Infinity) - (b.by ?? Infinity) || (a.subject.ref.id < b.subject.ref.id ? -1 : 1));
   cache.set(g, { key, list });
   return list;
@@ -121,7 +127,8 @@ export function problemAt(g: GameState, ref: Ref): ProblemCard | null {
   switch (ref.kind) {
     case 'flight': {
       const f = g.flights[ref.id];
-      return crewFlightCard(g, ref.id, f?.purpose ? 'ferryUncrewed' : 'crewShort') ?? crewFlightCard(g, ref.id, 'crewTight');
+      // v0.12.1 a leg that needs an approval we won't hold by then (any leg of the job).
+      return crewFlightCard(g, ref.id, f?.purpose ? 'ferryUncrewed' : 'crewShort') ?? approvalLateCard(g, ref.id) ?? crewFlightCard(g, ref.id, 'crewTight');
     }
     case 'aircraft': return aogCard(g, ref.id) ?? checkCard(g, ref.id) ?? noSlotCard(g, ref.id) ?? deliveryWaitCard(g, ref.id) ?? leaseReturnCard(g, ref.id);
     case 'crew': return ref.id.startsWith('peak:') ? crewPeakCard(g, ref.id) : crewSickCard(g, ref.id) ?? crewResignedCard(g, ref.id);

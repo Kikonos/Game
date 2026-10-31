@@ -180,6 +180,38 @@ describe('v0.12.1 world tours: when they appear', () => {
   });
 });
 
+describe('v0.12.1 world tours: the approval gate (approvals checked at departure)', () => {
+  it('a twin needs ETOPS 180 held, or granted before the first leg: a grant due later, or stuck, is a no', () => {
+    const { g, acId } = tourGame(3);
+    const o = g.offers[devWorldTour(g)];
+    const etops = () => feasibility(g, o.id, acId).checks.find((c) => c.id === 'etops')!;
+    expect(etops().level).toBe('ok');
+    // Only ETOPS 120 held: a Pacific crossing is out.
+    g.company.approvals = g.company.approvals.filter((a) => a !== 'etops180');
+    expect(etops().level).toBe('no');
+    // ETOPS 180 pending, due before the positioning leaves: a warning (the gate grounds the tour if it slips).
+    const p = { id: 'etops180' as const, started: g.now - 100 * DAY, done: g.now + 30 * DAY, cost: 350_000 };
+    g.company.pendingApprovals.push(p);
+    expect(etops().level).toBe('warn');
+    expect(etops().label).toMatch(/pending, due .* \(before the tour leaves\)/);
+    // Due after the tour has left: no.
+    p.done = o.start + DAY;
+    expect(etops().level).toBe('no');
+    // Stuck at the authority: no.
+    p.done = g.now + 30 * DAY;
+    Object.assign(p, { waiting: 'Needs a clean record' });
+    expect(etops().level).toBe('no');
+    expect(acceptOffer(g, o.id, [acId]).ok).toBe(false);
+  });
+
+  it('a four-engined 747 needs no ETOPS for the tour', () => {
+    const { g, acId } = tourGame(3, 'b744');
+    g.company.approvals = g.company.approvals.filter((a) => a !== 'etops180' && a !== 'etops120');
+    const o = g.offers[devWorldTour(g)];
+    expect(feasibility(g, o.id, acId).checks.find((c) => c.id === 'etops')!.level).toBe('ok');
+  });
+});
+
 describe('v0.12.1 world tours: money', () => {
   it('clearly profitable flown well: priced on the days held, the positioning, five-star catering; more business seats pay more', () => {
     const { g, acId } = tourGame(3);

@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { CUES, cue, takeCueEvents } from '../engine/core/cues';
 import { sound } from './sound';
 import { store, TOAST_MS } from './store';
-import { LOG_MAX, logToast, pushStack, shownToasts, stickyCue, toastMs, type ToastLogEntry } from './toastLogic';
+import { LOG_MAX, logToast, pushStack, shownToasts, stickyCue, toastMs, withoutOpenSubject, type ToastLogEntry } from './toastLogic';
 
 describe('v0.9.1 every cue comes with its message', () => {
   it('each cue kind shows a toast naming it, and only then plays', () => {
@@ -113,5 +113,19 @@ describe('v0.12.1 toasts wait for the reader', () => {
     for (let i = 0; i < LOG_MAX + 10; i++) log = logToast(log, { id: i, kind: 'info', title: `T${i}`, at: i * 10 });
     expect(log.length).toBe(LOG_MAX);
     expect(log[0].title).toBe(`T${LOG_MAX + 9}`);
+  });
+});
+
+describe('v0.12.1 what a dialog shows', () => {
+  it('has no toast about it over its title ("Decision: …", "New offer: …"); other toasts stay', () => {
+    const list = [
+      { id: 1, title: "Decision: CS-TQM can't reach Manchester for Jet2holidays: sub-charter or swap aircraft" },
+      { id: 2, title: 'BLU1570 still short', ref: { kind: 'flight' as const, id: 'f1' } },
+      { id: 3, title: 'New offer: Hajj 1449 airlift CMN–JED/MED', ref: { kind: 'offer' as const, id: 'o9' } },
+    ];
+    expect(withoutOpenSubject(list, { title: "CS-TQM can't reach Manchester for Jet2holidays: sub-charter or swap aircraft" }).map((t) => t.id)).toEqual([2, 3]);
+    expect(withoutOpenSubject(list, { ref: { kind: 'offer', id: 'o9' } }).map((t) => t.id)).toEqual([1, 2]);
+    expect(withoutOpenSubject(list, { ref: { kind: 'flight', id: 'f1' } }).map((t) => t.id)).toEqual([1, 3]);
+    expect(withoutOpenSubject(list, null).map((t) => t.id)).toEqual([1, 2, 3]);
   });
 });
