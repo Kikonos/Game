@@ -330,6 +330,44 @@ describe('previews and apply', () => {
   });
 });
 
+describe('v0.12.1 what a delay costs (Round F, C3 and C10)', () => {
+  /** Spend posted now on the categories a crew fix touches. */
+  const spent = (g: GameState) => -['deadhead', 'crewJet', 'salaries', 'subcharter', 'penalties'].reduce((n, k) => n + (g.finance.current.lines[k as 'deadhead'] ?? 0), 0);
+
+  it("its own tickets and pay are its cost: the chip is never 'free' and equals what applying it spends, with the late-leg penalty", () => {
+    const { g, flightId, was } = shortOfCaptain('DUS', 'FNC', 2);
+    for (const c of Object.values(g.crew)) if (c.role === 'CPT' && c.id !== was) { c.blocks = [{ from: g.now - DAY, to: g.now + 10 * DAY, why: 'leave' }]; c.status = 'leave'; }
+    const f = g.flights[flightId];
+    const delay = crewControl(g, flightId)!.solutions.find((x) => x.id === 'delay')!;
+    expect(delay.available).toBe(true);
+    expect(delay.preview.changes.some((c) => /takes the captain seat \(deadhead/.test(c))).toBe(true);
+    expect(delay.cost).toBeGreaterThan(0);
+    expect(delay.chips[0]).toMatch(/^\$/);
+    // Nothing of it is shown as "tickets for other trips".
+    expect(delay.consequences.some((c) => /for other trips/.test(c))).toBe(false);
+    const late = delay.newDeparture! - (f.schedStd ?? f.std);
+    const penalty = late > 180 ? 2_500 : 0;
+    const before = spent(g);
+    expect(applyCrewFix(g, flightId, 'delay', { confirmed: true }).ok).toBe(true);
+    expect(spent(g) - before + penalty).toBe(delay.cost + (delay.preview.extraCost ?? 0));
+  });
+
+  it('a presidential charter pays 3× compensation from 30 min late (the arrival rule), not the plain one from 3 h', () => {
+    const { g, flightId, was } = shortOfCaptain('DUS', 'FNC', 2);
+    for (const c of Object.values(g.crew)) if (c.role === 'CPT' && c.id !== was) { c.blocks = [{ from: g.now - DAY, to: g.now + 10 * DAY, why: 'leave' }]; c.status = 'leave'; }
+    const k = g.contracts[g.flights[flightId].contractId!];
+    k.requirements.standards = 'vip';
+    k.penalties.perDelay = 3_750;
+    const delay = crewControl(g, flightId)!.solutions.find((x) => x.id === 'delay')!;
+    expect(delay.available).toBe(true);
+    const f = g.flights[flightId];
+    expect(delay.newDeparture! - (f.schedStd ?? f.std)).toBeGreaterThan(30);
+    const before = spent(g);
+    expect(applyCrewFix(g, flightId, 'delay', { confirmed: true }).ok).toBe(true);
+    expect(delay.cost + (delay.preview.extraCost ?? 0) - (spent(g) - before)).toBe(11_250);
+  });
+});
+
 describe('private jets', () => {
   it('quotes: LIS→DUS midsize ≈ $25K, LIS→JED heavy ≈ $70–100K (2026 rates, the empty leg back billed), two jets for 9 crew on a light jet', () => {
     const g = fixtureGame();

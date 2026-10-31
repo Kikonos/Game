@@ -383,13 +383,29 @@ function overSeats(g: GameState, f: Flight): string[] {
   return off;
 }
 
+/** v0.12.1 a ride gone (its leg removed or cancelled) comes off every duty that listed it. */
+function forgetRide(g: GameState, fid: string): void {
+  let n = 0;
+  for (const d of Object.values(g.duties)) {
+    if (!d.deadheadIds.includes(fid)) continue;
+    d.deadheadIds = d.deadheadIds.filter((x) => x !== fid);
+    n++;
+  }
+  if (n) touchCrew(g);
+}
+
 /** v0.12.1 settle (after any flight change): rides lost (leg cancelled or gone) or over the seats free are re-planned. */
 export function settleRides(g: GameState): void {
   for (const [fid, ids] of takeLostRides(g)) {
     const f = g.flights[fid];
     // An empty leg cancelled or removed (relinked positioning: often flown again under a new id) is left to the next
     // re-check of its riders' trips, as before v0.12.1; a passenger flight cancelled is re-planned now.
-    if (!f || !revenueRide(f)) continue;
+    if (!f || !revenueRide(f)) {
+      // v0.12.1 its duties no longer list it (both saves: 'duty du1jfo lists missing ticket f10t3', a positioning leg
+      // the relink removed with ten crew riding it).
+      if (!f || f.status === 'cancelled') forgetRide(g, fid);
+      continue;
+    }
     delete f.riders;
     lostRide(g, fid, ids);
   }
@@ -407,21 +423,59 @@ export function seatRiders(g: GameState, f: Flight): void {
   if (off.length) lostRide(g, f.id, off);
 }
 
+/** v0.12.1 the longest crew wait at an outstation for a trip from there, when the hotel beats two tickets. */
+const STAY_AWAY_MAX = 3 * DAY;
+
+/**
+ * v0.12.1 a ticket (or a ride) out of where the crew are, for a later trip, keeps them there only when that trip leaves
+ * soon after they are rested: within STAY_MAX, or within STAY_AWAY_MAX when the hotel nights cost less than the ticket
+ * home and the one back out (stayOn's test). A trip days ahead does not: they go home and fly back out (S1027: a captain
+ * sat 11 days in Frankfurt, an FO 13, held by the out-ticket bought from there for their next trip).
+ */
+function waitsAway(g: GameState, c: CrewMember, q: Pairing, t: Minute, ready: Minute): boolean {
+  const gap = t - ready;
+  if (gap <= STAY_MAX) return true;
+  const night = BAL.hotelPerNight[g.company.policies.hotelTier] ?? BAL.hotelPerNight[4];
+  const d0 = openDuties(g, q)[0];
+  const dep = (d0 && g.flights[d0.flightIds[0]]?.from) ?? c.loc;
+  return gap <= STAY_AWAY_MAX && Math.ceil(gap / DAY) * night < ticketPrice(c.loc, c.base) + ticketPrice(c.base, dep);
+}
+
 /** A crew member left away from base without a plan gets a ticket home after rest. */
 function sendHome(g: GameState, c: CrewMember, p?: Pairing, force = false): void {
   if (c.loc === c.base) return;
   const ix = crewIx(g);
-  // A ticket from where they are (or one already under way) takes them on.
-  if (!force && (ix.tickets.get(c.id) ?? []).some((f) => f.status === 'scheduled' && (f.from === c.loc || f.std <= g.now))) return;
-  if (!force && (ix.pairingsOf.get(c.id) ?? []).some((x) => x.status === 'active' || (x.status === 'planned' && x.start < g.now + 3 * DAY))) return;
-  const blk = dhBlock(c.loc, c.base);
   const segs = segsOf(g, c);
-  const ctx = ctxOf(g, c);
-  const ci = BAL.deadheadCheckIn;
   // Checked in once rested: after the last duty (restUntil) and (v0.11 debug) after a standby already begun, whose
   // rest restUntil does not hold (a hotel standby until 15:00 had its crew checking in for the ticket home 9 h later).
   let ready = Math.max(g.now, c.restUntil);
   for (const x of segs) if (x.kind !== 'log' && x.start < g.now) ready = Math.max(ready, x.end + x.rest);
+  // The first ticket (or ride) they hold from where they are, or one already under way.
+  const held = (ix.tickets.get(c.id) ?? []).filter((f) => f.status === 'scheduled' && (f.from === c.loc || f.std <= g.now)).sort((a, b) => a.std - b.std);
+  const next = held[0];
+  if (next && next.std <= g.now) return;
+  const q = next ? g.pairings[g.duties[ix.ticketDuty.get(next.id) ?? '']?.pairingId ?? ''] : undefined;
+  // A later trip's ticket (out to it, or its own way home after it).
+  const ahead = q?.status === 'planned' && q.start > g.now ? q : undefined;
+  // v0.12.1 a ticket or ride home already held is never bought twice (a released duty's ticket home was bought again at
+  // release: a second fare and the leave pushed back). Forced, only an earlier one is bought, and the later one dropped.
+  const homeHeld = next && !ahead && next.to === c.base ? [next] : [];
+  if (homeHeld.length && !force) return;
+  // A ticket from where they are takes them on; v0.12.1 one for a trip days ahead does not: they go home first, and
+  // that trip is ticketed from base.
+  if (!force && next && !homeHeld.length && (!ahead || ahead.tour || waitsAway(g, c, ahead, Math.min(next.std - BAL.deadheadCheckIn, ahead.start), ready))) return;
+  const later = !force && next ? ahead : undefined;
+  if (!force && (ix.pairingsOf.get(c.id) ?? []).some((x) => x.status === 'active' || (x.status === 'planned' && x.start < g.now + 3 * DAY))) return;
+  if (later) {
+    dropTickets(g, later, c.id);
+    touchCrew(g);
+    sendHome(g, c, p, true);
+    if (!retick(g, later, c)) recheckNext(g, [c.id]);
+    return;
+  }
+  const blk = dhBlock(c.loc, c.base);
+  const ctx = ctxOf(g, c);
+  const ci = BAL.deadheadCheckIn;
   let std = Math.ceil((ready + ci) / 60) * 60;
   // Crew-planning round: positioning is duty (ORO.FTL.210): a ticket home that would run past the 7, 14 or 28-day duty
   // limit waits at the hotel until it fits. (Bot seed 5: an FO sent home before his leave after six long days in Riyadh;
@@ -445,6 +499,9 @@ function sendHome(g: GameState, c: CrewMember, p?: Pairing, force = false): void
       break;
     }
   }
+  // v0.12.1 forced (home before a leave): the ticket home they hold stands unless this one leaves at least an hour sooner.
+  if (homeHeld.some((f) => f.std <= std + 60)) return;
+  if (homeHeld.length) dropPlanned(g, c.id, homeHeld.map((f) => f.id));
   // v0.12.1 our own flight home with a seat free (no ticket), leaving from then to half a day later, when it keeps the
   // same limits (7/14/28-day duty, the 168 h recovery).
   const ride = rideHomeFrom(g, c.loc, c.base, std, (f) => {
@@ -775,10 +832,16 @@ function leaveAway(g: GameState, c: CrewMember): boolean {
   const b = c.blocks?.find((x) => (x.why === 'leave' || x.why === 'training') && x.from >= g.now && x.from < g.now + 2 * DAY);
   if (!b) return false;
   for (const x of segsOf(g, c)) {
-    if (x.kind === 'log' || x.end <= g.now || x.start >= b.from) continue;
+    if (x.end <= g.now || x.start >= b.from) continue;
+    // v0.12.1 a released duty's ticket home still to land (merged into its log entry) takes them home.
+    if (x.kind === 'log') {
+      if (x.at === c.base) return false;
+      continue;
+    }
     if (x.kind === 'duty' || (x.kind === 'pos' && x.at === c.base)) return false;
   }
-  return true;
+  // v0.12.1 so does any ticket or ride home they hold, landing before the leave.
+  return !(crewIx(g).tickets.get(c.id) ?? []).some((f) => f.to === c.base && f.sta <= b.from && (f.from === c.loc || f.std <= g.now));
 }
 
 /** Removes a duty from its pairing; its tickets move to the pairing's new first/last duty. */
@@ -1506,7 +1569,19 @@ export function onFlightsChanged(g: GameState, aircraftId: string, t: Minute): v
           if (f.status === 'scheduled' || f.status === 'cancelled') f.crewIds = [];
         }
       }
-      if (keep.length === d.flightIds.length && ev === d.flightsEv) continue;
+      if (keep.length === d.flightIds.length && ev === d.flightsEv) {
+        // v0.12.1 a duty under way that another path already re-synced (the guard after a hold for a rescue crew): its
+        // next leg pushed past a night's rest still ends the duty at the last landing (seed 9: EI4023 held at Gatwick
+        // for 2.5 days with its crew on duty at the gate, FDP 60 h).
+        const d2 = d.report <= g.now && crewCount(p) > 0 ? splitUnderWay(g, p, d) : null;
+        if (!d2) continue;
+        pChanged = true;
+        const moved = new Set<string>();
+        retimeTickets(g, p, d, moved);
+        retimeTickets(g, p, d2, moved);
+        if (moved.size) later.push([p, moved]);
+        continue;
+      }
       pChanged = true;
       // Leftover-breach round: legs no longer flown in the duty's order, or no longer joined airport to airport (a leg
       // retimed ahead of the one before it), make no day of work: before any of them flies the duty goes and the legs
@@ -1566,6 +1641,31 @@ export function onFlightsChanged(g: GameState, aircraftId: string, t: Minute): v
   if (!reroster && !free && !changed) return;
   if (g.company.policies.autoRoster && (reroster || free)) rerosterFrom(g, aircraftId, Math.max(g.now, t));
   else if (free) planAircraft(g, aircraftId, g.now);
+}
+
+/**
+ * v0.12.1 hourly guard: nobody stays on duty past the duty's limit plus discretion and an hour. A duty under way that
+ * still waits for a leg leaving after a night's rest (a hold, a rescue crew) ends at its last landing: the crew go to the
+ * hotel, the leg gets a duty of its own (splitUnderWay). The aircraft is re-checked as after any change.
+ */
+export function splitOverlong(g: GameState): void {
+  const acs = new Set<string>();
+  for (const d of Object.values(g.duties)) {
+    if (d.done || d.report > g.now || g.now <= d.report + d.maxFdp + (d.discretion ?? 0) + 60) continue;
+    const p = g.pairings[d.pairingId];
+    if (!p?.aircraftId || !crewCount(p)) continue;
+    const d2 = splitUnderWay(g, p, d);
+    if (!d2) continue;
+    const moved = new Set<string>();
+    retimeTickets(g, p, d, moved);
+    retimeTickets(g, p, d2, moved);
+    for (const id of refreshPairing(g, p)) releaseCrew(g, p, id);
+    setFlightsCrew(g, p);
+    touchCrew(g);
+    recheckLater(g, new Set(p.slots.filter((x) => x.crewId).map((x) => x.crewId!)), p);
+    acs.add(p.aircraftId);
+  }
+  if (g.company.policies.autoRoster) for (const ac of acs) rerosterFrom(g, ac, g.now);
 }
 
 /**

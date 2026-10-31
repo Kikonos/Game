@@ -80,6 +80,8 @@ function Row({ s, open, onOpen, children }: { s: CrewSolution; open: boolean; on
   // The engine's chips carry the price when there is one; our own cost chip only says 'free'.
   const chips = s.chips.filter((c) => c !== timing);
   const priced = chips.some((c) => /^[−-]?\$/.test(c));
+  // v0.12.1 'free' only when neither the fix nor the re-roster around it spends anything.
+  const spend = s.cost + (s.preview.extraCost ?? 0);
   return (
     <div className={`cc-row ${s.available ? '' : 'off'} ${open ? 'open' : ''}`} data-fix={s.id}>
       <button className="cc-row-head" onClick={onOpen} aria-expanded={open} disabled={!s.available && !open && !s.why}>
@@ -90,7 +92,7 @@ function Row({ s, open, onOpen, children }: { s: CrewSolution; open: boolean; on
             <b>{s.label}</b>
             {s.available ? (
               <>
-                {!priced && <span className={`chip sc-chip ${s.cost > 0 ? '' : 'good'}`}>{s.cost > 0 ? money(s.cost) : 'free'}</span>}
+                {!priced && <span className={`chip sc-chip ${spend > 0 ? '' : 'good'}`}>{spend > 0 ? money(spend) : 'free'}</span>}
                 {timing && <span className="chip sc-chip">{timing}</span>}
                 {keepHurt(chips, 3).map((c) => <span key={c} className={`chip sc-chip ${hurtTone(c) ?? (/−|Morale|Fatigue|Reliab/.test(c) ? 'warn' : '')}`}>{c}</span>)}
               </>

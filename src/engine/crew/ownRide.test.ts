@@ -14,6 +14,8 @@ import { delayFlight } from '../ops';
 import { deserialize, serialize } from '../save';
 import { advanceTo } from '../sim';
 import { crewCalendar } from './calendar';
+import { applyCrewFix, crewControl } from './control';
+import { releaseCrew, setFlightsCrew } from './roster';
 import { openDuties } from './check';
 import { outTicket, rideRoom, rideSeats, ridersText, ridesAllowed } from './timeline';
 
@@ -165,5 +167,22 @@ describe('v0.12.1 crew riding our own passenger flights', () => {
       return path;
     };
     expect(diff(a, b, '')).toBeNull();
+  });
+
+  it("v0.12.1 Crew Control's Fly someone in seats the crew its list shows (a day off between a tour's duties is no bar)", () => {
+    const { g } = dublin();
+    // A first officer taken off a tour starting days ahead.
+    const p = Object.values(g.pairings).filter((q) => q.tour && q.status === 'planned' && q.start > g.now + DAY && q.slots.some((s) => s.crewId && s.role === 'FO')).sort((a, b) => a.start - b.start)[0];
+    expect(p).toBeDefined();
+    releaseCrew(g, p, p.slots.find((s) => s.crewId && s.role === 'FO')!.crewId!);
+    setFlightsCrew(g, p);
+    const f = g.flights[openDuties(g, p)[0].flightIds[0]];
+    const dh = crewControl(g, f.id)!.solutions.find((x) => x.id === 'deadhead')!;
+    expect(dh.options?.length ?? 0).toBeGreaterThan(0);
+    // Listed means seatable: never 'not now · Nobody legal can be flown in' beside a list of legal crew.
+    expect(dh.available, dh.why).toBe(true);
+    const r = applyCrewFix(g, f.id, 'deadhead', { confirmed: true, crewIds: [dh.options![0].id] });
+    expect(r.ok).toBe(true);
+    expect(p.slots.some((s) => s.crewId === dh.options![0].id)).toBe(true);
   });
 });
