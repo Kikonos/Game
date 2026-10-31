@@ -2,7 +2,8 @@
 // the joiners, a clean per-role table and one verdict line; Round up opens the hire flow pre-filled with exactly the
 // crew that complete the sets. The People view keeps a one-line summary per family that links here.
 
-import { CalendarClock, Check, UserPlus } from 'lucide-react';
+import { CalendarClock, Check, Info, UserPlus } from 'lucide-react';
+import { useState } from 'react';
 import type { RatingFamily } from '../../data/acmiTypes';
 import type { GameState } from '../../engine/core/types';
 import { BAL } from '../../engine/core/balance';
@@ -13,6 +14,7 @@ import { typeOf } from '../../engine/core/perf';
 import { Term } from '../components/Term';
 import { store } from '../store';
 import { isPilotRole } from './screenLogic';
+import { planSentence, setsWhyLines } from './crewPlanLogic';
 
 const ROLE_WORD: Record<string, string> = { CPT: 'Captains', FO: 'First officers', CRP: 'Relief pilots', PUR: 'Pursers', CC: 'Cabin crew' };
 
@@ -41,12 +43,21 @@ function FamilyCard({ p }: { p: FamilyPlan }) {
   const t = roundTargets(p);
   const short = p.setsComplete < p.setsNeeded;
   const pct = (n: number) => `${Math.min(100, (n / Math.max(1, p.setsNeeded)) * 100)}%`;
+  // v0.14 the "i": why N per aircraft, what limits them, who fills which seats (three short lines).
+  const [why, setWhy] = useState(false);
   return (
     <div className={`card cp-card ${short ? 'short' : ''}`}>
       <div className="row between gap-8 cp-head">
-        <b className="cp-name">{p.label}</b>
+        <span className="row gap-4"><b className="cp-name">{p.label}</b>
+          <button className={`btn btn-icon btn-ghost cp-info ${why ? 'on' : ''}`} onClick={() => setWhy(!why)} aria-expanded={why} aria-label={`How ${p.label} crew sets work`} title="How crew sets work"><Info /></button>
+        </span>
         <span className="small muted">{p.types.map((x) => `${x.short} ×${x.aircraft}`).join(' · ')}</span>
       </div>
+      {why && (
+        <ul className="small muted cp-why">
+          {setsWhyLines(p).map((l) => <li key={l}>{l}</li>)}
+        </ul>
+      )}
       <div className="cp-sets">
         <div className="cp-num"><span className="tiny dim">Sets needed</span><b className="num">{p.setsNeeded}</b><span className="tiny muted">{p.setsPerAircraft} per aircraft</span></div>
         <div className="cp-num"><span className="tiny dim">Complete now</span><b className={`num ${p.setsNow < p.setsNeeded ? 'warn' : ''}`}>{p.setsNow}</b><span className="tiny muted">working today</span></div>
@@ -95,13 +106,15 @@ function FamilyCard({ p }: { p: FamilyPlan }) {
       <div className="row gap-8 cp-actions">
         {t.complete !== null ? (
           <button className="btn btn-primary" onClick={() => store.openModal({ kind: 'roundUp', family: p.family, target: t.complete! })}><UserPlus /> Hire to complete {t.complete} sets</button>
-        ) : t.next !== null ? (
-          <button className="btn btn-primary" onClick={() => store.openModal({ kind: 'roundUp', family: p.family, target: t.next! })}><UserPlus /> Round up to {t.next} sets</button>
         ) : (
-          <button className="btn" disabled><Check /> Sets complete</button>
+          // v0.14 a complete family: a quiet 'Sets complete' and the round-up as a small secondary button.
+          <span className="small good row gap-4 cp-done"><Check className="sc-ico-s" /> Sets complete</span>
+        )}
+        {t.complete === null && t.next !== null && (
+          <button className="btn btn-sm" onClick={() => store.openModal({ kind: 'roundUp', family: p.family, target: t.next! })}><UserPlus /> Round up to {t.next} sets</button>
         )}
         {t.complete === null && t.next === null && (
-          <button className="btn btn-ghost small" onClick={() => store.openModal({ kind: 'roundUp', family: p.family, target: t.spare })}>Add a spare set</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => store.openModal({ kind: 'roundUp', family: p.family, target: t.spare })}>Add a spare set</button>
         )}
       </div>
     </div>
@@ -171,7 +184,7 @@ export function CrewPlanView({ g }: { g: GameState }) {
   );
 }
 
-/** People view: one calm line per family ('A320 family · 18 of 20 sets · short 2 CPT, 1 PUR'), tap → Planning. */
+/** People view: one plain sentence per fleet ('A320: 2 of 5 full crews · short 6 cabin crew'), tap → Planning. */
 export function PlanStrip({ g, onOpen }: { g: GameState; onOpen: () => void }) {
   const plans = crewPlan(g);
   if (!plans.length) return null;
@@ -179,18 +192,12 @@ export function PlanStrip({ g, onOpen }: { g: GameState; onOpen: () => void }) {
     <div className="cp-strip">
       {plans.map((p) => {
         const short = p.setsComplete < p.setsNeeded;
-        const miss = p.roles.filter((r) => r.balance < 0).map((r) => `${-r.balance} ${r.role}`).join(', ');
-        // v0.11.2 fix: more complete sets than needed read '9 of 5 sets'; now '5 of 5 sets · 4 spare' (as Planning).
-        const of = Math.min(p.setsComplete, p.setsNeeded);
-        const spare = p.setsComplete - of;
-        // v0.12.1 sets that only exist once joiners start say so ('5 of 5 sets · 1 joining').
-        const joining = Math.max(0, of - p.setsNow);
-        const sets = `${of} of ${p.setsNeeded} sets${spare ? ` · ${spare} spare` : ''}${joining ? ` · ${joining} joining` : ''}`;
+        // v0.14 one sentence (was the label, 'n of m sets' and the shortfall as role codes).
+        const text = planSentence(p);
+        const cut = text.indexOf(': ');
         return (
-          <button key={p.family} className={`cp-chip ${short ? 'short' : ''}`} onClick={onOpen} aria-label={`${p.label}: ${of} of ${p.setsNeeded} crew sets${spare ? `, ${spare} spare` : ''}${joining ? `, ${joining} still joining` : ''}. Open crew planning`}>
-            <b>{p.label}</b>
-            <span className={`num ${short ? 'warn' : 'good'}`}>{sets}</span>
-            {short && <span className="tiny muted">short {miss}</span>}
+          <button key={p.family} className={`cp-chip ${short ? 'short' : ''}`} onClick={onOpen} aria-label={`${text}. Open crew planning`}>
+            <span className="cp-line"><b>{text.slice(0, cut)}</b><span className={short ? 'warn' : 'good'}>{text.slice(cut + 1)}</span></span>
           </button>
         );
       })}

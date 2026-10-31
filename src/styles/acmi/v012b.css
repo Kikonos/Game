@@ -16,19 +16,23 @@
 .v12-hint-note .v9-hint-ico { margin-top: 1px; }
 .modal-title .v12-hint-wrap, h2 .v12-hint-wrap { margin-left: 6px; vertical-align: middle; }
 
-/* Rank marks beside crew names (RankMark): gold stripes on a navy epaulette; gold (purser) or silver (cabin crew) wings */
-.rank-mark { flex-shrink: 0; display: inline-block; vertical-align: middle; overflow: visible; }
-.rank-ep-body { fill: #14203a; stroke: rgba(255, 255, 255, 0.28); stroke-width: 1; }
-.rank-ep-btn { fill: #d9b45a; }
-.rank-ep-stripe { fill: #d9b45a; }
-:root[data-theme='light'] .rank-ep-body { fill: #14203a; stroke: rgba(20, 32, 58, 0.5); }
-:root[data-theme='light'] .rank-ep-stripe, :root[data-theme='light'] .rank-ep-btn { fill: #c99a2e; }
-.rank-wings path, .rank-wings circle { fill: #c3cad6; }
-.rank-wings.gold path { fill: #d9b45a; }
-.rank-wings.gold .rank-crest { fill: #d9b45a; stroke: #14203a; stroke-width: 0.8; }
-:root[data-theme='light'] .rank-wings path, :root[data-theme='light'] .rank-wings circle { fill: #8a94a6; }
-:root[data-theme='light'] .rank-wings.gold path { fill: #b8891f; }
-:root[data-theme='light'] .rank-wings.gold .rank-crest { fill: #b8891f; stroke: #fff; }
+/* Rank marks beside crew names (RankMark). v0.14 modern: one bar weight with round caps, flat muted gold and silver;
+   the epaulette board stays navy in both themes (as worn), so its stripes keep one gold; wings sit on the page, a
+   step deeper in the light theme. */
+.rank-mark {
+  --rank-gold: #d6b46c; --rank-silver: #c4cbd7; --rank-board: #1c2a4d; --rank-edge: rgba(255, 255, 255, 0.26);
+  --rank-wing-gold: var(--rank-gold); --rank-wing-silver: var(--rank-silver);
+  flex-shrink: 0; display: inline-block; vertical-align: middle; overflow: visible;
+}
+:root[data-theme='light'] .rank-mark { --rank-gold: #dcb86a; --rank-board: #1b2847; --rank-edge: transparent; --rank-wing-gold: #a97f2a; --rank-wing-silver: #7c879a; }
+.rank-ep-body { fill: var(--rank-board); stroke: var(--rank-edge); stroke-width: 1; stroke-linejoin: round; }
+.rank-mark .rank-bar { stroke-linecap: round; fill: none; }
+.rank-ep .rank-bar { stroke: var(--rank-gold); }
+.rank-wings.gold .rank-bar, .rank-wings.gold .rank-crest { stroke: var(--rank-wing-gold); }
+.rank-wings.silver .rank-bar { stroke: var(--rank-wing-silver); }
+.rank-wings .rank-crest { fill: none; }
+.rank-wings .rank-dot { fill: var(--rank-wing-silver); }
+.touch .rank-mark { width: 28px; height: 13px; }
 
 /* Boarding passes (deadhead tickets): a paper-like card with a perforated stub; same paper in both themes, softer in dark */
 .bp-list { display: flex; flex-direction: column; gap: 8px; }
