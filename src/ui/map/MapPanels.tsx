@@ -30,7 +30,7 @@ import { currentFlight, flightTimes } from '../../engine/core/query';
 import { DAY, fmtDay, fmtDuration, fmtTime, localOffset } from '../../engine/core/time';
 import type { Aircraft, CrewMember, Flight, GameState, MaintenanceEvent, ProblemRef, Ref, Role } from '../../engine/core/types';
 import type { DryLeaseView } from '../../engine/ops';
-import { type CrewAlertKind, crewName, crewShortCard, dutyCrew, flightCrewStatus, outOfHours, restNow, restOf, restSeatsBlocked, restText, sellableSeats, seatsText, slipOfFlight, slipsOfAircraft, standbyNow } from '../../engine/crew';
+import { type CrewAlertKind, crewName, crewShortCard, dutyCrew, flightCrewStatus, outOfHours, restNow, restOf, restSeatsBlocked, restText, ridersText, sellableSeats, seatsText, slipOfFlight, slipsOfAircraft, standbyNow } from '../../engine/crew';
 import { crewHoursCard } from '../../engine/problems';
 import { checkStatus, CONNECT_MIN, commercialItinerary, deliveryStatus, dryLeaseOf, FLIGHT_TYPE_HINT, FLIGHT_TYPE_LABEL, flightCrewAboard, type FlightType, flightType, flightZone, problemAt, ticketPurpose, worldEvent, worldZones } from '../../engine/ops';
 import { ferryCost } from '../../engine/ops/delivery';
@@ -409,6 +409,8 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
   let now: ReactNode;
   const curType = cur ? safe(() => flightType(g, cur), 'operating' as FlightType) : null;
   const riders = cur ? safe(() => flightCrewAboard(g, cur).riding, [] as string[]).map((id) => g.crew[id]).filter(Boolean).sort(byRole) : [];
+  // v0.12.1 our crew riding a passenger flight: '4 (seats 12 free)'.
+  const ridingLine = cur ? safe(() => ridersText(g, cur), null) : null;
   if (cur) {
     const { off, on } = flightTimes(cur);
     const prog = Math.max(0, Math.min(1, (t - off) / Math.max(1, on - off)));
@@ -531,7 +533,7 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
         {resting && <div className="small muted op-gap op-resting">{resting}</div>}
         {riders.length > 0 && (
           <>
-            <div className="small muted op-gap">Riding as passengers</div>
+            <div className="small muted op-gap">{ridingLine ? `Our crew riding: ${ridingLine}` : 'Riding as passengers'}</div>
             <CrewRows crew={riders} />
           </>
         )}

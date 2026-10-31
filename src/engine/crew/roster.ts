@@ -18,7 +18,7 @@ import { infoOf } from './outOfHours';
 import { lateChange, moraleShock, nextReport } from './morale';
 import { cabinFdpCap, DISCRETION, evalSegs, levelOf, LIMITS, minRest, mkSeg, recoveryAnchor, tzDeltaH, worst, type LegalityIssue, type Seg } from './rules';
 import { cabinOwnReport, planRest, restCabinN, restLegs, restOf, restPlan } from './restPlan';
-import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, extCutAt, locAt, noteRiders, outStillFits, passengers, planHome, planOut, posSeg, segsOf, segsTagOf, ticketPrice, touchCrew, typeIdOf, withoutTickets } from './timeline';
+import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, extCutAt, locAt, noteRiders, outStillFits, passengers, planHome, planOut, posSeg, revenueRide, rideCheckIn, rideHomeFrom, rideLegIds, rideRoom, rideSeats, segsOf, segsTagOf, takeLostRides, ticketPrice, touchCrew, typeIdOf, withoutTickets } from './timeline';
 
 export { buildDuties } from './duties';
 
@@ -80,11 +80,23 @@ function buyTicket(g: GameState, p: Pairing, d: Duty, crewIds: string[], t: Tick
   }
   const ride = t.rideId ? g.flights[t.rideId] : undefined;
   if (ride && ride.status === 'scheduled') {
-    ride.riders = [...new Set([...(ride.riders ?? []), ...crewIds])];
-    noteRiders(g, ride);
-    if (!d.deadheadIds.includes(ride.id)) d.deadheadIds.push(ride.id);
-    touchTickets(g);
-    return ride;
+    // v0.12.1 as many as there are seats free ride our flight (a revenue leg's passengers come first); the others fly
+    // on the airline ticket the plan would have bought without the ride (or another of our flights with seats).
+    const on = new Set(ride.riders ?? []);
+    let room = rideRoom(g, ride);
+    const seated = crewIds.filter((id) => on.has(id) || (room-- > 0));
+    const left = crewIds.filter((id) => !seated.includes(id));
+    if (seated.length) {
+      ride.riders = [...new Set([...(ride.riders ?? []), ...seated])];
+      noteRiders(g, ride);
+      if (!d.deadheadIds.includes(ride.id)) d.deadheadIds.push(ride.id);
+      touchTickets(g);
+    }
+    if (!left.length) return ride;
+    const out = ride.to === (g.flights[d.flightIds[0]]?.from ?? d.restAt) && ride.sta <= d.report;
+    const alt = out ? planOut(g, p, d, ride.from) : planHome(d, ride.to, cabinEarly(g, p, d));
+    const f = buyTicket(g, p, d, left, alt, res);
+    return seated.length ? ride : f;
   }
   const cost = clientPaysCrewTravel(g, p) ? 0 : ticketPrice(t.from, t.to) * crewIds.length;
   // v0.12.1 never a ticket already gone: an illegal plan's fallback ticket (a swap bought 'TP 311 LIS–GOM, lands 26 Oct
@@ -322,6 +334,79 @@ function retick(g: GameState, p: Pairing, c: CrewMember): boolean {
   return true;
 }
 
+/**
+ * v0.12.1 crew who lost their seat on our own passenger flight (cancelled, handed to another operator, or its seats
+ * filled: more passengers, crew in passenger seats, rest seats curtained off) come off it and are re-planned at once:
+ * their trip re-ticketed (an airline ticket, or another of our flights with seats), else re-checked so the roster
+ * re-crews it or Crew Control raises it; crew on a ride home with no trip behind it get a ticket home.
+ */
+function lostRide(g: GameState, fid: string, ids: string[]): void {
+  const f = g.flights[fid];
+  const still = new Set(f && f.status !== 'cancelled' ? f.riders ?? [] : []);
+  const lost = new Set(ids);
+  let p: Pairing | undefined;
+  const trips = new Map<string, Pairing>();
+  for (const d of Object.values(g.duties)) {
+    if (!d.deadheadIds.includes(fid)) continue;
+    const q = g.pairings[d.pairingId];
+    // The duty keeps the ride only while some of its crew still ride it.
+    if (!q || !q.slots.some((x) => x.crewId && still.has(x.crewId))) d.deadheadIds = d.deadheadIds.filter((x) => x !== fid);
+    if (!q || d.done) continue;
+    for (const x of q.slots) if (x.crewId && lost.has(x.crewId)) trips.set(x.crewId, (p = q));
+  }
+  touchTickets(g);
+  touchCrew(g);
+  const stuck: string[] = [];
+  for (const id of ids) {
+    const c = g.crew[id];
+    const q = trips.get(id);
+    if (!c) continue;
+    if (q) {
+      if (!retick(g, q, c)) stuck.push(id);
+    } else if (!(crewIx(g).tickets.get(id) ?? []).some((t) => t.status === 'scheduled' || t.status === 'enroute')) {
+      sendHome(g, c);
+      stuck.push(id);
+    }
+  }
+  if (stuck.length) recheckNext(g, stuck, p);
+}
+
+/** v0.12.1 riders over the seats free on our flight `f` (rideSeats): the last to board come off. Their ids. */
+function overSeats(g: GameState, f: Flight): string[] {
+  const n = f.riders?.length ?? 0;
+  if (!n || f.kind === 'deadhead') return [];
+  const keep = Math.max(0, rideSeats(g, f));
+  if (n <= keep) return [];
+  const off = f.riders!.slice(keep);
+  f.riders = f.riders!.slice(0, keep);
+  if (!f.riders.length) delete f.riders;
+  return off;
+}
+
+/** v0.12.1 settle (after any flight change): rides lost (leg cancelled or gone) or over the seats free are re-planned. */
+export function settleRides(g: GameState): void {
+  for (const [fid, ids] of takeLostRides(g)) {
+    const f = g.flights[fid];
+    // An empty leg cancelled or removed (relinked positioning: often flown again under a new id) is left to the next
+    // re-check of its riders' trips, as before v0.12.1; a passenger flight cancelled is re-planned now.
+    if (!f || !revenueRide(f)) continue;
+    delete f.riders;
+    lostRide(g, fid, ids);
+  }
+  for (const fid of rideLegIds(g)) {
+    const f = g.flights[fid];
+    if (!f || f.status !== 'scheduled') continue;
+    const off = overSeats(g, f);
+    if (off.length) lostRide(g, fid, off);
+  }
+}
+
+/** v0.12.1 at departure: riders beyond the seats left once the passengers are aboard stay behind and are re-planned. */
+export function seatRiders(g: GameState, f: Flight): void {
+  const off = overSeats(g, f);
+  if (off.length) lostRide(g, f.id, off);
+}
+
 /** A crew member left away from base without a plan gets a ticket home after rest. */
 function sendHome(g: GameState, c: CrewMember, p?: Pairing, force = false): void {
   if (c.loc === c.base) return;
@@ -359,6 +444,24 @@ function sendHome(g: GameState, c: CrewMember, p?: Pairing, force = false): void
       std = t;
       break;
     }
+  }
+  // v0.12.1 our own flight home with a seat free (no ticket), leaving from then to half a day later, when it keeps the
+  // same limits (7/14/28-day duty, the 168 h recovery).
+  const ride = rideHomeFrom(g, c.loc, c.base, std, (f) => {
+    const t = f.std;
+    // (Never later than the ticket into a leave, a course or the last day.)
+    if (f.sta > std + blk && c.blocks?.some((b) => b.from >= g.now && b.from < f.sta)) return false;
+    if (!evalSegs(ctx, [...segs.filter((x) => x.start < t - ci), posSeg({ from: c.loc, to: c.base, std: t, sta: f.sta }, c, true)]).every((i) => i.level !== 'illegal' || (i.code !== 'duty7d' && i.code !== 'duty14d' && i.code !== 'duty28d'))) return false;
+    return f.sta <= recoveryAnchor(ctx, segs, t - ci) + LIMITS.recoveryEvery;
+  });
+  if (ride) {
+    ride.riders = [...(ride.riders ?? []), c.id];
+    noteRiders(g, ride);
+    touchTickets(g);
+    leaveAfterTicket(g, [c.id], ride);
+    touchCrew(g);
+    fitStandby(g, [c.id]);
+    return;
   }
   const cost = clientPaysCrewTravel(g, p) ? 0 : ticketPrice(c.loc, c.base);
   const contractId = p?.contractId ?? null;
@@ -529,11 +632,14 @@ export function rebookAfterLateRelease(g: GameState, p: Pairing, d: Duty): void 
   for (const fid of [...d.deadheadIds]) {
     const f = g.flights[fid];
     // (One that left already, its crew still on duty, was never boarded: rebooked too.)
-    if (!f || f.kind !== 'deadhead' || f.status !== 'scheduled' || f.std <= d.report || f.from !== d.restAt) continue;
-    const wait = f.std - ci - d.release;
+    if (!f || f.status !== 'scheduled' || f.std <= d.report || f.from !== d.restAt) continue;
+    // (v0.12.1 the next leg of the aircraft they brought in: no check-in, they stay aboard.)
+    const wait = f.std - (f.kind === 'deadhead' ? ci : rideCheckIn(g, f, d)) - d.release;
     if (wait >= 0 && wait <= STRAIGHT_ON) continue;
     const ends = new Map<string, Minute>();
-    for (const cid of f.crewIds) {
+    // v0.12.1 riders on our own flight home too (it leaves when it leaves: those who cannot take it get a ticket).
+    for (const cid of passengers(f)) {
+      if (f.kind !== 'deadhead' && !p.slots.some((x) => x.crewId === cid)) continue;
       const c = g.crew[cid];
       if (!c) continue;
       let out: Flight | null = null;
@@ -547,7 +653,7 @@ export function rebookAfterLateRelease(g: GameState, p: Pairing, d: Duty): void 
       if (wait < 0 || f.std - ci < end) ends.set(cid, end);
     }
     if (!ends.size) continue;
-    const blk = f.sta - f.std;
+    const blk = f.kind === 'deadhead' ? f.sta - f.std : dhBlock(f.from, f.to);
     // Straight on again only for crew who missed a ticket straight on; one booked for after the rest stays after it.
     const t = wait < 0 ? planHome(d, f.to, cabinEarly(g, p, d)) : null;
     const straight = t && t.std - ci - d.release <= STRAIGHT_ON ? t.std : null;
@@ -557,9 +663,9 @@ export function rebookAfterLateRelease(g: GameState, p: Pairing, d: Duty): void 
       groups.set(std, [...(groups.get(std) ?? []), cid]);
     }
     for (const [std, ids] of groups) {
-      if (std === f.std) continue;
+      if (std === f.std && f.kind === 'deadhead') continue;
       for (const cid of ids) unboard(g, f, cid);
-      if (!g.flights[fid]) d.deadheadIds = d.deadheadIds.filter((x) => x !== fid);
+      if (!g.flights[fid] || (f.kind !== 'deadhead' && !p.slots.some((x) => x.crewId && f.riders?.includes(x.crewId)))) d.deadheadIds = d.deadheadIds.filter((x) => x !== fid);
       buyTicket(g, p, d, ids, { from: f.from, to: f.to, std, sta: std + blk }, emptyResult());
       fitStandby(g, ids);
     }

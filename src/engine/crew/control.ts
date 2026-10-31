@@ -1015,7 +1015,10 @@ function rideText(g: GameState, d: Duty, crewId: string): string {
   for (const fid of d.deadheadIds) {
     const t = g.flights[fid];
     // v0.12.1 never a ticket already gone (a swap preview read 'lands 26 Oct 15:15' on 27 Oct).
-    if (!t || t.status !== 'scheduled' || !t.crewIds.includes(crewId) || t.sta > d.report || t.std < g.now) continue;
+    if (!t || t.status !== 'scheduled' || t.sta > d.report || t.std < g.now) continue;
+    // v0.12.1 a seat on our own flight: 'flies out on our own BLU123 LIS–LPA, lands 07:10'.
+    if (t.kind !== 'deadhead' && t.riders?.includes(crewId)) return ` (flies out on our own ${t.no} ${t.from}–${t.to}, lands ${at(t.sta, g.now)})`;
+    if (!t.crewIds.includes(crewId) || t.kind !== 'deadhead') continue;
     const legs = commercialItinerary(g, t);
     return ` (${t.charter ? `private jet ${t.charter.model}` : `deadhead ${itineraryText(legs)}`}, lands ${at(t.sta, g.now)})`;
   }
@@ -1824,6 +1827,9 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean, only?: readonly C
     s.cost = first.cost;
     const firstC = (lists0.get(first.id) ?? null);
     // Round 4: the blurb follows the pick (the static one read as both free and priced for an off-duty pick).
+    // v0.12.1 a pick riding our own flight says so.
+    const own = id === 'deadhead' ? /^Flies out on our own (\S+)/.exec(firstC?.travel ?? '') : null;
+    if (own) s.desc = `A free crew member flies out on our own ${own[1]} as a passenger: no ticket.`;
     if (id === 'callIn') s.desc = !first.cost ? 'Crew on standby come in: no overtime; a long standby shortens their day.' : `${firstC?.dayOff ? 'A day off' : 'Off duty'}: ${usd(first.cost)} overtime, morale ${firstC?.dayOff ? BAL.v09.roster.morale.broken : CC().callInMorale}.`;
     s.chips = id === 'callIn'
       ? (first.cost ? [usd(first.cost), `Morale ${firstC?.dayOff ? BAL.v09.roster.morale.broken : CC().callInMorale}`] : ['No overtime', firstC?.standby ? SBY_LABEL[firstC.standby.kind] : 'Standby'])

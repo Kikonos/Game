@@ -200,12 +200,17 @@ interface Tally {
   shortSkipped: number;
   wideCapped: number;
   leaseNoJob: number;
+  ownRides: number;
+  ownRideLegs: number;
+  emptyRides: number;
 }
 const newTally = (): Tally => ({
   actions: new Map(), decisions: new Map(), decMonth: new Map(), decKinds: new Map(), accepted: 0, countered: 0, firstAccept: null, wideAffordableAt: null, wideReadyAt: null, wideSigned: null, longLead: 0, paintOffers: [],
   rehired: 0, policyChanges: [], classesBooked: 0, paidExtra: 0, filed: [], signed: [], narrowSigned: 0, refits: [], leaseChoices: [], waitHires: 0, crewFixes: new Map(),
   cHubs: [], hubTravel: 0, restSeats: 0, multiHires: 0, earlyReturnDay: null, restRefits: [], aug4: 0,
   types: new Map(), dryLeases: 0, shortSkipped: 0, wideCapped: 0, leaseNoJob: 0,
+  /** v0.12.1 crew rides on our own flights as passengers: on passenger flights (and their legs), on empty legs. */
+  ownRides: 0, ownRideLegs: 0, emptyRides: 0,
 });
 
 const weekOf = (g: GameState) => Math.floor((g.now - g.started) / (7 * DAY));
@@ -1961,6 +1966,12 @@ function onStep(): void {
       const fm = mon(monthKey(f.ata ?? f.sta));
       if (f.operatedBy) fm.sub++;
       else if (f.kind === 'revenue') fm.legs++;
+      if (f.riders?.length) {
+        if (f.kind === 'revenue' || f.kind === 'techstop') {
+          tally.ownRides += f.riders.length;
+          tally.ownRideLegs++;
+        } else tally.emptyRides += f.riders.length;
+      }
       fm.crewBH += (f.crewIds.length * ((f.ata ?? f.sta) - (f.atd ?? f.std))) / 60;
     } else if (f.status === 'cancelled') {
       seenFlight.add(f.id);
@@ -2205,6 +2216,8 @@ console.log(`ladder: widebody signed ${dayOf(tally.wideSigned)}; tour series / t
   const fixes = [...tally.crewFixes].sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(', ') || 'none';
   const jetShare = revenueY ? (s.jetSpend ?? 0) / revenueY : 0;
   console.log(`crew control: amber ${s.crewAmber ?? 0}, red ${s.crewRed ?? 0} (out of hours ${g.stats.v09?.oohRed ?? 0}), fixes {${fixes}}, jets ${s.jets ?? 0} ${k$(s.jetSpend ?? 0)} (${(jetShare * 100).toFixed(2)}% of revenue) · short-notice offers passed over ${tally.shortSkipped}, widebody general work capped ${tally.wideCapped}, leases without a job ${tally.leaseNoJob}`);
+  // v0.12.1 crew riding our own flights instead of airline tickets.
+  console.log(`own-flight rides: ${tally.ownRides} crew on ${tally.ownRideLegs} passenger flights, ${tally.emptyRides} on empty legs · airline tickets ${k$(-[...g.finance.history.map((h) => h.lines), g.finance.current.lines].reduce((n, l) => n + (l.deadhead ?? 0), 0))} (all months)`);
   softTargets.push(['jets ≤ 8 a year and ≤ 1% of revenue', (s.jets ?? 0) * (365 / days) <= 8 && jetShare <= 0.01, `${s.jets ?? 0} jets, ${k$(s.jetSpend ?? 0)}`]);
   {
     const l = [...toldLeads].sort((a, b) => a - b);

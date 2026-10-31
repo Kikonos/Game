@@ -12,7 +12,7 @@ import { afterDiversion, deletePairing, dutyLegality as dutyLevel, pairingSeats,
 export { aboveMinimum, afterDiversion, legalMinimum } from './duties';
 import { dailySickness, onCrewJoin, onTrainingDone } from './hr';
 import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, settleService, setResignHooks } from './morale';
-import { autoRoster, closedWait, guardDuty, homeBeforeLeave, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, removeCrew, sendStrandedHome, stayOn } from './roster';
+import { autoRoster, closedWait, guardDuty, homeBeforeLeave, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, removeCrew, sendStrandedHome, settleRides, stayOn } from './roster';
 import { localMin, minRest, signedTz, tzDeltaH, tzNights } from './rules';
 import { clipToRest, dailyStandby, noteRecovery } from './standby';
 import { dayPlanAfter, dayPlanBefore, dayPlanInit, dayPlanLoad, dayPlanMonth, v09Stats } from './dayPlan';
@@ -32,7 +32,7 @@ export { crewName, makeCrewMember, salaryFor } from './generate';
 export { crewPeakCard, gapWords, hireLeadDays, monthPlan, PEAK, peakForecast, peakGroups, peakId, peakLine, warnDays, type PeakForecast, type PeakGap, type PeakMonth } from './forecast';
 export { crewAvailability, hireBatch, hireCrew, hireFamilies, hireQuote, ratedMarket, staffing, staffingAssign, trainCrew, type Availability, type HireRequest, type RatedMarket, type RoleCapacity, type StaffingLine } from './hr';
 export {
-  applyDiscretion, autoRoster, discretionCheck, discretionMax, plannedFdpOf, boardCrew, dropStraySpares, promoteSpares, buildDuties, flightCrewStatus, guardDuty, onFlightsChanged, removeCrew, replaceCrew, rerosterFrom, rosterOf, setClosedWaitHook, setRestDelayHook,
+  applyDiscretion, autoRoster, discretionCheck, discretionMax, plannedFdpOf, boardCrew, dropStraySpares, promoteSpares, buildDuties, flightCrewStatus, guardDuty, onFlightsChanged, removeCrew, replaceCrew, rerosterFrom, rosterOf, seatRiders, setClosedWaitHook, setRestDelayHook,
   type FlightCrewStatus, type RosterResult,
 } from './roster';
 export { crewIssuesFor } from './check';
@@ -41,7 +41,7 @@ export {
   type DutyCandidate, type DutyCrewView, type DutyLegalityView, type DutyLegalityWarning, type RosterOpts, type RosterSlotView,
 } from './rosterActions';
 export { salaryBill } from './costs';
-export { crewRev, ticketPrice } from './timeline';
+export { crewRev, rideRoom, rideSeats, ridersText, ridesAllowed, revenueRide, ticketPrice } from './timeline';
 export { dropTargets, moveDuty, rosterBoard, type BoardBlock, type BoardRow, type DropTarget, type MoveScope } from './board';
 export {
   cancelConversion, ccqPartner, classOf, conversionClasses, conversionEarliest, conversionPlan, courseOf, familyLabel, refundShare, startConversion,
@@ -342,6 +342,9 @@ function onFlightArrCrew(g: GameState, ev: SimEvent): void {
     }
   }
   if (pax.length) touchCrewState(g);
+  // v0.12.1 riders of our own flight diverted to an alternate: their next trip is re-planned from there now.
+  const landed = f.div && f.kind !== 'deadhead' ? pax.filter((id) => g.crew[id] && !missed.includes(id)) : [];
+  if (landed.length) recheckNext(g, landed, d && !d.done ? g.pairings[d.pairingId] : undefined);
   if (missed.length) {
     // v0.10.1 never boarded: they come off the ticket, so no timeline (the roster's, the duty log's) moves them with
     // it; the trip it was for is re-checked from where they really are (re-ticketed or re-crewed, or the shortage
@@ -660,6 +663,8 @@ export const crewModule: SimModule = {
     for (const [aircraftId, t] of takeFlightChanges(g)) onFlightsChanged(g, aircraftId, t);
     const rev = flightsRev(g);
     if (lastFlightsRev.get(g) !== rev) {
+      // v0.12.1 riders whose flight was cancelled, removed or filled up are re-planned first.
+      settleRides(g);
       rosterNewFlights(g);
       lastFlightsRev.set(g, flightsRev(g));
     }

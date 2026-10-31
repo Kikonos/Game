@@ -8,7 +8,7 @@ import type { CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing } f
 import { dayFloorIssue, eveFloorIssue, monthFloorIssue, offIssue, offMovable } from './dayPlan';
 import { evalSegs, EXT_REST, levelOf, LIMITS, type LegalityIssue, type Seg } from './rules';
 import { flightsRev } from '../core/entities';
-import { aboard, block12m, cabinEarly, crewIx, crewRev, ctxOf, droppableHome, droppableOut, dutyBlock, dutySegs, locAt, outTicket, planHome, planHomeAfter, planOut, segsOf, segsTagOf, typeIdOf, withoutTickets, type TicketPlan } from './timeline';
+import { aboard, block12m, cabinEarly, crewIx, crewRev, ctxOf, droppableHome, droppableOut, dutyBlock, dutySegs, locAt, outTicket, planHome, planHomeAfter, planOut, ridesHome, segsOf, segsTagOf, typeIdOf, withoutTickets, type TicketPlan } from './timeline';
 
 export interface CrewPlan {
   level: Legality;
@@ -270,6 +270,19 @@ function planCrewRaw(g: GameState, c: CrewMember, p: Pairing, base: Seg[], exist
       }
     }
   }
+  // v0.12.1 home on our own passenger flight (a seat free) instead of the airline ticket, when one leaves in time
+  // (ridesHome: the ticket's rest or straight on, at most half a day later) and the timeline gets no worse.
+  if (!existing && home && !home.rideId && !(home as Partial<Flight>).id) {
+    for (const r of ridesHome(g, last, c.base, home, cabinEarly(g, p))) {
+      const s2 = buildSegs(g, c, p, duties, out, r);
+      const f2 = evalSegs(ctx, merge(base, s2));
+      if (badCount(f2) > badCount(ftl) || tightCount(f2) > tightCount(ftl)) continue;
+      home = r;
+      segs = s2;
+      ftl = f2;
+      break;
+    }
+  }
   const other = otherTrip(g, c, p, segs[0].start, segs[segs.length - 1].end, existing, leaving);
   if (other) issues.push({ code: 'overlap', level: 'illegal', text: `On another ${other.tour ? 'tour' : 'trip'} until ${fmtDay(other.end)}`, dutyId: first.id });
   issues.push(...statusIssues(c, segs[0].start, segs[segs.length - 1].end, typeOf(typeIdOf(g, p)).family, duties));
@@ -327,6 +340,7 @@ function buildSegs(g: GameState, c: CrewMember, p: Pairing, duties: Duty[], out:
 
 /** Illegal issues of a plan's timeline. */
 const badCount = (l: LegalityIssue[]): number => l.filter((i) => i.level === 'illegal').length;
+const tightCount = (l: LegalityIssue[]): number => l.filter((i) => i.level === 'tight').length;
 
 /** Illegal rest or FDP issues on the pairing's own duties. */
 function badRestFdp(l: LegalityIssue[], own: Set<string>): number {

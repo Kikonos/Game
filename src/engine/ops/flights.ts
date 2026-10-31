@@ -17,7 +17,7 @@ import { AIRPORT_BY_CODE } from '../../data/airports';
 import { distance } from '../core/geo';
 import { noteLostLegs } from '../contracts/billing';
 import { isSoft } from '../contracts/plan';
-import { applyDiscretion, boardCrew, crewIssuesFor, dropStraySpares, flightCrewStatus, guardDuty, rerosterFrom, restPlan, crewSeatsBlocked, restSeatsBlocked, setClosedWaitHook, setRestDelayHook } from '../crew';
+import { applyDiscretion, boardCrew, crewIssuesFor, dropStraySpares, flightCrewStatus, guardDuty, rerosterFrom, restPlan, seatRiders, crewSeatsBlocked, restSeatsBlocked, setClosedWaitHook, setRestDelayHook } from '../crew';
 import { fdpLimitAt } from '../crew/timeline';
 import { dutyLegality } from '../crew/duties';
 import { cue } from '../core/cues';
@@ -847,6 +847,8 @@ export function offloadRestSeats(g: GameState, f: Flight, ac: Aircraft): void {
 function depart(g: GameState, f: Flight, ac: Aircraft): void {
   offloadRestSeats(g, f, ac);
   boardCrew(g, f);
+  // v0.12.1 crew riding as passengers only in seats left once the passengers are aboard (the others are re-planned).
+  seatRiders(g, f);
   f.status = 'enroute';
   f.atd = g.now;
   ac.flightId = f.id;

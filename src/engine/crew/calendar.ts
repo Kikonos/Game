@@ -13,7 +13,7 @@ import { classBlockText } from './conversion';
 import { rosterOf } from './roster';
 import { dayIndex, midnight, offOn } from './dayPlan';
 import { offsetAt } from './rules';
-import { crewIx, dutyFlights, segsOf } from './timeline';
+import { crewIx, dutyFlights, revenueRide, segsOf } from './timeline';
 
 export type CalKind = 'duty' | 'positioning' | 'deadhead' | 'sick' | 'joining' | 'training' | 'leave' | 'off' | 'standby' | 'rest';
 
@@ -149,9 +149,11 @@ function travelBlocks(g: GameState, c: CrewMember, from: Minute, to: Minute): Ca
   for (const f of mine) {
     if (f.kind === 'deadhead' || !f.riders?.includes(c.id) || f.status === 'cancelled' || f.sta <= from || f.std >= to) continue;
     const reg = f.aircraftId ? g.fleet[f.aircraftId]?.reg : undefined;
+    // v0.12.1 a seat on one of our passenger flights reads as such (no ticket bought).
+    const what = revenueRide(f) ? `Riding ${f.no} ${f.from}–${f.to} · own flight, no ticket` : `Riding our ${FLIGHT_TYPE_LABEL[flightType(g, f)].toLowerCase()} leg ${f.no} ${f.from}–${f.to}`;
     out.push({
       kind: 'positioning', start: f.std - BAL.deadheadCheckIn, end: f.ata ?? f.sta, label: 'Positioning', flightIds: [f.id], flights: [calFlight(g, f)],
-      detail: `Riding our ${FLIGHT_TYPE_LABEL[flightType(g, f)].toLowerCase()} leg ${f.no} ${f.from}–${f.to}${reg ? ` on ${reg}` : ''}, ${span(f.std, f.sta)}`,
+      detail: `${what}${reg ? ` · ${reg}` : ''}, ${span(f.std, f.sta)}`,
     });
   }
   return out;
@@ -297,6 +299,8 @@ export interface CrewTravelNow {
   dest: string;
   end: Minute;
   phase: 'checkIn' | 'air' | 'connecting';
+  /** v0.12.1 a seat on one of our own passenger flights (no ticket). */
+  own?: true;
 }
 
 export interface CrewStatusView {
@@ -356,7 +360,7 @@ export function crewTravelNow(g: GameState, c: CrewMember): CrewTravelNow | null
     const arr = f.ata ?? f.eta ?? f.sta;
     if (dep - BAL.deadheadCheckIn > now || arr <= now) continue;
     const phase = f.status === 'enroute' ? 'air' : 'checkIn';
-    return { kind: 'positioning', flightId: f.id, no: f.no, from: f.from, to: f.to, dep, arr, dest: f.to, end: arr, phase };
+    return { kind: 'positioning', flightId: f.id, no: f.no, from: f.from, to: f.to, dep, arr, dest: f.to, end: arr, phase, ...(revenueRide(f) ? { own: true as const } : {}) };
   }
   return null;
 }
@@ -365,10 +369,12 @@ function travelView(c: CrewMember, t: CrewTravelNow, base: Pick<CrewStatusView, 
   const on = t.dest !== t.to ? ` · on to ${t.dest}` : '';
   const what = t.kind === 'deadhead' ? 'Deadheading' : 'Positioning';
   const ride = t.kind === 'positioning' ? `Riding ${t.no}` : t.no;
+  // v0.12.1 a seat on our own passenger flight: no ticket.
+  const own = t.own ? ' · own flight, no ticket' : '';
   const text =
-    t.phase === 'air' ? `${ride} ${arrow(t.from, t.to)} · lands ${fmtTime(t.arr)}${on}`
+    t.phase === 'air' ? `${ride} ${arrow(t.from, t.to)} · lands ${fmtTime(t.arr)}${on}${own}`
       : t.phase === 'connecting' ? `Connecting at ${t.from} · ${t.no} to ${t.to} dep ${fmtTime(t.dep)}`
-        : `${what} · ${ride} ${arrow(t.from, t.to)} dep ${fmtTime(t.dep)}${on}`;
+        : `${what} · ${ride} ${arrow(t.from, t.to)} dep ${fmtTime(t.dep)}${on}${own}`;
   const nowAt = t.phase === 'air' ? `in the air ${arrow(t.from, t.to)}` : t.phase === 'connecting' ? `${t.from} (connecting)` : `${c.loc} (check-in)`;
   return { ...base, label: what, tone: 'info', text, until: t.end, restUntil: null, nowAt, travel: t };
 }

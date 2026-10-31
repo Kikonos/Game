@@ -157,14 +157,17 @@ export function dutyCandidates(g: GameState, dutyOrFlightId: string, role: Role)
     const issues = plan.issues.filter((i) => i.code !== 'fdp');
     const level = levelOf(issues);
     const loc = locAt(c, segs, first.report);
-    const ticket = wet ? 0 : ticketPrice(loc, dep);
+    const o = plan.out;
+    // A ride on our own flight (planned, or already booked: a Flight that is not a commercial ticket).
+    const ride = !!o && (!!o.rideId || ((o as Partial<Flight>).kind ?? 'deadhead') !== 'deadhead');
+    // v0.12.1 a ride costs no ticket.
+    const ticket = wet || ride ? 0 : ticketPrice(loc, dep);
     const b28 = block28(segs, first.report) / 60;
     const reasons = [...new Set(issues.filter((i) => i.level !== 'legal').map((i) => i.text))];
-    const o = plan.out;
     const lost = issues.some((i) => i.code === 'location' && i.level === 'illegal');
-    // A ride on our own empty leg (planned, or already booked: a Flight that is not a commercial ticket).
-    const ride = !!o && (!!o.rideId || ((o as Partial<Flight>).kind ?? 'deadhead') !== 'deadhead');
-    const travel = o && !lost ? `${ride ? 'Rides our flight' : 'Deadhead'} ${o.from} ${fmtTime(o.std)} → ${o.to} ${fmtTime(o.sta)} UTC${ride ? '' : viaText(o.from, o.to, o.std, o.sta)}` : undefined;
+    // v0.12.1 the flight number of our own flight ridden ('Flies out on our own BLU123 …, no ticket').
+    const rideNo = ride ? (o!.rideId ? g.flights[o!.rideId]?.no : (o as Partial<Flight>).no) : undefined;
+    const travel = o && !lost ? `${ride ? `Flies out on our own${rideNo ? ` ${rideNo}` : ' flight'}` : 'Deadhead'} ${o.from} ${fmtTime(o.std)} → ${o.to} ${fmtTime(o.sta)} UTC${ride ? ', no ticket' : viaText(o.from, o.to, o.std, o.sta)}` : undefined;
     // v0.7.2 a captain for a first officer's seat: their own group 'Captain flying as FO', after the first officers
     // of the same legality (the UI groups by asFo).
     const asFo = c.role === 'CPT' && (role === 'FO' || role === 'CRP');

@@ -7,7 +7,7 @@ import { AIRPORT_BY_CODE } from '../../data/airports';
 import { BAL } from '../../engine/core/balance';
 import { DAY, fmtDateTime, fmtDay, fmtDuration, fmtTime } from '../../engine/core/time';
 import type { Aircraft, Duty, Flight, GameState, MaintenanceEvent, Ref } from '../../engine/core/types';
-import { clientCrewOf, crewAlertKind, crewName, dutyCrew, slipOfFlight, dutyLegality, flightCrewStatus, restOf, restPlanForFlight, restSeatsBlocked, restShort, restVerdict } from '../../engine/crew';
+import { clientCrewOf, crewAlertKind, crewName, dutyCrew, slipOfFlight, dutyLegality, flightCrewStatus, restOf, restPlanForFlight, restSeatsBlocked, restShort, restVerdict, ridersText } from '../../engine/crew';
 import { seatLabel, typeOf } from '../../engine/core/perf';
 import { cabinOptions, cancelCheck, checkStatus, delayFlight, dryLeaseView, flightCrewAboard, flightType, flightZone, refitSlots } from '../../engine/ops';
 import { ClientCrewRow } from './v08Bits';
@@ -138,7 +138,10 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
   if (blocked && ac) rows.push(['Seats', <span className="warn">{ac.cabin.total} · {ac.cabin.total - blocked} sellable ({blocked} {restSeatWord(restOf(g, ac.id)) ?? 'seats'} blocked for crew rest)</span>]);
   if (type === 'ferry') rows.push(['Crew aboard', 'Pilots only · cabin crew travel separately']);
   else if (type === 'positioning') rows.push(['Crew aboard', 'Full crew · cabin crew needed at the destination']);
-  if (aboard.riding.length) rows.push(['Riding', aboard.riding.filter((id) => g.crew[id]).map((id) => `${g.crew[id].role} ${crewName(g.crew[id])}`).join(', ')]);
+  // v0.12.1 our crew riding a passenger flight: how many and the seats still free.
+  const riding = ridersText(g, f);
+  if (riding) rows.push(['Our crew riding', riding]);
+  if (aboard.riding.length) rows.push([riding ? 'Riders' : 'Riding', aboard.riding.filter((id) => g.crew[id]).map((id) => `${g.crew[id].role} ${crewName(g.crew[id])}`).join(', ')]);
   // v0.8: a world event holds, reroutes or charges war-risk cover on this leg (tap: the event).
   const zone = f.status === 'scheduled' ? flightZone(g, f.id) : null;
   if (zone) rows.push(['World event', <button className={`chip sc-chip ${zone.effect === 'held' ? 'bad' : 'warn'}`} onClick={() => store.openModal({ kind: 'worldEvent', eventId: zone.eventId })}>{zone.text}</button>]);

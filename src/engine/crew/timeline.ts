@@ -7,9 +7,10 @@ import { distance } from '../core/geo';
 import { deadheadFlights, flightsOf, flightsRev } from '../core/entities';
 import { itinerary, ticketBlock } from '../ops/commercial';
 import { DAY, fmtDateTime, fmtTime, monthKey, yearOf } from '../core/time';
-import type { CrewMember, Duty, Flight, GameState, Minute, Pairing, StandbyKind } from '../core/types';
+import type { Archetype, CrewMember, Duty, Flight, GameState, Minute, Pairing, StandbyKind } from '../core/types';
 import { asbyRest, disruptiveKinds, extRestCut, isDisruptive, maxFdp, minRest, mkSeg, referenceTime, standbyCut, tzDeltaH, type RefTime, type Seg, type TimelineCtx } from './rules';
 import { restOf } from './restPlan';
+import { sellableSeats } from './crewRest';
 
 // ---------- index ----------
 
@@ -334,20 +335,50 @@ interface FlightScan {
   legs: Map<string, Flight[]> | null;
 }
 const scans = new WeakMap<GameState, FlightScan>();
-/** Own legs that carry riders (runtime; rebuilt by a full scan after a load). */
-const riderLegs = new WeakMap<GameState, Set<string>>();
+/** Own legs that carry riders, with their riders when last seen (runtime; rebuilt by a full scan after a load). */
+const riderLegs = new WeakMap<GameState, Map<string, string[]>>();
+/** v0.12.1 rides lost since last taken (the leg cancelled or removed): leg id → its riders (runtime). */
+const lostLegs = new WeakMap<GameState, Map<string, string[]>>();
 
 export function noteRiders(g: GameState, f: Flight): void {
-  riderSet(g).add(f.id);
+  riderSet(g).set(f.id, f.riders ?? []);
 }
 
-function riderSet(g: GameState): Set<string> {
+function riderSet(g: GameState): Map<string, string[]> {
   let s = riderLegs.get(g);
   if (!s) {
-    riderLegs.set(g, (s = new Set()));
-    for (const f of Object.values(g.flights)) if (f.riders?.length) s.add(f.id);
+    riderLegs.set(g, (s = new Map()));
+    for (const f of Object.values(g.flights)) if (f.riders?.length) s.set(f.id, f.riders);
   }
   return s;
+}
+
+/** v0.12.1 our legs carrying riders now (scheduled, airborne or just flown). */
+export function rideLegIds(g: GameState): string[] {
+  flightScan(g);
+  return [...riderSet(g).keys()];
+}
+
+/**
+ * v0.12.1 our legs that carried riders and are gone (removed: a cancelled positioning leg) or cancelled since the last
+ * call, with the riders they carried; the scan forgets them. The roster re-plans those crew (roster.ts settleRides).
+ */
+export function takeLostRides(g: GameState): Map<string, string[]> {
+  flightScan(g);
+  const s = riderSet(g);
+  for (const [id, was] of s) {
+    const f = g.flights[id];
+    if (f && f.status !== 'cancelled') continue;
+    if (was.length || f?.riders?.length) {
+      let m = lostLegs.get(g);
+      if (!m) lostLegs.set(g, (m = new Map()));
+      m.set(id, [...new Set([...was, ...(f?.riders ?? [])])]);
+    }
+    s.delete(id);
+  }
+  const out = lostLegs.get(g) ?? new Map<string, string[]>();
+  lostLegs.delete(g);
+  return out;
 }
 
 /** Tickets per crew member, once per flight revision (ticket and ride changes always bump it). */
@@ -357,36 +388,141 @@ function flightScan(g: GameState): FlightScan {
   sc = { rev: flightsRev(g), tickets: new Map(), legs: null };
   for (const f of deadheadFlights(g)) if (f.status === 'scheduled') for (const id of f.crewIds) push(sc.tickets, id, f);
   const riders = riderSet(g);
-  for (const id of [...riders]) {
+  for (const [id, was] of [...riders]) {
     const f = g.flights[id];
-    if (!f || !f.riders?.length) riders.delete(id);
-    else if (f.status === 'scheduled' || f.status === 'enroute') for (const c of f.riders) push(sc.tickets, c, f);
+    // v0.12.1 a leg gone or cancelled with riders aboard is kept for takeLostRides (their crew are re-planned).
+    if (!f || f.status === 'cancelled') {
+      if (!was.length && !f?.riders?.length) riders.delete(id);
+      continue;
+    }
+    if (!f.riders?.length || f.status === 'done') riders.delete(id);
+    else {
+      if (was !== f.riders) riders.set(id, f.riders);
+      if (f.status === 'scheduled' || f.status === 'enroute') for (const c of f.riders) push(sc.tickets, c, f);
+    }
   }
   scans.set(g, sc);
   return sc;
 }
+
+// ---------- rides on our own flights ----------
+
+/**
+ * v0.12.1 clients whose passengers our crew never sit among: deportation and security flights, a head of state's
+ * aircraft, troops, evacuees and stretcher patients. Every other client (the wet-lease client sells the seats, a
+ * charterer pays for the aircraft) lets crew ride in seats nobody bought.
+ */
+const NO_RIDE: ReadonlySet<Archetype> = new Set<Archetype>(['deportation', 'vip', 'troopRotation', 'evacuation', 'medical']);
+
+/** v0.12.1 a revenue leg our crew may ride as passengers: our aircraft flies it and its client allows it. Pure. */
+export function ridesAllowed(g: GameState, f: Flight): boolean {
+  if (f.kind === 'positioning' || f.kind === 'ferry') return !!f.aircraftId;
+  if ((f.kind !== 'revenue' && f.kind !== 'techstop') || !f.aircraftId || f.operatedBy) return false;
+  const c = f.contractId ? g.contracts[f.contractId] : undefined;
+  return !c || !NO_RIDE.has(c.archetype);
+}
+
+/** Passengers on a revenue leg: those booked, else a typical 85 % load (a wet lease's client sells the seats). Pure. */
+export const paxOn = (g: GameState, f: Flight): number => f.pax ?? Math.round((f.aircraftId ? g.fleet[f.aircraftId]?.cabin.total ?? 0 : 0) * 0.85);
+
+/**
+ * v0.12.1 seats our crew can ride in on one of our own legs, before its riders: an empty leg's whole cabin, a revenue
+ * leg's seats on sale (the cabin less crew rest seats and crew beyond the crew seats: crewInPaxSeats) less its
+ * passengers. 0 when crew may not ride it. Pure.
+ */
+export function rideSeats(g: GameState, f: Flight): number {
+  if (!ridesAllowed(g, f)) return 0;
+  if (f.kind === 'positioning' || f.kind === 'ferry') return g.fleet[f.aircraftId!]?.cabin.total ?? 0;
+  return Math.max(0, sellableSeats(g, f.id) - paxOn(g, f));
+}
+
+/** v0.12.1 seats still free for more riders (rideSeats less those already riding). Pure. */
+export const rideRoom = (g: GameState, f: Flight): number => rideSeats(g, f) - (f.riders?.length ?? 0);
+
+/**
+ * v0.12.1 our crew riding one of our passenger flights, for the flight's detail: '4 (seats 12 free)'; null on other
+ * legs or with nobody riding. Pure.
+ */
+export function ridersText(g: GameState, f: Flight): string | null {
+  const n = f.riders?.length ?? 0;
+  if (!n || (f.kind !== 'revenue' && f.kind !== 'techstop')) return null;
+  return `${n} (seats ${Math.max(0, rideRoom(g, f))} free)`;
+}
+
+/** v0.12.1 a ride on one of our revenue legs (passengers aboard), not an empty positioning or ferry leg. */
+export const revenueRide = (f: Pick<Flight, 'kind'>): boolean => f.kind === 'revenue' || f.kind === 'techstop';
 
 function rideLegs(g: GameState): Map<string, Flight[]> {
   const sc = flightScan(g);
   if (sc.legs) return sc.legs;
   sc.legs = new Map();
   for (const id of Object.keys(g.fleet)) {
-    for (const f of flightsOf(g, id)) if ((f.kind === 'positioning' || f.kind === 'ferry') && f.status === 'scheduled' && f.aircraftId === id) push(sc.legs, `${f.from}>${f.to}`, f);
+    // v0.12.1 revenue legs too (seats free, the client allows it: rideRoom is read when one is picked).
+    for (const f of flightsOf(g, id)) if (f.kind !== 'deadhead' && f.status === 'scheduled' && f.aircraftId === id && ridesAllowed(g, f)) push(sc.legs, `${f.from}>${f.to}`, f);
   }
   return sc.legs;
 }
 
 /**
- * Our own empty leg from → to that lands at least an hour before the duty reports (and not more than two days
- * before), latest first: riding it is preferred to a ticket (DESIGN §5.3). Not legs of the duty itself.
+ * Our own leg from → to (an empty leg, or v0.12.1 a revenue leg with a free seat) that lands at least an hour before
+ * the duty reports (and not more than two days before), latest first: riding it is preferred to a ticket (DESIGN
+ * §5.3). Not legs of the duty itself.
  */
 function rideTo(g: GameState, from: string, to: string, d: Duty, free: Minute): TicketPlan | null {
   let best: Flight | null = null;
   for (const f of rideLegs(g).get(`${from}>${to}`) ?? []) {
     if (f.status !== 'scheduled' || f.dutyId === d.id || f.std - CHECKIN() < free || f.sta > d.report - 60 || f.sta < d.report - 2 * 1440) continue;
-    if (!best || f.sta > best.sta) best = f;
+    if (best && f.sta <= best.sta) continue;
+    if (rideRoom(g, f) < 1) continue;
+    best = f;
   }
   return best ? { from, to, std: best.std, sta: best.sta, rideId: best.id } : null;
+}
+
+/**
+ * v0.12.1 check-in for a ride home on our flight `f` after duty d: none when it is the next leg of the aircraft the crew
+ * just brought in, leaving within 2 h of release (they stay aboard, or wait at the gate); else an airline's. Pure.
+ */
+export function rideCheckIn(g: GameState, f: Flight, d: Duty): number {
+  const last = g.flights[d.flightIds[d.flightIds.length - 1]];
+  return last && f.kind !== 'deadhead' && last.aircraftId === f.aircraftId && f.from === d.restAt && f.std >= d.release && f.std - d.release <= 120 ? 0 : CHECKIN();
+}
+
+/** v0.12.1 the longest a ride home may leave after the airline ticket it replaces (a night at the hotel at most). */
+export const RIDE_HOME_WAIT = 12 * 60;
+
+/**
+ * v0.12.1 our own passenger flights d.restAt → `to` the crew could ride home after duty d instead of `ticket`
+ * (planHome's), earliest first: checked in after release, and as planHome reads a ticket: straight on when the day
+ * stays within 13 h, else after minimum rest; leaving no later than RIDE_HOME_WAIT after the ticket. At most `n`. Pure.
+ */
+export function ridesHome(g: GameState, d: Duty, to: string, ticket: TicketPlan, early = 0, n = 2): TicketPlan[] {
+  const from = d.restAt;
+  if (from === to) return [];
+  const legs = rideLegs(g).get(`${from}>${to}`);
+  if (!legs) return [];
+  const rest = minRest({ dutyMin: d.release - d.report + early, atHome: false, augmented: d.augment > 0, tzShift: tzDeltaH(to, from, d.release), extended: !!d.ext });
+  const ok: Flight[] = [];
+  for (const f of legs) {
+    if (f.status !== 'scheduled' || !revenueRide(f) || f.dutyId === d.id || f.std - rideCheckIn(g, f, d) < d.release || f.std > ticket.std + RIDE_HOME_WAIT) continue;
+    if (f.sta - d.report + early > 13 * 60 && f.std - CHECKIN() < d.release + rest) continue;
+    if (rideRoom(g, f) < 1) continue;
+    ok.push(f);
+  }
+  ok.sort((a, b) => a.std - b.std || (a.id < b.id ? -1 : 1));
+  return ok.slice(0, n).map((f) => ({ from, to, std: f.std, sta: f.sta, rideId: f.id }));
+}
+
+/**
+ * v0.12.1 our own passenger flight `from` → `to` with a free seat, leaving from `std` (a ticket home's departure) to
+ * RIDE_HOME_WAIT after it, earliest first, that `ok` accepts (sendHome: crew left away without a plan). Pure.
+ */
+export function rideHomeFrom(g: GameState, from: string, to: string, std: Minute, ok: (f: Flight) => boolean): Flight | null {
+  for (const f of [...(rideLegs(g).get(`${from}>${to}`) ?? [])].sort((a, b) => a.std - b.std || (a.id < b.id ? -1 : 1))) {
+    if (f.status !== 'scheduled' || !revenueRide(f) || f.std < std || f.std > std + RIDE_HOME_WAIT || f.std - CHECKIN() <= g.now || rideRoom(g, f) < 1 || !ok(f)) continue;
+    return f;
+  }
+  return null;
 }
 
 /**
