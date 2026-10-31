@@ -1,6 +1,7 @@
 // Pattern → flights, positioning legs and rolling base schedules (B1). DESIGN.md §5.1.6–5.1.8.
 
 import { BAL } from '../core/balance';
+import { curfewOk } from '../core/curfew';
 import { addFlight, flightsOf, liveFlightsOf, ownFlightNo, removeFlights, retimeFlight } from '../core/entities';
 import { etopsCap, typeOf } from '../core/perf';
 import { ticketBlock } from '../ops/commercial';
@@ -221,6 +222,23 @@ function chainOk(legs: Flight[], X: string, Y: string | null, earliest: Minute):
   return Y === null || legs[legs.length - 1].to === Y;
 }
 
+/**
+ * v0.12.1 a chain that is right but leaves a few minutes before `earliest` (the inbound's ETA slipped), moved by just
+ * those minutes when it still reaches Y by `latest` outside the night curfews; null otherwise. Re-planned from scratch
+ * it went to the other end of the gap and its crew's duty broke (S1027: BLU953 DUS–LIS, 7 min behind BLU932's ETA, moved
+ * from 15:45 to 21:59; the crew's day ran 14:44, a red alarm and the next morning's flight late). Pure.
+ */
+function nudged(legs: Flight[], X: string, Y: string | null, earliest: Minute, latest: Minute): ChainLeg[] | null {
+  if (!legs.length || legs[0].from !== X || legs.some((f) => f.status !== 'scheduled' || f.contractId !== legs[0].contractId)) return null;
+  const d = Math.ceil((earliest - legs[0].std) / 5) * 5;
+  if (d <= 0 || d > 3 * 60) return null;
+  const out = legs.map((f) => ({ from: f.from, to: f.to, std: f.std + d, sta: f.sta + d }));
+  for (let i = 1; i < out.length; i++) if (out[i].from !== out[i - 1].to || out[i].std < out[i - 1].sta) return null;
+  const last = out[out.length - 1];
+  if ((Y !== null && last.to !== Y) || last.sta > latest) return null;
+  return out.every((l) => curfewOk(l.from, l.std) && curfewOk(l.to, l.sta)) ? out : null;
+}
+
 /** The airports an empty move from → to calls at (fuel stops included), or null without a route. */
 function routePath(typeId: string, from: string, to: string, cap: number): string[] | null {
   const r = route(typeId, from, to, cap);
@@ -348,7 +366,12 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
       // its job, the legs that would have taken it away, cancelled): one way home, at once (crewFree).
       const wantHome = (live(g, a.contractId) || (a.kind === 'start' && stranded(g, aircraftId, X))) && X !== home && a.kind !== 'maint';
       if (legs.length ? chainOk(legs, X, null, earliest) && chainSane(typeId, legs, X, null, home, false, cap) : !wantHome) continue;
+      const nh = nudged(legs, X, null, earliest, Infinity);
       replacing(legs);
+      if (nh && chainSane(typeId, legs, X, null, home, false, cap)) {
+        add(nh, legs[0].contractId);
+        continue;
+      }
       if (wantHome) {
         const ch = chainForward(typeId, X, home, crewFree(g, aircraftId, X, earliest), cap);
         if (ch) add(ch, a.contractId);
@@ -366,7 +389,12 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     if (X === Y && !legs.length && !hop?.length) continue;
     // v0.12.1 kept only on time for Y, or when nothing on time can be planned (a late chain stays late, not re-made).
     if (legs.length && chainOk(legs, X, Y, earliest) && chainSane(typeId, legs, X, Y, home, allowHop, cap) && (legs[legs.length - 1].sta <= latest || !onTimeMove(typeId, X, Y, earliest, latest, home, allowHop, cap))) continue;
+    const nl = nudged(legs, X, Y, earliest, latest);
     replacing(legs);
+    if (nl && chainSane(typeId, legs, X, Y, home, allowHop, cap)) {
+      add(nl, legs[0].contractId);
+      continue;
+    }
     // v0.12.1 the empty leg out of an alternate after our own technical diversion is our cost: never billed to the
     // client as positioning (seed 9: airBaltic billed for four VAR–RIX legs after our fault at Riga).
     const inId = a.kind === 'start' && ownFaultAt(g, aircraftId, X) ? null : live(g, b.contractId) ? b.contractId : flying(g, a.contractId) ? a.contractId : null;
