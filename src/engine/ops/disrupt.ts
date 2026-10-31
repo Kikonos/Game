@@ -25,9 +25,10 @@ import { afterDiversion, applyCrewFix, crewControl, flightCrewStatus, removeCrew
 import { continuationFits, restedDeparture } from '../crew/duties';
 import { crewName } from '../crew/generate';
 import { emergencyFactor, OPS_LIVE, optionalFactor } from './director';
-import { applyHold, delayChain, moveFlight, pickRival, planRecovery, rivalFactor, settleOverlaps, subcharterCost, subcharterLegs, unitOf, cancelLegs } from './flights';
+import { applyHold, delayChain, delayOf, excuseGrowth, moveFlight, pickRival, planRecovery, rivalFactor, settleOverlaps, subcharterCost, subcharterLegs, unitOf, cancelLegs } from './flights';
 import { isSoft } from '../contracts/plan';
 import { relinkPositioning } from '../contracts/schedule';
+import { excusedLate, latePenalty } from './latePolicy';
 import { aogDecision, ask, autoDecide } from './events';
 import { engineersAt } from './maintenance';
 import { bumpReliable, contractOf, isRevenue, turnOf, usd } from './util';
@@ -282,7 +283,10 @@ function resolveCtot(g: GameState, d: Decision, opt: string): ActionResult {
     const later = flightsOf(g, f.aircraftId!).filter((x) => x.status === 'scheduled' && x.std >= f.std && x.std < f.std + DAY);
     for (const x of later) x.lateOk = Math.max(x.lateOk ?? 0, wait + (x.std - (x.schedStd ?? x.std)));
     bumpClient(g, contractOf(g, f)?.clientId, -1, `Asked to move ${f.no} and the later legs`);
+    // v0.12.1 the client agreed to the later times: those minutes are excused (no delay penalty on the legs they moved).
+    const before = new Map(later.map((x) => [x, delayOf(x)] as const));
     delayChain(g, f, g.now + wait, reason, false);
+    excuseGrowth(before);
     return { ok: true, msg: `The client moved today's later legs; ${f.no} waits for its slot` };
   }
   delayChain(g, f, g.now + wait, reason);
@@ -308,7 +312,9 @@ function turnCard(g: GameState, f: Flight, ac: Aircraft, slow?: { min: number; r
   const late = slow?.min ?? span(g, `${key}:m`, [15, 45]);
   const cost = DISRUPT.rushTurn[wide(ac)];
   const c = contractOf(g, f);
-  const penalty = !!c && ((c.product.kind === 'charter' && late >= 60) || c.requirements.standards === 'vip');
+  // v0.12.1 the arrival's own rule (latePolicy): the turn's delay is ours; over the contract's line it costs.
+  const penMoney = c ? latePenalty(c, { ...f, delayReason: 'Late ground handling' }, excusedLate(f) + late).money : 0;
+  const penalty = penMoney > 0;
   const fdp = fdpNote(g, f, late);
   const curfew = inCurfew(f.to, g.now + late + f.block) && !inCurfew(f.to, g.now + f.block);
   const matters = late >= 25 || penalty || !!fdp || curfew;
@@ -322,7 +328,7 @@ function turnCard(g: GameState, f: Flight, ac: Aircraft, slow?: { min: number; r
       { id: 'accept', label: 'Accept the delay', desc: 'The later legs move with it.', chips: [`${late} min late`, ...(fdp ? [fdp] : []), ...(curfew ? [`Curfew at ${f.to}`] : []), ...(penalty ? ['Delay penalty'] : [])] },
     ],
     defaultOption: penalty || curfew || fdp || late >= 35 ? 'pay' : 'accept', expires: g.now + 15, ref: { kind: 'flight', id: f.id },
-    data: { flightId: f.id, late, cost, cause, ...cardData(`${f.no} turnaround is ${late} min late`, `${cause}: the turn was already at the ${typeOf(ac.typeId).short}'s minimum.`, `${paxOf(g, f)} passengers ${late} min late${penalty ? ', delay penalty' : ''}`, penalty ? (c?.penalties.perDelay ?? 0) : 0, paxOf(g, f), late) },
+    data: { flightId: f.id, late, cost, cause, ...cardData(`${f.no} turnaround is ${late} min late`, `${cause}: the turn was already at the ${typeOf(ac.typeId).short}'s minimum.`, `${paxOf(g, f)} passengers ${late} min late${penalty ? ', delay penalty' : ''}`, penMoney, paxOf(g, f), late) },
   }, { optional: true });
   return true;
 }

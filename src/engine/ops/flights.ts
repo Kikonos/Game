@@ -85,6 +85,14 @@ export function settleOverlaps(g: GameState, ac: Aircraft): number {
   return n;
 }
 
+/** v0.12.1 the lateness each leg gained since `before` (a wait that is not ours, and its knock-on) is excused. */
+export function excuseGrowth(before: Map<Flight, number>): void {
+  for (const [x, was] of before) {
+    const more = delayOf(x) - was;
+    if (more > 0 && x.status === 'scheduled') x.excused = (x.excused ?? 0) + more;
+  }
+}
+
 /** v0.12.1 block minutes of the empty move from → to (fuel stops included; the great-circle block without a route). Pure. */
 function emptyMoveMin(typeId: string, from: string, to: string): number {
   const r = route(typeId, from, to);
@@ -367,16 +375,21 @@ export function delayChain(g: GameState, f: Flight, std: Minute, reason: string,
 }
 
 /**
- * §S.3: a revenue leg passing 60 min late with a penalty risk (charter compensation, presidential standards) and a
- * leg held past 6 h (it may have to be cancelled) each chime once, as the delay crosses the line.
+ * §S.3: a revenue leg crossing its contract's delay-penalty line (charter compensation, presidential standards) and
+ * a leg held past 6 h (it may have to be cancelled) each chime once, as the delay crosses the line.
  */
 function delayCues(g: GameState, f: Flight, was: number): void {
   if (f.status !== 'scheduled') return;
   const now = delayOf(f);
   if (was < 6 * 60 && now >= 6 * 60) cue('cancelRisk', { title: `${f.no} ${fmtDuration(now)} late: it may have to be cancelled`, body: `${f.from}–${f.to}. Open the flight to recover it.`, tone: 'bad', ref: { kind: 'flight', id: f.id } });
-  else if (was < 60 && now >= 60 && isRevenue(f)) {
+  else if (isRevenue(f)) {
+    // v0.12.1 as the delay crosses the line the contract charges at (latePolicy: charter over 3 h, presidential
+    // standards over 30 min) and only when it is ours: a world wait or ATC never chimes "delay penalty".
     const c = contractOf(g, f);
-    if (c && ((c.product.kind === 'charter' && c.penalties.perDelay > 0) || c.requirements.standards === 'vip')) cue('delayPenalty', { title: `${f.no} over an hour late: delay penalty`, body: `${c.title}: the client's delay terms apply.`, tone: 'warn', ref: { kind: 'flight', id: f.id } });
+    if (!c) return;
+    const line = c.requirements.standards === 'vip' ? 30 : 180;
+    const exc = f.excused ?? 0;
+    if (was - exc <= line && now - exc > line && latePenalty(c, f, now - exc).money > 0) cue('delayPenalty', { title: `${f.no} ${fmtDuration(now)} late: delay penalty`, body: `${c.title}: the client's delay terms apply.`, tone: 'warn', ref: { kind: 'flight', id: f.id } });
   }
 }
 
@@ -958,14 +971,21 @@ function departStats(g: GameState, f: Flight, ac: Aircraft, duty: Duty | undefin
  */
 function lateLeg(g: GameState, f: Flight, c: Contract): void {
   // v0.12.1 one rule (latePolicy.ts): a delay that is not ours (a world wait, ATC, weather, the client) costs nothing.
-  const pen = latePenalty(c, f, excusedLate(f));
-  if (!pen.ours || !pen.relation) return;
+  const lateMin = excusedLate(f);
+  const pen = latePenalty(c, f, lateMin);
+  if (!pen.ours) return;
   const late = delayOf(f);
   const vip = c.requirements.standards === 'vip';
-  if (!vip && forgiveDelay(g, c.clientId)) {
-    pushMessage(g, { tone: 'info', cat: 'commercial', title: `${g.clients[c.clientId]?.name ?? 'The client'} let it go`, body: `${f.no} left ${fmtDuration(late)} late; they forgave it (${LEVEL_NAME[levelOf(g, g.clients[c.clientId])]} client): no compensation, no harm done.`, ref: { kind: 'flight', id: f.id } });
+  // v0.12.1 (designer, UPDATE-0.8 §1.4) a Trusted / Partner client lets a small delay of ours go: 15 min to 3 h, n a
+  // month (forgiven minutes count as excused, not held against us). Over 3 h they always charge and mind it (BLU886:
+  // 22 h late, forgiven).
+  if (!vip && lateMin > 15 && lateMin <= 180) {
+    if (!forgiveDelay(g, c.clientId)) return;
+    f.excused = (f.excused ?? 0) + lateMin;
+    pushMessage(g, { tone: 'info', cat: 'commercial', cue: null, title: `${g.clients[c.clientId]?.name ?? 'The client'} let it go`, body: `${f.no} left ${fmtDuration(late)} late; they forgave it (${LEVEL_NAME[levelOf(g, g.clients[c.clientId])]} client): no harm done.`, ref: { kind: 'flight', id: f.id } });
     return;
   }
+  if (!pen.relation) return;
   if (pen.money) post(g, 'penalties', -pen.money);
   const k = monthKey(g.now);
   const used = c.lateHits && c.lateHits[0] === k ? c.lateHits[1] : 0;
@@ -1445,14 +1465,19 @@ setClosedWaitHook((g, id) => {
   const f = g.flights[id];
   if (!f || f.status !== 'scheduled' || !f.aircraftId) return false;
   const own = permitOf(g, f);
-  const e = closedAirport(g, f.from, f.std, own) ?? closedAirport(g, f.to, f.std, own);
+  // v0.12.1 the destination is read at the landing, not the departure (BLU1117 FRA–PUJ, landing after Punta Cana
+  // reopened, was held for nothing).
+  const e = closedAirport(g, f.from, f.std, own) ?? closedAirport(g, f.to, f.std + f.block, own);
   if (!e) return false;
   const at = closedUntil(e) + 3 * 60;
   if (at <= f.std) return false;
   f.closedBy = e.id;
   // v0.12.1 never drops another job's legs without asking (waitAtGate's card): it waits for the answer instead.
   if (strandedAsk(g, f, e, at)) return false;
+  // v0.12.1 the wait and its knock-on on the aircraft's later legs are not ours: excused (no delay penalty).
+  const before = new Map(flightsOf(g, f.aircraftId).filter((x) => x.status === 'scheduled').map((x) => [x, delayOf(x)] as const));
   delayChain(g, f, at, `Waiting: ${e.title}`, false);
+  excuseGrowth(before);
   return f.status === 'scheduled' && f.std >= at;
 });
 

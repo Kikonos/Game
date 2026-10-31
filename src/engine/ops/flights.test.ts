@@ -15,6 +15,10 @@ import { aogChance, delayFlight, resolveDecision } from '.';
 import { cancelContract, cancelCost } from '../contracts';
 import { cancelLegs, delayChain, legCostEstimate, pickRival, planHold, pruneFlights, settleOverlaps, subcharterCost, subcharterLegs, unitOf } from './flights';
 import { breathe } from '../../test/breathe';
+import { takeCues } from '../core/cues';
+import { closedWait } from '../crew/roster';
+import { startEvent } from './world';
+import { TPL_BY_ID } from '../../data/worldEvents';
 import { delayOf, excusedLate, isOurDelay, latePenalty, onTimeLeg } from './latePolicy';
 
 // ---------- helpers ----------
@@ -299,6 +303,76 @@ describe('delays and ripple', () => {
     const o = fly('Late ground handling', 200);
     expect(o.pen).toBe(-o.c.penalties.perDelay);
     expect(o.rel).toBeLessThan(0);
+  });
+
+  it('v0.12.1 a Trusted client forgives a delay of ours of 15 min to 3 h (A17); over 3 h it always costs', () => {
+    calm();
+    const fly = (min: number) => {
+      const g = newGame(5);
+      const ac = owned(g);
+      const t = g.now + 2 * DAY;
+      const c = sign(g, legsOffer(g, [['LIS', 'FAO', t], ['FAO', 'LIS', t + 3 * 60]]).id, ac);
+      const cl = g.clients[c.clientId];
+      Object.assign(cl, { relation: 70, jobs: 6, level: 'partner' });
+      const [a] = live(g, ac).filter(isRev);
+      const pen0 = line(g, 'penalties');
+      const rel0 = cl.relation;
+      expect(delayFlight(g, a.id, min, 'Late ground handling').ok).toBe(true);
+      run(g, a.sta + 30);
+      return { a, pen: line(g, 'penalties') - pen0, rel: cl.relation - rel0, c, g, forgiven: g.messages.some((m) => /let it go/.test(m.title)) };
+    };
+    const big = fly(22 * 60);
+    expect(big.forgiven).toBe(false);
+    expect(big.pen).toBe(-big.c.penalties.perDelay);
+    expect(big.rel).toBeLessThan(0);
+    const small = fly(120);
+    expect(small.forgiven).toBe(true);
+    expect(small.pen).toBe(0);
+    expect(small.a.excused).toBeGreaterThanOrEqual(115);
+    expect(small.rel).toBeGreaterThanOrEqual(0);
+  });
+
+  it('v0.12.1 the delay-penalty chime only where the contract charges (A8): not for a world wait or 90 min', () => {
+    calm();
+    const g = newGame(5);
+    const ac = owned(g);
+    const t = g.now + 2 * DAY;
+    sign(g, legsOffer(g, [['LIS', 'FAO', t], ['FAO', 'LIS', t + 3 * 60], ['LIS', 'OPO', t + DAY], ['OPO', 'LIS', t + DAY + 3 * 60]]).id, ac);
+    const [a, , b] = live(g, ac).filter(isRev);
+    takeCues();
+    delayChain(g, a, a.std + 90, 'Late ground handling');
+    expect(takeCues()).not.toContain('delayPenalty');
+    delayChain(g, a, a.std + 400, 'Waiting: Lisbon closed');
+    expect(takeCues()).not.toContain('delayPenalty');
+    delayChain(g, b, b.std + 200, 'Late ground handling');
+    expect(takeCues()).toContain('delayPenalty');
+  });
+
+  it('v0.12.1 a closure at the destination is read at the landing (A10); a wait that is not ours is excused', () => {
+    calm();
+    const g = newGame(5);
+    const ac = owned(g);
+    const t = g.now + 3 * DAY;
+    sign(g, legsOffer(g, [['LIS', 'HAM', t], ['HAM', 'LIS', t + 5 * 60]]).id, ac);
+    const [a, b] = live(g, ac).filter(isRev);
+    // Hamburg closed until 90 minutes after LIS–HAM leaves: it lands after the reopening.
+    const e = startEvent(g, { ...TPL_BY_ID.airspaceIraq, id: 'hamClosed', kind: 'strike', at: 'HAM', country: 'DE', zoneId: undefined, closeP: 0, airportDays: [1, 1], title: 'Strike closes Hamburg', body: '' });
+    e.airportClosedUntil = a.std + 90;
+    e.end = Math.max(e.end, a.std + 2 * DAY);
+    for (const f of [a, b]) {
+      delete f.closedBy;
+      f.status = 'scheduled';
+    }
+    const std0 = a.std;
+    expect(a.block).toBeGreaterThan(120);
+    expect(closedWait(g, a.id)).toBe(false);
+    expect(a.std).toBe(std0);
+    // Landing inside the closure: held to the reopening + 3 h, the wait and its knock-on excused.
+    e.airportClosedUntil = a.std + a.block + 60;
+    expect(closedWait(g, a.id)).toBe(true);
+    expect(a.std).toBeGreaterThan(std0);
+    expect(a.excused ?? 0).toBeGreaterThanOrEqual(a.std - std0 - 1);
+    if (b.std > (b.schedStd ?? b.std)) expect(b.excused ?? 0).toBeGreaterThan(0);
   });
 
   it('v0.12.1 latePenalty: not ours costs 0; charter over 3 h perDelay; VIP over 30 min × 3 and −3; excused minutes come off', () => {
